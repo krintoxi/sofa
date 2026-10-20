@@ -1,8 +1,8 @@
 # Sofa
 
-A small, self-hosted home media server. Drop shows and movies into a folder; Sofa names
-them, files them, finds artwork and plays them on every screen in the house: browsers,
-phones, smart TVs, Roku and Fire TV. Free live TV channels too.
+A small, self-hosted home media server. Drop shows, movies and music into a folder; Sofa
+names them, files them, finds artwork and plays them on every screen in the house:
+browsers, phones, smart TVs, Roku and Fire TV. Free live TV channels too.
 
 Sofa is plain Python (standard library only) plus ffmpeg. It runs comfortably on a
 2011 iMac.
@@ -20,6 +20,12 @@ Sofa is plain Python (standard library only) plus ffmpeg. It runs comfortably on
   iPad and Safari.
 - **Accounts.** Everyone gets a sign-in and their own "continue watching". Logins are
   throttled, passwords are hashed, admin pages stay at home.
+- **Music and music videos.** Albums, artists and songs from your files' tags and
+  folders, with embedded cover art, genre and mood stations, likes, recently played, a
+  queue with shuffle and repeat, a sleep timer and lock-screen controls. Music keeps
+  playing while you browse.
+- **Guests.** Visitors on your Wi-Fi scan a QR code (on the Server page) and watch as
+  "Guest": their own history and likes, no settings, never from outside the house.
 - **Live TV.** Add M3U channel lists (for example the free lists at
   [iptv-org](https://github.com/iptv-org/iptv)) and watch with channel logos,
   groups, favorites and channel up/down.
@@ -32,6 +38,8 @@ Entertainment/
   Inbox/          drop anything here
   Shows/          Show Name/Season 1/Show Name S01E01 Title.mkv
   Movies/         Movie Title (1999)/Movie Title (1999).mp4
+  Music/          Artist/Album/01 Title.mp3   (Artist/Title.mp3 for singles)
+  Music Videos/   Artist/Title.mp4
   Needs Review/   what Sofa couldn't identify, with a note on the Server page
 ```
 
