@@ -7,7 +7,8 @@ const view = $("#view");
 
 /* ---------- small helpers ---------- */
 const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const artSrc = (p, w) => p ? p.split("/").map((s, i) => i < 3 ? s : encodeURIComponent(s)).join("/") + (w ? "?w=" + w : "") : "";
+// &r=2: a new address so browsers drop images cached before the 2026-10-20 resize fix.
+const artSrc = (p, w) => p ? p.split("/").map((s, i) => i < 3 ? s : encodeURIComponent(s)).join("/") + (w ? "?w=" + w + "&r=2" : "?r=2") : "";
 const icon = id => `<svg><use href="#${id}"/></svg>`;
 function clock(sec) {
   sec = Math.max(0, Math.floor(sec || 0));
