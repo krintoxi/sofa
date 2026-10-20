@@ -455,3 +455,51 @@ body.has-bar footer { padding-bottom: 110px; }
   .mbar .mid { min-width: 0; }
   .mbar .line { display: none; }
 }
+
+/* TV mode (Fire TV Silk, Android TV, smart TVs): couch distance, a remote or a pointer, a modest GPU. */
+.tv body { font-size: 17px; }
+.tv .glow, .tv .player canvas { display: none; }                     /* blur layers are expensive on TV sticks */
+.tv .frame img, .tv .card .frame, .tv .btn, .tv .nudge { transition: none; }
+.tv .card:hover .frame img { transform: none; }
+.tv .bar { padding-top: 20px; background: var(--ink); }
+.tv .nav a { padding: 10px 18px; font-size: 18px; }
+.tv .brand { font-size: 30px; }
+.tv .t1 { font-size: 18px; margin-top: 10px; }
+.tv .t2 { font-size: 15px; }
+.tv .btn { padding: 15px 28px; font-size: 18px; }
+.tv .row h2 { font-size: 26px; }
+.tv .rail.posters { grid-auto-columns: clamp(170px, 16vw, 230px); }
+.tv .rail.wide { grid-auto-columns: clamp(270px, 26vw, 380px); }
+.tv .nudge { opacity: 1; width: 56px; background: rgba(10,14,26,.85); }
+.tv .nudge svg { width: 30px; height: 30px; }
+.tv .nudge[disabled] { opacity: 0; }
+/* One unmistakable highlight for the remote's focus and for Silk's pointer alike. */
+.tv :focus, .tv :focus-visible { outline: 4px solid var(--amber); outline-offset: 4px; }
+.tv .card:hover .frame, .tv .card:focus .frame, .tv .ep-thumb:hover, .tv .ep-thumb:focus { box-shadow: 0 0 0 4px var(--amber); outline: none; }
+.tv .card:focus, .tv .ep-thumb:focus { outline: none; }
+.tv .btn:hover, .tv .seasons button:hover, .tv .chips button:hover, .tv .nav a:hover, .tv .station:hover { outline: 4px solid var(--amber); outline-offset: 2px; }
+.tv .episode { grid-template-columns: 300px 1fr auto; }
+.tv .ep-text h3 { font-size: 20px; }
+.tv .ep-sum { font-size: 16px; }
+.tv .tick { width: 48px; height: 48px; }
+.tv .tracks .track { padding: 12px; }
+.tv .tracks .track:hover, .tv .tracks .track:focus { outline: 3px solid var(--amber); outline-offset: 0; }
+/* Player: bigger buttons, no picture-in-glow frame. */
+.tv .player.ambient video { inset: 0; width: 100%; height: 100%; border-radius: 0; }
+.tv .ibtn { width: 60px; height: 60px; }
+.tv .ibtn svg { width: 30px; height: 30px; }
+.tv .ibtn.big svg { width: 38px; height: 38px; }
+.tv .p-show { font-size: 26px; }
+.tv .p-title, .tv .p-time { font-size: 17px; }
+.tv .scrub { height: 30px; }
+.tv .scrub .track { top: 12px; height: 6px; }
+.tv .speed { height: 46px; font-size: 16px; }
+.tv .p-next { width: 420px; }
+.tv .mbar .ibtn { width: 52px; height: 52px; }
+/* TV header: one line, scrolls away (a 540 px-tall screen can't spare a pinned bar), no typing box. */
+.tv .bar { position: relative; flex-wrap: nowrap; gap: 18px; }
+.tv .nav { flex-wrap: nowrap; }
+.tv .nav a { padding: 8px 14px; white-space: nowrap; font-size: 17px; }
+.tv .search, .tv .who .name, .tv [data-act="ambient"] { display: none; }
+.tv .who { margin-left: auto; }
+.tv .hero { margin-top: 0; }

@@ -7,7 +7,7 @@ const view = $("#view");
 
 /* ---------- small helpers ---------- */
 const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const artSrc = p => p ? p.split("/").map((s, i) => i < 3 ? s : encodeURIComponent(s)).join("/") : "";
+const artSrc = (p, w) => p ? p.split("/").map((s, i) => i < 3 ? s : encodeURIComponent(s)).join("/") + (w ? "?w=" + w : "") : "";
 const icon = id => `<svg><use href="#${id}"/></svg>`;
 function clock(sec) {
   sec = Math.max(0, Math.floor(sec || 0));
@@ -43,6 +43,13 @@ async function api(path, body) {
   if (!r.ok) { const err = new Error(data.error || "Something went wrong (" + r.status + ")."); err.status = r.status; throw err; }
   return data;
 }
+
+/* TV mode: Fire TV (Silk), Android TV and smart-TV browsers get bigger targets, no blur/zoom effects,
+   always-visible row arrows and a full-screen player. ?tv=1 / ?tv=0 forces it on this device. */
+const tvParam = new URLSearchParams(location.search).get("tv");
+if (tvParam === "1" || tvParam === "0") prefs.set("tv", tvParam === "1");
+const TV = prefs.get("tv", /AFT[A-Z0-9]+|Android TV|GoogleTV|BRAVIA|SMART-TV|SmartTV|Tizen|Web0S|webOS|CrKey|HbbTV/i.test(navigator.userAgent));
+if (TV) document.documentElement.classList.add("tv");
 
 let session = null, LIB = { shows: [], movies: [] }, progress = {};
 const byId = new Map();
@@ -122,7 +129,7 @@ function subtitleFor(item) {
 /* ---------- ambient room light ---------- */
 let glowFront = $("#glowA"), glowBack = $("#glowB"), glowSrc = "";
 function setGlow(path) {
-  const s = artSrc(path);
+  const s = artSrc(path, 240);   // it's blurred: tiny is plenty
   if (s === glowSrc) return;
   glowSrc = s;
   if (!s) { glowFront.classList.remove("on"); return; }
@@ -132,8 +139,8 @@ function setGlow(path) {
 }
 
 /* ---------- markup builders ---------- */
-function frameImg(path, alt, fallbackText) {
-  return (path ? `<img src="${esc(artSrc(path))}" alt="${esc(alt || "")}" loading="lazy" decoding="async">` : "") +
+function frameImg(path, alt, fallbackText, w) {
+  return (path ? `<img src="${esc(artSrc(path, w || 360))}" alt="${esc(alt || "")}" loading="lazy" decoding="async">` : "") +
     `<span class="placeholder">${esc(fallbackText || "")}</span>`;
 }
 function posterCard(show) {
@@ -152,9 +159,9 @@ function movieCard(m) {
 }
 function thumbFor(item) {
   const owner = item.show || item;
-  if (item.thumb) return frameImg(item.thumb, title(item), "");
+  if (item.thumb) return frameImg(item.thumb, title(item), "", 480);
   const art = owner.backdrop || owner.poster;
-  return (art ? `<img class="bg-art" src="${esc(artSrc(art))}" alt="" loading="lazy" decoding="async">` : "") +
+  return (art ? `<img class="bg-art" src="${esc(artSrc(art, 480))}" alt="" loading="lazy" decoding="async">` : "") +
     `<span class="bg-num">${esc(item.kind === "episode" ? epCode(item) : item.kind === "movie" ? "" : "Extra")}</span>`;
 }
 function wideCard(item, label) {
@@ -192,9 +199,9 @@ function heroFor(show, short) {
     action = `<button class="btn primary" data-play="${esc(nx.ep.id)}">${icon("i-play")}${verb} <small>${esc(epCode(nx.ep))}</small></button>`;
   }
   return `<section class="hero${short ? " short" : ""}">
-    ${show.backdrop ? `<img class="hero-bg" src="${esc(artSrc(show.backdrop))}" alt="">` : ""}
+    ${show.backdrop ? `<img class="hero-bg" src="${esc(artSrc(show.backdrop, 1280))}" alt="">` : ""}
     <div class="hero-body">
-      ${show.logo ? `<img class="hero-logo" src="${esc(artSrc(show.logo))}" alt="${esc(show.name)}">` : `<h1>${esc(show.name)}</h1>`}
+      ${show.logo ? `<img class="hero-logo" src="${esc(artSrc(show.logo, 720))}" alt="${esc(show.name)}">` : `<h1>${esc(show.name)}</h1>`}
       <p class="facts">${facts}</p>
       ${show.summary ? `<p class="summary${short ? "" : " clamp"}">${esc(show.summary)}</p>` : ""}
       <div class="actions">${action}${short ? "" : `<a class="btn" href="#/show/${encodeURIComponent(show.id)}">Episodes</a>`}</div>
@@ -565,7 +572,7 @@ document.addEventListener("click", e => {
     ids.forEach(id => setWatched(id, !all));
     rerender();
   }
-  else if (t.dataset.dismiss) { t.closest(".dialog-scrim").remove(); }
+  else if (t.dataset.dismiss) { history.back(); }
   else if (t.dataset.admin === "backup") { t.disabled = true; t.textContent = "Backing up…"; adminAction(() => api("/api/admin/backup", {})); }
   else if (t.dataset.admin === "scan") { t.disabled = true; t.textContent = "Checking…"; adminAction(async () => { await api("/api/admin/scan", {}); await reloadLibrary(); }); }
   else if (t.dataset.setting) {
@@ -626,10 +633,11 @@ $("#q").addEventListener("input", e => {
 $("#signOut").addEventListener("click", async () => { await api("/api/logout", {}).catch(() => {}); location.hash = "#/"; boot(); });
 
 function dialog(html) {
+  history.pushState({ sofaLayer: "dialog" }, "");
   const d = document.createElement("div");
   d.className = "dialog-scrim";
   d.innerHTML = `<div class="dialog" role="alertdialog" aria-modal="true">${html}<div class="actions"><button class="btn primary" data-dismiss="1">OK</button></div></div>`;
-  d.addEventListener("click", e => { if (e.target === d) d.remove(); });
+  d.addEventListener("click", e => { if (e.target === d) history.back(); });
   document.body.appendChild(d);
   $("[data-dismiss]", d).focus();
 }
@@ -685,15 +693,22 @@ const Player = (function () {
   volume.value = prefs.get("volume", 1);
   video.volume = +volume.value;
   video.muted = prefs.get("muted", false);
-  setAmbient(prefs.get("ambient", true));
+  setAmbient(TV ? false : prefs.get("ambient", true));   // the glow costs too much on TV sticks
 
   const live = () => plan && plan.mode !== "direct";
   const now = () => offset + (video.currentTime || 0);
   const total = () => (plan && plan.duration) || (isFinite(video.duration) ? video.duration : 0);
 
+  let pushed = false;
+  function enterHistory() {
+    if (!pushed) { history.pushState({ sofaLayer: "player" }, ""); pushed = true; }
+    if (TV && !document.fullscreenElement && el.requestFullscreen) el.requestFullscreen().catch(() => {});
+  }
+  function requestClose() { if (pushed) history.back(); else close(); }   // Back, Escape and the ← button all end here
   async function open(it) {
     if (!it) return;
     MusicPlayer.pause();
+    enterHistory();
     if (hls) { hls.destroy(); hls = null; }
     el.classList.remove("is-live"); liveList_ = null;
     video.removeAttribute("src"); video.load();
@@ -755,6 +770,7 @@ const Player = (function () {
     else load(t);
   }
   function close() {
+    pushed = false;
     if (hls) { hls.destroy(); hls = null; }
     el.classList.remove("is-live"); liveList_ = null;
     save(true);
@@ -840,7 +856,7 @@ const Player = (function () {
   function wake() {
     el.classList.remove("idle");
     clearTimeout(idleTimer);
-    idleTimer = setTimeout(() => { if (!video.paused && !dragging && ccMenu.hidden) el.classList.add("idle"); }, 2800);
+    idleTimer = setTimeout(() => { if (!video.paused && !dragging && ccMenu.hidden) el.classList.add("idle"); }, TV ? 5000 : 2800);
   }
   function setAmbient(on) {
     el.classList.toggle("ambient", on);
@@ -908,7 +924,7 @@ const Player = (function () {
   el.addEventListener("click", e => {
     const b = e.target.closest("[data-act]"); if (!b) return;
     const a = b.dataset.act;
-    if (a === "close") close();
+    if (a === "close") requestClose();
     else if (a === "toggle") toggle();
     else if (a === "rew") seekBy(-10);
     else if (a === "fwd") seekBy(30);
@@ -939,11 +955,13 @@ const Player = (function () {
       ArrowDown: () => { video.volume = Math.max(0, video.volume - 0.1); volume.value = video.volume; },
       f: fullscreen, m: () => { video.muted = !video.muted; }, n: playNext, c: () => { if (plan && plan.subtitles.length) ccMenuOpen(); },
       PageUp: () => zap(-1), PageDown: () => zap(1), ChannelUp: () => zap(-1), ChannelDown: () => zap(1),
-      Escape: () => { if (!document.fullscreenElement) close(); }, Backspace: () => close(), GoBack: () => close()
+      Escape: () => { if (!document.fullscreenElement) requestClose(); }, Backspace: requestClose, GoBack: requestClose
     };
     if (e.target === volume && /^Arrow/.test(k)) return;
     // With controls showing, arrows move between buttons (TV remotes); hidden, they seek.
     if (!controlsHidden && /^Arrow(Up|Down)$/.test(k) && e.target.closest && e.target.closest(".p-row")) return;
+    // Live TV with the controls out of the way: up/down on the remote change channel.
+    if (controlsHidden && el.classList.contains("is-live") && /^Arrow(Up|Down)$/.test(k)) { e.preventDefault(); zap(k === "ArrowUp" ? -1 : 1); wake(); return; }
     if (map[k]) { e.preventDefault(); map[k](); wake(); }
   });
   window.addEventListener("pagehide", () => save(true));
@@ -955,6 +973,7 @@ const Player = (function () {
   async function openLive(ch, list) {
     if (!ch) return;
     MusicPlayer.pause();
+    enterHistory();
     returnFocus = returnFocus || document.activeElement;
     liveList_ = list || [ch]; liveIdx = Math.max(0, liveList_.indexOf(ch));
     item = null; plan = { mode: "live", subtitles: [] }; offset = 0; next = null;
@@ -987,6 +1006,11 @@ const Player = (function () {
     openLive(liveList_[liveIdx], liveList_);
   }
   window.SofaVideoOpen = () => !el.hidden;
+  window.addEventListener("popstate", () => {
+    const scrim = document.querySelector(".dialog-scrim");
+    if (scrim) { scrim.remove(); return; }
+    if (!el.hidden) close();
+  });
   return { open, openLive, zap, isLive: () => el.classList.contains("is-live"), isOpen: () => !el.hidden };
 })();
 
@@ -1020,7 +1044,7 @@ function squareCard(kind, o) {
 }
 function videoCard(v) {
   return `<button class="card wide" data-play-mv="${esc(v.id)}">
-    <span class="frame">${frameImg(v.thumb, "", v.title)}<span class="play-glyph">${icon("i-play")}</span></span>
+    <span class="frame">${frameImg(v.thumb, "", v.title, 480)}<span class="play-glyph">${icon("i-play")}</span></span>
     <span class="t1">${esc(v.title)}</span><span class="t2">${esc(v.artist)}${v.duration ? ", " + durText(v.duration) : ""}</span></button>`;
 }
 function trackRows(list, opts) {
@@ -1029,7 +1053,7 @@ function trackRows(list, opts) {
   return `<ol class="tracks" data-list="${esc(list.map(t => t.id).join(","))}">${list.map((t, i) => `
     <li class="track${t.id === cur ? " playing" : ""}" data-mplay="${esc(t.id)}" data-idx="${i}" tabindex="0">
       <span class="num">${opts.numbers ? (t.n || i + 1) : i + 1}</span>
-      <span class="art">${t.art ? `<img src="${esc(artSrc(t.art))}" alt="" loading="lazy">` : ""}</span>
+      <span class="art">${t.art ? `<img src="${esc(artSrc(t.art, 240))}" alt="" loading="lazy">` : ""}</span>
       <span class="name"><b>${esc(t.title)}</b><span>${esc(t.artist)}</span></span>
       <span class="alb">${esc(t.album === "Singles" ? "Single" : t.album)}</span>
       <span class="dur">${esc(durText(t.duration))}</span>
@@ -1100,7 +1124,7 @@ function viewAlbum(a) {
   const list = a.tracks.map(id => mById.get(id)).filter(Boolean);
   const total = list.reduce((s, t) => s + (t.duration || 0), 0);
   setGlow(a.art);
-  return `<section class="album-head"><div class="cover">${a.art ? `<img src="${esc(artSrc(a.art))}" alt="">` : ""}</div>
+  return `<section class="album-head"><div class="cover">${a.art ? `<img src="${esc(artSrc(a.art, 720))}" alt="">` : ""}</div>
     <div><p class="kind">${a.title === "Singles" ? "Singles" : list.length <= 3 ? "EP" : "Album"}</p>
     <h1>${esc(a.title === "Singles" ? a.artist : a.title)}</h1>
     <p class="facts"><a href="#/music/artist/${encodeURIComponent(a.artist_id)}">${esc(a.artist)}</a>${a.year ? `<span>${a.year}</span>` : ""}<span>${plural(list.length, "song")}, ${Math.round(total / 60)} min</span></p>
@@ -1114,7 +1138,7 @@ function viewArtist(ar) {
   const list = MUSIC.tracks.filter(t => t.artist_id === ar.id);
   const vids = MUSIC.videos.filter(v => v.artist_id === ar.id);
   setGlow(ar.art);
-  return `<section class="album-head"><div class="cover round">${ar.art ? `<img src="${esc(artSrc(ar.art))}" alt="">` : ""}</div>
+  return `<section class="album-head"><div class="cover round">${ar.art ? `<img src="${esc(artSrc(ar.art, 720))}" alt="">` : ""}</div>
     <div><p class="kind">Artist</p><h1>${esc(ar.name)}</h1>
     <p class="facts"><span>${plural(list.length, "song")}</span>${vids.length ? `<span>${plural(vids.length, "video")}</span>` : ""}</p>
     <div class="actions"><button class="btn primary" data-mplay-list="${esc(ar.id)}">${icon("i-play")}Play</button>
@@ -1168,7 +1192,7 @@ const MusicPlayer = (function () {
     paintNow(); save();
     if ("mediaSession" in navigator) {
       navigator.mediaSession.metadata = new MediaMetadata({ title: t.title, artist: t.artist, album: t.album === "Singles" ? "" : t.album,
-        artwork: t.art ? [{ src: location.origin + artSrc(t.art), sizes: "512x512", type: "image/jpeg" }] : [] });
+        artwork: t.art ? [{ src: location.origin + artSrc(t.art, 720), sizes: "512x512", type: "image/jpeg" }] : [] });
     }
   }
   function play(ids, start, name) {
@@ -1191,7 +1215,7 @@ const MusicPlayer = (function () {
   function paintNow() {
     const t = current();
     if (!t) return;
-    $(".now .art", bar).innerHTML = t.art ? `<img src="${esc(artSrc(t.art))}" alt="">` : "";
+    $(".now .art", bar).innerHTML = t.art ? `<img src="${esc(artSrc(t.art, 240))}" alt="">` : "";
     $(".now b", bar).textContent = t.title;
     $(".now div span", bar).textContent = t.artist + (label ? ", " + label : "");
     $('[data-m="like"]', bar).setAttribute("aria-pressed", likes.has(t.id));
@@ -1209,7 +1233,7 @@ const MusicPlayer = (function () {
   function paintQueue() {
     const upcoming = order.slice(idx).map(i => mById.get(queue[i])).filter(Boolean);
     qpanel.innerHTML = `<h3>Up next${label ? ": " + esc(label) : ""}</h3>` + (upcoming.length
-      ? upcoming.map((t, k) => `<div class="track${k === 0 ? " playing" : ""}" data-qjump="${idx + k}"><span class="art">${t.art ? `<img src="${esc(artSrc(t.art))}" alt="" loading="lazy">` : ""}</span>
+      ? upcoming.map((t, k) => `<div class="track${k === 0 ? " playing" : ""}" data-qjump="${idx + k}"><span class="art">${t.art ? `<img src="${esc(artSrc(t.art, 240))}" alt="" loading="lazy">` : ""}</span>
         <span class="name"><b>${esc(t.title)}</b><span>${esc(t.artist)}</span></span><span class="dur">${esc(durText(t.duration))}</span></div>`).join("")
       : `<p class="count">Nothing queued.</p>`);
   }
@@ -1287,7 +1311,8 @@ const MusicPlayer = (function () {
 async function reloadLibrary() {
   const [lib, prog] = await Promise.all([api("/api/library"), api("/api/progress")]);
   progress = prog; indexLibrary(lib);
-  $("#foot").textContent = "Library updated " + new Date(lib.generated * 1000).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) + ". New files in the Inbox show up on their own.";
+  $("#foot").innerHTML = esc("Library updated " + new Date(lib.generated * 1000).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) + ". New files in the Inbox show up on their own. ")
+    + `<a href="?tv=${TV ? 0 : 1}" class="link-btn">${TV ? "Turn off TV mode on this device" : "Use TV mode on this device"}</a>`;
 }
 let refreshing = 0;
 async function boot() {

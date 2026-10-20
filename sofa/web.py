@@ -12,7 +12,7 @@ from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlsplit
 
-from . import __version__, auth, backup, config, dlna, live, media, music, organizer, store
+from . import __version__, artwork, auth, backup, config, dlna, live, media, music, organizer, store
 from .library import LIBRARY
 
 CLIENT_DIR = os.path.join(config.APP_DIR, "client")
@@ -153,7 +153,7 @@ class Handler(BaseHTTPRequestHandler):
         if path.startswith("/dlna/"):
             return self.dlna_get(path)
         if path.startswith("/art/"):
-            return self.art(path[len("/art/"):])
+            return self.art(path[len("/art/"):], qs)
         if path.startswith("/media/"):
             return self.media_get(path, qs)
         if path.startswith("/live/"):
@@ -230,19 +230,16 @@ class Handler(BaseHTTPRequestHandler):
         self.send_body(data, MIME.get(os.path.splitext(full)[1].lower(), "application/octet-stream"),
                        headers={"Cache-Control": "no-cache"})
 
-    def art(self, rest):
+    def art(self, rest, qs):
         if not self.user() and self.network() not in HOME_NETS:   # TVs fetch artwork without signing in
             return self.error(401, "Sign in to continue.")
-        key, _, rel = rest.partition("/")
-        if key not in ("shows", "movies", "music", "musicvideos", "cache"):
+        full = artwork.file_for("/art/" + rest)
+        if not full:
             return self.send_body("Not found", status=404)
-        root = music.ART_CACHE if key == "cache" else config.path(key)
-        rel = os.path.normpath(rel)
-        full = os.path.join(root, rel)
-        if rel.startswith("..") or os.path.splitext(full)[1].lower() not in (".jpg", ".jpeg", ".png", ".webp") \
-                or not os.path.isfile(full):
-            return self.send_body("Not found", status=404)
-        self.send_file(full, cache="private, max-age=86400")
+        width = (qs.get("w") or [""])[0]
+        if width.isdigit():
+            full = artwork.resized(full, int(width))
+        self.send_file(full, cache="private, max-age=604800")
 
     def send_file(self, full, cache=None, dlna_headers=False):
         size = os.path.getsize(full)

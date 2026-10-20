@@ -2,7 +2,7 @@
 import threading
 import time
 
-from . import backup, live, media, organizer, store
+from . import artwork, backup, live, media, organizer, store
 from .library import LIBRARY
 
 INTERVAL = 20
@@ -14,11 +14,17 @@ def _watch():
             filed = organizer.process_inbox()
             if filed:
                 LIBRARY.scan("%d new from Inbox" % filed)
+                _warm()
             elif LIBRARY.changed():
                 LIBRARY.scan("files changed")
+                _warm()
         except Exception as exc:   # keep watching whatever happens
             store.log("error", "Library watcher: %s" % exc)
         time.sleep(INTERVAL)
+
+
+def _warm():
+    threading.Thread(target=artwork.warm, args=(LIBRARY,), daemon=True, name="art-warm").start()
 
 
 def _prober():
@@ -40,3 +46,4 @@ def start():
     backup.start()
     threading.Thread(target=_watch, daemon=True, name="watcher").start()
     threading.Thread(target=_prober, daemon=True, name="prober").start()
+    _warm()
