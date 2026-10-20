@@ -43,7 +43,7 @@ Requirements: Python 3.8+ and ffmpeg (optional, but needed to play formats a dev
 doesn't support).
 
 ```sh
-git clone <this repo> ~/Sofa
+git clone https://github.com/krintoxi/sofa.git ~/Sofa
 cd ~/Sofa
 ./deploy/install.sh          # macOS: LaunchAgent; Linux: systemd user service
 ```
