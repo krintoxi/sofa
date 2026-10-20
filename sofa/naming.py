@@ -1,5 +1,6 @@
 """Reading show/episode/movie information out of messy file names."""
 import re
+import unicodedata
 
 VIDEO_EXT = {".mp4", ".m4v", ".mov", ".mkv", ".webm", ".avi", ".wmv", ".flv", ".mpg", ".mpeg",
              ".ts", ".m2ts", ".vob", ".divx", ".ogv", ".3gp"}
@@ -68,11 +69,16 @@ def safe_filename(name):
     return re.sub(r"\s+", " ", name).strip(" .")[:180]
 
 
+def plain(text):
+    """'QUIÉN' -> 'QUIEN': accents dropped, however the file system spelled them."""
+    return "".join(c for c in unicodedata.normalize("NFKD", text) if not unicodedata.combining(c))
+
+
 def norm(name):
     """Comparison key: 'N.C.I.S.' and 'NCIS', 'The Office' and 'Office' match."""
-    n = re.sub(r"[^a-z0-9]+", "", name.lower())
+    n = re.sub(r"[^a-z0-9]+", "", plain(name).lower())
     return n[3:] if n.startswith("the") and len(n) > 6 else n
 
 
 def slug(text):
-    return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-") or "x"
+    return re.sub(r"[^a-z0-9]+", "-", plain(text).lower()).strip("-") or "x"

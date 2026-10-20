@@ -15,6 +15,8 @@ DEFAULTS = {
     # The well-defined library layout. Shows/<Show>/Season N/..., Movies/<Title (Year)>/...
     "shows": "~/Entertainment/Shows",
     "movies": "~/Entertainment/Movies",
+    "music": "~/Entertainment/Music",
+    "musicvideos": "~/Entertainment/Music Videos",
     # Drop anything here; Sofa identifies it and files it into Shows or Movies.
     "inbox": "~/Entertainment/Inbox",
     # Where Sofa puts things it can't identify, for you to look at.
@@ -26,6 +28,8 @@ DEFAULTS = {
     "remote": "home",
     # Set when a reverse proxy (Caddy, nginx) on this machine forwards to Sofa.
     "trust_proxy": False,
+    # Let visitors on the home Wi-Fi watch as "Guest" (their own history, no settings) via /guest.
+    "guest_access": True,
     # Look up show summaries and missing artwork on TVmaze (free, no key).
     "tvmaze": True,
     # Optional: a TMDB API key adds movie posters and summaries.

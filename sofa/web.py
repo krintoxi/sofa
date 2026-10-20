@@ -12,7 +12,7 @@ from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlsplit
 
-from . import __version__, auth, backup, config, dlna, live, media, organizer, store
+from . import __version__, auth, backup, config, dlna, live, media, music, organizer, store
 from .library import LIBRARY
 
 CLIENT_DIR = os.path.join(config.APP_DIR, "client")
@@ -144,6 +144,8 @@ class Handler(BaseHTTPRequestHandler):
                               "uptime": int(time.time() - STARTED), "library": LIBRARY.counts()})
         if path in ("/", "/index.html"):
             return self.static("index.html")
+        if path == "/guest":
+            return self.guest_entry()
         if path.startswith("/client/"):
             return self.static(path[len("/client/"):])
         if path.startswith("/dlna/"):
@@ -190,6 +192,30 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", "0")
         self.end_headers()
 
+    # ------------------------------------------------------------ guests
+
+    def guest_ok(self):
+        return config.get("guest_access") and self.network() in ("local", "lan")
+
+    def guest_entry(self):
+        """The address on the guest QR code: sign straight in as Guest, then open the app."""
+        if not self.guest_ok():
+            msg = ("Guest access is switched off." if not config.get("guest_access")
+                   else "Guest access works on the home Wi-Fi. Connect to it and scan the code again.")
+            page = ('<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>Sofa</title>'
+                    '<body style="background:#0A0E1A;color:#EDEFF6;font:17px/1.5 system-ui;display:grid;place-items:center;'
+                    'min-height:90vh;margin:0;padding:24px;text-align:center"><div><h1 style="margin:0 0 8px">Sofa</h1>'
+                    '<p>%s</p></div>' % msg)
+            return self.send_body(page, "text/html; charset=utf-8", 403)
+        user = auth.guest_user()
+        token = auth.start_session(user["id"], self.client_ip(), self.headers.get("User-Agent"))
+        store.log("login", "A guest joined from %s" % self.client_ip())
+        self.send_response(302)
+        self.send_header("Location", "/")
+        self.send_header("Set-Cookie", self.session_cookie(token, auth.GUEST_HOURS * 3600))
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
     # ------------------------------------------------------------ static, art, files
 
     def static(self, rel):
@@ -206,9 +232,9 @@ class Handler(BaseHTTPRequestHandler):
         if not self.user() and self.network() not in HOME_NETS:   # TVs fetch artwork without signing in
             return self.error(401, "Sign in to continue.")
         key, _, rel = rest.partition("/")
-        if key not in ("shows", "movies"):
+        if key not in ("shows", "movies", "music", "musicvideos", "cache"):
             return self.send_body("Not found", status=404)
-        root = config.path(key)
+        root = music.ART_CACHE if key == "cache" else config.path(key)
         rel = os.path.normpath(rel)
         full = os.path.join(root, rel)
         if rel.startswith("..") or os.path.splitext(full)[1].lower() not in (".jpg", ".jpeg", ".png", ".webp") \
@@ -392,7 +418,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_file(item["path"])
         if kind == "stream":
             mode = (qs.get("mode") or ["remux"])[0]
-            mode = mode if mode in ("remux", "transcode") else "remux"
+            mode = mode if mode in ("remux", "transcode", "audio") else "remux"
             start = float((qs.get("t") or ["0"])[0] or 0)
             if not media.tool("ffmpeg"):
                 return self.error(503, "This server can't convert video yet (ffmpeg isn't installed).")
@@ -412,7 +438,7 @@ class Handler(BaseHTTPRequestHandler):
             u = self.user()
             return self.json({"name": config.get("name"), "version": __version__, "user": u,
                               "needs_setup": auth.user_count() == 0, "network": self.network(),
-                              "remote": config.get("remote")})
+                              "remote": config.get("remote"), "guest_available": bool(self.guest_ok())})
         u = self.need_user(admin=path.startswith("/api/admin/"))
         if not u:
             return
@@ -420,6 +446,12 @@ class Handler(BaseHTTPRequestHandler):
             return self.json(LIBRARY.public())
         if path == "/api/live":
             return self.json(live.listing(u["id"]))
+        if path == "/api/music":
+            out = LIBRARY.music_public()
+            out["likes"] = [r["item"] for r in store.q("SELECT item FROM music_likes WHERE user_id = ? ORDER BY at DESC", u["id"])]
+            out["recent"] = [r["item"] for r in store.q("SELECT item FROM music_plays WHERE user_id = ? ORDER BY at DESC LIMIT 60",
+                                                         u["id"])]
+            return self.json(out)
         if path == "/api/progress":
             rows = store.q("SELECT item, t, d, done, at FROM progress WHERE user_id = ?", u["id"])
             return self.json({r["item"]: {"t": r["t"], "d": r["d"], "done": bool(r["done"]), "at": r["at"]} for r in rows})
@@ -429,6 +461,11 @@ class Handler(BaseHTTPRequestHandler):
             if not item:
                 return self.error(404, "That video isn't in the library any more.")
             caps = {k: (qs.get(k) or ["0"])[0] == "1" for k in ("mkv", "hevc", "ac3", "vp9")}
+            if item["kind"] == "track":
+                direct = music.playable_directly(item) or not media.tool("ffmpeg")
+                return self.json({"mode": "direct" if direct else "audio", "duration": item.get("duration"),
+                                  "url": "/media/%s/%s" % (item["id"], "file" if direct else "stream?mode=audio"),
+                                  "subtitles": []})
             p = media.plan(item, caps)
             base = "/media/%s/" % item["id"]
             tracks = media.subtitle_tracks(item, p["info"])
@@ -482,6 +519,13 @@ class Handler(BaseHTTPRequestHandler):
             token = auth.start_session(row["id"], ip, self.headers.get("User-Agent"))
             store.log("login", "%s signed in from %s" % (row["name"], self.network_label()), {"ip": ip})
             return self.json({"ok": True}, headers={"Set-Cookie": self.session_cookie(token, auth.SESSION_DAYS * 86400)})
+        if path == "/api/guest":
+            if not self.guest_ok():
+                return self.error(403, "Guest access works on the home Wi-Fi only.")
+            user = auth.guest_user()
+            token = auth.start_session(user["id"], ip, self.headers.get("User-Agent"))
+            store.log("login", "A guest joined from %s" % ip)
+            return self.json({"ok": True}, headers={"Set-Cookie": self.session_cookie(token, auth.GUEST_HOURS * 3600)})
         if path == "/api/logout":
             auth.end_session(self.token())
             return self.json({"ok": True}, headers={"Set-Cookie": self.session_cookie("", 0)})
@@ -505,6 +549,26 @@ class Handler(BaseHTTPRequestHandler):
                 store.ex("INSERT OR IGNORE INTO live_favorites (user_id, channel) VALUES (?,?)", u["id"], m.group(1))
             else:
                 store.ex("DELETE FROM live_favorites WHERE user_id = ? AND channel = ?", u["id"], m.group(1))
+            return self.json({"ok": True})
+        m = re.match(r"^/api/music/(like|played)/(.+)$", path)
+        if m:
+            item = LIBRARY.item(m.group(2))
+            if not item or item["kind"] not in ("track", "musicvideo"):
+                return self.error(404, "That song isn't in the library any more.")
+            now = int(time.time() * 1000)
+            if m.group(1) == "like":
+                if data.get("on"):
+                    store.ex("INSERT OR REPLACE INTO music_likes (user_id, item, at) VALUES (?,?,?)", u["id"], item["id"], now)
+                else:
+                    store.ex("DELETE FROM music_likes WHERE user_id = ? AND item = ?", u["id"], item["id"])
+            else:
+                store.ex("INSERT OR REPLACE INTO music_plays (user_id, item, at) VALUES (?,?,?)", u["id"], item["id"], now)
+                store.ex("""DELETE FROM music_plays WHERE user_id = ? AND item NOT IN
+                            (SELECT item FROM music_plays WHERE user_id = ? ORDER BY at DESC LIMIT 200)""", u["id"], u["id"])
+            return self.json({"ok": True})
+        if path == "/api/admin/guest/clear":
+            auth.clear_guest()
+            store.log("account", "%s cleared the guest history" % u["name"])
             return self.json({"ok": True})
         if path == "/api/admin/live":
             try:
@@ -560,7 +624,8 @@ class Handler(BaseHTTPRequestHandler):
             store.log("account", "%s removed \"%s\"" % (u["name"], target["name"]))
             return self.json({"ok": True})
         if path == "/api/admin/settings":
-            allowed = {k: data[k] for k in ("name", "dlna", "tvmaze", "tmdb_api_key", "max_transcodes") if k in data}
+            allowed = {k: data[k] for k in ("name", "dlna", "tvmaze", "tmdb_api_key", "max_transcodes", "guest_access")
+                       if k in data}
             if "name" in allowed:
                 allowed["name"] = str(allowed["name"]).strip()[:40] or "Sofa"
             config.update(allowed)
@@ -602,6 +667,8 @@ def admin_status():
         "users": auth.list_users(),
         "settings": public_settings(),
         "backups": [{k: b[k] for k in ("name", "size", "made")} for b in backup.listing()[:5]],
+        "guest": {"enabled": config.get("guest_access"),
+                  "links": ["http://%s:%d/guest" % (ip, config.get("port")) for ip in dlna.lan_addresses()]},
         "backup_folder": backup.folder().replace(os.path.expanduser("~"), "~", 1),
     }
 

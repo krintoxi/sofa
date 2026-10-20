@@ -10,6 +10,8 @@ from . import config, store
 
 SESSION_COOKIE = "sofa_session"
 SESSION_DAYS = 60
+GUEST_HOURS = 24
+GUEST_NAME = "Guest"
 PBKDF2_ROUNDS = 240000
 
 _PRIVATE = [ipaddress.ip_network(n) for n in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fd00::/8", "fe80::/10")]
@@ -76,10 +78,28 @@ def create_user(name, password, admin=False):
     return store.q1("SELECT id, name, admin FROM users WHERE name = ?", name.strip())
 
 
+def guest_user():
+    """The shared Guest account (created on first use). It has no usable password."""
+    row = store.q1("SELECT id, name FROM users WHERE guest = 1")
+    if row:
+        return row
+    name = GUEST_NAME if not store.q1("SELECT id FROM users WHERE name = ?", GUEST_NAME) else "Guest visitor"
+    store.ex("INSERT INTO users (name, pw, admin, guest, created) VALUES (?,?,0,1,?)",
+             name, "guest$" + secrets.token_hex(16), int(time.time()))
+    return store.q1("SELECT id, name FROM users WHERE guest = 1")
+
+
+def clear_guest():
+    row = store.q1("SELECT id FROM users WHERE guest = 1")
+    if row:
+        for table in ("progress", "live_favorites", "music_likes", "music_plays", "sessions"):
+            store.ex("DELETE FROM %s WHERE user_id = ?" % table, row["id"])
+
+
 def list_users():
-    rows = store.q("""SELECT u.id, u.name, u.admin, u.created,
+    rows = store.q("""SELECT u.id, u.name, u.admin, u.guest, u.created,
                       (SELECT MAX(seen) FROM sessions s WHERE s.user_id = u.id) AS seen
-                      FROM users u ORDER BY u.name""")
+                      FROM users u ORDER BY u.guest, u.name""")
     return [dict(r) for r in rows]
 
 
@@ -111,13 +131,15 @@ def session_user(token):
     if not token:
         return None
     key = _token_key(token)
-    row = store.q1("""SELECT u.id, u.name, u.admin, s.seen FROM sessions s JOIN users u ON u.id = s.user_id
-                      WHERE s.token = ?""", key)
+    row = store.q1("""SELECT u.id, u.name, u.admin, u.guest, s.seen, s.created FROM sessions s
+                      JOIN users u ON u.id = s.user_id WHERE s.token = ?""", key)
     if not row or row["seen"] < time.time() - SESSION_DAYS * 86400:
+        return None
+    if row["guest"] and row["created"] < time.time() - GUEST_HOURS * 3600:
         return None
     if time.time() - row["seen"] > 300:
         store.ex("UPDATE sessions SET seen = ? WHERE token = ?", int(time.time()), key)
-    return {"id": row["id"], "name": row["name"], "admin": bool(row["admin"])}
+    return {"id": row["id"], "name": row["name"], "admin": bool(row["admin"]), "guest": bool(row["guest"])}
 
 
 def end_session(token):
@@ -146,7 +168,7 @@ def record_failure(ip):
 
 def login(name, password, ip):
     """Returns the user row or None. Always spends the hashing time so names can't be probed."""
-    row = store.q1("SELECT id, name, admin, pw FROM users WHERE name = ?", (name or "").strip())
+    row = store.q1("SELECT id, name, admin, pw FROM users WHERE name = ? AND guest = 0", (name or "").strip())
     ok = check_password(password or "", row["pw"] if row else hash_password("x"))
     if not row or not ok:
         record_failure(ip)

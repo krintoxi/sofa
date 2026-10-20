@@ -25,9 +25,20 @@ CREATE TABLE IF NOT EXISTS probes (
 CREATE TABLE IF NOT EXISTS live_favorites (
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, channel TEXT NOT NULL,
   PRIMARY KEY (user_id, channel));
+CREATE TABLE IF NOT EXISTS music_likes (
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, item TEXT NOT NULL, at INTEGER NOT NULL,
+  PRIMARY KEY (user_id, item));
+CREATE TABLE IF NOT EXISTS music_plays (
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, item TEXT NOT NULL, at INTEGER NOT NULL,
+  PRIMARY KEY (user_id, item));
 CREATE TABLE IF NOT EXISTS activity (
   id INTEGER PRIMARY KEY, at INTEGER NOT NULL, kind TEXT NOT NULL, message TEXT NOT NULL, detail TEXT);
 """
+
+
+MIGRATIONS = [
+    "ALTER TABLE users ADD COLUMN guest INTEGER NOT NULL DEFAULT 0",
+]
 
 
 def db():
@@ -39,6 +50,12 @@ def db():
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA foreign_keys=ON")
         conn.executescript(SCHEMA)
+        for ddl in MIGRATIONS:
+            try:
+                conn.execute(ddl)
+                conn.commit()
+            except sqlite3.OperationalError:
+                pass   # already applied
         _local.conn = conn
     return conn
 

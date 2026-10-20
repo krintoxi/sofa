@@ -18,7 +18,7 @@ import re
 import threading
 import time
 
-from . import config, metadata, naming, store
+from . import config, metadata, music, naming, store
 
 ART = {"poster": ("folder.jpg", "poster.jpg", "folder.png", "poster.png", "cover.jpg"),
        "backdrop": ("backdrop.jpg", "fanart.jpg", "backdrop.png", "background.jpg"),
@@ -30,6 +30,7 @@ class Library:
     def __init__(self):
         self.lock = threading.Lock()
         self.shows, self.movies, self.items = [], [], {}
+        self.music = {"tracks": [], "albums": [], "artists": [], "videos": []}
         self.generated = 0
         self.signature = None
         self.scanning = False
@@ -41,6 +42,10 @@ class Library:
         with self.lock:
             return {"generated": self.generated, "shows": self.shows, "movies": self.movies}
 
+    def music_public(self):
+        with self.lock:
+            return dict(self.music, generated=self.generated)
+
     def item(self, item_id):
         with self.lock:
             return self.items.get(item_id)
@@ -50,13 +55,15 @@ class Library:
             return {"shows": len(self.shows), "movies": len(self.movies),
                     "episodes": sum(1 for i in self.items.values() if i["kind"] == "episode"),
                     "extras": sum(1 for i in self.items.values() if i["kind"] == "extra"),
+                    "tracks": len(self.music["tracks"]), "albums": len(self.music["albums"]),
+                    "music_videos": len(self.music["videos"]),
                     "files": len(self.items)}
 
     # ------------------------------------------------------------ change detection
 
     @staticmethod
     def roots():
-        return {"shows": config.path("shows"), "movies": config.path("movies")}
+        return {k: config.path(k) for k in ("shows", "movies", "music", "musicvideos")}
 
     def current_signature(self):
         h = hashlib.sha1()
@@ -92,13 +99,15 @@ class Library:
                         if show:
                             shows.append(show)
             movies = self._scan_movies(config.path("movies"), items)
+            tunes = music.scan(self.art_url, items)
             with self.lock:
-                self.shows, self.movies, self.items = shows, movies, items
+                self.shows, self.movies, self.items, self.music = shows, movies, items, tunes
                 self.generated = int(time.time())
                 self.signature = signature
             self.last_scan_seconds = round(time.time() - started, 1)
             n_eps = sum(1 for i in items.values() if i["kind"] == "episode")
-            store.log("scan", "Library updated: %d shows, %d episodes, %d movies" % (len(shows), n_eps, len(movies)),
+            store.log("scan", "Library updated: %d shows, %d episodes, %d movies, %d songs, %d music videos"
+                      % (len(shows), n_eps, len(movies), len(tunes["tracks"]), len(tunes["videos"])),
                       {"reason": reason, "seconds": self.last_scan_seconds})
             return True
         finally:

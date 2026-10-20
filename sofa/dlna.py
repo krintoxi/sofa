@@ -26,7 +26,10 @@ DLNA_FLAGS = "DLNA.ORG_OP=01;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=0170000000000000000000
 STREAM_FLAGS = "DLNA.ORG_OP=00;DLNA.ORG_CI=1;DLNA.ORG_FLAGS=01700000000000000000000000000000"
 MIME = {"mp4": "video/mp4", "m4v": "video/mp4", "mov": "video/quicktime", "mkv": "video/x-matroska",
         "webm": "video/webm", "avi": "video/x-msvideo"}
-TV_DIRECT = {"mp4", "m4v", "mov", "mkv"}   # most TVs play these when the video is H.264
+TV_DIRECT = {"mp4", "m4v", "mov", "mkv"}
+AUDIO_MIME = {"mp3": "audio/mpeg", "m4a": "audio/mp4", "aac": "audio/aac", "flac": "audio/flac", "wav": "audio/wav",
+              "ogg": "audio/ogg", "oga": "audio/ogg", "opus": "audio/ogg", "wma": "audio/x-ms-wma",
+              "aif": "audio/aiff", "aiff": "audio/aiff", "alac": "audio/mp4"}   # most TVs play these when the video is H.264
 TYPES = ["upnp:rootdevice", UDN, "urn:schemas-upnp-org:device:MediaServer:1",
          "urn:schemas-upnp-org:service:ContentDirectory:1", "urn:schemas-upnp-org:service:ConnectionManager:1"]
 
@@ -55,6 +58,7 @@ def tree():
     """Folders TVs browse: Shows > Show > Season > episodes, and Movies."""
     lib = LIBRARY.public()
     with _tree_lock:
+        tunes = LIBRARY.music_public()
         version = (lib["generated"], len(live.all_channels()), len(live.favorites_anyone()))
         if _tree["version"] == version:
             return _tree["objects"]
@@ -89,6 +93,32 @@ def tree():
                     item(cid, x["title"], x, show.get("backdrop"))
         for m in lib["movies"]:
             item(movies, "%s (%s)" % (m["title"], m["year"]) if m.get("year") else m["title"], m, m.get("poster"))
+        if tunes["tracks"]:
+            mroot = container("music", "0", "Music")
+            by_album = {}
+            for t in tunes["tracks"]:
+                by_album.setdefault(t["album_id"], []).append(t)
+            for ar in tunes["artists"]:
+                arc = container(_oid("artist", ar["id"]), mroot, ar["name"], ar.get("art"))
+                for al in [a for a in tunes["albums"] if a["artist_id"] == ar["id"]]:
+                    alc = container(_oid("album", al["id"]), arc, al["title"], al.get("art"))
+                    for tid in al["tracks"]:
+                        t = LIBRARY.item(tid)
+                        if not t:
+                            continue
+                        oid = _oid("track", tid)
+                        objs[oid] = {"kind": "item", "audio": True, "title": t["title"], "parent": alc, "id": tid,
+                                     "ext": t["ext"], "size": t.get("size"), "thumb": t.get("art"),
+                                     "artist": t["artist"], "album": t["album"], "seconds": t.get("duration"),
+                                     "n": t.get("n")}
+                        objs[alc]["children"].append(oid)
+        if tunes["videos"]:
+            vroot = container("musicvideos", "0", "Music Videos")
+            for v in tunes["videos"]:
+                parent = _oid("mvartist", v["artist_id"])
+                if parent not in objs:
+                    container(parent, vroot, v["artist"])
+                item(parent, v["title"], {**v, "size": None, "runtime": None})
         chans = live.all_channels()
         if chans:
             tv = container("live", "0", "Live TV")
@@ -182,6 +212,17 @@ def _entry(oid, obj, host):
         return ('<container id="%s" parentID="%s" restricted="1" childCount="%d"><dc:title>%s</dc:title>'
                 "<upnp:class>object.container.storageFolder</upnp:class>%s</container>"
                 % (e(oid), e(obj["parent"] or "-1"), len(obj["children"]), e(obj["title"]), art))
+    if obj.get("audio"):
+        secs = int(obj.get("seconds") or 0)
+        res = '<res protocolInfo="http-get:*:%s:%s"%s%s>%s</res>' % (
+            AUDIO_MIME.get(obj["ext"], "audio/mpeg"), DLNA_FLAGS, ' size="%d"' % obj["size"] if obj.get("size") else "",
+            ' duration="%d:%02d:%02d.000"' % (secs // 3600, secs // 60 % 60, secs % 60) if secs else "",
+            e(url("/dlna/media/" + obj["id"])))
+        art = '<upnp:albumArtURI dlna:profileID="JPEG_TN">%s</upnp:albumArtURI>' % e(url(obj["thumb"])) if obj.get("thumb") else ""
+        return ('<item id="%s" parentID="%s" restricted="1"><dc:title>%s</dc:title><upnp:class>object.item.audioItem.musicTrack</upnp:class>'
+                '<upnp:artist>%s</upnp:artist><dc:creator>%s</dc:creator><upnp:album>%s</upnp:album>%s%s%s</item>'
+                % (e(oid), e(obj["parent"]), e(obj["title"]), e(obj["artist"]), e(obj["artist"]), e(obj["album"]),
+                   '<upnp:originalTrackNumber>%d</upnp:originalTrackNumber>' % obj["n"] if obj.get("n") else "", art, res))
     if obj.get("live"):
         return ('<item id="%s" parentID="%s" restricted="1"><dc:title>%s</dc:title>'
                 '<upnp:class>object.item.videoItem.videoBroadcast</upnp:class>'
@@ -213,6 +254,8 @@ def _tv_video_ok(item):
 
 def tv_plan(item):
     """'direct' or 'transcode' for a TV asking for this item over DLNA."""
+    if item["kind"] == "track":
+        return "direct"
     return "direct" if item["ext"] in TV_DIRECT and _tv_video_ok(item) else "transcode"
 
 

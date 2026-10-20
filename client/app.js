@@ -115,6 +115,7 @@ const title = item => item.title || (item.kind === "episode" ? "Episode " + item
 function subtitleFor(item) {
   if (item.kind === "episode") return epCode(item) + ", " + title(item);
   if (item.kind === "extra") return title(item);
+  if (item.kind === "musicvideo") return item.artist;
   return [item.year, item.collection].filter(Boolean).join(", ");
 }
 
@@ -393,9 +394,12 @@ function authView(kind) {
     ${setup ? `<label class="field"><span>Password again</span><input name="again" type="password" autocomplete="new-password" required></label>` : ""}
     <div class="form-error" role="alert"></div>
     <button class="btn primary" type="submit">${setup ? "Create account" : "Sign in"}</button>
+    ${!setup && session.guest_available ? `<button class="btn ghost" type="button" id="asGuest">Watch as a guest</button>` : ""}
   </form></section>`;
   const form = $("#authForm");
   form.name.focus();
+  const g = $("#asGuest");
+  if (g) g.addEventListener("click", async () => { try { await api("/api/guest", {}); boot(); } catch (ex) { $(".form-error", form).textContent = ex.message; } });
   form.addEventListener("submit", async e => {
     e.preventDefault();
     const err = $(".form-error", form);
@@ -415,7 +419,7 @@ async function loadAdmin() {
     adminData = await api("/api/admin/status");
     adminData.live = (await api("/api/live")).playlists;
   } catch (e) { adminData = { error: e.message }; }
-  if (location.hash.startsWith("#/server") && !Player.isOpen()) { const y = scrollY; view.innerHTML = viewServer(); scrollTo(0, y); }
+  if (location.hash.startsWith("#/server") && !Player.isOpen()) { const y = scrollY; view.innerHTML = viewServer(); scrollTo(0, y); drawGuestQr(); }
 }
 function viewServer() {
   setGlow("");
@@ -434,7 +438,7 @@ function viewServer() {
   const inbox = d.inbox.length ? d.inbox.map(x => `<li><span>${esc(x.name)}</span><span class="when">${x.state === "copying" ? "Still copying" : "Sorting soon"}</span></li>`).join("")
     : `<li class="empty-row">Empty. Drop shows and movies here and they'll be filed within a minute.</li>`;
   const review = d.review.length ? d.review.map(actRow).join("") : `<li class="empty-row">Nothing needs your attention.</li>`;
-  const users = d.users.map(u => `<li><span><b>${esc(u.name)}</b>${u.admin ? " (admin)" : ""}<br><span class="when">${u.seen ? "Last seen " + esc(ago(u.seen)) : "Hasn't signed in yet"}</span></span>
+  const users = d.users.filter(u => !u.guest).map(u => `<li><span><b>${esc(u.name)}</b>${u.admin ? " (admin)" : ""}<br><span class="when">${u.seen ? "Last seen " + esc(ago(u.seen)) : "Hasn't signed in yet"}</span></span>
     <span class="row-actions"><button class="mini" data-user-pass="${u.id}" data-user-name="${esc(u.name)}">New password</button>${u.id !== session.user.id ? `<button class="mini danger" data-user-del="${u.id}" data-user-name="${esc(u.name)}">Remove</button>` : ""}</span></li>`).join("");
   const sw = (key, on, label, hint) => `<div class="toggle"><div><b>${label}</b><span>${hint}</span></div>
     <button class="switch" role="switch" aria-checked="${!!on}" aria-label="${esc(label)}" data-setting="${key}"></button></div>`;
@@ -466,6 +470,12 @@ function viewServer() {
           <button class="mini" data-admin="backup">Back up now</button></div>
         <div class="toggle"><div><b>Remote access</b><span>${s.remote === "public" ? "Accepting internet connections. Keep Sofa behind HTTPS." : "Home network and Tailscale only. See docs/remote-access.md to change this."}</span></div></div>
       </div>
+      <div class="panel"><h2>Guests</h2><p class="hint">Visitors on your Wi-Fi scan this code to watch as "Guest": their own history and likes, no settings, and it never works from outside the house. Sessions end after a day.</p>
+        <div class="guest-row"><div class="qr" id="guestQr" data-url="${esc(d.guest.links[0] || "")}"></div>
+        <div><div class="addr">${d.guest.links.map(l => `<div><b>Guest link</b><code>${esc(l)}</code></div>`).join("")}</div>
+        <p class="hint" style="margin-top:10px">Tip: reserve this address for the iMac in your router so the code keeps working.</p>
+        <div class="row-actions"><button class="mini" data-guest-clear="1">Clear guest history</button></div></div></div>
+        ${sw("guest_access", d.guest.enabled, "Allow guests", "Turn off to make the guest code stop working.")}</div>
       <div class="panel"><h2>Live TV channel lists</h2><p class="hint">M3U playlists of free channels. Sofa re-downloads them twice a day.</p>
         <ul class="list">${(d.live || []).map(p => `<li><span><b>${esc(p.name)}</b><br><span class="when">${p.error ? "Problem: " + esc(p.error) : plural(p.count || 0, "channel")}</span></span>
           <button class="mini danger" data-live-remove="${esc(p.url)}">Remove</button></li>`).join("") || `<li class="empty-row">No channel lists yet.</li>`}</ul>
@@ -475,6 +485,13 @@ function viewServer() {
         <button class="btn" type="submit">Add</button><div class="form-error" role="alert" style="grid-column:1/-1"></div></form></div>
       <div class="panel wide"><h2>Activity</h2><ul class="list">${d.activity.slice(0, 25).map(actRow).join("") || `<li class="empty-row">Nothing yet.</li>`}</ul></div>
     </div></section>`;
+}
+function drawGuestQr() {
+  const box = $("#guestQr");
+  if (!box || !box.dataset.url) return;
+  const draw = () => { const q = window.qrcode(0, "M"); q.addData(box.dataset.url); q.make(); box.innerHTML = q.createSvgTag({ cellSize: 6, margin: 2, scalable: true }); };
+  if (window.qrcode) return draw();
+  const sc = document.createElement("script"); sc.src = "/client/vendor/qrcode.js"; sc.onload = draw; document.head.appendChild(sc);
 }
 async function adminAction(fn) {
   try { await fn(); } catch (e) { alertBox(e.message); }
@@ -493,19 +510,30 @@ function route() {
   else if (name === "movies") { html = viewMovies(); nav = "movies"; }
   else if (name === "search") html = viewSearch(rest.join("/"));
   else if (name === "live") { html = viewLive(); nav = "live"; }
+  else if (name === "music") { html = viewMusic(rest); nav = "music"; }
   else if (name === "server" && session.user.admin) { html = viewServer(); nav = "server"; }
   else { html = viewHome(); nav = "home"; }
   document.querySelectorAll("[data-nav]").forEach(a => { if (a.dataset.nav === nav) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current"); });
   view.innerHTML = html;
   updateNudges();
+  if (nav === "server") drawGuestQr();
 }
 function rerender() { const y = scrollY; route(); scrollTo(0, y); }
 window.addEventListener("hashchange", () => { route(); scrollTo(0, 0); });
 
 /* ---------- interactions ---------- */
 document.addEventListener("click", e => {
-  const t = e.target.closest("[data-play],[data-watched],[data-season],[data-sort],[data-nudge],[data-season-watched],[data-dismiss],[data-admin],[data-setting],[data-user-pass],[data-user-del],[data-live],[data-fav],[data-group],[data-preset],[data-live-remove]");
+  const t = e.target.closest("[data-mlike],[data-mplay],[data-mplay-one],[data-mplay-list],[data-mshuffle-list],[data-station],[data-mtab],[data-play-mv],[data-guest-clear],[data-play],[data-watched],[data-season],[data-sort],[data-nudge],[data-season-watched],[data-dismiss],[data-admin],[data-setting],[data-user-pass],[data-user-del],[data-live],[data-fav],[data-group],[data-preset],[data-live-remove]");
   if (!t) return;
+  if (t.dataset.mlike) { e.stopPropagation(); setLike(t.dataset.mlike, !likes.has(t.dataset.mlike)); return; }
+  if (t.dataset.mplay) { const ids = t.closest("[data-list]").dataset.list.split(","); MusicPlayer.play(ids, +t.dataset.idx); return; }
+  if (t.dataset.mplayOne) { MusicPlayer.play([t.dataset.mplayOne], 0); return; }
+  if (t.dataset.mplayList) { MusicPlayer.play(listFor(t.dataset.mplayList), 0, (mById.get(t.dataset.mplayList) || {}).title || (mById.get(t.dataset.mplayList) || {}).name || ""); return; }
+  if (t.dataset.mshuffleList) { const ids = listFor(t.dataset.mshuffleList).sort(() => Math.random() - 0.5); MusicPlayer.play(ids, 0, "Shuffle"); return; }
+  if (t.dataset.station) { startStation(t.dataset.station); return; }
+  if (t.dataset.mtab) { location.hash = "#/music/" + t.dataset.mtab; return; }
+  if (t.dataset.playMv) { Player.open(mById.get(t.dataset.playMv)); return; }
+  if (t.dataset.guestClear) { if (confirm("Clear everything guests have watched and liked, and sign current guests out?")) adminAction(() => api("/api/admin/guest/clear", {})); return; }
   if (t.dataset.live) { const list = liveList(); Player.openLive(list.find(c => c.id === t.dataset.live), list); return; }
   if (t.dataset.fav) {
     const c = liveData.channels.find(x => x.id === t.dataset.fav); c.fav = !c.fav;
@@ -607,7 +635,7 @@ function dialog(html) {
 }
 
 /* ---------- TV remote: arrow keys move focus to the nearest thing in that direction ---------- */
-const FOCUSABLE = "a[href], button:not([disabled]):not([tabindex='-1']), input, select, [tabindex='0']";
+const FOCUSABLE = "a[href], button:not([disabled]):not([tabindex='-1']), input, select, [tabindex='0'], [data-mplay]";
 document.addEventListener("keydown", e => {
   const dir = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
   if (!dir || Player.isOpen() || e.metaKey || e.ctrlKey || e.altKey) return;
@@ -630,6 +658,10 @@ document.addEventListener("keydown", e => {
   if (best) { e.preventDefault(); best.focus({ preventScroll: true }); best.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "smooth" }); }
 });
 document.addEventListener("mousedown", () => document.body.classList.remove("tv-nav"));
+// Song rows and queue entries are list items: OK / Enter plays them like a click.
+document.addEventListener("keydown", e => {
+  if ((e.key === "Enter" || e.key === " ") && e.target.matches && e.target.matches("[data-mplay],[data-qjump]")) { e.preventDefault(); e.target.click(); }
+});
 
 /* ---------- player ---------- */
 const Player = (function () {
@@ -661,6 +693,7 @@ const Player = (function () {
 
   async function open(it) {
     if (!it) return;
+    MusicPlayer.pause();
     if (hls) { hls.destroy(); hls = null; }
     el.classList.remove("is-live"); liveList_ = null;
     video.removeAttribute("src"); video.load();
@@ -921,6 +954,7 @@ const Player = (function () {
   }
   async function openLive(ch, list) {
     if (!ch) return;
+    MusicPlayer.pause();
     returnFocus = returnFocus || document.activeElement;
     liveList_ = list || [ch]; liveIdx = Math.max(0, liveList_.indexOf(ch));
     item = null; plan = { mode: "live", subtitles: [] }; offset = 0; next = null;
@@ -952,7 +986,301 @@ const Player = (function () {
     liveIdx = (liveIdx + step + liveList_.length) % liveList_.length;
     openLive(liveList_[liveIdx], liveList_);
   }
+  window.SofaVideoOpen = () => !el.hidden;
   return { open, openLive, zap, isLive: () => el.classList.contains("is-live"), isOpen: () => !el.hidden };
+})();
+
+/* ---------- music ---------- */
+let MUSIC = null;
+const mById = new Map();
+let likes = new Set(), recent = [];
+let musicTab = prefs.get("musicTab", "home");
+async function loadMusic() {
+  try {
+    MUSIC = await api("/api/music");
+  } catch (e) { MUSIC = { tracks: [], albums: [], artists: [], videos: [], likes: [], recent: [], error: e.message }; }
+  mById.clear();
+  MUSIC.tracks.forEach(t => { t.kind = "track"; mById.set(t.id, t); });
+  MUSIC.albums.forEach(a => mById.set(a.id, a));
+  MUSIC.artists.forEach(a => mById.set(a.id, a));
+  MUSIC.videos.forEach(v => { v.kind = "musicvideo"; mById.set(v.id, v); });
+  likes = new Set(MUSIC.likes || []); recent = MUSIC.recent || [];
+  if (location.hash.startsWith("#/music")) rerender();
+}
+const durText = s => s ? clock(s) : "";
+function squareCard(kind, o) {
+  const round = kind === "artist";
+  const href = "#/music/" + kind + "/" + encodeURIComponent(o.id);
+  const sub = kind === "album" ? (o.title === "Singles" ? "Singles" : o.artist + (o.year ? ", " + o.year : ""))
+    : plural(o.tracks, "song");
+  return `<a class="card sq${round ? " round" : ""}" href="${href}">
+    <span class="frame${o.art ? "" : " noimg"}">${frameImg(o.art, "", kind === "album" ? o.title : o.name)}</span>
+    <span class="t1">${esc(kind === "album" ? (o.title === "Singles" ? o.artist : o.title) : o.name)}</span>
+    <span class="t2">${esc(sub)}</span></a>`;
+}
+function videoCard(v) {
+  return `<button class="card wide" data-play-mv="${esc(v.id)}">
+    <span class="frame">${frameImg(v.thumb, "", v.title)}<span class="play-glyph">${icon("i-play")}</span></span>
+    <span class="t1">${esc(v.title)}</span><span class="t2">${esc(v.artist)}${v.duration ? ", " + durText(v.duration) : ""}</span></button>`;
+}
+function trackRows(list, opts) {
+  opts = opts || {};
+  const cur = MusicPlayer.currentId();
+  return `<ol class="tracks" data-list="${esc(list.map(t => t.id).join(","))}">${list.map((t, i) => `
+    <li class="track${t.id === cur ? " playing" : ""}" data-mplay="${esc(t.id)}" data-idx="${i}" tabindex="0">
+      <span class="num">${opts.numbers ? (t.n || i + 1) : i + 1}</span>
+      <span class="art">${t.art ? `<img src="${esc(artSrc(t.art))}" alt="" loading="lazy">` : ""}</span>
+      <span class="name"><b>${esc(t.title)}</b><span>${esc(t.artist)}</span></span>
+      <span class="alb">${esc(t.album === "Singles" ? "Single" : t.album)}</span>
+      <span class="dur">${esc(durText(t.duration))}</span>
+      <button class="heart" data-mlike="${esc(t.id)}" aria-pressed="${likes.has(t.id)}" aria-label="${likes.has(t.id) ? "Unlike" : "Like"} ${esc(t.title)}">♥</button>
+    </li>`).join("")}</ol>`;
+}
+function stations() {
+  const count = (key) => {
+    const m = new Map();
+    MUSIC.tracks.forEach(t => { const v = t[key]; if (v) m.set(v, (m.get(v) || 0) + 1); });
+    return [...m.entries()].filter(([, n]) => n >= 3).sort((a, b) => b[1] - a[1]).slice(0, 8);
+  };
+  const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
+  return [`<button class="station" data-station="all">Shuffle everything <small>${MUSIC.tracks.length}</small></button>`]
+    .concat(likes.size ? [`<button class="station" data-station="liked">Your likes <small>${likes.size}</small></button>`] : [])
+    .concat(count("genre").map(([g, n]) => `<button class="station" data-station="genre:${esc(g)}">${esc(cap(g))} <small>${n}</small></button>`))
+    .concat(count("mood").map(([m, n]) => `<button class="station" data-station="mood:${esc(m)}">${esc(cap(m))} <small>${n}</small></button>`))
+    .join("");
+}
+function startStation(key) {
+  let pool = MUSIC.tracks.slice();
+  let name = "Shuffle everything";
+  if (key === "liked") { pool = pool.filter(t => likes.has(t.id)); name = "Your likes"; }
+  else if (key.startsWith("genre:")) { const g = key.slice(6); pool = pool.filter(t => t.genre === g); name = g; }
+  else if (key.startsWith("mood:")) { const m = key.slice(5); pool = pool.filter(t => t.mood === m); name = m; }
+  // Liked songs come up a little sooner (Edge Music's station weighting, simplified).
+  const scored = pool.map(t => ({ t, r: Math.random() + (likes.has(t.id) ? 0.35 : 0) })).sort((a, b) => b.r - a.r).map(x => x.t);
+  MusicPlayer.play(scored.map(t => t.id), 0, name + " station");
+}
+function viewMusic(rest) {
+  setGlow("");
+  if (!MUSIC) { loadMusic(); return `<section class="page"><div class="page-head"><h1>Music</h1></div><p class="count">Loading…</p></section>`; }
+  const [sub, id] = [rest[0], rest.slice(1).join("/")];
+  if (sub === "album") return viewAlbum(mById.get(id));
+  if (sub === "artist") return viewArtist(mById.get(id));
+  if (sub) musicTab = sub;
+  prefs.set("musicTab", musicTab);
+  const tabs = [["home", "For you"], ["albums", "Albums"], ["artists", "Artists"], ["songs", "Songs"], ["videos", "Videos"], ["liked", "Liked"]];
+  const head = `<div class="page-head"><h1>Music</h1><span class="count">${plural(MUSIC.tracks.length, "song")}, ${plural(MUSIC.videos.length, "video")}</span></div>
+    <div class="chips music-tabs" role="tablist">${tabs.map(([k, l]) => `<button role="tab" data-mtab="${k}" aria-pressed="${k === musicTab}">${l}</button>`).join("")}</div>`;
+  if (!MUSIC.tracks.length && !MUSIC.videos.length) {
+    return `<section class="page">${head}<p class="count" style="max-width:60ch">No music yet. Drop songs into the Inbox (or <b>Inbox/Music</b>) and music videos into <b>Inbox/Music Videos</b>.</p></section>`;
+  }
+  let body = "";
+  const albumsReal = MUSIC.albums.filter(a => a.title !== "Singles");
+  if (musicTab === "albums") body = `<div class="squares">${MUSIC.albums.map(a => squareCard("album", a)).join("")}</div>`;
+  else if (musicTab === "artists") body = `<div class="squares">${MUSIC.artists.map(a => squareCard("artist", a)).join("")}</div>`;
+  else if (musicTab === "songs") body = `<div class="actions" style="margin-bottom:14px"><button class="btn primary" data-mplay-list="all">${icon("i-play")}Play all</button><button class="btn" data-station="all">${icon("i-shuffle")}Shuffle</button></div></section>` + trackRows(MUSIC.tracks) + "<section>";
+  else if (musicTab === "videos") body = `<div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(280px,1fr))">${MUSIC.videos.map(videoCard).join("")}</div>`;
+  else if (musicTab === "liked") {
+    const liked = [...likes].map(id => mById.get(id)).filter(Boolean);
+    body = liked.length ? `<div class="actions" style="margin-bottom:14px"><button class="btn primary" data-station="liked">${icon("i-play")}Play your likes</button></div></section>` + trackRows(liked) + "<section>"
+      : `<p class="count">Tap ♥ on a song to keep it here.</p>`;
+  } else {
+    const rec = recent.map(id => mById.get(id)).filter(Boolean).slice(0, 14);
+    const newest = MUSIC.albums.slice().sort((a, b) => b.added - a.added).slice(0, 12);
+    body = `<div class="station-row">${stations()}</div></section>` +
+      rail("Played recently", "squares-rail", rec.map(t => `<button class="card sq" data-mplay-one="${esc(t.id)}"><span class="frame${t.art ? "" : " noimg"}">${frameImg(t.art, "", t.title)}<span class="play-glyph">${icon("i-play")}</span></span><span class="t1">${esc(t.title)}</span><span class="t2">${esc(t.artist)}</span></button>`)) +
+      rail("Albums", "squares-rail", albumsReal.map(a => squareCard("album", a)), "#/music/albums") +
+      rail("Artists", "squares-rail", MUSIC.artists.map(a => squareCard("artist", a)), "#/music/artists") +
+      rail("Music videos", "wide", MUSIC.videos.map(videoCard), "#/music/videos") +
+      rail("New", "squares-rail", newest.map(a => squareCard("album", a))) + "<section>";
+  }
+  return `<section class="page">${head}${body}</section>`;
+}
+function viewAlbum(a) {
+  if (!a || !a.tracks) return viewMissing();
+  const list = a.tracks.map(id => mById.get(id)).filter(Boolean);
+  const total = list.reduce((s, t) => s + (t.duration || 0), 0);
+  setGlow(a.art);
+  return `<section class="album-head"><div class="cover">${a.art ? `<img src="${esc(artSrc(a.art))}" alt="">` : ""}</div>
+    <div><p class="kind">${a.title === "Singles" ? "Singles" : list.length <= 3 ? "EP" : "Album"}</p>
+    <h1>${esc(a.title === "Singles" ? a.artist : a.title)}</h1>
+    <p class="facts"><a href="#/music/artist/${encodeURIComponent(a.artist_id)}">${esc(a.artist)}</a>${a.year ? `<span>${a.year}</span>` : ""}<span>${plural(list.length, "song")}, ${Math.round(total / 60)} min</span></p>
+    <div class="actions"><button class="btn primary" data-mplay-list="${esc(a.id)}">${icon("i-play")}Play</button>
+      <button class="btn" data-mshuffle-list="${esc(a.id)}">${icon("i-shuffle")}Shuffle</button></div></div></section>
+    <div style="margin-top:20px">${trackRows(list, { numbers: true })}</div>`;
+}
+function viewArtist(ar) {
+  if (!ar || ar.tracks === undefined) return viewMissing();
+  const albums = MUSIC.albums.filter(a => a.artist_id === ar.id);
+  const list = MUSIC.tracks.filter(t => t.artist_id === ar.id);
+  const vids = MUSIC.videos.filter(v => v.artist_id === ar.id);
+  setGlow(ar.art);
+  return `<section class="album-head"><div class="cover round">${ar.art ? `<img src="${esc(artSrc(ar.art))}" alt="">` : ""}</div>
+    <div><p class="kind">Artist</p><h1>${esc(ar.name)}</h1>
+    <p class="facts"><span>${plural(list.length, "song")}</span>${vids.length ? `<span>${plural(vids.length, "video")}</span>` : ""}</p>
+    <div class="actions"><button class="btn primary" data-mplay-list="${esc(ar.id)}">${icon("i-play")}Play</button>
+      <button class="btn" data-mshuffle-list="${esc(ar.id)}">${icon("i-shuffle")}Shuffle</button></div></div></section>
+    ${rail("Albums", "squares-rail", albums.map(a => squareCard("album", a)))}
+    ${vids.length ? rail("Videos", "wide", vids.map(videoCard)) : ""}
+    <section class="row"><div class="row-head"><h2>Songs</h2></div></section>${trackRows(list)}`;
+}
+function listFor(id) {
+  if (id === "all") return MUSIC.tracks.map(t => t.id);
+  const o = mById.get(id);
+  if (!o) return [];
+  if (o.tracks && Array.isArray(o.tracks)) return o.tracks.slice();
+  return MUSIC.tracks.filter(t => t.artist_id === id).map(t => t.id);
+}
+function setLike(id, on) {
+  if (on) likes.add(id); else likes.delete(id);
+  api("/api/music/like/" + encodeURIComponent(id), { on }).catch(() => {});
+  document.querySelectorAll(`[data-mlike="${CSS.escape(id)}"], .mbar [data-m="like"]`).forEach(b => {
+    if (b.dataset.mlike === id || (b.dataset.m === "like" && MusicPlayer.currentId() === id)) b.setAttribute("aria-pressed", on);
+  });
+}
+
+const MusicPlayer = (function () {
+  const audio = $("#music"), bar = $("#mbar"), qpanel = $("#qpanel"), sleepMenu = $("#sleepMenu");
+  const seek = $(".line input", bar), cur = $(".cur", bar), dur = $(".dur", bar), vol = $('[data-m="volume"]', bar);
+  let queue = [], idx = -1, order = [], shuffle = prefs.get("mShuffle", false), repeat = prefs.get("mRepeat", "off");
+  let label = "", sleepAt = 0, sleepEnd = false, sleepTimer = 0, seeking = false;
+  audio.volume = prefs.get("mVolume", 1); vol.value = audio.volume;
+
+  const current = () => (idx >= 0 ? mById.get(queue[order[idx]]) : null);
+  function buildOrder(startPos) {
+    order = queue.map((_, i) => i);
+    if (shuffle) {
+      const first = order.splice(startPos, 1)[0];
+      for (let i = order.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [order[i], order[j]] = [order[j], order[i]]; }
+      order.unshift(first);
+      return 0;
+    }
+    return startPos;
+  }
+  async function load(autoplay) {
+    const t = current();
+    if (!t) return;
+    let url = "/media/" + encodeURIComponent(t.id) + "/file";
+    try { const p = await api("/api/play/" + encodeURIComponent(t.id)); url = p.url; } catch (e) {}
+    audio.src = url;
+    if (autoplay) audio.play().catch(() => {});
+    api("/api/music/played/" + encodeURIComponent(t.id), {}).catch(() => {});
+    recent = [t.id].concat(recent.filter(x => x !== t.id)).slice(0, 60);
+    paintNow(); save();
+    if ("mediaSession" in navigator) {
+      navigator.mediaSession.metadata = new MediaMetadata({ title: t.title, artist: t.artist, album: t.album === "Singles" ? "" : t.album,
+        artwork: t.art ? [{ src: location.origin + artSrc(t.art), sizes: "512x512", type: "image/jpeg" }] : [] });
+    }
+  }
+  function play(ids, start, name) {
+    if (!ids.length) return;
+    if (window.SofaVideoOpen && window.SofaVideoOpen()) return;
+    queue = ids.slice(); label = name || ""; idx = buildOrder(Math.max(0, start || 0));
+    bar.hidden = false; document.body.classList.add("has-bar");
+    load(true);
+  }
+  function step(n, auto) {
+    if (!queue.length) return;
+    if (auto && repeat === "one") { audio.currentTime = 0; audio.play().catch(() => {}); return; }
+    if (sleepEnd && auto) { stopSleep(); audio.pause(); return; }
+    let next = idx + n;
+    if (next >= order.length) { if (repeat === "all" || !auto) next = 0; else { audio.pause(); return; } }
+    if (next < 0) next = 0;
+    if (n < 0 && audio.currentTime > 4) { audio.currentTime = 0; return; }
+    idx = next; load(true);
+  }
+  function paintNow() {
+    const t = current();
+    if (!t) return;
+    $(".now .art", bar).innerHTML = t.art ? `<img src="${esc(artSrc(t.art))}" alt="">` : "";
+    $(".now b", bar).textContent = t.title;
+    $(".now div span", bar).textContent = t.artist + (label ? ", " + label : "");
+    $('[data-m="like"]', bar).setAttribute("aria-pressed", likes.has(t.id));
+    $('[data-m="shuffle"]', bar).setAttribute("aria-pressed", shuffle);
+    $('[data-m="repeat"]', bar).setAttribute("aria-pressed", repeat !== "off");
+    $('[data-m="repeat"]', bar).setAttribute("aria-label", repeat === "one" ? "Repeat this song" : repeat === "all" ? "Repeat all" : "Repeat off");
+    document.querySelectorAll(".track").forEach(r => r.classList.toggle("playing", r.dataset.mplay === t.id));
+    if (!qpanel.hidden) paintQueue();
+  }
+  function paintPlay() {
+    $('[data-m="toggle"] use', bar).setAttribute("href", audio.paused ? "#i-play" : "#i-pause");
+    $('[data-m="toggle"]', bar).setAttribute("aria-label", audio.paused ? "Play" : "Pause");
+    if ("mediaSession" in navigator) navigator.mediaSession.playbackState = audio.paused ? "paused" : "playing";
+  }
+  function paintQueue() {
+    const upcoming = order.slice(idx).map(i => mById.get(queue[i])).filter(Boolean);
+    qpanel.innerHTML = `<h3>Up next${label ? ": " + esc(label) : ""}</h3>` + (upcoming.length
+      ? upcoming.map((t, k) => `<div class="track${k === 0 ? " playing" : ""}" data-qjump="${idx + k}"><span class="art">${t.art ? `<img src="${esc(artSrc(t.art))}" alt="" loading="lazy">` : ""}</span>
+        <span class="name"><b>${esc(t.title)}</b><span>${esc(t.artist)}</span></span><span class="dur">${esc(durText(t.duration))}</span></div>`).join("")
+      : `<p class="count">Nothing queued.</p>`);
+  }
+  function save() { prefs.set("mState", { queue, idx, order, label, t: audio.currentTime || 0 }); }
+  function restore() {
+    const s = prefs.get("mState", null);
+    if (!s || !s.queue || !s.queue.length || !MUSIC) return;
+    queue = s.queue.filter(id => mById.has(id));
+    if (!queue.length) return;
+    order = s.order && s.order.length === s.queue.length ? s.order : queue.map((_, i) => i);
+    idx = Math.min(s.idx, order.length - 1); label = s.label || "";
+    bar.hidden = false; document.body.classList.add("has-bar");
+    load(false).then(() => { audio.addEventListener("loadedmetadata", () => { if (s.t) audio.currentTime = s.t; }, { once: true }); });
+  }
+  function stopSleep() { clearTimeout(sleepTimer); sleepAt = 0; sleepEnd = false; $('[data-m="sleep"]', bar).innerHTML = icon("i-moon"); }
+  function setSleep(min) {
+    stopSleep();
+    if (min === "end") { sleepEnd = true; $('[data-m="sleep"]', bar).textContent = "End of song"; return; }
+    if (!min) return;
+    sleepAt = Date.now() + min * 60000;
+    sleepTimer = setTimeout(() => { audio.pause(); stopSleep(); }, min * 60000);
+    $('[data-m="sleep"]', bar).textContent = min + " min";
+  }
+
+  audio.addEventListener("timeupdate", () => {
+    if (!seeking && audio.duration) seek.value = Math.round((audio.currentTime / audio.duration) * 1000);
+    cur.textContent = clock(audio.currentTime); dur.textContent = clock(audio.duration || (current() || {}).duration || 0);
+    if ("mediaSession" in navigator && audio.duration && navigator.mediaSession.setPositionState) {
+      try { navigator.mediaSession.setPositionState({ duration: audio.duration, position: audio.currentTime, playbackRate: 1 }); } catch (e) {}
+    }
+    if (Math.floor(audio.currentTime) % 10 === 0) save();
+  });
+  audio.addEventListener("play", paintPlay);
+  audio.addEventListener("pause", () => { paintPlay(); save(); });
+  audio.addEventListener("ended", () => step(1, true));
+  audio.addEventListener("error", () => { if (audio.getAttribute("src")) setTimeout(() => step(1, true), 1500); });
+  seek.addEventListener("input", () => { seeking = true; });
+  seek.addEventListener("change", () => { if (audio.duration) audio.currentTime = (seek.value / 1000) * audio.duration; seeking = false; });
+  vol.addEventListener("input", () => { audio.volume = +vol.value; audio.muted = false; prefs.set("mVolume", audio.volume); });
+  if ("mediaSession" in navigator) {
+    const h = (a, f) => { try { navigator.mediaSession.setActionHandler(a, f); } catch (e) {} };
+    h("play", () => audio.play()); h("pause", () => audio.pause());
+    h("previoustrack", () => step(-1)); h("nexttrack", () => step(1));
+    h("seekto", d => { if (d.seekTime != null) audio.currentTime = d.seekTime; });
+  }
+  bar.addEventListener("click", e => {
+    const b = e.target.closest("[data-m]"); if (!b) return;
+    const a = b.dataset.m;
+    if (a === "toggle") { if (audio.paused) audio.play().catch(() => {}); else audio.pause(); }
+    else if (a === "next") step(1);
+    else if (a === "prev") step(-1);
+    else if (a === "shuffle") {
+      shuffle = !shuffle; prefs.set("mShuffle", shuffle);
+      const playing = order[idx]; idx = shuffle ? buildOrder(playing) : playing;
+      if (!shuffle) order = queue.map((_, i) => i);
+      paintNow();
+    }
+    else if (a === "repeat") { repeat = { off: "all", all: "one", one: "off" }[repeat]; prefs.set("mRepeat", repeat); paintNow(); }
+    else if (a === "like") { const t = current(); if (t) setLike(t.id, !likes.has(t.id)); }
+    else if (a === "queue") { sleepMenu.hidden = true; qpanel.hidden = !qpanel.hidden; if (!qpanel.hidden) paintQueue(); }
+    else if (a === "mute") { audio.muted = !audio.muted; $("use", b).setAttribute("href", audio.muted ? "#i-mute" : "#i-vol"); }
+    else if (a === "sleep") {
+      qpanel.hidden = true;
+      sleepMenu.innerHTML = [[0, sleepAt || sleepEnd ? "Turn off sleep timer" : "No sleep timer"], [15, "In 15 minutes"], [30, "In 30 minutes"], [60, "In 1 hour"], ["end", "At the end of this song"]]
+        .map(([v, l]) => `<button data-sleep="${v}">${l}</button>`).join("");
+      sleepMenu.hidden = !sleepMenu.hidden;
+    }
+  });
+  qpanel.addEventListener("click", e => { const r = e.target.closest("[data-qjump]"); if (r) { idx = +r.dataset.qjump; load(true); } });
+  sleepMenu.addEventListener("click", e => { const b = e.target.closest("[data-sleep]"); if (!b) return; const v = b.dataset.sleep; setSleep(v === "end" ? "end" : +v); sleepMenu.hidden = true; });
+  return { play, restore, currentId: () => (current() || {}).id || null, pause: () => audio.pause() };
 })();
 
 /* ---------- boot ---------- */
@@ -972,9 +1300,11 @@ async function boot() {
   $("#nav").hidden = $("#searchBox").hidden = $("#who").hidden = false;
   $("#navServer").hidden = !session.user.admin;
   $("#whoName").textContent = session.user.name;
+  $("#signOut").textContent = session.user.guest ? "Leave" : "Sign out";
   view.innerHTML = "";
   await reloadLibrary();
   route();
+  loadMusic().then(() => MusicPlayer.restore());
   // Pick up new episodes while the page stays open.
   if (!refreshing) refreshing = setInterval(async () => {
     if (Player.isOpen()) return;

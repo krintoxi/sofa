@@ -39,7 +39,7 @@ def main(argv):
         return 0
     cmd, rest = argv[0], argv[1:]
     config.load()
-    for key in ("shows", "movies", "inbox"):
+    for key in ("shows", "movies", "music", "musicvideos", "inbox"):
         os.makedirs(config.path(key), exist_ok=True)
 
     if cmd == "serve":
@@ -59,7 +59,7 @@ def main(argv):
     elif cmd == "inbox":
         organizer.SETTLE_SECONDS = 0
         organizer.process_inbox()          # first look records sizes
-        print("Filed %d video(s)." % organizer.process_inbox())
+        print("Filed %d item(s)." % organizer.process_inbox())
         for a in store.recent_activity(10, kinds={"inbox", "review"}):
             print(" -", a["message"])
     elif cmd in ("adduser", "passwd"):

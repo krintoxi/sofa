@@ -5,6 +5,8 @@ downloads are never touched). Then every video in it is identified:
 
 * episodes  -> Shows/<Show>/Season N/<Show> SxxEyy <Title>.ext
 * movies    -> Movies/<Title (Year)>/<Title (Year)>.ext
+* songs     -> Music/<Artist>/<Album>/<NN Title>.ext   (from the file's tags, or "Artist - Title")
+* anything in Inbox/Music Videos/ -> Music Videos/<Artist>/<Title>.ext
 * anything Sofa can't identify, and duplicates, go to Needs Review/ with a note
   on the admin page. Nothing is ever deleted.
 """
@@ -13,12 +15,13 @@ import re
 import shutil
 import time
 
-from . import config, metadata, naming, store
+from . import config, media, metadata, music, naming, store
 
 SETTLE_SECONDS = 30
 
 
 _seen = {}   # entry path -> (size, newest mtime) at the last look
+DROP_FOLDERS = {"music videos": "musicvideo", "music": "music"}   # permanent folders inside the Inbox
 
 
 def _footprint(path):
@@ -60,11 +63,20 @@ def process_inbox():
     """Handle every settled inbox entry. Returns how many videos were filed."""
     inbox = config.path("inbox")
     os.makedirs(inbox, exist_ok=True)
-    filed = 0
+    for folder in ("Music", "Music Videos"):
+        os.makedirs(os.path.join(inbox, folder), exist_ok=True)
+    entries = []
     for name in sorted(os.listdir(inbox)):
         if name.startswith("."):
             continue
-        entry = os.path.join(inbox, name)
+        hint = DROP_FOLDERS.get(name.lower())
+        if hint and os.path.isdir(os.path.join(inbox, name)):
+            entries += [(os.path.join(inbox, name, n), hint) for n in sorted(os.listdir(os.path.join(inbox, name)))
+                        if not n.startswith(".")]
+        else:
+            entries.append((os.path.join(inbox, name), None))
+    filed = 0
+    for entry, hint in entries:
         if _still_arriving(entry):
             _seen.pop(entry, None)
             continue
@@ -73,27 +85,34 @@ def process_inbox():
             _seen[entry] = (size, newest)
             continue
         _seen.pop(entry, None)
-        filed += _handle(entry)
+        filed += _handle(entry, hint)
     return filed
 
 
-def _handle(entry):
+def _handle(entry, hint=None):
+    wanted = naming.VIDEO_EXT | music.AUDIO_EXT
     videos = []
     if os.path.isfile(entry):
-        if os.path.splitext(entry)[1].lower() in naming.VIDEO_EXT:
+        if os.path.splitext(entry)[1].lower() in wanted:
             videos.append(entry)
     else:
         for d, dirs, files in os.walk(entry):
             dirs[:] = [x for x in dirs if not x.startswith(".")]
             for f in files:
-                if os.path.splitext(f)[1].lower() in naming.VIDEO_EXT and not f.startswith("._"):
+                if os.path.splitext(f)[1].lower() in wanted and not f.startswith("._"):
                     videos.append(os.path.join(d, f))
     filed = 0
     for v in sorted(videos):
-        if _is_sample(v):
+        is_audio = os.path.splitext(v)[1].lower() in music.AUDIO_EXT
+        if not is_audio and _is_sample(v):
             continue
         try:
-            filed += 1 if _file_video(v, entry) else 0
+            if is_audio:
+                filed += 1 if _file_song(v) else 0
+            elif hint == "musicvideo":
+                filed += 1 if _file_music_video(v, entry) else 0
+            else:
+                filed += 1 if _file_video(v, entry) else 0
         except OSError as exc:
             store.log("review", "Couldn't move %s: %s" % (os.path.basename(v), exc), {"file": v})
     _sweep_leftovers(entry)
@@ -191,6 +210,45 @@ def _file_video(video, entry):
     folder = naming.safe_filename("%s (%d)" % (title, year))
     dest = os.path.join(config.path("movies"), folder, folder + ext.lower())
     return _move(video, dest, "Added %s to Movies" % folder)
+
+
+def _file_song(path):
+    stem, ext = os.path.splitext(os.path.basename(path))
+    tags = (media.probe(path) or {}).get("tags") or {}
+    artist = (tags.get("album_artist") or tags.get("artist") or "").strip()
+    title = (tags.get("title") or "").strip()
+    if not artist and " - " in stem:
+        artist, _, title = stem.partition(" - ")
+        artist, title = artist.strip(), music._clean_title(title)
+    if not artist:
+        return _to_review(path, "Couldn't tell who this song is by. Add artist tags, or name it like "
+                                "\"Artist - Title.mp3\", then drop it in the Inbox again.", sub="Music")
+    title = title or music._clean_title(stem)
+    root = config.path("music")
+    existing = next((d for d in (os.listdir(root) if os.path.isdir(root) else [])
+                     if naming.norm(d) == naming.norm(artist)), None)
+    artist_dir = existing or naming.safe_filename(artist)
+    album = (tags.get("album") or "").strip()
+    n = music._num(tags.get("track"))
+    name = naming.safe_filename(("%02d %s" % (n, title)) if n else title)
+    folder = os.path.join(root, artist_dir, naming.safe_filename(album)) if album else os.path.join(root, artist_dir)
+    return _move(path, os.path.join(folder, name + ext.lower()), "Added %s by %s to Music" % (title, artist_dir))
+
+
+def _file_music_video(path, entry):
+    stem, ext = os.path.splitext(os.path.basename(path))
+    parent = os.path.basename(os.path.dirname(path))
+    if " - " in stem:
+        artist, _, title = stem.partition(" - ")
+    elif os.path.isdir(entry) and parent.lower() not in DROP_FOLDERS:
+        artist, title = parent, stem
+    else:
+        return _to_review(path, "Name music videos like \"Artist - Title.mp4\" (or put them in a folder named "
+                                "after the artist inside Inbox/Music Videos).", sub="Music Videos")
+    title = re.sub(r"\s*[\(\[](official|music|lyric|hd|4k)[^\)\]]*[\)\]]", "", title, flags=re.I).strip()
+    artist, title = naming.safe_filename(artist.strip()), naming.safe_filename(title)
+    dest = os.path.join(config.path("musicvideos"), artist, title + ext.lower())
+    return _move(path, dest, "Added the %s video \"%s\" to Music Videos" % (artist, title))
 
 
 def _move(src, dest, message):

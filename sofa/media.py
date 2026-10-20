@@ -18,6 +18,7 @@ import time
 
 from . import config, store
 
+PROBE_VERSION = 2          # bump when probe() starts recording something new; older cache rows are re-read
 _streams = {}
 _streams_lock = threading.Lock()
 _transcode_slots = None
@@ -57,7 +58,9 @@ def probe(path, cached_only=False):
         return None
     row = store.q1("SELECT size, mtime, info FROM probes WHERE path = ?", path)
     if row and row["size"] == st.st_size and row["mtime"] == int(st.st_mtime):
-        return json.loads(row["info"])
+        info = json.loads(row["info"])
+        if info.get("v") == PROBE_VERSION:
+            return info
     if cached_only:
         return None
     exe = tool("ffprobe")
@@ -70,9 +73,19 @@ def probe(path, cached_only=False):
     except (OSError, ValueError, subprocess.SubprocessError):
         return None
     streams = raw.get("streams", [])
+    fmt = raw.get("format") or {}
+    tags = {k.lower(): v for k, v in (fmt.get("tags") or {}).items()}
+    for st_ in streams:   # some formats (Ogg, FLAC in Matroska) keep tags on the audio stream
+        if st_.get("codec_type") == "audio":
+            for k, v in (st_.get("tags") or {}).items():
+                tags.setdefault(k.lower(), v)
     info = {
-        "duration": float((raw.get("format") or {}).get("duration") or 0),
-        "container": (raw.get("format") or {}).get("format_name", ""),
+        "v": PROBE_VERSION,
+        "tags": {k: tags[k] for k in ("title", "artist", "album_artist", "album", "track", "disc", "date", "genre")
+                 if k in tags},
+        "art": any((s_.get("disposition") or {}).get("attached_pic") for s_ in streams),
+        "duration": float(fmt.get("duration") or 0),
+        "container": fmt.get("format_name", ""),
         "video": next(({"codec": s.get("codec_name"), "width": s.get("width"), "height": s.get("height"),
                         "index": s["index"]} for s in streams
                        if s.get("codec_type") == "video" and not (s.get("disposition") or {}).get("attached_pic")), None),
@@ -133,6 +146,9 @@ def stream_command(item, mode, start, info, fmt="mp4", out="pipe:1"):
     cmd = [exe, "-hide_banner", "-loglevel", "error", "-nostdin"]
     if start > 0:
         cmd += ["-ss", "%.3f" % start]
+    if mode == "audio":   # music in a format the browser can't play: AAC in fragmented MP4
+        return cmd + ["-i", item["path"], "-map", "0:a:0", "-vn", "-sn", "-dn", "-c:a", "aac", "-b:a", "256k",
+                      "-movflags", "frag_keyframe+empty_moov+default_base_moof", "-f", "mp4", out]
     cmd += ["-i", item["path"], "-map", "0:v:0?", "-map", "0:a:0?", "-sn", "-dn"]
     audio = (info or {}).get("audio") or []
     a = audio[0]["codec"] if audio else None
@@ -360,3 +376,37 @@ def subtitle_vtt(item, track, offset):
             return to_vtt(f.read(), offset)
     except OSError:
         return "WEBVTT\n"
+
+
+def extract_art(path, dest):
+    """Save a file's embedded cover picture (MP3/M4A/FLAC artwork) as a JPEG. True on success."""
+    exe = tool("ffmpeg")
+    if not exe:
+        return False
+    tmp = dest + ".part.jpg"
+    try:
+        subprocess.run([exe, "-hide_banner", "-loglevel", "error", "-y", "-i", path, "-map", "0:v:0", "-frames:v", "1",
+                        "-vf", "scale='min(800,iw)':-2", "-q:v", "3", tmp], timeout=60, check=True)
+        os.replace(tmp, dest)
+        return True
+    except (OSError, subprocess.SubprocessError):
+        if os.path.exists(tmp):
+            os.remove(tmp)
+        return False
+
+
+def extract_frame(path, dest, at=12.0):
+    """A still from a video (for music videos without a thumbnail)."""
+    exe = tool("ffmpeg")
+    if not exe:
+        return False
+    tmp = dest + ".part.jpg"
+    try:
+        subprocess.run([exe, "-hide_banner", "-loglevel", "error", "-y", "-ss", "%.1f" % at, "-i", path,
+                        "-frames:v", "1", "-vf", "scale='min(1280,iw)':-2", "-q:v", "4", tmp], timeout=60, check=True)
+        os.replace(tmp, dest)
+        return True
+    except (OSError, subprocess.SubprocessError):
+        if os.path.exists(tmp):
+            os.remove(tmp)
+        return False
