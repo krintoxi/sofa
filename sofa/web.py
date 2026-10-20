@@ -1,0 +1,619 @@
+"""HTTP: the web app, its JSON API, media streaming, artwork and DLNA."""
+import email.utils
+import html
+import json
+import os
+import platform
+import re
+import shutil
+import sys
+import time
+from http.cookies import SimpleCookie
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs, unquote, urlsplit
+
+from . import __version__, auth, backup, config, dlna, live, media, organizer, store
+from .library import LIBRARY
+
+CLIENT_DIR = os.path.join(config.APP_DIR, "client")
+STARTED = time.time()
+MIME = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css",
+        ".json": "application/json", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+        ".svg": "image/svg+xml", ".webp": "image/webp", ".vtt": "text/vtt; charset=utf-8", ".ico": "image/x-icon",
+        ".mp4": "video/mp4", ".m4v": "video/mp4", ".mov": "video/quicktime", ".mkv": "video/x-matroska",
+        ".webm": "video/webm", ".avi": "video/x-msvideo"}
+HOME_NETS = ("local", "lan", "tailnet")
+
+
+class Handler(BaseHTTPRequestHandler):
+    server_version = "Sofa/%s" % __version__
+    protocol_version = "HTTP/1.1"
+
+    def log_message(self, fmt, *args):
+        if os.environ.get("SOFA_DEBUG"):
+            sys.stderr.write("%s %s\n" % (self.client_ip(), fmt % args))
+
+    # ------------------------------------------------------------ request context
+
+    def client_ip(self):
+        peer = self.client_address[0]
+        if config.get("trust_proxy") and auth.network_of(peer) == "local":
+            fwd = self.headers.get("X-Forwarded-For", "")
+            if fwd:
+                return fwd.split(",")[0].strip()
+        return peer
+
+    def is_https(self):
+        return config.get("trust_proxy") and self.headers.get("X-Forwarded-Proto") == "https"
+
+    def token(self):
+        c = SimpleCookie(self.headers.get("Cookie", ""))
+        return c[auth.SESSION_COOKIE].value if auth.SESSION_COOKIE in c else None
+
+    def setup(self):
+        super().setup()
+        self._user = False
+
+    def user(self):
+        if self._user is False:
+            self._user = auth.session_user(self.token())
+        return self._user
+
+    def host_header(self):
+        return "%s:%d" % (self.connection.getsockname()[0], config.get("port"))
+
+    # ------------------------------------------------------------ responses
+
+    def send_body(self, data, ctype="text/plain; charset=utf-8", status=200, headers=None):
+        if isinstance(data, str):
+            data = data.encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("X-Content-Type-Options", "nosniff")
+        for k, v in (headers or {}).items():
+            self.send_header(k, v)
+        self.end_headers()
+        if self.command != "HEAD":
+            self.wfile.write(data)
+
+    def json(self, obj, status=200, headers=None):
+        h = {"Cache-Control": "no-store"}
+        h.update(headers or {})
+        self.send_body(json.dumps(obj, separators=(",", ":")), "application/json", status, h)
+
+    def error(self, status, message):
+        self.json({"error": message}, status)
+
+    def body_json(self):
+        length = int(self.headers.get("Content-Length") or 0)
+        if length > 65536:
+            return None
+        try:
+            return json.loads(self.rfile.read(length) or b"{}")
+        except ValueError:
+            return None
+
+    def session_cookie(self, token, max_age):
+        parts = ["%s=%s" % (auth.SESSION_COOKIE, token), "Path=/", "HttpOnly", "SameSite=Lax", "Max-Age=%d" % max_age]
+        if self.is_https():
+            parts.append("Secure")
+        return "; ".join(parts)
+
+    # ------------------------------------------------------------ gatekeeping
+
+    def network(self):
+        return auth.network_of(self.client_ip())
+
+    def gate(self):
+        """False (after replying) when this connection isn't allowed at all."""
+        self._user = False   # connections are reused; look the user up again for every request
+        if not auth.allowed_network(self.network()):
+            self.send_body("Sofa is set to accept connections from your home network only.", status=403)
+            return False
+        return True
+
+    def need_user(self, admin=False):
+        u = self.user()
+        if not u:
+            self.error(401, "Sign in to continue.")
+            return None
+        if admin and not u["admin"]:
+            self.error(403, "Only admins can do that.")
+            return None
+        if admin and self.network() == "internet":
+            self.error(403, "Admin settings are only available from home or over Tailscale.")
+            return None
+        return u
+
+    def dlna_allowed(self):
+        return config.get("dlna") and self.network() in HOME_NETS
+
+    # ------------------------------------------------------------ methods
+
+    def do_HEAD(self):
+        self.do_GET()
+
+    def do_GET(self):
+        if not self.gate():
+            return
+        url = urlsplit(self.path)
+        path, qs = unquote(url.path), parse_qs(url.query)
+        if path == "/healthz":
+            return self.json({"ok": True, "name": config.get("name"), "version": __version__,
+                              "uptime": int(time.time() - STARTED), "library": LIBRARY.counts()})
+        if path in ("/", "/index.html"):
+            return self.static("index.html")
+        if path.startswith("/client/"):
+            return self.static(path[len("/client/"):])
+        if path.startswith("/dlna/"):
+            return self.dlna_get(path)
+        if path.startswith("/art/"):
+            return self.art(path[len("/art/"):])
+        if path.startswith("/media/"):
+            return self.media_get(path, qs)
+        if path.startswith("/live/"):
+            return self.live_get(path)
+        if path.startswith("/api/"):
+            return self.api_get(path, qs)
+        self.send_body("Not found", status=404)
+
+    def do_POST(self):
+        if not self.gate():
+            return
+        path = urlsplit(self.path).path
+        if path.startswith("/dlna/"):
+            if not self.dlna_allowed():
+                return self.send_body("Not found", status=404)
+            length = int(self.headers.get("Content-Length") or 0)
+            body = self.rfile.read(min(length, 65536)).decode("utf-8", "replace")
+            action = (self.headers.get("SOAPACTION") or "").strip('"').split("#")[-1]
+            args = {k: html.unescape(v) for k, v in re.findall(r"<(?:\w+:)?(\w+)>([^<]*)</(?:\w+:)?\1>", body)}
+            status, xml = dlna.control(path, action, args, self.host_header())
+            return self.send_body(xml, 'text/xml; charset="utf-8"', status)
+        if self.headers.get("X-Sofa") != "1":
+            return self.error(400, "Missing X-Sofa header.")
+        data = self.body_json()
+        if data is None:
+            return self.error(400, "Couldn't read the request.")
+        self.api_post(path, data)
+
+    def do_SUBSCRIBE(self):
+        self.send_response(200)
+        self.send_header("SID", "uuid:sofa-%d" % int(time.time() * 1000))
+        self.send_header("TIMEOUT", "Second-1800")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def do_UNSUBSCRIBE(self):
+        self.send_response(200)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    # ------------------------------------------------------------ static, art, files
+
+    def static(self, rel):
+        rel = os.path.normpath(rel)
+        full = os.path.join(CLIENT_DIR, rel)
+        if rel.startswith("..") or not os.path.isfile(full):
+            return self.send_body("Not found", status=404)
+        with open(full, "rb") as f:
+            data = f.read()
+        self.send_body(data, MIME.get(os.path.splitext(full)[1].lower(), "application/octet-stream"),
+                       headers={"Cache-Control": "no-cache"})
+
+    def art(self, rest):
+        if not self.user() and self.network() not in HOME_NETS:   # TVs fetch artwork without signing in
+            return self.error(401, "Sign in to continue.")
+        key, _, rel = rest.partition("/")
+        if key not in ("shows", "movies"):
+            return self.send_body("Not found", status=404)
+        root = config.path(key)
+        rel = os.path.normpath(rel)
+        full = os.path.join(root, rel)
+        if rel.startswith("..") or os.path.splitext(full)[1].lower() not in (".jpg", ".jpeg", ".png", ".webp") \
+                or not os.path.isfile(full):
+            return self.send_body("Not found", status=404)
+        self.send_file(full, cache="private, max-age=86400")
+
+    def send_file(self, full, cache=None, dlna_headers=False):
+        size = os.path.getsize(full)
+        ctype = MIME.get(os.path.splitext(full)[1].lower(), "application/octet-stream")
+        start, end = 0, size - 1
+        rng = re.match(r"bytes=(\d*)-(\d*)$", self.headers.get("Range", ""))
+        if rng and (rng.group(1) or rng.group(2)):
+            if rng.group(1):
+                start = int(rng.group(1))
+                end = min(int(rng.group(2)), size - 1) if rng.group(2) else size - 1
+            else:
+                start = max(0, size - int(rng.group(2)))
+            if start >= size or start > end:
+                self.send_response(416)
+                self.send_header("Content-Range", "bytes */%d" % size)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+            self.send_response(206)
+            self.send_header("Content-Range", "bytes %d-%d/%d" % (start, end, size))
+        else:
+            self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(end - start + 1))
+        self.send_header("Accept-Ranges", "bytes")
+        self.send_header("Last-Modified", email.utils.formatdate(os.path.getmtime(full), usegmt=True))
+        if cache:
+            self.send_header("Cache-Control", cache)
+        if dlna_headers:
+            self.send_header("transferMode.dlna.org", "Streaming")
+            self.send_header("contentFeatures.dlna.org", dlna.DLNA_FLAGS)
+        self.end_headers()
+        if self.command == "HEAD":
+            return
+        try:
+            with open(full, "rb") as f:
+                f.seek(start)
+                left = end - start + 1
+                while left > 0:
+                    chunk = f.read(min(1 << 20, left))
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+                    left -= len(chunk)
+        except (BrokenPipeError, ConnectionResetError):
+            pass   # players drop connections while seeking
+
+    def stream(self, item, mode, start, who, dlna_headers=False):
+        info = media.probe(item["path"])
+        fmt = "mpegts" if dlna_headers else "mp4"   # TVs handle MPEG-TS streams most reliably
+        self.send_response(200)
+        self.send_header("Content-Type", "video/mpeg" if fmt == "mpegts" else "video/mp4")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Connection", "close")
+        if dlna_headers:
+            self.send_header("transferMode.dlna.org", "Streaming")
+            self.send_header("contentFeatures.dlna.org", dlna.STREAM_FLAGS)
+        self.end_headers()
+        self.close_connection = True
+        if self.command == "HEAD":
+            return
+        try:
+            media.run_stream(item, mode, start, info, self.wfile, who, fmt)
+        except RuntimeError:
+            pass
+
+    # ------------------------------------------------------------ DLNA
+
+    def dlna_get(self, path):
+        if not self.dlna_allowed():
+            return self.send_body("Not found", status=404)
+        xml = 'text/xml; charset="utf-8"'
+        if path == "/dlna/device.xml":
+            return self.send_body(dlna.device_xml(self.host_header()), xml)
+        if path == "/dlna/cds.xml":
+            return self.send_body(dlna.CDS_XML, xml)
+        if path == "/dlna/cms.xml":
+            return self.send_body(dlna.CMS_XML, xml)
+        if path == "/dlna/icon.png":
+            return self.send_body(dlna.icon_png(), "image/png")
+        if path.startswith("/dlna/live/"):
+            chan = live.channel(path[len("/dlna/live/"):])
+            if not chan or not media.tool("ffmpeg"):
+                return self.send_body("Not found", status=404)
+            return self.stream({"id": "live:" + chan["id"], "path": chan["url"], "title": chan["name"]}, "remux", 0,
+                               "TV at " + self.client_ip(), dlna_headers=True)
+        if path.startswith("/dlna/media/"):
+            item = LIBRARY.item(path[len("/dlna/media/"):])
+            if not item:
+                return self.send_body("Not found", status=404)
+            who = "TV at " + self.client_ip()
+            if dlna.tv_plan(item) == "direct" or not media.tool("ffmpeg"):
+                media.note_direct(item, who)
+                return self.send_file(item["path"], dlna_headers=True)
+            mode = media.plan(item, {})["mode"]
+            return self.stream(item, "remux" if mode in ("remux", "direct") else "transcode", 0, who, dlna_headers=True)
+        self.send_body("Not found", status=404)
+
+    # ------------------------------------------------------------ live TV
+
+    def live_get(self, path):
+        u = self.need_user()
+        if not u:
+            return
+        m = re.match(r"^/live/([0-9a-f]{12})/(index\.m3u8|p/([\w.=-]+))$", path)
+        chan = live.channel(m.group(1)) if m else None
+        if not chan:
+            return self.send_body("Not found", status=404)
+        url = chan["url"] if m.group(2) == "index.m3u8" else live.unpack(m.group(3))
+        if not url:
+            return self.send_body("Not found", status=404)
+        try:
+            resp = live.open_upstream(url, chan)
+        except Exception:
+            return self.send_body("The channel didn't answer.", status=502)
+        with resp:
+            if live.is_playlist(resp, resp.geturl()):
+                text = resp.read(4 * 2**20).decode("utf-8", "replace")
+                return self.send_body(live.rewrite_playlist(text, resp.geturl(), chan["id"]),
+                                      "application/vnd.apple.mpegurl", headers={"Cache-Control": "no-cache"})
+            if m.group(2) == "index.m3u8":
+                # Not HLS (a raw MPEG-TS or MP4 feed): have ffmpeg repackage it as HLS.
+                resp.close()
+                if not media.tool("ffmpeg"):
+                    return self.send_body("This channel needs ffmpeg on the server.", status=503)
+                sid = media.hls_start({"id": "live:" + chan["id"], "path": chan["url"], "title": chan["name"]},
+                                      "remux", 0, u["name"])
+                self.send_response(302)
+                self.send_header("Location", "/media/hls/%s/index.m3u8" % sid)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", resp.headers.get("Content-Type") or "video/mp2t")
+            if resp.headers.get("Content-Length"):
+                self.send_header("Content-Length", resp.headers["Content-Length"])
+            else:
+                self.send_header("Connection", "close")
+                self.close_connection = True
+            self.send_header("Cache-Control", "no-cache")
+            self.end_headers()
+            try:
+                while True:
+                    chunk = resp.read(256 * 1024)
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+
+    # ------------------------------------------------------------ media for signed-in users
+
+    def media_get(self, path, qs):
+        u = self.need_user()
+        if not u:
+            return
+        h = re.match(r"^/media/hls/([0-9a-f]{20})/([\w.]+)$", path)
+        if h:
+            f = media.hls_file(h.group(1), h.group(2))
+            if not f:
+                return self.send_body("Not found", status=404)
+            ctype = "application/vnd.apple.mpegurl" if f.endswith(".m3u8") else "video/mp2t"
+            with open(f, "rb") as fh:
+                data = fh.read()
+            if f.endswith(".m3u8"):   # start at the beginning, not the "live" end of a playlist still being written
+                data = data.replace(b"#EXTM3U\n", b"#EXTM3U\n#EXT-X-START:TIME-OFFSET=0,PRECISE=YES\n", 1)
+            return self.send_body(data, ctype, headers={"Cache-Control": "no-cache"})
+        m = re.match(r"^/media/([^/]+)/(file|stream|subs/(\d+)\.vtt)$", path)
+        item = LIBRARY.item(m.group(1)) if m else None
+        if not item:
+            return self.send_body("Not found", status=404)
+        kind = m.group(2)
+        if kind == "file":
+            media.note_direct(item, u["name"])
+            return self.send_file(item["path"])
+        if kind == "stream":
+            mode = (qs.get("mode") or ["remux"])[0]
+            mode = mode if mode in ("remux", "transcode") else "remux"
+            start = float((qs.get("t") or ["0"])[0] or 0)
+            if not media.tool("ffmpeg"):
+                return self.error(503, "This server can't convert video yet (ffmpeg isn't installed).")
+            return self.stream(item, mode, max(0.0, start), u["name"])
+        tracks = media.subtitle_tracks(item, media.probe(item["path"]))
+        n = int(m.group(3))
+        if n >= len(tracks):
+            return self.send_body("Not found", status=404)
+        offset = float((qs.get("offset") or ["0"])[0] or 0)
+        self.send_body(media.subtitle_vtt(item, tracks[n], offset), "text/vtt; charset=utf-8",
+                       headers={"Cache-Control": "private, max-age=3600"})
+
+    # ------------------------------------------------------------ API
+
+    def api_get(self, path, qs):
+        if path == "/api/session":
+            u = self.user()
+            return self.json({"name": config.get("name"), "version": __version__, "user": u,
+                              "needs_setup": auth.user_count() == 0, "network": self.network(),
+                              "remote": config.get("remote")})
+        u = self.need_user(admin=path.startswith("/api/admin/"))
+        if not u:
+            return
+        if path == "/api/library":
+            return self.json(LIBRARY.public())
+        if path == "/api/live":
+            return self.json(live.listing(u["id"]))
+        if path == "/api/progress":
+            rows = store.q("SELECT item, t, d, done, at FROM progress WHERE user_id = ?", u["id"])
+            return self.json({r["item"]: {"t": r["t"], "d": r["d"], "done": bool(r["done"]), "at": r["at"]} for r in rows})
+        m = re.match(r"^/api/play/(.+)$", path)
+        if m:
+            item = LIBRARY.item(m.group(1))
+            if not item:
+                return self.error(404, "That video isn't in the library any more.")
+            caps = {k: (qs.get(k) or ["0"])[0] == "1" for k in ("mkv", "hevc", "ac3", "vp9")}
+            p = media.plan(item, caps)
+            base = "/media/%s/" % item["id"]
+            tracks = media.subtitle_tracks(item, p["info"])
+            out = {"mode": p["mode"], "duration": p["duration"],
+                   "url": base + ("file" if p["mode"] == "direct" else "stream?mode=" + p["mode"]),
+                   "subtitles": [{"label": t["label"] or "Subtitles", "lang": t["lang"] or "und",
+                                  "url": "%ssubs/%d.vtt" % (base, i)} for i, t in enumerate(tracks)]}
+            if p["mode"] == "unsupported":
+                out["message"] = ("This file needs converting to play here, and ffmpeg isn't installed on the "
+                                  "server yet. An admin can install it from the Server page.")
+            return self.json(out)
+        m = re.match(r"^/api/hls/(.+)$", path)
+        if m:
+            item = LIBRARY.item(m.group(1))
+            if not item:
+                return self.error(404, "That video isn't in the library any more.")
+            if not media.tool("ffmpeg"):
+                return self.error(503, "This server can't convert video yet (ffmpeg isn't installed).")
+            mode = (qs.get("mode") or ["remux"])[0]
+            try:
+                sid = media.hls_start(item, mode if mode in ("remux", "transcode") else "remux",
+                                      max(0.0, float((qs.get("t") or ["0"])[0] or 0)), u["name"],
+                                      replace=(qs.get("replace") or [None])[0])
+            except RuntimeError:
+                return self.error(503, "The server is busy converting another video. Try again in a moment.")
+            return self.json({"url": "/media/hls/%s/index.m3u8" % sid, "session": sid})
+        if path == "/api/admin/status":
+            return self.json(admin_status())
+        self.error(404, "Unknown request.")
+
+    def api_post(self, path, data):
+        ip = self.client_ip()
+        if path == "/api/setup":
+            if auth.user_count() > 0:
+                return self.error(409, "This server is already set up. Sign in instead.")
+            if self.network() not in HOME_NETS:
+                return self.error(403, "Set up Sofa from a device at home.")
+            problem = auth.validate_new(data.get("name"), data.get("password"))
+            if problem:
+                return self.error(400, problem)
+            user = auth.create_user(data["name"], data["password"], admin=True)
+            store.log("account", "Created admin account \"%s\"" % user["name"])
+            token = auth.start_session(user["id"], ip, self.headers.get("User-Agent"))
+            return self.json({"ok": True}, headers={"Set-Cookie": self.session_cookie(token, auth.SESSION_DAYS * 86400)})
+        if path == "/api/login":
+            if auth.throttled(ip):
+                return self.error(429, "Too many attempts. Wait 15 minutes and try again.")
+            row = auth.login(data.get("name"), data.get("password"), ip)
+            if not row:
+                return self.error(401, "That name and password don't match.")
+            token = auth.start_session(row["id"], ip, self.headers.get("User-Agent"))
+            store.log("login", "%s signed in from %s" % (row["name"], self.network_label()), {"ip": ip})
+            return self.json({"ok": True}, headers={"Set-Cookie": self.session_cookie(token, auth.SESSION_DAYS * 86400)})
+        if path == "/api/logout":
+            auth.end_session(self.token())
+            return self.json({"ok": True}, headers={"Set-Cookie": self.session_cookie("", 0)})
+
+        u = self.need_user(admin=path.startswith("/api/admin/"))
+        if not u:
+            return
+        m = re.match(r"^/api/progress/(.+)$", path)
+        if m:
+            item_id = m.group(1)
+            if data.get("clear"):
+                store.ex("DELETE FROM progress WHERE user_id = ? AND item = ?", u["id"], item_id)
+            else:
+                store.ex("INSERT OR REPLACE INTO progress (user_id, item, t, d, done, at) VALUES (?,?,?,?,?,?)",
+                         u["id"], item_id, float(data.get("t") or 0), float(data.get("d") or 0),
+                         1 if data.get("done") else 0, int(time.time() * 1000))
+            return self.json({"ok": True})
+        m = re.match(r"^/api/live/favorite/([0-9a-f]{12})$", path)
+        if m:
+            if data.get("on"):
+                store.ex("INSERT OR IGNORE INTO live_favorites (user_id, channel) VALUES (?,?)", u["id"], m.group(1))
+            else:
+                store.ex("DELETE FROM live_favorites WHERE user_id = ? AND channel = ?", u["id"], m.group(1))
+            return self.json({"ok": True})
+        if path == "/api/admin/live":
+            try:
+                if data.get("add"):
+                    live.add_playlist(data["add"].get("name") or "", data["add"].get("url") or "")
+                    store.log("live", "%s added the channel list \"%s\"" % (u["name"], data["add"].get("name") or data["add"].get("url")))
+                if data.get("remove"):
+                    live.remove_playlist(data["remove"])
+                    store.log("live", "%s removed a channel list" % u["name"])
+            except ValueError as exc:
+                return self.error(400, str(exc))
+            count = live.refresh(force=bool(data.get("refresh") or data.get("add")))
+            return self.json({"ok": True, "channels": count})
+        if path == "/api/admin/backup":
+            try:
+                made = backup.make("requested by %s" % u["name"])
+            except Exception as exc:
+                return self.error(500, "The backup failed: %s" % exc)
+            return self.json({"ok": True, "file": os.path.basename(made)})
+        if path == "/api/admin/scan":
+            LIBRARY.scan("requested by %s" % u["name"])
+            return self.json({"ok": True, "library": LIBRARY.counts()})
+        if path == "/api/admin/inbox":
+            filed = organizer.process_inbox()
+            return self.json({"ok": True, "filed": filed})
+        if path == "/api/admin/users":
+            problem = auth.validate_new(data.get("name"), data.get("password"))
+            if problem:
+                return self.error(400, problem)
+            try:
+                user = auth.create_user(data["name"], data["password"], admin=bool(data.get("admin")))
+            except Exception:
+                return self.error(409, "Someone already has that name.")
+            store.log("account", "%s added %s \"%s\"" % (u["name"], "admin" if data.get("admin") else "viewer", user["name"]))
+            return self.json({"ok": True})
+        m = re.match(r"^/api/admin/users/(\d+)/(password|delete)$", path)
+        if m:
+            uid = int(m.group(1))
+            target = store.q1("SELECT id, name, admin FROM users WHERE id = ?", uid)
+            if not target:
+                return self.error(404, "No such account.")
+            if m.group(2) == "password":
+                if len(data.get("password") or "") < 8:
+                    return self.error(400, "Use a password of at least 8 characters.")
+                auth.set_password(uid, data["password"])
+                store.log("account", "%s changed the password for \"%s\"" % (u["name"], target["name"]))
+                return self.json({"ok": True})
+            if uid == u["id"]:
+                return self.error(400, "You can't remove your own account.")
+            if target["admin"] and store.q1("SELECT COUNT(*) AS n FROM users WHERE admin = 1")["n"] <= 1:
+                return self.error(400, "Keep at least one admin.")
+            auth.delete_user(uid)
+            store.log("account", "%s removed \"%s\"" % (u["name"], target["name"]))
+            return self.json({"ok": True})
+        if path == "/api/admin/settings":
+            allowed = {k: data[k] for k in ("name", "dlna", "tvmaze", "tmdb_api_key", "max_transcodes") if k in data}
+            if "name" in allowed:
+                allowed["name"] = str(allowed["name"]).strip()[:40] or "Sofa"
+            config.update(allowed)
+            store.log("settings", "%s changed settings: %s" % (u["name"], ", ".join(sorted(allowed))))
+            return self.json({"ok": True, "settings": public_settings()})
+        self.error(404, "Unknown request.")
+
+    def network_label(self):
+        return {"local": "this computer", "lan": "the home network", "tailnet": "Tailscale",
+                "internet": "the internet"}[self.network()]
+
+
+def public_settings():
+    s = config.all_settings()
+    s["tmdb_api_key"] = "set" if s.get("tmdb_api_key") else ""
+    return s
+
+
+def admin_status():
+    shows_root = config.path("shows")
+    try:
+        du = shutil.disk_usage(shows_root)
+        disk = {"free": du.free, "total": du.total}
+    except OSError:
+        disk = None
+    return {
+        "server": {"name": config.get("name"), "version": __version__, "started": int(STARTED),
+                   "host": platform.node(), "python": platform.python_version(), "ffmpeg": media.ffmpeg_version(),
+                   "port": config.get("port"), "lan": dlna.lan_addresses(), "tailscale": dlna.tailscale_addresses(),
+                   "remote": config.get("remote"), "dlna": config.get("dlna")},
+        "library": dict(LIBRARY.counts(), generated=LIBRARY.generated, scanning=LIBRARY.scanning,
+                        scan_seconds=LIBRARY.last_scan_seconds, disk=disk,
+                        folders={k: config.path(k).replace(os.path.expanduser("~"), "~", 1)
+                                 for k in ("shows", "movies", "inbox", "review")}),
+        "streams": media.active_streams(),
+        "inbox": organizer.pending(),
+        "review": store.recent_activity(20, kinds={"review"}),
+        "activity": store.recent_activity(40),
+        "users": auth.list_users(),
+        "settings": public_settings(),
+        "backups": [{k: b[k] for k in ("name", "size", "made")} for b in backup.listing()[:5]],
+        "backup_folder": backup.folder().replace(os.path.expanduser("~"), "~", 1),
+    }
+
+
+class Server(ThreadingHTTPServer):
+    daemon_threads = True
+    allow_reuse_address = True
+
+
+def serve():
+    httpd = Server(("0.0.0.0", config.get("port")), Handler)
+    try:
+        httpd.serve_forever()
+    finally:
+        dlna.notify("ssdp:byebye")

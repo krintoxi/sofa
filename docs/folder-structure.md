@@ -1,0 +1,51 @@
+# Folder structure
+
+Sofa reads two folders, `Shows/` and `Movies/`, and watches a third, `Inbox/`.
+The paths are set in `data/config.json` (`shows`, `movies`, `inbox`, `review`).
+
+## The easy way: the Inbox
+
+Drop files or whole folders into `Inbox/`. Sofa leaves them alone until the copy has
+stopped changing for 30 seconds (and while any `.part`/`.crdownload` file remains), then:
+
+| It sees | It does |
+|---|---|
+| `Show.Name.S02E05...` or `Show Name 2x05` | `Shows/Show Name/Season 2/Show Name S02E05 <Title>.ext` |
+| a folder `Show Name/Season 2/03 - Title.mkv` | the same, using the folder names |
+| `Movie.Title.1999.1080p...` or `Movie Title (1999)` | `Movies/Movie Title (1999)/Movie Title (1999).ext` |
+| `.srt`/`.vtt` subtitles and `.jpg` thumbnails with the same name | moved along with the video |
+| samples, leftovers (`.nfo`, `.txt`) | `Needs Review/Inbox leftovers/` |
+| anything it can't identify | `Needs Review/From Inbox/`, with a note on the Server page |
+| an exact duplicate of something already filed | `Needs Review/Duplicates/` |
+
+Show names are checked against shows you already have (so `ncis` joins `NCIS`) and
+against TVmaze, which also supplies episode titles.
+
+## Doing it by hand
+
+```
+Shows/
+  Show Name/
+    folder.jpg          poster      (downloaded from TVmaze if missing)
+    backdrop.jpg        background  (downloaded if missing)
+    logo.png            title logo  (optional)
+    Season 1/
+      folder.jpg        season poster (optional)
+      Show Name S01E01 Pilot.mkv
+      Show Name S01E01 Pilot.en.srt     subtitles (optional)
+      metadata/Show Name S01E01 Pilot.jpg   episode thumbnail (downloaded if missing)
+    Specials/           season 0
+    Extras/             anything else: featurettes, bloopers
+Movies/
+  Movie Title (1999)/
+    Movie Title (1999).mp4
+    folder.jpg  backdrop.jpg  logo.png
+  Collection Name/      a folder of movie folders becomes a collection
+    Movie One (1980)/...
+```
+
+Every folder directly in `Shows/` is a show, named after the folder. Episode numbers
+come from `S01E02`, `1x02`, or a leading number inside a `Season N` folder.
+
+Watch progress is tied to what an item is (show, season, episode), not its file name,
+so renaming or converting a file keeps everyone's progress.

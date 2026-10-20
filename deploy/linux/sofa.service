@@ -1,0 +1,13 @@
+[Unit]
+Description=Sofa home media server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=__PYTHON__ __APP__/sofa.py serve
+WorkingDirectory=__APP__
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target
