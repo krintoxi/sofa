@@ -378,35 +378,64 @@ def subtitle_vtt(item, track, offset):
         return "WEBVTT\n"
 
 
-def extract_art(path, dest):
-    """Save a file's embedded cover picture (MP3/M4A/FLAC artwork) as a JPEG. True on success."""
-    exe = tool("ffmpeg")
-    if not exe:
-        return False
-    tmp = dest + ".part.jpg"
+SIPS = "/usr/bin/sips"
+
+
+def save_image(src, dest, max_width, fmt="jpeg"):
+    """Write `src` (any image) to `dest` as JPEG or PNG, at most `max_width` px wide. True on success.
+
+    On macOS this uses the system's own `sips`. Some ffmpeg builds (the one compiled for the
+    2011 iMac among them) produce striped, purple JPEGs when they scale and encode in one step.
+    """
+    tmp = dest + ".part." + ("png" if fmt == "png" else "jpg")
     try:
-        subprocess.run([exe, "-hide_banner", "-loglevel", "error", "-y", "-i", path, "-map", "0:v:0", "-frames:v", "1",
-                        "-vf", "scale='min(800,iw)':-2", "-q:v", "3", tmp], timeout=60, check=True)
+        if os.access(SIPS, os.X_OK):
+            out = subprocess.run([SIPS, "-g", "pixelWidth", src], capture_output=True, text=True, timeout=30).stdout
+            width = int(re.search(r"pixelWidth:\s*(\d+)", out).group(1))
+            cmd = [SIPS, "-s", "format", fmt] + (["-s", "formatOptions", "80"] if fmt == "jpeg" else [])
+            if width > max_width:
+                cmd += ["--resampleWidth", str(max_width)]
+            subprocess.run(["nice", "-n", "10"] + cmd + [src, "--out", tmp], capture_output=True, timeout=60, check=True)
+        else:
+            exe = tool("ffmpeg")
+            if not exe:
+                return False
+            cmd = [exe, "-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-i", src,
+                   "-vf", "scale='min(%d,iw)':-2" % max_width]
+            cmd += ["-compression_level", "9"] if fmt == "png" else ["-q:v", "4"]
+            subprocess.run(["nice", "-n", "10"] + cmd + [tmp], timeout=60, check=True)
+        if not os.path.getsize(tmp):
+            raise OSError("empty image")
         os.replace(tmp, dest)
         return True
-    except (OSError, subprocess.SubprocessError):
+    except (OSError, subprocess.SubprocessError, AttributeError, ValueError):
         if os.path.exists(tmp):
             os.remove(tmp)
         return False
+
+
+def _grab(cmd_tail, path, dest, max_width):
+    """Run ffmpeg to write one lossless PNG still, then turn it into the JPEG at `dest`."""
+    exe = tool("ffmpeg")
+    if not exe:
+        return False
+    still = dest + ".still.png"
+    try:
+        subprocess.run([exe, "-hide_banner", "-loglevel", "error", "-nostdin", "-y"] + cmd_tail(path) + [still],
+                       timeout=60, check=True)
+        return save_image(still, dest, max_width)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    finally:
+        if os.path.exists(still):
+            os.remove(still)
+
+
+def extract_art(path, dest):
+    """Save a file's embedded cover picture (MP3/M4A/FLAC artwork) as a JPEG. True on success."""
+    return _grab(lambda p: ["-i", p, "-map", "0:v:0", "-frames:v", "1"], path, dest, 800)
 
 
 def extract_frame(path, dest, at=12.0):
     """A still from a video (for music videos without a thumbnail)."""
-    exe = tool("ffmpeg")
-    if not exe:
-        return False
-    tmp = dest + ".part.jpg"
-    try:
-        subprocess.run([exe, "-hide_banner", "-loglevel", "error", "-y", "-ss", "%.1f" % at, "-i", path,
-                        "-frames:v", "1", "-vf", "scale='min(1280,iw)':-2", "-q:v", "4", tmp], timeout=60, check=True)
-        os.replace(tmp, dest)
-        return True
-    except (OSError, subprocess.SubprocessError):
-        if os.path.exists(tmp):
-            os.remove(tmp)
-        return False
+    return _grab(lambda p: ["-ss", "%.1f" % at, "-i", p, "-frames:v", "1"], path, dest, 1280)

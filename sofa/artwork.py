@@ -7,7 +7,6 @@ touched. A background pass after each library scan prepares the common sizes.
 """
 import hashlib
 import os
-import subprocess
 import threading
 import time
 
@@ -39,12 +38,11 @@ def resized(full, width, wait=True):
     """Path of `full` scaled to at most `width` px wide (same format), or the original if that fails."""
     if width not in WIDTHS:
         return full
-    exe = media.tool("ffmpeg")
-    if not exe:
+    if not (os.access(media.SIPS, os.X_OK) or media.tool("ffmpeg")):
         return full
     st = os.stat(full)
     ext = ".png" if full.lower().endswith(".png") else ".jpg"    # logos keep their transparency
-    key = hashlib.sha1(("%s|%d|%d|%d" % (full, st.st_size, int(st.st_mtime), width)).encode()).hexdigest()[:24]
+    key = hashlib.sha1(("v2|%s|%d|%d|%d" % (full, st.st_size, int(st.st_mtime), width)).encode()).hexdigest()[:24]
     dest = os.path.join(CACHE, key + ext)
     if os.path.exists(dest):
         return dest
@@ -54,14 +52,7 @@ def resized(full, width, wait=True):
         if os.path.exists(dest):
             return dest
         os.makedirs(CACHE, exist_ok=True)
-        tmp = dest + ".part" + ext
-        cmd = [exe, "-hide_banner", "-loglevel", "error", "-y", "-i", full, "-vf", "scale='min(%d,iw)':-2" % width]
-        cmd += ["-compression_level", "9"] if ext == ".png" else ["-q:v", "4"]
-        subprocess.run(["nice", "-n", "10"] + cmd + [tmp], timeout=60, check=True)
-        os.replace(tmp, dest)
-        return dest
-    except (OSError, subprocess.SubprocessError):
-        return full
+        return dest if media.save_image(full, dest, width, "png" if ext == ".png" else "jpeg") else full
     finally:
         _slots.release()
 

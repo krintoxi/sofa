@@ -43,7 +43,7 @@ def _clean_title(stem):
 def _art_cache(path, budget):
     """URL of the embedded cover of `path`, extracting it once into data/cache/art."""
     st = os.stat(path)
-    key = hashlib.sha1(("%s|%d|%d" % (path, st.st_size, int(st.st_mtime))).encode()).hexdigest()[:20]
+    key = hashlib.sha1(("v2|%s|%d|%d" % (path, st.st_size, int(st.st_mtime))).encode()).hexdigest()[:20]
     dest = os.path.join(ART_CACHE, key + ".jpg")
     if os.path.exists(dest):
         return "/art/cache/%s.jpg" % key
@@ -56,7 +56,7 @@ def _art_cache(path, budget):
 
 def _frame_cache(path, budget):
     st = os.stat(path)
-    key = hashlib.sha1(("frame|%s|%d|%d" % (path, st.st_size, int(st.st_mtime))).encode()).hexdigest()[:20]
+    key = hashlib.sha1(("frame-v2|%s|%d|%d" % (path, st.st_size, int(st.st_mtime))).encode()).hexdigest()[:20]
     dest = os.path.join(ART_CACHE, key + ".jpg")
     if os.path.exists(dest):
         return "/art/cache/%s.jpg" % key
