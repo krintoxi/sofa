@@ -36,7 +36,7 @@ def _lead_num(filename):
 
 
 def _clean_title(stem):
-    stem = re.sub(r"^\s*\d{1,3}\s*[-._)]\s*", "", stem)          # "03 - Title", "03. Title"
+    stem = re.sub(r"^\s*(\d{2,3}\s*[-._)]?\s+|\d{1,3}\s*[-._)]\s*)(?=\S)", "", stem)   # "03 Title", "3 - Title", "03. Title"
     return naming.clean(stem) if "_" in stem or stem.count(".") > 1 else stem.strip()
 
 
