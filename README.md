@@ -18,6 +18,10 @@ Sofa is plain Python (standard library only) plus ffmpeg. It runs comfortably on
 - **Every screen.** A web app with resume, "next up", subtitles and a TV-remote mode;
   DLNA so Roku Media Player, VLC and smart TVs find it on their own; HLS for iPhone,
   iPad and Safari.
+- **TV mode.** Fire TV (Silk), Android TV and smart-TV browsers get big targets, a strong
+  focus ring for the remote or pointer, a full-screen player, and no costly blur effects.
+  Artwork is sent at the size it's shown, so pages stay light on TV sticks. The remote's
+  Back button closes the player instead of leaving the page.
 - **Accounts.** Everyone gets a sign-in and their own "continue watching". Logins are
   throttled, passwords are hashed, admin pages stay at home.
 - **Music and music videos.** Albums, artists and songs from your files' tags and
