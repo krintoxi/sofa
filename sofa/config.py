@@ -36,7 +36,7 @@ DEFAULTS = {
     "live_playlists": [],
     # Daily backup of accounts, watch history and settings (not the media) into data/backups.
     "backup_time": "01:30",
-    "backup_keep": 14,
+    "backup_keep": 3,
     # How many live conversions may run at once (each one uses a CPU core or the video encoder).
     "max_transcodes": 1,
 }
