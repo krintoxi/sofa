@@ -97,7 +97,7 @@ def clear_guest():
 
 
 def list_users():
-    rows = store.q("""SELECT u.id, u.name, u.admin, u.guest, u.created,
+    rows = store.q("""SELECT u.id, u.name, u.admin, u.guest, u.adult, u.created,
                       (SELECT MAX(seen) FROM sessions s WHERE s.user_id = u.id) AS seen
                       FROM users u ORDER BY u.guest, u.name""")
     return [dict(r) for r in rows]
@@ -106,6 +106,11 @@ def list_users():
 def set_password(user_id, password):
     store.ex("UPDATE users SET pw = ? WHERE id = ?", hash_password(password), user_id)
     store.ex("DELETE FROM sessions WHERE user_id = ?", user_id)
+
+
+def set_adult(user_id, on):
+    """Whether this person may see the Adult section. Guests never can."""
+    store.ex("UPDATE users SET adult = ? WHERE id = ? AND guest = 0", 1 if on else 0, user_id)
 
 
 def delete_user(user_id):
@@ -131,7 +136,7 @@ def session_user(token):
     if not token:
         return None
     key = _token_key(token)
-    row = store.q1("""SELECT u.id, u.name, u.admin, u.guest, s.seen, s.created FROM sessions s
+    row = store.q1("""SELECT u.id, u.name, u.admin, u.guest, u.adult, s.seen, s.created FROM sessions s
                       JOIN users u ON u.id = s.user_id WHERE s.token = ?""", key)
     if not row or row["seen"] < time.time() - SESSION_DAYS * 86400:
         return None
@@ -139,7 +144,8 @@ def session_user(token):
         return None
     if time.time() - row["seen"] > 300:
         store.ex("UPDATE sessions SET seen = ? WHERE token = ?", int(time.time()), key)
-    return {"id": row["id"], "name": row["name"], "admin": bool(row["admin"]), "guest": bool(row["guest"])}
+    return {"id": row["id"], "name": row["name"], "admin": bool(row["admin"]), "guest": bool(row["guest"]),
+            "adult": bool(row["adult"]) and not row["guest"]}
 
 
 def end_session(token):

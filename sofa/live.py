@@ -6,6 +6,11 @@ many channel servers don't allow browsers to fetch them directly, and some only
 use plain http. Only addresses that came from your playlists can be fetched
 through Sofa: every proxied link carries a signature made with a key stored on
 this server.
+
+Adult channels (from a list the admin marked "adult", or in a group like "XXX")
+are only listed for people allowed to see the Adult section, and never on TVs.
+Note: iptv-org stopped publishing adult channels in January 2024, so adult
+channels only come from lists you add yourself.
 """
 import base64
 import hashlib
@@ -25,6 +30,7 @@ CACHE = os.path.join(config.DATA_DIR, "cache", "live")
 REFRESH_EVERY = 12 * 3600
 AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
 ATTR = re.compile(r'([\w-]+)="([^"]*)"')
+ADULT_GROUP = re.compile(r"\b(xxx|adult|adults|18\+|erotic|porn|nsfw)\b", re.I)
 
 _lock = threading.Lock()
 _channels = {}      # id -> channel
@@ -72,7 +78,7 @@ def playlists():
     return config.get("live_playlists") or []
 
 
-def parse_m3u(text, source):
+def parse_m3u(text, source, adult=False):
     channels = []
     info, opts = None, {}
     for raw in text.splitlines():
@@ -93,7 +99,8 @@ def parse_m3u(text, source):
         elif line and not line.startswith("#") and info:
             if line.startswith(("http://", "https://")):
                 cid = hashlib.sha1(line.encode()).hexdigest()[:12]
-                channels.append(dict(info, id=cid, url=line, playlist=source, headers=opts))
+                channels.append(dict(info, id=cid, url=line, playlist=source, headers=opts,
+                                     adult=adult or bool(ADULT_GROUP.search(info["group"]))))
             info, opts = None, {}
     return channels
 
@@ -127,12 +134,12 @@ def refresh(force=False):
                 store.log("live", "Couldn't update channel list \"%s\": %s" % (name, error))
         try:
             with open(path, encoding="utf-8") as f:
-                found = parse_m3u(f.read(), name)
+                found = parse_m3u(f.read(), name, bool(pl.get("adult")))
         except OSError:
             found = []
         for c in found:
             channels.setdefault(c["id"], c)
-        _status[url] = {"name": name, "url": url, "count": len(found), "error": error,
+        _status[url] = {"name": name, "url": url, "count": len(found), "error": error, "adult": bool(pl.get("adult")),
                         "updated": int(os.path.getmtime(path)) if os.path.exists(path) else None}
     with _lock:
         _channels.clear()
@@ -145,28 +152,30 @@ def channel(cid):
         return _channels.get(cid)
 
 
-def listing(user_id):
+def listing(user_id, adult=False):
     favs = {r["channel"] for r in store.q("SELECT channel FROM live_favorites WHERE user_id = ?", user_id)}
     with _lock:
-        chans = sorted(_channels.values(), key=lambda c: (c["group"].lower(), c["name"].lower()))
-    return {"playlists": [_status.get(p["url"], {"name": p.get("name"), "url": p["url"], "count": 0}) for p in playlists()],
-            "channels": [{"id": c["id"], "name": c["name"], "logo": c["logo"], "group": c["group"],
+        chans = sorted((c for c in _channels.values() if adult or not c.get("adult")),
+                       key=lambda c: (c["group"].lower(), c["name"].lower()))
+    return {"playlists": [_status.get(p["url"], {"name": p.get("name"), "url": p["url"], "count": 0, "adult": bool(p.get("adult"))})
+                          for p in playlists() if adult or not p.get("adult")],
+            "channels": [{"id": c["id"], "name": c["name"], "logo": c["logo"], "group": c["group"], "adult": c.get("adult", False),
                           "playlist": c["playlist"], "fav": c["id"] in favs} for c in chans]}
 
 
-def all_channels():
+def all_channels(adult=False):
     with _lock:
-        return list(_channels.values())
+        return [c for c in _channels.values() if adult or not c.get("adult")]
 
 
 def favorites_anyone():
     return {r["channel"] for r in store.q("SELECT DISTINCT channel FROM live_favorites")}
 
 
-def add_playlist(name, url):
+def add_playlist(name, url, adult=False):
     if not url.startswith(("http://", "https://")):
         raise ValueError("Use an http:// or https:// address.")
-    pls = [p for p in playlists() if p["url"] != url] + [{"name": name.strip()[:60] or url, "url": url}]
+    pls = [p for p in playlists() if p["url"] != url] + [{"name": name.strip()[:60] or url, "url": url, "adult": bool(adult)}]
     config.update({"live_playlists": pls})
 
 

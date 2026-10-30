@@ -21,6 +21,11 @@ DEFAULTS = {
     "inbox": "~/Entertainment/Inbox",
     # Where Sofa puts things it can't identify, for you to look at.
     "review": "~/Entertainment/Needs Review",
+    # Adult movies and series: Adult/Movies/<Title>/..., Adult/Shows/<Show>/Season N/...
+    # Only people an admin allows (Server page, People) ever see it; never guests, never TVs.
+    "adult": "~/Entertainment/Adult",
+    # After converting a file to MP4, move the original here (or delete it when keep_originals is false).
+    "originals": "~/Entertainment/Converted Originals",
     # Share the library with TVs on the home network (Roku Media Player, VLC, smart TVs).
     "dlna": True,
     # "home": only private networks (Wi-Fi, Tailscale) may connect.
@@ -32,17 +37,33 @@ DEFAULTS = {
     "guest_access": True,
     # Look up show summaries and missing artwork on TVmaze (free, no key).
     "tvmaze": True,
-    # Optional: a TMDB API key adds movie posters and summaries.
+    # Optional: a TMDB API key adds the best movie posters, backdrops, summaries and collections.
+    # Without one, Sofa uses the iTunes Store and Wikipedia (no key needed).
     "tmdb_api_key": "",
+    # Look up movies without a TMDB key on the iTunes Store and Wikipedia.
+    "free_movie_lookup": True,
+    # Optional: a ThePornDB (theporndb.net) API token adds artwork and details to the Adult section.
+    "theporndb_api_key": "",
+    # Tidy the library folders: messy names become "Title (Year)", loose movies in a collection folder get
+    # their own folders, and stray "XXX"/"Adult" folders move into the Adult section.
+    "tidy_library": True,
     # ffmpeg folder or "auto" (vendor/ffmpeg, Homebrew, PATH).
     "ffmpeg": "auto",
     # Live TV channel lists (M3U). Each: {"name": ..., "url": ...}
     "live_playlists": [],
+    # Where updates come from (the Update button on the Server page, and tools/update.sh).
+    "update_repo": "krintoxi/sofa",
+    "update_branch": "main",
     # Daily backup of accounts, watch history and settings (not the media) into data/backups.
     "backup_time": "01:30",
     "backup_keep": 3,
     # How many live conversions may run at once (each one uses a CPU core or the video encoder).
-    "max_transcodes": 1,
+    "max_transcodes": 2,
+    # Convert MKV, AVI and other files that need live conversion into MP4, once, in the background.
+    "auto_convert": True,
+    "keep_originals": True,
+    # The look every device starts with (people can pick their own): midnight, cinema, ocean, forest, grape, oled.
+    "theme": "midnight",
 }
 
 _lock = threading.Lock()

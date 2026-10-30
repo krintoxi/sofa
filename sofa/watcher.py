@@ -2,25 +2,35 @@
 import threading
 import time
 
-from . import artwork, backup, live, media, organizer, store
+from . import artwork, backup, live, media, optimize, organizer, store, updater
 from .library import LIBRARY
 
 INTERVAL = 20
 
 
 def _watch():
+    tidied_at = 0
     while True:
         try:
+            if time.time() - tidied_at > 600:     # tidy folders now and then, not every 20 seconds
+                tidied_at = time.time()
+                organizer.tidy_library()
             filed = organizer.process_inbox()
             if filed:
                 LIBRARY.scan("%d new from Inbox" % filed)
-                _warm()
+                _after_scan()
             elif LIBRARY.changed():
                 LIBRARY.scan("files changed")
-                _warm()
+                _after_scan()
         except Exception as exc:   # keep watching whatever happens
             store.log("error", "Library watcher: %s" % exc)
         time.sleep(INTERVAL)
+
+
+def _after_scan():
+    _warm()
+    threading.Thread(target=lambda: time.sleep(90) or optimize.auto_enqueue(LIBRARY), daemon=True,
+                     name="convert-check").start()
 
 
 def _warm():
@@ -46,4 +56,6 @@ def start():
     backup.start()
     threading.Thread(target=_watch, daemon=True, name="watcher").start()
     threading.Thread(target=_prober, daemon=True, name="prober").start()
-    _warm()
+    optimize.start()
+    updater.start()
+    _after_scan()

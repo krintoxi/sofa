@@ -12,7 +12,9 @@ from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlsplit
 
-from . import __version__, artwork, auth, backup, config, dlna, live, media, music, organizer, store
+import threading
+
+from . import __version__, artwork, auth, backup, config, dlna, live, media, metadata, music, optimize, organizer, store, updater
 from .library import LIBRARY
 
 CLIENT_DIR = os.path.join(config.APP_DIR, "client")
@@ -233,6 +235,8 @@ class Handler(BaseHTTPRequestHandler):
     def art(self, rest, qs):
         if not self.user() and self.network() not in HOME_NETS:   # TVs fetch artwork without signing in
             return self.error(401, "Sign in to continue.")
+        if rest.startswith("adult/") and not (self.user() or {}).get("adult"):
+            return self.send_body("Not found", status=404)
         full = artwork.file_for("/art/" + rest)
         if not full:
             return self.send_body("Not found", status=404)
@@ -287,6 +291,11 @@ class Handler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError):
             pass   # players drop connections while seeking
 
+    def owner(self):
+        """Who a live conversion belongs to: one per browser session, or per TV."""
+        tok = self.token()
+        return ("web:" + auth._token_key(tok)[:16]) if tok else "tv:" + self.client_ip()
+
     def stream(self, item, mode, start, who, dlna_headers=False):
         info = media.probe(item["path"])
         fmt = "mpegts" if dlna_headers else "mp4"   # TVs handle MPEG-TS streams most reliably
@@ -302,8 +311,8 @@ class Handler(BaseHTTPRequestHandler):
         if self.command == "HEAD":
             return
         try:
-            media.run_stream(item, mode, start, info, self.wfile, who, fmt)
-        except RuntimeError:
+            media.run_stream(item, mode, start, info, self.wfile, who, fmt, owner=self.owner())
+        except (RuntimeError, OSError):
             pass
 
     # ------------------------------------------------------------ DLNA
@@ -322,13 +331,13 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_body(dlna.icon_png(), "image/png")
         if path.startswith("/dlna/live/"):
             chan = live.channel(path[len("/dlna/live/"):])
-            if not chan or not media.tool("ffmpeg"):
+            if not chan or chan.get("adult") or not media.tool("ffmpeg"):
                 return self.send_body("Not found", status=404)
             return self.stream({"id": "live:" + chan["id"], "path": chan["url"], "title": chan["name"]}, "remux", 0,
                                "TV at " + self.client_ip(), dlna_headers=True)
         if path.startswith("/dlna/media/"):
             item = LIBRARY.item(path[len("/dlna/media/"):])
-            if not item:
+            if not item or item.get("adult"):
                 return self.send_body("Not found", status=404)
             who = "TV at " + self.client_ip()
             if dlna.tv_plan(item) == "direct" or not media.tool("ffmpeg"):
@@ -346,7 +355,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         m = re.match(r"^/live/([0-9a-f]{12})/(index\.m3u8|p/([\w.=-]+))$", path)
         chan = live.channel(m.group(1)) if m else None
-        if not chan:
+        if not chan or (chan.get("adult") and not u.get("adult")):
             return self.send_body("Not found", status=404)
         url = chan["url"] if m.group(2) == "index.m3u8" else live.unpack(m.group(3))
         if not url:
@@ -365,8 +374,11 @@ class Handler(BaseHTTPRequestHandler):
                 resp.close()
                 if not media.tool("ffmpeg"):
                     return self.send_body("This channel needs ffmpeg on the server.", status=503)
-                sid = media.hls_start({"id": "live:" + chan["id"], "path": chan["url"], "title": chan["name"]},
-                                      "remux", 0, u["name"])
+                try:
+                    sid = media.hls_start({"id": "live:" + chan["id"], "path": chan["url"], "title": chan["name"]},
+                                          "remux", 0, u["name"], owner=self.owner())
+                except (RuntimeError, OSError):
+                    return self.send_body("The server is busy. Try again in a moment.", status=503)
                 self.send_response(302)
                 self.send_header("Location", "/media/hls/%s/index.m3u8" % sid)
                 self.send_header("Content-Length", "0")
@@ -401,14 +413,15 @@ class Handler(BaseHTTPRequestHandler):
             f = media.hls_file(h.group(1), h.group(2))
             if not f:
                 return self.send_body("Not found", status=404)
-            ctype = "application/vnd.apple.mpegurl" if f.endswith(".m3u8") else "video/mp2t"
+            ctype = ("application/vnd.apple.mpegurl" if f.endswith(".m3u8") else "video/mp2t" if f.endswith(".ts")
+                     else "video/mp4")
             with open(f, "rb") as fh:
                 data = fh.read()
             if f.endswith(".m3u8"):   # start at the beginning, not the "live" end of a playlist still being written
                 data = data.replace(b"#EXTM3U\n", b"#EXTM3U\n#EXT-X-START:TIME-OFFSET=0,PRECISE=YES\n", 1)
             return self.send_body(data, ctype, headers={"Cache-Control": "no-cache"})
         m = re.match(r"^/media/([^/]+)/(file|stream|subs/(\d+)\.vtt)$", path)
-        item = LIBRARY.item(m.group(1)) if m else None
+        item = self.visible_item(m.group(1), u) if m else None
         if not item:
             return self.send_body("Not found", status=404)
         kind = m.group(2)
@@ -435,16 +448,16 @@ class Handler(BaseHTTPRequestHandler):
     def api_get(self, path, qs):
         if path == "/api/session":
             u = self.user()
-            return self.json({"name": config.get("name"), "version": __version__, "user": u,
+            return self.json({"name": config.get("name"), "version": __version__, "user": u, "theme": config.get("theme"),
                               "needs_setup": auth.user_count() == 0, "network": self.network(),
                               "remote": config.get("remote"), "guest_available": bool(self.guest_ok())})
         u = self.need_user(admin=path.startswith("/api/admin/"))
         if not u:
             return
         if path == "/api/library":
-            return self.json(LIBRARY.public())
+            return self.json(LIBRARY.public(adult=u.get("adult")))
         if path == "/api/live":
-            return self.json(live.listing(u["id"]))
+            return self.json(live.listing(u["id"], adult=u.get("adult")))
         if path == "/api/music":
             out = LIBRARY.music_public()
             out["likes"] = [r["item"] for r in store.q("SELECT item FROM music_likes WHERE user_id = ? ORDER BY at DESC", u["id"])]
@@ -456,7 +469,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.json({r["item"]: {"t": r["t"], "d": r["d"], "done": bool(r["done"]), "at": r["at"]} for r in rows})
         m = re.match(r"^/api/play/(.+)$", path)
         if m:
-            item = LIBRARY.item(m.group(1))
+            item = self.visible_item(m.group(1), u)
             if not item:
                 return self.error(404, "That video isn't in the library any more.")
             caps = {k: (qs.get(k) or ["0"])[0] == "1" for k in ("mkv", "hevc", "ac3", "vp9")}
@@ -468,7 +481,8 @@ class Handler(BaseHTTPRequestHandler):
             p = media.plan(item, caps)
             base = "/media/%s/" % item["id"]
             tracks = media.subtitle_tracks(item, p["info"])
-            out = {"mode": p["mode"], "duration": p["duration"],
+            out = {"mode": p["mode"], "duration": p["duration"], "why": p.get("why") or [],
+                   "audio": media.audio_tracks(p["info"]), "error": media.last_error(item["id"]),
                    "url": base + ("file" if p["mode"] == "direct" else "stream?mode=" + p["mode"]),
                    "subtitles": [{"label": t["label"] or "Subtitles", "lang": t["lang"] or "und",
                                   "url": "%ssubs/%d.vtt" % (base, i)} for i, t in enumerate(tracks)]}
@@ -478,7 +492,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.json(out)
         m = re.match(r"^/api/hls/(.+)$", path)
         if m:
-            item = LIBRARY.item(m.group(1))
+            item = self.visible_item(m.group(1), u)
             if not item:
                 return self.error(404, "That video isn't in the library any more.")
             if not media.tool("ffmpeg"):
@@ -487,12 +501,37 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 sid = media.hls_start(item, mode if mode in ("remux", "transcode") else "remux",
                                       max(0.0, float((qs.get("t") or ["0"])[0] or 0)), u["name"],
-                                      replace=(qs.get("replace") or [None])[0])
+                                      replace=(qs.get("replace") or [None])[0], owner=self.owner(),
+                                      audio_index=int(qs["audio"][0]) if (qs.get("audio") or [""])[0].isdigit() else None)
             except RuntimeError:
-                return self.error(503, "The server is busy converting another video. Try again in a moment.")
+                return self.error(503, "The server is busy converting other videos for other people. Try again in a moment.")
+            except OSError as exc:
+                return self.error(500, "ffmpeg couldn't start: %s" % exc)
             return self.json({"url": "/media/hls/%s/index.m3u8" % sid, "session": sid})
         if path == "/api/admin/status":
             return self.json(admin_status())
+        if path == "/api/admin/convert":
+            return self.json(optimize.status(LIBRARY))
+        if path == "/api/admin/update":
+            return self.json(updater.status())
+        if path == "/api/admin/missing":
+            return self.json({"items": LIBRARY.missing_details()})
+        if path == "/api/admin/match":
+            entry = LIBRARY.find((qs.get("id") or [""])[0])
+            if not entry:
+                return self.error(404, "That isn't in the library any more.")
+            query = ((qs.get("q") or [""])[0] or entry.get("name") or entry.get("title") or "").strip()
+            year = (qs.get("year") or [""])[0]
+            try:
+                if "seasons" in entry and not entry.get("adult"):
+                    found = metadata.search_shows(query)
+                else:
+                    found = metadata.search_movies(query, int(year) if year.isdigit() else None, adult=entry.get("adult"))
+            except Exception as exc:
+                return self.error(502, "The lookup didn't answer (%s). Check the server is online." % str(exc)[:100])
+            return self.json({"query": query, "results": found, "current": metadata.override(entry["id"]),
+                              "source": entry.get("source"), "keys": {"tmdb": bool(config.get("tmdb_api_key")),
+                                                                     "tpdb": bool(config.get("theporndb_api_key"))}})
         self.error(404, "Unknown request.")
 
     def api_post(self, path, data):
@@ -542,6 +581,9 @@ class Handler(BaseHTTPRequestHandler):
                          u["id"], item_id, float(data.get("t") or 0), float(data.get("d") or 0),
                          1 if data.get("done") else 0, int(time.time() * 1000))
             return self.json({"ok": True})
+        if path == "/api/hls/stop":
+            media.hls_stop_owner(self.owner())
+            return self.json({"ok": True})
         m = re.match(r"^/api/live/favorite/([0-9a-f]{12})$", path)
         if m:
             if data.get("on"):
@@ -572,7 +614,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/admin/live":
             try:
                 if data.get("add"):
-                    live.add_playlist(data["add"].get("name") or "", data["add"].get("url") or "")
+                    live.add_playlist(data["add"].get("name") or "", data["add"].get("url") or "", bool(data["add"].get("adult")))
                     store.log("live", "%s added the channel list \"%s\"" % (u["name"], data["add"].get("name") or data["add"].get("url")))
                 if data.get("remove"):
                     live.remove_playlist(data["remove"])
@@ -603,6 +645,63 @@ class Handler(BaseHTTPRequestHandler):
                 return self.error(409, "Someone already has that name.")
             store.log("account", "%s added %s \"%s\"" % (u["name"], "admin" if data.get("admin") else "viewer", user["name"]))
             return self.json({"ok": True})
+        if path == "/api/admin/convert":
+            if data.get("all"):
+                n = optimize.enqueue(optimize.candidates(LIBRARY), "requested by %s" % u["name"])
+                return self.json({"ok": True, "queued": n})
+            if data.get("items"):
+                items = [i for i in (LIBRARY.item(x) for x in data["items"]) if i]
+                return self.json({"ok": True, "queued": optimize.enqueue(items, "requested by %s" % u["name"])})
+            if data.get("retry"):
+                optimize.retry(data["retry"])
+            if data.get("cancel"):
+                optimize.cancel(data["cancel"])
+            if data.get("clear"):
+                optimize.clear_finished()
+            return self.json({"ok": True})
+        if path == "/api/admin/update":
+            if data.get("install"):
+                if not updater.start_update():
+                    return self.error(409, "An update is already running.")
+                store.log("update", "%s started an update" % u["name"])
+                return self.json({"ok": True, "status": updater.status()})
+            return self.json(updater.check(force=True))
+        if path == "/api/admin/match":
+            entry = LIBRARY.find(data.get("id") or "")
+            if not entry:
+                return self.error(404, "That isn't in the library any more.")
+            if data.get("clear"):
+                choice = None
+            elif data.get("none"):
+                choice = {"none": True}
+            elif data.get("pick"):
+                src, sid = data["pick"].get("source"), data["pick"].get("id")
+                if src not in ("tvmaze", "tmdb", "itunes", "tpdb") or not str(sid).replace("-", "").isalnum():
+                    return self.error(400, "Pick one of the results.")
+                choice = {src: sid}
+            elif (data.get("title") or "").strip():
+                choice = {"title": data["title"].strip()[:120]}
+                if str(data.get("year") or "").isdigit():
+                    choice["year"] = int(data["year"])
+            else:
+                return self.error(400, "Pick a result, or type a title.")
+            metadata.set_override(entry["id"], choice)
+            folder = LIBRARY.dirs.get(entry["id"])
+            if folder and not data.get("keep_art"):
+                for kind in ("poster", "backdrop"):
+                    old = LIBRARY.find_art(folder, kind)
+                    if old:
+                        os.replace(old, os.path.splitext(old)[0] + ".before-fix" + os.path.splitext(old)[1])
+            store.log("settings", "%s fixed the details for \"%s\"" % (u["name"], entry.get("name") or entry.get("title")))
+            threading.Thread(target=LIBRARY.scan, args=("details fixed",), daemon=True).start()
+            return self.json({"ok": True})
+        m = re.match(r"^/api/admin/users/(\d+)/adult$", path)
+        if m:
+            auth.set_adult(int(m.group(1)), bool(data.get("on")))
+            target = store.q1("SELECT name FROM users WHERE id = ?", int(m.group(1)))
+            store.log("account", "%s %s the Adult section for \"%s\"" % (
+                u["name"], "opened" if data.get("on") else "closed", target["name"] if target else "?"))
+            return self.json({"ok": True})
         m = re.match(r"^/api/admin/users/(\d+)/(password|delete)$", path)
         if m:
             uid = int(m.group(1))
@@ -623,23 +722,51 @@ class Handler(BaseHTTPRequestHandler):
             store.log("account", "%s removed \"%s\"" % (u["name"], target["name"]))
             return self.json({"ok": True})
         if path == "/api/admin/settings":
-            allowed = {k: data[k] for k in ("name", "dlna", "tvmaze", "tmdb_api_key", "max_transcodes", "guest_access")
-                       if k in data}
+            allowed = {k: data[k] for k in ("name", "dlna", "tvmaze", "tmdb_api_key", "theporndb_api_key", "max_transcodes",
+                                            "guest_access", "auto_convert", "keep_originals", "tidy_library",
+                                            "free_movie_lookup", "theme") if k in data}
             if "name" in allowed:
                 allowed["name"] = str(allowed["name"]).strip()[:40] or "Sofa"
+            for k in ("dlna", "tvmaze", "guest_access", "auto_convert", "keep_originals", "tidy_library", "free_movie_lookup"):
+                if k in allowed:
+                    allowed[k] = bool(allowed[k])
+            for k in ("tmdb_api_key", "theporndb_api_key"):
+                if k in allowed:
+                    allowed[k] = re.sub(r"[^\w.\-|]", "", str(allowed[k]))[:400]
+            if "max_transcodes" in allowed:
+                allowed["max_transcodes"] = max(1, min(8, int(allowed["max_transcodes"] or 1)))
+            if "theme" in allowed and allowed["theme"] not in THEMES:
+                allowed.pop("theme")
+            if any(k in allowed for k in ("tmdb_api_key", "theporndb_api_key", "free_movie_lookup")):
+                metadata.forget("movie2-")
+                metadata.forget("adult-")
+                threading.Thread(target=LIBRARY.scan, args=("lookup settings changed",), daemon=True).start()
+            if allowed.get("auto_convert"):
+                threading.Thread(target=optimize.auto_enqueue, args=(LIBRARY,), daemon=True).start()
             config.update(allowed)
             store.log("settings", "%s changed settings: %s" % (u["name"], ", ".join(sorted(allowed))))
             return self.json({"ok": True, "settings": public_settings()})
         self.error(404, "Unknown request.")
+
+    def visible_item(self, item_id, user):
+        """A library item this person may play (adult items only for people allowed to see them)."""
+        item = LIBRARY.item(item_id)
+        if not item or (item.get("adult") and not (user or {}).get("adult")):
+            return None
+        return item
 
     def network_label(self):
         return {"local": "this computer", "lan": "the home network", "tailnet": "Tailscale",
                 "internet": "the internet"}[self.network()]
 
 
+THEMES = ("midnight", "cinema", "ocean", "forest", "grape", "oled")
+
+
 def public_settings():
     s = config.all_settings()
-    s["tmdb_api_key"] = "set" if s.get("tmdb_api_key") else ""
+    for k in ("tmdb_api_key", "theporndb_api_key"):
+        s[k] = "set" if s.get(k) else ""
     return s
 
 
@@ -656,9 +783,14 @@ def admin_status():
                    "port": config.get("port"), "lan": dlna.lan_addresses(), "tailscale": dlna.tailscale_addresses(),
                    "remote": config.get("remote"), "dlna": config.get("dlna")},
         "library": dict(LIBRARY.counts(), generated=LIBRARY.generated, scanning=LIBRARY.scanning,
-                        scan_seconds=LIBRARY.last_scan_seconds, disk=disk,
+                        scan_seconds=LIBRARY.last_scan_seconds, disk=disk, missing=len(LIBRARY.missing_details()),
                         folders={k: config.path(k).replace(os.path.expanduser("~"), "~", 1)
-                                 for k in ("shows", "movies", "inbox", "review")}),
+                                 for k in ("shows", "movies", "music", "musicvideos", "adult", "inbox", "review",
+                                           "originals")}),
+        "convert": optimize.status(),
+        "update": updater.status(),
+        "encoder": "Apple hardware (VideoToolbox)" if media.hardware_encoder() else
+                   ("x264 (software)" if "libx264" in media.encoders() else None),
         "streams": media.active_streams(),
         "inbox": organizer.pending(),
         "review": store.recent_activity(20, kinds={"review"}),
