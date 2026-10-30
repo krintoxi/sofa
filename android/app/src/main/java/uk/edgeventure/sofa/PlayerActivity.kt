@@ -34,8 +34,9 @@ import kotlin.concurrent.thread
  * plays it, Sofa's converted stream when it doesn't. Skip Intro, the remote's buttons, subtitles,
  * and watch progress saved to Sofa every 10 seconds.
  *
- * The payload (from Sofa's web app): {"item", "url", "title", "start", "subtitles": [{"url", "lang",
- * "label"}], "markers": [{"kind", "start", "end"}]}.
+ * The payload (from Sofa's web app): {"item", "url", "title", "start", "offset", "duration", "subtitles":
+ * [{"url", "lang", "label"}], "markers": [{"kind", "start", "end"}]}. Converted video starts where the person
+ * left off: `offset` seconds into the episode is 0 in the stream, and `duration` is the whole episode's.
  */
 @OptIn(UnstableApi::class)
 class PlayerActivity : Activity() {
@@ -52,6 +53,8 @@ class PlayerActivity : Activity() {
     private var cookie = ""
     private var item = ""
     private var markers = JSONArray()
+    private var offset = 0.0
+    private var length = 0.0
     private var lastSave = 0L
     private var skipShownFor = ""
     private var finished = false
@@ -64,6 +67,8 @@ class PlayerActivity : Activity() {
         cookie = intent.getStringExtra("cookie") ?: ""
         item = payload.optString("item")
         markers = payload.optJSONArray("markers") ?: JSONArray()
+        offset = payload.optDouble("offset", 0.0)
+        length = payload.optDouble("duration", 0.0)
 
         val headers = HashMap<String, String>()
         if (cookie.isNotEmpty()) headers["Cookie"] = cookie
@@ -111,6 +116,8 @@ class PlayerActivity : Activity() {
             .setUri(url)
             .setSubtitleConfigurations(subs)
             .apply { if (url.contains(".m3u8")) setMimeType(MimeTypes.APPLICATION_M3U8) }
+            // Sofa's converted video is a playlist that grows: never speed up to catch a "live" edge.
+            .setLiveConfiguration(MediaItem.LiveConfiguration.Builder().setMinPlaybackSpeed(1f).setMaxPlaybackSpeed(1f).build())
             .build()
         player.setMediaItem(media, (payload.optDouble("start", 0.0) * 1000).toLong())
         player.addListener(object : Player.Listener {
@@ -131,11 +138,19 @@ class PlayerActivity : Activity() {
 
     private fun absolute(u: String): String = if (u.startsWith("http")) u else base + u
 
+    /** Where we are in the whole video, and how long it is (seconds). */
+    private fun position(): Double = offset + player.currentPosition / 1000.0
+    private fun total(): Double = if (length > 0) length else if (player.duration > 0) offset + player.duration / 1000.0 else 0.0
+
+    private fun seekToAbsolute(t: Double) {
+        player.seekTo(((t - offset) * 1000).toLong().coerceAtLeast(0))
+    }
+
     private val ticker = object : Runnable {
         override fun run() {
             if (finished) return
-            val t = player.currentPosition / 1000.0
-            val d = if (player.duration > 0) player.duration / 1000.0 else 0.0
+            val t = position()
+            val d = total()
             status = JSONObject().put("item", item).put("t", t.toInt()).put("d", d.toInt()).put("paused", !player.isPlaying).toString()
             val intro = activeMarker(t)
             if (intro != null) {
@@ -166,8 +181,8 @@ class PlayerActivity : Activity() {
     }
 
     private fun skipPast() {
-        val m = activeMarker(player.currentPosition / 1000.0) ?: return
-        player.seekTo((m.optDouble("end") * 1000).toLong())
+        val m = activeMarker(position()) ?: return
+        seekToAbsolute(m.optDouble("end"))
         skip.visibility = View.GONE
     }
 
@@ -186,7 +201,7 @@ class PlayerActivity : Activity() {
             "toggle" -> player.playWhenReady = !player.playWhenReady
             "pause" -> player.pause()
             "resume" -> player.play()
-            "seek" -> player.seekTo((c.optDouble("t", 0.0) * 1000).toLong())
+            "seek" -> seekToAbsolute(c.optDouble("t", 0.0))
             "skip" -> seekBy(c.optInt("by", 0))
             "next" -> done(true)
             "stop" -> done(false)
@@ -213,8 +228,8 @@ class PlayerActivity : Activity() {
     private fun done(ended: Boolean) {
         if (finished) return
         finished = true
-        val t = player.currentPosition / 1000.0
-        val d = if (player.duration > 0) player.duration / 1000.0 else 0.0
+        val t = position()
+        val d = total()
         val watched = ended || (d > 0 && t > d * 0.95)
         if (d > 0) save(if (watched) d else t, d, watched)
         status = "{}"
@@ -232,8 +247,8 @@ class PlayerActivity : Activity() {
         handler.removeCallbacks(ticker)
         if (!finished) {
             finished = true
-            val d = if (player.duration > 0) player.duration / 1000.0 else 0.0
-            if (d > 0) save(player.currentPosition / 1000.0, d, false)
+            val d = total()
+            if (d > 0) save(position(), d, false)
         }
         if (current === this) current = null
         status = "{}"

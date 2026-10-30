@@ -1524,7 +1524,7 @@ function srvOverview(d) {
   s.lan.forEach(ip => addr.push(`<div><b>At home</b><code>http://${esc(ip)}:${port}</code><span>Any phone, laptop or TV browser on your Wi-Fi.</span></div>`));
   s.tailscale.forEach(ip => addr.push(`<div><b>Away from home</b><code>http://${esc(ip)}:${port}</code><span>From any device signed in to your Tailscale.</span></div>`));
   addr.push(`<div><b>TVs</b><span>${s.dlna ? `Roku Media Player, VLC and most smart TVs list "${esc(s.name)}" by themselves.` : "TV sharing is off (see Settings)."}</span></div>`);
-  const streams = d.streams.length ? d.streams.map(x => `<li><span><b>${esc(x.who)}</b> is watching ${esc(x.title || x.item)}</span><span class="when">${esc(STREAM_MODE[x.mode] || x.mode)}</span></li>`).join("")
+  const streams = d.streams.length ? d.streams.map(x => `<li><span><b>${esc(x.who)}</b> is watching ${esc(x.title || x.item)}</span><span class="when" title="${x.speed ? "Converting " + x.speed + "× as fast as it plays" + (x.speed < 1.1 ? ": too slow, it will stop now and then" : "") : ""}">${esc([STREAM_MODE[x.mode] || x.mode, x.height ? x.height + "p" : "", x.speed ? x.speed + "× speed" : ""].filter(Boolean).join(" · "))}</span></li>`).join("")
     : `<li class="empty-row">Nobody is watching right now.</li>`;
   const inbox = d.inbox.length ? d.inbox.map(x => `<li><span>${esc(x.name)}</span><span class="when">${x.state === "copying" ? "Still copying" : "Sorting soon"}</span></li>`).join("")
     : `<li class="empty-row">Empty. Drop shows and movies here and they're filed within a minute.</li>`;
@@ -2641,13 +2641,21 @@ const Player = (function () {
   }
   const opt = (k, d) => prefs.get("p." + k, d), setOpt = (k, v) => prefs.set("p." + k, v);
   const SPEEDS = [1, 1.25, 1.5, 2, 0.75];
+  // Converted video is HLS. Apple's own HLS player is the best there is; Android's (what Silk on a Fire TV
+  // uses) treats Sofa's growing playlist as live TV: when the converter is only just ahead, it stalls and then
+  // jumps forward, skipping a few seconds. hls.js waits instead, so it plays everywhere else.
+  const UA = navigator.userAgent, MSE = window.ManagedMediaSource || window.MediaSource;
+  const appleHls = /iPhone|iPad|iPod/.test(UA) || (/Macintosh/.test(UA) && /Safari\//.test(UA) && !/Chrome|Chromium|Edg\/|Firefox|Silk/.test(UA));
+  const nativeHls = !!video.canPlayType("application/vnd.apple.mpegurl") && (appleHls || !MSE);
+  // A codec counts when the element plays it and, for converted video through hls.js, so does MediaSource.
+  const plays = type => !!video.canPlayType(type) && (nativeHls || !MSE || !!(MSE.isTypeSupported && MSE.isTypeSupported(type)));
   const caps = NATIVE ? JSON.parse(NATIVE.caps()) : {
     mkv: !!(video.canPlayType('video/x-matroska; codecs="avc1.64001F, mp4a.40.2"') || video.canPlayType("video/x-matroska")),
-    hevc: !!video.canPlayType('video/mp4; codecs="hvc1.1.6.L93.B0"'),
+    hevc: plays('video/mp4; codecs="hvc1.1.6.L93.B0"'),
+    hevc10: plays('video/mp4; codecs="hvc1.2.4.L120.B0"'),
     ac3: !!video.canPlayType('audio/mp4; codecs="ac-3"'),
     vp9: !!video.canPlayType('video/webm; codecs="vp9"')
   };
-  const nativeHls = !!video.canPlayType("application/vnd.apple.mpegurl");
   let item = null, next = null, plan = null, offset = 0, hlsSession = null, subIndex = -1;
   let lastSave = 0, idleTimer = 0, ambientTimer = 0, nextHidden = false, dragging = false, returnFocus = null;
 
@@ -2680,6 +2688,7 @@ const Player = (function () {
     video.removeAttribute("src"); video.load();
     returnFocus = document.activeElement;
     item = it; next = playQueue ? playQueue[playQueue.indexOf(it) + 1] || null : nextAfter(it); nextHidden = false; audioChoice = null; subDelay = 0;
+    autoCap = null; stalls = [];
     errorBox.hidden = chip.hidden = nextCard.hidden = ccMenu.hidden = epsPanel.hidden = helpBox.hidden = pauseInfo.hidden = true;
     const owner = it.show || it;
     $(".p-show", el).textContent = owner.name || it.title;
@@ -2723,6 +2732,8 @@ const Player = (function () {
   }
   async function load(at) {
     at = Math.max(0, at || 0);
+    endHold(false); loadedAt = Date.now();
+    const picture = prefs.get("quality", "") || autoCap || "";
     if (plan.mode === "direct") {
       offset = 0;
       if (!video.getAttribute("src")) {
@@ -2734,12 +2745,15 @@ const Player = (function () {
       // Converted video comes as short HLS segments: steady buffering, and a closed tab can't jam the converter.
       try {
         const h = await api("/api/hls/" + encodeURIComponent(item.id) + "?mode=" + plan.mode + "&t=" + at.toFixed(1) + (hlsSession ? "&replace=" + hlsSession : "") +
-                            (audioChoice != null ? "&audio=" + audioChoice : "") + (prefs.get("quality", "") ? "&h=" + prefs.get("quality", "") : ""));
+                            (audioChoice != null ? "&audio=" + audioChoice : "") + (picture ? "&h=" + picture : ""));
         hlsSession = h.session; offset = at;
         if (hls) { hls.destroy(); hls = null; }
         if (nativeHls) video.src = h.url;
         else {
-          hls = new window.Hls({ startPosition: 0, maxBufferLength: 60, maxMaxBufferLength: 180, manifestLoadingTimeOut: 30000,
+          // The playlist grows while Sofa converts: start at its beginning (hls.js never jumps ahead to "live"
+          // by itself), and keep a minute and a half behind for ←, not more (TV sticks have little memory).
+          hls = new window.Hls({ startPosition: 0, maxBufferLength: 60, maxMaxBufferLength: 180, backBufferLength: 90,
+                                 maxBufferHole: 0.5, manifestLoadingTimeOut: 30000,
                                  levelLoadingTimeOut: 30000, fragLoadingTimeOut: 40000 });
           hls.on(window.Hls.Events.ERROR, (_, data) => { if (data.fatal) playbackFailed(); });
           hls.loadSource(h.url); hls.attachMedia(video);
@@ -2748,11 +2762,52 @@ const Player = (function () {
     } else {
       offset = at;
       video.src = (plan.mode === "direct" ? plan.url : "/media/" + encodeURIComponent(item.id) + "/stream?mode=" + plan.mode) + "&t=" + at.toFixed(1) +
-                  (audioChoice != null ? "&audio=" + audioChoice : "") + (prefs.get("quality", "") && plan.mode === "transcode" ? "&h=" + prefs.get("quality", "") : "");
+                  (audioChoice != null ? "&audio=" + audioChoice : "") + (picture && plan.mode === "transcode" ? "&h=" + picture : "");
     }
     setSubtitles(subIndex);
     video.play().catch(() => {});
     paint();
+  }
+  /* Converted video on a computer that's only just keeping up: instead of stopping every few seconds,
+     wait once for some video to be ready; if it still keeps stopping, make the picture smaller (lighter to
+     convert, and to send over weak Wi-Fi). Sofa remembers that for the next video like it. */
+  let holding = 0, holdTimer = 0, holdResume = false, stalls = [], autoCap = null, loadedAt = 0;
+  const HOLD_FOR = 10;
+  function aheadOf() {
+    const b = video.buffered, t = video.currentTime;
+    for (let i = 0; i < b.length; i++) if (b.start(i) <= t + 0.3 && b.end(i) > t) return b.end(i) - t;
+    return 0;
+  }
+  function stalled() {
+    if (!item || !live() || el.classList.contains("is-live") || holding || video.seeking || video.paused) return;
+    if (Date.now() - loadedAt < 8000 || video.currentTime < 2 || (total() && now() > total() - 15)) return;
+    // Waiting once just after starting is normal. Twice more within ten minutes: the computer can't keep up.
+    if (Date.now() - loadedAt > 25000) stalls = stalls.filter(at => Date.now() - at < 600000).concat(Date.now());
+    const smaller = [540, 360].find(x => x < video.videoHeight - 20);
+    if (stalls.length >= 2 && plan.mode === "transcode" && !prefs.get("quality", "") && smaller) {
+      stalls = []; autoCap = smaller;
+      showSpinner("Making the picture a little smaller…", "This computer can't convert this video quite fast enough, so it kept stopping.");
+      load(now()).then(() => {
+        chip.firstElementChild.textContent = "Smaller picture, so it stops stopping (Options → Picture)";
+        chip.hidden = false; setTimeout(() => { chip.hidden = true; }, 8000);
+      });
+      return;
+    }
+    holding = Date.now();
+    video.pause();
+    showSpinner("Getting the next part ready…", "Waiting for a few seconds of video, so it doesn't keep stopping.");
+    holdTimer = setInterval(() => {
+      const ahead = aheadOf();
+      if (ahead >= HOLD_FOR || (total() && now() + ahead >= total() - 1) || Date.now() - holding > 30000) endHold(true);
+    }, 400);
+  }
+  function endHold(play) {
+    if (!holding) return;
+    holding = 0; clearInterval(holdTimer);
+    if (play) { holdResume = true; hideSpinner(); video.play().catch(() => {}); }
+  }
+  function userPause() {             // a pause pressed while it's waiting: stay paused when the video's ready
+    if (holding) { endHold(false); hideSpinner(); setPlayingUI(); save(true); } else video.pause();
   }
   let hlsJsOk = null;
   async function hlsJsReady() {
@@ -2775,7 +2830,7 @@ const Player = (function () {
     else load(t);
   }
   function close() {
-    pushed = false;
+    pushed = false; endHold(false);
     clearTimeout(sleepTimer); sleepPlan = {};
     if (hls) { hls.destroy(); hls = null; }
     el.classList.remove("is-live"); liveList_ = null;
@@ -2926,7 +2981,7 @@ const Player = (function () {
     if (v !== "off") toast(v === "end" ? "Sofa stops at the end of this one." : "Sofa stops in " + (v === "60" ? "an hour." : "30 minutes."));
   }
   function goToSleep() {
-    sleepPlan = {}; nextCard.hidden = true; video.pause(); save(true);
+    sleepPlan = {}; nextCard.hidden = true; endHold(false); video.pause(); save(true);
     toast("Good night. The sleep timer stopped playing; press Play to carry on.");
   }
 
@@ -2963,7 +3018,7 @@ const Player = (function () {
       ${row("autoskip", "Skip intros by themselves", "Otherwise a Skip Intro button appears.", false)}
       ${row("still", "Ask \"Are you still watching?\"", "After three episodes in a row with no buttons pressed.", true)}
       ${nightOk ? row("night", "Night mode", "Loud scenes quieter, voices clearer. For late nights and thin TV speakers.", false) : ""}
-      ${plan && plan.mode === "transcode" ? `<div class="toggle"><div><b>Picture</b><span>For video converted as it plays. Lower is lighter for an older computer or weak Wi-Fi.</span></div><div class="sorter inline">${[["", "Auto"], ["1080", "1080p"], ["720", "720p"], ["480", "480p"]].map(q =>
+      ${plan && plan.mode === "transcode" ? `<div class="toggle"><div><b>Picture</b><span>For video converted as it plays. Lower is lighter for an older computer or weak Wi-Fi.</span></div><div class="sorter inline">${[["", autoCap ? "Auto (" + autoCap + "p now)" : "Auto"], ["1080", "1080p"], ["720", "720p"], ["480", "480p"]].map(q =>
         `<button data-opt-quality="${q[0]}" aria-pressed="${prefs.get("quality", "") === q[0]}">${q[1]}</button>`).join("")}</div></div>` : ""}
       <div class="toggle"><div><b>Sleep timer</b><span>${sleepPlan.mode === "end" ? "Stops at the end of this " + (item && item.kind === "episode" ? "episode" : "video") + "." : sleepPlan.at ? "Stops at " + new Date(sleepPlan.at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) + "." : "Off."}</span></div>
         <div class="sorter inline">${[["off", "Off"], ["end", "End of this"], ["30", "30 min"], ["60", "1 hour"]].map(o =>
@@ -3109,7 +3164,7 @@ const Player = (function () {
     if (playing && el.classList.contains("ambient")) startAmbient(); else stopAmbient();
   }
   function toggle() {
-    if (video.paused) video.play().catch(() => {}); else video.pause();
+    if (holding || !video.paused) userPause(); else video.play().catch(() => {});
     $("use", flash).setAttribute("href", video.paused ? "#i-pause" : "#i-play");
     flash.classList.remove("go"); void flash.offsetWidth; flash.classList.add("go");
   }
@@ -3155,11 +3210,15 @@ const Player = (function () {
   ["keydown", "pointerdown"].forEach(ev => el.addEventListener(ev, () => { lastInput = Date.now(); }, true));
   video.addEventListener("progress", paint);
   video.addEventListener("durationchange", () => { paint(); drawMarks(); });
-  video.addEventListener("play", () => { setPlayingUI(); wake(); clearTimeout(pauseTimer); pauseInfo.hidden = true; });
-  video.addEventListener("pause", () => { setPlayingUI(); save(true); wake(); clearTimeout(pauseTimer);
+  video.addEventListener("play", () => { if (holdResume) { holdResume = false; return; } setPlayingUI(); wake(); clearTimeout(pauseTimer); pauseInfo.hidden = true; });
+  video.addEventListener("pause", () => { if (holding) return; setPlayingUI(); save(true); wake(); clearTimeout(pauseTimer);
     if (!video.ended) pauseTimer = setTimeout(() => { if (video.paused && !el.hidden && errorBox.hidden) showPauseInfo(); }, 2500); });
-  video.addEventListener("waiting", () => { if (!el.hidden && errorBox.hidden) showSpinner(plan && plan.mode !== "direct" ? "Getting the next part ready…" : "Loading…"); });
-  ["playing", "canplay", "seeked"].forEach(ev => video.addEventListener(ev, () => { if (!video.paused || ev !== "seeked") hideSpinner(); }));
+  video.addEventListener("waiting", () => {
+    if (el.hidden || !errorBox.hidden) return;
+    showSpinner(plan && plan.mode !== "direct" ? "Getting the next part ready…" : "Loading…");
+    stalled();
+  });
+  ["playing", "canplay", "seeked"].forEach(ev => video.addEventListener(ev, () => { if (!holding && (!video.paused || ev !== "seeked")) hideSpinner(); }));
   video.addEventListener("ended", () => {
     save(true);
     if (sleepPlan.mode === "end") return goToSleep();
@@ -3388,16 +3447,18 @@ const Player = (function () {
     let p;
     try { p = await api("/api/play/" + encodeURIComponent(it.id) + "?" + capsQuery()); } catch (e) { toast(e.message); return; }
     let url = p.url;
-    if (p.mode !== "direct") {
-      try { url = (await api("/api/hls/" + encodeURIComponent(it.id) + "?mode=" + p.mode + (prefs.get("quality", "") ? "&h=" + prefs.get("quality", "") : ""))).url; }
+    const pr = prog(it.id), start = pr && !pr.done && pr.t > 30 && (!p.duration || pr.t < p.duration - 30) ? pr.t : 0;
+    if (p.mode !== "direct") {        // converted from where they left off: the app adds `offset` to what it plays
+      try { url = (await api("/api/hls/" + encodeURIComponent(it.id) + "?mode=" + p.mode + "&t=" + start.toFixed(1) + (prefs.get("quality", "") ? "&h=" + prefs.get("quality", "") : ""))).url; }
       catch (e) { toast(e.message); return; }
     }
-    const pr = prog(it.id), start = pr && !pr.done && pr.t > 30 && (!p.duration || pr.t < p.duration - 30) ? pr.t : 0;
     nativeItem = it; nativeQueue = queue && queue.includes(it) ? queue : null;
     const owner = it.show || it;
-    NATIVE.play(JSON.stringify({ item: it.id, url: location.origin + url, start: p.mode === "direct" ? start : 0,
+    const shift = p.mode === "direct" ? 0 : start;
+    NATIVE.play(JSON.stringify({ item: it.id, url: location.origin + url, start: start - shift, offset: shift, duration: p.duration || 0,
       title: owner.name || it.title, sub: it.kind === "episode" ? subtitleFor(it) : "",
-      subtitles: p.subtitles.map(t => ({ url: location.origin + t.url, lang: t.lang, label: t.label })), markers: p.markers || [] }));
+      subtitles: p.subtitles.map(t => ({ url: location.origin + t.url + (shift ? "?offset=" + shift.toFixed(2) : ""), lang: t.lang, label: t.label })),
+      markers: p.markers || [] }));
   }
   window.sofaNativeDone = r => {
     const it = nativeItem; nativeItem = null;
@@ -3409,13 +3470,13 @@ const Player = (function () {
   };
   const nativeStatus = () => nativeItem ? JSON.parse(NATIVE.status() || "{}") : null;
   // For the phone remote: what's playing, and doing what it asks.
-  const status = () => nativeItem ? nativeStatus() || {} : item && !el.classList.contains("is-live") ? { item: item.id, t: Math.round(now()), d: Math.round(total()), paused: video.paused } : {};
+  const status = () => nativeItem ? nativeStatus() || {} : item && !el.classList.contains("is-live") ? { item: item.id, t: Math.round(now()), d: Math.round(total()), paused: video.paused && !holding } : {};
   function control(c) {
     if (nativeItem) return NATIVE.control(JSON.stringify(c));
     if (!item || el.classList.contains("is-live")) return;
     if (c.cmd === "toggle") toggle();
-    else if (c.cmd === "pause") video.pause();
-    else if (c.cmd === "resume") video.play().catch(() => {});
+    else if (c.cmd === "pause") userPause();
+    else if (c.cmd === "resume") { if (holding) endHold(true); else video.play().catch(() => {}); }
     else if (c.cmd === "seek" && c.t != null) seekTo(+c.t);
     else if (c.cmd === "skip" && c.by) seekBy(+c.by);
     else if (c.cmd === "next") playNext();
