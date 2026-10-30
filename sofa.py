@@ -69,7 +69,7 @@ def watch_update():
 if __name__ == "__main__" and sys.argv[1:2] == ["serve"]:
     watch_update()
 
-from sofa import __version__, apps, auth, backup, config, discovery, dlna, organizer, store, updater, watcher, web  # noqa: E402
+from sofa import __version__, apps, auth, awake, backup, config, discovery, dlna, organizer, store, updater, watcher, web  # noqa: E402
 from sofa.library import LIBRARY  # noqa: E402
 
 
@@ -140,7 +140,7 @@ def main(argv):
         print("Python %s at %s" % (sys.version.split()[0], sys.executable), flush=True)
         # Answer straight away; the library is read in the background (a big one takes a while).
         print("Sofa %s is starting." % __version__, flush=True)
-        for part in (dlna.start, discovery.start, watcher.start, apps.start):
+        for part in (dlna.start, discovery.start, watcher.start, apps.start, awake.start):
             try:
                 part()
             except Exception as exc:     # keep going: the Server page is how anyone finds out what's wrong

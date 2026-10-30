@@ -119,6 +119,26 @@ while someone watches is 720p at most, and converting files, making previews ahe
 finding intros wait for the **quiet hours** (1:00 to 7:00, changeable). Whatever someone is
 watching is still done straight away.
 
+### Sound, subtitles, and two people at once
+
+- **Surround sound.** Files with Dolby Digital (AC-3) or Dolby Digital Plus keep it, 5.1 and all, on
+  devices that play it (the Fire TV app, Apple devices, many TVs). DTS, TrueHD or FLAC surround is
+  turned into Dolby Digital Plus 5.1 for those devices, and into stereo for the rest.
+- **Blu-ray and DVD subtitles** are pictures, not text, so no player can show them from a converted
+  stream. They're listed in the player's subtitle menu as "on the picture": choose one and Sofa draws
+  it onto the video as it converts. (The Fire TV app shows them itself when it plays the file as it is.)
+- **Two people watching converted video at once** share the computer, so the second one starts a
+  size smaller (720p → 540p), and Sofa doesn't learn speeds from those shared moments.
+- **AirPlay:** in Safari on an iPhone, iPad or Mac, the player shows the AirPlay button when an Apple TV
+  or AirPlay speaker is around.
+
+### Keeping the computer awake
+
+A Sofa computer that falls asleep disappears from every TV. While Sofa runs it keeps the computer
+from sleeping by itself (on a Mac with `caffeinate`; the screen still turns off). Server → Settings →
+**Keep this computer awake** turns that off. On a Mac, also switch on **System Settings → Energy →
+Start up automatically after a power failure**, so Sofa comes back after a power cut.
+
 ### Space
 
 **Server → Library → Free up space** deletes Sofa's own resized pictures, scrubbing previews
