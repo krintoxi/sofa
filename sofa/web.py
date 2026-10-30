@@ -8,6 +8,7 @@ import os
 import platform
 import re
 import shutil
+import ssl
 import sys
 import time
 import zipfile
@@ -17,8 +18,8 @@ from urllib.parse import parse_qs, quote, unquote, urlsplit
 
 import threading
 
-from . import (__version__, apps, artwork, auth, awake, backup, config, dlna, fetch, housekeeping, intros, live, media, metadata, music,
-               kids, machine, net, optimize, organizer, places, previews, report, screens, store, trickplay, updater,
+from . import (__version__, acme, apps, artwork, auth, awake, backup, config, ddns, dlna, fetch, housekeeping, intros, live, media, metadata, music,
+               kids, machine, net, optimize, organizer, places, previews, report, screens, store, tls, trickplay, updater, upnp,
                discovery, pairing, travel, uploads)
 from .library import LIBRARY
 
@@ -65,7 +66,15 @@ class Handler(BaseHTTPRequestHandler):
         return ip[7:] if ip.startswith("::ffff:") else ip
 
     def is_https(self):
-        return config.get("trust_proxy") and self.headers.get("X-Forwarded-Proto") == "https"
+        return isinstance(self.connection, ssl.SSLSocket) or bool(
+            config.get("trust_proxy") and self.headers.get("X-Forwarded-Proto") == "https")
+
+    def end_headers(self):
+        self.send_header("X-Frame-Options", "SAMEORIGIN")
+        self.send_header("Referrer-Policy", "same-origin")
+        if self.is_https() and tls.trusted():
+            self.send_header("Strict-Transport-Security", "max-age=15552000")
+        super().end_headers()
 
     def token(self):
         bearer = self.headers.get("Authorization", "")
@@ -140,8 +149,24 @@ class Handler(BaseHTTPRequestHandler):
     def gate(self):
         """False (after replying) when this connection isn't allowed at all."""
         self._user = False   # connections are reused; look the user up again for every request
-        if not auth.allowed_network(self.network()):
+        path = urlsplit(self.path).path
+        if path.startswith("/.well-known/acme-challenge/"):     # Let's Encrypt checking the domain: from anywhere
+            answer = acme.challenges.get(path.rsplit("/", 1)[1])
+            self.send_body(answer or "Not found", status=200 if answer else 404)
+            return False
+        net = self.network()
+        if not auth.allowed_network(net):
             self.send_body("Sofa is set to accept connections from your home network only.", status=403)
+            return False
+        if net == "internet" and not self.is_https():           # never a password in the clear over the internet
+            domain = (config.get("domain") or "").strip()
+            if tls.trusted() and domain:
+                self.send_response(301)
+                self.send_header("Location", "https://%s%s" % (domain, self.path))
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+            else:
+                self.send_body("Sofa only answers the internet over HTTPS. Set it up under Server → Settings → Internet.", status=403)
             return False
         return True
 
@@ -703,6 +728,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.json(updater.status())
         if path == "/api/admin/intros":
             return self.json(intros.status(LIBRARY))
+        if path == "/api/admin/internet":
+            return self.json(internet_status())
         if path == "/api/admin/storage":
             return self.json(places.status(LIBRARY))
         if path == "/api/admin/report":            # a text file to send when asking for help
@@ -1206,6 +1233,37 @@ class Handler(BaseHTTPRequestHandler):
             if n:
                 threading.Thread(target=LIBRARY.scan, args=("duplicates removed",), daemon=True).start()
             return self.json({"ok": True, "copies": n, "freed": freed})
+        if path == "/api/admin/internet":             # HTTPS, the domain, the router, DuckDNS
+            changes = {}
+            if data.get("https") in ("off", "letsencrypt", "files", "self"):
+                changes["https"] = data["https"]
+            if "domain" in data:
+                domain = str(data["domain"] or "").strip().lower().rstrip(".")
+                if domain and not re.match(r"^(?=.{4,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$", domain):
+                    return self.error(400, "That doesn't look like a domain (like sofa.example.com or yourname.duckdns.org).")
+                changes["domain"] = domain
+            for k in ("acme_email", "cert_file", "key_file", "duckdns_token"):
+                if k in data:
+                    changes[k] = str(data[k] or "").strip()[:300]
+            if "https_port" in data:
+                changes["https_port"] = max(1, min(65535, int(data["https_port"] or 8443)))
+            if data.get("remote") in ("home", "public"):
+                https_on = changes.get("https", config.get("https")) != "off"
+                if data["remote"] == "public" and not (https_on or config.get("trust_proxy")):
+                    return self.error(400, "Switch HTTPS on first: Sofa never answers the internet without it.")
+                changes["remote"] = data["remote"]
+            if "upnp" in data:
+                changes["upnp"] = bool(data["upnp"])
+            if changes:
+                config.update(changes)
+                store.log("settings", "%s changed internet settings: %s" % (u["name"], ", ".join(sorted(changes))))
+            if "duckdns_token" in changes or "domain" in changes:
+                threading.Thread(target=ddns.update, daemon=True).start()
+            if data.get("open_ports") or changes.get("upnp"):
+                threading.Thread(target=upnp.open_ports, daemon=True).start()
+            if data.get("get_certificate"):
+                threading.Thread(target=tls.obtain, daemon=True).start()
+            return self.json(internet_status())
         if path == "/api/admin/privacy":
             if data.get("wipe"):                  # erase every log, here and in the backups
                 store.wipe_logs()
@@ -1261,9 +1319,20 @@ def roku_package():
     return out.getvalue()
 
 
+def internet_status():
+    """Everything the Internet panel shows."""
+    up = upnp.status()
+    public_ip = up.get("external_ip")
+    return {"https": tls.status(), "upnp": dict(up, on=bool(config.get("upnp"))), "duckdns": ddns.status(),
+            "remote": config.get("remote"), "port": config.get("port"), "lan": dlna.lan_addresses(),
+            "acme_email": config.get("acme_email") or "", "cert_file": config.get("cert_file") or "",
+            "key_file": config.get("key_file") or "", "duckdns_token": "set" if config.get("duckdns_token") else "",
+            "public_ip": public_ip, "points_here": ddns.points_here(public_ip), "trust_proxy": bool(config.get("trust_proxy"))}
+
+
 def public_settings():
     s = config.all_settings()
-    for k in ("tmdb_api_key", "theporndb_api_key"):
+    for k in ("tmdb_api_key", "theporndb_api_key", "duckdns_token"):
         s[k] = "set" if s.get(k) else ""
     return s
 

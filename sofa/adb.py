@@ -14,21 +14,18 @@ The protocol: https://android.googlesource.com/platform/packages/modules/adb/+/H
 import base64
 import json
 import os
-import random
 import socket
 import struct
 import time
 
-from . import config
+from . import config, rsakey
 
 PORT = 5555
 CNXN, AUTH, OPEN, OKAY, CLSE, WRTE = 0x4E584E43, 0x48545541, 0x4E45504F, 0x59414B4F, 0x45534C43, 0x45545257
 VERSION = 0x01000000                  # the oldest version: every Fire TV speaks it (we send checksums)
 MAXDATA = 256 * 1024
 AUTH_TOKEN, AUTH_SIGNATURE, AUTH_RSAPUBLICKEY = 1, 2, 3
-SHA1_DIGESTINFO = bytes.fromhex("3021300906052b0e03021a05000414")
 KEY_FILE = os.path.join(config.DATA_DIR, "adb", "sofa-adbkey.json")
-_rng = random.SystemRandom()
 
 
 class AdbError(Exception):
@@ -41,65 +38,25 @@ class NotAllowed(AdbError):
 
 # ---------------------------------------------------------------- the key (RSA, 2048 bits)
 
-_SMALL_PRIMES = [p for p in range(3, 2000) if all(p % d for d in range(2, int(p ** 0.5) + 1))]
-
-
-def _probable_prime(n, rounds=24):
-    d, s = n - 1, 0
-    while not d & 1:
-        d >>= 1
-        s += 1
-    for _ in range(rounds):
-        x = pow(_rng.randrange(2, n - 1), d, n)
-        if x in (1, n - 1):
-            continue
-        for _ in range(s - 1):
-            x = pow(x, 2, n)
-            if x == n - 1:
-                break
-        else:
-            return False
-    return True
-
-
-def _prime(bits, e):
-    while True:
-        n = _rng.getrandbits(bits) | (3 << (bits - 2)) | 1          # top two bits set: p*q has all 2048
-        if all(n % p for p in _SMALL_PRIMES) and (n - 1) % e and _probable_prime(n):
-            return n
-
-
-def new_key(bits=2048):
-    e = 65537
-    while True:
-        p, q = _prime(bits // 2, e), _prime(bits // 2, e)
-        n = p * q
-        if p != q and n.bit_length() == bits:
-            return {"n": n, "e": e, "d": pow(e, -1, (p - 1) * (q - 1))}
-
-
 def key():
     """Sofa's ADB key, made the first time (a few seconds)."""
     try:
         with open(KEY_FILE, encoding="utf-8") as f:
             k = json.load(f)
-        return {"n": int(k["n"], 16), "e": int(k["e"]), "d": int(k["d"], 16)}
+        return {x: (int(k[x], 16) if x != "e" else int(k[x])) for x in ("n", "e", "d", "p", "q") if x in k}
     except (OSError, ValueError, KeyError):
         pass
-    k = new_key()
+    k = rsakey.generate()
     os.makedirs(os.path.dirname(KEY_FILE), exist_ok=True)
     fd = os.open(KEY_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as f:
-        json.dump({"n": "%x" % k["n"], "e": k["e"], "d": "%x" % k["d"]}, f)
+        json.dump({x: ("%x" % k[x] if x != "e" else k[x]) for x in k}, f)
     return k
 
 
 def sign(k, token):
     """What adb does: RSA_sign(NID_sha1, token) - the token stands in for the SHA-1 digest."""
-    size = (k["n"].bit_length() + 7) // 8
-    t = SHA1_DIGESTINFO + token
-    em = b"\x00\x01" + b"\xff" * (size - len(t) - 3) + b"\x00" + t
-    return pow(int.from_bytes(em, "big"), k["d"], k["n"]).to_bytes(size, "big")
+    return rsakey.sign_digest(k, token, "sha1")
 
 
 def public_key(k, name="sofa@sofa"):

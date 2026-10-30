@@ -62,8 +62,9 @@ def validate_new(name, password):
     name = (name or "").strip()
     if not name or len(name) > 40:
         return "Enter a name up to 40 characters."
-    if len(password or "") < 8:
-        return "Use a password of at least 8 characters."
+    shortest = 12 if config.get("remote") == "public" else 8      # on the internet, guessing is the attack
+    if len(password or "") < shortest:
+        return "Use a password of at least %d characters%s." % (shortest, " (Sofa is on the internet)" if shortest > 8 else "")
     return None
 
 

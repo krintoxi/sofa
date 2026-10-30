@@ -19,34 +19,43 @@ internet, and Sofa needs no changes.
 
 You still sign in to Sofa as usual.
 
-## 2. A secure public address
+## 2. Your own address on the internet, with HTTPS (built in)
 
-For a normal URL (`https://sofa.example.com`) that works without a VPN app. This is how
-most Plex and Jellyfin servers are reached; it's fine when done properly:
+A normal web address (`https://sofa.example.com`, or a free `https://yourname.duckdns.org`) that
+works anywhere, locked with each person's account and password, and encrypted. Sofa does all of it
+itself: **Server → Internet**, five steps.
 
-1. Put Sofa behind a reverse proxy that handles HTTPS. [Caddy](https://caddyserver.com)
-   gets certificates automatically:
+1. **Encryption.** Choose **Free certificate from Let's Encrypt**.
+2. **Your address.** Your own domain (point its A record at your home's internet address), or a free
+   one: sign in at [duckdns.org](https://www.duckdns.org), make a name, and paste its token. Sofa
+   keeps a DuckDNS name pointing at your home every 10 minutes, so a changing home address is fine.
+3. **The router.** It has to send two ports to the Sofa computer: **443 → Sofa's HTTPS port (8443)** and
+   **80 → Sofa's port (8090)**. Switch on **Ask the router to do it** (UPnP, which most routers have);
+   otherwise set those two "port forwards" in the router's own page.
+4. **The certificate.** Press **Get the certificate**. Let's Encrypt checks that your address reaches
+   this computer (on port 80), then issues a certificate for 90 days. Sofa renews it by itself a month
+   before it ends.
+5. **Let the internet in.** Switch on **Accept connections from the internet**.
 
-   ```
-   sofa.example.com {
-       reverse_proxy 127.0.0.1:8090
-   }
-   ```
+What Sofa does when it's on the internet:
 
-2. Forward port 443 on your router to the proxy (only 443, never 8090).
-3. In `data/config.json` set `"remote": "public"` and `"trust_proxy": true`, then
-   restart Sofa.
-
-What Sofa does in this mode:
-
-- every request from the internet must be signed in;
-- sign-in cookies are marked Secure (HTTPS only) and HttpOnly;
+- it answers the internet **only over HTTPS**: plain-HTTP visitors are sent to `https://your-address`
+  (and refused if there's no trusted certificate), and browsers are told to always use HTTPS (HSTS);
+- every request from the internet must be signed in, and new passwords need 12 characters;
 - 8 wrong passwords from one address lock it out for 15 minutes;
-- the Server page and all admin actions refuse internet connections: manage the
-  server from home or over a VPN;
-- TV sharing (DLNA) and artwork-without-sign-in stay home-network only.
+- the Server page and all admin changes refuse internet connections: manage it from home or over a VPN;
+- pairing TVs, guests, TV sharing (DLNA) and artwork without signing in stay home-network only;
+- sign-in cookies are Secure (HTTPS only) and HttpOnly; pages can't be framed by other sites.
 
-Use long, unique passwords for every account, and keep Sofa and the proxy up to date.
+At home everything keeps working over plain HTTP too (TV apps, Roku, the Sofa box), and
+`https://your-address` works from home as well when your router supports it ("NAT loopback").
+
+**Encryption at home only, without a domain:** choose **Sofa's own certificate** in step 1. Sofa makes a
+certificate for this computer's names and addresses; each browser asks once whether to trust it.
+Or use **My own certificate files**, for example from `tailscale cert`.
+
+**Already have a reverse proxy** (Caddy, nginx)? That still works: leave Sofa's HTTPS off, set
+`"remote": "public"` and `"trust_proxy": true` in `data/config.json`, and let the proxy handle HTTPS.
 
 ## 3. Cloudflare Tunnel
 
@@ -55,7 +64,7 @@ Good for the web app and the Server page (combine with Cloudflare Access for an 
 login). The catch: Cloudflare's terms limit serving large amounts of video through
 its regular network, so heavy streaming this way risks being throttled or flagged.
 Use it for browsing and occasional viewing, and a VPN for regular watching.
-Settings are the same as option 2 (`remote: public`, `trust_proxy: true`).
+Settings: `remote: public` and `trust_proxy: true`, as with a reverse proxy (option 2).
 
 ## What not to do
 
