@@ -578,3 +578,230 @@ def _tidy_shows(root):
         store.log("inbox", "Renamed the show folder \"%s\" to \"%s\"" % (name, nice))
         done += 1
     return done
+
+
+# ---------------------------------------------------------------- moving and deleting from the app
+
+SIDE_EXT = tuple(naming.SUB_EXT) + (".jpg", ".png", ".nfo", ".json")
+LIBRARY_KEYS = ("shows", "movies", "adult")
+
+
+def _sidecars_of(video):
+    """Subtitles, .nfo, .info.json and pictures that belong to `video`."""
+    d, name = os.path.split(video)
+    stem = os.path.splitext(name)[0]
+    out = []
+    try:
+        names = os.listdir(d)
+    except OSError:
+        names = []
+    for f in names:
+        p = os.path.join(d, f)
+        base, ext = os.path.splitext(f)
+        if p != video and (base == stem or base.startswith(stem + ".")) and ext.lower() in SIDE_EXT and os.path.isfile(p):
+            out.append(p)
+    still = os.path.join(d, "metadata", stem + ".jpg")
+    if os.path.isfile(still):
+        out.append(still)
+    return out
+
+
+def _free_path(path):
+    base, ext = os.path.splitext(path) if os.path.isfile(path) or os.path.splitext(path)[1] else (path, "")
+    n = 2
+    while os.path.exists(path):
+        path = "%s (%d)%s" % (base, n, ext)
+        n += 1
+    return path
+
+
+def deleted_root():
+    return config.path("deleted") if config.get("deleted") else os.path.join(os.path.dirname(config.path("shows")), "Deleted")
+
+
+def _videos_under(d, limit=2):
+    found = []
+    for dd, _dirs, files in os.walk(d):
+        found += [os.path.join(dd, f) for f in files if os.path.splitext(f)[1].lower() in naming.VIDEO_EXT]
+        if len(found) >= limit:
+            break
+    return found
+
+
+def _own_folder(video):
+    """The biggest folder that holds nothing but this video (a movie's own folder, with its poster)."""
+    roots = {os.path.abspath(config.path(k)) for k in LIBRARY_KEYS}
+    d, top = os.path.dirname(os.path.abspath(video)), None
+    while _in_library(d) and d not in roots and _videos_under(d) == [os.path.abspath(video)]:
+        top, d = d, os.path.dirname(d)
+    return top
+
+
+def _put_aside(path):
+    """Move a file or folder into the Deleted folder, keeping where it was (Deleted/Movies/..., Deleted/XXX/...)."""
+    rel = os.path.basename(path)
+    for key in LIBRARY_KEYS + ("review", "inbox"):
+        root = os.path.abspath(config.path(key))
+        if os.path.abspath(path).startswith(root + os.sep):
+            rel = os.path.join("XXX" if key == "adult" else os.path.basename(root), os.path.relpath(path, root))
+            break
+    dest = _free_path(os.path.join(deleted_root(), rel))
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
+    shutil.move(path, dest)
+    return dest
+
+
+def _in_library(path):
+    p = os.path.abspath(path)
+    return any(p.startswith(os.path.abspath(config.path(k)) + os.sep) for k in LIBRARY_KEYS)
+
+
+def _tidy_after(folder):
+    """A folder left without any video (a movie's folder with just its poster) goes to Deleted too."""
+    roots = {os.path.abspath(config.path(k)) for k in LIBRARY_KEYS}
+    d, top = os.path.abspath(folder), None
+    while _in_library(d) and d not in roots and os.path.isdir(d) and not _has_video(d):
+        top, d = d, os.path.dirname(d)
+    if top:
+        _put_aside(top)
+
+
+def _year(value):
+    try:
+        y = int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+    return y if 1880 <= y <= 2100 else None
+
+
+def relocate(path, target, private=False):
+    """An admin says this video is out of place. `target`: {"kind": "movie", "title", "year"} |
+    {"kind": "episode", "show", "season", "episode"} | {"kind": "adult", "category", "title"} |
+    {"kind": "review"} | {"kind": "delete"}. Returns a sentence saying where it went."""
+    if not _in_library(path) or not os.path.isfile(path):
+        raise ValueError("Sofa can only move videos that are in the library.")
+    kind = target.get("kind")
+    src_dir = os.path.dirname(path)
+    stem, ext = os.path.splitext(os.path.basename(path))
+    ext = ext.lower()
+    if kind == "delete":
+        own = _own_folder(path)
+        if own:                                     # its own folder, poster and all
+            _put_aside(own)
+        else:
+            for p in _sidecars_of(path) + [path]:
+                _put_aside(p)
+            _tidy_after(src_dir)
+        if private:
+            store.log_private("library", "Moved a private video to the Deleted folder")
+        else:
+            store.log("library", "Moved %s to the Deleted folder" % os.path.basename(path))
+        return "Moved to the Deleted folder. You can get it back from there until it's emptied."
+    if kind == "review":
+        sub = os.path.join("XXX", "From the app") if private else "From the app"
+        dest = os.path.join(config.path("review"), sub, stem + ext)
+        where = "Needs Review"
+    elif kind == "movie":
+        title = naming.safe_filename((target.get("title") or "").strip())
+        if not title:
+            raise ValueError("Type the movie's title.")
+        year = _year(target.get("year"))
+        name = "%s (%d)" % (title, year) if year else title
+        dest = os.path.join(config.path("movies"), name, name + ext)
+        where = "Movies, as %s" % name
+    elif kind == "episode":
+        show = (target.get("show") or "").strip()
+        try:
+            s, e = int(target.get("season")), int(target.get("episode"))
+        except (TypeError, ValueError):
+            raise ValueError("Type the season and episode numbers.")
+        if not show or s < 0 or e < 1:
+            raise ValueError("Type the show's name, the season and the episode.")
+        show_name = _existing_show(show) or naming.safe_filename(show)
+        code = "S%02dE%02d" % (s, e)
+        dest = os.path.join(config.path("shows"), show_name, "Specials" if s == 0 else "Season %d" % s,
+                            "%s %s%s" % (show_name, code, ext))
+        where = "Shows, as %s %s" % (show_name, code)
+    elif kind == "adult":
+        category = naming.safe_filename((target.get("category") or "").strip()) or "Movies"
+        title = naming.safe_filename((target.get("title") or "").strip() or naming.clean(stem) or stem) or "Untitled"
+        dest = os.path.join(config.path("adult"), category, title, title + ext)
+        where = "Adult, %s" % category
+        private = True
+    else:
+        raise ValueError("Choose where it goes.")
+    if _same(dest, path):
+        return "It's already there."
+    if os.path.exists(dest):
+        raise ValueError("There's already a video with that name there: %s" % os.path.basename(dest))
+    old_still = os.path.join(src_dir, "metadata", stem + ".jpg")
+    _move(path, dest, "Moved a private video to %s" % where.split(",")[0] if private else
+          "Moved %s to %s" % (os.path.basename(path), where), private=private)
+    if os.path.isfile(old_still):                  # its picture, if Sofa took one, goes along
+        new_still = os.path.join(os.path.dirname(dest), "metadata", os.path.splitext(os.path.basename(dest))[0] + ".jpg")
+        if not os.path.exists(new_still):
+            os.makedirs(os.path.dirname(new_still), exist_ok=True)
+            shutil.move(old_still, new_still)
+    _tidy_after(src_dir)
+    return "Moved to %s." % ("the Adult section" if kind == "adult" else where)
+
+
+def relocate_show(folder, target, private=False):
+    """Move or delete a whole show's folder: {"kind": "shows"} | {"kind": "adult", "category"} | {"kind": "delete"}."""
+    if not _in_library(folder) or not os.path.isdir(folder):
+        raise ValueError("Sofa can only move shows that are in the library.")
+    kind, name = target.get("kind"), os.path.basename(folder)
+    if kind == "delete":
+        _put_aside(folder)
+        if private:
+            store.log_private("library", "Moved a private series to the Deleted folder")
+        else:
+            store.log("library", "Moved the show %s to the Deleted folder" % name)
+        return "Moved to the Deleted folder. You can get it back from there until it's emptied."
+    if kind == "shows":
+        dest, where = os.path.join(config.path("shows"), name), "Shows"
+    elif kind == "adult":
+        category = naming.safe_filename((target.get("category") or "").strip()) or "Series"
+        dest, where, private = os.path.join(config.path("adult"), category, name), "the Adult section", True
+    else:
+        raise ValueError("Choose where it goes.")
+    if _same(dest, folder):
+        return "It's already there."
+    if os.path.exists(dest):
+        raise ValueError("There's already a folder called %s there." % name)
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
+    shutil.move(folder, dest)
+    if private:
+        store.log_private("library", "Moved a series to %s" % where)
+    else:
+        store.log("library", "Moved the show %s to %s" % (name, where))
+    return "Moved to %s." % where
+
+
+def deleted_summary():
+    root = deleted_root()
+    files = size = 0
+    for d, _dirs, fs in os.walk(root):
+        for f in fs:
+            try:
+                size += os.path.getsize(os.path.join(d, f))
+                files += 1
+            except OSError:
+                pass
+    return {"folder": root, "files": files, "bytes": size}
+
+
+def empty_deleted():
+    root = deleted_root()
+    if not os.path.isdir(root):
+        return 0
+    n = 0
+    for name in os.listdir(root):
+        p = os.path.join(root, name)
+        try:
+            shutil.rmtree(p) if os.path.isdir(p) and not os.path.islink(p) else os.remove(p)
+            n += 1
+        except OSError:
+            pass
+    store.log("library", "Emptied the Deleted folder")
+    return n

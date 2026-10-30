@@ -220,11 +220,16 @@ CMS_XML = _scpd([
     ("CurrentConnectionIDs", "string", "yes")])
 
 
+def sized(url):
+    """An artwork URL asking for the 480 px version (it may already carry ?v=<date>)."""
+    return url + ("&" if "?" in url else "?") + "w=480"
+
+
 def _entry(oid, obj, host):
     e = html.escape
     url = lambda p: "http://%s%s" % (host, quote(p))
     if obj["kind"] == "container":
-        art = '<upnp:albumArtURI dlna:profileID="JPEG_TN">%s</upnp:albumArtURI>' % e(url(obj["art"]) + "?w=480") if obj.get("art") else ""
+        art = '<upnp:albumArtURI dlna:profileID="JPEG_TN">%s</upnp:albumArtURI>' % e(sized(url(obj["art"]))) if obj.get("art") else ""
         return ('<container id="%s" parentID="%s" restricted="1" childCount="%d"><dc:title>%s</dc:title>'
                 "<upnp:class>object.container.storageFolder</upnp:class>%s</container>"
                 % (e(oid), e(obj["parent"] or "-1"), len(obj["children"]), e(obj["title"]), art))
@@ -234,7 +239,7 @@ def _entry(oid, obj, host):
             AUDIO_MIME.get(obj["ext"], "audio/mpeg"), DLNA_FLAGS, ' size="%d"' % obj["size"] if obj.get("size") else "",
             ' duration="%d:%02d:%02d.000"' % (secs // 3600, secs // 60 % 60, secs % 60) if secs else "",
             e(url("/dlna/media/" + obj["id"])))
-        art = '<upnp:albumArtURI dlna:profileID="JPEG_TN">%s</upnp:albumArtURI>' % e(url(obj["thumb"]) + "?w=480") if obj.get("thumb") else ""
+        art = '<upnp:albumArtURI dlna:profileID="JPEG_TN">%s</upnp:albumArtURI>' % e(sized(url(obj["thumb"]))) if obj.get("thumb") else ""
         return ('<item id="%s" parentID="%s" restricted="1"><dc:title>%s</dc:title><upnp:class>object.item.audioItem.musicTrack</upnp:class>'
                 '<upnp:artist>%s</upnp:artist><dc:creator>%s</dc:creator><upnp:album>%s</upnp:album>%s%s%s</item>'
                 % (e(oid), e(obj["parent"]), e(obj["title"]), e(obj["artist"]), e(obj["artist"]), e(obj["album"]),
@@ -253,7 +258,7 @@ def _entry(oid, obj, host):
             e(url("/dlna/media/" + obj["id"])))
     else:
         res = '<res protocolInfo="http-get:*:video/mp4:%s">%s</res>' % (STREAM_FLAGS, e(url("/dlna/media/" + obj["id"])))
-    art = '<upnp:albumArtURI dlna:profileID="JPEG_TN">%s</upnp:albumArtURI>' % e(url(obj["thumb"]) + "?w=480") if obj.get("thumb") else ""
+    art = '<upnp:albumArtURI dlna:profileID="JPEG_TN">%s</upnp:albumArtURI>' % e(sized(url(obj["thumb"]))) if obj.get("thumb") else ""
     return ('<item id="%s" parentID="%s" restricted="1"><dc:title>%s</dc:title>'
             "<upnp:class>object.item.videoItem</upnp:class>%s%s</item>" % (e(oid), e(obj["parent"]), e(obj["title"]), art, res))
 

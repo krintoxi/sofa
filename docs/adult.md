@@ -15,10 +15,17 @@ It's never shown to:
 Adult videos also stay out of Home, "Continue watching" and search for everyone. The Adult
 tab has its own "Continue watching" and its own search box.
 
+## The Adult tab
+
+It has its own front page, like Home: a featured strip, then **Continue watching**, **New
+arrivals**, a row for **each of your categories** (Movies, Hentai, Shows, ...), **Your
+favorites**, **Studios**, **Performers**, and everything at the bottom. Each category's page
+splits into its **Series**, **Collections** and **Videos**.
+
 ## Your own folders are the categories
 
-Every folder at the top of `~/Entertainment/Adult` is a category, with its own button in the
-Adult tab. Use whatever names you like:
+Every folder at the top of `~/Entertainment/Adult` is a category, with its own button and row
+in the Adult tab, named the way you named the folder. Use whatever names you like:
 
 ```
 Adult/
@@ -64,13 +71,25 @@ over a thousand other sites, including the free adult video sites. Sofa keeps it
 - **Send to Sofa from your browser:** drag the "Send to Sofa" button from the Downloads tab to
   your bookmarks bar. On any video page, click it and the box opens with the link filled in.
 
+**"The site didn't hand over the video" / "No video formats found".** The site wants you signed
+in, or to confirm your age (some countries require it for adult sites). Do that in a browser on
+the Sofa computer, then choose that browser under **Use the sign-in from** on the Downloads tab,
+and try again. Firefox works as it is; Safari needs Full Disk Access for the program that runs
+Sofa (System Settings → Privacy & Security). If it still fails, the site may have changed:
+Sofa updates yt-dlp by itself and tries once more.
+
+**"yt-dlp doesn't run on this computer".** The Install button tries the ready-made Mac version,
+then the cross-platform one with any Python 3.11 or newer it finds, then Homebrew, and says
+what went wrong with each. On an older Mac, installing Python 3.12 from python.org, or
+`brew install yt-dlp`, then pressing **Try again** usually does it.
+
 Only save videos you're allowed to keep.
 
 ## Browsing
 
 | | |
 |---|---|
-| **Categories** | one button per folder (Movies, Hentai, Series, ...) |
+| **Categories** | one button and one row per folder (Movies, Hentai, Shows, ...) |
 | **Studios** | from file names like `Studio.21.03.14.Performer.Name.Title`, `.nfo` files, saved links, ThePornDB |
 | **Performers** | same sources; names joined with "And" in file names are recognised too |
 | **Tags** | from saved links, `.nfo` files and ThePornDB |
@@ -80,7 +99,8 @@ Only save videos you're allowed to keep.
 Each video's picture is a frame from **the middle of the video** (not the opening logo or a
 black frame), shown in a wide card like the video itself. Pictures that came with the video
 (a saved link, an `.nfo` file, ThePornDB, or a `folder.jpg` you put there) are used instead.
-Pointing at a card (or picking it with the TV remote) plays a short moving preview.
+Pointing at a card plays a short preview of the video (with the TV remote: picking it).
+Pictures stuck on a bad moment: **Manage → Take new pictures from the video** on its page.
 
 All of that works without any account or key. For real covers and descriptions, add a free
 **ThePornDB** token under **Server → Settings**. Wrong or missing details: open the video and

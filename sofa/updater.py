@@ -27,7 +27,7 @@ import threading
 import time
 import urllib.request
 
-from . import __version__, backup, config, store
+from . import __version__, backup, config, net, store
 
 CODE = ("sofa", "client", "deploy", "tools", "docs", "integrations", "sofa.py", "README.md", "LICENSE", ".gitignore")
 NEVER = ("data", "vendor", ".git")
@@ -44,7 +44,7 @@ def _repo():
 
 
 def _get(url, timeout=20):
-    with urllib.request.urlopen(urllib.request.Request(url, headers=AGENT), timeout=timeout) as r:
+    with net.urlopen(urllib.request.Request(url, headers=AGENT), timeout=timeout) as r:
         return r.read()
 
 

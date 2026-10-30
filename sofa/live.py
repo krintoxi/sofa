@@ -24,7 +24,7 @@ import time
 import urllib.parse
 import urllib.request
 
-from . import config, store
+from . import config, net, store
 
 CACHE = os.path.join(config.DATA_DIR, "cache", "live")
 REFRESH_EVERY = 12 * 3600
@@ -109,7 +109,7 @@ def fetch(url, headers=None, timeout=15):
     h = {"User-Agent": AGENT}
     h.update(headers or {})
     req = urllib.request.Request(url, headers=h)
-    return urllib.request.urlopen(req, timeout=timeout)
+    return net.urlopen(req, timeout=timeout)
 
 
 def refresh(force=False):

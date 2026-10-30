@@ -73,12 +73,26 @@ The intro and credits show as light marks on the seek bar, and the scrubbing pre
 "Intro" or "Credits" over them. Turn the whole thing off in `data/config.json`
 (`"detect_intros": false`).
 
+### Hover previews
+
+Point at a card with the mouse and a bigger card opens over it, playing a few seconds of the
+video (three short moments, silent), with **Play**, **More info** and ♥. With a TV remote, the
+card you're on plays its preview in place. Sofa makes each clip the first time someone points
+at it (a second or two) and, in the background, for every movie and each show's first episode.
+About 300 KB each, in `~/Sofa/data/cache/previews`. Off with `"previews": false`.
+
 ### Scrubbing previews
 
 Sofa makes preview pictures (320 px wide, one every 10 seconds) for each video, in the
-background, starting with what people are watching. They also play as moving previews when
-you point at a card. They're stored in `~/Sofa/data/cache/trickplay`, never next to your
-media. Off with `"trickplay": false`.
+background, starting with what people are watching. They're stored in
+`~/Sofa/data/cache/trickplay`, never next to your media. Off with `"trickplay": false`.
+
+### Space
+
+**Server → Library → Free up space** deletes Sofa's own resized pictures, scrubbing previews
+and hover clips (they're made again as needed). Your media is never touched. **Look up missing
+details again** makes Sofa ask the internet again now for titles it found nothing about,
+instead of waiting a day.
 
 ## A video won't play
 

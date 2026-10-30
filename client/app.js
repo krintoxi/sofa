@@ -8,7 +8,11 @@ const view = $("#view");
 /* ---------- small helpers ---------- */
 const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 // &r=2: a new address so browsers drop images cached before the 2026-10-20 resize fix.
-const artSrc = (p, w) => p ? p.split("/").map((s, i) => i < 3 ? s : encodeURIComponent(s)).join("/") + (w ? "?w=" + w + "&r=2" : "?r=2") : "";
+const artSrc = (p, w) => {            // p: "/art/<key>/<path>?v=<date of the picture>"
+  if (!p) return "";
+  const [path, v] = p.split("?");
+  return path.split("/").map((s, i) => i < 3 ? s : encodeURIComponent(s)).join("/") + (w ? "?w=" + w + "&r=2" : "?r=2") + (v ? "&" + v : "");
+};
 const icon = id => `<svg><use href="#${id}"/></svg>`;
 function clock(sec) {
   sec = Math.max(0, Math.floor(sec || 0));
@@ -185,13 +189,13 @@ function frameImg(path, alt, fallbackText, w) {
 const quality = h => !h ? "" : h >= 2000 ? "4K" : h >= 1000 ? "HD" : h >= 700 ? "720p" : "SD";
 const dur = s => s ? (s >= 3600 ? Math.floor(s / 3600) + " h " + Math.round(s % 3600 / 60) + " min" : Math.max(1, Math.round(s / 60)) + " min") : "";
 function posterCard(show) {
-  return `<a class="card ${show.adult ? "scene" : "poster"}" href="#/show/${encodeURIComponent(show.id)}"${show.order && show.order[0] ? ` data-pv="${esc(show.order[0].id)}"` : ""}>
+  return `<a class="card ${show.adult ? "scene" : "poster"}" href="#/show/${encodeURIComponent(show.id)}"${show.order && show.order[0] ? ` data-pv="${esc(show.order[0].id)}" data-pop="${esc(show.id)}"` : ""}>
     <span class="frame${show.poster ? "" : " noimg"}">${frameImg(show.poster, show.name, show.name)}</span>
     <span class="t1">${esc(show.name)}</span>
     <span class="t2">${plural(show.regularSeasons, "season")}, ${plural(show.count, "episode")}</span></a>`;
 }
 function movieCard(m) {
-  return `<a class="card ${m.adult ? "scene" : "poster"}" href="#/movie/${encodeURIComponent(m.id)}" data-pv="${esc(m.id)}">
+  return `<a class="card ${m.adult ? "scene" : "poster"}" href="#/movie/${encodeURIComponent(m.id)}" data-pv="${esc(m.id)}" data-pop="${esc(m.id)}">
     <span class="frame${m.poster ? "" : " noimg"}">${frameImg(m.poster, m.title, m.title)}
       ${pct(m.id) && !isDone(m.id) ? `<span class="progress"><i style="width:${pct(m.id)}%"></i></span>` : ""}
       ${isDone(m.id) ? `<span class="seen-badge">${icon("i-check")}</span>` : ""}
@@ -218,7 +222,7 @@ function thumbFor(item) {
 }
 function wideCard(item, label) {
   const owner = item.show || item;
-  return `<button class="card wide" data-play="${esc(item.id)}" data-pv="${esc(item.id)}">
+  return `<button class="card wide" data-play="${esc(item.id)}" data-pv="${esc(item.id)}" data-pop="${esc(item.id)}">
     <span class="frame">${thumbFor(item)}
       ${pct(item.id) && !isDone(item.id) ? `<span class="progress"><i style="width:${pct(item.id)}%"></i></span>` : ""}
       <span class="play-glyph">${icon("i-play")}</span></span>
@@ -258,7 +262,8 @@ function heroFor(show, short) {
       <p class="facts">${facts}</p>
       ${show.summary ? `<p class="summary${short ? "" : " clamp"}">${esc(show.summary)}</p>` : ""}
       <div class="actions">${action}${short ? "" : `<a class="btn" href="#/show/${encodeURIComponent(show.id)}">Episodes</a>`}
-        ${short && session.user.admin ? `<button class="btn ghost" data-fix="${esc(show.id)}">${show.source ? "Fix details" : "Find details"}</button>` : ""}</div>
+        ${short && session.user.admin ? `<button class="btn ghost" data-fix="${esc(show.id)}">${show.source ? "Fix details" : "Find details"}</button>
+          <button class="btn ghost" data-manage="${esc(show.id)}">${icon("i-more")}Manage</button>` : ""}</div>
     </div></section>`;
 }
 
@@ -453,7 +458,8 @@ function viewMovie(id) {
           ${resume ? `<button class="btn" data-play-start="${esc(m.id)}">Start over</button>` : ""}
           <button class="btn ghost" data-watched="${esc(m.id)}" aria-pressed="${isDone(m.id)}">${icon("i-check")}${isDone(m.id) ? "Watched" : "Mark watched"}</button>
           ${m.adult ? `<button class="btn ghost heart-btn" data-like="${esc(m.id)}" aria-pressed="${favs.has(m.id)}">♥ ${favs.has(m.id) ? "In Favorites" : "Favorite"}</button>` : ""}
-          ${session.user.admin ? `<button class="btn ghost" data-fix="${esc(m.id)}">${m.source ? "Fix details" : "Find details"}</button>` : ""}
+          ${session.user.admin ? `<button class="btn ghost" data-fix="${esc(m.id)}">${m.source ? "Fix details" : "Find details"}</button>
+            <button class="btn ghost" data-manage="${esc(m.id)}">${icon("i-more")}Manage</button>` : ""}
         </div>
         ${session.user.admin ? `<p class="fileline">${esc(m.file)}${m.source ? " · details from " + esc(m.source) : " · no details found yet"}</p>` : ""}
       </div></div></section>
@@ -482,6 +488,25 @@ function groupCard(kind, name, list) {
       <span class="stack-badge">${list.length}</span>${favs.has((kind === "performer" ? "perf:" : "studio:") + name) ? `<span class="fav-badge">♥</span>` : ""}</span>
     <span class="t1">${esc(name)}</span><span class="t2">${plural(list.length, "video")}</span></a>`;
 }
+function adultHero(list) {
+  if (!list.length) return "";
+  const slide = (x, i) => {
+    const isShow = !!x.seasons, nx = isShow ? upNext(x) : null, name = x.name || x.title;
+    const facts = [x.category, isShow ? plural(x.count, "episode") : x.duration ? dur(x.duration) : "", isShow ? "" : quality(x.height),
+      x.studio].filter(Boolean).map(f => `<span>${esc(f)}</span>`).join("");
+    const play = isShow ? nx && nx.ep.id : x.id;
+    return `<div class="slide${i ? "" : " on"}" data-glow="" aria-hidden="${i ? "true" : "false"}">
+      <img class="hero-bg" src="${esc(artSrc(x.backdrop || x.poster, 1280))}" alt=""${i ? ` loading="lazy"` : ""}>
+      <div class="hero-body"><p class="eyebrow">${isShow ? "Series" : "New in Adult"}</p><h1>${esc(name)}</h1>
+        <p class="facts">${facts}</p>
+        ${x.performers && x.performers.length ? `<p class="facts"><span>With ${esc(x.performers.slice(0, 4).join(", "))}</span></p>` : ""}
+        <div class="actions">${play ? `<button class="btn primary" data-play="${esc(play)}">${icon("i-play")}${inProgress(play) ? "Resume" : "Play"}</button>` : ""}
+          <a class="btn" href="#/${isShow ? "show" : "movie"}/${encodeURIComponent(x.id)}">More info</a></div></div></div>`;
+  };
+  return `<section class="hero carousel adult-hero" aria-roledescription="carousel" aria-label="Featured">${list.map(slide).join("")}
+    ${list.length > 1 ? `<div class="hero-dots" role="group" aria-label="Choose a featured title">${list.map((x, i) =>
+      `<button data-slide="${i}" aria-label="${esc(x.name || x.title)}" aria-pressed="${!i}" tabindex="-1"></button>`).join("")}</div>` : ""}</section>`;
+}
 function adultMatch(x) {
   const q = adultQuery.trim().toLowerCase();
   if (!q) return true;
@@ -508,17 +533,35 @@ function viewAdult(rest) {
   const here = tab === "category" ? "category/" + arg : tab;
   const chips = [["all", "All"]].concat(cats.map(c => ["category/" + c, c]), [["studios", "Studios"], ["performers", "Performers"], ["tags", "Tags"], ["favorites", "Favorites"]]);
   const total = adultMovies.length + adultShows.reduce((n, s) => n + s.count, 0);
-  let body = "", title = "Adult", sub = plural(total, "video");
+  let body = "", title = "Adult", sub = plural(total, "video"), hero = "";
   if (!total) body = `<p class="count" style="max-width:64ch">Nothing here yet. Drop adult videos into the <b>Inbox/XXX</b> folder on the server, or folders of them (keep your own folders like Hentai, Series, Collections: each becomes a category). ${session.user.admin ? `Or use <b>Add a link</b> to save a video from a website.` : ""} Only people allowed on the Server page can see this section; guests and TVs never can.</p>`;
+  else if (tab === "all" && adultQuery) body = adultGrid(adultMovies, adultShows);
   else if (tab === "all") {
     const cont = Object.keys(progress).filter(id => byId.has(id) && inProgress(id) && !notAdult(byId.get(id)))
       .sort((a, b) => progress[b].at - progress[a].at).slice(0, 14).map(id => byId.get(id));
-    body = rail("Continue watching", "wide", cont.map(i => wideCard(i))) + adultGrid(adultMovies, adultShows);
+    const fresh = adultMovies.concat(adultShows).sort((a, b) => b.added - a.added).slice(0, 20);
+    const card = x => x.seasons ? posterCard(x) : movieCard(x);
+    const perCat = cats.map(c => {
+      const l = adultShows.filter(x => x.category === c).concat(adultMovies.filter(x => x.category === c).sort((a, b) => b.added - a.added));
+      return rail(c, "scenes", l.slice(0, 24).map(card), "#/adult/category/" + encodeURIComponent(c));
+    }).join("");
+    const liked = adultMovies.filter(x => favs.has(x.id));
+    const studios = [...adultGroups("studio")].sort((a, b) => b[1].length - a[1].length).slice(0, 16);
+    const people = [...adultGroups("performer")].sort((a, b) => (favs.has("perf:" + b[0]) - favs.has("perf:" + a[0])) || b[1].length - a[1].length).slice(0, 16);
+    hero = adultHero(fresh.filter(x => x.poster).slice(0, 6));
+    body = rail("Continue watching", "wide", cont.map(i => wideCard(i))) +
+      rail("New arrivals", "scenes", fresh.map(card)) + perCat +
+      rail("Your favorites", "scenes", liked.map(movieCard), "#/adult/favorites") +
+      rail("Studios", "scenes", studios.map(([n, l]) => groupCard("studio", n, l)), "#/adult/studios") +
+      rail("Performers", "scenes", people.map(([n, l]) => groupCard("performer", n, l)), "#/adult/performers") +
+      `<section class="row"><div class="row-head"><h2>Everything</h2></div>${adultGrid(adultMovies, [])}</section>`;
   } else if (tab === "category") {
     title = arg; const mv = adultMovies.filter(x => x.category === arg), sh = adultShows.filter(x => x.category === arg);
-    sub = plural(mv.length + sh.reduce((n, s) => n + s.count, 0), "video");
+    sub = [sh.length ? sh.length + " series" : "", mv.length ? plural(mv.length, "video") : ""].filter(Boolean).join(" · ") || "Empty";
     const cols = collections(mv);
-    body = (cols.size ? `<h2 class="collection-title">Collections</h2><div class="grid">${[...cols].map(([n, l]) => collectionCard(n, l)).join("")}</div>` : "") + adultGrid(mv, sh);
+    body = (sh.length ? `<h2 class="collection-title">Series</h2><div class="grid">${sh.map(posterCard).join("")}</div>` : "") +
+      (cols.size ? `<h2 class="collection-title">Collections</h2><div class="grid">${[...cols].map(([n, l]) => collectionCard(n, l)).join("")}</div>` : "") +
+      (mv.length ? `<h2 class="collection-title">${sh.length || cols.size ? "Videos" : "All videos"}</h2>` + adultGrid(mv) : "");
   } else if (tab === "studios" || tab === "performers") {
     const kind = tab === "studios" ? "studio" : "performer", g = [...adultGroups(kind)].filter(([n, l]) => adultMatch({ title: n }) || l.some(adultMatch));
     g.sort((a, b) => (favs.has("perf:" + b[0]) - favs.has("perf:" + a[0])) || b[1].length - a[1].length || a[0].localeCompare(b[0]));
@@ -538,7 +581,7 @@ function viewAdult(rest) {
     const key = (tab === "performer" ? "perf:" : tab === "studio" ? "studio:" : "");
     body = (key ? `<p><button class="btn ghost heart-btn" data-like="${esc(key + arg)}" aria-pressed="${favs.has(key + arg)}">♥ ${favs.has(key + arg) ? "In Favorites" : "Add to Favorites"}</button></p>` : "") + adultGrid(list);
   } else return viewMissing();
-  return `<section class="page adult-page"><div class="page-head"><h1>${esc(title)}</h1><span class="count">${esc(sub)}</span>
+  return `${hero}<section class="page adult-page${hero ? " under-hero" : ""}"><div class="page-head"><h1>${esc(title)}</h1><span class="count">${esc(sub)}</span>
       <div class="adult-tools"><input id="adultSearch" type="search" placeholder="Search titles, studios, people, tags" aria-label="Search the Adult section" value="${esc(adultQuery)}">
       ${session.user.admin ? `<button class="btn" data-add-link="adult">+ Add a link</button>` : ""}</div></div>
     <div class="chips" role="group" aria-label="Adult section">${chips.map(c => `<button data-adult-nav="${esc(c[0])}" aria-pressed="${c[0] === here}">${esc(c[1])}</button>`).join("")}</div>
@@ -565,6 +608,7 @@ function episodeRow(ep, label) {
       ${ep.summary ? `<p class="ep-sum clamp">${esc(ep.summary)}</p>` : ""}
     </div>
     <button class="tick" data-watched="${esc(ep.id)}" aria-pressed="${done}" aria-label="${done ? "Mark as not watched" : "Mark as watched"}" title="${done ? "Watched" : "Mark as watched"}">${icon("i-check")}</button>
+    ${session.user.admin ? `<button class="tick" data-manage="${esc(ep.id)}" aria-label="Manage this episode" title="Move, delete or new picture">${icon("i-more")}</button>` : ""}
   </article>`;
 }
 function viewShow(id, seasonKey) {
@@ -625,45 +669,109 @@ async function toggleFav(key, btn) {
   try { await api("/api/like/" + encodeURIComponent(key), { on }); } catch (e) { toast(e.message); }
 }
 
-/* ---------- moving previews on cards (from the scrubbing preview sheets) ---------- */
-const trickCache = new Map();
-let pvCard = null, pvTimer = 0, pvAnim = 0;
-function trickFor(id) {
-  if (!trickCache.has(id)) trickCache.set(id, api("/media/" + encodeURIComponent(id) + "/trick.json").catch(() => null));
-  return trickCache.get(id);
+/* ---------- hover previews: a short, silent clip of the video ----------
+   With a mouse, pointing at a card opens a bigger card over it that plays the clip, with Play and More info.
+   With a TV remote (or the keyboard), the focused card plays its clip in place. */
+let pvCard = null, pvTimer = 0, pop = null;
+const fineHover = matchMedia("(hover: hover) and (pointer: fine)").matches && !TV;
+function clipVideo(id) {
+  const v = document.createElement("video");
+  v.className = "pv"; v.muted = true; v.loop = true; v.playsInline = true; v.preload = "auto";
+  v.setAttribute("muted", ""); v.setAttribute("playsinline", ""); v.setAttribute("aria-hidden", "true");
+  v.addEventListener("playing", () => v.classList.add("on"), { once: true });
+  v.addEventListener("error", () => v.remove(), { once: true });
+  v.src = "/media/" + encodeURIComponent(id) + "/preview.mp4";
+  v.play().catch(() => {});
+  return v;
 }
+function dropClip(v) { if (v) { v.pause(); v.removeAttribute("src"); v.load(); v.remove(); } }
 function stopPreview() {
-  clearTimeout(pvTimer); clearInterval(pvAnim);
-  if (pvCard) { const pv = pvCard.querySelector(".pv"); if (pv) pv.remove(); }
+  clearTimeout(pvTimer);
+  if (pvCard) dropClip(pvCard.querySelector("video.pv"));
   pvCard = null;
+  closePop();
 }
 function startPreview(card) {
   stopPreview();
   pvCard = card;
-  pvTimer = setTimeout(async () => {
-    const id = card.dataset.pv, t = await trickFor(id);
-    if (pvCard !== card) return;
-    if (!t || !t.sheets) { if (t && t.pending) trickCache.delete(id); return; }
-    const frame = card.querySelector(".frame, .ep-thumb"); if (!frame) return;
-    const fw = frame.clientWidth, fh = frame.clientHeight, scale = Math.max(fw / t.w, fh / t.h);
-    const pv = document.createElement("span"); pv.className = "pv"; frame.appendChild(pv);
-    const base = "/media/" + encodeURIComponent(id) + "/trick/", per = t.cols * t.rows, steps = Math.min(10, t.count);
-    let i = 0;
-    const show = () => {
-      const n = Math.min(t.count - 1, Math.floor((i % steps + 0.5) * t.count / steps)), sheet = Math.floor(n / per), pos = n % per;
-      pv.style.cssText = `width:${t.w * scale}px;height:${t.h * scale}px;left:${(fw - t.w * scale) / 2}px;top:${(fh - t.h * scale) / 2}px;` +
-        `background-image:url("${base}${sheet}.jpg");background-size:${t.cols * t.w * scale}px ${t.rows * t.h * scale}px;` +
-        `background-position:-${(pos % t.cols) * t.w * scale}px -${Math.floor(pos / t.cols) * t.h * scale}px`;
-      i++;
-    };
-    show(); pvAnim = setInterval(show, 800);
-  }, TV ? 900 : 600);
+  pvTimer = setTimeout(() => {
+    if (pvCard !== card || Player.isOpen() || !document.contains(card)) return;
+    if (fineHover && card.dataset.pop) return openPop(card);
+    const frame = card.querySelector(".frame") || card;
+    frame.appendChild(clipVideo(card.dataset.pv));
+  }, TV ? 900 : 650);
 }
-["mouseover", "focusin"].forEach(ev => document.addEventListener(ev, e => {
+function popInfo(x) {
+  if (x.seasons) {                                      // a show
+    const nx = upNext(x);
+    return { title: x.name, art: x.backdrop || x.poster, play: nx && nx.ep.id, verb: nx && nx.resume ? "Resume" : "Play",
+      more: "#/show/" + encodeURIComponent(x.id), sub: nx && !nx.fresh ? epCode(nx.ep) + (nx.ep.title ? " · " + nx.ep.title : "") : "",
+      facts: [years(x), plural(x.regularSeasons, "season"), x.adult ? x.category : ""], tags: x.genres || [] };
+  }
+  if (x.kind === "episode") {
+    const sh = x.show || {};
+    return { title: sh.name || x.show_name, art: x.thumb || sh.backdrop || sh.poster, play: x.id, verb: inProgress(x.id) ? "Resume" : "Play",
+      more: "#/show/" + encodeURIComponent(sh.id || x.show_id), sub: epCode(x) + (x.title ? " · " + x.title : ""),
+      facts: [x.runtime ? dur(x.runtime * 60) : x.duration ? dur(x.duration) : "", quality(x.height)], tags: sh.genres || [], id: x.id };
+  }
+  return { title: x.title, art: x.backdrop || x.poster, play: x.id, verb: inProgress(x.id) ? "Resume" : "Play",   // a movie
+    more: "#/movie/" + encodeURIComponent(x.id), sub: x.adult ? (x.performers || []).slice(0, 3).join(", ") : x.tagline || "",
+    facts: [x.year, x.runtime ? dur(x.runtime * 60) : x.duration ? dur(x.duration) : "", quality(x.height), x.adult ? x.studio : x.certificate],
+    tags: x.genres || [], id: x.id };
+}
+function closePop() {
+  if (!pop) return;
+  const p = pop; pop = null;
+  dropClip(p.querySelector("video"));
+  p.classList.remove("on");
+  setTimeout(() => p.remove(), 220);
+}
+function openPop(card) {
+  closePop();
+  const x = byId.get(card.dataset.pop), frame = card.querySelector(".frame");
+  if (!x || !frame) return;
+  const info = popInfo(x), r = frame.getBoundingClientRect();
+  const w = Math.min(470, Math.max(320, r.width * 1.5)), mh = w * 9 / 16, h = mh + 150;
+  const left = Math.max(14, Math.min(innerWidth - w - 14, r.left + r.width / 2 - w / 2));
+  const top = Math.max(76, Math.min(innerHeight - h - 14, r.top + r.height / 2 - mh / 2 - 12));
+  const p = pct(info.id || info.play);
+  const el = document.createElement("div");
+  el.className = "pop";
+  el.style.cssText = `left:${left}px;top:${top}px;width:${w}px;transform-origin:${r.left + r.width / 2 - left}px ${r.top + r.height / 2 - top}px`;
+  el.innerHTML = `<a class="pop-media" href="${esc(info.more)}" tabindex="-1">${info.art ? `<img src="${esc(artSrc(info.art, 720))}" alt="">` : `<span class="placeholder" style="--h:${hue(info.title)}">${esc(info.title)}</span>`}
+      ${p && !isDone(info.id || info.play) ? `<span class="progress"><i style="width:${p}%"></i></span>` : ""}</a>
+    <div class="pop-body">
+      <div class="pop-actions">${info.play ? `<button class="round primary" data-play="${esc(info.play)}" aria-label="${info.verb}">${icon("i-play")}</button>` : ""}
+        <a class="round" href="${esc(info.more)}" aria-label="More info">${icon("i-info")}</a>
+        ${x.adult || x.kind === "movie" ? `<button class="round${favs.has(x.id) ? " on" : ""}" data-like="${esc(x.id)}" aria-pressed="${favs.has(x.id)}" aria-label="Favorite">♥</button>` : ""}
+        <span class="pop-verb">${esc(info.verb)}</span></div>
+      <p class="pop-title">${esc(info.title)}</p>
+      ${info.sub ? `<p class="pop-sub">${esc(info.sub)}</p>` : ""}
+      <p class="pop-facts">${info.facts.filter(Boolean).map(f => `<span>${esc(f)}</span>`).join("")}</p>
+      ${info.tags.length ? `<p class="pop-tags">${info.tags.slice(0, 3).map(esc).join('<i aria-hidden="true">•</i>')}</p>` : ""}
+    </div>`;
+  el.querySelector(".pop-media").appendChild(clipVideo(card.dataset.pv));
+  el.addEventListener("mouseleave", () => { if (pop === el) { pvCard = null; closePop(); } });
+  el.addEventListener("click", e => { if (e.target.closest("a, button")) setTimeout(closePop, 0); });
+  document.body.appendChild(el);
+  requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add("on")));
+  pop = el;
+}
+document.addEventListener("mouseover", e => {
+  if (!fineHover || (pop && pop.contains(e.target))) return;
   const c = e.target.closest && e.target.closest("[data-pv]");
   if (c === pvCard) return;
   if (c && !Player.isOpen()) startPreview(c); else stopPreview();
-}));
+});
+document.addEventListener("focusin", e => {
+  if (fineHover && !e.target.matches(":focus-visible")) return;       // a mouse click, not the keyboard
+  if (pop && pop.contains(e.target)) return;
+  const c = e.target.closest && e.target.closest("[data-pv]");
+  if (c === pvCard) return;
+  if (c && !Player.isOpen()) startPreview(c); else stopPreview();
+});
+document.addEventListener("scroll", () => { if (pop) { pvCard = null; closePop(); } }, true);
+window.addEventListener("hashchange", stopPreview);
 document.addEventListener("mouseleave", stopPreview);
 
 /* ---------- save a video from a link (admins) ---------- */
@@ -761,6 +869,7 @@ function authView(kind) {
     <div class="form-error" role="alert"></div>
     <button class="btn primary" type="submit">${setup ? "Create account" : "Sign in"}</button>
     ${!setup && session.guest_available ? `<button class="btn ghost" type="button" id="asGuest">Watch as a guest</button>` : ""}
+    <p class="credit">Project by <a href="https://edgeventure.uk" target="_blank" rel="noopener">EdgeVenture.uk</a></p>
   </form></section>`;
   const form = $("#authForm");
   form.name.focus();
@@ -805,7 +914,8 @@ function viewServer(tab) {
   clearTimeout(adminTimer);
   const busy = adminData && adminData.convert && adminData.convert.counts && adminData.convert.counts.working;
   const upd = (adminData && adminData.update && adminData.update.running) ||
-    (adminData && adminData.downloads && adminData.downloads.rows.some(r => r.state === "working"));
+    (adminData && adminData.downloads && (adminData.downloads.rows.some(r => r.state === "working") ||
+      (adminData.downloads.installing || {}).running));
   adminTimer = setTimeout(() => { if (location.hash.startsWith("#/server")) loadAdmin(); }, busy || upd ? 3000 : 10000);
   const tabs = `<nav class="srv-tabs" aria-label="Server sections">${SRV_TABS.map(t => `<button data-srv-tab="${t[0]}" aria-current="${t[0] === adminTab ? "page" : "false"}">${t[1]}${
     t[0] === "update" && adminData && adminData.update && adminData.update.available ? ` <i class="dot" aria-label="update available"></i>` : ""}${
@@ -839,6 +949,7 @@ function srvOverview(d) {
   if (d.update && d.update.available) alerts.push(`<div class="alert"><b>A new version of Sofa is ready${d.update.latest ? " (" + esc(d.update.latest) + ")" : ""}.</b><span>Your media and settings stay as they are.</span><button class="btn primary" data-srv-tab="update">See the update</button></div>`);
   if (L.adult && !session.user.adult) alerts.push(`<div class="alert"><b>There ${L.adult === 1 ? "is 1 title" : "are " + L.adult + " titles"} in the Adult section.</b><span>Nobody sees it until it's switched on for them, admins included. Switch it on for yourself here, and for others under People.</span><button class="btn primary" data-enable-adult="1">Show me the Adult section</button></div>`);
   if (L.missing) alerts.push(`<div class="alert soft"><b>${plural(L.missing, "title")} without details or artwork.</b><span>Pick the right match in a couple of clicks.</span><button class="btn" data-srv-tab="library">Fix them</button></div>`);
+  if (d.internet_problem) alerts.push(`<div class="alert"><b>Sofa can't reach secure websites.</b><span>${esc(d.internet_problem)} Then press "Look up missing details again" under Library.</span></div>`);
   if (!s.ffmpeg) alerts.push(`<div class="alert"><b>ffmpeg isn't installed.</b><span>Only files a device already supports will play. On a Mac: <code>brew install ffmpeg</code>, then restart Sofa.</span></div>`);
   if (d.review.length) alerts.push(`<div class="alert soft"><b>${plural(d.review.length, "file")} in Needs Review.</b><span>Sofa couldn't tell what they are.</span><button class="btn" data-srv-tab="library">Have a look</button></div>`);
   return `${alerts.join("")}
@@ -862,7 +973,7 @@ function srvOverview(d) {
 function srvLibrary(d) {
   const L = d.library, f = L.folders;
   const folders = [["Inbox (drop things here)", f.inbox], ["Shows", f.shows], ["Movies", f.movies], ["Adult", f.adult], ["Music", f.music],
-    ["Music videos", f.musicvideos], ["Needs Review", f.review], ["Converted originals", f.originals]];
+    ["Music videos", f.musicvideos], ["Needs Review", f.review], ["Converted originals", f.originals], ["Deleted", L.deleted_folder]];
   const missing = d.missing ? (d.missing.length ? d.missing.map(m => `<li><span><b>${esc(m.title)}</b>${m.year ? " (" + esc(m.year) + ")" : ""}<br><span class="when">${m.kind === "show" ? "Show" : "Movie"}${m.adult ? " · Adult" : ""}</span></span>
       <button class="mini" data-fix="${esc(m.id)}">Find details</button></li>`).join("") : `<li class="empty-row">Everything has details. Nice.</li>`) : `<li class="empty-row">Loading…</li>`;
   return `<div class="panels">
@@ -883,6 +994,16 @@ function srvLibrary(d) {
       <p class="hint">${d.intros.working ? "Listening to " + esc(d.intros.working) + " now." : d.intros.checked < d.intros.seasons ? "Waiting for a quiet moment to carry on." : "All done."}
         Wrong or missing? In the player, Options (gear) has "Wrong intro" and "Mark the intro by hand", for one episode or the whole season.</p>
       <div class="actions"><button class="btn ghost" data-intros-recheck="1">Listen to every season again</button></div>` : `<p class="hint">Loading…</p>`}</div>
+    <div class="panel"><h2>Pictures and previews</h2>
+      <p class="hint">Pictures Sofa took from the videos themselves can be taken again (covers from TVmaze, TMDB, ThePornDB and ones you added stay). One title at a time: <b>Manage</b> on its page.</p>
+      ${L.previews ? `<div class="stats"><div class="stat"><b>${L.previews.made} / ${L.previews.wanted}</b><span>hover previews ready</span></div>
+        ${L.cache ? `<div class="stat"><b>${bytes(L.cache.bytes)}</b><span>Sofa's own pictures and previews</span></div>` : ""}</div>` : ""}
+      <div class="actions"><button class="btn" data-new-pictures="1">Take new pictures for everything</button>
+        <button class="btn ghost" data-free-space="1">Free up space</button><button class="btn ghost" data-retry-details="1">Look up missing details again</button></div></div>
+    <div class="panel"><h2>Deleted folder</h2>
+      <p class="hint">What you delete from Sofa waits here first: <code>${esc(L.deleted_folder || "")}</code>. Put something back by moving it into the Inbox.</p>
+      ${L.deleted ? `<div class="stats"><div class="stat"><b>${L.deleted.files}</b><span>files</span></div><div class="stat"><b>${bytes(L.deleted.bytes)}</b><span>used</span></div></div>
+      ${L.deleted.files ? `<div class="actions"><button class="btn danger" data-empty-deleted="1">Empty it for good</button></div>` : ""}` : ""}</div>
     <div class="panel wide">${srvSwitch("tidy_library", d.settings.tidy_library, "Tidy folders automatically", "Renames download-style folders (\"Heat.1995.1080p.BluRay\" becomes \"Heat (1995)\"), gives each movie in a collection its own folder, and moves stray XXX folders into Adult. Nothing is deleted.")}</div>
   </div>`;
 }
@@ -927,8 +1048,15 @@ function srvDownloads(d) {
   return `<div class="panels">
     <div class="panel wide"><h2>Save from a link</h2>
       <p class="hint">Paste the address of a video page. Sofa downloads it with <a href="https://github.com/yt-dlp/yt-dlp" target="_blank" rel="noopener">yt-dlp</a> (free and open source; it knows YouTube, Vimeo and well over a thousand other sites, including the free adult video sites), names it and files it, in Adult if you tick the box. Only save videos you're allowed to keep.</p>
-      ${x.tool ? `<p class="hint">yt-dlp ${esc(x.version || "")} is ready${x.own ? ", and Sofa keeps it up to date" : ""}.${x.ffmpeg ? "" : " Install ffmpeg too, so picture and sound can be joined."}</p>`
-        : `<div class="alert"><b>One step first: install yt-dlp.</b><span>Sofa downloads the official copy from GitHub into its own folder and keeps it up to date.</span><button class="btn primary" data-dl-install="1">Install yt-dlp</button></div>`}
+      ${(x.installing || {}).running ? `<div class="alert"><b><i class="reading-spin small" aria-hidden="true"></i>Installing yt-dlp…</b><span>${esc(x.installing.step || "")}</span></div>`
+        : x.tool && x.version ? `<p class="hint">yt-dlp ${esc(x.version)} is ready${x.own ? ", and Sofa keeps it up to date" : ""}.${x.ffmpeg ? "" : " Install ffmpeg too, so picture and sound can be joined."}</p>`
+        : `<div class="alert"><b>${x.tool ? "yt-dlp is there but doesn't start." : "One step first: install yt-dlp."}</b><span>Sofa gets the official copy from GitHub and keeps it up to date. If the ready-made Mac version can't run on this computer, it tries the cross-platform one with a newer Python, then Homebrew.</span>
+          ${(x.installing || {}).error ? `<span class="form-error">${esc(x.installing.error)}</span>` : ""}
+          <button class="btn primary" data-dl-install="1">${(x.installing || {}).error || x.tool ? "Try again" : "Install yt-dlp"}</button></div>`}
+      <label class="field inline-select"><span>Use the sign-in from</span><select data-setting-select="ytdlp_cookies" aria-label="Use the sign-in from">
+        ${[["", "No browser"], ["safari", "Safari"], ["chrome", "Chrome"], ["firefox", "Firefox"], ["edge", "Edge"], ["brave", "Brave"], ["file", "cookies.txt in data/bin"]].map(o =>
+          `<option value="${o[0]}"${(d.settings.ytdlp_cookies || "") === o[0] ? " selected" : ""}>${o[1]}</option>`).join("")}</select></label>
+      <p class="hint">For sites that want you signed in or to confirm your age: do that in a browser on the Sofa computer, then pick it here. Safari needs Full Disk Access for the program running Sofa; Firefox works without it.</p>
       <div class="actions"><button class="btn primary" data-add-link="normal">+ Add a link</button>${session.user.adult ? `<button class="btn" data-add-link="adult">+ Add a link to Adult</button>` : ""}
         ${x.rows.some(r => r.state === "done" || r.state === "failed") ? `<button class="btn ghost" data-dl-clear="1">Clear finished</button>` : ""}</div>
       ${x.waiting ? `<p class="hint">Waiting while someone watches a video Sofa is converting.</p>` : ""}
@@ -1044,7 +1172,9 @@ async function adminAction(fn) {
 function alertBox(msg) { dialog(`<h2>That didn't work</h2><p>${esc(msg)}</p>`); }
 
 /* ---------- router ---------- */
-function route() {
+let enterTimer = 0;
+const REDUCED = matchMedia("(prefers-reduced-motion: reduce)").matches;
+function route(animate) {
   if (!session || !session.user) return;
   if (location.hash.startsWith("#/add?")) {                 // the "Send to Sofa" bookmark
     const q = new URLSearchParams(location.hash.slice(6));
@@ -1071,24 +1201,33 @@ function route() {
   else { html = viewHome(); nav = "home"; }
   document.querySelectorAll("[data-nav]").forEach(a => { if (a.dataset.nav === nav) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current"); });
   view.innerHTML = html;
+  if (animate !== false && !REDUCED) {
+    view.classList.remove("enter"); void view.offsetWidth; view.classList.add("enter");
+    clearTimeout(enterTimer); enterTimer = setTimeout(() => view.classList.remove("enter"), 1100);
+  }
   updateNudges();
   startHero();
   if (nav === "server") drawGuestQr();
 }
-function rerender() { const y = scrollY; route(); scrollTo(0, y); }
+function rerender() { const y = scrollY; route(false); scrollTo(0, y); }
 window.addEventListener("hashchange", () => { route(); scrollTo(0, 0); });
 
 /* ---------- interactions ---------- */
 document.addEventListener("click", e => {
-  const t = e.target.closest("[data-slide],[data-intros-recheck],[data-adult-nav],[data-asort],[data-adult-play],[data-like],[data-add-link],[data-dl-retry],[data-dl-cancel],[data-dl-clear],[data-dl-install],[data-enable-adult],[data-conv-retry],[data-conv-cancel],[data-conv-all],[data-conv-clear],[data-update],[data-user-adult],[data-act-kind],[data-key-clear],[data-fix],[data-msort],[data-adult-tab],[data-play-start],[data-srv-tab],[data-mlike],[data-mplay],[data-mplay-one],[data-mplay-list],[data-mshuffle-list],[data-station],[data-mtab],[data-play-mv],[data-guest-clear],[data-play],[data-watched],[data-season],[data-sort],[data-nudge],[data-season-watched],[data-dismiss],[data-admin],[data-setting],[data-user-pass],[data-user-del],[data-live],[data-fav],[data-group],[data-preset],[data-live-remove]");
+  const t = e.target.closest("[data-slide],[data-intros-recheck],[data-manage],[data-new-pictures],[data-empty-deleted],[data-free-space],[data-retry-details],[data-adult-nav],[data-asort],[data-adult-play],[data-like],[data-add-link],[data-dl-retry],[data-dl-cancel],[data-dl-clear],[data-dl-install],[data-enable-adult],[data-conv-retry],[data-conv-cancel],[data-conv-all],[data-conv-clear],[data-update],[data-user-adult],[data-act-kind],[data-key-clear],[data-fix],[data-msort],[data-adult-tab],[data-play-start],[data-srv-tab],[data-mlike],[data-mplay],[data-mplay-one],[data-mplay-list],[data-mshuffle-list],[data-station],[data-mtab],[data-play-mv],[data-guest-clear],[data-play],[data-watched],[data-season],[data-sort],[data-nudge],[data-season-watched],[data-dismiss],[data-admin],[data-setting],[data-user-pass],[data-user-del],[data-live],[data-fav],[data-group],[data-preset],[data-live-remove]");
   if (!t) return;
   if (t.dataset.fix) { fixDialog(t.dataset.fix); return; }
+  if (t.dataset.manage) { manageDialog(t.dataset.manage); return; }
+  if (t.dataset.newPictures) { if (confirm("Take new pictures from the videos for the whole library? Only pictures Sofa took itself are replaced; covers stay. It runs in the background.")) adminAction(async () => { await api("/api/admin/pictures", {}); toast("Taking new pictures in the background. They appear as they're ready."); }); return; }
+  if (t.dataset.freeSpace) { if (confirm("Delete Sofa's own resized pictures, scrubbing previews and hover clips? Your media isn't touched; they're made again as needed.")) adminAction(async () => { await api("/api/admin/cache", { free: true }); toast("Space freed."); }); return; }
+  if (t.dataset.retryDetails) { adminAction(async () => { const r = await api("/api/admin/cache", { retry_details: true }); toast("Looking again for " + plural(r.forgotten, "title") + " Sofa found nothing about."); }); return; }
+  if (t.dataset.emptyDeleted) { if (confirm("Empty the Deleted folder? The videos in it are gone for good after this.")) adminAction(async () => { await api("/api/admin/deleted", { empty: true }); toast("The Deleted folder is empty."); }); return; }
   if (t.dataset.slide) { showSlide(+t.dataset.slide); startHero(); return; }
   if (t.dataset.introsRecheck) { if (confirm("Listen to every season again? Intros you marked by hand are kept.")) adminAction(() => api("/api/admin/intros", {})); return; }
   if (t.dataset.dlRetry) { adminAction(() => api("/api/admin/downloads", { retry: t.dataset.dlRetry })); return; }
   if (t.dataset.dlCancel) { adminAction(() => api("/api/admin/downloads", { cancel: t.dataset.dlCancel })); return; }
   if (t.dataset.dlClear) { adminAction(() => api("/api/admin/downloads", { clear: true })); return; }
-  if (t.dataset.dlInstall) { t.disabled = true; t.textContent = "Installing…"; adminAction(async () => { const r = await api("/api/admin/downloads", { install_ytdlp: true }); toast("yt-dlp " + r.version + " is installed."); }); return; }
+  if (t.dataset.dlInstall) { t.disabled = true; t.textContent = "Installing…"; adminAction(() => api("/api/admin/downloads", { install_ytdlp: true })); return; }
   if (t.dataset.enableAdult) { adminAction(async () => { await api("/api/admin/users/" + session.user.id + "/adult", { on: true }); await boot(); location.hash = "#/adult"; }); return; }
   if (t.dataset.convRetry) { adminAction(() => api("/api/admin/convert", { retry: t.dataset.convRetry })); return; }
   if (t.dataset.convCancel) { adminAction(() => api("/api/admin/convert", { cancel: t.dataset.convCancel })); return; }
@@ -1291,6 +1430,91 @@ function fixDialog(id) {
     else send({ none: true });
   });
   search();
+}
+
+/* ---------- managing a title (admins): new pictures, move it, delete it ---------- */
+function manageDialog(id) {
+  const x = byId.get(id); if (!x) return;
+  const isShow = !!x.seasons, name = isShow ? x.name : x.kind === "episode" ? (x.show ? x.show.name + " · " : "") + epCode(x) + " " + title(x) : x.title;
+  const owner = isShow ? x.id : x.kind === "episode" ? (x.show || {}).id : x.id;
+  const d = openDialog(`<h2>Manage</h2><p class="fileline">${esc(name)}${x.file ? " · " + esc(x.file) : ""}</p>
+    <div class="manage-list">
+      <button data-m="pictures">${icon("i-image")}<span><b>Take new pictures from the video${isShow ? "s" : ""}</b><small>Replaces pictures Sofa took itself (like ones from the very start). Covers stay.</small></span></button>
+      <button data-m="move">${icon("i-next-arrow")}<span><b>Move ${isShow ? "the whole show" : "it"} somewhere else</b><small>${isShow ? "To Shows or to an Adult category." : "It's in the wrong place, or it's actually a movie, an episode or adult."}</small></span></button>
+      <button data-m="delete" class="danger">${icon("i-trash")}<span><b>Delete ${isShow ? "the whole show" : "it"}</b><small>It goes to the Deleted folder first, so you can still get it back.</small></span></button>
+    </div><div class="form-error" role="alert"></div>
+    <div class="actions"><button class="btn ghost" data-dismiss="1">Close</button></div>`);
+  d.addEventListener("click", async e => {
+    const b = e.target.closest("[data-m]"); if (!b) return;
+    const err = $(".form-error", d);
+    if (b.dataset.m === "pictures") {
+      try { await api("/api/admin/pictures", { id: owner }); closeDialog(); toast("Taking new pictures. They show up in a minute or two."); [20000, 60000].forEach(t => setTimeout(reloadLibrary, t)); }
+      catch (ex) { err.textContent = ex.message; }
+    } else if (b.dataset.m === "move") { closeDialog(); setTimeout(() => moveDialog(id), 60); }
+    else { closeDialog(); setTimeout(() => deleteDialog(id), 60); }
+  });
+}
+async function relocate(id, target) {
+  const x = byId.get(id), back = x && x.adult ? "#/adult" : x && (x.seasons || x.kind === "episode") ? "#/shows" : "#/movies";
+  const r = await api("/api/admin/relocate", { id, target });
+  closeDialog(); toast(r.message);
+  await reloadLibrary();
+  const here = location.hash.split("/")[2];
+  if (here && !byId.has(decodeURIComponent(here))) location.hash = back; else rerender();
+  [8000, 30000].forEach(t => setTimeout(async () => { await reloadLibrary(); if (!Player.isOpen()) rerender(); }, t));
+}
+function deleteDialog(id) {
+  const x = byId.get(id); if (!x) return;
+  const name = x.seasons ? x.name : x.kind === "episode" ? epCode(x) + " " + title(x) : x.title;
+  const d = openDialog(`<h2>Delete ${x.seasons ? "this show" : "this video"}?</h2>
+    <p><b>${esc(name)}</b> goes to the <b>Deleted</b> folder on the server${adminData && adminData.library && adminData.library.folders ? ` (<code>${esc(adminData.library.deleted_folder)}</code>)` : ""}. It's really gone only when you empty that folder (Server, Library).</p>
+    <div class="form-error" role="alert"></div>
+    <div class="actions"><button class="btn danger" data-really="1">Delete</button><button class="btn ghost" data-dismiss="1">Cancel</button></div>`);
+  d.addEventListener("click", async e => {
+    if (!e.target.closest("[data-really]")) return;
+    try { await relocate(id, { kind: "delete" }); } catch (ex) { $(".form-error", d).textContent = ex.message; }
+  });
+}
+function moveDialog(id) {
+  const x = byId.get(id); if (!x) return;
+  const isShow = !!x.seasons, ep = x.kind === "episode" ? x : null;
+  const cats = (LIB.adult && LIB.adult.categories) || [];
+  const kinds = isShow ? [["shows", "Shows"]].concat(session.user.adult ? [["adult", "Adult"]] : [])
+    : [["movie", "A movie"], ["episode", "An episode"]].concat(session.user.adult ? [["adult", "Adult"]] : [], [["review", "Needs Review"]]);
+  const first = isShow ? (x.adult ? "shows" : "adult") : x.adult ? "movie" : ep ? "episode" : "movie";
+  const d = openDialog(`<h2>Move ${isShow ? "the show" : "it"}</h2>
+    <p class="fileline">${esc(isShow ? x.name : x.file || x.title)}</p>
+    <h3 class="dlg-sub">${isShow ? "Where does it belong?" : "What is it?"}</h3>
+    <div class="sorter inline" role="group" aria-label="What it is">${kinds.map(k => `<button type="button" data-kind="${k[0]}" aria-pressed="${k[0] === first}">${k[1]}</button>`).join("")}</div>
+    <form class="move-form">
+      <div class="mv" data-for="movie"><input name="title" placeholder="Title" aria-label="Movie title" value="${esc(!isShow && !ep ? x.title || "" : "")}">
+        <input name="year" placeholder="Year" aria-label="Year" inputmode="numeric" maxlength="4" value="${esc(!isShow && !ep ? x.year || "" : "")}"></div>
+      <div class="mv" data-for="episode"><input name="show" list="mvShows" placeholder="Show" aria-label="Show" value="${esc(ep && ep.show ? ep.show.name : "")}">
+        <datalist id="mvShows">${shows.map(s => `<option value="${esc(s.name)}">`).join("")}</datalist>
+        <input name="season" placeholder="Season" aria-label="Season" inputmode="numeric" value="${esc(ep ? ep.s : "1")}">
+        <input name="episode" placeholder="Episode" aria-label="Episode" inputmode="numeric" value="${esc(ep ? ep.e : "")}"></div>
+      <div class="mv" data-for="adult"><input name="category" list="mvCats" placeholder="Category (Movies, Hentai, Shows, ...)" aria-label="Category" value="${esc(x.category || (isShow ? "Shows" : "Movies"))}">
+        <datalist id="mvCats">${[...new Set(cats.concat(["Movies", "Hentai", "Shows", "Collections"]))].map(c => `<option value="${esc(c)}">`).join("")}</datalist>
+        ${isShow ? "" : `<input name="atitle" placeholder="Title" aria-label="Title" value="${esc(x.title || "")}">`}</div>
+      <div class="mv" data-for="shows"><p class="hint">The show's folder moves to Shows, with everything in it.</p></div>
+      <div class="mv" data-for="review"><p class="hint">It goes to the Needs Review folder, to sort out by hand.</p></div>
+      <div class="form-error" role="alert"></div>
+      <div class="actions"><button class="btn primary" type="submit">Move it</button><button class="btn ghost" type="button" data-dismiss="1">Cancel</button></div>
+    </form>`);
+  const form = $(".move-form", d);
+  let kind = first;
+  const show = () => { d.querySelectorAll(".mv").forEach(m => m.hidden = m.dataset.for !== kind); d.querySelectorAll("[data-kind]").forEach(b => b.setAttribute("aria-pressed", b.dataset.kind === kind)); };
+  show();
+  d.addEventListener("click", e => { const b = e.target.closest("[data-kind]"); if (b) { kind = b.dataset.kind; show(); } });
+  form.addEventListener("submit", async e => {
+    e.preventDefault();
+    const f = form.elements, target = { kind };
+    if (kind === "movie") Object.assign(target, { title: f.title.value, year: f.year.value });
+    if (kind === "episode") Object.assign(target, { show: f.show.value, season: f.season.value, episode: f.episode.value });
+    if (kind === "adult") Object.assign(target, { category: f.category.value, title: f.atitle ? f.atitle.value : "" });
+    const btn = $("button[type=submit]", form); btn.disabled = true; btn.textContent = "Moving…";
+    try { await relocate(id, target); } catch (ex) { $(".form-error", form).textContent = ex.message; btn.disabled = false; btn.textContent = "Move it"; }
+  });
 }
 
 /* ---------- TV remote: arrow keys move focus to the nearest thing in that direction ---------- */
@@ -2331,7 +2555,8 @@ async function reloadLibrary() {
   const [lib, prog] = await Promise.all([api("/api/library"), api("/api/progress")]);
   progress = prog; indexLibrary(lib);
   $("#foot").innerHTML = esc(lib.reading ? "Reading the library... " : "Library updated " + new Date(lib.generated * 1000).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) + ". New files in the Inbox show up on their own. ")
-    + `<a href="?tv=${TV ? 0 : 1}" class="link-btn">${TV ? "Turn off TV mode on this device" : "Use TV mode on this device"}</a>`;
+    + `<a href="?tv=${TV ? 0 : 1}" class="link-btn">${TV ? "Turn off TV mode on this device" : "Use TV mode on this device"}</a>`
+    + `<span class="credit">Sofa ${esc(session.version || "")} · Project by <a href="https://edgeventure.uk" target="_blank" rel="noopener">EdgeVenture.uk</a></span>`;
 }
 let refreshing = 0;
 async function boot() {
@@ -2363,5 +2588,9 @@ async function boot() {
     try { const lib = await api("/api/library"); if (lib.generated !== LIB.generated) { indexLibrary(lib); rerender(); } } catch (e) {}
   }, 60000);
 }
-boot();
+function hideSplash() {
+  const sp = $("#splash"); if (!sp) return;
+  setTimeout(() => { sp.classList.add("gone"); setTimeout(() => sp.remove(), 800); }, Math.max(0, 1300 - performance.now()));
+}
+boot().finally(hideSplash);
 })();
