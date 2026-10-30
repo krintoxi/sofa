@@ -14,8 +14,8 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 import threading
 
-from . import (__version__, artwork, auth, backup, config, dlna, fetch, intros, live, media, metadata, music, optimize,
-               organizer, store, trickplay, updater)
+from . import (__version__, artwork, auth, backup, config, dlna, fetch, housekeeping, intros, live, media, metadata, music,
+               net, optimize, organizer, previews, store, trickplay, updater)
 from .library import LIBRARY
 
 CLIENT_DIR = os.path.join(config.APP_DIR, "client")
@@ -421,7 +421,7 @@ class Handler(BaseHTTPRequestHandler):
             if f.endswith(".m3u8"):   # start at the beginning, not the "live" end of a playlist still being written
                 data = data.replace(b"#EXTM3U\n", b"#EXTM3U\n#EXT-X-START:TIME-OFFSET=0,PRECISE=YES\n", 1)
             return self.send_body(data, ctype, headers={"Cache-Control": "no-cache"})
-        m = re.match(r"^/media/([^/]+)/(file|stream|subs/(\d+)\.vtt|trick\.json|trick/(\d{1,3})\.jpg)$", path)
+        m = re.match(r"^/media/([^/]+)/(file|stream|preview\.mp4|subs/(\d+)\.vtt|trick\.json|trick/(\d{1,3})\.jpg)$", path)
         item = self.visible_item(m.group(1), u) if m else None
         if not item:
             return self.send_body("Not found", status=404)
@@ -431,6 +431,9 @@ class Handler(BaseHTTPRequestHandler):
             if not info:
                 trickplay.want(item)
             return self.json(info or {"pending": bool(config.get("trickplay"))})
+        if kind == "preview.mp4":
+            f = previews.for_request(item)
+            return self.send_file(f, cache="private, max-age=604800") if f else self.send_body("Not ready", status=503)
         if kind.startswith("trick/"):
             f = trickplay.sheet(item, int(m.group(4)))
             return self.send_file(f, cache="private, max-age=604800") if f else self.send_body("Not found", status=404)
@@ -607,6 +610,54 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/admin/intros":
             intros.recheck()
             return self.json({"ok": True})
+        if path == "/api/admin/relocate":            # an admin moves or deletes something that's out of place
+            key, target = data.get("id") or "", data.get("target") or {}
+            item, entry = LIBRARY.item(key), LIBRARY.find(key)
+            thing = item or entry
+            if not thing or (thing.get("adult") and not u.get("adult")):
+                return self.error(404, "That isn't in the library any more.")
+            if target.get("kind") == "adult" and not u.get("adult"):
+                return self.error(403, "Switch the Adult section on for yourself first (Server, People).")
+            try:
+                if item:
+                    message = organizer.relocate(item["path"], target, private=bool(item.get("adult")))
+                elif entry.get("seasons") is not None and LIBRARY.dirs.get(key):
+                    message = organizer.relocate_show(LIBRARY.dirs[key], target, private=bool(entry.get("adult")))
+                else:
+                    return self.error(400, "This can't be moved from here.")
+            except ValueError as exc:
+                return self.error(400, str(exc))
+            except OSError as exc:
+                return self.error(500, "Couldn't move it: %s" % (exc.strerror or exc))
+            LIBRARY.drop(key)
+            LIBRARY.scan("moved from the app", quick=True)
+            return self.json({"ok": True, "message": message})
+        if path == "/api/admin/cache":
+            if data.get("free"):
+                housekeeping.free_space()
+            if data.get("retry_details"):
+                n = housekeeping.retry_lookups()
+                threading.Thread(target=LIBRARY.scan, args=("looking up details again",), daemon=True).start()
+                return self.json({"ok": True, "forgotten": n})
+            return self.json(dict(housekeeping.usage(max_age=0), ok=True))
+        if path == "/api/admin/deleted":
+            if data.get("empty"):
+                organizer.empty_deleted()
+            return self.json(dict(organizer.deleted_summary(), ok=True))
+        if path == "/api/admin/pictures":           # take new pictures from the videos: one title, or everything
+            entry_id = data.get("id")
+            if entry_id:
+                entry = LIBRARY.find(entry_id)
+                if not entry or (entry.get("adult") and not u.get("adult")):
+                    return self.error(404, "That isn't in the library any more.")
+            LIBRARY.new_pictures(entry_id)
+            threading.Thread(target=LIBRARY.scan, args=("new pictures",), daemon=True).start()
+            if entry_id and entry.get("adult"):
+                store.log_private("settings", "%s asked for new pictures of a private video" % u["name"])
+            else:
+                store.log("settings", "%s asked for new pictures of %s" % (
+                    u["name"], ("\"%s\"" % (entry.get("name") or entry.get("title"))) if entry_id else "the whole library"))
+            return self.json({"ok": True})
         m = re.match(r"^/api/admin/markers/(.+)$", path)
         if m:
             item = LIBRARY.item(m.group(1))
@@ -726,7 +777,8 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/admin/downloads":
             try:
                 if data.get("install_ytdlp"):
-                    return self.json({"ok": True, "version": fetch.install()})
+                    fetch.start_install()
+                    return self.json({"ok": True, "installing": True})
                 if data.get("add"):
                     add = data["add"]
                     if add.get("adult") and not u.get("adult"):
@@ -813,11 +865,14 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/admin/settings":
             allowed = {k: data[k] for k in ("name", "dlna", "tvmaze", "tmdb_api_key", "theporndb_api_key", "max_transcodes",
                                             "guest_access", "auto_convert", "keep_originals", "tidy_library",
-                                            "free_movie_lookup", "theme", "detect_intros", "trickplay") if k in data}
+                                            "free_movie_lookup", "theme", "detect_intros", "trickplay", "previews",
+                                            "ytdlp_cookies") if k in data}
+            if "ytdlp_cookies" in allowed and allowed["ytdlp_cookies"] not in fetch.BROWSERS + ("file", ""):
+                allowed.pop("ytdlp_cookies")
             if "name" in allowed:
                 allowed["name"] = str(allowed["name"]).strip()[:40] or "Sofa"
             for k in ("dlna", "tvmaze", "guest_access", "auto_convert", "keep_originals", "tidy_library", "free_movie_lookup",
-                      "detect_intros", "trickplay"):
+                      "detect_intros", "trickplay", "previews"):
                 if k in allowed:
                     allowed[k] = bool(allowed[k])
             for k in ("tmdb_api_key", "theporndb_api_key"):
@@ -876,7 +931,11 @@ def admin_status():
                         scan_seconds=LIBRARY.last_scan_seconds, disk=disk, missing=len(LIBRARY.missing_details()),
                         folders={k: config.path(k).replace(os.path.expanduser("~"), "~", 1)
                                  for k in ("shows", "movies", "music", "musicvideos", "adult", "inbox", "review",
-                                           "originals")}),
+                                           "originals")},
+                        deleted=organizer.deleted_summary(), previews=previews.status(LIBRARY),
+                        deleted_folder=organizer.deleted_root().replace(os.path.expanduser("~"), "~", 1),
+                        cache=housekeeping.usage()),
+        "internet_problem": net.last_error.get("message") if time.time() - net.last_error.get("at", 0) < 86400 else None,
         "convert": optimize.status(),
         "update": updater.status(),
         "encoder": "Apple hardware (VideoToolbox)" if media.hardware_encoder() else

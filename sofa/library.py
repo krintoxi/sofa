@@ -97,7 +97,8 @@ class Library:
         self.last_scan_seconds = 0
         self._scan_lock = threading.Lock()
         self._problems = []
-        self._stills = {}
+        self._stills = {}       # picture -> when Sofa took it from the video, or "keep" (it isn't one of Sofa's)
+        self._redo = {}         # "all" or a show/movie id -> when an admin asked for new pictures
 
     # ------------------------------------------------------------ public views
 
@@ -124,6 +125,35 @@ class Library:
                     if x["id"] == entry_id:
                         return x
         return None
+
+    def drop(self, key):
+        """Take something an admin just moved or deleted out of the lists right away; the next scan
+        shows it where it went. New lists, so a page being sent right now isn't disturbed."""
+        with self.lock:
+            items = dict(self.items)
+            items.pop(key, None)
+
+            def keep(shows):
+                out = []
+                for s in shows:
+                    if s["id"] == key:
+                        for se in s["seasons"]:
+                            for ep in se["episodes"]:
+                                items.pop(ep["id"], None)
+                        continue
+                    if any(ep["id"] == key for se in s["seasons"] for ep in se["episodes"]):
+                        seasons = [dict(se, episodes=[e for e in se["episodes"] if e["id"] != key]) for se in s["seasons"]]
+                        s = dict(s, seasons=[se for se in seasons if se["episodes"]])
+                        if not s["seasons"] and not s["extras"]:
+                            continue
+                    out.append(s)
+                return out
+            self.shows = keep(self.shows)
+            self.movies = [m for m in self.movies if m["id"] != key]
+            self.adult = dict(self.adult, shows=keep(self.adult["shows"]),
+                              movies=[m for m in self.adult["movies"] if m["id"] != key])
+            self.items = items
+            self.generated = max(int(time.time()), self.generated + 1)
 
     def counts(self):
         with self.lock:
@@ -182,7 +212,7 @@ class Library:
             signature = self.current_signature()
             self._downloads = self._stills_made = 0
             self._problems = []
-            self._stills = self._load_stills()
+            self._load_stills()
             self._dirs = {}
             self._renames = {}
             self._known = set(self.known_performers)
@@ -197,7 +227,7 @@ class Library:
             a_shows, a_movies = self._scan_adult(config.path("adult"), items)
             adult = {"shows": a_shows, "movies": a_movies,
                      "categories": sorted({x["category"] for x in a_shows + a_movies},
-                                          key=lambda c: (c != "Movies", c != "Series", c.lower()))}
+                                          key=lambda c: (c != "Movies", c.lower() not in SERIES_DIRS, c.lower()))}
             try:
                 tunes = music.scan(self.art_url, items, quick=quick)
             except Exception as exc:
@@ -208,7 +238,7 @@ class Library:
                 self.dirs = self._dirs
                 self.known_performers = self._known
                 self.generated = int(time.time())
-                self.signature = signature
+                self.signature = None if quick else signature     # a quick read is always followed by a full one
             self.art_pending = not quick and (self._downloads > ART_DOWNLOADS_PER_SCAN
                                               or self._stills_made > EPISODE_STILLS_PER_SCAN)
             self._save_stills()
@@ -242,24 +272,41 @@ class Library:
     def _load_stills(self):
         try:
             with open(STILLS, encoding="utf-8") as f:
-                return json.load(f)
+                data = json.load(f)
         except (OSError, ValueError):
-            return {}
+            data = {}
+        if "files" not in data:              # 0.3.1 kept just the pictures
+            data = {"files": data, "redo": {}}
+        self._stills, self._redo = data["files"], data.get("redo") or {}
 
     def _save_stills(self):
         try:
             os.makedirs(os.path.dirname(STILLS), exist_ok=True)
             with open(STILLS + ".part", "w", encoding="utf-8") as f:
-                json.dump(self._stills, f)
+                json.dump({"files": self._stills, "redo": self._redo}, f)
             os.replace(STILLS + ".part", STILLS)
         except OSError:
             pass
+
+    def new_pictures(self, entry_id=None):
+        """An admin asked for new pictures from the videos: for one show or movie, or (None) everything.
+        Only pictures Sofa took from the videos are replaced; covers and pictures you added stay."""
+        with self.lock:
+            if not self.scanning:
+                self._load_stills()
+            self._redo[entry_id or "all"] = int(time.time())
+            self._save_stills()
+            self.art_pending = True
 
     @staticmethod
     def art_url(key, path):
         if not path:
             return None
-        return "/art/%s/%s" % (key, os.path.relpath(path, config.path(key)).replace(os.sep, "/"))
+        try:
+            version = "?v=%d" % os.stat(path).st_mtime
+        except OSError:
+            version = ""
+        return "/art/%s/%s%s" % (key, os.path.relpath(path, config.path(key)).replace(os.sep, "/"), version)
 
     @staticmethod
     def find_art(directory, kind):
@@ -360,19 +407,30 @@ class Library:
         self._art_failed.add(video)
         return False
 
-    def _adult_still(self, video, art, dest):
-        """Adult videos get a picture from the middle. Pictures an older Sofa took near the start
-        are replaced once; covers from ThePornDB, a saved link or you are left alone."""
-        if art and not self._old_grab(art, video):
+    def _video_still(self, video, art, dest, where, owner, auto=False, episode=False):
+        """A picture taken from the video itself, at `dest` (or replacing `art`, when that's an older one
+        Sofa took itself: for adult videos (`auto`) always, for everything else when an admin asked for
+        new pictures). Covers that came from TVmaze, TMDB, ThePornDB, a saved link or you are left alone."""
+        if art and not self._replaceable(art, video, owner, auto):
             return art
+        if art and isinstance(self._stills.get(art), int):     # asked again for one Sofa took this way: a bit further in
+            where = 0.1 + (where + 0.13 * (1 + self._stills.get(art, 0) % 4) - 0.1) % 0.75
         target = art or dest
-        if self._grab_still(video, target, 0.5, replace=bool(art)):
-            self._stills[target] = "middle"
+        if self._grab_still(video, target, where, episode=episode, replace=bool(art)):
+            self._stills[target] = int(time.time())
             return target
         return art
 
-    def _old_grab(self, art, video):
-        if self.quick or art in self._stills:
+    def _replaceable(self, art, video, owner, auto):
+        if self.quick:
+            return False
+        mark = self._stills.get(art)
+        if mark == "keep":
+            return False
+        asked = max(self._redo.get("all", 0), self._redo.get(owner, 0))
+        if mark is not None:                   # one Sofa took: again only if asked since
+            return asked > (mark if isinstance(mark, int) else 0)
+        if not (auto or asked):
             return False
         info = media.probe(video, cached_only=True) or media.probe(video) or {}
         v = info.get("video") or {}
@@ -433,16 +491,16 @@ class Library:
         def category(name, p):
             subdirs = [s for s in os.listdir(p) if os.path.isdir(os.path.join(p, s)) and not s.startswith(".")]
             vids = self._videos(p)
-            if name.lower() in SERIES_DIRS:
+            if name.lower() in SERIES_DIRS:              # "Shows", "Series", "TV": named as you named the folder
                 for s in sorted(subdirs, key=str.lower):
-                    show(os.path.join(p, s), s, "Series")
+                    show(os.path.join(p, s), s, name)
                 return
             if vids and len(self.movie_groups(vids)) == 1 and not any(self._videos(os.path.join(p, s)) for s in subdirs) \
                     and not self.looks_like_show(p):
                 singles.append(name)                      # a single movie folder sitting at the top
                 return
             if self.looks_like_show(p):                   # a series sitting at the top
-                show(p, name, "Series")
+                show(p, name, series_name)
                 return
             series = [s for s in subdirs if self.looks_like_show(os.path.join(p, s))]
             for s in sorted(series, key=str.lower):
@@ -456,6 +514,7 @@ class Library:
         except OSError as exc:
             self._problem(root, exc)
             names = []
+        series_name = next((n for n in names if n.lower() in SERIES_DIRS and os.path.isdir(os.path.join(root, n))), "Shows")
         for name in names:
             p = os.path.join(root, name)
             if name.startswith(".") or name.lower() in NOT_CATEGORIES:
@@ -551,10 +610,9 @@ class Library:
             poster = os.path.join(show_dir, "folder.jpg")
         if not backdrop and self._fetch_art(info.get("backdrop_url"), os.path.join(show_dir, "backdrop.jpg")):
             backdrop = os.path.join(show_dir, "backdrop.jpg")
-        if adult and episodes:
-            poster = self._adult_still(episodes[0][1], poster, os.path.join(show_dir, "folder.jpg"))
-        elif not poster and episodes and not show_meta and self._grab_still(episodes[0][1], os.path.join(show_dir, "folder.jpg")):
-            poster = os.path.join(show_dir, "folder.jpg")
+        if episodes and (adult or not show_meta):
+            poster = self._video_still(episodes[0][1], poster, os.path.join(show_dir, "folder.jpg"), 0.5 if adult else 0.15,
+                                       show_id, auto=adult)
 
         seasons = {}
         seen = set()
@@ -574,11 +632,11 @@ class Library:
                 continue
             meta = eps_meta.get((ep["s"], ep["e"]), {})
             dest = os.path.join(os.path.dirname(path), "metadata", os.path.splitext(os.path.basename(path))[0] + ".jpg")
-            if adult:
-                item["thumb_path"] = self._adult_still(path, item["thumb_path"], dest)
-            elif not item["thumb_path"] and (self._fetch_art(meta.get("thumb_url"), dest, episode=True)
-                                             or self._grab_still(path, dest, 0.3, episode=True)):
+            if not adult and not item["thumb_path"] and self._fetch_art(meta.get("thumb_url"), dest, episode=True):
                 item["thumb_path"] = dest
+            else:
+                item["thumb_path"] = self._video_still(path, item["thumb_path"], dest, 0.5 if adult else 0.3, show_id,
+                                                       auto=adult, episode=not adult)
             item.update(show_id=show_id, show_name=name, s=ep["s"], e=ep["e"], e2=ep.get("e2"), adult=adult,
                         title=meta.get("title") or _tidy_title(ep.get("title")), summary=meta.get("summary"),
                         aired=meta.get("aired"), runtime=meta.get("runtime"))
@@ -702,14 +760,13 @@ class Library:
                 backdrop = os.path.join(directory, "backdrop.jpg")
             dest = (os.path.join(directory, "folder.jpg") if directory else
                     os.path.join(os.path.dirname(path), "metadata", os.path.splitext(os.path.basename(path))[0] + ".jpg"))
-            if not poster and not item["thumb_path"] and meta.get("poster_url") and self._fetch_art(meta["poster_url"], dest):
+            current = poster or item["thumb_path"]
+            if not current and meta.get("poster_url") and self._fetch_art(meta["poster_url"], dest):
                 art = dest
-            elif adult and not side and not meta.get("poster_url"):
-                art = self._adult_still(path, poster or item["thumb_path"], dest)
-            elif not poster and not item["thumb_path"] and self._grab_still(path, dest, 0.5 if adult else 0.15):
-                art = dest
+            elif current and adult and (side or meta.get("poster_url")):
+                art = current                       # it came with the video: keep it
             else:
-                art = None
+                art = self._video_still(path, current, dest, 0.5 if adult else 0.15, item_id, auto=adult)
             if art and directory:
                 poster = art
             elif art:

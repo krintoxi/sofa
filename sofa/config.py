@@ -26,6 +26,9 @@ DEFAULTS = {
     "adult": "~/Entertainment/Adult",
     # After converting a file to MP4, move the original here (or delete it when keep_originals is false).
     "originals": "~/Entertainment/Converted Originals",
+    # Videos an admin deletes from the app go here first (empty it from the Server page, or by hand).
+    # Empty: a "Deleted" folder next to the Shows folder (on the same drive, so deleting is instant).
+    "deleted": "",
     # Share the library with TVs on the home network (Roku Media Player, VLC, smart TVs).
     "dlna": True,
     # "home": only private networks (Wi-Fi, Tailscale) may connect.
@@ -72,6 +75,10 @@ DEFAULTS = {
     "detect_intros": True,
     # Make the small pictures shown above the seek bar while scrubbing.
     "trickplay": True,
+    "previews": True,
+    # Downloads from sites that want a sign-in or an age check: "safari", "chrome", "firefox", ... (that browser's
+    # session on this computer), "file" (data/bin/cookies.txt), or "" for none.
+    "ytdlp_cookies": "",          # hover previews: short silent clips, made as they're needed
 }
 
 _lock = threading.Lock()

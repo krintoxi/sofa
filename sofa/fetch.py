@@ -11,6 +11,8 @@ when it's done the lot moves to Inbox/XXX (adult) or the Inbox, and the organize
 it like anything else. One download at a time, and it waits while someone watches a video
 Sofa is converting live.
 """
+import glob
+import json
 import os
 import platform
 import re
@@ -21,7 +23,7 @@ import threading
 import time
 import urllib.request
 
-from . import config, media, naming, store
+from . import config, media, naming, net, store
 
 STAGING = os.path.join(config.DATA_DIR, "cache", "downloads")
 OWN_BIN = os.path.join(config.DATA_DIR, "bin")
@@ -44,6 +46,11 @@ def own_copy():
     return os.path.join(OWN_BIN, "yt-dlp")
 
 
+RUNNER = os.path.join(OWN_BIN, "yt-dlp.json")      # how to run Sofa's own copy: {"python": "/path/to/python3.12"}
+_known_version = {}
+install_state = {}                                 # what the Install button is doing right now
+
+
 def tool():
     setting = config.get("ytdlp")
     candidates = [os.path.expanduser(setting)] if setting and setting != "auto" else []
@@ -54,11 +61,42 @@ def tool():
     return None
 
 
+def _runner():
+    try:
+        with open(RUNNER, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
 def _cmd(exe):
-    """How to run it. The macOS build runs by itself; the Linux one is a Python zipapp, run with this Python."""
-    if exe == own_copy() and platform.system() != "Darwin":
-        return [sys.executable, exe]
+    """How to run it: the Mac build runs by itself; the cross-platform one is a Python program."""
+    if exe == own_copy():
+        python = _runner().get("python")
+        if python:
+            return [python, exe]
+        if platform.system() != "Darwin":
+            return [sys.executable, exe]
     return [exe]
+
+
+def _try(cmd, timeout=180):
+    """Run `cmd --version`: (version, None) or (None, why it didn't work)."""
+    try:
+        r = subprocess.run(cmd + ["--version"], capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return None, "it didn't answer within %d seconds" % timeout
+    except OSError as exc:
+        return None, exc.strerror or str(exc)
+    out = r.stdout.strip()
+    if r.returncode == 0 and re.match(r"^\d{4}\.\d", out):
+        return out, None
+    if r.returncode in (-4, 132):
+        return None, "this computer's processor can't run it (illegal instruction)"
+    if r.returncode in (-9, 137) and platform.system() == "Darwin":
+        return None, "macOS stopped it (it may not allow this program)"
+    lines = (r.stderr or out).strip().splitlines()
+    return None, (lines[-1] if lines else "it stopped with code %d" % r.returncode)[:200]
 
 
 def version():
@@ -66,29 +104,154 @@ def version():
     if not exe:
         return None
     try:
-        return subprocess.run(_cmd(exe) + ["--version"], capture_output=True, text=True, timeout=30).stdout.strip() or None
-    except (OSError, subprocess.SubprocessError):
+        stamp = os.path.getmtime(exe)
+    except OSError:
         return None
+    if _known_version.get("exe") != exe or _known_version.get("stamp") != stamp:
+        v, _why = _try(_cmd(exe), timeout=60)
+        _known_version.update(exe=exe, stamp=stamp, version=v)
+    return _known_version.get("version")
 
 
-def install():
-    """Download the official yt-dlp build into data/bin. Returns its version."""
-    name = "yt-dlp_macos" if platform.system() == "Darwin" else "yt-dlp"
-    os.makedirs(OWN_BIN, exist_ok=True)
-    tmp = own_copy() + ".part"
+def _pythons():
+    """Pythons on this computer new enough for yt-dlp (3.11+), best first."""
+    names = ["python3.14", "python3.13", "python3.12", "python3.11", "python3"]
+    places = [sys.executable] + ["/opt/homebrew/bin/" + n for n in names] + ["/usr/local/bin/" + n for n in names]
+    places += sorted(glob.glob("/Library/Frameworks/Python.framework/Versions/3.*/bin/python3"), reverse=True)
+    places += [shutil.which(n) or "" for n in names]
+    seen, out = set(), []
+    for p in places:
+        if not p or p in seen or not os.access(p, os.X_OK):
+            continue
+        seen.add(p)
+        try:
+            v = subprocess.run([p, "-c", "import sys; print('%d.%d' % sys.version_info[:2])"], capture_output=True,
+                               text=True, timeout=20).stdout.strip()
+            if tuple(int(x) for x in v.split(".")) >= (3, 11):
+                out.append(p)
+        except (OSError, subprocess.SubprocessError, ValueError):
+            pass
+    return out
+
+
+def _download(name, dest):
+    tmp = dest + ".part"
     req = urllib.request.Request(RELEASES + name, headers={"User-Agent": "Sofa home media server"})
-    with urllib.request.urlopen(req, timeout=300) as r, open(tmp, "wb") as f:
+    with net.urlopen(req, timeout=300) as r, open(tmp, "wb") as f:
         shutil.copyfileobj(r, f)
     if os.path.getsize(tmp) < 100000:
         os.remove(tmp)
         raise RuntimeError("the download from GitHub looks wrong")
     os.chmod(tmp, 0o755)
-    os.replace(tmp, own_copy())
-    v = version()
-    if not v:
-        raise RuntimeError("yt-dlp was downloaded but doesn't run on this computer")
-    store.log("download", "Installed yt-dlp %s" % v)
+    os.replace(tmp, dest)
+    if platform.system() == "Darwin":         # downloaded by a program, not a browser: no quarantine, but be sure
+        try:
+            subprocess.run(["xattr", "-d", "com.apple.quarantine", dest], capture_output=True)
+        except OSError:
+            pass
+
+
+def _set_runner(python):
+    with open(RUNNER, "w", encoding="utf-8") as f:
+        json.dump({"python": python} if python else {}, f)
+    _known_version.clear()
+
+
+def install():
+    """Get a yt-dlp that runs here, trying in turn: the ready-made Mac program, the cross-platform
+    version with a Python 3.11+ found on this computer, and Homebrew. Returns its version."""
+    os.makedirs(OWN_BIN, exist_ok=True)
+    tried = []
+    mac = platform.system() == "Darwin"
+    install_state.update(step="Downloading yt-dlp from GitHub", at=time.time())
+    if mac:
+        _download("yt-dlp_macos", own_copy())
+        _set_runner(None)
+        install_state.update(step="Starting it for the first time (can take a minute)")
+        v, why = _try([own_copy()])
+        if v:
+            return _installed(v, "the Mac version")
+        tried.append("The ready-made Mac version: %s." % why)
+    pythons = _pythons()
+    if pythons:
+        install_state.update(step="Trying the cross-platform version")
+        _download("yt-dlp", own_copy())
+        for python in pythons:
+            v, why = _try([python, own_copy()])
+            if v:
+                _set_runner(python)
+                return _installed(v, "the cross-platform version, with %s" % python)
+            tried.append("With %s: %s." % (python, why))
+    else:
+        tried.append("The cross-platform version needs Python 3.11 or newer, and this computer has none.")
+    if os.path.exists(own_copy()):
+        os.remove(own_copy())
+    brew = next((b for b in ("/opt/homebrew/bin/brew", "/usr/local/bin/brew") if os.access(b, os.X_OK)), None)
+    if brew:
+        install_state.update(step="Installing with Homebrew (this can take a long time on an older Mac)")
+        env = dict(os.environ, HOMEBREW_NO_AUTO_UPDATE="1", HOMEBREW_NO_INSTALL_CLEANUP="1",
+                   PATH=os.path.dirname(brew) + ":/usr/bin:/bin:/usr/sbin:/sbin")
+        try:
+            r = subprocess.run([brew, "install", "yt-dlp"], capture_output=True, text=True, timeout=3600, env=env)
+            if r.returncode != 0:
+                tried.append("Homebrew: %s." % ((r.stderr or r.stdout).strip().splitlines() or ["it didn't work"])[-1][:200])
+        except (OSError, subprocess.SubprocessError) as exc:
+            tried.append("Homebrew: %s." % exc)
+        exe = tool()
+        if exe and exe != own_copy():
+            v, why = _try([exe])
+            if v:
+                return _installed(v, "Homebrew")
+            tried.append("Homebrew's copy: %s." % why)
+    else:
+        tried.append("Homebrew isn't installed, so Sofa couldn't try that either.")
+    store.log("error", "Couldn't install yt-dlp. " + " ".join(tried))
+    raise RuntimeError("yt-dlp doesn't run on this computer yet. " + " ".join(tried) +
+                       " Fix: install Python 3.12 from python.org, or Homebrew and then 'brew install yt-dlp', and press Install again.")
+
+
+def _installed(v, how):
+    store.log("download", "Installed yt-dlp %s (%s)" % (v, how))
     return v
+
+
+def start_install():
+    """The Install button: runs in the background (Homebrew can take a long time); status() reports it."""
+    if install_state.get("running"):
+        return
+
+    def run():
+        install_state.clear()
+        install_state.update(running=True, at=time.time())
+        try:
+            install_state.update(done=install(), error=None)
+        except Exception as exc:
+            text = str(getattr(exc, "reason", None) or exc)
+            install_state.update(error=text if text.startswith("yt-dlp") else "Couldn't install yt-dlp: %s" % text[:300])
+        finally:
+            install_state.update(running=False, step=None)
+    threading.Thread(target=run, daemon=True, name="install-ytdlp").start()
+
+
+def _force_update():
+    """Update Sofa's own copy now (at most once an hour). True if it was updated."""
+    exe = tool()
+    if exe != own_copy():
+        return False
+    stamp = own_copy() + ".forced"
+    try:
+        if time.time() - os.path.getmtime(stamp) < 3600:
+            return False
+    except OSError:
+        pass
+    open(stamp, "w").close()
+    before = version()
+    try:
+        subprocess.run(_cmd(exe) + ["-U"], capture_output=True, timeout=300)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    _known_version.clear()
+    return version() != before
 
 
 def _self_update():
@@ -159,6 +322,7 @@ def status(viewer_adult=False):
                 r["title"] = r["title"] or (_current.get("title") if (viewer_adult or not r["adult"]) else None)
         rows.append(r)
     return {"rows": rows, "tool": tool(), "version": version() if tool() else None, "own": tool() == own_copy(),
+            "installing": {k: install_state.get(k) for k in ("running", "step", "error", "done")},
             "ffmpeg": bool(media.tool("ffmpeg")), "waiting": bool(_current.get("waiting"))}
 
 
@@ -184,7 +348,47 @@ def _command(job, folder):
     gb = float(config.get("download_max_gb") or 0)
     if gb > 0:
         cmd += ["--max-filesize", "%dM" % int(gb * 1024)]
-    return cmd + ["--", job["url"]]
+    return cmd + _cookies() + ["--", job["url"]]
+
+
+BROWSERS = ("safari", "chrome", "firefox", "edge", "brave", "chromium", "opera", "vivaldi")
+COOKIES_FILE = os.path.join(OWN_BIN, "cookies.txt")
+
+
+def _cookies():
+    """Sites that want a sign-in or an age check: use the session of a browser on this computer
+    (sign in there first), or a cookies.txt file saved in data/bin."""
+    choice = (config.get("ytdlp_cookies") or "").lower()
+    if choice in BROWSERS:
+        return ["--cookies-from-browser", choice]
+    if choice == "file" and os.path.isfile(COOKIES_FILE):
+        return ["--cookies", COOKIES_FILE]
+    return []
+
+
+def explain(error):
+    """yt-dlp's last error line, in words."""
+    e = error.lower()
+    cookies = (config.get("ytdlp_cookies") or "").lower()
+    signin = ("The site didn't hand over the video. It usually wants you signed in or to confirm your age "
+              "(some countries require that). Do that in a browser on the Sofa computer, then choose that browser "
+              "under \"Use the sign-in from\" below and try again." if not cookies else
+              "The site didn't hand over the video, even with the %s sign-in. Open the page in %s on the Sofa "
+              "computer, make sure it plays there, then try again." % (cookies.title(), cookies.title()))
+    if "no video formats found" in e or "unable to extract" in e:
+        return signin + " (If it still fails, the site may have changed; Sofa updates yt-dlp daily.)"
+    if any(w in e for w in ("sign in", "login", "log in", "age", "verify", "confirm your", "403", "forbidden", "private video")):
+        return signin
+    if "unsupported url" in e:
+        return "yt-dlp doesn't know this site, or this isn't the page of one video. Open the video itself and copy that address."
+    if "could not copy" in e and "cookie" in e or "keychain" in e or "cookies database" in e:
+        return ("Couldn't read the browser's sign-in. Safari needs Full Disk Access for the program running Sofa "
+                "(System Settings, Privacy & Security); Firefox works without it.")
+    if "max-filesize" in e or "larger than max" in e:
+        return "It's bigger than the size limit set in Settings."
+    if "404" in e or "not found" in e:
+        return "The page isn't there any more."
+    return error
 
 
 def _run_one(job):
@@ -218,8 +422,14 @@ def _run_one(job):
             raise InterruptedError()
         videos = [f for f in os.listdir(folder) if os.path.splitext(f)[1].lower() in naming.VIDEO_EXT]
         if code != 0 or not videos:
-            err = next((x for x in reversed(tail) if "ERROR" in x), tail[-1] if tail else "yt-dlp stopped")
-            raise RuntimeError(re.sub(r"^ERROR:\s*", "", err)[:300])
+            err = re.sub(r"^ERROR:\s*", "", next((x for x in reversed(tail) if "ERROR" in x), tail[-1] if tail else "yt-dlp stopped"))
+            if not job.get("retried") and ("no video formats" in err.lower() or "unable to extract" in err.lower()) \
+                    and _force_update():
+                job = dict(job, retried=True)          # an older yt-dlp may not know the site's latest change
+                with _lock:
+                    _current.clear()
+                return _run_one(job)
+            raise RuntimeError(explain(err)[:400] + ("" if explain(err) == err else " [yt-dlp: %s]" % err[:160]))
         for f in os.listdir(folder):                    # leftovers yt-dlp didn't clean up
             if f.endswith((".part", ".ytdl", ".temp")):
                 os.remove(os.path.join(folder, f))

@@ -17,7 +17,7 @@ import time
 import urllib.parse
 import urllib.request
 
-from . import config, naming
+from . import config, naming, net
 
 CACHE = os.path.join(config.DATA_DIR, "cache", "metadata")
 OVERRIDES = os.path.join(config.DATA_DIR, "overrides.json")
@@ -31,7 +31,7 @@ def _get_json(url, timeout=10, headers=None):
     h = dict(AGENT)
     h.update(headers or {})
     req = urllib.request.Request(url, headers=h)
-    with urllib.request.urlopen(req, timeout=timeout) as r:
+    with net.urlopen(req, timeout=timeout) as r:
         return json.load(r)
 
 
@@ -397,7 +397,7 @@ def download(url, dest, replace=False):
         return False
     try:
         req = urllib.request.Request(url, headers=AGENT)
-        with urllib.request.urlopen(req, timeout=20) as r:
+        with net.urlopen(req, timeout=20) as r:
             data = r.read()
         if len(data) < 500:
             return False

@@ -4,6 +4,8 @@ A small, self-hosted home media server. Drop shows, movies and music into a fold
 Sofa names them, files them, finds artwork and plays them on every screen in the house:
 browsers, phones, smart TVs, Roku and Fire TV. Free live TV channels too.
 
+A project by [EdgeVenture.uk](https://edgeventure.uk).
+
 Sofa is plain Python (standard library only) plus ffmpeg. It runs happily on a Mac mini,
 and still runs on a 2011 iMac.
 
@@ -82,6 +84,8 @@ Nothing is ever deleted. More: [docs/folder-structure.md](docs/folder-structure.
   each device as they play, and Sofa also **converts them to MP4 in the background** so they
   play instantly next time. The originals are kept until you say otherwise.
   [docs/playback.md](docs/playback.md)
+- **Hover previews.** Point at anything and a bigger card plays a few seconds of it, with Play
+  and More info. On a TV, the card you're on plays in place.
 - **A proper player.** Skip Intro / Skip Recap / Skip Credits, "Next episode" when the
   credits start, previews while you scrub, an episode list, sound-track and subtitle
   choice, picture-in-picture, speed, keyboard shortcuts (press `?`), and double-tap to skip
@@ -97,6 +101,9 @@ Nothing is ever deleted. More: [docs/folder-structure.md](docs/folder-structure.
   Server → Downloads.
 - **Tidy folders.** Download-style names ("Heat.1995.1080p.BluRay") are tidied, collections
   get a folder per movie, and stray "XXX" folders move into the Adult section.
+- **Fix things from the app (admins).** **Manage** on any movie, show or episode: move it
+  (it's really a movie, an episode, adult, ...), delete it (to a Deleted folder you empty
+  when you're sure), or take new pictures from the video.
 - **Everyone has their own sign-in** and their own "continue watching". Guests on your Wi-Fi
   scan a QR code on the Server page.
 - **Themes.** Press **Theme** at the top: Midnight, Cinema, Ocean, Forest, Grape or Pure black,
@@ -112,8 +119,10 @@ Nothing is ever deleted. More: [docs/folder-structure.md](docs/folder-structure.
 **First, switch it on for yourself:** **Server → People → Adult**. It's off for everyone at
 first, admins included; guests and TVs never see it.
 
+- **Its own front page**: a featured strip and a row per category (Movies, Hentai, Shows, ...),
+  plus new arrivals, favorites, studios and performers.
 - **Your folders are the categories.** Every folder in `~/Entertainment/Adult` (Movies,
-  Hentai, Series, Collections, anything you make) gets its own button in the Adult tab.
+  Hentai, Shows, Collections, anything you make) gets its own button and row in the Adult tab.
   Series and collections inside them are recognised.
 - **Browse** by category, studio, performer and tag, keep favorites (♥), search, shuffle,
   and get moving previews on hover or remote focus. All of it works offline, from file
@@ -130,9 +139,9 @@ link you trust and tick **Adult channels**. [docs/adult.md](docs/adult.md)
 | Tab | What's there |
 |---|---|
 | Overview | addresses to watch from, who's watching, the Inbox, anything that needs you |
-| Library | folders, rescan, **missing details** (fix them in a click), Skip Intro progress, Needs Review |
+| Library | folders, rescan, **missing details** (fix them in a click), new pictures, free up space, the Deleted folder, Skip Intro progress, Needs Review |
 | Converting | the convert-to-MP4 queue with progress; automatic converting on/off |
-| Downloads | save videos from links; install yt-dlp; the "Send to Sofa" bookmark |
+| Downloads | save videos from links; install yt-dlp; use a browser's sign-in; the "Send to Sofa" bookmark |
 | Live TV | channel lists |
 | People | accounts, Adult access, guests |
 | Settings | name, theme, TV sharing, TMDB key, ThePornDB token, backups |

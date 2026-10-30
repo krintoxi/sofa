@@ -45,6 +45,22 @@ ten minutes:
 Nothing is deleted, and everyone's watch progress stays put. Episode files themselves keep
 their names; Sofa reads `S01E01`, `1x01`, `101`, `Episode 1` and `Season 1 Episode 1`.
 
+## Fixing one thing from the app
+
+Something in the wrong place? Admins open it and press **Manage** (on a movie or show page,
+or the **⋯** next to an episode):
+
+- **Move it somewhere else**: say what it really is (a movie with its title and year, an
+  episode of a show, an Adult category, or Needs Review). Sofa renames it and files it there,
+  with its subtitles and saved details.
+- **Delete it**: it goes to the **Deleted** folder, next to your Shows and Movies folders
+  (normally `~/Entertainment/Deleted`), in the same folders it came from. It's gone for good
+  only when you press **Empty it for good** under **Server → Library** (or empty the folder
+  yourself). To get something back, move it from there into the Inbox.
+- **Take new pictures from the video**: for pictures Sofa took itself that show the wrong
+  moment. Covers from TVmaze, TMDB, ThePornDB or ones you added are never replaced.
+  **Server → Library → Take new pictures for everything** does the whole library.
+
 ## Doing it by hand
 
 ```

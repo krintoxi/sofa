@@ -22,6 +22,7 @@ def file_for(url):
     """The image file behind an /art/<key>/<path> URL, or None."""
     if not url or not url.startswith("/art/"):
         return None
+    url = url.split("?")[0]          # ?v=<date of the picture>
     key, _, rel = url[len("/art/"):].partition("/")
     if key not in ("shows", "movies", "music", "musicvideos", "adult", "cache"):
         return None
