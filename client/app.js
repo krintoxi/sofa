@@ -58,7 +58,8 @@ async function api(path, body) {
    always-visible row arrows and a full-screen player. ?tv=1 / ?tv=0 forces it on this device. */
 const tvParam = new URLSearchParams(location.search).get("tv");
 if (tvParam === "1" || tvParam === "0") prefs.set("tv", tvParam === "1");
-const TV = prefs.get("tv", /AFT[A-Z0-9]+|Android TV|GoogleTV|BRAVIA|SMART-TV|SmartTV|Tizen|Web0S|webOS|CrKey|HbbTV/i.test(navigator.userAgent));
+const NATIVE = window.SofaNative || null;      // inside the Fire TV app
+const TV = NATIVE ? true : prefs.get("tv", /AFT[A-Z0-9]+|Android TV|GoogleTV|BRAVIA|SMART-TV|SmartTV|Tizen|Web0S|webOS|CrKey|HbbTV/i.test(navigator.userAgent));
 if (TV) document.documentElement.classList.add("tv");
 
 let session = null, LIB = { shows: [], movies: [] }, progress = {};
@@ -2640,7 +2641,7 @@ const Player = (function () {
   }
   const opt = (k, d) => prefs.get("p." + k, d), setOpt = (k, v) => prefs.set("p." + k, v);
   const SPEEDS = [1, 1.25, 1.5, 2, 0.75];
-  const caps = {
+  const caps = NATIVE ? JSON.parse(NATIVE.caps()) : {
     mkv: !!(video.canPlayType('video/x-matroska; codecs="avc1.64001F, mp4a.40.2"') || video.canPlayType("video/x-matroska")),
     hevc: !!video.canPlayType('video/mp4; codecs="hvc1.1.6.L93.B0"'),
     ac3: !!video.canPlayType('audio/mp4; codecs="ac-3"'),
@@ -2670,6 +2671,7 @@ const Player = (function () {
   async function open(it, queue) {
     if (!it) return;
     stopTrailer();
+    if (NATIVE && it.kind !== "track") return nativeOpen(it, queue);
     playQueue = queue && queue.includes(it) ? queue : null;
     MusicPlayer.pause();
     enterHistory();
@@ -3379,9 +3381,37 @@ const Player = (function () {
     close();
   });
   const capsQuery = () => Object.keys(caps).map(k => k + "=" + (caps[k] ? 1 : 0)).join("&");
+  /* Inside the Fire TV app: Android's own player plays it (the file as it is, mostly), and says where it
+     stopped when it's closed (window.sofaNativeDone). */
+  let nativeItem = null, nativeQueue = null;
+  async function nativeOpen(it, queue) {
+    let p;
+    try { p = await api("/api/play/" + encodeURIComponent(it.id) + "?" + capsQuery()); } catch (e) { toast(e.message); return; }
+    let url = p.url;
+    if (p.mode !== "direct") {
+      try { url = (await api("/api/hls/" + encodeURIComponent(it.id) + "?mode=" + p.mode + (prefs.get("quality", "") ? "&h=" + prefs.get("quality", "") : ""))).url; }
+      catch (e) { toast(e.message); return; }
+    }
+    const pr = prog(it.id), start = pr && !pr.done && pr.t > 30 && (!p.duration || pr.t < p.duration - 30) ? pr.t : 0;
+    nativeItem = it; nativeQueue = queue && queue.includes(it) ? queue : null;
+    const owner = it.show || it;
+    NATIVE.play(JSON.stringify({ item: it.id, url: location.origin + url, start: p.mode === "direct" ? start : 0,
+      title: owner.name || it.title, sub: it.kind === "episode" ? subtitleFor(it) : "",
+      subtitles: p.subtitles.map(t => ({ url: location.origin + t.url, lang: t.lang, label: t.label })), markers: p.markers || [] }));
+  }
+  window.sofaNativeDone = r => {
+    const it = nativeItem; nativeItem = null;
+    if (!it) return;
+    if (r && r.d) progress[it.id] = { t: r.done ? r.d : r.t, d: r.d, done: !!r.done, at: Date.now() };
+    const next = nativeQueue ? nativeQueue[nativeQueue.indexOf(it) + 1] : nextAfter(it);
+    if (r && r.ended && next && opt("autoplay", true)) return open(next, nativeQueue);
+    rerender();
+  };
+  const nativeStatus = () => nativeItem ? JSON.parse(NATIVE.status() || "{}") : null;
   // For the phone remote: what's playing, and doing what it asks.
-  const status = () => item && !el.classList.contains("is-live") ? { item: item.id, t: Math.round(now()), d: Math.round(total()), paused: video.paused } : {};
+  const status = () => nativeItem ? nativeStatus() || {} : item && !el.classList.contains("is-live") ? { item: item.id, t: Math.round(now()), d: Math.round(total()), paused: video.paused } : {};
   function control(c) {
+    if (nativeItem) return NATIVE.control(JSON.stringify(c));
     if (!item || el.classList.contains("is-live")) return;
     if (c.cmd === "toggle") toggle();
     else if (c.cmd === "pause") video.pause();

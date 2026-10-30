@@ -158,6 +158,17 @@ class Handler(BaseHTTPRequestHandler):
             return
         url = urlsplit(self.path)
         path, qs = unquote(url.path), parse_qs(url.query)
+        if path in ("/firetv", "/firetv.apk"):        # the Fire TV app, for the Downloader app on the Fire TV
+            if self.network() not in HOME_NETS:
+                return self.send_body("Not found", status=404)
+            local = os.path.join(config.DATA_DIR, "apps", "sofa-firetv.apk")
+            if os.path.isfile(local):
+                return self.send_file(local, download="sofa-firetv.apk")
+            self.send_response(302)
+            self.send_header("Location", "https://github.com/%s/releases/latest/download/sofa-firetv.apk" % updater.repo_name())
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
         if path == "/api/info":                       # for apps that found Sofa on the network (no sign-in)
             return self.json(discovery.info())
         if path == "/healthz":

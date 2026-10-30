@@ -45,6 +45,10 @@ def _repo():
     return config.get("update_repo"), config.get("update_branch")
 
 
+def repo_name():
+    return _repo()[0] or "krintoxi/sofa"
+
+
 def _get(url, timeout=20):
     with net.urlopen(urllib.request.Request(url, headers=AGENT), timeout=timeout) as r:
         return r.read()

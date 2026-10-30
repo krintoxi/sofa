@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sofa</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0A0E1A; color: #F5F1E8; font: 20px/1.45 system-ui, sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 56px 32px; }
+  h1 { font-size: 46px; margin: 0 0 6px; letter-spacing: -0.02em; }
+  h1 b { color: #F4B740; }
+  p { color: #A7A9B4; margin: 0 0 18px; }
+  .list { display: grid; gap: 12px; margin: 22px 0 30px; }
+  button, input { font: inherit; border-radius: 14px; border: 2px solid #2A3042; background: #151A28; color: #F5F1E8; padding: 16px 22px; text-align: left; }
+  button:focus, input:focus { outline: none; border-color: #F4B740; box-shadow: 0 0 0 4px rgba(244,183,64,.25); }
+  .row { display: flex; gap: 12px; }
+  input { flex: 1; }
+  .connect { background: #F4B740; color: #1A1405; border-color: #F4B740; font-weight: 700; }
+  .problem { color: #FF8A8A; min-height: 1.4em; }
+  .spin { display: inline-block; width: 16px; height: 16px; border: 3px solid #2A3042; border-top-color: #F4B740; border-radius: 50%; animation: s 1s linear infinite; vertical-align: -2px; margin-right: 8px; }
+  @keyframes s { to { transform: rotate(360deg); } }
+  small { color: #6F7385; }
+</style></head>
+<body><main>
+  <h1><b>Sofa</b> for Fire TV</h1>
+  <p class="problem" id="problem"></p>
+  <p id="looking"><span class="spin"></span>Looking for Sofa on your network…</p>
+  <div class="list" id="list"></div>
+  <p>Or type the Sofa computer's address (the Server page shows it):</p>
+  <div class="row"><input id="addr" placeholder="192.168.1.20" inputmode="url" autocomplete="off"><button class="connect" id="go">Connect</button></div>
+  <p><small>Project by EdgeVenture.uk</small></p>
+</main>
+<script>
+  const problem = decodeURIComponent(location.hash.slice(1) || "");
+  document.getElementById("problem").textContent = problem;
+  const list = document.getElementById("list"), seen = new Set();
+  function choose(url) { document.getElementById("problem").textContent = "Connecting…"; SofaNative.choose(url); }
+  window.chooseFailed = () => { document.getElementById("problem").textContent = "No Sofa answered there. Check the address on the Server page, and that this Fire TV is on the same Wi-Fi."; };
+  function refresh() {
+    let found = [];
+    try { found = JSON.parse(SofaNative.servers()); } catch (e) {}
+    found.forEach(s => {
+      if (seen.has(s.url)) return;
+      seen.add(s.url);
+      const b = document.createElement("button");
+      b.innerHTML = "<b></b><br><small></small>";
+      b.querySelector("b").textContent = s.name;
+      b.querySelector("small").textContent = s.url.replace("http://", "");
+      b.onclick = () => choose(s.url);
+      list.appendChild(b);
+      if (seen.size === 1 && !problem) b.focus();
+    });
+    document.getElementById("looking").style.display = seen.size ? "none" : "";
+  }
+  setInterval(refresh, 1000); refresh();
+  document.getElementById("go").onclick = () => choose(document.getElementById("addr").value);
+  document.getElementById("addr").addEventListener("keydown", e => { if (e.key === "Enter") choose(e.target.value); });
+  // The remote's arrows: up and down through everything you can pick.
+  document.addEventListener("keydown", e => {
+    if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+    const all = [...document.querySelectorAll("button, input")];
+    const i = all.indexOf(document.activeElement);
+    const next = all[Math.max(0, Math.min(all.length - 1, i + (e.key === "ArrowDown" ? 1 : -1)))];
+    if (next) { next.focus(); e.preventDefault(); }
+  });
+  if (!document.activeElement || document.activeElement === document.body) document.getElementById("addr").focus();
+</script></body></html>
