@@ -207,7 +207,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", "0")
             self.end_headers()
             return
-        m = re.match(r"^/sofa-box/(install\.sh|sofa-box|sofa-box-finder\.py|sofa-box-cec\.py)$", path)
+        m = re.match(r"^/sofa-box/(install\.sh|sofa-box|sofa-box-[a-z]+\.py|finder\.html|preview\.html|mpv-input\.conf)$", path)
         if m:                                         # a Raspberry Pi becoming a Sofa box fetches its files from here
             if self.network() not in HOME_NETS:
                 return self.send_body("Not found", status=404)
@@ -673,7 +673,7 @@ class Handler(BaseHTTPRequestHandler):
                 trickplay.want(item)
             base = "/media/%s/" % item["id"]
             tracks = media.subtitle_tracks(item, p["info"])
-            out = {"mode": p["mode"], "duration": p["duration"], "why": p.get("why") or [],
+            out = {"mode": p["mode"], "duration": p["duration"], "why": p.get("why") or [], "max_height": p.get("max_height"),
                    "audio": media.audio_tracks(p["info"]), "error": media.last_error(item["id"]),
                    "markers": intros.for_player(item["id"]),
                    "intro_status": "looking" if item["kind"] == "episode" and not intros.for_player(item["id"]) else None,

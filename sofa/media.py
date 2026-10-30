@@ -229,8 +229,13 @@ CAPS = ("mkv", "hevc", "hevc10", "ac3", "vp9")
 
 
 def caps_from(qs):
-    """A device's capabilities from a query string ("hevc=1&mkv=0…"). Only what it said: missing keys stay missing."""
-    return {k: (qs.get(k) or ["0"])[0] == "1" for k in CAPS if k in qs or k != "hevc10"}
+    """A device's capabilities from a query string ("hevc=1&mkv=0…&maxh=720"). Only what it said: missing keys
+    stay missing. maxh: the tallest picture it plays smoothly (a Raspberry Pi 3 box: 720 or 1080)."""
+    caps = {k: (qs.get(k) or ["0"])[0] == "1" for k in CAPS if k in qs or k != "hevc10"}
+    maxh = (qs.get("maxh") or [""])[0]
+    if maxh.isdigit() and 240 <= int(maxh) <= 4320:
+        caps["maxh"] = int(maxh)
+    return caps
 
 
 def ten_bit(video):
@@ -264,11 +269,16 @@ def plan(item, caps):
     video = info.get("video")
     a = (default_audio(info) or {}).get("codec")
     video_ok = video_playable(video, caps)
+    too_tall = bool(caps.get("maxh") and video and (video.get("height") or 0) > caps["maxh"] * 1.1)
+    if too_tall:
+        video_ok = False
     audio_ok = a in DIRECT_AUDIO or (a in ("ac3", "eac3") and caps.get("ac3"))
     why = []
     if not container_ok:
         why.append(ext.upper() + " file")
-    if not video_ok:
+    if too_tall:
+        why.append("%sp picture (this device plays up to %sp)" % (video.get("height"), caps["maxh"]))
+    elif not video_ok:
         why.append(describe_video(video) + " video")
     if not audio_ok:
         why.append((a or "unknown").upper() + " sound")
@@ -280,7 +290,8 @@ def plan(item, caps):
         mode = "remux"
     else:
         mode = "transcode"
-    return {"mode": mode, "duration": info.get("duration"), "info": info, "why": why}
+    return {"mode": mode, "duration": info.get("duration"), "info": info, "why": why,
+            "max_height": caps.get("maxh") if mode == "transcode" and caps.get("maxh") else None}
 
 
 def describe_video(video):

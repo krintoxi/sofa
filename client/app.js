@@ -485,7 +485,7 @@ function heroClip(slide) {
   const h = slide.closest(".hero.carousel"); if (h) delete h.dataset.playing;
   if (REDUCED || !slide.dataset.clip || prefs.get("bannerClips", true) === false) return;
   clipTimer = setTimeout(() => {
-    if (!document.contains(slide) || !slide.classList.contains("on") || Player.isOpen() || slide.querySelector(".hero-clip")) return;
+    if (!document.contains(slide) || !slide.classList.contains("on") || Player.isOpen() || document.hidden || slide.querySelector(".hero-clip")) return;
     const v = clipVideo(slide.dataset.clip, true);
     v.className = "hero-clip"; v.loop = false;
     v.addEventListener("playing", () => { v.classList.add("on"); if (h) h.dataset.playing = "1"; }, { once: true });
@@ -502,7 +502,7 @@ function startHero() {
   if (!h || h.querySelectorAll(".slide").length < 2) return;
   heroTimer = setInterval(() => {
     if (!document.contains(h)) return clearInterval(heroTimer);
-    if (h.matches(":hover") || h.contains(document.activeElement) || Player.isOpen() || h.dataset.playing) return;
+    if (h.matches(":hover") || h.contains(document.activeElement) || Player.isOpen() || document.hidden || h.dataset.playing) return;
     showSlide(+(h.dataset.at || 0) + 1);
   }, 9000);
 }
@@ -560,7 +560,7 @@ function startTrailer(now) {
     const id = hero.dataset.trailer;
     let plan;
     try { plan = await api("/api/play/" + encodeURIComponent(id) + "?trailer=1&" + Player.capsQuery()); } catch (e) { return; }
-    if (!document.contains(hero) || Player.isOpen() || $("video.trailer", hero)) return;
+    if (!document.contains(hero) || Player.isOpen() || document.hidden || $("video.trailer", hero)) return;
     const d = plan.duration || 0;
     let src = "/media/" + encodeURIComponent(id) + "/preview.mp4?hd=1";
     if (d >= 8 * 60 && plan.trailer !== "clip" && plan.mode !== "unsupported") {
@@ -714,6 +714,7 @@ function viewMore() {
       ${u.guest ? "" : row("", "i-tv", "Pair a TV", "Sign a TV in with this phone", 'data-more="pair"')}
       ${standalone() ? "" : row("", "i-phone", "Install Sofa", "On the home screen, like an app", 'data-more="install"')}
       ${u.admin ? row("#/server", "i-gear", "Server", "Library, people, internet, updates") : ""}
+      ${window.SofaBox ? row("#/box", "i-tv", "This Sofa box", "Picture, sound, boot screen, Wi-Fi, controllers") : ""}
       ${row("", "i-exit", u.guest ? "Leave" : "Sign out", "", 'data-more="out"')}
     </div></section>`;
 }
@@ -724,6 +725,99 @@ document.addEventListener("click", e => {
   else if (a === "pair") location.hash = "#/pair";
   else if (a === "out") signOut();
   else if (a === "install") { prefs.set("installAsk", 0); installOffer(true); }
+});
+/* ---------- this Sofa box (a Raspberry Pi on the TV): its own settings, from the sofa ----------
+   Only on the box: its agent (127.0.0.1:8091, the page's own address there) answers /box/api/... */
+let boxData = null, boxNets = null, boxNet = null, boxMsg = "", boxArmed = "";
+async function loadBox(after) {
+  try { boxData = await (await fetch("/box/api/info")).json(); } catch (e) { boxData = { error: "The box doesn't answer." }; }
+  if (after) after();
+  if (location.hash === "#/box" && !Player.isOpen() && !document.querySelector(".dialog-scrim")) {
+    const a = document.activeElement, key = a && a.dataset && a.dataset.boxKey;
+    const y = scrollY; view.innerHTML = viewBox(); scrollTo(0, y);
+    const again = key && $(`[data-box-key="${CSS.escape(key)}"]`); if (again) again.focus({ preventScroll: true });
+  }
+}
+async function boxPost(path, body) {
+  const r = await fetch("/box/api/" + path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
+  return r.json();
+}
+function viewBox() {
+  setGlow("");
+  if (!boxData) { loadBox(); return `<section class="admin box-page"><div class="admin-head"><h1>This Sofa box</h1></div><p class="admin-lede">Loading…</p></section>`; }
+  if (boxData.error) return `<section class="admin box-page"><div class="admin-head"><h1>This Sofa box</h1></div><p class="admin-lede">${esc(boxData.error)}</p></section>`;
+  const b = boxData, s = b.settings;
+  const pick = (key, value, label) => `<button data-box-set="${key}" data-box-value="${value}" data-box-key="${key}-${value}" aria-pressed="${String(s[key]) === String(value)}">${label}</button>`;
+  const act = (a, label, cls) => `<button class="btn${cls ? " " + cls : ""}" data-box-act="${a}" data-box-key="act-${a}">${boxArmed === a ? "Press again to " + label.toLowerCase() : label}</button>`;
+  const facts = [b.model, b.address, b.temperature != null ? b.temperature + " °C" : "", b.memory ? Math.round(b.memory / 1048576) + " MB" : ""].filter(Boolean);
+  const themes = THEMES.map(t => `<button class="theme-swatch" data-box-set="theme" data-box-value="${t[0]}" data-box-key="theme-${t[0]}" aria-pressed="${s.theme === t[0]}"
+      style="--sw-bg:${t[2]};--sw-ac:${t[3]}"><i></i><span>${esc(t[1])}</span></button>`).join("");
+  return `<section class="admin box-page"><div class="admin-head"><h1>This Sofa box</h1><span class="pill">Version ${esc(b.version)}</span></div>
+    <p class="admin-lede">${facts.map(esc).join(" · ")}${b.server ? ` · plays from ${esc(b.server_name || "Sofa")} (${esc(b.server.replace(/^https?:\/\//, ""))})` : ""}</p>
+    ${boxMsg ? `<div class="box-msg" role="status">${esc(boxMsg)}</div>` : ""}
+    <div class="panels">
+      <div class="panel"><h2>Picture</h2>
+        <p class="hint">Sofa sends videos the box can play smoothly. ${b.slow_board ? "A Raspberry Pi 3 plays up to 1080p H.264; Sofa converts the rest for it." : ""}</p>
+        <div class="sorter inline" role="group" aria-label="Picture">${pick("quality", "auto", "Automatic")}${pick("quality", "1080", "1080p")}${pick("quality", "720", "720p")}</div>
+        ${b.learned_720 && s.quality === "auto" ? `<p class="hint box-note">Videos come as 720p: at 1080p this box dropped frames.</p>${act("forget-720", "Try 1080p again")}` : ""}
+      </div>
+      <div class="panel"><h2>Sound</h2>
+        <p class="hint">Surround goes as it is to an AV receiver or soundbar that decodes it; otherwise the box mixes it for the TV.</p>
+        <div class="sorter inline" role="group" aria-label="Sound">${pick("audio", "auto", "TV or soundbar")}${pick("audio", "passthrough", "AV receiver (surround)")}</div>
+      </div>
+      <div class="panel wide"><h2>Boot screen</h2>
+        <p class="hint">What the TV shows while the box starts: Sofa's own loading screen in a colour of your choice, with a name under it.</p>
+        <div class="box-boot"><img src="/box/splash.png?phase=0.45&amp;v=${encodeURIComponent(s.theme + s.boot_text)}" alt="The boot screen">
+          <div><div class="themes">${themes}</div>
+            <label class="field"><span>Name under the logo</span><input data-box-text="boot_text" data-box-key="boot-text" maxlength="30" value="${esc(s.boot_text || "")}" placeholder="Living room"></label>
+            ${act("apply-boot", "Use it from the next start", "primary")}</div></div>
+      </div>
+      <div class="panel"><h2>Wi-Fi</h2>
+        <p class="hint">${b.wifi ? `Connected to <b>${esc(b.wifi)}</b>.` : "Not on Wi-Fi (a network cable works best for video)."}</p>
+        ${boxNets ? (boxNets.length ? `<div class="box-nets">${boxNets.map(n => `<button class="box-net" data-box-net="${esc(n.ssid)}" data-box-key="net-${esc(n.ssid)}" aria-pressed="${boxNet === n.ssid}"><b>${esc(n.ssid)}</b><small>${n.signal}%${n.secure ? " · password" : ""}</small></button>`).join("")}</div>` : `<p class="hint">No networks found.</p>`) : ""}
+        ${boxNet ? `<label class="field"><span>Password for ${esc(boxNet)}</span><input type="password" data-box-key="wifi-pass" id="boxWifiPass" autocomplete="off"></label>${act("wifi-connect", "Connect", "primary")}` : act("wifi-scan", boxNets ? "Look again" : "Find networks")}
+      </div>
+      <div class="panel"><h2>Controllers and remotes</h2>
+        <p class="hint">${b.controllers.length ? "Paired: " + b.controllers.map(esc).join(", ") + "." : "No game controllers paired yet."} The TV's own remote works over HDMI when the TV's CEC is on (VIERA Link, Anynet+, SimpLink).</p>
+        <div class="row-btns">${act("pair-controller", "Pair a controller")}${act("tv-on", "Turn the TV on")}</div>
+      </div>
+      <div class="panel wide"><h2>The box</h2>
+        <p class="hint">To check everything over SSH: <code>sofa-box doctor</code>.</p>
+        <div class="row-btns">${act("choose", "Use another Sofa")}${act("restart", "Restart Sofa")}${act("reboot", "Restart the box")}</div>
+      </div>
+    </div></section>`;
+}
+document.addEventListener("click", async e => {
+  const t = e.target.closest("[data-box-set],[data-box-act],[data-box-net]"); if (!t) return;
+  e.preventDefault();
+  if (t.dataset.boxSet) {
+    const v = t.dataset.boxValue;
+    boxData = Object.assign(await boxPost("settings", { [t.dataset.boxSet]: v }), {});
+    boxMsg = t.dataset.boxSet === "theme" ? "Colour chosen: press “Use it from the next start” to keep it." : "Saved.";
+    return loadBox();
+  }
+  if (t.dataset.boxNet) { boxNet = t.dataset.boxNet; loadBox(() => {}); setTimeout(() => { const p = $("#boxWifiPass"); if (p) p.focus(); }, 300); return; }
+  const a = t.dataset.boxAct;
+  if ((a === "reboot" || a === "restart" || a === "choose") && boxArmed !== a) { boxArmed = a; return loadBox(); }   // twice, so a stray OK doesn't
+  boxArmed = "";
+  if (a === "apply-boot") {
+    const input = $("[data-box-text]");
+    if (input) await boxPost("settings", { boot_text: input.value });
+  }
+  boxMsg = a === "wifi-scan" ? "Looking for networks…" : a === "wifi-connect" ? "Connecting…" : "";
+  if (boxMsg) loadBox();
+  const body = a === "wifi-connect" ? { ssid: boxNet, password: ($("#boxWifiPass") || {}).value || "" } : {};
+  let r;
+  try { r = await boxPost("action/" + a, body); } catch (err) { r = { ok: false, message: "The box doesn't answer." }; }
+  if (a === "wifi-scan") boxNets = r.networks || [];
+  if (a === "wifi-connect" && r.ok) { boxNet = null; boxNets = null; }
+  if (r.go) { location.href = r.go; return; }
+  boxMsg = r.message || (r.ok ? (a === "restart" || a === "reboot" ? "Restarting…" : "Done.") : "That didn't work.");
+  loadBox();
+});
+document.addEventListener("change", e => {
+  const t = e.target.closest("[data-box-text]"); if (!t) return;
+  boxPost("settings", { [t.dataset.boxText]: t.value }).then(d => { boxData = d; boxMsg = "Saved."; loadBox(); });
 });
 function viewEmptyLibrary() {
   setGlow("");
@@ -2150,6 +2244,7 @@ function route(animate) {
   else if (name === "music") { html = viewMusic(rest); nav = "music"; }
   else if (name === "server" && session.user.admin) { html = viewServer(rest[0]); nav = "server"; }
   else if (name === "more") { html = viewMore(); nav = "more"; }
+  else if (name === "box" && window.SofaBox) { html = viewBox(); nav = "more"; }
   else { html = viewHome(); nav = "home"; }
   $("#searchBtn").toggleAttribute("aria-current", nav === "search");
   document.querySelectorAll("[data-nav]").forEach(a => { if (a.dataset.nav === nav) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current"); });
@@ -2430,6 +2525,10 @@ suggest.addEventListener("click", e => { if (e.target.closest("a")) setTimeout(c
 document.addEventListener("pointerdown", e => { if (!suggest.hidden && !suggest.contains(e.target) && !$("#searchBox").contains(e.target)) closeSuggest(); });
 window.addEventListener("hashchange", closeSuggest);
 $("#lookBtn").addEventListener("click", () => appearanceDialog());
+if (window.SofaBox) {                     // on the Sofa box, its own settings sit next to Theme
+  const b = document.createElement("button"); b.className = "link-btn"; b.type = "button"; b.textContent = "This box";
+  b.addEventListener("click", () => { location.hash = "#/box"; }); $("#lookBtn").after(b);
+}
 async function signOut() { await api("/api/logout", {}).catch(() => {}); location.hash = "#/"; boot(); }
 $("#signOut").addEventListener("click", signOut);
 
@@ -2449,6 +2548,7 @@ function openDialog(html, wide) {
 }
 function closeDialog() { if (document.querySelector(".dialog-scrim")) history.back(); }
 let toastTimer = 0;
+window.SofaToast = msg => toast(msg);           // for the Sofa box agent
 function toast(msg) {
   let t = $("#toast");
   if (!t) { t = document.createElement("div"); t.id = "toast"; t.className = "toast"; t.setAttribute("role", "status"); document.body.appendChild(t); }
@@ -2724,6 +2824,13 @@ document.addEventListener("keydown", e => {
   if (spatialMove(dir, scrim || document, scrim ? null : ".hero .btn, .card, .seasons button, .episode .ep-thumb")) e.preventDefault();
 });
 document.addEventListener("mousedown", () => document.body.classList.remove("tv-nav"));
+// "/" goes to search (a keyboard's habit, and a controller's Y on the Sofa box).
+document.addEventListener("keydown", e => {
+  if (e.key !== "/" || Player.isOpen() || e.metaKey || e.ctrlKey || e.altKey) return;
+  const a = document.activeElement;
+  if (a && (a.tagName === "INPUT" || a.tagName === "TEXTAREA" || a.tagName === "SELECT" || a.isContentEditable)) return;
+  e.preventDefault(); location.hash = "#/search";
+});
 // Song rows and queue entries are list items: OK / Enter plays them like a click.
 document.addEventListener("keydown", e => {
   if ((e.key === "Enter" || e.key === " ") && e.target.matches && e.target.matches("[data-mplay],[data-qjump]")) { e.preventDefault(); e.target.click(); }
@@ -2740,7 +2847,7 @@ const Screens = (function () {
     catch (e) { return Math.random().toString(36).slice(2, 14); }
   })();
   const ua = navigator.userAgent;
-  const defaultName = () => /AFT/.test(ua) ? "Fire TV" : TV && /Linux (aarch64|armv7l)/.test(ua) && !/Android/.test(ua) ? "Sofa box" : TV ? "TV" : /iPhone/.test(ua) ? "iPhone" : /iPad/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1) ? "iPad"
+  const defaultName = () => /AFT/.test(ua) ? "Fire TV" : window.SofaBox || (TV && /Linux (aarch64|armv7l)/.test(ua) && !/Android/.test(ua)) ? "Sofa box" : TV ? "TV" : /iPhone/.test(ua) ? "iPhone" : /iPad/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1) ? "iPad"
     : /Android/.test(ua) ? "Android" : /Mac/.test(ua) ? "Mac" : /Windows/.test(ua) ? "Windows PC" : "Browser";
   const name = () => prefs.get("screenName", "") || defaultName();
   let target = null, others = [], listening = false, reported = "", bar = null, pollTimer = 0;
@@ -3682,7 +3789,7 @@ const Player = (function () {
     }
     close();
   });
-  const capsQuery = () => Object.keys(caps).map(k => k + "=" + (caps[k] ? 1 : 0)).join("&");
+  const capsQuery = () => Object.keys(caps).map(k => k + "=" + (typeof caps[k] === "number" ? caps[k] : caps[k] ? 1 : 0)).join("&");
   /* Inside the Fire TV app: Android's own player plays it (the file as it is, mostly), and says where it
      stopped when it's closed (window.sofaNativeDone). */
   let nativeItem = null, nativeQueue = null;
@@ -3692,14 +3799,15 @@ const Player = (function () {
     let url = p.url;
     const pr = prog(it.id), start = pr && !pr.done && pr.t > 30 && (!p.duration || pr.t < p.duration - 30) ? pr.t : 0;
     if (p.mode !== "direct") {        // converted from where they left off: the app adds `offset` to what it plays
-      try { url = (await api("/api/hls/" + encodeURIComponent(it.id) + "?mode=" + p.mode + "&t=" + start.toFixed(1) + (prefs.get("quality", "") ? "&h=" + prefs.get("quality", "") : "") + "&" + capsQuery())).url; }
+      const h = prefs.get("quality", "") || p.max_height || "";
+      try { url = (await api("/api/hls/" + encodeURIComponent(it.id) + "?mode=" + p.mode + "&t=" + start.toFixed(1) + (h ? "&h=" + h : "") + "&" + capsQuery())).url; }
       catch (e) { toast(e.message); return; }
     }
     nativeItem = it; nativeQueue = queue && queue.includes(it) ? queue : null;
     const owner = it.show || it;
     const shift = p.mode === "direct" ? 0 : start;
     NATIVE.play(JSON.stringify({ item: it.id, url: location.origin + url, start: start - shift, offset: shift, duration: p.duration || 0,
-      title: owner.name || it.title, sub: it.kind === "episode" ? subtitleFor(it) : "",
+      title: owner.name || it.title, sub: it.kind === "episode" ? subtitleFor(it) : "", adult: !!(it.adult || owner.adult),
       subtitles: p.subtitles.map(t => ({ url: location.origin + t.url + (shift ? "?offset=" + shift.toFixed(2) : ""), lang: t.lang, label: t.label })),
       markers: p.markers || [] }));
   }
@@ -4073,7 +4181,7 @@ async function boot() {
    remote's arrows, A is OK, B (or View/Select) is Back, X or Start (☰) plays and pauses, LB/LT skip 10 s
    back and RB/RT 30 s on, Y is search (or subtitles while playing). */
 (function gamepads() {
-  if (!navigator.getGamepads) return;
+  if (!navigator.getGamepads || window.SofaBox) return;      // the Sofa box turns controllers into keys itself
   const DIRS = { 12: "ArrowUp", 13: "ArrowDown", 14: "ArrowLeft", 15: "ArrowRight" };
   let running = false, was = {}, repeatAt = {};
   const key = k => {

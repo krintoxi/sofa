@@ -17,13 +17,13 @@ jobs:
         with:
           go-version: "1.22"
           cache: false
-      - name: Let's Encrypt's test server (Pebble), and ffmpeg for the conversion tests
+      - name: Let's Encrypt's test server (Pebble), ffmpeg for the conversion tests, mpv for the Sofa box's
         run: |
           go install github.com/letsencrypt/pebble/v2/cmd/pebble@v2.6.0
           echo "PEBBLE=$(go env GOPATH)/bin/pebble" >> "$GITHUB_ENV"
           echo "PEBBLE_DIR=$(go env GOMODCACHE)/github.com/letsencrypt/pebble/v2@v2.6.0" >> "$GITHUB_ENV"
           echo "127.0.0.1 sofa.test" | sudo tee -a /etc/hosts
-          command -v ffmpeg || (sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg)
+          sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends ffmpeg mpv
       - name: Run the tests
         run: uv run --no-project --python ${{ matrix.python }} python -W ignore -m unittest discover -s tests -t . -v
       - name: Check the web app's JavaScript

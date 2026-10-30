@@ -72,6 +72,11 @@ class Server(unittest.TestCase):
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
         with opener.open(self.base + "/sofa-box/install.sh", timeout=20) as r:
             self.assertTrue(r.read().startswith(b"#!/bin/sh"))
+        for name in ("sofa-box-agent.py", "sofa-box-art.py", "sofa-box-input.py", "finder.html", "preview.html", "mpv-input.conf"):
+            with opener.open(self.base + "/sofa-box/" + name, timeout=20) as r:      # all the installer fetches
+                self.assertTrue(r.read())
+        with self.assertRaises(urllib.error.HTTPError):
+            opener.open(self.base + "/sofa-box/../sofa/config.py", timeout=20)
         with self.assertRaises(urllib.error.HTTPError):
             opener.open(self.base + "/sofa-box/README.md", timeout=20)      # only the box's own files
 
