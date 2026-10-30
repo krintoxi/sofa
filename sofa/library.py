@@ -18,6 +18,7 @@ Item IDs come from what an item is (show, season, episode), not its file name,
 so renaming or converting a file keeps its watch progress.
 """
 import hashlib
+import json
 import os
 import threading
 import time
@@ -28,6 +29,8 @@ ART = {"poster": ("folder.jpg", "poster.jpg", "folder.png", "poster.png", "cover
        "backdrop": ("backdrop.jpg", "fanart.jpg", "backdrop.png", "background.jpg"),
        "logo": ("logo.png", "clearlogo.png")}
 ART_DOWNLOADS_PER_SCAN = 250       # per scan; the watcher scans again until everything has its artwork
+EPISODE_STILLS_PER_SCAN = 120      # episode pictures taken from the video: slower, so a separate allowance
+STILLS = os.path.join(config.DATA_DIR, "cache", "stills.json")   # adult pictures already taken from the middle
 EXTRAS_DIRS = ("extras", "featurettes", "behind the scenes", "trailers", "bonus", "deleted scenes")
 SERIES_DIRS = ("shows", "series", "tv", "tv shows", "tv series")
 NOT_CATEGORIES = ("metadata", "performers")
@@ -37,6 +40,37 @@ PRIVATE = ("path", "thumb_path", "subs")
 def private_key(text):
     """An ID part for the Adult section that doesn't spell out the title (URLs, logs, browser history)."""
     return "h" + hashlib.sha1(text.encode("utf-8")).hexdigest()[:12]
+
+
+def _size(path):
+    try:
+        return os.path.getsize(path)
+    except OSError:
+        return -1
+
+
+def _jpeg_size(path):
+    """(width, height) of a JPEG file, read from its header; None for anything else."""
+    try:
+        with open(path, "rb") as f:
+            data = f.read(131072)
+    except OSError:
+        return None
+    if data[:2] != b"\xff\xd8":
+        return None
+    i = 2
+    while i + 9 < len(data):
+        if data[i] != 0xFF:
+            i += 1
+            continue
+        marker = data[i + 1]
+        if marker == 0xFF or marker == 0x01 or 0xD0 <= marker <= 0xD8:
+            i += 1 if marker == 0xFF else 2
+            continue
+        if marker in (0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7, 0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF):
+            return int.from_bytes(data[i + 7:i + 9], "big"), int.from_bytes(data[i + 5:i + 7], "big")
+        i += 2 + int.from_bytes(data[i + 2:i + 4], "big")
+    return None
 
 
 def _tidy_title(title):
@@ -56,10 +90,14 @@ class Library:
         self.art_pending = False
         self._art_failed = set()           # addresses and files that didn't work this session: don't retry every scan
         self.music = {"tracks": [], "albums": [], "artists": [], "videos": []}
-        self.generated = 0
+        self.generated = 0      # 0 until the first read after starting has finished
         self.signature = None
         self.scanning = False
+        self.quick = False
         self.last_scan_seconds = 0
+        self._scan_lock = threading.Lock()
+        self._problems = []
+        self._stills = {}
 
     # ------------------------------------------------------------ public views
 
@@ -132,20 +170,27 @@ class Library:
 
     # ------------------------------------------------------------ scanning
 
-    def scan(self, reason="manual"):
-        if self.scanning:
+    def scan(self, reason="manual", quick=False):
+        """Read the folders again. `quick`: only from details and pictures already saved (no internet,
+        no new pictures), which takes seconds; right after starting, Sofa does that, then a full scan."""
+        if not self._scan_lock.acquire(blocking=False):
             return False
-        self.scanning = True
+        self.scanning, self.quick = True, quick
+        metadata.saved_only(quick)
         started = time.time()
         try:
             signature = self.current_signature()
-            self._downloads = 0
+            self._downloads = self._stills_made = 0
+            self._problems = []
+            self._stills = self._load_stills()
             self._dirs = {}
             self._renames = {}
             self._known = set(self.known_performers)
             people = os.path.join(config.path("adult"), "Performers")
-            if os.path.isdir(people):
+            try:
                 self._known.update(n for n in os.listdir(people) if not n.startswith("."))
+            except OSError:
+                pass
             items = {}
             shows = self._scan_shows(config.path("shows"), items, "shows")
             movies = self._scan_movies(config.path("movies"), items, "movies")
@@ -153,23 +198,62 @@ class Library:
             adult = {"shows": a_shows, "movies": a_movies,
                      "categories": sorted({x["category"] for x in a_shows + a_movies},
                                           key=lambda c: (c != "Movies", c != "Series", c.lower()))}
-            tunes = music.scan(self.art_url, items)
+            try:
+                tunes = music.scan(self.art_url, items, quick=quick)
+            except Exception as exc:
+                self._problem(config.path("music"), exc)
+                tunes = self.music
             with self.lock:
                 self.shows, self.movies, self.items, self.music, self.adult = shows, movies, items, tunes, adult
                 self.dirs = self._dirs
                 self.known_performers = self._known
                 self.generated = int(time.time())
                 self.signature = signature
-            self.art_pending = self._downloads > ART_DOWNLOADS_PER_SCAN
+            self.art_pending = not quick and (self._downloads > ART_DOWNLOADS_PER_SCAN
+                                              or self._stills_made > EPISODE_STILLS_PER_SCAN)
+            self._save_stills()
             self._migrate_ids()
             self.last_scan_seconds = round(time.time() - started, 1)
-            n_eps = sum(1 for i in items.values() if i["kind"] == "episode" and not i.get("adult"))
-            store.log("scan", "Library updated: %d shows, %d episodes, %d movies, %d songs, %d music videos"
-                      % (len(shows), n_eps, len(movies), len(tunes["tracks"]), len(tunes["videos"])),
-                      {"reason": reason, "seconds": self.last_scan_seconds})
+            if self._problems:
+                where, err = self._problems[0]
+                store.log("error", "Couldn't read %d file(s) or folder(s) in the library, for example %s (%s)."
+                          % (len(self._problems), where, err))
+            if not quick:
+                n_eps = sum(1 for i in items.values() if i["kind"] == "episode" and not i.get("adult"))
+                store.log("scan", "Library updated: %d shows, %d episodes, %d movies, %d songs, %d music videos"
+                          % (len(shows), n_eps, len(movies), len(tunes["tracks"]), len(tunes["videos"])),
+                          {"reason": reason, "seconds": self.last_scan_seconds})
             return True
         finally:
-            self.scanning = False
+            metadata.saved_only(False)
+            self.scanning = self.quick = False
+            self._scan_lock.release()
+
+    def _problem(self, path, exc, adult=False):
+        """Something in the library that couldn't be read (a broken link, a folder Sofa may not open):
+        skip it, carry on, and say so once at the end of the scan."""
+        if self.quick:
+            return                  # the full scan right after says it
+        where = "a file in the Adult section" if adult else path
+        why = (getattr(exc, "strerror", None) or str(exc))[:200]
+        self._problems.append((where, why))
+        print("Library: couldn't read %s (%s)" % (where, why), flush=True)
+
+    def _load_stills(self):
+        try:
+            with open(STILLS, encoding="utf-8") as f:
+                return json.load(f)
+        except (OSError, ValueError):
+            return {}
+
+    def _save_stills(self):
+        try:
+            os.makedirs(os.path.dirname(STILLS), exist_ok=True)
+            with open(STILLS + ".part", "w", encoding="utf-8") as f:
+                json.dump(self._stills, f)
+            os.replace(STILLS + ".part", STILLS)
+        except OSError:
+            pass
 
     @staticmethod
     def art_url(key, path):
@@ -230,31 +314,74 @@ class Library:
                 metadata.set_override(new, fix)
                 metadata.set_override(old, None)
 
-    def _budget(self):
+    def _budget(self, episode=False):
+        if self.quick:
+            return False
+        if episode:
+            self._stills_made += 1
+            return self._stills_made <= EPISODE_STILLS_PER_SCAN
         self._downloads += 1
         return self._downloads <= ART_DOWNLOADS_PER_SCAN
 
-    def _fetch_art(self, url, dest):
-        if not url or url in self._art_failed or not self._budget():
+    def _ready(self, dest):
+        """Can artwork be saved at `dest`? (Not on a read-only drive, or in a folder Sofa may not write to.)"""
+        folder = os.path.dirname(dest)
+        if folder in self._art_failed:
+            return False
+        try:
+            os.makedirs(folder, exist_ok=True)
+            if os.access(folder, os.W_OK):
+                return True
+        except OSError:
+            pass
+        self._art_failed.add(folder)
+        return False
+
+    def _fetch_art(self, url, dest, episode=False):
+        if self.quick or not url or url in self._art_failed or not self._ready(dest) or not self._budget(episode):
             return False
         if metadata.download(url, dest):
             return True
         self._art_failed.add(url)
         return False
 
-    def _grab_still(self, video, dest, where=0.15):
-        """A frame from the video as artwork, for things no service knows (home videos, adult scenes,
-        episodes without a picture). `where`: how far in (episodes: past the intro)."""
-        if os.path.exists(dest):
+    def _grab_still(self, video, dest, where=0.15, episode=False, replace=False):
+        """A frame from the video as artwork, for things no service knows (home videos, adult videos,
+        episodes without a picture). `where`: how far in (episodes: past the intro; adult: the middle)."""
+        if os.path.exists(dest) and not replace:
             return True
-        if video in self._art_failed or not media.tool("ffmpeg") or not self._budget():
+        if self.quick or video in self._art_failed or not media.tool("ffmpeg") or not self._ready(dest) \
+                or not self._budget(episode):
             return False
-        info = media.probe(video, cached_only=True) or {}
+        info = media.probe(video, cached_only=True) or media.probe(video) or {}
         at = max(12.0, (info.get("duration") or 0) * where)
-        os.makedirs(os.path.dirname(dest), exist_ok=True)
         if media.extract_frame(video, dest, at):
             return True
         self._art_failed.add(video)
+        return False
+
+    def _adult_still(self, video, art, dest):
+        """Adult videos get a picture from the middle. Pictures an older Sofa took near the start
+        are replaced once; covers from ThePornDB, a saved link or you are left alone."""
+        if art and not self._old_grab(art, video):
+            return art
+        target = art or dest
+        if self._grab_still(video, target, 0.5, replace=bool(art)):
+            self._stills[target] = "middle"
+            return target
+        return art
+
+    def _old_grab(self, art, video):
+        if self.quick or art in self._stills:
+            return False
+        info = media.probe(video, cached_only=True) or media.probe(video) or {}
+        v = info.get("video") or {}
+        if not (v.get("width") and v.get("height")):
+            return False                       # can't tell yet (ffprobe missing, or unreadable)
+        size, w = _jpeg_size(art), min(1280, v["width"])
+        if size and size[0] == w and abs(size[1] - v["height"] * w / v["width"]) <= 2:
+            return True                        # exactly the video's frame size: a frame Sofa grabbed
+        self._stills[art] = "keep"
         return False
 
     @staticmethod
@@ -298,8 +425,38 @@ class Library:
                     items[e["id"]]["category"] = category
             return entries
 
+        def show(d, folder, category):
+            found = self._scan_show_safely(d, folder, items, "adult", prefix="a", adult=True)
+            if found:
+                shows.extend(tag([found], category))
+
+        def category(name, p):
+            subdirs = [s for s in os.listdir(p) if os.path.isdir(os.path.join(p, s)) and not s.startswith(".")]
+            vids = self._videos(p)
+            if name.lower() in SERIES_DIRS:
+                for s in sorted(subdirs, key=str.lower):
+                    show(os.path.join(p, s), s, "Series")
+                return
+            if vids and len(self.movie_groups(vids)) == 1 and not any(self._videos(os.path.join(p, s)) for s in subdirs) \
+                    and not self.looks_like_show(p):
+                singles.append(name)                      # a single movie folder sitting at the top
+                return
+            if self.looks_like_show(p):                   # a series sitting at the top
+                show(p, name, "Series")
+                return
+            series = [s for s in subdirs if self.looks_like_show(os.path.join(p, s))]
+            for s in sorted(series, key=str.lower):
+                show(os.path.join(p, s), s, name)
+            movies.extend(tag(self._scan_movies(p, items, "adult", prefix="a", adult=True,
+                                                skip=tuple(s.lower() for s in series)), name))
+
         top_files, singles = [], []
-        for name in sorted(os.listdir(root), key=str.lower):
+        try:
+            names = sorted(os.listdir(root), key=str.lower)
+        except OSError as exc:
+            self._problem(root, exc)
+            names = []
+        for name in names:
             p = os.path.join(root, name)
             if name.startswith(".") or name.lower() in NOT_CATEGORIES:
                 continue
@@ -307,32 +464,11 @@ class Library:
                 if os.path.splitext(name)[1].lower() in naming.VIDEO_EXT:
                     top_files.append(p)
                 continue
-            if not os.path.isdir(p):
-                continue
-            subdirs = [s for s in os.listdir(p) if os.path.isdir(os.path.join(p, s)) and not s.startswith(".")]
-            vids = self._videos(p)
-            if name.lower() in SERIES_DIRS:
-                cat = "Series"
-                for s in sorted(subdirs, key=str.lower):
-                    show = self._scan_show(os.path.join(p, s), s, items, "adult", prefix="a", adult=True)
-                    if show:
-                        shows += tag([show], cat)
-                continue
-            if vids and len(self.movie_groups(vids)) == 1 and not any(self._videos(os.path.join(p, s)) for s in subdirs) \
-                    and not self.looks_like_show(p):
-                singles.append(name)                      # a single movie folder sitting at the top
-                continue
-            if self.looks_like_show(p):                   # a series sitting at the top
-                show = self._scan_show(p, name, items, "adult", prefix="a", adult=True)
-                if show:
-                    shows += tag([show], "Series")
-                continue
-            series = [s for s in subdirs if self.looks_like_show(os.path.join(p, s))]
-            for s in sorted(series, key=str.lower):
-                show = self._scan_show(os.path.join(p, s), s, items, "adult", prefix="a", adult=True)
-                if show:
-                    shows += tag([show], name)
-            movies += tag(self._scan_movies(p, items, "adult", prefix="a", adult=True, skip=tuple(s.lower() for s in series)), name)
+            if os.path.isdir(p):
+                try:
+                    category(name, p)
+                except Exception as exc:
+                    self._problem(p, exc, adult=True)
         if top_files or singles:
             movies += tag(self._scan_movies(root, items, "adult", prefix="a", adult=True, only=set(singles),
                                             files=top_files), "Movies")
@@ -344,13 +480,26 @@ class Library:
         shows = []
         if not os.path.isdir(root):
             return shows
-        for name in sorted(os.listdir(root), key=str.lower):
+        try:
+            names = sorted(os.listdir(root), key=str.lower)
+        except OSError as exc:
+            self._problem(root, exc, adult)
+            return shows
+        for name in names:
             d = os.path.join(root, name)
             if os.path.isdir(d) and not name.startswith("."):
-                show = self._scan_show(d, name, items, art_key, prefix, adult)
+                show = self._scan_show_safely(d, name, items, art_key, prefix, adult)
                 if show:
                     shows.append(show)
         return shows
+
+    def _scan_show_safely(self, show_dir, folder, items, art_key="shows", prefix="", adult=False):
+        """One show that can't be read doesn't stop the rest of the library."""
+        try:
+            return self._scan_show(show_dir, folder, items, art_key, prefix, adult)
+        except Exception as exc:
+            self._problem(show_dir, exc, adult)
+            return None
 
     def _scan_show(self, show_dir, folder, items, art_key="shows", prefix="", adult=False):
         name, year = naming.show_name(folder)
@@ -402,7 +551,9 @@ class Library:
             poster = os.path.join(show_dir, "folder.jpg")
         if not backdrop and self._fetch_art(info.get("backdrop_url"), os.path.join(show_dir, "backdrop.jpg")):
             backdrop = os.path.join(show_dir, "backdrop.jpg")
-        if not poster and episodes and (adult or not show_meta) and self._grab_still(episodes[0][1], os.path.join(show_dir, "folder.jpg")):
+        if adult and episodes:
+            poster = self._adult_still(episodes[0][1], poster, os.path.join(show_dir, "folder.jpg"))
+        elif not poster and episodes and not show_meta and self._grab_still(episodes[0][1], os.path.join(show_dir, "folder.jpg")):
             poster = os.path.join(show_dir, "folder.jpg")
 
         seasons = {}
@@ -416,13 +567,18 @@ class Library:
             seen.add(item_id)
             if adult:
                 self._renames["%se:%s:%d:%d" % (prefix, old_slug, ep["s"], ep["e"])] = item_id
-            item = self._media(path, "episode", item_id)
+            try:
+                item = self._media(path, "episode", item_id)
+            except OSError as exc:
+                self._problem(path, exc, adult)
+                continue
             meta = eps_meta.get((ep["s"], ep["e"]), {})
-            if not item["thumb_path"]:
-                dest = os.path.join(os.path.dirname(path), "metadata", os.path.splitext(os.path.basename(path))[0] + ".jpg")
-                os.makedirs(os.path.dirname(dest), exist_ok=True)
-                if self._fetch_art(meta.get("thumb_url"), dest) or self._grab_still(path, dest, 0.3):
-                    item["thumb_path"] = dest
+            dest = os.path.join(os.path.dirname(path), "metadata", os.path.splitext(os.path.basename(path))[0] + ".jpg")
+            if adult:
+                item["thumb_path"] = self._adult_still(path, item["thumb_path"], dest)
+            elif not item["thumb_path"] and (self._fetch_art(meta.get("thumb_url"), dest, episode=True)
+                                             or self._grab_still(path, dest, 0.3, episode=True)):
+                item["thumb_path"] = dest
             item.update(show_id=show_id, show_name=name, s=ep["s"], e=ep["e"], e2=ep.get("e2"), adult=adult,
                         title=meta.get("title") or _tidy_title(ep.get("title")), summary=meta.get("summary"),
                         aired=meta.get("aired"), runtime=meta.get("runtime"))
@@ -432,7 +588,11 @@ class Library:
         for path in extras:
             title = naming.clean(os.path.splitext(os.path.basename(path))[0]) or "Extra"
             item_id = "%sx:%s:%s" % (prefix, slug, private_key(title) if adult else naming.slug(title))
-            item = self._media(path, "extra", item_id)
+            try:
+                item = self._media(path, "extra", item_id)
+            except OSError as exc:
+                self._problem(path, exc, adult)
+                continue
             item.update(show_id=show_id, show_name=name, title=title, adult=adult)
             items[item_id] = item
             extra_items.append(item)
@@ -466,10 +626,13 @@ class Library:
         small files next to a big one (samples, featurettes) don't count as movies of their own."""
         if not videos:
             return {}
-        sizes = {v: os.path.getsize(v) for v in videos}
+        sizes = {v: _size(v) for v in videos}
+        sizes = {v: n for v, n in sizes.items() if n >= 0}       # a broken link or a file that just went away
+        if not sizes:
+            return {}
         biggest = max(sizes.values())
         groups = {}
-        for v in videos:
+        for v in sizes:
             stem = os.path.splitext(os.path.basename(v))[0]
             if sizes[v] < biggest * 0.2 or "sample" in stem.lower().split():
                 continue
@@ -484,6 +647,12 @@ class Library:
             return movies
 
         def add(path, title, year, directory, collection):
+            try:
+                add_one(path, title, year, directory, collection)
+            except Exception as exc:     # one unreadable file doesn't stop the rest
+                self._problem(path, exc, adult)
+
+        def add_one(path, title, year, directory, collection):
             item_id = "%sm:%s:%s" % (prefix, naming.slug(title), year or "")
             if item_id in items:
                 item_id += ":" + naming.slug(os.path.basename(path))
@@ -531,14 +700,20 @@ class Library:
                 poster = os.path.join(directory, "folder.jpg")
             if directory and not backdrop and self._fetch_art(meta.get("backdrop_url"), os.path.join(directory, "backdrop.jpg")):
                 backdrop = os.path.join(directory, "backdrop.jpg")
-            if not poster and not item["thumb_path"]:
-                dest = (os.path.join(directory, "folder.jpg") if directory else
-                        os.path.join(os.path.dirname(path), "metadata", os.path.splitext(os.path.basename(path))[0] + ".jpg"))
-                if (meta.get("poster_url") and self._fetch_art(meta["poster_url"], dest)) or self._grab_still(path, dest):
-                    if directory:
-                        poster = dest
-                    else:
-                        item["thumb_path"] = dest
+            dest = (os.path.join(directory, "folder.jpg") if directory else
+                    os.path.join(os.path.dirname(path), "metadata", os.path.splitext(os.path.basename(path))[0] + ".jpg"))
+            if not poster and not item["thumb_path"] and meta.get("poster_url") and self._fetch_art(meta["poster_url"], dest):
+                art = dest
+            elif adult and not side and not meta.get("poster_url"):
+                art = self._adult_still(path, poster or item["thumb_path"], dest)
+            elif not poster and not item["thumb_path"] and self._grab_still(path, dest, 0.5 if adult else 0.15):
+                art = dest
+            else:
+                art = None
+            if art and directory:
+                poster = art
+            elif art:
+                item["thumb_path"] = art
             shown = meta.get("canonical") or title
             item.update(title=shown, year=year or meta.get("year") or (int(meta["date"][:4]) if meta.get("date") else None),
                         collection=collection or meta.get("collection"),
@@ -556,7 +731,7 @@ class Library:
 
         def loose(videos, collection):
             for key, files in self.movie_groups(videos).items():
-                main = max(files, key=os.path.getsize)
+                main = max(files, key=_size)
                 title, year = naming.parse_movie(os.path.splitext(os.path.basename(main))[0])
                 add(main, naming.strip_part(title), year, None, collection)
 
@@ -587,7 +762,7 @@ class Library:
                     visit_subdirs(p, collection or collection_label(name), depth + 1)
                 elif vids:
                     title, year = naming.parse_movie(name)
-                    main = max(vids, key=os.path.getsize)
+                    main = max(vids, key=_size)
                     if not year:
                         t2, y2 = naming.parse_movie(os.path.splitext(os.path.basename(main))[0])
                         if y2:
@@ -597,13 +772,17 @@ class Library:
                     visit(p, collection or collection_label(name), depth + 1)
 
         def visit_subdirs(d, collection, depth):
-            for name in sorted(os.listdir(d), key=str.lower):
+            try:
+                names = sorted(os.listdir(d), key=str.lower)
+            except OSError:
+                return
+            for name in names:
                 p = os.path.join(d, name)
                 if os.path.isdir(p) and not name.startswith(".") and name != "metadata":
                     vids = self._videos(p)
                     if vids:
                         title, year = naming.parse_movie(name)
-                        add(max(vids, key=os.path.getsize), naming.strip_part(title), year, p, collection)
+                        add(max(vids, key=_size), naming.strip_part(title), year, p, collection)
 
         visit(root, None)
         movies.sort(key=lambda m: ((m.get("collection") or m["title"]).lower(), m.get("year") or 0))

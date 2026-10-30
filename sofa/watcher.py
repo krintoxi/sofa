@@ -1,4 +1,5 @@
 """Background work: watch the Inbox and library folders, and pre-read file details."""
+import json
 import os
 import threading
 import time
@@ -9,7 +10,22 @@ from .library import LIBRARY
 INTERVAL = 20
 
 
+def _first_read():
+    """Right after Sofa starts: the library from what's already saved (seconds), then a full read
+    that fetches missing details and pictures. The web server is already answering meanwhile."""
+    for quick in (True, False):
+        try:
+            LIBRARY.scan("server start", quick=quick)
+            print("Library%s: %s (%.0f s)" % (" (from saved details)" if quick else "",
+                                              json.dumps(LIBRARY.counts()), LIBRARY.last_scan_seconds), flush=True)
+        except Exception as exc:
+            print("Reading the library failed: %r" % exc, flush=True)
+            store.log("error", "Reading the library: %s" % exc)
+    _after_scan()
+
+
 def _watch():
+    _first_read()
     tidied_at = 0
     while True:
         try:
@@ -71,4 +87,3 @@ def start():
     intros.start(LIBRARY)
     fetch.start()
     trickplay.start(LIBRARY)
-    _after_scan()

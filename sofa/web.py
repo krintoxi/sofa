@@ -466,6 +466,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/library":
             out = LIBRARY.public(adult=u.get("adult"))
+            out["reading"] = not LIBRARY.generated          # just started: the first read isn't done yet
             out["likes"] = [r["item"] for r in store.q("SELECT item FROM likes WHERE user_id = ? ORDER BY at DESC", u["id"])
                             if u.get("adult") or not r["item"].startswith(("am:", "as:", "ae:", "ax:", "perf:"))]
             return self.json(out)
@@ -899,7 +900,12 @@ class Server(ThreadingHTTPServer):
 
 
 def serve():
-    httpd = Server(("0.0.0.0", config.get("port")), Handler)
+    try:
+        httpd = Server(("0.0.0.0", config.get("port")), Handler)
+    except OSError as exc:
+        print("Can't answer on port %d (%s). Is another copy of Sofa, or another program, using it?"
+              % (config.get("port"), exc), flush=True)
+        raise
     try:
         httpd.serve_forever()
     finally:

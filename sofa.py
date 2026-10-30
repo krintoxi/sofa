@@ -43,11 +43,14 @@ def main(argv):
         os.makedirs(config.path(key), exist_ok=True)
 
     if cmd == "serve":
-        print("Sofa %s: reading the library..." % __version__, flush=True)
-        LIBRARY.scan("server start")
-        print("Library: %s" % json.dumps(LIBRARY.counts()), flush=True)
-        dlna.start()
-        watcher.start()
+        # Answer straight away; the library is read in the background (a big one takes a while).
+        print("Sofa %s is starting." % __version__, flush=True)
+        for part in (dlna.start, watcher.start):
+            try:
+                part()
+            except Exception as exc:     # keep going: the Server page is how anyone finds out what's wrong
+                print("Starting %s failed: %r" % (part.__module__, exc), flush=True)
+                store.log("error", "Starting %s: %s" % (part.__module__, exc))
         print("Open http://%s:%d on any device at home." % ((dlna.lan_addresses() or ["localhost"])[0], config.get("port")),
               flush=True)
         if auth.user_count() == 0:
