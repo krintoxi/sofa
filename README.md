@@ -95,8 +95,10 @@ Nothing is ever deleted. More: [docs/folder-structure.md](docs/folder-structure.
   scan a QR code on the Server page.
 - **Themes.** Press **Theme** at the top: Midnight, Cinema, Ocean, Forest, Grape or Pure black,
   plus subtitle size and TV mode. Each device keeps its own.
-- **TVs.** Roku Media Player, VLC and most smart TVs find Sofa by themselves. Fire TV and
-  Android TV browsers get a TV mode with big buttons for the remote.
+- **TVs.** On Fire TV, open Sofa in the **Silk** browser: it switches to TV mode, and the
+  remote works like Netflix (OK on Skip Intro skips, ◀ ▶ seek with a preview, Back closes
+  panels first). Roku Media Player, VLC and most smart TVs also find Sofa by themselves.
+  [docs/tv.md](docs/tv.md)
 - **Music**, with albums, artists, stations, likes and a queue. **Live TV** from free channel lists.
 
 ### The Adult section
@@ -154,7 +156,7 @@ sofa/                server: library, inbox, streaming, converter, intro finder,
 client/              web app (no build step)
 deploy/              install script, macOS LaunchAgent, Linux systemd unit
 tools/               get-sofa.sh, update.sh, convert.py
-docs/                install, updating, folders, playback, adult, remote access
+docs/                install, updating, folders, playback, TV, adult, remote access
 ```
 
 ## License
