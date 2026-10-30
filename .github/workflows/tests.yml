@@ -1,17 +1,18 @@
 name: Tests
 on:
   push:
-    paths-ignore: ["docs/**", "*.md", "android/**", "roku/**"]
+    paths-ignore: ["docs/**", "*.md", "android/**", "roku/**", "deploy/sofa-box/**"]
   pull_request:
 jobs:
   tests:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
-        python: ["3.8", "3.12"]
+        python: ["3.9", "3.12"]          # 3.9: what macOS Ventura and Monterey come with
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python }}
       - name: Run the tests
