@@ -1226,3 +1226,21 @@ html.standalone .player .p-bottom { padding-bottom: max(16px, env(safe-area-inse
 .app-progress.good { color: var(--green); }
 .app-bar { margin-bottom: 12px; }
 .other-way code { overflow-wrap: anywhere; }
+
+/* Server → Internet: encryption choices, the address fields */
+.net-choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 10px; margin: 8px 0 22px; }
+.net-choice { display: flex; gap: 12px; align-items: flex-start; padding: 14px 16px; border-radius: 14px; cursor: pointer;
+  background: rgba(var(--ink-rgb), .55); border: 1px solid var(--line); transition: border-color .2s, background .2s; }
+.net-choice:hover { background: rgba(var(--ink-rgb), .8); }
+.net-choice:has(input:checked) { border-color: var(--amber); background: rgba(var(--accent-rgb), .08); }
+.net-choice input { margin-top: 4px; accent-color: var(--amber); width: 18px; height: 18px; flex: none; }
+.net-choice span { display: grid; gap: 4px; }
+.net-choice small { color: var(--mist); font-size: 13px; line-height: 1.45; }
+.net-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px 18px; margin: 12px 0 16px; }
+.net-fields label { display: grid; gap: 6px; font-weight: 600; font-size: 14px; align-content: start; }
+.net-fields small { color: var(--mist); font-weight: 400; }
+.net-fields input { padding: 10px 13px; border-radius: 11px; border: 1px solid var(--line); background: var(--ink); color: var(--paper); font: inherit; min-width: 0; }
+.net-fields input:focus { outline: none; border-color: var(--amber); }
+.net-step { display: flex; gap: 10px; align-items: center; font-weight: 600; }
+.net-form h2 + .hint { margin-top: -4px; }
+.panel .good { color: var(--green); }

@@ -121,7 +121,10 @@ avoids converting altogether. Admins can also **Convert to MP4** in the backgrou
 **Where are my files?** In your home folder → **Entertainment** (Shows, Movies, Music...). Sofa's
 own settings and history are in `~/Sofa/data`.
 
-**Can I watch away from home?** Yes, safely, with Tailscale: [docs/remote-access.md](docs/remote-access.md).
+**Can I watch away from home?** Yes. Either privately with Tailscale, or at your own web address
+(`https://yourname.duckdns.org` is free) locked with everyone's password and encrypted: **Server →
+Internet** walks you through it, and Sofa gets and renews the certificate itself.
+[docs/remote-access.md](docs/remote-access.md)
 
 **Something's not right.** **Server → Activity → Download a report** makes one text file that
 explains what Sofa sees (no passwords). Send it to whoever helps you, or give it to Claude.

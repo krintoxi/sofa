@@ -1535,7 +1535,7 @@ document.addEventListener("submit", e => {
 /* ---------- server (admin) page ---------- */
 let adminData = null, adminTimer = 0, adminTab = "overview", activityKind = "all";
 const SRV_TABS = [["overview", "Overview"], ["library", "Library"], ["storage", "Storage"], ["convert", "Converting"], ["downloads", "Downloads"], ["live", "Live TV"],
-  ["people", "People"], ["settings", "Settings"], ["update", "Updates"], ["activity", "Activity"]];
+  ["people", "People"], ["settings", "Settings"], ["internet", "Internet"], ["update", "Updates"], ["activity", "Activity"]];
 async function loadAdmin() {
   try {
     const d = await api("/api/admin/status");
@@ -1545,9 +1545,11 @@ async function loadAdmin() {
     if (adminTab === "downloads") d.downloads = await api("/api/admin/downloads");
     if (adminTab === "storage") d.storage = await api("/api/admin/storage");
     if (adminTab === "people") d.sessions = (await api("/api/admin/sessions")).sessions;
+    if (adminTab === "internet") d.internet = await api("/api/admin/internet");
     adminData = d;
   } catch (e) { adminData = { error: e.message }; }
-  if (location.hash.startsWith("#/server") && !Player.isOpen() && !document.querySelector(".dialog-scrim")) {
+  const typing = document.activeElement && document.activeElement.closest && document.activeElement.closest(".net-form");
+  if (location.hash.startsWith("#/server") && !Player.isOpen() && !document.querySelector(".dialog-scrim") && !typing) {
     const active = document.activeElement, keep = active && active.id;
     const y = scrollY; view.innerHTML = viewServer(adminTab); scrollTo(0, y); drawGuestQr();
     if (keep && $("#" + keep)) $("#" + keep).focus();
@@ -1557,13 +1559,13 @@ function viewServer(tab) {
   setGlow("");
   if (tab && SRV_TABS.some(t => t[0] === tab) && tab !== adminTab) { adminTab = tab; if (adminData) loadAdmin(); }
   else if (adminData && !adminData.error && ((adminTab === "downloads" && !adminData.downloads) || (adminTab === "convert" && !adminData.convert) ||
-           (adminTab === "library" && !adminData.intros))) loadAdmin();
+           (adminTab === "library" && !adminData.intros) || (adminTab === "internet" && !adminData.internet))) loadAdmin();
   clearTimeout(adminTimer);
   const busy = adminData && adminData.convert && adminData.convert.counts && adminData.convert.counts.working;
   const upd = (adminData && adminData.update && adminData.update.running) ||
     (adminData && adminData.storage && adminData.storage.transfers.some(t => t.state === "copying" || t.state === "checking")) ||
     (adminData && adminData.downloads && (adminData.downloads.rows.some(r => r.state === "working") ||
-      (adminData.downloads.installing || {}).running));
+      (adminData.downloads.installing || {}).running)) || (adminData && adminData.internet && adminData.internet.https.busy);
   adminTimer = setTimeout(() => { if (location.hash.startsWith("#/server")) loadAdmin(); }, busy || upd ? 3000 : 10000);
   const tabs = `<nav class="srv-tabs" aria-label="Server sections">${SRV_TABS.map(t => `<button data-srv-tab="${t[0]}" aria-current="${t[0] === adminTab ? "page" : "false"}">${t[1]}${
     t[0] === "update" && adminData && adminData.update && adminData.update.available ? ` <i class="dot" aria-label="update available"></i>` : ""}${
@@ -1573,7 +1575,7 @@ function viewServer(tab) {
   if (adminData.error) return `<section class="admin">${head()}${tabs}<p class="admin-lede">${esc(adminData.error)}</p></section>`;
   const d = adminData;
   const body = { overview: srvOverview, library: srvLibrary, storage: srvStorage, convert: srvConvert, downloads: srvDownloads, live: srvLive, people: srvPeople,
-                 settings: srvSettings, update: srvUpdate, activity: srvActivity }[adminTab](d);
+                 settings: srvSettings, internet: srvInternet, update: srvUpdate, activity: srvActivity }[adminTab](d);
   return `<section class="admin">${head(d)}<p class="admin-lede">${esc(d.server.name)} on ${esc(d.server.host)} · Sofa ${esc(d.server.version)} · up since ${esc(new Date(d.server.started * 1000).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }))}</p>
     ${tabs}${body}</section>`;
 }
@@ -1881,6 +1883,84 @@ function srvPeople(d) {
       <div class="row-actions"><button class="mini" data-guest-clear="1">Clear guest history</button></div></div></div>
       ${srvSwitch("guest_access", d.guest.enabled, "Allow guests", "Turn off to make the guest code stop working.")}</div></div>`;
 }
+/* Internet and HTTPS: encryption, an address, the router, the certificate, then letting the internet in. */
+function srvInternet(d) {
+  const n = d.internet;
+  if (!n) return `<p class="admin-lede">Loading…</p>`;
+  const h = n.https, lan = (n.lan || [])[0] || "this computer", until = h.not_after ? new Date(h.not_after * 1000).toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" }) : "";
+  const ok = (v, yes, no, unknown) => v === true ? `<span class="good">✓ ${yes}</span>` : v === false ? `<span class="bad">✗ ${no}</span>` : `<span class="hint">${unknown || ""}</span>`;
+  const radio = (v, label, hint) => `<label class="net-choice"><input type="radio" name="https" value="${v}"${h.mode === v ? " checked" : ""}><span><b>${label}</b><small>${hint}</small></span></label>`;
+  const where = n.remote === "public" && h.domain ? `https://${h.domain}` : "";
+  const summary = n.remote === "public"
+    ? `On the internet${where ? ` at <code>${esc(where)}</code>` : ""}, over HTTPS only. Everyone signs in; the Server page stays home-only.`
+    : h.mode !== "off" ? `Home only, with HTTPS${h.listening ? ` on port ${esc(h.listening)}` : ""}.` : "Home network and Tailscale only. Nothing is reachable from the internet.";
+  return `<div class="panels">
+    <div class="panel wide"><h2>Internet and HTTPS</h2><p class="hint">${summary}</p>
+      ${h.mode !== "off" && h.names.length ? `<p class="hint">Certificate for <b>${esc(h.names.join(", "))}</b>${until ? `, valid until ${esc(until)}` : ""}${h.issuer ? ` (from ${esc(h.issuer)})` : ""}.${h.mode === "letsencrypt" ? " It renews by itself." : ""}</p>` : ""}
+      ${h.error ? `<div class="warn-box"><b>HTTPS problem</b><p>${esc(h.error)}</p></div>` : ""}${h.file_error ? `<div class="warn-box"><p>${esc(h.file_error)}</p></div>` : ""}
+    </div>
+    <form class="panel wide net-form" data-net-form="1"><h2>1. Encryption</h2>
+      <div class="net-choices">
+        ${radio("off", "Off", "Plain HTTP at home, like before.")}
+        ${radio("self", "Sofa's own certificate", "Encrypted at home without a domain. Each browser asks once whether to trust it.")}
+        ${radio("letsencrypt", "Free certificate from Let's Encrypt", "For your own address on the internet, trusted everywhere. Needs a domain (a free one works).")}
+        ${radio("files", "My own certificate files", "From your company, Tailscale (tailscale cert) or anywhere else.")}
+      </div>
+      <h2>2. Your address</h2>
+      <p class="hint">Your own domain (pointed at your home's internet address), or a free one: make a name at <a href="https://www.duckdns.org" target="_blank" rel="noopener">duckdns.org</a>, type <code>yourname.duckdns.org</code> here and paste its token. Sofa keeps it pointing at your home.</p>
+      <div class="net-fields">
+        <label>Domain<input name="domain" value="${esc(h.domain)}" placeholder="sofa.example.com or yourname.duckdns.org" autocomplete="off" spellcheck="false"></label>
+        <label>DuckDNS token <small>(only for .duckdns.org)</small><input name="duckdns_token" type="password" placeholder="${n.duckdns_token ? "Saved (type to replace)" : "Paste it here"}" autocomplete="off"></label>
+        <label>Email <small>(optional: Let's Encrypt writes if renewing ever fails)</small><input name="acme_email" type="email" value="${esc(n.acme_email)}" autocomplete="off"></label>
+        <label>Certificate file <small>(own files only)</small><input name="cert_file" value="${esc(n.cert_file)}" placeholder="/path/to/fullchain.pem" spellcheck="false"></label>
+        <label>Key file<input name="key_file" value="${esc(n.key_file)}" placeholder="/path/to/privkey.pem" spellcheck="false"></label>
+        <label>HTTPS port <small>(on this computer)</small><input name="https_port" type="number" min="1" max="65535" value="${esc(h.port)}"></label>
+      </div>
+      <div class="actions"><button class="btn primary" type="submit">Save</button></div>
+      ${n.duckdns.active ? `<p class="hint">DuckDNS: ${ok(n.duckdns.ok, "your address is up to date", n.duckdns.message || "not accepted", "checking…")}</p>` : ""}
+    </form>
+    <div class="panel wide"><h2>3. The router</h2>
+      <p class="hint">The internet reaches your home at the router. It has to send two ports to this computer: <b>443</b> (HTTPS) to <code>${esc(lan)}:${esc(h.port)}</code>, and <b>80</b> to <code>${esc(lan)}:${esc(n.port)}</code> (Let's Encrypt checks your address there; browsers are sent on to HTTPS).</p>
+      <div class="toggle"><div><b>Ask the router to do it (UPnP)</b><span>Most home routers can, when UPnP is on in their settings. Sofa asks again every few hours, as routers forget.${n.upnp.message ? " " + (n.upnp.ok ? `<span class="good">✓ ${esc(n.upnp.message)}</span>` : `<span class="bad">${esc(n.upnp.message)}</span>`) : ""}</span></div>
+        <button class="switch" role="switch" aria-checked="${!!n.upnp.on}" data-net-upnp="1" aria-label="Ask the router to forward the ports"></button></div>
+      <div class="actions"><button class="btn" data-net-ports="1">Try it now</button></div>
+      <p class="hint">${n.public_ip ? `Your home's internet address: <code>${esc(n.public_ip)}</code>. ` : ""}${h.domain && n.public_ip ? ok(n.points_here, esc(h.domain) + " points here", esc(h.domain) + " doesn't point here yet (DNS can take a few minutes)") : ""}</p>
+    </div>
+    <div class="panel wide"><h2>4. The certificate</h2>
+      ${h.mode === "letsencrypt" ? `<p class="hint">Let's Encrypt checks that ${h.domain ? `<b>${esc(h.domain)}</b>` : "your domain"} reaches this computer, then gives Sofa a certificate for 90 days. Sofa renews it by itself.</p>
+        ${h.busy ? `<p class="net-step"><i class="reading-spin" aria-hidden="true"></i>${esc(h.step || "Working")}…</p>` : `<div class="actions"><button class="btn primary" data-net-cert="1"${h.domain ? "" : " disabled"}>${h.names.length ? "Renew it now" : "Get the certificate"}</button></div>`}`
+      : `<p class="hint">${h.mode === "self" ? "Sofa made its own certificate for " + esc((h.names || []).join(", ")) + "." : h.mode === "files" ? "Using your files." : "Choose a kind of encryption above first."}</p>`}
+      ${h.listening ? `<p class="hint">HTTPS is answering on port ${esc(h.listening)}: <code>https://${esc(h.domain || lan)}${h.domain ? "" : ":" + esc(h.listening)}</code></p>` : ""}
+    </div>
+    <div class="panel wide"><h2>5. Let the internet in</h2>
+      <div class="toggle"><div><b>Accept connections from the internet</b><span>Only over HTTPS, and everyone signs in. New passwords need 12 characters. 8 wrong passwords from one address lock it out for 15 minutes. The Server page and admin changes stay home-only (or over Tailscale).</span></div>
+        <button class="switch" role="switch" aria-checked="${n.remote === "public"}" data-net-public="1" aria-label="Accept connections from the internet"${h.mode === "off" && !n.trust_proxy ? " disabled" : ""}></button></div>
+      <p class="hint">Rather not open anything? Tailscale gives your own devices a private way in: <a href="https://github.com/krintoxi/sofa/blob/main/docs/remote-access.md" target="_blank" rel="noopener">docs/remote-access.md</a>.</p>
+    </div>
+  </div>`;
+}
+async function netSave(changes) {
+  try { adminData.internet = await api("/api/admin/internet", changes); rerender(); }
+  catch (e) { toast(e.message); }
+}
+document.addEventListener("submit", e => {
+  const f = e.target.closest("[data-net-form]"); if (!f) return;
+  e.preventDefault();
+  const v = Object.fromEntries(new FormData(f));
+  if (!v.duckdns_token) delete v.duckdns_token;                    // blank: keep the saved one
+  document.activeElement && document.activeElement.blur();
+  netSave(v).then(() => toast("Saved."));
+});
+document.addEventListener("change", e => {
+  if (e.target.name === "https" && e.target.closest("[data-net-form]")) netSave({ https: e.target.value });
+});
+document.addEventListener("click", e => {
+  const b = e.target.closest("[data-net-upnp],[data-net-ports],[data-net-cert],[data-net-public]"); if (!b) return;
+  if (b.dataset.netUpnp) netSave({ upnp: b.getAttribute("aria-checked") !== "true" });
+  else if (b.dataset.netPorts) { toast("Asking the router…"); netSave({ open_ports: true }).then(() => setTimeout(loadAdmin, 4000)); }
+  else if (b.dataset.netCert) netSave({ get_certificate: true }).then(() => setTimeout(loadAdmin, 1500));
+  else if (b.dataset.netPublic) netSave({ remote: b.getAttribute("aria-checked") === "true" ? "home" : "public" });
+});
 function srvSettings(d) {
   const st = d.settings, s = d.server;
   const keyField = (key, label, hint, link) => `<form class="key-form" data-key-form="${key}"><div><b>${label}</b><span>${hint} ${link}</span></div>
@@ -1901,7 +1981,8 @@ function srvSettings(d) {
         <select class="mini-select" data-setting-select="theme">${THEMES.map(t => `<option value="${t[0]}"${st.theme === t[0] ? " selected" : ""}>${t[1]}</option>`).join("")}</select></div>
       ${d.awake === "unavailable" ? "" : srvSwitch("keep_awake", d.awake === "on", "Keep this computer awake", "So Sofa is always there when the TV asks. The computer won't go to sleep by itself while Sofa runs; its screen still turns off. On a Mac, also switch on System Settings → Energy → Start up automatically after a power failure.")}
       ${srvSwitch("dlna", s.dlna, "Share with TVs", "Lets Roku, Fire TV (VLC) and smart TVs at home browse without signing in. The Adult section is never shared this way.")}
-      <div class="toggle"><div><b>Remote access</b><span>${s.remote === "public" ? "Accepting internet connections. Keep Sofa behind HTTPS." : "Home network and Tailscale only. See docs/remote-access.md to change this."}</span></div></div>
+      <div class="toggle"><div><b>Remote access</b><span>${s.remote === "public" ? "Accepting internet connections, over HTTPS only." : "Home network and Tailscale only."}</span></div>
+        <button class="mini" data-srv-tab="internet">Internet and HTTPS</button></div>
       <div class="toggle"><div><b>Backups</b><span>${d.backups.length ? "Last backup " + esc(ago(d.backups[0].made)) + ". " : "No backup yet. "}Accounts, watch history and settings are saved every night at ${esc(st.backup_time)} to <code>${esc(d.backup_folder)}</code>, keeping ${esc(st.backup_keep)}. Your media isn't included.</span></div>
         <button class="mini" data-admin="backup">Back up now</button></div></div>
     <div class="panel"><h2>Details and artwork</h2><p class="hint">Where Sofa looks up summaries, posters and episode titles.</p>

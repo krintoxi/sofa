@@ -86,6 +86,18 @@ DEFAULTS = {
     # Video converted while you watch is then 720p at most, and heavy background work waits for the quiet hours.
     "gentle": "auto",
     "quiet_hours": "01:00-07:00",
+    # HTTPS (tls.py): "off", "letsencrypt" (for `domain`), "files" (cert_file + key_file) or "self" (Sofa's own).
+    "https": "off",
+    "domain": "",
+    "https_port": 8443,
+    "acme_email": "",
+    "acme_directory": "",          # empty: Let's Encrypt itself (tests use their own)
+    "cert_file": "",
+    "key_file": "",
+    # A free yourname.duckdns.org address kept pointing at this home (ddns.py), and asking the router to open
+    # its ports for Sofa (upnp.py).
+    "duckdns_token": "",
+    "upnp": False,
     # Keep the computer from going to sleep by itself while Sofa runs (the screen can still turn off).
     "keep_awake": True,
     # Offline: never use the internet (no details or artwork lookups, update checks, downloads or channel lists).
