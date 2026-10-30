@@ -4,8 +4,16 @@
 
 1. Open **Silk** on the Fire TV.
 2. Go to `http://<the Sofa computer's address>:8090` (the Server page lists it under
-   **How to watch**). Sign in.
+   **How to watch**). The TV shows a code: on your phone, in Sofa, press your picture, then
+   **Pair a TV**, and type it (or scan the QR code). Or sign in with a name and password.
 3. Press **Menu** on the remote and **bookmark** it, so next time it's one click away.
+
+**Better: the Sofa app.** Home in Silk offers **Install the Sofa app**. Press it, turn on **ADB
+debugging** as the screen says (Settings → My Fire TV → Developer options), press **Install**, and
+answer the TV's "Allow?" once: the Sofa computer puts the app on the Fire TV and opens it. The app
+plays MKV, HEVC and Dolby sound as they are, so videos start straight away and the Sofa computer
+hardly converts anything. It's under **Your Apps & Channels** after that, and offers **Update** by
+itself when there's a newer one. More: [android/README.md](../android/README.md).
 
 Sofa notices it's on a TV and switches to **TV mode**: bigger buttons, a clear yellow
 highlight that follows the remote, and the player fills the screen. (Any other device can

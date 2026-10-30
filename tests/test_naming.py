@@ -72,3 +72,23 @@ class Movies(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ShowDetailsFromFiles(unittest.TestCase):
+    """A Kodi tvshow.nfo, and an episode's own .nfo, when no lookup service knows the show (or offline)."""
+
+    def test_tvshow_nfo_and_episode_nfo(self):
+        import os
+        from sofa import sidecars
+        folder = os.path.join(tests.ROOT, "nfo-show")
+        os.makedirs(folder, exist_ok=True)
+        with open(os.path.join(folder, "tvshow.nfo"), "w") as f:
+            f.write("<tvshow><title>Harbor Lights</title><plot>A small town by the sea.</plot><genre>Drama</genre>"
+                    "<genre>Mystery</genre><premiered>2019-09-02</premiered><studio>Northwind</studio></tvshow>")
+        ep = tests.video(os.path.join(folder, "Season 1", "Harbor Lights S01E01.mp4"))
+        with open(ep[:-4] + ".nfo", "w") as f:
+            f.write("<episodedetails><title>The Fog</title><plot>It rolls in.</plot><aired>2019-09-02</aired></episodedetails>")
+        self.assertEqual(sidecars.show(folder), {"summary": "A small town by the sea.", "genres": ["Drama", "Mystery"],
+                                                 "premiered": "2019-09-02", "network": "Northwind"})
+        side = sidecars.read(ep)
+        self.assertEqual((side["title"], side["summary"], side["date"]), ("The Fog", "It rolls in.", "2019-09-02"))

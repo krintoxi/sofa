@@ -720,6 +720,13 @@ class Library:
             eps_meta = metadata.episodes(show_meta)
             if info.get("canonical") and (fix or naming.norm(info["canonical"]) == naming.norm(name)):
                 name = info["canonical"]
+        if not adult:          # a Kodi tvshow.nfo fills in what the lookups didn't find (all there is, offline)
+            local = sidecars.show(show_dir)
+            for k, v in local.items():
+                if not info.get(k):
+                    info[k] = v
+            if local and not info.get("source"):
+                info["source"] = "Saved with the files"
         poster = self.find_art(show_dir, "poster")
         backdrop = self.find_art(show_dir, "backdrop")
         if not poster and self._fetch_art(info.get("poster_url"), os.path.join(show_dir, "folder.jpg")):
@@ -746,7 +753,7 @@ class Library:
             except OSError as exc:
                 self._problem(path, exc, adult)
                 continue
-            meta = eps_meta.get((ep["s"], ep["e"]), {})
+            meta = eps_meta.get((ep["s"], ep["e"])) or ({} if adult else sidecars.read(path))   # else the episode's .nfo
             dest = os.path.join(os.path.dirname(path), "metadata", os.path.splitext(os.path.basename(path))[0] + ".jpg")
             if not adult and not item["thumb_path"] and self._fetch_art(meta.get("thumb_url"), dest, episode=True):
                 item["thumb_path"] = dest
@@ -755,7 +762,7 @@ class Library:
                                                        auto=adult or not show_meta, episode=not adult)
             item.update(show_id=show_id, show_name=name, s=ep["s"], e=ep["e"], e2=ep.get("e2"), adult=adult,
                         title=meta.get("title") or _tidy_title(ep.get("title")), summary=meta.get("summary"),
-                        aired=meta.get("aired"), runtime=meta.get("runtime"))
+                        aired=meta.get("aired") or meta.get("date"), runtime=meta.get("runtime"))
             items[item_id] = item
             seasons.setdefault(ep["s"], []).append(item)
         extra_items = []
