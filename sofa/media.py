@@ -174,6 +174,19 @@ def subtitle_tracks(item, info):
     return tracks
 
 
+def picture_subtitles(info):
+    """Subtitle tracks stored as pictures (Blu-ray, DVD): [{"index", "label", "lang"}]. They're drawn onto the
+    video when chosen."""
+    out = []
+    for s in (info or {}).get("subs", []):
+        if s.get("codec") in IMAGE_SUBS:
+            lang = s.get("lang") if s.get("lang") not in (None, "und") else None
+            name = LANGS.get(lang, lang.upper()) if lang else "Subtitles"
+            out.append({"index": s["index"], "lang": lang or "und",
+                        "label": name + (" · " + s["title"] if s.get("title") and s["title"].lower() not in name.lower() else "")})
+    return out
+
+
 # ---------------------------------------------------------------- deciding how to play
 
 BROWSER_PIX = (None, "yuv420p", "yuvj420p", "nv12")
@@ -293,19 +306,44 @@ def needs_conversion(item, caps=None):
 LOOSE_TIMESTAMPS = ("avi", "mpg", "mpeg", "vob", "ts", "m2ts", "flv", "wmv", "divx", "3gp")
 
 
-def live_size(video, max_height=None):
+def live_size(video, max_height=None, others=0):
     """(height, kind) for converting this video while it plays. Someone's own choice (the player's Picture
     setting) is kept; otherwise 1080p, 720p in gentle mode, or smaller where this computer couldn't keep up
-    with this kind of video before (machine.live_height)."""
+    with this kind of video before (machine.live_height), and a size smaller for each other video being
+    converted for someone else right now (two at once share the computer)."""
     from . import machine
     src = (video or {}).get("height") or 720
     if max_height:
         return min(max_height, 1080, src), None
     kind = machine.live_kind(video)
-    return machine.live_height(kind, min(machine.max_live_height(), 1080, src)), kind
+    height = machine.live_height(kind, min(machine.max_live_height(), 1080, src))
+    for _ in range(others):
+        height = next((h for h in machine.LADDER if h < height), height)
+    return height, kind
 
 
-def stream_command(item, mode, start, info, fmt="mp4", out="pipe:1", audio_index=None, max_height=None):
+IMAGE_SUBS = {"hdmv_pgs_subtitle", "dvd_subtitle", "dvb_subtitle", "xsub"}
+
+
+def audio_args(audio, fmt, caps=None):
+    """Sound for video Sofa adapts: as it is when the device plays it (AAC; Dolby Digital and Dolby Digital
+    Plus on devices that take them, surround and all); surround from anything else (DTS, TrueHD, FLAC 5.1)
+    as Dolby Digital Plus 5.1 for those devices; otherwise AAC stereo, which everything plays."""
+    caps = caps or {}
+    a, channels = (audio or {}).get("codec"), (audio or {}).get("channels") or 2
+    dolby = caps.get("ac3") and fmt != "mp4"      # ffmpeg can't start a streamed MP4 with Dolby sound (HLS and TS are fine)
+    if a == "aac" or (a == "mp3" and fmt != "hls") or (a in ("ac3", "eac3") and dolby):
+        return ["-c:a", "copy"]
+    smooth = ["-af", "aresample=async=1:first_pts=0"]
+    if channels > 2 and dolby:
+        return ["-c:a", "eac3", "-b:a", "640k", "-ac", "6"] + smooth
+    return ["-c:a", "aac", "-b:a", "192k", "-ac", "2"] + smooth
+
+
+def stream_command(item, mode, start, info, fmt="mp4", out="pipe:1", audio_index=None, max_height=None, caps=None,
+                   burn=None, others=0):
+    """The ffmpeg command for playing `item` from `start` seconds. `burn`: a picture-based subtitle track
+    (Blu-ray PGS, DVD) to draw onto the video, since no player shows those from a converted stream."""
     exe = tool("ffmpeg")
     cmd = [exe, "-hide_banner", "-loglevel", "error", "-nostdin"]
     if item.get("ext") in LOOSE_TIMESTAMPS:
@@ -317,21 +355,25 @@ def stream_command(item, mode, start, info, fmt="mp4", out="pipe:1", audio_index
                       "-movflags", "frag_keyframe+empty_moov+default_base_moof", "-f", "mp4", out]
     video = (info or {}).get("video") or {}
     audio = default_audio(info, audio_index)
-    cmd += ["-i", item["path"], "-map", "0:%d" % video["index"] if video.get("index") is not None else "0:v:0?",
-            "-map", "0:%d" % audio["index"] if audio else "0:a:0?", "-sn", "-dn"]
+    sub = next((x for x in (info or {}).get("subs") or [] if x["index"] == burn and x.get("codec") in IMAGE_SUBS), None)
+    if sub and video.get("index") is not None:
+        mode = "transcode"
+    v_in = "0:%d" % video["index"] if video.get("index") is not None else "0:v:0?"
+    cmd += ["-i", item["path"]]
     if mode == "remux":
-        cmd += ["-c:v", "copy"]
-        if video.get("codec") == "hevc":
-            cmd += ["-tag:v", "hvc1"]
+        cmd += ["-map", v_in, "-c:v", "copy"] + (["-tag:v", "hvc1"] if video.get("codec") == "hevc" else [])
     else:
-        top = live_size(video, max_height)[0]
+        top = live_size(video, max_height, others)[0]
         filters = (["yadif"] if video.get("interlaced") else []) + ["scale=-2:'min(ih,%d)'" % top, "format=yuv420p"]
-        cmd += h264_args(top) + ["-vf", ",".join(filters), "-g", "48"]
-    a = (audio or {}).get("codec")
-    if a == "aac" or (a == "mp3" and fmt != "hls"):
-        cmd += ["-c:a", "copy"]
-    else:
-        cmd += ["-c:a", "aac", "-b:a", "192k", "-ac", "2", "-af", "aresample=async=1:first_pts=0"]
+        if sub:     # subtitles drawn on, from the bottom up (a cropped film keeps them in the picture)
+            graph = "[0:%d][0:%d]overlay=x=(main_w-overlay_w)/2:y=main_h-overlay_h:eof_action=pass,%s[v]" % (
+                video["index"], sub["index"], ",".join(filters))
+            cmd += ["-filter_complex", graph, "-map", "[v]"]
+        else:
+            cmd += ["-map", v_in, "-vf", ",".join(filters)]
+        cmd += h264_args(top) + ["-g", "48"]
+    cmd += ["-map", "0:%d" % audio["index"] if audio else "0:a:0?", "-sn", "-dn"]
+    cmd += audio_args(audio, fmt, caps)
     cmd += ["-max_muxing_queue_size", "4096", "-avoid_negative_ts", "make_zero"]
     if fmt == "mp4":
         cmd += ["-movflags", "frag_keyframe+empty_moov+default_base_moof", "-f", "mp4", out]
@@ -402,7 +444,8 @@ def _stop_proc(proc):
         pass
 
 
-def run_stream(item, mode, start, info, out, who, fmt="mp4", owner=None, audio_index=None, max_height=None):
+def run_stream(item, mode, start, info, out, who, fmt="mp4", owner=None, audio_index=None, max_height=None, caps=None,
+               burn=None):
     """Pipe ffmpeg's output to `out` until done, the viewer leaves, or they start something else."""
     holder = {}
     stop = lambda: holder.get("proc") and _stop_proc(holder["proc"])   # noqa: E731
@@ -410,7 +453,8 @@ def run_stream(item, mode, start, info, out, who, fmt="mp4", owner=None, audio_i
     slot = _slot(mode)
     key = "%s-%s" % (id(out), time.time())
     try:
-        proc = subprocess.Popen(stream_command(item, mode, start, info, fmt, audio_index=audio_index, max_height=max_height), stdout=subprocess.PIPE,
+        proc = subprocess.Popen(stream_command(item, mode, start, info, fmt, audio_index=audio_index, max_height=max_height,
+                                               caps=caps, burn=burn, others=_converting()), stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE, bufsize=0)
     except OSError:
         if slot:
@@ -492,7 +536,13 @@ def hls_dir():
     return os.path.join(config.DATA_DIR, "cache", "hls")
 
 
-def hls_start(item, mode, start, who, replace=None, owner=None, audio_index=None, max_height=None):
+def _converting():
+    """How many videos are being converted live for people right now."""
+    with _streams_lock:
+        return sum(1 for v in _streams.values() if v.get("mode") == "transcode" and not v.get("direct"))
+
+
+def hls_start(item, mode, start, who, replace=None, owner=None, audio_index=None, max_height=None, caps=None, burn=None):
     """Start segmenting from `start` seconds. Returns a session id."""
     if replace:
         hls_stop(replace)
@@ -503,9 +553,13 @@ def hls_start(item, mode, start, who, replace=None, owner=None, audio_index=None
     slot = _slot(mode)
     folder = os.path.join(hls_dir(), sid)
     os.makedirs(folder, exist_ok=True)
-    height, kind = live_size((info or {}).get("video"), max_height) if mode == "transcode" else (None, None)
+    if burn is not None and any(x["index"] == burn for x in picture_subtitles(info)):
+        mode = "transcode"                           # drawing subtitles on means converting
+    others = _converting()
+    height, kind = live_size((info or {}).get("video"), max_height, others) if mode == "transcode" else (None, None)
     try:
-        proc = subprocess.Popen(stream_command(item, mode, start, info, "hls", folder, audio_index=audio_index, max_height=height),
+        proc = subprocess.Popen(stream_command(item, mode, start, info, "hls", folder, audio_index=audio_index, max_height=height,
+                                               caps=caps, burn=burn),
                                 stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
     except OSError:
         if slot:
@@ -515,7 +569,7 @@ def hls_start(item, mode, start, who, replace=None, owner=None, audio_index=None
     _collect_stderr(proc, item)
     with _hls_lock:
         _hls[sid] = {"proc": proc, "dir": folder, "seen": time.time(), "slot": slot, "owner": owner, "stop": stop,
-                     "started": time.time(), "kind": kind, "height": height}
+                     "started": time.time(), "kind": kind if not others else None, "height": height}   # shared: not learned from
     with _streams_lock:
         _streams["hls-" + sid] = {**_shown(item), "mode": mode, "who": who, "height": height,
                                   "started": int(time.time())}

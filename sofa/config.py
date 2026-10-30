@@ -86,6 +86,8 @@ DEFAULTS = {
     # Video converted while you watch is then 720p at most, and heavy background work waits for the quiet hours.
     "gentle": "auto",
     "quiet_hours": "01:00-07:00",
+    # Keep the computer from going to sleep by itself while Sofa runs (the screen can still turn off).
+    "keep_awake": True,
     # Offline: never use the internet (no details or artwork lookups, update checks, downloads or channel lists).
     "offline": False,
     # Keep no logs: nothing about what happens on this server is written anywhere (activity, server log, histories).

@@ -1899,6 +1899,7 @@ function srvSettings(d) {
         <div class="key-row"><input name="v" value="${esc(s.name)}" maxlength="40" aria-label="Server name"><button class="mini" type="submit">Save</button></div></form>
       <div class="toggle"><div><b>Look</b><span>The theme every device starts with. Each person can still pick their own with the Theme button at the top.</span></div>
         <select class="mini-select" data-setting-select="theme">${THEMES.map(t => `<option value="${t[0]}"${st.theme === t[0] ? " selected" : ""}>${t[1]}</option>`).join("")}</select></div>
+      ${d.awake === "unavailable" ? "" : srvSwitch("keep_awake", d.awake === "on", "Keep this computer awake", "So Sofa is always there when the TV asks. The computer won't go to sleep by itself while Sofa runs; its screen still turns off. On a Mac, also switch on System Settings → Energy → Start up automatically after a power failure.")}
       ${srvSwitch("dlna", s.dlna, "Share with TVs", "Lets Roku, Fire TV (VLC) and smart TVs at home browse without signing in. The Adult section is never shared this way.")}
       <div class="toggle"><div><b>Remote access</b><span>${s.remote === "public" ? "Accepting internet connections. Keep Sofa behind HTTPS." : "Home network and Tailscale only. See docs/remote-access.md to change this."}</span></div></div>
       <div class="toggle"><div><b>Backups</b><span>${d.backups.length ? "Last backup " + esc(ago(d.backups[0].made)) + ". " : "No backup yet. "}Accounts, watch history and settings are saved every night at ${esc(st.backup_time)} to <code>${esc(d.backup_folder)}</code>, keeping ${esc(st.backup_keep)}. Your media isn't included.</span></div>
@@ -2710,7 +2711,7 @@ const Player = (function () {
   const spinner = $(".p-spinner", el), pauseInfo = $(".p-pause-info", el), epsPanel = $(".p-eps", el), helpBox = $(".p-help", el);
   const seekHint = $(".p-seekhint", el), endsEl = $(".p-ends", el), epsBtn = $('[data-act="eps"]', el), pipBtn = $('[data-act="pip"]', el);
   let subDelay = 0;           // seconds the subtitles are moved (+ later, - earlier), for this video
-  let audioChoice = null, pauseTimer = 0, spinTimer = 0, lastTap = { t: 0, x: 0 }, tapTimer = 0;
+  let audioChoice = null, burnChoice = null, pauseTimer = 0, spinTimer = 0, lastTap = { t: 0, x: 0 }, tapTimer = 0;
   const skipBtn = $(".p-skip", el), optsBox = $(".p-opts", el), stillBox = $(".p-still", el), thumbEl = $(".p-thumb", el), htLabel = $(".ht-label", el);
   let trick = null, markers = [], skipShown = null, autoNexts = 0, lastInput = Date.now(), introStart = null;
   const marksEl = document.createElement("div"); marksEl.className = "marks"; $(".track", scrub).appendChild(marksEl);
@@ -2732,7 +2733,7 @@ const Player = (function () {
     mkv: !!(video.canPlayType('video/x-matroska; codecs="avc1.64001F, mp4a.40.2"') || video.canPlayType("video/x-matroska")),
     hevc: plays('video/mp4; codecs="hvc1.1.6.L93.B0"'),
     hevc10: plays('video/mp4; codecs="hvc1.2.4.L120.B0"'),
-    ac3: !!video.canPlayType('audio/mp4; codecs="ac-3"'),
+    ac3: plays('audio/mp4; codecs="ac-3"') || plays('audio/mp4; codecs="ec-3"'),
     vp9: !!video.canPlayType('video/webm; codecs="vp9"')
   };
   let item = null, next = null, plan = null, offset = 0, hlsSession = null, subIndex = -1;
@@ -2767,7 +2768,7 @@ const Player = (function () {
     video.removeAttribute("src"); video.load();
     returnFocus = document.activeElement;
     item = it; next = playQueue ? playQueue[playQueue.indexOf(it) + 1] || null : nextAfter(it); nextHidden = false; audioChoice = null; subDelay = 0;
-    autoCap = null; stalls = [];
+    autoCap = null; stalls = []; burnChoice = null;
     errorBox.hidden = chip.hidden = nextCard.hidden = ccMenu.hidden = epsPanel.hidden = helpBox.hidden = pauseInfo.hidden = true;
     const owner = it.show || it;
     $(".p-show", el).textContent = owner.name || it.title;
@@ -2785,7 +2786,7 @@ const Player = (function () {
       plan = await api("/api/play/" + encodeURIComponent(it.id) + "?" + capsQuery());
     } catch (e) { return showError("This video can't be played", e.message); }
     if (plan.mode === "unsupported") return showError("This video can't be played here", plan.message);
-    plan.audio = plan.audio || [];
+    plan.audio = plan.audio || []; plan.picture_subtitles = plan.picture_subtitles || []; plan.firstMode = plan.mode;
     markers = plan.markers || []; drawMarks();
     const wantAudio = prefs.get("audioLang", null), defAudio = plan.audio.find(a => a.default);
     const pickAudio = wantAudio && defAudio && defAudio.lang !== wantAudio && plan.audio.find(a => a.lang === wantAudio);
@@ -2796,7 +2797,7 @@ const Player = (function () {
     modeEl.hidden = plan.mode === "direct";
     modeEl.textContent = plan.mode === "remux" ? "Repackaged" : "Converted";
     modeEl.title = plan.why && plan.why.length ? "Adapted for this device: " + plan.why.join(", ") : "";
-    ccBtn.hidden = !plan.subtitles.length && plan.audio.length < 2;
+    ccBtn.hidden = !plan.subtitles.length && !plan.picture_subtitles.length && plan.audio.length < 2;
     const p = prog(it.id);
     const resumeAt = p && !p.done && p.t > 30 && (!plan.duration || p.t < plan.duration - 30) ? p.t : 0;
     await load(resumeAt);
@@ -2824,7 +2825,8 @@ const Player = (function () {
       // Converted video comes as short HLS segments: steady buffering, and a closed tab can't jam the converter.
       try {
         const h = await api("/api/hls/" + encodeURIComponent(item.id) + "?mode=" + plan.mode + "&t=" + at.toFixed(1) + (hlsSession ? "&replace=" + hlsSession : "") +
-                            (audioChoice != null ? "&audio=" + audioChoice : "") + (picture ? "&h=" + picture : ""));
+                            (audioChoice != null ? "&audio=" + audioChoice : "") + (picture ? "&h=" + picture : "") +
+                            (burnChoice != null ? "&burn=" + burnChoice : "") + "&" + capsQuery());
         hlsSession = h.session; offset = at;
         if (hls) { hls.destroy(); hls = null; }
         if (nativeHls) video.src = h.url;
@@ -2841,7 +2843,8 @@ const Player = (function () {
     } else {
       offset = at;
       video.src = (plan.mode === "direct" ? plan.url : "/media/" + encodeURIComponent(item.id) + "/stream?mode=" + plan.mode) + "&t=" + at.toFixed(1) +
-                  (audioChoice != null ? "&audio=" + audioChoice : "") + (picture && plan.mode === "transcode" ? "&h=" + picture : "");
+                  (audioChoice != null ? "&audio=" + audioChoice : "") + (picture && plan.mode === "transcode" ? "&h=" + picture : "") +
+                  (burnChoice != null ? "&burn=" + burnChoice : "") + "&" + capsQuery();
     }
     setSubtitles(subIndex);
     video.play().catch(() => {});
@@ -2972,14 +2975,27 @@ const Player = (function () {
     const aud = plan.audio || [];
     ccMenu.innerHTML = (aud.length > 1 ? `<div class="cc-col"><h4>Audio</h4>${aud.map(a =>
         `<button role="menuitemradio" aria-checked="${a.index === currentAudio()}" data-aud="${a.index}">${esc(a.label)}</button>`).join("")}</div>` : "") +
-      `<div class="cc-col"><h4>Subtitles</h4><button role="menuitemradio" aria-checked="${subIndex < 0}" data-sub="-1">Off</button>${
-        plan.subtitles.map((s, i) => `<button role="menuitemradio" aria-checked="${i === subIndex}" data-sub="${i}">${esc(s.label)}</button>`).join("") ||
-        `<p class="cc-none">This video has no subtitles. Put a .srt file with the same name next to it.</p>`}</div>`;
+      `<div class="cc-col"><h4>Subtitles</h4><button role="menuitemradio" aria-checked="${subIndex < 0 && burnChoice == null}" data-sub="-1">Off</button>${
+        plan.subtitles.map((s, i) => `<button role="menuitemradio" aria-checked="${i === subIndex}" data-sub="${i}">${esc(s.label)}</button>`).join("")}${
+        plan.picture_subtitles.map(s => `<button role="menuitemradio" aria-checked="${s.index === burnChoice}" data-burn="${s.index}" title="Drawn onto the picture (Blu-ray and DVD subtitles are pictures). Sofa converts the video to do it.">${esc(s.label)} <small>on the picture</small></button>`).join("") ||
+        (plan.subtitles.length ? "" : `<p class="cc-none">This video has no subtitles. Put a .srt file with the same name next to it.</p>`)}</div>`;
     ccMenu.hidden = false; epsPanel.hidden = true;
     $("[aria-checked='true']", ccMenu).focus();
   }
   ccMenu.addEventListener("click", e => {
-    const b = e.target.closest("[data-sub],[data-aud]"); if (!b) return;
+    const b = e.target.closest("[data-sub],[data-aud],[data-burn]"); if (!b) return;
+    const burn = b.dataset.burn != null ? +b.dataset.burn : null;
+    if (burn !== burnChoice && (burn != null || burnChoice != null)) {     // drawing subtitles on (or stopping): a new stream
+      burnChoice = burn; setSubtitles(-1);
+      if (burn == null && b.dataset.sub !== "-1") setSubtitles(+b.dataset.sub);
+      prefs.set("subs", burn != null || subIndex >= 0);
+      plan.mode = burn != null ? "transcode" : audioChoice != null && plan.firstMode === "direct" ? "remux" : plan.firstMode;
+      modeEl.hidden = plan.mode === "direct"; modeEl.textContent = plan.mode === "remux" ? "Repackaged" : "Converted";
+      ccMenu.hidden = true; ccBtn.focus();
+      showSpinner(burn != null ? "Putting the subtitles on the picture…" : "Taking the subtitles off…"); load(now());
+      return;
+    }
+    if (burn != null) { ccMenu.hidden = true; ccBtn.focus(); return; }
     if (b.dataset.aud) {
       const idx = +b.dataset.aud, a = plan.audio.find(x => x.index === idx);
       ccMenu.hidden = true; ccBtn.focus();
@@ -3203,6 +3219,12 @@ const Player = (function () {
     helpBox.hidden = false; ccMenu.hidden = epsPanel.hidden = true; $("button", helpBox).focus();
   }
   helpBox.addEventListener("click", e => { if (e.target.closest("[data-help-close]")) helpBox.hidden = true; });
+  // AirPlay (Safari on iPhone, iPad and Mac): the button shows when an Apple TV or AirPlay speaker is around.
+  const airBtn = $('[data-act="airplay"]', el);
+  if (window.WebKitPlaybackTargetAvailabilityEvent) {
+    video.addEventListener("webkitplaybacktargetavailabilitychanged", e => { airBtn.hidden = e.availability !== "available"; });
+    airBtn.addEventListener("click", () => video.webkitShowPlaybackTargetPicker());
+  }
   function togglePip() {
     if (document.pictureInPictureElement) document.exitPictureInPicture().catch(() => {});
     else if (video.requestPictureInPicture) video.requestPictureInPicture().catch(() => {});
@@ -3528,7 +3550,7 @@ const Player = (function () {
     let url = p.url;
     const pr = prog(it.id), start = pr && !pr.done && pr.t > 30 && (!p.duration || pr.t < p.duration - 30) ? pr.t : 0;
     if (p.mode !== "direct") {        // converted from where they left off: the app adds `offset` to what it plays
-      try { url = (await api("/api/hls/" + encodeURIComponent(it.id) + "?mode=" + p.mode + "&t=" + start.toFixed(1) + (prefs.get("quality", "") ? "&h=" + prefs.get("quality", "") : ""))).url; }
+      try { url = (await api("/api/hls/" + encodeURIComponent(it.id) + "?mode=" + p.mode + "&t=" + start.toFixed(1) + (prefs.get("quality", "") ? "&h=" + prefs.get("quality", "") : "") + "&" + capsQuery())).url; }
       catch (e) { toast(e.message); return; }
     }
     nativeItem = it; nativeQueue = queue && queue.includes(it) ? queue : null;

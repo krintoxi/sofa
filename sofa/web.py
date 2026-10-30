@@ -17,7 +17,7 @@ from urllib.parse import parse_qs, quote, unquote, urlsplit
 
 import threading
 
-from . import (__version__, apps, artwork, auth, backup, config, dlna, fetch, housekeeping, intros, live, media, metadata, music,
+from . import (__version__, apps, artwork, auth, awake, backup, config, dlna, fetch, housekeeping, intros, live, media, metadata, music,
                kids, machine, net, optimize, organizer, places, previews, report, screens, store, trickplay, updater,
                discovery, pairing, travel, uploads)
 from .library import LIBRARY
@@ -52,6 +52,12 @@ class Handler(BaseHTTPRequestHandler):
             if fwd:
                 return fwd.split(",")[0].strip()
         return peer
+
+    @staticmethod
+    def burn_param(qs):
+        """A picture-based subtitle track to draw onto the video (?burn=<stream index>)."""
+        v = (qs.get("burn") or [""])[0]
+        return int(v) if v.isdigit() else None
 
     def device_ip(self):
         """The address of the device asking (an IPv4 address even when it arrives as ::ffff:192.168.1.5)."""
@@ -372,7 +378,7 @@ class Handler(BaseHTTPRequestHandler):
         tok = self.token()
         return ("web:" + auth._token_key(tok)[:16]) if tok else "tv:" + self.client_ip()
 
-    def stream(self, item, mode, start, who, dlna_headers=False, audio_index=None, max_height=None):
+    def stream(self, item, mode, start, who, dlna_headers=False, audio_index=None, max_height=None, caps=None, burn=None):
         info = media.probe(item["path"])
         fmt = "mpegts" if dlna_headers else "mp4"   # TVs handle MPEG-TS streams most reliably
         self.send_response(200)
@@ -388,7 +394,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         try:
             media.run_stream(item, mode, start, info, self.wfile, who, fmt, owner=self.owner(), audio_index=audio_index,
-                             max_height=max_height)
+                             max_height=max_height, caps=caps, burn=burn)
         except (RuntimeError, OSError):
             pass
 
@@ -531,7 +537,8 @@ class Handler(BaseHTTPRequestHandler):
             audio = (qs.get("audio") or [""])[0]
             who = u["name"] + (" (trailer)" if (qs.get("trailer") or [""])[0] == "1" else "")
             return self.stream(item, mode, max(0.0, start), who, audio_index=int(audio) if audio.isdigit() else None,
-                               max_height=int(qs["h"][0]) if (qs.get("h") or [""])[0] in ("360", "480", "540", "720", "1080") else None)
+                               max_height=int(qs["h"][0]) if (qs.get("h") or [""])[0] in ("360", "480", "540", "720", "1080") else None,
+                               caps=media.caps_from(qs), burn=self.burn_param(qs))
         tracks = media.subtitle_tracks(item, media.probe(item["path"]))
         n = int(m.group(3))
         if n >= len(tracks):
@@ -644,7 +651,8 @@ class Handler(BaseHTTPRequestHandler):
                    "intro_status": "looking" if item["kind"] == "episode" and not intros.for_player(item["id"]) else None,
                    "url": base + ("file" if p["mode"] == "direct" else "stream?mode=" + p["mode"]),
                    "subtitles": [{"label": t["label"] or "Subtitles", "lang": t["lang"] or "und",
-                                  "url": "%ssubs/%d.vtt" % (base, i)} for i, t in enumerate(tracks)]}
+                                  "url": "%ssubs/%d.vtt" % (base, i)} for i, t in enumerate(tracks)],
+                   "picture_subtitles": media.picture_subtitles(p["info"])}
             if p["mode"] == "unsupported":
                 out["message"] = ("This file needs converting to play here, and ffmpeg isn't installed on the "
                                   "server yet. An admin can install it from the Server page.")
@@ -666,7 +674,8 @@ class Handler(BaseHTTPRequestHandler):
                                       max(0.0, float((qs.get("t") or ["0"])[0] or 0)), u["name"],
                                       replace=(qs.get("replace") or [None])[0], owner=self.owner(),
                                       audio_index=int(qs["audio"][0]) if (qs.get("audio") or [""])[0].isdigit() else None,
-                                      max_height=int(qs["h"][0]) if (qs.get("h") or [""])[0] in ("360", "480", "540", "720", "1080") else None)
+                                      max_height=int(qs["h"][0]) if (qs.get("h") or [""])[0] in ("360", "480", "540", "720", "1080") else None,
+                                      caps=media.caps_from(qs), burn=self.burn_param(qs))
             except RuntimeError:
                 return self.error(503, "The server is busy converting other videos for other people. Try again in a moment.")
             except OSError as exc:
@@ -1158,7 +1167,7 @@ class Handler(BaseHTTPRequestHandler):
             allowed = {k: data[k] for k in ("name", "dlna", "tvmaze", "tmdb_api_key", "theporndb_api_key", "max_transcodes",
                                             "guest_access", "auto_convert", "keep_originals", "tidy_library",
                                             "free_movie_lookup", "theme", "detect_intros", "trickplay", "previews",
-                                            "ytdlp_cookies", "gentle", "quiet_hours", "offline", "no_logs") if k in data}
+                                            "ytdlp_cookies", "gentle", "quiet_hours", "offline", "no_logs", "keep_awake") if k in data}
             if "gentle" in allowed and allowed["gentle"] not in (True, False, "auto"):
                 allowed.pop("gentle")
             if "quiet_hours" in allowed and not re.match(r"^([01]\d|2[0-3]):[0-5]\d-([01]\d|2[0-3]):[0-5]\d$", str(allowed["quiet_hours"])):
@@ -1168,7 +1177,7 @@ class Handler(BaseHTTPRequestHandler):
             if "name" in allowed:
                 allowed["name"] = str(allowed["name"]).strip()[:40] or "Sofa"
             for k in ("dlna", "tvmaze", "guest_access", "auto_convert", "keep_originals", "tidy_library", "free_movie_lookup",
-                      "detect_intros", "trickplay", "previews", "offline", "no_logs"):
+                      "detect_intros", "trickplay", "previews", "offline", "no_logs", "keep_awake"):
                 if k in allowed:
                     allowed[k] = bool(allowed[k])
             for k in ("tmdb_api_key", "theporndb_api_key"):
@@ -1187,6 +1196,8 @@ class Handler(BaseHTTPRequestHandler):
             if allowed.get("offline") is False and net.offline_mode():
                 threading.Thread(target=LIBRARY.scan, args=("back online",), daemon=True).start()   # look up what was missed
             config.update(allowed)
+            if "keep_awake" in allowed:
+                awake.apply()
             store.log("settings", "%s changed settings: %s" % (u["name"], ", ".join(sorted(allowed))))
             return self.json({"ok": True, "settings": public_settings()})
         if path == "/api/admin/duplicates":          # keep the best copy, the others to Deleted
@@ -1287,6 +1298,7 @@ def admin_status():
                    ("x264 (software)" if "libx264" in media.encoders() else None),
         "streams": media.active_streams(),
         "apps": apps.status(),
+        "awake": awake.status(),
         "inbox": organizer.pending(),
         "review": store.recent_activity(20, kinds={"review"}),
         "activity": store.recent_activity(150),

@@ -485,7 +485,7 @@ sub onPlan(r as object)
         startVideo(m.base + p.url, formatOf(m.item), m.resume, 0)
     else
         say("Converting it for this Roku…")
-        api("GET", "/api/hls/" + esc(m.item.id) + "?mode=" + p.mode + "&t=" + Str(m.resume).Trim(), invalid, "hls")
+        api("GET", "/api/hls/" + esc(m.item.id) + "?mode=" + p.mode + "&t=" + Str(m.resume).Trim() + "&" + m.caps, invalid, "hls")
     end if
 end sub
 
