@@ -300,7 +300,7 @@ def _loop():
         _wake.wait(60)
         _wake.clear()
         while media.tool("ffmpeg"):
-            if media.busy():               # someone is watching something converted live: they come first
+            if media.should_wait():               # someone is watching something converted live: they come first
                 with _lock:
                     _current["waiting"] = True
                 time.sleep(20)

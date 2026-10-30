@@ -234,6 +234,31 @@ function wideCard(item, label) {
     <span class="t1">${esc(owner.name || owner.title)}</span>
     <span class="t2">${esc(label || subtitleFor(item))}</span></button>`;
 }
+/* Long grids (hundreds of movies) draw the first cards straight away and the rest as you scroll
+   near the end (the TV remote scrolls too), so pages open quickly on a TV stick or an old computer. */
+let gridSeq = 0;
+const gridRest = new Map();
+const GRID_FIRST = 90, GRID_STEP = 120;
+function grid(cards) {
+  if (cards.length <= GRID_FIRST + 30) return `<div class="grid">${cards.join("")}</div>`;
+  const id = ++gridSeq;
+  gridRest.set(id, cards.slice(GRID_FIRST));
+  return `<div class="grid" data-grid="${id}">${cards.slice(0, GRID_FIRST).join("")}</div><div class="grid-more" data-more="${id}" aria-hidden="true"></div>`;
+}
+const gridWatch = "IntersectionObserver" in window ? new IntersectionObserver(entries => entries.forEach(en => {
+  if (!en.isIntersecting) return;
+  const id = +en.target.dataset.more, rest = gridRest.get(id), g = document.querySelector(`[data-grid="${id}"]`);
+  if (!rest || !g) { gridWatch.unobserve(en.target); en.target.remove(); return; }
+  g.insertAdjacentHTML("beforeend", rest.splice(0, GRID_STEP).join(""));
+  if (!rest.length) { gridRest.delete(id); gridWatch.unobserve(en.target); en.target.remove(); }
+  else { gridWatch.unobserve(en.target); gridWatch.observe(en.target); }       // still in view: next batch
+}), { rootMargin: "900px 0px" }) : null;
+function watchGrids() {
+  document.querySelectorAll(".grid-more").forEach(m => {
+    if (gridWatch) gridWatch.observe(m);
+    else { const g = document.querySelector(`[data-grid="${m.dataset.more}"]`); if (g) g.insertAdjacentHTML("beforeend", (gridRest.get(+m.dataset.more) || []).join("")); m.remove(); }
+  });
+}
 function rail(titleText, kind, cards, link) {
   if (!cards.length) return "";
   return `<section class="row"><div class="row-head"><h2>${esc(titleText)}</h2>${link ? `<a href="${link}">See all</a>` : ""}</div>
@@ -370,7 +395,8 @@ function viewHome() {
     rail("Continue watching", "wide", cont.map(i => wideCard(i))) +
     rail("Next up", "wide", nextUps) +
     rail("My List", "posters", myList().map(x => x.seasons ? posterCard(x) : movieCard(x)), "#/mylist") +
-    rail("Shows", "posters", shows.map(posterCard), "#/shows") +
+    becauseYouWatched() +
+    rail("Shows", "posters", shows.slice().sort((a, b) => lastTouched(b) - lastTouched(a) || b.added - a.added).slice(0, 30).map(posterCard), "#/shows") +
     rail("New movies", "posters", newMovies.map(movieCard), "#/movies") +
     rail("Recently added episodes", "wide", added.map(i => wideCard(i))) +
     [...genreMap(shows.concat(movies))].filter(([, l]) => l.length >= 3).slice(0, 6).map(([g, l]) =>
@@ -412,7 +438,7 @@ function viewShows(genre) {
     <div class="sorter" role="group" aria-label="Sort shows">${Object.keys(SORTS).map(k =>
       `<button data-sort="${k}" aria-pressed="${k === sort}">${SORTS[k][0]}</button>`).join("")}</div></div>
     ${genreChips(gm, "#/shows", genre)}
-    <div class="grid">${list.map(posterCard).join("")}</div></section>`;
+    ${grid(list.map(posterCard))}</section>`;
 }
 const MSORTS = {
   name: ["Name", (a, b) => a.title.localeCompare(b.title)],
@@ -439,7 +465,7 @@ function viewMovies(list, heading, base, genre) {
   if (!list.length) html += `<p class="count">No movies yet. Drop one in the Inbox, named like "Title (1999)".</p>`;
   if (groups.size && !genre) html += `<h2 class="collection-title">Collections</h2><div class="grid">${[...groups].sort((a, b) => a[0].localeCompare(b[0]))
     .map(([name, l]) => collectionCard(name, l)).join("")}</div><h2 class="collection-title">All movies</h2>`;
-  return html + `<div class="grid">${sorted.map(movieCard).join("")}</div></section>`;
+  return html + grid(sorted.map(movieCard)) + `</section>`;
 }
 function viewCollection(name) {
   const list = movies.concat(adultMovies).filter(m => m.collection === name).sort((a, b) => (a.year || 0) - (b.year || 0));
@@ -491,7 +517,8 @@ function viewMovie(id) {
         </div>
         ${session.user.admin ? `<p class="fileline">${esc(m.file)}${m.source ? " · details from " + esc(m.source) : " · no details found yet"}</p>` : ""}
       </div></div></section>
-    ${sibs.length ? rail("More " + (m.collection ? "in " + m.collection : "from " + m.studio), m.adult ? "scenes" : "posters", sibs.map(movieCard)) : ""}`;
+    ${sibs.length ? rail("More " + (m.collection ? "in " + m.collection : "from " + m.studio), m.adult ? "scenes" : "posters", sibs.map(movieCard)) : ""}
+    ${likeThisRail(m, sibs)}`;
 }
 /* ---------- the Adult section ---------- */
 let adultQuery = "", adultList = [];
@@ -550,7 +577,7 @@ function adultGrid(list, shows_) {
       ${adultList.length ? `<button class="btn" data-adult-play="all">${icon("i-play")}Play all</button><button class="btn" data-adult-play="shuffle">${icon("i-shuffle")}Shuffle</button>` : ""}</div>
     ${sh.length ? `<h2 class="collection-title">Series</h2><div class="grid">${sh.map(posterCard).join("")}</div>` : ""}
     ${sh.length && adultList.length ? `<h2 class="collection-title">Videos</h2>` : ""}
-    <div class="grid">${adultList.map(movieCard).join("")}</div>
+    ${grid(adultList.map(movieCard))}
     ${!adultList.length && !sh.length ? `<p class="count">${adultQuery ? `Nothing matches "${esc(adultQuery)}".` : "Nothing here yet."}</p>` : ""}`;
 }
 function viewAdult(rest) {
@@ -665,7 +692,7 @@ function viewShow(id, seasonKey) {
         <button class="btn" data-season-watched="${esc(current.key)}">${done === items.length ? "Mark all not watched" : "Mark all watched"}</button>
       </aside>
       <div class="episodes" role="tabpanel">${items.map(i => episodeRow(i)).join("")}</div>
-    </div>`;
+    </div>` + likeThisRail(show);
 }
 /* Search: accents and case don't matter; whole titles and word starts come first; genres, networks,
    collections and years count too. The Adult section has its own search, inside it. */
@@ -698,7 +725,7 @@ function viewSearch(q) {
   const total = sh.length + mv.length + eps.length;
   return `<section class="page"><div class="page-head"><h1>${esc(q.trim())}</h1><span class="count">${plural(total, "result")}</span></div>
     ${total ? "" : `<p class="count">Nothing matches "${esc(q.trim())}". Try part of an episode title.</p>`}
-    ${sh.length || mv.length ? `<div class="grid">${sh.map(posterCard).join("")}${mv.map(movieCard).join("")}</div>` : ""}
+    ${sh.length || mv.length ? grid(sh.map(posterCard).concat(mv.map(movieCard))) : ""}
     ${eps.length ? `<div class="episodes" style="margin-top:28px">${eps.slice(0, 80).map(ep =>
       episodeRow(ep, ep.show.name + ", " + epCode(ep))).join("")}</div>` : ""}
   </section>`;
@@ -713,6 +740,57 @@ function viewMyList() {
 function viewMissing() {
   return `<section class="empty"><h1>That page isn't here</h1><p>The show may have been renamed or removed.</p>
     <p><a class="btn" href="#/">Go home</a></p></section>`;
+}
+
+/* ---------- suggestions: "More like this" and "Because you watched" ----------
+   Worked out here from what Sofa knows about each title (no service, nothing leaves the house):
+   shared genres count most, then the same collection or TV network, then how close the years are.
+   In the Adult section: the same studio, performers, tags and category. */
+const yearOf = x => x.year || (x.premiered ? +String(x.premiered).slice(0, 4) : 0);
+const setOf = list => new Set((list || []).map(fold));
+function similarity(a, b) {
+  if (a === b || !!a.adult !== !!b.adult) return 0;
+  let s = 0;
+  const ga = setOf(a.genres), gb = setOf(b.genres);
+  if (ga.size && gb.size) {
+    let both = 0; ga.forEach(g => { if (gb.has(g)) both++; });
+    s += 4 * both / (ga.size + gb.size - both);
+  }
+  if (a.collection && a.collection === b.collection) s += 3;
+  if (a.network && a.network === b.network) s += .8;
+  const ya = yearOf(a), yb = yearOf(b);
+  if (ya && yb) s += Math.abs(ya - yb) <= 4 ? .7 : Math.abs(ya - yb) <= 10 ? .3 : 0;
+  if (!!a.seasons === !!b.seasons) s += .3;
+  if (a.adult) {
+    if (a.studio && a.studio === b.studio) s += 2.5;
+    const pa = setOf(a.performers), pb = setOf(b.performers);
+    pa.forEach(p => { if (pb.has(p)) s += 2; });
+    if (a.category && a.category === b.category) s += .6;
+  }
+  if (b.seasons ? b.order.every(ep => isDone(ep.id)) : isDone(b.id)) s *= .6;          // seen it already: lower
+  return s;
+}
+function similarTo(x, limit, skip) {
+  const pool = x.adult ? adultShows.concat(adultMovies) : shows.concat(movies);
+  const minimum = x.adult ? 1.6 : 1.2;                       // something real in common, not just "also a movie"
+  return pool.filter(y => y !== x && !(skip || []).includes(y)).map(y => [y, similarity(x, y)])
+    .filter(p => p[1] >= minimum).sort((a, b) => b[1] - a[1]).slice(0, limit || 18).map(p => p[0]);
+}
+function likeThisRail(x, skip) {
+  const list = similarTo(x, 18, skip);
+  return list.length >= 2 ? rail("More like this", x.adult ? "scenes" : "posters", list.map(y => y.seasons ? posterCard(y) : movieCard(y))) : "";
+}
+function becauseYouWatched() {
+  const seen = [];                                          // the last titles someone watched (not adult), newest first
+  Object.keys(progress).sort((a, b) => progress[b].at - progress[a].at).forEach(id => {
+    const it = byId.get(id); if (!it || !notAdult(it)) return;
+    const owner = it.kind === "episode" ? it.show : it;
+    if (owner && (owner.seasons || owner.kind === "movie") && !seen.includes(owner)) seen.push(owner);
+  });
+  return seen.slice(0, 2).map(x => {
+    const list = similarTo(x, 18);
+    return list.length >= 4 ? rail("Because you watched " + (x.name || x.title), "posters", list.map(y => y.seasons ? posterCard(y) : movieCard(y))) : "";
+  }).join("");
 }
 
 /* ---------- favorites (♥) ---------- */
@@ -1323,6 +1401,7 @@ function alertBox(msg) { dialog(`<h2>That didn't work</h2><p>${esc(msg)}</p>`); 
 let enterTimer = 0;
 const REDUCED = matchMedia("(prefers-reduced-motion: reduce)").matches;
 function route(animate) {
+  gridRest.clear();
   if (!session || !session.user) return;
   if (location.hash.startsWith("#/add?")) {                 // the "Send to Sofa" bookmark
     const q = new URLSearchParams(location.hash.slice(6));
@@ -1354,6 +1433,7 @@ function route(animate) {
     view.classList.remove("enter"); void view.offsetWidth; view.classList.add("enter");
     clearTimeout(enterTimer); enterTimer = setTimeout(() => view.classList.remove("enter"), 1100);
   }
+  watchGrids();
   updateNudges();
   startHero();
   if (nav === "server") drawGuestQr();
@@ -2862,7 +2942,7 @@ async function boot() {
   // Pick up new episodes while the page stays open.
   if (!refreshing) refreshing = setInterval(async () => {
     if (Player.isOpen()) return;
-    try { const lib = await api("/api/library"); if (lib.generated !== LIB.generated) { indexLibrary(lib); rerender(); } } catch (e) {}
+    try { const lib = await api("/api/library?since=" + LIB.generated); if (!lib.same && lib.generated !== LIB.generated) { indexLibrary(lib); rerender(); } } catch (e) {}
   }, 60000);
 }
 function hideSplash() {

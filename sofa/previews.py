@@ -170,7 +170,7 @@ def _next(library):
     with _lock:
         if _urgent:
             return _urgent.pop(0)
-    if media.busy():
+    if media.should_wait():
         return None
     for item in _wanted(library):
         if item["path"] not in _failed and not clip(item):

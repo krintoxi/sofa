@@ -104,7 +104,7 @@ def _next(library):
     with _lock:
         if _urgent:
             return _urgent.pop(0)
-    if media.busy():
+    if media.should_wait():
         return None
     for item in list(library.items.values()):
         if item["kind"] in ("episode", "movie") and item["path"] not in _failed and not meta(item):

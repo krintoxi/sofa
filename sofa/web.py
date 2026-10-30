@@ -1,5 +1,6 @@
 """HTTP: the web app, its JSON API, media streaming, artwork and DLNA."""
 import email.utils
+import gzip
 import html
 import json
 import os
@@ -72,6 +73,11 @@ class Handler(BaseHTTPRequestHandler):
     def send_body(self, data, ctype="text/plain; charset=utf-8", status=200, headers=None):
         if isinstance(data, str):
             data = data.encode("utf-8")
+        headers = dict(headers or {})
+        if len(data) > 4096 and ctype.split(";")[0] in ("application/json", "text/plain", "text/html", "text/css", "text/javascript") \
+                and "gzip" in (self.headers.get("Accept-Encoding") or "") and "Content-Disposition" not in headers:
+            data = gzip.compress(data, compresslevel=5)      # the library is ~10x smaller: matters on TV sticks and Wi-Fi
+            headers.update({"Content-Encoding": "gzip", "Vary": "Accept-Encoding"})
         self.send_response(status)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(data)))
@@ -171,7 +177,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if not self.gate():
             return
-        path = urlsplit(self.path).path
+        path = unquote(urlsplit(self.path).path)      # IDs in the address ("e:the-sopranos:1:1") arrive %-encoded
         if path.startswith("/dlna/"):
             if not self.dlna_allowed():
                 return self.send_body("Not found", status=404)
@@ -476,7 +482,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self.error(403, "Switching profiles works at home, from a signed-in profile.")
             return self.json({"profiles": auth.profiles(), "me": u["id"]})
         if path == "/api/library":
-            out = LIBRARY.public(adult=u.get("adult"))
+            if (qs.get("since") or [""])[0] == str(LIBRARY.generated) and LIBRARY.generated:
+                return self.json({"same": True})              # the once-a-minute check: nothing new, nothing to send
+            out = slim_library(u)
             out["reading"] = not LIBRARY.generated          # just started: the first read isn't done yet
             if u.get("admin"):
                 out["places"] = [{"id": "", "name": "This computer", "connected": True}] + \
@@ -1029,6 +1037,41 @@ def admin_status():
 class Server(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
+
+
+_slim = {}
+_slim_lock = threading.Lock()
+
+
+def slim_library(u):
+    """The library as the web app needs it: no empty fields, no file details for non-admins, episodes
+    without their show's name and id (the app knows which show they're in). Made once per library read."""
+    key = (LIBRARY.generated, bool(u.get("adult")), bool(u.get("admin")))
+    with _slim_lock:
+        if key in _slim:
+            return dict(_slim[key])
+    admin = bool(u.get("admin"))
+
+    def clean(d, drop=()):
+        return {k: v for k, v in d.items() if not (v is None or v is False or (isinstance(v, (str, list)) and not v))
+                and k not in drop and (admin or k != "file")}
+
+    def show(s):
+        return dict(clean(s, ("seasons", "extras")),
+                    seasons=[dict(clean(se, ("episodes",)), n=se["n"], episodes=[clean(e, ("show_id", "show_name", "ext", "size", "adult"))
+                                                                                  for e in se["episodes"]]) for se in s["seasons"]],
+                    extras=[clean(x, ("show_id", "show_name", "ext", "size", "adult")) for x in s["extras"]])
+    lib = LIBRARY.public(adult=u.get("adult"))
+    out = {"generated": lib["generated"], "shows": [show(s) for s in lib["shows"]],
+           "movies": [clean(m, ("ext", "size")) for m in lib["movies"]]}
+    if "adult" in lib:
+        out["adult"] = dict(lib["adult"], shows=[show(s) for s in lib["adult"]["shows"]],
+                            movies=[clean(m, ("ext", "size")) for m in lib["adult"]["movies"]])
+    with _slim_lock:
+        for k in [k for k in _slim if k[0] != LIBRARY.generated]:
+            del _slim[k]
+        _slim[key] = out
+    return dict(out)
 
 
 def serve():

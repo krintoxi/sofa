@@ -436,6 +436,19 @@ def busy():
     return any(not s.get("direct") for s in active_streams())
 
 
+def overloaded():
+    """The computer is working hard already (an old Mac converting a film for someone, say)."""
+    try:
+        return os.getloadavg()[0] > max(1.5, (os.cpu_count() or 2) * 0.8)
+    except (OSError, AttributeError):
+        return False
+
+
+def should_wait():
+    """Background extras (converting, previews, Skip Intro, downloads) wait for a quiet moment."""
+    return busy() or overloaded()
+
+
 # ---------------------------------------------------------------- HLS (every browser: natively on Apple, hls.js elsewhere)
 
 _hls = {}
