@@ -1,42 +1,134 @@
 # Sofa
 
-A small, self-hosted home media server. Drop shows, movies and music into a folder;
-Sofa names them, files them, finds artwork and plays them on every screen in the house:
-browsers, phones, smart TVs, Roku and Fire TV. Free live TV channels too.
+**Your own streaming service, at home.** Put your shows and movies in one folder on a computer
+that stays on, and watch them on every TV, phone and laptop in the house, with posters,
+"Continue watching", Skip Intro and a proper player. No subscriptions, no accounts with anyone,
+no ads. It works with the internet down.
 
-A project by [EdgeVenture.uk](https://edgeventure.uk).
+![Sofa's Home page: a big banner for a movie, and a "Continue watching" row](docs/images/home.jpg)
 
-Sofa is plain Python (standard library only) plus ffmpeg. It runs happily on a Mac mini,
-and still runs on a 2011 iMac (it notices an older computer and goes easy on it).
+A project by [EdgeVenture.uk](https://edgeventure.uk). Free and open source (MIT).
 
-**Yours, at home.** Everything Sofa needs comes with it: the app, its fonts and its player run
-from the Sofa computer, so every device at home can watch with the internet down. The internet
-is only used for optional extras (looking up artwork, updates, saving from links, live TV), and
-**Work offline** switches even that off. **Keep no logs** and **Wipe all logs** leave nothing
-behind. [docs/privacy.md](docs/privacy.md)
+- **Every screen:** Fire TV, Roku, a Raspberry Pi on the TV, smart TVs, phones, tablets, computers.
+- **Every file:** MP4, MKV, AVI, HEVC... Sofa adapts whatever a device can't play by itself.
+- **Tidy by itself:** drop files in the **Inbox** folder; Sofa names them, files them and finds pictures.
+- **For the whole family:** a profile each, Kids profiles, and sign-in on the TV with your phone.
+- **Private:** everything stays in your house. [How private?](docs/privacy.md)
 
 ---
 
-## Install (5 minutes)
+## What you need
 
-You need a Mac or Linux computer that stays on. Open **Terminal** and paste this line:
+- **A computer that stays on**: a Mac (an old one is fine: Sofa runs on a 2011 iMac) or a Linux computer.
+- **Your shows and movies** as files (from your own discs, downloads, a camera...).
+- **Something to watch on**: a TV with a Fire TV stick, a Roku or a Raspberry Pi; or any phone, tablet or laptop.
 
-```sh
-curl -fsSL https://raw.githubusercontent.com/krintoxi/sofa/main/tools/get-sofa.sh | sh
-```
+All of them on the same Wi-Fi (or network) at home.
 
-That's it. It puts Sofa in `~/Sofa`, installs ffmpeg if Homebrew is there, and starts
-Sofa in the background (it starts again by itself after a restart).
+## Set it up in 4 steps
 
-Then, on any phone, laptop or TV browser at home, open:
+### Step 1. Install Sofa on the computer
 
-```
-http://<this computer's name or address>:8090
-```
+1. Open **Terminal**. On a Mac: press **⌘ Command + Space**, type `Terminal`, press **Return**.
+2. Copy this line, paste it into Terminal (**⌘ Command + V**) and press **Return**:
 
-The first person to open it creates the admin account. Done.
+   ```sh
+   curl -fsSL https://raw.githubusercontent.com/krintoxi/sofa/main/tools/get-sofa.sh | sh
+   ```
 
-<details><summary>Prefer to do it by hand?</summary>
+3. Wait for **All done** (a minute or two; longer if it installs ffmpeg, the tool that lets every
+   kind of video play). Then close Terminal. Sofa keeps running in the background, and starts again
+   by itself when the computer restarts.
+
+### Step 2. Make your account
+
+On that computer, open **<http://localhost:8090>** in a web browser (Safari, Chrome...). Sofa asks
+you to make the first account: that's you, the admin. Pick a name and a password.
+
+<img src="docs/images/setup.jpg" alt="Welcome to Sofa: a form with Name, Password and Create account" width="560">
+
+### Step 3. Add your shows and movies
+
+Open **Finder** → your home folder (the house icon) → **Entertainment** → **Inbox**, and drag your
+video files or whole folders into it. Within a minute they're on Sofa's Home page, named properly,
+with posters and descriptions:
+
+| You drop in the Inbox | Sofa makes it |
+|---|---|
+| `the.sopranos.s01e01.1080p.mkv` | **The Sopranos**, Season 1, Episode 1 |
+| `Heat.1995.1080p.BluRay.mkv` | the movie **Heat** (1995) |
+| a folder with a whole series | the show, every season in order |
+
+Anything it can't work out goes to a **Needs Review** folder, with a note on the Server page.
+Nothing is ever deleted. You can also send files from any phone or laptop: **Server → Overview →
+Send files from this device**.
+
+<img src="docs/images/show.jpg" alt="A show's page: title, Resume button, seasons and episodes with pictures">
+
+### Step 4. Watch on the TV
+
+**Find Sofa's address first.** In Sofa on the computer, open **Server** (at the top). Under
+**How to watch → At home** there's an address like `http://192.168.1.20:8090`. Every device in
+the house uses that address.
+
+**On a Fire TV:**
+
+1. Open the **Silk** browser (it's in the Fire TV's apps) and type Sofa's address.
+2. The TV shows a code. On your phone, open Sofa (same address), press your picture at the top,
+   then **Pair a TV**, and choose who's watching. The TV signs in by itself.
+
+   <img src="docs/images/tv-signin.jpg" alt="The TV says: Sign in with your phone, with a QR code and a 6-digit code" width="49%"> <img src="docs/images/phone-pair.jpg" alt="On the phone: Pair a TV, sign in Fire TV as Alex, Sam or Mia" width="22%">
+
+3. Home shows **Install the Sofa app**. Press it and follow the two steps on the screen: Sofa puts
+   its own Fire TV app on the TV for you. The app plays every file as it is, so videos start
+   straight away and never stop to convert.
+
+   <img src="docs/images/tv-home.jpg" alt="Sofa on a Fire TV: Sofa has an app for this Fire TV, Install the Sofa app" width="70%">
+
+**Other TVs:** Roku ([the Sofa channel](roku/README.md)), a Raspberry Pi as a
+"[Sofa box](deploy/sofa-box/README.md)" (worked with the TV's own remote, your phone or a game
+controller), or the web browser of a smart TV. Install steps for each are on **Server → Overview → Apps**.
+
+**Phones, tablets and laptops:** open Sofa's address in the browser. On an iPhone or iPad, **Share
+→ Add to Home Screen** makes it an app with its own icon.
+
+That's it. Enjoy the show. 🍿
+
+<img src="docs/images/player.jpg" alt="Sofa's player: the picture, the progress bar, play, skip, subtitles and more">
+
+---
+
+## Everyday questions
+
+**How do I add more?** Drop files in **Entertainment → Inbox** on the Sofa computer (or **Send files
+from this device** on the Server page). That's all.
+
+**How do I update Sofa?** **Server → Updates → Update now.** Only Sofa's own program changes; your
+videos, accounts, watch history and settings stay exactly as they are, and it goes back by itself
+if anything goes wrong. ([More](docs/updating.md). Old copy without that button? Run
+`curl -fsSL https://raw.githubusercontent.com/krintoxi/sofa/main/tools/update.sh | sh` in Terminal.)
+
+**Can everyone have their own "Continue watching"?** Yes: **Server → People** adds a profile for
+each person. Switch **Kids** on for children (family titles only). The TV asks who's watching.
+
+**Can my phone be the remote?** Yes: with Sofa open on the TV, press the screen icon at the top
+of Sofa on your phone, pick the TV, and play things there. The phone becomes the remote.
+
+**A video stops or stutters.** On an older computer, some files (like 1080p HEVC) are hard to
+convert as they play. Sofa notices and makes the picture a bit smaller by itself. The Fire TV app
+avoids converting altogether. Admins can also **Convert to MP4** in the background (Server → Converting).
+
+**Where are my files?** In your home folder → **Entertainment** (Shows, Movies, Music...). Sofa's
+own settings and history are in `~/Sofa/data`.
+
+**Can I watch away from home?** Yes, safely, with Tailscale: [docs/remote-access.md](docs/remote-access.md).
+
+**Something's not right.** **Server → Activity → Download a report** makes one text file that
+explains what Sofa sees (no passwords). Send it to whoever helps you, or give it to Claude.
+
+<img src="docs/images/phone.jpg" alt="Sofa on a phone: the Home page" width="260"> <img src="docs/images/server.jpg" alt="The Server page: library counts, how to watch, Sofa's TV apps, who's watching" width="62%">
+
+<details><summary>Prefer to install by hand?</summary>
 
 ```sh
 git clone https://github.com/krintoxi/sofa.git ~/Sofa
@@ -49,23 +141,9 @@ Or run it in a Terminal window instead of in the background: `python3 sofa.py se
 More detail, and what to do if something goes wrong: [docs/install.md](docs/install.md).
 </details>
 
-## Update
-
-**Easiest:** open Sofa, go to **Server → Updates**, and press **Update now**.
-
-**Older copy of Sofa without that button?** Paste this in Terminal on the Sofa computer:
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/krintoxi/sofa/main/tools/update.sh | sh
-```
-
-Either way, **only Sofa's own program files change**. Your shows, movies, music, accounts,
-watch history and settings are left exactly as they are, and a copy of the old version is
-saved first so you can always go back. Details: [docs/updating.md](docs/updating.md).
-
 ---
 
-## Using it
+## Everything Sofa does
 
 ### Adding things to watch
 
@@ -222,18 +300,6 @@ link you trust and tick **Adult channels**. [docs/adult.md](docs/adult.md)
 | Activity | everything Sofa did, filterable |
 
 ---
-
-## Something not right?
-
-**Server → Activity → Download a report** gives you one text file with what's needed to see
-what's going on: version, tools, settings (no passwords, PINs or keys), folders, what's in the
-Inbox and Needs Review and why, the activity log and the server log. Adult file names are only in
-it if you tick the box. Send it to whoever helps you; you can give it straight to Claude.
-
-## Watching away from home
-
-Sofa only answers your home network and Tailscale by default. Read
-[docs/remote-access.md](docs/remote-access.md) before changing that.
 
 ## Settings file
 

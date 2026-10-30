@@ -365,10 +365,10 @@ footer { position: relative; z-index: 1; padding: 0 var(--gutter) 40px; color: v
 .kv code, .addr code { font: 13px/1.4 ui-monospace, Menlo, monospace; color: var(--paper); }
 .addr { display: grid; gap: 10px; }
 .addr div { padding: 12px 14px; border-radius: 12px; background: rgba(var(--ink-rgb),.6); }
-.addr b { display: block; font-size: 14px; margin-bottom: 2px; }
-.addr span { color: var(--mist); font-size: 13px; }
-.addr.apps code { display: block; margin: 2px 0 6px; overflow-wrap: anywhere; user-select: all; }
-.addr.apps span { display: block; }
+.addr > div > b { display: block; font-size: 14px; margin-bottom: 2px; }
+.addr span { display: block; color: var(--mist); font-size: 13px; }
+.addr span b { color: var(--soft); }
+.addr code { display: block; margin: 2px 0 4px; overflow-wrap: anywhere; user-select: all; }
 .list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .list li { display: flex; gap: 12px; align-items: baseline; justify-content: space-between; padding: 10px 12px; border-radius: 10px; background: rgba(var(--ink-rgb),.5); font-size: 14px; }
 .list li .when { color: var(--mist); font-size: 12px; white-space: nowrap; }

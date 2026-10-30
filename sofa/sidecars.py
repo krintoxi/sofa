@@ -4,6 +4,7 @@
                         cast, tags, description
     <name>.nfo          Kodi / Stash / scene-release style XML: title, plot, release date,
     movie.nfo           studio, actors, tags, a poster address
+    tvshow.nfo          a show's own (Kodi): plot, genres, first aired, network (show(folder))
 
 read(video) merges them into one dict (the .nfo wins where both say something, since
 someone wrote it on purpose). Results are cached by size and modification time.
@@ -127,3 +128,12 @@ def read(video):
     with _lock:
         _cache[video] = (sig, merged)
     return dict(merged)
+
+
+def show(folder):
+    """A show folder's tvshow.nfo (Kodi): {"summary", "genres", "premiered", "network"}, or {}."""
+    d = _nfo(os.path.join(folder, "tvshow.nfo"))
+    if not d:
+        return {}
+    return {k: v for k, v in (("summary", d.get("summary")), ("genres", d.get("tags")), ("premiered", d.get("date")),
+                              ("network", d.get("studio"))) if v}
