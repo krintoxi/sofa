@@ -86,7 +86,8 @@ the house uses that address.
    <img src="docs/images/tv-home.jpg" alt="Sofa on a Fire TV: Sofa has an app for this Fire TV, Install the Sofa app" width="70%">
 
 **Other TVs:** Roku ([the Sofa channel](roku/README.md)), a Raspberry Pi as a
-"[Sofa box](deploy/sofa-box/README.md)" (worked with the TV's own remote, your phone or a game
+"[Sofa box](deploy/sofa-box/README.md)" (your own TV box: no ads, no tracking; a ready-made card to
+write, or one line on a Pi you have; worked with the TV's own remote, your phone or a game
 controller), or the web browser of a smart TV. Install steps for each are on **Server → Overview → Apps**.
 
 **Phones, tablets and laptops:** open Sofa's address in the browser. On a phone it works like an app,
@@ -264,9 +265,12 @@ deleted. More: [docs/folder-structure.md](docs/folder-structure.md).
   ([roku/](roku/README.md)). They play MKV, HEVC and Dolby sound as they are, so the Sofa computer
   hardly converts anything. Install from **Server → Overview → Apps**; sign in by approving a code
   on your phone.
-- **The Sofa box:** a Raspberry Pi on the TV that starts straight into Sofa, worked with the TV's own
-  remote (HDMI-CEC), your phone or a game controller. One command installs it
-  ([deploy/sofa-box/](deploy/sofa-box/README.md)). Game controllers work in Sofa on any computer too.
+- **The Sofa box:** a Raspberry Pi (3, 4 or 5) on the TV that starts straight into Sofa, with its
+  own player (mpv, on the Pi's video chip), Sofa's boot screen in your theme, its settings on the
+  TV, and the TV's own remote (HDMI-CEC), your phone or a game controller to work it. A ready-made
+  card on the releases page, or one command on a Pi you have; `tools/sofa-box-preview.py` shows it
+  on your computer first ([deploy/sofa-box/](deploy/sofa-box/README.md)). Game controllers work in
+  Sofa on any computer too.
 - **Music**, with albums, artists, stations, likes and a queue. **Live TV** from free channel lists.
 
 ### The Adult section
@@ -333,7 +337,7 @@ sofa.py              command line entry point
 sofa/                server: library, inbox, streaming, converter, intro finder, DLNA, live TV, accounts, updater
 client/              web app (no build step)
 deploy/              install script, macOS LaunchAgent, Linux systemd unit, the Sofa box (Raspberry Pi)
-tools/               get-sofa.sh, update.sh, convert.py
+tools/               get-sofa.sh, update.sh, convert.py; the Sofa box's preview and card builder
 docs/                install, updating, folders, storage (drives), playback, TV, adult, privacy, remote access, api (for apps)
 tests/               the tests
 android/             Sofa for Fire TV (Android app, built by GitHub)
