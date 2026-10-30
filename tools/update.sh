@@ -62,6 +62,7 @@ say "Saving a copy of the current version in data/backups"
 if [ -d "$APP/.git" ] && command -v git >/dev/null 2>&1; then
   say "Downloading the new version with git"
   cd "$APP"
+  BEFORE="$(git rev-parse HEAD 2>/dev/null || true)"
   git fetch "https://github.com/$REPO.git" "$BRANCH" || fail "git couldn't download the update (are you online?)"
   if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
     git stash push -m "Local changes saved by update.sh $STAMP" >/dev/null && echo "    Your own edits to Sofa's code were saved (git stash list)."
@@ -83,16 +84,39 @@ else
   done
 fi
 
-# ---- 5. check it, then start it again
+# ---- 5. check it (start it once on the side), then start it again; if it doesn't work, the old one comes back
+SNAP="$APP/data/backups/code-${OLD:-old}-$STAMP.tar.gz"
+start_sofa() {
+  if [ -n "$LABEL" ]; then
+    say "Starting Sofa again"
+    if [ "$LABEL" = "sofa" ] || [ "$LABEL" = "local.sofa.server" ]; then sh "$APP/deploy/install.sh" >/dev/null
+    else sh "$APP/deploy/install.sh" --label "$LABEL" >/dev/null; fi
+  else
+    echo "    Sofa isn't installed as a background service here; start it with:  cd \"$APP\" && python3 sofa.py serve"
+  fi
+}
+go_back() {
+  say "Putting the version you had back"
+  if [ -n "${BEFORE:-}" ]; then git -C "$APP" reset --hard "$BEFORE" >/dev/null
+  else
+    ( cd "$APP" && for name in sofa client deploy tools docs integrations sofa.py README.md LICENSE .gitignore; do rm -rf "$name"; done \
+      && tar xzf "$SNAP" )
+  fi
+  start_sofa
+}
 PY="$(command -v python3 || true)"
 [ -n "$PY" ] || fail "python3 isn't installed"
-"$PY" -m py_compile "$APP"/sofa.py "$APP"/sofa/*.py || fail "the new version didn't pass its check. Your old code is in data/backups/code-${OLD:-old}-$STAMP.tar.gz"
-NEW="$(sed -n 's/^__version__ = "\(.*\)"/\1/p' "$APP/sofa/__init__.py")"
-if [ -n "$LABEL" ]; then
-  say "Starting Sofa again"
-  if [ "$LABEL" = "sofa" ] || [ "$LABEL" = "local.sofa.server" ]; then sh "$APP/deploy/install.sh" >/dev/null
-  else sh "$APP/deploy/install.sh" --label "$LABEL" >/dev/null; fi
-else
-  echo "    Sofa isn't installed as a background service here; start it with:  cd \"$APP\" && python3 sofa.py serve"
+if ! "$PY" -m py_compile "$APP"/sofa.py "$APP"/sofa/*.py; then go_back; fail "the new version didn't pass its check, so the old one is back and running"; fi
+say "Starting the new version once on the side, to be sure it works"
+if ! ( cd "$APP" && "$PY" sofa.py selftest >"$APP/data/selftest.log" 2>&1 ); then
+  echo "    It didn't start: $(tail -n 1 "$APP/data/selftest.log")"
+  go_back
+  fail "the new version didn't start, so the old one is back and running (details: data/selftest.log)"
 fi
+NEW="$(sed -n 's/^__version__ = "\(.*\)"/\1/p' "$APP/sofa/__init__.py")"
+# For its first minute and a half, Sofa goes back to the old version by itself if the new one keeps stopping.
+printf '{"from": "%s", "to": "%s", "commit": "%s", "snapshot": "%s", "at": %s, "starts": 0}\n' \
+  "${OLD:-}" "${NEW:-}" "${BEFORE:-}" "$SNAP" "$(date +%s)" > "$APP/data/update-check.json"
+rm -f "$APP/data/update-rolled-back.json"
+start_sofa
 say "Done. Sofa ${OLD:-} -> ${NEW:-new version}. Your library, accounts and settings are untouched."

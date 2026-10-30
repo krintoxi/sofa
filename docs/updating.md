@@ -11,9 +11,15 @@ What happens when you press it:
 2. It saves a copy of the current version: `data/backups/code-<version>-<date>.tar.gz`.
 3. It downloads the new version (with git if you installed with git, otherwise as a
    download from GitHub) and replaces **only Sofa's own program files**.
-4. It checks the new version, then restarts itself. The page reloads after about a minute.
+4. It **starts the new version once on the side** (while the old one keeps running): every part
+   loads, it answers a few requests, and it reads your library. Only then does Sofa switch.
+5. It restarts itself. The page reloads after about a minute.
 
-If anything fails, the old version keeps running and the Updates tab says why.
+If anything fails, the old version is put back, keeps running, and the Updates tab says why.
+
+**And if the new version stops right after the switch?** For its first minute and a half,
+Sofa watches: if it stops three times, the next start goes back to the version you had, by
+itself, and the Updates tab says so. Your media, accounts and settings are never part of this.
 
 ## The Terminal command (works with every version)
 
@@ -30,13 +36,15 @@ If yours is somewhere unusual, name it:
 curl -fsSL https://raw.githubusercontent.com/krintoxi/sofa/main/tools/update.sh | sh -s -- /path/to/Sofa
 ```
 
-It stops Sofa, saves the same two backups, updates, checks the new version, and starts
-Sofa again.
+It stops Sofa, saves the same two backups, updates, starts the new version once on the side
+to be sure it works (putting the old one back if it doesn't), and starts Sofa again, with the
+same watch for its first minute and a half.
 
 ## Sofa didn't come back after an update
 
 Right after starting, Sofa answers within a few seconds and shows "Sofa is reading your
-library" until your shows appear. If the page doesn't open at all after a couple of minutes:
+library" until your shows appear. Since 0.4.1 a new version that doesn't work is undone by
+itself. If the page still doesn't open after a couple of minutes:
 
 1. **See what Sofa says.** In Terminal on the Sofa computer:
 

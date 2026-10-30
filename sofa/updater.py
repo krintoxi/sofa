@@ -33,6 +33,8 @@ CODE = ("sofa", "client", "deploy", "tools", "docs", "integrations", "sofa.py", 
 NEVER = ("data", "vendor", ".git")
 STAMP_FILE = os.path.join(config.DATA_DIR, "installed-commit")
 CHECK_EVERY = 12 * 3600
+WATCH_FILE = os.path.join(config.DATA_DIR, "update-check.json")        # see watch_update() in sofa.py
+ROLLED_BACK = os.path.join(config.DATA_DIR, "update-rolled-back.json")
 AGENT = {"User-Agent": "Sofa updater (https://github.com/krintoxi/sofa)"}
 
 _state = {"checked": 0, "running": False, "step": None, "error": None, "done": None}
@@ -110,7 +112,37 @@ def status():
              repo="%s@%s" % _repo())
     if s.get("latest") and _vtuple(s["latest"]) < _vtuple(__version__):
         s["available"] = False          # running something newer than GitHub (a development copy)
+    try:
+        with open(ROLLED_BACK, encoding="utf-8") as f:
+            rb = json.load(f)
+        if time.time() - rb.get("at", 0) < 7 * 86400:
+            s["rolled_back"] = "Sofa %s kept stopping right after the update, so Sofa went back to %s by itself. " \
+                "Nothing of yours was changed." % (rb.get("to") or "(new)", rb.get("back_to") or "the version before")
+    except (OSError, ValueError):
+        pass
     return s
+
+
+def confirm_update():
+    """The new version has run for a while: the update is good (sofa.py serve calls this)."""
+    if os.path.exists(WATCH_FILE):
+        try:
+            os.remove(WATCH_FILE)
+            store.log("update", "Sofa %s is up and running." % __version__)
+        except OSError:
+            pass
+    if os.path.exists(ROLLED_BACK):
+        try:
+            with open(ROLLED_BACK, encoding="utf-8") as f:
+                rb = json.load(f)
+            if not rb.get("logged"):
+                store.log("update", "Sofa %s kept stopping right after an update, so it went back to %s by itself."
+                          % (rb.get("to") or "(new)", rb.get("back_to") or "the version before"))
+                rb["logged"] = True
+                with open(ROLLED_BACK, "w", encoding="utf-8") as f:
+                    json.dump(rb, f)
+        except (OSError, ValueError):
+            pass
 
 
 # ---------------------------------------------------------------- doing it
@@ -143,6 +175,33 @@ def _restore_code(snapshot):
             elif os.path.exists(p):
                 os.remove(p)
         tar.extractall(config.APP_DIR)
+
+
+def _new_version():
+    try:
+        with open(os.path.join(config.APP_DIR, "sofa", "__init__.py"), encoding="utf-8") as f:
+            return re.search(r'__version__ = "([^"]+)"', f.read()).group(1)
+    except (OSError, AttributeError):
+        return None
+
+
+def _selftest():
+    """Start the new version's parts once, on the side, while this one keeps running."""
+    try:
+        r = subprocess.run([sys.executable, os.path.join(config.APP_DIR, "sofa.py"), "selftest"], capture_output=True,
+                           text=True, timeout=300, cwd=config.APP_DIR)
+    except subprocess.TimeoutExpired:
+        raise RuntimeError("the new version didn't finish its test start within five minutes")
+    if r.returncode != 0 or "SELFTEST OK" not in r.stdout:
+        lines = (r.stderr or r.stdout).strip().splitlines()
+        raise RuntimeError("the new version didn't start in a test run: %s" % (lines[-1] if lines else "no answer")[:240])
+
+
+def _go_back(snapshot, before):
+    if is_git_install() and before:
+        _git("reset", "--hard", before)
+    else:
+        _restore_code(snapshot)
 
 
 def _compiles():
@@ -205,15 +264,23 @@ def _run():
     try:
         _step("Backing up accounts, watch history and settings")
         backup.make("before updating Sofa")
-        snapshot = _snapshot_code()
+        snapshot, before = _snapshot_code(), local_commit()
         try:
             (_update_git if is_git_install() else _update_download)()
             _step("Checking the new version")
             _compiles()
+            _step("Starting the new version once on the side, to be sure it works")
+            _selftest()
         except Exception:
-            if not is_git_install():
-                _restore_code(snapshot)
+            _go_back(snapshot, before)
             raise
+        with open(WATCH_FILE, "w", encoding="utf-8") as f:     # after the switch: go back by itself if it keeps stopping
+            json.dump({"from": __version__, "to": _new_version(), "commit": before if is_git_install() else None,
+                       "snapshot": snapshot, "at": int(time.time()), "starts": 0}, f)
+        try:
+            os.remove(ROLLED_BACK)
+        except OSError:
+            pass
         with _lock:
             _state.update(done=int(time.time()), running=False, step="Restarting Sofa")
         store.log("update", "Sofa updated. Restarting.")
