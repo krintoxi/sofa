@@ -91,6 +91,7 @@ function appearanceDialog() {
     <div class="toggle"><div><b>Hide spoilers</b><span>Pictures and descriptions of episodes you haven't watched stay blurred until you point at them.</span></div>
       <button class="switch" role="switch" aria-checked="${!!prefs.get("noSpoilers", false)}" data-spoiler-toggle="1" aria-label="Hide spoilers"></button></div>
     <h3 class="dlg-sub">This device</h3>
+    ${TV ? "" : `<div class="toggle"><div><b>Sofa as an app</b><span>${installHint()}</span></div>${installPrompt ? `<button class="btn" data-install-app="1">Install</button>` : ""}</div>`}
     <label class="field"><span>Its name, for playing on it from your phone</span><input data-screen-name="1" maxlength="40" value="${esc(prefs.get("screenName", ""))}" placeholder="${esc(Screens.defaultName())}"></label>
     <h3 class="dlg-sub">TV mode</h3>
     <div class="toggle"><div><b>Big buttons for a remote</b><span>Turns on by itself on Fire TV, Android TV and smart TVs.</span></div>
@@ -99,7 +100,8 @@ function appearanceDialog() {
   const nameBox = $("[data-screen-name]", d);
   if (nameBox) nameBox.addEventListener("change", () => prefs.set("screenName", nameBox.value.trim()));
   d.addEventListener("click", e => {
-    const t = e.target.closest("[data-theme-pick],[data-sub-size],[data-tv-toggle],[data-banner-toggle],[data-trailer-toggle],[data-spoiler-toggle]"); if (!t) return;
+    const t = e.target.closest("[data-theme-pick],[data-sub-size],[data-tv-toggle],[data-banner-toggle],[data-trailer-toggle],[data-spoiler-toggle],[data-install-app]"); if (!t) return;
+    if (t.dataset.installApp && installPrompt) { installPrompt.prompt(); installPrompt.userChoice.finally(() => { installPrompt = null; t.remove(); }); return; }
     if (t.dataset.spoilerToggle) { const on = !prefs.get("noSpoilers", false); prefs.set("noSpoilers", on); t.setAttribute("aria-checked", on); applySpoilers(); return; }
     if (t.dataset.trailerToggle) { const on = prefs.get("trailers", true) === false; prefs.set("trailers", on); t.setAttribute("aria-checked", on);
       if (!on) stopTrailer(); return; }
@@ -111,6 +113,19 @@ function appearanceDialog() {
       d.querySelectorAll("[data-sub-size]").forEach(b => b.setAttribute("aria-pressed", b === t)); }
     else { prefs.set("tv", !TV); location.reload(); }
   });
+}
+/* Sofa as an app: an icon on the home screen that opens it without the browser around it. */
+let installPrompt = null;
+window.addEventListener("beforeinstallprompt", e => { e.preventDefault(); installPrompt = e; });
+const standalone = () => matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+if (standalone()) document.documentElement.classList.add("standalone");
+function installHint() {
+  const ua = navigator.userAgent;
+  if (standalone()) return "Installed: you're using it now.";
+  if (installPrompt) return "Put Sofa on this device's home screen or in its apps, with its own icon.";
+  if (/iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1)) return "In Safari, press Share, then Add to Home Screen. Sofa then opens full screen, like an app.";
+  if (/Android/.test(ua)) return "In the browser's menu, press Add to Home screen: Sofa gets its own icon.";
+  return "In the browser's menu, look for Install Sofa or Create shortcut: Sofa gets its own icon and window.";
 }
 function applySubSize() { document.documentElement.dataset.subs = prefs.get("subSize", "m"); document.documentElement.dataset.subStyle = prefs.get("subStyle", "box"); }
 function applySpoilers() { document.documentElement.dataset.nospoil = prefs.get("noSpoilers", false) ? "1" : "0"; }
@@ -560,6 +575,13 @@ function viewHome() {
   });
   const added = shows.flatMap(s => s.order).sort((a, b) => b.added - a.added).slice(0, 14);
   const newMovies = movies.slice().sort((a, b) => b.added - a.added).slice(0, 14);
+  // A different few each day (the same all day, so rows don't jump about).
+  const day = Math.floor(Date.now() / 864e5), mix = list => list.map(x => [x, hue(x.id + day)]).sort((a, b) => a[1] - b[1]).map(p => p[0]);
+  const minutes = x => x.runtime || (x.duration ? x.duration / 60 : 0);
+  const films = movies.filter(m => m.collection !== "Home Videos");
+  const shortOnes = mix(films.filter(m => !prog(m.id) && minutes(m) && minutes(m) <= 95)
+    .concat(shows.filter(s => !lastTouched(s) && s.runtime && s.runtime <= 30))).slice(0, 20);
+  const unseenMovies = mix(films.filter(m => !prog(m.id) && !newMovies.includes(m))).slice(0, 20);
   return heroCarousel() +
     rail("Continue watching", "wide", cont.map(i => wideCard(i))) +
     rail("New episodes", "wide", newEps) +
@@ -571,6 +593,8 @@ function viewHome() {
     becauseYouWatched() +
     rail("Shows", "posters", shows.slice().sort((a, b) => lastTouched(b) - lastTouched(a) || b.added - a.added).slice(0, 30).map(posterCard), "#/shows") +
     rail("New movies", "posters", newMovies.map(movieCard), "#/movies") +
+    (shortOnes.length >= 4 ? rail("Something short", "posters", shortOnes.map(x => x.seasons ? posterCard(x) : movieCard(x))) : "") +
+    (unseenMovies.length >= 6 ? rail("Movies you haven't seen", "posters", unseenMovies.map(movieCard), "#/movies") : "") +
     rail("Recently added episodes", "wide", added.map(i => wideCard(i))) +
     [...genreMap(shows.concat(movies))].filter(([, l]) => l.length >= 3).slice(0, 6).map(([g, l]) =>
       rail(g, "posters", l.slice(0, 20).map(x => x.seasons ? posterCard(x) : movieCard(x)),
@@ -620,7 +644,7 @@ function filterMatch(x, q) {
 }
 function filterTools(kind) {
   const seen = seenFilter;
-  return `<div class="filter-tools"><input id="pageFilter" type="search" placeholder="Filter by name, genre, network or year" aria-label="Filter ${kind}" value="${esc(pageFilter)}" autocomplete="off">
+  return `<div class="filter-tools"><button class="btn" data-surprise="${kind}">${icon("i-shuffle")}Surprise me</button><input id="pageFilter" type="search" placeholder="Filter by name, genre, network or year" aria-label="Filter ${kind}" value="${esc(pageFilter)}" autocomplete="off">
     <div class="sorter" role="group" aria-label="What you've watched">${Object.keys(SEEN).map(k =>
       `<button data-seen="${k}" aria-pressed="${k === seen}">${SEEN[k]}</button>`).join("")}</div></div>`;
 }
@@ -726,6 +750,7 @@ function viewMovie(id) {
           ${resume ? `<button class="btn" data-play-start="${esc(m.id)}">Start over</button>` : ""}
           ${inRows(m) ? forgetBtn(m) : ""}
           <button class="btn ghost" data-watched="${esc(m.id)}" aria-pressed="${isDone(m.id)}">${icon("i-check")}${isDone(m.id) ? "Watched" : "Mark watched"}</button>
+          ${TV ? "" : `<button class="btn ghost" data-download="${esc(m.id)}">${icon("i-download")}Download</button>`}
           ${m.adult ? `<button class="btn ghost heart-btn" data-like="${esc(m.id)}" aria-pressed="${favs.has(m.id)}">♥ ${favs.has(m.id) ? "In Favorites" : "Favorite"}</button>` : listBtn(m.id)}
           ${session.user.admin ? `<button class="btn ghost" data-fix="${esc(m.id)}">${m.source ? "Fix details" : "Find details"}</button>
             <button class="btn ghost" data-manage="${esc(m.id)}">${icon("i-more")}Manage</button>${kidsBtn(m)}` : ""}
@@ -875,7 +900,7 @@ function episodeRow(ep, label) {
     <div class="ep-text">
       ${label ? `<div class="t2">${esc(label)}</div>` : ""}
       <h3><span class="num">${esc(ep.kind === "episode" ? (ep.s === 0 ? "S" : "") + ep.e + (ep.e2 ? "–" + ep.e2 : "") : "")}</span>${esc(title(ep))}</h3>
-      <p class="ep-meta">${meta}</p>
+      <p class="ep-meta">${meta}${TV ? "" : `<button class="ep-dl" data-download="${esc(ep.id)}" aria-label="Download ${esc(title(ep))}">${icon("i-download")}Download</button>`}</p>
       ${ep.summary ? `<p class="ep-sum clamp">${esc(ep.summary)}</p>` : ""}
     </div>
     <button class="tick" data-watched="${esc(ep.id)}" aria-pressed="${done}" aria-label="${done ? "Mark as not watched" : "Mark as watched"}" title="${done ? "Watched" : "Mark as watched"}">${icon("i-check")}</button>
@@ -1160,6 +1185,47 @@ window.addEventListener("hashchange", stopPreview);
 document.addEventListener("mouseleave", stopPreview);
 
 /* ---------- save a video from a link (admins) ---------- */
+/* ---------- download for a trip ----------
+   A file this device plays as it is downloads as it is; anything else gets a travel copy first
+   (720p MP4 with its subtitles), made on the Sofa computer in the background. */
+function downloadDialog(id) {
+  const it = byId.get(id); if (!it) return;
+  const name = it.kind === "episode" ? (it.show ? it.show.name + " · " : "") + epCode(it) + (it.title ? " · " + it.title : "") : title(it);
+  const d = openDialog(`<h2>Download</h2><p class="count">${esc(name)}</p><div class="dl-body"><p class="hint">Checking…</p></div>
+    <div class="actions"><button class="btn ghost" data-dismiss="1">Close</button></div>`);
+  const url = "/media/" + encodeURIComponent(id);
+  let timer = 0;
+  async function paint() {
+    if (!document.contains(d)) return;
+    let r;
+    try { r = await api("/api/travel/" + encodeURIComponent(id) + "?" + Player.capsQuery()); }
+    catch (e) { $(".dl-body", d).innerHTML = `<p class="form-error">${esc(e.message)}</p>`; return; }
+    const gb = r.duration ? r.duration / 3600 * 0.9 : 0;
+    const est = gb ? (gb < 1 ? Math.max(50, Math.round(gb * 1000)) + " MB" : gb.toFixed(1) + " GB") : "";
+    let html;
+    if (r.direct) html = `<p>This file plays on this device as it is.</p>
+      <p><a class="btn primary" href="${url}/file?download=1" download>${icon("i-download")}Download (${bytes(r.size)})</a></p>`;
+    else if (r.state === "ready") html = `<p>The travel copy is ready: 720p MP4 with its subtitles, for any phone, tablet or laptop.</p>
+      <p><a class="btn primary" href="${url}/travel.mp4" download>${icon("i-download")}Download (${bytes(r.copy_size)})</a></p>`;
+    else if (r.state === "queued" || r.state === "working") {
+      html = `<p>${r.state === "queued" ? "Waiting its turn to be made…" : "Making the travel copy… " + Math.round((r.progress || 0) * 100) + "%"}</p>
+        <span class="up-bar"><i style="width:${Math.round((r.progress || 0) * 100)}%"></i></span>
+        <p class="hint">You can close this; Sofa carries on. Come back here to download it.</p>`;
+      timer = setTimeout(paint, 3000);
+    } else html = `${r.state === "failed" ? `<p class="form-error">That didn't work: ${esc(r.error || "")}</p>` : ""}
+      <p>This ${esc((r.ext || "").toUpperCase())} file won't play on this device by itself. Sofa can make a travel copy: 720p MP4 with its subtitles${est ? ", about " + est : ""}.</p>
+      <p><button class="btn primary" data-make-travel="1">Make a travel copy</button></p>
+      <p class="hint">Or <a href="${url}/file?download=1" download>download the original</a> (${bytes(r.size)}) for a player like VLC.</p>`;
+    $(".dl-body", d).innerHTML = html;
+  }
+  d.addEventListener("click", async e => {
+    if (!e.target.closest("[data-make-travel]")) return;
+    try { await api("/api/travel/" + encodeURIComponent(id), {}); } catch (ex) { toast(ex.message); }
+    clearTimeout(timer); paint();
+  });
+  paint();
+}
+
 /* ---------- send files from this device to the Inbox (admins) ----------
    A phone's videos, a laptop's downloads: each file goes up in one piece, with its progress, and Sofa
    files it like anything dropped in the Inbox. */
@@ -1805,7 +1871,7 @@ window.addEventListener("hashchange", () => { route(); scrollTo(0, 0); });
 
 /* ---------- interactions ---------- */
 document.addEventListener("click", e => {
-  const t = e.target.closest("[data-slide],[data-intros-recheck],[data-manage],[data-machine-test],[data-drive-use],[data-place-remove],[data-new-pictures],[data-empty-deleted],[data-free-space],[data-retry-details],[data-adult-nav],[data-asort],[data-adult-play],[data-like],[data-forget],[data-seen],[data-wipe-logs],[data-trailer-sound],[data-trailer-replay],[data-redo-damaged],[data-add-link],[data-send-files],[data-dl-retry],[data-dl-cancel],[data-dl-clear],[data-dl-install],[data-enable-adult],[data-conv-retry],[data-conv-cancel],[data-conv-all],[data-conv-clear],[data-update],[data-user-adult],[data-user-kids],[data-dupes],[data-kids-title],[data-act-kind],[data-key-clear],[data-fix],[data-msort],[data-adult-tab],[data-play-start],[data-srv-tab],[data-mlike],[data-mplay],[data-mplay-one],[data-mplay-list],[data-mshuffle-list],[data-station],[data-mtab],[data-play-mv],[data-guest-clear],[data-play],[data-watched],[data-season],[data-sort],[data-nudge],[data-season-watched],[data-dismiss],[data-admin],[data-setting],[data-user-pass],[data-user-del],[data-live],[data-fav],[data-group],[data-preset],[data-live-remove]");
+  const t = e.target.closest("[data-slide],[data-intros-recheck],[data-manage],[data-machine-test],[data-drive-use],[data-place-remove],[data-new-pictures],[data-empty-deleted],[data-free-space],[data-retry-details],[data-adult-nav],[data-asort],[data-adult-play],[data-like],[data-download],[data-surprise],[data-forget],[data-seen],[data-wipe-logs],[data-trailer-sound],[data-trailer-replay],[data-redo-damaged],[data-add-link],[data-send-files],[data-dl-retry],[data-dl-cancel],[data-dl-clear],[data-dl-install],[data-enable-adult],[data-conv-retry],[data-conv-cancel],[data-conv-all],[data-conv-clear],[data-update],[data-user-adult],[data-user-kids],[data-dupes],[data-kids-title],[data-act-kind],[data-key-clear],[data-fix],[data-msort],[data-adult-tab],[data-play-start],[data-srv-tab],[data-mlike],[data-mplay],[data-mplay-one],[data-mplay-list],[data-mshuffle-list],[data-station],[data-mtab],[data-play-mv],[data-guest-clear],[data-play],[data-watched],[data-season],[data-sort],[data-nudge],[data-season-watched],[data-dismiss],[data-admin],[data-setting],[data-user-pass],[data-user-del],[data-live],[data-fav],[data-group],[data-preset],[data-live-remove]");
   if (!t) return;
   if (t.dataset.fix) { fixDialog(t.dataset.fix); return; }
   if (t.dataset.manage) { manageDialog(t.dataset.manage); return; }
@@ -1878,6 +1944,16 @@ document.addEventListener("click", e => {
     return;
   }
   if (t.dataset.seen) { seenFilter = SEEN[t.dataset.seen] ? t.dataset.seen : "all"; rerender(); const b = $(`[data-seen="${t.dataset.seen}"]`); if (b) b.focus(); return; }
+  if (t.dataset.surprise) {                 // something you haven't watched, from what's on this page
+    const hash = decodeURIComponent(location.hash.replace(/^#\/?/, "")).split("/"), genre = hash.slice(1).join("/");
+    const all = t.dataset.surprise === "shows" ? shows : movies, gm = genreMap(all);
+    const pool = applyFilters(genre && gm.has(genre) ? gm.get(genre) : all);
+    const fresh = pool.filter(x => seenState(x) === "new"), pick = (fresh.length ? fresh : pool)[Math.floor(Math.random() * (fresh.length || pool.length))];
+    if (!pick) { toast("Nothing here to pick from."); return; }
+    location.hash = (pick.seasons ? "#/show/" : "#/movie/") + encodeURIComponent(pick.id);
+    return;
+  }
+  if (t.dataset.download) { downloadDialog(t.dataset.download); return; }
   if (t.dataset.forget) {
     const x = byId.get(t.dataset.forget); if (!x) return;
     forget(x); closePop(); rerender();

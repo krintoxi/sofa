@@ -105,6 +105,13 @@ deleted. More: [docs/folder-structure.md](docs/folder-structure.md).
   choice, **Night mode** (loud scenes quieter, voices clearer), picture quality for converted
   video, a sleep timer, picture-in-picture, speed, keyboard shortcuts (press `?`), and
   double-tap to skip on phones.
+- **Take it with you.** **Download** on a movie or an episode saves it to your phone or laptop for a
+  trip. A file the device plays as it is downloads as it is; anything else (MKV, AVI, ...) gets a
+  **travel copy** first (720p MP4 with its subtitles, about 1 GB an hour), made on the Sofa computer
+  in the background. Copies are deleted after two weeks.
+- **Sofa as an app.** On an iPhone or iPad: Safari → Share → **Add to Home Screen**, and Sofa opens
+  full screen with its own icon. On Android and computers: the browser's menu → Add to Home screen /
+  Install (Theme → This device says how on each).
 - **Your phone is the remote.** With Sofa open on the TV, press the screen button at the top of
   Sofa on your phone, pick the TV, and Play sends things there; a bar on the phone pauses,
   skips, scrubs, goes to the next episode and stops. Works for any of your screens, at home,
@@ -115,6 +122,8 @@ deleted. More: [docs/folder-structure.md](docs/folder-structure.md).
   title no service knows gets a cover made from one (the whole frame, with its name), not a
   narrow slice of a wide picture.
   Wrong match, or none? Click **Find details** on the show or movie and pick the right one.
+- **Surprise me** on Movies and Shows picks something you haven't watched (from the genre or filter
+  you're on), and Home has **Something short** and **Movies you haven't seen** rows that change daily.
 - **Genres and filters.** Movies and Shows can be browsed by genre (Comedy, Animation, Anime,
   Science Fiction, ...), narrowed by a filter box (name, genre, network, year) and by what you've
   watched. A genre page also lists titles with its name in the title (Adventure Time under

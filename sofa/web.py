@@ -11,13 +11,13 @@ import sys
 import time
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, unquote, urlsplit
+from urllib.parse import parse_qs, quote, unquote, urlsplit
 
 import threading
 
 from . import (__version__, artwork, auth, backup, config, dlna, fetch, housekeeping, intros, live, media, metadata, music,
                kids, machine, net, optimize, organizer, places, previews, report, screens, store, trickplay, updater,
-               uploads)
+               travel, uploads)
 from .library import LIBRARY
 
 CLIENT_DIR = os.path.join(config.APP_DIR, "client")
@@ -29,7 +29,7 @@ MIME = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=ut
         ".webm": "video/webm", ".avi": "video/x-msvideo", ".mp3": "audio/mpeg", ".m4a": "audio/mp4", ".aac": "audio/aac",
         ".flac": "audio/flac", ".wav": "audio/wav", ".ogg": "audio/ogg", ".oga": "audio/ogg", ".opus": "audio/ogg",
         ".wma": "audio/x-ms-wma", ".aif": "audio/aiff", ".aiff": "audio/aiff", ".alac": "audio/mp4",
-        ".woff2": "font/woff2", ".txt": "text/plain; charset=utf-8"}
+        ".woff2": "font/woff2", ".txt": "text/plain; charset=utf-8", ".webmanifest": "application/manifest+json"}
 HOME_NETS = ("local", "lan", "tailnet")
 
 
@@ -269,7 +269,7 @@ class Handler(BaseHTTPRequestHandler):
         with open(full, "rb") as f:
             data = f.read()
         self.send_body(data, MIME.get(os.path.splitext(full)[1].lower(), "application/octet-stream"),   # bundled fonts and libraries: kept a week
-                       headers={"Cache-Control": "private, max-age=604800" if rel.startswith("vendor" + os.sep) else "no-cache"})
+                       headers={"Cache-Control": "private, max-age=604800" if rel.startswith(("vendor" + os.sep, "icons" + os.sep)) else "no-cache"})
 
     def art(self, rest, qs):
         if not self.user() and self.network() not in HOME_NETS:   # TVs fetch artwork without signing in
@@ -284,7 +284,7 @@ class Handler(BaseHTTPRequestHandler):
             full = artwork.resized(full, int(width))
         self.send_file(full, cache="private, max-age=604800")
 
-    def send_file(self, full, cache=None, dlna_headers=False):
+    def send_file(self, full, cache=None, dlna_headers=False, download=None):
         size = os.path.getsize(full)
         ctype = MIME.get(os.path.splitext(full)[1].lower(), "application/octet-stream")
         start, end = 0, size - 1
@@ -314,6 +314,9 @@ class Handler(BaseHTTPRequestHandler):
         if dlna_headers:
             self.send_header("transferMode.dlna.org", "Streaming")
             self.send_header("contentFeatures.dlna.org", dlna.DLNA_FLAGS)
+        if download:                                  # saved as a file, under a tidy name
+            plain = re.sub(r'[^\x20-\x7e]|["\\]', "_", download)
+            self.send_header("Content-Disposition", "attachment; filename=\"%s\"; filename*=UTF-8''%s" % (plain, quote(download)))
         self.end_headers()
         if self.command == "HEAD":
             return
@@ -460,7 +463,7 @@ class Handler(BaseHTTPRequestHandler):
             if f.endswith(".m3u8"):   # start at the beginning, not the "live" end of a playlist still being written
                 data = data.replace(b"#EXTM3U\n", b"#EXTM3U\n#EXT-X-START:TIME-OFFSET=0,PRECISE=YES\n", 1)
             return self.send_body(data, ctype, headers={"Cache-Control": "no-cache"})
-        m = re.match(r"^/media/([^/]+)/(file|stream|preview\.mp4|subs/(\d+)\.vtt|trick\.json|trick/(\d{1,3})\.jpg)$", path)
+        m = re.match(r"^/media/([^/]+)/(file|stream|travel\.mp4|preview\.mp4|subs/(\d+)\.vtt|trick\.json|trick/(\d{1,3})\.jpg)$", path)
         item = self.visible_item(m.group(1), u) if m else None
         if not item:
             return self.send_body("Not found", status=404)
@@ -476,7 +479,12 @@ class Handler(BaseHTTPRequestHandler):
         if kind.startswith("trick/"):
             f = trickplay.sheet(item, int(m.group(4)))
             return self.send_file(f, cache="private, max-age=604800") if f else self.send_body("Not found", status=404)
+        if kind == "travel.mp4":                     # a travel copy, to keep on this device
+            f = travel.copy_path(item)
+            return self.send_file(f, download=download_name(item, ".mp4")) if f else self.send_body("Not ready", status=404)
         if kind == "file":
+            if (qs.get("download") or [""])[0] == "1":
+                return self.send_file(item["path"], download=download_name(item, os.path.splitext(item["path"])[1].lower()))
             if (qs.get("trailer") or [""])[0] != "1":         # a trailer on a title's page isn't "watching"
                 media.note_direct(item, u["name"])
             return self.send_file(item["path"])
@@ -540,6 +548,17 @@ class Handler(BaseHTTPRequestHandler):
             out["recent"] = [r["item"] for r in store.q("SELECT item FROM music_plays WHERE user_id = ? ORDER BY at DESC LIMIT 60",
                                                          u["id"])]
             return self.json(out)
+        m = re.match(r"^/api/travel/(.+)$", path)
+        if m:                                         # can this device keep this video as it is, or does it need a travel copy?
+            item = self.visible_item(m.group(1), u)
+            if not item or item["kind"] not in ("episode", "movie", "extra", "musicvideo"):
+                return self.error(404, "That video isn't in the library any more.")
+            caps = {k: (qs.get(k) or ["0"])[0] == "1" for k in ("mkv", "hevc", "ac3", "vp9")}
+            info = media.probe(item["path"]) or {}
+            st = travel.status(item)
+            copy_size = st.pop("size", None)
+            return self.json(dict(st, copy_size=copy_size, direct=media.plan(item, caps)["mode"] == "direct",
+                                  size=item.get("size"), duration=info.get("duration"), ext=item.get("ext")))
         if path == "/api/screen/wait":             # this page, waiting to be told what to play (the phone remote)
             return self.json({"commands": screens.wait((qs.get("id") or [""])[0][:40], (qs.get("name") or [""])[0],
                                                        u["id"], (qs.get("tv") or [""])[0] == "1")})
@@ -718,6 +737,13 @@ class Handler(BaseHTTPRequestHandler):
         u = self.need_user(admin=path.startswith("/api/admin/"))
         if not u:
             return
+        m = re.match(r"^/api/travel/(.+)$", path)
+        if m:
+            item = self.visible_item(m.group(1), u)
+            if not item:
+                return self.error(404, "That video isn't in the library any more.")
+            travel.want(item)
+            return self.json({"ok": True})
         if path == "/api/screen/state":
             screens.report(str(data.get("id") or "")[:40], u["id"], data.get("state") or {})
             return self.json({"ok": True})
@@ -1097,7 +1123,8 @@ class Handler(BaseHTTPRequestHandler):
         item = LIBRARY.item(item_id)
         if not item or (item.get("adult") and not (user or {}).get("adult")):
             return None
-        if (user or {}).get("kids") and not kids.allowed(LIBRARY.find(item.get("show_id") or item["id"])):
+        if (user or {}).get("kids") and item.get("kind") in ("episode", "movie", "extra") \
+                and not kids.allowed(LIBRARY.find(item.get("show_id") or item["id"])):   # music is fine
             return None
         return item
 
@@ -1107,6 +1134,19 @@ class Handler(BaseHTTPRequestHandler):
 
 
 THEMES = ("midnight", "cinema", "ocean", "forest", "grape", "oled")
+
+
+def download_name(item, ext):
+    """A tidy file name for a video saved to a device: "Heat (1995).mp4", "The Sopranos S01E01 Pilot.mkv"."""
+    if item["kind"] == "episode":
+        show = LIBRARY.find(item.get("show_id")) or {}
+        name = "%s S%02dE%02d%s" % (show.get("name") or item.get("show_name") or "", item["s"], item["e"],
+                                    " " + item["title"] if item.get("title") else "")
+    else:
+        entry = LIBRARY.find(item["id"]) or {}
+        title = entry.get("title") or item.get("title") or os.path.splitext(os.path.basename(item["path"]))[0]
+        name = "%s (%s)" % (title, entry["year"]) if entry.get("year") else title
+    return re.sub(r'[\x00-\x1f/\\:*?"<>|]+', " ", name).strip()[:150] + ext
 
 
 def public_settings():
@@ -1160,6 +1200,11 @@ def admin_status():
 class Server(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
+
+    def handle_error(self, request, client_address):
+        if isinstance(sys.exc_info()[1], (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, TimeoutError)):
+            return                      # the device went away mid-answer (a closed tab, a TV turned off): nothing wrong here
+        super().handle_error(request, client_address)
 
 
 _slim = {}

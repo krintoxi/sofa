@@ -78,8 +78,15 @@ def q1(sql, *args):
 
 def ex(sql, *args):
     conn = db()
-    cur = conn.execute(sql, args)
-    conn.commit()
+    try:
+        cur = conn.execute(sql, args)
+        conn.commit()
+    except BaseException:
+        # A write that failed (a name already taken, a busy database) mustn't leave its transaction open:
+        # that would hold the database's write lock and stall every other write until it's cleaned up.
+        if conn.in_transaction:
+            conn.rollback()
+        raise
     return cur
 
 
@@ -133,15 +140,20 @@ def wipe_logs():
     rewritten so the erased rows can't be recovered from it either."""
     conn = db()
     conn.execute("PRAGMA secure_delete=ON")        # erased rows are overwritten, not just marked free
-    conn.execute("DELETE FROM activity")
-    conn.execute("UPDATE sessions SET ip = NULL, agent = NULL")
-    for sql in ("DELETE FROM downloads WHERE state NOT IN ('queued', 'working')",
-                "DELETE FROM conversions WHERE state NOT IN ('queued', 'working')"):
-        try:
-            conn.execute(sql)
-        except sqlite3.OperationalError:
-            pass                                  # that part of Sofa hasn't been used here
-    conn.commit()
+    try:
+        conn.execute("DELETE FROM activity")
+        conn.execute("UPDATE sessions SET ip = NULL, agent = NULL")
+        for sql in ("DELETE FROM downloads WHERE state NOT IN ('queued', 'working')",
+                    "DELETE FROM conversions WHERE state NOT IN ('queued', 'working')"):
+            try:
+                conn.execute(sql)
+            except sqlite3.OperationalError:
+                pass                              # that part of Sofa hasn't been used here
+        conn.commit()
+    except BaseException:
+        if conn.in_transaction:
+            conn.rollback()
+        raise
     try:
         conn.execute("VACUUM")                    # rewrite the file without the free pages
         conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")

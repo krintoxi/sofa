@@ -96,6 +96,15 @@ Sofa makes preview pictures (320 px wide, one every 10 seconds) for each video, 
 background, starting with what people are watching. They're stored in
 `~/Sofa/data/cache/trickplay`, never next to your media. Off with `"trickplay": false`.
 
+### Downloads for a trip
+
+**Download** on a movie's page or under an episode. If the device plays the file as it is, it
+downloads as it is, under a tidy name ("Heat (1995).mp4"). If not (an MKV on an iPhone, say),
+**Make a travel copy** makes a 720p MP4 with its subtitles (about 1 GB per hour of video) in the
+background, in `~/Sofa/data/cache/travel`; come back to the same button to download it. A copy is
+deleted two weeks after it's made, or with **Free up space**. The original can always be
+downloaded too, for a player like VLC.
+
 ### Old computers: Gentle mode and the encoder check
 
 A minute after starting (and again whenever ffmpeg changes), Sofa times a short 1080p conversion

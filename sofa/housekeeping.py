@@ -10,10 +10,10 @@ import shutil
 import threading
 import time
 
-from . import artwork, media, metadata, naming, organizer, places, previews, store, trickplay
+from . import artwork, media, metadata, naming, organizer, places, previews, store, travel, trickplay
 
 REBUILDABLE = {"pictures sized for screens": artwork.CACHE, "scrubbing previews": trickplay.CACHE,
-               "hover previews": previews.CACHE}
+               "hover previews": previews.CACHE, "travel copies": travel.CACHE}
 _sizes = {}
 _lock = threading.Lock()
 

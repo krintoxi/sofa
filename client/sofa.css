@@ -1188,3 +1188,12 @@ html[data-nospoil="1"] .episode.unseen:hover .ep-thumb img, html[data-nospoil="1
 html[data-nospoil="1"] .episode.unseen:hover .ep-sum, html[data-nospoil="1"] .episode.unseen:focus-within .ep-sum,
 html[data-nospoil="1"] .card.wide.unseen:hover .frame img, html[data-nospoil="1"] .card.wide.unseen:focus .frame img { filter: none; }
 html[data-nospoil="1"] .card.wide.unseen .frame { overflow: hidden; }
+/* Sofa as an app on an iPhone: keep clear of the notch and the home bar */
+html.standalone .bar { padding-top: max(14px, env(safe-area-inset-top)); padding-left: max(var(--gutter), env(safe-area-inset-left)); padding-right: max(var(--gutter), env(safe-area-inset-right)); }
+html.standalone .remote-bar { bottom: max(12px, env(safe-area-inset-bottom)); }
+html.standalone .player .p-bottom { padding-bottom: max(16px, env(safe-area-inset-bottom)); }
+/* download for a trip */
+.ep-dl { display: inline-flex; align-items: center; gap: 5px; margin-left: 4px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); background: none; color: var(--mist); font: inherit; font-size: 12px; cursor: pointer; }
+.ep-dl svg { width: 13px; height: 13px; }
+.ep-dl:hover, .ep-dl:focus-visible { color: var(--paper); border-color: var(--paper); }
+.dl-body .up-bar { display: block; margin: 10px 0; }
