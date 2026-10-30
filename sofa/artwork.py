@@ -23,7 +23,7 @@ def file_for(url):
     if not url or not url.startswith("/art/"):
         return None
     key, _, rel = url[len("/art/"):].partition("/")
-    if key not in ("shows", "movies", "music", "musicvideos", "cache"):
+    if key not in ("shows", "movies", "music", "musicvideos", "adult", "cache"):
         return None
     root = music.ART_CACHE if key == "cache" else config.path(key)
     rel = os.path.normpath(rel)
@@ -62,15 +62,15 @@ def warm(library):
     if not _warming.acquire(blocking=False):
         return
     try:
-        lib, tunes = library.public(), library.music_public()
+        lib, tunes = library.public(adult=True), library.music_public()
         jobs = []
-        for show in lib["shows"]:
+        for show in lib["shows"] + lib["adult"]["shows"]:
             jobs += [(show.get("poster"), 360), (show.get("backdrop"), 1280), (show.get("logo"), 720)]
             for season in show["seasons"]:
                 jobs.append((season.get("poster"), 360))
                 jobs += [(ep.get("thumb"), 480) for ep in season["episodes"]]
             jobs += [(x.get("thumb"), 480) for x in show["extras"]]
-        for m in lib["movies"]:
+        for m in lib["movies"] + lib["adult"]["movies"]:
             jobs += [(m.get("poster"), 360), (m.get("backdrop"), 1280)]
         for a in tunes["albums"] + tunes["artists"]:
             jobs.append((a.get("art"), 360))

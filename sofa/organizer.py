@@ -7,6 +7,8 @@ downloads are never touched). Then every video in it is identified:
 * movies    -> Movies/<Title (Year)>/<Title (Year)>.ext
 * songs     -> Music/<Artist>/<Album>/<NN Title>.ext   (from the file's tags, or "Artist - Title")
 * anything in Inbox/Music Videos/ -> Music Videos/<Artist>/<Title>.ext
+* anything in Inbox/XXX/ -> Adult/Movies/<Title (Year)>/... or Adult/Shows/<Show>/Season N/...
+* a folder of several movies ("Star Wars Collection") -> Movies/<Name> Collection/<Title (Year)>/...
 * anything Sofa can't identify, and duplicates, go to Needs Review/ with a note
   on the admin page. Nothing is ever deleted.
 """
@@ -21,7 +23,8 @@ SETTLE_SECONDS = 30
 
 
 _seen = {}   # entry path -> (size, newest mtime) at the last look
-DROP_FOLDERS = {"music videos": "musicvideo", "music": "music"}   # permanent folders inside the Inbox
+DROP_FOLDERS = {"music videos": "musicvideo", "music": "music", "xxx": "adult", "adult": "adult",
+                "porn": "adult", "nsfw": "adult"}   # permanent folders inside the Inbox
 
 
 def _footprint(path):
@@ -63,7 +66,7 @@ def process_inbox():
     """Handle every settled inbox entry. Returns how many videos were filed."""
     inbox = config.path("inbox")
     os.makedirs(inbox, exist_ok=True)
-    for folder in ("Music", "Music Videos"):
+    for folder in ("Music", "Music Videos", "XXX"):
         os.makedirs(os.path.join(inbox, folder), exist_ok=True)
     entries = []
     for name in sorted(os.listdir(inbox)):
@@ -102,21 +105,41 @@ def _handle(entry, hint=None):
                 if os.path.splitext(f)[1].lower() in wanted and not f.startswith("._"):
                     videos.append(os.path.join(d, f))
     filed = 0
+    collection = _collection_of(entry, videos) if hint != "musicvideo" else None
     for v in sorted(videos):
         is_audio = os.path.splitext(v)[1].lower() in music.AUDIO_EXT
         if not is_audio and _is_sample(v):
             continue
         try:
-            if is_audio:
+            if is_audio and hint != "adult":
                 filed += 1 if _file_song(v) else 0
             elif hint == "musicvideo":
                 filed += 1 if _file_music_video(v, entry) else 0
-            else:
-                filed += 1 if _file_video(v, entry) else 0
+            elif not is_audio:
+                filed += 1 if _file_video(v, entry, adult=hint == "adult", collection=collection) else 0
         except OSError as exc:
             store.log("review", "Couldn't move %s: %s" % (os.path.basename(v), exc), {"file": v})
     _sweep_leftovers(entry)
     return filed
+
+
+def _collection_of(entry, videos):
+    """'Star Wars Collection' when a dropped folder holds several different movies (not episodes)."""
+    if not os.path.isdir(entry):
+        return None
+    titles = set()
+    for v in videos:
+        stem = os.path.splitext(os.path.basename(v))[0]
+        if os.path.splitext(v)[1].lower() not in naming.VIDEO_EXT or naming.parse_episode(stem) or _is_sample(v):
+            continue
+        titles.add(naming.norm(naming.strip_part(naming.parse_movie(stem)[0])))
+    name = os.path.basename(entry)
+    if len(titles) < 2 or naming.parse_episode(name) or naming.season_of_dir(name) is not None:
+        return None
+    first_words = {t[:4] for t in titles}
+    if naming.COLLECTION_WORDS.search(name) or len(first_words) == 1:
+        return naming.safe_filename(naming.collection_name(name))
+    return None
 
 
 def _is_sample(path):
@@ -170,15 +193,19 @@ def _resolve_show(name):
     return naming.safe_filename(name.title() if name.islower() else name), None
 
 
-def _file_video(video, entry):
+def _file_video(video, entry, adult=False, collection=None):
     stem, ext = os.path.splitext(os.path.basename(video))
-    ep = naming.parse_episode(stem)
-    if not ep and _season_hint(video) is not None:
-        m = re.match(r"^(?:e|ep|episode)?\s*(\d{1,3})\b", stem, re.I)
-        if m:
-            ep = {"s": _season_hint(video), "e": int(m.group(1)), "e2": None, "show": "", "title": naming.clean(stem[m.end():])}
+    folder = _folder_hint(video, entry)
+    ep = naming.parse_episode(stem, _season_hint(video), in_show=bool(folder))
+    shows_root = os.path.join(config.path("adult"), "Shows") if adult else config.path("shows")
+    if ep and adult:
+        show_name = naming.safe_filename(naming.show_name(ep["show"] or folder or "Unsorted")[0])
+        code = "S%02dE%02d" % (ep["s"], ep["e"])
+        new = naming.safe_filename("%s %s %s" % (show_name, code, ep["title"]) if ep["title"] else "%s %s" % (show_name, code))
+        dest = os.path.join(shows_root, show_name, "Season %d" % ep["s"], new + ext.lower())
+        return _move(video, dest, "Added %s %s to Adult" % (show_name, code))
     if ep:
-        resolved = _resolve_show(ep["show"] or _folder_hint(video, entry))
+        resolved = _resolve_show(ep["show"] or folder)
         if not resolved:
             return _to_review(video, "Couldn't tell which show this episode belongs to. Rename it like "
                                      "\"Show Name S01E02.mkv\" and drop it in the Inbox again.")
@@ -194,12 +221,17 @@ def _file_video(video, entry):
         return _move(video, dest, "Added %s %s to Shows" % (show_name, code))
 
     title, year = naming.parse_movie(stem)
-    if not year:
-        hint = _folder_hint(video, entry)
-        if hint:
-            t2, y2 = naming.parse_movie(os.path.basename(os.path.dirname(video)))
-            if y2:
-                title, year = t2, y2
+    title = naming.strip_part(title)
+    if not year and folder and not collection:
+        t2, y2 = naming.parse_movie(os.path.basename(os.path.dirname(video)))
+        if y2:
+            title, year = t2, y2
+    if adult:
+        meta = metadata.movie(title, year, adult=True) or {}
+        year = year or meta.get("year")
+        name = naming.safe_filename("%s (%d)" % (title, year) if year else title) or "Untitled"
+        dest = os.path.join(config.path("adult"), "Movies", name, name + ext.lower())
+        return _move(video, dest, "Added %s to Adult" % name)
     if not year:
         meta = metadata.movie(title, None)
         if meta and meta.get("year"):
@@ -207,9 +239,11 @@ def _file_video(video, entry):
     if not year:
         return _to_review(video, "Couldn't tell what this is. Name episodes like \"Show S01E02\" and movies "
                                  "like \"Title (1999)\", then drop it in the Inbox again.")
-    folder = naming.safe_filename("%s (%d)" % (title, year))
-    dest = os.path.join(config.path("movies"), folder, folder + ext.lower())
-    return _move(video, dest, "Added %s to Movies" % folder)
+    name = naming.safe_filename("%s (%d)" % (title, year))
+    part = re.search(r"\b(?:cd|disc|part)[\s._-]*(\d)\b", stem, re.I)
+    base = os.path.join(config.path("movies"), collection) if collection else config.path("movies")
+    dest = os.path.join(base, name, name + (" - part%s" % part.group(1) if part else "") + ext.lower())
+    return _move(video, dest, "Added %s to Movies%s" % (name, " (%s)" % collection if collection else ""))
 
 
 def _file_song(path):
@@ -305,3 +339,171 @@ def _sweep_leftovers(entry):
     if not os.path.exists(dest):
         shutil.move(entry, dest)
         store.log("review", "Moved leftover files from \"%s\" to Needs Review" % os.path.basename(entry), {"now_in": dest})
+
+
+# ---------------------------------------------------------------- tidying what's already in the library
+
+def tidy_library():
+    """Put existing folders into the shape Sofa expects. Returns how many things it moved or renamed.
+
+    * "XXX", "Adult", "Porn" folders inside Shows/, Movies/ or next to them go to the Inbox's XXX
+      folder, which files them into the Adult section.
+    * A collection folder with loose movies ("Star Wars Collection/Star.Wars.1977.mkv, ...") gets a
+      folder per movie, and a tidy name.
+    * Movie folders named like downloads ("Heat.1995.1080p.BluRay") become "Heat (1995)".
+    * Show folders named like downloads ("The.Sopranos.S01-S06.1080p") become "The Sopranos".
+    Nothing is deleted, and watch progress stays (it isn't tied to file names).
+    """
+    if not config.get("tidy_library"):
+        return 0
+    done = 0
+    try:
+        done += _adopt_adult_folders()
+        done += _tidy_movies(config.path("movies"))
+        done += _tidy_shows(config.path("shows"))
+    except OSError as exc:
+        store.log("error", "Tidying the library: %s" % exc)
+    return done
+
+
+def _same(a, b):
+    try:
+        return os.path.samefile(a, b)
+    except OSError:
+        return os.path.abspath(a) == os.path.abspath(b)
+
+
+def _free_name(path):
+    n, base = 2, path
+    while os.path.exists(path):
+        path = "%s (%d)" % (base, n)
+        n += 1
+    return path
+
+
+def _adopt_adult_folders():
+    adult, moved = config.path("adult"), 0
+    drop = os.path.join(config.path("inbox"), "XXX")
+    for root in (config.path("shows"), config.path("movies"), os.path.dirname(config.path("shows"))):
+        if not os.path.isdir(root):
+            continue
+        for name in os.listdir(root):
+            p = os.path.join(root, name)
+            if not os.path.isdir(p) or not naming.is_adult_dir(name) or _same(p, adult) or _same(p, drop):
+                continue
+            if os.path.abspath(adult).startswith(os.path.abspath(p) + os.sep):
+                continue
+            os.makedirs(drop, exist_ok=True)
+            for child in os.listdir(p):
+                if child.startswith("."):
+                    continue
+                shutil.move(os.path.join(p, child), _free_name(os.path.join(drop, child)))
+                moved += 1
+            if not [c for c in os.listdir(p) if c != ".DS_Store"]:
+                shutil.rmtree(p, ignore_errors=True)
+            store.log("inbox", "Moved the \"%s\" folder from %s into the Adult section" % (name, os.path.basename(root)))
+    return moved
+
+
+def _video_files(d):
+    try:
+        return [os.path.join(d, f) for f in os.listdir(d) if os.path.splitext(f)[1].lower() in naming.VIDEO_EXT
+                and not f.startswith(".") and os.path.isfile(os.path.join(d, f))]
+    except OSError:
+        return []
+
+
+def _move_with_sidecars(video, dest_dir, new_stem):
+    """Move a video (and its subtitles/thumbnail) into dest_dir, renamed to new_stem."""
+    src_dir, name = os.path.split(video)
+    stem, ext = os.path.splitext(name)
+    os.makedirs(dest_dir, exist_ok=True)
+    target = os.path.join(dest_dir, new_stem + ext.lower())
+    if os.path.exists(target):
+        return False
+    shutil.move(video, target)
+    for f in os.listdir(src_dir):
+        base, e = os.path.splitext(f)
+        if (base == stem or base.startswith(stem + ".")) and (e.lower() in naming.SUB_EXT or e.lower() in (".jpg", ".png", ".nfo")):
+            dest = os.path.join(dest_dir, new_stem + base[len(stem):] + e.lower())
+            if not os.path.exists(dest):
+                shutil.move(os.path.join(src_dir, f), dest)
+    return True
+
+
+def _movie_stem(video):
+    title, year = naming.parse_movie(os.path.splitext(os.path.basename(video))[0])
+    title = naming.strip_part(title)
+    if not year:
+        meta = metadata.movie(title, None) or {}
+        year = meta.get("year")
+    return naming.safe_filename("%s (%d)" % (title, year) if year else title), title
+
+
+def _tidy_movies(root):
+    from .library import Library
+    if not os.path.isdir(root):
+        return 0
+    done = 0
+    loose = Library.movie_groups(_video_files(root))
+    for files in loose.values():                      # loose movies right in Movies/: one folder each
+        if len(files) == 1:
+            stem, _ = _movie_stem(files[0])
+            if "(" in stem and _move_with_sidecars(files[0], os.path.join(root, stem), stem):
+                done += 1
+    for name in sorted(os.listdir(root)):
+        d = os.path.join(root, name)
+        if name.startswith(".") or not os.path.isdir(d):
+            continue
+        vids = _video_files(d)
+        groups = Library.movie_groups(vids)
+        if len(groups) >= 2:                          # a collection with loose movies in it
+            for files in groups.values():
+                if len(files) != 1:
+                    continue
+                stem, _ = _movie_stem(files[0])
+                if _move_with_sidecars(files[0], os.path.join(d, stem), stem):
+                    done += 1
+            nice = naming.safe_filename(naming.collection_name(name))
+            if nice and nice != name and not os.path.exists(os.path.join(root, nice)):
+                os.rename(d, os.path.join(root, nice))
+                done += 1
+            store.log("inbox", "Gave each movie in \"%s\" its own folder" % (nice or name))
+        elif vids:                                    # one movie: tidy the folder name
+            title, year = naming.parse_movie(name)
+            nice = naming.safe_filename("%s (%d)" % (naming.strip_part(title), year)) if year else None
+            if nice and nice != name and not os.path.exists(os.path.join(root, nice)):
+                os.rename(d, os.path.join(root, nice))
+                store.log("inbox", "Renamed the movie folder \"%s\" to \"%s\"" % (name, nice))
+                done += 1
+        else:                                         # a collection of movie folders
+            for sub in sorted(os.listdir(d)):
+                sd = os.path.join(d, sub)
+                if os.path.isdir(sd) and not sub.startswith(".") and _video_files(sd):
+                    title, year = naming.parse_movie(sub)
+                    nice = naming.safe_filename("%s (%d)" % (naming.strip_part(title), year)) if year else None
+                    if nice and nice != sub and not os.path.exists(os.path.join(d, nice)):
+                        os.rename(sd, os.path.join(d, nice))
+                        done += 1
+    return done
+
+
+def _tidy_shows(root):
+    if not os.path.isdir(root):
+        return 0
+    done = 0
+    for name in sorted(os.listdir(root)):
+        d = os.path.join(root, name)
+        if name.startswith(".") or not os.path.isdir(d):
+            continue
+        show, year = naming.show_name(name)
+        nice = naming.safe_filename(show + (" (%d)" % year if year else ""))
+        if not nice or nice == name:
+            continue
+        target = os.path.join(root, nice)
+        if os.path.exists(target):
+            continue
+        os.rename(d, target)
+        store.log("inbox", "Renamed the show folder \"%s\" to \"%s\"" % (name, nice))
+        done += 1
+    return done

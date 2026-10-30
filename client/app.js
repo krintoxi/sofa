@@ -729,6 +729,7 @@ const Player = (function () {
     if (plan.mode === "unsupported") return showError("This video can't be played here", plan.message);
     modeEl.hidden = plan.mode === "direct";
     modeEl.textContent = plan.mode === "remux" ? "Repackaged" : "Converted";
+    modeEl.title = plan.why && plan.why.length ? "Adapted for this device: " + plan.why.join(", ") : "";
     ccBtn.hidden = !plan.subtitles.length;
     const p = prog(it.id);
     const resumeAt = p && !p.done && p.t > 30 && (!plan.duration || p.t < plan.duration - 30) ? p.t : 0;
@@ -750,10 +751,19 @@ const Player = (function () {
         await new Promise(r => { video.addEventListener("loadedmetadata", r, { once: true }); video.addEventListener("error", r, { once: true }); });
       }
       if (at) video.currentTime = at;
-    } else if (nativeHls) {
+    } else if (nativeHls || await hlsJsReady()) {
+      // Converted video comes as short HLS segments: steady buffering, and a closed tab can't jam the converter.
       try {
         const h = await api("/api/hls/" + encodeURIComponent(item.id) + "?mode=" + plan.mode + "&t=" + at.toFixed(1) + (hlsSession ? "&replace=" + hlsSession : ""));
-        hlsSession = h.session; offset = at; video.src = h.url;
+        hlsSession = h.session; offset = at;
+        if (hls) { hls.destroy(); hls = null; }
+        if (nativeHls) video.src = h.url;
+        else {
+          hls = new window.Hls({ startPosition: 0, maxBufferLength: 60, maxMaxBufferLength: 180, manifestLoadingTimeOut: 30000,
+                                 levelLoadingTimeOut: 30000, fragLoadingTimeOut: 40000 });
+          hls.on(window.Hls.Events.ERROR, (_, data) => { if (data.fatal) playbackFailed(); });
+          hls.loadSource(h.url); hls.attachMedia(video);
+        }
       } catch (e) { return showError("This video can't be played right now", e.message); }
     } else {
       offset = at;
@@ -763,6 +773,19 @@ const Player = (function () {
     video.play().catch(() => {});
     paint();
   }
+  let hlsJsOk = null;
+  async function hlsJsReady() {
+    if (hlsJsOk === null) { try { await loadHlsJs(); hlsJsOk = window.Hls.isSupported(); } catch (e) { hlsJsOk = false; } }
+    return hlsJsOk;
+  }
+  async function playbackFailed() {
+    if (!item || el.classList.contains("is-live")) return;
+    let why = "";
+    try { const p = await api("/api/play/" + encodeURIComponent(item.id) + "?probe=1"); why = p.error ? p.error.message : ""; } catch (e) {}
+    showError("This video stopped", why ? "The server said: " + why
+      : "The file may have moved, or the server couldn't read it. An admin can convert it to MP4 from the Server page.");
+  }
+  function stopServerStream() { if (hlsSession) { api("/api/hls/stop", {}).catch(() => {}); hlsSession = null; } }
   function seekTo(t) {
     t = Math.max(0, Math.min(total() ? total() - 1 : t, t));
     if (!live()) { video.currentTime = t; return; }
@@ -781,7 +804,8 @@ const Player = (function () {
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
     el.hidden = true; document.body.style.overflow = "";
     stopAmbient();
-    item = null; plan = null; hlsSession = null;
+    stopServerStream();
+    item = null; plan = null;
     rerender();
     if (returnFocus && document.contains(returnFocus)) returnFocus.focus();
   }
@@ -881,8 +905,8 @@ const Player = (function () {
   video.addEventListener("ended", () => { save(true); if (next && !nextHidden) playNext(); else wake(); });
   video.addEventListener("error", () => {
     if (el.classList.contains("is-live") && video.getAttribute("src")) return showError("This channel isn't available right now", "Free channels come and go. Try another one, or try this one later.");
-    if (!item || !video.getAttribute("src")) return;
-    showError("This video stopped", "The file may have moved, or the server couldn't read it. Go back and try again; if it keeps happening, check the Server page.");
+    if (!item || (!video.getAttribute("src") && !hls)) return;
+    playbackFailed();
   });
   video.addEventListener("click", toggle);
   video.addEventListener("dblclick", () => fullscreen());

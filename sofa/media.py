@@ -6,7 +6,12 @@ transcode  new video (XviD, MPEG-2, HEVC on devices without it). Uses the Mac's 
 
 Remux and transcode streams start at ?t=<seconds>; the player asks for a new
 stream when you skip, so seeking still works.
+
+Each viewer has at most one live conversion: starting a new one (another video, or
+a skip) stops their previous ffmpeg, so a closed tab never holds the converter.
+ffmpeg's complaints are kept per item and shown on the Server page.
 """
+import collections
 import hashlib
 import json
 import os
@@ -18,10 +23,13 @@ import time
 
 from . import config, store
 
-PROBE_VERSION = 2          # bump when probe() starts recording something new; older cache rows are re-read
+PROBE_VERSION = 3          # bump when probe() starts recording something new; older cache rows are re-read
 _streams = {}
 _streams_lock = threading.Lock()
 _transcode_slots = None
+_owners = {}            # viewer -> function that stops their current conversion
+_errors = {}            # item id -> {"at", "message"}: the last thing ffmpeg complained about
+_encoders = None
 
 
 def tool(name):
@@ -46,6 +54,51 @@ def ffmpeg_version():
         return out.split("\n", 1)[0].replace("ffmpeg version ", "").split(" Copyright")[0]
     except (OSError, subprocess.SubprocessError):
         return None
+
+
+def encoders():
+    """Names of the video/audio encoders this ffmpeg has (asked once)."""
+    global _encoders
+    if _encoders is None:
+        exe, found = tool("ffmpeg"), set()
+        if exe:
+            try:
+                out = subprocess.run([exe, "-hide_banner", "-encoders"], capture_output=True, text=True, timeout=20).stdout
+                found = {line.split()[1] for line in out.splitlines() if line.startswith(" ") and len(line.split()) > 1}
+            except (OSError, subprocess.SubprocessError):
+                pass
+        _encoders = found
+    return _encoders
+
+
+def h264_args(height, live=True):
+    """Encoder settings for H.264: the Mac's hardware encoder, or x264 elsewhere (Linux, old builds)."""
+    height = height or 720
+    rate = "14M" if height > 1080 else "6M" if height > 720 else "3500k" if height > 480 else "2M"
+    enc = encoders()
+    if "h264_videotoolbox" in enc or not enc:
+        args = ["-c:v", "h264_videotoolbox", "-allow_sw", "1"]
+        if live:
+            return args + ["-realtime", "1", "-b:v", rate, "-maxrate", "16M", "-bufsize", "24M"]
+        return args + ["-q:v", "62"]
+    if "libx264" in enc:
+        if live:
+            return ["-c:v", "libx264", "-preset", "veryfast", "-tune", "zerolatency", "-crf", "21",
+                    "-maxrate", "16M", "-bufsize", "24M"]
+        return ["-c:v", "libx264", "-preset", "medium", "-crf", "20"]
+    return ["-c:v", "mpeg4", "-q:v", "3"]     # last resort: something every ffmpeg has
+
+
+def hardware_encoder():
+    return "h264_videotoolbox" in encoders()
+
+
+def note_error(item_id, message):
+    _errors[item_id] = {"at": int(time.time()), "message": message[-400:]}
+
+
+def last_error(item_id):
+    return _errors.get(item_id)
 
 
 # ---------------------------------------------------------------- probing
@@ -87,10 +140,12 @@ def probe(path, cached_only=False):
         "duration": float(fmt.get("duration") or 0),
         "container": fmt.get("format_name", ""),
         "video": next(({"codec": s.get("codec_name"), "width": s.get("width"), "height": s.get("height"),
-                        "index": s["index"]} for s in streams
+                        "index": s["index"], "profile": s.get("profile"), "pix_fmt": s.get("pix_fmt"),
+                        "interlaced": s.get("field_order") not in (None, "progressive", "unknown")} for s in streams
                        if s.get("codec_type") == "video" and not (s.get("disposition") or {}).get("attached_pic")), None),
         "audio": [{"codec": s.get("codec_name"), "channels": s.get("channels"), "index": s["index"],
-                   "lang": (s.get("tags") or {}).get("language"), "default": (s.get("disposition") or {}).get("default")}
+                   "lang": (s.get("tags") or {}).get("language"), "title": (s.get("tags") or {}).get("title"),
+                   "default": (s.get("disposition") or {}).get("default")}
                   for s in streams if s.get("codec_type") == "audio"],
         "subs": [{"codec": s.get("codec_name"), "index": s["index"], "lang": (s.get("tags") or {}).get("language"),
                   "title": (s.get("tags") or {}).get("title")}
@@ -115,19 +170,75 @@ def subtitle_tracks(item, info):
 
 # ---------------------------------------------------------------- deciding how to play
 
+BROWSER_PIX = (None, "yuv420p", "yuvj420p", "nv12")
+DIRECT_AUDIO = (None, "aac", "mp3", "opus", "vorbis", "flac")
+
+
+def default_audio(info, chosen=None):
+    """The sound track to play: the one the viewer chose (by stream index), else the file's default."""
+    audio = (info or {}).get("audio") or []
+    if chosen is not None:
+        pick = next((x for x in audio if x["index"] == chosen), None)
+        if pick:
+            return pick
+    return next((x for x in audio if x.get("default")), audio[0]) if audio else None
+
+
+LANGS = {"eng": "English", "spa": "Spanish", "fre": "French", "fra": "French", "ger": "German", "deu": "German",
+         "ita": "Italian", "por": "Portuguese", "jpn": "Japanese", "kor": "Korean", "chi": "Chinese", "zho": "Chinese",
+         "rus": "Russian", "dut": "Dutch", "nld": "Dutch", "swe": "Swedish", "dan": "Danish", "nor": "Norwegian",
+         "fin": "Finnish", "pol": "Polish", "tur": "Turkish", "ara": "Arabic", "hin": "Hindi", "heb": "Hebrew",
+         "gre": "Greek", "ell": "Greek", "cze": "Czech", "ces": "Czech", "hun": "Hungarian", "tha": "Thai"}
+
+
+def audio_tracks(info):
+    """Sound tracks for the player's menu: [{"index", "label", "lang", "default"}]."""
+    out = []
+    for i, a in enumerate((info or {}).get("audio") or []):
+        lang = a.get("lang") if a.get("lang") not in (None, "und") else None
+        ch = a.get("channels") or 0
+        layout = "5.1" if ch == 6 else "7.1" if ch == 8 else "Stereo" if ch == 2 else "Mono" if ch == 1 else ""
+        bits = [LANGS.get(lang, lang.upper()) if lang else "Track %d" % (i + 1), a.get("title") or "",
+                " ".join(x for x in ((a.get("codec") or "").upper().replace("EAC3", "Dolby Digital+").replace("AC3", "Dolby Digital"),
+                                     layout) if x)]
+        label = bits[0] + "".join(" · " + b for b in bits[1:] if b and b.lower() not in bits[0].lower())
+        out.append({"index": a["index"], "label": label, "lang": lang or "und", "default": a is default_audio(info)})
+    return out
+
+
+def video_playable(video, caps):
+    """Can a browser with these capabilities decode this video stream?"""
+    if not video:
+        return True
+    v = video.get("codec")
+    if v == "h264":   # 10-bit and 4:2:2 H.264 ("Hi10P") decode in VLC but in no browser or TV
+        return video.get("pix_fmt") in BROWSER_PIX and "10" not in (video.get("profile") or "")
+    if v == "hevc":
+        return bool(caps.get("hevc"))
+    if v in ("vp8", "vp9", "av1"):
+        return bool(caps.get("vp9"))
+    return False
+
+
 def plan(item, caps):
-    """How a device with these capabilities should play this item."""
+    """How a device with these capabilities should play this item, and why (for the Server page)."""
     info = probe(item["path"])
     ext = item["ext"]
-    container_ok = ext in ("mp4", "m4v", "mov") or (ext == "mkv" and caps.get("mkv")) or (ext == "webm")
+    container_ok = ext in ("mp4", "m4v", "mov") or (ext == "mkv" and caps.get("mkv")) or (ext == "webm" and caps.get("vp9"))
     if not info:
-        mode = "direct" if container_ok else ("remux" if tool("ffmpeg") else "unsupported")
-        return {"mode": mode, "duration": None, "info": None}
-    v = (info.get("video") or {}).get("codec")
-    audio = info.get("audio") or []
-    a = (next((x for x in audio if x.get("default")), audio[0]) if audio else {}).get("codec")
-    video_ok = v == "h264" or (v == "hevc" and caps.get("hevc")) or (v in ("vp8", "vp9", "av1") and caps.get("vp9"))
-    audio_ok = a in (None, "aac", "mp3", "opus", "vorbis", "flac") or (a in ("ac3", "eac3") and caps.get("ac3"))
+        mode = "transcode" if tool("ffmpeg") else ("direct" if container_ok else "unsupported")
+        return {"mode": mode, "duration": None, "info": None, "why": ["the file couldn't be read ahead of time"]}
+    video = info.get("video")
+    a = (default_audio(info) or {}).get("codec")
+    video_ok = video_playable(video, caps)
+    audio_ok = a in DIRECT_AUDIO or (a in ("ac3", "eac3") and caps.get("ac3"))
+    why = []
+    if not container_ok:
+        why.append(ext.upper() + " file")
+    if not video_ok:
+        why.append(describe_video(video) + " video")
+    if not audio_ok:
+        why.append((a or "unknown").upper() + " sound")
     if container_ok and video_ok and audio_ok:
         mode = "direct"
     elif not tool("ffmpeg"):
@@ -136,42 +247,67 @@ def plan(item, caps):
         mode = "remux"
     else:
         mode = "transcode"
-    return {"mode": mode, "duration": info.get("duration"), "info": info}
+    return {"mode": mode, "duration": info.get("duration"), "info": info, "why": why}
+
+
+def describe_video(video):
+    if not video:
+        return "no"
+    name = {"h264": "H.264", "hevc": "HEVC", "mpeg4": "XviD/DivX", "msmpeg4v3": "DivX 3", "mpeg2video": "MPEG-2",
+            "vc1": "VC-1", "wmv3": "WMV", "av1": "AV1", "vp9": "VP9"}.get(video.get("codec"), (video.get("codec") or "?").upper())
+    pix = video.get("pix_fmt") or ""
+    if "10" in pix or "10" in (video.get("profile") or ""):
+        name += " 10-bit"
+    elif "444" in pix or "422" in pix:
+        name += " 4:%s:%s" % (pix[4], pix[5])
+    return name
+
+
+def needs_conversion(item, caps=None):
+    """True when the file won't play as-is on an ordinary browser or TV (so converting it once is worth it)."""
+    return plan(item, caps or {"hevc": True})["mode"] != "direct"
 
 
 # ---------------------------------------------------------------- live streams
 
-def stream_command(item, mode, start, info, fmt="mp4", out="pipe:1"):
+LOOSE_TIMESTAMPS = ("avi", "mpg", "mpeg", "vob", "ts", "m2ts", "flv", "wmv", "divx", "3gp")
+
+
+def stream_command(item, mode, start, info, fmt="mp4", out="pipe:1", audio_index=None):
     exe = tool("ffmpeg")
     cmd = [exe, "-hide_banner", "-loglevel", "error", "-nostdin"]
+    if item.get("ext") in LOOSE_TIMESTAMPS:
+        cmd += ["-fflags", "+genpts+discardcorrupt"]   # AVI and MPEG often lack timestamps ffmpeg needs for MP4
     if start > 0:
         cmd += ["-ss", "%.3f" % start]
     if mode == "audio":   # music in a format the browser can't play: AAC in fragmented MP4
         return cmd + ["-i", item["path"], "-map", "0:a:0", "-vn", "-sn", "-dn", "-c:a", "aac", "-b:a", "256k",
                       "-movflags", "frag_keyframe+empty_moov+default_base_moof", "-f", "mp4", out]
-    cmd += ["-i", item["path"], "-map", "0:v:0?", "-map", "0:a:0?", "-sn", "-dn"]
-    audio = (info or {}).get("audio") or []
-    a = audio[0]["codec"] if audio else None
+    video = (info or {}).get("video") or {}
+    audio = default_audio(info, audio_index)
+    cmd += ["-i", item["path"], "-map", "0:%d" % video["index"] if video.get("index") is not None else "0:v:0?",
+            "-map", "0:%d" % audio["index"] if audio else "0:a:0?", "-sn", "-dn"]
     if mode == "remux":
         cmd += ["-c:v", "copy"]
-        if (info or {}).get("video", {}).get("codec") == "hevc":
+        if video.get("codec") == "hevc":
             cmd += ["-tag:v", "hvc1"]
     else:
-        height = ((info or {}).get("video") or {}).get("height") or 720
-        cmd += ["-c:v", "h264_videotoolbox", "-allow_sw", "1", "-realtime", "1",
-                "-b:v", "6M" if height > 720 else "3500k", "-maxrate", "9M", "-bufsize", "12M",
-                "-pix_fmt", "yuv420p", "-vf", "scale='min(1920,iw)':-2"]
-    if a in ("aac", "mp3"):
+        filters = (["yadif"] if video.get("interlaced") else []) + ["scale='min(1920,iw)':-2", "format=yuv420p"]
+        cmd += h264_args(min(video.get("height") or 720, 1080)) + ["-vf", ",".join(filters), "-g", "48"]
+    a = (audio or {}).get("codec")
+    if a == "aac" or (a == "mp3" and fmt != "hls"):
         cmd += ["-c:a", "copy"]
     else:
-        cmd += ["-c:a", "aac", "-b:a", "192k", "-ac", "2"]
+        cmd += ["-c:a", "aac", "-b:a", "192k", "-ac", "2", "-af", "aresample=async=1:first_pts=0"]
+    cmd += ["-max_muxing_queue_size", "4096", "-avoid_negative_ts", "make_zero"]
     if fmt == "mp4":
         cmd += ["-movflags", "frag_keyframe+empty_moov+default_base_moof", "-f", "mp4", out]
     elif fmt == "mpegts":
         cmd += ["-f", "mpegts", out]
-    else:   # hls: `out` is the session folder
+    else:   # hls: `out` is the session folder. fMP4 segments, so HEVC works on Apple devices too.
         cmd += ["-f", "hls", "-hls_time", "4", "-hls_list_size", "0", "-hls_playlist_type", "event",
-                "-hls_flags", "independent_segments", "-hls_segment_filename", os.path.join(out, "seg%05d.ts"),
+                "-hls_segment_type", "fmp4", "-hls_fmp4_init_filename", "init.mp4",
+                "-hls_flags", "independent_segments", "-hls_segment_filename", os.path.join(out, "seg%05d.m4s"),
                 os.path.join(out, "index.m3u8")]
     return cmd
 
@@ -181,17 +317,72 @@ def _slot(mode):
     if _transcode_slots is None:
         _transcode_slots = threading.BoundedSemaphore(max(1, int(config.get("max_transcodes"))))
     slot = _transcode_slots if mode == "transcode" else None
-    if slot and not slot.acquire(timeout=5):
+    if slot and not slot.acquire(timeout=10):
         raise RuntimeError("busy")
     return slot
 
 
-def run_stream(item, mode, start, info, out, who, fmt="mp4"):
-    """Pipe ffmpeg's output to `out` until done or the viewer leaves."""
+def _claim(owner, stop):
+    """`owner` starts something new: stop whatever they were converting before."""
+    if not owner:
+        return
+    with _streams_lock:
+        old = _owners.get(owner)
+        _owners[owner] = stop
+    if old and old is not stop:
+        old()
+
+
+def _release(owner, stop):
+    with _streams_lock:
+        if owner and _owners.get(owner) is stop:
+            del _owners[owner]
+
+
+def _collect_stderr(proc, item):
+    """Keep the last lines ffmpeg printed; record them if it failed on its own (not because we stopped it)."""
+    tail = collections.deque(maxlen=8)
+
+    def read():
+        for raw in iter(proc.stderr.readline, b""):
+            line = raw.decode("utf-8", "replace").strip()
+            if line:
+                tail.append(line)
+        proc.stderr.close()
+        code = proc.wait()
+        if code not in (0, -9, -15, 255) and tail and not getattr(proc, "sofa_stopped", False):
+            msg = " / ".join(tail)
+            note_error(item["id"], msg)
+            store.log("playback", "Couldn't convert %s for playing: %s" % (item.get("title") or item["id"], tail[-1][:200]),
+                      {"item": item["id"], "ffmpeg": msg[-600:]})
+    threading.Thread(target=read, daemon=True, name="ffmpeg-stderr").start()
+
+
+def _stop_proc(proc):
+    proc.sofa_stopped = True
+    try:
+        proc.kill()
+    except OSError:
+        pass
+
+
+def run_stream(item, mode, start, info, out, who, fmt="mp4", owner=None, audio_index=None):
+    """Pipe ffmpeg's output to `out` until done, the viewer leaves, or they start something else."""
+    holder = {}
+    stop = lambda: holder.get("proc") and _stop_proc(holder["proc"])   # noqa: E731
+    _claim(owner, stop)
     slot = _slot(mode)
     key = "%s-%s" % (id(out), time.time())
-    proc = subprocess.Popen(stream_command(item, mode, start, info, fmt), stdout=subprocess.PIPE,
-                            stderr=subprocess.DEVNULL, bufsize=0)
+    try:
+        proc = subprocess.Popen(stream_command(item, mode, start, info, fmt, audio_index=audio_index), stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE, bufsize=0)
+    except OSError:
+        if slot:
+            slot.release()
+        _release(owner, stop)
+        raise
+    holder["proc"] = proc
+    _collect_stderr(proc, item)
     with _streams_lock:
         _streams[key] = {"item": item["id"], "title": item.get("title"), "mode": mode, "who": who,
                          "started": int(time.time())}
@@ -204,8 +395,9 @@ def run_stream(item, mode, start, info, out, who, fmt="mp4"):
     except (BrokenPipeError, ConnectionResetError, OSError):
         pass
     finally:
-        proc.kill()
+        _stop_proc(proc)
         proc.wait()
+        _release(owner, stop)
         with _streams_lock:
             _streams.pop(key, None)
         if slot:
@@ -227,30 +419,45 @@ def active_streams():
         return list(_streams.values())
 
 
-# ---------------------------------------------------------------- HLS (Safari, iPhone, iPad)
+def busy():
+    """True while someone is watching something Sofa is converting live (background work waits)."""
+    return any(not s.get("direct") for s in active_streams())
+
+
+# ---------------------------------------------------------------- HLS (every browser: natively on Apple, hls.js elsewhere)
 
 _hls = {}
 _hls_lock = threading.Lock()
 HLS_IDLE = 90
+HLS_FILE = re.compile(r"(index\.m3u8|init\.mp4|seg\d{5}\.(?:ts|m4s))")
 
 
 def hls_dir():
     return os.path.join(config.DATA_DIR, "cache", "hls")
 
 
-def hls_start(item, mode, start, who, replace=None):
+def hls_start(item, mode, start, who, replace=None, owner=None, audio_index=None):
     """Start segmenting from `start` seconds. Returns a session id."""
     if replace:
         hls_stop(replace)
-    info = probe(item["path"])
-    slot = _slot(mode)
+    info = probe(item["path"]) if not item["path"].startswith(("http://", "https://")) else None
     sid = hashlib.sha1(("%s|%s|%s" % (item["id"], start, time.time())).encode()).hexdigest()[:20]
+    stop = lambda: hls_stop(sid)   # noqa: E731
+    _claim(owner, stop)
+    slot = _slot(mode)
     folder = os.path.join(hls_dir(), sid)
     os.makedirs(folder, exist_ok=True)
-    proc = subprocess.Popen(stream_command(item, mode, start, info, "hls", folder),
-                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        proc = subprocess.Popen(stream_command(item, mode, start, info, "hls", folder, audio_index=audio_index),
+                                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    except OSError:
+        if slot:
+            slot.release()
+        _release(owner, stop)
+        raise
+    _collect_stderr(proc, item)
     with _hls_lock:
-        _hls[sid] = {"proc": proc, "dir": folder, "seen": time.time(), "slot": slot}
+        _hls[sid] = {"proc": proc, "dir": folder, "seen": time.time(), "slot": slot, "owner": owner, "stop": stop}
     with _streams_lock:
         _streams["hls-" + sid] = {"item": item["id"], "title": item.get("title"), "mode": mode, "who": who,
                                   "started": int(time.time())}
@@ -258,8 +465,8 @@ def hls_start(item, mode, start, who, replace=None):
 
 
 def hls_file(sid, name):
-    """Path of a playlist/segment once ffmpeg has written it (waits up to 20s), else None."""
-    if not re.fullmatch(r"(index\.m3u8|seg\d{5}\.ts)", name):
+    """Path of a playlist/segment once ffmpeg has written it (waits up to 25s), else None."""
+    if not HLS_FILE.fullmatch(name):
         return None
     with _hls_lock:
         s = _hls.get(sid)
@@ -268,13 +475,13 @@ def hls_file(sid, name):
     if not s:
         return None
     path = os.path.join(s["dir"], name)
-    deadline = time.time() + 20
+    deadline = time.time() + 25
     while time.time() < deadline:
         if os.path.exists(path) and (name.endswith(".m3u8") or _segment_done(s, name)):
             return path
         if s["proc"].poll() is not None and not os.path.exists(path):
             return None
-        time.sleep(0.25)
+        time.sleep(0.2)
     return None
 
 
@@ -292,13 +499,21 @@ def hls_stop(sid):
         s = _hls.pop(sid, None)
     if not s:
         return
-    s["proc"].kill()
+    _stop_proc(s["proc"])
     s["proc"].wait()
     if s["slot"]:
         s["slot"].release()
+    _release(s["owner"], s["stop"])
     shutil.rmtree(s["dir"], ignore_errors=True)
     with _streams_lock:
         _streams.pop("hls-" + sid, None)
+
+
+def hls_stop_owner(owner):
+    with _hls_lock:
+        mine = [sid for sid, s in _hls.items() if s["owner"] == owner]
+    for sid in mine:
+        hls_stop(sid)
 
 
 def _hls_reaper():
