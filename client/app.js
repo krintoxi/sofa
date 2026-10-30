@@ -1547,6 +1547,7 @@ function srvOverview(d) {
     </div>
     <div class="panels">
       <div class="panel"><h2>How to watch</h2><p class="hint">Open one of these addresses and sign in.</p><div class="addr">${addr.join("")}</div></div>
+      ${s.lan.length ? appsPanel(`http://${s.lan[0]}:${port}`) : ""}
       <div class="panel"><h2>Watching now</h2><p class="hint">"Repackaged" and "converted" mean Sofa is adapting the file for that device as it plays.</p><ul class="list">${streams}</ul></div>
       <div class="panel"><h2>Inbox</h2><p class="hint">Sofa waits until a copy finishes, then names and files it. Put adult content in <code>Inbox/XXX</code>.</p>
         <div class="actions"><button class="btn" data-send-files="normal">Send files from this device</button></div><ul class="list">${inbox}</ul>
@@ -1555,6 +1556,14 @@ function srvOverview(d) {
         <div class="actions" style="margin-top:14px"><button class="btn" data-srv-tab="activity">All activity</button></div></div>
       ${machinePanel(d.machine)}
     </div>`;
+}
+/* Sofa's own TV apps: they play MKV, HEVC and Dolby sound as they are, so this computer converts less. */
+function appsPanel(base) {
+  return `<div class="panel"><h2>Apps</h2><p class="hint">Sofa's own apps for TVs. They play most files as they are, so this computer hardly converts anything. Sign in by approving a code on your phone.</p>
+    <div class="addr">
+      <div><b>Fire TV</b><code>${esc(base)}/firetv</code><span>Install <b>Downloader</b> from the Amazon Appstore, allow it under Settings → My Fire TV → Developer options → Install unknown apps, then type this address in it.</span></div>
+      <div><b>Roku</b><code>${esc(base)}/roku.zip</code><span>Put the Roku in developer mode (on its remote: Home ×3, Up ×2, Right, Left, Right, Left, Right), download this file on a computer, and upload it on the page at the address the Roku shows.</span></div>
+    </div></div>`;
 }
 const ENC_NAMES = { h264_videotoolbox: "Apple VideoToolbox", libx264: "x264" };
 function machinePanel(m) {

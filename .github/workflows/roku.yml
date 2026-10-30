@@ -1,0 +1,24 @@
+name: Roku channel
+
+on:
+  push:
+    paths: ["roku/**", ".github/workflows/roku.yml"]
+  pull_request:
+    paths: ["roku/**", ".github/workflows/roku.yml"]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Check the BrightScript and SceneGraph
+        run: npx --yes brighterscript@0.69.13 --rootDir roku --createPackage false --copyToStaging false
+      - name: Package it (what a Roku's developer page takes)
+        run: cd roku && zip -r ../sofa-roku.zip manifest source components images
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sofa-roku
+          path: sofa-roku.zip

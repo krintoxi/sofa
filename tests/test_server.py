@@ -1,5 +1,6 @@
 """The server as apps and browsers see it: signing in, pairing, the library, Kids profiles, the phone
 remote, privacy. A real Sofa server runs on a free port for these."""
+import io
 import json
 import os
 import sqlite3
@@ -8,6 +9,7 @@ import time
 import unittest
 import urllib.error
 import urllib.request
+import zipfile
 from http.cookiejar import CookieJar
 
 from tests import LIBRARY, video
@@ -58,6 +60,13 @@ class Server(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertTrue(info["sofa"])
         self.assertEqual(info["api"], 1)
+
+    def test_roku_channel_download(self):
+        with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(self.base + "/roku.zip", timeout=20) as r:
+            names = zipfile.ZipFile(io.BytesIO(r.read())).namelist()
+        self.assertIn("manifest", names)               # at the top of the zip, as a Roku's developer page wants
+        self.assertIn("components/MainScene.brs", names)
+        self.assertIn("images/icon_hd.png", names)
 
     def test_signed_out_is_401(self):
         self.assertEqual(Client(self.base).call("/api/library")[0], 401)

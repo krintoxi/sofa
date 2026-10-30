@@ -2,6 +2,7 @@
 import email.utils
 import gzip
 import html
+import io
 import json
 import os
 import platform
@@ -9,6 +10,7 @@ import re
 import shutil
 import sys
 import time
+import zipfile
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, quote, unquote, urlsplit
@@ -169,6 +171,11 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", "0")
             self.end_headers()
             return
+        if path in ("/roku", "/roku.zip"):            # the Roku channel, to upload to a Roku in developer mode
+            if self.network() not in HOME_NETS:
+                return self.send_body("Not found", status=404)
+            return self.send_body(roku_package(), "application/zip",
+                                  headers={"Content-Disposition": 'attachment; filename="sofa-roku.zip"'})
         if path == "/api/info":                       # for apps that found Sofa on the network (no sign-in)
             return self.json(discovery.info())
         if path == "/healthz":
@@ -1201,6 +1208,20 @@ def download_name(item, ext):
         title = entry.get("title") or item.get("title") or os.path.splitext(os.path.basename(item["path"]))[0]
         name = "%s (%s)" % (title, entry["year"]) if entry.get("year") else title
     return re.sub(r'[\x00-\x1f/\\:*?"<>|]+', " ", name).strip()[:150] + ext
+
+
+def roku_package():
+    """The Roku channel (roku/ next to Sofa) as the zip a Roku's developer page takes."""
+    folder = os.path.join(config.APP_DIR, "roku")
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
+        z.write(os.path.join(folder, "manifest"), "manifest")
+        for part in ("source", "components", "images"):
+            for root, _dirs, files in os.walk(os.path.join(folder, part)):
+                for name in sorted(files):
+                    full = os.path.join(root, name)
+                    z.write(full, os.path.relpath(full, folder).replace(os.sep, "/"))
+    return out.getvalue()
 
 
 def public_settings():

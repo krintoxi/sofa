@@ -177,6 +177,10 @@ deleted. More: [docs/folder-structure.md](docs/folder-structure.md).
   Intro skips, ◀ ▶ seek with a preview, Back closes panels first). Roku Media Player, VLC and most
   smart TVs also find Sofa by themselves.
   [docs/tv.md](docs/tv.md)
+- **Sofa's own TV apps**, for Fire TV ([android/](android/README.md)) and Roku
+  ([roku/](roku/README.md)). They play MKV, HEVC and Dolby sound as they are, so the Sofa computer
+  hardly converts anything. Install from **Server → Overview → Apps**; sign in by approving a code
+  on your phone.
 - **Music**, with albums, artists, stations, likes and a queue. **Live TV** from free channel lists.
 
 ### The Adult section
@@ -258,6 +262,8 @@ deploy/              install script, macOS LaunchAgent, Linux systemd unit
 tools/               get-sofa.sh, update.sh, convert.py
 docs/                install, updating, folders, storage (drives), playback, TV, adult, privacy, remote access, api (for apps)
 tests/               the tests
+android/             Sofa for Fire TV (Android app, built by GitHub)
+roku/                Sofa for Roku (channel; Sofa serves it as /roku.zip)
 ```
 
 ## License

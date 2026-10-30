@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- An episode: its picture, how far you got, and "E3 · Title" under it. -->
+<component name="EpisodeItem" extends="Group">
+  <interface>
+    <field id="itemContent" type="node" onChange="onContent" />
+    <field id="focusPercent" type="float" />
+  </interface>
+  <script type="text/brightscript" uri="pkg:/components/EpisodeItem.brs" />
+  <children>
+    <Rectangle width="400" height="225" color="0x1B2030FF" />
+    <Poster id="thumb" width="400" height="225" loadDisplayMode="scaleToZoom" />
+    <Rectangle id="bar" translation="[0,219]" width="0" height="6" color="0xF4B740FF" visible="false" />
+    <Label id="seen" text="Watched" translation="[12,12]" font="font:SmallestSystemFont" color="0xF4B740FF" visible="false" />
+    <Label id="label" translation="[0,236]" width="400" height="60" wrap="true" maxLines="2" font="font:SmallestSystemFont" color="0xF5F1E8FF" />
+  </children>
+</component>
