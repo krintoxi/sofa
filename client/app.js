@@ -59,6 +59,7 @@ async function api(path, body) {
 const tvParam = new URLSearchParams(location.search).get("tv");
 if (tvParam === "1" || tvParam === "0") prefs.set("tv", tvParam === "1");
 const NATIVE = window.SofaNative || null;      // inside the Fire TV app
+const FIRE_TV = /\bAFT\w*\b/.test(navigator.userAgent);         // a Fire TV: Silk, or the app's own browser
 const TV = NATIVE ? true : prefs.get("tv", /AFT[A-Z0-9]+|Android TV|GoogleTV|BRAVIA|SMART-TV|SmartTV|Tizen|Web0S|webOS|CrKey|HbbTV/i.test(navigator.userAgent));
 if (TV) document.documentElement.classList.add("tv");
 
@@ -583,7 +584,7 @@ function viewHome() {
   const shortOnes = mix(films.filter(m => !prog(m.id) && minutes(m) && minutes(m) <= 95)
     .concat(shows.filter(s => !lastTouched(s) && s.runtime && s.runtime <= 30))).slice(0, 20);
   const unseenMovies = mix(films.filter(m => !prog(m.id) && !newMovies.includes(m))).slice(0, 20);
-  return heroCarousel() +
+  return appOffer() + heroCarousel() +
     rail("Continue watching", "wide", cont.map(i => wideCard(i))) +
     rail("New episodes", "wide", newEps) +
     rail("Coming up", "posters", shows.filter(s => s.next_air && lastTouched(s) && (new Date(s.next_air.aired + "T12:00:00") - Date.now()) < 31 * 864e5)
@@ -601,6 +602,69 @@ function viewHome() {
       rail(g, "posters", l.slice(0, 20).map(x => x.seasons ? posterCard(x) : movieCard(x)),
            (l.some(x => x.seasons) && !l.some(x => !x.seasons) ? "#/shows/" : "#/movies/") + encodeURIComponent(g))).join("");
 }
+/* ---------- Sofa's Fire TV app ----------
+   In Silk on a Fire TV: "Install the Sofa app". Sofa keeps the app on its computer and installs it on this
+   Fire TV over the home network (it asks once, on the TV). Inside the app: "Update" when Sofa has a newer one. */
+let appsInfo = null;
+// Builds before 5 didn't say their number (they're 4 or older).
+const appVersion = () => { try { return NATIVE && NATIVE.appVersion ? +NATIVE.appVersion() : 4; } catch (e) { return 4; } };
+function appOffer() {
+  if (!FIRE_TV || session.user.guest || Date.now() - prefs.get("appOfferHidden", 0) < 30 * 864e5) return "";
+  const latest = appsInfo && appsInfo.firetv && appsInfo.firetv.version;
+  if (NATIVE && !(latest && latest > appVersion())) return "";
+  const [title, text, go] = NATIVE
+    ? ["A newer Sofa app is ready", "It updates in a few seconds and opens again.", "Update the app"]
+    : ["Sofa has an app for this Fire TV", "It plays your files as they are, so videos start straight away and never stop to convert. Sofa puts it on this Fire TV for you.", "Install the Sofa app"];
+  return `<section class="app-offer"><div><b>${title}</b><span>${text}</span></div>
+    <div class="row-actions"><button class="btn primary" data-app-install="1">${go}</button><button class="btn ghost" data-app-later="1">Not now</button></div></section>`;
+}
+function appInstallDialog() {
+  const update = !!NATIVE;
+  const d = openDialog(`<h2>${update ? "Update the Sofa app" : "Install the Sofa app"}</h2>
+    ${update ? `<p>Sofa puts the newer app on this Fire TV, then opens it again.</p>` : `<ol class="app-steps">
+      <li>On this Fire TV, turn on <b>ADB debugging</b>: Settings (⚙) → My Fire TV → Developer options → ADB debugging → On.
+        <span class="hint">No Developer options? Settings → My Fire TV → About, press OK on the Fire TV's name 7 times, then go back.</span></li>
+      <li>Come back here and press <b>Install</b>. The TV asks "Allow USB debugging?": tick <b>Always allow from this computer</b>, then <b>OK</b>.</li>
+    </ol>`}
+    <p class="app-progress" role="status" hidden></p><div class="up-bar app-bar" hidden><i></i></div>
+    <div class="other-way" hidden><p class="hint">Or the other way: install <b>Downloader</b> from the Amazon Appstore, allow it under
+      Settings → My Fire TV → Developer options → Install unknown apps, open it, and type <code>${esc(location.origin)}/firetv</code></p></div>
+    <div class="actions"><button class="btn primary" data-app-go="1">${update ? "Update" : "Install"}</button><button class="btn ghost" data-dismiss="1">Close</button></div>`);
+  const msg = $(".app-progress", d), bar = $(".app-bar", d), go = $("[data-app-go]", d);
+  go.focus();
+  const show = st => {
+    msg.hidden = false; msg.textContent = st.message || "";
+    msg.classList.toggle("bad", st.state === "failed"); msg.classList.toggle("good", st.state === "done");
+    bar.hidden = st.progress == null || st.state !== "copying";
+    if (!bar.hidden) $("i", bar).style.width = Math.round(st.progress * 100) + "%";
+    $(".other-way", d).hidden = st.state !== "failed" || update;
+  };
+  go.addEventListener("click", async () => {
+    go.disabled = true;
+    let st;
+    try { st = await api("/api/apps/firetv/install", {}); } catch (e) { show({ state: "failed", message: e.message }); go.disabled = false; return; }
+    show(st);
+    while (d.isConnected && !["done", "failed"].includes(st.state)) {
+      await new Promise(r => setTimeout(r, 700));
+      try { st = await api("/api/apps/firetv/install"); show(st); } catch (e) {}
+    }
+    go.disabled = false;
+    if (st.state === "done") {
+      prefs.set("appOfferHidden", Date.now()); document.querySelectorAll(".app-offer").forEach(x => x.remove());
+      go.textContent = update ? "Update" : "Install again"; $("[data-dismiss]", d).focus();
+    }
+    else { go.textContent = "Try again"; go.focus(); }
+  });
+}
+document.addEventListener("click", e => {
+  const b = e.target.closest("[data-app-install],[data-app-later],[data-apps-fetch]"); if (!b) return;
+  if (b.dataset.appLater) { prefs.set("appOfferHidden", Date.now()); const s = b.closest(".app-offer"); if (s) s.remove(); return; }
+  if (b.dataset.appsFetch) {
+    api("/api/admin/apps/fetch", {}).then(() => toast("Getting the newest Fire TV app. It shows here in a minute."), err => toast(err.message));
+    return;
+  }
+  appInstallDialog();
+});
 function viewEmptyLibrary() {
   setGlow("");
   if (LIB.reading) return `<section class="empty"><i class="reading-spin" aria-hidden="true"></i><h1>Sofa is reading your library</h1>
@@ -1547,7 +1611,7 @@ function srvOverview(d) {
     </div>
     <div class="panels">
       <div class="panel"><h2>How to watch</h2><p class="hint">Open one of these addresses and sign in.</p><div class="addr">${addr.join("")}</div></div>
-      ${s.lan.length ? appsPanel(`http://${s.lan[0]}:${port}`) : ""}
+      ${s.lan.length ? appsPanel(`http://${s.lan[0]}:${port}`, d.apps) : ""}
       <div class="panel"><h2>Watching now</h2><p class="hint">"Repackaged" and "converted" mean Sofa is adapting the file for that device as it plays.</p><ul class="list">${streams}</ul></div>
       <div class="panel"><h2>Inbox</h2><p class="hint">Sofa waits until a copy finishes, then names and files it. Put adult content in <code>Inbox/XXX</code>.</p>
         <div class="actions"><button class="btn" data-send-files="normal">Send files from this device</button></div><ul class="list">${inbox}</ul>
@@ -1558,10 +1622,15 @@ function srvOverview(d) {
     </div>`;
 }
 /* Sofa's own TV apps: they play MKV, HEVC and Dolby sound as they are, so this computer converts less. */
-function appsPanel(base) {
+function appsPanel(base, a) {
+  const ft = a && a.firetv;
+  const kept = ft ? `On this computer: version ${esc(ft.version || "?")} (${bytes(ft.size)}), ready for your Fire TVs.`
+    : a && a.offline ? "Not on this computer: Sofa is offline. Put sofa-firetv.apk in Sofa's data/apps folder yourself."
+    : "Not on this computer yet: Sofa gets it from GitHub by itself a minute after starting.";
   return `<div class="panel"><h2>Apps</h2><p class="hint">Sofa's own apps for TVs. They play most files as they are, so this computer hardly converts anything. Sign in by approving a code on your phone.</p>
     <div class="addr apps">
-      <div><b>Fire TV</b><code>${esc(base)}/firetv</code><span>Install Downloader from the Amazon Appstore, allow it under Settings → My Fire TV → Developer options → Install unknown apps, then type this address in it.</span></div>
+      <div><b>Fire TV</b><span>Easiest: open Sofa in Silk on the Fire TV and press <b>Install the Sofa app</b> on Home. Or with the Downloader app (allowed under Settings → My Fire TV → Developer options → Install unknown apps), type:</span>
+        <code>${esc(base)}/firetv</code><span>${kept}${a && !a.offline ? ` <button class="mini" data-apps-fetch="1">Get the newest now</button>` : ""}${a && a.error ? ` <span class="bad">Last try: ${esc(a.error)}</span>` : ""}</span></div>
       <div><b>Roku</b><code>${esc(base)}/roku.zip</code><span>Put the Roku in developer mode (on its remote: Home ×3, Up ×2, Right, Left, Right, Left, Right), download this file on a computer, and upload it on the page at the address the Roku shows.</span></div>
       <div><b>Raspberry Pi</b><code>curl -fsSL ${esc(base)}/sofa-box/install.sh | sudo sh -s ${esc(base)}</code><span>Makes a Pi on the TV a Sofa box: it starts straight into Sofa. Run this on the Pi (Raspberry Pi OS Lite). The TV's remote, your phone or a game controller work it.</span></div>
     </div></div>`;
@@ -3818,6 +3887,7 @@ async function boot() {
   await reloadLibrary();
   route();
   if (!session.user.guest) Screens.start();
+  if (FIRE_TV && NATIVE) api("/api/apps").then(a => { appsInfo = a; if (!location.hash || location.hash === "#/") rerender(); }).catch(() => {});
   // On a TV, Sofa asks who's watching each time it's opened (when there's more than one profile).
   if (TV && session.profiles > 1 && !sessionStorage.getItem("sofaPicked")) setTimeout(() => profilePicker(true), 400);
   // Sofa just started and is still reading the library: look again every few seconds until it's done.

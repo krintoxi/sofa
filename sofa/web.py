@@ -17,7 +17,7 @@ from urllib.parse import parse_qs, quote, unquote, urlsplit
 
 import threading
 
-from . import (__version__, artwork, auth, backup, config, dlna, fetch, housekeeping, intros, live, media, metadata, music,
+from . import (__version__, apps, artwork, auth, backup, config, dlna, fetch, housekeeping, intros, live, media, metadata, music,
                kids, machine, net, optimize, organizer, places, previews, report, screens, store, trickplay, updater,
                discovery, pairing, travel, uploads)
 from .library import LIBRARY
@@ -52,6 +52,11 @@ class Handler(BaseHTTPRequestHandler):
             if fwd:
                 return fwd.split(",")[0].strip()
         return peer
+
+    def device_ip(self):
+        """The address of the device asking (an IPv4 address even when it arrives as ::ffff:192.168.1.5)."""
+        ip = self.client_ip()
+        return ip[7:] if ip.startswith("::ffff:") else ip
 
     def is_https(self):
         return config.get("trust_proxy") and self.headers.get("X-Forwarded-Proto") == "https"
@@ -606,6 +611,10 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/screen/wait":             # this page, waiting to be told what to play (the phone remote)
             return self.json({"commands": screens.wait((qs.get("id") or [""])[0][:40], (qs.get("name") or [""])[0],
                                                        u["id"], (qs.get("tv") or [""])[0] == "1")})
+        if path == "/api/apps":                    # Sofa's TV apps on this computer (the Fire TV app's version)
+            return self.json(apps.status())
+        if path == "/api/apps/firetv/install":     # how putting the app on this Fire TV is going
+            return self.json(apps.install_status(self.device_ip()))
         if path == "/api/screens":                 # this person's other open screens
             return self.json({"screens": screens.listing(u["id"], exclude=(qs.get("me") or [""])[0])})
         if path == "/api/progress":
@@ -798,6 +807,17 @@ class Handler(BaseHTTPRequestHandler):
             if not item:
                 return self.error(404, "That video isn't in the library any more.")
             travel.want(item)
+            return self.json({"ok": True})
+        if path == "/api/apps/firetv/install":      # "Install the Sofa app", pressed on a Fire TV: Sofa puts it on that one
+            if not self.may_switch(u):
+                return self.error(403, "Install the app from the Fire TV itself, at home, signed in as yourself.")
+            apps.start_install(self.device_ip(), u["name"])
+            return self.json(apps.install_status(self.device_ip()))
+        if path == "/api/admin/apps/fetch":          # get the newest Fire TV app from GitHub now
+            if net.offline_mode():
+                return self.error(409, "Sofa is set to work offline. Put sofa-firetv.apk in Sofa's data/apps folder yourself, "
+                                       "or switch offline mode off (Settings).")
+            threading.Thread(target=lambda: apps.fetch(force=True), daemon=True).start()
             return self.json({"ok": True})
         if path == "/api/pair/approve":
             if not self.may_switch(u):
@@ -1266,6 +1286,7 @@ def admin_status():
         "encoder": "Apple hardware (VideoToolbox)" if media.hardware_encoder() else
                    ("x264 (software)" if "libx264" in media.encoders() else None),
         "streams": media.active_streams(),
+        "apps": apps.status(),
         "inbox": organizer.pending(),
         "review": store.recent_activity(20, kinds={"review"}),
         "activity": store.recent_activity(150),

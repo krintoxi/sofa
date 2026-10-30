@@ -89,6 +89,15 @@ A `401` means the token was signed out: pair again.
 Media addresses take the same `Authorization` header (ExoPlayer: `DefaultHttpDataSource` request
 properties; Roku: `HttpHeaders` on the content node).
 
+## Sofa's apps
+
+- `GET /api/apps` → `{"firetv": {"version", "size", "at"} | null, "fetching", "error", "offline"}`: the
+  Fire TV app the Sofa computer keeps (`/firetv` serves it).
+- `POST /api/apps/firetv/install` (signed in, at home) installs or updates it on the device asking,
+  over ADB (port 5555, "ADB debugging" on); `GET /api/apps/firetv/install` says how it's going:
+  `{"state": "preparing" | "connecting" | "approve" | "copying" | "installing" | "opening" | "done" | "failed", "message", "progress"}`.
+- Inside the app, `SofaNative.appVersion()` is its build; Sofa offers "Update" when `firetv.version` is newer.
+
 ## Being a screen (the phone remote)
 
 An app on a TV can be told what to play by the person's phone:
