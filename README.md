@@ -101,8 +101,13 @@ deleted. More: [docs/folder-structure.md](docs/folder-structure.md).
   under Theme.
 - **A proper player.** Skip Intro / Skip Recap / Skip Credits, "Next episode" when the
   credits start, previews while you scrub, an episode list, sound-track and subtitle
-  choice, picture quality for converted video, a sleep timer, picture-in-picture, speed,
-  keyboard shortcuts (press `?`), and double-tap to skip on phones.
+  choice, **Night mode** (loud scenes quieter, voices clearer), picture quality for converted
+  video, a sleep timer, picture-in-picture, speed, keyboard shortcuts (press `?`), and
+  double-tap to skip on phones.
+- **Your phone is the remote.** With Sofa open on the TV, press the screen button at the top of
+  Sofa on your phone, pick the TV, and Play sends things there; a bar on the phone pauses,
+  skips, scrubs, goes to the next episode and stops. Works for any of your screens, at home,
+  through the Sofa computer only. [docs/tv.md](docs/tv.md)
 - **Artwork and details.** Shows from TVmaze; movies from the iTunes Store and Wikipedia
   (or TMDB, with a free key, for the best posters and collections); `.nfo` files next to your
   videos are read too. Episodes without a picture get a well-chosen still from the video, and a
@@ -127,6 +132,10 @@ deleted. More: [docs/folder-structure.md](docs/folder-structure.md).
 - **Who's watching?** Everyone has their own profile, with their own "continue watching" and
   My List. The TV asks who's watching when Sofa opens; profiles that can see Adult or run the
   server are locked with a 4-digit PIN. Guests on your Wi-Fi scan a QR code on the Server page.
+- **Kids profiles.** Switch **Kids** on for a profile (Server → People): it sees only family
+  titles (rated for children, or Kids and Family genres), never Adult, Live TV or the Server
+  page, and leaving it takes the other profile's PIN. **For kids** on any show or movie page
+  allows or blocks that title.
 - **Suggestions.** "More like this" on every show and movie, and "Because you watched …" rows on
   Home, worked out at home from genres, collections, networks and years (nothing is sent anywhere).
 - **Light on old hardware.** The web app downloads the library compressed (a 7,500-file library is
@@ -177,11 +186,11 @@ link you trust and tick **Adult channels**. [docs/adult.md](docs/adult.md)
 |---|---|
 | Overview | addresses to watch from, who's watching, the Inbox, anything that needs you, this computer (speed, Gentle mode, quiet hours) |
 | Storage | where the library is (this computer and drives), where new things go, drives to add, moves between drives |
-| Library | folders, rescan, **missing details** (fix them in a click), new pictures, free up space, the Deleted folder, Skip Intro progress, Needs Review |
+| Library | folders, rescan, **missing details** (fix them in a click), **duplicates** (keep the best copy), new pictures, free up space, the Deleted folder, Skip Intro progress, Needs Review |
 | Converting | the convert-to-MP4 queue with progress; automatic converting on/off |
 | Downloads | save videos from links; install yt-dlp; use a browser's sign-in; the "Send to Sofa" bookmark |
 | Live TV | channel lists |
-| People | accounts, Adult access, guests |
+| People | accounts, Adult access, Kids profiles, guests |
 | Settings | **privacy** (keep no logs, wipe all logs, work offline), name, theme, TV sharing, TMDB key, ThePornDB token, backups |
 | Updates | version, **Update now** |
 | Activity | everything Sofa did, filterable |

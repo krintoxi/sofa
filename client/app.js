@@ -83,10 +83,14 @@ function appearanceDialog() {
       <button class="switch" role="switch" aria-checked="${prefs.get("bannerClips", true) !== false}" data-banner-toggle="1" aria-label="Play the banner"></button></div>
     <div class="toggle"><div><b>Trailers</b><span>A show's or movie's page plays three minutes of it, from somewhere in the middle, behind the title.</span></div>
       <button class="switch" role="switch" aria-checked="${prefs.get("trailers", true) !== false}" data-trailer-toggle="1" aria-label="Trailers"></button></div>
+    <h3 class="dlg-sub">This device</h3>
+    <label class="field"><span>Its name, for playing on it from your phone</span><input data-screen-name="1" maxlength="40" value="${esc(prefs.get("screenName", ""))}" placeholder="${esc(Screens.defaultName())}"></label>
     <h3 class="dlg-sub">TV mode</h3>
     <div class="toggle"><div><b>Big buttons for a remote</b><span>Turns on by itself on Fire TV, Android TV and smart TVs.</span></div>
       <button class="switch" role="switch" aria-checked="${TV}" data-tv-toggle="1" aria-label="TV mode"></button></div>
     <div class="actions"><button class="btn primary" data-dismiss="1">Done</button></div>`);
+  const nameBox = $("[data-screen-name]", d);
+  if (nameBox) nameBox.addEventListener("change", () => prefs.set("screenName", nameBox.value.trim()));
   d.addEventListener("click", e => {
     const t = e.target.closest("[data-theme-pick],[data-sub-size],[data-tv-toggle],[data-banner-toggle],[data-trailer-toggle]"); if (!t) return;
     if (t.dataset.trailerToggle) { const on = prefs.get("trailers", true) === false; prefs.set("trailers", on); t.setAttribute("aria-checked", on);
@@ -355,7 +359,7 @@ function heroFor(show, short) {
       ${show.summary ? `<p class="summary${short ? "" : " clamp"}">${esc(show.summary)}</p>` : ""}
       <div class="actions">${action}${short ? "" : `<a class="btn" href="#/show/${encodeURIComponent(show.id)}">Episodes</a>`}${show.adult ? "" : listBtn(show.id)}${short && inRows(show) ? forgetBtn(show) : ""}
         ${short && session.user.admin ? `<button class="btn ghost" data-fix="${esc(show.id)}">${show.source ? "Fix details" : "Find details"}</button>
-          <button class="btn ghost" data-manage="${esc(show.id)}">${icon("i-more")}Manage</button>` : ""}</div>
+          <button class="btn ghost" data-manage="${esc(show.id)}">${icon("i-more")}Manage</button>${kidsBtn(show)}` : ""}</div>
     </div></section>`;
 }
 
@@ -710,7 +714,7 @@ function viewMovie(id) {
           <button class="btn ghost" data-watched="${esc(m.id)}" aria-pressed="${isDone(m.id)}">${icon("i-check")}${isDone(m.id) ? "Watched" : "Mark watched"}</button>
           ${m.adult ? `<button class="btn ghost heart-btn" data-like="${esc(m.id)}" aria-pressed="${favs.has(m.id)}">♥ ${favs.has(m.id) ? "In Favorites" : "Favorite"}</button>` : listBtn(m.id)}
           ${session.user.admin ? `<button class="btn ghost" data-fix="${esc(m.id)}">${m.source ? "Fix details" : "Find details"}</button>
-            <button class="btn ghost" data-manage="${esc(m.id)}">${icon("i-more")}Manage</button>` : ""}
+            <button class="btn ghost" data-manage="${esc(m.id)}">${icon("i-more")}Manage</button>${kidsBtn(m)}` : ""}
         </div>
         ${session.user.admin ? `<p class="fileline">${esc(m.file)}${m.source ? " · details from " + esc(m.source) : " · no details found yet"}</p>` : ""}
       </div></div></section>
@@ -998,6 +1002,7 @@ function becauseYouWatched() {
 }
 
 /* ---------- favorites (♥) ---------- */
+const kidsBtn = x => session.user.admin && session.kids_profiles && !x.adult ? (on => `<button class="btn ghost" data-kids-title="${esc(x.id)}" aria-pressed="${on}" title="${(LIB.kids_choices || {})[x.id] !== undefined ? "Set by an admin" : "From its rating and genres"}">${on ? icon("i-check") : ""}For kids</button>`)((LIB.for_kids || []).includes(x.id)) : "";
 const forgetBtn = x => `<button class="btn ghost" data-forget="${esc(x.id)}" title="Remove from Continue watching">${icon("i-close")}<span>Remove from Continue watching</span></button>`;
 const listBtn = id => `<button class="btn ghost list-btn" data-like="${esc(id)}" aria-pressed="${favs.has(id)}">${favs.has(id) ? icon("i-check") + "My List" : "+ My List"}</button>`;
 const roundListBtn = id => `<button class="round list-round${favs.has(id) ? " on" : ""}" data-like="${esc(id)}" aria-pressed="${favs.has(id)}" aria-label="${favs.has(id) ? "Remove from My List" : "Add to My List"}">${favs.has(id) ? icon("i-check") : `<b aria-hidden="true">+</b>`}</button>`;
@@ -1224,7 +1229,7 @@ document.addEventListener("input", e => {
 
 /* ---------- sign in and first-run setup ---------- */
 function authView(kind) {
-  $("#nav").hidden = $("#searchBox").hidden = $("#searchBtn").hidden = $("#who").hidden = true;
+  $("#nav").hidden = $("#searchBox").hidden = $("#searchBtn").hidden = $("#who").hidden = $("#castBtn").hidden = true;
   setGlow("");
   const setup = kind === "setup";
   view.innerHTML = `<section class="auth"><form class="auth-card" id="authForm" autocomplete="on">
@@ -1263,7 +1268,7 @@ async function loadAdmin() {
   try {
     const d = await api("/api/admin/status");
     d.live = (await api("/api/live")).playlists;
-    if (adminTab === "library") { d.missing = (await api("/api/admin/missing")).items; d.intros = await api("/api/admin/intros"); }
+    if (adminTab === "library") { d.missing = (await api("/api/admin/missing")).items; d.intros = await api("/api/admin/intros"); d.duplicates = (await api("/api/admin/duplicates")).groups; }
     if (adminTab === "convert") d.convert = await api("/api/admin/convert");
     if (adminTab === "downloads") d.downloads = await api("/api/admin/downloads");
     if (adminTab === "storage") d.storage = await api("/api/admin/storage");
@@ -1361,6 +1366,19 @@ function machinePanel(m) {
     <form class="inline-form" data-quiet-form="1"><label class="field"><span>Quiet hours</span><input name="v" value="${esc(m.quiet_hours)}" pattern="\\d\\d:\\d\\d-\\d\\d:\\d\\d" aria-label="Quiet hours"></label>
       <button class="btn">Save</button><button class="btn ghost" type="button" data-machine-test="1">Test the speed again</button></form></div>`;
 }
+/* The same episode or movie more than once: the best copy is kept (sharpest, then MP4, then biggest),
+   the others go to Deleted (emptied when you're sure). */
+function dupesPanel(groups) {
+  if (!groups) return `<div class="panel wide"><h2>Duplicates</h2><p class="hint">Looking…</p></div>`;
+  if (!groups.length) return `<div class="panel wide"><h2>Duplicates</h2><p class="hint">Nothing is here twice.</p></div>`;
+  const spare = groups.reduce((n, g) => n + g.spare, 0);
+  const copy = (c, i) => `${i ? "" : `<b class="tag ok">keep</b> `}${esc(c.file)} · ${esc([quality(c.height), (c.ext || "").toUpperCase(), c.size ? bytes(c.size) : "", c.where].filter(Boolean).join(" · "))}`;
+  return `<div class="panel wide"><h2>Duplicates</h2>
+    <p class="hint">${plural(groups.length, "title")} ${groups.length === 1 ? "is" : "are"} here more than once; the spare copies use ${bytes(spare)}. Sofa keeps the best copy of each (the sharpest picture, then MP4, then the bigger file) and puts the others in Deleted, which you empty when you're sure.</p>
+    <div class="actions"><button class="btn" data-dupes="*">Keep the best of each (frees ${bytes(spare)})</button></div>
+    <ul class="list">${groups.slice(0, 60).map(g => `<li><span><b>${esc(g.title)}</b><br><span class="when">${g.copies.map(copy).join("<br>")}</span></span>
+      <button class="mini" data-dupes="${esc(g.key)}">Keep the best</button></li>`).join("")}</ul></div>`;
+}
 function srvLibrary(d) {
   const L = d.library, f = L.folders;
   const folders = [["Inbox (drop things here)", f.inbox], ["Shows", f.shows], ["Movies", f.movies], ["Adult", f.adult], ["Music", f.music],
@@ -1376,6 +1394,7 @@ function srvLibrary(d) {
       <dl class="kv">${folders.map(x => `<dt>${esc(x[0])}</dt><dd><code>${esc(x[1])}</code></dd>`).join("")}</dl></div>
     <div class="panel wide"><h2>Missing details</h2><p class="hint">Sofa found nothing about these. Click <b>Find details</b>, search, and pick the right one; the artwork and description follow. You can also do it from any show or movie page.</p>
       <ul class="list two-col">${missing}</ul></div>
+    ${dupesPanel(d.duplicates)}
     <div class="panel wide"><h2>Needs your help</h2><p class="hint">Files Sofa couldn't identify are in the Needs Review folder. Rename them like <code>Show Name S01E02.mkv</code> or <code>Movie Title (1999).mkv</code> and drop them in the Inbox again.</p>
       <ul class="list">${d.review.length ? d.review.map(actRow).join("") : `<li class="empty-row">Nothing needs your attention.</li>`}</ul></div>
     <div class="panel wide"><h2>Skip Intro</h2>
@@ -1546,10 +1565,11 @@ function srvLive(d) {
 }
 function srvPeople(d) {
   const users = d.users.filter(u => !u.guest).map(u => `<li><span><b>${esc(u.name)}</b>${u.admin ? ` <span class="tag ok">admin</span>` : ""}<br><span class="when">${u.seen ? "Last seen " + esc(ago(u.seen)) : "Hasn't signed in yet"}</span></span>
-    <span class="row-actions"><label class="adult-toggle" title="Can see the Adult section"><span>Adult</span><button class="switch small" role="switch" aria-checked="${!!u.adult}" data-user-adult="${u.id}" aria-label="${esc(u.name)} can see the Adult section"></button></label>
+    <span class="row-actions">${u.admin ? "" : `<label class="adult-toggle" title="Sees only family titles; no Adult, Live TV or Server"><span>Kids</span><button class="switch small" role="switch" aria-checked="${!!u.kids}" data-user-kids="${u.id}" aria-label="${esc(u.name)} is a Kids profile"></button></label>`}
+    ${u.kids ? "" : `<label class="adult-toggle" title="Can see the Adult section"><span>Adult</span><button class="switch small" role="switch" aria-checked="${!!u.adult}" data-user-adult="${u.id}" aria-label="${esc(u.name)} can see the Adult section"></button></label>`}
     <button class="mini" data-user-pass="${u.id}" data-user-name="${esc(u.name)}">New password</button>${u.id !== session.user.id ? `<button class="mini danger" data-user-del="${u.id}" data-user-name="${esc(u.name)}">Remove</button>` : ""}</span></li>`).join("");
   return `<div class="panels">
-    <div class="panel wide"><h2>People</h2><p class="hint">Everyone gets their own sign-in and their own "continue watching". The <b>Adult</b> switch decides who sees the Adult section (it's off for everyone until you turn it on, you included).</p><ul class="list">${users}</ul>
+    <div class="panel wide"><h2>People</h2><p class="hint">Everyone gets their own sign-in and their own "continue watching". The <b>Adult</b> switch decides who sees the Adult section (it's off for everyone until you turn it on, you included). A <b>Kids</b> profile sees only family titles (rated for children, or Kids and Family genres), and no Adult, Live TV or Server page; allow or block any title with <b>For kids</b> on its page.</p><ul class="list">${users}</ul>
       <form class="inline-form" id="addUser"><label class="field"><span>Name</span><input name="name" required maxlength="40"></label>
       <label class="field"><span>Password</span><input name="password" type="password" required minlength="8" autocomplete="new-password"></label>
       <button class="btn" type="submit">Add</button><label class="check"><input type="checkbox" name="admin"> Can manage the server</label>
@@ -1684,7 +1704,7 @@ function route(animate) {
   else if (name === "adult" && session.user.adult) { html = viewAdult(rest); nav = "adult"; }
   else if (name === "search") { html = viewSearch(rest.join("/")); nav = "search"; }
   else if (name === "mylist") { html = viewMyList(); nav = "mylist"; }
-  else if (name === "live") { html = viewLive(); nav = "live"; }
+  else if (name === "live" && !session.user.kids) { html = viewLive(); nav = "live"; }
   else if (name === "music") { html = viewMusic(rest); nav = "music"; }
   else if (name === "server" && session.user.admin) { html = viewServer(rest[0]); nav = "server"; }
   else { html = viewHome(); nav = "home"; }
@@ -1707,7 +1727,7 @@ window.addEventListener("hashchange", () => { route(); scrollTo(0, 0); });
 
 /* ---------- interactions ---------- */
 document.addEventListener("click", e => {
-  const t = e.target.closest("[data-slide],[data-intros-recheck],[data-manage],[data-machine-test],[data-drive-use],[data-place-remove],[data-new-pictures],[data-empty-deleted],[data-free-space],[data-retry-details],[data-adult-nav],[data-asort],[data-adult-play],[data-like],[data-forget],[data-seen],[data-wipe-logs],[data-trailer-sound],[data-trailer-replay],[data-redo-damaged],[data-add-link],[data-dl-retry],[data-dl-cancel],[data-dl-clear],[data-dl-install],[data-enable-adult],[data-conv-retry],[data-conv-cancel],[data-conv-all],[data-conv-clear],[data-update],[data-user-adult],[data-act-kind],[data-key-clear],[data-fix],[data-msort],[data-adult-tab],[data-play-start],[data-srv-tab],[data-mlike],[data-mplay],[data-mplay-one],[data-mplay-list],[data-mshuffle-list],[data-station],[data-mtab],[data-play-mv],[data-guest-clear],[data-play],[data-watched],[data-season],[data-sort],[data-nudge],[data-season-watched],[data-dismiss],[data-admin],[data-setting],[data-user-pass],[data-user-del],[data-live],[data-fav],[data-group],[data-preset],[data-live-remove]");
+  const t = e.target.closest("[data-slide],[data-intros-recheck],[data-manage],[data-machine-test],[data-drive-use],[data-place-remove],[data-new-pictures],[data-empty-deleted],[data-free-space],[data-retry-details],[data-adult-nav],[data-asort],[data-adult-play],[data-like],[data-forget],[data-seen],[data-wipe-logs],[data-trailer-sound],[data-trailer-replay],[data-redo-damaged],[data-add-link],[data-dl-retry],[data-dl-cancel],[data-dl-clear],[data-dl-install],[data-enable-adult],[data-conv-retry],[data-conv-cancel],[data-conv-all],[data-conv-clear],[data-update],[data-user-adult],[data-user-kids],[data-dupes],[data-kids-title],[data-act-kind],[data-key-clear],[data-fix],[data-msort],[data-adult-tab],[data-play-start],[data-srv-tab],[data-mlike],[data-mplay],[data-mplay-one],[data-mplay-list],[data-mshuffle-list],[data-station],[data-mtab],[data-play-mv],[data-guest-clear],[data-play],[data-watched],[data-season],[data-sort],[data-nudge],[data-season-watched],[data-dismiss],[data-admin],[data-setting],[data-user-pass],[data-user-del],[data-live],[data-fav],[data-group],[data-preset],[data-live-remove]");
   if (!t) return;
   if (t.dataset.fix) { fixDialog(t.dataset.fix); return; }
   if (t.dataset.manage) { manageDialog(t.dataset.manage); return; }
@@ -1733,6 +1753,21 @@ document.addEventListener("click", e => {
   if (t.dataset.update === "install") {
     if (!confirm("Update Sofa now? Anyone watching will be interrupted for about a minute while it restarts. Your media and settings are not touched.")) return;
     t.disabled = true; t.textContent = "Starting…"; adminAction(() => api("/api/admin/update", { install: true })); return;
+  }
+  if (t.dataset.dupes) {
+    const all = t.dataset.dupes === "*";
+    if (all && !confirm("Keep the best copy of each and put the others in Deleted?")) return;
+    t.disabled = true;
+    api("/api/admin/duplicates", all ? { all: true } : { keys: [t.dataset.dupes] })
+      .then(r => { toast(r.copies ? r.copies + (r.copies === 1 ? " spare copy" : " spare copies") + " in Deleted (" + bytes(r.freed) + "). Empty Deleted when you're sure." : "Nothing to do."); loadAdmin(); })
+      .catch(e => { t.disabled = false; toast(e.message); });
+    return;
+  }
+  if (t.dataset.userKids) { const on = t.getAttribute("aria-checked") !== "true"; adminAction(() => api("/api/admin/users/" + t.dataset.userKids + "/kids", { on }).then(() => { session.kids_profiles = session.kids_profiles || on; })); return; }
+  if (t.dataset.kidsTitle) {
+    const id = t.dataset.kidsTitle, on = t.getAttribute("aria-pressed") !== "true";
+    api("/api/admin/kids", { id, allow: on }).then(async () => { await reloadLibrary(); rerender(); toast(on ? "Kids profiles can watch this now." : "Kids profiles won't see this."); }).catch(e => toast(e.message));
+    return;
   }
   if (t.dataset.userAdult) { const on = t.getAttribute("aria-checked") !== "true"; adminAction(async () => { await api("/api/admin/users/" + t.dataset.userAdult + "/adult", { on }); if (+t.dataset.userAdult === session.user.id) boot(); }); return; }
   if (t.dataset.actKind) { activityKind = t.dataset.actKind; rerender(); return; }
@@ -1770,6 +1805,7 @@ document.addEventListener("click", e => {
     toast("Removed from Continue watching. It comes back when you watch it again."); return;
   }
   if (t.dataset.addLink) { addLinkDialog(t.dataset.addLink === "adult"); return; }
+  if ((t.dataset.play || t.dataset.playStart) && Screens.target()) { e.preventDefault(); closePop(); Screens.play(t.dataset.play || t.dataset.playStart, !!t.dataset.playStart); return; }
   if (t.dataset.playStart) { setProgress(t.dataset.playStart, null, true); Player.open(byId.get(t.dataset.playStart)); return; }
   if (t.dataset.srvTab) { location.hash = "#/server/" + t.dataset.srvTab; return; }
   if (t.dataset.mlike) { e.stopPropagation(); setLike(t.dataset.mlike, !likes.has(t.dataset.mlike)); return; }
@@ -1999,6 +2035,7 @@ function fixDialog(id) {
 /* ---------- "Who's watching?": profiles ---------- */
 const avatar = (p, id) => `<span class="av av-${(p.avatar || 0) % 8}"${id ? ` id="${id}"` : ""} aria-hidden="true">${esc((p.name || "?").trim().charAt(0).toUpperCase())}</span>`;
 $("#whoBtn").addEventListener("click", () => session.profiles ? profilePicker(false) : accountDialog());
+$("#castBtn").addEventListener("click", () => Screens.choose());
 /* On a TV the header has room only for the avatar: Theme and Sign out are behind it. */
 function accountDialog() {
   const d = openDialog(`<h2>${esc(session.user.name)}</h2>
@@ -2017,7 +2054,7 @@ async function profilePicker(auto) {
   const d = openDialog(`<div class="gate-inner"><h2>Who's watching?</h2>
     <div class="profiles">${r.profiles.map(p => `<button class="profile" data-profile="${p.id}">
       <span class="tile">${avatar(p)}${p.locked && p.id !== r.me ? `<i class="lock" aria-label="Locked">${icon("i-lock")}</i>` : ""}</span>
-      <span class="pname">${esc(p.name)}</span>${p.id === r.me ? `<span class="me">Watching now</span>` : ""}</button>`).join("")}</div>
+      <span class="pname">${esc(p.name)}</span>${p.kids ? `<span class="kids-tag">Kids</span>` : ""}${p.id === r.me ? `<span class="me">Watching now</span>` : ""}</button>`).join("")}</div>
     <div class="actions center"><button class="btn ghost" data-my-profile="1">Your profile: color and PIN</button>
       ${auto ? "" : `<button class="btn ghost" data-pick-theme="1">Theme</button><button class="btn ghost" data-sign-out="1">${session.user.guest ? "Leave" : "Sign out"}</button><button class="btn ghost" data-dismiss="1">Close</button>`}</div></div>`);
   d.classList.add("gate"); d.parentElement.classList.add("gate-scrim");
@@ -2036,7 +2073,7 @@ async function profilePicker(auto) {
 function codePrompt(d, p) {
   const pin = p.pin;
   $(".gate-inner", d).innerHTML = `<div class="code-head">${avatar(p)}<h2>${esc(p.name)}</h2>
-      <p>${pin ? "Type the PIN for this profile." : "This profile can see Adult or run the server, so it needs its password."}</p></div>
+      <p>${pin ? "Type the PIN for this profile." : session.user.kids ? "Leaving a Kids profile needs this profile's password (or set a PIN for it)." : "This profile can see Adult or run the server, so it needs its password."}</p></div>
     ${pin ? `<div class="pin-dots" aria-live="polite">${"<i></i>".repeat(4)}</div>
       <div class="pin-pad">${[1, 2, 3, 4, 5, 6, 7, 8, 9, "", 0, "⌫"].map(k => k === "" ? "<span></span>" : `<button data-key="${k}">${k}</button>`).join("")}</div>`
       : `<form class="code-form"><input type="password" name="code" autocomplete="current-password" aria-label="Password" placeholder="Password"><button class="btn primary">Continue</button></form>`}
@@ -2226,6 +2263,120 @@ document.addEventListener("keydown", e => {
   if ((e.key === "Enter" || e.key === " ") && e.target.matches && e.target.matches("[data-mplay],[data-qjump]")) { e.preventDefault(); e.target.click(); }
 });
 
+/* ---------- the phone remote: "Play on" another screen ----------
+   Every open Sofa page is a screen. A phone sees its person's other open screens (the TV, a laptop),
+   sends one something to play and controls it from a bar at the bottom; the TV waits for commands
+   and says what it's playing. It all goes through the Sofa computer, at home, and nothing is kept. */
+const Screens = (function () {
+  const wait = ms => new Promise(r => setTimeout(r, ms));
+  const id = (() => {
+    try { let v = sessionStorage.getItem("sofaScreen"); if (!v) { v = Math.random().toString(36).slice(2, 12) + Date.now().toString(36).slice(-4); sessionStorage.setItem("sofaScreen", v); } return v; }
+    catch (e) { return Math.random().toString(36).slice(2, 14); }
+  })();
+  const ua = navigator.userAgent;
+  const defaultName = () => /AFT/.test(ua) ? "Fire TV" : TV ? "TV" : /iPhone/.test(ua) ? "iPhone" : /iPad/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1) ? "iPad"
+    : /Android/.test(ua) ? "Android" : /Mac/.test(ua) ? "Mac" : /Windows/.test(ua) ? "Windows PC" : "Browser";
+  const name = () => prefs.get("screenName", "") || defaultName();
+  let target = null, others = [], listening = false, reported = "", bar = null, pollTimer = 0;
+
+  async function listen() {                    // wait for commands from the person's phone, all the time
+    if (listening) return; listening = true;
+    while (session && session.user) {
+      if (document.hidden && !TV) { await wait(3000); continue; }
+      try {
+        const r = await api("/api/screen/wait?id=" + id + "&name=" + encodeURIComponent(name()) + "&tv=" + (TV ? 1 : 0));
+        (r.commands || []).forEach(run);
+      } catch (e) { await wait(5000); }
+    }
+    listening = false;
+  }
+  function run(c) {
+    if (c.cmd === "play") {
+      const it = byId.get(c.item); if (!it) return;
+      if (c.t === 0) setProgress(it.id, null, true);
+      Player.open(it);
+      if (c.from) toast("Playing from " + c.from);
+    } else Player.control(c);
+    setTimeout(report, 900);
+  }
+  function report() {                          // what this screen is playing, for the remote's bar
+    const st = Player.status(), key = JSON.stringify(st);
+    if (key === reported && !st.item) return;
+    reported = key;
+    api("/api/screen/state", { id, state: st }).catch(() => {});
+  }
+  setInterval(() => { if (session && session.user && (Player.isOpen() || reported !== "{}")) report(); }, 4000);
+
+  async function refresh() {                   // this person's other screens (for the Play on button)
+    clearTimeout(pollTimer);
+    if (session && session.user && !document.hidden) {
+      try { others = (await api("/api/screens?me=" + id)).screens || []; } catch (e) { others = []; }
+      if (target && !others.some(s => s.id === target.id)) { toast(target.name + " isn't open any more."); target = null; }
+      const b = $("#castBtn");
+      if (b) { b.hidden = !others.length && !target; b.classList.toggle("on", !!target); b.setAttribute("aria-label", target ? "Playing on " + target.name : "Play on another screen"); }
+      paint();
+    }
+    pollTimer = setTimeout(refresh, target ? 2000 : 20000);
+  }
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
+
+  function nowPlaying(s) {
+    const it = s.state && s.state.item && byId.get(s.state.item);
+    return it ? (s.state.paused ? "Paused: " : "Playing ") + (it.kind === "episode" ? (it.show ? it.show.name : "") + " " + epCode(it) : title(it)) : "Nothing playing";
+  }
+  function choose() {
+    const d = openDialog(`<h2>Play on</h2><div class="cast-list">
+      <button class="cast-item" data-cast="" aria-pressed="${!target}"><b>This ${esc(defaultName())}</b><span>Play here, as usual</span></button>
+      ${others.map(s => `<button class="cast-item" data-cast="${esc(s.id)}" aria-pressed="${!!target && target.id === s.id}"><b>${esc(s.name)}</b><span>${esc(nowPlaying(s))}</span></button>`).join("")}</div>
+      <p class="hint">A screen shows up here while Sofa is open on it, signed in as you. Give this one a name under Theme.</p>`);
+    d.addEventListener("click", e => {
+      const b = e.target.closest("[data-cast]"); if (!b) return;
+      const s = others.find(x => x.id === b.dataset.cast);
+      target = s ? { id: s.id, name: s.name } : null;
+      closeDialog(); refresh();
+      if (s) toast("Now Play sends things to " + s.name + ".");
+    });
+  }
+  async function send(command) {
+    if (!target) return;
+    try { await api("/api/screens/" + target.id, { command, name: name() }); setTimeout(refresh, 800); }
+    catch (e) { toast(e.message); if (e.status === 404) { target = null; refresh(); } }
+  }
+  function paint() {                           // the remote: a bar at the bottom while playing on another screen
+    if (!target) { if (bar) bar.hidden = true; document.body.classList.remove("has-remote"); return; }
+    if (!bar) {
+      bar = document.createElement("div"); bar.className = "remote-bar"; bar.setAttribute("role", "region"); bar.setAttribute("aria-label", "Remote");
+      document.body.appendChild(bar);
+      bar.addEventListener("click", e => {
+        const b = e.target.closest("[data-rc]");
+        if (b) { const a = b.dataset.rc; send(a === "back" ? { cmd: "skip", by: -10 } : a === "fwd" ? { cmd: "skip", by: 30 } : { cmd: a }); return; }
+        const sc = e.target.closest(".rb-scrub");
+        if (sc && sc.dataset.d) { const r = sc.getBoundingClientRect(); send({ cmd: "seek", t: Math.round((e.clientX - r.left) / r.width * +sc.dataset.d) }); return; }
+        if (e.target.closest("[data-rc-leave]")) { target = null; refresh(); }
+      });
+    }
+    const s = others.find(x => x.id === target.id) || { state: {} }, st = s.state || {}, it = st.item && byId.get(st.item);
+    const owner = it ? it.show || it : null, art = it ? it.thumb || (owner && (owner.backdrop || owner.poster)) : "";
+    bar.hidden = false; document.body.classList.add("has-remote");
+    bar.innerHTML = `<div class="rb-top">${art ? `<img src="${esc(artSrc(art, 240))}" alt="">` : `<span class="rb-noart">${icon("i-cast")}</span>`}
+        <div class="rb-text"><b>${esc(it ? owner.name || owner.title : "Nothing playing")}</b><span>${esc([it ? (it.kind === "episode" ? epCode(it) + (it.title ? " · " + it.title : "") : "") : "Press Play on anything", "on " + target.name].filter(Boolean).join(" · "))}</span></div>
+        <button class="rb-leave" data-rc-leave="1" aria-label="Play here again" title="Play here again">${icon("i-close")}</button></div>
+      ${it && st.d ? `<div class="rb-scrub" data-d="${st.d}"><i style="width:${Math.min(100, st.t / st.d * 100)}%"></i></div><div class="rb-time"><span>${clock(st.t)}</span><span>${clock(st.d)}</span></div>` : ""}
+      ${it ? `<div class="rb-btns"><button data-rc="back" aria-label="Back 10 seconds">${icon("i-rew")}</button>
+        <button class="rb-main" data-rc="toggle" aria-label="${st.paused ? "Play" : "Pause"}">${icon(st.paused ? "i-play" : "i-pause")}</button>
+        <button data-rc="fwd" aria-label="Forward 30 seconds">${icon("i-fwd")}</button>
+        ${it.kind === "episode" ? `<button data-rc="next" aria-label="Next episode">${icon("i-skip")}</button>` : ""}
+        <button data-rc="stop" aria-label="Stop">${icon("i-stop")}</button></div>` : ""}`;
+  }
+  return {
+    start() { listen(); refresh(); },
+    target: () => target,
+    choose,
+    play(itemId, fromStart) { send({ cmd: "play", item: itemId, t: fromStart ? 0 : undefined }); },
+    name, defaultName
+  };
+})();
+
 /* ---------- player ---------- */
 const Player = (function () {
   const el = $("#player"), video = $("video", el), canvas = $("canvas", el), ctx = canvas.getContext("2d");
@@ -2315,6 +2466,7 @@ const Player = (function () {
     const p = prog(it.id);
     const resumeAt = p && !p.done && p.t > 30 && (!plan.duration || p.t < plan.duration - 30) ? p.t : 0;
     await load(resumeAt);
+    applyNight();
     if (resumeAt) {
       chip.firstElementChild.textContent = "Resumed at " + clock(resumeAt);
       chip.hidden = false;
@@ -2533,6 +2685,29 @@ const Player = (function () {
   }
 
   /* the options menu */
+  /* Night mode: loud scenes quieter and voices clearer, worked out on this device (a lift for speech and a
+     compressor). Not on iPhone and iPad, where Safari can go silent when video sound is processed. */
+  const APPLE_TOUCH = /iPad|iPhone|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
+  const nightOk = !APPLE_TOUCH && !!(window.AudioContext || window.webkitAudioContext);
+  let night = null;
+  async function applyNight() {
+    const on = nightOk && opt("night", false);
+    if (!night) {
+      if (!on) return;
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      try { await ctx.resume(); } catch (e) {}
+      if (ctx.state !== "running") { ctx.close(); return; }      // not allowed until a button is pressed: sound stays as it is
+      const voice = ctx.createBiquadFilter(), comp = ctx.createDynamicsCompressor(), lift = ctx.createGain();
+      voice.type = "peaking"; voice.frequency.value = 2500; voice.Q.value = 0.8; voice.gain.value = 5;
+      comp.threshold.value = -32; comp.knee.value = 24; comp.ratio.value = 6; comp.attack.value = 0.005; comp.release.value = 0.3;
+      lift.gain.value = 1.8;
+      voice.connect(comp); comp.connect(lift); lift.connect(ctx.destination);
+      night = { ctx, src: ctx.createMediaElementSource(video), voice };
+    }
+    night.src.disconnect();
+    night.src.connect(on ? night.voice : night.ctx.destination);
+    if (night.ctx.state !== "running") night.ctx.resume().catch(() => {});
+  }
   function optsOpen() {
     const row = (key, label, hint, def) => `<div class="toggle"><div><b>${label}</b><span>${hint}</span></div>
       <button class="switch small" role="switch" aria-checked="${opt(key, def)}" data-opt="${key}" aria-label="${esc(label)}"></button></div>`;
@@ -2541,6 +2716,7 @@ const Player = (function () {
       ${row("autoplay", "Play the next episode", "Starts the next one when this ends, or when the credits start.", true)}
       ${row("autoskip", "Skip intros by themselves", "Otherwise a Skip Intro button appears.", false)}
       ${row("still", "Ask \"Are you still watching?\"", "After three episodes in a row with no buttons pressed.", true)}
+      ${nightOk ? row("night", "Night mode", "Loud scenes quieter, voices clearer. For late nights and thin TV speakers.", false) : ""}
       ${plan && plan.mode === "transcode" ? `<div class="toggle"><div><b>Picture</b><span>For video converted as it plays. Lower is lighter for an older computer or weak Wi-Fi.</span></div><div class="sorter inline">${[["", "Auto"], ["1080", "1080p"], ["720", "720p"], ["480", "480p"]].map(q =>
         `<button data-opt-quality="${q[0]}" aria-pressed="${prefs.get("quality", "") === q[0]}">${q[1]}</button>`).join("")}</div></div>` : ""}
       <div class="toggle"><div><b>Sleep timer</b><span>${sleepPlan.mode === "end" ? "Stops at the end of this " + (item && item.kind === "episode" ? "episode" : "video") + "." : sleepPlan.at ? "Stops at " + new Date(sleepPlan.at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) + "." : "Off."}</span></div>
@@ -2564,7 +2740,7 @@ const Player = (function () {
       prefs.set("quality", b.dataset.optQuality); showSpinner("Changing the picture…"); load(now()); optsOpen(); return;
     }
     if (b.dataset.optSleep) { setSleep(b.dataset.optSleep); optsOpen(); return; }
-    if (b.dataset.opt) { const on = b.getAttribute("aria-checked") !== "true"; setOpt(b.dataset.opt, on); b.setAttribute("aria-checked", on); return; }
+    if (b.dataset.opt) { const on = b.getAttribute("aria-checked") !== "true"; setOpt(b.dataset.opt, on); b.setAttribute("aria-checked", on); if (b.dataset.opt === "night") applyNight(); return; }
     if (b.dataset.optSpeed) { video.playbackRate = +b.dataset.optSpeed; $(".speed", el).textContent = video.playbackRate + "×"; }
     else if (b.dataset.optSubsize) { prefs.set("subSize", b.dataset.optSubsize); applySubSize(); }
     else if (b.dataset.optClear) {
@@ -2948,7 +3124,20 @@ const Player = (function () {
     close();
   });
   const capsQuery = () => Object.keys(caps).map(k => k + "=" + (caps[k] ? 1 : 0)).join("&");
-  return { open, openLive, zap, capsQuery, isLive: () => el.classList.contains("is-live"), isOpen: () => !el.hidden };
+  // For the phone remote: what's playing, and doing what it asks.
+  const status = () => item && !el.classList.contains("is-live") ? { item: item.id, t: Math.round(now()), d: Math.round(total()), paused: video.paused } : {};
+  function control(c) {
+    if (!item || el.classList.contains("is-live")) return;
+    if (c.cmd === "toggle") toggle();
+    else if (c.cmd === "pause") video.pause();
+    else if (c.cmd === "resume") video.play().catch(() => {});
+    else if (c.cmd === "seek" && c.t != null) seekTo(+c.t);
+    else if (c.cmd === "skip" && c.by) seekBy(+c.by);
+    else if (c.cmd === "next") playNext();
+    else if (c.cmd === "stop") requestClose();
+    wake();
+  }
+  return { open, openLive, zap, capsQuery, status, control, isLive: () => el.classList.contains("is-live"), isOpen: () => !el.hidden };
 })();
 
 /* ---------- music ---------- */
@@ -3263,6 +3452,7 @@ async function boot() {
   $("#nav").hidden = $("#searchBox").hidden = $("#searchBtn").hidden = $("#who").hidden = false;
   $("#navServer").hidden = !session.user.admin;
   $("#navAdult").hidden = !session.user.adult;
+  $('[data-nav="live"]').hidden = !!session.user.kids;
   if (prefs.get("theme", null) === null) applyTheme(session.theme);
   $("#whoName").textContent = session.user.name;
   $("#whoAv").outerHTML = avatar(session.user, "whoAv");
@@ -3271,6 +3461,7 @@ async function boot() {
   view.innerHTML = "";
   await reloadLibrary();
   route();
+  if (!session.user.guest) Screens.start();
   // On a TV, Sofa asks who's watching each time it's opened (when there's more than one profile).
   if (TV && session.profiles > 1 && !sessionStorage.getItem("sofaPicked")) setTimeout(() => profilePicker(true), 400);
   // Sofa just started and is still reading the library: look again every few seconds until it's done.

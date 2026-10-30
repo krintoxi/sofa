@@ -68,6 +68,9 @@ Sofa's folder from before; Sofa can't reach those.
 - Sofa answers only your home network and Tailscale, unless you change that
   ([remote-access.md](remote-access.md)).
 - Every person has their own profile; profiles that can see Adult or run the server are locked
-  with a PIN.
+  with a PIN. A **Kids** profile sees only family titles, and leaving it takes the other
+  profile's PIN or password.
+- Using your phone as the remote goes through the Sofa computer only; only your own screens are
+  listed, and nothing about it is kept.
 - The Adult section is off for everyone until switched on per person, never shown to guests or
   TVs, and adult titles never appear in addresses, the browser's history or the Server page.

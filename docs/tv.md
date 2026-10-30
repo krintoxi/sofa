@@ -36,6 +36,21 @@ type their 4-digit PIN with the remote's number keys or the on-screen pad (or th
 until they set a PIN). Set your color and PIN from **Who's watching? → Your profile**, or by
 pressing your name at the top. Switching only works at home, never for guests.
 
+### Your phone as the remote
+
+Typing with a TV remote is slow. With Sofa open on the TV (and on your phone, signed in as the
+same person):
+
+1. On the phone, press the **screen button** at the top (next to your profile picture). It only
+   shows up while one of your other screens has Sofa open.
+2. Pick the TV (name it under **Theme → This device** on the TV, e.g. "Living room").
+3. Now **Play** on the phone plays on the TV. A bar at the bottom of the phone pauses, skips
+   back 10 / forward 30 seconds, scrubs (tap the line), goes to the next episode and stops.
+   **✕** on the bar plays on the phone again.
+
+The TV keeps listening while Sofa is open on it. Nothing goes outside your home: the phone and
+the TV both talk only to the Sofa computer, and nothing about it is kept.
+
 ### On a show's or movie's page
 
 After a moment a **trailer** plays behind the title (three minutes from the middle, silent;

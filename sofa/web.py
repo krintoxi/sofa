@@ -16,7 +16,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 import threading
 
 from . import (__version__, artwork, auth, backup, config, dlna, fetch, housekeeping, intros, live, media, metadata, music,
-               machine, net, optimize, organizer, places, previews, report, store, trickplay, updater)
+               kids, machine, net, optimize, organizer, places, previews, report, screens, store, trickplay, updater)
 from .library import LIBRARY
 
 CLIENT_DIR = os.path.join(config.APP_DIR, "client")
@@ -367,7 +367,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         m = re.match(r"^/live/([0-9a-f]{12})/(index\.m3u8|p/([\w.=-]+))$", path)
         chan = live.channel(m.group(1)) if m else None
-        if not chan or (chan.get("adult") and not u.get("adult")):
+        if not chan or (chan.get("adult") and not u.get("adult")) or u.get("kids"):
             return self.send_body("Not found", status=404)
         url = chan["url"] if m.group(2) == "index.m3u8" else live.unpack(m.group(3))
         if not url:
@@ -479,14 +479,18 @@ class Handler(BaseHTTPRequestHandler):
                               "offline": net.offline_mode(),
                               "needs_setup": auth.user_count() == 0, "network": self.network(),
                               "remote": config.get("remote"), "guest_available": bool(self.guest_ok()),
-                              "profiles": self.may_switch(u) and len(auth.profiles())})
+                              "profiles": self.may_switch(u) and len(auth.profiles()),
+                              "kids_profiles": bool(u and u.get("admin") and store.q1("SELECT 1 FROM users WHERE kids = 1"))})
         u = self.need_user(admin=path.startswith("/api/admin/"))
         if not u:
             return
         if path == "/api/profiles":
             if not self.may_switch(u):
                 return self.error(403, "Switching profiles works at home, from a signed-in profile.")
-            return self.json({"profiles": auth.profiles(), "me": u["id"]})
+            ps = auth.profiles()
+            if u.get("kids"):                          # from a Kids profile every other one asks for its code
+                ps = [dict(p, locked=p["locked"] or not p["kids"]) for p in ps]
+            return self.json({"profiles": ps, "me": u["id"]})
         if path == "/api/library":
             if (qs.get("since") or [""])[0] == str(LIBRARY.generated) and LIBRARY.generated:
                 return self.json({"same": True})              # the once-a-minute check: nothing new, nothing to send
@@ -498,6 +502,8 @@ class Handler(BaseHTTPRequestHandler):
             out["likes"] = [r["item"] for r in store.q("SELECT item FROM likes WHERE user_id = ? ORDER BY at DESC", u["id"])
                             if u.get("adult") or not r["item"].startswith(("am:", "as:", "ae:", "ax:", "perf:"))]
             return self.json(out)
+        if path.startswith("/api/live") and u.get("kids"):
+            return self.error(403, "Live TV isn't on for this profile.")
         if path == "/api/live":
             return self.json(live.listing(u["id"], adult=u.get("adult")))
         if path == "/api/music":
@@ -506,6 +512,11 @@ class Handler(BaseHTTPRequestHandler):
             out["recent"] = [r["item"] for r in store.q("SELECT item FROM music_plays WHERE user_id = ? ORDER BY at DESC LIMIT 60",
                                                          u["id"])]
             return self.json(out)
+        if path == "/api/screen/wait":             # this page, waiting to be told what to play (the phone remote)
+            return self.json({"commands": screens.wait((qs.get("id") or [""])[0][:40], (qs.get("name") or [""])[0],
+                                                       u["id"], (qs.get("tv") or [""])[0] == "1")})
+        if path == "/api/screens":                 # this person's other open screens
+            return self.json({"screens": screens.listing(u["id"], exclude=(qs.get("me") or [""])[0])})
         if path == "/api/progress":
             rows = store.q("SELECT item, t, d, done, at FROM progress WHERE user_id = ?", u["id"])
             return self.json({r["item"]: {"t": r["t"], "d": r["d"], "done": bool(r["done"]), "at": r["at"]} for r in rows})
@@ -565,6 +576,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.json(admin_status())
         if path == "/api/admin/convert":
             return self.json(optimize.status(LIBRARY))
+        if path == "/api/admin/duplicates":
+            return self.json({"groups": housekeeping.duplicates(LIBRARY)})
         if path == "/api/admin/update":
             return self.json(updater.status())
         if path == "/api/admin/intros":
@@ -629,7 +642,8 @@ class Handler(BaseHTTPRequestHandler):
             target = next((p for p in auth.profiles() if p["id"] == data.get("id")), None)
             if not target:
                 return self.error(404, "That profile isn't there any more.")
-            if target["locked"] and target["id"] != u["id"]:
+            leaving_kids = u.get("kids") and not target["kids"]        # out of a Kids profile: always that profile's code
+            if (target["locked"] or leaving_kids) and target["id"] != u["id"]:
                 if auth.throttled(ip):
                     return self.error(429, "Too many tries. Wait 15 minutes and try again.")
                 if not auth.check_code(target["id"], data.get("code")):
@@ -666,6 +680,17 @@ class Handler(BaseHTTPRequestHandler):
         u = self.need_user(admin=path.startswith("/api/admin/"))
         if not u:
             return
+        if path == "/api/screen/state":
+            screens.report(str(data.get("id") or "")[:40], u["id"], data.get("state") or {})
+            return self.json({"ok": True})
+        m = re.match(r"^/api/screens/([\w-]{1,40})$", path)
+        if m:
+            cmd = data.get("command") or {}
+            if cmd.get("item") and not self.visible_item(cmd["item"], u):
+                return self.error(404, "That video isn't in the library any more.")
+            if not screens.send(m.group(1), u["id"], cmd, data.get("name")):
+                return self.error(404, "That screen isn't open any more.")
+            return self.json({"ok": True})
         m = re.match(r"^/api/progress/(.+)$", path)
         if m:
             item_id = m.group(1)
@@ -793,6 +818,8 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/hls/stop":
             media.hls_stop_owner(self.owner())
             return self.json({"ok": True})
+        if path.startswith("/api/live") and u.get("kids"):
+            return self.error(403, "Live TV isn't on for this profile.")
         m = re.match(r"^/api/live/favorite/([0-9a-f]{12})$", path)
         if m:
             if data.get("on"):
@@ -934,6 +961,22 @@ class Handler(BaseHTTPRequestHandler):
                 store.log("settings", "%s fixed the details for \"%s\"" % (u["name"], entry.get("name") or entry.get("title")))
             threading.Thread(target=LIBRARY.scan, args=("details fixed",), daemon=True).start()
             return self.json({"ok": True})
+        m = re.match(r"^/api/admin/users/(\d+)/kids$", path)
+        if m:
+            target = store.q1("SELECT name, admin FROM users WHERE id = ?", int(m.group(1)))
+            if target and target["admin"] and data.get("on"):
+                return self.error(400, "An admin's profile can't be a Kids profile.")
+            auth.set_kids(int(m.group(1)), bool(data.get("on")))
+            store.log("account", "%s made \"%s\" %s" % (u["name"], target["name"] if target else "?",
+                                                         "a Kids profile" if data.get("on") else "an ordinary profile"))
+            return self.json({"ok": True})
+        if path == "/api/admin/kids":                # allow or block one show or movie for Kids profiles
+            entry = LIBRARY.find(str(data.get("id") or ""))
+            if not entry or entry.get("adult"):
+                return self.error(404, "That isn't in the library any more.")
+            allow = data.get("allow")
+            kids.choose(entry["id"], None if allow is None else bool(allow))
+            return self.json({"ok": True})
         m = re.match(r"^/api/admin/users/(\d+)/adult$", path)
         if m:
             auth.set_adult(int(m.group(1)), bool(data.get("on")))
@@ -995,6 +1038,12 @@ class Handler(BaseHTTPRequestHandler):
             config.update(allowed)
             store.log("settings", "%s changed settings: %s" % (u["name"], ", ".join(sorted(allowed))))
             return self.json({"ok": True, "settings": public_settings()})
+        if path == "/api/admin/duplicates":          # keep the best copy, the others to Deleted
+            keys = None if data.get("all") else [str(k) for k in data.get("keys") or []]
+            n, freed = housekeeping.drop_duplicates(LIBRARY, keys)
+            if n:
+                threading.Thread(target=LIBRARY.scan, args=("duplicates removed",), daemon=True).start()
+            return self.json({"ok": True, "copies": n, "freed": freed})
         if path == "/api/admin/privacy":
             if data.get("wipe"):                  # erase every log, here and in the backups
                 store.wipe_logs()
@@ -1009,6 +1058,8 @@ class Handler(BaseHTTPRequestHandler):
         """A library item this person may play (adult items only for people allowed to see them)."""
         item = LIBRARY.item(item_id)
         if not item or (item.get("adult") and not (user or {}).get("adult")):
+            return None
+        if (user or {}).get("kids") and not kids.allowed(LIBRARY.find(item.get("show_id") or item["id"])):
             return None
         return item
 
@@ -1080,7 +1131,7 @@ _slim_lock = threading.Lock()
 def slim_library(u):
     """The library as the web app needs it: no empty fields, no file details for non-admins, episodes
     without their show's name and id (the app knows which show they're in). Made once per library read."""
-    key = (LIBRARY.generated, bool(u.get("adult")), bool(u.get("admin")))
+    key = (LIBRARY.generated, bool(u.get("adult")), bool(u.get("admin")), bool(u.get("kids")), kids.version[0])
     with _slim_lock:
         if key in _slim:
             return dict(_slim[key])
@@ -1096,8 +1147,16 @@ def slim_library(u):
                                                                                   for e in se["episodes"]]) for se in s["seasons"]],
                     extras=[clean(x, ("show_id", "show_name", "ext", "size", "adult")) for x in s["extras"]])
     lib = LIBRARY.public(adult=u.get("adult"))
-    out = {"generated": lib["generated"], "shows": [show(s) for s in lib["shows"]],
-           "movies": [clean(m, ("ext", "size")) for m in lib["movies"]]}
+    picked = kids.choices()
+    shows, movies = lib["shows"], lib["movies"]
+    if u.get("kids"):                              # a Kids profile: family titles only
+        shows = [s for s in shows if kids.allowed(s, picked)]
+        movies = [m for m in movies if kids.allowed(m, picked)]
+    out = {"generated": lib["generated"], "shows": [show(s) for s in shows],
+           "movies": [clean(m, ("ext", "size")) for m in movies]}
+    if admin:                                      # what Kids profiles see, for the "For kids" button
+        out["for_kids"] = [x["id"] for x in shows + movies if kids.allowed(x, picked)]
+        out["kids_choices"] = picked
     if "adult" in lib:
         out["adult"] = dict(lib["adult"], shows=[show(s) for s in lib["adult"]["shows"]],
                             movies=[clean(m, ("ext", "size")) for m in lib["adult"]["movies"]])

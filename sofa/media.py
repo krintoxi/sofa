@@ -649,7 +649,7 @@ def save_image(src, dest, max_width, fmt="jpeg"):
             cmd = [exe, "-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-i", src,
                    "-vf", "scale='min(%d,iw)':-2" % max_width]
             cmd += ["-compression_level", "9"] if fmt == "png" else ["-q:v", "4"]
-            subprocess.run(["nice", "-n", "10"] + cmd + [tmp], timeout=60, check=True)
+            subprocess.run(["nice", "-n", "10"] + cmd + [tmp], capture_output=True, timeout=60, check=True)
         if not os.path.getsize(tmp):
             raise OSError("empty image")
         os.replace(tmp, dest)
@@ -668,8 +668,8 @@ def _grab(cmd_tail, path, dest, max_width):
     still = dest + ".still.png"
     try:
         subprocess.run([exe, "-hide_banner", "-loglevel", "error", "-nostdin", "-y"] + cmd_tail(path) + [still],
-                       timeout=60, check=True)
-        return save_image(still, dest, max_width)
+                       capture_output=True, timeout=60, check=True)        # quiet: file names stay out of the log
+        return os.path.exists(still) and save_image(still, dest, max_width)
     except (OSError, subprocess.SubprocessError):
         return False
     finally:
