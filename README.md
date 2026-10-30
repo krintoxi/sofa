@@ -166,7 +166,10 @@ deleted. More: [docs/folder-structure.md](docs/folder-structure.md).
   that works properly (on some older Macs Apple's hardware converter draws lines across the
   picture; Sofa checks, and never uses it there). On a slow computer, **Gentle mode** keeps video
   converted while you watch at 720p and saves heavy background work for the quiet hours (1-7 am).
-  Server → Overview → This computer.
+  Server → Overview → This computer. If a video converts slower than it plays (a 1080p HEVC 10-bit
+  episode on a 2011 iMac, say), the player waits once for a few seconds of video instead of stopping
+  every few seconds, then makes the picture a little smaller; Sofa remembers, and starts the next
+  one like it at that size. Server → Overview → Watching now shows how fast it's converting.
 - **Themes.** Press **Theme** at the top: Midnight, Cinema, Ocean, Forest, Grape or Pure black,
   plus subtitle size and TV mode. Each device keeps its own.
 - **TVs.** On Fire TV, open Sofa in the **Silk** browser: it switches to TV mode (the whole menu

@@ -513,7 +513,7 @@ class Handler(BaseHTTPRequestHandler):
             audio = (qs.get("audio") or [""])[0]
             who = u["name"] + (" (trailer)" if (qs.get("trailer") or [""])[0] == "1" else "")
             return self.stream(item, mode, max(0.0, start), who, audio_index=int(audio) if audio.isdigit() else None,
-                               max_height=int(qs["h"][0]) if (qs.get("h") or [""])[0] in ("480", "720", "1080") else None)
+                               max_height=int(qs["h"][0]) if (qs.get("h") or [""])[0] in ("360", "480", "540", "720", "1080") else None)
         tracks = media.subtitle_tracks(item, media.probe(item["path"]))
         n = int(m.group(3))
         if n >= len(tracks):
@@ -577,7 +577,7 @@ class Handler(BaseHTTPRequestHandler):
             item = self.visible_item(m.group(1), u)
             if not item or item["kind"] not in ("episode", "movie", "extra", "musicvideo"):
                 return self.error(404, "That video isn't in the library any more.")
-            caps = {k: (qs.get(k) or ["0"])[0] == "1" for k in ("mkv", "hevc", "ac3", "vp9")}
+            caps = media.caps_from(qs)
             info = media.probe(item["path"]) or {}
             st = travel.status(item)
             copy_size = st.pop("size", None)
@@ -603,7 +603,7 @@ class Handler(BaseHTTPRequestHandler):
             item = self.visible_item(m.group(1), u)
             if not item:
                 return self.error(404, "That video isn't in the library any more.")
-            caps = {k: (qs.get(k) or ["0"])[0] == "1" for k in ("mkv", "hevc", "ac3", "vp9")}
+            caps = media.caps_from(qs)
             if item["kind"] == "track":
                 direct = music.playable_directly(item) or not media.tool("ffmpeg")
                 return self.json({"mode": "direct" if direct else "audio", "duration": item.get("duration"),
@@ -644,7 +644,7 @@ class Handler(BaseHTTPRequestHandler):
                                       max(0.0, float((qs.get("t") or ["0"])[0] or 0)), u["name"],
                                       replace=(qs.get("replace") or [None])[0], owner=self.owner(),
                                       audio_index=int(qs["audio"][0]) if (qs.get("audio") or [""])[0].isdigit() else None,
-                                      max_height=int(qs["h"][0]) if (qs.get("h") or [""])[0] in ("480", "720", "1080") else None)
+                                      max_height=int(qs["h"][0]) if (qs.get("h") or [""])[0] in ("360", "480", "540", "720", "1080") else None)
             except RuntimeError:
                 return self.error(503, "The server is busy converting other videos for other people. Try again in a moment.")
             except OSError as exc:

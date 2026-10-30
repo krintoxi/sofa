@@ -70,11 +70,19 @@ A `401` means the token was signed out: pair again.
 
 ## Playing
 
-1. `GET /api/play/<item id>?mkv=1&hevc=1&ac3=1&vp9=0` (say what the device plays itself) →
+1. `GET /api/play/<item id>?mkv=1&hevc=1&hevc10=0&ac3=1&vp9=0` (say what the device plays itself;
+   `hevc10` is 10-bit HEVC, and when it's left out `hevc` counts for both) →
    `{"mode": "direct" | "remux" | "transcode", "url", "duration", "audio": [...], "subtitles": [{"label", "lang", "url"}], "markers": [{"kind": "intro" | "credits" | "recap", "start", "end"}]}`.
 2. `direct`: play `url` (`/media/<id>/file`, supports `Range`). Otherwise ask for HLS:
    `GET /api/hls/<id>?mode=<mode>&t=<start seconds>&h=720` → `{"url": "/media/hls/…/index.m3u8"}`
    (or play `/media/<id>/stream?mode=<mode>&t=<start>` as one MP4 stream).
+   - The stream starts at `t`: position 0 in it is `t` seconds into the video. Subtitles for it:
+     add `?offset=<t>` to their `url`. `duration` from step 1 is the whole video's.
+   - The playlist grows while Sofa converts (an HLS "EVENT" playlist): start at its beginning, and
+     don't speed up or jump to catch a "live" edge. When the player runs out, wait for ~10 seconds
+     of video before going on, rather than stopping every few seconds.
+   - `h` (360, 480, 540, 720, 1080) caps the picture. Without it Sofa picks the tallest picture this
+     computer converted that kind of video fast enough at before.
 3. Subtitles: each `url` is WebVTT. Scrubbing pictures: `/media/<id>/trick.json`, then
    `/media/<id>/trick/<n>.jpg`.
 

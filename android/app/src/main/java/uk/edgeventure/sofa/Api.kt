@@ -1,5 +1,6 @@
 package uk.edgeventure.sofa
 
+import android.media.MediaCodecInfo
 import android.media.MediaCodecList
 import org.json.JSONObject
 import java.net.HttpURLConnection
@@ -53,15 +54,26 @@ object Api {
 object Codecs {
     fun caps(): JSONObject {
         val types = HashSet<String>()
+        var hevc10 = false
         try {
             for (info in MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos) {
-                if (!info.isEncoder) types.addAll(info.supportedTypes.map { it.lowercase() })
+                if (info.isEncoder) continue
+                for (type in info.supportedTypes) {
+                    types.add(type.lowercase())
+                    if (type.equals("video/hevc", ignoreCase = true)) {      // 10-bit HEVC: newer sticks only
+                        try {
+                            if (info.getCapabilitiesForType(type).profileLevels.any { it.profile == MediaCodecInfo.CodecProfileLevel.HEVCProfileMain10 }) hevc10 = true
+                        } catch (e: Exception) {
+                        }
+                    }
+                }
             }
         } catch (e: Exception) {
         }
         return JSONObject()
             .put("mkv", true)
             .put("hevc", "video/hevc" in types)
+            .put("hevc10", hevc10)
             .put("ac3", "audio/ac3" in types || "audio/eac3" in types)
             .put("vp9", "video/x-vnd.on2.vp9" in types)
     }

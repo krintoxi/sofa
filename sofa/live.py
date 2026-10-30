@@ -15,7 +15,6 @@ channels only come from lists you add yourself.
 import base64
 import hashlib
 import hmac
-import json
 import os
 import re
 import secrets

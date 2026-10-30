@@ -203,11 +203,75 @@ def heavy_ok():
     return not gentle() or quiet_now()
 
 
+# What converting while someone watches really manages here. A 1080p HEVC 10-bit episode can be too much
+# for an old Mac at 720p (it then keeps stopping to wait for the next part), so Sofa remembers how fast
+# each kind of video converted, and next time picks the tallest picture it can make faster than it plays.
+
+LIVE = os.path.join(config.DATA_DIR, "cache", "live-speed.json")
+LADDER = (1080, 720, 540, 360)
+SMOOTH = 1.25               # this much faster than the video plays: no waiting, even on a busy evening
+FORGET = 7 * 86400          # try the bigger picture again after a week (other things may have been running)
+_live_lock = threading.Lock()
+_live = {}
+
+
+def _live_table():
+    if not _live:
+        try:
+            with open(LIVE, encoding="utf-8") as f:
+                saved = json.load(f)
+            _live.update(saved if saved.get("key") == _key() else {})
+        except (OSError, ValueError):
+            pass
+        _live.setdefault("key", _key())
+        _live.setdefault("kinds", {})
+    return _live
+
+
+def live_kind(video):
+    """"hevc10-1080|libx264|gentle": the source (codec, bit depth, size) and how it's converted here."""
+    h = (video or {}).get("height") or 720
+    size = min((2160, 1080, 720, 480, 360), key=lambda b: abs(b - h))
+    return "%s%s-%d|%s%s" % ((video or {}).get("codec") or "?", "10" if media.ten_bit(video) else "", size,
+                             best_encoder() or "x264", "|gentle" if gentle() else "")
+
+
+def note_live_speed(kind, height, speed):
+    """A live conversion of this kind at this height made `speed` seconds of video per second."""
+    if not kind or not speed:
+        return
+    with _live_lock:
+        t = _live_table()["kinds"].setdefault(kind, {})
+        old = t.get(str(height))
+        if old and time.time() - old["at"] < FORGET:
+            speed = (old["speed"] + speed) / 2
+        t[str(height)] = {"speed": round(speed, 2), "at": int(time.time())}
+        try:
+            os.makedirs(os.path.dirname(LIVE), exist_ok=True)
+            with open(LIVE, "w", encoding="utf-8") as f:
+                json.dump(_live, f)
+        except OSError:
+            pass
+
+
+def live_height(kind, top):
+    """The tallest picture, up to `top`, that this kind of video converted smoothly at (or hasn't been tried at)."""
+    with _live_lock:
+        seen = dict(_live_table()["kinds"].get(kind) or {})
+    for h in [top] + [h for h in LADDER if h < top]:
+        s = seen.get(str(h))
+        if not s or time.time() - s["at"] > FORGET or s["speed"] >= SMOOTH:
+            return h
+    return min(top, LADDER[-1])
+
+
 def status():
     d = dict(describe_cached())
     d.update(speeds=_result.get("speeds") or {}, best=_result.get("best"), measured=_result.get("at"), damaged=_result.get("damaged") or [],
              gentle=gentle(), gentle_setting=config.get("gentle"), quiet_hours=config.get("quiet_hours") or "01:00-07:00",
              quiet_now=quiet_now(), max_live_height=max_live_height())
+    with _live_lock:
+        d["live"] = {k: dict(v) for k, v in _live_table()["kinds"].items()}
     return d
 
 

@@ -86,8 +86,8 @@ def h264_args(height, live=True):
             return args + ["-realtime", "1", "-b:v", rate, "-maxrate", "16M", "-bufsize", "24M"]
         return args + ["-q:v", "62"]
     if "libx264" in enc:
-        if live:
-            return ["-c:v", "libx264", "-preset", "veryfast", "-tune", "zerolatency", "-crf", "21",
+        if live:   # no "zerolatency": it turns off x264's frame threads, and a few frames of delay don't matter in 4 s segments
+            return ["-c:v", "libx264", "-preset", "superfast" if machine.gentle() else "veryfast", "-crf", "21",
                     "-maxrate", "16M", "-bufsize", "24M"]
         return ["-c:v", "libx264", "-preset", "veryfast" if machine.gentle() else "medium", "-crf", "20"]
     return ["-c:v", "mpeg4", "-q:v", "3"]     # last resort: something every ffmpeg has
@@ -212,6 +212,18 @@ def audio_tracks(info):
     return out
 
 
+CAPS = ("mkv", "hevc", "hevc10", "ac3", "vp9")
+
+
+def caps_from(qs):
+    """A device's capabilities from a query string ("hevc=1&mkv=0…"). Only what it said: missing keys stay missing."""
+    return {k: (qs.get(k) or ["0"])[0] == "1" for k in CAPS if k in qs or k != "hevc10"}
+
+
+def ten_bit(video):
+    return "10" in ((video or {}).get("pix_fmt") or "") or "10" in ((video or {}).get("profile") or "")
+
+
 def video_playable(video, caps):
     """Can a browser with these capabilities decode this video stream?"""
     if not video:
@@ -220,6 +232,8 @@ def video_playable(video, caps):
     if v == "h264":   # 10-bit and 4:2:2 H.264 ("Hi10P") decode in VLC but in no browser or TV
         return video.get("pix_fmt") in BROWSER_PIX and "10" not in (video.get("profile") or "")
     if v == "hevc":
+        if ten_bit(video) and "hevc10" in caps:      # older apps don't say: then HEVC means both
+            return bool(caps.get("hevc") and caps.get("hevc10"))
         return bool(caps.get("hevc"))
     if v in ("vp8", "vp9", "av1"):
         return bool(caps.get("vp9"))
@@ -279,6 +293,18 @@ def needs_conversion(item, caps=None):
 LOOSE_TIMESTAMPS = ("avi", "mpg", "mpeg", "vob", "ts", "m2ts", "flv", "wmv", "divx", "3gp")
 
 
+def live_size(video, max_height=None):
+    """(height, kind) for converting this video while it plays. Someone's own choice (the player's Picture
+    setting) is kept; otherwise 1080p, 720p in gentle mode, or smaller where this computer couldn't keep up
+    with this kind of video before (machine.live_height)."""
+    from . import machine
+    src = (video or {}).get("height") or 720
+    if max_height:
+        return min(max_height, 1080, src), None
+    kind = machine.live_kind(video)
+    return machine.live_height(kind, min(machine.max_live_height(), 1080, src)), kind
+
+
 def stream_command(item, mode, start, info, fmt="mp4", out="pipe:1", audio_index=None, max_height=None):
     exe = tool("ffmpeg")
     cmd = [exe, "-hide_banner", "-loglevel", "error", "-nostdin"]
@@ -298,10 +324,9 @@ def stream_command(item, mode, start, info, fmt="mp4", out="pipe:1", audio_index
         if video.get("codec") == "hevc":
             cmd += ["-tag:v", "hvc1"]
     else:
-        from . import machine
-        top = min(max_height or 2160, machine.max_live_height() if not max_height else 2160, 1080)   # gentle mode: 720p
+        top = live_size(video, max_height)[0]
         filters = (["yadif"] if video.get("interlaced") else []) + ["scale=-2:'min(ih,%d)'" % top, "format=yuv420p"]
-        cmd += h264_args(min(video.get("height") or 720, top)) + ["-vf", ",".join(filters), "-g", "48"]
+        cmd += h264_args(top) + ["-vf", ",".join(filters), "-g", "48"]
     a = (audio or {}).get("codec")
     if a == "aac" or (a == "mp3" and fmt != "hls"):
         cmd += ["-c:a", "copy"]
@@ -478,8 +503,9 @@ def hls_start(item, mode, start, who, replace=None, owner=None, audio_index=None
     slot = _slot(mode)
     folder = os.path.join(hls_dir(), sid)
     os.makedirs(folder, exist_ok=True)
+    height, kind = live_size((info or {}).get("video"), max_height) if mode == "transcode" else (None, None)
     try:
-        proc = subprocess.Popen(stream_command(item, mode, start, info, "hls", folder, audio_index=audio_index, max_height=max_height),
+        proc = subprocess.Popen(stream_command(item, mode, start, info, "hls", folder, audio_index=audio_index, max_height=height),
                                 stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
     except OSError:
         if slot:
@@ -488,11 +514,27 @@ def hls_start(item, mode, start, who, replace=None, owner=None, audio_index=None
         raise
     _collect_stderr(proc, item)
     with _hls_lock:
-        _hls[sid] = {"proc": proc, "dir": folder, "seen": time.time(), "slot": slot, "owner": owner, "stop": stop}
+        _hls[sid] = {"proc": proc, "dir": folder, "seen": time.time(), "slot": slot, "owner": owner, "stop": stop,
+                     "started": time.time(), "kind": kind, "height": height}
     with _streams_lock:
-        _streams["hls-" + sid] = {**_shown(item), "mode": mode, "who": who,
+        _streams["hls-" + sid] = {**_shown(item), "mode": mode, "who": who, "height": height,
                                   "started": int(time.time())}
     return sid
+
+
+def _speed(s):
+    """Seconds of video made per second spent converting (None until it's been going a while)."""
+    playlist = os.path.join(s["dir"], "index.m3u8")
+    try:
+        # Finished: it took until the playlist's last change. Still going: until now.
+        took = (os.path.getmtime(playlist) if s["proc"].poll() is not None else time.time()) - s["started"]
+        if took < 20:
+            return None
+        with open(playlist, encoding="utf-8") as f:
+            made = sum(float(x) for x in re.findall(r"#EXTINF:([\d.]+)", f.read()))
+    except (OSError, ValueError):
+        return None
+    return made / took
 
 
 def hls_file(sid, name):
@@ -530,6 +572,11 @@ def hls_stop(sid):
         s = _hls.pop(sid, None)
     if not s:
         return
+    if s.get("height"):                       # remember how well this went, for the next one like it
+        from . import machine
+        speed = _speed(s)
+        if speed and s.get("kind"):
+            machine.note_live_speed(s["kind"], s["height"], speed)
     _stop_proc(s["proc"])
     s["proc"].wait()
     if s["slot"]:
@@ -552,8 +599,14 @@ def _hls_reaper():
         time.sleep(30)
         with _hls_lock:
             idle = [sid for sid, s in _hls.items() if time.time() - s["seen"] > HLS_IDLE]
+            running = [(sid, s) for sid, s in _hls.items() if s.get("height")]
         for sid in idle:
             hls_stop(sid)
+        for sid, s in running:                  # for "Watching now": how far ahead of the viewer it keeps
+            speed = _speed(s)
+            with _streams_lock:
+                if speed and "hls-" + sid in _streams:
+                    _streams["hls-" + sid]["speed"] = round(speed, 1)
 
 
 def start():
