@@ -70,9 +70,11 @@ A `401` means the token was signed out: pair again.
 
 ## Playing
 
-1. `GET /api/play/<item id>?mkv=1&hevc=1&hevc10=0&ac3=1&vp9=0` (say what the device plays itself;
-   `hevc10` is 10-bit HEVC, and when it's left out `hevc` counts for both) →
-   `{"mode": "direct" | "remux" | "transcode", "url", "duration", "audio": [...], "subtitles": [{"label", "lang", "url"}], "markers": [{"kind": "intro" | "credits" | "recap", "start", "end"}]}`.
+1. `GET /api/play/<item id>?mkv=1&hevc=1&hevc10=0&ac3=1&vp9=0&maxh=1080` (say what the device plays
+   itself; `hevc10` is 10-bit HEVC, and when it's left out `hevc` counts for both; `maxh`, if given, is
+   the tallest picture it plays smoothly, and taller videos are converted down to it) →
+   `{"mode": "direct" | "remux" | "transcode", "url", "duration", "audio": [...], "subtitles": [{"label", "lang", "url"}], "markers": [{"kind": "intro" | "credits" | "recap", "start", "end"}], "max_height"}`
+   (`max_height`: `maxh` when the video is converted because of it; pass it on as `h` below).
 2. `direct`: play `url` (`/media/<id>/file`, supports `Range`). Otherwise ask for HLS:
    `GET /api/hls/<id>?mode=<mode>&t=<start seconds>&h=720` → `{"url": "/media/hls/…/index.m3u8"}`
    (or play `/media/<id>/stream?mode=<mode>&t=<start>` as one MP4 stream).

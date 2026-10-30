@@ -10,6 +10,7 @@ on:
     tags: ["box-v*"]
     paths:
       - "deploy/sofa-box/**"
+      - "!deploy/sofa-box/README.md"
       - "tools/build-sofa-box-image.sh"
       - ".github/workflows/sofa-box-image.yml"
 

@@ -1634,7 +1634,8 @@ async function phoneSignIn() {
   let r;
   try { r = await api("/api/pair/start", { name: Screens.name() }); }
   catch (e) { const err = $(".form-error"); if (err) err.textContent = e.message; return; }
-  const short = location.host;
+  let short = location.host;                     // Sofa's address as the phone reaches it (on a Sofa box, not the box's own)
+  try { short = new URL(r.url).host; } catch (e) {}
   view.innerHTML = `<section class="auth"><div class="auth-card pair-card">
     <h1>Sign in with your phone</h1>
     <p>On your phone, open Sofa (<b>${esc(short)}</b>), signed in, and scan this, or go to <b>Pair a TV</b> and type the code.</p>
@@ -1788,7 +1789,7 @@ function appsPanel(base, a) {
       <div><b>Fire TV</b><span>Easiest: open Sofa in Silk on the Fire TV and press <b>Install the Sofa app</b> on Home. Or with the Downloader app (allowed under Settings → My Fire TV → Developer options → Install unknown apps), type:</span>
         <code>${esc(base)}/firetv</code><span>${kept}${a && !a.offline ? ` <button class="mini" data-apps-fetch="1">Get the newest now</button>` : ""}${a && a.error ? ` <span class="bad">Last try: ${esc(a.error)}</span>` : ""}</span></div>
       <div><b>Roku</b><code>${esc(base)}/roku.zip</code><span>Put the Roku in developer mode (on its remote: Home ×3, Up ×2, Right, Left, Right, Left, Right), download this file on a computer, and upload it on the page at the address the Roku shows.</span></div>
-      <div><b>Raspberry Pi</b><code>curl -fsSL ${esc(base)}/sofa-box/install.sh | sudo sh -s ${esc(base)}</code><span>Makes a Pi on the TV a Sofa box: it starts straight into Sofa. Run this on the Pi (Raspberry Pi OS Lite). The TV's remote, your phone or a game controller work it.</span></div>
+      <div><b>Raspberry Pi</b><code>curl -fsSL ${esc(base)}/sofa-box/install.sh | sudo sh -s ${esc(base)}</code><span>Makes a Pi on the TV a Sofa box: it starts straight into Sofa, with its own player. Run this on the Pi, or write the ready-made card from the <a href="https://github.com/krintoxi/sofa/releases" target="_blank" rel="noopener">releases page</a> (Raspberry Pi Imager, Use custom). The TV's remote, your phone or a game controller work it.</span></div>
     </div></div>`;
 }
 const ENC_NAMES = { h264_videotoolbox: "Apple VideoToolbox", libx264: "x264" };
@@ -2244,7 +2245,7 @@ function route(animate) {
   else if (name === "music") { html = viewMusic(rest); nav = "music"; }
   else if (name === "server" && session.user.admin) { html = viewServer(rest[0]); nav = "server"; }
   else if (name === "more") { html = viewMore(); nav = "more"; }
-  else if (name === "box" && window.SofaBox) { html = viewBox(); nav = "more"; }
+  else if (name === "box" && window.SofaBox) { html = viewBox(); nav = "box"; }
   else { html = viewHome(); nav = "home"; }
   $("#searchBtn").toggleAttribute("aria-current", nav === "search");
   document.querySelectorAll("[data-nav]").forEach(a => { if (a.dataset.nav === nav) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current"); });
@@ -2525,9 +2526,9 @@ suggest.addEventListener("click", e => { if (e.target.closest("a")) setTimeout(c
 document.addEventListener("pointerdown", e => { if (!suggest.hidden && !suggest.contains(e.target) && !$("#searchBox").contains(e.target)) closeSuggest(); });
 window.addEventListener("hashchange", closeSuggest);
 $("#lookBtn").addEventListener("click", () => appearanceDialog());
-if (window.SofaBox) {                     // on the Sofa box, its own settings sit next to Theme
-  const b = document.createElement("button"); b.className = "link-btn"; b.type = "button"; b.textContent = "This box";
-  b.addEventListener("click", () => { location.hash = "#/box"; }); $("#lookBtn").after(b);
+if (window.SofaBox) {                     // on the Sofa box, its own settings are in the menu
+  const a = document.createElement("a"); a.href = "#/box"; a.dataset.nav = "box"; a.className = "nav-extra";
+  a.innerHTML = "<span>Box</span>"; $("#nav .nav-more").before(a);
 }
 async function signOut() { await api("/api/logout", {}).catch(() => {}); location.hash = "#/"; boot(); }
 $("#signOut").addEventListener("click", signOut);
