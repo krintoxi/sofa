@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A poster with its title, for the rows on Home. -->
+<component name="PosterItem" extends="Group">
+  <interface>
+    <field id="itemContent" type="node" onChange="onContent" />
+    <field id="focusPercent" type="float" />
+  </interface>
+  <script type="text/brightscript" uri="pkg:/components/PosterItem.brs" />
+  <children>
+    <Rectangle width="240" height="360" color="0x1B2030FF" />
+    <Poster id="poster" width="240" height="360" loadDisplayMode="scaleToZoom" />
+    <Rectangle id="bar" translation="[0,354]" width="0" height="6" color="0xF4B740FF" visible="false" />
+    <Label id="label" translation="[0,370]" width="240" height="40" horizAlign="center" font="font:SmallestSystemFont" color="0xF5F1E8FF" />
+  </children>
+</component>

@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Sofa for Roku, all of it: find Sofa on the network, sign in with your phone (a code on the TV),
+  Home (Continue watching, Shows, Movies), a show's episodes, and Roku's own player.
+-->
+<component name="MainScene" extends="Scene">
+  <script type="text/brightscript" uri="pkg:/components/MainScene.brs" />
+  <children>
+    <Rectangle id="bg" width="1920" height="1080" color="0x0A0E1AFF" />
+    <Label id="brand" text="Sofa" translation="[96,44]" color="0xF4B740FF">
+      <Font role="font" uri="font:BoldSystemFontFile" size="56" />
+    </Label>
+    <Label id="status" translation="[96,1000]" width="1728" font="font:SmallSystemFont" color="0x9AA3B8FF" />
+
+    <Group id="findView" visible="false">
+      <Label text="Which Sofa?" translation="[96,170]" font="font:LargeSystemFont" color="0xF5F1E8FF" />
+      <Label id="findHint" translation="[96,240]" width="1500" wrap="true" font="font:MediumSystemFont" color="0x9AA3B8FF" />
+      <LabelList id="serverList" translation="[96,340]" itemSize="[1000,76]" numRows="7" color="0xF5F1E8FF"
+                 focusedColor="0x1A1405FF" focusBitmapBlendColor="0xF4B740FF" font="font:MediumSystemFont" focusedFont="font:MediumBoldSystemFont" />
+    </Group>
+
+    <Group id="pairView" visible="false">
+      <Label text="Sign in with your phone" translation="[96,170]" font="font:LargeSystemFont" color="0xF5F1E8FF" />
+      <Label id="pairCode" translation="[96,290]" color="0xF4B740FF">
+        <Font role="font" uri="font:BoldSystemFontFile" size="160" />
+      </Label>
+      <Label id="pairHint" translation="[96,520]" width="1500" wrap="true" font="font:MediumSystemFont" color="0xF5F1E8FF" />
+    </Group>
+
+    <Group id="homeView" visible="false">
+      <RowList id="rows" translation="[96,140]" itemComponentName="PosterItem" numRows="2" itemSize="[1728,480]"
+               rowItemSize="[[240,420]]" rowItemSpacing="[[28,0]]" itemSpacing="[0,40]" showRowLabel="[true]"
+               rowLabelColor="0xF5F1E8FF" rowLabelFont="font:MediumBoldSystemFont" rowFocusAnimationStyle="floatingFocus"
+               focusBitmapBlendColor="0xF4B740FF" />
+    </Group>
+
+    <Group id="showView" visible="false">
+      <Label id="showTitle" translation="[96,140]" width="1728" font="font:LargeSystemFont" color="0xF5F1E8FF" />
+      <RowList id="episodes" translation="[96,230]" itemComponentName="EpisodeItem" numRows="2" itemSize="[1728,360]"
+               rowItemSize="[[400,300]]" rowItemSpacing="[[28,0]]" itemSpacing="[0,40]" showRowLabel="[true]"
+               rowLabelColor="0xF5F1E8FF" rowLabelFont="font:MediumBoldSystemFont" rowFocusAnimationStyle="floatingFocus"
+               focusBitmapBlendColor="0xF4B740FF" />
+    </Group>
+
+    <Video id="video" width="1920" height="1080" visible="false" />
+    <Timer id="pollTimer" repeat="true" duration="2" />
+  </children>
+</component>
