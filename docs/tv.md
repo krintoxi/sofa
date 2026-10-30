@@ -27,6 +27,14 @@ When **Skip Intro** appears it's already selected: just press OK. When the credi
 
 Live TV: with the controls hidden, ▲ ▼ change channel.
 
+### Who's watching?
+
+When Sofa opens on the TV it asks who's watching (if there's more than one profile): pick
+yours with the remote. Profiles that can see the Adult section or run the server have a lock:
+type their 4-digit PIN with the remote's number keys or the on-screen pad (or their password,
+until they set a PIN). Set your color and PIN from **Who's watching? → Your profile**, or by
+pressing your name at the top. Switching only works at home, never for guests.
+
 ### Tips
 
 - Converted videos (MKV, AVI) take a few seconds to start the first time. Turn on

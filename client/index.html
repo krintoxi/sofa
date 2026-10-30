@@ -36,6 +36,7 @@
   <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="2" fill="currentColor"/><circle cx="12" cy="12" r="2" fill="currentColor"/><circle cx="19" cy="12" r="2" fill="currentColor"/></symbol>
   <symbol id="i-trash" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/></symbol>
   <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2.5" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="9" cy="10" r="1.8" fill="currentColor"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" d="M4 17l5-4 4 3 3-2 4 3"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="10" rx="2.5" fill="currentColor"/><path fill="none" stroke="currentColor" stroke-width="2.2" d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/></symbol>
   <symbol id="i-check" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
   <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="2"/><path stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M16 16l4 4"/></symbol>
   <symbol id="i-sofa" viewBox="0 0 30 22"><path fill="currentColor" d="M5 4.5A4.5 4.5 0 0 1 9.5 0h11A4.5 4.5 0 0 1 25 4.5V8a4 4 0 0 0-4 4v1H9v-1a4 4 0 0 0-4-4z"/><path fill="currentColor" d="M0 12a3 3 0 0 1 6 0v3h18v-3a3 3 0 0 1 6 0v6a2 2 0 0 1-2 2h-1v2h-3v-2H7v2H4v-2H3a3 3 0 0 1-3-3z"/></symbol>
@@ -59,6 +60,7 @@
     <a href="#/" data-nav="home">Home</a>
     <a href="#/shows" data-nav="shows">Shows</a>
     <a href="#/movies" data-nav="movies">Movies</a>
+    <a href="#/mylist" data-nav="mylist">My List</a>
     <a href="#/music" data-nav="music">Music</a>
     <a href="#/live" data-nav="live">Live TV</a>
     <a href="#/adult" data-nav="adult" id="navAdult" hidden>Adult</a>
@@ -66,9 +68,9 @@
   </nav>
   <label class="search" id="searchBox" hidden>
     <svg><use href="#i-search"/></svg>
-    <input id="q" type="search" placeholder="Search shows and episodes" aria-label="Search shows and episodes" autocomplete="off">
+    <input id="q" type="search" placeholder="Search shows and movies" aria-label="Search shows, movies and episodes" autocomplete="off">
   </label>
-  <div class="who" id="who" hidden><span class="name" id="whoName"></span><button class="link-btn" id="lookBtn" type="button" aria-label="Look and feel">Theme</button><button class="link-btn" id="signOut" type="button">Sign out</button></div>
+  <div class="who" id="who" hidden><button class="who-btn" id="whoBtn" type="button" aria-label="Who's watching? Switch profile"><span class="av" id="whoAv"></span><span class="name" id="whoName"></span></button><button class="link-btn" id="lookBtn" type="button" aria-label="Look and feel">Theme</button><button class="link-btn" id="signOut" type="button">Sign out</button></div>
 </header>
 <main id="view"></main>
 <footer id="foot"></footer>

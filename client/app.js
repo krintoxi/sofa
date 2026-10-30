@@ -78,12 +78,17 @@ function appearanceDialog() {
     <h3 class="dlg-sub">Subtitle size</h3>
     <div class="sorter inline" role="group" aria-label="Subtitle size">${[["s", "Small"], ["m", "Medium"], ["l", "Large"], ["xl", "Huge"]].map(x =>
       `<button data-sub-size="${x[0]}" aria-pressed="${x[0] === sub}">${x[1]}</button>`).join("")}</div>
+    <h3 class="dlg-sub">Home</h3>
+    <div class="toggle"><div><b>Play the banner</b><span>The featured title at the top of Home plays a few silent seconds.</span></div>
+      <button class="switch" role="switch" aria-checked="${prefs.get("bannerClips", true) !== false}" data-banner-toggle="1" aria-label="Play the banner"></button></div>
     <h3 class="dlg-sub">TV mode</h3>
     <div class="toggle"><div><b>Big buttons for a remote</b><span>Turns on by itself on Fire TV, Android TV and smart TVs.</span></div>
       <button class="switch" role="switch" aria-checked="${TV}" data-tv-toggle="1" aria-label="TV mode"></button></div>
     <div class="actions"><button class="btn primary" data-dismiss="1">Done</button></div>`);
   d.addEventListener("click", e => {
-    const t = e.target.closest("[data-theme-pick],[data-sub-size],[data-tv-toggle]"); if (!t) return;
+    const t = e.target.closest("[data-theme-pick],[data-sub-size],[data-tv-toggle],[data-banner-toggle]"); if (!t) return;
+    if (t.dataset.bannerToggle) { const on = prefs.get("bannerClips", true) === false; prefs.set("bannerClips", on); t.setAttribute("aria-checked", on);
+      if (!on) document.querySelectorAll(".hero-clip").forEach(dropClip); return; }
     if (t.dataset.themePick) { prefs.set("theme", t.dataset.themePick); applyTheme(t.dataset.themePick);
       d.querySelectorAll("[data-theme-pick]").forEach(b => b.setAttribute("aria-pressed", b === t)); }
     else if (t.dataset.subSize) { prefs.set("subSize", t.dataset.subSize); applySubSize();
@@ -200,7 +205,7 @@ function movieCard(m) {
       ${pct(m.id) && !isDone(m.id) ? `<span class="progress"><i style="width:${pct(m.id)}%"></i></span>` : ""}
       ${isDone(m.id) ? `<span class="seen-badge">${icon("i-check")}</span>` : ""}
       ${m.adult && (m.duration || m.height) ? `<span class="dur-badge">${esc([quality(m.height), m.duration ? clock(m.duration) : ""].filter(Boolean).join(" · "))}</span>` : ""}
-      ${favs.has(m.id) ? `<span class="fav-badge">♥</span>` : ""}</span>
+      ${m.adult && favs.has(m.id) ? `<span class="fav-badge">♥</span>` : ""}</span>
     <span class="t1">${esc(m.title)}</span>
     <span class="t2">${esc([m.year, m.studio].filter(Boolean).join(" · "))}</span></a>`;
 }
@@ -261,7 +266,7 @@ function heroFor(show, short) {
       ${show.logo ? `<img class="hero-logo" src="${esc(artSrc(show.logo, 720))}" alt="${esc(show.name)}">` : `<h1>${esc(show.name)}</h1>`}
       <p class="facts">${facts}</p>
       ${show.summary ? `<p class="summary${short ? "" : " clamp"}">${esc(show.summary)}</p>` : ""}
-      <div class="actions">${action}${short ? "" : `<a class="btn" href="#/show/${encodeURIComponent(show.id)}">Episodes</a>`}
+      <div class="actions">${action}${short ? "" : `<a class="btn" href="#/show/${encodeURIComponent(show.id)}">Episodes</a>`}${show.adult ? "" : listBtn(show.id)}
         ${short && session.user.admin ? `<button class="btn ghost" data-fix="${esc(show.id)}">${show.source ? "Fix details" : "Find details"}</button>
           <button class="btn ghost" data-manage="${esc(show.id)}">${icon("i-more")}Manage</button>` : ""}</div>
     </div></section>`;
@@ -293,8 +298,8 @@ function heroSlide(x, i) {
     action = `<button class="btn primary" data-play="${esc(x.id)}">${icon("i-play")}${inProgress(x.id) ? "Resume" : "Play"}</button>`;
     more = `<a class="btn" href="#/movie/${encodeURIComponent(x.id)}">More info</a>`;
   }
-  const name = x.name || x.title;
-  return `<div class="slide${i ? "" : " on"}" data-glow="${esc(x.backdrop || x.poster || "")}" aria-hidden="${i ? "true" : "false"}">
+  const name = x.name || x.title, clipId = isShow ? (upNext(x) || { ep: x.order[0] || {} }).ep.id : x.id;
+  return `<div class="slide${i ? "" : " on"}" data-glow="${esc(x.backdrop || x.poster || "")}"${clipId ? ` data-clip="${esc(clipId)}"` : ""} aria-hidden="${i ? "true" : "false"}">
     ${x.backdrop ? `<img class="hero-bg" src="${esc(artSrc(x.backdrop, 1280))}" alt=""${i ? ` loading="lazy"` : ""}>`
       : x.poster ? `<img class="hero-bg blur" src="${esc(artSrc(x.poster, 480))}" alt="">` : `<span class="hero-bg placeholder" style="--h:${hue(name)}"></span>`}
     <div class="hero-body"><p class="eyebrow">${isShow ? (lastTouched(x) ? "Continue the series" : "Series") : "Movie"}</p>
@@ -318,13 +323,35 @@ function showSlide(i) {
   h.querySelectorAll("[data-slide]").forEach((d, n) => d.setAttribute("aria-pressed", n === i));
   h.dataset.at = i;
   setGlow(slides[i].dataset.glow);
+  heroClip(slides[i]);
+}
+/* The banner plays: after a moment, a few silent seconds of the featured title fade in behind it,
+   then the next title comes on. */
+let clipTimer = 0;
+function heroClip(slide) {
+  clearTimeout(clipTimer);
+  document.querySelectorAll(".hero-clip").forEach(v => { if (!slide.contains(v)) dropClip(v); });
+  const h = slide.closest(".hero.carousel"); if (h) delete h.dataset.playing;
+  if (REDUCED || !slide.dataset.clip || prefs.get("bannerClips", true) === false) return;
+  clipTimer = setTimeout(() => {
+    if (!document.contains(slide) || !slide.classList.contains("on") || Player.isOpen() || slide.querySelector(".hero-clip")) return;
+    const v = clipVideo(slide.dataset.clip, true);
+    v.className = "hero-clip"; v.loop = false;
+    v.addEventListener("playing", () => { v.classList.add("on"); if (h) h.dataset.playing = "1"; }, { once: true });
+    v.addEventListener("ended", () => {
+      v.classList.remove("on");
+      setTimeout(() => { dropClip(v); if (h && document.contains(h)) { delete h.dataset.playing; if (h.querySelectorAll(".slide").length > 1) showSlide(+(h.dataset.at || 0) + 1); } }, 1200);
+    });
+    slide.querySelector(".hero-bg").after(v);
+  }, 2600);
 }
 function startHero() {
   clearInterval(heroTimer);
-  const h = $(".hero.carousel"); if (!h || h.querySelectorAll(".slide").length < 2) return;
+  const h = $(".hero.carousel"); if (h && $(".slide.on", h)) heroClip($(".slide.on", h));
+  if (!h || h.querySelectorAll(".slide").length < 2) return;
   heroTimer = setInterval(() => {
     if (!document.contains(h)) return clearInterval(heroTimer);
-    if (h.matches(":hover") || h.contains(document.activeElement) || Player.isOpen()) return;
+    if (h.matches(":hover") || h.contains(document.activeElement) || Player.isOpen() || h.dataset.playing) return;
     showSlide(+(h.dataset.at || 0) + 1);
   }, 9000);
 }
@@ -342,6 +369,7 @@ function viewHome() {
   return heroCarousel() +
     rail("Continue watching", "wide", cont.map(i => wideCard(i))) +
     rail("Next up", "wide", nextUps) +
+    rail("My List", "posters", myList().map(x => x.seasons ? posterCard(x) : movieCard(x)), "#/mylist") +
     rail("Shows", "posters", shows.map(posterCard), "#/shows") +
     rail("New movies", "posters", newMovies.map(movieCard), "#/movies") +
     rail("Recently added episodes", "wide", added.map(i => wideCard(i))) +
@@ -457,7 +485,7 @@ function viewMovie(id) {
           <button class="btn primary" data-play="${esc(m.id)}">${icon("i-play")}${resume ? "Resume" : "Play"}${resume ? ` <small>${esc(clock(p.d - p.t))} left</small>` : ""}</button>
           ${resume ? `<button class="btn" data-play-start="${esc(m.id)}">Start over</button>` : ""}
           <button class="btn ghost" data-watched="${esc(m.id)}" aria-pressed="${isDone(m.id)}">${icon("i-check")}${isDone(m.id) ? "Watched" : "Mark watched"}</button>
-          ${m.adult ? `<button class="btn ghost heart-btn" data-like="${esc(m.id)}" aria-pressed="${favs.has(m.id)}">♥ ${favs.has(m.id) ? "In Favorites" : "Favorite"}</button>` : ""}
+          ${m.adult ? `<button class="btn ghost heart-btn" data-like="${esc(m.id)}" aria-pressed="${favs.has(m.id)}">♥ ${favs.has(m.id) ? "In Favorites" : "Favorite"}</button>` : listBtn(m.id)}
           ${session.user.admin ? `<button class="btn ghost" data-fix="${esc(m.id)}">${m.source ? "Fix details" : "Find details"}</button>
             <button class="btn ghost" data-manage="${esc(m.id)}">${icon("i-more")}Manage</button>` : ""}
         </div>
@@ -495,7 +523,8 @@ function adultHero(list) {
     const facts = [x.category, isShow ? plural(x.count, "episode") : x.duration ? dur(x.duration) : "", isShow ? "" : quality(x.height),
       x.studio].filter(Boolean).map(f => `<span>${esc(f)}</span>`).join("");
     const play = isShow ? nx && nx.ep.id : x.id;
-    return `<div class="slide${i ? "" : " on"}" data-glow="" aria-hidden="${i ? "true" : "false"}">
+    const clipId = isShow ? (nx || { ep: x.order[0] || {} }).ep.id : x.id;
+    return `<div class="slide${i ? "" : " on"}" data-glow=""${clipId ? ` data-clip="${esc(clipId)}"` : ""} aria-hidden="${i ? "true" : "false"}">
       <img class="hero-bg" src="${esc(artSrc(x.backdrop || x.poster, 1280))}" alt=""${i ? ` loading="lazy"` : ""}>
       <div class="hero-body"><p class="eyebrow">${isShow ? "Series" : "New in Adult"}</p><h1>${esc(name)}</h1>
         <p class="facts">${facts}</p>
@@ -638,16 +667,34 @@ function viewShow(id, seasonKey) {
       <div class="episodes" role="tabpanel">${items.map(i => episodeRow(i)).join("")}</div>
     </div>`;
 }
-function viewSearch(q) {
-  const needle = q.trim().toLowerCase();
-  if (!needle) return viewHome();
-  setGlow("");
-  const hit = s => (s || "").toLowerCase().includes(needle);
-  const sh = shows.filter(s => hit(s.name));
-  const mv = movies.filter(m => hit(m.title) || hit(m.collection));
+/* Search: accents and case don't matter; whole titles and word starts come first; genres, networks,
+   collections and years count too. The Adult section has its own search, inside it. */
+const fold = s => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+function searchAll(q) {
+  const n = fold(q).trim();
+  if (!n) return { sh: [], mv: [], eps: [] };
+  const score = text => {
+    const t = fold(text);
+    if (!t) return 0;
+    if (t === n) return 100;
+    if (t.startsWith(n)) return 85;
+    if (t.split(/[^a-z0-9]+/).some(w => w && w.startsWith(n))) return 60;
+    return t.includes(n) ? 30 : 0;
+  };
+  const best = pairs => pairs.filter(p => p[1] > 0).sort((a, b) => b[1] - a[1]).map(p => p[0]);
+  const sh = best(shows.map(s => [s, Math.max(score(s.name), score((s.genres || []).join(" ")) * .5, score(s.network) * .45,
+    String(years(s) || "").includes(n) && /^\d{4}$/.test(n) ? 40 : 0)]));
+  const mv = best(movies.map(m => [m, Math.max(score(m.title), score(m.collection) * .7, score((m.genres || []).join(" ")) * .5,
+    String(m.year) === n ? 45 : 0, score(m.studio) * .4)]));
   const eps = [];
-  shows.forEach(s => s.seasons.forEach(se => se.episodes.forEach(ep => { if (hit(ep.title)) eps.push(ep); })));
-  shows.forEach(s => s.extras.forEach(x => { if (hit(x.title)) eps.push(x); }));
+  shows.forEach(s => s.seasons.forEach(se => se.episodes.forEach(ep => { const v = score(ep.title) * .8; if (v) eps.push([ep, v]); })));
+  shows.forEach(s => s.extras.forEach(x => { const v = score(x.title) * .6; if (v) eps.push([x, v]); }));
+  return { sh, mv, eps: best(eps) };
+}
+function viewSearch(q) {
+  if (!q.trim()) return viewHome();
+  setGlow("");
+  const { sh, mv, eps } = searchAll(q);
   const total = sh.length + mv.length + eps.length;
   return `<section class="page"><div class="page-head"><h1>${esc(q.trim())}</h1><span class="count">${plural(total, "result")}</span></div>
     ${total ? "" : `<p class="count">Nothing matches "${esc(q.trim())}". Try part of an episode title.</p>`}
@@ -656,16 +703,35 @@ function viewSearch(q) {
       episodeRow(ep, ep.show.name + ", " + epCode(ep))).join("")}</div>` : ""}
   </section>`;
 }
+function viewMyList() {
+  const list = myList();
+  setGlow(list[0] && (list[0].backdrop || list[0].poster));
+  return `<section class="page"><div class="page-head"><h1>My List</h1><span class="count">${plural(list.length, "title")}</span></div>
+    ${list.length ? `<div class="grid">${list.map(x => x.seasons ? posterCard(x) : movieCard(x)).join("")}</div>`
+      : `<p class="count" style="max-width:56ch">Nothing here yet. Press <b>+ My List</b> on a show or a movie (or on the card that opens when you point at one) to keep it here for later.</p>`}</section>`;
+}
 function viewMissing() {
   return `<section class="empty"><h1>That page isn't here</h1><p>The show may have been renamed or removed.</p>
     <p><a class="btn" href="#/">Go home</a></p></section>`;
 }
 
 /* ---------- favorites (♥) ---------- */
+const listBtn = id => `<button class="btn ghost list-btn" data-like="${esc(id)}" aria-pressed="${favs.has(id)}">${favs.has(id) ? icon("i-check") + "My List" : "+ My List"}</button>`;
+const roundListBtn = id => `<button class="round list-round${favs.has(id) ? " on" : ""}" data-like="${esc(id)}" aria-pressed="${favs.has(id)}" aria-label="${favs.has(id) ? "Remove from My List" : "Add to My List"}">${favs.has(id) ? icon("i-check") : `<b aria-hidden="true">+</b>`}</button>`;
+function myList() {
+  return (LIB.likes || []).map(id => byId.get(id)).filter(x => x && (x.seasons || x.kind === "movie") && !x.adult);
+}
 async function toggleFav(key, btn) {
   const on = !favs.has(key);
   if (on) favs.add(key); else favs.delete(key);
-  if (btn) { btn.setAttribute("aria-pressed", on); if (btn.classList.contains("heart-btn")) btn.textContent = "♥ " + (on ? "In Favorites" : "Favorite"); }
+  LIB.likes = (LIB.likes || []).filter(k => k !== key); if (on) LIB.likes.unshift(key);
+  if (btn) {
+    btn.setAttribute("aria-pressed", on);
+    if (btn.classList.contains("heart-btn")) btn.textContent = "♥ " + (on ? "In Favorites" : "Favorite");
+    if (btn.classList.contains("list-btn")) btn.innerHTML = on ? icon("i-check") + "My List" : "+ My List";
+    if (btn.classList.contains("list-round")) { btn.classList.toggle("on", on); btn.innerHTML = on ? icon("i-check") : `<b aria-hidden="true">+</b>`; }
+    if (!btn.closest(".pop")) toast(on ? "Added to " + (btn.classList.contains("heart-btn") ? "Favorites" : "My List") + "." : "Removed.");
+  }
   try { await api("/api/like/" + encodeURIComponent(key), { on }); } catch (e) { toast(e.message); }
 }
 
@@ -674,13 +740,13 @@ async function toggleFav(key, btn) {
    With a TV remote (or the keyboard), the focused card plays its clip in place. */
 let pvCard = null, pvTimer = 0, pop = null;
 const fineHover = matchMedia("(hover: hover) and (pointer: fine)").matches && !TV;
-function clipVideo(id) {
+function clipVideo(id, hd) {
   const v = document.createElement("video");
   v.className = "pv"; v.muted = true; v.loop = true; v.playsInline = true; v.preload = "auto";
   v.setAttribute("muted", ""); v.setAttribute("playsinline", ""); v.setAttribute("aria-hidden", "true");
   v.addEventListener("playing", () => v.classList.add("on"), { once: true });
   v.addEventListener("error", () => v.remove(), { once: true });
-  v.src = "/media/" + encodeURIComponent(id) + "/preview.mp4";
+  v.src = "/media/" + encodeURIComponent(id) + "/preview.mp4" + (hd ? "?hd=1" : "");
   v.play().catch(() => {});
   return v;
 }
@@ -743,7 +809,8 @@ function openPop(card) {
     <div class="pop-body">
       <div class="pop-actions">${info.play ? `<button class="round primary" data-play="${esc(info.play)}" aria-label="${info.verb}">${icon("i-play")}</button>` : ""}
         <a class="round" href="${esc(info.more)}" aria-label="More info">${icon("i-info")}</a>
-        ${x.adult || x.kind === "movie" ? `<button class="round${favs.has(x.id) ? " on" : ""}" data-like="${esc(x.id)}" aria-pressed="${favs.has(x.id)}" aria-label="Favorite">♥</button>` : ""}
+        ${x.adult || (x.show && x.show.adult) ? `<button class="round${favs.has(x.id) ? " on" : ""}" data-like="${esc(x.id)}" aria-pressed="${favs.has(x.id)}" aria-label="Favorite">♥</button>`
+          : roundListBtn(x.kind === "episode" && x.show ? x.show.id : x.id)}
         <span class="pop-verb">${esc(info.verb)}</span></div>
       <p class="pop-title">${esc(info.title)}</p>
       ${info.sub ? `<p class="pop-sub">${esc(info.sub)}</p>` : ""}
@@ -1156,7 +1223,11 @@ function srvActivity(d) {
     live: "Live TV", convert: "Converting", playback: "Playback problems", update: "Updates", error: "Errors", backup: "Backups",
     download: "Downloads" };
   const list = d.activity.filter(a => activityKind === "all" || a.kind === activityKind);
-  return `<div class="panel wide"><h2>Activity</h2><div class="chips">${kinds.map(k => `<button data-act-kind="${k}" aria-pressed="${k === activityKind}">${esc(names[k] || k)}</button>`).join("")}</div>
+  const report = `<div class="panel wide report-panel"><h2>Need help? Download a report</h2>
+    <p class="hint">One text file with everything needed to see what Sofa is doing: version and tools, settings (no passwords, PINs or keys), folders and free space, what's in the Inbox and Needs Review, the queues, playback problems, this activity log with its details, and the server log. Send it to whoever helps you (you can give it straight to Claude).</p>
+    <div class="actions"><a class="btn primary" id="reportLink" href="/api/admin/report" download>Download a report</a>
+      ${session.user.adult ? `<label class="check"><input type="checkbox" id="reportAdult"> Include Adult details (file names, links)</label>` : ""}</div></div>`;
+  return report + `<div class="panel wide"><h2>Activity</h2><div class="chips">${kinds.map(k => `<button data-act-kind="${k}" aria-pressed="${k === activityKind}">${esc(names[k] || k)}</button>`).join("")}</div>
     <ul class="list">${list.map(actRow).join("") || `<li class="empty-row">Nothing yet.</li>`}</ul></div>`;
 }
 function drawGuestQr() {
@@ -1196,6 +1267,7 @@ function route(animate) {
   else if (name === "collection") { html = viewCollection(rest.join("/")); nav = "movies"; }
   else if (name === "adult" && session.user.adult) { html = viewAdult(rest); nav = "adult"; }
   else if (name === "search") html = viewSearch(rest.join("/"));
+  else if (name === "mylist") { html = viewMyList(); nav = "mylist"; }
   else if (name === "live") { html = viewLive(); nav = "live"; }
   else if (name === "music") { html = viewMusic(rest); nav = "music"; }
   else if (name === "server" && session.user.admin) { html = viewServer(rest[0]); nav = "server"; }
@@ -1311,6 +1383,7 @@ document.addEventListener("click", e => {
   }
 });
 document.addEventListener("change", e => {
+  if (e.target.id === "reportAdult") { $("#reportLink").href = "/api/admin/report" + (e.target.checked ? "?adult=1" : ""); return; }
   const sel = e.target.closest("[data-setting-select]"); if (!sel) return;
   const v = sel.dataset.settingSelect === "max_transcodes" ? +sel.value : sel.value;
   adminAction(async () => { await api("/api/admin/settings", { [sel.dataset.settingSelect]: v }); if (sel.dataset.settingSelect === "theme" && prefs.get("theme", null) === null) applyTheme(v); });
@@ -1356,16 +1429,53 @@ document.addEventListener("error", e => {
   img.remove();
 }, true);
 
+/* Search as you type: a panel under the box with the best matches and their pictures.
+   Enter (or "See all results") opens the full results page. Arrow keys and the remote move through it. */
 let searchTimer;
+const suggest = document.createElement("div");
+suggest.className = "suggest"; suggest.hidden = true; suggest.setAttribute("role", "listbox"); suggest.setAttribute("aria-label", "Suggestions");
+document.body.appendChild(suggest);
+function closeSuggest() { suggest.hidden = true; suggest.classList.remove("on"); }
+function openSuggest(q) {
+  const { sh, mv, eps } = searchAll(q);
+  const titles = sh.slice(0, 5).concat(mv.slice(0, 5)).sort((a, b) => sh.indexOf(a) + mv.indexOf(a) + 2 - (sh.indexOf(b) + mv.indexOf(b) + 2)).slice(0, 6);
+  const row = (href, art, wide, name, sub) => `<a class="sg-item" role="option" href="${esc(href)}">
+      <span class="sg-art${wide ? " wide" : ""}">${art ? `<img src="${esc(artSrc(art, 240))}" alt="" loading="lazy">` : `<span class="placeholder" style="--h:${hue(name)}"></span>`}</span>
+      <span class="sg-text"><b>${esc(name)}</b><small>${esc(sub)}</small></span></a>`;
+  const items = titles.map(x => x.seasons
+      ? row("#/show/" + encodeURIComponent(x.id), x.poster, false, x.name, ["Show", years(x), plural(x.regularSeasons, "season")].filter(Boolean).join(" · "))
+      : row("#/movie/" + encodeURIComponent(x.id), x.poster, false, x.title, ["Movie", x.year, (x.genres || [])[0]].filter(Boolean).join(" · ")))
+    .concat(eps.slice(0, 4).map(ep => row("#/show/" + encodeURIComponent(ep.show.id) + "|" + (ep.kind === "extra" ? "extras" : ep.s),
+      ep.thumb || ep.show.backdrop || ep.show.poster, true, title(ep), ep.show.name + " · " + epCode(ep))));
+  suggest.innerHTML = (items.length ? items.join("") : `<p class="sg-none">Nothing matches "${esc(q.trim())}" yet.</p>`) +
+    `<a class="sg-all" href="#/search/${encodeURIComponent(q.trim())}">See all results for "${esc(q.trim())}"</a>`;
+  const r = $("#searchBox").getBoundingClientRect();
+  const w = Math.min(440, innerWidth - 24);
+  suggest.style.cssText = `top:${r.bottom + 8}px;left:${Math.max(12, Math.min(innerWidth - w - 12, r.right - w))}px;width:${w}px`;
+  suggest.hidden = false;
+  requestAnimationFrame(() => suggest.classList.add("on"));
+}
 $("#q").addEventListener("input", e => {
   clearTimeout(searchTimer);
-  searchTimer = setTimeout(() => {
-    const v = e.target.value;
-    const target = v.trim() ? "#/search/" + encodeURIComponent(v) : "#/";
-    if (location.hash.startsWith("#/search/")) { history.replaceState(null, "", target); route(); }
-    else location.hash = target;
-  }, 180);
+  searchTimer = setTimeout(() => { const v = e.target.value; if (v.trim()) openSuggest(v); else closeSuggest(); }, 120);
 });
+$("#q").addEventListener("focus", e => { if (e.target.value.trim()) openSuggest(e.target.value); });
+$("#q").addEventListener("keydown", e => {
+  if (e.key === "Enter" && e.target.value.trim()) { e.preventDefault(); closeSuggest(); location.hash = "#/search/" + encodeURIComponent(e.target.value.trim()); }
+  else if (e.key === "Escape") { closeSuggest(); }
+  else if (e.key === "ArrowDown" && !suggest.hidden) { e.preventDefault(); e.stopPropagation(); const f = $("a", suggest); if (f) f.focus(); }
+});
+suggest.addEventListener("keydown", e => {
+  const items = [...suggest.querySelectorAll("a")], i = items.indexOf(document.activeElement);
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    e.preventDefault(); e.stopPropagation();
+    const next = i + (e.key === "ArrowDown" ? 1 : -1);
+    if (next < 0) $("#q").focus(); else if (items[next]) items[next].focus();
+  } else if (e.key === "Escape" || e.key === "Backspace") { e.preventDefault(); e.stopPropagation(); closeSuggest(); $("#q").focus(); }
+});
+suggest.addEventListener("click", e => { if (e.target.closest("a")) setTimeout(closeSuggest, 0); });
+document.addEventListener("pointerdown", e => { if (!suggest.hidden && !suggest.contains(e.target) && !$("#searchBox").contains(e.target)) closeSuggest(); });
+window.addEventListener("hashchange", closeSuggest);
 $("#lookBtn").addEventListener("click", () => appearanceDialog());
 $("#signOut").addEventListener("click", async () => { await api("/api/logout", {}).catch(() => {}); location.hash = "#/"; boot(); });
 
@@ -1431,6 +1541,87 @@ function fixDialog(id) {
     else send({ none: true });
   });
   search();
+}
+
+/* ---------- "Who's watching?": profiles ---------- */
+const avatar = (p, id) => `<span class="av av-${(p.avatar || 0) % 8}"${id ? ` id="${id}"` : ""} aria-hidden="true">${esc((p.name || "?").trim().charAt(0).toUpperCase())}</span>`;
+$("#whoBtn").addEventListener("click", () => profilePicker(false));
+async function profilePicker(auto) {
+  let r;
+  try { r = await api("/api/profiles"); } catch (e) { if (!auto) toast(e.message); return; }
+  sessionStorage.setItem("sofaPicked", "1");
+  const d = openDialog(`<div class="gate-inner"><h2>Who's watching?</h2>
+    <div class="profiles">${r.profiles.map(p => `<button class="profile" data-profile="${p.id}">
+      <span class="tile">${avatar(p)}${p.locked && p.id !== r.me ? `<i class="lock" aria-label="Locked">${icon("i-lock")}</i>` : ""}</span>
+      <span class="pname">${esc(p.name)}</span>${p.id === r.me ? `<span class="me">Watching now</span>` : ""}</button>`).join("")}</div>
+    <div class="actions center"><button class="btn ghost" data-my-profile="1">Your profile: color and PIN</button>${auto ? "" : `<button class="btn ghost" data-dismiss="1">Close</button>`}</div></div>`);
+  d.classList.add("gate"); d.parentElement.classList.add("gate-scrim");
+  const first = $(`[data-profile="${r.me}"]`, d) || $("[data-profile]", d); if (first) first.focus();
+  d.addEventListener("click", e => {
+    if (e.target.closest("[data-my-profile]")) { closeDialog(); setTimeout(profileDialog, 60); return; }
+    const b = e.target.closest("[data-profile]"); if (!b) return;
+    const p = r.profiles.find(x => x.id === +b.dataset.profile);
+    if (p.id === r.me) { closeDialog(); return; }
+    if (!p.locked) return switchTo(p, null, d);
+    codePrompt(d, p);
+  });
+}
+function codePrompt(d, p) {
+  const pin = p.pin;
+  $(".gate-inner", d).innerHTML = `<div class="code-head">${avatar(p)}<h2>${esc(p.name)}</h2>
+      <p>${pin ? "Type the PIN for this profile." : "This profile can see Adult or run the server, so it needs its password."}</p></div>
+    ${pin ? `<div class="pin-dots" aria-live="polite">${"<i></i>".repeat(4)}</div>
+      <div class="pin-pad">${[1, 2, 3, 4, 5, 6, 7, 8, 9, "", 0, "⌫"].map(k => k === "" ? "<span></span>" : `<button data-key="${k}">${k}</button>`).join("")}</div>`
+      : `<form class="code-form"><input type="password" name="code" autocomplete="current-password" aria-label="Password" placeholder="Password"><button class="btn primary">Continue</button></form>`}
+    <div class="form-error" role="alert"></div>
+    <div class="actions center"><button class="btn ghost" data-back-profiles="1">Back</button></div>`;
+  let code = "";
+  const dots = () => $(".pin-dots", d) && $(".pin-dots", d).querySelectorAll("i").forEach((i, n) => i.classList.toggle("on", n < code.length));
+  const tryCode = async () => {
+    const ok = await switchTo(p, code, d);
+    if (!ok) { code = ""; dots(); const pd = $(".pin-dots", d); if (pd) { pd.classList.remove("shake"); void pd.offsetWidth; pd.classList.add("shake"); } }
+  };
+  const press = k => { if (k === "⌫") code = code.slice(0, -1); else if (code.length < 4) code += k; dots(); if (pin && code.length === 4) tryCode(); };
+  d.onclick = e => {
+    const k = e.target.closest("[data-key]"); if (k) return press(k.dataset.key);
+    if (e.target.closest("[data-back-profiles]")) { closeDialog(); setTimeout(() => profilePicker(false), 60); }
+  };
+  d.onkeydown = e => { if (pin && /^\d$/.test(e.key)) { e.preventDefault(); press(e.key); } else if (pin && e.key === "Backspace") { e.preventDefault(); press("⌫"); } };
+  const f = $(".code-form", d);
+  if (f) { f.addEventListener("submit", e => { e.preventDefault(); code = f.code.value; tryCode(); }); f.code.focus(); }
+  else $("[data-key]", d).focus();
+}
+async function switchTo(p, code, d) {
+  try {
+    await api("/api/profiles/switch", { id: p.id, code });
+    closeDialog(); location.hash = "#/";
+    await boot(); toast("Hi, " + p.name + ".");
+    return true;
+  } catch (e) { const err = $(".form-error", d); if (err) err.textContent = e.message; return false; }
+}
+function profileDialog() {
+  const u = session.user;
+  const d = openDialog(`<h2>Your profile</h2><p>How ${esc(u.name)} looks in "Who's watching?".</p>
+    <div class="av-pick" role="group" aria-label="Color">${[0, 1, 2, 3, 4, 5, 6, 7].map(i => `<button data-av="${i}" aria-pressed="${u.avatar === i}" aria-label="Color ${i + 1}">${avatar({ name: u.name, avatar: i })}</button>`).join("")}</div>
+    <h3 class="dlg-sub">PIN</h3>
+    <p class="hint">${u.admin || u.adult ? "Your profile can see Adult or run the server, so switching to it asks for this PIN (or your password, without one)." : "With a PIN, switching to your profile asks for it."}</p>
+    <form class="pin-form"><input name="pin" inputmode="numeric" maxlength="4" pattern="\\d{4}" placeholder="New PIN (4 digits)" aria-label="New PIN">
+      <input name="password" type="password" autocomplete="current-password" placeholder="Your password" aria-label="Your password">
+      <button class="btn primary">${u.pin ? "Change PIN" : "Set PIN"}</button>${u.pin ? `<button class="btn ghost" type="button" data-clear-pin="1">Remove PIN</button>` : ""}</form>
+    <div class="form-error" role="alert"></div>
+    <div class="actions"><button class="btn ghost" data-dismiss="1">Done</button></div>`);
+  const err = $(".form-error", d), f = $(".pin-form", d);
+  d.addEventListener("click", async e => {
+    const a = e.target.closest("[data-av]");
+    if (a) { try { await api("/api/profile", { avatar: +a.dataset.av }); u.avatar = +a.dataset.av; d.querySelectorAll("[data-av]").forEach(b => b.setAttribute("aria-pressed", b === a)); $("#whoAv").outerHTML = avatar(u, "whoAv"); } catch (ex) { err.textContent = ex.message; } }
+    if (e.target.closest("[data-clear-pin]")) {
+      try { await api("/api/profile", { pin: "", password: f.password.value }); u.pin = false; closeDialog(); toast("PIN removed."); } catch (ex) { err.textContent = ex.message; }
+    }
+  });
+  f.addEventListener("submit", async e => {
+    e.preventDefault();
+    try { await api("/api/profile", { pin: f.pin.value, password: f.password.value }); u.pin = true; closeDialog(); toast("PIN saved."); } catch (ex) { err.textContent = ex.message; }
+  });
 }
 
 /* ---------- managing a title (admins): new pictures, move it, delete it ---------- */
@@ -2572,10 +2763,14 @@ async function boot() {
   $("#navAdult").hidden = !session.user.adult;
   if (prefs.get("theme", null) === null) applyTheme(session.theme);
   $("#whoName").textContent = session.user.name;
+  $("#whoAv").outerHTML = avatar(session.user, "whoAv");
+  $("#whoBtn").disabled = !session.profiles;
   $("#signOut").textContent = session.user.guest ? "Leave" : "Sign out";
   view.innerHTML = "";
   await reloadLibrary();
   route();
+  // On a TV, Sofa asks who's watching each time it's opened (when there's more than one profile).
+  if (TV && session.profiles > 1 && !sessionStorage.getItem("sofaPicked")) setTimeout(() => profilePicker(true), 400);
   // Sofa just started and is still reading the library: look again every few seconds until it's done.
   const waitForLibrary = () => LIB.reading && setTimeout(async () => {
     try { await reloadLibrary(); if (!LIB.reading && !Player.isOpen()) rerender(); } catch (e) {}
