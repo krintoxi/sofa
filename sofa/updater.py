@@ -308,6 +308,8 @@ def start_update():
 def restart():
     """Start this same process again with the new code (launchd/systemd see the same process carry on)."""
     try:
+        from . import discovery
+        discovery.stop()                      # the new process announces itself again
         sys.stdout.flush()
         sys.stderr.flush()
     finally:

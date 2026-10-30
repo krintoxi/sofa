@@ -33,6 +33,7 @@ AUDIO_MIME = {"mp3": "audio/mpeg", "m4a": "audio/mp4", "aac": "audio/aac", "flac
 TYPES = ["upnp:rootdevice", UDN, "urn:schemas-upnp-org:device:MediaServer:1",
          "urn:schemas-upnp-org:service:ContentDirectory:1", "urn:schemas-upnp-org:service:ConnectionManager:1"]
 
+SOFA_ST = "urn:sofa-media:device:Sofa:1"         # the Sofa apps' own search: answered even with TV sharing off
 _tree = {"version": None, "objects": {}}
 _tree_lock = threading.Lock()
 _running = False
@@ -381,16 +382,19 @@ def _listener():
             pass
     while True:
         data, peer = sock.recvfrom(4096)
-        if not config.get("dlna"):
-            continue
         text = data.decode("utf-8", "replace")
         if not text.startswith("M-SEARCH"):
             continue
         st = (re.search(r"(?im)^ST:\s*(.+?)\s*$", text) or [None, ""])[1]
-        targets = TYPES if st == "ssdp:all" else [st] if st in TYPES else []
-        if not targets:
-            continue
         here = _local_ip_for(peer[0])
+        if st in (SOFA_ST, "ssdp:all"):
+            reply = ("HTTP/1.1 200 OK\r\nCACHE-CONTROL: max-age=1800\r\nEXT:\r\nLOCATION: http://%s:%d/api/info\r\n"
+                     "SERVER: Sofa/1.0\r\nST: %s\r\nUSN: %s::%s\r\nContent-Length: 0\r\n\r\n"
+                     % (here, config.get("port"), SOFA_ST, UDN, SOFA_ST))
+            sock.sendto(reply.encode(), peer)
+        if not config.get("dlna"):
+            continue
+        targets = TYPES if st == "ssdp:all" else [st] if st in TYPES else []
         for nt in targets:
             reply = ("HTTP/1.1 200 OK\r\nCACHE-CONTROL: max-age=1800\r\nDATE: %s\r\nEXT:\r\n"
                      "LOCATION: http://%s:%d/dlna/device.xml\r\nSERVER: Sofa/1.0 UPnP/1.0 DLNADOC/1.50\r\n"

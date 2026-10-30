@@ -1,0 +1,20 @@
+name: Tests
+on:
+  push:
+    paths-ignore: ["docs/**", "*.md", "android/**", "roku/**"]
+  pull_request:
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.8", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Run the tests
+        run: python -W ignore -m unittest discover -s tests -t . -v
+      - name: Check the web app's JavaScript
+        run: node --check client/app.js

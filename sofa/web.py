@@ -17,7 +17,7 @@ import threading
 
 from . import (__version__, artwork, auth, backup, config, dlna, fetch, housekeeping, intros, live, media, metadata, music,
                kids, machine, net, optimize, organizer, places, previews, report, screens, store, trickplay, updater,
-               travel, uploads)
+               discovery, pairing, travel, uploads)
 from .library import LIBRARY
 
 CLIENT_DIR = os.path.join(config.APP_DIR, "client")
@@ -55,6 +55,9 @@ class Handler(BaseHTTPRequestHandler):
         return config.get("trust_proxy") and self.headers.get("X-Forwarded-Proto") == "https"
 
     def token(self):
+        bearer = self.headers.get("Authorization", "")
+        if bearer.startswith("Bearer "):                 # the Fire TV app, the Roku channel: a token, not a cookie
+            return bearer[7:].strip() or None
         c = SimpleCookie(self.headers.get("Cookie", ""))
         return c[auth.SESSION_COOKIE].value if auth.SESSION_COOKIE in c else None
 
@@ -155,6 +158,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         url = urlsplit(self.path)
         path, qs = unquote(url.path), parse_qs(url.query)
+        if path == "/api/info":                       # for apps that found Sofa on the network (no sign-in)
+            return self.json(discovery.info())
         if path == "/healthz":
             return self.json({"ok": True, "name": config.get("name"), "version": __version__,
                               "uptime": int(time.time() - STARTED), "library": LIBRARY.counts()})
@@ -509,6 +514,14 @@ class Handler(BaseHTTPRequestHandler):
     # ------------------------------------------------------------ API
 
     def api_get(self, path, qs):
+        if path == "/api/pair/poll":                  # a TV: "was my code approved?"
+            state, user_id, name = pairing.poll((qs.get("poll") or [""])[0])
+            if state != "approved":
+                return self.json({"state": state})
+            token = auth.start_session(user_id, self.client_ip(), self.headers.get("User-Agent"), label="Paired: " + name)
+            store.log("login", "A TV (%s) was signed in with a phone" % name)
+            return self.json({"state": "approved", "token": token, "user": auth.session_user(token)},
+                             headers={"Set-Cookie": self.session_cookie(token, auth.SESSION_DAYS * 86400)})
         if path == "/api/session":
             u = self.user()
             return self.json({"name": config.get("name"), "version": __version__, "user": u, "theme": config.get("theme"),
@@ -559,6 +572,13 @@ class Handler(BaseHTTPRequestHandler):
             copy_size = st.pop("size", None)
             return self.json(dict(st, copy_size=copy_size, direct=media.plan(item, caps)["mode"] == "direct",
                                   size=item.get("size"), duration=info.get("duration"), ext=item.get("ext")))
+        m = re.match(r"^/api/pair/(\d{6})$", path)
+        if m:                                         # the phone's approval page
+            p = pairing.lookup(m.group(1))
+            if not p:
+                return self.error(404, "That code isn't valid any more. The TV shows a new one: try that.")
+            ps = [x for x in auth.profiles() if u.get("admin") or x["id"] == u["id"] or x["kids"]]
+            return self.json({"device": p["name"], "profiles": ps, "me": u["id"]})
         if path == "/api/screen/wait":             # this page, waiting to be told what to play (the phone remote)
             return self.json({"commands": screens.wait((qs.get("id") or [""])[0][:40], (qs.get("name") or [""])[0],
                                                        u["id"], (qs.get("tv") or [""])[0] == "1")})
@@ -625,6 +645,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.json(optimize.status(LIBRARY))
         if path == "/api/admin/duplicates":
             return self.json({"groups": housekeeping.duplicates(LIBRARY)})
+        if path == "/api/admin/sessions":
+            return self.json({"sessions": auth.sessions()})
         if path == "/api/admin/upload/check":          # before sending a file: will it be taken?
             try:
                 size = int((qs.get("size") or ["0"])[0])
@@ -683,6 +705,12 @@ class Handler(BaseHTTPRequestHandler):
             store.log("account", "Created admin account \"%s\"" % user["name"])
             token = auth.start_session(user["id"], ip, self.headers.get("User-Agent"))
             return self.json({"ok": True}, headers={"Set-Cookie": self.session_cookie(token, auth.SESSION_DAYS * 86400)})
+        if path == "/api/pair/start":                  # a TV: "give me a code to show"
+            if self.network() not in HOME_NETS:
+                return self.error(403, "Signing in with a phone works at home or over Tailscale.")
+            code, poll = pairing.start(str(data.get("name") or "TV"), ip)
+            return self.json({"code": code, "poll": poll, "expires": pairing.LIFETIME,
+                              "url": "http://%s/#/pair/%s" % (self.headers.get("Host") or self.host_header(), code)})
         if path == "/api/login":
             if auth.throttled(ip):
                 return self.error(429, "Too many attempts. Wait 15 minutes and try again.")
@@ -706,10 +734,13 @@ class Handler(BaseHTTPRequestHandler):
                 if not auth.check_code(target["id"], data.get("code")):
                     auth.record_failure(ip)
                     return self.error(403, "That PIN isn't right." if target["pin"] else "That password isn't right.")
+            app = self.headers.get("Authorization", "").startswith("Bearer ")
+            label = auth.session_label(self.token()) if app else None
             auth.end_session(self.token())
-            token = auth.start_session(target["id"], ip, self.headers.get("User-Agent"))
+            token = auth.start_session(target["id"], ip, self.headers.get("User-Agent"), label=label)
             store.log("login", "%s is watching on %s" % (target["name"], self.network_label()), {"ip": ip})
-            return self.json({"ok": True}, headers={"Set-Cookie": self.session_cookie(token, auth.SESSION_DAYS * 86400)})
+            return self.json(dict({"ok": True}, **({"token": token} if app else {})),     # an app keeps its token itself
+                             headers={"Set-Cookie": self.session_cookie(token, auth.SESSION_DAYS * 86400)})
         if path == "/api/profile":                    # your own avatar and PIN
             u = self.user()
             if not u or u.get("guest"):
@@ -743,6 +774,18 @@ class Handler(BaseHTTPRequestHandler):
             if not item:
                 return self.error(404, "That video isn't in the library any more.")
             travel.want(item)
+            return self.json({"ok": True})
+        if path == "/api/pair/approve":
+            if not self.may_switch(u):
+                return self.error(403, "Approve TVs from home (or over Tailscale), signed in as yourself.")
+            target = next((x for x in auth.profiles() if x["id"] == data.get("profile")), None)
+            if not target or not (u.get("admin") or target["id"] == u["id"] or target["kids"]):
+                return self.error(403, "You can sign a TV in as yourself, or as a Kids profile.")
+            if not pairing.approve(data.get("code"), target["id"]):
+                return self.error(404, "That code isn't valid any more. The TV shows a new one: try that.")
+            return self.json({"ok": True})
+        if path == "/api/admin/sessions":            # sign a device out
+            auth.end_session_by_id(str(data.get("id") or ""))
             return self.json({"ok": True})
         if path == "/api/screen/state":
             screens.report(str(data.get("id") or "")[:40], u["id"], data.get("state") or {})

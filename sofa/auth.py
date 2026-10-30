@@ -169,15 +169,36 @@ def _token_key(token):
     return hashlib.sha256(token.encode()).hexdigest()
 
 
-def start_session(user_id, ip, agent):
+def start_session(user_id, ip, agent, label=None):
+    """A sign-in. `label`: a name for a paired TV or app ("Paired: Living room"), kept to manage it."""
     token = secrets.token_urlsafe(32)
     now = int(time.time())
     if store.no_logs():                         # not where anyone signed in from, nor on what
         ip = agent = None
+    agent = label or agent
     store.ex("INSERT INTO sessions (token, user_id, created, seen, ip, agent) VALUES (?,?,?,?,?,?)",
              _token_key(token), user_id, now, now, ip, (agent or "")[:200] or None)
     store.ex("DELETE FROM sessions WHERE seen < ?", now - SESSION_DAYS * 86400)
     return token
+
+
+def sessions():
+    """Everyone's sign-ins, newest use first, for the Server page (an id instead of the secret)."""
+    rows = store.q("""SELECT s.token, s.created, s.seen, s.agent, u.name, u.id AS user_id FROM sessions s
+                      JOIN users u ON u.id = s.user_id WHERE u.guest = 0 ORDER BY s.seen DESC""")
+    return [{"id": r["token"][:16], "user": r["name"], "user_id": r["user_id"], "created": r["created"], "seen": r["seen"],
+             "device": r["agent"] or ""} for r in rows]
+
+
+def session_label(token):
+    """The name a paired TV or app was given (kept when it switches profile)."""
+    row = store.q1("SELECT agent FROM sessions WHERE token = ?", _token_key(token)) if token else None
+    return row["agent"] if row and (row["agent"] or "").startswith("Paired: ") else None
+
+
+def end_session_by_id(sid):
+    if len(sid or "") == 16:
+        store.ex("DELETE FROM sessions WHERE substr(token, 1, 16) = ?", sid)
 
 
 def session_user(token):
