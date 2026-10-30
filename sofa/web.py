@@ -16,7 +16,8 @@ from urllib.parse import parse_qs, unquote, urlsplit
 import threading
 
 from . import (__version__, artwork, auth, backup, config, dlna, fetch, housekeeping, intros, live, media, metadata, music,
-               kids, machine, net, optimize, organizer, places, previews, report, screens, store, trickplay, updater)
+               kids, machine, net, optimize, organizer, places, previews, report, screens, store, trickplay, updater,
+               uploads)
 from .library import LIBRARY
 
 CLIENT_DIR = os.path.join(config.APP_DIR, "client")
@@ -190,10 +191,37 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_body(xml, 'text/xml; charset="utf-8"', status)
         if self.headers.get("X-Sofa") != "1":
             return self.error(400, "Missing X-Sofa header.")
+        if path == "/api/admin/upload":                # a file sent from a phone or laptop: streamed, not read as JSON
+            return self.upload()
         data = self.body_json()
         if data is None:
             return self.error(400, "Couldn't read the request.")
         self.api_post(path, data)
+
+    def upload(self):
+        u = self.need_user(admin=True)
+        if not u:
+            self.close_connection = True
+            return
+        qs = parse_qs(urlsplit(self.path).query)
+        try:
+            size = int(self.headers.get("Content-Length") or -1)
+        except ValueError:
+            size = -1
+        adult = (qs.get("adult") or [""])[0] == "1"
+        if size < 0:
+            return self.error(411, "The upload didn't say how big it is.")
+        if adult and not u.get("adult"):
+            return self.error(403, "Switch the Adult section on for yourself first (Server, People).")
+        try:
+            uploads.receive(self.rfile, (qs.get("name") or [""])[0], size, adult, u["name"])
+        except ValueError as exc:
+            self.close_connection = True          # the rest of the file is still coming: don't read it
+            return self.error(400, str(exc))
+        except (OSError, ConnectionError) as exc:
+            self.close_connection = True
+            return self.error(500, "The upload didn't finish: %s" % exc)
+        return self.json({"ok": True})
 
     def do_SUBSCRIBE(self):
         self.send_response(200)
@@ -578,6 +606,16 @@ class Handler(BaseHTTPRequestHandler):
             return self.json(optimize.status(LIBRARY))
         if path == "/api/admin/duplicates":
             return self.json({"groups": housekeeping.duplicates(LIBRARY)})
+        if path == "/api/admin/upload/check":          # before sending a file: will it be taken?
+            try:
+                size = int((qs.get("size") or ["0"])[0])
+            except ValueError:
+                size = 0
+            adult = (qs.get("adult") or [""])[0] == "1"
+            if adult and not u.get("adult"):
+                return self.error(403, "Switch the Adult section on for yourself first (Server, People).")
+            problem = uploads.check(uploads.safe_name((qs.get("name") or [""])[0]), size, adult)
+            return self.json({"ok": not problem, "problem": problem})
         if path == "/api/admin/update":
             return self.json(updater.status())
         if path == "/api/admin/intros":

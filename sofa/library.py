@@ -32,6 +32,7 @@ ART_DOWNLOADS_PER_SCAN = 250       # per scan; the watcher scans again until eve
 EPISODE_STILLS_PER_SCAN = 120      # episode pictures taken from the video: slower, so a separate allowance
 STILLS = os.path.join(config.DATA_DIR, "cache", "stills.json")   # adult pictures already taken from the middle
 FIRST_SEEN = os.path.join(config.DATA_DIR, "cache", "first-seen.json")   # item -> when Sofa first saw it
+HOME_VIDEOS = "Home Videos"         # phone and camera videos (Movies/Home Videos/Video 2023-05-12 14.30/...)
 EXTRAS_DIRS = ("extras", "featurettes", "behind the scenes", "trailers", "bonus", "deleted scenes")
 SERIES_DIRS = ("shows", "series", "tv", "tv shows", "tv series")
 NOT_CATEGORIES = ("metadata", "performers")
@@ -103,6 +104,7 @@ class Library:
         self._stills = {}       # picture -> when Sofa took it from the video, or "keep" (it isn't one of Sofa's)
         self._first = None      # item -> when it arrived ("added"): moving it to a drive doesn't make it new
         self._first_changed = False
+        self._eps_meta = {}      # show id -> its episode list from TVmaze, during a scan (for the episode guide)
         self._redo = {}         # "all" or a show/movie id -> when an admin asked for new pictures
 
     # ------------------------------------------------------------ public views
@@ -233,8 +235,14 @@ class Library:
             items = {}
             # Every place (the main folders, then each connected drive) adds to one library.
             shows, movies, a_shows, a_movies = [], [], [], []
+            self._eps_meta = {}
             for key, root in places.roots("shows"):
                 shows = self._merge_shows(shows, self._scan_shows(root, items, key))
+            for s in shows:                          # a show on two drives: its guide counts both
+                if s.get("places") and s["id"] in self._eps_meta:
+                    for k in ("missing", "missing_count", "seasons_absent", "next_air"):
+                        s.pop(k, None)
+                    s.update(self._guide(self._eps_meta[s["id"]], {x["n"]: x["episodes"] for x in s["seasons"]}))
             for key, root in places.roots("movies"):
                 movies += self._scan_movies(root, items, key)
             movies.sort(key=lambda m: ((m.get("collection") or m["title"]).lower(), m.get("year") or 0))
@@ -783,7 +791,43 @@ class Library:
                                                "source")})
         if year and not show.get("premiered"):
             show["premiered"] = "%d-01-01" % year
+        if eps_meta:
+            self._eps_meta[show_id] = eps_meta
+            show.update(self._guide(eps_meta, seasons))
         return show
+
+    @staticmethod
+    def _guide(eps_meta, seasons):
+        """From the episode list TVmaze gave (no extra lookups): episodes that have aired but aren't here, in
+        the seasons you have (the gaps), seasons that aren't here at all, and the next episode to air."""
+        have = set()
+        for eps in seasons.values():
+            for i in eps:
+                for e in range(i["e"], (i.get("e2") or i["e"]) + 1):
+                    have.add((i["s"], e))
+        here = {n for n in seasons if n}
+        today = time.strftime("%Y-%m-%d")
+        gaps, absent, upcoming = [], {}, []
+        for (s, e), m in eps_meta.items():
+            aired = m.get("aired")
+            if not s or e is None or (s, e) in have or not aired:
+                continue
+            if aired > today:
+                upcoming.append((aired, s, e, m.get("title")))
+            elif s in here:
+                gaps.append({"s": s, "e": e, "title": m.get("title"), "aired": aired})
+            else:
+                absent[s] = absent.get(s, 0) + 1
+        out = {}
+        if gaps:
+            gaps.sort(key=lambda g: (g["s"], g["e"]))
+            out["missing"], out["missing_count"] = gaps[:300], len(gaps)
+        if absent:
+            out["seasons_absent"] = [{"n": n, "count": c} for n, c in sorted(absent.items())][:40]
+        if upcoming:
+            aired, s, e, title = min(upcoming)
+            out["next_air"] = {"s": s, "e": e, "title": title, "aired": aired}
+        return out
 
     # ------------------------------------------------------------ movies
 
@@ -842,7 +886,10 @@ class Library:
                 year = year if year and not scene.get("date") else (side.get("year") or scene.get("year") or year)
             item = self._media(path, "movie", item_id)
             fix = metadata.override(item_id)
-            meta = metadata.movie(title, year, fix, adult=adult) or {}
+            home = not adult and collection == HOME_VIDEOS and not fix
+            if home:                                  # your own videos: their date is the name, nothing to look up
+                title, year = os.path.basename(directory) if directory else stem, None
+            meta = {} if home else metadata.movie(title, year, fix, adult=adult) or {}
             if not adult:  # an .nfo next to a movie fills in what the lookups didn't find
                 side = sidecars.read(path)
                 for k, v in (("summary", side.get("summary")), ("genres", side.get("tags")), ("studio", side.get("studio"))):

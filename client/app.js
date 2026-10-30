@@ -30,6 +30,11 @@ const ago = t => {
 };
 const bytes = n => n > 1e12 ? (n / 1e12).toFixed(1) + " TB" : n > 1e9 ? Math.round(n / 1e9) + " GB" : Math.round(n / 1e6) + " MB";
 const seasonName = n => n === 0 ? "Specials" : "Season " + n;
+/* When an episode airs: "today", "tomorrow", "Friday" this week, otherwise the date. */
+const airDay = d => {
+  const days = Math.round((new Date(d + "T12:00:00") - new Date().setHours(12, 0, 0, 0)) / 864e5);
+  return days === 0 ? "today" : days === 1 ? "tomorrow" : days > 1 && days < 7 ? new Date(d + "T12:00:00").toLocaleDateString(undefined, { weekday: "long" }) : fmtDate(d);
+};
 const epCode = ep => ep.s == null ? "Extra" : (ep.s === 0 ? "Special " : "S" + ep.s + " ") + "E" + ep.e + (ep.e2 ? "–" + ep.e2 : "");
 
 const prefs = {
@@ -83,6 +88,8 @@ function appearanceDialog() {
       <button class="switch" role="switch" aria-checked="${prefs.get("bannerClips", true) !== false}" data-banner-toggle="1" aria-label="Play the banner"></button></div>
     <div class="toggle"><div><b>Trailers</b><span>A show's or movie's page plays three minutes of it, from somewhere in the middle, behind the title.</span></div>
       <button class="switch" role="switch" aria-checked="${prefs.get("trailers", true) !== false}" data-trailer-toggle="1" aria-label="Trailers"></button></div>
+    <div class="toggle"><div><b>Hide spoilers</b><span>Pictures and descriptions of episodes you haven't watched stay blurred until you point at them.</span></div>
+      <button class="switch" role="switch" aria-checked="${!!prefs.get("noSpoilers", false)}" data-spoiler-toggle="1" aria-label="Hide spoilers"></button></div>
     <h3 class="dlg-sub">This device</h3>
     <label class="field"><span>Its name, for playing on it from your phone</span><input data-screen-name="1" maxlength="40" value="${esc(prefs.get("screenName", ""))}" placeholder="${esc(Screens.defaultName())}"></label>
     <h3 class="dlg-sub">TV mode</h3>
@@ -92,7 +99,8 @@ function appearanceDialog() {
   const nameBox = $("[data-screen-name]", d);
   if (nameBox) nameBox.addEventListener("change", () => prefs.set("screenName", nameBox.value.trim()));
   d.addEventListener("click", e => {
-    const t = e.target.closest("[data-theme-pick],[data-sub-size],[data-tv-toggle],[data-banner-toggle],[data-trailer-toggle]"); if (!t) return;
+    const t = e.target.closest("[data-theme-pick],[data-sub-size],[data-tv-toggle],[data-banner-toggle],[data-trailer-toggle],[data-spoiler-toggle]"); if (!t) return;
+    if (t.dataset.spoilerToggle) { const on = !prefs.get("noSpoilers", false); prefs.set("noSpoilers", on); t.setAttribute("aria-checked", on); applySpoilers(); return; }
     if (t.dataset.trailerToggle) { const on = prefs.get("trailers", true) === false; prefs.set("trailers", on); t.setAttribute("aria-checked", on);
       if (!on) stopTrailer(); return; }
     if (t.dataset.bannerToggle) { const on = prefs.get("bannerClips", true) === false; prefs.set("bannerClips", on); t.setAttribute("aria-checked", on);
@@ -104,7 +112,9 @@ function appearanceDialog() {
     else { prefs.set("tv", !TV); location.reload(); }
   });
 }
-function applySubSize() { document.documentElement.dataset.subs = prefs.get("subSize", "m"); }
+function applySubSize() { document.documentElement.dataset.subs = prefs.get("subSize", "m"); document.documentElement.dataset.subStyle = prefs.get("subStyle", "box"); }
+function applySpoilers() { document.documentElement.dataset.nospoil = prefs.get("noSpoilers", false) ? "1" : "0"; }
+applySpoilers();
 applySubSize();
 
 /* ---------- index the library ---------- */
@@ -259,11 +269,11 @@ function newBadge(show) {
   if (n) return `<span class="new-badge">${n > 1 ? n + " new" : "New episode"}</span>`;
   return !LIB.manyNew && !lastTouched(show) && show.added * 1000 > Date.now() - 7 * 864e5 ? `<span class="new-badge">New</span>` : "";
 }
-function posterCard(show) {
+function posterCard(show, sub) {
   return `<a class="card ${show.adult ? "scene" : "poster"}" href="#/show/${encodeURIComponent(show.id)}"${show.order && show.order[0] ? ` data-pv="${esc(show.order[0].id)}" data-pop="${esc(show.id)}"` : ""}>
     <span class="frame${show.poster ? "" : " noimg"}${dressed(show) ? " still-poster" : ""}">${dressed(show) ? stillPoster(show) : frameImg(show.poster, show.name, show.name)}${newBadge(show)}</span>
     <span class="t1">${esc(show.name)}</span>
-    <span class="t2">${plural(show.regularSeasons, "season")}, ${plural(show.count, "episode")}</span></a>`;
+    <span class="t2">${typeof sub === "string" ? esc(sub) : plural(show.regularSeasons, "season") + ", " + plural(show.count, "episode")}</span></a>`;
 }
 function movieCard(m) {
   return `<a class="card ${m.adult ? "scene" : "poster"}" href="#/movie/${encodeURIComponent(m.id)}" data-pv="${esc(m.id)}" data-pop="${esc(m.id)}">
@@ -293,7 +303,7 @@ function thumbFor(item) {
 }
 function wideCard(item, label) {
   const owner = item.show || item;
-  return `<button class="card wide" data-play="${esc(item.id)}" data-pv="${esc(item.id)}" data-pop="${esc(item.id)}">
+  return `<button class="card wide${item.kind === "episode" && !prog(item.id) ? " unseen" : ""}" data-play="${esc(item.id)}" data-pv="${esc(item.id)}" data-pop="${esc(item.id)}">
     <span class="frame">${thumbFor(item)}
       ${pct(item.id) && !isDone(item.id) ? `<span class="progress"><i style="width:${pct(item.id)}%"></i></span>` : ""}
       <span class="play-glyph">${icon("i-play")}</span></span>
@@ -343,7 +353,8 @@ function heroFor(show, short) {
     show.network && years(show) ? `<span><b>${esc(show.network)}</b>, ${esc(years(show))}</span>` : "",
     `<span>${plural(show.regularSeasons, "season")}, ${plural(show.count, "episode")}</span>`,
     show.genres && show.genres.length ? `<span>${esc(show.genres.join(", "))}</span>` : "",
-    show.rating ? `<span>Rated <b>${esc(show.rating)}</b> on TVmaze</span>` : ""
+    show.rating ? `<span>Rated <b>${esc(show.rating)}</b> on TVmaze</span>` : "",
+    show.next_air ? `<span class="next-air">New episode ${esc(airDay(show.next_air.aired))}</span>` : ""
   ].join("");
   let action = "";
   if (nx) {
@@ -552,6 +563,9 @@ function viewHome() {
   return heroCarousel() +
     rail("Continue watching", "wide", cont.map(i => wideCard(i))) +
     rail("New episodes", "wide", newEps) +
+    rail("Coming up", "posters", shows.filter(s => s.next_air && lastTouched(s) && (new Date(s.next_air.aired + "T12:00:00") - Date.now()) < 31 * 864e5)
+      .sort((a, b) => a.next_air.aired.localeCompare(b.next_air.aired))
+      .map(s => posterCard(s, epCode({ kind: "episode", s: s.next_air.s, e: s.next_air.e }) + " · " + airDay(s.next_air.aired)))) +
     rail("Next up", "wide", nextUps) +
     rail("My List", "posters", myList().map(x => x.seasons ? posterCard(x) : movieCard(x)), "#/mylist") +
     becauseYouWatched() +
@@ -840,7 +854,7 @@ function viewAdult(rest) {
   } else return viewMissing();
   return `${hero}<section class="page adult-page${hero ? " under-hero" : ""}"><div class="page-head"><h1>${esc(title)}</h1><span class="count">${esc(sub)}</span>
       <div class="adult-tools"><input id="adultSearch" type="search" placeholder="Search titles, studios, people, tags" aria-label="Search the Adult section" value="${esc(adultQuery)}">
-      ${session.user.admin ? `<button class="btn" data-add-link="adult">+ Add a link</button>` : ""}</div></div>
+      ${session.user.admin ? `<button class="btn" data-add-link="adult">+ Add a link</button><button class="btn" data-send-files="adult">+ Send files</button>` : ""}</div></div>
     <div class="chips" role="group" aria-label="Adult section">${chips.map(c => `<button data-adult-nav="${esc(c[0])}" aria-pressed="${c[0] === here}">${esc(c[1])}</button>`).join("")}</div>
     ${body}</section>`;
 }
@@ -853,7 +867,7 @@ function episodeRow(ep, label) {
     inProgress(ep.id) ? `<span>${esc(clock(p.d - p.t))} left</span>` : "",
     ep.subs ? `<span>Subtitles</span>` : ""
   ].join("");
-  return `<article class="episode${done ? " watched" : ""}">
+  return `<article class="episode${done ? " watched" : p ? "" : " unseen"}">
     <button class="ep-thumb" data-play="${esc(ep.id)}" data-pv="${esc(ep.id)}" aria-label="Play ${esc(title(ep))}">${thumbFor(ep)}
       ${pct(ep.id) && !done ? `<span class="progress"><i style="width:${pct(ep.id)}%"></i></span>` : ""}
       ${done ? `<span class="seen-badge">${icon("i-check")}</span>` : ""}
@@ -867,6 +881,21 @@ function episodeRow(ep, label) {
     <button class="tick" data-watched="${esc(ep.id)}" aria-pressed="${done}" aria-label="${done ? "Mark as not watched" : "Mark as watched"}" title="${done ? "Watched" : "Mark as watched"}">${icon("i-check")}</button>
     ${session.user.admin ? `<button class="tick" data-manage="${esc(ep.id)}" aria-label="Manage this episode" title="Move, delete or new picture">${icon("i-more")}</button>` : ""}
   </article>`;
+}
+/* The episode guide under a season: episodes that have aired but aren't in the library, and the next one
+   to air (from what TVmaze listed, so nothing is looked up for it). */
+function guideRows(show, season) {
+  if (!season) return "";
+  const gaps = (show.missing || []).filter(m => m.s === season.n);
+  const next = show.next_air && show.next_air.s === season.n ? show.next_air : null;
+  const others = season === show.seasons[show.seasons.length - 1] ? (show.seasons_absent || []) : [];
+  if (!gaps.length && !next && !others.length) return "";
+  const row = (m, when) => `<li><span class="num">${esc(m.e)}</span><span class="t">${esc(m.title || "Episode " + m.e)}</span><span class="when">${esc(when)}</span></li>`;
+  return `<div class="guide">
+    ${gaps.length ? `<h3>Not in your library <small>${plural(gaps.length, "episode")}</small></h3><ul>${gaps.slice(0, 60).map(m => row(m, "aired " + fmtDate(m.aired))).join("")}</ul>
+      ${gaps.length > 60 ? `<p class="count">and ${gaps.length - 60} more</p>` : ""}` : ""}
+    ${next ? `<h3>Coming up</h3><ul>${row(next, "airs " + airDay(next.aired))}</ul>` : ""}
+    ${others.length ? `<p class="count">Also aired, not in your library: ${others.map(o => esc(seasonName(o.n)) + " (" + plural(o.count, "episode") + ")").join(", ")}.</p>` : ""}</div>`;
 }
 function viewShow(id, seasonKey) {
   const show = byId.get(id);
@@ -892,7 +921,7 @@ function viewShow(id, seasonKey) {
         <p>${plural(items.length, current.key === "extras" ? "video" : "episode")}, ${done} watched</p>
         <button class="btn" data-season-watched="${esc(current.key)}">${done === items.length ? "Mark all not watched" : "Mark all watched"}</button>
       </aside>
-      <div class="episodes" role="tabpanel">${items.map(i => episodeRow(i)).join("")}</div>
+      <div class="episodes" role="tabpanel">${items.map(i => episodeRow(i)).join("")}${guideRows(show, current.season)}</div>
     </div>` + likeThisRail(show);
 }
 /* Search: accents and case don't matter; whole titles and word starts come first; genres, networks,
@@ -1131,6 +1160,53 @@ window.addEventListener("hashchange", stopPreview);
 document.addEventListener("mouseleave", stopPreview);
 
 /* ---------- save a video from a link (admins) ---------- */
+/* ---------- send files from this device to the Inbox (admins) ----------
+   A phone's videos, a laptop's downloads: each file goes up in one piece, with its progress, and Sofa
+   files it like anything dropped in the Inbox. */
+function sendFilesDialog(adult) {
+  const d = openDialog(`<h2>Send files to the Inbox</h2>
+    <p>Videos, music, subtitles. Sofa names and files them as usual${adult ? ", in the Adult section" : ""}.</p>
+    <label class="drop-zone"><input type="file" multiple accept="video/*,audio/*,.mkv,.avi,.wmv,.flv,.srt,.vtt,.ass,.ssa,.sub,.idx,.nfo" hidden>
+      <b>Choose files</b><span>or drop them here</span></label>
+    ${session.user.adult && !adult ? `<label class="check"><input type="checkbox" name="adult"> Put them in the Adult section</label>` : ""}
+    <ul class="upload-list"></ul>
+    <div class="actions"><button class="btn ghost" data-dismiss="1">Close</button></div>`);
+  const list = $(".upload-list", d), input = $("input[type=file]", d), zone = $(".drop-zone", d);
+  let queue = [], busy = false;
+  const toAdult = () => adult || !!($("input[name=adult]", d) || {}).checked;
+  async function next() {
+    if (busy || !queue.length) return;
+    busy = true;
+    const { file, row } = queue.shift(), bar = $("i", row), note = $(".up-note", row), a = toAdult();
+    try {
+      const c = await api("/api/admin/upload/check?name=" + encodeURIComponent(file.name) + "&size=" + file.size + "&adult=" + (a ? 1 : 0));
+      if (!c.ok) throw new Error(c.problem);
+      await new Promise((res, rej) => {
+        const x = new XMLHttpRequest();
+        x.open("POST", "/api/admin/upload?name=" + encodeURIComponent(file.name) + "&adult=" + (a ? 1 : 0));
+        x.setRequestHeader("X-Sofa", "1");
+        x.upload.onprogress = e => { if (e.lengthComputable) { bar.style.width = (e.loaded / e.total * 100) + "%"; note.textContent = bytes(e.loaded) + " of " + bytes(e.total); } };
+        x.onload = () => { let r = {}; try { r = JSON.parse(x.responseText); } catch (e) {} x.status === 200 ? res() : rej(new Error(r.error || "The upload didn't work (" + x.status + ").")); };
+        x.onerror = () => rej(new Error("The connection dropped. Try again."));
+        x.send(file);
+      });
+      row.classList.add("done"); bar.style.width = "100%"; note.textContent = "In the Inbox. Sofa files it in a minute.";
+    } catch (e) { row.classList.add("failed"); note.textContent = e.message; }
+    busy = false; next();
+  }
+  function add(files) {
+    [...files].forEach(file => {
+      const row = document.createElement("li");
+      row.innerHTML = `<b>${esc(file.name)}</b><span class="up-bar"><i></i></span><span class="up-note">${esc(bytes(file.size))}, waiting</span>`;
+      list.appendChild(row); queue.push({ file, row });
+    });
+    next();
+  }
+  input.addEventListener("change", () => { add(input.files); input.value = ""; });
+  zone.addEventListener("dragover", e => { e.preventDefault(); zone.classList.add("over"); });
+  zone.addEventListener("dragleave", () => zone.classList.remove("over"));
+  zone.addEventListener("drop", e => { e.preventDefault(); zone.classList.remove("over"); add(e.dataTransfer.files); });
+}
 function addLinkDialog(adult, url) {
   const d = openDialog(`<h2>Save a video from a link</h2>
     <p>Paste the address of a video page (YouTube, Vimeo and well over a thousand other sites${session.user.adult ? ", including the free adult video sites" : ""}). Sofa downloads it, names it and files it.</p>
@@ -1339,7 +1415,8 @@ function srvOverview(d) {
     <div class="panels">
       <div class="panel"><h2>How to watch</h2><p class="hint">Open one of these addresses and sign in.</p><div class="addr">${addr.join("")}</div></div>
       <div class="panel"><h2>Watching now</h2><p class="hint">"Repackaged" and "converted" mean Sofa is adapting the file for that device as it plays.</p><ul class="list">${streams}</ul></div>
-      <div class="panel"><h2>Inbox</h2><p class="hint">Sofa waits until a copy finishes, then names and files it. Put adult content in <code>Inbox/XXX</code>.</p><ul class="list">${inbox}</ul>
+      <div class="panel"><h2>Inbox</h2><p class="hint">Sofa waits until a copy finishes, then names and files it. Put adult content in <code>Inbox/XXX</code>.</p>
+        <div class="actions"><button class="btn" data-send-files="normal">Send files from this device</button></div><ul class="list">${inbox}</ul>
         <div class="actions" style="margin-top:14px"><button class="btn" data-admin="inbox">Sort the Inbox now</button><button class="btn" data-admin="scan">Check for new files</button></div></div>
       <div class="panel"><h2>Latest</h2><ul class="list">${d.activity.slice(0, 8).map(actRow).join("") || `<li class="empty-row">Nothing yet.</li>`}</ul>
         <div class="actions" style="margin-top:14px"><button class="btn" data-srv-tab="activity">All activity</button></div></div>
@@ -1543,6 +1620,7 @@ function srvDownloads(d) {
           `<option value="${o[0]}"${(d.settings.ytdlp_cookies || "") === o[0] ? " selected" : ""}>${o[1]}</option>`).join("")}</select></label>
       <p class="hint">For sites that want you signed in or to confirm your age: do that in a browser on the Sofa computer, then pick it here. Safari needs Full Disk Access for the program running Sofa; Firefox works without it.</p>
       <div class="actions"><button class="btn primary" data-add-link="normal">+ Add a link</button>${session.user.adult ? `<button class="btn" data-add-link="adult">+ Add a link to Adult</button>` : ""}
+        <button class="btn" data-send-files="normal">Send files from this device</button>
         ${x.rows.some(r => r.state === "done" || r.state === "failed") ? `<button class="btn ghost" data-dl-clear="1">Clear finished</button>` : ""}</div>
       ${x.waiting ? `<p class="hint">Waiting while someone watches a video Sofa is converting.</p>` : ""}
       <ul class="list" style="margin-top:14px">${rows || `<li class="empty-row">Nothing yet.</li>`}</ul></div>
@@ -1727,7 +1805,7 @@ window.addEventListener("hashchange", () => { route(); scrollTo(0, 0); });
 
 /* ---------- interactions ---------- */
 document.addEventListener("click", e => {
-  const t = e.target.closest("[data-slide],[data-intros-recheck],[data-manage],[data-machine-test],[data-drive-use],[data-place-remove],[data-new-pictures],[data-empty-deleted],[data-free-space],[data-retry-details],[data-adult-nav],[data-asort],[data-adult-play],[data-like],[data-forget],[data-seen],[data-wipe-logs],[data-trailer-sound],[data-trailer-replay],[data-redo-damaged],[data-add-link],[data-dl-retry],[data-dl-cancel],[data-dl-clear],[data-dl-install],[data-enable-adult],[data-conv-retry],[data-conv-cancel],[data-conv-all],[data-conv-clear],[data-update],[data-user-adult],[data-user-kids],[data-dupes],[data-kids-title],[data-act-kind],[data-key-clear],[data-fix],[data-msort],[data-adult-tab],[data-play-start],[data-srv-tab],[data-mlike],[data-mplay],[data-mplay-one],[data-mplay-list],[data-mshuffle-list],[data-station],[data-mtab],[data-play-mv],[data-guest-clear],[data-play],[data-watched],[data-season],[data-sort],[data-nudge],[data-season-watched],[data-dismiss],[data-admin],[data-setting],[data-user-pass],[data-user-del],[data-live],[data-fav],[data-group],[data-preset],[data-live-remove]");
+  const t = e.target.closest("[data-slide],[data-intros-recheck],[data-manage],[data-machine-test],[data-drive-use],[data-place-remove],[data-new-pictures],[data-empty-deleted],[data-free-space],[data-retry-details],[data-adult-nav],[data-asort],[data-adult-play],[data-like],[data-forget],[data-seen],[data-wipe-logs],[data-trailer-sound],[data-trailer-replay],[data-redo-damaged],[data-add-link],[data-send-files],[data-dl-retry],[data-dl-cancel],[data-dl-clear],[data-dl-install],[data-enable-adult],[data-conv-retry],[data-conv-cancel],[data-conv-all],[data-conv-clear],[data-update],[data-user-adult],[data-user-kids],[data-dupes],[data-kids-title],[data-act-kind],[data-key-clear],[data-fix],[data-msort],[data-adult-tab],[data-play-start],[data-srv-tab],[data-mlike],[data-mplay],[data-mplay-one],[data-mplay-list],[data-mshuffle-list],[data-station],[data-mtab],[data-play-mv],[data-guest-clear],[data-play],[data-watched],[data-season],[data-sort],[data-nudge],[data-season-watched],[data-dismiss],[data-admin],[data-setting],[data-user-pass],[data-user-del],[data-live],[data-fav],[data-group],[data-preset],[data-live-remove]");
   if (!t) return;
   if (t.dataset.fix) { fixDialog(t.dataset.fix); return; }
   if (t.dataset.manage) { manageDialog(t.dataset.manage); return; }
@@ -1793,6 +1871,7 @@ document.addEventListener("click", e => {
       .catch(e => { t.disabled = false; toast(e.message); });
     return;
   }
+  if (t.dataset.sendFiles) { sendFilesDialog(t.dataset.sendFiles === "adult"); return; }
   if (t.dataset.redoDamaged) {
     t.disabled = true;
     api("/api/admin/convert", { redo_damaged: true }).then(() => toast("Looking for them. They show under Converting in a moment.")).catch(e => toast(e.message));
@@ -2386,6 +2465,7 @@ const Player = (function () {
   const ccBtn = $('[data-act="cc"]', el), ccMenu = $(".cc-menu", el);
   const spinner = $(".p-spinner", el), pauseInfo = $(".p-pause-info", el), epsPanel = $(".p-eps", el), helpBox = $(".p-help", el);
   const seekHint = $(".p-seekhint", el), endsEl = $(".p-ends", el), epsBtn = $('[data-act="eps"]', el), pipBtn = $('[data-act="pip"]', el);
+  let subDelay = 0;           // seconds the subtitles are moved (+ later, - earlier), for this video
   let audioChoice = null, pauseTimer = 0, spinTimer = 0, lastTap = { t: 0, x: 0 }, tapTimer = 0;
   const skipBtn = $(".p-skip", el), optsBox = $(".p-opts", el), stillBox = $(".p-still", el), thumbEl = $(".p-thumb", el), htLabel = $(".ht-label", el);
   let trick = null, markers = [], skipShown = null, autoNexts = 0, lastInput = Date.now(), introStart = null;
@@ -2433,7 +2513,7 @@ const Player = (function () {
     el.classList.remove("is-live"); liveList_ = null;
     video.removeAttribute("src"); video.load();
     returnFocus = document.activeElement;
-    item = it; next = playQueue ? playQueue[playQueue.indexOf(it) + 1] || null : nextAfter(it); nextHidden = false; audioChoice = null;
+    item = it; next = playQueue ? playQueue[playQueue.indexOf(it) + 1] || null : nextAfter(it); nextHidden = false; audioChoice = null; subDelay = 0;
     errorBox.hidden = chip.hidden = nextCard.hidden = ccMenu.hidden = epsPanel.hidden = helpBox.hidden = pauseInfo.hidden = true;
     const owner = it.show || it;
     $(".p-show", el).textContent = owner.name || it.title;
@@ -2581,7 +2661,7 @@ const Player = (function () {
     const s = plan.subtitles[subIndex];
     const tr = document.createElement("track");
     tr.kind = "subtitles"; tr.label = s.label; tr.srclang = (s.lang || "und").slice(0, 2);
-    tr.src = s.url + (offset ? "?offset=" + offset.toFixed(2) : "");
+    tr.src = s.url + (offset || subDelay ? "?offset=" + (offset - subDelay).toFixed(2) : "");
     tr.default = true;
     video.appendChild(tr);
     tr.addEventListener("load", () => { tr.track.mode = "showing"; });
@@ -2724,6 +2804,9 @@ const Player = (function () {
           `<button data-opt-sleep="${o[0]}" aria-pressed="${(sleepPlan.mode || "off") === o[0]}">${o[1]}</button>`).join("")}</div></div>
       <div class="toggle"><div><b>Speed</b></div><div class="sorter inline">${[0.75, 1, 1.25, 1.5, 2].map(s => `<button data-opt-speed="${s}" aria-pressed="${video.playbackRate === s}">${s}×</button>`).join("")}</div></div>
       <div class="toggle"><div><b>Subtitle size</b></div><div class="sorter inline">${[["s", "S"], ["m", "M"], ["l", "L"], ["xl", "XL"]].map(x => `<button data-opt-subsize="${x[0]}" aria-pressed="${prefs.get("subSize", "m") === x[0]}">${x[1]}</button>`).join("")}</div></div>
+      <div class="toggle"><div><b>Subtitle style</b></div><div class="sorter inline">${[["box", "On a dark box"], ["outline", "Outlined"]].map(x => `<button data-opt-substyle="${x[0]}" aria-pressed="${prefs.get("subStyle", "box") === x[0]}">${x[1]}</button>`).join("")}</div></div>
+      ${subIndex >= 0 ? `<div class="toggle"><div><b>Subtitle timing</b><span>${subDelay ? "Shown " + Math.abs(subDelay).toFixed(1) + " s " + (subDelay > 0 ? "later" : "earlier") + " than the file says." : "As the file has them. Out of sync? Move them."}</span></div>
+        <div class="sorter inline"><button data-opt-subdelay="-0.5" aria-label="Subtitles earlier">− 0.5 s</button><button data-opt-subdelay="0" aria-pressed="${!subDelay}">${subDelay ? (subDelay > 0 ? "+" : "") + subDelay.toFixed(1) + " s" : "In sync"}</button><button data-opt-subdelay="0.5" aria-label="Subtitles later">+ 0.5 s</button></div></div>` : ""}
       ${info}
       ${session.user.admin && markers.length ? `<div class="po-info"><b>Intro and credits</b><span>${markers.map(m => esc(m.kind) + " " + clock(m.start) + "–" + clock(m.end)).join(", ")}</span>
         <div class="row-actions">${markers.map(m => `<button class="mini danger" data-opt-clear="${m.kind}">Wrong ${esc(m.kind)}</button>`).join("")}</div></div>` : ""}
@@ -2735,7 +2818,15 @@ const Player = (function () {
     const f = $("button", optsBox); if (f) f.focus();
   }
   optsBox.addEventListener("click", async e => {
-    const b = e.target.closest("[data-opt],[data-opt-speed],[data-opt-subsize],[data-opt-clear],[data-opt-mark],[data-opt-quality],[data-opt-sleep]"); if (!b) return;
+    const b = e.target.closest("[data-opt],[data-opt-speed],[data-opt-subsize],[data-opt-substyle],[data-opt-subdelay],[data-opt-clear],[data-opt-mark],[data-opt-quality],[data-opt-sleep]"); if (!b) return;
+    if (b.dataset.optSubstyle) { prefs.set("subStyle", b.dataset.optSubstyle); applySubSize(); optsOpen(); $(`[data-opt-substyle="${b.dataset.optSubstyle}"]`, optsBox).focus(); return; }
+    if (b.dataset.optSubdelay !== undefined) {
+      const step = +b.dataset.optSubdelay;
+      subDelay = step ? Math.round((subDelay + step) * 10) / 10 : 0;
+      setSubtitles(subIndex); optsOpen();
+      const f = $(`[data-opt-subdelay="${b.dataset.optSubdelay}"]`, optsBox); if (f) f.focus();
+      return;
+    }
     if (b.dataset.optQuality !== undefined) {
       prefs.set("quality", b.dataset.optQuality); showSpinner("Changing the picture…"); load(now()); optsOpen(); return;
     }

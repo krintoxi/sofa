@@ -69,8 +69,9 @@ saved first so you can always go back. Details: [docs/updating.md](docs/updating
 
 ### Adding things to watch
 
-Drop files or whole folders into **`~/Entertainment/Inbox`**. Sofa waits until the copy
-finishes, works out what each file is, renames it and files it:
+Drop files or whole folders into **`~/Entertainment/Inbox`**, or send them from any phone or
+laptop at home with **Send files from this device** (Server → Overview, admins). Sofa waits until
+the copy finishes, works out what each file is, renames it and files it:
 
 | You drop | Sofa files it as |
 |---|---|
@@ -144,8 +145,14 @@ deleted. More: [docs/folder-structure.md](docs/folder-structure.md).
 - **My List**, **search as you type** (with pictures; arrow keys and the remote work in it), and
   a **banner on Home that plays** a few seconds of the featured title (off per device under Theme).
 - **Home keeps up.** **New episodes** of shows you watch get their own row (and a "New" on the
-  show), and anything can be taken out of **Continue watching** (✕ on its card, or on its page)
-  until you watch it again.
+  show), **Coming up** shows when the next one airs, and anything can be taken out of **Continue
+  watching** (✕ on its card, or on its page) until you watch it again.
+- **Episode guide.** A show's page lists the episodes that have aired but aren't in your library,
+  whole seasons you don't have, and the next episode to air (from the episode list TVmaze already
+  gave; shows still on the air are looked at again every few days).
+- **Subtitles your way.** Out of sync? **Options → Subtitle timing** moves them half a second at a
+  time. On a dark box or outlined, four sizes. **Hide spoilers** (under Theme) blurs pictures and
+  descriptions of episodes you haven't watched.
 - **Made for old Macs too.** Sofa times this computer's video conversion and uses the faster way
   that works properly (on some older Macs Apple's hardware converter draws lines across the
   picture; Sofa checks, and never uses it there). On a slow computer, **Gentle mode** keeps video
