@@ -13,7 +13,12 @@ EPISODE_WORDS = re.compile(r"(?:^|[^a-z])season[ ._-]*(\d{1,2})[ ._,-]*(?:episod
 EPISODE_ONLY = re.compile(r"(?:^|[\s._-])(?:e|ep|episode|chapter|part)[ ._-]?(\d{1,3})(?!\d)", re.I)
 CODE3 = re.compile(r"(?:^|[\s._-])(\d{1,2})(\d{2})(?=$|[\s._-])")          # "Sopranos 101 Pilot" = S01E01
 NOT_CODE = re.compile(r"(?:[hx][ ._]?|ddp?|aac|dts|mp)$", re.I)                  # H.264, x265, DDP5.1 ...
-ADULT_DIRS = {"xxx", "adult", "adults", "porn", "nsfw", "18+", "x-rated", "xrated", "erotic"}
+ADULT_DIRS = {"xxx", "adult", "adults", "porn", "nsfw", "18+", "x-rated", "xrated"}
+# Folder names that are a kind of thing, not one title: kept as categories in the Adult section.
+ADULT_CATEGORIES = {"movies", "films", "hentai", "anime", "cartoons", "animated", "series", "shows", "tv", "collections",
+                    "scenes", "clips", "amateur", "homemade", "vr", "jav", "compilations", "erotic", "erotica",
+                    "softcore", "classics", "vintage", "parodies", "gay", "lesbian", "trans", "fetish", "bdsm",
+                    "cams", "webcam", "onlyfans", "studios", "pmv", "hmv", "asmr", "documentaries"}
 COLLECTION_WORDS = re.compile(
     r"\b(collection|saga|trilogy|quadrilogy|pentalogy|hexalogy|anthology|box[ ._-]?set|boxset|complete|pack|"
     r"movies|films|duology|series)\b", re.I)
@@ -150,3 +155,95 @@ def norm(name):
 
 def slug(text):
     return re.sub(r"[^a-z0-9]+", "-", plain(text).lower()).strip("-") or "x"
+
+
+# ---------------------------------------------------------------- adult scene names
+
+SCENE_DATED = re.compile(
+    r"^(?P<studio>[A-Za-z0-9][\w&'+!-]*(?:[ ._][A-Za-z][\w&'+!-]*){0,3}?)[ ._-]+"
+    r"(?P<y>(?:19|20)?\d{2})[ ._-](?P<m>\d{2})[ ._-](?P<d>\d{2})[ ._-]+(?P<rest>.+)$")
+SCENE_JUNK = re.compile(r"\b(xxx|mp4|wmv|sd|hd|fhd|uhd|4k|2160p|1080p|720p|480p|360p)\b.*$", re.I)
+NAME_JOIN = re.compile(r"\s*(?:,|&|\band\b|\bx\b|\bwith\b|\bfeat\.?)\s*", re.I)
+
+
+def _looks_like_name(text):
+    words = text.split()
+    return 1 <= len(words) <= 3 and all(w[:1].isupper() and w.replace("'", "").replace("-", "").isalpha() for w in words)
+
+
+def _split_names(text):
+    return [n.strip() for n in NAME_JOIN.split(text) if n.strip()]
+
+
+def parse_scene(stem, known_performers=()):
+    """Studio, date, performers and title from the ways adult scenes are usually named.
+
+        Brazzers.21.03.14.Jane.Doe.And.John.Roe.Hot.Title.XXX.1080p.MP4-WRB
+        [Studio] Jane Doe, John Roe - Hot Title (2019)
+        Studio - Jane Doe - Hot Title
+        Jane Doe - Hot Title
+
+    Performers already known to the library are recognised anywhere at the start of a name;
+    otherwise two-word names joined by "And" or "&" are taken as performers.
+    Returns {"studio", "date", "year", "performers", "title"} (values may be None / []).
+    """
+    out = {"studio": None, "date": None, "year": None, "performers": [], "title": None}
+    text = stem.strip()
+    m = SCENE_DATED.match(text)
+    if m and 1 <= int(m.group("m")) <= 12 and 1 <= int(m.group("d")) <= 31:
+        y = int(m.group("y"))
+        y = y if y > 1900 else (2000 + y if y < 70 else 1900 + y)
+        out["studio"] = clean(m.group("studio").replace(".", " "))
+        out["date"] = "%04d-%s-%s" % (y, m.group("m"), m.group("d"))
+        out["year"] = y
+        rest = clean(SCENE_JUNK.sub("", m.group("rest").replace(".", " ").replace("_", " ")))
+        out["performers"], out["title"] = _performers_first(rest, known_performers)
+        return out
+    b = re.match(r"^\[(?P<studio>[^\]]+)\]\s*(?P<rest>.+)$", text)
+    if b:
+        out["studio"] = clean(b.group("studio"))
+        text = b.group("rest")
+    title, year = parse_movie(text)
+    out["year"] = year
+    parts = [p.strip() for p in re.split(r"\s+-\s+", SCENE_JUNK.sub("", title)) if p.strip()]
+    if len(parts) >= 3 and not out["studio"]:
+        out["studio"], parts = parts[0], parts[1:]
+    if len(parts) >= 2:
+        names = _split_names(parts[0])
+        known = {norm(k) for k in known_performers}
+        if names and all(norm(n) in known or _looks_like_name(n) for n in names):
+            out["performers"], parts = names, parts[1:]
+    rest = " - ".join(parts)
+    if not out["performers"]:
+        out["performers"], rest = _performers_first(rest, known_performers)
+    out["title"] = rest or None
+    return out
+
+
+def _performers_first(rest, known_performers):
+    """(performers, title) from 'Jane Doe And John Roe Hot Title'."""
+    found, words = [], rest.split()
+    known = sorted({k for k in known_performers if k}, key=len, reverse=True)
+    i = 0
+    while i < len(words):
+        chunk = " ".join(words[i:])
+        hit = next((k for k in known if norm(chunk).startswith(norm(k)) and
+                    norm(" ".join(words[i:i + len(k.split())])) == norm(k)), None)
+        if hit:
+            found.append(" ".join(words[i:i + len(hit.split())]))
+            i += len(hit.split())
+        elif found or re.match(r"^\S+\s+\S+\s+(?:and|&)\s+", chunk, re.I):
+            # an unknown name joined to the others with "and": take two words as a name
+            if i + 1 < len(words) and _looks_like_name(" ".join(words[i:i + 2])) and (
+                    found and words[i - 1].lower() in ("and", "&") or re.match(r"^\S+\s+\S+\s+(?:and|&)\s+", chunk, re.I)):
+                found.append(" ".join(words[i:i + 2]))
+                i += 2
+            else:
+                break
+        else:
+            break
+        if i < len(words) and words[i].lower() in ("and", "&", ","):
+            i += 1
+        elif found and i < len(words) and not any(norm(" ".join(words[i:])).startswith(norm(k)) for k in known):
+            break
+    return found, " ".join(words[i:]) or None

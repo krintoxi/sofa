@@ -64,6 +64,10 @@ DEFAULTS = {
     "keep_originals": True,
     # The look every device starts with (people can pick their own): midnight, cinema, ocean, forest, grape, oled.
     "theme": "midnight",
+    # yt-dlp for "Save from a link": "auto" (Sofa's own copy in data/bin, Homebrew, PATH) or a full path.
+    "ytdlp": "auto",
+    # Skip downloads bigger than this many GB (0: no limit).
+    "download_max_gb": 0,
     # Listen for each season's shared intro and credits so the player can offer "Skip Intro".
     "detect_intros": True,
     # Make the small pictures shown above the seek bar while scrubbing.

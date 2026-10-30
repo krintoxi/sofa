@@ -67,11 +67,15 @@ Movies/
   Collection Name/      a folder of movie folders becomes a collection
     Movie One (1980)/...
 Adult/                  only for people allowed to see it (Server → People)
-  Movies/
+  Movies/               every folder here is a category: Movies, Hentai, Series, Collections, ...
     Title (2019)/Title (2019).mp4
-  Shows/
+  Hentai/
+    Some Series/Episode 01.mp4
+  Series/
     Series/Season 1/Series S01E01.mp4
 ```
+
+See [adult.md](adult.md) for how categories, series and collections are recognised.
 
 Wrong details or artwork? Open the show or movie and press **Find details**. Your choice is
 kept in `data/overrides.json`, and any `folder.jpg` you put in a folder yourself always wins.

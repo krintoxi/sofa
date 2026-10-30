@@ -1,8 +1,9 @@
 """Background work: watch the Inbox and library folders, and pre-read file details."""
+import os
 import threading
 import time
 
-from . import artwork, backup, intros, live, media, optimize, organizer, store, trickplay, updater
+from . import artwork, backup, fetch, intros, live, media, optimize, organizer, store, trickplay, updater
 from .library import LIBRARY
 
 INTERVAL = 20
@@ -22,6 +23,9 @@ def _watch():
             elif LIBRARY.changed():
                 LIBRARY.scan("files changed")
                 _after_scan()
+            elif LIBRARY.art_pending:                 # more artwork to fetch than one scan does
+                LIBRARY.scan("fetching more artwork")
+                _warm()
         except Exception as exc:   # keep watching whatever happens
             store.log("error", "Library watcher: %s" % exc)
         time.sleep(INTERVAL)
@@ -51,6 +55,12 @@ def _prober():
 
 
 def start():
+    try:
+        from . import config
+        store.scrub_private([config.path("adult"), os.path.join(config.path("inbox"), "XXX"),
+                             os.path.join(config.path("review"), "XXX")])
+    except Exception as exc:
+        store.log("error", "Tidying the activity log: %s" % exc)
     media.start()
     live.start()
     backup.start()
@@ -59,5 +69,6 @@ def start():
     optimize.start()
     updater.start()
     intros.start(LIBRARY)
+    fetch.start()
     trickplay.start(LIBRARY)
     _after_scan()

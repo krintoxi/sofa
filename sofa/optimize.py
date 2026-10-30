@@ -58,7 +58,12 @@ def candidates(library):
     return out
 
 
+PRIVATE = "Private video"
+
+
 def label(item):
+    if item.get("adult"):
+        return PRIVATE
     if item["kind"] == "episode":
         return "%s S%02dE%02d" % (item.get("show_name") or "", item["s"], item["e"])
     return item.get("title") or os.path.basename(item["path"])
@@ -89,6 +94,13 @@ def auto_enqueue(library):
     return enqueue([i for i in candidates(library) if i["path"] not in known], "automatic")
 
 
+def path_of(rid):
+    """The file behind a queue row number (the page refers to rows by number, not by file path)."""
+    _table()
+    row = store.q1("SELECT path FROM conversions WHERE rowid = ?", int(rid))
+    return row["path"] if row else None
+
+
 def cancel(path):
     _table()
     store.ex("DELETE FROM conversions WHERE path = ? AND state IN ('queued', 'failed')", path)
@@ -111,13 +123,18 @@ def clear_finished():
 
 def status(library=None):
     _table()
-    rows = [dict(r) for r in store.q("""SELECT * FROM conversions ORDER BY
+    rows = [dict(r) for r in store.q("""SELECT rowid AS rid, * FROM conversions ORDER BY
              CASE state WHEN 'working' THEN 0 WHEN 'queued' THEN 1 WHEN 'failed' THEN 2 ELSE 3 END,
              COALESCE(finished, added) DESC LIMIT 80""")]
     with _lock:
         for r in rows:
             if r["path"] == _current.get("path"):
                 r["progress"] = _current.get("progress", 0)
+    for r in rows:                                    # the page needs no file paths, and private rows no details
+        r.pop("path", None)
+        if r["title"] == PRIVATE:
+            r["error"] = "see the Adult section" if r.get("error") else None
+            r["how"] = None
     counts = {s: store.q1("SELECT COUNT(*) AS n FROM conversions WHERE state = ?", s)["n"]
               for s in ("queued", "working", "done", "failed")}
     saved = store.q1("SELECT SUM(before - after) AS n FROM conversions WHERE state = 'done'")["n"] or 0
@@ -254,16 +271,22 @@ def _run_one(row):
         dest, how = convert(path, row["item"])
     except InterruptedError:
         store.ex("DELETE FROM conversions WHERE path = ?", path)
-        store.log("convert", "Stopped converting %s" % row["title"])
+        store.log("convert", "Stopped converting %s" % ("a private video" if row["title"] == PRIVATE else row["title"]))
     except Exception as exc:
         store.ex("UPDATE conversions SET state = 'failed', finished = ?, error = ? WHERE path = ?",
                  int(time.time()), str(exc)[:400], path)
-        store.log("convert", "Couldn't convert %s: %s" % (row["title"], str(exc)[:200]), {"file": path})
+        if row["title"] == PRIVATE:
+            store.log_private("convert", "Couldn't convert a private video")
+        else:
+            store.log("convert", "Couldn't convert %s: %s" % (row["title"], str(exc)[:200]), {"file": path})
     else:
         after = os.path.getsize(dest)
         store.ex("UPDATE conversions SET state = 'done', finished = ?, after = ?, how = ? WHERE path = ?",
                  int(time.time()), after, how, path)
-        store.log("convert", "Converted %s to MP4 (%s)" % (row["title"], how), {"file": dest})
+        if row["title"] == PRIVATE:
+            store.log_private("convert", "Converted a private video to MP4")
+        else:
+            store.log("convert", "Converted %s to MP4 (%s)" % (row["title"], how), {"file": dest})
     finally:
         with _lock:
             _current.clear()

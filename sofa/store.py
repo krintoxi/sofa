@@ -33,6 +33,10 @@ CREATE TABLE IF NOT EXISTS music_plays (
   PRIMARY KEY (user_id, item));
 CREATE TABLE IF NOT EXISTS activity (
   id INTEGER PRIMARY KEY, at INTEGER NOT NULL, kind TEXT NOT NULL, message TEXT NOT NULL, detail TEXT);
+CREATE TABLE IF NOT EXISTS likes (
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, item TEXT NOT NULL, at INTEGER NOT NULL,
+  PRIMARY KEY (user_id, item));
+CREATE TABLE IF NOT EXISTS migrations (name TEXT PRIMARY KEY, at INTEGER NOT NULL);
 """
 
 
@@ -81,6 +85,29 @@ def log(kind, message, detail=None):
     ex("INSERT INTO activity (at, kind, message, detail) VALUES (?,?,?,?)",
        int(time.time()), kind, message, json.dumps(detail) if detail is not None else None)
     ex("DELETE FROM activity WHERE id < (SELECT MAX(id) - 2000 FROM activity)")
+
+
+def log_private(kind, message):
+    """Activity about the Adult section: a plain sentence with no titles, names or paths."""
+    log(kind, message, {"private": True})
+
+
+def scrub_private(folders):
+    """Older versions wrote adult titles into the activity log: rewrite those entries without them."""
+    rows = q("SELECT id, message, detail FROM activity WHERE detail IS NULL OR detail NOT LIKE '%\"private\": true%'")
+    for r in rows:
+        text = (r["message"] or "") + " " + (r["detail"] or "")
+        if " to Adult" in (r["message"] or "") or any(f and f in text for f in folders):
+            ex("UPDATE activity SET message = ?, detail = ? WHERE id = ?",
+               "Filed a video in the Adult section", json.dumps({"private": True}), r["id"])
+
+
+def migrated(name):
+    """True once a one-time data change has run; marks it as run."""
+    if q1("SELECT 1 FROM migrations WHERE name = ?", name):
+        return True
+    ex("INSERT INTO migrations (name, at) VALUES (?,?)", name, int(time.time()))
+    return False
 
 
 def recent_activity(limit=60, kinds=None):
