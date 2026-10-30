@@ -38,16 +38,32 @@ _tree_lock = threading.Lock()
 _running = False
 
 
+def _ipv4s():
+    """Every IPv4 address of this machine: ifconfig (macOS, older Linux), `ip` (newer Linux), or a socket guess."""
+    for cmd in (["/sbin/ifconfig"], ["ifconfig"], ["ip", "-4", "-o", "addr", "show"], ["/sbin/ip", "-4", "-o", "addr", "show"]):
+        try:
+            out = subprocess.run(cmd, capture_output=True, text=True, timeout=5).stdout
+        except (OSError, subprocess.SubprocessError):
+            continue
+        ips = re.findall(r"inet (?:addr:)?(\d+\.\d+\.\d+\.\d+)", out)
+        if ips:
+            return ips
+    try:   # no tools at all: ask the routing table which address faces the network
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("10.255.255.255", 1))
+        ip = s.getsockname()[0]
+        s.close()
+        return [ip]
+    except OSError:
+        return []
+
+
 def lan_addresses():
-    out = subprocess.run(["/sbin/ifconfig"], capture_output=True, text=True).stdout
-    ips = re.findall(r"inet (\d+\.\d+\.\d+\.\d+)", out)
-    return [ip for ip in ips if ip.startswith(("10.", "192.168.")) or re.match(r"172\.(1[6-9]|2\d|3[01])\.", ip)]
+    return [ip for ip in _ipv4s() if ip.startswith(("10.", "192.168.")) or re.match(r"172\.(1[6-9]|2\d|3[01])\.", ip)]
 
 
 def tailscale_addresses():
-    out = subprocess.run(["/sbin/ifconfig"], capture_output=True, text=True).stdout
-    return [ip for ip in re.findall(r"inet (\d+\.\d+\.\d+\.\d+)", out)
-            if re.match(r"100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.", ip)]
+    return [ip for ip in _ipv4s() if re.match(r"100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.", ip)]
 
 
 def _oid(*parts):

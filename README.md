@@ -1,98 +1,160 @@
 # Sofa
 
-A small, self-hosted home media server. Drop shows, movies and music into a folder; Sofa
-names them, files them, finds artwork and plays them on every screen in the house:
+A small, self-hosted home media server. Drop shows, movies and music into a folder;
+Sofa names them, files them, finds artwork and plays them on every screen in the house:
 browsers, phones, smart TVs, Roku and Fire TV. Free live TV channels too.
 
-Sofa is plain Python (standard library only) plus ffmpeg. It runs comfortably on a
-2011 iMac.
+Sofa is plain Python (standard library only) plus ffmpeg. It runs happily on a Mac mini,
+and still runs on a 2011 iMac.
 
-## What it does
+---
 
-- **Drop-in library.** Put anything in `Inbox/`, even `chuck.s02e05.hdtv-lol.mp4`.
-  Sofa waits for the copy to finish, works out what it is, renames it and files it
-  under `Shows/` or `Movies/`. Things it can't identify go to `Needs Review/` with a
-  note. Nothing is ever deleted.
-- **Plays any format.** MP4 plays as-is. MKV, AVI and friends are repackaged or
-  converted as they stream, only when the device needs it. Seeking works.
-- **Every screen.** A web app with resume, "next up", subtitles and a TV-remote mode;
-  DLNA so Roku Media Player, VLC and smart TVs find it on their own; HLS for iPhone,
-  iPad and Safari.
-- **TV mode.** Fire TV (Silk), Android TV and smart-TV browsers get big targets, a strong
-  focus ring for the remote or pointer, a full-screen player, and no costly blur effects.
-  Artwork is sent at the size it's shown, so pages stay light on TV sticks. The remote's
-  Back button closes the player instead of leaving the page.
-- **Accounts.** Everyone gets a sign-in and their own "continue watching". Logins are
-  throttled, passwords are hashed, admin pages stay at home.
-- **Music and music videos.** Albums, artists and songs from your files' tags and
-  folders, with embedded cover art, genre and mood stations, likes, recently played, a
-  queue with shuffle and repeat, a sleep timer and lock-screen controls. Music keeps
-  playing while you browse.
-- **Guests.** Visitors on your Wi-Fi scan a QR code (on the Server page) and watch as
-  "Guest": their own history and likes, no settings, never from outside the house.
-- **Live TV.** Add M3U channel lists (for example the free lists at
-  [iptv-org](https://github.com/iptv-org/iptv)) and watch with channel logos,
-  groups, favorites and channel up/down.
-- **Artwork and details** from TVmaze (no key needed), and TMDB for movies if you add a key.
+## Install (5 minutes)
 
-## Folder layout
+You need a Mac or Linux computer that stays on. Open **Terminal** and paste this line:
 
-```
-Entertainment/
-  Inbox/          drop anything here
-  Shows/          Show Name/Season 1/Show Name S01E01 Title.mkv
-  Movies/         Movie Title (1999)/Movie Title (1999).mp4
-  Music/          Artist/Album/01 Title.mp3   (Artist/Title.mp3 for singles)
-  Music Videos/   Artist/Title.mp4
-  Needs Review/   what Sofa couldn't identify, with a note on the Server page
+```sh
+curl -fsSL https://raw.githubusercontent.com/krintoxi/sofa/main/tools/get-sofa.sh | sh
 ```
 
-More in [docs/folder-structure.md](docs/folder-structure.md).
+That's it. It puts Sofa in `~/Sofa`, installs ffmpeg if Homebrew is there, and starts
+Sofa in the background (it starts again by itself after a restart).
 
-## Install
+Then, on any phone, laptop or TV browser at home, open:
 
-Requirements: Python 3.8+ and ffmpeg (optional, but needed to play formats a device
-doesn't support).
+```
+http://<this computer's name or address>:8090
+```
+
+The first person to open it creates the admin account. Done.
+
+<details><summary>Prefer to do it by hand?</summary>
 
 ```sh
 git clone https://github.com/krintoxi/sofa.git ~/Sofa
 cd ~/Sofa
-./deploy/install.sh          # macOS: LaunchAgent; Linux: systemd user service
+./deploy/install.sh          # macOS: a LaunchAgent; Linux: a systemd user service
+brew install ffmpeg          # macOS (on Linux: sudo apt install ffmpeg)
 ```
 
-Then open `http://<this computer>:8090` on any device at home. The first person to
-open it creates the admin account.
+Or run it in a Terminal window instead of in the background: `python3 sofa.py serve`.
+More detail, and what to do if something goes wrong: [docs/install.md](docs/install.md).
+</details>
 
-Run by hand instead: `python3 sofa.py serve`. Other commands: `scan`, `inbox`,
-`adduser NAME [--admin]`, `passwd NAME`, `status`.
+## Update
+
+**Easiest:** open Sofa, go to **Server → Updates**, and press **Update now**.
+
+**Older copy of Sofa without that button?** Paste this in Terminal on the Sofa computer:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/krintoxi/sofa/main/tools/update.sh | sh
+```
+
+Either way, **only Sofa's own program files change**. Your shows, movies, music, accounts,
+watch history and settings are left exactly as they are, and a copy of the old version is
+saved first so you can always go back. Details: [docs/updating.md](docs/updating.md).
+
+---
+
+## Using it
+
+### Adding things to watch
+
+Drop files or whole folders into **`~/Entertainment/Inbox`**. Sofa waits until the copy
+finishes, works out what each file is, renames it and files it:
+
+| You drop | Sofa files it as |
+|---|---|
+| `the.sopranos.s01e01.1080p.mkv` | `Shows/The Sopranos/Season 1/The Sopranos S01E01 The Sopranos.mkv` |
+| a folder `The Sopranos Complete Series` with `Season 1/101 Pilot.avi` | the same tidy layout |
+| `Heat.1995.1080p.BluRay.mkv` | `Movies/Heat (1995)/Heat (1995).mkv` |
+| a folder `Star Wars Collection` with several movies | `Movies/Star Wars Collection/<each movie in its own folder>` |
+| anything in **`Inbox/XXX`** | the **Adult** section (see below) |
+| songs | `Music/<Artist>/<Album>/` |
+
+Anything Sofa can't work out goes to **`Needs Review`**, with a note on the Server page.
+Nothing is ever deleted. More: [docs/folder-structure.md](docs/folder-structure.md).
+
+### Things that just work
+
+- **Any file plays.** MP4 plays as it is. MKV, AVI, HEVC and 10-bit files are adapted for
+  each device as they play, and Sofa also **converts them to MP4 in the background** so they
+  play instantly next time. The originals are kept until you say otherwise.
+  [docs/playback.md](docs/playback.md)
+- **A proper player.** Skip Intro / Skip Recap / Skip Credits, "Next episode" when the
+  credits start, previews while you scrub, an episode list, sound-track and subtitle
+  choice, picture-in-picture, speed, keyboard shortcuts (press `?`), and double-tap to skip
+  on phones.
+- **Artwork and details.** Shows from TVmaze; movies from the iTunes Store and Wikipedia
+  (or TMDB, with a free key, for the best posters and collections). Wrong match, or none?
+  Click **Find details** on the show or movie and pick the right one.
+- **Tidy folders.** Download-style names ("Heat.1995.1080p.BluRay") are tidied, collections
+  get a folder per movie, and stray "XXX" folders move into the Adult section.
+- **Everyone has their own sign-in** and their own "continue watching". Guests on your Wi-Fi
+  scan a QR code on the Server page.
+- **Themes.** Press **Theme** at the top: Midnight, Cinema, Ocean, Forest, Grape or Pure black,
+  plus subtitle size and TV mode. Each device keeps its own.
+- **TVs.** Roku Media Player, VLC and most smart TVs find Sofa by themselves. Fire TV and
+  Android TV browsers get a TV mode with big buttons for the remote.
+- **Music**, with albums, artists, stations, likes and a queue. **Live TV** from free channel lists.
+
+### The Adult section
+
+Put adult movies and series in **`~/Entertainment/Inbox/XXX`**. Sofa files them under
+`~/Entertainment/Adult` and shows them in an **Adult** tab that only appears for people you
+allow: **Server → People → Adult** switch (off for everyone at first, admins included).
+Guests and TVs never see it. Adult items don't show up on Home or in search.
+
+Artwork: Sofa takes a still from each video. For real covers and details, add a free
+ThePornDB token under **Server → Settings**. Adult live TV: the free iptv-org lists dropped
+adult channels in January 2024, so add an M3U link you trust and tick **Adult channels**.
+[docs/adult.md](docs/adult.md)
+
+### The Server page (admins)
+
+| Tab | What's there |
+|---|---|
+| Overview | addresses to watch from, who's watching, the Inbox, anything that needs you |
+| Library | folders, rescan, **missing details** (fix them in a click), Needs Review |
+| Converting | the convert-to-MP4 queue with progress; automatic converting on/off |
+| Live TV | channel lists |
+| People | accounts, Adult access, guests |
+| Settings | name, theme, TV sharing, TMDB key, ThePornDB token, backups |
+| Updates | version, **Update now** |
+| Activity | everything Sofa did, filterable |
+
+---
 
 ## Watching away from home
 
-Sofa only accepts connections from your home network and Tailscale by default. Read
-[docs/remote-access.md](docs/remote-access.md) before changing that: it compares a
-private VPN (recommended), a secure public address, and Cloudflare Tunnel.
+Sofa only answers your home network and Tailscale by default. Read
+[docs/remote-access.md](docs/remote-access.md) before changing that.
 
-## Settings
+## Settings file
 
-`data/config.json` (created on first run). Most things can be changed on the Server
-page. See `sofa/config.py` for every option.
+`~/Sofa/data/config.json` (made on first run). Almost everything is on the Server page;
+see `sofa/config.py` for every option.
+
+## Command line
+
+`python3 sofa.py serve | scan | inbox | status | backup | restore FILE | adduser NAME [--admin] | passwd NAME`
 
 ## Tools
 
-`tools/convert.py` converts files to MP4 for good, if you'd rather not convert on the
-fly (useful for very slow servers). It can run on a faster machine against files on
-the server over SSH.
+- `tools/get-sofa.sh` installs Sofa. `tools/update.sh` updates it.
+- `tools/convert.py` converts files to MP4 by hand, even on another computer over SSH
+  (Sofa's own background converter usually makes this unnecessary).
 
 ## Layout of this repository
 
 ```
 sofa.py              command line entry point
-sofa/                server: library, inbox organizer, streaming, DLNA, live TV, accounts
+sofa/                server: library, inbox, streaming, converter, intro finder, DLNA, live TV, accounts, updater
 client/              web app (no build step)
 deploy/              install script, macOS LaunchAgent, Linux systemd unit
-integrations/        optional extras (IRONGATE control-panel integration)
-tools/               convert.py
-docs/                remote access, folder structure
+tools/               get-sofa.sh, update.sh, convert.py
+docs/                install, updating, folders, playback, adult, remote access
 ```
 
 ## License

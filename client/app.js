@@ -54,12 +54,47 @@ if (TV) document.documentElement.classList.add("tv");
 
 let session = null, LIB = { shows: [], movies: [] }, progress = {};
 const byId = new Map();
-let shows = [], movies = [];
+let shows = [], movies = [], adultShows = [], adultMovies = [];
+
+/* ---------- themes (per device; the server sets the default) ---------- */
+const THEMES = [["midnight", "Midnight", "#0A0E1A", "#F4B740"], ["cinema", "Cinema", "#0B0708", "#E5484D"],
+  ["ocean", "Ocean", "#04131A", "#3CC8D8"], ["forest", "Forest", "#0A120D", "#8BD46E"],
+  ["grape", "Grape", "#100A1A", "#C792FF"], ["oled", "Pure black", "#000000", "#F4B740"]];
+function applyTheme(name) {
+  if (!THEMES.some(t => t[0] === name)) name = "midnight";
+  if (name === "midnight") document.documentElement.removeAttribute("data-theme");
+  else document.documentElement.setAttribute("data-theme", name);
+}
+applyTheme(prefs.get("theme", "midnight"));
+function appearanceDialog() {
+  const cur = prefs.get("theme", (session && session.theme) || "midnight"), sub = prefs.get("subSize", "m");
+  const d = openDialog(`<h2>Look and feel</h2><p>Just for this device. Everyone can pick their own.</p>
+    <div class="themes">${THEMES.map(t => `<button class="theme-swatch" data-theme-pick="${t[0]}" aria-pressed="${t[0] === cur}"
+      style="--sw-bg:${t[2]};--sw-ac:${t[3]}"><i></i><span>${esc(t[1])}</span></button>`).join("")}</div>
+    <h3 class="dlg-sub">Subtitle size</h3>
+    <div class="sorter inline" role="group" aria-label="Subtitle size">${[["s", "Small"], ["m", "Medium"], ["l", "Large"], ["xl", "Huge"]].map(x =>
+      `<button data-sub-size="${x[0]}" aria-pressed="${x[0] === sub}">${x[1]}</button>`).join("")}</div>
+    <h3 class="dlg-sub">TV mode</h3>
+    <div class="toggle"><div><b>Big buttons for a remote</b><span>Turns on by itself on Fire TV, Android TV and smart TVs.</span></div>
+      <button class="switch" role="switch" aria-checked="${TV}" data-tv-toggle="1" aria-label="TV mode"></button></div>
+    <div class="actions"><button class="btn primary" data-dismiss="1">Done</button></div>`);
+  d.addEventListener("click", e => {
+    const t = e.target.closest("[data-theme-pick],[data-sub-size],[data-tv-toggle]"); if (!t) return;
+    if (t.dataset.themePick) { prefs.set("theme", t.dataset.themePick); applyTheme(t.dataset.themePick);
+      d.querySelectorAll("[data-theme-pick]").forEach(b => b.setAttribute("aria-pressed", b === t)); }
+    else if (t.dataset.subSize) { prefs.set("subSize", t.dataset.subSize); applySubSize();
+      d.querySelectorAll("[data-sub-size]").forEach(b => b.setAttribute("aria-pressed", b === t)); }
+    else { prefs.set("tv", !TV); location.reload(); }
+  });
+}
+function applySubSize() { document.documentElement.dataset.subs = prefs.get("subSize", "m"); }
+applySubSize();
 
 /* ---------- index the library ---------- */
 function indexLibrary(lib) {
   LIB = lib; shows = lib.shows; movies = lib.movies; byId.clear();
-  shows.forEach(show => {
+  adultShows = (lib.adult || {}).shows || []; adultMovies = (lib.adult || {}).movies || [];
+  shows.concat(adultShows).forEach(show => {
     byId.set(show.id, show);
     show.order = [];
     show.seasons.sort((a, b) => (a.n === 0) - (b.n === 0) || a.n - b.n);
@@ -72,8 +107,9 @@ function indexLibrary(lib) {
     show.count = show.seasons.reduce((n, s) => n + s.episodes.length, 0);
     show.regularSeasons = show.seasons.filter(s => s.n !== 0).length;
   });
-  movies.forEach(m => byId.set(m.id, m));
+  movies.concat(adultMovies).forEach(m => byId.set(m.id, m));
 }
+const notAdult = item => !(item.adult || (item.show && item.show.adult));
 
 /* ---------- watch progress (kept on the server, per person) ---------- */
 const prog = id => progress[id] || null;
@@ -151,12 +187,19 @@ function posterCard(show) {
     <span class="t2">${plural(show.regularSeasons, "season")}, ${plural(show.count, "episode")}</span></a>`;
 }
 function movieCard(m) {
-  return `<button class="card poster" data-play="${esc(m.id)}">
+  return `<a class="card poster" href="#/movie/${encodeURIComponent(m.id)}">
     <span class="frame${m.poster ? "" : " noimg"}">${frameImg(m.poster, m.title, m.title)}
       ${pct(m.id) && !isDone(m.id) ? `<span class="progress"><i style="width:${pct(m.id)}%"></i></span>` : ""}
       ${isDone(m.id) ? `<span class="seen-badge">${icon("i-check")}</span>` : ""}</span>
     <span class="t1">${esc(m.title)}</span>
-    <span class="t2">${esc(m.year || "")}</span></button>`;
+    <span class="t2">${esc([m.year, m.studio].filter(Boolean).join(" · "))}</span></a>`;
+}
+function collectionCard(name, list) {
+  const art = list.find(m => m.poster);
+  return `<a class="card poster collection" href="#/collection/${encodeURIComponent(name)}">
+    <span class="frame${art ? "" : " noimg"}">${art ? frameImg(art.poster, name, name) : `<span class="placeholder">${esc(name)}</span>`}
+      <span class="stack-badge">${list.length}</span></span>
+    <span class="t1">${esc(name)}</span><span class="t2">${plural(list.length, "movie")}</span></a>`;
 }
 function thumbFor(item) {
   const owner = item.show || item;
@@ -205,7 +248,8 @@ function heroFor(show, short) {
       ${show.logo ? `<img class="hero-logo" src="${esc(artSrc(show.logo, 720))}" alt="${esc(show.name)}">` : `<h1>${esc(show.name)}</h1>`}
       <p class="facts">${facts}</p>
       ${show.summary ? `<p class="summary${short ? "" : " clamp"}">${esc(show.summary)}</p>` : ""}
-      <div class="actions">${action}${short ? "" : `<a class="btn" href="#/show/${encodeURIComponent(show.id)}">Episodes</a>`}</div>
+      <div class="actions">${action}${short ? "" : `<a class="btn" href="#/show/${encodeURIComponent(show.id)}">Episodes</a>`}
+        ${short && session.user.admin ? `<button class="btn ghost" data-fix="${esc(show.id)}">${show.source ? "Fix details" : "Find details"}</button>` : ""}</div>
     </div></section>`;
 }
 
@@ -215,18 +259,19 @@ function viewHome() {
   const recentShow = shows.slice().sort((a, b) => lastTouched(b) - lastTouched(a))[0];
   const featured = recentShow && lastTouched(recentShow) ? recentShow : shows[Math.floor(Date.now() / 864e5) % Math.max(1, shows.length)];
   setGlow(featured && (featured.backdrop || featured.poster));
-  const cont = Object.keys(progress).filter(id => byId.has(id) && inProgress(id))
+  const cont = Object.keys(progress).filter(id => byId.has(id) && inProgress(id) && notAdult(byId.get(id)))
     .sort((a, b) => progress[b].at - progress[a].at).slice(0, 14).map(id => byId.get(id));
   const nextUps = shows.map(s => ({ s, n: upNext(s) }))
     .filter(x => x.n && !x.n.fresh && !x.n.resume).sort((a, b) => lastTouched(b.s) - lastTouched(a.s))
     .map(x => wideCard(x.n.ep));
   const added = shows.flatMap(s => s.order).sort((a, b) => b.added - a.added).slice(0, 14);
+  const newMovies = movies.slice().sort((a, b) => b.added - a.added).slice(0, 14);
   return (featured ? heroFor(featured) : "") +
     rail("Continue watching", "wide", cont.map(i => wideCard(i))) +
     rail("Next up", "wide", nextUps) +
     rail("Shows", "posters", shows.map(posterCard), "#/shows") +
-    rail("Movies", "posters", movies.map(movieCard), "#/movies") +
-    rail("Recently added", "wide", added.map(i => wideCard(i)));
+    rail("New movies", "posters", newMovies.map(movieCard), "#/movies") +
+    rail("Recently added episodes", "wide", added.map(i => wideCard(i)));
 }
 function viewEmptyLibrary() {
   setGlow("");
@@ -249,17 +294,88 @@ function viewShows() {
       `<button data-sort="${k}" aria-pressed="${k === sort}">${SORTS[k][0]}</button>`).join("")}</div></div>
     <div class="grid">${list.map(posterCard).join("")}</div></section>`;
 }
-function viewMovies() {
-  setGlow(movies[0] && (movies[0].backdrop || movies[0].poster));
+const MSORTS = {
+  name: ["Name", (a, b) => a.title.localeCompare(b.title)],
+  added: ["Recently added", (a, b) => b.added - a.added],
+  year: ["Year", (a, b) => (b.year || 0) - (a.year || 0)]
+};
+function collections(list) {
   const groups = new Map();
-  movies.forEach(m => { const k = m.collection || ""; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(m); });
-  let html = `<section class="page"><div class="page-head"><h1>Movies</h1><span class="count">${plural(movies.length, "movie")}</span></div>`;
-  if (!movies.length) html += `<p class="count">No movies yet. Drop one in the Inbox, named like "Title (1999)".</p>`;
-  groups.forEach((list, name) => {
-    html += (name ? `<h2 class="collection-title">${esc(name)}</h2>` : "") +
-      `<div class="grid">${list.sort((a, b) => (a.year || 0) - (b.year || 0)).map(movieCard).join("")}</div>`;
-  });
-  return html + "</section>";
+  list.forEach(m => { if (m.collection) { if (!groups.has(m.collection)) groups.set(m.collection, []); groups.get(m.collection).push(m); } });
+  return groups;
+}
+function viewMovies(list, heading, base) {
+  list = list || movies; heading = heading || "Movies"; base = base || "#/movies";
+  setGlow(list[0] && (list[0].backdrop || list[0].poster));
+  const sort = MSORTS[prefs.get("msort", "name")] ? prefs.get("msort", "name") : "name";
+  const groups = collections(list);
+  const sorted = list.slice().sort(MSORTS[sort][1]);
+  let html = `<section class="page"><div class="page-head"><h1>${esc(heading)}</h1><span class="count">${plural(list.length, "movie")}</span>
+    <div class="sorter" role="group" aria-label="Sort movies">${Object.keys(MSORTS).map(k =>
+      `<button data-msort="${k}" aria-pressed="${k === sort}">${MSORTS[k][0]}</button>`).join("")}</div></div>`;
+  if (!list.length) html += `<p class="count">No movies yet. Drop one in the Inbox, named like "Title (1999)".</p>`;
+  if (groups.size) html += `<h2 class="collection-title">Collections</h2><div class="grid">${[...groups].sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([name, l]) => collectionCard(name, l)).join("")}</div><h2 class="collection-title">All movies</h2>`;
+  return html + `<div class="grid">${sorted.map(movieCard).join("")}</div></section>`;
+}
+function viewCollection(name) {
+  const list = movies.concat(adultMovies).filter(m => m.collection === name).sort((a, b) => (a.year || 0) - (b.year || 0));
+  if (!list.length) return viewMissing();
+  const art = list.find(m => m.backdrop) || list.find(m => m.poster);
+  setGlow(art && (art.backdrop || art.poster));
+  const next = list.find(m => !isDone(m.id)) || list[0];
+  return `<section class="hero short">${art && art.backdrop ? `<img class="hero-bg" src="${esc(artSrc(art.backdrop, 1280))}" alt="">` : ""}
+    <div class="hero-body"><h1>${esc(name)}</h1><p class="facts"><span>${plural(list.length, "movie")}</span>
+    <span>${esc([list[0].year, list[list.length - 1].year].filter(Boolean).filter((y, i, a) => a.indexOf(y) === i).join(" to "))}</span>
+    <span>${list.filter(m => isDone(m.id)).length} watched</span></p>
+    <div class="actions"><button class="btn primary" data-play="${esc(next.id)}">${icon("i-play")}${inProgress(next.id) ? "Resume" : "Play"} <small>${esc(next.title)}</small></button></div></div></section>
+    <section class="page"><div class="grid">${list.map(movieCard).join("")}</div></section>`;
+}
+function viewMovie(id) {
+  const m = byId.get(id);
+  if (!m || m.kind !== "movie") return viewMissing();
+  setGlow(m.backdrop || m.poster);
+  const p = prog(m.id), resume = inProgress(m.id);
+  const runtime = m.runtime || (p && p.d ? Math.round(p.d / 60) : null);
+  const facts = [m.year ? `<span><b>${esc(m.year)}</b></span>` : "", runtime ? `<span>${Math.floor(runtime / 60) ? Math.floor(runtime / 60) + " h " : ""}${runtime % 60} min</span>` : "",
+    m.certificate ? `<span class="cert">${esc(m.certificate)}</span>` : "", m.genres && m.genres.length ? `<span>${esc(m.genres.join(", "))}</span>` : "",
+    m.studio ? `<span>${esc(m.studio)}</span>` : "", m.rating ? `<span>Rated <b>${esc(Number(m.rating).toFixed(1))}</b></span>` : "",
+    m.collection ? `<a href="#/collection/${encodeURIComponent(m.collection)}">${esc(m.collection)}</a>` : ""].join("");
+  const sibs = m.collection ? movies.concat(adultMovies).filter(x => x.collection === m.collection && x.id !== m.id) : [];
+  return `<section class="hero movie-hero">
+    ${m.backdrop ? `<img class="hero-bg" src="${esc(artSrc(m.backdrop, 1280))}" alt="">` : m.poster ? `<img class="hero-bg blur" src="${esc(artSrc(m.poster, 480))}" alt="">` : ""}
+    <div class="hero-body movie-body">
+      <span class="frame poster-frame${m.poster ? "" : " noimg"}">${frameImg(m.poster, m.title, m.title, 480)}</span>
+      <div>
+        ${m.logo ? `<img class="hero-logo" src="${esc(artSrc(m.logo, 720))}" alt="${esc(m.title)}">` : `<h1>${esc(m.title)}</h1>`}
+        ${m.tagline ? `<p class="tagline">${esc(m.tagline)}</p>` : ""}
+        <p class="facts">${facts}</p>
+        ${m.performers && m.performers.length ? `<p class="facts"><span>With ${esc(m.performers.join(", "))}</span></p>` : ""}
+        ${m.summary ? `<p class="summary">${esc(m.summary)}</p>` : ""}
+        <div class="actions">
+          <button class="btn primary" data-play="${esc(m.id)}">${icon("i-play")}${resume ? "Resume" : "Play"}${resume ? ` <small>${esc(clock(p.d - p.t))} left</small>` : ""}</button>
+          ${resume ? `<button class="btn" data-play-start="${esc(m.id)}">Start over</button>` : ""}
+          <button class="btn ghost" data-watched="${esc(m.id)}" aria-pressed="${isDone(m.id)}">${icon("i-check")}${isDone(m.id) ? "Watched" : "Mark watched"}</button>
+          ${session.user.admin ? `<button class="btn ghost" data-fix="${esc(m.id)}">${m.source ? "Fix details" : "Find details"}</button>` : ""}
+        </div>
+        ${session.user.admin ? `<p class="fileline">${esc(m.file)}${m.source ? " · details from " + esc(m.source) : " · no details found yet"}</p>` : ""}
+      </div></div></section>
+    ${sibs.length ? rail("More in " + m.collection, "posters", sibs.map(movieCard)) : ""}`;
+}
+function viewAdult(tab) {
+  setGlow("");
+  if (!session.user.adult) return viewMissing();
+  tab = tab === "shows" ? "shows" : "movies";
+  const cont = Object.keys(progress).filter(id => byId.has(id) && inProgress(id) && !notAdult(byId.get(id)))
+    .sort((a, b) => progress[b].at - progress[a].at).slice(0, 14).map(id => byId.get(id));
+  const head = `<div class="page-head"><h1>Adult</h1><span class="count">${plural(adultMovies.length, "movie")}, ${plural(adultShows.length, "series")}</span>
+    <div class="sorter" role="tablist" aria-label="Adult section">
+      <button data-adult-tab="movies" aria-pressed="${tab === "movies"}">Movies</button><button data-adult-tab="shows" aria-pressed="${tab === "shows"}">Series</button></div></div>`;
+  const empty = !adultMovies.length && !adultShows.length ? `<p class="count" style="max-width:64ch">Nothing here yet. Drop adult movies and scenes into the <b>Inbox/XXX</b> folder on the server and Sofa files them under <b>Adult</b>. Only people you allow on the Server page can see this section; guests and TVs never can.</p>` : "";
+  const grid = tab === "shows" ? `<div class="grid">${adultShows.map(posterCard).join("")}</div>`
+    : `<div class="grid">${adultMovies.slice().sort((a, b) => b.added - a.added).map(movieCard).join("")}</div>`;
+  return `<section class="page adult-page">${head}${empty}</section>${rail("Continue watching", "wide", cont.map(i => wideCard(i)))}
+    <section class="page">${grid}</section>`;
 }
 function episodeRow(ep, label) {
   const p = prog(ep.id), done = isDone(ep.id);
@@ -421,78 +537,218 @@ function authView(kind) {
 }
 
 /* ---------- server (admin) page ---------- */
-let adminData = null, adminTimer = 0;
+let adminData = null, adminTimer = 0, adminTab = "overview", activityKind = "all";
+const SRV_TABS = [["overview", "Overview"], ["library", "Library"], ["convert", "Converting"], ["live", "Live TV"],
+  ["people", "People"], ["settings", "Settings"], ["update", "Updates"], ["activity", "Activity"]];
 async function loadAdmin() {
   try {
-    adminData = await api("/api/admin/status");
-    adminData.live = (await api("/api/live")).playlists;
+    const d = await api("/api/admin/status");
+    d.live = (await api("/api/live")).playlists;
+    if (adminTab === "library") d.missing = (await api("/api/admin/missing")).items;
+    if (adminTab === "convert") d.convert = await api("/api/admin/convert");
+    adminData = d;
   } catch (e) { adminData = { error: e.message }; }
-  if (location.hash.startsWith("#/server") && !Player.isOpen()) { const y = scrollY; view.innerHTML = viewServer(); scrollTo(0, y); drawGuestQr(); }
+  if (location.hash.startsWith("#/server") && !Player.isOpen() && !document.querySelector(".dialog-scrim")) {
+    const active = document.activeElement, keep = active && active.id;
+    const y = scrollY; view.innerHTML = viewServer(adminTab); scrollTo(0, y); drawGuestQr();
+    if (keep && $("#" + keep)) $("#" + keep).focus();
+  }
 }
-function viewServer() {
+function viewServer(tab) {
   setGlow("");
+  if (tab && SRV_TABS.some(t => t[0] === tab) && tab !== adminTab) { adminTab = tab; if (adminData) loadAdmin(); }
   clearTimeout(adminTimer);
-  adminTimer = setTimeout(() => { if (location.hash.startsWith("#/server")) loadAdmin(); }, 10000);
-  if (!adminData) { loadAdmin(); return `<section class="admin"><div class="admin-head"><h1>Server</h1></div><p class="admin-lede">Loading…</p></section>`; }
-  if (adminData.error) return `<section class="admin"><div class="admin-head"><h1>Server</h1></div><p class="admin-lede">${esc(adminData.error)}</p></section>`;
-  const d = adminData, s = d.server, L = d.library, port = s.port;
+  const busy = adminData && adminData.convert && adminData.convert.counts && adminData.convert.counts.working;
+  const upd = adminData && adminData.update && adminData.update.running;
+  adminTimer = setTimeout(() => { if (location.hash.startsWith("#/server")) loadAdmin(); }, busy || upd ? 3000 : 10000);
+  const tabs = `<nav class="srv-tabs" aria-label="Server sections">${SRV_TABS.map(t => `<button data-srv-tab="${t[0]}" aria-current="${t[0] === adminTab ? "page" : "false"}">${t[1]}${
+    t[0] === "update" && adminData && adminData.update && adminData.update.available ? ` <i class="dot" aria-label="update available"></i>` : ""}${
+    t[0] === "library" && adminData && adminData.library && adminData.library.missing ? ` <i class="num">${adminData.library.missing}</i>` : ""}</button>`).join("")}</nav>`;
+  const head = d => `<div class="admin-head"><h1>Server</h1>${d && d.server ? `<span class="pill">Running</span>${d.server.ffmpeg ? "" : `<span class="pill warn">Can't convert video yet</span>`}` : ""}</div>`;
+  if (!adminData) { loadAdmin(); return `<section class="admin">${head()}${tabs}<p class="admin-lede">Loading…</p></section>`; }
+  if (adminData.error) return `<section class="admin">${head()}${tabs}<p class="admin-lede">${esc(adminData.error)}</p></section>`;
+  const d = adminData;
+  const body = { overview: srvOverview, library: srvLibrary, convert: srvConvert, live: srvLive, people: srvPeople,
+                 settings: srvSettings, update: srvUpdate, activity: srvActivity }[adminTab](d);
+  return `<section class="admin">${head(d)}<p class="admin-lede">${esc(d.server.name)} on ${esc(d.server.host)} · Sofa ${esc(d.server.version)} · up since ${esc(new Date(d.server.started * 1000).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }))}</p>
+    ${tabs}${body}</section>`;
+}
+const actRow = a => `<li class="${a.kind === "review" || a.kind === "playback" ? "review" : ""}"><span>${esc(a.message)}</span><span class="when">${esc(ago(a.at))}</span></li>`;
+const srvSwitch = (key, on, label, hint) => `<div class="toggle"><div><b>${label}</b><span>${hint}</span></div>
+  <button class="switch" role="switch" aria-checked="${!!on}" aria-label="${esc(label)}" data-setting="${key}"></button></div>`;
+const STREAM_MODE = { direct: "Original file", remux: "Repackaged live", transcode: "Converted live" };
+
+function srvOverview(d) {
+  const s = d.server, L = d.library, port = s.port;
   const addr = [];
-  s.lan.forEach(ip => addr.push(`<div><b>At home</b><code>http://${esc(ip)}:${port}</code><br><span>Any phone, laptop or TV browser on your Wi-Fi.</span></div>`));
-  s.tailscale.forEach(ip => addr.push(`<div><b>Away from home</b><code>http://${esc(ip)}:${port}</code><br><span>From any device signed in to your Tailscale.</span></div>`));
-  addr.push(`<div><b>TVs</b><span>${s.dlna ? `Roku Media Player, VLC and most smart TVs list "${esc(s.name)}" on their own.` : "TV sharing is off (see Settings)."}</span></div>`);
-  const actRow = a => `<li class="${a.kind === "review" ? "review" : ""}"><span>${esc(a.message)}</span><span class="when">${esc(ago(a.at))}</span></li>`;
-  const streams = d.streams.length ? d.streams.map(x => `<li><span><b>${esc(x.who)}</b> is watching ${esc(x.title || x.item)}</span><span class="when">${esc({ direct: "Original file", remux: "Repackaged live", transcode: "Converted live" }[x.mode] || x.mode)}</span></li>`).join("")
+  s.lan.forEach(ip => addr.push(`<div><b>At home</b><code>http://${esc(ip)}:${port}</code><span>Any phone, laptop or TV browser on your Wi-Fi.</span></div>`));
+  s.tailscale.forEach(ip => addr.push(`<div><b>Away from home</b><code>http://${esc(ip)}:${port}</code><span>From any device signed in to your Tailscale.</span></div>`));
+  addr.push(`<div><b>TVs</b><span>${s.dlna ? `Roku Media Player, VLC and most smart TVs list "${esc(s.name)}" by themselves.` : "TV sharing is off (see Settings)."}</span></div>`);
+  const streams = d.streams.length ? d.streams.map(x => `<li><span><b>${esc(x.who)}</b> is watching ${esc(x.title || x.item)}</span><span class="when">${esc(STREAM_MODE[x.mode] || x.mode)}</span></li>`).join("")
     : `<li class="empty-row">Nobody is watching right now.</li>`;
   const inbox = d.inbox.length ? d.inbox.map(x => `<li><span>${esc(x.name)}</span><span class="when">${x.state === "copying" ? "Still copying" : "Sorting soon"}</span></li>`).join("")
-    : `<li class="empty-row">Empty. Drop shows and movies here and they'll be filed within a minute.</li>`;
-  const review = d.review.length ? d.review.map(actRow).join("") : `<li class="empty-row">Nothing needs your attention.</li>`;
-  const users = d.users.filter(u => !u.guest).map(u => `<li><span><b>${esc(u.name)}</b>${u.admin ? " (admin)" : ""}<br><span class="when">${u.seen ? "Last seen " + esc(ago(u.seen)) : "Hasn't signed in yet"}</span></span>
-    <span class="row-actions"><button class="mini" data-user-pass="${u.id}" data-user-name="${esc(u.name)}">New password</button>${u.id !== session.user.id ? `<button class="mini danger" data-user-del="${u.id}" data-user-name="${esc(u.name)}">Remove</button>` : ""}</span></li>`).join("");
-  const sw = (key, on, label, hint) => `<div class="toggle"><div><b>${label}</b><span>${hint}</span></div>
-    <button class="switch" role="switch" aria-checked="${!!on}" aria-label="${esc(label)}" data-setting="${key}"></button></div>`;
-  const ff = s.ffmpeg;
-  return `<section class="admin">
-    <div class="admin-head"><h1>Server</h1><span class="pill">Running</span>${ff ? "" : `<span class="pill warn">Can't convert video yet</span>`}</div>
-    <p class="admin-lede">${esc(s.name)} on ${esc(s.host)}, Sofa ${esc(s.version)}, up since ${esc(new Date(s.started * 1000).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }))}.</p>
+    : `<li class="empty-row">Empty. Drop shows and movies here and they're filed within a minute.</li>`;
+  const c = d.convert || { counts: {} };
+  const alerts = [];
+  if (d.update && d.update.available) alerts.push(`<div class="alert"><b>A new version of Sofa is ready${d.update.latest ? " (" + esc(d.update.latest) + ")" : ""}.</b><span>Your media and settings stay as they are.</span><button class="btn primary" data-srv-tab="update">See the update</button></div>`);
+  if (L.missing) alerts.push(`<div class="alert soft"><b>${plural(L.missing, "title")} without details or artwork.</b><span>Pick the right match in a couple of clicks.</span><button class="btn" data-srv-tab="library">Fix them</button></div>`);
+  if (!s.ffmpeg) alerts.push(`<div class="alert"><b>ffmpeg isn't installed.</b><span>Only files a device already supports will play. On a Mac: <code>brew install ffmpeg</code>, then restart Sofa.</span></div>`);
+  if (d.review.length) alerts.push(`<div class="alert soft"><b>${plural(d.review.length, "file")} in Needs Review.</b><span>Sofa couldn't tell what they are.</span><button class="btn" data-srv-tab="library">Have a look</button></div>`);
+  return `${alerts.join("")}
+    <div class="stats big">
+      <a class="stat" href="#/shows"><b>${L.shows}</b><span>shows · ${L.episodes} episodes</span></a>
+      <a class="stat" href="#/movies"><b>${L.movies}</b><span>movies</span></a>
+      ${L.adult ? `<div class="stat"><b>${L.adult}</b><span>in Adult</span></div>` : ""}
+      <a class="stat" href="#/music"><b>${L.tracks}</b><span>songs</span></a>
+      ${L.disk ? `<div class="stat"><b>${bytes(L.disk.free)}</b><span>free of ${bytes(L.disk.total)}</span></div>` : ""}
+      <button class="stat" data-srv-tab="convert"><b>${(c.counts.queued || 0) + (c.counts.working || 0)}</b><span>${c.counts.working ? "converting now" : "waiting to convert"}</span></button>
+    </div>
     <div class="panels">
       <div class="panel"><h2>How to watch</h2><p class="hint">Open one of these addresses and sign in.</p><div class="addr">${addr.join("")}</div></div>
-      <div class="panel"><h2>Library</h2><p class="hint">Updated ${esc(ago(L.generated))}${L.scanning ? ", checking now" : ""}.</p>
-        <div class="stats"><div class="stat"><b>${L.shows}</b><span>shows</span></div><div class="stat"><b>${L.episodes}</b><span>episodes</span></div>
-        <div class="stat"><b>${L.movies}</b><span>movies</span></div>${L.disk ? `<div class="stat"><b>${bytes(L.disk.free)}</b><span>free space</span></div>` : ""}</div>
-        <dl class="kv"><dt>Drop new things in</dt><dd><code>${esc(L.folders.inbox)}</code></dd><dt>Shows</dt><dd><code>${esc(L.folders.shows)}</code></dd>
-        <dt>Movies</dt><dd><code>${esc(L.folders.movies)}</code></dd><dt>Needs a look</dt><dd><code>${esc(L.folders.review)}</code></dd></dl>
-        <div class="actions" style="margin-top:16px"><button class="btn" data-admin="scan">Check for new files now</button></div></div>
-      <div class="panel"><h2>Inbox</h2><p class="hint">Sofa waits until a copy finishes, then names and files it.</p><ul class="list">${inbox}</ul></div>
-      <div class="panel"><h2>Needs your help</h2><p class="hint">Files Sofa couldn't identify are in the Needs Review folder. Rename and drop them in the Inbox again.</p><ul class="list">${review}</ul></div>
       <div class="panel"><h2>Watching now</h2><p class="hint">"Repackaged" and "converted" mean Sofa is adapting the file for that device as it plays.</p><ul class="list">${streams}</ul></div>
-      <div class="panel"><h2>People</h2><p class="hint">Everyone gets their own sign-in and their own "continue watching".</p><ul class="list">${users}</ul>
-        <form class="inline-form" id="addUser"><label class="field"><span>Name</span><input name="name" required maxlength="40"></label>
-        <label class="field"><span>Password</span><input name="password" type="password" required minlength="8" autocomplete="new-password"></label>
-        <button class="btn" type="submit">Add</button><label class="check"><input type="checkbox" name="admin"> Can manage the server</label>
-        <div class="form-error" role="alert" style="grid-column:1/-1"></div></form></div>
-      <div class="panel"><h2>Settings</h2>
-        ${sw("dlna", s.dlna, "Share with TVs", "Lets Roku, Fire TV (VLC) and smart TVs at home browse without signing in.")}
-        ${sw("tvmaze", d.settings.tvmaze, "Look up show details", "Summaries, episode titles and missing artwork from TVmaze.")}
-        <div class="toggle"><div><b>Video conversion</b><span>${ff ? "Ready (ffmpeg " + esc(ff) + "). Files any device can't play are adapted as they stream." : "ffmpeg isn't installed, so only files a device already supports will play."}</span></div></div>
-        <div class="toggle"><div><b>Backups</b><span>${d.backups.length ? "Last backup " + esc(ago(d.backups[0].made)) + ". " : "No backup yet. "}Accounts, watch history and settings are saved every night at ${esc(d.settings.backup_time)} to <code>${esc(d.backup_folder)}</code>, keeping ${esc(d.settings.backup_keep)}. Your shows and movies aren't included.</span></div>
-          <button class="mini" data-admin="backup">Back up now</button></div>
-        <div class="toggle"><div><b>Remote access</b><span>${s.remote === "public" ? "Accepting internet connections. Keep Sofa behind HTTPS." : "Home network and Tailscale only. See docs/remote-access.md to change this."}</span></div></div>
-      </div>
-      <div class="panel"><h2>Guests</h2><p class="hint">Visitors on your Wi-Fi scan this code to watch as "Guest": their own history and likes, no settings, and it never works from outside the house. Sessions end after a day.</p>
-        <div class="guest-row"><div class="qr" id="guestQr" data-url="${esc(d.guest.links[0] || "")}"></div>
-        <div><div class="addr">${d.guest.links.map(l => `<div><b>Guest link</b><code>${esc(l)}</code></div>`).join("")}</div>
-        <p class="hint" style="margin-top:10px">Tip: reserve this address for the iMac in your router so the code keeps working.</p>
-        <div class="row-actions"><button class="mini" data-guest-clear="1">Clear guest history</button></div></div></div>
-        ${sw("guest_access", d.guest.enabled, "Allow guests", "Turn off to make the guest code stop working.")}</div>
-      <div class="panel"><h2>Live TV channel lists</h2><p class="hint">M3U playlists of free channels. Sofa re-downloads them twice a day.</p>
-        <ul class="list">${(d.live || []).map(p => `<li><span><b>${esc(p.name)}</b><br><span class="when">${p.error ? "Problem: " + esc(p.error) : plural(p.count || 0, "channel")}</span></span>
-          <button class="mini danger" data-live-remove="${esc(p.url)}">Remove</button></li>`).join("") || `<li class="empty-row">No channel lists yet.</li>`}</ul>
-        <div class="presets">${PRESETS.filter(p => !(d.live || []).some(x => x.url === p[1])).map(p => `<button class="mini" data-preset="${esc(p[1])}" data-name="${esc(p[0])}">+ ${esc(p[0])}</button>`).join("")}</div>
-        <form class="inline-form" id="addList"><label class="field"><span>Name</span><input name="name" maxlength="60" placeholder="My channels"></label>
-        <label class="field"><span>M3U link</span><input name="url" type="url" required placeholder="https://…/list.m3u"></label>
-        <button class="btn" type="submit">Add</button><div class="form-error" role="alert" style="grid-column:1/-1"></div></form></div>
-      <div class="panel wide"><h2>Activity</h2><ul class="list">${d.activity.slice(0, 25).map(actRow).join("") || `<li class="empty-row">Nothing yet.</li>`}</ul></div>
-    </div></section>`;
+      <div class="panel"><h2>Inbox</h2><p class="hint">Sofa waits until a copy finishes, then names and files it. Put adult content in <code>Inbox/XXX</code>.</p><ul class="list">${inbox}</ul>
+        <div class="actions" style="margin-top:14px"><button class="btn" data-admin="inbox">Sort the Inbox now</button><button class="btn" data-admin="scan">Check for new files</button></div></div>
+      <div class="panel"><h2>Latest</h2><ul class="list">${d.activity.slice(0, 8).map(actRow).join("") || `<li class="empty-row">Nothing yet.</li>`}</ul>
+        <div class="actions" style="margin-top:14px"><button class="btn" data-srv-tab="activity">All activity</button></div></div>
+    </div>`;
+}
+function srvLibrary(d) {
+  const L = d.library, f = L.folders;
+  const folders = [["Inbox (drop things here)", f.inbox], ["Shows", f.shows], ["Movies", f.movies], ["Adult", f.adult], ["Music", f.music],
+    ["Music videos", f.musicvideos], ["Needs Review", f.review], ["Converted originals", f.originals]];
+  const missing = d.missing ? (d.missing.length ? d.missing.map(m => `<li><span><b>${esc(m.title)}</b>${m.year ? " (" + esc(m.year) + ")" : ""}<br><span class="when">${m.kind === "show" ? "Show" : "Movie"}${m.adult ? " · Adult" : ""}</span></span>
+      <button class="mini" data-fix="${esc(m.id)}">Find details</button></li>`).join("") : `<li class="empty-row">Everything has details. Nice.</li>`) : `<li class="empty-row">Loading…</li>`;
+  return `<div class="panels">
+    <div class="panel"><h2>Library</h2><p class="hint">Updated ${esc(ago(L.generated))}${L.scanning ? ", checking now" : ""}. Sofa notices new files by itself within a minute.</p>
+      <div class="stats"><div class="stat"><b>${L.shows}</b><span>shows</span></div><div class="stat"><b>${L.episodes}</b><span>episodes</span></div>
+      <div class="stat"><b>${L.movies}</b><span>movies</span></div><div class="stat"><b>${L.albums}</b><span>albums</span></div></div>
+      <div class="actions"><button class="btn" data-admin="scan">Check for new files now</button><button class="btn" data-admin="inbox">Sort the Inbox now</button></div></div>
+    <div class="panel"><h2>Folders</h2><p class="hint">Where everything lives on this computer. You can also put things there by hand (see docs/folder-structure.md).</p>
+      <dl class="kv">${folders.map(x => `<dt>${esc(x[0])}</dt><dd><code>${esc(x[1])}</code></dd>`).join("")}</dl></div>
+    <div class="panel wide"><h2>Missing details</h2><p class="hint">Sofa found nothing about these. Click <b>Find details</b>, search, and pick the right one; the artwork and description follow. You can also do it from any show or movie page.</p>
+      <ul class="list two-col">${missing}</ul></div>
+    <div class="panel wide"><h2>Needs your help</h2><p class="hint">Files Sofa couldn't identify are in the Needs Review folder. Rename them like <code>Show Name S01E02.mkv</code> or <code>Movie Title (1999).mkv</code> and drop them in the Inbox again.</p>
+      <ul class="list">${d.review.length ? d.review.map(actRow).join("") : `<li class="empty-row">Nothing needs your attention.</li>`}</ul></div>
+    <div class="panel wide">${srvSwitch("tidy_library", d.settings.tidy_library, "Tidy folders automatically", "Renames download-style folders (\"Heat.1995.1080p.BluRay\" becomes \"Heat (1995)\"), gives each movie in a collection its own folder, and moves stray XXX folders into Adult. Nothing is deleted.")}</div>
+  </div>`;
+}
+function srvConvert(d) {
+  const c = d.convert || {}, counts = c.counts || {};
+  const state = { queued: "Waiting", working: "Converting", done: "Done", failed: "Didn't work", gone: "File gone" };
+  const rows = (c.rows || []).map(r => `<li class="conv ${r.state}"><div class="conv-main"><b>${esc(r.title || r.path.split("/").pop())}</b>
+      <span class="when">${esc(state[r.state] || r.state)}${r.state === "done" && r.how ? " · " + esc(r.how) : ""}${r.state === "done" && r.before && r.after ? " · " + bytes(r.before) + " → " + bytes(r.after) : ""}${r.error ? " · " + esc(r.error) : ""}</span>
+      ${r.state === "working" ? `<span class="bar-line"><i style="width:${Math.round((r.progress || 0) * 100)}%"></i></span>` : ""}</div>
+      <span class="row-actions">${r.state === "working" ? `<span class="when">${Math.round((r.progress || 0) * 100)}%</span>` : ""}
+      ${r.state === "failed" ? `<button class="mini" data-conv-retry="${esc(r.path)}">Try again</button>` : ""}
+      ${r.state === "queued" || r.state === "working" ? `<button class="mini danger" data-conv-cancel="${esc(r.path)}">Stop</button>` : ""}</span></li>`).join("");
+  return `<div class="panels">
+    <div class="panel wide"><h2>Convert to MP4</h2>
+      <p class="hint">MKV, AVI and similar files have to be adapted every time they play, which can stall on some devices. Converting them once makes them play instantly everywhere. Sofa does it here, in the background, one file at a time, and pauses while someone is watching. ${c.hardware ? "This Mac's video hardware does the work, so it's quick." : d.encoder ? "Using " + esc(d.encoder) + "." : ""}</p>
+      <div class="stats"><div class="stat"><b>${c.candidates == null ? "…" : c.candidates}</b><span>files could be converted</span></div>
+        <div class="stat"><b>${(counts.queued || 0) + (counts.working || 0)}</b><span>waiting or converting</span></div>
+        <div class="stat"><b>${counts.done || 0}</b><span>converted</span></div>
+        ${c.saved > 0 ? `<div class="stat"><b>${bytes(c.saved)}</b><span>space saved</span></div>` : ""}</div>
+      ${c.waiting_for_viewers ? `<p class="hint">Paused while someone watches something that's being converted live.</p>` : ""}
+      <div class="actions">${c.candidates ? `<button class="btn primary" data-conv-all="1">Convert all ${c.candidates} now</button>` : ""}
+        ${(c.rows || []).some(r => r.state === "done" || r.state === "failed") ? `<button class="btn" data-conv-clear="1">Clear finished</button>` : ""}</div></div>
+    <div class="panel">${srvSwitch("auto_convert", d.settings.auto_convert, "Convert new files automatically", "Anything new that needs it is converted a minute or two after it arrives.")}
+      ${srvSwitch("keep_originals", d.settings.keep_originals, "Keep the originals", "Moves each original to <code>" + esc(d.library.folders.originals) + "</code> instead of deleting it. Turn off to save space once you trust the results.")}</div>
+    <div class="panel"><h2>Live conversion</h2><p class="hint">For files that haven't been converted yet.</p>
+      <div class="toggle"><div><b>At the same time</b><span>How many people can watch converted video at once. ${c.hardware ? "A Mac with Apple silicon handles 3 or 4 easily." : "Each one uses a processor core."}</span></div>
+        <select class="mini-select" data-setting-select="max_transcodes">${[1, 2, 3, 4, 6].map(n => `<option value="${n}"${+d.settings.max_transcodes === n ? " selected" : ""}>${n}</option>`).join("")}</select></div></div>
+    <div class="panel wide"><h2>Queue</h2><ul class="list">${rows || `<li class="empty-row">Nothing queued.</li>`}</ul></div>
+  </div>`;
+}
+function srvLive(d) {
+  return `<div class="panels"><div class="panel wide"><h2>Live TV channel lists</h2><p class="hint">M3U playlists of free channels. Sofa re-downloads them twice a day. Click a list below to add it.</p>
+    <ul class="list">${(d.live || []).map(p => `<li><span><b>${esc(p.name)}</b>${p.adult ? ` <span class="tag">Adult</span>` : ""}<br><span class="when">${p.error ? "Problem: " + esc(p.error) : plural(p.count || 0, "channel")}</span></span>
+      <button class="mini danger" data-live-remove="${esc(p.url)}">Remove</button></li>`).join("") || `<li class="empty-row">No channel lists yet.</li>`}</ul>
+    <div class="presets">${PRESETS.filter(p => !(d.live || []).some(x => x.url === p[1])).map(p => `<button class="mini" data-preset="${esc(p[1])}" data-name="${esc(p[0])}">+ ${esc(p[0])}</button>`).join("")}</div>
+    <form class="inline-form" id="addList"><label class="field"><span>Name</span><input name="name" maxlength="60" placeholder="My channels"></label>
+      <label class="field"><span>M3U link</span><input name="url" type="url" required placeholder="https://…/list.m3u"></label>
+      <button class="btn" type="submit">Add</button>
+      <label class="check"><input type="checkbox" name="adult"> Adult channels (only people allowed to see Adult get them; never TVs or guests)</label>
+      <div class="form-error" role="alert" style="grid-column:1/-1"></div></form>
+    <p class="hint" style="margin-top:14px">About adult channels: the free iptv-org lists stopped carrying adult channels in January 2024, so there's no free list Sofa can suggest. If you have an M3U link from a service you trust, add it with the Adult box ticked.</p></div></div>`;
+}
+function srvPeople(d) {
+  const users = d.users.filter(u => !u.guest).map(u => `<li><span><b>${esc(u.name)}</b>${u.admin ? ` <span class="tag ok">admin</span>` : ""}<br><span class="when">${u.seen ? "Last seen " + esc(ago(u.seen)) : "Hasn't signed in yet"}</span></span>
+    <span class="row-actions"><label class="adult-toggle" title="Can see the Adult section"><span>Adult</span><button class="switch small" role="switch" aria-checked="${!!u.adult}" data-user-adult="${u.id}" aria-label="${esc(u.name)} can see the Adult section"></button></label>
+    <button class="mini" data-user-pass="${u.id}" data-user-name="${esc(u.name)}">New password</button>${u.id !== session.user.id ? `<button class="mini danger" data-user-del="${u.id}" data-user-name="${esc(u.name)}">Remove</button>` : ""}</span></li>`).join("");
+  return `<div class="panels">
+    <div class="panel wide"><h2>People</h2><p class="hint">Everyone gets their own sign-in and their own "continue watching". The <b>Adult</b> switch decides who sees the Adult section (it's off for everyone until you turn it on, you included).</p><ul class="list">${users}</ul>
+      <form class="inline-form" id="addUser"><label class="field"><span>Name</span><input name="name" required maxlength="40"></label>
+      <label class="field"><span>Password</span><input name="password" type="password" required minlength="8" autocomplete="new-password"></label>
+      <button class="btn" type="submit">Add</button><label class="check"><input type="checkbox" name="admin"> Can manage the server</label>
+      <label class="check"><input type="checkbox" name="adult"> Can see the Adult section</label>
+      <div class="form-error" role="alert" style="grid-column:1/-1"></div></form></div>
+    <div class="panel wide"><h2>Guests</h2><p class="hint">Visitors on your Wi-Fi scan this code to watch as "Guest": their own history and likes, no settings, never the Adult section, and it never works from outside the house. Sessions end after a day.</p>
+      <div class="guest-row"><div class="qr" id="guestQr" data-url="${esc(d.guest.links[0] || "")}"></div>
+      <div><div class="addr">${d.guest.links.map(l => `<div><b>Guest link</b><code>${esc(l)}</code></div>`).join("")}</div>
+      <p class="hint" style="margin-top:10px">Tip: reserve this computer's address in your router so the code keeps working.</p>
+      <div class="row-actions"><button class="mini" data-guest-clear="1">Clear guest history</button></div></div></div>
+      ${srvSwitch("guest_access", d.guest.enabled, "Allow guests", "Turn off to make the guest code stop working.")}</div></div>`;
+}
+function srvSettings(d) {
+  const st = d.settings, s = d.server;
+  const keyField = (key, label, hint, link) => `<form class="key-form" data-key-form="${key}"><div><b>${label}</b><span>${hint} ${link}</span></div>
+    <div class="key-row"><input name="v" type="password" autocomplete="off" placeholder="${st[key] ? "Saved (type to replace)" : "Paste it here"}" aria-label="${esc(label)}">
+    <button class="mini" type="submit">Save</button>${st[key] ? `<button class="mini danger" type="button" data-key-clear="${key}">Remove</button>` : ""}</div></form>`;
+  return `<div class="panels">
+    <div class="panel"><h2>This server</h2>
+      <form class="key-form" data-name-form="1"><div><b>Name</b><span>What TVs and the browser tab call it.</span></div>
+        <div class="key-row"><input name="v" value="${esc(s.name)}" maxlength="40" aria-label="Server name"><button class="mini" type="submit">Save</button></div></form>
+      <div class="toggle"><div><b>Look</b><span>The theme every device starts with. Each person can still pick their own with the Theme button at the top.</span></div>
+        <select class="mini-select" data-setting-select="theme">${THEMES.map(t => `<option value="${t[0]}"${st.theme === t[0] ? " selected" : ""}>${t[1]}</option>`).join("")}</select></div>
+      ${srvSwitch("dlna", s.dlna, "Share with TVs", "Lets Roku, Fire TV (VLC) and smart TVs at home browse without signing in. The Adult section is never shared this way.")}
+      <div class="toggle"><div><b>Remote access</b><span>${s.remote === "public" ? "Accepting internet connections. Keep Sofa behind HTTPS." : "Home network and Tailscale only. See docs/remote-access.md to change this."}</span></div></div>
+      <div class="toggle"><div><b>Backups</b><span>${d.backups.length ? "Last backup " + esc(ago(d.backups[0].made)) + ". " : "No backup yet. "}Accounts, watch history and settings are saved every night at ${esc(st.backup_time)} to <code>${esc(d.backup_folder)}</code>, keeping ${esc(st.backup_keep)}. Your media isn't included.</span></div>
+        <button class="mini" data-admin="backup">Back up now</button></div></div>
+    <div class="panel"><h2>Details and artwork</h2><p class="hint">Where Sofa looks up summaries, posters and episode titles.</p>
+      ${srvSwitch("tvmaze", st.tvmaze, "Shows from TVmaze", "Free, no sign-up. Summaries, episode titles and artwork.")}
+      ${srvSwitch("free_movie_lookup", st.free_movie_lookup, "Movies from the iTunes Store and Wikipedia", "Free, no sign-up. Used when there's no TMDB key.")}
+      ${keyField("tmdb_api_key", "TMDB key (recommended for movies)", "The best movie posters, backgrounds and collections like \"Star Wars\". Free: sign up, then copy the \"API Key\".", `<a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener">Get a key</a>`)}
+      ${keyField("theporndb_api_key", "ThePornDB token (Adult section)", "Artwork and details for adult scenes and movies.", `<a href="https://theporndb.net/user/api-tokens" target="_blank" rel="noopener">Get a token</a>`)}</div>
+    <div class="panel"><h2>Video</h2>
+      <div class="toggle"><div><b>Video conversion</b><span>${s.ffmpeg ? "Ready (ffmpeg " + esc(s.ffmpeg) + (d.encoder ? ", " + esc(d.encoder) : "") + "). Files a device can't play are adapted as they stream." : "ffmpeg isn't installed, so only files a device already supports will play. On a Mac: brew install ffmpeg"}</span></div></div>
+      <div class="actions"><button class="btn" data-srv-tab="convert">Converting settings</button></div></div>
+  </div>`;
+}
+function srvUpdate(d) {
+  const u = d.update || {};
+  const cmd = "curl -fsSL https://raw.githubusercontent.com/" + esc((u.repo || "krintoxi/sofa@main").split("@")[0]) + "/main/tools/update.sh | sh";
+  let state;
+  if (u.running) state = `<div class="alert"><b>Updating…</b><span>${esc(u.step || "")}</span></div>`;
+  else if (u.error) state = `<div class="alert bad"><b>The update didn't work.</b><span>${esc(u.error)} The old version is still running. Try again, or use the Terminal command below.</span></div>`;
+  else if (u.done) state = `<div class="alert"><b>Updated. Sofa is restarting…</b><span>This page reloads by itself in a moment.</span></div>`;
+  else if (u.available) state = `<div class="alert"><b>A new version is ready${u.latest ? ": Sofa " + esc(u.latest) : ""}.</b><span>${esc(u.latest_message || "")}${u.latest_date ? " (" + esc(new Date(u.latest_date).toLocaleDateString()) + ")" : ""}</span></div>`;
+  else if (u.checked) state = `<div class="alert soft"><b>You're up to date.</b><span>Checked ${esc(ago(u.checked))}.</span></div>`;
+  else state = `<div class="alert soft"><b>Not checked yet.</b></div>`;
+  if (u.done) setTimeout(waitForRestart, 4000);
+  return `<div class="panels"><div class="panel wide"><h2>Updates</h2>
+    <p class="hint">Updating replaces Sofa's own program files with the newest version from GitHub. <b>Your shows, movies, music, accounts, watch history and settings are not touched.</b> Sofa backs up its settings and keeps a copy of the old version first, so nothing is lost if something goes wrong.</p>
+    ${state}${u.error && !u.running ? "" : ""}
+    <dl class="kv"><dt>Running</dt><dd>Sofa ${esc(u.current || d.server.version)}${u.commit ? " (" + esc(u.commit.slice(0, 7)) + ")" : ""}</dd>
+      <dt>Newest on GitHub</dt><dd>${u.latest ? "Sofa " + esc(u.latest) : "unknown"}${u.latest_commit ? " (" + esc(u.latest_commit.slice(0, 7)) + ")" : ""}</dd>
+      <dt>Updates with</dt><dd>${u.method === "git" ? "git (this folder is a git clone)" : "a download from GitHub"}</dd></dl>
+    <div class="actions" style="margin-top:16px">${u.available && !u.running ? `<button class="btn primary" data-update="install">Update now</button>` : ""}
+      <button class="btn" data-update="check"${u.running ? " disabled" : ""}>Check again</button></div></div>
+    <div class="panel wide"><h2>Updating by hand</h2><p class="hint">If the button ever fails, or on a copy of Sofa older than this page, open Terminal on this computer and paste:</p>
+      <code class="cmd">${cmd}</code><p class="hint" style="margin-top:10px">It finds your Sofa folder, stops Sofa, saves a backup, updates, and starts it again. Details in the README.</p></div></div>`;
+}
+async function waitForRestart() {
+  for (let i = 0; i < 40; i++) {
+    await new Promise(r => setTimeout(r, 3000));
+    try { const r = await fetch("/healthz", { cache: "no-store" }); if (r.ok) { const h = await r.json(); if (h.uptime < 60) { location.reload(); return; } } } catch (e) {}
+  }
+}
+function srvActivity(d) {
+  const kinds = ["all"].concat([...new Set(d.activity.map(a => a.kind))].sort());
+  const names = { all: "Everything", inbox: "Inbox", review: "Needs review", scan: "Scans", login: "Sign-ins", account: "Accounts", settings: "Settings",
+    live: "Live TV", convert: "Converting", playback: "Playback problems", update: "Updates", error: "Errors", backup: "Backups" };
+  const list = d.activity.filter(a => activityKind === "all" || a.kind === activityKind);
+  return `<div class="panel wide"><h2>Activity</h2><div class="chips">${kinds.map(k => `<button data-act-kind="${k}" aria-pressed="${k === activityKind}">${esc(names[k] || k)}</button>`).join("")}</div>
+    <ul class="list">${list.map(actRow).join("") || `<li class="empty-row">Nothing yet.</li>`}</ul></div>`;
 }
 function drawGuestQr() {
   const box = $("#guestQr");
@@ -513,13 +769,17 @@ function route() {
   const hash = decodeURIComponent(location.hash.replace(/^#\/?/, ""));
   const [name, ...rest] = hash.split("/");
   let html, nav = "";
-  if (name === "show") { const arg = rest.join("/"); const cut = arg.lastIndexOf("|"); html = viewShow(cut > 0 ? arg.slice(0, cut) : arg, cut > 0 ? arg.slice(cut + 1) : null); nav = "shows"; }
+  if (name === "show") { const arg = rest.join("/"); const cut = arg.lastIndexOf("|"); const sid = cut > 0 ? arg.slice(0, cut) : arg;
+    html = viewShow(sid, cut > 0 ? arg.slice(cut + 1) : null); nav = (byId.get(sid) || {}).adult ? "adult" : "shows"; }
   else if (name === "shows") { html = viewShows(); nav = "shows"; }
   else if (name === "movies") { html = viewMovies(); nav = "movies"; }
+  else if (name === "movie") { const m = byId.get(rest.join("/")); html = viewMovie(rest.join("/")); nav = m && m.adult ? "adult" : "movies"; }
+  else if (name === "collection") { html = viewCollection(rest.join("/")); nav = "movies"; }
+  else if (name === "adult" && session.user.adult) { html = viewAdult(rest[0]); nav = "adult"; }
   else if (name === "search") html = viewSearch(rest.join("/"));
   else if (name === "live") { html = viewLive(); nav = "live"; }
   else if (name === "music") { html = viewMusic(rest); nav = "music"; }
-  else if (name === "server" && session.user.admin) { html = viewServer(); nav = "server"; }
+  else if (name === "server" && session.user.admin) { html = viewServer(rest[0]); nav = "server"; }
   else { html = viewHome(); nav = "home"; }
   document.querySelectorAll("[data-nav]").forEach(a => { if (a.dataset.nav === nav) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current"); });
   view.innerHTML = html;
@@ -531,8 +791,25 @@ window.addEventListener("hashchange", () => { route(); scrollTo(0, 0); });
 
 /* ---------- interactions ---------- */
 document.addEventListener("click", e => {
-  const t = e.target.closest("[data-mlike],[data-mplay],[data-mplay-one],[data-mplay-list],[data-mshuffle-list],[data-station],[data-mtab],[data-play-mv],[data-guest-clear],[data-play],[data-watched],[data-season],[data-sort],[data-nudge],[data-season-watched],[data-dismiss],[data-admin],[data-setting],[data-user-pass],[data-user-del],[data-live],[data-fav],[data-group],[data-preset],[data-live-remove]");
+  const t = e.target.closest("[data-conv-retry],[data-conv-cancel],[data-conv-all],[data-conv-clear],[data-update],[data-user-adult],[data-act-kind],[data-key-clear],[data-fix],[data-msort],[data-adult-tab],[data-play-start],[data-srv-tab],[data-mlike],[data-mplay],[data-mplay-one],[data-mplay-list],[data-mshuffle-list],[data-station],[data-mtab],[data-play-mv],[data-guest-clear],[data-play],[data-watched],[data-season],[data-sort],[data-nudge],[data-season-watched],[data-dismiss],[data-admin],[data-setting],[data-user-pass],[data-user-del],[data-live],[data-fav],[data-group],[data-preset],[data-live-remove]");
   if (!t) return;
+  if (t.dataset.fix) { fixDialog(t.dataset.fix); return; }
+  if (t.dataset.convRetry) { adminAction(() => api("/api/admin/convert", { retry: t.dataset.convRetry })); return; }
+  if (t.dataset.convCancel) { adminAction(() => api("/api/admin/convert", { cancel: t.dataset.convCancel })); return; }
+  if (t.dataset.convAll) { t.disabled = true; t.textContent = "Queueing…"; adminAction(async () => { const r = await api("/api/admin/convert", { all: true }); toast(plural(r.queued, "file") + " queued for converting."); }); return; }
+  if (t.dataset.convClear) { adminAction(() => api("/api/admin/convert", { clear: true })); return; }
+  if (t.dataset.update === "check") { t.disabled = true; t.textContent = "Checking…"; adminAction(() => api("/api/admin/update", { check: true })); return; }
+  if (t.dataset.update === "install") {
+    if (!confirm("Update Sofa now? Anyone watching will be interrupted for about a minute while it restarts. Your media and settings are not touched.")) return;
+    t.disabled = true; t.textContent = "Starting…"; adminAction(() => api("/api/admin/update", { install: true })); return;
+  }
+  if (t.dataset.userAdult) { const on = t.getAttribute("aria-checked") !== "true"; adminAction(async () => { await api("/api/admin/users/" + t.dataset.userAdult + "/adult", { on }); if (+t.dataset.userAdult === session.user.id) boot(); }); return; }
+  if (t.dataset.actKind) { activityKind = t.dataset.actKind; rerender(); return; }
+  if (t.dataset.keyClear) { if (confirm("Remove this key?")) adminAction(() => api("/api/admin/settings", { [t.dataset.keyClear]: "" })); return; }
+  if (t.dataset.msort) { prefs.set("msort", t.dataset.msort); rerender(); return; }
+  if (t.dataset.adultTab) { location.hash = "#/adult/" + t.dataset.adultTab; return; }
+  if (t.dataset.playStart) { setProgress(t.dataset.playStart, null, true); Player.open(byId.get(t.dataset.playStart)); return; }
+  if (t.dataset.srvTab) { location.hash = "#/server/" + t.dataset.srvTab; return; }
   if (t.dataset.mlike) { e.stopPropagation(); setLike(t.dataset.mlike, !likes.has(t.dataset.mlike)); return; }
   if (t.dataset.mplay) { const ids = t.closest("[data-list]").dataset.list.split(","); MusicPlayer.play(ids, +t.dataset.idx); return; }
   if (t.dataset.mplayOne) { MusicPlayer.play([t.dataset.mplayOne], 0); return; }
@@ -575,6 +852,7 @@ document.addEventListener("click", e => {
   }
   else if (t.dataset.dismiss) { history.back(); }
   else if (t.dataset.admin === "backup") { t.disabled = true; t.textContent = "Backing up…"; adminAction(() => api("/api/admin/backup", {})); }
+  else if (t.dataset.admin === "inbox") { t.disabled = true; t.textContent = "Sorting…"; adminAction(async () => { const r = await api("/api/admin/inbox", {}); toast(r.filed ? plural(r.filed, "file") + " filed." : "Nothing ready to file yet (Sofa waits until copies finish)."); await reloadLibrary(); }); }
   else if (t.dataset.admin === "scan") { t.disabled = true; t.textContent = "Checking…"; adminAction(async () => { await api("/api/admin/scan", {}); await reloadLibrary(); }); }
   else if (t.dataset.setting) {
     const on = t.getAttribute("aria-checked") !== "true";
@@ -588,12 +866,24 @@ document.addEventListener("click", e => {
     if (confirm("Remove " + t.dataset.userName + "? Their watch history goes too.")) adminAction(() => api("/api/admin/users/" + t.dataset.userDel + "/delete", {}));
   }
 });
+document.addEventListener("change", e => {
+  const sel = e.target.closest("[data-setting-select]"); if (!sel) return;
+  const v = sel.dataset.settingSelect === "max_transcodes" ? +sel.value : sel.value;
+  adminAction(async () => { await api("/api/admin/settings", { [sel.dataset.settingSelect]: v }); if (sel.dataset.settingSelect === "theme" && prefs.get("theme", null) === null) applyTheme(v); });
+});
 document.addEventListener("submit", e => {
+  if (e.target.dataset.keyForm || e.target.dataset.nameForm) {
+    e.preventDefault();
+    const key = e.target.dataset.keyForm || "name", v = e.target.v.value.trim();
+    if (!v) return;
+    adminAction(async () => { await api("/api/admin/settings", { [key]: v }); toast(key === "name" ? "Saved." : "Saved. Sofa is looking things up again."); if (key === "name") boot(); });
+    return;
+  }
   if (e.target.id === "addList") {
     e.preventDefault();
     const f = e.target, err = $(".form-error", f);
     err.textContent = "Downloading the list…";
-    api("/api/admin/live", { add: { name: f.name.value, url: f.url.value } })
+    api("/api/admin/live", { add: { name: f.name.value, url: f.url.value, adult: f.adult.checked } })
       .then(r => { f.reset(); liveData = null; loadAdmin(); })
       .catch(ex => { err.textContent = ex.message; });
     return;
@@ -601,7 +891,7 @@ document.addEventListener("submit", e => {
   if (e.target.id !== "addUser") return;
   e.preventDefault();
   const f = e.target, err = $(".form-error", f);
-  api("/api/admin/users", { name: f.name.value, password: f.password.value, admin: f.admin.checked })
+  api("/api/admin/users", { name: f.name.value, password: f.password.value, admin: f.admin.checked, adult: f.adult.checked })
     .then(() => { f.reset(); loadAdmin(); })
     .catch(ex => { err.textContent = ex.message; });
 });
@@ -631,28 +921,90 @@ $("#q").addEventListener("input", e => {
     else location.hash = target;
   }, 180);
 });
+$("#lookBtn").addEventListener("click", () => appearanceDialog());
 $("#signOut").addEventListener("click", async () => { await api("/api/logout", {}).catch(() => {}); location.hash = "#/"; boot(); });
 
 function dialog(html) {
+  openDialog(`${html}<div class="actions"><button class="btn primary" data-dismiss="1">OK</button></div>`);
+}
+/* A dialog layer: Back, Escape, the scrim and any [data-dismiss] close it. Returns the dialog box. */
+function openDialog(html, wide) {
   history.pushState({ sofaLayer: "dialog" }, "");
   const d = document.createElement("div");
   d.className = "dialog-scrim";
-  d.innerHTML = `<div class="dialog" role="alertdialog" aria-modal="true">${html}<div class="actions"><button class="btn primary" data-dismiss="1">OK</button></div></div>`;
+  d.innerHTML = `<div class="dialog${wide ? " wide" : ""}" role="dialog" aria-modal="true">${html}</div>`;
   d.addEventListener("click", e => { if (e.target === d) history.back(); });
   document.body.appendChild(d);
-  $("[data-dismiss]", d).focus();
+  const f = $("input, [data-dismiss], button", d); if (f) f.focus();
+  return $(".dialog", d);
+}
+function closeDialog() { if (document.querySelector(".dialog-scrim")) history.back(); }
+let toastTimer = 0;
+function toast(msg) {
+  let t = $("#toast");
+  if (!t) { t = document.createElement("div"); t.id = "toast"; t.className = "toast"; t.setAttribute("role", "status"); document.body.appendChild(t); }
+  t.textContent = msg; t.classList.add("on");
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("on"), 4200);
+}
+
+/* ---------- fixing a show's or movie's details (admins) ---------- */
+function fixDialog(id) {
+  const entry = byId.get(id); if (!entry) return;
+  const isShow = !!entry.seasons;
+  const d = openDialog(`<h2>${entry.source ? "Fix the details" : "Find the details"}</h2>
+    <p>${isShow ? "Search for the show" : "Search for the movie"} and pick the right one. Sofa downloads its artwork and description, and remembers your choice.</p>
+    <form class="fix-form"><input name="q" value="${esc(entry.name || entry.title)}" aria-label="Title" autocomplete="off">
+      ${isShow ? "" : `<input name="year" value="${esc(entry.year || "")}" placeholder="Year" aria-label="Year" inputmode="numeric" maxlength="4">`}
+      <button class="btn primary" type="submit">Search</button></form>
+    <div class="fix-results" aria-live="polite"><p class="count">Searching…</p></div>
+    <div class="actions"><button class="btn" data-fix-title="1">Just use the title I typed</button>
+      <button class="btn ghost" data-fix-none="1">Show no details</button><button class="btn ghost" data-dismiss="1">Cancel</button></div>`, true);
+  const form = $(".fix-form", d), box = $(".fix-results", d);
+  async function search() {
+    box.innerHTML = `<p class="count">Searching…</p>`;
+    try {
+      const r = await api("/api/admin/match?id=" + encodeURIComponent(id) + "&q=" + encodeURIComponent(form.q.value) + (form.year ? "&year=" + encodeURIComponent(form.year.value) : ""));
+      const tip = !isShow && !r.keys.tmdb ? `<p class="hint">Tip: add a free TMDB key on the Server page (Settings) for the best movie artwork.</p>` : "";
+      box.innerHTML = r.results.length ? `<ul class="picks">${r.results.map(x => `<li><button data-pick-src="${esc(x.source)}" data-pick-id="${esc(x.id)}">
+        <span class="pk-art">${x.poster ? `<img src="${esc(x.poster)}" alt="" referrerpolicy="no-referrer" loading="lazy">` : ""}</span>
+        <span class="pk-text"><b>${esc(x.title)}</b><span>${esc([x.year, x.detail].filter(Boolean).join(" · "))}</span></span></button></li>`).join("")}</ul>${tip}`
+        : `<p class="count">Nothing found for "${esc(form.q.value)}". Try fewer words, or another spelling.</p>${tip}`;
+    } catch (e) { box.innerHTML = `<p class="form-error">${esc(e.message)}</p>`; }
+  }
+  async function send(body) {
+    try {
+      await api("/api/admin/match", Object.assign({ id }, body));
+      closeDialog(); toast("Saved. New details and artwork appear in a few seconds.");
+      setTimeout(reloadLibrary, 3500); setTimeout(reloadLibrary, 9000);
+    } catch (e) { box.innerHTML = `<p class="form-error">${esc(e.message)}</p>`; }
+  }
+  form.addEventListener("submit", e => { e.preventDefault(); search(); });
+  d.addEventListener("click", e => {
+    const t = e.target.closest("[data-pick-src],[data-fix-title],[data-fix-none]"); if (!t) return;
+    if (t.dataset.pickSrc) send({ pick: { source: t.dataset.pickSrc, id: t.dataset.pickId } });
+    else if (t.dataset.fixTitle) send({ title: form.q.value, year: form.year ? form.year.value : "" });
+    else send({ none: true });
+  });
+  search();
 }
 
 /* ---------- TV remote: arrow keys move focus to the nearest thing in that direction ---------- */
 const FOCUSABLE = "a[href], button:not([disabled]):not([tabindex='-1']), input, select, [tabindex='0'], [data-mplay]";
-document.addEventListener("keydown", e => {
-  const dir = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
-  if (!dir || Player.isOpen() || e.metaKey || e.ctrlKey || e.altKey) return;
-  const active = document.activeElement;
-  if (active && (active.tagName === "INPUT" && active.type !== "checkbox" && (dir[0] !== 0 || active.type === "range"))) return;
-  document.body.classList.add("tv-nav");
-  const els = [...document.querySelectorAll(FOCUSABLE)].filter(el => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 && !el.closest("[hidden]"); });
-  if (!active || active === document.body || !els.includes(active)) { const first = $(".hero .btn, .card, .seasons button, .episode .ep-thumb") || els[0]; if (first) { e.preventDefault(); first.focus(); } return; }
+const ARROWS = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+function focusables(scope) {
+  return [...scope.querySelectorAll(FOCUSABLE)].filter(el => {
+    const r = el.getBoundingClientRect();
+    return r.width > 0 && r.height > 0 && !el.closest("[hidden]") && getComputedStyle(el).visibility !== "hidden";
+  });
+}
+/* Move focus to the nearest focusable thing in direction `dir` inside `scope`. True if it moved. */
+function spatialMove(dir, scope, first) {
+  const els = focusables(scope), active = document.activeElement;
+  if (!els.length) return false;
+  if (!active || active === document.body || !els.includes(active)) {
+    const f = (first && scope.querySelector(first)) || els[0];
+    f.focus({ preventScroll: true }); f.scrollIntoView({ block: "nearest", inline: "nearest" }); return true;
+  }
   const a = active.getBoundingClientRect(), ax = a.left + a.width / 2, ay = a.top + a.height / 2;
   let best = null, bestScore = Infinity;
   els.forEach(el => {
@@ -664,7 +1016,19 @@ document.addEventListener("keydown", e => {
     const score = along + across * 2.5;
     if (score < bestScore) { bestScore = score; best = el; }
   });
-  if (best) { e.preventDefault(); best.focus({ preventScroll: true }); best.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "smooth" }); }
+  if (!best) return false;
+  best.focus({ preventScroll: true }); best.scrollIntoView({ block: "nearest", inline: "nearest", behavior: TV ? "auto" : "smooth" });
+  return true;
+}
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape" && document.querySelector(".dialog-scrim") && !Player.isOpen()) { e.preventDefault(); closeDialog(); return; }
+  const dir = ARROWS[e.key];
+  if (!dir || Player.isOpen() || e.metaKey || e.ctrlKey || e.altKey) return;
+  const active = document.activeElement;
+  if (active && (active.tagName === "INPUT" && active.type !== "checkbox" && (dir[0] !== 0 || active.type === "range"))) return;
+  document.body.classList.add("tv-nav");
+  const scrim = document.querySelector(".dialog-scrim");            // a dialog keeps the remote inside it
+  if (spatialMove(dir, scrim || document, scrim ? null : ".hero .btn, .card, .seasons button, .episode .ep-thumb")) e.preventDefault();
 });
 document.addEventListener("mousedown", () => document.body.classList.remove("tv-nav"));
 // Song rows and queue entries are list items: OK / Enter plays them like a click.
@@ -679,6 +1043,12 @@ const Player = (function () {
   const timeEl = $(".p-time", el), modeEl = $(".p-mode", el), chip = $(".p-chip", el), nextCard = $(".p-next", el), errorBox = $(".p-error", el);
   const flash = $(".p-flash", el), toggleBtn = $('[data-act="toggle"]', el), volume = $(".vol input", el);
   const ccBtn = $('[data-act="cc"]', el), ccMenu = $(".cc-menu", el);
+  const spinner = $(".p-spinner", el), pauseInfo = $(".p-pause-info", el), epsPanel = $(".p-eps", el), helpBox = $(".p-help", el);
+  const seekHint = $(".p-seekhint", el), endsEl = $(".p-ends", el), epsBtn = $('[data-act="eps"]', el), pipBtn = $('[data-act="pip"]', el);
+  let audioChoice = null, pauseTimer = 0, spinTimer = 0, lastTap = { t: 0, x: 0 }, tapTimer = 0;
+  const skipBtn = $(".p-skip", el), optsBox = $(".p-opts", el), stillBox = $(".p-still", el), thumbEl = $(".p-thumb", el), htLabel = $(".ht-label", el);
+  let trick = null, markers = [], skipShown = null, autoNexts = 0, lastInput = Date.now();
+  const opt = (k, d) => prefs.get("p." + k, d), setOpt = (k, v) => prefs.set("p." + k, v);
   const SPEEDS = [1, 1.25, 1.5, 2, 0.75];
   const caps = {
     mkv: !!(video.canPlayType('video/x-matroska; codecs="avc1.64001F, mp4a.40.2"') || video.canPlayType("video/x-matroska")),
@@ -714,11 +1084,16 @@ const Player = (function () {
     el.classList.remove("is-live"); liveList_ = null;
     video.removeAttribute("src"); video.load();
     returnFocus = document.activeElement;
-    item = it; next = nextAfter(it); nextHidden = false; subIndex = prefs.get("subs", false) ? 0 : -1;
-    errorBox.hidden = chip.hidden = nextCard.hidden = ccMenu.hidden = true;
+    item = it; next = nextAfter(it); nextHidden = false; audioChoice = null;
+    errorBox.hidden = chip.hidden = nextCard.hidden = ccMenu.hidden = epsPanel.hidden = helpBox.hidden = pauseInfo.hidden = true;
     const owner = it.show || it;
     $(".p-show", el).textContent = owner.name || it.title;
-    $(".p-title", el).textContent = it.kind === "movie" ? (it.year || "") : subtitleFor(it);
+    $(".p-title", el).textContent = it.kind === "movie" ? [it.year, it.studio].filter(Boolean).join(" · ") : subtitleFor(it);
+    epsBtn.hidden = it.kind !== "episode";
+    trick = null; markers = []; skipShown = null; skipBtn.hidden = optsBox.hidden = stillBox.hidden = true;
+    loadTrick(it);
+    pipBtn.hidden = TV || !document.pictureInPictureEnabled;
+    showSpinner("Loading…");
     $('[data-act="next"]', el).hidden = !next;
     el.hidden = false;
     document.body.style.overflow = "hidden";
@@ -727,10 +1102,18 @@ const Player = (function () {
       plan = await api("/api/play/" + encodeURIComponent(it.id) + "?" + Object.keys(caps).map(k => k + "=" + (caps[k] ? 1 : 0)).join("&"));
     } catch (e) { return showError("This video can't be played", e.message); }
     if (plan.mode === "unsupported") return showError("This video can't be played here", plan.message);
+    plan.audio = plan.audio || [];
+    markers = plan.markers || [];
+    const wantAudio = prefs.get("audioLang", null), defAudio = plan.audio.find(a => a.default);
+    const pickAudio = wantAudio && defAudio && defAudio.lang !== wantAudio && plan.audio.find(a => a.lang === wantAudio);
+    if (pickAudio) { audioChoice = pickAudio.index; if (plan.mode === "direct") plan.mode = "remux"; }
+    const wantSub = prefs.get("subLang", null);
+    subIndex = prefs.get("subs", false) && plan.subtitles.length ? Math.max(0, plan.subtitles.findIndex(s => s.lang === wantSub)) : -1;
+    if (plan.mode !== "direct") showSpinner("Getting the video ready…", plan.why && plan.why.length ? "Adapting " + plan.why.join(", ") + " for this device" : "");
     modeEl.hidden = plan.mode === "direct";
     modeEl.textContent = plan.mode === "remux" ? "Repackaged" : "Converted";
     modeEl.title = plan.why && plan.why.length ? "Adapted for this device: " + plan.why.join(", ") : "";
-    ccBtn.hidden = !plan.subtitles.length;
+    ccBtn.hidden = !plan.subtitles.length && plan.audio.length < 2;
     const p = prog(it.id);
     const resumeAt = p && !p.done && p.t > 30 && (!plan.duration || p.t < plan.duration - 30) ? p.t : 0;
     await load(resumeAt);
@@ -754,7 +1137,8 @@ const Player = (function () {
     } else if (nativeHls || await hlsJsReady()) {
       // Converted video comes as short HLS segments: steady buffering, and a closed tab can't jam the converter.
       try {
-        const h = await api("/api/hls/" + encodeURIComponent(item.id) + "?mode=" + plan.mode + "&t=" + at.toFixed(1) + (hlsSession ? "&replace=" + hlsSession : ""));
+        const h = await api("/api/hls/" + encodeURIComponent(item.id) + "?mode=" + plan.mode + "&t=" + at.toFixed(1) + (hlsSession ? "&replace=" + hlsSession : "") +
+                            (audioChoice != null ? "&audio=" + audioChoice : ""));
         hlsSession = h.session; offset = at;
         if (hls) { hls.destroy(); hls = null; }
         if (nativeHls) video.src = h.url;
@@ -767,7 +1151,8 @@ const Player = (function () {
       } catch (e) { return showError("This video can't be played right now", e.message); }
     } else {
       offset = at;
-      video.src = plan.url + "&t=" + at.toFixed(1);
+      video.src = (plan.mode === "direct" ? plan.url : "/media/" + encodeURIComponent(item.id) + "/stream?mode=" + plan.mode) + "&t=" + at.toFixed(1) +
+                  (audioChoice != null ? "&audio=" + audioChoice : "");
     }
     setSubtitles(subIndex);
     video.play().catch(() => {});
@@ -805,6 +1190,8 @@ const Player = (function () {
     el.hidden = true; document.body.style.overflow = "";
     stopAmbient();
     stopServerStream();
+    hideSpinner(); clearTimeout(pauseTimer); skipBtn.hidden = optsBox.hidden = stillBox.hidden = true; delete nextCard.dataset.credits;
+    if (document.pictureInPictureElement) document.exitPictureInPicture().catch(() => {});
     item = null; plan = null;
     rerender();
     if (returnFocus && document.contains(returnFocus)) returnFocus.focus();
@@ -819,9 +1206,20 @@ const Player = (function () {
     const finished = t / d >= 0.93 || d - t < 45;
     setProgress(item.id, { t: finished ? d : t, d, done: finished || (prev.done && t < 5) }, force);
   }
-  function playNext() { if (!next) return; save(true); const n = next; hlsSession = null; video.removeAttribute("src"); open(n); }
+  function playNext(auto) {
+    if (!next) return;
+    autoNexts = auto === true && Date.now() - lastInput > 60000 ? autoNexts + 1 : 0;
+    save(true); stopServerStream(); const n = next; video.removeAttribute("src"); delete nextCard.dataset.credits;
+    open(n).then(() => {
+      if (autoNexts >= 3 && opt("still", true)) { video.pause(); stillBox.hidden = false; $(".btn", stillBox).focus(); }
+    });
+  }
   function showError(heading, msg) {
-    errorBox.innerHTML = `<h2>${esc(heading)}</h2><p>${esc(msg || "")}</p><button class="btn" data-act="close">Back to library</button>`;
+    hideSpinner();
+    const canConvert = session.user.admin && item && !el.classList.contains("is-live");
+    errorBox.innerHTML = `<h2>${esc(heading)}</h2><p>${esc(msg || "")}</p><div class="actions"><button class="btn" data-act="close">Back to library</button>
+      ${item && !el.classList.contains("is-live") ? `<button class="btn" data-act="retry">Try again</button>` : ""}
+      ${canConvert ? `<button class="btn primary" data-act="convert">Convert this file to MP4</button>` : ""}</div>`;
     errorBox.hidden = false; wake();
   }
   function setSubtitles(i) {
@@ -838,32 +1236,198 @@ const Player = (function () {
     tr.addEventListener("load", () => { tr.track.mode = "showing"; });
     tr.track.mode = "showing";
   }
+  const currentAudio = () => audioChoice != null ? audioChoice : ((plan.audio || []).find(a => a.default) || {}).index;
   function ccMenuOpen() {
-    ccMenu.innerHTML = [`<button role="menuitemradio" aria-checked="${subIndex < 0}" data-sub="-1">Off</button>`]
-      .concat(plan.subtitles.map((s, i) => `<button role="menuitemradio" aria-checked="${i === subIndex}" data-sub="${i}">${esc(s.label)}</button>`)).join("");
-    ccMenu.hidden = false;
+    const aud = plan.audio || [];
+    ccMenu.innerHTML = (aud.length > 1 ? `<div class="cc-col"><h4>Audio</h4>${aud.map(a =>
+        `<button role="menuitemradio" aria-checked="${a.index === currentAudio()}" data-aud="${a.index}">${esc(a.label)}</button>`).join("")}</div>` : "") +
+      `<div class="cc-col"><h4>Subtitles</h4><button role="menuitemradio" aria-checked="${subIndex < 0}" data-sub="-1">Off</button>${
+        plan.subtitles.map((s, i) => `<button role="menuitemradio" aria-checked="${i === subIndex}" data-sub="${i}">${esc(s.label)}</button>`).join("") ||
+        `<p class="cc-none">This video has no subtitles. Put a .srt file with the same name next to it.</p>`}</div>`;
+    ccMenu.hidden = false; epsPanel.hidden = true;
     $("[aria-checked='true']", ccMenu).focus();
   }
   ccMenu.addEventListener("click", e => {
-    const b = e.target.closest("[data-sub]"); if (!b) return;
-    setSubtitles(+b.dataset.sub); prefs.set("subs", subIndex >= 0); ccMenu.hidden = true; ccBtn.focus();
+    const b = e.target.closest("[data-sub],[data-aud]"); if (!b) return;
+    if (b.dataset.aud) {
+      const idx = +b.dataset.aud, a = plan.audio.find(x => x.index === idx);
+      ccMenu.hidden = true; ccBtn.focus();
+      if (idx === currentAudio()) return;
+      audioChoice = idx; prefs.set("audioLang", a && a.lang !== "und" ? a.lang : null);
+      if (plan.mode === "direct") plan.mode = "remux";
+      modeEl.hidden = false; modeEl.textContent = "Repackaged";
+      showSpinner("Switching sound track…"); load(now());
+      return;
+    }
+    setSubtitles(+b.dataset.sub); prefs.set("subs", subIndex >= 0);
+    if (subIndex >= 0) prefs.set("subLang", plan.subtitles[subIndex].lang);
+    ccMenu.hidden = true; ccBtn.focus();
   });
+
+  /* scrubbing previews */
+  async function loadTrick(it, again) {
+    try {
+      const t = await api("/media/" + encodeURIComponent(it.id) + "/trick.json");
+      if (item !== it) return;
+      if (t.sheets) trick = Object.assign(t, { base: "/media/" + encodeURIComponent(it.id) + "/trick/" });
+      else if (t.pending && !again) setTimeout(() => { if (item === it) loadTrick(it, true); }, 25000);
+    } catch (e) {}
+  }
+  function showThumb(sec) {
+    if (!trick) { thumbEl.hidden = true; return; }
+    const n = Math.min(trick.count - 1, Math.floor(sec / trick.interval)), per = trick.cols * trick.rows;
+    const sheet = Math.floor(n / per), pos = n % per;
+    if (sheet >= trick.sheets) { thumbEl.hidden = true; return; }
+    thumbEl.style.width = trick.w + "px"; thumbEl.style.height = trick.h + "px";
+    thumbEl.style.backgroundImage = `url("${trick.base}${sheet}.jpg")`;
+    thumbEl.style.backgroundPosition = `-${(pos % trick.cols) * trick.w}px -${Math.floor(pos / trick.cols) * trick.h}px`;
+    thumbEl.hidden = false;
+  }
+
+  /* Skip Intro / Skip Recap / credits: buttons that appear at the right moment */
+  const SKIP_LABEL = { intro: "Skip Intro", recap: "Skip Recap", credits: "Skip Credits" };
+  function checkMarkers(t) {
+    if (!markers.length || el.classList.contains("is-live")) return;
+    const m = markers.find(x => t >= x.start - 0.5 && t < x.end - 1.5);
+    const credits = markers.find(x => x.kind === "credits" && t >= x.start - 0.5);
+    if (credits && next && !nextHidden && opt("autoplay", true)) { skipBtn.hidden = true; return showNextCard(credits); }
+    if (m && m.kind !== "credits" && opt("autoskip", false) && skipShown !== m) { skipShown = m; seekTo(m.end); toast("Skipped the " + m.kind); return; }
+    if (m && (m.kind !== "credits" || !next)) {
+      if (skipShown !== m) { skipShown = m; skipBtn.textContent = SKIP_LABEL[m.kind]; skipBtn.dataset.to = m.end; skipBtn.hidden = false;
+        if (TV && !openPanel()) skipBtn.focus({ preventScroll: true }); }    // on a TV, OK skips (like Netflix)
+    } else if (!skipBtn.hidden) {
+      const had = document.activeElement === skipBtn;
+      skipBtn.hidden = true; skipShown = null;
+      if (had) toggleBtn.focus({ preventScroll: true });
+    }
+  }
+  function showNextCard(credits) {
+    if (!nextCard.hidden) return;
+    $(".frame", nextCard).innerHTML = thumbFor(next);
+    $(".name", nextCard).textContent = subtitleFor(next);
+    $(".label", nextCard).textContent = "Next episode";
+    $('[data-act="cancel-next"]', nextCard).textContent = "Watch credits";
+    nextCard.hidden = false; nextCard.dataset.credits = "1";
+    nextCard.dataset.at = Date.now();
+    if (TV && !openPanel()) $(".btn.primary", nextCard).focus({ preventScroll: true });
+  }
+
+  /* the options menu */
+  function optsOpen() {
+    const row = (key, label, hint, def) => `<div class="toggle"><div><b>${label}</b><span>${hint}</span></div>
+      <button class="switch small" role="switch" aria-checked="${opt(key, def)}" data-opt="${key}" aria-label="${esc(label)}"></button></div>`;
+    const info = plan && plan.mode !== "live" ? `<div class="po-info"><b>Playing</b><span>${esc({ direct: "The original file, as it is", remux: "Repackaged live for this device", transcode: "Converted live for this device" }[plan.mode] || plan.mode)}${plan.why && plan.why.length ? " (" + esc(plan.why.join(", ")) + ")" : ""}${video.videoWidth ? " · " + video.videoWidth + "×" + video.videoHeight : ""}</span></div>` : "";
+    optsBox.innerHTML = `<h4>Options</h4>
+      ${row("autoplay", "Play the next episode", "Starts the next one when this ends, or when the credits start.", true)}
+      ${row("autoskip", "Skip intros by themselves", "Otherwise a Skip Intro button appears.", false)}
+      ${row("still", "Ask \"Are you still watching?\"", "After three episodes in a row with no buttons pressed.", true)}
+      <div class="toggle"><div><b>Speed</b></div><div class="sorter inline">${[0.75, 1, 1.25, 1.5, 2].map(s => `<button data-opt-speed="${s}" aria-pressed="${video.playbackRate === s}">${s}×</button>`).join("")}</div></div>
+      <div class="toggle"><div><b>Subtitle size</b></div><div class="sorter inline">${[["s", "S"], ["m", "M"], ["l", "L"], ["xl", "XL"]].map(x => `<button data-opt-subsize="${x[0]}" aria-pressed="${prefs.get("subSize", "m") === x[0]}">${x[1]}</button>`).join("")}</div></div>
+      ${info}
+      ${session.user.admin && markers.length ? `<div class="po-info"><b>Intro and credits</b><span>${markers.map(m => esc(m.kind) + " " + clock(m.start) + "–" + clock(m.end)).join(", ")}</span>
+        <div class="row-actions">${markers.map(m => `<button class="mini danger" data-opt-clear="${m.kind}">Wrong ${esc(m.kind)}</button>`).join("")}</div></div>` : ""}
+      ${session.user.admin && item && item.kind === "episode" ? `<div class="row-actions" style="margin-top:8px"><button class="mini" data-opt-mark="intro">Intro ends here (${esc(clock(now()))})</button></div>` : ""}`;
+    optsBox.hidden = false; ccMenu.hidden = epsPanel.hidden = true;
+    const f = $("button", optsBox); if (f) f.focus();
+  }
+  optsBox.addEventListener("click", async e => {
+    const b = e.target.closest("[data-opt],[data-opt-speed],[data-opt-subsize],[data-opt-clear],[data-opt-mark]"); if (!b) return;
+    if (b.dataset.opt) { const on = b.getAttribute("aria-checked") !== "true"; setOpt(b.dataset.opt, on); b.setAttribute("aria-checked", on); return; }
+    if (b.dataset.optSpeed) { video.playbackRate = +b.dataset.optSpeed; $(".speed", el).textContent = video.playbackRate + "×"; }
+    else if (b.dataset.optSubsize) { prefs.set("subSize", b.dataset.optSubsize); applySubSize(); }
+    else if (b.dataset.optClear) {
+      try { await api("/api/admin/markers/" + encodeURIComponent(item.id), { kind: b.dataset.optClear, clear: true }); markers = markers.filter(m => m.kind !== b.dataset.optClear); skipBtn.hidden = true; toast("Got it. Sofa won't offer that skip on this episode."); } catch (ex) { toast(ex.message); }
+    } else if (b.dataset.optMark) {
+      try { const r = await api("/api/admin/markers/" + encodeURIComponent(item.id), { kind: "intro", start: 0, end: now() }); markers = r.markers; toast("Saved: the intro ends at " + clock(now()) + "."); } catch (ex) { toast(ex.message); }
+    }
+    optsOpen();
+  });
+
+  /* waiting for video: a spinner that says what's happening */
+  function showSpinner(text, hint) {
+    $(".p-spin-text", spinner).textContent = text || "Loading…";
+    $(".p-spin-hint", spinner).textContent = hint || "";
+    spinner.hidden = false;
+    clearTimeout(spinTimer);
+    spinTimer = setTimeout(() => {
+      if (spinner.hidden || !plan || plan.mode === "direct") return;
+      $(".p-spin-hint", spinner).textContent = "Still working on it. Converting can take a few seconds the first time." +
+        (session.user.admin ? " Converting this file to MP4 (Server page, Converting) makes it start instantly." : "");
+    }, 12000);
+  }
+  function hideSpinner() { spinner.hidden = true; clearTimeout(spinTimer); }
+
+  /* paused for a moment: show what this is */
+  function showPauseInfo() {
+    if (!item || el.classList.contains("is-live")) return;
+    const owner = item.show || item;
+    pauseInfo.innerHTML = `<div class="pi-kicker">You're watching</div><h2>${esc(owner.name || item.title)}</h2>
+      ${item.kind === "episode" ? `<div class="pi-sub">${esc(epCode(item))} · ${esc(title(item))}</div>` : item.year ? `<div class="pi-sub">${esc(item.year)}</div>` : ""}
+      ${item.summary || owner.summary ? `<p>${esc(item.summary || owner.summary)}</p>` : ""}`;
+    pauseInfo.hidden = false;
+  }
+
+  /* the episode list inside the player */
+  function epsOpen(seasonN) {
+    if (!item || !item.show) return;
+    const show = item.show, season = show.seasons.find(s => s.n === seasonN) || item.season || show.seasons[0];
+    epsPanel.innerHTML = `<div class="pe-head"><h3>${esc(show.name)}</h3><button class="ibtn" data-eps-close="1" aria-label="Close">${icon("i-back")}</button></div>
+      <div class="chips">${show.seasons.map(s => `<button data-eps-season="${s.n}" aria-pressed="${s === season}">${esc(seasonName(s.n))}</button>`).join("")}</div>
+      <div class="pe-list">${season.episodes.map(ep => `<button class="pe-item${ep === item ? " now" : ""}" data-eps-play="${esc(ep.id)}">
+        <span class="frame">${thumbFor(ep)}${pct(ep.id) && !isDone(ep.id) ? `<span class="progress"><i style="width:${pct(ep.id)}%"></i></span>` : ""}${isDone(ep.id) ? `<span class="seen-badge">${icon("i-check")}</span>` : ""}</span>
+        <span class="pe-text"><b>${esc(ep.e)}. ${esc(title(ep))}</b>${ep === item ? `<span class="now-tag">Playing</span>` : ""}${ep.summary ? `<span class="pe-sum">${esc(ep.summary)}</span>` : ""}</span></button>`).join("")}</div>`;
+    epsPanel.hidden = false; ccMenu.hidden = true; helpBox.hidden = true;
+    const cur = $(".pe-item.now", epsPanel) || $(".pe-item", epsPanel);
+    if (cur) { cur.scrollIntoView({ block: "center" }); cur.focus({ preventScroll: true }); }
+  }
+  epsPanel.addEventListener("click", e => {
+    const b = e.target.closest("[data-eps-play],[data-eps-season],[data-eps-close]"); if (!b) return;
+    if (b.dataset.epsClose) { epsPanel.hidden = true; epsBtn.focus(); }
+    else if (b.dataset.epsSeason) epsOpen(+b.dataset.epsSeason);
+    else { const ep = byId.get(b.dataset.epsPlay); if (ep && ep !== item) { save(true); stopServerStream(); video.removeAttribute("src"); epsPanel.hidden = true; open(ep); } else epsPanel.hidden = true; }
+  });
+
+  const SHORTCUTS = [["Space or K", "Play / pause"], ["← / J", "Back 10 seconds"], ["→", "Forward 10 seconds"], ["L", "Forward 30 seconds"],
+    ["↑ ↓", "Volume"], ["M", "Mute"], ["F", "Full screen"], ["C", "Audio and subtitles"], ["E", "Episodes"], ["N", "Next episode"],
+    ["P", "Picture in picture"], ["S", "Skip intro / recap"], ["< >", "Slower / faster"], ["0 to 9", "Jump to 0% to 90%"], ["Esc", "Close"], ["?", "This list"]];
+  function helpToggle() {
+    if (!helpBox.hidden) { helpBox.hidden = true; return; }
+    helpBox.innerHTML = `<h3>Keyboard shortcuts</h3><dl>${SHORTCUTS.map(s => `<dt><kbd>${esc(s[0])}</kbd></dt><dd>${esc(s[1])}</dd>`).join("")}</dl>
+      <p>On a phone: double-tap the left or right side to skip 10 seconds.</p><button class="btn" data-help-close="1">Close</button>`;
+    helpBox.hidden = false; ccMenu.hidden = epsPanel.hidden = true; $("button", helpBox).focus();
+  }
+  helpBox.addEventListener("click", e => { if (e.target.closest("[data-help-close]")) helpBox.hidden = true; });
+  function togglePip() {
+    if (document.pictureInPictureElement) document.exitPictureInPicture().catch(() => {});
+    else if (video.requestPictureInPicture) video.requestPictureInPicture().catch(() => {});
+  }
+  function flashSeek(text, side) {
+    seekHint.textContent = text; seekHint.className = "p-seekhint " + side;
+    void seekHint.offsetWidth; seekHint.classList.add("go");
+  }
   function paint() {
-    const d = total(), t = now();
+    const d = total(), t = seekTarget != null ? seekTarget : now();
     const r = d ? Math.min(1, t / d) : 0;
     if (!dragging) { fill.style.width = r * 100 + "%"; knob.style.left = r * 100 + "%"; }
     scrub.setAttribute("aria-valuemax", Math.floor(d)); scrub.setAttribute("aria-valuenow", Math.floor(t));
     scrub.setAttribute("aria-valuetext", clock(t) + " of " + clock(d));
     timeEl.textContent = clock(t) + " / " + clock(d);
+    endsEl.textContent = d && !el.classList.contains("is-live") ? "ends " + new Date(Date.now() + (d - t) * 1000 / (video.playbackRate || 1)).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }) : "";
     if (video.buffered.length && d) buf.style.width = Math.min(100, ((offset + video.buffered.end(video.buffered.length - 1)) / d) * 100) + "%";
     const left = d - t;
-    if (next && d && left <= 30 && left > 0 && !nextHidden) {
+    if (next && d && left <= 30 && left > 0 && !nextHidden && opt("autoplay", true)) {
       if (nextCard.hidden) {
         $(".frame", nextCard).innerHTML = thumbFor(next);
         $(".name", nextCard).textContent = subtitleFor(next);
+        $('[data-act="cancel-next"]', nextCard).textContent = "Hide";
         nextCard.hidden = false;
+        if (TV && !openPanel()) $(".btn.primary", nextCard).focus({ preventScroll: true });
       }
-      $(".label", nextCard).textContent = "Up next in " + Math.ceil(left) + "s";
+      $(".label", nextCard).textContent = "Next episode in " + Math.ceil(left) + "s";
+    } else if (!nextCard.hidden && nextCard.dataset.credits) {
+      const wait = 10 - Math.floor((Date.now() - +nextCard.dataset.at) / 1000);    // credits: count down 10 s, then go
+      $(".label", nextCard).textContent = "Next episode in " + Math.max(0, wait) + "s";
+      if (wait <= 0 && !video.paused) { delete nextCard.dataset.credits; playNext(true); }
     } else if (!nextCard.hidden && left > 30) nextCard.hidden = true;
   }
   function setPlayingUI() {
@@ -877,11 +1441,29 @@ const Player = (function () {
     $("use", flash).setAttribute("href", video.paused ? "#i-pause" : "#i-play");
     flash.classList.remove("go"); void flash.offsetWidth; flash.classList.add("go");
   }
-  function seekBy(s) { if (total()) seekTo(now() + s); wake(); }
+  let seekTarget = null, seekTimer = 0, previewTimer = 0;
+  function seekBy(s) {
+    if (!total()) return wake();
+    if (live() && !el.classList.contains("is-live")) {
+      // Converted video: pressing →→→ quickly lands once, instead of restarting the converter on every press.
+      seekTarget = Math.max(0, Math.min(total() - 1, (seekTarget != null ? seekTarget : now()) + s));
+      clearTimeout(seekTimer);
+      seekTimer = setTimeout(() => { const t = seekTarget; seekTarget = null; seekTo(t); }, 700);
+      previewAt(seekTarget); paint();
+    } else { seekTo(now() + s); previewAt(Math.max(0, now())); }
+    if (!lastTap.touchDbl) flashSeek((s < 0 ? "− " : "+ ") + Math.abs(s) + " s", s < 0 ? "left" : "right");
+    wake();
+  }
+  function previewAt(sec) {
+    const d = total(); if (!d) return;
+    hoverTime.style.left = Math.min(100, sec / d * 100) + "%"; htLabel.textContent = clock(sec); showThumb(sec);
+    scrub.classList.add("previewing"); clearTimeout(previewTimer);
+    previewTimer = setTimeout(() => scrub.classList.remove("previewing"), 1600);
+  }
   function wake() {
     el.classList.remove("idle");
     clearTimeout(idleTimer);
-    idleTimer = setTimeout(() => { if (!video.paused && !dragging && ccMenu.hidden) el.classList.add("idle"); }, TV ? 5000 : 2800);
+    idleTimer = setTimeout(() => { if (!video.paused && !dragging && !openPanel()) el.classList.add("idle"); }, TV ? 6000 : 2800);
   }
   function setAmbient(on) {
     el.classList.toggle("ambient", on);
@@ -897,19 +1479,37 @@ const Player = (function () {
   function stopAmbient() { clearInterval(ambientTimer); ambientTimer = 0; }
   function ratioAt(x) { const r = scrub.getBoundingClientRect(); return Math.max(0, Math.min(1, (x - r.left) / r.width)); }
 
-  video.addEventListener("timeupdate", () => { paint(); save(false); });
+  video.addEventListener("timeupdate", () => { paint(); save(false); checkMarkers(now()); });
+  ["keydown", "pointerdown"].forEach(ev => el.addEventListener(ev, () => { lastInput = Date.now(); }, true));
   video.addEventListener("progress", paint);
   video.addEventListener("durationchange", paint);
-  video.addEventListener("play", () => { setPlayingUI(); wake(); });
-  video.addEventListener("pause", () => { setPlayingUI(); save(true); wake(); });
-  video.addEventListener("ended", () => { save(true); if (next && !nextHidden) playNext(); else wake(); });
+  video.addEventListener("play", () => { setPlayingUI(); wake(); clearTimeout(pauseTimer); pauseInfo.hidden = true; });
+  video.addEventListener("pause", () => { setPlayingUI(); save(true); wake(); clearTimeout(pauseTimer);
+    if (!video.ended) pauseTimer = setTimeout(() => { if (video.paused && !el.hidden && errorBox.hidden) showPauseInfo(); }, 2500); });
+  video.addEventListener("waiting", () => { if (!el.hidden && errorBox.hidden) showSpinner(plan && plan.mode !== "direct" ? "Getting the next part ready…" : "Loading…"); });
+  ["playing", "canplay", "seeked"].forEach(ev => video.addEventListener(ev, () => { if (!video.paused || ev !== "seeked") hideSpinner(); }));
+  video.addEventListener("ended", () => { save(true); if (next && !nextHidden && opt("autoplay", true)) playNext(true); else wake(); });
   video.addEventListener("error", () => {
     if (el.classList.contains("is-live") && video.getAttribute("src")) return showError("This channel isn't available right now", "Free channels come and go. Try another one, or try this one later.");
     if (!item || (!video.getAttribute("src") && !hls)) return;
     playbackFailed();
   });
-  video.addEventListener("click", toggle);
-  video.addEventListener("dblclick", () => fullscreen());
+  video.addEventListener("click", e => { if (e.pointerType !== "touch" && !lastTap.touch) toggle(); lastTap.touch = false; });
+  video.addEventListener("dblclick", e => { if (!lastTap.touchDbl) fullscreen(); lastTap.touchDbl = false; });
+  // Phones: tap shows the controls (or pauses when they're showing); double-tap a side skips 10 seconds.
+  video.addEventListener("pointerup", e => {
+    if (e.pointerType !== "touch") return;
+    lastTap.touch = true;
+    const now_ = Date.now(), r = video.getBoundingClientRect(), side = e.clientX < r.left + r.width / 2 ? "left" : "right";
+    if (now_ - lastTap.t < 320 && Math.abs(e.clientX - lastTap.x) < 80) {
+      clearTimeout(tapTimer); lastTap.t = 0; lastTap.touchDbl = true;
+      seekBy(side === "left" ? -10 : 10); flashSeek(side === "left" ? "− 10 s" : "+ 10 s", side); return;
+    }
+    lastTap.t = now_; lastTap.x = e.clientX;
+    const wasIdle = el.classList.contains("idle");
+    clearTimeout(tapTimer);
+    tapTimer = setTimeout(() => { if (wasIdle) wake(); else toggle(); }, 330);
+  });
   el.addEventListener("mousemove", wake);
 
   scrub.addEventListener("pointerdown", e => {
@@ -918,7 +1518,7 @@ const Player = (function () {
   });
   scrub.addEventListener("pointermove", e => {
     const r = ratioAt(e.clientX);
-    hoverTime.textContent = clock(r * total()); hoverTime.style.left = r * 100 + "%";
+    htLabel.textContent = clock(r * total()); hoverTime.style.left = r * 100 + "%"; showThumb(r * total());
     if (dragging) fill.style.width = knob.style.left = r * 100 + "%";
   });
   scrub.addEventListener("pointerup", e => {
@@ -955,11 +1555,25 @@ const Player = (function () {
     else if (a === "fwd") seekBy(30);
     else if (a === "mute") video.muted = !video.muted;
     else if (a === "next") { if (el.classList.contains("is-live")) zap(1); else playNext(); }
-    else if (a === "cancel-next") { nextHidden = true; nextCard.hidden = true; }
+    else if (a === "cancel-next") { nextHidden = true; nextCard.hidden = true; delete nextCard.dataset.credits; toggleBtn.focus({ preventScroll: true }); }
+    else if (a === "skip") { seekTo(+skipBtn.dataset.to); skipBtn.hidden = true; toggleBtn.focus({ preventScroll: true }); }
+    else if (a === "opts") { if (optsBox.hidden) optsOpen(); else optsBox.hidden = true; }
+    else if (a === "still-yes") { autoNexts = 0; stillBox.hidden = true; video.play().catch(() => {}); }
     else if (a === "restart") { seekTo(0); chip.hidden = true; }
     else if (a === "full") fullscreen();
     else if (a === "ambient") setAmbient(!el.classList.contains("ambient"));
     else if (a === "cc") { if (ccMenu.hidden) ccMenuOpen(); else ccMenu.hidden = true; }
+    else if (a === "eps") { if (epsPanel.hidden) epsOpen(); else epsPanel.hidden = true; }
+    else if (a === "pip") togglePip();
+    else if (a === "help") helpToggle();
+    else if (a === "retry") { const it = item; errorBox.hidden = true; hlsSession = null; video.removeAttribute("src"); open(it); }
+    else if (a === "convert") {
+      api("/api/admin/convert", { items: [item.id] }).then(r => {
+        $(".p-error p", el).textContent = r.queued ? "Queued. Sofa is converting it in the background; watch its progress on the Server page (Converting). It will play directly once done."
+          : "It's already queued or converted. See the Server page (Converting).";
+        b.remove();
+      }).catch(ex => { $(".p-error p", el).textContent = ex.message; });
+    }
     else if (a === "speed") {
       const i = (SPEEDS.indexOf(video.playbackRate) + 1) % SPEEDS.length;
       video.playbackRate = SPEEDS[i]; b.textContent = SPEEDS[i] + "×";
@@ -968,17 +1582,26 @@ const Player = (function () {
   document.addEventListener("keydown", e => {
     if (el.hidden || e.metaKey || e.ctrlKey || e.altKey) return;
     const k = e.key;
-    if (k === "Escape" && !ccMenu.hidden) { ccMenu.hidden = true; ccBtn.focus(); return; }
+    lastInput = Date.now();
+    // An open panel (episodes, audio/subtitles, options, shortcuts, "still watching?", an error) keeps the remote inside it.
+    const panel = openPanel();
+    if (panel && ARROWS[k]) { e.preventDefault(); spatialMove(ARROWS[k], panel, ".now, [aria-checked='true'], .btn.primary, button"); wake(); return; }
+    if (panel && (k === "Escape" || k === "Backspace") && panel !== errorBox && panel !== stillBox) { e.preventDefault(); closePanels(); return; }
+    if ((k === "s" || k === "S") && !skipBtn.hidden) { e.preventDefault(); skipBtn.click(); return; }
+    if (TV && ARROWS[k] && !panel) { e.preventDefault(); remoteArrow(k); return; }
+    if (/^[0-9]$/.test(k) && total() && !el.classList.contains("is-live") && !(e.target.closest && e.target.closest("input"))) { e.preventDefault(); seekTo(total() * (+k) / 10); wake(); return; }
     const onButton = e.target.closest && e.target.closest("button") && (k === " " || k === "Enter");
     if (onButton) return;
     const controlsHidden = el.classList.contains("idle");
     const map = {
       " ": toggle, k: toggle, Enter: toggle, MediaPlayPause: toggle,
       ArrowLeft: () => seekBy(-10), j: () => seekBy(-10), ArrowRight: () => seekBy(10), l: () => seekBy(30),
+      p: togglePip, e: () => { if (!epsBtn.hidden) { if (epsPanel.hidden) epsOpen(); else epsPanel.hidden = true; } }, "?": helpToggle,
+      "<": () => speedBy(-1), ">": () => speedBy(1), ",": () => speedBy(-1), ".": () => speedBy(1),
       MediaRewind: () => seekBy(-10), MediaFastForward: () => seekBy(30),
       ArrowUp: () => { video.volume = Math.min(1, video.volume + 0.1); volume.value = video.volume; },
       ArrowDown: () => { video.volume = Math.max(0, video.volume - 0.1); volume.value = video.volume; },
-      f: fullscreen, m: () => { video.muted = !video.muted; }, n: playNext, c: () => { if (plan && plan.subtitles.length) ccMenuOpen(); },
+      f: fullscreen, m: () => { video.muted = !video.muted; }, n: playNext, c: () => { if (plan && !ccBtn.hidden) { if (ccMenu.hidden) ccMenuOpen(); else ccMenu.hidden = true; } },
       PageUp: () => zap(-1), PageDown: () => zap(1), ChannelUp: () => zap(-1), ChannelDown: () => zap(1),
       Escape: () => { if (!document.fullscreenElement) requestClose(); }, Backspace: requestClose, GoBack: requestClose
     };
@@ -989,7 +1612,46 @@ const Player = (function () {
     if (controlsHidden && el.classList.contains("is-live") && /^Arrow(Up|Down)$/.test(k)) { e.preventDefault(); zap(k === "ArrowUp" ? -1 : 1); wake(); return; }
     if (map[k]) { e.preventDefault(); map[k](); wake(); }
   });
-  window.addEventListener("pagehide", () => save(true));
+
+  /* The TV remote (Fire TV Silk, Android TV): like Netflix on a TV.
+     Controls hidden: left/right skip 10 s, up/down (or OK) bring the controls up on the timeline.
+     On the timeline: left/right skip, OK pauses, down goes to the buttons. Live TV: up/down change channel. */
+  const panels = () => [stillBox, errorBox, helpBox, optsBox, epsPanel, ccMenu];
+  function openPanel() { return panels().find(x => !x.hidden) || null; }
+  function closePanels() {
+    const back = !epsPanel.hidden ? epsBtn : !ccMenu.hidden ? ccBtn : !optsBox.hidden ? $('[data-act="opts"]', el) : toggleBtn;
+    helpBox.hidden = optsBox.hidden = epsPanel.hidden = ccMenu.hidden = true;
+    if (back && !back.hidden) back.focus(); else toggleBtn.focus();
+    wake();
+  }
+  function remoteArrow(k) {
+    const isLive = el.classList.contains("is-live"), horiz = k === "ArrowLeft" || k === "ArrowRight";
+    const hidden = el.classList.contains("idle");
+    document.body.classList.add("tv-nav");
+    if (hidden) {
+      if (isLive && !horiz) { zap(k === "ArrowUp" ? -1 : 1); wake(); return; }
+      if (horiz && !isLive) { seekBy(k === "ArrowLeft" ? -10 : 10); wake(); scrub.focus({ preventScroll: true }); return; }
+      wake(); (isLive ? toggleBtn : scrub).focus({ preventScroll: true }); return;
+    }
+    if (document.activeElement === scrub && horiz) { seekBy(k === "ArrowLeft" ? -10 : 10); wake(); return; }
+    if (!spatialMove(ARROWS[k], el, isLive ? '[data-act="toggle"]' : ".scrub") && k === "ArrowUp" && document.activeElement !== skipBtn && !skipBtn.hidden) skipBtn.focus();
+    wake();
+  }
+  scrub.addEventListener("keydown", e => {
+    if ((e.key === "Enter" || e.key === " ") && !TV) return;
+    if (e.key === "Enter") { e.preventDefault(); e.stopPropagation(); toggle(); wake(); }
+  });
+  window.addEventListener("pagehide", () => {
+    save(true);
+    if (hlsSession) fetch("/api/hls/stop", { method: "POST", keepalive: true, credentials: "same-origin",
+                                             headers: { "Content-Type": "application/json", "X-Sofa": "1" }, body: "{}" }).catch(() => {});
+  });
+  function speedBy(step) {
+    const list = [0.75, 1, 1.25, 1.5, 2], i = Math.max(0, list.indexOf(video.playbackRate));
+    video.playbackRate = list[Math.max(0, Math.min(list.length - 1, i + step))];
+    $(".speed", el).textContent = video.playbackRate + "×";
+    flashSeek(video.playbackRate + "×", "mid");
+  }
   let hls = null, liveList_ = null, liveIdx = 0;
   function loadHlsJs() {
     if (window.Hls) return Promise.resolve();
@@ -1003,8 +1665,9 @@ const Player = (function () {
     liveList_ = list || [ch]; liveIdx = Math.max(0, liveList_.indexOf(ch));
     item = null; plan = { mode: "live", subtitles: [] }; offset = 0; next = null;
     el.classList.add("is-live");
-    errorBox.hidden = chip.hidden = nextCard.hidden = ccMenu.hidden = true;
-    ccBtn.hidden = true;
+    errorBox.hidden = chip.hidden = nextCard.hidden = ccMenu.hidden = epsPanel.hidden = helpBox.hidden = pauseInfo.hidden = true;
+    ccBtn.hidden = epsBtn.hidden = true; pipBtn.hidden = TV || !document.pictureInPictureEnabled;
+    showSpinner("Tuning in…");
     $(".p-show", el).innerHTML = esc(ch.name) + '<span class="live-badge">LIVE</span>';
     $(".p-title", el).textContent = ch.group + (liveList_.length > 1 ? "  (Page Up / Page Down changes channel)" : "");
     $('[data-act="next"]', el).hidden = liveList_.length < 2;
@@ -1034,7 +1697,12 @@ const Player = (function () {
   window.addEventListener("popstate", () => {
     const scrim = document.querySelector(".dialog-scrim");
     if (scrim) { scrim.remove(); return; }
-    if (!el.hidden) close();
+    if (el.hidden) return;
+    const panel = openPanel();
+    if (panel && panel !== errorBox && panel !== stillBox) {        // Back closes the panel and keeps watching
+      closePanels(); history.pushState({ sofaLayer: "player" }, ""); return;
+    }
+    close();
   });
   return { open, openLive, zap, isLive: () => el.classList.contains("is-live"), isOpen: () => !el.hidden };
 })();
@@ -1349,6 +2017,8 @@ async function boot() {
   if (!session.user) return authView("login");
   $("#nav").hidden = $("#searchBox").hidden = $("#who").hidden = false;
   $("#navServer").hidden = !session.user.admin;
+  $("#navAdult").hidden = !session.user.adult;
+  if (prefs.get("theme", null) === null) applyTheme(session.theme);
   $("#whoName").textContent = session.user.name;
   $("#signOut").textContent = session.user.guest ? "Leave" : "Sign out";
   view.innerHTML = "";

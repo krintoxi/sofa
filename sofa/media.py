@@ -23,7 +23,7 @@ import time
 
 from . import config, store
 
-PROBE_VERSION = 3          # bump when probe() starts recording something new; older cache rows are re-read
+PROBE_VERSION = 4          # bump when probe() starts recording something new; older cache rows are re-read
 _streams = {}
 _streams_lock = threading.Lock()
 _transcode_slots = None
@@ -120,7 +120,7 @@ def probe(path, cached_only=False):
     if not exe:
         return None
     try:
-        out = subprocess.run([exe, "-v", "error", "-print_format", "json", "-show_streams", "-show_format", path],
+        out = subprocess.run([exe, "-v", "error", "-print_format", "json", "-show_streams", "-show_format", "-show_chapters", path],
                              capture_output=True, text=True, timeout=60).stdout
         raw = json.loads(out)
     except (OSError, ValueError, subprocess.SubprocessError):
@@ -150,6 +150,8 @@ def probe(path, cached_only=False):
         "subs": [{"codec": s.get("codec_name"), "index": s["index"], "lang": (s.get("tags") or {}).get("language"),
                   "title": (s.get("tags") or {}).get("title")}
                  for s in streams if s.get("codec_type") == "subtitle"],
+        "chapters": [{"start": float(c.get("start_time") or 0), "end": float(c.get("end_time") or 0),
+                      "title": (c.get("tags") or {}).get("title") or ""} for c in raw.get("chapters") or []][:200],
     }
     store.ex("INSERT OR REPLACE INTO probes (path, size, mtime, info) VALUES (?,?,?,?)",
              path, st.st_size, int(st.st_mtime), json.dumps(info))

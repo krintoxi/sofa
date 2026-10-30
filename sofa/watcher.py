@@ -2,7 +2,7 @@
 import threading
 import time
 
-from . import artwork, backup, live, media, optimize, organizer, store, updater
+from . import artwork, backup, intros, live, media, optimize, organizer, store, trickplay, updater
 from .library import LIBRARY
 
 INTERVAL = 20
@@ -58,4 +58,6 @@ def start():
     threading.Thread(target=_prober, daemon=True, name="prober").start()
     optimize.start()
     updater.start()
+    intros.start(LIBRARY)
+    trickplay.start(LIBRARY)
     _after_scan()

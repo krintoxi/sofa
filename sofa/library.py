@@ -271,7 +271,7 @@ class Library:
             poster = os.path.join(show_dir, "folder.jpg")
         if not backdrop and self._fetch_art(info.get("backdrop_url"), os.path.join(show_dir, "backdrop.jpg")):
             backdrop = os.path.join(show_dir, "backdrop.jpg")
-        if not poster and adult and episodes and self._grab_still(episodes[0][1], os.path.join(show_dir, "folder.jpg")):
+        if not poster and episodes and (adult or not show_meta) and self._grab_still(episodes[0][1], os.path.join(show_dir, "folder.jpg")):
             poster = os.path.join(show_dir, "folder.jpg")
 
         seasons = {}
