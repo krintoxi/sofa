@@ -156,3 +156,25 @@ class Server(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class GuestsAndTVs(unittest.TestCase):
+    """A guest at home can send to the house's TVs, and control only what a guest started."""
+
+    def test_guest_rules(self):
+        import time as _t
+        screens._screens.clear()
+        screens._screens["tv1"] = {"id": "tv1", "name": "Living room", "user": 1, "tv": True, "seen": _t.time(), "gen": 0,
+                                   "queue": [], "state": {"item": "m:private:2020", "t": 5}}
+        screens._screens["lap"] = {"id": "lap", "name": "Laptop", "user": 1, "tv": False, "seen": _t.time(), "gen": 0,
+                                   "queue": [], "state": {}}
+        tvs = screens.tvs_for_guest()
+        self.assertEqual([s["name"] for s in tvs], ["Living room"])      # TVs only
+        self.assertEqual(tvs[0]["state"], {})                            # not what the family is watching
+        self.assertFalse(screens.send_as_guest("tv1", {"cmd": "pause"}, "Guest"))    # not theirs to pause
+        self.assertFalse(screens.send_as_guest("lap", {"cmd": "play", "item": "m:heat:1995"}, "Guest"))
+        self.assertTrue(screens.send_as_guest("tv1", {"cmd": "play", "item": "m:heat:1995"}, "Guest"))
+        screens._screens["tv1"]["state"] = {"item": "m:heat:1995", "t": 1}
+        self.assertTrue(screens.send_as_guest("tv1", {"cmd": "pause"}, "Guest"))     # what a guest started: fine
+        self.assertEqual(screens.tvs_for_guest()[0]["state"]["item"], "m:heat:1995")
+        screens._screens.clear()

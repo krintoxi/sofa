@@ -5,7 +5,9 @@ are open right now (the TV in the living room, a laptop), sends one a video and 
 pause, skip, seek, next episode, stop. The TV asks for commands and waits for them (one request
 at a time, answered the moment there's something to do), and says what it's playing.
 
-Only the same person's screens are listed or controlled. Everything is in memory, on the home
+Only the same person's screens are listed or controlled, with one exception: a guest at home (the
+guest QR code) sees the house's TVs and can send them something from what guests can watch. A guest
+never sees what a TV is playing unless a guest started it. Everything is in memory, on the home
 network: nothing is written down, and a screen that's closed is forgotten within a minute.
 """
 import threading
@@ -74,6 +76,35 @@ def send(screen_id, user_id, command, sender_name):
             return False
         cmd = {k: command[k] for k in ("cmd", "item", "t", "by") if k in command}
         cmd["from"] = (sender_name or "")[:40]
+        s["queue"].append(cmd)
+        _cond.notify_all()
+        return True
+
+
+def tvs_for_guest(exclude=None):
+    """The TVs a guest at home can send things to (any person's), without what they're playing."""
+    with _cond:
+        _clean()
+        out = [{"id": s["id"], "name": s["name"], "tv": True,
+                "state": s["state"] if s.get("guest_item") and s["state"].get("item") == s["guest_item"] else {}}
+               for s in _screens.values() if s["tv"] and s["id"] != exclude]
+    return sorted(out, key=lambda s: s["name"])
+
+
+def send_as_guest(screen_id, command, sender_name):
+    """A guest's command for a TV. False if there's no such TV, or it's something a guest can't ask."""
+    if command.get("cmd") not in COMMANDS:
+        return False
+    with _cond:
+        s = _screens.get(screen_id)
+        if not s or not s["tv"]:
+            return False
+        if command["cmd"] != "play" and s["state"].get("item") != s.get("guest_item"):
+            return False                     # only what a guest started can be paused, skipped or stopped by one
+        cmd = {k: command[k] for k in ("cmd", "item", "t", "by") if k in command}
+        cmd["from"] = ((sender_name or "A guest")[:40])
+        if cmd["cmd"] == "play":
+            s["guest_item"] = cmd.get("item")
         s["queue"].append(cmd)
         _cond.notify_all()
         return True

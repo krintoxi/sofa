@@ -129,6 +129,38 @@ function installHint() {
   if (/Android/.test(ua)) return "In the browser's menu, press Add to Home screen: Sofa gets its own icon.";
   return "In the browser's menu, look for Install Sofa or Create shortcut: Sofa gets its own icon and window.";
 }
+/* "Install Sofa": once on a phone or tablet (again after two weeks if they said not now), and on computers whose
+   browser can install it. One tap where the browser allows it, otherwise the two steps for this device. */
+function installOffer(asked) {
+  const ua = navigator.userAgent, coarse = matchMedia("(pointer: coarse)").matches;
+  if (standalone() || NATIVE || TV || /SofaBox|SofaApp/.test(ua) || !session || !session.user) return;
+  if (!asked && !coarse && !installPrompt) return;
+  if ((!asked && Date.now() - prefs.get("installAsk", 0) < 14 * 864e5) || document.querySelector(".install-sheet,.dialog-scrim")) return;
+  const ios = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+  const share = `<svg viewBox="0 0 24 24" class="share-ico" aria-label="Share"><path d="M12 3v12M7.5 7.5 12 3l4.5 4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 10H6.5A1.5 1.5 0 0 0 5 11.5v8A1.5 1.5 0 0 0 6.5 21h11a1.5 1.5 0 0 0 1.5-1.5v-8a1.5 1.5 0 0 0-1.5-1.5H16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`;
+  const how = installPrompt ? `<p>Sofa on your home screen, full screen, with its own icon.</p>`
+    : ios && /CriOS|FxiOS|EdgiOS/.test(ua) ? `<ol><li>Tap ${share} <b>Share</b> (in the address bar or the menu)</li><li>Choose <b>Add to Home Screen</b></li></ol>`
+    : ios ? `<ol><li>Tap ${share} <b>Share</b> ${/iPad/.test(ua) || /Macintosh/.test(ua) ? "at the top" : "at the bottom of the screen"}</li><li>Scroll down a little and choose <b>Add to Home Screen</b></li></ol>`
+    : `<ol><li>Tap the browser's menu <b>⋮</b> (top right)</li><li>Choose <b>Add to Home screen</b> or <b>Install app</b></li></ol>`;
+  const sheet = document.createElement("div");
+  sheet.className = "install-sheet" + (ios && !installPrompt && !/iPad|Macintosh/.test(ua) ? " points-down" : "");
+  sheet.setAttribute("role", "dialog"); sheet.setAttribute("aria-label", "Install Sofa");
+  sheet.innerHTML = `<img src="/client/icons/icon-192.png" alt="" width="56" height="56"><div class="is-body"><b>Install Sofa</b>${how}
+    <div class="row-actions">${installPrompt ? `<button class="btn primary" data-install-go="1">Install</button>` : ""}<button class="btn ghost" data-install-later="1">${installPrompt ? "Not now" : "Got it"}</button></div></div>`;
+  document.body.appendChild(sheet);
+  requestAnimationFrame(() => sheet.classList.add("on"));
+  const close = () => { prefs.set("installAsk", Date.now()); sheet.classList.remove("on"); setTimeout(() => sheet.remove(), 400); };
+  sheet.addEventListener("click", async e => {
+    if (e.target.closest("[data-install-later]")) return close();
+    if (e.target.closest("[data-install-go]") && installPrompt) {
+      installPrompt.prompt();
+      const choice = await installPrompt.userChoice.catch(() => ({}));
+      installPrompt = null; close();
+      if (choice.outcome === "accepted") toast("Sofa is on your home screen now.");
+    }
+  });
+}
+window.addEventListener("appinstalled", () => { prefs.set("installAsk", Date.now()); const s = $(".install-sheet"); if (s) s.remove(); });
 function applySubSize() { document.documentElement.dataset.subs = prefs.get("subSize", "m"); document.documentElement.dataset.subStyle = prefs.get("subStyle", "box"); }
 function applySpoilers() { document.documentElement.dataset.nospoil = prefs.get("noSpoilers", false) ? "1" : "0"; }
 applySpoilers();
@@ -664,6 +696,34 @@ document.addEventListener("click", e => {
     return;
   }
   appInstallDialog();
+});
+/* Phones: the bottom bar has Home, Shows, Movies, My List and More; More has the rest. */
+function viewMore() {
+  setGlow("");
+  const row = (href, ic, label, sub, attr) => `<${href ? `a href="${href}"` : `button ${attr}`} class="more-row">${icon(ic)}<span><b>${label}</b>${sub ? `<small>${sub}</small>` : ""}</span></${href ? "a" : "button"}>`;
+  const u = session.user;
+  return `<section class="more-page"><div class="more-me">${avatar(u, "")}<div><b>${esc(u.name)}</b><small>${u.guest ? "Guest" : u.kids ? "Kids profile" : u.admin ? "Runs this Sofa" : "Profile"}</small></div></div>
+    <div class="more-list">
+      ${row("#/music", "i-music", "Music", "Albums, artists, stations")}
+      ${u.kids ? "" : row("#/live", "i-live", "Live TV", "Free channels")}
+      ${u.adult && !$("#navAdult").hidden ? row("#/adult", "i-lock", "Adult", "") : ""}
+      ${row("#/search", "i-search", "Search", "")}
+    </div>
+    <div class="more-list">
+      ${u.guest ? "" : row("", "i-palette", "Theme", "Colours, subtitles, this device", 'data-more="theme"')}
+      ${u.guest ? "" : row("", "i-tv", "Pair a TV", "Sign a TV in with this phone", 'data-more="pair"')}
+      ${standalone() ? "" : row("", "i-phone", "Install Sofa", "On the home screen, like an app", 'data-more="install"')}
+      ${u.admin ? row("#/server", "i-gear", "Server", "Library, people, internet, updates") : ""}
+      ${row("", "i-exit", u.guest ? "Leave" : "Sign out", "", 'data-more="out"')}
+    </div></section>`;
+}
+document.addEventListener("click", e => {
+  const b = e.target.closest("[data-more]"); if (!b) return;
+  const a = b.dataset.more;
+  if (a === "theme") appearanceDialog();
+  else if (a === "pair") location.hash = "#/pair";
+  else if (a === "out") signOut();
+  else if (a === "install") { prefs.set("installAsk", 0); installOffer(true); }
 });
 function viewEmptyLibrary() {
   setGlow("");
@@ -2089,6 +2149,7 @@ function route(animate) {
   else if (name === "live" && !session.user.kids) { html = viewLive(); nav = "live"; }
   else if (name === "music") { html = viewMusic(rest); nav = "music"; }
   else if (name === "server" && session.user.admin) { html = viewServer(rest[0]); nav = "server"; }
+  else if (name === "more") { html = viewMore(); nav = "more"; }
   else { html = viewHome(); nav = "home"; }
   $("#searchBtn").toggleAttribute("aria-current", nav === "search");
   document.querySelectorAll("[data-nav]").forEach(a => { if (a.dataset.nav === nav) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current"); });
@@ -2733,7 +2794,7 @@ const Screens = (function () {
     const d = openDialog(`<h2>Play on</h2><div class="cast-list">
       <button class="cast-item" data-cast="" aria-pressed="${!target}"><b>This ${esc(defaultName())}</b><span>Play here, as usual</span></button>
       ${others.map(s => `<button class="cast-item" data-cast="${esc(s.id)}" aria-pressed="${!!target && target.id === s.id}"><b>${esc(s.name)}</b><span>${esc(nowPlaying(s))}</span></button>`).join("")}</div>
-      <p class="hint">A screen shows up here while Sofa is open on it, signed in as you. Give this one a name under Theme.</p>`);
+      <p class="hint">${session.user.guest ? "The TVs in this house show up here while Sofa is open on them. You can pause or stop only what you started." : "A screen shows up here while Sofa is open on it, signed in as you. Give this one a name under Theme."}</p>`);
     d.addEventListener("click", e => {
       const b = e.target.closest("[data-cast]"); if (!b) return;
       const s = others.find(x => x.id === b.dataset.cast);
@@ -2774,7 +2835,7 @@ const Screens = (function () {
         <button data-rc="stop" aria-label="Stop">${icon("i-stop")}</button></div>` : ""}`;
   }
   return {
-    start() { listen(); refresh(); },
+    start() { if (!session.user.guest) listen(); refresh(); },      // a guest only sends (to the house's TVs)
     target: () => target,
     choose,
     play(itemId, fromStart) { send({ cmd: "play", item: itemId, t: fromStart ? 0 : undefined }); },
@@ -3984,12 +4045,13 @@ async function boot() {
   if (prefs.get("theme", null) === null) applyTheme(session.theme);
   $("#whoName").textContent = session.user.name;
   $("#whoAv").outerHTML = avatar(session.user, "whoAv");
-  $("#whoBtn").disabled = !session.profiles && !TV;
+  $("#whoBtn").disabled = false;           // the menu also has Theme, Pair a TV and Sign out (all a phone has)
   $("#signOut").textContent = session.user.guest ? "Leave" : "Sign out";
   view.innerHTML = "";
   await reloadLibrary();
   route();
-  if (!session.user.guest) Screens.start();
+  Screens.start();
+  setTimeout(installOffer, 3500);
   if (FIRE_TV && NATIVE) api("/api/apps").then(a => { appsInfo = a; if (!location.hash || location.hash === "#/") rerender(); }).catch(() => {});
   // On a TV, Sofa asks who's watching each time it's opened (when there's more than one profile).
   if (TV && session.profiles > 1 && !sessionStorage.getItem("sofaPicked")) setTimeout(() => profilePicker(true), 400);
