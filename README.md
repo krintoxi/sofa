@@ -240,6 +240,11 @@ see `sofa/config.py` for every option.
 - `tools/convert.py` converts files to MP4 by hand, even on another computer over SSH
   (Sofa's own background converter usually makes this unnecessary).
 
+## Tests
+
+`python3 -m unittest discover -s tests -t .` from the Sofa folder (standard library only; it uses a
+throwaway library and data folder, never yours, and no internet). GitHub runs them on every push.
+
 ## Layout of this repository
 
 ```
@@ -248,7 +253,8 @@ sofa/                server: library, inbox, streaming, converter, intro finder,
 client/              web app (no build step)
 deploy/              install script, macOS LaunchAgent, Linux systemd unit
 tools/               get-sofa.sh, update.sh, convert.py
-docs/                install, updating, folders, storage (drives), playback, TV, adult, privacy, remote access
+docs/                install, updating, folders, storage (drives), playback, TV, adult, privacy, remote access, api (for apps)
+tests/               the tests
 ```
 
 ## License

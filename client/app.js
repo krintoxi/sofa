@@ -1384,9 +1384,13 @@ function authView(kind) {
     <div class="form-error" role="alert"></div>
     <button class="btn primary" type="submit">${setup ? "Create account" : "Sign in"}</button>
     ${!setup && session.guest_available ? `<button class="btn ghost" type="button" id="asGuest">Watch as a guest</button>` : ""}
+    ${setup ? "" : `<button class="btn ghost" type="button" id="withPhone">Sign in with your phone</button>`}
     <p class="credit">Project by <a href="https://edgeventure.uk" target="_blank" rel="noopener">EdgeVenture.uk</a></p>
   </form></section>`;
   const form = $("#authForm");
+  const wp = $("#withPhone");
+  if (wp) wp.addEventListener("click", () => phoneSignIn());
+  if (!setup && TV) return phoneSignIn();          // a TV: no typing with the remote
   form.name.focus();
   const g = $("#asGuest");
   if (g) g.addEventListener("click", async () => { try { await api("/api/guest", {}); boot(); } catch (ex) { $(".form-error", form).textContent = ex.message; } });
@@ -1402,6 +1406,67 @@ function authView(kind) {
   });
 }
 
+/* ---------- sign in with your phone ----------
+   The TV shows a code and a QR code; on a phone signed in to Sofa, the code (or the QR) opens a page to
+   approve it and pick the profile; the TV notices within a couple of seconds and is signed in. */
+let pairTimer = 0;
+async function phoneSignIn() {
+  clearTimeout(pairTimer);
+  let r;
+  try { r = await api("/api/pair/start", { name: Screens.name() }); }
+  catch (e) { const err = $(".form-error"); if (err) err.textContent = e.message; return; }
+  const short = location.host;
+  view.innerHTML = `<section class="auth"><div class="auth-card pair-card">
+    <h1>Sign in with your phone</h1>
+    <p>On your phone, open Sofa (<b>${esc(short)}</b>), signed in, and scan this, or go to <b>Pair a TV</b> and type the code.</p>
+    <div class="pair-row"><div class="pair-qr" id="pairQr" data-url="${esc(r.url)}"></div>
+      <div class="pair-code" aria-label="Code">${esc(r.code.slice(0, 3))}<span></span>${esc(r.code.slice(3))}</div></div>
+    <p class="hint">The code works for 10 minutes. Waiting for your phone…</p>
+    <button class="btn ghost" type="button" id="withPassword">Use a name and password instead</button></div></section>`;
+  const box = $("#pairQr"), draw = () => { const q = window.qrcode(0, "M"); q.addData(box.dataset.url); q.make(); box.innerHTML = q.createSvgTag({ cellSize: 5, margin: 2, scalable: true }); };
+  if (window.qrcode) draw(); else { const sc = document.createElement("script"); sc.src = "/client/vendor/qrcode.js"; sc.onload = draw; document.head.appendChild(sc); }
+  $("#withPassword").addEventListener("click", () => { clearTimeout(pairTimer); authView("login"); $("#authForm").name.focus(); });
+  $("#withPassword").focus();
+  const started = Date.now();
+  const check = async () => {
+    if (!$(".pair-card")) return;
+    try {
+      const p = await api("/api/pair/poll?poll=" + encodeURIComponent(r.poll));
+      if (p.state === "approved") { toast("Signed in as " + p.user.name + "."); boot(); return; }
+      if (p.state === "expired" || Date.now() - started > r.expires * 1000) return phoneSignIn();
+    } catch (e) {}
+    pairTimer = setTimeout(check, 2000);
+  };
+  pairTimer = setTimeout(check, 2000);
+}
+/* The phone's side: approve a TV's code and pick who it's for. */
+function viewPair(code) {
+  setGlow("");
+  if (!code) return `<section class="page pair-page"><div class="page-head"><h1>Pair a TV</h1></div>
+    <p class="count">Type the code the TV shows.</p>
+    <form class="pair-form" id="pairForm"><input name="code" inputmode="numeric" pattern="[0-9 ]*" maxlength="7" autocomplete="off" aria-label="Code" placeholder="123 456">
+      <button class="btn primary">Next</button></form><div class="form-error" role="alert"></div></section>`;
+  setTimeout(async () => {
+    const box = $("#pairBody"); if (!box) return;
+    try {
+      const r = await api("/api/pair/" + encodeURIComponent(code));
+      box.innerHTML = `<p>Sign in <b>${esc(r.device)}</b> as:</p>
+        <div class="profiles">${r.profiles.map(p => `<button class="profile" data-pair-profile="${p.id}" data-pair-code="${esc(code)}">
+          <span class="tile">${avatar(p)}</span><span class="pname">${esc(p.name)}</span>${p.kids ? `<span class="kids-tag">Kids</span>` : ""}${p.id === r.me ? `<span class="me">You</span>` : ""}</button>`).join("")}</div>`;
+      const mine = $(`[data-pair-profile="${r.me}"]`, box); if (mine) mine.focus();
+    } catch (e) { box.innerHTML = `<p class="form-error">${esc(e.message)}</p><p><a class="btn" href="#/pair">Type a code</a></p>`; }
+  }, 0);
+  return `<section class="page pair-page"><div class="page-head"><h1>Pair a TV</h1><span class="count">Code ${esc(code.slice(0, 3) + " " + code.slice(3))}</span></div>
+    <div id="pairBody"><p class="count">Looking…</p></div></section>`;
+}
+document.addEventListener("submit", e => {
+  if (e.target.id !== "pairForm") return;
+  e.preventDefault();
+  const code = e.target.code.value.replace(/\D/g, "");
+  if (code.length !== 6) { $(".pair-page .form-error").textContent = "The code has 6 digits."; return; }
+  location.hash = "#/pair/" + code;
+});
+
 /* ---------- server (admin) page ---------- */
 let adminData = null, adminTimer = 0, adminTab = "overview", activityKind = "all";
 const SRV_TABS = [["overview", "Overview"], ["library", "Library"], ["storage", "Storage"], ["convert", "Converting"], ["downloads", "Downloads"], ["live", "Live TV"],
@@ -1414,6 +1479,7 @@ async function loadAdmin() {
     if (adminTab === "convert") d.convert = await api("/api/admin/convert");
     if (adminTab === "downloads") d.downloads = await api("/api/admin/downloads");
     if (adminTab === "storage") d.storage = await api("/api/admin/storage");
+    if (adminTab === "people") d.sessions = (await api("/api/admin/sessions")).sessions;
     adminData = d;
   } catch (e) { adminData = { error: e.message }; }
   if (location.hash.startsWith("#/server") && !Player.isOpen() && !document.querySelector(".dialog-scrim")) {
@@ -1707,12 +1773,21 @@ function srvLive(d) {
       <div class="form-error" role="alert" style="grid-column:1/-1"></div></form>
     <p class="hint" style="margin-top:14px">About adult channels: the free iptv-org lists stopped carrying adult channels in January 2024, so there's no free list Sofa can suggest. If you have an M3U link from a service you trust, add it with the Adult box ticked.</p></div></div>`;
 }
+function devicesPanel(list) {
+  if (!list) return "";
+  const kind = s => /^Paired: /.test(s.device) ? s.device.slice(8) + " (TV)" : /iPhone|iPad/.test(s.device) ? "iPhone or iPad" : /Android/.test(s.device) ? "Android"
+    : /AFT|Silk/.test(s.device) ? "Fire TV" : /Macintosh/.test(s.device) ? "Mac" : /Windows/.test(s.device) ? "Windows" : s.device ? "Browser" : "A device";
+  return `<div class="panel wide"><h2>Signed-in devices</h2><p class="hint">Every phone, computer and TV signed in to Sofa. Sign out one you don't recognise, or a TV you gave away. TVs signed in with a phone are named after the TV.</p>
+    <ul class="list">${list.slice(0, 80).map(s => `<li><span><b>${esc(kind(s))}</b> · ${esc(s.user)}<br><span class="when">Last used ${esc(ago(s.seen))}</span></span>
+      <button class="mini danger" data-session-end="${esc(s.id)}">Sign out</button></li>`).join("") || `<li class="empty-row">Nobody is signed in.</li>`}</ul></div>`;
+}
 function srvPeople(d) {
   const users = d.users.filter(u => !u.guest).map(u => `<li><span><b>${esc(u.name)}</b>${u.admin ? ` <span class="tag ok">admin</span>` : ""}<br><span class="when">${u.seen ? "Last seen " + esc(ago(u.seen)) : "Hasn't signed in yet"}</span></span>
     <span class="row-actions">${u.admin ? "" : `<label class="adult-toggle" title="Sees only family titles; no Adult, Live TV or Server"><span>Kids</span><button class="switch small" role="switch" aria-checked="${!!u.kids}" data-user-kids="${u.id}" aria-label="${esc(u.name)} is a Kids profile"></button></label>`}
     ${u.kids ? "" : `<label class="adult-toggle" title="Can see the Adult section"><span>Adult</span><button class="switch small" role="switch" aria-checked="${!!u.adult}" data-user-adult="${u.id}" aria-label="${esc(u.name)} can see the Adult section"></button></label>`}
     <button class="mini" data-user-pass="${u.id}" data-user-name="${esc(u.name)}">New password</button>${u.id !== session.user.id ? `<button class="mini danger" data-user-del="${u.id}" data-user-name="${esc(u.name)}">Remove</button>` : ""}</span></li>`).join("");
   return `<div class="panels">
+    ${devicesPanel(d.sessions)}
     <div class="panel wide"><h2>People</h2><p class="hint">Everyone gets their own sign-in and their own "continue watching". The <b>Adult</b> switch decides who sees the Adult section (it's off for everyone until you turn it on, you included). A <b>Kids</b> profile sees only family titles (rated for children, or Kids and Family genres), and no Adult, Live TV or Server page; allow or block any title with <b>For kids</b> on its page.</p><ul class="list">${users}</ul>
       <form class="inline-form" id="addUser"><label class="field"><span>Name</span><input name="name" required maxlength="40"></label>
       <label class="field"><span>Password</span><input name="password" type="password" required minlength="8" autocomplete="new-password"></label>
@@ -1848,6 +1923,7 @@ function route(animate) {
   else if (name === "adult" && session.user.adult) { html = viewAdult(rest); nav = "adult"; }
   else if (name === "search") { html = viewSearch(rest.join("/")); nav = "search"; }
   else if (name === "mylist") { html = viewMyList(); nav = "mylist"; }
+  else if (name === "pair" && !session.user.guest) html = viewPair(rest.join("").replace(/\D/g, ""));
   else if (name === "live" && !session.user.kids) { html = viewLive(); nav = "live"; }
   else if (name === "music") { html = viewMusic(rest); nav = "music"; }
   else if (name === "server" && session.user.admin) { html = viewServer(rest[0]); nav = "server"; }
@@ -1871,7 +1947,7 @@ window.addEventListener("hashchange", () => { route(); scrollTo(0, 0); });
 
 /* ---------- interactions ---------- */
 document.addEventListener("click", e => {
-  const t = e.target.closest("[data-slide],[data-intros-recheck],[data-manage],[data-machine-test],[data-drive-use],[data-place-remove],[data-new-pictures],[data-empty-deleted],[data-free-space],[data-retry-details],[data-adult-nav],[data-asort],[data-adult-play],[data-like],[data-download],[data-surprise],[data-forget],[data-seen],[data-wipe-logs],[data-trailer-sound],[data-trailer-replay],[data-redo-damaged],[data-add-link],[data-send-files],[data-dl-retry],[data-dl-cancel],[data-dl-clear],[data-dl-install],[data-enable-adult],[data-conv-retry],[data-conv-cancel],[data-conv-all],[data-conv-clear],[data-update],[data-user-adult],[data-user-kids],[data-dupes],[data-kids-title],[data-act-kind],[data-key-clear],[data-fix],[data-msort],[data-adult-tab],[data-play-start],[data-srv-tab],[data-mlike],[data-mplay],[data-mplay-one],[data-mplay-list],[data-mshuffle-list],[data-station],[data-mtab],[data-play-mv],[data-guest-clear],[data-play],[data-watched],[data-season],[data-sort],[data-nudge],[data-season-watched],[data-dismiss],[data-admin],[data-setting],[data-user-pass],[data-user-del],[data-live],[data-fav],[data-group],[data-preset],[data-live-remove]");
+  const t = e.target.closest("[data-slide],[data-intros-recheck],[data-manage],[data-machine-test],[data-drive-use],[data-place-remove],[data-new-pictures],[data-empty-deleted],[data-free-space],[data-retry-details],[data-adult-nav],[data-asort],[data-adult-play],[data-like],[data-download],[data-surprise],[data-pair-profile],[data-session-end],[data-forget],[data-seen],[data-wipe-logs],[data-trailer-sound],[data-trailer-replay],[data-redo-damaged],[data-add-link],[data-send-files],[data-dl-retry],[data-dl-cancel],[data-dl-clear],[data-dl-install],[data-enable-adult],[data-conv-retry],[data-conv-cancel],[data-conv-all],[data-conv-clear],[data-update],[data-user-adult],[data-user-kids],[data-dupes],[data-kids-title],[data-act-kind],[data-key-clear],[data-fix],[data-msort],[data-adult-tab],[data-play-start],[data-srv-tab],[data-mlike],[data-mplay],[data-mplay-one],[data-mplay-list],[data-mshuffle-list],[data-station],[data-mtab],[data-play-mv],[data-guest-clear],[data-play],[data-watched],[data-season],[data-sort],[data-nudge],[data-season-watched],[data-dismiss],[data-admin],[data-setting],[data-user-pass],[data-user-del],[data-live],[data-fav],[data-group],[data-preset],[data-live-remove]");
   if (!t) return;
   if (t.dataset.fix) { fixDialog(t.dataset.fix); return; }
   if (t.dataset.manage) { manageDialog(t.dataset.manage); return; }
@@ -1944,6 +2020,17 @@ document.addEventListener("click", e => {
     return;
   }
   if (t.dataset.seen) { seenFilter = SEEN[t.dataset.seen] ? t.dataset.seen : "all"; rerender(); const b = $(`[data-seen="${t.dataset.seen}"]`); if (b) b.focus(); return; }
+  if (t.dataset.pairProfile) {
+    api("/api/pair/approve", { code: t.dataset.pairCode, profile: +t.dataset.pairProfile })
+      .then(() => { $("#pairBody").innerHTML = `<p><b>Done.</b> The TV signs in by itself in a moment.</p><p><a class="btn" href="#/">Back to Home</a></p>`; })
+      .catch(e => toast(e.message));
+    return;
+  }
+  if (t.dataset.sessionEnd) {
+    if (!confirm("Sign this device out?")) return;
+    adminAction(() => api("/api/admin/sessions", { id: t.dataset.sessionEnd }));
+    return;
+  }
   if (t.dataset.surprise) {                 // something you haven't watched, from what's on this page
     const hash = decodeURIComponent(location.hash.replace(/^#\/?/, "")).split("/"), genre = hash.slice(1).join("/");
     const all = t.dataset.surprise === "shows" ? shows : movies, gm = genreMap(all);
@@ -2211,13 +2298,14 @@ async function profilePicker(auto) {
       <span class="tile">${avatar(p)}${p.locked && p.id !== r.me ? `<i class="lock" aria-label="Locked">${icon("i-lock")}</i>` : ""}</span>
       <span class="pname">${esc(p.name)}</span>${p.kids ? `<span class="kids-tag">Kids</span>` : ""}${p.id === r.me ? `<span class="me">Watching now</span>` : ""}</button>`).join("")}</div>
     <div class="actions center"><button class="btn ghost" data-my-profile="1">Your profile: color and PIN</button>
-      ${auto ? "" : `<button class="btn ghost" data-pick-theme="1">Theme</button><button class="btn ghost" data-sign-out="1">${session.user.guest ? "Leave" : "Sign out"}</button><button class="btn ghost" data-dismiss="1">Close</button>`}</div></div>`);
+      ${auto ? "" : `${TV ? "" : `<button class="btn ghost" data-go-pair="1">Pair a TV</button>`}<button class="btn ghost" data-pick-theme="1">Theme</button><button class="btn ghost" data-sign-out="1">${session.user.guest ? "Leave" : "Sign out"}</button><button class="btn ghost" data-dismiss="1">Close</button>`}</div></div>`);
   d.classList.add("gate"); d.parentElement.classList.add("gate-scrim");
   const first = $(`[data-profile="${r.me}"]`, d) || $("[data-profile]", d); if (first) first.focus();
   d.addEventListener("click", e => {
     if (e.target.closest("[data-my-profile]")) { closeDialog(); setTimeout(profileDialog, 60); return; }
     if (e.target.closest("[data-pick-theme]")) { closeDialog(); setTimeout(appearanceDialog, 60); return; }
     if (e.target.closest("[data-sign-out]")) { closeDialog(); signOut(); return; }
+    if (e.target.closest("[data-go-pair]")) { closeDialog(); setTimeout(() => { location.hash = "#/pair"; }, 80); return; }
     const b = e.target.closest("[data-profile]"); if (!b) return;
     const p = r.profiles.find(x => x.id === +b.dataset.profile);
     if (p.id === r.me) { closeDialog(); return; }
