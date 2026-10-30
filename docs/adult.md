@@ -77,6 +77,9 @@ Only save videos you're allowed to keep.
 | **Favorites** | press ♥ on a video or a performer |
 | **Shuffle / Play all** | on every list: plays one after another |
 
+Each video's picture is a frame from **the middle of the video** (not the opening logo or a
+black frame), shown in a wide card like the video itself. Pictures that came with the video
+(a saved link, an `.nfo` file, ThePornDB, or a `folder.jpg` you put there) are used instead.
 Pointing at a card (or picking it with the TV remote) plays a short moving preview.
 
 All of that works without any account or key. For real covers and descriptions, add a free
@@ -85,8 +88,6 @@ press **Find details**.
 
 ## Privacy
 
-- **Blurred artwork.** Adult pictures stay blurred until you point at them or pick them with
-  the remote. Switch it off per device under **Theme** at the top.
 - **Nothing readable in history.** Adult pages have addresses like `#/movie/am:h19ed4feb57ac`,
   with no titles, so browser history and bookmarks don't give anything away.
 - **The Server page doesn't name titles.**

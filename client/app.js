@@ -74,16 +74,12 @@ function appearanceDialog() {
     <h3 class="dlg-sub">Subtitle size</h3>
     <div class="sorter inline" role="group" aria-label="Subtitle size">${[["s", "Small"], ["m", "Medium"], ["l", "Large"], ["xl", "Huge"]].map(x =>
       `<button data-sub-size="${x[0]}" aria-pressed="${x[0] === sub}">${x[1]}</button>`).join("")}</div>
-    ${session && session.user && session.user.adult ? `<h3 class="dlg-sub">Adult section</h3>
-    <div class="toggle"><div><b>Blur adult artwork</b><span>Pictures stay blurred until you point at them or pick them with the remote.</span></div>
-      <button class="switch" role="switch" aria-checked="${prefs.get("blurAdult", true)}" data-blur-toggle="1" aria-label="Blur adult artwork"></button></div>` : ""}
     <h3 class="dlg-sub">TV mode</h3>
     <div class="toggle"><div><b>Big buttons for a remote</b><span>Turns on by itself on Fire TV, Android TV and smart TVs.</span></div>
       <button class="switch" role="switch" aria-checked="${TV}" data-tv-toggle="1" aria-label="TV mode"></button></div>
     <div class="actions"><button class="btn primary" data-dismiss="1">Done</button></div>`);
   d.addEventListener("click", e => {
-    const t = e.target.closest("[data-theme-pick],[data-sub-size],[data-tv-toggle],[data-blur-toggle]"); if (!t) return;
-    if (t.dataset.blurToggle) { const on = !prefs.get("blurAdult", true); prefs.set("blurAdult", on); applyBlur(); t.setAttribute("aria-checked", on); return; }
+    const t = e.target.closest("[data-theme-pick],[data-sub-size],[data-tv-toggle]"); if (!t) return;
     if (t.dataset.themePick) { prefs.set("theme", t.dataset.themePick); applyTheme(t.dataset.themePick);
       d.querySelectorAll("[data-theme-pick]").forEach(b => b.setAttribute("aria-pressed", b === t)); }
     else if (t.dataset.subSize) { prefs.set("subSize", t.dataset.subSize); applySubSize();
@@ -93,8 +89,6 @@ function appearanceDialog() {
 }
 function applySubSize() { document.documentElement.dataset.subs = prefs.get("subSize", "m"); }
 applySubSize();
-function applyBlur() { document.documentElement.classList.toggle("blur-adult", prefs.get("blurAdult", true)); }
-applyBlur();
 
 /* ---------- index the library ---------- */
 function indexLibrary(lib) {
@@ -191,14 +185,14 @@ function frameImg(path, alt, fallbackText, w) {
 const quality = h => !h ? "" : h >= 2000 ? "4K" : h >= 1000 ? "HD" : h >= 700 ? "720p" : "SD";
 const dur = s => s ? (s >= 3600 ? Math.floor(s / 3600) + " h " + Math.round(s % 3600 / 60) + " min" : Math.max(1, Math.round(s / 60)) + " min") : "";
 function posterCard(show) {
-  return `<a class="card poster" href="#/show/${encodeURIComponent(show.id)}"${show.order && show.order[0] ? ` data-pv="${esc(show.order[0].id)}"` : ""}>
-    <span class="frame${show.poster ? "" : " noimg"}${show.adult ? " adult-art" : ""}">${frameImg(show.poster, show.name, show.name)}</span>
+  return `<a class="card ${show.adult ? "scene" : "poster"}" href="#/show/${encodeURIComponent(show.id)}"${show.order && show.order[0] ? ` data-pv="${esc(show.order[0].id)}"` : ""}>
+    <span class="frame${show.poster ? "" : " noimg"}">${frameImg(show.poster, show.name, show.name)}</span>
     <span class="t1">${esc(show.name)}</span>
     <span class="t2">${plural(show.regularSeasons, "season")}, ${plural(show.count, "episode")}</span></a>`;
 }
 function movieCard(m) {
-  return `<a class="card poster" href="#/movie/${encodeURIComponent(m.id)}" data-pv="${esc(m.id)}">
-    <span class="frame${m.poster ? "" : " noimg"}${m.adult ? " adult-art" : ""}">${frameImg(m.poster, m.title, m.title)}
+  return `<a class="card ${m.adult ? "scene" : "poster"}" href="#/movie/${encodeURIComponent(m.id)}" data-pv="${esc(m.id)}">
+    <span class="frame${m.poster ? "" : " noimg"}">${frameImg(m.poster, m.title, m.title)}
       ${pct(m.id) && !isDone(m.id) ? `<span class="progress"><i style="width:${pct(m.id)}%"></i></span>` : ""}
       ${isDone(m.id) ? `<span class="seen-badge">${icon("i-check")}</span>` : ""}
       ${m.adult && (m.duration || m.height) ? `<span class="dur-badge">${esc([quality(m.height), m.duration ? clock(m.duration) : ""].filter(Boolean).join(" · "))}</span>` : ""}
@@ -208,7 +202,7 @@ function movieCard(m) {
 }
 function collectionCard(name, list) {
   const art = list.find(m => m.poster);
-  return `<a class="card poster collection" href="#/collection/${encodeURIComponent(name)}">
+  return `<a class="card ${list.some(m => m.adult) ? "scene" : "poster"} collection" href="#/collection/${encodeURIComponent(name)}">
     <span class="frame${art ? "" : " noimg"}">${art ? frameImg(art.poster, name, name) : `<span class="placeholder">${esc(name)}</span>`}
       <span class="stack-badge">${list.length}</span></span>
     <span class="t1">${esc(name)}</span><span class="t2">${plural(list.length, "movie")}</span></a>`;
@@ -225,7 +219,7 @@ function thumbFor(item) {
 function wideCard(item, label) {
   const owner = item.show || item;
   return `<button class="card wide" data-play="${esc(item.id)}" data-pv="${esc(item.id)}">
-    <span class="frame${owner.adult ? " adult-art" : ""}">${thumbFor(item)}
+    <span class="frame">${thumbFor(item)}
       ${pct(item.id) && !isDone(item.id) ? `<span class="progress"><i style="width:${pct(item.id)}%"></i></span>` : ""}
       <span class="play-glyph">${icon("i-play")}</span></span>
     <span class="t1">${esc(owner.name || owner.title)}</span>
@@ -352,6 +346,8 @@ function viewHome() {
 }
 function viewEmptyLibrary() {
   setGlow("");
+  if (LIB.reading) return `<section class="empty"><i class="reading-spin" aria-hidden="true"></i><h1>Sofa is reading your library</h1>
+    <p>It just started. Your shows and movies appear here in a moment, by themselves.</p></section>`;
   return `<section class="empty"><h1>Nothing to watch yet</h1>
     <p>Drop shows and movies into the <b>Inbox</b> folder on the server. Sofa names them, files them and adds artwork within a minute.</p>
     ${session.user.admin ? `<p><a class="btn" href="#/server">Open the Server page</a></p>` : ""}</section>`;
@@ -423,7 +419,7 @@ function viewCollection(name) {
     <span>${esc([list[0].year, list[list.length - 1].year].filter(Boolean).filter((y, i, a) => a.indexOf(y) === i).join(" to "))}</span>
     <span>${list.filter(m => isDone(m.id)).length} watched</span></p>
     <div class="actions"><button class="btn primary" data-play="${esc(next.id)}">${icon("i-play")}${inProgress(next.id) ? "Resume" : "Play"} <small>${esc(next.title)}</small></button></div></div></section>
-    <section class="page"><div class="grid">${list.map(movieCard).join("")}</div></section>`;
+    <section class="page${list.some(m => m.adult) ? " adult-page" : ""}"><div class="grid">${list.map(movieCard).join("")}</div></section>`;
 }
 function viewMovie(id) {
   const m = byId.get(id);
@@ -442,9 +438,9 @@ function viewMovie(id) {
   const sibs = m.collection ? movies.concat(adultMovies).filter(x => x.collection === m.collection && x.id !== m.id)
     : m.adult && m.studio ? adultMovies.filter(x => x.studio === m.studio && x.id !== m.id).slice(0, 20) : [];
   return `<section class="hero movie-hero">
-    ${m.backdrop ? `<img class="hero-bg" src="${esc(artSrc(m.backdrop, 1280))}" alt="">` : m.poster ? `<img class="hero-bg blur" src="${esc(artSrc(m.poster, 480))}" alt="">` : ""}
-    <div class="hero-body movie-body">
-      <span class="frame poster-frame${m.poster ? "" : " noimg"}">${frameImg(m.poster, m.title, m.title, 480)}</span>
+    ${m.backdrop || (m.adult && m.poster) ? `<img class="hero-bg" src="${esc(artSrc(m.backdrop || m.poster, 1280))}" alt="">` : m.poster ? `<img class="hero-bg blur" src="${esc(artSrc(m.poster, 480))}" alt="">` : ""}
+    <div class="hero-body movie-body${m.adult ? " scene-body" : ""}">
+      <span class="frame poster-frame${m.poster ? "" : " noimg"}">${frameImg(m.poster, m.title, m.title, m.adult ? 720 : 480)}</span>
       <div>
         ${m.logo ? `<img class="hero-logo" src="${esc(artSrc(m.logo, 720))}" alt="${esc(m.title)}">` : `<h1>${esc(m.title)}</h1>`}
         ${m.tagline ? `<p class="tagline">${esc(m.tagline)}</p>` : ""}
@@ -461,7 +457,7 @@ function viewMovie(id) {
         </div>
         ${session.user.admin ? `<p class="fileline">${esc(m.file)}${m.source ? " · details from " + esc(m.source) : " · no details found yet"}</p>` : ""}
       </div></div></section>
-    ${sibs.length ? rail("More " + (m.collection ? "in " + m.collection : "from " + m.studio), "posters", sibs.map(movieCard)) : ""}`;
+    ${sibs.length ? rail("More " + (m.collection ? "in " + m.collection : "from " + m.studio), m.adult ? "scenes" : "posters", sibs.map(movieCard)) : ""}`;
 }
 /* ---------- the Adult section ---------- */
 let adultQuery = "", adultList = [];
@@ -481,8 +477,8 @@ function adultGroups(key) {
 }
 function groupCard(kind, name, list) {
   const art = list.find(x => x.poster);
-  return `<a class="card poster group-card" href="#/adult/${kind}/${encodeURIComponent(name)}" data-pv="${esc((list.find(x => x.duration) || list[0]).id)}">
-    <span class="frame adult-art${art ? "" : " noimg"}">${art ? frameImg(art.poster, name, name) : `<span class="placeholder">${esc(name)}</span>`}
+  return `<a class="card scene group-card" href="#/adult/${kind}/${encodeURIComponent(name)}" data-pv="${esc((list.find(x => x.duration) || list[0]).id)}">
+    <span class="frame${art ? "" : " noimg"}">${art ? frameImg(art.poster, name, name) : `<span class="placeholder">${esc(name)}</span>`}
       <span class="stack-badge">${list.length}</span>${favs.has((kind === "performer" ? "perf:" : "studio:") + name) ? `<span class="fav-badge">♥</span>` : ""}</span>
     <span class="t1">${esc(name)}</span><span class="t2">${plural(list.length, "video")}</span></a>`;
 }
@@ -558,7 +554,7 @@ function episodeRow(ep, label) {
     ep.subs ? `<span>Subtitles</span>` : ""
   ].join("");
   return `<article class="episode${done ? " watched" : ""}">
-    <button class="ep-thumb${ep.show && ep.show.adult ? " adult-art" : ""}" data-play="${esc(ep.id)}" data-pv="${esc(ep.id)}" aria-label="Play ${esc(title(ep))}">${thumbFor(ep)}
+    <button class="ep-thumb" data-play="${esc(ep.id)}" data-pv="${esc(ep.id)}" aria-label="Play ${esc(title(ep))}">${thumbFor(ep)}
       ${pct(ep.id) && !done ? `<span class="progress"><i style="width:${pct(ep.id)}%"></i></span>` : ""}
       ${done ? `<span class="seen-badge">${icon("i-check")}</span>` : ""}
       <span class="play-glyph">${icon("i-play")}</span></button>
@@ -1704,7 +1700,7 @@ const Player = (function () {
     epsPanel.innerHTML = `<div class="pe-head"><h3>${esc(show.name)}</h3><button class="ibtn" data-eps-close="1" aria-label="Close">${icon("i-back")}</button></div>
       <div class="chips">${show.seasons.map(s => `<button data-eps-season="${s.n}" aria-pressed="${s === season}">${esc(seasonName(s.n))}</button>`).join("")}</div>
       <div class="pe-list">${season.episodes.map(ep => `<button class="pe-item${ep === item ? " now" : ""}" data-eps-play="${esc(ep.id)}">
-        <span class="frame${show.adult ? " adult-art" : ""}">${thumbFor(ep)}${pct(ep.id) && !isDone(ep.id) ? `<span class="progress"><i style="width:${pct(ep.id)}%"></i></span>` : ""}${isDone(ep.id) ? `<span class="seen-badge">${icon("i-check")}</span>` : ""}</span>
+        <span class="frame">${thumbFor(ep)}${pct(ep.id) && !isDone(ep.id) ? `<span class="progress"><i style="width:${pct(ep.id)}%"></i></span>` : ""}${isDone(ep.id) ? `<span class="seen-badge">${icon("i-check")}</span>` : ""}</span>
         <span class="pe-text"><b>${esc(ep.e)}. ${esc(title(ep))}</b>${ep === item ? `<span class="now-tag">Playing</span>` : ""}${ep.summary ? `<span class="pe-sum">${esc(ep.summary)}</span>` : ""}</span></button>`).join("")}</div>`;
     epsPanel.hidden = false; ccMenu.hidden = true; helpBox.hidden = true;
     const cur = $(".pe-item.now", epsPanel) || $(".pe-item", epsPanel);
@@ -2334,7 +2330,7 @@ const MusicPlayer = (function () {
 async function reloadLibrary() {
   const [lib, prog] = await Promise.all([api("/api/library"), api("/api/progress")]);
   progress = prog; indexLibrary(lib);
-  $("#foot").innerHTML = esc("Library updated " + new Date(lib.generated * 1000).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) + ". New files in the Inbox show up on their own. ")
+  $("#foot").innerHTML = esc(lib.reading ? "Reading the library... " : "Library updated " + new Date(lib.generated * 1000).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) + ". New files in the Inbox show up on their own. ")
     + `<a href="?tv=${TV ? 0 : 1}" class="link-btn">${TV ? "Turn off TV mode on this device" : "Use TV mode on this device"}</a>`;
 }
 let refreshing = 0;
@@ -2354,6 +2350,12 @@ async function boot() {
   view.innerHTML = "";
   await reloadLibrary();
   route();
+  // Sofa just started and is still reading the library: look again every few seconds until it's done.
+  const waitForLibrary = () => LIB.reading && setTimeout(async () => {
+    try { await reloadLibrary(); if (!LIB.reading && !Player.isOpen()) rerender(); } catch (e) {}
+    waitForLibrary();
+  }, 3000);
+  waitForLibrary();
   loadMusic().then(() => MusicPlayer.restore());
   // Pick up new episodes while the page stays open.
   if (!refreshing) refreshing = setInterval(async () => {

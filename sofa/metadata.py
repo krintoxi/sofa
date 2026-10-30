@@ -35,6 +35,15 @@ def _get_json(url, timeout=10, headers=None):
         return json.load(r)
 
 
+_local = threading.local()
+
+
+def saved_only(on):
+    """While on (for this thread): answer only from what's saved, never ask the internet.
+    The library's first read after Sofa starts uses it, so Sofa is up in seconds."""
+    _local.saved_only = on
+
+
 def _cached(key, fetch):
     os.makedirs(CACHE, exist_ok=True)
     path = os.path.join(CACHE, re.sub(r"[^\w.-]+", "-", key)[:150] + ".json")
@@ -45,6 +54,8 @@ def _cached(key, fetch):
             return None if data.get("_miss") else data
     except (OSError, ValueError):
         pass
+    if getattr(_local, "saved_only", False):
+        return None
     try:
         data = fetch()
     except Exception:  # offline, not found, rate limited: try again tomorrow

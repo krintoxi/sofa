@@ -733,11 +733,16 @@ code.cmd { display: block; padding: 12px 14px; border-radius: 12px; background: 
 .tv .cc-menu button:focus, .tv .p-opts button:focus { outline: 3px solid var(--amber); outline-offset: 0; }
 
 /* ---------- Adult section ---------- */
-html.blur-adult .adult-art img, html.blur-adult .adult-art .bg-art, html.blur-adult .adult-art .pv { filter: blur(22px) saturate(.6); transform: scale(1.12); transition: filter .25s ease; }
-html.blur-adult .card:hover .adult-art img, html.blur-adult .card:focus .adult-art img, html.blur-adult .card:focus-within .adult-art img,
-html.blur-adult .card:hover .adult-art .bg-art, html.blur-adult .card:focus .adult-art .bg-art,
-html.blur-adult .card:hover .adult-art .pv, html.blur-adult .card:focus .adult-art .pv,
-html.blur-adult .pe-item:hover .adult-art img, html.blur-adult .pe-item:focus .adult-art img { filter: none; transform: none; }
+/* Its pictures are stills from the videos, so the cards are wide like the videos. */
+.scene .frame { aspect-ratio: 16 / 9; border-radius: 12px; }
+.adult-page .grid { grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 24px 18px; }
+.rail.scenes { grid-auto-columns: clamp(240px, 22vw, 330px); }
+.tv .rail.scenes { grid-auto-columns: clamp(270px, 26vw, 380px); }
+.scene-body { grid-template-columns: minmax(240px, 420px) minmax(0, 1fr); }
+.scene-body .poster-frame { aspect-ratio: 16 / 9; }
+@media (max-width: 760px) { .scene-body { grid-template-columns: 1fr; } .scene-body .poster-frame { width: min(100%, 360px); } }
+.reading-spin { display: block; width: 46px; height: 46px; margin-bottom: 22px; border-radius: 50%; border: 4px solid rgba(255,255,255,.15);
+  border-top-color: var(--amber); animation: spin .9s linear infinite; }
 .adult-tools { margin-left: auto; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .adult-tools input { width: min(320px, 70vw); padding: 10px 14px; border-radius: 999px; border: 1px solid var(--line); background: rgba(var(--slate-rgb), .7); color: var(--paper); font: inherit; }
 .adult-tools input:focus { outline: none; border-color: var(--amber); }
@@ -759,8 +764,6 @@ html.blur-adult .pe-item:hover .adult-art img, html.blur-adult .pe-item:focus .a
 /* moving previews on cards */
 .frame .pv, .ep-thumb .pv { position: absolute; z-index: 1; background-repeat: no-repeat; pointer-events: none; animation: fadein .3s ease; }
 .card:hover .frame .pv ~ *, .card .frame .pv + .progress { z-index: 2; }
-html.blur-adult .ep-thumb.adult-art img { filter: blur(22px) saturate(.6); transform: scale(1.12); transition: filter .25s ease; }
-html.blur-adult .ep-thumb.adult-art:hover img, html.blur-adult .ep-thumb.adult-art:focus img { filter: none; transform: none; }
 /* intro / credits marks on the timeline, and what part a preview is */
 .scrub .marks { position: absolute; inset: 0; pointer-events: none; }
 .scrub .marks i { position: absolute; top: 0; bottom: 0; border-radius: 3px; background: rgba(255,255,255,.55); mix-blend-mode: screen; }

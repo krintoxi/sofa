@@ -67,10 +67,11 @@ def _frame_cache(path, budget):
     return "/art/cache/%s.jpg" % key if media.extract_frame(path, dest) else None
 
 
-def scan(art_url, items):
-    """Read Music/ and Music Videos/. Adds playable entries to `items`; returns the public view."""
+def scan(art_url, items, quick=False):
+    """Read Music/ and Music Videos/. Adds playable entries to `items`; returns the public view.
+    `quick`: only what's already known (no ffprobe, no cover extraction), for right after starting."""
     root = config.path("music")
-    budget = [EXTRACT_PER_SCAN]
+    budget = [0 if quick else EXTRACT_PER_SCAN]
     try:
         with open(os.path.join(root, TAGS_FILE), encoding="utf-8") as f:
             extra_tags = json.load(f)
@@ -89,7 +90,7 @@ def scan(art_url, items):
                 path = os.path.join(d, f)
                 rel = os.path.relpath(path, root)
                 parts = rel.split(os.sep)
-                info = media.probe(path) or {}
+                info = media.probe(path, cached_only=quick) or {}
                 tags = info.get("tags") or {}
                 # The folders are the truth (Music/<Artist>/<Album>/...); tags only fill in for loose files.
                 artist = (parts[0] if len(parts) > 1 else
@@ -163,7 +164,7 @@ def scan(art_url, items):
                     vid += "-2"
                 thumb_file = next((p for p in (os.path.join(d, stem + ".jpg"), os.path.join(d, "metadata", stem + ".jpg"))
                                    if os.path.isfile(p)), None)
-                info = media.probe(path) or {}
+                info = media.probe(path, cached_only=quick) or {}
                 st = os.stat(path)
                 item = {"id": vid, "kind": "musicvideo", "path": path, "ext": ext.lower()[1:], "size": st.st_size,
                         "added": int(st.st_mtime), "title": title, "artist": artist, "artist_id": "ar:" + naming.slug(artist),

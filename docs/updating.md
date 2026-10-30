@@ -33,6 +33,31 @@ curl -fsSL https://raw.githubusercontent.com/krintoxi/sofa/main/tools/update.sh 
 It stops Sofa, saves the same two backups, updates, checks the new version, and starts
 Sofa again.
 
+## Sofa didn't come back after an update
+
+Right after starting, Sofa answers within a few seconds and shows "Sofa is reading your
+library" until your shows appear. If the page doesn't open at all after a couple of minutes:
+
+1. **See what Sofa says.** In Terminal on the Sofa computer:
+
+   ```sh
+   tail -n 40 ~/Sofa/data/sofa.log
+   ```
+
+2. **Start it again** (Mac):
+
+   ```sh
+   launchctl kickstart -k gui/$(id -u)/local.sofa.server
+   ```
+
+   On Linux: `systemctl --user restart sofa`.
+
+3. **Update again with the Terminal command** above. It works even when Sofa isn't running,
+   and it picks up any fix made since.
+
+4. Still stuck? **Go back** to the version before (below), and open an issue on GitHub with
+   the last lines of `sofa.log`.
+
 ## What an update never touches
 
 - your media: everything in `~/Entertainment` (or wherever your folders are),
@@ -44,10 +69,14 @@ with `git stash`, not thrown away (`git stash list` shows them).
 
 ## Going back
 
-Stop Sofa, then unpack the code copy over the Sofa folder:
+Unpack the code copy over the Sofa folder, then start Sofa again:
 
 ```sh
 cd ~/Sofa && tar xzf data/backups/code-<version>-<date>.tar.gz
 ```
 
-and start Sofa again. Your data is unaffected either way.
+```sh
+~/Sofa/deploy/install.sh
+```
+
+`ls ~/Sofa/data/backups` lists the copies. Your data is unaffected either way.

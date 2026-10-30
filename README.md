@@ -119,8 +119,8 @@ first, admins included; guests and TVs never see it.
   and get moving previews on hover or remote focus. All of it works offline, from file
   names, `.nfo` files and saved links. A free ThePornDB token adds real covers.
 - **Add** by dropping files or whole folders into `Inbox/XXX`, or with **+ Add a link**.
-- **Private:** artwork is blurred until you point at it, addresses don't contain titles, and
-  the Server page never names adult titles.
+- **Pictures from the middle** of each video, in wide cards, unless the video came with its own.
+- **Private:** addresses don't contain titles, and the Server page never names adult titles.
 
 Adult live TV: the free iptv-org lists dropped adult channels in January 2024, so add an M3U
 link you trust and tick **Adult channels**. [docs/adult.md](docs/adult.md)
