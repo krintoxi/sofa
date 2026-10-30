@@ -1,0 +1,69 @@
+#!/bin/sh
+# The Sofa box: a Raspberry Pi on the TV that opens Sofa full screen.
+#   sofa-box kiosk             the browser on the TV (started by sofa-box.service; not by hand)
+#   sofa-box pair-controller   pair a Bluetooth game controller (Xbox, PlayStation, 8BitDo…)
+#   sofa-box choose            forget which Sofa it uses, and pick again
+#   sofa-box tv-on             wake the TV and switch it to the Pi (HDMI-CEC)
+#   sofa-box status            what's running
+set -e
+
+kiosk() {
+  BROWSER="$(command -v chromium || command -v chromium-browser || true)"
+  [ -n "$BROWSER" ] || { echo "Chromium isn't installed (sudo apt install chromium)."; exit 1; }
+  PROFILE="$HOME/.config/sofa-box/browser"
+  mkdir -p "$PROFILE"
+  # A browser that crashed or was switched off mid-way shows "Restore pages?": tell it all went well.
+  sed -i 's/"exited_cleanly":false/"exited_cleanly":true/; s/"exit_type":"[^"]*"/"exit_type":"Normal"/' \
+    "$PROFILE/Default/Preferences" 2>/dev/null || true
+  exec cage -d -- "$BROWSER" --kiosk --noerrdialogs --disable-infobars --no-first-run \
+    --disable-session-crashed-bubble --disable-features=Translate,MediaRouter --password-store=basic \
+    --autoplay-policy=no-user-gesture-required --check-for-update-interval=31536000 \
+    --ozone-platform=wayland --user-data-dir="$PROFILE" \
+    "http://127.0.0.1:8091/"
+}
+
+pair_controller() {
+  command -v bluetoothctl >/dev/null || { echo "Bluetooth tools are missing (sudo apt install bluez)."; exit 1; }
+  echo "Put the controller in pairing mode now:"
+  echo "  Xbox: hold the small pairing button on top until the Xbox button flashes fast."
+  echo "  PlayStation: hold Share (or Create) and the PS button until the light flashes."
+  echo "  8BitDo: hold Start (Android/X mode) or the pair button until the lights flash."
+  bluetoothctl power on >/dev/null
+  bluetoothctl --timeout 25 scan on >/dev/null 2>&1 &
+  SCAN=$!
+  MAC=""
+  for _ in $(seq 1 25); do
+    sleep 1
+    MAC="$(bluetoothctl devices | grep -iE 'xbox|wireless controller|dualsense|dualshock|8bitdo|pro controller|gamepad|controller' \
+           | head -n 1 | awk '{print $2}')"
+    [ -n "$MAC" ] && break
+  done
+  kill "$SCAN" 2>/dev/null || true
+  [ -n "$MAC" ] || { echo "No controller found. Try again, with it flashing fast."; exit 1; }
+  NAME="$(bluetoothctl devices | grep "$MAC" | cut -d' ' -f3-)"
+  echo "Found $NAME ($MAC). Pairing…"
+  bluetoothctl --agent NoInputNoOutput pair "$MAC" || bluetoothctl pair "$MAC"
+  bluetoothctl trust "$MAC"
+  bluetoothctl connect "$MAC"
+  echo "Done: $NAME is paired. It connects by itself from now on (press its Home button)."
+}
+
+case "${1:-}" in
+  kiosk) kiosk ;;
+  pair-controller) pair_controller ;;
+  choose)
+    rm -f "$HOME/.config/sofa-box/server"
+    [ -n "$SUDO_USER" ] && rm -f "$(getent passwd "$SUDO_USER" | cut -d: -f6)/.config/sofa-box/server"
+    sudo systemctl restart sofa-box-finder sofa-box
+    echo "Pick your Sofa on the TV." ;;
+  tv-on)
+    DEV="$(ls /dev/cec* 2>/dev/null | head -n 1)"
+    [ -n "$DEV" ] || { echo "No HDMI-CEC here."; exit 1; }
+    cec-ctl -d "$DEV" --to 0 --image-view-on >/dev/null
+    sleep 2
+    PHYS="$(cec-ctl -d "$DEV" | sed -n 's/.*Physical Address *: *\([0-9a-f.]*\).*/\1/p' | head -n 1)"
+    cec-ctl -d "$DEV" --to 15 --active-source phys-addr="$PHYS" >/dev/null
+    echo "Asked the TV to turn on and show the Pi." ;;
+  status) systemctl --no-pager status sofa-box sofa-box-finder sofa-box-cec || true ;;
+  *) sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+esac

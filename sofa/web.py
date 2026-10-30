@@ -171,6 +171,12 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", "0")
             self.end_headers()
             return
+        m = re.match(r"^/sofa-box/(install\.sh|sofa-box|sofa-box-finder\.py|sofa-box-cec\.py)$", path)
+        if m:                                         # a Raspberry Pi becoming a Sofa box fetches its files from here
+            if self.network() not in HOME_NETS:
+                return self.send_body("Not found", status=404)
+            with open(os.path.join(config.APP_DIR, "deploy", "sofa-box", m.group(1)), "rb") as f:
+                return self.send_body(f.read(), "text/plain; charset=utf-8", headers={"Cache-Control": "no-store"})
         if path in ("/roku", "/roku.zip"):            # the Roku channel, to upload to a Roku in developer mode
             if self.network() not in HOME_NETS:
                 return self.send_body("Not found", status=404)

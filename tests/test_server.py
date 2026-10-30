@@ -68,6 +68,13 @@ class Server(unittest.TestCase):
         self.assertIn("components/MainScene.brs", names)
         self.assertIn("images/icon_hd.png", names)
 
+    def test_sofa_box_files(self):
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with opener.open(self.base + "/sofa-box/install.sh", timeout=20) as r:
+            self.assertTrue(r.read().startswith(b"#!/bin/sh"))
+        with self.assertRaises(urllib.error.HTTPError):
+            opener.open(self.base + "/sofa-box/README.md", timeout=20)      # only the box's own files
+
     def test_signed_out_is_401(self):
         self.assertEqual(Client(self.base).call("/api/library")[0], 401)
         self.assertEqual(Client(self.base, token="not-a-token").call("/api/library")[0], 401)

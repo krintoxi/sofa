@@ -181,6 +181,9 @@ deleted. More: [docs/folder-structure.md](docs/folder-structure.md).
   ([roku/](roku/README.md)). They play MKV, HEVC and Dolby sound as they are, so the Sofa computer
   hardly converts anything. Install from **Server → Overview → Apps**; sign in by approving a code
   on your phone.
+- **The Sofa box:** a Raspberry Pi on the TV that starts straight into Sofa, worked with the TV's own
+  remote (HDMI-CEC), your phone or a game controller. One command installs it
+  ([deploy/sofa-box/](deploy/sofa-box/README.md)). Game controllers work in Sofa on any computer too.
 - **Music**, with albums, artists, stations, likes and a queue. **Live TV** from free channel lists.
 
 ### The Adult section
@@ -258,7 +261,7 @@ throwaway library and data folder, never yours, and no internet). GitHub runs th
 sofa.py              command line entry point
 sofa/                server: library, inbox, streaming, converter, intro finder, DLNA, live TV, accounts, updater
 client/              web app (no build step)
-deploy/              install script, macOS LaunchAgent, Linux systemd unit
+deploy/              install script, macOS LaunchAgent, Linux systemd unit, the Sofa box (Raspberry Pi)
 tools/               get-sofa.sh, update.sh, convert.py
 docs/                install, updating, folders, storage (drives), playback, TV, adult, privacy, remote access, api (for apps)
 tests/               the tests

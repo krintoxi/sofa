@@ -1560,9 +1560,10 @@ function srvOverview(d) {
 /* Sofa's own TV apps: they play MKV, HEVC and Dolby sound as they are, so this computer converts less. */
 function appsPanel(base) {
   return `<div class="panel"><h2>Apps</h2><p class="hint">Sofa's own apps for TVs. They play most files as they are, so this computer hardly converts anything. Sign in by approving a code on your phone.</p>
-    <div class="addr">
-      <div><b>Fire TV</b><code>${esc(base)}/firetv</code><span>Install <b>Downloader</b> from the Amazon Appstore, allow it under Settings → My Fire TV → Developer options → Install unknown apps, then type this address in it.</span></div>
+    <div class="addr apps">
+      <div><b>Fire TV</b><code>${esc(base)}/firetv</code><span>Install Downloader from the Amazon Appstore, allow it under Settings → My Fire TV → Developer options → Install unknown apps, then type this address in it.</span></div>
       <div><b>Roku</b><code>${esc(base)}/roku.zip</code><span>Put the Roku in developer mode (on its remote: Home ×3, Up ×2, Right, Left, Right, Left, Right), download this file on a computer, and upload it on the page at the address the Roku shows.</span></div>
+      <div><b>Raspberry Pi</b><code>curl -fsSL ${esc(base)}/sofa-box/install.sh | sudo sh -s ${esc(base)}</code><span>Makes a Pi on the TV a Sofa box: it starts straight into Sofa. Run this on the Pi (Raspberry Pi OS Lite). The TV's remote, your phone or a game controller work it.</span></div>
     </div></div>`;
 }
 const ENC_NAMES = { h264_videotoolbox: "Apple VideoToolbox", libx264: "x264" };
@@ -2527,7 +2528,7 @@ const Screens = (function () {
     catch (e) { return Math.random().toString(36).slice(2, 14); }
   })();
   const ua = navigator.userAgent;
-  const defaultName = () => /AFT/.test(ua) ? "Fire TV" : TV ? "TV" : /iPhone/.test(ua) ? "iPhone" : /iPad/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1) ? "iPad"
+  const defaultName = () => /AFT/.test(ua) ? "Fire TV" : TV && /Linux (aarch64|armv7l)/.test(ua) && !/Android/.test(ua) ? "Sofa box" : TV ? "TV" : /iPhone/.test(ua) ? "iPhone" : /iPad/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1) ? "iPad"
     : /Android/.test(ua) ? "Android" : /Mac/.test(ua) ? "Mac" : /Windows/.test(ua) ? "Windows PC" : "Browser";
   const name = () => prefs.get("screenName", "") || defaultName();
   let target = null, others = [], listening = false, reported = "", bar = null, pollTimer = 0;
@@ -3832,6 +3833,61 @@ async function boot() {
     try { const lib = await api("/api/library?since=" + LIB.generated); if (!lib.same && lib.generated !== LIB.generated) { indexLibrary(lib); rerender(); } } catch (e) {}
   }, 60000);
 }
+/* ---------- game controllers (Xbox, PlayStation, 8BitDo…) ----------
+   For the Sofa box (a Raspberry Pi on the TV) or any computer: the D-pad or left stick moves like a TV
+   remote's arrows, A is OK, B (or View/Select) is Back, X or Start (☰) plays and pauses, LB/LT skip 10 s
+   back and RB/RT 30 s on, Y is search (or subtitles while playing). */
+(function gamepads() {
+  if (!navigator.getGamepads) return;
+  const DIRS = { 12: "ArrowUp", 13: "ArrowDown", 14: "ArrowLeft", 15: "ArrowRight" };
+  let running = false, was = {}, repeatAt = {};
+  const key = k => {
+    const a = document.activeElement, ev = new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true });
+    (a && a !== document.body ? a : document).dispatchEvent(ev);
+    return ev.defaultPrevented;
+  };
+  function ok() {
+    const a = document.activeElement;
+    if (!key("Enter") && a && a !== document.body && a.click) a.click();   // nothing took it: press what's focused
+  }
+  function back() {
+    if (Player.isOpen()) key("Backspace");      // closes a panel first, then the player (Escape is for leaving full screen)
+    else if (document.querySelector(".dialog-scrim")) closeDialog();
+    else history.back();
+  }
+  const playing = () => Player.isOpen();
+  const press = {
+    0: ok, 1: back, 8: back,
+    2: () => playing() && Player.control({ cmd: "toggle" }), 9: () => playing() && Player.control({ cmd: "toggle" }),
+    4: () => playing() && Player.control({ cmd: "skip", by: -10 }), 6: () => playing() && Player.control({ cmd: "skip", by: -10 }),
+    5: () => playing() && Player.control({ cmd: "skip", by: 30 }), 7: () => playing() && Player.control({ cmd: "skip", by: 30 }),
+    3: () => { if (playing()) key("c"); else { const q = $("#q"); if (q) { q.focus(); q.select && q.select(); } } }
+  };
+  function held(pad) {           // which of our buttons are down right now (the stick counts as the D-pad)
+    const down = new Set();
+    pad.buttons.forEach((b, i) => { if (b && (b.pressed || b.value > 0.6)) down.add(i); });
+    const [x = 0, y = 0] = pad.axes;
+    if (y < -0.6) down.add(12); if (y > 0.6) down.add(13); if (x < -0.6) down.add(14); if (x > 0.6) down.add(15);
+    return down;
+  }
+  function tick() {
+    const pads = [...navigator.getGamepads()].filter(Boolean);
+    if (!pads.length) { running = false; return; }
+    const now = performance.now(), down = new Set();
+    pads.forEach(p => held(p).forEach(i => down.add(i)));
+    down.forEach(i => {
+      if (DIRS[i]) {             // arrows repeat while held, like a remote
+        if (!was[i]) { key(DIRS[i]); repeatAt[i] = now + 420; }
+        else if (now >= repeatAt[i]) { key(DIRS[i]); repeatAt[i] = now + 130; }
+      } else if (!was[i] && press[i]) press[i]();
+    });
+    was = {}; down.forEach(i => { was[i] = true; });
+    requestAnimationFrame(tick);
+  }
+  const start = () => { if (!running) { running = true; document.body.classList.add("tv-nav"); requestAnimationFrame(tick); } };
+  window.addEventListener("gamepadconnected", start);
+  if ([...navigator.getGamepads()].some(Boolean)) start();
+})();
 function hideSplash() {
   const sp = $("#splash"); if (!sp) return;
   setTimeout(() => { sp.classList.add("gone"); setTimeout(() => sp.remove(), 800); }, Math.max(0, 1300 - performance.now()));
