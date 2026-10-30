@@ -36,6 +36,11 @@ type their 4-digit PIN with the remote's number keys or the on-screen pad (or th
 until they set a PIN). Set your color and PIN from **Who's watching? → Your profile**, or by
 pressing your name at the top. Switching only works at home, never for guests.
 
+### Sofa on your phone, as an app
+
+On an iPhone or iPad, open Sofa in Safari, press **Share**, then **Add to Home Screen**: it opens
+full screen with its own icon, like an app. On Android, the browser's menu → **Add to Home screen**.
+
 ### Your phone as the remote
 
 Typing with a TV remote is slow. With Sofa open on the TV (and on your phone, signed in as the

@@ -1,0 +1,16 @@
+{
+  "name": "Sofa",
+  "short_name": "Sofa",
+  "description": "Your shows, movies and music, from the Sofa computer at home.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0A0E1A",
+  "theme_color": "#0A0E1A",
+  "icons": [
+    {"src": "/client/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+    {"src": "/client/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
+    {"src": "/client/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}
+  ]
+}

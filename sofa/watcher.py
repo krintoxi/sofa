@@ -4,7 +4,7 @@ import os
 import threading
 import time
 
-from . import artwork, backup, fetch, intros, live, machine, media, optimize, organizer, previews, store, trickplay, updater
+from . import artwork, backup, fetch, intros, live, machine, media, optimize, organizer, previews, store, travel, trickplay, updater
 from .library import LIBRARY
 
 INTERVAL = 20
@@ -94,4 +94,5 @@ def start():
     fetch.start()
     trickplay.start(LIBRARY)
     previews.start(LIBRARY)
+    travel.start()
     machine.start()
