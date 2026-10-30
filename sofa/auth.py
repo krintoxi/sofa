@@ -1,5 +1,6 @@
 """Accounts, sessions, login throttling and network classification."""
 import hashlib
+import json
 import re
 import hmac
 import ipaddress
@@ -206,7 +207,7 @@ def session_user(token):
     if not token:
         return None
     key = _token_key(token)
-    row = store.q1("""SELECT u.id, u.name, u.admin, u.guest, u.adult, u.kids, u.avatar, u.pin, s.seen, s.created FROM sessions s
+    row = store.q1("""SELECT u.id, u.name, u.admin, u.guest, u.adult, u.kids, u.avatar, u.pin, u.prefs, s.seen, s.created FROM sessions s
                       JOIN users u ON u.id = s.user_id WHERE s.token = ?""", key)
     if not row or row["seen"] < time.time() - SESSION_DAYS * 86400:
         return None
@@ -216,7 +217,45 @@ def session_user(token):
         store.ex("UPDATE sessions SET seen = ? WHERE token = ?", int(time.time()), key)
     return {"id": row["id"], "name": row["name"], "admin": bool(row["admin"]), "guest": bool(row["guest"]),
             "adult": bool(row["adult"]) and not row["guest"] and not row["kids"], "kids": bool(row["kids"]),
-            "avatar": _avatar(row), "pin": bool(row["pin"])}
+            "avatar": _avatar(row), "pin": bool(row["pin"]), "prefs": _prefs(row["prefs"])}
+
+
+def _prefs(text):
+    try:
+        v = json.loads(text or "{}")
+        return v if isinstance(v, dict) else {}
+    except ValueError:
+        return {}
+
+
+ROW_ID = re.compile(r"^[a-z][a-z0-9-]{0,30}$")
+LOOK = {"theme": re.compile(r"^[a-z]{1,20}$"), "accent": re.compile(r"^#[0-9a-fA-F]{6}$"),
+        "motion": re.compile(r"^(lively|calm|off)$"), "splash": re.compile(r"^(full|quick|off)$")}
+
+
+def save_prefs(user_id, changes):
+    """A profile's choices that follow it to every screen: {"home": {"order": [...], "hidden": [...]},
+    "look": {"theme", "accent", "motion", "splash"}}. Anything else, or not in the right shape, is left out.
+    Returns the profile's choices as they are now."""
+    row = store.q1("SELECT prefs FROM users WHERE id = ?", user_id)
+    prefs = _prefs(row and row["prefs"])
+    home = changes.get("home")
+    if isinstance(home, dict):
+        prefs["home"] = {k: [x for x in home.get(k) or [] if isinstance(x, str) and ROW_ID.match(x)][:40]
+                         for k in ("order", "hidden")}
+    elif home is None and "home" in changes:
+        prefs.pop("home", None)                           # back to how Sofa arranges it
+    look = changes.get("look")
+    if isinstance(look, dict):
+        cur = dict(prefs.get("look") or {})
+        for k, v in look.items():
+            if k in LOOK and v is None:
+                cur.pop(k, None)
+            elif k in LOOK and isinstance(v, str) and LOOK[k].match(v):
+                cur[k] = v
+        prefs["look"] = cur
+    store.ex("UPDATE users SET prefs = ? WHERE id = ?", json.dumps(prefs, separators=(",", ":")), user_id)
+    return prefs
 
 
 def end_session(token):

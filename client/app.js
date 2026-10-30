@@ -37,6 +37,7 @@ const airDay = d => {
 };
 const epCode = ep => ep.s == null ? "Extra" : (ep.s === 0 ? "Special " : "S" + ep.s + " ") + "E" + ep.e + (ep.e2 ? "–" + ep.e2 : "");
 
+const REDUCED = matchMedia("(prefers-reduced-motion: reduce)").matches;     // the device asks for less motion
 const prefs = {
   get(k, d) { try { const v = localStorage.getItem("sofa." + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
   set(k, v) { try { localStorage.setItem("sofa." + k, JSON.stringify(v)); } catch (e) {} }
@@ -71,21 +72,72 @@ let shows = [], movies = [], adultShows = [], adultMovies = [], favs = new Set()
 const THEMES = [["midnight", "Midnight", "#0A0E1A", "#F4B740"], ["cinema", "Cinema", "#0B0708", "#E5484D"],
   ["ocean", "Ocean", "#04131A", "#3CC8D8"], ["forest", "Forest", "#0A120D", "#8BD46E"],
   ["grape", "Grape", "#100A1A", "#C792FF"], ["oled", "Pure black", "#000000", "#F4B740"]];
+/* A choice about how Sofa looks: this device's own if it made one, else the profile's (made on any of
+   its screens), else Sofa's. Choosing saves it for both. */
+function lookPref(key, def) {
+  const mine = prefs.get(key, null);
+  if (mine !== null) return mine;
+  const look = session && session.user && session.user.prefs && session.user.prefs.look;
+  return look && look[key] != null ? look[key] : def;
+}
+function saveLook(key, value) {
+  prefs.set(key, value);
+  if (session && session.user && !session.user.guest)
+    api("/api/me/prefs", { look: { [key]: value } }).then(r => { session.user.prefs = r.prefs; }).catch(() => {});
+}
+// An accent colour of your own on any theme: buttons, the progress bar, focus, the logo.
+const ACCENTS = ["#F4B740", "#FF8A3D", "#E5484D", "#FF5CA8", "#C792FF", "#8B8CFF", "#4DA3FF", "#3CC8D8", "#2EC4A6", "#8BD46E", "#D7E35A", "#EDEFF6"];
+function applyAccent(hex) {
+  const st = document.documentElement.style;
+  if (!/^#[0-9a-f]{6}$/i.test(hex || "")) { ["--amber", "--accent-rgb", "--amber-hi", "--amber-ink"].forEach(k => st.removeProperty(k)); return; }
+  const n = parseInt(hex.slice(1), 16), c = [n >> 16, (n >> 8) & 255, n & 255];
+  const hi = c.map(v => Math.min(255, Math.round(v + (255 - v) * 0.18)));
+  const light = (0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]) > 150;
+  st.setProperty("--amber", hex); st.setProperty("--accent-rgb", c.join(","));
+  st.setProperty("--amber-hi", "rgb(" + hi.join(",") + ")"); st.setProperty("--amber-ink", light ? "#1A1300" : "#FFFFFF");
+}
+// Animations: lively (everything), calm (no drifting, no rows sliding in), off.
+function applyMotion(m) {
+  document.documentElement.classList.toggle("motion-calm", m === "calm");
+  document.documentElement.classList.toggle("motion-off", m === "off");
+}
+const motion = () => REDUCED ? "off" : lookPref("motion", "lively");
+function applyLook() {
+  applyTheme(lookPref("theme", (session && session.theme) || "midnight"));
+  applyAccent(lookPref("accent", ""));
+  applyMotion(motion());
+  try { localStorage.setItem("sofa.splashBoot", JSON.stringify(lookPref("splash", "full"))); } catch (e) {}  // for the next start
+}
 function applyTheme(name) {
   if (!THEMES.some(t => t[0] === name)) name = "midnight";
   if (name === "midnight") document.documentElement.removeAttribute("data-theme");
   else document.documentElement.setAttribute("data-theme", name);
 }
 applyTheme(prefs.get("theme", "midnight"));
+applyAccent(prefs.get("accent", ""));
+applyMotion(REDUCED ? "off" : prefs.get("motion", "lively"));
 function appearanceDialog() {
-  const cur = prefs.get("theme", (session && session.theme) || "midnight"), sub = prefs.get("subSize", "m");
-  const d = openDialog(`<h2>Look and feel</h2><p>Just for this device. Everyone can pick their own.</p>
+  const cur = lookPref("theme", (session && session.theme) || "midnight"), sub = prefs.get("subSize", "m");
+  const accent = (lookPref("accent", "") || "").toUpperCase(), mo = motion(), splash = lookPref("splash", "full");
+  const choice = (attr, v, label, on) => `<button ${attr}="${v}" aria-pressed="${on}">${label}</button>`;
+  const d = openDialog(`<h2>Look and feel</h2><p>Yours, on every screen you use. Everyone can pick their own.</p>
     <div class="themes">${THEMES.map(t => `<button class="theme-swatch" data-theme-pick="${t[0]}" aria-pressed="${t[0] === cur}"
       style="--sw-bg:${t[2]};--sw-ac:${t[3]}"><i></i><span>${esc(t[1])}</span></button>`).join("")}</div>
+    <h3 class="dlg-sub">Accent colour</h3>
+    <div class="accents" role="group" aria-label="Accent colour">
+      <button class="accent-dot theme-own" data-accent-pick="" aria-pressed="${!accent}" aria-label="The theme's own" title="The theme's own"></button>
+      ${ACCENTS.map(a => `<button class="accent-dot" data-accent-pick="${a}" aria-pressed="${accent === a}" style="--dot:${a}" aria-label="${a}"></button>`).join("")}
+      ${TV ? "" : `<label class="accent-dot custom" title="Any colour" style="--dot:${accent && !ACCENTS.includes(accent) ? accent : "transparent"}"><input type="color" data-accent-custom="1" value="${accent || "#F4B740"}" aria-label="Any colour"></label>`}
+    </div>
+    <h3 class="dlg-sub">Animations</h3>
+    <div class="sorter inline" role="group" aria-label="Animations">${choice("data-motion", "lively", "Lively", mo === "lively")}${choice("data-motion", "calm", "Calm", mo === "calm")}${choice("data-motion", "off", "Off", mo === "off")}</div>
+    <h3 class="dlg-sub">Loading screen</h3>
+    <div class="sorter inline" role="group" aria-label="Loading screen">${choice("data-splash", "full", "Sofa's", splash === "full")}${choice("data-splash", "quick", "Quick", splash === "quick")}${choice("data-splash", "off", "None", splash === "off")}</div>
     <h3 class="dlg-sub">Subtitle size</h3>
     <div class="sorter inline" role="group" aria-label="Subtitle size">${[["s", "Small"], ["m", "Medium"], ["l", "Large"], ["xl", "Huge"]].map(x =>
       `<button data-sub-size="${x[0]}" aria-pressed="${x[0] === sub}">${x[1]}</button>`).join("")}</div>
     <h3 class="dlg-sub">Home</h3>
+    ${session && session.user && !session.user.guest ? `<div class="toggle"><div><b>What's on Home</b><span>Which rows, in which order. Yours on every screen.</span></div><button class="btn" data-home-edit="1">Arrange</button></div>` : ""}
     <div class="toggle"><div><b>Play the banner</b><span>The featured title at the top of Home plays a few silent seconds.</span></div>
       <button class="switch" role="switch" aria-checked="${prefs.get("bannerClips", true) !== false}" data-banner-toggle="1" aria-label="Play the banner"></button></div>
     <div class="toggle"><div><b>Trailers</b><span>A show's or movie's page plays three minutes of it, from somewhere in the middle, behind the title.</span></div>
@@ -99,17 +151,27 @@ function appearanceDialog() {
     <div class="toggle"><div><b>Big buttons for a remote</b><span>Turns on by itself on Fire TV, Android TV and smart TVs.</span></div>
       <button class="switch" role="switch" aria-checked="${TV}" data-tv-toggle="1" aria-label="TV mode"></button></div>
     <div class="actions"><button class="btn primary" data-dismiss="1">Done</button></div>`);
+  const custom = $("[data-accent-custom]", d);
+  if (custom) custom.addEventListener("change", () => {
+    saveLook("accent", custom.value.toUpperCase()); applyAccent(custom.value);
+    custom.parentElement.style.setProperty("--dot", custom.value);
+    d.querySelectorAll("[data-accent-pick]").forEach(b => b.setAttribute("aria-pressed", "false"));
+  });
   const nameBox = $("[data-screen-name]", d);
   if (nameBox) nameBox.addEventListener("change", () => prefs.set("screenName", nameBox.value.trim()));
   d.addEventListener("click", e => {
-    const t = e.target.closest("[data-theme-pick],[data-sub-size],[data-tv-toggle],[data-banner-toggle],[data-trailer-toggle],[data-spoiler-toggle],[data-install-app]"); if (!t) return;
+    const t = e.target.closest("[data-theme-pick],[data-sub-size],[data-tv-toggle],[data-banner-toggle],[data-trailer-toggle],[data-spoiler-toggle],[data-install-app],[data-accent-pick],[data-motion],[data-splash]"); if (!t) return;
+    const pressOnly = (sel) => d.querySelectorAll(sel).forEach(b => b.setAttribute("aria-pressed", b === t));
+    if (t.dataset.accentPick !== undefined) { saveLook("accent", t.dataset.accentPick || null); applyAccent(t.dataset.accentPick); pressOnly("[data-accent-pick]"); return; }
+    if (t.dataset.motion) { saveLook("motion", t.dataset.motion); applyMotion(t.dataset.motion); pressOnly("[data-motion]"); return; }
+    if (t.dataset.splash) { saveLook("splash", t.dataset.splash); applyLook(); pressOnly("[data-splash]"); return; }
     if (t.dataset.installApp && installPrompt) { installPrompt.prompt(); installPrompt.userChoice.finally(() => { installPrompt = null; t.remove(); }); return; }
     if (t.dataset.spoilerToggle) { const on = !prefs.get("noSpoilers", false); prefs.set("noSpoilers", on); t.setAttribute("aria-checked", on); applySpoilers(); return; }
     if (t.dataset.trailerToggle) { const on = prefs.get("trailers", true) === false; prefs.set("trailers", on); t.setAttribute("aria-checked", on);
       if (!on) stopTrailer(); return; }
     if (t.dataset.bannerToggle) { const on = prefs.get("bannerClips", true) === false; prefs.set("bannerClips", on); t.setAttribute("aria-checked", on);
       if (!on) document.querySelectorAll(".hero-clip").forEach(dropClip); return; }
-    if (t.dataset.themePick) { prefs.set("theme", t.dataset.themePick); applyTheme(t.dataset.themePick);
+    if (t.dataset.themePick) { saveLook("theme", t.dataset.themePick); applyTheme(t.dataset.themePick);
       d.querySelectorAll("[data-theme-pick]").forEach(b => b.setAttribute("aria-pressed", b === t)); }
     else if (t.dataset.subSize) { prefs.set("subSize", t.dataset.subSize); applySubSize();
       d.querySelectorAll("[data-sub-size]").forEach(b => b.setAttribute("aria-pressed", b === t)); }
@@ -384,6 +446,22 @@ function watchGrids() {
     else { const g = document.querySelector(`[data-grid="${m.dataset.more}"]`); if (g) g.insertAdjacentHTML("beforeend", (gridRest.get(+m.dataset.more) || []).join("")); m.remove(); }
   });
 }
+/* Lively: a row's cards slide in, one after another, as it comes into view. */
+const railSeen = "IntersectionObserver" in window ? new IntersectionObserver(entries => entries.forEach(en => {
+  if (!en.isIntersecting) return;
+  const r = en.target; r.classList.add("rail-in"); railSeen.unobserve(r);
+  setTimeout(() => r.classList.remove("rail-watch"), 1500);      // done: the cards' own hover and focus effects again
+}), { rootMargin: "0px 0px -8% 0px" }) : null;
+function revealRails(root) {
+  if (!railSeen || motion() !== "lively" || document.documentElement.classList.contains("box-lite")) {
+    (root || document).querySelectorAll(".row:not(.rail-in)").forEach(r => r.classList.add("rail-in")); return;
+  }
+  (root || document).querySelectorAll(".row:not(.rail-in):not(.rail-watch)").forEach(r => {
+    r.classList.add("rail-watch");
+    r.querySelectorAll(".rail > *").forEach((c, i) => c.style.setProperty("--i", Math.min(i, 9)));
+    railSeen.observe(r);
+  });
+}
 function rail(titleText, kind, cards, link) {
   if (!cards.length) return "";
   return `<section class="row"><div class="row-head"><h2>${esc(titleText)}</h2>${link ? `<a href="${link}">See all</a>` : ""}</div>
@@ -483,7 +561,7 @@ function heroClip(slide) {
   clearTimeout(clipTimer);
   document.querySelectorAll(".hero-clip").forEach(v => { if (!slide.contains(v)) dropClip(v); });
   const h = slide.closest(".hero.carousel"); if (h) delete h.dataset.playing;
-  if (REDUCED || !slide.dataset.clip || prefs.get("bannerClips", true) === false) return;
+  if (motion() === "off" || !slide.dataset.clip || prefs.get("bannerClips", true) === false) return;
   clipTimer = setTimeout(() => {
     if (!document.contains(slide) || !slide.classList.contains("on") || Player.isOpen() || document.hidden || slide.querySelector(".hero-clip")) return;
     const v = clipVideo(slide.dataset.clip, true);
@@ -616,24 +694,75 @@ function viewHome() {
   const shortOnes = mix(films.filter(m => !prog(m.id) && minutes(m) && minutes(m) <= 95)
     .concat(shows.filter(s => !lastTouched(s) && s.runtime && s.runtime <= 30))).slice(0, 20);
   const unseenMovies = mix(films.filter(m => !prog(m.id) && !newMovies.includes(m))).slice(0, 20);
-  return appOffer() + heroCarousel() +
-    rail("Continue watching", "wide", cont.map(i => wideCard(i))) +
-    rail("New episodes", "wide", newEps) +
-    rail("Coming up", "posters", shows.filter(s => s.next_air && lastTouched(s) && (new Date(s.next_air.aired + "T12:00:00") - Date.now()) < 31 * 864e5)
+  const rows = {
+    banner: heroCarousel,
+    continue: () => rail("Continue watching", "wide", cont.map(i => wideCard(i))),
+    "new-episodes": () => rail("New episodes", "wide", newEps),
+    "coming-up": () => rail("Coming up", "posters", shows.filter(s => s.next_air && lastTouched(s) && (new Date(s.next_air.aired + "T12:00:00") - Date.now()) < 31 * 864e5)
       .sort((a, b) => a.next_air.aired.localeCompare(b.next_air.aired))
-      .map(s => posterCard(s, epCode({ kind: "episode", s: s.next_air.s, e: s.next_air.e }) + " · " + airDay(s.next_air.aired)))) +
-    rail("Next up", "wide", nextUps) +
-    rail("My List", "posters", myList().map(x => x.seasons ? posterCard(x) : movieCard(x)), "#/mylist") +
-    becauseYouWatched() +
-    rail("Shows", "posters", shows.slice().sort((a, b) => lastTouched(b) - lastTouched(a) || b.added - a.added).slice(0, 30).map(posterCard), "#/shows") +
-    rail("New movies", "posters", newMovies.map(movieCard), "#/movies") +
-    (shortOnes.length >= 4 ? rail("Something short", "posters", shortOnes.map(x => x.seasons ? posterCard(x) : movieCard(x))) : "") +
-    (unseenMovies.length >= 6 ? rail("Movies you haven't seen", "posters", unseenMovies.map(movieCard), "#/movies") : "") +
-    rail("Recently added episodes", "wide", added.map(i => wideCard(i))) +
-    [...genreMap(shows.concat(movies))].filter(([, l]) => l.length >= 3).slice(0, 6).map(([g, l]) =>
+      .map(s => posterCard(s, epCode({ kind: "episode", s: s.next_air.s, e: s.next_air.e }) + " · " + airDay(s.next_air.aired)))),
+    "next-up": () => rail("Next up", "wide", nextUps),
+    "my-list": () => rail("My List", "posters", myList().map(x => x.seasons ? posterCard(x) : movieCard(x)), "#/mylist"),
+    because: becauseYouWatched,
+    shows: () => rail("Shows", "posters", shows.slice().sort((a, b) => lastTouched(b) - lastTouched(a) || b.added - a.added).slice(0, 30).map(posterCard), "#/shows"),
+    "new-movies": () => rail("New movies", "posters", newMovies.map(movieCard), "#/movies"),
+    short: () => shortOnes.length >= 4 ? rail("Something short", "posters", shortOnes.map(x => x.seasons ? posterCard(x) : movieCard(x))) : "",
+    unseen: () => unseenMovies.length >= 6 ? rail("Movies you haven't seen", "posters", unseenMovies.map(movieCard), "#/movies") : "",
+    "recent-episodes": () => rail("Recently added episodes", "wide", added.map(i => wideCard(i))),
+    genres: () => [...genreMap(shows.concat(movies))].filter(([, l]) => l.length >= 3).slice(0, 6).map(([g, l]) =>
       rail(g, "posters", l.slice(0, 20).map(x => x.seasons ? posterCard(x) : movieCard(x)),
-           (l.some(x => x.seasons) && !l.some(x => !x.seasons) ? "#/shows/" : "#/movies/") + encodeURIComponent(g))).join("");
+           (l.some(x => x.seasons) && !l.some(x => !x.seasons) ? "#/shows/" : "#/movies/") + encodeURIComponent(g))).join("")
+  };
+  const { order, hidden } = homeLayout();
+  return appOffer() + order.filter(id => !hidden.has(id)).map(id => rows[id]()).join("") +
+    (session.user.guest ? "" : `<div class="home-edit"><button class="btn ghost" data-home-edit="1">${icon("i-palette")}Arrange Home</button></div>`);
 }
+/* What's on Home, and in which order: each profile's own (on every screen), or Sofa's. The banner stays
+   at the top when it's on. */
+const HOME_ROWS = [["banner", "Featured banner"], ["continue", "Continue watching"], ["new-episodes", "New episodes"],
+  ["coming-up", "Coming up"], ["next-up", "Next up"], ["my-list", "My List"], ["because", "Because you watched…"],
+  ["shows", "Shows"], ["new-movies", "New movies"], ["short", "Something short"], ["unseen", "Movies you haven't seen"],
+  ["recent-episodes", "Recently added episodes"], ["genres", "A row for each genre"]];
+function homeLayout() {
+  const mine = (session && session.user && session.user.prefs && session.user.prefs.home) || {};
+  const known = HOME_ROWS.map(r => r[0]);
+  const order = (mine.order || []).filter((id, i, a) => known.includes(id) && a.indexOf(id) === i && id !== "banner");
+  known.forEach((id, i) => { if (id !== "banner" && !order.includes(id)) order.splice(Math.min(i, order.length), 0, id); });   // rows Sofa added since
+  return { order: ["banner"].concat(order), hidden: new Set(mine.hidden || []) };
+}
+let homeSave = 0;
+function saveHome(layout) {
+  session.user.prefs = Object.assign({}, session.user.prefs, { home: layout ? { order: layout.order, hidden: [...layout.hidden] } : undefined });
+  if (!layout) delete session.user.prefs.home;
+  clearTimeout(homeSave);
+  homeSave = setTimeout(() => api("/api/me/prefs", { home: layout ? session.user.prefs.home : null }).catch(e => toast(e.message)), 400);
+}
+function homeDialog() {
+  const label = id => (HOME_ROWS.find(r => r[0] === id) || [id, id])[1];
+  const list = () => { const { order, hidden } = homeLayout(); return order.map((id, i) => `<li class="home-row${hidden.has(id) ? " off" : ""}">
+      <span class="grip">${i ? i : "★"}</span><b>${esc(label(id))}</b>
+      ${id === "banner" ? `<span class="spacer"></span><span class="spacer"></span>` : `<button class="mini" data-row-move="${id}" data-by="-1" aria-label="Move ${esc(label(id))} up"${i <= 1 ? " disabled" : ""}>↑</button>
+      <button class="mini" data-row-move="${id}" data-by="1" aria-label="Move ${esc(label(id))} down"${i === order.length - 1 ? " disabled" : ""}>↓</button>`}
+      <button class="switch" role="switch" aria-checked="${!hidden.has(id)}" data-row-show="${id}" aria-label="Show ${esc(label(id))}"></button></li>`).join(""); };
+  const d = openDialog(`<h2>Arrange Home</h2><p>What ${esc(session.user.name)} sees on Home, top to bottom, on every screen. Rows with nothing in them don't show.</p>
+    <ol class="home-rows">${list()}</ol>
+    <div class="actions"><button class="btn ghost" data-home-reset="1">Sofa's own</button><button class="btn primary" data-dismiss="1">Done</button></div>`);
+  d.addEventListener("click", e => {
+    const t = e.target.closest("[data-row-move],[data-row-show],[data-home-reset]"); if (!t) return;
+    const lay = homeLayout(), key = t.dataset.rowMove ? `[data-row-move="${t.dataset.rowMove}"][data-by="${t.dataset.by}"]` : t.dataset.rowShow ? `[data-row-show="${t.dataset.rowShow}"]` : "[data-home-reset]";
+    if (t.dataset.homeReset) saveHome(null);
+    else if (t.dataset.rowShow) { const id = t.dataset.rowShow; if (lay.hidden.has(id)) lay.hidden.delete(id); else lay.hidden.add(id); saveHome(lay); }
+    else {
+      const i = lay.order.indexOf(t.dataset.rowMove), j = i + +t.dataset.by;
+      if (j < 1 || j >= lay.order.length) return;
+      [lay.order[i], lay.order[j]] = [lay.order[j], lay.order[i]]; saveHome(lay);
+    }
+    $(".home-rows", d).innerHTML = list();
+    const again = $(key, d); (again && !again.disabled ? again : $("[data-dismiss]", d)).focus();
+    if (location.hash === "#/" || !location.hash) rerender();
+  });
+}
+document.addEventListener("click", e => { if (e.target.closest("[data-home-edit]")) { if (document.querySelector(".dialog-scrim")) history.back(); setTimeout(homeDialog, 60); } });
 /* ---------- Sofa's Fire TV app ----------
    In Silk on a Fire TV: "Install the Sofa app". Sofa keeps the app on its computer and installs it on this
    Fire TV over the home network (it asks once, on the TV). Inside the app: "Update" when Sofa has a newer one. */
@@ -2213,7 +2342,6 @@ function alertBox(msg) { dialog(`<h2>That didn't work</h2><p>${esc(msg)}</p>`); 
 
 /* ---------- router ---------- */
 let enterTimer = 0;
-const REDUCED = matchMedia("(prefers-reduced-motion: reduce)").matches;
 function route(animate) {
   gridRest.clear();
   const trailer = location.hash === trailerHash ? $("video.trailer") : null;     // the same page drawn again: it keeps playing
@@ -2250,7 +2378,8 @@ function route(animate) {
   $("#searchBtn").toggleAttribute("aria-current", nav === "search");
   document.querySelectorAll("[data-nav]").forEach(a => { if (a.dataset.nav === nav) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current"); });
   view.innerHTML = html;
-  if (animate !== false && !REDUCED) {
+  if (animate !== false) revealRails(view); else view.querySelectorAll(".row").forEach(r => r.classList.add("rail-in"));
+  if (animate !== false && motion() !== "off") {
     view.classList.remove("enter"); void view.offsetWidth; view.classList.add("enter");
     clearTimeout(enterTimer); enterTimer = setTimeout(() => view.classList.remove("enter"), 1100);
   }
@@ -2430,7 +2559,7 @@ document.addEventListener("change", e => {
   if (e.target.id === "reportAdult") { $("#reportLink").href = "/api/admin/report" + (e.target.checked ? "?adult=1" : ""); return; }
   const sel = e.target.closest("[data-setting-select]"); if (!sel) return;
   const v = sel.dataset.settingSelect === "max_transcodes" ? +sel.value : sel.dataset.settingSelect === "gentle" ? (sel.value === "auto" ? "auto" : sel.value === "on") : sel.value;
-  adminAction(async () => { await api("/api/admin/settings", { [sel.dataset.settingSelect]: v }); if (sel.dataset.settingSelect === "theme" && prefs.get("theme", null) === null) applyTheme(v); });
+  adminAction(async () => { await api("/api/admin/settings", { [sel.dataset.settingSelect]: v }); if (sel.dataset.settingSelect === "theme") { session.theme = v; applyLook(); } });
 });
 document.addEventListener("submit", e => {
   if (e.target.dataset.quietForm) {
@@ -4151,7 +4280,7 @@ async function boot() {
   $("#navServer").hidden = !session.user.admin;
   $("#navAdult").hidden = !session.user.adult;
   $('[data-nav="live"]').hidden = !!session.user.kids;
-  if (prefs.get("theme", null) === null) applyTheme(session.theme);
+  applyLook();
   $("#whoName").textContent = session.user.name;
   $("#whoAv").outerHTML = avatar(session.user, "whoAv");
   $("#whoBtn").disabled = false;           // the menu also has Theme, Pair a TV and Sign out (all a phone has)
@@ -4234,7 +4363,8 @@ async function boot() {
 })();
 function hideSplash() {
   const sp = $("#splash"); if (!sp) return;
-  setTimeout(() => { sp.classList.add("gone"); setTimeout(() => sp.remove(), 800); }, Math.max(0, 1300 - performance.now()));
+  const wait = sp.classList.contains("quick") ? 0 : Math.max(0, 1300 - performance.now());   // Quick: as soon as Sofa's ready
+  setTimeout(() => { sp.classList.add("gone"); setTimeout(() => sp.remove(), 800); }, wait);
 }
 boot().finally(hideSplash);
 })();

@@ -884,6 +884,10 @@ class Handler(BaseHTTPRequestHandler):
             elif not screens.send(m.group(1), u["id"], cmd, data.get("name")):
                 return self.error(404, "That screen isn't open any more.")
             return self.json({"ok": True})
+        if path == "/api/me/prefs":                  # this profile's Home rows and look, on every screen
+            if u.get("guest"):
+                return self.error(403, "Guests can't keep choices.")
+            return self.json({"prefs": auth.save_prefs(u["id"], data)})
         m = re.match(r"^/api/progress/(.+)$", path)
         if m:
             item_id = m.group(1)
