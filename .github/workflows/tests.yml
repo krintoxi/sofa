@@ -12,10 +12,8 @@ jobs:
         python: ["3.9", "3.12"]          # 3.9: what macOS Ventura and Monterey come with
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
-        with:
-          python-version: ${{ matrix.python }}
+      - uses: astral-sh/setup-uv@v6
       - name: Run the tests
-        run: python -W ignore -m unittest discover -s tests -t . -v
+        run: uv run --no-project --python ${{ matrix.python }} python -W ignore -m unittest discover -s tests -t . -v
       - name: Check the web app's JavaScript
         run: node --check client/app.js
