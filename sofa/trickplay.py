@@ -18,7 +18,7 @@ import subprocess
 import threading
 import time
 
-from . import config, media, store
+from . import config, machine, media, store
 
 CACHE = os.path.join(config.DATA_DIR, "cache", "trickplay")
 INTERVAL, COLS, ROWS, WIDTH = 10, 8, 8, 320
@@ -104,7 +104,7 @@ def _next(library):
     with _lock:
         if _urgent:
             return _urgent.pop(0)
-    if media.should_wait():
+    if media.should_wait() or not machine.heavy_ok():       # gentle mode: ahead of time only in the quiet hours
         return None
     for item in list(library.items.values()):
         if item["kind"] in ("episode", "movie") and item["path"] not in _failed and not meta(item):

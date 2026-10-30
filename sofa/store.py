@@ -82,8 +82,22 @@ def ex(sql, *args):
     return cur
 
 
+# ---------------------------------------------------------------- logs, and keeping none
+
+problems_unlogged = [0]       # problems while no logs are kept: only how many, never what
+
+
+def no_logs():
+    """Server → Privacy, "Keep no logs": nothing about what happens on this server is written anywhere."""
+    return bool(config.get("no_logs"))
+
+
 def log(kind, message, detail=None):
     """Activity shown on the admin page: inbox moves, scans, logins, problems."""
+    if no_logs():
+        if kind == "error":
+            problems_unlogged[0] += 1
+        return
     ex("INSERT INTO activity (at, kind, message, detail) VALUES (?,?,?,?)",
        int(time.time()), kind, message, json.dumps(detail) if detail is not None else None)
     ex("DELETE FROM activity WHERE id < (SELECT MAX(id) - 2000 FROM activity)")
@@ -97,7 +111,7 @@ def log_private(kind, message, detail=None):
     (file names, where they went, why) go to data/logs/private.jsonl, which only a report an admin
     asks for with "Include Adult details" contains."""
     log(kind, message, {"private": True})
-    if detail:
+    if detail and not no_logs():
         try:
             os.makedirs(os.path.dirname(PRIVATE_LOG), exist_ok=True)
             if os.path.exists(PRIVATE_LOG) and os.path.getsize(PRIVATE_LOG) > 5 * 1024 * 1024:
@@ -106,6 +120,42 @@ def log_private(kind, message, detail=None):
                 f.write(json.dumps({"at": int(time.time()), "kind": kind, "message": message, "detail": detail}) + "\n")
         except OSError:
             pass
+
+
+LOG_FILES = ("sofa.log", "selftest.log", os.path.join("logs", "private.jsonl"), os.path.join("logs", "private.jsonl.1"))
+
+
+def wipe_logs():
+    """Erase every log Sofa keeps, so nothing can be read back: the activity list, the Adult details log,
+    the server log (data/sofa.log), finished downloads and conversions (with their titles and links), the
+    addresses and devices signed-in sessions came from, and the same in the backups. The database file is
+    rewritten so the erased rows can't be recovered from it either."""
+    conn = db()
+    conn.execute("PRAGMA secure_delete=ON")        # erased rows are overwritten, not just marked free
+    conn.execute("DELETE FROM activity")
+    conn.execute("UPDATE sessions SET ip = NULL, agent = NULL")
+    for sql in ("DELETE FROM downloads WHERE state NOT IN ('queued', 'working')",
+                "DELETE FROM conversions WHERE state NOT IN ('queued', 'working')"):
+        try:
+            conn.execute(sql)
+        except sqlite3.OperationalError:
+            pass                                  # that part of Sofa hasn't been used here
+    conn.commit()
+    try:
+        conn.execute("VACUUM")                    # rewrite the file without the free pages
+        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    except sqlite3.OperationalError:
+        pass                                      # busy: the rows are already overwritten (secure_delete)
+    for rel in LOG_FILES:
+        path = os.path.join(config.DATA_DIR, rel)
+        try:
+            if rel == "sofa.log":
+                open(path, "w").close()           # the service keeps it open: empty it rather than remove it
+            else:
+                os.remove(path)
+        except OSError:
+            pass
+    problems_unlogged[0] = 0
 
 
 def scrub_private(folders):

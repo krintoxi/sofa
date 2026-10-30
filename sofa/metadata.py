@@ -58,7 +58,9 @@ def _cached(key, fetch):
         return None
     try:
         data = fetch()
-    except Exception:  # offline, not found, rate limited: try again tomorrow
+    except net.Offline:  # no internet: nothing learned, ask again when it's back
+        return None
+    except Exception:  # not found, rate limited: try again tomorrow
         data = None
     data = data or {"_miss": time.time()}
     with open(path, "w", encoding="utf-8") as f:
@@ -162,13 +164,30 @@ def search_shows(query):
     return out
 
 
+# TVmaze keeps what kind of show it is apart from its genres: Futurama and Adventure Time are both
+# "Animation" there. The kinds people browse by become genres too.
+SHOW_TYPES = {"Animation": "Animation", "Documentary": "Documentary", "Reality": "Reality", "Talk Show": "Talk Show",
+              "Game Show": "Game Show", "Sports": "Sports", "News": "News"}
+
+
+def show_genres(show):
+    genres = list(show.get("genres") or [])
+    kind = SHOW_TYPES.get(show.get("type") or "")
+    if kind == "Animation" and (show.get("language") == "Japanese" or
+                                ((show.get("network") or show.get("webChannel") or {}).get("country") or {}).get("code") == "JP"):
+        kind = "Anime"
+    if kind and kind not in genres:
+        genres.append(kind)
+    return genres
+
+
 def show_info(show):
     """The parts of a TVmaze show Sofa displays."""
     images = (show.get("_embedded") or {}).get("images") or []
     background = next((i for i in images if i.get("type") == "background" and i.get("main")), None) \
         or next((i for i in images if i.get("type") == "background"), None)
     return {
-        "summary": strip_html(show.get("summary")), "genres": show.get("genres") or [],
+        "summary": strip_html(show.get("summary")), "genres": show_genres(show),
         "premiered": show.get("premiered"), "ended": show.get("ended"),
         "network": (show.get("network") or show.get("webChannel") or {}).get("name"),
         "rating": (show.get("rating") or {}).get("average"), "runtime": show.get("averageRuntime"),

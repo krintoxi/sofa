@@ -25,7 +25,7 @@ import threading
 import time
 from array import array
 
-from . import config, media, store
+from . import config, machine, media, store
 
 INTRO_WINDOW = 600          # seconds at the start of an episode to look in
 CREDITS_WINDOW = 300        # seconds at the end
@@ -300,7 +300,7 @@ def _loop(library):
                 for key, (sig, eps) in seasons.items():
                     if _urgent:
                         break                            # someone started something: go back and do that first
-                    while media.should_wait() and not _urgent:
+                    while (media.should_wait() or not machine.heavy_ok()) and not _urgent:
                         time.sleep(30)
                     _analyze(key, sig, eps)
                 if _urgent:

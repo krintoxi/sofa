@@ -14,10 +14,10 @@ import subprocess
 import threading
 import time
 
-from . import config, media, store
+from . import config, machine, media, store
 
 CACHE = os.path.join(config.DATA_DIR, "cache", "previews")
-VERSION = "v1"
+VERSION = "v2"                                # v2: made with x264 (VideoToolbox drew lines on some old Macs)
 HEIGHT, HD_HEIGHT, PART = 360, 720, 3.0       # HD: for the big banner on Home
 _urgent = []
 _lock = threading.Lock()
@@ -82,10 +82,10 @@ def make(item, background=False, hd=False):
                   for n in range(len(parts))]
         graph = ";".join(chains) + ";" + "".join("[v%d]" % n for n in range(len(parts))) + \
             "concat=n=%d:v=1:a=0[out]" % len(parts)
-        if "h264_videotoolbox" in media.encoders():
-            enc = ["-c:v", "h264_videotoolbox", "-allow_sw", "1", "-b:v", "2600k" if hd else "700k"]
+        if "libx264" in media.encoders():
+            enc = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "25" if hd else "28"]      # small clips: x264 is cheap and always right
         else:
-            enc = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "25" if hd else "28"]
+            enc = ["-c:v", "h264_videotoolbox", "-allow_sw", "1", "-b:v", "2600k" if hd else "700k"]
         os.makedirs(CACHE, exist_ok=True)
         dest = os.path.join(CACHE, _name(path, hd))
         tmp = dest + ".part.mp4"
@@ -170,7 +170,7 @@ def _next(library):
     with _lock:
         if _urgent:
             return _urgent.pop(0)
-    if media.should_wait():
+    if media.should_wait() or not machine.heavy_ok():       # gentle mode: ahead of time only in the quiet hours
         return None
     for item in _wanted(library):
         if item["path"] not in _failed and not clip(item):

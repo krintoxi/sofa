@@ -72,7 +72,12 @@ On Linux:
 systemctl --user restart sofa
 ```
 
-The log is `~/Sofa/data/sofa.log` (Mac) or `journalctl --user -u sofa` (Linux).
+The log is `~/Sofa/data/sofa.log` (Mac) or `journalctl --user -u sofa` (Linux). It stays empty
+with **Keep no logs** on ([privacy.md](privacy.md)).
+
+Sofa needs no internet to run or to watch: once it's installed (with ffmpeg), every device at
+home can use it with the internet down. Only the install itself, ffmpeg and yt-dlp downloads,
+updates and lookups use the internet.
 
 ## Something's wrong
 

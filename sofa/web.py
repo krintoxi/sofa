@@ -16,7 +16,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 import threading
 
 from . import (__version__, artwork, auth, backup, config, dlna, fetch, housekeeping, intros, live, media, metadata, music,
-               net, optimize, organizer, places, previews, report, store, trickplay, updater)
+               machine, net, optimize, organizer, places, previews, report, store, trickplay, updater)
 from .library import LIBRARY
 
 CLIENT_DIR = os.path.join(config.APP_DIR, "client")
@@ -27,7 +27,8 @@ MIME = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=ut
         ".mp4": "video/mp4", ".m4v": "video/mp4", ".mov": "video/quicktime", ".mkv": "video/x-matroska",
         ".webm": "video/webm", ".avi": "video/x-msvideo", ".mp3": "audio/mpeg", ".m4a": "audio/mp4", ".aac": "audio/aac",
         ".flac": "audio/flac", ".wav": "audio/wav", ".ogg": "audio/ogg", ".oga": "audio/ogg", ".opus": "audio/ogg",
-        ".wma": "audio/x-ms-wma", ".aif": "audio/aiff", ".aiff": "audio/aiff", ".alac": "audio/mp4"}
+        ".wma": "audio/x-ms-wma", ".aif": "audio/aiff", ".aiff": "audio/aiff", ".alac": "audio/mp4",
+        ".woff2": "font/woff2", ".txt": "text/plain; charset=utf-8"}
 HOME_NETS = ("local", "lan", "tailnet")
 
 
@@ -239,8 +240,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_body("Not found", status=404)
         with open(full, "rb") as f:
             data = f.read()
-        self.send_body(data, MIME.get(os.path.splitext(full)[1].lower(), "application/octet-stream"),
-                       headers={"Cache-Control": "no-cache"})
+        self.send_body(data, MIME.get(os.path.splitext(full)[1].lower(), "application/octet-stream"),   # bundled fonts and libraries: kept a week
+                       headers={"Cache-Control": "private, max-age=604800" if rel.startswith("vendor" + os.sep) else "no-cache"})
 
     def art(self, rest, qs):
         if not self.user() and self.network() not in HOME_NETS:   # TVs fetch artwork without signing in
@@ -306,7 +307,7 @@ class Handler(BaseHTTPRequestHandler):
         tok = self.token()
         return ("web:" + auth._token_key(tok)[:16]) if tok else "tv:" + self.client_ip()
 
-    def stream(self, item, mode, start, who, dlna_headers=False, audio_index=None):
+    def stream(self, item, mode, start, who, dlna_headers=False, audio_index=None, max_height=None):
         info = media.probe(item["path"])
         fmt = "mpegts" if dlna_headers else "mp4"   # TVs handle MPEG-TS streams most reliably
         self.send_response(200)
@@ -321,7 +322,8 @@ class Handler(BaseHTTPRequestHandler):
         if self.command == "HEAD":
             return
         try:
-            media.run_stream(item, mode, start, info, self.wfile, who, fmt, owner=self.owner(), audio_index=audio_index)
+            media.run_stream(item, mode, start, info, self.wfile, who, fmt, owner=self.owner(), audio_index=audio_index,
+                             max_height=max_height)
         except (RuntimeError, OSError):
             pass
 
@@ -447,7 +449,8 @@ class Handler(BaseHTTPRequestHandler):
             f = trickplay.sheet(item, int(m.group(4)))
             return self.send_file(f, cache="private, max-age=604800") if f else self.send_body("Not found", status=404)
         if kind == "file":
-            media.note_direct(item, u["name"])
+            if (qs.get("trailer") or [""])[0] != "1":         # a trailer on a title's page isn't "watching"
+                media.note_direct(item, u["name"])
             return self.send_file(item["path"])
         if kind == "stream":
             mode = (qs.get("mode") or ["remux"])[0]
@@ -456,7 +459,9 @@ class Handler(BaseHTTPRequestHandler):
             if not media.tool("ffmpeg"):
                 return self.error(503, "This server can't convert video yet (ffmpeg isn't installed).")
             audio = (qs.get("audio") or [""])[0]
-            return self.stream(item, mode, max(0.0, start), u["name"], audio_index=int(audio) if audio.isdigit() else None)
+            who = u["name"] + (" (trailer)" if (qs.get("trailer") or [""])[0] == "1" else "")
+            return self.stream(item, mode, max(0.0, start), who, audio_index=int(audio) if audio.isdigit() else None,
+                               max_height=int(qs["h"][0]) if (qs.get("h") or [""])[0] in ("480", "720", "1080") else None)
         tracks = media.subtitle_tracks(item, media.probe(item["path"]))
         n = int(m.group(3))
         if n >= len(tracks):
@@ -471,6 +476,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/session":
             u = self.user()
             return self.json({"name": config.get("name"), "version": __version__, "user": u, "theme": config.get("theme"),
+                              "offline": net.offline_mode(),
                               "needs_setup": auth.user_count() == 0, "network": self.network(),
                               "remote": config.get("remote"), "guest_available": bool(self.guest_ok()),
                               "profiles": self.may_switch(u) and len(auth.profiles())})
@@ -515,7 +521,8 @@ class Handler(BaseHTTPRequestHandler):
                                   "url": "/media/%s/%s" % (item["id"], "file" if direct else "stream?mode=audio"),
                                   "subtitles": []})
             p = media.plan(item, caps)
-            if item["kind"] == "episode":
+            trailer = (qs.get("trailer") or [""])[0] == "1"
+            if item["kind"] == "episode" and not trailer:
                 intros.want(item)
                 trickplay.want(item)
             base = "/media/%s/" % item["id"]
@@ -530,6 +537,10 @@ class Handler(BaseHTTPRequestHandler):
             if p["mode"] == "unsupported":
                 out["message"] = ("This file needs converting to play here, and ffmpeg isn't installed on the "
                                   "server yet. An admin can install it from the Server page.")
+            # A trailer on a title's page: the file as it is, or repackaged on the fly (cheap); converting it
+            # would load a slow server for a few minutes of background, so the short preview clip plays instead.
+            out["trailer"] = ("direct" if p["mode"] == "direct" else "stream" if p["mode"] == "remux" or
+                              (p["mode"] == "transcode" and not machine.gentle() and not media.should_wait()) else "clip")
             return self.json(out)
         m = re.match(r"^/api/hls/(.+)$", path)
         if m:
@@ -543,7 +554,8 @@ class Handler(BaseHTTPRequestHandler):
                 sid = media.hls_start(item, mode if mode in ("remux", "transcode") else "remux",
                                       max(0.0, float((qs.get("t") or ["0"])[0] or 0)), u["name"],
                                       replace=(qs.get("replace") or [None])[0], owner=self.owner(),
-                                      audio_index=int(qs["audio"][0]) if (qs.get("audio") or [""])[0].isdigit() else None)
+                                      audio_index=int(qs["audio"][0]) if (qs.get("audio") or [""])[0].isdigit() else None,
+                                      max_height=int(qs["h"][0]) if (qs.get("h") or [""])[0] in ("480", "720", "1080") else None)
             except RuntimeError:
                 return self.error(503, "The server is busy converting other videos for other people. Try again in a moment.")
             except OSError as exc:
@@ -697,6 +709,9 @@ class Handler(BaseHTTPRequestHandler):
                 threading.Thread(target=LIBRARY.scan, args=("looking up details again",), daemon=True).start()
                 return self.json({"ok": True, "forgotten": n})
             return self.json(dict(housekeeping.usage(max_age=0), ok=True))
+        if path == "/api/admin/machine":              # test this computer's video conversion again
+            threading.Thread(target=machine.measure, kwargs={"force": True}, daemon=True).start()
+            return self.json({"ok": True})
         if path == "/api/admin/storage":              # drives: use one, stop using it, file new things there, move a title
             try:
                 if data.get("add"):
@@ -854,6 +869,8 @@ class Handler(BaseHTTPRequestHandler):
                 optimize.cancel(optimize.path_of(data["cancel"]))
             if data.get("clear"):
                 optimize.clear_finished()
+            if data.get("redo_damaged"):
+                optimize.damaged_redo()
             return self.json({"ok": True})
         if path == "/api/admin/downloads":
             try:
@@ -947,13 +964,17 @@ class Handler(BaseHTTPRequestHandler):
             allowed = {k: data[k] for k in ("name", "dlna", "tvmaze", "tmdb_api_key", "theporndb_api_key", "max_transcodes",
                                             "guest_access", "auto_convert", "keep_originals", "tidy_library",
                                             "free_movie_lookup", "theme", "detect_intros", "trickplay", "previews",
-                                            "ytdlp_cookies") if k in data}
+                                            "ytdlp_cookies", "gentle", "quiet_hours", "offline", "no_logs") if k in data}
+            if "gentle" in allowed and allowed["gentle"] not in (True, False, "auto"):
+                allowed.pop("gentle")
+            if "quiet_hours" in allowed and not re.match(r"^([01]\d|2[0-3]):[0-5]\d-([01]\d|2[0-3]):[0-5]\d$", str(allowed["quiet_hours"])):
+                return self.error(400, "Quiet hours look like 01:00-07:00.")
             if "ytdlp_cookies" in allowed and allowed["ytdlp_cookies"] not in fetch.BROWSERS + ("file", ""):
                 allowed.pop("ytdlp_cookies")
             if "name" in allowed:
                 allowed["name"] = str(allowed["name"]).strip()[:40] or "Sofa"
             for k in ("dlna", "tvmaze", "guest_access", "auto_convert", "keep_originals", "tidy_library", "free_movie_lookup",
-                      "detect_intros", "trickplay", "previews"):
+                      "detect_intros", "trickplay", "previews", "offline", "no_logs"):
                 if k in allowed:
                     allowed[k] = bool(allowed[k])
             for k in ("tmdb_api_key", "theporndb_api_key"):
@@ -969,9 +990,19 @@ class Handler(BaseHTTPRequestHandler):
                 threading.Thread(target=LIBRARY.scan, args=("lookup settings changed",), daemon=True).start()
             if allowed.get("auto_convert"):
                 threading.Thread(target=optimize.auto_enqueue, args=(LIBRARY,), daemon=True).start()
+            if allowed.get("offline") is False and net.offline_mode():
+                threading.Thread(target=LIBRARY.scan, args=("back online",), daemon=True).start()   # look up what was missed
             config.update(allowed)
             store.log("settings", "%s changed settings: %s" % (u["name"], ", ".join(sorted(allowed))))
             return self.json({"ok": True, "settings": public_settings()})
+        if path == "/api/admin/privacy":
+            if data.get("wipe"):                  # erase every log, here and in the backups
+                store.wipe_logs()
+                cleaned = backup.scrub_logs()
+                if not store.no_logs():
+                    store.log("settings", "%s wiped all logs" % u["name"])
+                return self.json({"ok": True, "backups": cleaned})
+            return self.error(400, "Nothing to do.")
         self.error(404, "Unknown request.")
 
     def visible_item(self, item_id, user):
@@ -1017,6 +1048,9 @@ def admin_status():
                         deleted_folder=organizer.deleted_root().replace(os.path.expanduser("~"), "~", 1),
                         cache=housekeeping.usage()),
         "internet_problem": net.last_error.get("message") if time.time() - net.last_error.get("at", 0) < 86400 else None,
+        "privacy": {"no_logs": store.no_logs(), "offline": net.offline_mode(), "online": net.online(),
+                    "problems_unlogged": store.problems_unlogged[0]},
+        "machine": machine.status(),
         "convert": optimize.status(),
         "update": updater.status(),
         "encoder": "Apple hardware (VideoToolbox)" if media.hardware_encoder() else

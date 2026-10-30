@@ -31,6 +31,7 @@ ART = {"poster": ("folder.jpg", "poster.jpg", "folder.png", "poster.png", "cover
 ART_DOWNLOADS_PER_SCAN = 250       # per scan; the watcher scans again until everything has its artwork
 EPISODE_STILLS_PER_SCAN = 120      # episode pictures taken from the video: slower, so a separate allowance
 STILLS = os.path.join(config.DATA_DIR, "cache", "stills.json")   # adult pictures already taken from the middle
+FIRST_SEEN = os.path.join(config.DATA_DIR, "cache", "first-seen.json")   # item -> when Sofa first saw it
 EXTRAS_DIRS = ("extras", "featurettes", "behind the scenes", "trailers", "bonus", "deleted scenes")
 SERIES_DIRS = ("shows", "series", "tv", "tv shows", "tv series")
 NOT_CATEGORIES = ("metadata", "performers")
@@ -88,6 +89,7 @@ class Library:
         self.dirs = {}          # show/movie id -> its folder (for fixing artwork); never sent to browsers
         self.known_performers = set()
         self.art_pending = False
+        self.art_waiting = False         # gentle mode: more pictures to take in the quiet hours
         self._art_failed = set()           # addresses and files that didn't work this session: don't retry every scan
         self.music = {"tracks": [], "albums": [], "artists": [], "videos": []}
         self.generated = 0      # 0 until the first read after starting has finished
@@ -99,6 +101,8 @@ class Library:
         self._problems = []
         self.last_problems = []
         self._stills = {}       # picture -> when Sofa took it from the video, or "keep" (it isn't one of Sofa's)
+        self._first = None      # item -> when it arrived ("added"): moving it to a drive doesn't make it new
+        self._first_changed = False
         self._redo = {}         # "all" or a show/movie id -> when an admin asked for new pictures
 
     # ------------------------------------------------------------ public views
@@ -214,9 +218,10 @@ class Library:
         started = time.time()
         try:
             signature = self.current_signature()
-            self._downloads = self._stills_made = 0
+            self._downloads = self._stills_made = self._gentle_grabs = 0
             self._problems = []
             self._load_stills()
+            self._load_first_seen()
             self._dirs = {}
             self._renames = {}
             self._known = set(self.known_performers)
@@ -250,9 +255,13 @@ class Library:
                 self.known_performers = self._known
                 self.generated = int(time.time())
                 self.signature = None if quick else signature     # a quick read is always followed by a full one
+            from . import machine
+            heavy = machine.heavy_ok()
             self.art_pending = not quick and (self._downloads > ART_DOWNLOADS_PER_SCAN
-                                              or self._stills_made > EPISODE_STILLS_PER_SCAN)
+                                              or (heavy and self._stills_made > EPISODE_STILLS_PER_SCAN))
+            self.art_waiting = not quick and not heavy and (self._stills_made > 15 or self._gentle_grabs > 25)
             self._save_stills()
+            self._save_first_seen()
             self._migrate_ids()
             self.last_scan_seconds = round(time.time() - started, 1)
             if not quick:
@@ -340,6 +349,26 @@ class Library:
             data = {"files": data, "redo": {}}
         self._stills, self._redo = data["files"], data.get("redo") or {}
 
+    def _load_first_seen(self):
+        if self._first is not None:
+            return
+        try:
+            with open(FIRST_SEEN, encoding="utf-8") as f:
+                self._first, self._first_boot = json.load(f), False
+        except (OSError, ValueError):
+            self._first, self._first_boot = {}, True       # the first time: each file's own date, as before
+
+    def _save_first_seen(self):
+        if not self._first_changed:
+            return
+        try:
+            with open(FIRST_SEEN + ".part", "w", encoding="utf-8") as f:
+                json.dump(self._first, f)
+            os.replace(FIRST_SEEN + ".part", FIRST_SEEN)
+            self._first_changed, self._first_boot = False, False
+        except OSError:
+            pass
+
     def _save_stills(self):
         try:
             os.makedirs(os.path.dirname(STILLS), exist_ok=True)
@@ -402,8 +431,15 @@ class Library:
         stem, ext = os.path.splitext(name)
         thumb, subs = self.sidecars(directory, stem)
         info = media.probe(path, cached_only=True) or {}
+        # "added": when Sofa first saw it. Something new counts from when it arrived here (a copied file
+        # keeps its old date; the change time doesn't), and moving it to another drive later doesn't change it.
+        added = (self._first or {}).get(item_id)
+        if added is None:
+            added = int(st.st_mtime if self._first is None or self._first_boot else max(st.st_mtime, st.st_ctime))
+            if self._first is not None:
+                self._first[item_id], self._first_changed = added, True
         return {"id": item_id, "kind": kind, "ext": ext.lower()[1:], "size": st.st_size,
-                "added": int(st.st_mtime), "thumb_path": thumb, "subs": subs, "path": path,
+                "added": added, "thumb_path": thumb, "subs": subs, "path": path,
                 "duration": round(info["duration"]) if info.get("duration") else None,
                 "height": (info.get("video") or {}).get("height")}
 
@@ -427,7 +463,8 @@ class Library:
             return False
         if episode:
             self._stills_made += 1
-            return self._stills_made <= EPISODE_STILLS_PER_SCAN
+            from . import machine
+            return self._stills_made <= (EPISODE_STILLS_PER_SCAN if machine.heavy_ok() else 15)
         self._downloads += 1
         return self._downloads <= ART_DOWNLOADS_PER_SCAN
 
@@ -461,6 +498,11 @@ class Library:
         if self.quick or video in self._art_failed or not media.tool("ffmpeg") or not self._ready(dest) \
                 or not self._budget(episode):
             return False
+        from . import machine
+        if not machine.heavy_ok():                 # gentle mode, daytime: a few now, the rest in the quiet hours
+            self._gentle_grabs += 1
+            if self._gentle_grabs > 25:
+                return False
         info = media.probe(video, cached_only=True) or media.probe(video) or {}
         at = max(12.0, (info.get("duration") or 0) * where)
         if media.extract_frame(video, dest, at):
@@ -481,6 +523,11 @@ class Library:
             self._stills[target] = int(time.time())
             return target
         return art
+
+    def _is_still(self, art):
+        """A picture Sofa took from the video (not a cover from a service or from you)."""
+        mark = self._stills.get(art) if art else None
+        return mark is not None and mark != "keep"
 
     def _replaceable(self, art, video, owner, auto):
         if self.quick:
@@ -673,7 +720,7 @@ class Library:
             backdrop = os.path.join(show_dir, "backdrop.jpg")
         if episodes and (adult or not show_meta):
             poster = self._video_still(episodes[0][1], poster, os.path.join(show_dir, "folder.jpg"), 0.5 if adult else 0.15,
-                                       show_id, auto=adult)
+                                       show_id, auto=True)
 
         seasons = {}
         seen = set()
@@ -697,7 +744,7 @@ class Library:
                 item["thumb_path"] = dest
             else:
                 item["thumb_path"] = self._video_still(path, item["thumb_path"], dest, 0.5 if adult else 0.3, show_id,
-                                                       auto=adult, episode=not adult)
+                                                       auto=adult or not show_meta, episode=not adult)
             item.update(show_id=show_id, show_name=name, s=ep["s"], e=ep["e"], e2=ep.get("e2"), adult=adult,
                         title=meta.get("title") or _tidy_title(ep.get("title")), summary=meta.get("summary"),
                         aired=meta.get("aired"), runtime=meta.get("runtime"))
@@ -726,6 +773,7 @@ class Library:
         self._dirs[show_id] = show_dir
         added = max([i["added"] for i in items.values() if i.get("show_id") == show_id] or [0])
         show = {"id": show_id, "name": name, "added": added, "adult": adult, "folder": folder, "place": art_key.partition("~")[2],
+                "poster_still": self._is_still(poster),
                 "poster": self.art_url(art_key, poster), "backdrop": self.art_url(art_key, backdrop),
                 "logo": self.art_url(art_key, self.find_art(show_dir, "logo")),
                 "seasons": [{"n": n, "poster": self.art_url(art_key, season_art.get(n)),
@@ -824,10 +872,10 @@ class Library:
             current = poster or item["thumb_path"]
             if not current and meta.get("poster_url") and self._fetch_art(meta["poster_url"], dest):
                 art = dest
-            elif current and adult and (side or meta.get("poster_url")):
-                art = current                       # it came with the video: keep it
+            elif current and (side or meta.get("poster_url")):
+                art = current                       # it came with the video, or from a service: keep it
             else:
-                art = self._video_still(path, current, dest, 0.5 if adult else 0.15, item_id, auto=adult)
+                art = self._video_still(path, current, dest, 0.5 if adult else 0.15, item_id, auto=True)
             if art and directory:
                 poster = art
             elif art:
@@ -841,7 +889,8 @@ class Library:
             items[item_id] = item
             self._dirs[item_id] = directory
             out = {k: v for k, v in item.items() if k not in PRIVATE}
-            out.update(place=art_key.partition("~")[2], poster=self.art_url(art_key, poster or item["thumb_path"]),
+            out.update(place=art_key.partition("~")[2], poster_still=self._is_still(poster or item["thumb_path"]),
+                       poster=self.art_url(art_key, poster or item["thumb_path"]),
                        backdrop=self.art_url(art_key, backdrop),
                        logo=self.art_url(art_key, self.find_art(directory, "logo") if directory else None),
                        file=os.path.basename(path), subs=len(item["subs"]))

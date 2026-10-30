@@ -4,7 +4,7 @@ import os
 import threading
 import time
 
-from . import artwork, backup, fetch, intros, live, media, optimize, organizer, previews, store, trickplay, updater
+from . import artwork, backup, fetch, intros, live, machine, media, optimize, organizer, previews, store, trickplay, updater
 from .library import LIBRARY
 
 INTERVAL = 20
@@ -39,7 +39,7 @@ def _watch():
             elif LIBRARY.changed():
                 LIBRARY.scan("files changed")
                 _after_scan()
-            elif LIBRARY.art_pending:                 # more artwork to fetch than one scan does
+            elif LIBRARY.art_pending or (LIBRARY.art_waiting and machine.heavy_ok()):   # more artwork than one scan does
                 LIBRARY.scan("fetching more artwork")
                 _warm()
         except Exception as exc:   # keep watching whatever happens
@@ -92,3 +92,4 @@ def start():
     fetch.start()
     trickplay.start(LIBRARY)
     previews.start(LIBRARY)
+    machine.start()

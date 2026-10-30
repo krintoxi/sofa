@@ -82,6 +82,14 @@ DEFAULTS = {
     # Make the small pictures shown above the seek bar while scrubbing.
     "trickplay": True,
     "previews": True,
+    # Gentle mode for older computers: "auto" (on when Sofa finds the computer slow), true or false.
+    # Video converted while you watch is then 720p at most, and heavy background work waits for the quiet hours.
+    "gentle": "auto",
+    "quiet_hours": "01:00-07:00",
+    # Offline: never use the internet (no details or artwork lookups, update checks, downloads or channel lists).
+    "offline": False,
+    # Keep no logs: nothing about what happens on this server is written anywhere (activity, server log, histories).
+    "no_logs": False,
     # Downloads from sites that want a sign-in or an age check: "safari", "chrome", "firefox", ... (that browser's
     # session on this computer), "file" (data/bin/cookies.txt), or "" for none.
     "ytdlp_cookies": "",          # hover previews: short silent clips, made as they're needed
