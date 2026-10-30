@@ -254,8 +254,12 @@ deleted. More: [docs/folder-structure.md](docs/folder-structure.md).
   episode on a 2011 iMac, say), the player waits once for a few seconds of video instead of stopping
   every few seconds, then makes the picture a little smaller; Sofa remembers, and starts the next
   one like it at that size. Server → Overview → Watching now shows how fast it's converting.
-- **Themes.** Press **Theme** at the top: Midnight, Cinema, Ocean, Forest, Grape or Pure black,
-  plus subtitle size and TV mode. Each device keeps its own.
+- **Make it yours.** Press **Theme** at the top (on a TV: behind your profile picture): Midnight,
+  Cinema, Ocean, Forest, Grape or Pure black, an **accent colour** of your own, **animations**
+  (Lively, with rows sliding in as you scroll; Calm; or Off), the **loading screen** (Sofa's, Quick
+  or None), subtitle size and TV mode. **Arrange Home** (there, or at the bottom of Home) picks which
+  rows Home shows and in which order. Your choices follow you to every screen you sign in on; a
+  device can still pick its own.
 - **TVs.** On Fire TV, open Sofa in the **Silk** browser: it switches to TV mode (the whole menu
   fits, with Search and your profile at the end), and the remote works like Netflix (OK on Skip
   Intro skips, ◀ ▶ seek with a preview, Back closes panels first). Roku Media Player, VLC and most

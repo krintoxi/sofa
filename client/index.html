@@ -26,6 +26,9 @@
   <div class="splash-bar"><i></i></div>
   <p class="splash-by">Project by <b>EdgeVenture.uk</b></p>
 </div>
+<script>/* the loading screen this person chose (Look and feel): Sofa's, quick, or none */
+try { var sp = JSON.parse(localStorage.getItem("sofa.splashBoot")), el = document.getElementById("splash");
+  if (sp === "off") el.parentNode.removeChild(el); else if (sp === "quick") el.className = "quick"; } catch (e) {}</script>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
   <symbol id="i-play" viewBox="0 0 24 24"><path fill="currentColor" d="M8 5.5v13a1 1 0 0 0 1.5.86l10.6-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"/></symbol>
   <symbol id="i-pause" viewBox="0 0 24 24"><path fill="currentColor" d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z"/></symbol>

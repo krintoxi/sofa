@@ -46,6 +46,7 @@ MIGRATIONS = [
     "ALTER TABLE users ADD COLUMN pin TEXT",
     "ALTER TABLE users ADD COLUMN avatar INTEGER NOT NULL DEFAULT -1",
     "ALTER TABLE users ADD COLUMN kids INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE users ADD COLUMN prefs TEXT",          # a profile's own choices: Home's rows, its look (JSON)
 ]
 
 

@@ -1316,3 +1316,31 @@ html.standalone .player .p-bottom { padding-bottom: max(16px, env(safe-area-inse
 .box-net[aria-pressed="true"] { border-color: var(--amber); }
 .row-btns { display: flex; gap: 10px; flex-wrap: wrap; }
 @media (max-width: 760px) { .box-boot { grid-template-columns: 1fr; } }
+
+/* Your own look: accent colours, animations, Home's rows */
+.accents { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 6px; }
+.accent-dot { position: relative; width: 34px; height: 34px; border-radius: 50%; padding: 0; background: var(--dot);
+  border: 2px solid transparent; box-shadow: inset 0 0 0 1px rgba(255,255,255,.18); transition: transform .2s ease; }
+.accent-dot:hover, .accent-dot:focus-visible { transform: scale(1.12); }
+.accent-dot[aria-pressed="true"] { border-color: var(--paper); box-shadow: 0 0 0 3px rgba(var(--accent-rgb), .45); }
+.accent-dot.theme-own { background: linear-gradient(135deg, rgba(var(--paper-rgb), .12) 50%, rgba(var(--paper-rgb), .32) 50%); }
+.accent-dot.theme-own::after { content: "↺"; position: absolute; inset: 0; display: grid; place-items: center; color: var(--paper); font-size: 16px; }
+.accent-dot.custom { cursor: pointer; background: conic-gradient(#f44, #fb4, #ef4, #4e8, #4cf, #84f, #f4c, #f44); }
+.accent-dot.custom::after { content: ""; position: absolute; inset: 7px; border-radius: 50%; background: var(--dot); }
+.accent-dot.custom input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.home-edit { display: flex; justify-content: center; margin: 34px 0 10px; }
+.home-edit .btn svg { width: 18px; height: 18px; margin-right: 8px; }
+.home-rows { list-style: none; margin: 0 0 18px; padding: 0; display: grid; gap: 6px; max-height: 58vh; overflow: auto; }
+.home-row { display: grid; grid-template-columns: 28px 1fr 40px 40px auto; align-items: center; gap: 8px; padding: 8px 10px;
+  border-radius: 12px; background: rgba(var(--paper-rgb), .04); transition: background .2s ease, opacity .2s ease; }
+.home-row .grip { color: var(--mist); font-size: 13px; text-align: center; }
+.home-row.off { opacity: .55; }
+.home-row .mini { min-width: 40px; }
+/* Lively: rows' cards slide in, one after another, as the row comes into view. */
+.rail-watch:not(.rail-in) .rail > * { opacity: 0; }
+.rail-watch.rail-in .rail > * { animation: railIn .7s cubic-bezier(.2, .8, .2, 1) both; animation-delay: calc(var(--i, 0) * 55ms); }
+@keyframes railIn { from { opacity: 0; transform: translateY(22px) scale(.96); } to { opacity: 1; transform: none; } }
+/* Calm: no drifting banner, no rising letters; Off: nothing moves. */
+.motion-calm .hero.carousel .slide.on .hero-bg, .motion-calm .splash-word span { animation: none; }
+.motion-off *, .motion-off *::before, .motion-off *::after { animation-duration: .001ms !important; animation-delay: 0s !important;
+  animation-iteration-count: 1 !important; transition-duration: .001ms !important; scroll-behavior: auto !important; }

@@ -140,6 +140,21 @@ class Server(unittest.TestCase):
         t.join(10)
         self.assertEqual(got["commands"][0]["cmd"], "toggle")
 
+    def test_profile_choices_follow_the_person(self):
+        status, r = self.admin.call("/api/me/prefs", {"home": {"order": ["continue", "my-list", "Bad Id!", 7], "hidden": ["genres"]},
+                                                      "look": {"accent": "#3cc8d8", "motion": "calm", "theme": "url(x)", "other": 1}})
+        self.assertEqual(status, 200)
+        self.assertEqual(r["prefs"]["home"], {"order": ["continue", "my-list"], "hidden": ["genres"]})   # only real row names
+        self.assertEqual(r["prefs"]["look"], {"accent": "#3cc8d8", "motion": "calm"})
+        other_screen = Client(self.base)                                       # the same person on another screen
+        other_screen.call("/api/login", {"name": "leo", "password": "password123"})
+        self.assertEqual(other_screen.call("/api/session")[1]["user"]["prefs"]["look"]["motion"], "calm")
+        self.admin.call("/api/me/prefs", {"look": {"motion": None}, "home": None})       # back to Sofa's own
+        prefs = other_screen.call("/api/session")[1]["user"]["prefs"]
+        self.assertNotIn("home", prefs)
+        self.assertEqual(prefs["look"], {"accent": "#3cc8d8"})
+        self.admin.call("/api/me/prefs", {"look": {"accent": None}})
+
     def test_a_failed_write_doesnt_lock_the_database(self):
         self.assertEqual(self.admin.call("/api/admin/users", {"name": "leo", "password": "password123"})[0], 409)
         conn = sqlite3.connect(os.path.join(config.DATA_DIR, "sofa.db"), timeout=1)
