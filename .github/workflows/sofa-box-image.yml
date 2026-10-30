@@ -27,6 +27,11 @@ jobs:
         run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends parted xz-utils e2fsprogs
       - name: Build the card
         run: sudo tools/build-sofa-box-image.sh out
+      - name: What's on it
+        run: |
+          { echo '### What is on the card'; echo '```'; cat out/*-report.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          # the same as a notice, readable through the API too (newlines as %0A)
+          echo "::notice title=Sofa box card::$(sed ':a;N;$!ba;s/%/%25/g;s/\n/%0A/g' out/*-report.txt)"
       - name: Keep it (a week)
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         uses: actions/upload-artifact@v4
@@ -40,5 +45,5 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${GITHUB_REF_NAME}" out/*.img.xz out/*.sha256 --title "Sofa box ${GITHUB_REF_NAME#box-v}" \
+          gh release create "${GITHUB_REF_NAME}" out/*.img.xz out/*.sha256 out/*-report.txt --title "Sofa box ${GITHUB_REF_NAME#box-v}" \
             --notes "A card for the Sofa box (Raspberry Pi 3, 4 or 5). Write it with Raspberry Pi Imager: Choose OS → Use custom. See deploy/sofa-box/README.md."

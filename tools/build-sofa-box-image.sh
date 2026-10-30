@@ -98,6 +98,23 @@ chroot "$ROOT" /bin/sh -eu -c "
   apt-get clean
   rm -rf /tmp/sofa /var/lib/apt/lists/*
 "
+echo "== What's on the card"
+REPORT="$WORK/report.txt"
+chroot "$ROOT" /bin/sh -c '
+  echo "Raspberry Pi OS: $(. /etc/os-release; echo "$PRETTY_NAME")"
+  dpkg-query -W -f="\${Package} \${Version}\n" cage chromium mpv plymouth plymouth-label python3 python3-pil python3-evdev \
+    pipewire-pulse network-manager systemd-zram-generator zram-tools 2>/dev/null | sed "s/^/  /"
+  echo "Services: $(for s in sofa-box sofa-box-agent sofa-box-input sofa-box-cec; do printf "%s=%s " $s "$(systemctl is-enabled $s 2>/dev/null)"; done)"
+  echo "Starts into: $(systemctl get-default)"
+  echo "Boot screen: $(plymouth-set-default-theme 2>/dev/null)  initramfs: $(ls /boot/firmware/initramfs* 2>/dev/null | xargs -n1 basename 2>/dev/null | tr "\n" " ")"
+  echo "Users: $(getent passwd 1000 | cut -d: -f1) (uid 1000), sofabox ($(id -nG sofabox | tr " " ","))"
+  echo "sudo for the settings: $(visudo -cf /etc/sudoers.d/sofa-box >/dev/null 2>&1 && echo ok || echo MISSING)"
+  echo "cmdline.txt: $(cat /boot/firmware/cmdline.txt)"
+  echo "config.txt changes: $(diff /boot/firmware/config.txt.before-sofa-box /boot/firmware/config.txt | grep "^[<>]" | tr "\n" " ")"
+  echo "Box files: $(ls /usr/local/lib/sofa-box /usr/local/lib/sofa-box/fonts | tr "\n" " ")"
+  echo "Space: $(df -h / | tail -n 1 | awk "{print \$3\" used, \"\$4\" free\"}")"
+' > "$REPORT" 2>&1 || true
+cat "$REPORT"
 rm -f "$ROOT/usr/sbin/policy-rc.d" "$ROOT/usr/bin/qemu-aarch64-static"
 cat > "$ROOT/boot/firmware/sofa-box.txt" <<EOF
 Sofa box card, made $(date -u +%Y-%m-%d) from $(basename "${FINAL:-$SRC}").
@@ -118,5 +135,6 @@ cleanup_mounts() {
 cleanup_mounts
 xz -T0 -6 -c "$WORK/sofa-box.img" > "$OUT/$NAME.img.xz"
 (cd "$OUT" && sha256sum "$NAME.img.xz" > "$NAME.img.xz.sha256")
+{ cat "$REPORT"; echo "Card: $NAME.img.xz, $(du -h "$OUT/$NAME.img.xz" | cut -f1) packed, $(du -h --apparent-size "$WORK/sofa-box.img" | cut -f1) written"; } > "$OUT/$NAME-report.txt"
 ls -lh "$OUT/$NAME.img.xz"
 echo "Write it to a card with Raspberry Pi Imager: Choose OS -> Use custom -> $NAME.img.xz"
