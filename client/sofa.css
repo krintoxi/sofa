@@ -510,6 +510,10 @@ body.has-bar footer { padding-bottom: 110px; }
 /* TV mode (Fire TV Silk, Android TV, smart TVs): couch distance, a remote or a pointer, a modest GPU. */
 .tv body { font-size: 17px; }
 .tv .glow, .tv .player canvas { display: none; }                     /* blur layers are expensive on TV sticks */
+/* The Sofa box on a Raspberry Pi 3: the same look without what its graphics chip can't keep up with. */
+.box-lite *, .box-lite *::before, .box-lite *::after { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
+.box-lite .splash-glow { display: none; }
+.box-lite .card .frame, .box-lite .dialog { box-shadow: none !important; }
 .tv .frame img, .tv .card .frame, .tv .btn, .tv .nudge { transition: none; }
 .tv .card:hover .frame img { transform: none; }
 .tv .bar { padding-top: 20px; background: var(--ink); }
@@ -1297,3 +1301,18 @@ html.standalone .player .p-bottom { padding-bottom: max(16px, env(safe-area-inse
 .install-sheet.points-down::after { content: ""; position: absolute; left: 50%; bottom: -9px; width: 18px; height: 18px; margin-left: -9px;
   background: var(--slate-2); border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); transform: rotate(45deg); }
 @media (prefers-reduced-motion: reduce) { .install-sheet { transition: none; } }
+
+/* The Sofa box's own settings (only on the box) */
+.box-page .sorter.inline { margin: 0 0 6px; width: fit-content; }
+.box-msg { margin: -10px 0 20px; padding: 12px 16px; border-radius: 14px; background: rgba(var(--accent-rgb), .14); border: 1px solid rgba(var(--accent-rgb), .35); }
+.box-note { margin: 12px 0 10px !important; }
+.box-boot { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 22px; align-items: start; }
+.box-boot img { width: 100%; aspect-ratio: 16 / 9; border-radius: 12px; display: block; background: #000; box-shadow: 0 18px 50px rgba(0,0,0,.45); }
+.box-boot .themes { grid-template-columns: repeat(3, minmax(0, 1fr)); margin-bottom: 14px; }
+.box-boot .field { margin-bottom: 14px; }
+.box-nets { display: grid; gap: 6px; margin: 0 0 14px; max-height: 260px; overflow: auto; }
+.box-net { display: flex; justify-content: space-between; gap: 10px; padding: 10px 14px; border-radius: 12px; border: 1px solid var(--line); text-align: left; }
+.box-net small { color: var(--mist); }
+.box-net[aria-pressed="true"] { border-color: var(--amber); }
+.row-btns { display: flex; gap: 10px; flex-wrap: wrap; }
+@media (max-width: 760px) { .box-boot { grid-template-columns: 1fr; } }

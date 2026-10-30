@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sofa box preview</title>
+<style>
+  :root { --ink: #0A0E1A; --slate: #151a2b; --line: rgba(237,239,246,.1); --paper: #EDEFF6; --mist: #8C94AB; --amber: #F4B740; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: radial-gradient(1200px 700px at 30% -10%, #1b2236 0%, var(--ink) 60%); color: var(--paper);
+         font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; min-height: 100vh; }
+  header { display: flex; align-items: center; gap: 14px; padding: 18px 28px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  header h1 { margin: 0; font-size: 20px; letter-spacing: -.01em; }
+  header p { margin: 0; color: var(--mist); flex: 1; min-width: 240px; }
+  main { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 28px; padding: 26px 28px 40px; }
+  @media (max-width: 1000px) { main { grid-template-columns: 1fr; } }
+  h2 { margin: 0 0 10px; font-size: 13px; text-transform: uppercase; letter-spacing: .12em; color: var(--mist); font-weight: 600; }
+  .tv { background: #05070d; border-radius: 18px; padding: 14px 14px 26px; box-shadow: 0 30px 80px rgba(0,0,0,.55), inset 0 0 0 1px #222a3d; position: relative; }
+  .tv::after { content: ""; position: absolute; left: 50%; bottom: 9px; width: 70px; height: 4px; border-radius: 4px; background: #1d2333; translate: -50% 0; }
+  .screen { position: relative; width: 100%; aspect-ratio: 16 / 9; overflow: hidden; border-radius: 4px; background: #000; }
+  .screen iframe { position: absolute; left: 0; top: 0; width: 960px; height: 540px; border: 0; transform-origin: 0 0; }
+  .mpv { position: absolute; inset: 0; background: rgba(0,0,0,.82); display: grid; place-content: center; text-align: center; gap: 8px; }
+  .mpv[hidden] { display: none; }
+  .mpv b { font-size: 26px; } .mpv span { color: var(--mist); }
+  .mpv i { display: block; width: 320px; height: 4px; border-radius: 4px; background: rgba(237,239,246,.15); margin: 10px auto 0; overflow: hidden; }
+  .mpv i::after { content: ""; display: block; height: 100%; width: var(--p, 0%); background: var(--amber); }
+  .side { display: grid; gap: 28px; align-content: start; }
+  .remote { display: grid; grid-template-columns: repeat(3, 64px); grid-template-rows: repeat(3, 64px); gap: 6px; justify-content: start; }
+  .remote button { border-radius: 16px; font-size: 20px; }
+  .remote .ok { border-radius: 50%; background: var(--amber); color: #2B1D00; font-weight: 700; font-size: 17px; }
+  .boot img { width: 100%; border-radius: 8px; display: block; box-shadow: 0 16px 40px rgba(0,0,0,.45); aspect-ratio: 16 / 9; background: #000; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
+  button, input { font: inherit; color: var(--paper); background: var(--slate); border: 1px solid var(--line); border-radius: 10px; padding: 7px 12px; }
+  button { cursor: pointer; } button:hover { border-color: rgba(244,183,64,.6); }
+  .swatches button { width: 34px; height: 34px; padding: 0; border-radius: 50%; border: 2px solid transparent; }
+  .swatches button[aria-pressed="true"] { border-color: var(--paper); }
+  .note { color: var(--mist); font-size: 13px; margin: 8px 0 0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Sofa box preview</h1>
+  <p>The box as it will be on the TV: Sofa's TV pages, the box's own player for videos, its settings and its boot screen. Nothing here needs the Pi.</p>
+  <button id="reload">Reload the TV</button>
+</header>
+<main>
+  <section>
+    <h2>The TV</h2>
+    <div class="tv"><div class="screen" id="screen"><iframe id="tv" src="/?tv=1" title="The TV"></iframe><div class="mpv" id="mpv" hidden><b></b><span></span><i></i></div></div></div>
+    <p class="note">Click into it and use the keyboard like a remote (arrows, Enter, Backspace), or the remote here.</p>
+  </section>
+  <aside class="side">
+    <section>
+      <h2>Remote</h2>
+      <div class="remote" id="remote">
+        <span></span><button data-key="ArrowUp" aria-label="Up">▲</button><span></span>
+        <button data-key="ArrowLeft" aria-label="Left">◀</button><button class="ok" data-key="Enter">OK</button><button data-key="ArrowRight" aria-label="Right">▶</button>
+        <button data-key="Back" aria-label="Back">↩</button><button data-key="ArrowDown" aria-label="Down">▼</button><button data-key="PlayPause" aria-label="Play or pause">⏯</button>
+      </div>
+      <div class="row"><button data-go="#/">Home</button><button data-go="#/box">Box settings</button></div>
+    </section>
+    <section class="boot">
+      <h2>Boot screen</h2>
+      <img id="boot" alt="The boot screen">
+      <div class="row swatches" id="themes"></div>
+      <div class="row">
+        <input id="bootText" maxlength="30" placeholder="Name under the logo (Living room)">
+        <button id="saveText">Save</button>
+      </div>
+      <p class="note">What the TV shows while the box starts. On the box: Box settings → Boot screen.</p>
+    </section>
+  </aside>
+</main>
+<script>
+(function () {
+  var THEMES = [["midnight", "#0A0E1A", "#F4B740"], ["cinema", "#0B0708", "#E5484D"], ["ocean", "#04131A", "#3CC8D8"],
+                ["forest", "#0A120D", "#8BD46E"], ["grape", "#100A1A", "#C792FF"], ["oled", "#000000", "#F4B740"]];
+  var tv = document.getElementById("tv"), screen = document.getElementById("screen"), mpv = document.getElementById("mpv");
+
+  // The box's browser draws Sofa at twice the size on a 1080p TV (as Fire TV does): 960 × 540 of page.
+  function fit() { tv.style.transform = "scale(" + screen.clientWidth / 960 + ")"; }
+  window.addEventListener("resize", fit); fit();
+  document.getElementById("reload").onclick = function () { tv.contentWindow.location.reload(); };
+  function post(url, body) {
+    return fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) })
+      .then(function (r) { return r.json(); });
+  }
+
+  // On the box, mpv covers the TV while a video plays: here, a stand-in says what it's playing.
+  function mmss(s) { s = Math.round(s || 0); return Math.floor(s / 60) + ":" + ("0" + s % 60).slice(-2); }
+  setInterval(function () {
+    fetch("/box/state").then(function (r) { return r.json(); }).then(function (s) {
+      var p = s.playing; mpv.hidden = !p; if (!p) return;
+      mpv.querySelector("b").textContent = (p.paused ? "❚❚ " : "▶ ") + (p.title || "Playing") + (p.sub ? " · " + p.sub : "");
+      mpv.querySelector("span").textContent = "In the box's player (mpv) · " + mmss(p.t) + " of " + mmss(p.d);
+      mpv.querySelector("i").style.setProperty("--p", (p.d ? 100 * p.t / p.d : 0) + "%");
+    });
+  }, 1000);
+
+  // The remote: keys as the box's remotes press them (the TV's over HDMI, a controller).
+  function key(k) {
+    if (!mpv.hidden) {                 // a video is on: the keys go to the player
+      var c = { PlayPause: { cmd: "toggle" }, Enter: { cmd: "toggle" }, ArrowLeft: { cmd: "skip", by: -10 }, ArrowRight: { cmd: "skip", by: 30 }, Back: { cmd: "stop" } }[k];
+      if (c) post("/box/native/control", c);
+      return;
+    }
+    var w = tv.contentWindow, d = w.document;
+    if (k === "Back") { w.history.back(); return; }
+    var a = d.activeElement, ev = new w.KeyboardEvent("keydown", { key: k === "PlayPause" ? "MediaPlayPause" : k, bubbles: true, cancelable: true });
+    (a && a !== d.body ? a : d).dispatchEvent(ev);
+    if (k === "Enter" && !ev.defaultPrevented && a && a !== d.body && a.click) a.click();
+  }
+  document.getElementById("remote").onclick = function (e) { var b = e.target.closest("[data-key]"); if (b) key(b.dataset.key); };
+  document.querySelectorAll("[data-go]").forEach(function (b) { b.onclick = function () { post("/box/api/go", { to: b.dataset.go }); }; });
+
+  // The boot screen: a few frames of its light sweeping along, played in turn.
+  var boot = document.getElementById("boot"), frames = [], frame = 0;
+  function loadBoot() {
+    frames = [0, 0.2, 0.4, 0.6, 0.8, 1].map(function (p) { var i = new Image(); i.src = "/box/splash.png?phase=" + p + "&t=" + Date.now(); return i; });
+  }
+  setInterval(function () { var f = frames[frame++ % (frames.length || 1)]; if (f && f.complete) boot.src = f.src; }, 160);
+
+  var themes = document.getElementById("themes"), bootText = document.getElementById("bootText");
+  function settings(s) {
+    THEMES.forEach(function (t) {
+      var b = themes.querySelector('[data-theme="' + t[0] + '"]');
+      if (!b) { b = document.createElement("button"); b.dataset.theme = t[0]; b.title = t[0];
+        b.style.background = "linear-gradient(135deg," + t[1] + " 50%," + t[2] + " 50%)"; themes.appendChild(b); }
+      b.setAttribute("aria-pressed", s.settings.theme === t[0]);
+    });
+    if (document.activeElement !== bootText) bootText.value = s.settings.boot_text || "";
+    loadBoot();
+  }
+  themes.onclick = function (e) { var b = e.target.closest("button"); if (b) post("/box/api/settings", { theme: b.dataset.theme }).then(settings); };
+  document.getElementById("saveText").onclick = function () { post("/box/api/settings", { boot_text: bootText.value }).then(settings); };
+  var seen = "";
+  function poll() {                     // changes made on the TV (Box settings) show here too
+    fetch("/box/api/info").then(function (r) { return r.json(); }).then(function (s) {
+      var now = s.settings.theme + "|" + s.settings.boot_text;
+      if (now !== seen) { seen = now; settings(s); }
+    });
+  }
+  poll(); setInterval(poll, 3000);
+})();
+</script>
+</body>
+</html>

@@ -1,25 +1,68 @@
 #!/bin/sh
-# The Sofa box: a Raspberry Pi on the TV that opens Sofa full screen.
-#   sofa-box kiosk             the browser on the TV (started by sofa-box.service; not by hand)
-#   sofa-box pair-controller   pair a Bluetooth game controller (Xbox, PlayStation, 8BitDo…)
-#   sofa-box choose            forget which Sofa it uses, and pick again
-#   sofa-box tv-on             wake the TV and switch it to the Pi (HDMI-CEC)
+# The Sofa box: a Raspberry Pi (or any small Linux computer) on the TV that opens Sofa full screen.
+#   sofa-box doctor            check everything, and say what to do about anything wrong
 #   sofa-box status            what's running
+#   sofa-box logs              what it's been saying
+#   sofa-box choose            pick (again) which Sofa it uses
+#   sofa-box pair-controller   pair a Bluetooth game controller (Xbox, PlayStation, 8BitDo…)
+#   sofa-box tv-on             wake the TV and switch it to the box (HDMI-CEC)
+#   sofa-box desktop           go back to the desktop instead of Sofa (sudo; undo: sofa-box appliance)
+#   sofa-box kiosk             the TV's screen (started by sofa-box.service; not by hand)
 set -e
+LIB=/usr/local/lib/sofa-box
+AGENT=http://127.0.0.1:8091
+SERVICES="sofa-box-agent sofa-box sofa-box-input sofa-box-cec"
+
+boot_dir() { for d in /boot/firmware /boot; do [ -f "$d/config.txt" ] && { echo "$d"; return; }; done; }
+
+# How big Sofa's pages are drawn: twice on a 1080p TV (like Fire TV), so they read from the sofa.
+scale() {
+  [ -n "$SOFA_BOX_SCALE" ] && { echo "$SOFA_BOX_SCALE"; return; }
+  for c in /sys/class/drm/card*-HDMI-A-*; do
+    [ "$(cat "$c/status" 2>/dev/null)" = connected ] || continue
+    H="$(head -n 1 "$c/modes" 2>/dev/null | cut -dx -f2 | tr -dc 0-9)"
+    [ -n "$H" ] || continue
+    if [ "$H" -ge 2160 ]; then echo 4; elif [ "$H" -ge 1080 ]; then echo 2; elif [ "$H" -ge 720 ]; then echo 1.33; else echo 1; fi
+    return
+  done
+  echo 2
+}
 
 kiosk() {
+  if [ "${SOFA_BOX_SCREEN:-wayland}" = wayland ] && command -v cage >/dev/null; then
+    exec cage -d -- "$0" session
+  fi
+  exec xinit "$0" session -- :0 vt1 -nocursor -s 0 -dpms -nolisten tcp
+}
+
+session() {
   BROWSER="$(command -v chromium || command -v chromium-browser || true)"
   [ -n "$BROWSER" ] || { echo "Chromium isn't installed (sudo apt install chromium)."; exit 1; }
+  # Where this screen is, for the agent's player (mpv opens on top of the browser).
+  RUN="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+  if [ -n "$WAYLAND_DISPLAY" ]; then
+    echo "WAYLAND_DISPLAY=$WAYLAND_DISPLAY" > "$RUN/sofa-box-display"
+    PLATFORM="--ozone-platform=wayland"
+  else
+    printf 'DISPLAY=%s\nXAUTHORITY=%s\n' "$DISPLAY" "${XAUTHORITY:-$HOME/.Xauthority}" > "$RUN/sofa-box-display"
+    xset s off -dpms s noblank 2>/dev/null || true
+    PLATFORM="--ozone-platform=x11"
+  fi
   PROFILE="$HOME/.config/sofa-box/browser"
   mkdir -p "$PROFILE"
-  # A browser that crashed or was switched off mid-way shows "Restore pages?": tell it all went well.
-  sed -i 's/"exited_cleanly":false/"exited_cleanly":true/; s/"exit_type":"[^"]*"/"exit_type":"Normal"/' \
-    "$PROFILE/Default/Preferences" 2>/dev/null || true
-  exec cage -d -- "$BROWSER" --kiosk --noerrdialogs --disable-infobars --no-first-run \
-    --disable-session-crashed-bubble --disable-features=Translate,MediaRouter --password-store=basic \
-    --autoplay-policy=no-user-gesture-required --check-for-update-interval=31536000 \
-    --ozone-platform=wayland --user-data-dir="$PROFILE" \
-    "http://127.0.0.1:8091/"
+  LOW=""
+  grep -Eqs 'Raspberry Pi (Zero|[1-3])\b' /proc/device-tree/model && LOW="--enable-low-end-device-mode --renderer-process-limit=2"
+  while true; do
+    # A browser that crashed or lost power mid-way shows "Restore pages?": tell it all went well.
+    sed -i 's/"exited_cleanly":false/"exited_cleanly":true/; s/"exit_type":"[^"]*"/"exit_type":"Normal"/' \
+      "$PROFILE/Default/Preferences" 2>/dev/null || true
+    "$BROWSER" --kiosk --noerrdialogs --disable-infobars --no-first-run --disable-session-crashed-bubble \
+      --disable-features=Translate,MediaRouter,HardwareMediaKeyHandling --password-store=basic \
+      --autoplay-policy=no-user-gesture-required --check-for-update-interval=31536000 --overscroll-history-navigation=0 \
+      --disable-pinch --force-device-scale-factor="$(scale)" --disk-cache-size=67108864 $LOW $PLATFORM \
+      --user-data-dir="$PROFILE" "http://127.0.0.1:8091/" || true
+    sleep 1
+  done
 }
 
 pair_controller() {
@@ -48,14 +91,119 @@ pair_controller() {
   echo "Done: $NAME is paired. It connects by itself from now on (press its Home button)."
 }
 
+apply_boot() {               # (root) the boot screen in the box's theme and name
+  SETTINGS="${1:-}"
+  [ -n "$SETTINGS" ] || SETTINGS="$(getent passwd "${SUDO_USER:-1000}" | cut -d: -f6)/.config/sofa-box/settings.json"
+  command -v plymouth-set-default-theme >/dev/null || { echo "Plymouth isn't installed (sudo apt install plymouth)."; exit 1; }
+  python3 "$LIB/sofa-box-art.py" plymouth /usr/share/plymouth/themes/sofa "$SETTINGS"
+  plymouth-set-default-theme sofa
+  if [ "${2:-}" != --no-initramfs ] && command -v update-initramfs >/dev/null; then
+    update-initramfs -u >/dev/null 2>&1 || true
+  fi
+  echo "The boot screen is set: it shows from the next start."
+}
+
+setup_boot() {               # (root) a Raspberry Pi's config.txt and cmdline.txt, for the box
+  B="${1:-$(boot_dir)}"; [ -f "$B/config.txt" ] || { echo "No config.txt in $B: not a Raspberry Pi?"; exit 1; }
+  CFG="$B/config.txt" CMD="$B/cmdline.txt"
+  [ -f "$CFG.before-sofa-box" ] || cp "$CFG" "$CFG.before-sofa-box"
+  [ -f "$CMD.before-sofa-box" ] || cp "$CMD" "$CMD.before-sofa-box"
+  if grep -Eq '^[[:space:]]*hdmi_cvt[[:space:]=]+480 320|^[[:space:]]*dtoverlay=(mhs35|tft35a|waveshare35)' "$CFG" || command -v fbcp >/dev/null 2>&1; then
+    echo "   A 3.5-inch screen set up with LCD-show: the TV gets its full picture back, and the small screen is switched off."
+    # LCD-show squeezes the TV's picture to 480x320 to copy it onto the small screen (fbcp): undo that.
+    sed -i -E 's/^([[:space:]]*(hdmi_cvt|hdmi_group|hdmi_mode)[[:space:]=])/#sofa-box# \1/' "$CFG"
+    sed -i -E 's/^([[:space:]]*dtoverlay=vc4-fkms-v3d)/#sofa-box# \1/' "$CFG"
+    # The small screen's driver too: with nothing on the pins, its touch part can send stray clicks to the TV.
+    sed -i -E 's/^([[:space:]]*dtoverlay=(mhs35|mhs32|mhs24|tft35a|lcd35|waveshare35[a-z]*))/#sofa-box# \1/' "$CFG"
+    sed -i -E 's/^[[:space:]]*#+[[:space:]]*(dtoverlay=vc4-kms-v3d)/\1/' "$CFG"
+    R="${SOFA_BOX_ROOT:-}"      # (tests point this at a folder of their own)
+    [ -f "$R/etc/rc.local" ] && sed -i -E '/^[[:space:]]*(\/usr\/local\/bin\/)?fbcp/ s/^/#sofa-box# /' "$R/etc/rc.local"
+    [ -z "$R" ] && { pkill -x fbcp 2>/dev/null || true; }
+    for x in "$R/etc/X11/xorg.conf.d/99-fbturbo.conf" "$R/usr/share/X11/xorg.conf.d/99-fbturbo.conf"; do
+      [ -f "$x" ] && mv "$x" "$x.off-for-sofa-box"
+    done
+    sed -i -E 's/ ?fbcon=map:[0-9]+//; s/ ?fbcon=font:[^ ]+//' "$CMD"
+  fi
+  grep -Eq '^[[:space:]]*dtoverlay=vc4-kms-v3d' "$CFG" || printf '\n[all]\ndtoverlay=vc4-kms-v3d\n' >> "$CFG"
+  grep -Eq '^[[:space:]]*disable_splash=' "$CFG" || echo "disable_splash=1" >> "$CFG"          # no rainbow square
+  # Sound goes to the TV: the Pi's headphone socket would otherwise come first.
+  sed -i -E 's/^[[:space:]]*dtparam=audio=on/dtparam=audio=off/' "$CFG"
+  # A quiet start: the boot screen instead of scrolling text.
+  for w in quiet splash plymouth.ignore-serial-consoles logo.nologo vt.global_cursor_default=0 loglevel=3; do
+    grep -qw -- "$w" "$CMD" || sed -i "1 s/\$/ $w/" "$CMD"
+  done
+  sed -i 's/console=tty1/console=tty3/' "$CMD"
+}
+
+ok() { printf '  \033[32m✓\033[0m %s\n' "$*"; }
+bad() { printf '  \033[31m✗\033[0m %s\n' "$1"; [ -n "$2" ] && printf '      → %s\n' "$2"; PROBLEMS=$((PROBLEMS + 1)); }
+note() { printf '  · %s\n' "$*"; }
+
+doctor() {
+  set +e                     # look at everything, whatever fails
+  PROBLEMS=0
+  echo "The Sofa box"
+  note "$(tr -d '\0' < /proc/device-tree/model 2>/dev/null || uname -m), $(. /etc/os-release; echo "$PRETTY_NAME")"
+  note "memory $(awk '/MemTotal/ {printf "%d MB", $2/1024}' /proc/meminfo), $(awk '/MemAvailable/ {printf "%d MB free", $2/1024}' /proc/meminfo)"
+  if command -v vcgencmd >/dev/null; then
+    T="$(vcgencmd get_throttled 2>/dev/null | cut -d= -f2)"
+    case "$T" in
+      0x0) ok "power supply: steady" ;;
+      "") ;;
+      *) bad "power: the Pi has been short of power or too hot ($T)" "use the official 2.5 A (Pi 3) power supply and a short cable" ;;
+    esac
+    note "temperature $(vcgencmd measure_temp 2>/dev/null | cut -d= -f2)"
+  fi
+  echo "Running"
+  for s in $SERVICES; do
+    if systemctl is-active --quiet "$s"; then ok "$s"; else bad "$s isn't running" "sofa-box logs   (then: sudo systemctl restart $s)"; fi
+  done
+  echo "Sofa"
+  STATE="$(curl -fsS -m 3 $AGENT/box/state 2>/dev/null || true)"
+  if [ -z "$STATE" ]; then bad "the box's agent doesn't answer on $AGENT" "sudo systemctl restart sofa-box-agent"
+  else
+    URL="$(echo "$STATE" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("chosen") or "")')"
+    if [ -n "$URL" ] && curl -fsS -m 3 "$URL/api/info" >/dev/null 2>&1; then ok "uses Sofa at $URL"
+    elif [ -n "$URL" ]; then bad "Sofa at $URL doesn't answer" "is the Sofa computer on and awake? Or: sofa-box choose"
+    else bad "hasn't found Sofa yet" "is the Sofa computer on, on the same network? Or type its address on the TV"
+    fi
+  fi
+  echo "Picture and sound"
+  for b in mpv cage; do command -v $b >/dev/null && ok "$b" || { [ $b = cage ] && note "no cage: the screen uses X" || bad "$b is missing" "sudo apt install $b"; }; done
+  command -v chromium >/dev/null || command -v chromium-browser >/dev/null && ok "chromium" || bad "chromium is missing" "sudo apt install chromium"
+  for c in /sys/class/drm/card*-HDMI-A-*; do
+    [ -e "$c/status" ] || continue
+    if [ "$(cat "$c/status")" = connected ]; then ok "TV on ${c##*-HDMI-}: $(head -n 1 "$c/modes"), pages drawn at ×$(scale)"
+    else note "${c##*/}: nothing connected"; fi
+  done
+  if grep -Eqs 'Raspberry Pi' /proc/device-tree/model; then
+    if mpv --hwdec=help 2>/dev/null | grep -q v4l2m2m && [ -e /dev/video10 ]; then ok "the Pi's video decoder (H.264) for mpv"
+    else bad "mpv can't use the Pi's video decoder" "Raspberry Pi OS Bookworm has it; make sure dtoverlay=vc4-kms-v3d is in config.txt"; fi
+    B="$(boot_dir)"
+    grep -Eq '^[[:space:]]*hdmi_cvt[[:space:]=]+480 320' "$B/config.txt" && bad "the TV is set to 480×320 (LCD-show)" "run the installer again: it fixes that"
+  fi
+  aplay -l 2>/dev/null | grep -qi hdmi && ok "sound to the TV over HDMI" || note "no HDMI sound device seen (is the TV on?)"
+  echo "Remotes"
+  if ls /dev/cec* >/dev/null 2>&1; then
+    P="$(cec-ctl -d /dev/cec0 2>/dev/null | sed -n 's/.*Physical Address *: *\([0-9a-f.]*\).*/\1/p' | head -n 1)"
+    [ -n "$P" ] && [ "$P" != f.f.f.f ] && ok "HDMI-CEC: the TV is there ($P)" || note "HDMI-CEC: the TV doesn't answer (turn on VIERA Link / Anynet+ / SimpLink)"
+  else note "no HDMI-CEC on this computer"; fi
+  if [ -e /dev/uinput ]; then ok "virtual keys (uinput)"; else bad "no /dev/uinput" "sudo modprobe uinput"; fi
+  P="$(bluetoothctl devices Paired 2>/dev/null | cut -d' ' -f3- | paste -sd, - || true)"
+  [ -n "$P" ] && ok "paired: $P" || note "no Bluetooth controllers paired (sofa-box pair-controller)"
+  echo
+  [ "$PROBLEMS" = 0 ] && echo "All good." || echo "$PROBLEMS thing(s) to look at (above)."
+}
+
 case "${1:-}" in
   kiosk) kiosk ;;
+  session) session ;;
+  doctor) doctor ;;
+  status) systemctl --no-pager status $SERVICES || true ;;
+  logs) # shellcheck disable=SC2046
+    journalctl --no-pager -n 120 $(for s in $SERVICES; do printf ' -u %s' "$s"; done) ;;
   pair-controller) pair_controller ;;
-  choose)
-    rm -f "$HOME/.config/sofa-box/server"
-    [ -n "$SUDO_USER" ] && rm -f "$(getent passwd "$SUDO_USER" | cut -d: -f6)/.config/sofa-box/server"
-    sudo systemctl restart sofa-box-finder sofa-box
-    echo "Pick your Sofa on the TV." ;;
+  choose) curl -fsS -m 5 -X POST $AGENT/box/api/action/choose >/dev/null && echo "Pick your Sofa on the TV." ;;
   tv-on)
     DEV="$(ls /dev/cec* 2>/dev/null | head -n 1)"
     [ -n "$DEV" ] || { echo "No HDMI-CEC here."; exit 1; }
@@ -63,7 +211,16 @@ case "${1:-}" in
     sleep 2
     PHYS="$(cec-ctl -d "$DEV" | sed -n 's/.*Physical Address *: *\([0-9a-f.]*\).*/\1/p' | head -n 1)"
     cec-ctl -d "$DEV" --to 15 --active-source phys-addr="$PHYS" >/dev/null
-    echo "Asked the TV to turn on and show the Pi." ;;
-  status) systemctl --no-pager status sofa-box sofa-box-finder sofa-box-cec || true ;;
-  *) sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+    echo "Asked the TV to turn on and show the box." ;;
+  apply-boot) shift; apply_boot "$@" ;;
+  setup-boot) shift; setup_boot "$@" ;;
+  desktop)
+    systemctl disable --now sofa-box
+    for dm in lightdm gdm3 sddm; do systemctl list-unit-files "$dm.service" >/dev/null 2>&1 && systemctl enable "$dm" 2>/dev/null && { systemctl start "$dm"; break; }; done
+    echo "The desktop is back. Sofa on the TV again: sudo sofa-box appliance" ;;
+  appliance)
+    for dm in lightdm gdm3 sddm; do systemctl disable --now "$dm" 2>/dev/null || true; done
+    systemctl enable --now sofa-box
+    echo "Sofa is on the TV again, at every start." ;;
+  *) sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
 esac

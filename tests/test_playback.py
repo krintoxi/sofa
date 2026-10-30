@@ -25,6 +25,27 @@ class Capabilities(unittest.TestCase):
         self.assertFalse(media.video_playable(HEVC10, media.caps_from({})))
 
 
+    def test_a_box_says_how_tall_it_plays(self):
+        self.assertEqual(media.caps_from({"maxh": ["720"]})["maxh"], 720)
+        self.assertNotIn("maxh", media.caps_from({"maxh": ["99999"]}))       # nonsense: ignored
+        self.assertNotIn("maxh", media.caps_from({"maxh": ["abc"]}))
+
+    def test_too_tall_for_the_box_is_converted_down(self):
+        h264 = {"video": {"codec": "h264", "pix_fmt": "yuv420p", "profile": "High", "height": 2160}, "duration": 60,
+                "audio": [{"codec": "aac", "index": 1}]}
+        item = {"path": "/nowhere/film.mp4", "ext": "mp4"}
+        real = media.probe
+        media.probe = lambda path, **kw: h264
+        try:
+            p = media.plan(item, media.caps_from({"maxh": ["1080"], "mkv": ["1"]}))
+            self.assertEqual((p["mode"], p["max_height"]), ("transcode", 1080))
+            self.assertIn("2160p picture", " ".join(p["why"]))
+            h264["video"]["height"] = 1080
+            self.assertEqual(media.plan(item, media.caps_from({"maxh": ["1080"]}))["mode"], "direct")
+        finally:
+            media.probe = real
+
+
 class LivePictureSize(unittest.TestCase):
     def setUp(self):
         config.update({"gentle": True})

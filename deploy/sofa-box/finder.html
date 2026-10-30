@@ -1,0 +1,67 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Sofa box</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:radial-gradient(circle at 25% 20%,#1F2638,#0A0E1A 70%);
+color:#F5F1E8;font:28px/1.4 system-ui,sans-serif}
+main{width:min(1100px,90vw)}h1{font-size:72px;margin:0 0 8px;color:#F4B740}p{color:#9AA3B8;margin:0 0 28px}
+button,input{font:inherit;border-radius:18px;border:2px solid #2A3247;background:#151A28;color:#F5F1E8;padding:18px 26px;margin:0 16px 16px 0}
+button:focus,input:focus{outline:none;border-color:#F4B740;background:#F4B740;color:#1A1405}
+input:focus{background:#151A28;color:#F5F1E8}.dots::after{content:"";animation:d 1.5s steps(4) infinite}
+@keyframes d{0%{content:""}25%{content:"."}50%{content:".."}75%{content:"..."}}
+</style></head><body><main><h1>Sofa</h1><p id="msg" class="dots">Looking for Sofa on your home network</p><div id="list"></div>
+<form id="f" hidden><input id="addr" placeholder="Or type its address, like 192.168.1.20" size="34"><button>Go</button></form></main>
+<script>
+const go = () => { location.href = "/?tv=1"; };
+let shown = "", started = Date.now();
+async function poll() {
+  try {
+    const s = await (await fetch("/box/state")).json();
+    if (s.chosen) { document.getElementById("msg").textContent = "Opening " + s.name + "…"; return go(s.chosen); }
+    const key = JSON.stringify(s.found);
+    if (key !== shown) {
+      shown = key;
+      const list = document.getElementById("list");
+      list.innerHTML = s.found.map(x => `<button data-url="${x.url}">${x.name} <small>${x.url}</small></button>`).join("");
+      if (s.found.length) { document.getElementById("msg").textContent = "Which Sofa?"; document.getElementById("msg").className = ""; list.querySelector("button").focus(); }
+    }
+    if (Date.now() - started > 20000 && !s.found.length) {
+      document.getElementById("msg").textContent = "No Sofa found yet. Is the Sofa computer on? Still looking";
+      document.getElementById("f").hidden = false;
+    }
+  } catch (e) {}
+  setTimeout(poll, 1500);
+}
+document.addEventListener("click", async e => {
+  const b = e.target.closest("[data-url]"); if (!b) return;
+  await fetch("/box/choose", { method: "POST", body: b.dataset.url }); go(b.dataset.url);
+});
+document.getElementById("f").addEventListener("submit", async e => {
+  e.preventDefault();
+  const r = await (await fetch("/box/choose", { method: "POST", body: document.getElementById("addr").value })).json();
+  if (r.url) go(r.url); else document.getElementById("msg").textContent = "There's no Sofa at that address.";
+});
+// Arrow keys (the TV remote, a controller) move between the buttons.
+document.addEventListener("keydown", e => {
+  const all = [...document.querySelectorAll("button,input")].filter(x => x.offsetParent);
+  const i = all.indexOf(document.activeElement);
+  if (e.key === "ArrowDown" || e.key === "ArrowRight") { (all[i + 1] || all[0]).focus(); e.preventDefault(); }
+  if (e.key === "ArrowUp" || e.key === "ArrowLeft") { (all[i - 1] || all[all.length - 1]).focus(); e.preventDefault(); }
+});
+// A game controller: D-pad moves, A presses.
+let was = {};
+(function pad() {
+  const p = navigator.getGamepads ? [...navigator.getGamepads()].find(Boolean) : null;
+  if (p) {
+    const k = { 12: "ArrowUp", 13: "ArrowDown", 14: "ArrowLeft", 15: "ArrowRight" };
+    p.buttons.forEach((b, i) => {
+      if (b.pressed && !was[i]) {
+        if (k[i]) document.dispatchEvent(new KeyboardEvent("keydown", { key: k[i] }));
+        else if (i === 0 && document.activeElement) document.activeElement.click();
+      }
+      was[i] = b.pressed;
+    });
+  }
+  requestAnimationFrame(pad);
+})();
+poll();
+</script></body></html>
