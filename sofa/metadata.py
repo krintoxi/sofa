@@ -22,6 +22,7 @@ from . import config, naming, net
 CACHE = os.path.join(config.DATA_DIR, "cache", "metadata")
 OVERRIDES = os.path.join(config.DATA_DIR, "overrides.json")
 RETRY_MISS = 24 * 3600
+REFRESH_RUNNING = 3 * 86400      # a show still on the air: its episode list is looked at again every few days
 AGENT = {"User-Agent": "Sofa home media server (https://github.com/krintoxi/sofa)"}
 TMDB_IMG = "https://image.tmdb.org/t/p/original"
 _olock = threading.Lock()
@@ -44,24 +45,38 @@ def saved_only(on):
     _local.saved_only = on
 
 
-def _cached(key, fetch):
+def _cached(key, fetch, refresh=None):
+    """A saved answer, or ask now. `refresh(data)`: True when a saved answer may have changed since (a show
+    still on the air), so it's asked again when it's older than a few days; the old one stays if that fails."""
     os.makedirs(CACHE, exist_ok=True)
     path = os.path.join(CACHE, re.sub(r"[^\w.-]+", "-", key)[:150] + ".json")
+    old = None
     try:
         with open(path, encoding="utf-8") as f:
             data = json.load(f)
-        if not data.get("_miss") or time.time() - data["_miss"] < RETRY_MISS:
-            return None if data.get("_miss") else data
+        if data.get("_miss"):
+            if time.time() - data["_miss"] < RETRY_MISS:
+                return None
+        elif refresh and refresh(data) and time.time() - os.path.getmtime(path) > REFRESH_RUNNING:
+            old = data
+        else:
+            return data
     except (OSError, ValueError):
         pass
     if getattr(_local, "saved_only", False):
-        return None
+        return old
     try:
         data = fetch()
     except net.Offline:  # no internet: nothing learned, ask again when it's back
-        return None
+        return old
     except Exception:  # not found, rate limited: try again tomorrow
         data = None
+    if old is not None and not data:
+        try:
+            os.utime(path, None)                     # keep the old answer; look again in a few days
+        except OSError:
+            pass
+        return old
     data = data or {"_miss": time.time()}
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f)
@@ -123,7 +138,7 @@ def _tvmaze_full(show_id):
 def tv_show(name, year=None, fix=None):
     """TVmaze show with episodes and images, or None."""
     if fix and fix.get("tvmaze"):
-        return _cached("tvmaze-id-%s" % fix["tvmaze"], lambda: _tvmaze_full(fix["tvmaze"]))
+        return _cached("tvmaze-id-%s" % fix["tvmaze"], lambda: _tvmaze_full(fix["tvmaze"]), _on_air)
     if fix and fix.get("none"):
         return None
     if not config.get("tvmaze"):
@@ -148,7 +163,11 @@ def tv_show(name, year=None, fix=None):
         if not (a and b and (a.startswith(b) or b.startswith(a) or (year and _year(best.get("premiered")) == year))):
             return None      # nothing close enough: better no details than the wrong show's
         return _tvmaze_full(best["id"])
-    return _cached("tvmaze2-%s-%s" % (naming.slug(name), year or ""), fetch)
+    return _cached("tvmaze2-%s-%s" % (naming.slug(name), year or ""), fetch, _on_air)
+
+
+def _on_air(show):
+    return show.get("status") in ("Running", "To Be Determined", "In Development")
 
 
 def search_shows(query):

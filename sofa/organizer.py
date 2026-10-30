@@ -699,7 +699,7 @@ def _tidy_movies(root):
                 done += 1
     for name in sorted(os.listdir(root)):
         d = os.path.join(root, name)
-        if name.startswith(".") or not os.path.isdir(d):
+        if name.startswith(".") or not os.path.isdir(d) or name == "Home Videos":   # dated names there are on purpose
             continue
         vids = _video_files(d)
         groups = Library.movie_groups(vids)

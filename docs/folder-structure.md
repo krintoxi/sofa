@@ -6,7 +6,10 @@ The paths are set in `data/config.json` (`shows`, `movies`, `music`, `musicvideo
 
 ## The easy way: the Inbox
 
-Drop files or whole folders into `Inbox/`. Sofa leaves them alone until the copy has
+Drop files or whole folders into `Inbox/`. From another device (a phone's videos, a laptop's
+downloads), admins can use **Send files from this device** on the Server page (Overview, or
+Downloads; **+ Send files** in the Adult section): each file goes up with its progress and lands
+in the Inbox only once it's all there. Sofa leaves them alone until the copy has
 stopped changing for 30 seconds (and while any `.part`/`.crdownload` file remains), then:
 
 | It sees | It does |
@@ -16,7 +19,7 @@ stopped changing for 30 seconds (and while any `.part`/`.crdownload` file remain
 | `Show Name 101 Title.avi` inside a show folder (`101` = season 1, episode 1) | the same tidy name |
 | `[Group] Show Name - 05 [1080p].mkv` (anime), `Show.Name.205.HDTV`, `Show Name Ep 3` | `Shows/Show Name/Season 1/...` (or the season in the name) |
 | a daily show by date: `The.Daily.Show.2024.03.15...` | `Shows/The Daily Show/Season 2024/...` |
-| a phone or camera video: `VID_20230512_143000.mp4`, `IMG_1234.MOV`, `PXL_...`, `GOPR0042.MP4` | `Movies/Home Videos/Video 2023-05-12 14.30/...` (the date and time when the name has them) |
+| a phone or camera video: `VID_20230512_143000.mp4`, `IMG_1234.MOV`, `PXL_...`, `GOPR0042.MP4` | `Movies/Home Videos/Video 2023-05-12 14.30/...` (the date and time when the name has them; nothing is looked up for them) |
 | `Movie.Title.1999.1080p...` or `Movie Title (1999)` | `Movies/Movie Title (1999)/Movie Title (1999).ext` |
 | a movie with no year in its name | its year is looked up (iTunes Store, Wikipedia or TMDB); if nobody knows it, it's filed under its own name |
 | a folder of several different movies (`Star Wars Collection`, `The Lord of the Rings Trilogy`) | `Movies/Star Wars Collection/<Title (Year)>/...`, one folder per movie |

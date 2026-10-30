@@ -46,7 +46,7 @@ this file to MP4** button.
 | Scrubbing | hover the seek bar to see a preview picture |
 | Episodes | the list button, or `E` |
 | Audio and subtitles | the CC button, or `C`. Sofa remembers your language. |
-| Options (gear) | autoplay next episode, skip intros by themselves, "Are you still watching?", **Night mode** (loud scenes quieter and voices clearer, worked out on the device; not on iPhone and iPad), **sleep timer** (end of this episode, 30 min, 1 hour), **picture** for converted video (Auto, 1080p, 720p, 480p: lower is lighter for the Sofa computer and for Wi-Fi), speed, subtitle size, what's playing and why |
+| Options (gear) | autoplay next episode, skip intros by themselves, "Are you still watching?", **Night mode** (loud scenes quieter and voices clearer, worked out on the device; not on iPhone and iPad), **sleep timer** (end of this episode, 30 min, 1 hour), **picture** for converted video (Auto, 1080p, 720p, 480p: lower is lighter for the Sofa computer and for Wi-Fi), speed, subtitle size and style (on a dark box or outlined), **subtitle timing** (earlier or later, half a second at a time, when a subtitle file is out of sync), what's playing and why |
 | Picture in picture | the button, or `P` |
 | Phones | tap to show the controls, double-tap left or right to skip 10 seconds |
 

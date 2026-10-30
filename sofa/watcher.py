@@ -71,6 +71,8 @@ def _prober():
 
 
 def start():
+    from . import uploads
+    uploads.clean()                      # pieces of uploads cut off by a restart
     try:
         from . import config
         store.scrub_private([config.path("adult"), os.path.join(config.path("inbox"), "XXX"),
