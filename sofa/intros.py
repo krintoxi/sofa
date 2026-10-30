@@ -19,7 +19,6 @@ can clear a wrong marker from the player.
 import collections
 import hashlib
 import math
-import os
 import re
 import subprocess
 import threading
