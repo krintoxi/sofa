@@ -98,7 +98,7 @@ def clear_guest():
 
 
 def list_users():
-    rows = store.q("""SELECT u.id, u.name, u.admin, u.guest, u.adult, u.created,
+    rows = store.q("""SELECT u.id, u.name, u.admin, u.guest, u.adult, u.kids, u.created,
                       (SELECT MAX(seen) FROM sessions s WHERE s.user_id = u.id) AS seen
                       FROM users u ORDER BY u.guest, u.name""")
     return [dict(r) for r in rows]
@@ -111,7 +111,14 @@ def set_password(user_id, password):
 
 def set_adult(user_id, on):
     """Whether this person may see the Adult section. Guests never can."""
-    store.ex("UPDATE users SET adult = ? WHERE id = ? AND guest = 0", 1 if on else 0, user_id)
+    store.ex("UPDATE users SET adult = ? WHERE id = ? AND guest = 0 AND kids = 0", 1 if on else 0, user_id)
+
+
+def set_kids(user_id, on):
+    """A Kids profile sees only family titles, and never the Adult section (switched off with it)."""
+    store.ex("UPDATE users SET kids = ? WHERE id = ? AND guest = 0 AND admin = 0", 1 if on else 0, user_id)
+    if on:
+        store.ex("UPDATE users SET adult = 0 WHERE id = ?", user_id)
 
 
 def delete_user(user_id):
@@ -133,8 +140,9 @@ def locked(row):
 
 
 def profiles():
-    rows = store.q("SELECT id, name, admin, adult, avatar, pin FROM users WHERE guest = 0 ORDER BY id")
-    return [{"id": r["id"], "name": r["name"], "avatar": _avatar(r), "locked": locked(r), "pin": bool(r["pin"])} for r in rows]
+    rows = store.q("SELECT id, name, admin, adult, kids, avatar, pin FROM users WHERE guest = 0 ORDER BY id")
+    return [{"id": r["id"], "name": r["name"], "avatar": _avatar(r), "locked": locked(r), "pin": bool(r["pin"]),
+             "kids": bool(r["kids"])} for r in rows]
 
 
 def check_code(user_id, code):
@@ -176,7 +184,7 @@ def session_user(token):
     if not token:
         return None
     key = _token_key(token)
-    row = store.q1("""SELECT u.id, u.name, u.admin, u.guest, u.adult, u.avatar, u.pin, s.seen, s.created FROM sessions s
+    row = store.q1("""SELECT u.id, u.name, u.admin, u.guest, u.adult, u.kids, u.avatar, u.pin, s.seen, s.created FROM sessions s
                       JOIN users u ON u.id = s.user_id WHERE s.token = ?""", key)
     if not row or row["seen"] < time.time() - SESSION_DAYS * 86400:
         return None
@@ -185,7 +193,8 @@ def session_user(token):
     if time.time() - row["seen"] > 300:
         store.ex("UPDATE sessions SET seen = ? WHERE token = ?", int(time.time()), key)
     return {"id": row["id"], "name": row["name"], "admin": bool(row["admin"]), "guest": bool(row["guest"]),
-            "adult": bool(row["adult"]) and not row["guest"], "avatar": _avatar(row), "pin": bool(row["pin"])}
+            "adult": bool(row["adult"]) and not row["guest"] and not row["kids"], "kids": bool(row["kids"]),
+            "avatar": _avatar(row), "pin": bool(row["pin"])}
 
 
 def end_session(token):
