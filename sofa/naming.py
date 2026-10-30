@@ -58,6 +58,9 @@ def parse_episode(stem, season_hint=None, in_show=False):
         last = int(m.group(3)) if m.re is EPISODE and m.group(3) else None
         return {"s": int(m.group(1)), "e": int(m.group(2)), "e2": last,
                 "show": clean(stem[:m.start()]), "title": clean(stem[m.end():])}
+    loose = _loose_episode(stem, season_hint)
+    if loose:
+        return loose
     if season_hint is None and not in_show:
         return None
     bare = RELEASE_JUNK.sub("", stem)
@@ -74,6 +77,58 @@ def parse_episode(stem, season_hint=None, in_show=False):
             return {"s": season_hint, "e": int(m.group(1)), "e2": None, "show": clean(bare[:m.start()]),
                     "title": clean(bare[m.end():])}
     return None
+
+
+# Names without an SxxEyy that are still clearly episodes:
+DASHED = re.compile(r"^(?:\[[^\]]*\]\s*)?(.+?)\s+-\s+(\d{1,4})(?:v\d)?(?=\s*(?:[\[(]|-|$))", re.I)   # "[Group] Frieren - 05 (1080p)"
+EP_WORD = re.compile(r"(?:^|[\s._-])(?:ep|episode)[ ._-]?(\d{1,3})(?!\d)", re.I)                     # "Planet Earth II - Ep 1"
+HAS_YEAR = re.compile(r"(?:^|[^0-9])(?:19|20)\d{2}(?![0-9])")
+AFTER_CODE = re.compile(r"^[\s._-]*(?:hdtv|web|webrip|web-dl|pdtv|dsr|dvdrip|bdrip|brrip|bluray|xvid|divx|x26[45]|h\.?26[45]|"
+                        r"720p|1080p|2160p|480p|repack|proper|internal)\b", re.I)
+
+
+def _loose_episode(stem, season_hint=None):
+    """Episodes named the way anime and some downloads are: "Show - 05", "Show Ep 1", "show.205.hdtv"."""
+    if HAS_YEAR.search(stem):
+        return None                                 # "Mission - 2 (1996)" is a movie
+    m = DASHED.match(stem)
+    if m and clean(m.group(1)) and not 1900 <= int(m.group(2)) <= 2099:
+        rest = stem[m.end():]
+        title = clean(re.sub(r"^\s*-\s*", "", rest)) if rest.strip().startswith("-") else None
+        return {"s": season_hint or 1, "e": int(m.group(2)), "e2": None,
+                "show": clean(re.sub(r"^\[[^\]]*\]\s*", "", m.group(1))), "title": title}
+    m = EP_WORD.search(stem)
+    if m and int(m.group(1)) and clean(stem[:m.start()]):
+        return {"s": season_hint or 1, "e": int(m.group(1)), "e2": None, "show": clean(stem[:m.start()]),
+                "title": clean(re.sub(r"^[\s._-]*-?", "", stem[m.end():]))}
+    for c in CODE3.finditer(stem):                  # "breaking.bad.205.hdtv": only with release words after it
+        s, e = int(c.group(1)), int(c.group(2))
+        if s and e and clean(stem[:c.start(1)]) and AFTER_CODE.match(stem[c.end():]) and not NOT_CODE.search(stem[:c.start(1)]):
+            return {"s": s, "e": e, "e2": None, "show": clean(stem[:c.start(1)]), "title": None}
+    return None
+
+
+DATED = re.compile(r"^(.+?)[\s._-]((?:19|20)\d{2})[\s._-](\d{2})[\s._-](\d{2})(?!\d)")
+
+
+def parse_dated(stem):
+    """Daily shows: "The Daily Show 2024 03 15" is that show's episode of 15 March 2024 (season 2024)."""
+    m = DATED.match(stem)
+    if not m or not clean(m.group(1)) or not (1 <= int(m.group(3)) <= 12 and 1 <= int(m.group(4)) <= 31):
+        return None
+    return {"s": int(m.group(2)), "e": int(m.group(3)) * 100 + int(m.group(4)), "e2": None, "show": clean(m.group(1)),
+            "title": None, "date": "%s-%s-%s" % (m.group(2), m.group(3), m.group(4))}
+
+
+def camera_name(stem):
+    """'Video 2023-05-12 14.30' from a phone or camera file name (VID_20230512_143022, IMG_1234, PXL_..., GOPR0042)."""
+    m = re.match(r"^(?:VID|IMG|PXL|MOV|MVI|DSC|DJI|GOPR|GH\d|GX\d|Screen Recording|RPReplay)[\s_-]*(\d{8})?[\s_-]*(\d{4,6})?", stem, re.I)
+    if not m:
+        return None
+    if m.group(1):
+        d, t = m.group(1), m.group(2) or ""
+        return "Video %s-%s-%s%s" % (d[:4], d[4:6], d[6:8], (" %s.%s" % (t[:2], t[2:4])) if len(t) >= 4 else "")
+    return "Video %s" % clean(stem)
 
 
 def show_name(folder):

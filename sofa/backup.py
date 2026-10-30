@@ -42,6 +42,8 @@ def make(reason="scheduled"):
         counts = {t: dst.execute("SELECT COUNT(*) FROM %s" % t).fetchone()[0]
                   for t in ("users", "progress", "live_favorites")}
         dst.execute("DELETE FROM probes")          # rebuildable cache; keeps the backup small
+        if store.no_logs():                        # no logs: none in the backups either
+            _strip_logs(dst)
         dst.commit()
         dst.execute("VACUUM")
         dst.close()
@@ -67,6 +69,67 @@ def make(reason="scheduled"):
     store.log("backup", "Backed up accounts and watch history (%d people, %d progress entries)"
               % (counts["users"], counts["progress"]), {"file": os.path.basename(target), "reason": reason})
     return target
+
+
+def _strip_logs(conn):
+    """No activity, finished downloads and conversions, or sign-in addresses in a copy of the database."""
+    conn.execute("PRAGMA secure_delete=ON")
+    for sql in ("DELETE FROM activity", "UPDATE sessions SET ip = NULL, agent = NULL",
+                "DELETE FROM downloads WHERE state NOT IN ('queued', 'working')",
+                "DELETE FROM conversions WHERE state NOT IN ('queued', 'working')"):
+        try:
+            conn.execute(sql)
+        except sqlite3.OperationalError:
+            pass
+
+
+def scrub_logs():
+    """After "Wipe all logs": take the logs out of every backup too (and out of the copy a restore set aside),
+    keeping everything else in them. Returns how many backups were cleaned."""
+    done = 0
+    for b in listing():
+        with tempfile.TemporaryDirectory() as tmp:
+            with tarfile.open(b["path"], "r:gz") as tar:
+                names = tar.getnames()
+                manifest = json.load(tar.extractfile("MANIFEST.json"))
+                for name in names:
+                    if name != "MANIFEST.json" and "/" not in name and not name.startswith("."):
+                        with open(os.path.join(tmp, name), "wb") as fh:
+                            fh.write(tar.extractfile(name).read())
+            snap = os.path.join(tmp, "sofa.db")
+            if not os.path.exists(snap):
+                continue
+            conn = sqlite3.connect(snap)
+            _strip_logs(conn)
+            conn.commit()
+            conn.execute("VACUUM")
+            conn.close()
+            part = b["path"] + ".part"
+            with tarfile.open(part, "w:gz") as tar:
+                for name in manifest.get("files", {}):
+                    path = os.path.join(tmp, name)
+                    if os.path.exists(path):
+                        with open(path, "rb") as fh:
+                            manifest["files"][name] = hashlib.sha256(fh.read()).hexdigest()
+                        tar.add(path, arcname=name)
+                data = json.dumps(manifest, indent=2).encode()
+                info = tarfile.TarInfo("MANIFEST.json")
+                info.size, info.mtime = len(data), manifest.get("made") or int(time.time())
+                tar.addfile(info, io.BytesIO(data))
+            os.chmod(part, 0o600)
+            os.replace(part, b["path"])
+            os.utime(b["path"], (b["made"], b["made"]))
+            done += 1
+    for name in os.listdir(config.DATA_DIR):
+        aside = os.path.join(config.DATA_DIR, name, "sofa.db")
+        if name.startswith("pre-restore-") and os.path.isfile(aside):
+            conn = sqlite3.connect(aside)
+            _strip_logs(conn)
+            conn.commit()
+            conn.execute("VACUUM")
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            conn.close()
+    return done
 
 
 def prune():

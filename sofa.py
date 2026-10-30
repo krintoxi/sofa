@@ -74,11 +74,16 @@ from sofa.library import LIBRARY  # noqa: E402
 
 
 class Stamped:
-    """Every line Sofa writes to its log (data/sofa.log in the background) starts with the date and time."""
+    """Every line Sofa writes to its log (data/sofa.log in the background) starts with the date and time.
+    With "Keep no logs" on (Server → Privacy) nothing is written at all."""
+    quiet = staticmethod(lambda: False)
+
     def __init__(self, stream):
         self.stream, self.fresh = stream, True
 
     def write(self, text):
+        if self.quiet():
+            return len(text)
         parts = []
         for line in text.splitlines(True):
             if self.fresh:
@@ -129,6 +134,7 @@ def main(argv):
         os.makedirs(config.path(key), exist_ok=True)
 
     if cmd == "serve":
+        Stamped.quiet = staticmethod(store.no_logs)
         sys.stdout, sys.stderr = Stamped(sys.stdout), Stamped(sys.stderr)
         threading.excepthook = thread_crashed
         print("Python %s at %s" % (sys.version.split()[0], sys.executable), flush=True)

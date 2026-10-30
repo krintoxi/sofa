@@ -135,6 +135,7 @@ def _handle(entry, hint=None):
                 if os.path.splitext(f)[1].lower() in wanted and not f.startswith("._"):
                     videos.append(os.path.join(d, f))
     filed = 0
+    del _filed_now[:]
     collection = _collection_of(entry, videos) if hint != "musicvideo" else None
     if videos and hint != "adult":
         store.log("inbox", "Sorting \"%s\": %d file%s%s" % (os.path.basename(entry), len(videos), "" if len(videos) == 1 else "s",
@@ -163,7 +164,7 @@ def _handle(entry, hint=None):
                 store.log_private("review", "Couldn't move a private file (%s)" % exc.strerror, {"file": v, "error": str(exc)})
             else:
                 store.log("review", "Couldn't move %s: %s" % (os.path.basename(v), exc), {"file": v})
-    _sweep_leftovers(entry, private=hint == "adult")
+    _sweep_leftovers(entry, private=hint == "adult", filed=_filed_now)
     return filed
 
 
@@ -270,14 +271,14 @@ def _new_root(key):
     return places.section(key, places.target())
 
 
-def _resolve_show(name):
+def _resolve_show(name, year=None):
     """(The show's folder, in whichever place it is or goes, and its TVmaze details), or None when Sofa isn't confident."""
     if not name:
         return None
     existing = _existing_show(name)
     if existing:
         return existing, None
-    show = metadata.tv_show(name)
+    show = metadata.tv_show(name, year)
     if show:
         canonical = show.get("name") or name
         a, b = naming.norm(canonical), naming.norm(name)
@@ -291,6 +292,8 @@ def _file_video(video, entry, adult=False, collection=None):
     stem, ext = os.path.splitext(os.path.basename(video))
     folder = _folder_hint(video, entry)
     ep = naming.parse_episode(stem, _season_hint(video), in_show=bool(folder))
+    if not ep and not adult:
+        ep = naming.parse_dated(stem)               # "The Daily Show 2024 03 15"
     shows_root = os.path.join(_new_root("adult"), "Shows") if adult else _new_root("shows")
     side = sidecars.read(video)
     if ep and adult:
@@ -301,10 +304,12 @@ def _file_video(video, entry, adult=False, collection=None):
         return _move(video, dest, "Added 1 episode to Adult", private=True,
                      why="episode %s read from the name %r; series %r from %s" % (code, stem, show_name, "the name" if ep["show"] else "the folder"))
     if ep:
-        resolved = _resolve_show(ep["show"] or folder)
-        if not resolved:
-            return _to_review(video, "Couldn't tell which show this episode belongs to. Rename it like "
+        name, year = naming.show_name(ep["show"] or folder or "")   # "Doctor.Who.2005" is "Doctor Who" (2005)
+        if not name:
+            return _to_review(video, "This looks like an episode, but the name doesn't say of which show. Rename it like "
                                      "\"Show Name S01E02.mkv\" and drop it in the Inbox again.")
+        resolved = _resolve_show(name, year) or (os.path.join(_new_root("shows"), naming.safe_filename(
+            (name.title() if name.islower() else name) + (" (%d)" % year if year else ""))), None)
         show_dir, show_meta = resolved
         show_name = os.path.basename(show_dir)
         title = ep["title"]
@@ -347,10 +352,17 @@ def _file_video(video, entry, adult=False, collection=None):
         if meta and meta.get("year"):
             title, year = meta.get("canonical") or title, meta["year"]
             how = "an online lookup of %r (%s)" % (title, meta.get("source") or "online")
-    if not year:
-        return _to_review(video, "Couldn't tell what this is. Name episodes like \"Show S01E02\" and movies "
+    camera = naming.camera_name(stem)
+    if camera and not year:                      # a phone or camera clip: the Home Videos collection
+        name = naming.safe_filename(camera)
+        dest = os.path.join(_new_root("movies"), "Home Videos", name, name + ext.lower())
+        return _move(video, dest, "Added %s to Movies (Home Videos)" % name, why="a phone or camera file name (%r)" % stem)
+    if not title or len(re.sub(r"[^A-Za-z]", "", title)) < 2:
+        return _to_review(video, "Couldn't tell what this is from its name. Name episodes like \"Show S01E02\" and movies "
                                  "like \"Title (1999)\", then drop it in the Inbox again.")
-    name = naming.safe_filename("%s (%d)" % (title, year))
+    name = naming.safe_filename("%s (%d)" % (title, year) if year else title)
+    if not year:
+        how = "the title %r (no year in the name, and no match online: Find details on its page fixes that)" % title
     part = re.search(r"\b(?:cd|disc|part)[\s._-]*(\d)\b", stem, re.I)
     base = os.path.join(_new_root("movies"), collection) if collection else _new_root("movies")
     dest = os.path.join(base, name, name + (" - part%s" % part.group(1) if part else "") + ext.lower())
@@ -397,6 +409,9 @@ def _file_music_video(path, entry):
     return _move(path, dest, "Added the %s video \"%s\" to Music Videos" % (artist, title))
 
 
+_filed_now = []        # (original path, new path) of the videos filed from the drop being handled
+
+
 def _move(src, dest, message, private=False, why=None):
     if os.path.exists(dest):
         if os.path.getsize(dest) == os.path.getsize(src):
@@ -407,6 +422,7 @@ def _move(src, dest, message, private=False, why=None):
     stem_src = os.path.splitext(src)[0]
     stem_dest = os.path.splitext(dest)[0]
     shutil.move(src, dest)
+    _filed_now.append((src, dest))
     for f in os.listdir(os.path.dirname(src)):     # subtitles and thumbnails that share the name
         p = os.path.join(os.path.dirname(src), f)
         base, ext = os.path.splitext(p)
@@ -446,14 +462,122 @@ def _to_review(path, why, sub="From Inbox", private=False):
     return False
 
 
-def _sweep_leftovers(entry, private=False):
-    """Once the videos are out, move whatever remains of a dropped folder to Needs Review."""
+SUB_LANGS = {"english": "en", "eng": "en", "spanish": "es", "espanol": "es", "español": "es", "spa": "es", "french": "fr",
+             "fre": "fr", "fra": "fr", "german": "de", "ger": "de", "deu": "de", "italian": "it", "ita": "it", "portuguese": "pt",
+             "por": "pt", "brazilian": "pt-BR", "dutch": "nl", "dut": "nl", "russian": "ru", "rus": "ru", "japanese": "ja",
+             "jpn": "ja", "chinese": "zh", "chi": "zh", "korean": "ko", "kor": "ko", "arabic": "ar", "ara": "ar", "swedish": "sv",
+             "danish": "da", "norwegian": "no", "finnish": "fi", "polish": "pl", "turkish": "tr", "greek": "el", "hebrew": "he"}
+
+
+def _sub_lang(path):
+    words = re.findall(r"[a-zà-ÿ]+", os.path.splitext(os.path.basename(path))[0].lower())
+    for w in reversed(words):
+        if w in SUB_LANGS:
+            return SUB_LANGS[w] + (".sdh" if "sdh" in words or "hi" in words else "") + (".forced" if "forced" in words else "")
+        if len(w) == 2 and w in SUB_LANGS.values():
+            return w
+    return "und"
+
+
+def _attach_subtitles(entry, filed):
+    """Subtitles left in a dropped folder ("Subs/English.srt", "Subs/Show.S01E02/2_English.srt") go next to
+    their video, named so Sofa offers them in the player."""
+    if not filed:
+        return
+    codes = {}
+    for src, dest in filed:
+        ep = naming.parse_episode(os.path.splitext(os.path.basename(dest))[0], in_show=True)
+        if ep:
+            codes[(ep["s"], ep["e"])] = dest
+    for d, _dirs, files in os.walk(entry):
+        for f in files:
+            if os.path.splitext(f)[1].lower() not in naming.SUB_EXT:
+                continue
+            p = os.path.join(d, f)
+            target = None
+            if len(filed) == 1:
+                target = filed[0][1]
+            else:
+                ep = naming.parse_episode(os.path.relpath(p, entry).replace(os.sep, " "), in_show=True)
+                target = codes.get((ep["s"], ep["e"])) if ep else None
+            if not target:
+                continue
+            base = os.path.splitext(target)[0] + "." + _sub_lang(p)
+            dest, n = base + os.path.splitext(f)[1].lower(), 2
+            while os.path.exists(dest):
+                dest, n = "%s-%d%s" % (base, n, os.path.splitext(f)[1].lower()), n + 1
+            try:
+                shutil.move(p, dest)
+            except OSError:
+                pass
+
+
+ART_NAMES = {"poster": "folder", "folder": "folder", "cover": "folder", "fanart": "backdrop", "backdrop": "backdrop",
+             "background": "backdrop", "logo": "logo", "clearlogo": "logo"}
+
+
+def _attach_artwork(entry, filed):
+    """A poster.jpg / fanart.jpg / movie.nfo that came with a single movie goes with it."""
+    if len(filed) != 1:
+        return
+    dest_dir = os.path.dirname(filed[0][1])
+    if dest_dir in places.all_section_roots():
+        return                                     # not in a folder of its own
+    for d, _dirs, files in os.walk(entry):
+        for f in files:
+            base, ext = os.path.splitext(f.lower())
+            p = os.path.join(d, f)
+            if base == "movie" and ext == ".nfo":
+                target = os.path.join(dest_dir, "movie.nfo")
+            elif base in ART_NAMES and ext in (".jpg", ".jpeg", ".png"):
+                kind = ART_NAMES[base]
+                target = os.path.join(dest_dir, kind + (".png" if kind == "logo" else ".jpg"))
+                if ext == ".png" and kind != "logo":
+                    target = os.path.join(dest_dir, kind + ".png")
+            else:
+                continue
+            if not os.path.exists(target):
+                try:
+                    shutil.move(p, target)
+                except OSError:
+                    pass
+
+
+JUNK_EXT = (".nfo", ".txt", ".url", ".website", ".lnk", ".exe", ".sfv", ".md5", ".nzb", ".torrent", ".srr", ".sub.idx",
+            ".db", ".ini", ".log", ".html", ".htm", ".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".dat")
+
+
+def _sweep_leftovers(entry, private=False, filed=()):
+    """Once the videos are out: subtitles join their video, release clutter (.nfo, .txt, links,
+    samples, screenshots) goes to the Deleted folder, and only what's left goes to Needs Review."""
     if not os.path.exists(entry):
         return
     if os.path.isdir(entry):
-        remaining = [f for _d, _dirs, files in os.walk(entry) for f in files if f != ".DS_Store"]
+        _attach_subtitles(entry, filed)
+        _attach_artwork(entry, filed)
+        clutter = []
+        for d, _dirs, files in os.walk(entry):
+            for f in files:
+                p = os.path.join(d, f)
+                low = f.lower()
+                if f == ".DS_Store" or f.startswith("._"):
+                    os.remove(p)
+                elif low.endswith(JUNK_EXT) or (os.path.splitext(low)[1] in naming.VIDEO_EXT and _is_sample(p)):
+                    clutter.append(p)
+        for p in clutter:
+            try:
+                _put_aside(p)
+            except OSError:
+                pass
+        if clutter:
+            note = "Put %d leftover file%s (.nfo, .txt, samples, ...) in the Deleted folder" % (len(clutter), "" if len(clutter) == 1 else "s")
+            if private:
+                store.log_private("inbox", note, {"files": clutter[:30]})
+            else:
+                store.log("inbox", note, {"files": [os.path.basename(c) for c in clutter][:30]})
+        remaining = [f for _d, _dirs, files in os.walk(entry) for f in files]
         if not remaining:
-            shutil.rmtree(entry, ignore_errors=True)   # only empty folders and Finder litter
+            shutil.rmtree(entry, ignore_errors=True)   # nothing left but empty folders
             return
     dest = os.path.join(config.path("review"), *(["XXX"] if private else []), "Inbox leftovers", os.path.basename(entry))
     os.makedirs(os.path.dirname(dest), exist_ok=True)

@@ -164,8 +164,10 @@ def _token_key(token):
 def start_session(user_id, ip, agent):
     token = secrets.token_urlsafe(32)
     now = int(time.time())
+    if store.no_logs():                         # not where anyone signed in from, nor on what
+        ip = agent = None
     store.ex("INSERT INTO sessions (token, user_id, created, seen, ip, agent) VALUES (?,?,?,?,?,?)",
-             _token_key(token), user_id, now, now, ip, (agent or "")[:200])
+             _token_key(token), user_id, now, now, ip, (agent or "")[:200] or None)
     store.ex("DELETE FROM sessions WHERE seen < ?", now - SESSION_DAYS * 86400)
     return token
 

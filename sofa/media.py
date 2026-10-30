@@ -73,9 +73,13 @@ def encoders():
 
 def h264_args(height, live=True):
     """Encoder settings for H.264: the Mac's hardware encoder, or x264 elsewhere (Linux, old builds)."""
+    from . import machine                         # measured: on an old Mac, x264 is often faster than VideoToolbox
     height = height or 720
     rate = "14M" if height > 1080 else "6M" if height > 720 else "3500k" if height > 480 else "2M"
     enc = encoders()
+    best = machine.best_encoder()
+    if best != "h264_videotoolbox" and "libx264" in enc:
+        enc = {"libx264"}             # VideoToolbox only once it's checked: on some old Macs it makes damaged pictures
     if "h264_videotoolbox" in enc or not enc:
         args = ["-c:v", "h264_videotoolbox", "-allow_sw", "1"]
         if live:
@@ -85,7 +89,7 @@ def h264_args(height, live=True):
         if live:
             return ["-c:v", "libx264", "-preset", "veryfast", "-tune", "zerolatency", "-crf", "21",
                     "-maxrate", "16M", "-bufsize", "24M"]
-        return ["-c:v", "libx264", "-preset", "medium", "-crf", "20"]
+        return ["-c:v", "libx264", "-preset", "veryfast" if machine.gentle() else "medium", "-crf", "20"]
     return ["-c:v", "mpeg4", "-q:v", "3"]     # last resort: something every ffmpeg has
 
 
@@ -275,7 +279,7 @@ def needs_conversion(item, caps=None):
 LOOSE_TIMESTAMPS = ("avi", "mpg", "mpeg", "vob", "ts", "m2ts", "flv", "wmv", "divx", "3gp")
 
 
-def stream_command(item, mode, start, info, fmt="mp4", out="pipe:1", audio_index=None):
+def stream_command(item, mode, start, info, fmt="mp4", out="pipe:1", audio_index=None, max_height=None):
     exe = tool("ffmpeg")
     cmd = [exe, "-hide_banner", "-loglevel", "error", "-nostdin"]
     if item.get("ext") in LOOSE_TIMESTAMPS:
@@ -294,8 +298,10 @@ def stream_command(item, mode, start, info, fmt="mp4", out="pipe:1", audio_index
         if video.get("codec") == "hevc":
             cmd += ["-tag:v", "hvc1"]
     else:
-        filters = (["yadif"] if video.get("interlaced") else []) + ["scale='min(1920,iw)':-2", "format=yuv420p"]
-        cmd += h264_args(min(video.get("height") or 720, 1080)) + ["-vf", ",".join(filters), "-g", "48"]
+        from . import machine
+        top = min(max_height or 2160, machine.max_live_height() if not max_height else 2160, 1080)   # gentle mode: 720p
+        filters = (["yadif"] if video.get("interlaced") else []) + ["scale=-2:'min(ih,%d)'" % top, "format=yuv420p"]
+        cmd += h264_args(min(video.get("height") or 720, top)) + ["-vf", ",".join(filters), "-g", "48"]
     a = (audio or {}).get("codec")
     if a == "aac" or (a == "mp3" and fmt != "hls"):
         cmd += ["-c:a", "copy"]
@@ -371,7 +377,7 @@ def _stop_proc(proc):
         pass
 
 
-def run_stream(item, mode, start, info, out, who, fmt="mp4", owner=None, audio_index=None):
+def run_stream(item, mode, start, info, out, who, fmt="mp4", owner=None, audio_index=None, max_height=None):
     """Pipe ffmpeg's output to `out` until done, the viewer leaves, or they start something else."""
     holder = {}
     stop = lambda: holder.get("proc") and _stop_proc(holder["proc"])   # noqa: E731
@@ -379,7 +385,7 @@ def run_stream(item, mode, start, info, out, who, fmt="mp4", owner=None, audio_i
     slot = _slot(mode)
     key = "%s-%s" % (id(out), time.time())
     try:
-        proc = subprocess.Popen(stream_command(item, mode, start, info, fmt, audio_index=audio_index), stdout=subprocess.PIPE,
+        proc = subprocess.Popen(stream_command(item, mode, start, info, fmt, audio_index=audio_index, max_height=max_height), stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE, bufsize=0)
     except OSError:
         if slot:
@@ -461,7 +467,7 @@ def hls_dir():
     return os.path.join(config.DATA_DIR, "cache", "hls")
 
 
-def hls_start(item, mode, start, who, replace=None, owner=None, audio_index=None):
+def hls_start(item, mode, start, who, replace=None, owner=None, audio_index=None, max_height=None):
     """Start segmenting from `start` seconds. Returns a session id."""
     if replace:
         hls_stop(replace)
@@ -473,7 +479,7 @@ def hls_start(item, mode, start, who, replace=None, owner=None, audio_index=None
     folder = os.path.join(hls_dir(), sid)
     os.makedirs(folder, exist_ok=True)
     try:
-        proc = subprocess.Popen(stream_command(item, mode, start, info, "hls", folder, audio_index=audio_index),
+        proc = subprocess.Popen(stream_command(item, mode, start, info, "hls", folder, audio_index=audio_index, max_height=max_height),
                                 stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
     except OSError:
         if slot:

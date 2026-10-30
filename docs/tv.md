@@ -9,7 +9,8 @@
 
 Sofa notices it's on a TV and switches to **TV mode**: bigger buttons, a clear yellow
 highlight that follows the remote, and the player fills the screen. (Any other device can
-switch TV mode on under **Theme**.)
+switch TV mode on under **Theme**.) The whole menu fits on the TV's screen, with **Search** (🔍)
+and your profile at the end: Theme and Sign out are behind your profile picture.
 
 ### The remote
 
@@ -34,6 +35,12 @@ yours with the remote. Profiles that can see the Adult section or run the server
 type their 4-digit PIN with the remote's number keys or the on-screen pad (or their password,
 until they set a PIN). Set your color and PIN from **Who's watching? → Your profile**, or by
 pressing your name at the top. Switching only works at home, never for guests.
+
+### On a show's or movie's page
+
+After a moment a **trailer** plays behind the title (three minutes from the middle, silent;
+the speaker button turns the sound on). **Remove from Continue watching** takes it off Home until
+you watch it again.
 
 ### Tips
 

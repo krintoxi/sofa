@@ -81,6 +81,11 @@ def check(force=False):
             return status()
     repo, branch = _repo()
     info = {"error": None}
+    if net.offline_mode():
+        with _lock:
+            _state.update(error="Sofa is set to work offline, so it doesn't look for updates (Server, Settings, Privacy).",
+                          checked=int(time.time()))
+        return status()
     try:
         commit = json.loads(_get("https://api.github.com/repos/%s/commits/%s" % (repo, branch)))
         info["latest_commit"] = commit["sha"]

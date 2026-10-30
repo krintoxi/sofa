@@ -46,7 +46,7 @@ this file to MP4** button.
 | Scrubbing | hover the seek bar to see a preview picture |
 | Episodes | the list button, or `E` |
 | Audio and subtitles | the CC button, or `C`. Sofa remembers your language. |
-| Options (gear) | autoplay next episode, skip intros by themselves, "Are you still watching?", speed, subtitle size, what's playing and why |
+| Options (gear) | autoplay next episode, skip intros by themselves, "Are you still watching?", **sleep timer** (end of this episode, 30 min, 1 hour), **picture** for converted video (Auto, 1080p, 720p, 480p: lower is lighter for the Sofa computer and for Wi-Fi), speed, subtitle size, what's playing and why |
 | Picture in picture | the button, or `P` |
 | Phones | tap to show the controls, double-tap left or right to skip 10 seconds |
 
@@ -81,11 +81,34 @@ card you're on plays its preview in place. Sofa makes each clip the first time s
 at it (a second or two) and, in the background, for every movie and each show's first episode.
 About 300 KB each, in `~/Sofa/data/cache/previews`. Off with `"previews": false`.
 
+### Trailers
+
+Open a show or a movie (**More info**) and after a moment three minutes of it play behind the
+title, from somewhere in the middle (never the opening, never the end), silent until you press
+the speaker. A show's trailer comes from a random episode of its first season, so it gives
+nothing away. Files your device plays as they are cost the Sofa computer nothing; others are
+repackaged as they play (cheap); a file that would need converting on a slow computer (Gentle
+mode) plays its short preview clip instead. Off per device under **Theme → Trailers**.
+
 ### Scrubbing previews
 
 Sofa makes preview pictures (320 px wide, one every 10 seconds) for each video, in the
 background, starting with what people are watching. They're stored in
 `~/Sofa/data/cache/trickplay`, never next to your media. Off with `"trickplay": false`.
+
+### Old computers: Gentle mode and the encoder check
+
+A minute after starting (and again whenever ffmpeg changes), Sofa times a short 1080p conversion
+with each way this computer has (Apple's VideoToolbox and x264) and uses the faster one that
+**works properly**: it also compares the result with the original, because on some older Macs
+running a newer macOS (OpenCore) VideoToolbox makes video with purple or green lines across it.
+There Sofa never uses it, previews are made again, and **Server → Overview → This computer** offers
+to convert again, from the originals it kept, any MP4 it made with it before.
+
+**Gentle mode** turns on by itself on a slow computer (or set it on or off there): video converted
+while someone watches is 720p at most, and converting files, making previews ahead of time and
+finding intros wait for the **quiet hours** (1:00 to 7:00, changeable). Whatever someone is
+watching is still done straight away.
 
 ### Space
 

@@ -22,11 +22,12 @@ their place.
 import os
 import re
 import shutil
+import sqlite3
 import subprocess
 import threading
 import time
 
-from . import config, media, places, store
+from . import config, machine, media, naming, places, store
 
 VIDEO_KINDS = ("episode", "movie", "extra", "musicvideo")
 COPY_AUDIO = ("aac", "mp3", "ac3", "eac3")
@@ -36,10 +37,19 @@ _current = {}           # the conversion in progress: {"path", "progress", "proc
 _lock = threading.Lock()
 
 
+_columns = []
+
+
 def _table():
     store.ex("""CREATE TABLE IF NOT EXISTS conversions (
         path TEXT PRIMARY KEY, item TEXT, title TEXT, state TEXT NOT NULL, added INTEGER NOT NULL,
         started INTEGER, finished INTEGER, error TEXT, before INTEGER, after INTEGER, how TEXT)""")
+    if not _columns:
+        try:                                    # "redo": convert again from the original kept aside (0.7)
+            store.ex("ALTER TABLE conversions ADD COLUMN redo TEXT")
+        except sqlite3.OperationalError:
+            pass
+        _columns.append("redo")
 
 
 # ---------------------------------------------------------------- what to convert
@@ -69,10 +79,15 @@ def label(item):
     return item.get("title") or os.path.basename(item["path"])
 
 
+_asked = set()       # files someone asked for (not the automatic pick): converted even outside the quiet hours
+
+
 def enqueue(items, reason="requested"):
     _table()
     added = 0
     for item in items:
+        if reason != "automatic":
+            _asked.add(item["path"])
         row = store.q1("SELECT state FROM conversions WHERE path = ?", item["path"])
         if row and row["state"] in ("queued", "working", "done"):
             continue
@@ -110,6 +125,61 @@ def cancel(path):
             _current["proc"].kill()
 
 
+# ---------------------------------------------------------------- converting again (damaged by VideoToolbox)
+
+_redo = {}
+
+
+def _made_with_videotoolbox(path):
+    try:
+        out = subprocess.run([media.tool("ffprobe"), "-v", "error", "-select_streams", "v:0", "-show_entries",
+                              "stream_tags=encoder", "-of", "csv=p=0", path], capture_output=True, text=True, timeout=30).stdout
+    except (OSError, subprocess.SubprocessError, TypeError):
+        return False
+    return "videotoolbox" in out.lower()
+
+
+def damaged_redo():
+    """On a Mac where VideoToolbox draws lines across the picture: find the MP4s Sofa made with it whose
+    originals it kept (Converted Originals), and queue them to be converted again from those."""
+    if _redo.get("running"):
+        return False
+    _redo.update(running=True, found=0)
+
+    def run():
+        try:
+            _table()
+            homes = [(config.path("originals"), places.main_base())] + \
+                [(os.path.join(p["path"], "Converted Originals"), p["path"]) for p in places.extra() if places.connected(p)]
+            for kept_root, home in homes:
+                for folder, _dirs, files in os.walk(kept_root):
+                    for name in files:
+                        if name.startswith(".") or name.endswith(".older.mp4") or os.path.splitext(name)[1].lower() not in naming.VIDEO_EXT:
+                            continue
+                        kept = os.path.join(folder, name)
+                        path = os.path.join(home, os.path.relpath(kept, kept_root))       # where it was in the library
+                        mp4 = os.path.splitext(path)[0] + ".mp4"
+                        if path == mp4 or not os.path.exists(mp4) or not _made_with_videotoolbox(mp4):
+                            continue
+                        row = store.q1("SELECT state FROM conversions WHERE path = ?", path)
+                        if row and row["state"] in ("queued", "working"):
+                            continue
+                        private = any(path.startswith(r + os.sep) for _key, r in places.roots("adult"))
+                        store.ex("INSERT OR REPLACE INTO conversions (path, item, title, state, added, redo) VALUES (?,?,?,?,?,?)",
+                                 path, None, PRIVATE if private else os.path.splitext(name)[0], "queued", int(time.time()), kept)
+                        _asked.add(path)
+                        _redo["found"] += 1
+            store.log("convert", "Converting %d video(s) again from their originals (the first conversion had lines across the picture)"
+                      % _redo["found"])
+            _wake.set()
+        except Exception as exc:
+            store.log("error", "Looking for damaged conversions: %s" % exc)
+        finally:
+            _redo["running"] = False
+    threading.Thread(target=run, daemon=True, name="convert-again").start()
+    return True
+
+
 def retry(path):
     _table()
     store.ex("UPDATE conversions SET state = 'queued', error = NULL WHERE path = ? AND state = 'failed'", path)
@@ -140,7 +210,7 @@ def status(library=None):
     saved = store.q1("SELECT SUM(before - after) AS n FROM conversions WHERE state = 'done'")["n"] or 0
     out = {"rows": rows, "counts": counts, "saved": saved, "auto": bool(config.get("auto_convert")),
            "keep_originals": bool(config.get("keep_originals")), "originals": config.path("originals"),
-           "hardware": media.hardware_encoder(), "waiting_for_viewers": bool(_current.get("waiting"))}
+           "hardware": media.hardware_encoder(), "waiting_for_viewers": _current.get("waiting") or False}
     if library is not None:
         known = {r["path"]: r["state"] for r in store.q("SELECT path, state FROM conversions")}
         out["candidates"] = sum(1 for i in candidates(library) if known.get(i["path"]) not in ("queued", "working", "done"))
@@ -164,8 +234,9 @@ def build_command(src, dst, info):
         how.append("copy " + media.describe_video(video))
     else:
         filters = (["yadif"] if video.get("interlaced") else []) + ["format=yuv420p"]
-        cmd += media.h264_args(video.get("height"), live=False) + ["-vf", ",".join(filters), "-profile:v", "high"]
-        how.append("%s to H.264%s" % (media.describe_video(video), " (hardware)" if media.hardware_encoder() else ""))
+        enc = media.h264_args(video.get("height"), live=False)
+        cmd += enc + ["-vf", ",".join(filters), "-profile:v", "high"]
+        how.append("%s to H.264%s" % (media.describe_video(video), " (hardware)" if "h264_videotoolbox" in enc else ""))
 
     audio = info.get("audio") or []
     first = media.default_audio(info)
@@ -212,15 +283,17 @@ def _originals_dest(src):
     return os.path.join(os.path.join(place["path"], "Converted Originals") if place else config.path("originals"), rel)
 
 
-def convert(path, item_id=None):
-    """Convert one file. Raises on failure; returns (new path, description)."""
-    info = media.probe(path)
+def convert(path, item_id=None, source=None):
+    """Convert one file. Raises on failure; returns (new path, description).
+    With `source`: convert again from the original kept in Converted Originals, replacing the MP4 at `path`."""
+    src = source or path
+    info = media.probe(src)
     if not info:
         raise ValueError("ffprobe couldn't read the file (is it damaged, or still copying?)")
     stem = os.path.splitext(path)[0]
     dest = stem + ".mp4"
     part = stem + ".mp4.sofa-part"
-    cmd, how = build_command(path, part, info)
+    cmd, how = build_command(src, part, info)
     with _lock:
         _current.update(path=path, progress=0.0, how=how)
     proc = subprocess.Popen((["nice", "-n", "10"] if shutil.which("nice") else []) + cmd,
@@ -248,6 +321,9 @@ def convert(path, item_id=None):
         if os.path.exists(part):
             os.remove(part)
         raise
+    if source:                                     # the original stays where it is; the damaged MP4 goes
+        os.replace(part, dest)
+        return dest, how
     if config.get("keep_originals"):
         keep = _originals_dest(path)
         os.makedirs(os.path.dirname(keep), exist_ok=True)
@@ -261,15 +337,15 @@ def convert(path, item_id=None):
 
 
 def _run_one(row):
-    path = row["path"]
-    if not os.path.exists(path):
+    path, source = row["path"], row.get("redo")
+    if not os.path.exists(source or path):
         store.ex("UPDATE conversions SET state = 'gone', finished = ? WHERE path = ?", int(time.time()), path)
         return
-    before = os.path.getsize(path)
+    before = os.path.getsize(source or path)
     store.ex("UPDATE conversions SET state = 'working', started = ?, error = NULL, before = ? WHERE path = ?",
              int(time.time()), before, path)
     try:
-        dest, how = convert(path, row["item"])
+        dest, how = convert(path, row["item"], source=source)
     except InterruptedError:
         store.ex("DELETE FROM conversions WHERE path = ?", path)
         store.log("convert", "Stopped converting %s" % ("a private video" if row["title"] == PRIVATE else row["title"]))
@@ -282,8 +358,11 @@ def _run_one(row):
             store.log("convert", "Couldn't convert %s: %s" % (row["title"], str(exc)[:200]), {"file": path})
     else:
         after = os.path.getsize(dest)
-        store.ex("UPDATE conversions SET state = 'done', finished = ?, after = ?, how = ? WHERE path = ?",
-                 int(time.time()), after, how, path)
+        if store.no_logs():                   # no list of what was converted
+            store.ex("DELETE FROM conversions WHERE path = ?", path)
+        else:
+            store.ex("UPDATE conversions SET state = 'done', finished = ?, after = ?, how = ?, redo = NULL WHERE path = ?",
+                     int(time.time()), after, how + (", converted again" if source else ""), path)
         if row["title"] == PRIVATE:
             store.log_private("convert", "Converted a private video to MP4")
         else:
@@ -307,9 +386,15 @@ def _loop():
                 continue
             with _lock:
                 _current.pop("waiting", None)
-            row = store.q1("SELECT * FROM conversions WHERE state = 'queued' ORDER BY added, path LIMIT 1")
-            if not row:
+            rows = store.q("SELECT * FROM conversions WHERE state = 'queued' ORDER BY added, path")
+            if not rows:
                 break
+            row = rows[0] if machine.heavy_ok() else next((r for r in rows if r["path"] in _asked), None)
+            if not row:                              # gentle mode: the automatic ones wait for the quiet hours
+                with _lock:
+                    _current["waiting"] = "quiet hours"
+                time.sleep(120)
+                continue
             _run_one(dict(row))
 
 

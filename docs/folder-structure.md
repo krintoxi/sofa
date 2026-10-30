@@ -14,20 +14,27 @@ stopped changing for 30 seconds (and while any `.part`/`.crdownload` file remain
 | `Show.Name.S02E05...` or `Show Name 2x05` | `Shows/Show Name/Season 2/Show Name S02E05 <Title>.ext` |
 | a folder `Show Name/Season 2/03 - Title.mkv` | the same, using the folder names |
 | `Show Name 101 Title.avi` inside a show folder (`101` = season 1, episode 1) | the same tidy name |
+| `[Group] Show Name - 05 [1080p].mkv` (anime), `Show.Name.205.HDTV`, `Show Name Ep 3` | `Shows/Show Name/Season 1/...` (or the season in the name) |
+| a daily show by date: `The.Daily.Show.2024.03.15...` | `Shows/The Daily Show/Season 2024/...` |
+| a phone or camera video: `VID_20230512_143000.mp4`, `IMG_1234.MOV`, `PXL_...`, `GOPR0042.MP4` | `Movies/Home Videos/Video 2023-05-12 14.30/...` (the date and time when the name has them) |
 | `Movie.Title.1999.1080p...` or `Movie Title (1999)` | `Movies/Movie Title (1999)/Movie Title (1999).ext` |
-| a movie with no year in its name | its year is looked up (iTunes Store, Wikipedia or TMDB) |
+| a movie with no year in its name | its year is looked up (iTunes Store, Wikipedia or TMDB); if nobody knows it, it's filed under its own name |
 | a folder of several different movies (`Star Wars Collection`, `The Lord of the Rings Trilogy`) | `Movies/Star Wars Collection/<Title (Year)>/...`, one folder per movie |
 | `Movie CD1.avi` and `Movie CD2.avi` | kept together as one movie |
 | anything inside `Inbox/XXX/` | `Adult/Movies/<Title (Year)>/...`, or `Adult/Shows/<Show>/Season N/...` when named like an episode |
 | a song (`.mp3`, `.m4a`, `.flac`, `.wav`, ...) | `Music/<Artist>/<Album>/<NN Title>.ext` from its tags, or from a name like `Artist - Title.mp3` |
 | anything inside `Inbox/Music Videos/` named `Artist - Title.mp4` (or in an artist folder there) | `Music Videos/<Artist>/<Title>.mp4`; "(Official Video)" and similar are dropped |
 | `.srt`/`.vtt` subtitles and `.jpg` thumbnails with the same name | moved along with the video |
-| samples, leftovers (`.nfo`, `.txt`) | `Needs Review/Inbox leftovers/` |
-| anything it can't identify | `Needs Review/From Inbox/`, with a note on the Server page |
+| subtitles in a `Subs` folder or named `English.srt`, `2_English.srt` | attached to the video as `<video>.en.srt` (one per language) |
+| `poster.jpg`, `cover.jpg`, `folder.jpg` / `fanart.jpg`, `backdrop.jpg` | become the title's cover / background |
+| samples, `.txt`, `.nfo`, `.url`, `.exe` and other download leftovers | set aside in `Deleted/Inbox/` (never thrown away; empty it from the Server page) |
+| anything else left over | `Needs Review/Inbox leftovers/` |
+| anything with no usable name at all | `Needs Review/From Inbox/`, with a note on the Server page |
 | an exact duplicate of something already filed | `Needs Review/Duplicates/` |
 
 Show names are checked against shows you already have (so `ncis` joins `NCIS`) and
-against TVmaze, which also supplies episode titles.
+against TVmaze, which also supplies episode titles. A show TVmaze doesn't know (or with the
+internet off) is still filed, under its tidied name.
 
 ## Tidying what's already there
 

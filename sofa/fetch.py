@@ -236,7 +236,7 @@ def start_install():
 def _force_update():
     """Update Sofa's own copy now (at most once an hour). True if it was updated."""
     exe = tool()
-    if exe != own_copy():
+    if exe != own_copy() or not net.online():
         return False
     stamp = own_copy() + ".forced"
     try:
@@ -257,7 +257,7 @@ def _force_update():
 def _self_update():
     """Keep Sofa's own copy current (sites change; yt-dlp fixes them within days)."""
     exe = tool()
-    if exe != own_copy():
+    if exe != own_copy() or not net.online():
         return
     stamp = own_copy() + ".checked"
     try:
@@ -277,6 +277,8 @@ def _self_update():
 
 def add(url, adult=False, playlist=False):
     url = (url or "").strip()
+    if net.offline_mode():
+        raise ValueError("Sofa is set to work offline, so it can't save videos from links. Switch Offline off under Server, Settings.")
     if not re.match(r"^https?://[^\s/]+", url):
         raise ValueError("Paste a full link that starts with http:// or https://.")
     _table()
@@ -442,8 +444,11 @@ def _run_one(job):
             dest = "%s (%d)" % (os.path.join(inbox, naming.safe_filename(title)[:100]), n)
             n += 1
         shutil.move(folder, dest)
-        store.ex("UPDATE downloads SET state = 'done', finished = ?, files = ? WHERE id = ?",
-                 int(time.time()), len(videos), job["id"])
+        if store.no_logs():                   # no history of what was saved, nor from where
+            store.ex("DELETE FROM downloads WHERE id = ?", job["id"])
+        else:
+            store.ex("UPDATE downloads SET state = 'done', finished = ?, files = ? WHERE id = ?",
+                     int(time.time()), len(videos), job["id"])
         if job["adult"]:
             store.log_private("download", "Saved %d video%s from a link to Adult" % (len(videos), "" if len(videos) == 1 else "s"))
         else:

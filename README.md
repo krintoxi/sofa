@@ -7,7 +7,13 @@ browsers, phones, smart TVs, Roku and Fire TV. Free live TV channels too.
 A project by [EdgeVenture.uk](https://edgeventure.uk).
 
 Sofa is plain Python (standard library only) plus ffmpeg. It runs happily on a Mac mini,
-and still runs on a 2011 iMac.
+and still runs on a 2011 iMac (it notices an older computer and goes easy on it).
+
+**Yours, at home.** Everything Sofa needs comes with it: the app, its fonts and its player run
+from the Sofa computer, so every device at home can watch with the internet down. The internet
+is only used for optional extras (looking up artwork, updates, saving from links, live TV), and
+**Work offline** switches even that off. **Keep no logs** and **Wipe all logs** leave nothing
+behind. [docs/privacy.md](docs/privacy.md)
 
 ---
 
@@ -75,8 +81,12 @@ finishes, works out what each file is, renames it and files it:
 | anything in **`Inbox/XXX`** | the **Adult** section; folders like `Hentai` or `Series` keep their shape (see below) |
 | songs | `Music/<Artist>/<Album>/` |
 
-Anything Sofa can't work out goes to **`Needs Review`**, with a note on the Server page.
-Nothing is ever deleted. More: [docs/folder-structure.md](docs/folder-structure.md).
+It copes with the usual mess: anime names (`[Group] Show - 05`), `Show.205.hdtv`, daily shows
+by date, phone and camera videos (filed in **Movies/Home Videos**), movies with no year,
+subtitles and posters that came along (attached to the right video), and samples and
+`.txt`/`.nfo`-style junk (set aside in Deleted, never thrown away). Only things with no
+usable name at all go to **`Needs Review`**, with a note on the Server page. Nothing is ever
+deleted. More: [docs/folder-structure.md](docs/folder-structure.md).
 
 ### Things that just work
 
@@ -86,16 +96,23 @@ Nothing is ever deleted. More: [docs/folder-structure.md](docs/folder-structure.
   [docs/playback.md](docs/playback.md)
 - **Hover previews.** Point at anything and a bigger card plays a few seconds of it, with Play
   and More info. On a TV, the card you're on plays in place.
+- **Trailers.** Open a show or movie (More info) and, after a moment, three minutes of it from
+  somewhere in the middle play behind the title. Sound off until you turn it on; off per device
+  under Theme.
 - **A proper player.** Skip Intro / Skip Recap / Skip Credits, "Next episode" when the
   credits start, previews while you scrub, an episode list, sound-track and subtitle
-  choice, picture-in-picture, speed, keyboard shortcuts (press `?`), and double-tap to skip
-  on phones.
+  choice, picture quality for converted video, a sleep timer, picture-in-picture, speed,
+  keyboard shortcuts (press `?`), and double-tap to skip on phones.
 - **Artwork and details.** Shows from TVmaze; movies from the iTunes Store and Wikipedia
   (or TMDB, with a free key, for the best posters and collections); `.nfo` files next to your
-  videos are read too. Episodes without a picture get a well-chosen still from the video.
+  videos are read too. Episodes without a picture get a well-chosen still from the video, and a
+  title no service knows gets a cover made from one (the whole frame, with its name), not a
+  narrow slice of a wide picture.
   Wrong match, or none? Click **Find details** on the show or movie and pick the right one.
-- **Genres.** Movies and Shows can be browsed by genre (Comedy, Horror, Science Fiction, ...),
-  and Home has a row for your biggest genres.
+- **Genres and filters.** Movies and Shows can be browsed by genre (Comedy, Animation, Anime,
+  Science Fiction, ...), narrowed by a filter box (name, genre, network, year) and by what you've
+  watched. A genre page also lists titles with its name in the title (Adventure Time under
+  Adventure). Home has a row for your biggest genres.
 - **Save from a link.** Paste the address of a video page (YouTube, Vimeo and well over a
   thousand other sites); Sofa downloads it with the free yt-dlp tool and files it.
   Server → Downloads.
@@ -117,11 +134,20 @@ Nothing is ever deleted. More: [docs/folder-structure.md](docs/folder-structure.
   work (converting, previews, Skip Intro) waits while the computer is busy.
 - **My List**, **search as you type** (with pictures; arrow keys and the remote work in it), and
   a **banner on Home that plays** a few seconds of the featured title (off per device under Theme).
+- **Home keeps up.** **New episodes** of shows you watch get their own row (and a "New" on the
+  show), and anything can be taken out of **Continue watching** (✕ on its card, or on its page)
+  until you watch it again.
+- **Made for old Macs too.** Sofa times this computer's video conversion and uses the faster way
+  that works properly (on some older Macs Apple's hardware converter draws lines across the
+  picture; Sofa checks, and never uses it there). On a slow computer, **Gentle mode** keeps video
+  converted while you watch at 720p and saves heavy background work for the quiet hours (1-7 am).
+  Server → Overview → This computer.
 - **Themes.** Press **Theme** at the top: Midnight, Cinema, Ocean, Forest, Grape or Pure black,
   plus subtitle size and TV mode. Each device keeps its own.
-- **TVs.** On Fire TV, open Sofa in the **Silk** browser: it switches to TV mode, and the
-  remote works like Netflix (OK on Skip Intro skips, ◀ ▶ seek with a preview, Back closes
-  panels first). Roku Media Player, VLC and most smart TVs also find Sofa by themselves.
+- **TVs.** On Fire TV, open Sofa in the **Silk** browser: it switches to TV mode (the whole menu
+  fits, with Search and your profile at the end), and the remote works like Netflix (OK on Skip
+  Intro skips, ◀ ▶ seek with a preview, Back closes panels first). Roku Media Player, VLC and most
+  smart TVs also find Sofa by themselves.
   [docs/tv.md](docs/tv.md)
 - **Music**, with albums, artists, stations, likes and a queue. **Live TV** from free channel lists.
 
@@ -149,14 +175,14 @@ link you trust and tick **Adult channels**. [docs/adult.md](docs/adult.md)
 
 | Tab | What's there |
 |---|---|
-| Overview | addresses to watch from, who's watching, the Inbox, anything that needs you |
+| Overview | addresses to watch from, who's watching, the Inbox, anything that needs you, this computer (speed, Gentle mode, quiet hours) |
 | Storage | where the library is (this computer and drives), where new things go, drives to add, moves between drives |
 | Library | folders, rescan, **missing details** (fix them in a click), new pictures, free up space, the Deleted folder, Skip Intro progress, Needs Review |
 | Converting | the convert-to-MP4 queue with progress; automatic converting on/off |
 | Downloads | save videos from links; install yt-dlp; use a browser's sign-in; the "Send to Sofa" bookmark |
 | Live TV | channel lists |
 | People | accounts, Adult access, guests |
-| Settings | name, theme, TV sharing, TMDB key, ThePornDB token, backups |
+| Settings | **privacy** (keep no logs, wipe all logs, work offline), name, theme, TV sharing, TMDB key, ThePornDB token, backups |
 | Updates | version, **Update now** |
 | Activity | everything Sofa did, filterable |
 
@@ -197,9 +223,10 @@ sofa/                server: library, inbox, streaming, converter, intro finder,
 client/              web app (no build step)
 deploy/              install script, macOS LaunchAgent, Linux systemd unit
 tools/               get-sofa.sh, update.sh, convert.py
-docs/                install, updating, folders, storage (drives), playback, TV, adult, remote access
+docs/                install, updating, folders, storage (drives), playback, TV, adult, privacy, remote access
 ```
 
 ## License
 
-MIT. hls.js (client/vendor) is Apache-2.0.
+MIT. Bundled in `client/vendor`: hls.js (Apache-2.0), qrcode-generator (MIT), and the Bricolage
+Grotesque and Instrument Sans fonts (SIL Open Font License 1.1, licenses next to them).
