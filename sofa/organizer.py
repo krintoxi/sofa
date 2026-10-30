@@ -93,11 +93,25 @@ def process_inbox():
             continue
         size, newest = _footprint(entry)
         if _seen.get(entry) != (size, newest) or time.time() - newest < SETTLE_SECONDS:
+            if entry not in _seen:
+                _note_arrival(entry, hint, size)
             _seen[entry] = (size, newest)
             continue
         _seen.pop(entry, None)
         filed += _handle(entry, hint)
     return filed
+
+
+def _note_arrival(entry, hint, size):
+    rel = os.path.relpath(entry, config.path("inbox"))
+    count = sum(len(fs) for _d, _s, fs in os.walk(entry)) if os.path.isdir(entry) else 1
+    text = "%s in the Inbox (%d file%s, %.1f GB). Waiting until the copy has finished." % (
+        "A folder" if os.path.isdir(entry) else "A file", count, "" if count == 1 else "s", size / 1e9)
+    if hint == "adult":
+        store.log_private("inbox", "Something arrived in Inbox/XXX. Waiting until the copy has finished.",
+                          {"entry": rel, "files": count, "bytes": size})
+    else:
+        store.log("inbox", "\"%s\" arrived: %s" % (rel, text[0].lower() + text[1:]), {"entry": rel, "files": count, "bytes": size})
 
 
 def _handle(entry, hint=None):
@@ -106,7 +120,8 @@ def _handle(entry, hint=None):
         if target:                                   # a category ("Hentai") or a collection: keep its shape
             n = sum(1 for _d, _s, fs in os.walk(entry) for f in fs if os.path.splitext(f)[1].lower() in naming.VIDEO_EXT)
             _merge_into(entry, target)
-            store.log_private("inbox", "Added a folder of %d video%s to Adult" % (n, "" if n == 1 else "s"))
+            store.log_private("inbox", "Added a folder of %d video%s to Adult" % (n, "" if n == 1 else "s"),
+                              {"folder": entry, "into": target, "videos": n, "why": "a folder named like a category or a collection keeps its shape"})
             return n
     wanted = naming.VIDEO_EXT | music.AUDIO_EXT
     videos = []
@@ -121,9 +136,20 @@ def _handle(entry, hint=None):
                     videos.append(os.path.join(d, f))
     filed = 0
     collection = _collection_of(entry, videos) if hint != "musicvideo" else None
+    if videos and hint != "adult":
+        store.log("inbox", "Sorting \"%s\": %d file%s%s" % (os.path.basename(entry), len(videos), "" if len(videos) == 1 else "s",
+                  ", as the collection \"%s\"" % collection if collection else ""), {"entry": entry, "files": [os.path.basename(v) for v in videos][:50]})
+    elif hint == "adult":
+        store.log_private("review", "Nothing to play in a private item; it goes to Needs Review", {"entry": entry})
+    else:
+        store.log("review", "Nothing to play in \"%s\"; it goes to Needs Review" % os.path.basename(entry), {"entry": entry})
     for v in sorted(videos):
         is_audio = os.path.splitext(v)[1].lower() in music.AUDIO_EXT
         if not is_audio and _is_sample(v):
+            if hint == "adult":
+                store.log_private("inbox", "Skipped a sample file", {"file": v})
+            else:
+                store.log("inbox", "Skipped a sample file: %s" % os.path.basename(v), {"file": v})
             continue
         try:
             if is_audio and hint != "adult":
@@ -134,7 +160,7 @@ def _handle(entry, hint=None):
                 filed += 1 if _file_video(v, entry, adult=hint == "adult", collection=collection) else 0
         except OSError as exc:
             if hint == "adult":
-                store.log_private("review", "Couldn't move a private file (%s)" % exc.strerror)
+                store.log_private("review", "Couldn't move a private file (%s)" % exc.strerror, {"file": v, "error": str(exc)})
             else:
                 store.log("review", "Couldn't move %s: %s" % (os.path.basename(v), exc), {"file": v})
     _sweep_leftovers(entry, private=hint == "adult")
@@ -262,7 +288,8 @@ def _file_video(video, entry, adult=False, collection=None):
         code = "S%02dE%02d" % (ep["s"], ep["e"])
         new = naming.safe_filename("%s %s %s" % (show_name, code, ep["title"]) if ep["title"] else "%s %s" % (show_name, code))
         dest = os.path.join(shows_root, show_name, "Season %d" % ep["s"], new + ext.lower())
-        return _move(video, dest, "Added 1 episode to Adult", private=True)
+        return _move(video, dest, "Added 1 episode to Adult", private=True,
+                     why="episode %s read from the name %r; series %r from %s" % (code, stem, show_name, "the name" if ep["show"] else "the folder"))
     if ep:
         resolved = _resolve_show(ep["show"] or folder)
         if not resolved:
@@ -277,7 +304,10 @@ def _file_video(video, entry, adult=False, collection=None):
         folder = "Specials" if ep["s"] == 0 else "Season %d" % ep["s"]
         new = naming.safe_filename("%s %s %s" % (show_name, code, title) if title else "%s %s" % (show_name, code))
         dest = os.path.join(config.path("shows"), show_name, folder, new + ext.lower())
-        return _move(video, dest, "Added %s %s to Shows" % (show_name, code))
+        return _move(video, dest, "Added %s %s to Shows" % (show_name, code),
+                     why="episode %s read from the name %r; show %r %s" % (
+                         code, stem, show_name, "matched on TVmaze" if show_meta else "already in Shows" if _existing_show(show_name)
+                         else "from the %s (no TVmaze match)" % ("name" if ep["show"] else "folder")))
 
     title, year = naming.parse_movie(stem)
     title = naming.strip_part(title)
@@ -295,13 +325,17 @@ def _file_video(video, entry, adult=False, collection=None):
             year = (metadata.movie(title, None, adult=True) or {}).get("year")
         name = naming.safe_filename("%s (%d)" % (title.strip(), year) if year and str(year) not in title else title.strip()) or "Untitled"
         dest = os.path.join(config.path("adult"), "Movies", name, name + ext.lower())
-        return _move(video, dest, "Added 1 video to Adult", private=True)
+        return _move(video, dest, "Added 1 video to Adult", private=True,
+                     why="title %r from %s" % (title, "the saved link/.nfo" if side.get("title") else "the scene name" if scene.get("studio") else "the file name"))
+    how = "the file name %r" % stem if naming.parse_movie(stem)[1] else "the folder name" if year else "?"
     if side.get("title") and not naming.parse_movie(stem)[1] and side.get("year"):    # saved from a link
         title, year = naming.clean(side["title"]), side["year"]
+        how = "the saved link's details"
     if not year:
         meta = metadata.movie(title, None)
         if meta and meta.get("year"):
             title, year = meta.get("canonical") or title, meta["year"]
+            how = "an online lookup of %r (%s)" % (title, meta.get("source") or "online")
     if not year:
         return _to_review(video, "Couldn't tell what this is. Name episodes like \"Show S01E02\" and movies "
                                  "like \"Title (1999)\", then drop it in the Inbox again.")
@@ -309,7 +343,8 @@ def _file_video(video, entry, adult=False, collection=None):
     part = re.search(r"\b(?:cd|disc|part)[\s._-]*(\d)\b", stem, re.I)
     base = os.path.join(config.path("movies"), collection) if collection else config.path("movies")
     dest = os.path.join(base, name, name + (" - part%s" % part.group(1) if part else "") + ext.lower())
-    return _move(video, dest, "Added %s to Movies%s" % (name, " (%s)" % collection if collection else ""))
+    return _move(video, dest, "Added %s to Movies%s" % (name, " (%s)" % collection if collection else ""),
+                 why="movie: title and year from %s%s" % (how, "; part of the collection %r" % collection if collection else ""))
 
 
 def _file_song(path):
@@ -351,7 +386,7 @@ def _file_music_video(path, entry):
     return _move(path, dest, "Added the %s video \"%s\" to Music Videos" % (artist, title))
 
 
-def _move(src, dest, message, private=False):
+def _move(src, dest, message, private=False, why=None):
     if os.path.exists(dest):
         if os.path.getsize(dest) == os.path.getsize(src):
             return _to_review(src, "Already in the library: %s" % os.path.relpath(dest, os.path.dirname(config.path("shows"))),
@@ -373,10 +408,13 @@ def _move(src, dest, message, private=False):
                     os.makedirs(os.path.dirname(target), exist_ok=True)
                 if not os.path.exists(target):
                     shutil.move(p, target)
+    detail = {"from": src, "to": dest}
+    if why:
+        detail["why"] = why
     if private:
-        store.log_private("inbox", message)
+        store.log_private("inbox", message, detail)
     else:
-        store.log("inbox", message, {"from": os.path.basename(src), "to": dest})
+        store.log("inbox", message, detail)
     return True
 
 
@@ -391,7 +429,7 @@ def _to_review(path, why, sub="From Inbox", private=False):
         n += 1
     shutil.move(path, dest)
     if private:
-        store.log_private("review", "A private file needs a look (in Needs Review/XXX/%s)" % sub)
+        store.log_private("review", "A private file needs a look (in Needs Review/XXX/%s)" % sub, {"file": path, "now_in": dest, "why": why})
     else:
         store.log("review", why, {"file": os.path.basename(path), "now_in": dest})
     return False
@@ -411,7 +449,7 @@ def _sweep_leftovers(entry, private=False):
     if not os.path.exists(dest):
         shutil.move(entry, dest)
         if private:
-            store.log_private("review", "Moved leftover files of a private item to Needs Review/XXX")
+            store.log_private("review", "Moved leftover files of a private item to Needs Review/XXX", {"entry": entry, "now_in": dest})
         else:
             store.log("review", "Moved leftover files from \"%s\" to Needs Review" % os.path.basename(entry), {"now_in": dest})
 

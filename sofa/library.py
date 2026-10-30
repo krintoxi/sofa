@@ -97,6 +97,7 @@ class Library:
         self.last_scan_seconds = 0
         self._scan_lock = threading.Lock()
         self._problems = []
+        self.last_problems = []
         self._stills = {}       # picture -> when Sofa took it from the video, or "keep" (it isn't one of Sofa's)
         self._redo = {}         # "all" or a show/movie id -> when an admin asked for new pictures
 
@@ -244,6 +245,8 @@ class Library:
             self._save_stills()
             self._migrate_ids()
             self.last_scan_seconds = round(time.time() - started, 1)
+            if not quick:
+                self.last_problems = list(self._problems)
             if self._problems:
                 where, err = self._problems[0]
                 store.log("error", "Couldn't read %d file(s) or folder(s) in the library, for example %s (%s)."

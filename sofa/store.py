@@ -43,6 +43,8 @@ CREATE TABLE IF NOT EXISTS migrations (name TEXT PRIMARY KEY, at INTEGER NOT NUL
 MIGRATIONS = [
     "ALTER TABLE users ADD COLUMN guest INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE users ADD COLUMN adult INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE users ADD COLUMN pin TEXT",
+    "ALTER TABLE users ADD COLUMN avatar INTEGER NOT NULL DEFAULT -1",
 ]
 
 
@@ -87,9 +89,23 @@ def log(kind, message, detail=None):
     ex("DELETE FROM activity WHERE id < (SELECT MAX(id) - 2000 FROM activity)")
 
 
-def log_private(kind, message):
-    """Activity about the Adult section: a plain sentence with no titles, names or paths."""
+PRIVATE_LOG = os.path.join(config.DATA_DIR, "logs", "private.jsonl")
+
+
+def log_private(kind, message, detail=None):
+    """Activity about the Adult section: a plain sentence with no titles, names or paths. The details
+    (file names, where they went, why) go to data/logs/private.jsonl, which only a report an admin
+    asks for with "Include Adult details" contains."""
     log(kind, message, {"private": True})
+    if detail:
+        try:
+            os.makedirs(os.path.dirname(PRIVATE_LOG), exist_ok=True)
+            if os.path.exists(PRIVATE_LOG) and os.path.getsize(PRIVATE_LOG) > 5 * 1024 * 1024:
+                os.replace(PRIVATE_LOG, PRIVATE_LOG + ".1")
+            with open(PRIVATE_LOG, "a", encoding="utf-8") as f:
+                f.write(json.dumps({"at": int(time.time()), "kind": kind, "message": message, "detail": detail}) + "\n")
+        except OSError:
+            pass
 
 
 def scrub_private(folders):

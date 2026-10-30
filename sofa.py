@@ -73,6 +73,41 @@ from sofa import __version__, auth, backup, config, dlna, organizer, store, upda
 from sofa.library import LIBRARY  # noqa: E402
 
 
+class Stamped:
+    """Every line Sofa writes to its log (data/sofa.log in the background) starts with the date and time."""
+    def __init__(self, stream):
+        self.stream, self.fresh = stream, True
+
+    def write(self, text):
+        parts = []
+        for line in text.splitlines(True):
+            if self.fresh:
+                parts.append(time.strftime("[%Y-%m-%d %H:%M:%S] "))
+            parts.append(line)
+            self.fresh = line.endswith("\n")
+        self.stream.write("".join(parts))
+        return len(text)
+
+    def flush(self):
+        self.stream.flush()
+
+    def __getattr__(self, name):
+        return getattr(self.stream, name)
+
+
+def thread_crashed(args):
+    """A background part of Sofa stopped with an error: the whole story goes in the log, a line in Activity."""
+    import traceback
+    if args.exc_type is SystemExit:
+        return
+    print("Error in %s:\n%s" % (args.thread.name if args.thread else "a background task",
+                                "".join(traceback.format_exception(args.exc_type, args.exc_value, args.exc_traceback))), file=sys.stderr, flush=True)
+    try:
+        store.log("error", "%s stopped: %s" % (args.thread.name if args.thread else "A background task", args.exc_value))
+    except Exception:
+        pass
+
+
 def ask_password():
     while True:
         a = getpass.getpass("Password (8+ characters): ")
@@ -94,6 +129,9 @@ def main(argv):
         os.makedirs(config.path(key), exist_ok=True)
 
     if cmd == "serve":
+        sys.stdout, sys.stderr = Stamped(sys.stdout), Stamped(sys.stderr)
+        threading.excepthook = thread_crashed
+        print("Python %s at %s" % (sys.version.split()[0], sys.executable), flush=True)
         # Answer straight away; the library is read in the background (a big one takes a while).
         print("Sofa %s is starting." % __version__, flush=True)
         for part in (dlna.start, watcher.start):

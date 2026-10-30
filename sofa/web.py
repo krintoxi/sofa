@@ -15,7 +15,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 import threading
 
 from . import (__version__, artwork, auth, backup, config, dlna, fetch, housekeeping, intros, live, media, metadata, music,
-               net, optimize, organizer, previews, store, trickplay, updater)
+               net, optimize, organizer, previews, report, store, trickplay, updater)
 from .library import LIBRARY
 
 CLIENT_DIR = os.path.join(config.APP_DIR, "client")
@@ -98,6 +98,9 @@ class Handler(BaseHTTPRequestHandler):
             return json.loads(self.rfile.read(length) or b"{}")
         except ValueError:
             return None
+
+    def may_switch(self, u):
+        return bool(u) and not u.get("guest") and self.network() in HOME_NETS
 
     def session_cookie(self, token, max_age):
         parts = ["%s=%s" % (auth.SESSION_COOKIE, token), "Path=/", "HttpOnly", "SameSite=Lax", "Max-Age=%d" % max_age]
@@ -432,7 +435,7 @@ class Handler(BaseHTTPRequestHandler):
                 trickplay.want(item)
             return self.json(info or {"pending": bool(config.get("trickplay"))})
         if kind == "preview.mp4":
-            f = previews.for_request(item)
+            f = previews.for_request(item, hd=bool((qs.get("hd") or [""])[0]))
             return self.send_file(f, cache="private, max-age=604800") if f else self.send_body("Not ready", status=503)
         if kind.startswith("trick/"):
             f = trickplay.sheet(item, int(m.group(4)))
@@ -463,10 +466,15 @@ class Handler(BaseHTTPRequestHandler):
             u = self.user()
             return self.json({"name": config.get("name"), "version": __version__, "user": u, "theme": config.get("theme"),
                               "needs_setup": auth.user_count() == 0, "network": self.network(),
-                              "remote": config.get("remote"), "guest_available": bool(self.guest_ok())})
+                              "remote": config.get("remote"), "guest_available": bool(self.guest_ok()),
+                              "profiles": self.may_switch(u) and len(auth.profiles())})
         u = self.need_user(admin=path.startswith("/api/admin/"))
         if not u:
             return
+        if path == "/api/profiles":
+            if not self.may_switch(u):
+                return self.error(403, "Switching profiles works at home, from a signed-in profile.")
+            return self.json({"profiles": auth.profiles(), "me": u["id"]})
         if path == "/api/library":
             out = LIBRARY.public(adult=u.get("adult"))
             out["reading"] = not LIBRARY.generated          # just started: the first read isn't done yet
@@ -538,6 +546,12 @@ class Handler(BaseHTTPRequestHandler):
             return self.json(updater.status())
         if path == "/api/admin/intros":
             return self.json(intros.status(LIBRARY))
+        if path == "/api/admin/report":            # a text file to send when asking for help
+            private = bool(u.get("adult")) and (qs.get("adult") or [""])[0] == "1"
+            text = report.build(u["name"], include_private=private)
+            store.log("settings", "%s downloaded a report%s" % (u["name"], " with Adult details" if private else ""))
+            return self.send_body(text, headers={"Content-Disposition": 'attachment; filename="sofa-report-%s.txt"' % time.strftime("%Y-%m-%d-%H%M"),
+                                                 "Cache-Control": "no-store"})
         if path == "/api/admin/missing":
             return self.json({"items": [m for m in LIBRARY.missing_details() if u.get("adult") or not m.get("adult")]})
         if path == "/api/admin/downloads":
@@ -583,6 +597,36 @@ class Handler(BaseHTTPRequestHandler):
             token = auth.start_session(row["id"], ip, self.headers.get("User-Agent"))
             store.log("login", "%s signed in from %s" % (row["name"], self.network_label()), {"ip": ip})
             return self.json({"ok": True}, headers={"Set-Cookie": self.session_cookie(token, auth.SESSION_DAYS * 86400)})
+        if path == "/api/profiles/switch":           # "Who's watching?": from one signed-in profile to another, at home
+            u = self.user()
+            if not self.may_switch(u):
+                return self.error(403, "Switching profiles works at home, from a signed-in profile.")
+            target = next((p for p in auth.profiles() if p["id"] == data.get("id")), None)
+            if not target:
+                return self.error(404, "That profile isn't there any more.")
+            if target["locked"] and target["id"] != u["id"]:
+                if auth.throttled(ip):
+                    return self.error(429, "Too many tries. Wait 15 minutes and try again.")
+                if not auth.check_code(target["id"], data.get("code")):
+                    auth.record_failure(ip)
+                    return self.error(403, "That PIN isn't right." if target["pin"] else "That password isn't right.")
+            auth.end_session(self.token())
+            token = auth.start_session(target["id"], ip, self.headers.get("User-Agent"))
+            store.log("login", "%s is watching on %s" % (target["name"], self.network_label()), {"ip": ip})
+            return self.json({"ok": True}, headers={"Set-Cookie": self.session_cookie(token, auth.SESSION_DAYS * 86400)})
+        if path == "/api/profile":                    # your own avatar and PIN
+            u = self.user()
+            if not u or u.get("guest"):
+                return self.error(403, "Sign in first.")
+            try:
+                if "pin" in data:
+                    row = store.q1("SELECT pw FROM users WHERE id = ?", u["id"])
+                    if not auth.check_password(str(data.get("password") or ""), row["pw"]):
+                        return self.error(403, "Type your password to change the PIN.")
+                auth.set_profile(u["id"], avatar=data.get("avatar"), pin=data.get("pin"))
+            except (ValueError, TypeError) as exc:
+                return self.error(400, str(exc))
+            return self.json({"ok": True})
         if path == "/api/guest":
             if not self.guest_ok():
                 return self.error(403, "Guest access works on the home Wi-Fi only.")

@@ -1,5 +1,6 @@
 """Accounts, sessions, login throttling and network classification."""
 import hashlib
+import re
 import hmac
 import ipaddress
 import secrets
@@ -117,6 +118,43 @@ def delete_user(user_id):
     store.ex("DELETE FROM users WHERE id = ?", user_id)
 
 
+# ---------------------------------------------------------------- profiles ("Who's watching?")
+
+AVATARS = 8
+
+
+def _avatar(row):
+    return row["avatar"] if row["avatar"] is not None and row["avatar"] >= 0 else row["id"] % AVATARS
+
+
+def locked(row):
+    """Profiles that can see the Adult section or run the server ask for their PIN (or password) to switch to."""
+    return bool(row["admin"] or row["adult"])
+
+
+def profiles():
+    rows = store.q("SELECT id, name, admin, adult, avatar, pin FROM users WHERE guest = 0 ORDER BY id")
+    return [{"id": r["id"], "name": r["name"], "avatar": _avatar(r), "locked": locked(r), "pin": bool(r["pin"])} for r in rows]
+
+
+def check_code(user_id, code):
+    """The profile's 4-digit PIN, or its password when it has no PIN."""
+    row = store.q1("SELECT pw, pin FROM users WHERE id = ? AND guest = 0", user_id)
+    if not row:
+        return False
+    return check_password(str(code or ""), row["pin"] or row["pw"])
+
+
+def set_profile(user_id, avatar=None, pin=None):
+    if avatar is not None:
+        store.ex("UPDATE users SET avatar = ? WHERE id = ?", max(0, min(AVATARS - 1, int(avatar))), user_id)
+    if pin is not None:
+        pin = str(pin).strip()
+        if pin and not re.match(r"^\d{4}$", pin):
+            raise ValueError("A PIN is 4 digits.")
+        store.ex("UPDATE users SET pin = ? WHERE id = ?", hash_password(pin) if pin else None, user_id)
+
+
 # ---------------------------------------------------------------- sessions
 
 def _token_key(token):
@@ -136,7 +174,7 @@ def session_user(token):
     if not token:
         return None
     key = _token_key(token)
-    row = store.q1("""SELECT u.id, u.name, u.admin, u.guest, u.adult, s.seen, s.created FROM sessions s
+    row = store.q1("""SELECT u.id, u.name, u.admin, u.guest, u.adult, u.avatar, u.pin, s.seen, s.created FROM sessions s
                       JOIN users u ON u.id = s.user_id WHERE s.token = ?""", key)
     if not row or row["seen"] < time.time() - SESSION_DAYS * 86400:
         return None
@@ -145,7 +183,7 @@ def session_user(token):
     if time.time() - row["seen"] > 300:
         store.ex("UPDATE sessions SET seen = ? WHERE token = ?", int(time.time()), key)
     return {"id": row["id"], "name": row["name"], "admin": bool(row["admin"]), "guest": bool(row["guest"]),
-            "adult": bool(row["adult"]) and not row["guest"]}
+            "adult": bool(row["adult"]) and not row["guest"], "avatar": _avatar(row), "pin": bool(row["pin"])}
 
 
 def end_session(token):

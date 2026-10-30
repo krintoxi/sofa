@@ -18,7 +18,7 @@ from . import config, media, store
 
 CACHE = os.path.join(config.DATA_DIR, "cache", "previews")
 VERSION = "v1"
-HEIGHT, PART = 360, 3.0
+HEIGHT, HD_HEIGHT, PART = 360, 720, 3.0       # HD: for the big banner on Home
 _urgent = []
 _lock = threading.Lock()
 _making = set()
@@ -35,10 +35,15 @@ def _key(path):
     return hashlib.sha1(("%s|%s|%d|%d" % (VERSION, path, st.st_size, int(st.st_mtime))).encode()).hexdigest()[:20]
 
 
-def clip(item):
+def _name(path, hd=False):
+    k = _key(path)
+    return (k + ("-hd" if hd else "") + ".mp4") if k else None
+
+
+def clip(item, hd=False):
     """The finished clip for `item`, or None."""
-    k = _key(item["path"])
-    p = os.path.join(CACHE, k + ".mp4") if k else None
+    n = _name(item["path"], hd)
+    p = os.path.join(CACHE, n) if n else None
     return p if p and os.path.isfile(p) else None
 
 
@@ -50,37 +55,39 @@ def _moments(duration):
     return [(0.0, 6.0)]
 
 
-def make(item, background=False):
+def make(item, background=False, hd=False):
     """Make the clip for `item` now. True when there is one."""
-    if clip(item):
+    if clip(item, hd):
         return True
     path = item["path"]
     exe = media.tool("ffmpeg")
-    if not exe or path in _failed:
+    job = path + ("|hd" if hd else "")
+    if not exe or job in _failed:
         return False
     with _lock:
-        if path in _making:
+        if job in _making:
             return False
-        _making.add(path)
+        _making.add(job)
     try:
         info = media.probe(path) or {}
         if not info.get("video"):
-            _failed.add(path)
+            _failed.add(job)
             return False
         parts = _moments(info.get("duration") or 0)
         cmd = ["nice", "-n", "15" if background else "5", exe, "-hide_banner", "-loglevel", "error", "-nostdin", "-y"]
         for at, length in parts:
             cmd += ["-ss", "%.2f" % at, "-t", "%.2f" % length, "-i", path]
-        chains = ["[%d:v:0]scale=-2:%d:flags=bicubic,setsar=1,fps=24,format=yuv420p[v%d]" % (n, HEIGHT, n)
+        height = min(HD_HEIGHT if hd else HEIGHT, (info["video"].get("height") or HEIGHT) // 2 * 2)
+        chains = ["[%d:v:0]scale=-2:%d:flags=bicubic,setsar=1,fps=24,format=yuv420p[v%d]" % (n, height, n)
                   for n in range(len(parts))]
         graph = ";".join(chains) + ";" + "".join("[v%d]" % n for n in range(len(parts))) + \
             "concat=n=%d:v=1:a=0[out]" % len(parts)
         if "h264_videotoolbox" in media.encoders():
-            enc = ["-c:v", "h264_videotoolbox", "-allow_sw", "1", "-b:v", "700k"]
+            enc = ["-c:v", "h264_videotoolbox", "-allow_sw", "1", "-b:v", "2600k" if hd else "700k"]
         else:
-            enc = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "28"]
+            enc = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "25" if hd else "28"]
         os.makedirs(CACHE, exist_ok=True)
-        dest = os.path.join(CACHE, _key(path) + ".mp4")
+        dest = os.path.join(CACHE, _name(path, hd))
         tmp = dest + ".part.mp4"
         cmd += ["-filter_complex", graph, "-map", "[out]", "-an", "-sn", "-dn"] + enc + \
             ["-movflags", "+faststart", tmp]
@@ -91,7 +98,7 @@ def make(item, background=False):
             os.replace(tmp, dest)
             return True
         except (OSError, subprocess.SubprocessError) as exc:
-            _failed.add(path)
+            _failed.add(job)
             err = getattr(exc, "stderr", None)
             why = (err.decode("utf-8", "replace").strip().splitlines() or [""])[-1] if err else str(exc)
             if item.get("adult"):
@@ -104,28 +111,28 @@ def make(item, background=False):
                 os.remove(tmp)
     finally:
         with _lock:
-            _making.discard(path)
+            _making.discard(job)
 
 
-def for_request(item):
-    """A clip for someone pointing at a card right now: made on the spot if a slot is free,
-    otherwise queued for the background (the next time it's there). Path or None."""
-    found = clip(item)
+def for_request(item, hd=False):
+    """A clip for someone pointing at a card (or the banner on Home) right now: made on the spot if
+    a slot is free, otherwise queued for the background (the next time it's there). Path or None."""
+    found = clip(item, hd)
     if found or not config.get("previews"):
         return found
     if not _slots.acquire(blocking=False):
-        want(item)
+        want(item, hd)
         return None
     try:
-        return clip(item) if make(item) else None
+        return clip(item, hd) if make(item, hd=hd) else None
     finally:
         _slots.release()
 
 
-def want(item):
+def want(item, hd=False):
     with _lock:
-        if item["path"] not in [i["path"] for i in _urgent]:
-            _urgent.append(item)
+        if (item["path"], hd) not in [(i["path"], h) for i, h in _urgent]:
+            _urgent.append((item, hd))
     _wake.set()
 
 
@@ -153,7 +160,7 @@ def _prune(library):
     for n in names:
         p = os.path.join(CACHE, n)
         try:
-            if n.endswith(".mp4") and n[:-4] not in keep and time.time() - os.path.getmtime(p) > 7 * 86400:
+            if n.endswith(".mp4") and n[:-4].split("-")[0] not in keep and time.time() - os.path.getmtime(p) > 7 * 86400:
                 os.remove(p)
         except OSError:
             pass
@@ -167,7 +174,7 @@ def _next(library):
         return None
     for item in _wanted(library):
         if item["path"] not in _failed and not clip(item):
-            return item
+            return item, False
     return None
 
 
@@ -188,7 +195,7 @@ def _loop(library):
             _wake.wait(300)
             _wake.clear()
             continue
-        make(item, background=True)
+        make(item[0], background=True, hd=item[1])
         time.sleep(1)
 
 
