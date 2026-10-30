@@ -1128,6 +1128,7 @@ function srvUpdate(d) {
   if (u.running) state = `<div class="alert"><b>Updating…</b><span>${esc(u.step || "")}</span></div>`;
   else if (u.error) state = `<div class="alert bad"><b>The update didn't work.</b><span>${esc(u.error)} The old version is still running. Try again, or use the Terminal command below.</span></div>`;
   else if (u.done) state = `<div class="alert"><b>Updated. Sofa is restarting…</b><span>This page reloads by itself in a moment.</span></div>`;
+  else if (u.rolled_back) state = `<div class="alert bad"><b>The last update was undone.</b><span>${esc(u.rolled_back)}</span></div>`;
   else if (u.available) state = `<div class="alert"><b>A new version is ready${u.latest ? ": Sofa " + esc(u.latest) : ""}.</b><span>${esc(u.latest_message || "")}${u.latest_date ? " (" + esc(new Date(u.latest_date).toLocaleDateString()) + ")" : ""}</span></div>`;
   else if (u.checked) state = `<div class="alert soft"><b>You're up to date.</b><span>Checked ${esc(ago(u.checked))}.</span></div>`;
   else state = `<div class="alert soft"><b>Not checked yet.</b></div>`;

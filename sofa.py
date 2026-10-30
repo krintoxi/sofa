@@ -9,16 +9,67 @@
     python3 sofa.py status             show what the server sees
     python3 sofa.py backup             back up accounts, watch history and settings now
     python3 sofa.py restore FILE       restore a backup (stop the server first)
+    python3 sofa.py selftest           start the parts of Sofa once, without serving (updates use it)
 """
 import getpass
 import json
 import os
+import subprocess
 import sys
+import tarfile
+import threading
 import time
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+APP = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, APP)
+CODE = ("sofa", "client", "deploy", "tools", "docs", "integrations", "sofa.py", "README.md", "LICENSE", ".gitignore")
 
-from sofa import __version__, auth, backup, config, dlna, organizer, store, watcher, web  # noqa: E402
+
+def watch_update():
+    """Right after an update, data/update-check.json is there. If the new version keeps stopping
+    (a fourth start within its first minute and a half), go back to the version before by itself.
+    Only the standard library here, so this works however broken the new code is."""
+    data = os.environ.get("SOFA_DATA", os.path.join(APP, "data"))
+    mark = os.path.join(data, "update-check.json")
+    try:
+        with open(mark, encoding="utf-8") as f:
+            m = json.load(f)
+    except (OSError, ValueError):
+        return
+    m["starts"] = int(m.get("starts", 0)) + 1
+    if m["starts"] <= 3:
+        with open(mark, "w", encoding="utf-8") as f:
+            json.dump(m, f)
+        return
+    print("Sofa %s keeps stopping: going back to %s." % (m.get("to") or "(new)", m.get("from") or "the version before"), flush=True)
+    try:
+        if m.get("commit") and os.path.isdir(os.path.join(APP, ".git")):
+            subprocess.run(["git", "-C", APP, "reset", "--hard", m["commit"]], check=True, capture_output=True)
+        elif m.get("snapshot") and os.path.isfile(m["snapshot"]):
+            for name in CODE:
+                p = os.path.join(APP, name)
+                if os.path.isdir(p) and not os.path.islink(p):
+                    subprocess.run(["rm", "-rf", p])
+                elif os.path.exists(p):
+                    os.remove(p)
+            with tarfile.open(m["snapshot"]) as tar:
+                tar.extractall(APP)
+        with open(os.path.join(data, "update-rolled-back.json"), "w", encoding="utf-8") as f:
+            json.dump({"at": int(time.time()), "to": m.get("to"), "back_to": m.get("from")}, f)
+    except Exception as exc:
+        print("Going back didn't work: %r. The old code is in %s." % (exc, m.get("snapshot")), flush=True)
+    finally:
+        try:
+            os.remove(mark)
+        except OSError:
+            pass
+    os.execv(sys.executable, [sys.executable, os.path.join(APP, "sofa.py")] + sys.argv[1:])
+
+
+if __name__ == "__main__" and sys.argv[1:2] == ["serve"]:
+    watch_update()
+
+from sofa import __version__, auth, backup, config, dlna, organizer, store, updater, watcher, web  # noqa: E402
 from sofa.library import LIBRARY  # noqa: E402
 
 
@@ -53,6 +104,9 @@ def main(argv):
                 store.log("error", "Starting %s: %s" % (part.__module__, exc))
         print("Open http://%s:%d on any device at home." % ((dlna.lan_addresses() or ["localhost"])[0], config.get("port")),
               flush=True)
+        confirm = threading.Timer(90, updater.confirm_update)   # it ran for a minute and a half: the update is good
+        confirm.daemon = True
+        confirm.start()
         if auth.user_count() == 0:
             print("No accounts yet: the first person to open that address creates the admin account.", flush=True)
         web.serve()
@@ -93,6 +147,18 @@ def main(argv):
         print("Restored the backup from %s (%s). The previous data is in %s. Start the server again."
               % (time.strftime("%Y-%m-%d %H:%M", time.localtime(manifest["made"])),
                  ", ".join("%d %s" % (v, k) for k, v in manifest["counts"].items()), aside))
+    elif cmd == "selftest":
+        # Before Sofa switches to a new version, the running one asks the new one to do this.
+        import urllib.request
+        srv = web.Server(("127.0.0.1", 0), web.Handler)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        for path in ("/healthz", "/", "/client/app.js", "/client/sofa.css"):
+            with urllib.request.urlopen("http://127.0.0.1:%d%s" % (srv.server_address[1], path), timeout=30) as r:
+                if r.status != 200:
+                    raise SystemExit("%s answered %d" % (path, r.status))
+        LIBRARY.scan("checking a new version", quick=True)
+        srv.shutdown()
+        print("SELFTEST OK %s %s" % (__version__, json.dumps(LIBRARY.counts())))
     elif cmd == "status":
         LIBRARY.scan("status check")
         print(json.dumps(web.admin_status(), indent=2, default=str))
