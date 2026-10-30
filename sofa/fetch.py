@@ -476,7 +476,7 @@ def _loop():
         except Exception:
             pass
         while tool():
-            if media.busy():
+            if media.should_wait():
                 with _lock:
                     _current["waiting"] = True
                 time.sleep(20)

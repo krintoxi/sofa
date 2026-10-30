@@ -118,6 +118,33 @@ def scrub_private(folders):
                "Filed a video in the Adult section", json.dumps({"private": True}), r["id"])
 
 
+def decode_saved_ids():
+    """Until 0.6.1, things saved from the web app were stored under %-encoded IDs ("e%3Athe-sopranos%3A1%3A1"),
+    so watch progress, likes and intro marks didn't match the library after a reload. Put them right, once."""
+    from urllib.parse import unquote
+    if migrated("decode-saved-ids"):
+        return 0
+    fixed = 0
+    for table, key in (("progress", "user_id"), ("music_likes", "user_id"), ("music_plays", "user_id"), ("likes", "user_id"),
+                       ("markers", "kind")):
+        try:
+            rows = q("SELECT rowid, item, {k} FROM {t} WHERE instr(item, '%') > 0".format(k=key, t=table))
+        except sqlite3.OperationalError:
+            continue                                     # a table that isn't there yet
+        for r in rows:
+            good = unquote(r["item"])
+            if good == r["item"]:
+                continue
+            if q1("SELECT 1 FROM %s WHERE item = ? AND %s = ?" % (table, key), good, r[key]):
+                ex("DELETE FROM %s WHERE rowid = ?" % table, r["rowid"])     # the right one is there already
+            else:
+                ex("UPDATE %s SET item = ? WHERE rowid = ?" % table, good, r["rowid"])
+            fixed += 1
+    if fixed:
+        log("settings", "Put %d saved watch positions, likes and intro marks back under the right titles" % fixed)
+    return fixed
+
+
 def migrated(name):
     """True once a one-time data change has run; marks it as run."""
     if q1("SELECT 1 FROM migrations WHERE name = ?", name):

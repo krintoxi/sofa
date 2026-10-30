@@ -110,6 +110,11 @@ Nothing is ever deleted. More: [docs/folder-structure.md](docs/folder-structure.
 - **Who's watching?** Everyone has their own profile, with their own "continue watching" and
   My List. The TV asks who's watching when Sofa opens; profiles that can see Adult or run the
   server are locked with a 4-digit PIN. Guests on your Wi-Fi scan a QR code on the Server page.
+- **Suggestions.** "More like this" on every show and movie, and "Because you watched …" rows on
+  Home, worked out at home from genres, collections, networks and years (nothing is sent anywhere).
+- **Light on old hardware.** The web app downloads the library compressed (a 7,500-file library is
+  about 100 KB), long pages draw as you scroll, TV sticks get lighter motion, and Sofa's background
+  work (converting, previews, Skip Intro) waits while the computer is busy.
 - **My List**, **search as you type** (with pictures; arrow keys and the remote work in it), and
   a **banner on Home that plays** a few seconds of the featured title (off per device under Theme).
 - **Themes.** Press **Theme** at the top: Midnight, Cinema, Ocean, Forest, Grape or Pure black,

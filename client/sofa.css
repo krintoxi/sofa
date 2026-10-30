@@ -1048,3 +1048,7 @@ html { overflow-x: clip; } .hero { overflow: hidden; }
 .space-bar i.full { background: var(--alert); }
 .drive-form { margin-top: 10px; }
 .place-name { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; } .place-name .tag { margin-left: 0; }
+/* motion costs: only the cards you see first rise in; on TV sticks pages just fade */
+#view.enter .rail .card:nth-child(n+9), #view.enter .grid > .card:nth-child(n+13) { animation: none; }
+.tv #view.enter > *, .tv #view.enter .hero .hero-body > * { animation: fadein .3s ease both; }
+.tv #view.enter .rail .card, .tv #view.enter .grid > .card, .tv .hero.carousel .slide.on .hero-body > * { animation: none; }

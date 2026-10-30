@@ -300,7 +300,7 @@ def _loop(library):
                 for key, (sig, eps) in seasons.items():
                     if _urgent:
                         break                            # someone started something: go back and do that first
-                    while media.busy() and not _urgent:
+                    while media.should_wait() and not _urgent:
                         time.sleep(30)
                     _analyze(key, sig, eps)
                 if _urgent:

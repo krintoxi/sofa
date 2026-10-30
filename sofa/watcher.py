@@ -77,6 +77,10 @@ def start():
                              os.path.join(config.path("review"), "XXX")])
     except Exception as exc:
         store.log("error", "Tidying the activity log: %s" % exc)
+    try:
+        store.decode_saved_ids()
+    except Exception as exc:
+        store.log("error", "Fixing saved watch positions: %s" % exc)
     media.start()
     live.start()
     backup.start()
