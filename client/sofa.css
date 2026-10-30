@@ -309,9 +309,7 @@ footer { position: relative; z-index: 1; padding: 0 var(--gutter) 40px; color: v
 .p-error p { margin: 0 0 16px; color: var(--soft); }
 
 @media (max-width: 760px) {
-  .bar { flex-wrap: wrap; gap: 10px 16px; }
   .search { margin-left: 0; width: 100%; } .search input { width: 100%; }
-  .hero { margin-top: -120px; }
   .season-body { grid-template-columns: 1fr; }
   .season-side { position: static; display: none; }
   .episode { grid-template-columns: 120px 1fr auto; gap: 12px; }
@@ -1154,8 +1152,46 @@ body.has-remote main { padding-bottom: 210px; }
 .rb-btns button { width: 46px; height: 46px; border-radius: 50%; display: grid; place-items: center; color: var(--paper); background: rgba(var(--paper-rgb), .08); border: 0; cursor: pointer; }
 .rb-btns button svg { width: 24px; height: 24px; }
 .rb-btns .rb-main { width: 58px; height: 58px; background: var(--amber); color: var(--amber-ink); }
-/* phones: the search box takes its own full line (the wider-screen rules above set a fixed width) */
-@media (max-width: 760px) { .bar .search { flex: 1 1 100%; width: 100%; } .bar .search input { width: 100%; } .bar .cast-btn { margin: 0; } }
+/* Phones, like a phone app: a slim bar at the top (logo, search, Play on, you), tabs at the bottom, the rest under More. */
+.nav a svg, .nav .nav-more { display: none; }
+@media (max-width: 760px) {
+  .bar { flex-wrap: nowrap; gap: 4px; padding: calc(8px + env(safe-area-inset-top)) 12px 8px; }
+  .bar .brand { margin-right: auto; font-size: 22px; }
+  .bar .search { display: none !important; }
+  .bar .search-btn { display: grid !important; }
+  .bar .cast-btn { margin: 0; }
+  .who .link-btn { display: none; }
+  .who .who-btn { padding: 4px; }
+  .nav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 0;
+    padding: 5px 6px calc(5px + env(safe-area-inset-bottom)); background: rgba(var(--ink-rgb), .9); border-top: 1px solid var(--line);
+    -webkit-backdrop-filter: saturate(1.4) blur(18px); backdrop-filter: saturate(1.4) blur(18px); }
+  .nav a { display: grid; justify-items: center; gap: 2px; padding: 6px 2px 4px; border-radius: 12px; font-size: 11px; font-weight: 600;
+    color: var(--mist); background: none !important; transition: color .2s, transform .15s; }
+  .nav a:active { transform: scale(.92); }
+  .nav a svg { display: block; width: 25px; height: 25px; }
+  .nav a[aria-current="page"] { color: var(--amber); box-shadow: none; }
+  .hero.short { padding-top: 84px; }
+  .nav .nav-extra { display: none; }
+  .nav .nav-more { display: grid; }
+  main#view { padding-bottom: calc(74px + env(safe-area-inset-bottom)); }
+  footer#foot { padding-bottom: calc(84px + env(safe-area-inset-bottom)); }
+  .hero { margin-top: -62px; }
+  .player:not([hidden]) ~ * .nav, body:has(.player:not([hidden])) .nav { display: none; }
+}
+/* More (phones) */
+.more-page { padding: 18px var(--gutter) 0; max-width: 640px; margin: 0 auto; display: grid; gap: 18px; }
+.more-me { display: flex; align-items: center; gap: 14px; padding: 6px 4px; }
+.more-me .av { width: 56px; height: 56px; font-size: 26px; border-radius: 16px; }
+.more-me b { display: block; font: 700 22px/1.1 var(--display); }
+.more-me small { color: var(--mist); }
+.more-list { display: grid; border-radius: 18px; overflow: hidden; background: rgba(var(--slate-rgb), .75); border: 1px solid var(--line); }
+.more-row { display: flex; align-items: center; gap: 14px; padding: 15px 16px; text-align: left; color: var(--paper); font: inherit;
+  background: none; border: 0; border-bottom: 1px solid var(--line); cursor: pointer; }
+.more-row:last-child { border-bottom: 0; }
+.more-row:active { background: rgba(var(--paper-rgb), .06); }
+.more-row svg { width: 24px; height: 24px; color: var(--amber); flex: none; }
+.more-row span { display: grid; gap: 1px; }
+.more-row small { color: var(--mist); font-size: 13px; }
 .kids-tag { display: inline-block; margin-top: 4px; padding: 2px 9px; border-radius: 999px; font: 800 11px/1.4 var(--display); letter-spacing: .04em;
   color: #fff; background: linear-gradient(135deg, #3CC8D8, #8B5CF6, #F4B740); }
 /* the episode guide: aired but not here, and coming up */
@@ -1244,3 +1280,20 @@ html.standalone .player .p-bottom { padding-bottom: max(16px, env(safe-area-inse
 .net-step { display: flex; gap: 10px; align-items: center; font-weight: 600; }
 .net-form h2 + .hint { margin-top: -4px; }
 .panel .good { color: var(--green); }
+
+/* "Install Sofa": a sheet from the bottom */
+.install-sheet { position: fixed; left: 12px; right: 12px; bottom: calc(12px + env(safe-area-inset-bottom)); z-index: 80; max-width: 520px; margin: 0 auto;
+  display: flex; gap: 14px; align-items: flex-start; padding: 16px 18px; border-radius: 20px; background: var(--slate-2);
+  border: 1px solid var(--line); box-shadow: 0 20px 60px rgba(0,0,0,.55); transform: translateY(130%); opacity: 0;
+  transition: transform .45s cubic-bezier(.2,.9,.25,1.1), opacity .3s; }
+.install-sheet.on { transform: none; opacity: 1; }
+.install-sheet img { border-radius: 14px; flex: none; }
+.install-sheet .is-body { display: grid; gap: 6px; min-width: 0; }
+.install-sheet b { font-size: 17px; }
+.install-sheet p, .install-sheet ol { margin: 0; color: var(--soft); font-size: 14px; line-height: 1.5; }
+.install-sheet ol { padding-left: 1.2em; display: grid; gap: 4px; }
+.install-sheet .row-actions { display: flex; gap: 8px; margin-top: 6px; }
+.install-sheet .share-ico { width: 18px; height: 18px; vertical-align: -3px; color: var(--amber); }
+.install-sheet.points-down::after { content: ""; position: absolute; left: 50%; bottom: -9px; width: 18px; height: 18px; margin-left: -9px;
+  background: var(--slate-2); border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); transform: rotate(45deg); }
+@media (prefers-reduced-motion: reduce) { .install-sheet { transition: none; } }

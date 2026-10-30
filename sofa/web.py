@@ -647,8 +647,11 @@ class Handler(BaseHTTPRequestHandler):
             return self.json(apps.status())
         if path == "/api/apps/firetv/install":     # how putting the app on this Fire TV is going
             return self.json(apps.install_status(self.device_ip()))
-        if path == "/api/screens":                 # this person's other open screens
-            return self.json({"screens": screens.listing(u["id"], exclude=(qs.get("me") or [""])[0])})
+        if path == "/api/screens":                 # this person's other open screens (a guest at home: the house's TVs)
+            me = (qs.get("me") or [""])[0]
+            if u.get("guest"):
+                return self.json({"screens": screens.tvs_for_guest(me) if self.guest_ok() else []})
+            return self.json({"screens": screens.listing(u["id"], exclude=me)})
         if path == "/api/progress":
             rows = store.q("SELECT item, t, d, done, at FROM progress WHERE user_id = ?", u["id"])
             return self.json({r["item"]: {"t": r["t"], "d": r["d"], "done": bool(r["done"]), "at": r["at"]} for r in rows})
@@ -875,7 +878,10 @@ class Handler(BaseHTTPRequestHandler):
             cmd = data.get("command") or {}
             if cmd.get("item") and not self.visible_item(cmd["item"], u):
                 return self.error(404, "That video isn't in the library any more.")
-            if not screens.send(m.group(1), u["id"], cmd, data.get("name")):
+            if u.get("guest"):
+                if not self.guest_ok() or not screens.send_as_guest(m.group(1), cmd, data.get("name") or "A guest"):
+                    return self.error(404, "That TV isn't open any more, or it's playing someone else's video.")
+            elif not screens.send(m.group(1), u["id"], cmd, data.get("name")):
                 return self.error(404, "That screen isn't open any more.")
             return self.json({"ok": True})
         m = re.match(r"^/api/progress/(.+)$", path)

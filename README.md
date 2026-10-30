@@ -89,8 +89,10 @@ the house uses that address.
 "[Sofa box](deploy/sofa-box/README.md)" (worked with the TV's own remote, your phone or a game
 controller), or the web browser of a smart TV. Install steps for each are on **Server → Overview → Apps**.
 
-**Phones, tablets and laptops:** open Sofa's address in the browser. On an iPhone or iPad, **Share
-→ Add to Home Screen** makes it an app with its own icon.
+**Phones, tablets and laptops:** open Sofa's address in the browser. On a phone it works like an app,
+with tabs at the bottom, and it offers to **install itself** on the home screen (one tap on Android;
+on an iPhone it shows the two taps). Guests on your Wi-Fi (the guest QR code on the Server page) can
+send videos to the TV too, with **Play on**.
 
 That's it. Enjoy the show. 🍿
 
