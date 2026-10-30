@@ -3,6 +3,7 @@ package uk.edgeventure.sofa
 import android.app.Activity
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.view.KeyEvent
 import android.webkit.CookieManager
@@ -100,6 +101,14 @@ class MainActivity : Activity() {
     inner class Bridge {
         @JavascriptInterface
         fun version(): String = "1"
+
+        /** This app's build (GitHub's run number; Sofa offers "Update" when it has a newer one). */
+        @JavascriptInterface
+        fun appVersion(): String {
+            val info = packageManager.getPackageInfo(packageName, 0)
+            @Suppress("DEPRECATION")
+            return (if (Build.VERSION.SDK_INT >= 28) info.longVersionCode else info.versionCode.toLong()).toString()
+        }
 
         @JavascriptInterface
         fun caps(): String = Codecs.caps().toString()
