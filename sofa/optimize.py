@@ -26,7 +26,7 @@ import subprocess
 import threading
 import time
 
-from . import config, media, store
+from . import config, media, places, store
 
 VIDEO_KINDS = ("episode", "movie", "extra", "musicvideo")
 COPY_AUDIO = ("aac", "mp3", "ac3", "eac3")
@@ -204,11 +204,12 @@ def build_command(src, dst, info):
 
 def _originals_dest(src):
     """Where an original goes: the same place under Converted Originals (Shows/X/Season 1/... keeps its shape)."""
-    home = os.path.dirname(config.path("shows"))
+    place = places.place_of(src)                  # on a drive: that drive's own Converted Originals (no copying across)
+    home = place["path"] if place else os.path.dirname(config.path("shows"))
     rel = os.path.relpath(src, home)
     if rel.startswith(".."):
         rel = os.path.basename(src)
-    return os.path.join(config.path("originals"), rel)
+    return os.path.join(os.path.join(place["path"], "Converted Originals") if place else config.path("originals"), rel)
 
 
 def convert(path, item_id=None):

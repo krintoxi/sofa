@@ -15,7 +15,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 import threading
 
 from . import (__version__, artwork, auth, backup, config, dlna, fetch, housekeeping, intros, live, media, metadata, music,
-               net, optimize, organizer, previews, report, store, trickplay, updater)
+               net, optimize, organizer, places, previews, report, store, trickplay, updater)
 from .library import LIBRARY
 
 CLIENT_DIR = os.path.join(config.APP_DIR, "client")
@@ -239,7 +239,7 @@ class Handler(BaseHTTPRequestHandler):
     def art(self, rest, qs):
         if not self.user() and self.network() not in HOME_NETS:   # TVs fetch artwork without signing in
             return self.error(401, "Sign in to continue.")
-        if rest.startswith("adult/") and not (self.user() or {}).get("adult"):
+        if rest.split("/")[0].partition("~")[0] == "adult" and not (self.user() or {}).get("adult"):
             return self.send_body("Not found", status=404)
         full = artwork.file_for("/art/" + rest)
         if not full:
@@ -478,6 +478,9 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/library":
             out = LIBRARY.public(adult=u.get("adult"))
             out["reading"] = not LIBRARY.generated          # just started: the first read isn't done yet
+            if u.get("admin"):
+                out["places"] = [{"id": "", "name": "This computer", "connected": True}] + \
+                    [{"id": p["id"], "name": p["name"], "connected": places.connected(p)} for p in places.extra()]
             out["likes"] = [r["item"] for r in store.q("SELECT item FROM likes WHERE user_id = ? ORDER BY at DESC", u["id"])
                             if u.get("adult") or not r["item"].startswith(("am:", "as:", "ae:", "ax:", "perf:"))]
             return self.json(out)
@@ -546,6 +549,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.json(updater.status())
         if path == "/api/admin/intros":
             return self.json(intros.status(LIBRARY))
+        if path == "/api/admin/storage":
+            return self.json(places.status(LIBRARY))
         if path == "/api/admin/report":            # a text file to send when asking for help
             private = bool(u.get("adult")) and (qs.get("adult") or [""])[0] == "1"
             text = report.build(u["name"], include_private=private)
@@ -684,6 +689,30 @@ class Handler(BaseHTTPRequestHandler):
                 threading.Thread(target=LIBRARY.scan, args=("looking up details again",), daemon=True).start()
                 return self.json({"ok": True, "forgotten": n})
             return self.json(dict(housekeeping.usage(max_age=0), ok=True))
+        if path == "/api/admin/storage":              # drives: use one, stop using it, file new things there, move a title
+            try:
+                if data.get("add"):
+                    a = data["add"]
+                    places.add(a.get("path") or "", a.get("name"), bool(a.get("new_here")))
+                    threading.Thread(target=LIBRARY.scan, args=("a drive was added",), daemon=True).start()
+                if data.get("remove"):
+                    places.remove(data["remove"])
+                    threading.Thread(target=LIBRARY.scan, args=("a drive was removed",), daemon=True).start()
+                if "new_to" in data:
+                    places.set_target(data.get("new_to") or "")
+                if data.get("move"):
+                    m = data["move"]
+                    entry = LIBRARY.find(m.get("id") or "")
+                    folder = LIBRARY.dirs.get(m.get("id") or "")
+                    if not entry or (entry.get("adult") and not u.get("adult")):
+                        return self.error(404, "That isn't in the library any more.")
+                    if not folder:
+                        return self.error(400, "This movie isn't in a folder of its own, so it can't be moved yet.")
+                    key = "adult" if entry.get("adult") else ("shows" if entry.get("seasons") is not None else "movies")
+                    places.move(folder, key, m.get("to") or "", entry.get("name") or entry.get("title"), private=bool(entry.get("adult")))
+            except ValueError as exc:
+                return self.error(400, str(exc))
+            return self.json(dict(places.status(LIBRARY), ok=True))
         if path == "/api/admin/deleted":
             if data.get("empty"):
                 organizer.empty_deleted()

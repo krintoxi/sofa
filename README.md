@@ -101,6 +101,9 @@ Nothing is ever deleted. More: [docs/folder-structure.md](docs/folder-structure.
   Server → Downloads.
 - **Tidy folders.** Download-style names ("Heat.1995.1080p.BluRay") are tidied, collections
   get a folder per movie, and stray "XXX" folders move into the Adult section.
+- **More room on other drives.** Plug in a flash drive or an external SSD and press **Use this
+  drive** (Server → Storage): its shows and movies join the one library, new things can go there,
+  and **Manage → Move it to another drive** makes room on the computer. [docs/storage.md](docs/storage.md)
 - **Fix things from the app (admins).** **Manage** on any movie, show or episode: move it
   (it's really a movie, an episode, adult, ...), delete it (to a Deleted folder you empty
   when you're sure), or take new pictures from the video.
@@ -142,6 +145,7 @@ link you trust and tick **Adult channels**. [docs/adult.md](docs/adult.md)
 | Tab | What's there |
 |---|---|
 | Overview | addresses to watch from, who's watching, the Inbox, anything that needs you |
+| Storage | where the library is (this computer and drives), where new things go, drives to add, moves between drives |
 | Library | folders, rescan, **missing details** (fix them in a click), new pictures, free up space, the Deleted folder, Skip Intro progress, Needs Review |
 | Converting | the convert-to-MP4 queue with progress; automatic converting on/off |
 | Downloads | save videos from links; install yt-dlp; use a browser's sign-in; the "Send to Sofa" bookmark |
@@ -188,7 +192,7 @@ sofa/                server: library, inbox, streaming, converter, intro finder,
 client/              web app (no build step)
 deploy/              install script, macOS LaunchAgent, Linux systemd unit
 tools/               get-sofa.sh, update.sh, convert.py
-docs/                install, updating, folders, playback, TV, adult, remote access
+docs/                install, updating, folders, storage (drives), playback, TV, adult, remote access
 ```
 
 ## License

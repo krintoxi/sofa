@@ -26,6 +26,12 @@ DEFAULTS = {
     "adult": "~/Entertainment/Adult",
     # After converting a file to MP4, move the original here (or delete it when keep_originals is false).
     "originals": "~/Entertainment/Converted Originals",
+    # More library places on other drives (Server → Storage): [{"id", "name", "path"}], and the one the
+    # Inbox files new things into ("" = the main folders above).
+    "places": [],
+    "file_new_to": "",
+    # Where to look for drives plugged into this computer (empty: /Volumes on a Mac, /media and /mnt on Linux).
+    "drive_folders": [],
     # Videos an admin deletes from the app go here first (empty it from the Server page, or by hand).
     # Empty: a "Deleted" folder next to the Shows folder (on the same drive, so deleting is instant).
     "deleted": "",

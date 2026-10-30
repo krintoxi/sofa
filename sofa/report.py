@@ -14,7 +14,7 @@ import subprocess
 import sys
 import time
 
-from . import (__version__, auth, config, fetch, intros, live, media, optimize, organizer, previews, store,
+from . import (__version__, auth, config, fetch, intros, live, media, optimize, organizer, places, previews, store,
                updater)
 from .library import LIBRARY
 
@@ -124,6 +124,20 @@ def build(admin_name, include_private=False):
     for key in ("inbox", "shows", "movies", "adult", "music", "musicvideos", "review", "originals"):
         add(_folder(key, config.path(key)))
     add(_folder("deleted", organizer.deleted_root()))
+
+    section("Storage (library places on this computer and on drives)")
+    try:
+        st = places.status(LIBRARY)
+        for p in st["places"]:
+            add("  %s%s: %s  [%s%s] %s" % (p["name"], " (new things go here)" if st["new_to"] == p["id"] else "", p["path"],
+                                          "connected" if p["connected"] else "NOT PLUGGED IN",
+                                          ", %s free of %s" % (_size(p["free"]), _size(p["total"])) if p.get("total") else "", json.dumps(p.get("counts"))))
+        for d in st["drives"]:
+            add("  drive not used: %s %s fs=%s problem=%s" % (d["name"], d["path"], d.get("fs"), d.get("problem")))
+        for t in st["transfers"]:
+            add("  move: %s" % json.dumps(t))
+    except Exception as exc:
+        add("(%s)" % exc)
 
     section("Library")
     add("Counts: %s" % json.dumps(LIBRARY.counts()))

@@ -10,7 +10,7 @@ import os
 import threading
 import time
 
-from . import config, media, music
+from . import config, media, music, places
 
 WIDTHS = (240, 360, 480, 720, 1280)
 CACHE = os.path.join(config.DATA_DIR, "cache", "thumbs")
@@ -24,9 +24,11 @@ def file_for(url):
         return None
     url = url.split("?")[0]          # ?v=<date of the picture>
     key, _, rel = url[len("/art/"):].partition("/")
-    if key not in ("shows", "movies", "music", "musicvideos", "adult", "cache"):
+    if key.partition("~")[0] not in ("shows", "movies", "music", "musicvideos", "adult", "cache"):
         return None
-    root = music.ART_CACHE if key == "cache" else config.path(key)
+    root = music.ART_CACHE if key == "cache" else places.folder_for(key)       # "movies~a1b2c3": a drive's Movies
+    if not root:
+        return None
     rel = os.path.normpath(rel)
     full = os.path.join(root, rel)
     if rel.startswith("..") or os.path.splitext(full)[1].lower() not in (".jpg", ".jpeg", ".png", ".webp") \
