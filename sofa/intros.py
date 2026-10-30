@@ -35,6 +35,8 @@ CHAPTER_KINDS = [("recap", re.compile(r"\b(recap|previously)\b", re.I)),
                  ("intro", re.compile(r"\b(intro|opening|op|title sequence|main titles?)\b", re.I)),
                  ("credits", re.compile(r"\b(credits|ending|ed|outro|end titles?)\b", re.I))]
 _wake = threading.Event()
+_urgent = []                 # seasons someone is watching right now: these go first
+_state = {"working": None}
 
 
 def _table():
@@ -214,6 +216,50 @@ def _cleared(item_id, kind):
     return store.q1("SELECT 1 FROM markers WHERE item = ? AND kind = ? AND source = 'cleared'", item_id, kind) is not None
 
 
+def season_key(item):
+    return "%s|%d" % (item["show_id"], item["s"]) if item.get("kind") == "episode" and item.get("s") else None
+
+
+def want(item):
+    """Someone started an episode: look at its season next (if it hasn't been)."""
+    key = season_key(item)
+    if key and key not in _urgent:
+        _urgent.append(key)
+        _wake.set()
+
+
+def set_for_season(library, item, kind, start, end):
+    """The same intro (or credits) for every episode of this episode's season."""
+    key = season_key(item)
+    eps = [i for i in list(library.items.values()) if season_key(i) == key] if key else [item]
+    for ep in eps:
+        set_marker(ep["id"], kind, start, end, "manual")
+    return len(eps)
+
+
+def recheck():
+    """Listen to every season again (keeps markers set by hand)."""
+    _table()
+    store.ex("DELETE FROM marker_scans")
+    store.ex("DELETE FROM markers WHERE source = 'audio'")
+    _wake.set()
+
+
+def status(library):
+    _table()
+    seasons = list(_seasons(library))
+    done = {r["season"]: r["signature"] for r in store.q("SELECT season, signature FROM marker_scans")}
+    checked = sum(1 for key, sig, _eps in seasons if done.get(key) == sig)
+    found = store.q1("SELECT COUNT(*) AS n FROM markers WHERE kind = 'intro' AND end > start")["n"]
+    credits = store.q1("SELECT COUNT(*) AS n FROM markers WHERE kind = 'credits' AND end > start")["n"]
+    working = _state.get("working")
+    if working:
+        show = library.find(working.split("|")[0]) or {}
+        working = "%s, season %s" % (show.get("name", "a show") if not show.get("adult") else "a private show", working.split("|")[1])
+    return {"seasons": len(seasons), "checked": checked, "intros": found, "credits": credits, "working": working,
+            "enabled": bool(config.get("detect_intros")), "method": "Chromaprint" if _has_chromaprint() else "built-in"}
+
+
 def _seasons(library):
     groups = collections.defaultdict(list)
     for item in list(library.items.values()):
@@ -225,28 +271,43 @@ def _seasons(library):
         yield key, sig, eps
 
 
+def _analyze(key, sig, eps):
+    row = store.q1("SELECT signature FROM marker_scans WHERE season = ?", key)
+    if row and row["signature"] == sig:
+        return
+    _state["working"] = key
+    try:
+        analyze_season(eps)
+    except Exception as exc:
+        store.log("error", "Looking for intros: %s" % str(exc)[:150])
+    finally:
+        _state["working"] = None
+    store.ex("INSERT OR REPLACE INTO marker_scans (season, signature, at) VALUES (?,?,?)", key, sig, int(time.time()))
+
+
 def _loop(library):
     _table()
-    time.sleep(240)
+    _wake.wait(60)
     while True:
+        _wake.clear()
         try:
             if config.get("detect_intros") and media.tool("ffmpeg"):
-                for key, sig, eps in _seasons(library):
-                    while media.busy():
+                seasons = {key: (sig, eps) for key, sig, eps in _seasons(library)}
+                while _urgent:                           # what people are watching first, busy or not
+                    key = _urgent.pop(0)
+                    if key in seasons:
+                        _analyze(key, *seasons[key])
+                for key, (sig, eps) in seasons.items():
+                    if _urgent:
+                        break                            # someone started something: go back and do that first
+                    while media.busy() and not _urgent:
                         time.sleep(30)
-                    row = store.q1("SELECT signature FROM marker_scans WHERE season = ?", key)
-                    if row and row["signature"] == sig:
-                        continue
-                    try:
-                        analyze_season(eps)
-                    except Exception as exc:
-                        store.log("error", "Looking for intros in %s: %s" % (key, str(exc)[:150]))
-                    store.ex("INSERT OR REPLACE INTO marker_scans (season, signature, at) VALUES (?,?,?)",
-                             key, sig, int(time.time()))
+                    _analyze(key, sig, eps)
+                if _urgent:
+                    continue
         except Exception as exc:
             store.log("error", "Intro finder: %s" % exc)
         _wake.wait(1800)
-        _wake.clear()
 
 
 def poke():

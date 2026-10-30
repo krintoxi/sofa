@@ -355,8 +355,11 @@ def _collect_stderr(proc, item):
         if code not in (0, -9, -15, 255) and tail and not getattr(proc, "sofa_stopped", False):
             msg = " / ".join(tail)
             note_error(item["id"], msg)
-            store.log("playback", "Couldn't convert %s for playing: %s" % (item.get("title") or item["id"], tail[-1][:200]),
-                      {"item": item["id"], "ffmpeg": msg[-600:]})
+            if item.get("adult"):
+                store.log_private("playback", "A private video couldn't be converted for playing")
+            else:
+                store.log("playback", "Couldn't convert %s for playing: %s" % (item.get("title") or item["id"], tail[-1][:200]),
+                          {"item": item["id"], "ffmpeg": msg[-600:]})
     threading.Thread(target=read, daemon=True, name="ffmpeg-stderr").start()
 
 
@@ -386,7 +389,7 @@ def run_stream(item, mode, start, info, out, who, fmt="mp4", owner=None, audio_i
     holder["proc"] = proc
     _collect_stderr(proc, item)
     with _streams_lock:
-        _streams[key] = {"item": item["id"], "title": item.get("title"), "mode": mode, "who": who,
+        _streams[key] = {**_shown(item), "mode": mode, "who": who,
                          "started": int(time.time())}
     try:
         while True:
@@ -406,10 +409,17 @@ def run_stream(item, mode, start, info, out, who, fmt="mp4", owner=None, audio_i
             slot.release()
 
 
+def _shown(item):
+    """What the Server page's "Watching now" may say about an item: nothing for the Adult section."""
+    if item.get("adult"):
+        return {"item": None, "title": "something private"}
+    return {"item": item["id"], "title": item.get("title")}
+
+
 def note_direct(item, who):
     """Direct plays are short range requests; remember them briefly so the admin page can show them."""
     with _streams_lock:
-        _streams["direct-%s-%s" % (who, item["id"])] = {"item": item["id"], "title": item.get("title"), "mode": "direct",
+        _streams["direct-%s-%s" % (who, item["id"])] = {**_shown(item), "mode": "direct",
                                                        "who": who, "started": int(time.time()), "direct": True}
 
 
@@ -461,7 +471,7 @@ def hls_start(item, mode, start, who, replace=None, owner=None, audio_index=None
     with _hls_lock:
         _hls[sid] = {"proc": proc, "dir": folder, "seen": time.time(), "slot": slot, "owner": owner, "stop": stop}
     with _streams_lock:
-        _streams["hls-" + sid] = {"item": item["id"], "title": item.get("title"), "mode": mode, "who": who,
+        _streams["hls-" + sid] = {**_shown(item), "mode": mode, "who": who,
                                   "started": int(time.time())}
     return sid
 
@@ -654,5 +664,8 @@ def extract_art(path, dest):
 
 
 def extract_frame(path, dest, at=12.0):
-    """A still from a video (for music videos without a thumbnail)."""
-    return _grab(lambda p: ["-ss", "%.1f" % at, "-i", p, "-frames:v", "1"], path, dest, 1280)
+    """A good still from a video, around `at` seconds: ffmpeg's thumbnail filter looks at about four
+    seconds of frames and picks the most typical one, so no black frames, fades or motion blur."""
+    def cmd(p):
+        return ["-ss", "%.1f" % at, "-i", p, "-an", "-sn", "-vf", "thumbnail=96", "-frames:v", "1", "-update", "1"]
+    return _grab(cmd, path, dest, 1280) or _grab(lambda p: ["-ss", "%.1f" % at, "-i", p, "-frames:v", "1"], path, dest, 1280)

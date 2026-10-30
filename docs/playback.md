@@ -59,14 +59,25 @@ All the keys: press `?` in the player.
    of neighbouring episodes of a season. The stretch that sounds the same in both is the
    intro (or the credits). This needs at least two episodes of a season.
 
-Admins can correct it in the player's Options: **Wrong intro** removes a bad one, and
-**Intro ends here** marks it by hand. Turn the whole thing off in `data/config.json`
+This runs in the background, a season at a time. **Whatever someone starts watching is done
+first**, so a show's intros usually appear within a minute or two of pressing Play. Progress
+is on **Server → Library → Skip Intro** ("seasons checked", "episodes with Skip Intro"),
+with a button to listen to everything again.
+
+Admins can correct it in the player's Options (gear):
+- **Wrong intro** removes a bad one.
+- **Mark the intro by hand**: "Starts here", then "Ends here" for **this episode** or for the
+  **whole season** (handy when every episode opens the same way).
+
+The intro and credits show as light marks on the seek bar, and the scrubbing preview says
+"Intro" or "Credits" over them. Turn the whole thing off in `data/config.json`
 (`"detect_intros": false`).
 
 ### Scrubbing previews
 
-Sofa makes small preview pictures for each video, in the background, starting with what
-people are watching. They're stored in `~/Sofa/data/cache/trickplay`, never next to your
+Sofa makes preview pictures (320 px wide, one every 10 seconds) for each video, in the
+background, starting with what people are watching. They also play as moving previews when
+you point at a card. They're stored in `~/Sofa/data/cache/trickplay`, never next to your
 media. Off with `"trickplay": false`.
 
 ## A video won't play

@@ -21,7 +21,8 @@ import time
 from . import config, media, store
 
 CACHE = os.path.join(config.DATA_DIR, "cache", "trickplay")
-INTERVAL, COLS, ROWS, WIDTH = 10, 10, 10, 240
+INTERVAL, COLS, ROWS, WIDTH = 10, 8, 8, 320
+VERSION = "v2"           # sharper, bigger pictures than v1 (240 px): old sheets are made again
 _urgent = []
 _lock = threading.Lock()
 _wake = threading.Event()
@@ -33,7 +34,7 @@ def _key(path):
         st = os.stat(path)
     except OSError:
         return None
-    return hashlib.sha1(("v1|%s|%d|%d" % (path, st.st_size, int(st.st_mtime))).encode()).hexdigest()[:20]
+    return hashlib.sha1(("%s|%s|%d|%d" % (VERSION, path, st.st_size, int(st.st_mtime))).encode()).hexdigest()[:20]
 
 
 def folder(item):
@@ -78,7 +79,7 @@ def make(item):
     os.makedirs(tmp)
     cmd = ["nice", "-n", "15", media.tool("ffmpeg"), "-hide_banner", "-loglevel", "error", "-nostdin", "-skip_frame", "nokey",
            "-i", item["path"], "-an", "-sn", "-dn", "-vf",
-           "fps=1/%d,scale=%d:%d,tile=%dx%d" % (INTERVAL, WIDTH, height, COLS, ROWS), "-q:v", "6", "-start_number", "0",
+           "fps=1/%d,scale=%d:%d:flags=lanczos,tile=%dx%d" % (INTERVAL, WIDTH, height, COLS, ROWS), "-q:v", "3", "-start_number", "0",
            os.path.join(tmp, "sheet%03d.jpg")]
     try:
         subprocess.run(cmd, capture_output=True, timeout=1800, check=True)
@@ -128,4 +129,9 @@ def _loop(library):
 
 
 def start(library):
+    stamp = os.path.join(CACHE, VERSION)
+    if not os.path.exists(stamp):                      # sheets from an older version: make them again
+        shutil.rmtree(CACHE, ignore_errors=True)
+        os.makedirs(CACHE, exist_ok=True)
+        open(stamp, "w").close()
     threading.Thread(target=_loop, args=(library,), daemon=True, name="trickplay").start()

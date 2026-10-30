@@ -14,8 +14,8 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 import threading
 
-from . import (__version__, artwork, auth, backup, config, dlna, intros, live, media, metadata, music, optimize, organizer,
-               store, trickplay, updater)
+from . import (__version__, artwork, auth, backup, config, dlna, fetch, intros, live, media, metadata, music, optimize,
+               organizer, store, trickplay, updater)
 from .library import LIBRARY
 
 CLIENT_DIR = os.path.join(config.APP_DIR, "client")
@@ -465,7 +465,10 @@ class Handler(BaseHTTPRequestHandler):
         if not u:
             return
         if path == "/api/library":
-            return self.json(LIBRARY.public(adult=u.get("adult")))
+            out = LIBRARY.public(adult=u.get("adult"))
+            out["likes"] = [r["item"] for r in store.q("SELECT item FROM likes WHERE user_id = ? ORDER BY at DESC", u["id"])
+                            if u.get("adult") or not r["item"].startswith(("am:", "as:", "ae:", "ax:", "perf:"))]
+            return self.json(out)
         if path == "/api/live":
             return self.json(live.listing(u["id"], adult=u.get("adult")))
         if path == "/api/music":
@@ -489,11 +492,15 @@ class Handler(BaseHTTPRequestHandler):
                                   "url": "/media/%s/%s" % (item["id"], "file" if direct else "stream?mode=audio"),
                                   "subtitles": []})
             p = media.plan(item, caps)
+            if item["kind"] == "episode":
+                intros.want(item)
+                trickplay.want(item)
             base = "/media/%s/" % item["id"]
             tracks = media.subtitle_tracks(item, p["info"])
             out = {"mode": p["mode"], "duration": p["duration"], "why": p.get("why") or [],
                    "audio": media.audio_tracks(p["info"]), "error": media.last_error(item["id"]),
                    "markers": intros.for_player(item["id"]),
+                   "intro_status": "looking" if item["kind"] == "episode" and not intros.for_player(item["id"]) else None,
                    "url": base + ("file" if p["mode"] == "direct" else "stream?mode=" + p["mode"]),
                    "subtitles": [{"label": t["label"] or "Subtitles", "lang": t["lang"] or "und",
                                   "url": "%ssubs/%d.vtt" % (base, i)} for i, t in enumerate(tracks)]}
@@ -525,8 +532,12 @@ class Handler(BaseHTTPRequestHandler):
             return self.json(optimize.status(LIBRARY))
         if path == "/api/admin/update":
             return self.json(updater.status())
+        if path == "/api/admin/intros":
+            return self.json(intros.status(LIBRARY))
         if path == "/api/admin/missing":
-            return self.json({"items": LIBRARY.missing_details()})
+            return self.json({"items": [m for m in LIBRARY.missing_details() if u.get("adult") or not m.get("adult")]})
+        if path == "/api/admin/downloads":
+            return self.json(fetch.status(viewer_adult=u.get("adult")))
         if path == "/api/admin/match":
             entry = LIBRARY.find((qs.get("id") or [""])[0])
             if not entry:
@@ -592,6 +603,9 @@ class Handler(BaseHTTPRequestHandler):
                          u["id"], item_id, float(data.get("t") or 0), float(data.get("d") or 0),
                          1 if data.get("done") else 0, int(time.time() * 1000))
             return self.json({"ok": True})
+        if path == "/api/admin/intros":
+            intros.recheck()
+            return self.json({"ok": True})
         m = re.match(r"^/api/admin/markers/(.+)$", path)
         if m:
             item = LIBRARY.item(m.group(1))
@@ -600,6 +614,13 @@ class Handler(BaseHTTPRequestHandler):
                 return self.error(400, "Unknown video or marker.")
             if data.get("clear"):
                 intros.clear_marker(item["id"], kind)
+            elif data.get("season"):
+                try:
+                    start, end = float(data["start"]), float(data["end"])
+                except (KeyError, TypeError, ValueError):
+                    return self.error(400, "Give a start and an end.")
+                n = intros.set_for_season(LIBRARY, item, kind, start, end)
+                return self.json({"ok": True, "episodes": n, "markers": intros.for_player(item["id"])})
             else:
                 try:
                     start, end = float(data["start"]), float(data["end"])
@@ -609,6 +630,18 @@ class Handler(BaseHTTPRequestHandler):
                     return self.error(400, "The end has to come after the start.")
                 intros.set_marker(item["id"], kind, start, end, "manual")
             return self.json({"ok": True, "markers": intros.for_player(item["id"])})
+        m = re.match(r"^/api/like/(.{1,200})$", path)
+        if m:
+            key = m.group(1)
+            item = LIBRARY.item(key) or LIBRARY.find(key)
+            adultish = key.startswith("perf:") or bool(item and item.get("adult"))
+            if (not item and not key.startswith(("perf:", "studio:"))) or (adultish and not u.get("adult")):
+                return self.error(404, "That isn't in the library any more.")
+            if data.get("on"):
+                store.ex("INSERT OR REPLACE INTO likes (user_id, item, at) VALUES (?,?,?)", u["id"], key, int(time.time() * 1000))
+            else:
+                store.ex("DELETE FROM likes WHERE user_id = ? AND item = ?", u["id"], key)
+            return self.json({"ok": True})
         if path == "/api/hls/stop":
             media.hls_stop_owner(self.owner())
             return self.json({"ok": True})
@@ -683,11 +716,33 @@ class Handler(BaseHTTPRequestHandler):
                 items = [i for i in (LIBRARY.item(x) for x in data["items"]) if i]
                 return self.json({"ok": True, "queued": optimize.enqueue(items, "requested by %s" % u["name"])})
             if data.get("retry"):
-                optimize.retry(data["retry"])
+                optimize.retry(optimize.path_of(data["retry"]))
             if data.get("cancel"):
-                optimize.cancel(data["cancel"])
+                optimize.cancel(optimize.path_of(data["cancel"]))
             if data.get("clear"):
                 optimize.clear_finished()
+            return self.json({"ok": True})
+        if path == "/api/admin/downloads":
+            try:
+                if data.get("install_ytdlp"):
+                    return self.json({"ok": True, "version": fetch.install()})
+                if data.get("add"):
+                    add = data["add"]
+                    if add.get("adult") and not u.get("adult"):
+                        return self.error(403, "Switch the Adult section on for yourself first (Server, People).")
+                    fetch.add(add.get("url"), bool(add.get("adult")), bool(add.get("playlist")))
+                    if not fetch.tool():
+                        return self.json({"ok": True, "note": "Queued. Install yt-dlp below so Sofa can start downloading."})
+            except ValueError as exc:
+                return self.error(400, str(exc))
+            except Exception as exc:
+                return self.error(502, "Couldn't install yt-dlp: %s" % str(exc)[:150])
+            if data.get("retry"):
+                fetch.retry(data["retry"])
+            if data.get("cancel"):
+                fetch.cancel(data["cancel"])
+            if data.get("clear"):
+                fetch.clear_finished()
             return self.json({"ok": True})
         if path == "/api/admin/update":
             if data.get("install"):
@@ -722,7 +777,10 @@ class Handler(BaseHTTPRequestHandler):
                     old = LIBRARY.find_art(folder, kind)
                     if old:
                         os.replace(old, os.path.splitext(old)[0] + ".before-fix" + os.path.splitext(old)[1])
-            store.log("settings", "%s fixed the details for \"%s\"" % (u["name"], entry.get("name") or entry.get("title")))
+            if entry.get("adult"):
+                store.log_private("settings", "%s fixed the details of a private video" % u["name"])
+            else:
+                store.log("settings", "%s fixed the details for \"%s\"" % (u["name"], entry.get("name") or entry.get("title")))
             threading.Thread(target=LIBRARY.scan, args=("details fixed",), daemon=True).start()
             return self.json({"ok": True})
         m = re.match(r"^/api/admin/users/(\d+)/adult$", path)

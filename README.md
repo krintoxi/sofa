@@ -70,7 +70,7 @@ finishes, works out what each file is, renames it and files it:
 | a folder `The Sopranos Complete Series` with `Season 1/101 Pilot.avi` | the same tidy layout |
 | `Heat.1995.1080p.BluRay.mkv` | `Movies/Heat (1995)/Heat (1995).mkv` |
 | a folder `Star Wars Collection` with several movies | `Movies/Star Wars Collection/<each movie in its own folder>` |
-| anything in **`Inbox/XXX`** | the **Adult** section (see below) |
+| anything in **`Inbox/XXX`** | the **Adult** section; folders like `Hentai` or `Series` keep their shape (see below) |
 | songs | `Music/<Artist>/<Album>/` |
 
 Anything Sofa can't work out goes to **`Needs Review`**, with a note on the Server page.
@@ -87,8 +87,14 @@ Nothing is ever deleted. More: [docs/folder-structure.md](docs/folder-structure.
   choice, picture-in-picture, speed, keyboard shortcuts (press `?`), and double-tap to skip
   on phones.
 - **Artwork and details.** Shows from TVmaze; movies from the iTunes Store and Wikipedia
-  (or TMDB, with a free key, for the best posters and collections). Wrong match, or none?
-  Click **Find details** on the show or movie and pick the right one.
+  (or TMDB, with a free key, for the best posters and collections); `.nfo` files next to your
+  videos are read too. Episodes without a picture get a well-chosen still from the video.
+  Wrong match, or none? Click **Find details** on the show or movie and pick the right one.
+- **Genres.** Movies and Shows can be browsed by genre (Comedy, Horror, Science Fiction, ...),
+  and Home has a row for your biggest genres.
+- **Save from a link.** Paste the address of a video page (YouTube, Vimeo and well over a
+  thousand other sites); Sofa downloads it with the free yt-dlp tool and files it.
+  Server → Downloads.
 - **Tidy folders.** Download-style names ("Heat.1995.1080p.BluRay") are tidied, collections
   get a folder per movie, and stray "XXX" folders move into the Adult section.
 - **Everyone has their own sign-in** and their own "continue watching". Guests on your Wi-Fi
@@ -103,23 +109,30 @@ Nothing is ever deleted. More: [docs/folder-structure.md](docs/folder-structure.
 
 ### The Adult section
 
-Put adult movies and series in **`~/Entertainment/Inbox/XXX`**. Sofa files them under
-`~/Entertainment/Adult` and shows them in an **Adult** tab that only appears for people you
-allow: **Server → People → Adult** switch (off for everyone at first, admins included).
-Guests and TVs never see it. Adult items don't show up on Home or in search.
+**First, switch it on for yourself:** **Server → People → Adult**. It's off for everyone at
+first, admins included; guests and TVs never see it.
 
-Artwork: Sofa takes a still from each video. For real covers and details, add a free
-ThePornDB token under **Server → Settings**. Adult live TV: the free iptv-org lists dropped
-adult channels in January 2024, so add an M3U link you trust and tick **Adult channels**.
-[docs/adult.md](docs/adult.md)
+- **Your folders are the categories.** Every folder in `~/Entertainment/Adult` (Movies,
+  Hentai, Series, Collections, anything you make) gets its own button in the Adult tab.
+  Series and collections inside them are recognised.
+- **Browse** by category, studio, performer and tag, keep favorites (♥), search, shuffle,
+  and get moving previews on hover or remote focus. All of it works offline, from file
+  names, `.nfo` files and saved links. A free ThePornDB token adds real covers.
+- **Add** by dropping files or whole folders into `Inbox/XXX`, or with **+ Add a link**.
+- **Private:** artwork is blurred until you point at it, addresses don't contain titles, and
+  the Server page never names adult titles.
+
+Adult live TV: the free iptv-org lists dropped adult channels in January 2024, so add an M3U
+link you trust and tick **Adult channels**. [docs/adult.md](docs/adult.md)
 
 ### The Server page (admins)
 
 | Tab | What's there |
 |---|---|
 | Overview | addresses to watch from, who's watching, the Inbox, anything that needs you |
-| Library | folders, rescan, **missing details** (fix them in a click), Needs Review |
+| Library | folders, rescan, **missing details** (fix them in a click), Skip Intro progress, Needs Review |
 | Converting | the convert-to-MP4 queue with progress; automatic converting on/off |
+| Downloads | save videos from links; install yt-dlp; the "Send to Sofa" bookmark |
 | Live TV | channel lists |
 | People | accounts, Adult access, guests |
 | Settings | name, theme, TV sharing, TMDB key, ThePornDB token, backups |

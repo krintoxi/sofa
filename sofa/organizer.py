@@ -17,7 +17,7 @@ import re
 import shutil
 import time
 
-from . import config, media, metadata, music, naming, store
+from . import config, media, metadata, music, naming, sidecars, store
 
 SETTLE_SECONDS = 30
 
@@ -61,7 +61,9 @@ def pending():
             if name.startswith("."):
                 continue
             if name.lower() in DROP_FOLDERS and os.path.isdir(p):      # the permanent drop folders: list what's in them
-                out += [{"name": "%s/%s" % (name, n), "state": "copying" if _still_arriving(os.path.join(p, n)) else "waiting"}
+                private = DROP_FOLDERS[name.lower()] == "adult"
+                out += [{"name": "%s/%s" % (name, "a private item" if private else n), "private": private,
+                         "state": "copying" if _still_arriving(os.path.join(p, n)) else "waiting"}
                         for n in sorted(os.listdir(p)) if not n.startswith(".")]
                 continue
             out.append({"name": name, "state": "copying" if _still_arriving(p) else "waiting"})
@@ -99,6 +101,13 @@ def process_inbox():
 
 
 def _handle(entry, hint=None):
+    if hint == "adult" and os.path.isdir(entry):
+        target = _adult_folder_target(entry)
+        if target:                                   # a category ("Hentai") or a collection: keep its shape
+            n = sum(1 for _d, _s, fs in os.walk(entry) for f in fs if os.path.splitext(f)[1].lower() in naming.VIDEO_EXT)
+            _merge_into(entry, target)
+            store.log_private("inbox", "Added a folder of %d video%s to Adult" % (n, "" if n == 1 else "s"))
+            return n
     wanted = naming.VIDEO_EXT | music.AUDIO_EXT
     videos = []
     if os.path.isfile(entry):
@@ -124,9 +133,52 @@ def _handle(entry, hint=None):
             elif not is_audio:
                 filed += 1 if _file_video(v, entry, adult=hint == "adult", collection=collection) else 0
         except OSError as exc:
-            store.log("review", "Couldn't move %s: %s" % (os.path.basename(v), exc), {"file": v})
-    _sweep_leftovers(entry)
+            if hint == "adult":
+                store.log_private("review", "Couldn't move a private file (%s)" % exc.strerror)
+            else:
+                store.log("review", "Couldn't move %s: %s" % (os.path.basename(v), exc), {"file": v})
+    _sweep_leftovers(entry, private=hint == "adult")
     return filed
+
+
+def _adult_folder_target(entry):
+    """Where a folder dropped in Inbox/XXX goes as a whole: Adult/<Category> for "Hentai", "Series",
+    "Collections" and the like; Adult/Movies/<Name> for a pack of several scenes. None: file it piece by piece."""
+    from .library import Library
+    name = os.path.basename(entry)
+    root = config.path("adult")
+    if name.lower() in naming.ADULT_CATEGORIES:
+        return os.path.join(root, name[:1].upper() + name[1:])
+    if Library.looks_like_show(entry) or naming.season_of_dir(name) is not None:
+        return None
+    try:
+        subs = [os.path.join(entry, s) for s in os.listdir(entry) if os.path.isdir(os.path.join(entry, s))]
+    except OSError:
+        return None
+    vids = [os.path.join(entry, f) for f in os.listdir(entry) if os.path.splitext(f)[1].lower() in naming.VIDEO_EXT]
+    if any(_has_video(s) for s in subs) or len(Library.movie_groups(vids)) >= 2:
+        return os.path.join(root, "Movies", naming.safe_filename(naming.clean(name) or name))
+    return None
+
+
+def _has_video(d):
+    for _dd, _ss, fs in os.walk(d):
+        if any(os.path.splitext(f)[1].lower() in naming.VIDEO_EXT for f in fs):
+            return True
+    return False
+
+
+def _merge_into(src, dest):
+    """Move everything in folder `src` into `dest`, keeping sub-folders; nothing is overwritten."""
+    os.makedirs(dest, exist_ok=True)
+    for name in os.listdir(src):
+        s, d = os.path.join(src, name), os.path.join(dest, name)
+        if os.path.isdir(s) and os.path.isdir(d):
+            _merge_into(s, d)
+        else:
+            shutil.move(s, _free_name(d) if os.path.exists(d) else d)
+    if not [n for n in os.listdir(src) if n != ".DS_Store"]:
+        shutil.rmtree(src, ignore_errors=True)
 
 
 def _collection_of(entry, videos):
@@ -204,12 +256,13 @@ def _file_video(video, entry, adult=False, collection=None):
     folder = _folder_hint(video, entry)
     ep = naming.parse_episode(stem, _season_hint(video), in_show=bool(folder))
     shows_root = os.path.join(config.path("adult"), "Shows") if adult else config.path("shows")
+    side = sidecars.read(video)
     if ep and adult:
         show_name = naming.safe_filename(naming.show_name(ep["show"] or folder or "Unsorted")[0])
         code = "S%02dE%02d" % (ep["s"], ep["e"])
         new = naming.safe_filename("%s %s %s" % (show_name, code, ep["title"]) if ep["title"] else "%s %s" % (show_name, code))
         dest = os.path.join(shows_root, show_name, "Season %d" % ep["s"], new + ext.lower())
-        return _move(video, dest, "Added %s %s to Adult" % (show_name, code))
+        return _move(video, dest, "Added 1 episode to Adult", private=True)
     if ep:
         resolved = _resolve_show(ep["show"] or folder)
         if not resolved:
@@ -233,11 +286,18 @@ def _file_video(video, entry, adult=False, collection=None):
         if y2:
             title, year = t2, y2
     if adult:
-        meta = metadata.movie(title, year, adult=True) or {}
-        year = year or meta.get("year")
-        name = naming.safe_filename("%s (%d)" % (title, year) if year else title) or "Untitled"
+        scene = naming.parse_scene(stem)
+        title = side.get("title") or scene.get("title") or title
+        year = side.get("year") or year or scene.get("year")
+        if not side.get("title") and scene.get("studio") and scene.get("date"):     # a dated scene release
+            title = "%s %s %s" % (scene["studio"], scene["date"], scene["title"] or "")
+        if not year:
+            year = (metadata.movie(title, None, adult=True) or {}).get("year")
+        name = naming.safe_filename("%s (%d)" % (title.strip(), year) if year and str(year) not in title else title.strip()) or "Untitled"
         dest = os.path.join(config.path("adult"), "Movies", name, name + ext.lower())
-        return _move(video, dest, "Added %s to Adult" % name)
+        return _move(video, dest, "Added 1 video to Adult", private=True)
+    if side.get("title") and not naming.parse_movie(stem)[1] and side.get("year"):    # saved from a link
+        title, year = naming.clean(side["title"]), side["year"]
     if not year:
         meta = metadata.movie(title, None)
         if meta and meta.get("year"):
@@ -291,12 +351,12 @@ def _file_music_video(path, entry):
     return _move(path, dest, "Added the %s video \"%s\" to Music Videos" % (artist, title))
 
 
-def _move(src, dest, message):
+def _move(src, dest, message, private=False):
     if os.path.exists(dest):
         if os.path.getsize(dest) == os.path.getsize(src):
             return _to_review(src, "Already in the library: %s" % os.path.relpath(dest, os.path.dirname(config.path("shows"))),
-                              sub="Duplicates")
-        return _to_review(src, "A different file already has this name: %s" % os.path.basename(dest))
+                              sub="Duplicates", private=private)
+        return _to_review(src, "A different file already has this name: %s" % os.path.basename(dest), private=private)
     os.makedirs(os.path.dirname(dest), exist_ok=True)
     stem_src = os.path.splitext(src)[0]
     stem_dest = os.path.splitext(dest)[0]
@@ -305,7 +365,7 @@ def _move(src, dest, message):
         p = os.path.join(os.path.dirname(src), f)
         base, ext = os.path.splitext(p)
         if base == stem_src or base.startswith(stem_src + "."):
-            if ext.lower() in naming.SUB_EXT or ext.lower() in (".jpg", ".png"):
+            if ext.lower() in naming.SUB_EXT or ext.lower() in (".jpg", ".png", ".nfo", ".json"):
                 suffix = base[len(stem_src):]
                 target = stem_dest + suffix + ext.lower()
                 if ext.lower() in (".jpg", ".png"):
@@ -313,12 +373,15 @@ def _move(src, dest, message):
                     os.makedirs(os.path.dirname(target), exist_ok=True)
                 if not os.path.exists(target):
                     shutil.move(p, target)
-    store.log("inbox", message, {"from": os.path.basename(src), "to": dest})
+    if private:
+        store.log_private("inbox", message)
+    else:
+        store.log("inbox", message, {"from": os.path.basename(src), "to": dest})
     return True
 
 
-def _to_review(path, why, sub="From Inbox"):
-    dest_dir = os.path.join(config.path("review"), sub)
+def _to_review(path, why, sub="From Inbox", private=False):
+    dest_dir = os.path.join(config.path("review"), "XXX", sub) if private else os.path.join(config.path("review"), sub)
     os.makedirs(dest_dir, exist_ok=True)
     dest = os.path.join(dest_dir, os.path.basename(path))
     n = 2
@@ -327,11 +390,14 @@ def _to_review(path, why, sub="From Inbox"):
         dest = os.path.join(dest_dir, "%s (%d)%s" % (base, n, ext))
         n += 1
     shutil.move(path, dest)
-    store.log("review", why, {"file": os.path.basename(path), "now_in": dest})
+    if private:
+        store.log_private("review", "A private file needs a look (in Needs Review/XXX/%s)" % sub)
+    else:
+        store.log("review", why, {"file": os.path.basename(path), "now_in": dest})
     return False
 
 
-def _sweep_leftovers(entry):
+def _sweep_leftovers(entry, private=False):
     """Once the videos are out, move whatever remains of a dropped folder to Needs Review."""
     if not os.path.exists(entry):
         return
@@ -340,11 +406,14 @@ def _sweep_leftovers(entry):
         if not remaining:
             shutil.rmtree(entry, ignore_errors=True)   # only empty folders and Finder litter
             return
-    dest = os.path.join(config.path("review"), "Inbox leftovers", os.path.basename(entry))
+    dest = os.path.join(config.path("review"), *(["XXX"] if private else []), "Inbox leftovers", os.path.basename(entry))
     os.makedirs(os.path.dirname(dest), exist_ok=True)
     if not os.path.exists(dest):
         shutil.move(entry, dest)
-        store.log("review", "Moved leftover files from \"%s\" to Needs Review" % os.path.basename(entry), {"now_in": dest})
+        if private:
+            store.log_private("review", "Moved leftover files of a private item to Needs Review/XXX")
+        else:
+            store.log("review", "Moved leftover files from \"%s\" to Needs Review" % os.path.basename(entry), {"now_in": dest})
 
 
 # ---------------------------------------------------------------- tidying what's already in the library
@@ -399,15 +468,11 @@ def _adopt_adult_folders():
                 continue
             if os.path.abspath(adult).startswith(os.path.abspath(p) + os.sep):
                 continue
-            os.makedirs(drop, exist_ok=True)
-            for child in os.listdir(p):
-                if child.startswith("."):
-                    continue
-                shutil.move(os.path.join(p, child), _free_name(os.path.join(drop, child)))
-                moved += 1
-            if not [c for c in os.listdir(p) if c != ".DS_Store"]:
-                shutil.rmtree(p, ignore_errors=True)
-            store.log("inbox", "Moved the \"%s\" folder from %s into the Adult section" % (name, os.path.basename(root)))
+            # Its folders (Movies, Hentai, Series, Collections, ...) become categories just as they are.
+            moved += len([c for c in os.listdir(p) if not c.startswith(".")])
+            _merge_into(p, adult)
+            store.log_private("inbox", "Moved the \"%s\" folder from %s into the Adult section, keeping its folders" % (
+                name, os.path.basename(root)))
     return moved
 
 
