@@ -32,6 +32,10 @@
   <symbol id="i-shuffle" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M3 7h3.5c2 0 3.2 1 4.3 2.7l2.4 3.6C14.3 15 15.5 17 17.5 17H21M3 17h3.5c1.4 0 2.4-.6 3.3-1.6M14.2 8.6C15 7.6 16 7 17.5 7H21M18.5 4.5 21 7l-2.5 2.5M18.5 14.5 21 17l-2.5 2.5"/></symbol>
   <symbol id="i-repeat" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M4 11V9a3 3 0 0 1 3-3h12M16 3l3 3-3 3M20 13v2a3 3 0 0 1-3 3H5M8 21l-3-3 3-3"/></symbol>
   <symbol id="i-queue" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M4 6h12M4 11h12M4 16h7M15 15.5v5l4-2.5z"/></symbol>
+  <symbol id="i-pip" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.8"/><rect x="12" y="11.5" width="7" height="5.5" rx="1.2" fill="currentColor"/></symbol>
+  <symbol id="i-list" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M9 6.5h11M9 12h11M9 17.5h11"/><circle cx="4.8" cy="6.5" r="1.3" fill="currentColor"/><circle cx="4.8" cy="12" r="1.3" fill="currentColor"/><circle cx="4.8" cy="17.5" r="1.3" fill="currentColor"/></symbol>
+  <symbol id="i-keys" viewBox="0 0 24 24"><rect x="2.5" y="6" width="19" height="12" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.7"/><path stroke="currentColor" stroke-width="1.7" stroke-linecap="round" d="M6 10h.01M9.3 10h.01M12.6 10h.01M15.9 10h.01M18 10h.01M8 14h8"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" d="M12 8.6a3.4 3.4 0 1 0 0 6.8 3.4 3.4 0 0 0 0-6.8zM19.4 13.5l1.6 1.2-1.8 3.1-1.9-.7a7.6 7.6 0 0 1-2 1.2l-.3 2h-3.6l-.3-2a7.6 7.6 0 0 1-2-1.2l-1.9.7L3 14.7l1.6-1.2a7.7 7.7 0 0 1 0-3L3 9.3l1.8-3.1 1.9.7a7.6 7.6 0 0 1 2-1.2l.3-2h3.6l.3 2a7.6 7.6 0 0 1 2 1.2l1.9-.7L21 9.3l-1.6 1.2a7.7 7.7 0 0 1 0 3z"/></symbol>
   <symbol id="i-moon" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></symbol>
 </svg>
 
@@ -45,13 +49,14 @@
     <a href="#/movies" data-nav="movies">Movies</a>
     <a href="#/music" data-nav="music">Music</a>
     <a href="#/live" data-nav="live">Live TV</a>
+    <a href="#/adult" data-nav="adult" id="navAdult" hidden>Adult</a>
     <a href="#/server" data-nav="server" id="navServer" hidden>Server</a>
   </nav>
   <label class="search" id="searchBox" hidden>
     <svg><use href="#i-search"/></svg>
     <input id="q" type="search" placeholder="Search shows and episodes" aria-label="Search shows and episodes" autocomplete="off">
   </label>
-  <div class="who" id="who" hidden><span class="name" id="whoName"></span><button class="link-btn" id="signOut" type="button">Sign out</button></div>
+  <div class="who" id="who" hidden><span class="name" id="whoName"></span><button class="link-btn" id="lookBtn" type="button" aria-label="Look and feel">Theme</button><button class="link-btn" id="signOut" type="button">Sign out</button></div>
 </header>
 <main id="view"></main>
 <footer id="foot"></footer>
@@ -61,8 +66,19 @@
   <video preload="metadata" playsinline></video>
   <div class="p-top">
     <button class="ibtn" data-act="close" aria-label="Back to library"><svg><use href="#i-back"/></svg></button>
-    <div><div class="p-show"></div><div class="p-title"></div></div>
+    <div class="p-names"><div class="p-show"></div><div class="p-title"></div></div>
+    <span class="spacer"></span>
+    <button class="ibtn" data-act="help" aria-label="Keyboard shortcuts" title="Keyboard shortcuts (?)"><svg><use href="#i-keys"/></svg></button>
   </div>
+  <div class="p-spinner" hidden><i></i><span class="p-spin-text"></span><span class="p-spin-hint"></span></div>
+  <div class="p-seekhint" aria-hidden="true"></div>
+  <div class="p-pause-info" hidden></div>
+  <div class="p-eps" hidden role="dialog" aria-label="Episodes"></div>
+  <div class="p-help" hidden role="dialog" aria-label="Keyboard shortcuts"></div>
+  <button class="p-skip" hidden data-act="skip"></button>
+  <div class="p-opts" hidden role="menu" aria-label="Player options"></div>
+  <div class="p-still" hidden role="dialog" aria-label="Are you still watching?"><h2>Are you still watching?</h2>
+    <div class="actions"><button class="btn primary" data-act="still-yes">Continue watching</button><button class="btn" data-act="close">Back to browse</button></div></div>
   <div class="p-flash"><svg><use href="#i-play"/></svg></div>
   <div class="p-chip" hidden><span></span><button data-act="restart">Start over</button></div>
   <div class="p-next" hidden>
@@ -71,12 +87,12 @@
     <div class="name"></div>
     <div class="row2"><button class="btn primary" data-act="next">Play now</button><button class="btn" data-act="cancel-next">Hide</button></div>
   </div>
-  <div class="cc-menu" role="menu" aria-label="Subtitles" hidden></div>
+  <div class="cc-menu" role="menu" aria-label="Audio and subtitles" hidden></div>
   <div class="p-error" hidden></div>
   <div class="p-bottom">
     <div class="scrub" tabindex="0" role="slider" aria-label="Seek" aria-valuemin="0">
       <div class="track"><div class="buf"></div><div class="fill"></div></div>
-      <div class="knob"></div><div class="hover-time"></div>
+      <div class="knob"></div><div class="hover-time"><span class="p-thumb" hidden></span><span class="ht-label"></span></div>
     </div>
     <div class="p-row">
       <button class="ibtn big" data-act="toggle" aria-label="Play"><svg><use href="#i-play"/></svg></button>
@@ -86,11 +102,14 @@
         <button class="ibtn" data-act="mute" aria-label="Mute"><svg><use href="#i-vol"/></svg></button>
         <input type="range" min="0" max="1" step="0.05" value="1" aria-label="Volume">
       </div>
-      <span class="p-time">0:00 / 0:00</span><span class="p-mode" hidden></span>
+      <span class="p-time">0:00 / 0:00</span><span class="p-ends"></span><span class="p-mode" hidden></span>
       <span class="spacer"></span>
-      <button class="ibtn" data-act="cc" aria-label="Subtitles" aria-pressed="false" hidden><svg><use href="#i-cc"/></svg></button>
+      <button class="ibtn" data-act="eps" aria-label="Episodes" title="Episodes (E)" hidden><svg><use href="#i-list"/></svg></button>
+      <button class="ibtn" data-act="cc" aria-label="Audio and subtitles" title="Audio and subtitles (C)" aria-pressed="false" hidden><svg><use href="#i-cc"/></svg></button>
       <button class="speed" data-act="speed" aria-label="Playback speed">1×</button>
+      <button class="ibtn" data-act="opts" aria-label="Options" title="Options"><svg><use href="#i-gear"/></svg></button>
       <button class="ibtn" data-act="next" aria-label="Next episode"><svg><use href="#i-skip"/></svg></button>
+      <button class="ibtn" data-act="pip" aria-label="Picture in picture" title="Picture in picture (P)" hidden><svg><use href="#i-pip"/></svg></button>
       <button class="ibtn" data-act="ambient" aria-label="Glow around the picture" aria-pressed="true"><svg><use href="#i-glow"/></svg></button>
       <button class="ibtn" data-act="full" aria-label="Full screen"><svg><use href="#i-full"/></svg></button>
     </div>

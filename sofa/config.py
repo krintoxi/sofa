@@ -64,6 +64,10 @@ DEFAULTS = {
     "keep_originals": True,
     # The look every device starts with (people can pick their own): midnight, cinema, ocean, forest, grape, oled.
     "theme": "midnight",
+    # Listen for each season's shared intro and credits so the player can offer "Skip Intro".
+    "detect_intros": True,
+    # Make the small pictures shown above the seek bar while scrubbing.
+    "trickplay": True,
 }
 
 _lock = threading.Lock()

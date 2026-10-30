@@ -57,8 +57,14 @@ def pending():
     out = []
     if os.path.isdir(inbox):
         for name in sorted(os.listdir(inbox)):
-            if not name.startswith("."):
-                out.append({"name": name, "state": "copying" if _still_arriving(os.path.join(inbox, name)) else "waiting"})
+            p = os.path.join(inbox, name)
+            if name.startswith("."):
+                continue
+            if name.lower() in DROP_FOLDERS and os.path.isdir(p):      # the permanent drop folders: list what's in them
+                out += [{"name": "%s/%s" % (name, n), "state": "copying" if _still_arriving(os.path.join(p, n)) else "waiting"}
+                        for n in sorted(os.listdir(p)) if not n.startswith(".")]
+                continue
+            out.append({"name": name, "state": "copying" if _still_arriving(p) else "waiting"})
     return out
 
 

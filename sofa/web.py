@@ -14,7 +14,8 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 import threading
 
-from . import __version__, artwork, auth, backup, config, dlna, live, media, metadata, music, optimize, organizer, store, updater
+from . import (__version__, artwork, auth, backup, config, dlna, intros, live, media, metadata, music, optimize, organizer,
+               store, trickplay, updater)
 from .library import LIBRARY
 
 CLIENT_DIR = os.path.join(config.APP_DIR, "client")
@@ -296,7 +297,7 @@ class Handler(BaseHTTPRequestHandler):
         tok = self.token()
         return ("web:" + auth._token_key(tok)[:16]) if tok else "tv:" + self.client_ip()
 
-    def stream(self, item, mode, start, who, dlna_headers=False):
+    def stream(self, item, mode, start, who, dlna_headers=False, audio_index=None):
         info = media.probe(item["path"])
         fmt = "mpegts" if dlna_headers else "mp4"   # TVs handle MPEG-TS streams most reliably
         self.send_response(200)
@@ -311,7 +312,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.command == "HEAD":
             return
         try:
-            media.run_stream(item, mode, start, info, self.wfile, who, fmt, owner=self.owner())
+            media.run_stream(item, mode, start, info, self.wfile, who, fmt, owner=self.owner(), audio_index=audio_index)
         except (RuntimeError, OSError):
             pass
 
@@ -420,11 +421,19 @@ class Handler(BaseHTTPRequestHandler):
             if f.endswith(".m3u8"):   # start at the beginning, not the "live" end of a playlist still being written
                 data = data.replace(b"#EXTM3U\n", b"#EXTM3U\n#EXT-X-START:TIME-OFFSET=0,PRECISE=YES\n", 1)
             return self.send_body(data, ctype, headers={"Cache-Control": "no-cache"})
-        m = re.match(r"^/media/([^/]+)/(file|stream|subs/(\d+)\.vtt)$", path)
+        m = re.match(r"^/media/([^/]+)/(file|stream|subs/(\d+)\.vtt|trick\.json|trick/(\d{1,3})\.jpg)$", path)
         item = self.visible_item(m.group(1), u) if m else None
         if not item:
             return self.send_body("Not found", status=404)
         kind = m.group(2)
+        if kind == "trick.json":
+            info = trickplay.meta(item)
+            if not info:
+                trickplay.want(item)
+            return self.json(info or {"pending": bool(config.get("trickplay"))})
+        if kind.startswith("trick/"):
+            f = trickplay.sheet(item, int(m.group(4)))
+            return self.send_file(f, cache="private, max-age=604800") if f else self.send_body("Not found", status=404)
         if kind == "file":
             media.note_direct(item, u["name"])
             return self.send_file(item["path"])
@@ -434,7 +443,8 @@ class Handler(BaseHTTPRequestHandler):
             start = float((qs.get("t") or ["0"])[0] or 0)
             if not media.tool("ffmpeg"):
                 return self.error(503, "This server can't convert video yet (ffmpeg isn't installed).")
-            return self.stream(item, mode, max(0.0, start), u["name"])
+            audio = (qs.get("audio") or [""])[0]
+            return self.stream(item, mode, max(0.0, start), u["name"], audio_index=int(audio) if audio.isdigit() else None)
         tracks = media.subtitle_tracks(item, media.probe(item["path"]))
         n = int(m.group(3))
         if n >= len(tracks):
@@ -483,6 +493,7 @@ class Handler(BaseHTTPRequestHandler):
             tracks = media.subtitle_tracks(item, p["info"])
             out = {"mode": p["mode"], "duration": p["duration"], "why": p.get("why") or [],
                    "audio": media.audio_tracks(p["info"]), "error": media.last_error(item["id"]),
+                   "markers": intros.for_player(item["id"]),
                    "url": base + ("file" if p["mode"] == "direct" else "stream?mode=" + p["mode"]),
                    "subtitles": [{"label": t["label"] or "Subtitles", "lang": t["lang"] or "und",
                                   "url": "%ssubs/%d.vtt" % (base, i)} for i, t in enumerate(tracks)]}
@@ -528,7 +539,7 @@ class Handler(BaseHTTPRequestHandler):
                 else:
                     found = metadata.search_movies(query, int(year) if year.isdigit() else None, adult=entry.get("adult"))
             except Exception as exc:
-                return self.error(502, "The lookup didn't answer (%s). Check the server is online." % str(exc)[:100])
+                return self.error(502, "Couldn't reach the lookup service. Is this computer online? (%s)" % str(exc)[:80])
             return self.json({"query": query, "results": found, "current": metadata.override(entry["id"]),
                               "source": entry.get("source"), "keys": {"tmdb": bool(config.get("tmdb_api_key")),
                                                                      "tpdb": bool(config.get("theporndb_api_key"))}})
@@ -581,6 +592,23 @@ class Handler(BaseHTTPRequestHandler):
                          u["id"], item_id, float(data.get("t") or 0), float(data.get("d") or 0),
                          1 if data.get("done") else 0, int(time.time() * 1000))
             return self.json({"ok": True})
+        m = re.match(r"^/api/admin/markers/(.+)$", path)
+        if m:
+            item = LIBRARY.item(m.group(1))
+            kind = data.get("kind")
+            if not item or kind not in ("intro", "recap", "credits"):
+                return self.error(400, "Unknown video or marker.")
+            if data.get("clear"):
+                intros.clear_marker(item["id"], kind)
+            else:
+                try:
+                    start, end = float(data["start"]), float(data["end"])
+                except (KeyError, TypeError, ValueError):
+                    return self.error(400, "Give a start and an end.")
+                if not 0 <= start < end:
+                    return self.error(400, "The end has to come after the start.")
+                intros.set_marker(item["id"], kind, start, end, "manual")
+            return self.json({"ok": True, "markers": intros.for_player(item["id"])})
         if path == "/api/hls/stop":
             media.hls_stop_owner(self.owner())
             return self.json({"ok": True})
@@ -643,6 +671,8 @@ class Handler(BaseHTTPRequestHandler):
                 user = auth.create_user(data["name"], data["password"], admin=bool(data.get("admin")))
             except Exception:
                 return self.error(409, "Someone already has that name.")
+            if data.get("adult"):
+                auth.set_adult(user["id"], True)
             store.log("account", "%s added %s \"%s\"" % (u["name"], "admin" if data.get("admin") else "viewer", user["name"]))
             return self.json({"ok": True})
         if path == "/api/admin/convert":
@@ -724,10 +754,11 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/admin/settings":
             allowed = {k: data[k] for k in ("name", "dlna", "tvmaze", "tmdb_api_key", "theporndb_api_key", "max_transcodes",
                                             "guest_access", "auto_convert", "keep_originals", "tidy_library",
-                                            "free_movie_lookup", "theme") if k in data}
+                                            "free_movie_lookup", "theme", "detect_intros", "trickplay") if k in data}
             if "name" in allowed:
                 allowed["name"] = str(allowed["name"]).strip()[:40] or "Sofa"
-            for k in ("dlna", "tvmaze", "guest_access", "auto_convert", "keep_originals", "tidy_library", "free_movie_lookup"):
+            for k in ("dlna", "tvmaze", "guest_access", "auto_convert", "keep_originals", "tidy_library", "free_movie_lookup",
+                      "detect_intros", "trickplay"):
                 if k in allowed:
                     allowed[k] = bool(allowed[k])
             for k in ("tmdb_api_key", "theporndb_api_key"):
@@ -794,7 +825,7 @@ def admin_status():
         "streams": media.active_streams(),
         "inbox": organizer.pending(),
         "review": store.recent_activity(20, kinds={"review"}),
-        "activity": store.recent_activity(40),
+        "activity": store.recent_activity(150),
         "users": auth.list_users(),
         "settings": public_settings(),
         "backups": [{k: b[k] for k in ("name", "size", "made")} for b in backup.listing()[:5]],
