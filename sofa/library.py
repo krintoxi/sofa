@@ -23,7 +23,7 @@ import os
 import threading
 import time
 
-from . import config, media, metadata, music, naming, sidecars, store
+from . import config, media, metadata, music, naming, places, sidecars, store
 
 ART = {"poster": ("folder.jpg", "poster.jpg", "folder.png", "poster.png", "cover.jpg"),
        "backdrop": ("backdrop.jpg", "fanart.jpg", "backdrop.png", "background.jpg"),
@@ -179,7 +179,10 @@ class Library:
 
     @staticmethod
     def roots():
-        return {k: config.path(k) for k in ("shows", "movies", "music", "musicvideos", "adult")}
+        out = {k: config.path(k) for k in ("music", "musicvideos")}
+        for k in ("shows", "movies", "adult"):
+            out.update(places.roots(k))                 # the main folders and every connected drive's
+        return out
 
     def current_signature(self):
         h = hashlib.sha1()
@@ -217,15 +220,22 @@ class Library:
             self._dirs = {}
             self._renames = {}
             self._known = set(self.known_performers)
-            people = os.path.join(config.path("adult"), "Performers")
-            try:
-                self._known.update(n for n in os.listdir(people) if not n.startswith("."))
-            except OSError:
-                pass
+            for _key, root in places.roots("adult"):
+                try:
+                    self._known.update(n for n in os.listdir(os.path.join(root, "Performers")) if not n.startswith("."))
+                except OSError:
+                    pass
             items = {}
-            shows = self._scan_shows(config.path("shows"), items, "shows")
-            movies = self._scan_movies(config.path("movies"), items, "movies")
-            a_shows, a_movies = self._scan_adult(config.path("adult"), items)
+            # Every place (the main folders, then each connected drive) adds to one library.
+            shows, movies, a_shows, a_movies = [], [], [], []
+            for key, root in places.roots("shows"):
+                shows = self._merge_shows(shows, self._scan_shows(root, items, key))
+            for key, root in places.roots("movies"):
+                movies += self._scan_movies(root, items, key)
+            movies.sort(key=lambda m: ((m.get("collection") or m["title"]).lower(), m.get("year") or 0))
+            for key, root in places.roots("adult"):
+                s_, m_ = self._scan_adult(root, items, key)
+                a_shows, a_movies = self._merge_shows(a_shows, s_), a_movies + m_
             adult = {"shows": a_shows, "movies": a_movies,
                      "categories": sorted({x["category"] for x in a_shows + a_movies},
                                           key=lambda c: (c != "Movies", c.lower() not in SERIES_DIRS, c.lower()))}
@@ -261,6 +271,54 @@ class Library:
             metadata.saved_only(False)
             self.scanning = self.quick = False
             self._scan_lock.release()
+
+    @staticmethod
+    def _merge_shows(have, new):
+        """A show in two places (Season 1 here, Season 2 on a drive) is one show."""
+        by_id = {s["id"]: s for s in have}
+        out = list(have)
+        for s in new:
+            old = by_id.get(s["id"])
+            if not old:
+                out.append(s)
+                by_id[s["id"]] = s
+                continue
+            seasons = {x["n"]: dict(x, episodes=list(x["episodes"])) for x in old["seasons"]}
+            for x in s["seasons"]:
+                if x["n"] in seasons:
+                    seasons[x["n"]]["episodes"] = sorted(seasons[x["n"]]["episodes"] + x["episodes"],
+                                                         key=lambda e: (e.get("e") or 0, e["id"]))
+                    seasons[x["n"]]["poster"] = seasons[x["n"]]["poster"] or x.get("poster")
+                else:
+                    seasons[x["n"]] = x
+            merged = dict(old, seasons=[seasons[n] for n in sorted(seasons)], extras=old["extras"] + s["extras"],
+                          added=max(old["added"], s["added"]), places=sorted(set(old.get("places", [old.get("place", "")]) +
+                                                                                [s.get("place", "")])))
+            for k in ("poster", "backdrop", "logo", "summary", "genres", "source"):
+                merged[k] = merged.get(k) or s.get(k)
+            out[out.index(old)] = merged
+            by_id[s["id"]] = merged
+        return out
+
+    def place_counts(self):
+        """{place id: {"shows", "movies", "adult", "bytes"}} for Server → Storage ("" is this computer)."""
+        out = {}
+        with self.lock:
+            for i in self.items.values():
+                if i["kind"] not in ("episode", "movie", "extra"):
+                    continue
+                p = places.place_of(i["path"])
+                c = out.setdefault(p["id"] if p else "", {"shows": set(), "movies": 0, "adult": 0, "bytes": 0})
+                c["bytes"] += i.get("size") or 0
+                if i.get("adult"):
+                    c["adult"] += 1
+                elif i["kind"] == "movie":
+                    c["movies"] += 1
+                elif i.get("show_id"):
+                    c["shows"].add(i["show_id"])
+        for c in out.values():
+            c["shows"] = len(c["shows"])
+        return out
 
     def _problem(self, path, exc, adult=False):
         """Something in the library that couldn't be read (a broken link, a folder Sofa may not open):
@@ -309,7 +367,7 @@ class Library:
             version = "?v=%d" % os.stat(path).st_mtime
         except OSError:
             version = ""
-        return "/art/%s/%s%s" % (key, os.path.relpath(path, config.path(key)).replace(os.sep, "/"), version)
+        return "/art/%s/%s%s" % (key, os.path.relpath(path, places.folder_for(key) or config.path(key)).replace(os.sep, "/"), version)
 
     @staticmethod
     def find_art(directory, kind):
@@ -468,7 +526,7 @@ class Library:
         eps = [s for s in stems if naming.parse_episode(s) or naming.EPISODE_ONLY.search(s)]
         return len(eps) >= 2 and len(eps) >= len(stems) * 0.6
 
-    def _scan_adult(self, root, items):
+    def _scan_adult(self, root, items, art_key="adult"):
         """Every folder at the top of Adult/ is a category ("Movies", "Hentai", "Series", "Collections", ...).
         Inside one: movie folders, loose videos, collections (a folder of movie folders) and series
         (folders of episodes) are all recognised. Loose videos right in Adult/ go under "Movies"."""
@@ -487,7 +545,7 @@ class Library:
             return entries
 
         def show(d, folder, category):
-            found = self._scan_show_safely(d, folder, items, "adult", prefix="a", adult=True)
+            found = self._scan_show_safely(d, folder, items, art_key, prefix="a", adult=True)
             if found:
                 shows.extend(tag([found], category))
 
@@ -508,7 +566,7 @@ class Library:
             series = [s for s in subdirs if self.looks_like_show(os.path.join(p, s))]
             for s in sorted(series, key=str.lower):
                 show(os.path.join(p, s), s, name)
-            movies.extend(tag(self._scan_movies(p, items, "adult", prefix="a", adult=True,
+            movies.extend(tag(self._scan_movies(p, items, art_key, prefix="a", adult=True,
                                                 skip=tuple(s.lower() for s in series)), name))
 
         top_files, singles = [], []
@@ -532,7 +590,7 @@ class Library:
                 except Exception as exc:
                     self._problem(p, exc, adult=True)
         if top_files or singles:
-            movies += tag(self._scan_movies(root, items, "adult", prefix="a", adult=True, only=set(singles),
+            movies += tag(self._scan_movies(root, items, art_key, prefix="a", adult=True, only=set(singles),
                                             files=top_files), "Movies")
         return shows, movies
 
@@ -667,7 +725,7 @@ class Library:
 
         self._dirs[show_id] = show_dir
         added = max([i["added"] for i in items.values() if i.get("show_id") == show_id] or [0])
-        show = {"id": show_id, "name": name, "added": added, "adult": adult, "folder": folder,
+        show = {"id": show_id, "name": name, "added": added, "adult": adult, "folder": folder, "place": art_key.partition("~")[2],
                 "poster": self.art_url(art_key, poster), "backdrop": self.art_url(art_key, backdrop),
                 "logo": self.art_url(art_key, self.find_art(show_dir, "logo")),
                 "seasons": [{"n": n, "poster": self.art_url(art_key, season_art.get(n)),
@@ -783,7 +841,7 @@ class Library:
             items[item_id] = item
             self._dirs[item_id] = directory
             out = {k: v for k, v in item.items() if k not in PRIVATE}
-            out.update(poster=self.art_url(art_key, poster or item["thumb_path"]),
+            out.update(place=art_key.partition("~")[2], poster=self.art_url(art_key, poster or item["thumb_path"]),
                        backdrop=self.art_url(art_key, backdrop),
                        logo=self.art_url(art_key, self.find_art(directory, "logo") if directory else None),
                        file=os.path.basename(path), subs=len(item["subs"]))

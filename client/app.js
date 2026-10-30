@@ -956,7 +956,7 @@ function authView(kind) {
 
 /* ---------- server (admin) page ---------- */
 let adminData = null, adminTimer = 0, adminTab = "overview", activityKind = "all";
-const SRV_TABS = [["overview", "Overview"], ["library", "Library"], ["convert", "Converting"], ["downloads", "Downloads"], ["live", "Live TV"],
+const SRV_TABS = [["overview", "Overview"], ["library", "Library"], ["storage", "Storage"], ["convert", "Converting"], ["downloads", "Downloads"], ["live", "Live TV"],
   ["people", "People"], ["settings", "Settings"], ["update", "Updates"], ["activity", "Activity"]];
 async function loadAdmin() {
   try {
@@ -965,6 +965,7 @@ async function loadAdmin() {
     if (adminTab === "library") { d.missing = (await api("/api/admin/missing")).items; d.intros = await api("/api/admin/intros"); }
     if (adminTab === "convert") d.convert = await api("/api/admin/convert");
     if (adminTab === "downloads") d.downloads = await api("/api/admin/downloads");
+    if (adminTab === "storage") d.storage = await api("/api/admin/storage");
     adminData = d;
   } catch (e) { adminData = { error: e.message }; }
   if (location.hash.startsWith("#/server") && !Player.isOpen() && !document.querySelector(".dialog-scrim")) {
@@ -981,6 +982,7 @@ function viewServer(tab) {
   clearTimeout(adminTimer);
   const busy = adminData && adminData.convert && adminData.convert.counts && adminData.convert.counts.working;
   const upd = (adminData && adminData.update && adminData.update.running) ||
+    (adminData && adminData.storage && adminData.storage.transfers.some(t => t.state === "copying" || t.state === "checking")) ||
     (adminData && adminData.downloads && (adminData.downloads.rows.some(r => r.state === "working") ||
       (adminData.downloads.installing || {}).running));
   adminTimer = setTimeout(() => { if (location.hash.startsWith("#/server")) loadAdmin(); }, busy || upd ? 3000 : 10000);
@@ -991,7 +993,7 @@ function viewServer(tab) {
   if (!adminData) { loadAdmin(); return `<section class="admin">${head()}${tabs}<p class="admin-lede">Loading…</p></section>`; }
   if (adminData.error) return `<section class="admin">${head()}${tabs}<p class="admin-lede">${esc(adminData.error)}</p></section>`;
   const d = adminData;
-  const body = { overview: srvOverview, library: srvLibrary, convert: srvConvert, downloads: srvDownloads, live: srvLive, people: srvPeople,
+  const body = { overview: srvOverview, library: srvLibrary, storage: srvStorage, convert: srvConvert, downloads: srvDownloads, live: srvLive, people: srvPeople,
                  settings: srvSettings, update: srvUpdate, activity: srvActivity }[adminTab](d);
   return `<section class="admin">${head(d)}<p class="admin-lede">${esc(d.server.name)} on ${esc(d.server.host)} · Sofa ${esc(d.server.version)} · up since ${esc(new Date(d.server.started * 1000).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }))}</p>
     ${tabs}${body}</section>`;
@@ -1073,6 +1075,80 @@ function srvLibrary(d) {
       ${L.deleted.files ? `<div class="actions"><button class="btn danger" data-empty-deleted="1">Empty it for good</button></div>` : ""}` : ""}</div>
     <div class="panel wide">${srvSwitch("tidy_library", d.settings.tidy_library, "Tidy folders automatically", "Renames download-style folders (\"Heat.1995.1080p.BluRay\" becomes \"Heat (1995)\"), gives each movie in a collection its own folder, and moves stray XXX folders into Adult. Nothing is deleted.")}</div>
   </div>`;
+}
+/* ---------- Server → Storage: the library on more than one drive ---------- */
+function spaceBar(p) {
+  if (!p.total) return "";
+  const used = Math.round((1 - p.free / p.total) * 100);
+  return `<div class="space"><span class="space-bar"><i style="width:${used}%" class="${used > 90 ? "full" : ""}"></i></span>
+    <span class="when">${bytes(p.free)} free of ${bytes(p.total)}</span></div>`;
+}
+function srvStorage(d) {
+  const st = d.storage;
+  if (!st) return `<div class="panel wide"><p class="hint">Loading…</p></div>`;
+  const placeCard = p => {
+    const c = p.counts || {};
+    const what = [c.shows ? plural(c.shows, "show") : "", c.movies ? plural(c.movies, "movie") : "", c.adult && session.user.adult ? c.adult + " adult" : "",
+      c.bytes ? bytes(c.bytes) : ""].filter(Boolean).join(" · ") || "Nothing yet";
+    return `<li class="place${p.connected ? "" : " gone"}"><div class="place-main">
+        <span class="place-name"><b>${esc(p.name)}</b>${p.main ? `<span class="tag">Main</span>` : ""}${p.connected ? "" : `<span class="tag bad">Not plugged in</span>`}</span>
+        <span class="when"><code>${esc(p.path)}</code></span>
+        <span class="when">${esc(what)}</span>${p.connected ? spaceBar(p) : `<span class="when">Its shows and movies come back when it's plugged in again.</span>`}</div>
+      <div class="place-actions"><label class="check"><input type="radio" name="newTo" data-new-to="${esc(p.id)}"${st.new_to === p.id ? " checked" : ""}${p.connected ? "" : " disabled"}> New things go here</label>
+        ${p.main ? "" : `<button class="mini danger" data-place-remove="${esc(p.id)}">Stop using</button>`}</div></li>`;
+  };
+  const warn = dr => dr.problem === "no-permission" ? `<span class="form-error">macOS isn't letting Sofa open it yet. Press "Use this drive" for the steps.</span>`
+    : dr.problem === "read-only" ? `<span class="form-error">Read-only${dr.fs === "ntfs" ? " (NTFS: a Mac can't write to it; reformat as exFAT or APFS)" : ""}. Sofa can play from it but can't put new things on it.</span>`
+    : dr.problem ? `<span class="form-error">${esc(dr.problem)}</span>`
+    : dr.fat32 ? `<span class="hint">FAT32 can't hold files bigger than 4 GB (most movies are). exFAT or APFS is better.</span>` : "";
+  const driveRow = dr => `<li class="place"><div class="place-main"><span class="place-name"><b>${esc(dr.name)}</b>${dr.fs ? `<span class="tag">${esc(dr.fs)}</span>` : ""}</span>
+      <span class="when"><code>${esc(dr.path)}</code></span>${spaceBar(dr)}${warn(dr)}</div>
+      <div class="place-actions"><button class="btn${dr.problem === "read-only" ? "" : " primary"}" data-drive-use="${esc(dr.path)}" data-drive-name="${esc(dr.name)}" data-drive-existing="${esc(dr.existing || "")}">${dr.existing ? "Connect its Sofa library" : "Use this drive"}</button></div></li>`;
+  const tr = (st.transfers || []).map(t => `<li class="conv ${t.state === "done" ? "done" : t.state === "failed" ? "failed" : "working"}"><div class="conv-main"><b>${esc(t.title)}</b>
+      <span class="when">${esc(t.from)} → ${esc(t.to)} · ${t.state === "copying" ? "Copying" : t.state === "checking" ? "Checking the copy" : t.state === "done" ? "Moved" : "Didn't work: " + esc(t.error || "")}${t.total ? " · " + bytes(t.total) : ""}</span>
+      ${t.state === "copying" ? `<span class="bar-line"><i style="width:${Math.round(100 * t.done / Math.max(1, t.total))}%"></i></span>` : ""}</div>
+      ${t.state === "copying" ? `<span class="when">${Math.round(100 * t.done / Math.max(1, t.total))}%</span>` : ""}</li>`).join("");
+  return `<div class="panels">
+    <div class="panel wide"><h2>Where your library is</h2>
+      <p class="hint">Sofa shows everything on all of these as one library. A show with seasons in two places is one show. Pick where new things from the Inbox go; new episodes of a show that's already on a drive go to that drive.</p>
+      <ul class="list places">${st.places.map(placeCard).join("")}</ul></div>
+    ${tr ? `<div class="panel wide"><h2>Moving between drives</h2><ul class="list">${tr}</ul></div>` : ""}
+    <div class="panel wide"><h2>Drives on this computer</h2>
+      <p class="hint">Plug in a flash drive or an external SSD and it shows up here within a few seconds. "Use this drive" makes a <b>Sofa Library</b> folder on it (with Shows, Movies, Adult, Music inside); you can put things there by hand too. To make room on this computer, open a show or movie and press <b>Manage → Move it to another drive</b>.</p>
+      <ul class="list places">${st.drives.length ? st.drives.map(driveRow).join("") : `<li class="empty-row">No other drives found. Plug one in; it appears here by itself.</li>`}</ul>
+      <p class="hint">Best formats: APFS or Mac OS Extended for a drive used only with this Mac, exFAT to share it with Windows too.</p></div>
+  </div>`;
+}
+function useDriveDialog(path, name, existing) {
+  const d = openDialog(`<h2>${existing ? "Connect its Sofa library" : "Use " + esc(name) + " for Sofa"}</h2>
+    <p>${existing ? "This drive already has a Sofa library on it. Sofa adds everything in it to the library." : "Sofa makes a folder on it with Shows, Movies, Adult, Music and Music Videos inside, and adds what you put there to the library."}</p>
+    <form class="drive-form"><label class="field"><span>Name</span><input name="name" maxlength="40" value="${esc(name)}"></label>
+      <label class="field"><span>Folder on the drive</span><input name="path" value="${esc(existing || path.replace(/\/$/, "") + "/Sofa Library")}"></label>
+      <label class="check"><input type="checkbox" name="newhere"> Put new things from the Inbox here</label>
+      <div class="form-error" role="alert"></div>
+      <div class="actions"><button class="btn primary">${existing ? "Connect it" : "Use this drive"}</button><button class="btn ghost" type="button" data-dismiss="1">Cancel</button></div></form>`);
+  const f = $(".drive-form", d);
+  f.addEventListener("submit", async e => {
+    e.preventDefault();
+    try {
+      await api("/api/admin/storage", { add: { path: f.path.value, name: f.name.value, new_here: f.newhere.checked } });
+      closeDialog(); toast(f.name.value + " is part of the library now."); loadAdmin(); setTimeout(reloadLibrary, 4000);
+    } catch (ex) { $(".form-error", d).textContent = ex.message; }
+  });
+}
+function moveDriveDialog(id) {
+  const x = byId.get(id); if (!x) return;
+  const here = x.place || "", options = (LIB.places || []).filter(p => p.id !== here && p.connected);
+  const d = openDialog(`<h2>Move it to another drive</h2><p><b>${esc(x.name || x.title)}</b> is on ${esc(((LIB.places || []).find(p => p.id === here) || { name: "this computer" }).name)}.
+    Sofa copies it over in the background, checks the copy, then removes the original. Watch progress stays.</p>
+    <div class="manage-list">${options.length ? options.map(p => `<button data-to="${esc(p.id)}">${icon("i-next-arrow")}<span><b>${esc(p.name)}</b></span></button>`).join("")
+      : `<p class="hint">There's no other drive to move it to. Add one under Server → Storage.</p>`}</div>
+    <div class="form-error" role="alert"></div><div class="actions"><button class="btn ghost" data-dismiss="1">Cancel</button></div>`);
+  d.addEventListener("click", async e => {
+    const b = e.target.closest("[data-to]"); if (!b) return;
+    try { await api("/api/admin/storage", { move: { id, to: b.dataset.to } }); closeDialog(); toast("Moving it in the background. Server → Storage shows how far along it is."); }
+    catch (ex) { $(".form-error", d).textContent = ex.message; }
+  });
 }
 function srvConvert(d) {
   const c = d.convert || {}, counts = c.counts || {};
@@ -1287,11 +1363,13 @@ window.addEventListener("hashchange", () => { route(); scrollTo(0, 0); });
 
 /* ---------- interactions ---------- */
 document.addEventListener("click", e => {
-  const t = e.target.closest("[data-slide],[data-intros-recheck],[data-manage],[data-new-pictures],[data-empty-deleted],[data-free-space],[data-retry-details],[data-adult-nav],[data-asort],[data-adult-play],[data-like],[data-add-link],[data-dl-retry],[data-dl-cancel],[data-dl-clear],[data-dl-install],[data-enable-adult],[data-conv-retry],[data-conv-cancel],[data-conv-all],[data-conv-clear],[data-update],[data-user-adult],[data-act-kind],[data-key-clear],[data-fix],[data-msort],[data-adult-tab],[data-play-start],[data-srv-tab],[data-mlike],[data-mplay],[data-mplay-one],[data-mplay-list],[data-mshuffle-list],[data-station],[data-mtab],[data-play-mv],[data-guest-clear],[data-play],[data-watched],[data-season],[data-sort],[data-nudge],[data-season-watched],[data-dismiss],[data-admin],[data-setting],[data-user-pass],[data-user-del],[data-live],[data-fav],[data-group],[data-preset],[data-live-remove]");
+  const t = e.target.closest("[data-slide],[data-intros-recheck],[data-manage],[data-drive-use],[data-place-remove],[data-new-pictures],[data-empty-deleted],[data-free-space],[data-retry-details],[data-adult-nav],[data-asort],[data-adult-play],[data-like],[data-add-link],[data-dl-retry],[data-dl-cancel],[data-dl-clear],[data-dl-install],[data-enable-adult],[data-conv-retry],[data-conv-cancel],[data-conv-all],[data-conv-clear],[data-update],[data-user-adult],[data-act-kind],[data-key-clear],[data-fix],[data-msort],[data-adult-tab],[data-play-start],[data-srv-tab],[data-mlike],[data-mplay],[data-mplay-one],[data-mplay-list],[data-mshuffle-list],[data-station],[data-mtab],[data-play-mv],[data-guest-clear],[data-play],[data-watched],[data-season],[data-sort],[data-nudge],[data-season-watched],[data-dismiss],[data-admin],[data-setting],[data-user-pass],[data-user-del],[data-live],[data-fav],[data-group],[data-preset],[data-live-remove]");
   if (!t) return;
   if (t.dataset.fix) { fixDialog(t.dataset.fix); return; }
   if (t.dataset.manage) { manageDialog(t.dataset.manage); return; }
   if (t.dataset.newPictures) { if (confirm("Take new pictures from the videos for the whole library? Only pictures Sofa took itself are replaced; covers stay. It runs in the background.")) adminAction(async () => { await api("/api/admin/pictures", {}); toast("Taking new pictures in the background. They appear as they're ready."); }); return; }
+  if (t.dataset.driveUse !== undefined) { useDriveDialog(t.dataset.driveUse, t.dataset.driveName, t.dataset.driveExisting); return; }
+  if (t.dataset.placeRemove) { if (confirm("Stop using this drive for the library? Nothing on it is deleted; its shows and movies just leave the library.")) adminAction(() => api("/api/admin/storage", { remove: t.dataset.placeRemove })); return; }
   if (t.dataset.freeSpace) { if (confirm("Delete Sofa's own resized pictures, scrubbing previews and hover clips? Your media isn't touched; they're made again as needed.")) adminAction(async () => { await api("/api/admin/cache", { free: true }); toast("Space freed."); }); return; }
   if (t.dataset.retryDetails) { adminAction(async () => { const r = await api("/api/admin/cache", { retry_details: true }); toast("Looking again for " + plural(r.forgotten, "title") + " Sofa found nothing about."); }); return; }
   if (t.dataset.emptyDeleted) { if (confirm("Empty the Deleted folder? The videos in it are gone for good after this.")) adminAction(async () => { await api("/api/admin/deleted", { empty: true }); toast("The Deleted folder is empty."); }); return; }
@@ -1383,6 +1461,7 @@ document.addEventListener("click", e => {
   }
 });
 document.addEventListener("change", e => {
+  if (e.target.dataset.newTo !== undefined) { adminAction(async () => { await api("/api/admin/storage", { new_to: e.target.dataset.newTo }); toast("New things go there now."); }); return; }
   if (e.target.id === "reportAdult") { $("#reportLink").href = "/api/admin/report" + (e.target.checked ? "?adult=1" : ""); return; }
   const sel = e.target.closest("[data-setting-select]"); if (!sel) return;
   const v = sel.dataset.settingSelect === "max_transcodes" ? +sel.value : sel.value;
@@ -1633,6 +1712,7 @@ function manageDialog(id) {
     <div class="manage-list">
       <button data-m="pictures">${icon("i-image")}<span><b>Take new pictures from the video${isShow ? "s" : ""}</b><small>Replaces pictures Sofa took itself (like ones from the very start). Covers stay.</small></span></button>
       <button data-m="move">${icon("i-next-arrow")}<span><b>Move ${isShow ? "the whole show" : "it"} somewhere else</b><small>${isShow ? "To Shows or to an Adult category." : "It's in the wrong place, or it's actually a movie, an episode or adult."}</small></span></button>
+      ${(isShow || x.kind === "movie") && (LIB.places || []).filter(p => p.connected).length > 1 ? `<button data-m="drive">${icon("i-sofa")}<span><b>Move it to another drive</b><small>Make room here, or keep a whole show on one drive.</small></span></button>` : ""}
       <button data-m="delete" class="danger">${icon("i-trash")}<span><b>Delete ${isShow ? "the whole show" : "it"}</b><small>It goes to the Deleted folder first, so you can still get it back.</small></span></button>
     </div><div class="form-error" role="alert"></div>
     <div class="actions"><button class="btn ghost" data-dismiss="1">Close</button></div>`);
@@ -1643,6 +1723,7 @@ function manageDialog(id) {
       try { await api("/api/admin/pictures", { id: owner }); closeDialog(); toast("Taking new pictures. They show up in a minute or two."); [20000, 60000].forEach(t => setTimeout(reloadLibrary, t)); }
       catch (ex) { err.textContent = ex.message; }
     } else if (b.dataset.m === "move") { closeDialog(); setTimeout(() => moveDialog(id), 60); }
+    else if (b.dataset.m === "drive") { closeDialog(); setTimeout(() => moveDriveDialog(id), 60); }
     else { closeDialog(); setTimeout(() => deleteDialog(id), 60); }
   });
 }

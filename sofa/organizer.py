@@ -17,7 +17,7 @@ import re
 import shutil
 import time
 
-from . import config, media, metadata, music, naming, sidecars, store
+from . import config, media, metadata, music, naming, places, sidecars, store
 
 SETTLE_SECONDS = 30
 
@@ -250,18 +250,28 @@ def _season_hint(video):
 
 
 def _existing_show(name):
-    root = config.path("shows")
-    if not os.path.isdir(root) or not name:
+    """The folder of a show already in the library, in any place (so new episodes join it there)."""
+    if not name:
         return None
     key = naming.norm(name)
-    for d in os.listdir(root):
-        if os.path.isdir(os.path.join(root, d)) and naming.norm(d) == key:
-            return d
+    for _ak, root in places.roots("shows"):
+        try:
+            names = os.listdir(root)
+        except OSError:
+            continue
+        for d in names:
+            if os.path.isdir(os.path.join(root, d)) and naming.norm(d) == key:
+                return os.path.join(root, d)
     return None
 
 
+def _new_root(key):
+    """Where something new goes: the place chosen under Server → Storage (the main folders by default)."""
+    return places.section(key, places.target())
+
+
 def _resolve_show(name):
-    """Folder name to use under Shows/, or None when Sofa isn't confident."""
+    """(The show's folder, in whichever place it is or goes, and its TVmaze details), or None when Sofa isn't confident."""
     if not name:
         return None
     existing = _existing_show(name)
@@ -272,16 +282,16 @@ def _resolve_show(name):
         canonical = show.get("name") or name
         a, b = naming.norm(canonical), naming.norm(name)
         if a and b and (a.startswith(b) or b.startswith(a)):
-            return _existing_show(canonical) or naming.safe_filename(canonical), show
+            return _existing_show(canonical) or os.path.join(_new_root("shows"), naming.safe_filename(canonical)), show
         return None
-    return naming.safe_filename(name.title() if name.islower() else name), None
+    return os.path.join(_new_root("shows"), naming.safe_filename(name.title() if name.islower() else name)), None
 
 
 def _file_video(video, entry, adult=False, collection=None):
     stem, ext = os.path.splitext(os.path.basename(video))
     folder = _folder_hint(video, entry)
     ep = naming.parse_episode(stem, _season_hint(video), in_show=bool(folder))
-    shows_root = os.path.join(config.path("adult"), "Shows") if adult else config.path("shows")
+    shows_root = os.path.join(_new_root("adult"), "Shows") if adult else _new_root("shows")
     side = sidecars.read(video)
     if ep and adult:
         show_name = naming.safe_filename(naming.show_name(ep["show"] or folder or "Unsorted")[0])
@@ -295,7 +305,8 @@ def _file_video(video, entry, adult=False, collection=None):
         if not resolved:
             return _to_review(video, "Couldn't tell which show this episode belongs to. Rename it like "
                                      "\"Show Name S01E02.mkv\" and drop it in the Inbox again.")
-        show_name, show_meta = resolved
+        show_dir, show_meta = resolved
+        show_name = os.path.basename(show_dir)
         title = ep["title"]
         if show_meta:
             meta = metadata.episodes(show_meta).get((ep["s"], ep["e"]))
@@ -303,7 +314,7 @@ def _file_video(video, entry, adult=False, collection=None):
         code = "S%02dE%02d" % (ep["s"], ep["e"]) + ("-E%02d" % ep["e2"] if ep.get("e2") else "")
         folder = "Specials" if ep["s"] == 0 else "Season %d" % ep["s"]
         new = naming.safe_filename("%s %s %s" % (show_name, code, title) if title else "%s %s" % (show_name, code))
-        dest = os.path.join(config.path("shows"), show_name, folder, new + ext.lower())
+        dest = os.path.join(show_dir, folder, new + ext.lower())
         return _move(video, dest, "Added %s %s to Shows" % (show_name, code),
                      why="episode %s read from the name %r; show %r %s" % (
                          code, stem, show_name, "matched on TVmaze" if show_meta else "already in Shows" if _existing_show(show_name)
@@ -324,7 +335,7 @@ def _file_video(video, entry, adult=False, collection=None):
         if not year:
             year = (metadata.movie(title, None, adult=True) or {}).get("year")
         name = naming.safe_filename("%s (%d)" % (title.strip(), year) if year and str(year) not in title else title.strip()) or "Untitled"
-        dest = os.path.join(config.path("adult"), "Movies", name, name + ext.lower())
+        dest = os.path.join(_new_root("adult"), "Movies", name, name + ext.lower())
         return _move(video, dest, "Added 1 video to Adult", private=True,
                      why="title %r from %s" % (title, "the saved link/.nfo" if side.get("title") else "the scene name" if scene.get("studio") else "the file name"))
     how = "the file name %r" % stem if naming.parse_movie(stem)[1] else "the folder name" if year else "?"
@@ -341,7 +352,7 @@ def _file_video(video, entry, adult=False, collection=None):
                                  "like \"Title (1999)\", then drop it in the Inbox again.")
     name = naming.safe_filename("%s (%d)" % (title, year))
     part = re.search(r"\b(?:cd|disc|part)[\s._-]*(\d)\b", stem, re.I)
-    base = os.path.join(config.path("movies"), collection) if collection else config.path("movies")
+    base = os.path.join(_new_root("movies"), collection) if collection else _new_root("movies")
     dest = os.path.join(base, name, name + (" - part%s" % part.group(1) if part else "") + ext.lower())
     return _move(video, dest, "Added %s to Movies%s" % (name, " (%s)" % collection if collection else ""),
                  why="movie: title and year from %s%s" % (how, "; part of the collection %r" % collection if collection else ""))
@@ -472,8 +483,10 @@ def tidy_library():
     done = 0
     try:
         done += _adopt_adult_folders()
-        done += _tidy_movies(config.path("movies"))
-        done += _tidy_shows(config.path("shows"))
+        for _ak, root in places.roots("movies"):
+            done += _tidy_movies(root)
+        for _ak, root in places.roots("shows"):
+            done += _tidy_shows(root)
     except OSError as exc:
         store.log("error", "Tidying the library: %s" % exc)
     return done
@@ -668,22 +681,28 @@ def _videos_under(d, limit=2):
 
 def _own_folder(video):
     """The biggest folder that holds nothing but this video (a movie's own folder, with its poster)."""
-    roots = {os.path.abspath(config.path(k)) for k in LIBRARY_KEYS}
+    roots = set(places.all_section_roots(LIBRARY_KEYS))
     d, top = os.path.dirname(os.path.abspath(video)), None
     while _in_library(d) and d not in roots and _videos_under(d) == [os.path.abspath(video)]:
         top, d = d, os.path.dirname(d)
     return top
 
 
+def _deleted_for(path):
+    """The Deleted folder on the same drive as `path`."""
+    return os.path.join(places.place_of(path)["path"], "Deleted") if places.place_of(path) else deleted_root()
+
+
 def _put_aside(path):
     """Move a file or folder into the Deleted folder, keeping where it was (Deleted/Movies/..., Deleted/XXX/...)."""
     rel = os.path.basename(path)
-    for key in LIBRARY_KEYS + ("review", "inbox"):
-        root = os.path.abspath(config.path(key))
+    candidates = [(k, root) for k in LIBRARY_KEYS for _ak, root in places.roots(k)] + [(k, config.path(k)) for k in ("review", "inbox")]
+    for key, root in candidates:
+        root = os.path.abspath(root)
         if os.path.abspath(path).startswith(root + os.sep):
             rel = os.path.join("XXX" if key == "adult" else os.path.basename(root), os.path.relpath(path, root))
             break
-    dest = _free_path(os.path.join(deleted_root(), rel))
+    dest = _free_path(os.path.join(_deleted_for(path), rel))
     os.makedirs(os.path.dirname(dest), exist_ok=True)
     shutil.move(path, dest)
     return dest
@@ -691,12 +710,12 @@ def _put_aside(path):
 
 def _in_library(path):
     p = os.path.abspath(path)
-    return any(p.startswith(os.path.abspath(config.path(k)) + os.sep) for k in LIBRARY_KEYS)
+    return any(p.startswith(r + os.sep) for r in places.all_section_roots(LIBRARY_KEYS))
 
 
 def _tidy_after(folder):
     """A folder left without any video (a movie's folder with just its poster) goes to Deleted too."""
-    roots = {os.path.abspath(config.path(k)) for k in LIBRARY_KEYS}
+    roots = set(places.all_section_roots(LIBRARY_KEYS))
     d, top = os.path.abspath(folder), None
     while _in_library(d) and d not in roots and os.path.isdir(d) and not _has_video(d):
         top, d = d, os.path.dirname(d)
@@ -745,7 +764,7 @@ def relocate(path, target, private=False):
             raise ValueError("Type the movie's title.")
         year = _year(target.get("year"))
         name = "%s (%d)" % (title, year) if year else title
-        dest = os.path.join(config.path("movies"), name, name + ext)
+        dest = os.path.join(places.section("movies", places.place_of(path)), name, name + ext)
         where = "Movies, as %s" % name
     elif kind == "episode":
         show = (target.get("show") or "").strip()
@@ -755,15 +774,15 @@ def relocate(path, target, private=False):
             raise ValueError("Type the season and episode numbers.")
         if not show or s < 0 or e < 1:
             raise ValueError("Type the show's name, the season and the episode.")
-        show_name = _existing_show(show) or naming.safe_filename(show)
+        show_dir = _existing_show(show) or os.path.join(places.section("shows", places.place_of(path)), naming.safe_filename(show))
+        show_name = os.path.basename(show_dir)
         code = "S%02dE%02d" % (s, e)
-        dest = os.path.join(config.path("shows"), show_name, "Specials" if s == 0 else "Season %d" % s,
-                            "%s %s%s" % (show_name, code, ext))
+        dest = os.path.join(show_dir, "Specials" if s == 0 else "Season %d" % s, "%s %s%s" % (show_name, code, ext))
         where = "Shows, as %s %s" % (show_name, code)
     elif kind == "adult":
         category = naming.safe_filename((target.get("category") or "").strip()) or "Movies"
         title = naming.safe_filename((target.get("title") or "").strip() or naming.clean(stem) or stem) or "Untitled"
-        dest = os.path.join(config.path("adult"), category, title, title + ext)
+        dest = os.path.join(places.section("adult", places.place_of(path)), category, title, title + ext)
         where = "Adult, %s" % category
         private = True
     else:
@@ -797,10 +816,10 @@ def relocate_show(folder, target, private=False):
             store.log("library", "Moved the show %s to the Deleted folder" % name)
         return "Moved to the Deleted folder. You can get it back from there until it's emptied."
     if kind == "shows":
-        dest, where = os.path.join(config.path("shows"), name), "Shows"
+        dest, where = os.path.join(places.section("shows", places.place_of(folder)), name), "Shows"
     elif kind == "adult":
         category = naming.safe_filename((target.get("category") or "").strip()) or "Series"
-        dest, where, private = os.path.join(config.path("adult"), category, name), "the Adult section", True
+        dest, where, private = os.path.join(places.section("adult", places.place_of(folder)), category, name), "the Adult section", True
     else:
         raise ValueError("Choose where it goes.")
     if _same(dest, folder):
@@ -816,30 +835,34 @@ def relocate_show(folder, target, private=False):
     return "Moved to %s." % where
 
 
+def _deleted_folders():
+    return [deleted_root()] + [os.path.join(p["path"], "Deleted") for p in places.extra() if places.connected(p)]
+
+
 def deleted_summary():
-    root = deleted_root()
     files = size = 0
-    for d, _dirs, fs in os.walk(root):
-        for f in fs:
-            try:
-                size += os.path.getsize(os.path.join(d, f))
-                files += 1
-            except OSError:
-                pass
-    return {"folder": root, "files": files, "bytes": size}
+    for root in _deleted_folders():
+        for d, _dirs, fs in os.walk(root):
+            for f in fs:
+                try:
+                    size += os.path.getsize(os.path.join(d, f))
+                    files += 1
+                except OSError:
+                    pass
+    return {"folder": deleted_root(), "files": files, "bytes": size}
 
 
 def empty_deleted():
-    root = deleted_root()
-    if not os.path.isdir(root):
-        return 0
     n = 0
-    for name in os.listdir(root):
-        p = os.path.join(root, name)
-        try:
-            shutil.rmtree(p) if os.path.isdir(p) and not os.path.islink(p) else os.remove(p)
-            n += 1
-        except OSError:
-            pass
+    for root in _deleted_folders():
+        if not os.path.isdir(root):
+            continue
+        for name in os.listdir(root):
+            p = os.path.join(root, name)
+            try:
+                shutil.rmtree(p) if os.path.isdir(p) and not os.path.islink(p) else os.remove(p)
+                n += 1
+            except OSError:
+                pass
     store.log("library", "Emptied the Deleted folder")
     return n

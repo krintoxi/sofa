@@ -1030,3 +1030,21 @@ video.pv.on { opacity: 1; }
 @media (max-width: 1320px) { .who .name { display: none; } .who-btn { padding: 4px; } }
 @media (min-width: 761px) and (max-width: 1180px) { .nav { overflow-x: auto; scrollbar-width: none; min-width: 0; } .nav::-webkit-scrollbar { display: none; } }
 html { overflow-x: clip; } .hero { overflow: hidden; }
+
+/* ---------- Server → Storage ---------- */
+.list.places li { align-items: center; }
+.place { display: flex; gap: 16px; justify-content: space-between; flex-wrap: wrap; }
+.place.gone { opacity: .6; }
+.place-main { display: grid; gap: 4px; min-width: 0; flex: 1 1 320px; }
+.place-main b { font-size: 16px; margin-right: 8px; }
+.place-main .tag { display: inline-block; margin-left: 6px; }
+.place-main code { overflow-wrap: anywhere; }
+.place-actions { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.place-actions .check { display: flex; gap: 8px; align-items: center; color: var(--soft); font-size: 14px; }
+.tag.bad { color: var(--alert); border-color: rgba(229,72,77,.4); }
+.space { display: grid; gap: 4px; max-width: 420px; margin-top: 4px; }
+.space-bar { display: block; height: 6px; border-radius: 6px; background: rgba(var(--paper-rgb), .1); overflow: hidden; }
+.space-bar i { display: block; height: 100%; border-radius: 6px; background: var(--amber); }
+.space-bar i.full { background: var(--alert); }
+.drive-form { margin-top: 10px; }
+.place-name { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; } .place-name .tag { margin-left: 0; }
