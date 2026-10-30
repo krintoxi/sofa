@@ -1,0 +1,43 @@
+name: Sofa box card
+
+# A ready-to-write card for the Sofa box (Raspberry Pi OS Lite, 64-bit, with the box set up), built on
+# GitHub's Arm computers. A tag "box-v…" puts it on the releases page; changes to the box build it as a
+# check (kept for a week under the run's Artifacts).
+on:
+  workflow_dispatch:
+  push:
+    branches: ["**"]
+    tags: ["box-v*"]
+    paths:
+      - "deploy/sofa-box/**"
+      - "tools/build-sofa-box-image.sh"
+      - ".github/workflows/sofa-box-image.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  card:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tools
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends parted xz-utils e2fsprogs
+      - name: Build the card
+        run: sudo tools/build-sofa-box-image.sh out
+      - name: Keep it (a week)
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: sofa-box-card
+          path: out/
+          retention-days: 7
+          compression-level: 0
+      - name: Put it on the releases page
+        if: startsWith(github.ref, 'refs/tags/box-v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" out/*.img.xz out/*.sha256 --title "Sofa box ${GITHUB_REF_NAME#box-v}" \
+            --notes "A card for the Sofa box (Raspberry Pi 3, 4 or 5). Write it with Raspberry Pi Imager: Choose OS → Use custom. See deploy/sofa-box/README.md."
