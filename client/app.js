@@ -714,7 +714,10 @@ function viewHome() {
            (l.some(x => x.seasons) && !l.some(x => !x.seasons) ? "#/shows/" : "#/movies/") + encodeURIComponent(g))).join("")
   };
   const { order, hidden } = homeLayout();
-  return appOffer() + order.filter(id => !hidden.has(id)).map(id => rows[id]()).join("") +
+  const waiting = session.user.admin && session.waiting ? `<section class="app-offer"><div><b>${session.waiting === 1 ? "Someone" : session.waiting + " people"} asked for an account</b>
+    <span>They're waiting for you in Server → People.</span></div><div class="row-actions"><a class="btn primary" href="#/server/people">Have a look</a></div></section>` : "";
+  const shown = order.filter(id => !hidden.has(id)), banner = shown[0] === "banner" ? rows.banner() : "";
+  return banner + waiting + appOffer() + shown.filter(id => id !== "banner").map(id => rows[id]()).join("") +   // notes under the banner (it reaches up under the header)
     (session.user.guest ? "" : `<div class="home-edit"><button class="btn ghost" data-home-edit="1">${icon("i-palette")}Arrange Home</button></div>`);
 }
 /* What's on Home, and in which order: each profile's own (on every screen), or Sofa's. The banner stays
@@ -762,6 +765,16 @@ function homeDialog() {
     if (location.hash === "#/" || !location.hash) rerender();
   });
 }
+document.addEventListener("click", e => {
+  const t = e.target.closest("[data-signup-yes],[data-signup-no]"); if (!t) return;
+  const yes = !!t.dataset.signupYes, id = t.dataset.signupYes || t.dataset.signupNo, name = t.dataset.userName;
+  if (!yes && !confirm(`Turn down ${name}? Their request is deleted.`)) return;
+  adminAction(async () => {
+    await api(`/api/admin/users/${id}/${yes ? "approve" : "decline"}`, yes ? { kids: !!t.dataset.kids } : {});
+    session.waiting = Math.max(0, (session.waiting || 1) - 1);
+    toast(yes ? `${name} can sign in now.` : `${name}'s request is turned down.`);
+  });
+});
 document.addEventListener("click", e => { if (e.target.closest("[data-home-edit]")) { if (document.querySelector(".dialog-scrim")) history.back(); setTimeout(homeDialog, 60); } });
 /* ---------- Sofa's Fire TV app ----------
    In Silk on a Fire TV: "Install the Sofa app". Sofa keeps the app on its computer and installs it on this
@@ -1721,6 +1734,7 @@ document.addEventListener("input", e => {
 function authView(kind) {
   $("#nav").hidden = $("#searchBox").hidden = $("#searchBtn").hidden = $("#who").hidden = $("#castBtn").hidden = true;
   setGlow("");
+  if (kind === "signup") return signupView();
   const setup = kind === "setup";
   view.innerHTML = `<section class="auth"><form class="auth-card" id="authForm" autocomplete="on">
     <h1>${setup ? "Welcome to Sofa" : "Sign in"}</h1>
@@ -1733,9 +1747,12 @@ function authView(kind) {
     <button class="btn primary" type="submit">${setup ? "Create account" : "Sign in"}</button>
     ${!setup && session.guest_available ? `<button class="btn ghost" type="button" id="asGuest">Watch as a guest</button>` : ""}
     ${setup ? "" : `<button class="btn ghost" type="button" id="withPhone">Sign in with your phone</button>`}
+    ${!setup && session.signup ? `<p class="auth-alt">New here? <button class="link" type="button" id="toSignup">Create an account</button></p>` : ""}
     <p class="credit">Project by <a href="https://edgeventure.uk" target="_blank" rel="noopener">EdgeVenture.uk</a></p>
   </form></section>`;
   const form = $("#authForm");
+  const su = $("#toSignup");
+  if (su) su.addEventListener("click", () => authView("signup"));
   const wp = $("#withPhone");
   if (wp) wp.addEventListener("click", () => phoneSignIn());
   if (!setup && TV) return phoneSignIn();          // a TV: no typing with the remote
@@ -1751,6 +1768,42 @@ function authView(kind) {
       await api(setup ? "/api/setup" : "/api/login", { name: form.name.value, password: form.password.value });
       boot();
     } catch (ex) { err.textContent = ex.message; }
+  });
+}
+
+/* ---------- asking for an account ----------
+   When whoever runs Sofa allows it (Server → People), the sign-in page offers "Create an account": a name,
+   a password and a word about who you are. The account waits until an admin lets it in. */
+function signupView() {
+  const long = session.remote === "public" ? 12 : 8;
+  view.innerHTML = `<section class="auth"><form class="auth-card" id="signupForm" autocomplete="on">
+    <h1>Create an account</h1>
+    <p>For ${esc(session.name)}. Whoever runs it lets you in, then you sign in with this name and password.</p>
+    <label class="field"><span>Your name</span><input name="name" autocomplete="username" required maxlength="40"></label>
+    <label class="field"><span>Password</span><input name="password" type="password" autocomplete="new-password" required minlength="${long}">
+      <small class="hint">At least ${long} characters.</small></label>
+    <label class="field"><span>Password again</span><input name="again" type="password" autocomplete="new-password" required></label>
+    <label class="field"><span>Who are you? <small>(so they know it's you)</small></span><input name="note" maxlength="200" placeholder="Sam, Leo's cousin"></label>
+    <div class="form-error" role="alert"></div>
+    <button class="btn primary" type="submit">Ask for an account</button>
+    <button class="btn ghost" type="button" id="backToSignIn">I have an account</button>
+  </form></section>`;
+  const form = $("#signupForm");
+  $("#backToSignIn").addEventListener("click", () => authView("login"));
+  form.name.focus();
+  form.addEventListener("submit", async e => {
+    e.preventDefault();
+    const err = $(".form-error", form);
+    if (form.password.value !== form.again.value) { err.textContent = "The passwords don't match."; return; }
+    err.textContent = "";
+    try { await api("/api/signup", { name: form.name.value, password: form.password.value, note: form.note.value }); }
+    catch (ex) { err.textContent = ex.message; return; }
+    view.innerHTML = `<section class="auth"><div class="auth-card asked">
+      <div class="asked-mark" aria-hidden="true">${icon("i-sofa")}</div>
+      <h1>Asked</h1>
+      <p>Once whoever runs ${esc(session.name)} lets you in, sign in as <b>${esc(form.name.value.trim())}</b> with your password. You could tell them it's waiting.</p>
+      <button class="btn primary" type="button" id="backToSignIn">Back to sign in</button></div></section>`;
+    $("#backToSignIn").addEventListener("click", () => authView("login"));
   });
 }
 
@@ -1853,7 +1906,8 @@ function viewServer(tab) {
   adminTimer = setTimeout(() => { if (location.hash.startsWith("#/server")) loadAdmin(); }, busy || upd ? 3000 : 10000);
   const tabs = `<nav class="srv-tabs" aria-label="Server sections">${SRV_TABS.map(t => `<button data-srv-tab="${t[0]}" aria-current="${t[0] === adminTab ? "page" : "false"}">${t[1]}${
     t[0] === "update" && adminData && adminData.update && adminData.update.available ? ` <i class="dot" aria-label="update available"></i>` : ""}${
-    t[0] === "library" && adminData && adminData.library && adminData.library.missing ? ` <i class="num">${adminData.library.missing}</i>` : ""}</button>`).join("")}</nav>`;
+    t[0] === "library" && adminData && adminData.library && adminData.library.missing ? ` <i class="num">${adminData.library.missing}</i>` : ""}${
+    t[0] === "people" && adminData && adminData.users && adminData.users.some(u => u.pending) ? ` <i class="num" title="asking for an account">${adminData.users.filter(u => u.pending).length}</i>` : ""}</button>`).join("")}</nav>`;
   const head = d => `<div class="admin-head"><h1>Server</h1>${d && d.server ? `<span class="pill">Running</span>${d.server.ffmpeg ? "" : `<span class="pill warn">Can't convert video yet</span>`}` : ""}</div>`;
   if (!adminData) { loadAdmin(); return `<section class="admin">${head()}${tabs}<p class="admin-lede">Loading…</p></section>`; }
   if (adminData.error) return `<section class="admin">${head()}${tabs}<p class="admin-lede">${esc(adminData.error)}</p></section>`;
@@ -2148,18 +2202,25 @@ function devicesPanel(list) {
       <button class="mini danger" data-session-end="${esc(s.id)}">Sign out</button></li>`).join("") || `<li class="empty-row">Nobody is signed in.</li>`}</ul></div>`;
 }
 function srvPeople(d) {
-  const users = d.users.filter(u => !u.guest).map(u => `<li><span><b>${esc(u.name)}</b>${u.admin ? ` <span class="tag ok">admin</span>` : ""}<br><span class="when">${u.seen ? "Last seen " + esc(ago(u.seen)) : "Hasn't signed in yet"}</span></span>
+  const asking = d.users.filter(u => u.pending).map(u => `<li class="asking"><span><b>${esc(u.name)}</b>${u.note ? ` <span class="note">“${esc(u.note)}”</span>` : ""}<br>
+      <span class="when">Asked ${esc(ago(u.created * 1000))}</span></span>
+    <span class="row-actions"><button class="mini primary" data-signup-yes="${u.id}" data-user-name="${esc(u.name)}">Let in</button>
+      <button class="mini" data-signup-yes="${u.id}" data-kids="1" data-user-name="${esc(u.name)}">Let in as Kids</button>
+      <button class="mini danger" data-signup-no="${u.id}" data-user-name="${esc(u.name)}">Turn down</button></span></li>`).join("");
+  const users = d.users.filter(u => !u.guest && !u.pending).map(u => `<li><span><b>${esc(u.name)}</b>${u.admin ? ` <span class="tag ok">admin</span>` : ""}<br><span class="when">${u.seen ? "Last seen " + esc(ago(u.seen)) : "Hasn't signed in yet"}</span></span>
     <span class="row-actions">${u.admin ? "" : `<label class="adult-toggle" title="Sees only family titles; no Adult, Live TV or Server"><span>Kids</span><button class="switch small" role="switch" aria-checked="${!!u.kids}" data-user-kids="${u.id}" aria-label="${esc(u.name)} is a Kids profile"></button></label>`}
     ${u.kids ? "" : `<label class="adult-toggle" title="Can see the Adult section"><span>Adult</span><button class="switch small" role="switch" aria-checked="${!!u.adult}" data-user-adult="${u.id}" aria-label="${esc(u.name)} can see the Adult section"></button></label>`}
     <button class="mini" data-user-pass="${u.id}" data-user-name="${esc(u.name)}">New password</button>${u.id !== session.user.id ? `<button class="mini danger" data-user-del="${u.id}" data-user-name="${esc(u.name)}">Remove</button>` : ""}</span></li>`).join("");
   return `<div class="panels">
+    ${asking ? `<div class="panel wide asking-panel"><h2>Asking for an account</h2><p class="hint">They signed up on the sign-in page. Nobody gets in until you say so.</p><ul class="list">${asking}</ul></div>` : ""}
     ${devicesPanel(d.sessions)}
     <div class="panel wide"><h2>People</h2><p class="hint">Everyone gets their own sign-in and their own "continue watching". The <b>Adult</b> switch decides who sees the Adult section (it's off for everyone until you turn it on, you included). A <b>Kids</b> profile sees only family titles (rated for children, or Kids and Family genres), and no Adult, Live TV or Server page; allow or block any title with <b>For kids</b> on its page.</p><ul class="list">${users}</ul>
       <form class="inline-form" id="addUser"><label class="field"><span>Name</span><input name="name" required maxlength="40"></label>
       <label class="field"><span>Password</span><input name="password" type="password" required minlength="8" autocomplete="new-password"></label>
       <button class="btn" type="submit">Add</button><label class="check"><input type="checkbox" name="admin"> Can manage the server</label>
       <label class="check"><input type="checkbox" name="adult"> Can see the Adult section</label>
-      <div class="form-error" role="alert" style="grid-column:1/-1"></div></form></div>
+      <div class="form-error" role="alert" style="grid-column:1/-1"></div></form>
+      ${srvSwitch("signups", d.settings.signups, "Let people ask for an account", "The sign-in page gets “Create an account”: family and friends choose their own name and password, and each one waits here until you let them in. Handy when Sofa is on the internet at your own address.")}</div>
     <div class="panel wide"><h2>Guests</h2><p class="hint">Visitors on your Wi-Fi scan this code to watch as "Guest": their own history and likes, no settings, never the Adult section, and it never works from outside the house. Sessions end after a day.</p>
       <div class="guest-row"><div class="qr" id="guestQr" data-url="${esc(d.guest.links[0] || "")}"></div>
       <div><div class="addr">${d.guest.links.map(l => `<div><b>Guest link</b><code>${esc(l)}</code></div>`).join("")}</div>

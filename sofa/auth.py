@@ -81,6 +81,53 @@ def create_user(name, password, admin=False):
     return store.q1("SELECT id, name, admin FROM users WHERE name = ?", name.strip())
 
 
+# ---------------------------------------------------------------- asking for an account
+
+SIGNUPS_PER_HOUR = 3          # from one address
+MAX_WAITING = 25              # waiting for an admin at once: no more than this, so nobody can fill the list
+_asked = {}
+
+
+def request_account(name, password, note, ip):
+    """Someone asks for an account from the sign-in page (when an admin allows it). It can't sign in until
+    an admin approves it. Raises ValueError with the reason to show."""
+    problem = validate_new(name, password)
+    if problem:
+        raise ValueError(problem)
+    now = time.time()
+    with _fail_lock:
+        recent = [t for t in _asked.get(ip, []) if t > now - 3600]
+        if len(recent) >= SIGNUPS_PER_HOUR:
+            raise ValueError("Several accounts were asked for from here already. Try again in an hour.")
+        _asked[ip] = recent + [now]
+    if store.q1("SELECT COUNT(*) AS n FROM users WHERE pending = 1")["n"] >= MAX_WAITING:
+        raise ValueError("Lots of people are waiting for an account already. Ask whoever runs this Sofa.")
+    if store.q1("SELECT 1 FROM users WHERE name = ?", name.strip()):
+        raise ValueError("That name is taken. Try another.")
+    note = re.sub(r"\s+", " ", str(note or "")).strip()[:200] or None
+    store.ex("INSERT INTO users (name, pw, admin, pending, note, created) VALUES (?,?,0,1,?,?)",
+             name.strip(), hash_password(password), note, int(now))
+    return store.q1("SELECT id, name FROM users WHERE name = ?", name.strip())
+
+
+def approve(user_id, kids=False):
+    row = store.q1("SELECT name FROM users WHERE id = ? AND pending = 1", user_id)
+    if row:
+        store.ex("UPDATE users SET pending = 0, note = NULL, kids = ? WHERE id = ?", 1 if kids else 0, user_id)
+    return row
+
+
+def decline(user_id):
+    row = store.q1("SELECT name FROM users WHERE id = ? AND pending = 1", user_id)
+    if row:
+        store.ex("DELETE FROM users WHERE id = ? AND pending = 1", user_id)
+    return row
+
+
+def waiting():
+    return store.q1("SELECT COUNT(*) AS n FROM users WHERE pending = 1")["n"]
+
+
 def guest_user():
     """The shared Guest account (created on first use). It has no usable password."""
     row = store.q1("SELECT id, name FROM users WHERE guest = 1")
@@ -100,7 +147,7 @@ def clear_guest():
 
 
 def list_users():
-    rows = store.q("""SELECT u.id, u.name, u.admin, u.guest, u.adult, u.kids, u.created,
+    rows = store.q("""SELECT u.id, u.name, u.admin, u.guest, u.adult, u.kids, u.created, u.pending, u.note,
                       (SELECT MAX(seen) FROM sessions s WHERE s.user_id = u.id) AS seen
                       FROM users u ORDER BY u.guest, u.name""")
     return [dict(r) for r in rows]
@@ -142,14 +189,14 @@ def locked(row):
 
 
 def profiles():
-    rows = store.q("SELECT id, name, admin, adult, kids, avatar, pin FROM users WHERE guest = 0 ORDER BY id")
+    rows = store.q("SELECT id, name, admin, adult, kids, avatar, pin FROM users WHERE guest = 0 AND pending = 0 ORDER BY id")
     return [{"id": r["id"], "name": r["name"], "avatar": _avatar(r), "locked": locked(r), "pin": bool(r["pin"]),
              "kids": bool(r["kids"])} for r in rows]
 
 
 def check_code(user_id, code):
     """The profile's 4-digit PIN, or its password when it has no PIN."""
-    row = store.q1("SELECT pw, pin FROM users WHERE id = ? AND guest = 0", user_id)
+    row = store.q1("SELECT pw, pin FROM users WHERE id = ? AND guest = 0 AND pending = 0", user_id)
     if not row:
         return False
     return check_password(str(code or ""), row["pin"] or row["pw"])
@@ -208,7 +255,7 @@ def session_user(token):
         return None
     key = _token_key(token)
     row = store.q1("""SELECT u.id, u.name, u.admin, u.guest, u.adult, u.kids, u.avatar, u.pin, u.prefs, s.seen, s.created FROM sessions s
-                      JOIN users u ON u.id = s.user_id WHERE s.token = ?""", key)
+                      JOIN users u ON u.id = s.user_id WHERE s.token = ? AND u.pending = 0""", key)
     if not row or row["seen"] < time.time() - SESSION_DAYS * 86400:
         return None
     if row["guest"] and row["created"] < time.time() - GUEST_HOURS * 3600:
@@ -283,8 +330,9 @@ def record_failure(ip):
 
 
 def login(name, password, ip):
-    """Returns the user row or None. Always spends the hashing time so names can't be probed."""
-    row = store.q1("SELECT id, name, admin, pw FROM users WHERE name = ? AND guest = 0", (name or "").strip())
+    """Returns the user row or None. Always spends the hashing time so names can't be probed. An account
+    still waiting for approval comes back with "pending" (only to someone who knows its password)."""
+    row = store.q1("SELECT id, name, admin, pw, pending FROM users WHERE name = ? AND guest = 0", (name or "").strip())
     ok = check_password(password or "", row["pw"] if row else hash_password("x"))
     if not row or not ok:
         record_failure(ip)

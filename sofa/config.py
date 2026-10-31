@@ -44,6 +44,7 @@ DEFAULTS = {
     "trust_proxy": False,
     # Let visitors on the home Wi-Fi watch as "Guest" (their own history, no settings) via /guest.
     "guest_access": True,
+    "signups": False,             # "Create an account" on the sign-in page; an admin approves each one
     # Look up show summaries and missing artwork on TVmaze (free, no key).
     "tvmaze": True,
     # Optional: a TMDB API key adds the best movie posters, backdrops, summaries and collections.

@@ -47,6 +47,13 @@ What Sofa does when it's on the internet:
 - pairing TVs, guests, TV sharing (DLNA) and artwork without signing in stay home-network only;
 - sign-in cookies are Secure (HTTPS only) and HttpOnly; pages can't be framed by other sites.
 
+**Family and friends making their own accounts:** in **Server → People**, switch on **Let people ask
+for an account**. The sign-in page then has **Create an account**: they choose their own name and
+password (12 characters or more on the internet) and say who they are. Nobody gets in until you
+**Let in** (or **Let in as Kids**, or **Turn down**) under **Server → People → Asking for an account**;
+Home tells you when someone's waiting. Three requests an hour from one address at most, and no more
+than 25 waiting at once.
+
 At home everything keeps working over plain HTTP too (TV apps, Roku, the Sofa box), and
 `https://your-address` works from home as well when your router supports it ("NAT loopback").
 
