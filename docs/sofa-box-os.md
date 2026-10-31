@@ -26,36 +26,46 @@ what the next person (or the next conversation) works from. See also [HANDOFF.md
 
 ## How it's built
 
+One Chromium, full screen (in `cage`, as the box already has), steered by the box's agent through
+Chromium's own remote-control interface (the DevTools protocol, on `127.0.0.1:9222` only). Every
+screen is a tab the agent opens, brings forward, lists and closes:
+
 ```
-labwc (Wayland compositor, what Raspberry Pi OS itself uses; cage as the fallback)
- ├─ Home         Chromium, kiosk, http://127.0.0.1:8091/box/home   (title "Sofa Box")
- ├─ Apps         Chromium --app=<url>, one window each, full screen, no browser around them
- │                (one shared "apps" profile; apps that need a TV user agent get their own)
- ├─ Sofa         an app like the others: http://127.0.0.1:8091/ (Sofa's TV pages via the agent)
- ├─ Browser      Chromium, normal window (tabs, address bar), its own profile, Sofa Browser
- │                extension (Home, Add to Home), policies (start page, search, downloads)
- └─ mpv          videos from Sofa and from Files, on top of everything
-sofa-box-agent.py (127.0.0.1:8091): Sofa's pages + the box's player (done), and now also the home
-  screen, apps.json, the store catalogue, icons, files, themes, launching and switching apps.
+cage (one full-screen window)
+ └─ Chromium --kiosk --remote-debugging-port=9222   (tabs are invisible; the agent switches them)
+     ├─ Home        http://127.0.0.1:8091/box/home        always there, the first tab
+     ├─ Sofa        http://127.0.0.1:8091/?tv=1           Sofa's TV pages (the box's player for video)
+     ├─ apps        https://music.edgeventure.uk, YouTube (TV user agent), Pandora…  a tab each
+     └─ browser     any site, with the Sofa bar (address, back, Add to Home)
+ mpv               videos from Sofa and from Files, on top of everything
+sofa-box-agent.py (127.0.0.1:8091) + boxos.py: the home screen, apps.json, the store, icons, files,
+  Sofa Shield, and the DevTools connection (a small WebSocket client, standard library only).
 ```
 
-- **Window switching:** labwc keybinds: **Home** (remote/keyboard), **Super** and **F1** bring the home
-  screen forward (`sofa-box home`); **Alt+Tab** and the remote's Menu key switch between open apps;
-  volume keys work. Apps keep running behind the home screen (music keeps playing).
-  `wlrctl` (foreign-toplevel) focuses and closes windows by title.
-- **Ad blocking ("Sofa Shield"):** a hosts blocklist for the whole box (every app and the browser),
-  refreshed weekly by the agent through a root helper; on/off in Settings. In the browser, optionally
-  uBlock Origin Lite through Chromium policy for cosmetic filtering.
-- **Installed apps:** `~/.config/sofa-box/apps.json`: `{id, name, url, icon, color, ua, zoom}`;
-  icons cached in `~/.config/sofa-box/icons/` (from the site's manifest, apple-touch-icon or favicon).
-- **Store catalogue:** `deploy/sofa-box/store.json` in this repo (curated; each entry says whether it
-  needs DRM). DRM (Netflix, Disney+, Prime, Spotify) needs Widevine: the installer adds
-  `libwidevinecdm0` where Raspberry Pi OS has it; on a Pi 3 those services may stutter or refuse.
+- **Why tabs, not windows:** one Chromium process is the lightest on a 1 GB Pi 3; switching is
+  instant; music keeps playing in a background tab; and the agent can give each tab what it needs:
+  a TV user agent for YouTube's TV site, the Sofa bar, pointer hiding, the Home key. (Tried first: a
+  window manager (labwc) with one window per app; Chromium's app windows don't name themselves
+  reliably, so switching would have been fragile.)
+- **The Sofa bar:** added to every page that isn't Sofa's own (in a separate script world, so sites
+  can't see or break it): appears when the pointer touches the top edge or on the remote's Menu key;
+  Home, Back, Reload, the address (in the browser), Add to Home, Close.
+- **Home key:** in every tab (added script), on the remote (CEC Root Menu → Home), on controllers
+  (Xbox/PS button), and over mpv (its key map). All go to `POST /box/api/home`.
+- **Memory:** at most 4 app tabs stay open; opening a fifth closes the one used longest ago that
+  isn't playing sound.
+- **Ad blocking ("Sofa Shield"):** a hosts blocklist for the whole box, refreshed weekly through a
+  root helper (`sofa-box shield on|off|update`); on/off in Settings, with how many were blocked.
+- **Installed apps:** `~/.config/sofa-box/apps.json`; icons in `~/.config/sofa-box/icons/` (from the
+  site's manifest, apple-touch-icon or favicon).
+- **Store catalogue:** `deploy/sofa-box/store.json` (curated; DRM ones say so). DRM (Netflix, Disney+,
+  Prime, Spotify) needs Widevine: the installer adds `libwidevinecdm0` where Raspberry Pi OS has it; on
+  a Pi 3 those services may stutter or refuse.
 - **Keyboard and mouse:** 2.4 GHz sets are plain USB keyboards/mice: they work as soon as they're
-  plugged in. The home screen and Sofa hide the pointer after a few seconds without movement and show
-  it again when the mouse moves; type-to-search on the home screen; Esc/Backspace = Back.
-- **First start:** a setup on the home screen: language-free steps for Wi-Fi (typing is easy with
-  the keyboard), finding Sofa, the theme and the box's name. Controllers can be paired after.
+  plugged in. The pointer hides after a few seconds without movement; type-to-search on the home
+  screen; Backspace/Esc = Back.
+- **Without the DevTools connection** (the preview on a computer, tests): opening an app gives its
+  address back and the page opens it itself.
 
 ## Our own apps (live addresses)
 
@@ -66,26 +76,30 @@ sofa-box-agent.py (127.0.0.1:8091): Sofa's pages + the box's player (done), and 
 | The LJ Collection: Showroom | `https://theljcollection.com/showroom.php` | repo krintoxi/TheLJCollection |
 | The LJ Collection: Manager | `https://theljcollection.com/manager.php` | needs its sign-in |
 | LJ Fragrances | `https://ljfragrances.uk` | |
-| Comet Courier (Snail) | **to confirm** | repo krintoxi/Snail; static game, hosted on IRONGATE |
+| Comet Courier (Snail) | **to confirm** | repo krintoxi/Snail; static game, its own IRONGATE site |
+| EdgeVenture | `https://edgeventure.uk` | repo krintoxi/EdgeVenture |
+| Glossy Gold Toilet guide | `https://edgeventure.uk/tguide/` | on EdgeVenture |
 
 Private repos stay private: the box opens these at their addresses; nothing from them is copied here.
 
 ## Parts and status
 
-1. ☐ **Shell:** labwc session (rc.xml, autostart, window rules, keybinds), `sofa-box home/open/close`,
-   wlrctl; cage fallback (Home only, no switching). Pointer hiding.
+1. ☐ **Shell:** Chromium with the DevTools port in the kiosk session; the agent's DevTools client
+   (open, bring forward, list, close tabs; per-tab user agent; added scripts; the Sofa bar; Home key).
 2. ☐ **Home screen** (`deploy/sofa-box/home/`): rows, focus and animations, remote/keyboard/mouse,
    Continue watching from Sofa, running apps, first-start setup.
 3. ☐ **Apps:** apps.json, install/remove/move, icon fetching, launching and focusing, TV user agent.
 4. ☐ **App Store:** store.json catalogue, store page, Install, "Add any site".
-5. ☐ **Sofa Browser:** browser profile + policies, the extension (Home, Add to Home), start page.
+5. ☐ **Sofa Browser:** a start page (search, address, bookmarks), sites in tabs with the Sofa bar
+   (address, Back, Reload, Add to Home), downloads to ~/Downloads.
 6. ☐ **Sofa Shield:** hosts blocklist, root helper, weekly refresh, settings switch, counter.
 7. ☐ **Files:** agent API (list/open/delete/rename/move within Downloads, Music, Videos, USB drives),
    file manager page; open videos/music in mpv, pictures full screen.
 8. ☐ **Games:** a few small original games bundled (offline), remote and controller friendly.
 9. ☐ **Themes:** Street, Terminal, Pirate, Sofa: home screen and boot screen.
 10. ☐ **Boot screen:** "Sofa Box" Plymouth theme in the chosen style (glitch logo, boot ticker).
-11. ☐ **Installer and card:** labwc, wlrctl, Widevine, policies, extension; the card builds it all.
+11. ☐ **Installer and card:** the DevTools port in the kiosk, Widevine, Sofa Shield's helper, the new
+   files; the card builds it all.
 12. ☐ **Preview:** `tools/sofa-box-preview.py` shows the home screen, store, files and games.
 13. ☐ **Tests and docs:** agent API tests (apps, store, files), README for the box.
 
