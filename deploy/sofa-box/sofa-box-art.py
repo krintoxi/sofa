@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""The Sofa box's boot screen: what the TV shows from power-on until Sofa opens.
+"""The Sofa box's boot screen: what the TV shows from power-on until the home screen.
 
-It's the same as Sofa's own loading screen (the glowing sofa, "Sofa" rising in, a light sweeping along
-a bar), in the box's theme, with its name underneath ("Living room"). It's a Plymouth theme: the
-pictures are drawn here with Pillow, and Plymouth's script animates them.
+"SOFA BOX" in the box's theme: Street (the sofa with paint drips, BOX as a tag), Terminal (a prompt,
+green on black, boot lines ticking by), Pirate (a skull and crossbones, gold), or Sofa's own. The mark
+glows, the word rises in, a light sweeps along a bar, and lines tick by under it, with the box's name
+at the bottom ("Living room"). It's a Plymouth theme: the pictures are drawn here with Pillow, and
+Plymouth's script animates them.
 
   sofa-box-art.py plymouth DIR [settings.json]   write the theme into DIR (/usr/share/plymouth/themes/sofa)
   sofa-box-art.py png [settings.json]            a picture of it (for previews), to stdout
@@ -71,12 +73,26 @@ def mix(a, b, t):
     return tuple(int(round(x + (y - x) * t)) for x, y in zip(a, b))
 
 
+SECOND = {"street": "#E8FF3A", "terminal": "#00E0FF", "pirate": "#C0392B"}      # each theme's second colour
+TICKER = {
+    "terminal": ["> mount /media ............ ok", "> sofa-box-agent ......... up", "> shield: hosts loaded",
+                 "> handshake sofa .......... ok", "> launching home_"],
+    "pirate": ["Raising the flag…", "Charting the apps…", "Loading the cannons…", "All hands on deck."],
+    "street": ["Waking up…", "Shaking the can…", "Tagging the apps…", "Finding Sofa…"],
+}
+TICKER_DEFAULT = ["Waking up…", "Finding Sofa…", "Loading your apps…"]
+
+
 class Colors:
     def __init__(self, theme):
-        bg, accent = THEMES.get(theme or "midnight", THEMES["midnight"])
+        bg, accent = THEMES.get(theme or "street", THEMES["midnight"])
+        self.theme = theme if theme in ("street", "terminal", "pirate") else "sofa"
         self.bg, self.accent = rgb(bg), rgb(accent)
-        self.paper = (237, 239, 246)
-        self.mist = (140, 148, 171)
+        self.second = rgb(SECOND.get(theme, "#3CC8D8"))
+        self.paper = (237, 239, 246) if self.theme != "terminal" else (200, 255, 217)
+        if self.theme == "pirate":
+            self.paper = (239, 230, 210)
+        self.mist = (140, 148, 171) if self.theme != "terminal" else (95, 175, 126)
 
 
 def text_size(d, text, f):
@@ -111,6 +127,69 @@ def logo(d, x, y, scale, color):
     d.rectangle((x + 23 * s, y + 20 * s, x + 26 * s, y + 22 * s), fill=color)
 
 
+def mono(size):
+    for d in FONT_DIRS:
+        for n in ("DejaVuSansMono-Bold.ttf", "Menlo.ttc", "Courier New Bold.ttf"):
+            if os.path.exists(os.path.join(d, n)):
+                return ImageFont.truetype(os.path.join(d, n), size)
+    return font(size, True)
+
+
+def mark_for(c, size=300):
+    """The theme's mark: the sofa (with paint drips on Street), a prompt (Terminal), a skull (Pirate)."""
+    im = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    d = ImageDraw.Draw(im)
+    a = c.accent + (255,)
+    s = size / 30.0
+    if c.theme == "terminal":
+        w = int(2.2 * s)
+        d.rounded_rectangle((1 * s, 4 * s, 29 * s, 25 * s), radius=3 * s, outline=a, width=w) if hasattr(d, "rounded_rectangle") \
+            else d.rectangle((1 * s, 4 * s, 29 * s, 25 * s), outline=a, width=w)
+        d.line([(6 * s, 10 * s), (11 * s, 14.5 * s), (6 * s, 19 * s)], fill=a, width=int(2.6 * s), joint="curve")
+        d.line([(14 * s, 19 * s), (23 * s, 19 * s)], fill=a, width=int(2.6 * s))
+    elif c.theme == "pirate":
+        d.ellipse((5.5 * s, 2 * s, 24.5 * s, 18 * s), fill=a)                            # the skull
+        d.rectangle((9 * s, 14 * s, 21 * s, 21 * s), fill=a)                            # the jaw
+        for x in (11.5, 15, 18.5):
+            d.rectangle(((x - .6) * s, 18 * s, (x + .6) * s, 21 * s), fill=(0, 0, 0, 0))
+        d.ellipse((8.6 * s, 8 * s, 13.4 * s, 12.8 * s), fill=(0, 0, 0, 0))             # the eyes
+        d.ellipse((16.6 * s, 8 * s, 21.4 * s, 12.8 * s), fill=(0, 0, 0, 0))
+        d.polygon([(15 * s, 13 * s), (14 * s, 15.4 * s), (16 * s, 15.4 * s)], fill=(0, 0, 0, 0))
+        d.line([(3 * s, 22 * s), (27 * s, 28 * s)], fill=a, width=int(2.4 * s))         # the crossbones
+        d.line([(27 * s, 22 * s), (3 * s, 28 * s)], fill=a, width=int(2.4 * s))
+    else:
+        logo(d, 0, 3 * s, s, a)
+        if c.theme == "street":                                                          # paint drips
+            for x, h, w in ((8.5, 7.5, 1.6), (16, 10.5, 1.4), (21, 5.6, 1.2)):
+                d.rectangle((x * s, 22 * s, (x + w) * s, (22 + h) * s), fill=a)
+                d.ellipse((x * s, (21 + h) * s, (x + w) * s, (22.6 + h) * s), fill=a)
+    return im
+
+
+def word_for(c, size=112):
+    """SOFA BOX in the theme's style."""
+    f = mono(int(size * 0.92)) if c.theme == "terminal" else font(size, True, True)
+    tmp = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
+    w1, h = text_size(tmp, "SOFA ", f)
+    w2, _ = text_size(tmp, "BOX", f)
+    pad = int(size * 0.25)
+    im = Image.new("RGBA", (w1 + w2 + pad * 2, int(size * 1.5)), (0, 0, 0, 0))
+    d = ImageDraw.Draw(im)
+    y = int(size * 0.12)
+    d.text((pad, y), "SOFA", font=f, fill=c.paper + (255,))
+    bx = pad + w1
+    if c.theme == "street":                     # a tag: outlined, with a yellow shadow
+        off = int(size * 0.07)
+        d.text((bx + off, y + off), "BOX", font=f, fill=c.second + (255,))
+        d.text((bx, y), "BOX", font=f, fill=c.bg + (255,), stroke_width=max(2, int(size * 0.035)), stroke_fill=c.accent + (255,))
+    else:
+        d.text((bx, y), "BOX", font=f, fill=c.accent + (255,))
+    if c.theme == "terminal":                   # phosphor: a soft glow under it
+        glow = im.filter(ImageFilter.GaussianBlur(size * 0.12))
+        im = Image.alpha_composite(glow, im)
+    return im
+
+
 def load(path=None):
     try:
         with open(path or SETTINGS, encoding="utf-8") as f:
@@ -126,9 +205,7 @@ def pieces(settings):
     ImageDraw.Draw(glow).ellipse((60, 40, 300, 200), fill=c.accent + (120,))
     glow = glow.filter(ImageFilter.GaussianBlur(46)).resize((1040, 700), getattr(Image, "BICUBIC", 3))
 
-    mark = Image.new("RGBA", (300, 220), (0, 0, 0, 0))
-    logo(ImageDraw.Draw(mark), 0, 0, 10, c.accent + (255,))
-    mark = mark.resize((138, 101), getattr(Image, "LANCZOS", 1))
+    mark = mark_for(c).resize((140, 140), getattr(Image, "LANCZOS", 1))
 
     def words(text, size, color, bold=True, display=False):
         f = font(size, bold, display)
@@ -138,11 +215,21 @@ def pieces(settings):
         ImageDraw.Draw(im).text((4, 0), text, font=f, fill=color + (255,))
         return im
 
-    word = words("Sofa", 112, c.paper, True, True)
+    word = word_for(c)
     name = words(settings.get("boot_text") or "", 30, c.mist, False) if settings.get("boot_text") else None
-    track = Image.new("RGBA", (240, 5), c.paper + (26,))
-    light = Image.new("RGBA", (96, 5), c.accent + (255,))
-    return {"glow": glow, "mark": mark, "word": word, "name": name, "track": track, "light": light, "colors": c}
+    track = Image.new("RGBA", (300, 5), c.paper + (26,))
+    light = Image.new("RGBA", (110, 5), c.accent + (255,))
+    ticks = TICKER.get(c.theme, TICKER_DEFAULT)
+    tick = [words_mono(t, 24, c.mist) for t in ticks]
+    return {"glow": glow, "mark": mark, "word": word, "name": name, "track": track, "light": light, "colors": c, "ticks": tick}
+
+
+def words_mono(text, size, color):
+    f = mono(size)
+    w, _ = text_size(ImageDraw.Draw(Image.new("RGBA", (1, 1))), text, f)
+    im = Image.new("RGBA", (max(1, w + 8), int(size * 1.4)), (0, 0, 0, 0))
+    ImageDraw.Draw(im).text((4, 0), text, font=f, fill=color + (255,))
+    return im
 
 
 def render(settings, size=SIZE, phase=0.4):
@@ -158,13 +245,14 @@ def render(settings, size=SIZE, phase=0.4):
         img = img.resize((max(1, int(img.size[0] * k)), max(1, int(img.size[1] * k))))
         im.alpha_composite(img, (int(cx - img.size[0] / 2), int(cy - img.size[1] / 2)))
     cx, cy = size[0] / 2, size[1] / 2
-    put(p["glow"], cx, cy - 90 * k)
-    put(p["mark"], cx, cy - 120 * k)
-    put(p["word"], cx, cy + 10 * k)
-    put(p["track"], cx, cy + 112 * k)
-    light = p["light"].resize((int(96 * k), max(1, int(5 * k))))
-    lx = cx - 120 * k + (240 - 96) * k * phase
-    im.alpha_composite(light, (int(lx), int(cy + 112 * k - light.size[1] / 2)))
+    put(p["glow"], cx, cy - 110 * k)
+    put(p["mark"], cx, cy - 130 * k)
+    put(p["word"], cx, cy + 20 * k)
+    put(p["track"], cx, cy + 122 * k)
+    light = p["light"].resize((int(110 * k), max(1, int(5 * k))))
+    lx = cx - 150 * k + (300 - 110) * k * phase
+    im.alpha_composite(light, (int(lx), int(cy + 122 * k - light.size[1] / 2)))
+    put(p["ticks"][int(phase * (len(p["ticks"]) - 1) + 0.5)], cx, cy + 165 * k)
     put(p["name"], cx, size[1] - 90 * k)
     return im.convert("RGB")
 
@@ -182,12 +270,14 @@ fun place(file, x, y, z) {
   s.SetX(x - img.GetWidth() / 2); s.SetY(y - img.GetHeight() / 2); s.SetZ(z);
   return s;
 }
-glow = place("glow.png", cx, cy - 90 * k, 1);
-mark = place("mark.png", cx, cy - 120 * k, 3);
-word = place("word.png", cx, cy + 10 * k, 3);
-track = place("track.png", cx, cy + 112 * k, 2);
-light = place("light.png", cx, cy + 112 * k, 3);
+glow = place("glow.png", cx, cy - 110 * k, 1);
+mark = place("mark.png", cx, cy - 130 * k, 3);
+word = place("word.png", cx, cy + 20 * k, 3);
+track = place("track.png", cx, cy + 122 * k, 2);
+light = place("light.png", cx, cy + 122 * k, 3);
 %(name)s
+ticks = %(ticks)d;                                              // lines ticking by under the bar
+for (i = 0; i < ticks; i++) { lines[i] = place("tick" + i + ".png", cx, cy + 165 * k, 3); lines[i].SetOpacity(0); }
 word.SetOpacity(0); track.SetOpacity(0); light.SetOpacity(0); mark.SetOpacity(0);
 t = 0;
 fun tick() {
@@ -195,11 +285,13 @@ fun tick() {
   a = Math.Min(t / 22, 1);                                  // the mark pops in
   mark.SetOpacity(a);
   w = Math.Clamp((t - 12) / 26, 0, 1);                       // the word rises
-  word.SetOpacity(w); word.SetY(cy + 10 * k - word.GetImage().GetHeight() / 2 + (1 - w) * 18 * k);
+  word.SetOpacity(w); word.SetY(cy + 20 * k - word.GetImage().GetHeight() / 2 + (1 - w) * 18 * k);
+  n = Math.Int(t / 40) %% ticks;                              // a new line every 0.8 s
+  for (i = 0; i < ticks; i++) { if (i == n) lines[i].SetOpacity(Math.Clamp((t - 30) / 15, 0, 1)); else lines[i].SetOpacity(0); }
   b = Math.Clamp((t - 25) / 20, 0, 1);
   track.SetOpacity(b);
   p = (t %% 55) / 55;                                        // the light sweeps along the bar
-  light.SetX(cx - 120 * k + (240 - 96) * k * p);
+  light.SetX(cx - 150 * k + (300 - 110) * k * p);
   light.SetOpacity(b * Math.Sin(p * Math.Pi));
   glow.SetOpacity(0.55 + 0.45 * Math.Sin(t / 50 * Math.Pi)); // and the glow breathes
 }
@@ -214,8 +306,8 @@ Plymouth.SetMessageFunction(message);
 """
 
 THEME = """[Plymouth Theme]
-Name=Sofa
-Description=Sofa box: the same as Sofa's loading screen
+Name=Sofa Box
+Description=Sofa Box: its boot screen, in the box's theme
 ModuleName=script
 
 [script]
@@ -229,6 +321,11 @@ def write_plymouth(target, settings):
     p = pieces(settings)
     for name in ("glow", "mark", "word", "track", "light"):
         p[name].save(os.path.join(target, name + ".png"))
+    for f in os.listdir(target):
+        if f.startswith("tick") and f.endswith(".png"):
+            os.remove(os.path.join(target, f))
+    for i, im in enumerate(p["ticks"]):
+        im.save(os.path.join(target, "tick%d.png" % i))
     name_line = ""
     if p["name"] is not None:
         p["name"].save(os.path.join(target, "name.png"))
@@ -237,7 +334,7 @@ def write_plymouth(target, settings):
         os.remove(os.path.join(target, "name.png"))
     r, g, b = [v / 255.0 for v in p["colors"].bg]
     with open(os.path.join(target, "sofa.script"), "w") as f:
-        f.write(SCRIPT % {"r": r, "g": g, "b": b, "name": name_line})
+        f.write(SCRIPT % {"r": r, "g": g, "b": b, "name": name_line, "ticks": len(p["ticks"])})
     with open(os.path.join(target, "sofa.plymouth"), "w") as f:
         f.write(THEME % {"dir": target})
 
