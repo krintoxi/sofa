@@ -18,6 +18,8 @@ import time
 KEYS = {
     0x00: "KEY_ENTER", 0x01: "KEY_UP", 0x02: "KEY_DOWN", 0x03: "KEY_LEFT", 0x04: "KEY_RIGHT",
     0x0D: "KEY_BACK", 0x91: "KEY_BACK",                       # Exit / Return, and CEC 2.0's Back: the browser's Back
+    0x09: "KEY_HOMEPAGE",                                     # Root Menu (Home, on many remotes): the Sofa Box home screen
+    0x0A: "KEY_MENU", 0x11: "KEY_MENU",                       # Setup Menu, Contents Menu: the Sofa bar / an app's options
     0x45: "KEY_BACK",                                         # Stop: leave the video
     0x44: "KEY_PLAYPAUSE", 0x46: "KEY_PLAYPAUSE", 0x61: "KEY_PLAYPAUSE",
     0x48: "KEY_REWIND", 0x49: "KEY_FASTFORWARD",

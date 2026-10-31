@@ -40,13 +40,13 @@
 <body>
 <header>
   <h1>Sofa box preview</h1>
-  <p>The box as it will be on the TV: Sofa's TV pages, the box's own player for videos, its settings and its boot screen. Nothing here needs the Pi.</p>
+  <p>The box as it will be on the TV: its home screen, apps, store, games, files and settings, Sofa's TV pages, and its boot screen. Nothing here needs the Pi. (Apps open in a new browser tab here; on the box they open full screen.)</p>
   <button id="reload">Reload the TV</button>
 </header>
 <main>
   <section>
     <h2>The TV</h2>
-    <div class="tv"><div class="screen" id="screen"><iframe id="tv" src="/?tv=1" title="The TV"></iframe><div class="mpv" id="mpv" hidden><b></b><span></span><i></i></div></div></div>
+    <div class="tv"><div class="screen" id="screen"><iframe id="tv" src="/box/home" title="The TV"></iframe><div class="mpv" id="mpv" hidden><b></b><span></span><i></i></div></div></div>
     <p class="note">Click into it and use the keyboard like a remote (arrows, Enter, Backspace), or the remote here.</p>
   </section>
   <aside class="side">
@@ -57,7 +57,7 @@
         <button data-key="ArrowLeft" aria-label="Left">◀</button><button class="ok" data-key="Enter">OK</button><button data-key="ArrowRight" aria-label="Right">▶</button>
         <button data-key="Back" aria-label="Back">↩</button><button data-key="ArrowDown" aria-label="Down">▼</button><button data-key="PlayPause" aria-label="Play or pause">⏯</button>
       </div>
-      <div class="row"><button data-go="#/">Home</button><button data-go="#/box">Box settings</button></div>
+      <div class="row"><button data-go="#/">Home</button><button data-go="#/store">Store</button><button data-go="#/settings">Settings</button></div>
     </section>
     <section class="boot">
       <h2>Boot screen</h2>
@@ -105,13 +105,12 @@
       return;
     }
     var w = tv.contentWindow, d = w.document;
-    if (k === "Back") { w.history.back(); return; }
-    var a = d.activeElement, ev = new w.KeyboardEvent("keydown", { key: k === "PlayPause" ? "MediaPlayPause" : k, bubbles: true, cancelable: true });
+    var a = d.activeElement, ev = new w.KeyboardEvent("keydown", { key: k === "PlayPause" ? "MediaPlayPause" : k === "Back" ? "Escape" : k, bubbles: true, cancelable: true });
     (a && a !== d.body ? a : d).dispatchEvent(ev);
     if (k === "Enter" && !ev.defaultPrevented && a && a !== d.body && a.click) a.click();
   }
   document.getElementById("remote").onclick = function (e) { var b = e.target.closest("[data-key]"); if (b) key(b.dataset.key); };
-  document.querySelectorAll("[data-go]").forEach(function (b) { b.onclick = function () { post("/box/api/go", { to: b.dataset.go }); }; });
+  document.querySelectorAll("[data-go]").forEach(function (b) { b.onclick = function () { tv.contentWindow.location.hash = b.dataset.go; }; });
 
   // The boot screen: a few frames of its light sweeping along, played in turn.
   var boot = document.getElementById("boot"), frames = [], frame = 0;

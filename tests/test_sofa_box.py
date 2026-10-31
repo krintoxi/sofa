@@ -333,6 +333,236 @@ class Agent(unittest.TestCase):
             shutil.rmtree(conf, ignore_errors=True)
 
 
+def chrome():
+    """A Chromium or Chrome to steer over DevTools (GitHub's machines have Chrome), or None."""
+    for name in ("google-chrome", "google-chrome-stable", "chromium", "chromium-browser"):
+        if shutil.which(name):
+            return shutil.which(name)
+    import glob
+    found = sorted(glob.glob("/opt/pw-browsers/chromium-*/chrome-linux*/chrome"))
+    return found[-1] if found else None
+
+
+class BoxOS(unittest.TestCase):
+    """The Sofa Box OS side of the agent: apps, the store, files, games and the home screen's pages (no browser
+    here: opening an app gives its address back)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.home = tempfile.mkdtemp()
+        cls.conf = os.path.join(cls.home, ".config", "sofa-box")
+        os.makedirs(cls.conf)
+        with open(os.path.join(cls.conf, "settings.json"), "w") as f:
+            json.dump({"server": None, "welcomed": True}, f)
+        cls.port = free_port()
+        cls.base = "http://127.0.0.1:%d" % cls.port
+        cls.proc = subprocess.Popen([sys.executable, os.path.join(BOX, "sofa-box-agent.py")], stderr=subprocess.DEVNULL,
+                                    env=dict(os.environ, HOME=cls.home, SOFA_BOX_CONF=cls.conf, SOFA_BOX_PORT=str(cls.port),
+                                             SOFA_BOX_DEVTOOLS="0", SOFA_BOX_MPV=os.path.join(HERE, "tools", "fake_mpv.py")))
+        cls.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        for _ in range(100):
+            try:
+                cls.get("/box/api/files")
+                break
+            except OSError:
+                time.sleep(0.1)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.proc.terminate()
+        cls.proc.wait(10)
+        shutil.rmtree(cls.home, ignore_errors=True)
+
+    @classmethod
+    def get(cls, path):
+        with cls.opener.open(cls.base + path, timeout=20) as r:
+            return json.loads(r.read() or b"{}")
+
+    @classmethod
+    def post(cls, path, body):
+        req = urllib.request.Request(cls.base + path, data=json.dumps(body).encode(), headers={"Content-Type": "application/json"})
+        try:
+            with cls.opener.open(req, timeout=20) as r:
+                return r.status, json.loads(r.read() or b"{}")
+        except urllib.error.HTTPError as e:
+            return e.code, json.loads(e.read() or b"{}")
+
+    def ids(self):
+        return [a["id"] for a in self.get("/box/api/apps")["apps"]]
+
+    def test_apps_and_the_store(self):
+        ids = self.ids()
+        self.assertEqual(ids[:6], ["sofa", "browser", "store", "games", "files", "settings"])      # the box's own first
+        self.assertIn("edge-music", ids)                                                         # ours, on a new box
+        store = self.get("/box/api/store")
+        self.assertTrue(any(e["id"] == "edge-music" and e["installed"] for s in store["sections"] for e in s["apps"]))
+        self.assertEqual(self.post("/box/api/apps/install", {"store_id": "somafm"})[0], 200)
+        status, r = self.post("/box/api/apps/install", {"url": "radio.example.org/live", "name": "Kitchen radio"})
+        self.assertEqual((status, r["app"]["name"], r["app"]["url"]), (200, "Kitchen radio", "https://radio.example.org/live"))
+        self.assertEqual(self.post("/box/api/apps/install", {"url": "not an address"})[0], 400)
+        self.assertEqual(self.post("/box/api/apps/install", {"store_id": "nope"})[0], 400)
+        ids = self.ids()
+        self.assertTrue({"somafm", r["app"]["id"]} <= set(ids))
+        self.post("/box/api/apps/arrange", {"order": ["somafm", "sofa"], "hidden": ["games", "made-up"]})
+        apps = self.get("/box/api/apps")["apps"]
+        self.assertEqual([a["id"] for a in apps][:2], ["somafm", "sofa"])
+        self.assertEqual([a["id"] for a in apps if a["hidden"]], ["games"])
+        self.assertTrue(self.post("/box/api/apps/remove", {"id": "somafm"})[1]["ok"])
+        self.assertFalse(self.post("/box/api/apps/remove", {"id": "sofa"})[1]["ok"])               # the box's own stay
+        self.assertNotIn("somafm", self.ids())
+
+    def test_opening_without_the_browser(self):
+        self.assertEqual(self.post("/box/api/open", {"id": "edge-music"})[1]["url"], "https://music.edgeventure.uk")
+        self.assertEqual(self.post("/box/api/open", {"id": "sofa", "hash": "#/movies"})[1]["url"], self.base + "/?tv=1#/movies")
+        self.assertEqual(self.post("/box/api/open", {"url": "javascript:alert(1)"})[0], 400)
+        self.assertEqual(self.post("/box/api/open", {"id": "not-installed"})[0], 400)
+
+    def test_files(self):
+        downloads = os.path.join(self.home, "Downloads")
+        roots = [r["id"] for r in self.get("/box/api/files")["roots"]]
+        self.assertEqual(roots[:4], ["downloads", "videos", "music", "pictures"])
+        with open(os.path.join(downloads, "song.mp3"), "wb") as f:
+            f.write(b"x" * 10)
+        listing = self.get("/box/api/files/list?root=downloads")
+        self.assertEqual([(i["name"], i["kind"]) for i in listing["items"]], [("song.mp3", "audio")])
+        self.assertEqual(self.post("/box/api/files/folder", {"root": "downloads", "path": "", "name": "Mixes"})[0], 200)
+        self.assertEqual(self.post("/box/api/files/rename", {"root": "downloads", "path": "song.mp3", "name": "tune.mp3"})[0], 200)
+        self.assertEqual(self.post("/box/api/files/move", {"root": "downloads", "path": "tune.mp3", "to_root": "music"})[0], 200)
+        self.assertTrue(os.path.exists(os.path.join(self.home, "Music", "tune.mp3")))
+        for bad in ({"root": "downloads", "path": "../.config/sofa-box/settings.json"}, {"root": "downloads", "path": ""},
+                    {"root": "nowhere", "path": "x"}):
+            self.assertEqual(self.post("/box/api/files/delete", bad)[0], 400)                    # nothing outside, never the folder
+        self.assertTrue(os.path.exists(os.path.join(self.conf, "settings.json")))
+        self.assertEqual(self.post("/box/api/files/delete", {"root": "downloads", "path": "Mixes"})[0], 200)
+        self.assertEqual(self.get("/box/api/files/list?root=downloads")["items"], [])
+
+    def test_the_home_screens_pages(self):
+        for path in ("/box/home", "/box/home/home.js", "/box/home/home.css", "/box/games/pair-up/",
+                     "/box/fonts/instrument-sans-latin-wght-normal.woff2"):
+            with self.opener.open(self.base + path, timeout=20) as r:
+                self.assertEqual(r.status, 200, path)
+        self.assertEqual(len(self.get("/box/api/games")["games"]), 3)
+        with self.assertRaises(urllib.error.HTTPError):
+            self.opener.open(self.base + "/box/home/../sofa-box-agent.py", timeout=20)
+
+
+class SofaShield(unittest.TestCase):
+    def test_on_update_off(self):
+        d = tempfile.mkdtemp()
+        hosts, blocklist = os.path.join(d, "hosts"), os.path.join(d, "list")
+        mine = "127.0.0.1 localhost\n192.168.1.20 imac\n"
+        with open(hosts, "w") as f:
+            f.write(mine)
+        with open(blocklist, "w") as f:
+            f.write("0.0.0.0 0.0.0.0\n0.0.0.0 localhost\n" + "".join("0.0.0.0 ads%d.example.com\n" % i for i in range(1200)))
+        env = dict(os.environ, SOFA_BOX_HOSTS=hosts, SOFA_BOX_SHIELD_LIST="file://" + blocklist)
+        for _ in range(2):                                        # on, then an update: one list, not two
+            subprocess.run(["sh", os.path.join(BOX, "sofa-box"), "shield", "on"], env=env, check=True, stdout=subprocess.DEVNULL)
+        text = read(hosts)
+        self.assertTrue(text.startswith(mine))
+        self.assertEqual(text.count("0.0.0.0 ads"), 1200)
+        self.assertEqual(text.count("# >>> Sofa Shield"), 1)
+        self.assertNotIn("0.0.0.0 localhost", text)
+        subprocess.run(["sh", os.path.join(BOX, "sofa-box"), "shield", "off"], env=env, check=True, stdout=subprocess.DEVNULL)
+        self.assertEqual(read(hosts), mine)
+        shutil.rmtree(d)
+
+
+@unittest.skipUnless(chrome(), "needs Chrome or Chromium")
+class BoxBrowser(unittest.TestCase):
+    """The box's one browser, steered by the agent over DevTools: apps are tabs; the Sofa bar's Home and Add to
+    Home reach the agent."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dir = tempfile.mkdtemp()
+        conf = os.path.join(cls.dir, "conf")
+        os.makedirs(conf)
+        with open(os.path.join(conf, "settings.json"), "w") as f:
+            json.dump({"server": None, "welcomed": True}, f)
+        cls.port, cls.devtools = free_port(), free_port()
+        cls.base = "http://127.0.0.1:%d" % cls.port
+        cls.chrome = subprocess.Popen([chrome(), "--headless=new", "--no-sandbox", "--no-first-run", "--disable-gpu",
+                                       "--remote-debugging-port=%d" % cls.devtools, "--user-data-dir=" + os.path.join(cls.dir, "profile"),
+                                       cls.base + "/box/home"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        cls.agent = subprocess.Popen([sys.executable, os.path.join(BOX, "sofa-box-agent.py")], stderr=subprocess.DEVNULL,
+                                     env=dict(os.environ, HOME=cls.dir, SOFA_BOX_CONF=conf, SOFA_BOX_PORT=str(cls.port),
+                                              SOFA_BOX_DEVTOOLS=str(cls.devtools)))
+        cls.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        for _ in range(150):
+            try:
+                if cls.apps()["devtools"]:
+                    break
+            except OSError:
+                pass
+            time.sleep(0.2)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.agent.terminate()
+        cls.chrome.terminate()
+        cls.agent.wait(10)
+        cls.chrome.wait(10)
+        shutil.rmtree(cls.dir, ignore_errors=True)
+
+    @classmethod
+    def apps(cls):
+        with cls.opener.open(cls.base + "/box/api/apps", timeout=20) as r:
+            return json.loads(r.read())
+
+    def post(self, path, body):
+        req = urllib.request.Request(self.base + path, data=json.dumps(body).encode(), headers={"Content-Type": "application/json"})
+        with self.opener.open(req, timeout=30) as r:
+            return json.loads(r.read())
+
+    def bar_says(self, url_part, message):
+        """What the Sofa bar sends from a tab (through its script world), as if a key or button did it."""
+        boxos = load("boxos") if "boxos" not in globals() else globals()["boxos"]
+        with self.opener.open("http://127.0.0.1:%d/json/list" % self.devtools, timeout=10) as r:
+            tab = next(p for p in json.loads(r.read()) if url_part in p["url"])
+        ws = boxos.WebSocket(tab["webSocketDebuggerUrl"])
+        try:
+            ws.send(json.dumps({"id": 1, "method": "Page.createIsolatedWorld", "params": {"frameId": tab["id"], "worldName": "sofabox"}}))
+            ctx = None
+            while ctx is None:
+                m = json.loads(ws.recv())
+                if m.get("id") == 1:
+                    ctx = m["result"]["executionContextId"]
+            ws.send(json.dumps({"id": 2, "method": "Runtime.evaluate", "params": {
+                "expression": "window.__sofaBox(%s)" % json.dumps(json.dumps(message)), "contextId": ctx}}))
+            while json.loads(ws.recv()).get("id") != 2:
+                pass
+        finally:
+            ws.close()
+
+    def wait(self, check, seconds=10):
+        end = time.time() + seconds
+        while time.time() < end:
+            d = self.apps()
+            if check(d):
+                return d
+            time.sleep(0.2)
+        self.fail("never: %s" % self.apps())
+
+    def test_apps_as_tabs(self):
+        self.assertTrue(self.apps()["devtools"], "the agent didn't reach the browser")
+        game = self.base + "/box/games/pair-up/"
+        self.assertTrue(self.post("/box/api/open", {"url": game})["target"])
+        self.post("/box/api/open", {"id": "sofa"})
+        d = self.wait(lambda d: len(d["running"]) == 2)
+        self.assertEqual(sorted(r["app"] for r in d["running"]), ["browser", "sofa"])
+        self.post("/box/api/open", {"id": "sofa"})                                        # again: its tab, not a second
+        self.assertEqual(len(self.apps()["running"]), 2)
+        self.wait(lambda d: any("pair-up" in r["url"] for r in d["running"]))
+        time.sleep(1)
+        self.bar_says("/box/games/pair-up", {"a": "home"})
+        self.wait(lambda d: d["front"] == "home")
+        self.bar_says("/box/games/pair-up", {"a": "add", "url": game, "title": "Pair Up", "icon": ""})
+        self.wait(lambda d: any(a["name"] == "Pair Up" and a["url"] == game for a in d["apps"]))
+        self.bar_says("/box/games/pair-up", {"a": "close"})
+        self.wait(lambda d: [r["app"] for r in d["running"]] == ["sofa"])
+
+
 assert tests.ROOT
 
 if __name__ == "__main__":

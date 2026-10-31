@@ -213,6 +213,11 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_body("Not found", status=404)
             with open(os.path.join(config.APP_DIR, "deploy", "sofa-box", m.group(1)), "rb") as f:
                 return self.send_body(f.read(), "text/plain; charset=utf-8", headers={"Cache-Control": "no-store"})
+        if path == "/sofa-box.tar.gz":                # the whole Sofa box in one file, for its installer
+            if self.network() not in HOME_NETS:
+                return self.send_body("Not found", status=404)
+            return self.send_body(sofa_box_archive(), "application/gzip",
+                                  headers={"Content-Disposition": 'attachment; filename="sofa-box.tar.gz"', "Cache-Control": "no-store"})
         if path in ("/roku", "/roku.zip"):            # the Roku channel, to upload to a Roku in developer mode
             if self.network() not in HOME_NETS:
                 return self.send_body("Not found", status=404)
@@ -1338,6 +1343,20 @@ def download_name(item, ext):
         title = entry.get("title") or item.get("title") or os.path.splitext(os.path.basename(item["path"]))[0]
         name = "%s (%s)" % (title, entry["year"]) if entry.get("year") else title
     return re.sub(r'[\x00-\x1f/\\:*?"<>|]+', " ", name).strip()[:150] + ext
+
+
+def sofa_box_archive():
+    """deploy/sofa-box and Sofa's fonts as sofa-box/… in a .tar.gz: what the box's installer copies."""
+    import io
+    import tarfile
+    buf = io.BytesIO()
+    box = os.path.join(config.APP_DIR, "deploy", "sofa-box")
+    fonts = os.path.join(config.APP_DIR, "client", "vendor", "fonts")
+    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+        tar.add(box, arcname="sofa-box", filter=lambda t: None if "__pycache__" in t.name or t.name.endswith("README.md") else t)
+        if os.path.isdir(fonts):
+            tar.add(fonts, arcname="sofa-box/fonts")
+    return buf.getvalue()
 
 
 def roku_package():

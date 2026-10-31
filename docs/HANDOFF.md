@@ -30,7 +30,11 @@ plan you're continuing. Updated 2026-10-31.
 ## What's in progress
 
 - **Sofa Box OS** (home screen, apps, store, browser, ad blocking, files, games, themes):
-  [sofa-box-os.md](sofa-box-os.md) has the plan and the status of each part.
+  [sofa-box-os.md](sofa-box-os.md) has the plan, the status of each part and what's next ("Where it
+  stands"). Code: `deploy/sofa-box/boxos.py` (apps, store, files, DevTools client),
+  `deploy/sofa-box/home/` (the home screen and the Sofa bar), `deploy/sofa-box/games/`,
+  `deploy/sofa-box/store.json`.
+- To confirm with the owner: the address of Comet Courier (krintoxi/Snail) for the store.
 - Not started: subtitle downloads, notifications, watch together, photos, HDHomeRun recording.
 
 ## How to work on it
