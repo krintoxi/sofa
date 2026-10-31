@@ -1,0 +1,5 @@
+{"games": [
+  {"id": "neon-dodge", "name": "Neon Dodge", "emoji": "⚡", "color": "#FF2E88", "about": "Switch lanes, miss the blocks. It gets faster."},
+  {"id": "pair-up", "name": "Pair Up", "emoji": "🃏", "color": "#3CC8D8", "about": "Find the pairs in as few turns as you can."},
+  {"id": "sky-hop", "name": "Sky Hop", "emoji": "🐸", "color": "#8BD46E", "about": "Bounce up from platform to platform."}
+]}

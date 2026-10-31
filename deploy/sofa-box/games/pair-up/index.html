@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Pair Up</title>
+<style>
+  html, body { margin: 0; height: 100%; background: radial-gradient(circle at 30% 20%, #10304a, #050b14 70%); color: #eaf6ff; font: 700 16px/1.3 system-ui, sans-serif; }
+  body { display: grid; place-content: center; gap: 2.4vh; text-align: center; }
+  h1 { margin: 0; font-size: 4.4vh; letter-spacing: -.02em; color: #3CC8D8; }
+  p { margin: 0; color: #9bb6c9; font-size: 2.2vh; }
+  .board { display: grid; grid-template-columns: repeat(4, 15vh); gap: 1.6vh; }
+  .card { height: 15vh; border-radius: 2vh; border: 0; font-size: 7vh; display: grid; place-items: center; cursor: pointer;
+    background: linear-gradient(135deg, #1b4b6b, #123049); color: transparent; transition: transform .25s, background .25s; }
+  .card.up, .card.done { background: #eaf6ff; color: initial; transform: rotateY(0); }
+  .card.done { opacity: .35; }
+  .card.f { box-shadow: 0 0 0 .6vh #3CC8D8, 0 0 4vh rgba(60,200,216,.6); transform: scale(1.06); }
+</style></head><body>
+<h1>Pair Up</h1><p id="msg">Arrows to move, OK to turn a card over</p>
+<div class="board" id="b"></div>
+<script>
+(function () {
+  const SYMS = ["🍕", "🚀", "🎧", "🌵", "🐙", "🎲", "🍉", "⚡"];
+  let cards, open, at = 0, turns, pairs, lock = false;
+  const b = document.getElementById("b"), msg = document.getElementById("msg");
+  function deal() {
+    cards = SYMS.concat(SYMS).map(s => ({ s, up: false, done: false })).sort(() => Math.random() - 0.5);
+    open = []; turns = 0; pairs = 0; draw(); msg.textContent = "Arrows to move, OK to turn a card over";
+  }
+  function draw() {
+    b.innerHTML = cards.map((c, i) => `<button class="card${c.up ? " up" : ""}${c.done ? " done" : ""}${i === at ? " f" : ""}" data-i="${i}">${c.s}</button>`).join("");
+  }
+  function flip(i) {
+    const c = cards[i]; if (lock || c.up || c.done) return;
+    c.up = true; open.push(i); draw();
+    if (open.length === 2) {
+      turns++; const [a, d] = open;
+      if (cards[a].s === cards[d].s) { cards[a].done = cards[d].done = true; open = []; pairs++; draw();
+        if (pairs === SYMS.length) { const best = Math.min(+localStorage.getItem("pairBest") || 99, turns); localStorage.setItem("pairBest", best);
+          msg.textContent = "All pairs in " + turns + " turns (best " + best + "). OK to play again."; } }
+      else { lock = true; setTimeout(() => { cards[a].up = cards[d].up = false; open = []; lock = false; draw(); }, 800); }
+    }
+  }
+  addEventListener("keydown", e => {
+    const k = e.key;
+    if (k === "ArrowLeft") at = (at + 15) % 16; else if (k === "ArrowRight") at = (at + 1) % 16;
+    else if (k === "ArrowUp") at = (at + 12) % 16; else if (k === "ArrowDown") at = (at + 4) % 16;
+    else if (k === "Enter" || k === " ") { if (pairs === SYMS.length) deal(); else flip(at); }
+    else return;
+    e.preventDefault(); draw();
+  });
+  b.addEventListener("click", e => { const t = e.target.closest("[data-i]"); if (t) { at = +t.dataset.i; flip(at); } });
+  deal();
+})();
+</script></body></html>

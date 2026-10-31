@@ -43,7 +43,7 @@ SOFA_ST = "urn:sofa-media:device:Sofa:1"
 VERSION = "2"
 DEFAULTS = {"server": None, "quality": "auto", "hwdec": "auto", "audio": "auto", "learned_720": False,
             "mpv_args": [], "theme": "street", "boot_text": "", "shield": True, "welcomed": False}
-THEMES = ("street", "terminal", "pirate", "midnight", "cinema", "ocean", "forest", "grape", "oled")
+THEMES = ("street", "terminal", "pirate", "sofa", "midnight", "cinema", "ocean", "forest", "grape", "oled")
 CHOICES = {"quality": ("auto", "720", "1080"), "audio": ("auto", "passthrough"),
            "hwdec": ("auto", "no", "v4l2m2m-copy", "drm", "auto-safe"), "theme": THEMES}
 HOP = {"connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailers", "transfer-encoding",
@@ -796,6 +796,8 @@ class Handler(BaseHTTPRequestHandler):
     # ---- Sofa Box OS: the home screen, apps, the store, files, games
     def static(self, base, rel):
         full = os.path.realpath(os.path.join(base, rel))
+        if os.path.isdir(full):                             # a folder: its page
+            full = os.path.join(full, "index.html")
         if not full.startswith(os.path.realpath(base) + os.sep) or not os.path.isfile(full):
             return self.send('{"error":"not found"}', status=404)
         types = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8",
@@ -828,7 +830,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(json.dumps({"apps": apps.listing(), "running": browser.running() if browser and browser.connected() else [],
                                          "devtools": bool(browser and browser.connected()), "sofa": server(),
                                          "sofa_name": (found.get(server()) or {}).get("name"), "theme": s["theme"],
-                                         "name": s["boot_text"], "welcomed": s["welcomed"], "slow": slow_board()}))
+                                         "name": s["boot_text"], "welcomed": s["welcomed"], "slow": slow_board(),
+                                         "front": browser.front_app() if browser and browser.connected() else None}))
         if path == "/box/api/apps/install":
             entry = boxos.store_entry(str(data.get("store_id") or "")) if data.get("store_id") else \
                 boxos.site_entry(str(data.get("url") or ""), data.get("name"))
