@@ -1,0 +1,45 @@
+{
+  "about": "The Sofa Box App Store: web apps that open full screen on the TV. 'drm': needs Widevine (the installer adds it where Raspberry Pi OS has it); on a Pi 3 those may stutter or refuse. 'ua': 'tv' opens the site as a TV would (YouTube's TV site).",
+  "sections": [
+    {"id": "ours", "name": "From EdgeVenture", "apps": [
+      {"id": "edge-music", "name": "Edge Music", "url": "https://music.edgeventure.uk", "color": "#FF2E88", "about": "Our music platform: albums, artists, creators."},
+      {"id": "lj-showroom", "name": "The LJ Collection", "url": "https://theljcollection.com/showroom.php", "color": "#E6B450", "about": "The LJ Collection showroom."},
+      {"id": "lj-manager", "name": "LJ Collection Manager", "url": "https://theljcollection.com/manager.php", "color": "#B08A3E", "about": "Manage the collection (sign in)."},
+      {"id": "lj-fragrances", "name": "LJ Fragrances", "url": "https://ljfragrances.uk", "color": "#D9A6B3", "about": "LJ Fragrances."},
+      {"id": "edgeventure", "name": "EdgeVenture", "url": "https://edgeventure.uk", "color": "#3CC8D8", "about": "Websites, apps and hosting."},
+      {"id": "gold-toilet", "name": "Glossy Gold Toilet", "url": "https://edgeventure.uk/tguide/", "color": "#F4B740", "about": "The interactive guide."}
+    ]},
+    {"id": "video", "name": "Video", "apps": [
+      {"id": "youtube-tv", "name": "YouTube", "url": "https://www.youtube.com/tv", "ua": "tv", "color": "#FF3B30", "about": "YouTube's own TV app, worked with the remote."},
+      {"id": "twitch", "name": "Twitch", "url": "https://www.twitch.tv", "color": "#9146FF", "about": "Live streams."},
+      {"id": "pluto", "name": "Pluto TV", "url": "https://pluto.tv", "color": "#FFF200", "about": "Free live channels and films."},
+      {"id": "archive-films", "name": "Internet Archive Films", "url": "https://archive.org/details/feature_films", "color": "#9BA4B5", "about": "Free classic films."},
+      {"id": "nasa-plus", "name": "NASA+", "url": "https://plus.nasa.gov", "color": "#0B3D91", "about": "Launches, documentaries, live from space."},
+      {"id": "netflix", "name": "Netflix", "url": "https://www.netflix.com", "drm": true, "color": "#E50914", "about": "Needs DRM; may not play on a Pi 3."},
+      {"id": "disney-plus", "name": "Disney+", "url": "https://www.disneyplus.com", "drm": true, "color": "#113CCF", "about": "Needs DRM; may not play on a Pi 3."},
+      {"id": "prime-video", "name": "Prime Video", "url": "https://www.primevideo.com", "drm": true, "color": "#00A8E1", "about": "Needs DRM; may not play on a Pi 3."}
+    ]},
+    {"id": "music", "name": "Music and radio", "apps": [
+      {"id": "pandora", "name": "Pandora", "url": "https://www.pandora.com", "color": "#3668FF", "about": "Stations and podcasts (in the US)."},
+      {"id": "somafm", "name": "SomaFM", "url": "https://somafm.com", "color": "#C62828", "about": "Listener-supported internet radio, no ads."},
+      {"id": "radio-garden", "name": "Radio Garden", "url": "https://radio.garden", "color": "#2EC4A6", "about": "Live radio from anywhere on the globe."},
+      {"id": "youtube-music", "name": "YouTube Music", "url": "https://music.youtube.com", "color": "#FF0033", "about": "Songs, albums and mixes."},
+      {"id": "soundcloud", "name": "SoundCloud", "url": "https://soundcloud.com", "color": "#FF5500", "about": "Tracks, mixes and new artists."},
+      {"id": "spotify", "name": "Spotify", "url": "https://open.spotify.com", "drm": true, "color": "#1DB954", "about": "Needs DRM; may not play on a Pi 3."}
+    ]},
+    {"id": "kids", "name": "Kids", "apps": [
+      {"id": "pbs-kids", "name": "PBS KIDS", "url": "https://pbskids.org/videos", "color": "#2D8CFF", "about": "Shows and games for kids."},
+      {"id": "youtube-kids", "name": "YouTube Kids", "url": "https://www.youtubekids.com", "color": "#FF4E45", "about": "YouTube for children."}
+    ]},
+    {"id": "info", "name": "News, weather and more", "apps": [
+      {"id": "windy", "name": "Windy", "url": "https://www.windy.com", "color": "#7C3AED", "about": "Weather maps and forecasts."},
+      {"id": "bbc-news", "name": "BBC News", "url": "https://www.bbc.com/news", "color": "#BB1919", "about": "News from the BBC."},
+      {"id": "wikipedia", "name": "Wikipedia", "url": "https://en.wikipedia.org", "color": "#DDDDDD", "about": "The free encyclopedia."},
+      {"id": "google-photos", "name": "Google Photos", "url": "https://photos.google.com", "color": "#FBBC04", "about": "Your photos on the TV (sign in)."}
+    ]},
+    {"id": "media", "name": "Media servers", "apps": [
+      {"id": "jellyfin", "name": "Jellyfin", "url": "https://demo.jellyfin.org", "color": "#AA5CC3", "about": "Change the address to your own Jellyfin server."},
+      {"id": "plex", "name": "Plex", "url": "https://app.plex.tv", "color": "#E5A00D", "about": "Plex's web app (sign in)."}
+    ]}
+  ]
+}
