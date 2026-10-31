@@ -589,6 +589,8 @@ class Handler(BaseHTTPRequestHandler):
                               "offline": net.offline_mode(),
                               "needs_setup": auth.user_count() == 0, "network": self.network(),
                               "remote": config.get("remote"), "guest_available": bool(self.guest_ok()),
+                              "signup": bool(config.get("signups")),
+                              "waiting": auth.waiting() if u and u.get("admin") else 0,
                               "profiles": self.may_switch(u) and len(auth.profiles()),
                               "kids_profiles": bool(u and u.get("admin") and store.q1("SELECT 1 FROM users WHERE kids = 1"))})
         u = self.need_user(admin=path.startswith("/api/admin/"))
@@ -789,9 +791,22 @@ class Handler(BaseHTTPRequestHandler):
             row = auth.login(data.get("name"), data.get("password"), ip)
             if not row:
                 return self.error(401, "That name and password don't match.")
+            if row["pending"]:
+                return self.error(403, "Your account is waiting for approval. Whoever runs this Sofa will let you in.")
             token = auth.start_session(row["id"], ip, self.headers.get("User-Agent"))
             store.log("login", "%s signed in from %s" % (row["name"], self.network_label()), {"ip": ip})
             return self.json({"ok": True}, headers={"Set-Cookie": self.session_cookie(token, auth.SESSION_DAYS * 86400)})
+        if path == "/api/signup":                     # "Create an account": waits for an admin's yes
+            if not config.get("signups"):
+                return self.error(403, "This Sofa doesn't take new accounts. Ask whoever runs it to add you.")
+            if auth.throttled(ip):
+                return self.error(429, "Too many attempts. Wait 15 minutes and try again.")
+            try:
+                user = auth.request_account(str(data.get("name") or ""), str(data.get("password") or ""), data.get("note"), ip)
+            except ValueError as exc:
+                return self.error(400, str(exc))
+            store.log("account", "\"%s\" asked for an account (from %s)" % (user["name"], self.network_label()), {"ip": ip})
+            return self.json({"ok": True, "pending": True})
         if path == "/api/profiles/switch":           # "Who's watching?": from one signed-in profile to another, at home
             u = self.user()
             if not self.may_switch(u):
@@ -1174,6 +1189,15 @@ class Handler(BaseHTTPRequestHandler):
             allow = data.get("allow")
             kids.choose(entry["id"], None if allow is None else bool(allow))
             return self.json({"ok": True})
+        m = re.match(r"^/api/admin/users/(\d+)/(approve|decline)$", path)
+        if m:                                        # someone who asked for an account: yes (maybe as Kids), or no
+            uid = int(m.group(1))
+            row = auth.approve(uid, kids=bool(data.get("kids"))) if m.group(2) == "approve" else auth.decline(uid)
+            if not row:
+                return self.error(404, "That request isn't waiting any more.")
+            store.log("account", "%s %s \"%s\"%s" % (u["name"], "let in" if m.group(2) == "approve" else "turned down", row["name"],
+                                                     " as a Kids profile" if m.group(2) == "approve" and data.get("kids") else ""))
+            return self.json({"ok": True})
         m = re.match(r"^/api/admin/users/(\d+)/adult$", path)
         if m:
             auth.set_adult(int(m.group(1)), bool(data.get("on")))
@@ -1204,7 +1228,8 @@ class Handler(BaseHTTPRequestHandler):
             allowed = {k: data[k] for k in ("name", "dlna", "tvmaze", "tmdb_api_key", "theporndb_api_key", "max_transcodes",
                                             "guest_access", "auto_convert", "keep_originals", "tidy_library",
                                             "free_movie_lookup", "theme", "detect_intros", "trickplay", "previews",
-                                            "ytdlp_cookies", "gentle", "quiet_hours", "offline", "no_logs", "keep_awake") if k in data}
+                                            "ytdlp_cookies", "gentle", "quiet_hours", "offline", "no_logs", "keep_awake",
+                                            "signups") if k in data}
             if "gentle" in allowed and allowed["gentle"] not in (True, False, "auto"):
                 allowed.pop("gentle")
             if "quiet_hours" in allowed and not re.match(r"^([01]\d|2[0-3]):[0-5]\d-([01]\d|2[0-3]):[0-5]\d$", str(allowed["quiet_hours"])):
@@ -1214,7 +1239,7 @@ class Handler(BaseHTTPRequestHandler):
             if "name" in allowed:
                 allowed["name"] = str(allowed["name"]).strip()[:40] or "Sofa"
             for k in ("dlna", "tvmaze", "guest_access", "auto_convert", "keep_originals", "tidy_library", "free_movie_lookup",
-                      "detect_intros", "trickplay", "previews", "offline", "no_logs", "keep_awake"):
+                      "detect_intros", "trickplay", "previews", "offline", "no_logs", "keep_awake", "signups"):
                 if k in allowed:
                     allowed[k] = bool(allowed[k])
             for k in ("tmdb_api_key", "theporndb_api_key"):

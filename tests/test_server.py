@@ -155,6 +155,43 @@ class Server(unittest.TestCase):
         self.assertEqual(prefs["look"], {"accent": "#3cc8d8"})
         self.admin.call("/api/me/prefs", {"look": {"accent": None}})
 
+    def test_asking_for_an_account(self):
+        visitor = Client(self.base)
+        self.assertEqual(visitor.call("/api/signup", {"name": "sam", "password": "samspassword1"})[0], 403)   # off unless allowed
+        self.admin.call("/api/admin/settings", {"signups": True})
+        try:
+            self.assertTrue(visitor.call("/api/session")[1]["signup"])
+            self.assertEqual(visitor.call("/api/signup", {"name": "sam", "password": "short"})[0], 400)
+            self.assertEqual(visitor.call("/api/signup", {"name": "leo", "password": "longenough123"})[0], 400)   # taken
+            status, r = visitor.call("/api/signup", {"name": "sam", "password": "samspassword1", "note": "Leo's  cousin\n"})
+            self.assertEqual((status, r.get("pending")), (200, True))
+            status, r = visitor.call("/api/login", {"name": "sam", "password": "samspassword1"})
+            self.assertEqual(status, 403)                                       # not until an admin says yes
+            self.assertIn("waiting", r["error"])
+            self.assertEqual(visitor.call("/api/login", {"name": "sam", "password": "wrong-password"})[0], 401)
+            self.assertEqual(self.admin.call("/api/session")[1]["waiting"], 1)
+            users = self.admin.call("/api/admin/status")[1]["users"]
+            sam = next(x for x in users if x["name"] == "sam")
+            self.assertEqual((sam["pending"], sam["note"]), (1, "Leo's cousin"))
+            self.assertNotIn("sam", [p["name"] for p in auth.profiles()])      # not on "Who's watching?" yet
+            visitor.call("/api/signup", {"name": "spammer", "password": "spammerpass1"})
+            self.assertEqual(self.admin.call("/api/admin/users/%d/approve" % sam["id"], {"kids": True})[0], 200)
+            status, _ = visitor.call("/api/login", {"name": "sam", "password": "samspassword1"})
+            self.assertEqual(status, 200)
+            self.assertTrue(visitor.call("/api/session")[1]["user"]["kids"])
+            spam = store.q1("SELECT id FROM users WHERE name = 'spammer'")["id"]
+            self.assertEqual(self.admin.call("/api/admin/users/%d/decline" % spam, {})[0], 200)
+            self.assertIsNone(store.q1("SELECT id FROM users WHERE name = 'spammer'"))
+            self.assertEqual(self.admin.call("/api/admin/users/%d/decline" % spam, {})[0], 404)
+            status, r = Client(self.base).call("/api/signup", {"name": "two", "password": "twopassword1"})
+            self.assertEqual(status, 400)                       # three an hour from one address (leo, sam, spammer)
+            self.assertIn("an hour", r["error"])
+        finally:
+            self.admin.call("/api/admin/settings", {"signups": False})
+            for name in ("sam", "two"):
+                store.ex("DELETE FROM users WHERE name = ?", name)
+            auth._asked.clear()
+
     def test_a_failed_write_doesnt_lock_the_database(self):
         self.assertEqual(self.admin.call("/api/admin/users", {"name": "leo", "password": "password123"})[0], 409)
         conn = sqlite3.connect(os.path.join(config.DATA_DIR, "sofa.db"), timeout=1)

@@ -11,8 +11,8 @@
 # directly; elsewhere it needs qemu-user-static. GitHub builds it (.github/workflows/sofa-box-image.yml)
 # and puts it on the releases page.
 #
-# On the card: the user "sofa" for SSH (no password until you give one; Raspberry Pi Imager's settings
-# can, and can turn SSH and Wi-Fi on), and "sofabox", which runs Sofa on the TV.
+# On the card: Raspberry Pi OS's own login user (uid 1000, "pi"; Raspberry Pi Imager's settings give it
+# your name and a password, and can turn SSH and Wi-Fi on), and "sofabox", which runs Sofa on the TV.
 set -eu
 OUT=out SOFA="" BASE="https://downloads.raspberrypi.com/raspios_lite_arm64_latest"
 while [ $# -gt 0 ]; do

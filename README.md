@@ -129,6 +129,10 @@ own settings and history are in `~/Sofa/data`.
 Internet** walks you through it, and Sofa gets and renews the certificate itself.
 [docs/remote-access.md](docs/remote-access.md)
 
+**Can family and friends make their own accounts?** Yes: **Server → People → Let people ask for an
+account**. The sign-in page gets **Create an account**; they pick a name and password, and you let
+each one in (or not) under **Server → People**. Home tells you when someone's waiting.
+
 **Something's not right.** **Server → Activity → Download a report** makes one text file that
 explains what Sofa sees (no passwords). Send it to whoever helps you, or give it to Claude.
 

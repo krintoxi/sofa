@@ -30,9 +30,9 @@ and Sofa only converts what the Pi can't play.
    [releases page](https://github.com/krintoxi/sofa/releases) (the one called "Sofa box").
 2. Install **Raspberry Pi Imager** (raspberrypi.com/software) on your computer and open it.
    Choose your Pi, then **Choose OS → Use custom** and pick the file, then your card.
-3. When it asks about **OS customisation**, you can press **Edit settings** to add your Wi-Fi, and,
-   under Services, SSH with a password (only needed to look inside the box later). Or press **No**:
-   a network cable needs nothing.
+3. When it asks about **OS customisation**, you can press **Edit settings** to add your Wi-Fi, and
+   a user name and password with SSH under Services (only needed to look inside the box later). Or
+   press **No**: a network cable needs nothing.
 4. Write it, put the card in the Pi, plug in HDMI (and the network cable), then power.
 5. The TV shows Sofa's boot screen, then Sofa. The first start takes a few minutes.
 6. **Sign in:** the TV shows a code and a QR code. On your phone, open Sofa, press your picture,
@@ -152,5 +152,6 @@ sudo tools/build-sofa-box-image.sh out --sofa http://192.168.1.20:8090
 ```
 
 `--sofa` builds your Sofa's address in (optional: the box finds Sofa by itself). On a computer that
-isn't Arm it needs `qemu-user-static`. The card has the user `sofa` for SSH (no password until
-Raspberry Pi Imager's settings give it one) and `sofabox`, which runs Sofa on the TV.
+isn't Arm it needs `qemu-user-static`. The card has Raspberry Pi OS's own `pi` user for SSH (no
+password until Raspberry Pi Imager's settings give it a name and password) and `sofabox`, which runs
+Sofa on the TV. Each build writes a report of what's on the card next to it.
