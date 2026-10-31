@@ -27,6 +27,13 @@ plan you're continuing. Updated 2026-10-31.
 - Create an account on the sign-in page, let in by an admin (`users.pending`).
 - HTTPS / Let's Encrypt / UPnP / DuckDNS; Fire TV app install from Silk; mobile; guests casting.
 
+## Sofa Box OS: done in this round (2026-10-31)
+
+Home screen with apps, store, browser + Sofa bar, Sofa Shield, Files, games, four themes, first-start
+steps, skull logo, themed boot screen; one Chromium steered over DevTools; tests incl. a real headless
+Chromium. Not yet: the card built with all of it confirmed on real hardware (the owner's Pi 3 B+), the
+browser's own list of open tabs, Comet Courier's address.
+
 ## What's in progress
 
 - **Sofa Box OS** (home screen, apps, store, browser, ad blocking, files, games, themes):
