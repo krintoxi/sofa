@@ -1,13 +1,15 @@
 name: Sofa box card
 
 # A ready-to-write card for the Sofa box (Raspberry Pi OS Lite, 64-bit, with the box set up), built on
-# GitHub's Arm computers. A tag "box-v…" puts it on the releases page; changes to the box build it as a
-# check (kept for a week under the run's Artifacts).
+# GitHub's Arm computers. Publishing a release whose tag starts with "box-v" (on the website: Releases →
+# Draft a new release → tag box-v1 → Publish) builds the card and attaches it to that release. Changes to
+# the box build it as a check, kept for a week under the run's Artifacts.
 on:
   workflow_dispatch:
+  release:
+    types: [published]
   push:
     branches: ["**"]
-    tags: ["box-v*"]
     paths:
       - "deploy/sofa-box/**"
       - "!deploy/sofa-box/README.md"
@@ -19,6 +21,7 @@ permissions:
 
 jobs:
   card:
+    if: github.event_name != 'release' || startsWith(github.event.release.tag_name, 'box-v')
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 90
     steps:
@@ -33,17 +36,20 @@ jobs:
           # the same as a notice, readable through the API too (newlines as %0A)
           echo "::notice title=Sofa box card::$(sed ':a;N;$!ba;s/%/%25/g;s/\n/%0A/g' out/*-report.txt)"
       - name: Keep it (a week)
-        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        if: github.event_name != 'release'
         uses: actions/upload-artifact@v4
         with:
           name: sofa-box-card
           path: out/
           retention-days: 7
           compression-level: 0
-      - name: Put it on the releases page
-        if: startsWith(github.ref, 'refs/tags/box-v')
+      - name: Put it on the release
+        if: github.event_name == 'release'
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
         run: |
-          gh release create "${GITHUB_REF_NAME}" out/*.img.xz out/*.sha256 out/*-report.txt --title "Sofa box ${GITHUB_REF_NAME#box-v}" \
-            --notes "A card for the Sofa box (Raspberry Pi 3, 4 or 5). Write it with Raspberry Pi Imager: Choose OS → Use custom. See deploy/sofa-box/README.md."
+          gh release upload "$TAG" out/*.img.xz out/*.sha256 out/*-report.txt --clobber
+          if [ -z "$(gh release view "$TAG" --json body --jq .body)" ]; then
+            gh release edit "$TAG" --notes "A card for the Sofa box (Raspberry Pi 3, 4 or 5). Write it with Raspberry Pi Imager: Choose OS → Use custom. See deploy/sofa-box/README.md."
+          fi
