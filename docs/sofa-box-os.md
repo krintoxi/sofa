@@ -84,24 +84,40 @@ Private repos stay private: the box opens these at their addresses; nothing from
 
 ## Parts and status
 
-1. ☐ **Shell:** Chromium with the DevTools port in the kiosk session; the agent's DevTools client
+1. ☑ **Shell:** Chromium with the DevTools port in the kiosk session; the agent's DevTools client
    (open, bring forward, list, close tabs; per-tab user agent; added scripts; the Sofa bar; Home key).
-2. ☐ **Home screen** (`deploy/sofa-box/home/`): rows, focus and animations, remote/keyboard/mouse,
+2. ☑ **Home screen** (`deploy/sofa-box/home/`): rows, focus and animations, remote/keyboard/mouse,
    Continue watching from Sofa, running apps, first-start setup.
-3. ☐ **Apps:** apps.json, install/remove/move, icon fetching, launching and focusing, TV user agent.
-4. ☐ **App Store:** store.json catalogue, store page, Install, "Add any site".
-5. ☐ **Sofa Browser:** a start page (search, address, bookmarks), sites in tabs with the Sofa bar
+3. ☑ **Apps:** apps.json, install/remove/move, icon fetching, launching and focusing, TV user agent.
+4. ☑ **App Store:** store.json catalogue, store page, Install, "Add any site".
+5. ◐ **Sofa Browser:** a start page (search, address, bookmarks), sites in tabs with the Sofa bar
    (address, Back, Reload, Add to Home), downloads to ~/Downloads.
-6. ☐ **Sofa Shield:** hosts blocklist, root helper, weekly refresh, settings switch, counter.
-7. ☐ **Files:** agent API (list/open/delete/rename/move within Downloads, Music, Videos, USB drives),
+6. ☑ **Sofa Shield:** hosts blocklist, root helper, weekly refresh, settings switch, counter.
+7. ☑ **Files:** agent API (list/open/delete/rename/move within Downloads, Music, Videos, USB drives),
    file manager page; open videos/music in mpv, pictures full screen.
-8. ☐ **Games:** a few small original games bundled (offline), remote and controller friendly.
-9. ☐ **Themes:** Street, Terminal, Pirate, Sofa: home screen and boot screen.
+8. ☑ **Games:** a few small original games bundled (offline), remote and controller friendly.
+9. ◐ **Themes:** Street, Terminal, Pirate, Sofa: home screen and boot screen.
 10. ☐ **Boot screen:** "Sofa Box" Plymouth theme in the chosen style (glitch logo, boot ticker).
-11. ☐ **Installer and card:** the DevTools port in the kiosk, Widevine, Sofa Shield's helper, the new
+11. ◐ **Installer and card:** the DevTools port in the kiosk, Widevine, Sofa Shield's helper, the new
    files; the card builds it all.
 12. ☐ **Preview:** `tools/sofa-box-preview.py` shows the home screen, store, files and games.
-13. ☐ **Tests and docs:** agent API tests (apps, store, files), README for the box.
+13. ◐ **Tests and docs:** agent API tests (apps, store, files), README for the box.
+
+## Where it stands (2026-10-31)
+
+- Done and tested (tests/test_sofa_box.py: BoxOS, SofaShield, BoxBrowser with a real headless Chromium):
+  the home screen and its pages, apps.json, the store, Files, games, the DevTools tab control, the Sofa
+  bar (Home, Back, Reload, address, Add to Home, Close), Sofa Shield, browser policies, Home keys from
+  the TV remote (CEC Root Menu), controllers and mpv.
+- Browser: sites open as tabs with the Sofa bar; the start page is the home screen's Browser page. Not
+  yet: a list of open tabs to switch between inside the browser (the home screen's "Open now" row
+  does it for now).
+- Themes: the home screen has all four; the **boot screen** (Plymouth) still draws Sofa's own logo in
+  the theme's colours. Next: the Sofa Box mark and word per theme, and a boot ticker.
+- Installer/card: written, not yet run on the card builder with the new parts (push a change under
+  deploy/sofa-box to build it; check the report on the run's page).
+- Docs: deploy/sofa-box/README.md still describes the box before the home screen; update it with
+  screenshots (`tools/sofa-box-preview.py` shows everything).
 
 ## Not doing (for now)
 

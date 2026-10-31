@@ -67,20 +67,17 @@ apt-get install -y --no-install-recommends systemd-zram-generator 2>/dev/null \
   || apt-get install -y --no-install-recommends zram-tools 2>/dev/null || true                    # more room in 1 GB
 
 say "Copying the Sofa box files"
-FILES="sofa-box sofa-box-agent.py sofa-box-input.py sofa-box-cec.py sofa-box-art.py finder.html preview.html mpv-input.conf"
-FONTS="bricolage-grotesque-latin-opsz-normal.woff2 instrument-sans-latin-wght-normal.woff2 LICENSE-Bricolage-Grotesque.txt LICENSE-Instrument-Sans.txt"
+if [ ! -f "$HERE/sofa-box-agent.py" ]; then        # run through curl: the whole box comes from Sofa, in one file
+  [ -n "$SOFA" ] || { echo "Give the Sofa computer's address: sudo sh install.sh http://192.168.1.20:8090"; exit 1; }
+  FETCHED="$(mktemp -d)"
+  curl -fsSL "$SOFA/sofa-box.tar.gz" | tar xz -C "$FETCHED" || { echo "Couldn't get the Sofa box from $SOFA."; exit 1; }
+  HERE="$FETCHED/sofa-box"
+fi
 mkdir -p "$LIB/fonts"
-for f in $FILES; do
-  if [ -f "$HERE/$f" ]; then cp "$HERE/$f" "$LIB/$f"
-  elif [ -n "$SOFA" ]; then curl -fsSL "$SOFA/sofa-box/$f" -o "$LIB/$f"
-  else echo "Can't find $f. Give the Sofa computer's address: sudo sh install.sh http://192.168.1.20:8090"; exit 1
-  fi
-done
-for f in $FONTS; do                              # Sofa's own typefaces, for the boot screen
-  if [ -f "$HERE/../../client/vendor/fonts/$f" ]; then cp "$HERE/../../client/vendor/fonts/$f" "$LIB/fonts/$f"
-  elif [ -n "$SOFA" ]; then curl -fsSL "$SOFA/client/vendor/fonts/$f" -o "$LIB/fonts/$f" || true
-  fi
-done
+(cd "$HERE" && tar cf - --exclude=README.md --exclude=__pycache__ .) | (cd "$LIB" && tar xf -)
+if [ -d "$HERE/../../client/vendor/fonts" ]; then  # Sofa's own typefaces, for the home screen and the boot screen
+  cp "$HERE/../../client/vendor/fonts/"*.woff2 "$HERE/../../client/vendor/fonts/"LICENSE* "$LIB/fonts/" 2>/dev/null || true
+fi
 chmod 755 "$LIB" "$LIB"/sofa-box "$LIB"/*.py
 ln -sf "$LIB/sofa-box" /usr/local/bin/sofa-box
 rm -f "$LIB/sofa-box-finder.py"                  # the first Sofa box's start page: the agent does it now
@@ -111,7 +108,7 @@ echo "options bluetooth disable_ertm=1" > /etc/modprobe.d/sofa-box-controllers.c
 SYSTEMCTL="$(command -v systemctl)"
 cat > /etc/sudoers.d/sofa-box <<EOF
 # The Sofa box's settings on the TV can restart it and change its boot screen.
-$WHO ALL=(root) NOPASSWD: $SYSTEMCTL restart sofa-box sofa-box-agent, $SYSTEMCTL reboot, $LIB/sofa-box apply-boot *
+$WHO ALL=(root) NOPASSWD: $SYSTEMCTL restart sofa-box sofa-box-agent, $SYSTEMCTL reboot, $LIB/sofa-box apply-boot *, $LIB/sofa-box shield *
 EOF
 chmod 440 /etc/sudoers.d/sofa-box
 visudo -cf /etc/sudoers.d/sofa-box >/dev/null || { rm -f /etc/sudoers.d/sofa-box; echo "   (couldn't set up sudo for the box's settings)"; }
@@ -210,6 +207,59 @@ RestartSec=5
 WantedBy=multi-user.target
 EOF
 
+# Sofa Shield, kept up to date every week (sites that serve ads change).
+cat > /etc/systemd/system/sofa-box-shield.service <<EOF
+[Unit]
+Description=Sofa box: Sofa Shield's blocklist, brought up to date
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'grep -q "^# >>> Sofa Shield" /etc/hosts && $LIB/sofa-box shield update || true'
+EOF
+cat > /etc/systemd/system/sofa-box-shield.timer <<EOF
+[Unit]
+Description=Sofa box: Sofa Shield, every week
+
+[Timer]
+OnCalendar=weekly
+RandomizedDelaySec=6h
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+
+# The browser's rules: downloads in ~/Downloads, DuckDuckGo, no sign-in, no password or translate
+# questions, nothing sent to Google about use.
+for d in /etc/chromium/policies/managed /etc/opt/chrome/policies/managed; do
+  mkdir -p "$d"
+  cat > "$d/sofa-box.json" <<EOF
+{
+  "DownloadDirectory": "$HOMEDIR/Downloads",
+  "PromptForDownloadLocation": false,
+  "DefaultSearchProviderEnabled": true,
+  "DefaultSearchProviderName": "DuckDuckGo",
+  "DefaultSearchProviderKeyword": "ddg",
+  "DefaultSearchProviderSearchURL": "https://duckduckgo.com/?q={searchTerms}",
+  "DefaultSearchProviderSuggestURL": "https://duckduckgo.com/ac/?q={searchTerms}&type=list",
+  "BrowserSignin": 0,
+  "SyncDisabled": true,
+  "PasswordManagerEnabled": false,
+  "TranslateEnabled": false,
+  "MetricsReportingEnabled": false,
+  "SpellCheckServiceEnabled": false,
+  "BackgroundModeEnabled": false,
+  "AutoplayAllowed": true,
+  "DefaultNotificationsSetting": 2,
+  "DefaultGeolocationSetting": 2
+}
+EOF
+done
+mkdir -p "$HOMEDIR/Downloads" "$HOMEDIR/Videos" "$HOMEDIR/Music" "$HOMEDIR/Pictures"
+chown "$WHO:" "$HOMEDIR/Downloads" "$HOMEDIR/Videos" "$HOMEDIR/Music" "$HOMEDIR/Pictures"
+
 # A desktop (Raspberry Pi OS with desktop, or LCD-show's) would take the screen: the Sofa box takes it.
 # `sofa-box desktop` gives it back.
 for dm in lightdm gdm3 sddm; do
@@ -235,7 +285,11 @@ fi
 
 systemctl daemon-reload
 systemctl set-default graphical.target >/dev/null
-systemctl enable sofa-box-agent.service sofa-box.service sofa-box-input.service sofa-box-cec.service
+systemctl enable sofa-box-agent.service sofa-box.service sofa-box-input.service sofa-box-cec.service sofa-box-shield.timer
+if ! grep -q '^# >>> Sofa Shield' /etc/hosts; then
+  say "Sofa Shield (ad blocking for the whole box)"
+  "$LIB/sofa-box" shield on || echo "   (no blocklist now: Settings → Sofa Shield turns it on later)"
+fi
 if [ -z "$IMAGE" ]; then
   systemctl restart sofa-box-agent.service sofa-box-input.service sofa-box-cec.service
   systemctl restart sofa-box.service

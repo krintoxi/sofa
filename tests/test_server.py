@@ -77,6 +77,13 @@ class Server(unittest.TestCase):
                 self.assertTrue(r.read())
         with self.assertRaises(urllib.error.HTTPError):
             opener.open(self.base + "/sofa-box/../sofa/config.py", timeout=20)
+        import tarfile
+        with opener.open(self.base + "/sofa-box.tar.gz", timeout=30) as r:          # the whole box in one file
+            names = tarfile.open(fileobj=io.BytesIO(r.read()), mode="r:gz").getnames()
+        for name in ("sofa-box/sofa-box-agent.py", "sofa-box/boxos.py", "sofa-box/home/index.html", "sofa-box/store.json",
+                     "sofa-box/games/games.json", "sofa-box/fonts/instrument-sans-latin-wght-normal.woff2"):
+            self.assertIn(name, names)
+        self.assertNotIn("sofa-box/README.md", names)
         with self.assertRaises(urllib.error.HTTPError):
             opener.open(self.base + "/sofa-box/README.md", timeout=20)      # only the box's own files
 

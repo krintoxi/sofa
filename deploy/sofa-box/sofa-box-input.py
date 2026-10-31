@@ -116,7 +116,7 @@ class Pad:
 
 def home():
     try:
-        req = urllib.request.Request(AGENT + "/box/api/go", data=json.dumps({"to": "#/"}).encode(),
+        req = urllib.request.Request(AGENT + "/box/api/home", data=json.dumps({}).encode(),
                                      headers={"Content-Type": "application/json"})
         urllib.request.build_opener(urllib.request.ProxyHandler({})).open(req, timeout=3).close()
     except Exception:

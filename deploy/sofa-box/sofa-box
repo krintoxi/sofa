@@ -7,6 +7,7 @@
 #   sofa-box pair-controller   pair a Bluetooth game controller (Xbox, PlayStation, 8BitDo…)
 #   sofa-box tv-on             wake the TV and switch it to the box (HDMI-CEC)
 #   sofa-box desktop           go back to the desktop instead of Sofa (sudo; undo: sofa-box appliance)
+#   sofa-box shield on|off|update   Sofa Shield: ads and trackers kept out of the whole box (sudo)
 #   sofa-box kiosk             the TV's screen (started by sofa-box.service; not by hand)
 set -e
 LIB=/usr/local/lib/sofa-box
@@ -60,7 +61,8 @@ session() {
       --disable-features=Translate,MediaRouter,HardwareMediaKeyHandling --password-store=basic \
       --autoplay-policy=no-user-gesture-required --check-for-update-interval=31536000 --overscroll-history-navigation=0 \
       --disable-pinch --force-device-scale-factor="$(scale)" --disk-cache-size=67108864 $LOW $PLATFORM \
-      --user-data-dir="$PROFILE" "http://127.0.0.1:8091/" || true
+      --remote-debugging-port=9222 --remote-debugging-address=127.0.0.1 \
+      --user-data-dir="$PROFILE" "http://127.0.0.1:8091/box/home" || true
     sleep 1
   done
 }
@@ -135,6 +137,34 @@ setup_boot() {               # (root) a Raspberry Pi's config.txt and cmdline.tx
   sed -i 's/console=tty1/console=tty3/' "$CMD"
 }
 
+# Sofa Shield: a blocklist of ad and tracker sites in /etc/hosts, between two marker lines.
+SHIELD_LIST="${SOFA_BOX_SHIELD_LIST:-https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts}"
+shield() {                    # (root)
+  HOSTS="${SOFA_BOX_HOSTS:-/etc/hosts}"
+  KEEP="$(mktemp)"
+  sed '/^# >>> Sofa Shield/,/^# <<< Sofa Shield/d' "$HOSTS" > "$KEEP"
+  case "${1:-}" in
+    on|update)
+      LIST="$(mktemp)"
+      if ! curl -fsSL --max-time 90 "$SHIELD_LIST" -o "$LIST"; then
+        rm -f "$LIST" "$KEEP"; echo "Couldn't fetch the blocklist (is the box online?)."; exit 1
+      fi
+      grep -E '^0\.0\.0\.0[[:space:]]+[A-Za-z0-9]' "$LIST" | awk '{print $2}' \
+        | grep -vE '^(0\.0\.0\.0|localhost|localhost\.localdomain|local|broadcasthost)$' | sort -u > "$LIST.names"
+      N="$(wc -l < "$LIST.names" | tr -d ' ')"
+      if [ "$N" -lt 1000 ]; then rm -f "$LIST" "$LIST.names" "$KEEP"; echo "The blocklist looks wrong ($N sites): left as it was."; exit 1; fi
+      { cat "$KEEP"; echo "# >>> Sofa Shield ($N sites, $(date -u +%Y-%m-%d)): sofa-box shield off takes it out"
+        sed 's/^/0.0.0.0 /' "$LIST.names"; echo "# <<< Sofa Shield"; } > "$LIST.hosts"
+      cat "$LIST.hosts" > "$HOSTS"                 # the same file (its owner and links stay)
+      rm -f "$LIST" "$LIST.names" "$LIST.hosts" "$KEEP"
+      echo "Sofa Shield is on: $N ad and tracker sites kept out." ;;
+    off)
+      cat "$KEEP" > "$HOSTS"; rm -f "$KEEP"
+      echo "Sofa Shield is off." ;;
+    *) rm -f "$KEEP"; echo "sofa-box shield on|off|update"; exit 1 ;;
+  esac
+}
+
 ok() { printf '  \033[32m✓\033[0m %s\n' "$*"; }
 bad() { printf '  \033[31m✗\033[0m %s\n' "$1"; [ -n "$2" ] && printf '      → %s\n' "$2"; PROBLEMS=$((PROBLEMS + 1)); }
 note() { printf '  · %s\n' "$*"; }
@@ -168,6 +198,10 @@ doctor() {
     else bad "hasn't found Sofa yet" "is the Sofa computer on, on the same network? Or type its address on the TV"
     fi
   fi
+  if curl -fsS -m 3 http://127.0.0.1:9222/json/version >/dev/null 2>&1; then ok "the home screen's browser answers the agent (DevTools)"
+  else bad "the browser's DevTools port doesn't answer" "sudo systemctl restart sofa-box"; fi
+  if grep -q '^# >>> Sofa Shield' /etc/hosts; then ok "Sofa Shield: $(grep -c '^0\.0\.0\.0 ' /etc/hosts) sites kept out"
+  else note "Sofa Shield is off (Settings → Sofa Shield)"; fi
   echo "Picture and sound"
   for b in mpv cage; do command -v $b >/dev/null && ok "$b" || { [ $b = cage ] && note "no cage: the screen uses X" || bad "$b is missing" "sudo apt install $b"; }; done
   command -v chromium >/dev/null || command -v chromium-browser >/dev/null && ok "chromium" || bad "chromium is missing" "sudo apt install chromium"
@@ -214,6 +248,7 @@ case "${1:-}" in
     echo "Asked the TV to turn on and show the box." ;;
   apply-boot) shift; apply_boot "$@" ;;
   setup-boot) shift; setup_boot "$@" ;;
+  shield) shift; shield "$@" ;;
   desktop)
     systemctl disable --now sofa-box
     for dm in lightdm gdm3 sddm; do systemctl list-unit-files "$dm.service" >/dev/null 2>&1 && systemctl enable "$dm" 2>/dev/null && { systemctl start "$dm"; break; }; done
