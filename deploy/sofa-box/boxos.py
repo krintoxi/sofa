@@ -62,6 +62,12 @@ class Apps:
                 entry = store_entry(sid)
                 if entry:
                     data["apps"].append(app_from_store(entry))
+            try:
+                self._save(data)
+            except OSError:
+                return data
+            for a in data["apps"]:
+                threading.Thread(target=self._fetch_icon, args=(a["id"], a.get("icon_src") or a["url"]), daemon=True).start()
         return data
 
     def _save(self, data):
@@ -77,7 +83,8 @@ class Apps:
             data = self._load()
         apps = [dict(a) for a in BUILTIN] + [dict(a) for a in data["apps"]]
         order = data.get("order") or []
-        apps.sort(key=lambda a: (order.index(a["id"]) if a["id"] in order else len(order) + apps.index(a)))
+        place = {a["id"]: (order.index(a["id"]) if a["id"] in order else len(order) + i) for i, a in enumerate(apps)}
+        apps.sort(key=lambda a: place[a["id"]])
         for a in apps:
             a["hidden"] = a["id"] in (data.get("hidden") or [])
             if a.get("icon_file"):
@@ -522,23 +529,27 @@ class Browser:
             self._track(p["targetInfo"])
         elif m == "Target.targetDestroyed":
             self.tabs.pop(p.get("targetId"), None)
+        elif m.startswith("Runtime.") and m != "Runtime.bindingCalled":
+            return                                                   # console messages and the like: not ours
         elif m == "Target.attachedToTarget" and p["targetInfo"]["type"] == "page":
             tab = self._track(p["targetInfo"])
             tab["session"] = p["sessionId"]
             threading.Thread(target=self._prepare, args=(p["targetInfo"]["targetId"], p["sessionId"]), daemon=True).start()
         elif m == "Runtime.bindingCalled" and p.get("name") == "__sofaBox":
             target = next((t for t, tab in self.tabs.items() if tab.get("session") == msg.get("sessionId")), None)
-            if self.on_message:
+            if self.on_message:                 # on a thread of its own: it talks to the browser, whose answers this thread reads
                 try:
-                    self.on_message(json.loads(p.get("payload") or "{}"), target, dict(self.tabs.get(target) or {}))
+                    payload = json.loads(p.get("payload") or "{}")
                 except ValueError:
-                    pass
+                    return
+                threading.Thread(target=self.on_message, args=(payload, target, dict(self.tabs.get(target) or {})), daemon=True).start()
 
     def _prepare(self, target, session):
         """Every page: the Sofa bar, the Home key and pointer hiding (in a script world of their own), and
         the way back to the agent."""
         tab = self.tabs.get(target) or {}
         try:
+            self.call("Runtime.enable", {}, session)              # the page's messages come through only with it on
             self.call("Runtime.addBinding", {"name": "__sofaBox", "executionContextName": "sofabox"}, session)
             if tab.get("ua"):
                 self.call("Network.setUserAgentOverride", {"userAgent": tab["ua"]}, session)
@@ -558,8 +569,13 @@ class Browser:
 
     def activate(self, target):
         self.call("Target.activateTarget", {"targetId": target})
+        self.front = target
         if target in self.tabs:
             self.tabs[target]["used"] = time.time()
+
+    def front_app(self):
+        """The app whose tab was last brought forward."""
+        return (self.tabs.get(getattr(self, "front", None)) or {}).get("app")
 
     def open(self, app_id, url, ua=""):
         """The app's tab brought forward, or a new one."""

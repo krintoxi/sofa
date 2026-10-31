@@ -1,4 +1,4 @@
-/* Sofa Box: added to every app and web page the box opens (not Sofa's own pages), in a script world of
+/* Sofa Box: added to every app and web page the box opens (Sofa's TV pages too), in a script world of
    its own so sites can't see or break it. The Home key, Back, the pointer hiding when it's still, and
    the Sofa bar (mouse to the top edge, or the Menu key): Home, Back, Reload, the address, Add to Home,
    Close. It talks to the box's agent through window.__sofaBox (a DevTools binding). */
@@ -24,7 +24,7 @@
   }
 
   // ---- the Sofa bar
-  var host, root, bar, addr, open = false, hideTimer = 0, buttons = [], focusAt = 0;
+  var host, root, bar, addr, open = false, hideTimer = 0, buttons = [], focusAt = 0, typed = false;
   var ICONS = {
     home: "M3 11.5 12 4l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z",
     back: "M15 5l-7 7 7 7", reload: "M20 12a8 8 0 1 1-2.3-5.6M20 4v5h-5",
@@ -68,6 +68,7 @@
     });
     addr.addEventListener("keydown", function (e) {
       if (e.key === "Enter") { e.preventDefault(); e.stopPropagation(); go(addr.value); }
+      else if (e.key.length === 1 || e.key === "Backspace" || e.key === "Delete") typed = true;   // typing: the arrows edit
     });
     bar.addEventListener("mouseleave", function () { schedule(1200); });
     bar.addEventListener("mouseenter", function () { clearTimeout(hideTimer); });
@@ -79,8 +80,10 @@
   }
   function go(text) {
     text = (text || "").trim(); if (!text) return;
-    var url = /^[a-z]+:\/\//i.test(text) ? text : (/^[^\s]+\.[a-z]{2,}(\/|$)/i.test(text) ? "https://" + text
-      : "https://duckduckgo.com/?q=" + encodeURIComponent(text));
+    var url = /^[a-z]+:\/\//i.test(text) ? text
+      : /^(localhost|\d{1,3}(\.\d{1,3}){3})(:\d+)?(\/|$)/i.test(text) ? "http://" + text         // a computer at home
+      : /^[^\s]+\.[a-z]{2,}(:\d+)?(\/|$)/i.test(text) ? "https://" + text
+      : "https://duckduckgo.com/?q=" + encodeURIComponent(text);
     show(false); location.href = url;
   }
   function act(a) {
@@ -98,6 +101,7 @@
   }
   function focusOn(i) {
     focusAt = (i + buttons.length) % buttons.length;
+    typed = false;
     buttons.forEach(function (b, n) { b.classList.toggle("f", n === focusAt); });
     if (buttons[focusAt] === addr) addr.focus(); else if (root.activeElement === addr) addr.blur();
   }
@@ -119,10 +123,10 @@
     var k = e.key;
     if (k === "Meta" || k === "OS") { superAlone = true; return; }
     superAlone = false;
-    if (k === "BrowserHome" || k === "F1" || k === "HomePage") { e.preventDefault(); e.stopImmediatePropagation(); send({ a: "home" }); return; }
+    if (k === "BrowserHome" || k === "F1" || k === "HomePage") { e.preventDefault(); e.stopImmediatePropagation(); if (open) show(false); send({ a: "home" }); return; }
     if (k === "ContextMenu" || k === "F2" || k === "Menu") { e.preventDefault(); e.stopImmediatePropagation(); show(!open, true); return; }
     if (open) {                                       // the bar has the keys while it's open
-      if (k === "ArrowLeft" || k === "ArrowRight") { if (!(root.activeElement === addr && addr.value)) { e.preventDefault(); e.stopImmediatePropagation(); focusOn(focusAt + (k === "ArrowRight" ? 1 : -1)); } }
+      if (k === "ArrowLeft" || k === "ArrowRight") { if (!(root.activeElement === addr && typed)) { e.preventDefault(); e.stopImmediatePropagation(); focusOn(focusAt + (k === "ArrowRight" ? 1 : -1)); } }
       else if (k === "Enter" && buttons[focusAt] !== addr) { e.preventDefault(); e.stopImmediatePropagation(); act(buttons[focusAt].dataset.a); }
       else if (k === "Escape" || k === "BrowserBack") { e.preventDefault(); e.stopImmediatePropagation(); show(false); }
       else if (k === "ArrowUp" || k === "ArrowDown") { e.preventDefault(); e.stopImmediatePropagation(); }
@@ -138,7 +142,7 @@
     }
   });
   window.addEventListener("keyup", function (e) {
-    if ((e.key === "Meta" || e.key === "OS") && superAlone) { superAlone = false; send({ a: "home" }); }
+    if ((e.key === "Meta" || e.key === "OS") && superAlone) { superAlone = false; if (open) show(false); send({ a: "home" }); }
   }, true);
 
   // ---- the mouse: the bar at the top edge, the pointer when it moves
@@ -148,6 +152,7 @@
     if (e.clientY <= 3 && !open) show(true, false);
   }, true);
 
+  document.addEventListener("visibilitychange", function () { if (document.hidden && open) show(false); });   // gone behind Home
   function start() { addStyle(); still = setTimeout(function () { pointer(false); }, 3000); }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start); else start();
 })();

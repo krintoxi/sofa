@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Sky Hop</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: linear-gradient(#7fd3ff, #d9f3ff); font: 700 16px/1.3 system-ui, sans-serif; }
+  canvas { display: block; width: 100vw; height: 100vh; }
+  .ui { position: fixed; inset: 0; display: grid; place-content: center; text-align: center; gap: 10px; pointer-events: none; color: #134; }
+  .ui h1 { margin: 0; font-size: 7vw; color: #2f8f2f; text-shadow: 0 4px 0 #fff; }
+  .score { position: fixed; top: 3vh; left: 4vw; font-size: 3.4vw; color: #134; }
+</style></head><body>
+<canvas id="c"></canvas><div class="score" id="score">0</div>
+<div class="ui" id="ui"><h1>SKY HOP</h1><p>← → to steer · OK to start</p><p id="best"></p></div>
+<script>
+(function () {
+  const c = document.getElementById("c"), x = c.getContext("2d"), ui = document.getElementById("ui");
+  let W, H, me, plats, cam, keys = {}, playing = false, height = 0, best = +localStorage.getItem("hopBest") || 0, last = 0;
+  function size() { W = c.width = innerWidth * devicePixelRatio; H = c.height = innerHeight * devicePixelRatio; }
+  addEventListener("resize", size); size();
+  function start() {
+    me = { x: W / 2, y: H * 0.7, vx: 0, vy: -H * 1.3 }; cam = 0; height = 0; plats = [];
+    for (let i = 0; i < 12; i++) plats.push({ x: Math.random() * (W - W * 0.16), y: H - i * H * 0.11, w: W * 0.16 });
+    playing = true; ui.style.display = "none";
+  }
+  addEventListener("keydown", e => { keys[e.key] = true; if ((e.key === "Enter" || e.key === " ") && !playing) start(); if (e.key.startsWith("Arrow")) e.preventDefault(); });
+  addEventListener("keyup", e => { keys[e.key] = false; });
+  addEventListener("pointerdown", e => { if (!playing) start(); keys.tap = e.clientX < innerWidth / 2 ? -1 : 1; });
+  addEventListener("pointerup", () => { keys.tap = 0; });
+  function frame(now) {
+    const dt = Math.min(0.033, (now - last) / 1000 || 0); last = now;
+    x.clearRect(0, 0, W, H);
+    if (playing) {
+      const dir = (keys.ArrowLeft ? -1 : 0) + (keys.ArrowRight ? 1 : 0) + (keys.tap || 0);
+      me.vx = dir * W * 0.6; me.x = (me.x + me.vx * dt + W) % W;
+      me.vy += H * 2.6 * dt; me.y += me.vy * dt;
+      if (me.vy > 0) plats.forEach(p => { if (me.x > p.x - 10 && me.x < p.x + p.w + 10 && me.y > p.y - 12 && me.y < p.y + 14) me.vy = -H * 1.3; });
+      if (me.y < H * 0.4) { const d = H * 0.4 - me.y; me.y += d; plats.forEach(p => p.y += d); height += d; }
+      plats = plats.filter(p => p.y < H + 20);
+      while (plats.length < 12) { const top = Math.min(...plats.map(p => p.y)); plats.push({ x: Math.random() * (W - W * 0.16), y: top - H * (0.09 + Math.random() * 0.06), w: W * (0.1 + Math.random() * 0.08) }); }
+      document.getElementById("score").textContent = Math.floor(height / H * 10);
+      if (me.y > H + 40) { playing = false; const s = Math.floor(height / H * 10); best = Math.max(best, s); localStorage.setItem("hopBest", best);
+        ui.style.display = ""; ui.querySelector("h1").textContent = "SPLAT"; document.getElementById("best").textContent = "Height " + s + " · best " + best; }
+    }
+    (plats || []).forEach(p => { x.fillStyle = "#3a9b3a"; x.fillRect(p.x, p.y, p.w, H * 0.018); x.fillStyle = "#8BD46E"; x.fillRect(p.x, p.y, p.w, H * 0.008); });
+    if (me) { const r = W * 0.025; x.fillStyle = "#2f8f2f"; x.beginPath(); x.ellipse(me.x, me.y - r, r * 1.2, r, 0, 0, Math.PI * 2); x.fill();
+      x.fillStyle = "#fff"; x.beginPath(); x.arc(me.x - r * .45, me.y - r * 1.5, r * .35, 0, 7); x.arc(me.x + r * .45, me.y - r * 1.5, r * .35, 0, 7); x.fill();
+      x.fillStyle = "#123"; x.beginPath(); x.arc(me.x - r * .45, me.y - r * 1.5, r * .16, 0, 7); x.arc(me.x + r * .45, me.y - r * 1.5, r * .16, 0, 7); x.fill(); }
+    requestAnimationFrame(frame);
+  }
+  if (best) document.getElementById("best").textContent = "Best " + best;
+  requestAnimationFrame(frame);
+})();
+</script></body></html>

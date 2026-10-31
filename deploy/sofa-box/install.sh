@@ -50,6 +50,8 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get install -y --no-install-recommends python3 python3-pil python3-evdev mpv curl avahi-utils v4l-utils bluez \
   fonts-dejavu-core sudo
+apt-get install -y --no-install-recommends fonts-noto-color-emoji 2>/dev/null || true             # the home screen's and games' emoji
+apt-get install -y --no-install-recommends libwidevinecdm0 2>/dev/null || true                    # DRM (Netflix…) where Raspberry Pi OS has it
 if have_pkg cage; then
   SCREEN=wayland
   apt-get install -y --no-install-recommends cage

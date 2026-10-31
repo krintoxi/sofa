@@ -20,7 +20,7 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 HERE = os.path.dirname(os.path.abspath(__file__))
 SIZE = (1920, 1080)
 SETTINGS = os.path.expanduser("~/.config/sofa-box/settings.json")
-THEMES = {"street": ("#0D0D10", "#FF2E88"), "terminal": ("#030806", "#39FF88"), "pirate": ("#0B1320", "#E6B450"),
+THEMES = {"street": ("#0D0D10", "#FF2E88"), "terminal": ("#030806", "#39FF88"), "pirate": ("#0B1320", "#E6B450"), "sofa": ("#0A0E1A", "#F4B740"),
           "midnight": ("#0A0E1A", "#F4B740"), "cinema": ("#0B0708", "#E5484D"), "ocean": ("#04131A", "#3CC8D8"),
           "forest": ("#0A120D", "#8BD46E"), "grape": ("#100A1A", "#C792FF"), "oled": ("#000000", "#F4B740")}
 FONT_DIRS_OWN = (os.path.join(HERE, "fonts"),                                        # on the box
