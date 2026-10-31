@@ -31,6 +31,9 @@ import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import boxos  # noqa: E402  (Sofa Box OS: apps, store, files, the browser's tabs)
+
 PORT = int(os.environ.get("SOFA_BOX_PORT", "8091"))
 HERE = os.path.dirname(os.path.abspath(__file__))
 CONF_DIR = os.environ.get("SOFA_BOX_CONF") or os.path.expanduser("~/.config/sofa-box")
@@ -39,8 +42,8 @@ OLD_SAVED = os.path.join(CONF_DIR, "server")                # from the first Sof
 SOFA_ST = "urn:sofa-media:device:Sofa:1"
 VERSION = "2"
 DEFAULTS = {"server": None, "quality": "auto", "hwdec": "auto", "audio": "auto", "learned_720": False,
-            "mpv_args": [], "theme": "midnight", "boot_text": ""}
-THEMES = ("midnight", "cinema", "ocean", "forest", "grape", "oled")
+            "mpv_args": [], "theme": "street", "boot_text": "", "shield": True, "welcomed": False}
+THEMES = ("street", "terminal", "pirate", "midnight", "cinema", "ocean", "forest", "grape", "oled")
 CHOICES = {"quality": ("auto", "720", "1080"), "audio": ("auto", "passthrough"),
            "hwdec": ("auto", "no", "v4l2m2m-copy", "drm", "auto-safe"), "theme": THEMES}
 HOP = {"connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailers", "transfer-encoding",
@@ -237,8 +240,9 @@ class Player:
                 "--osd-level=1", "--osd-font-size=46", "--osd-bar-h=2.2", "--sub-font-size=46", "--term-osd=no",
                 "--title=" + ("Sofa" if p.get("adult") else p.get("title") or "Sofa"),
                 "--input-conf=" + os.path.join(HERE, "mpv-input.conf"),
-                "--cache=yes", "--demuxer-max-bytes=120MiB", "--network-timeout=40",
-                "--http-header-fields=Cookie: %s,X-Sofa: 1" % self.cookie.replace(",", "%2C")]
+                "--cache=yes", "--demuxer-max-bytes=120MiB", "--network-timeout=40"]
+        if not p.get("local"):                              # from Sofa: as the signed-in TV
+            args.append("--http-header-fields=Cookie: %s,X-Sofa: 1" % self.cookie.replace(",", "%2C"))
         hw = s["hwdec"] if s["hwdec"] != "auto" else ("v4l2m2m-copy" if slow_board() else "auto-safe")
         args.append("--hwdec=" + hw)
         if slow_board():
@@ -250,7 +254,7 @@ class Player:
         for sub in p.get("subtitles") or []:
             args.append("--sub-file=" + rewrite(sub.get("url", "")))
         args += list(s.get("mpv_args") or []) + shlex_split(os.environ.get("SOFA_BOX_MPV_ARGS", ""))
-        return args + [rewrite(p["url"])]
+        return args + [p["url"] if p.get("local") else rewrite(p["url"])]
 
     def play(self, payload, cookie):
         self.stop(save=True, reason="replaced")
@@ -415,6 +419,61 @@ class Player:
 
 
 player = Player()
+apps = boxos.Apps(CONF_DIR)
+
+
+def page_message(msg, target, tab):
+    """What a page's Sofa bar asks (through the browser): Home, Close, Add to Home."""
+    a = msg.get("a")
+    if a == "home":
+        browser.home()
+    elif a == "close" and target:
+        browser.close(target)
+        browser.home()
+    elif a == "add" and msg.get("url"):
+        try:
+            entry = boxos.site_entry(msg["url"], msg.get("title"))
+        except ValueError:
+            return
+        entry["icon"] = msg.get("icon") or ""
+        if tab.get("app") not in ("browser", "home", None):     # adding an app's page: it keeps the app's colour
+            known = apps.get(tab["app"]) or {}
+            entry["color"] = known.get("color")
+        apps.install(entry)
+
+
+browser = boxos.Browser(on_message=page_message) if os.environ.get("SOFA_BOX_DEVTOOLS", "9222") != "0" else None
+
+
+def go_home():
+    """The Home key, from anywhere: the box's home screen in front."""
+    if browser and browser.connected():
+        return browser.home()
+    go("#/")
+    return False
+
+
+def open_app(app_id=None, url=None, hash_=None):
+    """An app's tab (or the browser's) brought forward; `hash_` takes Sofa to a page in it. Without the
+    browser connection (a preview, tests), the address goes back to the page, which opens it itself."""
+    if app_id:
+        app = apps.get(app_id)
+        if not app:
+            raise ValueError("That app isn't on this box.")
+        target_url = "http://127.0.0.1:%d%s" % (PORT, app["url"]) if app["url"].startswith("/") else app["url"]
+        ua = boxos.tv_user_agent() if app.get("ua") == "tv" else ""
+    else:
+        if not re.match(r"^https?://", str(url or "")):
+            raise ValueError("That doesn't look like a web address.")
+        app_id, target_url, ua = "browser", url, ""
+    if hash_ and re.match(r"^#/[\w/%:.|-]*$", hash_):
+        target_url = target_url.split("#")[0] + hash_
+    if browser and browser.connected():
+        existing = browser.tab_of(app_id)
+        if existing and hash_ and app_id != "browser":
+            browser.evaluate(existing, "location.hash = %s" % json.dumps(hash_))
+        return {"ok": True, "target": browser.open(app_id, target_url, ua)}
+    return {"ok": True, "url": target_url}
 
 
 def shlex_split(text):
@@ -694,6 +753,9 @@ class Handler(BaseHTTPRequestHandler):
                 player.ok()
             elif k == "back":
                 player.stop(save=True, reason="back")
+            elif k == "home":                              # Home while a video plays: stop it (place saved), go home
+                player.stop(save=True, reason="back")
+                go_home()
             return self.send('{"ok":true}')
         if path == "/box/native/events":
             since = (qs.get("since") or [None])[0]
@@ -703,6 +765,8 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/box/api/settings":
             data = json.loads(self.body() or b"{}") if self.command == "POST" else {}
             changes = {k: v for k, v in data.items() if k in CHOICES and v in CHOICES[k]}
+            if "welcomed" in data:                              # the first-start steps are done
+                changes["welcomed"] = bool(data["welcomed"])
             if "boot_text" in data:
                 changes["boot_text"] = re.sub(r"[^\w '’&.-]", "", str(data["boot_text"]))[:30].strip()
             if changes:
@@ -720,6 +784,104 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/box/preview":
             with open(os.path.join(HERE, "preview.html"), encoding="utf-8") as f:
                 return self.send(f.read(), "text/html; charset=utf-8")
+        if path.startswith(("/box/api/", "/box/home", "/box/icons/", "/box/games/", "/box/fonts/")) or path == "/box/files/raw":
+            try:
+                return self.box_os(path, qs)
+            except ValueError as exc:
+                return self.send(json.dumps({"error": str(exc)}), status=400)
+            except OSError as exc:
+                return self.send(json.dumps({"error": "That didn't work: %s" % str(exc)[:160]}), status=500)
+        return self.send('{"error":"not found"}', status=404)
+
+    # ---- Sofa Box OS: the home screen, apps, the store, files, games
+    def static(self, base, rel):
+        full = os.path.realpath(os.path.join(base, rel))
+        if not full.startswith(os.path.realpath(base) + os.sep) or not os.path.isfile(full):
+            return self.send('{"error":"not found"}', status=404)
+        types = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8",
+                 ".json": "application/json", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+                 ".svg": "image/svg+xml", ".webp": "image/webp", ".ico": "image/x-icon", ".gif": "image/gif",
+                 ".woff2": "font/woff2", ".mp3": "audio/mpeg", ".ogg": "audio/ogg", ".wav": "audio/wav"}
+        with open(full, "rb") as f:
+            return self.send(f.read(), types.get(os.path.splitext(full)[1].lower(), "application/octet-stream"),
+                             headers={"Cache-Control": "no-cache"})
+
+    def box_os(self, path, qs):
+        data = json.loads(self.body() or b"{}") if self.command == "POST" else {}
+        arg = lambda k, d="": (qs.get(k) or [d])[0]   # noqa: E731
+        if path in ("/box/home", "/box/home/"):
+            return self.static(os.path.join(HERE, "home"), "index.html")
+        if path.startswith("/box/home/"):
+            return self.static(os.path.join(HERE, "home"), path[len("/box/home/"):])
+        if path.startswith("/box/icons/"):
+            return self.static(apps.icons, path[len("/box/icons/"):])
+        if path.startswith("/box/fonts/"):                 # Sofa's typefaces (on the box, or in Sofa's folder)
+            name = os.path.basename(path)
+            for d in (os.path.join(HERE, "fonts"), os.path.join(HERE, "..", "..", "client", "vendor", "fonts")):
+                if os.path.isfile(os.path.join(d, name)):
+                    return self.static(d, name)
+            return self.send('{"error":"not found"}', status=404)
+        if path.startswith("/box/games/"):
+            return self.static(os.path.join(HERE, "games"), path[len("/box/games/"):] or "index.html")
+        if path == "/box/api/apps":
+            s = settings()
+            return self.send(json.dumps({"apps": apps.listing(), "running": browser.running() if browser and browser.connected() else [],
+                                         "devtools": bool(browser and browser.connected()), "sofa": server(),
+                                         "sofa_name": (found.get(server()) or {}).get("name"), "theme": s["theme"],
+                                         "name": s["boot_text"], "welcomed": s["welcomed"], "slow": slow_board()}))
+        if path == "/box/api/apps/install":
+            entry = boxos.store_entry(str(data.get("store_id") or "")) if data.get("store_id") else \
+                boxos.site_entry(str(data.get("url") or ""), data.get("name"))
+            if not entry:
+                raise ValueError("That app isn't in the store.")
+            return self.send(json.dumps({"ok": True, "app": apps.install(entry)}))
+        if path == "/box/api/apps/remove":
+            return self.send(json.dumps({"ok": apps.remove(str(data.get("id") or ""))}))
+        if path == "/box/api/apps/arrange":
+            apps.arrange(data.get("order"), data.get("hidden"))
+            return self.send(json.dumps({"ok": True}))
+        if path == "/box/api/store":
+            installed = {a["id"] for a in apps.listing()}
+            st = boxos.store()
+            for section in st["sections"]:
+                for e in section["apps"]:
+                    e["installed"] = e["id"] in installed
+            return self.send(json.dumps(st))
+        if path == "/box/api/open":
+            return self.send(json.dumps(open_app(data.get("id"), data.get("url"), data.get("hash"))))
+        if path == "/box/api/home":
+            return self.send(json.dumps({"ok": True, "home": go_home()}))
+        if path == "/box/api/close":
+            if browser and browser.connected() and data.get("target"):
+                browser.close(str(data["target"]))
+            return self.send('{"ok":true}')
+        if path == "/box/api/files":
+            return self.send(json.dumps({"roots": [{k: r[k] for k in ("id", "name", "drive")} for r in boxos.roots()]}))
+        if path == "/box/api/files/list":
+            return self.send(json.dumps(boxos.listing(arg("root"), arg("path"))))
+        if path in ("/box/api/files/delete", "/box/api/files/rename", "/box/api/files/move"):
+            return self.send(json.dumps(boxos.file_action(path.rsplit("/", 1)[1], data)))
+        if path == "/box/api/files/folder":
+            return self.send(json.dumps(boxos.make_folder(data.get("root"), data.get("path"), data.get("name"))))
+        if path == "/box/api/files/play":                   # a video or song from Files, in the box's player
+            _, full = boxos.resolve(data.get("root"), data.get("path"))
+            player.play({"url": full, "local": True, "title": os.path.basename(full), "item": None}, "")
+            return self.send('{"ok":true}')
+        if path == "/box/files/raw":                        # a picture from Files, to look at
+            _, full = boxos.resolve(arg("root"), arg("path"))
+            if boxos.kind_of(full) != "image":
+                raise ValueError("Only pictures open here.")
+            return self.static(os.path.dirname(full), os.path.basename(full))
+        if path == "/box/api/games":
+            with open(os.path.join(HERE, "games", "games.json"), encoding="utf-8") as f:
+                return self.send(f.read())
+        if path == "/box/api/shield":
+            if self.command == "POST":
+                on = bool(data.get("on"))
+                save_settings(shield=on)
+                threading.Thread(target=lambda: run(["sudo", "-n", os.path.join(HERE, "sofa-box"), "shield", "on" if on else "off"], 300),
+                                 daemon=True).start()
+            return self.send(json.dumps(dict(boxos.shield_status(), wanted=settings().get("shield", True))))
         return self.send('{"error":"not found"}', status=404)
 
 
