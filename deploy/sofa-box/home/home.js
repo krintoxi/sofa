@@ -7,7 +7,7 @@
   const $$ = (s, r) => [...(r || document).querySelectorAll(s)];
   const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const view = $("#view");
-  const BUILTIN_ICON = { sofa: "#m-sofa", browser: "#i-browser", store: "#i-store", games: "#i-games", files: "#i-files", settings: "#i-settings" };
+  const BUILTIN_ICON = { sofa: "#i-sofa", browser: "#i-browser", store: "#i-store", games: "#i-games", files: "#i-files", settings: "#i-settings" };
   const THEMES = [["street", "Street", "#0D0D10", "#FF2E88", "#E8FF3A"], ["terminal", "Terminal", "#020604", "#39FF88", "#00E0FF"],
                   ["pirate", "Pirate", "#0A1220", "#E6B450", "#C0392B"], ["sofa", "Sofa", "#0A0E1A", "#F4B740", "#3CC8D8"]];
   let data = { apps: [], running: [] }, sofa = null, storeData = null, games = null, boxInfo = null;
@@ -89,7 +89,7 @@
   function appTile(a, extra) {
     const running = (data.running || []).some(r => r.app === a.id);
     const ic = a.icon_url ? `<img src="${esc(a.icon_url)}" alt="" onerror="this.replaceWith(document.createTextNode('${esc((a.name || "?")[0])}'))">`
-      : BUILTIN_ICON[a.id] ? icon(a.id === "sofa" ? "#m-sofa" : BUILTIN_ICON[a.id]) : esc((a.name || "?")[0]);
+      : BUILTIN_ICON[a.id] ? icon(BUILTIN_ICON[a.id]) : esc((a.name || "?")[0]);
     return `<button class="tile${a.hidden ? " off" : ""}" style="--c:${esc(a.color || "")}" data-app="${esc(a.id)}"${extra || ""}>
       ${running ? `<i class="dot" title="Open"></i>` : ""}<span class="ic">${ic}</span><b>${esc(a.name)}</b></button>`;
   }
@@ -110,7 +110,7 @@
       : `<section class="hero"><span class="kicker">${s.found ? (s.signedIn ? "Sofa" : "Sofa is here") : "Looking for Sofa"}</span>
         <h2>${s.found ? (s.signedIn ? "Welcome back" + (s.user ? ", " + esc(s.user) : "") : "Sign in to " + esc(s.name || "Sofa")) : "Your Sofa box"}</h2>
         <p>${s.found ? (s.signedIn ? "Pick something in Sofa, or open an app." : "Open Sofa and sign in with your phone.") : "Is the Sofa computer on? The box keeps looking. Your apps work anyway."}</p>
-        <div class="row-actions"><button class="btn primary" data-app="sofa">${icon("#m-sofa")}Open Sofa</button><button class="btn" data-go="#/store">${icon("#i-store")}Get apps</button></div></section>`;
+        <div class="row-actions"><button class="btn primary" data-app="sofa">${icon("#i-sofa")}Open Sofa</button><button class="btn" data-go="#/store">${icon("#i-store")}Get apps</button></div></section>`;
     const running = (data.running || []).filter(r => r.app !== "home");
     return `<div class="home view-in">${hero}
       <h2 class="row-title">Apps <small>${apps.length}</small></h2><div class="rail">${apps.map(a => appTile(a)).join("")}
