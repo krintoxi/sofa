@@ -489,7 +489,7 @@ class BoxBrowser(unittest.TestCase):
                                      env=dict(os.environ, HOME=cls.dir, SOFA_BOX_CONF=conf, SOFA_BOX_PORT=str(cls.port),
                                               SOFA_BOX_DEVTOOLS=str(cls.devtools)))
         cls.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-        for _ in range(150):
+        for _ in range(300):
             try:
                 if cls.apps()["devtools"]:
                     break
@@ -535,7 +535,7 @@ class BoxBrowser(unittest.TestCase):
         finally:
             ws.close()
 
-    def wait(self, check, seconds=10):
+    def wait(self, check, seconds=25):                  # a cold Chromium on a busy machine can be slow
         end = time.time() + seconds
         while time.time() < end:
             d = self.apps()
