@@ -96,8 +96,8 @@ Private repos stay private: the box opens these at their addresses; nothing from
 7. ☑ **Files:** agent API (list/open/delete/rename/move within Downloads, Music, Videos, USB drives),
    file manager page; open videos/music in mpv, pictures full screen.
 8. ☑ **Games:** a few small original games bundled (offline), remote and controller friendly.
-9. ◐ **Themes:** Street, Terminal, Pirate, Sofa: home screen and boot screen.
-10. ☐ **Boot screen:** "Sofa Box" Plymouth theme in the chosen style (glitch logo, boot ticker).
+9. ☑ **Themes:** Street, Terminal, Pirate, Sofa: home screen and boot screen.
+10. ☑ **Boot screen:** "Sofa Box" Plymouth theme in the chosen style (glitch logo, boot ticker).
 11. ◐ **Installer and card:** the DevTools port in the kiosk, Widevine, Sofa Shield's helper, the new
    files; the card builds it all.
 12. ☐ **Preview:** `tools/sofa-box-preview.py` shows the home screen, store, files and games.
@@ -112,12 +112,14 @@ Private repos stay private: the box opens these at their addresses; nothing from
 - Browser: sites open as tabs with the Sofa bar; the start page is the home screen's Browser page. Not
   yet: a list of open tabs to switch between inside the browser (the home screen's "Open now" row
   does it for now).
-- Themes: the home screen has all four; the **boot screen** (Plymouth) still draws Sofa's own logo in
-  the theme's colours. Next: the Sofa Box mark and word per theme, and a boot ticker.
+- Themes: all four on the home screen and the boot screen ("SOFA BOX", lines ticking by; checked in
+  real Plymouth under Xvfb). The Sofa Box logo is a **skull and crossbones in every theme** (the
+  owner's wish): paint drips on Street, a screen's corners on Terminal, plain on Pirate and Sofa. The
+  Sofa app keeps its couch.
 - Installer/card: written, not yet run on the card builder with the new parts (push a change under
   deploy/sofa-box to build it; check the report on the run's page).
-- Docs: deploy/sofa-box/README.md still describes the box before the home screen; update it with
-  screenshots (`tools/sofa-box-preview.py` shows everything).
+- Docs: deploy/sofa-box/README.md describes the home screen, store, browser and Sofa bar, Files,
+  games, Settings and themes, with screenshots (docs/images/box-*.jpg).
 
 ## Not doing (for now)
 

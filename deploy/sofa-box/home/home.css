@@ -71,7 +71,7 @@ button { cursor: pointer; }
 #intro { position: fixed; inset: 0; z-index: 50; display: grid; place-content: center; justify-items: center; gap: 1.2rem;
   background: var(--bg); transition: opacity .7s ease, visibility .7s; }
 #intro.gone { opacity: 0; visibility: hidden; }
-.intro-mark svg { width: 7rem; height: 6rem; color: var(--a); filter: drop-shadow(0 0 2rem var(--glow)); animation: pop .7s cubic-bezier(.2,.8,.2,1) both; }
+.intro-mark svg { width: 7rem; height: 6.6rem; color: var(--a); filter: drop-shadow(0 0 2rem var(--glow)); animation: pop .7s cubic-bezier(.2,.8,.2,1) both; }
 .intro-word { display: flex; gap: .6rem; font: 800 4.4rem/1 var(--display); letter-spacing: -.03em; text-transform: var(--word-transform);
   transform: skewX(var(--word-skew)); }
 .intro-word b { color: var(--fg); animation: rise .6s .25s cubic-bezier(.2,.8,.2,1) both; }
@@ -96,7 +96,8 @@ button { cursor: pointer; }
   background: linear-gradient(180deg, var(--bg) 40%, transparent); }
 .brand { display: flex; align-items: center; gap: .45rem; font: 800 1.45rem/1 var(--display); letter-spacing: -.02em;
   text-transform: var(--word-transform); transform: skewX(var(--word-skew)); }
-.brand-mark { width: 1.9rem; height: 1.6rem; color: var(--a); }
+.brand-mark { width: 1.9rem; height: 1.8rem; color: var(--a); }
+[data-theme="street"] .brand-mark { height: 2.1rem; margin-bottom: -.3rem; }
 .brand span { color: var(--a); }
 [data-theme="street"] .brand span { color: transparent; -webkit-text-stroke: .06rem var(--a); text-shadow: .12rem .12rem 0 var(--a2); }
 .tabs { display: flex; gap: .3rem; margin-left: 1rem; }

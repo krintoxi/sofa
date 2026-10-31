@@ -136,33 +136,30 @@ def mono(size):
 
 
 def mark_for(c, size=300):
-    """The theme's mark: the sofa (with paint drips on Street), a prompt (Terminal), a skull (Pirate)."""
+    """The Sofa Box logo, a skull and crossbones, in the theme's style: paint drips on Street, the corners
+    of a screen on Terminal, plain on Pirate and Sofa."""
     im = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     d = ImageDraw.Draw(im)
     a = c.accent + (255,)
     s = size / 30.0
-    if c.theme == "terminal":
-        w = int(2.2 * s)
-        d.rounded_rectangle((1 * s, 4 * s, 29 * s, 25 * s), radius=3 * s, outline=a, width=w) if hasattr(d, "rounded_rectangle") \
-            else d.rectangle((1 * s, 4 * s, 29 * s, 25 * s), outline=a, width=w)
-        d.line([(6 * s, 10 * s), (11 * s, 14.5 * s), (6 * s, 19 * s)], fill=a, width=int(2.6 * s), joint="curve")
-        d.line([(14 * s, 19 * s), (23 * s, 19 * s)], fill=a, width=int(2.6 * s))
-    elif c.theme == "pirate":
-        d.ellipse((5.5 * s, 2 * s, 24.5 * s, 18 * s), fill=a)                            # the skull
-        d.rectangle((9 * s, 14 * s, 21 * s, 21 * s), fill=a)                            # the jaw
-        for x in (11.5, 15, 18.5):
-            d.rectangle(((x - .6) * s, 18 * s, (x + .6) * s, 21 * s), fill=(0, 0, 0, 0))
-        d.ellipse((8.6 * s, 8 * s, 13.4 * s, 12.8 * s), fill=(0, 0, 0, 0))             # the eyes
-        d.ellipse((16.6 * s, 8 * s, 21.4 * s, 12.8 * s), fill=(0, 0, 0, 0))
-        d.polygon([(15 * s, 13 * s), (14 * s, 15.4 * s), (16 * s, 15.4 * s)], fill=(0, 0, 0, 0))
-        d.line([(3 * s, 22 * s), (27 * s, 28 * s)], fill=a, width=int(2.4 * s))         # the crossbones
-        d.line([(27 * s, 22 * s), (3 * s, 28 * s)], fill=a, width=int(2.4 * s))
-    else:
-        logo(d, 0, 3 * s, s, a)
-        if c.theme == "street":                                                          # paint drips
-            for x, h, w in ((8.5, 7.5, 1.6), (16, 10.5, 1.4), (21, 5.6, 1.2)):
-                d.rectangle((x * s, 22 * s, (x + w) * s, (22 + h) * s), fill=a)
-                d.ellipse((x * s, (21 + h) * s, (x + w) * s, (22.6 + h) * s), fill=a)
+    hole = (0, 0, 0, 0)
+    d.ellipse((5.5 * s, 2 * s, 24.5 * s, 18 * s), fill=a)                                # the skull
+    d.rectangle((9 * s, 14 * s, 21 * s, 21 * s), fill=a)                                # the jaw
+    for x in (11.5, 15, 18.5):
+        d.rectangle(((x - .6) * s, 18 * s, (x + .6) * s, 21 * s), fill=hole)
+    d.ellipse((8.6 * s, 8 * s, 13.4 * s, 12.8 * s), fill=hole)                         # the eyes
+    d.ellipse((16.6 * s, 8 * s, 21.4 * s, 12.8 * s), fill=hole)
+    d.polygon([(15 * s, 13 * s), (14 * s, 15.4 * s), (16 * s, 15.4 * s)], fill=hole)   # the nose
+    d.line([(3 * s, 22 * s), (27 * s, 28 * s)], fill=a, width=int(2.4 * s))             # the crossbones
+    d.line([(27 * s, 22 * s), (3 * s, 28 * s)], fill=a, width=int(2.4 * s))
+    if c.theme == "street":                                                              # paint drips
+        for x, top, h, w in ((7.4, 24.6, 3.4, 1.6), (14.3, 26.4, 3, 1.4), (22.4, 24.6, 2.2, 1.2)):
+            d.rectangle((x * s, top * s, (x + w) * s, (top + h) * s), fill=a)
+            d.ellipse((x * s, (top + h - .8) * s, (x + w) * s, (top + h + .8) * s), fill=a)
+    elif c.theme == "terminal":                                                          # a screen's corners
+        w = max(2, int(1.4 * s))
+        for (x1, y1, x2, y2) in ((1, 1, 5, 1), (1, 1, 1, 5), (29, 1, 25, 1), (29, 1, 29, 5)):
+            d.line([(x1 * s, y1 * s), (x2 * s, y2 * s)], fill=a, width=w)
     return im
 
 
