@@ -25,6 +25,19 @@ jobs:
           echo "127.0.0.1 sofa.test" | sudo tee -a /etc/hosts
           sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends ffmpeg mpv
       - name: Run the tests
-        run: uv run --no-project --python ${{ matrix.python }} python -W ignore -m unittest discover -s tests -t . -v
+        run: |
+          set -o pipefail
+          uv run --no-project --python ${{ matrix.python }} python -W ignore -m unittest discover -s tests -t . -v 2>&1 | tee test-output.txt
+      - name: Say which tests failed (readable without the logs)
+        if: failure()
+        run: |
+          python3 - <<'EOF'
+          import re
+          text = open("test-output.txt", encoding="utf-8", errors="replace").read()
+          for block in re.findall(r"^(?:FAIL|ERROR): .*?(?=^=====|^-----\nRan |\Z)", text, re.M | re.S)[:8]:
+              lines = block.strip().splitlines()
+              msg = "%0A".join(l.replace("%", "%25") for l in lines[:30])
+              print("::error title=" + lines[0][:120].replace(":", " ") + "::" + msg)
+          EOF
       - name: Check the web app's JavaScript
         run: node --check client/app.js
