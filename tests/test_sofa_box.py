@@ -590,12 +590,17 @@ class BoxBrowser(unittest.TestCase):
             json.dump({"server": None, "welcomed": True}, f)
         cls.port, cls.devtools = free_port(), free_port()
         cls.base = "http://127.0.0.1:%d" % cls.port
-        cls.chrome = subprocess.Popen([chrome(), "--headless=new", "--no-sandbox", "--no-first-run", "--disable-gpu",
+        run = os.path.join(cls.dir, "run")                     # the kiosk session's word: a 1080p TV, pages twice as big
+        os.makedirs(run)
+        with open(os.path.join(run, "sofa-box-display"), "w") as f:
+            f.write("SCALE=2\n")
+        cls.chrome = subprocess.Popen([chrome(), "--headless=new", "--no-sandbox", "--no-first-run", "--disable-gpu", "--window-size=1920,1080",
                                        "--remote-debugging-port=%d" % cls.devtools, "--user-data-dir=" + os.path.join(cls.dir, "profile"),
                                        cls.base + "/box/home"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         cls.agent = subprocess.Popen([sys.executable, os.path.join(BOX, "sofa-box-agent.py")], stderr=subprocess.DEVNULL,
                                      env=dict(os.environ, HOME=cls.dir, SOFA_BOX_CONF=conf, SOFA_BOX_PORT=str(cls.port),
-                                              SOFA_BOX_DEVTOOLS=str(cls.devtools)))
+                                              SOFA_BOX_DEVTOOLS=str(cls.devtools), XDG_RUNTIME_DIR=run, SOFA_BOX_UINPUT="0",
+                                              SOFA_BOX_HOTSPOT="0", SOFA_BOX_REMOTE_PORT=str(free_port())))
         cls.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
         for _ in range(300):
             try:
@@ -622,6 +627,37 @@ class BoxBrowser(unittest.TestCase):
         req = urllib.request.Request(self.base + path, data=json.dumps(body).encode(), headers={"Content-Type": "application/json", "X-Sofa-Box": "1"})
         with self.opener.open(req, timeout=30) as r:
             return json.loads(r.read())
+
+    def page_value(self, url_part, expression):
+        """A value from the page whose address has `url_part` in it."""
+        boxos = load("boxos") if "boxos" not in globals() else globals()["boxos"]
+        with self.opener.open("http://127.0.0.1:%d/json/list" % self.devtools, timeout=10) as r:
+            tab = next(p for p in json.loads(r.read()) if p["type"] == "page" and url_part in p["url"])
+        ws = boxos.WebSocket(tab["webSocketDebuggerUrl"])
+        try:
+            ws.send(json.dumps({"id": 1, "method": "Runtime.evaluate", "params": {"expression": expression, "returnByValue": True}}))
+            while True:
+                m = json.loads(ws.recv())
+                if m.get("id") == 1:
+                    return m["result"]["result"].get("value")
+        finally:
+            ws.close()
+
+    def test_pages_fill_the_tv(self):
+        """The window has the whole screen; Sofa and the apps are drawn twice as big for the sofa (the agent sizes
+        them: Chromium's own scale factor shrank the window to a quarter of the TV under Wayland); Home sizes itself."""
+        self.post("/box/api/open", {"url": self.base + "/box/games/neon-dodge/"})
+        end = time.time() + 15
+        while time.time() < end:
+            try:
+                size = self.page_value("/box/games/neon-dodge", "[innerWidth, devicePixelRatio]")
+                if size == [960, 2]:
+                    break
+            except (StopIteration, OSError):
+                pass
+            time.sleep(0.3)
+        self.assertEqual(size, [960, 2])
+        self.assertEqual(self.page_value("/box/home", "[innerWidth, devicePixelRatio]"), [1920, 1])
 
     def bar_says(self, url_part, message):
         """What the Sofa bar sends from a tab (through its script world), as if a key or button did it."""

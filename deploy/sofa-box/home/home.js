@@ -354,7 +354,9 @@
         <button class="switch" role="switch" aria-checked="${!!b.shield.wanted}" data-shield="1" aria-label="Sofa Shield"></button></div></section>
       <section class="card"><h3>Picture and sound</h3><p>${b.learned_720 && s.quality === "auto" ? "Videos come as 720p: 1080p dropped frames here. " : ""}Sofa sends what the box plays smoothly.</p>
         <div class="choices">${pick("quality", "auto", "Picture: automatic")}${pick("quality", "1080", "1080p")}${pick("quality", "720", "720p")}</div>
-        <div class="choices" style="margin-top:.6rem">${pick("audio", "auto", "Sound: TV or soundbar")}${pick("audio", "passthrough", "AV receiver (surround)")}</div></section>
+        <div class="choices" style="margin-top:.6rem">${pick("audio", "auto", "Sound: TV or soundbar")}${pick("audio", "passthrough", "AV receiver (surround)")}</div>
+        <p style="margin-top:1rem">Performance: <b>${b.light ? "light" : "full"}</b>${s.performance === "auto" ? " (chosen for this board)" : ""}. The light look leaves out the effects that are slow to draw, and keeps fewer apps open.</p>
+        <div class="choices">${pick("performance", "auto", "Automatic")}${pick("performance", "light", "Light")}${pick("performance", "full", "Full")}</div></section>
       <section class="card"><h3>Network</h3><p>${b.wifi ? "Wi-Fi: <b>" + esc(b.wifi) + "</b>." : "Not on Wi-Fi (a network cable is best for video)."} This box: ${esc(b.address || "")}.</p>
         <div id="wifi"><button class="btn" data-action="wifi-scan">Find Wi-Fi networks</button></div></section>
       <section class="card"><h3>Remotes and Bluetooth</h3>
@@ -370,6 +372,7 @@
         <button class="mini" data-move="${esc(a.id)}" data-by="1"${i === data.apps.length - 1 ? " disabled" : ""}>→</button>
         <button class="mini" data-hide="${esc(a.id)}">${a.hidden ? "Show" : "Hide"}</button>${a.kind === "web" ? `<button class="mini" data-remove="${esc(a.id)}">Remove</button>` : ""}</li>`).join("")}</ul></div></section>
       <section class="card"><h3>About this box</h3><dl class="facts"><dt>Model</dt><dd>${esc(b.model)}</dd><dt>Memory</dt><dd>${b.memory ? Math.round(b.memory / 1048576) + " MB" : "?"}</dd>
+        <dt>Picture</dt><dd>${b.board && b.board.tv_height ? "TV at " + b.board.tv_height + "p · " : ""}videos up to ${b.max_height}p${b.max_height >= 2160 ? " (4K)" : ""}</dd>
         <dt>Temperature</dt><dd>${b.temperature != null ? b.temperature + " °C" : "?"}</dd><dt>Version</dt><dd>${esc(b.version)}</dd></dl>
         <div class="choices" style="margin-top:1rem"><button class="btn" data-action="restart">Restart Sofa Box</button><button class="btn" data-action="reboot">Restart the box</button>
         <button class="btn" data-go="#/welcome">Setup steps again</button></div></section>
@@ -636,7 +639,9 @@
       else if (d.themePick) { await api("/box/api/settings", { theme: d.themePick }); data.theme = d.themePick; applyTheme(d.themePick);
         $$("[data-theme-pick]").forEach(b => b.setAttribute("aria-pressed", b === t)); api("/box/api/action/apply-boot", {}).catch(() => {}); }
       else if (d.saveName) { await api("/box/api/settings", { boot_text: $("#boxName").value }); api("/box/api/action/apply-boot", {}).catch(() => {}); toast("Saved: the boot screen shows it from the next start."); }
-      else if (d.set) { boxInfo = Object.assign(boxInfo, await api("/box/api/settings", { [d.set]: d.value })); boxInfo.shield = await api("/box/api/shield"); render(true); }
+      else if (d.set) { boxInfo = Object.assign(boxInfo, await api("/box/api/settings", { [d.set]: d.value })); boxInfo.shield = await api("/box/api/shield");
+        if (d.set === "performance") { await loadApps(); toast("The browser takes it fully from the box's next start."); }
+        render(true); }
       else if (d.shield) { const on = t.getAttribute("aria-checked") !== "true"; t.setAttribute("aria-checked", on); boxInfo.shield = await api("/box/api/shield", { on });
         toast(on ? "Sofa Shield is on: ads and trackers are kept out." : "Sofa Shield is off."); }
       else if (d.move) await moveApp(d.move, +d.by);

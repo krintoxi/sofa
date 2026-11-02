@@ -28,8 +28,10 @@ def memory_mb():
         return 4096
 
 
-# Apps open at once (besides Home): older ones that aren't playing close. 1 GB or less (a Pi 3): two.
-MAX_APP_TABS = int(os.environ.get("SOFA_BOX_MAX_TABS") or (2 if memory_mb() <= 1100 else 4))
+# Apps open at once (besides Home): older ones that aren't playing close. By memory: 1 GB (a Pi 3) two,
+# 2 GB three, 4 GB four, 8 GB six.
+MAX_APP_TABS = int(os.environ.get("SOFA_BOX_MAX_TABS") or
+                   (2 if memory_mb() <= 1100 else 3 if memory_mb() <= 2200 else 4 if memory_mb() <= 4500 else 6))
 KEEP_AWAKE = ("sofa",)                 # never frozen: Sofa listens for the phone's "Play on"
 PLAYING_JS = "Array.from(document.querySelectorAll('video,audio')).some(m => !m.paused && !m.muted && m.volume > 0)"
 _opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
@@ -678,8 +680,8 @@ INJECT = open(os.path.join(HERE, "home", "inject.js"), encoding="utf-8").read() 
 class Browser:
     """The box's Chromium, over its DevTools port: tabs are apps."""
 
-    def __init__(self, port=DEVTOOLS_PORT, on_message=None):
-        self.port, self.on_message = port, on_message
+    def __init__(self, port=DEVTOOLS_PORT, on_message=None, scale=None):
+        self.port, self.on_message, self.scale = port, on_message, scale or (lambda: 1.0)
         self.ws, self.next_id, self.waiting = None, 0, {}
         self.tabs = {}               # target id -> {"app", "title", "url", "session", "used", "audible"}
         self.lock = threading.Lock()
@@ -796,6 +798,7 @@ class Browser:
             self.call("Runtime.addBinding", {"name": "__sofaBox", "executionContextName": "sofabox"}, session)
             if tab.get("ua"):
                 self.call("Network.setUserAgentOverride", {"userAgent": tab["ua"]}, session)
+            self.size_page(target, session, tab)
             if INJECT and tab.get("app") != "home":
                 self.call("Page.addScriptToEvaluateOnNewDocument", {"source": INJECT, "worldName": "sofabox"}, session)
                 self.call("Page.enable", {}, session)
@@ -804,6 +807,24 @@ class Browser:
             self.call("Runtime.runIfWaitingForDebugger", {}, session)
         except OSError:
             pass
+
+    def size_page(self, target, session, tab):
+        """Pages drawn for the sofa (twice as big on a 1080p TV) while the window keeps the whole screen: what
+        Chromium's own --force-device-scale-factor does, without its Wayland trouble. The home screen sizes
+        itself to the screen (it's measured in screen widths), so it's left as it is."""
+        scale = float(self.scale() or 1)
+        if scale <= 1.01 or tab.get("app") == "home":
+            return
+        try:
+            bounds = self.call("Browser.getWindowForTarget", {"targetId": target}).get("bounds") or {}
+        except OSError:
+            return
+        w, h = bounds.get("width") or 0, bounds.get("height") or 0
+        if w < 640 or h < 360:
+            return
+        cw, ch = int(round(w / scale)), int(round(h / scale))
+        self.call("Emulation.setDeviceMetricsOverride", {"width": cw, "height": ch, "deviceScaleFactor": scale, "mobile": False,
+                                                         "screenWidth": cw, "screenHeight": ch}, session)
 
     # -- what the agent asks
     def tab_of(self, app_id):

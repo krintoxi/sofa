@@ -43,10 +43,10 @@ SETTINGS = os.path.join(CONF_DIR, "settings.json")
 OLD_SAVED = os.path.join(CONF_DIR, "server")                # from the first Sofa box
 SOFA_ST = "urn:sofa-media:device:Sofa:1"
 VERSION = "2"
-DEFAULTS = {"server": None, "quality": "auto", "hwdec": "auto", "audio": "auto", "learned_720": False,
+DEFAULTS = {"server": None, "quality": "auto", "hwdec": "auto", "audio": "auto", "learned_720": False, "performance": "auto",
             "mpv_args": [], "theme": "street", "boot_text": "", "shield": True, "welcomed": False}
 THEMES = ("street", "terminal", "pirate", "sofa", "midnight", "cinema", "ocean", "forest", "grape", "oled")
-CHOICES = {"quality": ("auto", "720", "1080"), "audio": ("auto", "passthrough"),
+CHOICES = {"quality": ("auto", "720", "1080"), "audio": ("auto", "passthrough"), "performance": ("auto", "light", "full"),
            "hwdec": ("auto", "no", "v4l2m2m-copy", "drm", "auto-safe"), "theme": THEMES}
 HOP = {"connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailers", "transfer-encoding",
        "upgrade", "content-length", "host", "accept-encoding"}
@@ -76,11 +76,12 @@ def display_env():
         with open(os.path.join(run_dir, "sofa-box-display"), encoding="utf-8") as f:
             for line in f:
                 k, _, v = line.strip().partition("=")
-                if k in ("WAYLAND_DISPLAY", "DISPLAY", "XAUTHORITY") and v:
+                if k in ("WAYLAND_DISPLAY", "DISPLAY", "XAUTHORITY", "SCALE") and v:
                     env[k] = v
     except OSError:
         pass
     env.setdefault("XDG_RUNTIME_DIR", run_dir)
+    env.pop("SCALE", None)
     sock = env.get("WAYLAND_DISPLAY")
     if not (sock and os.path.exists(os.path.join(run_dir, sock))) and not env.get("DISPLAY"):
         try:                                        # no word from the session: look for a screen ourselves
@@ -148,21 +149,60 @@ def model():
         return ""
 
 
+_board = {}
+
+
+def board():
+    """What the box is: the Raspberry Pi's generation (0 for any other computer), its memory, the TV's picture.
+    Everything that adapts to the hardware asks this."""
+    if not _board:
+        m = model()
+        g = re.search(r"Raspberry Pi (?:Compute Module )?(\d)|Raspberry Pi (Zero 2)|Raspberry Pi (Zero)", m)
+        gen = int(g.group(1)) if g and g.group(1) else 3 if g and g.group(2) else 1 if g else 0
+        if not m and os.environ.get("SOFA_BOX_SLOW") == "1":
+            gen = 3                                        # a preview acting like a Pi 3
+        _board.update(model=m or "this computer", gen=gen, memory_mb=boxos.memory_mb(), cores=os.cpu_count() or 1)
+    tv = 0
+    for c in sorted(__import__("glob").glob("/sys/class/drm/card*-HDMI-A-*")):
+        try:
+            with open(c + "/status") as f:
+                if f.read().strip() != "connected":
+                    continue
+            with open(c + "/modes") as f:
+                tv = max(tv, int((f.readline().strip().split("x") + ["0"])[1].rstrip("ip") or 0))
+        except (OSError, ValueError):
+            continue
+    return dict(_board, tv_height=tv)
+
+
 def slow_board():
-    """A Raspberry Pi 3 or older: 1080p H.264 is about its limit, HEVC is out."""
-    m = model()
-    return bool(re.search(r"Raspberry Pi (Zero|[1-3])\b", m)) or (not m and os.environ.get("SOFA_BOX_SLOW") == "1")
+    """A Raspberry Pi 3 or older (by its chips): 1080p H.264 is about its limit, HEVC is out."""
+    return 1 <= board()["gen"] <= 3
+
+
+def light():
+    """The light look (no costly effects, fewer apps open): Settings → Performance, or by itself on a Pi 3 or
+    older, or with 1 GB or less."""
+    p = settings().get("performance")
+    if p in ("light", "full"):
+        return p == "light"
+    b = board()
+    return 1 <= b["gen"] <= 3 or b["memory_mb"] <= 1100
 
 
 def max_height():
     s = settings()
     if s["quality"] in ("720", "1080"):
         return int(s["quality"])
-    return 720 if s["learned_720"] else 1080
+    if s["learned_720"]:
+        return 720
+    b = board()
+    return 2160 if (b["gen"] >= 4 or b["gen"] == 0 and b["memory_mb"] >= 3500) and b["tv_height"] >= 2160 else 1080
 
 
 def caps():
-    """What the box plays itself (mpv on the Pi): told to Sofa, so it converts only the rest."""
+    """What the box plays itself (mpv on the Pi): told to Sofa, so it converts only the rest. A Pi 4 or 5 on a
+    4K TV takes 4K as it is."""
     return {"mkv": True, "hevc": not slow_board(), "hevc10": not slow_board(), "ac3": True, "vp9": not slow_board(),
             "maxh": max_height()}
 
@@ -496,7 +536,29 @@ def page_message(msg, target, tab):
         apps.install(entry)
 
 
-browser = boxos.Browser(on_message=page_message) if os.environ.get("SOFA_BOX_DEVTOOLS", "9222") != "0" else None
+def screen_scale():
+    """How big the box draws pages on this TV (the kiosk session says: 2 on 1080p, 4 on 4K; 1 on X11, where
+    Chromium does it itself)."""
+    try:
+        return float(display_env_raw().get("SCALE") or 1)
+    except ValueError:
+        return 1.0
+
+
+def display_env_raw():
+    run_dir = os.environ.get("XDG_RUNTIME_DIR") or "/run/user/%d" % os.getuid()
+    out = {}
+    try:
+        with open(os.path.join(run_dir, "sofa-box-display"), encoding="utf-8") as f:
+            for line in f:
+                k, _, v = line.strip().partition("=")
+                out[k] = v
+    except OSError:
+        pass
+    return out
+
+
+browser = boxos.Browser(on_message=page_message, scale=screen_scale) if os.environ.get("SOFA_BOX_DEVTOOLS", "9222") != "0" else None
 
 
 def go_home():
@@ -1173,9 +1235,9 @@ def box_info():
         mem = None
     return {"version": VERSION, "model": model() or "this computer", "memory": mem, "temperature": temp,
             "wifi": ssid or None, "address": local_address(), "server": server(), "server_name": (found.get(server()) or {}).get("name"),
-            "settings": {k: s[k] for k in ("quality", "hwdec", "audio", "theme", "boot_text")},
+            "settings": {k: s[k] for k in ("quality", "hwdec", "audio", "theme", "boot_text", "performance")},
             "choices": CHOICES, "learned_720": s["learned_720"],
-            "max_height": max_height(), "slow_board": slow_board(), "controllers": controllers}
+            "max_height": max_height(), "slow_board": slow_board(), "light": light(), "board": board(), "controllers": controllers}
 
 
 def local_address():
@@ -1306,7 +1368,7 @@ NATIVE_JS = r"""/* Sofa box: the TV pages get the box's own player (mpv), like S
 
 
 def native_js():
-    return NATIVE_JS % {"version": VERSION, "slow": "true" if slow_board() else "false"}
+    return NATIVE_JS % {"version": VERSION, "slow": "true" if light() else "false"}
 
 
 def finder_page():
@@ -1499,7 +1561,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(json.dumps({"apps": apps.listing(), "running": browser.running() if browser and browser.connected() else [],
                                          "devtools": bool(browser and browser.connected()), "sofa": server(),
                                          "sofa_name": (found.get(server()) or {}).get("name"), "theme": s["theme"],
-                                         "name": s["boot_text"], "welcomed": s["welcomed"], "slow": slow_board(),
+                                         "name": s["boot_text"], "welcomed": s["welcomed"], "slow": light(),
                                          "default_server": {k: default[k] for k in ("id", "name", "kind", "where")} if default else None,
                                          "ask": st["ask"], "servers": len(st["servers"]),
                                          "devices": {k: devices_seen[k] for k in ("drives", "disc", "n")},
