@@ -9,6 +9,7 @@
 #   sofa-box desktop           go back to the desktop instead of Sofa (sudo; undo: sofa-box appliance)
 #   sofa-box shield on|off|update   Sofa Shield: ads and trackers kept out of the whole box (sudo)
 #   sofa-box update            the newest Sofa Box from GitHub (sudo)
+#   sofa-box tune              a quick processor for the TV (sudo; at every start)
 #   sofa-box factory-reset     back to how it came: apps, sign-ins, Wi-Fi, Bluetooth, files gone (sudo)
 #   sofa-box kiosk             the TV's screen (started by sofa-box.service; not by hand)
 set -e
@@ -54,7 +55,14 @@ session() {
   PROFILE="$HOME/.config/sofa-box/browser"
   mkdir -p "$PROFILE"
   LOW=""
-  grep -Eqs 'Raspberry Pi (Zero|[1-3])\b' /proc/device-tree/model && LOW="--enable-low-end-device-mode --renderer-process-limit=2"
+  # A small board (1 GB or less, or a Pi 3 and older): lighter Chromium, its cache in memory (the card is slow),
+  # no smooth scrolling. Every board: nothing fetched in the background that nobody asked for.
+  MEM_MB=$(awk '/MemTotal/ {print int($2/1024)}' /proc/meminfo)
+  if grep -Eqs 'Raspberry Pi (Zero|[1-3])\b' /proc/device-tree/model || [ "${MEM_MB:-4096}" -le 1100 ]; then
+    mkdir -p "$RUN/sofa-box-cache"
+    LOW="--enable-low-end-device-mode --renderer-process-limit=2 --disk-cache-dir=$RUN/sofa-box-cache --disk-cache-size=33554432 --disable-smooth-scrolling"
+  fi
+  LOW="$LOW --disable-background-networking --disable-component-update"
   while true; do
     # A browser that crashed or lost power mid-way shows "Restore pages?": tell it all went well.
     sed -i 's/"exited_cleanly":false/"exited_cleanly":true/; s/"exit_type":"[^"]*"/"exit_type":"Normal"/' \
@@ -260,6 +268,19 @@ case "${1:-}" in
     for dm in lightdm gdm3 sddm; do systemctl disable --now "$dm" 2>/dev/null || true; done
     systemctl enable --now sofa-box
     echo "Sofa is on the TV again, at every start." ;;
+  tune)                      # (root) the processor: up at once when something's pressed, down slowly
+    for p in /sys/devices/system/cpu/cpufreq/policy*; do
+      [ -w "$p/scaling_governor" ] || continue
+      if grep -qw ondemand "$p/scaling_available_governors"; then
+        echo ondemand > "$p/scaling_governor"
+      elif grep -qw schedutil "$p/scaling_available_governors"; then
+        echo schedutil > "$p/scaling_governor"
+      fi
+    done
+    OD=/sys/devices/system/cpu/cpufreq/ondemand
+    [ -w "$OD/up_threshold" ] && echo 40 > "$OD/up_threshold"
+    [ -w "$OD/sampling_down_factor" ] && echo 20 > "$OD/sampling_down_factor"
+    echo "Tuned: $(cat /sys/devices/system/cpu/cpufreq/policy0/scaling_governor 2>/dev/null || echo "no cpufreq here")" ;;
   timezone)                  # (root) the box's time zone, from the setup screen or a phone
     echo "${2:-}" | grep -Eq '^[A-Za-z]+(/[A-Za-z0-9_+-]+){1,2}$' || { echo "Which time zone? (like Europe/London)"; exit 1; }
     timedatectl set-timezone "$2" ;;
@@ -278,5 +299,5 @@ case "${1:-}" in
     bluetoothctl devices Paired 2>/dev/null | awk '{print $2}' | while read -r mac; do bluetoothctl remove "$mac" >/dev/null 2>&1 || true; done
     echo "Back to how it came. Starting again…"
     systemctl reboot ;;
-  *) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+  *) sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
 esac

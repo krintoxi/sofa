@@ -661,6 +661,12 @@ class BoxBrowser(unittest.TestCase):
         self.assertEqual(sorted(r["app"] for r in d["running"]), ["browser", "sofa"])
         self.post("/box/api/open", {"id": "sofa"})                                        # again: its tab, not a second
         self.assertEqual(len(self.apps()["running"]), 2)
+        self.wait(lambda d: any(r["app"] == "browser" and r["frozen"] for r in d["running"]))       # behind: frozen
+        self.assertFalse(any(r["app"] == "sofa" and r["frozen"] for r in self.apps()["running"]))  # in front (and Sofa never)
+        behind = next(r["target"] for r in self.apps()["running"] if r["app"] == "browser")
+        self.post("/box/api/front", {"target": behind})                                    # Open now: back in front, running
+        self.wait(lambda d: d["front"] == "browser" and not any(r["frozen"] for r in d["running"] if r["target"] == behind))
+        self.assertEqual(len(self.apps()["running"]), 2)                                   # that tab, not a new one
         self.wait(lambda d: any("pair-up" in r["url"] for r in d["running"]))
         time.sleep(1)
         self.bar_says("/box/games/pair-up", {"a": "home"})

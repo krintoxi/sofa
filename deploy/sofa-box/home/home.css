@@ -446,3 +446,17 @@ p.okay.big { font-size: 1.2rem; margin: .4rem 0 .8rem; }
 .remote-row { display: grid; grid-template-columns: auto 1fr; gap: 1.2rem; align-items: start; }
 .remote-row p { margin: 0 0 .6rem; }
 .phone-mini .qr.big { width: 8rem; height: 8rem; }
+
+/* ---- a small board (a Pi 3, 1 GB): the same look, without what costs the most to draw. Big blurred glows and
+   soft shadows are painted again on every move; plain rings and flat colour aren't. */
+html.lite .bg-a, html.lite .bg-b { display: none; }
+html.lite[data-theme="terminal"] body { text-shadow: none; }
+html.lite .view-in > *, html.lite .w-mark svg, html.lite .intro-word, html.lite .intro-word b, html.lite .intro-word span { animation: none; }
+html.lite .tile, html.lite .tile.app, html.lite .btn, html.lite .theme, html.lite .mini-app, html.lite .srv, html.lite .bt-row, html.lite .wifi-row { transition: none; }
+html.lite .tile.app .ic, html.lite .mini-app, html.lite .store-detail .ic, html.lite .sheet { box-shadow: none; }
+html.lite .tile.f, html.lite .tile:hover, html.lite .tile.app.f, html.lite .tile.app:hover { box-shadow: 0 0 0 .2rem var(--c, var(--a)); transform: scale(1.05); }
+html.lite[data-theme="street"] .tile.f, html.lite[data-theme="street"] .tile.app.f { box-shadow: 0 0 0 .2rem var(--c, var(--a)); }
+html.lite .btn.f, html.lite .btn:hover { box-shadow: 0 0 0 .18rem var(--fg); }
+html.lite .theme.f, html.lite .mini-app.f { box-shadow: 0 0 0 .18rem var(--a); }
+html.lite .w-mark svg, html.lite .spot-logo svg, html.lite .intro-mark svg { filter: none; }
+html.lite .rail { scroll-behavior: auto; }

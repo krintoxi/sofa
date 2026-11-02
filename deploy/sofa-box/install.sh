@@ -155,6 +155,10 @@ Wants=network-online.target
 User=$WHO
 Environment=XDG_RUNTIME_DIR=/run/user/$UIDN
 ExecStart=/usr/bin/python3 $LIB/sofa-box-agent.py
+# the player (mpv) runs from here: ahead of everything but the screen
+Nice=-5
+CPUWeight=800
+IOWeight=800
 Restart=always
 RestartSec=2
 
@@ -185,6 +189,12 @@ UtmpMode=user
 Environment=SOFA_BOX_SCREEN=$SCREEN
 ExecStartPre=-+/usr/bin/plymouth quit --retain-splash
 ExecStart=$LIB/sofa-box kiosk
+# what's on the TV comes first: the screen and the browser get the processor and the card before anything else,
+# and are the last thing the kernel stops when memory runs out
+Nice=-5
+CPUWeight=1000
+IOWeight=1000
+OOMScoreAdjust=-500
 Restart=always
 RestartSec=2
 
@@ -203,6 +213,8 @@ SupplementaryGroups=input
 ExecStart=/usr/bin/python3 $LIB/sofa-box-input.py
 Restart=always
 RestartSec=3
+Nice=-10
+CPUWeight=900
 
 [Install]
 WantedBy=multi-user.target
@@ -217,6 +229,8 @@ After=sofa-box.service
 ExecStart=/usr/bin/python3 $LIB/sofa-box-cec.py
 Restart=always
 RestartSec=5
+Nice=-10
+CPUWeight=900
 
 [Install]
 WantedBy=multi-user.target
@@ -232,6 +246,9 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 ExecStart=/bin/sh -c 'grep -q "^# >>> Sofa Shield" /etc/hosts && $LIB/sofa-box shield update || true'
+Nice=19
+CPUWeight=10
+IOSchedulingClass=idle
 EOF
 cat > /etc/systemd/system/sofa-box-shield.timer <<EOF
 [Unit]
@@ -292,6 +309,36 @@ if command -v plymouth-set-default-theme >/dev/null 2>&1; then
   else "$LIB/sofa-box" apply-boot "$CONF/settings.json" || true
   fi
 fi
+say "Tuning the system for the TV (a small board stays quick)"
+# Memory: swap is compressed memory (zram), never the card; the kernel uses it early rather than stalling.
+cat > /etc/sysctl.d/90-sofa-box.conf <<EOF
+vm.swappiness = 100
+vm.page-cluster = 0
+vm.vfs_cache_pressure = 50
+vm.dirty_background_ratio = 5
+vm.dirty_ratio = 10
+EOF
+sysctl -q -p /etc/sysctl.d/90-sofa-box.conf 2>/dev/null || true
+systemctl disable --now dphys-swapfile 2>/dev/null || true               # swapping to the SD card freezes everything
+# Logs in memory only (the card is slow to write, and a TV box keeps nothing it doesn't need).
+mkdir -p /etc/systemd/journald.conf.d
+printf '[Journal]\nStorage=volatile\nRuntimeMaxUse=24M\n' > /etc/systemd/journald.conf.d/sofa-box.conf
+# No maintenance jobs waking up while someone watches: package lists, manual pages, disk checks.
+for t in apt-daily.timer apt-daily-upgrade.timer man-db.timer dpkg-db-backup.timer e2scrub_all.timer; do
+  systemctl disable --now "$t" >/dev/null 2>&1 || true
+done
+# The processor speeds up as soon as something's pressed, and stays up while it's used (sofa-box tune).
+cat > /etc/systemd/system/sofa-box-tune.service <<EOF
+[Unit]
+Description=Sofa box: a quick processor for the TV
+
+[Service]
+Type=oneshot
+ExecStart=$LIB/sofa-box tune
+
+[Install]
+WantedBy=multi-user.target
+EOF
 if dpkg -s systemd-zram-generator >/dev/null 2>&1; then
   printf '[zram0]\nzram-size = ram / 2\ncompression-algorithm = zstd\n' > /etc/systemd/zram-generator.conf
 elif [ -f /etc/default/zramswap ]; then
@@ -300,7 +347,7 @@ fi
 
 systemctl daemon-reload
 systemctl set-default graphical.target >/dev/null
-systemctl enable sofa-box-agent.service sofa-box.service sofa-box-input.service sofa-box-cec.service sofa-box-shield.timer
+systemctl enable sofa-box-agent.service sofa-box.service sofa-box-input.service sofa-box-cec.service sofa-box-shield.timer sofa-box-tune.service
 if ! grep -q '^# >>> Sofa Shield' /etc/hosts; then
   say "Sofa Shield (ad blocking for the whole box)"
   "$LIB/sofa-box" shield on || echo "   (no blocklist now: Settings → Sofa Shield turns it on later)"
