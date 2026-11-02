@@ -62,11 +62,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cd out
-          card="$(ls *.img.xz | head -1)"
-          mv "$card" sofa-box.img.xz
+          # out/ was made by the builder as root: the files to publish go in a folder of this step's own
+          mkdir -p pub
+          cp "$(ls out/*.img.xz | head -1)" pub/sofa-box.img.xz
+          cp "$(ls out/*-report.txt | head -1)" pub/sofa-box-report.txt
+          cd pub
           sha256sum sofa-box.img.xz > sofa-box.img.xz.sha256
-          mv *-report.txt sofa-box-report.txt
           gh release delete sofa-box --yes --cleanup-tag 2>/dev/null || true
           gh release create sofa-box sofa-box.img.xz sofa-box.img.xz.sha256 sofa-box-report.txt --target "$GITHUB_SHA" --latest=false \
             --title "Sofa Box card ($(date -u +%Y-%m-%d))" \
