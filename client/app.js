@@ -283,9 +283,11 @@ const isDone = id => !!(progress[id] && progress[id].done);
 const pct = id => { const p = prog(id); return p && p.d ? Math.min(100, (p.t / p.d) * 100) : 0; };
 const inProgress = id => { const p = prog(id); return !!(p && !p.done && p.t > 30); };
 const pending = {};
+const visitorMode = () => !!(session && session.user && session.user.visitor);
 function setProgress(id, rec, now) {
   if (rec) progress[id] = Object.assign(rec, { at: Date.now() }); else delete progress[id];
   clearTimeout(pending[id]);
+  if (visitorMode()) { prefs.set("visitorProgress:" + location.host, progress); return; }
   const send = () => api("/api/progress/" + encodeURIComponent(id), rec ? { t: rec.t, d: rec.d, done: rec.done } : { clear: true }).catch(() => {});
   if (now) send(); else pending[id] = setTimeout(send, 1500);
 }
@@ -505,7 +507,7 @@ function heroFor(show, short) {
       ${show.summary ? `<p class="summary${short ? "" : " clamp"}">${esc(show.summary)}</p>` : ""}
       <div class="actions">${action}${short ? "" : `<a class="btn" href="#/show/${encodeURIComponent(show.id)}">Episodes</a>`}${show.adult ? "" : listBtn(show.id)}${short && inRows(show) ? forgetBtn(show) : ""}
         ${short && session.user.admin ? `<button class="btn ghost" data-fix="${esc(show.id)}">${show.source ? "Fix details" : "Find details"}</button>
-          <button class="btn ghost" data-manage="${esc(show.id)}">${icon("i-more")}Manage</button>${kidsBtn(show)}` : ""}</div>
+          <button class="btn ghost" data-manage="${esc(show.id)}">${icon("i-more")}Manage</button>${kidsBtn(show)}${shareBtn(show)}` : ""}</div>
     </div></section>`;
 }
 
@@ -990,6 +992,8 @@ function viewEmptyLibrary() {
   setGlow("");
   if (LIB.reading) return `<section class="empty"><i class="reading-spin" aria-hidden="true"></i><h1>Sofa is reading your library</h1>
     <p>It just started. Your shows and movies appear here in a moment, by themselves.</p></section>`;
+  if (visitorMode()) return `<section class="empty"><h1>Nothing shared yet</h1>
+    <p>${esc((session.share || {}).title || "This Sofa")} hasn't shared any shows or movies yet. Come back later.</p>${(session.share || {}).live ? `<p><a class="btn primary" href="#/live">Watch Live TV</a></p>` : ""}</section>`;
   return `<section class="empty"><h1>Nothing to watch yet</h1>
     <p>Drop shows and movies into the <b>Inbox</b> folder on the server. Sofa names them, files them and adds artwork within a minute.</p>
     ${session.user.admin ? `<p><a class="btn" href="#/server">Open the Server page</a></p>` : ""}</section>`;
@@ -1139,7 +1143,7 @@ function viewMovie(id) {
           ${TV ? "" : `<button class="btn ghost" data-download="${esc(m.id)}">${icon("i-download")}Download</button>`}
           ${m.adult ? `<button class="btn ghost heart-btn" data-like="${esc(m.id)}" aria-pressed="${favs.has(m.id)}">♥ ${favs.has(m.id) ? "In Favorites" : "Favorite"}</button>` : listBtn(m.id)}
           ${session.user.admin ? `<button class="btn ghost" data-fix="${esc(m.id)}">${m.source ? "Fix details" : "Find details"}</button>
-            <button class="btn ghost" data-manage="${esc(m.id)}">${icon("i-more")}Manage</button>${kidsBtn(m)}` : ""}
+            <button class="btn ghost" data-manage="${esc(m.id)}">${icon("i-more")}Manage</button>${kidsBtn(m)}${shareBtn(m)}` : ""}
         </div>
         ${session.user.admin ? `<p class="fileline">${esc(m.file)}${m.source ? " · details from " + esc(m.source) : " · no details found yet"}</p>` : ""}
       </div></div></section>
@@ -1443,6 +1447,8 @@ function becauseYouWatched() {
 
 /* ---------- favorites (♥) ---------- */
 const kidsBtn = x => session.user.admin && session.kids_profiles && !x.adult ? (on => `<button class="btn ghost" data-kids-title="${esc(x.id)}" aria-pressed="${on}" title="${(LIB.kids_choices || {})[x.id] !== undefined ? "Set by an admin" : "From its rating and genres"}">${on ? icon("i-check") : ""}For kids</button>`)((LIB.for_kids || []).includes(x.id)) : "";
+const shareBtn = x => session.user.admin && !x.adult ? (on => `<button class="btn ghost" data-share-title="${esc(x.id)}" aria-pressed="${on}" title="${on ? "In the public library" : "Add to the public library"}">${icon(on ? "i-check" : "i-cast")}${on ? "Shared" : "Share"}</button>`)(
+  !!(LIB.share && LIB.share.all) || (LIB.shared || []).includes(x.id)) : "";
 const forgetBtn = x => `<button class="btn ghost" data-forget="${esc(x.id)}" title="Remove from Continue watching">${icon("i-close")}<span>Remove from Continue watching</span></button>`;
 const listBtn = id => `<button class="btn ghost list-btn" data-like="${esc(id)}" aria-pressed="${favs.has(id)}">${favs.has(id) ? icon("i-check") + "My List" : "+ My List"}</button>`;
 const roundListBtn = id => `<button class="round list-round${favs.has(id) ? " on" : ""}" data-like="${esc(id)}" aria-pressed="${favs.has(id)}" aria-label="${favs.has(id) ? "Remove from My List" : "Add to My List"}">${favs.has(id) ? icon("i-check") : `<b aria-hidden="true">+</b>`}</button>`;
@@ -1900,7 +1906,7 @@ document.addEventListener("submit", e => {
 /* ---------- server (admin) page ---------- */
 let adminData = null, adminTimer = 0, adminTab = "overview", activityKind = "all", adminBusy = null, adminAgain = false, adminSlow = "";
 const SRV_TABS = [["overview", "Overview"], ["library", "Library"], ["storage", "Storage"], ["convert", "Converting"], ["downloads", "Downloads"], ["live", "Live TV"],
-  ["people", "People"], ["settings", "Settings"], ["internet", "Internet"], ["update", "Updates"], ["activity", "Activity"]];
+  ["people", "People"], ["sharing", "Sharing"], ["settings", "Settings"], ["internet", "Internet"], ["update", "Updates"], ["activity", "Activity"]];
 /* The Server page asks for one status at a time (a second ask while one is out waits for it), gives up on
    one that takes too long and keeps showing what it had, and asks for a tab's own lists only for that tab. */
 const ADMIN_EXTRA = {
@@ -1977,7 +1983,7 @@ function viewServer(tab) {
   if (adminData.error) return `<section class="admin">${head()}${tabs}<p class="admin-lede">${esc(adminData.error)}</p></section>`;
   const d = adminData;
   const body = { overview: srvOverview, library: srvLibrary, storage: srvStorage, convert: srvConvert, downloads: srvDownloads, live: srvLive, people: srvPeople,
-                 settings: srvSettings, internet: srvInternet, update: srvUpdate, activity: srvActivity }[adminTab](d);
+                 sharing: srvSharing, settings: srvSettings, internet: srvInternet, update: srvUpdate, activity: srvActivity }[adminTab](d);
   return `<section class="admin">${head(d)}<p class="admin-lede">${esc(d.server.name)} on ${esc(d.server.host)} · Sofa ${esc(d.server.version)} · up since ${esc(new Date(d.server.started * 1000).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }))}</p>
     ${tabs}${body}</section>`;
 }
@@ -2293,6 +2299,37 @@ function srvPeople(d) {
       ${srvSwitch("guest_access", d.guest.enabled, "Allow guests", "Turn off to make the guest code stop working.")}</div></div>`;
 }
 /* Internet and HTTPS: encryption, an address, the router, the certificate, then letting the internet in. */
+/* Sharing: a public library. Titles picked here (or with Share on their page) are what anyone with the link
+   sees; the rest stays for the people who sign in. */
+const shareSwitch = (key, on, label, hint) => `<div class="toggle"><div><b>${label}</b><span>${hint}</span></div>
+  <button class="switch" role="switch" aria-checked="${!!on}" aria-label="${esc(label)}" data-share-setting="${key}"></button></div>`;
+function srvSharing(d) {
+  const x = d.sharing;
+  if (!x) return `<p class="admin-lede">Loading…</p>`;
+  const links = x.links.length ? x.links : x.path ? [{ where: "here", url: location.origin + x.path }] : [];
+  const outside = links.find(l => l.where === "internet");
+  const titles = x.titles.map(t => `<li class="share-title"><span class="share-poster">${t.poster ? `<img src="${esc(artSrc(t.poster, 160))}" alt="" loading="lazy">` : ""}</span>
+      <span><b>${esc(t.title)}</b>${t.year ? " (" + esc(t.year) + ")" : ""}<br><span class="when">${t.kind === "show" ? "Show" : "Movie"}</span></span>
+      <span class="row-actions"><a class="mini" href="#/${t.kind}/${encodeURIComponent(t.id)}">Open</a><button class="mini" data-share-title="${esc(t.id)}" data-on="0">Stop sharing</button></span></li>`).join("");
+  return `<div class="panels">
+    <div class="panel wide share-panel"><h2>Public library</h2>
+      <p class="hint">Share some of your library with anyone who has a link: friends, family, or everyone. They see a copy of Sofa with only what you share here, they can only watch (no lists, no settings), and never the Adult section. Everything else stays private to the people who sign in.</p>
+      ${shareSwitch("share_on", x.on, "Share a public library", x.on ? "On: the link below opens it." : "Off: nobody can see anything without signing in.")}
+      ${x.on ? `<div class="guest-row"><div class="qr" id="guestQr" data-url="${esc((outside || links[0] || {}).url || "")}"></div>
+        <div><div class="addr">${links.map(l => `<div><b>${l.where === "internet" ? "Share link" : l.where === "home" ? "At home" : "Share link"}</b><code>${esc(l.url)}</code>
+          <button class="mini" data-copy="${esc(l.url)}">Copy</button></div>`).join("")}</div>
+        ${outside ? "" : `<p class="hint" style="margin-top:10px">To share outside your home, give Sofa an address first (<a href="#/server/internet">Internet</a>: a free DuckDNS name and the router). From the internet, only the public library answers; signing in still needs to be at home${x.remote === "public" ? " or over HTTPS" : ""}.</p>`}
+        <div class="row-actions"><button class="mini" data-share-new="1">Make a new link</button></div></div></div>
+      <form class="inline-form share-form" id="shareName"><label class="field"><span>Shown to visitors as</span><input name="v" maxlength="60" placeholder="${esc(x.name)}" value="${esc(x.title)}"></label>
+        <button class="btn" type="submit">Save</button></form>
+      ${shareSwitch("share_all", x.all, "Share everything", "Every show and movie (never the Adult section), not only the ones picked below.")}
+      ${shareSwitch("share_live", x.live, "Live TV too", "Visitors can watch your Live TV channels as well.")}
+      ${shareSwitch("public_open", x.open, "Open to everyone at this address", "No link needed: the server's own address opens the public library from the internet. For a server that's only there to share.")}` : ""}</div>
+    ${x.on ? `<div class="panel wide"><h2>Shared titles${x.all ? " (everything is shared)" : ""}</h2>
+      <p class="hint">Share a show or movie from its page: open it and press <b>Share</b>.${x.all ? " With Share everything on, this list is what stays shared when you turn it off." : ""}</p>
+      <ul class="list">${titles || `<li class="empty-row">Nothing picked yet.</li>`}</ul></div>` : ""}
+  </div>`;
+}
 function srvInternet(d) {
   const n = d.internet;
   if (!n) return `<p class="admin-lede">Loading…</p>`;
@@ -2520,9 +2557,18 @@ window.addEventListener("hashchange", () => { route(); scrollTo(0, 0); });
 
 /* ---------- interactions ---------- */
 document.addEventListener("click", e => {
-  const t = e.target.closest("[data-slide],[data-intros-recheck],[data-manage],[data-machine-test],[data-drive-use],[data-place-remove],[data-new-pictures],[data-empty-deleted],[data-free-space],[data-retry-details],[data-adult-nav],[data-asort],[data-adult-play],[data-like],[data-download],[data-surprise],[data-pair-profile],[data-session-end],[data-forget],[data-seen],[data-wipe-logs],[data-trailer-sound],[data-trailer-replay],[data-redo-damaged],[data-add-link],[data-send-files],[data-dl-retry],[data-dl-cancel],[data-dl-clear],[data-dl-install],[data-enable-adult],[data-conv-retry],[data-conv-cancel],[data-conv-all],[data-conv-clear],[data-update],[data-user-adult],[data-user-kids],[data-dupes],[data-kids-title],[data-act-kind],[data-key-clear],[data-fix],[data-msort],[data-adult-tab],[data-play-start],[data-srv-tab],[data-mlike],[data-mplay],[data-mplay-one],[data-mplay-list],[data-mshuffle-list],[data-station],[data-mtab],[data-play-mv],[data-guest-clear],[data-play],[data-watched],[data-season],[data-sort],[data-nudge],[data-season-watched],[data-dismiss],[data-admin],[data-setting],[data-user-pass],[data-user-del],[data-live],[data-fav],[data-group],[data-preset],[data-live-remove]");
+  const t = e.target.closest("[data-slide],[data-intros-recheck],[data-manage],[data-machine-test],[data-drive-use],[data-place-remove],[data-new-pictures],[data-empty-deleted],[data-free-space],[data-retry-details],[data-adult-nav],[data-asort],[data-adult-play],[data-like],[data-download],[data-surprise],[data-pair-profile],[data-session-end],[data-forget],[data-seen],[data-wipe-logs],[data-trailer-sound],[data-trailer-replay],[data-redo-damaged],[data-add-link],[data-send-files],[data-dl-retry],[data-dl-cancel],[data-dl-clear],[data-dl-install],[data-enable-adult],[data-conv-retry],[data-conv-cancel],[data-conv-all],[data-conv-clear],[data-update],[data-user-adult],[data-user-kids],[data-dupes],[data-kids-title],[data-act-kind],[data-key-clear],[data-fix],[data-msort],[data-adult-tab],[data-play-start],[data-srv-tab],[data-mlike],[data-mplay],[data-mplay-one],[data-mplay-list],[data-mshuffle-list],[data-station],[data-mtab],[data-play-mv],[data-guest-clear],[data-play],[data-watched],[data-season],[data-sort],[data-nudge],[data-season-watched],[data-dismiss],[data-admin],[data-setting],[data-user-pass],[data-user-del],[data-live],[data-fav],[data-group],[data-preset],[data-live-remove],[data-share-setting],[data-share-new],[data-copy],[data-share-title]");
   if (!t) return;
   if (t.dataset.fix) { fixDialog(t.dataset.fix); return; }
+  if (t.dataset.shareTitle) {                   // Share on a title's page (or Stop sharing in Server → Sharing)
+    const id = t.dataset.shareTitle, on = t.dataset.on ? t.dataset.on === "1" : t.getAttribute("aria-pressed") !== "true";
+    api("/api/admin/sharing", { item: { id, on } }).then(async r => {
+      LIB.shared = r.titles.map(x => x.id); LIB.share = { on: r.on, all: r.all };
+      if (location.hash.startsWith("#/server")) loadAdmin(); else rerender();
+      toast(on ? (r.on ? "Shared: anyone with the share link can watch it." : "Shared. Switch the public library on in Server → Sharing to send the link.") : "Not shared any more.");
+    }).catch(e => toast(e.message));
+    return;
+  }
   if (t.dataset.manage) { manageDialog(t.dataset.manage); return; }
   if (t.dataset.newPictures) { if (confirm("Take new pictures from the videos for the whole library? Only pictures Sofa took itself are replaced; covers stay. It runs in the background.")) adminAction(async () => { await api("/api/admin/pictures", {}); toast("Taking new pictures in the background. They appear as they're ready."); }); return; }
   if (t.dataset.driveUse !== undefined) { useDriveDialog(t.dataset.driveUse, t.dataset.driveName, t.dataset.driveExisting); return; }
@@ -2673,6 +2719,16 @@ document.addEventListener("click", e => {
     const on = t.getAttribute("aria-checked") !== "true";
     adminAction(() => api("/api/admin/settings", { [t.dataset.setting]: on }));
   }
+  else if (t.dataset.shareSetting) {
+    const on = t.getAttribute("aria-checked") !== "true";
+    adminAction(() => api("/api/admin/sharing", { [t.dataset.shareSetting]: on }));
+  }
+  else if (t.dataset.shareNew) {
+    if (confirm("Make a new link? The old one stops working, and everyone watching with it is signed out.")) adminAction(() => api("/api/admin/sharing", { new_link: true }));
+  }
+  else if (t.dataset.copy) {
+    (navigator.clipboard ? navigator.clipboard.writeText(t.dataset.copy) : Promise.reject()).then(() => toast("Copied."), () => prompt("Copy this:", t.dataset.copy));
+  }
   else if (t.dataset.userPass) {
     const pw = prompt("New password for " + t.dataset.userName + " (8 or more characters):");
     if (pw) adminAction(() => api("/api/admin/users/" + t.dataset.userPass + "/password", { password: pw }));
@@ -2689,6 +2745,12 @@ document.addEventListener("change", e => {
   adminAction(async () => { await api("/api/admin/settings", { [sel.dataset.settingSelect]: v }); if (sel.dataset.settingSelect === "theme") { session.theme = v; applyLook(); } });
 });
 document.addEventListener("submit", e => {
+  if (e.target.id === "shareName") {
+    e.preventDefault();
+    const v = e.target.v.value.trim();
+    adminAction(async () => { await api("/api/admin/sharing", { share_title: v }); toast("Saved."); });
+    return;
+  }
   if (e.target.dataset.quietForm) {
     e.preventDefault();
     adminAction(async () => { await api("/api/admin/settings", { quiet_hours: e.target.v.value.trim() }); toast("Saved."); });
@@ -2786,7 +2848,12 @@ if (window.SofaBox) {                     // on the Sofa box, its own settings a
   const a = document.createElement("a"); a.href = "#/box"; a.dataset.nav = "box"; a.className = "nav-extra";
   a.innerHTML = "<span>Box</span>"; $("#nav .nav-more").before(a);
 }
-async function signOut() { await api("/api/logout", {}).catch(() => {}); location.hash = "#/"; boot(); }
+async function signOut() {
+  const visitor = session && session.user && session.user.visitor;
+  await api("/api/logout", {}).catch(() => {});
+  if (visitor) { location.href = "/?signin=1"; return; }      // from the public library to the sign-in page
+  location.hash = "#/"; boot();
+}
 $("#signOut").addEventListener("click", signOut);
 
 function dialog(html) {
@@ -4395,7 +4462,7 @@ const MusicPlayer = (function () {
 /* ---------- boot ---------- */
 async function reloadLibrary() {
   const [lib, prog] = await Promise.all([api("/api/library"), api("/api/progress")]);
-  progress = prog; indexLibrary(lib);
+  progress = visitorMode() ? prefs.get("visitorProgress:" + location.host, {}) || {} : prog; indexLibrary(lib);
   $("#foot").innerHTML = esc(lib.reading ? "Reading the library... " : "Library updated " + new Date(lib.generated * 1000).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) + ". New files in the Inbox show up on their own. ")
     + `<a href="?tv=${TV ? 0 : 1}" class="link-btn">${TV ? "Turn off TV mode on this device" : "Use TV mode on this device"}</a>`
     + `<span class="credit">Sofa ${esc(session.version || "")} · Project by <a href="https://edgeventure.uk" target="_blank" rel="noopener">EdgeVenture.uk</a></span>`;
@@ -4409,18 +4476,22 @@ async function boot() {
   if (session.needs_setup) return authView("setup");
   if (!session.user) return authView("login");
   $("#nav").hidden = $("#searchBox").hidden = $("#searchBtn").hidden = $("#who").hidden = false;
+  const visitor = !!session.user.visitor, share = session.share || {};
+  document.documentElement.classList.toggle("visitor", visitor);
   $("#navServer").hidden = !session.user.admin;
   $("#navAdult").hidden = !session.user.adult;
-  $('[data-nav="live"]').hidden = !!session.user.kids;
+  $('[data-nav="live"]').hidden = !!session.user.kids || (visitor && !share.live);
+  $('[data-nav="music"]').hidden = $('[data-nav="mylist"]').hidden = visitor;
   applyLook();
-  $("#whoName").textContent = session.user.name;
+  $("#whoName").innerHTML = visitor ? `<span class="pub-tag">Public</span>${esc(share.title)}` : esc(session.user.name);
   $("#whoAv").outerHTML = avatar(session.user, "whoAv");
-  $("#whoBtn").disabled = false;           // the menu also has Theme, Pair a TV and Sign out (all a phone has)
-  $("#signOut").textContent = session.user.guest ? "Leave" : "Sign out";
+  $("#whoBtn").disabled = visitor;         // the menu also has Theme, Pair a TV and Sign out (all a phone has)
+  $("#signOut").textContent = visitor ? "Sign in" : session.user.guest ? "Leave" : "Sign out";
+  $("#signOut").hidden = visitor && !share.home;        // from the internet, a home-only Sofa takes no sign-ins
   view.innerHTML = "";
   await reloadLibrary();
   route();
-  Screens.start();
+  if (!visitor) Screens.start();
   setTimeout(installOffer, 3500);
   if (FIRE_TV && NATIVE) api("/api/apps").then(a => { appsInfo = a; if (!location.hash || location.hash === "#/") rerender(); }).catch(() => {});
   // On a TV, Sofa asks who's watching each time it's opened (when there's more than one profile).
@@ -4431,7 +4502,7 @@ async function boot() {
     waitForLibrary();
   }, 3000);
   waitForLibrary();
-  loadMusic().then(() => MusicPlayer.restore());
+  if (!visitor) loadMusic().then(() => MusicPlayer.restore());
   // Pick up new episodes while the page stays open.
   if (!refreshing) refreshing = setInterval(async () => {
     if (Player.isOpen()) return;

@@ -149,7 +149,7 @@ def clear_guest():
 def list_users():
     rows = store.q("""SELECT u.id, u.name, u.admin, u.guest, u.adult, u.kids, u.created, u.pending, u.note,
                       (SELECT MAX(seen) FROM sessions s WHERE s.user_id = u.id) AS seen
-                      FROM users u ORDER BY u.guest, u.name""")
+                      FROM users u WHERE u.guest != 2 ORDER BY u.guest, u.name""")
     return [dict(r) for r in rows]
 
 
@@ -258,11 +258,12 @@ def session_user(token):
                       JOIN users u ON u.id = s.user_id WHERE s.token = ? AND u.pending = 0""", key)
     if not row or row["seen"] < time.time() - SESSION_DAYS * 86400:
         return None
-    if row["guest"] and row["created"] < time.time() - GUEST_HOURS * 3600:
+    if row["guest"] == 1 and row["created"] < time.time() - GUEST_HOURS * 3600:
         return None
     if time.time() - row["seen"] > 300:
         store.ex("UPDATE sessions SET seen = ? WHERE token = ?", int(time.time()), key)
-    return {"id": row["id"], "name": row["name"], "admin": bool(row["admin"]), "guest": bool(row["guest"]),
+    return {"id": row["id"], "name": row["name"], "admin": bool(row["admin"]) and not row["guest"], "guest": bool(row["guest"]),
+            "visitor": row["guest"] == 2,
             "adult": bool(row["adult"]) and not row["guest"] and not row["kids"], "kids": bool(row["kids"]),
             "avatar": _avatar(row), "pin": bool(row["pin"]), "prefs": _prefs(row["prefs"])}
 

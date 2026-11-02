@@ -498,6 +498,15 @@ body.has-bar footer { padding-bottom: 110px; }
 .qr { display: inline-block; padding: 12px; border-radius: 12px; background: #fff; line-height: 0; }
 .qr svg { width: 180px; height: 180px; }
 .guest-row { display: flex; flex-wrap: wrap; gap: 18px; align-items: center; }
+/* Sharing: the public library's titles, and what a Visitor (the share link) doesn't get */
+.share-title { display: grid; grid-template-columns: 44px 1fr auto; gap: 14px; align-items: center; }
+.share-poster { width: 44px; height: 64px; border-radius: 6px; overflow: hidden; background: rgba(var(--paper-rgb), .08); }
+.share-poster img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.addr .mini { margin-left: 8px; }
+.visitor .list-btn, .visitor .list-round, .visitor [data-download], .visitor .heart-btn, .visitor [data-forget],
+.visitor #castBtn, .visitor #whoAv { display: none !important; }
+.visitor .who-btn { cursor: default; }
+.pub-tag { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; padding: 3px 7px; margin-right: 8px; border-radius: 6px; background: var(--accent); color: var(--accent-ink, #111); vertical-align: 1px; }
 .auth-card .btn.ghost { margin-top: 10px; background: transparent; }
 
 @media (max-width: 860px) {
