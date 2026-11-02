@@ -1,7 +1,7 @@
 # Handoff
 
 For whoever picks this up next (a person, or a new Claude conversation). Read this first, then the
-plan you're continuing. Updated 2026-10-31.
+plan you're continuing. Updated 2026-11-02.
 
 ## Where things are
 
@@ -31,8 +31,9 @@ plan you're continuing. Updated 2026-10-31.
 
 Home screen with apps, store, browser + Sofa bar, Sofa Shield, Files, games, four themes, first-start
 steps, skull logo, themed boot screen; one Chromium steered over DevTools; tests incl. a real headless
-Chromium. Not yet: the card built with all of it confirmed on real hardware (the owner's Pi 3 B+), the
-browser's own list of open tabs, Comet Courier's address.
+Chromium. The card builds with all of it (report in sofa-box-os.md) and everything is merged into
+`main` (2026-11-02). Not yet: a first boot on the owner's Pi 3 B+, the browser's own list of open tabs,
+Comet Courier's address, a `box-v1` release (the owner publishes it on the website).
 
 ## What's in progress
 
