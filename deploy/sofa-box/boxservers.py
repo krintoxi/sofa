@@ -67,9 +67,8 @@ def identify(text, timeout=4):
         raise ValueError("That doesn't look like an address.")
     share = re.match(r"^/s/([\w-]{6,64})/?$", parts.path or "")
     bases = [origin(text)]
-    if not parts.port:                                   # no port: the usual ones too
-        bases += ["%s://%s:%d" % (parts.scheme if parts.scheme == "http" or _private(parts.hostname) else "http", parts.hostname, p)
-                  for p in (8090, 8096, 32400)]
+    if not parts.port and _private(parts.hostname):      # a computer at home with no port: the usual ones too
+        bases += ["http://%s:%d" % (parts.hostname, p) for p in (8090, 8096, 32400)]
     last = None
     for base in bases:
         try:
