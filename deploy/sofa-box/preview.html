@@ -82,7 +82,7 @@
   window.addEventListener("resize", fit); fit();
   document.getElementById("reload").onclick = function () { tv.contentWindow.location.reload(); };
   function post(url, body) {
-    return fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) })
+    return fetch(url, { method: "POST", headers: { "Content-Type": "application/json", "X-Sofa-Box": "1" }, body: JSON.stringify(body || {}) })
       .then(function (r) { return r.json(); });
   }
 

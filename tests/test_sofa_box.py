@@ -199,7 +199,7 @@ class Agent(unittest.TestCase):
     @classmethod
     def post(cls, path, body, base=None):
         req = urllib.request.Request((base or cls.base) + path, data=json.dumps(body).encode(),
-                                     headers={"Content-Type": "application/json", "X-Sofa": "1"})
+                                     headers={"Content-Type": "application/json", "X-Sofa": "1", "X-Sofa-Box": "1"})
         with cls.opener.open(req, timeout=40) as r:
             return json.loads(r.read() or b"{}")
 
@@ -262,10 +262,88 @@ class Agent(unittest.TestCase):
         saved = json.loads(self.get("/api/progress"))["m:heat:1995"]             # the place, saved in Sofa
         self.assertGreaterEqual(saved["t"], 40)
         self.assertFalse(saved["done"])
-        fetched = [json.loads(line) for line in read(self.log).splitlines() if '"fetched"' in line]
+        fetched = [json.loads(line) for line in read(self.log).splitlines() if '"status"' in line]
         self.assertTrue(fetched[0]["cookie"])                                    # mpv asked Sofa as the signed-in TV
         self.assertIn(fetched[0]["status"], (200, 206))
         self.assertTrue(fetched[0]["fetched"].startswith(self.sofa))             # straight to Sofa, not through the box
+
+    def test_a_player_that_cant_start_hands_back_to_the_page(self):
+        n = json.loads(self.get("/box/native/events"))["n"]
+        self.post("/box/native/play", {"item": "m:gone:2001", "url": self.base + "/media/m%3Agone%3A2001/file",
+                                       "start": 0, "offset": 0, "duration": 100, "title": "Gone"})
+        done = self.ended("m:gone:2001", n)
+        self.assertTrue(done[0].get("failed"))                                   # the page plays it itself
+        self.assertTrue(done[0].get("error"))
+
+    def raw(self, path, host, body=None, headers=None):
+        """A request to the agent as a page at `host` makes it."""
+        req = urllib.request.Request(self.base + path, data=None if body is None else json.dumps(body).encode(),
+                                     headers=dict({"Host": host, "Content-Type": "application/json"}, **(headers or {})))
+        try:
+            with urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect()).open(req, timeout=20) as r:
+                return r.status, dict(r.headers), r.read().decode("utf-8", "replace")
+        except urllib.error.HTTPError as e:
+            return e.code, dict(e.headers), e.read().decode("utf-8", "replace")
+
+    def test_each_server_at_its_own_address(self):
+        import importlib
+        sys.path.insert(0, BOX)
+        boxservers = importlib.import_module("boxservers")
+        st = json.loads(self.get("/box/api/sofa"))
+        mine = [x for x in st["servers"] if x["url"] == self.sofa]
+        self.assertTrue(mine)                                                    # the old setting, moved to the list
+        sid = mine[0]["id"]
+        self.assertEqual(sid, boxservers.server_id("sofa", self.sofa))
+        host = "%s.localhost:%d" % (sid, self.port)
+        status, _, page = self.raw("/", host)
+        self.assertEqual(status, 200)
+        self.assertIn('<script src="/box/native.js"></script>', page)           # Sofa, with the box's player
+        self.assertEqual(self.raw("/box/native.js", host)[0], 200)
+        self.assertEqual(self.raw("/box/api/apps", host)[0], 403)              # the box's own controls: not from there
+        self.assertEqual(self.raw("/box/api/action/reboot", host, {}, {"X-Sofa-Box": "1"})[0], 403)
+        self.assertEqual(self.raw("/", "evil.example:%d" % self.port)[0], 403)     # someone else's name for the box
+        self.assertEqual(self.raw("/", "nope.localhost:%d" % self.port)[0], 403)
+        home = "127.0.0.1:%d" % self.port
+        self.assertEqual(self.raw("/box/api/settings", home, {"quality": "720"})[0], 400)    # no other site can post here
+        status, _, body = self.raw("/box/api/sofa/add", home, {"url": self.sofa}, {"X-Sofa-Box": "1"})
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(body)["server"]["kind"], "sofa")
+        # playing from that address goes to that server
+        status, headers, _ = self.raw("/api/login", host, {"name": "boxtest", "password": "password123"}, {"X-Sofa": "1"})
+        self.assertEqual(status, 200)
+        cookie = headers["Set-Cookie"].split(";")[0]                            # the browser keeps it for that address
+        n = json.loads(self.get("/box/native/events"))["n"]
+        self.raw("/box/native/play", host, {"item": "m:heat:1995", "url": "http://%s/media/m%%3Aheat%%3A1995/file" % host,
+                                            "start": 0, "offset": 0, "duration": 100, "title": "Heat"}, {"X-Sofa-Box": "1", "Cookie": cookie})
+        self.wait_for(lambda st: st.get("t", 0) >= 1)
+        self.get("/box/native/key?k=back")
+        self.ended("m:heat:1995", n)
+        fetched = [json.loads(line) for line in read(self.log).splitlines() if '"fetched"' in line]
+        self.assertTrue(fetched[-1]["fetched"].startswith(self.sofa + "/media/"))
+
+    def test_a_share_link_through_the_box(self):
+        import importlib
+        sys.path.insert(0, BOX)
+        boxservers = importlib.import_module("boxservers")
+        from sofa import config as cfg, sharing
+        cfg.update({"share_on": True})
+        try:
+            sharing.set_shared("m:heat:1995", True)
+            entry = boxservers.identify(self.sofa + "/s/" + sharing.token())
+            self.assertEqual((entry["kind"], entry["start"]), ("sofa", "/s/" + sharing.token()))
+            self.assertTrue(entry["public"])
+            status, _, body = self.raw("/box/api/sofa/add", "127.0.0.1:%d" % self.port, {"url": self.sofa + "/s/" + sharing.token()},
+                                       {"X-Sofa-Box": "1"})
+            sid = json.loads(body)["server"]["id"]
+            status, headers, _ = self.raw("/s/%s?tv=1" % sharing.token(), "%s.localhost:%d" % (sid, self.port))
+            self.assertEqual(status, 302)
+            self.assertEqual(headers["Location"], "/?tv=1")                       # stays on the box, in TV mode
+            self.assertNotIn("Secure", headers["Set-Cookie"])
+            with self.assertRaises(ValueError):
+                boxservers.identify("http://127.0.0.1:1")                      # nothing there
+        finally:
+            cfg.update({"share_on": False})
+            sharing.set_shared("m:heat:1995", False)
 
     def test_two_pages_both_hear_it(self):
         n = json.loads(self.get("/box/native/events"))["n"]
@@ -380,7 +458,7 @@ class BoxOS(unittest.TestCase):
 
     @classmethod
     def post(cls, path, body):
-        req = urllib.request.Request(cls.base + path, data=json.dumps(body).encode(), headers={"Content-Type": "application/json"})
+        req = urllib.request.Request(cls.base + path, data=json.dumps(body).encode(), headers={"Content-Type": "application/json", "X-Sofa-Box": "1"})
         try:
             with cls.opener.open(req, timeout=20) as r:
                 return r.status, json.loads(r.read() or b"{}")
@@ -392,7 +470,7 @@ class BoxOS(unittest.TestCase):
 
     def test_apps_and_the_store(self):
         ids = self.ids()
-        self.assertEqual(ids[:6], ["sofa", "browser", "store", "games", "files", "settings"])      # the box's own first
+        self.assertEqual(ids[:7], ["sofa", "live", "browser", "store", "games", "files", "settings"])      # the box's own first
         self.assertIn("edge-music", ids)                                                         # ours, on a new box
         store = self.get("/box/api/store")
         self.assertTrue(any(e["id"] == "edge-music" and e["installed"] for s in store["sections"] for e in s["apps"]))
@@ -511,7 +589,7 @@ class BoxBrowser(unittest.TestCase):
             return json.loads(r.read())
 
     def post(self, path, body):
-        req = urllib.request.Request(self.base + path, data=json.dumps(body).encode(), headers={"Content-Type": "application/json"})
+        req = urllib.request.Request(self.base + path, data=json.dumps(body).encode(), headers={"Content-Type": "application/json", "X-Sofa-Box": "1"})
         with self.opener.open(req, timeout=30) as r:
             return json.loads(r.read())
 
@@ -567,3 +645,8 @@ assert tests.ROOT
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs):
+        return None

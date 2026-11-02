@@ -199,8 +199,9 @@ class Handler(BaseHTTPRequestHandler):
             return self.private_page("This link doesn't work any more. Ask whoever sent it for a new one.", 404)
         user = sharing.visitor_user()
         token = auth.start_session(user["id"], self.client_ip(), self.headers.get("User-Agent"), label="Visitor")
+        query = urlsplit(self.path).query                # ?tv=1 and the like carry on
         self.send_response(302)
-        self.send_header("Location", "/")
+        self.send_header("Location", "/" + ("?" + query if re.match(r"^[\w=&.-]*$", query) and query else ""))
         self.send_header("Set-Cookie", self.session_cookie(token, sharing.SESSION_DAYS * 86400))
         self.send_header("Content-Length", "0")
         self.end_headers()
