@@ -224,8 +224,19 @@ def ssdp():
     return hits
 
 
+looking = {"until": time.time() + 120}             # look often just after starting, and while the chooser is open
+
+
+def playing():
+    """A video in the box's player: background work waits (the Pi's power is for the picture)."""
+    return bool(player.proc and player.proc.poll() is None)
+
+
 def look():
     while True:
+        if playing():
+            time.sleep(15)
+            continue
         last = settings()["server"]
         if last:
             add(last)
@@ -243,7 +254,7 @@ def look():
                     state["chosen"] = next(iter(found))
         if state["chosen"] and state["chosen"] != last:
             save_settings(server=state["chosen"])
-        time.sleep(4 if not state["chosen"] else 30)
+        time.sleep(4 if time.time() < looking["until"] else 60)
 
 
 def server():
@@ -577,8 +588,10 @@ class LocalSofa:
             if not (self.proc and self.proc.poll() is None):
                 self._config()
                 log = open(os.path.join(self.data, "sofa.log"), "ab")
-                self.proc = subprocess.Popen([sys.executable, os.path.join(code, "sofa.py"), "serve"], cwd=code, stdin=subprocess.DEVNULL,
-                                             stdout=log, stderr=subprocess.STDOUT, env=dict(os.environ, SOFA_DATA=self.data))
+                ionice = ["ionice", "-c", "3"] if shutil_which("ionice") else []       # behind the app in front, always
+                self.proc = subprocess.Popen(ionice + [sys.executable, os.path.join(code, "sofa.py"), "serve"], cwd=code, stdin=subprocess.DEVNULL,
+                                             stdout=log, stderr=subprocess.STDOUT, env=dict(os.environ, SOFA_DATA=self.data),
+                                             preexec_fn=lambda: os.nice(10))
         end = time.time() + wait
         while time.time() < end:
             if self.answering():
@@ -773,7 +786,7 @@ def watch_devices():
             known = names
         except Exception:
             pass
-        time.sleep(3)
+        time.sleep(15 if playing() else 4)
 
 
 # ---------------------------------------------------------------- Bluetooth, Wi-Fi and the phone remote (setting the box up)
@@ -802,6 +815,9 @@ class Bluetooth:
         run(["bluetoothctl", "power", "on"], 10)
         scan = None
         while time.time() < self.until:
+            if playing():                                 # not while a video plays
+                time.sleep(3)
+                continue
             if not scan or scan.poll() is not None:     # discovery lasts as long as this asks for it
                 try:
                     scan = subprocess.Popen(["bluetoothctl", "--timeout", "30", "scan", "on"], stdout=subprocess.DEVNULL,
@@ -1491,6 +1507,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/box/api/sofa/continue":                # Home's "Continue watching"
             return self.send(json.dumps(sofa_continue()))
         if path == "/box/api/sofa":                         # the chooser: servers added, found, free, others
+            looking["until"] = time.time() + 60
             return self.send(json.dumps(sofa_listing()))
         if path == "/box/api/sofa/scan":                    # look again (Jellyfin, Emby, Plex too)
             scan_others()
@@ -1588,6 +1605,11 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(json.dumps(open_app(data.get("id"), data.get("url"), data.get("hash"))))
         if path == "/box/api/home":
             return self.send(json.dumps({"ok": True, "home": go_home()}))
+        if path == "/box/api/front":                       # Home's "Open now": that very tab back in front
+            if browser and browser.connected() and str(data.get("target") or "") in browser.tabs:
+                browser.activate(str(data["target"]))
+                return self.send('{"ok":true}')
+            raise ValueError("That isn't open any more.")
         if path == "/box/api/close":
             if browser and browser.connected() and data.get("target"):
                 browser.close(str(data["target"]))

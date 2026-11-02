@@ -290,6 +290,24 @@ Share/Create and PS). A USB cable works without pairing.
 
 ## Good to know
 
+**Made for small boards.** The box runs well on a Raspberry Pi 3 B+ (1 GB). Whatever's on the TV gets
+the box first:
+
+- **Apps behind the one in front are frozen**, so they use no processor. Anything playing music keeps
+  playing. Sofa stays awake to hear your phone's **Play on**.
+- On 1 GB, two apps stay open besides Home; opening a third closes the oldest one that isn't playing.
+- **The screen, the remotes and the video player come first** for the processor and the card. The
+  box's own background jobs (finding servers, USB drives, Bluetooth) slow down or wait while a video
+  plays. Sofa on the box runs at the lowest priority.
+- **The system is kept quiet:**
+  - no maintenance jobs while you watch;
+  - logs kept in memory, not written to the card;
+  - swap is compressed memory, never the card;
+  - the processor speeds up as soon as you press something.
+- **On a Pi 3, the home screen keeps its look** without the effects that are slow to draw (big glows
+  and soft shadows). The browser keeps its cache in memory and fetches nothing in the background.
+
+
 - **Picture cut off at the edges?** That's the TV zooming in (overscan). On a Panasonic, turn
   **16:9 Overscan** off (Menu → Picture → Screen Settings); other TVs call it "Just Scan",
   "Screen Fit" or "Full Pixel".

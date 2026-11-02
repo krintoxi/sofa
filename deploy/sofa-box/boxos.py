@@ -20,7 +20,18 @@ import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DEVTOOLS_PORT = int(os.environ.get("SOFA_BOX_DEVTOOLS", "9222"))
-MAX_APP_TABS = 4                       # a 1 GB Pi: older tabs that aren't playing close
+def memory_mb():
+    try:
+        with open("/proc/meminfo") as f:
+            return int(re.search(r"MemTotal:\s+(\d+)", f.read()).group(1)) // 1024
+    except (OSError, AttributeError):
+        return 4096
+
+
+# Apps open at once (besides Home): older ones that aren't playing close. 1 GB or less (a Pi 3): two.
+MAX_APP_TABS = int(os.environ.get("SOFA_BOX_MAX_TABS") or (2 if memory_mb() <= 1100 else 4))
+KEEP_AWAKE = ("sofa",)                 # never frozen: Sofa listens for the phone's "Play on"
+PLAYING_JS = "Array.from(document.querySelectorAll('video,audio')).some(m => !m.paused && !m.muted && m.volume > 0)"
 _opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 _web = urllib.request.build_opener()  # sites on the internet (the system's proxy settings apply)
 UA = "Mozilla/5.0 (X11; Linux aarch64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36 SofaBox/1"
@@ -800,10 +811,34 @@ class Browser:
         return max(found, key=lambda x: x[1]["used"])[0] if found else None
 
     def activate(self, target):
+        tab = self.tabs.get(target) or {}
+        if tab.get("frozen") and tab.get("session"):     # back in front: running again before it shows
+            try:
+                self.call("Page.setWebLifecycleState", {"state": "active"}, tab["session"])
+            except OSError:
+                pass
+            tab["frozen"] = False
         self.call("Target.activateTarget", {"targetId": target})
         self.front = target
         if target in self.tabs:
             self.tabs[target]["used"] = time.time()
+        threading.Thread(target=self.settle, args=(target,), daemon=True).start()
+
+    def settle(self, front):
+        """The app in front gets the box: the others are frozen (no scripts, timers or drawing) unless they're
+        playing something you can hear, so music carries on. Home and the others wake up when they're opened."""
+        time.sleep(1.5)                                  # let the one in front start first
+        for t, tab in list(self.tabs.items()):
+            if t == front or tab.get("frozen") or not tab.get("session") or tab.get("app") in KEEP_AWAKE:
+                continue
+            try:
+                playing = (self.call("Runtime.evaluate", {"expression": PLAYING_JS, "returnByValue": True}, tab["session"], timeout=3)
+                           .get("result", {}).get("value"))
+                if not playing and getattr(self, "front", None) != t:
+                    self.call("Page.setWebLifecycleState", {"state": "frozen"}, tab["session"], timeout=3)
+                    tab["frozen"] = True
+            except OSError:
+                pass
 
     def front_app(self):
         """The app whose tab was last brought forward."""
@@ -888,7 +923,7 @@ class Browser:
 
     def running(self):
         return [{"target": t, "app": tab.get("app"), "title": tab.get("title", ""), "url": tab.get("url", ""),
-                 "used": tab.get("used")} for t, tab in self.tabs.items() if tab.get("app") not in ("home", None)]
+                 "used": tab.get("used"), "frozen": bool(tab.get("frozen"))} for t, tab in self.tabs.items() if tab.get("app") not in ("home", None)]
 
     def _make_room(self):
         apps = sorted((tab["used"], t) for t, tab in self.tabs.items() if tab.get("app") not in ("home", None))

@@ -561,7 +561,7 @@
     if (cur) cur.classList.remove("f");
     cur = el; el.classList.add("f");
     if (el.tagName === "INPUT") el.focus(); else { if (document.activeElement && document.activeElement.tagName === "INPUT") document.activeElement.blur(); el.focus({ preventScroll: true }); }
-    el.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "smooth" });
+    el.scrollIntoView({ block: "nearest", inline: "nearest", behavior: document.documentElement.classList.contains("lite") ? "auto" : "smooth" });
     if (el.dataset.store) storeDetail(el.dataset.store);
   }
   function move(dx, dy) {
@@ -621,7 +621,7 @@
       if (d.app) { const a = data.apps.find(x => x.id === d.app) || { id: d.app, kind: "web" }; openApp(a); }
       else if (d.go) location.hash = d.go;
       else if (d.sofaHash) open({ id: "sofa", hash: d.sofaHash });
-      else if (d.target) open({ id: (data.running.find(r => r.target === d.target) || {}).app || "browser" });
+      else if (d.target) await api("/box/api/front", { target: d.target }).catch(() => open({ id: (data.running.find(r => r.target === d.target) || {}).app || "browser" }));
       else if (d.url) open({ url: d.url });
       else if (d.game) open({ url: location.origin + "/box/games/" + d.game + "/" });
       else if (d.store) { const e2 = storeData.sections.flatMap(s => s.apps).find(x => x.id === d.store);

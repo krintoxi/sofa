@@ -105,7 +105,7 @@ chroot "$ROOT" /bin/sh -c '
   dpkg-query -W -f="\${Package} \${Version}\n" cage chromium mpv plymouth plymouth-label python3 python3-pil python3-evdev \
     pipewire-pulse network-manager systemd-zram-generator zram-tools udisks2 ffmpeg eject libdvdnav4 libbluray2 2>/dev/null | sed "s/^/  /"
   echo "Sofa on the box (This box): $(cat /usr/local/lib/sofa-box/sofa-server/sofa/__init__.py 2>/dev/null | grep -o "__version__ = .*" || echo missing)"
-  echo "Services: $(for s in sofa-box sofa-box-agent sofa-box-input sofa-box-cec; do printf "%s=%s " $s "$(systemctl is-enabled $s 2>/dev/null)"; done)"
+  echo "Services: $(for s in sofa-box sofa-box-agent sofa-box-input sofa-box-cec sofa-box-tune; do printf "%s=%s " $s "$(systemctl is-enabled $s 2>/dev/null)"; done)"
   echo "Starts into: $(systemctl get-default)"
   echo "Boot screen: $(plymouth-set-default-theme 2>/dev/null)  initramfs: $(ls /boot/firmware/initramfs* 2>/dev/null | xargs -n1 basename 2>/dev/null | tr "\n" " ")"
   echo "Users: $(getent passwd 1000 | cut -d: -f1) (uid 1000), sofabox ($(id -nG sofabox | tr " " ","))"
