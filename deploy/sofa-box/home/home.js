@@ -20,7 +20,8 @@
     return j;
   }
   let toastTimer = 0;
-  function toast(text) { const t = $("#toast"); t.textContent = text; t.classList.add("on"); clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("on"), 2800); }
+  function toast(text, ms) { const t = $("#toast"); t.textContent = text; t.classList.add("on"); clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("on"), ms || 2800); }
+  const untoast = () => { clearTimeout(toastTimer); $("#toast").classList.remove("on"); };
   const icon = (id, cls) => `<svg${cls ? ` class="${cls}"` : ""}><use href="${id === "#mark" ? "#m-" + (document.documentElement.dataset.theme || "street") : id}"/></svg>`;
 
   // ---------------------------------------------------------------- the look
@@ -79,11 +80,15 @@
     } catch (e) { toast(e.message); }
   }
   async function openSofa(body) {
+    // Sofa on this box starts the first time it's opened (up to a minute on a small board): say so, not a still screen
+    let waited = false;
+    const slow = setTimeout(() => { waited = true; toast("Starting Sofa… the first time takes up to a minute.", 60000); }, 1200);
     try {
       const r = await api("/box/api/sofa/open", body || {});
+      clearTimeout(slow); if (waited) untoast();
       if (r.ask) { location.hash = "#/sofa" + (body && body.hash ? "?then=" + encodeURIComponent(body.hash) : ""); return; }
       if (r.url) window.open(r.url, "_blank");
-    } catch (e) { toast(e.message); }
+    } catch (e) { clearTimeout(slow); toast(e.message); }
   }
   const openApp = (app, hash) => {
     if (app.id === "sofa") return openSofa(hash ? { hash } : {});
@@ -373,10 +378,10 @@
         <button class="mini" data-hide="${esc(a.id)}">${a.hidden ? "Show" : "Hide"}</button>${a.kind === "web" ? `<button class="mini" data-remove="${esc(a.id)}">Remove</button>` : ""}</li>`).join("")}</ul></div></section>
       <section class="card"><h3>About this box</h3><dl class="facts"><dt>Model</dt><dd>${esc(b.model)}</dd><dt>Memory</dt><dd>${b.memory ? Math.round(b.memory / 1048576) + " MB" : "?"}</dd>
         <dt>Picture</dt><dd>${b.board && b.board.tv_height ? "TV at " + b.board.tv_height + "p · " : ""}videos up to ${b.max_height}p${b.max_height >= 2160 ? " (4K)" : ""}</dd>
-        <dt>Temperature</dt><dd>${b.temperature != null ? b.temperature + " °C" : "?"}</dd><dt>Version</dt><dd>${esc(b.version)}</dd></dl>
+        <dt>Temperature</dt><dd>${b.temperature != null ? b.temperature + " °C" : "?"}</dd><dt>Software</dt><dd>Sofa Box OS ${esc(b.version)}</dd></dl>
         <div class="choices" style="margin-top:1rem"><button class="btn" data-action="restart">Restart Sofa Box</button><button class="btn" data-action="reboot">Restart the box</button>
         <button class="btn" data-go="#/welcome">Setup steps again</button></div></section>
-      <section class="card"><h3>Software</h3><p>The newest Sofa Box comes from GitHub; the box restarts by itself when it's done. <b>Reset</b> puts it back to how it came:
+      <section class="card"><h3>Software</h3><p>This is <b>Sofa Box OS ${esc(b.version)}</b>. The newest one comes from GitHub; the box restarts by itself when it's done. <b>Reset</b> puts it back to how it came:
         your apps, sign-ins, Wi-Fi, Bluetooth devices and the files in Downloads, Videos, Music and Pictures go, and it starts at the setup steps (for a new owner, or a fresh start).</p>
         <div class="choices"><button class="btn" data-action="update">Update the box</button><button class="btn danger" data-action="factory-reset">Reset to how it came</button></div></section></div>`;
   }

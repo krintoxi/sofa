@@ -42,7 +42,19 @@ CONF_DIR = os.environ.get("SOFA_BOX_CONF") or os.path.expanduser("~/.config/sofa
 SETTINGS = os.path.join(CONF_DIR, "settings.json")
 OLD_SAVED = os.path.join(CONF_DIR, "server")                # from the first Sofa box
 SOFA_ST = "urn:sofa-media:device:Sofa:1"
-VERSION = "2"
+VERSION = "2"                                               # what the box offers Sofa's pages (window.SofaBox)
+
+
+def os_version():
+    """Sofa Box OS's version (deploy/sofa-box/VERSION), like 1.0.0; the GitHub release with the card has the same."""
+    try:
+        with open(os.path.join(HERE, "VERSION")) as f:
+            return f.read().strip() or "?"
+    except OSError:
+        return "?"
+
+
+OS_VERSION = os_version()
 DEFAULTS = {"server": None, "quality": "auto", "hwdec": "auto", "audio": "auto", "learned_720": False, "performance": "auto",
             "mpv_args": [], "theme": "street", "boot_text": "", "shield": True, "welcomed": False}
 THEMES = ("street", "terminal", "pirate", "sofa", "midnight", "cinema", "ocean", "forest", "grape", "oled")
@@ -919,6 +931,7 @@ class Network:
 
     def __init__(self):
         self.hotspot, self.cached, self.lock = None, [], threading.Lock()
+        self.used = 0                                        # when a phone on the hotspot last did something
 
     @staticmethod
     def wifi_device():
@@ -966,7 +979,7 @@ class Network:
         ssid, password = "Sofa Box " + tail, "%08d" % (int.from_bytes(os.urandom(4), "big") % 10 ** 8)
         code, out = run(["nmcli", "device", "wifi", "hotspot", "ifname", dev, "con-name", self.CON, "ssid", ssid, "password", password], 30)
         if code == 0:
-            self.hotspot = {"ssid": ssid, "password": password, "address": "10.42.0.1",
+            self.hotspot = {"ssid": ssid, "password": password, "address": "10.42.0.1", "at": time.time(),
                             "wifi_qr": "WIFI:T:WPA;S:%s;P:%s;;" % (ssid.replace(";", r"\;"), password)}
             toast("No internet yet: the box made its own Wi-Fi, %s, for your phone." % ssid)
         return self.hotspot
@@ -986,21 +999,50 @@ class Network:
         return {"ok": code == 0, "message": "Connected to %s." % ssid if code == 0 else
                 ("The password isn't right." if re.search(r"secrets|password|802-11-wireless-security", out, re.I) else out[-200:])}
 
+    def saved(self):
+        """The Wi-Fi networks the box knows (it joins them by itself when they're back)."""
+        code, out = run(["nmcli", "-t", "-f", "NAME,TYPE", "connection", "show"], 10)
+        return [line.rsplit(":", 1)[0] for line in out.splitlines()
+                if code == 0 and line.endswith(":802-11-wireless") and line.rsplit(":", 1)[0] != self.CON]
+
+    def wait_for(self):
+        """How long the box waits, offline, before it makes its own Wi-Fi.
+        A new box (at its setup, perhaps with nothing but a phone): soon. A box that knows a Wi-Fi: the router may only be
+        restarting, and a hotspot would keep the box off it, so a few minutes. Otherwise a minute, for a slow router."""
+        if os.environ.get("SOFA_BOX_HOTSPOT_AFTER"):
+            return int(os.environ["SOFA_BOX_HOTSPOT_AFTER"])
+        if not settings()["welcomed"]:
+            return 15
+        return 180 if self.saved() else 50
+
+    def tick(self, offline_since, now):
+        """One look at the network (every 10 seconds); gives back since when the box has been offline."""
+        address = local_address()
+        if address and address != "10.42.0.1":
+            if self.hotspot and self.wired():
+                self.stop_hotspot()
+            return None
+        if self.hotspot:
+            quiet = now - max(self.hotspot.get("at", 0), self.used)
+            if settings()["welcomed"] and quiet > 600 and self.saved():
+                self.stop_hotspot()                          # back to the home Wi-Fi, if it's there now
+                return now
+            return offline_since
+        offline_since = now if offline_since is None else offline_since
+        if now - offline_since >= self.wait_for() and not settings().get("no_hotspot"):
+            self.start_hotspot()
+        return offline_since
+
     def watch(self):
-        """No cable, no Wi-Fi a minute after starting: the hotspot. A network again: the hotspot goes."""
-        # a new box (at its setup, perhaps with nothing but a phone): its own Wi-Fi soon; later on, a slow router gets time
-        time.sleep(int(os.environ.get("SOFA_BOX_HOTSPOT_AFTER") or (15 if not settings()["welcomed"] else 50)))
+        """No cable, no Wi-Fi for a while: the hotspot. A network again: the hotspot goes. A box that knows a Wi-Fi
+        doesn't stay on its own for ever: after ten quiet minutes it looks for its Wi-Fi again."""
+        offline_since = time.time()
         while True:
             try:
-                online = bool(local_address()) and local_address() != "10.42.0.1"
-                if not online and not self.hotspot and not settings().get("no_hotspot"):
-                    self.start_hotspot()
-                elif online and self.hotspot and self.wired():
-                    self.stop_hotspot()
+                offline_since = self.tick(offline_since, time.time())
             except Exception:
                 pass
-            time.sleep(20)
-
+            time.sleep(10)
 
 def local_mac(dev):
     try:
@@ -1233,7 +1275,7 @@ def box_info():
             mem = int(re.search(r"MemTotal:\s+(\d+)", f.read()).group(1)) * 1024
     except (OSError, AttributeError):
         mem = None
-    return {"version": VERSION, "model": model() or "this computer", "memory": mem, "temperature": temp,
+    return {"version": OS_VERSION, "model": model() or "this computer", "memory": mem, "temperature": temp,
             "wifi": ssid or None, "address": local_address(), "server": server(), "server_name": (found.get(server()) or {}).get("name"),
             "settings": {k: s[k] for k in ("quality", "hwdec", "audio", "theme", "boot_text", "performance")},
             "choices": CHOICES, "learned_720": s["learned_720"],
@@ -1296,7 +1338,7 @@ def box_state():
     with _lock:
         return {"chosen": server(), "name": (found.get(server()) or {}).get("name"),
                 "found": [{"url": u, "name": v["name"]} for u, v in sorted(found.items())],
-                "playing": dict(p) if p else None, "address": local_address(), "version": VERSION}
+                "playing": dict(p) if p else None, "address": local_address(), "version": OS_VERSION}
 
 
 _modules = {}
@@ -1317,7 +1359,7 @@ def module(name):
 
 NATIVE_JS = r"""/* Sofa box: the TV pages get the box's own player (mpv), like Sofa's Fire TV app. */
 (function () {
-  window.SofaBox = { version: "%(version)s", slow: %(slow)s };
+  window.SofaBox = { version: "%(version)s", os: "%(os)s", slow: %(slow)s };
   var html = document.documentElement, onTop = false;
   if (window.SofaBox.slow) {             // a Pi 3: lighter effects, and the banner stays still unless asked
     html.classList.add("box-lite");
@@ -1368,7 +1410,7 @@ NATIVE_JS = r"""/* Sofa box: the TV pages get the box's own player (mpv), like S
 
 
 def native_js():
-    return NATIVE_JS % {"version": VERSION, "slow": "true" if light() else "false"}
+    return NATIVE_JS % {"version": VERSION, "os": OS_VERSION, "slow": "true" if light() else "false"}
 
 
 def finder_page():
@@ -1822,6 +1864,8 @@ class RemoteHandler(BaseHTTPRequestHandler):
     def route(self):
         if not self.home_network():
             return self.send("Phones at home only.", "text/plain; charset=utf-8", 403)
+        if self.client_address[0].startswith("10.42.0."):     # a phone on the box's own Wi-Fi: keep it on
+            network.used = time.time()
         path = urllib.parse.urlsplit(self.path).path
         m = re.match(r"^/r/(\d{4})$", path)
         if m:                                               # the QR code on the TV

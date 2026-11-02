@@ -25,9 +25,11 @@ Nothing about one box is shared with another:
 
 ## Preparing a box to sell
 
-1. Write the newest card (`sofa-box.img.xz` from the
-   [Sofa Box release](https://github.com/krintoxi/sofa/releases/tag/sofa-box)) to a good card
-   (32 GB, A1/A2).
+1. Write a numbered card, like `sofa-box-os-1.0.0.img.xz` from
+   [its Sofa Box OS release](https://github.com/krintoxi/sofa/releases?q=box-os), to a good card
+   (32 GB, A1/A2). A numbered one stays the same, so every box in a batch is alike and you know which
+   version a customer has (Settings → About this box). The
+   [newest card](https://github.com/krintoxi/sofa/releases/tag/sofa-box) changes with every fix.
 2. Boot it once on a TV, and check it reaches the setup. If you set anything up to test it, use
    Settings → Software → **Reset to how it came**. The reset also restarts it into the setup.
 3. Switch it off at the setup screen, and box it.

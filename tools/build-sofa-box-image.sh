@@ -29,6 +29,8 @@ for t in curl xz parted losetup resize2fs e2fsck sha256sum chroot; do
   command -v "$t" >/dev/null || { echo "Needs $t (apt install curl xz-utils parted e2fsprogs)."; exit 1; }
 done
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
+VER="$(tr -d ' \n' < "$REPO/deploy/sofa-box/VERSION" 2>/dev/null || true)"   # Sofa Box OS's version, like 1.0.0
+VER="${VER:-0.0.0}"
 mkdir -p "$OUT"
 OUT="$(cd "$OUT" && pwd)"
 WORK="$(mktemp -d)"
@@ -101,6 +103,7 @@ chroot "$ROOT" /bin/sh -eu -c "
 echo "== What's on the card"
 REPORT="$WORK/report.txt"
 chroot "$ROOT" /bin/sh -c '
+  echo "Sofa Box OS: $(cat /usr/local/lib/sofa-box/VERSION 2>/dev/null || echo missing)"
   echo "Raspberry Pi OS: $(. /etc/os-release; echo "$PRETTY_NAME")"
   dpkg-query -W -f="\${Package} \${Version}\n" cage chromium mpv plymouth plymouth-label python3 python3-pil python3-evdev \
     pipewire-pulse network-manager systemd-zram-generator zram-tools udisks2 ffmpeg eject libdvdnav4 libbluray2 2>/dev/null | sed "s/^/  /"
@@ -118,13 +121,13 @@ chroot "$ROOT" /bin/sh -c '
 cat "$REPORT"
 rm -f "$ROOT/usr/sbin/policy-rc.d" "$ROOT/usr/bin/qemu-aarch64-static"
 cat > "$ROOT/boot/firmware/sofa-box.txt" <<EOF
-Sofa box card, made $(date -u +%Y-%m-%d) from $(basename "${FINAL:-$SRC}").
+Sofa Box OS $VER card, made $(date -u +%Y-%m-%d) from $(basename "${FINAL:-$SRC}").
 Sofa: ${SOFA:-found on the home network by itself}
 Check it over SSH: sofa-box doctor
 EOF
 sync
 
-NAME="sofa-box-$(date -u +%Y-%m-%d)"
+NAME="sofa-box-os-$VER"
 echo "== Packing $NAME.img.xz"
 cleanup_mounts() {
   for m in run sys proc dev/pts dev boot/firmware; do umount "$ROOT/$m"; done

@@ -4,6 +4,9 @@ Your own TV box, in place of a Fire TV: a Raspberry Pi on the TV that starts on 
 with Sofa, free Live TV, your streaming apps, a browser, an app store, games and a file manager. No
 ads, no account, and nothing watching what you watch; the TV itself never needs to be online.
 
+**[⬇ Download Sofa Box OS](https://github.com/krintoxi/sofa/releases/tag/sofa-box)** (the newest card) ·
+[Every version](https://github.com/krintoxi/sofa/releases?q=box-os) · [What's new](CHANGES.md)
+
 <img src="../../docs/images/box-home.jpg" alt="The Sofa Box home screen: Open Sofa and Live TV, your apps, and a Watch row with Sofa, Live TV, Netflix and YouTube" width="100%">
 
 - **Sofa from anywhere:** a Sofa computer at home, a Sofa on the internet (a share link someone sent
@@ -42,8 +45,9 @@ ads, no account, and nothing watching what you watch; the TV itself never needs 
 ## Setting it up: the ready-made card (easiest)
 
 1. Download **`sofa-box.img.xz`** from the
-   [Sofa Box release](https://github.com/krintoxi/sofa/releases/tag/sofa-box) (it's always the newest
-   card: GitHub makes it every time the box changes).
+   [newest card](https://github.com/krintoxi/sofa/releases/tag/sofa-box), under **Assets**. GitHub
+   makes it again every time the box changes. Each version also has a release of its own that stays,
+   "Sofa Box OS 1.0.0" and so on ([every version](https://github.com/krintoxi/sofa/releases?q=box-os)).
 2. Install **Raspberry Pi Imager** (raspberrypi.com/software) on your computer and open it.
    Choose your Pi, then **Choose OS → Use custom** and pick the file, then your card.
 3. When it asks about **OS customisation**, you can press **Edit settings** to add your Wi-Fi, and
@@ -76,7 +80,7 @@ From then on the box starts on its home screen whenever it's switched on.
    connects), and its look.
 5. **Apps:** tick the streaming apps you use; they go on Home, ready to sign in.
 
-**No cable and no Wi-Fi yet?** After a minute, the box makes its own Wi-Fi, "Sofa Box 1234". The TV
+**No cable and no Wi-Fi yet?** After a few seconds, the box makes its own Wi-Fi, "Sofa Box 1234". The TV
 shows two QR codes:
 
 1. Scan the first to join the box's Wi-Fi.
@@ -84,6 +88,10 @@ shows two QR codes:
 
 Then give the box your home Wi-Fi from the phone's **Wi-Fi** tab. The box joins it, and your phone
 goes back to your own Wi-Fi.
+
+Later on, if the router is off for a while (a power cut, a restart), a box that knows your Wi-Fi waits
+for it to come back. Only after three minutes with no network does it make its own Wi-Fi again (handy
+if you've moved house), and after ten quiet minutes on it, it looks for your Wi-Fi again.
 
 ### The phone remote
 
@@ -247,7 +255,8 @@ games that run well on the box, worked with the arrows and OK (or a controller).
   headphones.
 - **Time zone**, and which apps show on Home.
 - **Software:**
-  - **Update the box** gets the newest version from GitHub and restarts by itself.
+  - Which **Sofa Box OS** version it has (also under **About this box**).
+  - **Update the box** gets the newest version from GitHub and restarts by itself (a few minutes).
   - **Reset to how it came** wipes everything of the owner's and starts at the setup again. Your
     apps, sign-ins, Wi-Fi, Bluetooth devices and files all go. Use it before giving or selling a box
     to someone.
@@ -364,3 +373,19 @@ sudo tools/build-sofa-box-image.sh out --sofa http://192.168.1.20:8090
 isn't Arm it needs `qemu-user-static`. The card has Raspberry Pi OS's own `pi` user for SSH (no
 password until Raspberry Pi Imager's settings give it a name and password) and `sofabox`, which runs
 Sofa on the TV. Each build writes a report of what's on the card next to it.
+
+### Versions
+
+Sofa Box OS has a version number of its own, in [`VERSION`](VERSION) (like `1.0.0`), with what's new in
+[`CHANGES.md`](CHANGES.md). The box shows it in Settings, and the card is named after it
+(`sofa-box-os-1.0.0.img.xz`).
+
+- Every change to the box merged into `main` makes a new **newest card**
+  ([releases/tag/sofa-box](https://github.com/krintoxi/sofa/releases/tag/sofa-box); its file is always
+  `sofa-box.img.xz`, so the link never changes).
+- The first time `main` has a new number, GitHub also makes the release **Sofa Box OS X.Y.Z** (tag
+  `box-os-vX.Y.Z`) with that card and its part of CHANGES.md, and keeps it.
+- So a new version is: raise the number in `VERSION` (1.0.1 for fixes, 1.1.0 for something new), add a
+  section at the top of `CHANGES.md`, merge.
+- Neither release is marked "Latest" on GitHub: that one stays the Fire TV app's, because Sofa
+  downloads the app from there.

@@ -159,6 +159,12 @@ The plan for the round that started 2026-11-02. Each part has a status: ☐ not 
   a box, everything it connects to, and what's left before selling.
 - Tests: the phone remote's pairing and access rules, the remote key translation, and the
   Bluetooth device sorting.
+- **Sofa Box OS versions:** `deploy/sofa-box/VERSION` and `CHANGES.md`; each new number becomes the
+  release "Sofa Box OS X.Y.Z" on GitHub, beside the always-newest `sofa-box` card. The README links
+  both at the top.
+- **Fixes found in a review:** Update and Reset no longer cut themselves off; after a router restart
+  the box waits for its Wi-Fi instead of switching to its own; "Starting Sofa…" while Sofa on the box
+  starts.
 
 ## Ideas for later
 
