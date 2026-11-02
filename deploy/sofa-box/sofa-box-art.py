@@ -163,6 +163,18 @@ def mark_for(c, size=300):
     return im
 
 
+def app_icon(settings, size=180):
+    """The phone remote's icon (a phone's Home Screen): the skull on the theme's background."""
+    c = Colors((settings or {}).get("theme"))
+    im = Image.new("RGB", (size, size), c.bg)
+    glow = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    ImageDraw.Draw(glow).ellipse((-size * .2, -size * .3, size * 1.2, size * 1.1), fill=c.accent + (40,))
+    im.paste(glow, (0, 0), glow)
+    mark = mark_for(c, int(size * .72))
+    im.paste(mark, ((size - mark.width) // 2, int(size * .16)), mark)
+    return im
+
+
 def word_for(c, size=112):
     """SOFA BOX in the theme's style."""
     f = mono(int(size * 0.92)) if c.theme == "terminal" else font(size, True, True)

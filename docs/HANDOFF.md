@@ -46,7 +46,12 @@ Comet Courier's address, a `box-v1` release (the owner publishes it on the websi
   - Server page fixes (`sofa/slow.py`) and a Restart button;
   - sound on previews;
   - the card on GitHub Releases (`sofa-box`), and the install command from GitHub;
-  - the phone → box mpv error (`--profile=fast` on Bookworm's mpv).
+  - the phone → box mpv error (`--profile=fast` on Bookworm's mpv);
+  - the box's setup with only a phone or a Fire TV remote: setup steps, the phone remote
+    (`remote.html`, port 8092), Bluetooth auto-pairing, its own Wi-Fi when offline, time zone,
+    Update and Reset.
+
+  The owner plans to **sell pre-built Sofa Boxes**: [sofa-box-product.md](sofa-box-product.md).
 
   The plan, the status of each part and what's left: [sofa-anywhere.md](sofa-anywhere.md).
 
