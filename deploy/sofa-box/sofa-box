@@ -8,6 +8,8 @@
 #   sofa-box tv-on             wake the TV and switch it to the box (HDMI-CEC)
 #   sofa-box desktop           go back to the desktop instead of Sofa (sudo; undo: sofa-box appliance)
 #   sofa-box shield on|off|update   Sofa Shield: ads and trackers kept out of the whole box (sudo)
+#   sofa-box update            the newest Sofa Box from GitHub (sudo)
+#   sofa-box factory-reset     back to how it came: apps, sign-ins, Wi-Fi, Bluetooth, files gone (sudo)
 #   sofa-box kiosk             the TV's screen (started by sofa-box.service; not by hand)
 set -e
 LIB=/usr/local/lib/sofa-box
@@ -237,7 +239,8 @@ case "${1:-}" in
   logs) # shellcheck disable=SC2046
     journalctl --no-pager -n 120 $(for s in $SERVICES; do printf ' -u %s' "$s"; done) ;;
   pair-controller) pair_controller ;;
-  choose) curl -fsS -m 5 -X POST $AGENT/box/api/action/choose >/dev/null && echo "Pick your Sofa on the TV." ;;
+  choose) curl -fsS -m 5 -X POST -H "X-Sofa-Box: 1" -H "Content-Type: application/json" -d '{"to":"sofa"}' $AGENT/box/api/sofa/chooser >/dev/null \
+            && echo "Pick your Sofa on the TV." ;;
   tv-on)
     DEV="$(ls /dev/cec* 2>/dev/null | head -n 1)"
     [ -n "$DEV" ] || { echo "No HDMI-CEC here."; exit 1; }
@@ -257,5 +260,23 @@ case "${1:-}" in
     for dm in lightdm gdm3 sddm; do systemctl disable --now "$dm" 2>/dev/null || true; done
     systemctl enable --now sofa-box
     echo "Sofa is on the TV again, at every start." ;;
-  *) sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+  timezone)                  # (root) the box's time zone, from the setup screen or a phone
+    echo "${2:-}" | grep -Eq '^[A-Za-z]+(/[A-Za-z0-9_+-]+){1,2}$' || { echo "Which time zone? (like Europe/London)"; exit 1; }
+    timedatectl set-timezone "$2" ;;
+  update)                    # (root) the newest box from GitHub; the installer restarts what changed
+    curl -fsSL "https://raw.githubusercontent.com/krintoxi/sofa/${SOFA_BOX_BRANCH:-main}/deploy/sofa-box/install.sh" | sh ;;
+  factory-reset)             # (root) everything of the owner's goes; the box starts at its setup screen
+    WHO="$(systemctl show -p User --value sofa-box-agent 2>/dev/null)"
+    [ -n "$WHO" ] || { echo "The box's user isn't known."; exit 1; }
+    HOMEDIR="$(getent passwd "$WHO" | cut -d: -f6)"
+    systemctl stop sofa-box sofa-box-agent 2>/dev/null || true
+    rm -rf "$HOMEDIR/.config/sofa-box" "$HOMEDIR/.local/share/sofa-box" "$HOMEDIR/.cache/chromium"
+    for d in Downloads Videos Music Pictures; do [ -d "$HOMEDIR/$d" ] && find "$HOMEDIR/$d" -mindepth 1 -delete; done
+    nmcli -t -f NAME,TYPE connection show 2>/dev/null | while IFS=: read -r name type; do
+      [ "$type" = 802-11-wireless ] && nmcli connection delete "$name" >/dev/null 2>&1 || true
+    done
+    bluetoothctl devices Paired 2>/dev/null | awk '{print $2}' | while read -r mac; do bluetoothctl remove "$mac" >/dev/null 2>&1 || true; done
+    echo "Back to how it came. Starting again…"
+    systemctl reboot ;;
+  *) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
 esac

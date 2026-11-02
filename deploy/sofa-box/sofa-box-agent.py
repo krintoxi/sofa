@@ -776,6 +776,328 @@ def watch_devices():
         time.sleep(3)
 
 
+# ---------------------------------------------------------------- Bluetooth, Wi-Fi and the phone remote (setting the box up)
+
+class Bluetooth:
+    """Looks for Bluetooth devices while the setup or Settings page asks it to, and during the first start
+    pairs any remote, controller, keyboard or mouse that's in pairing mode by itself (with nothing to press
+    "Pair" with yet, a Fire TV remote held on Home is all it takes)."""
+
+    def __init__(self):
+        self.until = self.autopair_until = 0
+        self.devices, self.state = [], {}               # mac -> "pairing" | "paired" | "failed"
+        self.lock, self.thread = threading.Lock(), None
+
+    def want(self, seconds=30, autopair=False):
+        now = time.time()
+        self.until = max(self.until, now + seconds)
+        if autopair:
+            self.autopair_until = max(self.autopair_until, now + seconds)
+        with self.lock:
+            if not (self.thread and self.thread.is_alive()):
+                self.thread = threading.Thread(target=self._loop, daemon=True, name="bluetooth")
+                self.thread.start()
+
+    def _loop(self):
+        run(["bluetoothctl", "power", "on"], 10)
+        scan = None
+        while time.time() < self.until:
+            if not scan or scan.poll() is not None:     # discovery lasts as long as this asks for it
+                try:
+                    scan = subprocess.Popen(["bluetoothctl", "--timeout", "30", "scan", "on"], stdout=subprocess.DEVNULL,
+                                            stderr=subprocess.DEVNULL)
+                except OSError:
+                    return
+            self.devices = boxos.bt_devices()
+            if time.time() < self.autopair_until:
+                for d in self.devices:
+                    if d["kind"] in ("remote", "controller", "keyboard", "mouse") and not d["paired"] and d["mac"] not in self.state:
+                        self.pair(d["mac"])
+            time.sleep(2)
+        if scan and scan.poll() is None:
+            scan.terminate()
+
+    def pair(self, mac):
+        self.state[mac] = "pairing"
+
+        def go():
+            ok, _ = boxos.bt_pair(mac)
+            self.state[mac] = "paired" if ok else "failed"
+            name = next((d["name"] for d in self.devices if d["mac"] == mac), "It")
+            toast("%s is paired." % name if ok else "%s didn't pair. Put it in pairing mode and try again." % name)
+            self.devices = boxos.bt_devices()
+        threading.Thread(target=go, daemon=True).start()
+
+    def listing(self):
+        shown = [dict(d, state=self.state.get(d["mac"])) for d in self.devices if d["kind"] != "other" or d["paired"]]
+        return {"scanning": time.time() < self.until, "autopair": time.time() < self.autopair_until,
+                "devices": sorted(shown, key=lambda d: (not d["paired"], not d["connected"], -(d["rssi"] or -999)))}
+
+
+class Network:
+    """The box's network: a cable, Wi-Fi, or with neither (a new box), a Wi-Fi hotspot of its own, so a phone
+    can join it, work the box and give it the home Wi-Fi."""
+    CON = "sofa-box-setup"
+
+    def __init__(self):
+        self.hotspot, self.cached, self.lock = None, [], threading.Lock()
+
+    @staticmethod
+    def wifi_device():
+        code, out = run(["nmcli", "-t", "-f", "DEVICE,TYPE", "device"], 10)
+        return next((line.split(":")[0] for line in out.splitlines() if code == 0 and line.endswith(":wifi")), None)
+
+    @staticmethod
+    def wired():
+        try:
+            for d in os.listdir("/sys/class/net"):
+                if d.startswith(("eth", "en")):
+                    with open("/sys/class/net/%s/operstate" % d) as f:
+                        if f.read().strip() == "up":
+                            return True
+        except OSError:
+            pass
+        return False
+
+    def scan(self):
+        code, out = run(["nmcli", "-t", "-f", "SSID,SIGNAL,SECURITY,IN-USE", "device", "wifi", "list", "--rescan", "yes"], 25)
+        if code != 0:
+            return {"ok": False, "networks": self.cached, "message": "Wi-Fi from here needs NetworkManager (Raspberry Pi OS has it)."
+                    if "No such file" in out or "not found" in out else out[-200:]}
+        nets = {}
+        for line in out.splitlines():
+            parts = re.split(r"(?<!\\):", line)
+            if len(parts) >= 3 and parts[0] and parts[0] != self.hotspot_ssid():
+                ssid = parts[0].replace("\\:", ":")
+                if ssid not in nets or int(parts[1] or 0) > nets[ssid]["signal"]:
+                    nets[ssid] = {"ssid": ssid, "signal": int(parts[1] or 0), "secure": bool(parts[2]), "on": len(parts) > 3 and parts[3] == "*"}
+        if nets:
+            self.cached = sorted(nets.values(), key=lambda n: -n["signal"])
+        return {"ok": True, "networks": self.cached}
+
+    def hotspot_ssid(self):
+        return self.hotspot and self.hotspot["ssid"]
+
+    def start_hotspot(self):
+        dev = self.wifi_device()
+        if not dev or self.hotspot:
+            return self.hotspot
+        if not self.cached:
+            self.scan()                                      # while it still can: a hotspot can't look around
+        tail = (re.sub(r"[^0-9]", "", local_mac(dev)) or str(os.getpid()))[-4:]
+        ssid, password = "Sofa Box " + tail, "%08d" % (int.from_bytes(os.urandom(4), "big") % 10 ** 8)
+        code, out = run(["nmcli", "device", "wifi", "hotspot", "ifname", dev, "con-name", self.CON, "ssid", ssid, "password", password], 30)
+        if code == 0:
+            self.hotspot = {"ssid": ssid, "password": password, "address": "10.42.0.1",
+                            "wifi_qr": "WIFI:T:WPA;S:%s;P:%s;;" % (ssid.replace(";", r"\;"), password)}
+            toast("No internet yet: the box made its own Wi-Fi, %s, for your phone." % ssid)
+        return self.hotspot
+
+    def stop_hotspot(self):
+        if self.hotspot:
+            run(["nmcli", "connection", "down", self.CON], 20)
+            run(["nmcli", "connection", "delete", self.CON], 20)
+            self.hotspot = None
+
+    def join(self, ssid, password):
+        had = bool(self.hotspot)
+        self.stop_hotspot()
+        code, out = run(["nmcli", "device", "wifi", "connect", str(ssid)] + (["password", str(password)] if password else []), 45)
+        if code != 0 and had:
+            self.start_hotspot()                             # back to the box's own, to try again
+        return {"ok": code == 0, "message": "Connected to %s." % ssid if code == 0 else
+                ("The password isn't right." if re.search(r"secrets|password|802-11-wireless-security", out, re.I) else out[-200:])}
+
+    def watch(self):
+        """No cable, no Wi-Fi a minute after starting: the hotspot. A network again: the hotspot goes."""
+        time.sleep(int(os.environ.get("SOFA_BOX_HOTSPOT_AFTER", "50")))
+        while True:
+            try:
+                online = bool(local_address()) and local_address() != "10.42.0.1"
+                if not online and not self.hotspot and not settings().get("no_hotspot"):
+                    self.start_hotspot()
+                elif online and self.hotspot and self.wired():
+                    self.stop_hotspot()
+            except Exception:
+                pass
+            time.sleep(20)
+
+
+def local_mac(dev):
+    try:
+        with open("/sys/class/net/%s/address" % dev) as f:
+            return f.read().strip()
+    except OSError:
+        return ""
+
+
+class PhoneRemote:
+    """The phone remote: a page on the home network (http://<box>:8092) that works the box like its remote,
+    a keyboard and a touchpad. A phone gets in with the code on the TV (in the QR code there), and keeps a
+    sign-in of its own."""
+    PORT = int(os.environ.get("SOFA_BOX_REMOTE_PORT", "8092"))
+    KEYS = {"up": "KEY_UP", "down": "KEY_DOWN", "left": "KEY_LEFT", "right": "KEY_RIGHT", "ok": "KEY_ENTER", "back": "KEY_ESC",
+            "menu": "KEY_F2", "play": "KEY_PLAYPAUSE", "rewind": "KEY_REWIND", "forward": "KEY_FASTFORWARD",
+            "enter": "KEY_ENTER", "backspace": "KEY_BACKSPACE", "tab": "KEY_TAB"}
+    DOM = {"KEY_UP": ("ArrowUp", 38), "KEY_DOWN": ("ArrowDown", 40), "KEY_LEFT": ("ArrowLeft", 37), "KEY_RIGHT": ("ArrowRight", 39),
+           "KEY_ENTER": ("Enter", 13), "KEY_ESC": ("Escape", 27), "KEY_F2": ("F2", 113), "KEY_BACKSPACE": ("Backspace", 8),
+           "KEY_TAB": ("Tab", 9), "KEY_PLAYPAUSE": ("MediaPlayPause", 179), "KEY_REWIND": ("MediaRewind", 0),
+           "KEY_FASTFORWARD": ("MediaFastForward", 0)}
+
+    def __init__(self):
+        self.path = os.path.join(CONF_DIR, "phones.json")
+        self.code, self.kb, self.mouse, self.tried = self._new_code(), None, None, False
+
+    @staticmethod
+    def _new_code():
+        return "%04d" % (int.from_bytes(os.urandom(2), "big") % 10000)
+
+    def _load(self):
+        try:
+            with open(self.path, encoding="utf-8") as f:
+                return json.load(f)
+        except (OSError, ValueError):
+            return {}
+
+    def url(self):
+        ip = (network.hotspot or {}).get("address") or local_address()
+        return "http://%s:%d" % (ip, self.PORT) if ip else None
+
+    def status(self):
+        u = self.url()
+        return {"url": u, "pair_url": u + "/r/" + self.code if u else None, "code": self.code, "phones": len(self._load()),
+                "hotspot": network.hotspot, "wired": network.wired()}
+
+    def pair(self, code, name):
+        if not code or str(code) != self.code:
+            return None
+        token = os.urandom(24).hex()
+        phones = self._load()
+        phones[token] = {"name": str(name or "Phone")[:40], "at": int(time.time())}
+        os.makedirs(CONF_DIR, exist_ok=True)
+        with open(self.path, "w", encoding="utf-8") as f:
+            json.dump(phones, f)
+        os.chmod(self.path, 0o600)
+        self.code = self._new_code()                       # each code works once
+        toast("%s is a remote now." % phones[token]["name"])
+        return token
+
+    def valid(self, token):
+        return bool(token) and token in self._load()
+
+    def forget_all(self):
+        try:
+            os.remove(self.path)
+        except OSError:
+            pass
+
+    def _devices(self):
+        if self.tried:
+            return self.kb
+        self.tried = True
+        if os.environ.get("SOFA_BOX_UINPUT") == "0":
+            return None
+        try:
+            from evdev import UInput, ecodes
+            self.kb = UInput({ecodes.EV_KEY: [ecodes.ecodes[k] for k in set(self.KEYS.values())]}, name="Sofa box phone remote")
+            self.mouse = UInput({ecodes.EV_KEY: [ecodes.BTN_LEFT, ecodes.BTN_RIGHT],
+                                 ecodes.EV_REL: [ecodes.REL_X, ecodes.REL_Y, ecodes.REL_WHEEL]}, name="Sofa box phone touchpad")
+            self.ecodes = ecodes
+        except Exception:                                  # no evdev or no /dev/uinput (a preview): through the browser
+            self.kb = self.mouse = None
+        return self.kb
+
+    def key(self, name):
+        if name == "home":
+            player.stop(save=True, reason="back")
+            return go_home()
+        if player.proc and player.proc.poll() is None:     # a video in the box's player: the remote works it
+            act = {"ok": player.ok, "back": lambda: player.stop(save=True, reason="back"), "play": lambda: player.control({"cmd": "toggle"}),
+                   "left": lambda: player.control({"cmd": "skip", "by": -10}), "rewind": lambda: player.control({"cmd": "skip", "by": -10}),
+                   "right": lambda: player.control({"cmd": "skip", "by": 30}), "forward": lambda: player.control({"cmd": "skip", "by": 30})}.get(name)
+            if act:
+                return act()
+        code = self.KEYS.get(name)
+        if not code:
+            raise ValueError("Which key?")
+        kb = self._devices()
+        if kb:
+            c = self.ecodes.ecodes[code]
+            kb.write(self.ecodes.EV_KEY, c, 1)
+            kb.write(self.ecodes.EV_KEY, c, 0)
+            kb.syn()
+        elif browser and browser.connected():
+            browser.press(*self.DOM[code])
+
+    def text(self, t):
+        if browser and browser.connected():
+            browser.insert_text(str(t)[:500])
+
+    def pointer(self, dx=0, dy=0, click=None, scroll=0):
+        if not self._devices() or not self.mouse:
+            return
+        e = self.ecodes
+        if dx or dy:
+            self.mouse.write(e.EV_REL, e.REL_X, int(max(-200, min(200, dx))))
+            self.mouse.write(e.EV_REL, e.REL_Y, int(max(-200, min(200, dy))))
+        if scroll:
+            self.mouse.write(e.EV_REL, e.REL_WHEEL, int(max(-10, min(10, scroll))))
+        if click in ("left", "right"):
+            b = e.BTN_LEFT if click == "left" else e.BTN_RIGHT
+            self.mouse.write(e.EV_KEY, b, 1)
+            self.mouse.syn()
+            self.mouse.write(e.EV_KEY, b, 0)
+        self.mouse.syn()
+
+    @staticmethod
+    def volume(by):
+        env = dict(os.environ, XDG_RUNTIME_DIR=os.environ.get("XDG_RUNTIME_DIR") or "/run/user/%d" % os.getuid())
+        args = ["pactl", "set-sink-mute", "@DEFAULT_SINK@", "toggle"] if by == "mute" else \
+            ["pactl", "set-sink-volume", "@DEFAULT_SINK@", "%+d%%" % max(-20, min(20, int(by or 0)))]
+        try:
+            subprocess.run(args, env=env, capture_output=True, timeout=5)
+        except (OSError, subprocess.SubprocessError):
+            pass
+
+
+def timezones():
+    code, out = run(["timedatectl", "list-timezones"], 10)
+    return [z for z in out.splitlines() if "/" in z] if code == 0 else []
+
+
+def current_timezone():
+    try:
+        return os.path.realpath("/etc/localtime").split("zoneinfo/", 1)[1]
+    except (IndexError, OSError):
+        return "UTC"
+
+
+def set_timezone(tz, only_if_unset=False):
+    """The box's time zone (the clock on Home). From a phone: only while the box hasn't been given one."""
+    if not re.match(r"^[A-Za-z]+(/[A-Za-z0-9_+-]+){1,2}$", tz or "") or (only_if_unset and settings().get("tz_set")):
+        return False
+    code, _ = run(["sudo", "-n", os.path.join(HERE, "sofa-box"), "timezone", tz], 20)
+    if code == 0:
+        save_settings(tz_set=True)
+    return code == 0
+
+
+bluetooth = Bluetooth()
+network = Network()
+phone = None                                              # PhoneRemote, made in main() (it reads the box's settings)
+
+
+def setup_state():
+    """Everything the first-start steps and Settings show about remotes, Wi-Fi and Bluetooth."""
+    s = settings()
+    code, ssid = run(["iwgetid", "-r"], 5)
+    ssid = ssid if code == 0 else ""
+    return {"remote": phone.status() if phone else None, "bluetooth": bluetooth.listing(),
+            "network": {"wired": network.wired(), "wifi": ssid or None, "address": local_address(), "hotspot": network.hotspot,
+                        "networks": network.cached}, "welcomed": s["welcomed"], "name": s["boot_text"], "theme": s["theme"],
+            "timezone": current_timezone(), "tz_set": bool(s.get("tz_set"))}
+
+
 def shlex_split(text):
     import shlex
     return shlex.split(text) if text else []
@@ -823,7 +1145,8 @@ def box_info():
             temp = round(int(f.read()) / 1000)
     except (OSError, ValueError):
         pass
-    _, ssid = run(["iwgetid", "-r"], 5)
+    code, ssid = run(["iwgetid", "-r"], 5)
+    ssid = ssid if code == 0 else ""
     _, paired = run(["bluetoothctl", "devices", "Paired"], 5)
     controllers = [line.split(" ", 2)[2] for line in paired.splitlines() if line.startswith("Device ") and len(line.split(" ", 2)) == 3]
     try:
@@ -854,22 +1177,9 @@ def box_action(a, data):
         threading.Thread(target=lambda: run([os.path.join(HERE, "sofa-box"), "pair-controller"], 60), daemon=True).start()
         return {"ok": True, "message": "Put the controller in pairing mode now (Xbox: hold the pair button until it flashes fast)."}
     if a == "wifi-scan":
-        code, out = run(["nmcli", "-t", "-f", "SSID,SIGNAL,SECURITY", "device", "wifi", "list", "--rescan", "yes"], 25)
-        if code != 0:
-            return {"ok": False, "networks": [], "message": "Wi-Fi from here needs NetworkManager (Raspberry Pi OS Bookworm has it)."
-                    if "No such file" in out or "not found" in out else out[-200:]}
-        nets = {}
-        for line in out.splitlines():
-            parts = re.split(r"(?<!\\):", line)
-            if len(parts) >= 3 and parts[0]:
-                ssid = parts[0].replace("\\:", ":")
-                if ssid not in nets or int(parts[1] or 0) > nets[ssid]["signal"]:
-                    nets[ssid] = {"ssid": ssid, "signal": int(parts[1] or 0), "secure": bool(parts[2])}
-        return {"ok": True, "networks": sorted(nets.values(), key=lambda n: -n["signal"])}
+        return network.hotspot and {"ok": True, "networks": network.cached} or network.scan()
     if a == "wifi-connect":
-        code, out = run(["nmcli", "device", "wifi", "connect", str(data.get("ssid", ""))] +
-                        (["password", str(data["password"])] if data.get("password") else []), 45)
-        return {"ok": code == 0, "message": "Connected." if code == 0 else out[-200:]}
+        return network.join(data.get("ssid", ""), data.get("password"))
     if a == "tv-on":
         code, out = run([os.path.join(HERE, "sofa-box"), "tv-on"], 15)
         return {"ok": code == 0, "message": out[-200:]}
@@ -885,6 +1195,12 @@ def box_action(a, data):
             found.clear()
         save_settings(server=None)
         return {"ok": True, "go": "/box/finder"}
+    if a == "factory-reset":                       # back to how it came: for the next owner, or a fresh start
+        threading.Timer(1.0, lambda: run(["sudo", "-n", os.path.join(HERE, "sofa-box"), "factory-reset"], 120)).start()
+        return {"ok": True, "message": "Resetting. The box starts again as new in a minute."}
+    if a == "update":                              # the newest Sofa Box from GitHub (takes a few minutes)
+        threading.Thread(target=lambda: run(["sudo", "-n", os.path.join(HERE, "sofa-box"), "update"], 1800), daemon=True).start()
+        return {"ok": True, "message": "Updating from GitHub. The box restarts by itself when it's done (a few minutes)."}
     if a == "forget-720":
         save_settings(learned_720=False)
         return {"ok": True}
@@ -1210,6 +1526,31 @@ class Handler(BaseHTTPRequestHandler):
                     browser.evaluate(t, "location.hash = %s" % json.dumps(to))
                 go_home()
             return self.send(json.dumps({"ok": True, "go": "/box/home" + to}))
+        if path == "/box/api/setup":                       # the first start and Settings: remotes, Wi-Fi, Bluetooth
+            if arg("scan") == "1":
+                bluetooth.want(30, autopair=not settings()["welcomed"] or arg("autopair") == "1")
+            return self.send(json.dumps(setup_state()))
+        if path == "/box/api/bt/pair":
+            bluetooth.pair(str(data.get("mac") or ""))
+            return self.send('{"ok":true}')
+        if path == "/box/api/bt/forget":
+            boxos.bt_forget(str(data.get("mac") or ""))
+            bluetooth.devices = boxos.bt_devices()
+            return self.send('{"ok":true}')
+        if path == "/box/api/remote/forget":                # every phone has to scan the code again
+            phone.forget_all()
+            return self.send('{"ok":true}')
+        if path == "/box/api/timezone":
+            if self.command == "POST":
+                if not set_timezone(str(data.get("tz") or "")):
+                    raise ValueError("That time zone didn't take.")
+            return self.send(json.dumps({"timezone": current_timezone(), "zones": timezones() if arg("all") == "1" else []}))
+        if path == "/box/api/hotspot":                      # the box's own Wi-Fi, on or off by hand
+            if data.get("on"):
+                network.start_hotspot()
+            else:
+                network.stop_hotspot()
+            return self.send(json.dumps({"ok": True, "hotspot": network.hotspot}))
         if path == "/box/api/devices":
             return self.send(json.dumps({k: devices_seen[k] for k in ("drives", "disc", "n")}))
         if path == "/box/api/devices/eject":
@@ -1364,6 +1705,90 @@ class Handler(BaseHTTPRequestHandler):
             n -= len(chunk)
 
 
+class RemoteHandler(BaseHTTPRequestHandler):
+    """The phone remote, on the home network: its page, and what it presses. Phones at home only, and only
+    with the code the TV shows (then a sign-in of their own)."""
+    protocol_version = "HTTP/1.1"
+    COOKIE = "sofa_remote"
+
+    def log_message(self, *args):
+        pass
+
+    send = Handler.send
+    body = Handler.body
+
+    def token(self):
+        m = re.search(r"(?:^|;\s*)%s=([0-9a-f]{48})" % self.COOKIE, self.headers.get("Cookie") or "")
+        return m.group(1) if m else None
+
+    def home_network(self):
+        ip = self.client_address[0]
+        return bool(re.match(r"^(127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.|::1$|fe80:|fd)", ip))
+
+    def cookie(self, token):
+        return "%s=%s; Path=/; HttpOnly; SameSite=Strict; Max-Age=31536000" % (self.COOKIE, token)
+
+    def do_GET(self):
+        self.route()
+
+    def do_POST(self):
+        self.route()
+
+    def route(self):
+        if not self.home_network():
+            return self.send("Phones at home only.", "text/plain; charset=utf-8", 403)
+        path = urllib.parse.urlsplit(self.path).path
+        m = re.match(r"^/r/(\d{4})$", path)
+        if m:                                               # the QR code on the TV
+            token = phone.pair(m.group(1), (self.headers.get("User-Agent") or "").split("(")[-1].split(";")[0].strip() or "Phone")
+            return self.send("", status=302, headers=dict({"Location": "/" if token else "/?again=1"},
+                                                          **({"Set-Cookie": self.cookie(token)} if token else {})))
+        if path in ("/", "/index.html"):
+            with open(os.path.join(HERE, "remote.html"), encoding="utf-8") as f:
+                return self.send(f.read(), "text/html; charset=utf-8")
+        if path == "/icon.png":
+            buf = __import__("io").BytesIO()
+            module("sofa-box-art").render(settings(), (180, 180), 0.45).save(buf, "PNG")
+            return self.send(buf.getvalue(), "image/png", headers={"Cache-Control": "max-age=86400"})
+        if self.command == "POST" and self.headers.get("X-Sofa-Remote") != "1":
+            return self.send('{"error":"missing X-Sofa-Remote"}', status=400)
+        data = json.loads(self.body() or b"{}") if self.command == "POST" else {}
+        if path == "/api/pair":
+            token = phone.pair(str(data.get("code") or "").strip(), data.get("name"))
+            if not token:
+                return self.send('{"error":"That code isn\'t the one on the TV."}', status=403)
+            return self.send('{"ok":true}', headers={"Set-Cookie": self.cookie(token)})
+        if not phone.valid(self.token()):
+            return self.send(json.dumps({"paired": False, "name": settings().get("boot_text") or "Sofa Box"}), status=401)
+        try:
+            if path == "/api/state":
+                p = player.status
+                return self.send(json.dumps({"paired": True, "name": settings().get("boot_text") or "Sofa Box",
+                                             "playing": {k: p.get(k) for k in ("title", "sub", "t", "d", "paused")} if p else None,
+                                             "front": browser.front_app() if browser and browser.connected() else None,
+                                             "hotspot": bool(network.hotspot), "welcomed": settings()["welcomed"]}))
+            if path == "/api/key":
+                phone.key(str(data.get("k") or ""))
+            elif path == "/api/hello":                      # the phone's time zone, for a box that doesn't know its own
+                set_timezone(str(data.get("tz") or ""), only_if_unset=True)
+            elif path == "/api/text":
+                phone.text(data.get("t") or "")
+            elif path == "/api/pointer":
+                phone.pointer(float(data.get("dx") or 0), float(data.get("dy") or 0), data.get("click"), float(data.get("scroll") or 0))
+            elif path == "/api/volume":
+                phone.volume(data.get("by"))
+            elif path == "/api/wifi":
+                return self.send(json.dumps(dict(network.scan() if not network.hotspot else {"ok": True, "networks": network.cached},
+                                                 hotspot=bool(network.hotspot))))
+            elif path == "/api/wifi/join":
+                return self.send(json.dumps(network.join(data.get("ssid") or "", data.get("password"))))
+            else:
+                return self.send('{"error":"not found"}', status=404)
+        except ValueError as exc:
+            return self.send(json.dumps({"error": str(exc)}), status=400)
+        return self.send('{"ok":true}')
+
+
 class Server(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
@@ -1374,17 +1799,33 @@ class Server(ThreadingHTTPServer):
         super().handle_error(request, client_address)
 
 
+def shutil_which(name):
+    import shutil
+    return shutil.which(name)
+
+
 def html_escape(text):
     return str(text).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 def main():
+    global phone
     try:
         migrate_server()
     except Exception as exc:
         print("Moving the old Sofa setting: %s" % exc, file=sys.stderr)
     threading.Thread(target=look, daemon=True).start()
     threading.Thread(target=watch_devices, daemon=True, name="devices").start()
+    phone = PhoneRemote()
+    try:
+        remote = Server(("0.0.0.0", PhoneRemote.PORT), RemoteHandler)
+        threading.Thread(target=remote.serve_forever, daemon=True, name="phone-remote").start()
+    except OSError as exc:
+        print("The phone remote can't use port %d: %s" % (PhoneRemote.PORT, exc), file=sys.stderr)
+    if shutil_which("nmcli") and os.environ.get("SOFA_BOX_HOTSPOT", "1") != "0":
+        threading.Thread(target=network.watch, daemon=True, name="hotspot").start()
+    if not settings()["welcomed"]:                       # a new box: remotes in pairing mode pair by themselves
+        bluetooth.want(600, autopair=True)
     httpd = Server(("127.0.0.1", PORT), Handler)
     print("Sofa box agent on http://127.0.0.1:%d" % PORT, file=sys.stderr, flush=True)
     httpd.serve_forever()

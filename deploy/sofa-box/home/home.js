@@ -334,6 +334,8 @@
   }
   function viewSettings() {
     if (!servers) loadServers();
+    if (!setup) loadSetup().then(() => { if (location.hash.startsWith("#/settings")) render(true); });
+    setupLive();
     if (!boxInfo) { loadInfo(); return `<h1 class="page">Settings</h1><p class="lede">Loading…</p>`; }
     if (boxInfo.error) return `<h1 class="page">Settings</h1><p class="lede">${esc(boxInfo.error)}</p>`;
     const b = boxInfo, s = b.settings, th = data.theme;
@@ -355,8 +357,14 @@
         <div class="choices" style="margin-top:.6rem">${pick("audio", "auto", "Sound: TV or soundbar")}${pick("audio", "passthrough", "AV receiver (surround)")}</div></section>
       <section class="card"><h3>Network</h3><p>${b.wifi ? "Wi-Fi: <b>" + esc(b.wifi) + "</b>." : "Not on Wi-Fi (a network cable is best for video)."} This box: ${esc(b.address || "")}.</p>
         <div id="wifi"><button class="btn" data-action="wifi-scan">Find Wi-Fi networks</button></div></section>
-      <section class="card"><h3>Remotes and controllers</h3><p>${b.controllers.length ? "Paired: " + b.controllers.map(esc).join(", ") + "." : "A 2.4 GHz keyboard and mouse work as soon as their USB dongle is in. Bluetooth controllers pair here."}</p>
-        <div class="choices"><button class="btn" data-action="pair-controller">Pair a controller</button><button class="btn" data-action="tv-on">Turn the TV on</button></div></section>
+      <section class="card"><h3>Remotes and Bluetooth</h3>
+        <div class="remote-row"><div id="phoneBox" class="phone-mini">${phoneBox()}</div>
+          <div><p><b>Your phone is a remote:</b> scan the code with its camera (iPhone or Android). It works the box like a remote, types into it, and has a touchpad. Add it to the phone's Home Screen to keep it handy.</p>
+          <p><b>A Bluetooth remote</b> (a Fire TV remote: hold Home for 10 seconds), a game controller, a keyboard, speakers or headphones: put it in pairing mode, then <b>Look for devices</b>. A 2.4 GHz keyboard and mouse work as soon as their USB dongle is in.</p>
+          <div class="choices"><button class="btn" data-bt-look="1">Look for devices</button><button class="btn" data-action="tv-on">Turn the TV on</button><button class="mini" data-phones-forget="1">Forget phones</button></div></div></div>
+        <div id="btList" class="bt-list">${btList()}</div></section>
+      <section class="card"><h3>Time zone</h3><p>The clock on Home: <b>${esc(((setup || {}).timezone || "UTC").replace(/_/g, " "))}</b>.</p>
+        <div class="choices zones">${ZONES.map(z => `<button class="choice" data-tz="${z}" aria-pressed="${z === (setup || {}).timezone}">${esc(z.split("/").pop().replace(/_/g, " "))}</button>`).join("")}</div></section>
       <section class="card"><h3>Apps on Home</h3><p>Hide the ones you don't use, or move them.</p><div class="applist"><ul>${data.apps.map((a, i) => `<li>
         <span class="name">${esc(a.name)}</span><button class="mini" data-move="${esc(a.id)}" data-by="-1"${i ? "" : " disabled"}>←</button>
         <button class="mini" data-move="${esc(a.id)}" data-by="1"${i === data.apps.length - 1 ? " disabled" : ""}>→</button>
@@ -364,36 +372,124 @@
       <section class="card"><h3>About this box</h3><dl class="facts"><dt>Model</dt><dd>${esc(b.model)}</dd><dt>Memory</dt><dd>${b.memory ? Math.round(b.memory / 1048576) + " MB" : "?"}</dd>
         <dt>Temperature</dt><dd>${b.temperature != null ? b.temperature + " °C" : "?"}</dd><dt>Version</dt><dd>${esc(b.version)}</dd></dl>
         <div class="choices" style="margin-top:1rem"><button class="btn" data-action="restart">Restart Sofa Box</button><button class="btn" data-action="reboot">Restart the box</button>
-        <button class="btn" data-go="#/welcome">First-start steps again</button></div></section></div>`;
+        <button class="btn" data-go="#/welcome">Setup steps again</button></div></section>
+      <section class="card"><h3>Software</h3><p>The newest Sofa Box comes from GitHub; the box restarts by itself when it's done. <b>Reset</b> puts it back to how it came:
+        your apps, sign-ins, Wi-Fi, Bluetooth devices and the files in Downloads, Videos, Music and Pictures go, and it starts at the setup steps (for a new owner, or a fresh start).</p>
+        <div class="choices"><button class="btn" data-action="update">Update the box</button><button class="btn danger" data-action="factory-reset">Reset to how it came</button></div></section></div>`;
   }
 
-  // ---- the first start: the basics, your streaming apps, then Home
-  let step = 0, picks = null;
+  // ---- the first start: how you'll work it, the internet, Bluetooth, the box itself, your apps; then Home.
+  // A new box may have nothing to press with: the phone remote (a QR code), a Bluetooth remote held in
+  // pairing mode (it pairs by itself) or a keyboard's dongle all work from the first screen.
+  let step = 0, picks = null, setup = null, setupTimer = 0, wifiPick = null;
+  const STEPS = ["Hello", "Internet", "Bluetooth", "Your box", "Apps"];
   const POPULAR = ["netflix", "youtube-tv", "prime-video", "disney-plus", "max", "hulu", "peacock", "paramount-plus", "apple-tv",
                    "pluto", "tubi", "roku-channel", "crunchyroll", "twitch", "spotify", "pandora", "youtube-music", "pbs-kids"];
+  const ZONES = ["America/New_York", "America/Chicago", "America/Denver", "America/Phoenix", "America/Los_Angeles", "America/Anchorage",
+                 "Pacific/Honolulu", "America/Toronto", "America/Mexico_City", "America/Havana", "America/Puerto_Rico", "America/Bogota",
+                 "America/Lima", "America/Sao_Paulo", "America/Argentina/Buenos_Aires", "Europe/London", "Europe/Dublin", "Europe/Madrid",
+                 "Europe/Paris", "Europe/Berlin", "Europe/Rome", "Europe/Athens", "Europe/Moscow", "Africa/Lagos", "Africa/Johannesburg",
+                 "Asia/Dubai", "Asia/Kolkata", "Asia/Shanghai", "Asia/Tokyo", "Australia/Sydney", "Pacific/Auckland", "UTC"];
+  const BT_ICON = { remote: "📺", controller: "🎮", keyboard: "⌨", mouse: "🖱", audio: "🎧", other: "•" };
+  function qr(text) {
+    if (!window.qrcode || !text) return "";
+    const q = window.qrcode(0, "M"); q.addData(text); q.make();
+    return q.createSvgTag({ cellSize: 4, margin: 2, scalable: true });
+  }
+  async function loadSetup(scan) {
+    try { setup = await api("/box/api/setup" + (scan ? "?scan=1" : "")); } catch (e) { /* the agent is restarting */ }
+    return setup;
+  }
+  function setupLive() {                         // the parts that change by themselves, redrawn in place
+    clearTimeout(setupTimer);
+    if (!location.hash.startsWith("#/welcome") && !location.hash.startsWith("#/settings")) return;
+    setupTimer = setTimeout(async () => {
+      await loadSetup(location.hash.startsWith("#/welcome") && (step === 0 || step === 2) || btLooking > Date.now());
+      for (const [id, html] of [["phoneBox", phoneBox()], ["btList", btList()], ["netState", netState()]]) {
+        const el = $("#" + id); if (!el || el.dataset.html === html) continue;
+        const had = cur && el.contains(cur) ? keyOf(cur) : null;
+        el.innerHTML = html; el.dataset.html = html;
+        if (had && $(had)) focus($(had));
+      }
+      setupLive();
+    }, 2500);
+  }
+  function phoneBox() {
+    const r = (setup || {}).remote;
+    if (!r) return `<p class="small">Getting ready…</p>`;
+    const hs = r.hotspot;
+    if (!r.url) return `<p class="small">Waiting for a network. With no cable, the box makes its own Wi-Fi in a minute.</p>`;
+    return hs ? `<div class="qr-steps"><div><span class="qr">${qr(hs.wifi_qr)}</span><b>1. Join its Wi-Fi</b><small>${esc(hs.ssid)} · password ${esc(hs.password)}</small></div>
+        <div><span class="qr">${qr(r.pair_url)}</span><b>2. Then scan this</b><small>or open ${esc(r.url.replace(/^http:\/\//, ""))}, code ${esc(r.code)}</small></div></div>`
+      : `<span class="qr big">${qr(r.pair_url)}</span><b>Scan with your phone's camera</b><small>or open <b>${esc(r.url.replace(/^http:\/\//, ""))}</b> and type <b>${esc(r.code)}</b></small>
+        ${r.phones ? `<small class="okay">✓ ${r.phones === 1 ? "A phone is" : r.phones + " phones are"} connected</small>` : ""}`;
+  }
+  let btLooking = 0;
+  function btList() {
+    const b = (setup || {}).bluetooth || { devices: [] };
+    const rows = b.devices.map(d => `<button class="bt-row${d.paired ? " paired" : ""}" data-bt="${esc(d.mac)}"><span class="bt-ic">${BT_ICON[d.kind] || "•"}</span>
+      <span><b>${esc(d.name)}</b><small>${d.state === "pairing" ? "Pairing…" : d.paired ? (d.connected ? "Connected" : "Paired") : d.state === "failed" ? "Didn't pair: put it in pairing mode, then OK" : "OK to pair"}</small></span>
+      ${d.paired ? `<i class="pill">✓</i>` : ""}</button>`).join("");
+    return (rows || (b.scanning ? "" : `<p class="small">Nothing found yet.</p>`)) + (b.scanning ? `<p class="small looking"><i class="spin"></i>Looking for devices in pairing mode…</p>` : "");
+  }
+  function netState() {
+    const n = (setup || {}).network || {};
+    return n.wired ? `<p class="okay big">✓ Connected with a cable</p>` : n.wifi ? `<p class="okay big">✓ Connected to ${esc(n.wifi)}</p>`
+      : n.hotspot ? `<p class="small">On its own Wi-Fi for now (${esc(n.hotspot.ssid)}). Pick your home Wi-Fi below, or on your phone (Wi-Fi tab).</p>` : `<p class="small">Not connected yet.</p>`;
+  }
   function viewWelcome() {
-    const steps = `<div class="steps">${["Hello", "Internet", "Look", "Apps"].map((n, i) => `<i class="${i < step ? "done" : i === step ? "on" : ""}"><b>${n}</b></i>`).join("")}</div>`;
-    if (step === 0) return `<div class="welcome view-in">${steps}<div class="w-mark">${icon("#mark")}</div><h1>Welcome to your Sofa Box</h1>
-      <p>Your shows and films, free Live TV, your streaming apps, music, games and a browser. No ads, nothing watching you.</p>
-      <div class="inputs"><div><b>⌨</b>A 2.4 GHz keyboard and mouse: plug in the dongle</div><div><b>🎮</b>A game controller: pair it in Settings</div><div><b>📺</b>The TV's remote over HDMI, or your phone</div></div>
-      <button class="btn primary big" data-step="1">Let's go</button></div>`;
+    document.documentElement.classList.add("setup");
+    if (!setup) { loadSetup(true).then(() => render(true)); }
+    setupLive();
+    const steps = `<div class="setup-steps">${STEPS.map((n, i) => `<i class="${i < step ? "done" : i === step ? "on" : ""}"><em>${i < step ? "✓" : i + 1}</em><b>${n}</b></i>`).join("")}</div>`;
+    const top = `<div class="setup-top"><span class="setup-brand">${icon("#mark")}<b>Sofa</b><span>Box</span></span>${steps}</div>`;
+    const nav = (back, next, label) => `<div class="setup-nav">${back ? `<button class="btn" data-step="${step - 1}">Back</button>` : "<span></span>"}
+      <button class="btn primary big" ${next}>${label}</button></div>`;
+    if (step === 0) return `<div class="setup view-in">${top}<div class="setup-body hello">
+        <div class="hello-head"><h1>Hello. Let's set up your Sofa Box.</h1><p>It takes two minutes. Use whatever's in your hand:</p></div>
+        <div class="ways">
+          <section class="way phone"><h3><span>📱</span>Your phone</h3><div id="phoneBox">${phoneBox()}</div></section>
+          <section class="way"><h3><span>📺</span>A remote or controller</h3>
+            <p><b>Fire TV remote</b> (or another Bluetooth remote): hold its <b>Home</b> button for 10 seconds. It pairs by itself.</p>
+            <p><b>Game controller:</b> put it in pairing mode.</p><div id="btList" class="bt-list small-list">${btList()}</div></section>
+          <section class="way"><h3><span>⌨</span>Keyboard and mouse</h3><p>Plug the USB dongle into the box. They work straight away.</p>
+            <p class="small">Press <b>OK</b> or <b>Enter</b> to start.</p></section>
+        </div></div>${nav(false, `data-step="1"`, "Start")}</div>`;
     if (step === 1) {
-      const b = boxInfo || {};
-      return `<div class="welcome view-in">${steps}<h1>Internet</h1><p>${b.wifi ? "Connected to <b>" + esc(b.wifi) + "</b>." : b.address ? "Connected (" + esc(b.address) + "). A cable is best for video." : "Not connected yet: pick your Wi-Fi."}</p>
-        <div id="wifi"><button class="btn" data-action="wifi-scan">Find Wi-Fi networks</button></div><button class="btn primary big" data-step="2">Next</button></div>`;
+      const n = (setup || {}).network || {};
+      const nets = (n.networks || []).slice(0, 12);
+      return `<div class="setup view-in">${top}<div class="setup-body"><h1>Internet</h1>
+        <div id="netState">${netState()}</div>
+        ${n.wired ? "" : `<div class="wifi-list">${nets.map(w => `<button class="wifi-row${wifiPick === w.ssid ? " on" : ""}" data-wifi-pick="${esc(w.ssid)}" data-secure="${w.secure ? 1 : 0}">
+            <span class="bars b${Math.min(4, Math.ceil(w.signal / 25))}"><i></i><i></i><i></i><i></i></span><b>${esc(w.ssid)}</b>${w.secure ? "<small>🔒</small>" : ""}${w.on ? `<i class="pill">✓</i>` : ""}</button>`).join("")
+            || `<p class="small">Looking for Wi-Fi…</p>`}</div>
+          <div class="wifi-join" ${wifiPick ? "" : "hidden"}><input class="field" id="wifiPass" type="password" placeholder="Password for ${esc(wifiPick || "")}" spellcheck="false">
+            <button class="btn primary" data-wifi-go="1">Join</button></div>
+          <p class="small">Typing a password with a remote? Use your phone: the <b>Keyboard</b> tab types into the box. <button class="mini" data-wifi-rescan="1">Look again</button></p>`}
+        </div>${nav(true, `data-step="2"`, n.wired || n.wifi ? "Next" : "Skip for now")}</div>`;
     }
-    if (step === 2) return `<div class="welcome view-in">${steps}<h1>Pick your look</h1><p>Home and the boot screen. Change it any time in Settings.</p>
-      <div class="themes" style="width:min(44rem,100%)">${THEMES.map(t => `<button class="theme" data-theme-pick="${t[0]}" aria-pressed="${data.theme === t[0]}" style="--sw-bg:${t[2]};--sw-a:${t[3]};--sw-a2:${t[4]}"><i></i><b>${t[1]}</b></button>`).join("")}</div>
-      <button class="btn primary big" data-step="3">Next</button></div>`;
-    if (!storeData) { api("/box/api/store").then(st => { storeData = st; render(true); }).catch(() => {}); return `<div class="welcome view-in">${steps}<h1>Your apps</h1><p>Loading…</p></div>`; }
+    if (step === 2) return `<div class="setup view-in">${top}<div class="setup-body"><h1>Bluetooth</h1>
+        <p class="lede">Remotes, game controllers, speakers and headphones. Put one in pairing mode: it shows here, and OK pairs it (remotes and controllers pair by themselves).</p>
+        <div id="btList" class="bt-list">${btList()}</div></div>${nav(true, `data-step="3"`, "Next")}</div>`;
+    if (step === 3) {
+      const sz = (setup || {}).timezone || "UTC";
+      return `<div class="setup view-in">${top}<div class="setup-body"><h1>Your box</h1>
+        <div class="box-grid"><section><h3>Its name</h3><p class="small">On the boot screen, and to phones looking for it.</p>
+            <div class="add-site"><input class="field" id="boxName" maxlength="30" value="${esc((setup || {}).name || "")}" placeholder="Living room"><button class="btn" data-save-name="1">Save</button></div>
+          <h3>Time zone</h3><p class="small">${(setup || {}).tz_set ? "Set" + (sz ? ": <b>" + esc(sz.replace(/_/g, " ")) + "</b>" : "") + ". " : ""}${(setup || {}).tz_set ? "" : "Your phone sets it when it connects. Or pick:"}</p>
+            <div class="choices zones">${ZONES.map(z => `<button class="choice" data-tz="${z}" aria-pressed="${z === sz}">${esc(z.split("/").pop().replace(/_/g, " "))}</button>`).join("")}</div></section>
+          <section><h3>Its look</h3><div class="themes two">${THEMES.map(t => `<button class="theme" data-theme-pick="${t[0]}" aria-pressed="${data.theme === t[0]}" style="--sw-bg:${t[2]};--sw-a:${t[3]};--sw-a2:${t[4]}"><i></i><b>${t[1]}</b></button>`).join("")}</div></section></div>
+        </div>${nav(true, `data-step="4"`, "Next")}</div>`;
+    }
+    if (!storeData) { api("/box/api/store").then(st => { storeData = st; render(true); }).catch(() => {}); return `<div class="setup view-in">${top}<div class="setup-body"><h1>Your apps</h1><p class="lede">Loading…</p></div></div>`; }
     const all = storeData.sections.flatMap(x => x.apps), have = new Set(data.apps.map(a => a.id));
     if (!picks) picks = new Set(all.filter(e => have.has(e.id)).map(e => e.id));
     const list = POPULAR.map(id => all.find(e => e.id === id)).filter(Boolean);
-    return `<div class="welcome view-in">${steps}<h1>What do you watch?</h1><p>Pick your streaming apps: they go on Home, ready to sign in. Sofa and free Live TV are there already.</p>
+    return `<div class="setup view-in">${top}<div class="setup-body"><h1>What do you watch?</h1>
+      <p class="lede">Pick your streaming apps: they go on Home, ready to sign in. Sofa and free Live TV are there already. The App Store has more.</p>
       <div class="pick-grid">${list.map(e => `<button class="tile app pick${picks.has(e.id) ? " on" : ""}" style="--c:${esc(e.color)}" data-pick="${esc(e.id)}" aria-pressed="${picks.has(e.id)}">
         <i class="tick">${icon("#i-check")}</i><span class="ic${e.icon_url ? "" : " mono"}">${e.icon_url ? `<img src="${esc(e.icon_url)}" alt="">` : esc(e.name.replace(/^the\s+/i, "")[0].toUpperCase())}</span><b>${esc(e.name)}</b></button>`).join("")}</div>
-      <button class="btn primary big" data-done="1">${picks.size ? "Add " + picks.size + " and finish" : "Finish: to Home"}</button>
-      <p class="small">The App Store has more. Anything else you can add from the Browser.</p></div>`;
+      </div>${nav(true, `data-done="1"`, picks.size ? "Add " + picks.size + " and finish" : "Finish")}</div>`;
   }
 
   // ---------------------------------------------------------------- sheets (menus over the page)
@@ -510,6 +606,7 @@
     else if (input.id === "siteUrl") $("[data-add-site]").click();
     else if (input.id === "boxName") $("[data-save-name]").click();
     else if (input.id === "sheetText") $("[data-sheet='ok']").click();
+    else if (input.id === "wifiPass") $("[data-wifi-go]").click();
     else if (input.dataset.wifiPass !== undefined) $("[data-wifi-join]").click();
   }
 
@@ -550,14 +647,34 @@
         focus($("#wifi input, #wifi button")); }
       else if (d.wifiJoin) { toast("Joining " + d.wifiJoin + "…"); const pw = $("[data-wifi-pass]");
         const r = await api("/box/api/action/wifi-connect", { ssid: d.wifiJoin, password: pw ? pw.value : "" }); toast(r.message || (r.ok ? "Connected." : "That didn't work.")); boxInfo = null; loadInfo(); }
-      else if (d.step) { step = +d.step; if (step === 1 && !boxInfo) await loadInfo(); render(true); }
+      else if (d.step) {
+        step = +d.step; render(true);
+        if (step === 1 && setup && !(setup.network.wired || setup.network.wifi) && !(setup.network.networks || []).length) {
+          const r = await api("/box/api/action/wifi-scan", {}); setup.network.networks = r.networks || []; render(true);
+        }
+      }
+      else if (d.wifiPick) {
+        wifiPick = d.wifiPick;
+        if (d.secure === "0") { toast("Joining " + wifiPick + "…"); const r = await api("/box/api/action/wifi-connect", { ssid: wifiPick }); toast(r.message); await loadSetup(); }
+        render(true); const pw = $("#wifiPass"); if (pw && d.secure !== "0") focus(pw);
+      }
+      else if (d.wifiGo) { toast("Joining " + wifiPick + "…"); const r = await api("/box/api/action/wifi-connect", { ssid: wifiPick, password: ($("#wifiPass") || {}).value || "" });
+        toast(r.message || (r.ok ? "Connected." : "That didn't work.")); if (r.ok) wifiPick = null; await loadSetup(); render(true); }
+      else if (d.wifiRescan) { toast("Looking for Wi-Fi…"); const r = await api("/box/api/action/wifi-scan", {}); if (setup) setup.network.networks = r.networks || []; render(true); }
+      else if (d.bt) { const dev = ((setup || {}).bluetooth || { devices: [] }).devices.find(x => x.mac === d.bt);
+        if (dev && dev.paired) toast(dev.name + " is paired already."); else { await api("/box/api/bt/pair", { mac: d.bt }); toast("Pairing…"); } }
+      else if (d.btForget) confirmSheet("Forget this device?", async () => { closeSheet(); await api("/box/api/bt/forget", { mac: d.btForget }); await loadSetup(); render(true); })
+      else if (d.btLook) { btLooking = Date.now() + 30000; await loadSetup(true); render(true); toast("Looking for devices in pairing mode…"); }
+      else if (d.tz) { const r = await api("/box/api/timezone", { tz: d.tz }); toast("Time zone: " + r.timezone.replace(/_/g, " ")); await loadSetup(); render(true); }
+      else if (d.phonesForget) confirmSheet("Every phone has to scan the code again. Go ahead?", async () => { closeSheet(); await api("/box/api/remote/forget", {}); await loadSetup(); render(true); });
       else if (d.pick) { picks.has(d.pick) ? picks.delete(d.pick) : picks.add(d.pick); t.classList.toggle("on", picks.has(d.pick)); t.setAttribute("aria-pressed", picks.has(d.pick));
         const done = $("[data-done]"); if (done) done.textContent = picks.size ? "Add " + picks.size + " and finish" : "Finish: to Home"; }
       else if (d.done) {
         const have = new Set(data.apps.map(a => a.id)), add = [...(picks || [])].filter(id => !have.has(id));
         t.disabled = true; t.textContent = add.length ? "Adding…" : "Here we go";
         for (const id of add) await api("/box/api/apps/install", { store_id: id }).catch(() => {});
-        await api("/box/api/settings", { welcomed: true }); data.welcomed = true; storeData = null; await loadApps(); location.hash = "#/";
+        await api("/box/api/settings", { welcomed: true }); data.welcomed = true; storeData = null; await loadApps();
+        document.documentElement.classList.remove("setup"); location.hash = "#/";
         if (add.length) toast(add.length === 1 ? "Your app is on Home." : add.length + " apps are on Home.");
       }
       else if (d.server) {
@@ -583,7 +700,9 @@
   }
   let armed = "";
   async function action(a, t) {
-    if ((a === "restart" || a === "reboot" || a === "choose") && armed !== a) { armed = a; t.textContent = "Press again to be sure"; return; }
+    if ((a === "restart" || a === "reboot" || a === "choose" || a === "factory-reset" || a === "update") && armed !== a) {
+      armed = a; t.textContent = a === "factory-reset" ? "Everything goes: press again to reset" : "Press again to be sure"; return;
+    }
     armed = "";
     if (a === "wifi-scan") { $("#wifi").innerHTML = `<p class="lede">Looking…</p>`; }
     const r = await api("/box/api/action/" + a, {});
@@ -605,6 +724,7 @@
       : name === "browser" ? viewBrowser() : name === "settings" ? viewSettings() : name === "welcome" ? viewWelcome()
       : name === "sofa" ? viewSofa() : viewHome();
     const keepKey = keep && cur && document.contains(cur) ? keyOf(cur) : null;
+    if (name !== "welcome") document.documentElement.classList.remove("setup");
     view.innerHTML = html;
     if (keep) $$(".view-in", view).forEach(v => v.classList.remove("view-in"));
     $$(".tabs a").forEach(a => a.setAttribute("aria-current", TABS[name] === a.dataset.tab ? "page" : "false"));
@@ -618,7 +738,7 @@
       : [["OK", "Choose"], ["Back", "Home screen"]]);
   }
   function keyOf(el) {
-    for (const a of ["app", "store", "game", "file", "root", "set", "themePick", "move", "hide", "action", "target", "go", "url", "server", "pick", "addFound", "drive", "disc", "default", "forgetServer", "ask"]) {
+    for (const a of ["app", "store", "game", "file", "root", "set", "themePick", "move", "hide", "action", "target", "go", "url", "server", "pick", "addFound", "drive", "disc", "default", "forgetServer", "ask", "bt", "wifiPick", "tz", "step", "btLook"]) {
       if (el.dataset[a] !== undefined) {
         const attr = "data-" + a.replace(/[A-Z]/g, c => "-" + c.toLowerCase());
         return `[${attr}="${CSS.escape(el.dataset[a])}"]` + (el.dataset.by ? `[data-by="${el.dataset.by}"]` : "") + (el.dataset.value ? `[data-value="${el.dataset.value}"]` : "");
