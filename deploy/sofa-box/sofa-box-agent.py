@@ -588,6 +588,37 @@ class LocalSofa:
             time.sleep(0.5)
         return False
 
+    def _post(self, path, body, cookie=""):
+        req = urllib.request.Request(self.url() + path, data=json.dumps(body).encode(), method="POST",
+                                     headers={"Content-Type": "application/json", "X-Sofa": "1", "Cookie": cookie})
+        try:
+            with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(req, timeout=10) as r:
+                return r.status, r.headers.get("Set-Cookie") or ""
+        except urllib.error.HTTPError as e:
+            return e.code, ""
+
+    def sign_in(self):
+        """The box's own account on its own Sofa: made the first time (nobody has to set anything up), and a
+        fresh sign-in for the browser when it needs one. Returns the session cookie's value, or None."""
+        path = os.path.join(CONF_DIR, "this-box.json")
+        try:
+            with open(path, encoding="utf-8") as f:
+                acct = json.load(f)
+        except (OSError, ValueError):
+            acct = None
+        if not acct:
+            acct = {"name": re.sub(r"[^\w '.-]", "", settings().get("boot_text") or "") or "Sofa Box", "password": os.urandom(18).hex()}
+            code, _ = self._post("/api/setup", acct)
+            if code != 200:
+                return None                              # set up by someone already: they sign in themselves
+            os.makedirs(CONF_DIR, exist_ok=True)
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(acct, f)
+            os.chmod(path, 0o600)
+        code, cookie = self._post("/api/login", acct)
+        m = re.search(r"sofa_session=([^;]+)", cookie)
+        return m.group(1) if code == 200 and m else None
+
 
 local_sofa = LocalSofa()
 servers = boxservers.Servers(CONF_DIR, local_available=local_sofa.available)
@@ -636,8 +667,13 @@ def open_sofa(sid=None, hash_=""):
     entry = servers.get(sid)
     if not entry:
         return {"ok": True, "ask": True}
-    if entry["where"] == "box" and not local_sofa.ensure():
-        raise ValueError("Sofa on this box didn't start. Try again, or restart the box.")
+    if entry["where"] == "box":
+        if not local_sofa.ensure():
+            raise ValueError("Sofa on this box didn't start. Try again, or restart the box.")
+        if browser and browser.connected() and "sofa_session=" not in browser.cookies("box.localhost"):
+            token = local_sofa.sign_in()                 # straight in: the box's own account
+            if token:
+                browser.set_cookie("box.localhost", "sofa_session", token)
     url = server_page(entry, start=True, hash_=hash_)
     app = "sofa" if entry["kind"] == "sofa" else "srv-" + entry["id"]
     if browser and browser.connected():

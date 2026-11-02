@@ -3,12 +3,14 @@
 # into Sofa, full screen, plays videos with its own player (mpv), and works with the TV's remote, a game
 # controller and your phone.
 #
-# On the Pi, with the Sofa computer's address (Sofa's Server page shows this line under Apps):
-#   curl -fsSL http://192.168.1.20:8090/sofa-box/install.sh | sudo sh -s http://192.168.1.20:8090
+# On the Pi (it gets everything from GitHub; no Sofa computer needed):
+#   curl -fsSL https://raw.githubusercontent.com/krintoxi/sofa/main/deploy/sofa-box/install.sh | sudo sh
+# Add a Sofa computer's address at the end to start with that one (the box finds Sofa at home by itself too):
+#   curl -fsSL https://raw.githubusercontent.com/krintoxi/sofa/main/deploy/sofa-box/install.sh | sudo sh -s http://192.168.1.20:8090
 # or from a copy of Sofa:
 #   sudo sh deploy/sofa-box/install.sh [http://192.168.1.20:8090]
 #
-# Works on Raspberry Pi OS (Bookworm or Bullseye, Lite or with a desktop) and other Debian/Ubuntu
+# Works on Raspberry Pi OS (Trixie, Bookworm or Bullseye, Lite or with a desktop) and other Debian/Ubuntu
 # systems. A card set up with LCD-show for a small 3.5-inch screen is fixed up: the TV gets its full
 # picture back (LCD-show shrinks it to 480x320) and the small screen is switched off. Running it again
 # updates the box.
@@ -49,7 +51,8 @@ say "Installing what the Sofa box needs (a few minutes)"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get install -y --no-install-recommends python3 python3-pil python3-evdev mpv curl avahi-utils v4l-utils bluez \
-  fonts-dejavu-core sudo
+  fonts-dejavu-core sudo udisks2 eject
+apt-get install -y --no-install-recommends ffmpeg 2>/dev/null || true                             # Sofa on the box (This box): reading videos, some Live TV
 apt-get install -y --no-install-recommends fonts-noto-color-emoji 2>/dev/null || true             # the home screen's and games' emoji
 apt-get install -y --no-install-recommends libwidevinecdm0 2>/dev/null || true                    # DRM (Netflix…) where Raspberry Pi OS has it
 if have_pkg cage; then
@@ -67,17 +70,27 @@ apt-get install -y --no-install-recommends systemd-zram-generator 2>/dev/null \
   || apt-get install -y --no-install-recommends zram-tools 2>/dev/null || true                    # more room in 1 GB
 
 say "Copying the Sofa box files"
-if [ ! -f "$HERE/sofa-box-agent.py" ]; then        # run through curl: the whole box comes from Sofa, in one file
-  [ -n "$SOFA" ] || { echo "Give the Sofa computer's address: sudo sh install.sh http://192.168.1.20:8090"; exit 1; }
+if [ ! -f "$HERE/sofa-box-agent.py" ]; then        # run through curl: the box (and Sofa) come from GitHub
   FETCHED="$(mktemp -d)"
-  curl -fsSL "$SOFA/sofa-box.tar.gz" | tar xz -C "$FETCHED" || { echo "Couldn't get the Sofa box from $SOFA."; exit 1; }
-  HERE="$FETCHED/sofa-box"
+  BRANCH="${SOFA_BOX_BRANCH:-main}"
+  if curl -fsSL "https://codeload.github.com/krintoxi/sofa/tar.gz/refs/heads/$BRANCH" | tar xz -C "$FETCHED" 2>/dev/null \
+      && [ -f "$FETCHED/sofa-$BRANCH/deploy/sofa-box/sofa-box-agent.py" ]; then
+    HERE="$FETCHED/sofa-$BRANCH/deploy/sofa-box"
+  elif [ -n "$SOFA" ] && curl -fsSL "$SOFA/sofa-box.tar.gz" | tar xz -C "$FETCHED"; then
+    HERE="$FETCHED/sofa-box"                         # no GitHub: from the Sofa computer instead
+  else
+    echo "Couldn't get the Sofa box from GitHub${SOFA:+ or from $SOFA}. Is the Pi online?"; exit 1
+  fi
 fi
 mkdir -p "$LIB/fonts"
 (cd "$HERE" && tar cf - --exclude=README.md --exclude=__pycache__ .) | (cd "$LIB" && tar xf -)
 if [ -d "$HERE/../../client/vendor/fonts" ]; then  # Sofa's own typefaces, for the home screen and the boot screen
   cp "$HERE/../../client/vendor/fonts/"*.woff2 "$HERE/../../client/vendor/fonts/"LICENSE* "$LIB/fonts/" 2>/dev/null || true
 fi
+if [ -f "$HERE/../../sofa.py" ]; then              # Sofa itself, for "This box" (no Sofa computer needed)
+  rm -rf "$LIB/sofa-server" && mkdir -p "$LIB/sofa-server"
+  (cd "$HERE/../.." && tar cf - --exclude=__pycache__ sofa.py sofa client LICENSE) | (cd "$LIB/sofa-server" && tar xf -)
+fi                                                  # (from a Sofa computer's archive it's in sofa-server/ already)
 chmod 755 "$LIB" "$LIB"/sofa-box "$LIB"/*.py
 ln -sf "$LIB/sofa-box" /usr/local/bin/sofa-box
 rm -f "$LIB/sofa-box-finder.py"                  # the first Sofa box's start page: the agent does it now
@@ -114,15 +127,16 @@ chmod 440 /etc/sudoers.d/sofa-box
 visudo -cf /etc/sudoers.d/sofa-box >/dev/null || { rm -f /etc/sudoers.d/sofa-box; echo "   (couldn't set up sudo for the box's settings)"; }
 if [ -d /etc/polkit-1/rules.d ]; then
   cat > /etc/polkit-1/rules.d/50-sofa-box.rules <<EOF
-// The Sofa box's settings on the TV choose the Wi-Fi.
+// The Sofa box's settings on the TV choose the Wi-Fi; USB drives and discs open by themselves.
 polkit.addRule(function (action, subject) {
-  if (subject.user == "$WHO" && action.id.indexOf("org.freedesktop.NetworkManager.") == 0) return polkit.Result.YES;
+  if (subject.user == "$WHO" && (action.id.indexOf("org.freedesktop.NetworkManager.") == 0 ||
+      action.id.indexOf("org.freedesktop.udisks2.") == 0)) return polkit.Result.YES;
 });
 EOF
 fi
 if [ -d /etc/polkit-1/localauthority ]; then
   mkdir -p /etc/polkit-1/localauthority/50-local.d
-  printf '[Sofa box Wi-Fi]\nIdentity=unix-user:%s\nAction=org.freedesktop.NetworkManager.*\nResultAny=yes\nResultInactive=yes\nResultActive=yes\n' "$WHO" \
+  printf '[Sofa box Wi-Fi and drives]\nIdentity=unix-user:%s\nAction=org.freedesktop.NetworkManager.*;org.freedesktop.udisks2.*\nResultAny=yes\nResultInactive=yes\nResultActive=yes\n' "$WHO" \
     > /etc/polkit-1/localauthority/50-local.d/50-sofa-box.pkla
 fi
 mkdir -p /var/lib/systemd/linger && touch "/var/lib/systemd/linger/$WHO"      # its sound (PipeWire) runs from the start
@@ -296,7 +310,8 @@ if [ -z "$IMAGE" ]; then
 fi
 
 echo
-echo "Done. Sofa opens on the TV now and every time the box starts."
+echo "Done. The Sofa Box opens on the TV now and every time the box starts."
+echo "  - Opening Sofa asks where from: a Sofa at home, a share link, Sofa on this box, Jellyfin, Emby or Plex."
 echo "  - Sign in: the TV shows a code; approve it on your phone (Sofa -> your picture -> Pair a TV)."
 echo "  - The TV's own remote works through HDMI (turn on VIERA Link / Anynet+ / SimpLink / CEC on the TV)."
 echo "  - A game controller: sofa-box pair-controller.   Is everything right?  sofa-box doctor"

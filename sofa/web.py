@@ -1462,6 +1462,10 @@ def sofa_box_archive():
         tar.add(box, arcname="sofa-box", filter=lambda t: None if "__pycache__" in t.name or t.name.endswith("README.md") else t)
         if os.path.isdir(fonts):
             tar.add(fonts, arcname="sofa-box/fonts")
+        for part in ("sofa.py", "sofa", "client", "LICENSE"):      # Sofa itself, for the box's "This box"
+            full = os.path.join(config.APP_DIR, part)
+            if os.path.exists(full):
+                tar.add(full, arcname="sofa-box/sofa-server/" + part, filter=lambda t: None if "__pycache__" in t.name else t)
     return buf.getvalue()
 
 

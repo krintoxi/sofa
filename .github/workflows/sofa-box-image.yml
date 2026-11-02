@@ -1,9 +1,13 @@
 name: Sofa box card
 
 # A ready-to-write card for the Sofa box (Raspberry Pi OS Lite, 64-bit, with the box set up), built on
-# GitHub's Arm computers. Publishing a release whose tag starts with "box-v" (on the website: Releases →
-# Draft a new release → tag box-v1 → Publish) builds the card and attaches it to that release. Changes to
-# the box build it as a check, kept for a week under the run's Artifacts.
+# GitHub's Arm computers.
+# - A change to the box on main publishes it as the release "sofa-box" (always the newest card, at
+#   https://github.com/krintoxi/sofa/releases/tag/sofa-box). It's never marked "latest": that stays the
+#   Fire TV app's, which Sofa downloads from there.
+# - Publishing a release whose tag starts with "box-v" (on the website: Releases → Draft a new release →
+#   tag box-v1 → Publish) builds the card and attaches it to that release too, to keep.
+# - Changes on other branches build it as a check, kept for a week under the run's Artifacts.
 on:
   workflow_dispatch:
   release:
@@ -53,3 +57,17 @@ jobs:
           if [ -z "$(gh release view "$TAG" --json body --jq .body)" ]; then
             gh release edit "$TAG" --notes "A card for the Sofa box (Raspberry Pi 3, 4 or 5). Write it with Raspberry Pi Imager: Choose OS → Use custom. See deploy/sofa-box/README.md."
           fi
+      - name: Publish it as the newest card (main)
+        if: github.event_name != 'release' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd out
+          card="$(ls *.img.xz | head -1)"
+          mv "$card" sofa-box.img.xz
+          sha256sum sofa-box.img.xz > sofa-box.img.xz.sha256
+          mv *-report.txt sofa-box-report.txt
+          gh release delete sofa-box --yes --cleanup-tag 2>/dev/null || true
+          gh release create sofa-box sofa-box.img.xz sofa-box.img.xz.sha256 sofa-box-report.txt --target "$GITHUB_SHA" --latest=false \
+            --title "Sofa Box card ($(date -u +%Y-%m-%d))" \
+            --notes "The newest card for the Sofa Box (Raspberry Pi 3 B+, 4 or 5), built from $(echo "$GITHUB_SHA" | cut -c1-7) on main. Write sofa-box.img.xz with Raspberry Pi Imager: Choose OS → Use custom → this file, then your card. On a Pi that already has Raspberry Pi OS: curl -fsSL https://raw.githubusercontent.com/krintoxi/sofa/main/deploy/sofa-box/install.sh | sudo sh. What's on it: sofa-box-report.txt. Guide: deploy/sofa-box/README.md."
