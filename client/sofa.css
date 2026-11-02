@@ -506,7 +506,7 @@ body.has-bar footer { padding-bottom: 110px; }
 .visitor .list-btn, .visitor .list-round, .visitor [data-download], .visitor .heart-btn, .visitor [data-forget],
 .visitor #castBtn, .visitor #whoAv { display: none !important; }
 .visitor .who-btn { cursor: default; }
-.pub-tag { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; padding: 3px 7px; margin-right: 8px; border-radius: 6px; background: var(--accent); color: var(--accent-ink, #111); vertical-align: 1px; }
+.pub-tag { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; padding: 3px 7px; margin-right: 8px; border-radius: 6px; background: var(--amber); color: var(--amber-ink); vertical-align: 1px; }
 .auth-card .btn.ghost { margin-top: 10px; background: transparent; }
 
 @media (max-width: 860px) {
@@ -1371,9 +1371,9 @@ html.standalone .player .p-bottom { padding-bottom: max(16px, env(safe-area-inse
 .server-list { display: grid; gap: 8px; margin: 14px 0 18px; }
 .server-row { display: grid; grid-template-columns: 44px 1fr auto; gap: 14px; align-items: center; text-align: left; padding: 10px 14px;
   border-radius: 14px; border: 1px solid rgba(var(--paper-rgb), .1); background: rgba(var(--paper-rgb), .04); color: inherit; font: inherit; cursor: pointer; }
-.server-row:hover, .server-row:focus-visible { background: rgba(var(--paper-rgb), .1); outline: none; border-color: var(--accent); }
+.server-row:hover, .server-row:focus-visible { background: rgba(var(--paper-rgb), .1); outline: none; border-color: var(--amber); }
 .server-row.on { border-color: rgba(var(--paper-rgb), .25); }
 .server-row b { display: block; }
 .server-row small { opacity: .65; }
 .server-ic { width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; font-weight: 800; font-size: 20px;
-  background: linear-gradient(135deg, var(--accent), rgba(var(--paper-rgb), .2)); color: var(--accent-ink, #111); }
+  background: linear-gradient(135deg, var(--amber), rgba(var(--paper-rgb), .2)); color: var(--amber-ink); }
