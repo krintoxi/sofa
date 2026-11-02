@@ -381,9 +381,10 @@
         <dt>Temperature</dt><dd>${b.temperature != null ? b.temperature + " °C" : "?"}</dd><dt>Software</dt><dd>Sofa Box OS ${esc(b.version)}</dd></dl>
         <div class="choices" style="margin-top:1rem"><button class="btn" data-action="restart">Restart Sofa Box</button><button class="btn" data-action="reboot">Restart the box</button>
         <button class="btn" data-go="#/welcome">Setup steps again</button></div></section>
-      <section class="card"><h3>Software</h3><p>This is <b>Sofa Box OS ${esc(b.version)}</b>. The newest one comes from GitHub; the box restarts by itself when it's done. <b>Reset</b> puts it back to how it came:
+      <section class="card"><h3>Software</h3>${b.newest ? `<p class="update-ready"><b>Sofa Box OS ${esc(b.newest)} is ready.</b> Update the box to get it.</p>` : ""}
+        <p>This is <b>Sofa Box OS ${esc(b.version)}</b>. The newest one comes from GitHub; the box restarts by itself when it's done. <b>Reset</b> puts it back to how it came:
         your apps, sign-ins, Wi-Fi, Bluetooth devices and the files in Downloads, Videos, Music and Pictures go, and it starts at the setup steps (for a new owner, or a fresh start).</p>
-        <div class="choices"><button class="btn" data-action="update">Update the box</button><button class="btn danger" data-action="factory-reset">Reset to how it came</button></div></section></div>`;
+        <div class="choices"><button class="btn${b.newest ? " primary" : ""}" data-action="update">Update the box</button><button class="btn danger" data-action="factory-reset">Reset to how it came</button></div></section></div>`;
   }
 
   // ---- the first start: how you'll work it, the internet, Bluetooth, the box itself, your apps; then Home.

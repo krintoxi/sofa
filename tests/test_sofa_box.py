@@ -183,7 +183,7 @@ class Agent(unittest.TestCase):
     def start_agent(mpv, conf, port, **env):
         return subprocess.Popen([sys.executable, os.path.join(BOX, "sofa-box-agent.py")], stderr=subprocess.DEVNULL,
                                 env=dict(os.environ, SOFA_BOX_CONF=conf, SOFA_BOX_PORT=str(port), SOFA_BOX_MPV=mpv, SOFA_BOX_UINPUT="0",
-                                         SOFA_BOX_HOTSPOT="0", SOFA_BOX_LOCAL_DATA=os.path.join(conf, "local-sofa"),
+                                         SOFA_BOX_HOTSPOT="0", SOFA_BOX_NEWEST="0", SOFA_BOX_LOCAL_DATA=os.path.join(conf, "local-sofa"),
                                          SOFA_BOX_MPV_ARGS="--vo=null --ao=null --force-window=no", **env))
 
     @classmethod
@@ -792,6 +792,8 @@ class BoxNetwork(unittest.TestCase):
         self.assertEqual(self.agent.OS_VERSION, v)
         with open(os.path.join(BOX, "CHANGES.md")) as f:
             self.assertIn("\n## %s\n" % v, f.read())                 # the release's notes come from there
+        self.assertTrue(self.agent.newer("1.0.10", "1.0.9") and self.agent.newer("2.0.0", "1.9.9"))
+        self.assertFalse(self.agent.newer("1.0.0", "1.0.0") or self.agent.newer("0.9.0", "1.0.0") or self.agent.newer("x", "1.0.0"))
 
 
 assert tests.ROOT

@@ -1258,6 +1258,37 @@ def run(cmd, timeout=20):
         return 1, str(exc)
 
 
+NEWEST_URL = "https://raw.githubusercontent.com/krintoxi/sofa/main/deploy/sofa-box/VERSION"
+_newest = {"at": 0, "version": None}
+
+
+def newer(a, b):
+    try:
+        return tuple(int(x) for x in a.split(".")) > tuple(int(x) for x in b.split("."))
+    except ValueError:
+        return False
+
+
+def newest_version():
+    """A newer Sofa Box OS on GitHub, if there is one (looked up in the background, once a day); else None."""
+    if os.environ.get("SOFA_BOX_NEWEST") == "0":
+        return None
+    if time.time() - _newest["at"] > 86400:
+        _newest["at"] = time.time()
+
+        def look():
+            try:
+                with urllib.request.urlopen(NEWEST_URL, timeout=8) as r:
+                    v = r.read(32).decode("ascii", "replace").strip()
+                if re.match(r"^\d+\.\d+\.\d+$", v):
+                    _newest["version"] = v
+            except (OSError, ValueError):
+                pass
+        threading.Thread(target=look, daemon=True).start()
+    v = _newest["version"]
+    return v if v and newer(v, OS_VERSION) else None
+
+
 def box_info():
     s = settings()
     temp = None
@@ -1275,7 +1306,7 @@ def box_info():
             mem = int(re.search(r"MemTotal:\s+(\d+)", f.read()).group(1)) * 1024
     except (OSError, AttributeError):
         mem = None
-    return {"version": OS_VERSION, "model": model() or "this computer", "memory": mem, "temperature": temp,
+    return {"version": OS_VERSION, "newest": newest_version(), "model": model() or "this computer", "memory": mem, "temperature": temp,
             "wifi": ssid or None, "address": local_address(), "server": server(), "server_name": (found.get(server()) or {}).get("name"),
             "settings": {k: s[k] for k in ("quality", "hwdec", "audio", "theme", "boot_text", "performance")},
             "choices": CHOICES, "learned_720": s["learned_720"],

@@ -22,7 +22,8 @@ The first numbered Sofa Box OS.
 - **Made for small boards:** it finds out what it runs on (Pi 3, 4 or 5; 1 to 8 GB) and adapts; the
   app in front gets the box, apps in the background sleep.
 - **Fills the TV:** pages are drawn at the TV's full size (the setup was a small square in a corner).
-- **Settings → Software:** Update the box, and Reset to how it came (for a new owner).
+- **Settings → Software:** which Sofa Box OS it is, a note when a newer one is out, Update the box, and
+  Reset to how it came (for a new owner).
 - **Fixes in this version:** Update and Reset no longer stop half way; after a power cut or a router
   restart, a box that knows its Wi-Fi waits for it instead of switching to its own; opening Sofa on the
   box the first time says it's starting.

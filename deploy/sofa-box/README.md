@@ -255,7 +255,8 @@ games that run well on the box, worked with the arrows and OK (or a controller).
   headphones.
 - **Time zone**, and which apps show on Home.
 - **Software:**
-  - Which **Sofa Box OS** version it has (also under **About this box**).
+  - Which **Sofa Box OS** version it has (also under **About this box**). When a newer one is out,
+    it says so here (the box looks on GitHub once a day).
   - **Update the box** gets the newest version from GitHub and restarts by itself (a few minutes).
   - **Reset to how it came** wipes everything of the owner's and starts at the setup again. Your
     apps, sign-ins, Wi-Fi, Bluetooth devices and files all go. Use it before giving or selling a box
