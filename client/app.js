@@ -883,7 +883,8 @@ function viewMore() {
       ${u.guest ? "" : row("", "i-tv", "Pair a TV", "Sign a TV in with this phone", 'data-more="pair"')}
       ${standalone() ? "" : row("", "i-phone", "Install Sofa", "On the home screen, like an app", 'data-more="install"')}
       ${u.admin ? row("#/server", "i-gear", "Server", "Library, people, internet, updates") : ""}
-      ${window.SofaBox ? row("#/box", "i-tv", "This Sofa box", "Picture, sound, boot screen, Wi-Fi, controllers") : ""}
+      ${row("", "i-tv", "Servers", window.SofaBox ? "Switch to another server, or add one" : "Other Sofas you watch from", 'data-more="servers"')}
+      ${window.SofaBox ? row("", "i-tv", "This Sofa box", "Picture, sound, Wi-Fi, controllers, apps", 'data-more="box"') : ""}
       ${row("", "i-exit", u.guest ? "Leave" : "Sign out", "", 'data-more="out"')}
     </div></section>`;
 }
@@ -894,6 +895,8 @@ document.addEventListener("click", e => {
   else if (a === "pair") location.hash = "#/pair";
   else if (a === "out") signOut();
   else if (a === "install") { prefs.set("installAsk", 0); installOffer(true); }
+  else if (a === "servers") serversDialog();
+  else if (a === "box") { if (/^(127\.0\.0\.1|localhost)(:|$)/.test(location.host)) location.hash = "#/box"; else boxGo("settings"); }
 });
 /* ---------- this Sofa box (a Raspberry Pi on the TV): its own settings, from the sofa ----------
    Only on the box: its agent (127.0.0.1:8091, the page's own address there) answers /box/api/... */
@@ -2847,6 +2850,60 @@ $("#lookBtn").addEventListener("click", () => appearanceDialog());
 if (window.SofaBox) {                     // on the Sofa box, its own settings are in the menu
   const a = document.createElement("a"); a.href = "#/box"; a.dataset.nav = "box"; a.className = "nav-extra";
   a.innerHTML = "<span>Box</span>"; $("#nav .nav-more").before(a);
+  if (!/^(127\.0\.0\.1|localhost)(:|$)/.test(location.host)) {     // Sofa at its own address on the box: the box's Settings
+    a.addEventListener("click", e => { e.preventDefault(); boxGo("settings"); });
+  }
+}
+function boxGo(to) {                       // the box's home screen, at its Settings or its server chooser
+  fetch("/box/api/sofa/chooser", { method: "POST", headers: { "Content-Type": "application/json", "X-Sofa-Box": "1" }, body: JSON.stringify({ to }) }).catch(() => {});
+}
+/* Servers: the Sofas (and others) this device knows. On the box it's the box's list; elsewhere this
+   browser keeps one, and picking a server opens it. */
+function knownServers() {
+  const here = { url: location.origin, name: session.name, here: true };
+  const list = (prefs.get("servers", []) || []).filter(x => x && x.url && x.url !== location.origin);
+  return [here].concat(list);
+}
+function rememberServer() {
+  if (window.SofaBox || !session || !session.user) return;
+  const list = (prefs.get("servers", []) || []).filter(x => x.url !== location.origin);
+  prefs.set("servers", [{ url: location.origin, name: session.name, share: !!session.user.visitor }].concat(list).slice(0, 12));
+}
+function serversDialog() {
+  const box = !!(window.SofaBox && NATIVE && NATIVE.servers);
+  let list = [];
+  try { list = box ? JSON.parse(NATIVE.servers() || "[]") : knownServers(); } catch (e) { list = []; }
+  const KIND = { sofa: "Sofa", jellyfin: "Jellyfin", emby: "Emby", plex: "Plex" }, WHERE = { home: "At home", internet: "On the internet", box: "On this box" };
+  const rows = list.map((x, i) => `<button class="server-row${x.current || x.here ? " on" : ""}" data-server="${i}">
+      <span class="server-ic">${esc((x.name || "?").charAt(0).toUpperCase())}</span>
+      <span><b>${esc(x.name || x.url)}</b><small>${box ? esc((KIND[x.kind] || "") + " · " + (WHERE[x.where] || "")) : esc(x.url.replace(/^https?:\/\//, ""))}</small></span>
+      ${x.current || x.here ? `<i class="pill">Watching</i>` : ""}</button>`).join("");
+  const d = openDialog(`<h2>Servers</h2><p class="hint">${box ? "The servers this box plays from. Picking one opens it; you stay signed in to each." : "Sofa servers you've opened on this device. Paste a share link or an address to add one."}</p>
+    <div class="server-list">${rows}</div>
+    ${box ? `<div class="actions"><button class="btn primary" data-servers-box="1">Add or change servers</button><button class="btn ghost" data-dismiss="1">Close</button></div>`
+      : `<form class="inline-form" id="addServer"><label class="field"><span>Address or share link</span><input name="v" placeholder="https://sofa.example.com/s/…" autocomplete="off" spellcheck="false"></label>
+        <button class="btn" type="submit">Open</button></form><div class="actions"><button class="btn ghost" data-dismiss="1">Close</button></div>`}`);
+  d.addEventListener("click", e => {
+    const b = e.target.closest("[data-server]");
+    if (b) {
+      const x = list[+b.dataset.server];
+      if (x.current || x.here) { closeDialog(); return; }
+      if (box) { NATIVE.choose(x.id); closeDialog(); } else location.href = x.share ? x.url + "/" : x.url;
+      return;
+    }
+    if (e.target.closest("[data-servers-box]")) { closeDialog(); boxGo("sofa"); }
+  });
+  const f = $("#addServer", d);
+  if (f) f.addEventListener("submit", e => {
+    e.preventDefault();
+    let v = f.v.value.trim(); if (!v) return;
+    if (!/^https?:\/\//i.test(v)) v = (/^(\d|localhost)/.test(v) ? "http://" : "https://") + v;
+    let u; try { u = new URL(v); } catch (err) { toast("That doesn't look like an address."); return; }
+    const list2 = (prefs.get("servers", []) || []).filter(x => x.url !== u.origin);
+    prefs.set("servers", [{ url: u.origin, name: u.hostname }].concat(list2).slice(0, 12));
+    location.href = u.href;
+  });
+  const first = $(".server-row", d); if (first) first.focus();
 }
 async function signOut() {
   const visitor = session && session.user && session.user.visitor;
@@ -2923,15 +2980,17 @@ function fixDialog(id) {
 
 /* ---------- "Who's watching?": profiles ---------- */
 const avatar = (p, id) => `<span class="av av-${(p.avatar || 0) % 8}"${id ? ` id="${id}"` : ""} aria-hidden="true">${esc((p.name || "?").trim().charAt(0).toUpperCase())}</span>`;
-$("#whoBtn").addEventListener("click", () => session.profiles ? profilePicker(false) : accountDialog());
+$("#whoBtn").addEventListener("click", () => session.profiles && !session.user.visitor ? profilePicker(false) : accountDialog());
 $("#castBtn").addEventListener("click", () => Screens.choose());
 /* On a TV the header has room only for the avatar: Theme and Sign out are behind it. */
 function accountDialog() {
-  const d = openDialog(`<h2>${esc(session.user.name)}</h2>
-    <div class="actions"><button class="btn" data-pick-theme="1">Theme</button><button class="btn" data-sign-out="1">${session.user.guest ? "Leave" : "Sign out"}</button>
+  const v = session.user.visitor, share = session.share || {};
+  const d = openDialog(`<h2>${esc(v ? share.title : session.user.name)}</h2>${v ? `<p class="hint">A public library: what's shared here, for anyone with the link.</p>` : ""}
+    <div class="actions"><button class="btn" data-pick-theme="1">Theme</button><button class="btn" data-pick-servers="1">Servers</button>${v && !share.home ? "" : `<button class="btn" data-sign-out="1">${v ? "Sign in" : session.user.guest ? "Leave" : "Sign out"}</button>`}
       <button class="btn ghost" data-dismiss="1">Close</button></div>`);
   d.addEventListener("click", e => {
-    if (e.target.closest("[data-pick-theme]")) { closeDialog(); setTimeout(appearanceDialog, 60); }
+    if (e.target.closest("[data-pick-servers]")) { closeDialog(); setTimeout(serversDialog, 60); }
+    else if (e.target.closest("[data-pick-theme]")) { closeDialog(); setTimeout(appearanceDialog, 60); }
     else if (e.target.closest("[data-sign-out]")) { closeDialog(); signOut(); }
   });
   const f = $("[data-pick-theme]", d); if (f) f.focus();
@@ -2945,12 +3004,13 @@ async function profilePicker(auto) {
       <span class="tile">${avatar(p)}${p.locked && p.id !== r.me ? `<i class="lock" aria-label="Locked">${icon("i-lock")}</i>` : ""}</span>
       <span class="pname">${esc(p.name)}</span>${p.kids ? `<span class="kids-tag">Kids</span>` : ""}${p.id === r.me ? `<span class="me">Watching now</span>` : ""}</button>`).join("")}</div>
     <div class="actions center"><button class="btn ghost" data-my-profile="1">Your profile: color and PIN</button>
-      ${auto ? "" : `${TV ? "" : `<button class="btn ghost" data-go-pair="1">Pair a TV</button>`}<button class="btn ghost" data-pick-theme="1">Theme</button><button class="btn ghost" data-sign-out="1">${session.user.guest ? "Leave" : "Sign out"}</button><button class="btn ghost" data-dismiss="1">Close</button>`}</div></div>`);
+      ${auto ? "" : `${TV ? "" : `<button class="btn ghost" data-go-pair="1">Pair a TV</button>`}<button class="btn ghost" data-pick-theme="1">Theme</button><button class="btn ghost" data-pick-servers="1">Servers</button><button class="btn ghost" data-sign-out="1">${session.user.guest ? "Leave" : "Sign out"}</button><button class="btn ghost" data-dismiss="1">Close</button>`}</div></div>`);
   d.classList.add("gate"); d.parentElement.classList.add("gate-scrim");
   const first = $(`[data-profile="${r.me}"]`, d) || $("[data-profile]", d); if (first) first.focus();
   d.addEventListener("click", e => {
     if (e.target.closest("[data-my-profile]")) { closeDialog(); setTimeout(profileDialog, 60); return; }
     if (e.target.closest("[data-pick-theme]")) { closeDialog(); setTimeout(appearanceDialog, 60); return; }
+    if (e.target.closest("[data-pick-servers]")) { closeDialog(); setTimeout(serversDialog, 60); return; }
     if (e.target.closest("[data-sign-out]")) { closeDialog(); signOut(); return; }
     if (e.target.closest("[data-go-pair]")) { closeDialog(); setTimeout(() => { location.hash = "#/pair"; }, 80); return; }
     const b = e.target.closest("[data-profile]"); if (!b) return;
@@ -4485,9 +4545,10 @@ async function boot() {
   applyLook();
   $("#whoName").innerHTML = visitor ? `<span class="pub-tag">Public</span>${esc(share.title)}` : esc(session.user.name);
   $("#whoAv").outerHTML = avatar(session.user, "whoAv");
-  $("#whoBtn").disabled = visitor;         // the menu also has Theme, Pair a TV and Sign out (all a phone has)
+  $("#whoBtn").disabled = false;           // the menu also has Theme, Servers, Pair a TV and Sign out (all a phone has)
   $("#signOut").textContent = visitor ? "Sign in" : session.user.guest ? "Leave" : "Sign out";
   $("#signOut").hidden = visitor && !share.home;        // from the internet, a home-only Sofa takes no sign-ins
+  rememberServer();
   view.innerHTML = "";
   await reloadLibrary();
   route();

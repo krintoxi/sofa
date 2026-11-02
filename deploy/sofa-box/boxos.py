@@ -31,7 +31,8 @@ TV_UA = ("Mozilla/5.0 (Linux; Tizen 6.5) AppleWebKit/537.36 (KHTML, like Gecko) 
 # ---------------------------------------------------------------- the apps on the home screen
 
 BUILTIN = [   # always there; can be moved and hidden, not removed
-    {"id": "sofa", "name": "Sofa", "kind": "builtin", "url": "/?tv=1", "color": "#F4B740", "icon": "sofa"},
+    {"id": "sofa", "name": "Sofa", "kind": "builtin", "url": "/?tv=1", "color": "#F4B740", "icon": "sofa", "category": "watch"},
+    {"id": "live", "name": "Live TV", "kind": "builtin", "url": "", "color": "#FF4D5E", "icon": "live", "category": "watch"},
     {"id": "browser", "name": "Browser", "kind": "builtin", "url": "/box/home#/browser", "color": "#4DA3FF", "icon": "browser"},
     {"id": "store", "name": "App Store", "kind": "builtin", "url": "/box/home#/store", "color": "#C792FF", "icon": "store"},
     {"id": "games", "name": "Games", "kind": "builtin", "url": "/box/home#/games", "color": "#8BD46E", "icon": "games"},
@@ -82,6 +83,12 @@ class Apps:
         with self.lock:
             data = self._load()
         apps = [dict(a) for a in BUILTIN] + [dict(a) for a in data["apps"]]
+        sections = None
+        for a in apps:                                      # apps from before the store had sections: theirs now
+            if not a.get("category"):
+                if sections is None:
+                    sections = {e["id"]: sec["id"] for sec in store()["sections"] for e in sec["apps"]}
+                a["category"] = sections.get(a["id"], "web")
         order = data.get("order") or []
         place = {a["id"]: (order.index(a["id"]) if a["id"] in order else len(order) + i) for i, a in enumerate(apps)}
         apps.sort(key=lambda a: place[a["id"]])
@@ -95,13 +102,18 @@ class Apps:
         return next((a for a in self.listing() if a["id"] == app_id), None)
 
     def install(self, entry):
-        """Put an app on the home screen (from the store, or any site). Returns it; its icon comes after."""
+        """Put an app on the home screen (from the store, or any site). Returns it; its icon comes after,
+        unless the store's copy of it is here already."""
         app = app_from_store(entry)
+        ready = store_icons.copy_to(app["id"], self.icons)
+        if ready:
+            app["icon_file"] = ready
         with self.lock:
             data = self._load()
             data["apps"] = [a for a in data["apps"] if a["id"] != app["id"]] + [app]
             self._save(data)
-        threading.Thread(target=self._fetch_icon, args=(app["id"], app.get("icon_src") or app["url"]), daemon=True).start()
+        if not ready:
+            threading.Thread(target=self._fetch_icon, args=(app["id"], app.get("icon_src") or app["url"]), daemon=True).start()
         return app
 
     def _fetch_icon(self, app_id, url):
@@ -145,7 +157,7 @@ def app_from_store(entry):
     return {"id": entry.get("id") or slug(urllib.parse.urlsplit(url).netloc.replace("www.", "")),
             "name": (entry.get("name") or urllib.parse.urlsplit(url).netloc.replace("www.", ""))[:40],
             "kind": "web", "url": url, "color": entry.get("color") or "#4DA3FF", "ua": entry.get("ua") or "",
-            "icon_src": entry.get("icon") or "", "added": int(time.time())}
+            "icon_src": entry.get("icon") or "", "added": int(time.time()), "category": entry.get("section") or "web"}
 
 
 # ---------------------------------------------------------------- the store
@@ -159,8 +171,52 @@ def store_entry(sid):
     for section in store()["sections"]:
         for e in section["apps"]:
             if e["id"] == sid:
-                return e
+                return dict(e, section=section["id"])
     return None
+
+
+class StoreIcons:
+    """The store's icons, fetched by the box from each site (its own home screen icon) the first time the
+    store is opened, one at a time, and kept: the store and Home show the real icons, not letters."""
+
+    def __init__(self, folder=None):
+        self.folder = folder
+        self.queue, self.lock, self.busy, self.tried = [], threading.Lock(), False, {}
+
+    def file(self, sid):
+        if not self.folder or not os.path.isdir(self.folder):
+            return None
+        return next((f for f in os.listdir(self.folder) if f.rsplit(".", 1)[0] == sid), None)
+
+    def want(self, entries):
+        with self.lock:
+            for e in entries:
+                if not self.file(e["id"]) and time.time() - self.tried.get(e["id"], 0) > 86400 and e not in self.queue:
+                    self.queue.append(e)
+            if self.queue and not self.busy:
+                self.busy = True
+                threading.Thread(target=self._work, daemon=True, name="store-icons").start()
+
+    def _work(self):
+        while True:
+            with self.lock:
+                if not self.queue:
+                    self.busy = False
+                    return
+                e = self.queue.pop(0)
+                self.tried[e["id"]] = time.time()
+            fetch_icon(e.get("icon") or e["url"], self.folder, e["id"])
+
+    def copy_to(self, sid, folder):
+        name = self.file(sid)
+        if not name:
+            return None
+        os.makedirs(folder, exist_ok=True)
+        shutil.copyfile(os.path.join(self.folder, name), os.path.join(folder, name))
+        return name
+
+
+store_icons = StoreIcons()
 
 
 def site_entry(url, name=None):
@@ -248,7 +304,7 @@ def roots():
         path = os.path.join(home, folder)
         os.makedirs(path, exist_ok=True)
         out.append({"id": folder.lower(), "name": name, "path": path, "drive": False})
-    for base in ("/media/" + os.path.basename(home), "/media", "/mnt"):
+    for base in ("/media/" + os.path.basename(home), "/run/media/" + os.path.basename(home), "/media", "/mnt"):
         try:
             for d in sorted(os.listdir(base)):
                 p = os.path.join(base, d)
@@ -336,6 +392,103 @@ def make_folder(root_id, rel, name):
         raise ValueError("Give it a name.")
     os.makedirs(os.path.join(full, name), exist_ok=False)
     return {"ok": True}
+
+
+# ---------------------------------------------------------------- USB drives and discs
+
+DISC_NAMES = {"dvd": "DVD", "bluray": "Blu-ray", "cd": "music CD", "data": "disc"}
+_mount_tried = {}
+
+
+def _lsblk():
+    code, out = run(["lsblk", "-J", "-b", "-o", "NAME,PATH,FSTYPE,LABEL,MOUNTPOINT,RM,HOTPLUG,TYPE,TRAN,SIZE"], 10)
+    if code != 0:
+        return []
+    try:
+        top = json.loads(out).get("blockdevices") or []
+    except ValueError:
+        return []
+    flat = []
+
+    def walk(devs, parent=None):
+        for d in devs:
+            d["parent_tran"] = (parent or {}).get("tran") or d.get("tran")
+            d["parent_hotplug"] = (parent or {}).get("hotplug") or d.get("hotplug")
+            flat.append(d)
+            walk(d.get("children") or [], d)
+    walk(top)
+    return flat
+
+
+def _disc_kind(dev):
+    """What's in an optical drive: "dvd", "bluray", "cd" (music), "data", or None (empty)."""
+    code, out = run(["udevadm", "info", "--query=property", "--name=" + dev], 5)
+    if code != 0:
+        return None
+    props = dict(line.split("=", 1) for line in out.splitlines() if "=" in line)
+    if props.get("ID_CDROM_MEDIA") != "1":
+        return None
+    if props.get("ID_CDROM_MEDIA_BD") == "1" or props.get("ID_CDROM_MEDIA_BD_R") == "1":
+        return "bluray"
+    if int(props.get("ID_CDROM_MEDIA_TRACK_COUNT_AUDIO") or 0) > 0 and not props.get("ID_FS_TYPE"):
+        return "cd"
+    if any(k.startswith("ID_CDROM_MEDIA_DVD") and v == "1" for k, v in props.items()):
+        return "dvd"
+    return "data" if props.get("ID_FS_TYPE") else "cd"
+
+
+def devices(mount=False):
+    """USB drives (mounted by udisks as they're plugged in when `mount`) and a disc in a USB DVD drive."""
+    drives, disc = [], None
+    for d in _lsblk():
+        hot = d.get("parent_hotplug") in (True, "1", 1) or d.get("parent_tran") == "usb" or d.get("rm") in (True, "1", 1)
+        if d.get("type") == "rom":
+            kind = _disc_kind(d.get("path") or "/dev/" + d["name"])
+            if kind:
+                disc = {"dev": d.get("path") or "/dev/" + d["name"], "kind": kind, "label": d.get("label") or DISC_NAMES[kind].capitalize(),
+                        "mount": d.get("mountpoint")}
+                if kind == "data" and mount and not d.get("mountpoint"):
+                    run(["udisksctl", "mount", "--no-user-interaction", "-b", disc["dev"]], 30)
+            continue
+        if not hot or d.get("type") != "part" and not (d.get("type") == "disk" and d.get("fstype")):
+            continue
+        if not d.get("fstype") or d.get("fstype") in ("swap", "LVM2_member", "crypto_LUKS"):
+            continue
+        mp, dev = d.get("mountpoint"), d.get("path") or "/dev/" + d["name"]
+        if not mp and mount and time.time() - _mount_tried.get(dev, 0) > 60:      # a drive that won't mount: once a minute
+            _mount_tried[dev] = time.time()
+            code, out = run(["udisksctl", "mount", "--no-user-interaction", "-b", dev], 30)
+            m = re.search(r" at (/\S+)", out)
+            mp = m.group(1).rstrip(".") if code == 0 and m else None
+        if mp and mp not in ("/", "/boot", "/boot/firmware"):
+            drives.append({"dev": d.get("path") or "/dev/" + d["name"], "label": d.get("label") or os.path.basename(mp),
+                           "mount": mp, "size": int(d.get("size") or 0), "root": "drive-" + slug(os.path.basename(mp))})
+    return {"drives": drives, "disc": disc}
+
+
+def eject(dev):
+    """Safely remove a USB drive (or open the disc tray)."""
+    if not re.match(r"^/dev/[\w-]+$", dev or ""):
+        raise ValueError("Which drive?")
+    if dev.startswith(("/dev/sr", "/dev/cdrom")):
+        code, out = run(["eject", dev], 20)
+        return {"ok": code == 0, "message": "The tray is open." if code == 0 else out[-160:]}
+    code, out = run(["udisksctl", "unmount", "--no-user-interaction", "-b", dev], 30)
+    if code != 0:
+        return {"ok": False, "message": "It's still in use. Close what's playing from it, then try again." if "busy" in out.lower() else out[-160:]}
+    parent = re.sub(r"(p?\d+)$", "", dev) if re.search(r"\d$", dev) else dev
+    run(["udisksctl", "power-off", "--no-user-interaction", "-b", parent], 20)
+    return {"ok": True, "message": "You can take the drive out now."}
+
+
+def disc_payload(disc):
+    """How the box's player opens a disc (mpv reads DVDs, Blu-rays and music CDs by itself; discs with copy
+    protection need libdvdcss / libaacs, which the box doesn't come with)."""
+    url = {"dvd": "dvd://", "bluray": "bd://", "cd": "cdda://"}.get(disc["kind"])
+    if not url:
+        raise ValueError("That disc has files on it: open it in Files.")
+    opt = {"dvd": "dvd-device", "bluray": "bluray-device", "cd": "cdrom-device"}[disc["kind"]]
+    return {"url": url, "local": True, "title": disc.get("label") or DISC_NAMES[disc["kind"]], "item": None, "mpv": {opt: disc["dev"]}}
 
 
 # ---------------------------------------------------------------- Sofa Shield (ad blocking for the whole box)
@@ -604,6 +757,19 @@ class Browser:
             self.tabs.setdefault(target, {"used": time.time(), "session": None, "audible": False}).update(app=app_id)
         self.activate(target)
         return target
+
+    def cookies(self, host):
+        """The browser's cookies for a host, as a Cookie header (Sofa's sign-in at its address on the box)."""
+        try:
+            got = self.call("Storage.getCookies", {}).get("cookies") or []
+        except OSError:
+            return ""
+        return "; ".join("%s=%s" % (c["name"], c["value"]) for c in got if c.get("domain", "").lstrip(".") == host)
+
+    def navigate(self, target, url):
+        tab = self.tabs.get(target) or {}
+        if tab.get("session"):
+            self.call("Page.navigate", {"url": url}, tab["session"])
 
     def home(self):
         target = self.tab_of("home")

@@ -1366,3 +1366,14 @@ html.standalone .player .p-bottom { padding-bottom: max(16px, env(safe-area-inse
 .asking-panel { border-color: rgba(var(--accent-rgb), .45); box-shadow: 0 0 0 1px rgba(var(--accent-rgb), .15), 0 18px 50px rgba(var(--accent-rgb), .08); }
 .asking .note { color: var(--soft); font-style: italic; }
 .mini.primary { background: var(--amber); color: var(--amber-ink); border-color: transparent; }
+
+/* Servers: the Sofas (and others) this device plays from */
+.server-list { display: grid; gap: 8px; margin: 14px 0 18px; }
+.server-row { display: grid; grid-template-columns: 44px 1fr auto; gap: 14px; align-items: center; text-align: left; padding: 10px 14px;
+  border-radius: 14px; border: 1px solid rgba(var(--paper-rgb), .1); background: rgba(var(--paper-rgb), .04); color: inherit; font: inherit; cursor: pointer; }
+.server-row:hover, .server-row:focus-visible { background: rgba(var(--paper-rgb), .1); outline: none; border-color: var(--accent); }
+.server-row.on { border-color: rgba(var(--paper-rgb), .25); }
+.server-row b { display: block; }
+.server-row small { opacity: .65; }
+.server-ic { width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; font-weight: 800; font-size: 20px;
+  background: linear-gradient(135deg, var(--accent), rgba(var(--paper-rgb), .2)); color: var(--accent-ink, #111); }

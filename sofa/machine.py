@@ -276,6 +276,9 @@ def status():
 
 
 def start():
+    if not config.get("machine_test"):
+        return
+
     def run():
         time.sleep(45)                    # after the library's first read
         try:

@@ -52,6 +52,8 @@ DEFAULTS = {
     "share_all": False,           # every show and movie (never Adult), not only the ones picked
     "share_live": False,          # Live TV too
     "public_open": False,         # the server's plain address opens the public library (a server only for sharing)
+    # Time this computer's video conversion once, after starting (off for Sofa on a Sofa Box: a Pi doesn't convert).
+    "machine_test": True,
     "share_title": "",            # what visitors see it called (empty: the server's name)
     # Look up show summaries and missing artwork on TVmaze (free, no key).
     "tvmaze": True,

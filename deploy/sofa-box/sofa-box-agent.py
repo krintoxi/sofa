@@ -22,6 +22,7 @@ import json
 import os
 import re
 import socket
+import ssl
 import subprocess
 import sys
 import tempfile
@@ -33,6 +34,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import boxos  # noqa: E402  (Sofa Box OS: apps, store, files, the browser's tabs)
+import boxservers  # noqa: E402  (the servers it plays from: Sofa at home, on the internet, on the box; Jellyfin, Emby, Plex)
 
 PORT = int(os.environ.get("SOFA_BOX_PORT", "8091"))
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -254,14 +256,14 @@ class Player:
     """One video at a time in mpv, controlled over its JSON socket."""
 
     def __init__(self):
-        self.proc, self.sock_path, self.payload, self.cookie = None, None, None, ""
+        self.proc, self.sock_path, self.payload, self.cookie, self.base = None, None, None, "", None
         self.status = {}
         self.news, self.seq = [], 0             # what the page hears about, numbered (every page gets all of it)
         self.cond = threading.Condition()
         self.req = 0
 
     def _args(self, p):
-        s, sock = settings(), self.sock_path
+        s, sock, base = settings(), self.sock_path, self.base
         mpv = os.environ.get("SOFA_BOX_MPV", "mpv")         # previews and tests can use a stand-in
         args = ([sys.executable] if mpv.endswith(".py") else []) + [mpv, "--input-ipc-server=" + sock, "--fs", "--force-window=immediate", "--idle=no", "--keep-open=no",
                 "--osd-level=1", "--osd-font-size=46", "--osd-bar-h=2.2", "--sub-font-size=46", "--term-osd=no",
@@ -280,13 +282,15 @@ class Player:
         if p.get("start"):
             args.append("--start=%.1f" % float(p["start"]))
         for sub in p.get("subtitles") or []:
-            args.append("--sub-file=" + rewrite(sub.get("url", "")))
+            args.append("--sub-file=" + rewrite(sub.get("url", ""), base))
+        for k, v in (p.get("mpv") or {}).items():           # a disc: which drive
+            args.append("--%s=%s" % (k, v))
         args += list(s.get("mpv_args") or []) + shlex_split(os.environ.get("SOFA_BOX_MPV_ARGS", ""))
-        return args + [p["url"] if p.get("local") else rewrite(p["url"])]
+        return args + [p["url"] if p.get("local") else rewrite(p["url"], base)]
 
-    def play(self, payload, cookie):
+    def play(self, payload, cookie, base=None):
         self.stop(save=True, reason="replaced")
-        self.payload, self.cookie = payload, cookie
+        self.payload, self.cookie, self.base = payload, cookie, base or server()
         self.sock_path = os.path.join(tempfile.gettempdir(), "sofa-mpv-%d.sock" % os.getpid())
         try:
             os.unlink(self.sock_path)
@@ -360,7 +364,7 @@ class Player:
                 self.command("show-text", "OK: skip the %s" % ("recap" if marker.get("kind") == "recap" else "intro"), 6000)
             if d and time.time() - last_save > 10:
                 last_save = time.time()
-                save_progress(p.get("item"), t, d, False, self.cookie)
+                save_progress(p.get("item"), t, d, False, self.cookie, self.base)
             if not drops_checked and t - float(p.get("start") or 0) - float(p.get("offset") or 0) > 90:
                 drops_checked = True
                 self.check_drops()
@@ -372,7 +376,7 @@ class Player:
         ended = reason == "next" or (reason is None and code == 0 and d and t > d - 60)
         watched = ended or (d and t > d * 0.95)
         if d:
-            save_progress(p.get("item"), d if watched else t, d, bool(watched), self.cookie)
+            save_progress(p.get("item"), d if watched else t, d, bool(watched), self.cookie, self.base)
         failed = code not in (0, 4) and reason is None
         last = (err.splitlines() or ["mpv stopped"])[-1][:120]
         if failed:
@@ -458,6 +462,7 @@ class Player:
 
 player = Player()
 apps = boxos.Apps(CONF_DIR)
+boxos.store_icons.folder = os.path.join(CONF_DIR, "store-icons")
 
 
 def page_message(msg, target, tab):
@@ -514,26 +519,252 @@ def open_app(app_id=None, url=None, hash_=None):
     return {"ok": True, "url": target_url}
 
 
+# ---------------------------------------------------------------- servers: which Sofa (or Jellyfin, Emby, Plex)
+
+class LocalSofa:
+    """"This box": Sofa itself, running on the box (Live TV, and videos on the box and its USB drives) for
+    anyone without a Sofa computer. Started the first time someone picks it; light settings for a Pi."""
+    PORT = int(os.environ.get("SOFA_BOX_LOCAL_PORT", "8095"))
+
+    def __init__(self):
+        self.proc, self.lock = None, threading.Lock()
+        self.data = os.environ.get("SOFA_BOX_LOCAL_DATA") or os.path.expanduser("~/.local/share/sofa-box/sofa")
+
+    def code(self):
+        for d in (os.environ.get("SOFA_BOX_SOFA"), os.path.join(HERE, "sofa-server"), os.path.join(HERE, "..", "..")):
+            if d and os.path.isfile(os.path.join(d, "sofa.py")) and os.path.isdir(os.path.join(d, "sofa")):
+                return os.path.realpath(d)
+        return None
+
+    def available(self):
+        return bool(self.code())
+
+    def url(self):
+        return "http://127.0.0.1:%d" % self.PORT
+
+    def answering(self):
+        return bool(info(self.url()))
+
+    def _config(self):
+        cfg = os.path.join(self.data, "config.json")
+        if os.path.exists(cfg):
+            return
+        os.makedirs(self.data, exist_ok=True)
+        lib = os.path.expanduser("~/Videos/Sofa Library")
+        user = os.path.basename(os.path.expanduser("~"))
+        folders = {"shows": "Shows", "movies": "Movies", "music": "Music", "musicvideos": "Music Videos", "inbox": "Inbox",
+                   "review": "Needs Review", "adult": "Adult", "originals": "Converted Originals"}
+        conf = {k: os.path.join(lib, v) for k, v in folders.items()}
+        conf.update(name=(settings().get("boot_text") or "Sofa Box"), port=self.PORT, dlna=False, guest_access=False,
+                    drive_folders=["/media/" + user, "/media"], auto_convert=False, previews=False, trickplay=False,
+                    detect_intros=False, machine_test=False,
+                    live_playlists=[{"name": "English", "url": "https://iptv-org.github.io/iptv/languages/eng.m3u"},
+                                    {"name": "Spanish-language", "url": "https://iptv-org.github.io/iptv/languages/spa.m3u"}])
+        for v in conf.values():
+            if isinstance(v, str) and v.startswith(lib):
+                os.makedirs(v, exist_ok=True)
+        with open(cfg, "w", encoding="utf-8") as f:
+            json.dump(conf, f, indent=1)
+
+    def ensure(self, wait=40):
+        """Running (started now if it wasn't). True when it answers."""
+        if self.answering():
+            return True
+        code = self.code()
+        if not code:
+            return False
+        with self.lock:
+            if not (self.proc and self.proc.poll() is None):
+                self._config()
+                log = open(os.path.join(self.data, "sofa.log"), "ab")
+                self.proc = subprocess.Popen([sys.executable, os.path.join(code, "sofa.py"), "serve"], cwd=code, stdin=subprocess.DEVNULL,
+                                             stdout=log, stderr=subprocess.STDOUT, env=dict(os.environ, SOFA_DATA=self.data))
+        end = time.time() + wait
+        while time.time() < end:
+            if self.answering():
+                return True
+            if self.proc and self.proc.poll() is not None:
+                return False
+            time.sleep(0.5)
+        return False
+
+
+local_sofa = LocalSofa()
+servers = boxservers.Servers(CONF_DIR, local_available=local_sofa.available)
+others_found = {"at": 0, "list": []}
+
+
+def migrate_server():
+    """The first Sofa boxes had one Sofa (settings' "server"): it becomes the first on the list, and the
+    one Sofa opens with, as before."""
+    st = servers.state()
+    old = settings()["server"]
+    if old and not any(x["kind"] == "sofa" and x["where"] != "box" for x in st["servers"]):
+        j = info(old) or {}
+        entry = servers.add({"id": boxservers.server_id("sofa", old), "kind": "sofa", "name": j.get("name") or "Sofa",
+                             "url": old.rstrip("/"), "where": "home", "sofa_id": j.get("id")})
+        servers.choose(entry["id"], remember=True)
+
+
+def sofa_listing():
+    """Everything the box's Sofa chooser shows."""
+    st = servers.state()
+    added = {x["url"].rstrip("/") for x in st["servers"]}
+    added_ids = {x.get("sofa_id") for x in st["servers"] if x.get("sofa_id")}
+    with _lock:
+        home = [{"url": u, "name": v["name"], "kind": "sofa", "where": "home", "id": boxservers.server_id("sofa", u)}
+                for u, v in sorted(found.items()) if u.rstrip("/") not in added and v.get("id") not in added_ids]
+    others = [o for o in others_found["list"] if o["url"].rstrip("/") not in added]
+    feat = [f for f in boxservers.featured(CONF_DIR) if f["url"].rstrip("/") not in added]
+    return dict(st, found=home, others=others, featured=feat, local=local_sofa.available())
+
+
+def server_page(entry, start=False, hash_=""):
+    """Where an app tab for this server opens."""
+    if entry["kind"] != "sofa":
+        return entry["url"] + (entry.get("start") or "")
+    path = (entry.get("start") or "/") if start else "/"
+    return "http://%s.localhost:%d%s?tv=1%s" % (entry["id"], PORT, path, hash_ or "")
+
+
+def open_sofa(sid=None, hash_=""):
+    """Open Sofa from the server picked (or the one it opens with). {"ask": True} when the box should ask."""
+    st = servers.state()
+    sid = sid or (None if st["ask"] else st["default"])
+    if not sid:
+        return {"ok": True, "ask": True}
+    entry = servers.get(sid)
+    if not entry:
+        return {"ok": True, "ask": True}
+    if entry["where"] == "box" and not local_sofa.ensure():
+        raise ValueError("Sofa on this box didn't start. Try again, or restart the box.")
+    url = server_page(entry, start=True, hash_=hash_)
+    app = "sofa" if entry["kind"] == "sofa" else "srv-" + entry["id"]
+    if browser and browser.connected():
+        existing = browser.tab_of(app)
+        if existing and app == "sofa":
+            here = urllib.parse.urlsplit((browser.tabs.get(existing) or {}).get("url") or "").netloc
+            if here.split(":")[0] != "%s.localhost" % entry["id"]:      # another server's Sofa: this one instead
+                browser.navigate(existing, url)
+            elif hash_:
+                browser.evaluate(existing, "location.hash = %s" % json.dumps(hash_))
+            browser.activate(existing)
+            return {"ok": True, "target": existing, "server": entry["id"]}
+        return {"ok": True, "target": browser.open(app, url), "server": entry["id"]}
+    return {"ok": True, "url": url, "server": entry["id"]}
+
+
+_continue = {"at": 0, "key": None, "value": None}
+
+
+def sofa_continue():
+    """What you were watching in the Sofa the box opens with, for Home (asked with that Sofa's own sign-in
+    on the box, read from the browser)."""
+    st = servers.state()
+    entry = servers.get(st["default"]) if st["default"] and not st["ask"] else None
+    if not entry or entry["kind"] != "sofa":
+        return {"found": False, "servers": len(st["servers"])}
+    if _continue["key"] == entry["id"] and time.time() - _continue["at"] < 20:
+        return _continue["value"]
+    host = "%s.localhost" % entry["id"]
+    cookie = browser.cookies(host) if browser and browser.connected() else ""
+    out = {"found": True, "name": entry["name"], "server": entry["id"], "where": entry["where"], "signedIn": False,
+           "base": "http://%s:%d" % (host, PORT)}
+
+    def get(path):
+        req = urllib.request.Request(entry["url"] + path, headers={"Cookie": cookie, "Accept": "application/json"})
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({})) if entry["url"].startswith("http://") else urllib.request.build_opener()
+        with opener.open(req, timeout=6) as r:
+            return json.loads(r.read().decode("utf-8"))
+    try:
+        if entry["where"] == "box" and not local_sofa.answering():
+            return dict(out, found=True, sleeping=True)
+        s = get("/api/session")
+        out["name"] = s.get("name") or entry["name"]
+        if s.get("user"):
+            lib, prog = get("/api/library"), get("/api/progress")
+            by = {}
+            for sh in lib.get("shows") or []:
+                for se in sh.get("seasons") or []:
+                    for ep in se.get("episodes") or []:
+                        by[ep["id"]] = {"title": sh["name"], "sub": "S%s E%s · %s" % (ep.get("s"), ep.get("e"), ep.get("title") or ""),
+                                        "art": ep.get("thumb") or sh.get("backdrop") or sh.get("poster"),
+                                        "backdrop": sh.get("backdrop") or ep.get("thumb"), "hash": "#/show/" + urllib.parse.quote(sh["id"], safe="")}
+            for m in lib.get("movies") or []:
+                by[m["id"]] = {"title": m["title"], "sub": str(m.get("year") or ""), "art": m.get("backdrop") or m.get("poster"),
+                               "backdrop": m.get("backdrop") or m.get("poster"), "hash": "#/movie/" + urllib.parse.quote(m["id"], safe="")}
+            items = [dict(by[i], id=i, pct=round(100 * p["t"] / p["d"])) for i, p in
+                     sorted(prog.items(), key=lambda x: -(x[1].get("at") or 0))
+                     if i in by and not p.get("done") and p.get("d") and 30 < p["t"] < p["d"] - 30][:12]
+            out.update(signedIn=True, user=s["user"]["name"], items=items)
+    except Exception:
+        out["found"] = False
+    _continue.update(at=time.time(), key=entry["id"], value=out)
+    return out
+
+
+def scan_others():
+    if time.time() - others_found["at"] > 20:
+        others_found["at"] = time.time()
+        try:
+            others_found["list"] = boxservers.find_others()
+        except OSError:
+            pass
+    return others_found["list"]
+
+
+# ---------------------------------------------------------------- USB drives and discs
+
+devices_seen = {"drives": [], "disc": None, "n": 0}
+
+
+def watch_devices():
+    """USB drives are mounted as they're plugged in (udisks), and a disc in a USB DVD drive shows on Home."""
+    known = set()
+    while True:
+        try:
+            dev = boxos.devices(mount=True)
+            names = {d["dev"] for d in dev["drives"]} | ({dev["disc"]["dev"] + ":" + dev["disc"]["kind"]} if dev["disc"] else set())
+            new = names - known
+            if known and new:
+                for d in dev["drives"]:
+                    if d["dev"] in new:
+                        toast("USB drive %s is ready: it's in Files." % d["label"])
+                if dev["disc"] and (dev["disc"]["dev"] + ":" + dev["disc"]["kind"]) in new:
+                    toast("A %s is in: open it from Home." % boxos.DISC_NAMES.get(dev["disc"]["kind"], "disc"))
+            if names != known:
+                devices_seen.update(dev, n=devices_seen["n"] + 1)
+            known = names
+        except Exception:
+            pass
+        time.sleep(3)
+
+
 def shlex_split(text):
     import shlex
     return shlex.split(text) if text else []
 
 
-def rewrite(url):
-    """The page builds addresses on this agent (127.0.0.1:8091); mpv goes to Sofa itself."""
-    if url.startswith("http://127.0.0.1:%d" % PORT) or url.startswith("http://localhost:%d" % PORT):
-        return server() + url.split(str(PORT), 1)[1]
-    return url if url.startswith("http") else server() + url
+def rewrite(url, base=None):
+    """The page builds addresses on this agent (127.0.0.1:8091, or <server>.localhost:8091); mpv goes to the
+    server itself."""
+    base = base or server() or ""
+    m = re.match(r"^https?://(127\.0\.0\.1|localhost|[a-z0-9-]+\.localhost):%d(/.*)?$" % PORT, url)
+    if m:
+        return base + (m.group(2) or "/")
+    return url if url.startswith("http") else base + url
 
 
-def save_progress(item, t, d, done, cookie):
-    if not item or not server():
+def save_progress(item, t, d, done, cookie, base=None):
+    base = base or server()
+    if not item or not base:
         return
     try:
-        req = urllib.request.Request(server() + "/api/progress/" + urllib.parse.quote(item, safe=""), method="POST",
+        req = urllib.request.Request(base + "/api/progress/" + urllib.parse.quote(item, safe=""), method="POST",
                                      data=json.dumps({"t": t, "d": d, "done": done}).encode(),
                                      headers={"Content-Type": "application/json", "X-Sofa": "1", "Cookie": cookie})
-        urllib.request.build_opener(urllib.request.ProxyHandler({})).open(req, timeout=5).close()
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({})) if base.startswith("http://") else urllib.request.build_opener()
+        opener.open(req, timeout=8).close()
     except Exception:
         pass
 
@@ -674,14 +905,20 @@ NATIVE_JS = r"""/* Sofa box: the TV pages get the box's own player (mpv), like S
   function call(m, body) {
     var x = new XMLHttpRequest();
     x.open(body === undefined ? "GET" : "POST", "/box/native/" + m, false);
+    if (body !== undefined) x.setRequestHeader("X-Sofa-Box", "1");
     x.send(body === undefined ? null : body);
     return x.responseText;
+  }
+  function post(path, body) {
+    return fetch(path, { method: "POST", headers: { "Content-Type": "application/json", "X-Sofa-Box": "1" }, body: JSON.stringify(body || {}) });
   }
   window.SofaNative = {
     version: function () { return "1"; }, appVersion: function () { return "0"; },
     caps: function () { return call("caps"); }, status: function () { return call("status"); },
     play: function (json) { cover(true); call("play", json); }, control: function (json) { call("control", json); },
-    servers: function () { return "[]"; }, choose: function () {}, forget: function () { location.href = "/box/finder?choose=1"; }
+    servers: function () { return call("servers"); },
+    choose: function (id) { post("/box/api/sofa/open", { id: id }); },
+    forget: function () { post("/box/api/sofa/chooser"); }
   };
   var since = null;
   (function events() {
@@ -742,10 +979,27 @@ class Handler(BaseHTTPRequestHandler):
     def do_DELETE(self):
         self.route()
 
+    def home_host(self):
+        """The box's own pages (the home screen, at 127.0.0.1:8091)."""
+        host = (self.headers.get("Host") or "").lower()
+        return host in ("127.0.0.1:%d" % PORT, "localhost:%d" % PORT, "127.0.0.1", "localhost")
+
+    # What a server's pages (<id>.localhost) may ask of the box: its player, and Sofa's server menu.
+    SERVER_PAGE_OK = ("/box/native.js", "/box/native/", "/box/api/sofa/open", "/box/api/sofa/chooser", "/box/api/home", "/box/api/go")
+
     def route(self):
         path = urllib.parse.urlsplit(self.path).path
+        entry = boxservers.by_host(self.headers.get("Host"), servers)
+        if not entry and not self.home_host():          # an address that isn't the box's (a rebinding trick)
+            return self.send('{"error":"not here"}', status=403)
         if path.startswith("/box/"):
-            return self.box(path, urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query))
+            if entry and not path.startswith(self.SERVER_PAGE_OK):
+                return self.send('{"error":"not for this page"}', status=403)
+            if self.command == "POST" and self.headers.get("X-Sofa-Box") != "1":
+                return self.send('{"error":"missing X-Sofa-Box"}', status=400)  # no other site can post here
+            return self.box(path, urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query), entry)
+        if entry:
+            return self.proxy(entry)
         if not server() or "choose=1" in self.path:
             if "choose=1" in self.path:
                 with _lock:
@@ -754,7 +1008,7 @@ class Handler(BaseHTTPRequestHandler):
         return self.proxy()
 
     # ---- the agent's own pages and calls
-    def box(self, path, qs):
+    def box(self, path, qs, entry=None):
         if path == "/box/finder":
             return self.send(finder_page(), "text/html; charset=utf-8")
         if path == "/box/state":
@@ -780,8 +1034,13 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(json.dumps({k: st[k] for k in ("item", "t", "d", "paused") if k in st}))
         if path == "/box/native/play":
             payload = json.loads(self.body() or b"{}")
-            player.play(payload, self.headers.get("Cookie", ""))
+            payload.pop("mpv", None)                          # only the box's own disc player sets mpv's options
+            player.play(payload, self.headers.get("Cookie", ""), entry["url"] if entry else server())
             return self.send('{"ok":true}')
+        if path == "/box/native/servers":                     # Sofa's menu on the box: the servers to switch to
+            st = servers.state()
+            return self.send(json.dumps([{"id": x["id"], "name": x["name"], "kind": x["kind"], "where": x["where"],
+                                          "current": bool(entry and entry["id"] == x["id"])} for x in st["servers"]]))
         if path == "/box/native/control":
             player.control(json.loads(self.body() or b"{}"))
             return self.send('{"ok":true}')
@@ -822,7 +1081,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/box/preview":
             with open(os.path.join(HERE, "preview.html"), encoding="utf-8") as f:
                 return self.send(f.read(), "text/html; charset=utf-8")
-        if path.startswith(("/box/api/", "/box/home", "/box/icons/", "/box/games/", "/box/fonts/")) or path == "/box/files/raw":
+        if path.startswith(("/box/api/", "/box/home", "/box/icons/", "/box/store-icons/", "/box/games/", "/box/fonts/")) or path == "/box/files/raw":
             try:
                 return self.box_os(path, qs)
             except ValueError as exc:
@@ -855,6 +1114,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.static(os.path.join(HERE, "home"), path[len("/box/home/"):])
         if path.startswith("/box/icons/"):
             return self.static(apps.icons, path[len("/box/icons/"):])
+        if path.startswith("/box/store-icons/"):
+            return self.static(boxos.store_icons.folder, path[len("/box/store-icons/"):])
         if path.startswith("/box/fonts/"):                 # Sofa's typefaces (on the box, or in Sofa's folder)
             name = os.path.basename(path)
             for d in (os.path.join(HERE, "fonts"), os.path.join(HERE, "..", "..", "client", "vendor", "fonts")):
@@ -864,12 +1125,65 @@ class Handler(BaseHTTPRequestHandler):
         if path.startswith("/box/games/"):
             return self.static(os.path.join(HERE, "games"), path[len("/box/games/"):] or "index.html")
         if path == "/box/api/apps":
-            s = settings()
+            s, st = settings(), servers.state()
+            default = servers.get(st["default"]) if st["default"] else None
             return self.send(json.dumps({"apps": apps.listing(), "running": browser.running() if browser and browser.connected() else [],
                                          "devtools": bool(browser and browser.connected()), "sofa": server(),
                                          "sofa_name": (found.get(server()) or {}).get("name"), "theme": s["theme"],
                                          "name": s["boot_text"], "welcomed": s["welcomed"], "slow": slow_board(),
+                                         "default_server": {k: default[k] for k in ("id", "name", "kind", "where")} if default else None,
+                                         "ask": st["ask"], "servers": len(st["servers"]),
+                                         "devices": {k: devices_seen[k] for k in ("drives", "disc", "n")},
                                          "front": browser.front_app() if browser and browser.connected() else None}))
+        if path == "/box/api/sofa/continue":                # Home's "Continue watching"
+            return self.send(json.dumps(sofa_continue()))
+        if path == "/box/api/sofa":                         # the chooser: servers added, found, free, others
+            return self.send(json.dumps(sofa_listing()))
+        if path == "/box/api/sofa/scan":                    # look again (Jellyfin, Emby, Plex too)
+            scan_others()
+            return self.send(json.dumps(sofa_listing()))
+        if path == "/box/api/sofa/add":                     # a typed or pasted address (a share link works too)
+            entry = data.get("entry") if isinstance(data.get("entry"), dict) else None
+            if entry and entry.get("featured"):
+                entry = boxservers.identify(entry.get("url"))
+            elif not entry:
+                entry = boxservers.identify(str(data.get("url") or ""))
+            else:                                           # one the box found at home: check it's there
+                entry = boxservers.identify(str(entry.get("url") or ""))
+            return self.send(json.dumps({"ok": True, "server": servers.add(entry)}))
+        if path == "/box/api/sofa/remove":
+            servers.remove(str(data.get("id") or ""))
+            return self.send(json.dumps(dict(sofa_listing(), ok=True)))
+        if path == "/box/api/sofa/choose":                  # open this one every time, or ask
+            servers.choose(data.get("id"), bool(data.get("remember")))
+            return self.send(json.dumps(dict(sofa_listing(), ok=True)))
+        if path == "/box/api/sofa/rename":
+            servers.rename(str(data.get("id") or ""), data.get("name"))
+            return self.send(json.dumps(dict(sofa_listing(), ok=True)))
+        if path == "/box/api/sofa/open":
+            sid = data.get("id")
+            if data.get("live") and not sid:                 # Live TV: the Sofa it opens with, else Sofa on this box
+                st = servers.state()
+                sid = st["default"] if st["default"] and not st["ask"] else ("box" if local_sofa.available() else None)
+            return self.send(json.dumps(open_sofa(sid, data.get("hash") or "")))
+        if path == "/box/api/sofa/chooser":                 # from Sofa's menu: the box's server chooser, or its Settings
+            to = "#/settings" if data.get("to") == "settings" else "#/sofa"
+            if browser and browser.connected():
+                t = browser.tab_of("home")
+                if t:
+                    browser.evaluate(t, "location.hash = %s" % json.dumps(to))
+                go_home()
+            return self.send(json.dumps({"ok": True, "go": "/box/home" + to}))
+        if path == "/box/api/devices":
+            return self.send(json.dumps({k: devices_seen[k] for k in ("drives", "disc", "n")}))
+        if path == "/box/api/devices/eject":
+            return self.send(json.dumps(boxos.eject(str(data.get("dev") or ""))))
+        if path == "/box/api/disc/play":                    # a DVD, Blu-ray or music CD, in the box's player
+            disc = devices_seen.get("disc")
+            if not disc:
+                raise ValueError("There's no disc in the drive.")
+            player.play(boxos.disc_payload(disc), "")
+            return self.send('{"ok":true}')
         if path == "/box/api/apps/install":
             entry = boxos.store_entry(str(data.get("store_id") or "")) if data.get("store_id") else \
                 boxos.site_entry(str(data.get("url") or ""), data.get("name"))
@@ -887,6 +1201,10 @@ class Handler(BaseHTTPRequestHandler):
             for section in st["sections"]:
                 for e in section["apps"]:
                     e["installed"] = e["id"] in installed
+                    icon = boxos.store_icons.file(e["id"])
+                    if icon:
+                        e["icon_url"] = "/box/store-icons/" + icon
+            boxos.store_icons.want([e for sec in st["sections"] for e in sec["apps"]])
             return self.send(json.dumps(st))
         if path == "/box/api/open":
             return self.send(json.dumps(open_app(data.get("id"), data.get("url"), data.get("hash"))))
@@ -926,23 +1244,49 @@ class Handler(BaseHTTPRequestHandler):
         return self.send('{"error":"not found"}', status=404)
 
 
-    # ---- Sofa's pages, passed through
-    def proxy(self):
-        target = urllib.parse.urlsplit(server())
+    # ---- a server's pages, passed through
+    def proxy(self, entry=None):
+        base = entry["url"] if entry else server()
+        target = urllib.parse.urlsplit(base)
         body = self.body() if self.command in ("POST", "PUT", "DELETE") else None
-        headers = {k: v for k, v in self.headers.items() if k.lower() not in HOP}
+        headers = {k: v for k, v in self.headers.items() if k.lower() not in HOP and k.lower() not in ("origin", "referer")}
         page = urllib.parse.urlsplit(self.path).path in ("/", "/index.html")
         if not page:
             headers["Accept-Encoding"] = self.headers.get("Accept-Encoding", "")
-        conn = http.client.HTTPConnection(target.hostname, target.port or 80, timeout=60)
-        try:
-            conn.request(self.command, self.path, body=body, headers=dict(headers, Host=target.netloc, Connection="close"))
-            r = conn.getresponse()
-        except OSError:
+        if entry and entry.get("where") == "box" and not local_sofa.answering():
+            local_sofa.ensure()                             # "This box": started on the first visit
+        r = conn = None
+        for attempt in (1, 2):
+            if target.scheme == "https":
+                conn = http.client.HTTPSConnection(target.hostname, target.port or 443, timeout=60, context=ssl.create_default_context())
+            else:
+                conn = http.client.HTTPConnection(target.hostname, target.port or 80, timeout=60)
+            try:
+                conn.request(self.command, self.path, body=body, headers=dict(headers, Host=target.netloc, Connection="close"))
+                r = conn.getresponse()
+                break
+            except OSError:
+                r = None
+                if entry and entry.get("where") == "box" and attempt == 1 and local_sofa.ensure():
+                    continue
+                break
+        if r is None:
+            where = ("Sofa on this box isn't answering. Trying again…" if entry and entry.get("where") == "box" else
+                     "%s isn't answering. Is it on, and is the box online? Trying again…" % html_escape((entry or {}).get("name") or "Sofa"))
             return self.send("<!doctype html><meta http-equiv=refresh content=5><body style='background:#0a0e1a;color:#ccc;"
-                             "font:28px system-ui;display:grid;place-items:center;height:90vh'>Sofa isn't answering. "
-                             "Is the Sofa computer on? Trying again…", "text/html; charset=utf-8", 502)
-        out_headers = [(k, v) for k, v in r.getheaders() if k.lower() not in HOP]
+                             "font:28px system-ui;display:grid;place-items:center;height:90vh;text-align:center;padding:0 10vw'>"
+                             + where + "<br><small style='opacity:.6;font-size:20px'>Home goes back to the box's home screen.</small>",
+                             "text/html; charset=utf-8", 502)
+        out_headers = []
+        for k, v in r.getheaders():
+            kl = k.lower()
+            if kl in HOP or kl == "strict-transport-security":
+                continue
+            if kl == "set-cookie":                          # kept for this server's address on the box
+                v = re.sub(r";\s*(Secure|Domain=[^;]*)", "", v, flags=re.I)
+            if kl == "location" and v.startswith(base):     # the server sending you elsewhere on itself
+                v = v[len(base):] or "/"
+            out_headers.append((k, v))
         if page and r.status == 200:
             html = r.read().decode("utf-8", "replace")
             html = html.replace("<head>", '<head><script src="/box/native.js"></script>', 1)
@@ -994,8 +1338,17 @@ class Server(ThreadingHTTPServer):
         super().handle_error(request, client_address)
 
 
+def html_escape(text):
+    return str(text).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
 def main():
+    try:
+        migrate_server()
+    except Exception as exc:
+        print("Moving the old Sofa setting: %s" % exc, file=sys.stderr)
     threading.Thread(target=look, daemon=True).start()
+    threading.Thread(target=watch_devices, daemon=True, name="devices").start()
     httpd = Server(("127.0.0.1", PORT), Handler)
     print("Sofa box agent on http://127.0.0.1:%d" % PORT, file=sys.stderr, flush=True)
     httpd.serve_forever()
