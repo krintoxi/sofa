@@ -39,7 +39,9 @@ Comet Courier's address, a `box-v1` release (the owner publishes it on the websi
 
 - Sofa Box OS has its own number in `deploy/sofa-box/VERSION` (1.0.0 now) and its notes in
   `deploy/sofa-box/CHANGES.md`. The box shows it in Settings; the card is `sofa-box-os-<version>.img.xz`.
-- On `main` the card workflow publishes the newest card as `sofa-box` (file always `sofa-box.img.xz`)
+- On `main` the card workflow publishes the newest card as `sofa-box` (file always `sofa-box.img.xz`;
+  the release is kept and its files swapped: uploaded as `next-…`, then each old one deleted and the new
+  one renamed, so the link never breaks; the tag is moved to the new commit)
   and, the first time `main` has a new number, the release **Sofa Box OS X.Y.Z** (tag `box-os-vX.Y.Z`),
   kept for good. Neither is "latest" (the Fire TV app's release keeps that). A new version: raise
   `VERSION`, add its section to `CHANGES.md`, merge.
@@ -115,6 +117,8 @@ Comet Courier's address, a `box-v1` release (the owner publishes it on the websi
 ## Known limits of the cloud environment
 
 - The git proxy refuses pushing **tags** and the GitHub API refuses creating refs/releases (403):
-  releases are made by the owner on the website.
+  releases are made by the workflow (GITHUB_TOKEN) or the owner on the website.
+- Repository settings (description, website link) can't be changed from a cloud session (403): the
+  owner does it on the website. The website link is set to the newest card's release page.
 - GitHub Actions log downloads are blocked; the workflows print what matters as job-summary notices,
   readable with `gh api repos/krintoxi/sofa/check-runs/<job id>/annotations`.

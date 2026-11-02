@@ -4,7 +4,8 @@ name: Sofa box card
 # GitHub's Arm computers.
 # - A change to the box on main publishes:
 #   - the release "sofa-box", always the newest card, at https://github.com/krintoxi/sofa/releases/tag/sofa-box
-#     (its file is always sofa-box.img.xz, so links to it never change);
+#     (its file is always sofa-box.img.xz, so links to it never change; a new card goes up beside the old one
+#     and takes its name at the end, so the download never goes missing);
 #   - "Sofa Box OS X.Y.Z" (tag box-os-vX.Y.Z), the first time main has that number in deploy/sofa-box/VERSION,
 #     kept for good, with what's new from deploy/sofa-box/CHANGES.md. A new version: raise the number.
 #   Neither is ever marked "latest": that stays the Fire TV app's, which Sofa downloads from there.
@@ -94,9 +95,32 @@ jobs:
           # 1. the newest card, always at the same address
           { echo "The newest card for the **Sofa Box** (Raspberry Pi 3 B+, 4 or 5): **Sofa Box OS $VER**, built $DAY from $SHORT on main."; echo
             how sofa-box.img.xz sofa-box-report.txt; } > pub/newest.md
-          gh release delete sofa-box --yes --cleanup-tag 2>/dev/null || true
-          gh release create sofa-box pub/newest/* --target "$GITHUB_SHA" --latest=false \
-            --title "Sofa Box OS $VER: the newest card ($DAY)" --notes-file pub/newest.md
+          R="repos/$GITHUB_REPOSITORY/releases"
+          if ! gh api "$R/tags/sofa-box" >/dev/null 2>&1; then
+            gh release create sofa-box pub/newest/* --target "$GITHUB_SHA" --latest=false \
+              --title "Sofa Box OS $VER: the newest card ($DAY)" --notes-file pub/newest.md
+          else
+            # The download link never breaks: the new files go up beside the old ones (next-…, the slow part),
+            # then the old ones go and the new ones take their names, a second or two apart.
+            assets() { gh api "$R/tags/sofa-box" --jq '.assets[] | "\(.id) \(.name)"'; }
+            assets | while read -r id name; do
+              case "$name" in next-*) gh api -X DELETE "$R/assets/$id" ;; esac      # left from a run that stopped
+            done
+            mkdir -p pub/next
+            for f in pub/newest/*; do cp "$f" "pub/next/next-$(basename "$f")"; done
+            gh release upload sofa-box pub/next/*
+            assets > pub/assets.txt
+            for f in sofa-box.img.xz sofa-box.img.xz.sha256 sofa-box-report.txt; do       # one file at a time, the card first
+              old="$(awk -v n="$f" '$2 == n { print $1 }' pub/assets.txt)"
+              new="$(awk -v n="next-$f" '$2 == n { print $1 }' pub/assets.txt)"
+              [ -n "$new" ] || continue
+              [ -z "$old" ] || gh api -X DELETE "$R/assets/$old"
+              gh api -X PATCH "$R/assets/$new" -f name="$f" >/dev/null
+            done
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/sofa-box" -f sha="$GITHUB_SHA" -F force=true >/dev/null \
+              || echo "(the tag sofa-box stays on its old commit; the card is the new one)"
+            gh release edit sofa-box --title "Sofa Box OS $VER: the newest card ($DAY)" --notes-file pub/newest.md
+          fi
           # 2. this version's own release, kept: made once, the first time main has this number
           if gh api "repos/$GITHUB_REPOSITORY/releases/tags/box-os-v$VER" >/dev/null 2>&1; then
             echo "Sofa Box OS $VER is already released; only the newest card changed (raise deploy/sofa-box/VERSION for a new version)."
