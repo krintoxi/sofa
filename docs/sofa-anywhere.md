@@ -57,18 +57,18 @@ The plan for the round that started 2026-11-02. Each part has a status: ☐ not 
 
 ## Parts
 
-1. ☐ **Phone → box "mpv" error.** `--profile=fast` exists only in mpv 0.37+; Raspberry Pi OS Bookworm
+1. ☑ **Phone → box "mpv" error.** `--profile=fast` exists only in mpv 0.37+; Raspberry Pi OS Bookworm
    has 0.35, so mpv quit at once. Ask mpv which profiles it has. If mpv still can't start, or can't
    open a window, the page plays the video itself (the agent says `failed`, and the page falls back
    to its own player). Look harder for the screen (cage's Wayland socket, X `:0`).
-2. ☐ **Server page.**
+2. ☑ **Server page.**
    - The page asks for one status at a time, gives up after 20 s, and stops asking while hidden.
      The extra data for a tab is fetched together, and only once per tab change (no more reload loops).
    - On the server, the slow parts are worked out in the background and kept for a while: the
      Deleted folder's size, the cache's size, previews, duplicates, the git version. A status reply is
      shared by everyone asking at the same time.
    - **Restart** button (Overview): `POST /api/admin/restart` starts the server again.
-3. ☐ **Public library** (`sofa/sharing.py`):
+3. ☑ **Public library** (`sofa/sharing.py`):
    - the `public_items` table;
    - the settings `share_on`, `share_token`, `public_open`, `share_live`, `share_all`;
    - the Visitor user, `/s/<token>`, the gate rules, a whitelist of what a Visitor may ask;
@@ -102,7 +102,7 @@ The plan for the round that started 2026-11-02. Each part has a status: ☐ not 
      - rows for Your apps, Watch, Listen and Play, plus Inputs (USB, Disc) when there's something there.
    - First setup: Welcome → Wi-Fi → look (theme) → pick your streaming apps → Sofa (optional) →
      Home, with a progress line and big friendly steps.
-8. ☐ **Sound on by default** for hover previews, the banner and the top slider. They start with sound;
+8. ☑ **Sound on by default** for hover previews, the banner and the top slider. They start with sound;
    if the browser won't allow it, they play muted with a sound button. The box's Chromium is started
    with `--autoplay-policy=no-user-gesture-required`.
 9. ☐ **GitHub:** install from raw.githubusercontent.com; the workflow publishes the card release.
@@ -114,4 +114,9 @@ The plan for the round that started 2026-11-02. Each part has a status: ☐ not 
 
 ## Where it stands
 
-Nothing built yet (this plan was written first).
+- Done (2026-11-02):
+  - parts 1, 2, 3 and 8;
+  - `tests/test_server.py` `Sharing` covers visitors from home and from the internet;
+  - checked in a browser: the Sharing tab, the Share button, the visitor's Home on a computer and a
+    phone.
+- Next: parts 4–7, then 9.
