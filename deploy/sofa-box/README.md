@@ -383,7 +383,8 @@ Sofa Box OS has a version number of its own, in [`VERSION`](VERSION) (like `1.0.
 
 - Every change to the box merged into `main` makes a new **newest card**
   ([releases/tag/sofa-box](https://github.com/krintoxi/sofa/releases/tag/sofa-box); its file is always
-  `sofa-box.img.xz`, so the link never changes).
+  `sofa-box.img.xz`, so the link never changes). The new card uploads beside the old one and only then
+  takes its place, so the download is never missing.
 - The first time `main` has a new number, GitHub also makes the release **Sofa Box OS X.Y.Z** (tag
   `box-os-vX.Y.Z`) with that card and its part of CHANGES.md, and keeps it.
 - So a new version is: raise the number in `VERSION` (1.0.1 for fixes, 1.1.0 for something new), add a
