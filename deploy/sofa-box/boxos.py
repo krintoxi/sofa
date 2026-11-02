@@ -766,6 +766,13 @@ class Browser:
             return ""
         return "; ".join("%s=%s" % (c["name"], c["value"]) for c in got if c.get("domain", "").lstrip(".") == host)
 
+    def set_cookie(self, host, name, value, days=60):
+        try:
+            self.call("Storage.setCookies", {"cookies": [{"name": name, "value": value, "domain": host, "path": "/", "httpOnly": True,
+                                                          "sameSite": "Lax", "expires": time.time() + days * 86400}]})
+        except OSError:
+            pass
+
     def navigate(self, target, url):
         tab = self.tabs.get(target) or {}
         if tab.get("session"):

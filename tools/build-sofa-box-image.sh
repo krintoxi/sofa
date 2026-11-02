@@ -83,9 +83,9 @@ printf '#!/bin/sh\nexit 101\n' > "$ROOT/usr/sbin/policy-rc.d"           # nothin
 chmod 755 "$ROOT/usr/sbin/policy-rc.d"
 
 echo "== The Sofa box"
-mkdir -p "$ROOT/tmp/sofa/deploy" "$ROOT/tmp/sofa/client/vendor"
+mkdir -p "$ROOT/tmp/sofa/deploy"
 cp -r "$REPO/deploy/sofa-box" "$ROOT/tmp/sofa/deploy/"
-cp -r "$REPO/client/vendor/fonts" "$ROOT/tmp/sofa/client/vendor/"
+cp -r "$REPO/client" "$REPO/sofa" "$REPO/sofa.py" "$REPO/LICENSE" "$ROOT/tmp/sofa/"     # Sofa itself too, for "This box"
 chroot "$ROOT" /bin/sh -eu -c "
   id -u sofa >/dev/null 2>&1 || getent passwd 1000 >/dev/null || useradd -m -u 1000 -s /bin/bash -G sudo,video,audio,input,netdev sofa
   id -u sofabox >/dev/null 2>&1 || useradd -m -s /bin/bash sofabox
@@ -103,7 +103,8 @@ REPORT="$WORK/report.txt"
 chroot "$ROOT" /bin/sh -c '
   echo "Raspberry Pi OS: $(. /etc/os-release; echo "$PRETTY_NAME")"
   dpkg-query -W -f="\${Package} \${Version}\n" cage chromium mpv plymouth plymouth-label python3 python3-pil python3-evdev \
-    pipewire-pulse network-manager systemd-zram-generator zram-tools 2>/dev/null | sed "s/^/  /"
+    pipewire-pulse network-manager systemd-zram-generator zram-tools udisks2 ffmpeg eject libdvdnav4 libbluray2 2>/dev/null | sed "s/^/  /"
+  echo "Sofa on the box (This box): $(cat /usr/local/lib/sofa-box/sofa-server/sofa/__init__.py 2>/dev/null | grep -o "__version__ = .*" || echo missing)"
   echo "Services: $(for s in sofa-box sofa-box-agent sofa-box-input sofa-box-cec; do printf "%s=%s " $s "$(systemctl is-enabled $s 2>/dev/null)"; done)"
   echo "Starts into: $(systemctl get-default)"
   echo "Boot screen: $(plymouth-set-default-theme 2>/dev/null)  initramfs: $(ls /boot/firmware/initramfs* 2>/dev/null | xargs -n1 basename 2>/dev/null | tr "\n" " ")"
