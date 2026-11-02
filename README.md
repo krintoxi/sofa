@@ -129,6 +129,21 @@ own settings and history are in `~/Sofa/data`.
 Internet** walks you through it, and Sofa gets and renews the certificate itself.
 [docs/remote-access.md](docs/remote-access.md)
 
+**Can I share some of it with friends, or with everyone?** Yes: **Server → Sharing** makes a **public
+library**. Pick titles with **Share** on their page (or share everything except Adult), and send the
+**share link**. Whoever opens it sees a copy of Sofa with only those titles, can only watch, and
+never sees the rest. Signing in still works only at home (unless you've set up your own address with
+HTTPS). For a server that's only there to share, **Open to everyone** makes its plain address show
+the public library. [docs/sofa-anywhere.md](docs/sofa-anywhere.md)
+
+**I watch from more than one Sofa.** Press your name, then **Servers**: paste another Sofa's address
+or a share link, and switch between them. A Sofa Box keeps a list of its own and stays signed in to
+each one.
+
+**The Server page is stuck.** It doesn't wait on a slow answer any more (it keeps showing the last
+one and says so). If Sofa itself seems stuck, **Restart Sofa** at the top of the Server page starts
+it again in a few seconds.
+
 **Can family and friends make their own accounts?** Yes: **Server → People → Let people ask for an
 account**. The sign-in page gets **Create an account**; they pick a name and password, and you let
 each one in (or not) under **Server → People**. Home tells you when someone's waiting.
@@ -183,11 +198,11 @@ deleted. More: [docs/folder-structure.md](docs/folder-structure.md).
   each device as they play, and Sofa also **converts them to MP4 in the background** so they
   play instantly next time. The originals are kept until you say otherwise.
   [docs/playback.md](docs/playback.md)
-- **Hover previews.** Point at anything and a bigger card plays a few seconds of it, with Play
-  and More info. On a TV, the card you're on plays in place.
+- **Hover previews.** Point at anything and a bigger card plays a few seconds of it, with sound,
+  Play and More info. On a TV, the card you're on plays in place.
 - **Trailers.** Open a show or movie (More info) and, after a moment, three minutes of it from
-  somewhere in the middle play behind the title. Sound off until you turn it on; off per device
-  under Theme.
+  somewhere in the middle play behind the title, with sound (the speaker button turns it off, for
+  previews and the banner too). Off per device under Theme.
 - **A proper player.** Skip Intro / Skip Recap / Skip Credits, "Next episode" when the
   credits start, previews while you scrub, an episode list, sound-track and subtitle
   choice, **Night mode** (loud scenes quieter, voices clearer), picture quality for converted
@@ -305,13 +320,14 @@ link you trust and tick **Adult channels**. [docs/adult.md](docs/adult.md)
 
 | Tab | What's there |
 |---|---|
-| Overview | addresses to watch from, who's watching, the Inbox, anything that needs you, this computer (speed, Gentle mode, quiet hours) |
+| Overview | addresses to watch from, who's watching, the Inbox, anything that needs you, this computer (speed, Gentle mode, quiet hours), **Restart Sofa** |
 | Storage | where the library is (this computer and drives), where new things go, drives to add, moves between drives |
 | Library | folders, rescan, **missing details** (fix them in a click), **duplicates** (keep the best copy), new pictures, free up space, the Deleted folder, Skip Intro progress, Needs Review |
 | Converting | the convert-to-MP4 queue with progress; automatic converting on/off |
 | Downloads | save videos from links; install yt-dlp; use a browser's sign-in; the "Send to Sofa" bookmark |
 | Live TV | channel lists |
 | People | accounts, Adult access, Kids profiles, guests |
+| Sharing | the **public library**: on/off, the share link (copy, QR code, make a new one), what visitors see it called, share everything, Live TV too, open to everyone, the shared titles |
 | Settings | **privacy** (keep no logs, wipe all logs, work offline), name, theme, TV sharing, TMDB key, ThePornDB token, backups |
 | Updates | version, **Update now** |
 | Activity | everything Sofa did, filterable |

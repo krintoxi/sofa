@@ -1,7 +1,7 @@
 # Handoff
 
 For whoever picks this up next (a person, or a new Claude conversation). Read this first, then the
-plan you're continuing. Updated 2026-11-02.
+plan you're continuing. Updated 2026-11-02 (Sofa anywhere).
 
 ## Where things are
 
@@ -37,11 +37,18 @@ Comet Courier's address, a `box-v1` release (the owner publishes it on the websi
 
 ## What's in progress
 
-- **Sofa anywhere** (started 2026-11-02): public libraries with a share link, adding and switching
-  servers (Sofa, Jellyfin, Emby, Plex), a box that works with no server (Sofa on the box, Live TV,
-  USB, DVD), the box's store/icons/Home/first setup, Server page fixes and a Restart button, preview
-  sound, the card on GitHub Releases, and the phone → box mpv error. The plan and the status of each
-  part: [sofa-anywhere.md](sofa-anywhere.md).
+- **Sofa anywhere** (2026-11-02, built; waiting for the owner's OK to merge and for a try on the Pi):
+  - public libraries with a share link (`sofa/sharing.py`, Server → Sharing);
+  - adding and switching servers: Sofa, Jellyfin, Emby, Plex (`deploy/sofa-box/boxservers.py`, and the
+    app's Servers menu);
+  - a box that works with no server: Sofa on the box, Live TV, USB drives, DVD;
+  - the box's store, icons, Home and first setup;
+  - Server page fixes (`sofa/slow.py`) and a Restart button;
+  - sound on previews;
+  - the card on GitHub Releases (`sofa-box`), and the install command from GitHub;
+  - the phone → box mpv error (`--profile=fast` on Bookworm's mpv).
+
+  The plan, the status of each part and what's left: [sofa-anywhere.md](sofa-anywhere.md).
 
 - **Sofa Box OS** (home screen, apps, store, browser, ad blocking, files, games, themes):
   [sofa-box-os.md](sofa-box-os.md) has the plan, the status of each part and what's next ("Where it
@@ -60,7 +67,13 @@ Comet Courier's address, a `box-v1` release (the owner publishes it on the websi
 - A demo Sofa for screenshots: `SOFA_DATA=<folder> python3 sofa.py serve`; Playwright with the
   preinstalled Chromium drives the UI (scripts were kept in the session's scratchpad, not the repo).
 - The card: push to the branch (changes under `deploy/sofa-box/` or the builder) builds it on GitHub
-  and keeps it a week as an artifact; publishing a release tagged `box-v…` on the website attaches it.
+  and keeps it a week as an artifact. On `main`, the workflow also publishes it as the release
+  `sofa-box` (never marked "latest": the Fire TV app's release keeps that). Publishing a release
+  tagged `box-v…` on the website attaches a card to it too.
+- The box's pieces:
+  - `boxservers.py`: the server list, and what answers at an address;
+  - each Sofa at `http://<id>.localhost:8091`;
+  - `/box/api/*` answers only the home screen's own address, and POSTs need `X-Sofa-Box: 1`.
   Each build writes a report (versions, services, boot settings, space) to the run's summary page.
 
 ## Rules the owner set

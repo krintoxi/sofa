@@ -1,16 +1,20 @@
 # The Sofa Box (a Raspberry Pi on the TV)
 
 Your own TV box, in place of a Fire TV: a Raspberry Pi on the TV that starts on its own home screen,
-with Sofa, your apps, a browser, an app store, games and a file manager. No ads, no account, and
-nothing watching what you watch; the TV itself never needs to be online.
+with Sofa, free Live TV, your streaming apps, a browser, an app store, games and a file manager. No
+ads, no account, and nothing watching what you watch; the TV itself never needs to be online.
 
-<img src="../../docs/images/box-home.jpg" alt="The Sofa Box home screen: Sign in to Sofa, and a row of apps: Sofa, Browser, App Store, Games, Files" width="100%">
+<img src="../../docs/images/box-home.jpg" alt="The Sofa Box home screen: Open Sofa and Live TV, your apps, and a Watch row with Sofa, Live TV, Netflix and YouTube" width="100%">
 
-- **Sofa** plays with the box's own player (mpv, on the Pi's video chip), so most files play as they
-  are and Sofa only converts what the Pi can't play. Home shows what you were watching.
-- **Apps:** our own (Edge Music, The LJ Collection, LJ Fragrances) and anything from the **App
-  Store** (YouTube, Pandora, SomaFM, Twitch, Pluto TV…) open full screen, with no browser around
-  them. **Home** brings you back; they keep playing.
+- **Sofa from anywhere:** a Sofa computer at home, a Sofa on the internet (a share link someone sent
+  you), **Sofa on the box itself** (no other computer needed), or your Jellyfin, Emby or Plex server.
+  It plays with the box's own player (mpv, on the Pi's video chip), so most files play as they are.
+- **Free Live TV** has its own tile, and works with no server at all.
+- **Streaming apps** (Netflix, YouTube, Prime Video, Disney+, Max, Hulu…), our own (Edge Music,
+  The LJ Collection, LJ Fragrances) and anything else from the **App Store** open full screen, with
+  no browser around them. **Home** brings you back; they keep playing.
+- **USB drives and DVDs:** plug in a drive and its videos, music and pictures are in Files; put a
+  DVD or music CD in a USB disc drive and play it from Home.
 - **Browser**, with **Sofa Shield** keeping ads and trackers out of the whole box. On any site, the
   **Sofa bar** (Menu key, or the mouse at the top edge) has **Add to Home**: the site becomes an app.
 - **Games** that run well on the box, **Files** for downloads and USB drives, and **themes**: Street,
@@ -35,30 +39,42 @@ nothing watching what you watch; the TV itself never needs to be online.
 
 ## Setting it up: the ready-made card (easiest)
 
-1. Download the newest **`sofa-box-….img.xz`** from the
-   [releases page](https://github.com/krintoxi/sofa/releases) (the one called "Sofa box").
+1. Download **`sofa-box.img.xz`** from the
+   [Sofa Box release](https://github.com/krintoxi/sofa/releases/tag/sofa-box) (it's always the newest
+   card: GitHub makes it every time the box changes).
 2. Install **Raspberry Pi Imager** (raspberrypi.com/software) on your computer and open it.
    Choose your Pi, then **Choose OS → Use custom** and pick the file, then your card.
 3. When it asks about **OS customisation**, you can press **Edit settings** to add your Wi-Fi, and
    a user name and password with SSH under Services (only needed to look inside the box later). Or
    press **No**: a network cable needs nothing.
 4. Write it, put the card in the Pi, plug in HDMI (and the network cable), then power.
-5. The TV shows the Sofa Box boot screen, then the first-start steps: the internet, finding Sofa,
-   and your look. The first start takes a few minutes.
-6. **Sign in to Sofa:** open Sofa from the home screen; it shows a code and a QR code. On your phone,
-   open Sofa, press your picture, then **Pair a TV**, and type the code (or scan the QR).
+5. The TV shows the Sofa Box boot screen, then four short first-start steps: hello, the internet,
+   your look, and **your apps** (tick the streaming apps you use: they go on Home). The first start
+   takes a few minutes.
 
-From then on the box starts on its home screen whenever it's switched on. If the Sofa computer is off,
-it waits for it. If there's more than one Sofa at home, it asks once.
+   <img src="../../docs/images/box-welcome.jpg" alt="First start: What do you watch? Netflix, YouTube, Prime Video, Disney+, Max, Hulu and more, to tick" width="80%">
+6. **Open Sofa** from Home. The first time it asks where from (see below); after that it opens
+   straight away, or asks each time if you prefer.
+7. **Sign in:** a Sofa computer shows a code and a QR code. On your phone, open Sofa, press your
+   picture, then **Pair a TV**, and type the code (or scan the QR). Sofa on the box signs itself in.
+
+From then on the box starts on its home screen whenever it's switched on.
 
 ## Setting it up on the card you already have
 
 The installer works on Raspberry Pi OS (Lite or with a desktop) and on other Debian or Ubuntu
-systems. From the Pi's own keyboard and screen, or over SSH (`ssh you@raspberrypi.local`), run one line with your Sofa
-computer's address (Sofa's **Server → Overview → Apps** shows it ready to copy):
+systems. From the Pi's own keyboard and screen, or over SSH (`ssh you@raspberrypi.local`), run:
 
 ```
-curl -fsSL http://192.168.1.20:8090/sofa-box/install.sh | sudo sh -s http://192.168.1.20:8090
+curl -fsSL https://raw.githubusercontent.com/krintoxi/sofa/main/deploy/sofa-box/install.sh | sudo sh
+```
+
+It gets everything from GitHub, so no Sofa computer is needed. To start with your Sofa computer
+already on the box's list, add its address at the end (Sofa's **Server → Overview → Apps** shows the
+whole line ready to copy):
+
+```
+curl -fsSL https://raw.githubusercontent.com/krintoxi/sofa/main/deploy/sofa-box/install.sh | sudo sh -s http://192.168.1.20:8090
 ```
 
 It takes about 10 minutes on a Pi 3, then Sofa appears on the TV. Restart once when it says so.
@@ -96,17 +112,57 @@ Everything starts here. **Home** comes back to it from anywhere: the remote's Ho
 remotes it's the Home or Menu button, sent over HDMI), a controller's Xbox/PS button, **F1** or the
 Windows key on a keyboard, or **Home** on the Sofa bar.
 
-- **Apps:** OK opens one. **Menu** on an app moves it, hides it or removes it.
+- **The spotlight** at the top: what you were watching in Sofa (Resume), or Open Sofa and Live TV
+  with your streaming apps.
+- **Watch:** Sofa, Live TV and your streaming apps, as big cards. **Plugged in:** USB drives and a disc,
+  when there's one. **Continue watching** from the Sofa it opens with.
+- **Your apps:** everything else. OK opens one. **Menu** on an app moves it, hides it or removes it.
 - **Open now:** what's still open (music keeps playing); OK goes back to it, ✕ closes it.
 - **Typing** anything on Home searches the web.
 
+### Opening Sofa: where from
+
+<img src="../../docs/images/box-chooser.jpg" alt="Where's your Sofa? Four cards: Sofa at home, Sofa on the internet, This box, Other servers" width="100%">
+
+The first time you open Sofa, the box asks **where's your Sofa?**
+
+- **Sofa at home:** the Sofa computers the box found on your network, or type an address.
+- **Sofa on the internet:** paste a **share link** someone sent you (their public library), or your
+  own Sofa's address when it's on the internet. Free public Sofas are listed here too when there are
+  any (the list comes from GitHub, so new ones show up by themselves).
+- **This box:** no server, and you don't want one? Sofa runs on the box itself. It has **free Live
+  TV** straight away, and plays videos on the box (in Videos → Sofa Library) and on USB drives laid
+  out as a Sofa Library. It signs itself in.
+- **Other servers:** Jellyfin, Emby or Plex. The box finds them on your network, or type the address.
+  They open as they are, with the Sofa bar.
+
+Then: **every time**, or **ask me each time**. Settings → Sofa changes that, and lists every server
+you've added (open one, make it the one Sofa opens with, or remove it). Inside Sofa, your name →
+**Servers** switches too. You stay signed in to each one.
+
+The **Live TV** tile opens Live TV in the Sofa it opens with, or in Sofa on the box.
+
+### USB drives and discs
+
+Plug in a USB drive and it's ready in a moment: a toast says so, it shows on Home under **Plugged
+in**, and Files lists it. Videos and music play in the box's player; pictures open full screen.
+
+A **DVD, Blu-ray or music CD** in a USB disc drive shows on Home too: OK plays it (DVD menus work with
+the arrows and OK). Store-bought DVDs and Blu-rays are usually copy-protected; the box doesn't come
+with the extra software some of them need, so those may not play. A Pi 3 may need a powered USB hub
+for a disc drive.
+
 ### The App Store
 
-<img src="../../docs/images/box-store.jpg" alt="The App Store: Edge Music, The LJ Collection, YouTube and more" width="70%">
+<img src="../../docs/images/box-store.jpg" alt="The App Store: Edge Music, The LJ Collection, and the streaming apps" width="70%">
 
-Pick an app and press OK: it's on Home, and it opens full screen with no browser around it.
-**Any website** at the bottom puts any address on Home. Apps marked **DRM** (Netflix, Disney+,
-Prime Video, Spotify) need protection the Pi 3 may not manage: they might not play.
+Pick an app and press OK: it's on Home, and it opens full screen with no browser around it. Sign in
+the first time, as on any TV. **Any website** at the bottom puts any address on Home. Each app shows
+its own icon (the box fetches it from the app's site the first time you open the store).
+
+Apps marked **DRM** (Netflix, Disney+, Prime Video, Max, Spotify…) use copy protection, which the box
+has (Widevine). On a Pi 3 their picture may be smaller than on a Fire TV, and a service can refuse
+to play in the box's browser; a Pi 4 or 5 does better.
 
 ### The browser and the Sofa bar
 
