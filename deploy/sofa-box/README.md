@@ -290,6 +290,19 @@ Share/Create and PS). A USB cable works without pairing.
 
 ## Good to know
 
+**It adapts to the board and the TV by itself.** It checks which Pi it is (3, 4 or 5, or a Compute
+Module), how much memory it has, and the TV's picture:
+
+| | Pi 3 B+ / Zero 2 (1 GB or less) | Pi 4 / Pi 5 |
+|---|---|---|
+| Look | Light: no glows, soft shadows or slide-ins | Full |
+| Apps open besides Home | 2 | 3 (2 GB), 4 (4 GB), 6 (8 GB) |
+| Video | H.264 on its own decoder; Sofa converts HEVC for it | HEVC as it is |
+| Picture | 1080p | 4K when the TV is 4K |
+
+Settings → Picture and sound → **Performance** can say Light or Full instead of Automatic. If 1080p
+drops frames, the box asks for 720p by itself.
+
 **Made for small boards.** The box runs well on a Raspberry Pi 3 B+ (1 GB). Whatever's on the TV gets
 the box first:
 
