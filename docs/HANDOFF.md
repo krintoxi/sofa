@@ -44,6 +44,8 @@ Comet Courier's address, a `box-v1` release (the owner publishes it on the websi
   kept for good. Neither is "latest" (the Fire TV app's release keeps that). A new version: raise
   `VERSION`, add its section to `CHANGES.md`, merge.
 - The README starts with a Sofa Box OS section and download links; so does the box's guide.
+- The box reads `VERSION` on main once a day (`newest_version()` in the agent; off in tests with
+  `SOFA_BOX_NEWEST=0`); Settings → Software says when a newer one is ready.
 - Fixes: `sofa-box update` and `factory-reset` started from the TV now run as their own systemd unit
   (`systemd-run`), so restarting or stopping the agent no longer cuts them off; a set-up box that knows
   a Wi-Fi waits 3 minutes before making its own, and leaves it after 10 quiet minutes

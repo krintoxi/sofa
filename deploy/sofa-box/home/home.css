@@ -217,6 +217,7 @@ h2.row-title small { margin-left: .6rem; font: 500 .85rem var(--text); color: va
 .card { padding: 1.3rem 1.4rem; border-radius: calc(var(--r) * 1.2); background: var(--bg2); border: 1px solid var(--line); }
 .card h3 { margin: 0 0 .3rem; font: 800 1.2rem/1.2 var(--display); }
 .card p { margin: 0 0 1rem; color: var(--mist); font-size: .9rem; }
+.card p.update-ready { color: var(--fg); border-left: 3px solid var(--a); padding-left: .7rem; }
 .choices { display: flex; flex-wrap: wrap; gap: .5rem; }
 .choice { padding: .55rem 1rem; border-radius: 99rem; border: 1px solid var(--line); background: var(--tile); font-weight: 700; }
 .choice[aria-pressed="true"] { background: var(--fg); color: var(--bg); }
