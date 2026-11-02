@@ -63,6 +63,11 @@ def is_git_install():
 
 
 def local_commit():
+    from . import slow                  # asked by every Server page status: git once a minute is plenty
+    return slow.cached("git-commit", 60, _local_commit)
+
+
+def _local_commit():
     if is_git_install():
         r = _git("rev-parse", "HEAD")
         if r.returncode == 0:
@@ -230,7 +235,7 @@ def _update_git():
     if _git("status", "--porcelain", "--untracked-files=no").stdout.strip():
         _git("stash", "push", "-m", "Local changes saved by the Sofa updater %s" % time.strftime("%Y-%m-%d %H:%M"))
         store.log("update", "Your own edits to Sofa's code were saved with 'git stash' (see 'git stash list').")
-    before = local_commit()
+    before = _local_commit()
     r = _git("merge", "--ff-only", "FETCH_HEAD")
     if r.returncode != 0:
         r = _git("checkout", "-B", branch, "FETCH_HEAD")
@@ -273,7 +278,7 @@ def _run():
     try:
         _step("Backing up accounts, watch history and settings")
         backup.make("before updating Sofa")
-        snapshot, before = _snapshot_code(), local_commit()
+        snapshot, before = _snapshot_code(), _local_commit()
         try:
             (_update_git if is_git_install() else _update_download)()
             _step("Checking the new version")

@@ -79,7 +79,34 @@ def display_env():
     except OSError:
         pass
     env.setdefault("XDG_RUNTIME_DIR", run_dir)
+    sock = env.get("WAYLAND_DISPLAY")
+    if not (sock and os.path.exists(os.path.join(run_dir, sock))) and not env.get("DISPLAY"):
+        try:                                        # no word from the session: look for a screen ourselves
+            names = sorted(n for n in os.listdir(run_dir) if n.startswith("wayland-") and not n.endswith(".lock"))
+        except OSError:
+            names = []
+        if names:
+            env["WAYLAND_DISPLAY"] = names[0]
+        elif os.path.exists("/tmp/.X11-unix/X0"):
+            env["DISPLAY"] = ":0"
     return env
+
+
+_mpv_help = {}
+
+
+def mpv_knows(what, name):
+    """Whether this mpv has a profile or hwdec called `name` ("fast" is new in mpv 0.37; Raspberry Pi OS
+    Bookworm has 0.35, and an unknown profile stops mpv before it plays anything)."""
+    mpv = os.environ.get("SOFA_BOX_MPV", "mpv")
+    if mpv.endswith(".py"):
+        return False
+    if what not in _mpv_help:
+        try:
+            _mpv_help[what] = subprocess.run([mpv, "--%s=help" % what], capture_output=True, text=True, timeout=10).stdout
+        except (OSError, subprocess.SubprocessError):
+            _mpv_help[what] = ""
+    return bool(re.search(r"(?m)^\s*%s(\s|$)" % re.escape(name), _mpv_help[what]))
 
 
 # ---------------------------------------------------------------- settings
@@ -243,10 +270,11 @@ class Player:
                 "--cache=yes", "--demuxer-max-bytes=120MiB", "--network-timeout=40"]
         if not p.get("local"):                              # from Sofa: as the signed-in TV
             args.append("--http-header-fields=Cookie: %s,X-Sofa: 1" % self.cookie.replace(",", "%2C"))
-        hw = s["hwdec"] if s["hwdec"] != "auto" else ("v4l2m2m-copy" if slow_board() else "auto-safe")
+        hw = s["hwdec"] if s["hwdec"] != "auto" else ("v4l2m2m-copy" if slow_board() and mpv_knows("hwdec", "v4l2m2m-copy")
+                                                      else "auto-safe")
         args.append("--hwdec=" + hw)
         if slow_board():
-            args += ["--profile=fast", "--vd-lavc-threads=4", "--video-sync=audio"]
+            args += (["--profile=fast"] if mpv_knows("profile", "fast") else []) + ["--vd-lavc-threads=4", "--video-sync=audio"]
         if s["audio"] == "passthrough":
             args.append("--audio-spdif=ac3,eac3,dts")
         if p.get("start"):
@@ -316,12 +344,13 @@ class Player:
     def _watch(self, proc):
         """Every second: where it is, Skip Intro, saving the place; at the end: tell the page."""
         p, last_save, intro_shown = self.payload, 0, None
-        drops_checked = False
+        drops_checked = started = False
         while proc.poll() is None:
             time.sleep(1)
             t = self.position()
             if t is None:
                 continue
+            started = True
             d = float(p.get("duration") or 0) or float(self.command("get_property", "duration") or 0) + float(p.get("offset") or 0)
             paused = bool(self.command("get_property", "pause"))
             self.status.update(t=int(t), d=int(d), paused=paused)
@@ -344,14 +373,23 @@ class Player:
         watched = ended or (d and t > d * 0.95)
         if d:
             save_progress(p.get("item"), d if watched else t, d, bool(watched), self.cookie)
-        if code not in (0, 4) and reason is None:
-            toast("That video couldn't play on the box: " + (err.splitlines() or ["mpv stopped"])[-1][:120])
+        failed = code not in (0, 4) and reason is None
+        last = (err.splitlines() or ["mpv stopped"])[-1][:120]
+        if failed:
+            print("mpv stopped (%s): %s" % (code, err.replace("\n", " | ")[-600:]), file=sys.stderr, flush=True)
+        if failed and started:
+            toast("That video couldn't play on the box: " + last)
         if proc is self.proc:
             self.proc = None
             self.status = {}
         if reason == "replaced":                # another video took its place: the page knows already
             return
-        self.tell(done={"item": p.get("item"), "t": t, "d": d, "ended": bool(ended), "done": bool(watched)})
+        done = {"item": p.get("item"), "t": t, "d": d, "ended": bool(ended), "done": bool(watched)}
+        if failed and not started and not p.get("local"):     # mpv couldn't even start: the page plays it itself
+            done.update(failed=True, error=last)
+        elif failed and not started:
+            toast("That couldn't play on the box: " + last)
+        self.tell(done=done)
 
     def tell(self, **what):
         with self.cond:

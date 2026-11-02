@@ -44,10 +44,18 @@ const prefs = {
 };
 
 /* ---------- API ---------- */
-async function api(path, body) {
+async function api(path, body, timeout) {
   const opts = body === undefined ? { credentials: "same-origin" }
     : { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json", "X-Sofa": "1" }, body: JSON.stringify(body) };
-  const r = await fetch(path, opts);
+  let timer = 0;
+  if (timeout && window.AbortController) {        // a request that takes too long gives up (the server may be busy)
+    const ctl = new AbortController(); opts.signal = ctl.signal;
+    timer = setTimeout(() => ctl.abort(), timeout);
+  }
+  let r;
+  try { r = await fetch(path, opts); }
+  catch (e) { throw new Error(e && e.name === "AbortError" ? "The server is taking too long to answer." : "Can't reach the server."); }
+  finally { clearTimeout(timer); }
   let data = {};
   try { data = await r.json(); } catch (e) {}
   if (r.status === 401 && session && session.user) { location.reload(); }
@@ -540,6 +548,7 @@ function heroSlide(x, i) {
 function heroCarousel() {
   const slides = heroSlides();
   return `<section class="hero carousel" aria-roledescription="carousel" aria-label="Featured">${slides.map(heroSlide).join("")}
+    <div class="trailer-ctl banner-ctl" hidden><button class="round" data-trailer-sound="1" aria-label="Sound off" title="Sound">${icon("i-vol")}</button></div>
     ${slides.length > 1 ? `<div class="hero-dots" role="group" aria-label="Choose a featured title">${slides.map((x, i) =>
       `<button data-slide="${i}" aria-label="${esc(x.name || x.title)}" aria-pressed="${!i}" tabindex="-1"></button>`).join("")}</div>` : ""}</section>`;
 }
@@ -561,14 +570,20 @@ function heroClip(slide) {
   clearTimeout(clipTimer);
   document.querySelectorAll(".hero-clip").forEach(v => { if (!slide.contains(v)) dropClip(v); });
   const h = slide.closest(".hero.carousel"); if (h) delete h.dataset.playing;
+  const ctl = h && $(".banner-ctl", h); if (ctl) ctl.hidden = true;
   if (motion() === "off" || !slide.dataset.clip || prefs.get("bannerClips", true) === false) return;
   clipTimer = setTimeout(() => {
     if (!document.contains(slide) || !slide.classList.contains("on") || Player.isOpen() || document.hidden || slide.querySelector(".hero-clip")) return;
     const v = clipVideo(slide.dataset.clip, true);
     v.className = "hero-clip"; v.loop = false;
-    v.addEventListener("playing", () => { v.classList.add("on"); if (h) h.dataset.playing = "1"; }, { once: true });
+    v.addEventListener("playing", () => {
+      v.classList.add("on"); if (h) h.dataset.playing = "1";
+      const ctl = h && $(".banner-ctl", h); if (ctl) ctl.hidden = false;
+      trailerSoundBtn(v);
+    }, { once: true });
     v.addEventListener("ended", () => {
       v.classList.remove("on");
+      const ctl = h && $(".banner-ctl", h); if (ctl) ctl.hidden = true;
       setTimeout(() => { dropClip(v); if (h && document.contains(h)) { delete h.dataset.playing; if (h.querySelectorAll(".slide").length > 1) showSlide(+(h.dataset.at || 0) + 1); } }, 1200);
     });
     slide.querySelector(".hero-bg").after(v);
@@ -604,6 +619,16 @@ function stopTrailer() {
   clearTimeout(trailerTimer);
   document.querySelectorAll("video.trailer").forEach(dropClip);
   document.querySelectorAll(".hero.trailer-on").forEach(h => h.classList.remove("trailer-on"));
+}
+/* Clips play with sound unless it was turned off (one setting for trailers, the banner and hover previews).
+   A browser that won't start sound before the first click or key gets the clip without it. */
+const clipSound = () => prefs.get("trailerSound", true) !== false;
+function playClip(v) {
+  v.play().catch(() => { if (!v.muted) { v.muted = true; trailerSoundBtn(v); v.play().catch(() => {}); } });
+}
+function soloSound(v) {                 // one clip heard at a time: the newest
+  if (v.muted) return;
+  document.querySelectorAll("video.hero-clip, video.pv").forEach(o => { if (o !== v) o.muted = true; });
 }
 function trailerSoundBtn(v) {
   const b = $("[data-trailer-sound]"); if (!b) return;
@@ -648,7 +673,7 @@ function startTrailer(now) {
     }
     const v = document.createElement("video");
     v.className = "hero-clip trailer"; v.dataset.id = id; v.playsInline = true; v.preload = "auto"; v.setAttribute("playsinline", "");
-    v.muted = !prefs.get("trailerSound", false);
+    v.muted = !clipSound();
     const ctl = $(".trailer-ctl", hero);
     let start = null;
     v.addEventListener("playing", () => {
@@ -665,7 +690,7 @@ function startTrailer(now) {
     v.src = src;
     const bg = $(".hero-bg", hero);
     if (bg) bg.after(v); else hero.prepend(v);
-    v.play().catch(() => { if (!v.muted) { v.muted = true; trailerSoundBtn(v); v.play().catch(() => {}); } });
+    playClip(v);
   }, now ? 0 : 2500);
 }
 function viewHome() {
@@ -1445,20 +1470,23 @@ let pvCard = null, pvTimer = 0, pop = null;
 const fineHover = matchMedia("(hover: hover) and (pointer: fine)").matches && !TV;
 function clipVideo(id, hd) {
   const v = document.createElement("video");
-  v.className = "pv"; v.muted = true; v.loop = true; v.playsInline = true; v.preload = "auto";
-  v.setAttribute("muted", ""); v.setAttribute("playsinline", ""); v.setAttribute("aria-hidden", "true");
-  v.addEventListener("playing", () => v.classList.add("on"), { once: true });
+  v.className = "pv"; v.muted = !clipSound(); v.loop = true; v.playsInline = true; v.preload = "auto";
+  v.setAttribute("playsinline", ""); v.setAttribute("aria-hidden", "true");
+  v.addEventListener("playing", () => { v.classList.add("on"); soloSound(v); }, { once: true });
   v.addEventListener("error", () => v.remove(), { once: true });
   v.src = "/media/" + encodeURIComponent(id) + "/preview.mp4" + (hd ? "?hd=1" : "");
-  v.play().catch(() => {});
+  playClip(v);
   return v;
 }
 function dropClip(v) { if (v) { v.pause(); v.removeAttribute("src"); v.load(); v.remove(); } }
 function stopPreview() {
   clearTimeout(pvTimer);
+  const had = pvCard || pop;
   if (pvCard) dropClip(pvCard.querySelector("video.pv"));
   pvCard = null;
   closePop();
+  const banner = had && $("video.hero-clip.on");
+  if (banner && clipSound() && banner.muted) { banner.muted = false; if (banner.paused) { banner.muted = true; banner.play().catch(() => {}); } }
 }
 function startPreview(card) {
   stopPreview();
@@ -1870,45 +1898,81 @@ document.addEventListener("submit", e => {
 });
 
 /* ---------- server (admin) page ---------- */
-let adminData = null, adminTimer = 0, adminTab = "overview", activityKind = "all";
+let adminData = null, adminTimer = 0, adminTab = "overview", activityKind = "all", adminBusy = null, adminAgain = false, adminSlow = "";
 const SRV_TABS = [["overview", "Overview"], ["library", "Library"], ["storage", "Storage"], ["convert", "Converting"], ["downloads", "Downloads"], ["live", "Live TV"],
   ["people", "People"], ["settings", "Settings"], ["internet", "Internet"], ["update", "Updates"], ["activity", "Activity"]];
-async function loadAdmin() {
-  try {
-    const d = await api("/api/admin/status");
-    d.live = (await api("/api/live")).playlists;
-    if (adminTab === "library") { d.missing = (await api("/api/admin/missing")).items; d.intros = await api("/api/admin/intros"); d.duplicates = (await api("/api/admin/duplicates")).groups; }
-    if (adminTab === "convert") d.convert = await api("/api/admin/convert");
-    if (adminTab === "downloads") d.downloads = await api("/api/admin/downloads");
-    if (adminTab === "storage") d.storage = await api("/api/admin/storage");
-    if (adminTab === "people") d.sessions = (await api("/api/admin/sessions")).sessions;
-    if (adminTab === "internet") d.internet = await api("/api/admin/internet");
-    adminData = d;
-  } catch (e) { adminData = { error: e.message }; }
-  const typing = document.activeElement && document.activeElement.closest && document.activeElement.closest(".net-form");
-  if (location.hash.startsWith("#/server") && !Player.isOpen() && !document.querySelector(".dialog-scrim") && !typing) {
-    const active = document.activeElement, keep = active && active.id;
-    const y = scrollY; view.innerHTML = viewServer(adminTab); scrollTo(0, y); drawGuestQr();
-    if (keep && $("#" + keep)) $("#" + keep).focus();
-  }
+/* The Server page asks for one status at a time (a second ask while one is out waits for it), gives up on
+   one that takes too long and keeps showing what it had, and asks for a tab's own lists only for that tab. */
+const ADMIN_EXTRA = {
+  library: [["missing", "/api/admin/missing", r => r.items], ["intros", "/api/admin/intros"], ["duplicates", "/api/admin/duplicates", r => r.groups]],
+  convert: [["convert", "/api/admin/convert"]], downloads: [["downloads", "/api/admin/downloads"]], storage: [["storage", "/api/admin/storage"]],
+  people: [["sessions", "/api/admin/sessions", r => r.sessions]], internet: [["internet", "/api/admin/internet"]], sharing: [["sharing", "/api/admin/sharing"]]
+};
+function loadAdmin() {
+  if (adminBusy) { adminAgain = true; return adminBusy; }
+  const tab = adminTab;
+  adminBusy = (async () => {
+    try {
+      const [d, live, ...extra] = await Promise.all([api("/api/admin/status", undefined, 20000), api("/api/live", undefined, 20000).catch(() => ({}))]
+        .concat((ADMIN_EXTRA[tab] || []).map(x => api(x[1], undefined, 30000).then(r => x[2] ? x[2](r) : r))));
+      d.live = live.playlists || (adminData && adminData.live) || [];
+      (ADMIN_EXTRA[tab] || []).forEach((x, i) => { d[x[0]] = extra[i]; });
+      d.tab = tab;
+      adminData = d; adminSlow = "";
+    } catch (e) {
+      if (adminData && !adminData.error) adminSlow = e.message;      // keep showing the last status, and say so
+      else adminData = { error: e.message };
+    }
+  })();
+  return adminBusy.then(() => {
+    adminBusy = null;
+    if (adminAgain) { adminAgain = false; return loadAdmin(); }
+    const typing = document.activeElement && document.activeElement.closest && document.activeElement.closest(".net-form, .share-form");
+    if (location.hash.startsWith("#/server") && !Player.isOpen() && !document.querySelector(".dialog-scrim") && !typing) {
+      const active = document.activeElement, keep = active && active.id;
+      const y = scrollY; view.innerHTML = viewServer(adminTab); scrollTo(0, y); drawGuestQr();
+      if (keep && $("#" + keep)) $("#" + keep).focus();
+    }
+  });
 }
+document.addEventListener("click", async e => {
+  const b = e.target.closest && e.target.closest("[data-restart-server]");
+  if (!b) return;
+  if (!confirm("Restart Sofa now? Anyone watching stops for a few seconds.")) return;
+  b.disabled = true; b.textContent = "Restarting…";
+  let before = 0;
+  try { before = (await api("/api/admin/restart", {})).started || 0; } catch (err) { toast(err.message); b.disabled = false; return; }
+  toast("Sofa is restarting…");
+  const until = Date.now() + 90000;
+  (async function wait() {
+    await new Promise(r => setTimeout(r, 1500));
+    try {
+      const h = await (await fetch("/healthz", { cache: "no-store" })).json();
+      if (h.ok && Date.now() / 1000 - h.uptime > before + 1) { toast("Sofa is back."); adminData = null; return rerender(); }
+    } catch (err) {}
+    if (Date.now() < until) return wait();
+    toast("Sofa hasn't come back yet. Check the Sofa computer.");
+  })();
+});
 function viewServer(tab) {
   setGlow("");
-  if (tab && SRV_TABS.some(t => t[0] === tab) && tab !== adminTab) { adminTab = tab; if (adminData) loadAdmin(); }
-  else if (adminData && !adminData.error && ((adminTab === "downloads" && !adminData.downloads) || (adminTab === "convert" && !adminData.convert) ||
-           (adminTab === "library" && !adminData.intros) || (adminTab === "internet" && !adminData.internet))) loadAdmin();
+  if (tab && SRV_TABS.some(t => t[0] === tab) && tab !== adminTab) adminTab = tab;
+  if (adminData && !adminData.error && adminData.tab !== adminTab && ADMIN_EXTRA[adminTab] && !adminBusy) loadAdmin();   // this tab's lists, once
   clearTimeout(adminTimer);
   const busy = adminData && adminData.convert && adminData.convert.counts && adminData.convert.counts.working;
   const upd = (adminData && adminData.update && adminData.update.running) ||
     (adminData && adminData.storage && adminData.storage.transfers.some(t => t.state === "copying" || t.state === "checking")) ||
     (adminData && adminData.downloads && (adminData.downloads.rows.some(r => r.state === "working") ||
       (adminData.downloads.installing || {}).running)) || (adminData && adminData.internet && adminData.internet.https.busy);
-  adminTimer = setTimeout(() => { if (location.hash.startsWith("#/server")) loadAdmin(); }, busy || upd ? 3000 : 10000);
+  const again = () => { if (!location.hash.startsWith("#/server")) return; if (document.hidden) { adminTimer = setTimeout(again, 4000); return; } loadAdmin(); };
+  adminTimer = setTimeout(again, busy || upd ? 3000 : 10000);
   const tabs = `<nav class="srv-tabs" aria-label="Server sections">${SRV_TABS.map(t => `<button data-srv-tab="${t[0]}" aria-current="${t[0] === adminTab ? "page" : "false"}">${t[1]}${
     t[0] === "update" && adminData && adminData.update && adminData.update.available ? ` <i class="dot" aria-label="update available"></i>` : ""}${
     t[0] === "library" && adminData && adminData.library && adminData.library.missing ? ` <i class="num">${adminData.library.missing}</i>` : ""}${
     t[0] === "people" && adminData && adminData.users && adminData.users.some(u => u.pending) ? ` <i class="num" title="asking for an account">${adminData.users.filter(u => u.pending).length}</i>` : ""}</button>`).join("")}</nav>`;
-  const head = d => `<div class="admin-head"><h1>Server</h1>${d && d.server ? `<span class="pill">Running</span>${d.server.ffmpeg ? "" : `<span class="pill warn">Can't convert video yet</span>`}` : ""}</div>`;
+  const head = d => `<div class="admin-head"><h1>Server</h1>${d && d.server ? `<span class="pill">Running</span>${d.server.ffmpeg ? "" : `<span class="pill warn">Can't convert video yet</span>`}` : ""}
+    ${adminSlow ? `<span class="pill warn" title="${esc(adminSlow)}">Slow to answer: showing the last status</span>` : ""}
+    <button class="btn ghost small restart-btn" data-restart-server="1">${icon("i-repeat")}Restart Sofa</button></div>`;
   if (!adminData) { loadAdmin(); return `<section class="admin">${head()}${tabs}<p class="admin-lede">Loading…</p></section>`; }
   if (adminData.error) return `<section class="admin">${head()}${tabs}<p class="admin-lede">${esc(adminData.error)}</p></section>`;
   const d = adminData;
@@ -2511,8 +2575,10 @@ document.addEventListener("click", e => {
   }
   if (t.dataset.like) { toggleFav(t.dataset.like, t); return; }
   if (t.dataset.trailerSound) {
-    const v = $("video.trailer"); if (!v) return;
-    v.muted = !v.muted; prefs.set("trailerSound", !v.muted); trailerSoundBtn(v); return;
+    const v = $("video.trailer") || $("video.hero-clip.on"); if (!v) return;
+    v.muted = !v.muted; prefs.set("trailerSound", !v.muted); trailerSoundBtn(v);
+    if (!v.muted) soloSound(v);
+    return;
   }
   if (t.dataset.trailerReplay) { t.hidden = true; startTrailer(true); return; }
   if (t.dataset.wipeLogs) {
@@ -3199,7 +3265,7 @@ const Player = (function () {
   async function open(it, queue) {
     if (!it) return;
     stopTrailer();
-    if (NATIVE && it.kind !== "track") return nativeOpen(it, queue);
+    if (NATIVE && !nativeBroken && it.kind !== "track") return nativeOpen(it, queue);
     playQueue = queue && queue.includes(it) ? queue : null;
     MusicPlayer.pause();
     enterHistory();
@@ -3983,7 +4049,7 @@ const Player = (function () {
   const capsQuery = () => Object.keys(caps).map(k => k + "=" + (typeof caps[k] === "number" ? caps[k] : caps[k] ? 1 : 0)).join("&");
   /* Inside the Fire TV app: Android's own player plays it (the file as it is, mostly), and says where it
      stopped when it's closed (window.sofaNativeDone). */
-  let nativeItem = null, nativeQueue = null;
+  let nativeItem = null, nativeQueue = null, nativeBroken = false;
   async function nativeOpen(it, queue) {
     let p;
     try { p = await api("/api/play/" + encodeURIComponent(it.id) + "?" + capsQuery()); } catch (e) { toast(e.message); return; }
@@ -4005,6 +4071,11 @@ const Player = (function () {
   window.sofaNativeDone = r => {
     const it = nativeItem; nativeItem = null;
     if (!it) return;
+    if (r && r.failed) {               // the device's own player couldn't start: this page plays it instead, from now on
+      nativeBroken = true;
+      toast("The box's player couldn't start" + (r.error ? " (" + r.error + ")" : "") + ", so this plays here instead.");
+      return open(it, nativeQueue);
+    }
     if (r && r.d) progress[it.id] = { t: r.done ? r.d : r.t, d: r.d, done: !!r.done, at: Date.now() };
     const next = nativeQueue ? nativeQueue[nativeQueue.indexOf(it) + 1] : nextAfter(it);
     if (r && r.ended && next && opt("autoplay", true)) return open(next, nativeQueue);
