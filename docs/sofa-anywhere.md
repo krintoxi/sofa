@@ -78,20 +78,20 @@ The plan for the round that started 2026-11-02. Each part has a status: ☐ not 
      **Share** switch for admins.
    - The app for Visitors: only the library and Live TV, a "Shared by <name>" badge, a Sign-in button,
      and your place kept on that device only.
-4. ☐ **Servers in the app.**
+4. ☑ **Servers in the app.**
    - Menu → **Servers**: this one, plus the ones you've added (pasting an address or a share link).
      Picking one opens it. On the box, this list is the box's own, and switching keeps you signed in.
-5. ☐ **Box: opening Sofa.**
+5. ☑ **Box: opening Sofa.**
    - The chooser offers: Sofa at home (found + type an address), Sofa on the internet (paste a link,
      plus the free servers from `deploy/sofa-box/servers.json`), This box, and Other servers.
    - Then "Remember this, or ask every time?", with "You can change this in Settings → Sofa".
    - Settings → Sofa: the list, the default, remove, add.
    - Agent API: `/box/api/sofa`, `/box/api/sofa/add|remove|default|open|scan`.
-6. ☐ **Box: no server needed.**
+6. ☑ **Box: no server needed.**
    - "This box" (local Sofa, started on demand) and a **Live TV** tile.
    - USB drives are mounted by udisks2 (a udev rule), with a toast and an **USB** tile.
    - The **Disc** tile; `libdvdnav`/`libbluray`/`libcdio` support is in mpv already.
-7. ☐ **Box: store, icons, Home, first setup.**
+7. ☑ **Box: store, icons, Home, first setup.**
    - About 40 popular apps in the store.
    - Icons:
      - each app tile has its own color and a large, sharp icon (the site's biggest manifest or
@@ -105,18 +105,47 @@ The plan for the round that started 2026-11-02. Each part has a status: ☐ not 
 8. ☑ **Sound on by default** for hover previews, the banner and the top slider. They start with sound;
    if the browser won't allow it, they play muted with a sound button. The box's Chromium is started
    with `--autoplay-policy=no-user-gesture-required`.
-9. ☐ **GitHub:** install from raw.githubusercontent.com; the workflow publishes the card release.
+9. ☑ **GitHub:** install from raw.githubusercontent.com; the workflow publishes the card release.
    - Docs:
      - this plan;
      - the box guide (servers, no server, USB/DVD, install command);
      - the README (Sharing, Restart).
    - Tests for sharing, the box's servers and the mpv options.
 
-## Where it stands
+## How it looks
 
-- Done (2026-11-02):
-  - parts 1, 2, 3 and 8;
-  - `tests/test_server.py` `Sharing` covers visitors from home and from the internet;
-  - checked in a browser: the Sharing tab, the Share button, the visitor's Home on a computer and a
-    phone.
-- Next: parts 4–7, then 9.
+<img src="images/sharing.jpg" alt="Server → Sharing: the public library switched on, its QR code and share link" width="100%">
+
+<img src="images/visitor.jpg" alt="A visitor's Sofa: only the shared titles, Public and the library's name at the top, Sign in" width="100%">
+
+<img src="images/box-chooser.jpg" alt="The Sofa Box asks where's your Sofa: at home, on the internet, this box, or other servers" width="100%">
+
+## Where it stands (2026-11-02)
+
+- **Everything in the plan is built**, and the tests pass (68).
+  - `tests/test_server.py` `Sharing`: visitors at home and from the internet.
+  - `tests/test_sofa_box.py` `Agent`:
+    - each server at its own address;
+    - the box's controls refused to other pages and other names;
+    - a share link through the box;
+    - mpv that can't start handing the video back to the page.
+- **Checked in a browser:**
+  - Server → Sharing, the Share button, and a visitor's Home on a computer and a phone;
+  - the box's Home, the chooser, the store, Settings → Sofa and the first start's apps step;
+  - This box: it starts, makes its own account and signs in.
+- **Not yet tried on real hardware:**
+  - the Pi 3 B+;
+  - USB drives mounting through udisks;
+  - a USB DVD drive;
+  - Jellyfin/Emby/Plex discovery on a real network;
+  - store icons (the cloud session couldn't reach those sites; on the box it can).
+- **For the owner:**
+  - Put a free public Sofa in `deploy/sofa-box/servers.json` (name, url, about) when there is one;
+    every box picks it up from GitHub within a day.
+  - The first build on `main` publishes the release `sofa-box`.
+
+## Ideas for later
+
+- A way to send a link to the box from a phone (for people with only a TV remote).
+- A list of the open tabs inside the browser.
+- A public Sofa's visitors could keep their place across devices (today it stays on each device).
