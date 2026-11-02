@@ -53,7 +53,8 @@ def main():
     conf = tempfile.mkdtemp(prefix="sofa-box-preview-")
     with open(os.path.join(conf, "settings.json"), "w") as f:
         json.dump({"server": a.server.rstrip("/")}, f)
-    env = dict(os.environ, SOFA_BOX_CONF=conf, SOFA_BOX_PORT=str(a.port))
+    env = dict(os.environ, SOFA_BOX_CONF=conf, SOFA_BOX_PORT=str(a.port), SOFA_BOX_LOCAL_DATA=os.path.join(conf, "sofa"),
+               SOFA_BOX_LOCAL_PORT=str(a.port + 4))        # "This box" (Sofa on the box) gets its own folder here too
     if a.slow:
         env["SOFA_BOX_SLOW"] = "1"
     if shutil.which("mpv"):
