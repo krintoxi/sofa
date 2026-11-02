@@ -20,7 +20,7 @@ import threading
 
 from . import (__version__, acme, apps, artwork, auth, awake, backup, config, ddns, dlna, fetch, housekeeping, intros, live, media, metadata, music,
                kids, machine, net, optimize, organizer, places, previews, report, screens, store, tls, trickplay, updater, upnp,
-               discovery, pairing, travel, uploads)
+               discovery, pairing, slow, travel, uploads)
 from .library import LIBRARY
 
 CLIENT_DIR = os.path.join(config.APP_DIR, "client")
@@ -721,7 +721,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/admin/convert":
             return self.json(optimize.status(LIBRARY))
         if path == "/api/admin/duplicates":
-            return self.json({"groups": housekeeping.duplicates(LIBRARY)})
+            return self.json({"groups": slow.cached("duplicates-%s" % LIBRARY.generated, 300, lambda: housekeeping.duplicates(LIBRARY), wait=25, default=[])})
         if path == "/api/admin/sessions":
             return self.json({"sessions": auth.sessions()})
         if path == "/api/admin/upload/check":          # before sending a file: will it be taken?
@@ -946,6 +946,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/admin/cache":
             if data.get("free"):
                 housekeeping.free_space()
+                slow.forget("cache")
             if data.get("retry_details"):
                 n = housekeeping.retry_lookups()
                 threading.Thread(target=LIBRARY.scan, args=("looking up details again",), daemon=True).start()
@@ -978,9 +979,14 @@ class Handler(BaseHTTPRequestHandler):
             except ValueError as exc:
                 return self.error(400, str(exc))
             return self.json(dict(places.status(LIBRARY), ok=True))
+        if path == "/api/admin/restart":             # Sofa starts again (a stuck page, a drive that went away…)
+            store.log("settings", "%s restarted Sofa" % u["name"])
+            threading.Timer(1.0, updater.restart).start()
+            return self.json({"ok": True, "started": int(STARTED)})
         if path == "/api/admin/deleted":
             if data.get("empty"):
                 organizer.empty_deleted()
+            slow.forget("deleted")
             return self.json(dict(organizer.deleted_summary(), ok=True))
         if path == "/api/admin/pictures":           # take new pictures from the videos: one title, or everything
             entry_id = data.get("id")
@@ -1268,6 +1274,7 @@ class Handler(BaseHTTPRequestHandler):
             store.log("settings", "%s changed settings: %s" % (u["name"], ", ".join(sorted(allowed))))
             return self.json({"ok": True, "settings": public_settings()})
         if path == "/api/admin/duplicates":          # keep the best copy, the others to Deleted
+            slow.forget("duplicates-%s" % LIBRARY.generated)
             keys = None if data.get("all") else [str(k) for k in data.get("keys") or []]
             n, freed = housekeeping.drop_duplicates(LIBRARY, keys)
             if n:
@@ -1391,26 +1398,46 @@ def public_settings():
     return s
 
 
+_status_lock = threading.Lock()
+_status = {"at": 0.0, "value": None}
+
+
 def admin_status():
-    shows_root = config.path("shows")
-    try:
-        du = shutil.disk_usage(shows_root)
-        disk = {"free": du.free, "total": du.total}
-    except OSError:
-        disk = None
+    """What the Server page shows. Everyone asking at the same moment shares one answer, and the parts
+    that read whole folders or run programs come from `slow` (worked out in the background)."""
+    with _status_lock:
+        if _status["value"] is not None and time.time() - _status["at"] < 1.5:
+            return _status["value"]
+        value = _admin_status()
+        _status.update(at=time.time(), value=value)
+        return value
+
+
+def _disk():
+    du = shutil.disk_usage(config.path("shows"))
+    return {"free": du.free, "total": du.total}
+
+
+def _admin_status():
+    lan = slow.cached("lan", 30, dlna.lan_addresses, default=[])
     return {
         "server": {"name": config.get("name"), "version": __version__, "started": int(STARTED),
-                   "host": platform.node(), "python": platform.python_version(), "ffmpeg": media.ffmpeg_version(),
-                   "port": config.get("port"), "lan": dlna.lan_addresses(), "tailscale": dlna.tailscale_addresses(),
+                   "host": platform.node(), "python": platform.python_version(),
+                   "ffmpeg": slow.cached("ffmpeg", 600, media.ffmpeg_version),
+                   "port": config.get("port"), "lan": lan, "tailscale": slow.cached("tailscale", 30, dlna.tailscale_addresses, default=[]),
                    "remote": config.get("remote"), "dlna": config.get("dlna")},
         "library": dict(LIBRARY.counts(), generated=LIBRARY.generated, scanning=LIBRARY.scanning,
-                        scan_seconds=LIBRARY.last_scan_seconds, disk=disk, missing=len(LIBRARY.missing_details()),
+                        scan_seconds=LIBRARY.last_scan_seconds, disk=slow.cached("disk", 30, _disk),
+                        missing=len(LIBRARY.missing_details()),
                         folders={k: config.path(k).replace(os.path.expanduser("~"), "~", 1)
                                  for k in ("shows", "movies", "music", "musicvideos", "adult", "inbox", "review",
                                            "originals")},
-                        deleted=organizer.deleted_summary(), previews=previews.status(LIBRARY),
+                        deleted=slow.cached("deleted", 120, organizer.deleted_summary,
+                                            default={"folder": organizer.deleted_root(), "files": 0, "bytes": 0}),
+                        previews=slow.cached("previews", 60, lambda: previews.status(LIBRARY),
+                                             default={"made": 0, "wanted": 0, "on": bool(config.get("previews"))}),
                         deleted_folder=organizer.deleted_root().replace(os.path.expanduser("~"), "~", 1),
-                        cache=housekeeping.usage()),
+                        cache=slow.cached("cache", 600, housekeeping.usage, default={"parts": {}, "bytes": 0})),
         "internet_problem": net.last_error.get("message") if time.time() - net.last_error.get("at", 0) < 86400 else None,
         "privacy": {"no_logs": store.no_logs(), "offline": net.offline_mode(), "online": net.online(),
                     "problems_unlogged": store.problems_unlogged[0]},
@@ -1422,14 +1449,14 @@ def admin_status():
         "streams": media.active_streams(),
         "apps": apps.status(),
         "awake": awake.status(),
-        "inbox": organizer.pending(),
+        "inbox": slow.cached("inbox", 10, organizer.pending, default=[]),
         "review": store.recent_activity(20, kinds={"review"}),
         "activity": store.recent_activity(150),
         "users": auth.list_users(),
         "settings": public_settings(),
         "backups": [{k: b[k] for k in ("name", "size", "made")} for b in backup.listing()[:5]],
         "guest": {"enabled": config.get("guest_access"),
-                  "links": ["http://%s:%d/guest" % (ip, config.get("port")) for ip in dlna.lan_addresses()]},
+                  "links": ["http://%s:%d/guest" % (ip, config.get("port")) for ip in lan]},
         "backup_folder": backup.folder().replace(os.path.expanduser("~"), "~", 1),
     }
 
