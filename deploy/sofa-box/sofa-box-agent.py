@@ -910,7 +910,8 @@ class Network:
 
     def watch(self):
         """No cable, no Wi-Fi a minute after starting: the hotspot. A network again: the hotspot goes."""
-        time.sleep(int(os.environ.get("SOFA_BOX_HOTSPOT_AFTER", "50")))
+        # a new box (at its setup, perhaps with nothing but a phone): its own Wi-Fi soon; later on, a slow router gets time
+        time.sleep(int(os.environ.get("SOFA_BOX_HOTSPOT_AFTER") or (15 if not settings()["welcomed"] else 50)))
         while True:
             try:
                 online = bool(local_address()) and local_address() != "10.42.0.1"

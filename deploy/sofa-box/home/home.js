@@ -418,7 +418,7 @@
     const r = (setup || {}).remote;
     if (!r) return `<p class="small">Getting ready…</p>`;
     const hs = r.hotspot;
-    if (!r.url) return `<p class="small">Waiting for a network. With no cable, the box makes its own Wi-Fi in a minute.</p>`;
+    if (!r.url) return `<p class="looking small"><i class="spin"></i>No network yet: in a few seconds the box makes its own Wi-Fi, and a code to scan shows here.</p>`;
     return hs ? `<div class="qr-steps"><div><span class="qr">${qr(hs.wifi_qr)}</span><b>1. Join its Wi-Fi</b><small>${esc(hs.ssid)} · password ${esc(hs.password)}</small></div>
         <div><span class="qr">${qr(r.pair_url)}</span><b>2. Then scan this</b><small>or open ${esc(r.url.replace(/^http:\/\//, ""))}, code ${esc(r.code)}</small></div></div>`
       : `<span class="qr big">${qr(r.pair_url)}</span><b>Scan with your phone's camera</b><small>or open <b>${esc(r.url.replace(/^http:\/\//, ""))}</b> and type <b>${esc(r.code)}</b></small>
