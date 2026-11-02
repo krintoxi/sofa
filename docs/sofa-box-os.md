@@ -98,8 +98,8 @@ Private repos stay private: the box opens these at their addresses; nothing from
 8. ☑ **Games:** a few small original games bundled (offline), remote and controller friendly.
 9. ☑ **Themes:** Street, Terminal, Pirate, Sofa: home screen and boot screen.
 10. ☑ **Boot screen:** "Sofa Box" Plymouth theme in the chosen style (glitch logo, boot ticker).
-11. ◐ **Installer and card:** the DevTools port in the kiosk, Widevine, Sofa Shield's helper, the new
-   files; the card builds it all.
+11. ☑ **Installer and card:** the DevTools port in the kiosk, Widevine, Sofa Shield's helper, the new
+   files; the card builds it all (built on GitHub 2026-10-31, report below). Not yet tried on the Pi.
 12. ☐ **Preview:** `tools/sofa-box-preview.py` shows the home screen, store, files and games.
 13. ◐ **Tests and docs:** agent API tests (apps, store, files), README for the box.
 
@@ -116,8 +116,11 @@ Private repos stay private: the box opens these at their addresses; nothing from
   real Plymouth under Xvfb). The Sofa Box logo is a **skull and crossbones in every theme** (the
   owner's wish): paint drips on Street, a screen's corners on Terminal, plain on Pirate and Sofa. The
   Sofa app keeps its couch.
-- Installer/card: written, not yet run on the card builder with the new parts (push a change under
-  deploy/sofa-box to build it; check the report on the run's page).
+- Installer/card: the card builds with everything (run 41153296635, commit 62b5837): Raspberry Pi OS
+  13 (trixie), Chromium 156, cage 0.3.1, mpv 0.40, Plymouth 24 with the label plugin; sofa-box,
+  -agent, -input and -cec services enabled; boot screen "sofa" in both initramfs files; sudo for the
+  settings works; all box files and fonts in /usr/local/lib/sofa-box; 2.5 GB used, 1.3 GB packed.
+  Not yet: started on the owner's Pi 3 B+ (the first real boot is the next check).
 - Docs: deploy/sofa-box/README.md describes the home screen, store, browser and Sofa bar, Files,
   games, Settings and themes, with screenshots (docs/images/box-*.jpg).
 
