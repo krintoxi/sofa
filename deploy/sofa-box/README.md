@@ -27,9 +27,11 @@ ads, no account, and nothing watching what you watch; the TV itself never needs 
 - A **microSD card**, 8 GB or more (a 32 GB card is plenty).
 - An **HDMI cable** to the TV (micro-HDMI on a Pi 4/5), and if you can, a **network cable** to the
   router (better for video than Wi-Fi).
-- Something to work it, any of:
-  - **your phone**: in Sofa on the phone, the **Play on** button sends a video to the "Sofa box" and
-    turns the phone into its remote;
+- Something to work it, any of (nothing else needed):
+  - **your phone** (iPhone or Android): the box shows a QR code; the phone becomes its remote, keyboard
+    and touchpad (see [The phone remote](#the-phone-remote));
+  - **a Fire TV remote** (or another Bluetooth remote): hold its **Home** button for 10 seconds during
+    the setup, and it pairs by itself. Its power and volume buttons keep working the TV as before;
   - **the TV's own remote**, through the HDMI cable (HDMI-CEC; Panasonic calls it VIERA Link). A
     universal remote set to the TV works as well as the original;
   - **a 2.4 GHz keyboard and mouse** (the kind with one small USB dongle): plug in the dongle and they
@@ -48,17 +50,67 @@ ads, no account, and nothing watching what you watch; the TV itself never needs 
    a user name and password with SSH under Services (only needed to look inside the box later). Or
    press **No**: a network cable needs nothing.
 4. Write it, put the card in the Pi, plug in HDMI (and the network cable), then power.
-5. The TV shows the Sofa Box boot screen, then four short first-start steps: hello, the internet,
-   your look, and **your apps** (tick the streaming apps you use: they go on Home). The first start
-   takes a few minutes.
-
-   <img src="../../docs/images/box-welcome.jpg" alt="First start: What do you watch? Netflix, YouTube, Prime Video, Disney+, Max, Hulu and more, to tick" width="80%">
+5. The TV shows the Sofa Box boot screen, then the **setup** (see below). The first start takes a
+   few minutes.
 6. **Open Sofa** from Home. The first time it asks where from (see below); after that it opens
    straight away, or asks each time if you prefer.
 7. **Sign in:** a Sofa computer shows a code and a QR code. On your phone, open Sofa, press your
    picture, then **Pair a TV**, and type the code (or scan the QR). Sofa on the box signs itself in.
 
 From then on the box starts on its home screen whenever it's switched on.
+
+### The setup (the first start)
+
+<img src="../../docs/images/box-setup.jpg" alt="Setup: Hello. Let's set up your Sofa Box. Your phone (a QR code), A remote or controller, Keyboard and mouse" width="100%">
+
+1. **Hello:** pick up whatever's in your hand.
+   - **Phone:** point its camera at the QR code and open the link. It's the remote from then on.
+   - **Fire TV remote** (or another Bluetooth remote, or a game controller): put it in pairing mode.
+     For a Fire TV remote, hold **Home** for 10 seconds. It pairs by itself.
+   - **Keyboard and mouse:** plug in the dongle.
+2. **Internet:** a network cable needs nothing. For Wi-Fi, pick your network and type the password.
+   The phone's **Keyboard** tab types it, which is easier than a remote.
+3. **Bluetooth:** more remotes, controllers, speakers or headphones. Put one in pairing mode and it
+   shows up; OK pairs it.
+4. **Your box:** its name (on the boot screen), the **time zone** (your phone sets it when it
+   connects), and its look.
+5. **Apps:** tick the streaming apps you use; they go on Home, ready to sign in.
+
+**No cable and no Wi-Fi yet?** After a minute, the box makes its own Wi-Fi, "Sofa Box 1234". The TV
+shows two QR codes:
+
+1. Scan the first to join the box's Wi-Fi.
+2. Scan the second to open the remote.
+
+Then give the box your home Wi-Fi from the phone's **Wi-Fi** tab. The box joins it, and your phone
+goes back to your own Wi-Fi.
+
+### The phone remote
+
+<img src="../../docs/images/box-phone-remote.jpg" alt="The phone remote: a round pad with OK, Back, Home, Menu, playback and volume buttons, and Remote, Keyboard, Touchpad and Wi-Fi tabs" width="260" align="right">
+
+There's nothing to install from an app store: **the box serves the remote itself**.
+
+- **Connect a phone:** scan the QR code on the TV with the phone's camera (Settings → Remotes and
+  Bluetooth shows it any time). Or open the address under it and type the four numbers. The phone
+  needs to be on the same Wi-Fi as the box.
+- **Keep it like an app:**
+  - **iPhone:** in Safari, tap **Share** (the square with the arrow), then **Add to Home Screen**.
+    It gets the box's skull icon, and opens full screen like any app.
+  - **Android:** in Chrome, open the **⋮** menu, then **Add to Home screen**.
+  - The remote shows this tip itself, once.
+- **Using it:**
+  - Swipe on the big pad to move, tap the middle for **OK** (or tap an edge, or hold it to keep
+    going). Then **Back**, **Home**, **Menu**, play/pause and skip, and volume.
+  - **Keyboard** types into the box: a search, an address, a password.
+  - **Touchpad** is a mouse, for the odd website that needs one.
+  - **Wi-Fi** changes the box's network.
+- **Several phones** can be remotes at once. Settings → **Forget phones** makes them all scan again.
+- **Good to know:**
+  - It works at home only; a phone from outside never gets in.
+  - If your router gives the box a new address, scan the code again. Reserving the box's address
+    in the router stops that.
+<br clear="right">
 
 ## Setting it up on the card you already have
 
@@ -185,9 +237,20 @@ games that run well on the box, worked with the arrows and OK (or a controller).
 
 ### Settings and themes
 
-**Settings** on Home: the look (**Street**, **Terminal**, **Pirate** or **Sofa**, for the home screen
-and the boot screen) and the box's name, Sofa Shield, picture and sound, Wi-Fi, controllers, which
-apps show on Home, which Sofa it uses, and restart.
+**Settings** on Home has the following.
+
+- The look (**Street**, **Terminal**, **Pirate** or **Sofa**, for the home screen and the boot screen),
+  and the box's name.
+- **Sofa:** which servers it plays from.
+- **Sofa Shield**, picture and sound, and Wi-Fi.
+- **Remotes and Bluetooth:** the phone remote's QR code, and remotes, controllers, speakers and
+  headphones.
+- **Time zone**, and which apps show on Home.
+- **Software:**
+  - **Update the box** gets the newest version from GitHub and restarts by itself.
+  - **Reset to how it came** wipes everything of the owner's and starts at the setup again. Your
+    apps, sign-ins, Wi-Fi, Bluetooth devices and files all go. Use it before giving or selling a box
+    to someone.
 
 <img src="../../docs/images/box-themes.jpg" alt="The four themes: Street, Terminal, Pirate and Sofa" width="100%">
 

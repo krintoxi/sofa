@@ -9,6 +9,7 @@
 <meta name="apple-mobile-web-app-title" content="Sofa Box">
 <meta name="theme-color" content="#0D0D10">
 <link rel="apple-touch-icon" href="/icon.png">
+<link rel="manifest" href="/manifest.json">
 <title>Sofa Box remote</title>
 <!-- The Sofa Box's phone remote: served by the box itself (port 8092) to phones on the home network.
      Swipe or tap the pad like a TV remote; type into the TV; a touchpad; the box's Wi-Fi. -->
@@ -70,6 +71,11 @@
   .pair p { margin: 0; color: var(--mist); }
   .pair .code { font: 700 40px/1 ui-monospace, "SF Mono", monospace; letter-spacing: .3em; text-align: center; padding: 14px; }
   .msg { min-height: 20px; color: var(--a2); text-align: center; font-size: 14px; }
+  .tip { position: fixed; left: 14px; right: 14px; bottom: calc(var(--safe-b) + 78px); z-index: 5; padding: 14px 16px; border-radius: 18px;
+    background: #22222b; box-shadow: 0 16px 40px rgba(0,0,0,.6), inset 0 0 0 1px var(--line); display: grid; grid-template-columns: 44px 1fr auto; gap: 12px; align-items: center; }
+  .tip img { width: 44px; height: 44px; border-radius: 10px; }
+  .tip b { display: block; } .tip span { color: var(--mist); font-size: 14px; }
+  .tip button { color: var(--mist); font-size: 22px; padding: 4px 8px; }
   nav.tabs { display: flex; justify-content: space-around; padding-top: 8px; border-top: 1px solid var(--line); }
   nav.tabs button { flex: 1; display: grid; justify-items: center; gap: 3px; font-size: 11px; color: var(--mist); padding: 6px 0; }
   nav.tabs button svg { width: 24px; height: 24px; }
@@ -152,6 +158,7 @@
   </section>
 </main>
 
+<div class="tip" id="tip" hidden><img src="/icon.png" alt=""><div><b>Keep the remote on your Home Screen</b><span id="tipText"></span></div><button id="tipX" aria-label="Close">✕</button></div>
 <nav class="tabs" id="tabs" hidden>
   <button data-tab="remote" aria-current="true"><svg><use href="#remote"/></svg>Remote</button>
   <button data-tab="type"><svg><use href="#kbd"/></svg>Keyboard</button>
@@ -306,7 +313,18 @@
     catch (e) { /* the box left this network: that's expected */ }
   });
 
-  state(); setInterval(state, 4000);
+  // Once, after connecting: how to keep it like an app (it opens full screen from the Home Screen).
+  function tip() {
+    const standalone = navigator.standalone || matchMedia("(display-mode: standalone)").matches;
+    let seen = false; try { seen = localStorage.getItem("sofaRemoteTip"); } catch (e) {}
+    if (standalone || seen) return;
+    const ios = /iPhone|iPad|iPod/.test(navigator.userAgent);
+    $("tipText").textContent = ios ? "Tap Share (the square with the arrow), then Add to Home Screen." : "Open the browser's ⋮ menu, then Add to Home screen.";
+    $("tip").hidden = false;
+  }
+  $("tipX").addEventListener("click", () => { $("tip").hidden = true; try { localStorage.setItem("sofaRemoteTip", "1"); } catch (e) {} });
+
+  state().then(() => { if (ready) setTimeout(tip, 1500); }); setInterval(state, 4000);
 })();
 </script>
 </body>

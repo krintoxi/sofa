@@ -144,6 +144,22 @@ The plan for the round that started 2026-11-02. Each part has a status: ☐ not 
     every box picks it up from GitHub within a day.
   - The first build on `main` publishes the release `sofa-box`.
 
+## Added after the plan (2026-11-02)
+
+- **Setting up a box with nothing but a phone or a Fire TV remote.**
+  - The first start is a setup of its own: Hello (how you'll work it), Internet, Bluetooth, Your box
+    (name, time zone, look), and Apps.
+  - **The phone remote** (`deploy/sofa-box/remote.html`, served by the box on port 8092, home network
+    only, a code from the TV in its QR code): a pad, a keyboard, a touchpad and Wi-Fi. Nothing to
+    install; Add to Home Screen keeps it like an app.
+  - Bluetooth remotes and controllers in pairing mode pair by themselves during the first start.
+  - The box makes its own Wi-Fi when it has no network.
+  - The box's Settings: Remotes and Bluetooth, Time zone, Update the box, Reset to how it came.
+- **Selling boxes:** [sofa-box-product.md](sofa-box-product.md) covers what's ready, how to prepare
+  a box, everything it connects to, and what's left before selling.
+- Tests: the phone remote's pairing and access rules, the remote key translation, and the
+  Bluetooth device sorting.
+
 ## Ideas for later
 
 - A way to send a link to the box from a phone (for people with only a TV remote).

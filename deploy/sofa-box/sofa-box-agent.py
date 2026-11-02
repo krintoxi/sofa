@@ -1746,10 +1746,17 @@ class RemoteHandler(BaseHTTPRequestHandler):
         if path in ("/", "/index.html"):
             with open(os.path.join(HERE, "remote.html"), encoding="utf-8") as f:
                 return self.send(f.read(), "text/html; charset=utf-8")
-        if path == "/icon.png":
+        if path in ("/icon.png", "/icon-512.png"):          # the remote's Home Screen icon
             buf = __import__("io").BytesIO()
-            module("sofa-box-art").render(settings(), (180, 180), 0.45).save(buf, "PNG")
+            module("sofa-box-art").app_icon(settings(), 512 if "512" in path else 180).save(buf, "PNG")
             return self.send(buf.getvalue(), "image/png", headers={"Cache-Control": "max-age=86400"})
+        if path == "/manifest.json":                         # Android: "Add to Home screen" as an app
+            name = settings().get("boot_text") or "Sofa Box"
+            return self.send(json.dumps({"name": name + " remote", "short_name": "Sofa Box", "start_url": "/", "display": "standalone",
+                                         "background_color": "#0D0D10", "theme_color": "#0D0D10",
+                                         "icons": [{"src": "/icon.png", "sizes": "180x180", "type": "image/png"},
+                                                   {"src": "/icon-512.png", "sizes": "512x512", "type": "image/png"}]}),
+                             "application/manifest+json")
         if self.command == "POST" and self.headers.get("X-Sofa-Remote") != "1":
             return self.send('{"error":"missing X-Sofa-Remote"}', status=400)
         data = json.loads(self.body() or b"{}") if self.command == "POST" else {}
