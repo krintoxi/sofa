@@ -37,6 +37,12 @@ Comet Courier's address, a `box-v1` release (the owner publishes it on the websi
 
 ## What's in progress
 
+- **Sofa anywhere** (started 2026-11-02): public libraries with a share link, adding and switching
+  servers (Sofa, Jellyfin, Emby, Plex), a box that works with no server (Sofa on the box, Live TV,
+  USB, DVD), the box's store/icons/Home/first setup, Server page fixes and a Restart button, preview
+  sound, the card on GitHub Releases, and the phone → box mpv error. The plan and the status of each
+  part: [sofa-anywhere.md](sofa-anywhere.md).
+
 - **Sofa Box OS** (home screen, apps, store, browser, ad blocking, files, games, themes):
   [sofa-box-os.md](sofa-box-os.md) has the plan, the status of each part and what's next ("Where it
   stands"). Code: `deploy/sofa-box/boxos.py` (apps, store, files, DevTools client),
