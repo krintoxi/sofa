@@ -12,6 +12,14 @@ in mpv while a video plays:
   LB, LT                10 seconds back        RB, RT   30 seconds on
   Xbox / PS button      Home
 
+Bluetooth remotes (a Fire TV remote, most "TV remote" style ones) work too. Their keys mostly reach the
+box as they are; the ones the browser and mpv don't know are turned into ones they do:
+
+  the middle button (Select)   OK (Enter)
+  Home                         the box's home screen, from anywhere
+  ≡ (Menu)                     the Sofa bar / an app's menu (F2)
+  Back, arrows, ⏯ ⏪ ⏩          as they are
+
 Needs python3-evdev and /dev/uinput (the installer lets the box's user use it).
 """
 import json
@@ -32,6 +40,35 @@ BTN_DPAD = {544: "KEY_UP", 545: "KEY_DOWN", 546: "KEY_LEFT", 547: "KEY_RIGHT"}
 ABS_X, ABS_Y, ABS_Z, ABS_RZ, ABS_GAS, ABS_BRAKE, ABS_HAT0X, ABS_HAT0Y = 0, 1, 2, 5, 9, 10, 16, 17
 KEYS = ("KEY_UP", "KEY_DOWN", "KEY_LEFT", "KEY_RIGHT", "KEY_ENTER", "KEY_BACK", "KEY_PLAYPAUSE", "KEY_SLASH",
         "KEY_REWIND", "KEY_FASTFORWARD")
+
+
+KEY_A, KEY_SELECT, KEY_HOMEPAGE, KEY_BACK, KEY_MENU, KEY_COMPOSE, KEY_OK = 30, 353, 172, 158, 139, 127, 352
+REMOTE_KEYS = {KEY_SELECT: "KEY_ENTER", KEY_OK: "KEY_ENTER", KEY_MENU: "KEY_F2", KEY_COMPOSE: "KEY_F2", KEY_HOMEPAGE: "HOME"}
+PASS = ("KEY_UP", "KEY_DOWN", "KEY_LEFT", "KEY_RIGHT", "KEY_ENTER", "KEY_BACK", "KEY_ESC", "KEY_F2", "KEY_PLAYPAUSE",
+        "KEY_PLAY", "KEY_PAUSE", "KEY_REWIND", "KEY_FASTFORWARD", "KEY_NEXTSONG", "KEY_PREVIOUSSONG", "KEY_STOP",
+        "KEY_VOLUMEUP", "KEY_VOLUMEDOWN", "KEY_MUTE", "KEY_SEARCH", "KEY_BACKSPACE")
+
+
+def is_remote(name, keys):
+    """A TV-style remote (not a keyboard, not a game controller): it has Select, Home or Back, and no letters."""
+    return not name.startswith("Sofa box") and BTN_SOUTH not in keys and KEY_A not in keys and \
+        any(k in keys for k in (KEY_SELECT, KEY_HOMEPAGE, KEY_BACK, KEY_OK))
+
+
+class Remote:
+    """One Bluetooth remote: its key events in, the box's out (testable without one)."""
+
+    def __init__(self, names):
+        self.names = names                                  # key number -> "KEY_…" (evdev's own table)
+
+    def feed(self, etype, code, value):
+        """[(key name, value)] to send on, or [("HOME", 1)]."""
+        if etype != 1:
+            return []
+        to = REMOTE_KEYS.get(code) or self.names.get(code)
+        if to == "HOME":
+            return [("HOME", 1)] if value == 1 else []
+        return [(to, value)] if to in PASS else []
 
 
 def is_playstation(name):
@@ -117,7 +154,7 @@ class Pad:
 def home():
     try:
         req = urllib.request.Request(AGENT + "/box/api/home", data=json.dumps({}).encode(),
-                                     headers={"Content-Type": "application/json"})
+                                     headers={"Content-Type": "application/json", "X-Sofa-Box": "1"})
         urllib.request.build_opener(urllib.request.ProxyHandler({})).open(req, timeout=3).close()
     except Exception:
         pass
@@ -128,8 +165,15 @@ def main():
         from evdev import InputDevice, UInput, ecodes, list_devices
     except ImportError:
         sys.exit("python3-evdev is missing: sudo apt install python3-evdev")
-    kb = UInput({ecodes.EV_KEY: [ecodes.ecodes[k] for k in KEYS]}, name="Sofa box controllers")
-    pads, last_scan = {}, 0
+    kb = UInput({ecodes.EV_KEY: [ecodes.ecodes[k] for k in sorted(set(KEYS) | set(PASS))]}, name="Sofa box controllers")
+    pads, remotes, last_scan = {}, {}, 0
+    names = {v: k for k, v in ecodes.ecodes.items() if k.startswith("KEY_")}
+
+    def send(name, value):
+        if name == "HOME":
+            return home()
+        kb.write(ecodes.EV_KEY, ecodes.ecodes[name], value)
+        kb.syn()
 
     def press(name):
         if name == "HOME":
@@ -144,18 +188,35 @@ def main():
         if now - last_scan > 3:                             # controllers come and go (Bluetooth)
             last_scan = now
             for path in list_devices():
-                if path in pads:
+                if path in pads or path in remotes:
                     continue
                 try:
                     dev = InputDevice(path)
                     keys = dev.capabilities().get(ecodes.EV_KEY, [])
                 except OSError:
                     continue
+                if is_remote(dev.name, keys):
+                    try:
+                        dev.grab()                          # its keys come from here now, translated
+                    except OSError:
+                        continue
+                    remotes[path] = (dev, Remote(names))
+                    print("Remote: %s" % dev.name, file=sys.stderr, flush=True)
+                    continue
                 if BTN_SOUTH in keys and "Sofa box" not in dev.name:
                     ranges = {code: (info.min, info.max) for code, info in dev.capabilities().get(ecodes.EV_ABS, [])}
                     pads[path] = (dev, Pad(dev.name, ranges))
                     print("Controller: %s" % dev.name, file=sys.stderr, flush=True)
-        ready = select.select([d.fd for d, _ in pads.values()], [], [], 0.03)[0] if pads else (time.sleep(0.5) or [])
+        fds = [d.fd for d, _ in pads.values()] + [d.fd for d, _ in remotes.values()]
+        ready = select.select(fds, [], [], 0.03)[0] if fds else (time.sleep(0.5) or [])
+        for path, (dev, remote) in list(remotes.items()):
+            if dev.fd in ready:
+                try:
+                    for ev in dev.read():
+                        for name, value in remote.feed(ev.type, ev.code, ev.value):
+                            send(name, value)
+                except OSError:                             # asleep, or out of range: found again when it's back
+                    del remotes[path]
         for path, (dev, pad) in list(pads.items()):
             if dev.fd in ready:
                 try:

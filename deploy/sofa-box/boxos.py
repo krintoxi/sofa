@@ -491,6 +491,85 @@ def disc_payload(disc):
     return {"url": url, "local": True, "title": disc.get("label") or DISC_NAMES[disc["kind"]], "item": None, "mpv": {opt: disc["dev"]}}
 
 
+# ---------------------------------------------------------------- Bluetooth: remotes, controllers, keyboards, speakers
+
+HID_UUIDS = ("00001124-", "00001812-")       # Human Interface Device: classic, and over Bluetooth LE (HOGP)
+
+
+def bt_parse_info(text):
+    """`bluetoothctl info` as a dict (UUIDs as a list)."""
+    out = {"UUIDs": []}
+    for line in text.splitlines():
+        k, sep, v = line.strip().partition(": ")
+        if not sep:
+            continue
+        if k == "UUID":
+            out["UUIDs"].append(v)
+        else:
+            out[k] = v
+    return out
+
+
+def bt_kind(info):
+    """remote, controller, keyboard, mouse, audio, or other: what a device is, from its name, icon and services."""
+    name, icon = info.get("Name") or info.get("Alias") or "", info.get("Icon", "")
+    hid = any(u in x for x in info.get("UUIDs", []) for u in HID_UUIDS)
+    if re.search(r"fire ?tv|amazon|remote|\bAR\d|AFTR|tv remote", name, re.I):
+        return "remote"
+    if icon == "input-gaming" or re.search(r"controller|gamepad|xbox|dualsense|dualshock|8bitdo|joy-?con", name, re.I):
+        return "controller"
+    if icon == "input-keyboard" or re.search(r"keyboard", name, re.I):
+        return "keyboard"
+    if icon in ("input-mouse", "input-tablet") or re.search(r"\bmouse\b|trackpad", name, re.I):
+        return "mouse"
+    if icon.startswith("audio") or re.search(r"headphone|headset|speaker|buds|airpods|soundbar|\bjbl\b|bose|beats", name, re.I):
+        return "audio"
+    if hid or icon.startswith("input"):
+        return "remote"
+    return "other"
+
+
+def bt_devices():
+    """Every Bluetooth device the box knows or sees, with what it is and whether it's paired and connected."""
+    code, out = run(["bluetoothctl", "devices"], 8)
+    if code != 0:
+        return []
+    found = []
+    for line in out.splitlines():
+        parts = line.split(" ", 2)
+        if len(parts) < 3 or parts[0] != "Device":
+            continue
+        mac, name = parts[1], parts[2]
+        _, text = run(["bluetoothctl", "info", mac], 8)
+        info = bt_parse_info(text)
+        info.setdefault("Name", name)
+        if re.match(r"^([0-9A-F]{2}-){5}[0-9A-F]{2}$", info["Name"], re.I):
+            continue                                            # nameless (a beacon, a phone's privacy address)
+        found.append({"mac": mac, "name": info["Name"], "kind": bt_kind(info), "paired": info.get("Paired") == "yes",
+                      "connected": info.get("Connected") == "yes", "rssi": int((re.search(r"-?\d+", info.get("RSSI", "")) or [0])[0] or 0)})
+    return found
+
+
+def bt_pair(mac):
+    """Pair, trust and connect (no PIN: remotes, controllers and speakers pair with "just works")."""
+    if not re.match(r"^([0-9A-F]{2}:){5}[0-9A-F]{2}$", mac or "", re.I):
+        raise ValueError("Which device?")
+    code, out = run(["bluetoothctl", "--agent", "NoInputNoOutput", "pair", mac], 40)
+    if code != 0 and "AlreadyExists" not in out and "Pairing successful" not in out:
+        code, out = run(["bluetoothctl", "pair", mac], 40)
+    ok = code == 0 or "Pairing successful" in out or "AlreadyExists" in out
+    if ok:
+        run(["bluetoothctl", "trust", mac], 10)
+        run(["bluetoothctl", "connect", mac], 20)
+    return ok, out[-200:]
+
+
+def bt_forget(mac):
+    if not re.match(r"^([0-9A-F]{2}:){5}[0-9A-F]{2}$", mac or "", re.I):
+        raise ValueError("Which device?")
+    run(["bluetoothctl", "remove", mac], 10)
+
+
 # ---------------------------------------------------------------- Sofa Shield (ad blocking for the whole box)
 
 SHIELD_LISTS = ["https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts"]
@@ -765,6 +844,24 @@ class Browser:
         except OSError:
             return ""
         return "; ".join("%s=%s" % (c["name"], c["value"]) for c in got if c.get("domain", "").lstrip(".") == host)
+
+    def _front_session(self):
+        t = getattr(self, "front", None) if getattr(self, "front", None) in self.tabs else self.tab_of("home")
+        return (self.tabs.get(t) or {}).get("session")
+
+    def press(self, key, keycode):
+        """A key press in the tab in front (the phone remote, when the box has no /dev/uinput)."""
+        session = self._front_session()
+        if session:
+            for kind in ("rawKeyDown", "keyUp"):
+                self.call("Input.dispatchKeyEvent", {"type": kind, "key": key, "code": key, "windowsVirtualKeyCode": keycode,
+                                                     "nativeVirtualKeyCode": keycode}, session)
+
+    def insert_text(self, text):
+        """Text typed on the phone, into whatever is focused in the tab in front."""
+        session = self._front_session()
+        if session and text:
+            self.call("Input.insertText", {"text": text}, session)
 
     def set_cookie(self, host, name, value, days=60):
         try:

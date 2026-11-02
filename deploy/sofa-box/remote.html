@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Sofa Box">
+<meta name="theme-color" content="#0D0D10">
+<link rel="apple-touch-icon" href="/icon.png">
+<title>Sofa Box remote</title>
+<!-- The Sofa Box's phone remote: served by the box itself (port 8092) to phones on the home network.
+     Swipe or tap the pad like a TV remote; type into the TV; a touchpad; the box's Wi-Fi. -->
+<style>
+  :root { --bg: #0D0D10; --bg2: #18181E; --fg: #F6F6F8; --mist: #9C9CA8; --a: #FF2E88; --a2: #E8FF3A; --line: rgba(255,255,255,.12);
+    --safe-t: env(safe-area-inset-top); --safe-b: env(safe-area-inset-bottom); }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); font: 16px/1.4 -apple-system, "SF Pro Text", system-ui, sans-serif;
+    -webkit-user-select: none; user-select: none; overscroll-behavior: none; touch-action: manipulation; }
+  body { display: flex; flex-direction: column; padding: calc(var(--safe-t) + 10px) 18px calc(var(--safe-b) + 8px); }
+  button { font: inherit; color: inherit; border: 0; background: none; cursor: pointer; }
+  header { display: flex; align-items: center; gap: 10px; min-height: 44px; }
+  header svg { width: 30px; height: 28px; color: var(--a); }
+  header b { font-size: 19px; letter-spacing: -.01em; }
+  header .dot { margin-left: auto; display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--mist); }
+  header .dot i { width: 8px; height: 8px; border-radius: 50%; background: #3ddc84; box-shadow: 0 0 8px #3ddc84; }
+  header .dot.off i { background: #ff5a5f; box-shadow: none; }
+  .now { margin: 6px 0 0; padding: 10px 14px; border-radius: 14px; background: var(--bg2); font-size: 14px; color: var(--mist); display: none; }
+  .now.on { display: block; }
+  .now b { color: var(--fg); }
+  main { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 18px; min-height: 0; }
+  [hidden] { display: none !important; }
+  /* the pad: swipe to move, tap for OK, tap an edge for that arrow, hold an edge to keep going */
+  .pad { position: relative; width: min(84vw, 340px); aspect-ratio: 1; margin: 0 auto; border-radius: 50%;
+    background: radial-gradient(circle at 50% 40%, #26262e, #15151a 70%); box-shadow: inset 0 0 0 1px var(--line), 0 20px 50px rgba(0,0,0,.5);
+    touch-action: none; }
+  .pad .ok { position: absolute; inset: 31%; border-radius: 50%; background: #2a2a33; box-shadow: inset 0 0 0 1px var(--line), 0 6px 20px rgba(0,0,0,.4);
+    display: grid; place-items: center; font-weight: 700; letter-spacing: .06em; color: var(--mist); transition: background .12s, transform .12s; }
+  .pad .arr { position: absolute; width: 22px; height: 22px; color: var(--mist); opacity: .8; transition: color .12s, transform .12s; }
+  .pad .u { top: 9%; left: calc(50% - 11px); } .pad .d { bottom: 9%; left: calc(50% - 11px); transform: rotate(180deg); }
+  .pad .l { left: 9%; top: calc(50% - 11px); transform: rotate(-90deg); } .pad .r { right: 9%; top: calc(50% - 11px); transform: rotate(90deg); }
+  .pad.hit-ok .ok { background: var(--a); color: #fff; transform: scale(.95); }
+  .pad.hit-up .u, .pad.hit-down .d, .pad.hit-left .l, .pad.hit-right .r { color: var(--a); opacity: 1; }
+  .row { display: flex; justify-content: center; gap: 14px; }
+  .key { width: 64px; height: 64px; border-radius: 50%; background: var(--bg2); box-shadow: inset 0 0 0 1px var(--line); display: grid; place-items: center;
+    transition: transform .1s, background .1s; }
+  .key svg { width: 24px; height: 24px; }
+  .key.wide { width: auto; padding: 0 22px; border-radius: 32px; gap: 8px; display: flex; align-items: center; }
+  .key:active, .key.hit { transform: scale(.92); background: #2c2c35; }
+  .key.home { background: var(--a); color: #fff; box-shadow: 0 8px 24px rgba(255,46,136,.35); }
+  /* keyboard */
+  .type { display: flex; flex-direction: column; gap: 14px; }
+  .type textarea { width: 100%; min-height: 120px; border-radius: 18px; border: 1px solid var(--line); background: var(--bg2); color: var(--fg); font: 18px/1.4 inherit;
+    padding: 14px; resize: none; -webkit-user-select: text; user-select: text; }
+  .type p { margin: 0; color: var(--mist); font-size: 14px; text-align: center; }
+  /* touchpad */
+  .touch { flex: 1; min-height: 300px; border-radius: 24px; background: linear-gradient(160deg, #1f1f27, #141419); box-shadow: inset 0 0 0 1px var(--line);
+    touch-action: none; display: grid; place-items: center; color: var(--mist); font-size: 14px; text-align: center; padding: 20px; }
+  /* Wi-Fi and pairing */
+  .list { display: grid; gap: 8px; max-height: 50vh; overflow: auto; }
+  .net { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-radius: 14px; background: var(--bg2); text-align: left; }
+  .net small { margin-left: auto; color: var(--mist); }
+  .field { width: 100%; padding: 14px 16px; border-radius: 14px; border: 1px solid var(--line); background: var(--bg2); color: var(--fg); font: inherit;
+    -webkit-user-select: text; user-select: text; }
+  .btn { padding: 15px 22px; border-radius: 16px; background: var(--a); color: #fff; font-weight: 700; text-align: center; }
+  .btn.ghost { background: var(--bg2); color: var(--fg); }
+  .pair { text-align: center; display: grid; gap: 14px; }
+  .pair h1 { margin: 0; font-size: 28px; letter-spacing: -.02em; }
+  .pair p { margin: 0; color: var(--mist); }
+  .pair .code { font: 700 40px/1 ui-monospace, "SF Mono", monospace; letter-spacing: .3em; text-align: center; padding: 14px; }
+  .msg { min-height: 20px; color: var(--a2); text-align: center; font-size: 14px; }
+  nav.tabs { display: flex; justify-content: space-around; padding-top: 8px; border-top: 1px solid var(--line); }
+  nav.tabs button { flex: 1; display: grid; justify-items: center; gap: 3px; font-size: 11px; color: var(--mist); padding: 6px 0; }
+  nav.tabs button svg { width: 24px; height: 24px; }
+  nav.tabs button[aria-current="true"] { color: var(--a); }
+  @media (max-height: 640px) { .pad { width: min(70vw, 260px); } .key { width: 54px; height: 54px; } }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="skull" viewBox="0 0 30 26"><path fill="currentColor" d="M15 2c-5.5 0-9.5 3.6-9.5 8.4 0 2.6 1.2 4.5 3 5.7V19c0 .8.6 1.4 1.4 1.4H12v-2h2v2h2v-2h2v2h2.1c.8 0 1.4-.6 1.4-1.4v-2.9c1.8-1.2 3-3.1 3-5.7C24.5 5.6 20.5 2 15 2zm-4.2 11.2a2.4 2.4 0 1 1 0-4.8 2.4 2.4 0 0 1 0 4.8zm8.4 0a2.4 2.4 0 1 1 0-4.8 2.4 2.4 0 0 1 0 4.8z"/><path d="M3 21l24 4M27 21L3 25" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></symbol>
+  <symbol id="arrow" viewBox="0 0 24 24"><path d="M5 15l7-7 7 7" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="back" viewBox="0 0 24 24"><path d="M10 6l-6 6 6 6M4.5 12H20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="home" viewBox="0 0 24 24"><path d="M3.5 11L12 4l8.5 7M6 9.5V20h12V9.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></symbol>
+  <symbol id="play" viewBox="0 0 24 24"><path fill="currentColor" d="M6 5v14l8-7zM15 5h2.5v14H15zM19 5h2.5v14H19z"/></symbol>
+  <symbol id="rew" viewBox="0 0 24 24"><path fill="currentColor" d="M11 6v12l-8-6zM21 6v12l-8-6z"/></symbol>
+  <symbol id="fwd" viewBox="0 0 24 24"><path fill="currentColor" d="M13 6v12l8-6zM3 6v12l8-6z"/></symbol>
+  <symbol id="voldown" viewBox="0 0 24 24"><path fill="currentColor" d="M4 9h4l5-4v14l-5-4H4z"/><path d="M16 12h5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></symbol>
+  <symbol id="volup" viewBox="0 0 24 24"><path fill="currentColor" d="M4 9h4l5-4v14l-5-4H4z"/><path d="M16 12h5M18.5 9.5v5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></symbol>
+  <symbol id="mute" viewBox="0 0 24 24"><path fill="currentColor" d="M4 9h4l5-4v14l-5-4H4z"/><path d="M16 9.5l5 5M21 9.5l-5 5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></symbol>
+  <symbol id="remote" viewBox="0 0 24 24"><rect x="7" y="2.5" width="10" height="19" rx="4" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="8.5" r="2.2" fill="currentColor"/></symbol>
+  <symbol id="kbd" viewBox="0 0 24 24"><rect x="2.5" y="6" width="19" height="12" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M6 10h.01M9 10h.01M12 10h.01M15 10h.01M18 10h.01M7 14h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="pad" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M3 15h18M12 15v5" stroke="currentColor" stroke-width="1.8"/></symbol>
+  <symbol id="wifi" viewBox="0 0 24 24"><path d="M2.5 9a14 14 0 0 1 19 0M5.5 12.5a9.5 9.5 0 0 1 13 0M8.5 16a5 5 0 0 1 7 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="19" r="1.4" fill="currentColor"/></symbol>
+</svg>
+<header><svg><use href="#skull"/></svg><b id="name">Sofa Box</b><span class="dot" id="dot"><i></i><span id="dotText">Connected</span></span></header>
+<div class="now" id="now"></div>
+
+<main>
+  <section id="pairing" class="pair" hidden>
+    <svg style="width:64px;height:58px;color:var(--a);margin:0 auto"><use href="#skull"/></svg>
+    <h1>Connect to your Sofa Box</h1>
+    <p>Type the four numbers on the TV.</p>
+    <input class="field code" id="code" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="one-time-code" placeholder="····">
+    <button class="btn" id="pairBtn">Connect</button>
+    <div class="msg" id="pairMsg"></div>
+  </section>
+
+  <section id="tab-remote" hidden>
+    <div class="pad" id="pad" aria-label="Swipe to move, tap for OK">
+      <svg class="arr u"><use href="#arrow"/></svg><svg class="arr d"><use href="#arrow"/></svg>
+      <svg class="arr l"><use href="#arrow"/></svg><svg class="arr r"><use href="#arrow"/></svg>
+      <div class="ok">OK</div>
+    </div>
+    <div class="row" style="margin-top:22px">
+      <button class="key" data-k="back" aria-label="Back"><svg><use href="#back"/></svg></button>
+      <button class="key home" data-k="home" aria-label="Home"><svg><use href="#home"/></svg></button>
+      <button class="key" data-k="menu" aria-label="Menu"><svg><use href="#menu"/></svg></button>
+    </div>
+    <div class="row" style="margin-top:14px">
+      <button class="key" data-k="rewind" aria-label="Back 10 seconds"><svg><use href="#rew"/></svg></button>
+      <button class="key" data-k="play" aria-label="Play or pause"><svg><use href="#play"/></svg></button>
+      <button class="key" data-k="forward" aria-label="On 30 seconds"><svg><use href="#fwd"/></svg></button>
+    </div>
+    <div class="row" style="margin-top:14px">
+      <button class="key" data-vol="-5" aria-label="Quieter"><svg><use href="#voldown"/></svg></button>
+      <button class="key" data-vol="mute" aria-label="Mute"><svg><use href="#mute"/></svg></button>
+      <button class="key" data-vol="5" aria-label="Louder"><svg><use href="#volup"/></svg></button>
+    </div>
+  </section>
+
+  <section id="tab-type" class="type" hidden>
+    <p>What you type here appears in the box: a search, an address, a password.</p>
+    <textarea id="typing" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Type here"></textarea>
+    <div class="row"><button class="key wide" data-k="backspace">⌫ Delete</button><button class="key wide" data-k="tab">Next field</button><button class="key wide home" data-k="enter">Enter</button></div>
+  </section>
+
+  <section id="tab-touch" hidden>
+    <div class="touch" id="touch">Move one finger to move the pointer. Tap to click.<br>Two fingers scroll. Press and hold for a right click.</div>
+  </section>
+
+  <section id="tab-wifi" hidden>
+    <p style="color:var(--mist);margin:0 0 10px" id="wifiLede">Wi-Fi for the box.</p>
+    <div class="list" id="nets"><p style="color:var(--mist)">Looking…</p></div>
+    <div id="join" hidden style="display:grid;gap:10px;margin-top:12px">
+      <input class="field" id="wpass" type="password" placeholder="Password" autocomplete="off">
+      <button class="btn" id="joinBtn">Join</button>
+    </div>
+    <div class="msg" id="wifiMsg"></div>
+  </section>
+</main>
+
+<nav class="tabs" id="tabs" hidden>
+  <button data-tab="remote" aria-current="true"><svg><use href="#remote"/></svg>Remote</button>
+  <button data-tab="type"><svg><use href="#kbd"/></svg>Keyboard</button>
+  <button data-tab="touch"><svg><use href="#pad"/></svg>Touchpad</button>
+  <button data-tab="wifi"><svg><use href="#wifi"/></svg>Wi-Fi</button>
+</nav>
+
+<script>
+(function () {
+  "use strict";
+  const $ = id => document.getElementById(id);
+  const post = (path, body) => fetch(path, { method: "POST", credentials: "same-origin",
+    headers: { "Content-Type": "application/json", "X-Sofa-Remote": "1" }, body: JSON.stringify(body || {}) });
+  const buzz = () => { try { navigator.vibrate && navigator.vibrate(8); } catch (e) {} };
+  const key = k => { buzz(); return post("/api/key", { k }).then(r => { if (r.status === 401) showPairing(); }).catch(() => offline(true)); };
+  let tab = "remote", wifiSsid = null, sentTz = false, ready = false;     // a new box takes its time zone from the phone
+
+  function show(name) {
+    tab = name;
+    ["remote", "type", "touch", "wifi"].forEach(t => { $("tab-" + t).hidden = t !== name; });
+    document.querySelectorAll("#tabs button").forEach(b => b.setAttribute("aria-current", b.dataset.tab === name));
+    if (name === "type") setTimeout(() => $("typing").focus(), 50);
+    if (name === "wifi") loadWifi();
+  }
+  function showPairing() {
+    ready = false; $("pairing").hidden = false; $("tabs").hidden = true;
+    ["remote", "type", "touch", "wifi"].forEach(t => { $("tab-" + t).hidden = true; });
+    if (/again=1/.test(location.search)) $("pairMsg").textContent = "That code has changed. Type the one on the TV now.";
+  }
+  function offline(on) { $("dot").classList.toggle("off", on); $("dotText").textContent = on ? "Can't reach the box" : "Connected"; }
+
+  async function state() {
+    try {
+      const r = await fetch("/api/state", { credentials: "same-origin", cache: "no-store" });
+      const s = await r.json();
+      offline(false);
+      $("name").textContent = s.name || "Sofa Box";
+      if (!s.paired) return showPairing();
+      if (!ready) { ready = true; $("pairing").hidden = true; $("tabs").hidden = false; show(s.hotspot ? "wifi" : tab); }
+      if (!sentTz) { sentTz = true; try { post("/api/hello", { tz: Intl.DateTimeFormat().resolvedOptions().timeZone }); } catch (e) {} }
+      const p = s.playing;
+      $("now").classList.toggle("on", !!(p && p.title));
+      if (p && p.title) $("now").innerHTML = (p.paused ? "Paused: " : "Playing: ") + "<b></b>";
+      if (p && p.title) $("now").querySelector("b").textContent = p.title + (p.sub ? " · " + p.sub : "");
+    } catch (e) { offline(true); }
+  }
+
+  // pairing
+  $("pairBtn").addEventListener("click", async () => {
+    const r = await post("/api/pair", { code: $("code").value.trim(), name: /iPhone/.test(navigator.userAgent) ? "iPhone" : /iPad/.test(navigator.userAgent) ? "iPad" : /Android/.test(navigator.userAgent) ? "Android phone" : "Phone" });
+    if (r.ok) { $("pairMsg").textContent = ""; state(); } else $("pairMsg").textContent = (await r.json()).error || "That didn't work.";
+  });
+  $("code").addEventListener("input", () => { if ($("code").value.length === 4) $("pairBtn").click(); });
+
+  // the pad: tap the middle for OK, an edge for that arrow; swipe anywhere; hold an edge to repeat
+  const pad = $("pad");
+  let start = null, holdTimer = 0, repeatTimer = 0, moved = false;
+  const DIR = { up: "hit-up", down: "hit-down", left: "hit-left", right: "hit-right", ok: "hit-ok" };
+  function flash(k) { pad.classList.add(DIR[k]); setTimeout(() => pad.classList.remove(DIR[k]), 140); }
+  function zone(x, y) {
+    const r = pad.getBoundingClientRect(), cx = x - r.left - r.width / 2, cy = y - r.top - r.height / 2;
+    if (Math.hypot(cx, cy) < r.width * 0.2) return "ok";
+    return Math.abs(cx) > Math.abs(cy) ? (cx > 0 ? "right" : "left") : (cy > 0 ? "down" : "up");
+  }
+  function stopRepeat() { clearTimeout(holdTimer); clearInterval(repeatTimer); }
+  pad.addEventListener("pointerdown", e => {
+    e.preventDefault(); pad.setPointerCapture(e.pointerId);
+    start = { x: e.clientX, y: e.clientY }; moved = false;
+    const z = zone(e.clientX, e.clientY);
+    if (z !== "ok") holdTimer = setTimeout(() => { moved = true; key(z); flash(z); repeatTimer = setInterval(() => { key(z); flash(z); }, 140); }, 450);
+  });
+  pad.addEventListener("pointermove", e => {
+    if (!start) return;
+    const dx = e.clientX - start.x, dy = e.clientY - start.y;
+    if (Math.hypot(dx, dy) > 34) {                // a swipe: one step per stretch of the finger
+      stopRepeat(); moved = true;
+      const k = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? "right" : "left") : (dy > 0 ? "down" : "up");
+      key(k); flash(k); start = { x: e.clientX, y: e.clientY };
+    }
+  });
+  pad.addEventListener("pointerup", e => {
+    stopRepeat();
+    if (start && !moved) { const z = zone(e.clientX, e.clientY); key(z); flash(z); }
+    start = null;
+  });
+  pad.addEventListener("pointercancel", () => { stopRepeat(); start = null; });
+
+  document.addEventListener("click", e => {
+    const b = e.target.closest("[data-k],[data-vol],[data-tab]"); if (!b) return;
+    if (b.dataset.tab) return show(b.dataset.tab);
+    b.classList.add("hit"); setTimeout(() => b.classList.remove("hit"), 120);
+    if (b.dataset.k) key(b.dataset.k);
+    else { buzz(); post("/api/volume", { by: b.dataset.vol === "mute" ? "mute" : +b.dataset.vol }); }
+  });
+
+  // typing: each letter goes to the box as it's typed
+  const typing = $("typing");
+  typing.addEventListener("beforeinput", e => {
+    if (e.inputType === "insertText" || e.inputType === "insertReplacementText" || e.inputType === "insertFromPaste") {
+      const t = e.data != null ? e.data : (e.dataTransfer && e.dataTransfer.getData("text")) || "";
+      if (t) post("/api/text", { t });
+    } else if (e.inputType === "deleteContentBackward") key("backspace");
+    else if (e.inputType === "insertLineBreak" || e.inputType === "insertParagraph") { e.preventDefault(); key("enter"); typing.value = ""; }
+  });
+
+  // the touchpad
+  const touch = $("touch");
+  let last = null, fingers = 0, downAt = 0, travel = 0, pressTimer = 0, queued = { dx: 0, dy: 0, scroll: 0 }, sending = false;
+  function flush() {
+    if (sending || (!queued.dx && !queued.dy && !queued.scroll)) return;
+    sending = true; const q = queued; queued = { dx: 0, dy: 0, scroll: 0 };
+    post("/api/pointer", q).finally(() => { sending = false; flush(); });
+  }
+  touch.addEventListener("touchstart", e => {
+    e.preventDefault(); fingers = e.touches.length; last = { x: e.touches[0].clientX, y: e.touches[0].clientY }; downAt = Date.now(); travel = 0;
+    clearTimeout(pressTimer); pressTimer = setTimeout(() => { if (travel < 8) { buzz(); post("/api/pointer", { click: "right" }); travel = 999; } }, 600);
+  }, { passive: false });
+  touch.addEventListener("touchmove", e => {
+    e.preventDefault(); if (!last) return;
+    const x = e.touches[0].clientX, y = e.touches[0].clientY, dx = x - last.x, dy = y - last.y;
+    travel += Math.abs(dx) + Math.abs(dy); last = { x, y };
+    if (e.touches.length > 1) queued.scroll += -dy / 12; else { const f = 1.8; queued.dx += dx * f; queued.dy += dy * f; }
+    flush();
+  }, { passive: false });
+  touch.addEventListener("touchend", e => {
+    clearTimeout(pressTimer);
+    if (e.touches.length === 0) { if (travel < 8 && Date.now() - downAt < 300 && fingers === 1) { buzz(); post("/api/pointer", { click: "left" }); } last = null; }
+  });
+
+  // Wi-Fi
+  async function loadWifi() {
+    $("nets").innerHTML = `<p style="color:var(--mist)">Looking…</p>`;
+    try {
+      const r = await (await post("/api/wifi")).json();
+      $("wifiLede").textContent = r.hotspot ? "You're on the box's own Wi-Fi. Pick your home Wi-Fi for it:" : "Wi-Fi for the box:";
+      $("nets").innerHTML = "";
+      (r.networks || []).forEach(n => {
+        const b = document.createElement("button"); b.className = "net";
+        b.innerHTML = "<span></span><small></small>"; b.firstChild.textContent = n.ssid + (n.on ? " ✓" : "");
+        b.lastChild.textContent = (n.secure ? "🔒 " : "") + n.signal + "%";
+        b.addEventListener("click", () => { wifiSsid = n.ssid; $("join").hidden = false; $("wpass").value = ""; $("wpass").placeholder = n.secure ? "Password for " + n.ssid : "No password needed";
+          $("wpass").disabled = !n.secure; if (n.secure) $("wpass").focus(); });
+        $("nets").appendChild(b);
+      });
+      if (!(r.networks || []).length) $("nets").innerHTML = `<p style="color:var(--mist)">${r.message || "No networks found."}</p>`;
+    } catch (e) { $("nets").innerHTML = `<p style="color:var(--mist)">Can't reach the box.</p>`; }
+  }
+  $("joinBtn").addEventListener("click", async () => {
+    if (!wifiSsid) return;
+    $("wifiMsg").textContent = "Joining " + wifiSsid + "… If you were on the box's own Wi-Fi, your phone goes back to yours; then scan the new code on the TV.";
+    try { const r = await (await post("/api/wifi/join", { ssid: wifiSsid, password: $("wpass").value })).json(); $("wifiMsg").textContent = r.message || (r.ok ? "Connected." : "That didn't work."); }
+    catch (e) { /* the box left this network: that's expected */ }
+  });
+
+  state(); setInterval(state, 4000);
+})();
+</script>
+</body>
+</html>

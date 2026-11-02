@@ -166,8 +166,9 @@ class Agent(unittest.TestCase):
             json.dump({"server": cls.sofa}, f)
         cls.port = free_port()
         cls.base = "http://127.0.0.1:%d" % cls.port
+        cls.remote_port = free_port()
         cls.proc = cls.start_agent(os.path.join(HERE, "tools", "fake_mpv.py"), cls.conf, cls.port, FAKE_MPV_LOG=cls.log,
-                                   FAKE_MPV_DURATION="100")
+                                   FAKE_MPV_DURATION="100", SOFA_BOX_REMOTE_PORT=str(cls.remote_port))
         cls.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), urllib.request.HTTPCookieProcessor(CookieJar()))
         for _ in range(100):
             try:
@@ -181,7 +182,8 @@ class Agent(unittest.TestCase):
     @staticmethod
     def start_agent(mpv, conf, port, **env):
         return subprocess.Popen([sys.executable, os.path.join(BOX, "sofa-box-agent.py")], stderr=subprocess.DEVNULL,
-                                env=dict(os.environ, SOFA_BOX_CONF=conf, SOFA_BOX_PORT=str(port), SOFA_BOX_MPV=mpv,
+                                env=dict(os.environ, SOFA_BOX_CONF=conf, SOFA_BOX_PORT=str(port), SOFA_BOX_MPV=mpv, SOFA_BOX_UINPUT="0",
+                                         SOFA_BOX_HOTSPOT="0", SOFA_BOX_LOCAL_DATA=os.path.join(conf, "local-sofa"),
                                          SOFA_BOX_MPV_ARGS="--vo=null --ao=null --force-window=no", **env))
 
     @classmethod
@@ -344,6 +346,34 @@ class Agent(unittest.TestCase):
         finally:
             cfg.update({"share_on": False})
             sharing.set_shared("m:heat:1995", False)
+
+    def test_phone_remote(self):
+        remote = "http://127.0.0.1:%d" % self.remote_port
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
+
+        def call(path, body=None, cookie="", header=True):
+            req = urllib.request.Request(remote + path, data=None if body is None else json.dumps(body).encode(),
+                                         headers=dict({"Content-Type": "application/json", "Cookie": cookie}, **({"X-Sofa-Remote": "1"} if header else {})))
+            try:
+                with opener.open(req, timeout=20) as r:
+                    return r.status, dict(r.headers), r.read().decode()
+            except urllib.error.HTTPError as e:
+                return e.code, dict(e.headers), e.read().decode()
+        self.assertEqual(call("/")[0], 200)                                       # the page itself
+        self.assertEqual(call("/api/state")[0], 401)                              # nothing else without the code
+        self.assertEqual(call("/api/key", {"k": "ok"})[0], 401)
+        self.assertEqual(call("/api/pair", {"code": "nope"})[0], 403)
+        code = json.loads(self.get("/box/api/setup"))["remote"]["code"]
+        self.assertEqual(call("/api/pair", {"code": code}, header=False)[0], 400)    # no other site can post here
+        status, headers, _ = call("/r/" + code)                                   # the QR code on the TV
+        self.assertEqual(status, 302)
+        cookie = headers["Set-Cookie"].split(";")[0]
+        self.assertEqual(json.loads(call("/api/state", cookie=cookie)[2])["paired"], True)
+        self.assertEqual(call("/api/key", {"k": "up"}, cookie)[0], 200)
+        self.assertEqual(call("/api/key", {"k": "rm -rf"}, cookie)[0], 400)
+        self.assertEqual(call("/r/" + code)[1]["Location"], "/?again=1")         # each code works once
+        self.post("/box/api/remote/forget", {})
+        self.assertEqual(call("/api/state", cookie=cookie)[0], 401)
 
     def test_two_pages_both_hear_it(self):
         n = json.loads(self.get("/box/native/events"))["n"]
