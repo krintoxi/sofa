@@ -1,7 +1,7 @@
 # Handoff
 
 For whoever picks this up next (a person, or a new Claude conversation). Read this first, then the
-plan you're continuing. Updated 2026-11-02 (Sofa anywhere).
+plan you're continuing. Updated 2026-11-02 (Sofa Box OS versions).
 
 ## Where things are
 
@@ -34,6 +34,20 @@ steps, skull logo, themed boot screen; one Chromium steered over DevTools; tests
 Chromium. The card builds with all of it (report in sofa-box-os.md) and everything is merged into
 `main` (2026-11-02). Not yet: a first boot on the owner's Pi 3 B+, the browser's own list of open tabs,
 Comet Courier's address, a `box-v1` release (the owner publishes it on the website).
+
+## Sofa Box OS versions (2026-11-02)
+
+- Sofa Box OS has its own number in `deploy/sofa-box/VERSION` (1.0.0 now) and its notes in
+  `deploy/sofa-box/CHANGES.md`. The box shows it in Settings; the card is `sofa-box-os-<version>.img.xz`.
+- On `main` the card workflow publishes the newest card as `sofa-box` (file always `sofa-box.img.xz`)
+  and, the first time `main` has a new number, the release **Sofa Box OS X.Y.Z** (tag `box-os-vX.Y.Z`),
+  kept for good. Neither is "latest" (the Fire TV app's release keeps that). A new version: raise
+  `VERSION`, add its section to `CHANGES.md`, merge.
+- The README starts with a Sofa Box OS section and download links; so does the box's guide.
+- Fixes: `sofa-box update` and `factory-reset` started from the TV now run as their own systemd unit
+  (`systemd-run`), so restarting or stopping the agent no longer cuts them off; a set-up box that knows
+  a Wi-Fi waits 3 minutes before making its own, and leaves it after 10 quiet minutes
+  (`Network.tick`); the home screen says "Starting Sofa…" while Sofa on the box starts.
 
 ## What's in progress
 
@@ -73,8 +87,9 @@ Comet Courier's address, a `box-v1` release (the owner publishes it on the websi
   preinstalled Chromium drives the UI (scripts were kept in the session's scratchpad, not the repo).
 - The card: push to the branch (changes under `deploy/sofa-box/` or the builder) builds it on GitHub
   and keeps it a week as an artifact. On `main`, the workflow also publishes it as the release
-  `sofa-box` (never marked "latest": the Fire TV app's release keeps that). Publishing a release
-  tagged `box-v…` on the website attaches a card to it too.
+  `sofa-box`, and as `box-os-v<VERSION>` when that number is new (never marked "latest": the Fire TV
+  app's release keeps that). Publishing a release tagged `box-v…` or `box-os-v…` on the website
+  attaches a card to it too.
 - The box's pieces:
   - `boxservers.py`: the server list, and what answers at an address;
   - each Sofa at `http://<id>.localhost:8091`;

@@ -19,6 +19,14 @@ SERVICES="sofa-box-agent sofa-box sofa-box-input sofa-box-cec"
 
 boot_dir() { for d in /boot/firmware /boot; do [ -f "$d/config.txt" ] && { echo "$d"; return; }; done; }
 
+# Update and Reset, started from the TV, run inside the agent's service; they restart or stop that service,
+# which would end them half way. So they start again as their own short service, out of its reach.
+on_its_own() {
+  [ -z "$SOFA_BOX_ON_ITS_OWN" ] && grep -q 'sofa-box-agent' /proc/self/cgroup 2>/dev/null && command -v systemd-run >/dev/null || return 0
+  exec systemd-run --quiet --collect --unit="sofa-box-$1" --setenv=SOFA_BOX_ON_ITS_OWN=1 \
+    --setenv=SUDO_USER="${SUDO_USER:-}" --setenv=SOFA_BOX_BRANCH="${SOFA_BOX_BRANCH:-main}" "$0" "$1"
+}
+
 # How big Sofa's pages are drawn: twice on a 1080p TV (like Fire TV), so they read from the sofa.
 scale() {
   [ -n "$SOFA_BOX_SCALE" ] && { echo "$SOFA_BOX_SCALE"; return; }
@@ -293,8 +301,10 @@ case "${1:-}" in
     echo "${2:-}" | grep -Eq '^[A-Za-z]+(/[A-Za-z0-9_+-]+){1,2}$' || { echo "Which time zone? (like Europe/London)"; exit 1; }
     timedatectl set-timezone "$2" ;;
   update)                    # (root) the newest box from GitHub; the installer restarts what changed
+    on_its_own update
     curl -fsSL "https://raw.githubusercontent.com/krintoxi/sofa/${SOFA_BOX_BRANCH:-main}/deploy/sofa-box/install.sh" | sh ;;
   factory-reset)             # (root) everything of the owner's goes; the box starts at its setup screen
+    on_its_own factory-reset
     WHO="$(systemctl show -p User --value sofa-box-agent 2>/dev/null)"
     [ -n "$WHO" ] || { echo "The box's user isn't known."; exit 1; }
     HOMEDIR="$(getent passwd "$WHO" | cut -d: -f6)"

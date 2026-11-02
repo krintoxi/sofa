@@ -713,6 +713,87 @@ class BoxBrowser(unittest.TestCase):
         self.wait(lambda d: [r["app"] for r in d["running"]] == ["sofa"])
 
 
+class BoxNetwork(unittest.TestCase):
+    """When the box makes its own Wi-Fi: soon for a new box; a box that knows a Wi-Fi waits for it (a router
+    restarting) and, on its own Wi-Fi with nobody using it, goes back to look for it."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.conf = tempfile.mkdtemp()
+        old = {k: os.environ.get(k) for k in ("SOFA_BOX_CONF", "SOFA_BOX_DEVTOOLS")}
+        os.environ.update(SOFA_BOX_CONF=cls.conf, SOFA_BOX_DEVTOOLS="0")
+        try:
+            cls.agent = load("sofa-box-agent")
+        finally:
+            for k, v in old.items():
+                os.environ.pop(k) if v is None else os.environ.__setitem__(k, v)
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.conf, ignore_errors=True)
+
+    def setUp(self):
+        a = self.agent
+        self.saved_wifi, self.address, self.started, self.stopped = ["Home"], None, [], []
+        self.real = a.local_address, a.run
+        a.local_address = lambda: self.address
+        a.run = lambda cmd, timeout=20: (0, "\n".join("%s:802-11-wireless" % n for n in self.saved_wifi + ["sofa-box-setup"])
+                                         + "\nWired connection 1:802-3-ethernet")
+        self.net = a.Network()
+        self.net.start_hotspot = lambda: (self.started.append(1), setattr(self.net, "hotspot", {"at": self.now}))
+        self.net.stop_hotspot = lambda: (self.stopped.append(1), setattr(self.net, "hotspot", None))
+        self.net.wired = lambda: False
+
+    def tearDown(self):
+        self.agent.local_address, self.agent.run = self.real
+        self.agent.save_settings(welcomed=False)
+
+    def run_for(self, seconds, since=0):
+        for self.now in range(since, since + seconds + 1, 10):
+            self.offline = self.net.tick(self.offline, self.now)
+
+    def test_the_networks_it_knows(self):
+        self.assertEqual(self.net.saved(), ["Home"])                 # not its own hotspot, not the cable
+
+    def test_a_new_box_makes_its_own_wifi_soon(self):
+        self.offline = 0
+        self.run_for(20)
+        self.assertEqual(len(self.started), 1)
+
+    def test_a_set_up_box_waits_for_its_wifi(self):
+        self.agent.save_settings(welcomed=True)
+        self.offline = 0
+        self.run_for(170)                                            # the router restarting: no hotspot
+        self.assertEqual(self.started, [])
+        self.address = "192.168.1.30"                                # back
+        self.run_for(10, 170)
+        self.assertIsNone(self.offline)
+        self.address = None
+        self.run_for(200, 200)                                       # gone for good (moved house): its own Wi-Fi
+        self.assertEqual(len(self.started), 1)
+        self.net.used = self.now + 300                               # a phone on it: it stays
+        self.run_for(600, self.now)
+        self.assertEqual(self.stopped, [])
+        self.run_for(400, self.now)                                  # quiet: it goes, to look for the home Wi-Fi
+        self.assertEqual(len(self.stopped), 1)
+
+    def test_a_set_up_box_with_no_wifi_saved(self):
+        self.agent.save_settings(welcomed=True)
+        self.saved_wifi, self.offline = [], 0
+        self.run_for(60)
+        self.assertEqual(len(self.started), 1)
+        self.run_for(1200, self.now)                                 # nothing to go back to: it stays
+        self.assertEqual(self.stopped, [])
+
+    def test_its_version(self):
+        with open(os.path.join(BOX, "VERSION")) as f:
+            v = f.read().strip()
+        self.assertRegex(v, r"^\d+\.\d+\.\d+$")
+        self.assertEqual(self.agent.OS_VERSION, v)
+        with open(os.path.join(BOX, "CHANGES.md")) as f:
+            self.assertIn("\n## %s\n" % v, f.read())                 # the release's notes come from there
+
+
 assert tests.ROOT
 
 if __name__ == "__main__":

@@ -1,12 +1,14 @@
 name: Sofa box card
 
-# A ready-to-write card for the Sofa box (Raspberry Pi OS Lite, 64-bit, with the box set up), built on
+# A ready-to-write card for the Sofa Box (Raspberry Pi OS Lite, 64-bit, with Sofa Box OS set up), built on
 # GitHub's Arm computers.
-# - A change to the box on main publishes it as the release "sofa-box" (always the newest card, at
-#   https://github.com/krintoxi/sofa/releases/tag/sofa-box). It's never marked "latest": that stays the
-#   Fire TV app's, which Sofa downloads from there.
-# - Publishing a release whose tag starts with "box-v" (on the website: Releases → Draft a new release →
-#   tag box-v1 → Publish) builds the card and attaches it to that release too, to keep.
+# - A change to the box on main publishes:
+#   - the release "sofa-box", always the newest card, at https://github.com/krintoxi/sofa/releases/tag/sofa-box
+#     (its file is always sofa-box.img.xz, so links to it never change);
+#   - "Sofa Box OS X.Y.Z" (tag box-os-vX.Y.Z), the first time main has that number in deploy/sofa-box/VERSION,
+#     kept for good, with what's new from deploy/sofa-box/CHANGES.md. A new version: raise the number.
+#   Neither is ever marked "latest": that stays the Fire TV app's, which Sofa downloads from there.
+# - Publishing a release by hand whose tag starts with "box-v" or "box-os-v" builds the card and attaches it.
 # - Changes on other branches build it as a check, kept for a week under the run's Artifacts.
 on:
   workflow_dispatch:
@@ -25,7 +27,7 @@ permissions:
 
 jobs:
   card:
-    if: github.event_name != 'release' || startsWith(github.event.release.tag_name, 'box-v')
+    if: github.event_name != 'release' || startsWith(github.event.release.tag_name, 'box-v') || startsWith(github.event.release.tag_name, 'box-os-v')
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 90
     steps:
@@ -57,18 +59,54 @@ jobs:
           if [ -z "$(gh release view "$TAG" --json body --jq .body)" ]; then
             gh release edit "$TAG" --notes "A card for the Sofa box (Raspberry Pi 3, 4 or 5). Write it with Raspberry Pi Imager: Choose OS → Use custom. See deploy/sofa-box/README.md."
           fi
-      - name: Publish it as the newest card (main)
+      - name: Publish it (main)
         if: github.event_name != 'release' && github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          VER="$(tr -d ' \n' < deploy/sofa-box/VERSION)"
+          DAY="$(date -u +%Y-%m-%d)"
+          SHORT="$(echo "$GITHUB_SHA" | cut -c1-7)"
+          IMG="$(ls out/*.img.xz | head -1)"
+          REP="$(ls out/*-report.txt | head -1)"
           # out/ was made by the builder as root: the files to publish go in a folder of this step's own
-          mkdir -p pub
-          cp "$(ls out/*.img.xz | head -1)" pub/sofa-box.img.xz
-          cp "$(ls out/*-report.txt | head -1)" pub/sofa-box-report.txt
-          cd pub
-          sha256sum sofa-box.img.xz > sofa-box.img.xz.sha256
+          mkdir -p pub/newest
+          cp "$IMG" pub/newest/sofa-box.img.xz
+          cp "$REP" pub/newest/sofa-box-report.txt
+          (cd pub/newest && sha256sum sofa-box.img.xz > sofa-box.img.xz.sha256)
+          # what's new in this version, from deploy/sofa-box/CHANGES.md
+          awk -v v="## $VER" '$0 == v { on = 1; next } /^## / { on = 0 } on' deploy/sofa-box/CHANGES.md > pub/new.md
+          how() {
+            cat <<EOF
+          **How to use it**
+          1. Download **$1** below (under Assets).
+          2. Open Raspberry Pi Imager (raspberrypi.com/software): Choose Device → your Pi; Choose OS → Use custom → this file; Choose Storage → your microSD card. Write it.
+          3. Put the card in the Pi, plug HDMI into the TV, then the power. The setup shows a QR code: scan it with your phone and the phone works the box.
+
+          A Pi that already has Raspberry Pi OS: \`curl -fsSL https://raw.githubusercontent.com/krintoxi/sofa/main/deploy/sofa-box/install.sh | sudo sh\`
+
+          What's on the card: $2. The guide: https://github.com/krintoxi/sofa/blob/main/deploy/sofa-box/README.md. Every version: https://github.com/krintoxi/sofa/releases?q=box-os
+
+          ## What's new in Sofa Box OS $VER
+          EOF
+            cat pub/new.md
+          }
+          # 1. the newest card, always at the same address
+          { echo "The newest card for the **Sofa Box** (Raspberry Pi 3 B+, 4 or 5): **Sofa Box OS $VER**, built $DAY from $SHORT on main."; echo
+            how sofa-box.img.xz sofa-box-report.txt; } > pub/newest.md
           gh release delete sofa-box --yes --cleanup-tag 2>/dev/null || true
-          gh release create sofa-box sofa-box.img.xz sofa-box.img.xz.sha256 sofa-box-report.txt --target "$GITHUB_SHA" --latest=false \
-            --title "Sofa Box card ($(date -u +%Y-%m-%d))" \
-            --notes "The newest card for the Sofa Box (Raspberry Pi 3 B+, 4 or 5), built from $(echo "$GITHUB_SHA" | cut -c1-7) on main. Write sofa-box.img.xz with Raspberry Pi Imager: Choose OS → Use custom → this file, then your card. On a Pi that already has Raspberry Pi OS: curl -fsSL https://raw.githubusercontent.com/krintoxi/sofa/main/deploy/sofa-box/install.sh | sudo sh. What's on it: sofa-box-report.txt. Guide: deploy/sofa-box/README.md."
+          gh release create sofa-box pub/newest/* --target "$GITHUB_SHA" --latest=false \
+            --title "Sofa Box OS $VER: the newest card ($DAY)" --notes-file pub/newest.md
+          # 2. this version's own release, kept: made once, the first time main has this number
+          if gh api "repos/$GITHUB_REPOSITORY/releases/tags/box-os-v$VER" >/dev/null 2>&1; then
+            echo "Sofa Box OS $VER is already released; only the newest card changed (raise deploy/sofa-box/VERSION for a new version)."
+          else
+            mkdir -p pub/version
+            cp "$IMG" "pub/version/sofa-box-os-$VER.img.xz"
+            cp "$REP" "pub/version/sofa-box-os-$VER-report.txt"
+            (cd pub/version && sha256sum "sofa-box-os-$VER.img.xz" > "sofa-box-os-$VER.img.xz.sha256")
+            { echo "**Sofa Box OS $VER** for the Sofa Box (Raspberry Pi 3 B+, 4 or 5), built $DAY from $SHORT."; echo
+              how "sofa-box-os-$VER.img.xz" "sofa-box-os-$VER-report.txt"; } > pub/version.md
+            gh release create "box-os-v$VER" pub/version/* --target "$GITHUB_SHA" --latest=false \
+              --title "Sofa Box OS $VER" --notes-file pub/version.md
+          fi

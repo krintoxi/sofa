@@ -15,6 +15,31 @@ A project by [EdgeVenture.uk](https://edgeventure.uk). Free and open source (MIT
 - **For the whole family:** a profile each, Kids profiles, and sign-in on the TV with your phone.
 - **Private:** everything stays in your house. [How private?](docs/privacy.md)
 
+## Sofa Box OS: your own TV box
+
+**[⬇ Download Sofa Box OS](https://github.com/krintoxi/sofa/releases/tag/sofa-box)** (the newest card) ·
+[Every version](https://github.com/krintoxi/sofa/releases?q=box-os) ·
+[What's new](deploy/sofa-box/CHANGES.md) ·
+[The guide](deploy/sofa-box/README.md)
+
+Turn a Raspberry Pi (3 B+, 4 or 5) into a TV box like a Fire TV, with no ads and nothing watching
+what you watch. It opens on its own home screen: Sofa, free Live TV, your streaming apps, USB drives
+and DVDs, a browser and games. You don't need a Sofa computer for it (Live TV and Sofa on the box
+itself work without one), and you don't need a remote: your phone works it.
+
+<img src="docs/images/box-home.jpg" alt="The Sofa Box home screen: Open Sofa and Live TV, your apps, and a Watch row" width="100%">
+
+1. Download **`sofa-box.img.xz`** from the [newest card](https://github.com/krintoxi/sofa/releases/tag/sofa-box)
+   (under **Assets**).
+2. Write it to a microSD card with **Raspberry Pi Imager** (raspberrypi.com/software):
+   **Choose OS → Use custom** → the file, then your card.
+3. Put the card in the Pi, plug HDMI into the TV, then the power. The setup shows a **QR code**: scan
+   it with your phone, and the phone is the remote. A Fire TV remote pairs too (hold **Home** for 10 seconds).
+
+Already have Raspberry Pi OS on a Pi? One line instead:
+`curl -fsSL https://raw.githubusercontent.com/krintoxi/sofa/main/deploy/sofa-box/install.sh | sudo sh`.
+The box shows its version in **Settings → About this box** and updates itself from **Settings → Software**.
+
 ---
 
 ## What you need
