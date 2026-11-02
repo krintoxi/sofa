@@ -21,7 +21,7 @@
   }
   let toastTimer = 0;
   function toast(text) { const t = $("#toast"); t.textContent = text; t.classList.add("on"); clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("on"), 2800); }
-  const icon = (id, cls) => `<svg${cls ? ` class="${cls}"` : ""}><use href="${id}"/></svg>`;
+  const icon = (id, cls) => `<svg${cls ? ` class="${cls}"` : ""}><use href="${id === "#mark" ? "#m-" + (document.documentElement.dataset.theme || "street") : id}"/></svg>`;
 
   // ---------------------------------------------------------------- the look
   function applyTheme(name) {
@@ -342,6 +342,12 @@
       <section class="card"><h3>Look</h3><p>The home screen and the boot screen.</p>
         <div class="themes">${THEMES.map(t => `<button class="theme" data-theme-pick="${t[0]}" aria-pressed="${th === t[0]}" style="--sw-bg:${t[2]};--sw-a:${t[3]};--sw-a2:${t[4]}"><i></i><b>${t[1]}</b></button>`).join("")}</div>
         <div class="add-site"><input class="field" id="boxName" maxlength="30" value="${esc(s.boot_text || "")}" placeholder="The box's name (under the logo): Living room"><button class="btn" data-save-name="1">Save</button></div></section>
+      <section class="card" id="sofaCard"><div class="toggle-row"><div><h3>Sofa</h3><p>Where Sofa plays from. Open one, make it the one Sofa opens with, or remove it.</p></div>
+        <div class="choices"><button class="choice" data-ask="0" aria-pressed="${!!(servers && !servers.ask)}">Open the same one</button><button class="choice" data-ask="1" aria-pressed="${!!(servers && servers.ask)}">Ask each time</button></div></div>
+        ${servers && !servers.error ? `<div class="srv-list">${(servers.servers || []).map(x => `<div class="srv-row">${serverBtn(x)}
+          <button class="mini" data-default="${esc(x.id)}"${servers.default === x.id && !servers.ask ? " disabled" : ""}>Opens with this</button>
+          ${x.where === "box" ? "" : `<button class="mini" data-forget-server="${esc(x.id)}">Remove</button>`}</div>`).join("") || `<p>None yet.</p>`}</div>` : `<p>Loading…</p>`}
+        <div class="choices" style="margin-top:.8rem"><button class="btn" data-go="#/sofa">${icon("#i-plus")}Add a server</button></div></section>
       <section class="card"><div class="toggle-row"><div><h3>Sofa Shield</h3><p>Keeps ads and trackers out of every app and the browser${b.shield.on ? ": " + b.shield.sites.toLocaleString() + " sites blocked" : ""}.</p></div>
         <button class="switch" role="switch" aria-checked="${!!b.shield.wanted}" data-shield="1" aria-label="Sofa Shield"></button></div></section>
       <section class="card"><h3>Picture and sound</h3><p>${b.learned_720 && s.quality === "auto" ? "Videos come as 720p: 1080p dropped frames here. " : ""}Sofa sends what the box plays smoothly.</p>
@@ -355,12 +361,6 @@
         <span class="name">${esc(a.name)}</span><button class="mini" data-move="${esc(a.id)}" data-by="-1"${i ? "" : " disabled"}>←</button>
         <button class="mini" data-move="${esc(a.id)}" data-by="1"${i === data.apps.length - 1 ? " disabled" : ""}>→</button>
         <button class="mini" data-hide="${esc(a.id)}">${a.hidden ? "Show" : "Hide"}</button>${a.kind === "web" ? `<button class="mini" data-remove="${esc(a.id)}">Remove</button>` : ""}</li>`).join("")}</ul></div></section>
-      <section class="card" id="sofaCard"><div class="toggle-row"><div><h3>Sofa</h3><p>Where Sofa plays from. Open one, make it the one Sofa opens with, or remove it.</p></div>
-        <div class="choices"><button class="choice" data-ask="0" aria-pressed="${!!(servers && !servers.ask)}">Open the same one</button><button class="choice" data-ask="1" aria-pressed="${!!(servers && servers.ask)}">Ask each time</button></div></div>
-        ${servers && !servers.error ? `<div class="srv-list">${(servers.servers || []).map(x => `<div class="srv-row">${serverBtn(x)}
-          <button class="mini" data-default="${esc(x.id)}"${servers.default === x.id && !servers.ask ? " disabled" : ""}>Opens with this</button>
-          ${x.where === "box" ? "" : `<button class="mini" data-forget-server="${esc(x.id)}">Remove</button>`}</div>`).join("") || `<p>None yet.</p>`}</div>` : `<p>Loading…</p>`}
-        <div class="choices" style="margin-top:.8rem"><button class="btn" data-go="#/sofa">${icon("#i-plus")}Add a server</button></div></section>
       <section class="card"><h3>About this box</h3><dl class="facts"><dt>Model</dt><dd>${esc(b.model)}</dd><dt>Memory</dt><dd>${b.memory ? Math.round(b.memory / 1048576) + " MB" : "?"}</dd>
         <dt>Temperature</dt><dd>${b.temperature != null ? b.temperature + " °C" : "?"}</dd><dt>Version</dt><dd>${esc(b.version)}</dd></dl>
         <div class="choices" style="margin-top:1rem"><button class="btn" data-action="restart">Restart Sofa Box</button><button class="btn" data-action="reboot">Restart the box</button>

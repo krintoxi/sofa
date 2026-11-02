@@ -92,8 +92,8 @@ button { cursor: pointer; }
 @keyframes glitch { 0% { transform: translate(0); text-shadow: .2rem 0 #ff006a, -.2rem 0 #00e0ff; } 50% { transform: translate(-.15rem, .1rem); text-shadow: -.2rem 0 #ff006a, .2rem 0 #00e0ff; } 100% { transform: none; text-shadow: none; } }
 
 /* ---- top bar */
-.top { position: sticky; top: 0; z-index: 10; display: flex; align-items: center; gap: 1.4rem; padding: 1.1rem 2.4rem .8rem;
-  background: linear-gradient(180deg, var(--bg) 40%, transparent); }
+.top { position: sticky; top: 0; z-index: 10; display: flex; align-items: center; gap: 1.4rem; padding: 1.1rem 2.4rem 1.3rem;
+  background: linear-gradient(180deg, var(--bg) 72%, transparent); }
 .brand { display: flex; align-items: center; gap: .45rem; font: 800 1.45rem/1 var(--display); letter-spacing: -.02em;
   text-transform: var(--word-transform); transform: skewX(var(--word-skew)); }
 .brand-mark { width: 1.9rem; height: 1.8rem; color: var(--a); }
@@ -298,6 +298,7 @@ h2.row-title small { margin-left: .6rem; font: 500 .85rem var(--text); color: va
   background: radial-gradient(140% 160% at 0% 0%, color-mix(in srgb, var(--c, var(--a)) 58%, transparent) 0%, transparent 62%), var(--bg2); }
 .tile.app.wide .ic { grid-row: span 2; width: 4.8rem; height: 4.8rem; }
 .tile.app.wide b { align-self: end; font: 800 1.2rem/1.1 var(--display); letter-spacing: -.01em; white-space: normal; }
+.tile.app.wide b:last-child { grid-row: span 2; align-self: center; }
 .tile.app.wide small { align-self: start; font-size: .8rem; line-height: 1.25; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .tile.app.wide.add { --c: var(--a); }
 .tile.app.wide.add .ic { background: var(--tile); color: var(--a); box-shadow: inset 0 0 0 2px var(--line); }
@@ -309,7 +310,7 @@ h2.row-title small { margin-left: .6rem; font: 500 .85rem var(--text); color: va
   background: radial-gradient(70% 140% at 85% 30%, color-mix(in srgb, var(--a) 26%, transparent), transparent 70%),
               radial-gradient(60% 120% at 100% 100%, color-mix(in srgb, var(--a2) 14%, transparent), transparent 70%), var(--bg2); }
 .hero.spot::after { background: linear-gradient(90deg, var(--bg2) 20%, transparent 75%); opacity: .7; }
-.spot-logo { position: absolute; right: 4rem; top: 50%; transform: translateY(-50%) rotate(-8deg); z-index: 0 !important; }
+.hero > .spot-logo { position: absolute; right: 4rem; top: 50%; transform: translateY(-50%) rotate(-8deg); z-index: 1; }
 .spot-logo svg { width: 12rem; height: 11rem; color: var(--a); opacity: .16; filter: drop-shadow(0 0 3rem var(--glow)); }
 .spot-apps { display: flex; gap: .7rem; margin-top: 1.3rem; }
 .mini-app { width: 3.3rem; height: 3.3rem; border-radius: .95rem; padding: 0; border: 1px solid var(--line); background: #fff; overflow: hidden;
@@ -376,3 +377,6 @@ h2.row-title small { margin-left: .6rem; font: 500 .85rem var(--text); color: va
 .tile.pick.on { border-color: var(--a); }
 .tile.pick.on .tick { background: var(--a); border-color: var(--a); color: var(--a-ink); }
 .tile.pick.on .tick svg { opacity: 1; }
+.steps i.on, .steps i.done { background: none; }
+.tile.app .badge { top: .45rem; left: auto; right: .45rem; font-size: .58rem; padding: .12rem .4rem; }
+.tile.app.have .badge { background: color-mix(in srgb, var(--a) 85%, transparent); }
