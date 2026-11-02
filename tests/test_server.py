@@ -242,3 +242,88 @@ class GuestsAndTVs(unittest.TestCase):
         self.assertTrue(screens.send_as_guest("tv1", {"cmd": "pause"}, "Guest"))     # what a guest started: fine
         self.assertEqual(screens.tvs_for_guest()[0]["state"]["item"], "m:heat:1995")
         screens._screens.clear()
+
+
+class Sharing(unittest.TestCase):
+    """The public library: only what's shared, only watching, and from the internet nothing else at all."""
+
+    @classmethod
+    def setUpClass(cls):
+        Server.setUpClass.__func__(cls)
+
+    @classmethod
+    def tearDownClass(cls):
+        config.update({"share_on": False, "share_all": False, "public_open": False, "trust_proxy": False})
+        cls.httpd.shutdown()
+
+    def raw(self, path, ip=None, cookie=None):
+        """A request as a browser on the internet makes it (`ip`: Sofa sits behind a proxy on this computer)."""
+        headers = {"X-Forwarded-For": ip} if ip else {}
+        if cookie:
+            headers["Cookie"] = cookie
+        req = urllib.request.Request(self.base + path, headers=headers)
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
+        try:
+            with opener.open(req, timeout=20) as r:
+                return r.status, dict(r.headers), r.read()
+        except urllib.error.HTTPError as e:
+            return e.code, dict(e.headers), e.read()
+
+    def test_share_link_and_visitors(self):
+        config.update({"trust_proxy": True})
+        net = "203.0.113.9"
+        # sharing off: the internet gets nothing, and a made-up link nothing either
+        self.assertEqual(self.raw("/", net)[0], 403)
+        st, sh = self.admin.call("/api/admin/sharing", {"share_on": True, "item": {"id": "m:heat:1995", "on": True}})
+        self.assertEqual(st, 200)
+        self.assertEqual([t["id"] for t in sh["titles"]], ["m:heat:1995"])
+        token = sh["path"].rsplit("/", 1)[1]
+        self.assertEqual(self.raw("/s/not-the-right-one", net)[0], 404)
+        self.assertEqual(self.raw("/api/library", net)[0], 403)              # no link, no library
+        self.assertEqual(self.raw("/api/login", net)[0], 403)
+        # the link: a Visitor's sign-in, then only Heat
+        st, headers, _ = self.raw("/s/" + token, net)
+        self.assertEqual(st, 302)
+        cookie = headers["Set-Cookie"].split(";")[0]
+        st, _, body = self.raw("/api/library", net, cookie)
+        self.assertEqual(st, 200)
+        lib = json.loads(body)
+        self.assertEqual([m["title"] for m in lib["movies"]], ["Heat"])
+        self.assertEqual(lib["shows"], [])
+        self.assertNotIn("adult", lib)
+        self.assertEqual(json.loads(self.raw("/api/session", net, cookie)[2])["user"]["visitor"], True)
+        self.assertEqual(self.raw("/api/play/m:heat:1995", net, cookie)[0], 200)
+        self.assertEqual(self.raw("/api/play/e:westworld:1:1", net, cookie)[0], 404)       # not shared
+        self.assertEqual(self.raw("/media/e:westworld:1:1/file", net, cookie)[0], 404)
+        self.assertEqual(self.raw("/media/m:heat:1995/file?download=1", net, cookie)[0], 404)
+        self.assertEqual(self.raw("/api/admin/status", net, cookie)[0], 403)
+        self.assertEqual(self.raw("/api/profiles", net, cookie)[0], 403)
+        self.assertNotIn("library", json.loads(self.raw("/healthz", net, cookie)[2]))
+        # a signed-in person's cookie from the internet counts for nothing on a home-only server
+        jar = next(h.cookiejar for h in self.admin.opener.handlers if hasattr(h, "cookiejar"))
+        admin_cookie = "; ".join("%s=%s" % (c.name, c.value) for c in jar)
+        self.assertEqual(self.raw("/api/admin/status", net, admin_cookie)[0], 403)
+        self.assertEqual(self.raw("/api/admin/status", None, admin_cookie)[0], 200)        # at home: fine
+        # "Share everything": every show and movie, never Adult
+        self.admin.call("/api/admin/sharing", {"share_all": True})
+        lib = json.loads(self.raw("/api/library", net, cookie)[2])
+        self.assertTrue({"Bluey", "Westworld"} <= {s["name"] for s in lib["shows"]})
+        self.admin.call("/api/admin/sharing", {"share_all": False})
+        # "Open to everyone": the plain address signs the internet in as a Visitor
+        self.admin.call("/api/admin/sharing", {"public_open": True})
+        st, headers, _ = self.raw("/", net)
+        self.assertEqual(st, 302)
+        self.assertIn("Set-Cookie", headers)
+        self.admin.call("/api/admin/sharing", {"public_open": False})
+        # a new link signs every Visitor out; switching sharing off shuts the door again
+        self.admin.call("/api/admin/sharing", {"new_link": True})
+        self.assertEqual(self.raw("/api/library", net, cookie)[0], 403)
+        self.assertEqual(self.raw("/s/" + token, net)[0], 404)
+        self.admin.call("/api/admin/sharing", {"share_on": False})
+        self.assertEqual(self.raw("/", net)[0], 403)
+        self.assertNotIn("Visitor", [u["name"] for u in self.admin.call("/api/admin/status")[1]["users"]])
+
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs):
+        return None

@@ -20,7 +20,7 @@ import threading
 
 from . import (__version__, acme, apps, artwork, auth, awake, backup, config, ddns, dlna, fetch, housekeeping, intros, live, media, metadata, music,
                kids, machine, net, optimize, organizer, places, previews, report, screens, store, tls, trickplay, updater, upnp,
-               discovery, pairing, slow, travel, uploads)
+               discovery, pairing, sharing, slow, travel, uploads)
 from .library import LIBRARY
 
 CLIENT_DIR = os.path.join(config.APP_DIR, "client")
@@ -86,10 +86,16 @@ class Handler(BaseHTTPRequestHandler):
     def setup(self):
         super().setup()
         self._user = False
+        self.visitor_only = False
 
     def user(self):
         if self._user is False:
-            self._user = auth.session_user(self.token())
+            u = auth.session_user(self.token())
+            if u and u.get("visitor") and not sharing.on():
+                u = None                                # sharing was switched off: the link's visitors are out
+            if u and self.visitor_only and not u.get("visitor"):
+                u = None                                # from the internet on a home-only server: visitors only
+            self._user = u
         return self._user
 
     def host_header(self):
@@ -155,9 +161,12 @@ class Handler(BaseHTTPRequestHandler):
             self.send_body(answer or "Not found", status=200 if answer else 404)
             return False
         net = self.network()
+        self.visitor_only = False
         if not auth.allowed_network(net):
-            self.send_body("Sofa is set to accept connections from your home network only.", status=403)
-            return False
+            if not sharing.on():
+                self.send_body("Sofa is set to accept connections from your home network only.", status=403)
+                return False
+            self.visitor_only = True                    # the public library only (sofa/sharing.py)
         if net == "internet" and not self.is_https():           # never a password in the clear over the internet
             domain = (config.get("domain") or "").strip()
             if tls.trusted() and domain:
@@ -165,10 +174,43 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_header("Location", "https://%s%s" % (domain, self.path))
                 self.send_header("Content-Length", "0")
                 self.end_headers()
-            else:
+                return False
+            if not sharing.on():
                 self.send_body("Sofa only answers the internet over HTTPS. Set it up under Server → Settings → Internet.", status=403)
+                return False
+            self.visitor_only = True                    # no passwords this way: only the public library
+        if self.visitor_only and not self.visitor_may(path):
+            self.send_body("This Sofa is private. Ask whoever runs it for a share link.", status=403)
             return False
         return True
+
+    VISITOR_OPEN = ("/", "/index.html", "/api/info", "/api/session", "/api/logout")
+
+    def visitor_may(self, path):
+        """From a visitors-only connection: the app itself, the share link, and what a Visitor needs."""
+        if path in self.VISITOR_OPEN or path.startswith(("/client/", "/s/")):
+            return True
+        u = self.user()
+        return bool(u and u.get("visitor"))
+
+    def visitor_entry(self, token=None):
+        """The share link (or, with "Open to everyone", the plain address): signed in as the Visitor."""
+        if not sharing.on() or (token is not None and not sharing.check_token(token)):
+            return self.private_page("This link doesn't work any more. Ask whoever sent it for a new one.", 404)
+        user = sharing.visitor_user()
+        token = auth.start_session(user["id"], self.client_ip(), self.headers.get("User-Agent"), label="Visitor")
+        self.send_response(302)
+        self.send_header("Location", "/")
+        self.send_header("Set-Cookie", self.session_cookie(token, sharing.SESSION_DAYS * 86400))
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def private_page(self, msg, status=403):
+        page = ('<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>Sofa</title>'
+                '<body style="background:#0A0E1A;color:#EDEFF6;font:17px/1.5 system-ui;display:grid;place-items:center;'
+                'min-height:90vh;margin:0;padding:24px;text-align:center"><div><h1 style="margin:0 0 8px">%s</h1>'
+                '<p>%s</p></div>' % (html.escape(config.get("name")), html.escape(msg)))
+        return self.send_body(page, "text/html; charset=utf-8", status)
 
     def need_user(self, admin=False):
         u = self.user()
@@ -224,11 +266,22 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_body(roku_package(), "application/zip",
                                   headers={"Content-Disposition": 'attachment; filename="sofa-roku.zip"'})
         if path == "/api/info":                       # for apps that found Sofa on the network (no sign-in)
-            return self.json(discovery.info())
+            return self.json(dict(discovery.info(), share={"on": sharing.on(), "open": bool(config.get("public_open")) and sharing.on(),
+                                                           "title": sharing.title() if sharing.on() else None}))
         if path == "/healthz":
+            if self.visitor_only or (self.user() or {}).get("visitor"):
+                return self.json({"ok": True, "name": config.get("name"), "version": __version__})
             return self.json({"ok": True, "name": config.get("name"), "version": __version__,
                               "uptime": int(time.time() - STARTED), "library": LIBRARY.counts()})
+        m = re.match(r"^/s/([\w-]{6,64})/?$", path)
+        if m:
+            return self.visitor_entry(m.group(1))
         if path in ("/", "/index.html"):
+            if not self.user() and sharing.on() and config.get("public_open") and \
+                    (self.visitor_only or self.network() == "internet") and "signin" not in qs:
+                return self.visitor_entry()
+            if self.visitor_only and not self.user():
+                return self.private_page("This Sofa is private. Ask whoever runs it for a share link.")
             return self.static("index.html")
         if path == "/guest":
             return self.guest_entry()
@@ -345,6 +398,8 @@ class Handler(BaseHTTPRequestHandler):
         if not self.user() and self.network() not in HOME_NETS:   # TVs fetch artwork without signing in
             return self.error(401, "Sign in to continue.")
         if rest.split("/")[0].partition("~")[0] == "adult" and not (self.user() or {}).get("adult"):
+            return self.send_body("Not found", status=404)
+        if (self.user() or {}).get("visitor") and "/art/" + rest not in visitor_art():
             return self.send_body("Not found", status=404)
         full = artwork.file_for("/art/" + rest)
         if not full:
@@ -468,7 +523,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         m = re.match(r"^/live/([0-9a-f]{12})/(index\.m3u8|p/([\w.=-]+))$", path)
         chan = live.channel(m.group(1)) if m else None
-        if not chan or (chan.get("adult") and not u.get("adult")) or u.get("kids"):
+        if not chan or (chan.get("adult") and not u.get("adult")) or u.get("kids") or (u.get("visitor") and not config.get("share_live")):
             return self.send_body("Not found", status=404)
         url = chan["url"] if m.group(2) == "index.m3u8" else live.unpack(m.group(3))
         if not url:
@@ -538,6 +593,8 @@ class Handler(BaseHTTPRequestHandler):
         if not item:
             return self.send_body("Not found", status=404)
         kind = m.group(2)
+        if u.get("visitor") and (kind == "travel.mp4" or (qs.get("download") or [""])[0] == "1"):
+            return self.send_body("Not found", status=404)
         if kind == "trick.json":
             info = trickplay.meta(item)
             if not info:
@@ -591,6 +648,8 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/session":
             u = self.user()
             return self.json({"name": config.get("name"), "version": __version__, "user": u, "theme": config.get("theme"),
+                              "share": {"title": sharing.title(), "live": bool(config.get("share_live")),
+                                        "home": not self.visitor_only} if u and u.get("visitor") else None,
                               "offline": net.offline_mode(),
                               "needs_setup": auth.user_count() == 0, "network": self.network(),
                               "remote": config.get("remote"), "guest_available": bool(self.guest_ok()),
@@ -601,6 +660,13 @@ class Handler(BaseHTTPRequestHandler):
         u = self.need_user(admin=path.startswith("/api/admin/"))
         if not u:
             return
+        if u.get("visitor") and not re.match(r"^/api/(library|progress|live|music|screens|apps|play/.+|hls/.+)$", path):
+            return self.error(403, "Sign in to do that.")
+        if u.get("visitor") and path in ("/api/progress", "/api/music", "/api/screens", "/api/apps") or \
+                (u.get("visitor") and path == "/api/live" and not config.get("share_live")):
+            return self.json({"/api/progress": {}, "/api/screens": {"screens": []}, "/api/apps": {},
+                              "/api/music": {"tracks": [], "albums": [], "artists": [], "videos": [], "likes": [], "recent": []},
+                              "/api/live": {"channels": [], "groups": [], "playlists": [], "favorites": []}}[path])
         if path == "/api/profiles":
             if not self.may_switch(u):
                 return self.error(403, "Switching profiles works at home, from a signed-in profile.")
@@ -614,6 +680,7 @@ class Handler(BaseHTTPRequestHandler):
             out = slim_library(u)
             out["reading"] = not LIBRARY.generated          # just started: the first read isn't done yet
             if u.get("admin"):
+                out["shared"], out["share"] = sorted(sharing.shared_ids()), {"on": sharing.on(), "all": bool(config.get("share_all"))}
                 out["places"] = [{"id": "", "name": "This computer", "connected": True}] + \
                     [{"id": p["id"], "name": p["name"], "connected": places.connected(p)} for p in places.extra()]
             out["likes"] = [r["item"] for r in store.q("SELECT item FROM likes WHERE user_id = ? ORDER BY at DESC", u["id"])
@@ -718,6 +785,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.json({"url": "/media/hls/%s/index.m3u8" % sid, "session": sid})
         if path == "/api/admin/status":
             return self.json(admin_status())
+        if path == "/api/admin/sharing":
+            return self.json(sharing_status())
         if path == "/api/admin/convert":
             return self.json(optimize.status(LIBRARY))
         if path == "/api/admin/duplicates":
@@ -856,10 +925,16 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/logout":
             auth.end_session(self.token())
             return self.json({"ok": True}, headers={"Set-Cookie": self.session_cookie("", 0)})
+        if self.visitor_only and not (self.user() or {}).get("visitor"):
+            return self.error(403, "Signing in works at home only on this Sofa.")
 
         u = self.need_user(admin=path.startswith("/api/admin/"))
         if not u:
             return
+        if u.get("visitor"):                          # a Visitor only watches: their place stays on their device
+            if path.startswith(("/api/progress/", "/api/screen/state")):
+                return self.json({"ok": True})
+            return self.error(403, "Sign in to do that.")
         m = re.match(r"^/api/travel/(.+)$", path)
         if m:
             item = self.visible_item(m.group(1), u)
@@ -979,6 +1054,27 @@ class Handler(BaseHTTPRequestHandler):
             except ValueError as exc:
                 return self.error(400, str(exc))
             return self.json(dict(places.status(LIBRARY), ok=True))
+        if path == "/api/admin/sharing":             # the public library: on/off, what's in it, the link
+            changes = {k: bool(data[k]) for k in ("share_on", "share_all", "share_live", "public_open") if k in data}
+            if "share_title" in data:
+                changes["share_title"] = str(data["share_title"] or "").strip()[:60]
+            if changes:
+                config.update(changes)
+                sharing.settings_changed()
+                if changes.get("share_on"):
+                    sharing.token()
+                if "share_on" in changes:
+                    store.log("settings", "%s %s the public library" % (u["name"], "switched on" if changes["share_on"] else "switched off"))
+            if data.get("new_link"):
+                sharing.new_link()
+                store.log("settings", "%s made a new share link (the old one stopped working)" % u["name"])
+            item = data.get("item")
+            if isinstance(item, dict) and item.get("id"):
+                entry = LIBRARY.find(str(item["id"]))
+                if not entry or entry.get("adult"):
+                    return self.error(404, "That can't be shared.")
+                sharing.set_shared(entry["id"], bool(item.get("on")))
+            return self.json(dict(sharing_status(), ok=True))
         if path == "/api/admin/restart":             # Sofa starts again (a stuck page, a drive that went away…)
             store.log("settings", "%s restarted Sofa" % u["name"])
             threading.Timer(1.0, updater.restart).start()
@@ -1329,6 +1425,8 @@ class Handler(BaseHTTPRequestHandler):
         if (user or {}).get("kids") and item.get("kind") in ("episode", "movie", "extra") \
                 and not kids.allowed(LIBRARY.find(item.get("show_id") or item["id"])):   # music is fine
             return None
+        if (user or {}).get("visitor") and not sharing.item_shared(item, LIBRARY):
+            return None
         return item
 
     def network_label(self):
@@ -1478,7 +1576,9 @@ _slim_lock = threading.Lock()
 def slim_library(u):
     """The library as the web app needs it: no empty fields, no file details for non-admins, episodes
     without their show's name and id (the app knows which show they're in). Made once per library read."""
-    key = (LIBRARY.generated, bool(u.get("adult")), bool(u.get("admin")), bool(u.get("kids")), kids.version[0])
+    visitor = bool(u.get("visitor"))
+    key = (LIBRARY.generated, bool(u.get("adult")), bool(u.get("admin")), bool(u.get("kids")), kids.version[0],
+           sharing.version() if visitor else None)
     with _slim_lock:
         if key in _slim:
             return dict(_slim[key])
@@ -1493,9 +1593,13 @@ def slim_library(u):
                     seasons=[dict(clean(se, ("episodes",)), n=se["n"], episodes=[clean(e, ("show_id", "show_name", "ext", "size", "adult"))
                                                                                   for e in se["episodes"]]) for se in s["seasons"]],
                     extras=[clean(x, ("show_id", "show_name", "ext", "size", "adult")) for x in s["extras"]])
-    lib = LIBRARY.public(adult=u.get("adult"))
+    lib = LIBRARY.public(adult=u.get("adult") and not visitor)
     picked = kids.choices()
     shows, movies = lib["shows"], lib["movies"]
+    if visitor:                                    # the share link: only what the admin shares
+        chosen = sharing.shared_ids()
+        shows = [s for s in shows if sharing.entry_shared(s, chosen)]
+        movies = [m for m in movies if sharing.entry_shared(m, chosen)]
     if u.get("kids"):                              # a Kids profile: family titles only
         shows = [s for s in shows if kids.allowed(s, picked)]
         movies = [m for m in movies if kids.allowed(m, picked)]
@@ -1508,10 +1612,56 @@ def slim_library(u):
         out["adult"] = dict(lib["adult"], shows=[show(s) for s in lib["adult"]["shows"]],
                             movies=[clean(m, ("ext", "size")) for m in lib["adult"]["movies"]])
     with _slim_lock:
-        for k in [k for k in _slim if k[0] != LIBRARY.generated]:
+        for k in [k for k in _slim if k[0] != LIBRARY.generated or (visitor and k[5] not in (None, key[5]))]:
             del _slim[k]
         _slim[key] = out
     return dict(out)
+
+
+_visitor_art = {"key": None, "paths": frozenset()}
+
+
+def visitor_art():
+    """Every picture of the shared titles (a Visitor may fetch only these)."""
+    key = (LIBRARY.generated, sharing.version())
+    if _visitor_art["key"] != key:
+        lib, found = slim_library({"visitor": True}), set()
+
+        def walk(x):
+            if isinstance(x, dict):
+                for v in x.values():
+                    walk(v)
+            elif isinstance(x, list):
+                for v in x:
+                    walk(v)
+            elif isinstance(x, str) and x.startswith("/art/"):
+                found.add(x.split("?")[0])
+        walk(lib)
+        _visitor_art.update(key=key, paths=frozenset(found))
+    return _visitor_art["paths"]
+
+
+def share_links():
+    """The share link as people outside and inside the home can open it."""
+    t, port, out = sharing.token(), config.get("port"), []
+    domain = (config.get("domain") or "").strip()
+    if domain:
+        out.append({"where": "internet", "url": "%s://%s/s/%s" % ("https" if tls.trusted() else "http", domain, t)})
+    out += [{"where": "home", "url": "http://%s:%d/s/%s" % (ip, port, t)} for ip in slow.cached("lan", 30, dlna.lan_addresses, default=[])]
+    return out
+
+
+def sharing_status():
+    chosen = sharing.shared_ids()
+    lib = LIBRARY.public()
+    titles = [{"id": x["id"], "kind": "show" if "seasons" in x else "movie", "title": x.get("name") or x.get("title"),
+               "year": x.get("year"), "poster": x.get("poster")}
+              for x in lib["shows"] + lib["movies"] if x["id"] in chosen and not x.get("adult")]
+    return {"on": sharing.on(), "all": bool(config.get("share_all")), "live": bool(config.get("share_live")),
+            "open": bool(config.get("public_open")), "title": config.get("share_title") or "", "name": config.get("name"),
+            "links": share_links() if sharing.on() else [], "path": "/s/" + sharing.token() if sharing.on() else None, "titles": titles,
+            "count": len(lib["shows"]) + len(lib["movies"]) if config.get("share_all") else len(titles),
+            "remote": config.get("remote"), "domain": (config.get("domain") or "").strip(), "https": tls.trusted()}
 
 
 def serve():
