@@ -115,8 +115,8 @@ It should answer `{"ok": true, "base": "box.edgeventure.uk"}`.
 
 ### 5. That's all
 
-Boxes with Sofa Box OS 1.1.0 or later get their name and certificate within about 10 minutes of being
-online. On the TV, **Settings → Remotes and Bluetooth** shows **Secure phone remote: on, at …**, and the
+Boxes with Sofa Box OS 1.1.1 or later get their name and certificate within a minute of being online
+(1.1.0: within about 10 minutes). On the TV, **Settings → Remotes and Bluetooth** shows **Secure phone remote: on, at …**, and the
 phone remote's QR code is the `https://` address from then on.
 
 ## Running it

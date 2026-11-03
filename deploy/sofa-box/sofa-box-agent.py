@@ -1019,6 +1019,8 @@ class Network:
         code, out = run(["nmcli", "device", "wifi", "connect", str(ssid)] + (["password", str(password)] if password else []), 45)
         if code != 0 and had:
             self.start_hotspot()                             # back to the box's own, to try again
+        if code == 0:
+            secure_remote.wake()                             # on a home network now: its https remote, straight away
         return {"ok": code == 0, "message": "Connected to %s." % ssid if code == 0 else
                 ("The password isn't right." if re.search(r"secrets|password|802-11-wireless-security", out, re.I) else out[-200:])}
 
@@ -1223,7 +1225,7 @@ class SecureRemote:
             return self.stop()
         ip = local_address()
         if not ip or network.hotspot or on_own_wifi(ip):
-            return
+            return True                                         # not on a home network yet (at its setup, say)
         acct = self.account()
         if not acct.get("id"):
             got = self.call("/v1/register", {})
@@ -1277,14 +1279,15 @@ class SecureRemote:
         self.event.set()
 
     def watch(self):
-        """A look 20 seconds after starting, then every 10 minutes (an hour after a failure, unless woken)."""
+        """A look 20 seconds after starting, then every 10 minutes (an hour after a failure, unless woken). Not on a home
+        network yet, every 30 seconds: at the setup, the phone needs the https remote soon after the box joins one."""
         wait = 20
         while True:
             self.event.wait(wait)
             self.event.clear()
             try:
-                self.step()
-                self.error, wait = None, 600
+                offline = self.step()
+                self.error, wait = None, 30 if offline else 600
             except Exception as exc:
                 self.error, wait = str(exc)[:200] or exc.__class__.__name__, 3600
                 print("Secure phone remote: %s" % self.error, file=sys.stderr, flush=True)

@@ -891,8 +891,11 @@ class BoxNetwork(unittest.TestCase):
         a.resolves_to = lambda name, ip: True
         r = a.secure_remote
         try:
+            self.address = None                                                        # at the setup, not online yet
+            self.assertTrue(r.step())                                                  # (so it looks again in 30 s)
+            self.assertEqual(asked, [])
             self.address = "192.168.1.30"
-            r.step()
+            self.assertFalse(r.step())
             self.assertEqual([p for p, _ in asked], ["/v1/register", "/v1/address", "/v1/cert"])
             self.assertEqual(asked[1][1], "192.168.1.30")                            # its address here, and nothing else
             self.assertEqual(r.status()["state"], "ready")

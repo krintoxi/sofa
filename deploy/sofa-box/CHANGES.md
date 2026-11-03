@@ -7,6 +7,15 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.1
+
+- **The secure phone remote is there right after the setup.** When you give a new box your Wi-Fi during its
+  setup, it now asks for its name and certificate straight away (it used to wait up to 10 minutes). Until
+  then the remote on your home Wi-Fi was a plain http:// page, which iPhones with Safari's Not Secure
+  Connection Warning on refuse, halfway through the setup. A box that comes online any other way (a cable
+  plugged in later, a router back from a restart) notices within 30 seconds.
+- Certificate requests from a Mac's openssl (LibreSSL) name their curve, so Let's Encrypt accepts them.
+
 ## 1.1.0
 
 - **A secure (https) phone remote at home.** Once the box is online it gets a name of its own,
