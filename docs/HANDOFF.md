@@ -80,7 +80,7 @@ Comet Courier's address, a `box-v1` release (the owner publishes it on the websi
 - Next (asked of the owner): HTTPS for the remote at home, with a real certificate per box from a small
   service on the owner's servers, since the remote at home is plain http:// too.
 
-## Sofa Box OS 1.1.0 (2026-11-03, on the branch): the secure phone remote at home
+## Sofa Box OS 1.1.0 (2026-11-03, merged): the secure phone remote at home
 
 - `deploy/box-certs/sofa-box-certs.py`: a small service (stdlib + the openssl command) that registers boxes,
   points `<id>.box.edgeventure.uk` at a box's private address (Cloudflare, DNS only) and gets Let's Encrypt
@@ -88,9 +88,13 @@ Comet Courier's address, a `box-v1` release (the owner publishes it on the websi
   boxes send CSRs. Limits: private addresses only, 10 registrations per IP a day, 1 certificate per box a week
   while fresh, 45 new boxes a week (Let's Encrypt's 50 per registered domain). Checked end to end against
   Pebble (Let's Encrypt's test server) with a stand-in Cloudflare; `tests/test_box_certs.py` covers the rules.
-- To run on the owner's iMac (the one with Cubaintel.com), behind the existing Cloudflare tunnel at
-  `boxcert.edgeventure.uk`: `deploy/box-certs/README.md` (token, `install-mac.sh`, the tunnel hostname). Not
-  deployed yet; a cloud session can't reach the iMac.
+- Runs on the owner's iMac (the one with Cubaintel.com), set up per `deploy/box-certs/README.md` on
+  2026-11-03 by a Claude session on the owner's own Mac (a cloud session can't reach the iMac). Tunnel
+  `cubaintel-imac`, public hostname `boxcert.edgeventure.uk` → `http://127.0.0.1:8470`; LaunchAgent
+  `uk.edgeventure.sofa-box-certs`. `check` passed, and `try` got a Let's Encrypt staging certificate.
+- macOS's openssl is LibreSSL, which writes the EC curve out in full unless asked for the named curve, and
+  Let's Encrypt refuses that ("invalid ECDSA parameters"). Every key made for a CSR passes
+  `-pkeyopt ec_param_enc:named_curve` (the service's `try`, and the box's renewal).
 - The box: `SecureRemote` in the agent (register, address, renew a month ahead, HTTPS remote on 8093, falls back
   to http:// when the router blocks the name, `secure_remote` setting); Settings shows its state. Tests and the
   preview tool run with `SOFA_BOX_CERTS=0`.
