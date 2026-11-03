@@ -999,6 +999,7 @@ class Network:
             self.hotspot = {"ssid": ssid, "password": password, "address": "10.42.0.1", "at": time.time(),
                             "wifi_qr": "WIFI:T:WPA;S:%s;P:%s;;" % (ssid.replace(";", r"\;"), password)}
             self.problem = None
+            captive.start()
             toast("No internet yet: the box made its own Wi-Fi, %s, for your phone." % ssid)
         else:
             self.problem, self.failed_at = (out.splitlines() or ["the box couldn't make its own Wi-Fi"])[-1][:200], time.time()
@@ -1006,6 +1007,7 @@ class Network:
         return self.hotspot
 
     def stop_hotspot(self):
+        captive.stop()
         if self.hotspot:
             run(["nmcli", "connection", "down", self.CON], 20)
             run(["nmcli", "connection", "delete", self.CON], 20)
@@ -1066,6 +1068,82 @@ class Network:
                 pass
             time.sleep(10)
 
+def on_own_wifi(ip):
+    """A phone on the box's own Wi-Fi (NetworkManager's hotspot is 10.42.0.1/24)."""
+    return str(ip).startswith("10.42.0.")
+
+
+CAPTIVE_PAGE = """<!doctype html><html><head><meta charset="utf-8"><title>Sofa Box</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="refresh" content="0;url=%(url)s">
+<style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0D0D10;color:#F6F6F8;
+font:17px -apple-system,system-ui,sans-serif;text-align:center}a{display:inline-block;margin-top:1rem;padding:.9rem 1.6rem;
+border-radius:999px;background:#FF2E88;color:#fff;font-weight:700;text-decoration:none}</style></head>
+<body><div><b>Sofa Box</b><br><a href="%(url)s">Open the remote</a></div></body></html>"""
+
+
+class CaptiveHandler(BaseHTTPRequestHandler):
+    """The box's own Wi-Fi works like a hotel's: every name is the box (dnsmasq-shared.d/sofa-box.conf), so a phone
+    that joins finds no internet, only this page, and opens its sign-in sheet by itself (iPhone, Android). The sheet
+    opens the phone remote. Unlike the browser, the sheet takes http:// pages even with "HTTPS only" switched on, and
+    nothing needs scanning but the Wi-Fi."""
+    protocol_version = "HTTP/1.1"
+
+    def log_message(self, *args):
+        pass
+
+    def answer(self, body=True):
+        here = network.hotspot and on_own_wifi(self.client_address[0])
+        page = (CAPTIVE_PAGE % {"url": "http://%s:%d/join" % (network.hotspot["address"], PhoneRemote.PORT)} if here
+                else "Not here.").encode()
+        self.send_response(200 if here else 404)
+        self.send_header("Content-Type", "text/html; charset=utf-8" if here else "text/plain")
+        self.send_header("Content-Length", str(len(page)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        if body:
+            self.wfile.write(page)
+
+    def do_GET(self):
+        self.answer()
+
+    def do_POST(self):
+        self.answer()
+
+    def do_HEAD(self):
+        self.answer(body=False)
+
+
+class Captive:
+    """The sign-in page on port 80, while the box's own Wi-Fi is on (the agent may: CAP_NET_BIND_SERVICE)."""
+    PORT = int(os.environ.get("SOFA_BOX_CAPTIVE_PORT", "80"))
+
+    def __init__(self):
+        self.server = None
+
+    def start(self):
+        if self.server:
+            return
+        for attempt in range(5):
+            try:
+                self.server = Server(("0.0.0.0", self.PORT), CaptiveHandler)
+                break
+            except OSError as exc:
+                if attempt == 4:
+                    print("The sign-in page for the box's own Wi-Fi can't use port %d: %s" % (self.PORT, exc), file=sys.stderr, flush=True)
+                    return
+                time.sleep(1)
+        threading.Thread(target=self.server.serve_forever, daemon=True, name="captive").start()
+
+    def stop(self):
+        if self.server:
+            self.server.shutdown()
+            self.server.server_close()
+            self.server = None
+
+
+captive = Captive()
+
+
 def local_mac(dev):
     try:
         with open("/sys/class/net/%s/address" % dev) as f:
@@ -1111,8 +1189,10 @@ class PhoneRemote:
         return {"url": u, "pair_url": u + "/r/" + self.code if u else None, "code": self.code, "phones": len(self._load()),
                 "hotspot": network.hotspot, "wired": network.wired(), "problem": None if u else network.problem}
 
-    def pair(self, code, name):
-        if not code or str(code) != self.code:
+    def pair(self, code, name, on_own_wifi=False):
+        """A phone with the code on the TV (each code works once); or one on the box's own Wi-Fi, whose password is on
+        the TV too (its sign-in sheet pairs it, see Captive)."""
+        if not on_own_wifi and (not code or str(code) != self.code):
             return None
         token = os.urandom(24).hex()
         phones = self._load()
@@ -1121,7 +1201,8 @@ class PhoneRemote:
         with open(self.path, "w", encoding="utf-8") as f:
             json.dump(phones, f)
         os.chmod(self.path, 0o600)
-        self.code = self._new_code()                       # each code works once
+        if not on_own_wifi:
+            self.code = self._new_code()                   # each code works once
         toast("%s is a remote now." % phones[token]["name"])
         return token
 
@@ -1925,7 +2006,7 @@ class RemoteHandler(BaseHTTPRequestHandler):
     def route(self):
         if not self.home_network():
             return self.send("Phones at home only.", "text/plain; charset=utf-8", 403)
-        if self.client_address[0].startswith("10.42.0."):     # a phone on the box's own Wi-Fi: keep it on
+        if on_own_wifi(self.client_address[0]):              # a phone on the box's own Wi-Fi: keep it on
             network.used = time.time()
         path = urllib.parse.urlsplit(self.path).path
         m = re.match(r"^/r/(\d{4})$", path)
@@ -1933,6 +2014,12 @@ class RemoteHandler(BaseHTTPRequestHandler):
             token = phone.pair(m.group(1), (self.headers.get("User-Agent") or "").split("(")[-1].split(";")[0].strip() or "Phone")
             return self.send("", status=302, headers=dict({"Location": "/" if token else "/?again=1"},
                                                           **({"Set-Cookie": self.cookie(token)} if token else {})))
+        if path == "/join":                                  # from the box's own Wi-Fi's sign-in sheet (Captive)
+            if not (network.hotspot and on_own_wifi(self.client_address[0])):
+                return self.send("", status=302, headers={"Location": "/"})
+            token = self.token() if phone.valid(self.token()) else \
+                phone.pair(None, (self.headers.get("User-Agent") or "").split("(")[-1].split(";")[0].strip() or "Phone", on_own_wifi=True)
+            return self.send("", status=302, headers={"Location": "/", "Set-Cookie": self.cookie(token)})
         if path in ("/", "/index.html"):
             with open(os.path.join(HERE, "remote.html"), encoding="utf-8") as f:
                 return self.send(f.read(), "text/html; charset=utf-8")

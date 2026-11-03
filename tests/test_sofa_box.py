@@ -720,8 +720,8 @@ class BoxNetwork(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.conf = tempfile.mkdtemp()
-        old = {k: os.environ.get(k) for k in ("SOFA_BOX_CONF", "SOFA_BOX_DEVTOOLS")}
-        os.environ.update(SOFA_BOX_CONF=cls.conf, SOFA_BOX_DEVTOOLS="0")
+        old = {k: os.environ.get(k) for k in ("SOFA_BOX_CONF", "SOFA_BOX_DEVTOOLS", "SOFA_BOX_CAPTIVE_PORT")}
+        os.environ.update(SOFA_BOX_CONF=cls.conf, SOFA_BOX_DEVTOOLS="0", SOFA_BOX_CAPTIVE_PORT="0")   # not port 80 here
         try:
             cls.agent = load("sofa-box-agent")
         finally:
@@ -809,8 +809,56 @@ class BoxNetwork(unittest.TestCase):
             net.tick(0, net.failed_at + 50)
             self.assertTrue(net.hotspot and net.problem is None)
             self.assertIn(["nmcli", "connection", "modify", "sofa-box-setup", "802-11-wireless-security.pmf", "disable"], calls)
+            self.assertIsNotNone(a.captive.server)                                    # its sign-in page, with it
+            net.stop_hotspot()
+            self.assertIsNone(a.captive.server)
         finally:
             a.time.sleep = real_sleep
+            a.captive.stop()
+
+    def test_its_own_wifi_opens_the_remote_by_itself(self):
+        """A phone joining the box's own Wi-Fi gets a sign-in page (captive portal) that opens the remote, paired."""
+        a = self.agent
+        real = a.on_own_wifi, a.network.hotspot, a.phone
+        servers = []
+
+        def serve(handler):
+            srv = a.Server(("127.0.0.1", 0), handler)
+            threading.Thread(target=srv.serve_forever, daemon=True).start()
+            servers.append(srv)
+            return "http://127.0.0.1:%d" % srv.server_address[1]
+        try:
+            a.on_own_wifi = lambda ip: True                                          # as if from 10.42.0.x
+            a.network.hotspot = {"ssid": "Sofa Box 1234", "address": "10.42.0.1"}
+            a.phone = a.PhoneRemote()
+            portal, remote = serve(a.CaptiveHandler), serve(a.RemoteHandler)
+            with urllib.request.urlopen(portal + "/hotspot-detect.html", timeout=10) as r:      # what an iPhone asks first
+                page = r.read().decode()
+            self.assertNotIn("Success", page)                                        # so it opens its sign-in sheet
+            self.assertIn('url=http://10.42.0.1:8092/join"', page)
+            code = a.phone.code
+            opener = urllib.request.build_opener(NoRedirect)
+            try:
+                opener.open(remote + "/join", timeout=10)
+            except urllib.error.HTTPError as e:
+                self.assertEqual(e.code, 302)
+                self.assertIn("sofa_remote=", e.headers.get("Set-Cookie") or "")
+            self.assertEqual(len(a.phone._load()), 1)
+            self.assertEqual(a.phone.code, code)                                     # the TV's code still works for another phone
+            a.on_own_wifi = lambda ip: False                                         # on the home network: nothing
+            with self.assertRaises(urllib.error.HTTPError) as e:
+                urllib.request.urlopen(portal + "/hotspot-detect.html", timeout=10)
+            self.assertEqual(e.exception.code, 404)
+            try:
+                opener.open(remote + "/join", timeout=10)
+            except urllib.error.HTTPError as e:
+                self.assertNotIn("sofa_remote=", e.headers.get("Set-Cookie") or "")
+            self.assertEqual(len(a.phone._load()), 1)
+        finally:
+            for srv in servers:
+                srv.shutdown()
+                srv.server_close()
+            a.on_own_wifi, a.network.hotspot, a.phone = real
 
     def test_its_version(self):
         with open(os.path.join(BOX, "VERSION")) as f:

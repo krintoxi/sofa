@@ -433,8 +433,8 @@
       <p class="small">The quickest way on: <b>plug a network cable</b> from your router into the box, and the code to scan shows here.
       Or plug in a USB keyboard and press <b>Start</b>, then choose your Wi-Fi.</p><p class="small">(${esc(r.problem)})</p>`;
     if (!r.url) return `<p class="looking small"><i class="spin"></i>No network yet: in a few seconds the box makes its own Wi-Fi, and a code to scan shows here.</p>`;
-    return hs ? `<div class="qr-steps"><div><span class="qr">${qr(hs.wifi_qr)}</span><b>1. Join its Wi-Fi</b><small>${esc(hs.ssid)} · password ${esc(hs.password)}</small></div>
-        <div><span class="qr">${qr(r.pair_url)}</span><b>2. Then scan this</b><small>or open ${esc(r.url.replace(/^http:\/\//, ""))}, code ${esc(r.code)}</small></div></div>`
+    return hs ? `<div class="qr-steps"><div><span class="qr">${qr(hs.wifi_qr)}</span><b>1. Join its Wi-Fi</b><small>${esc(hs.ssid)} · password ${esc(hs.password)}<br>The remote opens on your phone by itself.</small></div>
+        <div><span class="qr">${qr(r.pair_url)}</span><b>2. Didn't open? Scan this</b><small>or open ${esc(r.url.replace(/^http:\/\//, ""))}, code ${esc(r.code)}</small></div></div>`
       : `<span class="qr big">${qr(r.pair_url)}</span><b>Scan with your phone's camera</b><small>or open <b>${esc(r.url.replace(/^http:\/\//, ""))}</b> and type <b>${esc(r.code)}</b></small>
         ${r.phones ? `<small class="okay">✓ ${r.phones === 1 ? "A phone is" : r.phones + " phones are"} connected</small>` : ""}`;
   }
