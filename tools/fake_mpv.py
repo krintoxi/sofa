@@ -11,6 +11,7 @@ import socket
 import sys
 import threading
 import time
+import urllib.parse
 import urllib.request
 
 
@@ -28,11 +29,16 @@ def main(argv):
         if log:
             with open(log, "a") as f:
                 f.write(json.dumps(kw) + "\n")
-    st = {"pos": float(opts.get("start") or 0), "at": time.time(), "paused": False, "quit": False}
+    # "fake_delay=N" in the address: it takes N seconds to start (a video Sofa converts first), as mpv would
+    delay = float((urllib.parse.parse_qs(urllib.parse.urlsplit(url or "").query).get("fake_delay") or ["0"])[0])
+    st = {"pos": float(opts.get("start") or 0), "at": time.time() + delay, "paused": False, "quit": False}
     duration = float(os.environ.get("FAKE_MPV_DURATION") or 0) or None
 
+    def ready():
+        return time.time() >= st["at"] or st["paused"]
+
     def pos():
-        return st["pos"] if st["paused"] else st["pos"] + (time.time() - st["at"])
+        return st["pos"] if st["paused"] else st["pos"] + max(0.0, time.time() - st["at"])
 
     def set_pos(p):
         st["pos"], st["at"] = max(0.0, p), time.time()
@@ -80,7 +86,8 @@ def main(argv):
                     cmd, data = msg.get("command") or [], None
                     name = cmd[0] if cmd else ""
                     if name == "get_property":
-                        data = {"time-pos": pos(), "duration": duration, "pause": st["paused"], "frame-drop-count": 0,
+                        data = {"time-pos": pos() if ready() else None, "duration": duration, "pause": st["paused"],
+                                "core-idle": st["paused"] or not ready(), "frame-drop-count": 0,
                                 "decoder-frame-drop-count": 0, "container-fps": 25.0}.get(cmd[1])
                     elif name == "set_property" and cmd[1] == "pause":
                         set_pos(pos())

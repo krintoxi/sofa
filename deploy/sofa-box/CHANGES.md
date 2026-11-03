@@ -7,6 +7,16 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.11
+
+- **Resuming no longer sits on a blank black screen.** When you resume something Sofa converts for the box, it
+  first converts from where you left off, which can take a while; the box's player showed black meanwhile, as
+  if it had hung. Its screen now says "Resuming … at 23:14", then that Sofa is getting it ready, and after 25
+  seconds that Back stops it; the words go as soon as the picture moves.
+- **When the box's player can't start a video, the page's own player now gets one it can play.** It used to
+  ask Sofa for what the box's player plays (MKV, surround sound), which the browser can't: another black
+  screen. Trailers on Sofa's pages on the box had the same problem.
+
 ## 1.1.10
 
 - **USB drives join Sofa on the box by themselves.** Plug a drive in and, if you use Sofa on this box (This

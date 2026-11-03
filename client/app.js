@@ -1605,7 +1605,7 @@ function downloadDialog(id) {
   async function paint() {
     if (!document.contains(d)) return;
     let r;
-    try { r = await api("/api/travel/" + encodeURIComponent(id) + "?" + Player.capsQuery()); }
+    try { r = await api("/api/travel/" + encodeURIComponent(id) + "?" + Player.capsQuery(true)); }
     catch (e) { $(".dl-body", d).innerHTML = `<p class="form-error">${esc(e.message)}</p>`; return; }
     const gb = r.duration ? r.duration / 3600 * 0.9 : 0;
     const est = gb ? (gb < 1 ? Math.max(50, Math.round(gb * 1000)) + " MB" : gb.toFixed(1) + " GB") : "";
@@ -3371,7 +3371,11 @@ const Player = (function () {
   const nativeHls = !!video.canPlayType("application/vnd.apple.mpegurl") && (appleHls || !MSE);
   // A codec counts when the element plays it and, for converted video through hls.js, so does MediaSource.
   const plays = type => !!video.canPlayType(type) && (nativeHls || !MSE || !!(MSE.isTypeSupported && MSE.isTypeSupported(type)));
-  const caps = NATIVE ? JSON.parse(NATIVE.caps()) : {
+  // What this page's own player plays; inside the Fire TV app or on a Sofa box, the device's player says what it plays
+  // (nativeCaps). The page's player (trailers, and a video the device's player couldn't start) asks for what it
+  // plays itself: asked with the device's caps, Sofa sent MKV or AC3 the browser can't play (a black screen).
+  const nativeCaps = NATIVE ? JSON.parse(NATIVE.caps()) : null;
+  const caps = {
     mkv: !!(video.canPlayType('video/x-matroska; codecs="avc1.64001F, mp4a.40.2"') || video.canPlayType("video/x-matroska")),
     hevc: plays('video/mp4; codecs="hvc1.1.6.L93.B0"'),
     hevc10: plays('video/mp4; codecs="hvc1.2.4.L120.B0"'),
@@ -4182,18 +4186,21 @@ const Player = (function () {
     }
     close();
   });
-  const capsQuery = () => Object.keys(caps).map(k => k + "=" + (typeof caps[k] === "number" ? caps[k] : caps[k] ? 1 : 0)).join("&");
+  const capsQuery = device => {
+    const c = device && nativeCaps ? nativeCaps : caps;
+    return Object.keys(c).map(k => k + "=" + (typeof c[k] === "number" ? c[k] : c[k] ? 1 : 0)).join("&");
+  };
   /* Inside the Fire TV app: Android's own player plays it (the file as it is, mostly), and says where it
      stopped when it's closed (window.sofaNativeDone). */
   let nativeItem = null, nativeQueue = null, nativeBroken = false;
   async function nativeOpen(it, queue) {
     let p;
-    try { p = await api("/api/play/" + encodeURIComponent(it.id) + "?" + capsQuery()); } catch (e) { toast(e.message); return; }
+    try { p = await api("/api/play/" + encodeURIComponent(it.id) + "?" + capsQuery(true)); } catch (e) { toast(e.message); return; }
     let url = p.url;
     const pr = prog(it.id), start = pr && !pr.done && pr.t > 30 && (!p.duration || pr.t < p.duration - 30) ? pr.t : 0;
     if (p.mode !== "direct") {        // converted from where they left off: the app adds `offset` to what it plays
       const h = prefs.get("quality", "") || p.max_height || "";
-      try { url = (await api("/api/hls/" + encodeURIComponent(it.id) + "?mode=" + p.mode + "&t=" + start.toFixed(1) + (h ? "&h=" + h : "") + "&" + capsQuery())).url; }
+      try { url = (await api("/api/hls/" + encodeURIComponent(it.id) + "?mode=" + p.mode + "&t=" + start.toFixed(1) + (h ? "&h=" + h : "") + "&" + capsQuery(true))).url; }
       catch (e) { toast(e.message); return; }
     }
     nativeItem = it; nativeQueue = queue && queue.includes(it) ? queue : null;
