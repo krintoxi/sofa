@@ -65,6 +65,7 @@ fi
 apt-get install -y --no-install-recommends chromium 2>/dev/null || apt-get install -y --no-install-recommends chromium-browser
 apt-get install -y --no-install-recommends pipewire-pulse wireplumber 2>/dev/null || true           # sound to the TV
 apt-get install -y --no-install-recommends network-manager 2>/dev/null || true                    # Wi-Fi from the TV
+apt-get install -y --no-install-recommends dnsmasq-base rfkill iw 2>/dev/null || true             # the box's own Wi-Fi at its setup
 apt-get install -y --no-install-recommends plymouth plymouth-label 2>/dev/null || true            # the boot screen
 apt-get install -y --no-install-recommends systemd-zram-generator 2>/dev/null \
   || apt-get install -y --no-install-recommends zram-tools 2>/dev/null || true                    # more room in 1 GB
@@ -330,7 +331,9 @@ done
 # The processor speeds up as soon as something's pressed, and stays up while it's used (sofa-box tune).
 cat > /etc/systemd/system/sofa-box-tune.service <<EOF
 [Unit]
-Description=Sofa box: a quick processor for the TV
+Description=Sofa box: a quick processor for the TV, and Wi-Fi switched on
+Before=NetworkManager.service sofa-box-agent.service
+After=systemd-rfkill.service
 
 [Service]
 Type=oneshot
@@ -339,6 +342,7 @@ ExecStart=$LIB/sofa-box tune
 [Install]
 WantedBy=multi-user.target
 EOF
+"$LIB/sofa-box" wifi-on ${IMAGE:+--files} || true   # Wi-Fi on even with no country set: the box's own Wi-Fi at its setup
 if dpkg -s systemd-zram-generator >/dev/null 2>&1; then
   printf '[zram0]\nzram-size = ram / 2\ncompression-algorithm = zstd\n' > /etc/systemd/zram-generator.conf
 elif [ -f /etc/default/zramswap ]; then

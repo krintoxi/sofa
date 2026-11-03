@@ -7,6 +7,16 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.0.1
+
+- **The setup's phone code no longer waits for ever on a box with no network.** A card written without
+  Raspberry Pi Imager's settings starts with Wi-Fi switched off (Raspberry Pi OS does that until a
+  country is set), so the box couldn't make its own Wi-Fi for the phone, and the setup's spinner never
+  ended. The box now switches Wi-Fi on by itself at every start.
+- If the box still can't make its own Wi-Fi, the setup says so, with what to do (a network cable, or a
+  USB keyboard), instead of a spinner. It keeps trying by itself.
+- iPhones can join the box's own Wi-Fi (the Pi's Wi-Fi chip needed one setting changed for them).
+
 ## 1.0.0
 
 The first numbered Sofa Box OS.

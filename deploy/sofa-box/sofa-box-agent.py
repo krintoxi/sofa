@@ -932,6 +932,7 @@ class Network:
     def __init__(self):
         self.hotspot, self.cached, self.lock = None, [], threading.Lock()
         self.used = 0                                        # when a phone on the hotspot last did something
+        self.problem, self.failed_at = None, None            # why the box's own Wi-Fi didn't start, and when
 
     @staticmethod
     def wifi_device():
@@ -969,19 +970,39 @@ class Network:
     def hotspot_ssid(self):
         return self.hotspot and self.hotspot["ssid"]
 
+    @staticmethod
+    def radio_on():
+        """Raspberry Pi OS keeps Wi-Fi switched off (rfkill) until a country is set in Raspberry Pi Imager; the box's
+        own Wi-Fi needs it on. (sofa-box tune does the same as root at every start.)"""
+        run(["nmcli", "radio", "wifi", "on"], 10)
+        run(["rfkill", "unblock", "wifi"], 5)
+
     def start_hotspot(self):
-        dev = self.wifi_device()
-        if not dev or self.hotspot:
+        if self.hotspot:
             return self.hotspot
+        self.radio_on()
+        dev = self.wifi_device()
+        if not dev:
+            self.problem, self.failed_at = "This box's Wi-Fi isn't working (NetworkManager doesn't see it).", time.time()
+            return None
+        time.sleep(1)                                        # Wi-Fi that was just switched on
         if not self.cached:
             self.scan()                                      # while it still can: a hotspot can't look around
         tail = (re.sub(r"[^0-9]", "", local_mac(dev)) or str(os.getpid()))[-4:]
         ssid, password = "Sofa Box " + tail, "%08d" % (int.from_bytes(os.urandom(4), "big") % 10 ** 8)
+        run(["nmcli", "connection", "delete", self.CON], 10)  # one left from before
         code, out = run(["nmcli", "device", "wifi", "hotspot", "ifname", dev, "con-name", self.CON, "ssid", ssid, "password", password], 30)
         if code == 0:
+            # the Pi's Wi-Fi chip can't do PMF as a hotspot: with it on, iPhones see the network but can't join
+            if run(["nmcli", "connection", "modify", self.CON, "802-11-wireless-security.pmf", "disable"], 10)[0] == 0:
+                run(["nmcli", "connection", "up", self.CON], 30)
             self.hotspot = {"ssid": ssid, "password": password, "address": "10.42.0.1", "at": time.time(),
                             "wifi_qr": "WIFI:T:WPA;S:%s;P:%s;;" % (ssid.replace(";", r"\;"), password)}
+            self.problem = None
             toast("No internet yet: the box made its own Wi-Fi, %s, for your phone." % ssid)
+        else:
+            self.problem, self.failed_at = (out.splitlines() or ["the box couldn't make its own Wi-Fi"])[-1][:200], time.time()
+            print("The box's own Wi-Fi: %s" % out[-300:], file=sys.stderr, flush=True)
         return self.hotspot
 
     def stop_hotspot(self):
@@ -1029,8 +1050,9 @@ class Network:
                 return now
             return offline_since
         offline_since = now if offline_since is None else offline_since
-        if now - offline_since >= self.wait_for() and not settings().get("no_hotspot"):
-            self.start_hotspot()
+        if now - offline_since >= self.wait_for() and not settings().get("no_hotspot") \
+                and (self.failed_at is None or now - self.failed_at >= 45):
+            self.start_hotspot()                             # (after a failure, again every 45 seconds)
         return offline_since
 
     def watch(self):
@@ -1087,7 +1109,7 @@ class PhoneRemote:
     def status(self):
         u = self.url()
         return {"url": u, "pair_url": u + "/r/" + self.code if u else None, "code": self.code, "phones": len(self._load()),
-                "hotspot": network.hotspot, "wired": network.wired()}
+                "hotspot": network.hotspot, "wired": network.wired(), "problem": None if u else network.problem}
 
     def pair(self, code, name):
         if not code or str(code) != self.code:
@@ -1213,10 +1235,18 @@ def setup_state():
     s = settings()
     code, ssid = run(["iwgetid", "-r"], 5)
     ssid = ssid if code == 0 else ""
-    return {"remote": phone.status() if phone else None, "bluetooth": bluetooth.listing(),
-            "network": {"wired": network.wired(), "wifi": ssid or None, "address": local_address(), "hotspot": network.hotspot,
-                        "networks": network.cached}, "welcomed": s["welcomed"], "name": s["boot_text"], "theme": s["theme"],
-            "timezone": current_timezone(), "tz_set": bool(s.get("tz_set"))}
+
+    def safely(fn, default):                             # one part not working mustn't blank the whole setup screen
+        try:
+            return fn()
+        except Exception as exc:
+            print("Setup screen, %s: %s" % (getattr(fn, "__name__", "?"), exc), file=sys.stderr, flush=True)
+            return default
+    return {"remote": safely(phone.status, None) if phone else None,
+            "bluetooth": safely(bluetooth.listing, {"devices": [], "scanning": False}),
+            "network": {"wired": safely(network.wired, False), "wifi": ssid or None, "address": local_address(), "hotspot": network.hotspot,
+                        "networks": network.cached, "problem": network.problem}, "welcomed": s["welcomed"], "name": s["boot_text"],
+            "theme": s["theme"], "timezone": safely(current_timezone, "UTC"), "tz_set": bool(s.get("tz_set"))}
 
 
 def shlex_split(text):

@@ -785,6 +785,33 @@ class BoxNetwork(unittest.TestCase):
         self.run_for(1200, self.now)                                 # nothing to go back to: it stays
         self.assertEqual(self.stopped, [])
 
+    def test_its_own_wifi_switches_wifi_on_and_says_why_not(self):
+        a, calls = self.agent, []
+        answers = {"hotspot": (10, "Error: Connection activation failed: Wi-Fi is disabled")}
+
+        def nmcli(cmd, timeout=20):
+            calls.append(cmd)
+            if cmd[-1] == "device":                                                   # nmcli -t -f DEVICE,TYPE device
+                return 0, "wlan0:wifi\neth0:ethernet"
+            return answers["hotspot"] if "hotspot" in cmd else (0, "")
+        a.run = nmcli
+        net, real_sleep = a.Network(), a.time.sleep
+        a.time.sleep = lambda s: None
+        try:
+            self.assertIsNone(net.start_hotspot())
+            self.assertIn(["nmcli", "radio", "wifi", "on"], calls)                   # Raspberry Pi OS starts with it off
+            self.assertLess(calls.index(["nmcli", "radio", "wifi", "on"]), next(i for i, c in enumerate(calls) if "hotspot" in c))
+            self.assertIn("Wi-Fi is disabled", net.problem)                         # said on the TV, not a spinner for ever
+            tried = len(calls)
+            net.tick(0, net.failed_at + 20)                                          # not again straight away
+            self.assertEqual(len(calls), tried)
+            answers["hotspot"] = (0, "Device 'wlan0' successfully activated")
+            net.tick(0, net.failed_at + 50)
+            self.assertTrue(net.hotspot and net.problem is None)
+            self.assertIn(["nmcli", "connection", "modify", "sofa-box-setup", "802-11-wireless-security.pmf", "disable"], calls)
+        finally:
+            a.time.sleep = real_sleep
+
     def test_its_version(self):
         with open(os.path.join(BOX, "VERSION")) as f:
             v = f.read().strip()

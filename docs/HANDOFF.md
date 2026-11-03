@@ -53,6 +53,19 @@ Comet Courier's address, a `box-v1` release (the owner publishes it on the websi
   a Wi-Fi waits 3 minutes before making its own, and leaves it after 10 quiet minutes
   (`Network.tick`); the home screen says "Starting Sofa…" while Sofa on the box starts.
 
+## Sofa Box OS 1.0.1 (2026-11-03): the setup's phone code on a box with no network
+
+- The owner's first boot: the setup's phone QR code was a spinner for ever. With no cable and Raspberry Pi
+  Imager's settings skipped, Raspberry Pi OS starts with Wi-Fi off (pi-gen writes `WirelessEnabled=false`
+  to `/var/lib/NetworkManager/NetworkManager.state`, or blocks it with rfkill, until a country is set),
+  so `nmcli device wifi hotspot` failed and nothing said so.
+- Now: `sofa-box wifi-on` (root; run by `sofa-box tune` at every start, before NetworkManager, and by the
+  installer, also into the card) turns it on; the agent runs `nmcli radio wifi on` before the hotspot,
+  turns PMF off on the hotspot (iPhones can't join the Pi's with it), retries every 45 s, and the setup
+  shows why it failed and what to do. `setup_state` keeps working if one part (Bluetooth…) fails.
+- The card's report shows the Wi-Fi state Raspberry Pi OS left and the one the card starts with.
+- Not tried on a Pi yet: this is the explanation that fits; the next card's report confirms the state.
+
 ## What's in progress
 
 - **Sofa anywhere** (2026-11-02, built; waiting for the owner's OK to merge and for a try on the Pi):

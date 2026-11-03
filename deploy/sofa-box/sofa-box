@@ -19,6 +19,20 @@ SERVICES="sofa-box-agent sofa-box sofa-box-input sofa-box-cec"
 
 boot_dir() { for d in /boot/firmware /boot; do [ -f "$d/config.txt" ] && { echo "$d"; return; }; done; }
 
+# Wi-Fi on (root). Raspberry Pi OS starts with Wi-Fi switched off until a country is set in Raspberry Pi Imager
+# (NetworkManager's WirelessEnabled=false, or an rfkill block); a box set up with no network then can't make its own
+# Wi-Fi for the phone, and its setup waits for ever. "--files": only what's saved (building a card).
+wifi_on() {
+  S=/var/lib/NetworkManager/NetworkManager.state
+  if [ -f "$S" ] && grep -q '^WirelessEnabled=false' "$S"; then sed -i 's/^WirelessEnabled=false/WirelessEnabled=true/' "$S"; fi
+  for f in /var/lib/systemd/rfkill/*:wlan; do
+    if [ -f "$f" ]; then echo 0 > "$f" 2>/dev/null || true; fi
+  done
+  [ "${1:-}" = --files ] && return 0
+  if command -v rfkill >/dev/null; then rfkill unblock wifi 2>/dev/null || true; fi
+  if command -v nmcli >/dev/null; then nmcli radio wifi on 2>/dev/null || true; fi
+}
+
 # Update and Reset, started from the TV, run inside the agent's service; they restart or stop that service,
 # which would end them half way. So they start again as their own short service, out of its reach.
 on_its_own() {
@@ -296,7 +310,9 @@ case "${1:-}" in
     OD=/sys/devices/system/cpu/cpufreq/ondemand
     [ -w "$OD/up_threshold" ] && echo 40 > "$OD/up_threshold"
     [ -w "$OD/sampling_down_factor" ] && echo 20 > "$OD/sampling_down_factor"
+    wifi_on
     echo "Tuned: $(cat /sys/devices/system/cpu/cpufreq/policy0/scaling_governor 2>/dev/null || echo "no cpufreq here")" ;;
+  wifi-on) wifi_on "${2:-}" ;;                # (root) Wi-Fi switched on (also at every start, with tune)
   timezone)                  # (root) the box's time zone, from the setup screen or a phone
     echo "${2:-}" | grep -Eq '^[A-Za-z]+(/[A-Za-z0-9_+-]+){1,2}$' || { echo "Which time zone? (like Europe/London)"; exit 1; }
     timedatectl set-timezone "$2" ;;
