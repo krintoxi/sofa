@@ -1435,7 +1435,7 @@ class Handler(BaseHTTPRequestHandler):
                 "internet": "the internet"}[self.network()]
 
 
-THEMES = ("midnight", "cinema", "ocean", "forest", "grape", "oled")
+THEMES = ("street", "midnight", "cinema", "ocean", "forest", "grape", "oled")
 
 
 def download_name(item, ext):

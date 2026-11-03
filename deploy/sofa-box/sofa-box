@@ -3,6 +3,7 @@
 #   sofa-box doctor            check everything, and say what to do about anything wrong
 #   sofa-box status            what's running
 #   sofa-box logs              what it's been saying
+#   sofa-box report            the checks and logs that Settings → Help → Send a report sends (sudo)
 #   sofa-box choose            pick (again) which Sofa it uses
 #   sofa-box pair-controller   pair a Bluetooth game controller (Xbox, PlayStation, 8BitDo…)
 #   sofa-box tv-on             wake the TV and switch it to the box (HDMI-CEC)
@@ -269,6 +270,29 @@ doctor() {
   [ "$PROBLEMS" = 0 ] && echo "All good." || echo "$PROBLEMS thing(s) to look at (above)."
 }
 
+# (root) What Send a report sends, with the box's agent cutting addresses down and leaving titles out: the checks,
+# the network and Bluetooth, then the logs since the box started (they're kept in memory: a restart clears them).
+report() {
+  set +e
+  echo "== Sofa Box OS $(cat $LIB/VERSION 2>/dev/null), $(date -u '+%Y-%m-%d %H:%M UTC'), $(uptime -p 2>/dev/null)"
+  doctor 2>&1 | sed 's/\x1b\[[0-9;]*m//g'
+  echo; echo "== Network"
+  nmcli -t -f DEVICE,TYPE,STATE,CONNECTION device 2>&1
+  rfkill list 2>&1
+  echo; echo "== Bluetooth"
+  bluetoothctl show 2>&1 | grep -E 'Controller|Powered|Discoverable|Pairable|Discovering'
+  bluetoothctl devices 2>&1 | head -n 20
+  echo; echo "== Starts"
+  journalctl --list-boots --no-pager 2>&1 | tail -n 5
+  # shellcheck disable=SC2046
+  { echo; echo "== The box, since it started"
+    journalctl -b --no-pager -o short-monotonic -n 600 $(for s in $SERVICES; do printf ' -u %s' "$s"; done)
+    echo; echo "== Wi-Fi and Bluetooth"
+    journalctl -b --no-pager -o short-monotonic -n 150 -u NetworkManager -u bluetooth
+    echo; echo "== Warnings and errors, the whole box"
+    journalctl -b --no-pager -o short-monotonic -n 200 -p warning; } 2>&1 | cut -c 1-400
+}
+
 case "${1:-}" in
   kiosk) kiosk ;;
   session) session ;;
@@ -276,6 +300,7 @@ case "${1:-}" in
   status) systemctl --no-pager status $SERVICES || true ;;
   logs) # shellcheck disable=SC2046
     journalctl --no-pager -n 120 $(for s in $SERVICES; do printf ' -u %s' "$s"; done) ;;
+  report) report ;;
   pair-controller) pair_controller ;;
   choose) curl -fsS -m 5 -X POST -H "X-Sofa-Box: 1" -H "Content-Type: application/json" -d '{"to":"sofa"}' $AGENT/box/api/sofa/chooser >/dev/null \
             && echo "Pick your Sofa on the TV." ;;

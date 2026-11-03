@@ -123,7 +123,7 @@ SYSTEMCTL="$(command -v systemctl)"
 cat > /etc/sudoers.d/sofa-box <<EOF
 # The Sofa box's settings on the TV can restart it and change its boot screen.
 $WHO ALL=(root) NOPASSWD: $SYSTEMCTL restart sofa-box sofa-box-agent, $SYSTEMCTL reboot, $LIB/sofa-box apply-boot *, $LIB/sofa-box shield *, \
-  $LIB/sofa-box timezone *, $LIB/sofa-box update, $LIB/sofa-box factory-reset
+  $LIB/sofa-box timezone *, $LIB/sofa-box update, $LIB/sofa-box factory-reset, $LIB/sofa-box report
 EOF
 chmod 440 /etc/sudoers.d/sofa-box
 visudo -cf /etc/sudoers.d/sofa-box >/dev/null || { rm -f /etc/sudoers.d/sofa-box; echo "   (couldn't set up sudo for the box's settings)"; }

@@ -5,6 +5,7 @@ closes. Used by sofa-box-agent.py. Standard library only (Python 3.7+).
 The plan and the reasons are in docs/sofa-box-os.md.
 """
 import base64
+import collections
 import html
 import json
 import os
@@ -33,6 +34,12 @@ def memory_mb():
 MAX_APP_TABS = int(os.environ.get("SOFA_BOX_MAX_TABS") or
                    (2 if memory_mb() <= 1100 else 3 if memory_mb() <= 2200 else 4 if memory_mb() <= 4500 else 6))
 KEEP_AWAKE = ("sofa",)                 # never frozen: Sofa listens for the phone's "Play on"
+# What a report keeps of the pages (Browser.notes): their errors, and what their video players say: which decoder
+# plays (the Pi's own, or the processor), and why one stopped.
+NOTED = ("Runtime.exceptionThrown", "Runtime.consoleAPICalled", "Log.entryAdded", "Media.playerErrorsRaised",
+         "Media.playerMessagesLogged", "Media.playerPropertiesChanged", "Media.playerEventsAdded")
+MEDIA_PROPS = ("kVideoCodecName", "kVideoDecoderName", "kIsPlatformVideoDecoder", "kAudioCodecName", "kAudioDecoderName",
+               "kResolution", "kFramerate", "kRendererName")
 PLAYING_JS = "Array.from(document.querySelectorAll('video,audio')).some(m => !m.paused && !m.muted && m.volume > 0)"
 _opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 _web = urllib.request.build_opener()  # sites on the internet (the system's proxy settings apply)
@@ -685,6 +692,7 @@ class Browser:
         self.page_script = ""        # run in every app's own pages before theirs (the agent's H264_ONLY on a Pi 3)
         self.ws, self.next_id, self.waiting = None, 0, {}
         self.tabs = {}               # target id -> {"app", "title", "url", "session", "used", "audible"}
+        self.notes = collections.deque(maxlen=150)   # the pages' errors and their video players' messages, for a report
         self.lock = threading.Lock()
         self.ready = threading.Event()
         self._closed = threading.Event()
@@ -775,6 +783,8 @@ class Browser:
             self._track(p["targetInfo"])
         elif m == "Target.targetDestroyed":
             self.tabs.pop(p.get("targetId"), None)
+        elif m in NOTED:
+            self._note(m, p, msg.get("sessionId"))
         elif m.startswith("Runtime.") and m != "Runtime.bindingCalled":
             return                                                   # console messages and the like: not ours
         elif m == "Target.attachedToTarget" and p["targetInfo"]["type"] == "page":
@@ -790,6 +800,29 @@ class Browser:
                     return
                 threading.Thread(target=self.on_message, args=(payload, target, dict(self.tabs.get(target) or {})), daemon=True).start()
 
+    def _note(self, m, p, session):
+        if m == "Runtime.exceptionThrown":
+            d = p.get("exceptionDetails") or {}
+            text = (d.get("exception") or {}).get("description") or d.get("text", "")
+        elif m == "Runtime.consoleAPICalled":
+            if p.get("type") not in ("error", "assert"):
+                return
+            text = " ".join(str(a.get("value", a.get("description", ""))) for a in p.get("args", []))
+        elif m == "Log.entryAdded":
+            e = p.get("entry") or {}
+            text = "%s: %s" % (e.get("source", ""), e.get("text", "")) if e.get("level") == "error" else ""
+        elif m == "Media.playerErrorsRaised":
+            text = "; ".join("%s %s" % (e.get("errorType", ""), e.get("code", "")) for e in p.get("errors", []))
+        elif m == "Media.playerMessagesLogged":
+            text = "; ".join(x.get("message", "") for x in p.get("messages", []) if x.get("level") in ("error", "warning"))
+        elif m == "Media.playerPropertiesChanged":
+            text = ", ".join("%s=%s" % (x["name"][1:], x.get("value")) for x in p.get("properties", []) if x.get("name") in MEDIA_PROPS)
+        else:
+            text = ", ".join(str(e.get("value", "")) for e in p.get("events", []))
+        if text:
+            app = next((tab.get("app") for tab in self.tabs.values() if tab.get("session") == session), None) or "?"
+            self.notes.append("%s %s %s: %s" % (time.strftime("%H:%M:%S"), app, m.split(".", 1)[1], " ".join(text.split())[:300]))
+
     def _prepare(self, target, session):
         """Every page: the Sofa bar, the Home key and pointer hiding (in a script world of their own), and
         the way back to the agent."""
@@ -797,6 +830,11 @@ class Browser:
         try:
             self.call("Runtime.enable", {}, session)              # the page's messages come through only with it on
             self.call("Runtime.addBinding", {"name": "__sofaBox", "executionContextName": "sofabox"}, session)
+            for domain in ("Log", "Media"):                           # for the notes (Media: newer Chromiums only)
+                try:
+                    self.call(domain + ".enable", {}, session, timeout=3)
+                except OSError:
+                    pass
             if tab.get("ua"):
                 self.call("Network.setUserAgentOverride", {"userAgent": tab["ua"]}, session)
             self.size_page(target, session, tab)

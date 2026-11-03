@@ -15,6 +15,9 @@ Setting it up on a Mac: deploy/box-certs/README.md. Python 3.8+ and the openssl 
 What a box sends: a random id and secret it got here, its address on its home network (like 192.168.1.30), and
 certificate requests. What's kept (boxes.json): the id, a hash of the secret, that address, and when its
 certificate was made. Nothing about what anyone watches.
+
+Reports: when someone presses Send a report on a box (Settings -> Help), it sends its checks and recent logs here
+(/v1/report), with no titles in them; they're kept in reports/ for us to read, the newest few hundred.
 """
 import base64
 import hashlib
@@ -49,6 +52,9 @@ DEFAULTS = {
     "new_per_week": 45,                           # Let's Encrypt: 50 new certificates a week per registered domain
     "register_per_ip_day": 10,
     "register_per_day": 500,
+    "report_max": 200000,                         # a report's size (characters)
+    "reports_per_day": 10,                        # from one box (or one address, for a box with no id yet)
+    "reports_kept": 300,
 }
 
 
@@ -325,6 +331,7 @@ class Service:
         self.boxes = Boxes(os.path.join(DIR, "boxes.json"))
         self.made = []                                        # (when, client ip) of registrations, for the limits
         self.new_certs = []                                   # when a box's first certificate was made
+        self.reported = []                                    # (when, who) of reports, for the limit
 
     def name(self, box_id):
         return "%s.%s" % (box_id, self.cfg["base"])
@@ -391,6 +398,32 @@ class Service:
         return {"ok": True, "name": name, "cert": chain, "expires": int(expires)}
 
 
+    def report(self, data, client):
+        """A box's report (Settings -> Help -> Send a report), kept for us to read. A box with an id signs it with
+        its secret; one without (at home without the secure remote, say) is counted by its address."""
+        text = str(data.get("report") or "")
+        if not text.strip() or len(text) > self.cfg["report_max"]:
+            raise Refused("That isn't a report.")
+        who = "box-" + str(data["id"]) if data.get("id") else "ip-" + client
+        if data.get("id"):
+            self.box(data)
+        now = self.now()
+        with self.boxes.lock:
+            self.reported = [(t, w) for t, w in self.reported if now - t < 86400]
+            if sum(1 for _, w in self.reported if w == who) >= self.cfg["reports_per_day"]:
+                raise Limit("This box sent a lot of reports today. Try again tomorrow.")
+            self.reported.append((now, who))
+        code = "".join(secrets.choice("ABCDEFGHJKMNPQRSTUVWXYZ23456789") for _ in range(6))
+        folder = os.path.join(DIR, "reports")
+        when = time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime(now))
+        write_private(os.path.join(folder, "%s-%s.txt" % (time.strftime("%Y%m%d-%H%M%S", time.gmtime(now)), code)),
+                      "Report %s, %s, from %s\n\n%s\n" % (code, when, data.get("id") or "a box with no id", text))
+        kept = sorted(f for f in os.listdir(folder) if f.endswith(".txt"))
+        for old in kept[:-self.cfg["reports_kept"]]:
+            os.remove(os.path.join(folder, old))
+        return {"ok": True, "report": code}
+
+
 class Refused(Exception):
     status = 403
 
@@ -427,7 +460,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         size = int(self.headers.get("Content-Length") or 0)
-        if size > 16384:
+        if size > (3 * self.service.cfg["report_max"] if self.path == "/v1/report" else 16384):
             return self.reply(413, {"error": "Too big."})
         try:
             data = json.loads(self.rfile.read(size) or b"{}")
@@ -436,7 +469,7 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError:
             return self.reply(400, {"error": "Not JSON."})
         route = {"/v1/register": lambda: self.service.register(self.client()), "/v1/address": lambda: self.service.address(data),
-                 "/v1/cert": lambda: self.service.cert(data)}.get(self.path)
+                 "/v1/cert": lambda: self.service.cert(data), "/v1/report": lambda: self.service.report(data, self.client())}.get(self.path)
         if not route:
             return self.reply(404, {"error": "Not here."})
         try:

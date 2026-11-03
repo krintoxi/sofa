@@ -386,7 +386,10 @@
       <section class="card"><h3>Software</h3>${b.newest ? `<p class="update-ready"><b>Sofa Box OS ${esc(b.newest)} is ready.</b> Update the box to get it.</p>` : ""}
         <p>This is <b>Sofa Box OS ${esc(b.version)}</b>. The newest one comes from GitHub; the box restarts by itself when it's done. <b>Reset</b> puts it back to how it came:
         your apps, sign-ins, Wi-Fi, Bluetooth devices and the files in Downloads, Videos, Music and Pictures go, and it starts at the setup steps (for a new owner, or a fresh start).</p>
-        <div class="choices"><button class="btn${b.newest ? " primary" : ""}" data-action="update">Update the box</button><button class="btn danger" data-action="factory-reset">Reset to how it came</button></div></section></div>`;
+        <div class="choices"><button class="btn${b.newest ? " primary" : ""}" data-action="update">Update the box</button><button class="btn danger" data-action="factory-reset">Reset to how it came</button></div></section>
+      <section class="card"><h3>Help</h3><p>Something not working? <b>Send a report</b> sends the Sofa Box team what the box checks and what it has logged since it started,
+        so we can see what went wrong. No titles, passwords or codes are in it. Send it before you restart the box: a restart clears the logs. (Your phone's remote has it too.)</p>
+        <div class="choices"><button class="btn" data-action="send-report">Send a report</button></div><p class="small" id="reportNo">${lastReport ? "Last report: number <b>" + esc(lastReport) + "</b>." : ""}</p></section></div>`;
   }
 
   // ---- the first start: how you'll work it, the internet, Bluetooth, the box itself, your apps; then Home.
@@ -774,14 +777,19 @@
     toast((r.app && r.app.name || name) + " is on Home.");
     storeData = null; await loadApps(); render(true);
   }
-  let armed = "";
+  let armed = "", lastReport = "";
   async function action(a, t) {
-    if ((a === "restart" || a === "reboot" || a === "choose" || a === "factory-reset" || a === "update") && armed !== a) {
-      armed = a; t.textContent = a === "factory-reset" ? "Everything goes: press again to reset" : "Press again to be sure"; return;
+    if ((a === "restart" || a === "reboot" || a === "choose" || a === "factory-reset" || a === "update" || a === "send-report") && armed !== a) {
+      armed = a; t.textContent = a === "factory-reset" ? "Everything goes: press again to reset" : a === "send-report" ? "Press again to send it" : "Press again to be sure"; return;
     }
     armed = "";
     if (a === "wifi-scan") { $("#wifi").innerHTML = `<p class="lede">Looking…</p>`; }
+    if (a === "send-report") { t.textContent = "Send a report"; toast("Putting the report together and sending it…", 120000); }
     const r = await api("/box/api/action/" + a, {});
+    if (a === "send-report") {
+      if (r.ok && r.report) { lastReport = r.report; const n = $("#reportNo"); if (n) n.innerHTML = "Last report: number <b>" + esc(r.report) + "</b>."; }
+      toast(r.message || "That didn't work.", 15000); return;
+    }
     if (a === "wifi-scan") {
       $("#wifi").innerHTML = r.ok && r.networks.length ? `<div class="choices">${r.networks.map(n => `<button class="choice" data-wifi="${esc(n.ssid)}" data-secure="${n.secure ? 1 : 0}">${esc(n.ssid)} · ${n.signal}%</button>`).join("")}</div>`
         : `<p class="lede">${esc(r.message || "No networks found.")}</p>`;

@@ -14,7 +14,7 @@
   unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
 
 :root {
-  /* The default theme ("midnight"). Other themes below swap these. */
+  /* Midnight. Street (the default: the Sofa Box's own look) and the other themes below swap these. */
   --ink: #0A0E1A; --ink-rgb: 10,14,26;
   --slate: #151B2C; --slate-rgb: 21,27,44;
   --slate-2: #1E2639; --slate2-rgb: 30,38,57;
@@ -32,6 +32,17 @@
   --gutter: clamp(16px, 4vw, 56px);
   color-scheme: dark;
 }
+:root[data-theme="street"] {
+  --ink: #0D0D10; --ink-rgb: 13,13,16; --slate: #18181E; --slate-rgb: 24,24,30; --slate-2: #222229; --slate2-rgb: 34,34,41;
+  --slate-3: #31313B; --paper: #F6F6F8; --paper-rgb: 246,246,248; --soft: #D5D5DC; --soft-2: #BFBFC9; --mist: #9C9CA8;
+  --amber: #FF2E88; --accent-rgb: 255,46,136; --amber-hi: #FF5CA3; --amber-ink: #FFFFFF; --line: rgba(255,255,255,.1);
+  --second: #E8FF3A;
+}
+/* Street's word, as on the Sofa Box: slanted capitals with a yellow shadow (in outline when it's big) */
+:root[data-theme="street"] .brand span { display: inline-block; color: var(--amber); text-shadow: 2px 2px 0 var(--second);
+  text-transform: uppercase; transform: skewX(-6deg); letter-spacing: -0.01em; }
+:root[data-theme="street"] .splash-word { text-transform: uppercase; transform: skewX(-6deg); letter-spacing: -0.02em; }
+:root[data-theme="street"] .splash-word span { color: transparent; -webkit-text-stroke: 2px var(--amber); text-shadow: 4px 4px 0 var(--second); }
 :root[data-theme="cinema"] {
   --ink: #0B0708; --ink-rgb: 11,7,8; --slate: #1A1214; --slate-rgb: 26,18,20; --slate-2: #261A1D; --slate2-rgb: 38,26,29;
   --slate-3: #3A2328; --paper: #F6EFEF; --paper-rgb: 246,239,239; --soft: #D8CCCE; --soft-2: #C4B6B9; --mist: #A1949A;

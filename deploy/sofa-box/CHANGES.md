@@ -7,6 +7,20 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.7
+
+- **Send a report.** Settings → Help → **Send a report** (or, on the phone remote, **Something wrong?
+  Send a report** under the buttons, for when the TV's menus are out of reach) sends the Sofa Box team
+  what the box checks and has logged since it started, and the TV shows the report's number. In it:
+  the version, board and settings, the network, Wi-Fi, Bluetooth and phone remotes, where the player
+  was (not what it played), the errors of the pages open on it, and what their video players said:
+  which decoder plays (the Pi's own or the processor) and why one stopped. Web addresses are cut to
+  their site, files on drives to the drive, and passwords blanked: no titles, codes or passwords. It
+  goes only when you press it, twice. Send it before restarting the box: a restart clears the logs.
+- **Sofa on the box starts in the box's own theme.** The Sofa App has the Street theme now, and starts
+  with it everywhere (a server's owner can still pick another for everyone, and each screen its own);
+  on a Sofa box, it takes the box's theme.
+
 ## 1.1.6
 
 From setting up 1.1.5 on a Pi 3:

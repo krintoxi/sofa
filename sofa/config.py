@@ -82,8 +82,9 @@ DEFAULTS = {
     # Convert MKV, AVI and other files that need live conversion into MP4, once, in the background.
     "auto_convert": True,
     "keep_originals": True,
-    # The look every device starts with (people can pick their own): midnight, cinema, ocean, forest, grape, oled.
-    "theme": "midnight",
+    # The look every device starts with (people can pick their own): street (the Sofa Box's), midnight, cinema,
+    # ocean, forest, grape, oled. A Sofa box's TV starts in the box's own theme.
+    "theme": "street",
     # yt-dlp for "Save from a link": "auto" (Sofa's own copy in data/bin, Homebrew, PATH) or a full path.
     "ytdlp": "auto",
     # Skip downloads bigger than this many GB (0: no limit).

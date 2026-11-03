@@ -7,7 +7,7 @@
 <meta name="author" content="EdgeVenture.uk">
 <title>Sofa</title>
 <link rel="manifest" href="/client/manifest.webmanifest">
-<meta name="theme-color" content="#0A0E1A">
+<meta name="theme-color" content="#0D0D10">
 <link rel="icon" type="image/png" sizes="32x32" href="/client/icons/favicon-32.png">
 <link rel="apple-touch-icon" href="/client/icons/icon-180.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -17,6 +17,9 @@
 <link rel="preload" href="/client/vendor/fonts/instrument-sans-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/client/vendor/fonts/bricolage-grotesque-latin-opsz-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/client/sofa.css">
+<script>/* the theme this screen showed last (Street the first time), before anything is drawn */
+try { var th = JSON.parse(localStorage.getItem("sofa.shownTheme")) || "street"; if (th !== "midnight") document.documentElement.setAttribute("data-theme", th); }
+catch (e) { document.documentElement.setAttribute("data-theme", "street"); }</script>
 </head>
 <body>
 <div id="splash" aria-hidden="true">

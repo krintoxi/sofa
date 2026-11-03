@@ -300,6 +300,12 @@ games that run well on the box, worked with the arrows and OK (or a controller).
   - **Reset to how it came** wipes everything of the owner's and starts at the setup again. Your
     apps, sign-ins, Wi-Fi, Bluetooth devices and files all go. Use it before giving or selling a box
     to someone.
+- **Help → Send a report:** when something doesn't work (a black screen, a controller that won't
+  show), it sends the box's checks and what it has logged since it started to the Sofa Box team, and
+  the TV shows the report's number: give it to whoever helps you. No titles, passwords or codes are in
+  it ([what's in it](../../docs/privacy.md#on-a-sofa-box)). Send it **before** restarting the box: a
+  restart clears the logs. When the TV's Settings are out of reach, the phone remote has it too, under
+  its buttons: **Something wrong? Send a report**. On a computer: `sudo sofa-box report` shows it.
 
 <img src="../../docs/images/box-themes.jpg" alt="The four themes: Street, Terminal, Pirate and Sofa" width="100%">
 

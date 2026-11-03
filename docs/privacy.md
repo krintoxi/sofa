@@ -42,8 +42,19 @@ apps and sites you open on it:
 | Live TV channel lists | iptv-org | Don't open Live TV |
 | The secure (https) phone remote | the Sofa Box certificate service (boxcert.edgeventure.uk), about once a day: a random id and the box's address on your network | Settings → Remotes and Bluetooth → Switch off |
 
+| Send a report | the Sofa Box certificate service, only when you press it (Settings → Help, or "Something wrong?" on the phone remote) | Don't press it |
+
 The secure phone remote's name (random letters) is listed in the public certificate logs, as every
 certificate is. Its key stays on the box.
+
+**What a report has in it**, for the Sofa Box team to find what went wrong: the box's version, board and
+settings; how its network, Wi-Fi, Bluetooth and phone remotes are doing (the names of your Wi-Fi and
+Bluetooth devices among them); where the player was in a video (not what it was); the errors of the
+pages open on it and what their video players said; and the box's own logs since it last started.
+Before it goes, the box cuts every web address down to its site and first folder, and every file on a
+drive down to the drive, and blanks passwords and secrets: no titles, codes or passwords are in it. The
+box keeps a copy (`~/.config/sofa-box/last-report.txt`); the service keeps the newest few hundred
+reports, under the number the TV shows you.
 
 ### Work offline
 
