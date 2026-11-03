@@ -321,10 +321,10 @@ fun tick() {
 }
 Plymouth.SetRefreshFunction(tick);
 
-msg = Sprite(); msg.SetZ(5);
+msg = Sprite(); msg.SetZ(5);                                    // a note: the first start's, or from the system
 fun message(text) {
-  msg.SetImage(Image.Text(text, 0.6, 0.62, 0.7));
-  msg.SetX(cx - msg.GetImage().GetWidth() / 2); msg.SetY(Window.GetY() + sh - 50 * k);
+  msg.SetImage(Image.Text(text, 0.86, 0.87, 0.92, 1, "Sans " + Math.Int(Math.Max(22 * k, 12))));
+  msg.SetX(cx - msg.GetImage().GetWidth() / 2); msg.SetY(cy + 240 * k);
 }
 Plymouth.SetMessageFunction(message);
 """

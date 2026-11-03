@@ -40,6 +40,8 @@ NOTED = ("Runtime.exceptionThrown", "Runtime.consoleAPICalled", "Log.entryAdded"
          "Media.playerMessagesLogged", "Media.playerPropertiesChanged", "Media.playerEventsAdded")
 MEDIA_PROPS = ("kVideoCodecName", "kVideoDecoderName", "kIsPlatformVideoDecoder", "kAudioCodecName", "kAudioDecoderName",
                "kResolution", "kFramerate", "kRendererName")
+DRAWN_JS = ("location.href !== 'about:blank' && document.readyState !== 'loading' && !!document.body "
+            "&& document.body.childElementCount > 0")
 PLAYING_JS = "Array.from(document.querySelectorAll('video,audio')).some(m => !m.paused && !m.muted && m.volume > 0)"
 _opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 _web = urllib.request.build_opener()  # sites on the internet (the system's proxy settings apply)
@@ -919,7 +921,7 @@ class Browser:
             self.activate(target)
             return target
         self._make_room()
-        target = self.call("Target.createTarget", {"url": "about:blank"})["targetId"]
+        target = self.call("Target.createTarget", {"url": "about:blank", "background": True})["targetId"]   # Home stays in front
         tab = self.tabs.setdefault(target, {"used": time.time(), "session": None, "audible": False, "title": "", "url": url})
         tab.update(app=app_id, ua=ua if ua else None)
         for _ in range(60):                                   # attached (auto-attach) and prepared: the page's
@@ -933,12 +935,28 @@ class Browser:
                 pass
         if tab.get("session"):
             self.call("Page.navigate", {"url": url}, tab["session"])
+            self.drawn(tab["session"])
         else:
             self.call("Target.closeTarget", {"targetId": target})
             target = self.call("Target.createTarget", {"url": url})["targetId"]
             self.tabs.setdefault(target, {"used": time.time(), "session": None, "audible": False}).update(app=app_id)
         self.activate(target)
         return target
+
+    def drawn(self, session, limit=8.0):
+        """Wait (behind Home, which says it's opening) until the new page has something to show, so the TV goes from
+        Home to the app, not to a blank page while it loads; at most `limit` seconds."""
+        until = time.time() + limit
+        while time.time() < until:
+            try:
+                if self.call("Runtime.evaluate", {"expression": DRAWN_JS, "returnByValue": True}, session, timeout=2) \
+                        .get("result", {}).get("value"):
+                    time.sleep(0.25)                          # its first styles and pictures
+                    return True
+            except OSError:
+                pass
+            time.sleep(0.15)
+        return False
 
     def cookies(self, host):
         """The browser's cookies for a host, as a Cookie header (Sofa's sign-in at its address on the box)."""

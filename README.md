@@ -70,7 +70,7 @@ and DVDs, a browser and games. The **Sofa App is built in**, and it opens your S
 or Sofa on the box itself. You don't need a Sofa Server for it (Live TV and Sofa on the box work
 without one), and you don't need a remote: your phone works it.
 
-<img src="docs/images/box-home.jpg" alt="The Sofa Box home screen: Open Sofa and Live TV, your apps, and a Watch row" width="100%">
+<img src="docs/images/box-home.jpg" alt="The Sofa Box home screen: the time and a hello, Open Sofa and Live TV, the weather, and a Watch row" width="100%">
 
 1. Download **`sofa-box.img.xz`** from the [newest card](https://github.com/krintoxi/sofa/releases/tag/sofa-box)
    (under **Assets**).

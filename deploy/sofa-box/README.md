@@ -13,7 +13,7 @@ ads, no account, and nothing watching what you watch; the TV itself never needs 
 **[⬇ Download Sofa Box OS](https://github.com/krintoxi/sofa/releases/tag/sofa-box)** (the newest card) ·
 [Every version](https://github.com/krintoxi/sofa/releases?q=box-os) · [What's new](CHANGES.md)
 
-<img src="../../docs/images/box-home.jpg" alt="The Sofa Box home screen: Open Sofa and Live TV, your apps, and a Watch row with Sofa, Live TV, Netflix and YouTube" width="100%">
+<img src="../../docs/images/box-home.jpg" alt="The Sofa Box home screen: the time and a hello, Open Sofa and Live TV, the weather, and a Watch row with Sofa, Live TV and YouTube" width="100%">
 
 - **Sofa from anywhere:** your Sofa Server at home, a Sofa Server on the internet (a share link someone
   sent you), **Sofa on the box itself** (no other computer needed), or your Jellyfin, Emby or Plex server.
@@ -71,6 +71,9 @@ ads, no account, and nothing watching what you watch; the TV itself never needs 
 From then on the box starts on its home screen whenever it's switched on.
 
 ### The setup (the first start)
+
+A new card's **first start takes a few minutes** (the card grows to fill the SD card and the box sets
+itself up), and it may restart once by itself. Its boot screen says so: just wait.
 
 <img src="../../docs/images/box-setup.jpg" alt="Setup: Hello. Let's set up your Sofa Box. Your phone (a QR code), A remote or controller, Keyboard and mouse" width="100%">
 
@@ -211,8 +214,12 @@ Everything starts here. **Home** comes back to it from anywhere: the remote's Ho
 remotes it's the Home or Menu button, sent over HDMI), a controller's Xbox/PS button, **F1** or the
 Windows key on a keyboard, or **Home** on the Sofa bar.
 
-- **The spotlight** at the top: what you were watching in Sofa (Resume), or Open Sofa and Live TV
-  with your streaming apps.
+- **The top:** the time and the day, a hello, and what to do next: **Resume** what you were watching
+  in Sofa (its picture behind), **Open Sofa** and **Live TV**. Beside it, **the weather**: now, the
+  next 24 hours' high and low, and the next few hours, for the city of the box's time zone until you
+  pick a town in **Settings → Weather on Home** (also °C or °F, or Off).
+- **Opening an app** shows its icon while it loads, and the TV switches to it once it's ready
+  (not to a blank page). One that's open already comes straight back.
 - **Watch:** Sofa, Live TV and your streaming apps, as big cards. **Plugged in:** USB drives and a disc,
   when there's one. **Continue watching** from the Sofa it opens with.
 - **Your apps:** everything else. OK opens one. **Menu** on an app moves it, hides it or removes it.

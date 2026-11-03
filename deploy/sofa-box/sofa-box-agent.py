@@ -56,10 +56,12 @@ def os_version():
 
 OS_VERSION = os_version()
 DEFAULTS = {"server": None, "quality": "auto", "hwdec": "auto", "audio": "auto", "learned_720": False, "performance": "auto",
-            "mpv_args": [], "theme": "street", "boot_text": "", "shield": True, "welcomed": False, "secure_remote": True, "boot_sound": "on"}
+            "mpv_args": [], "theme": "street", "boot_text": "", "shield": True, "welcomed": False, "secure_remote": True, "boot_sound": "on",
+            "weather": "on", "weather_units": "auto", "weather_place": None}
 THEMES = ("street", "terminal", "pirate", "sofa", "midnight", "cinema", "ocean", "forest", "grape", "oled")
 CHOICES = {"quality": ("auto", "720", "1080"), "audio": ("auto", "passthrough"), "performance": ("auto", "light", "full"),
-           "hwdec": ("auto", "no", "v4l2m2m-copy", "drm", "auto-safe"), "theme": THEMES, "boot_sound": ("on", "off")}
+           "hwdec": ("auto", "no", "v4l2m2m-copy", "drm", "auto-safe"), "theme": THEMES, "boot_sound": ("on", "off"),
+           "weather": ("on", "off"), "weather_units": ("auto", "c", "f")}
 HOP = {"connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailers", "transfer-encoding",
        "upgrade", "content-length", "host", "accept-encoding"}
 
@@ -620,6 +622,122 @@ def open_app(app_id=None, url=None, hash_=None):
             browser.evaluate(existing, "location.hash = %s" % json.dumps(hash_))
         return {"ok": True, "target": browser.open(app_id, target_url, ua)}
     return {"ok": True, "url": target_url}
+
+
+# ---------------------------------------------------------------- the weather on Home
+
+WEATHER_URL = os.environ.get("SOFA_BOX_WEATHER") or "https://api.met.no/weatherapi/locationforecast/2.0/compact"
+PLACES_URL = os.environ.get("SOFA_BOX_PLACES") or "https://nominatim.openstreetmap.org/search"
+WEB_UA = "SofaBox/%s github.com/krintoxi/sofa" % OS_VERSION   # both services ask to be told who's asking
+FAHRENHEIT = re.compile(r"^(America/(New_York|Chicago|Denver|Los_Angeles|Phoenix|Anchorage|Juneau|Sitka|Nome|Adak|Yakutat|"
+                        r"Metlakatla|Detroit|Boise|Menominee|Indiana/\w+|Kentucky/\w+|North_Dakota/\w+|Puerto_Rico|Nassau|"
+                        r"Belize|Cayman)|Pacific/(Honolulu|Guam|Saipan|Pago_Pago)|US/\w+)$")
+_weather = {"at": 0, "key": None, "series": None}
+
+
+def zone_place(tz):
+    """The time zone's own city and where it is (from the system's zone list), for the weather until one is picked."""
+    for tab in ("/usr/share/zoneinfo/zone1970.tab", "/usr/share/zoneinfo/zone.tab"):
+        try:
+            with open(tab, encoding="utf-8") as f:
+                for line in f:
+                    cols = line.rstrip("\n").split("\t")
+                    if len(cols) < 3 or cols[2] != tz:
+                        continue
+                    m = re.match(r"^([+-])(\d\d)(\d\d)(\d\d)?([+-])(\d\d\d)(\d\d)(\d\d)?$", cols[1])
+                    if not m:
+                        return None
+                    lat = (int(m[2]) + int(m[3]) / 60 + int(m[4] or 0) / 3600) * (-1 if m[1] == "-" else 1)
+                    lon = (int(m[6]) + int(m[7]) / 60 + int(m[8] or 0) / 3600) * (-1 if m[5] == "-" else 1)
+                    return {"name": tz.rsplit("/", 1)[-1].replace("_", " "), "lat": round(lat, 2), "lon": round(lon, 2)}
+        except OSError:
+            continue
+    return None
+
+
+def weather(now=None):
+    """Home's weather: now, the next 24 hours' high and low, and the next few hours, from MET Norway (api.met.no:
+    free, no key, for anyone). It's asked at most every 30 minutes, for the place rounded to about a kilometre: the
+    one picked in Settings, else the time zone's city."""
+    s, now = settings(), now or time.time()
+    if s.get("weather") == "off":
+        return {"ok": False, "off": True}
+    tz = current_timezone()
+    place = s.get("weather_place") or zone_place(tz)
+    if not place:
+        return {"ok": False, "message": "Pick a place for the weather in Settings."}
+    key = (round(place["lat"], 2), round(place["lon"], 2))
+    if _weather["key"] != key or now - _weather["at"] > 1800:
+        try:
+            req = urllib.request.Request(WEATHER_URL + "?" + urllib.parse.urlencode({"lat": "%.2f" % key[0], "lon": "%.2f" % key[1]}),
+                                         headers={"User-Agent": WEB_UA})
+            with urllib.request.urlopen(req, timeout=15) as r:
+                series = json.loads(r.read())["properties"]["timeseries"]
+            _weather.update(at=now, key=key, series=series)
+        except (OSError, ValueError, KeyError, TypeError):
+            if _weather["key"] != key or not _weather["series"]:
+                return {"ok": False, "message": "No weather just now."}
+            _weather["at"] = now - 1500                           # the last one still, and again in 5 minutes
+    f = s.get("weather_units") == "f" or (s.get("weather_units", "auto") == "auto" and bool(FAHRENHEIT.match(tz)))
+
+    def deg(c):
+        return int(round(c * 9 / 5 + 32 if f else c))
+
+    def symbol(d):
+        return ((d.get("next_1_hours") or d.get("next_6_hours") or {}).get("summary") or {}).get("symbol_code", "")
+    rows = []
+    for x in _weather["series"]:
+        try:
+            rows.append((__import__("calendar").timegm(time.strptime(x["time"], "%Y-%m-%dT%H:%M:%SZ")), x["data"]))
+        except (KeyError, ValueError):
+            continue
+    rows = [r for r in rows if r[0] > now - 3600]
+    if not rows:
+        return {"ok": False, "message": "No weather just now."}
+    day = [d["instant"]["details"]["air_temperature"] for t, d in rows if t < now + 86400]
+    return {"ok": True, "place": place["name"], "units": "F" if f else "C", "temp": deg(rows[0][1]["instant"]["details"]["air_temperature"]),
+            "symbol": symbol(rows[0][1]), "high": deg(max(day)), "low": deg(min(day)),
+            "hours": [{"t": t, "temp": deg(d["instant"]["details"]["air_temperature"]), "symbol": symbol(d)}
+                      for t, d in rows[1:13:3] if symbol(d)][:4]}
+
+
+def find_places(q):
+    """Settings -> Weather: towns and cities by name (OpenStreetMap's Nominatim), only while someone looks one up."""
+    q = re.sub(r"\s+", " ", str(q or "")).strip()[:80]
+    if len(q) < 2:
+        return {"ok": True, "places": []}
+    req = urllib.request.Request(PLACES_URL + "?" + urllib.parse.urlencode({"q": q, "format": "jsonv2", "limit": 6, "featureType": "settlement"}),
+                                 headers={"User-Agent": WEB_UA, "Accept-Language": "en"})
+    try:
+        with urllib.request.urlopen(req, timeout=15) as r:
+            found = json.loads(r.read())
+    except (OSError, ValueError):
+        return {"ok": False, "message": "Couldn't look that up just now.", "places": []}
+    places = []
+    for x in found if isinstance(found, list) else []:
+        if x.get("addresstype") in ("county", "state", "region", "country", "postcode"):
+            continue
+        try:
+            parts = [p.strip() for p in str(x.get("display_name") or "").split(",") if p.strip()]
+            name = str(x.get("name") or (parts[:1] or [q])[0])[:60]
+            places.append({"name": name, "where": ", ".join(p for p in parts[1:] if p != name)[-80:],
+                           "lat": round(float(x["lat"]), 2), "lon": round(float(x["lon"]), 2)})
+        except (KeyError, TypeError, ValueError):
+            continue
+    return {"ok": True, "places": places}
+
+
+def weather_place(v):
+    """A place from Settings (a name and where it is), or None for the time zone's city again."""
+    if not isinstance(v, dict):
+        return None
+    try:
+        lat, lon = float(v["lat"]), float(v["lon"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+        return None
+    return {"name": re.sub(r"[^\w '’&.,()-]", "", str(v.get("name") or ""))[:60].strip() or "Here", "lat": round(lat, 2), "lon": round(lon, 2)}
 
 
 # ---------------------------------------------------------------- servers: which Sofa (or Jellyfin, Emby, Plex)
@@ -1714,7 +1832,8 @@ def box_info():
         mem = None
     return {"version": OS_VERSION, "newest": newest_version(), "model": model() or "this computer", "memory": mem, "temperature": temp,
             "wifi": ssid or None, "address": local_address(), "server": server(), "server_name": (found.get(server()) or {}).get("name"),
-            "settings": {k: s[k] for k in ("quality", "hwdec", "audio", "theme", "boot_text", "performance", "boot_sound")},
+            "settings": {k: s[k] for k in ("quality", "hwdec", "audio", "theme", "boot_text", "performance", "boot_sound", "weather", "weather_units")},
+            "weather_place": s.get("weather_place") or zone_place(current_timezone()), "weather_picked": bool(s.get("weather_place")),
             "choices": CHOICES, "learned_720": s["learned_720"],
             "max_height": max_height(), "slow_board": slow_board(), "light": light(), "board": board(), "controllers": controllers}
 
@@ -2053,6 +2172,8 @@ class Handler(BaseHTTPRequestHandler):
                 changes["welcomed"] = bool(data["welcomed"])
             if "boot_text" in data:
                 changes["boot_text"] = re.sub(r"[^\w '’&.-]", "", str(data["boot_text"]))[:30].strip()
+            if "weather_place" in data:                        # Settings -> Weather: a place, or null for the time zone's
+                changes["weather_place"] = weather_place(data["weather_place"])
             if "secure_remote" in data:                        # the phone remote over https at home (SecureRemote)
                 changes["secure_remote"] = bool(data["secure_remote"])
                 secure_remote.wake()
@@ -2114,6 +2235,10 @@ class Handler(BaseHTTPRequestHandler):
             return self.send('{"error":"not found"}', status=404)
         if path.startswith("/box/games/"):
             return self.static(os.path.join(HERE, "games"), path[len("/box/games/"):] or "index.html")
+        if path == "/box/api/weather":
+            return self.send(json.dumps(weather()))
+        if path == "/box/api/weather/places":
+            return self.send(json.dumps(find_places((qs.get("q") or [""])[0])))
         if path == "/box/api/apps":
             s, st = settings(), servers.state()
             default = servers.get(st["default"]) if st["default"] else None

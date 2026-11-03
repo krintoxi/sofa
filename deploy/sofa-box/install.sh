@@ -344,6 +344,26 @@ ExecStart=$LIB/sofa-box tune
 [Install]
 WantedBy=multi-user.target
 EOF
+# A new card's first start is the slow one (the card grows to fill the SD card, keys are made, the browser sets
+# itself up): its boot screen says so, and to wait. Only then: systemd counts a start as the first until it has
+# gone all the way through once (a card still "uninitialized" in /etc/machine-id).
+FIRST_START_NOTE="The first start takes a few minutes, and the box may restart once by itself. Just wait: it carries on."
+cat > /etc/systemd/system/sofa-box-first-start.service <<EOF
+[Unit]
+Description=Sofa box: the first start's note on the boot screen
+ConditionFirstBoot=yes
+DefaultDependencies=no
+After=plymouth-start.service systemd-remount-fs.service
+Before=sysinit.target first-boot-complete.target
+
+[Service]
+Type=oneshot
+ExecStart=-/usr/bin/plymouth display-message "--text=$FIRST_START_NOTE"
+RemainAfterExit=yes
+
+[Install]
+WantedBy=sysinit.target
+EOF
 # The box's own Wi-Fi (at its setup) works like a hotel's: every name is the box, so a phone that joins opens its
 # sign-in sheet by itself, and the sheet opens the phone remote (sofa-box-agent.py, Captive).
 mkdir -p /etc/NetworkManager/dnsmasq-shared.d
@@ -358,7 +378,8 @@ fi
 
 systemctl daemon-reload
 systemctl set-default graphical.target >/dev/null
-systemctl enable sofa-box-agent.service sofa-box.service sofa-box-input.service sofa-box-cec.service sofa-box-shield.timer sofa-box-tune.service
+systemctl enable sofa-box-agent.service sofa-box.service sofa-box-input.service sofa-box-cec.service sofa-box-shield.timer sofa-box-tune.service \
+  sofa-box-first-start.service
 if ! grep -q '^# >>> Sofa Shield' /etc/hosts; then
   say "Sofa Shield (ad blocking for the whole box)"
   "$LIB/sofa-box" shield on || echo "   (no blocklist now: Settings → Sofa Shield turns it on later)"
