@@ -1207,7 +1207,8 @@ class SecureRemote:
         os.makedirs(self.dir, mode=0o700, exist_ok=True)
         key, name = self.path("key.pem"), acct["name"]
         args = ["openssl", "req", "-new", "-subj", "/CN=" + name, "-addext", "subjectAltName=DNS:" + name]
-        args += ["-key", key] if os.path.exists(key) else ["-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:prime256v1", "-nodes", "-keyout", key]
+        args += ["-key", key] if os.path.exists(key) else ["-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:prime256v1",
+                                                            "-pkeyopt", "ec_param_enc:named_curve", "-nodes", "-keyout", key]
         p = subprocess.run(args, capture_output=True, text=True, timeout=60)
         if p.returncode != 0:
             raise ValueError("openssl: " + p.stderr.strip()[-200:])
