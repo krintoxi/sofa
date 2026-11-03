@@ -88,17 +88,21 @@ From then on the box starts on its home screen whenever it's switched on.
 5. **Apps:** tick the streaming apps you use; they go on Home, ready to sign in.
 
 **No cable and no Wi-Fi yet?** After a few seconds, the box makes its own Wi-Fi, "Sofa Box 1234". The TV
-shows two QR codes:
+takes you through four steps, one code at a time, and says under each what it's waiting for:
 
-1. Scan the first to join the box's Wi-Fi.
-2. Then scan the second: the remote opens on your phone. (Some phones open it by themselves after the
-   first, in a sign-in sheet like hotel Wi-Fi's.)
-3. The remote opens on its **Wi-Fi** tab: pick your home Wi-Fi and type its password. The box leaves its
-   own Wi-Fi to join yours, and your phone goes back to your Wi-Fi. The TV shows "Joining…", then either
-   that it's connected or why not (the password, say). If it didn't work, the box's own Wi-Fi comes back
-   with the same name and password: join it again and try once more.
-4. Once it's connected, **scan the code on the TV again** to carry on. At home the remote has the box's
-   own secure address (`https://…box.edgeventure.uk:8093`, see [The phone remote](#the-phone-remote)).
+1. **Join the box's Wi-Fi:** scan the code with your phone's camera. Once your phone has joined, this
+   code goes and the next one shows.
+2. **Open the remote:** scan the new code. (Some phones open the remote by themselves after step 1.)
+3. **Give the box your Wi-Fi:** the remote opens on its **Wi-Fi** tab; pick your home Wi-Fi and type its
+   password. The box leaves its own Wi-Fi to join yours, and your phone goes back to your Wi-Fi. The TV
+   shows "The box is joining…", then either that it's connected or why not (the password, say). If it
+   didn't work, the box's own Wi-Fi comes back with the same name and password: join it again and retry.
+4. **Keep the remote:** once it's connected, **scan the code on the TV** to carry on. At home the remote
+   has the box's own secure address (`https://…box.edgeventure.uk:8093`, see
+   [The phone remote](#the-phone-remote)).
+
+A step that went too fast or a phone that dropped off: **Show the code again** under the step brings it
+back.
 
 **An iPhone that only opens secure pages** (**Settings → Apps → Safari → Not Secure Connection
 Warning** on): Safari refuses the box's page on its own Wi-Fi ("HTTPS only"), so switch that setting off
@@ -306,7 +310,8 @@ lines ticking by while it starts, and the box's name at the bottom:
 
 - **Picture:** Automatic, 1080p or 720p. On Automatic the box watches for dropped frames and asks for
   720p by itself if 1080p is too much.
-- **Sound:** "TV or soundbar", or "AV receiver" to send surround as it is to a receiver.
+- **Sound:** "TV or soundbar", or "AV receiver" to send surround as it is to a receiver. **Sound at
+  start** is the box's few soft notes as it starts; Off leaves them out.
 
 ### Keyboard and mouse
 
