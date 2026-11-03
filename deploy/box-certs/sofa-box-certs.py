@@ -495,8 +495,9 @@ def try_staging(cfg):
     work = os.path.join(DIR, "try")
     os.makedirs(work, exist_ok=True)
     key = os.path.join(work, "key.pem")
-    openssl(["req", "-new", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:prime256v1", "-nodes", "-keyout", key,
-             "-out", os.path.join(work, "csr.pem"), "-subj", "/CN=" + name])
+    openssl(["req", "-new", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:prime256v1",
+             "-pkeyopt", "ec_param_enc:named_curve",  # LibreSSL (macOS) writes the curve out in full otherwise; Let's Encrypt refuses that
+             "-nodes", "-keyout", key, "-out", os.path.join(work, "csr.pem"), "-subj", "/CN=" + name])
     with open(os.path.join(work, "csr.pem"), "rb") as f:
         der = openssl(["req", "-outform", "DER"], f.read())
     print("Asking Let's Encrypt (staging) for %s; about a minute…" % name)
