@@ -7,6 +7,18 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.3
+
+- **The phone's Remote tab works.** Taps and swipes on its round pad went nowhere: the pad shared its name in
+  the page with the Touchpad tab's icon, and the page wired the pad up to the icon. Back, Home and the other
+  buttons were fine. Checked in an iPhone's Safari: taps, OK and swipes all reach the box.
+- **No confusing code swap after you give the box your Wi-Fi.** While it joins, the TV no longer shows the
+  codes for the box's own Wi-Fi (they're about to stop working). Once it's joined, the TV waits the few
+  seconds for the secure code instead of showing the plain one first and then swapping it.
+
+Still being looked into on a real box: the iPhone's sign-in sheet not opening by itself, Bluetooth remotes and
+controllers not showing up, and some apps (YouTube) opening in a small square in the corner of the TV.
+
 ## 1.1.2
 
 Fixes from setting up a real box with an iPhone:
