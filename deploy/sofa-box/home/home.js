@@ -129,8 +129,27 @@
   // ---------------------------------------------------------------- pieces
   // An app's picture: its own icon (fetched from the site and kept), drawn icons for the box's own, else its
   // first letter. Tiles carry the app's colour: a glow of it behind the icon, and the frame when focused.
+  // Every app icon, as it loads: a small one sits in the middle of its tile; a light one (a white logo on clear,
+  // which vanishes on the tile's white) gets the app's colour behind it.
+  window.sofaIcon = img => {
+    const box = img.parentNode;
+    if (!box) return;
+    if (img.naturalWidth && img.naturalWidth < 64) box.classList.add("tiny");
+    try {
+      const c = document.createElement("canvas"), g = c.getContext("2d");
+      c.width = c.height = 16; g.drawImage(img, 0, 0, 16, 16);
+      const px = g.getImageData(0, 0, 16, 16).data;
+      let solid = 0, light = 0;
+      for (let i = 0; i < px.length; i += 4) if (px[i + 3] > 40) { solid++; if (px[i] + px[i + 1] + px[i + 2] > 690) light++; }
+      if (solid < 6) {                     // nothing in it (some sites' icons are empty): the app's first letter
+        const b = box.closest("button") && box.closest("button").querySelector("b");
+        box.classList.add("mono"); box.classList.remove("tiny");
+        img.replaceWith(document.createTextNode(((b && b.textContent) || "").replace(/^the\s+/i, "").charAt(0).toUpperCase()));
+      } else if (solid < 230 && light / solid > 0.7) box.classList.add("light");
+    } catch (e) { /* an icon from elsewhere: as it is */ }
+  };
   function appIcon(a) {
-    if (a.icon_url) return `<img src="${esc(a.icon_url)}" alt="" loading="lazy" onload="if(this.naturalWidth&&this.naturalWidth<64)this.parentNode.classList.add('tiny')" onerror="this.parentNode.classList.add('mono');this.replaceWith(document.createTextNode('${esc((a.name || "?")[0])}'))">`;
+    if (a.icon_url) return `<img src="${esc(a.icon_url)}" alt="" loading="lazy" onload="sofaIcon(this)" onerror="this.parentNode.classList.add('mono');this.replaceWith(document.createTextNode('${esc((a.name || "?")[0])}'))">`;
     if (BUILTIN_ICON[a.id]) return icon(BUILTIN_ICON[a.id]);
     return esc((a.name || "?").replace(/^the\s+/i, "")[0].toUpperCase());
   }
@@ -240,7 +259,7 @@
   function viewStore() {
     if (!storeData) { api("/box/api/store").then(st => { storeData = st; render(true); setTimeout(refreshStoreIcons, 6000); }).catch(e => toast(e.message)); return `<h1 class="page">App Store</h1><p class="lede">Loading…</p>`; }
     const tile = e => `<button class="tile app${e.installed ? " have" : ""}" style="--c:${esc(e.color)}" data-store="${esc(e.id)}">
-        ${e.installed ? `<i class="badge">On Home</i>` : e.drm ? `<i class="badge warn" title="Uses DRM">DRM</i>` : ""}<span class="ic${e.icon_url ? "" : " mono"}">${e.icon_url ? `<img src="${esc(e.icon_url)}" alt="" loading="lazy">` : esc(e.name.replace(/^the\s+/i, "")[0].toUpperCase())}</span><b>${esc(e.name)}</b></button>`;
+        ${e.installed ? `<i class="badge">On Home</i>` : e.drm ? `<i class="badge warn" title="Uses DRM">DRM</i>` : ""}<span class="ic${e.icon_url ? "" : " mono"}">${e.icon_url ? `<img src="${esc(e.icon_url)}" alt="" loading="lazy" onload="sofaIcon(this)">` : esc(e.name.replace(/^the\s+/i, "")[0].toUpperCase())}</span><b>${esc(e.name)}</b></button>`;
     return `<div class="view-in"><h1 class="page">App Store</h1>
       <p class="lede">Apps open full screen, with no browser around them. Press OK to put one on Home.</p>
       <div class="store-detail" id="storeDetail"></div>
@@ -261,7 +280,7 @@
     const box = $("#storeDetail"); if (!box || !storeData) return;
     const e = storeData.sections.flatMap(s => s.apps).find(x => x.id === id); if (!e) return;
     box.style.setProperty("--c", e.color);
-    box.innerHTML = `<span class="ic${e.icon_url ? "" : " mono"}">${e.icon_url ? `<img src="${esc(e.icon_url)}" alt="">` : esc(e.name[0])}</span><div><h3>${esc(e.name)}</h3><p>${esc(e.about || "")}${e.drm ? ` <span class="warn">Uses DRM: on a Pi 3 the picture may be smaller, and some services may not play.</span>` : ""}</p>
+    box.innerHTML = `<span class="ic${e.icon_url ? "" : " mono"}">${e.icon_url ? `<img src="${esc(e.icon_url)}" alt="" onload="sofaIcon(this)">` : esc(e.name[0])}</span><div><h3>${esc(e.name)}</h3><p>${esc(e.about || "")}${e.drm ? ` <span class="warn">Uses DRM: on a Pi 3 the picture may be smaller, and some services may not play.</span>` : ""}</p>
       <p class="addr">${esc(e.url.replace(/^https?:\/\//, ""))}</p></div>
       <div>${e.installed ? `<button class="btn primary" data-app="${esc(e.id)}">Open</button> <button class="btn" data-remove="${esc(e.id)}">Remove</button>`
         : `<button class="btn primary" data-install="${esc(e.id)}">Add to Home</button>`}</div>`;
@@ -326,7 +345,7 @@
   function viewGames() {
     if (!games) return `<h1 class="page">Games</h1><p class="lede">Loading…</p>`;
     return `<div class="view-in"><h1 class="page">Games</h1><p class="lede">Small games that run well on the box. Arrows and OK, or a controller.</p>
-      <div class="grid">${games.games.map(g => `<button class="tile" style="--c:${esc(g.color)}" data-game="${esc(g.id)}"><span class="ic">${esc(g.emoji || g.name[0])}</span>
+      <div class="grid games">${games.games.map(g => `<button class="tile game" style="--c:${esc(g.color)}" data-game="${esc(g.id)}"><span class="ic">${esc(g.emoji || g.name[0])}</span>
         <b>${esc(g.name)}</b><small>${esc(g.about)}</small></button>`).join("")}</div></div>`;
   }
 
@@ -527,11 +546,13 @@
     if (fresh && now - j.at < 180 && !/^https:/.test(r.url) && (sec.state === "working" || sec.state === "error"))
       return codeSteps(3) + waiting("Connected. Getting the box's secure address for your phone… a few seconds.");
     const open = r.home_at && now - r.home_at < 15;              // a remote open on the home Wi-Fi now
-    return (fresh ? codeSteps(3) : "") + `<span class="qr big">${qr(r.pair_url)}</span>
+    return (fresh ? codeSteps(3) : "") + qrRow(r.pair_url, `
       <b>${fresh ? "Scan this to keep your phone as the remote" : "Scan with your phone's camera"}</b><small>or open <b>${address}</b> and type <b>${esc(r.code)}</b></small>
       ${open ? `<p class="okay small">✓ Your phone is the remote</p>` : waiting("Waiting for your phone to scan this…")}
-      ${/^https:/.test(r.url) ? "" : `<p class="small">iPhone says it isn't secure? Settings → Apps → Safari → turn off <b>Not Secure Connection Warning</b>.</p>`}`;
+      ${/^https:/.test(r.url) ? "" : `<p class="small">iPhone says it isn't secure? Settings → Apps → Safari → turn off <b>Not Secure Connection Warning</b>.</p>`}`);
   }
+  // A code to scan with what to do beside it (not under it: the setup's first step fits on the TV)
+  const qrRow = (text, beside) => `<div class="qr-row"><span class="qr big">${qr(text)}</span><div class="qr-text">${beside}</div></div>`;
   // The phone's way in at the setup, as steps: join the box's Wi-Fi, open the remote, give the box your Wi-Fi, keep
   // the remote (a new code once it's on your Wi-Fi). Each shows only its own code, and says what the box waits for.
   const CODE_STEPS = ["Join the box's Wi-Fi", "Open the remote", "Give the box your Wi-Fi", "Keep the remote"];
@@ -544,12 +565,12 @@
     const remote = n.phone_at && now - n.phone_at < 15;      // a remote open on a phone on the box's Wi-Fi
     const joined = (n.clients || 0) > 0;                      // a phone (or something) on the box's Wi-Fi
     const stage = asked || (remote ? "details" : joined ? "remote" : "wifi");
-    if (stage === "wifi") return codeSteps(0) + `<span class="qr big">${qr(hs.wifi_qr)}</span>
+    if (stage === "wifi") return codeSteps(0) + qrRow(hs.wifi_qr, `
       <b>Scan with your phone's camera to join the box's Wi-Fi</b><small>${esc(hs.ssid)} · password ${esc(hs.password)}</small>
-      ${waiting("Waiting for your phone to join…")}`;
-    if (stage === "remote") return codeSteps(1) + `<span class="qr big">${qr(r.pair_url)}</span>
+      ${waiting("Waiting for your phone to join…")}`);
+    if (stage === "remote") return codeSteps(1) + qrRow(r.pair_url, `
       <b>${joined ? "Your phone is on the box's Wi-Fi. " : ""}Now scan this to open the remote</b><small>or open ${address} and type ${esc(r.code)}</small>
-      ${waiting("Waiting for the remote to open on your phone…")}<button class="mini" data-codes="wifi">Show the Wi-Fi code again</button>`;
+      ${waiting("Waiting for the remote to open on your phone…")}<button class="mini" data-codes="wifi">Show the Wi-Fi code again</button>`);
     return codeSteps(2) + `<p class="okay big">✓ Your phone is the remote</p>
       <p class="small">On your phone: the <b>Wi-Fi</b> tab, pick your home Wi-Fi, type its password, <b>Join</b>.</p>
       ${waiting("Waiting for your Wi-Fi details…")}<button class="mini" data-codes="remote">Show the remote's code again</button>`;
@@ -637,7 +658,7 @@
     return `<div class="setup view-in">${top}<div class="setup-body"><h1>What do you watch?</h1>
       <p class="lede">Pick your streaming apps: they go on Home, ready to sign in. Sofa and free Live TV are there already. The App Store has more.</p>
       <div class="pick-grid">${list.map(e => `<button class="tile app pick${picks.has(e.id) ? " on" : ""}" style="--c:${esc(e.color)}" data-pick="${esc(e.id)}" aria-pressed="${picks.has(e.id)}">
-        <i class="tick">${icon("#i-check")}</i><span class="ic${e.icon_url ? "" : " mono"}">${e.icon_url ? `<img src="${esc(e.icon_url)}" alt="">` : esc(e.name.replace(/^the\s+/i, "")[0].toUpperCase())}</span><b>${esc(e.name)}</b></button>`).join("")}</div>
+        <i class="tick">${icon("#i-check")}</i><span class="ic${e.icon_url ? "" : " mono"}">${e.icon_url ? `<img src="${esc(e.icon_url)}" alt="" onload="sofaIcon(this)">` : esc(e.name.replace(/^the\s+/i, "")[0].toUpperCase())}</span><b>${esc(e.name)}</b></button>`).join("")}</div>
       </div>${nav(true, `data-done="1"`, picks.size ? "Add " + picks.size + " and finish" : "Finish")}</div>`;
   }
 

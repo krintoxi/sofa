@@ -592,6 +592,45 @@ class BoxOS(unittest.TestCase):
             self.opener.open(self.base + "/box/home/../sofa-box-agent.py", timeout=20)
 
 
+class BoxBluetooth(unittest.TestCase):
+    """Bluetooth devices from one call to bluetoothd (busctl), and what each one is."""
+
+    def test_one_call_for_every_device(self):
+        boxos = load("boxos")
+        busctl = json.dumps({"type": "a{oa{sa{sv}}}", "data": [{
+            "/org/bluez/hci0": {"org.bluez.Adapter1": {"Powered": {"type": "b", "data": True}}},
+            "/org/bluez/hci0/dev_AA": {"org.bluez.Device1": {"Address": {"type": "s", "data": "AA:BB:CC:DD:EE:01"},
+                                                             "Name": {"type": "s", "data": "Xbox Wireless Controller"},
+                                                             "Icon": {"type": "s", "data": "input-gaming"}, "RSSI": {"type": "n", "data": -48},
+                                                             "Paired": {"type": "b", "data": False}, "Connected": {"type": "b", "data": False}}},
+            "/org/bluez/hci0/dev_BB": {"org.bluez.Device1": {"Address": {"type": "s", "data": "AA:BB:CC:DD:EE:02"},
+                                                             "Name": {"type": "s", "data": "RC-17"}, "Appearance": {"type": "q", "data": 0x0180},
+                                                             "Paired": {"type": "b", "data": True}, "Connected": {"type": "b", "data": True}}},
+            "/org/bluez/hci0/dev_CC": {"org.bluez.Device1": {"Address": {"type": "s", "data": "AA:BB:CC:DD:EE:03"},
+                                                             "Alias": {"type": "s", "data": "AA-BB-CC-DD-EE-03"}}}}]})
+        real = boxos.run
+        boxos.run = lambda cmd, timeout=20: (0, busctl) if cmd[0] == "busctl" else (1, "")
+        try:
+            found = {d["mac"]: d for d in boxos.bt_devices()}
+        finally:
+            boxos.run = real
+        self.assertEqual(sorted(found), ["AA:BB:CC:DD:EE:01", "AA:BB:CC:DD:EE:02"])          # the nameless one left out
+        self.assertEqual((found["AA:BB:CC:DD:EE:01"]["kind"], found["AA:BB:CC:DD:EE:01"]["rssi"]), ("controller", -48))
+        self.assertEqual(found["AA:BB:CC:DD:EE:02"]["kind"], "remote")                      # it says it's a remote (LE appearance)
+        self.assertTrue(found["AA:BB:CC:DD:EE:02"]["paired"] and found["AA:BB:CC:DD:EE:02"]["connected"])
+        self.assertIsNone(boxos.bt_objects("Failed to connect to bus"))
+        self.assertEqual(boxos.bt_kind({"Name": "Gadget", "Appearance": "0x03c1 (961)"}), "keyboard")   # as bluetoothctl prints it
+        self.assertEqual(boxos.bt_kind({"Name": "Gadget"}), "other")
+
+    def test_bluetooth_and_cloud_init_at_start(self):
+        with open(os.path.join(BOX, "sofa-box")) as f:
+            self.assertIn("rfkill unblock bluetooth", f.read())                                # switched on at every start
+        with open(os.path.join(BOX, "install.sh")) as f:
+            install = f.read()
+        self.assertIn("cloud-final.service.d", install)                                         # cloud-init: the first start only
+        self.assertIn("/etc/cloud/cloud-init.disabled", install)
+
+
 class SofaShield(unittest.TestCase):
     def test_on_update_off(self):
         d = tempfile.mkdtemp()

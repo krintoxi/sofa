@@ -144,6 +144,11 @@ h2.row-title small { margin-left: .6rem; font: 500 .85rem var(--text); color: va
 .rail { display: flex; gap: 1rem; overflow-x: auto; padding: .5rem .3rem 1rem; margin: -.5rem -.3rem 0; scroll-behavior: smooth; scrollbar-width: none; }
 .rail::-webkit-scrollbar { display: none; }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(9.6rem, 1fr)); gap: 1rem; }
+.grid.games { grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr)); }
+.tile.game { height: auto; min-height: 10rem; align-content: start; padding: 1.1rem 1rem 1rem; }      /* its name and a line about it */
+.tile.game .ic { width: 4rem; height: 4rem; font-size: 2.1rem; }
+.tile.game b { font-size: 1.05rem; }
+.tile.game small { color: var(--mist); font-size: .8rem; line-height: 1.3; }
 .tile { position: relative; flex: 0 0 9.6rem; display: grid; justify-items: center; align-content: center; gap: .55rem; height: 7.2rem;
   border-radius: var(--r); background: var(--tile); border: 1px solid var(--line); text-align: center; padding: .6rem;
   transition: transform .22s cubic-bezier(.2,.8,.2,1), box-shadow .22s, background .22s; }
@@ -287,6 +292,7 @@ h2.row-title small { margin-left: .6rem; font: 500 .85rem var(--text); color: va
   background: linear-gradient(150deg, color-mix(in srgb, var(--c, var(--a)) 82%, #fff) 0%, var(--c, var(--a)) 45%, color-mix(in srgb, var(--c, var(--a)) 70%, #000) 100%);
   font: 800 2.2rem/1 var(--display); letter-spacing: -.04em; text-shadow: 0 .12rem .5rem rgba(0,0,0,.35); }
 .ic.tiny img { width: 55% !important; height: 55% !important; object-fit: contain !important; }
+.ic.light, .ic.light img { background: var(--c, #2A2A33) !important; }        /* a white logo on clear: on its colour */
 .tile.app.own .ic svg { width: 2.4rem; height: 2.4rem; filter: drop-shadow(0 .1rem .3rem rgba(0,0,0,.3)); }
 .tile.app .ic.emoji { font-size: 2.3rem; background: color-mix(in srgb, var(--c) 30%, var(--bg)); }
 .tile.app .ic.plus { background: var(--tile); color: var(--a); box-shadow: inset 0 0 0 2px var(--line); }
@@ -452,7 +458,8 @@ html[data-page="home"] .top .clock { visibility: hidden; }
 
 /* ---- the setup steps (a new box): a screen of its own, no tabs */
 html.setup .top, html.setup .hint { display: none; }
-.setup { min-height: calc(100vh - 1rem); display: flex; flex-direction: column; padding-top: 1.4rem; }
+html.setup #view { padding-bottom: 0; }
+#view .setup { min-height: 100vh; display: flex; flex-direction: column; padding-top: 1.1rem; }   /* (html.setup is the page in setup) */
 .setup-top { display: flex; align-items: center; justify-content: space-between; gap: 2rem; }
 .setup-brand { display: flex; align-items: center; gap: .45rem; font: 800 1.35rem/1 var(--display); text-transform: var(--word-transform); transform: skewX(var(--word-skew)); }
 .setup-brand svg { width: 1.9rem; height: 1.8rem; color: var(--a); }
@@ -464,11 +471,16 @@ html.setup .top, html.setup .hint { display: none; }
 .setup-steps i.on em { background: var(--a); color: var(--a-ink); }
 .setup-steps i.done em { background: color-mix(in srgb, var(--a) 55%, transparent); color: var(--a-ink); }
 .setup-steps b { font-size: .8rem; }
-.setup-body { flex: 1; padding: 1.4rem 0 .6rem; }
+.setup-body { flex: 1; padding: 1rem 0 .4rem; }
 .setup-body h1 { margin: 0 0 .5rem; font: 800 2.4rem/1.05 var(--display); letter-spacing: -.03em; text-transform: var(--word-transform); }
-.setup-nav { display: flex; justify-content: space-between; align-items: center; padding: .6rem 0 1.2rem; }
+.setup-nav { display: flex; justify-content: space-between; align-items: center; padding: .3rem 0 .9rem; }
 .hello-head p { color: var(--mist); font-size: 1.1rem; margin: .2rem 0 1.1rem; }
-.ways { display: grid; grid-template-columns: 1.3fr 1fr 1fr; gap: 1rem; }
+.ways { display: grid; grid-template-columns: 1.65fr 1fr 1fr; gap: 1rem; }
+.qr-row { display: flex; align-items: center; gap: 1.1rem; text-align: left; }
+.qr-row .qr.big { flex: none; width: 9.5rem; height: 9.5rem; }
+.qr-text { display: grid; gap: .4rem; justify-items: start; }
+.qr-text small { color: var(--mist); font-size: .8rem; }
+.qr-text p { margin: 0; }
 .way { padding: 1.1rem 1.2rem; border-radius: calc(var(--r) * 1.3); background: var(--bg2); border: 1px solid var(--line); display: grid; gap: .5rem; align-content: start; }
 .way h3 { margin: 0 0 .2rem; display: flex; align-items: center; gap: .5rem; font: 800 1.15rem var(--display); }
 .way h3 span { font-size: 1.4rem; }
@@ -523,7 +535,9 @@ p.okay.big { font-size: 1.2rem; margin: .4rem 0 .8rem; }
 .themes.two { grid-template-columns: repeat(2, 1fr); }
 .remote-row { display: grid; grid-template-columns: auto 1fr; gap: 1.2rem; align-items: start; }
 .remote-row p { margin: 0 0 .6rem; }
-.phone-mini .qr.big { width: 8rem; height: 8rem; }
+.phone-mini .qr.big, .phone-mini .qr-row .qr.big { width: 8rem; height: 8rem; }
+.phone-mini .qr-row { flex-direction: column; align-items: center; gap: .5rem; text-align: center; max-width: 13rem; }   /* in Settings: the code over its words */
+.phone-mini .qr-text { justify-items: center; }
 
 /* ---- a small board (a Pi 3, 1 GB): the same look, without what costs the most to draw. Big blurred glows and
    soft shadows are painted again on every move; plain rings and flat colour aren't. */

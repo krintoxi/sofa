@@ -7,6 +7,26 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.9
+
+A look through every part of the box:
+
+- **Bluetooth at the setup.** Remotes and controllers didn't show up. Every two seconds the box asked about each
+  device near it one by one (a process each: dozens in a busy room, too much for a Pi 3); it now asks
+  bluetoothd once for all of them. Bluetooth is switched on (unblocked) at every start, as Wi-Fi already
+  was, and a device that only says what it is in its Bluetooth LE "appearance" (a remote control, a gamepad)
+  is recognised by that too.
+- **Quicker starts.** cloud-init (which applies Raspberry Pi Imager's settings) ran its five steps at every
+  start, on a Pi 3 at the same time as the browser starting; it now switches itself off after the first.
+- **Less work in the background.** The box looked for USB drives and discs by running lsblk every four
+  seconds, all day; it now reads two small files and runs it only when something's plugged in or out.
+- **The setup's first step fits on the TV.** The QR code and what to do sit side by side, and the whole step
+  shows without scrolling (the title was cut off at the top). The setup's layout also no longer leaked onto
+  the rest of the page.
+- **Games show their names** (the tiles only had room for the line about them).
+- **Apps whose icon is empty or white show properly.** An icon with nothing in it (some sites have one) shows
+  the app's first letter on its colour; a white logo on clear gets the app's colour behind it, not white.
+
 ## 1.1.8
 
 - **A new Home.** At the top: the time, big, the day, a hello, and what to do next (Resume what you

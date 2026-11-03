@@ -546,14 +546,60 @@ def bt_kind(info):
         return "mouse"
     if icon.startswith("audio") or re.search(r"headphone|headset|speaker|buds|airpods|soundbar|\bjbl\b|bose|beats", name, re.I):
         return "audio"
+    try:                                                    # what a Bluetooth LE device says it is (its "appearance")
+        look = int(str(info.get("Appearance")).split()[0], 0) if info.get("Appearance") not in (None, "") else None
+    except ValueError:
+        look = None
+    if look is not None:
+        if 0x0180 <= look <= 0x01BF:
+            return "remote"
+        if look in (0x03C3, 0x03C4):
+            return "controller"
+        if look == 0x03C1:
+            return "keyboard"
+        if look in (0x03C2, 0x03C5):
+            return "mouse"
     if hid or icon.startswith("input"):
         return "remote"
     return "other"
 
 
+def bt_objects(text):
+    """bluetoothd's devices from one `busctl --json=short` call (GetManagedObjects), as `bluetoothctl info` would show
+    each: Name, Icon, Appearance, UUIDs, Paired, Connected, RSSI. None if that isn't what came back."""
+    try:
+        objects = json.loads(text)["data"][0]
+    except (ValueError, KeyError, IndexError, TypeError):
+        return None
+    devs = []
+    for path, ifaces in objects.items() if isinstance(objects, dict) else []:
+        d = (ifaces or {}).get("org.bluez.Device1")
+        if not isinstance(d, dict):
+            continue
+        v = {k: x.get("data") for k, x in d.items() if isinstance(x, dict)}
+        if v.get("Address"):
+            devs.append(v)
+    return devs
+
+
 def bt_devices():
-    """Every Bluetooth device the box knows or sees, with what it is and whether it's paired and connected."""
-    code, out = run(["bluetoothctl", "devices"], 8)
+    """Every Bluetooth device the box knows or sees, with what it is and whether it's paired and connected: in one
+    call to bluetoothd (busctl, part of systemd), not a `bluetoothctl info` for each of the dozens a room can have
+    around it (on a Pi 3 those took seconds, every two seconds, all through the setup)."""
+    code, out = run(["busctl", "--system", "--json=short", "call", "org.bluez", "/", "org.freedesktop.DBus.ObjectManager",
+                     "GetManagedObjects"], 8)
+    objects = bt_objects(out) if code == 0 else None
+    if objects is not None:
+        found = []
+        for v in objects:
+            name = v.get("Name") or ""
+            if not name:
+                continue                                        # nameless (a beacon, a phone's privacy address)
+            info = {"Name": name, "Icon": v.get("Icon") or "", "Appearance": v.get("Appearance"), "UUIDs": v.get("UUIDs") or []}
+            found.append({"mac": v["Address"], "name": name, "kind": bt_kind(info), "paired": bool(v.get("Paired")),
+                          "connected": bool(v.get("Connected")), "rssi": int(v.get("RSSI") or 0)})
+        return found
+    code, out = run(["bluetoothctl", "devices"], 8)                # (no busctl: one by one)
     if code != 0:
         return []
     found = []

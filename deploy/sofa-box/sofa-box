@@ -26,12 +26,13 @@ boot_dir() { for d in /boot/firmware /boot; do [ -f "$d/config.txt" ] && { echo 
 wifi_on() {
   S=/var/lib/NetworkManager/NetworkManager.state
   if [ -f "$S" ] && grep -q '^WirelessEnabled=false' "$S"; then sed -i 's/^WirelessEnabled=false/WirelessEnabled=true/' "$S"; fi
-  for f in /var/lib/systemd/rfkill/*:wlan; do
+  for f in /var/lib/systemd/rfkill/*:wlan /var/lib/systemd/rfkill/*:bluetooth; do      # (Bluetooth too: the remotes)
     if [ -f "$f" ]; then echo 0 > "$f" 2>/dev/null || true; fi
   done
   [ "${1:-}" = --files ] && return 0
-  if command -v rfkill >/dev/null; then rfkill unblock wifi 2>/dev/null || true; fi
+  if command -v rfkill >/dev/null; then rfkill unblock wifi 2>/dev/null || true; rfkill unblock bluetooth 2>/dev/null || true; fi
   if command -v nmcli >/dev/null; then nmcli radio wifi on 2>/dev/null || true; fi
+  if command -v bluetoothctl >/dev/null; then timeout 10 bluetoothctl power on >/dev/null 2>&1 || true; fi
 }
 
 # Update and Reset, started from the TV, run inside the agent's service; they restart or stop that service,
