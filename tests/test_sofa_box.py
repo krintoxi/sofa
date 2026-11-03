@@ -5,6 +5,7 @@ boot files (including one LCD-show changed for a 3.5-inch screen)."""
 import importlib.util
 import json
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -99,6 +100,16 @@ hdmi_mode=87
 hdmi_cvt 480 320 60 6 0 0 0
 hdmi_drive=2
 """
+
+
+class BoxPages(unittest.TestCase):
+    def test_every_id_once(self):
+        """An id used twice: getElementById finds only the first. The phone remote's round pad once shared its id with
+        the Touchpad tab's icon, so its taps went to the (invisible) icon and the Remote tab did nothing."""
+        for name in ("remote.html", "home/index.html", "finder.html", "preview.html"):
+            with open(os.path.join(BOX, name), encoding="utf-8") as f:
+                ids = re.findall(r'\bid="([^"]+)"', f.read())
+            self.assertEqual(sorted({i for i in ids if ids.count(i) > 1}), [], name)
 
 
 class RaspberryPiBoot(unittest.TestCase):

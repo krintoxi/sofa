@@ -434,6 +434,13 @@
       <p class="small">The quickest way on: <b>plug a network cable</b> from your router into the box, and the code to scan shows here.
       Or plug in a USB keyboard and press <b>Start</b>, then choose your Wi-Fi.</p><p class="small">(${esc(r.problem)})</p>`;
     if (!r.url) return `<p class="looking small"><i class="spin"></i>No network yet: in a few seconds the box makes its own Wi-Fi, and a code to scan shows here.</p>`;
+    const n = (setup || {}).network || {}, sec = (setup || {}).secure || {};
+    const j = n.joining && Date.now() / 1000 - n.joining.at < 600 ? n.joining : null;
+    // joining a home Wi-Fi: the codes for its own Wi-Fi are about to stop working, so they don't show
+    if (j && j.state === "joining") return `<p class="looking small"><i class="spin"></i>The box is joining <b>${esc(j.ssid)}</b>. The new code to scan shows here in a moment.</p>`;
+    // just joined: the secure (https) code follows within seconds, so not the plain one first and then a swap
+    if (j && j.state === "joined" && Date.now() / 1000 - j.at < 90 && !/^https:/.test(r.url) && sec.state === "working")
+      return `<p class="looking small"><i class="spin"></i>Connected. Getting the box's secure address for your phone… a few seconds.</p>`;
     return hs ? `<div class="qr-steps"><div><span class="qr">${qr(hs.wifi_qr)}</span><b>1. Join its Wi-Fi</b><small>${esc(hs.ssid)} · password ${esc(hs.password)}<br>The remote opens on your phone by itself.</small></div>
         <div><span class="qr">${qr(r.pair_url)}</span><b>2. Didn't open? Scan this</b><small>or open ${esc(r.url.replace(/^http:\/\//, ""))}, code ${esc(r.code)}</small></div></div>`
       : `<span class="qr big">${qr(r.pair_url)}</span><b>Scan with your phone's camera</b><small>or open <b>${esc(r.url.replace(/^http:\/\//, ""))}</b> and type <b>${esc(r.code)}</b></small>
