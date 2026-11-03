@@ -7,6 +7,19 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.12
+
+From setting up 1.1.11:
+
+- **No "no network, making its own Wi-Fi" just after your phone gives the box your Wi-Fi.** Between its own
+  Wi-Fi and yours the box has no address for a moment, and the TV took that for a box with no network yet.
+  It now says what's happening: joining your Wi-Fi, then "Connected to … Getting the box's address there",
+  then the code for the remote; or, if joining didn't work, why, and that its own Wi-Fi is coming back.
+- **Fewer blank moments while the box starts.** The boot screen used to go before the box's helper was ready,
+  leaving a still or black screen while the browser waited for it (long on a first start). It now stays,
+  moving, until the helper answers (a minute at most), and Home follows at once. Home is dark from its very
+  first frame, not blank while it loads.
+
 ## 1.1.11
 
 - **Resuming no longer sits on a blank black screen.** When you resume something Sofa converts for the box, it

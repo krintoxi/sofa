@@ -1187,6 +1187,13 @@ class BoxNetwork(unittest.TestCase):
         self.assertRegex(install, r"systemctl enable [^\n]*\\\n\s*sofa-box-first-start\.service")
         with open(os.path.join(BOX, "sofa-box-art.py")) as f:
             self.assertIn("Plymouth.SetMessageFunction(message)", f.read())             # the boot screen shows it
+        # no blank moments: the boot screen stays until the box's helper answers, and Home is dark from its first frame
+        self.assertIn("ExecStartPre=-+$LIB/sofa-box before-screen", install)
+        self.assertNotIn("ExecStartPre=-+/usr/bin/plymouth quit", install)
+        with open(os.path.join(BOX, "home", "index.html")) as f:
+            page = f.read()
+        self.assertIn('<meta name="color-scheme" content="dark">', page)
+        self.assertLess(page.index("background: #0D0D10"), page.index("home.css"))
 
     def test_the_phone_remote_over_https_at_home(self):
         """The box gets its own name and certificate (deploy/box-certs, stood in for here) and serves the remote with it."""

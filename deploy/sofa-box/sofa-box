@@ -109,6 +109,14 @@ session() {
   done
 }
 
+# (root, before the screen starts) The boot screen stays, moving, until the box's helper answers (a Pi 3's first start
+# takes a while), then goes: Home follows at once, instead of a still or black screen while the browser waits for it.
+before_screen() {
+  END=$(( $(date +%s) + 60 ))                  # a minute at most (systemd gives a start 90 seconds)
+  until curl -fs -o /dev/null -m 2 "$AGENT/box/state" || [ "$(date +%s)" -ge "$END" ]; do sleep 0.5; done
+  if command -v plymouth >/dev/null; then plymouth quit --retain-splash 2>/dev/null || true; fi
+}
+
 pair_controller() {
   command -v bluetoothctl >/dev/null || { echo "Bluetooth tools are missing (sudo apt install bluez)."; exit 1; }
   echo "Put the controller in pairing mode now:"
@@ -296,6 +304,7 @@ report() {
 
 case "${1:-}" in
   kiosk) kiosk ;;
+  before-screen) before_screen ;;
   session) session ;;
   doctor) doctor ;;
   status) systemctl --no-pager status $SERVICES || true ;;

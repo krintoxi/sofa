@@ -528,16 +528,21 @@
     if (!r) return setupFails > 3 ? `<p class="small">The box's helper isn't answering yet. If this stays, restart the box (unplug it for a moment).</p>`
       : `<p class="small looking"><i class="spin"></i>Getting ready…</p>`;
     const hs = r.hotspot;
+    const n = (setup || {}).network || {}, sec = (setup || {}).secure || {}, now = Date.now() / 1000;
+    const j = n.joining && now - n.joining.at < 600 ? n.joining : null;
+    const waiting = text => `<p class="small looking"><i class="spin"></i><span>${text}</span></p>`;
+    // joining a home Wi-Fi: the codes for its own Wi-Fi are about to stop working, so none shows. (First: between its
+    // own Wi-Fi and yours the box has no address for a moment, which isn't "no network yet, making its own".)
+    if (j && j.state === "joining") return codeSteps(2) + waiting(`The box is joining <b>${esc(j.ssid)}</b>: looking for it, then connecting. Up to a minute.`);
+    if (!r.url && j && j.state === "joined" && now - j.at < 120)
+      return codeSteps(3) + waiting(`Connected to <b>${esc(j.ssid)}</b>. Getting the box's address there… a few seconds.`);
+    if (!r.url && j && j.state === "failed" && now - j.at < 120)
+      return codeSteps(2) + `<p class="small"><b>${esc(j.message || "That didn't work.")}</b></p>` + waiting("The box's own Wi-Fi is coming back, so your phone can try again…");
     if (!r.url && r.problem) return `<p class="small"><b>The box couldn't make its own Wi-Fi for your phone.</b> It tries again by itself.</p>
       <p class="small">The quickest way on: <b>plug a network cable</b> from your router into the box, and the code to scan shows here.
       Or plug in a USB keyboard and press <b>Start</b>, then choose your Wi-Fi.</p><p class="small">(${esc(r.problem)})</p>`;
     if (!r.url) return `<p class="looking small"><i class="spin"></i>No network yet: in a few seconds the box makes its own Wi-Fi, and a code to scan shows here.</p>`;
-    const n = (setup || {}).network || {}, sec = (setup || {}).secure || {}, now = Date.now() / 1000;
-    const j = n.joining && now - n.joining.at < 600 ? n.joining : null;
     const address = esc(r.url.replace(/^http:\/\//, ""));
-    const waiting = text => `<p class="small looking"><i class="spin"></i><span>${text}</span></p>`;
-    // joining a home Wi-Fi: the codes for its own Wi-Fi are about to stop working, so none shows
-    if (j && j.state === "joining") return codeSteps(2) + waiting(`The box is joining <b>${esc(j.ssid)}</b>: looking for it, then connecting. Up to a minute.`);
     // without a cable or Wi-Fi: one code at a time, each gone once its step is done
     if (hs) return setupCodes(r, hs, n, address, waiting);
     const fresh = j && j.state === "joined" && now - j.at < 600;
