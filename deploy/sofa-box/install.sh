@@ -190,7 +190,7 @@ StandardError=journal
 UtmpIdentifier=tty1
 UtmpMode=user
 Environment=SOFA_BOX_SCREEN=$SCREEN
-ExecStartPre=-+/usr/bin/plymouth quit --retain-splash
+ExecStartPre=-+$LIB/sofa-box before-screen
 ExecStart=$LIB/sofa-box kiosk
 # what's on the TV comes first: the screen and the browser get the processor and the card before anything else,
 # and are the last thing the kernel stops when memory runs out
