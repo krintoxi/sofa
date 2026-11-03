@@ -17,7 +17,7 @@ import re
 import shutil
 import time
 
-from . import config, media, metadata, music, naming, places, sidecars, store
+from . import config, fileops, media, metadata, music, naming, places, sidecars, store
 
 SETTLE_SECONDS = 30
 
@@ -203,7 +203,7 @@ def _merge_into(src, dest):
         if os.path.isdir(s) and os.path.isdir(d):
             _merge_into(s, d)
         else:
-            shutil.move(s, _free_name(d) if os.path.exists(d) else d)
+            fileops.move(s, _free_name(d) if os.path.exists(d) else d)
     if not [n for n in os.listdir(src) if n != ".DS_Store"]:
         shutil.rmtree(src, ignore_errors=True)
 
@@ -421,7 +421,7 @@ def _move(src, dest, message, private=False, why=None):
     os.makedirs(os.path.dirname(dest), exist_ok=True)
     stem_src = os.path.splitext(src)[0]
     stem_dest = os.path.splitext(dest)[0]
-    shutil.move(src, dest)
+    fileops.move(src, dest)
     _filed_now.append((src, dest))
     for f in os.listdir(os.path.dirname(src)):     # subtitles and thumbnails that share the name
         p = os.path.join(os.path.dirname(src), f)
@@ -434,7 +434,7 @@ def _move(src, dest, message, private=False, why=None):
                     target = os.path.join(os.path.dirname(dest), "metadata", os.path.basename(stem_dest) + ext.lower())
                     os.makedirs(os.path.dirname(target), exist_ok=True)
                 if not os.path.exists(target):
-                    shutil.move(p, target)
+                    fileops.move(p, target)
     detail = {"from": src, "to": dest}
     if why:
         detail["why"] = why
@@ -454,7 +454,7 @@ def _to_review(path, why, sub="From Inbox", private=False):
         base, ext = os.path.splitext(os.path.basename(path))
         dest = os.path.join(dest_dir, "%s (%d)%s" % (base, n, ext))
         n += 1
-    shutil.move(path, dest)
+    fileops.move(path, dest)
     if private:
         store.log_private("review", "A private file needs a look (in Needs Review/XXX/%s)" % sub, {"file": path, "now_in": dest, "why": why})
     else:
@@ -507,7 +507,7 @@ def _attach_subtitles(entry, filed):
             while os.path.exists(dest):
                 dest, n = "%s-%d%s" % (base, n, os.path.splitext(f)[1].lower()), n + 1
             try:
-                shutil.move(p, dest)
+                fileops.move(p, dest)
             except OSError:
                 pass
 
@@ -538,7 +538,7 @@ def _attach_artwork(entry, filed):
                 continue
             if not os.path.exists(target):
                 try:
-                    shutil.move(p, target)
+                    fileops.move(p, target)
                 except OSError:
                     pass
 
@@ -582,7 +582,7 @@ def _sweep_leftovers(entry, private=False, filed=()):
     dest = os.path.join(config.path("review"), *(["XXX"] if private else []), "Inbox leftovers", os.path.basename(entry))
     os.makedirs(os.path.dirname(dest), exist_ok=True)
     if not os.path.exists(dest):
-        shutil.move(entry, dest)
+        fileops.move(entry, dest)
         if private:
             store.log_private("review", "Moved leftover files of a private item to Needs Review/XXX", {"entry": entry, "now_in": dest})
         else:
@@ -667,13 +667,13 @@ def _move_with_sidecars(video, dest_dir, new_stem):
     target = os.path.join(dest_dir, new_stem + ext.lower())
     if os.path.exists(target):
         return False
-    shutil.move(video, target)
+    fileops.move(video, target)
     for f in os.listdir(src_dir):
         base, e = os.path.splitext(f)
         if (base == stem or base.startswith(stem + ".")) and (e.lower() in naming.SUB_EXT or e.lower() in (".jpg", ".png", ".nfo")):
             dest = os.path.join(dest_dir, new_stem + base[len(stem):] + e.lower())
             if not os.path.exists(dest):
-                shutil.move(os.path.join(src_dir, f), dest)
+                fileops.move(os.path.join(src_dir, f), dest)
     return True
 
 
@@ -828,7 +828,7 @@ def _put_aside(path):
             break
     dest = _free_path(os.path.join(_deleted_for(path), rel))
     os.makedirs(os.path.dirname(dest), exist_ok=True)
-    shutil.move(path, dest)
+    fileops.move(path, dest)
     return dest
 
 
@@ -922,7 +922,7 @@ def relocate(path, target, private=False):
         new_still = os.path.join(os.path.dirname(dest), "metadata", os.path.splitext(os.path.basename(dest))[0] + ".jpg")
         if not os.path.exists(new_still):
             os.makedirs(os.path.dirname(new_still), exist_ok=True)
-            shutil.move(old_still, new_still)
+            fileops.move(old_still, new_still)
     _tidy_after(src_dir)
     return "Moved to %s." % ("the Adult section" if kind == "adult" else where)
 
@@ -951,7 +951,7 @@ def relocate_show(folder, target, private=False):
     if os.path.exists(dest):
         raise ValueError("There's already a folder called %s there." % name)
     os.makedirs(os.path.dirname(dest), exist_ok=True)
-    shutil.move(folder, dest)
+    fileops.move(folder, dest)
     if private:
         store.log_private("library", "Moved a series to %s" % where)
     else:

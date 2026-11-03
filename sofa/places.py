@@ -384,7 +384,9 @@ def move(folder, key, to_pid, title, private=False):
 
 
 def _move(job, src, dest, private):
-    tmp = dest + ".sofa-moving"
+    # hidden while it's copied (the library skips hidden folders: no half copy shows as a second title, even after a
+    # crash), each file flushed to the disk, then renamed into place in one step, and only then the original removed
+    tmp = os.path.join(os.path.dirname(dest), "." + os.path.basename(dest) + ".sofa-moving")
     try:
         shutil.rmtree(tmp, ignore_errors=True)
         os.makedirs(tmp)
@@ -401,6 +403,8 @@ def _move(job, src, dest, private):
                         b.write(chunk)
                         with _lock:
                             job["done"] += len(chunk)
+                    b.flush()
+                    os.fsync(b.fileno())
                 shutil.copystat(s, t)
         with _lock:
             job["state"] = "checking"

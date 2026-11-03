@@ -15,7 +15,7 @@ class Drives(unittest.TestCase):
         self.media = tempfile.mkdtemp(prefix="sofa-media-")
         self.drive = os.path.join(self.media, "KINGSTON")
         d = self.drive
-        video(os.path.join(d, "Films", "Heat (1995)", "Heat.1995.1080p.mkv"))          # a movie in its own folder
+        video(os.path.join(d, "Films", "Ronin (1998)", "Ronin.1998.1080p.mkv"))        # a movie in its own folder
         video(os.path.join(d, "Films", "Arrival.2016.mp4"))                             # a loose movie in a folder
         video(os.path.join(d, "Some.Comedy.2020.mkv"))                                   # loose, right on the drive
         video(os.path.join(d, "Alien (1979)", "alien.mkv"))                              # a movie's folder at the top
@@ -51,7 +51,7 @@ class Drives(unittest.TestCase):
         self.assertEqual(place["name"], "KINGSTON")
         LIB.scan("tests")
         movies = {m["title"]: m for m in LIB.movies}
-        for title in ("Heat", "Arrival", "Some Comedy", "Alien"):
+        for title in ("Ronin", "Arrival", "Some Comedy", "Alien"):
             self.assertIn(title, movies)
             self.assertEqual(movies[title]["place"], added[0])
         shows = {s.get("name") or s.get("title") for s in LIB.shows}
@@ -69,11 +69,11 @@ class Drives(unittest.TestCase):
         shutil.move(self.drive, self.drive + "-away")                                    # unplugged: out of the library
         self.assertTrue(LIB.changed())
         LIB.scan("tests")
-        self.assertNotIn("Heat", {m["title"] for m in LIB.movies})
+        self.assertNotIn("Ronin", {m["title"] for m in LIB.movies})
         shutil.move(self.drive + "-away", self.drive)                                    # back: the same place again
         self.assertEqual(places.auto_drives(), [])
         LIB.scan("tests")
-        self.assertIn("Heat", {m["title"] for m in LIB.movies})
+        self.assertIn("Ronin", {m["title"] for m in LIB.movies})
 
         places.remove(added[0])                                                          # an admin stops using it:
         self.assertEqual(places.auto_drives(), [])                                       # it doesn't come back by itself

@@ -39,6 +39,7 @@ HOME_NETS = ("local", "lan", "tailnet")
 class Handler(BaseHTTPRequestHandler):
     server_version = "Sofa/%s" % __version__
     protocol_version = "HTTP/1.1"
+    timeout = 300            # a connection that sends or takes nothing for 5 minutes is closed (its thread with it)
 
     def log_message(self, fmt, *args):
         if os.environ.get("SOFA_DEBUG"):
@@ -49,9 +50,11 @@ class Handler(BaseHTTPRequestHandler):
     def client_ip(self):
         peer = self.client_address[0]
         if config.get("trust_proxy") and auth.network_of(peer) == "local":
-            fwd = self.headers.get("X-Forwarded-For", "")
+            # The proxy on this computer adds the address it saw to the END of X-Forwarded-For; anything before that
+            # came from the client and can say anything ("192.168.1.5", to pass for the home network). The last one.
+            fwd = [x.strip() for x in self.headers.get("X-Forwarded-For", "").split(",") if x.strip()]
             if fwd:
-                return fwd.split(",")[0].strip()
+                return fwd[-1]
         return peer
 
     @staticmethod
@@ -137,6 +140,18 @@ class Handler(BaseHTTPRequestHandler):
             return json.loads(self.rfile.read(length) or b"{}")
         except ValueError:
             return None
+
+    def same_site(self, origin):
+        """A browser's Origin header: none (an app, a TV), this server's own address, or a Sofa box's page for it
+        (<id>.localhost on the box, which can only come from the box itself). Anything else is another site."""
+        if not origin:
+            return True
+        parts = urlsplit(origin)
+        host = (parts.hostname or "").lower()
+        if host == "localhost" or host.endswith(".localhost") or host in ("127.0.0.1", "::1"):
+            return True
+        mine = (self.headers.get("Host") or "").lower()
+        return bool(parts.netloc) and parts.netloc.lower() == mine
 
     def may_switch(self, u):
         return bool(u) and not u.get("guest") and self.network() in HOME_NETS
@@ -315,6 +330,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_body(xml, 'text/xml; charset="utf-8"', status)
         if self.headers.get("X-Sofa") != "1":
             return self.error(400, "Missing X-Sofa header.")
+        if not self.same_site(self.headers.get("Origin")):
+            return self.error(403, "Sofa doesn't take requests from other sites.")
         if path == "/api/admin/upload":                # a file sent from a phone or laptop: streamed, not read as JSON
             return self.upload()
         data = self.body_json()
@@ -861,7 +878,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.json({"code": code, "poll": poll, "expires": pairing.LIFETIME,
                               "url": "http://%s/#/pair/%s" % (self.headers.get("Host") or self.host_header(), code)})
         if path == "/api/login":
-            if auth.throttled(ip):
+            if auth.throttled(ip, auth.account_key(data.get("name"))):
                 return self.error(429, "Too many attempts. Wait 15 minutes and try again.")
             row = auth.login(data.get("name"), data.get("password"), ip)
             if not row:
@@ -891,10 +908,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self.error(404, "That profile isn't there any more.")
             leaving_kids = u.get("kids") and not target["kids"]        # out of a Kids profile: always that profile's code
             if (target["locked"] or leaving_kids) and target["id"] != u["id"]:
-                if auth.throttled(ip):
+                if auth.throttled(ip, "profile:%d" % target["id"]):
                     return self.error(429, "Too many tries. Wait 15 minutes and try again.")
                 if not auth.check_code(target["id"], data.get("code")):
-                    auth.record_failure(ip)
+                    auth.record_failure(ip, "profile:%d" % target["id"])
                     return self.error(403, "That PIN isn't right." if target["pin"] else "That password isn't right.")
             app = self.headers.get("Authorization", "").startswith("Bearer ")
             label = auth.session_label(self.token()) if app else None
@@ -1565,8 +1582,46 @@ def _admin_status():
 
 
 class Server(ThreadingHTTPServer):
+    """One thread per connection, with limits: so many at once in all and from one address (more get "busy, try again"
+    at once instead of a thread each), and a connection that sends nothing for a while is closed (Handler.timeout)."""
     daemon_threads = True
     allow_reuse_address = True
+    max_connections = 256
+    max_per_address = 48
+
+    def __init__(self, *args, **kwargs):
+        self._slots = threading.BoundedSemaphore(self.max_connections)
+        self._per, self._per_lock = {}, threading.Lock()
+        super().__init__(*args, **kwargs)
+
+    def process_request(self, request, client_address):
+        ip = client_address[0] if isinstance(client_address, tuple) else ""
+        with self._per_lock:
+            busy = self._per.get(ip, 0) >= self.max_per_address
+            if not busy:
+                self._per[ip] = self._per.get(ip, 0) + 1
+        if busy or not self._slots.acquire(blocking=False):
+            if not busy:
+                with self._per_lock:
+                    self._per[ip] -= 1
+            try:
+                request.sendall(b"HTTP/1.1 503 Service Unavailable\r\nRetry-After: 5\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+            except OSError:
+                pass
+            self.shutdown_request(request)
+            return
+        super().process_request(request, client_address)
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._slots.release()
+            ip = client_address[0] if isinstance(client_address, tuple) else ""
+            with self._per_lock:
+                self._per[ip] = self._per.get(ip, 1) - 1
+                if self._per[ip] <= 0:
+                    self._per.pop(ip, None)
 
     def handle_error(self, request, client_address):
         if isinstance(sys.exc_info()[1], (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, TimeoutError)):

@@ -27,7 +27,7 @@ import subprocess
 import threading
 import time
 
-from . import config, machine, media, naming, places, store
+from . import config, fileops, machine, media, naming, places, store
 
 VIDEO_KINDS = ("episode", "movie", "extra", "musicvideo")
 COPY_AUDIO = ("aac", "mp3", "ac3", "eac3")
@@ -327,11 +327,11 @@ def convert(path, item_id=None, source=None):
     if config.get("keep_originals"):
         keep = _originals_dest(path)
         os.makedirs(os.path.dirname(keep), exist_ok=True)
-        shutil.move(path, keep)
+        fileops.move(path, keep)
     else:
         os.remove(path)
     if os.path.exists(dest) and dest != path:      # an older MP4 with the same name: keep it aside too
-        shutil.move(dest, _originals_dest(dest) + ".older.mp4")
+        fileops.move(dest, _originals_dest(dest) + ".older.mp4")
     os.replace(part, dest)
     return dest, how
 
