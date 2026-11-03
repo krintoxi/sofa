@@ -769,6 +769,15 @@ class LocalSofa:
     def _config(self):
         cfg = os.path.join(self.data, "config.json")
         if os.path.exists(cfg):
+            try:                                         # a box's Sofa from before: its USB drives join by themselves too
+                with open(cfg, encoding="utf-8") as f:
+                    conf = json.load(f)
+                if "auto_drives" not in conf:
+                    conf["auto_drives"] = True
+                    with open(cfg, "w", encoding="utf-8") as f:
+                        json.dump(conf, f, indent=1)
+            except (OSError, ValueError):
+                pass
             return
         os.makedirs(self.data, exist_ok=True)
         lib = os.path.expanduser("~/Videos/Sofa Library")
@@ -777,7 +786,7 @@ class LocalSofa:
                    "review": "Needs Review", "adult": "Adult", "originals": "Converted Originals"}
         conf = {k: os.path.join(lib, v) for k, v in folders.items()}
         conf.update(name=(settings().get("boot_text") or "Sofa Box"), port=self.PORT, dlna=False, guest_access=False,
-                    drive_folders=["/media/" + user, "/media"], auto_convert=False, previews=False, trickplay=False,
+                    drive_folders=["/media/" + user, "/media"], auto_drives=True, auto_convert=False, previews=False, trickplay=False,
                     detect_intros=False, machine_test=False,
                     live_playlists=[{"name": "English", "url": "https://iptv-org.github.io/iptv/languages/eng.m3u"},
                                     {"name": "Spanish-language", "url": "https://iptv-org.github.io/iptv/languages/spa.m3u"}])
@@ -1007,7 +1016,8 @@ def watch_devices():
             if known and new:
                 for d in dev["drives"]:
                     if d["dev"] in new:
-                        toast("USB drive %s is ready: it's in Files." % d["label"])
+                        toast("USB drive %s is ready: it's in Files%s." % (d["label"], ", and in Sofa on this box in a moment"
+                                                                            if os.path.exists(os.path.join(local_sofa.data, "config.json")) else ""))
                 if dev["disc"] and (dev["disc"]["dev"] + ":" + dev["disc"]["kind"]) in new:
                     toast("A %s is in: open it from Home." % boxos.DISC_NAMES.get(dev["disc"]["kind"], "disc"))
             if names != known:

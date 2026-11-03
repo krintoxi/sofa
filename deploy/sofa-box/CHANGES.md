@@ -7,6 +7,15 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.10
+
+- **USB drives join Sofa on the box by themselves.** Plug a drive in and, if you use Sofa on this box (This
+  box), its shows and movies are in Sofa within moments, with posters and Continue watching: nothing to add
+  by hand. Sofa reads the drive as it is: show folders and episodes named like `Show.S01E02` are shows (a
+  "TV" or "Shows" folder holds shows), the rest are movies, loose or in folders. Nothing on the drive is
+  moved or renamed; Adult and XXX folders are left out. Unplugged, its titles drop out until it's back, with
+  everyone's progress kept. Server → Storage shows it as "USB, as it is"; Stop using keeps it out.
+
 ## 1.1.9
 
 A look through every part of the box:

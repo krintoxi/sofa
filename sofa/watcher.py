@@ -4,7 +4,7 @@ import os
 import threading
 import time
 
-from . import artwork, backup, fetch, intros, live, machine, media, optimize, organizer, previews, store, travel, trickplay, updater
+from . import artwork, backup, fetch, intros, live, machine, media, optimize, organizer, places, previews, store, travel, trickplay, updater
 from .library import LIBRARY
 
 INTERVAL = 20
@@ -25,6 +25,7 @@ def _first_read():
 
 
 def _watch():
+    places.auto_drives()                      # drives plugged in already (Sofa on a Sofa Box): in the first read too
     _first_read()
     tidied_at = 0
     while True:
@@ -33,7 +34,10 @@ def _watch():
                 tidied_at = time.time()
                 organizer.tidy_library()
             filed = organizer.process_inbox()
-            if filed:
+            if places.auto_drives():              # a drive was just plugged in: in the library straight away
+                LIBRARY.scan("a drive was plugged in")
+                _after_scan()
+            elif filed:
                 LIBRARY.scan("%d new from Inbox" % filed)
                 _after_scan()
             elif LIBRARY.changed():
