@@ -59,7 +59,8 @@
      "url": "https://www.netflix.com",
      "drm": true,
      "color": "#E50914",
-     "about": "Needs DRM; may not play on a Pi 3."
+     "about": "Needs DRM; may not play on a Pi 3.",
+     "icon": "https://assets.nflxext.com/en_us/layout/ecweb/netflix-app-icon_152.jpg"
     },
     {
      "id": "disney-plus",
@@ -75,7 +76,8 @@
      "url": "https://www.primevideo.com",
      "drm": true,
      "color": "#00A8E1",
-     "about": "Needs DRM; may not play on a Pi 3."
+     "about": "Needs DRM; may not play on a Pi 3.",
+     "icon": "https://www.primevideo.com/apple-touch-icon.png"
     },
     {
      "id": "max",
@@ -185,7 +187,8 @@
      "url": "https://www.youtube.com/tv",
      "ua": "tv",
      "color": "#FF3B30",
-     "about": "YouTube's own TV app, worked with the remote."
+     "about": "YouTube's own TV app, worked with the remote.",
+     "icon": "https://www.gstatic.com/youtube/img/branding/favicon/favicon_144x144.png"
     },
     {
      "id": "twitch",
@@ -325,7 +328,8 @@
      "url": "https://open.spotify.com",
      "drm": true,
      "color": "#1DB954",
-     "about": "Needs DRM; may not play on a Pi 3."
+     "about": "Needs DRM; may not play on a Pi 3.",
+     "icon": "https://www.spotify.com/favicon.png"
     },
     {
      "id": "apple-music",

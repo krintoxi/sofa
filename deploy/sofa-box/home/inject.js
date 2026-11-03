@@ -20,6 +20,13 @@
     if (document.getElementById("sofa-box-style")) return;
     var st = document.createElement("style"); st.id = "sofa-box-style";
     st.textContent = "html[data-sofa-nocursor], html[data-sofa-nocursor] * { cursor: none !important; }";
+    // Sites made for a mouse: the remote's arrows move between their links and buttons (the browser's spatial
+    // navigation), so show where you are, even where a site hides it. Not on Sofa's pages, or on apps made for
+    // TVs (YouTube's): they show their own.
+    if (!/\.localhost$|^127\.0\.0\.1$/.test(location.hostname) && !/Cobalt|SMART-TV|Tizen|Web0S/.test(navigator.userAgent))
+      st.textContent += " a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible," +
+        " [role=button]:focus-visible, [role=link]:focus-visible, [role=menuitem]:focus-visible, [role=tab]:focus-visible," +
+        " [role=option]:focus-visible { outline: 3px solid #FF2E88 !important; outline-offset: 2px !important; }";
     (document.head || document.documentElement).appendChild(st);
   }
 

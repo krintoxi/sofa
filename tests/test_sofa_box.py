@@ -17,7 +17,7 @@ import unittest
 import urllib.error
 import urllib.request
 from http.cookiejar import CookieJar
-from http.server import BaseHTTPRequestHandler
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import tests
 from tests import LIBRARY, video
@@ -199,7 +199,7 @@ class Agent(unittest.TestCase):
     def start_agent(mpv, conf, port, **env):
         return subprocess.Popen([sys.executable, os.path.join(BOX, "sofa-box-agent.py")], stderr=subprocess.DEVNULL,
                                 env=dict(os.environ, SOFA_BOX_CONF=conf, SOFA_BOX_PORT=str(port), SOFA_BOX_MPV=mpv, SOFA_BOX_UINPUT="0",
-                                         SOFA_BOX_HOTSPOT="0", SOFA_BOX_NEWEST="0", SOFA_BOX_CERTS="0", SOFA_BOX_LOCAL_DATA=os.path.join(conf, "local-sofa"),
+                                         SOFA_BOX_HOTSPOT="0", SOFA_BOX_NEWEST="0", SOFA_BOX_CERTS="0", SOFA_BOX_ICONS="0", SOFA_BOX_LOCAL_DATA=os.path.join(conf, "local-sofa"),
                                          SOFA_BOX_MPV_ARGS="--vo=null --ao=null --force-window=no", **env))
 
     @classmethod
@@ -522,7 +522,7 @@ class BoxOS(unittest.TestCase):
         cls.base = "http://127.0.0.1:%d" % cls.port
         cls.proc = subprocess.Popen([sys.executable, os.path.join(BOX, "sofa-box-agent.py")], stderr=subprocess.DEVNULL,
                                     env=dict(os.environ, HOME=cls.home, SOFA_BOX_CONF=cls.conf, SOFA_BOX_PORT=str(cls.port),
-                                             SOFA_BOX_DEVTOOLS="0", SOFA_BOX_MPV=os.path.join(HERE, "tools", "fake_mpv.py")))
+                                             SOFA_BOX_DEVTOOLS="0", SOFA_BOX_ICONS="0", SOFA_BOX_MPV=os.path.join(HERE, "tools", "fake_mpv.py")))
         cls.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
         for _ in range(100):
             try:
@@ -647,6 +647,50 @@ class BoxBluetooth(unittest.TestCase):
             install = f.read()
         self.assertIn("cloud-final.service.d", install)                                         # cloud-init: the first start only
         self.assertIn("/etc/cloud/cloud-init.disabled", install)
+
+
+class AppIcons(unittest.TestCase):
+    def test_how_wide_a_picture_is(self):
+        boxos = load("boxos")
+        png = b"\x89PNG\r\n\x1a\n" + b"\0\0\0\rIHDR" + (180).to_bytes(4, "big") + (180).to_bytes(4, "big") + b"\0" * 20
+        ico = b"\0\0\1\0" + (2).to_bytes(2, "little") + bytes([16, 16]) + b"\0" * 14 + bytes([0, 0]) + b"\0" * 14   # 16 and 256
+        jpg = b"\xff\xd8\xff\xe0" + (16).to_bytes(2, "big") + b"\0" * 14 + b"\xff\xc0" + (17).to_bytes(2, "big") + b"\x08" + \
+            (152).to_bytes(2, "big") + (152).to_bytes(2, "big") + b"\0" * 12
+        self.assertEqual(boxos.image_width(png), 180)
+        self.assertEqual(boxos.image_width(ico), 256)
+        self.assertEqual(boxos.image_width(jpg), 152)
+        self.assertEqual(boxos.image_width(b'<?xml version="1.0"?><svg viewBox="0 0 24 24"></svg>'), 1024)
+        self.assertEqual(boxos.image_width(b"<html>not a picture</html>"), 0)
+
+    def test_the_sharpest_is_kept(self):
+        """A site's labelled "180" icon can be 57 pixels: the box fetches the likeliest few and keeps the widest."""
+        boxos, folder = load("boxos"), tempfile.mkdtemp()
+        def png(w):
+            return b"\x89PNG\r\n\x1a\n" + b"\0\0\0\rIHDR" + w.to_bytes(4, "big") + w.to_bytes(4, "big") + b"\0" * 200
+        files = {"/": (b'<html><head><link rel="apple-touch-icon" href="/touch.png"><link rel="icon" href="/fav.png" sizes="128x128"></head></html>', "text/html"),
+                 "/touch.png": (png(57), "image/png"), "/fav.png": (png(128), "image/png"), "/apple-touch-icon.png": (png(57), "image/png")}
+
+        class Site(BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def do_GET(self):
+                body, ctype = files.get(self.path, (b"", ""))
+                self.send_response(200 if body else 404)
+                self.send_header("Content-Type", ctype or "text/plain")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+        srv = ThreadingHTTPServer(("127.0.0.1", 0), Site)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        try:
+            name = boxos.fetch_icon("http://127.0.0.1:%d/" % srv.server_address[1], folder, "demo", timeout=5)
+            with open(os.path.join(folder, name), "rb") as f:
+                self.assertEqual(boxos.image_width(f.read()), 128)
+        finally:
+            srv.shutdown()
+            srv.server_close()
+            shutil.rmtree(folder, ignore_errors=True)
 
 
 class SofaShield(unittest.TestCase):

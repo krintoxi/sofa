@@ -491,8 +491,8 @@
   // pairing mode (it pairs by itself) or a keyboard's dongle all work from the first screen.
   let step = 0, picks = null, setup = null, setupTimer = 0, wifiPick = null;
   const STEPS = ["Hello", "Internet", "Bluetooth", "Your box", "Apps"];
-  const POPULAR = ["netflix", "youtube-tv", "prime-video", "disney-plus", "max", "hulu", "peacock", "paramount-plus", "apple-tv",
-                   "pluto", "tubi", "roku-channel", "crunchyroll", "twitch", "spotify", "pandora", "youtube-music", "pbs-kids"];
+  // The setup's apps: the few most people use, all on one screen (the App Store has the rest)
+  const POPULAR = ["netflix", "youtube-tv", "prime-video", "disney-plus", "max", "hulu", "apple-tv", "spotify"];
   const ZONES = ["America/New_York", "America/Chicago", "America/Denver", "America/Phoenix", "America/Los_Angeles", "America/Anchorage",
                  "Pacific/Honolulu", "America/Toronto", "America/Mexico_City", "America/Havana", "America/Puerto_Rico", "America/Bogota",
                  "America/Lima", "America/Sao_Paulo", "America/Argentina/Buenos_Aires", "Europe/London", "Europe/Dublin", "Europe/Madrid",
@@ -661,10 +661,10 @@
     if (!picks) picks = new Set(all.filter(e => have.has(e.id)).map(e => e.id));
     const list = POPULAR.map(id => all.find(e => e.id === id)).filter(Boolean);
     return `<div class="setup view-in">${top}<div class="setup-body"><h1>What do you watch?</h1>
-      <p class="lede">Pick your streaming apps: they go on Home, ready to sign in. Sofa and free Live TV are there already. The App Store has more.</p>
+      <p class="lede">Pick the ones you use: they go on Home, ready to sign in. Sofa and free Live TV are there already; the App Store has many more, any time.</p>
       <div class="pick-grid">${list.map(e => `<button class="tile app pick${picks.has(e.id) ? " on" : ""}" style="--c:${esc(e.color)}" data-pick="${esc(e.id)}" aria-pressed="${picks.has(e.id)}">
         <i class="tick">${icon("#i-check")}</i><span class="ic${e.icon_url ? "" : " mono"}">${e.icon_url ? `<img src="${esc(e.icon_url)}" alt="" onload="sofaIcon(this)">` : esc(e.name.replace(/^the\s+/i, "")[0].toUpperCase())}</span><b>${esc(e.name)}</b></button>`).join("")}</div>
-      </div>${nav(true, `data-done="1"`, picks.size ? "Add " + picks.size + " and finish" : "Finish")}</div>`;
+      </div>${nav(true, `data-done="1"`, (n => n ? "Add " + n + " and finish" : "Finish")([...picks].filter(id => !have.has(id)).length))}</div>`;
   }
 
   // ---------------------------------------------------------------- sheets (menus over the page)
@@ -733,25 +733,59 @@
   };
   function focus(el) {
     if (!el) return;
+    const prev = cur;
     if (cur) cur.classList.remove("f");
     cur = el; el.classList.add("f");
-    if (el.tagName === "INPUT") el.focus(); else { if (document.activeElement && document.activeElement.tagName === "INPUT") document.activeElement.blur(); el.focus({ preventScroll: true }); }
-    el.scrollIntoView({ block: "nearest", inline: "nearest", behavior: document.documentElement.classList.contains("lite") ? "auto" : "smooth" });
+    if (el.tagName === "INPUT") el.focus({ preventScroll: true }); else { if (document.activeElement && document.activeElement.tagName === "INPUT") document.activeElement.blur(); el.focus({ preventScroll: true }); }
+    reveal(el, prev);
     if (el.dataset.store) storeDetail(el.dataset.store);
+  }
+  // Scrolling the way a TV's home screen does, smoothly (it's the compositor's work, light even on a Pi 3): a new row
+  // comes up under the top bar with its title, the same place every time; along a row, the next tile peeks in;
+  // anything else just clears the top bar and the hints at the bottom.
+  function reveal(el, prev) {
+    const how = { behavior: "smooth" };
+    if (el.closest(".sheet, .viewer")) return el.scrollIntoView(Object.assign({ block: "nearest", inline: "nearest" }, how));
+    const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+    const rail = el.closest(".rail");
+    if (rail) {
+      const r = rail.getBoundingClientRect(), b = el.getBoundingClientRect(), pad = Math.min(r.width * .12, 9 * rem);
+      const dx = b.left < r.left + pad ? b.left - r.left - pad : b.right > r.right - pad ? b.right - r.right + pad : 0;
+      if (Math.abs(dx) > 1) rail.scrollBy(Object.assign({ left: dx }, how));
+    }
+    if (!el.closest("#view")) return;
+    const bar = $(".top"), top = (bar && getComputedStyle(bar).display !== "none" ? bar.getBoundingClientRect().bottom : 0) + .6 * rem;
+    const hint = $("#hint"), bottom = innerHeight - (hint && getComputedStyle(hint).display !== "none" ? hint.offsetHeight : 0) - .6 * rem;
+    if (el.closest(".mast")) {                                                            // Home's top: all the way up
+      if (scrollY > 0) window.scrollTo(Object.assign({ top: 0 }, how));
+      return;
+    }
+    if (rail && prev && prev.closest && prev.closest(".rail") === rail) return;          // along the same row
+    const title = rail && rail.previousElementSibling && rail.previousElementSibling.classList.contains("row-title") ? rail.previousElementSibling : null;
+    const box = (title || rail || el).getBoundingClientRect(), end = (rail || el).getBoundingClientRect().bottom;
+    const dy = rail ? box.top - top : box.top < top ? box.top - top : end > bottom ? Math.min(end - bottom, box.top - top) : 0;
+    if (Math.abs(dy) > 1) window.scrollBy(Object.assign({ top: dy }, how));
   }
   function move(dx, dy) {
     const list = focusables().filter(e => e.offsetParent !== null);
     if (!cur || !document.contains(cur) || !list.includes(cur)) return focus(list.find(e => e.closest("#view")) || list[0]);
     const a = cur.getBoundingClientRect(), ax = a.left + a.width / 2, ay = a.top + a.height / 2;
-    let best = null, bestScore = Infinity;
-    list.forEach(el => {
-      if (el === cur) return;
-      const b = el.getBoundingClientRect(), bx = b.left + b.width / 2, by = b.top + b.height / 2;
-      const along = dx ? (bx - ax) * dx : (by - ay) * dy, across = dx ? Math.abs(by - ay) : Math.abs(bx - ax);
-      if (along <= 4) return;
-      const score = along + across * 2.4;
-      if (score < bestScore) { bestScore = score; best = el; }
-    });
+    const nearest = among => {
+      let best = null, bestScore = Infinity;
+      among.forEach(el => {
+        if (el === cur) return;
+        const b = el.getBoundingClientRect(), bx = b.left + b.width / 2, by = b.top + b.height / 2;
+        const along = dx ? (bx - ax) * dx : (by - ay) * dy, across = dx ? Math.abs(by - ay) : Math.abs(bx - ax);
+        if (along <= 4) return;
+        const score = along + across * 2.4;
+        if (score < bestScore) { bestScore = score; best = el; }
+      });
+      return best;
+    };
+    // Within the page first: the top bar stays on screen while rows above have scrolled away, and Up from a row
+    // means the row above it (the top bar only from the first one)
+    const inPage = cur.closest("#view") ? nearest(list.filter(e => e.closest("#view"))) : null;
+    const best = inPage || nearest(list);
     if (best) focus(best);
   }
   function back() {
