@@ -4,13 +4,19 @@ Your own TV box, in place of a Fire TV: a Raspberry Pi on the TV that starts on 
 with Sofa, free Live TV, your streaming apps, a browser, an app store, games and a file manager. No
 ads, no account, and nothing watching what you watch; the TV itself never needs to be online.
 
+> **Sofa Box OS, Sofa App, Sofa Server: which is which?** **Sofa Box OS** is the system on the Pi (this
+> guide). It has the **Sofa App** built in, the part you watch with. Your own shows and movies live on a
+> **Sofa Server**, a program on a computer that stays on; the box opens yours, a friend's, or a small
+> one on the box itself. You don't need a Sofa Server for Live TV or streaming apps.
+> [The three parts, side by side](../../README.md#three-parts-sofa-server-sofa-app-and-sofa-box-os)
+
 **[⬇ Download Sofa Box OS](https://github.com/krintoxi/sofa/releases/tag/sofa-box)** (the newest card) ·
 [Every version](https://github.com/krintoxi/sofa/releases?q=box-os) · [What's new](CHANGES.md)
 
 <img src="../../docs/images/box-home.jpg" alt="The Sofa Box home screen: Open Sofa and Live TV, your apps, and a Watch row with Sofa, Live TV, Netflix and YouTube" width="100%">
 
-- **Sofa from anywhere:** a Sofa computer at home, a Sofa on the internet (a share link someone sent
-  you), **Sofa on the box itself** (no other computer needed), or your Jellyfin, Emby or Plex server.
+- **Sofa from anywhere:** your Sofa Server at home, a Sofa Server on the internet (a share link someone
+  sent you), **Sofa on the box itself** (no other computer needed), or your Jellyfin, Emby or Plex server.
   It plays with the box's own player (mpv, on the Pi's video chip), so most files play as they are.
 - **Free Live TV** has its own tile, and works with no server at all.
 - **Streaming apps** (Netflix, YouTube, Prime Video, Disney+, Max, Hulu…), our own (Edge Music,
@@ -59,7 +65,7 @@ ads, no account, and nothing watching what you watch; the TV itself never needs 
    few minutes.
 6. **Open Sofa** from Home. The first time it asks where from (see below); after that it opens
    straight away, or asks each time if you prefer.
-7. **Sign in:** a Sofa computer shows a code and a QR code. On your phone, open Sofa, press your
+7. **Sign in:** your Sofa Server shows a code and a QR code. On your phone, open Sofa, press your
    picture, then **Pair a TV**, and type the code (or scan the QR). Sofa on the box signs itself in.
 
 From then on the box starts on its home screen whenever it's switched on.
@@ -158,7 +164,7 @@ systems. From the Pi's own keyboard and screen, or over SSH (`ssh you@raspberryp
 curl -fsSL https://raw.githubusercontent.com/krintoxi/sofa/main/deploy/sofa-box/install.sh | sudo sh
 ```
 
-It gets everything from GitHub, so no Sofa computer is needed. To start with your Sofa computer
+It gets everything from GitHub, so no Sofa Server is needed. To start with your Sofa Server
 already on the box's list, add its address at the end (Sofa's **Server → Overview → Apps** shows the
 whole line ready to copy):
 
@@ -215,7 +221,7 @@ Windows key on a keyboard, or **Home** on the Sofa bar.
 
 The first time you open Sofa, the box asks **where's your Sofa?**
 
-- **Sofa at home:** the Sofa computers the box found on your network, or type an address.
+- **Sofa at home:** the Sofa Servers the box found on your network, or type an address.
 - **Sofa on the internet:** paste a **share link** someone sent you (their public library), or your
   own Sofa's address when it's on the internet. Free public Sofas are listed here too when there are
   any (the list comes from GitHub, so new ones show up by themselves).
