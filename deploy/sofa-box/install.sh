@@ -364,6 +364,11 @@ RemainAfterExit=yes
 [Install]
 WantedBy=sysinit.target
 EOF
+# cloud-init (Raspberry Pi Imager's settings, if any) does its work at the first start; after that it would only run
+# its five steps again at every start, in the browser's way on a small board. It switches itself off once it's done.
+mkdir -p /etc/systemd/system/cloud-final.service.d
+printf '[Service]\nExecStartPost=-/bin/sh -c "mkdir -p /etc/cloud && touch /etc/cloud/cloud-init.disabled"\n' \
+  > /etc/systemd/system/cloud-final.service.d/sofa-box.conf
 # The box's own Wi-Fi (at its setup) works like a hotel's: every name is the box, so a phone that joins opens its
 # sign-in sheet by itself, and the sheet opens the phone remote (sofa-box-agent.py, Captive).
 mkdir -p /etc/NetworkManager/dnsmasq-shared.d

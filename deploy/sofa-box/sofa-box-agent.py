@@ -977,10 +977,29 @@ def scan_others():
 devices_seen = {"drives": [], "disc": None, "n": 0}
 
 
+def plugged():
+    """What's plugged in, from two small files and no programs: the disks and their sizes (a disc put in a drive
+    changes its size) and what's mounted under /media. None where there's no /proc (a preview on a Mac)."""
+    try:
+        with open("/proc/partitions") as f:
+            parts = f.read()
+        with open("/proc/mounts") as f:
+            mounts = [line for line in f if " /media/" in line]
+        return parts, tuple(mounts)
+    except OSError:
+        return None
+
+
 def watch_devices():
-    """USB drives are mounted as they're plugged in (udisks), and a disc in a USB DVD drive shows on Home."""
-    known = set()
+    """USB drives are mounted as they're plugged in (udisks), and a disc in a USB DVD drive shows on Home. lsblk and
+    the rest only run when something changed (or once a minute): not every few seconds all day."""
+    known, last, checked = set(), None, 0
     while True:
+        now_plugged = plugged()
+        if now_plugged is not None and now_plugged == last and time.time() - checked < 60:
+            time.sleep(15 if playing() else 3)
+            continue
+        last, checked = now_plugged, time.time()
         try:
             dev = boxos.devices(mount=True)
             names = {d["dev"] for d in dev["drives"]} | ({dev["disc"]["dev"] + ":" + dev["disc"]["kind"]} if dev["disc"] else set())
