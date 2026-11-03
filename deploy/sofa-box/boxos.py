@@ -682,6 +682,7 @@ class Browser:
 
     def __init__(self, port=DEVTOOLS_PORT, on_message=None, scale=None):
         self.port, self.on_message, self.scale = port, on_message, scale or (lambda: 1.0)
+        self.page_script = ""        # run in every app's own pages before theirs (the agent's H264_ONLY on a Pi 3)
         self.ws, self.next_id, self.waiting = None, 0, {}
         self.tabs = {}               # target id -> {"app", "title", "url", "session", "used", "audible"}
         self.lock = threading.Lock()
@@ -799,6 +800,8 @@ class Browser:
             if tab.get("ua"):
                 self.call("Network.setUserAgentOverride", {"userAgent": tab["ua"]}, session)
             self.size_page(target, session, tab)
+            if self.page_script and tab.get("app") != "home":  # in the page's own world, before its scripts run
+                self.call("Page.addScriptToEvaluateOnNewDocument", {"source": self.page_script}, session)
             if INJECT and tab.get("app") != "home":
                 self.call("Page.addScriptToEvaluateOnNewDocument", {"source": INJECT, "worldName": "sofabox"}, session)
                 self.call("Page.enable", {}, session)
@@ -807,6 +810,7 @@ class Browser:
             self.call("Runtime.runIfWaitingForDebugger", {}, session)
         except OSError:
             pass
+        tab["prepared"] = True
 
     def size_page(self, target, session, tab):
         """Pages drawn for the sofa (twice as big on a 1080p TV) while the window keeps the whole screen: what
@@ -880,8 +884,8 @@ class Browser:
         target = self.call("Target.createTarget", {"url": "about:blank"})["targetId"]
         tab = self.tabs.setdefault(target, {"used": time.time(), "session": None, "audible": False, "title": "", "url": url})
         tab.update(app=app_id, ua=ua if ua else None)
-        for _ in range(30):                                   # attached (auto-attach) and prepared
-            if tab.get("session"):
+        for _ in range(60):                                   # attached (auto-attach) and prepared: the page's
+            if tab.get("session") and tab.get("prepared"):    # scripts are in before its first page loads
                 break
             time.sleep(0.05)
         if tab.get("session") and ua:

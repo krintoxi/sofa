@@ -445,12 +445,14 @@
     if (hs) return setupCodes(r, hs, n, address, waiting);
     const fresh = j && j.state === "joined" && now - j.at < 600;
     // just joined: the secure (https) code follows within seconds, so not the plain one first and then a swap
-    if (fresh && now - j.at < 90 && !/^https:/.test(r.url) && sec.state === "working")
+    // ("error" too: just after joining, the box's DNS may not be ready, and it tries again in 30 seconds)
+    if (fresh && now - j.at < 180 && !/^https:/.test(r.url) && (sec.state === "working" || sec.state === "error"))
       return codeSteps(3) + waiting("Connected. Getting the box's secure address for your phone… a few seconds.");
     const open = r.home_at && now - r.home_at < 15;              // a remote open on the home Wi-Fi now
     return (fresh ? codeSteps(3) : "") + `<span class="qr big">${qr(r.pair_url)}</span>
       <b>${fresh ? "Scan this to keep your phone as the remote" : "Scan with your phone's camera"}</b><small>or open <b>${address}</b> and type <b>${esc(r.code)}</b></small>
-      ${open ? `<p class="okay small">✓ Your phone is the remote</p>` : waiting("Waiting for your phone to scan this…")}`;
+      ${open ? `<p class="okay small">✓ Your phone is the remote</p>` : waiting("Waiting for your phone to scan this…")}
+      ${/^https:/.test(r.url) ? "" : `<p class="small">iPhone says it isn't secure? Settings → Apps → Safari → turn off <b>Not Secure Connection Warning</b>.</p>`}`;
   }
   // The phone's way in at the setup, as steps: join the box's Wi-Fi, open the remote, give the box your Wi-Fi, keep
   // the remote (a new code once it's on your Wi-Fi). Each shows only its own code, and says what the box waits for.
@@ -511,6 +513,7 @@
     setupLive();
     const steps = `<div class="setup-steps">${STEPS.map((n, i) => `<i class="${i < step ? "done" : i === step ? "on" : ""}"><em>${i < step ? "✓" : i + 1}</em><b>${n}</b></i>`).join("")}</div>`;
     const top = `<div class="setup-top"><span class="setup-brand">${icon("#mark")}<b>Sofa</b><span>Box</span></span>${steps}</div>`;
+    const online = !!(setup && setup.network && (setup.network.wired || setup.network.wifi));   // Start skips Internet then
     const nav = (back, next, label) => `<div class="setup-nav">${back ? `<button class="btn" data-step="${step - 1}">Back</button>` : "<span></span>"}
       <button class="btn primary big" ${next}>${label}</button></div>`;
     if (step === 0) return `<div class="setup view-in">${top}<div class="setup-body hello">
@@ -522,13 +525,13 @@
             <p><b>Game controller:</b> put it in pairing mode.</p><div id="btList" class="bt-list small-list">${btList()}</div></section>
           <section class="way"><h3><span>⌨</span>Keyboard and mouse</h3><p>Plug the USB dongle into the box. They work straight away.</p>
             <p class="small">Press <b>OK</b> or <b>Enter</b> to start.</p></section>
-        </div></div>${nav(false, `data-step="1"`, "Start")}</div>`;
+        </div></div>${nav(false, `data-step="${online ? 2 : 1}"`, "Start")}</div>`;
     if (step === 1) {
       const n = (setup || {}).network || {};
       const nets = (n.networks || []).slice(0, 12);
       return `<div class="setup view-in">${top}<div class="setup-body"><h1>Internet</h1>
         <div id="netState">${netState()}</div>
-        ${n.wired ? "" : `<div class="wifi-list">${nets.map(w => `<button class="wifi-row${wifiPick === w.ssid ? " on" : ""}" data-wifi-pick="${esc(w.ssid)}" data-secure="${w.secure ? 1 : 0}">
+        ${n.wired || n.wifi ? "" : `<div class="wifi-list">${nets.map(w => `<button class="wifi-row${wifiPick === w.ssid ? " on" : ""}" data-wifi-pick="${esc(w.ssid)}" data-secure="${w.secure ? 1 : 0}">
             <span class="bars b${Math.min(4, Math.ceil(w.signal / 25))}"><i></i><i></i><i></i><i></i></span><b>${esc(w.ssid)}</b>${w.secure ? "<small>🔒</small>" : ""}${w.on ? `<i class="pill">✓</i>` : ""}</button>`).join("")
             || `<p class="small">Looking for Wi-Fi…</p>`}</div>
           <div class="wifi-join" ${wifiPick ? "" : "hidden"}><input class="field" id="wifiPass" type="password" placeholder="Password for ${esc(wifiPick || "")}" spellcheck="false">
