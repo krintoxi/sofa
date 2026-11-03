@@ -17,6 +17,24 @@ You can also copy things into its folders yourself, in the usual layout; Sofa pi
 A drive that already has a Sofa library (from this or another computer) shows **Connect its
 Sofa library** instead.
 
+## A drive as it is (Sofa on a Sofa Box)
+
+On a **Sofa Box**, Sofa on the box takes every USB drive you plug in by itself, **as it is**: no
+Sofa Library folder, nothing to press. It reads the drive's own folders, whatever they're called:
+
+- a folder that looks like a show (Season folders, or videos named like `Show.S01E02`) is a show;
+  one called **TV**, **Shows** or **Series** holds shows;
+- everything else is movies: movie folders, loose videos (right on the drive too) and collections;
+- a folder like "Downloads" full of one show's episodes is named for that show;
+- folders called **Adult** or **XXX** are left out (on a drive, nobody chose who may see them).
+
+Sofa never moves, renames or deletes anything on such a drive, and doesn't file new things there; it
+may put the usual pictures (`folder.jpg`, `backdrop.jpg`) next to videos, as other players do. Under
+Server → Storage it says **USB, as it is**. Unplugged, it drops out until it's back (same as any drive);
+**Stop using** keeps it out from then on, even when it's plugged in again.
+
+This is the `auto_drives` setting (`data/config.json`), on for Sofa on a Sofa Box and off elsewhere.
+
 ## Where new things go
 
 **Server → Storage → New things go here** picks the place the Inbox files into. Two

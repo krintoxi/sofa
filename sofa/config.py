@@ -32,6 +32,10 @@ DEFAULTS = {
     "file_new_to": "",
     # Where to look for drives plugged into this computer (empty: /Volumes on a Mac, /media and /mnt on Linux).
     "drive_folders": [],
+    # Every drive that's plugged in joins the library by itself, read as it is (its own folders; Sofa on a Sofa
+    # Box has this on). The ones an admin stopped using stay out (drives_ignored).
+    "auto_drives": False,
+    "drives_ignored": [],
     # Videos an admin deletes from the app go here first (empty it from the Server page, or by hand).
     # Empty: a "Deleted" folder next to the Shows folder (on the same drive, so deleting is instant).
     "deleted": "",

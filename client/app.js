@@ -2143,10 +2143,10 @@ function srvStorage(d) {
     const what = [c.shows ? plural(c.shows, "show") : "", c.movies ? plural(c.movies, "movie") : "", c.adult && session.user.adult ? c.adult + " adult" : "",
       c.bytes ? bytes(c.bytes) : ""].filter(Boolean).join(" · ") || "Nothing yet";
     return `<li class="place${p.connected ? "" : " gone"}"><div class="place-main">
-        <span class="place-name"><b>${esc(p.name)}</b>${p.main ? `<span class="tag">Main</span>` : ""}${p.connected ? "" : `<span class="tag bad">Not plugged in</span>`}</span>
+        <span class="place-name"><b>${esc(p.name)}</b>${p.main ? `<span class="tag">Main</span>` : ""}${p.as_is ? `<span class="tag" title="Read as it is: its own folders; nothing on it is moved or renamed">USB, as it is</span>` : ""}${p.connected ? "" : `<span class="tag bad">Not plugged in</span>`}</span>
         <span class="when"><code>${esc(p.path)}</code></span>
         <span class="when">${esc(what)}</span>${p.connected ? spaceBar(p) : `<span class="when">Its shows and movies come back when it's plugged in again.</span>`}</div>
-      <div class="place-actions"><label class="check"><input type="radio" name="newTo" data-new-to="${esc(p.id)}"${st.new_to === p.id ? " checked" : ""}${p.connected ? "" : " disabled"}> New things go here</label>
+      <div class="place-actions">${p.as_is ? "" : `<label class="check"><input type="radio" name="newTo" data-new-to="${esc(p.id)}"${st.new_to === p.id ? " checked" : ""}${p.connected ? "" : " disabled"}> New things go here</label>`}
         ${p.main ? "" : `<button class="mini danger" data-place-remove="${esc(p.id)}">Stop using</button>`}</div></li>`;
   };
   const warn = dr => dr.problem === "no-permission" ? `<span class="form-error">macOS isn't letting Sofa open it yet. Press "Use this drive" for the steps.</span>`

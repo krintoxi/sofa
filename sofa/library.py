@@ -35,6 +35,12 @@ FIRST_SEEN = os.path.join(config.DATA_DIR, "cache", "first-seen.json")   # item 
 HOME_VIDEOS = "Home Videos"         # phone and camera videos (Movies/Home Videos/Video 2023-05-12 14.30/...)
 EXTRAS_DIRS = ("extras", "featurettes", "behind the scenes", "trailers", "bonus", "deleted scenes")
 SERIES_DIRS = ("shows", "series", "tv", "tv shows", "tv series")
+# On a drive read as it is: folder names that say nothing about the show in them
+GENERIC_DIRS = ("downloads", "download", "videos", "video", "new folder", "complete", "completed", "torrents", "media",
+                "stuff", "misc", "files", "temp", "tmp", "to watch", "watch", "usb", "my videos")
+# and what's the drive's own business, not videos
+DRIVE_SKIP = ("system volume information", "$recycle.bin", "recycler", "lost+found", "found.000", ".trashes",
+              ".spotlight-v100", ".fseventsd", "sofa library")
 NOT_CATEGORIES = ("metadata", "performers")
 PRIVATE = ("path", "thumb_path", "subs")
 
@@ -203,6 +209,15 @@ class Library:
             h.update(str(os.stat(metadata.OVERRIDES).st_mtime_ns).encode())
         except OSError:
             pass
+        for p in places.as_is():                         # the drives read as they are: three folders deep is plenty
+            top = p["path"].rstrip(os.sep).count(os.sep)
+            h.update(("drive %s\n" % p["id"]).encode())
+            for d, dirs, _files in os.walk(p["path"]):
+                dirs[:] = [] if d.count(os.sep) - top >= 3 else sorted(x for x in dirs if not x.startswith((".", "$")))
+                try:
+                    h.update(("%s|%d\n" % (d, os.stat(d).st_mtime_ns)).encode())
+                except OSError:
+                    pass
         return h.hexdigest()
 
     def changed(self):
@@ -238,6 +253,10 @@ class Library:
             self._eps_meta = {}
             for key, root in places.roots("shows"):
                 shows = self._merge_shows(shows, self._scan_shows(root, items, key))
+            drive_movies = []
+            for p in places.as_is():                     # USB drives read as they are (Sofa on a Sofa Box)
+                s_, m_ = self._scan_drive(p["path"], items, p["id"])
+                shows, drive_movies = self._merge_shows(shows, s_), drive_movies + m_
             for s in shows:                          # a show on two drives: its guide counts both
                 if s.get("places") and s["id"] in self._eps_meta:
                     for k in ("missing", "missing_count", "seasons_absent", "next_air"):
@@ -245,6 +264,7 @@ class Library:
                     s.update(self._guide(self._eps_meta[s["id"]], {x["n"]: x["episodes"] for x in s["seasons"]}))
             for key, root in places.roots("movies"):
                 movies += self._scan_movies(root, items, key)
+            movies += drive_movies
             movies.sort(key=lambda m: ((m.get("collection") or m["title"]).lower(), m.get("year") or 0))
             for key, root in places.roots("adult"):
                 s_, m_ = self._scan_adult(root, items, key)
@@ -581,6 +601,25 @@ class Library:
         eps = [s for s in stems if naming.parse_episode(s) or naming.EPISODE_ONLY.search(s)]
         return len(eps) >= 2 and len(eps) >= len(stems) * 0.6
 
+    @staticmethod
+    def named_by_episodes(d):
+        """The show a folder's episodes name ("The.Expanse.S01E01.mkv" in "Downloads": The Expanse), when most of
+        them name the same one; None otherwise (the folder's own name stands)."""
+        names = {}
+        try:
+            for dp, _dirs, files in os.walk(d):
+                for f in files:
+                    stem, ext = os.path.splitext(f)
+                    ep = naming.parse_episode(stem) if ext.lower() in naming.VIDEO_EXT else None
+                    if ep and ep.get("show"):
+                        names[ep["show"]] = names.get(ep["show"], 0) + 1
+        except OSError:
+            return None
+        if not names:
+            return None
+        best, n = max(names.items(), key=lambda x: x[1])
+        return best if n >= sum(names.values()) * 0.6 else None
+
     def _scan_adult(self, root, items, art_key="adult"):
         """Every folder at the top of Adult/ is a category ("Movies", "Hentai", "Series", "Collections", ...).
         Inside one: movie folders, loose videos, collections (a folder of movie folders) and series
@@ -647,6 +686,63 @@ class Library:
         if top_files or singles:
             movies += tag(self._scan_movies(root, items, art_key, prefix="a", adult=True, only=set(singles),
                                             files=top_files), "Movies")
+        return shows, movies
+
+    # ------------------------------------------------------------ a drive read as it is
+
+    def _scan_drive(self, root, items, pid):
+        """A drive with its own folders, whatever they're called (a Sofa Box's USB drive): a folder that looks like a
+        show (Season folders, or videos named like episodes) is one; a "TV"/"Shows"/"Series" folder holds shows;
+        everything else is movies (movie folders, loose videos, collections). Adult folders ("Adult", "XXX") are
+        left out: on a drive nobody chose who may see them. Nothing on the drive is moved or renamed."""
+        shows, movies = [], []
+        sk, mk = "shows~" + pid, "movies~" + pid
+        try:
+            names = sorted(os.listdir(root), key=str.lower)
+        except OSError as exc:
+            self._problem(root, exc)
+            return shows, movies
+
+        def show(d, folder):                              # a folder called "Downloads": named for its episodes' show
+            generic = d == root or folder.lower() in GENERIC_DIRS
+            found = self._scan_show_safely(d, (generic and self.named_by_episodes(d)) or folder, items, sk)
+            if found:
+                shows.append(found)
+        if self.looks_like_show(root):                    # the whole drive is one show's episodes
+            show(root, os.path.basename(root.rstrip(os.sep)))
+            return shows, movies
+        top_files, singles = [], []
+        for name in names:
+            p = os.path.join(root, name)
+            if name.startswith((".", "$")) or name.lower() in DRIVE_SKIP or naming.is_adult_dir(name):
+                continue
+            if os.path.isfile(p):
+                if os.path.splitext(name)[1].lower() in naming.VIDEO_EXT:
+                    top_files.append(p)
+                continue
+            if not os.path.isdir(p):
+                continue
+            try:
+                subdirs = sorted((s for s in os.listdir(p) if not s.startswith(".") and not naming.is_adult_dir(s)
+                                  and os.path.isdir(os.path.join(p, s))), key=str.lower)
+                if name.lower() in SERIES_DIRS:
+                    for s in subdirs:
+                        show(os.path.join(p, s), s)
+                elif self.looks_like_show(p):
+                    show(p, name)
+                elif self._videos(p) and len(self.movie_groups(self._videos(p))) == 1 \
+                        and not any(self._videos(os.path.join(p, s)) for s in subdirs):
+                    singles.append(name)                  # a movie's own folder, right at the top
+                else:
+                    series = [s for s in subdirs if self.looks_like_show(os.path.join(p, s))]
+                    for s in series:
+                        show(os.path.join(p, s), s)
+                    skip = tuple(s.lower() for s in series) + tuple(s.lower() for s in os.listdir(p) if naming.is_adult_dir(s))
+                    movies.extend(self._scan_movies(p, items, mk, skip=skip))
+            except Exception as exc:
+                self._problem(p, exc)
+        if top_files or singles:
+            movies.extend(self._scan_movies(root, items, mk, only=set(singles), files=top_files))
         return shows, movies
 
     # ------------------------------------------------------------ shows

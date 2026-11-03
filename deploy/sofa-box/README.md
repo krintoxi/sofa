@@ -253,6 +253,11 @@ The **Live TV** tile opens Live TV in the Sofa it opens with, or in Sofa on the 
 Plug in a USB drive and it's ready in a moment: a toast says so, it shows on Home under **Plugged
 in**, and Files lists it. Videos and music play in the box's player; pictures open full screen.
 
+If you use **Sofa on this box** (This box), the drive's shows and movies also join its library by
+themselves, with posters and Continue watching: nothing to add in Sofa. Sofa reads the drive as it is
+(its own folders, whatever they're called) and never moves or renames anything on it
+([docs/storage.md](../../docs/storage.md#a-drive-as-it-is-sofa-on-a-sofa-box)).
+
 A **DVD, Blu-ray or music CD** in a USB disc drive shows on Home too: OK plays it (DVD menus work with
 the arrows and OK). Store-bought DVDs and Blu-rays are usually copy-protected; the box doesn't come
 with the extra software some of them need, so those may not play. A Pi 3 may need a powered USB hub

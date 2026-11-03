@@ -11,6 +11,10 @@ Sofa reads every connected place and shows one library: a show with Season 1 her
 Season 2 on a drive is one show. A drive that's unplugged just drops out until it's back
 (watch progress isn't lost). The Inbox files new things into the place chosen under
 Server → Storage; new episodes of a show that's already on a drive go to that drive.
+
+A drive can also be read as it is ("as_is": a Sofa Box's USB drives, added by themselves with auto_drives): its
+own folders, whatever they're called (library.py, _scan_drive). Sofa never moves, renames or deletes anything on
+it, and doesn't file new things there; it may add the usual pictures (folder.jpg) next to videos.
 """
 import hashlib
 import json
@@ -47,16 +51,26 @@ def connected(place):
 
 
 def section(key, place=None):
-    """The Shows/Movies/... folder of a place (None: the main one)."""
+    """The Shows/Movies/... folder of a place (None: the main one; a drive read as it is: the drive itself)."""
     if not place:
         return config.path(key)
+    if place.get("as_is"):
+        return place["path"]
     return os.path.join(place["path"], SECTIONS[key])
 
 
+def as_is():
+    """The drives read as they are, plugged in now."""
+    return [p for p in extra() if p.get("as_is") and connected(p)]
+
+
 def roots(key):
-    """[(art key, folder)] for a section: the main folder first, then each connected drive's."""
+    """[(art key, folder)] for a section: the main folder first, then each connected drive's (not the drives read
+    as they are: the library reads those its own way)."""
     out = [(key, config.path(key))]
     for p in extra():
+        if p.get("as_is"):
+            continue
         d = section(key, p)
         if os.path.isdir(d):
             out.append(("%s~%s" % (key, p["id"]), d))
@@ -215,13 +229,64 @@ def add(path, name=None, new_here=False):
     return pid
 
 
+def add_drive(path, name=None):
+    """A drive read as it is: its own folders, nothing made on it. Its id comes from where it's mounted, so a drive
+    unplugged and plugged in again is the same place (and keeps what's been watched). None if it's used already."""
+    path = os.path.abspath(path)
+    if any(os.path.abspath(p["path"]) == path for p in extra()):
+        return None
+    pid = "usb" + hashlib.sha1(path.encode()).hexdigest()[:8]
+    name = (name or os.path.basename(path) or "Drive").strip()[:40]
+    with _lock:
+        config.update({"places": [p for p in extra() if p["id"] != pid] + [{"id": pid, "name": name, "path": path, "as_is": True}]})
+    store.log("settings", "Reading the drive %s (%s) as it is" % (name, path))
+    return pid
+
+
+def _is_drive(path):
+    return os.path.ismount(path)
+
+
+def auto_drives():
+    """With auto_drives on (Sofa on a Sofa Box): every drive that's mounted now and isn't in the library yet joins
+    it, read as it is (one that's a Sofa library already, as one). Only looks at what's mounted: nothing is written
+    to the drives to find out. Returns the ids added."""
+    if not config.get("auto_drives"):
+        return []
+    have = [os.path.abspath(p["path"]) for p in extra()]
+    ignored = set(config.get("drives_ignored") or [])
+    added = []
+    for folder in _drive_folders():
+        try:
+            names = sorted(os.listdir(folder))
+        except OSError:
+            continue
+        for name in names:
+            path = os.path.abspath(os.path.join(folder, name))
+            if name.startswith(".") or path in ignored or path in _drive_folders() or not _is_drive(path):
+                continue
+            if any(h == path or h.startswith(path + os.sep) for h in have):
+                continue
+            lib = os.path.join(path, DEFAULT_FOLDER)
+            try:
+                pid = add(lib) if os.path.isfile(os.path.join(lib, MARKER)) else add_drive(path, name)
+            except ValueError:
+                pid = None
+            if pid:
+                added.append(pid)
+                have.append(path)
+    return added
+
+
 def remove(pid):
-    """Stop using a place. Nothing on the drive is touched."""
+    """Stop using a place. Nothing on the drive is touched. (One that joined by itself stays out from now on.)"""
     p = by_id(pid)
     if not p:
         return
     with _lock:
         changes = {"places": [x for x in extra() if x["id"] != pid]}
+        if p.get("as_is"):
+            changes["drives_ignored"] = sorted(set(config.get("drives_ignored") or []) | {os.path.abspath(p["path"])})
         if config.get("file_new_to") == pid:
             changes["file_new_to"] = ""
         config.update(changes)
@@ -231,6 +296,8 @@ def remove(pid):
 def set_target(pid):
     if pid and not by_id(pid):
         raise ValueError("That drive isn't one Sofa uses.")
+    if pid and by_id(pid).get("as_is"):
+        raise ValueError("Sofa reads that drive as it is: it doesn't put new things on it.")
     config.update({"file_new_to": pid or ""})
 
 
@@ -254,7 +321,8 @@ def status(library):
     out = [dict({"id": "", "name": "This computer", "path": main_base(), "connected": True, "main": True,
                  "counts": counts.get("", {})}, **main_space)]
     for p in extra():
-        d = {"id": p["id"], "name": p["name"], "path": p["path"], "connected": connected(p), "counts": counts.get(p["id"], {})}
+        d = {"id": p["id"], "name": p["name"], "path": p["path"], "connected": connected(p), "counts": counts.get(p["id"], {}),
+             "as_is": bool(p.get("as_is"))}
         if d["connected"]:
             try:
                 du = shutil.disk_usage(p["path"])
@@ -289,6 +357,8 @@ def move(folder, key, to_pid, title, private=False):
     dest_place = by_id(to_pid) if to_pid else None
     if to_pid and not dest_place:
         raise ValueError("That drive isn't one Sofa uses.")
+    if (dest_place or {}).get("as_is") or (src_place or {}).get("as_is"):
+        raise ValueError("Sofa reads that drive as it is: it doesn't move things on or off it.")
     if dest_place and not connected(dest_place):
         raise ValueError("%s isn't plugged in." % dest_place["name"])
     if (src_place or {}).get("id") == (dest_place or {}).get("id"):
