@@ -71,6 +71,7 @@ const NATIVE = window.SofaNative || null;      // inside the Fire TV app
 const FIRE_TV = /\bAFT\w*\b/.test(navigator.userAgent);         // a Fire TV: Silk, or the app's own browser
 const TV = NATIVE ? true : prefs.get("tv", /AFT[A-Z0-9]+|Android TV|GoogleTV|BRAVIA|SMART-TV|SmartTV|Tizen|Web0S|webOS|CrKey|HbbTV/i.test(navigator.userAgent));
 if (TV) document.documentElement.classList.add("tv");
+if (window.SofaBox) document.documentElement.classList.add("box");   // the remote's focus only (sofa.css)
 
 let session = null, LIB = { shows: [], movies: [] }, progress = {};
 const byId = new Map();

@@ -539,10 +539,22 @@ body.has-bar footer { padding-bottom: 110px; }
 .tv .nudge { opacity: 1; width: 56px; background: rgba(var(--ink-rgb),.85); }
 .tv .nudge svg { width: 30px; height: 30px; }
 .tv .nudge[disabled] { opacity: 0; }
-/* One unmistakable highlight for the remote's focus and for Silk's pointer alike. */
+/* One unmistakable highlight for the remote's focus and for Silk's pointer alike, readable from the sofa: the
+   poster or episode in front grows a little in a white frame with an amber ring; a button in front turns white.
+   The rows keep room around their posters for that (they scroll, so they'd cut it off). */
+.tv .rail { padding: 18px 16px 20px; margin: -14px -16px 0; scroll-padding-inline: 16px; }
 .tv :focus, .tv :focus-visible { outline: 4px solid var(--amber); outline-offset: 4px; }
-.tv .card:hover .frame, .tv .card:focus .frame, .tv .ep-thumb:hover, .tv .ep-thumb:focus { box-shadow: 0 0 0 4px var(--amber); outline: none; }
+.tv .card:hover .frame, .tv .card:focus .frame, .tv .ep-thumb:hover, .tv .ep-thumb:focus {
+  box-shadow: 0 0 0 4px #fff, 0 0 0 8px var(--amber); outline: none; transform: scale(1.06); position: relative; z-index: 2; }
+.tv .ep-thumb { transition: transform .2s ease, box-shadow .2s ease; }
 .tv .card:focus, .tv .ep-thumb:focus { outline: none; }
+.tv .card:focus .card-title, .tv .card:focus h3, .tv .card:focus figcaption { color: #fff; }
+.tv .btn:focus, .tv .seasons button:focus, .tv .chips button:focus, .tv .nav a:focus, .tv .ibtn:focus {
+  background: #fff; color: #000; outline: 4px solid var(--amber); outline-offset: 3px; }
+/* On a Sofa box only the remote's focus is lit: the touchpad's pointer, resting somewhere, mustn't light a second one. */
+.box .card:hover:not(:focus) .frame, .box .ep-thumb:hover:not(:focus) { box-shadow: none; transform: none; }
+.box .btn:hover:not(:focus), .box .seasons button:hover:not(:focus), .box .chips button:hover:not(:focus),
+.box .nav a:hover:not(:focus), .box .station:hover:not(:focus) { outline: none; }
 .tv .btn:hover, .tv .seasons button:hover, .tv .chips button:hover, .tv .nav a:hover, .tv .station:hover { outline: 4px solid var(--amber); outline-offset: 2px; }
 .tv .episode { grid-template-columns: 300px 1fr auto; }
 .tv .ep-text h3 { font-size: 20px; }
