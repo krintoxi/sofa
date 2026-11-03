@@ -42,6 +42,8 @@ apps and sites you open on it:
 | Live TV channel lists | iptv-org | Don't open Live TV |
 | The secure (https) phone remote | the Sofa Box certificate service (boxcert.edgeventure.uk), about once a day: a random id and the box's address on your network | Settings → Remotes and Bluetooth → Switch off |
 
+| The weather on Home | MET Norway (api.met.no), every half hour while it's on: where the place is, to about a kilometre (the city of the box's time zone, or the town you picked) | Settings → Weather on Home → Off |
+| Finding a town for the weather | OpenStreetMap (nominatim.openstreetmap.org), only when you look one up in Settings: what you typed | — |
 | Send a report | the Sofa Box certificate service, only when you press it (Settings → Help, or "Something wrong?" on the phone remote) | Don't press it |
 
 The secure phone remote's name (random letters) is listed in the public certificate logs, as every

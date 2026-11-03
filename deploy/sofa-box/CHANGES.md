@@ -7,6 +7,21 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.8
+
+- **A new Home.** At the top: the time, big, the day, a hello, and what to do next (Resume what you
+  were watching, with its picture behind; Open Sofa; Live TV). Beside it, **the weather**: now, the
+  high and low for the next 24 hours, and the next few hours, drawn in the box's look. It's for the
+  city of the box's time zone until you pick a town (Settings → Weather on Home, where °C or °F and
+  Off are too). From MET Norway, Norway's weather service: free, no account, asked every half hour.
+- **No blank page when an app opens.** The TV used to switch to a new app's empty page while it
+  loaded. Now the app loads behind Home, which shows its icon ("Opening YouTube…"), and the TV
+  switches once the app has something to show (8 seconds at most). An app that's open already comes
+  straight back.
+- **The first start says it's the slow one.** A new card's boot screen says the first start takes a
+  few minutes and that the box may restart once by itself: just wait. Only on that start.
+- Home starts with the pointer hidden (it shows when a mouse or the phone's touchpad moves it).
+
 ## 1.1.7
 
 - **Send a report.** Settings → Help → **Send a report** (or, on the phone remote, **Something wrong?

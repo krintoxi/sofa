@@ -31,9 +31,19 @@
     $$("use[href^='#mark']").forEach(u => u.setAttribute("href", "#m-" + t));
     $$("svg use").forEach(u => { if (u.getAttribute("href") === "#mark") u.setAttribute("href", "#m-" + t); });
   }
+  const greeting = h => h < 5 ? "Good night" : h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
+  function clockParts(d) {                  // "5:55" and "AM" (or "17:55" and nothing, where the clock is 24-hour)
+    const t = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }), m = t.match(/^(.*?)\s*([AaPp])\.?\s?[Mm]\.?$/);
+    return m ? [m[1], m[2].toUpperCase() + "M"] : [t, ""];
+  }
   function tick() {
-    const d = new Date();
+    const d = new Date(), [hm, ap] = clockParts(d);
     $("#clock").textContent = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const big = $("#mClock");
+    if (!big) return;
+    big.innerHTML = esc(hm) + (ap ? "<small>" + ap + "</small>" : "");
+    $("#mDate").textContent = d.toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" });
+    $("#mHi").firstChild.textContent = greeting(d.getHours());
   }
   setInterval(tick, 10000); tick();
 
@@ -73,22 +83,41 @@
   }
 
   // ---------------------------------------------------------------- opening things
+  // While an app loads (behind Home: the agent brings it forward once it has something to show), Home says so: its
+  // icon on its colour, not a blank page. One that's open already comes straight back, with nothing in between.
+  let openingTimer = 0;
+  function opening(app, text) {
+    const el = $("#opening");
+    clearTimeout(openingTimer);
+    if (!app) { el.classList.remove("on"); openingTimer = setTimeout(() => { el.hidden = true; }, 300); return; }
+    if ((data.running || []).some(r => r.app === app.id)) return;
+    el.style.setProperty("--c", app.color || "var(--a)");
+    const ic = $(".op-ic", el);
+    ic.className = "op-ic" + (!app.icon_url && !BUILTIN_ICON[app.id] ? " mono" : "");
+    ic.innerHTML = appIcon(app);
+    $("b", el).textContent = text || "Opening " + app.name + "…";
+    el.hidden = false; void el.offsetWidth; el.classList.add("on");
+    openingTimer = setTimeout(() => opening(null), 70000);                    // never left up
+  }
   async function open(body) {
+    opening(body.id && data.apps.find(a => a.id === body.id));
     try {
       const r = await api("/box/api/open", body);
-      if (r.url) window.open(r.url, "_blank");             // a preview on a computer: a tab of its own
-    } catch (e) { toast(e.message); }
+      if (r.url) { opening(null); window.open(r.url, "_blank"); }          // a preview on a computer: a tab of its own
+      else setTimeout(() => opening(null), 800);                            // (Home is behind the app by then)
+    } catch (e) { opening(null); toast(e.message); }
   }
   async function openSofa(body) {
     // Sofa on this box starts the first time it's opened (up to a minute on a small board): say so, not a still screen
-    let waited = false;
-    const slow = setTimeout(() => { waited = true; toast("Starting Sofa… the first time takes up to a minute.", 60000); }, 1200);
+    const app = data.apps.find(a => a.id === (body && body.live ? "live" : "sofa"));
+    opening(app);
+    const slow = setTimeout(() => opening(app, "Starting Sofa… the first time takes up to a minute."), 1500);
     try {
       const r = await api("/box/api/sofa/open", body || {});
-      clearTimeout(slow); if (waited) untoast();
-      if (r.ask) { location.hash = "#/sofa" + (body && body.hash ? "?then=" + encodeURIComponent(body.hash) : ""); return; }
-      if (r.url) window.open(r.url, "_blank");
-    } catch (e) { clearTimeout(slow); toast(e.message); }
+      clearTimeout(slow);
+      if (r.ask) { opening(null); location.hash = "#/sofa" + (body && body.hash ? "?then=" + encodeURIComponent(body.hash) : ""); return; }
+      if (r.url) { opening(null); window.open(r.url, "_blank"); } else setTimeout(() => opening(null), 800);
+    } catch (e) { clearTimeout(slow); opening(null); toast(e.message); }
   }
   const openApp = (app, hash) => {
     if (app.id === "sofa") return openSofa(hash ? { hash } : {});
@@ -126,32 +155,72 @@
       ${drives.map(d => `<button class="tile app wide input" style="--c:#2BB673" data-drive="${esc(d.root)}" data-dev="${esc(d.dev)}"><span class="ic">${icon("#i-usb")}</span>
         <b>${esc(d.label)}</b><small>${d.size ? size(d.size) + " · " : ""}Open in Files</small></button>`).join("")}</div>`;
   }
-  function spotlight(watch) {
-    const s = sofa || {}, first = s.items && s.items[0];
-    if (first) return `<section class="hero">${first.backdrop ? `<img class="hero-bg" src="${esc(artSrc(first.backdrop, 1280))}" alt="" onerror="this.remove()">` : ""}
-        <span class="kicker">Continue watching · ${esc(s.name || "Sofa")}</span><h2>${esc(first.title)}</h2><p>${esc(first.sub)}</p>
-        <div class="bar"><i style="width:${first.pct}%"></i></div>
-        <div class="row-actions"><button class="btn primary" data-sofa-hash="${esc(first.hash)}">${icon("#i-play")}Resume</button>
-        <button class="btn" data-app="sofa">Open Sofa</button></div></section>`;
-    // Nothing to resume: the box itself, with what's on it to watch
-    const picks = watch.filter(a => a.kind !== "builtin").slice(0, 5);
-    const head = s.found && s.signedIn ? "Welcome back" + (s.user ? ", " + esc(s.user) : "") : s.found ? "Sign in to " + esc(s.name || "Sofa") : "What's on tonight?";
-    const sub = s.found && s.signedIn ? "Pick something in Sofa, or open an app." : s.found ? "Open Sofa and sign in with your phone."
+  // Home's top: the time and day, a hello, what to do next (resume, Sofa, Live TV), and the weather.
+  function masthead(watch) {
+    const s = sofa || {}, first = s.items && s.items[0], d = new Date(), [hm, ap] = clockParts(d);
+    const who = s.found && s.signedIn && s.user ? ", " + s.user : "";
+    const sub = first ? `Pick up where you left off: <b>${esc(first.title)}</b>${first.sub ? " · " + esc(first.sub) : ""}`
+      : s.found && s.signedIn ? "Pick something in Sofa, or open an app." : s.found ? "Open Sofa and sign in with your phone."
       : data.servers ? "Sofa, Live TV and your apps are all here." : "Open Sofa to pick where it plays from, or watch free Live TV straight away.";
-    return `<section class="hero spot"><div class="spot-logo">${icon("#mark")}</div>
-      <span class="kicker">${s.found ? esc(s.name || "Sofa") : "Your Sofa Box"}</span><h2>${head}</h2><p>${sub}</p>
-      <div class="row-actions"><button class="btn primary" data-app="sofa">${icon("#i-sofa")}Open Sofa</button><button class="btn" data-app="live">${icon("#i-live")}Live TV</button>
-        ${picks.length ? "" : `<button class="btn" data-go="#/store">${icon("#i-store")}Get your apps</button>`}</div>
-      ${picks.length ? `<div class="spot-apps">${picks.map(a => `<button class="mini-app" style="--c:${esc(a.color || "")}" data-app="${esc(a.id)}" title="${esc(a.name)}"><span class="ic${a.icon_url ? "" : " mono"}">${appIcon(a)}</span></button>`).join("")}
-        <button class="mini-app more" data-go="#/store" title="More apps">${icon("#i-plus")}</button></div>` : ""}</section>`;
+    const noApps = !watch.some(a => a.kind !== "builtin");
+    return `<section class="mast${first && first.backdrop ? " has-art" : ""}">
+      ${first && first.backdrop ? `<img class="mast-art" src="${esc(artSrc(first.backdrop, 1280))}" alt="" onerror="this.remove()">` : `<div class="mast-logo">${icon("#mark")}</div>`}
+      <div class="mast-main">
+        <div class="mast-date" id="mDate">${esc(d.toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" }))}</div>
+        <div class="mast-clock" id="mClock">${esc(hm)}${ap ? "<small>" + ap + "</small>" : ""}</div>
+        <h2 class="mast-hi" id="mHi">${greeting(d.getHours())}<span>${esc(who)}</span></h2>
+        <p class="mast-sub">${sub}</p>
+        ${first ? `<div class="bar"><i style="width:${first.pct}%"></i></div>` : ""}
+        <div class="row-actions">${first ? `<button class="btn primary" data-sofa-hash="${esc(first.hash)}">${icon("#i-play")}Resume</button>
+          <button class="btn" data-app="sofa">${icon("#i-sofa")}Open Sofa</button>` : `<button class="btn primary" data-app="sofa">${icon("#i-sofa")}Open Sofa</button>`}
+          <button class="btn" data-app="live">${icon("#i-live")}Live TV</button>${noApps ? `<button class="btn" data-go="#/store">${icon("#i-store")}Get your apps</button>` : ""}</div>
+      </div>
+      <div class="wx" id="wx">${weatherCard()}</div></section>`;
   }
+
+  // ---------------------------------------------------------------- the weather (the agent asks MET Norway)
+  let weather = null, wxFound = [];
+  const WX = [[/thunder/, "Thunder", "bolt"], [/sleet/, "Sleet", "sleet"], [/snow/, "Snow", "snow"], [/heavyrain/, "Heavy rain", "rain"],
+              [/rainshowers/, "Showers", "rain"], [/lightrain/, "Light rain", "rain"], [/rain/, "Rain", "rain"], [/fog/, "Fog", "fog"],
+              [/^cloudy/, "Cloudy", "cloud"], [/partlycloudy/, "Partly cloudy", "part"], [/fair/, "Mostly clear", "fair"], [/clearsky/, "Clear", "clear"]];
+  const wxOf = sym => WX.find(w => w[0].test(sym || "")) || [null, "", "cloud"];
+  function wxIcon(sym, cls) {                 // drawn here: a sun or moon, a cloud, and what falls from it
+    const kind = wxOf(sym)[2], night = /_night|_polartwilight/.test(sym || "");
+    const sky = (x, y, r) => night ? `<path class="m" d="M${x + r * .35} ${y - r}a${r} ${r} 0 1 0 ${r * .65} ${r * 1.75} ${r * .82} ${r * .82} 0 0 1-${r * .65}-${r * 1.75}z"/>`
+      : `<g class="sun"><circle class="s" cx="${x}" cy="${y}" r="${r * .62}"/><path class="r" d="${[0, 45, 90, 135, 180, 225, 270, 315].map(a => {
+          const c = Math.cos(a * Math.PI / 180), s = Math.sin(a * Math.PI / 180);
+          return `M${(x + c * r * .9).toFixed(1)} ${(y + s * r * .9).toFixed(1)}L${(x + c * r * 1.22).toFixed(1)} ${(y + s * r * 1.22).toFixed(1)}`; }).join("")}"/></g>`;
+    const cloud = (dy, c) => `<path class="${c || "c"}" transform="translate(0 ${dy})" d="M19 46h25a9 9 0 0 0 1-18 13 13 0 0 0-25-3 10.5 10.5 0 0 0-1 21z"/>`;
+    const fall = { rain: `<path class="d" d="M24 51l-2 6M33 51l-2 6M42 51l-2 6"/>`, snow: `<g class="n"><circle cx="23" cy="54" r="2"/><circle cx="32" cy="57" r="2"/><circle cx="41" cy="54" r="2"/></g>`,
+                   sleet: `<path class="d" d="M24 51l-2 6M40 51l-2 6"/><circle class="n" cx="32" cy="56" r="2"/>`, bolt: `<path class="b" d="M33 46l-7 10h6l-3 8 9-12h-6l3-6z"/>` };
+    const art = kind === "clear" ? sky(32, 32, 14) : kind === "fair" ? sky(26, 26, 12) + cloud(6, "c2")
+      : kind === "part" ? sky(24, 24, 11) + cloud(4) : kind === "fog" ? cloud(-6, "c2") + `<path class="f" d="M14 46h36M18 53h28M22 60h20"/>`
+      : kind === "cloud" ? cloud(-8, "c2") + cloud(0) : cloud(-6) + (fall[kind] || "");
+    return `<svg class="wxi${cls ? " " + cls : ""}" viewBox="0 0 64 64" aria-hidden="true">${art}</svg>`;
+  }
+  function weatherCard() {
+    const w = weather;
+    if (!w || w.off) return "";
+    if (!w.ok) return `<div class="wx-card quiet"><p>${esc(w.message || "No weather just now.")}</p></div>`;
+    const hour = t => new Date(t * 1000).toLocaleTimeString([], { hour: "numeric" }).replace(/\s?([AP])\.?\s?M\.?/i, (m, x) => x.toLowerCase() + "m");
+    return `<div class="wx-card">
+      <div class="wx-now">${wxIcon(w.symbol, "big")}<div><div class="wx-temp">${w.temp}°<small>${esc(w.units)}</small></div><div class="wx-text">${esc(wxOf(w.symbol)[1])}</div></div></div>
+      <div class="wx-meta"><span class="wx-place">${esc(w.place)}</span><span>↑ ${w.high}°&nbsp;&nbsp;↓ ${w.low}°</span></div>
+      ${w.hours && w.hours.length ? `<div class="wx-hours">${w.hours.map(h => `<div><small>${esc(hour(h.t))}</small>${wxIcon(h.symbol)}<b>${h.temp}°</b></div>`).join("")}</div>` : ""}</div>`;
+  }
+  async function loadWeather() {
+    try { weather = await api("/box/api/weather"); } catch (e) { return; }
+    const el = $("#wx");
+    if (el) el.innerHTML = weatherCard();
+  }
+  setInterval(() => { if (!document.hidden) loadWeather(); }, 15 * 60000);
   function viewHome() {
     const apps = data.apps.filter(a => !a.hidden);
     const watch = apps.filter(a => WATCH.has(a.category)).map(a => Object.assign({ about: ABOUT[a.id] }, a));
     const rest = apps.filter(a => !WATCH.has(a.category));
     const s = sofa || {};
     const running = (data.running || []).filter(r => r.app !== "home");
-    return `<div class="home view-in">${spotlight(watch)}
+    return `<div class="home view-in">${masthead(watch)}
       <h2 class="row-title">Watch</h2><div class="rail watch-row">${watch.map(a => appTile(a, true)).join("")}
         <button class="tile app wide add" data-go="#/store"><span class="ic">${icon("#i-plus")}</span><b>Add apps</b><small>Netflix, YouTube, Prime…</small></button></div>
       ${inputsRow()}
@@ -363,6 +432,12 @@
         <div class="choices" style="margin-top:.6rem">${pick("boot_sound", "on", "Sound at start: on")}${pick("boot_sound", "off", "Off")}</div>
         <p style="margin-top:1rem">Performance: <b>${b.light ? "light" : "full"}</b>${s.performance === "auto" ? " (chosen for this board)" : ""}. The light look leaves out the effects that are slow to draw, and keeps fewer apps open.</p>
         <div class="choices">${pick("performance", "auto", "Automatic")}${pick("performance", "light", "Light")}${pick("performance", "full", "Full")}</div></section>
+      <section class="card"><h3>Weather on Home</h3><p>${s.weather === "off" ? "Off: Home shows no weather." : b.weather_place
+          ? `For <b>${esc(b.weather_place.name)}</b>${b.weather_picked ? "" : " (the city of the box's time zone)"}, from MET Norway, every half hour.` : "Pick a town or city for it."}</p>
+        <div class="choices">${pick("weather", "on", "On")}${pick("weather", "off", "Off")}<span class="gap"></span>${pick("weather_units", "auto", "°C or °F: automatic")}${pick("weather_units", "c", "°C")}${pick("weather_units", "f", "°F")}</div>
+        <div class="add-site" style="margin-top:.8rem"><input class="field" id="wxPlace" maxlength="80" placeholder="Another town or city: Miami" spellcheck="false"><button class="btn" data-wx-find="1">Find</button>
+          ${b.weather_picked ? `<button class="mini" data-wx-reset="1">The time zone's city</button>` : ""}</div>
+        <div class="choices" id="wxFound" style="margin-top:.6rem"></div></section>
       <section class="card"><h3>Network</h3><p>${b.wifi ? "Wi-Fi: <b>" + esc(b.wifi) + "</b>." : "Not on Wi-Fi (a network cable is best for video)."} This box: ${esc(b.address || "")}.</p>
         <div id="wifi"><button class="btn" data-action="wifi-scan">Find Wi-Fi networks</button></div></section>
       <section class="card"><h3>Remotes and Bluetooth</h3>
@@ -679,6 +754,7 @@
     if (input.id === "address") go(input.value);
     else if (input.id === "siteUrl") $("[data-add-site]").click();
     else if (input.id === "boxName") $("[data-save-name]").click();
+    else if (input.id === "wxPlace") $("[data-wx-find]").click();
     else if (input.id === "sheetText") $("[data-sheet='ok']").click();
     else if (input.id === "wifiPass") $("[data-wifi-go]").click();
     else if (input.dataset.wifiPass !== undefined) $("[data-wifi-join]").click();
@@ -712,7 +788,15 @@
       else if (d.saveName) { await api("/box/api/settings", { boot_text: $("#boxName").value }); api("/box/api/action/apply-boot", {}).catch(() => {}); toast("Saved: the boot screen shows it from the next start."); }
       else if (d.set) { boxInfo = Object.assign(boxInfo, await api("/box/api/settings", { [d.set]: d.value })); boxInfo.shield = await api("/box/api/shield");
         if (d.set === "performance") { await loadApps(); toast("The browser takes it fully from the box's next start."); }
+        if (d.set.startsWith("weather")) loadWeather();
         render(true); }
+      else if (d.wxFind) { const q = ($("#wxPlace") || {}).value || ""; $("#wxFound").innerHTML = `<p class="small">Looking…</p>`;
+        const r = await api("/box/api/weather/places?q=" + encodeURIComponent(q)); wxFound = r.places || [];
+        $("#wxFound").innerHTML = wxFound.length ? wxFound.map((p, i) => `<button class="choice" data-wx-pick="${i}">${esc(p.name)}<small> ${esc(p.where)}</small></button>`).join("")
+          : `<p class="small">${esc(r.message || "Nothing by that name. Try the nearest town or city.")}</p>`; focus($("#wxFound button")); }
+      else if (d.wxPick) { const p = wxFound[+d.wxPick]; boxInfo = Object.assign(boxInfo, await api("/box/api/settings", { weather_place: p }));
+        toast("The weather is for " + p.name + " now."); loadWeather(); render(true); }
+      else if (d.wxReset) { boxInfo = Object.assign(boxInfo, await api("/box/api/settings", { weather_place: null })); loadWeather(); render(true); }
       else if (d.shield) { const on = t.getAttribute("aria-checked") !== "true"; t.setAttribute("aria-checked", on); boxInfo.shield = await api("/box/api/shield", { on });
         toast(on ? "Sofa Shield is on: ads and trackers are kept out." : "Sofa Shield is off."); }
       else if (d.move) await moveApp(d.move, +d.by);
@@ -812,9 +896,10 @@
     view.innerHTML = html;
     if (keep) $$(".view-in", view).forEach(v => v.classList.remove("view-in"));
     $$(".tabs a").forEach(a => a.setAttribute("aria-current", TABS[name] === a.dataset.tab ? "page" : "false"));
+    document.documentElement.dataset.page = name || "home";
     const again = keepKey && $(keepKey);
     focus(again || $(name === "browser" ? "#address" : name === "store" ? "[data-store]" : name === "sofa" ? "#view .srv, #view .mini"
-      : name === "welcome" ? "#view .btn.primary, #view .tile" : "#view .hero .btn, #view .tile, #view button, #view input") || $(".tabs a"));
+      : name === "welcome" ? "#view .btn.primary, #view .tile" : "#view .mast .btn, #view .tile, #view button, #view input") || $(".tabs a"));
     hint(name === "files" ? [["OK", "Open or play"], ["Menu", "Rename, move, delete"], ["Back", "Up a folder"]]
       : name === "sofa" ? [["OK", "Use this one"], ["Back", "Home screen"]]
       : name === "browser" ? [["OK", "Go"], ["Menu", "on a site: the Sofa bar"], ["Home", "Back here from any app"]]
@@ -843,6 +928,7 @@
   document.addEventListener("visibilitychange", async () => {
     if (document.hidden || Date.now() - lastRefresh < 1500) return;
     lastRefresh = Date.now();
+    opening(null);
     await loadApps(); await loadSofa();
     if (!$(".sheet-back")) render(true);
   });
@@ -876,12 +962,13 @@
 
   async function start() {
     await loadApps();
-    const opening = intro();
+    const introDone = intro();
+    loadWeather();
     api("/box/api/games").then(g => { games = g; if (!location.hash || location.hash === "#/" || location.hash === "#/games") render(true); }).catch(() => {});
     await loadSofa();
     if (data.welcomed === false && !location.hash) location.hash = "#/welcome";
     render();
-    await opening;
+    await introDone;
     const shieldEl = $("#shield");
     api("/box/api/shield").then(s => { if (s.on) { shieldEl.hidden = false; $("b", shieldEl).textContent = s.sites > 999 ? Math.round(s.sites / 1000) + "k" : s.sites; shieldEl.title = "Sofa Shield: " + s.sites + " sites blocked"; } }).catch(() => {});
   }

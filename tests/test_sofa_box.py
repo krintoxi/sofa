@@ -1049,6 +1049,79 @@ class BoxNetwork(unittest.TestCase):
         with open(os.path.join(BOX, "install.sh")) as f:
             self.assertIn("$LIB/sofa-box report", f.read())                          # sudo may run it, for the logs
 
+    def test_the_weather_on_home(self):
+        """Home's weather from MET Norway (stood in for here), for the place picked in Settings (or the time zone's city),
+        asked at most every half hour; and the place search (OpenStreetMap's, stood in for too)."""
+        a, asked, now = self.agent, [], time.time()
+        series = [{"time": time.strftime("%Y-%m-%dT%H:00:00Z", time.gmtime(now + h * 3600)),
+                   "data": {"instant": {"details": {"air_temperature": 10 + h}},
+                            "next_1_hours": {"summary": {"symbol_code": "rain" if h == 0 else "clearsky_day"}}}} for h in range(30)]
+
+        class Met(BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def do_GET(self):
+                asked.append((self.path, self.headers.get("User-Agent")))
+                body = json.dumps([{"name": "Miami", "display_name": "Miami, Miami-Dade County, Florida, United States",
+                                    "lat": "25.7741728", "lon": "-80.19362", "addresstype": "city"},
+                                   {"name": "Miami County", "display_name": "Miami County, Ohio, United States",
+                                    "lat": "40.05", "lon": "-84.22", "addresstype": "county"}] if self.path.startswith("/search")
+                                  else {"properties": {"timeseries": series}}).encode()
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+        service = a.Server(("127.0.0.1", 0), Met)
+        threading.Thread(target=service.serve_forever, daemon=True).start()
+        base = "http://127.0.0.1:%d" % service.server_address[1]
+        real = a.WEATHER_URL, a.PLACES_URL
+        a.WEATHER_URL, a.PLACES_URL = base + "/forecast", base + "/search"
+        a._weather.update(at=0, key=None, series=None)
+        try:
+            a.save_settings(weather="on", weather_units="c", weather_place={"name": "Testville", "lat": 51.5, "lon": -0.12})
+            w = a.weather(now)
+            self.assertEqual((w["ok"], w["place"], w["units"], w["temp"], w["symbol"], w["low"]), (True, "Testville", "C", 10, "rain", 10))
+            self.assertGreaterEqual(w["high"], 33)                                     # the next 24 hours
+            self.assertEqual([h["temp"] for h in w["hours"]], [11, 14, 17, 20])         # every three hours
+            self.assertIn("lat=51.50&lon=-0.12", asked[0][0])                         # the place to about a kilometre
+            self.assertTrue(asked[0][1].startswith("SofaBox/"))                       # MET Norway asks who's asking
+            a.save_settings(weather_units="f")
+            self.assertEqual(a.weather(now + 1)["temp"], 50)
+            self.assertEqual(len(asked), 1)                                           # kept for half an hour
+            a.weather(now + 1900)
+            self.assertEqual(len(asked), 2)
+            places = a.find_places("Miami")["places"]
+            self.assertEqual([(p["name"], p["where"], p["lat"]) for p in places], [("Miami", "Miami-Dade County, Florida, United States", 25.77)])
+            self.assertEqual(a.find_places("x")["places"], [])                        # too short to look up
+            service.shutdown()
+            self.assertTrue(a.weather(now + 4000)["ok"])                              # the service away: the last one still
+            a.save_settings(weather="off")
+            self.assertTrue(a.weather(now)["off"])
+        finally:
+            service.shutdown()
+            service.server_close()
+            a.WEATHER_URL, a.PLACES_URL = real
+            a.save_settings(weather="on", weather_units="auto", weather_place=None)
+        self.assertIsNone(a.weather_place({"name": "Nowhere", "lat": "95", "lon": 0}))
+        self.assertEqual(a.weather_place({"name": "Miami <b>", "lat": 25.7741, "lon": "-80.1936"}), {"name": "Miami b", "lat": 25.77, "lon": -80.19})
+        london = a.zone_place("Europe/London")                                       # the time zone's city, from the system
+        self.assertEqual(london["name"], "London")
+        self.assertAlmostEqual(london["lat"], 51.51, delta=0.05)
+        self.assertAlmostEqual(london["lon"], -0.12, delta=0.05)
+        self.assertTrue(a.FAHRENHEIT.match("America/New_York") and not a.FAHRENHEIT.match("Europe/London"))
+
+    def test_the_first_start_says_so(self):
+        """A new card's first start (slow, maybe with a restart): its boot screen says to wait, that start only."""
+        with open(os.path.join(BOX, "install.sh")) as f:
+            install = f.read()
+        unit = install.split("sofa-box-first-start.service <<EOF", 1)[1].split("\nEOF", 1)[0]
+        self.assertIn("ConditionFirstBoot=yes", unit)
+        self.assertIn("plymouth display-message", unit)
+        self.assertRegex(install, r"systemctl enable [^\n]*\\\n\s*sofa-box-first-start\.service")
+        with open(os.path.join(BOX, "sofa-box-art.py")) as f:
+            self.assertIn("Plymouth.SetMessageFunction(message)", f.read())             # the boot screen shows it
+
     def test_the_phone_remote_over_https_at_home(self):
         """The box gets its own name and certificate (deploy/box-certs, stood in for here) and serves the remote with it."""
         import ssl
