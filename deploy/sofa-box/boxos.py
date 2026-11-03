@@ -811,7 +811,12 @@ class Browser:
     def size_page(self, target, session, tab):
         """Pages drawn for the sofa (twice as big on a 1080p TV) while the window keeps the whole screen: what
         Chromium's own --force-device-scale-factor does, without its Wayland trouble. The home screen sizes
-        itself to the screen (it's measured in screen widths), so it's left as it is."""
+        itself to the screen (it's measured in screen widths), so it's left as it is.
+        Off unless SOFA_BOX_PAGE_SCALE=1: on a real Pi (cage, Wayland) the page took the smaller size but not the
+        doubled pixels, so apps such as YouTube filled only the top-left quarter of the TV. Without it, every
+        page has the whole TV at its own resolution."""
+        if os.environ.get("SOFA_BOX_PAGE_SCALE") != "1":
+            return
         scale = float(self.scale() or 1)
         if scale <= 1.01 or tab.get("app") == "home":
             return
