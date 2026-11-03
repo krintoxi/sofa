@@ -14,9 +14,16 @@ GitHub builds the card and makes the release by itself.
   that had been "offline" for minutes, and brought the box's own Wi-Fi straight back, in the middle of the
   join, every time. It now leaves the Wi-Fi alone while a join is going on (and only one join runs at once),
   and brings its own Wi-Fi back only if the join didn't work.
-- **The setup's two QR codes are two plain steps:** "1. Scan to join its Wi-Fi", "2. Then scan this for the
-  remote". The second used to say "Didn't open? Scan this", as if the phone opened the remote by itself
-  after the first; many don't.
+- **The setup shows one code at a time, and says what it's waiting for.** Four steps on the TV, the one in
+  front highlighted and the done ones ticked: join the box's Wi-Fi, open the remote, give the box your
+  Wi-Fi, keep the remote. Each step shows only its own code, and goes by itself once it's done: the Wi-Fi
+  code as soon as a phone joins the box's Wi-Fi, the remote's code as soon as the remote is open on it.
+  Under each: "Waiting for your phone to join…", "Waiting for the remote to open on your phone…",
+  "Waiting for your Wi-Fi details…", "The box is joining …: looking for it, then connecting". "Show the
+  code again" buttons bring a code back. (Before, two codes sat side by side, hard to scan, and the second
+  said "Didn't open? Scan this", as if phones opened the remote by themselves after the first; many don't.)
+- **A sound when the box starts:** four soft notes with the opening. Settings → Picture and sound → Sound
+  at start switches it off.
 
 ## 1.1.4
 

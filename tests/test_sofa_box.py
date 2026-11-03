@@ -852,6 +852,16 @@ class BoxNetwork(unittest.TestCase):
         self.assertFalse(self.net.join_soon("", "pw")["ok"])
         self.assertFalse(self.net.join_soon("Other", "pw")["ok"])                  # one join at a time (still "joining")
 
+    def test_phones_on_its_own_wifi(self):
+        """The setup shows the next code once a phone has joined the box's Wi-Fi: counted from the neighbour table."""
+        a = self.agent
+        a.run = lambda cmd, timeout=20: (0, "10.42.0.12 dev wlan0 lladdr 6a:1c:22:aa:01:02 REACHABLE\n"
+                                            "10.42.0.31 dev wlan0 lladdr 6a:1c:22:aa:01:03 STALE\n"
+                                            "10.42.0.40 dev wlan0  FAILED\n10.42.0.1 dev wlan0 lladdr b8:27:eb:00:00:01 PERMANENT\n")
+        self.assertEqual(self.net.clients(), 0)                      # no Wi-Fi of its own: nobody on it
+        self.net.hotspot = {"at": 0}
+        self.assertEqual(self.net.clients(), 2)                      # not the one that failed, not the box itself
+
     def test_its_own_wifi_stays_off_while_joining(self):
         """The setup loop on a real box: its own Wi-Fi had been on for minutes (so it had been "offline" that long);
         joining the home Wi-Fi switches it off, and the 10-second look found the box offline with no Wi-Fi of its

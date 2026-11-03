@@ -56,10 +56,10 @@ def os_version():
 
 OS_VERSION = os_version()
 DEFAULTS = {"server": None, "quality": "auto", "hwdec": "auto", "audio": "auto", "learned_720": False, "performance": "auto",
-            "mpv_args": [], "theme": "street", "boot_text": "", "shield": True, "welcomed": False, "secure_remote": True}
+            "mpv_args": [], "theme": "street", "boot_text": "", "shield": True, "welcomed": False, "secure_remote": True, "boot_sound": "on"}
 THEMES = ("street", "terminal", "pirate", "sofa", "midnight", "cinema", "ocean", "forest", "grape", "oled")
 CHOICES = {"quality": ("auto", "720", "1080"), "audio": ("auto", "passthrough"), "performance": ("auto", "light", "full"),
-           "hwdec": ("auto", "no", "v4l2m2m-copy", "drm", "auto-safe"), "theme": THEMES}
+           "hwdec": ("auto", "no", "v4l2m2m-copy", "drm", "auto-safe"), "theme": THEMES, "boot_sound": ("on", "off")}
 HOP = {"connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailers", "transfer-encoding",
        "upgrade", "content-length", "host", "accept-encoding"}
 
@@ -934,6 +934,7 @@ class Network:
         self.used = 0                                        # when a phone on the hotspot last did something
         self.problem, self.failed_at = None, None            # why the box's own Wi-Fi didn't start, and when
         self.joining = None                                  # the last home Wi-Fi it was asked to join: how that went
+        self.phone_at = 0                                    # when a paired phone on its own Wi-Fi last asked (remote open)
 
     @staticmethod
     def wifi_device():
@@ -1092,6 +1093,15 @@ class Network:
         self.joining = {"ssid": ssid, "state": "joining", "message": "Joining %s…" % ssid, "at": time.time()}
         threading.Timer(1.5, self.join, (ssid, password)).start()
         return {"ok": True, "pending": True, "message": "Joining %s… The TV shows how it goes." % ssid}
+
+    def clients(self):
+        """Devices on the box's own Wi-Fi now (the setup moves on from "join its Wi-Fi" once a phone has)."""
+        if not self.hotspot:
+            return 0
+        code, out = run(["ip", "neigh", "show", "to", "10.42.0.0/24"], 5)
+        return sum(1 for line in out.splitlines()
+                   if code == 0 and line.startswith("10.42.0.") and not line.startswith("10.42.0.1 ")
+                   and not re.search(r"\b(FAILED|INCOMPLETE)\b", line))
 
     def saved(self):
         """The Wi-Fi networks the box knows (it joins them by itself when they're back)."""
@@ -1440,6 +1450,7 @@ class PhoneRemote:
     def status(self):
         u = self.url()
         return {"url": u, "pair_url": u + "/r/" + self.code if u else None, "code": self.code, "phones": len(self._load()),
+                "home_at": getattr(self, "home_at", 0),     # a remote last open on the home network
                 "hotspot": network.hotspot, "wired": network.wired(), "problem": None if u else network.problem}
 
     def pair(self, code, name, on_own_wifi=False):
@@ -1583,7 +1594,8 @@ def setup_state():
     return {"remote": safely(phone.status, None) if phone else None,
             "bluetooth": safely(bluetooth.listing, {"devices": [], "scanning": False}),
             "network": {"wired": safely(network.wired, False), "wifi": ssid or None, "address": local_address(), "hotspot": network.hotspot,
-                        "networks": network.cached, "problem": network.problem, "joining": network.joining}, "secure": safely(secure_remote.status, None),
+                        "networks": network.cached, "problem": network.problem, "joining": network.joining,
+                        "clients": safely(network.clients, 0), "phone_at": network.phone_at}, "secure": safely(secure_remote.status, None),
             "welcomed": s["welcomed"], "name": s["boot_text"],
             "theme": s["theme"], "timezone": safely(current_timezone, "UTC"), "tz_set": bool(s.get("tz_set"))}
 
@@ -1677,7 +1689,7 @@ def box_info():
         mem = None
     return {"version": OS_VERSION, "newest": newest_version(), "model": model() or "this computer", "memory": mem, "temperature": temp,
             "wifi": ssid or None, "address": local_address(), "server": server(), "server_name": (found.get(server()) or {}).get("name"),
-            "settings": {k: s[k] for k in ("quality", "hwdec", "audio", "theme", "boot_text", "performance")},
+            "settings": {k: s[k] for k in ("quality", "hwdec", "audio", "theme", "boot_text", "performance", "boot_sound")},
             "choices": CHOICES, "learned_720": s["learned_720"],
             "max_height": max_height(), "slow_board": slow_board(), "light": light(), "board": board(), "controllers": controllers}
 
@@ -2006,7 +2018,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(json.dumps({"apps": apps.listing(), "running": browser.running() if browser and browser.connected() else [],
                                          "devtools": bool(browser and browser.connected()), "sofa": server(),
                                          "sofa_name": (found.get(server()) or {}).get("name"), "theme": s["theme"],
-                                         "name": s["boot_text"], "welcomed": s["welcomed"], "slow": light(),
+                                         "name": s["boot_text"], "welcomed": s["welcomed"], "slow": light(), "boot_sound": s["boot_sound"],
                                          "default_server": {k: default[k] for k in ("id", "name", "kind", "where")} if default else None,
                                          "ask": st["ask"], "servers": len(st["servers"]),
                                          "devices": {k: devices_seen[k] for k in ("drives", "disc", "n")},
@@ -2307,6 +2319,10 @@ class RemoteHandler(BaseHTTPRequestHandler):
             return self.send(json.dumps({"paired": False, "name": settings().get("boot_text") or "Sofa Box"}), status=401)
         try:
             if path == "/api/state":
+                if on_own_wifi(self.client_address[0]):     # the setup's TV: the remote is open on a phone
+                    network.phone_at = time.time()
+                else:
+                    phone.home_at = time.time()
                 p = player.status
                 return self.send(json.dumps({"paired": True, "name": settings().get("boot_text") or "Sofa Box",
                                              "playing": {k: p.get(k) for k in ("title", "sub", "t", "d", "paused")} if p else None,

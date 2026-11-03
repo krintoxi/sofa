@@ -416,6 +416,14 @@ html.setup .top, html.setup .hint { display: none; }
 .qr-steps { display: flex; gap: .8rem; }
 .qr-steps > div { display: grid; justify-items: center; gap: .3rem; }
 .qr-again { display: grid; justify-items: start; gap: .3rem; margin: .4rem 0 .8rem; }   /* the code again, just after joining */
+/* the phone's way in at the setup, as steps: done ones ticked, the one in front bright, the rest quiet */
+.code-steps { list-style: none; margin: 0 0 .7rem; padding: 0; display: grid; gap: .2rem; font-size: .85rem; color: var(--mist); }
+.code-steps li { display: flex; align-items: center; gap: .45rem; }
+.code-steps em { font-style: normal; width: 1.3rem; height: 1.3rem; border-radius: 50%; display: grid; place-items: center;
+  font-size: .75rem; font-weight: 700; background: var(--bg2); }
+.code-steps li.on { color: var(--fg); font-weight: 700; }
+.code-steps li.on em { background: var(--a); color: var(--a-ink); }
+.code-steps li.done em { background: #3DDC84; color: #04210F; }
 .okay { color: #3DDC84 !important; font-weight: 700; }
 p.okay.big { font-size: 1.2rem; margin: .4rem 0 .8rem; }
 .small { color: var(--mist); font-size: .85rem; }
