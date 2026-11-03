@@ -3,9 +3,9 @@
 
 "SOFA BOX" in the box's theme: Street (the sofa with paint drips, BOX as a tag), Terminal (a prompt,
 green on black, boot lines ticking by), Pirate (a skull and crossbones, gold), or Sofa's own. The mark
-glows, the word rises in, a light sweeps along a bar, and lines tick by under it, with the box's name
-at the bottom ("Living room"). It's a Plymouth theme: the pictures are drawn here with Pillow, and
-Plymouth's script animates them.
+glows, the word rises in with Sofa Box OS's version under it ("OS 1.1.1"), a light sweeps along a bar,
+and lines tick by under it, with the box's name at the bottom ("Living room"). It's a Plymouth theme:
+the pictures are drawn here with Pillow, and Plymouth's script animates them.
 
   sofa-box-art.py plymouth DIR [settings.json]   write the theme into DIR (/usr/share/plymouth/themes/sofa)
   sofa-box-art.py png [settings.json]            a picture of it (for previews), to stdout
@@ -207,8 +207,17 @@ def load(path=None):
         return {}
 
 
+def os_version():
+    """Sofa Box OS's version (VERSION, next to this file on the box), like 1.1.1; "" where there's none."""
+    try:
+        with open(os.path.join(HERE, "VERSION"), encoding="utf-8") as f:
+            return f.read().strip()
+    except OSError:
+        return ""
+
+
 def pieces(settings):
-    """The boot screen's pictures, each on its own (Plymouth moves them): glow, mark, word, name."""
+    """The boot screen's pictures, each on its own (Plymouth moves them): glow, mark, word, version, name."""
     c = Colors(settings.get("theme"))
     glow = Image.new("RGBA", (360, 240), (0, 0, 0, 0))
     ImageDraw.Draw(glow).ellipse((60, 40, 300, 200), fill=c.accent + (120,))
@@ -225,12 +234,14 @@ def pieces(settings):
         return im
 
     word = word_for(c)
+    version = words_mono("OS " + os_version(), 22, c.mist) if os_version() else None   # under the word
     name = words(settings.get("boot_text") or "", 30, c.mist, False) if settings.get("boot_text") else None
     track = Image.new("RGBA", (300, 5), c.paper + (26,))
     light = Image.new("RGBA", (110, 5), c.accent + (255,))
     ticks = TICKER.get(c.theme, TICKER_DEFAULT)
     tick = [words_mono(t, 24, c.mist) for t in ticks]
-    return {"glow": glow, "mark": mark, "word": word, "name": name, "track": track, "light": light, "colors": c, "ticks": tick}
+    return {"glow": glow, "mark": mark, "word": word, "version": version, "name": name, "track": track, "light": light,
+            "colors": c, "ticks": tick}
 
 
 def words_mono(text, size, color):
@@ -257,11 +268,12 @@ def render(settings, size=SIZE, phase=0.4):
     put(p["glow"], cx, cy - 110 * k)
     put(p["mark"], cx, cy - 130 * k)
     put(p["word"], cx, cy + 20 * k)
-    put(p["track"], cx, cy + 122 * k)
+    put(p["version"], cx, cy + 96 * k)
+    put(p["track"], cx, cy + 137 * k)
     light = p["light"].resize((int(110 * k), max(1, int(5 * k))))
     lx = cx - 150 * k + (300 - 110) * k * phase
-    im.alpha_composite(light, (int(lx), int(cy + 122 * k - light.size[1] / 2)))
-    put(p["ticks"][int(phase * (len(p["ticks"]) - 1) + 0.5)], cx, cy + 165 * k)
+    im.alpha_composite(light, (int(lx), int(cy + 137 * k - light.size[1] / 2)))
+    put(p["ticks"][int(phase * (len(p["ticks"]) - 1) + 0.5)], cx, cy + 180 * k)
     put(p["name"], cx, size[1] - 90 * k)
     return im.convert("RGB")
 
@@ -282,11 +294,12 @@ fun place(file, x, y, z) {
 glow = place("glow.png", cx, cy - 110 * k, 1);
 mark = place("mark.png", cx, cy - 130 * k, 3);
 word = place("word.png", cx, cy + 20 * k, 3);
-track = place("track.png", cx, cy + 122 * k, 2);
-light = place("light.png", cx, cy + 122 * k, 3);
+track = place("track.png", cx, cy + 137 * k, 2);
+light = place("light.png", cx, cy + 137 * k, 3);
+%(version)s
 %(name)s
 ticks = %(ticks)d;                                              // lines ticking by under the bar
-for (i = 0; i < ticks; i++) { lines[i] = place("tick" + i + ".png", cx, cy + 165 * k, 3); lines[i].SetOpacity(0); }
+for (i = 0; i < ticks; i++) { lines[i] = place("tick" + i + ".png", cx, cy + 180 * k, 3); lines[i].SetOpacity(0); }
 word.SetOpacity(0); track.SetOpacity(0); light.SetOpacity(0); mark.SetOpacity(0);
 t = 0;
 fun tick() {
@@ -295,6 +308,7 @@ fun tick() {
   mark.SetOpacity(a);
   w = Math.Clamp((t - 12) / 26, 0, 1);                       // the word rises
   word.SetOpacity(w); word.SetY(cy + 20 * k - word.GetImage().GetHeight() / 2 + (1 - w) * 18 * k);
+  version.SetOpacity(w);                                     // its version, with it
   n = Math.Int(t / 40) %% ticks;                              // a new line every 0.8 s
   for (i = 0; i < ticks; i++) { if (i == n) lines[i].SetOpacity(Math.Clamp((t - 30) / 15, 0, 1)); else lines[i].SetOpacity(0); }
   b = Math.Clamp((t - 25) / 20, 0, 1);
@@ -335,6 +349,12 @@ def write_plymouth(target, settings):
             os.remove(os.path.join(target, f))
     for i, im in enumerate(p["ticks"]):
         im.save(os.path.join(target, "tick%d.png" % i))
+    version_line = "version = Sprite();"                                 # (no VERSION: nothing to show)
+    if p["version"] is not None:
+        p["version"].save(os.path.join(target, "version.png"))
+        version_line = 'version = place("version.png", cx, cy + 96 * k, 3); version.SetOpacity(0);'
+    elif os.path.exists(os.path.join(target, "version.png")):
+        os.remove(os.path.join(target, "version.png"))
     name_line = ""
     if p["name"] is not None:
         p["name"].save(os.path.join(target, "name.png"))
@@ -343,7 +363,7 @@ def write_plymouth(target, settings):
         os.remove(os.path.join(target, "name.png"))
     r, g, b = [v / 255.0 for v in p["colors"].bg]
     with open(os.path.join(target, "sofa.script"), "w") as f:
-        f.write(SCRIPT % {"r": r, "g": g, "b": b, "name": name_line, "ticks": len(p["ticks"])})
+        f.write(SCRIPT % {"r": r, "g": g, "b": b, "version": version_line, "name": name_line, "ticks": len(p["ticks"])})
     with open(os.path.join(target, "sofa.plymouth"), "w") as f:
         f.write(THEME % {"dir": target})
 

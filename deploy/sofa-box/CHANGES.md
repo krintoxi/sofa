@@ -14,6 +14,7 @@ GitHub builds the card and makes the release by itself.
   then the remote on your home Wi-Fi was a plain http:// page, which iPhones with Safari's Not Secure
   Connection Warning on refuse, halfway through the setup. A box that comes online any other way (a cable
   plugged in later, a router back from a restart) notices within 30 seconds.
+- **The boot screen shows the version**, small under SOFA BOX ("OS 1.1.1"). It follows the box's updates.
 - Certificate requests from a Mac's openssl (LibreSSL) name their curve, so Let's Encrypt accepts them.
 
 ## 1.1.0

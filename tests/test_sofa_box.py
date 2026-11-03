@@ -404,6 +404,28 @@ class Agent(unittest.TestCase):
         self.assertTrue(png.startswith(b"\x89PNG"))
         self.assertIn("Sofa box preview", self.get("/box/preview"))
 
+    @unittest.skipUnless(importlib.util.find_spec("PIL"), "needs Pillow")
+    def test_boot_screen_shows_the_version(self):
+        """Under SOFA BOX, "OS 1.1.1" (deploy/sofa-box/VERSION); a box without the file shows none."""
+        spec = importlib.util.spec_from_file_location("sofa_box_art", os.path.join(BOX, "sofa-box-art.py"))
+        art = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(art)
+        with open(os.path.join(BOX, "VERSION")) as f:
+            self.assertEqual(art.os_version(), f.read().strip())
+        theme = tempfile.mkdtemp()
+        try:
+            art.write_plymouth(theme, {"theme": "pirate"})
+            self.assertTrue(os.path.exists(os.path.join(theme, "version.png")))
+            with open(os.path.join(theme, "sofa.script")) as f:
+                self.assertIn('version = place("version.png"', f.read())
+            art.os_version = lambda: ""
+            art.write_plymouth(theme, {"theme": "pirate"})
+            self.assertFalse(os.path.exists(os.path.join(theme, "version.png")))
+            with open(os.path.join(theme, "sofa.script")) as f:
+                self.assertIn("version = Sprite();", f.read())
+        finally:
+            shutil.rmtree(theme, ignore_errors=True)
+
     @unittest.skipUnless(shutil.which("mpv") and media.tool("ffmpeg"), "needs mpv and ffmpeg")
     def test_real_mpv(self):
         """mpv itself: its position moves on, it's controlled over its socket, and Back ends it."""
