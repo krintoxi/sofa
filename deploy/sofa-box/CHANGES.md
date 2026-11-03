@@ -7,6 +7,17 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.5
+
+- **Joining your Wi-Fi at the setup no longer loops back to "connecting".** To join your Wi-Fi, the box
+  switches its own off and looks for yours. Meanwhile its 10-second network check saw a box with no Wi-Fi
+  that had been "offline" for minutes, and brought the box's own Wi-Fi straight back, in the middle of the
+  join, every time. It now leaves the Wi-Fi alone while a join is going on (and only one join runs at once),
+  and brings its own Wi-Fi back only if the join didn't work.
+- **The setup's two QR codes are two plain steps:** "1. Scan to join its Wi-Fi", "2. Then scan this for the
+  remote". The second used to say "Didn't open? Scan this", as if the phone opened the remote by itself
+  after the first; many don't.
+
 ## 1.1.4
 
 - **Apps fill the TV.** YouTube and other apps opened as a small square in the top-left corner of the TV. The

@@ -441,8 +441,9 @@
     // just joined: the secure (https) code follows within seconds, so not the plain one first and then a swap
     if (j && j.state === "joined" && Date.now() / 1000 - j.at < 90 && !/^https:/.test(r.url) && sec.state === "working")
       return `<p class="looking small"><i class="spin"></i>Connected. Getting the box's secure address for your phone… a few seconds.</p>`;
-    return hs ? `<div class="qr-steps"><div><span class="qr">${qr(hs.wifi_qr)}</span><b>1. Join its Wi-Fi</b><small>${esc(hs.ssid)} · password ${esc(hs.password)}<br>The remote opens on your phone by itself.</small></div>
-        <div><span class="qr">${qr(r.pair_url)}</span><b>2. Didn't open? Scan this</b><small>or open ${esc(r.url.replace(/^http:\/\//, ""))}, code ${esc(r.code)}</small></div></div>`
+    // two plain steps: some phones open the remote by themselves after the first (the sign-in sheet), many don't
+    return hs ? `<div class="qr-steps"><div><span class="qr">${qr(hs.wifi_qr)}</span><b>1. Scan to join its Wi-Fi</b><small>${esc(hs.ssid)} · password ${esc(hs.password)}</small></div>
+        <div><span class="qr">${qr(r.pair_url)}</span><b>2. Then scan this for the remote</b><small>or open ${esc(r.url.replace(/^http:\/\//, ""))}, code ${esc(r.code)}</small></div></div>`
       : `<span class="qr big">${qr(r.pair_url)}</span><b>Scan with your phone's camera</b><small>or open <b>${esc(r.url.replace(/^http:\/\//, ""))}</b> and type <b>${esc(r.code)}</b></small>
         ${r.phones ? `<small class="okay">✓ ${r.phones === 1 ? "A phone is" : r.phones + " phones are"} connected</small>` : ""}`;
   }

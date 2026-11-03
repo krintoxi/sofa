@@ -79,12 +79,12 @@ without one), and you don't need a remote: your phone works it.
    about settings, **No** is fine.
 3. Put the card in the Pi, plug HDMI into the TV, then the power. The setup shows a **QR code**: scan
    it with your phone, and the phone is the remote. A Fire TV remote pairs too (hold **Home** for 10 seconds).
-   - **No network cable?** The box makes its own Wi-Fi and shows **two** QR codes. Scan the first to
-     join it, and the phone opens the remote by itself. Give the box your home Wi-Fi in the remote's
-     **Wi-Fi** tab, then scan the code on the TV once more.
-   - The remote works even on an iPhone set to open only secure pages (Safari's **Not Secure
-     Connection Warning**): at home it's `https://` with a real certificate.
-     [How](deploy/sofa-box/README.md#the-phone-remote)
+   - **No network cable?** The box makes its own Wi-Fi and shows **two** QR codes: scan the first to
+     join it, then the second for the remote. Give the box your home Wi-Fi in the remote's **Wi-Fi** tab,
+     then scan the code on the TV once more.
+   - At home the remote is `https://` with a real certificate, so it works on an iPhone set to open only
+     secure pages (Safari's **Not Secure Connection Warning**). On the box's own Wi-Fi during the setup it
+     can't be: switch that setting off for the setup. [More](deploy/sofa-box/README.md#the-setup-the-first-start)
 
 Already have Raspberry Pi OS on a Pi? One line instead:
 `curl -fsSL https://raw.githubusercontent.com/krintoxi/sofa/main/deploy/sofa-box/install.sh | sudo sh`.
