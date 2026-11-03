@@ -415,6 +415,7 @@ html.setup .top, html.setup .hint { display: none; }
 #phoneBox small { color: var(--mist); font-size: .8rem; }
 .qr-steps { display: flex; gap: .8rem; }
 .qr-steps > div { display: grid; justify-items: center; gap: .3rem; }
+.qr-again { display: grid; justify-items: start; gap: .3rem; margin: .4rem 0 .8rem; }   /* the code again, just after joining */
 .okay { color: #3DDC84 !important; font-weight: 700; }
 p.okay.big { font-size: 1.2rem; margin: .4rem 0 .8rem; }
 .small { color: var(--mist); font-size: .85rem; }

@@ -459,8 +459,16 @@
   }
   function netState() {
     const n = (setup || {}).network || {};
-    return n.wired ? `<p class="okay big">✓ Connected with a cable</p>` : n.wifi ? `<p class="okay big">✓ Connected to ${esc(n.wifi)}</p>`
-      : n.hotspot ? `<p class="small">On its own Wi-Fi for now (${esc(n.hotspot.ssid)}). Pick your home Wi-Fi below, or on your phone (Wi-Fi tab).</p>` : `<p class="small">Not connected yet.</p>`;
+    const j = n.joining && Date.now() / 1000 - n.joining.at < 600 ? n.joining : null;   // a home Wi-Fi it was just asked to join
+    if (j && j.state === "joining") return `<p class="small looking"><i class="spin"></i>Joining <b>${esc(j.ssid)}</b>… It takes up to a minute.
+      A phone on the box's own Wi-Fi goes back to yours now: when this says connected, scan the new code here.</p>`;
+    const failed = j && j.state === "failed" ? `<p class="small"><b>${esc(j.message)}</b> ${n.hotspot ? `The box's own Wi-Fi (${esc(n.hotspot.ssid)}) is back:
+      your phone can join it again with code 1 on the first screen, or pick the Wi-Fi again below.` : "Pick it again below."}</p>` : "";
+    // just joined: the phone that was on the box's own Wi-Fi needs the box's new address, so the code is right here
+    const rescan = j && j.state === "joined" && (setup || {}).remote && setup.remote.url ? `<div class="qr-again">${phoneBox()}
+      <small>Your phone again: scan this code (the box is on your Wi-Fi now).</small></div>` : "";
+    return failed + (n.wired ? `<p class="okay big">✓ Connected with a cable</p>` : n.wifi ? `<p class="okay big">✓ Connected to ${esc(n.wifi)}</p>${rescan}`
+      : n.hotspot ? `<p class="small">On its own Wi-Fi for now (${esc(n.hotspot.ssid)}). Pick your home Wi-Fi below, or on your phone (Wi-Fi tab).</p>` : `<p class="small">Not connected yet.</p>`);
   }
   function viewWelcome() {
     document.documentElement.classList.add("setup");

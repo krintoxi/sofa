@@ -94,7 +94,8 @@ shows two QR codes:
    kind of sign-in sheet hotel Wi-Fi uses.
 2. Didn't open? Scan the second.
 3. In the remote's **Wi-Fi** tab, give the box your home Wi-Fi. The box joins it, the sheet closes, and
-   your phone goes back to your own Wi-Fi.
+   your phone goes back to your own Wi-Fi. The TV shows how it goes. If it couldn't join (the password,
+   say), it says why, and the box's own Wi-Fi comes back with the same name and password: join it again.
 4. **Scan the code on the TV once more** to carry on. At home the remote has the box's own secure
    address (`https://…box.edgeventure.uk:8093`, see [The phone remote](#the-phone-remote)); the TV
    switches to it a minute or two after the box joins your Wi-Fi.

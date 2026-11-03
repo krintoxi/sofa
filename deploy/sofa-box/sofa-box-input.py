@@ -165,7 +165,10 @@ def main():
         from evdev import InputDevice, UInput, ecodes, list_devices
     except ImportError:
         sys.exit("python3-evdev is missing: sudo apt install python3-evdev")
-    kb = UInput({ecodes.EV_KEY: [ecodes.ecodes[k] for k in sorted(set(KEYS) | set(PASS))]}, name="Sofa box controllers")
+    # every key of a keyboard, not only the ones it sends: udev calls a device a keyboard (and the screen, cage, then
+    # listens to it) only when it has the whole first row of keys
+    keys = set(range(ecodes.KEY_ESC, ecodes.KEY_MICMUTE + 1)) | {ecodes.ecodes[k] for k in set(KEYS) | set(PASS)}
+    kb = UInput({ecodes.EV_KEY: sorted(keys)}, name="Sofa box controllers")
     pads, remotes, last_scan = {}, {}, 0
     names = {v: k for k, v in ecodes.ecodes.items() if k.startswith("KEY_")}
 
