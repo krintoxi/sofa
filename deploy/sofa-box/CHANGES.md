@@ -7,6 +7,15 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.0
+
+- **A secure (https) phone remote at home.** Once the box is online it gets a name of its own,
+  `<random>.box.edgeventure.uk`, pointed at its address on your network, and a real certificate for it,
+  from the Sofa Box certificate service. Phones whose browser only opens secure pages (an iPhone with
+  Safari's Not Secure Connection Warning on) can use the remote at home. The QR code uses the new address
+  by itself; where the router blocks such names, it stays http://. Settings → Remotes and Bluetooth shows
+  it and can switch it off. The box sends only a random id and its home address; its key stays on the box.
+
 ## 1.0.2
 
 - **The remote opens by itself at the setup.** The box's own Wi-Fi now works like a hotel's: when a phone

@@ -80,6 +80,21 @@ Comet Courier's address, a `box-v1` release (the owner publishes it on the websi
 - Next (asked of the owner): HTTPS for the remote at home, with a real certificate per box from a small
   service on the owner's servers, since the remote at home is plain http:// too.
 
+## Sofa Box OS 1.1.0 (2026-11-03, on the branch): the secure phone remote at home
+
+- `deploy/box-certs/sofa-box-certs.py`: a small service (stdlib + the openssl command) that registers boxes,
+  points `<id>.box.edgeventure.uk` at a box's private address (Cloudflare, DNS only) and gets Let's Encrypt
+  certificates for exactly that name with DNS-01 (its own minimal ACME client). It keeps the Cloudflare token;
+  boxes send CSRs. Limits: private addresses only, 10 registrations per IP a day, 1 certificate per box a week
+  while fresh, 45 new boxes a week (Let's Encrypt's 50 per registered domain). Checked end to end against
+  Pebble (Let's Encrypt's test server) with a stand-in Cloudflare; `tests/test_box_certs.py` covers the rules.
+- To run on the owner's iMac (the one with Cubaintel.com), behind the existing Cloudflare tunnel at
+  `boxcert.edgeventure.uk`: `deploy/box-certs/README.md` (token, `install-mac.sh`, the tunnel hostname). Not
+  deployed yet; a cloud session can't reach the iMac.
+- The box: `SecureRemote` in the agent (register, address, renew a month ahead, HTTPS remote on 8093, falls back
+  to http:// when the router blocks the name, `secure_remote` setting); Settings shows its state. Tests and the
+  preview tool run with `SOFA_BOX_CERTS=0`.
+
 ## What's in progress
 
 - **Sofa anywhere** (2026-11-02, built; waiting for the owner's OK to merge and for a try on the Pi):

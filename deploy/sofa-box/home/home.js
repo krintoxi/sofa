@@ -367,6 +367,7 @@
       <section class="card"><h3>Remotes and Bluetooth</h3>
         <div class="remote-row"><div id="phoneBox" class="phone-mini">${phoneBox()}</div>
           <div><p><b>Your phone is a remote:</b> scan the code with its camera (iPhone or Android). It works the box like a remote, types into it, and has a touchpad. Add it to the phone's Home Screen to keep it handy.</p>
+          ${secureLine()}
           <p><b>A Bluetooth remote</b> (a Fire TV remote: hold Home for 10 seconds), a game controller, a keyboard, speakers or headphones: put it in pairing mode, then <b>Look for devices</b>. A 2.4 GHz keyboard and mouse work as soon as their USB dongle is in.</p>
           <div class="choices"><button class="btn" data-bt-look="1">Look for devices</button><button class="btn" data-action="tv-on">Turn the TV on</button><button class="mini" data-phones-forget="1">Forget phones</button></div></div></div>
         <div id="btList" class="bt-list">${btList()}</div></section>
@@ -437,6 +438,16 @@
         <div><span class="qr">${qr(r.pair_url)}</span><b>2. Didn't open? Scan this</b><small>or open ${esc(r.url.replace(/^http:\/\//, ""))}, code ${esc(r.code)}</small></div></div>`
       : `<span class="qr big">${qr(r.pair_url)}</span><b>Scan with your phone's camera</b><small>or open <b>${esc(r.url.replace(/^http:\/\//, ""))}</b> and type <b>${esc(r.code)}</b></small>
         ${r.phones ? `<small class="okay">✓ ${r.phones === 1 ? "A phone is" : r.phones + " phones are"} connected</small>` : ""}`;
+  }
+  function secureLine() {                // the phone remote over https at home (the box's own name and certificate)
+    const sec = (setup || {}).secure;
+    if (!sec) return "";
+    const what = { ready: `on, at <b>${esc(sec.name || "")}</b>`, working: "getting the box its name and certificate…",
+      router: "on, but this router won't let the box's name point at it (\"DNS rebinding protection\"), so the remote stays plain http://",
+      error: "the certificate service can't be reached now; the box tries again by itself, and the remote stays plain http:// meanwhile",
+      off: "off" }[sec.state] || "";
+    return `<p class="small"><b>Secure phone remote:</b> ${what}. It's for phones whose browser only opens secure (https) pages. The box gets its own name and certificate from the Sofa Box certificate service, sending only a random id and its address on this network.
+      <button class="mini" data-secure="${sec.state === "off" ? 1 : 0}">${sec.state === "off" ? "Switch on" : "Switch off"}</button></p>`;
   }
   let btLooking = 0;
   function btList() {
@@ -682,6 +693,8 @@
       else if (d.btForget) confirmSheet("Forget this device?", async () => { closeSheet(); await api("/box/api/bt/forget", { mac: d.btForget }); await loadSetup(); render(true); })
       else if (d.btLook) { btLooking = Date.now() + 30000; await loadSetup(true); render(true); toast("Looking for devices in pairing mode…"); }
       else if (d.tz) { const r = await api("/box/api/timezone", { tz: d.tz }); toast("Time zone: " + r.timezone.replace(/_/g, " ")); await loadSetup(); render(true); }
+      else if (d.secure !== undefined) { await api("/box/api/settings", { secure_remote: d.secure === "1" }); await loadSetup(); render(true);
+        toast(d.secure === "1" ? "Secure phone remote on: it takes a minute." : "Secure phone remote off: phones use http:// again."); }
       else if (d.phonesForget) confirmSheet("Every phone has to scan the code again. Go ahead?", async () => { closeSheet(); await api("/box/api/remote/forget", {}); await loadSetup(); render(true); });
       else if (d.pick) { picks.has(d.pick) ? picks.delete(d.pick) : picks.add(d.pick); t.classList.toggle("on", picks.has(d.pick)); t.setAttribute("aria-pressed", picks.has(d.pick));
         const done = $("[data-done]"); if (done) done.textContent = picks.size ? "Add " + picks.size + " and finish" : "Finish: to Home"; }

@@ -56,7 +56,7 @@ def os_version():
 
 OS_VERSION = os_version()
 DEFAULTS = {"server": None, "quality": "auto", "hwdec": "auto", "audio": "auto", "learned_720": False, "performance": "auto",
-            "mpv_args": [], "theme": "street", "boot_text": "", "shield": True, "welcomed": False}
+            "mpv_args": [], "theme": "street", "boot_text": "", "shield": True, "welcomed": False, "secure_remote": True}
 THEMES = ("street", "terminal", "pirate", "sofa", "midnight", "cinema", "ocean", "forest", "grape", "oled")
 CHOICES = {"quality": ("auto", "720", "1080"), "audio": ("auto", "passthrough"), "performance": ("auto", "light", "full"),
            "hwdec": ("auto", "no", "v4l2m2m-copy", "drm", "auto-safe"), "theme": THEMES}
@@ -1144,6 +1144,166 @@ class Captive:
 captive = Captive()
 
 
+class SecureRemote:
+    """The phone remote over real HTTPS at home, which phones' browsers set to "HTTPS only" need: the box's own name,
+    <id>.box.edgeventure.uk, pointed at its address here, and a Let's Encrypt certificate for it, both from the Sofa Box
+    certificate service (deploy/box-certs). The box makes its own key; the service only sees a certificate request.
+    What it sends: the random id and secret the service gave it, and its address on the home network, about once a
+    day. Where the router won't let names point at home addresses ("DNS rebinding protection"), it stays http://.
+    Settings -> Remotes switches it off."""
+    SERVICE = (os.environ.get("SOFA_BOX_CERTS") or "https://boxcert.edgeventure.uk").rstrip("/")
+    PORT = int(os.environ.get("SOFA_BOX_REMOTE_TLS_PORT", "8093"))
+
+    def __init__(self):
+        self.dir = os.path.join(CONF_DIR, "secure-remote")
+        self.acct, self.server, self.served, self.resolves = None, None, None, False
+        self.error, self.event = None, threading.Event()
+
+    def on(self):
+        return self.SERVICE != "0" and settings().get("secure_remote", True) is not False
+
+    def path(self, name):
+        return os.path.join(self.dir, name)
+
+    def account(self):
+        if self.acct is None:
+            try:
+                with open(self.path("account.json"), encoding="utf-8") as f:
+                    self.acct = json.load(f)
+            except (OSError, ValueError):
+                self.acct = {}
+        return self.acct
+
+    def keep(self, name, data):
+        os.makedirs(self.dir, mode=0o700, exist_ok=True)
+        tmp = self.path(name + ".new")
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(data if isinstance(data, str) else json.dumps(data, indent=1))
+        os.replace(tmp, self.path(name))
+
+    def call(self, route, body, timeout=60):
+        req = urllib.request.Request(self.SERVICE + route, json.dumps(body).encode(), method="POST",
+                                     headers={"Content-Type": "application/json", "User-Agent": "Sofa Box " + OS_VERSION})
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                return json.loads(r.read())
+        except urllib.error.HTTPError as e:
+            try:
+                said = json.loads(e.read()).get("error")
+            except ValueError:
+                said = None
+            raise ValueError(said or "the certificate service said %d" % e.code)
+
+    def expires(self):
+        try:
+            p = subprocess.run(["openssl", "x509", "-noout", "-enddate", "-in", self.path("cert.pem")], capture_output=True, text=True, timeout=20)
+            return ssl.cert_time_to_seconds(p.stdout.strip().split("=", 1)[1]) if p.returncode == 0 else None
+        except (OSError, subprocess.SubprocessError, IndexError, ValueError):
+            return None
+
+    def renew(self, acct):
+        """A certificate request for the box's name, with its own key (made once), and the certificate back."""
+        os.makedirs(self.dir, mode=0o700, exist_ok=True)
+        key, name = self.path("key.pem"), acct["name"]
+        args = ["openssl", "req", "-new", "-subj", "/CN=" + name, "-addext", "subjectAltName=DNS:" + name]
+        args += ["-key", key] if os.path.exists(key) else ["-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:prime256v1", "-nodes", "-keyout", key]
+        p = subprocess.run(args, capture_output=True, text=True, timeout=60)
+        if p.returncode != 0:
+            raise ValueError("openssl: " + p.stderr.strip()[-200:])
+        os.chmod(key, 0o600)
+        out = self.call("/v1/cert", {"id": acct["id"], "secret": acct["secret"], "csr": p.stdout}, timeout=300)
+        self.keep("cert.pem", out["cert"])
+
+    def step(self, now=None):
+        """One look: the name, the address it points at, the certificate (renewed a month ahead), the https remote."""
+        now = now or time.time()
+        if not self.on():
+            return self.stop()
+        ip = local_address()
+        if not ip or network.hotspot or on_own_wifi(ip):
+            return
+        acct = self.account()
+        if not acct.get("id"):
+            got = self.call("/v1/register", {})
+            acct.update(id=got["id"], secret=got["secret"], name=got["name"])
+            self.keep("account.json", acct)
+        if acct.get("ip") != ip or now - acct.get("ip_at", 0) > 86400:
+            self.call("/v1/address", {"id": acct["id"], "secret": acct["secret"], "ip": ip})
+            acct.update(ip=ip, ip_at=int(now))
+            self.keep("account.json", acct)
+        until = self.expires()
+        if not until or until - now < 30 * 86400:
+            self.renew(acct)
+        self.serve()
+        self.resolves = resolves_to(acct["name"], ip)
+
+    def serve(self):
+        """The phone remote on port 8093 with the certificate (again when it's renewed)."""
+        try:
+            stamp = os.path.getmtime(self.path("cert.pem"))
+        except OSError:
+            return
+        if self.server and self.served == stamp:
+            return
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ctx.load_cert_chain(self.path("cert.pem"), self.path("key.pem"))
+        self.stop()
+        server = Server(("0.0.0.0", self.PORT), SecureRemoteHandler)
+        server.socket = ctx.wrap_socket(server.socket, server_side=True, do_handshake_on_connect=False)
+        threading.Thread(target=server.serve_forever, daemon=True, name="phone-remote-https").start()
+        self.server, self.served = server, stamp
+
+    def stop(self):
+        if self.server:
+            self.server.shutdown()
+            self.server.server_close()
+            self.server = None
+
+    def url(self):
+        acct = self.account()
+        if self.server and self.resolves and acct.get("name") and acct.get("ip") == local_address():
+            return "https://%s:%d" % (acct["name"], self.PORT)
+        return None
+
+    def status(self):
+        acct = self.account()
+        state = "off" if not self.on() else "ready" if self.url() else "router" if self.server and not self.resolves \
+            else "error" if self.error else "working"
+        return {"state": state, "name": acct.get("name"), "error": self.error}
+
+    def wake(self):
+        self.event.set()
+
+    def watch(self):
+        """A look 20 seconds after starting, then every 10 minutes (an hour after a failure, unless woken)."""
+        wait = 20
+        while True:
+            self.event.wait(wait)
+            self.event.clear()
+            try:
+                self.step()
+                self.error, wait = None, 600
+            except Exception as exc:
+                self.error, wait = str(exc)[:200] or exc.__class__.__name__, 3600
+                print("Secure phone remote: %s" % self.error, file=sys.stderr, flush=True)
+                try:
+                    self.serve()                                # what it has still works
+                except Exception:
+                    pass
+
+
+def resolves_to(name, ip):
+    """Does the home network's DNS give the box's name its address? (Routers with "DNS rebinding protection" don't.)"""
+    try:
+        return any(a[4][0] == ip for a in socket.getaddrinfo(name, None, socket.AF_INET))
+    except (OSError, UnicodeError):
+        return False
+
+
+secure_remote = SecureRemote()
+
+
 def local_mac(dev):
     try:
         with open("/sys/class/net/%s/address" % dev) as f:
@@ -1181,7 +1341,12 @@ class PhoneRemote:
             return {}
 
     def url(self):
-        ip = (network.hotspot or {}).get("address") or local_address()
+        if network.hotspot:
+            return "http://%s:%d" % (network.hotspot["address"], self.PORT)
+        secure = secure_remote.url()                       # https://<id>.box.edgeventure.uk:8093, where it works
+        if secure:
+            return secure
+        ip = local_address()
         return "http://%s:%d" % (ip, self.PORT) if ip else None
 
     def status(self):
@@ -1326,7 +1491,8 @@ def setup_state():
     return {"remote": safely(phone.status, None) if phone else None,
             "bluetooth": safely(bluetooth.listing, {"devices": [], "scanning": False}),
             "network": {"wired": safely(network.wired, False), "wifi": ssid or None, "address": local_address(), "hotspot": network.hotspot,
-                        "networks": network.cached, "problem": network.problem}, "welcomed": s["welcomed"], "name": s["boot_text"],
+                        "networks": network.cached, "problem": network.problem}, "secure": safely(secure_remote.status, None),
+            "welcomed": s["welcomed"], "name": s["boot_text"],
             "theme": s["theme"], "timezone": safely(current_timezone, "UTC"), "tz_set": bool(s.get("tz_set"))}
 
 
@@ -1681,6 +1847,9 @@ class Handler(BaseHTTPRequestHandler):
                 changes["welcomed"] = bool(data["welcomed"])
             if "boot_text" in data:
                 changes["boot_text"] = re.sub(r"[^\w '’&.-]", "", str(data["boot_text"]))[:30].strip()
+            if "secure_remote" in data:                        # the phone remote over https at home (SecureRemote)
+                changes["secure_remote"] = bool(data["secure_remote"])
+                secure_remote.wake()
             if changes:
                 save_settings(**changes)
             return self.send(json.dumps(dict(box_info(), ok=True)))
@@ -2073,6 +2242,11 @@ class RemoteHandler(BaseHTTPRequestHandler):
         return self.send('{"ok":true}')
 
 
+class SecureRemoteHandler(RemoteHandler):
+    """The phone remote over https (SecureRemote); a connection that stalls (its TLS handshake too) gives up."""
+    timeout = 30
+
+
 class Server(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
@@ -2106,6 +2280,8 @@ def main():
         threading.Thread(target=remote.serve_forever, daemon=True, name="phone-remote").start()
     except OSError as exc:
         print("The phone remote can't use port %d: %s" % (PhoneRemote.PORT, exc), file=sys.stderr)
+    if SecureRemote.SERVICE != "0":
+        threading.Thread(target=secure_remote.watch, daemon=True, name="secure-remote").start()
     if shutil_which("nmcli") and os.environ.get("SOFA_BOX_HOTSPOT", "1") != "0":
         threading.Thread(target=network.watch, daemon=True, name="hotspot").start()
     if not settings()["welcomed"]:                       # a new box: remotes in pairing mode pair by themselves

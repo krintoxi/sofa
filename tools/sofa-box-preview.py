@@ -55,6 +55,7 @@ def main():
         json.dump({"server": a.server.rstrip("/")}, f)
     env = dict(os.environ, SOFA_BOX_CONF=conf, SOFA_BOX_PORT=str(a.port), SOFA_BOX_LOCAL_DATA=os.path.join(conf, "sofa"),
                SOFA_BOX_LOCAL_PORT=str(a.port + 4))        # "This box" (Sofa on the box) gets its own folder here too
+    env.setdefault("SOFA_BOX_CERTS", "0")                    # no name and certificate for a preview (the secure phone remote)
     if a.slow:
         env["SOFA_BOX_SLOW"] = "1"
     if shutil.which("mpv"):

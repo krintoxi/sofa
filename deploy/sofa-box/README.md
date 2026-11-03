@@ -128,7 +128,19 @@ There's nothing to install from an app store: **the box serves the remote itself
 - **Good to know:**
   - It works at home only; a phone from outside never gets in.
   - If your router gives the box a new address, scan the code again. Reserving the box's address
-    in the router stops that.
+    in the router stops that. (With the secure remote below, its name follows the box, so the phone
+    keeps working.)
+- **Secure (https) at home.** Some phones only open secure pages, for example an iPhone with
+  **Settings → Apps → Safari → Not Secure Connection Warning** on. So once the box is online, it gets a
+  name of its own and a real certificate, and the remote becomes
+  `https://k3x9q2abcd.box.edgeventure.uk:8093`. The QR code on the TV uses that address by itself.
+  - What the box sends to the Sofa Box certificate service, about once a day: a random id, and its
+    address on your network (like 192.168.1.30). Nothing about what you watch. The box's own key never
+    leaves it.
+  - Some routers don't allow names that point at home addresses ("DNS rebinding protection"). Then the
+    remote stays plain `http://`, and Settings says so.
+  - **Settings → Remotes and Bluetooth** shows how it's doing, and **Switch off** turns it off.
+  - How the service works, and how to run it: [deploy/box-certs](../box-certs/README.md).
 <br clear="right">
 
 ## Setting it up on the card you already have
