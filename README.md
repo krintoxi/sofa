@@ -15,6 +15,48 @@ A project by [EdgeVenture.uk](https://edgeventure.uk). Free and open source (MIT
 - **For the whole family:** a profile each, Kids profiles, and sign-in on the TV with your phone.
 - **Private:** everything stays in your house. [How private?](docs/privacy.md)
 
+## Three parts: Sofa Server, Sofa App and Sofa Box OS
+
+Think of Netflix: Netflix's computers keep the films, the Netflix app plays them, and a Fire TV is a
+box that runs the app. Sofa has the same three parts, and the first one is a computer in your house.
+
+```
+  Sofa Server  ─────── your home network ───────▶  Sofa App
+  a computer that keeps                             on a phone, laptop, Fire TV, Roku, a TV's browser,
+  your shows and movies                             or built into Sofa Box OS on a Raspberry Pi
+```
+
+- **Sofa Server** is where your shows, movies and music live. It's a program on a computer that stays
+  on (a Mac or Linux computer; an old one is fine). It sorts your files, finds posters, converts what
+  a device can't play, and keeps everyone's accounts. You install it once
+  ([Set it up in 4 steps](#set-it-up-in-4-steps)). Some guides call that computer the
+  **Sofa computer**.
+- **Sofa App** is what you watch with. It holds no films: it plays them from a Sofa Server. On phones,
+  tablets and laptops it's a web address (it installs itself on the home screen like an app). On a
+  Fire TV or Roku it's Sofa's own TV app, which comes from your Sofa Server: on a Fire TV it installs
+  itself, on a Roku you add it once ([how](roku/README.md)).
+- **Sofa Box OS** is a whole TV box: a system for a Raspberry Pi that you plug into the TV instead of
+  a Fire TV. It has the **Sofa App built in**, plus free Live TV, your streaming apps, a browser and
+  games, and your phone is its remote. It is not a Sofa Server, but it can run a small one itself
+  ("This box", for videos on a USB drive).
+
+**Which do I need?**
+
+| You want to… | You need |
+|---|---|
+| Watch your own shows and movies on your phones, laptops and TV | a **Sofa Server**, then the **Sofa App** on each screen |
+| A TV box with no ads or tracking, instead of a Fire TV | **Sofa Box OS**. Live TV and streaming apps work without a Sofa Server; add one any time for your own films |
+| Watch a friend's Sofa they shared with you | just the **Sofa App** (or Sofa Box OS) and the share link they sent |
+
+**Versions and updates.** Sofa (the Server, and the App that comes from it) and Sofa Box OS have their
+own version numbers, counted separately: "Sofa 1.1.0" and "Sofa Box OS 1.1.0" are two different things.
+
+| | Sofa Server | Sofa App | Sofa Box OS |
+|---|---|---|---|
+| Its version | **Server page → Updates** | the same as its Sofa Server (it comes from it); the Fire TV app also has a build number | **Settings → About this box**, and on the box's boot screen |
+| Updating it | **Server page → Update now** | by itself, with its Sofa Server; the Fire TV app shows **Update the app**; a Roku takes the newer channel the same way you added it | **Settings → Software → Update the box** |
+| Downloads | [one line in Terminal](#step-1-install-the-sofa-server) | nothing (phones), or from the Sofa Server (TV apps) | [the newest card](https://github.com/krintoxi/sofa/releases/tag/sofa-box) |
+
 ## Sofa Box OS: your own TV box
 
 **[⬇ Download Sofa Box OS](https://github.com/krintoxi/sofa/releases/tag/sofa-box)** (the newest card) ·
@@ -24,8 +66,9 @@ A project by [EdgeVenture.uk](https://edgeventure.uk). Free and open source (MIT
 
 Turn a Raspberry Pi (3 B+, 4 or 5) into a TV box like a Fire TV, with no ads and nothing watching
 what you watch. It opens on its own home screen: Sofa, free Live TV, your streaming apps, USB drives
-and DVDs, a browser and games. You don't need a Sofa computer for it (Live TV and Sofa on the box
-itself work without one), and you don't need a remote: your phone works it.
+and DVDs, a browser and games. The **Sofa App is built in**, and it opens your Sofa Server, a friend's,
+or Sofa on the box itself. You don't need a Sofa Server for it (Live TV and Sofa on the box work
+without one), and you don't need a remote: your phone works it.
 
 <img src="docs/images/box-home.jpg" alt="The Sofa Box home screen: Open Sofa and Live TV, your apps, and a Watch row" width="100%">
 
@@ -52,15 +95,21 @@ from **Settings → Software**.
 
 ## What you need
 
-- **A computer that stays on**: a Mac (an old one is fine: Sofa runs on a 2011 iMac) or a Linux computer.
+For your own shows and movies (the **Sofa Server** and the **Sofa App**):
+
+- **A computer that stays on**, for the Sofa Server: a Mac (an old one is fine: Sofa runs on a 2011
+  iMac) or a Linux computer.
 - **Your shows and movies** as files (from your own discs, downloads, a camera...).
-- **Something to watch on**: a TV with a Fire TV stick, a Roku or a Raspberry Pi; or any phone, tablet or laptop.
+- **Something to watch on**, with the Sofa App: a TV with a Fire TV stick, a Roku or a Raspberry Pi
+  with Sofa Box OS; or any phone, tablet or laptop.
 
 All of them on the same Wi-Fi (or network) at home.
 
 ## Set it up in 4 steps
 
-### Step 1. Install Sofa on the computer
+Steps 1 to 3 set up the **Sofa Server**; step 4 is the **Sofa App** on your screens.
+
+### Step 1. Install the Sofa Server
 
 1. Open **Terminal**. On a Mac: press **⌘ Command + Space**, type `Terminal`, press **Return**.
 2. Copy this line, paste it into Terminal (**⌘ Command + V**) and press **Return**:
@@ -98,10 +147,12 @@ Send files from this device**.
 
 <img src="docs/images/show.jpg" alt="A show's page: title, Resume button, seasons and episodes with pictures">
 
-### Step 4. Watch on the TV
+### Step 4. Watch with the Sofa App
 
-**Find Sofa's address first.** In Sofa on the computer, open **Server** (at the top). Under
-**How to watch → At home** there's an address like `http://192.168.1.20:8090`. Every device in
+The Sofa App is what every screen in the house uses to watch what's on your Sofa Server.
+
+**Find your Sofa Server's address first.** In Sofa on that computer, open **Server** (at the top).
+Under **How to watch → At home** there's an address like `http://192.168.1.20:8090`. Every device in
 the house uses that address.
 
 **On a Fire TV:**
@@ -118,10 +169,11 @@ the house uses that address.
 
    <img src="docs/images/tv-home.jpg" alt="Sofa on a Fire TV: Sofa has an app for this Fire TV, Install the Sofa app" width="70%">
 
-**Other TVs:** Roku ([the Sofa channel](roku/README.md)), a Raspberry Pi as a
-"[Sofa box](deploy/sofa-box/README.md)" (your own TV box: no ads, no tracking; a ready-made card to
-write, or one line on a Pi you have; worked with the TV's own remote, your phone or a game
-controller), or the web browser of a smart TV. Install steps for each are on **Server → Overview → Apps**.
+**Other TVs:** Roku ([the Sofa channel](roku/README.md)), a Raspberry Pi with
+[Sofa Box OS](deploy/sofa-box/README.md) (your own TV box with the Sofa App built in: no ads, no
+tracking; a ready-made card to write, or one line on a Pi you have; worked with the TV's own remote,
+your phone or a game controller), or the web browser of a smart TV. Install steps for each are on
+**Server → Overview → Apps**.
 
 **Phones, tablets and laptops:** open Sofa's address in the browser. On a phone it works like an app,
 with tabs at the bottom, and it offers to **install itself** on the home screen (one tap on Android;
@@ -136,7 +188,7 @@ That's it. Enjoy the show. 🍿
 
 ## Everyday questions
 
-**How do I add more?** Drop files in **Entertainment → Inbox** on the Sofa computer (or **Send files
+**How do I add more?** Drop files in **Entertainment → Inbox** on the Sofa Server's computer (or **Send files
 from this device** on the Server page). That's all.
 
 **How do I update Sofa?** **Server → Updates → Update now.** Only Sofa's own program changes; your
@@ -243,7 +295,7 @@ deleted. More: [docs/folder-structure.md](docs/folder-structure.md).
   double-tap to skip on phones.
 - **Take it with you.** **Download** on a movie or an episode saves it to your phone or laptop for a
   trip. A file the device plays as it is downloads as it is; anything else (MKV, AVI, ...) gets a
-  **travel copy** first (720p MP4 with its subtitles, about 1 GB an hour), made on the Sofa computer
+  **travel copy** first (720p MP4 with its subtitles, about 1 GB an hour), made by the Sofa Server
   in the background. Copies are deleted after two weeks.
 - **Sofa as an app.** On an iPhone or iPad: Safari → Share → **Add to Home Screen**, and Sofa opens
   full screen with its own icon. On Android and computers: the browser's menu → Add to Home screen /
@@ -251,7 +303,7 @@ deleted. More: [docs/folder-structure.md](docs/folder-structure.md).
 - **Your phone is the remote.** With Sofa open on the TV, press the screen button at the top of
   Sofa on your phone, pick the TV, and Play sends things there; a bar on the phone pauses,
   skips, scrubs, goes to the next episode and stops. Works for any of your screens, at home,
-  through the Sofa computer only. [docs/tv.md](docs/tv.md)
+  through the Sofa Server only. [docs/tv.md](docs/tv.md)
 - **Artwork and details.** Shows from TVmaze; movies from the iTunes Store and Wikipedia
   (or TMDB, with a free key, for the best posters and collections); `.nfo` files next to your
   videos are read too. Episodes without a picture get a well-chosen still from the video, and a
@@ -318,7 +370,7 @@ deleted. More: [docs/folder-structure.md](docs/folder-structure.md).
   smart TVs also find Sofa by themselves.
   [docs/tv.md](docs/tv.md)
 - **Sofa's own TV apps**, for Fire TV ([android/](android/README.md)) and Roku
-  ([roku/](roku/README.md)). They play MKV, HEVC and Dolby sound as they are, so the Sofa computer
+  ([roku/](roku/README.md)). They play MKV, HEVC and Dolby sound as they are, so the Sofa Server
   hardly converts anything. Install from **Server → Overview → Apps**; sign in by approving a code
   on your phone.
 - **The Sofa box:** a Raspberry Pi (3, 4 or 5) on the TV that starts straight into Sofa, with its
