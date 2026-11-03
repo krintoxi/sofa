@@ -103,6 +103,7 @@
 </svg>
 <header><svg><use href="#skull"/></svg><b id="name">Sofa Box</b><span class="dot" id="dot"><i></i><span id="dotText">Connected</span></span></header>
 <div class="now" id="now"></div>
+<div class="now" id="moved"></div>
 
 <main>
   <section id="pairing" class="pair" hidden>
@@ -175,6 +176,7 @@
   const buzz = () => { try { navigator.vibrate && navigator.vibrate(8); } catch (e) {} };
   const key = k => { buzz(); return post("/api/key", { k }).then(r => { if (r.status === 401) showPairing(); }).catch(() => offline(true)); };
   let tab = "remote", wifiSsid = null, sentTz = false, ready = false;     // a new box takes its time zone from the phone
+  let onItsWifi = false, joining = null;     // this phone is on the box's own Wi-Fi; the home Wi-Fi the box is going to
 
   function show(name) {
     tab = name;
@@ -188,12 +190,22 @@
     ["remote", "type", "touch", "wifi"].forEach(t => { $("tab-" + t).hidden = true; });
     if (/again=1/.test(location.search)) $("pairMsg").textContent = "That code has changed. Type the one on the TV now.";
   }
-  function offline(on) { $("dot").classList.toggle("off", on); $("dotText").textContent = on ? "Can't reach the box" : "Connected"; }
+  function offline(on) {
+    $("dot").classList.toggle("off", on); $("dotText").textContent = on ? "Can't reach the box" : "Connected";
+    // gone from the box's own Wi-Fi (most likely: it joined the home Wi-Fi): say what to do, not just "can't reach"
+    const lost = on && (onItsWifi || joining);
+    $("moved").classList.toggle("on", !!lost);
+    if (lost) $("moved").innerHTML = (joining ? "The box went to <b></b>. " : "The box left its own Wi-Fi, most likely for your home Wi-Fi. ")
+      + "To keep using this phone, <b>scan the code on the TV again</b>. If the TV says it couldn't join, its own Wi-Fi is back: join it again with code 1 on the TV.";
+    if (lost && joining) $("moved").querySelector("b").textContent = joining;
+  }
 
   async function state() {
     try {
       const r = await fetch("/api/state", { credentials: "same-origin", cache: "no-store" });
       const s = await r.json();
+      onItsWifi = !!s.hotspot;
+      if (s.joining && s.joining.state === "joining") joining = s.joining.ssid;      // (the TV may have started it)
       offline(false);
       $("name").textContent = s.name || "Sofa Box";
       if (!s.paired) return showPairing();
@@ -308,9 +320,13 @@
   }
   $("joinBtn").addEventListener("click", async () => {
     if (!wifiSsid) return;
-    $("wifiMsg").textContent = "Joining " + wifiSsid + "… If you were on the box's own Wi-Fi, your phone goes back to yours; then scan the new code on the TV.";
-    try { const r = await (await post("/api/wifi/join", { ssid: wifiSsid, password: $("wpass").value })).json(); $("wifiMsg").textContent = r.message || (r.ok ? "Connected." : "That didn't work."); }
-    catch (e) { /* the box left this network: that's expected */ }
+    $("wifiMsg").textContent = "Joining " + wifiSsid + "…";
+    try {
+      const r = await (await post("/api/wifi/join", { ssid: wifiSsid, password: $("wpass").value })).json();
+      if (r.ok) joining = wifiSsid;
+      $("wifiMsg").textContent = r.ok ? "The box is joining " + wifiSsid + ". This phone goes back to your own Wi-Fi now: then scan the new code on the TV."
+        : (r.message || "That didn't work.");
+    } catch (e) { joining = wifiSsid; /* the box left this network: that's expected */ }
   });
 
   // Once, after connecting: how to keep it like an app (it opens full screen from the Home Screen).

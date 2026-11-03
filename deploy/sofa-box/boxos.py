@@ -906,12 +906,15 @@ class Browser:
         return (self.tabs.get(t) or {}).get("session")
 
     def press(self, key, keycode):
-        """A key press in the tab in front (the phone remote, when the box has no /dev/uinput)."""
+        """A key press in the tab in front (the phone remote). Enter carries its character too, as a real keyboard's
+        does: some pages only press a button on that."""
         session = self._front_session()
         if session:
-            for kind in ("rawKeyDown", "keyUp"):
-                self.call("Input.dispatchKeyEvent", {"type": kind, "key": key, "code": key, "windowsVirtualKeyCode": keycode,
-                                                     "nativeVirtualKeyCode": keycode}, session)
+            text = {"Enter": "\r"}.get(key)
+            down = {"type": "keyDown", "text": text, "unmodifiedText": text} if text else {"type": "rawKeyDown"}
+            for event in (down, {"type": "keyUp"}):
+                self.call("Input.dispatchKeyEvent", dict(event, key=key, code=key, windowsVirtualKeyCode=keycode,
+                                                         nativeVirtualKeyCode=keycode), session)
 
     def insert_text(self, text):
         """Text typed on the phone, into whatever is focused in the tab in front."""

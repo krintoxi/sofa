@@ -780,6 +780,65 @@ class BoxNetwork(unittest.TestCase):
     def test_the_networks_it_knows(self):
         self.assertEqual(self.net.saved(), ["Home"])                 # not its own hotspot, not the cable
 
+    def test_its_own_wifi_keeps_its_name_and_password(self):
+        """So a phone that dropped off it (the box tried a home Wi-Fi that didn't work) joins it again by itself."""
+        path = os.path.join(self.conf, "hotspot.json")
+        if os.path.exists(path):
+            os.remove(path)
+        first = self.net.credentials("wlan0")
+        self.assertRegex(first[1], r"^\d{8}$")
+        self.assertEqual(self.net.credentials("wlan0"), first)
+        self.assertEqual(self.agent.Network().credentials("wlan0"), first)            # after a restart too
+        self.assertEqual(os.stat(path).st_mode & 0o777, 0o600)
+
+    def test_joining_the_home_wifi(self):
+        """Off its own Wi-Fi it looks for the home Wi-Fi first (a hotspot can't look around) and joins on its Wi-Fi chip;
+        if that doesn't work, its own Wi-Fi comes back and the TV is told why."""
+        a, calls, self.now = self.agent, [], 0
+        answers = {"connect": (10, "Error: No network with SSID 'Home' found.")}
+
+        def nmcli(cmd, timeout=20):
+            calls.append(cmd)
+            if cmd[-1] == "device":                                                   # nmcli -t -f DEVICE,TYPE device
+                return 0, "eth0:ethernet\nwlan0:wifi"
+            if cmd[:4] == ["nmcli", "-t", "-f", "SSID"]:
+                return 0, "Neighbours\nHome"
+            return answers["connect"] if "connect" in cmd else (0, "")
+        a.run = nmcli
+        woke, real_wake = [], a.secure_remote.wake
+        a.secure_remote.wake = lambda: woke.append(1)
+        try:
+            self.net.hotspot = {"at": 0}
+            r = self.net.join("Home", "pw")
+            self.assertFalse(r["ok"])
+            self.assertIn("can't see Home", r["message"])
+            self.assertEqual((self.net.joining["state"], self.net.joining["message"]), ("failed", r["message"]))
+            self.assertEqual(len(self.started), 1)                                    # its own Wi-Fi is back
+            connect = next(i for i, c in enumerate(calls) if "connect" in c)
+            self.assertLess(next(i for i, c in enumerate(calls) if "rescan" in c), connect)
+            self.assertEqual(calls[connect][-2:], ["ifname", "wlan0"])
+            answers["connect"] = (4, "Error: Connection activation failed: Secrets were required, but not provided.")
+            self.assertIn("password for Home isn't right", self.net.join("Home", "nope")["message"])
+            answers["connect"] = (0, "Device 'wlan0' successfully activated")
+            self.net.hotspot = {"at": 0}
+            self.assertTrue(self.net.join("Home", "pw")["ok"])
+            self.assertEqual(self.net.joining["state"], "joined")
+            self.assertEqual(woke, [1])                                              # its https remote, straight away
+        finally:
+            a.secure_remote.wake = real_wake
+
+    def test_joining_answers_the_phone_first(self):
+        """The phone may be on the box's own Wi-Fi, which the box is about to leave: it gets its answer before that."""
+        joined = []
+        self.net.join = lambda ssid, password: joined.append((ssid, password))
+        r = self.net.join_soon("Home", "pw")
+        self.assertTrue(r["ok"] and r["pending"])
+        self.assertEqual(self.net.joining["state"], "joining")
+        self.assertEqual(joined, [])
+        time.sleep(2)
+        self.assertEqual(joined, [("Home", "pw")])
+        self.assertFalse(self.net.join_soon("", "pw")["ok"])
+
     def test_a_new_box_makes_its_own_wifi_soon(self):
         self.offline = 0
         self.run_for(20)

@@ -7,6 +7,26 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.2
+
+Fixes from setting up a real box with an iPhone:
+
+- **Joining your Wi-Fi at the setup.** The box now looks for your Wi-Fi before it joins it: just off its own
+  Wi-Fi it couldn't see any network yet, and joining could fail for that alone. It answers the phone first and
+  then leaves. The TV shows "Joining…", then either that it's connected, with the new code to scan right
+  there, or exactly why not (the password isn't right, it can't see that Wi-Fi).
+- **No phone left stranded.** The box's own Wi-Fi keeps the same name and password from one time to the next
+  (it used to make a new password every time), so after a try that didn't work, your phone can join it again.
+  When the phone loses the box, the remote says what to do (scan the code on the TV again) instead of only
+  "Can't reach the box".
+- **The phone's Remote tab** (arrows, OK, Back) sends its keys straight to the page on the TV, the way the
+  Touchpad's clicks already got through. OK carries a real Enter, which some pages need to press a button.
+- **Remotes and game controllers over Bluetooth** go to the screen through a device that's now a full keyboard;
+  with only a handful of keys it may not have been taken for one.
+
+Still being looked into on a real box: the iPhone's sign-in sheet not opening by itself on the box's own Wi-Fi,
+and Bluetooth remotes and controllers not showing up during the setup.
+
 ## 1.1.1
 
 - **The secure phone remote is there right after the setup.** When you give a new box your Wi-Fi during its

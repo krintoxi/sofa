@@ -933,6 +933,7 @@ class Network:
         self.hotspot, self.cached, self.lock = None, [], threading.Lock()
         self.used = 0                                        # when a phone on the hotspot last did something
         self.problem, self.failed_at = None, None            # why the box's own Wi-Fi didn't start, and when
+        self.joining = None                                  # the last home Wi-Fi it was asked to join: how that went
 
     @staticmethod
     def wifi_device():
@@ -988,8 +989,7 @@ class Network:
         time.sleep(1)                                        # Wi-Fi that was just switched on
         if not self.cached:
             self.scan()                                      # while it still can: a hotspot can't look around
-        tail = (re.sub(r"[^0-9]", "", local_mac(dev)) or str(os.getpid()))[-4:]
-        ssid, password = "Sofa Box " + tail, "%08d" % (int.from_bytes(os.urandom(4), "big") % 10 ** 8)
+        ssid, password = self.credentials(dev)
         run(["nmcli", "connection", "delete", self.CON], 10)  # one left from before
         code, out = run(["nmcli", "device", "wifi", "hotspot", "ifname", dev, "con-name", self.CON, "ssid", ssid, "password", password], 30)
         if code == 0:
@@ -1013,16 +1013,77 @@ class Network:
             run(["nmcli", "connection", "delete", self.CON], 20)
             self.hotspot = None
 
+    @staticmethod
+    def credentials(dev):
+        """The box's own Wi-Fi keeps its name and password from one time to the next: a phone that drops off it (the box
+        tried a home Wi-Fi that didn't work) joins again by itself, and code 1 on the TV stays right. Reset makes new ones."""
+        path = os.path.join(CONF_DIR, "hotspot.json")
+        try:
+            with open(path, encoding="utf-8") as f:
+                saved = json.load(f)
+            if saved.get("ssid") and re.match(r"^\d{8}$", str(saved.get("password"))):
+                return saved["ssid"], saved["password"]
+        except (OSError, ValueError, AttributeError):
+            pass
+        tail = (re.sub(r"[^0-9]", "", local_mac(dev)) or str(os.getpid()))[-4:]
+        ssid, password = "Sofa Box " + tail, "%08d" % (int.from_bytes(os.urandom(4), "big") % 10 ** 8)
+        try:
+            os.makedirs(CONF_DIR, exist_ok=True)
+            with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w", encoding="utf-8") as f:
+                json.dump({"ssid": ssid, "password": password}, f)
+        except OSError:
+            pass
+        return ssid, password
+
+    def find(self, ssid, dev, limit=25):
+        """Just off its own Wi-Fi, the box's list of networks is empty (a hotspot can't look around): look until the one
+        to join shows, or for `limit` seconds."""
+        on = ["ifname", dev] if dev else []
+        end = time.time() + limit
+        while True:
+            run(["nmcli", "device", "wifi", "rescan"] + on, 15)
+            code, out = run(["nmcli", "-t", "-f", "SSID", "device", "wifi", "list"] + on, 15)
+            if code == 0 and ssid in [line.replace("\\:", ":") for line in out.splitlines()]:
+                return True
+            if time.time() >= end:
+                return False
+            time.sleep(3)
+
     def join(self, ssid, password):
-        had = bool(self.hotspot)
+        """The home Wi-Fi. If it doesn't work out, the box's own Wi-Fi comes back with the same name and password, and
+        `joining` says why (the TV shows it)."""
+        ssid, had, dev = str(ssid), bool(self.hotspot), self.wifi_device()
+        self.joining = {"ssid": ssid, "state": "joining", "message": "Joining %s…" % ssid, "at": time.time()}
         self.stop_hotspot()
-        code, out = run(["nmcli", "device", "wifi", "connect", str(ssid)] + (["password", str(password)] if password else []), 45)
-        if code != 0 and had:
-            self.start_hotspot()                             # back to the box's own, to try again
+        if had or ssid not in [n["ssid"] for n in self.cached]:
+            self.find(ssid, dev)
+        code, out = run(["nmcli", "device", "wifi", "connect", ssid] + (["password", str(password)] if password else [])
+                        + (["ifname", dev] if dev else []), 60)
         if code == 0:
+            message = "Connected to %s." % ssid
             secure_remote.wake()                             # on a home network now: its https remote, straight away
-        return {"ok": code == 0, "message": "Connected to %s." % ssid if code == 0 else
-                ("The password isn't right." if re.search(r"secrets|password|802-11-wireless-security", out, re.I) else out[-200:])}
+        elif re.search(r"secrets|password|802-11-wireless-security|psk", out, re.I):
+            message = "The password for %s isn't right." % ssid
+        elif re.search(r"No network with SSID", out, re.I):
+            message = "The box can't see %s from here. Is it on, and near enough?" % ssid
+        else:
+            message = "It didn't join %s: %s" % (ssid, ((out.strip().splitlines() or ["no reason given"])[-1])[:160])
+        if code != 0:
+            print("Joining %s: %s" % (ssid, out[-300:]), file=sys.stderr, flush=True)
+            if had:
+                self.start_hotspot()                         # back to the box's own, same name and password, to try again
+        self.joining = {"ssid": ssid, "state": "joined" if code == 0 else "failed", "message": message, "at": time.time()}
+        return {"ok": code == 0, "message": message}
+
+    def join_soon(self, ssid, password):
+        """Join from a phone or the TV: answer first, then join. The box may be about to leave the Wi-Fi the phone is on
+        (its own), and the phone's answer would never arrive; the TV shows how it goes."""
+        ssid = str(ssid)
+        if not ssid:
+            return {"ok": False, "message": "Which Wi-Fi?"}
+        self.joining = {"ssid": ssid, "state": "joining", "message": "Joining %s…" % ssid, "at": time.time()}
+        threading.Timer(1.5, self.join, (ssid, password)).start()
+        return {"ok": True, "pending": True, "message": "Joining %s… The TV shows how it goes." % ssid}
 
     def saved(self):
         """The Wi-Fi networks the box knows (it joins them by itself when they're back)."""
@@ -1392,10 +1453,14 @@ class PhoneRemote:
             return None
         try:
             from evdev import UInput, ecodes
-            self.kb = UInput({ecodes.EV_KEY: [ecodes.ecodes[k] for k in set(self.KEYS.values())]}, name="Sofa box phone remote")
+            # every key of a keyboard, not only the remote's: udev calls a device a keyboard (and the screen, cage, then
+            # listens to it) only when it has the whole first row of keys
+            keys = set(range(ecodes.KEY_ESC, ecodes.KEY_MICMUTE + 1)) | {ecodes.ecodes[k] for k in self.KEYS.values()}
+            self.kb = UInput({ecodes.EV_KEY: sorted(keys)}, name="Sofa box phone remote")
             self.mouse = UInput({ecodes.EV_KEY: [ecodes.BTN_LEFT, ecodes.BTN_RIGHT],
                                  ecodes.EV_REL: [ecodes.REL_X, ecodes.REL_Y, ecodes.REL_WHEEL]}, name="Sofa box phone touchpad")
             self.ecodes = ecodes
+            time.sleep(0.5)                                # a new device takes a moment to be picked up
         except Exception:                                  # no evdev or no /dev/uinput (a preview): through the browser
             self.kb = self.mouse = None
         return self.kb
@@ -1413,14 +1478,14 @@ class PhoneRemote:
         code = self.KEYS.get(name)
         if not code:
             raise ValueError("Which key?")
-        kb = self._devices()
+        if browser and browser.connected():               # straight into the page in front: it always arrives
+            return browser.press(*self.DOM[code])
+        kb = self._devices()                               # (no browser to talk to: as a keyboard)
         if kb:
             c = self.ecodes.ecodes[code]
             kb.write(self.ecodes.EV_KEY, c, 1)
             kb.write(self.ecodes.EV_KEY, c, 0)
             kb.syn()
-        elif browser and browser.connected():
-            browser.press(*self.DOM[code])
 
     def text(self, t):
         if browser and browser.connected():
@@ -1495,7 +1560,7 @@ def setup_state():
     return {"remote": safely(phone.status, None) if phone else None,
             "bluetooth": safely(bluetooth.listing, {"devices": [], "scanning": False}),
             "network": {"wired": safely(network.wired, False), "wifi": ssid or None, "address": local_address(), "hotspot": network.hotspot,
-                        "networks": network.cached, "problem": network.problem}, "secure": safely(secure_remote.status, None),
+                        "networks": network.cached, "problem": network.problem, "joining": network.joining}, "secure": safely(secure_remote.status, None),
             "welcomed": s["welcomed"], "name": s["boot_text"],
             "theme": s["theme"], "timezone": safely(current_timezone, "UTC"), "tz_set": bool(s.get("tz_set"))}
 
@@ -1612,7 +1677,7 @@ def box_action(a, data):
     if a == "wifi-scan":
         return network.hotspot and {"ok": True, "networks": network.cached} or network.scan()
     if a == "wifi-connect":
-        return network.join(data.get("ssid", ""), data.get("password"))
+        return network.join_soon(data.get("ssid", ""), data.get("password"))
     if a == "tv-on":
         code, out = run([os.path.join(HERE, "sofa-box"), "tv-on"], 15)
         return {"ok": code == 0, "message": out[-200:]}
@@ -2223,7 +2288,7 @@ class RemoteHandler(BaseHTTPRequestHandler):
                 return self.send(json.dumps({"paired": True, "name": settings().get("boot_text") or "Sofa Box",
                                              "playing": {k: p.get(k) for k in ("title", "sub", "t", "d", "paused")} if p else None,
                                              "front": browser.front_app() if browser and browser.connected() else None,
-                                             "hotspot": bool(network.hotspot), "welcomed": settings()["welcomed"]}))
+                                             "hotspot": bool(network.hotspot), "joining": network.joining, "welcomed": settings()["welcomed"]}))
             if path == "/api/key":
                 phone.key(str(data.get("k") or ""))
             elif path == "/api/hello":                      # the phone's time zone, for a box that doesn't know its own
@@ -2238,7 +2303,7 @@ class RemoteHandler(BaseHTTPRequestHandler):
                 return self.send(json.dumps(dict(network.scan() if not network.hotspot else {"ok": True, "networks": network.cached},
                                                  hotspot=bool(network.hotspot))))
             elif path == "/api/wifi/join":
-                return self.send(json.dumps(network.join(data.get("ssid") or "", data.get("password"))))
+                return self.send(json.dumps(network.join_soon(data.get("ssid") or "", data.get("password"))))
             else:
                 return self.send('{"error":"not found"}', status=404)
         except ValueError as exc:
