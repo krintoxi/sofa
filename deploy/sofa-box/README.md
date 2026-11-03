@@ -89,6 +89,12 @@ shows two QR codes:
 Then give the box your home Wi-Fi from the phone's **Wi-Fi** tab. The box joins it, and your phone
 goes back to your own Wi-Fi.
 
+**The setup says it couldn't make its own Wi-Fi?** Plug a network cable from your router into the box:
+the code to scan shows within seconds. Or write the card again, and in Raspberry Pi Imager press
+**Edit settings**, tick **Configure wireless LAN**, type your Wi-Fi's name and password and pick your
+**Wireless LAN country**: the box then joins your Wi-Fi by itself. (Before Sofa Box OS 1.0.1 the setup
+showed a spinner for ever in this case.)
+
 Later on, if the router is off for a while (a power cut, a restart), a box that knows your Wi-Fi waits
 for it to come back. Only after three minutes with no network does it make its own Wi-Fi again (handy
 if you've moved house), and after ten quiet minutes on it, it looks for your Wi-Fi again.

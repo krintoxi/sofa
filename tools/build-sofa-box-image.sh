@@ -85,6 +85,8 @@ printf '#!/bin/sh\nexit 101\n' > "$ROOT/usr/sbin/policy-rc.d"           # nothin
 chmod 755 "$ROOT/usr/sbin/policy-rc.d"
 
 echo "== The Sofa box"
+# how Raspberry Pi OS leaves Wi-Fi (switched off until a country is set), for the report
+WIFI_BEFORE="$(grep -h '^WirelessEnabled' "$ROOT/var/lib/NetworkManager/NetworkManager.state" 2>/dev/null || echo 'no NetworkManager state')$(for f in "$ROOT"/var/lib/systemd/rfkill/*:wlan; do if [ -f "$f" ]; then printf ', rfkill %s=%s' "$(basename "$f")" "$(cat "$f")"; fi; done)"
 mkdir -p "$ROOT/tmp/sofa/deploy"
 cp -r "$REPO/deploy/sofa-box" "$ROOT/tmp/sofa/deploy/"
 cp -r "$REPO/client" "$REPO/sofa" "$REPO/sofa.py" "$REPO/LICENSE" "$ROOT/tmp/sofa/"     # Sofa itself too, for "This box"
@@ -106,7 +108,9 @@ chroot "$ROOT" /bin/sh -c '
   echo "Sofa Box OS: $(cat /usr/local/lib/sofa-box/VERSION 2>/dev/null || echo missing)"
   echo "Raspberry Pi OS: $(. /etc/os-release; echo "$PRETTY_NAME")"
   dpkg-query -W -f="\${Package} \${Version}\n" cage chromium mpv plymouth plymouth-label python3 python3-pil python3-evdev \
-    pipewire-pulse network-manager systemd-zram-generator zram-tools udisks2 ffmpeg eject libdvdnav4 libbluray2 2>/dev/null | sed "s/^/  /"
+    pipewire-pulse network-manager dnsmasq-base rfkill iw systemd-zram-generator zram-tools udisks2 ffmpeg eject libdvdnav4 libbluray2 \
+    2>/dev/null | sed "s/^/  /"
+  echo "Wi-Fi at the first start: $(grep -h "^WirelessEnabled" /var/lib/NetworkManager/NetworkManager.state 2>/dev/null || echo "no NetworkManager state (on)")$(for f in /var/lib/systemd/rfkill/*:wlan; do if [ -f "$f" ]; then printf ", rfkill %s=%s" "$(basename "$f")" "$(cat "$f")"; fi; done)"
   echo "Sofa on the box (This box): $(cat /usr/local/lib/sofa-box/sofa-server/sofa/__init__.py 2>/dev/null | grep -o "__version__ = .*" || echo missing)"
   echo "Services: $(for s in sofa-box sofa-box-agent sofa-box-input sofa-box-cec sofa-box-tune; do printf "%s=%s " $s "$(systemctl is-enabled $s 2>/dev/null)"; done)"
   echo "Starts into: $(systemctl get-default)"
@@ -118,6 +122,7 @@ chroot "$ROOT" /bin/sh -c '
   echo "Box files: $(ls /usr/local/lib/sofa-box /usr/local/lib/sofa-box/fonts | tr "\n" " ")"
   echo "Space: $(df -h / | tail -n 1 | awk "{print \$3\" used, \"\$4\" free\"}")"
 ' > "$REPORT" 2>&1 || true
+echo "Wi-Fi as Raspberry Pi OS left it: $WIFI_BEFORE" >> "$REPORT"
 cat "$REPORT"
 rm -f "$ROOT/usr/sbin/policy-rc.d" "$ROOT/usr/bin/qemu-aarch64-static"
 cat > "$ROOT/boot/firmware/sofa-box.txt" <<EOF
