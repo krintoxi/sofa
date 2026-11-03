@@ -150,15 +150,21 @@ There's nothing to install from an app store: **the box serves the remote itself
     in the router stops that. (With the secure remote below, its name follows the box, so the phone
     keeps working.)
 - **Secure (https) at home.** Some phones only open secure pages, for example an iPhone with
-  **Settings → Apps → Safari → Not Secure Connection Warning** on. So once the box is online, it gets a
-  name of its own and a real certificate, and the remote becomes
-  `https://k3x9q2abcd.box.edgeventure.uk:8093`. The QR code on the TV uses that address by itself.
-  - What the box sends to the Sofa Box certificate service, about once a day: a random id, and its
-    address on your network (like 192.168.1.30). Nothing about what you watch. The box's own key never
-    leaves it.
-  - Some routers don't allow names that point at home addresses ("DNS rebinding protection"). Then the
-    remote stays plain `http://`, and Settings says so.
-  - **Settings → Remotes and Bluetooth** shows how it's doing, and **Switch off** turns it off.
+  **Settings → Apps → Safari → Not Secure Connection Warning** on. So once the box is online, its remote
+  has a secure address through the **Sofa Box service's relay**:
+  `https://boxcert.edgeventure.uk/r/k3x9q2abcd/`. The QR code on the TV uses it by itself, and it works
+  from anywhere, at home or away (the phone's taps go to the service and on to the box, which keeps a
+  connection open to it).
+  - The phone still needs the TV's code: the QR code's long one (24 characters). Typing the four
+    digits works at home only, so nobody can guess at them from the internet.
+  - What passes through the service: your phone's taps, typing and the box's answers, on their way.
+    Nothing is kept. To reach the box the service only needs its random id.
+  - No certificate or name per box, so no Let's Encrypt limits, and it works with routers that block
+    names pointing at home addresses ("DNS rebinding protection").
+  - **Settings → Remotes and Bluetooth** shows how it's doing, and **Switch off** turns it off (phones
+    at home then use plain `http://`).
+  - The old way, a name and certificate per box (`https://k3x9q2abcd.box.edgeventure.uk:8093`, home
+    only), is still there: `"remote_link": "certificate"` in the box's settings.json.
   - How the service works, and how to run it: [deploy/box-certs](../box-certs/README.md).
 <br clear="right">
 

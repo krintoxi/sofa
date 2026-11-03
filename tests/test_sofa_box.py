@@ -1239,6 +1239,72 @@ class BoxNetwork(unittest.TestCase):
         self.assertIn('<meta name="color-scheme" content="dark">', page)
         self.assertLess(page.index("background: #0D0D10"), page.index("home.css"))
 
+    def test_the_remote_through_the_relay(self):
+        """The phone remote from anywhere: the QR code points at the relay (deploy/box-certs), the box keeps a request
+        open there, and a phone's requests reach the box's real remote and come back. Only the QR's long link pairs."""
+        from tests.test_box_certs import load as load_certs
+        a, work = self.agent, tempfile.mkdtemp()
+        certs = load_certs(work)
+        service = certs.Service(dict(certs.DEFAULTS), None, None)
+        certs.Handler.service = service
+        relay = ThreadingHTTPServer(("127.0.0.1", 0), certs.Handler)
+        threading.Thread(target=relay.serve_forever, daemon=True).start()
+        base = "http://127.0.0.1:%d" % relay.server_address[1]
+        service.cfg["relay_base"] = base
+        box = service.register("192.168.1.30")
+        remote = a.Server(("127.0.0.1", 0), a.RemoteHandler)
+        threading.Thread(target=remote.serve_forever, daemon=True).start()
+        real = a.secure_remote, a.phone, a.SecureRemote.SERVICE, a.PhoneRemote.PORT, a.network.hotspot
+        a.SecureRemote.SERVICE, a.PhoneRemote.PORT, a.network.hotspot = base, remote.server_address[1], None
+        a.secure_remote, a.phone = a.SecureRemote(), a.PhoneRemote()
+        a.secure_remote.acct = dict(box)
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
+
+        def phone(path, body=None, cookie=None):
+            req = urllib.request.Request(base + path, None if body is None else json.dumps(body).encode(),
+                                         dict({"Content-Type": "application/json", "X-Sofa-Remote": "1"}, **({"Cookie": cookie} if cookie else {})))
+            try:
+                with opener.open(req, timeout=30) as r:
+                    return r.status, dict(r.headers), r.read()
+            except urllib.error.HTTPError as e:
+                return e.code, dict(e.headers), e.read()
+        try:
+            a.secure_remote.start_relay()
+            for _ in range(60):
+                if a.secure_remote.url():
+                    break
+                time.sleep(0.1)
+            here = "%s/r/%s" % (base, box["id"])
+            self.assertEqual(a.secure_remote.url(), here)
+            self.assertEqual(a.secure_remote.status()["state"], "ready")
+            st = a.phone.status()
+            self.assertEqual(st["pair_url"], here + "/r/" + a.phone.link)              # the QR code: the long link
+            self.assertNotIn(st["code"], st["pair_url"])
+            link = a.phone.link
+            status, headers, _ = phone("/r/%s/r/%s" % (box["id"], link))             # scanned
+            self.assertEqual((status, headers["Location"]), (302, "/r/%s/" % box["id"]))
+            cookie = headers["Set-Cookie"].split(";")[0]
+            self.assertTrue(cookie.startswith("sofa_remote="))
+            status, _, body = phone("/r/%s/api/state" % box["id"], cookie=cookie)
+            self.assertEqual((status, json.loads(body)["paired"]), (200, True))        # the box's own answer, from anywhere
+            self.assertEqual(phone("/r/%s/r/%s" % (box["id"], link))[1]["Location"], "/r/%s/?again=1" % box["id"])  # once
+            code = a.phone.code                                                         # four digits: home only
+            req = urllib.request.Request("http://127.0.0.1:%d/r/%s" % (remote.server_address[1], code), headers={"X-Sofa-Relay": "1"})
+            try:
+                opener.open(req, timeout=10)
+            except urllib.error.HTTPError as e:
+                self.assertEqual(e.headers["Location"], "/?again=1")
+            self.assertEqual(a.phone.code, code)                                        # (not used up)
+            self.assertEqual(phone("/r/%s/api/state" % box["id"])[0], 401)             # no sign-in: nothing
+        finally:
+            a.SecureRemote.SERVICE = "0"                                                # the relay loop ends
+            relay.shutdown()
+            relay.server_close()
+            remote.shutdown()
+            remote.server_close()
+            a.secure_remote, a.phone, a.SecureRemote.SERVICE, a.PhoneRemote.PORT, a.network.hotspot = real
+            shutil.rmtree(work, ignore_errors=True)
+
     def test_the_phone_remote_over_https_at_home(self):
         """The box gets its own name and certificate (deploy/box-certs, stood in for here) and serves the remote with it."""
         import ssl
@@ -1266,6 +1332,7 @@ class BoxNetwork(unittest.TestCase):
         a.SecureRemote.SERVICE, a.SecureRemote.PORT = "http://127.0.0.1:%d" % service.server_address[1], 0
         a.secure_remote, a.phone = a.SecureRemote(), a.PhoneRemote()
         a.resolves_to = lambda name, ip: True
+        a.save_settings(remote_link="certificate")                                     # (the relay is the default)
         r = a.secure_remote
         try:
             self.address = None                                                        # at the setup, not online yet
@@ -1309,7 +1376,7 @@ class BoxNetwork(unittest.TestCase):
             r.stop()
             service.shutdown()
             service.server_close()
-            a.save_settings(secure_remote=True)
+            a.save_settings(secure_remote=True, remote_link="relay")
             a.secure_remote, a.phone, a.resolves_to, a.SecureRemote.SERVICE, a.SecureRemote.PORT = real
             shutil.rmtree(work, ignore_errors=True)
 

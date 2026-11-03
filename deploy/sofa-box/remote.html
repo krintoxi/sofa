@@ -8,8 +8,8 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Sofa Box">
 <meta name="theme-color" content="#0D0D10">
-<link rel="apple-touch-icon" href="/icon.png">
-<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="icon.png">
+<link rel="manifest" href="manifest.json">
 <title>Sofa Box remote</title>
 <!-- The Sofa Box's phone remote: served by the box itself (port 8092) to phones on the home network.
      Swipe or tap the pad like a TV remote; type into the TV; a touchpad; the box's Wi-Fi. -->
@@ -163,7 +163,7 @@
   </section>
 </main>
 
-<div class="tip" id="tip" hidden><img src="/icon.png" alt=""><div><b>Keep the remote on your Home Screen</b><span id="tipText"></span></div><button id="tipX" aria-label="Close">✕</button></div>
+<div class="tip" id="tip" hidden><img src="icon.png" alt=""><div><b>Keep the remote on your Home Screen</b><span id="tipText"></span></div><button id="tipX" aria-label="Close">✕</button></div>
 <nav class="tabs" id="tabs" hidden>
   <button data-tab="remote" aria-current="true"><svg><use href="#remote"/></svg>Remote</button>
   <button data-tab="type"><svg><use href="#kbd"/></svg>Keyboard</button>
@@ -178,7 +178,7 @@
   const post = (path, body) => fetch(path, { method: "POST", credentials: "same-origin",
     headers: { "Content-Type": "application/json", "X-Sofa-Remote": "1" }, body: JSON.stringify(body || {}) });
   const buzz = () => { try { navigator.vibrate && navigator.vibrate(8); } catch (e) {} };
-  const key = k => { buzz(); return post("/api/key", { k }).then(r => { if (r.status === 401) showPairing(); }).catch(() => offline(true)); };
+  const key = k => { buzz(); return post("api/key", { k }).then(r => { if (r.status === 401) showPairing(); }).catch(() => offline(true)); };
   let tab = "remote", wifiSsid = null, sentTz = false, ready = false;     // a new box takes its time zone from the phone
   let onItsWifi = false, joining = null;     // this phone is on the box's own Wi-Fi; the home Wi-Fi the box is going to
 
@@ -206,7 +206,8 @@
 
   async function state() {
     try {
-      const r = await fetch("/api/state", { credentials: "same-origin", cache: "no-store" });
+      const r = await fetch("api/state", { credentials: "same-origin", cache: "no-store" });
+      if (r.status >= 500) return offline(true);         // (through the relay: the box is off, or not online)
       const s = await r.json();
       onItsWifi = !!s.hotspot;
       if (s.joining && s.joining.state === "joining") joining = s.joining.ssid;      // (the TV may have started it)
@@ -215,7 +216,7 @@
       if (!s.paired) return showPairing();
       if (!ready) { ready = true; $("pairing").hidden = true; show(s.hotspot ? "wifi" : tab); }
       $("tabs").hidden = !!s.hotspot;        // on the box's own Wi-Fi, this page is only for giving the box your Wi-Fi
-      if (!sentTz) { sentTz = true; try { post("/api/hello", { tz: Intl.DateTimeFormat().resolvedOptions().timeZone }); } catch (e) {} }
+      if (!sentTz) { sentTz = true; try { post("api/hello", { tz: Intl.DateTimeFormat().resolvedOptions().timeZone }); } catch (e) {} }
       const p = s.playing;
       $("now").classList.toggle("on", !!(p && p.title));
       if (p && p.title) $("now").innerHTML = (p.paused ? "Paused: " : "Playing: ") + "<b></b>";
@@ -225,7 +226,7 @@
 
   // pairing
   $("pairBtn").addEventListener("click", async () => {
-    const r = await post("/api/pair", { code: $("code").value.trim(), name: /iPhone/.test(navigator.userAgent) ? "iPhone" : /iPad/.test(navigator.userAgent) ? "iPad" : /Android/.test(navigator.userAgent) ? "Android phone" : "Phone" });
+    const r = await post("api/pair", { code: $("code").value.trim(), name: /iPhone/.test(navigator.userAgent) ? "iPhone" : /iPad/.test(navigator.userAgent) ? "iPad" : /Android/.test(navigator.userAgent) ? "Android phone" : "Phone" });
     if (r.ok) { $("pairMsg").textContent = ""; state(); } else $("pairMsg").textContent = (await r.json()).error || "That didn't work.";
   });
   $("code").addEventListener("input", () => { if ($("code").value.length === 4) $("pairBtn").click(); });
@@ -268,7 +269,7 @@
     if (b.dataset.tab) return show(b.dataset.tab);
     b.classList.add("hit"); setTimeout(() => b.classList.remove("hit"), 120);
     if (b.dataset.k) key(b.dataset.k);
-    else { buzz(); post("/api/volume", { by: b.dataset.vol === "mute" ? "mute" : +b.dataset.vol }); }
+    else { buzz(); post("api/volume", { by: b.dataset.vol === "mute" ? "mute" : +b.dataset.vol }); }
   });
 
   // typing: each letter goes to the box as it's typed
@@ -276,7 +277,7 @@
   typing.addEventListener("beforeinput", e => {
     if (e.inputType === "insertText" || e.inputType === "insertReplacementText" || e.inputType === "insertFromPaste") {
       const t = e.data != null ? e.data : (e.dataTransfer && e.dataTransfer.getData("text")) || "";
-      if (t) post("/api/text", { t });
+      if (t) post("api/text", { t });
     } else if (e.inputType === "deleteContentBackward") key("backspace");
     else if (e.inputType === "insertLineBreak" || e.inputType === "insertParagraph") { e.preventDefault(); key("enter"); typing.value = ""; }
   });
@@ -287,11 +288,11 @@
   function flush() {
     if (sending || (!queued.dx && !queued.dy && !queued.scroll)) return;
     sending = true; const q = queued; queued = { dx: 0, dy: 0, scroll: 0 };
-    post("/api/pointer", q).finally(() => { sending = false; flush(); });
+    post("api/pointer", q).finally(() => { sending = false; flush(); });
   }
   touch.addEventListener("touchstart", e => {
     e.preventDefault(); fingers = e.touches.length; last = { x: e.touches[0].clientX, y: e.touches[0].clientY }; downAt = Date.now(); travel = 0;
-    clearTimeout(pressTimer); pressTimer = setTimeout(() => { if (travel < 8) { buzz(); post("/api/pointer", { click: "right" }); travel = 999; } }, 600);
+    clearTimeout(pressTimer); pressTimer = setTimeout(() => { if (travel < 8) { buzz(); post("api/pointer", { click: "right" }); travel = 999; } }, 600);
   }, { passive: false });
   touch.addEventListener("touchmove", e => {
     e.preventDefault(); if (!last) return;
@@ -302,14 +303,14 @@
   }, { passive: false });
   touch.addEventListener("touchend", e => {
     clearTimeout(pressTimer);
-    if (e.touches.length === 0) { if (travel < 8 && Date.now() - downAt < 300 && fingers === 1) { buzz(); post("/api/pointer", { click: "left" }); } last = null; }
+    if (e.touches.length === 0) { if (travel < 8 && Date.now() - downAt < 300 && fingers === 1) { buzz(); post("api/pointer", { click: "left" }); } last = null; }
   });
 
   // Wi-Fi
   async function loadWifi() {
     $("nets").innerHTML = `<p style="color:var(--mist)">Looking…</p>`;
     try {
-      const r = await (await post("/api/wifi")).json();
+      const r = await (await post("api/wifi")).json();
       $("wifiLede").textContent = r.hotspot ? "Pick your home Wi-Fi for the box and type its password. Then the TV shows the code for your remote." : "Wi-Fi for the box:";
       $("nets").innerHTML = "";
       (r.networks || []).forEach(n => {
@@ -327,7 +328,7 @@
     if (!wifiSsid) return;
     $("wifiMsg").textContent = "Joining " + wifiSsid + "…";
     try {
-      const r = await (await post("/api/wifi/join", { ssid: wifiSsid, password: $("wpass").value })).json();
+      const r = await (await post("api/wifi/join", { ssid: wifiSsid, password: $("wpass").value })).json();
       if (r.ok) joining = wifiSsid;
       $("wifiMsg").textContent = r.ok ? "The box is joining " + wifiSsid + ". This phone goes back to your own Wi-Fi now: then scan the new code on the TV."
         : (r.message || "That didn't work.");
@@ -347,7 +348,7 @@
     reportArmed = false; $("reportBtn").textContent = "Something wrong? Send a report";
     m.textContent = "Putting the report together and sending it… (up to a minute)";
     try {
-      const r = await (await post("/api/report")).json();
+      const r = await (await post("api/report")).json();
       m.textContent = r.message || (r.ok ? "Report sent." : "That didn't work.");
     } catch (e) { m.textContent = "Can't reach the box."; }
   });

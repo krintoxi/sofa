@@ -40,7 +40,7 @@ apps and sites you open on it:
 | Update the box | GitHub, only when you press it | — |
 | App Store icons | each app's own site, once, the first time the store is opened | — |
 | Live TV channel lists | iptv-org | Don't open Live TV |
-| The secure (https) phone remote | the Sofa Box certificate service (boxcert.edgeventure.uk), about once a day: a random id and the box's address on your network | Settings → Remotes and Bluetooth → Switch off |
+| The secure (https) phone remote | the Sofa Box service (boxcert.edgeventure.uk): the box keeps a connection open to it, with a random id; your phone's taps and typing pass through it to the box while you use the remote (nothing is kept) | Settings → Remotes and Bluetooth → Switch off |
 
 | The weather on Home | MET Norway (api.met.no), every half hour while it's on: where the place is, to about a kilometre (the city of the box's time zone, or the town you picked) | Settings → Weather on Home → Off |
 | Finding a town for the weather | OpenStreetMap (nominatim.openstreetmap.org), only when you look one up in Settings: what you typed | — |

@@ -18,6 +18,13 @@ certificate was made. Nothing about what anyone watches.
 
 Reports: when someone presses Send a report on a box (Settings -> Help), it sends its checks and recent logs here
 (/v1/report), with no titles in them; they're kept in reports/ for us to read, the newest few hundred.
+
+The relay (Relay, /r/<box id>/): the phone remote from anywhere, with no certificate or name per box. A box keeps a
+request open here (/v1/relay/poll, signed with its secret); a phone's requests to /r/<box id>/... go down it to the
+remote on the box, and the box's answers come back (/v1/relay/answer). Nothing is kept. The remote's page comes from
+this service, not from the box, and only data, the icon and the pairing link pass through, each phone's sign-in
+kept to its box's path: a box can't put script on this address. A phone still needs the TV's code, here only the
+QR code's long one.
 """
 import base64
 import hashlib
@@ -53,6 +60,7 @@ DEFAULTS = {
     "register_per_ip_day": 10,
     "register_per_day": 500,
     "report_max": 200000,                         # a report's size (characters)
+    "relay_base": "https://boxcert.edgeventure.uk",   # where phones open a box's remote (boxes are told: it can change)
     "reports_per_day": 10,                        # from one box (or one address, for a box with no id yet)
     "reports_kept": 300,
 }
@@ -328,6 +336,7 @@ class Boxes:
 class Service:
     def __init__(self, cfg, dns, acme, now=time.time):
         self.cfg, self.dns, self.acme, self.now = cfg, dns, acme, now
+        self.relay = Relay(now)
         self.boxes = Boxes(os.path.join(DIR, "boxes.json"))
         self.made = []                                        # (when, client ip) of registrations, for the limits
         self.new_certs = []                                   # when a box's first certificate was made
@@ -398,6 +407,20 @@ class Service:
         return {"ok": True, "name": name, "cert": chain, "expires": int(expires)}
 
 
+    def relay_poll(self, data):
+        self.box(data)
+        wait = RELAY_WAIT if data.get("wait") is None else max(0.0, min(RELAY_WAIT, float(data["wait"])))
+        return {"requests": self.relay.poll(str(data["id"]), wait),
+                "base": "%s/r/%s" % (self.cfg["relay_base"].rstrip("/"), data["id"])}
+
+    def relay_answer(self, data):
+        self.box(data)
+        a = data.get("answer") or {}
+        ok = self.relay.answer(str(data["id"]), str(data.get("rid") or ""),
+                               {"status": int(a.get("status") or 502), "headers": [list(h)[:2] for h in (a.get("headers") or [])][:20],
+                                "body": str(a.get("body") or "")})
+        return {"ok": ok}
+
     def report(self, data, client):
         """A box's report (Settings -> Help -> Send a report), kept for us to read. A box with an id signs it with
         its secret; one without (at home without the secure remote, say) is counted by its address."""
@@ -422,6 +445,73 @@ class Service:
         for old in kept[:-self.cfg["reports_kept"]]:
             os.remove(os.path.join(folder, old))
         return {"ok": True, "report": code}
+
+
+RELAY_WAIT, RELAY_ANSWER, RELAY_ONLINE = 25, 20, 45   # a box's wait for phones; a phone's for the box; "online"
+
+
+class Relay:
+    """Phones' requests to a box's remote, queued for the box's open request, and its answers back to them."""
+
+    def __init__(self, now=time.time):
+        self.cond, self.now = threading.Condition(), now
+        self.queues, self.seen, self.answers, self.owner = {}, {}, {}, {}
+
+    def online(self, box_id):
+        return self.now() - self.seen.get(box_id, 0) < RELAY_ONLINE
+
+    def poll(self, box_id, wait=RELAY_WAIT):
+        """The box asking for what phones want of it: at once if something's waiting, else within `wait` seconds."""
+        end = time.time() + wait
+        with self.cond:
+            self.seen[box_id] = self.now()
+            while not self.queues.get(box_id) and time.time() < end:
+                self.cond.wait(max(0.0, end - time.time()))
+            q = self.queues.get(box_id, [])
+            out, self.queues[box_id] = q[:16], q[16:]
+            self.seen[box_id] = self.now()
+            return out
+
+    def ask(self, box_id, request, wait=RELAY_ANSWER):
+        """A phone's request: the box's answer, or None if it's not online, or "late" if it didn't answer in time."""
+        if not self.online(box_id):
+            return None
+        rid = secrets.token_hex(8)
+        with self.cond:
+            q = self.queues.setdefault(box_id, [])
+            if len(q) >= 64:
+                raise Limit("The box is busy. Try again in a moment.")
+            q.append(dict(request, rid=rid))
+            self.answers[rid], self.owner[rid] = None, box_id
+            self.cond.notify_all()
+            end = time.time() + wait
+            while self.answers.get(rid) is None and time.time() < end:
+                self.cond.wait(max(0.0, end - time.time()))
+            answer = self.answers.pop(rid, None)
+            self.owner.pop(rid, None)
+            if answer is None:
+                self.queues[box_id] = [r for r in self.queues.get(box_id, []) if r["rid"] != rid]
+            return answer or "late"
+
+    def answer(self, box_id, rid, answer):
+        with self.cond:
+            if self.owner.get(rid) != box_id or rid not in self.answers:
+                return False                               # not its own, or the phone stopped waiting
+            self.answers[rid] = answer
+            self.cond.notify_all()
+            return True
+
+
+def remote_page():
+    """The phone remote's page, served by this service itself (next to it once installed; in the repo, the box's)."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    for p in (os.path.join(here, "remote.html"), os.path.join(here, "..", "sofa-box", "remote.html")):
+        try:
+            with open(p, "rb") as f:
+                return f.read()
+        except OSError:
+            continue
+    return b"<!doctype html><title>Sofa Box</title><p>The remote isn't installed here."
 
 
 class Refused(Exception):
@@ -454,13 +544,83 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
+        if self.path.startswith("/r/"):
+            return self.phone()
         if self.path == "/v1/health":
             return self.reply(200, {"ok": True, "base": self.service.cfg["base"]})
         self.reply(404, {"error": "Not here."})
 
-    def do_POST(self):
+    # -- the relay: a phone's side
+    PHONE_PATHS = re.compile(r"^/(api/[a-z/]{1,40}|r/[0-9a-f]{24}|icon\.png|icon-512\.png|manifest\.json)$")
+    PAGE_CSP = ("default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
+                "connect-src 'self'; frame-ancestors 'none'; base-uri 'none'")
+
+    def raw(self, status, body, ctype, headers=()):
+        self.send_response(status)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "no-referrer")
+        for k, v in headers:
+            self.send_header(k, v)
+        self.end_headers()
+        if self.command != "HEAD":
+            self.wfile.write(body)
+
+    def phone(self):
+        parts = urllib.parse.urlsplit(self.path)
+        m = re.match(r"^/r/([a-z2-9]{10})(/.*)?$", parts.path)
+        if not m or m.group(1) not in self.service.boxes.data:
+            return self.raw(404, b"Not here.", "text/plain; charset=utf-8")
+        box_id, rest, base = m.group(1), m.group(2), "/r/%s/" % m.group(1)
+        if rest is None:                                  # (relative links in the page need the slash)
+            return self.raw(301, b"", "text/plain", [("Location", base + ("?" + parts.query if parts.query else ""))])
+        if rest == "/" and self.command == "GET":         # the page: this service's own copy, never the box's
+            return self.raw(200, remote_page(), "text/html; charset=utf-8", [("Content-Security-Policy", self.PAGE_CSP)])
+        if not self.PHONE_PATHS.match(rest):
+            return self.raw(404, b"Not here.", "text/plain; charset=utf-8")
+        if rest == "/api/pair":                           # the TV's four digits: at home only (too few to be guessed at)
+            return self.raw(403, json.dumps({"error": "Away from home, scan the code on the TV: typing it works at home only."}).encode(),
+                            "application/json")
         size = int(self.headers.get("Content-Length") or 0)
-        if size > (3 * self.service.cfg["report_max"] if self.path == "/v1/report" else 16384):
+        if size > 65536:
+            return self.raw(413, b'{"error":"Too big."}', "application/json")
+        body = self.rfile.read(size) if size else b""
+        cookie = "; ".join(c.strip() for c in (self.headers.get("Cookie") or "").split(";") if c.strip().startswith("sofa_remote="))
+        headers = {k: v for k, v in (("Cookie", cookie), ("Content-Type", self.headers.get("Content-Type")),
+                                     ("X-Sofa-Remote", self.headers.get("X-Sofa-Remote")),
+                                     ("User-Agent", (self.headers.get("User-Agent") or "")[:200])) if v}
+        try:
+            answer = self.service.relay.ask(box_id, {"method": self.command, "path": rest + ("?" + parts.query if parts.query else ""),
+                                                      "headers": headers, "body": base64.b64encode(body).decode()})
+        except Limit as exc:
+            return self.raw(429, json.dumps({"error": str(exc)}).encode(), "application/json")
+        if answer is None or answer == "late":
+            msg = "The Sofa Box isn't online right now." if answer is None else "The Sofa Box didn't answer in time."
+            return self.raw(503 if answer is None else 504, json.dumps({"error": msg, "offline": answer is None}).encode(), "application/json")
+        try:
+            data = base64.b64decode(answer.get("body") or "")
+        except ValueError:
+            data = b""
+        out = []
+        for k, v in answer.get("headers") or []:
+            k, v = str(k), str(v)
+            if k.lower() == "set-cookie" and v.startswith("sofa_remote="):   # the phone's sign-in: for this box's path only
+                out.append(("Set-Cookie", re.sub(r"(?i);\s*Path=[^;]*", "", v) + "; Path=%s; Secure" % base))
+            elif k.lower() == "location" and v.startswith("/") and not v.startswith("//"):
+                out.append(("Location", base + v.lstrip("/")))
+        ctype = ("image/png" if rest.endswith(".png") else "application/manifest+json" if rest.endswith(".json")
+                 else "text/plain; charset=utf-8" if rest.startswith("/r/") else "application/json")
+        out.append(("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'"))
+        return self.raw(answer.get("status") or 502, data, ctype, out)
+
+    def do_POST(self):
+        if self.path.startswith("/r/"):
+            return self.phone()
+        size = int(self.headers.get("Content-Length") or 0)
+        limit = 3 * self.service.cfg["report_max"] if self.path == "/v1/report" else 4 * 1024 * 1024 if self.path == "/v1/relay/answer" else 16384
+        if size > limit:
             return self.reply(413, {"error": "Too big."})
         try:
             data = json.loads(self.rfile.read(size) or b"{}")
@@ -469,7 +629,9 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError:
             return self.reply(400, {"error": "Not JSON."})
         route = {"/v1/register": lambda: self.service.register(self.client()), "/v1/address": lambda: self.service.address(data),
-                 "/v1/cert": lambda: self.service.cert(data), "/v1/report": lambda: self.service.report(data, self.client())}.get(self.path)
+                 "/v1/cert": lambda: self.service.cert(data), "/v1/report": lambda: self.service.report(data, self.client()),
+                 "/v1/relay/poll": lambda: self.service.relay_poll(data),
+                 "/v1/relay/answer": lambda: self.service.relay_answer(data)}.get(self.path)
         if not route:
             return self.reply(404, {"error": "Not here."})
         try:
