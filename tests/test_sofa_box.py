@@ -680,19 +680,20 @@ class BoxBrowser(unittest.TestCase):
             ws.close()
 
     def test_pages_fill_the_tv(self):
-        """The window has the whole screen; Sofa and the apps are drawn twice as big for the sofa (the agent sizes
-        them: Chromium's own scale factor shrank the window to a quarter of the TV under Wayland); Home sizes itself."""
+        """The window has the whole screen, and so does every page, at the TV's own size. (Drawing apps at half size
+        with doubled pixels, SOFA_BOX_PAGE_SCALE=1, left YouTube in the top-left quarter of the TV on a real Pi:
+        the doubling didn't take under cage. Chromium's own scale factor shrank the whole window there.)"""
         self.post("/box/api/open", {"url": self.base + "/box/games/neon-dodge/"})
-        end = time.time() + 15
+        end, size = time.time() + 15, None
         while time.time() < end:
             try:
                 size = self.page_value("/box/games/neon-dodge", "[innerWidth, devicePixelRatio]")
-                if size == [960, 2]:
+                if size == [1920, 1]:
                     break
             except (StopIteration, OSError):
                 pass
             time.sleep(0.3)
-        self.assertEqual(size, [960, 2])
+        self.assertEqual(size, [1920, 1])
         self.assertEqual(self.page_value("/box/home", "[innerWidth, devicePixelRatio]"), [1920, 1])
 
     def bar_says(self, url_part, message):

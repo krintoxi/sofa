@@ -7,6 +7,16 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.4
+
+- **Apps fill the TV.** YouTube and other apps opened as a small square in the top-left corner of the TV. The
+  box drew them at half size with doubled pixels, to look bigger from the sofa; on the Pi the doubling didn't
+  take, which left a quarter of the screen. Apps now get the whole TV at its own resolution, like on any
+  computer (ordinary websites look a little smaller; apps made for TVs are made for exactly that).
+
+Still being looked into on a real box: the iPhone's sign-in sheet not opening by itself, and Bluetooth remotes
+and controllers not showing up.
+
 ## 1.1.3
 
 - **The phone's Remote tab works.** Taps and swipes on its round pad went nowhere: the pad shared its name in
