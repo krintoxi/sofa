@@ -2397,7 +2397,11 @@ class Handler(BaseHTTPRequestHandler):
                     e["installed"] = e["id"] in installed
                     icon = boxos.store_icons.file(e["id"])
                     if icon:
-                        e["icon_url"] = "/box/store-icons/" + icon
+                        try:
+                            v = int(os.path.getmtime(os.path.join(boxos.store_icons.folder, icon)))
+                        except OSError:
+                            v = 0
+                        e["icon_url"] = "/box/store-icons/%s?v=%d" % (icon, v)
             boxos.store_icons.want([e for sec in st["sections"] for e in sec["apps"]])
             return self.send(json.dumps(st))
         if path == "/box/api/open":
@@ -2664,6 +2668,8 @@ def main():
         print("Moving the old Sofa setting: %s" % exc, file=sys.stderr)
     threading.Thread(target=look, daemon=True).start()
     threading.Thread(target=watch_devices, daemon=True, name="devices").start()
+    if os.environ.get("SOFA_BOX_ICONS") != "0":
+        apps.refresh_icons()                               # sharper app icons, once (boxos.ICONS_VERSION)
     phone = PhoneRemote()
     try:
         remote = Server(("0.0.0.0", PhoneRemote.PORT), RemoteHandler)

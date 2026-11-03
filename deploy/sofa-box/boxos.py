@@ -7,6 +7,7 @@ The plan and the reasons are in docs/sofa-box-os.md.
 import base64
 import collections
 import html
+import http.client
 import json
 import os
 import re
@@ -117,7 +118,11 @@ class Apps:
         for a in apps:
             a["hidden"] = a["id"] in (data.get("hidden") or [])
             if a.get("icon_file"):
-                a["icon_url"] = "/box/icons/" + a["icon_file"]
+                try:                                        # (versioned: a newer picture isn't the browser's old one)
+                    v = int(os.path.getmtime(os.path.join(self.icons, a["icon_file"])))
+                except OSError:
+                    v = 0
+                a["icon_url"] = "/box/icons/%s?v=%d" % (a["icon_file"], v)
         return apps
 
     def get(self, app_id):
@@ -147,6 +152,29 @@ class Apps:
                     if a["id"] == app_id:
                         a["icon_file"] = name
                 self._save(data)
+
+    def refresh_icons(self):
+        """Once, when the box gets better at finding icons (ICONS_VERSION): every app's picture again, the store's
+        current one first, one at a time in the background."""
+        mark = os.path.join(self.icons, ".version")
+        try:
+            with open(mark) as f:
+                if f.read().strip() == ICONS_VERSION:
+                    return
+        except OSError:
+            pass
+
+        def work():
+            for a in [a for a in self.listing() if a.get("kind") == "web"]:
+                entry = store_entry(a["id"]) or {}
+                try:
+                    self._fetch_icon(a["id"], entry.get("icon") or a.get("icon_src") or a["url"])
+                except Exception:
+                    pass
+            os.makedirs(self.icons, exist_ok=True)
+            with open(mark, "w") as f:
+                f.write(ICONS_VERSION)
+        threading.Thread(target=work, daemon=True, name="icons-again").start()
 
     def remove(self, app_id):
         with self.lock:
@@ -208,7 +236,14 @@ class StoreIcons:
     def file(self, sid):
         if not self.folder or not os.path.isdir(self.folder):
             return None
-        return next((f for f in os.listdir(self.folder) if f.rsplit(".", 1)[0] == sid), None)
+        mark = os.path.join(self.folder, ".version")
+        if not os.path.exists(mark):                        # icons from before ICONS_VERSION: fetched again
+            for old in os.listdir(self.folder):
+                if not old.startswith("."):
+                    os.remove(os.path.join(self.folder, old))
+            with open(mark, "w") as f:
+                f.write(ICONS_VERSION)
+        return next((f for f in os.listdir(self.folder) if f.rsplit(".", 1)[0] == sid and not f.startswith(".")), None)
 
     def want(self, entries):
         with self.lock:
@@ -227,7 +262,10 @@ class StoreIcons:
                     return
                 e = self.queue.pop(0)
                 self.tried[e["id"]] = time.time()
-            fetch_icon(e.get("icon") or e["url"], self.folder, e["id"])
+            try:
+                fetch_icon(e.get("icon") or e["url"], self.folder, e["id"])
+            except Exception:                              # one site's trouble mustn't stop the rest
+                pass
 
     def copy_to(self, sid, folder):
         name = self.file(sid)
@@ -254,15 +292,51 @@ def site_entry(url, name=None):
 
 
 ICON_LINK = re.compile(r"<link\b[^>]*>", re.I)
+ICON_PATHS = (("/android-chrome-512x512.png", 512), ("/apple-touch-icon.png", 180), ("/apple-touch-icon-precomposed.png", 180),
+              ("/android-chrome-192x192.png", 192))      # where sites keep their home screen icons, linked or not
+ICONS_VERSION = "2"
+
+
+def image_width(data):
+    """How wide a picture is, from its first bytes (PNG, JPEG, ICO's biggest, WebP; an SVG counts as large)."""
+    try:
+        if data[:8] == b"\x89PNG\r\n\x1a\n":
+            return struct.unpack(">I", data[16:20])[0]
+        if data[:4] == b"\x00\x00\x01\x00":                          # ICO: a directory of sizes (0 means 256)
+            return max((data[6 + 16 * i] or 256) for i in range(min(struct.unpack("<H", data[4:6])[0], 32)))
+        if data[:3] == b"\xff\xd8\xff":                                # JPEG: the frame header's width
+            i = 2
+            while i < len(data) - 9:
+                if data[i] != 0xFF:
+                    i += 1
+                    continue
+                marker, size = data[i + 1], struct.unpack(">H", data[i + 2:i + 4])[0]
+                if marker in (0xC0, 0xC1, 0xC2):
+                    return struct.unpack(">H", data[i + 7:i + 9])[0]
+                i += 2 + size
+        if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+            return (struct.unpack("<I", data[24:27] + b"\0")[0] & 0xFFFFFF) + 1 if data[12:16] == b"VP8X" else 0
+        if b"<svg" in data[:1000].lower():
+            return 1024
+    except (IndexError, struct.error, ValueError):
+        pass
+    return 0
 
 
 def fetch_icon(url, folder, app_id, timeout=10):
-    """The site's best picture for a home screen tile: its manifest's biggest icon, its
-    apple-touch-icon, or its favicon. Saved as <app id>.<ext>; returns the file name, or None."""
+    """The site's best picture for a home screen tile: its manifest's biggest icon, its apple-touch-icon, the places
+    sites keep those without linking them, or its favicon. The few likeliest are fetched and the sharpest kept (a
+    "180" can be 57 pixels). Saved as <app id>.<ext>; returns the file name, or None."""
     def get(u, limit=2_000_000):
         req = urllib.request.Request(u, headers={"User-Agent": UA})
         with _web.open(req, timeout=timeout) as r:
-            return r.read(limit), r.headers.get("Content-Type", ""), r.geturl()
+            try:
+                body = r.read(limit)
+            except http.client.IncompleteRead as exc:      # a site that hangs up part way: what came is enough for a page
+                if "html" not in r.headers.get("Content-Type", ""):
+                    raise OSError("cut off") from exc
+                body = exc.partial
+            return body, r.headers.get("Content-Type", ""), r.geturl()
     try:
         candidates = []
         if re.search(r"\.(png|jpe?g|svg|webp|ico)(\?|$)", url, re.I):
@@ -289,23 +363,39 @@ def fetch_icon(url, folder, app_id, timeout=10):
                     candidates.append((max(size, 180), href))
                 elif "icon" in rel:
                     candidates.append((size or 32, href))
+            origin = "{0.scheme}://{0.netloc}".format(urllib.parse.urlsplit(final))
+            candidates += [(size, origin + path) for path, size in ICON_PATHS]
             candidates.append((16, urllib.parse.urljoin(final, "/favicon.ico")))
-        for _, src in sorted(candidates, reverse=True):
+        best, seen = None, set()
+        for _, src in sorted(candidates, reverse=True)[:8]:
+            if src in seen:
+                continue
+            seen.add(src)
             try:
                 data, ctype, _ = get(src)
-            except OSError:
+            except (OSError, http.client.HTTPException):
+                continue
+            if len(data) < 100 or b"<html" in data[:200].lower():
                 continue
             ext = ("svg" if "svg" in ctype or src.lower().split("?")[0].endswith(".svg") else
                    "ico" if "icon" in ctype or src.lower().split("?")[0].endswith(".ico") else
                    "jpg" if "jpeg" in ctype else "webp" if "webp" in ctype else "png")
-            if len(data) < 100 or b"<html" in data[:200].lower():
-                continue
-            os.makedirs(folder, exist_ok=True)
-            name = "%s.%s" % (app_id, ext)
-            with open(os.path.join(folder, name), "wb") as f:
-                f.write(data)
-            return name
-    except (OSError, ValueError):
+            width = image_width(data)
+            if not best or width > best[0]:
+                best = (width, data, ext)
+            if width >= 180:                                # sharp enough on a TV tile: no need to look further
+                break
+        if not best:
+            return None
+        os.makedirs(folder, exist_ok=True)
+        for old in os.listdir(folder):                      # one picture per app (it may have changed kind)
+            if old.rsplit(".", 1)[0] == app_id:
+                os.remove(os.path.join(folder, old))
+        name = "%s.%s" % (app_id, best[2])
+        with open(os.path.join(folder, name), "wb") as f:
+            f.write(best[1])
+        return name
+    except (OSError, ValueError, http.client.HTTPException):
         return None
     return None
 

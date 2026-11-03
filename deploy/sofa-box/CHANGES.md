@@ -7,6 +7,23 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.13
+
+- **The setup's apps step is short.** Eight apps most people use (Netflix, YouTube, Prime Video, Disney+, Max,
+  Hulu, Apple TV+, Spotify), all on one screen, no scrolling; the App Store has the rest. "Add N and finish"
+  counts only the ones that aren't on Home yet.
+- **Home scrolls like a TV's home screen.** Down brings the next row up under the top bar, title and all, the
+  same place every time (it used to stop wherever the tile just fitted, often under the hints at the bottom);
+  along a row, the next tile peeks in; Up goes back row by row (it used to jump to the top bar), and the top
+  bar only from the first row. Smooth on every board, a Pi 3 too: the scrolling is the graphics chip's work.
+- **Apps are easier with a remote.** On sites made for a mouse, the arrows move between links and buttons (the
+  browser's spatial navigation), with a ring showing where you are, even on sites that hide it. Pages that
+  scroll do so smoothly. Sofa's pages on the box scroll smoothly too.
+- **Sharper app icons.** The box looks harder for each app's own icon (where sites keep one without saying),
+  measures what it finds and keeps the sharpest; YouTube, Netflix, Spotify and Prime Video get their official
+  ones. Icons have a soft shine and edge, and the one in focus lifts. Boxes fetch their apps' icons again once.
+  (Fetching icons also no longer stops for good at the first site that hangs up part way.)
+
 ## 1.1.12
 
 From setting up 1.1.11:

@@ -3203,7 +3203,8 @@ function spatialMove(dir, scope, first) {
     if (score < bestScore) { bestScore = score; best = el; }
   });
   if (!best) return false;
-  best.focus({ preventScroll: true }); best.scrollIntoView({ block: "nearest", inline: "nearest", behavior: TV ? "auto" : "smooth" });
+  // smooth, but on TV sticks (slow to scroll); a Sofa Box scrolls smoothly (html.box)
+  best.focus({ preventScroll: true }); best.scrollIntoView({ block: "nearest", inline: "nearest", behavior: TV && !document.documentElement.classList.contains("box") ? "auto" : "smooth" });
   return true;
 }
 document.addEventListener("keydown", e => {
