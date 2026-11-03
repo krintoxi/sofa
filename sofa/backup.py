@@ -17,7 +17,7 @@ import tempfile
 import threading
 import time
 
-from . import __version__, config, store
+from . import __version__, config, fileops, store
 
 FILES = ("config.json", "live.key")          # small files copied as they are
 
@@ -160,7 +160,7 @@ def restore(path):
         for name in ("sofa.db", "sofa.db-wal", "sofa.db-shm") + FILES:
             p = os.path.join(config.DATA_DIR, name)
             if os.path.exists(p):
-                shutil.move(p, os.path.join(aside, name))
+                fileops.move(p, os.path.join(aside, name))
         for name, digest in manifest["files"].items():
             data = tar.extractfile(name).read()
             if hashlib.sha256(data).hexdigest() != digest:

@@ -4,7 +4,7 @@ import os
 import threading
 import time
 
-from . import artwork, backup, fetch, intros, live, machine, media, optimize, organizer, places, previews, store, travel, trickplay, updater
+from . import artwork, backup, fetch, fileops, intros, live, machine, media, optimize, organizer, places, previews, store, travel, trickplay, updater
 from .library import LIBRARY
 
 INTERVAL = 20
@@ -33,6 +33,8 @@ def _watch():
             if time.time() - tidied_at > 600:     # tidy folders now and then, not every 20 seconds
                 tidied_at = time.time()
                 organizer.tidy_library()
+                for _key, root in places.roots("shows") + places.roots("movies") + places.roots("adult"):
+                    fileops.leftovers(root)       # half copies a crash left (fileops.py)
             filed = organizer.process_inbox()
             if places.auto_drives():              # a drive was just plugged in: in the library straight away
                 LIBRARY.scan("a drive was plugged in")

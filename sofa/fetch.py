@@ -23,7 +23,7 @@ import threading
 import time
 import urllib.request
 
-from . import config, media, naming, net, store
+from . import config, fileops, media, naming, net, store
 
 STAGING = os.path.join(config.DATA_DIR, "cache", "downloads")
 OWN_BIN = os.path.join(config.DATA_DIR, "bin")
@@ -443,7 +443,7 @@ def _run_one(job):
         while os.path.exists(dest):
             dest = "%s (%d)" % (os.path.join(inbox, naming.safe_filename(title)[:100]), n)
             n += 1
-        shutil.move(folder, dest)
+        fileops.move(folder, dest)
         if store.no_logs():                   # no history of what was saved, nor from where
             store.ex("DELETE FROM downloads WHERE id = ?", job["id"])
         else:

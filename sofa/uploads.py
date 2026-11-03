@@ -10,7 +10,7 @@ import shutil
 import threading
 import uuid
 
-from . import config, naming, store
+from . import config, fileops, naming, store
 
 STAGING = os.path.join(config.DATA_DIR, "cache", "uploads")
 CHUNK = 1024 * 1024
@@ -28,27 +28,35 @@ def safe_name(name):
 
 
 def check(name, size, adult):
-    """A reason this upload can't be taken, or None."""
+    """A reason this upload can't be taken, or None. (Called with _lock held: the room the uploads already coming in
+    still need is counted, so several at once can't promise the same free space twice.)"""
     if os.path.splitext(name)[1].lower() not in ALLOWED:
         return "Sofa takes videos, music, subtitles and pictures. %s isn't one of those." % name
+    most = float(config.get("upload_max_gb") or 0)
+    if most and size > most * 1024 ** 3:
+        return "That's bigger than this Sofa takes from the app (%g GB). Copy it to the Inbox folder instead." % most
+    if len(_active) >= int(config.get("uploads_at_once") or 3):
+        return "%d files are being sent already. Send this one when they're done." % len(_active)
     inbox = config.path("inbox")
     os.makedirs(inbox, exist_ok=True)
     os.makedirs(STAGING, exist_ok=True)
     free = min(shutil.disk_usage(inbox).free, shutil.disk_usage(STAGING).free)
-    if size + SPARE > free:
-        return "There isn't room on the Sofa computer for that (%d GB free)." % (free // 1024 ** 3)
+    coming = sum(a["size"] - a["got"] for a in _active.values())
+    if size + coming + SPARE > free:
+        return "There isn't room on the Sofa computer for that (%d GB free%s)." % (
+            free // 1024 ** 3, ", with what's being sent now" if coming else "")
     return None
 
 
 def receive(stream, name, size, adult, who):
     """Read `size` bytes from `stream` into the Inbox as `name`. Returns where it went (raises on failure)."""
     name = safe_name(name)
-    problem = check(name, size, adult)
-    if problem:
-        raise ValueError(problem)
     uid = uuid.uuid4().hex[:12]
     part = os.path.join(STAGING, uid + ".part")
-    with _lock:
+    with _lock:                                     # checked and counted in one step
+        problem = check(name, size, adult)
+        if problem:
+            raise ValueError(problem)
         _active[uid] = {"name": "Private file" if adult else name, "size": size, "got": 0}
     try:
         with open(part, "wb") as f:
@@ -69,7 +77,7 @@ def receive(stream, name, size, adult, who):
         while os.path.exists(dest):
             dest = os.path.join(folder, "%s (%d)%s" % (stem, n, ext))
             n += 1
-        shutil.move(part, dest)
+        fileops.move(part, dest)
     except BaseException:
         if os.path.exists(part):
             os.remove(part)

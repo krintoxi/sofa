@@ -81,6 +81,10 @@ DEFAULTS = {
     # Daily backup of accounts, watch history and settings (not the media) into data/backups.
     "backup_time": "01:30",
     "backup_keep": 3,
+    # Sending files to the Inbox from the app (admins only): the biggest one taken, in GB (0: as big as the disk
+    # allows), and how many at once.
+    "upload_max_gb": 0,
+    "uploads_at_once": 3,
     # How many live conversions may run at once (each one uses a CPU core or the video encoder).
     "max_transcodes": 2,
     # Convert MKV, AVI and other files that need live conversion into MP4, once, in the background.

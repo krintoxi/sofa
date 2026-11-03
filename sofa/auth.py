@@ -86,6 +86,7 @@ def create_user(name, password, admin=False):
 SIGNUPS_PER_HOUR = 3          # from one address
 MAX_WAITING = 25              # waiting for an admin at once: no more than this, so nobody can fill the list
 _asked = {}
+_ask_lock = threading.Lock()
 
 
 def request_account(name, password, note, ip):
@@ -95,7 +96,7 @@ def request_account(name, password, note, ip):
     if problem:
         raise ValueError(problem)
     now = time.time()
-    with _fail_lock:
+    with _ask_lock:
         recent = [t for t in _asked.get(ip, []) if t > now - 3600]
         if len(recent) >= SIGNUPS_PER_HOUR:
             raise ValueError("Several accounts were asked for from here already. Try again in an hour.")
@@ -312,22 +313,32 @@ def end_session(token):
 
 
 # ---------------------------------------------------------------- login throttling
+# Wrong passwords and PINs are counted in the database (a restart doesn't forget them), by where they come from and
+# by the account or profile tried: 8 from one address in 15 minutes, and 20 at one account from anywhere (a 4-digit
+# PIN can't be worked through from many addresses at once).
 
-_failures = {}
-_fail_lock = threading.Lock()
-MAX_FAILURES, WINDOW = 8, 15 * 60
-
-
-def throttled(ip):
-    with _fail_lock:
-        recent = [t for t in _failures.get(ip, []) if t > time.time() - WINDOW]
-        _failures[ip] = recent
-        return len(recent) >= MAX_FAILURES
+MAX_FAILURES, MAX_ACCOUNT_FAILURES, WINDOW = 8, 20, 15 * 60
 
 
-def record_failure(ip):
-    with _fail_lock:
-        _failures.setdefault(ip, []).append(time.time())
+def throttled(ip, account=None):
+    since = int(time.time()) - WINDOW
+    n = store.q1("SELECT COUNT(*) AS n FROM failures WHERE who = ? AND at > ?", "ip:%s" % ip, since)["n"]
+    if n >= MAX_FAILURES:
+        return True
+    return bool(account) and store.q1("SELECT COUNT(*) AS n FROM failures WHERE who = ? AND at > ?",
+                                      "account:%s" % account, since)["n"] >= MAX_ACCOUNT_FAILURES
+
+
+def record_failure(ip, account=None):
+    now = int(time.time())
+    store.ex("INSERT INTO failures (who, at) VALUES (?, ?)", "ip:%s" % ip, now)
+    if account:
+        store.ex("INSERT INTO failures (who, at) VALUES (?, ?)", "account:%s" % account, now)
+    store.ex("DELETE FROM failures WHERE at < ?", now - WINDOW)
+
+
+def account_key(name):
+    return (name or "").strip().lower()[:80]
 
 
 def login(name, password, ip):
@@ -336,7 +347,7 @@ def login(name, password, ip):
     row = store.q1("SELECT id, name, admin, pw, pending FROM users WHERE name = ? AND guest = 0", (name or "").strip())
     ok = check_password(password or "", row["pw"] if row else hash_password("x"))
     if not row or not ok:
-        record_failure(ip)
+        record_failure(ip, account_key(name))
         store.log("login", "Failed sign-in for \"%s\"" % (name or "")[:40], {"ip": ip})
         return None
     return row
