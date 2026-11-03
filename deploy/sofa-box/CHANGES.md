@@ -7,6 +7,24 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.6
+
+From setting up 1.1.5 on a Pi 3:
+
+- **The phone remote's volume buttons work.** They used a tool the box doesn't have (`pactl`); they use
+  PipeWire's own (`wpctl`) now.
+- **YouTube plays more smoothly on a Pi 3.** Its video chip plays H.264 only; YouTube sent VP9 or AV1, which its
+  processor had to decode. On a Pi 3 (or older), pages are told those two can't play, so sites send H.264. A
+  Pi 4 or 5 is left to choose.
+- **The setup doesn't show the Wi-Fi step once the box is online** (your phone gave it your Wi-Fi, or a cable):
+  Start goes on to Bluetooth.
+- **On the box's own Wi-Fi, the phone page only sets up the Wi-Fi:** no remote tabs, and no "Add to Home
+  Screen" (that page stops working once the box joins yours). The full remote, and the tip, come with the
+  last code.
+- **After joining your Wi-Fi, the TV waits for the box's secure address** (up to three minutes) instead of
+  showing the plain one first. If getting it fails just after joining, the box tries again in 30 seconds, not
+  an hour later. Where only the plain address works, the TV says how to let an iPhone open it.
+
 ## 1.1.5
 
 - **Joining your Wi-Fi at the setup no longer loops back to "connecting".** To join your Wi-Fi, the box

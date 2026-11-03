@@ -209,7 +209,8 @@
       offline(false);
       $("name").textContent = s.name || "Sofa Box";
       if (!s.paired) return showPairing();
-      if (!ready) { ready = true; $("pairing").hidden = true; $("tabs").hidden = false; show(s.hotspot ? "wifi" : tab); }
+      if (!ready) { ready = true; $("pairing").hidden = true; show(s.hotspot ? "wifi" : tab); }
+      $("tabs").hidden = !!s.hotspot;        // on the box's own Wi-Fi, this page is only for giving the box your Wi-Fi
       if (!sentTz) { sentTz = true; try { post("/api/hello", { tz: Intl.DateTimeFormat().resolvedOptions().timeZone }); } catch (e) {} }
       const p = s.playing;
       $("now").classList.toggle("on", !!(p && p.title));
@@ -305,7 +306,7 @@
     $("nets").innerHTML = `<p style="color:var(--mist)">Looking…</p>`;
     try {
       const r = await (await post("/api/wifi")).json();
-      $("wifiLede").textContent = r.hotspot ? "You're on the box's own Wi-Fi. Pick your home Wi-Fi for it:" : "Wi-Fi for the box:";
+      $("wifiLede").textContent = r.hotspot ? "Pick your home Wi-Fi for the box and type its password. Then the TV shows the code for your remote." : "Wi-Fi for the box:";
       $("nets").innerHTML = "";
       (r.networks || []).forEach(n => {
         const b = document.createElement("button"); b.className = "net";
@@ -340,7 +341,8 @@
   }
   $("tipX").addEventListener("click", () => { $("tip").hidden = true; try { localStorage.setItem("sofaRemoteTip", "1"); } catch (e) {} });
 
-  state().then(() => { if (ready) setTimeout(tip, 1500); }); setInterval(state, 4000);
+  // (not on the box's own Wi-Fi: this page stops working once the box joins yours, so it's no app to keep)
+  state().then(() => { if (ready && !onItsWifi) setTimeout(tip, 1500); }); setInterval(state, 4000);
 })();
 </script>
 </body>

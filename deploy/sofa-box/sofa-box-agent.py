@@ -571,6 +571,24 @@ def display_env_raw():
 
 
 browser = boxos.Browser(on_message=page_message, scale=screen_scale) if os.environ.get("SOFA_BOX_DEVTOOLS", "9222") != "0" else None
+# A Pi 3's video chip decodes H.264 only; VP9 and AV1 (what YouTube and others send by default) its processor has to
+# decode, and videos stutter. Its pages are told those two can't play, so the sites send H.264. (A Pi 5 has no H.264
+# decoder at all, so it's left to choose.)
+H264_ONLY = r"""(() => {
+  const no = /\b(vp0?9|av01|av1)\b/i, nope = { supported: false, smooth: false, powerEfficient: false };
+  for (const MS of [window.MediaSource, window.ManagedMediaSource, window.WebKitMediaSource]) {
+    if (MS && MS.isTypeSupported) { const was = MS.isTypeSupported.bind(MS); MS.isTypeSupported = t => !no.test(t) && was(t); }
+  }
+  const play = HTMLMediaElement.prototype.canPlayType;
+  HTMLMediaElement.prototype.canPlayType = function (t) { return no.test(t) ? "" : play.call(this, t); };
+  const mc = navigator.mediaCapabilities;
+  if (mc && mc.decodingInfo) {
+    const was = mc.decodingInfo.bind(mc);
+    mc.decodingInfo = c => no.test(((c && c.video) || {}).contentType || "") ? Promise.resolve(nope) : was(c);
+  }
+})();"""
+if browser and slow_board():
+    browser.page_script = H264_ONLY
 
 
 def go_home():
@@ -1373,17 +1391,19 @@ class SecureRemote:
         self.event.set()
 
     def watch(self):
-        """A look 20 seconds after starting, then every 10 minutes (an hour after a failure, unless woken). Not on a home
-        network yet, every 30 seconds: at the setup, the phone needs the https remote soon after the box joins one."""
-        wait = 20
+        """A look 20 seconds after starting, then every 10 minutes. Not on a home network yet, every 30 seconds: at the
+        setup, the phone needs the https remote soon after the box joins one. After a failure, again in 30 seconds a
+        few times (just after joining a Wi-Fi, its DNS may not be ready yet), then hourly, unless woken."""
+        wait, fails = 20, 0
         while True:
             self.event.wait(wait)
             self.event.clear()
             try:
                 offline = self.step()
-                self.error, wait = None, 30 if offline else 600
+                self.error, wait, fails = None, 30 if offline else 600, 0
             except Exception as exc:
-                self.error, wait = str(exc)[:200] or exc.__class__.__name__, 3600
+                fails += 1
+                self.error, wait = str(exc)[:200] or exc.__class__.__name__, 30 if fails <= 5 else 3600
                 print("Secure phone remote: %s" % self.error, file=sys.stderr, flush=True)
                 try:
                     self.serve()                                # what it has still works
@@ -1544,8 +1564,13 @@ class PhoneRemote:
     @staticmethod
     def volume(by):
         env = dict(os.environ, XDG_RUNTIME_DIR=os.environ.get("XDG_RUNTIME_DIR") or "/run/user/%d" % os.getuid())
-        args = ["pactl", "set-sink-mute", "@DEFAULT_SINK@", "toggle"] if by == "mute" else \
-            ["pactl", "set-sink-volume", "@DEFAULT_SINK@", "%+d%%" % max(-20, min(20, int(by or 0)))]
+        step = max(-20, min(20, int(by or 0))) if by != "mute" else 0
+        if shutil_which("wpctl"):                          # PipeWire's own (the card has no pactl)
+            args = ["wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "toggle"] if by == "mute" else \
+                ["wpctl", "set-volume", "-l", "1.0", "@DEFAULT_AUDIO_SINK@", "%d%%%s" % (abs(step), "+" if step >= 0 else "-")]
+        else:
+            args = ["pactl", "set-sink-mute", "@DEFAULT_SINK@", "toggle"] if by == "mute" else \
+                ["pactl", "set-sink-volume", "@DEFAULT_SINK@", "%+d%%" % step]
         try:
             subprocess.run(args, env=env, capture_output=True, timeout=5)
         except (OSError, subprocess.SubprocessError):
