@@ -1052,13 +1052,21 @@ class Network:
     def join(self, ssid, password):
         """The home Wi-Fi. If it doesn't work out, the box's own Wi-Fi comes back with the same name and password, and
         `joining` says why (the TV shows it)."""
-        ssid, had, dev = str(ssid), bool(self.hotspot), self.wifi_device()
+        ssid = str(ssid)
         self.joining = {"ssid": ssid, "state": "joining", "message": "Joining %s…" % ssid, "at": time.time()}
-        self.stop_hotspot()
-        if had or ssid not in [n["ssid"] for n in self.cached]:
-            self.find(ssid, dev)
-        code, out = run(["nmcli", "device", "wifi", "connect", ssid] + (["password", str(password)] if password else [])
-                        + (["ifname", dev] if dev else []), 60)
+        with self.lock:                                     # never while the watch is starting the box's own Wi-Fi
+            had = bool(self.hotspot)
+            try:
+                dev = self.wifi_device()
+                self.stop_hotspot()
+                if had or ssid not in [n["ssid"] for n in self.cached]:
+                    self.find(ssid, dev)
+                code, out = run(["nmcli", "device", "wifi", "connect", ssid] + (["password", str(password)] if password else [])
+                                + (["ifname", dev] if dev else []), 60)
+            except Exception as exc:                        # never left "joining": the watch would wait for ever
+                code, out = 1, str(exc)
+            if code != 0 and had:
+                self.start_hotspot()                         # back to the box's own, same name and password, to try again
         if code == 0:
             message = "Connected to %s." % ssid
             secure_remote.wake()                             # on a home network now: its https remote, straight away
@@ -1070,8 +1078,6 @@ class Network:
             message = "It didn't join %s: %s" % (ssid, ((out.strip().splitlines() or ["no reason given"])[-1])[:160])
         if code != 0:
             print("Joining %s: %s" % (ssid, out[-300:]), file=sys.stderr, flush=True)
-            if had:
-                self.start_hotspot()                         # back to the box's own, same name and password, to try again
         self.joining = {"ssid": ssid, "state": "joined" if code == 0 else "failed", "message": message, "at": time.time()}
         return {"ok": code == 0, "message": message}
 
@@ -1081,6 +1087,8 @@ class Network:
         ssid = str(ssid)
         if not ssid:
             return {"ok": False, "message": "Which Wi-Fi?"}
+        if self.is_joining():
+            return {"ok": False, "message": "The box is already joining %s. The TV shows how it goes." % self.joining["ssid"]}
         self.joining = {"ssid": ssid, "state": "joining", "message": "Joining %s…" % ssid, "at": time.time()}
         threading.Timer(1.5, self.join, (ssid, password)).start()
         return {"ok": True, "pending": True, "message": "Joining %s… The TV shows how it goes." % ssid}
@@ -1101,8 +1109,23 @@ class Network:
             return 15
         return 180 if self.saved() else 50
 
+    def is_joining(self):
+        """A home Wi-Fi being joined right now (a join takes up to about 90 seconds: looking for it, then joining)."""
+        return bool(self.joining) and self.joining.get("state") == "joining" and time.time() - self.joining.get("at", 0) < 180
+
     def tick(self, offline_since, now):
         """One look at the network (every 10 seconds); gives back since when the box has been offline."""
+        if self.is_joining() or not self.lock.acquire(blocking=False):
+            # its own Wi-Fi is off while it joins a home Wi-Fi, so it looks offline: that's no reason to bring its own
+            # Wi-Fi back (that took the Wi-Fi chip away mid-join, and the setup looped back to "connecting"). The
+            # waiting starts again once the join is over; a join that fails brings its own Wi-Fi back by itself.
+            return now
+        try:
+            return self._tick(offline_since, now)
+        finally:
+            self.lock.release()
+
+    def _tick(self, offline_since, now):
         address = local_address()
         if address and address != "10.42.0.1":
             if self.hotspot and self.wired():

@@ -90,21 +90,20 @@ From then on the box starts on its home screen whenever it's switched on.
 **No cable and no Wi-Fi yet?** After a few seconds, the box makes its own Wi-Fi, "Sofa Box 1234". The TV
 shows two QR codes:
 
-1. Scan the first to join the box's Wi-Fi. The phone then opens the remote **by itself**, in the same
-   kind of sign-in sheet hotel Wi-Fi uses.
-2. Didn't open? Scan the second.
-3. In the remote's **Wi-Fi** tab, give the box your home Wi-Fi. The box joins it, the sheet closes, and
-   your phone goes back to your own Wi-Fi. The TV shows how it goes. If it couldn't join (the password,
-   say), it says why, and the box's own Wi-Fi comes back with the same name and password: join it again.
-4. **Scan the code on the TV once more** to carry on. At home the remote has the box's own secure
-   address (`https://…box.edgeventure.uk:8093`, see [The phone remote](#the-phone-remote)); the TV
-   switches to it a minute or two after the box joins your Wi-Fi.
+1. Scan the first to join the box's Wi-Fi.
+2. Then scan the second: the remote opens on your phone. (Some phones open it by themselves after the
+   first, in a sign-in sheet like hotel Wi-Fi's.)
+3. The remote opens on its **Wi-Fi** tab: pick your home Wi-Fi and type its password. The box leaves its
+   own Wi-Fi to join yours, and your phone goes back to your Wi-Fi. The TV shows "Joining…", then either
+   that it's connected or why not (the password, say). If it didn't work, the box's own Wi-Fi comes back
+   with the same name and password: join it again and try once more.
+4. Once it's connected, **scan the code on the TV again** to carry on. At home the remote has the box's
+   own secure address (`https://…box.edgeventure.uk:8093`, see [The phone remote](#the-phone-remote)).
 
 **An iPhone that only opens secure pages** (**Settings → Apps → Safari → Not Secure Connection
-Warning** on) works all the way through: the sign-in sheet isn't Safari, so it opens the box's page on
-its own Wi-Fi, and at home the remote is `https://`. The second QR code opens in Safari, though, which
-refuses the box's own-Wi-Fi page ("HTTPS only"): use the sheet, or switch that setting off for the setup.
-If the TV still shows a plain `http://` address at home, wait for it to change, or see the router note
+Warning** on): Safari refuses the box's page on its own Wi-Fi ("HTTPS only"), so switch that setting off
+for the setup and back on afterwards. At home the remote is `https://`, which it opens either way. If the
+TV still shows a plain `http://` address at home, wait a moment for it to change, or see the router note
 under [The phone remote](#the-phone-remote).
 
 **The setup says it couldn't make its own Wi-Fi?** Plug a network cable from your router into the box:

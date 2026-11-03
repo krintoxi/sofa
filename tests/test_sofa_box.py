@@ -850,6 +850,29 @@ class BoxNetwork(unittest.TestCase):
         time.sleep(2)
         self.assertEqual(joined, [("Home", "pw")])
         self.assertFalse(self.net.join_soon("", "pw")["ok"])
+        self.assertFalse(self.net.join_soon("Other", "pw")["ok"])                  # one join at a time (still "joining")
+
+    def test_its_own_wifi_stays_off_while_joining(self):
+        """The setup loop on a real box: its own Wi-Fi had been on for minutes (so it had been "offline" that long);
+        joining the home Wi-Fi switches it off, and the 10-second look found the box offline with no Wi-Fi of its
+        own and brought it back, mid-join, every time. It waits for the join now."""
+        self.offline = 0
+        self.run_for(20)                                             # a new box: its own Wi-Fi after 15 seconds
+        self.assertEqual(len(self.started), 1)
+        self.run_for(300, 30)                                        # minutes on it, the phone setting it up
+        self.net.joining = {"ssid": "Home", "state": "joining", "at": time.time()}
+        self.net.hotspot = None                                      # the join switched it off
+        self.run_for(90, 340)                                        # looking for Home, then joining: a minute and a half
+        self.assertEqual(len(self.started), 1)                       # left alone
+        self.net.joining = {"ssid": "Home", "state": "failed", "at": time.time()}
+        self.run_for(0, 440)                                         # it didn't work (and the join didn't bring it back)
+        self.assertEqual(len(self.started), 1)
+        self.run_for(10, 450)                                        # within 15 seconds of the join: its own Wi-Fi again
+        self.assertEqual(len(self.started), 2)
+        with self.net.lock:                                          # and never while a join holds the Wi-Fi
+            self.net.hotspot, self.net.joining = None, None
+            self.run_for(60, 500)
+            self.assertEqual(len(self.started), 2)
 
     def test_a_new_box_makes_its_own_wifi_soon(self):
         self.offline = 0
