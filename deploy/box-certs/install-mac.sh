@@ -27,6 +27,7 @@ command -v openssl >/dev/null || { echo "Needs the openssl command."; exit 1; }
 mkdir -p "$APP" "$HOME/Library/LaunchAgents" "$HOME/Library/Logs"
 mkdir -p "$CONF" && chmod 700 "$CONF"
 cp "$HERE/sofa-box-certs.py" "$APP/sofa-box-certs.py"
+cp "$HERE/../sofa-box/remote.html" "$APP/remote.html"           # the phone remote's page, for the relay (/r/<box>/)
 cat > "$PLIST" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

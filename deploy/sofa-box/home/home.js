@@ -549,7 +549,7 @@
     // just joined: the secure (https) code follows within seconds, so not the plain one first and then a swap
     // ("error" too: just after joining, the box's DNS may not be ready, and it tries again in 30 seconds)
     if (fresh && now - j.at < 180 && !/^https:/.test(r.url) && (sec.state === "working" || sec.state === "error"))
-      return codeSteps(3) + waiting("Connected. Getting the box's secure address for your phone… a few seconds.");
+      return codeSteps(3) + waiting("Connected. Getting the remote's secure address for your phone… a few seconds.");
     const open = r.home_at && now - r.home_at < 15;              // a remote open on the home Wi-Fi now
     return (fresh ? codeSteps(3) : "") + qrRow(r.pair_url, `
       <b>${fresh ? "Scan this to keep your phone as the remote" : "Scan with your phone's camera"}</b><small>or open <b>${address}</b> and type <b>${esc(r.code)}</b></small>
@@ -580,9 +580,16 @@
       <p class="small">On your phone: the <b>Wi-Fi</b> tab, pick your home Wi-Fi, type its password, <b>Join</b>.</p>
       ${waiting("Waiting for your Wi-Fi details…")}<button class="mini" data-codes="remote">Show the remote's code again</button>`;
   }
-  function secureLine() {                // the phone remote over https at home (the box's own name and certificate)
+  function secureLine() {                // the phone remote over https: through the relay (or the box's own certificate)
     const sec = (setup || {}).secure;
     if (!sec) return "";
+    if (sec.relay) {
+      const what = { ready: `on, through <b>${esc(sec.where || "the Sofa Box service")}</b>: phones open it from anywhere`,
+        working: "connecting to the Sofa Box service…", error: "the Sofa Box service can't be reached now; the box keeps trying, and phones at home use plain http:// meanwhile",
+        off: "off" }[sec.state] || "";
+      return `<p class="small"><b>Secure phone remote:</b> ${what}. A secure (https) address for the remote, for any phone, at home or away. Your phone's taps and typing pass through the Sofa Box service on their way to the box (nothing's kept), and it still needs the code on the TV.
+        <button class="mini" data-secure="${sec.state === "off" ? 1 : 0}">${sec.state === "off" ? "Switch on" : "Switch off"}</button></p>`;
+    }
     const what = { ready: `on, at <b>${esc(sec.name || "")}</b>`, working: "getting the box its name and certificate…",
       router: "on, but this router won't let the box's name point at it (\"DNS rebinding protection\"), so the remote stays plain http://",
       error: "the certificate service can't be reached now; the box tries again by itself, and the remote stays plain http:// meanwhile",

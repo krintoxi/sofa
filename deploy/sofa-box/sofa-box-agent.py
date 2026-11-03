@@ -17,6 +17,7 @@ The box's browser (Chromium, full screen) opens http://127.0.0.1:8091/. This age
 
 Standard library only (Python 3.7+). Settings: ~/.config/sofa-box/settings.json.
 """
+import base64
 import http.client
 import json
 import os
@@ -1429,6 +1430,53 @@ class Captive:
 captive = Captive()
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs):
+        return None                                        # (the relay passes a redirect on to the phone as it is)
+
+
+_local_opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect())
+
+
+class _Kept:
+    """One HTTPS connection to the Sofa Box service, kept open and used again: a new one for every press of the remote
+    meant a TLS handshake each time, half a second or more on a Pi 3."""
+
+    def __init__(self):
+        self.conn, self.at, self.lock = None, None, threading.Lock()
+
+    def post(self, base, path, body, timeout):
+        u = urllib.parse.urlsplit(base)
+        with self.lock:
+            for attempt in (1, 2):                         # a kept connection the far end has closed: once more, afresh
+                try:
+                    if self.conn is None or self.at != (u.scheme, u.netloc):
+                        if self.conn:
+                            self.conn.close()
+                        cls = http.client.HTTPSConnection if u.scheme == "https" else http.client.HTTPConnection
+                        self.conn, self.at = cls(u.netloc, timeout=timeout), (u.scheme, u.netloc)
+                    self.conn.timeout = timeout
+                    if self.conn.sock:
+                        self.conn.sock.settimeout(timeout)
+                    self.conn.request("POST", u.path.rstrip("/") + path, json.dumps(body),
+                                      {"Content-Type": "application/json", "User-Agent": "Sofa Box " + OS_VERSION})
+                    r = self.conn.getresponse()
+                    data = r.read()
+                    if r.status >= 400:
+                        try:
+                            said = json.loads(data).get("error")
+                        except ValueError:
+                            said = None
+                        raise ValueError(said or "the Sofa Box service said %d" % r.status)
+                    return json.loads(data)
+                except (OSError, http.client.HTTPException):
+                    if self.conn:
+                        self.conn.close()
+                    self.conn = None
+                    if attempt == 2:
+                        raise
+
+
 class SecureRemote:
     """The phone remote over real HTTPS at home, which phones' browsers set to "HTTPS only" need: the box's own name,
     <id>.box.edgeventure.uk, pointed at its address here, and a Let's Encrypt certificate for it, both from the Sofa Box
@@ -1443,6 +1491,68 @@ class SecureRemote:
         self.dir = os.path.join(CONF_DIR, "secure-remote")
         self.acct, self.server, self.served, self.resolves = None, None, None, False
         self.error, self.event = None, threading.Event()
+        self.relay_base, self.relay_at, self.relay_thread = None, 0, None
+        self.polls, self.answers = _Kept(), _Kept()       # the relay's two kept connections: waiting, and answering
+
+    # -- the relay (the default): the remote from anywhere, through the service, with no certificate or name per box
+    # (no Let's Encrypt limits; routers that block names pointing home don't matter). The box keeps a request open
+    # there; a phone's requests to <service>/r/<id>/... come down it, go to the remote here, and the answers go back.
+    def relaying(self):
+        return settings().get("remote_link", "relay") != "certificate"
+
+    def relayed(self, url):
+        return bool(url and self.relay_base and url.startswith(self.relay_base))
+
+    def start_relay(self):
+        if not (self.relay_thread and self.relay_thread.is_alive()):
+            self.relay_thread = threading.Thread(target=self._relay, daemon=True, name="relay")
+            self.relay_thread.start()
+
+    def _relay(self):
+        backoff, first = 2, True
+        while self.on() and self.relaying():
+            acct = self.account()
+            if not acct.get("id") or network.hotspot:
+                time.sleep(5)
+                continue
+            try:                                           # (the first comes back at once: the TV's code shows straight away)
+                got = self.polls.post(self.SERVICE, "/v1/relay/poll", dict({"id": acct["id"], "secret": acct["secret"]},
+                                                                            **({"wait": 0} if first else {})), 45)
+                first = False
+                self.relay_base, self.relay_at, backoff = got.get("base") or self.relay_base, time.time(), 2
+                for req in got.get("requests") or []:
+                    threading.Thread(target=self._relay_one, args=(acct, req), daemon=True).start()
+            except Exception as exc:                       # offline, or the service restarting: again, more slowly
+                self.error, first = "relay: %s" % (str(exc)[:160] or exc.__class__.__name__), True
+                time.sleep(backoff)
+                backoff = min(backoff * 2, 60)
+        self.relay_at = 0
+
+    def _relay_one(self, acct, req):
+        """One phone request, to the remote on this box as the phone sent it (its sign-in, its body), marked as coming
+        through the relay (which only ever means less: no typed codes)."""
+        headers = {k: v for k, v in (req.get("headers") or {}).items()
+                   if k.lower() in ("cookie", "content-type", "x-sofa-remote", "user-agent")}
+        headers["X-Sofa-Relay"] = "1"
+        try:
+            body = base64.b64decode(req.get("body") or "")
+        except ValueError:
+            body = b""
+        r = urllib.request.Request("http://127.0.0.1:%d%s" % (PhoneRemote.PORT, req.get("path") or "/"),
+                                   data=body if req.get("method") == "POST" else None, method=req.get("method") or "GET", headers=headers)
+        try:
+            with _local_opener.open(r, timeout=20) as resp:
+                status, hdrs, data = resp.status, resp.headers, resp.read(3_000_000)
+        except urllib.error.HTTPError as e:
+            status, hdrs, data = e.code, e.headers, e.read(3_000_000)
+        except (OSError, ValueError):
+            status, hdrs, data = 502, None, b'{"error":"The remote on the box didn\'t answer."}'
+        keep = [[k, v] for k, v in (hdrs.items() if hdrs else []) if k.lower() in ("set-cookie", "location")]
+        try:
+            self.answers.post(self.SERVICE, "/v1/relay/answer", {"id": acct["id"], "secret": acct["secret"], "rid": req.get("rid"),
+                              "answer": {"status": status, "headers": keep, "body": base64.b64encode(data).decode()}}, 20)
+        except Exception:
+            pass
 
     def on(self):
         return self.SERVICE != "0" and settings().get("secure_remote", True) is not False
@@ -1514,6 +1624,10 @@ class SecureRemote:
             got = self.call("/v1/register", {})
             acct.update(id=got["id"], secret=got["secret"], name=got["name"])
             self.keep("account.json", acct)
+        if self.relaying():                                 # the relay: no name pointed home, no certificate
+            self.stop()
+            self.start_relay()
+            return None
         if acct.get("ip") != ip or now - acct.get("ip_at", 0) > 86400:
             self.call("/v1/address", {"id": acct["id"], "secret": acct["secret"], "ip": ip})
             acct.update(ip=ip, ip_at=int(now))
@@ -1547,6 +1661,8 @@ class SecureRemote:
             self.server = None
 
     def url(self):
+        if self.relaying():
+            return self.relay_base if self.relay_base and time.time() - self.relay_at < 60 else None
         acct = self.account()
         if self.server and self.resolves and acct.get("name") and acct.get("ip") == local_address():
             return "https://%s:%d" % (acct["name"], self.PORT)
@@ -1556,7 +1672,8 @@ class SecureRemote:
         acct = self.account()
         state = "off" if not self.on() else "ready" if self.url() else "router" if self.server and not self.resolves \
             else "error" if self.error else "working"
-        return {"state": state, "name": acct.get("name"), "error": self.error}
+        return {"state": state, "name": acct.get("name"), "error": self.error, "relay": self.relaying(),
+                "where": urllib.parse.urlsplit(self.relay_base).netloc if self.relaying() and self.relay_base else acct.get("name")}
 
     def wake(self):
         self.event.set()
@@ -1617,6 +1734,7 @@ class PhoneRemote:
     def __init__(self):
         self.path = os.path.join(CONF_DIR, "phones.json")
         self.code, self.kb, self.mouse, self.tried = self._new_code(), None, None, False
+        self.link = os.urandom(12).hex()                   # the QR code's: long enough for the internet (the relay)
 
     @staticmethod
     def _new_code():
@@ -1640,14 +1758,16 @@ class PhoneRemote:
 
     def status(self):
         u = self.url()
-        return {"url": u, "pair_url": u + "/r/" + self.code if u else None, "code": self.code, "phones": len(self._load()),
+        return {"url": u, "pair_url": u + "/r/" + (self.link if secure_remote.relayed(u) else self.code) if u else None,
+                "code": self.code, "phones": len(self._load()),
                 "home_at": getattr(self, "home_at", 0),     # a remote last open on the home network
                 "hotspot": network.hotspot, "wired": network.wired(), "problem": None if u else network.problem}
 
-    def pair(self, code, name, on_own_wifi=False):
+    def pair(self, code, name, on_own_wifi=False, relayed=False):
         """A phone with the code on the TV (each code works once); or one on the box's own Wi-Fi, whose password is on
-        the TV too (its sign-in sheet pairs it, see Captive)."""
-        if not on_own_wifi and (not code or str(code) != self.code):
+        the TV too (its sign-in sheet pairs it, see Captive). Through the relay (from anywhere), only the QR code's
+        long link: four digits could be guessed at from the internet."""
+        if not on_own_wifi and (not code or (str(code) != self.link and (relayed or str(code) != self.code))):
             return None
         token = os.urandom(24).hex()
         phones = self._load()
@@ -1657,7 +1777,7 @@ class PhoneRemote:
             json.dump(phones, f)
         os.chmod(self.path, 0o600)
         if not on_own_wifi:
-            self.code = self._new_code()                   # each code works once
+            self.code, self.link = self._new_code(), os.urandom(12).hex()   # each code works once
         toast("%s is a remote now." % phones[token]["name"])
         return token
 
@@ -2566,9 +2686,11 @@ class RemoteHandler(BaseHTTPRequestHandler):
         if on_own_wifi(self.client_address[0]):              # a phone on the box's own Wi-Fi: keep it on
             network.used = time.time()
         path = urllib.parse.urlsplit(self.path).path
-        m = re.match(r"^/r/(\d{4})$", path)
+        relayed = self.headers.get("X-Sofa-Relay") == "1" and self.client_address[0] in ("127.0.0.1", "::1")   # (Relay below)
+        m = re.match(r"^/r/(\d{4}|[0-9a-f]{24})$", path)
         if m:                                               # the QR code on the TV
-            token = phone.pair(m.group(1), (self.headers.get("User-Agent") or "").split("(")[-1].split(";")[0].strip() or "Phone")
+            token = phone.pair(m.group(1), (self.headers.get("User-Agent") or "").split("(")[-1].split(";")[0].strip() or "Phone",
+                               relayed=relayed)
             return self.send("", status=302, headers=dict({"Location": "/" if token else "/?again=1"},
                                                           **({"Set-Cookie": self.cookie(token)} if token else {})))
         if path == "/join":                                  # from the box's own Wi-Fi's sign-in sheet (Captive)
@@ -2586,15 +2708,17 @@ class RemoteHandler(BaseHTTPRequestHandler):
             return self.send(buf.getvalue(), "image/png", headers={"Cache-Control": "max-age=86400"})
         if path == "/manifest.json":                         # Android: "Add to Home screen" as an app
             name = settings().get("boot_text") or "Sofa Box"
-            return self.send(json.dumps({"name": name + " remote", "short_name": "Sofa Box", "start_url": "/", "display": "standalone",
-                                         "background_color": "#0D0D10", "theme_color": "#0D0D10",
-                                         "icons": [{"src": "/icon.png", "sizes": "180x180", "type": "image/png"},
-                                                   {"src": "/icon-512.png", "sizes": "512x512", "type": "image/png"}]}),
+            return self.send(json.dumps({"name": name + " remote", "short_name": "Sofa Box", "start_url": "./", "display": "standalone",
+                                         "background_color": "#0D0D10", "theme_color": "#0D0D10",       # (relative: the relay too)
+                                         "icons": [{"src": "icon.png", "sizes": "180x180", "type": "image/png"},
+                                                   {"src": "icon-512.png", "sizes": "512x512", "type": "image/png"}]}),
                              "application/manifest+json")
         if self.command == "POST" and self.headers.get("X-Sofa-Remote") != "1":
             return self.send('{"error":"missing X-Sofa-Remote"}', status=400)
         data = json.loads(self.body() or b"{}") if self.command == "POST" else {}
         if path == "/api/pair":
+            if relayed:
+                return self.send('{"error":"Away from home, scan the code on the TV: typing it works at home only."}', status=403)
             token = phone.pair(str(data.get("code") or "").strip(), data.get("name"))
             if not token:
                 return self.send('{"error":"That code isn\'t the one on the TV."}', status=403)

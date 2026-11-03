@@ -7,6 +7,21 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.14
+
+- **The secure phone remote goes through the Sofa Box service's relay.** The QR code to keep the remote is
+  `https://boxcert.edgeventure.uk/r/<box>/…`: a secure address every phone opens, at home or away. The box
+  keeps a connection open to the service, and the phone's taps reach the box through it. It replaces a name
+  and a Let's Encrypt certificate for every box, which had limits (50 new boxes a week for all of
+  edgeventure.uk) and didn't work behind routers that block names pointing at home addresses.
+  - The phone still needs the TV's code: through the relay, only the QR code's long one (24 characters);
+    typing the four digits works at home only, so they can't be guessed at from the internet.
+  - The remote's page comes from the service, not from boxes, and each phone's sign-in is kept to its box:
+    one box can't reach another through the shared address.
+  - Nothing is kept by the service; Settings → Remotes and Bluetooth switches it off.
+- The phone remote page uses relative addresses (the same page at home and through the relay), and says
+  "Can't reach the box" when the relay says the box is offline (not "type the code").
+
 ## 1.1.13
 
 - **The setup's apps step is short.** Eight apps most people use (Netflix, YouTube, Prime Video, Disney+, Max,

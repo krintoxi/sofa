@@ -1,4 +1,22 @@
-# Sofa Box certificates (the secure phone remote)
+# The Sofa Box service: the secure phone remote (relay and certificates), and box reports
+
+**The relay (what boxes use from Sofa Box OS 1.1.14):** a phone opens a box's remote at
+`https://boxcert.edgeventure.uk/r/<box id>/`. The box keeps a request open to this service
+(`/v1/relay/poll`, signed with its id and secret); the phone's requests go down it to the remote on the
+box, and the answers come back (`/v1/relay/answer`). No name or certificate per box: no Let's Encrypt
+limits, no DNS records, routers that block names pointing home don't matter, and it works away from home.
+
+- The remote's page is this service's own copy (`remote.html`, installed next to it), never the box's:
+  only data (`/api/...`), the icon and the pairing link pass through, and each phone's sign-in cookie is
+  kept to its box's path. A box can't put script on this address, so one box can't reach another's.
+- Pairing through here takes only the QR code's long link (24 characters); typed four-digit codes are
+  refused (they work at home, on the box itself).
+- Nothing is kept: requests wait in memory for the box's answer (20 seconds at most). A box that hasn't
+  asked for 45 seconds is "not online" to phones.
+- `relay_base` (config.json) is the address boxes are told to show; it can change without updating boxes
+  (a nicer `remote.edgeventure.uk` needs only a tunnel route to this service).
+
+What follows is the older way, still there for boxes set to `"remote_link": "certificate"`:
 
 Each Sofa Box's phone remote is a web page the box serves on the home network. Some phones only open
 secure (`https://`) pages, for example an iPhone with Safari's **Not Secure Connection Warning** on. For

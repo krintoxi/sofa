@@ -27,6 +27,11 @@ def load(conf_dir):
     return mod
 
 
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs):
+        return None
+
+
 class TestCA:
     """A certificate authority of our own, for the stand-in Let's Encrypt (and the box tests)."""
 
@@ -259,6 +264,74 @@ class BoxCerts(unittest.TestCase):
         self.clock[0] += 86400
         self.service.report(dict(box, report="tomorrow"), "203.0.113.5")
         self.assertEqual(len(os.listdir(folder)), 3)                               # the newest few hundred are kept
+
+    def test_the_relay(self):
+        """A phone's requests to /r/<box>/ reach the box through its open request and its answers come back; the page
+        is the service's own; the phone's sign-in is kept to the box's path; four digits are refused; an offline box
+        says so."""
+        import base64
+        self.certs.Handler.service = self.service
+        server = ThreadingHTTPServer(("127.0.0.1", 0), self.certs.Handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        base = "http://127.0.0.1:%d" % server.server_address[1]
+        box = self.service.register("203.0.113.5")
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
+
+        def phone(path, body=None, headers=None):
+            req = urllib.request.Request(base + path, None if body is None else json.dumps(body).encode(),
+                                         dict({"Content-Type": "application/json", "X-Sofa-Remote": "1"}, **(headers or {})))
+            try:
+                with opener.open(req, timeout=30) as r:
+                    return r.status, dict(r.headers), r.read()
+            except urllib.error.HTTPError as e:
+                return e.code, dict(e.headers), e.read()
+        seen, stop = [], threading.Event()
+
+        def the_box():                                    # a box: asks, answers like its remote would
+            while not stop.is_set():
+                got = self.service.relay_poll(dict(box, wait=1))
+                for req in got["requests"]:
+                    seen.append(req)
+                    if req["path"].startswith("/r/"):
+                        answer = {"status": 302, "headers": [["Location", "/"], ["Set-Cookie", "sofa_remote=" + "a" * 48 + "; Path=/; HttpOnly"],
+                                                             ["X-Other", "dropped"]], "body": ""}
+                    else:
+                        answer = {"status": 200, "headers": [], "body": base64.b64encode(b'{"ok":true,"paired":true}').decode()}
+                    self.service.relay_answer(dict(box, rid=req["rid"], answer=answer))
+        try:
+            status, _, _ = phone("/r/%s/api/state" % box["id"])
+            self.assertEqual(status, 503)                                              # not online yet: says so
+            t = threading.Thread(target=the_box, daemon=True)
+            t.start()
+            time.sleep(0.3)
+            status, headers, page = phone("/r/%s" % box["id"])
+            self.assertEqual((status, headers["Location"]), (301, "/r/%s/" % box["id"]))
+            status, headers, page = phone("/r/%s/" % box["id"])
+            self.assertEqual(status, 200)
+            self.assertIn(b"<title>", page)                                            # the service's own page
+            self.assertIn("script-src 'self'", headers["Content-Security-Policy"])
+            self.assertEqual(seen, [])                                                 # (the box wasn't asked for it)
+            status, headers, _ = phone("/r/%s/r/%s" % (box["id"], "0123456789abcdef01234567"))
+            self.assertEqual(status, 302)
+            self.assertEqual(headers["Location"], "/r/%s/" % box["id"])                 # back to this box's page
+            self.assertIn("Path=/r/%s/; Secure" % box["id"], headers["Set-Cookie"])     # the sign-in: this box's path only
+            self.assertNotIn("X-Other", headers)
+            self.assertEqual(seen[-1]["headers"].get("Cookie"), None)
+            status, headers, body = phone("/r/%s/api/key" % box["id"], {"k": "up"}, {"Cookie": "sofa_remote=%s; other=x" % ("a" * 48)})
+            self.assertEqual((status, json.loads(body)["ok"]), (200, True))
+            self.assertEqual(headers["Content-Type"], "application/json")               # data, never a page from the box
+            self.assertEqual(seen[-1]["headers"]["Cookie"], "sofa_remote=" + "a" * 48)  # only the remote's own cookie
+            self.assertEqual(json.loads(base64.b64decode(seen[-1]["body"])), {"k": "up"})
+            self.assertEqual(phone("/r/%s/r/1234" % box["id"])[0], 404)                  # four digits: not through here
+            self.assertEqual(phone("/r/%s/api/pair" % box["id"], {"code": "1234"})[0], 403)
+            self.assertEqual(phone("/r/%s/evil.html" % box["id"])[0], 404)
+            self.assertEqual(phone("/r/nobodyhere/")[0], 404)
+            with self.assertRaises(self.certs.Refused):                                # a box answers with its secret
+                self.service.relay_poll(dict(box, secret="nope"))
+        finally:
+            stop.set()
+            server.shutdown()
+            server.server_close()
 
     def test_over_http(self):
         self.certs.Handler.service = self.service
