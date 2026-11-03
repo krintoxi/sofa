@@ -47,7 +47,8 @@ ads, no account, and nothing watching what you watch; the TV itself never needs 
 1. Download **`sofa-box.img.xz`** from the
    [newest card](https://github.com/krintoxi/sofa/releases/tag/sofa-box), under **Assets**. GitHub
    makes it again every time the box changes. Each version also has a release of its own that stays,
-   "Sofa Box OS 1.0.0" and so on ([every version](https://github.com/krintoxi/sofa/releases?q=box-os)).
+   "Sofa Box OS 1.1.1" and so on ([every version](https://github.com/krintoxi/sofa/releases?q=box-os)).
+   The release's title says which version the newest card is.
 2. Install **Raspberry Pi Imager** (raspberrypi.com/software) on your computer and open it.
    Choose your Pi, then **Choose OS → Use custom** and pick the file, then your card.
 3. When it asks about **OS customisation**, you can press **Edit settings** to add your Wi-Fi, and
@@ -86,13 +87,18 @@ shows two QR codes:
 1. Scan the first to join the box's Wi-Fi. The phone then opens the remote **by itself**, in the same
    kind of sign-in sheet hotel Wi-Fi uses.
 2. Didn't open? Scan the second.
+3. In the remote's **Wi-Fi** tab, give the box your home Wi-Fi. The box joins it, the sheet closes, and
+   your phone goes back to your own Wi-Fi.
+4. **Scan the code on the TV once more** to carry on. At home the remote has the box's own secure
+   address (`https://…box.edgeventure.uk:8093`, see [The phone remote](#the-phone-remote)); the TV
+   switches to it a minute or two after the box joins your Wi-Fi.
 
-The sign-in sheet works even when the phone's browser only allows secure (https) pages. On an iPhone
-with **Settings → Apps → Safari → Not Secure Connection Warning** switched on, the second QR code opens
-in Safari, which refuses the box's page ("HTTPS only"): use the sheet, or switch that setting off.
-
-Then give the box your home Wi-Fi from the phone's **Wi-Fi** tab. The box joins it, and your phone
-goes back to your own Wi-Fi.
+**An iPhone that only opens secure pages** (**Settings → Apps → Safari → Not Secure Connection
+Warning** on) works all the way through: the sign-in sheet isn't Safari, so it opens the box's page on
+its own Wi-Fi, and at home the remote is `https://`. The second QR code opens in Safari, though, which
+refuses the box's own-Wi-Fi page ("HTTPS only"): use the sheet, or switch that setting off for the setup.
+If the TV still shows a plain `http://` address at home, wait for it to change, or see the router note
+under [The phone remote](#the-phone-remote).
 
 **The setup says it couldn't make its own Wi-Fi?** Plug a network cable from your router into the box:
 the code to scan shows within seconds. Or write the card again, and in Raspberry Pi Imager press
@@ -370,7 +376,7 @@ the box first:
 
 | | |
 |---|---|
-| `sofa-box-agent.service` | the home screen, apps, store, files; finds Sofa; plays videos with mpv; opens apps as tabs of the box's one Chromium (over its DevTools port, `127.0.0.1` only); all on `127.0.0.1:8091`, only for the box itself |
+| `sofa-box-agent.service` | the home screen, apps, store, files; finds Sofa; plays videos with mpv; opens apps as tabs of the box's one Chromium (over its DevTools port, `127.0.0.1` only); all on `127.0.0.1:8091`, only for the box itself. For phones on your network: the phone remote on port 8092 (`http://`) and 8093 (`https://`, with the box's certificate), and, only while the box's own setup Wi-Fi is on, its sign-in page on port 80 |
 | `sofa-box.service` | the TV's screen: Chromium full screen in `cage` (a screen that shows one window), starting on the home screen |
 | `sofa-box-input.service` | game controllers as a remote |
 | `sofa-box-cec.service` | the TV remote's buttons over HDMI-CEC |
@@ -402,8 +408,8 @@ Sofa on the TV. Each build writes a report of what's on the card next to it.
 ### Versions
 
 Sofa Box OS has a version number of its own, in [`VERSION`](VERSION) (like `1.0.0`), with what's new in
-[`CHANGES.md`](CHANGES.md). The box shows it in Settings, and the card is named after it
-(`sofa-box-os-1.0.0.img.xz`).
+[`CHANGES.md`](CHANGES.md). The box shows it on its boot screen and in Settings, and the card is named
+after it (`sofa-box-os-1.0.0.img.xz`).
 
 - Every change to the box merged into `main` makes a new **newest card**
   ([releases/tag/sofa-box](https://github.com/krintoxi/sofa/releases/tag/sofa-box); its file is always
