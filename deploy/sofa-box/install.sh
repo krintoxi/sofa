@@ -156,6 +156,8 @@ Wants=network-online.target
 User=$WHO
 Environment=XDG_RUNTIME_DIR=/run/user/$UIDN
 ExecStart=/usr/bin/python3 $LIB/sofa-box-agent.py
+# the sign-in page of the box's own Wi-Fi (at its setup) is on port 80, like a hotel's
+AmbientCapabilities=CAP_NET_BIND_SERVICE
 # the player (mpv) runs from here: ahead of everything but the screen
 Nice=-5
 CPUWeight=800
@@ -342,6 +344,11 @@ ExecStart=$LIB/sofa-box tune
 [Install]
 WantedBy=multi-user.target
 EOF
+# The box's own Wi-Fi (at its setup) works like a hotel's: every name is the box, so a phone that joins opens its
+# sign-in sheet by itself, and the sheet opens the phone remote (sofa-box-agent.py, Captive).
+mkdir -p /etc/NetworkManager/dnsmasq-shared.d
+printf '# Sofa box: on its own Wi-Fi every name is the box (its sign-in page opens the phone remote)\naddress=/#/10.42.0.1\n' \
+  > /etc/NetworkManager/dnsmasq-shared.d/sofa-box.conf
 "$LIB/sofa-box" wifi-on ${IMAGE:+--files} || true   # Wi-Fi on even with no country set: the box's own Wi-Fi at its setup
 if dpkg -s systemd-zram-generator >/dev/null 2>&1; then
   printf '[zram0]\nzram-size = ram / 2\ncompression-algorithm = zstd\n' > /etc/systemd/zram-generator.conf

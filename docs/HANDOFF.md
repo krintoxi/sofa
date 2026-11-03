@@ -66,6 +66,20 @@ Comet Courier's address, a `box-v1` release (the owner publishes it on the websi
 - The card's report shows the Wi-Fi state Raspberry Pi OS left and the one the card starts with.
 - Not tried on a Pi yet: this is the explanation that fits; the next card's report confirms the state.
 
+## Sofa Box OS 1.0.2 (2026-11-03): the setup Wi-Fi as a captive portal
+
+- On the owner's iPhone the second QR code (http://10.42.0.1:8092/r/<code>) failed: Safari's "Not Secure
+  Connection Warning" (HTTPS only) refuses http:// pages. A certificate can't help there (the box is offline).
+- Now the hotspot is a captive portal: `/etc/NetworkManager/dnsmasq-shared.d/sofa-box.conf` answers every
+  name with 10.42.0.1, and the agent serves a page on port 80 while the hotspot is on (`Captive`,
+  `CaptiveHandler`; `AmbientCapabilities=CAP_NET_BIND_SERVICE` in sofa-box-agent.service). The phone's sign-in
+  sheet opens it, it goes to `/join`, which pairs a phone on 10.42.0.x without the code (the Wi-Fi's password
+  is on the TV: the same proof) and opens the remote.
+- To confirm on the owner's iPhone: that the sheet opens and loads with HTTPS-only on (expected: captive
+  sheets take http://).
+- Next (asked of the owner): HTTPS for the remote at home, with a real certificate per box from a small
+  service on the owner's servers, since the remote at home is plain http:// too.
+
 ## What's in progress
 
 - **Sofa anywhere** (2026-11-02, built; waiting for the owner's OK to merge and for a try on the Pi):

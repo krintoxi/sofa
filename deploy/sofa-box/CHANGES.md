@@ -7,6 +7,14 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.0.2
+
+- **The remote opens by itself at the setup.** The box's own Wi-Fi now works like a hotel's: when a phone
+  joins it (the first QR code), the phone pops up its sign-in sheet, and the sheet is the remote, already
+  paired. The second QR code is only needed if it doesn't open.
+- That sheet takes the box's page even on an iPhone with Safari's "Not Secure Connection Warning"
+  (HTTPS only) switched on, which refused it ("Navigation failed… HTTPS-Only").
+
 ## 1.0.1
 
 - **The setup's phone code no longer waits for ever on a box with no network.** A card written without

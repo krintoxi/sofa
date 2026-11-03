@@ -83,8 +83,13 @@ From then on the box starts on its home screen whenever it's switched on.
 **No cable and no Wi-Fi yet?** After a few seconds, the box makes its own Wi-Fi, "Sofa Box 1234". The TV
 shows two QR codes:
 
-1. Scan the first to join the box's Wi-Fi.
-2. Scan the second to open the remote.
+1. Scan the first to join the box's Wi-Fi. The phone then opens the remote **by itself**, in the same
+   kind of sign-in sheet hotel Wi-Fi uses.
+2. Didn't open? Scan the second.
+
+The sign-in sheet works even when the phone's browser only allows secure (https) pages. On an iPhone
+with **Settings → Apps → Safari → Not Secure Connection Warning** switched on, the second QR code opens
+in Safari, which refuses the box's page ("HTTPS only"): use the sheet, or switch that setting off.
 
 Then give the box your home Wi-Fi from the phone's **Wi-Fi** tab. The box joins it, and your phone
 goes back to your own Wi-Fi.
