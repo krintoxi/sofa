@@ -412,6 +412,8 @@ class Agent(unittest.TestCase):
         spec.loader.exec_module(art)
         with open(os.path.join(BOX, "VERSION")) as f:
             self.assertEqual(art.os_version(), f.read().strip())
+        self.assertEqual(art.Colors(None).theme, "street")                 # no theme saved yet: Street, all of it
+        self.assertEqual(art.Colors(None).second, art.Colors("street").second)
         theme = tempfile.mkdtemp()
         try:
             art.write_plymouth(theme, {"theme": "pirate"})

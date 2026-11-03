@@ -287,9 +287,10 @@ games that run well on the box, worked with the arrows and OK (or a controller).
 
 <img src="../../docs/images/box-themes.jpg" alt="The four themes: Street, Terminal, Pirate and Sofa" width="100%">
 
-The boot screen follows the theme, with the box's name under it and lines ticking by while it starts:
+The boot screen follows the theme (a new box: Street, the first), with Sofa Box OS's version under the word,
+lines ticking by while it starts, and the box's name at the bottom:
 
-<img src="../../docs/images/box-boot.jpg" alt="The four boot screens: SOFA BOX in each theme, with Living room under it" width="100%">
+<img src="../../docs/images/box-boot.jpg" alt="The four boot screens: SOFA BOX in each theme, OS 1.1.1 under it, and Living room at the bottom" width="100%">
 
 - **Picture:** Automatic, 1080p or 720p. On Automatic the box watches for dropped frames and asks for
   720p by itself if 1080p is too much.

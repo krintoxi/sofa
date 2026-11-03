@@ -15,6 +15,8 @@ GitHub builds the card and makes the release by itself.
   Connection Warning on refuse, halfway through the setup. A box that comes online any other way (a cable
   plugged in later, a router back from a restart) notices within 30 seconds.
 - **The boot screen shows the version**, small under SOFA BOX ("OS 1.1.1"). It follows the box's updates.
+- **A new box's boot screen is all Street**, the default theme. Until a theme was picked, it had Street's
+  colours with another theme's lettering and logo.
 - Certificate requests from a Mac's openssl (LibreSSL) name their curve, so Let's Encrypt accepts them.
 
 ## 1.1.0
