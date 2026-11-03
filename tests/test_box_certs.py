@@ -35,7 +35,8 @@ class TestCA:
         self.key, self.cert = os.path.join(folder, "ca.key"), os.path.join(folder, "ca.pem")
         subprocess.run(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", self.key, "-out", self.cert, "-days", "2",
                         "-subj", "/CN=Sofa test CA", "-addext", "basicConstraints=critical,CA:TRUE",
-                        "-addext", "keyUsage=critical,keyCertSign,cRLSign"], check=True, capture_output=True)
+                        "-addext", "keyUsage=critical,keyCertSign,cRLSign", "-addext", "subjectKeyIdentifier=hash"],
+                       check=True, capture_output=True)
 
     def sign(self, csr_pem, days=90):
         """A server certificate for the request's name (as Let's Encrypt would make it)."""
@@ -46,7 +47,8 @@ class TestCA:
         text = subprocess.run(["openssl", "req", "-in", csr, "-noout", "-text"], capture_output=True, text=True, check=True).stdout
         name = text.split("DNS:")[1].split()[0].strip(",") if "DNS:" in text else text.split("CN = ")[1].split()[0]
         with open(ext, "w") as f:
-            f.write("subjectAltName=DNS:%s\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=serverAuth\nbasicConstraints=CA:FALSE\n" % name)
+            f.write("subjectAltName=DNS:%s\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=serverAuth\nbasicConstraints=CA:FALSE\n"
+                    "subjectKeyIdentifier=hash\nauthorityKeyIdentifier=keyid,issuer\n" % name)   # (newer Pythons insist)
         subprocess.run(["openssl", "x509", "-req", "-in", csr, "-CA", self.cert, "-CAkey", self.key, "-CAcreateserial",
                         "-out", out, "-days", str(days), "-extfile", ext], check=True, capture_output=True)
         with open(out) as f:

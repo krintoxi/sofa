@@ -112,6 +112,10 @@ class BoxPages(unittest.TestCase):
             self.assertEqual(sorted({i for i in ids if ids.count(i) > 1}), [], name)
 
 
+GNU_SED = subprocess.run(["sed", "--version"], capture_output=True).returncode == 0     # the box's (a Mac's isn't)
+
+
+@unittest.skipUnless(GNU_SED, "the box's boot setup uses GNU sed (Raspberry Pi OS has it; a Mac doesn't)")
 class RaspberryPiBoot(unittest.TestCase):
     """`sofa-box setup-boot` on a card LCD-show changed for a 3.5-inch screen."""
 
@@ -281,6 +285,20 @@ class Agent(unittest.TestCase):
         self.assertTrue(fetched[0]["cookie"])                                    # mpv asked Sofa as the signed-in TV
         self.assertIn(fetched[0]["status"], (200, 206))
         self.assertTrue(fetched[0]["fetched"].startswith(self.sofa))             # straight to Sofa, not through the box
+
+    def test_a_slow_start_says_so(self):
+        """Resuming a video Sofa converts first can take a while: mpv's screen says it's resuming, from where, and
+        that Sofa is getting it ready, and says nothing more once the picture moves (no blank black screen)."""
+        n = json.loads(self.get("/box/native/events"))["n"]
+        self.post("/box/native/play", {"item": "m:heat:1995", "url": self.base + "/media/m%3Aheat%3A1995/file?fake_delay=4",
+                                       "start": 0, "offset": 600, "duration": 7200, "title": "Heat"})
+        self.wait_for(lambda st: st.get("t", 0) >= 601, 20)
+        time.sleep(1.5)
+        said = [c["command"][1] for c in map(json.loads, read(self.log).splitlines()) if c.get("command", [""])[0] == "show-text"]
+        self.assertIn("Resuming Heat at 10:00…", said)
+        self.assertEqual(said[-1], "")                                            # cleared once it plays
+        self.get("/box/native/key?k=back")
+        self.ended("m:heat:1995", n)
 
     def test_a_player_that_cant_start_hands_back_to_the_page(self):
         n = json.loads(self.get("/box/native/events"))["n"]
@@ -1149,6 +1167,15 @@ class BoxNetwork(unittest.TestCase):
         self.assertAlmostEqual(london["lat"], 51.51, delta=0.05)
         self.assertAlmostEqual(london["lon"], -0.12, delta=0.05)
         self.assertTrue(a.FAHRENHEIT.match("America/New_York") and not a.FAHRENHEIT.match("Europe/London"))
+
+    def test_what_a_slow_start_says(self):
+        p = self.agent.Player()
+        p.payload = {"title": "The Expanse", "offset": 3725, "start": 0, "url": "http://sofa/media/hls/0123/index.m3u8"}
+        self.assertEqual(p.starting_text(1), "Resuming The Expanse at 1:02:05…")
+        self.assertIn("Sofa is getting it ready for the box from where you left off", p.starting_text(4))
+        self.assertIn("Back stops it", p.starting_text(30))
+        p.payload = {"title": "A private title", "adult": True, "start": 0, "url": "http://sofa/media/x/file"}
+        self.assertEqual(p.starting_text(5), "Starting…")                       # no adult titles on the screen
 
     def test_the_first_start_says_so(self):
         """A new card's first start (slow, maybe with a restart): its boot screen says to wait, that start only."""

@@ -410,12 +410,36 @@ class Player:
         t = self.command("get_property", "time-pos")
         return None if t is None else float(t) + float((self.payload or {}).get("offset") or 0)
 
+    def starting_text(self, waited):
+        """What mpv's (black) screen says until the picture moves: resuming a converted video can take a while,
+        and a black screen with nothing on it looks like the box has hung."""
+        p = self.payload or {}
+        title = "" if p.get("adult") else str(p.get("title") or "")
+        at = int(float(p.get("offset") or 0) + float(p.get("start") or 0))
+        when = "%d:%02d:%02d" % (at // 3600, at // 60 % 60, at % 60) if at >= 3600 else "%d:%02d" % (at // 60, at % 60)
+        text = " ".join(("Resuming %s at %s" % (title, when) if at > 30 else "Starting %s" % title).split()) + "…"
+        if "/hls/" in str(p.get("url") or "") and waited >= 3:
+            text += "\nSofa is getting it ready for the box%s: a few seconds more." % (" from where you left off" if at > 30 else "")
+        if waited >= 25:
+            text += "\nStill waiting for Sofa. Back stops it."
+        return text
+
     def _watch(self, proc):
-        """Every second: where it is, Skip Intro, saving the place; at the end: tell the page."""
+        """Every second: where it is, Skip Intro, saving the place; at the end: tell the page. Until the picture
+        moves, mpv's screen says it's starting (starting_text)."""
         p, last_save, intro_shown = self.payload, 0, None
-        drops_checked = started = False
+        drops_checked = started = moving = False
+        waited = 0
         while proc.poll() is None:
             time.sleep(1)
+            if not moving:
+                if self.command("get_property", "core-idle") is False:
+                    moving = True
+                    if waited:
+                        self.command("show-text", "", 1)
+                else:
+                    waited += 1
+                    self.command("show-text", self.starting_text(waited), 2500)
             t = self.position()
             if t is None:
                 continue
