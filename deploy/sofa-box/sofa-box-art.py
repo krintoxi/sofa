@@ -85,7 +85,8 @@ TICKER_DEFAULT = ["Waking up…", "Finding Sofa…", "Loading your apps…"]
 
 class Colors:
     def __init__(self, theme):
-        bg, accent = THEMES.get(theme or "street", THEMES["midnight"])
+        theme = theme or "street"                  # none chosen (a new card, a box left as it came): the agent's default
+        bg, accent = THEMES.get(theme, THEMES["midnight"])
         self.theme = theme if theme in ("street", "terminal", "pirate") else "sofa"
         self.bg, self.accent = rgb(bg), rgb(accent)
         self.second = rgb(SECOND.get(theme, "#3CC8D8"))
