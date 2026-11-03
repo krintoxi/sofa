@@ -125,7 +125,10 @@ phone remote: on, at …**, and the phone remote's QR code is the `https://` add
 - **Its files** (back these up), in `~/.config/sofa-box-certs/`:
   - `cloudflare-token`;
   - `account.key`, the Let's Encrypt account;
-  - `boxes.json`: each box's id, a hash of its secret, its home address, and when its certificate was made.
+  - `boxes.json`: each box's id, a hash of its secret, its home address, and when its certificate was made;
+  - `reports/`: the reports boxes send when someone presses **Send a report** (Settings → Help), one
+    file each, named by when it came and the number the TV showed (`20261103-142501-K7Q2MX.txt`). The
+    newest 300 are kept (`reports_kept`). Find one: `ls ~/.config/sofa-box-certs/reports | grep K7Q2MX`.
 - **Update it:** `git pull`, then `sh deploy/box-certs/install-mac.sh` again.
 - **Stop it and remove it:** `sh deploy/box-certs/install-mac.sh remove`.
 - **Settings:** `~/.config/sofa-box-certs/config.json` (optional). Any of the keys in `DEFAULTS` at
@@ -142,6 +145,8 @@ phone remote: on, at …**, and the phone remote's QR code is the `https://` add
 - **Only home addresses.** The service refuses to point a name at anything but a private address
   (`10.x`, `172.16–31.x`, `192.168.x`), so nobody can aim an `edgeventure.uk` name at a public site.
 - **New boxes per day:** at most 10 from one internet address and 500 in all.
+- **Reports:** at most 10 a day from one box (or one internet address, for a box with no id yet), each
+  up to 200,000 characters. A box with an id signs its reports with its secret.
 - **Routers that block it.** Some routers refuse DNS answers that point at home addresses ("DNS
   rebinding protection": some Fritz!Box, pfSense and ISP routers). The box notices: its remote stays
   plain `http://`, and Settings says why.

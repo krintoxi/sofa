@@ -243,6 +243,7 @@ class Agent(unittest.TestCase):
         js = self.get("/box/native.js")
         self.assertIn("window.SofaNative", js)
         self.assertIn("slow: false", js)                                        # not a Pi 3 here
+        self.assertIn('theme: "street"', js)                                    # Sofa starts in the box's own theme
         self.assertEqual(json.loads(self.get("/box/state"))["chosen"], self.sofa)
         caps = json.loads(self.get("/box/native/caps"))
         self.assertTrue(caps["mkv"] and caps["ac3"])
@@ -258,7 +259,7 @@ class Agent(unittest.TestCase):
             self.assertEqual(info["settings"]["hwdec"], "auto")                      # not one of the choices: ignored
             self.assertEqual(json.loads(self.get("/box/native/caps"))["maxh"], 720)
         finally:
-            self.post("/box/api/settings", {"quality": "auto", "theme": "midnight", "boot_text": ""})
+            self.post("/box/api/settings", {"quality": "auto", "theme": "street", "boot_text": ""})
 
     def test_play_save_and_tell_the_page(self):
         n = json.loads(self.get("/box/native/events"))["n"]                     # a page opening: from now on
@@ -383,6 +384,7 @@ class Agent(unittest.TestCase):
         self.assertEqual(json.loads(call("/api/state", cookie=cookie)[2])["paired"], True)
         self.assertEqual(call("/api/key", {"k": "up"}, cookie)[0], 200)
         self.assertEqual(call("/api/key", {"k": "rm -rf"}, cookie)[0], 400)
+        self.assertFalse(json.loads(call("/api/report", {}, cookie)[2])["ok"])    # Send a report (no service here)
         self.assertEqual(call("/r/" + code)[1]["Location"], "/?again=1")         # each code works once
         self.post("/box/api/remote/forget", {})
         self.assertEqual(call("/api/state", cookie=cookie)[0], 401)
@@ -990,6 +992,63 @@ class BoxNetwork(unittest.TestCase):
             a.on_own_wifi, a.network.hotspot, a.phone = real
 
     @unittest.skipUnless(shutil.which("openssl"), "needs the openssl command")
+    def test_sending_a_report(self):
+        """Settings -> Help -> Send a report: the box's state and logs to the certificate service, signed with the
+        box's id, with no titles, codes or passwords in it."""
+        a, got, status = self.agent, [], [200]
+
+        class Service(BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def do_POST(self):
+                got.append((self.path, json.loads(self.rfile.read(int(self.headers["Content-Length"])))))
+                body = json.dumps({"ok": True, "report": "K7Q2MX"} if status[0] == 200 else {"error": "Try again tomorrow."}).encode()
+                self.send_response(status[0])
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+        service = a.Server(("127.0.0.1", 0), Service)
+        threading.Thread(target=service.serve_forever, daemon=True).start()
+        logs = ("== Sofa Box OS 1.1.7\nmpv stopped (2): Failed to open /media/sofabox/USB/Some Film (2020).mkv | [ffmpeg] 403\n"
+                "GET https://www.youtube.com/watch?v=abc123 failed\nnmcli: psk=hunter2\n")
+        real = a.secure_remote, a.SecureRemote.SERVICE, a.network.hotspot, a.player.status, a.run
+        a.SecureRemote.SERVICE = "http://127.0.0.1:%d" % service.server_address[1]
+        a.secure_remote, a.network.hotspot = a.SecureRemote(), None
+        a.secure_remote.acct = {"id": "k3x9q2abcd", "secret": "s3cret", "name": "k3x9q2abcd.box.edgeventure.uk"}
+        a.player.status = {"item": "x1", "title": "Some Film", "sub": "Part 2", "t": 60, "d": 5400}
+        a.run = lambda cmd, timeout=20: (0, logs) if cmd[-1] == "report" else (0, "")
+        try:
+            out = a.send_report()
+            self.assertEqual((out["ok"], out["report"]), (True, "K7Q2MX"))
+            self.assertIn("K7Q2MX", out["message"])                                  # the TV shows its number
+            ((path, body),) = got
+            self.assertEqual((path, body["id"], body["secret"]), ("/v1/report", "k3x9q2abcd", "s3cret"))
+            text = body["report"]
+            self.assertIn("Sofa Box OS", text)
+            self.assertIn('"t": 60', text)                                            # where the player was
+            self.assertIn("https://www.youtube.com/watch/…", text)                  # addresses: the site and its first folder
+            for private in ("Some Film", "Part 2", "abc123", "hunter2"):
+                self.assertNotIn(private, text)
+            self.assertEqual(os.stat(os.path.join(a.CONF_DIR, "last-report.txt")).st_mode & 0o777, 0o600)
+            self.assertEqual(a.send_report()["report"], "K7Q2MX")                    # pressed twice: sent once
+            self.assertEqual(len(got), 1)
+            a._report["at"] = 0
+            status[0] = 429
+            out = a.send_report()
+            self.assertFalse(out["ok"])
+            self.assertIn("Try again tomorrow.", out["message"])                      # the service's own words
+            a.network.hotspot = {"at": 0}                                             # at the setup, on its own Wi-Fi
+            self.assertIn("internet", a.send_report()["message"])
+            self.assertEqual(len(got), 2)
+        finally:
+            a.secure_remote, a.SecureRemote.SERVICE, a.network.hotspot, a.player.status, a.run = real
+            a._report["at"] = 0
+            service.shutdown()
+            service.server_close()
+        with open(os.path.join(BOX, "install.sh")) as f:
+            self.assertIn("$LIB/sofa-box report", f.read())                          # sudo may run it, for the logs
+
     def test_the_phone_remote_over_https_at_home(self):
         """The box gets its own name and certificate (deploy/box-certs, stood in for here) and serves the remote with it."""
         import ssl

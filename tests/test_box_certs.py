@@ -230,6 +230,34 @@ class BoxCerts(unittest.TestCase):
         self.clock[0] += 8 * 86400                                                 # next week
         self.service.cert(dict(newest, csr=self.csr(newest["name"])))
 
+    def test_reports(self):
+        folder = os.path.join(self.dir, "reports")
+        shutil.rmtree(folder, ignore_errors=True)
+        box = self.service.register("203.0.113.5")
+        out = self.service.report(dict(box, report="Sofa Box OS 1.1.7\nthe checks"), "203.0.113.5")
+        self.assertRegex(out["report"], r"^[A-Z2-9]{6}$")                        # the code the TV shows, to ask about it
+        (name,) = os.listdir(folder)
+        self.assertTrue(name.endswith(out["report"] + ".txt"))
+        self.assertEqual(os.stat(os.path.join(folder, name)).st_mode & 0o777, 0o600)
+        with open(os.path.join(folder, name)) as f:
+            self.assertIn("from %s" % box["id"], f.read())
+        with self.assertRaises(self.certs.Refused):                               # only with its secret
+            self.service.report(dict(box, secret="nope", report="x"), "203.0.113.5")
+        with self.assertRaises(self.certs.Refused):
+            self.service.report(dict(box, report=""), "203.0.113.5")
+        with self.assertRaises(self.certs.Refused):
+            self.service.report(dict(box, report="x" * (self.cfg["report_max"] + 1)), "203.0.113.5")
+        self.service.report({"report": "a box with no id"}, "198.51.100.1")       # counted by its address
+        for _ in range(9):
+            self.service.report(dict(box, report="again"), "203.0.113.5")
+        with self.assertRaises(self.certs.Limit):                                  # ten a day
+            self.service.report(dict(box, report="again"), "203.0.113.5")
+        self.service.report({"report": "someone else"}, "203.0.113.5")            # (a box with no id, on the same address)
+        self.cfg["reports_kept"] = 3
+        self.clock[0] += 86400
+        self.service.report(dict(box, report="tomorrow"), "203.0.113.5")
+        self.assertEqual(len(os.listdir(folder)), 3)                               # the newest few hundred are kept
+
     def test_over_http(self):
         self.certs.Handler.service = self.service
         server = ThreadingHTTPServer(("127.0.0.1", 0), self.certs.Handler)
@@ -255,6 +283,9 @@ class BoxCerts(unittest.TestCase):
             status, out = post("/v1/cert", dict(box, csr=self.csr(box["name"])))
             self.assertEqual(status, 200)
             self.assertIn("BEGIN CERTIFICATE", out["cert"])
+            status, out = post("/v1/report", dict(box, report="line\n" * 20000))       # bigger than the other requests
+            self.assertEqual((status, len(out["report"])), (200, 6))
+            self.assertEqual(post("/v1/address", dict(box, ip="10.0.0.2", pad="x" * 20000))[0], 413)
             self.assertEqual(post("/v1/nothing", {})[0], 404)
         finally:
             server.shutdown()

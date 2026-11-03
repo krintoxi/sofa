@@ -1730,7 +1730,83 @@ def local_address():
         s.close()
 
 
+REPORT_URL = re.compile(r"""\b((?:https?|wss?|file)://[^/\s"'<>]*)(/[^/?#\s"'<>]*)?([^\s"'<>]*)""")
+REPORT_PATH = re.compile(r"(?<![\w.:/-])(/(?:media|mnt|run/media|home/[^/\s]+)/)[^\n|]*")
+REPORT_SECRET = re.compile(r"""(?i)\b(secret|password|psk|token|cookie)("?\s*[:=]\s*)("[^"]*"|\S+)""")
+REPORT_MAX = 190000                                         # the certificate service takes 200,000 characters
+_report = {"at": 0}
+
+
+def scrub(text):
+    """What a report says of addresses: their site and first folder (no titles, ids or keys after it); of files on
+    drives and in the box's folders, only where they are; passwords and secrets blanked."""
+    text = REPORT_URL.sub(lambda m: m.group(1) + (m.group(2) or "") + ("/…" if m.group(3) else ""), text)
+    return REPORT_SECRET.sub(r"\1\2•••", REPORT_PATH.sub(r"\1…", text))
+
+
+def report_text():
+    """What Send a report sends: the box and how it's doing, the pages' errors and their video players' messages
+    (Browser.notes), mpv's last words, then the checks and the logs since it started (sofa-box report). No titles:
+    the player's and the pages' aren't in it, and addresses are cut down (scrub); no codes or passwords."""
+    def safely(fn, *args):
+        try:
+            return fn(*args)
+        except Exception as exc:
+            return "(%s)" % exc
+    s = settings()
+    out = ["Sofa Box OS %s (for Sofa's pages: %s), %s" % (OS_VERSION, VERSION, time.strftime("%Y-%m-%d %H:%M:%S %Z")),
+           "board: " + json.dumps(board()),
+           "settings: " + json.dumps({k: s.get(k) for k in list(CHOICES) + ["secure_remote", "shield", "welcomed"]}),
+           "network: " + json.dumps({"wired": safely(network.wired), "address": local_address(), "own_wifi": bool(network.hotspot),
+                                     "problem": network.problem, "joining": network.joining, "phones_on_own_wifi": safely(network.clients)}),
+           "secure remote: " + json.dumps(safely(secure_remote.status)),
+           "phone remote: " + json.dumps({k: v for k, v in (safely(phone.status) if phone else {}).items()
+                                          if k in ("url", "phones", "home_at", "problem")} if phone else None),
+           "Sofa: " + str(server() or "none chosen"),
+           "player: " + json.dumps({k: v for k, v in player.status.items() if k not in ("title", "sub")}),
+           "mpv said: " + " | ".join(getattr(player.proc, "sofa_err", None) or ["(nothing)"])]
+    if browser:
+        out.append("browser: %s, in front: %s" % ("connected" if browser.connected() else "not connected", browser.front_app()))
+        out += ["  %s%s %s" % (t["app"], " (asleep)" if t["frozen"] else "", t["url"]) for t in safely(browser.running) or []]
+        out += ["== The pages and their video players"] + (list(browser.notes) or ["(nothing)"])
+    code, logs = run(["sudo", "-n", os.path.join(HERE, "sofa-box"), "report"], 90)
+    if code != 0 and "== Sofa Box OS" not in logs:            # a box installed before reports: what it can see itself
+        logs = run([os.path.join(HERE, "sofa-box"), "doctor"], 60)[1] + "\n\n" + run(["journalctl", "-b", "--no-pager", "-n", "400"], 30)[1]
+    text = scrub("\n".join(out) + "\n\n" + logs)
+    return text if len(text) <= REPORT_MAX else text[:REPORT_MAX // 3] + "\n…\n" + text[-(REPORT_MAX * 2 // 3 - 10):]
+
+
+def send_report():
+    """Settings -> Help -> Send a report (and the phone's "Something wrong?"): only when someone presses it, to the
+    Sofa Box certificate service, which keeps it for us to read. A box with an id there signs it with its secret."""
+    if SecureRemote.SERVICE == "0":
+        return {"ok": False, "message": "This box has no certificate service to send reports to."}
+    if time.time() - _report["at"] < 30:
+        return {"ok": True, "report": _report.get("code"), "message": "Sent a moment ago: its number is %s." % _report.get("code")}
+    if network.hotspot:
+        return {"ok": False, "message": "The box needs the internet to send a report: give it your Wi-Fi first."}
+    text = report_text()
+    try:
+        os.makedirs(CONF_DIR, exist_ok=True)
+        fd = os.open(os.path.join(CONF_DIR, "last-report.txt"), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+    except OSError:
+        pass
+    acct, body = secure_remote.account(), {"report": text}
+    if acct.get("id"):
+        body.update(id=acct["id"], secret=acct["secret"])
+    try:
+        got = secure_remote.call("/v1/report", body, timeout=60)
+    except (OSError, ValueError) as exc:
+        return {"ok": False, "message": "The report couldn't be sent: %s. Try again in a minute." % exc}
+    _report.update(at=time.time(), code=got.get("report"))
+    return {"ok": True, "report": got.get("report"), "message": "Report sent. Its number is %s." % got.get("report")}
+
+
 def box_action(a, data):
+    if a == "send-report":
+        return send_report()
     if a == "pair-controller":
         threading.Thread(target=lambda: run([os.path.join(HERE, "sofa-box"), "pair-controller"], 60), daemon=True).start()
         return {"ok": True, "message": "Put the controller in pairing mode now (Xbox: hold the pair button until it flashes fast)."}
@@ -1796,7 +1872,7 @@ def module(name):
 
 NATIVE_JS = r"""/* Sofa box: the TV pages get the box's own player (mpv), like Sofa's Fire TV app. */
 (function () {
-  window.SofaBox = { version: "%(version)s", os: "%(os)s", slow: %(slow)s };
+  window.SofaBox = { version: "%(version)s", os: "%(os)s", slow: %(slow)s, theme: "%(theme)s" };
   var html = document.documentElement, onTop = false;
   if (window.SofaBox.slow) {             // a Pi 3: lighter effects, and the banner stays still unless asked
     html.classList.add("box-lite");
@@ -1847,7 +1923,8 @@ NATIVE_JS = r"""/* Sofa box: the TV pages get the box's own player (mpv), like S
 
 
 def native_js():
-    return NATIVE_JS % {"version": VERSION, "os": OS_VERSION, "slow": "true" if light() else "false"}
+    return NATIVE_JS % {"version": VERSION, "os": OS_VERSION, "slow": "true" if light() else "false",
+                        "theme": settings().get("theme") if settings().get("theme") in THEMES else "street"}
 
 
 def finder_page():
@@ -2368,6 +2445,8 @@ class RemoteHandler(BaseHTTPRequestHandler):
                                                  hotspot=bool(network.hotspot))))
             elif path == "/api/wifi/join":
                 return self.send(json.dumps(network.join_soon(data.get("ssid") or "", data.get("password"))))
+            elif path == "/api/report":
+                return self.send(json.dumps(send_report()))
             else:
                 return self.send('{"error":"not found"}', status=404)
         except ValueError as exc:

@@ -358,8 +358,8 @@ deleted. More: [docs/folder-structure.md](docs/folder-structure.md).
   episode on a 2011 iMac, say), the player waits once for a few seconds of video instead of stopping
   every few seconds, then makes the picture a little smaller; Sofa remembers, and starts the next
   one like it at that size. Server → Overview → Watching now shows how fast it's converting.
-- **Make it yours.** Press **Theme** at the top (on a TV: behind your profile picture): Midnight,
-  Cinema, Ocean, Forest, Grape or Pure black, an **accent colour** of your own, **animations**
+- **Make it yours.** Press **Theme** at the top (on a TV: behind your profile picture): Street (the
+  Sofa Box's look, and the one Sofa starts with), Midnight, Cinema, Ocean, Forest, Grape or Pure black, an **accent colour** of your own, **animations**
   (Lively, with rows sliding in as you scroll; Calm; or Off), the **loading screen** (Sofa's, Quick
   or None), subtitle size and TV mode. **Arrange Home** (there, or at the bottom of Home) picks which
   rows Home shows and in which order. Your choices follow you to every screen you sign in on; a

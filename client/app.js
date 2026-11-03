@@ -78,10 +78,15 @@ const byId = new Map();
 let shows = [], movies = [], adultShows = [], adultMovies = [], favs = new Set();
 
 /* ---------- themes (per device; the server sets the default) ---------- */
-const THEMES = [["midnight", "Midnight", "#0A0E1A", "#F4B740"], ["cinema", "Cinema", "#0B0708", "#E5484D"],
+const THEMES = [["street", "Street", "#0D0D10", "#FF2E88"], ["midnight", "Midnight", "#0A0E1A", "#F4B740"], ["cinema", "Cinema", "#0B0708", "#E5484D"],
   ["ocean", "Ocean", "#04131A", "#3CC8D8"], ["forest", "Forest", "#0A120D", "#8BD46E"],
   ["grape", "Grape", "#100A1A", "#C792FF"], ["oled", "Pure black", "#000000", "#F4B740"]];
-/* A choice about how Sofa looks: this device's own if it made one, else the profile's (made on any of
+/* On a Sofa box, Sofa starts in the box's own theme (its "Sofa" is Midnight here; Terminal and Pirate are the box's only). */
+function boxTheme() {
+  const t = window.SofaBox && (window.SofaBox.theme === "sofa" ? "midnight" : window.SofaBox.theme);
+  return THEMES.some(x => x[0] === t) ? t : "";
+}
+const defaultTheme = () => boxTheme() || (session && session.theme) || "street";/* A choice about how Sofa looks: this device's own if it made one, else the profile's (made on any of
    its screens), else Sofa's. Choosing saves it for both. */
 function lookPref(key, def) {
   const mine = prefs.get(key, null);
@@ -112,21 +117,24 @@ function applyMotion(m) {
 }
 const motion = () => REDUCED ? "off" : lookPref("motion", "lively");
 function applyLook() {
-  applyTheme(lookPref("theme", (session && session.theme) || "midnight"));
+  applyTheme(lookPref("theme", defaultTheme()));
   applyAccent(lookPref("accent", ""));
   applyMotion(motion());
   try { localStorage.setItem("sofa.splashBoot", JSON.stringify(lookPref("splash", "full"))); } catch (e) {}  // for the next start
 }
 function applyTheme(name) {
-  if (!THEMES.some(t => t[0] === name)) name = "midnight";
+  if (!THEMES.some(t => t[0] === name)) name = "street";
   if (name === "midnight") document.documentElement.removeAttribute("data-theme");
   else document.documentElement.setAttribute("data-theme", name);
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.content = THEMES.find(t => t[0] === name)[2];
+  prefs.set("shownTheme", name);                       // for the next start's first moment (index.html)
 }
-applyTheme(prefs.get("theme", "midnight"));
+applyTheme(prefs.get("theme", boxTheme() || prefs.get("shownTheme", "street")));
 applyAccent(prefs.get("accent", ""));
 applyMotion(REDUCED ? "off" : prefs.get("motion", "lively"));
 function appearanceDialog() {
-  const cur = lookPref("theme", (session && session.theme) || "midnight"), sub = prefs.get("subSize", "m");
+  const cur = lookPref("theme", defaultTheme()), sub = prefs.get("subSize", "m");
   const accent = (lookPref("accent", "") || "").toUpperCase(), mo = motion(), splash = lookPref("splash", "full");
   const choice = (attr, v, label, on) => `<button ${attr}="${v}" aria-pressed="${on}">${label}</button>`;
   const d = openDialog(`<h2>Look and feel</h2><p>Yours, on every screen you use. Everyone can pick their own.</p>

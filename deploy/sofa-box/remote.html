@@ -66,6 +66,8 @@
     -webkit-user-select: text; user-select: text; }
   .btn { padding: 15px 22px; border-radius: 16px; background: var(--a); color: #fff; font-weight: 700; text-align: center; }
   .btn.ghost { background: var(--bg2); color: var(--fg); }
+  .report { display: block; margin: 28px auto 0; color: var(--mist); font-size: 14px; text-decoration: underline; text-underline-offset: 3px; }
+  #reportMsg { text-align: center; margin-top: 8px; }
   .pair { text-align: center; display: grid; gap: 14px; }
   .pair h1 { margin: 0; font-size: 28px; letter-spacing: -.02em; }
   .pair p { margin: 0; color: var(--mist); }
@@ -136,6 +138,8 @@
       <button class="key" data-vol="mute" aria-label="Mute"><svg><use href="#mute"/></svg></button>
       <button class="key" data-vol="5" aria-label="Louder"><svg><use href="#volup"/></svg></button>
     </div>
+    <button class="report" id="reportBtn">Something wrong? Send a report</button>
+    <div class="msg" id="reportMsg"></div>
   </section>
 
   <section id="tab-type" class="type" hidden>
@@ -328,6 +332,24 @@
       $("wifiMsg").textContent = r.ok ? "The box is joining " + wifiSsid + ". This phone goes back to your own Wi-Fi now: then scan the new code on the TV."
         : (r.message || "That didn't work.");
     } catch (e) { joining = wifiSsid; /* the box left this network: that's expected */ }
+  });
+
+  // Something wrong: the box's checks and logs to the Sofa Box team (a black screen can leave the TV's Settings out
+  // of reach). The first tap says what it sends; the second sends it.
+  let reportArmed = false;
+  $("reportBtn").addEventListener("click", async () => {
+    const m = $("reportMsg");
+    if (!reportArmed) {
+      reportArmed = true; $("reportBtn").textContent = "Send it";
+      m.textContent = "Sends the Sofa Box team what the box checks and has logged since it started (no titles, passwords or codes). Before restarting it: a restart clears the logs.";
+      return;
+    }
+    reportArmed = false; $("reportBtn").textContent = "Something wrong? Send a report";
+    m.textContent = "Putting the report together and sending it… (up to a minute)";
+    try {
+      const r = await (await post("/api/report")).json();
+      m.textContent = r.message || (r.ok ? "Report sent." : "That didn't work.");
+    } catch (e) { m.textContent = "Can't reach the box."; }
   });
 
   // Once, after connecting: how to keep it like an app (it opens full screen from the Home Screen).
