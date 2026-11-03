@@ -27,6 +27,24 @@ Only the name of a show or movie is sent when looking up details (never who's wa
 your files). Suggestions ("More like this", "Because you watched") are worked out by Sofa at
 home.
 
+### On a Sofa Box
+
+The box itself has no account, no ads and no tracking. What it fetches from the internet, besides the
+apps and sites you open on it:
+
+| What | Talks to | Switch it off |
+|---|---|---|
+| Is a newer Sofa Box OS out? | GitHub, once a day (reads one small file) | — |
+| Featured public Sofas | GitHub, once a day | — |
+| Sofa Shield's blocklist | GitHub (StevenBlack's list), once a week | Settings → Sofa Shield |
+| Update the box | GitHub, only when you press it | — |
+| App Store icons | each app's own site, once, the first time the store is opened | — |
+| Live TV channel lists | iptv-org | Don't open Live TV |
+| The secure (https) phone remote | the Sofa Box certificate service (boxcert.edgeventure.uk), about once a day: a random id and the box's address on your network | Settings → Remotes and Bluetooth → Switch off |
+
+The secure phone remote's name (random letters) is listed in the public certificate logs, as every
+certificate is. Its key stays on the box.
+
 ### Work offline
 
 **Server → Settings → Privacy → Work offline.** Sofa then never uses the internet: no lookups,

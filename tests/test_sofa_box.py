@@ -16,6 +16,7 @@ import unittest
 import urllib.error
 import urllib.request
 from http.cookiejar import CookieJar
+from http.server import BaseHTTPRequestHandler
 
 import tests
 from tests import LIBRARY, video
@@ -183,7 +184,7 @@ class Agent(unittest.TestCase):
     def start_agent(mpv, conf, port, **env):
         return subprocess.Popen([sys.executable, os.path.join(BOX, "sofa-box-agent.py")], stderr=subprocess.DEVNULL,
                                 env=dict(os.environ, SOFA_BOX_CONF=conf, SOFA_BOX_PORT=str(port), SOFA_BOX_MPV=mpv, SOFA_BOX_UINPUT="0",
-                                         SOFA_BOX_HOTSPOT="0", SOFA_BOX_NEWEST="0", SOFA_BOX_LOCAL_DATA=os.path.join(conf, "local-sofa"),
+                                         SOFA_BOX_HOTSPOT="0", SOFA_BOX_NEWEST="0", SOFA_BOX_CERTS="0", SOFA_BOX_LOCAL_DATA=os.path.join(conf, "local-sofa"),
                                          SOFA_BOX_MPV_ARGS="--vo=null --ao=null --force-window=no", **env))
 
     @classmethod
@@ -859,6 +860,78 @@ class BoxNetwork(unittest.TestCase):
                 srv.shutdown()
                 srv.server_close()
             a.on_own_wifi, a.network.hotspot, a.phone = real
+
+    @unittest.skipUnless(shutil.which("openssl"), "needs the openssl command")
+    def test_the_phone_remote_over_https_at_home(self):
+        """The box gets its own name and certificate (deploy/box-certs, stood in for here) and serves the remote with it."""
+        import ssl
+        from tests.test_box_certs import TestCA
+        a, work = self.agent, tempfile.mkdtemp()
+        ca, asked = TestCA(work), []
+
+        class Service(BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def do_POST(self):
+                data = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                asked.append((self.path, data.get("ip")))
+                out = {"/v1/register": {"id": "k3x9q2abcd", "secret": "s3cret", "name": "k3x9q2abcd.box.edgeventure.uk"},
+                       "/v1/address": {"ok": True}}.get(self.path) or {"cert": ca.sign(data["csr"])}
+                body = json.dumps(out).encode()
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+        service = a.Server(("127.0.0.1", 0), Service)
+        threading.Thread(target=service.serve_forever, daemon=True).start()
+        real = a.secure_remote, a.phone, a.resolves_to, a.SecureRemote.SERVICE, a.SecureRemote.PORT
+        a.SecureRemote.SERVICE, a.SecureRemote.PORT = "http://127.0.0.1:%d" % service.server_address[1], 0
+        a.secure_remote, a.phone = a.SecureRemote(), a.PhoneRemote()
+        a.resolves_to = lambda name, ip: True
+        r = a.secure_remote
+        try:
+            self.address = "192.168.1.30"
+            r.step()
+            self.assertEqual([p for p, _ in asked], ["/v1/register", "/v1/address", "/v1/cert"])
+            self.assertEqual(asked[1][1], "192.168.1.30")                            # its address here, and nothing else
+            self.assertEqual(r.status()["state"], "ready")
+            port = r.server.server_address[1]
+            self.assertEqual(a.phone.url(), "https://k3x9q2abcd.box.edgeventure.uk:0")   # (PORT 0 here: a free one)
+            ctx = ssl.create_default_context(cafile=ca.cert)                            # a phone that trusts the certificate's CA
+            with socket.create_connection(("127.0.0.1", port), timeout=10) as raw:
+                with ctx.wrap_socket(raw, server_hostname="k3x9q2abcd.box.edgeventure.uk") as tls:
+                    tls.sendall(b"GET / HTTP/1.1\r\nHost: k3x9q2abcd.box.edgeventure.uk\r\nConnection: close\r\n\r\n")
+                    page = b""
+                    while True:
+                        chunk = tls.recv(65536)
+                        if not chunk:
+                            break
+                        page += chunk
+            self.assertTrue(page.startswith(b"HTTP/1.1 200"))
+            self.assertIn(b"<title>", page)
+            for f in ("key.pem", "cert.pem", "account.json"):
+                self.assertEqual(os.stat(r.path(f)).st_mode & 0o777, 0o600)
+            r.step()                                                                    # fresh: nothing asked again
+            self.assertEqual(len(asked), 3)
+            self.address = "192.168.1.31"                                              # a new address: the name follows it
+            r.step()
+            self.assertEqual(asked[-1], ("/v1/address", "192.168.1.31"))
+            a.resolves_to = lambda name, ip: False                                     # a router that blocks it: plain http
+            r.step()
+            self.assertEqual(r.status()["state"], "router")
+            self.assertEqual(a.phone.url(), "http://192.168.1.31:8092")
+            a.save_settings(secure_remote=False)                                      # switched off in Settings
+            r.step()
+            self.assertIsNone(r.server)
+            self.assertEqual(r.status()["state"], "off")
+        finally:
+            r.stop()
+            service.shutdown()
+            service.server_close()
+            a.save_settings(secure_remote=True)
+            a.secure_remote, a.phone, a.resolves_to, a.SecureRemote.SERVICE, a.SecureRemote.PORT = real
+            shutil.rmtree(work, ignore_errors=True)
 
     def test_its_version(self):
         with open(os.path.join(BOX, "VERSION")) as f:
