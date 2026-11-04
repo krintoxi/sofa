@@ -17,23 +17,32 @@ You can also copy things into its folders yourself, in the usual layout; Sofa pi
 A drive that already has a Sofa library (from this or another computer) shows **Connect its
 Sofa library** instead.
 
-## A drive as it is (Sofa on a Sofa Box)
+## A USB drive, sorted for you (Sofa on a Sofa Box)
 
-On a **Sofa Box**, Sofa on the box takes every USB drive you plug in by itself, **as it is**: no
-Sofa Library folder, nothing to press. It reads the drive's own folders, whatever they're called:
+On a **Sofa Box**, Sofa on the box takes every USB drive you plug in by itself: no Sofa Library folder,
+nothing to press. It sorts what's on it the way the **Inbox** sorts (the same names, the same show and
+movie matching), but it **doesn't move anything**: where the Inbox would move a video into the library,
+Sofa puts a *link* to it in a folder of its own on the box (`data/drives/<drive>/Shows/<Show>/Season 1/…`,
+`Movies/<Title (Year)>/…`). The drive's folders can be called anything:
 
-- a folder that looks like a show (Season folders, or videos named like `Show.S01E02`) is a show;
-  one called **TV**, **Shows** or **Series** holds shows;
-- everything else is movies: movie folders, loose videos (right on the drive too) and collections;
-- a folder like "Downloads" full of one show's episodes is named for that show;
-- folders called **Adult** or **XXX** are left out (on a drive, nobody chose who may see them).
+- videos named like episodes (`Show.S01E02`, `Season 1/01 Pilot.mkv`, `BB.S01E01` in `Breaking Bad/`)
+  join their show, wherever they are on the drive; movies are named from the file or its folder;
+- folders that only hold other things (**Movies**, **Films**, **TV**, **Shows**, **Downloads**…) are
+  looked inside, so each movie or show in them is sorted on its own; a folder of several films
+  ("Star Wars Collection") stays a collection;
+- anything Sofa can't identify still shows, as a movie named after the file;
+- folders called **Adult** or **XXX** are left out (on a drive, nobody chose who may see them), and so is
+  music (it's in Files).
 
-Sofa never moves, renames or deletes anything on such a drive, and doesn't file new things there; it
-may put the usual pictures (`folder.jpg`, `backdrop.jpg`) next to videos, as other players do. Under
-Server → Storage it says **USB, as it is**. Unplugged, it drops out until it's back (same as any drive);
-**Stop using** keeps it out from then on, even when it's plugged in again.
+Sofa never moves, renames or deletes anything on the drive, never converts its videos, and doesn't file
+new things there; posters and pictures go in its folder on the box. Something added to the drive later is
+sorted in a few seconds (only what changed is looked at again), and something removed drops out with
+its posters. Under Server → Storage it says **USB drive**. Unplugged, it drops out until it's back (same
+as any drive, and what's been watched is kept); **Stop using** removes its links and keeps it out from
+then on, even when it's plugged in again.
 
 This is the `auto_drives` setting (`data/config.json`), on for Sofa on a Sofa Box and off elsewhere.
+Drives that earlier versions read as they were are sorted this way by themselves.
 
 ## Where new things go
 

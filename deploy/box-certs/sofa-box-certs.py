@@ -34,6 +34,7 @@ import json
 import os
 import re
 import secrets
+import socket
 import ssl
 import subprocess
 import sys
@@ -61,6 +62,7 @@ DEFAULTS = {
     "register_per_day": 500,
     "report_max": 200000,                         # a report's size (characters)
     "relay_base": "https://boxcert.edgeventure.uk",   # where phones open a box's remote (boxes are told: it can change)
+    "reach_per_hour": 20,                         # "Check from outside" (a Sofa, or a box's Sofa), from one address
     "reports_per_day": 10,                        # from one box (or one address, for a box with no id yet)
     "reports_kept": 300,
 }
@@ -407,6 +409,61 @@ class Service:
         return {"ok": True, "name": name, "cert": chain, "expires": int(expires)}
 
 
+    def reach(self, data, client):
+        """Does a Sofa answer from the internet? Asked from here, outside the home: only Sofa's /api/info, only at a
+        public address (the one checked is the one connected to: no name that changes its mind), a few times an hour
+        from one asker; it says only what happened, nothing from the far end."""
+        p = urllib.parse.urlsplit(str(data.get("url") or ""))
+        if p.scheme not in ("https", "http") or not p.hostname or p.username or p.password:
+            raise Refused("An address like https://sofa.example.com.")
+        try:
+            port = p.port or (443 if p.scheme == "https" else 80)
+        except ValueError:
+            raise Refused("That port isn't a number.")
+        now = self.now()
+        with self.boxes.lock:
+            self.reached = [(t, c) for t, c in getattr(self, "reached", []) if now - t < 3600]
+            if sum(1 for _, c in self.reached if c == client) >= self.cfg["reach_per_hour"]:
+                raise Limit("Checked a lot from here this hour. Try again later.")
+            self.reached.append((now, client))
+        try:
+            ips = [a[4][0] for a in socket.getaddrinfo(p.hostname, port, type=socket.SOCK_STREAM)]
+        except OSError:
+            return {"ok": False, "why": "name", "message": "%s doesn't lead anywhere yet: its DNS record isn't there (or hasn't spread yet)." % p.hostname}
+        public = [ip for ip in ips if ipaddress.ip_address(ip.split("%")[0]).is_global]
+        if not public:
+            return {"ok": False, "why": "private", "message": "%s points at a home-network address, not at your home's internet address." % p.hostname}
+        ip = public[0]
+        try:
+            raw = socket.create_connection((ip, port), timeout=8)
+        except OSError:
+            return {"ok": False, "why": "closed", "ip": ip, "message": "Nothing answers at %s on port %d from the internet: the router isn't sending "
+                    "that port to Sofa (or the internet provider shares one address between homes)." % (ip, port)}
+        try:
+            if p.scheme == "https":
+                try:
+                    sock = ssl.create_default_context().wrap_socket(raw, server_hostname=p.hostname)
+                except ssl.SSLError as exc:
+                    raw.close()
+                    return {"ok": False, "why": "certificate", "ip": ip, "message": "It answers, but its certificate isn't valid for %s (%s)." % (p.hostname, exc.reason or "rejected")}
+            else:
+                sock = raw
+            sock.settimeout(8)
+            sock.sendall(("GET /api/info HTTP/1.1\r\nHost: %s\r\nUser-Agent: Sofa outside check\r\nConnection: close\r\n\r\n" % p.hostname).encode())
+            reply = b""
+            while len(reply) < 65536:                  # (Connection: close: the whole short answer, then the end)
+                chunk = sock.recv(4096)
+                if not chunk:
+                    break
+                reply += chunk
+            sock.close()
+        except OSError as exc:
+            return {"ok": False, "why": "closed", "ip": ip, "message": "The connection broke off (%s)." % exc}
+        status_line = reply.split(b"\r\n", 1)[0].decode("latin-1")
+        sofa = status_line.split(" ")[1:2] == ["200"] and re.search(rb'"sofa"\s*:\s*true', reply.partition(b"\r\n\r\n")[2]) is not None
+        return {"ok": sofa, "why": None if sofa else "not-sofa", "ip": ip,
+                "message": "Sofa answers from the internet." if sofa else "Something answers there, but it isn't Sofa (%s)." % status_line[:60]}
+
     def relay_poll(self, data):
         self.box(data)
         wait = RELAY_WAIT if data.get("wait") is None else max(0.0, min(RELAY_WAIT, float(data["wait"])))
@@ -546,6 +603,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path.startswith("/r/"):
             return self.phone()
+        if self.path == "/v1/ip":                         # a home's internet address, as the internet sees it
+            return self.reply(200, {"ip": self.client()})
         if self.path == "/v1/health":
             return self.reply(200, {"ok": True, "base": self.service.cfg["base"]})
         self.reply(404, {"error": "Not here."})
@@ -630,6 +689,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(400, {"error": "Not JSON."})
         route = {"/v1/register": lambda: self.service.register(self.client()), "/v1/address": lambda: self.service.address(data),
                  "/v1/cert": lambda: self.service.cert(data), "/v1/report": lambda: self.service.report(data, self.client()),
+                 "/v1/reach": lambda: self.service.reach(data, self.client()),
                  "/v1/relay/poll": lambda: self.service.relay_poll(data),
                  "/v1/relay/answer": lambda: self.service.relay_answer(data)}.get(self.path)
         if not route:

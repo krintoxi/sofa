@@ -7,6 +7,32 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.15
+
+- **USB drives are sorted like the Inbox sorts, without touching them.** Plug a drive into the box and Sofa
+  on the box finds every show and movie on it, whatever its folders are called: episodes named like
+  `Show.S01E02` anywhere on it join their show, folders like Movies, TV or Downloads are looked inside, and
+  anything it can't identify still shows, named after the file. It's done with links in a folder on the
+  box, named as the Inbox names things: nothing on the drive is moved, renamed, converted or deleted, and
+  its posters stay on the box. Only what changed on the drive is looked at again; something removed drops
+  out with its posters. Drives the box already had are sorted this way by themselves.
+- **Episodes named with initials** (`BB.S01E01` in a `Breaking Bad` folder) join the folder's show, on drives
+  and in the Inbox (they used to make a show called "BB").
+- **Sofa on this box, from anywhere** (Settings): the box's own Sofa opens to the internet from the TV, like
+  Sofa on any computer: a DuckDNS address or your own domain, the router asked to send the ports, a Let's
+  Encrypt certificate, the internet let in, and a check from outside, each step on screen. A box that's
+  open starts its Sofa when it starts. **Make it home only** closes it.
+- **Sofa, open to the world:**
+  - A DuckDNS address gets its certificate over DNS (DuckDNS's check record), so only port 443 needs
+    opening; many internet providers block port 80.
+  - **Check from outside** (Server → Internet) asks the Sofa Box service whether your address answers with
+    Sofa from the internet, and says what's wrong when it doesn't (no DNS record yet, a home address,
+    nothing answering, a wrong certificate, something that isn't Sofa).
+  - It warns when the internet provider shares one address between homes (carrier-grade NAT) or there's a
+    second router in front: no port can be opened then, and a VPN like Tailscale is the way in.
+  - The guide, [docs/remote-access.md](../../docs/remote-access.md), is new: each step, the ports to
+    forward, and what to do when the router or the provider is in the way.
+
 ## 1.1.14
 
 - **The secure phone remote goes through the Sofa Box service's relay.** The QR code to keep the remote is

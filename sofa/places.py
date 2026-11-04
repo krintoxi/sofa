@@ -12,9 +12,10 @@ Season 2 on a drive is one show. A drive that's unplugged just drops out until i
 (watch progress isn't lost). The Inbox files new things into the place chosen under
 Server → Storage; new episodes of a show that's already on a drive go to that drive.
 
-A drive can also be read as it is ("as_is": a Sofa Box's USB drives, added by themselves with auto_drives): its
-own folders, whatever they're called (library.py, _scan_drive). Sofa never moves, renames or deletes anything on
-it, and doesn't file new things there; it may add the usual pictures (folder.jpg) next to videos.
+A USB drive can also join as it is (a Sofa Box's, added by themselves with auto_drives): Sofa sorts what's on it
+the way the Inbox sorts (organizer.link_drive), but with links in a folder of its own on this computer
+(data/drives/<id>/Shows/..., the place's "path") to the files on the drive (its "drive"). Nothing on the drive is
+moved, renamed or deleted, and nothing new goes on it; its pictures live in that folder too.
 """
 import hashlib
 import json
@@ -47,29 +48,38 @@ def extra():
 
 
 def connected(place):
+    if place.get("drive"):                       # a USB drive sorted with links: only while it's plugged in
+        return os.path.isdir(place["drive"]) and _is_drive(place["drive"]) and os.path.isdir(place["path"])
     return os.path.isdir(place["path"])
 
 
 def section(key, place=None):
-    """The Shows/Movies/... folder of a place (None: the main one; a drive read as it is: the drive itself)."""
+    """The Shows/Movies/... folder of a place (None: the main one)."""
     if not place:
         return config.path(key)
-    if place.get("as_is"):
-        return place["path"]
     return os.path.join(place["path"], SECTIONS[key])
 
 
-def as_is():
-    """The drives read as they are, plugged in now."""
-    return [p for p in extra() if p.get("as_is") and connected(p)]
+def usb():
+    """The USB drives sorted with links, plugged in now."""
+    return [p for p in extra() if p.get("drive") and connected(p)]
+
+
+def on_usb(path):
+    """Is this a link to a file on a USB drive (which Sofa never changes)?"""
+    p = place_of(path)
+    return bool(p and p.get("drive"))
+
+
+def tree_for(pid):
+    return os.path.join(config.DATA_DIR, "drives", pid)
 
 
 def roots(key):
-    """[(art key, folder)] for a section: the main folder first, then each connected drive's (not the drives read
-    as they are: the library reads those its own way)."""
+    """[(art key, folder)] for a section: the main folder first, then each connected drive's."""
     out = [(key, config.path(key))]
     for p in extra():
-        if p.get("as_is"):
+        if not connected(p):
             continue
         d = section(key, p)
         if os.path.isdir(d):
@@ -184,8 +194,8 @@ def drives():
             d["fat32"] = d["fs"] in ("msdos", "vfat", "fat32", "fat")
             lib = os.path.join(path, DEFAULT_FOLDER)
             d["existing"] = lib if os.path.isfile(os.path.join(lib, MARKER)) else None
-            d["in_use"] = any(os.path.abspath(p["path"]).startswith(os.path.abspath(path) + os.sep) or
-                              os.path.abspath(p["path"]) == os.path.abspath(path) for p in extra())
+            d["in_use"] = any(os.path.abspath(p.get("drive") or p["path"]).startswith(os.path.abspath(path) + os.sep) or
+                              os.path.abspath(p.get("drive") or p["path"]) == os.path.abspath(path) for p in extra())
             out.append(d)
     return out
 
@@ -230,17 +240,31 @@ def add(path, name=None, new_here=False):
 
 
 def add_drive(path, name=None):
-    """A drive read as it is: its own folders, nothing made on it. Its id comes from where it's mounted, so a drive
-    unplugged and plugged in again is the same place (and keeps what's been watched). None if it's used already."""
+    """A USB drive as it is: sorted with links on this computer, nothing made on it. Its id comes from where it's
+    mounted, so a drive unplugged and plugged in again is the same place (and keeps what's been watched). None if
+    it's used already."""
     path = os.path.abspath(path)
-    if any(os.path.abspath(p["path"]) == path for p in extra()):
+    if any(os.path.abspath(p.get("drive") or p["path"]) == path for p in extra()):
         return None
     pid = "usb" + hashlib.sha1(path.encode()).hexdigest()[:8]
     name = (name or os.path.basename(path) or "Drive").strip()[:40]
+    os.makedirs(tree_for(pid), exist_ok=True)
     with _lock:
-        config.update({"places": [p for p in extra() if p["id"] != pid] + [{"id": pid, "name": name, "path": path, "as_is": True}]})
-    store.log("settings", "Reading the drive %s (%s) as it is" % (name, path))
+        config.update({"places": [p for p in extra() if p["id"] != pid] + [{"id": pid, "name": name, "path": tree_for(pid), "drive": path}]})
+    store.log("settings", "Sorting the drive %s (%s) into the library, as it is" % (name, path))
     return pid
+
+
+def _from_as_is():
+    """Drives that 1.1.10 to 1.1.14 read as they were ("as_is"): sorted with links from now on."""
+    old = [p for p in extra() if p.get("as_is")]
+    if not old:
+        return
+    for p in old:
+        os.makedirs(tree_for(p["id"]), exist_ok=True)
+    with _lock:
+        config.update({"places": [{"id": p["id"], "name": p["name"], "path": tree_for(p["id"]), "drive": p["path"]}
+                                  if p.get("as_is") else p for p in extra()]})
 
 
 def _is_drive(path):
@@ -249,11 +273,12 @@ def _is_drive(path):
 
 def auto_drives():
     """With auto_drives on (Sofa on a Sofa Box): every drive that's mounted now and isn't in the library yet joins
-    it, read as it is (one that's a Sofa library already, as one). Only looks at what's mounted: nothing is written
-    to the drives to find out. Returns the ids added."""
+    it, sorted with links and left as it is (one that's a Sofa library already, as one). Only looks at what's
+    mounted: nothing is written to the drives. Returns the ids added."""
+    _from_as_is()
     if not config.get("auto_drives"):
         return []
-    have = [os.path.abspath(p["path"]) for p in extra()]
+    have = [os.path.abspath(p.get("drive") or p["path"]) for p in extra()]
     ignored = set(config.get("drives_ignored") or [])
     added = []
     for folder in _drive_folders():
@@ -285,19 +310,21 @@ def remove(pid):
         return
     with _lock:
         changes = {"places": [x for x in extra() if x["id"] != pid]}
-        if p.get("as_is"):
-            changes["drives_ignored"] = sorted(set(config.get("drives_ignored") or []) | {os.path.abspath(p["path"])})
+        if p.get("drive"):
+            changes["drives_ignored"] = sorted(set(config.get("drives_ignored") or []) | {os.path.abspath(p["drive"])})
         if config.get("file_new_to") == pid:
             changes["file_new_to"] = ""
         config.update(changes)
+    if p.get("drive") and os.path.abspath(p["path"]) == os.path.abspath(tree_for(pid)):
+        shutil.rmtree(p["path"], ignore_errors=True)     # its links and pictures, on this computer
     store.log("settings", "Stopped using %s for the library (its files are still on the drive)" % p["name"])
 
 
 def set_target(pid):
     if pid and not by_id(pid):
         raise ValueError("That drive isn't one Sofa uses.")
-    if pid and by_id(pid).get("as_is"):
-        raise ValueError("Sofa reads that drive as it is: it doesn't put new things on it.")
+    if pid and by_id(pid).get("drive"):
+        raise ValueError("Sofa uses that drive as it is: it doesn't put new things on it.")
     config.update({"file_new_to": pid or ""})
 
 
@@ -322,7 +349,7 @@ def status(library):
                  "counts": counts.get("", {})}, **main_space)]
     for p in extra():
         d = {"id": p["id"], "name": p["name"], "path": p["path"], "connected": connected(p), "counts": counts.get(p["id"], {}),
-             "as_is": bool(p.get("as_is"))}
+             "usb": bool(p.get("drive"))}
         if d["connected"]:
             try:
                 du = shutil.disk_usage(p["path"])
@@ -357,8 +384,8 @@ def move(folder, key, to_pid, title, private=False):
     dest_place = by_id(to_pid) if to_pid else None
     if to_pid and not dest_place:
         raise ValueError("That drive isn't one Sofa uses.")
-    if (dest_place or {}).get("as_is") or (src_place or {}).get("as_is"):
-        raise ValueError("Sofa reads that drive as it is: it doesn't move things on or off it.")
+    if (dest_place or {}).get("drive") or (src_place or {}).get("drive"):
+        raise ValueError("Sofa uses that drive as it is: it doesn't move things on or off it.")
     if dest_place and not connected(dest_place):
         raise ValueError("%s isn't plugged in." % dest_place["name"])
     if (src_place or {}).get("id") == (dest_place or {}).get("id"):

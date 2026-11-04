@@ -58,7 +58,7 @@ def candidates(library):
     """Library videos that don't play as-is on an ordinary browser or TV (needs probes; unprobed files are skipped)."""
     out = []
     for item in list(library.items.values()):
-        if item["kind"] not in VIDEO_KINDS:
+        if item["kind"] not in VIDEO_KINDS or places.on_usb(item["path"]):    # (a USB drive is never changed)
             continue
         info = media.probe(item["path"], cached_only=True)
         if info is None and item["ext"] in ("mp4", "m4v"):
@@ -86,6 +86,8 @@ def enqueue(items, reason="requested"):
     _table()
     added = 0
     for item in items:
+        if places.on_usb(item["path"]):
+            continue
         if reason != "automatic":
             _asked.add(item["path"])
         row = store.q1("SELECT state FROM conversions WHERE path = ?", item["path"])

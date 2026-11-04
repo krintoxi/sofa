@@ -425,6 +425,40 @@
     try { boxInfo = await api("/box/api/info"); boxInfo.shield = await api("/box/api/shield"); } catch (e) { boxInfo = { error: e.message }; }
     if (location.hash.startsWith("#/settings") || location.hash.startsWith("#/welcome")) render(true);
   }
+  // Sofa on this box, from anywhere: the box opens its own Sofa to the internet (an address, the router, a certificate,
+  // the internet let in, a look from outside), the way Sofa does on any computer, in a few presses.
+  let thisBox = null, thisBoxTimer = 0;
+  async function loadThisBox() {
+    try { thisBox = await api("/box/api/thisbox/internet"); } catch (e) { thisBox = { error: e.message }; }
+    const busy = thisBox.progress && thisBox.progress.busy;
+    const card = $("#thisBoxCard");
+    if (card) card.outerHTML = thisBoxCard();
+    clearTimeout(thisBoxTimer);
+    if (busy || (thisBox.internet && thisBox.internet.outside && thisBox.internet.outside.busy)) thisBoxTimer = setTimeout(loadThisBox, 3000);
+  }
+  function thisBoxCard() {
+    if (!thisBox) { setTimeout(loadThisBox, 0); return `<section class="card" id="thisBoxCard"><h3>Sofa on this box, from anywhere</h3><p class="small">Loading…</p></section>`; }
+    const t = thisBox, n = t.internet || {}, h = n.https || {}, o = n.outside || {}, pr = t.progress || {};
+    const head = `<section class="card" id="thisBoxCard"><h3>Sofa on this box, from anywhere</h3>`;
+    if (!t.available) return "";
+    if (!t.running) return head + `<p>Sofa on this box (This box) plays your USB drives and free Live TV. ${t.public ? "It's open to the internet; it starts with the box." : "Open it once (Sofa → This box), and it can be opened to the internet from here too, so you can watch it anywhere."}</p></section>`;
+    const tick = (v, yes, no) => v === true ? `<li class="okay">✓ ${yes}</li>` : v === false ? `<li class="bad">✗ ${no}</li>` : "";
+    const open = n.remote === "public", where = h.domain ? "https://" + h.domain : "";
+    const lan = t.address || "the box";
+    return head + `<p>${open ? `Open to the internet at <b>${esc(where)}</b>: sign in there from anywhere (everyone needs their own account; the Server page stays home-only).`
+        : "Watch Sofa on this box away from home, from a phone or a computer, at your own address: a free one from duckdns.org, or your own domain. Everything goes over HTTPS, and everyone signs in."}</p>
+      ${pr.busy ? `<p class="small looking"><i class="spin"></i><span>${esc(pr.step || "Working")}…</span></p>` : ""}${pr.error ? `<p class="small bad">${esc(pr.error)}</p>` : ""}
+      ${open ? "" : `<p class="small">Your address: on your phone, sign in at <b>duckdns.org</b>, make a name, and copy its token. Or use a domain you own (point it at your home).</p>
+        <div class="add-site"><input class="field" id="tbDomain" value="${esc(h.domain || "")}" placeholder="yourname.duckdns.org" spellcheck="false" autocomplete="off">
+          <input class="field" id="tbToken" type="password" placeholder="${n.duckdns_token ? "DuckDNS token: saved" : "DuckDNS token"}" autocomplete="off"></div>`}
+      <ul class="tb-checks">${h.domain && n.public_ip ? tick(n.points_here, esc(h.domain) + " points at your home", esc(h.domain) + " doesn't point at your home yet") : ""}
+        ${n.upnp && n.upnp.at ? tick(n.upnp.ok, "The router sends the ports to the box", "The router didn't take the request: in its settings, forward port <b>443</b> to " + esc(lan) + ":" + esc(t.https_port) + (n.dns_check ? "" : " and <b>80</b> to " + esc(lan) + ":" + esc(t.port))) : ""}
+        ${h.mode === "letsencrypt" && (h.trusted || h.error) ? tick(h.trusted, "Certificate from Let's Encrypt", "No certificate yet") : ""}
+        ${o.at && o.reach ? tick(o.reach.ok, "Answers from the internet", esc(o.reach.message)) : ""}
+        ${o.shared ? `<li class="bad">✗ Your internet provider shares one address between homes: no port can be opened. Ask them for a public address, or use Tailscale.</li>` : ""}</ul>
+      <div class="choices">${open ? `<button class="btn" data-tb="check">Check from outside</button><button class="btn danger" data-tb="close">Make it home only</button>`
+        : `<button class="btn primary" data-tb="open"${pr.busy ? " disabled" : ""}>Open it to the internet</button>`}</div></section>`;
+  }
   function viewSettings() {
     if (!servers) loadServers();
     if (!setup) loadSetup().then(() => { if (location.hash.startsWith("#/settings")) render(true); });
@@ -443,6 +477,7 @@
           <button class="mini" data-default="${esc(x.id)}"${servers.default === x.id && !servers.ask ? " disabled" : ""}>Opens with this</button>
           ${x.where === "box" ? "" : `<button class="mini" data-forget-server="${esc(x.id)}">Remove</button>`}</div>`).join("") || `<p>None yet.</p>`}</div>` : `<p>Loading…</p>`}
         <div class="choices" style="margin-top:.8rem"><button class="btn" data-go="#/sofa">${icon("#i-plus")}Add a server</button></div></section>
+      ${thisBoxCard()}
       <section class="card"><div class="toggle-row"><div><h3>Sofa Shield</h3><p>Keeps ads and trackers out of every app and the browser${b.shield.on ? ": " + b.shield.sites.toLocaleString() + " sites blocked" : ""}.</p></div>
         <button class="switch" role="switch" aria-checked="${!!b.shield.wanted}" data-shield="1" aria-label="Sofa Shield"></button></div></section>
       <section class="card"><h3>Picture and sound</h3><p>${b.learned_720 && s.quality === "auto" ? "Videos come as 720p: 1080p dropped frames here. " : ""}Sofa sends what the box plays smoothly.</p>
@@ -822,6 +857,7 @@
     else if (input.id === "siteUrl") $("[data-add-site]").click();
     else if (input.id === "boxName") $("[data-save-name]").click();
     else if (input.id === "wxPlace") $("[data-wx-find]").click();
+    else if (input.id === "tbDomain" || input.id === "tbToken") $("[data-tb='open']").click();
     else if (input.id === "sheetText") $("[data-sheet='ok']").click();
     else if (input.id === "wifiPass") $("[data-wifi-go]").click();
     else if (input.dataset.wifiPass !== undefined) $("[data-wifi-join]").click();
@@ -863,6 +899,13 @@
           : `<p class="small">${esc(r.message || "Nothing by that name. Try the nearest town or city.")}</p>`; focus($("#wxFound button")); }
       else if (d.wxPick) { const p = wxFound[+d.wxPick]; boxInfo = Object.assign(boxInfo, await api("/box/api/settings", { weather_place: p }));
         toast("The weather is for " + p.name + " now."); loadWeather(); render(true); }
+      else if (d.tb) {
+        const body = { action: d.tb };
+        if (d.tb === "open") { body.domain = ($("#tbDomain") || {}).value || ""; body.token = ($("#tbToken") || {}).value || ""; }
+        if (d.tb === "close" && armed !== "tb-close") { armed = "tb-close"; t.textContent = "Press again: home only"; return; }
+        armed = "";
+        const r = await api("/box/api/thisbox/internet", body); toast(r.message || (r.ok ? "Done." : "That didn't work."));
+        setTimeout(loadThisBox, 1500); }
       else if (d.wxReset) { boxInfo = Object.assign(boxInfo, await api("/box/api/settings", { weather_place: null })); loadWeather(); render(true); }
       else if (d.shield) { const on = t.getAttribute("aria-checked") !== "true"; t.setAttribute("aria-checked", on); boxInfo.shield = await api("/box/api/shield", { on });
         toast(on ? "Sofa Shield is on: ads and trackers are kept out." : "Sofa Shield is off."); }

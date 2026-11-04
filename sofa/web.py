@@ -19,6 +19,7 @@ from urllib.parse import parse_qs, quote, unquote, urlsplit
 import threading
 
 from . import (__version__, acme, apps, artwork, auth, awake, backup, config, ddns, dlna, fetch, housekeeping, intros, live, media, metadata, music,
+               outside,
                kids, machine, net, optimize, organizer, places, previews, report, screens, store, tls, trickplay, updater, upnp,
                discovery, pairing, sharing, slow, travel, uploads)
 from .library import LIBRARY
@@ -1424,6 +1425,8 @@ class Handler(BaseHTTPRequestHandler):
                 threading.Thread(target=upnp.open_ports, daemon=True).start()
             if data.get("get_certificate"):
                 threading.Thread(target=tls.obtain, daemon=True).start()
+            if data.get("check_outside"):               # asks the Sofa Box service (sofa/outside.py)
+                threading.Thread(target=outside.check, daemon=True).start()
             return self.json(internet_status())
         if path == "/api/admin/privacy":
             if data.get("wipe"):                  # erase every log, here and in the backups
@@ -1508,7 +1511,8 @@ def internet_status():
             "remote": config.get("remote"), "port": config.get("port"), "lan": dlna.lan_addresses(),
             "acme_email": config.get("acme_email") or "", "cert_file": config.get("cert_file") or "",
             "key_file": config.get("key_file") or "", "duckdns_token": "set" if config.get("duckdns_token") else "",
-            "public_ip": public_ip, "points_here": ddns.points_here(public_ip), "trust_proxy": bool(config.get("trust_proxy"))}
+            "public_ip": public_ip, "points_here": ddns.points_here(public_ip), "trust_proxy": bool(config.get("trust_proxy")),
+            "outside": outside.status(), "dns_check": ddns.active() and config.get("acme_challenge") != "http"}
 
 
 def public_settings():

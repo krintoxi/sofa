@@ -22,6 +22,9 @@ The one exception is **Live TV**: its channels are on the internet, by nature.
 | Update checks | GitHub, twice a day | Work offline |
 | Save from a link | the site you paste, through yt-dlp | Don't use it, or Work offline |
 | Live TV channel lists and channels | iptv-org and the lists you add | Don't use it, or Work offline |
+| Your own address (DuckDNS) | DuckDNS, every 10 minutes (your token and name); while a certificate is made, DuckDNS's DNS check record and Cloudflare's DNS resolver (to see it's there) | Server → Internet: no DuckDNS token |
+| A certificate from Let's Encrypt | Let's Encrypt, when you ask and a month before it ends: your address | Server → Internet → Encryption |
+| Check from outside | the Sofa Box service (boxcert.edgeventure.uk): your address, only when you press it; it looks at `https://your-address/api/info` and says what it found (nothing is kept) | Don't press it |
 
 Only the name of a show or movie is sent when looking up details (never who's watching, never
 your files). Suggestions ("More like this", "Because you watched") are worked out by Sofa at

@@ -19,7 +19,7 @@ import ssl
 import threading
 import time
 
-from . import acme, config, rsakey, store, x509
+from . import acme, config, ddns, rsakey, store, x509
 
 DIR = os.path.join(config.DATA_DIR, "tls")
 CERT, KEY, ACCOUNT = os.path.join(DIR, "cert.pem"), os.path.join(DIR, "key.pem"), os.path.join(DIR, "account.json")
@@ -146,7 +146,9 @@ def obtain(directory=None, context=None):
         _state["step"] = "Signing up with Let's Encrypt"
         client.account(config.get("acme_email") or None)
         key = rsakey.generate()
-        chain = client.certificate([domain], key, x509.csr(key, [domain]), step=lambda t: _state.update(step=t))
+        # a DuckDNS address proves itself over DNS (its TXT record): no port 80 to open, which many providers block
+        dns = ddns.DuckTXT() if ddns.active() and config.get("acme_challenge") != "http" else None
+        chain = client.certificate([domain], key, x509.csr(key, [domain]), step=lambda t: _state.update(step=t), dns=dns)
         _write(KEY, rsakey.to_pem(key), private=True)
         _write(CERT, chain)
         _state.update(step=None)
