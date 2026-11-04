@@ -73,7 +73,11 @@ else
   say "Downloading the new version from GitHub"
   TMP="$(mktemp -d)"
   trap 'rm -rf "$TMP"' EXIT
-  curl -fsSL "https://codeload.github.com/$REPO/tar.gz/refs/heads/$BRANCH" -o "$TMP/sofa.tar.gz" || fail "the download didn't work (are you online?)"
+  # the exact commit, so Sofa's Updates page can say which one it runs (the branch's newest if GitHub's API doesn't answer)
+  SHA="$(curl -fsSL -H "Accept: application/vnd.github.sha" "https://api.github.com/repos/$REPO/commits/$BRANCH" 2>/dev/null || true)"
+  case "$SHA" in *[!0-9a-f]*) SHA="" ;; esac
+  [ "${#SHA}" -eq 40 ] || SHA=""
+  curl -fsSL "https://codeload.github.com/$REPO/tar.gz/${SHA:-refs/heads/$BRANCH}" -o "$TMP/sofa.tar.gz" || fail "the download didn't work (are you online?)"
   mkdir "$TMP/new" && tar xzf "$TMP/sofa.tar.gz" -C "$TMP/new" --strip-components 1
   [ -f "$TMP/new/sofa.py" ] && [ -f "$TMP/new/sofa/__init__.py" ] || fail "the download doesn't look like Sofa"
   say "Replacing Sofa's code (data/ and vendor/ stay as they are)"
@@ -118,5 +122,6 @@ NEW="$(sed -n 's/^__version__ = "\(.*\)"/\1/p' "$APP/sofa/__init__.py")"
 printf '{"from": "%s", "to": "%s", "commit": "%s", "snapshot": "%s", "at": %s, "starts": 0}\n' \
   "${OLD:-}" "${NEW:-}" "${BEFORE:-}" "$SNAP" "$(date +%s)" > "$APP/data/update-check.json"
 rm -f "$APP/data/update-rolled-back.json"
+[ -n "${SHA:-}" ] && printf %s "$SHA" > "$APP/data/installed-commit"      # which commit this is (Server → Updates)
 start_sofa
 say "Done. Sofa ${OLD:-} -> ${NEW:-new version}. Your library, accounts and settings are untouched."

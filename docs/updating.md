@@ -17,6 +17,10 @@ What happens when you press it:
 
 If anything fails, the old version is put back, keeps running, and the Updates tab says why.
 
+The tab also says exactly what runs: **Sofa's version, its commit and the date it was made** (and, for
+a download, the day it was installed), what's newest on GitHub, and which **Sofa Box OS** this Sofa hands
+to boxes. What each version brought: [CHANGES.md](../CHANGES.md).
+
 **And if the new version stops right after the switch?** For its first minute and a half,
 Sofa watches: if it stops three times, the next start goes back to the version you had, by
 itself, and the Updates tab says so. Your media, accounts and settings are never part of this.
