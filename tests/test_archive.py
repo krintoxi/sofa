@@ -79,6 +79,28 @@ class Archive(unittest.TestCase):
         config.update({"offline": True})
         self.assertEqual(archive.channels(), [])
 
+    def test_retro_tv(self):
+        """A decade's shows with its commercials between them (three to a break), and the card says what's coming."""
+        shows = [{"identifier": "show%d" % n, "title": "Show %d" % n} for n in range(3)]
+        ads = [{"identifier": "ad%d" % n, "title": "Ad %d" % n} for n in range(4)]
+
+        def fake(url, timeout=30):
+            if "advancedsearch" in url:
+                q = urllib.parse.parse_qs(urllib.parse.urlsplit(url).query)["q"][0]
+                return {"response": {"docs": ads if "classic_tv_commercials" in q else shows}}
+            ident = urllib.parse.unquote(url.rsplit("/", 1)[1])
+            length = "0:30" if ident.startswith("ad") else "25:00"
+            return {"metadata": {"title": ident, "year": "1962"}, "files": [{"name": ident + ".mp4", "source": "original", "length": length}]}
+        archive._get = fake
+        items = archive.films("ia-retro60")
+        self.assertEqual([("ad" if i.get("ad") else i["id"]) for i in items],
+                         ["show0", "ad", "ad", "ad", "show1", "ad", "ad", "ad", "show2", "ad", "ad", "ad"])
+        self.assertEqual([i["id"] for i in items if i.get("ad")][:5], ["ad0", "ad1", "ad2", "ad3", "ad0"])
+        at = archive.ANCHOR + 1500 + 5                                      # into the first break
+        self.assertTrue(archive.now("ia-retro60", at=at)["film"].get("ad"))
+        card = next(c for c in archive.channels() if c["id"] == "ia-retro60")
+        self.assertIn("Retro TV: 60s", card["name"])
+
     def test_in_live_tv(self):
         httpd = web.Server(("127.0.0.1", 0), web.Handler)
         threading.Thread(target=httpd.serve_forever, daemon=True).start()

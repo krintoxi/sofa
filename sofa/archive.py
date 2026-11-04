@@ -7,6 +7,7 @@ category that has one playable video file and a length, leaving out what doesn't
 archive's films include exploitation pictures). A channel's list is fetched the first time someone tunes in, and
 again after a week; it's kept in data/cache/archive.
 """
+import hashlib
 import json
 import os
 import re
@@ -28,13 +29,14 @@ ANCHOR = 1704067200                  # 2024-01-01: where every channel's clock s
 NOT = (' AND NOT subject:(sex OR sexploitation OR erotic OR erotica OR nudity OR nudist OR adult OR burlesque OR'
        ' "exploitation film" OR exploitation OR drugs OR stag OR pinup OR striptease)'
        ' AND NOT title:(sex OR sexy OR nude OR naked OR nudist OR burlesque OR strip OR striptease OR molester OR'
-       ' madness OR erotic OR virgin OR orgy OR lust)')
-NOT_WORDS = re.compile(r"\b(sex|sexy|nude|naked|nudist|burlesque|strip|striptease|molest\w*|erotic\w*|orgy|lust|xxx)\b", re.I)
+       ' madness OR erotic OR virgin OR orgy OR lust OR perversion OR porn OR fetish OR xxx)')
+NOT_WORDS = re.compile(r"\b(sex|sexy|nude|naked|nudist|burlesque|strip|striptease|molest\w*|erotic\w*|orgy|lust|xxx|"
+                       r"pervers\w*|porn\w*|fetish\w*)\b", re.I)
 
 # id, name, the archive search, a colour and a mark for its logo
 CHANNELS = [
     ("ia-classics", "Classic Movies", "collection:(feature_films) AND mediatype:(movies) AND year:[1930 TO 1975]", "#C8A24A", "★"),
-    ("ia-noir", "Film Noir", "collection:(feature_films OR film_noir) AND subject:(\"film noir\" OR noir)", "#5B6B7F", "◐"),
+    ("ia-noir", "Film Noir", "collection:(feature_films OR film_noir) AND subject:(\"film noir\" OR noir) AND year:[1940 TO 1965]", "#5B6B7F", "◐"),
     ("ia-scifi", "Sci-Fi & Horror", "collection:(SciFi_Horror)", "#3FA36B", "✦"),
     ("ia-comedy", "Comedy", "collection:(feature_films) AND subject:(comedy)", "#E2862F", "☺"),
     ("ia-westerns", "Westerns", "collection:(feature_films) AND subject:(western OR westerns)", "#A0522D", "☼"),
@@ -43,6 +45,21 @@ CHANNELS = [
     ("ia-tv", "Classic TV", "collection:(classic_tv) AND mediatype:(movies)", "#3D7BE2", "▣"),
     ("ia-docs", "Documentaries", "collection:(prelinger OR documentaries) AND mediatype:(movies)", "#2E9C9A", "◉"),
 ]
+# Retro TV: a decade's television as it went out, its shows with two or three of that decade's commercials between them
+# (the archive's classic TV, its TV commercials, and from the 80s on, off-air recordings with their own breaks)
+def _retro(decade, colour):
+    years = "year:[%d TO %d]" % (decade, decade + 9)
+    shows = "mediatype:(movies) AND %s AND (collection:(classic_tv)%s)" % (
+        years, ' OR title:("VHS Recording" OR "with commercials" OR "Saturday Morning")' if decade >= 1980 else "")
+    ads = ('mediatype:(movies) AND %s AND (collection:(classic_tv_commercials) OR subject:("tv commercials" OR'
+           ' "television commercials"))' % years)
+    name = "%02ds" % (decade % 100)
+    return ("ia-retro%s" % name[:2], "Retro TV: %s" % name, shows, colour, name, ads)
+
+
+CHANNELS += [_retro(1950, "#4F7CAC"), _retro(1960, "#D9822B"), _retro(1970, "#B5651D"), _retro(1980, "#C2185B"),
+             _retro(1990, "#7B1FA2"), _retro(2000, "#00897B")]
+BREAK = 3                            # commercials between two shows on Retro TV
 BY_ID = {c[0]: c for c in CHANNELS}
 _lock = threading.Lock()
 _building = set()
@@ -60,22 +77,47 @@ def _get(url, timeout=30):
 
 def logo(cid):
     """A channel's logo: its colour, its mark and its name (an SVG, made here)."""
-    _id, name, _q, colour, mark = BY_ID[cid]
+    _id, name, _q, colour, mark = BY_ID[cid][:5]
     svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">'
            '<stop offset="0" stop-color="%s"/><stop offset="1" stop-color="#111"/></linearGradient></defs>'
            '<rect width="320" height="200" rx="18" fill="url(#g)"/>'
-           '<text x="28" y="92" font-size="64" fill="#fff" font-family="sans-serif">%s</text>'
+           '<text x="28" y="92" font-size="%d" font-weight="800" fill="#fff" font-family="sans-serif">%s</text>'
            '<text x="28" y="150" font-size="34" font-weight="700" fill="#fff" font-family="sans-serif">%s</text>'
            '<text x="28" y="182" font-size="18" fill="#fff" opacity=".7" font-family="sans-serif">Internet Archive</text></svg>'
-           % (colour, mark, name.replace("&", "&amp;")))
+           % (colour, 64 if len(mark) == 1 else 56, mark, name.replace("&", "&amp;")))
     return "data:image/svg+xml;utf8," + urllib.parse.quote(svg)
 
 
 def channels():
-    """The channels, for Live TV's list (group "Internet Archive")."""
+    """The channels, for Live TV's list (group "Internet Archive"), with what's on now where the films are known."""
     if not on():
         return []
-    return [{"id": c[0], "name": c[1], "group": "Internet Archive", "logo": logo(c[0]), "archive": True} for c in CHANNELS]
+    out = []
+    for c in CHANNELS:
+        ch = {"id": c[0], "name": c[1], "group": "Internet Archive", "logo": logo(c[0]), "archive": True}
+        fl = _saved(c[0])
+        if fl:
+            on_now = _on(fl, time.time())
+            later = next((f for f in on_now["next"] if not f.get("ad")), None)
+            ch.update(now=_name(on_now["film"]) + (", then " + _name(later) if on_now["film"].get("ad") and later else ""),
+                      next=_name(later) if later else None)
+        out.append(ch)
+    return out
+
+
+def _name(f):
+    if f.get("ad"):
+        return "Commercials"
+    return f["title"] + (" (%d)" % f["year"] if f.get("year") else "")
+
+
+def _saved(cid):
+    """The channel's films as kept, without asking the archive (None: not fetched yet)."""
+    try:
+        with open(_path(cid), encoding="utf-8") as f:
+            return json.load(f).get("films") or None
+    except (OSError, ValueError):
+        return None
 
 
 def seconds(length):
@@ -93,7 +135,7 @@ def seconds(length):
     return None
 
 
-def _film(identifier):
+def _film(identifier, shortest=120, longest=None):
     """One item's film: its one playable video file (an MP4, the smaller copy where there are two), and its length."""
     d = _get("https://archive.org/metadata/%s" % urllib.parse.quote(identifier))
     meta, files = d.get("metadata") or {}, d.get("files") or []
@@ -109,7 +151,7 @@ def _film(identifier):
         return None
     best = sorted(vids, key=lambda f: (int(f.get("height") or 480) > 720, -int(f.get("size") or 0) if int(f.get("height") or 480) <= 720 else int(f.get("size") or 0)))[0]
     length = seconds(best.get("length"))
-    if not length or length < 120:
+    if not length or length < shortest or (longest and length > longest):
         return None
     year = re.match(r"\d{4}", str(meta.get("year") or meta.get("date") or ""))
     return {"id": identifier, "title": re.sub(r"\s+", " ", title).strip()[:120], "year": int(year.group(0)) if year else None,
@@ -117,28 +159,46 @@ def _film(identifier):
             "length": length}
 
 
-def _build(cid):
-    _id, _name, q, _c, _m = BY_ID[cid]
+def _search(q, rows):
     url = "https://archive.org/advancedsearch.php?" + urllib.parse.urlencode(
-        [("q", q + NOT), ("fl[]", "identifier"), ("fl[]", "title"), ("rows", str(FILMS * 3)), ("sort[]", "downloads desc"), ("output", "json")])
-    docs = [d for d in _get(url).get("response", {}).get("docs", []) if not NOT_WORDS.search(d.get("title") or "")]
-    films = []
+        [("q", q + NOT), ("fl[]", "identifier"), ("fl[]", "title"), ("rows", str(rows)), ("sort[]", "downloads desc"), ("output", "json")])
+    return [d for d in _get(url).get("response", {}).get("docs", []) if not NOT_WORDS.search(d.get("title") or "")]
+
+
+def _pick(docs, want, shortest=120, longest=None):
+    out = []
     with ThreadPoolExecutor(6) as pool:
-        for f in pool.map(lambda d: _safe_film(d["identifier"]), docs):
-            if f and len(films) < FILMS:
-                films.append(f)
-    return films
+        for f in pool.map(lambda d: _safe_film(d["identifier"], shortest, longest), docs):
+            if f and len(out) < want:
+                out.append(f)
+    return out
 
 
-def _safe_film(identifier):
+def _build(cid):
+    c = BY_ID[cid]
+    if len(c) < 6:
+        return _pick(_search(c[2], FILMS * 3), FILMS)
+    shows = _pick(_search(c[2], 60), 20, shortest=300, longest=5400)       # Retro TV: shows, and the decade's commercials
+    ads = [dict(a, ad=True) for a in _pick(_search(c[5], 120), 40, shortest=10, longest=300)]
+    if not ads:
+        return shows
+    out = []
+    for n, show in enumerate(shows):
+        out.append(show)
+        out += [ads[(n * BREAK + k) % len(ads)] for k in range(BREAK)]
+    return out
+
+
+def _safe_film(identifier, shortest=120, longest=None):
     try:
-        return _film(identifier)
+        return _film(identifier, shortest, longest)
     except (OSError, ValueError, KeyError):
         return None
 
 
 def _path(cid):
-    return os.path.join(CACHE, cid + ".json")
+    """(Named for the channel's search too: a changed search fetches its films again, without waiting a week.)"""
+    return os.path.join(CACHE, "%s-%s.json" % (cid, hashlib.sha1(BY_ID[cid][2].encode()).hexdigest()[:8]))
 
 
 def films(cid, wait=True):
@@ -198,13 +258,16 @@ def now(cid, at=None, ahead=6):
     fl = films(cid)
     if not fl:
         raise OSError("This channel has nothing to show just now.")
+    return dict(_on(fl, at if at is not None else time.time(), ahead), channel=cid, name=BY_ID[cid][1])
+
+
+def _on(fl, at, ahead=6):
     total = sum(f["length"] for f in fl)
-    pos = ((at if at is not None else time.time()) - ANCHOR) % total
+    pos = (at - ANCHOR) % total
     i = 0
     while pos >= fl[i]["length"]:
         pos -= fl[i]["length"]
         i += 1
     order = [fl[(i + k) % len(fl)] for k in range(min(ahead, len(fl)))]
-    return {"channel": cid, "name": BY_ID[cid][1], "film": order[0], "offset": int(pos), "left": int(order[0]["length"] - pos),
-            "next": order[1:]}
+    return {"film": order[0], "offset": int(pos), "left": int(order[0]["length"] - pos), "next": order[1:]}
 

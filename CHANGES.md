@@ -6,6 +6,17 @@ has its own numbers and list: [deploy/sofa-box/CHANGES.md](deploy/sofa-box/CHANG
 A change to Sofa's code (`sofa/`, `client/`, `sofa.py`) gets a new version: raise `__version__`, add a section
 here, then `python3 tools/sofa-version.py` (a test checks it was done).
 
+## 1.2.2 (2026-11-04)
+
+- **Retro TV in Live TV.** A channel for each decade from the 50s to the 00s: its TV shows as they went out,
+  with two or three of that decade's commercials between them (the Internet Archive's classic TV, its TV
+  commercials, and from the 80s on, off-air recordings with their own breaks), on the clock like the other
+  archive channels. The card says what's on ("Commercials, then Mister Ed").
+- **Live TV is quicker on small boxes.** The list draws 60 channels and adds more as you get near the end
+  (it used to draw 600 at once, a lot for a Raspberry Pi 3). Archive channels say what's on now.
+- Film Noir keeps to its classic years (1940 to 1965); a channel whose search changes fetches its films again.
+- The family filter on archive channels knows a few more words.
+
 ## 1.2.1 (2026-11-04)
 
 - **Live TV has Internet Archive channels:** Classic Movies, Film Noir, Sci-Fi & Horror, Comedy, Westerns,

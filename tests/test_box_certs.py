@@ -168,6 +168,19 @@ class BoxCerts(unittest.TestCase):
                                "-keyout", key, "-subj", "/CN=" + name, "-addext", "subjectAltName=DNS:" + name],
                               capture_output=True, text=True, check=True).stdout
 
+    def test_a_box_brings_its_own_id(self):
+        """Made at its first start, offline: its phone remote's address through the relay is known at its setup."""
+        own = {"id": "ab2cd3ef4g", "secret": "5e" * 24}
+        box = self.service.register("203.0.113.5", own)
+        self.assertEqual((box["id"], box["secret"]), (own["id"], own["secret"]))
+        self.service.box(own)                                                     # (its secret works)
+        again = self.service.register("203.0.113.6", own)                         # taken: a new one
+        self.assertNotEqual(again["id"], own["id"])
+        self.assertNotEqual(again["secret"], own["secret"])
+        for odd in ({"id": "ABCDEFGHJK", "secret": "5e" * 24}, {"id": "ab2cd3ef4l", "secret": "5e" * 24},
+                    {"id": "zz2cd3ef4g", "secret": "short"}):
+            self.assertNotEqual(self.service.register("203.0.113.7", odd)["id"], odd["id"])
+
     def test_a_box_gets_its_name_and_certificate(self):
         box = self.service.register("203.0.113.5")
         self.assertRegex(box["id"], r"^[a-z2-9]{10}$")

@@ -72,5 +72,53 @@ class PairingHelper(unittest.TestCase):
         self.assertTrue(bt.accepting())
 
 
+
+class Handoff(unittest.TestCase):
+    """The setup in two scans: a new box makes its own id offline, and gives the phone on its own Wi-Fi the remote's
+    address through the relay, where the phone carries on once the box is on the home Wi-Fi."""
+
+    def test_own_id_and_the_address(self):
+        conf = tempfile.mkdtemp()
+        os.environ["SOFA_BOX_CONF"] = conf
+        try:
+            spec = importlib.util.spec_from_file_location("sofa_box_agent_handoff", os.path.join(BOX, "sofa-box-agent.py"))
+            agent = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(agent)
+            acct = agent.secure_remote.account()
+            self.assertRegex(acct["id"], r"^[abcdefghijkmnpqrstuvwxyz23456789]{10}$")
+            self.assertRegex(acct["secret"], r"^[0-9a-f]{48}$")
+            self.assertTrue(acct["unregistered"])
+            self.assertEqual(agent.secure_remote.account()["id"], acct["id"])          # the same one, kept
+            link = "0123456789abcdef01234567"
+            self.assertEqual(agent.secure_remote.handoff(link), "%s/r/%s/r/%s" % (agent.SecureRemote.SERVICE, acct["id"], link))
+        finally:
+            os.environ.pop("SOFA_BOX_CONF", None)
+            shutil.rmtree(conf, ignore_errors=True)
+
+
+class ReportNotes(unittest.TestCase):
+    """Send a report: a looping clip's routine events stay out, the same message again is counted, errors stay in."""
+
+    def test_quiet_notes(self):
+        sys.path.insert(0, BOX)
+        try:
+            spec = importlib.util.spec_from_file_location("boxos_notes", os.path.join(BOX, "boxos.py"))
+            boxos = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(boxos)
+        finally:
+            sys.path.remove(BOX)
+        b = boxos.Browser.__new__(boxos.Browser)
+        b.notes, b.tabs = __import__("collections").deque(maxlen=150), {"t": {"session": "s1", "app": "sofa"}}
+        loop = {"events": [{"value": '{"event":"kEnded"}'}, {"value": '{"event":"kSeek","seek_target":0.0}'}]}
+        for _ in range(5):
+            b._note("Media.playerEventsAdded", loop, "s1")
+        self.assertEqual(list(b.notes), [])                              # a looping preview: nothing
+        err = {"errors": [{"errorType": "PipelineStatus", "code": 3}]}
+        for _ in range(3):
+            b._note("Media.playerErrorsRaised", err, "s1")
+        self.assertEqual(len(b.notes), 1)
+        self.assertTrue(b.notes[0].endswith("sofa playerErrorsRaised: PipelineStatus 3 (×3)"), b.notes[0])
+
+
 if __name__ == "__main__":
     unittest.main()

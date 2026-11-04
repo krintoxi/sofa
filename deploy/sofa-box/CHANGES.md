@@ -7,6 +7,24 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.22
+
+- **The setup in two scans.** When your phone gives the box your Wi-Fi, the box also gives it the remote's
+  address through the Sofa Box service; once both are back on your Wi-Fi, the Setup Assistant carries on there
+  by itself, already the remote: no last code to scan. (A new box makes its own id at its first start, so that
+  address is known before it's ever online; the service takes it. Where it can't, the last code is still on
+  the TV.)
+- **Retro TV.** The App Store has a Retro TV section: Joey Cato's My Retro TVs, a site for each decade from the
+  50s to the 2010s, channel-surfing that decade's shows and commercials on an old TV. And Live TV has Sofa's
+  own Retro TV channels (Sofa 1.2.2), a decade each, with period commercials between the shows.
+- **Fixes from a careful read:** a tap on the phone's touchpad after the pointer has gone to its corner only
+  brings it back (it used to press whatever was in the middle of the screen); a video, an app or a game
+  starting wakes the box (else the next phone key jumped back to Home); after changing channel in the box's
+  player, an archive channel that runs out tunes in again to the channel you were on.
+- **Reports say more, and less.** Send a report now lists when the box's player stopped by itself and why, and
+  the Bluetooth pairings the box said yes or no to. A looping preview's routine messages are left out (they
+  filled the last report), and the same message again is counted, not repeated.
+
 ## 1.1.21
 
 - **The setup's phone side is the Sofa Setup Assistant.** The TV's phone panel is "Set up with your phone",

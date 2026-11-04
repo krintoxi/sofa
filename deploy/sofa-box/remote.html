@@ -216,6 +216,20 @@
   const key = k => { buzz(); return post("api/key", { k }).then(r => { if (r.status === 401) showPairing(); }).catch(() => offline(true)); };
   let tab = "remote", wifiSsid = null, sentTz = false, ready = false;     // a new box takes its time zone from the phone
   let onItsWifi = false, joining = null;     // this phone is on the box's own Wi-Fi; the home Wi-Fi the box is going to
+  // At the setup: the remote's address through the Sofa Box service's relay, from the box before it left its own Wi-Fi.
+  // Once the box is on the home Wi-Fi and the relay, its icon loads from there, and this page carries on, paired.
+  let handoff = null, handoffTimer = 0;
+  function awaitBox() {
+    if (!handoff || handoffTimer) return;
+    const base = handoff.replace(/\/r\/[0-9a-f]{24}$/, ""), started = Date.now();
+    const look = () => {
+      const img = new Image();
+      img.onload = () => { location.href = handoff; };
+      img.onerror = () => { handoffTimer = Date.now() - started < 240000 ? setTimeout(look, 3000) : 0; };
+      img.src = base + "/icon.png?t=" + Date.now();
+    };
+    look();
+  }
 
   function show(name) {
     tab = name;
@@ -235,7 +249,10 @@
     const lost = on && (onItsWifi || joining);
     $("moved").classList.toggle("on", !!lost);
     if (lost) $("moved").innerHTML = "<b>Last step.</b> " + (joining ? "The box is joining <b></b>, and your phone goes back to it too. " : "The box left its own Wi-Fi, most likely for your home Wi-Fi. ")
-      + "When the TV says it's connected, <b>scan the code on the TV</b> to keep this phone as your remote. If the TV says it couldn't join, its own Wi-Fi is back: scan the first code on the TV again.";
+      + (handoff ? "<span class=\"spinner\"></span>This page carries on by itself as soon as the box is there (up to a minute). If it doesn't, "
+                 : "When the TV says it's connected, ")
+      + "<b>scan the code on the TV</b> to keep this phone as your remote. If the TV says it couldn't join, its own Wi-Fi is back: scan the first code on the TV again.";
+    if (lost) awaitBox();
     if (lost) { $("asWifi").className = "done"; $("asWifi").querySelector("em").textContent = "✓"; $("asRemote").className = "on"; }
     if (lost && joining) $("moved").querySelectorAll("b")[1].textContent = joining;
   }
@@ -388,8 +405,9 @@
     $("wifiMsg").textContent = "Joining " + wifiSsid + "…";
     try {
       const r = await (await post("api/wifi/join", { ssid: wifiSsid, password: $("wpass").value })).json();
-      if (r.ok) joining = wifiSsid;
-      $("wifiMsg").textContent = r.ok ? "The box is joining " + wifiSsid + ". This phone goes back to your own Wi-Fi now: then scan the new code on the TV."
+      if (r.ok) { joining = wifiSsid; handoff = r.next || null; }
+      $("wifiMsg").textContent = r.ok ? "The box is joining " + wifiSsid + ". This phone goes back to your Wi-Fi now"
+        + (handoff ? ", and this page carries on by itself when the box is there." : ": then scan the new code on the TV.")
         : (r.message || "That didn't work.");
     } catch (e) { joining = wifiSsid; /* the box left this network: that's expected */ }
   });

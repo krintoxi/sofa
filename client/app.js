@@ -1711,6 +1711,20 @@ const PRESETS = [
   ["Kids", "https://iptv-org.github.io/iptv/categories/kids.m3u"]
 ];
 let liveData = null, liveGroup = prefs.get("liveGroup", "Favorites"), liveQuery = "";
+const LIVE_PAGE = 60;                       // channels drawn at first; more as the end comes near
+let liveMore = null;
+function watchLiveMore() {
+  if (liveMore) liveMore.disconnect();
+  const end = $("#chanMore"), box = $("#channels");
+  if (!end || !box || !("IntersectionObserver" in window)) return;
+  liveMore = new IntersectionObserver(es => {
+    if (!es.some(e => e.isIntersecting)) return;
+    const list = liveList(), have = box.children.length;
+    box.insertAdjacentHTML("beforeend", list.slice(have, have + LIVE_PAGE).map(channelCard).join(""));
+    if (box.children.length >= list.length) { liveMore.disconnect(); end.remove(); }
+  }, { rootMargin: "900px 0px" });
+  liveMore.observe(end);
+}
 async function loadLive() {
   try { liveData = await api("/api/live"); } catch (e) { liveData = { error: e.message, channels: [], playlists: [] }; }
   if (location.hash.startsWith("#/live")) rerender();
@@ -1723,7 +1737,7 @@ function liveList() {
 function channelCard(c) {
   return `<div class="chan"><button class="card" data-live="${esc(c.id)}" style="display:block;width:100%">
       <span class="logo">${c.logo ? `<img src="${esc(c.logo)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : `<span>${esc(c.name)}</span>`}</span>
-      <span class="t1">${esc(c.name)}</span><span class="t2">${esc(c.group)}</span></button>
+      <span class="t1">${esc(c.name)}</span><span class="t2">${c.now ? "Now: " + esc(c.now) : esc(c.group)}</span></button>
     <button class="star" data-fav="${esc(c.id)}" aria-pressed="${c.fav}" aria-label="${c.fav ? "Remove from favorites" : "Add to favorites"}">★</button></div>`;
 }
 function viewLive() {
@@ -1747,8 +1761,8 @@ function viewLive() {
   return `<section class="page">${head}
     <div class="live-tools"><input id="liveSearch" type="search" placeholder="Find a channel" aria-label="Find a channel" value="${esc(liveQuery)}"></div>
     <div class="chips" role="group" aria-label="Channel groups">${chips}</div>
-    <div class="channels">${list.slice(0, 600).map(channelCard).join("")}</div>
-    ${list.length > 600 ? `<p class="count">Showing 600 of ${list.length}. Search or pick a group to narrow it down.</p>` : ""}
+    <div class="channels" id="channels">${list.slice(0, LIVE_PAGE).map(channelCard).join("")}</div>
+    ${list.length > LIVE_PAGE ? `<div class="chan-more" id="chanMore" aria-hidden="true"></div>` : ""}
     ${!list.length ? `<p class="count">No channels here yet. Tap the star on a channel to add it to Favorites.</p>` : ""}</section>`;
 }
 document.addEventListener("input", e => {
@@ -2568,6 +2582,7 @@ function route(animate) {
     clearTimeout(enterTimer); enterTimer = setTimeout(() => view.classList.remove("enter"), 1100);
   }
   watchGrids();
+  watchLiveMore();
   updateNudges();
   startHero();
   if (trailer) keepTrailer(trailer); else if (animate !== false) startTrailer();
@@ -4273,7 +4288,9 @@ const Player = (function () {
       return it.live ? openLive(it.channel, it.list) : open(it, nativeQueue);
     }
     if (it.live) {                     // an archive channel's films ran out in the box's player: what's on next
-      if (r && r.ended && it.channel && it.channel.archive) return openLive(it.channel, it.list);
+      // (the channel on when it stopped: the remote may have changed it in the box's player)
+      const ch = (r && r.channel && (it.list || []).find(c => c.id === r.channel)) || it.channel;
+      if (r && r.ended && ch && ch.archive) return openLive(ch, it.list);
       rerender(); return;
     }
     if (r && r.d) progress[it.id] = { t: r.done ? r.d : r.t, d: r.d, done: !!r.done, at: Date.now() };

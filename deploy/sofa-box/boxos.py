@@ -37,6 +37,7 @@ MAX_APP_TABS = int(os.environ.get("SOFA_BOX_MAX_TABS") or
 KEEP_AWAKE = ("sofa",)                 # never frozen: Sofa listens for the phone's "Play on"
 # What a report keeps of the pages (Browser.notes): their errors, and what their video players say: which decoder
 # plays (the Pi's own, or the processor), and why one stopped.
+ROUTINE = re.compile(r'"event":\s*"k(Ended|Seek|Play|Pause|PipelineStateChange|BufferingStateChanged)"')
 NOTED = ("Runtime.exceptionThrown", "Runtime.consoleAPICalled", "Log.entryAdded", "Media.playerErrorsRaised",
          "Media.playerMessagesLogged", "Media.playerPropertiesChanged", "Media.playerEventsAdded")
 MEDIA_PROPS = ("kVideoCodecName", "kVideoDecoderName", "kIsPlatformVideoDecoder", "kAudioCodecName", "kAudioDecoderName",
@@ -955,11 +956,17 @@ class Browser:
             text = "; ".join(x.get("message", "") for x in p.get("messages", []) if x.get("level") in ("error", "warning"))
         elif m == "Media.playerPropertiesChanged":
             text = ", ".join("%s=%s" % (x["name"][1:], x.get("value")) for x in p.get("properties", []) if x.get("name") in MEDIA_PROPS)
-        else:
-            text = ", ".join(str(e.get("value", "")) for e in p.get("events", []))
+        else:                                   # (a looping clip's ending, seeking and buffering: routine, left out)
+            events = [e for e in p.get("events", []) if not ROUTINE.search(str(e.get("value", "")))]
+            text = ", ".join(str(e.get("value", "")) for e in events)
         if text:
             app = next((tab.get("app") for tab in self.tabs.values() if tab.get("session") == session), None) or "?"
-            self.notes.append("%s %s %s: %s" % (time.strftime("%H:%M:%S"), app, m.split(".", 1)[1], " ".join(text.split())[:300]))
+            line = "%s %s: %s" % (app, m.split(".", 1)[1], " ".join(text.split())[:300])
+            if self.notes and self.notes[-1].split(" ", 1)[1].split(" (×")[0] == line:     # the same again: counted
+                n = self.notes[-1].rsplit(" (×", 1)
+                self.notes[-1] = n[0] + " (×%d)" % ((int(n[1].rstrip(")")) if len(n) > 1 else 1) + 1)
+            else:
+                self.notes.append("%s %s" % (time.strftime("%H:%M:%S"), line))
 
     def _prepare(self, target, session):
         """Every page: the Sofa bar, the Home key and pointer hiding (in a script world of their own), and

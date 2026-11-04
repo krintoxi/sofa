@@ -1442,3 +1442,4 @@ html.box::-webkit-scrollbar, html.box body::-webkit-scrollbar { display: none; }
 .box .cast-btn { display: none; }
 .box #view, .box #foot { margin-left: 96px; }
 .box .hero { margin-top: 0; }
+.chan-more { height: 1px; }

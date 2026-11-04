@@ -347,17 +347,25 @@ class Service:
     def name(self, box_id):
         return "%s.%s" % (box_id, self.cfg["base"])
 
-    def register(self, client):
+    def register(self, client, data=None):
+        """A new box: its id and secret. A box may bring its own, made at its first start before it was ever online, so
+        its phone remote's address through the relay is known at its setup (the phone carries on there by itself after
+        the box joins the home Wi-Fi); a taken or odd one gets a new id."""
         now = self.now()
         self.made = [(t, c) for t, c in self.made if now - t < 86400]
         if sum(1 for _, c in self.made if c == client) >= self.cfg["register_per_ip_day"] or len(self.made) >= self.cfg["register_per_day"]:
             raise Limit("Too many new boxes from here today. Try again tomorrow.")
         alphabet = "abcdefghijkmnpqrstuvwxyz23456789"
+        want, given = str((data or {}).get("id") or ""), str((data or {}).get("secret") or "")
         with self.boxes.lock:
-            box_id = "".join(secrets.choice(alphabet) for _ in range(10))
-            while box_id in self.boxes.data:
+            if len(want) == 10 and all(ch in alphabet for ch in want) and want not in self.boxes.data \
+                    and re.match(r"^[0-9a-f]{48}$", given):
+                box_id, secret = want, given                    # (the box's own, as it asked)
+            else:
                 box_id = "".join(secrets.choice(alphabet) for _ in range(10))
-            secret = secrets.token_hex(24)
+                while box_id in self.boxes.data:
+                    box_id = "".join(secrets.choice(alphabet) for _ in range(10))
+                secret = secrets.token_hex(24)
             self.boxes.data[box_id] = {"secret": hashlib.sha256(secret.encode()).hexdigest(), "made": int(now)}
             self.boxes.save()
         self.made.append((now, client))
@@ -687,7 +695,7 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError
         except ValueError:
             return self.reply(400, {"error": "Not JSON."})
-        route = {"/v1/register": lambda: self.service.register(self.client()), "/v1/address": lambda: self.service.address(data),
+        route = {"/v1/register": lambda: self.service.register(self.client(), data), "/v1/address": lambda: self.service.address(data),
                  "/v1/cert": lambda: self.service.cert(data), "/v1/report": lambda: self.service.report(data, self.client()),
                  "/v1/reach": lambda: self.service.reach(data, self.client()),
                  "/v1/relay/poll": lambda: self.service.relay_poll(data),

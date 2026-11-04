@@ -79,8 +79,9 @@ itself up), and it may restart once by itself. Its boot screen says so: just wai
 
 1. **Hello:** pick up whatever's in your hand.
    - **Phone (the Sofa Setup Assistant):** point its camera at the code on the TV: the first connects your
-     phone to the box, the next opens the Setup Assistant, where you choose your Wi-Fi; the last code keeps
-     your phone as the remote.
+     phone to the box, the next opens the Setup Assistant, where you choose your Wi-Fi. Once the box and your
+     phone are back on your Wi-Fi, the assistant carries on by itself as the remote (if it can't, the TV
+     shows one last code to scan).
    - **Fire TV remote** (or another Bluetooth remote, or a game controller): put it in pairing mode.
      For a Fire TV remote, hold **Home** for 10 seconds. It pairs by itself.
    - **Keyboard and mouse:** plug in the dongle.
@@ -261,7 +262,8 @@ you've added (open one, make it the one Sofa opens with, or remove it). Inside S
 The **Live TV** tile opens Live TV in the Sofa it opens with, or in Sofa on the box. Channels play in the
 box's own player: up and down change the channel. Besides the free channel lists, there are **Internet
 Archive** channels (classic movies, film noir, westerns, silent films, cartoons, classic TV, documentaries):
-free films on a loop, on the clock, like TV.
+free films on a loop, on the clock, like TV; and **Retro TV**, a channel for each decade with its shows
+and its commercials between them. The App Store's **Retro TV** section has the My Retro TVs sites too.
 
 ### USB drives and discs
 
