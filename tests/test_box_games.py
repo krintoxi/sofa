@@ -47,6 +47,26 @@ class TheList(unittest.TestCase):
                     self.assertRegex(part, r"^(KEY|BTN)_[A-Z0-9]+$|^WHEEL_(UP|DOWN)$", name)
 
 
+    def test_the_games_in_the_home_screen(self):
+        """Each one ("games") is a page of its own in games/<id>/, all in one file, needing nothing from the internet."""
+        self.assertIn("gloamwell", [g["id"] for g in CATALOG["games"]])
+        for g in CATALOG["games"]:
+            for k in ("id", "name", "emoji", "color", "about"):
+                self.assertIn(k, g, g["id"])
+            self.assertRegex(g["id"], r"^[a-z0-9-]+$")
+            page = os.path.join(BOX, "games", g["id"], "index.html")
+            self.assertTrue(os.path.isfile(page), page)
+            with open(page, encoding="utf-8") as f:
+                html = f.read()
+            self.assertNotRegex(html, r"""(src|href|url)\s*[=(]\s*["']?(https?:)?//""", g["id"])
+        with open(os.path.join(BOX, "games", "gloamwell", "index.html"), encoding="utf-8") as f:
+            html = f.read()
+        for online in ("fetch(", "XMLHttpRequest", "WebSocket", "<link", "@import", "<script src"):
+            self.assertNotIn(online, html)                             # Gloamwell plays offline
+        self.assertIn("navigator.getGamepads", html)                   # with a controller,
+        self.assertNotRegex(html, r"buttons\[16\]")                    # never Home, which is the box's
+
+
 class Agent(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

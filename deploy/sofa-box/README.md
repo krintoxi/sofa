@@ -314,6 +314,11 @@ song in the box's player, or shows a picture; **Menu** renames, moves or deletes
   themselves; for the others the box works the controller for them: the sticks walk, look or move the
   pointer, the buttons are the game's keys and clicks.
 - **To come back from a game, hold Home** (the Xbox or PS button, or a remote's Home) for a second.
+- **Gloamwell**, the box's own game: a dark-fantasy dungeon crawler. Go down the well under the village of
+  Wickhollow as a Warden, an Ashcaller or a Stalker, floor by floor (each one made as you go down): fight with
+  a blade and two skills, roll out of the way, pick up gold, tonics and gear, level up, and beat the guardian
+  every fourth floor. Climb the rope back up to rest and trade. It plays offline, with the controller from the
+  start (the hints show its buttons: A B X Y, or ✕ ○ □ △) or a keyboard, and keeps your Wickbearer on the box.
 - Small games that run in the home screen (Neon Dodge, Pair Up, Sky Hop) are there too, worked with the
   arrows and OK.
 

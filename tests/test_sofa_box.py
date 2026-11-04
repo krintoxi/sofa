@@ -601,11 +601,11 @@ class BoxOS(unittest.TestCase):
         self.assertEqual(self.get("/box/api/files/list?root=downloads")["items"], [])
 
     def test_the_home_screens_pages(self):
-        for path in ("/box/home", "/box/home/home.js", "/box/home/home.css", "/box/games/pair-up/",
+        for path in ("/box/home", "/box/home/home.js", "/box/home/home.css", "/box/games/pair-up/", "/box/games/gloamwell/",
                      "/box/fonts/instrument-sans-latin-wght-normal.woff2"):
             with self.opener.open(self.base + path, timeout=20) as r:
                 self.assertEqual(r.status, 200, path)
-        self.assertEqual(len(self.get("/box/api/games")["games"]), 3)
+        self.assertEqual(len(self.get("/box/api/games")["games"]), 4)
         with self.assertRaises(urllib.error.HTTPError):
             self.opener.open(self.base + "/box/home/../sofa-box-agent.py", timeout=20)
 
