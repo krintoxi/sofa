@@ -67,6 +67,35 @@ def local_commit():
     return slow.cached("git-commit", 60, _local_commit)
 
 
+def _commit_date(mine, s):
+    """When the commit Sofa runs was made: from git, or GitHub's answer when it's the newest one."""
+    if not mine:
+        return None
+    if is_git_install():
+        from . import slow
+        r = slow.cached("git-commit-date", 60, lambda: _git("show", "-s", "--format=%cI", "HEAD"))
+        if r.returncode == 0 and r.stdout.strip():
+            return r.stdout.strip()
+    return s.get("latest_date") if s.get("latest_commit") == mine else None
+
+
+def _installed_at():
+    """When this copy was put in place by an update (a download; a git clone says when its commit was made)."""
+    try:
+        return int(os.path.getmtime(STAMP_FILE)) if not is_git_install() else None
+    except OSError:
+        return None
+
+
+def _box_os():
+    """The Sofa Box OS version this Sofa hands to boxes (deploy/sofa-box)."""
+    try:
+        with open(os.path.join(config.APP_DIR, "deploy", "sofa-box", "VERSION"), encoding="utf-8") as f:
+            return f.read().strip() or None
+    except OSError:
+        return None
+
+
 def _local_commit():
     if is_git_install():
         r = _git("rev-parse", "HEAD")
@@ -120,7 +149,8 @@ def status():
     mine = local_commit()
     newer_version = bool(s.get("latest")) and _vtuple(s["latest"]) > _vtuple(__version__)
     other_commit = bool(s.get("latest_commit")) and bool(mine) and s["latest_commit"] != mine
-    s.update(current=__version__, commit=mine, method="git" if is_git_install() else "download",
+    s.update(current=__version__, commit=mine, commit_date=_commit_date(mine, s), installed_at=_installed_at(),
+             box_os=_box_os(), method="git" if is_git_install() else "download",
              available=newer_version or other_commit or (not mine and bool(s.get("latest_commit"))
                                                          and _vtuple(s.get("latest")) >= _vtuple(__version__)),
              repo="%s@%s" % _repo())

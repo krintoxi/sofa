@@ -21,6 +21,7 @@ function clock(sec) {
 }
 const plural = (n, w) => n + " " + w + (n === 1 ? "" : "s");
 const fmtDate = d => d ? new Date(d + "T12:00:00").toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }) : "";
+const dateOf = t => new Date(t).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
 const ago = t => {
   const s = Math.max(1, Math.floor(Date.now() / 1000 - t));
   if (s < 60) return "just now";
@@ -2469,14 +2470,15 @@ function srvUpdate(d) {
   else if (u.done) state = `<div class="alert"><b>Updated. Sofa is restarting…</b><span>This page reloads by itself in a moment.</span></div>`;
   else if (u.rolled_back) state = `<div class="alert bad"><b>The last update was undone.</b><span>${esc(u.rolled_back)}</span></div>`;
   else if (u.available) state = `<div class="alert"><b>A new version is ready${u.latest ? ": Sofa " + esc(u.latest) : ""}.</b><span>${esc(u.latest_message || "")}${u.latest_date ? " (" + esc(new Date(u.latest_date).toLocaleDateString()) + ")" : ""}</span></div>`;
-  else if (u.checked) state = `<div class="alert soft"><b>You're up to date.</b><span>Checked ${esc(ago(u.checked))}.</span></div>`;
+  else if (u.checked) state = `<div class="alert soft"><b>You're up to date: Sofa ${esc(u.current || d.server.version)}${u.commit_date ? ", from " + esc(dateOf(u.commit_date)) : ""}.</b><span>Checked ${esc(ago(u.checked))}.</span></div>`;
   else state = `<div class="alert soft"><b>Not checked yet.</b></div>`;
   if (u.done) setTimeout(waitForRestart, 4000);
   return `<div class="panels"><div class="panel wide"><h2>Updates</h2>
     <p class="hint">Updating replaces Sofa's own program files with the newest version from GitHub. <b>Your shows, movies, music, accounts, watch history and settings are not touched.</b> Sofa backs up its settings and keeps a copy of the old version first, so nothing is lost if something goes wrong.</p>
     ${state}${u.error && !u.running ? "" : ""}
-    <dl class="kv"><dt>Running</dt><dd>Sofa ${esc(u.current || d.server.version)}${u.commit ? " (" + esc(u.commit.slice(0, 7)) + ")" : ""}</dd>
-      <dt>Newest on GitHub</dt><dd>${u.latest ? "Sofa " + esc(u.latest) : "unknown"}${u.latest_commit ? " (" + esc(u.latest_commit.slice(0, 7)) + ")" : ""}</dd>
+    <dl class="kv"><dt>Running</dt><dd>Sofa ${esc(u.current || d.server.version)}${u.commit ? " · " + esc(u.commit.slice(0, 7)) : ""}${u.commit_date ? " · " + esc(dateOf(u.commit_date)) : ""}${u.installed_at ? `<small class="muted"> (installed ${esc(dateOf(u.installed_at * 1000))})</small>` : ""}</dd>
+      <dt>Newest on GitHub</dt><dd>${u.latest ? "Sofa " + esc(u.latest) : "unknown"}${u.latest_commit ? " · " + esc(u.latest_commit.slice(0, 7)) : ""}${u.latest_date ? " · " + esc(dateOf(u.latest_date)) : ""}${u.latest_message ? `<small class="muted"> ${esc(u.latest_message)}</small>` : ""}</dd>
+      ${u.box_os ? `<dt>For Sofa boxes</dt><dd>Sofa Box OS ${esc(u.box_os)}</dd>` : ""}
       <dt>Updates with</dt><dd>${u.method === "git" ? "git (this folder is a git clone)" : "a download from GitHub"}</dd></dl>
     <div class="actions" style="margin-top:16px">${u.available && !u.running ? `<button class="btn primary" data-update="install">Update now</button>` : ""}
       <button class="btn" data-update="check"${u.running ? " disabled" : ""}>Check again</button></div></div>

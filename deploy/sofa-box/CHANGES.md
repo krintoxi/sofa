@@ -7,6 +7,11 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.19
+
+- **Sofa on this box is Sofa 1.2.0**, the version number catching up with everything since 1.1.0 (what's in
+  it: [CHANGES.md](../../CHANGES.md)). Its Server → Updates says which commit runs and when it was made.
+
 ## 1.1.18
 
 - **The setup is shorter and goes on by itself.** Once your phone is the remote on your Wi-Fi (the four
