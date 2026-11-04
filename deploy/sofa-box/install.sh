@@ -64,6 +64,7 @@ else                                            # Raspbian Buster and older: no 
 fi
 apt-get install -y --no-install-recommends chromium 2>/dev/null || apt-get install -y --no-install-recommends chromium-browser
 apt-get install -y --no-install-recommends pipewire-pulse wireplumber 2>/dev/null || true           # sound to the TV
+apt-get install -y --no-install-recommends xwayland 2>/dev/null || true                           # games made for X, in cage
 apt-get install -y --no-install-recommends network-manager 2>/dev/null || true                    # Wi-Fi from the TV
 apt-get install -y --no-install-recommends dnsmasq-base rfkill iw 2>/dev/null || true             # the box's own Wi-Fi at its setup
 apt-get install -y --no-install-recommends plymouth plymouth-label 2>/dev/null || true            # the boot screen
@@ -121,9 +122,10 @@ udevadm control --reload 2>/dev/null || true
 echo "options bluetooth disable_ertm=1" > /etc/modprobe.d/sofa-box-controllers.conf      # older Xbox controller firmware
 SYSTEMCTL="$(command -v systemctl)"
 cat > /etc/sudoers.d/sofa-box <<EOF
-# The Sofa box's settings on the TV can restart it and change its boot screen.
+# The Sofa box's settings on the TV can restart it and change its boot screen; Games installs the games on its list.
 $WHO ALL=(root) NOPASSWD: $SYSTEMCTL restart sofa-box sofa-box-agent, $SYSTEMCTL reboot, $LIB/sofa-box apply-boot *, $LIB/sofa-box shield *, \
-  $LIB/sofa-box timezone *, $LIB/sofa-box update, $LIB/sofa-box factory-reset, $LIB/sofa-box report
+  $LIB/sofa-box timezone *, $LIB/sofa-box update, $LIB/sofa-box factory-reset, $LIB/sofa-box report, \
+  $LIB/sofa-box games *
 EOF
 chmod 440 /etc/sudoers.d/sofa-box
 visudo -cf /etc/sudoers.d/sofa-box >/dev/null || { rm -f /etc/sudoers.d/sofa-box; echo "   (couldn't set up sudo for the box's settings)"; }

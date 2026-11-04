@@ -42,6 +42,7 @@ apps and sites you open on it:
 | Sofa Shield's blocklist | GitHub (StevenBlack's list), once a week | Settings → Sofa Shield |
 | Update the box | GitHub, only when you press it | — |
 | App Store icons | each app's own site, once, the first time the store is opened | — |
+| Games from Get more games | Debian's archive (deb.debian.org), only when you install one; the games themselves play offline | Don't install them |
 | Live TV channel lists | iptv-org | Don't open Live TV |
 | The secure (https) phone remote | the Sofa Box service (boxcert.edgeventure.uk): the box keeps a connection open to it, with a random id; your phone's taps and typing pass through it to the box while you use the remote (nothing is kept) | Settings → Remotes and Bluetooth → Switch off |
 

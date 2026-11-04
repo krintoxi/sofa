@@ -7,6 +7,25 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.16
+
+- **Games is a games mode.** Free, open-source games that run on the box itself, installed from Games →
+  **Get more games** with one press (a few minutes) and played full screen, **offline**: SuperTux, Flare (a
+  dark-fantasy action RPG), Luanti (an open block world: it starts straight in your world), Neverball,
+  Battle for Wesnoth, OpenTTD, and SuperTuxKart on a Pi 4 or 5. Each shows the room it takes, and the box
+  checks there's room first; **Remove a game** takes it off again.
+- **Controllers, recognised.** Games asks for a controller when none is connected, with how to pair an Xbox,
+  PlayStation, 8BitDo or other one, and shows which kind is connected; a toast says so when one turns on.
+  Generic USB controllers (buttons numbered 1 to 12) work now too, on the box's pages as well.
+- **Every game works with the controller from the start, the same on every controller.** Games made for
+  controllers read it themselves. For the others, the box works it for them, by the buttons' places (an
+  Xbox controller's A is a PlayStation controller's ✕): the sticks walk, look around or move the pointer,
+  the triggers click, the buttons are the game's keys (Luanti: jump, inventory, dig and place; Wesnoth: click,
+  end the turn).
+- **Hold Home for a second to come back from a game** (the Xbox or PS button, or a remote's Home).
+- The card has XWayland, for games made for X; when a game stops as it starts, **Send a report** includes
+  what it said.
+
 ## 1.1.15
 
 - **USB drives are sorted like the Inbox sorts, without touching them.** Plug a drive into the box and Sofa

@@ -298,8 +298,24 @@ of known ad and tracking sites that brings itself up to date every week.
 <img src="../../docs/images/box-files.jpg" alt="Files: Downloads, Videos, Music, Pictures, and the files in Downloads" width="70%">
 
 **Files** shows Downloads, Videos, Music, Pictures and any USB drive you plug in. OK plays a video or
-song in the box's player, or shows a picture; **Menu** renames, moves or deletes. **Games** has small
-games that run well on the box, worked with the arrows and OK (or a controller).
+song in the box's player, or shows a picture; **Menu** renames, moves or deletes.
+
+**Games** is for playing on the TV with a controller:
+
+- **Connect a controller** there (it shows how to put an Xbox, PlayStation, 8BitDo or other controller in
+  pairing mode); a USB cable or a controller's own dongle works as soon as it's in. The box knows which
+  kind it is and says so.
+- **Get more games**: free, open-source games the box installs when you press OK (a few minutes, from
+  Debian's archive), then plays **without the internet**: SuperTux (a platformer), Flare (a dark-fantasy
+  action RPG), Luanti (an open block world to mine, build and craft), Neverball, Battle for Wesnoth,
+  OpenTTD, and SuperTuxKart on a Pi 4 or 5. Each says how much room it takes; **Remove a game** frees it.
+- **Every game works with the controller from the start**, the same on every controller (the buttons go by
+  their place: an Xbox controller's A is a PlayStation controller's ✕). Games made for controllers read it
+  themselves; for the others the box works the controller for them: the sticks walk, look or move the
+  pointer, the buttons are the game's keys and clicks.
+- **To come back from a game, hold Home** (the Xbox or PS button, or a remote's Home) for a second.
+- Small games that run in the home screen (Neon Dodge, Pair Up, Sky Hop) are there too, worked with the
+  arrows and OK.
 
 ### Settings and themes
 
@@ -368,7 +384,10 @@ Share/Create and PS). A USB cable works without pairing.
 | X (□) or Start/Menu | play / pause |
 | Y (△) | search; while playing, subtitles |
 | LB, LT / RB, RT | 10 seconds back / 30 seconds on |
-| Xbox / PS button | Home |
+| Xbox / PS button | Home (in a game: hold it for a second to come back) |
+
+Generic USB controllers (buttons numbered 1 to 12) work too, with the usual layout of those. In a game
+from Games, the controller is the game's ([Files and games](#files-and-games)).
 
 ## Good to know
 
