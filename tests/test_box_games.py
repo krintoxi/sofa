@@ -181,6 +181,21 @@ class Agent(unittest.TestCase):
         games.heard_pads([{"name": "x", "kind": "<script>"}])
         self.assertEqual(games.listing()["pads"][0]["kind"], "generic")
 
+    def test_sleep_and_wake(self):
+        """The phone's power button: the box rests on its screensaver; Home (any remote's) wakes it."""
+        went, real = [], self.agent.go
+        self.agent.go = went.append
+        try:
+            self.agent.box_sleep()
+            self.assertTrue(self.agent.asleep["on"])
+            self.assertEqual(went[-1], "#/sleep")
+            self.assertTrue(self.agent.go_home())                     # Home while asleep: awake, on Home
+            self.assertFalse(self.agent.asleep["on"])
+            self.assertEqual(went[-1], "#/")
+            self.assertFalse(self.agent.box_wake())                   # (awake already: nothing)
+        finally:
+            self.agent.go = real
+
     def test_why_an_install_failed(self):
         self.assertIn("internet", self.agent._apt_why("Err:1 http://deb.debian.org trixie InRelease\n  Temporary failure resolving 'deb.debian.org'"))
         self.assertIn("room", self.agent._apt_why("E: You don't have enough free space in /var/cache/apt/archives/. No space left"))

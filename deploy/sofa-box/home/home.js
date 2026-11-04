@@ -38,6 +38,8 @@
   }
   function tick() {
     const d = new Date(), [hm, ap] = clockParts(d);
+    const sc = $("#sClock");
+    if (sc) sc.innerHTML = esc(hm) + (ap ? "<small>" + ap + "</small>" : "");
     $("#clock").textContent = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     const big = $("#mClock");
     if (!big) return;
@@ -342,6 +344,42 @@
     servers = null; await loadServers();
     return r.server;
   }
+
+  // ---------------------------------------------------------------- asleep: the screensaver (the phone's power button)
+  // The time and the weather, over the art of what you've been watching, crossfading; the card drifts to a new spot
+  // every minute so nothing burns into the TV. Any key, the mouse, or a touch on the phone wakes the box.
+  let sleepTimer = 0;
+  function viewSleep() {
+    document.documentElement.classList.add("asleep");
+    const arts = [...new Set(((sofa || {}).items || []).map(i => i.backdrop).filter(Boolean))].slice(0, 8);
+    const d = new Date(), [hm, ap] = clockParts(d), w = weather && weather.ok ? weather : null;
+    clearInterval(sleepTimer);
+    let n = 0;
+    sleepTimer = setInterval(() => {
+      if (!location.hash.startsWith("#/sleep")) return clearInterval(sleepTimer);
+      n++;
+      const imgs = Array.from(document.querySelectorAll(".sleep-art"));
+      if (imgs.length > 1 && n % 3 === 0) {
+        const on = imgs.findIndex(i => i.classList.contains("on"));
+        imgs.forEach((im, i) => im.classList.toggle("on", i === (on + 1) % imgs.length));
+      }
+      const card = $(".sleep-card");
+      if (card && n % 6 === 0) { card.style.left = (5 + Math.random() * 52) + "vw"; card.style.bottom = (8 + Math.random() * 46) + "vh"; }
+    }, 10000);
+    return `<div class="sleep">${arts.map((a, i) => `<img class="sleep-art${i ? "" : " on"}" src="${esc(artSrc(a, 1280))}" alt="" onerror="this.remove()">`).join("")}
+      <div class="sleep-card"><div class="sleep-clock" id="sClock">${esc(hm)}${ap ? "<small>" + ap + "</small>" : ""}</div>
+        <div class="sleep-date">${esc(d.toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" }))}</div>
+        ${w ? `<div class="sleep-wx">${wxIcon(w.symbol)}<b>${w.temp}°</b><span>${esc(w.place)}</span></div>` : ""}
+        <div class="sleep-mark">${icon("#mark")}<b>Sofa</b><span>Box</span></div></div>
+      <p class="sleep-hint">Press any key, or touch your phone, to wake it</p></div>`;
+  }
+  function wakeUp(e) {
+    if (!location.hash.startsWith("#/sleep")) return;
+    if (e) { e.preventDefault(); e.stopPropagation(); }
+    api("/box/api/sleep", { wake: true }).catch(() => {});
+    location.hash = "#/";
+  }
+  for (const ev of ["keydown", "mousedown", "wheel", "touchstart"]) window.addEventListener(ev, wakeUp, { capture: true, passive: false });
 
   // ---------------------------------------------------------------- Games: the small ones in the page, and games
   // that run on the box itself (installed from the list when asked, played offline with a controller)
@@ -1076,12 +1114,13 @@
   }
 
   // ---------------------------------------------------------------- the router
-  const TABS = { "": "home", store: "store", games: "games", files: "files", browser: "browser", settings: "settings", welcome: "", sofa: "home" };
+  const TABS = { "": "home", store: "store", games: "games", files: "files", browser: "browser", settings: "settings", welcome: "", sofa: "home", sleep: "" };
   function render(keep) {
     const name = (location.hash.replace(/^#\/?/, "").split(/[/?]/)[0]) || "";
     const html = name === "store" ? viewStore() : name === "games" ? viewGames() : name === "files" ? viewFiles()
       : name === "browser" ? viewBrowser() : name === "settings" ? viewSettings() : name === "welcome" ? viewWelcome()
-      : name === "sofa" ? viewSofa() : viewHome();
+      : name === "sofa" ? viewSofa() : name === "sleep" ? viewSleep() : viewHome();
+    if (name !== "sleep") document.documentElement.classList.remove("asleep");
     const keepKey = keep && cur && document.contains(cur) ? keyOf(cur) : null;
     if (name !== "welcome") document.documentElement.classList.remove("setup");
     view.innerHTML = html;

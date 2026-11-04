@@ -3224,7 +3224,9 @@ function spatialMove(dir, scope, first) {
   });
   if (!best) return false;
   // smooth, but on TV sticks (slow to scroll); a Sofa Box scrolls smoothly (html.box)
-  best.focus({ preventScroll: true }); best.scrollIntoView({ block: "nearest", inline: "nearest", behavior: TV && !document.documentElement.classList.contains("box") ? "auto" : "smooth" });
+  // (on a Sofa box the row in focus glides to the middle of the screen, as TV apps do; elsewhere just into view)
+  const boxed = document.documentElement.classList.contains("box");
+  best.focus({ preventScroll: true }); best.scrollIntoView({ block: boxed && !best.closest(".bar") ? "center" : "nearest", inline: "nearest", behavior: TV && !boxed ? "auto" : "smooth" });
   return true;
 }
 document.addEventListener("keydown", e => {

@@ -58,8 +58,20 @@ def recorded():
         return {}
 
 
+def on_main():
+    """The version recorded on GitHub's main, if git can say: a version that's out already can't take new code."""
+    try:
+        out = subprocess.run(["git", "-C", ROOT, "show", "origin/main:tests/sofa-version.json"], capture_output=True, text=True, timeout=30)
+        return json.loads(out.stdout) if out.returncode == 0 else {}
+    except (OSError, ValueError):
+        return {}
+
+
 def main():
     v, rec = version(), recorded()
+    out = on_main()
+    if out.get("version") == v and out.get("code") != code_hash():
+        sys.exit("Sofa %s is on main already, with other code: raise __version__ (and add it to CHANGES.md) first." % v)
     if rec.get("version") and rec["version"] != v and \
             tuple(int(x) for x in v.split(".")) <= tuple(int(x) for x in rec["version"].split(".")):
         sys.exit("Sofa %s isn't newer than %s, the version recorded last: raise __version__ first." % (v, rec["version"]))
