@@ -9,7 +9,8 @@
   .score { position: fixed; top: 3vh; right: 4vw; font-size: 3vw; color: #E8FF3A; text-shadow: 0 0 16px #E8FF3A; }
 </style></head><body>
 <canvas id="c"></canvas><div class="score" id="score">0</div>
-<div class="ui" id="ui"><h1>NEON DODGE</h1><p>← → switch lanes · OK to start</p><p id="best"></p></div>
+<div class="ui" id="ui"><h1>NEON DODGE</h1><p id="how">← → switch lanes · OK to start</p><p id="best"></p></div>
+<script src="../pad.js"></script>
 <script>
 (function () {
   const c = document.getElementById("c"), x = c.getContext("2d");
@@ -23,7 +24,16 @@
     playing = false; best = Math.max(best, Math.floor(score)); localStorage.setItem("neonBest", best);
     ui.style.display = ""; ui.querySelector("h1").textContent = "CRASH"; document.getElementById("best").textContent = "Score " + Math.floor(score) + " · best " + best;
   }
+  const how = document.getElementById("how");
+  SofaPad.on((b, act) => {                      // the controller first: the stick or D-pad, a lane a press
+    if (b === "connected") { how.textContent = "Stick or D-pad: switch lanes · " + SofaPad.label("a") + " to start"; return; }
+    if (act !== "press") return;
+    if (b === "left") lane = Math.max(0, lane - 1);
+    else if (b === "right") lane = Math.min(LANES - 1, lane + 1);
+    else if ((b === "a" || b === "start") && !playing) start();
+  });
   addEventListener("keydown", e => {
+    if (SofaPad.echo(e)) return;                // (the box's key for a controller's button: the pad has it already)
     if (e.key === "ArrowLeft") lane = Math.max(0, lane - 1);
     else if (e.key === "ArrowRight") lane = Math.min(LANES - 1, lane + 1);
     else if ((e.key === "Enter" || e.key === " ") && !playing) start();

@@ -690,7 +690,8 @@
   const qrRow = (text, beside) => `<div class="qr-row"><span class="qr big">${qr(text)}</span><div class="qr-text">${beside}</div></div>`;
   // The phone's way in at the setup, as steps: join the box's Wi-Fi, open the remote, give the box your Wi-Fi, keep
   // the remote (a new code once it's on your Wi-Fi). Each shows only its own code, and says what the box waits for.
-  const CODE_STEPS = ["Join the box's Wi-Fi", "Open the remote", "Give the box your Wi-Fi", "Keep the remote"];
+  // (the phone's side is the Sofa Setup Assistant: it connects to the box, opens, takes your Wi-Fi, then stays as the remote)
+  const CODE_STEPS = ["Connect your phone", "Open the Setup Assistant", "Choose your Wi-Fi", "Keep the remote"];
   let codesShown = null;                                    // "wifi" | "remote", shown again on request for a minute
   function codeSteps(at) {
     return `<ol class="code-steps">${CODE_STEPS.map((t, i) => `<li class="${i < at ? "done" : i === at ? "on" : ""}"><em>${i < at ? "✓" : i + 1}</em>${t}</li>`).join("")}</ol>`;
@@ -701,13 +702,13 @@
     const joined = (n.clients || 0) > 0;                      // a phone (or something) on the box's Wi-Fi
     const stage = asked || (remote ? "details" : joined ? "remote" : "wifi");
     if (stage === "wifi") return codeSteps(0) + qrRow(hs.wifi_qr, `
-      <b>Scan with your phone's camera to join the box's Wi-Fi</b><small>${esc(hs.ssid)} · password ${esc(hs.password)}</small>
+      <b>Scan with your phone's camera: it connects your phone to the box</b><small>(the box's own Wi-Fi, ${esc(hs.ssid)} · password ${esc(hs.password)})</small>
       ${waiting("Waiting for your phone to join…")}`);
     if (stage === "remote") return codeSteps(1) + qrRow(r.pair_url, `
-      <b>${joined ? "Now scan" : "Scan"} this to open the remote</b><small>or open ${address} and type ${esc(r.code)}</small>
+      <b>${joined ? "Now scan" : "Scan"} this: the Sofa Setup Assistant opens on your phone</b><small>or open ${address} and type ${esc(r.code)}</small>
       ${waiting("Waiting for the remote to open on your phone…")}<button class="mini" data-codes="wifi">Show the Wi-Fi code again</button>`);
-    return codeSteps(2) + `<p class="okay big">✓ Your phone is the remote</p>
-      <p class="small">On your phone: the <b>Wi-Fi</b> tab, pick your home Wi-Fi, type its password, <b>Join</b>.</p>
+    return codeSteps(2) + `<p class="okay big">✓ The Setup Assistant is open on your phone</p>
+      <p class="small">On your phone: pick your home Wi-Fi, type its password, <b>Join</b>.</p>
       ${waiting("Waiting for your Wi-Fi details…")}<button class="mini" data-codes="remote">Show the remote's code again</button>`;
   }
   function secureLine() {                // the phone remote over https: through the relay (or the box's own certificate)
@@ -776,7 +777,7 @@
     if (step === 0) return `<div class="setup view-in">${top}<div class="setup-body hello">
         <div class="hello-head"><h1>Hello. Let's set up your Sofa Box.</h1><p>It takes two minutes. Use whatever's in your hand:</p></div>
         <div class="ways">
-          <section class="way phone"><h3><span>📱</span>Your phone</h3><div id="phoneBox">${phoneBox()}</div></section>
+          <section class="way phone"><h3><span>📱</span>Set up with your phone</h3><div id="phoneBox">${phoneBox()}</div></section>
           <section class="way"><h3><span>📺</span>A remote or controller</h3>
             <p><b>Fire TV remote</b> (or another Bluetooth remote): hold its <b>Home</b> button for 10 seconds. It pairs by itself.</p>
             <p><b>Game controller:</b> put it in pairing mode.</p><div id="btList" class="bt-list small-list">${btList()}</div></section>

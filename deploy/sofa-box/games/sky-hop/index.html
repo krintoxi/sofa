@@ -8,7 +8,8 @@
   .score { position: fixed; top: 3vh; left: 4vw; font-size: 3.4vw; color: #134; }
 </style></head><body>
 <canvas id="c"></canvas><div class="score" id="score">0</div>
-<div class="ui" id="ui"><h1>SKY HOP</h1><p>← → to steer · OK to start</p><p id="best"></p></div>
+<div class="ui" id="ui"><h1>SKY HOP</h1><p id="how">← → to steer · OK to start</p><p id="best"></p></div>
+<script src="../pad.js"></script>
 <script>
 (function () {
   const c = document.getElementById("c"), x = c.getContext("2d"), ui = document.getElementById("ui");
@@ -20,7 +21,12 @@
     for (let i = 0; i < 12; i++) plats.push({ x: Math.random() * (W - W * 0.16), y: H - i * H * 0.11, w: W * 0.16 });
     playing = true; ui.style.display = "none";
   }
-  addEventListener("keydown", e => { keys[e.key] = true; if ((e.key === "Enter" || e.key === " ") && !playing) start(); if (e.key.startsWith("Arrow")) e.preventDefault(); });
+  const how = document.getElementById("how");
+  SofaPad.on((b, act) => {
+    if (b === "connected") { how.textContent = "Stick to steer · " + SofaPad.label("a") + " to start"; return; }
+    if (act === "press" && (b === "a" || b === "start") && !playing) start();
+  });
+  addEventListener("keydown", e => { if (SofaPad.echo(e)) return; keys[e.key] = true; if ((e.key === "Enter" || e.key === " ") && !playing) start(); if (e.key.startsWith("Arrow")) e.preventDefault(); });
   addEventListener("keyup", e => { keys[e.key] = false; });
   addEventListener("pointerdown", e => { if (!playing) start(); keys.tap = e.clientX < innerWidth / 2 ? -1 : 1; });
   addEventListener("pointerup", () => { keys.tap = 0; });
@@ -28,7 +34,8 @@
     const dt = Math.min(0.033, (now - last) / 1000 || 0); last = now;
     x.clearRect(0, 0, W, H);
     if (playing) {
-      const dir = (keys.ArrowLeft ? -1 : 0) + (keys.ArrowRight ? 1 : 0) + (keys.tap || 0);
+      const pad = SofaPad.stick().x || ((SofaPad.held("left") ? -1 : 0) + (SofaPad.held("right") ? 1 : 0));
+      const dir = Math.max(-1, Math.min(1, (keys.ArrowLeft ? -1 : 0) + (keys.ArrowRight ? 1 : 0) + (keys.tap || 0) + pad));
       me.vx = dir * W * 0.6; me.x = (me.x + me.vx * dt + W) % W;
       me.vy += H * 2.6 * dt; me.y += me.vy * dt;
       if (me.vy > 0) plats.forEach(p => { if (me.x > p.x - 10 && me.x < p.x + p.w + 10 && me.y > p.y - 12 && me.y < p.y + 14) me.vy = -H * 1.3; });

@@ -78,7 +78,9 @@ itself up), and it may restart once by itself. Its boot screen says so: just wai
 <img src="../../docs/images/box-setup.jpg" alt="Setup: Hello. Let's set up your Sofa Box. Your phone (a QR code), A remote or controller, Keyboard and mouse" width="100%">
 
 1. **Hello:** pick up whatever's in your hand.
-   - **Phone:** point its camera at the QR code and open the link. It's the remote from then on.
+   - **Phone (the Sofa Setup Assistant):** point its camera at the code on the TV: the first connects your
+     phone to the box, the next opens the Setup Assistant, where you choose your Wi-Fi; the last code keeps
+     your phone as the remote.
    - **Fire TV remote** (or another Bluetooth remote, or a game controller): put it in pairing mode.
      For a Fire TV remote, hold **Home** for 10 seconds. It pairs by itself.
    - **Keyboard and mouse:** plug in the dongle.
