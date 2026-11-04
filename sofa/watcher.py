@@ -36,8 +36,10 @@ def _watch():
                 for _key, root in places.roots("shows") + places.roots("movies") + places.roots("adult"):
                     fileops.leftovers(root)       # half copies a crash left (fileops.py)
             filed = organizer.process_inbox()
-            if places.auto_drives():              # a drive was just plugged in: in the library straight away
-                LIBRARY.scan("a drive was plugged in")
+            places.auto_drives()                  # a drive was just plugged in: sorted into the library (with links)
+            linked = sum(organizer.link_drive(p) for p in places.usb())
+            if linked:
+                LIBRARY.scan("a USB drive was sorted")
                 _after_scan()
             elif filed:
                 LIBRARY.scan("%d new from Inbox" % filed)

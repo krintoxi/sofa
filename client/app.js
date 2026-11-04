@@ -2143,10 +2143,10 @@ function srvStorage(d) {
     const what = [c.shows ? plural(c.shows, "show") : "", c.movies ? plural(c.movies, "movie") : "", c.adult && session.user.adult ? c.adult + " adult" : "",
       c.bytes ? bytes(c.bytes) : ""].filter(Boolean).join(" · ") || "Nothing yet";
     return `<li class="place${p.connected ? "" : " gone"}"><div class="place-main">
-        <span class="place-name"><b>${esc(p.name)}</b>${p.main ? `<span class="tag">Main</span>` : ""}${p.as_is ? `<span class="tag" title="Read as it is: its own folders; nothing on it is moved or renamed">USB, as it is</span>` : ""}${p.connected ? "" : `<span class="tag bad">Not plugged in</span>`}</span>
+        <span class="place-name"><b>${esc(p.name)}</b>${p.main ? `<span class="tag">Main</span>` : ""}${p.usb ? `<span class="tag" title="Sorted here with links: nothing on the drive is moved, renamed or deleted">USB drive</span>` : ""}${p.connected ? "" : `<span class="tag bad">Not plugged in</span>`}</span>
         <span class="when"><code>${esc(p.path)}</code></span>
         <span class="when">${esc(what)}</span>${p.connected ? spaceBar(p) : `<span class="when">Its shows and movies come back when it's plugged in again.</span>`}</div>
-      <div class="place-actions">${p.as_is ? "" : `<label class="check"><input type="radio" name="newTo" data-new-to="${esc(p.id)}"${st.new_to === p.id ? " checked" : ""}${p.connected ? "" : " disabled"}> New things go here</label>`}
+      <div class="place-actions">${p.usb ? "" : `<label class="check"><input type="radio" name="newTo" data-new-to="${esc(p.id)}"${st.new_to === p.id ? " checked" : ""}${p.connected ? "" : " disabled"}> New things go here</label>`}
         ${p.main ? "" : `<button class="mini danger" data-place-remove="${esc(p.id)}">Stop using</button>`}</div></li>`;
   };
   const warn = dr => dr.problem === "no-permission" ? `<span class="form-error">macOS isn't letting Sofa open it yet. Press "Use this drive" for the steps.</span>`
@@ -2383,6 +2383,8 @@ function srvInternet(d) {
         <button class="switch" role="switch" aria-checked="${!!n.upnp.on}" data-net-upnp="1" aria-label="Ask the router to forward the ports"></button></div>
       <div class="actions"><button class="btn" data-net-ports="1">Try it now</button></div>
       <p class="hint">${n.public_ip ? `Your home's internet address: <code>${esc(n.public_ip)}</code>. ` : ""}${h.domain && n.public_ip ? ok(n.points_here, esc(h.domain) + " points here", esc(h.domain) + " doesn't point here yet (DNS can take a few minutes)") : ""}</p>
+      ${n.dns_check ? `<p class="hint">A DuckDNS address gets its certificate over DNS: only port <b>443</b> is needed (many internet providers block 80).</p>` : ""}
+      ${n.outside && n.outside.shared ? `<div class="warn-box"><b>Your internet provider shares one address between homes</b><p>The router's internet address (<code>${esc(n.outside.router_ip || "")}</code>) isn't the one the internet sees (<code>${esc(n.outside.public_ip || "")}</code>): that's "carrier-grade NAT", or a second router in front of this one. No port can be opened from here. Ask the provider for a public address (often free), put the other router in bridge mode, or use Tailscale instead.</p></div>` : ""}
     </div>
     <div class="panel wide"><h2>4. The certificate</h2>
       ${h.mode === "letsencrypt" ? `<p class="hint">Let's Encrypt checks that ${h.domain ? `<b>${esc(h.domain)}</b>` : "your domain"} reaches this computer, then gives Sofa a certificate for 90 days. Sofa renews it by itself.</p>
@@ -2393,6 +2395,10 @@ function srvInternet(d) {
     <div class="panel wide"><h2>5. Let the internet in</h2>
       <div class="toggle"><div><b>Accept connections from the internet</b><span>Only over HTTPS, and everyone signs in. New passwords need 12 characters. 8 wrong passwords from one address lock it out for 15 minutes. The Server page and admin changes stay home-only (or over Tailscale).</span></div>
         <button class="switch" role="switch" aria-checked="${n.remote === "public"}" data-net-public="1" aria-label="Accept connections from the internet"${h.mode === "off" && !n.trust_proxy ? " disabled" : ""}></button></div>
+      <div class="actions"><button class="btn" data-net-outside="1"${n.outside && n.outside.busy ? " disabled" : ""}>Check from outside</button></div>
+      ${(o => !o || !o.at ? `<p class="hint">Asks the Sofa Box service, out on the internet, whether ${h.domain ? `<code>https://${esc(h.domain)}</code>` : "your address"} answers, and what your home's internet address is. It sends only your address, and only when you press this.</p>`
+        : o.error ? `<p class="hint"><span class="bad">✗ ${esc(o.error)}</span></p>`
+        : `<p class="hint">${o.reach ? ok(o.reach.ok, esc(o.reach.message), esc(o.reach.message)) : "Set your address first (step 2)."}${o.public_ip ? ` Seen from outside, your home is <code>${esc(o.public_ip)}</code>.` : ""}</p>`)(n.outside)}
       <p class="hint">Rather not open anything? Tailscale gives your own devices a private way in: <a href="https://github.com/krintoxi/sofa/blob/main/docs/remote-access.md" target="_blank" rel="noopener">docs/remote-access.md</a>.</p>
     </div>
   </div>`;
@@ -2413,7 +2419,8 @@ document.addEventListener("change", e => {
   if (e.target.name === "https" && e.target.closest("[data-net-form]")) netSave({ https: e.target.value });
 });
 document.addEventListener("click", e => {
-  const b = e.target.closest("[data-net-upnp],[data-net-ports],[data-net-cert],[data-net-public]"); if (!b) return;
+  const b = e.target.closest("[data-net-upnp],[data-net-ports],[data-net-cert],[data-net-public],[data-net-outside]"); if (!b) return;
+  if (b.dataset.netOutside) { toast("Checking from outside…"); netSave({ check_outside: true }).then(() => { setTimeout(loadAdmin, 6000); setTimeout(loadAdmin, 15000); }); return; }
   if (b.dataset.netUpnp) netSave({ upnp: b.getAttribute("aria-checked") !== "true" });
   else if (b.dataset.netPorts) { toast("Asking the router…"); netSave({ open_ports: true }).then(() => setTimeout(loadAdmin, 4000)); }
   else if (b.dataset.netCert) netSave({ get_certificate: true }).then(() => setTimeout(loadAdmin, 1500));

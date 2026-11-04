@@ -55,6 +55,19 @@ class Server(unittest.TestCase):
     def tearDownClass(cls):
         cls.httpd.shutdown()
 
+    def test_the_internet_page(self):
+        status, n = self.admin.call("/api/admin/internet")
+        self.assertEqual(status, 200)
+        self.assertFalse(n["dns_check"])                # (no DuckDNS name here)
+        self.assertEqual(self.admin.call("/api/admin/internet", {"check_outside": True})[0], 200)
+        for _ in range(50):                             # Check from outside: offline in the tests, and it says so
+            n = self.admin.call("/api/admin/internet")[1]
+            if n["outside"].get("at"):
+                break
+            time.sleep(0.1)
+        self.assertIn("offline", n["outside"]["error"])
+        self.assertFalse(n["outside"]["busy"])
+
     def test_info_needs_no_sign_in(self):
         status, info = Client(self.base).call("/api/info")
         self.assertEqual(status, 200)

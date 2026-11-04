@@ -5,6 +5,7 @@ import importlib.util
 import json
 import os
 import shutil
+import socket
 import subprocess
 import tempfile
 import threading
@@ -362,9 +363,68 @@ class BoxCerts(unittest.TestCase):
             self.assertEqual((status, len(out["report"])), (200, 6))
             self.assertEqual(post("/v1/address", dict(box, ip="10.0.0.2", pad="x" * 20000))[0], 413)
             self.assertEqual(post("/v1/nothing", {})[0], 404)
+            req = urllib.request.Request(base + "/v1/ip", headers={"CF-Connecting-IP": "198.51.100.7"})
+            with urllib.request.urlopen(req, timeout=10) as r:                     # Check from outside: the home's address
+                self.assertEqual(json.loads(r.read()), {"ip": "198.51.100.7"})
         finally:
             server.shutdown()
             server.server_close()
+
+    def test_the_outside_check(self):
+        class FakeSofa(BaseHTTPRequestHandler):
+            answer = b'{"sofa": true, "name": "Sofa"}'
+
+            def do_GET(self):
+                self.send_response(200 if self.path == "/api/info" else 404)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(self.answer)))
+                self.end_headers()
+                self.wfile.write(self.answer)
+
+            def log_message(self, *a):
+                pass
+        sofa = ThreadingHTTPServer(("127.0.0.1", 0), FakeSofa)
+        threading.Thread(target=sofa.serve_forever, daemon=True).start()
+        spare = socket.socket()
+        spare.bind(("127.0.0.1", 0))
+        port, closed = sofa.server_address[1], spare.getsockname()[1]
+        spare.close()
+        sock = self.certs.socket
+        real_lookup, real_connect = sock.getaddrinfo, sock.create_connection
+        homes = {"sofa.example.com": "8.8.8.8", "home.example.com": "192.168.1.20"}
+
+        def lookup(host, port_, *a, **k):              # (names here stand for ones on the internet; no real lookups:
+            if host in homes:                          # on a Mac they leave threads that crash the tests' later forks)
+                return [(sock.AF_INET, sock.SOCK_STREAM, 6, "", (homes[host], port_))]
+            if host == "127.0.0.1":                    # (create_connection's own lookup: no DNS for a number)
+                return real_lookup(host, port_, *a, **k)
+            raise sock.gaierror(8, "nodename nor servname provided, or not known")
+
+        def connect(address, timeout=None, *a, **k):
+            return real_connect(("127.0.0.1", address[1]) if address[0] == "8.8.8.8" else address, timeout)
+        sock.getaddrinfo, sock.create_connection = lookup, connect
+        reach = lambda url, who="198.51.100.4": self.service.reach({"url": url}, who)
+        try:
+            for bad in ("ftp://sofa.example.com", "https://me:pw@sofa.example.com", "nothing"):
+                with self.assertRaises(self.certs.Refused):
+                    reach(bad)
+            out = reach("http://sofa.example.com:%d" % port)
+            self.assertEqual((out["ok"], out["ip"]), (True, "8.8.8.8"))
+            self.assertEqual(reach("http://home.example.com")["why"], "private")       # never a home address
+            self.assertEqual(reach("http://nowhere.invalid")["why"], "name")
+            self.assertEqual(reach("http://sofa.example.com:%d" % closed)["why"], "closed")
+            self.assertEqual(reach("https://sofa.example.com:%d" % port)["why"], "certificate")
+            FakeSofa.answer = b"<html>Router login</html>"
+            self.assertEqual(reach("http://sofa.example.com:%d" % port)["why"], "not-sofa")
+            for _ in range(self.cfg["reach_per_hour"] - 6):     # (six so far: a refused address doesn't count)
+                reach("http://home.example.com")
+            with self.assertRaises(self.certs.Limit):                                  # a few times an hour
+                reach("http://home.example.com")
+            self.assertEqual(reach("http://home.example.com", "198.51.100.5")["why"], "private")
+        finally:
+            sock.getaddrinfo, sock.create_connection = real_lookup, real_connect
+            sofa.shutdown()
+            sofa.server_close()
 
     def test_the_lets_encrypt_account_key(self):
         acme = self.certs.Acme("http://127.0.0.1:9/dir", os.path.join(self.dir, "account.key"))

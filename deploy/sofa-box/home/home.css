@@ -225,6 +225,10 @@ h2.row-title small { margin-left: .6rem; font: 500 .85rem var(--text); color: va
 .card p.update-ready { color: var(--fg); border-left: 3px solid var(--a); padding-left: .7rem; }
 .choices { display: flex; flex-wrap: wrap; gap: .5rem; }
 .choices .gap { width: 1rem; }
+.tb-checks { list-style: none; margin: .6rem 0 .8rem; padding: 0; display: grid; gap: .3rem; font-size: .9rem; }
+.tb-checks:empty { display: none; }
+.tb-checks .okay { color: #3DDC84; } .tb-checks .bad, .small.bad { color: #FF6B6B; }
+#thisBoxCard .add-site { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; margin: .4rem 0 .6rem; }
 .choice small { color: var(--mist); font-weight: 500; }
 .choice { padding: .55rem 1rem; border-radius: 99rem; border: 1px solid var(--line); background: var(--tile); font-weight: 700; }
 .choice[aria-pressed="true"] { background: var(--fg); color: var(--bg); }

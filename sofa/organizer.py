@@ -12,14 +12,205 @@ downloads are never touched). Then every video in it is identified:
 * anything Sofa can't identify, and duplicates, go to Needs Review/ with a note
   on the admin page. Nothing is ever deleted.
 """
+import hashlib
+import json
 import os
 import re
 import shutil
+import threading
 import time
 
 from . import config, fileops, media, metadata, music, naming, places, sidecars, store
 
 SETTLE_SECONDS = 30
+
+# Link mode (link_entry): a USB drive sorted the way the Inbox sorts, without moving anything. Where the Inbox would
+# move a video into the library, a link to it goes into the drive's own folders on this computer (places.py, a
+# "linked" place), named as the Inbox would name it; its pictures go there too. Nothing on the drive changes.
+_linking = threading.local()
+
+
+def _link_tree():
+    return getattr(_linking, "tree", None)
+
+
+# On a drive: folders that only hold other things (each thing in them is sorted on its own), and what's the
+# drive's own business, not videos
+HOLDER_DIRS = ("movies", "films", "film", "peliculas", "películas", "shows", "series", "tv", "tv shows", "tv series",
+               "downloads", "download", "videos", "video", "my videos", "new folder", "complete", "completed",
+               "torrents", "media", "stuff", "misc", "files", "temp", "tmp", "to watch", "watch", "usb")
+DRIVE_SKIP = ("system volume information", "$recycle.bin", "recycler", "lost+found", "found.000", ".trashes",
+              ".spotlight-v100", ".fseventsd", "sofa library")
+LINKS_INDEX = ".sofa-links.json"
+LINK_SECONDS = 60          # one round of sorting a drive; what's left waits for the next (the library shows it so far)
+
+
+def _skip_on_drive(name):
+    return name.startswith((".", "$")) or name.lower() in DRIVE_SKIP or naming.is_adult_dir(name)
+
+
+def link_entry(entry, tree, hint=None, have=None):
+    """File one item of a drive (a folder, or a loose video) in link mode, into `tree` (Shows/, Movies/...).
+    `have`: {file: link} already in the tree (kept where they are, even if someone moved or deleted them in Sofa).
+    Returns {file: link} for what was linked."""
+    _linking.tree, _linking.done, _linking.have = tree, {}, have or {}
+    try:
+        _handle(entry, hint)
+        return dict(_linking.done)
+    finally:
+        _linking.tree = None
+
+
+def _drive_entries(root, depth=0):
+    """What's on a drive, each sorted on its own: what's at the top, and what's in folders that only hold other
+    things ("Movies", "TV", "Downloads")."""
+    out = []
+    try:
+        names = sorted(os.listdir(root), key=str.lower)
+    except OSError:
+        return out
+    for name in names:
+        p = os.path.join(root, name)
+        if _skip_on_drive(name) or os.path.islink(p):
+            continue
+        if os.path.isdir(p):
+            if depth < 2 and name.lower() in HOLDER_DIRS:
+                out += _drive_entries(p, depth + 1)
+            else:
+                out.append(p)
+        elif os.path.splitext(name)[1].lower() in naming.VIDEO_EXT and not name.startswith("._"):
+            out.append(p)
+    return out
+
+
+def _entry_signature(p):
+    """Changes when something in it is added, removed or renamed (folders' times, four deep), or a loose file changes."""
+    h = hashlib.sha1()
+    top = p.rstrip(os.sep).count(os.sep)
+    try:
+        if os.path.isfile(p):
+            st = os.stat(p)
+            return "%d|%d" % (st.st_size, st.st_mtime_ns)
+        for d, dirs, _files in os.walk(p):
+            dirs[:] = [] if d.count(os.sep) - top >= 4 else sorted(x for x in dirs if not _skip_on_drive(x))
+            h.update(("%s|%d\n" % (d, os.stat(d).st_mtime_ns)).encode())
+    except OSError:
+        return None
+    return h.hexdigest()
+
+
+def _links_in(tree):
+    """{file on the drive: link} for every link in a drive's folder (Deleted/ too); broken ones removed."""
+    have, gone = {}, 0
+    for d, dirs, files in os.walk(tree):
+        for f in files + dirs:
+            p = os.path.join(d, f)
+            if not os.path.islink(p):
+                continue
+            if not os.path.exists(p):              # its file isn't on the drive any more
+                try:
+                    os.remove(p)
+                    gone += 1
+                except OSError:
+                    pass
+                continue
+            have[os.path.realpath(p)] = p
+    return have, gone
+
+
+def _prune(tree):
+    """Folders of things no longer on the drive (their pictures with them)."""
+    def has_link(d):
+        return any(os.path.islink(os.path.join(dp, f)) for dp, _ds, fs in os.walk(d) for f in fs)
+    for d, dirs, files in os.walk(tree):
+        if any(os.path.islink(os.path.join(d, f)) for f in files) and d != tree:
+            dirs[:] = []                           # a title's own folder: its other folders (metadata/) belong to it
+            continue
+        for x in list(dirs):
+            p = os.path.join(d, x)
+            if not x.startswith(".") and not has_link(p):
+                shutil.rmtree(p, ignore_errors=True)
+                dirs.remove(x)
+
+
+def link_drive(place):
+    """Sort a USB drive into the library the way the Inbox would, with links (places.py): what's new or changed on it
+    since last time, for up to LINK_SECONDS. Returns how many things were linked or removed (0: nothing changed)."""
+    tree, drive = place["path"], place["drive"]
+    index_path = os.path.join(tree, LINKS_INDEX)
+    try:
+        with open(index_path, encoding="utf-8") as f:
+            index = json.load(f)
+    except (OSError, ValueError):
+        index = {}
+    seen = index.get("entries") or {}
+    entries = _drive_entries(drive)
+    todo = []
+    for e in entries:
+        sig = _entry_signature(e)
+        if sig and seen.get(e) != sig:
+            todo.append((e, sig))
+    gone_entries = [e for e in seen if e not in set(entries)]
+    if not todo and not gone_entries:
+        return 0
+    have, changed = _links_in(tree)
+    started, linked = time.time(), 0
+    for e, sig in todo:
+        if time.time() - started > LINK_SECONDS:
+            break
+        try:
+            done = link_entry(e, tree, have=have)
+        except Exception as exc:                   # one odd folder doesn't stop the rest
+            store.log("error", "Sorting the drive %s: %s" % (place["name"], exc))
+            done = {}
+        have.update({os.path.realpath(k): v for k, v in done.items()})
+        linked += len(done)
+        seen[e] = sig
+    for e in gone_entries:
+        seen.pop(e, None)
+    if changed or gone_entries:
+        _prune(tree)
+    try:
+        os.makedirs(tree, exist_ok=True)
+        with open(index_path + ".tmp", "w", encoding="utf-8") as f:
+            json.dump({"drive": drive, "entries": seen}, f)
+        os.replace(index_path + ".tmp", index_path)
+    except OSError as exc:
+        store.log("error", "Saving how the drive %s is sorted: %s" % (place["name"], exc))
+    if linked:
+        store.log("inbox", "Sorted %d video%s on the drive %s into the library (nothing on the drive changed)"
+                  % (linked, "" if linked == 1 else "s", place["name"]))
+    return linked + changed + len(gone_entries) + len(todo)
+
+
+def _link(src, dest):
+    """Link mode's move: a link at `dest` to `src` (the same name taken by another file: "Name (2)"). A file that
+    has a link already keeps it, wherever it is now."""
+    old = _linking.have.get(os.path.realpath(src))
+    if old and os.path.islink(old):
+        _linking.done[src] = old
+        return True
+    if os.path.islink(dest) and os.path.realpath(dest) == os.path.realpath(src):
+        _linking.done[src] = dest
+        return True
+    if os.path.lexists(dest):
+        dest = _free_path(dest)
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
+    os.symlink(src, dest)
+    _linking.done[src] = dest
+    stem_src, stem_dest = os.path.splitext(src)[0], os.path.splitext(dest)[0]
+    try:
+        for f in os.listdir(os.path.dirname(src)):         # its subtitles, linked alongside
+            p = os.path.join(os.path.dirname(src), f)
+            base, ext = os.path.splitext(p)
+            if (base == stem_src or base.startswith(stem_src + ".")) and ext.lower() in naming.SUB_EXT:
+                target = stem_dest + base[len(stem_src):] + ext.lower()
+                if not os.path.lexists(target):
+                    os.symlink(p, target)
+                    _linking.done[p] = target
+    except OSError:
+        pass
+    return True
 
 
 _seen = {}   # entry path -> (size, newest mtime) at the last look
@@ -115,7 +306,7 @@ def _note_arrival(entry, hint, size):
 
 
 def _handle(entry, hint=None):
-    if hint == "adult" and os.path.isdir(entry):
+    if hint == "adult" and os.path.isdir(entry) and not _link_tree():
         target = _adult_folder_target(entry)
         if target:                                   # a category ("Hentai") or a collection: keep its shape
             n = sum(1 for _d, _s, fs in os.walk(entry) for f in fs if os.path.splitext(f)[1].lower() in naming.VIDEO_EXT)
@@ -130,14 +321,16 @@ def _handle(entry, hint=None):
             videos.append(entry)
     else:
         for d, dirs, files in os.walk(entry):
-            dirs[:] = [x for x in dirs if not x.startswith(".")]
+            dirs[:] = [x for x in dirs if not (_skip_on_drive(x) if _link_tree() else x.startswith("."))]
             for f in files:
                 if os.path.splitext(f)[1].lower() in wanted and not f.startswith("._"):
                     videos.append(os.path.join(d, f))
     filed = 0
     del _filed_now[:]
     collection = _collection_of(entry, videos) if hint != "musicvideo" else None
-    if videos and hint != "adult":
+    if _link_tree():
+        pass                                         # (link mode: link_drive says what it did, once)
+    elif videos and hint != "adult":
         store.log("inbox", "Sorting \"%s\": %d file%s%s" % (os.path.basename(entry), len(videos), "" if len(videos) == 1 else "s",
                   ", as the collection \"%s\"" % collection if collection else ""), {"entry": entry, "files": [os.path.basename(v) for v in videos][:50]})
     elif hint == "adult":
@@ -147,12 +340,16 @@ def _handle(entry, hint=None):
     for v in sorted(videos):
         is_audio = os.path.splitext(v)[1].lower() in music.AUDIO_EXT
         if not is_audio and _is_sample(v):
+            if _link_tree():
+                continue
             if hint == "adult":
                 store.log_private("inbox", "Skipped a sample file", {"file": v})
             else:
                 store.log("inbox", "Skipped a sample file: %s" % os.path.basename(v), {"file": v})
             continue
         try:
+            if is_audio and _link_tree():                  # (link mode: a drive's music stays in Files)
+                continue
             if is_audio and hint != "adult":
                 filed += 1 if _file_song(v) else 0
             elif hint == "musicvideo":
@@ -164,7 +361,8 @@ def _handle(entry, hint=None):
                 store.log_private("review", "Couldn't move a private file (%s)" % exc.strerror, {"file": v, "error": str(exc)})
             else:
                 store.log("review", "Couldn't move %s: %s" % (os.path.basename(v), exc), {"file": v})
-    _sweep_leftovers(entry, private=hint == "adult", filed=_filed_now)
+    if not _link_tree():                                   # (link mode: nothing else on the drive is touched)
+        _sweep_leftovers(entry, private=hint == "adult", filed=_filed_now)
     return filed
 
 
@@ -246,16 +444,23 @@ def _folder_hint(video, entry):
     return None
 
 
+def _initials(name):
+    words = re.findall(r"[A-Za-z0-9]+", name or "")
+    return "".join(w[0] for w in words).lower() if len(words) >= 2 else ""
+
+
 def _season_hint(video):
     return naming.season_of_dir(os.path.basename(os.path.dirname(video)))
 
 
 def _existing_show(name):
-    """The folder of a show already in the library, in any place (so new episodes join it there)."""
+    """The folder of a show already in the library, in any place (so new episodes join it there). In link mode, in
+    the drive's own folders only (the library puts a show from several places together anyway)."""
     if not name:
         return None
     key = naming.norm(name)
-    for _ak, root in places.roots("shows"):
+    tree = _link_tree()
+    for _ak, root in ([("shows", os.path.join(tree, "Shows"))] if tree else places.roots("shows")):
         try:
             names = os.listdir(root)
         except OSError:
@@ -267,7 +472,10 @@ def _existing_show(name):
 
 
 def _new_root(key):
-    """Where something new goes: the place chosen under Server → Storage (the main folders by default)."""
+    """Where something new goes: the place chosen under Server → Storage (the main folders by default); in link mode,
+    the drive's own folders."""
+    if _link_tree():
+        return os.path.join(_link_tree(), places.SECTIONS[key])
     return places.section(key, places.target())
 
 
@@ -304,7 +512,10 @@ def _file_video(video, entry, adult=False, collection=None):
         return _move(video, dest, "Added 1 episode to Adult", private=True,
                      why="episode %s read from the name %r; series %r from %s" % (code, stem, show_name, "the name" if ep["show"] else "the folder"))
     if ep:
-        name, year = naming.show_name(ep["show"] or folder or "")   # "Doctor.Who.2005" is "Doctor Who" (2005)
+        show = ep["show"]
+        if show and folder and _initials(naming.show_name(folder)[0]) == re.sub(r"[^a-z0-9]", "", show.lower()):
+            show = None                              # "BB.S01E01" in "Breaking Bad (2008)": the folder's name
+        name, year = naming.show_name(show or folder or "")   # "Doctor.Who.2005" is "Doctor Who" (2005)
         if not name:
             return _to_review(video, "This looks like an episode, but the name doesn't say of which show. Rename it like "
                                      "\"Show Name S01E02.mkv\" and drop it in the Inbox again.")
@@ -413,6 +624,8 @@ _filed_now = []        # (original path, new path) of the videos filed from the 
 
 
 def _move(src, dest, message, private=False, why=None):
+    if _link_tree():
+        return _link(src, dest)
     if os.path.exists(dest):
         if os.path.getsize(dest) == os.path.getsize(src):
             return _to_review(src, "Already in the library: %s" % os.path.relpath(dest, os.path.dirname(config.path("shows"))),
@@ -446,6 +659,10 @@ def _move(src, dest, message, private=False, why=None):
 
 
 def _to_review(path, why, sub="From Inbox", private=False):
+    if _link_tree():                                       # link mode: still shown, as a movie named after the file
+        name = naming.safe_filename(naming.clean(os.path.splitext(os.path.basename(path))[0]) or "Untitled")
+        root = os.path.join(_link_tree(), "Adult", "Movies") if private else os.path.join(_link_tree(), "Movies")
+        return _link(path, os.path.join(root, name, name + os.path.splitext(path)[1].lower()))
     dest_dir = os.path.join(config.path("review"), "XXX", sub) if private else os.path.join(config.path("review"), sub)
     os.makedirs(dest_dir, exist_ok=True)
     dest = os.path.join(dest_dir, os.path.basename(path))

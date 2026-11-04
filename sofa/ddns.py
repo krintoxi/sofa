@@ -4,6 +4,7 @@ Homes' internet addresses change now and then; DuckDNS (free, no ads) follows th
 duckdns.org, make a name, copy the token into Server → Settings → Internet: Sofa tells DuckDNS your
 address every 10 minutes (only that, and only while it isn't set to work offline).
 """
+import json
 import socket
 import threading
 import time
@@ -42,6 +43,43 @@ def update():
     except OSError as exc:
         _last.update(at=int(time.time()), ok=False, message="DuckDNS couldn't be reached (%s)." % exc)
     return dict(_last)
+
+
+class DuckTXT:
+    """Let's Encrypt's DNS check through DuckDNS: its TXT record (DuckDNS answers it for _acme-challenge.<name> too).
+    A DuckDNS address gets its certificate this way with no open port 80, which many internet providers block."""
+
+    def _call(self, extra):
+        url = "https://www.duckdns.org/update?" + urllib.parse.urlencode(dict({"domains": subdomain(), "token": config.get("duckdns_token")}, **extra))
+        with net.urlopen(urllib.request.Request(url, headers={"User-Agent": "Sofa"}), timeout=20) as r:
+            if not r.read().decode("utf-8", "replace").strip().startswith("OK"):
+                raise OSError("DuckDNS didn't accept the DNS check (is the token right?)")
+
+    def set_txt(self, name, value):
+        self._call({"txt": value})
+
+    def clear_txt(self, name):
+        try:
+            self._call({"txt": "", "clear": "true"})
+        except OSError:
+            pass
+
+    def wait_txt(self, name, value, limit=180):
+        """Until the internet's DNS has the record (asked over HTTPS from Cloudflare's resolver), then a little more."""
+        q = "https://cloudflare-dns.com/dns-query?" + urllib.parse.urlencode({"name": "_acme-challenge." + name, "type": "TXT"})
+        end = time.time() + limit
+        while time.time() < end:
+            try:
+                req = urllib.request.Request(q, headers={"Accept": "application/dns-json", "User-Agent": "Sofa"})
+                with net.urlopen(req, timeout=10) as r:
+                    answers = json.loads(r.read()).get("Answer") or []
+                if any(value in a.get("data", "") for a in answers):
+                    time.sleep(5)
+                    return True
+            except (OSError, ValueError):
+                pass
+            time.sleep(5)
+        return False                                   # Let's Encrypt may see it anyway: it asks DuckDNS itself
 
 
 def points_here(public_ip):

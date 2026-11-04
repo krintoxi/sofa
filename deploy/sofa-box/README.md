@@ -260,9 +260,10 @@ Plug in a USB drive and it's ready in a moment: a toast says so, it shows on Hom
 in**, and Files lists it. Videos and music play in the box's player; pictures open full screen.
 
 If you use **Sofa on this box** (This box), the drive's shows and movies also join its library by
-themselves, with posters and Continue watching: nothing to add in Sofa. Sofa reads the drive as it is
-(its own folders, whatever they're called) and never moves or renames anything on it
-([docs/storage.md](../../docs/storage.md#a-drive-as-it-is-sofa-on-a-sofa-box)).
+themselves, with posters and Continue watching: nothing to add in Sofa. Sofa sorts the drive the way
+its Inbox sorts, with links on the box, so every show and movie on it is found whatever the folders are
+called, and nothing on the drive is moved, renamed or changed
+([docs/storage.md](../../docs/storage.md#a-usb-drive-sorted-for-you-sofa-on-a-sofa-box)).
 
 A **DVD, Blu-ray or music CD** in a USB disc drive shows on Home too: OK plays it (DVD menus work with
 the arrows and OK). Store-bought DVDs and Blu-rays are usually copy-protected; the box doesn't come
@@ -307,6 +308,12 @@ games that run well on the box, worked with the arrows and OK (or a controller).
 - The look (**Street**, **Terminal**, **Pirate** or **Sofa**, for the home screen and the boot screen),
   and the box's name.
 - **Sofa:** which servers it plays from.
+- **Sofa on this box, from anywhere:** opens the box's own Sofa (This box) to the internet, like Sofa
+  on any computer: type a free DuckDNS address (and its token) or your own domain, press **Open it to
+  the internet**, and the box does every step itself, showing each: the router (UPnP), the
+  certificate, letting the internet in, and a check from outside. If the router won't take the
+  request, it says which ports to forward to the box. **Make it home only** closes it again
+  ([docs/remote-access.md](../../docs/remote-access.md#on-a-sofa-box)).
 - **Sofa Shield**, picture and sound, and Wi-Fi.
 - **Remotes and Bluetooth:** the phone remote's QR code, and remotes, controllers, speakers and
   headphones.

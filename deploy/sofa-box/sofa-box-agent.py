@@ -877,7 +877,122 @@ class LocalSofa:
         return m.group(1) if code == 200 and m else None
 
 
+    def api(self, path, body=None, timeout=20):
+        """The box's own Sofa's API, signed in as the box's own account (its admin), from this box (home)."""
+        cookie = self.sign_in()
+        if not cookie:
+            raise ValueError("The box can't sign in to its own Sofa (someone else set it up: change it in Sofa's Server page).")
+        req = urllib.request.Request(self.url() + path, data=None if body is None else json.dumps(body).encode(), method="GET" if body is None else "POST",
+                                     headers={"Content-Type": "application/json", "X-Sofa": "1", "Cookie": "sofa_session=" + cookie})
+        try:
+            with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(req, timeout=timeout) as r:
+                return json.loads(r.read() or b"{}")
+        except urllib.error.HTTPError as e:
+            try:
+                said = json.loads(e.read()).get("error")
+            except ValueError:
+                said = None
+            raise ValueError(said or "Sofa on the box said %d" % e.code)
+
+    def configured(self):
+        return os.path.exists(os.path.join(self.data, "config.json"))
+
+    def public(self):
+        try:
+            with open(os.path.join(self.data, "config.json"), encoding="utf-8") as f:
+                return json.load(f).get("remote") == "public"
+        except (OSError, ValueError):
+            return False
+
+
 local_sofa = LocalSofa()
+
+
+# ---------------------------------------------------------------- Sofa on this box, from anywhere (Settings)
+# The box's own Sofa opened to the internet, the way Sofa does it on any computer (its Server -> Internet): an address
+# (a free DuckDNS name, or a domain), the router sending ports 443 and 80 to the box (UPnP), a Let's Encrypt certificate,
+# then the internet let in, and a look from outside. Here in a few presses on the TV; the box drives its Sofa itself.
+thisbox_net = {"step": None, "error": None, "busy": False}
+
+
+def thisbox_status():
+    if not local_sofa.available():
+        return {"available": False}
+    if not local_sofa.configured() or not local_sofa.answering():
+        return {"available": True, "running": False, "public": local_sofa.public(), "progress": dict(thisbox_net)}
+    try:
+        n = local_sofa.api("/api/admin/internet")
+    except (OSError, ValueError) as exc:
+        return {"available": True, "running": True, "error": str(exc), "progress": dict(thisbox_net)}
+    with open(os.path.join(local_sofa.data, "config.json"), encoding="utf-8") as f:
+        port = json.load(f).get("port") or LocalSofa.PORT
+    return {"available": True, "running": True, "internet": n, "address": local_address(), "port": port,
+            "https_port": (n.get("https") or {}).get("port") or 8443, "progress": dict(thisbox_net)}
+
+
+def thisbox_open(domain, token):
+    """Every step, one after the other, saying which it's on (the TV shows it)."""
+    def step(text):
+        thisbox_net.update(step=text)
+
+    def wait(check, seconds):
+        end = time.time() + seconds
+        while time.time() < end:
+            n = local_sofa.api("/api/admin/internet")
+            if check(n):
+                return n
+            time.sleep(3)
+        return local_sofa.api("/api/admin/internet")
+    thisbox_net.update(busy=True, error=None)
+    try:
+        step("Starting Sofa on the box")
+        if not local_sofa.ensure(60):
+            raise ValueError("Sofa on the box didn't start.")
+        step("Saving the address")
+        change = {"https": "letsencrypt", "domain": domain, "upnp": True, "open_ports": True}
+        if token:
+            change["duckdns_token"] = token
+        local_sofa.api("/api/admin/internet", change)
+        step("Asking the router to send ports 443 and 80 to the box")
+        n = wait(lambda n: (n.get("upnp") or {}).get("at"), 30)
+        step("Getting the certificate from Let's Encrypt (a minute or two)")
+        local_sofa.api("/api/admin/internet", {"get_certificate": True})
+        time.sleep(3)
+        n = wait(lambda n: not (n.get("https") or {}).get("busy"), 240)
+        h = n.get("https") or {}
+        if h.get("error") or not h.get("trusted"):
+            raise ValueError(h.get("error") or "Let's Encrypt didn't give a certificate. Check the address and the router (below).")
+        step("Letting the internet in")
+        local_sofa.api("/api/admin/internet", {"remote": "public"})
+        step("Checking from outside")
+        local_sofa.api("/api/admin/internet", {"check_outside": True})
+        wait(lambda n: (n.get("outside") or {}).get("at") and not (n.get("outside") or {}).get("busy"), 60)
+        step(None)
+    except (OSError, ValueError) as exc:
+        thisbox_net.update(error=str(exc)[:300], step=None)
+    finally:
+        thisbox_net["busy"] = False
+
+
+def thisbox_action(data):
+    a = data.get("action")
+    if a == "open":
+        domain = str(data.get("domain") or "").strip().lower().rstrip(".")
+        if not re.match(r"^(?=.{4,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$", domain):
+            return {"ok": False, "message": "Type the address: yourname.duckdns.org, or your own domain."}
+        if domain.endswith(".duckdns.org") and not data.get("token") and not (thisbox_status().get("internet") or {}).get("duckdns_token"):
+            return {"ok": False, "message": "A DuckDNS address needs its token (on duckdns.org, after you sign in)."}
+        if thisbox_net["busy"]:
+            return {"ok": False, "message": "It's on its way already."}
+        threading.Thread(target=thisbox_open, args=(domain, str(data.get("token") or "").strip()), daemon=True).start()
+        return {"ok": True, "message": "Opening Sofa on the box to the internet…"}
+    if a == "check":
+        local_sofa.api("/api/admin/internet", {"check_outside": True})
+        return {"ok": True, "message": "Checking from outside…"}
+    if a == "close":
+        local_sofa.api("/api/admin/internet", {"remote": "home", "upnp": False})
+        return {"ok": True, "message": "Sofa on the box is home only again."}
+    return {"ok": False, "message": "Unknown action."}
 servers = boxservers.Servers(CONF_DIR, local_available=local_sofa.available)
 others_found = {"at": 0, "list": []}
 
@@ -2408,6 +2523,13 @@ class Handler(BaseHTTPRequestHandler):
             return self.send('{"error":"not found"}', status=404)
         if path.startswith("/box/games/"):
             return self.static(os.path.join(HERE, "games"), path[len("/box/games/"):] or "index.html")
+        if path == "/box/api/thisbox/internet":            # Settings: Sofa on this box, from anywhere
+            if self.command == "POST":
+                try:
+                    return self.send(json.dumps(thisbox_action(json.loads(self.body() or b"{}"))))
+                except (OSError, ValueError) as exc:
+                    return self.send(json.dumps({"ok": False, "message": str(exc)}))
+            return self.send(json.dumps(thisbox_status()))
         if path == "/box/api/weather":
             return self.send(json.dumps(weather()))
         if path == "/box/api/weather/places":
@@ -2794,6 +2916,8 @@ def main():
     threading.Thread(target=watch_devices, daemon=True, name="devices").start()
     if os.environ.get("SOFA_BOX_ICONS") != "0":
         apps.refresh_icons()                               # sharper app icons, once (boxos.ICONS_VERSION)
+    if local_sofa.public():                                # open to the internet: it has to be there, from the start
+        threading.Thread(target=local_sofa.ensure, args=(120,), daemon=True, name="this-box-sofa").start()
     phone = PhoneRemote()
     try:
         remote = Server(("0.0.0.0", PhoneRemote.PORT), RemoteHandler)

@@ -107,14 +107,33 @@ class Client:
                 raise AcmeError("Let's Encrypt took too long (%s)" % obj.get("status"))
             time.sleep(2)
 
-    def certificate(self, names, cert_key, csr_der, step=lambda text: None):
-        """Ask for a certificate for `names` (domains), proving control over HTTP; returns the PEM chain."""
+    def certificate(self, names, cert_key, csr_der, step=lambda text: None, dns=None):
+        """Ask for a certificate for `names` (domains), proving control over HTTP (port 80), or with `dns` (an object
+        with set_txt, wait_txt and clear_txt: DuckDNS's TXT record) over DNS, which needs no open port at all;
+        returns the PEM chain."""
         step("Asking Let's Encrypt for a certificate")
         body, headers = self.post(self.dir["newOrder"], {"identifiers": [{"type": "dns", "value": n} for n in names]})
         order, order_url = self._json(body), headers["Location"]
         for authz_url in order["authorizations"]:
             authz = self._json(self.post(authz_url, None)[0])
             if authz.get("status") == "valid":
+                continue
+            if dns:                                        # the DNS check (dns-01): a TXT record, not port 80
+                ch = next((c for c in authz["challenges"] if c["type"] == "dns-01"), None)
+                if not ch:
+                    raise AcmeError("Let's Encrypt didn't offer the DNS check (dns-01)")
+                name = authz["identifier"]["value"]
+                value = b64(hashlib.sha256((ch["token"] + "." + self.thumbprint()).encode()).digest())
+                try:
+                    step("Putting up the DNS check for %s" % name)
+                    dns.set_txt(name, value)
+                    step("Waiting until the DNS check can be seen")
+                    dns.wait_txt(name, value)
+                    step("Let's Encrypt is checking %s's DNS" % name)
+                    self.post(ch["url"], {})
+                    self._wait(authz_url)
+                finally:
+                    dns.clear_txt(name)
                 continue
             ch = next((c for c in authz["challenges"] if c["type"] == "http-01"), None)
             if not ch:

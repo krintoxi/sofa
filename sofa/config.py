@@ -32,8 +32,8 @@ DEFAULTS = {
     "file_new_to": "",
     # Where to look for drives plugged into this computer (empty: /Volumes on a Mac, /media and /mnt on Linux).
     "drive_folders": [],
-    # Every drive that's plugged in joins the library by itself, read as it is (its own folders; Sofa on a Sofa
-    # Box has this on). The ones an admin stopped using stay out (drives_ignored).
+    # Every drive that's plugged in joins the library by itself, sorted with links and left as it is (places.py;
+    # Sofa on a Sofa Box has this on). The ones an admin stopped using stay out (drives_ignored).
     "auto_drives": False,
     "drives_ignored": [],
     # Videos an admin deletes from the app go here first (empty it from the Server page, or by hand).
@@ -117,6 +117,8 @@ DEFAULTS = {
     # A free yourname.duckdns.org address kept pointing at this home (ddns.py), and asking the router to open
     # its ports for Sofa (upnp.py).
     "duckdns_token": "",
+    "acme_challenge": "auto",            # how Let's Encrypt checks: "auto" (over DNS for a DuckDNS name), or "http"
+    "check_service": "https://boxcert.edgeventure.uk",   # Check from outside asks it (outside.py)
     "upnp": False,
     # Keep the computer from going to sleep by itself while Sofa runs (the screen can still turn off).
     "keep_awake": True,
