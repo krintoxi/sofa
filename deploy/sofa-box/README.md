@@ -82,13 +82,17 @@ itself up), and it may restart once by itself. Its boot screen says so: just wai
    - **Fire TV remote** (or another Bluetooth remote, or a game controller): put it in pairing mode.
      For a Fire TV remote, hold **Home** for 10 seconds. It pairs by itself.
    - **Keyboard and mouse:** plug in the dongle.
-2. **Internet:** a network cable needs nothing. For Wi-Fi, pick your network and type the password.
-   The phone's **Keyboard** tab types it, which is easier than a remote.
-3. **Bluetooth:** more remotes, controllers, speakers or headphones. Put one in pairing mode and it
-   shows up; OK pairs it.
-4. **Your box:** its name (on the boot screen), the **time zone** (your phone sets it when it
+   Once your phone is the remote on your Wi-Fi, the setup goes on by itself (to **Your box**): nothing
+   to press. With a remote or a keyboard, press **Start** (it's always at the bottom of the screen).
+2. **Internet** (only when the box isn't online yet): a network cable needs nothing. For Wi-Fi, pick
+   your network and type the password; the phone's **Keyboard** tab types it, which is easier than a
+   remote. Once it's connected, the setup goes on by itself.
+3. **Your box:** its name (on the boot screen), the **time zone** (your phone sets it when it
    connects), and its look.
-5. **Apps:** tick the streaming apps you use; they go on Home, ready to sign in.
+4. **Apps:** tick the streaming apps you use; they go on Home, ready to sign in.
+
+Speakers, headphones and more controllers wait until you want them: **Settings → Remotes and
+Bluetooth**, or **Games** for controllers.
 
 **No cable and no Wi-Fi yet?** After a few seconds, the box makes its own Wi-Fi, "Sofa Box 1234". The TV
 takes you through four steps, one code at a time, and says under each what it's waiting for:
@@ -307,8 +311,11 @@ song in the box's player, or shows a picture; **Menu** renames, moves or deletes
   kind it is and says so.
 - **Get more games**: free, open-source games the box installs when you press OK (a few minutes, from
   Debian's archive), then plays **without the internet**: SuperTux (a platformer), Flare (a dark-fantasy
-  action RPG), Luanti (an open block world to mine, build and craft), Neverball, Battle for Wesnoth,
-  OpenTTD, and SuperTuxKart on a Pi 4 or 5. Each says how much room it takes; **Remove a game** frees it.
+  action RPG), Neverball, Battle for Wesnoth, OpenTTD, and SuperTuxKart on a Pi 4 or 5. Each says how
+  much room it takes; **Remove a game** frees it.
+- **Sofa Craft** is on every box from the start: an endless world of blocks to explore, mine, build and
+  craft in, straight into your world with the controller. It's built on Luanti, the open-source block
+  game (with its Minetest Game).
 - **Every game works with the controller from the start**, the same on every controller (the buttons go by
   their place: an Xbox controller's A is a PlayStation controller's ✕). Games made for controllers read it
   themselves; for the others the box works the controller for them: the sticks walk, look or move the

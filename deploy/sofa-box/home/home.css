@@ -152,6 +152,7 @@ h2.row-title small { margin-left: .6rem; font: 500 .85rem var(--text); color: va
 .tile.game small.note { color: var(--mist); opacity: .8; font-style: italic; }
 .tile.game .meta { display: flex; gap: .45rem; align-items: center; margin-top: .35rem; font-size: .78rem; font-weight: 600; color: var(--ink); opacity: .85; }
 .tile.game.off { opacity: .5; }
+.ic img.game-ic { width: 78%; height: 78%; object-fit: contain; image-rendering: pixelated; filter: drop-shadow(0 .15rem .25rem rgba(0,0,0,.35)); }
 .pads { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; margin: .2rem 0 1.2rem; }
 .pads .small { flex-basis: 100%; margin: .2rem 0 0; }
 .pad-chip { display: inline-grid; padding: .55rem .9rem; border-radius: 999px; background: color-mix(in srgb, var(--a) 18%, transparent); }
@@ -498,7 +499,9 @@ html.setup #view { padding-bottom: 0; }
 .setup-steps b { font-size: .8rem; }
 .setup-body { flex: 1; padding: 1rem 0 .4rem; }
 .setup-body h1 { margin: 0 0 .5rem; font: 800 2.4rem/1.05 var(--display); letter-spacing: -.03em; text-transform: var(--word-transform); }
-.setup-nav { display: flex; justify-content: space-between; align-items: center; padding: .3rem 0 .9rem; }
+.setup-nav { display: flex; justify-content: space-between; align-items: center; padding: 1.4rem 0 .9rem; position: sticky; bottom: 0; z-index: 3;
+  background: linear-gradient(to top, var(--bg) 62%, transparent); }               /* always on the TV, never below its edge */
+.auto-next { margin-top: 1rem; animation: rise .3s ease both; }
 .hello-head p { color: var(--mist); font-size: 1.1rem; margin: .2rem 0 1.1rem; }
 .ways { display: grid; grid-template-columns: 1.65fr 1fr 1fr; gap: 1rem; }
 .qr-row { display: flex; align-items: center; gap: 1.1rem; text-align: left; }

@@ -1192,7 +1192,7 @@ class Games:
     def listing(self):
         native = []
         for g in self.catalog().get("native", []):
-            d = {k: g.get(k) for k in ("id", "name", "emoji", "color", "about", "note", "mb", "pi")}
+            d = {k: g.get(k) for k in ("id", "name", "icon", "emoji", "color", "about", "note", "mb", "pi")}
             d.update(installed=self.binary(g) is not None, fits=self.fits(g),
                      mouse=g["controls"] in ("pointer", "wesnoth"), playing=self.playing == g["id"])
             native.append(d)
