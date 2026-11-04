@@ -8,6 +8,12 @@ here, then `python3 tools/sofa-version.py` (a test checks it was done).
 
 ## 1.2.1 (2026-11-04)
 
+- **Live TV has Internet Archive channels:** Classic Movies, Film Noir, Sci-Fi & Horror, Comedy, Westerns,
+  Silent Films, Cartoons, Classic TV and Documentaries, free films from archive.org, each played like a TV
+  channel: thirty films on a loop, on the clock, so tuning in lands in the middle of what's on and the next film
+  follows. Only films with one playable video and a length, and nothing that doesn't belong on a family TV
+  (the archive's films include exploitation pictures). The films come straight from archive.org to the screen.
+
 - **On a Sofa Box, Sofa looks like a TV app.** The menu is a rail down the left edge: icons, opening into their
   names when the remote goes into it (Left), with Search at the top and who's watching at the bottom; every
   section is there (Music, Live TV, Server too). No scroll bars, and the row in focus glides to the middle of

@@ -18,7 +18,7 @@ from urllib.parse import parse_qs, quote, unquote, urlsplit
 
 import threading
 
-from . import (__version__, acme, apps, artwork, auth, awake, backup, config, ddns, dlna, fetch, housekeeping, intros, live, media, metadata, music,
+from . import (archive, __version__, acme, apps, artwork, auth, awake, backup, config, ddns, dlna, fetch, housekeeping, intros, live, media, metadata, music,
                outside,
                kids, machine, net, optimize, organizer, places, previews, report, screens, store, tls, trickplay, updater, upnp,
                discovery, pairing, sharing, slow, travel, uploads)
@@ -708,7 +708,18 @@ class Handler(BaseHTTPRequestHandler):
         if path.startswith("/api/live") and u.get("kids"):
             return self.error(403, "Live TV isn't on for this profile.")
         if path == "/api/live":
-            return self.json(live.listing(u["id"], adult=u.get("adult")))
+            out = live.listing(u["id"], adult=u.get("adult"))
+            favs = {r["channel"] for r in store.q("SELECT channel FROM live_favorites WHERE user_id = ?", u["id"])}
+            out["channels"] = [dict(c, fav=c["id"] in favs, playlist="archive.org") for c in archive.channels()] + out["channels"]
+            return self.json(out)
+        m = re.match(r"^/api/live/archive/(ia-[a-z]+)/now$", path)
+        if m:                                          # an Internet Archive channel: what's on, from where
+            if m.group(1) not in archive.BY_ID or not archive.on():
+                return self.error(404, "That channel isn't on.")
+            try:
+                return self.json(archive.now(m.group(1)))
+            except OSError as exc:
+                return self.error(503, str(exc))
         if path == "/api/music":
             out = LIBRARY.music_public()
             out["likes"] = [r["item"] for r in store.q("SELECT item FROM music_likes WHERE user_id = ? ORDER BY at DESC", u["id"])]

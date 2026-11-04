@@ -13,6 +13,8 @@ GitHub builds the card and makes the release by itself.
   ends, and the TV shows the box's screensaver, the time, the weather and the art of what you've been
   watching, crossfading, the clock drifting to a new spot every minute so nothing burns into the TV (still
   pictures on a Pi 3). A touch anywhere on the phone wakes it, and so does any key on a remote or controller.
+- **Internet Archive channels in Live TV** (Sofa 1.2.1): classic movies, film noir, westerns, cartoons and
+  more, like TV channels, in the box's player; up and down change the channel, the film's name on screen.
 - **Sofa looks like a TV app on the box** (Sofa 1.2.1): its menu is a rail down the left edge, opening into
   names when the remote goes into it, with no scroll bars and the row in focus gliding to the middle.
 

@@ -352,8 +352,8 @@ class Player:
                 "--title=" + ("Sofa" if p.get("adult") else p.get("title") or "Sofa"),
                 "--input-conf=" + (live_input_conf() if p.get("live") else os.path.join(HERE, "mpv-input.conf")),
                 "--cache=yes", "--demuxer-max-bytes=120MiB", "--network-timeout=40"]
-        if not p.get("local"):                              # from Sofa: as the signed-in TV
-            args.append("--http-header-fields=Cookie: %s,X-Sofa: 1" % self.cookie.replace(",", "%2C"))
+        if not p.get("local") and self.from_sofa(p["url"]):   # from Sofa: as the signed-in TV (never to anyone else)
+            args.append("--http-header-fields=" + self.sofa_headers())
         hw = s["hwdec"] if s["hwdec"] != "auto" else ("v4l2m2m-copy" if slow_board() and mpv_knows("hwdec", "v4l2m2m-copy")
                                                       else "auto-safe")
         args.append("--hwdec=" + hw)
@@ -368,7 +368,24 @@ class Player:
         for k, v in (p.get("mpv") or {}).items():           # a disc: which drive
             args.append("--%s=%s" % (k, v))
         args += list(s.get("mpv_args") or []) + shlex_split(os.environ.get("SOFA_BOX_MPV_ARGS", ""))
+        if p.get("start_at") or p.get("then"):              # an archive channel: this film from where it's at, then the next
+            return args + ["--{", "--start=%d" % int(p.get("start_at") or 0), rewrite(p["url"], base), "--}"] + \
+                [u for u in p.get("then") or [] if str(u).startswith("https://")]
         return args + [p["url"] if p.get("local") else rewrite(p["url"], base)]
+
+    def from_sofa(self, url):
+        return rewrite(url, self.base).startswith((self.base or "http://\0").rstrip("/") + "/")
+
+    def sofa_headers(self):
+        return "Cookie: %s,X-Sofa: 1" % (self.cookie or "").replace(",", "%2C")
+
+    def _seek_when_ready(self, to):
+        """After loadfile: once the film has started, to its place on the channel's clock."""
+        for _ in range(60):
+            if self.command("get_property", "time-pos") is not None:
+                self.command("seek", to, "absolute")
+                return
+            time.sleep(0.5)
 
     def play(self, payload, cookie, base=None):
         self.stop(save=True, reason="replaced")
@@ -531,6 +548,24 @@ class Player:
             return False
         p["at"] = (int(p.get("at") or 0) + step) % len(chans)
         ch = chans[p["at"]]
+        if ch.get("archive"):                               # an Internet Archive channel: what's on, from Sofa
+            try:
+                req = urllib.request.Request(rewrite(ch["url"], self.base), headers={"Cookie": self.cookie or "", "X-Sofa": "1"})
+                with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(req, timeout=15) as r:
+                    on = json.loads(r.read())
+            except (OSError, ValueError):
+                self.command("show-text", "%s isn't available just now" % (ch.get("name") or "That channel"), 2500)
+                return False
+            self.command("set_property", "http-header-fields", "")      # (archive.org gets no Sofa cookie)
+            self.command("loadfile", on["film"]["url"], "replace")
+            for f in on.get("next") or []:
+                self.command("loadfile", f["url"], "append")
+            threading.Thread(target=self._seek_when_ready, args=(on.get("offset") or 0,), daemon=True).start()
+            sub = on["film"]["title"] + (" (%s)" % on["film"]["year"] if on["film"].get("year") else "")
+            self.command("show-text", "%s  ·  %s" % (ch.get("name") or "", sub), 3000)
+            self.status.update(title=ch.get("name"), sub=sub)
+            return True
+        self.command("set_property", "http-header-fields", self.sofa_headers().split(","))
         self.command("loadfile", rewrite(ch["url"], self.base), "replace")
         self.command("show-text", "%s  ·  %s" % (ch.get("name") or "", ch.get("group") or ""), 2500)
         self.status.update(title=ch.get("name"), sub=ch.get("group") or "")
