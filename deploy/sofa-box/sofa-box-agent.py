@@ -341,6 +341,7 @@ class Player:
         self.proc, self.sock_path, self.payload, self.cookie, self.base = None, None, None, "", None
         self.status = {}
         self.news, self.seq = [], 0             # what the page hears about, numbered (every page gets all of it)
+        self.failures = []                      # the last few times it stopped by itself, and why (Send a report)
         self.cond = threading.Condition()
         self.req = 0
 
@@ -388,6 +389,7 @@ class Player:
             time.sleep(0.5)
 
     def play(self, payload, cookie, base=None):
+        asleep["on"] = False                                 # (something plays: the box is awake)
         self.stop(save=True, reason="replaced")
         self.payload, self.cookie, self.base = payload, cookie, base or server()
         self.sock_path = os.path.join(tempfile.gettempdir(), "sofa-mpv-%d.sock" % os.getpid())
@@ -506,6 +508,9 @@ class Player:
         last = (err.splitlines() or ["mpv stopped"])[-1][:120]
         if failed:
             print("mpv stopped (%s): %s" % (code, err.replace("\n", " | ")[-600:]), file=sys.stderr, flush=True)
+            self.failures = (self.failures + [{"at": time.strftime("%H:%M:%S"), "code": code, "started": bool(started),
+                                               "kind": "live" if p.get("live") else "converted" if "/hls/" in str(p.get("url") or "") else "file",
+                                               "said": last}])[-6:]
         if failed and started:
             toast("That video couldn't play on the box: " + last)
         if proc is self.proc:
@@ -514,6 +519,9 @@ class Player:
         if reason == "replaced":                # another video took its place: the page knows already
             return
         done = {"item": p.get("item"), "t": t, "d": d, "ended": bool(ended), "done": bool(watched)}
+        chans = p.get("channels") or []
+        if p.get("live") and chans:
+            done["channel"] = chans[int(p.get("at") or 0) % len(chans)].get("id")
         if failed and not started and not p.get("local"):     # mpv couldn't even start: the page plays it itself
             done.update(failed=True, error=last)
         elif failed and not started:
@@ -733,6 +741,7 @@ def go_home():
 def open_app(app_id=None, url=None, hash_=None):
     """An app's tab (or the browser's) brought forward; `hash_` takes Sofa to a page in it. Without the
     browser connection (a preview, tests), the address goes back to the page, which opens it itself."""
+    asleep["on"] = False
     if app_id:
         app = apps.get(app_id)
         if not app:
@@ -1368,6 +1377,7 @@ class Games:
     def play(self, gid):
         g = self.native(gid)
         exe = self.binary(g)
+        asleep["on"] = False
         if not exe:
             raise ValueError("%s isn't on the box yet." % g["name"])
         with self.lock:
@@ -1544,7 +1554,7 @@ class PairingHelper:
                 yes = self.accepting()
                 proc.stdin.write(b"yes\n" if yes else b"no\n")
                 proc.stdin.flush()
-                self.said.append("yes" if yes else "no")
+                self.said = (self.said + [(time.strftime("%H:%M:%S"), "yes" if yes else "no")])[-30:]
                 print("Bluetooth: a pairing asked, the box said %s" % ("yes" if yes else "no (not looking for devices)"),
                       file=sys.stderr, flush=True)
                 seen = ""
@@ -2016,7 +2026,7 @@ class SecureRemote:
         backoff, first = 2, True
         while self.on() and self.relaying():
             acct = self.account()
-            if not acct.get("id") or network.hotspot:
+            if not acct.get("id") or acct.get("unregistered") or network.hotspot:
                 time.sleep(5)
                 continue
             try:                                           # (the first comes back at once: the TV's code shows straight away)
@@ -2071,7 +2081,24 @@ class SecureRemote:
                     self.acct = json.load(f)
             except (OSError, ValueError):
                 self.acct = {}
+        if not self.acct.get("id"):              # a new box: its own id and secret now, offline; the service takes them
+            alphabet = "abcdefghijkmnpqrstuvwxyz23456789"   # when it's first online (so the remote's address is known now)
+            self.acct.update(id="".join(alphabet[b % len(alphabet)] for b in os.urandom(10)), secret=os.urandom(24).hex(),
+                             unregistered=True)
+            try:
+                self.keep("account.json", self.acct)
+            except OSError:
+                pass
         return self.acct
+
+    def handoff(self, link):
+        """The phone remote's address through the relay, with a pairing link: for the phone at the box's setup to
+        carry on there once the box has left its own Wi-Fi for the home one (None: the relay is off)."""
+        if not (self.on() and self.relaying()):
+            return None
+        acct = self.account()
+        base = self.relay_base or "%s/r/%s" % (self.SERVICE, acct["id"])
+        return "%s/r/%s" % (base.rstrip("/"), link)
 
     def keep(self, name, data):
         os.makedirs(self.dir, mode=0o700, exist_ok=True)
@@ -2124,9 +2151,10 @@ class SecureRemote:
         if not ip or network.hotspot or on_own_wifi(ip):
             return True                                         # not on a home network yet (at its setup, say)
         acct = self.account()
-        if not acct.get("id"):
-            got = self.call("/v1/register", {})
+        if acct.get("unregistered"):                        # its own id and secret, made at its first start
+            got = self.call("/v1/register", {"id": acct["id"], "secret": acct["secret"]})
             acct.update(id=got["id"], secret=got["secret"], name=got["name"])
+            acct.pop("unregistered", None)
             self.keep("account.json", acct)
         if self.relaying():                                 # the relay: no name pointed home, no certificate
             self.stop()
@@ -2373,9 +2401,12 @@ class PhoneRemote:
             return
         e = self.ecodes
         now = time.time()
-        if self.parked or now - self.used > self.PARK_AFTER:          # back from the corner: from the middle
+        woke = self.parked or now - self.used > self.PARK_AFTER
+        if woke:                                                        # back from the corner: from the middle
             self.at, self.parked = [0.5, 0.5], False
             self._place()
+        if woke and not (dx or dy):
+            click = None                       # (the first tap only brings the pointer back: it doesn't press what's there)
         self.used = now
         if dx or dy:
             self.at[0] = max(0.0, min(1.0, self.at[0] + self.accelerate(max(-300, min(300, dx)))))
@@ -2604,7 +2635,9 @@ def report_text():
                                           if k in ("url", "phones", "home_at", "problem")} if phone else None),
            "Sofa: " + str(server() or "none chosen"),
            "player: " + json.dumps({k: v for k, v in player.status.items() if k not in ("title", "sub")}),
-           "mpv said: " + " | ".join(getattr(player.proc, "sofa_err", None) or ["(nothing)"])]
+           "mpv said: " + " | ".join(getattr(player.proc, "sofa_err", None) or ["(nothing)"]),
+           "player stopped by itself: " + json.dumps(player.failures or "never, since the box started"),
+           "Bluetooth pairings asked: " + json.dumps(pairing_helper.said or "none since the box started")]
     if browser:
         out.append("browser: %s, in front: %s" % ("connected" if browser.connected() else "not connected", browser.front_app()))
         out += ["  %s%s %s" % (t["app"], " (asleep)" if t["frozen"] else "", t["url"]) for t in safely(browser.running) or []]
@@ -3335,7 +3368,10 @@ class RemoteHandler(BaseHTTPRequestHandler):
                 return self.send(json.dumps(dict(network.scan() if not network.hotspot else {"ok": True, "networks": network.cached},
                                                  hotspot=bool(network.hotspot))))
             elif path == "/api/wifi/join":
-                return self.send(json.dumps(network.join_soon(data.get("ssid") or "", data.get("password"))))
+                out = network.join_soon(data.get("ssid") or "", data.get("password"))
+                if out.get("ok") and on_own_wifi(self.client_address[0]):   # the setup's phone: where to carry on
+                    out["next"] = secure_remote.handoff(phone.link)
+                return self.send(json.dumps(out))
             elif path == "/api/report":
                 return self.send(json.dumps(send_report()))
             else:
