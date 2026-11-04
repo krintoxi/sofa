@@ -52,7 +52,11 @@ def quiet_kernel_remote():
                     continue
         except OSError:
             continue
-        subprocess.run(["ir-keytable", "-c", "-s", rc.rsplit("/", 1)[1]], capture_output=True)
+        try:
+            subprocess.run(["ir-keytable", "-c", "-s", rc.rsplit("/", 1)[1]], capture_output=True, timeout=10)
+        except (OSError, subprocess.SubprocessError):     # (no ir-keytable: the TV's remote still works, maybe twice for some keys)
+            print("ir-keytable isn't installed: the kernel's own CEC keys stay on", file=sys.stderr, flush=True)
+            return
 
 
 def keys_from(lines):

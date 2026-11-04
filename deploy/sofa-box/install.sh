@@ -65,6 +65,7 @@ fi
 apt-get install -y --no-install-recommends chromium 2>/dev/null || apt-get install -y --no-install-recommends chromium-browser
 apt-get install -y --no-install-recommends pipewire-pulse wireplumber 2>/dev/null || true           # sound to the TV
 apt-get install -y --no-install-recommends xwayland 2>/dev/null || true                           # games made for X, in cage
+apt-get install -y --no-install-recommends ir-keytable 2>/dev/null || true                        # the TV's remote over HDMI (CEC): its keys once
 apt-get install -y --no-install-recommends luanti luanti-game-minetest 2>/dev/null || true         # Sofa Craft (Games), there from the start
 apt-get install -y --no-install-recommends network-manager 2>/dev/null || true                    # Wi-Fi from the TV
 apt-get install -y --no-install-recommends dnsmasq-base rfkill iw 2>/dev/null || true             # the box's own Wi-Fi at its setup
@@ -115,8 +116,19 @@ chown -R "$WHO:" "$CONF"
 
 say "Letting the box's user use the screen, the keys, Bluetooth and Wi-Fi"
 for g in video render input audio bluetooth netdev; do getent group "$g" >/dev/null && usermod -aG "$g" "$WHO" || true; done
-echo uinput > /etc/modules-load.d/sofa-box.conf
+printf 'uinput\nuhid\n' > /etc/modules-load.d/sofa-box.conf      # (uhid: Bluetooth LE controllers, an Xbox Series one)
 modprobe uinput 2>/dev/null || true
+modprobe uhid 2>/dev/null || true
+if [ -f /etc/bluetooth/main.conf ]; then          # controllers that pair again (an Xbox one does) and connect quickly
+  for kv in "JustWorksRepairing = always" "FastConnectable = true"; do
+    k="${kv%% *}"
+    if grep -qE "^#?[[:space:]]*$k[[:space:]]*=" /etc/bluetooth/main.conf; then
+      sed -i -E "s|^#?[[:space:]]*$k[[:space:]]*=.*|$kv|" /etc/bluetooth/main.conf
+    else
+      sed -i "/^\[General\]/a $kv" /etc/bluetooth/main.conf
+    fi
+  done
+fi
 echo 'KERNEL=="uinput", GROUP="input", MODE="0660", OPTIONS+="static_node=uinput"' > /etc/udev/rules.d/60-sofa-box-uinput.rules
 udevadm control --reload 2>/dev/null || true
 [ -e /dev/uinput ] && chgrp input /dev/uinput && chmod 660 /dev/uinput || true

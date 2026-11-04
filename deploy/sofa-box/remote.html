@@ -57,7 +57,11 @@
   .type p { margin: 0; color: var(--mist); font-size: 14px; text-align: center; }
   /* touchpad */
   .touch { flex: 1; min-height: 300px; border-radius: 24px; background: linear-gradient(160deg, #1f1f27, #141419); box-shadow: inset 0 0 0 1px var(--line);
-    touch-action: none; display: grid; place-items: center; color: var(--mist); font-size: 14px; text-align: center; padding: 20px; }
+    touch-action: none; display: grid; place-items: center; color: var(--mist); font-size: 14px; text-align: center; padding: 20px;
+    position: relative; overflow: hidden; }
+  .touch .dot { position: absolute; width: 56px; height: 56px; margin: -28px 0 0 -28px; border-radius: 50%; pointer-events: none;
+    background: radial-gradient(circle, color-mix(in srgb, var(--a) 55%, transparent), transparent 70%); opacity: 0; transition: opacity .25s; }
+  .touch .dot.on { opacity: 1; transition: opacity .05s; }
   /* Wi-Fi and pairing */
   .list { display: grid; gap: 8px; max-height: 50vh; overflow: auto; }
   .net { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-radius: 14px; background: var(--bg2); text-align: left; }
@@ -149,7 +153,7 @@
   </section>
 
   <section id="tab-touch" hidden>
-    <div class="touch" id="touch">Move one finger to move the pointer. Tap to click.<br>Two fingers scroll. Press and hold for a right click.</div>
+    <div class="touch" id="touch"><i class="dot" id="touchDot"></i>Move one finger to move the pointer (it starts in the middle of the TV). Tap to click.<br>Two fingers scroll. Press and hold for a right click.</div>
   </section>
 
   <section id="tab-wifi" hidden>
@@ -290,19 +294,23 @@
     sending = true; const q = queued; queued = { dx: 0, dy: 0, scroll: 0 };
     post("api/pointer", q).finally(() => { sending = false; flush(); });
   }
+  const dot = $("touchDot");
+  function showDot(t) { const r = touch.getBoundingClientRect(); dot.style.left = (t.clientX - r.left) + "px"; dot.style.top = (t.clientY - r.top) + "px"; dot.classList.add("on"); }
   touch.addEventListener("touchstart", e => {
     e.preventDefault(); fingers = e.touches.length; last = { x: e.touches[0].clientX, y: e.touches[0].clientY }; downAt = Date.now(); travel = 0;
+    showDot(e.touches[0]);
     clearTimeout(pressTimer); pressTimer = setTimeout(() => { if (travel < 8) { buzz(); post("api/pointer", { click: "right" }); travel = 999; } }, 600);
   }, { passive: false });
   touch.addEventListener("touchmove", e => {
     e.preventDefault(); if (!last) return;
     const x = e.touches[0].clientX, y = e.touches[0].clientY, dx = x - last.x, dy = y - last.y;
-    travel += Math.abs(dx) + Math.abs(dy); last = { x, y };
-    if (e.touches.length > 1) queued.scroll += -dy / 12; else { const f = 1.8; queued.dx += dx * f; queued.dy += dy * f; }
+    travel += Math.abs(dx) + Math.abs(dy); last = { x, y }; showDot(e.touches[0]);
+    if (e.touches.length > 1) queued.scroll += -dy / 10; else { queued.dx += dx; queued.dy += dy; }   // (the box adds the speed)
     flush();
   }, { passive: false });
   touch.addEventListener("touchend", e => {
     clearTimeout(pressTimer);
+    if (e.touches.length === 0) dot.classList.remove("on");
     if (e.touches.length === 0) { if (travel < 8 && Date.now() - downAt < 300 && fingers === 1) { buzz(); post("api/pointer", { click: "left" }); } last = null; }
   });
 

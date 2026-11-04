@@ -425,7 +425,13 @@ video::cue { background: rgba(0,0,0,.72); font-family: var(--ui); font-size: 1.0
   background: radial-gradient(120% 90% at 30% 20%, var(--slate-3), var(--slate)); overflow: hidden; }
 .chan .logo img { max-width: 100%; max-height: 100%; object-fit: contain; }
 .chan .logo span { font: 700 18px/1.1 var(--display); text-align: center; }
-.chan:hover .logo, .chan:focus-visible .logo { box-shadow: 0 0 0 2px var(--amber); }
+/* the channel in focus (the remote's, on a TV): its logo lifts with the accent ring, like a poster does; the star too */
+.chan .card:hover .logo, .chan .card:focus-visible .logo, .tv .chan .card:focus .logo { box-shadow: 0 0 0 3px var(--amber), 0 16px 34px rgba(0,0,0,.5); }
+.chan .logo { transition: transform .15s ease, box-shadow .15s ease; }
+.tv .chan .card:focus .logo { transform: scale(1.06); box-shadow: 0 0 0 4px #fff, 0 0 0 8px var(--amber); position: relative; z-index: 2; }
+.chan .card:focus, .star:focus { outline: none; }
+.tv .chan .card:focus .t1 { color: #fff; font-weight: 700; }
+.star:focus-visible, .tv .star:focus { box-shadow: 0 0 0 3px var(--amber); color: var(--paper); }
 .chan .t1 { margin-top: 8px; }
 .star { position: absolute; top: 8px; right: 8px; width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center;
   background: rgba(var(--ink-rgb),.7); color: var(--mist); font-size: 17px; line-height: 1; }

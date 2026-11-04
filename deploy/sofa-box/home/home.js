@@ -666,7 +666,7 @@
       <b>Scan with your phone's camera to join the box's Wi-Fi</b><small>${esc(hs.ssid)} · password ${esc(hs.password)}</small>
       ${waiting("Waiting for your phone to join…")}`);
     if (stage === "remote") return codeSteps(1) + qrRow(r.pair_url, `
-      <b>${joined ? "Your phone is on the box's Wi-Fi. " : ""}Now scan this to open the remote</b><small>or open ${address} and type ${esc(r.code)}</small>
+      <b>${joined ? "Now scan" : "Scan"} this to open the remote</b><small>or open ${address} and type ${esc(r.code)}</small>
       ${waiting("Waiting for the remote to open on your phone…")}<button class="mini" data-codes="wifi">Show the Wi-Fi code again</button>`);
     return codeSteps(2) + `<p class="okay big">✓ Your phone is the remote</p>
       <p class="small">On your phone: the <b>Wi-Fi</b> tab, pick your home Wi-Fi, type its password, <b>Join</b>.</p>

@@ -22,6 +22,7 @@ import http.client
 import json
 import os
 import re
+import select
 import shutil
 import signal
 import socket
@@ -82,6 +83,19 @@ def go(where):
     """Send the TV's page somewhere ("#/" is Home)."""
     player.tell(go=where)
 
+
+
+def live_input_conf():
+    """mpv's keys for Live TV: the usual ones, with up and down (and Page Up / Down, channel ±) changing the channel."""
+    path = os.path.join(tempfile.gettempdir(), "sofa-mpv-live-%d.conf" % os.getpid())
+    zap = {"UP": "chup", "DOWN": "chdown", "PGUP": "chup", "PGDWN": "chdown", "CHANNEL_UP": "chup", "CHANNEL_DOWN": "chdown"}
+    with open(os.path.join(HERE, "mpv-input.conf"), encoding="utf-8") as f:
+        keep = [line for line in f if (line.split() or [""])[0] not in zap]
+    with open(path, "w", encoding="utf-8") as f:
+        f.writelines(keep)
+        for key, k in zap.items():
+            f.write('%-12s run "/usr/bin/curl" "-s" "-o" "/dev/null" "http://127.0.0.1:%d/box/native/key?k=%s"\n' % (key, PORT, k))
+    return path
 
 
 def display_env():
@@ -336,7 +350,7 @@ class Player:
         args = ([sys.executable] if mpv.endswith(".py") else []) + [mpv, "--input-ipc-server=" + sock, "--fs", "--force-window=immediate", "--idle=no", "--keep-open=no",
                 "--osd-level=1", "--osd-font-size=46", "--osd-bar-h=2.2", "--sub-font-size=46", "--term-osd=no",
                 "--title=" + ("Sofa" if p.get("adult") else p.get("title") or "Sofa"),
-                "--input-conf=" + os.path.join(HERE, "mpv-input.conf"),
+                "--input-conf=" + (live_input_conf() if p.get("live") else os.path.join(HERE, "mpv-input.conf")),
                 "--cache=yes", "--demuxer-max-bytes=120MiB", "--network-timeout=40"]
         if not p.get("local"):                              # from Sofa: as the signed-in TV
             args.append("--http-header-fields=Cookie: %s,X-Sofa: 1" % self.cookie.replace(",", "%2C"))
@@ -417,6 +431,8 @@ class Player:
         """What mpv's (black) screen says until the picture moves: resuming a converted video can take a while,
         and a black screen with nothing on it looks like the box has hung."""
         p = self.payload or {}
+        if p.get("live"):
+            return "Tuning in to %s…\nUp and down change the channel. Back goes back." % str(p.get("title") or "the channel")
         title = "" if p.get("adult") else str(p.get("title") or "")
         at = int(float(p.get("offset") or 0) + float(p.get("start") or 0))
         when = "%d:%02d:%02d" % (at // 3600, at // 60 % 60, at % 60) if at >= 3600 else "%d:%02d" % (at // 60, at % 60)
@@ -506,6 +522,19 @@ class Player:
         if settings()["quality"] == "auto" and drops > fps * 90 * 0.03 and not settings()["learned_720"]:
             save_settings(learned_720=True)
             toast("Videos come as 720p on this box from now on: it couldn't keep up at 1080p.")
+
+    def zap(self, step):
+        """Live TV: the next channel up or down (Sofa's channel list came with it), its name on the screen."""
+        p = self.payload or {}
+        chans = p.get("channels") or []
+        if not p.get("live") or len(chans) < 2:
+            return False
+        p["at"] = (int(p.get("at") or 0) + step) % len(chans)
+        ch = chans[p["at"]]
+        self.command("loadfile", rewrite(ch["url"], self.base), "replace")
+        self.command("show-text", "%s  ·  %s" % (ch.get("name") or "", ch.get("group") or ""), 2500)
+        self.status.update(title=ch.get("name"), sub=ch.get("group") or "")
+        return True
 
     def ok(self):
         """OK on the remote while playing: skip the intro when it's on, else pause/play."""
@@ -1399,6 +1428,56 @@ def watch_devices():
 
 # ---------------------------------------------------------------- Bluetooth, Wi-Fi and the phone remote (setting the box up)
 
+class PairingHelper:
+    """BlueZ asks the box to say yes to a pairing (an Xbox controller asks, and many others): with nobody to ask it
+    says no ("No agent available"), the controller stops blinking as if paired, and the box says it didn't pair. A
+    bluetoothctl kept open as the box's default agent answers: yes while the box is looking for devices (Settings,
+    Games, the setup) or pairing one, no otherwise, so nothing nearby pairs itself to the box behind your back."""
+    ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]|\x01|\x02")
+
+    def __init__(self, accepting):
+        self.accepting, self.said = accepting, []
+
+    def start(self):
+        threading.Thread(target=self._loop, daemon=True, name="bt-agent").start()
+
+    def _loop(self):
+        while True:
+            try:
+                proc = subprocess.Popen([os.environ.get("SOFA_BOX_BLUETOOTHCTL") or "bluetoothctl"], stdin=subprocess.PIPE,
+                                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=0)
+            except OSError:
+                return                                    # (no Bluetooth tools here)
+            try:
+                self._serve(proc)
+            except (OSError, ValueError):
+                pass
+            finally:
+                if proc.poll() is None:
+                    proc.kill()
+            time.sleep(5)                                 # (bluetoothd restarted, say: again)
+
+    def _serve(self, proc):
+        proc.stdin.write(b"agent NoInputNoOutput\ndefault-agent\n")
+        proc.stdin.flush()
+        seen = ""
+        while proc.poll() is None:
+            if not select.select([proc.stdout], [], [], 5)[0]:
+                continue
+            chunk = os.read(proc.stdout.fileno(), 4096)
+            if not chunk:
+                return
+            seen = (seen + self.ANSI.sub("", chunk.decode("utf-8", "replace")))[-2000:]
+            if "(yes/no)" in seen:                       # "Confirm passkey 123456 (yes/no):", "Authorize service …"
+                yes = self.accepting()
+                proc.stdin.write(b"yes\n" if yes else b"no\n")
+                proc.stdin.flush()
+                self.said.append("yes" if yes else "no")
+                print("Bluetooth: a pairing asked, the box said %s" % ("yes" if yes else "no (not looking for devices)"),
+                      file=sys.stderr, flush=True)
+                seen = ""
+
+
 class Bluetooth:
     """Looks for Bluetooth devices while the setup or Settings page asks it to, and during the first start
     pairs any remote, controller, keyboard or mouse that's in pairing mode by itself (with nothing to press
@@ -1407,6 +1486,7 @@ class Bluetooth:
     def __init__(self):
         self.until = self.autopair_until = 0
         self.devices, self.state = [], {}               # mac -> "pairing" | "paired" | "failed"
+        self.pairing_until = 0
         self.lock, self.thread = threading.Lock(), None
 
     def want(self, seconds=30, autopair=False):
@@ -1419,8 +1499,13 @@ class Bluetooth:
                 self.thread = threading.Thread(target=self._loop, daemon=True, name="bluetooth")
                 self.thread.start()
 
+    def accepting(self):
+        """Pairings get a yes now: while looking for devices, or a minute after pairing one."""
+        return time.time() < max(self.until, self.pairing_until)
+
     def _loop(self):
         run(["bluetoothctl", "power", "on"], 10)
+        run(["bluetoothctl", "pairable", "on"], 10)         # (only while looking: a controller asking to pair is let in)
         scan = None
         while time.time() < self.until:
             if playing():                                 # not while a video plays
@@ -1440,9 +1525,12 @@ class Bluetooth:
             time.sleep(2)
         if scan and scan.poll() is None:
             scan.terminate()
+        if not self.accepting():
+            run(["bluetoothctl", "pairable", "off"], 10)
 
     def pair(self, mac):
         self.state[mac] = "pairing"
+        self.pairing_until = time.time() + 60
 
         def go():
             ok, _ = boxos.bt_pair(mac)
@@ -2078,6 +2166,7 @@ class PhoneRemote:
     def __init__(self):
         self.path = os.path.join(CONF_DIR, "phones.json")
         self.code, self.kb, self.mouse, self.tried = self._new_code(), None, None, False
+        self.at, self.parked, self.used, self.parker = [1.0, 1.0], True, 0.0, None     # the touchpad's pointer
         self.link = os.urandom(12).hex()                   # the QR code's: long enough for the internet (the relay)
 
     @staticmethod
@@ -2146,10 +2235,15 @@ class PhoneRemote:
             # listens to it) only when it has the whole first row of keys
             keys = set(range(ecodes.KEY_ESC, ecodes.KEY_MICMUTE + 1)) | {ecodes.ecodes[k] for k in self.KEYS.values()}
             self.kb = UInput({ecodes.EV_KEY: sorted(keys)}, name="Sofa box phone remote")
+            # The touchpad: a pointer the box puts where it wants (absolute, like a tablet), so it can start from the
+            # middle of the screen and go out of the way, to a corner, when it's not used (a mouse is drawn mid-screen
+            # by the screen's shell, cage, and stays there). The box moves it with its own acceleration.
             self.mouse = UInput({ecodes.EV_KEY: [ecodes.BTN_LEFT, ecodes.BTN_RIGHT],
-                                 ecodes.EV_REL: [ecodes.REL_X, ecodes.REL_Y, ecodes.REL_WHEEL]}, name="Sofa box phone touchpad")
+                                 ecodes.EV_ABS: [(ecodes.ABS_X, (0, 0, self.SPAN, 0, 0, 0)), (ecodes.ABS_Y, (0, 0, self.SPAN, 0, 0, 0))],
+                                 ecodes.EV_REL: [ecodes.REL_WHEEL]}, name="Sofa box phone touchpad")
             self.ecodes = ecodes
             time.sleep(0.5)                                # a new device takes a moment to be picked up
+            self._park()
         except Exception:                                  # no evdev or no /dev/uinput (a preview): through the browser
             self.kb = self.mouse = None
         return self.kb
@@ -2180,13 +2274,44 @@ class PhoneRemote:
         if browser and browser.connected():
             browser.insert_text(str(t)[:500])
 
+    SPAN = 32767                                           # the touchpad's positions: 0 to SPAN across the screen
+    PARK_AFTER = 6                                         # seconds unused, then the pointer goes to a corner
+
+    def _place(self):
+        e = self.ecodes
+        self.mouse.write(e.EV_ABS, e.ABS_X, int(self.at[0] * self.SPAN))
+        self.mouse.write(e.EV_ABS, e.ABS_Y, int(self.at[1] * self.SPAN))
+
+    def _park(self):
+        """Out of the way: the bottom right corner (only its tip could show there; pages hide it anyway)."""
+        if self.mouse:
+            self.at, self.parked = [1.0, 1.0], True
+            self._place()
+            self.mouse.syn()
+
+    @staticmethod
+    def accelerate(d):
+        """A finger's move on the phone (CSS pixels) -> a share of the screen: slow moves are precise, quick ones
+        cross the screen (about 2.6 screen pixels per phone pixel, up to 3 times that when fast)."""
+        gain = 2.6 * min(3.0, 1 + abs(d) / 14.0)
+        return d * gain / 1920.0
+
     def pointer(self, dx=0, dy=0, click=None, scroll=0):
         if not self._devices() or not self.mouse:
             return
         e = self.ecodes
+        now = time.time()
+        if self.parked or now - self.used > self.PARK_AFTER:          # back from the corner: from the middle
+            self.at, self.parked = [0.5, 0.5], False
+            self._place()
+        self.used = now
         if dx or dy:
-            self.mouse.write(e.EV_REL, e.REL_X, int(max(-200, min(200, dx))))
-            self.mouse.write(e.EV_REL, e.REL_Y, int(max(-200, min(200, dy))))
+            self.at[0] = max(0.0, min(1.0, self.at[0] + self.accelerate(max(-300, min(300, dx)))))
+            self.at[1] = max(0.0, min(1.0, self.at[1] + self.accelerate(max(-300, min(300, dy))) * 16 / 9))
+            self._place()
+        if not self.parker:                                  # unused for a while: to the corner
+            self.parker = threading.Thread(target=self._parker, daemon=True, name="touchpad-park")
+            self.parker.start()
         if scroll:
             self.mouse.write(e.EV_REL, e.REL_WHEEL, int(max(-10, min(10, scroll))))
         if click in ("left", "right"):
@@ -2195,6 +2320,12 @@ class PhoneRemote:
             self.mouse.syn()
             self.mouse.write(e.EV_KEY, b, 0)
         self.mouse.syn()
+
+    def _parker(self):
+        while True:
+            time.sleep(1)
+            if not self.parked and time.time() - self.used > self.PARK_AFTER:
+                self._park()
 
     @staticmethod
     def volume(by):
@@ -2235,6 +2366,7 @@ def set_timezone(tz, only_if_unset=False):
 
 
 bluetooth = Bluetooth()
+pairing_helper = PairingHelper(bluetooth.accepting)
 network = Network()
 phone = None                                              # PhoneRemote, made in main() (it reads the box's settings)
 
@@ -2676,6 +2808,8 @@ class Handler(BaseHTTPRequestHandler):
             elif k == "home":                              # Home while a video plays: stop it (place saved), go home
                 player.stop(save=True, reason="back")
                 go_home()
+            elif k in ("chup", "chdown"):                   # Live TV: up and down change the channel
+                player.zap(-1 if k == "chup" else 1)
             return self.send('{"ok":true}')
         if path == "/box/native/events":
             since = (qs.get("since") or [None])[0]
@@ -3156,6 +3290,7 @@ def main():
         print("Moving the old Sofa setting: %s" % exc, file=sys.stderr)
     threading.Thread(target=look, daemon=True).start()
     threading.Thread(target=watch_devices, daemon=True, name="devices").start()
+    pairing_helper.start()                       # (BlueZ's pairings answered: an Xbox controller pairs)
     if os.environ.get("SOFA_BOX_ICONS") != "0":
         apps.refresh_icons()                               # sharper app icons, once (boxos.ICONS_VERSION)
     if local_sofa.public():                                # open to the internet: it has to be there, from the start
