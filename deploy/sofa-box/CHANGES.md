@@ -7,6 +7,23 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.17
+
+- **Gloamwell, the box's own game** (Games → On the box): an action-RPG dungeon crawler, made for the TV and
+  the controller. The Great Wick at the bottom of Wickhollow's well has gone out; go down and find out why.
+  - Three to play: the **Warden** (shield and blade), the **Ashcaller** (fire from the well) and the
+    **Stalker** (knives from the dark), each with an attack, a roll and two skills.
+  - Every floor is new each time you go down: rooms, monsters that get stronger the deeper you are, urns and
+    chests, torches and a brazier to light. Four places below, each with its own creatures, and a guardian on
+    every fourth floor who seals the stair down. Past the sixteenth, the floors go on.
+  - Gold, tonics and gear: weapons, armor and charms, plain to relic, with their own powers. Hesk's stall in
+    the village buys and sells; the shrine mends you; the rope (or Homeward Ash) brings you back up, and the
+    well takes you straight to the deepest floor you've reached.
+  - Played with any controller from the start, the hints showing its own buttons (A B X Y, or ✕ ○ □ △ on a
+    PlayStation one); a keyboard works too. It's drawn in pixel art at a small size and scaled up, so it runs
+    smoothly on a Pi 3, and needs no internet. Your Wickbearer is kept on the box: Continue picks up where you
+    left. Hold Home to leave, as in any game.
+
 ## 1.1.16
 
 - **Games is a games mode.** Free, open-source games that run on the box itself, installed from Games →
