@@ -30,6 +30,18 @@ Everything since 1.1.0 (2026-10-30); the version number hadn't moved with it.
 - **Phones like an app:** bottom tabs, an install prompt; guests can send to the TV.
 - **Watching:** surround sound, Blu-ray/DVD subtitles, two viewers, AirPlay; the computer kept awake while
   Sofa runs.
+- **Previews have sound.** The banner on Home, the cards' previews and a title's short trailer used to be
+  silent clips, so the speaker button had nothing to turn on. Clips are made again, with the video's sound
+  (stereo, each moment fading in and out); a video without sound gets a clip without it.
+- **Live TV with a remote.** The channel in focus now shows it (the TV's ring, like posters); it used to show
+  nothing, so the remote seemed not to work. On TVs the page says how it works. On a Sofa Box, channels play
+  in the box's own player (its video chip), and up and down change the channel.
+- **A video the device's player can't start plays in the page, just that one;** the next one tries the
+  device's player again (it used to stay on the page's player until the page reloaded).
+- **Moving a show can't put it in Adult by accident.** The Move dialog used to open with Adult already chosen
+  and a free-text category: one press of Move it (or a stray key in that box) put a show in Adult under an
+  odd name. Now nothing is chosen until you choose, and categories are picked from a list (a new one is
+  typed on purpose, under Another…).
 - **Server → Updates** says which commit runs and when it was made, and which Sofa Box OS this Sofa hands
   to boxes; `tools/update.sh` records the commit it installed.
 

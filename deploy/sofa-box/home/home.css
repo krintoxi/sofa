@@ -499,17 +499,20 @@ html.setup #view { padding-bottom: 0; }
 .setup-steps b { font-size: .8rem; }
 .setup-body { flex: 1; padding: 1rem 0 .4rem; }
 .setup-body h1 { margin: 0 0 .5rem; font: 800 2.4rem/1.05 var(--display); letter-spacing: -.03em; text-transform: var(--word-transform); }
-.setup-nav { display: flex; justify-content: space-between; align-items: center; padding: 1.4rem 0 .9rem; position: sticky; bottom: 0; z-index: 3;
+.setup-nav { display: flex; justify-content: space-between; align-items: center; padding: 1.2rem 0 1.6rem; position: sticky; bottom: 0; z-index: 3;
   background: linear-gradient(to top, var(--bg) 62%, transparent); }               /* always on the TV, never below its edge */
 .auto-next { margin-top: 1rem; animation: rise .3s ease both; }
-.hello-head p { color: var(--mist); font-size: 1.1rem; margin: .2rem 0 1.1rem; }
-.ways { display: grid; grid-template-columns: 1.65fr 1fr 1fr; gap: 1rem; }
+.hello-head p { color: var(--mist); font-size: 1.05rem; margin: .1rem 0 .7rem; }
+/* Hello fits the TV with its codes whole: nothing under the bar at the bottom, nothing past a TV's trimmed edges */
+.setup-body.hello { padding-top: .6rem; }
+.setup-body.hello h1 { font-size: 2.1rem; }
+.ways { display: grid; grid-template-columns: 2.1fr 1fr 1fr; gap: 1rem; align-items: start; }
 .qr-row { display: flex; align-items: center; gap: 1.1rem; text-align: left; }
-.qr-row .qr.big { flex: none; width: 9.5rem; height: 9.5rem; }
+.qr-row .qr.big { flex: none; width: min(9.5rem, 29vh); height: min(9.5rem, 29vh); }
 .qr-text { display: grid; gap: .4rem; justify-items: start; }
 .qr-text small { color: var(--mist); font-size: .8rem; }
 .qr-text p { margin: 0; }
-.way { padding: 1.1rem 1.2rem; border-radius: calc(var(--r) * 1.3); background: var(--bg2); border: 1px solid var(--line); display: grid; gap: .5rem; align-content: start; }
+.way { padding: .9rem 1.2rem; border-radius: calc(var(--r) * 1.3); background: var(--bg2); border: 1px solid var(--line); display: grid; gap: .5rem; align-content: start; }
 .way h3 { margin: 0 0 .2rem; display: flex; align-items: center; gap: .5rem; font: 800 1.15rem var(--display); }
 .way h3 span { font-size: 1.4rem; }
 .way p { margin: 0; color: var(--mist); font-size: .9rem; }
@@ -525,7 +528,8 @@ html.setup #view { padding-bottom: 0; }
 .qr-steps > div { display: grid; justify-items: center; gap: .3rem; }
 .qr-again { display: grid; justify-items: start; gap: .3rem; margin: .4rem 0 .8rem; }   /* the code again, just after joining */
 /* the phone's way in at the setup, as steps: done ones ticked, the one in front bright, the rest quiet */
-.code-steps { list-style: none; margin: 0 0 .7rem; padding: 0; display: grid; gap: .2rem; font-size: .85rem; color: var(--mist); }
+.code-steps { list-style: none; margin: 0 0 .5rem; padding: 0; display: flex; flex-wrap: wrap; justify-content: center; gap: .25rem .9rem;
+  font-size: .8rem; color: var(--mist); }                                         /* one row, not four: the code below fits */
 .code-steps li { display: flex; align-items: center; gap: .45rem; }
 .code-steps em { font-style: normal; width: 1.3rem; height: 1.3rem; border-radius: 50%; display: grid; place-items: center;
   font-size: .75rem; font-weight: 700; background: var(--bg2); }

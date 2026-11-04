@@ -9,6 +9,22 @@ GitHub builds the card and makes the release by itself.
 
 ## 1.1.19
 
+- **Xbox controllers pair.** An Xbox Series controller (and others) asks the box to say yes to the pairing;
+  nothing on the box answered, so it stopped blinking as if paired and the box said it didn't pair. The box
+  now keeps a pairing helper running that says yes while it's looking for devices (and no otherwise), is
+  pairable while looking, lets a controller pair again, and loads what Bluetooth LE controllers need.
+- **The TV's remote over HDMI (CEC) stops restarting.** Its service needed `ir-keytable`, which the card
+  didn't have, so it crashed every few seconds; it's on the card now, and the service runs without it too.
+- **Every code on the setup's first screen shows whole.** The remote's code ran under the bar at the
+  bottom on a 1080p TV: the steps are one row now, the code fits the screen's height, and there's room
+  for TVs that trim their edges.
+- **The pointer stays out of the way, and it's the box's own.** It used to sit in the middle of the screen
+  from the first start. Now it's somewhere only while the phone's touchpad is used: it starts from the
+  middle, moves with the box's own acceleration (precise when slow, across the TV when quick), goes to a
+  corner after a few seconds, and hides at once when a remote key is pressed. It's white with a pink glow,
+  pink over what can be pressed. The phone's touchpad shows where your finger is.
+- **Live TV in the box's player.** Channels play on the Pi's video chip, with "Tuning in to…"; up and down
+  (or Page Up/Down) change the channel, with its name on the screen.
 - **Sofa on this box is Sofa 1.2.0**, the version number catching up with everything since 1.1.0 (what's in
   it: [CHANGES.md](../../CHANGES.md)). Its Server → Updates says which commit runs and when it was made.
 

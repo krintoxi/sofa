@@ -16,10 +16,31 @@
     if (hiddenPtr) document.documentElement.setAttribute("data-sofa-nocursor", "");
     else document.documentElement.removeAttribute("data-sofa-nocursor");
   }
+  // the box's own pointer, not the plain black arrow: white with a dark edge and a pink glow, pink over what can be
+  // pressed. Drawn here (a PNG: the kind of picture every Chromium takes as a pointer).
+  function arrow(fill) {
+    try {
+      var c = document.createElement("canvas"); c.width = c.height = 36;
+      var g = c.getContext("2d");
+      g.beginPath(); g.moveTo(5, 3); g.lineTo(5, 27); g.lineTo(11.5, 21); g.lineTo(16, 31); g.lineTo(20.5, 29); g.lineTo(16, 19.5);
+      g.lineTo(25, 19.5); g.closePath();
+      g.shadowColor = "rgba(255,46,136,.85)"; g.shadowBlur = 6;
+      g.fillStyle = fill; g.fill();
+      g.shadowBlur = 0; g.lineJoin = "round"; g.lineWidth = 2; g.strokeStyle = "#0D0D10"; g.stroke();
+      return c.toDataURL("image/png");
+    } catch (e) { return null; }
+  }
+  function pointerStyle() {
+    var plain = arrow("#FFFFFF"), press = arrow("#FF2E88");
+    if (!plain || !press) return "";
+    return " html, body { cursor: url(" + plain + ") 5 3, auto; }" +
+      " a[href], button, [role=button], [role=link], [role=menuitem], [role=tab], [role=option], summary, label, select," +
+      " input[type=button], input[type=submit], input[type=checkbox], input[type=radio] { cursor: url(" + press + ") 5 3, pointer; }";
+  }
   function addStyle() {
     if (document.getElementById("sofa-box-style")) return;
     var st = document.createElement("style"); st.id = "sofa-box-style";
-    st.textContent = "html[data-sofa-nocursor], html[data-sofa-nocursor] * { cursor: none !important; }";
+    st.textContent = "html[data-sofa-nocursor], html[data-sofa-nocursor] * { cursor: none !important; }" + pointerStyle();
     // Sites made for a mouse: the remote's arrows move between their links and buttons (the browser's spatial
     // navigation), so show where you are, even where a site hides it. Not on Sofa's pages, or on apps made for
     // TVs (YouTube's): they show their own.
@@ -150,6 +171,11 @@
   });
   window.addEventListener("keyup", function (e) {
     if ((e.key === "Meta" || e.key === "OS") && superAlone) { superAlone = false; if (open) show(false); send({ a: "home" }); }
+  }, true);
+
+  // ---- a remote's key: the pointer goes (it's the remote you're using now)
+  window.addEventListener("keydown", function (e) {
+    if (/^(Arrow|Enter|Escape|Backspace|BrowserBack|GoBack|MediaPlayPause)/.test(e.key) && !open) { clearTimeout(still); pointer(false); }
   }, true);
 
   // ---- the mouse: the bar at the top edge, the pointer when it moves

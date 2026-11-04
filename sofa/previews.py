@@ -1,8 +1,11 @@
-"""Hover previews: a short, silent clip of a video that plays when you point at its card.
+"""Hover previews: a short clip of a video that plays when you point at its card (and, bigger, in the banner
+on Home and as a title's trailer when there's nothing better).
 
 Each clip is three 3-second moments (about a fifth, half way and two thirds in, so no
-opening logos or credits), 360 px tall, H.264, about 300 KB. Clips live in
-data/cache/previews; the media folders are never touched.
+opening logos or credits), 360 px tall, H.264, with the video's sound (stereo AAC, each moment
+fading in and out), about 400 KB. The sound plays unless it's turned off (the speaker button on the
+banner and trailers; one setting for all). Clips live in data/cache/previews; the media folders are
+never touched.
 
 A clip is made the first time someone points at a card (a second or two), and in the
 background for every movie and the first episode of every show, when nobody is
@@ -17,7 +20,7 @@ import time
 from . import config, machine, media, store
 
 CACHE = os.path.join(config.DATA_DIR, "cache", "previews")
-VERSION = "v2"                                # v2: made with x264 (VideoToolbox drew lines on some old Macs)
+VERSION = "v3"                                # v2: made with x264 (VideoToolbox drew lines on some old Macs); v3: with sound
 HEIGHT, HD_HEIGHT, PART = 360, 720, 3.0       # HD: for the big banner on Home
 _urgent = []
 _lock = threading.Lock()
@@ -80,8 +83,14 @@ def make(item, background=False, hd=False):
         height = min(HD_HEIGHT if hd else HEIGHT, (info["video"].get("height") or HEIGHT) // 2 * 2)
         chains = ["[%d:v:0]scale=-2:%d:flags=bicubic,setsar=1,fps=24,format=yuv420p[v%d]" % (n, height, n)
                   for n in range(len(parts))]
-        graph = ";".join(chains) + ";" + "".join("[v%d]" % n for n in range(len(parts))) + \
-            "concat=n=%d:v=1:a=0[out]" % len(parts)
+        # its sound: each moment's, in stereo, fading in and out so the jumps between moments don't snap
+        sound = chains + ["[%d:a:0]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,"
+                          "afade=t=in:st=0:d=0.2,afade=t=out:st=%.2f:d=0.35[a%d]" % (n, max(0.0, length - 0.35), n)
+                          for n, (_at, length) in enumerate(parts)]
+        with_sound = (";".join(sound) + ";" + "".join("[v%d][a%d]" % (n, n) for n in range(len(parts))) +
+                      "concat=n=%d:v=1:a=1[out][aout]" % len(parts), ["-map", "[out]", "-map", "[aout]", "-c:a", "aac", "-b:a", "96k", "-sn", "-dn"])
+        silent = (";".join(chains) + ";" + "".join("[v%d]" % n for n in range(len(parts))) +
+                  "concat=n=%d:v=1:a=0[out]" % len(parts), ["-map", "[out]", "-an", "-sn", "-dn"])
         if "libx264" in media.encoders():
             enc = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "25" if hd else "28"]      # small clips: x264 is cheap and always right
         else:
@@ -89,10 +98,15 @@ def make(item, background=False, hd=False):
         os.makedirs(CACHE, exist_ok=True)
         dest = os.path.join(CACHE, _name(path, hd))
         tmp = dest + ".part.mp4"
-        cmd += ["-filter_complex", graph, "-map", "[out]", "-an", "-sn", "-dn"] + enc + \
-            ["-movflags", "+faststart", tmp]
         try:
-            subprocess.run(cmd, capture_output=True, timeout=120, check=True)
+            for n, (graph, maps) in enumerate([with_sound, silent] if info.get("audio") else [silent]):
+                try:                                  # (sound it can't read: the clip without it)
+                    subprocess.run(cmd + ["-filter_complex", graph] + maps + enc + ["-movflags", "+faststart", tmp],
+                                   capture_output=True, timeout=120, check=True)
+                    break
+                except subprocess.CalledProcessError:
+                    if n or not info.get("audio"):
+                        raise
             if os.path.getsize(tmp) < 1000:
                 raise OSError("empty clip")
             os.replace(tmp, dest)

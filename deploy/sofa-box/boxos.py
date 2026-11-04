@@ -712,9 +712,9 @@ def bt_pair(mac):
     """Pair, trust and connect (no PIN: remotes, controllers and speakers pair with "just works")."""
     if not re.match(r"^([0-9A-F]{2}:){5}[0-9A-F]{2}$", mac or "", re.I):
         raise ValueError("Which device?")
-    code, out = run(["bluetoothctl", "--agent", "NoInputNoOutput", "pair", mac], 40)
-    if code != 0 and "AlreadyExists" not in out and "Pairing successful" not in out:
-        code, out = run(["bluetoothctl", "pair", mac], 40)
+    # (the agent's pairing helper, bluetoothctl kept open as the default agent, says yes to what BlueZ asks; a
+    # bluetoothctl that brings its own agent here couldn't answer, so an Xbox controller never paired)
+    code, out = run(["bluetoothctl", "pair", mac], 40)
     ok = code == 0 or "Pairing successful" in out or "AlreadyExists" in out
     if ok:
         run(["bluetoothctl", "trust", mac], 10)

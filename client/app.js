@@ -1482,7 +1482,7 @@ async function toggleFav(key, btn) {
   try { await api("/api/like/" + encodeURIComponent(key), { on }); } catch (e) { toast(e.message); }
 }
 
-/* ---------- hover previews: a short, silent clip of the video ----------
+/* ---------- hover previews: a short clip of the video, with its sound unless that's turned off ----------
    With a mouse, pointing at a card opens a bigger card over it that plays the clip, with Play and More info.
    With a TV remote (or the keyboard), the focused card plays its clip in place. */
 let pvCard = null, pvTimer = 0, pop = null;
@@ -1732,7 +1732,8 @@ function viewLive() {
     <p class="count" style="max-width:60ch">Live TV channels come from the internet, and Sofa is set to work offline. Everything in your library plays as usual.
     ${session.user.admin ? `An admin can switch Work offline off under Server, Settings, Privacy.` : ""}</p></section>`;
   if (!liveData) { loadLive(); return `<section class="page"><div class="page-head"><h1>Live TV</h1></div><p class="count">Loading channels…</p></section>`; }
-  const head = `<div class="page-head"><h1>Live TV</h1><span class="count">${plural(liveData.channels.length, "channel")}</span></div>`;
+  const head = `<div class="page-head"><h1>Live TV</h1><span class="count">${plural(liveData.channels.length, "channel")}</span></div>
+    ${TV ? `<p class="count live-how">OK plays a channel, and while it plays, up and down change it. The ★ on a channel adds it to Favorites.</p>` : ""}`;
   if (!liveData.channels.length) {
     return `<section class="page">${head}<p class="count" style="max-width:62ch">Free channels come from channel lists (M3U playlists), like the ones collected at github.com/iptv-org/iptv.
       ${session.user.admin ? "Add a list below, or any M3U link on the Server page." : "Ask whoever manages this server to add a channel list."}</p>
@@ -3147,7 +3148,10 @@ function moveDialog(id) {
   const cats = (LIB.adult && LIB.adult.categories) || [];
   const kinds = isShow ? [["shows", "Shows"]].concat(session.user.adult ? [["adult", "Adult"]] : [])
     : [["movie", "A movie"], ["episode", "An episode"]].concat(session.user.adult ? [["adult", "Adult"]] : [], [["review", "Needs Review"]]);
-  const first = isShow ? (x.adult ? "shows" : "adult") : x.adult ? "movie" : ep ? "episode" : "movie";
+  // a show: nothing chosen until you choose (a show moved to Adult by one press of Move it was too easy)
+  const first = isShow ? null : x.adult ? "movie" : ep ? "episode" : "movie";
+  const catList = [...new Set(cats.concat(isShow ? ["Shows", "Collections"] : ["Movies", "Hentai", "Collections"]))];
+  let cat = x.category || (isShow ? "Shows" : "Movies");
   const d = openDialog(`<h2>Move ${isShow ? "the show" : "it"}</h2>
     <p class="fileline">${esc(isShow ? x.name : x.file || x.title)}</p>
     <h3 class="dlg-sub">${isShow ? "Where does it belong?" : "What is it?"}</h3>
@@ -3159,8 +3163,8 @@ function moveDialog(id) {
         <datalist id="mvShows">${shows.map(s => `<option value="${esc(s.name)}">`).join("")}</datalist>
         <input name="season" placeholder="Season" aria-label="Season" inputmode="numeric" value="${esc(ep ? ep.s : "1")}">
         <input name="episode" placeholder="Episode" aria-label="Episode" inputmode="numeric" value="${esc(ep ? ep.e : "")}"></div>
-      <div class="mv" data-for="adult"><input name="category" list="mvCats" placeholder="Category (Movies, Hentai, Shows, ...)" aria-label="Category" value="${esc(x.category || (isShow ? "Shows" : "Movies"))}">
-        <datalist id="mvCats">${[...new Set(cats.concat(["Movies", "Hentai", "Shows", "Collections"]))].map(c => `<option value="${esc(c)}">`).join("")}</datalist>
+      <div class="mv" data-for="adult"><div class="sorter inline cats" role="group" aria-label="Category">${catList.map(c => `<button type="button" data-cat="${esc(c)}" aria-pressed="${c === cat}">${esc(c)}</button>`).join("")}<button type="button" data-cat="" aria-pressed="false">Another…</button></div>
+        <input name="category" placeholder="The new category's name" aria-label="New category" maxlength="40" hidden>
         ${isShow ? "" : `<input name="atitle" placeholder="Title" aria-label="Title" value="${esc(x.title || "")}">`}</div>
       <div class="mv" data-for="shows"><p class="hint">The show's folder moves to Shows, with everything in it.</p></div>
       <div class="mv" data-for="review"><p class="hint">It goes to the Needs Review folder, to sort out by hand.</p></div>
@@ -3169,15 +3173,22 @@ function moveDialog(id) {
     </form>`);
   const form = $(".move-form", d);
   let kind = first;
-  const show = () => { d.querySelectorAll(".mv").forEach(m => m.hidden = m.dataset.for !== kind); d.querySelectorAll("[data-kind]").forEach(b => b.setAttribute("aria-pressed", b.dataset.kind === kind)); };
+  const show = () => { d.querySelectorAll(".mv").forEach(m => m.hidden = m.dataset.for !== kind); d.querySelectorAll("[data-kind]").forEach(b => b.setAttribute("aria-pressed", b.dataset.kind === kind));
+    $("button[type=submit]", form).disabled = !kind; };
   show();
-  d.addEventListener("click", e => { const b = e.target.closest("[data-kind]"); if (b) { kind = b.dataset.kind; show(); } });
+  d.addEventListener("click", e => {
+    const b = e.target.closest("[data-kind]"); if (b) { kind = b.dataset.kind; show(); }
+    const c = e.target.closest("[data-cat]");
+    if (c) { cat = c.dataset.cat; d.querySelectorAll("[data-cat]").forEach(x => x.setAttribute("aria-pressed", x === c));
+      const other = form.elements.category; other.hidden = !!cat; if (!cat) other.focus(); }
+  });
   form.addEventListener("submit", async e => {
     e.preventDefault();
     const f = form.elements, target = { kind };
     if (kind === "movie") Object.assign(target, { title: f.title.value, year: f.year.value });
     if (kind === "episode") Object.assign(target, { show: f.show.value, season: f.season.value, episode: f.episode.value });
-    if (kind === "adult") Object.assign(target, { category: f.category.value, title: f.atitle ? f.atitle.value : "" });
+    if (kind === "adult") Object.assign(target, { category: cat || f.category.value.trim(), title: f.atitle ? f.atitle.value : "" });
+    if (kind === "adult" && !target.category) { $(".form-error", form).textContent = "Pick a category, or type the new one's name."; return; }
     const btn = $("button[type=submit]", form); btn.disabled = true; btn.textContent = "Moving…";
     try { await relocate(id, target); } catch (ex) { $(".form-error", form).textContent = ex.message; btn.disabled = false; btn.textContent = "Move it"; }
   });
@@ -3415,7 +3426,7 @@ const Player = (function () {
   async function open(it, queue) {
     if (!it) return;
     stopTrailer();
-    if (NATIVE && !nativeBroken && it.kind !== "track") return nativeOpen(it, queue);
+    if (NATIVE && !nativeFailed.has(it.id) && it.kind !== "track") return nativeOpen(it, queue);
     playQueue = queue && queue.includes(it) ? queue : null;
     MusicPlayer.pause();
     enterHistory();
@@ -4151,6 +4162,14 @@ const Player = (function () {
   }
   async function openLive(ch, list) {
     if (!ch) return;
+    // on a Sofa box: its own player, on the Pi's video chip; up and down change the channel there
+    if (NATIVE && window.SofaBox && !nativeFailed.has("live:" + ch.id)) {
+      const all = list || [ch], to = c => ({ id: c.id, name: c.name, group: c.group || "", url: location.origin + "/live/" + c.id + "/index.m3u8" });
+      nativeItem = { id: "live:" + ch.id, live: true, channel: ch, list: all }; nativeQueue = null;
+      NATIVE.play(JSON.stringify({ item: null, live: true, url: to(ch).url, title: ch.name, sub: ch.group || "", at: Math.max(0, all.indexOf(ch)),
+        channels: all.length <= 600 ? all.map(to) : [to(ch)], duration: 0, subtitles: [], markers: [] }));
+      return;
+    }
     MusicPlayer.pause();
     enterHistory();
     returnFocus = returnFocus || document.activeElement;
@@ -4202,7 +4221,9 @@ const Player = (function () {
   };
   /* Inside the Fire TV app: Android's own player plays it (the file as it is, mostly), and says where it
      stopped when it's closed (window.sofaNativeDone). */
-  let nativeItem = null, nativeQueue = null, nativeBroken = false;
+  // a video the device's own player couldn't start plays here; the next one tries the device's player again
+  let nativeItem = null, nativeQueue = null;
+  const nativeFailed = new Set();
   async function nativeOpen(it, queue) {
     let p;
     try { p = await api("/api/play/" + encodeURIComponent(it.id) + "?" + capsQuery(true)); } catch (e) { toast(e.message); return; }
@@ -4224,11 +4245,12 @@ const Player = (function () {
   window.sofaNativeDone = r => {
     const it = nativeItem; nativeItem = null;
     if (!it) return;
-    if (r && r.failed) {               // the device's own player couldn't start: this page plays it instead, from now on
-      nativeBroken = true;
-      toast("The box's player couldn't start" + (r.error ? " (" + r.error + ")" : "") + ", so this plays here instead.");
-      return open(it, nativeQueue);
+    if (r && r.failed) {               // the device's own player couldn't start it: this page plays it instead
+      nativeFailed.add(it.id);
+      toast("The box's player couldn't start" + (it.live ? " this channel" : " this") + (r.error ? " (" + r.error + ")" : "") + ", so it plays here instead.");
+      return it.live ? openLive(it.channel, it.list) : open(it, nativeQueue);
     }
+    if (it.live) { rerender(); return; }
     if (r && r.d) progress[it.id] = { t: r.done ? r.d : r.t, d: r.d, done: !!r.done, at: Date.now() };
     const next = nativeQueue ? nativeQueue[nativeQueue.indexOf(it) + 1] : nextAfter(it);
     if (r && r.ended && next && opt("autoplay", true)) return open(next, nativeQueue);
