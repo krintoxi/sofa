@@ -4157,18 +4157,28 @@ const Player = (function () {
     $(".speed", el).textContent = video.playbackRate + "×";
     flashSeek(video.playbackRate + "×", "mid");
   }
-  let hls = null, liveList_ = null, liveIdx = 0;
+  let hls = null, liveList_ = null, liveIdx = 0, archiveTuned = 0;
+  const filmName = f => f.title + (f.year ? " (" + f.year + ")" : "");
   function loadHlsJs() {
     if (window.Hls) return Promise.resolve();
     return new Promise((res, rej) => { const sc = document.createElement("script"); sc.src = "/client/vendor/hls.min.js"; sc.onload = res; sc.onerror = rej; document.head.appendChild(sc); });
   }
   async function openLive(ch, list) {
     if (!ch) return;
+    // an Internet Archive channel: films on the channel's clock, played from archive.org (sofa/archive.py)
+    let onAir = null;
+    if (ch.archive) {
+      try { onAir = await api("/api/live/archive/" + ch.id + "/now"); }
+      catch (e) { toast(ch.name + " isn't available right now. " + e.message); return; }
+    }
     // on a Sofa box: its own player, on the Pi's video chip; up and down change the channel there
     if (NATIVE && window.SofaBox && !nativeFailed.has("live:" + ch.id)) {
-      const all = list || [ch], to = c => ({ id: c.id, name: c.name, group: c.group || "", url: location.origin + "/live/" + c.id + "/index.m3u8" });
+      const all = list || [ch];
+      const to = c => ({ id: c.id, name: c.name, group: c.group || "", archive: !!c.archive,
+                         url: location.origin + (c.archive ? "/api/live/archive/" + c.id + "/now" : "/live/" + c.id + "/index.m3u8") });
       nativeItem = { id: "live:" + ch.id, live: true, channel: ch, list: all }; nativeQueue = null;
-      NATIVE.play(JSON.stringify({ item: null, live: true, url: to(ch).url, title: ch.name, sub: ch.group || "", at: Math.max(0, all.indexOf(ch)),
+      NATIVE.play(JSON.stringify({ item: null, live: true, title: ch.name, sub: onAir ? filmName(onAir.film) : ch.group || "", at: Math.max(0, all.indexOf(ch)),
+        url: onAir ? onAir.film.url : to(ch).url, start_at: onAir ? onAir.offset : 0, then: onAir ? onAir.next.map(f => f.url) : [],
         channels: all.length <= 600 ? all.map(to) : [to(ch)], duration: 0, subtitles: [], markers: [] }));
       return;
     }
@@ -4186,8 +4196,18 @@ const Player = (function () {
     $('[data-act="next"]', el).hidden = liveList_.length < 2;
     modeEl.hidden = true;
     el.hidden = false; document.body.style.overflow = "hidden";
-    const src = "/live/" + ch.id + "/index.m3u8";
     if (hls) { hls.destroy(); hls = null; }
+    if (onAir) {                                        // a film from archive.org, from where the channel is now
+      $(".p-title", el).textContent = filmName(onAir.film) + (liveList_.length > 1 ? "  (Page Up / Page Down changes channel)" : "");
+      const tuned = ++archiveTuned;
+      video.src = onAir.film.url;
+      video.addEventListener("loadedmetadata", () => { try { video.currentTime = onAir.offset; } catch (e) {} }, { once: true });
+      video.addEventListener("ended", () => { if (tuned === archiveTuned && el.classList.contains("is-live")) openLive(ch, liveList_); }, { once: true });
+      video.play().catch(() => {});
+      wake(); toggleBtn.focus();
+      return;
+    }
+    const src = "/live/" + ch.id + "/index.m3u8";
     if (nativeHls) { video.src = src; }
     else {
       try { await loadHlsJs(); } catch (e) { return showError("Live TV couldn't start", "The video library for live streams didn't load."); }
@@ -4252,7 +4272,10 @@ const Player = (function () {
       toast("The box's player couldn't start" + (it.live ? " this channel" : " this") + (r.error ? " (" + r.error + ")" : "") + ", so it plays here instead.");
       return it.live ? openLive(it.channel, it.list) : open(it, nativeQueue);
     }
-    if (it.live) { rerender(); return; }
+    if (it.live) {                     // an archive channel's films ran out in the box's player: what's on next
+      if (r && r.ended && it.channel && it.channel.archive) return openLive(it.channel, it.list);
+      rerender(); return;
+    }
     if (r && r.d) progress[it.id] = { t: r.done ? r.d : r.t, d: r.d, done: !!r.done, at: Date.now() };
     const next = nativeQueue ? nativeQueue[nativeQueue.indexOf(it) + 1] : nextAfter(it);
     if (r && r.ended && next && opt("autoplay", true)) return open(next, nativeQueue);

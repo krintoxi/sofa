@@ -75,6 +75,7 @@ DEFAULTS = {
     "ffmpeg": "auto",
     # Live TV channel lists (M3U). Each: {"name": ..., "url": ...}
     "live_playlists": [],
+    "archive_channels": True,            # Live TV's Internet Archive channels (sofa/archive.py)
     # Where updates come from (the Update button on the Server page, and tools/update.sh).
     "update_repo": "krintoxi/sofa",
     "update_branch": "main",

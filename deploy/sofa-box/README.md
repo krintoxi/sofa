@@ -256,7 +256,10 @@ Then: **every time**, or **ask me each time**. Settings → Sofa changes that, a
 you've added (open one, make it the one Sofa opens with, or remove it). Inside Sofa, your name →
 **Servers** switches too. You stay signed in to each one.
 
-The **Live TV** tile opens Live TV in the Sofa it opens with, or in Sofa on the box.
+The **Live TV** tile opens Live TV in the Sofa it opens with, or in Sofa on the box. Channels play in the
+box's own player: up and down change the channel. Besides the free channel lists, there are **Internet
+Archive** channels (classic movies, film noir, westerns, silent films, cartoons, classic TV, documentaries):
+free films on a loop, on the clock, like TV.
 
 ### USB drives and discs
 

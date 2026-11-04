@@ -1,0 +1,104 @@
+"""Live TV's Internet Archive channels (sofa/archive.py): films on a loop, on the clock; one playable file each;
+nothing that doesn't belong on a family TV; fetched once a week. A stand-in for archive.org."""
+import json
+import os
+import shutil
+import tempfile
+import threading
+import unittest
+import urllib.parse
+
+import tests  # noqa: F401  (sets Sofa up for the tests)
+from tests.test_server import Client
+from sofa import archive, auth, config, store, web
+
+DOCS = [{"identifier": "noir1", "title": "Scarlet Street"}, {"identifier": "bundle", "title": "Silent Hall of Fame"},
+        {"identifier": "bad", "title": "Sex Madness"}, {"identifier": "noir2", "title": "The Stranger"},
+        {"identifier": "quiet", "title": "Hidden Exploitation"}, {"identifier": "short", "title": "A Trailer"}]
+META = {
+    "noir1": {"metadata": {"title": "Scarlet Street", "year": "1945"}, "files": [
+        {"name": "scarlet.mp4", "source": "derivative", "original": "scarlet.avi", "length": "1:43:00", "height": "480", "size": "400"},
+        {"name": "scarlet_hd.mp4", "source": "derivative", "original": "scarlet.avi", "length": "1:43:00", "height": "1080", "size": "900"}]},
+    "noir2": {"metadata": {"title": "The Stranger", "date": "1946-07-10"}, "files": [
+        {"name": "stranger.mp4", "source": "original", "length": "95 min", "height": "480", "size": "300"}]},
+    "bundle": {"metadata": {"title": "Silent Hall of Fame"}, "files": [
+        {"name": "f%d.mp4" % n, "source": "original", "length": "10:00"} for n in range(6)]},
+    "quiet": {"metadata": {"title": "Hidden", "subject": ["erotica", "1960s"]}, "files": [
+        {"name": "h.mp4", "source": "original", "length": "1:10:00"}]},
+    "short": {"metadata": {"title": "A Trailer"}, "files": [{"name": "t.mp4", "source": "original", "length": "1:30"}]},
+}
+
+
+class Archive(unittest.TestCase):
+    def setUp(self):
+        self.asked = []
+        self.real_get, self.real_cache = archive._get, archive.CACHE
+        archive.CACHE = tempfile.mkdtemp()
+
+        def fake(url, timeout=30):
+            self.asked.append(url)
+            if "advancedsearch" in url:
+                q = urllib.parse.parse_qs(urllib.parse.urlsplit(url).query)["q"][0]
+                self.assertIn("NOT title:(sex", q)                       # the family filter goes in every search
+                return {"response": {"docs": DOCS}}
+            ident = urllib.parse.unquote(url.rsplit("/", 1)[1])
+            return META[ident]
+        archive._get = fake
+        self.before = {k: config.get(k) for k in ("offline", "archive_channels")}
+        config.update({"offline": False, "archive_channels": True})
+
+    def tearDown(self):
+        archive._get, archive.CACHE = self.real_get, self.real_cache
+        config.update(self.before)
+
+    def test_lengths(self):
+        for text, want in (("1:17:26", 4646), ("95 min", 5700), ("01:18:35", 4715), ("123.4", 123), ("?", None), ("", None)):
+            self.assertEqual(archive.seconds(text), want, text)
+
+    def test_one_playable_film_each_and_nothing_unsuitable(self):
+        films = archive.films("ia-noir")
+        self.assertEqual([f["id"] for f in films], ["noir1", "noir2"])      # not the bundle, the unsuitable ones, the trailer
+        self.assertEqual(films[0]["url"], "https://archive.org/download/noir1/scarlet.mp4")   # the 480p copy (a Pi plays it)
+        self.assertEqual((films[0]["year"], films[1]["year"]), (1945, 1946))
+        self.assertEqual(films[1]["length"], 5700)
+        n = len(self.asked)
+        archive.films("ia-noir")                                         # kept for a week: the archive isn't asked again
+        self.assertEqual(len(self.asked), n)
+
+    def test_on_the_clock(self):
+        a = archive.now("ia-noir", at=archive.ANCHOR + 60)
+        self.assertEqual((a["film"]["id"], a["offset"], a["next"][0]["id"]), ("noir1", 60, "noir2"))
+        b = archive.now("ia-noir", at=archive.ANCHOR + 6180 + 10)          # 1:43:00 in: the second film, 10 s in
+        self.assertEqual((b["film"]["id"], b["offset"]), ("noir2", 10))
+        c = archive.now("ia-noir", at=archive.ANCHOR + 6180 + 5700 + 5)     # round again
+        self.assertEqual((c["film"]["id"], c["offset"]), ("noir1", 5))
+
+    def test_off_when_offline(self):
+        self.assertEqual(len(archive.channels()), len(archive.CHANNELS))
+        self.assertTrue(archive.channels()[0]["logo"].startswith("data:image/svg+xml"))
+        config.update({"offline": True})
+        self.assertEqual(archive.channels(), [])
+
+    def test_in_live_tv(self):
+        httpd = web.Server(("127.0.0.1", 0), web.Handler)
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        try:
+            if not store.q1("SELECT 1 FROM users WHERE name = 'archivetest'"):
+                auth.create_user("archivetest", "password123")
+            c = Client("http://127.0.0.1:%d" % httpd.server_address[1])
+            self.assertEqual(c.call("/api/login", {"name": "archivetest", "password": "password123"})[0], 200)
+            status, live = c.call("/api/live")
+            self.assertEqual(status, 200)
+            ia = [ch for ch in live["channels"] if ch.get("archive")]
+            self.assertEqual({ch["group"] for ch in ia}, {"Internet Archive"})
+            status, on = c.call("/api/live/archive/ia-noir/now")
+            self.assertEqual(status, 200)
+            self.assertIn(on["film"]["id"], ("noir1", "noir2"))
+            self.assertEqual(c.call("/api/live/archive/ia-nothing/now")[0], 404)
+        finally:
+            httpd.shutdown()
+            shutil.rmtree(archive.CACHE, ignore_errors=True)
+
+
+if __name__ == "__main__":
+    unittest.main()
