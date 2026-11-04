@@ -252,7 +252,8 @@
             <b>${esc(r.title || a.name)}</b><small>${esc(a.name || "")}</small><span class="x" data-close="${esc(r.target)}" title="Close">${icon("#i-close")}</span></button>`; }).join("")}</div>` : ""}
       <h2 class="row-title">Your apps <small>${rest.length}</small></h2><div class="rail">${rest.map(a => appTile(a)).join("")}
         <button class="tile app" data-go="#/store"><span class="ic plus">${icon("#i-plus")}</span><b>Get more</b></button></div>
-      ${games && games.games.length ? `<h2 class="row-title">Games</h2><div class="rail">${games.games.map(g => `<button class="tile app" style="--c:${esc(g.color)}" data-game="${esc(g.id)}"><span class="ic emoji">${esc(g.emoji || g.name[0])}</span><b>${esc(g.name)}</b></button>`).join("")}</div>` : ""}
+      ${games && games.games.length ? `<h2 class="row-title">Games</h2><div class="rail">${(games.native || []).filter(g => g.installed).map(g => `<button class="tile app" style="--c:${esc(g.color)}" data-play="${esc(g.id)}"><span class="ic emoji">${esc(g.emoji || g.name[0])}</span><b>${esc(g.name)}</b></button>`).join("")}${games.games.map(g => `<button class="tile app" style="--c:${esc(g.color)}" data-game="${esc(g.id)}"><span class="ic emoji">${esc(g.emoji || g.name[0])}</span><b>${esc(g.name)}</b></button>`).join("")}
+        <button class="tile app" data-go="#/games"><span class="ic plus">${icon("#i-plus")}</span><b>More games</b></button></div>` : ""}
     </div>`;
   }
 
@@ -342,12 +343,65 @@
     return r.server;
   }
 
+  // ---------------------------------------------------------------- Games: the small ones in the page, and games
+  // that run on the box itself (installed from the list when asked, played offline with a controller)
+  const PAD_NAMES = { xbox: "Xbox controller", playstation: "PlayStation controller", nintendo: "Nintendo controller", "8bitdo": "8BitDo controller", generic: "Controller" };
+  const PAD_HOME = { xbox: "the Xbox button", playstation: "the PS button" };
+  function webGameTile(g) {
+    return `<button class="tile game" style="--c:${esc(g.color)}" data-game="${esc(g.id)}"><span class="ic">${esc(g.emoji || g.name[0])}</span>
+      <b>${esc(g.name)}</b><small>${esc(g.about)}</small></button>`;
+  }
+  function nativeTile(g) {
+    return `<button class="tile game" style="--c:${esc(g.color)}" data-play="${esc(g.id)}"><span class="ic">${esc(g.emoji || g.name[0])}</span>
+      <b>${esc(g.name)}</b><small>${esc(g.about)}</small>${g.playing ? `<span class="meta">Playing now</span>` : ""}</button>`;
+  }
+  function getTile(g, job) {
+    const busy = job && job.id === g.id;
+    const meta = busy ? `<i class="spin"></i>${job.action === "install" ? "Getting it: a few minutes" : "Removing it…"}`
+      : !g.fits ? `Needs a Raspberry Pi ${g.pi} or 5` : `Free · about ${g.mb >= 1000 ? (g.mb / 1000).toFixed(1) + " GB" : g.mb + " MB"}${g.mouse ? " · the stick is its mouse" : ""}`;
+    return `<button class="tile game get${g.fits ? "" : " off"}" style="--c:${esc(g.color)}" data-game-get="${esc(g.id)}"${g.fits ? "" : " disabled"}>
+      <span class="ic">${esc(g.emoji || g.name[0])}</span><b>${esc(g.name)}</b><small>${esc(g.about)}</small>
+      ${g.note ? `<small class="note">${esc(g.note)}</small>` : ""}<span class="meta">${meta}</span></button>`;
+  }
+  function padsCard() {
+    const pads = games.pads || [];
+    if (pads.length) {
+      const home = PAD_HOME[pads[0].kind] || "Home";
+      return `<div class="pads">${pads.map(p => `<span class="pad-chip"><b><i class="pad-ic">🎮</i>${esc(PAD_NAMES[p.kind] || "Controller")}</b><small>${esc(p.name)}</small></span>`).join("")}
+        <p class="small">Ready: every game here works with it from the start. To come back from a game, hold <b>${esc(home)}</b> for a second.</p></div>`;
+    }
+    return `<section class="card pads-card"><h3>Connect a controller</h3>
+      <p class="small">Put it in pairing mode, then <b>Look for controllers</b>: it pairs by itself, and the box knows which kind it is.</p>
+      <ul class="pair-how"><li><b>Xbox:</b> hold the small pair button on top until the Xbox button flashes fast.</li>
+        <li><b>PlayStation:</b> hold Create (or Share) and the PS button until the light flashes.</li>
+        <li><b>8BitDo and others:</b> hold the pair button, or Start with X or Y (its manual says).</li></ul>
+      <p class="small">A USB cable, or a controller with its own USB dongle, works as soon as it's plugged in.</p>
+      <div class="choices"><button class="btn" data-bt-look="1">Look for controllers</button></div>
+      <div id="btList" class="bt-list small-list">${btList()}</div></section>`;
+  }
   function viewGames() {
     if (!games) return `<h1 class="page">Games</h1><p class="lede">Loading…</p>`;
-    return `<div class="view-in"><h1 class="page">Games</h1><p class="lede">Small games that run well on the box. Arrows and OK, or a controller.</p>
-      <div class="grid games">${games.games.map(g => `<button class="tile game" style="--c:${esc(g.color)}" data-game="${esc(g.id)}"><span class="ic">${esc(g.emoji || g.name[0])}</span>
-        <b>${esc(g.name)}</b><small>${esc(g.about)}</small></button>`).join("")}</div></div>`;
+    setupLive();
+    const job = games.job && games.job.state === "working" ? games.job : null;
+    const native = games.native || [], have = native.filter(g => g.installed), more = native.filter(g => !g.installed);
+    return `<div class="view-in"><h1 class="page">Games</h1><p class="lede">Play on the TV with a controller. Once a game is on the box, it plays without the internet.</p>
+      ${padsCard()}
+      <h2 class="row-title">On the box</h2><div class="grid games">${have.map(nativeTile).join("")}${games.games.map(webGameTile).join("")}</div>
+      ${more.length ? `<h2 class="row-title">Get more games <small>free and open source</small></h2><div class="grid games">${more.map(g => getTile(g, job)).join("")}</div>` : ""}
+      ${have.length ? `<h2 class="row-title">Remove a game</h2><div class="choices">${have.map(g => `<button class="mini" data-game-remove="${esc(g.id)}">${esc(g.name)} <small>about ${g.mb} MB</small></button>`).join("")}</div>` : ""}
+      ${games.free_mb != null ? `<p class="small">${(games.free_mb / 1024).toFixed(1)} GB free on the box.</p>` : ""}</div>`;
   }
+  async function loadGames() {
+    const g = await api("/box/api/games").catch(() => null);
+    if (!g) return false;
+    const changed = JSON.stringify(g) !== JSON.stringify(games);
+    games = g;
+    return changed;
+  }
+  setInterval(async () => {                    // Games: a game on its way, controllers coming and going
+    if (document.hidden || $(".sheet-back") || location.hash !== "#/games") return;
+    if (await loadGames()) render(true);
+  }, 3000);
 
   function viewBrowser() {
     const web = data.apps.filter(a => a.kind === "web" && !a.hidden).slice(0, 10);
@@ -546,7 +600,7 @@
   }
   function setupLive() {                         // the parts that change by themselves, redrawn in place
     clearTimeout(setupTimer);
-    if (!location.hash.startsWith("#/welcome") && !location.hash.startsWith("#/settings")) return;
+    if (!location.hash.startsWith("#/welcome") && !location.hash.startsWith("#/settings") && location.hash !== "#/games") return;
     setupTimer = setTimeout(async () => {
       await loadSetup(location.hash.startsWith("#/welcome") && (step === 0 || step === 2) || btLooking > Date.now());
       for (const [id, html] of [["phoneBox", phoneBox()], ["btList", btList()], ["netState", netState()]]) {
@@ -877,6 +931,16 @@
       else if (d.target) await api("/box/api/front", { target: d.target }).catch(() => open({ id: (data.running.find(r => r.target === d.target) || {}).app || "browser" }));
       else if (d.url) open({ url: d.url });
       else if (d.game) open({ url: location.origin + "/box/games/" + d.game + "/" });
+      else if (d.play) { const g = (games.native || []).find(x => x.id === d.play) || { name: d.play };
+        await api("/box/api/games", { action: "play", id: d.play });
+        toast("Starting " + g.name + "… To come back, hold Home for a second."); }
+      else if (d.gameGet) { const g = games.native.find(x => x.id === d.gameGet);
+        if (games.job && games.job.state === "working") return toast("One game at a time: the other is on its way.");
+        const r = await api("/box/api/games", { action: "install", id: d.gameGet }); games.job = r.job;
+        toast("Getting " + g.name + ": a few minutes. You can keep using the box."); render(true); }
+      else if (d.gameRemove) { const g = games.native.find(x => x.id === d.gameRemove);
+        if (armed !== "game-" + g.id) { armed = "game-" + g.id; t.innerHTML = "Press again to remove " + esc(g.name); return; }
+        armed = ""; const r = await api("/box/api/games", { action: "remove", id: g.id }); games.job = r.job; render(true); }
       else if (d.store) { const e2 = storeData.sections.flatMap(s => s.apps).find(x => x.id === d.store);
         if (e2.installed) openApp(data.apps.find(a => a.id === e2.id) || { id: e2.id, kind: "web" }); else await install({ store_id: e2.id }, e2.name); }
       else if (d.install) await install({ store_id: d.install }, d.install);
@@ -1017,7 +1081,7 @@
       : [["OK", "Choose"], ["Back", "Home screen"]]);
   }
   function keyOf(el) {
-    for (const a of ["app", "store", "game", "file", "root", "set", "themePick", "move", "hide", "action", "target", "go", "url", "server", "pick", "addFound", "drive", "disc", "default", "forgetServer", "ask", "bt", "wifiPick", "tz", "step", "btLook"]) {
+    for (const a of ["app", "store", "game", "play", "gameGet", "gameRemove", "file", "root", "set", "themePick", "move", "hide", "action", "target", "go", "url", "server", "pick", "addFound", "drive", "disc", "default", "forgetServer", "ask", "bt", "wifiPick", "tz", "step", "btLook"]) {
       if (el.dataset[a] !== undefined) {
         const attr = "data-" + a.replace(/[A-Z]/g, c => "-" + c.toLowerCase());
         return `[${attr}="${CSS.escape(el.dataset[a])}"]` + (el.dataset.by ? `[data-by="${el.dataset.by}"]` : "") + (el.dataset.value ? `[data-value="${el.dataset.value}"]` : "");

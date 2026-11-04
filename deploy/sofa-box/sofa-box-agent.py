@@ -22,6 +22,8 @@ import http.client
 import json
 import os
 import re
+import shutil
+import signal
 import socket
 import ssl
 import subprocess
@@ -619,7 +621,9 @@ if browser and slow_board():
 
 
 def go_home():
-    """The Home key, from anywhere: the box's home screen in front."""
+    """The Home key, from anywhere: the box's home screen in front (a game that's open ends)."""
+    if games.playing:
+        games.stop("home")
     if browser and browser.connected():
         return browser.home()
     go("#/")
@@ -1119,6 +1123,231 @@ def scan_others():
         except OSError:
             pass
     return others_found["list"]
+
+
+# ---------------------------------------------------------------- games that run on the box itself (Games)
+# Open-source games from Debian (games/games.json, "native"): installed when asked, by the box's root helper and only
+# with the packages the list names, then played offline, full screen over the home screen. While one runs, the
+# controller daemon (sofa-box-input.py) leaves the controller to the game ("pad": the game reads it itself), or works
+# it as the list says ("controls": keys and a mouse, the same on every controller); holding Home for a second ends it.
+GAME_FILE = os.environ.get("SOFA_BOX_GAME_FILE") or os.path.join(
+    os.environ.get("XDG_RUNTIME_DIR") or "/run/user/%d" % os.getuid(), "sofa-box-game")
+GAME_DIRS = [d for d in (os.environ.get("SOFA_BOX_GAMES_BIN"),) if d] or ["/usr/games", "/usr/bin", "/usr/local/games"]
+GAME_DATA = os.environ.get("SOFA_BOX_GAME_DATA") or os.path.join(os.path.expanduser("~"), ".local", "share", "sofa-box", "games")
+PAD_KINDS = {"xbox": "Xbox", "playstation": "PlayStation", "nintendo": "Nintendo", "8bitdo": "8BitDo", "generic": "controller"}
+
+
+def _apt_why(out):
+    """What went wrong installing a game, in a few words."""
+    low = out.lower()
+    if "temporary failure resolving" in low or "could not resolve" in low or "network is unreachable" in low:
+        return "The box couldn't reach the internet to download it. Check the Wi-Fi and try again."
+    if "no space left" in low or "not enough free space" in low:
+        return "There isn't room on the box's card for it."
+    if "could not get lock" in low or "unable to acquire the dpkg frontend lock" in low:
+        return "The box is busy updating. Try again in a few minutes."
+    errs = [line[3:].strip() for line in out.splitlines() if line.startswith("E: ")]
+    return (errs[-1] if errs else (out.strip().splitlines() or ["it stopped"])[-1])[:200]
+
+
+class Games:
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.proc, self.playing, self.started, self.ending, self.job = None, None, 0, None, None
+        self.pads, self.pads_at = [], 0
+        self._list, self._mtime = None, None
+
+    def catalog(self):
+        path = os.path.join(HERE, "games", "games.json")
+        m = os.path.getmtime(path)
+        if self._list is None or m != self._mtime:
+            with open(path, encoding="utf-8") as f:
+                self._list, self._mtime = json.load(f), m
+        return self._list
+
+    def native(self, gid):
+        g = next((g for g in self.catalog().get("native", []) if g["id"] == gid), None)
+        if not g:
+            raise ValueError("That isn't a game the box has.")
+        return g
+
+    @staticmethod
+    def binary(g):
+        for name in g["run"]:
+            for d in GAME_DIRS:
+                p = os.path.join(d, name)
+                if os.path.isfile(p) and os.access(p, os.X_OK):
+                    return p
+        return None
+
+    @staticmethod
+    def fits(g):
+        gen = board()["gen"]
+        return gen == 0 or gen >= g.get("pi", 3)        # (not a Raspberry Pi: up to it)
+
+    def pads_now(self):
+        """The controllers connected now (the controller daemon says, when they come and go)."""
+        return list(self.pads) if time.time() - self.pads_at < 90 else []
+
+    def listing(self):
+        native = []
+        for g in self.catalog().get("native", []):
+            d = {k: g.get(k) for k in ("id", "name", "emoji", "color", "about", "note", "mb", "pi")}
+            d.update(installed=self.binary(g) is not None, fits=self.fits(g),
+                     mouse=g["controls"] in ("pointer", "wesnoth"), playing=self.playing == g["id"])
+            native.append(d)
+        try:
+            free = shutil.disk_usage("/").free // 2**20
+        except OSError:
+            free = None
+        with self.lock:
+            job = dict(self.job) if self.job else None
+        return {"games": self.catalog()["games"], "native": native, "job": job, "playing": self.playing,
+                "pads": self.pads_now(), "free_mb": free, "board": board()["gen"]}
+
+    def change(self, gid, action):
+        """Install or remove a game, in the background (a few minutes: it's downloaded)."""
+        g = self.native(gid)
+        if action not in ("install", "remove"):
+            raise ValueError("Install or remove.")
+        with self.lock:
+            if self.job and self.job["state"] == "working":
+                raise ValueError("One game at a time: %s is on its way." % self.native(self.job["id"])["name"])
+            if self.playing == gid:
+                raise ValueError("Close %s first." % g["name"])
+            if action == "install":
+                if not self.fits(g):
+                    raise ValueError("%s needs a Raspberry Pi %d or newer." % (g["name"], g["pi"]))
+                free = shutil.disk_usage("/").free // 2**20
+                if free < g["mb"] * 1.5 + 400:
+                    raise ValueError("There isn't room for %s: it needs about %d MB, and the box has %d MB free."
+                                     % (g["name"], g["mb"], free))
+            self.job = {"id": gid, "action": action, "state": "working", "at": int(time.time()), "error": None}
+        threading.Thread(target=self._change, args=(g, action), daemon=True, name="game-" + action).start()
+        return dict(self.job)
+
+    def _change(self, g, action):
+        helper = os.environ.get("SOFA_BOX_GAMES_HELPER")       # (tests: a stand-in for apt)
+        cmd = [helper] if helper else ["sudo", "-n", os.path.join(HERE, "sofa-box"), "games"]
+        code, out = run(cmd + [action, g["id"]], 3600)
+        ok = code == 0 and (self.binary(g) is not None) == (action == "install")
+        with self.lock:
+            self.job.update(state="done" if ok else "failed", error=None if ok else _apt_why(out))
+        print("Game %s %s: %s" % (action, g["id"], "done" if ok else out.replace("\n", " | ")[-400:]), file=sys.stderr, flush=True)
+        if ok:
+            toast("%s is ready: it's in Games." % g["name"] if action == "install" else "%s is off the box." % g["name"])
+        else:
+            toast("%s couldn't be %s. %s" % (g["name"], "installed" if action == "install" else "removed", self.job["error"]))
+
+    def _setup(self, g):
+        """A game's own settings the first time (its controller, the screen, a lighter look on a Pi 3), and what it
+        needs to start straight in (Luanti: a world, no menu)."""
+        slow = slow_board()
+        if g.get("setup") == "luanti":
+            base = os.path.join(GAME_DATA, "luanti")
+            world = os.path.join(base, "worlds", "Sofa Box")
+            os.makedirs(world, exist_ok=True)
+            if not os.path.exists(os.path.join(world, "world.mt")):
+                with open(os.path.join(world, "world.mt"), "w", encoding="utf-8") as f:
+                    f.write("gameid = minetest\nbackend = sqlite3\nplayer_backend = sqlite3\nauth_backend = sqlite3\n")
+            conf = os.path.join(base, "luanti.conf")
+            if not os.path.exists(conf):
+                with open(conf, "w", encoding="utf-8") as f:     # (the box works the controller: Luanti's own is off)
+                    f.write("fullscreen = true\nenable_joysticks = false\nviewing_range = %d\nenable_clouds = %s\n"
+                            "undersampling = %d\n" % (60 if slow else 160, "false" if slow else "true", 2 if slow else 1))
+            return ["--config", conf, "--go", "--world", world]
+        if g.get("setup") == "flare":
+            conf = os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.join(os.path.expanduser("~"), ".config"), "flare")
+            if not os.path.exists(os.path.join(conf, "settings.txt")):
+                os.makedirs(conf, exist_ok=True)
+                with open(os.path.join(conf, "settings.txt"), "w", encoding="utf-8") as f:
+                    f.write("fullscreen=1\nenable_joystick=1\njoystick_device=0\nno_mouse=1\nmouse_move=0\nmouse_aim=0\n")
+        return []
+
+    def play(self, gid):
+        g = self.native(gid)
+        exe = self.binary(g)
+        if not exe:
+            raise ValueError("%s isn't on the box yet." % g["name"])
+        with self.lock:
+            if self.proc and self.proc.poll() is None:
+                if self.playing == gid:
+                    return {"ok": True}
+                raise ValueError("Another game is open: hold Home to close it first.")
+        if playing():
+            player.stop(reason="a game")
+        os.makedirs(GAME_DATA, exist_ok=True)
+        args = [exe] + list(g.get("args") or []) + self._setup(g)
+        env = display_env()
+        if env.get("WAYLAND_DISPLAY"):
+            env.setdefault("SDL_VIDEODRIVER", "wayland,x11")
+        controls = None if g["controls"] == "pad" else self.catalog()["controls"][g["controls"]]
+        tmp = GAME_FILE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump({"id": gid, "controls": controls}, f)
+        os.replace(tmp, GAME_FILE)
+        log = open(os.path.join(GAME_DATA, "last-game.log"), "wb")
+        try:
+            proc = subprocess.Popen(args, env=env, cwd=os.path.expanduser("~"), stdin=subprocess.DEVNULL, stdout=log,
+                                    stderr=subprocess.STDOUT, start_new_session=True)
+        except OSError as exc:
+            os.remove(GAME_FILE)
+            raise ValueError("%s didn't start (%s)." % (g["name"], exc.strerror or exc))
+        finally:
+            log.close()
+        with self.lock:
+            self.proc, self.playing, self.started, self.ending = proc, gid, time.time(), None
+        print("Game: %s" % g["name"], file=sys.stderr, flush=True)
+        threading.Thread(target=self._wait, args=(g, proc), daemon=True, name="game").start()
+        return {"ok": True}
+
+    def _wait(self, g, proc):
+        code = proc.wait()
+        with self.lock:
+            mine = self.proc is proc
+            if mine:
+                self.proc, self.playing = None, None
+            ending, started = self.ending, self.started
+        if not mine:
+            return
+        try:
+            os.remove(GAME_FILE)
+        except OSError:
+            pass
+        if code and not ending and time.time() - started < 20:
+            toast("%s stopped as it started. Settings → Help → Send a report has what it said." % g["name"])
+        if not ending:
+            go("#/games")
+
+    def stop(self, why="home"):
+        """End the game that's open (Home held, or another game)."""
+        with self.lock:
+            proc, self.ending = self.proc, why
+        if not proc or proc.poll() is not None:
+            return False
+        for sig, wait in ((signal.SIGTERM, 6), (signal.SIGKILL, 3)):
+            try:
+                os.killpg(proc.pid, sig)
+            except OSError:
+                break
+            try:
+                proc.wait(wait)
+                break
+            except subprocess.TimeoutExpired:
+                continue
+        return True
+
+    def heard_pads(self, pads):
+        clean = []
+        for p in pads[:8] if isinstance(pads, list) else []:
+            kind = str(p.get("kind") or "generic")
+            clean.append({"name": str(p.get("name") or "")[:60], "kind": kind if kind in PAD_KINDS else "generic"})
+        new = {p["name"] for p in clean} - {p["name"] for p in self.pads_now()}
+        self.pads, self.pads_at = clean, time.time()
+        return new
+
+
+games = Games()
 
 
 # ---------------------------------------------------------------- USB drives and discs
@@ -2677,8 +2906,21 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError("Only pictures open here.")
             return self.static(os.path.dirname(full), os.path.basename(full))
         if path == "/box/api/games":
-            with open(os.path.join(HERE, "games", "games.json"), encoding="utf-8") as f:
-                return self.send(f.read())
+            if self.command == "POST":
+                a = data.get("action")
+                if a in ("install", "remove"):
+                    return self.send(json.dumps({"ok": True, "job": games.change(str(data.get("id") or ""), a)}))
+                if a == "play":
+                    return self.send(json.dumps(games.play(str(data.get("id") or ""))))
+                if a == "stop":
+                    return self.send(json.dumps({"ok": games.stop("asked")}))
+                raise ValueError("Install, remove, play or stop.")
+            return self.send(json.dumps(games.listing()))
+        if path == "/box/api/pads":                     # the controller daemon: the controllers connected now
+            for name in games.heard_pads(data.get("pads")):
+                kind = next(p["kind"] for p in games.pads if p["name"] == name)
+                toast("%s connected: ready for games." % ("Your %s controller" % PAD_KINDS[kind] if kind != "generic" else name or "A controller"))
+            return self.send('{"ok":true}')
         if path == "/box/api/shield":
             if self.command == "POST":
                 on = bool(data.get("on"))

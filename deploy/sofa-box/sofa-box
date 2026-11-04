@@ -73,7 +73,7 @@ session() {
   # window gets the whole screen as it is, and the agent sizes each page instead (SCALE, through DevTools).
   SCALE="$(scale)"
   if [ -n "$WAYLAND_DISPLAY" ]; then
-    printf 'WAYLAND_DISPLAY=%s\nSCALE=%s\n' "$WAYLAND_DISPLAY" "$SCALE" > "$RUN/sofa-box-display"
+    printf 'WAYLAND_DISPLAY=%s\nDISPLAY=%s\nSCALE=%s\n' "$WAYLAND_DISPLAY" "${DISPLAY:-}" "$SCALE" > "$RUN/sofa-box-display"   # (DISPLAY: cage's XWayland, for games made for X)
     PLATFORM="--ozone-platform=wayland"
   else
     printf 'DISPLAY=%s\nXAUTHORITY=%s\nSCALE=1\n' "$DISPLAY" "${XAUTHORITY:-$HOME/.Xauthority}" > "$RUN/sofa-box-display"
@@ -301,7 +301,32 @@ report() {
     echo; echo "== Wi-Fi and Bluetooth"
     journalctl -b --no-pager -o short-monotonic -n 150 -u NetworkManager -u bluetooth
     echo; echo "== Warnings and errors, the whole box"
-    journalctl -b --no-pager -o short-monotonic -n 200 -p warning; } 2>&1 | cut -c 1-400
+    journalctl -b --no-pager -o short-monotonic -n 200 -p warning
+    for f in /home/*/.local/share/sofa-box/games/last-game.log; do
+      [ -f "$f" ] && { echo; echo "== The last game it opened"; tail -n 60 "$f"; }
+    done; } 2>&1 | cut -c 1-400
+}
+
+games() {                    # (root) a game from the box's list (games/games.json): its packages only, nothing else
+  ACTION="${1:-}"; ID="${2:-}"
+  PKGS="$(python3 - "$LIB/games/games.json" "$ID" <<'EOF'
+import json, re, sys
+g = next((g for g in json.load(open(sys.argv[1], encoding="utf-8")).get("native", []) if g["id"] == sys.argv[2]), None)
+print(" ".join(p for p in (g or {}).get("packages", []) if re.match(r"^[a-z0-9][a-z0-9.+-]*$", p)))
+EOF
+)"
+  [ -n "$PKGS" ] || { echo "E: No game called '$ID' in the box's list."; exit 2; }
+  export DEBIAN_FRONTEND=noninteractive
+  case "$ACTION" in
+    install)
+      apt-get -o DPkg::Lock::Timeout=180 update -qq || true
+      # shellcheck disable=SC2086
+      apt-get -o DPkg::Lock::Timeout=180 install -y --no-install-recommends $PKGS ;;
+    remove)
+      # shellcheck disable=SC2086
+      apt-get -o DPkg::Lock::Timeout=180 remove -y --autoremove $PKGS ;;
+    *) echo "E: install or remove"; exit 2 ;;
+  esac
 }
 
 case "${1:-}" in
@@ -327,6 +352,7 @@ case "${1:-}" in
   apply-boot) shift; apply_boot "$@" ;;
   setup-boot) shift; setup_boot "$@" ;;
   shield) shift; shield "$@" ;;
+  games) shift; games "$@" ;;
   desktop)
     systemctl disable --now sofa-box
     for dm in lightdm gdm3 sddm; do systemctl list-unit-files "$dm.service" >/dev/null 2>&1 && systemctl enable "$dm" 2>/dev/null && { systemctl start "$dm"; break; }; done
