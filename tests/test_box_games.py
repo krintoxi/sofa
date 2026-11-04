@@ -43,6 +43,10 @@ class TheList(unittest.TestCase):
             self.assertTrue(g["controls"] == "pad" or g["controls"] in CONTROLS, g["id"])
             if g.get("icon"):
                 self.assertTrue(os.path.isfile(os.path.join(BOX, "games", g["icon"])), g["icon"])
+        for g in CATALOG["games"]:                                   # our own games: played with a controller first
+            with open(os.path.join(BOX, "games", g["id"], "index.html"), encoding="utf-8") as f:
+                page = f.read()
+            self.assertTrue("../pad.js" in page or "getGamepads" in page, g["id"] + " doesn't read the controller itself")
         for name, c in CONTROLS.items():
             for action in c["buttons"].values():                      # every key a real one
                 for part in action.split("+"):

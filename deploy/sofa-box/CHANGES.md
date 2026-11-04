@@ -7,6 +7,19 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.21
+
+- **The setup's phone side is the Sofa Setup Assistant.** The TV's phone panel is "Set up with your phone",
+  and each code says what it really does: the first connects your phone to the box (its own Wi-Fi), the second
+  opens the Setup Assistant on your phone (not "the remote"), where you choose your Wi-Fi; the last keeps your
+  phone as the remote. On the phone, the assistant shows its three steps, and after the Wi-Fi, exactly what
+  the last step is.
+- **Our games are played with a controller first.** Neon Dodge, Pair Up and Sky Hop read the controller
+  straight (the stick too: Sky Hop steers as far as it's pushed), with no wait before a held direction repeats,
+  and say its buttons' names (A, or ✕ on a PlayStation controller); keys still work when there's no
+  controller. Keys and a mouse stay for the games that have nothing else (Wesnoth, OpenTTD).
+- New Sofa Craft worlds keep their mods' data in SQLite too (Luanti's warning about the old way).
+
 ## 1.1.20
 
 - **A power button on the phone remote.** It puts the box to rest: what plays stops (its place kept), a game

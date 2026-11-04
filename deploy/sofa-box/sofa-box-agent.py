@@ -1349,7 +1349,8 @@ class Games:
             os.makedirs(world, exist_ok=True)
             if not os.path.exists(os.path.join(world, "world.mt")):
                 with open(os.path.join(world, "world.mt"), "w", encoding="utf-8") as f:
-                    f.write("gameid = minetest\nbackend = sqlite3\nplayer_backend = sqlite3\nauth_backend = sqlite3\n")
+                    f.write("gameid = minetest\nbackend = sqlite3\nplayer_backend = sqlite3\nauth_backend = sqlite3\n"
+                            "mod_storage_backend = sqlite3\n")
             conf = os.path.join(base, "luanti.conf")
             if not os.path.exists(conf):
                 with open(conf, "w", encoding="utf-8") as f:     # (the box works the controller: Luanti's own is off)

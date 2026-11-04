@@ -14,6 +14,7 @@
 </style></head><body>
 <h1>Pair Up</h1><p id="msg">Arrows to move, OK to turn a card over</p>
 <div class="board" id="b"></div>
+<script src="../pad.js"></script>
 <script>
 (function () {
   const SYMS = ["🍕", "🚀", "🎧", "🌵", "🐙", "🎲", "🍉", "⚡"];
@@ -21,7 +22,8 @@
   const b = document.getElementById("b"), msg = document.getElementById("msg");
   function deal() {
     cards = SYMS.concat(SYMS).map(s => ({ s, up: false, done: false })).sort(() => Math.random() - 0.5);
-    open = []; turns = 0; pairs = 0; draw(); msg.textContent = "Arrows to move, OK to turn a card over";
+    open = []; turns = 0; pairs = 0; draw();
+    msg.textContent = SofaPad.connected() ? "Stick or D-pad to move, " + SofaPad.label("a") + " to turn a card over" : "Arrows to move, OK to turn a card over";
   }
   function draw() {
     b.innerHTML = cards.map((c, i) => `<button class="card${c.up ? " up" : ""}${c.done ? " done" : ""}${i === at ? " f" : ""}" data-i="${i}">${c.s}</button>`).join("");
@@ -37,7 +39,17 @@
       else { lock = true; setTimeout(() => { cards[a].up = cards[d].up = false; open = []; lock = false; draw(); }, 800); }
     }
   }
+  SofaPad.on((b, act) => {
+    if (b === "connected") { const m = document.getElementById("msg"); if (m && !pairs) m.textContent = "Stick or D-pad to move, " + SofaPad.label("a") + " to turn a card over"; return; }
+    if (act === "release") return;
+    if (b === "left") at = (at + 15) % 16; else if (b === "right") at = (at + 1) % 16;
+    else if (b === "up") at = (at + 12) % 16; else if (b === "down") at = (at + 4) % 16;
+    else if ((b === "a" || b === "start") && act === "press") { if (pairs === SYMS.length) deal(); else flip(at); }
+    else return;
+    draw();
+  });
   addEventListener("keydown", e => {
+    if (SofaPad.echo(e)) return;
     const k = e.key;
     if (k === "ArrowLeft") at = (at + 15) % 16; else if (k === "ArrowRight") at = (at + 1) % 16;
     else if (k === "ArrowUp") at = (at + 12) % 16; else if (k === "ArrowDown") at = (at + 4) % 16;
