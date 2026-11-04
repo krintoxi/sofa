@@ -649,8 +649,44 @@ if browser and slow_board():
     browser.page_script = H264_ONLY
 
 
+# ---------------------------------------------------------------- asleep (the phone remote's power button)
+# The box rests: what plays stops (its place kept), a game ends, and Home shows its screensaver (the time, the weather,
+# the art of what you were watching, drifting so nothing burns into the TV). Any key, the phone, Home: awake again.
+asleep = {"on": False, "at": 0}
+
+
+def home_page(where):
+    """Home in front, at `where` ("#/sleep", "#/")."""
+    if browser and browser.connected():
+        t = browser.tab_of("home")
+        if t:
+            browser.activate(t)
+            browser.evaluate(t, "location.hash = %s" % json.dumps(where))
+            return True
+    go(where)
+    return False
+
+
+def box_sleep():
+    player.stop(save=True, reason="sleep")
+    if games.playing:
+        games.stop("sleep")
+    asleep.update(on=True, at=time.time())
+    home_page("#/sleep")
+
+
+def box_wake():
+    if asleep["on"]:
+        asleep["on"] = False
+        home_page("#/")
+        return True
+    return False
+
+
 def go_home():
-    """The Home key, from anywhere: the box's home screen in front (a game that's open ends)."""
+    """The Home key, from anywhere: the box's home screen in front (a game that's open ends; asleep, it wakes)."""
+    if box_wake():
+        return True
     if games.playing:
         games.stop("home")
     if browser and browser.connected():
@@ -3013,6 +3049,12 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(json.dumps(open_app(data.get("id"), data.get("url"), data.get("hash"))))
         if path == "/box/api/home":
             return self.send(json.dumps({"ok": True, "home": go_home()}))
+        if path == "/box/api/sleep":                       # (Settings, or the screensaver itself waking)
+            if data.get("wake"):
+                asleep["on"] = False
+            else:
+                box_sleep()
+            return self.send(json.dumps({"ok": True, "asleep": asleep["on"]}))
         if path == "/box/api/front":                       # Home's "Open now": that very tab back in front
             if browser and browser.connected() and str(data.get("target") or "") in browser.tabs:
                 browser.activate(str(data["target"]))
@@ -3233,9 +3275,18 @@ class RemoteHandler(BaseHTTPRequestHandler):
                 return self.send(json.dumps({"paired": True, "name": settings().get("boot_text") or "Sofa Box",
                                              "playing": {k: p.get(k) for k in ("title", "sub", "t", "d", "paused")} if p else None,
                                              "front": browser.front_app() if browser and browser.connected() else None,
-                                             "hotspot": bool(network.hotspot), "joining": network.joining, "welcomed": settings()["welcomed"]}))
+                                             "hotspot": bool(network.hotspot), "joining": network.joining, "welcomed": settings()["welcomed"],
+                                             "asleep": asleep["on"]}))
             if path == "/api/key":
-                phone.key(str(data.get("k") or ""))
+                if not box_wake():                         # asleep: a key wakes the box (and does nothing else)
+                    phone.key(str(data.get("k") or ""))
+            elif path == "/api/power":                      # the phone's power button: the box rests, or wakes
+                a = data.get("action") or "toggle"
+                if a == "sleep" or (a == "toggle" and not asleep["on"]):
+                    box_sleep()
+                else:
+                    box_wake()
+                return self.send(json.dumps({"ok": True, "asleep": asleep["on"]}))
             elif path == "/api/hello":                      # the phone's time zone, for a box that doesn't know its own
                 set_timezone(str(data.get("tz") or ""), only_if_unset=True)
             elif path == "/api/text":

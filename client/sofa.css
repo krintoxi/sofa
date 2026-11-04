@@ -1406,3 +1406,39 @@ html.standalone .player .p-bottom { padding-bottom: max(16px, env(safe-area-inse
 .server-row small { opacity: .65; }
 .server-ic { width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; font-weight: 800; font-size: 20px;
   background: linear-gradient(135deg, var(--amber), rgba(var(--paper-rgb), .2)); color: var(--amber-ink); }
+
+/* ---------- On a Sofa Box: a TV app, not a web page ----------
+   The menu is a rail down the left edge, icons only, opening into their names when the remote goes into it
+   (Left from the page); Search at the top of it, who's watching at the bottom. No scroll bars; the row in focus
+   glides into view. (The Fire TV app and TV browsers keep the bar on top.) */
+html.box { scrollbar-width: none; }
+html.box::-webkit-scrollbar, html.box body::-webkit-scrollbar { display: none; }
+.box .bar { position: fixed; top: 0; left: 0; bottom: 0; width: 96px; z-index: 40; flex-direction: column; align-items: stretch;
+  gap: 8px; padding: 30px 14px 26px; overflow: hidden; transition: width .22s ease, background .22s ease;
+  background: linear-gradient(90deg, rgba(var(--ink-rgb), .97) 62%, rgba(var(--ink-rgb), 0)); box-shadow: none; }
+.box .bar.scrolled { -webkit-backdrop-filter: none; backdrop-filter: none; box-shadow: none;
+  background: linear-gradient(90deg, rgba(var(--ink-rgb), .97) 62%, rgba(var(--ink-rgb), 0)); }
+.box .bar:focus-within { width: 310px; background: linear-gradient(90deg, rgba(var(--ink-rgb), .99) 78%, rgba(var(--ink-rgb), 0)); }
+.box .brand { justify-content: center; margin: 0 0 16px; font-size: 30px; }
+.box .brand svg { width: 38px; height: 28px; }
+.box .bar:focus-within .brand { justify-content: flex-start; padding-left: 18px; }
+.box .bar:focus-within #brandName { display: inline; }
+.box .search-btn:not([hidden]) { display: flex; order: 0; width: auto; height: auto; margin: 0; padding: 13px 20px; gap: 18px;
+  border-radius: 16px; justify-content: flex-start; }
+.box .search-btn svg { width: 28px; height: 28px; flex: none; }
+.box .search-btn::after { content: "Search"; font-size: 19px; font-weight: 600; opacity: 0; white-space: nowrap; transition: opacity .15s; }
+.box .bar:focus-within .search-btn::after { opacity: 1; }
+.box .nav { order: 1; flex-direction: column; flex-wrap: nowrap; gap: 4px; align-items: stretch; overflow: visible; }
+.box .nav a { display: flex; align-items: center; gap: 18px; padding: 13px 20px; border-radius: 16px; font-size: 19px;
+  font-weight: 600; white-space: nowrap; color: var(--mist); }
+.box .nav a svg { display: block; width: 28px; height: 28px; flex: none; }
+.box .nav a span { opacity: 0; transition: opacity .15s; }
+.box .bar:focus-within .nav a span { opacity: 1; }
+.box .nav .nav-extra:not([hidden]) { display: flex; }
+.box .nav .nav-more { display: none; }
+.box .nav a[aria-current="page"] { color: var(--paper); background: transparent; box-shadow: inset 4px 0 0 var(--amber); }
+.box .nav a:focus, .box .search-btn:focus { background: #fff; color: #000; outline: none; box-shadow: none; }
+.box .who { order: 2; margin: auto 0 0; padding-left: 12px; }
+.box .cast-btn { display: none; }
+.box #view, .box #foot { margin-left: 96px; }
+.box .hero { margin-top: 0; }

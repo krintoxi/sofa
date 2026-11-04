@@ -6,6 +6,13 @@ has its own numbers and list: [deploy/sofa-box/CHANGES.md](deploy/sofa-box/CHANG
 A change to Sofa's code (`sofa/`, `client/`, `sofa.py`) gets a new version: raise `__version__`, add a section
 here, then `python3 tools/sofa-version.py` (a test checks it was done).
 
+## 1.2.1 (2026-11-04)
+
+- **On a Sofa Box, Sofa looks like a TV app.** The menu is a rail down the left edge: icons, opening into their
+  names when the remote goes into it (Left), with Search at the top and who's watching at the bottom; every
+  section is there (Music, Live TV, Server too). No scroll bars, and the row in focus glides to the middle of
+  the screen.
+
 ## 1.2.0 (2026-11-03)
 
 Everything since 1.1.0 (2026-10-30); the version number hadn't moved with it.

@@ -26,6 +26,17 @@
   header b { font-size: 19px; letter-spacing: -.01em; }
   header .dot { margin-left: auto; display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--mist); }
   header .dot i { width: 8px; height: 8px; border-radius: 50%; background: #3ddc84; box-shadow: 0 0 8px #3ddc84; }
+  /* the power button: the box rests (its screensaver), and a touch anywhere wakes it */
+  .power { margin-left: 6px; width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; background: var(--bg2);
+    box-shadow: inset 0 0 0 1px var(--line); color: var(--fg); }
+  .power svg { width: 19px; height: 19px; }
+  .power.asleep { color: var(--a); }
+  .wake { position: fixed; inset: 0; z-index: 30; display: grid; place-items: center; text-align: center; padding: 24px;
+    background: rgba(8, 8, 12, .94); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
+  .wake[hidden] { display: none; }
+  .wake svg { width: 64px; height: 64px; color: var(--a); }
+  .wake h2 { margin: 14px 0 6px; font-size: 24px; }
+  .wake p { margin: 0; color: var(--mist); }
   header .dot.off i { background: #ff5a5f; box-shadow: none; }
   .now { margin: 6px 0 0; padding: 10px 14px; border-radius: 14px; background: var(--bg2); font-size: 14px; color: var(--mist); display: none; }
   .now.on { display: block; }
@@ -104,10 +115,14 @@
   <symbol id="mute" viewBox="0 0 24 24"><path fill="currentColor" d="M4 9h4l5-4v14l-5-4H4z"/><path d="M16 9.5l5 5M21 9.5l-5 5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></symbol>
   <symbol id="remote" viewBox="0 0 24 24"><rect x="7" y="2.5" width="10" height="19" rx="4" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="8.5" r="2.2" fill="currentColor"/></symbol>
   <symbol id="kbd" viewBox="0 0 24 24"><rect x="2.5" y="6" width="19" height="12" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M6 10h.01M9 10h.01M12 10h.01M15 10h.01M18 10h.01M7 14h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="i-power" viewBox="0 0 24 24"><path d="M12 3v8.5M6.6 6.4a8 8 0 1 0 10.8 0" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4 8.5 8.5 0 1 0 20 14.5z" fill="currentColor"/></symbol>
   <symbol id="i-touchpad" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M3 15h18M12 15v5" stroke="currentColor" stroke-width="1.8"/></symbol>
   <symbol id="wifi" viewBox="0 0 24 24"><path d="M2.5 9a14 14 0 0 1 19 0M5.5 12.5a9.5 9.5 0 0 1 13 0M8.5 16a5 5 0 0 1 7 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="19" r="1.4" fill="currentColor"/></symbol>
 </svg>
-<header><svg><use href="#skull"/></svg><b id="name">Sofa Box</b><span class="dot" id="dot"><i></i><span id="dotText">Connected</span></span></header>
+<header><svg><use href="#skull"/></svg><b id="name">Sofa Box</b><span class="dot" id="dot"><i></i><span id="dotText">Connected</span></span>
+  <button class="power" id="power" aria-label="Put the box to sleep" title="Sleep"><svg><use href="#i-power"/></svg></button></header>
+<div class="wake" id="wake" hidden><div><svg><use href="#i-moon"/></svg><h2>The box is asleep</h2><p>Touch anywhere to wake it.</p></div></div>
 <div class="now" id="now"></div>
 <div class="now" id="moved"></div>
 
@@ -221,12 +236,27 @@
       if (!ready) { ready = true; $("pairing").hidden = true; show(s.hotspot ? "wifi" : tab); }
       $("tabs").hidden = !!s.hotspot;        // on the box's own Wi-Fi, this page is only for giving the box your Wi-Fi
       if (!sentTz) { sentTz = true; try { post("api/hello", { tz: Intl.DateTimeFormat().resolvedOptions().timeZone }); } catch (e) {} }
+      $("wake").hidden = !s.asleep;
+      $("power").classList.toggle("asleep", !!s.asleep);
+      $("power").setAttribute("aria-label", s.asleep ? "Wake the box" : "Put the box to sleep");
       const p = s.playing;
       $("now").classList.toggle("on", !!(p && p.title));
       if (p && p.title) $("now").innerHTML = (p.paused ? "Paused: " : "Playing: ") + "<b></b>";
       if (p && p.title) $("now").querySelector("b").textContent = p.title + (p.sub ? " · " + p.sub : "");
     } catch (e) { offline(true); }
   }
+
+  // the power button: the box rests or wakes; asleep, a touch anywhere wakes it
+  $("power").addEventListener("click", async () => {
+    buzz();
+    try { const r = await (await post("api/power", { action: "toggle" })).json(); $("wake").hidden = !r.asleep; } catch (e) {}
+    state();
+  });
+  for (const ev of ["click", "touchstart"]) $("wake").addEventListener(ev, async e => {
+    e.preventDefault(); $("wake").hidden = true; buzz();
+    try { await post("api/power", { action: "wake" }); } catch (err) {}
+    state();
+  }, { passive: false });
 
   // pairing
   $("pairBtn").addEventListener("click", async () => {

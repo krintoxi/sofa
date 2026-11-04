@@ -502,6 +502,30 @@ html.setup #view { padding-bottom: 0; }
 .setup-nav { display: flex; justify-content: space-between; align-items: center; padding: 1.2rem 0 1.6rem; position: sticky; bottom: 0; z-index: 3;
   background: linear-gradient(to top, var(--bg) 62%, transparent); }               /* always on the TV, never below its edge */
 .auto-next { margin-top: 1rem; animation: rise .3s ease both; }
+/* asleep: the screensaver */
+html.asleep .top, html.asleep .hint, html.asleep .tabs { display: none !important; }
+html.asleep, html.asleep * { cursor: none !important; }
+.sleep { position: fixed; inset: 0; z-index: 50; background: radial-gradient(120% 90% at 20% 100%, color-mix(in srgb, var(--a) 18%, #000), #000 60%); overflow: hidden; }
+.sleep-art { position: absolute; inset: -4%; width: 108%; height: 108%; object-fit: cover; opacity: 0; transition: opacity 3s ease;
+  filter: brightness(.42) saturate(1.1); }
+.sleep-art.on { opacity: 1; animation: sleepDrift 60s ease-in-out infinite alternate; }
+html.lite .sleep-art.on { animation: none; }                          /* (a Pi 3: still pictures) */
+@keyframes sleepDrift { from { transform: scale(1) translate(0, 0); } to { transform: scale(1.08) translate(-2%, -1.5%); } }
+.sleep-card { position: absolute; left: 6vw; bottom: 10vh; color: #fff; text-shadow: 0 2px 18px rgba(0,0,0,.6);
+  transition: left 3s ease, bottom 3s ease; }
+.sleep-clock { font: 800 5.6rem/1 var(--display); letter-spacing: -.03em; }
+.sleep-clock small { font-size: .32em; margin-left: .35rem; letter-spacing: 0; }
+.sleep-date { font-size: 1.3rem; opacity: .85; margin-top: .35rem; }
+.sleep-wx { display: flex; align-items: center; gap: .55rem; margin-top: .9rem; font-size: 1.15rem; }
+.sleep-wx .wxi { width: 2.5rem; height: 2.5rem; }
+.sleep-wx span { opacity: .7; }
+.sleep-mark { display: flex; align-items: center; gap: .4rem; margin-top: 1.5rem; opacity: .75; font: 800 1rem var(--display);
+  text-transform: var(--word-transform); }
+.sleep-mark svg { width: 1.4rem; height: 1.3rem; color: var(--a); }
+.sleep-mark span { color: var(--a); }
+.sleep-hint { position: absolute; bottom: 3.5vh; left: 0; right: 0; text-align: center; color: rgba(255,255,255,.4); font-size: .8rem;
+  animation: sleepHint 1s ease 8s forwards; }
+@keyframes sleepHint { to { opacity: 0; } }
 .hello-head p { color: var(--mist); font-size: 1.05rem; margin: .1rem 0 .7rem; }
 /* Hello fits the TV with its codes whole: nothing under the bar at the bottom, nothing past a TV's trimmed edges */
 .setup-body.hello { padding-top: .6rem; }

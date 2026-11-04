@@ -7,6 +7,15 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.20
+
+- **A power button on the phone remote.** It puts the box to rest: what plays stops (its place kept), a game
+  ends, and the TV shows the box's screensaver, the time, the weather and the art of what you've been
+  watching, crossfading, the clock drifting to a new spot every minute so nothing burns into the TV (still
+  pictures on a Pi 3). A touch anywhere on the phone wakes it, and so does any key on a remote or controller.
+- **Sofa looks like a TV app on the box** (Sofa 1.2.1): its menu is a rail down the left edge, opening into
+  names when the remote goes into it, with no scroll bars and the row in focus gliding to the middle.
+
 ## 1.1.19
 
 - **Xbox controllers pair.** An Xbox Series controller (and others) asks the box to say yes to the pairing;
