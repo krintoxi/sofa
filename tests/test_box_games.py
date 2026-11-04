@@ -41,6 +41,8 @@ class TheList(unittest.TestCase):
             for k in ("id", "name", "about", "packages", "run", "controls", "mb", "pi"):
                 self.assertIn(k, g, g["id"])
             self.assertTrue(g["controls"] == "pad" or g["controls"] in CONTROLS, g["id"])
+            if g.get("icon"):
+                self.assertTrue(os.path.isfile(os.path.join(BOX, "games", g["icon"])), g["icon"])
         for name, c in CONTROLS.items():
             for action in c["buttons"].values():                      # every key a real one
                 for part in action.split("+"):

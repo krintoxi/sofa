@@ -7,6 +7,17 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.18
+
+- **The setup is shorter and goes on by itself.** Once your phone is the remote on your Wi-Fi (the four
+  codes on Hello), the TV moves on to **Your box** by itself, and joining Wi-Fi at the Internet step
+  does the same. No asking for the Wi-Fi again, and no Bluetooth step: speakers, headphones and more
+  controllers wait for **Settings → Remotes and Bluetooth** or **Games**, and the end of the setup says
+  so. **Start**, **Next** and **Back** stay at the bottom of the screen, never below its edge.
+- **Sofa Craft is on every box.** An endless world of blocks to explore, mine, build and craft in,
+  first in Games, with its own picture, straight into your world with the controller. It's Luanti, the
+  open-source block game, on the card from the start (a box that updates gets it too).
+
 ## 1.1.17
 
 - **Gloamwell, the box's own game** (Games → On the box): an action-RPG dungeon crawler, made for the TV and

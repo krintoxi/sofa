@@ -252,7 +252,7 @@
             <b>${esc(r.title || a.name)}</b><small>${esc(a.name || "")}</small><span class="x" data-close="${esc(r.target)}" title="Close">${icon("#i-close")}</span></button>`; }).join("")}</div>` : ""}
       <h2 class="row-title">Your apps <small>${rest.length}</small></h2><div class="rail">${rest.map(a => appTile(a)).join("")}
         <button class="tile app" data-go="#/store"><span class="ic plus">${icon("#i-plus")}</span><b>Get more</b></button></div>
-      ${games && games.games.length ? `<h2 class="row-title">Games</h2><div class="rail">${(games.native || []).filter(g => g.installed).map(g => `<button class="tile app" style="--c:${esc(g.color)}" data-play="${esc(g.id)}"><span class="ic emoji">${esc(g.emoji || g.name[0])}</span><b>${esc(g.name)}</b></button>`).join("")}${games.games.map(g => `<button class="tile app" style="--c:${esc(g.color)}" data-game="${esc(g.id)}"><span class="ic emoji">${esc(g.emoji || g.name[0])}</span><b>${esc(g.name)}</b></button>`).join("")}
+      ${games && games.games.length ? `<h2 class="row-title">Games</h2><div class="rail">${(games.native || []).filter(g => g.installed).map(g => `<button class="tile app" style="--c:${esc(g.color)}" data-play="${esc(g.id)}"><span class="ic emoji">${gameIc(g)}</span><b>${esc(g.name)}</b></button>`).join("")}${games.games.map(g => `<button class="tile app" style="--c:${esc(g.color)}" data-game="${esc(g.id)}"><span class="ic emoji">${esc(g.emoji || g.name[0])}</span><b>${esc(g.name)}</b></button>`).join("")}
         <button class="tile app" data-go="#/games"><span class="ic plus">${icon("#i-plus")}</span><b>More games</b></button></div>` : ""}
     </div>`;
   }
@@ -351,8 +351,10 @@
     return `<button class="tile game" style="--c:${esc(g.color)}" data-game="${esc(g.id)}"><span class="ic">${esc(g.emoji || g.name[0])}</span>
       <b>${esc(g.name)}</b><small>${esc(g.about)}</small></button>`;
   }
+  // a game's own picture (games/icons/), or its emoji
+  function gameIc(g) { return g.icon ? `<img class="game-ic" src="/box/games/${esc(g.icon)}" alt="">` : esc(g.emoji || g.name[0]); }
   function nativeTile(g) {
-    return `<button class="tile game" style="--c:${esc(g.color)}" data-play="${esc(g.id)}"><span class="ic">${esc(g.emoji || g.name[0])}</span>
+    return `<button class="tile game" style="--c:${esc(g.color)}" data-play="${esc(g.id)}"><span class="ic">${gameIc(g)}</span>
       <b>${esc(g.name)}</b><small>${esc(g.about)}</small>${g.playing ? `<span class="meta">Playing now</span>` : ""}</button>`;
   }
   function getTile(g, job) {
@@ -360,7 +362,7 @@
     const meta = busy ? `<i class="spin"></i>${job.action === "install" ? "Getting it: a few minutes" : "Removing it…"}`
       : !g.fits ? `Needs a Raspberry Pi ${g.pi} or 5` : `Free · about ${g.mb >= 1000 ? (g.mb / 1000).toFixed(1) + " GB" : g.mb + " MB"}${g.mouse ? " · the stick is its mouse" : ""}`;
     return `<button class="tile game get${g.fits ? "" : " off"}" style="--c:${esc(g.color)}" data-game-get="${esc(g.id)}"${g.fits ? "" : " disabled"}>
-      <span class="ic">${esc(g.emoji || g.name[0])}</span><b>${esc(g.name)}</b><small>${esc(g.about)}</small>
+      <span class="ic">${gameIc(g)}</span><b>${esc(g.name)}</b><small>${esc(g.about)}</small>
       ${g.note ? `<small class="note">${esc(g.note)}</small>` : ""}<span class="meta">${meta}</span></button>`;
   }
   function padsCard() {
@@ -579,7 +581,7 @@
   // A new box may have nothing to press with: the phone remote (a QR code), a Bluetooth remote held in
   // pairing mode (it pairs by itself) or a keyboard's dongle all work from the first screen.
   let step = 0, picks = null, setup = null, setupTimer = 0, wifiPick = null;
-  const STEPS = ["Hello", "Internet", "Bluetooth", "Your box", "Apps"];
+  const STEPS = ["Hello", "Internet", "Your box", "Apps"];       // (more Bluetooth devices: Settings, or Games, later)
   // The setup's apps: the few most people use, all on one screen (the App Store has the rest)
   const POPULAR = ["netflix", "youtube-tv", "prime-video", "disney-plus", "max", "hulu", "apple-tv", "spotify"];
   const ZONES = ["America/New_York", "America/Chicago", "America/Denver", "America/Phoenix", "America/Los_Angeles", "America/Anchorage",
@@ -602,7 +604,8 @@
     clearTimeout(setupTimer);
     if (!location.hash.startsWith("#/welcome") && !location.hash.startsWith("#/settings") && location.hash !== "#/games") return;
     setupTimer = setTimeout(async () => {
-      await loadSetup(location.hash.startsWith("#/welcome") && (step === 0 || step === 2) || btLooking > Date.now());
+      await loadSetup(location.hash.startsWith("#/welcome") && step === 0 || btLooking > Date.now());
+      autoStep();
       for (const [id, html] of [["phoneBox", phoneBox()], ["btList", btList()], ["netState", netState()]]) {
         const el = $("#" + id); if (!el || el.dataset.html === html) continue;
         const had = cur && el.contains(cur) ? keyOf(cur) : null;
@@ -707,6 +710,22 @@
     return failed + (n.wired ? `<p class="okay big">✓ Connected with a cable</p>` : n.wifi ? `<p class="okay big">✓ Connected to ${esc(n.wifi)}</p>${rescan}`
       : n.hotspot ? `<p class="small">On its own Wi-Fi for now (${esc(n.hotspot.ssid)}). Pick your home Wi-Fi below, or on your phone (Wi-Fi tab).</p>` : `<p class="small">Not connected yet.</p>`);
   }
+  // The setup goes on by itself once a step is done: the phone has the remote on your Wi-Fi (Hello's four codes), or
+  // the box got online at the Internet step. Only when it happens there (not on coming back to a step done already).
+  const notYet = {};
+  function autoStep() {
+    if (!location.hash.startsWith("#/welcome") || data.welcomed !== false || $(".sheet-back") || $(".auto-next")) return;
+    const n = (setup || {}).network || {}, r = (setup || {}).remote || {}, now = Date.now() / 1000;
+    const online = !!(n.wired || n.wifi);
+    // (a phone with the remote on the home network: the box is on it too)
+    const done = step === 0 ? !r.hotspot && !!r.home_at && now - r.home_at < 15 : step === 1 ? online : false;
+    if (!done) { if (step <= 1) notYet[step] = true; return; }
+    if (!notYet[step]) return;
+    notYet[step] = false;
+    const from = step, body = $(".setup-body");
+    if (body) body.insertAdjacentHTML("beforeend", `<p class="okay big auto-next">✓ ${from === 0 ? "Your phone is the remote, and the box is online." : "Online."} Next: your box…</p>`);
+    setTimeout(() => { if (location.hash.startsWith("#/welcome") && step === from) { step = 2; render(); } }, 1800);   // (focus: Next)
+  }
   function viewWelcome() {
     document.documentElement.classList.add("setup");
     if (!setup) { loadSetup(true).then(() => render(true)); }
@@ -714,7 +733,7 @@
     const steps = `<div class="setup-steps">${STEPS.map((n, i) => `<i class="${i < step ? "done" : i === step ? "on" : ""}"><em>${i < step ? "✓" : i + 1}</em><b>${n}</b></i>`).join("")}</div>`;
     const top = `<div class="setup-top"><span class="setup-brand">${icon("#mark")}<b>Sofa</b><span>Box</span></span>${steps}</div>`;
     const online = !!(setup && setup.network && (setup.network.wired || setup.network.wifi));   // Start skips Internet then
-    const nav = (back, next, label) => `<div class="setup-nav">${back ? `<button class="btn" data-step="${step - 1}">Back</button>` : "<span></span>"}
+    const nav = (back, next, label) => `<div class="setup-nav">${back ? `<button class="btn" data-step="${step === 2 && online ? 0 : step - 1}">Back</button>` : "<span></span>"}
       <button class="btn primary big" ${next}>${label}</button></div>`;
     if (step === 0) return `<div class="setup view-in">${top}<div class="setup-body hello">
         <div class="hello-head"><h1>Hello. Let's set up your Sofa Box.</h1><p>It takes two minutes. Use whatever's in your hand:</p></div>
@@ -739,10 +758,7 @@
           <p class="small">Typing a password with a remote? Use your phone: the <b>Keyboard</b> tab types into the box. <button class="mini" data-wifi-rescan="1">Look again</button></p>`}
         </div>${nav(true, `data-step="2"`, n.wired || n.wifi ? "Next" : "Skip for now")}</div>`;
     }
-    if (step === 2) return `<div class="setup view-in">${top}<div class="setup-body"><h1>Bluetooth</h1>
-        <p class="lede">Remotes, game controllers, speakers and headphones. Put one in pairing mode: it shows here, and OK pairs it (remotes and controllers pair by themselves).</p>
-        <div id="btList" class="bt-list">${btList()}</div></div>${nav(true, `data-step="3"`, "Next")}</div>`;
-    if (step === 3) {
+    if (step === 2) {
       const sz = (setup || {}).timezone || "UTC";
       return `<div class="setup view-in">${top}<div class="setup-body"><h1>Your box</h1>
         <div class="box-grid"><section><h3>Its name</h3><p class="small">On the boot screen, and to phones looking for it.</p>
@@ -750,7 +766,7 @@
           <h3>Time zone</h3><p class="small">${(setup || {}).tz_set ? "Set" + (sz ? ": <b>" + esc(sz.replace(/_/g, " ")) + "</b>" : "") + ". " : ""}${(setup || {}).tz_set ? "" : "Your phone sets it when it connects. Or pick:"}</p>
             <div class="choices zones">${ZONES.map(z => `<button class="choice" data-tz="${z}" aria-pressed="${z === sz}">${esc(z.split("/").pop().replace(/_/g, " "))}</button>`).join("")}</div></section>
           <section><h3>Its look</h3><div class="themes two">${THEMES.map(t => `<button class="theme" data-theme-pick="${t[0]}" aria-pressed="${data.theme === t[0]}" style="--sw-bg:${t[2]};--sw-a:${t[3]};--sw-a2:${t[4]}"><i></i><b>${t[1]}</b></button>`).join("")}</div></section></div>
-        </div>${nav(true, `data-step="4"`, "Next")}</div>`;
+        </div>${nav(true, `data-step="3"`, "Next")}</div>`;
     }
     if (!storeData) { api("/box/api/store").then(st => { storeData = st; render(true); }).catch(() => {}); return `<div class="setup view-in">${top}<div class="setup-body"><h1>Your apps</h1><p class="lede">Loading…</p></div></div>`; }
     const all = storeData.sections.flatMap(x => x.apps), have = new Set(data.apps.map(a => a.id));
@@ -1012,7 +1028,8 @@
         for (const id of add) await api("/box/api/apps/install", { store_id: id }).catch(() => {});
         await api("/box/api/settings", { welcomed: true }); data.welcomed = true; storeData = null; await loadApps();
         document.documentElement.classList.remove("setup"); location.hash = "#/";
-        if (add.length) toast(add.length === 1 ? "Your app is on Home." : add.length + " apps are on Home.");
+        toast((add.length ? (add.length === 1 ? "Your app is on Home. " : add.length + " apps are on Home. ") : "All set. ")
+          + "Speakers, headphones or more controllers: Settings → Remotes and Bluetooth, or Games.");
       }
       else if (d.server) {
         if (location.hash.startsWith("#/sofa")) await pickServer(d.server); else await openSofa({ id: d.server });
