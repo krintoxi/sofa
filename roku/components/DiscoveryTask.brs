@@ -36,12 +36,20 @@ sub go()
     m.top.servers = found
 end sub
 
+' Sofa's /api/info at `base`, or invalid. Three seconds at most: an address that doesn't answer doesn't hold up the rest.
 function sofaInfo(base as string) as object
     t = CreateObject("roUrlTransfer")
+    port = CreateObject("roMessagePort")
+    t.SetMessagePort(port)
     t.SetUrl(base + "/api/info")
-    text = t.GetToString()
-    if text = "" then return invalid
-    j = ParseJson(text)
+    if not t.AsyncGetToString() then return invalid
+    msg = wait(3000, port)
+    if type(msg) <> "roUrlEvent" then
+        t.AsyncCancel()
+        return invalid
+    end if
+    if msg.GetResponseCode() <> 200 then return invalid
+    j = ParseJson(msg.GetString())
     if j <> invalid and j.sofa = true then return j
     return invalid
 end function

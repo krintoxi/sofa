@@ -46,8 +46,16 @@ class MainActivity : Activity() {
         web.webChromeClient = WebChromeClient()
         web.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
-                val scheme = request.url.scheme ?: ""
-                return scheme != "http" && scheme != "https" && scheme != "file"     // stay inside Sofa
+                if (!request.isForMainFrame) return !isWeb(request.url)
+                return leaving(view, request.url, Build.VERSION.SDK_INT >= 24 && request.isRedirect)
+            }
+
+            @Deprecated("Fire OS 5 (Android 5.1) asks this one instead")
+            override fun shouldOverrideUrlLoading(view: WebView, url: String): Boolean =
+                leaving(view, Uri.parse(url), opening)
+
+            override fun onPageFinished(view: WebView, url: String) {
+                opening = false
             }
 
             override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
@@ -65,10 +73,51 @@ class MainActivity : Activity() {
 
     private fun server(): String? = prefs.getString("server", null)
 
+    /** A page the app itself asked for is loading (its redirects, Sofa sending a visitor on to HTTPS, are followed). */
+    private var opening = false
+
     private fun open(base: String) {
         discovery.stop()
+        opening = true
         web.loadUrl(base.trimEnd('/') + "/?tv=1")
         web.requestFocus()
+    }
+
+    private fun isWeb(url: Uri): Boolean = url.scheme == "http" || url.scheme == "https"
+
+    private fun portOf(url: Uri): Int = if (url.port != -1) url.port else if (url.scheme == "https") 443 else 80
+
+    private fun sameSite(url: Uri, other: String?): Boolean {
+        if (other.isNullOrEmpty()) return false
+        val o = Uri.parse(other)
+        return url.scheme == o.scheme && url.host.equals(o.host, ignoreCase = true) && portOf(url) == portOf(o)
+    }
+
+    /**
+     * True when the web view mustn't go to `url` itself. Sofa's own pages: it goes. Another Sofa (picked in Servers):
+     * it goes, and that Sofa becomes the app's. Any other site (a link, or a page sending itself elsewhere): it
+     * doesn't, since the app has no browser to come back from. Sofa shows that address as a QR code to open on a
+     * phone instead (window.sofaExternal). A link that isn't to the web (intent:, market:) goes nowhere.
+     */
+    private fun leaving(view: WebView, url: Uri, redirect: Boolean): Boolean {
+        if (url.scheme == "file") return !(view.url ?: "").startsWith("file:")
+        if (!isWeb(url)) return true
+        if (redirect || sameSite(url, view.url) || sameSite(url, server())) return false
+        val target = url.toString()
+        val origin = url.scheme + "://" + (url.encodedAuthority ?: "").substringAfterLast('@')
+        thread {
+            val sofa = Api.info(origin) != null
+            runOnUiThread {
+                if (sofa) {
+                    prefs.edit().putString("server", origin).apply()
+                    opening = true
+                    web.loadUrl(target)
+                } else {
+                    web.evaluateJavascript("window.sofaExternal && window.sofaExternal(${JSONObject.quote(target)})", null)
+                }
+            }
+        }
+        return true
     }
 
     private fun showStart(problem: String?) {

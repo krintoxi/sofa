@@ -94,9 +94,7 @@ end sub
 
 sub failed(r as object)
     if r.code = 401 then
-        m.token = ""
-        m.reg.Delete("token")
-        m.reg.Flush()
+        forgetSignIn()
         showPair()
     else if r.code = 0 then
         showFind("Sofa didn't answer at " + m.base + ". Is the Sofa computer on?")
@@ -196,10 +194,7 @@ end sub
 sub onServerChosen()
     i = m.serverList.itemSelected
     if i < m.found.Count() then
-        m.base = m.found[i].url
-        m.reg.Write("server", m.base)
-        m.reg.Flush()
-        showPair()
+        useServer(m.found[i].url)
     else if i = m.found.Count() then
         showFind("")
     else
@@ -238,12 +233,26 @@ end sub
 
 sub onInfo(r as object)
     if r.json <> invalid and r.json.sofa = true then
-        m.reg.Write("server", m.base)
-        m.reg.Flush()
-        showPair()
+        useServer(m.base)
     else
         tryNext()
     end if
+end sub
+
+' This Sofa from now on. The one it's signed in to already: back in without a new code. Another: a code to approve.
+sub useServer(url as string)
+    m.base = url
+    if url = m.reg.Read("server") and m.token <> "" then
+        showOnly("")
+        m.top.setFocus(true)
+        say("Connecting to Sofa…")
+        api("GET", "/api/session", invalid, "session")
+        return
+    end if
+    m.reg.Write("server", url)
+    m.reg.Flush()
+    forgetSignIn()                                  ' (a sign-in belongs to the Sofa that gave it)
+    showPair()
 end sub
 
 ' ---------------------------------------------------------------- signing in with a phone
@@ -263,7 +272,9 @@ sub onPairStart(r as object)
         if r.code = 0 then
             showFind("Sofa didn't answer at " + m.base + ". Is the Sofa computer on?")
         else if r.json <> invalid and r.json.error <> invalid then
-            m.pairHint.text = r.json.error
+            m.pairHint.text = r.json.error + " Press * to use a different Sofa."
+        else
+            m.pairHint.text = "Sofa didn't give a code (" + r.code.ToStr() + "). Press * to use a different Sofa."
         end if
         return
     end if
@@ -296,9 +307,18 @@ end sub
 sub onSession(r as object)
     if r.json <> invalid and r.json.user <> invalid then
         loadHome()
+    else if r.code = 200 or r.code = 401 then       ' Sofa answered, but this TV's sign-in is gone (signed out, or it ran out)
+        forgetSignIn()
+        showPair()
     else
         failed(r)
     end if
+end sub
+
+sub forgetSignIn()
+    m.token = ""
+    m.reg.Delete("token")
+    m.reg.Flush()
 end sub
 
 ' ---------------------------------------------------------------- Home
@@ -325,10 +345,30 @@ sub showHome()
     end for
 
     root = CreateObject("roSGNode", "ContentNode")
-    going = []
+    latest = {}
     for each id in m.progress
         p = m.progress[id]
-        if p.done <> true and p.t > 30 and m.byId.DoesExist(id) then going.Push({ id: id, at: p.at })
+        if m.byId.DoesExist(id) then
+            x = m.byId[id]
+            pick = invalid
+            if p.done <> true and p.t > 30 then
+                pick = x
+            else if p.done = true and x.kind = "episode" then
+                nxt = nextEpisode(x)                        ' finished: the next one is up
+                if nxt <> invalid and not m.progress.DoesExist(nxt.id) then pick = nxt
+            end if
+            if pick <> invalid then
+                at = p.at
+                if at = invalid then at = 0
+                key = pick.id
+                if pick.kind = "episode" then key = pick.showId
+                if not latest.DoesExist(key) or latest[key].at < at then latest[key] = { id: pick.id, at: at }
+            end if
+        end if
+    end for
+    going = []
+    for each key in latest
+        going.Push(latest[key])
     end for
     going.SortBy("at", "r")
     if going.Count() > 0 then
@@ -409,6 +449,8 @@ sub showShow(s as object)
     root = CreateObject("roSGNode", "ContentNode")
     focusRow = 0
     focusItem = 0
+    started = false
+    afterDone = false
     r = 0
     for each season in s.seasons
         row = root.CreateChild("ContentNode")
@@ -421,11 +463,18 @@ sub showShow(s as object)
             if e.title <> invalid and e.title <> "" then name = e.title
             it.title = "E" + e.e.ToStr() + " · " + name
             if e.thumb <> invalid then it.HDPosterUrl = artUrl(e.thumb, 400) else it.HDPosterUrl = artUrl(s.poster, 400)
-            it.ShortDescriptionLine2 = part(e.id)
             p = part(e.id)
-            if p <> "" and p <> "1" then
+            it.ShortDescriptionLine2 = p
+            if p <> "" and p <> "1" then                     ' started: this one
                 focusRow = r
                 focusItem = i
+                started = true
+            else if p = "1" then
+                afterDone = true
+            else if afterDone and not started then           ' the first not started after one that's finished
+                focusRow = r
+                focusItem = i
+                afterDone = false
             end if
             i = i + 1
         end for
@@ -461,6 +510,7 @@ end function
 
 sub play(x as object)
     m.item = x
+    m.converting = false
     say("Getting it ready…")
     api("GET", "/api/play/" + esc(x.id) + "?" + m.caps, invalid, "play")
 end sub
@@ -489,8 +539,22 @@ sub onPlan(r as object)
     end if
 end sub
 
+' Sofa thought this Roku plays the file as it is, and it doesn't (a sound or picture format it can't do after all):
+' Sofa converts it, from where it was.
+sub convertInstead()
+    m.converting = true
+    at = m.resume
+    if m.started then at = m.video.position
+    m.resume = at
+    m.plan.mode = "transcode"
+    m.video.control = "stop"
+    say("This Roku can't play this file as it is. Converting it…")
+    api("GET", "/api/hls/" + esc(m.item.id) + "?mode=transcode&t=" + Str(at).Trim() + "&" + m.caps, invalid, "hls")
+end sub
+
 sub onHls(r as object)
     if r.json = invalid or r.json.url = invalid then
+        if m.view = "video" then leaveVideo()             ' (converting instead didn't start: back, and say why)
         failed(r)
         return
     end if
@@ -498,9 +562,10 @@ sub onHls(r as object)
 end sub
 
 function formatOf(x as object) as string
-    name = ""
-    if x.file <> invalid then name = LCase(x.file)
-    if name.Right(4) = ".mkv" then return "mkv"
+    ext = ""
+    if x.ext <> invalid then ext = LCase(x.ext)
+    if ext = "" and x.file <> invalid then ext = LCase(x.file).Split(".").Peek()
+    if ext = "mkv" or ext = "mov" or ext = "m4v" then return ext
     return "mp4"
 end function
 
@@ -553,8 +618,11 @@ sub onVideoState()
             leaveVideo()
         end if
     else if state = "error" then
-        say("This video stopped: " + m.video.errorMsg)
-        leaveVideo()
+        if m.plan.mode = "direct" and not m.converting then
+            convertInstead()
+        else
+            leaveVideo("This video stopped: " + m.video.errorMsg)
+        end if
     end if
 end sub
 
@@ -576,14 +644,15 @@ sub save(done as boolean)
         done = true
         t = d
     end if
-    m.progress[m.item.id] = { t: t, d: d, done: done, at: CreateObject("roDateTime").AsSeconds() * 1000 }
+    m.progress[m.item.id] = { t: t, d: d, done: done, at: CreateObject("roDateTime").AsSeconds() * 1000& }
     api("POST", "/api/progress/" + esc(m.item.id), { t: t, d: d, done: done }, "saved")
 end sub
 
-sub leaveVideo()
+sub leaveVideo(message = "" as string)
     m.video.control = "stop"
     m.video.content = invalid
     if m.back = "show" then showShow(m.show) else showHome()
+    if message <> "" then say(message)               ' (after: going back clears the line)
 end sub
 
 ' ---------------------------------------------------------------- the remote

@@ -1,9 +1,10 @@
 # Sofa for Roku
 
-A Roku channel for Sofa: Continue watching, Shows and Movies, a show's episodes by season, and
-Roku's own player. Files the Roku plays itself (MKV and MP4 with H.264, HEVC on 4K Rokus, AAC and
-Dolby sound) play as they are; the rest is converted by Sofa as it plays. Watch progress is shared
-with Sofa everywhere else.
+A Roku channel for Sofa: Continue watching (with the next episode once you finish one), Shows and
+Movies, a show's episodes by season (it opens on the one to watch), and Roku's own player. Files the
+Roku plays itself (MKV and MP4 with H.264, HEVC on 4K Rokus, AAC and Dolby sound) play as they are;
+the rest is converted by Sofa as it plays, and so is a file the Roku turns out not to play after all.
+Watch progress is shared with Sofa everywhere else. Sofa at an `https://` address works too.
 
 ## Installing it on a Roku
 
@@ -23,7 +24,8 @@ isn't in the store, so:
    approve the code the TV shows on your phone (Sofa → your picture → Pair a TV).
 
 Updating: the same steps 2-3 with a newer zip. The sign-in is kept. A Roku keeps one sideloaded
-channel at a time.
+channel at a time. If the Roku's sign-in runs out, or someone signs it out on Sofa's Server page, it
+shows a new code to approve.
 
 ## On the remote
 

@@ -7,6 +7,11 @@ sub go()
     t = CreateObject("roUrlTransfer")
     t.SetUrl(req.url)
     t.EnableEncodings(true)
+    t.RetainBodyOnError(true)                       ' (Sofa says why in the body of a 403 or 503: "busy converting…")
+    if LCase(Left(req.url, 6)) = "https:" then      ' a Sofa reached over HTTPS: Roku's own list of certificate authorities
+        t.SetCertificatesFile("common:/certs/ca-bundle.crt")
+        t.InitClientCertificates()
+    end if
     t.AddHeader("X-Sofa", "1")
     if req.token <> invalid and req.token <> "" then t.AddHeader("Authorization", "Bearer " + req.token)
     port = CreateObject("roMessagePort")

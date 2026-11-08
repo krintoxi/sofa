@@ -7,6 +7,12 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.35
+
+- **Sofa 1.4.3.** On the TV, a link to another site (the EdgeVenture.uk credit, GitHub) shows a QR code to open it
+  on your phone, instead of leaving Sofa for a page with no way back but Home. Live TV channels that ffmpeg plays
+  can't be steered into the home network.
+
 ## 1.1.34
 
 - **Gloamwell: gems, familiars, hidden vaults and omens.**

@@ -2802,8 +2802,9 @@ function srvActivity(d) {
   return report + `<div class="panel wide"><h2>Activity</h2><div class="chips">${kinds.map(k => `<button data-act-kind="${k}" aria-pressed="${k === activityKind}">${esc(names[k] || k)}</button>`).join("")}</div>
     <ul class="list">${list.map(actRow).join("") || `<li class="empty-row">Nothing yet.</li>`}</ul></div>`;
 }
-function drawGuestQr() {
-  const box = $("#guestQr");
+function drawGuestQr() { drawQr($("#guestQr")); }
+/* A QR code of box.dataset.url, drawn into box (the QR maker is fetched the first time). */
+function drawQr(box) {
   if (!box || !box.dataset.url) return;
   const draw = () => { const q = window.qrcode(0, "M"); q.addData(box.dataset.url); q.make(); box.innerHTML = q.createSvgTag({ cellSize: 6, margin: 2, scalable: true }); };
   if (window.qrcode) return draw();
@@ -3246,6 +3247,25 @@ function openDialog(html, wide) {
   return $(".dialog", d);
 }
 function closeDialog() { if (document.querySelector(".dialog-scrim")) history.back(); }
+/* Links out of Sofa, on a TV. A TV has no browser to come back from (the Fire TV app, a Sofa Box, a TV's own browser):
+   a link to another site (the EdgeVenture.uk credit, GitHub, where to get a key) shows its address and a QR code to
+   open it on a phone instead. The Fire TV app sends here any page that tries to leave Sofa by itself. */
+function outsideLink(url) {
+  const d = openDialog(`<h2>Open it on your phone</h2>
+    <p>Point your phone's camera at the code, or type the address.</p>
+    <div class="out-link"><div class="qr" data-url="${esc(url)}"></div><code>${esc(url.replace(/^https?:\/\//, "").replace(/\/$/, ""))}</code></div>
+    <div class="actions"><button class="btn primary" data-dismiss="1">OK</button></div>`);
+  drawQr($(".qr", d));
+}
+window.sofaExternal = url => { if (/^https?:\/\//i.test(url)) outsideLink(url); };
+document.addEventListener("click", e => {
+  if (!TV && !window.SofaBox) return;
+  const a = e.target.closest("a[href]"); if (!a) return;
+  let u; try { u = new URL(a.getAttribute("href"), location.href); } catch (err) { return; }
+  if (!/^https?:$/.test(u.protocol) || u.origin === location.origin) return;
+  e.preventDefault();
+  outsideLink(u.href);
+}, true);
 let toastTimer = 0;
 window.SofaToast = msg => toast(msg);           // for the Sofa box agent
 function toast(msg) {

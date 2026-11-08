@@ -20,6 +20,10 @@ highlight that follows the remote, and the player fills the screen. (Any other d
 switch TV mode on under **Theme**.) The whole menu fits on the TV's screen, with **Search** (🔍)
 and your profile at the end: Theme and Sign out are behind your profile picture.
 
+In TV mode, a link to another site (the EdgeVenture.uk credit, GitHub, where to get a key) doesn't
+leave Sofa: it shows the address and a QR code to open it on your phone. A TV has no browser to come
+back from, and the Sofa app and the Sofa Box have none at all.
+
 ### The remote
 
 | Button | On the library pages | While watching |

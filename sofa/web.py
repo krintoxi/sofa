@@ -531,8 +531,9 @@ class Handler(BaseHTTPRequestHandler):
             chan = live.channel(path[len("/dlna/live/"):])
             if not chan or chan.get("adult") or not media.tool("ffmpeg") or (not chan.get("home") and live.at_home(chan["url"])):
                 return self.send_body("Not found", status=404)
-            return self.stream({"id": "live:" + chan["id"], "path": chan["url"], "title": chan["name"]}, "remux", 0,
-                               "TV at " + self.client_ip(), dlna_headers=True)
+            return self.stream({"id": "live:" + chan["id"], "path": chan["url"], "title": chan["name"],
+                                "input_opts": live.ffmpeg_input(chan)}, "remux", 0, "TV at " + self.client_ip(),
+                               dlna_headers=True)
         if path.startswith("/dlna/media/"):
             item = LIBRARY.item(path[len("/dlna/media/"):])
             if not item or item.get("adult"):
@@ -573,8 +574,9 @@ class Handler(BaseHTTPRequestHandler):
                 if not media.tool("ffmpeg"):
                     return self.send_body("This channel needs ffmpeg on the server.", status=503)
                 try:
-                    sid = media.hls_start({"id": "live:" + chan["id"], "path": chan["url"], "title": chan["name"]},
-                                          "remux", 0, u["name"], owner=self.owner())
+                    sid = media.hls_start({"id": "live:" + chan["id"], "path": chan["url"], "title": chan["name"],
+                                           "input_opts": live.ffmpeg_input(chan)}, "remux", 0, u["name"],
+                                          owner=self.owner())
                 except (RuntimeError, OSError):
                     return self.send_body("The server is busy. Try again in a moment.", status=503)
                 self.send_response(302)

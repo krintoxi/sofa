@@ -20,7 +20,9 @@ import ipaddress
 import os
 import re
 import secrets
+import select
 import socket
+import socketserver
 import threading
 import time
 import urllib.parse
@@ -186,6 +188,119 @@ class _OutHTTPHandler(urllib.request.HTTPHandler):
 class _OutHTTPSHandler(urllib.request.HTTPSHandler):
     def https_open(self, req):
         return self.do_open(_OutHTTPS, req, context=self._context)
+
+
+_relay = {}
+_relay_lock = threading.Lock()
+FFMPEG_PROTOCOLS = "http,https,tcp,tls,httpproxy,crypto,data"     # what ffmpeg may open for a channel from the internet
+
+
+def relay():
+    """The address of Sofa's relay, which ffmpeg is told to use as its web proxy when it plays a channel from the
+    internet itself (a DLNA TV's live channel, a feed that isn't HLS). ffmpeg then connects to nothing directly: the
+    channel, every part its playlists name, every redirect and key each go through the relay, which connects to
+    internet addresses only (_connect_out). Started the first time it's needed, on this computer only."""
+    with _relay_lock:
+        if not _relay:
+            srv = _Relay(("127.0.0.1", 0), _RelayHandler)
+            threading.Thread(target=srv.serve_forever, name="live-relay", daemon=True).start()
+            _relay.update(server=srv, url="http://127.0.0.1:%d" % srv.server_address[1])
+        return _relay["url"]
+
+
+class _Relay(socketserver.ThreadingTCPServer):
+    daemon_threads = True
+    allow_reuse_address = True
+
+
+def _pipe(a, b, idle=60):
+    """Bytes both ways until either side closes, or nothing moves for `idle` seconds."""
+    socks = [a, b]
+    while True:
+        ready, _w, _x = select.select(socks, [], [], idle)
+        if not ready:
+            return
+        for s in ready:
+            try:
+                data = s.recv(65536)
+            except OSError:
+                return
+            if not data:
+                return
+            (b if s is a else a).sendall(data)
+
+
+class _RelayHandler(socketserver.BaseRequestHandler):
+    """One connection from ffmpeg: CONNECT host:port (https, the TLS inside untouched) or GET http://host/path (plain
+    http, sent on with Connection: close). Anything at home gets 403; anything else that isn't a proxy request, 400."""
+
+    def answer(self, code, why):
+        self.request.sendall(("HTTP/1.1 %d %s\r\nContent-Length: 0\r\nConnection: close\r\n\r\n" % (code, why)).encode())
+
+    def handle(self):
+        conn = self.request
+        conn.settimeout(30)
+        head = b""
+        try:
+            while b"\r\n\r\n" not in head:
+                chunk = conn.recv(65536)
+                if not chunk:
+                    return
+                head += chunk
+                if len(head) > 65536:
+                    return self.answer(431, "Too Large")
+        except OSError:
+            return
+        head, _, rest = head.partition(b"\r\n\r\n")
+        lines = head.decode("latin-1").split("\r\n")
+        try:
+            method, target, version = lines[0].split(" ")
+            if method == "CONNECT":
+                host, _, port = target.rpartition(":")
+                host, port, first = host.strip("[]"), int(port), b""
+            else:
+                u = urllib.parse.urlsplit(target)
+                if u.scheme != "http" or not u.hostname:
+                    raise ValueError(target)
+                host, port = u.hostname, u.port or 80
+                keep = [line for line in lines[1:] if line.split(":", 1)[0].strip().lower()
+                        not in ("connection", "proxy-connection", "proxy-authorization", "keep-alive")]
+                first = ("%s %s %s\r\n" % (method, (u.path or "/") + ("?" + u.query if u.query else ""), version) +
+                         "".join(line + "\r\n" for line in keep) + "Connection: close\r\n\r\n").encode("latin-1")
+            if not host or not 0 < port < 65536:
+                raise ValueError(target)
+        except ValueError:
+            return self.answer(400, "Bad Request")
+        try:
+            up = _connect_out((host, port), 20)
+        except PermissionError:
+            return self.answer(403, "Forbidden")
+        except OSError:
+            return self.answer(502, "Bad Gateway")
+        with up:
+            up.settimeout(60)
+            conn.settimeout(60)
+            try:
+                if method == "CONNECT":
+                    conn.sendall(b"HTTP/1.1 200 Connection established\r\n\r\n")
+                up.sendall(first + rest)
+                _pipe(conn, up)
+            except OSError:
+                pass
+
+
+def ffmpeg_input(chan):
+    """ffmpeg's options for reading a channel's own address: from a list on the internet, only through the relay and
+    only over the web (a playlist can't name a file on this computer, or a raw address); the channel's own
+    User-Agent and Referer, as the list gave them."""
+    opts = []
+    if not chan.get("home"):
+        opts += ["-http_proxy", relay(), "-protocol_whitelist", FFMPEG_PROTOCOLS]
+    if (chan.get("headers") or {}).get("ua"):
+        opts += ["-user_agent", chan["headers"]["ua"]]
+    if (chan.get("headers") or {}).get("referer"):
+        opts += ["-referer", chan["headers"]["referer"]]
+    return opts
 
 
 class _StayOut(urllib.request.HTTPRedirectHandler):

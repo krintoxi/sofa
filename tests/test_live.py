@@ -1,15 +1,21 @@
 """Live TV from channel lists (sofa/live.py): passed through Sofa with signed links, and a channel from a list on the
 internet can't send Sofa to the home network or to this computer (a list at home, a TV tuner's, can)."""
 import json
+import os
+import shutil
+import socket
+import subprocess
+import tempfile
 import threading
 import unittest
+from unittest import mock
 import urllib.error
 import urllib.request
 from http.cookiejar import CookieJar
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import tests  # noqa: F401  (sets Sofa up for the tests)
-from sofa import auth, config, live, store, web
+from sofa import auth, config, live, media, store, web
 
 
 class Upstream(BaseHTTPRequestHandler):
@@ -24,7 +30,7 @@ class Upstream(BaseHTTPRequestHandler):
             body, ctype = "#EXTM3U\n#EXTINF:-1 group-title=\"News\",Tuner One\n%s/one/index.m3u8\n" % self.base, "audio/x-mpegurl"
         elif self.path == "/one/index.m3u8":
             body, ctype = "#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXTINF:4,\nseg1.ts\n", "application/vnd.apple.mpegurl"
-        elif self.path == "/one/seg1.ts":
+        elif self.path in ("/one/seg1.ts", "/raw.ts"):
             body, ctype = "G" * 188, "video/mp2t"
         else:
             self.send_response(404)
@@ -84,6 +90,28 @@ class LiveTV(unittest.TestCase):
         self.assertEqual(self.get("/live/%s/index.m3u8" % chan["id"])[0], 502)    # this computer's addresses aren't fetched
         self.assertEqual(self.get(seg[0])[0], 502)
 
+    def test_ffmpeg_reads_a_channel_from_the_internet_through_the_relay(self):
+        """A raw feed (repackaged as HLS) and a DLNA TV's live channel: ffmpeg gets the relay; a tuner's, as before."""
+        live._channels["0123456789ab"] = {"id": "0123456789ab", "name": "Raw", "url": Upstream.base + "/raw.ts",
+                                         "group": "News", "home": False, "headers": {}}
+        got = []
+
+        def fake_stream(handler, item, *a, **k):
+            got.append(item)
+            handler.send_body("ok")
+        real = live._home_ip
+        with mock.patch.object(live, "_home_ip", lambda ip: False if ip == "127.0.0.1" else real(ip)), \
+                mock.patch.object(media, "hls_start", lambda item, *a, **k: got.append(item) or "abc"), \
+                mock.patch.object(media, "tool", lambda name: "/usr/bin/" + name), \
+                mock.patch.object(web.Handler, "dlna_allowed", lambda handler: True), \
+                mock.patch.object(web.Handler, "stream", fake_stream):
+            self.get("/live/0123456789ab/index.m3u8")                          # (sent on to the HLS of session "abc")
+            self.assertEqual(self.get("/dlna/live/0123456789ab"), (200, b"ok"))
+        self.assertEqual(len(got), 2)
+        for item in got:
+            self.assertEqual(item["input_opts"][:2], ["-http_proxy", live.relay()])
+        self.assertEqual(live.ffmpeg_input(dict(live._channels["0123456789ab"], home=True)), [])
+
     def test_what_is_at_home(self):
         for url in ("http://127.0.0.1:8091/box/api/action/reboot", "http://192.168.1.1/reboot", "http://10.0.0.2/",
                     "http://172.16.4.4/", "http://[::1]:8090/", "http://169.254.169.254/latest", "http://0.0.0.0/", "nope"):
@@ -121,6 +149,146 @@ class LiveTV(unittest.TestCase):
         # a list at home: fetched as before
         with live.fetch(Upstream.base + "/one/seg1.ts", timeout=5) as r:
             self.assertEqual(r.read(), b"G" * 188)
+
+
+class Home6(ThreadingHTTPServer):
+    address_family = socket.AF_INET6
+
+
+class Spot(BaseHTTPRequestHandler):
+    """A web server that notes every path asked of it. Here, 127.0.0.1 plays the internet and [::1] the home network."""
+    seg, other, seen = b"", "", None
+
+    def log_message(self, *args):
+        pass
+
+    def do_GET(self):
+        self.seen.append(self.path)
+        here = "http://%s:%d" % (self.headers.get("Host", "").rsplit(":", 1)[0], self.server.server_address[1])
+        if self.path == "/redirect.ts":
+            self.send_response(302)
+            self.send_header("Location", self.other + "/seg.ts")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        if self.path.endswith(".m3u8"):
+            where = self.other if self.path == "/home.m3u8" else here
+            body = ("#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:2\n#EXTINF:1.0,\n%s/seg.ts\n#EXT-X-ENDLIST\n"
+                    % where).encode()
+            ctype = "application/vnd.apple.mpegurl"
+        else:
+            body, ctype = self.seg or b"x", "video/mp2t"
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+
+class Relay(unittest.TestCase):
+    """ffmpeg reads a channel from the internet itself (a DLNA TV's live channel, a feed that isn't HLS): only through
+    Sofa's relay, which goes to the internet and never home, whatever the channel's playlists or redirects name."""
+
+    @classmethod
+    def setUpClass(cls):
+        try:
+            cls.home = Home6(("::1", 0), Spot)
+        except OSError:
+            raise unittest.SkipTest("no IPv6 loopback here")
+        cls.out = ThreadingHTTPServer(("127.0.0.1", 0), Spot)
+        cls.out_url = "http://127.0.0.1:%d" % cls.out.server_address[1]
+        cls.home_url = "http://[::1]:%d" % cls.home.server_address[1]
+        Spot.other = cls.home_url
+        for srv in (cls.out, cls.home):
+            threading.Thread(target=srv.serve_forever, daemon=True).start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.out.shutdown()
+        cls.home.shutdown()
+
+    def setUp(self):
+        Spot.seen, Spot.seg = [], b""
+        real = live._home_ip
+        self._real = real
+        live._home_ip = lambda ip: False if ip == "127.0.0.1" else real(ip)     # (127.0.0.1 plays the internet)
+
+    def tearDown(self):
+        live._home_ip = self._real
+
+    def ask(self, raw):
+        host, port = live.relay()[len("http://"):].split(":")
+        with socket.create_connection((host, int(port)), 10) as s:
+            s.sendall(raw)
+            out = b""
+            while True:
+                chunk = s.recv(65536)
+                if not chunk:
+                    return out
+                out += chunk
+                if raw.startswith(b"CONNECT") and out.endswith(b"\r\n\r\n") and b"200" in out.split(b"\r\n")[0]:
+                    s.sendall(b"GET /a.ts HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
+                    raw = b""
+
+    def test_the_relay_goes_out_and_never_home(self):
+        out_hp, home_hp = self.out_url[len("http://"):], self.home_url[len("http://"):]
+        r = self.ask(b"GET %s/a.ts HTTP/1.1\r\nHost: %s\r\nConnection: keep-alive\r\n\r\n" % (self.out_url.encode(), out_hp.encode()))
+        self.assertTrue(r.startswith(b"HTTP/1.0 200") or r.startswith(b"HTTP/1.1 200"), r[:80])
+        self.assertTrue(r.endswith(b"x"))
+        r = self.ask(b"CONNECT %s HTTP/1.1\r\nHost: %s\r\n\r\n" % (out_hp.encode(), out_hp.encode()))
+        self.assertIn(b"200 Connection established", r)                         # a tunnel (https), to the internet
+        self.assertTrue(r.endswith(b"x"))
+        self.assertEqual(Spot.seen, ["/a.ts", "/a.ts"])
+        for raw in (b"GET %s/a.ts HTTP/1.1\r\nHost: x\r\n\r\n" % self.home_url.encode(),
+                    b"CONNECT %s HTTP/1.1\r\nHost: x\r\n\r\n" % home_hp.encode(),
+                    b"CONNECT 127.0.0.2:8091 HTTP/1.1\r\n\r\n", b"GET http://192.168.1.1/ HTTP/1.1\r\n\r\n"):
+            self.assertTrue(self.ask(raw).startswith(b"HTTP/1.1 403"), raw)
+        for raw in (b"GET /a.ts HTTP/1.1\r\nHost: x\r\n\r\n", b"CONNECT nope HTTP/1.1\r\n\r\n",
+                    b"GET file:///etc/passwd HTTP/1.1\r\n\r\n", b"nonsense\r\n\r\n"):
+            self.assertTrue(self.ask(raw).startswith(b"HTTP/1.1 400"), raw)
+        self.assertEqual(Spot.seen, ["/a.ts", "/a.ts"])                          # home was never reached
+
+    def test_ffmpeg_options(self):
+        opts = live.ffmpeg_input({"home": False, "headers": {"ua": "VLC/3", "referer": "https://tv.example/"}})
+        self.assertEqual(opts[:4], ["-http_proxy", live.relay(), "-protocol_whitelist", live.FFMPEG_PROTOCOLS])
+        self.assertEqual(opts[4:], ["-user_agent", "VLC/3", "-referer", "https://tv.example/"])
+        self.assertEqual(live.ffmpeg_input({"home": True, "headers": {}}), [])    # a tuner at home: as before
+        item = {"id": "live:x", "path": "http://1.1.1.1/a.ts", "input_opts": opts}
+        cmd = media.stream_command(item, "remux", 0, None, "mpegts")
+        self.assertLess(cmd.index("-http_proxy"), cmd.index("-i"))
+        with mock.patch.dict(os.environ, {"no_proxy": "*", "NO_PROXY": "*", "http_proxy": "http://elsewhere:1"}):
+            env = media._env(item)
+        self.assertFalse({"no_proxy", "NO_PROXY", "http_proxy"} & set(env))
+        self.assertIsNone(media._env({"path": "/films/a.mkv"}))
+
+    def test_ffmpeg_itself_never_reaches_home(self):
+        exe = media.tool("ffmpeg")
+        if not exe:
+            self.skipTest("no ffmpeg here")
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, True)
+        seg = os.path.join(tmp, "seg.ts")
+        subprocess.run([exe, "-hide_banner", "-loglevel", "error", "-nostdin", "-f", "lavfi", "-i",
+                        "testsrc=size=64x48:rate=10", "-t", "1", "-c:v", "mpeg2video", "-f", "mpegts", seg],
+                       check=True, timeout=60)
+        with open(seg, "rb") as f:
+            Spot.seg = f.read()
+        opts = live.ffmpeg_input({"home": False})
+
+        def play(url, input_opts):
+            return subprocess.run([exe, "-hide_banner", "-loglevel", "error", "-nostdin"] + input_opts +
+                                  ["-i", url, "-f", "null", "-"], capture_output=True, timeout=60,
+                                  env=media._env({"input_opts": input_opts}) if input_opts else None).returncode
+
+        self.assertEqual(play(self.out_url + "/out.m3u8", opts), 0)               # the internet: plays, through the relay
+        self.assertEqual(Spot.seen, ["/out.m3u8", "/seg.ts"])
+        for path in ("/home.m3u8", "/redirect.ts"):                                # a playlist or a redirect naming home
+            Spot.seen = []
+            play(self.out_url + path, opts)
+            self.assertEqual(Spot.seen, [path], path)                             # (home never asked)
+        Spot.seen = []
+        play(self.out_url + "/home.m3u8", [])                                     # (without the relay, ffmpeg goes home:
+        self.assertIn("/seg.ts", Spot.seen[1:])                                   # what the relay is there for)
 
 
 if __name__ == "__main__":

@@ -515,6 +515,8 @@ body.has-bar footer { padding-bottom: 110px; }
 /* Guest */
 .qr { display: inline-block; padding: 12px; border-radius: 12px; background: #fff; line-height: 0; }
 .qr svg { width: 180px; height: 180px; }
+.out-link { display: flex; flex-direction: column; align-items: center; gap: 12px; margin: 8px 0 4px; }
+.out-link code { font-size: 1.05em; word-break: break-all; text-align: center; }
 .guest-row { display: flex; flex-wrap: wrap; gap: 18px; align-items: center; }
 /* Sharing: the public library's titles, and what a Visitor (the share link) doesn't get */
 .share-title { display: grid; grid-template-columns: 44px 1fr auto; gap: 14px; align-items: center; }

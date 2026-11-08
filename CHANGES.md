@@ -6,6 +6,34 @@ has its own numbers and list: [deploy/sofa-box/CHANGES.md](deploy/sofa-box/CHANG
 A change to Sofa's code (`sofa/`, `client/`, `sofa.py`) gets a new version: raise `__version__`, add a section
 here, then `python3 tools/sofa-version.py` (a test checks it was done).
 
+## 1.4.3 (2026-11-08)
+
+- **Live TV that ffmpeg plays can't be steered home either.** Two kinds of channel are read by ffmpeg itself, not
+  by Sofa: a TV's live channel over DLNA, and a feed that isn't HLS (a raw MPEG-TS stream, repackaged for the
+  browser). ffmpeg looked names up and connected by itself, so the checks that keep Live TV off the home network
+  didn't cover what it fetched. A channel's playlist, or a redirect, naming a router's page or this computer was
+  followed. Now ffmpeg reaches a channel from the internet only through a relay inside Sofa, which connects to
+  internet addresses only, and it may open only web addresses. A TV tuner's channels at home play as before. The
+  User-Agent and Referer a channel list gives a channel now reach ffmpeg too.
+- **On a TV, a link to another site shows a QR code to open it on your phone**, instead of leaving Sofa. This
+  covers the EdgeVenture.uk credit, GitHub, and where to get a key. A TV has no browser to come back from.
+- **The Fire TV app stays on Sofa's pages.** A page that tries to send it elsewhere gets the same QR code. Picking
+  another Sofa in Servers opens it, and the app keeps that one. Fire OS 5 (the 2015 sticks) now follows the same
+  rules; it asks the app through an older Android call that the app didn't answer.
+- **Roku channel 1.1:**
+  - A Roku whose sign-in ran out, or was signed out on the Server page, said "Sofa said no (200)" and stayed
+    there. Now it shows a new code to approve.
+  - Picking the Sofa it's signed in to (after Sofa was off when the Roku started) goes straight back in, with no
+    new code.
+  - Sofa's own messages reach the screen ("The server is busy converting…", "Signing in with a phone works at
+    home…"), instead of "Sofa said no (503)" or "Getting a code…" for ever.
+  - A Sofa at an `https://` address works.
+  - A file the Roku turns out not to play as it is gets converted instead, from where it stopped. When a video
+    stops with an error, the reason stays on the screen.
+  - Continue watching has one row per show, and the next episode once one is finished. A show opens on the episode
+    to watch.
+  - Finding Sofa doesn't wait on an address that doesn't answer (3 seconds at most).
+
 ## 1.4.2 (2026-11-08)
 
 - **Live TV's era tabs work.** Choosing an era (clicking 90s, or OK on it with a remote) did nothing since 1.4.0:

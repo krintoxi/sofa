@@ -356,7 +356,7 @@ def stream_command(item, mode, start, info, fmt="mp4", out="pipe:1", audio_index
     """The ffmpeg command for playing `item` from `start` seconds. `burn`: a picture-based subtitle track
     (Blu-ray PGS, DVD) to draw onto the video, since no player shows those from a converted stream."""
     exe = tool("ffmpeg")
-    cmd = [exe, "-hide_banner", "-loglevel", "error", "-nostdin"]
+    cmd = [exe, "-hide_banner", "-loglevel", "error", "-nostdin"] + list(item.get("input_opts") or [])
     if item.get("ext") in LOOSE_TIMESTAMPS:
         cmd += ["-fflags", "+genpts+discardcorrupt"]   # AVI and MPEG often lack timestamps ffmpeg needs for MP4
     if start > 0:
@@ -396,6 +396,14 @@ def stream_command(item, mode, start, info, fmt="mp4", out="pipe:1", audio_index
                 "-hls_flags", "independent_segments", "-hls_segment_filename", os.path.join(out, "seg%05d.m4s"),
                 os.path.join(out, "index.m3u8")]
     return cmd
+
+
+def _env(item):
+    """ffmpeg's environment: as Sofa's, except for a channel that must go through Sofa's relay, where nothing in the
+    environment may name another proxy or a name to reach without one (ffmpeg reads no_proxy)."""
+    if not item.get("input_opts"):
+        return None
+    return {k: v for k, v in os.environ.items() if k.lower() not in ("no_proxy", "http_proxy", "https_proxy")}
 
 
 def _slot(mode):
@@ -466,7 +474,7 @@ def run_stream(item, mode, start, info, out, who, fmt="mp4", owner=None, audio_i
     try:
         proc = subprocess.Popen(stream_command(item, mode, start, info, fmt, audio_index=audio_index, max_height=max_height,
                                                caps=caps, burn=burn, others=_converting()), stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE, bufsize=0)
+                                stderr=subprocess.PIPE, bufsize=0, env=_env(item))
     except OSError:
         if slot:
             slot.release()
@@ -571,7 +579,7 @@ def hls_start(item, mode, start, who, replace=None, owner=None, audio_index=None
     try:
         proc = subprocess.Popen(stream_command(item, mode, start, info, "hls", folder, audio_index=audio_index, max_height=height,
                                                caps=caps, burn=burn),
-                                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+                                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, env=_env(item))
     except OSError:
         if slot:
             slot.release()
