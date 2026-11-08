@@ -160,6 +160,12 @@ class Archive(unittest.TestCase):
             self.assertEqual(status, 200)
             self.assertIn(on["film"]["id"], ("noir1", "noir2"))
             self.assertEqual(c.call("/api/live/archive/ia-nothing/now")[0], 404)
+            for ch in ia:                                    # every channel can be tuned to (Retro TV's ids have digits)
+                status, on = c.call("/api/live/archive/%s/now" % ch["id"])
+                self.assertNotEqual(status, 404, ch["id"])      # (503: the stand-in films don't suit every channel)
+                if status == 200:
+                    self.assertEqual(on["channel"], ch["id"])
+            self.assertEqual(c.call("/api/live/archive/ia-kids00/now")[0], 200)     # whole tapes: the stand-ins suit it
         finally:
             httpd.shutdown()
             shutil.rmtree(archive.CACHE, ignore_errors=True)

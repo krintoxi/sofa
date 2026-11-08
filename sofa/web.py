@@ -712,7 +712,7 @@ class Handler(BaseHTTPRequestHandler):
             favs = {r["channel"] for r in store.q("SELECT channel FROM live_favorites WHERE user_id = ?", u["id"])}
             out["channels"] = [dict(c, fav=c["id"] in favs, playlist="archive.org") for c in archive.channels()] + out["channels"]
             return self.json(out)
-        m = re.match(r"^/api/live/archive/(ia-[a-z]+)/now$", path)
+        m = re.match(r"^/api/live/archive/(ia-[a-z0-9]+)/now$", path)
         if m:                                          # an Internet Archive channel: what's on, from where
             if m.group(1) not in archive.BY_ID or not archive.on():
                 return self.error(404, "That channel isn't on.")
