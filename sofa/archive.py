@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 import re
+import sys
 import threading
 import time
 import urllib.parse
@@ -146,12 +147,21 @@ def seconds(length):
     return None
 
 
+def _text(v):
+    """A metadata field as text: the archive gives some (a title, the subjects) as a list."""
+    if isinstance(v, list):
+        return " ".join(str(x) for x in v)
+    return str(v or "")
+
+
 def _film(identifier, shortest=120, longest=None):
     """One item's film: its one playable video file (an MP4, the smaller copy where there are two), and its length."""
     d = _get("https://archive.org/metadata/%s" % urllib.parse.quote(identifier))
     meta, files = d.get("metadata") or {}, d.get("files") or []
-    title = meta.get("title") if isinstance(meta.get("title"), str) else identifier
-    if NOT_WORDS.search(title or "") or NOT_WORDS.search(" ".join(meta.get("subject") or []) if isinstance(meta.get("subject"), list) else str(meta.get("subject") or "")):
+    title = meta.get("title")
+    title = title[0] if isinstance(title, list) and title else title
+    title = title.strip() if isinstance(title, str) and title.strip() else identifier
+    if NOT_WORDS.search(_text(meta.get("title"))) or NOT_WORDS.search(_text(meta.get("subject"))):
         return None
     vids = [f for f in files if f.get("name", "").lower().endswith(".mp4") and seconds(f.get("length"))]
     originals = {f.get("original") for f in vids if f.get("original")}
@@ -173,7 +183,7 @@ def _film(identifier, shortest=120, longest=None):
 def _search(q, rows):
     url = "https://archive.org/advancedsearch.php?" + urllib.parse.urlencode(
         [("q", q + NOT), ("fl[]", "identifier"), ("fl[]", "title"), ("rows", str(rows)), ("sort[]", "downloads desc"), ("output", "json")])
-    return [d for d in _get(url).get("response", {}).get("docs", []) if not NOT_WORDS.search(d.get("title") or "")]
+    return [d for d in _get(url).get("response", {}).get("docs", []) if not NOT_WORDS.search(_text(d.get("title")))]
 
 
 def _pick(docs, want, shortest=120, longest=None):
@@ -250,14 +260,21 @@ def _warm():
     """Every channel's films, ready before anyone tunes in (a few seconds each, a channel at a time), then kept fresh."""
     time.sleep(120)                                         # (Sofa reads its library first)
     while True:
-        for cid in BY_ID:
-            if on():
-                try:
-                    films(cid)
-                except (OSError, ValueError):
-                    pass
-            time.sleep(10)
+        _warm_once(pause=10)
         time.sleep(6 * 3600)
+
+
+def _warm_once(pause=0):
+    """Each channel in turn; one that fails (the archive down, an odd item) waits for the next round, the rest go on."""
+    for cid in BY_ID:
+        if on():
+            try:
+                films(cid)
+            except (OSError, ValueError):
+                pass
+            except Exception as e:                       # (never the end of the others: it used to stop them all)
+                print("Archive channel %s: %s: %s" % (cid, type(e).__name__, e), file=sys.stderr, flush=True)
+        time.sleep(pause)
 
 
 def start():

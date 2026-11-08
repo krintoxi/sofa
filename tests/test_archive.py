@@ -101,6 +101,30 @@ class Archive(unittest.TestCase):
         card = next(c for c in archive.channels() if c["id"] == "ia-retro60")
         self.assertIn("Retro TV: 60s", card["name"])
 
+    def test_a_title_given_as_a_list(self):
+        """The archive gives some titles as a list: filtered like the rest (they used to stop every channel's films
+        being fetched), and one channel that fails doesn't keep the others from theirs."""
+        docs = [{"identifier": "two", "title": ["Detour", "Detour (1945)"]},
+                {"identifier": "bad", "title": ["Fine", "Sex Madness"]}]
+
+        def fake(url, timeout=30):
+            if "advancedsearch" in url:
+                if "Westerns" in url or "western" in url:
+                    raise RuntimeError("an odd answer")
+                return {"response": {"docs": docs}}
+            ident = urllib.parse.unquote(url.rsplit("/", 1)[1])
+            title = {"two": ["Detour", "Detour (1945)"], "bad": "Fine"}[ident]
+            return {"metadata": {"title": title, "year": "1945"},
+                    "files": [{"name": ident + ".mp4", "source": "original", "length": "1:08:00"}]}
+        archive._get = fake
+        films = archive.films("ia-noir")
+        self.assertEqual([(f["id"], f["title"]) for f in films], [("two", "Detour")])
+        archive._warm_once()
+        made = os.listdir(archive.CACHE)
+        for cid in ("ia-classics", "ia-comedy", "ia-kids00", "ia-retro00", "ia-retro50"):
+            self.assertTrue(any(m.startswith(cid + "-") for m in made), cid)
+        self.assertFalse(any(m.startswith("ia-westerns-") for m in made))
+
     def test_recorded_tapes(self):
         """00s Kids TV and 00s On Air play whole recorded tapes: hours long, so not held to a film's length, and no
         short clips."""
