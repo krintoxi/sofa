@@ -6,6 +6,12 @@ has its own numbers and list: [deploy/sofa-box/CHANGES.md](deploy/sofa-box/CHANG
 A change to Sofa's code (`sofa/`, `client/`, `sofa.py`) gets a new version: raise `__version__`, add a section
 here, then `python3 tools/sofa-version.py` (a test checks it was done).
 
+## 1.2.5 (2026-11-07)
+
+- **Retro TV channels tune in.** Since they came (1.2.2), choosing one said it wasn't available: Sofa's address
+  for what's on a channel took only letters, and every Retro TV channel has digits in its name (Retro TV: 60s,
+  00s Kids TV…). The Internet Archive's film channels weren't affected.
+
 ## 1.2.4 (2026-11-07)
 
 - **Every archive channel says what's on.** Sofa fetches each channel's films in the background, one after
