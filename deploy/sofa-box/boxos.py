@@ -1083,6 +1083,9 @@ class Browser:
             except OSError:
                 pass
 
+    def front_url(self):
+        return (self.tabs.get(getattr(self, "front", None)) or {}).get("url") or ""
+
     def front_app(self):
         """The app whose tab was last brought forward."""
         return (self.tabs.get(getattr(self, "front", None)) or {}).get("app")

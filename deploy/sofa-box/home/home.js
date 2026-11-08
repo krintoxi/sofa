@@ -446,7 +446,7 @@
   function viewBrowser() {
     const web = data.apps.filter(a => a.kind === "web" && !a.hidden).slice(0, 10);
     const quick = [["DuckDuckGo", "https://duckduckgo.com", "#DE5833"], ["Wikipedia", "https://en.wikipedia.org", "#BBBBBB"],
-                   ["YouTube", "https://www.youtube.com", "#FF3B30"], ["Reddit", "https://www.reddit.com", "#FF4500"], ["Archive.org", "https://archive.org", "#9BA4B5"]];
+                   ["YouTube", "https://www.youtube.com", "#FF3B30"], ["Reddit", "https://www.reddit.com", "#FF4500"]];
     return `<div class="browser-start view-in"><h1 class="page">Browser</h1>
       <input class="field big" id="address" placeholder="Search, or type an address" spellcheck="false" autocomplete="off">
       <div class="grid">${quick.map(q => `<button class="tile" style="--c:${q[2]}" data-url="${esc(q[1])}"><span class="ic">${esc(q[0][0])}</span><b>${esc(q[0])}</b></button>`).join("")}

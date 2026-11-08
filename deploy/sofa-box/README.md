@@ -262,10 +262,11 @@ you've added (open one, make it the one Sofa opens with, or remove it). Inside S
 The **Live TV** tile opens Live TV in the Sofa it opens with, or in Sofa on the box. Channels play in the
 box's own player: up and down change the channel. Besides the free channel lists, there's **Classic
 Cinema** (classic movies, film noir, westerns, silent films, cartoons, classic TV, documentaries): films on a
-loop, on the clock, like TV; and **Retro TV**, its own group: the 2000s first (Retro TV:
-00s, **00s Kids TV** and **00s On Air**, whole recorded broadcasts with the commercials they went out with),
-then a channel for each decade back to the 50s with its shows and its commercials between them. The App
-Store's **Retro TV** section has the My Retro TVs sites too.
+loop, on the clock, like TV; and **Retro TV**, its own group: the 2000s first, on channels 2 to 9 (Retro TV:
+00s, Kids TV, Saturday Mornings, Action Toons, On Air, Music TV, Game TV and Infomercials, most of them whole
+recorded broadcasts with the commercials they went out with), then a channel for each decade back to the 50s.
+Both have a **guide**, as on a TV: up and down go through the channels, OK watches, a channel's number goes
+straight to it, and Flip picks one. While a channel plays, its banner says what's on and what's next.
 
 ### USB drives and discs
 
@@ -413,7 +414,7 @@ Share/Create and PS). A USB cable works without pairing.
 | Y (△) | search; while playing, subtitles |
 | Menu/Start (Options on PlayStation) | options: on Home, an app's (move, hide, remove); in an app, the box's bar; while a video plays, its options (subtitles, sound, speed, volume), chosen with the D-pad |
 | LB / RB | 10 seconds back / 30 seconds on |
-| LT / RT (L2 / R2) | volume down / up (held: on and on); the TV shows it |
+| LT / RT (L2 / R2) | volume down / up (held: on and on); the TV shows it. In the box's own games they're the game's (and so is Start) |
 | Xbox / PS button | Home (in a game: hold it for a second to come back) |
 
 A remote's or a keyboard-remote's own volume and mute keys set the box's volume too, as do the phone

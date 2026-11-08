@@ -205,13 +205,6 @@
      "about": "Free live channels and films."
     },
     {
-     "id": "archive-films",
-     "name": "Internet Archive Films",
-     "url": "https://archive.org/details/feature_films",
-     "color": "#9BA4B5",
-     "about": "Free classic films."
-    },
-    {
      "id": "nasa-plus",
      "name": "NASA+",
      "url": "https://plus.nasa.gov",
@@ -280,61 +273,6 @@
      "url": "https://kick.com",
      "color": "#53FC18",
      "about": "Live streams."
-    }
-   ]
-  },
-  {
-   "id": "retro",
-   "name": "Retro TV",
-   "apps": [
-    {
-     "id": "my50stv",
-     "name": "My50sTV",
-     "url": "https://50s.myretrotvs.com/",
-     "color": "#4F7CAC",
-     "about": "Channel-surf 1950s television: shows and commercials of the decade on an old TV, by Joey Cato (myretrotvs.com). Its buttons are on the screen: use the arrows, or the phone's touchpad."
-    },
-    {
-     "id": "my60stv",
-     "name": "My60sTV",
-     "url": "https://60s.myretrotvs.com/",
-     "color": "#D9822B",
-     "about": "Channel-surf 1960s television: shows and commercials of the decade on an old TV, by Joey Cato (myretrotvs.com). Its buttons are on the screen: use the arrows, or the phone's touchpad."
-    },
-    {
-     "id": "my70stv",
-     "name": "My70sTV",
-     "url": "https://70s.myretrotvs.com/",
-     "color": "#B5651D",
-     "about": "Channel-surf 1970s television: shows and commercials of the decade on an old TV, by Joey Cato (myretrotvs.com). Its buttons are on the screen: use the arrows, or the phone's touchpad."
-    },
-    {
-     "id": "my80stv",
-     "name": "My80sTV",
-     "url": "https://80s.myretrotvs.com/",
-     "color": "#C2185B",
-     "about": "Channel-surf 1980s television: shows and commercials of the decade on an old TV, by Joey Cato (myretrotvs.com). Its buttons are on the screen: use the arrows, or the phone's touchpad."
-    },
-    {
-     "id": "my90stv",
-     "name": "My90sTV",
-     "url": "https://90s.myretrotvs.com/",
-     "color": "#7B1FA2",
-     "about": "Channel-surf 1990s television: shows and commercials of the decade on an old TV, by Joey Cato (myretrotvs.com). Its buttons are on the screen: use the arrows, or the phone's touchpad."
-    },
-    {
-     "id": "my00stv",
-     "name": "My00sTV",
-     "url": "https://00s.myretrotvs.com/",
-     "color": "#00897B",
-     "about": "Channel-surf 2000s television: shows and commercials of the decade on an old TV, by Joey Cato (myretrotvs.com). Its buttons are on the screen: use the arrows, or the phone's touchpad."
-    },
-    {
-     "id": "my10stv",
-     "name": "My10sTV",
-     "url": "https://10s.myretrotvs.com/",
-     "color": "#455A64",
-     "about": "Channel-surf 2010s television: shows and commercials of the decade on an old TV, by Joey Cato (myretrotvs.com). Its buttons are on the screen: use the arrows, or the phone's touchpad."
     }
    ]
   },

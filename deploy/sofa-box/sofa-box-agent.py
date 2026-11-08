@@ -929,6 +929,25 @@ def too_slow(presses, slow):
     return presses >= 40 and slow >= presses * 0.2
 
 
+def watch_web_game():
+    """One of the box's own games in front, in the browser (Gloamwell and the rest): the controller daemon leaves it
+    the triggers and Start (they're the game's: a skill, its menu), instead of the volume and the options."""
+    web, path = None, GAME_FILE + ".web"
+    while True:
+        time.sleep(0.5)
+        now = bool(browser and browser.connected() and "/box/games/" in browser.front_url() and not asleep["on"])
+        if now != web:
+            web = now
+            try:
+                if now:
+                    with open(path, "w", encoding="utf-8") as f:
+                        f.write(browser.front_url().split("/box/games/", 1)[1].split("/", 1)[0])
+                elif os.path.exists(path):
+                    os.remove(path)
+            except OSError:
+                web = None                                  # (tried again next time)
+
+
 def watch_smoothness():
     """On a board that has the full look by itself (Automatic): Home and Sofa measured as they're used, and the light
     look chosen when they answer the remote slowly, as the player chooses 720p when 1080p drops frames."""
@@ -3725,6 +3744,7 @@ def main():
     pairing_helper.start()                       # (BlueZ's pairings answered: an Xbox controller pairs)
     threading.Thread(target=watch_power, daemon=True, name="power").start()
     threading.Thread(target=watch_smoothness, daemon=True, name="smoothness").start()
+    threading.Thread(target=watch_web_game, daemon=True, name="web-game").start()
     if os.environ.get("SOFA_BOX_ICONS") != "0":
         apps.refresh_icons()                               # sharper app icons, once (boxos.ICONS_VERSION)
     if local_sofa.public():                                # open to the internet: it has to be there, from the start

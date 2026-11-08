@@ -7,8 +7,11 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
-## 1.1.24
+## 1.1.26
 
+- **Sofa's own Retro TV and Classic Cinema are the box's.** The App Store no longer lists the outside retro TV
+  sites or an archive film site, and the browser's start page no longer has an archive shortcut: they were
+  websites made for a mouse, and Live TV now does it with the remote, a guide and the 2000s first.
 - **The box keeps itself quick, on any board.** Every page it opens (Home, Sofa, apps) measures how long each
   press of the remote takes to show on the TV. On a board that has the full look by itself, the box takes the
   light look when a fifth of the presses take a tenth of a second or more (as the player takes 720p when 1080p
@@ -20,7 +23,8 @@ GitHub builds the card and makes the release by itself.
   video or whatever page is open; a remote's own volume and mute keys and the phone remote's set the box's
   volume the same way. **Menu** (Start, Options) opens the options for what's in focus: on Home an app's, in
   an app the box's bar, and **while a video plays, its options**: subtitles, the sound track, speed and
-  volume, chosen with the D-pad, in the player itself. X still plays and pauses; LB and RB still skip.
+  volume, chosen with the D-pad, in the player itself. X still plays and pauses; LB and RB still skip. In the
+  box's own games (Gloamwell and the rest) the triggers and Start stay the game's.
 - **Live TV has a channel banner, as on a TV:** the channel's number and name, what's on and what's next, when
   a programme begins and when you change channel. Sofa 1.3.0's guide picks the channel: Retro TV's 2000s are
   channels 2 to 9.
