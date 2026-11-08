@@ -1191,11 +1191,37 @@ class Browser:
             except OSError:
                 pass
 
+    def hud(self, text, level=None):
+        """A short message over whatever is in front (Home, Sofa, an app), like a TV's own: the volume. Drawn in the page
+        by the box (no page's code needed), gone after a moment."""
+        session = self._front_session()
+        if session:
+            self.call("Runtime.evaluate", {"expression": HUD_JS % (json.dumps(text), json.dumps(level))}, session, timeout=3)
+
     def evaluate(self, target, expression):
         tab = self.tabs.get(target) or {}
         if tab.get("session"):
             return self.call("Runtime.evaluate", {"expression": expression}, tab["session"])
         return None
+
+
+HUD_JS = r"""(function (text, level) {
+  var d = document.getElementById("__sofa_hud");
+  if (!d) {
+    d = document.createElement("div"); d.id = "__sofa_hud";
+    d.style.cssText = "position:fixed;z-index:2147483647;right:48px;top:40px;min-width:260px;padding:16px 22px;border-radius:16px;" +
+      "background:rgba(12,12,16,.9);color:#fff;font:600 22px/1.2 system-ui,sans-serif;box-shadow:0 10px 30px rgba(0,0,0,.5);" +
+      "pointer-events:none;transition:opacity .25s";
+    d.innerHTML = '<div></div><div style="margin-top:10px;height:6px;border-radius:6px;background:rgba(255,255,255,.18)">' +
+      '<div style="height:100%%;border-radius:6px;background:#FF2E88;width:0"></div></div>';
+    (document.body || document.documentElement).appendChild(d);
+  }
+  d.firstChild.textContent = text;
+  d.lastChild.style.display = level === null ? "none" : "";
+  if (level !== null) d.lastChild.firstChild.style.width = Math.max(0, Math.min(100, level)) + "%%";
+  d.style.opacity = "1";
+  clearTimeout(d._t); d._t = setTimeout(function () { d.style.opacity = "0"; }, 1600);
+})(%s, %s)"""
 
 
 def tv_user_agent():
