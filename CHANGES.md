@@ -6,6 +6,18 @@ has its own numbers and list: [deploy/sofa-box/CHANGES.md](deploy/sofa-box/CHANG
 A change to Sofa's code (`sofa/`, `client/`, `sofa.py`) gets a new version: raise `__version__`, add a section
 here, then `python3 tools/sofa-version.py` (a test checks it was done).
 
+## 1.4.5 (2026-11-08)
+
+- **On a Sofa Box, the menu down the left feels like a TV app's.**
+  - It opens as a solid panel sliding over the page, which dims behind it. It used to grow wider frame by frame,
+    which a Pi 3 can't draw smoothly, and faded to see-through over the page.
+  - Left from the page goes to the page you're on in the menu, not to whatever item is level with you. Right goes
+    back to exactly where you were.
+  - Choosing a page takes you into it, and the menu closes. Before, it stayed open over the new page.
+  - The page you're on is marked in the accent colour, and who's watching shows at the bottom.
+- **The remote's arrows are quicker on big pages.** Finding the next thing to move to asked every card on the page
+  for its style on every press; now only the nearest few are asked.
+
 ## 1.4.4 (2026-11-08)
 
 - **Updates bring the Roku channel.** Neither the Update button nor `tools/update.sh` brought the `roku/` folder, so

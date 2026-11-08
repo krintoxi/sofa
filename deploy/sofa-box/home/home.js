@@ -268,7 +268,7 @@
       <div class="store-detail" id="storeDetail"></div>
       ${storeData.sections.map(sec => `<h2 class="row-title">${esc(sec.name)}${sec.about ? ` <small>${esc(sec.about)}</small>` : ""}</h2><div class="rail">${sec.apps.map(tile).join("")}</div>`).join("")}
       <h2 class="row-title">Any website</h2>
-      <div class="add-site"><input class="field" id="siteUrl" placeholder="Type an address: radio.example.com" spellcheck="false">
+      <div class="add-site"><input class="field" id="siteUrl" aria-label="A site's address" placeholder="Type an address: radio.example.com" spellcheck="false">
         <button class="btn primary" data-add-site="1">Add to Home</button></div></div>`;
   }
   async function refreshStoreIcons() {        // the store's icons arrive one by one: show the new ones
@@ -448,7 +448,7 @@
     const quick = [["DuckDuckGo", "https://duckduckgo.com", "#DE5833"], ["Wikipedia", "https://en.wikipedia.org", "#BBBBBB"],
                    ["YouTube", "https://www.youtube.com", "#FF3B30"], ["Reddit", "https://www.reddit.com", "#FF4500"]];
     return `<div class="browser-start view-in"><h1 class="page">Browser</h1>
-      <input class="field big" id="address" placeholder="Search, or type an address" spellcheck="false" autocomplete="off">
+      <input class="field big" id="address" aria-label="Search, or type an address" placeholder="Search, or type an address" spellcheck="false" autocomplete="off">
       <div class="grid">${quick.map(q => `<button class="tile" style="--c:${q[2]}" data-url="${esc(q[1])}"><span class="ic">${esc(q[0][0])}</span><b>${esc(q[0])}</b></button>`).join("")}
         ${web.map(a => appTile(a)).join("")}</div>
       <div class="hint-card">On any site, press <b>Menu</b> (or move the mouse to the top) for the Sofa bar: <b>Home</b>, <b>Back</b>,
@@ -516,8 +516,9 @@
 
   // ---- settings
   async function loadInfo() {
-    try { boxInfo = await api("/box/api/info"); boxInfo.shield = await api("/box/api/shield"); } catch (e) { boxInfo = { error: e.message }; }
-    if (location.hash.startsWith("#/settings") || location.hash.startsWith("#/welcome")) render(true);
+    try { const [info, shield] = await Promise.all([api("/box/api/info"), api("/box/api/shield")]); info.shield = shield; boxInfo = info; }
+    catch (e) { boxInfo = { error: e.message }; }
+    if (location.hash.startsWith("#/settings")) refreshPane(); else if (location.hash.startsWith("#/welcome")) render(true);
   }
   // Sofa on this box, from anywhere: the box opens its own Sofa to the internet (an address, the router, a certificate,
   // the internet let in, a look from outside), the way Sofa does on any computer, in a few presses.
@@ -543,8 +544,8 @@
         : "Watch Sofa on this box away from home, from a phone or a computer, at your own address: a free one from duckdns.org, or your own domain. Everything goes over HTTPS, and everyone signs in."}</p>
       ${pr.busy ? `<p class="small looking"><i class="spin"></i><span>${esc(pr.step || "Working")}…</span></p>` : ""}${pr.error ? `<p class="small bad">${esc(pr.error)}</p>` : ""}
       ${open ? "" : `<p class="small">Your address: on your phone, sign in at <b>duckdns.org</b>, make a name, and copy its token. Or use a domain you own (point it at your home).</p>
-        <div class="add-site"><input class="field" id="tbDomain" value="${esc(h.domain || "")}" placeholder="yourname.duckdns.org" spellcheck="false" autocomplete="off">
-          <input class="field" id="tbToken" type="password" placeholder="${n.duckdns_token ? "DuckDNS token: saved" : "DuckDNS token"}" autocomplete="off"></div>`}
+        <div class="add-site"><input class="field" id="tbDomain" aria-label="Your address (yourname.duckdns.org)" value="${esc(h.domain || "")}" placeholder="yourname.duckdns.org" spellcheck="false" autocomplete="off">
+          <input class="field" id="tbToken" aria-label="DuckDNS token" type="password" placeholder="${n.duckdns_token ? "DuckDNS token: saved" : "DuckDNS token"}" autocomplete="off"></div>`}
       <ul class="tb-checks">${h.domain && n.public_ip ? tick(n.points_here, esc(h.domain) + " points at your home", esc(h.domain) + " doesn't point at your home yet") : ""}
         ${n.upnp && n.upnp.at ? tick(n.upnp.ok, "The router sends the ports to the box", "The router didn't take the request: in its settings, forward port <b>443</b> to " + esc(lan) + ":" + esc(t.https_port) + (n.dns_check ? "" : " and <b>80</b> to " + esc(lan) + ":" + esc(t.port))) : ""}
         ${h.mode === "letsencrypt" && (h.trusted || h.error) ? tick(h.trusted, "Certificate from Let's Encrypt", "No certificate yet") : ""}
@@ -553,66 +554,199 @@
       <div class="choices">${open ? `<button class="btn" data-tb="check">Check from outside</button><button class="btn danger" data-tb="close">Make it home only</button>`
         : `<button class="btn primary" data-tb="open"${pr.busy ? " disabled" : ""}>Open it to the internet</button>`}</div></section>`;
   }
+  // Settings, as on a TV: what there is to set down the left, the one you're on beside it. Only that one is drawn, so
+  // the page stays small and every press quick on a Pi 3 (all of it on one page was 13 cards and 5,000 pixels tall).
+  // Moving along the list shows each; OK or Right goes into it; Back comes out to the list.
+  const SET_TABS = [["network", "Wi-Fi and network", "#i-globe"], ["remotes", "Remotes and Bluetooth", "#i-games"],
+    ["sofa", "Sofa", "#i-sofa"], ["picture", "Picture and sound", "#i-video"], ["home", "Home screen", "#i-house"],
+    ["shield", "Sofa Shield", "#i-shield"], ["box", "This box", "#i-box"], ["software", "Software", "#i-settings"],
+    ["help", "Help", "#i-file"]];
+  let setTab = "network", setTabTimer = 0, wifiNets = null, wifiAt = 0;
   function viewSettings() {
     if (!servers) loadServers();
-    if (!setup) loadSetup().then(() => { if (location.hash.startsWith("#/settings")) render(true); });
+    if (!setup) loadSetup().then(() => { if (location.hash.startsWith("#/settings")) refreshPane(); });
     setupLive();
-    if (!boxInfo) { loadInfo(); return `<h1 class="page">Settings</h1><p class="lede">Loading…</p>`; }
-    if (boxInfo.error) return `<h1 class="page">Settings</h1><p class="lede">${esc(boxInfo.error)}</p>`;
-    const b = boxInfo, s = b.settings, th = data.theme;
+    const want = location.hash.split("/")[2];
+    if (want && SET_TABS.some(t => t[0] === want)) setTab = want;
+    return `<div class="settings view-in"><h1 class="page">Settings</h1><div class="set-grid">
+      <nav class="set-nav" aria-label="Settings">${SET_TABS.map(([id, label, ic]) => `<button class="set-tab" data-set-tab="${id}" aria-current="${id === setTab}">${icon(ic)}<span>${label}</span></button>`).join("")}</nav>
+      <div class="set-pane" id="setPane">${setPane()}</div></div></div>`;
+  }
+  function showTab(id) {
+    if (id === setTab || !$("#setPane")) return;
+    setTab = id;
+    $$(".set-tab").forEach(t => t.setAttribute("aria-current", t.dataset.setTab === id));
+    $("#setPane").innerHTML = setPane();
+    if (scrollY > 0) window.scrollTo(0, 0);
+    history.replaceState(null, "", "#/settings/" + id);
+  }
+  function refreshPane() {                    // new data for Settings: only the part on screen is drawn again
+    const pane = $("#setPane");
+    if (!pane) return render(true);
+    const had = cur && pane.contains(cur) ? keyOf(cur) : null;
+    pane.innerHTML = setPane();
+    if (had && $(had)) focus($(had));
+    else if (!cur || !document.contains(cur)) focus($(`[data-set-tab="${setTab}"]`));
+  }
+  function setPane() {
+    if (!boxInfo) { loadInfo(); return `<p class="lede">Loading…</p>`; }
+    if (boxInfo.error) return `<p class="lede">${esc(boxInfo.error)}</p>`;
+    const b = boxInfo, s = b.settings || {}, sh = b.shield || {}, th = data.theme;
     const pick = (key, v, label) => `<button class="choice" data-set="${key}" data-value="${v}" aria-pressed="${String(s[key]) === v}">${label}</button>`;
-    return `<div class="settings view-in"><h1 class="page">Settings</h1>
-      <section class="card"><h3>Look</h3><p>The home screen and the boot screen.</p>
-        <div class="themes">${THEMES.map(t => `<button class="theme" data-theme-pick="${t[0]}" aria-pressed="${th === t[0]}" style="--sw-bg:${t[2]};--sw-a:${t[3]};--sw-a2:${t[4]}"><i></i><b>${t[1]}</b></button>`).join("")}</div>
-        <div class="add-site"><input class="field" id="boxName" maxlength="30" value="${esc(s.boot_text || "")}" placeholder="The box's name (under the logo): Living room"><button class="btn" data-save-name="1">Save</button></div></section>
-      <section class="card" id="sofaCard"><div class="toggle-row"><div><h3>Sofa</h3><p>Where Sofa plays from. Open one, make it the one Sofa opens with, or remove it.</p></div>
-        <div class="choices"><button class="choice" data-ask="0" aria-pressed="${!!(servers && !servers.ask)}">Open the same one</button><button class="choice" data-ask="1" aria-pressed="${!!(servers && servers.ask)}">Ask each time</button></div></div>
+    const head = (title, text) => `<h2 class="pane-title">${title}</h2>${text ? `<p class="lede">${text}</p>` : ""}`;
+    if (setTab === "network") {
+      if (!wifiNets || Date.now() - wifiAt > 60000) scanWifi();
+      return head("Wi-Fi and network", b.wired ? "Connected with a cable: the best for video." : b.wifi ? `Connected to <b>${esc(b.wifi)}</b>.` : "Not connected yet.") +
+        `<section class="card"><div class="row-head"><h3>Wi-Fi networks</h3><button class="mini" data-wifi-rescan="1">Look again</button></div>
+        <div id="wifi" class="wifi-list">${wifiRows(wifiNets, b.wifi)}</div></section>
+        <section class="card"><h3>This box on the network</h3><dl class="facts"><dt>Address</dt><dd>${esc(b.address || "?")}</dd>
+          <dt>Name</dt><dd>${esc(s.boot_text || "Sofa Box")}</dd></dl></section>`;
+    }
+    if (setTab === "remotes") return head("Remotes and Bluetooth", "Your phone, a Bluetooth remote, a game controller, a keyboard, speakers or headphones.") +
+      `<section class="card"><div class="remote-row"><div id="phoneBox" class="phone-mini">${phoneBox()}</div>
+        <div><p><b>Your phone is a remote:</b> scan the code with its camera (iPhone or Android). It works the box like a remote, types into it, and has a touchpad. Add it to the phone's Home Screen to keep it handy.</p>
+        ${secureLine()}</div></div></section>
+      <section class="card"><h3>Bluetooth</h3><p>Put it in pairing mode (a Fire TV remote: hold Home for 10 seconds), then <b>Look for devices</b>. A 2.4 GHz keyboard and mouse work as soon as their USB dongle is in.</p>
+        <div class="choices"><button class="btn primary" data-bt-look="1">Look for devices</button><button class="btn" data-action="tv-on">Turn the TV on</button><button class="mini" data-phones-forget="1">Forget phones</button></div>
+        <div id="btList" class="bt-list">${btList()}</div></section>`;
+    if (setTab === "sofa") return head("Sofa", "Where Sofa plays from. Open one, make it the one Sofa opens with, or remove it.") +
+      `<section class="card" id="sofaCard"><div class="choices"><button class="choice" data-ask="0" aria-pressed="${!!(servers && !servers.ask)}">Open the same one</button><button class="choice" data-ask="1" aria-pressed="${!!(servers && servers.ask)}">Ask each time</button></div>
         ${servers && !servers.error ? `<div class="srv-list">${(servers.servers || []).map(x => `<div class="srv-row">${serverBtn(x)}
           <button class="mini" data-default="${esc(x.id)}"${servers.default === x.id && !servers.ask ? " disabled" : ""}>Opens with this</button>
           ${x.where === "box" ? "" : `<button class="mini" data-forget-server="${esc(x.id)}">Remove</button>`}</div>`).join("") || `<p>None yet.</p>`}</div>` : `<p>Loading…</p>`}
         <div class="choices" style="margin-top:.8rem"><button class="btn" data-go="#/sofa">${icon("#i-plus")}Add a server</button></div></section>
-      ${thisBoxCard()}
-      <section class="card"><div class="toggle-row"><div><h3>Sofa Shield</h3><p>Keeps ads and trackers out of every app and the browser${b.shield.on ? ": " + b.shield.sites.toLocaleString() + " sites blocked" : ""}.</p></div>
-        <button class="switch" role="switch" aria-checked="${!!b.shield.wanted}" data-shield="1" aria-label="Sofa Shield"></button></div></section>
-      <section class="card"><h3>Picture and sound</h3><p>${b.learned_720 && s.quality === "auto" ? "Videos come as 720p: 1080p dropped frames here. " : ""}Sofa sends what the box plays smoothly.</p>
-        <div class="choices">${pick("quality", "auto", "Picture: automatic")}${pick("quality", "1080", "1080p")}${pick("quality", "720", "720p")}</div>
-        <div class="choices" style="margin-top:.6rem">${pick("audio", "auto", "Sound: TV or soundbar")}${pick("audio", "passthrough", "AV receiver (surround)")}</div>
-        <div class="choices" style="margin-top:.6rem">${pick("boot_sound", "on", "Sound at start: on")}${pick("boot_sound", "off", "Off")}</div>
-        <p style="margin-top:1rem">Performance: <b>${b.light ? "light" : "full"}</b>${s.performance === "auto" ? (b.learned_lite ? " (the box chose it: the full look answered the remote slowly here)" : " (chosen for this board)") : ""}. The light look leaves out the effects that are slow to draw, and keeps fewer apps open. Automatic measures how quickly the box answers and picks the light look by itself when it needs to.</p>
-        <div class="choices">${pick("performance", "auto", "Automatic")}${pick("performance", "light", "Light")}${pick("performance", "full", "Full")}</div></section>
-      <section class="card"><h3>Weather on Home</h3><p>${s.weather === "off" ? "Off: Home shows no weather." : b.weather_place
+      ${thisBoxCard()}`;
+    if (setTab === "picture") return head("Picture and sound", (b.learned_720 && s.quality === "auto" ? "Videos come as 720p: 1080p dropped frames here. " : "") + "Sofa sends what the box plays smoothly.") +
+      `<section class="card"><h3>Picture</h3><div class="choices">${pick("quality", "auto", "Automatic")}${pick("quality", "1080", "1080p")}${pick("quality", "720", "720p")}</div></section>
+      <section class="card"><h3>Sound</h3><div class="choices">${pick("audio", "auto", "TV or soundbar")}${pick("audio", "passthrough", "AV receiver (surround)")}</div>
+        <div class="choices" style="margin-top:.6rem">${pick("boot_sound", "on", "Sound at start: on")}${pick("boot_sound", "off", "Off")}</div></section>
+      <section class="card"><h3>Performance: ${b.light ? "light" : "full"}</h3><p>${s.performance === "auto" ? (b.learned_lite ? "The box chose it: the full look answered the remote slowly here. " : "Chosen for this board. ") : ""}The light look leaves out the effects that are slow to draw, and keeps fewer apps open. Automatic measures how quickly the box answers and picks the light look when it needs to.</p>
+        <div class="choices">${pick("performance", "auto", "Automatic")}${pick("performance", "light", "Light")}${pick("performance", "full", "Full")}</div></section>`;
+    if (setTab === "home") return head("Home screen", "Its look, the weather, and which apps it shows.") +
+      `<section class="card"><h3>Look</h3><div class="themes">${THEMES.map(t => `<button class="theme" data-theme-pick="${t[0]}" aria-pressed="${th === t[0]}" style="--sw-bg:${t[2]};--sw-a:${t[3]};--sw-a2:${t[4]}"><i></i><b>${t[1]}</b></button>`).join("")}</div></section>
+      <section class="card"><h3>Weather</h3><p>${s.weather === "off" ? "Off: Home shows no weather." : b.weather_place
           ? `For <b>${esc(b.weather_place.name)}</b>${b.weather_picked ? "" : " (the city of the box's time zone)"}, from MET Norway, every half hour.` : "Pick a town or city for it."}</p>
         <div class="choices">${pick("weather", "on", "On")}${pick("weather", "off", "Off")}<span class="gap"></span>${pick("weather_units", "auto", "°C or °F: automatic")}${pick("weather_units", "c", "°C")}${pick("weather_units", "f", "°F")}</div>
-        <div class="add-site" style="margin-top:.8rem"><input class="field" id="wxPlace" maxlength="80" placeholder="Another town or city: Miami" spellcheck="false"><button class="btn" data-wx-find="1">Find</button>
+        <div class="add-site" style="margin-top:.8rem"><input class="field" id="wxPlace" aria-label="A town or city" maxlength="80" placeholder="Another town or city: Miami" spellcheck="false"><button class="btn" data-wx-find="1">Find</button>
           ${b.weather_picked ? `<button class="mini" data-wx-reset="1">The time zone's city</button>` : ""}</div>
         <div class="choices" id="wxFound" style="margin-top:.6rem"></div></section>
-      <section class="card"><h3>Network</h3><p>${b.wifi ? "Wi-Fi: <b>" + esc(b.wifi) + "</b>." : "Not on Wi-Fi (a network cable is best for video)."} This box: ${esc(b.address || "")}.</p>
-        <div id="wifi"><button class="btn" data-action="wifi-scan">Find Wi-Fi networks</button></div></section>
-      <section class="card"><h3>Remotes and Bluetooth</h3>
-        <div class="remote-row"><div id="phoneBox" class="phone-mini">${phoneBox()}</div>
-          <div><p><b>Your phone is a remote:</b> scan the code with its camera (iPhone or Android). It works the box like a remote, types into it, and has a touchpad. Add it to the phone's Home Screen to keep it handy.</p>
-          ${secureLine()}
-          <p><b>A Bluetooth remote</b> (a Fire TV remote: hold Home for 10 seconds), a game controller, a keyboard, speakers or headphones: put it in pairing mode, then <b>Look for devices</b>. A 2.4 GHz keyboard and mouse work as soon as their USB dongle is in.</p>
-          <div class="choices"><button class="btn" data-bt-look="1">Look for devices</button><button class="btn" data-action="tv-on">Turn the TV on</button><button class="mini" data-phones-forget="1">Forget phones</button></div></div></div>
-        <div id="btList" class="bt-list">${btList()}</div></section>
-      <section class="card"><h3>Time zone</h3><p>The clock on Home: <b>${esc(((setup || {}).timezone || "UTC").replace(/_/g, " "))}</b>.</p>
-        <div class="choices zones">${ZONES.map(z => `<button class="choice" data-tz="${z}" aria-pressed="${z === (setup || {}).timezone}">${esc(z.split("/").pop().replace(/_/g, " "))}</button>`).join("")}</div></section>
-      <section class="card"><h3>Apps on Home</h3><p>Hide the ones you don't use, or move them.</p><div class="applist"><ul>${data.apps.map((a, i) => `<li>
+      <section class="card"><h3>Apps on Home</h3><p>Hide the ones you don't use, or move them. (Menu on an app on Home does it too.)</p><div class="applist"><ul>${data.apps.map((a, i) => `<li>
         <span class="name">${esc(a.name)}</span><button class="mini" data-move="${esc(a.id)}" data-by="-1"${i ? "" : " disabled"}>←</button>
         <button class="mini" data-move="${esc(a.id)}" data-by="1"${i === data.apps.length - 1 ? " disabled" : ""}>→</button>
-        <button class="mini" data-hide="${esc(a.id)}">${a.hidden ? "Show" : "Hide"}</button>${a.kind === "web" ? `<button class="mini" data-remove="${esc(a.id)}">Remove</button>` : ""}</li>`).join("")}</ul></div></section>
-      <section class="card"><h3>About this box</h3><dl class="facts"><dt>Model</dt><dd>${esc(b.model)}</dd><dt>Memory</dt><dd>${b.memory ? Math.round(b.memory / 1048576) + " MB" : "?"}</dd>
+        <button class="mini" data-hide="${esc(a.id)}">${a.hidden ? "Show" : "Hide"}</button>${a.kind === "web" ? `<button class="mini" data-remove="${esc(a.id)}">Remove</button>` : ""}</li>`).join("")}</ul></div></section>`;
+    if (setTab === "shield") return head("Sofa Shield", "Keeps ads and trackers out of every app and the browser.") +
+      `<section class="card"><div class="toggle-row"><div><h3>${sh.on ? "On" : "Off"}</h3><p>${sh.on ? (sh.sites || 0).toLocaleString() + " sites kept out." : "Switch it on to keep ads and trackers out."}</p></div>
+        <button class="switch" role="switch" aria-checked="${!!sh.wanted}" data-shield="1" aria-label="Sofa Shield"></button></div></section>`;
+    if (setTab === "box") return head("This box", "Its name, its clock, and what it is.") +
+      `<section class="card"><h3>Its name</h3><p>On the boot screen, and to phones looking for it.</p>
+        <div class="add-site"><input class="field" id="boxName" aria-label="The box's name" maxlength="30" value="${esc(s.boot_text || "")}" placeholder="Living room"><button class="btn" data-save-name="1">Save</button></div></section>
+      <section class="card"><h3>Time zone: ${esc(((setup || {}).timezone || "UTC").replace(/_/g, " "))}</h3>
+        <div class="choices zones">${ZONES.map(z => `<button class="choice" data-tz="${z}" aria-pressed="${z === (setup || {}).timezone}">${esc(z.split("/").pop().replace(/_/g, " "))}</button>`).join("")}</div></section>
+      <section class="card"><h3>About</h3><dl class="facts"><dt>Model</dt><dd>${esc(b.model)}</dd><dt>Memory</dt><dd>${b.memory ? Math.round(b.memory / 1048576) + " MB" : "?"}</dd>
         <dt>Picture</dt><dd>${b.board && b.board.tv_height ? "TV at " + b.board.tv_height + "p · " : ""}videos up to ${b.max_height}p${b.max_height >= 2160 ? " (4K)" : ""}</dd>
         <dt>Temperature</dt><dd>${b.temperature != null ? b.temperature + " °C" : "?"}</dd><dt>Software</dt><dd>Sofa Box OS ${esc(b.version)}</dd></dl>
         <div class="choices" style="margin-top:1rem"><button class="btn" data-action="restart">Restart Sofa Box</button><button class="btn" data-action="reboot">Restart the box</button>
-        <button class="btn" data-go="#/welcome">Setup steps again</button></div></section>
-      <section class="card"><h3>Software</h3>${b.newest ? `<p class="update-ready"><b>Sofa Box OS ${esc(b.newest)} is ready.</b> Update the box to get it.</p>` : ""}
-        <p>This is <b>Sofa Box OS ${esc(b.version)}</b>. The newest one comes from GitHub; the box restarts by itself when it's done. <b>Reset</b> puts it back to how it came:
-        your apps, sign-ins, Wi-Fi, Bluetooth devices and the files in Downloads, Videos, Music and Pictures go, and it starts at the setup steps (for a new owner, or a fresh start).</p>
-        <div class="choices"><button class="btn${b.newest ? " primary" : ""}" data-action="update">Update the box</button><button class="btn danger" data-action="factory-reset">Reset to how it came</button></div></section>
-      <section class="card"><h3>Help</h3><p>Something not working? <b>Send a report</b> sends the Sofa Box team what the box checks and what it has logged since it started,
+        <button class="btn" data-go="#/welcome">Setup steps again</button></div></section>`;
+    if (setTab === "software") return head("Software", `This is <b>Sofa Box OS ${esc(b.version)}</b>.`) +
+      `<section class="card">${b.newest ? `<p class="update-ready"><b>Sofa Box OS ${esc(b.newest)} is ready.</b> Update the box to get it.</p>` : ""}
+        <p>The newest one comes from GitHub; the box restarts by itself when it's done.</p>
+        <div class="choices"><button class="btn${b.newest ? " primary" : ""}" data-action="update">Update the box</button></div></section>
+      <section class="card"><h3>Reset to how it came</h3><p>Your apps, sign-ins, Wi-Fi, Bluetooth devices and the files in Downloads, Videos, Music and Pictures go,
+        and it starts at the setup steps (for a new owner, or a fresh start).</p><div class="choices"><button class="btn danger" data-action="factory-reset">Reset to how it came</button></div></section>`;
+    return head("Help", "Something not working?") +
+      `<section class="card"><p><b>Send a report</b> sends the Sofa Box team what the box checks and what it has logged since it started,
         so we can see what went wrong. No titles, passwords or codes are in it. Send it before you restart the box: a restart clears the logs. (Your phone's remote has it too.)</p>
-        <div class="choices"><button class="btn" data-action="send-report">Send a report</button></div><p class="small" id="reportNo">${lastReport ? "Last report: number <b>" + esc(lastReport) + "</b>." : ""}</p></section></div>`;
+        <div class="choices"><button class="btn primary" data-action="send-report">Send a report</button></div><p class="small" id="reportNo">${lastReport ? "Last report: number <b>" + esc(lastReport) + "</b>." : ""}</p></section>`;
+  }
+
+  // ---- Wi-Fi: one list (Settings and the setup's Internet step), and joining from it: the password typed with the remote
+  // on the TV's own keyboard, and how the joining goes, right there (the agent joins after answering; it takes a while).
+  async function scanWifi() {
+    wifiAt = Date.now();
+    try { const r = await api("/box/api/action/wifi-scan", {}); wifiNets = r.networks || []; } catch (e) { wifiNets = wifiNets || []; }
+    const el = $("#wifi");
+    if (el) { const had = cur && el.contains(cur) ? keyOf(cur) : null; el.innerHTML = wifiRows(wifiNets, (boxInfo || {}).wifi); if (had && $(had)) focus($(had)); }
+  }
+  function wifiRows(nets, on) {
+    if (!nets) return `<p class="small looking"><i class="spin"></i>Looking for Wi-Fi…</p>`;
+    if (!nets.length) return `<p class="small">No Wi-Fi found. <b>Look again</b>, or plug in a network cable.</p>`;
+    const list = nets.slice().sort((x, y) => (y.ssid === on) - (x.ssid === on) || y.signal - x.signal).slice(0, 14);
+    return list.map(w => `<button class="wifi-row${w.ssid === on ? " on" : ""}" data-wifi-pick="${esc(w.ssid)}" data-secure="${w.secure ? 1 : 0}">
+      <span class="bars b${Math.max(1, Math.min(4, Math.ceil(w.signal / 25)))}"><i></i><i></i><i></i><i></i></span><b>${esc(w.ssid)}</b>
+      ${w.ssid === on ? `<i class="pill">Connected</i>` : w.secure ? `<small class="lock" aria-label="password">🔒</small>` : `<small>Open</small>`}</button>`).join("");
+  }
+  function joinWifi(ssid, secure) {
+    if ((boxInfo || {}).wifi === ssid && location.hash.startsWith("#/settings")) return toast("The box is on " + ssid + " already.");
+    sheet(`<h3>Join ${esc(ssid)}</h3>${secure ? `<div class="kb-field"><input class="field kb-target" id="kbText" type="password" autocomplete="off" spellcheck="false" placeholder="Its password">
+        <button class="mini" data-kb="show">Show</button></div>${kbHtml()}` : `<p class="sheet-note">An open network: no password.</p>`}
+      <p class="small kb-msg" id="kbMsg" role="status"></p>
+      <div class="sheet-row"><button class="btn primary" data-sheet="join">Join</button><button class="btn" data-sheet="close">Cancel</button></div>`, async a => {
+      if (a !== "join") return closeSheet();
+      const msg = $("#kbMsg"), btn = $(".sheet [data-sheet='join']"), pw = ($("#kbText") || {}).value || "";
+      if (secure && pw.length < 8) { msg.textContent = "A Wi-Fi password has at least 8 characters."; return; }
+      btn.disabled = true; msg.innerHTML = `<i class="spin"></i> Joining ${esc(ssid)}… up to a minute.`;
+      let r;
+      try { r = await api("/box/api/action/wifi-connect", { ssid, password: pw }); } catch (e) { r = { ok: false, message: e.message }; }
+      const end = Date.now() + 90000;
+      while (r.ok && r.pending && Date.now() < end) {          // how it goes: the agent's answer comes before the joining
+        await new Promise(res => setTimeout(res, 1500));
+        const j = ((await loadSetup()) || {}).network ? setup.network.joining : null;
+        if (j && j.ssid === ssid && j.state !== "joining") r = { ok: j.state === "joined", message: j.message };
+      }
+      if (!$(".sheet-back")) return;
+      if (r.ok && !r.pending) {
+        msg.innerHTML = `<b class="okay">✓ ${esc(r.message || "Connected.")}</b>`;
+        boxInfo = null; wifiNets = null;
+        setTimeout(() => { closeSheet(); if (location.hash.startsWith("#/settings")) loadInfo(); else render(true); }, 1400);
+        return;
+      }
+      btn.disabled = false;
+      msg.innerHTML = `<b class="bad">${esc(r.pending ? "It's taking longer than it should. Look again in a moment." : r.message || "That didn't work.")}</b>`;
+      if ($(".sheet .kb-key")) focus($(".sheet [data-kb='q']") || $(".sheet .kb-key"));
+    });
+    if (secure) focus($(".sheet [data-kb='q']"));
+  }
+
+  // ---- the TV's own keyboard: typing with the remote (or a controller), in any field on the box's screens. OK on a
+  // field opens it; a real keyboard types as before. Letters, numbers, and the symbols passwords use.
+  const KB_ROWS = ["1234567890", "qwertyuiop", "asdfghjkl@", "zxcvbnm.-_"];
+  const KB_SYMS = ["1234567890", "!@#$%^&*()", "-_=+[]{};:", "'\",.<>/?~`"];
+  let kbShift = false, kbSym = false;
+  function kbHtml() {
+    kbShift = false; kbSym = false;
+    return `<div class="kb" role="group" aria-label="Keyboard">${KB_ROWS.map(r => `<div class="kb-row">${[...r].map(c => `<button class="kb-key" data-kb="${esc(c)}">${esc(c)}</button>`).join("")}</div>`).join("")}
+      <div class="kb-row"><button class="kb-key wide" data-kb="shift">⇧ ABC</button><button class="kb-key wide" data-kb="sym">#+=</button>
+        <button class="kb-key space" data-kb="space">Space</button><button class="kb-key wide" data-kb="bksp">⌫ Delete</button></div></div>`;
+  }
+  function kbLabels() {
+    const rows = kbSym ? KB_SYMS : KB_ROWS;
+    $$(".kb .kb-row").slice(0, 4).forEach((row, i) => [...row.children].forEach((b, j) => {
+      const c = rows[i][j], ch = kbShift && !kbSym ? c.toUpperCase() : c;
+      b.dataset.kb = ch; b.textContent = ch;
+    }));
+    const sh = $(".kb [data-kb='shift']"); if (sh) sh.classList.toggle("on", kbShift);
+    const sy = $(".kb [data-kb='sym']"); if (sy) { sy.classList.toggle("on", kbSym); sy.textContent = kbSym ? "ABC" : "#+="; }
+  }
+  function kbPress(k) {
+    const f = $(".sheet .kb-target"); if (!f) return;
+    if (k === "shift") { kbShift = !kbShift; return kbLabels(); }
+    if (k === "sym") { kbSym = !kbSym; kbShift = false; return kbLabels(); }
+    if (k === "show") { f.type = f.type === "password" ? "text" : "password"; const b = $(".sheet [data-kb='show']"); if (b) b.textContent = f.type === "password" ? "Show" : "Hide"; return; }
+    if (k === "bksp") f.value = f.value.slice(0, -1);
+    else if (f.value.length < (+f.maxLength > 0 ? +f.maxLength : 128)) f.value += k === "space" ? " " : k;
+    if (kbShift && k.length === 1) { kbShift = false; kbLabels(); }
+  }
+  function typeSheet(input) {                  // a field on a page: its keyboard in a sheet, Done puts the text back
+    const label = input.getAttribute("aria-label") || input.placeholder || "Type";
+    sheet(`<h3>${esc(label.split(":")[0])}</h3><div class="kb-field"><input class="field kb-target" id="kbText" value="${esc(input.value)}" maxlength="${input.maxLength > 0 ? input.maxLength : 200}"
+        type="${input.type === "password" ? "password" : "text"}" spellcheck="false" autocomplete="off"></div>${kbHtml()}
+      <div class="sheet-row"><button class="btn primary" data-sheet="ok">Done</button><button class="btn" data-sheet="close">Cancel</button></div>`, a => {
+      const v = ($("#kbText") || {}).value;
+      closeSheet();
+      if (a === "ok" && document.contains(input)) { input.value = v; input.dataset.typed = "1"; focus(input);
+        if (input.id !== "tbDomain" && input.id !== "tbToken") submit(input); }
+    });
+    focus($(".sheet [data-kb='q']"));
   }
 
   // ---- the first start: how you'll work it, the internet, Bluetooth, the box itself, your apps; then Home.
@@ -785,33 +919,31 @@
     const nav = (back, next, label) => `<div class="setup-nav">${back ? `<button class="btn" data-step="${step === 2 && online ? 0 : step - 1}">Back</button>` : "<span></span>"}
       <button class="btn primary big" ${next}>${label}</button></div>`;
     if (step === 0) return `<div class="setup view-in">${top}<div class="setup-body hello">
-        <div class="hello-head"><h1>Hello. Let's set up your Sofa Box.</h1><p>It takes two minutes. Use whatever's in your hand:</p></div>
+        <div class="hello-head"><h1>Let's set up your Sofa Box.</h1><p>About two minutes. Use whatever's in your hand.</p></div>
         <div class="ways">
-          <section class="way phone"><h3><span>📱</span>Set up with your phone</h3><div id="phoneBox">${phoneBox()}</div></section>
-          <section class="way"><h3><span>📺</span>A remote or controller</h3>
-            <p><b>Fire TV remote</b> (or another Bluetooth remote): hold its <b>Home</b> button for 10 seconds. It pairs by itself.</p>
-            <p><b>Game controller:</b> put it in pairing mode.</p><div id="btList" class="bt-list small-list">${btList()}</div></section>
-          <section class="way"><h3><span>⌨</span>Keyboard and mouse</h3><p>Plug the USB dongle into the box. They work straight away.</p>
-            <p class="small">Press <b>OK</b> or <b>Enter</b> to start.</p></section>
+          <section class="way phone"><h3>${icon("#i-phone")}With your phone<i class="pill">Easiest</i></h3><div id="phoneBox">${phoneBox()}</div></section>
+          <div class="ways-side">
+            <section class="way"><h3>${icon("#i-remote")}A remote or controller</h3>
+              <p><b>Fire TV remote:</b> hold <b>Home</b> for 10 seconds. <b>Controller:</b> its pairing mode. Either pairs by itself.</p>
+              <div id="btList" class="bt-list small-list">${btList()}</div></section>
+            <section class="way"><h3>${icon("#i-keyboard")}A keyboard</h3><p>Plug its USB dongle into the box, then press <b>Enter</b>.</p></section>
+          </div>
         </div></div>${nav(false, `data-step="${online ? 2 : 1}"`, "Start")}</div>`;
     if (step === 1) {
       const n = (setup || {}).network || {};
       const nets = (n.networks || []).slice(0, 12);
       return `<div class="setup view-in">${top}<div class="setup-body"><h1>Internet</h1>
         <div id="netState">${netState()}</div>
-        ${n.wired || n.wifi ? "" : `<div class="wifi-list">${nets.map(w => `<button class="wifi-row${wifiPick === w.ssid ? " on" : ""}" data-wifi-pick="${esc(w.ssid)}" data-secure="${w.secure ? 1 : 0}">
-            <span class="bars b${Math.min(4, Math.ceil(w.signal / 25))}"><i></i><i></i><i></i><i></i></span><b>${esc(w.ssid)}</b>${w.secure ? "<small>🔒</small>" : ""}${w.on ? `<i class="pill">✓</i>` : ""}</button>`).join("")
-            || `<p class="small">Looking for Wi-Fi…</p>`}</div>
-          <div class="wifi-join" ${wifiPick ? "" : "hidden"}><input class="field" id="wifiPass" type="password" placeholder="Password for ${esc(wifiPick || "")}" spellcheck="false">
-            <button class="btn primary" data-wifi-go="1">Join</button></div>
-          <p class="small">Typing a password with a remote? Use your phone: the <b>Keyboard</b> tab types into the box. <button class="mini" data-wifi-rescan="1">Look again</button></p>`}
+        ${n.wired || n.wifi ? "" : `<div class="wifi-list" id="wifi">${wifiRows(nets.length ? nets : wifiNets, null)}</div>
+          <p class="small">Pick yours: its password goes in with the remote, or from your phone (the remote's <b>Keyboard</b> tab).
+            <button class="mini" data-wifi-rescan="1">Look again</button></p>`}
         </div>${nav(true, `data-step="2"`, n.wired || n.wifi ? "Next" : "Skip for now")}</div>`;
     }
     if (step === 2) {
       const sz = (setup || {}).timezone || "UTC";
       return `<div class="setup view-in">${top}<div class="setup-body"><h1>Your box</h1>
         <div class="box-grid"><section><h3>Its name</h3><p class="small">On the boot screen, and to phones looking for it.</p>
-            <div class="add-site"><input class="field" id="boxName" maxlength="30" value="${esc((setup || {}).name || "")}" placeholder="Living room"><button class="btn" data-save-name="1">Save</button></div>
+            <div class="add-site"><input class="field" id="boxName" aria-label="The box's name" maxlength="30" value="${esc((setup || {}).name || "")}" placeholder="Living room"><button class="btn" data-save-name="1">Save</button></div>
           <h3>Time zone</h3><p class="small">${(setup || {}).tz_set ? "Set" + (sz ? ": <b>" + esc(sz.replace(/_/g, " ")) + "</b>" : "") + ". " : ""}${(setup || {}).tz_set ? "" : "Your phone sets it when it connects. Or pick:"}</p>
             <div class="choices zones">${ZONES.map(z => `<button class="choice" data-tz="${z}" aria-pressed="${z === sz}">${esc(z.split("/").pop().replace(/_/g, " "))}</button>`).join("")}</div></section>
           <section><h3>Its look</h3><div class="themes two">${THEMES.map(t => `<button class="theme" data-theme-pick="${t[0]}" aria-pressed="${data.theme === t[0]}" style="--sw-bg:${t[2]};--sw-a:${t[3]};--sw-a2:${t[4]}"><i></i><b>${t[1]}</b></button>`).join("")}</div></section></div>
@@ -847,9 +979,10 @@
     return true;
   }
   function askText(label, value, then) {
-    sheet(`<h3>${esc(label)}</h3><input class="field" id="sheetText" value="${esc(value)}" spellcheck="false"><button class="btn primary" data-sheet="ok">OK</button><button class="btn" data-sheet="close">Cancel</button>`,
+    sheet(`<h3>${esc(label)}</h3><div class="kb-field"><input class="field kb-target" id="sheetText" value="${esc(value)}" spellcheck="false" autocomplete="off"></div>${kbHtml()}
+      <div class="sheet-row"><button class="btn primary" data-sheet="ok">OK</button><button class="btn" data-sheet="close">Cancel</button></div>`,
       a => { if (a === "ok") then($("#sheetText").value); else closeSheet(); });
-    const i = $("#sheetText"); if (i) { i.focus(); i.select(); }
+    focus($(".sheet [data-kb='q']"));
   }
   function confirmSheet(text, then) {
     sheet(`<h3>${esc(text)}</h3><button class="btn danger" data-sheet="yes">Yes</button><button class="btn" data-sheet="close">No</button>`, a => { if (a === "yes") then(); else closeSheet(); });
@@ -900,6 +1033,7 @@
     if (el.tagName === "INPUT") el.focus({ preventScroll: true }); else { if (document.activeElement && document.activeElement.tagName === "INPUT") document.activeElement.blur(); el.focus({ preventScroll: true }); }
     reveal(el, prev);
     if (el.dataset.store) storeDetail(el.dataset.store);
+    if (el.dataset.setTab) { clearTimeout(setTabTimer); setTabTimer = setTimeout(() => { if (cur === el) showTab(el.dataset.setTab); }, 110); }
   }
   // Scrolling the way a TV's home screen does, smoothly (it's the compositor's work, light even on a Pi 3): a new row
   // comes up under the top bar with its title, the same place every time; along a row, the next tile peeks in;
@@ -915,6 +1049,7 @@
       if (Math.abs(dx) > 1) rail.scrollBy(Object.assign({ left: dx }, how));
     }
     if (!el.closest("#view")) return;
+    if (el.closest(".set-nav")) { if (scrollY > 0) window.scrollTo(Object.assign({ top: 0 }, how)); return; }    // (it stays put: sticky)
     const bar = $(".top"), top = (bar && getComputedStyle(bar).display !== "none" ? bar.getBoundingClientRect().bottom : 0) + .6 * rem;
     const hint = $("#hint"), bottom = innerHeight - (hint && getComputedStyle(hint).display !== "none" ? hint.offsetHeight : 0) - .6 * rem;
     if (el.closest(".mast")) {                                                            // Home's top: all the way up
@@ -946,22 +1081,29 @@
     // Within the page first: the top bar stays on screen while rows above have scrolled away, and Up from a row
     // means the row above it (the top bar only from the first one)
     const inPage = cur.closest("#view") ? nearest(list.filter(e => e.closest("#view"))) : null;
-    const best = inPage || nearest(list);
+    let best = inPage || nearest(list);
+    if (best && best.closest(".set-nav") && cur.closest("#setPane")) best = $(".set-tab[aria-current='true']") || best;
     if (best) focus(best);
   }
   function back() {
     if ($(".viewer")) { $(".viewer").remove(); return; }
     if (location.hash.startsWith("#/welcome")) { if (step > 0 && !$(".sheet-back")) { step--; render(true); } return; }
     if (closeSheet()) return;
+    if (cur && cur.closest("#setPane")) { focus($(".set-tab[aria-current='true']")); return; }
     if (location.hash.startsWith("#/files") && filesAt.path) { filesAt.path = filesAt.path.split("/").slice(0, -1).join("/"); loadFiles(); return; }
     if (location.hash && location.hash !== "#/") { location.hash = "#/"; return; }
   }
   document.addEventListener("keydown", e => {
-    const k = e.key, typing = document.activeElement && document.activeElement.tagName === "INPUT";
-    if (k === "ArrowLeft" || k === "ArrowRight") { if (typing && document.activeElement.value) return; e.preventDefault(); move(k === "ArrowRight" ? 1 : -1, 0); }
+    const k = e.key, typing = document.activeElement && document.activeElement.tagName === "INPUT", field = typing ? document.activeElement : null;
+    const kb = $(".sheet .kb-target");
+    if (kb && !typing && !e.ctrlKey && !e.metaKey && !e.altKey && (k.length === 1 || k === "Backspace")) {   // a real keyboard, the TV's open
+      e.preventDefault(); return kbPress(k === "Backspace" ? "bksp" : k === " " ? "space" : k);
+    }
+    if (k === "ArrowLeft" || k === "ArrowRight") { if (typing && field.value && field.dataset.typed) return; e.preventDefault(); move(k === "ArrowRight" ? 1 : -1, 0); }
     else if (k === "ArrowUp" || k === "ArrowDown") { e.preventDefault(); move(0, k === "ArrowDown" ? 1 : -1); }
     else if (k === "Enter" && !typing) { e.preventDefault(); if (cur) cur.click(); }
-    else if (k === "Enter" && typing) { e.preventDefault(); submit(document.activeElement); }
+    else if (k === "Enter" && typing) { e.preventDefault();
+      if (!field.dataset.typed && !field.closest(".sheet") && field.type !== "file") typeSheet(field); else submit(field); }
     else if ((k === "Escape" || k === "BrowserBack" || (k === "Backspace" && !typing))) { e.preventDefault(); back(); }
     else if (k === "BrowserHome" || k === "F1") { e.preventDefault(); closeSheet(); location.hash = "#/"; }
     else if ((k === "ContextMenu" || k === "F2") && cur && cur.dataset.app) { e.preventDefault(); appMenu(cur.dataset.app); }
@@ -969,28 +1111,30 @@
       e.preventDefault(); location.hash = "#/browser"; setTimeout(() => { const a = $("#address"); if (a) { a.value = k; focus(a); } }, 60);   // type to search
     }
   });
+  document.addEventListener("input", e => { if (e.target.tagName === "INPUT") e.target.dataset.typed = "1"; });
   document.addEventListener("mouseover", e => { const t = e.target.closest("button, .tabs a, input"); if (t && t !== cur && !t.closest(".sheet-back") === !$(".sheet-back")) { if (cur) cur.classList.remove("f"); cur = t; t.classList.add("f"); if (t.dataset.store) storeDetail(t.dataset.store); } });
   document.addEventListener("contextmenu", e => { const t = e.target.closest("[data-app]"); if (t) { e.preventDefault(); appMenu(t.dataset.app); } });
   function submit(input) {
-    if (input.id === "address") go(input.value);
+    if (input.classList.contains("kb-target")) { const ok = $(".sheet [data-sheet='join'], .sheet [data-sheet='ok']"); if (ok) ok.click(); }
+    else if (input.id === "address") go(input.value);
     else if (input.id === "siteUrl") $("[data-add-site]").click();
     else if (input.id === "boxName") $("[data-save-name]").click();
     else if (input.id === "wxPlace") $("[data-wx-find]").click();
     else if (input.id === "tbDomain" || input.id === "tbToken") $("[data-tb='open']").click();
     else if (input.id === "sheetText") $("[data-sheet='ok']").click();
-    else if (input.id === "wifiPass") $("[data-wifi-go]").click();
-    else if (input.dataset.wifiPass !== undefined) $("[data-wifi-join]").click();
   }
 
   // ---------------------------------------------------------------- what the buttons do
   document.addEventListener("click", async e => {
     const t = e.target.closest("button, a"); if (!t) return;
+    if (t.dataset.kb !== undefined) { e.preventDefault(); return kbPress(t.dataset.kb); }
     if (t.dataset.sheet && sheetHandler) { e.preventDefault(); return sheetHandler(t.dataset.sheet); }
     const closeBtn = e.target.closest("[data-close]");
     if (closeBtn) { e.preventDefault(); e.stopPropagation(); await api("/box/api/close", { target: closeBtn.dataset.close }).catch(() => {}); await loadApps(); return render(true); }
     const d = t.dataset;
     try {
-      if (d.app) { const a = data.apps.find(x => x.id === d.app) || { id: d.app, kind: "web" }; openApp(a); }
+      if (d.setTab) { showTab(d.setTab); const f = $("#setPane button:not([disabled]), #setPane input"); if (f) focus(f); }
+      else if (d.app) { const a = data.apps.find(x => x.id === d.app) || { id: d.app, kind: "web" }; openApp(a); }
       else if (d.go) location.hash = d.go;
       else if (d.sofaHash) open({ id: "sofa", hash: d.sofaHash });
       else if (d.target) await api("/box/api/front", { target: d.target }).catch(() => open({ id: (data.running.find(r => r.target === d.target) || {}).app || "browser" }));
@@ -1021,7 +1165,7 @@
       else if (d.set) { boxInfo = Object.assign(boxInfo, await api("/box/api/settings", { [d.set]: d.value })); boxInfo.shield = await api("/box/api/shield");
         if (d.set === "performance") { await loadApps(); toast("The browser takes it fully from the box's next start."); }
         if (d.set.startsWith("weather")) loadWeather();
-        render(true); }
+        refreshPane(); }
       else if (d.wxFind) { const q = ($("#wxPlace") || {}).value || ""; $("#wxFound").innerHTML = `<p class="small">Looking…</p>`;
         const r = await api("/box/api/weather/places?q=" + encodeURIComponent(q)); wxFound = r.places || [];
         $("#wxFound").innerHTML = wxFound.length ? wxFound.map((p, i) => `<button class="choice" data-wx-pick="${i}">${esc(p.name)}<small> ${esc(p.where)}</small></button>`).join("")
@@ -1041,26 +1185,17 @@
       else if (d.move) await moveApp(d.move, +d.by);
       else if (d.hide) await hideApp(d.hide);
       else if (d.action) await action(d.action, t);
-      else if (d.wifi) { const pass = `<input class="field" data-wifi-pass="1" type="password" placeholder="Password for ${esc(d.wifi)}">`;
-        $("#wifi").innerHTML = `<div class="add-site">${d.secure === "1" ? pass : ""}<button class="btn primary" data-wifi-join="${esc(d.wifi)}">Join ${esc(d.wifi)}</button></div>`;
-        focus($("#wifi input, #wifi button")); }
-      else if (d.wifiJoin) { toast("Joining " + d.wifiJoin + "…"); const pw = $("[data-wifi-pass]");
-        const r = await api("/box/api/action/wifi-connect", { ssid: d.wifiJoin, password: pw ? pw.value : "" }); toast(r.message || (r.ok ? "Connected." : "That didn't work.")); boxInfo = null; loadInfo(); }
       else if (d.step) {
         step = +d.step; render(true);
         if (step === 1 && setup && !(setup.network.wired || setup.network.wifi) && !(setup.network.networks || []).length) {
-          const r = await api("/box/api/action/wifi-scan", {}); setup.network.networks = r.networks || []; render(true);
+          const r = await api("/box/api/action/wifi-scan", {}).catch(() => ({}));
+          setup.network.networks = wifiNets = r.networks || []; wifiAt = Date.now(); render(true);
         }
       }
-      else if (d.wifiPick) {
-        wifiPick = d.wifiPick;
-        if (d.secure === "0") { toast("Joining " + wifiPick + "…"); const r = await api("/box/api/action/wifi-connect", { ssid: wifiPick }); toast(r.message); await loadSetup(); }
-        render(true); const pw = $("#wifiPass"); if (pw && d.secure !== "0") focus(pw);
-      }
+      else if (d.wifiPick) joinWifi(d.wifiPick, d.secure === "1");
       else if (d.codes) { codesShown = { which: d.codes, until: Date.now() + 60000 }; render(true); }
-      else if (d.wifiGo) { toast("Joining " + wifiPick + "…"); const r = await api("/box/api/action/wifi-connect", { ssid: wifiPick, password: ($("#wifiPass") || {}).value || "" });
-        toast(r.message || (r.ok ? "Connected." : "That didn't work.")); if (r.ok) wifiPick = null; await loadSetup(); render(true); }
-      else if (d.wifiRescan) { toast("Looking for Wi-Fi…"); const r = await api("/box/api/action/wifi-scan", {}); if (setup) setup.network.networks = r.networks || []; render(true); }
+      else if (d.wifiRescan) { wifiNets = null; const el = $("#wifi"); if (el) el.innerHTML = wifiRows(null); await scanWifi();
+        if (setup && setup.network) setup.network.networks = wifiNets; if (location.hash.startsWith("#/welcome")) render(true); }
       else if (d.bt) { const dev = ((setup || {}).bluetooth || { devices: [] }).devices.find(x => x.mac === d.bt);
         if (dev && dev.paired) toast(dev.name + " is paired already."); else { await api("/box/api/bt/pair", { mac: d.bt }); toast("Pairing…"); } }
       else if (d.btForget) confirmSheet("Forget this device?", async () => { closeSheet(); await api("/box/api/bt/forget", { mac: d.btForget }); await loadSetup(); render(true); })
@@ -1140,7 +1275,8 @@
     document.documentElement.dataset.page = name || "home";
     const again = keepKey && $(keepKey);
     focus(again || $(name === "browser" ? "#address" : name === "store" ? "[data-store]" : name === "sofa" ? "#view .srv, #view .mini"
-      : name === "welcome" ? "#view .btn.primary, #view .tile" : "#view .mast .btn, #view .tile, #view button, #view input") || $(".tabs a"));
+      : name === "welcome" ? "#view .btn.primary, #view .tile" : name === "settings" ? ".set-tab[aria-current='true']"
+      : "#view .mast .btn, #view .tile, #view button, #view input") || $(".tabs a"));
     hint(name === "files" ? [["OK", "Open or play"], ["Menu", "Rename, move, delete"], ["Back", "Up a folder"]]
       : name === "sofa" ? [["OK", "Use this one"], ["Back", "Home screen"]]
       : name === "browser" ? [["OK", "Go"], ["Menu", "on a site: the Sofa bar"], ["Home", "Back here from any app"]]
@@ -1148,7 +1284,7 @@
       : [["OK", "Choose"], ["Back", "Home screen"]]);
   }
   function keyOf(el) {
-    for (const a of ["app", "store", "game", "play", "gameGet", "gameRemove", "file", "root", "set", "themePick", "move", "hide", "action", "target", "go", "url", "server", "pick", "addFound", "drive", "disc", "default", "forgetServer", "ask", "bt", "wifiPick", "tz", "step", "btLook"]) {
+    for (const a of ["app", "store", "game", "play", "gameGet", "gameRemove", "file", "root", "set", "themePick", "move", "hide", "action", "target", "go", "url", "server", "pick", "addFound", "drive", "disc", "default", "forgetServer", "ask", "bt", "wifiPick", "tz", "step", "btLook", "setTab", "wifiRescan", "kb"]) {
       if (el.dataset[a] !== undefined) {
         const attr = "data-" + a.replace(/[A-Z]/g, c => "-" + c.toLowerCase());
         return `[${attr}="${CSS.escape(el.dataset[a])}"]` + (el.dataset.by ? `[data-by="${el.dataset.by}"]` : "") + (el.dataset.value ? `[data-value="${el.dataset.value}"]` : "");
@@ -1202,6 +1338,7 @@
   }
 
   async function start() {
+    try { history.scrollRestoration = "manual"; } catch (e) {}       // (a TV app: each page from its top, not where it was)
     await loadApps();
     const introDone = intro();
     loadWeather();

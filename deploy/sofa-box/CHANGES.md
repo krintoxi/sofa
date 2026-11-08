@@ -7,6 +7,34 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.36
+
+- **Settings, as on a TV.** What there is to set is a list down the left, and the one you're on shows beside it:
+  Wi-Fi and network, Remotes and Bluetooth, Sofa, Picture and sound, Home screen, Sofa Shield, This box, Software,
+  Help.
+  - It used to be one page of 13 cards, over 5,000 pixels tall. Only the part on screen is drawn now (78 elements
+    instead of 259), so a Pi 3 answers the remote quickly there.
+  - New data redraws only that part, not the whole page 4 or 5 times as it opened.
+  - Back comes out to the list, and Left from a part goes to its place in the list.
+- **Settings didn't open sometimes** ("Cannot read properties of undefined (reading 'on')" in a report). It was drawn
+  between its two answers from the box, before the Sofa Shield one.
+- **A keyboard on the TV.** OK on any field (the box's name, a town for the weather, an address, a Wi-Fi password)
+  opens a keyboard you type on with the remote or a controller, with capitals, numbers and symbols. A real keyboard
+  types into it too.
+- **Wi-Fi.** One list, in Settings and at setup: signal bars, a lock, and the one it's on marked. Picking one opens
+  its password on the TV's keyboard (Show to see it), and how the joining goes shows right there: "Joining…", then
+  connected, or "The password isn't right" with the password kept to fix. Settings used to say "The TV shows how it
+  goes", and then didn't show it.
+- **Setup's first screen** puts the phone first and biggest (the easiest way), with the remote and a keyboard beside
+  it and drawn icons instead of emoji. The Internet step no longer says "Looking for Wi-Fi…" for ever when there's
+  none to find.
+- **Reports tell heat from power.** A Pi that slowed down because it got hot (`0x80000`) was reported as short of
+  power, with advice about the power supply. Now it says it got hot and to give it air. Short of power still says to
+  use the official supply.
+- **Each page opens at its top** (the browser kept the old place after a restart of the home screen).
+- **Sofa 1.4.5:** Sofa's menu down the left glides open over the page and dims it, goes to the page you're on, and
+  goes back to where you were.
+
 ## 1.1.35
 
 - **Sofa 1.4.3.** On the TV, a link to another site (the EdgeVenture.uk credit, GitHub) shows a QR code to open it

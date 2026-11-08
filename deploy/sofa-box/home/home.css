@@ -230,6 +230,38 @@ h2.row-title small { margin-left: .6rem; font: 500 .85rem var(--text); color: va
 
 /* settings */
 .settings { display: grid; gap: 1.2rem; max-width: 56rem; }
+/* Settings, as on a TV: the list down the left, the one you're on beside it (only that one drawn) */
+.settings:has(.set-grid) { max-width: none; gap: 0; }
+.set-grid { display: grid; grid-template-columns: 17rem 1fr; gap: 2rem; align-items: start; }
+.set-nav { position: sticky; top: 5.2rem; display: grid; gap: .25rem; }
+.set-tab { display: flex; align-items: center; gap: .9rem; padding: .75rem 1rem; border: 0; background: none; border-radius: calc(var(--r) * 1.1); color: var(--mist);
+  font-weight: 700; text-align: left; transition: background .12s, color .12s; }
+.set-tab svg { width: 1.35rem; height: 1.35rem; flex: none; }
+.set-tab[aria-current="true"] { color: var(--fg); background: var(--tile); box-shadow: inset .22rem 0 0 var(--a); }
+.set-tab.f { background: var(--fg); color: var(--bg); box-shadow: none; }
+.set-pane { display: grid; gap: 1.1rem; min-width: 0; max-width: 46rem; }
+.pane-title { margin: 0; font: 800 1.6rem/1.1 var(--display); letter-spacing: -.01em; }
+.set-pane .lede { margin: -.5rem 0 .2rem; }
+.row-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: .6rem; }
+.row-head h3 { margin: 0; }
+.set-pane .wifi-list { display: grid; gap: .45rem; }
+.wifi-row .lock { opacity: .7; }
+.wifi-row .pill { background: #3DDC84; color: #062; }
+/* the TV's own keyboard (typing with the remote): in a sheet, under the field it types into */
+.sheet:has(.kb) { width: min(44rem, 94vw); }
+.kb-field { display: flex; gap: .6rem; align-items: center; }
+.kb-field .field { font-size: 1.1rem; letter-spacing: .02em; }
+.kb { display: grid; gap: .35rem; margin: .3rem 0 .2rem; }
+.kb-row { display: grid; grid-template-columns: repeat(10, 1fr); gap: .35rem; }
+.kb-row:last-child { grid-template-columns: 2fr 2fr 4fr 2fr; }
+.kb-key { height: 2.5rem; border-radius: .6rem; background: var(--tile); border: 1px solid var(--line); font: 700 1.05rem/1 var(--display); color: var(--fg); }
+.kb-key.wide, .kb-key.space { font-size: .85rem; }
+.kb-key.on { background: var(--a); color: var(--a-ink); }
+.kb-key.f { background: var(--fg); color: var(--bg); box-shadow: 0 0 0 .14rem var(--a); }
+.sheet-row { display: flex; gap: .6rem; justify-content: flex-end; margin-top: .3rem; }
+.kb-msg { min-height: 1.2rem; margin: .1rem 0 0; }
+.kb-msg .bad { color: #FF6B6B; }
+html.lite .set-tab, html.lite .kb-key { transition: none; }
 .card { padding: 1.3rem 1.4rem; border-radius: calc(var(--r) * 1.2); background: var(--bg2); border: 1px solid var(--line); }
 .card h3 { margin: 0 0 .3rem; font: 800 1.2rem/1.2 var(--display); }
 .card p { margin: 0 0 1rem; color: var(--mist); font-size: .9rem; }
@@ -530,7 +562,10 @@ html.lite .sleep-art.on { animation: none; }                          /* (a Pi 3
 /* Hello fits the TV with its codes whole: nothing under the bar at the bottom, nothing past a TV's trimmed edges */
 .setup-body.hello { padding-top: .6rem; }
 .setup-body.hello h1 { font-size: 2.1rem; }
-.ways { display: grid; grid-template-columns: 2.1fr 1fr 1fr; gap: 1rem; align-items: start; }
+.ways { display: grid; grid-template-columns: 1.5fr 1fr; gap: 1rem; align-items: stretch; }
+.ways-side { display: grid; gap: 1rem; align-content: start; }
+.way h3 svg { width: 1.5rem; height: 1.5rem; flex: none; color: var(--a); }
+.way h3 .pill { margin-left: .3rem; background: var(--a); color: var(--a-ink); }
 .qr-row { display: flex; align-items: center; gap: 1.1rem; text-align: left; }
 .qr-row .qr.big { flex: none; width: min(9.5rem, 29vh); height: min(9.5rem, 29vh); }
 .qr-text { display: grid; gap: .4rem; justify-items: start; }
@@ -538,7 +573,6 @@ html.lite .sleep-art.on { animation: none; }                          /* (a Pi 3
 .qr-text p { margin: 0; }
 .way { padding: .9rem 1.2rem; border-radius: calc(var(--r) * 1.3); background: var(--bg2); border: 1px solid var(--line); display: grid; gap: .5rem; align-content: start; }
 .way h3 { margin: 0 0 .2rem; display: flex; align-items: center; gap: .5rem; font: 800 1.15rem var(--display); }
-.way h3 span { font-size: 1.4rem; }
 .way p { margin: 0; color: var(--mist); font-size: .9rem; }
 .way p b { color: var(--fg); }
 .way.phone { border-color: color-mix(in srgb, var(--a) 45%, var(--line)); text-align: center; justify-items: center;

@@ -2867,6 +2867,13 @@ function route(animate) {
   if (trailer) keepTrailer(trailer); else if (animate !== false) startTrailer();
   if (nav === "server") drawGuestQr();
   if (nav === "search" && animate !== false && !rest.join("/")) { const b = $("#pageSearch"); if (b) b.focus(); }
+  else if (animate !== false && document.documentElement.classList.contains("box") && document.activeElement &&
+           document.activeElement.closest(".bar")) {     // chosen in the rail: into the page, and the rail closes
+    pageFocus = null;
+    const first = [...view.querySelectorAll(".hero .btn, .card, .seasons button, .episode .ep-thumb, " + FOCUSABLE)]
+      .find(el => el.getBoundingClientRect().width && shown(el));
+    if (first) first.focus({ preventScroll: true });
+  }
 }
 function rerender() { const y = scrollY; route(false); scrollTo(0, y); }
 window.addEventListener("hashchange", () => { route(); scrollTo(0, 0); });
@@ -3516,37 +3523,63 @@ function moveDialog(id) {
 /* ---------- TV remote: arrow keys move focus to the nearest thing in that direction ---------- */
 const FOCUSABLE = "a[href], button:not([disabled]):not([tabindex='-1']), input, select, [tabindex='0'], [data-mplay]";
 const ARROWS = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+function shown(el) { return !el.closest("[hidden]") && getComputedStyle(el).visibility !== "hidden"; }
 function focusables(scope) {
   return [...scope.querySelectorAll(FOCUSABLE)].filter(el => {
     const r = el.getBoundingClientRect();
-    return r.width > 0 && r.height > 0 && !el.closest("[hidden]") && getComputedStyle(el).visibility !== "hidden";
+    return r.width > 0 && r.height > 0 && shown(el);
   });
 }
-/* Move focus to the nearest focusable thing in direction `dir` inside `scope`. True if it moved. */
+/* On a Sofa Box, the rail down the left: Left from the page goes to the page you're on there (not whatever is level
+   with you), Right goes back to where you were on the page, and choosing in it takes you into the page (route). */
+let pageFocus = null;
+document.addEventListener("focusin", e => { if (e.target.closest && !e.target.closest(".bar") && e.target.closest("#view")) pageFocus = e.target; });
+function railTarget() {
+  const bar = $("#bar"), here = bar.querySelector("[data-nav][aria-current='page'], #searchBtn[aria-current]");
+  return here && here.getBoundingClientRect().width ? here : bar.querySelector("[data-nav]");
+}
+/* Move focus to the nearest focusable thing in direction `dir` inside `scope`. True if it moved. Every candidate's place
+   is read (one layout), but only the nearest few are checked for being shown: on a Pi 3, asking every card on a page
+   for its style made each press slow. */
 function spatialMove(dir, scope, first) {
-  const els = focusables(scope), active = document.activeElement;
+  const els = [...scope.querySelectorAll(FOCUSABLE)], active = document.activeElement;
   if (!els.length) return false;
+  const boxed = document.documentElement.classList.contains("box");
+  const go = (el, how) => {
+    el.focus({ preventScroll: true });
+    el.scrollIntoView(how || { block: boxed && !el.closest(".bar") ? "center" : "nearest", inline: "nearest", behavior: TV && !boxed ? "auto" : "smooth" });
+    return true;
+  };
   if (!active || active === document.body || !els.includes(active)) {
-    const f = (first && scope.querySelector(first)) || els[0];
-    f.focus({ preventScroll: true }); f.scrollIntoView({ block: "nearest", inline: "nearest" }); return true;
+    const f = (first && [...scope.querySelectorAll(first)].find(el => el.getBoundingClientRect().width && shown(el))) || focusables(scope)[0];
+    return f ? go(f, { block: "nearest", inline: "nearest" }) : false;
+  }
+  if (boxed && scope === document) {
+    const inBar = active.closest(".bar");
+    if (inBar && dir[0] === 1 && pageFocus && pageFocus.isConnected && pageFocus.getBoundingClientRect().width && shown(pageFocus)) return go(pageFocus);
+    if (!inBar && dir[0] === -1) {
+      const a = active.getBoundingClientRect(), left = els.some(el => { if (el.closest(".bar")) return false;
+        const r = el.getBoundingClientRect(); return r.width && r.right <= a.left + 4 && r.bottom > a.top && r.top < a.bottom; });
+      if (!left) { const t = railTarget(); if (t) return go(t, { block: "nearest" }); }
+    }
   }
   const a = active.getBoundingClientRect(), ax = a.left + a.width / 2, ay = a.top + a.height / 2;
-  let best = null, bestScore = Infinity;
+  const scored = [];
   els.forEach(el => {
     if (el === active) return;
-    const r = el.getBoundingClientRect(), x = r.left + r.width / 2, y = r.top + r.height / 2;
+    const r = el.getBoundingClientRect();
+    if (!r.width || !r.height) return;
+    const x = r.left + r.width / 2, y = r.top + r.height / 2;
     const dx = x - ax, dy = y - ay, along = dx * dir[0] + dy * dir[1];
     if (along <= 4) return;
-    const across = Math.abs(dir[0] ? dy : dx);
-    const score = along + across * 2.5;
-    if (score < bestScore) { bestScore = score; best = el; }
+    scored.push([along + Math.abs(dir[0] ? dy : dx) * 2.5, el]);
   });
+  scored.sort((p, q) => p[0] - q[0]);
+  const best = (scored.find(([, el]) => shown(el)) || [])[1];
   if (!best) return false;
   // smooth, but on TV sticks (slow to scroll); a Sofa Box scrolls smoothly (html.box)
   // (on a Sofa box the row in focus glides to the middle of the screen, as TV apps do; elsewhere just into view)
-  const boxed = document.documentElement.classList.contains("box");
-  best.focus({ preventScroll: true }); best.scrollIntoView({ block: boxed && !best.closest(".bar") ? "center" : "nearest", inline: "nearest", behavior: TV && !boxed ? "auto" : "smooth" });
-  return true;
+  return go(best);
 }
 document.addEventListener("keydown", e => {
   if (e.key === "Escape" && document.querySelector(".dialog-scrim") && !Player.isOpen()) { e.preventDefault(); closeDialog(); return; }

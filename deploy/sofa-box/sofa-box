@@ -245,7 +245,13 @@ doctor() {
     case "$T" in
       0x0) ok "power supply: steady" ;;
       "") ;;
-      *) bad "power: the Pi has been short of power or too hot ($T)" "use the official 2.5 A (Pi 3) power supply and a short cable" ;;
+      *) if [ $(( T & 0x10001 )) -ne 0 ]; then              # (bits 0 and 16: under-voltage, now or since it started)
+           bad "power: the Pi has been short of power ($T)" "use the official 2.5 A (Pi 3) power supply and a short cable"
+         elif [ $(( T & 0x80008 )) -ne 0 ]; then            # (bits 3 and 19: the soft temperature limit)
+           bad "heat: the Pi got hot enough to slow itself down ($T)" "give it air: out of a closed cabinet, or a case with a heat sink or fan"
+         else
+           bad "the Pi slowed itself down ($T)" "give it air, and use the official power supply"
+         fi ;;
     esac
     note "temperature $(vcgencmd measure_temp 2>/dev/null | cut -d= -f2)"
   fi
