@@ -1,0 +1,1633 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Shadow Heist</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:#000; display:flex; justify-content:center; align-items:center;
+         width:100vw; height:100vh; overflow:hidden; }
+  canvas { image-rendering: pixelated; image-rendering: crisp-edges; display:block; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script src="../pad.js" onerror="window.SofaPad=null"></script>
+<script>
+'use strict';
+
+// ─── Palette ───────────────────────────────────────────────────────────────
+const PAL = {
+  k:"#0d0b14", K:"#241d2e", g:"#5a5468", G:"#9a94a8", w:"#ece8f4",
+  s:"#e0a67a", S:"#a86a48", r:"#c8303a", R:"#7a1a26", o:"#ee8a3a", O:"#9a4a1e",
+  y:"#f2c14e", Y:"#a87a1e", b:"#4a78c8", B:"#243c78", c:"#7ad8f0", C:"#2e6e8a",
+  n:"#6e4c2e", N:"#3e2a1a", e:"#5aa04a", E:"#2e5a2a", p:"#8a4ab0", P:"#4a2468",
+  m:"#e2d49c", M:"#a89860", v:"#b8e070", x:"#ff5a8a", t:"#d0c4b0", T:"#7e6e5c",
+  z:"rgba(0,0,0,0.42)"
+};
+
+// ─── Canvas Setup ──────────────────────────────────────────────────────────
+const W=480, H=270;
+const canvas = document.getElementById('c');
+canvas.width  = W;
+canvas.height = H;
+const ctx = canvas.getContext('2d');
+ctx.imageSmoothingEnabled = false;
+
+function resize(){
+  const s = Math.min(window.innerWidth/W, window.innerHeight/H);
+  canvas.style.width  = Math.round(W*s)+'px';
+  canvas.style.height = Math.round(H*s)+'px';
+}
+window.addEventListener('resize', resize);
+resize();
+
+// ─── Helpers ───────────────────────────────────────────────────────────────
+function mk(w,h){const c=document.createElement('canvas');c.width=w;c.height=h;return c;}
+function g2(c){const g=c.getContext('2d');g.imageSmoothingEnabled=false;return g;}
+
+function spr(rows, over){
+  let w=0;
+  for(let i=0;i<rows.length;i++) w=Math.max(w,rows[i].length);
+  const c=mk(w,rows.length), g=g2(c);
+  for(let y=0;y<rows.length;y++){
+    for(let x=0;x<rows[y].length;x++){
+      const ch=rows[y][x];
+      if(ch==='.') continue;
+      const col=(over&&over[ch])||PAL[ch];
+      if(!col) continue;
+      g.fillStyle=col; g.fillRect(x,y,1,1);
+    }
+  }
+  return c;
+}
+
+function flipX(src){
+  const c=mk(src.width,src.height), g=g2(c);
+  g.translate(src.width,0); g.scale(-1,1);
+  g.drawImage(src,0,0);
+  return c;
+}
+
+// ─── Bayer 4×4 Dithering ───────────────────────────────────────────────────
+const BAYER=[[ 0, 8, 2,10],
+             [12, 4,14, 6],
+             [ 3,11, 1, 9],
+             [15, 7,13, 5]];
+
+// A vision cone: one wedge, filled with a dither pattern in its colour (the pattern made once for each colour and
+// strength). It used to be drawn a pixel at a time into a new full-screen canvas, for every guard, every frame.
+const CONE_PAT={};
+function conePattern(ctx2, col, alpha){
+  const key=col+alpha; let p=CONE_PAT[key]; if(p) return p;
+  const c=mk(4,4), g=c.getContext('2d'); g.fillStyle=col;
+  for(let y=0;y<4;y++) for(let x=0;x<4;x++) if(alpha>BAYER[y][x]/16) g.fillRect(x,y,1,1);
+  return CONE_PAT[key]=ctx2.createPattern(c,'repeat');
+}
+function ditherCone(ctx2, gx, gy, angle, fov, range, col, alpha){
+  // the cone stops at walls, as the guard's sight does: rays out across it, each to the first wall
+  const r=range*TILE, n=22;
+  ctx2.fillStyle=conePattern(ctx2, col, Math.round(alpha*16)/16);
+  ctx2.beginPath(); ctx2.moveTo(gx,gy);
+  for(let i=0;i<=n;i++){
+    const a=angle-fov/2+fov*i/n, ca=Math.cos(a), sa=Math.sin(a);
+    let d=4; while(d<r && !isWall(Math.floor((gx+ca*d)/TILE),Math.floor((gy+sa*d)/TILE))) d+=4;
+    ctx2.lineTo(gx+ca*Math.min(d,r),gy+sa*Math.min(d,r));
+  }
+  ctx2.closePath(); ctx2.fill();
+}
+
+// ─── 5×7 Bitmap Font ───────────────────────────────────────────────────────
+const FONT_MAP={
+  '\u2715':["00000","10001","01010","00100","01010","10001","00000"],
+  '\u25cb':["00000","01110","10001","10001","10001","01110","00000"],
+  '\u25a1':["00000","11111","10001","10001","10001","11111","00000"],
+  '\u25b3':["00000","00100","01010","01010","10001","11111","00000"],
+  'A':["01110","10001","10001","11111","10001","10001","10001"],
+  'B':["11110","10001","10001","11110","10001","10001","11110"],
+  'C':["01111","10000","10000","10000","10000","10000","01111"],
+  'D':["11110","10001","10001","10001","10001","10001","11110"],
+  'E':["11111","10000","10000","11110","10000","10000","11111"],
+  'F':["11111","10000","10000","11110","10000","10000","10000"],
+  'G':["01111","10000","10000","10111","10001","10001","01111"],
+  'H':["10001","10001","10001","11111","10001","10001","10001"],
+  'I':["11111","00100","00100","00100","00100","00100","11111"],
+  'J':["11111","00010","00010","00010","00010","10010","01100"],
+  'K':["10001","10010","10100","11000","10100","10010","10001"],
+  'L':["10000","10000","10000","10000","10000","10000","11111"],
+  'M':["10001","11011","10101","10001","10001","10001","10001"],
+  'N':["10001","11001","10101","10011","10001","10001","10001"],
+  'O':["01110","10001","10001","10001","10001","10001","01110"],
+  'P':["11110","10001","10001","11110","10000","10000","10000"],
+  'Q':["01110","10001","10001","10001","10101","10010","01101"],
+  'R':["11110","10001","10001","11110","10100","10010","10001"],
+  'S':["01111","10000","10000","01110","00001","00001","11110"],
+  'T':["11111","00100","00100","00100","00100","00100","00100"],
+  'U':["10001","10001","10001","10001","10001","10001","01110"],
+  'V':["10001","10001","10001","10001","10001","01010","00100"],
+  'W':["10001","10001","10001","10101","10101","11011","10001"],
+  'X':["10001","10001","01010","00100","01010","10001","10001"],
+  'Y':["10001","10001","01010","00100","00100","00100","00100"],
+  'Z':["11111","00001","00010","00100","01000","10000","11111"],
+  '0':["01110","10001","10011","10101","11001","10001","01110"],
+  '1':["00100","01100","00100","00100","00100","00100","01110"],
+  '2':["01110","10001","00001","00110","01000","10000","11111"],
+  '3':["11110","00001","00001","01110","00001","00001","11110"],
+  '4':["00010","00110","01010","10010","11111","00010","00010"],
+  '5':["11111","10000","10000","11110","00001","00001","11110"],
+  '6':["01110","10000","10000","11110","10001","10001","01110"],
+  '7':["11111","00001","00010","00100","01000","01000","01000"],
+  '8':["01110","10001","10001","01110","10001","10001","01110"],
+  '9':["01110","10001","10001","01111","00001","00001","01110"],
+  '.':["00000","00000","00000","00000","00000","00100","00100"],
+  ',':["00000","00000","00000","00000","00100","00100","01000"],
+  '!':["00100","00100","00100","00100","00100","00000","00100"],
+  '?':["01110","10001","00001","00110","00100","00000","00100"],
+  ':':["00000","00100","00100","00000","00100","00100","00000"],
+  '-':["00000","00000","00000","11111","00000","00000","00000"],
+  '/':["00001","00010","00010","00100","01000","01000","10000"],
+  ' ':["00000","00000","00000","00000","00000","00000","00000"],
+  '*':["00000","10101","01110","11111","01110","10101","00000"],
+  '+':["00000","00100","00100","11111","00100","00100","00000"],
+  '#':["01010","01010","11111","01010","11111","01010","01010"],
+  '"':["01010","01010","01010","00000","00000","00000","00000"],
+  "'":["00100","00100","00100","00000","00000","00000","00000"],
+};
+
+// the letters: each drawn once in each colour, then copied (far cheaper on a Pi than every pixel, every frame)
+let GLYPHS={}, glyphCols=0;
+function glyphOf(ch,col){
+  let set=GLYPHS[col];
+  if(!set){ if(++glyphCols>48){ GLYPHS={}; glyphCols=1; } set=GLYPHS[col]={}; }
+  let c=set[ch]; if(c) return c;
+  const rows=FONT_MAP[ch]||FONT_MAP[' ']; const h=rows?rows.length:7;
+  c=document.createElement('canvas'); c.width=5; c.height=h; const g=c.getContext('2d'); g.fillStyle=col;
+  if(rows) for(let r=0;r<h;r++) for(let x=0;x<rows[r].length;x++) if(rows[r][x]==='1') g.fillRect(x,r,1,1);
+  return set[ch]=c;
+}
+function drawChar(ctx2, ch, x, y, col, scale, shadow){
+  ch=ch.toUpperCase(); if(ch===' ') return;
+  const g=glyphOf(ch,col||'#fff');
+  if(shadow) ctx2.drawImage(glyphOf(ch,'#000'),x+scale,y+scale,5*scale,g.height*scale);
+  ctx2.drawImage(g,x,y,5*scale,g.height*scale);
+}
+
+function drawText(ctx2, str, x, y, col, scale, shadow){
+  scale=scale||1;
+  let cx=x;
+  for(let i=0;i<str.length;i++){
+    drawChar(ctx2, str[i], cx, y, col, scale, shadow);
+    cx += (5+1)*scale;
+  }
+}
+
+function textWidth(str, scale){
+  scale=scale||1;
+  return str.length*(5+1)*scale;
+}
+
+function drawCenter(ctx2, str, y, col, scale){
+  const tw = textWidth(str,scale);
+  drawText(ctx2, str, Math.floor((W-tw)/2), y, col, scale, true);
+}
+
+// ─── Audio ────────────────────────────────────────────────────────────────
+let AC=null;
+function getAC(){
+  if(!AC) AC=new (window.AudioContext||window.webkitAudioContext)();
+  return AC;
+}
+
+function playTone(freq, type, dur, vol, startDelay){
+  try{
+    const ac=getAC(); const t=ac.currentTime+(startDelay||0);
+    const osc=ac.createOscillator(); const gain=ac.createGain();
+    osc.type=type||'sine'; osc.frequency.setValueAtTime(freq,t);
+    gain.gain.setValueAtTime(vol||0.15,t);
+    gain.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+    osc.connect(gain); gain.connect(ac.destination);
+    osc.start(t); osc.stop(t+dur+0.05);
+  }catch(e){}
+}
+
+function playNoise(dur, vol){
+  try{
+    const ac=getAC(); const t=ac.currentTime;
+    const buf=ac.createBuffer(1,ac.sampleRate*dur,ac.sampleRate);
+    const d=buf.getChannelData(0);
+    for(let i=0;i<d.length;i++) d[i]=(Math.random()*2-1);
+    const src=ac.createBufferSource(); src.buffer=buf;
+    const gain=ac.createGain(); gain.gain.setValueAtTime(vol||0.1,t);
+    gain.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+    src.connect(gain); gain.connect(ac.destination);
+    src.start(t); src.stop(t+dur);
+  }catch(e){}
+}
+
+function sfxFootstep(){
+  playTone(220,'triangle',0.04,0.05);
+}
+function sfxAlert(){
+  playTone(440,'sawtooth',0.1,0.2);
+  playTone(660,'sawtooth',0.1,0.2,0.12);
+  playTone(880,'sawtooth',0.15,0.3,0.25);
+}
+function sfxDiamond(){
+  [523,659,784,1047].forEach((f,i)=>playTone(f,'sine',0.12,0.2,i*0.08));
+}
+function sfxSmoke(){
+  playNoise(0.3,0.15);
+  playTone(100,'sine',0.3,0.1);
+}
+function sfxLevelComplete(){
+  [523,659,784].forEach((f,i)=>playTone(f,'square',0.2,0.15,i*0.15));
+  playTone(1047,'square',0.4,0.2,0.5);
+}
+function sfxCaught(){
+  [300,200,100].forEach((f,i)=>playTone(f,'sawtooth',0.2,0.25,i*0.18));
+}
+function sfxCamera(){
+  playTone(800,'square',0.05,0.1);
+}
+
+// ─── Input ────────────────────────────────────────────────────────────────
+// The controller through the box's pad.js (SofaPad); the keyboard when there's no controller. While a controller
+// is in use, the keys the box sends for its presses (for its own menus) are ignored: the game has the press already.
+const keys={};
+document.addEventListener('keydown',e=>{ if(window.SofaPad&&SofaPad.echo(e)) return; keys[e.code]=true; if(/^(Arrow|Space$)/.test(e.code)) e.preventDefault(); });
+document.addEventListener('keyup',  e=>{ keys[e.code]=false; });
+const padHit={a:0,b:0,x:0,y:0,start:0};
+if(window.SofaPad) SofaPad.on((b,how)=>{ if(how==="press"&&b in padHit) padHit[b]=1; });
+function updatePad(){}
+const padHeld=b=>!!(window.SofaPad&&SofaPad.held(b));
+function btnA(){ return keys['KeyZ']||keys['Enter']||keys['Space']; }
+function btnB(){ return keys['KeyX']||keys['ShiftLeft']; }
+function btnY(){ return keys['KeyC']; }
+function btnStart(){ return keys['Escape']||keys['KeyP']; }
+const prevBtn={a:false,b:false,y:false,start:false};
+function btnAPressed(){ return padHit.a===1||(btnA()&&!prevBtn.a); }
+function btnBPressed(){ return padHit.b===1||(btnB()&&!prevBtn.b); }
+function btnYPressed(){ return padHit.y===1||padHit.x===1||(btnY()&&!prevBtn.y); }
+function btnStartPressed(){ return padHit.start===1||(btnStart()&&!prevBtn.start); }
+function updatePrevBtn(){
+  prevBtn.a=btnA(); prevBtn.b=btnB(); prevBtn.y=btnY(); prevBtn.start=btnStart();
+  padHit.a=padHit.b=padHit.x=padHit.y=padHit.start=0;
+}
+function getDX(){
+  if(padHeld('left')||keys['ArrowLeft']||keys['KeyA']) return -1;
+  if(padHeld('right')||keys['ArrowRight']||keys['KeyD']) return 1;
+  const st=window.SofaPad?SofaPad.stick():null; if(st&&Math.abs(st.x)>0.25) return st.x;
+  return 0;
+}
+function getDY(){
+  if(padHeld('up')||keys['ArrowUp']||keys['KeyW']) return -1;
+  if(padHeld('down')||keys['ArrowDown']||keys['KeyS']) return 1;
+  const st=window.SofaPad?SofaPad.stick():null; if(st&&Math.abs(st.y)>0.25) return st.y;
+  return 0;
+}
+// a button's name as the controller in hand shows it (or the key, with no controller)
+function BL(b){
+  if(window.SofaPad&&SofaPad.connected()) return SofaPad.kind()==="playstation"?({a:"\u2715",b:"\u25cb",x:"\u25a1",y:"\u25b3",start:"OPTIONS"})[b]:(b==="start"?"MENU":b.toUpperCase());
+  return ({a:"Z",b:"X",x:"C",y:"C",start:"ESC"})[b];
+}
+
+// ─── Tile Constants ───────────────────────────────────────────────────────
+const TILE=16;
+
+// ─── Sprites ──────────────────────────────────────────────────────────────
+
+// Ghost player sprites (10×14)
+const SPR = {};
+
+SPR.ghost_south = spr([
+  ".....k....",
+  "....kBk...",
+  "...kBwBk..",
+  "...kBwBk..",
+  "....kBk...",
+  "...kBBBk..",
+  "..kBBBBBk.",
+  ".kBBBBBBBk",
+  "kBBBBBBBBk",
+  ".kBBkkkBBk",
+  "..kBk.kBk.",
+  "...kk..kk.",
+  "..kKk..kKk",
+  "...k....k.",
+]);
+SPR.ghost_north = spr([
+  ".....k....",
+  "....kKk...",
+  "...kKKKk..",
+  "..kKKKKKk.",
+  ".kKKKKKKKk",
+  "kBBKKKKBBk",
+  "kBBBBBBBBk",
+  ".kBBBBBBk.",
+  "..kBBBBk..",
+  "...kBBk...",
+  "....kBk...",
+  "....kBk...",
+  "...kKk.kKk",
+  "...k....k.",
+]);
+SPR.ghost_east = spr([
+  "........k.",
+  ".......kBk",
+  "......kBwk",
+  ".....kBwBk",
+  "......kBBk",
+  ".....kBBBk",
+  "....kBBBBk",
+  "...kBBBBBk",
+  "....kBBBBk",
+  ".....kBBBk",
+  "......kBBk",
+  ".......kBk",
+  "......kKkk",
+  "......k..k",
+]);
+SPR.ghost_west = flipX(SPR.ghost_east);
+
+SPR.ghost_crouch = spr([
+  ".....k....",
+  "....kBk...",
+  "...kBwBk..",
+  "....kBk...",
+  "..kBBBBBk.",
+  ".kBBBBBBBk",
+  "kBBBBBBBBBk",
+  ".kBkBBBkBk",
+  "..k..k..k.",
+]);
+SPR.ghost_white = spr([
+  ".....w....",
+  "....www...",
+  "...wwwww..",
+  "...wwwww..",
+  "....www...",
+  "...wwwwww.",
+  "..wwwwwww.",
+  ".wwwwwwwww",
+  "wwwwwwwwww",
+  ".wwwwwwwww",
+  "..www..www",
+  "...w....w.",
+]);
+SPR.smoke = spr([
+  "..GGG.....",
+  ".GGGGGg...",
+  "GGGGGGG...",
+  ".GGGGGGg..",
+  "..GGGGGGg.",
+  "...GGGGgg.",
+  "....GGgg..",
+  ".....gg...",
+],{G:PAL.G+'cc',g:PAL.g+'88'});
+
+// Guard sprites (10×14)
+SPR.guard_south = spr([
+  ".....k....",
+  "....ksk...",
+  "...kssSk..",
+  "...kssSk..",
+  "....ksk...",
+  "...kgygk..",
+  "..kgyyyGk.",
+  ".kgygGGgGk",
+  "kgyyyGGGGk",
+  ".kggkkkggk",
+  "..kgk.kgk.",
+  "...kk..kk.",
+  "..kgk..kgk",
+  "...k....k.",
+]);
+SPR.guard_north = spr([
+  ".....k....",
+  "....ksk...",
+  "...kssSk..",
+  "..ksSSSsk.",
+  ".kgggggggk",
+  "kgyyyGGGGk",
+  ".kgggGGggk",
+  "..kgGGgk..",
+  "...kggk...",
+  "....kgk...",
+  "....kgk...",
+  "....kgk...",
+  "...kgk.kgk",
+  "...k....k.",
+]);
+SPR.guard_east = spr([
+  ".........k",
+  "........ksk",
+  ".......ksSk",
+  "......ksSsk",
+  ".......kssk",
+  "......kgygk",
+  ".....kgyygk",
+  "....kgyyyyk",
+  ".....kgyGok",
+  "......kgggk",
+  ".......kggk",
+  "........kgk",
+  ".......kgkk",
+  ".......k..k",
+]);
+SPR.guard_west = flipX(SPR.guard_east);
+
+SPR.guard_alert = spr([
+  "....kyk...",
+  "...kyykk..",
+  "....kyk...",
+  "....kyk...",
+  ".....k....",
+  ".....k....",
+  "....ksk...",
+  "...kssSk..",
+  "....ksk...",
+  "...kgygk..",
+  "..kgyyyGk.",
+  ".kgygGGgGk",
+  "kgyyyGGGGk",
+  ".kggkkkggk",
+]);
+SPR.guard_ko = spr([
+  "....k......k....",
+  "...ksk....ksk...",
+  "..kgygk..kgygk..",
+  ".kggggggggggggk.",
+  "kggggggGGGGggggk",
+  ".kgggGGGGGGgggk.",
+  "..kggGGGGGGggk..",
+  "...kgggggggggk..",
+  "....kgggggggk...",
+  ".....kgggggk....",
+]);
+
+// Environment tiles (16×16)
+SPR.tile_floor = spr([
+  "tttttttttttttttt",
+  "tttttttttttttttT",
+  "tTtttttttttttttt",
+  "tttttttttttttttt",
+  "tttttttttttttttt",
+  "tttttTtttttttttt",
+  "tttttttttttttttt",
+  "ttttttttTttttttt",
+  "tttttttttttttttt",
+  "tTtttttttttttttt",
+  "tttttttttttttttt",
+  "ttttttttttttttTt",
+  "tttttttttttttttt",
+  "tttttttTtttttttt",
+  "tttttttttttttttt",
+  "tttttttttttttttt",
+]);
+SPR.tile_wall = spr([
+  "KKKKKKKKKKKKKKKK",
+  "KkkkkkkkKkkkkkKK",
+  "KkkkkkkkKkkkkkKK",
+  "KkkkkkkkKkkkkkKK",
+  "KkkkkkkkKkkkkkKK",
+  "KkkkkkkkKkkkkkKK",
+  "KkKKKKKKKKKKKKKK",
+  "KkkkkkkkKkkkkkKK",
+  "KkkkkkkkKkkkkkKK",
+  "KkkkkkkkKkkkkkKK",
+  "KkkkkkkkKkkkkkKK",
+  "KkkkkkkkKkkkkkKK",
+  "KkKKKKKKKKKKKKKK",
+  "KkkkkkkkKkkkkkKK",
+  "KkkkkkkkKkkkkkKK",
+  "KKKKKKKKKKKKKKKK",
+]);
+SPR.tile_vault_door = spr([
+  "KKKKKKKKKKKKKKKK",
+  "KgggggggggggggKK",
+  "KggGGGGGGGGggKKK",
+  "KgGGkkkkkGGgKKK.",
+  "KgGkkGGGkkGgKKK.",
+  "KgGkGGGGGkGgKKK.",
+  "KgGkGGGGGkGgKKK.",
+  "KgGkGGGGGkGgKKK.",
+  "KgGkkGGGkkGgKKK.",
+  "KgGGkkkkkGGgKKK.",
+  "KggGGGGGGGGggKKK",
+  "KgggGKGKGgggKKKK",
+  "KgggGKGKGgggKKKK",
+  "KggggggggggggKKK",
+  "KgggggggggggggKK",
+  "KKKKKKKKKKKKKKKK",
+]);
+SPR.tile_diamond = spr([
+  "................",
+  "................",
+  "......bBb.......",
+  ".....bbbBbb.....",
+  "....bcccccBb....",
+  "....bccccccb....",
+  "...bcccwccccb...",
+  "...bcccccccb....",
+  "....bccccccb....",
+  "....bcccccBb....",
+  ".....bbbBbb.....",
+  "......bBb.......",
+  "................",
+  "....kwkkwkk.....",
+  "...k..ww..k.....",
+  "................",
+]);
+SPR.tile_camera = spr([
+  "KKKKKKKKKKKKKKKK",
+  "KKKKKKKKKKKKKKKr",
+  "KKkkkKKKKKKKKKKK",
+  "KKkcckKKKKKKKKKK",
+  "KKkccKgggggKKKKK",
+  "KKkckgGgGggKKKKK",
+  "KKkckgGgGggKKKKK",
+  "KKkcckKgggKKKKKK",
+  "KKkkcKKKKKKKKKKK",
+  "KKkkkKKKKKKKKKKK",
+  "KKKKKKKKKKKKKKKK",
+  "KKKKKKKKKKKKKKKK",
+  "KKKKKKKKKKKKKKKK",
+  "KKKKKKKKKKKKKKKK",
+  "KKKKKKKKKKKKKKKK",
+  "KKKKKKKKKKKKKKKK",
+]);
+SPR.tile_keypad = spr([
+  "................",
+  ".KKKKKKKKKKKKKk.",
+  ".KeeeeeeeeeeKk..",
+  ".KeeeeeeeeeeKk..",
+  ".KeeeeeeeeeeKk..",
+  ".KKKKKKKKKKKKk..",
+  ".KwkwkwkwkwkKk..",
+  ".KkwkwkwkwkwKk..",
+  ".KwkwkwkwkwkKk..",
+  ".KkwkwkwkwkwKk..",
+  ".KwkwkwkwkwkKk..",
+  ".KKKKKKKKKKKKk..",
+  "..kkkkkkkkkkkk..",
+  "................",
+  "................",
+  "................",
+]);
+SPR.tile_desk = spr([
+  "................",
+  "................",
+  ".nnnnnnnnnnnnnn.",
+  ".nwwwwwwwwwwwwn.",
+  ".nwwwwwwwwwwwwn.",
+  ".nwwwwwwwwwwwwn.",
+  ".nwwwTwwwwwwwwn.",
+  ".nwwwwwwwwwwwwn.",
+  ".nnnnnnnnnnnnnn.",
+  ".n............n.",
+  ".n............n.",
+  ".nNNNnNNNnNNNn.",
+  ".nNNNnNNNnNNNn.",
+  ".nNNNnNNNnNNNn.",
+  "................",
+  "................",
+]);
+SPR.tile_plant = spr([
+  "................",
+  "................",
+  "....eEeEe.......",
+  "...EeEeEeE......",
+  "..eEeEeEeEe.....",
+  "...EeEeEeE......",
+  "....eEeEe.......",
+  "......e.........",
+  ".....ene........",
+  "....ennne.......",
+  "...ennnNne......",
+  "...enNNNne......",
+  "....ennne.......",
+  ".....nnn........",
+  "................",
+  "................",
+]);
+
+// HUD icons
+SPR.heart = spr([
+  ".r.r.",
+  "rrrrr",
+  "rrrrr",
+  ".rrr.",
+  "..r..",
+]);
+SPR.heart_empty = spr([
+  ".r.r.",
+  "r...r",
+  "r...r",
+  ".r.r.",
+  "..r..",
+]);
+SPR.bomb_icon = spr([
+  "..k..",
+  ".kKk.",
+  "kKKKk",
+  "kKKKk",
+  ".kKk.",
+  "..k..",
+]);
+
+// ─── Level Maps ───────────────────────────────────────────────────────────
+// Tile chars: . floor  # wall  D vault-door  G diamond  C camera
+//             K keypad  d desk  p plant  S player-start  E exit
+//             1/2/3/4 guard spawns
+// Map size 30×17 tiles (480/16=30, 270/16=16.875→17)
+
+const LEVELS = [
+  {
+    name: "THE GALLERY",
+    map: [
+      "##############################",
+      "#............................#",
+      "#.pp...C.................pp..#",
+      "#............................#",
+      "#....####.........####.......#",
+      "#....#..#.........#..#.......#",
+      "#....#..#.........#..#...E...#",
+      "#....#..#.........#..#.......#",
+      "#....####.........####.......#",
+      "#............................#",
+      "#....1.........G.............#",
+      "#............................#",
+      "#....2.......................#",
+      "#............................#",
+      "#.S..........................#",
+      "#............................#",
+      "##############################",
+    ],
+    guardDefs:[
+      {id:0,route:[[5,10],[10,10],[10,13],[5,13]],dir:'south'},
+      {id:1,route:[[5,12],[14,12],[14,14],[5,14]],dir:'east'},
+    ],
+    cameraDefs:[
+      {tx:9,ty:2,baseAngle:Math.PI/2},
+    ],
+  },
+  {
+    name: "EXECUTIVE SUITE",
+    map: [
+      "##############################",
+      "#............................#",
+      "#.d.d.d.d.1..C.d.d.d.d.d....#",
+      "#............................#",
+      "#.d.d.d.d....d.d.d.d.d...2..#",
+      "#............................#",
+      "#######.....######...........#",
+      "#......#...#......###########",
+      "#......#...#.................#",
+      "#..S...#...#..G.....3........#",
+      "#......#...#.................#",
+      "#......#K..#.................#",
+      "#######....####..............#",
+      "#...........................C#",
+      "#............................#",
+      "#......................E......#",
+      "##############################",
+    ],
+    guardDefs:[
+      {id:0,route:[[11,2],[18,2],[18,4],[11,4]],dir:'east'},
+      {id:1,route:[[24,4],[24,8],[24,10],[18,10]],dir:'south'},
+      {id:2,route:[[15,9],[22,9],[22,11],[15,11]],dir:'east'},
+    ],
+    cameraDefs:[
+      {tx:14,ty:2,baseAngle:Math.PI/2},
+      {tx:28,ty:13,baseAngle:Math.PI},
+    ],
+  },
+  {
+    name: "THE VAULT",
+    map: [
+      "##############################",
+      "#............................#",
+      "#.S..###########.............#",
+      "#....#.........#.....1.......#",
+      "#....#.........#.............#",
+      "#....#.G.......#.....2.......#",
+      "#....#.........####..........#",
+      "#....#.........#C.#.....3....#",
+      "#K...#.........#..###########",
+      "#....############.........4..#",
+      "#....C...........#...........#",
+      "#....#############...........#",
+      "#............................#",
+      "#.....G.....#####............#",
+      "#...........#...#............#",
+      "#...........#.E.#............#",
+      "##############################",
+    ],
+    guardDefs:[
+      {id:0,route:[[18,3],[24,3],[24,5],[18,5]],dir:'east'},
+      {id:1,route:[[18,5],[22,5],[22,7],[18,7]],dir:'south'},
+      {id:2,route:[[22,7],[26,7],[26,9],[22,9]],dir:'east'},
+      {id:3,route:[[22,9],[26,9],[26,11],[22,11]],dir:'south'},
+    ],
+    cameraDefs:[
+      {tx:19,ty:7,baseAngle:Math.PI},
+      {tx:5,ty:10,baseAngle:Math.PI/2},
+      {tx:14,ty:7,baseAngle:0},
+    ],
+  },
+];
+
+// ─── Game State ───────────────────────────────────────────────────────────
+const GAME_STATE = {
+  TITLE:0, PLAYING:1, PAUSED:2, LEVEL_CLEAR:3, GAME_OVER:4, CAUGHT:5
+};
+let state = GAME_STATE.TITLE;
+let currentLevel = 0;
+let lives = 3;
+let spotted = false;
+let totalTime = 0;
+let levelTime = 0;
+let levelClearTimer = 0;
+let caughtTimer = 0;
+let alarmTimer = 0;
+let alarmActive = false;
+let alarmFlash = 0;
+
+// Player
+const player = {
+  tx:1, ty:1,        // tile position
+  px:16, py:16,      // pixel position (center)
+  dir:'south',
+  crouching:false,
+  smoke:1,           // smoke bombs
+  hasDiamond:false,
+  moving:false,
+  moveTimer:0,
+  moveDuration:0,
+  fromPx:0, fromPy:0,
+  toPx:0,   toPy:0,
+  lastMoveDir:null,
+  stepTimer:0,
+  flashTimer:0,
+};
+
+// Guards
+let guards=[];
+let cameras=[];
+let smokeEffect=null; // {px,py,timer,maxTimer}
+let mapData=null;
+let exitPos={tx:0,ty:0};
+
+function initLevel(lvlIdx){
+  const lvl = LEVELS[lvlIdx];
+  mapData = lvl.map.map(row=>row.split(''));
+  
+  // Find player start and exit
+  for(let ty=0;ty<mapData.length;ty++){
+    for(let tx=0;tx<mapData[ty].length;tx++){
+      const ch=mapData[ty][tx];
+      if(ch==='S'){
+        player.tx=tx; player.ty=ty;
+        player.px=(tx+0.5)*TILE; player.py=(ty+0.5)*TILE;
+        mapData[ty][tx]='.';
+      }
+      if(ch==='E'){
+        exitPos={tx,ty};
+      }
+    }
+  }
+
+  player.dir='south'; player.crouching=false;
+  player.moving=false; player.smoke=1;
+  player.hasDiamond=false; player.flashTimer=0;
+  player.stepTimer=0;
+
+  // Build guards from defs
+  guards=[];
+  for(const def of lvl.guardDefs){
+    const [rtx,rty]=def.route[0];
+    guards.push({
+      id:def.id,
+      tx:rtx, ty:rty,
+      px:(rtx+0.5)*TILE, py:(rty+0.5)*TILE,
+      dir:def.dir,
+      route:def.route.map(r=>[...r]),
+      routeIdx:0,
+      moving:false,
+      moveTimer:0, moveDuration:0,
+      fromPx:0, fromPy:0,
+      toPx:0, toPy:0,
+      state:'patrol', // patrol | alert | chase | ko
+      alertTimer:0,
+      chaseCooldown:0,
+      koTimer:0,
+      lastPlayerTx:-1, lastPlayerTy:-1,
+      stepTimer:0,
+    });
+  }
+
+  // Build cameras
+  cameras=[];
+  for(const def of lvl.cameraDefs){
+    cameras.push({
+      tx:def.tx, ty:def.ty,
+      angle:def.baseAngle,
+      baseAngle:def.baseAngle,
+      sweep:0,
+      sweepDir:1,
+      alertTimer:0,
+      disabled:false,
+      disableTimer:0,
+    });
+  }
+
+  smokeEffect=null;
+  alarmActive=false;
+  alarmTimer=0;
+  alarmFlash=0;
+  spotted=false;
+  levelTime=0;
+}
+
+// ─── Map helpers ──────────────────────────────────────────────────────────
+function getTile(tx,ty){
+  if(!mapData||ty<0||ty>=mapData.length||tx<0||tx>=mapData[0].length) return '#';
+  return mapData[ty][tx];
+}
+function isWall(tx,ty){
+  const c=getTile(tx,ty);
+  return c==='#'||c==='D';
+}
+
+function tileCenter(tx,ty){ return {x:(tx+0.5)*TILE, y:(ty+0.5)*TILE}; }
+
+// ─── Line of Sight ─────────────────────────────────────────────────────────
+function hasLOS(ax,ay,bx,by){
+  // Ray march in tile space
+  const steps=32;
+  for(let i=1;i<=steps;i++){
+    const t=i/steps;
+    const x=ax+(bx-ax)*t;
+    const y=ay+(by-ay)*t;
+    const tx2=Math.floor(x/TILE);
+    const ty2=Math.floor(y/TILE);
+    if(isWall(tx2,ty2)) return false;
+    // smoke check
+    if(smokeEffect&&smokeEffect.timer>0){
+      const sdx=x-smokeEffect.px, sdy=y-smokeEffect.py;
+      if(Math.sqrt(sdx*sdx+sdy*sdy)<TILE*2.5) return false;
+    }
+  }
+  return true;
+}
+
+function inCone(srcPx,srcPy,angle,fovRad,rangeTiles,targetPx,targetPy){
+  const dx=targetPx-srcPx, dy=targetPy-srcPy;
+  const dist=Math.sqrt(dx*dx+dy*dy);
+  if(dist>rangeTiles*TILE) return false;
+  let a=Math.atan2(dy,dx);
+  let da=a-angle;
+  while(da< -Math.PI) da+=Math.PI*2;
+  while(da>  Math.PI) da-=Math.PI*2;
+  return Math.abs(da)<=fovRad/2;
+}
+
+function guardAngle(dir){
+  if(dir==='east')  return 0;
+  if(dir==='south') return Math.PI/2;
+  if(dir==='west')  return Math.PI;
+  if(dir==='north') return -Math.PI/2;
+  return 0;
+}
+
+// ─── Guard AI ─────────────────────────────────────────────────────────────
+const GUARD_SPEED_MS = 400; // ms per tile
+const GUARD_FOV = Math.PI/3; // 60 degrees
+const GUARD_RANGE = 6;
+
+function startGuardMove(g, dtx, dty){
+  if(g.moving) return;
+  if(isWall(dtx,dty)) return;
+  g.tx=dtx; g.ty=dty;
+  g.fromPx=g.px; g.fromPy=g.py;
+  g.toPx=(dtx+0.5)*TILE; g.toPy=(dty+0.5)*TILE;
+  g.moveTimer=0; g.moveDuration=GUARD_SPEED_MS;
+  g.moving=true;
+}
+
+function updateGuard(g, dt){
+  // Animate movement
+  if(g.moving){
+    g.moveTimer+=dt*1000;
+    const t=Math.min(g.moveTimer/g.moveDuration,1);
+    g.px=g.fromPx+(g.toPx-g.fromPx)*t;
+    g.py=g.fromPy+(g.toPy-g.fromPy)*t;
+    if(t>=1){
+      g.px=g.toPx; g.py=g.toPy;
+      g.moving=false;
+    }
+    return;
+  }
+
+  if(g.state==='ko'){
+    g.koTimer-=dt;
+    if(g.koTimer<=0){
+      g.state='patrol';
+    }
+    return;
+  }
+
+  // Check vision
+  const ppx=player.px, ppy=player.py;
+  const angle=guardAngle(g.dir);
+  const canSee = !player.crouching &&
+    inCone(g.px,g.py,angle,GUARD_FOV,GUARD_RANGE,ppx,ppy) &&
+    hasLOS(g.px,g.py,ppx,ppy);
+
+  if(g.state==='patrol'){
+    if(canSee){
+      g.state='alert';
+      g.alertTimer=1.0;
+      g.lastPlayerTx=player.tx;
+      g.lastPlayerTy=player.ty;
+      sfxAlert();
+      spotted=true;
+      alarmActive=true;
+      alarmTimer=5.0;
+      player.flashTimer=0.3;
+    } else {
+      // Follow patrol route
+      const target=g.route[g.routeIdx];
+      const targetPx=(target[0]+0.5)*TILE, targetPy=(target[1]+0.5)*TILE;
+      if(Math.abs(g.px-targetPx)<2&&Math.abs(g.py-targetPy)<2){
+        g.routeIdx=(g.routeIdx+1)%g.route.length;
+      } else {
+        const dx=targetPx-g.px, dy=targetPy-g.py;
+        if(Math.abs(dx)>=Math.abs(dy)){
+          const ndx=dx>0?1:-1;
+          const ntx=g.tx+ndx;
+          g.dir=dx>0?'east':'west';
+          startGuardMove(g,ntx,g.ty);
+        } else {
+          const ndy=dy>0?1:-1;
+          const nty=g.ty+ndy;
+          g.dir=dy>0?'south':'north';
+          startGuardMove(g,g.tx,nty);
+        }
+      }
+    }
+  } else if(g.state==='alert'){
+    g.alertTimer-=dt;
+    g.lastPlayerTx=player.tx;
+    g.lastPlayerTy=player.ty;
+    if(g.alertTimer<=0){
+      g.state='chase';
+      g.chaseCooldown=0;
+    }
+  } else if(g.state==='chase'){
+    if(canSee){
+      g.lastPlayerTx=player.tx;
+      g.lastPlayerTy=player.ty;
+    }
+    // Simple chase: move toward last known position
+    const targetPx=(g.lastPlayerTx+0.5)*TILE;
+    const targetPy=(g.lastPlayerTy+0.5)*TILE;
+    const dx=targetPx-g.px, dy=targetPy-g.py;
+    const dist=Math.sqrt(dx*dx+dy*dy);
+    if(dist<TILE*0.6){
+      // Reached last known pos
+      if(!canSee){
+        g.chaseCooldown+=dt;
+        if(g.chaseCooldown>3){
+          g.state='patrol';
+          g.chaseCooldown=0;
+          alarmTimer=Math.max(alarmTimer-3,0);
+        }
+      }
+    } else {
+      g.chaseCooldown=0;
+      if(Math.abs(dx)>=Math.abs(dy)){
+        const ndx2=dx>0?1:-1;
+        const ntx2=g.tx+ndx2;
+        g.dir=dx>0?'east':'west';
+        if(!isWall(ntx2,g.ty)) startGuardMove(g,ntx2,g.ty);
+        else {
+          // try vertical
+          const ndy2=dy>0?1:-1;
+          g.dir=dy>0?'south':'north';
+          if(!isWall(g.tx,g.ty+(dy>0?1:-1))) startGuardMove(g,g.tx,g.ty+(dy>0?1:-1));
+        }
+      } else {
+        const ndy3=dy>0?1:-1;
+        const nty3=g.ty+ndy3;
+        g.dir=dy>0?'south':'north';
+        if(!isWall(g.tx,nty3)) startGuardMove(g,g.tx,nty3);
+        else {
+          const ndx3=dx>0?1:-1;
+          g.dir=dx>0?'east':'west';
+          if(!isWall(g.tx+(dx>0?1:-1),g.ty)) startGuardMove(g,g.tx+(dx>0?1:-1),g.ty);
+        }
+      }
+    }
+    // Check if caught
+    const cdx=g.px-player.px, cdy=g.py-player.py;
+    if(Math.sqrt(cdx*cdx+cdy*cdy)<TILE*0.75){
+      onCaught();
+    }
+  }
+}
+
+// ─── Camera update ─────────────────────────────────────────────────────────
+const CAM_SWEEP_SPEED = 0.6; // rad/sec
+const CAM_FOV = Math.PI/2;   // 90 degrees
+const CAM_RANGE = 5;
+
+function updateCamera(cam, dt){
+  if(cam.disabled){
+    cam.disableTimer-=dt;
+    if(cam.disableTimer<=0) cam.disabled=false;
+    return;
+  }
+  cam.sweep+=CAM_SWEEP_SPEED*cam.sweepDir*dt;
+  if(cam.sweep>Math.PI/4){cam.sweep=Math.PI/4;cam.sweepDir=-1;}
+  if(cam.sweep<-Math.PI/4){cam.sweep=-Math.PI/4;cam.sweepDir=1;}
+  cam.angle=cam.baseAngle+cam.sweep;
+
+  const cpx=(cam.tx+0.5)*TILE, cpy=(cam.ty+0.5)*TILE;
+  const ppx=player.px, ppy=player.py;
+  const canSee = !player.crouching &&
+    inCone(cpx,cpy,cam.angle,CAM_FOV,CAM_RANGE,ppx,ppy) &&
+    hasLOS(cpx,cpy,ppx,ppy);
+
+  if(canSee){
+    cam.alertTimer+=dt;
+    sfxCamera();
+    if(cam.alertTimer>=1.0){
+      spotted=true;
+      alarmActive=true;
+      alarmTimer=5.0;
+      player.flashTimer=0.3;
+      sfxAlert();
+      for(const g of guards) if(g.state==='patrol'){ g.state='chase'; g.lastPlayerTx=player.tx; g.lastPlayerTy=player.ty; }
+    }
+  } else {
+    cam.alertTimer=Math.max(0,cam.alertTimer-dt*0.5);
+  }
+}
+
+// ─── Player movement ──────────────────────────────────────────────────────
+const PLAYER_SPEED_NORMAL = 250; // ms per tile
+const PLAYER_SPEED_CROUCH = 400;
+
+function tryMovePlayer(dx, dy){
+  if(player.moving) return;
+  const ntx=player.tx+dx, nty=player.ty+dy;
+  if(isWall(ntx,nty)) return;
+
+  // set direction
+  if(dx===1) player.dir='east';
+  else if(dx===-1) player.dir='west';
+  else if(dy===1) player.dir='south';
+  else if(dy===-1) player.dir='north';
+
+  player.tx=ntx; player.ty=nty;
+  player.fromPx=player.px; player.fromPy=player.py;
+  player.toPx=(ntx+0.5)*TILE; player.toPy=(nty+0.5)*TILE;
+  player.moveTimer=0;
+  player.moveDuration=player.crouching?PLAYER_SPEED_CROUCH:PLAYER_SPEED_NORMAL;
+  player.moving=true;
+}
+
+function updatePlayer(dt){
+  if(player.flashTimer>0) player.flashTimer-=dt;
+
+  if(player.moving){
+    player.moveTimer+=dt*1000;
+    const t=Math.min(player.moveTimer/player.moveDuration,1);
+    player.px=player.fromPx+(player.toPx-player.fromPx)*t;
+    player.py=player.fromPy+(player.toPy-player.fromPy)*t;
+    if(t>=1){
+      player.px=player.toPx; player.py=player.toPy;
+      player.moving=false;
+      // Footstep
+      if(!player.crouching){
+        player.stepTimer=0;
+        sfxFootstep();
+      }
+      onPlayerReachedTile();
+    }
+  } else {
+    // Input
+    const dx=getDX(), dy=getDY();
+    if(dx!==0||dy!==0){
+      if(dx!==0) tryMovePlayer(dx,0);
+      else tryMovePlayer(0,dy);
+    }
+  }
+}
+
+function onPlayerReachedTile(){
+  const tile=getTile(player.tx,player.ty);
+  if(tile==='G'){
+    // Pick up diamond
+    mapData[player.ty][player.tx]='.';
+    player.hasDiamond=true;
+    sfxDiamond();
+  }
+  if(tile==='K'&&player.hasDiamond){
+    // Interact with keypad (disable nearby camera)
+    for(const cam of cameras){
+      const dx=Math.abs(cam.tx-player.tx), dy=Math.abs(cam.ty-player.ty);
+      if(dx<=3&&dy<=3){
+        cam.disabled=true;
+        cam.disableTimer=8.0;
+      }
+    }
+  }
+  // Check exit
+  if(player.tx===exitPos.tx&&player.ty===exitPos.ty&&player.hasDiamond){
+    onLevelComplete();
+  }
+}
+
+// ─── Interactions ─────────────────────────────────────────────────────────
+function doInteract(){
+  // Interact with adjacent tiles or current tile
+  const dirs=[[0,0],[1,0],[-1,0],[0,1],[0,-1]];
+  for(const [dx2,dy2] of dirs){
+    const tx2=player.tx+dx2, ty2=player.ty+dy2;
+    const tile=getTile(tx2,ty2);
+    if(tile==='G'){
+      mapData[ty2][tx2]='.';
+      player.hasDiamond=true;
+      sfxDiamond();
+      return;
+    }
+    if(tile==='C'||tile==='K'){
+      // Disable camera or keypad
+      for(const cam of cameras){
+        if(Math.abs(cam.tx-tx2)<=1&&Math.abs(cam.ty-ty2)<=1){
+          cam.disabled=true;
+          cam.disableTimer=8.0;
+        }
+      }
+      return;
+    }
+  }
+}
+
+function doSmoke(){
+  if(player.smoke<=0) return;
+  player.smoke--;
+  smokeEffect={px:player.px, py:player.py, timer:3.0, maxTimer:3.0};
+  sfxSmoke();
+}
+
+// ─── Events ───────────────────────────────────────────────────────────────
+function onCaught(){
+  if(state!==GAME_STATE.PLAYING) return;
+  state=GAME_STATE.CAUGHT;
+  caughtTimer=2.5;
+  sfxCaught();
+  lives--;
+}
+
+function onLevelComplete(){
+  if(state!==GAME_STATE.PLAYING) return;
+  state=GAME_STATE.LEVEL_CLEAR;
+  levelClearTimer=4.0;
+  sfxLevelComplete();
+}
+
+// ─── Alarm system ─────────────────────────────────────────────────────────
+function updateAlarm(dt){
+  if(!alarmActive) return;
+  alarmTimer-=dt;
+  alarmFlash+=dt*4;
+  // Check if all guards lost sight
+  let anyAlert=false;
+  for(const g of guards){
+    if(g.state==='alert'||g.state==='chase') anyAlert=true;
+  }
+  for(const cam of cameras){
+    if(cam.alertTimer>0) anyAlert=true;
+  }
+  if(!anyAlert&&alarmTimer<=0){
+    alarmActive=false;
+    alarmFlash=0;
+    for(const g of guards){
+      if(g.state==='chase') g.state='patrol';
+    }
+  }
+}
+
+// ─── Render helpers ───────────────────────────────────────────────────────
+function drawSpr(ctx2, sprite, px, py, scale){
+  scale=scale||1;
+  ctx2.drawImage(sprite,
+    Math.floor(px-sprite.width*scale/2),
+    Math.floor(py-sprite.height*scale/2),
+    sprite.width*scale, sprite.height*scale);
+}
+
+function drawTile(ctx2, tile, px, py){
+  ctx2.drawImage(tile, px, py);
+}
+
+// ─── Camera offset (scrolling) ────────────────────────────────────────────
+let camOffX=0, camOffY=0;
+const MAP_W_PX=()=>mapData[0].length*TILE;
+const MAP_H_PX=()=>mapData.length*TILE;
+
+function updateCamera2(){
+  const targetX=player.px-W/2;
+  const targetY=player.py-H/2;
+  camOffX=Math.max(0,Math.min(MAP_W_PX()-W,targetX));
+  camOffY=Math.max(0,Math.min(MAP_H_PX()-H,targetY));
+  // Smooth
+}
+
+// ─── Main render ──────────────────────────────────────────────────────────
+function renderGame(){
+  updateCamera2();
+  ctx.save();
+  ctx.translate(-camOffX,-camOffY);
+
+  // Draw tiles
+  const rows=mapData.length, cols=mapData[0].length;
+  for(let ty=0;ty<rows;ty++){
+    for(let tx2=0;tx2<cols;tx2++){
+      const px=tx2*TILE, py=ty*TILE;
+      const ch=mapData[ty][tx2];
+      if(ch==='#') drawTile(ctx,SPR.tile_wall,px,py);
+      else {
+        drawTile(ctx,SPR.tile_floor,px,py);
+        if(ch==='D') drawTile(ctx,SPR.tile_vault_door,px,py);
+        else if(ch==='G') drawTile(ctx,SPR.tile_diamond,px,py);
+        else if(ch==='C') drawTile(ctx,SPR.tile_camera,px,py);
+        else if(ch==='K') drawTile(ctx,SPR.tile_keypad,px,py);
+        else if(ch==='d') drawTile(ctx,SPR.tile_desk,px,py);
+        else if(ch==='p') drawTile(ctx,SPR.tile_plant,px,py);
+        else if(ch==='E'){
+          // Draw exit marker
+          ctx.fillStyle=PAL.e;
+          ctx.fillRect(px+2,py+2,12,12);
+          ctx.fillStyle=PAL.v;
+          ctx.fillRect(px+5,py+5,6,6);
+        }
+      }
+    }
+  }
+
+  // Draw camera vision cones
+  for(const cam of cameras){
+    if(cam.disabled) continue;
+    const cpx=(cam.tx+0.5)*TILE, cpy=(cam.ty+0.5)*TILE;
+    const col = cam.alertTimer>0.5 ? PAL.r : PAL.y;
+    const alpha = cam.alertTimer>0.5 ? 0.7 : 0.35;
+    ditherCone(ctx, cpx, cpy, cam.angle, CAM_FOV, CAM_RANGE, col, alpha);
+  }
+
+  // Draw guard vision cones
+  for(const g of guards){
+    if(g.state==='ko') continue;
+    const angle=guardAngle(g.dir);
+    const col = g.state==='alert'||g.state==='chase' ? PAL.r : PAL.y;
+    const alpha = g.state==='alert'||g.state==='chase' ? 0.6 : 0.3;
+    ditherCone(ctx, g.px, g.py, angle, GUARD_FOV, GUARD_RANGE, col, alpha);
+  }
+
+  // Draw smoke
+  if(smokeEffect&&smokeEffect.timer>0){
+    const a=smokeEffect.timer/smokeEffect.maxTimer;
+    ctx.globalAlpha=a*0.7;
+    for(let i=-2;i<=2;i++){
+      for(let j=-2;j<=2;j++){
+        ctx.drawImage(SPR.smoke,
+          smokeEffect.px-SPR.smoke.width/2+i*8,
+          smokeEffect.py-SPR.smoke.height/2+j*8);
+      }
+    }
+    ctx.globalAlpha=1;
+  }
+
+  // Draw guards
+  for(const g of guards){
+    let gsprite;
+    if(g.state==='ko'){
+      gsprite=SPR.guard_ko;
+      drawSpr(ctx,gsprite,g.px,g.py,1);
+      continue;
+    }
+    if(g.state==='alert') gsprite=SPR.guard_alert;
+    else if(g.dir==='south') gsprite=SPR.guard_south;
+    else if(g.dir==='north') gsprite=SPR.guard_north;
+    else if(g.dir==='east')  gsprite=SPR.guard_east;
+    else                      gsprite=SPR.guard_west;
+    drawSpr(ctx,gsprite,g.px,g.py,1);
+  }
+
+  // Draw player
+  let psprite;
+  if(player.flashTimer>0) psprite=SPR.ghost_white;
+  else if(player.crouching) psprite=SPR.ghost_crouch;
+  else if(player.dir==='south') psprite=SPR.ghost_south;
+  else if(player.dir==='north') psprite=SPR.ghost_north;
+  else if(player.dir==='east')  psprite=SPR.ghost_east;
+  else                           psprite=SPR.ghost_west;
+  drawSpr(ctx,psprite,player.px,player.py,1);
+
+  ctx.restore();
+
+  // ── Alarm overlay
+  if(alarmActive){
+    const pulse=Math.sin(alarmFlash)*0.5+0.5;
+    ctx.fillStyle=`rgba(200,30,30,${0.08*pulse})`;
+    ctx.fillRect(0,0,W,H);
+  }
+
+  // ── HUD
+  drawHUD();
+}
+
+function drawHUD(){
+  // Dark HUD bar
+  ctx.fillStyle='rgba(0,0,0,0.65)';
+  ctx.fillRect(0,0,W,16);
+  ctx.fillRect(0,H-16,W,16);
+
+  // Lives (hearts)
+  for(let i=0;i<3;i++){
+    const hsprite = i<lives ? SPR.heart : SPR.heart_empty;
+    ctx.drawImage(hsprite,4+i*14,4);
+  }
+
+  // Smoke bombs
+  ctx.drawImage(SPR.bomb_icon,52,3);
+  drawText(ctx,'x'+player.smoke,60,4,PAL.w,1,true);
+
+  // Alert status
+  if(alarmActive){
+    const p=Math.abs(Math.sin(alarmFlash*2));
+    const col=`rgb(${Math.floor(200+55*p)},${Math.floor(30)},${Math.floor(30)})`;
+    drawText(ctx,'ALERT!',W/2-18,4,col,1,true);
+  } else {
+    drawText(ctx,'CLEAR',W/2-15,4,PAL.e,1,true);
+  }
+
+  // Level name
+  const lvlName=LEVELS[currentLevel].name;
+  drawText(ctx,lvlName,W-lvlName.length*6-4,4,PAL.G,1,true);
+
+  // Bottom HUD: diamond status
+  if(player.hasDiamond){
+    drawText(ctx,'* DIAMOND SECURED *',W/2-60,H-13,PAL.c,1,true);
+  } else {
+    drawText(ctx,'FIND THE DIAMOND',W/2-48,H-13,PAL.m,1,true);
+  }
+  if(player.hasDiamond){
+    // Show exit direction hint
+    drawText(ctx,'REACH EXIT',4,H-13,PAL.v,1,true);
+  }
+
+  // Level timer
+  const ts=Math.floor(levelTime);
+  const tm=Math.floor(ts/60), ts2=ts%60;
+  const tstr=(tm<10?'0':'')+tm+':'+(ts2<10?'0':'')+ts2;
+  drawText(ctx,tstr,W-40,H-13,PAL.G,1,true);
+}
+
+// ─── Title Screen ─────────────────────────────────────────────────────────
+let titleTick=0;
+
+function renderTitle(){
+  // Background with wall texture
+  ctx.fillStyle=PAL.k;
+  ctx.fillRect(0,0,W,H);
+  // Subtle wall lines
+  ctx.fillStyle=PAL.K;
+  for(let y=0;y<H;y+=16){
+    ctx.fillRect(0,y,W,1);
+    for(let x=0;x<W;x+=32){
+      ctx.fillRect(x,y+1,1,15);
+      ctx.fillRect(x+16,y+9,1,7);
+    }
+  }
+
+  // Dithered stripes for depth
+  for(let y=0;y<H;y+=4){
+    for(let x=0;x<W;x+=4){
+      const t=BAYER[y&3][x&3]/16;
+      if(t<0.4){
+        ctx.fillStyle='rgba(0,0,0,0.3)';
+        ctx.fillRect(x,y,1,1);
+      }
+    }
+  }
+
+  // Title
+  drawCenter(ctx,'SHADOW',60,PAL.G,3);
+  drawCenter(ctx,'HEIST',80,PAL.c,3);
+
+  // Subtitle
+  drawCenter(ctx,'STEAL THE DIAMOND',110,PAL.m,1);
+  drawCenter(ctx,'STAY IN THE SHADOWS',120,PAL.m,1);
+
+  // Controls hint
+  drawCenter(ctx,(window.SofaPad&&SofaPad.connected()?'STICK OR D-PAD':'ARROW KEYS')+'  MOVE',145,PAL.g,1);
+  drawCenter(ctx,BL('b')+'  CROUCH   '+BL('a')+'  INTERACT   '+BL('y')+'  SMOKE',155,PAL.g,1);
+
+  // Blink press A
+  if(Math.floor(titleTick*2)%2===0){
+    drawCenter(ctx,'PRESS '+BL('a')+' TO START',180,PAL.w,1);
+  }
+
+  // Decorative diamond
+  ctx.drawImage(SPR.tile_diamond, W/2-8, 215);
+
+  // Version
+  drawText(ctx,'V1.0',W-28,H-10,PAL.K,1,false);
+}
+
+// ─── Level Clear Screen ───────────────────────────────────────────────────
+function renderLevelClear(){
+  ctx.fillStyle='rgba(0,0,20,0.85)';
+  ctx.fillRect(0,0,W,H);
+
+  drawCenter(ctx,'STAGE CLEAR',60,PAL.v,2);
+  drawCenter(ctx,LEVELS[currentLevel].name,90,PAL.c,1);
+
+  const ts=Math.floor(levelTime);
+  const tm=Math.floor(ts/60), ts2=ts%60;
+  drawCenter(ctx,'TIME '+(tm<10?'0':'')+tm+':'+(ts2<10?'0':'')+ts2,110,PAL.m,1);
+
+  // Star rating
+  let stars=3;
+  if(spotted) stars=Math.max(1,stars-1);
+  if(levelTime>120) stars=Math.max(1,stars-1);
+  let starStr='';
+  for(let i=0;i<3;i++) starStr+=(i<stars?'*':'-');
+  drawCenter(ctx,starStr,125,PAL.y,2);
+
+  if(!spotted){
+    drawCenter(ctx,'GHOST RATING!',145,PAL.c,1);
+  }
+
+  if(currentLevel<LEVELS.length-1){
+    drawCenter(ctx,'PRESS '+BL('a')+' FOR NEXT LEVEL',175,PAL.w,1);
+  } else {
+    drawCenter(ctx,'HEIST COMPLETE!',165,PAL.v,2);
+    drawCenter(ctx,'PRESS '+BL('a')+' TO PLAY AGAIN',185,PAL.w,1);
+  }
+}
+
+// ─── Game Over Screen ─────────────────────────────────────────────────────
+function renderGameOver(){
+  ctx.fillStyle='rgba(30,0,0,0.9)';
+  ctx.fillRect(0,0,W,H);
+  // Scanlines
+  for(let y=0;y<H;y+=2){
+    ctx.fillStyle='rgba(0,0,0,0.3)';
+    ctx.fillRect(0,y,W,1);
+  }
+  drawCenter(ctx,'COMPROMISED',80,PAL.r,2);
+  drawCenter(ctx,'YOUR COVER IS BLOWN',115,PAL.R,1);
+  drawCenter(ctx,'PRESS '+BL('a')+' TO RETRY',160,PAL.w,1);
+}
+
+// ─── Caught Screen ────────────────────────────────────────────────────────
+function renderCaught(){
+  ctx.fillStyle='rgba(50,0,0,0.75)';
+  ctx.fillRect(0,0,W,H);
+  drawCenter(ctx,'CAUGHT!',100,PAL.r,2);
+  drawCenter(ctx,'LIVES '+lives,130,PAL.w,1);
+  if(lives<=0) drawCenter(ctx,'GAME OVER',150,PAL.R,1);
+}
+
+// ─── Pause Screen ─────────────────────────────────────────────────────────
+function renderPause(){
+  ctx.fillStyle='rgba(0,0,0,0.7)';
+  ctx.fillRect(0,0,W,H);
+  drawCenter(ctx,'PAUSED',100,PAL.w,2);
+  drawCenter(ctx,'PRESS '+BL('start')+' TO RESUME',130,PAL.G,1);
+
+  drawCenter(ctx,'CONTROLS',155,PAL.c,1);
+  drawCenter(ctx,(window.SofaPad&&SofaPad.connected()?'STICK':'ARROWS')+'   MOVE',165,PAL.g,1);
+  drawCenter(ctx,BL('b')+'        CROUCH',175,PAL.g,1);
+  drawCenter(ctx,BL('a')+'        INTERACT',185,PAL.g,1);
+  drawCenter(ctx,BL('y')+'        SMOKE BOMB',195,PAL.g,1);
+}
+
+// ─── Main Update ──────────────────────────────────────────────────────────
+let lastTime=null;
+
+function update(ts){
+  if(lastTime===null) lastTime=ts;
+  let dt=(ts-lastTime)/1000;
+  lastTime=ts;
+  if(dt>0.1) dt=0.1;
+
+  updatePad();
+  titleTick+=dt;
+
+  if(state===GAME_STATE.TITLE){
+    if(btnAPressed()){
+      currentLevel=0; lives=3; spotted=false;
+      initLevel(currentLevel);
+      state=GAME_STATE.PLAYING;
+    }
+  } else if(state===GAME_STATE.PLAYING){
+    levelTime+=dt;
+    totalTime+=dt;
+
+    updatePlayer(dt);
+    for(const g of guards) updateGuard(g,dt);
+    for(const cam of cameras) updateCamera(cam,dt);
+    updateAlarm(dt);
+
+    if(smokeEffect&&smokeEffect.timer>0) smokeEffect.timer-=dt;
+
+    // Input
+    if(btnBPressed()){
+      player.crouching=!player.crouching;
+    }
+    if(btnAPressed()) doInteract();
+    if(btnYPressed()) doSmoke();
+    if(btnStartPressed()) state=GAME_STATE.PAUSED;
+
+  } else if(state===GAME_STATE.PAUSED){
+    if(btnStartPressed()) state=GAME_STATE.PLAYING;
+
+  } else if(state===GAME_STATE.LEVEL_CLEAR){
+    levelClearTimer-=dt;
+    if(btnAPressed()||levelClearTimer<=0){
+      if(currentLevel<LEVELS.length-1){
+        currentLevel++;
+        initLevel(currentLevel);
+        state=GAME_STATE.PLAYING;
+      } else {
+        // All levels done → title
+        currentLevel=0; lives=3;
+        state=GAME_STATE.TITLE;
+      }
+    }
+
+  } else if(state===GAME_STATE.CAUGHT){
+    caughtTimer-=dt;
+    if(caughtTimer<=0){
+      if(lives<=0){
+        state=GAME_STATE.GAME_OVER;
+      } else {
+        initLevel(currentLevel);
+        state=GAME_STATE.PLAYING;
+      }
+    }
+
+  } else if(state===GAME_STATE.GAME_OVER){
+    if(btnAPressed()){
+      currentLevel=0; lives=3; spotted=false;
+      initLevel(currentLevel);
+      state=GAME_STATE.PLAYING;
+    }
+  }
+
+  updatePrevBtn();
+}
+
+// ─── Main Render ──────────────────────────────────────────────────────────
+function render(){
+  ctx.fillStyle=PAL.k;
+  ctx.fillRect(0,0,W,H);
+
+  if(state===GAME_STATE.TITLE){
+    renderTitle();
+  } else if(state===GAME_STATE.PLAYING){
+    renderGame();
+  } else if(state===GAME_STATE.PAUSED){
+    renderGame();
+    renderPause();
+  } else if(state===GAME_STATE.LEVEL_CLEAR){
+    renderGame();
+    renderLevelClear();
+  } else if(state===GAME_STATE.CAUGHT){
+    renderGame();
+    renderCaught();
+  } else if(state===GAME_STATE.GAME_OVER){
+    renderGameOver();
+  }
+}
+
+// ─── Game Loop ────────────────────────────────────────────────────────────
+function loop(ts){
+  update(ts);
+  render();
+  requestAnimationFrame(loop);
+}
+
+// ─── Boot ─────────────────────────────────────────────────────────────────
+initLevel(0); // pre-init so sprites are ready
+state=GAME_STATE.TITLE;
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

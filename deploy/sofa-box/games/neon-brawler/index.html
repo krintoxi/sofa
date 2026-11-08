@@ -1,0 +1,1387 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Neon Brawler</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; user-select: none; }
+  canvas { position: absolute; image-rendering: pixelated; }
+</style></head><body>
+<canvas id="c" width="480" height="270"></canvas>
+<script src="../pad.js"></script>
+<script>
+/* Neon Brawler: 16-bit arcade street beat 'em up for Sofa Box OS.
+   Procedural ASCII pixel art, multi-frame fighters, Bayer-dithered streetlights,
+   combos, jump kicks, special moves, floating damage numbers, Web Audio synthesis.
+   100% offline, controller-first. */
+(function () {
+  "use strict";
+  const VW = 480, VH = 270;
+  const cv = document.getElementById("c"), ctx = cv.getContext("2d", { alpha: false });
+  let dirty = true;
+  function fit() {
+    const s = Math.min(innerWidth / VW, innerHeight / VH);
+    const w = Math.round(VW * s), h = Math.round(VH * s);
+    cv.style.width = w + "px"; cv.style.height = h + "px";
+    cv.style.left = ((innerWidth - w) >> 1) + "px"; cv.style.top = ((innerHeight - h) >> 1) + "px";
+    ctx.imageSmoothingEnabled = false; dirty = true;
+  }
+  addEventListener("resize", fit); fit();
+
+  // ------------------------------------------------ Color Palette
+  const PAL = {
+    k: "#08060f", K: "#1a1428", g: "#423854", G: "#7a7094", w: "#f0eef8",
+    s: "#f0b08a", S: "#a86048", r: "#ff2a6d", R: "#9e1038", o: "#ff6c11",
+    O: "#a83800", y: "#ffea00", Y: "#9a8a00", b: "#05d9e8", B: "#006888",
+    p: "#9b5de5", P: "#4e1e82", e: "#00f5d4", E: "#007a6a", m: "#8a5830",
+    M: "#4e2c14", n: "#2c263c", z: "rgba(0,0,0,0.45)"
+  };
+
+  // ------------------------------------------------ Sprite Parser
+  function mk(w, h) { const c = document.createElement("canvas"); c.width = w; c.height = h; return c; }
+  function g2(c) { const g = c.getContext("2d"); g.imageSmoothingEnabled = false; return g; }
+
+  function spr(rows, over) {
+    let w = 0; for (let i = 0; i < rows.length; i++) w = Math.max(w, rows[i].length);
+    const c = mk(w, rows.length), g = g2(c);
+    for (let y = 0; y < rows.length; y++) {
+      for (let x = 0; x < rows[y].length; x++) {
+        const ch = rows[y][x]; if (ch === ".") continue;
+        const col = (over && over[ch]) || PAL[ch]; if (!col) continue;
+        g.fillStyle = col; g.fillRect(x, y, 1, 1);
+      }
+    }
+    return c;
+  }
+
+  function flipX(img) {
+    const c = mk(img.width, img.height), g = g2(c);
+    g.translate(img.width, 0); g.scale(-1, 1); g.drawImage(img, 0, 0);
+    return c;
+  }
+
+  function whiteOf(img) {
+    const c = mk(img.width, img.height), g = g2(c);
+    g.drawImage(img, 0, 0);
+    g.globalCompositeOperation = "source-in";
+    g.fillStyle = "#ffffff";
+    g.fillRect(0, 0, img.width, img.height);
+    return c;
+  }
+
+  // ------------------------------------------------ Handcrafted Pixel Art
+  const RAW_SPRITES = {
+    // Player "Kid Neon" (16x26)
+    hero_idle: [
+      ".....kkkkk......",
+      "....kyyyyyk.....",
+      "....ksssssk.....",
+      "....kkskskk.....",
+      "....ksssssk.....",
+      ".....ksssk......",
+      "...kkkbbkkk.....",
+      "..kbbbbbbbbk....",
+      ".kbbwbbbbwbk....",
+      ".kssbbbbbbssk...",
+      ".kssbbbbbbssk...",
+      ".kkkbbbbbbkkk...",
+      "....kYYYYk......",
+      "....kggggk......",
+      "....kg..gk......",
+      "....kg..gk......",
+      "....kK..Kk......",
+      "....kK..Kk......",
+      "....kw..wk......",
+      "....kwwwwk......",
+      ".....kkkk......."
+    ],
+    hero_walk1: [
+      ".....kkkkk......",
+      "....kyyyyyk.....",
+      "....ksssssk.....",
+      "....kkskskk.....",
+      "....ksssssk.....",
+      ".....ksssk......",
+      "...kkkbbkkk.....",
+      "..kbbbbbbbbk....",
+      ".ksswbbbbwbk....",
+      ".kssbbbbbbssk...",
+      "..kkbbbbbbssk...",
+      "....kYYYYk.kk...",
+      "....kggggk......",
+      "...kgg..gk......",
+      "...kg....gk.....",
+      "..kK......Kk....",
+      "..kw......wk....",
+      "..kwww...kwww...",
+      "...kkk....kkk..."
+    ],
+    hero_walk2: [
+      ".....kkkkk......",
+      "....kyyyyyk.....",
+      "....ksssssk.....",
+      "....kkskskk.....",
+      "....ksssssk.....",
+      ".....ksssk......",
+      "...kkkbbkkk.....",
+      "..kbbbbbbbbk....",
+      ".kbbwbbbbwbk....",
+      ".kssbbbbbbssk...",
+      ".kssbbbbbbssk...",
+      ".kkkbbbbbbkkk...",
+      "....kYYYYk......",
+      "....kggggk......",
+      "....kg..gk......",
+      "....kg..gk......",
+      "....kK..Kk......",
+      "....kw..wk......",
+      "....kwwwwk......",
+      ".....kkkk......."
+    ],
+    hero_walk3: [
+      ".....kkkkk......",
+      "....kyyyyyk.....",
+      "....ksssssk.....",
+      "....kkskskk.....",
+      "....ksssssk.....",
+      ".....ksssk......",
+      "...kkkbbkkk.....",
+      "..kbbbbbbbbk....",
+      ".kbbwbbbbwssk...",
+      ".kssbbbbbbssk...",
+      ".kssbbbbbbkk....",
+      "..kk.kYYYYk.....",
+      "....kggggk......",
+      "....kg..ggk.....",
+      "...kg....gk.....",
+      "...kK......Kk...",
+      "...kw......wk...",
+      "..kwww...kwww...",
+      "...kkk....kkk..."
+    ],
+    hero_punch1: [
+      ".....kkkkk......",
+      "....kyyyyyk.....",
+      "....ksssssk.....",
+      "....kkskskk.....",
+      "....ksssssk.....",
+      ".....ksssk......",
+      "...kkkbbkkkkkk..",
+      "..kbbbbbbbbsssk.",
+      ".ksswbbbbwbsssk.",
+      ".kssbbbbbbkkkk..",
+      "..kkbbbbbbk.....",
+      "....kYYYYk......",
+      "....kggggk......",
+      "...kgg..gk......",
+      "...kg....gk.....",
+      "..kK......Kk....",
+      "..kw......wk....",
+      "..kwww...kwww...",
+      "...kkk....kkk..."
+    ],
+    hero_punch2: [
+      ".....kkkkk......",
+      "....kyyyyyk.....",
+      "....ksssssk.....",
+      "....kkskskk.....",
+      "....ksssssk.....",
+      ".....ksssk......",
+      "...kkkbbkkkkkkk.",
+      "..kbbbbbbbbssswk",
+      ".kbbwbbbbwbssswk",
+      ".kssbbbbbbkkkkk.",
+      ".kssbbbbbbk.....",
+      ".kkk.kYYYYk.....",
+      "....kggggk......",
+      "....kg..ggk.....",
+      "...kg....gk.....",
+      "...kK......Kk...",
+      "...kw......wk...",
+      "..kwww...kwww...",
+      "...kkk....kkk..."
+    ],
+    hero_kick: [
+      ".....kkkkk......",
+      "....kyyyyyk.....",
+      "....ksssssk.....",
+      "....kkskskk.....",
+      "....ksssssk.....",
+      ".....ksssk......",
+      "...kkkbbkkk.....",
+      "..kbbbbbbbbk....",
+      ".kssbbbbbbssk...",
+      "..kkbbbbbbk.....",
+      "....kYYYYkkkkk..",
+      "....kggggggggk..",
+      "...kggkKkkkKk...",
+      "...kg.kwkwkkk...",
+      "...kK.kwwk......",
+      "..kw..kkk.......",
+      "..kwwk..........",
+      "...kk..........."
+    ],
+    hero_jump: [
+      ".....kkkkk......",
+      "....kyyyyyk.....",
+      "....ksssssk.....",
+      "....kkskskk.....",
+      "....ksssssk.....",
+      "...kkkbbkkk.....",
+      "..kbbbbbbbbk....",
+      ".ksswbbbbwbssk..",
+      ".kssbbbbbbkssk..",
+      "..kkkYYYYkkkk...",
+      "...kggggggggk...",
+      "...kggk..kggk...",
+      "...kKk....kKk...",
+      "...kwwk..kwwk...",
+      "....kk....kk...."
+    ],
+    hero_special: [
+      "..kkkyyyykkk....",
+      ".krrrryyyyrrrk..",
+      ".krrrrssssrrrk..",
+      "krrrrrsssssrrrk.",
+      "krrbbbbbbbbbbrk.",
+      "krrbbwwbbwwbbrk.",
+      "krrbbbbbbbbbbrk.",
+      ".krrYYYYYYYYrrk.",
+      "..krrggggggrrk..",
+      "...krrKKKKrrk...",
+      "....krrwwrrk....",
+      ".....kkkkkk....."
+    ],
+    hero_hurt: [
+      "....kkkkk.......",
+      "...kyyyyyk......",
+      "...ksssssk......",
+      "...kkskskk......",
+      "...ksssssk......",
+      "....ksssk.......",
+      "..kkkbbkkk......",
+      ".kbbbbbbbbk.....",
+      "ksswbbbbwbssk...",
+      "kssbbbbbbkssk...",
+      ".kkkYYYYkkk.....",
+      "...kggggk.......",
+      "...kg..gk.......",
+      "..kK....Kk......",
+      "..kw....wk......",
+      ".kwww..kwww.....",
+      "..kk....kk......"
+    ],
+
+    // Punk Thug (16x22)
+    punk_idle: [
+      ".....krrrrk.....",
+      "....krrrrrrk....",
+      "....kssssssk....",
+      "....kskssksk....",
+      "....kssssssk....",
+      "....kKssssKk....",
+      "...kkkKKKKkkk...",
+      "..kKKKKKKKKKk...",
+      ".kssKKgKKgKKssk.",
+      ".kssKKgKKgKKssk.",
+      "..kkKKKKKKKkkk..",
+      "....knnnnnk.....",
+      "....kn...nk.....",
+      "....kn...nk.....",
+      "....kK...Kk.....",
+      "....kw...wk.....",
+      "....kkk.kkk....."
+    ],
+    punk_walk1: [
+      ".....krrrrk.....",
+      "....krrrrrrk....",
+      "....kssssssk....",
+      "....kskssksk....",
+      "....kssssssk....",
+      "....kKssssKk....",
+      "...kkkKKKKkkk...",
+      "..kKKKKKKKKKk...",
+      ".kssKKgKKgKKk...",
+      "..kkKKKKKKKkssk.",
+      "....knnnnnkkkk..",
+      "...knn...nk.....",
+      "...kn.....nk....",
+      "..kK.......Kk...",
+      "..kw.......wk...",
+      "..kkk.....kkk..."
+    ],
+    punk_walk2: [
+      ".....krrrrk.....",
+      "....krrrrrrk....",
+      "....kssssssk....",
+      "....kskssksk....",
+      "....kssssssk....",
+      "....kKssssKk....",
+      "...kkkKKKKkkk...",
+      "..kKKKKKKKKKk...",
+      "...kKKgKKgKKssk.",
+      ".kssKKKKKKKkkk..",
+      "..kkknnnnnk.....",
+      "....kn...nnk....",
+      "...kn.....nk....",
+      "...kK.....Kk....",
+      "...kw.....wk....",
+      "...kkk...kkk...."
+    ],
+    punk_punch: [
+      ".....krrrrk.....",
+      "....krrrrrrk....",
+      "....kssssssk....",
+      "....kskssksk....",
+      "....kssssssk....",
+      "....kKssssKk....",
+      "...kkkKKKKkkkkkk",
+      "..kKKKKKKKKKssss",
+      ".kssKKgKKgKKssss",
+      "..kkKKKKKKKkkkkk",
+      "....knnnnnk.....",
+      "...knn...nk.....",
+      "...kn.....nk....",
+      "..kK.......Kk...",
+      "..kw.......wk...",
+      "..kkk.....kkk..."
+    ],
+    punk_hurt: [
+      "....krrrrk......",
+      "...krrrrrrk.....",
+      "...kssssssk.....",
+      "...kskssksk.....",
+      "...kssssssk.....",
+      "...kKssssKk.....",
+      "..kkkKKKKkkk....",
+      ".kKKKKKKKKKk....",
+      "kssKKgKKgKKssk..",
+      ".kkKKKKKKKkkk...",
+      "...knnnnnk......",
+      "...kn...nk......",
+      "..kn.....nk.....",
+      "..kK.....Kk.....",
+      "..kw.....wk.....",
+      "..kkk...kkk....."
+    ],
+
+    // Brute Boss "Big Diesel" (24x28)
+    boss_idle: [
+      "........kkkkkkk.........",
+      ".......kKKKKKKKk........",
+      ".......ksssssssk........",
+      ".......ksksskskk........",
+      ".......ksssssssk........",
+      "......kkkssssskkk.......",
+      "....kkRRRRRRRRRRRkk.....",
+      "...kRRRRRRRRRRRRRRRk....",
+      "..kssRRRwRRRRRwRRRssk...",
+      "..kssRRRwRRRRRwRRRssk...",
+      "..kssRRRRRRRRRRRRRssk...",
+      "...kkRRRRRRRRRRRRRkk....",
+      ".....kKKKKKKKKKKk.......",
+      ".....kggggggggggk.......",
+      ".....kgg......ggk.......",
+      ".....kgg......ggk.......",
+      ".....kKK......KKk.......",
+      ".....kKK......KKk.......",
+      ".....kww......wwk.......",
+      ".....kkk......kkk......."
+    ],
+    boss_walk1: [
+      "........kkkkkkk.........",
+      ".......kKKKKKKKk........",
+      ".......ksssssssk........",
+      ".......ksksskskk........",
+      ".......ksssssssk........",
+      "......kkkssssskkk.......",
+      "....kkRRRRRRRRRRRkk.....",
+      "...kRRRRRRRRRRRRRRRk....",
+      "..kssRRRwRRRRRwRRRk.....",
+      "..kssRRRRRRRRRRRRRkssk..",
+      "...kkRRRRRRRRRRRRRkssk..",
+      ".....kKKKKKKKKKKkkkk....",
+      "....kgggg....ggggk......",
+      "...kgg..........ggk.....",
+      "...kKK..........KKk.....",
+      "...kww..........wwk.....",
+      "...kkk..........kkk....."
+    ],
+    boss_walk2: [
+      "........kkkkkkk.........",
+      ".......kKKKKKKKk........",
+      ".......ksssssssk........",
+      ".......ksksskskk........",
+      ".......ksssssssk........",
+      "......kkkssssskkk.......",
+      "....kkRRRRRRRRRRRkk.....",
+      "...kRRRRRRRRRRRRRRRk....",
+      ".....kRRRwRRRRRwRRRssk..",
+      "..kssRRRRRRRRRRRRRkssk..",
+      "..kssRRRRRRRRRRRRRkkk...",
+      "....kkkKKKKKKKKKKk......",
+      "......kgggg....ggggk....",
+      ".....kgg..........ggk...",
+      ".....kKK..........KKk...",
+      ".....kww..........wwk...",
+      ".....kkk..........kkk..."
+    ],
+    boss_slam: [
+      "........kkkkkkk.........",
+      ".......kKKKKKKKk........",
+      ".......ksssssssk........",
+      ".......ksksskskk........",
+      ".......ksssssssk........",
+      "......kkkssssskkk.......",
+      "....kkRRRRRRRRRRRkkkkkk.",
+      "...kRRRRRRRRRRRRRRRssssk",
+      "..kssRRRwRRRRRwRRRRssssk",
+      "..kssRRRRRRRRRRRRRRkkkkk",
+      "...kkRRRRRRRRRRRRRk.....",
+      ".....kKKKKKKKKKKk.......",
+      ".....kggggggggggk.......",
+      "....kgg........ggk......",
+      "...kKK..........KKk.....",
+      "...kww..........wwk.....",
+      "...kkk..........kkk....."
+    ],
+    boss_hurt: [
+      ".......kkkkkkk..........",
+      "......kKKKKKKKk.........",
+      "......ksssssssk.........",
+      "......ksksskskk.........",
+      "......ksssssssk.........",
+      ".....kkkssssskkk........",
+      "...kkRRRRRRRRRRRkk......",
+      "..kRRRRRRRRRRRRRRRk.....",
+      ".kssRRRwRRRRRwRRRssk....",
+      "..kkRRRRRRRRRRRRRkk.....",
+      "....kKKKKKKKKKKk........",
+      "....kggggggggggk........",
+      "...kgg........ggk.......",
+      "...kKK........KKk.......",
+      "...kww........wwk.......",
+      "...kkk........kkk......."
+    ],
+
+    // Props & Pickups
+    barrel: [
+      "...kkkkkkkkkk...",
+      "..kmmmmmmmmmmk..",
+      ".kMmMmMmMmMmMk.",
+      ".kKKKKKKKKKKKk.",
+      ".kmmmmmmmmmmmk.",
+      ".kMmMmMmMmMmMk.",
+      ".kKKKKKKKKKKKk.",
+      ".kmmmmmmmmmmmk.",
+      ".kMmMmMmMmMmMk.",
+      "..kkkkkkkkkkk..."
+    ],
+    barrel_debris: [
+      "kmmk..kMMk..kmmk",
+      ".kMMk.kmmk..kMMk",
+      "..kk..kkk....kk."
+    ],
+    food_chicken: [
+      "....kkkkk.......",
+      "..kkooooookk....",
+      ".koooooooooook..",
+      "koooyyoooooookk.",
+      "kooyyyyoooooookk",
+      "koooyyoooooookkk",
+      ".kooooooooooook.",
+      "..kkooooooookk..",
+      "....kkwkkwkk....",
+      ".....kk..kk....."
+    ],
+    hydrant: [
+      ".....kkkk.....",
+      "....krrrGk....",
+      "...kkrrrrGkk..",
+      "..kGkrrrrGkGk.",
+      "..kGkrrrrGkGk.",
+      "...kkrrrrGkk..",
+      "....krrrrGk...",
+      "....krrrGk....",
+      "...kkkkkkkk..."
+    ],
+    shadow: [
+      "...zzzzzzzzzz...",
+      ".zzzzzzzzzzzzzz.",
+      "zzzzzzzzzzzzzzzz",
+      ".zzzzzzzzzzzzzz.",
+      "...zzzzzzzzzz..."
+    ],
+    shadow_boss: [
+      "....zzzzzzzzzzzzzz....",
+      "..zzzzzzzzzzzzzzzzzz..",
+      ".zzzzzzzzzzzzzzzzzzzz.",
+      "zzzzzzzzzzzzzzzzzzzzzz",
+      ".zzzzzzzzzzzzzzzzzzzz.",
+      "..zzzzzzzzzzzzzzzzzz..",
+      "....zzzzzzzzzzzzzz...."
+    ]
+  };
+
+  const S = {};
+  for (const k in RAW_SPRITES) {
+    S[k] = spr(RAW_SPRITES[k]);
+    S[k + "_w"] = whiteOf(S[k]);
+    S[k + "_flip"] = flipX(S[k]);
+    S[k + "_flip_w"] = whiteOf(S[k + "_flip"]);
+  }
+
+  // ------------------------------------------------ Bayer Dithering Matrix (4x4)
+  const BAYER4 = [
+    [ 0,  8,  2, 10],
+    [12,  4, 14,  6],
+    [ 3, 11,  1,  9],
+    [15,  7, 13,  5]
+  ];
+
+  // A street lamp's light: drawn once into its own see-through canvas, then copied over the street. (It was put
+  // straight onto the screen with putImageData, which doesn't blend: the cone's empty corners came out as solid boxes.)
+  const CONES = {};
+  function ditherLightCone(g, cx, topY, botY, topR, botR, colHex, alphaMax) {
+    const key = topR + "," + botR + "," + (botY - topY) + colHex + alphaMax; let c = CONES[key];
+    if (!c) { c = document.createElement("canvas"); c.width = botR * 2; c.height = botY - topY; makeLightCone(c.getContext("2d"), botR, 0, botY - topY, topR, botR, colHex, alphaMax); CONES[key] = c; }
+    g.drawImage(c, Math.round(cx - botR), topY);
+  }
+  function makeLightCone(g, cx, topY, botY, topR, botR, colHex, alphaMax) {
+    const rgb = hexToRgb(colHex);
+    const id = g.createImageData(botR * 2, botY - topY);
+    const d = id.data;
+    const h = botY - topY;
+    const halfW = botR;
+    for (let y = 0; y < h; y++) {
+      const prog = y / h;
+      const curR = topR + (botR - topR) * prog;
+      const bayerY = (topY + y) % 4;
+      for (let x = 0; x < botR * 2; x++) {
+        const distFromCenter = Math.abs(x - halfW);
+        if (distFromCenter <= curR) {
+          const bayerX = (cx - halfW + x) % 4;
+          const threshold = (BAYER4[bayerY][bayerX] + 0.5) / 16;
+          const falloff = 1 - (distFromCenter / curR);
+          const intensity = falloff * alphaMax * (0.4 + 0.6 * prog);
+          if (intensity > threshold) {
+            const idx = (y * botR * 2 + x) * 4;
+            d[idx] = rgb.r;
+            d[idx + 1] = rgb.g;
+            d[idx + 2] = rgb.b;
+            d[idx + 3] = 255;
+          }
+        }
+      }
+    }
+    g.putImageData(id, cx - botR, topY);
+  }
+
+  function hexToRgb(hex) {
+    let c = hex.replace("#", "");
+    if (c.length === 3) c = c[0] + c[0] + c[1] + c[1] + c[2] + c[2];
+    const num = parseInt(c, 16);
+    return { r: (num >> 16) & 255, g: (num >> 8) & 255, b: num & 255 };
+  }
+
+  // ------------------------------------------------ 5x7 Bitmapped Retro Font
+  const FONT_MAP = {
+    "\u2715":[".....","#...#",".#.#.","..#..",".#.#.","#...#","....."],
+    "\u25cb":[".....",".###.","#...#","#...#","#...#",".###.","....."],
+    "\u25a1":[".....","#####","#...#","#...#","#...#","#####","....."],
+    "\u25b3":[".....","..#..",".#.#.",".#.#.","#...#","#####","....."],
+
+    A: [".###.", "#...#", "#...#", "#####", "#...#", "#...#", "#...#"],
+    B: ["####.", "#...#", "####.", "#...#", "#...#", "####.", "....."],
+    C: [".####", "#....", "#....", "#....", "#....", ".####", "....."],
+    D: ["###..", "#..#.", "#...#", "#...#", "#..#.", "###..", "....."],
+    E: ["#####", "#....", "####.", "#....", "#####", ".....", "....."],
+    F: ["#####", "#....", "####.", "#....", "#....", ".....", "....."],
+    G: [".####", "#....", "#.###", "#...#", ".####", ".....", "....."],
+    H: ["#...#", "#...#", "#####", "#...#", "#...#", ".....", "....."],
+    I: ["###", ".#.", ".#.", ".#.", "###"],
+    J: ["..###", "...#.", "...#.", "#..#.", ".##.."],
+    K: ["#...#", "#..#.", "###..", "#..#.", "#...#"],
+    L: ["#....", "#....", "#....", "#....", "#####"],
+    M: ["#...#", "##.##", "#.#.#", "#...#", "#...#"],
+    N: ["#...#", "##..#", "#.#.#", "#..##", "#...#"],
+    O: [".###.", "#...#", "#...#", "#...#", ".###."],
+    P: ["####.", "#...#", "####.", "#....", "#...."],
+    Q: [".###.", "#...#", "#.#.#", ".###.", "....#"],
+    R: ["####.", "#...#", "####.", "#..#.", "#...#"],
+    S: [".####", "#....", ".###.", "....#", "####."],
+    T: ["#####", "..#..", "..#..", "..#..", "..#.."],
+    U: ["#...#", "#...#", "#...#", "#...#", ".###."],
+    V: ["#...#", "#...#", ".#.#.", ".#.#.", "..#.."],
+    W: ["#...#", "#...#", "#.#.#", "##.##", "#...#"],
+    X: ["#...#", ".#.#.", "..#..", ".#.#.", "#...#"],
+    Y: ["#...#", ".#.#.", "..#..", "..#..", "..#.."],
+    Z: ["#####", "...#.", "..#..", ".#...", "#####"],
+    "0": [".###.", "#..##", "#.#.#", "##..#", ".###."],
+    "1": ["..#..", "###..", "..#..", "..#..", "#####"],
+    "2": [".###.", "#...#", "...#.", ".##..", "#####"],
+    "3": ["####.", "....#", "..##.", "....#", "####."],
+    "4": ["#...#", "#...#", "#####", "....#", "....#"],
+    "5": ["#####", "#....", "####.", "....#", "####."],
+    "6": [".###.", "#....", "####.", "#...#", ".###."],
+    "7": ["#####", "....#", "...#.", "..#..", "..#.."],
+    "8": [".###.", "#...#", ".###.", "#...#", ".###."],
+    "9": [".###.", "#...#", ".####", "....#", ".###."],
+    ":": [".", "#", ".", ".", "#", "."],
+    "!": ["#", "#", "#", "#", ".", "#"],
+    "-": [".....", ".....", "#####", ".....", "....."],
+    "+": ["..#..", "..#..", "#####", "..#..", "..#.."],
+    "/": ["....#", "...#.", "..#..", ".#...", "#...."],
+    ".": ["...", "...", "...", "...", "..#"],
+    " ": ["...", "...", "...", "...", "..."],
+    "(": [".#.", "#..", "#..", "#..", ".#."],
+    ")": [".#.", "..#", "..#", "..#", ".#."]
+  };
+
+  // the letters: each drawn once in each colour, then copied (far cheaper on a Pi than every pixel, every frame)
+  let GLYPHS = {}, glyphCols = 0;
+  function glyphOf(ch, col) {
+    let set = GLYPHS[col];
+    if (!set) { if (++glyphCols > 48) { GLYPHS = {}; glyphCols = 1; } set = GLYPHS[col] = {}; }
+    let c = set[ch]; if (c) return c;
+    const gl = FONT_MAP[ch] || FONT_MAP[" "];
+    c = document.createElement("canvas"); c.width = gl[0].length; c.height = gl.length; const q = c.getContext("2d"); q.fillStyle = col;
+    for (let r = 0; r < gl.length; r++) for (let x = 0; x < gl[r].length; x++) if (gl[r][x] === "#") q.fillRect(x, r, 1, 1);
+    return set[ch] = c;
+  }
+  function drawText(g, str, x, y, col, scale = 1, shadow = true) {
+    str = String(str).toUpperCase(); col = col || "#ffffff";
+    let cx = x;
+    for (let i = 0; i < str.length; i++) {
+      const ch = str[i], gl = FONT_MAP[ch] || FONT_MAP[" "], gw = gl[0].length;
+      if (ch !== " ") {
+        if (shadow) g.drawImage(glyphOf(ch, "#000000"), cx + scale, y + scale, gw * scale, gl.length * scale);
+        g.drawImage(glyphOf(ch, col), cx, y, gw * scale, gl.length * scale);
+      }
+      cx += (gw + 1) * scale;
+    }
+  }
+
+  function textWidth(str, scale = 1) {
+    str = String(str).toUpperCase();
+    let w = 0;
+    for (let i = 0; i < str.length; i++) {
+      const glyph = FONT_MAP[str[i]] || FONT_MAP[" "];
+      w += (glyph[0].length + 1) * scale;
+    }
+    return w;
+  }
+
+  function drawCenterText(g, str, y, col, scale = 1) {
+    const w = textWidth(str, scale);
+    drawText(g, str, Math.floor((VW - w) / 2), y, col, scale);
+  }
+
+  // ------------------------------------------------ Web Audio Procedural Synthesis
+  let AC = null, soundOn = true;
+  function wakeAudio() {
+    if (!soundOn) return;
+    if (!AC) {
+      try {
+        const A = window.AudioContext || window.webkitAudioContext;
+        if (A) AC = new A();
+      } catch (e) { AC = null; }
+    }
+    if (AC && AC.state === "suspended") AC.resume().catch(() => {});
+  }
+
+  function synthTone(f0, f1, dur, type, vol) {
+    if (!AC || !soundOn || AC.state !== "running") return;
+    try {
+      const t = AC.currentTime, o = AC.createOscillator(), g = AC.createGain();
+      o.type = type || "sine";
+      o.frequency.setValueAtTime(f0, t);
+      if (f1) o.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t + dur);
+      g.gain.setValueAtTime(vol || 0.15, t);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      o.connect(g); g.connect(AC.destination);
+      o.start(t); o.stop(t + dur + 0.02);
+    } catch (e) {}
+  }
+
+  function synthNoise(dur, vol, freq) {
+    if (!AC || !soundOn || AC.state !== "running") return;
+    try {
+      const n = (AC.sampleRate * dur) | 0, b = AC.createBuffer(1, n, AC.sampleRate);
+      const d = b.getChannelData(0); for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+      const s = AC.createBufferSource(); s.buffer = b;
+      const f = AC.createBiquadFilter(); f.type = "lowpass"; f.frequency.value = freq || 900;
+      const g = AC.createGain(), t = AC.currentTime;
+      g.gain.setValueAtTime(vol || 0.18, t);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      s.connect(f); f.connect(g); g.connect(AC.destination);
+      s.start(t); s.stop(t + dur + 0.02);
+    } catch (e) {}
+  }
+
+  const sndPunch = () => { synthTone(180, 60, 0.09, "sawtooth", 0.18); synthNoise(0.07, 0.15, 1200); };
+  const sndKick = () => { synthTone(130, 40, 0.14, "triangle", 0.22); synthNoise(0.12, 0.22, 700); };
+  const sndSpecial = () => { synthTone(440, 880, 0.25, "sawtooth", 0.25); synthNoise(0.22, 0.2, 1600); };
+  const sndWhoosh = () => { synthTone(240, 110, 0.12, "sine", 0.12); };
+  const sndFood = () => { synthTone(350, 700, 0.14, "triangle", 0.2); };
+  const sndKo = () => { synthTone(200, 50, 0.35, "sawtooth", 0.3); synthNoise(0.3, 0.25, 400); };
+  const sndBossRoar = () => { synthTone(90, 45, 0.45, "sawtooth", 0.35); synthNoise(0.4, 0.3, 300); };
+
+  // ------------------------------------------------ Game Constants & State
+  const STAGE_W = 1900;
+  const FLOOR_MIN_Y = 175;
+  const FLOOR_MAX_Y = 250;
+  const SAVE_KEY = "neonBrawler_hi";
+
+  let state = "title"; // title, playing, gameover, victory
+  let score = 0, bestScore = 0;
+  try { bestScore = +localStorage.getItem(SAVE_KEY) || 0; } catch (e) {}
+
+  let cameraX = 0;
+  let screenShake = 0;
+  let combo = 0, comboTimer = 0;
+  let floatingTexts = [];
+  let particles = [];
+  let hitPause = 0;
+
+  // Player
+  const player = {
+    x: 80, y: 210, z: 0, vx: 0, vy: 0, vz: 0,
+    hp: 100, maxHp: 100, facing: 1,
+    action: "idle", actionTimer: 0,
+    comboStep: 0, invuln: 0, flashWhite: 0,
+    animFrame: 0, animTimer: 0
+  };
+
+  let enemies = [];
+  let barrels = [];
+  let items = [];
+
+  function spawnWorld() {
+    cameraX = 0;
+    player.x = 80; player.y = 210; player.z = 0;
+    player.vx = 0; player.vy = 0; player.vz = 0;
+    player.hp = 100; player.action = "idle";
+    player.actionTimer = 0; player.comboStep = 0;
+    player.facing = 1; player.invuln = 0; player.flashWhite = 0;
+
+    score = 0; combo = 0; comboTimer = 0;
+    floatingTexts = []; particles = [];
+
+    // Barrels & Hydrants
+    barrels = [
+      { x: 300, y: 195, broken: false },
+      { x: 620, y: 235, broken: false },
+      { x: 950, y: 190, broken: false },
+      { x: 1350, y: 220, broken: false },
+      { x: 1600, y: 200, broken: false }
+    ];
+    items = [];
+
+    // Enemies
+    enemies = [
+      // Wave 1: Street Alley
+      { x: 360, y: 190, z: 0, vx: 0, vz: 0, hp: 35, maxHp: 35, type: "punk", facing: -1, atkTimer: 0, action: "walk", animFrame: 0, flashWhite: 0 },
+      { x: 440, y: 230, z: 0, vx: 0, vz: 0, hp: 35, maxHp: 35, type: "punk", facing: -1, atkTimer: 0.6, action: "walk", animFrame: 0, flashWhite: 0 },
+      
+      // Wave 2: Neon Club front
+      { x: 740, y: 185, z: 0, vx: 0, vz: 0, hp: 40, maxHp: 40, type: "punk", facing: -1, atkTimer: 0.2, action: "walk", animFrame: 0, flashWhite: 0 },
+      { x: 820, y: 240, z: 0, vx: 0, vz: 0, hp: 40, maxHp: 40, type: "punk", facing: -1, atkTimer: 0.8, action: "walk", animFrame: 0, flashWhite: 0 },
+      { x: 900, y: 205, z: 0, vx: 0, vz: 0, hp: 45, maxHp: 45, type: "punk", facing: -1, atkTimer: 1.4, action: "walk", animFrame: 0, flashWhite: 0 },
+
+      // Wave 3: Subway crossing
+      { x: 1180, y: 190, z: 0, vx: 0, vz: 0, hp: 45, maxHp: 45, type: "punk", facing: -1, atkTimer: 0.4, action: "walk", animFrame: 0, flashWhite: 0 },
+      { x: 1260, y: 235, z: 0, vx: 0, vz: 0, hp: 45, maxHp: 45, type: "punk", facing: -1, atkTimer: 1.0, action: "walk", animFrame: 0, flashWhite: 0 },
+      { x: 1380, y: 210, z: 0, vx: 0, vz: 0, hp: 50, maxHp: 50, type: "punk", facing: -1, atkTimer: 1.6, action: "walk", animFrame: 0, flashWhite: 0 },
+
+      // Boss encounter: Big Diesel
+      { x: 1750, y: 215, z: 0, vx: 0, vz: 0, hp: 220, maxHp: 220, type: "boss", facing: -1, atkTimer: 0, action: "idle", animFrame: 0, isBoss: true, flashWhite: 0 }
+    ];
+  }
+
+  // ------------------------------------------------ Actions
+  function doPunch() {
+    if (player.z !== 0) {
+      // Jump kick
+      if (player.action !== "kick") {
+        player.action = "kick";
+        player.actionTimer = 0.35;
+        sndKick();
+        hitCheck(22, true, false);
+      }
+      return;
+    }
+    if (player.action === "special" || player.action === "hurt") return;
+    player.comboStep = (player.comboStep % 3) + 1;
+    player.action = player.comboStep === 3 ? "kick" : (player.comboStep === 2 ? "punch2" : "punch1");
+    player.actionTimer = 0.22;
+    if (player.comboStep === 3) sndKick(); else sndPunch();
+    hitCheck(player.comboStep === 3 ? 18 : 10, player.comboStep === 3, false);
+  }
+
+  function doJump() {
+    if (player.z !== 0 || player.action === "hurt" || player.action === "special") return;
+    player.vz = 240;
+    player.action = "jump";
+    sndWhoosh();
+  }
+
+  function doSpecial() {
+    if (player.hp <= 6 || player.action === "special" || player.action === "hurt") return;
+    player.hp -= 6;
+    player.action = "special";
+    player.actionTimer = 0.45;
+    player.invuln = 0.5;
+    sndSpecial();
+    screenShake = 6;
+    hitPause = 3;
+    hitCheck(30, true, true);
+  }
+
+  function hitCheck(dmg, isKnockback, isAoE) {
+    const reach = 38;
+    for (const en of enemies) {
+      if (en.hp <= 0) continue;
+      const inFront = isAoE || (player.facing === 1 ? en.x >= player.x - 12 : en.x <= player.x + 12);
+      const distX = Math.abs(en.x - player.x);
+      const distY = Math.abs(en.y - player.y);
+
+      if (inFront && distX < reach && distY < 20) {
+        en.hp -= dmg;
+        en.flashWhite = 0.12;
+        en.action = "hurt";
+        en.animTimer = 0.25;
+        screenShake = isKnockback ? 5 : 2;
+        hitPause = 2;
+
+        addSparks(en.x, en.y - en.z - 16, isKnockback ? "#ff2a6d" : "#ffea00", 10);
+        addFloatingText(en.x, en.y - en.z - 26, isKnockback ? "CRIT " + dmg : "" + dmg, isKnockback ? "#ff2a6d" : "#ffea00");
+
+        if (isKnockback) {
+          en.vx = player.facing * 180;
+          en.vz = 130;
+        }
+
+        combo++;
+        comboTimer = 2.0;
+        score += dmg * 10;
+
+        if (en.hp <= 0) {
+          en.hp = 0;
+          sndKo();
+          screenShake = 8;
+          addSparks(en.x, en.y - 15, "#00f5d4", 18);
+          score += en.isBoss ? 2500 : 300;
+          if (en.isBoss) {
+            state = "victory";
+            bestScore = Math.max(bestScore, score);
+            try { localStorage.setItem(SAVE_KEY, bestScore); } catch (e) {}
+          }
+        }
+      }
+    }
+
+    // Barrels
+    for (const b of barrels) {
+      if (!b.broken && Math.abs(player.x - b.x) < 32 && Math.abs(player.y - b.y) < 18) {
+        b.broken = true;
+        sndKick();
+        screenShake = 3;
+        addSparks(b.x, b.y - 12, "#ff6c11", 14);
+        items.push({ x: b.x, y: b.y, kind: "food" });
+      }
+    }
+  }
+
+  function addSparks(x, y, col, count) {
+    for (let i = 0; i < count; i++) {
+      const a = Math.random() * Math.PI * 2, sp = 40 + Math.random() * 90;
+      particles.push({
+        x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 20,
+        life: 0.28, maxLife: 0.28, col
+      });
+    }
+  }
+
+  function addFloatingText(x, y, text, col) {
+    floatingTexts.push({ x, y, text, col, life: 0.6, maxLife: 0.6 });
+  }
+
+  // ------------------------------------------------ Input Handling
+  const keys = {};
+  addEventListener("keydown", e => {
+    wakeAudio();
+    if (SofaPad.echo(e)) return;
+    keys[e.key] = true;
+    if (state === "title" || state === "gameover" || state === "victory") {
+      if (e.key === "Enter" || e.key === " " || e.key === "z" || e.key === "x") {
+        spawnWorld(); state = "playing"; return;
+      }
+    }
+    if (state === "playing") {
+      if (e.key === "z" || e.key === "j" || e.key === "a") doPunch();
+      if (e.key === "x" || e.key === "k" || e.key === "s") doJump();
+      if (e.key === "c" || e.key === "l" || e.key === "d") doSpecial();
+    }
+    if (e.key.startsWith("Arrow")) e.preventDefault();
+  });
+  addEventListener("keyup", e => { keys[e.key] = false; });
+
+  SofaPad.on((btn, act) => {
+    wakeAudio();
+    if (act !== "press") return;
+    if (state === "title" || state === "gameover" || state === "victory") {
+      if (btn === "a" || btn === "start" || btn === "b" || btn === "x") {
+        spawnWorld(); state = "playing"; return;
+      }
+    }
+    if (state === "playing") {                // (X punches, A jumps, Y or RB the special: as the hints say)
+      if (btn === "x" || btn === "b") doPunch();
+      if (btn === "a") doJump();
+      if (btn === "y" || btn === "rb") doSpecial();
+    }
+  });
+
+  // a button's name as the controller in hand shows it (or the key, with no controller)
+  function BL(b) {
+    if (SofaPad.connected()) return SofaPad.kind() === "playstation" ? ({ a: "\u2715", b: "\u25cb", x: "\u25a1", y: "\u25b3" })[b] : b.toUpperCase();
+    return ({ a: "X", b: "Z", x: "Z", y: "C" })[b];
+  }
+
+  // ------------------------------------------------ Main Loop
+  let lastTime = performance.now();
+
+  function loop(now) {
+    requestAnimationFrame(loop);
+    const dt = Math.min(0.05, (now - lastTime) / 1000);
+    lastTime = now;
+
+    if (hitPause > 0) {
+      hitPause--;
+      draw();
+      return;
+    }
+
+    update(dt);
+    draw();
+  }
+
+  function update(dt) {
+    if (screenShake > 0) screenShake = Math.max(0, screenShake - dt * 25);
+    if (comboTimer > 0) {
+      comboTimer -= dt;
+      if (comboTimer <= 0) combo = 0;
+    }
+
+    // Floating text update
+    for (let i = floatingTexts.length - 1; i >= 0; i--) {
+      const ft = floatingTexts[i];
+      ft.y -= 25 * dt;
+      ft.life -= dt;
+      if (ft.life <= 0) floatingTexts.splice(i, 1);
+    }
+
+    // Particles update
+    for (let i = particles.length - 1; i >= 0; i--) {
+      const p = particles[i];
+      p.x += p.vx * dt; p.y += p.vy * dt;
+      p.vy += 320 * dt;
+      p.life -= dt;
+      if (p.life <= 0) particles.splice(i, 1);
+    }
+
+    if (state !== "playing") return;
+
+    // Controls
+    const stick = SofaPad.stick();
+    let moveX = stick.x || 0, moveY = stick.y || 0;
+    if (SofaPad.held("left") || keys.ArrowLeft) moveX = -1;
+    if (SofaPad.held("right") || keys.ArrowRight) moveX = 1;
+    if (SofaPad.held("up") || keys.ArrowUp) moveY = -1;
+    if (SofaPad.held("down") || keys.ArrowDown) moveY = 1;
+
+    // Player action timer
+    if (player.actionTimer > 0) {
+      player.actionTimer -= dt;
+      if (player.actionTimer <= 0) {
+        player.action = player.z > 0 ? "jump" : "idle";
+      }
+    }
+    if (player.invuln > 0) player.invuln -= dt;
+    if (player.flashWhite > 0) player.flashWhite -= dt;
+
+    // Z physics (Jump)
+    if (player.z > 0 || player.vz !== 0) {
+      player.vz -= 720 * dt;
+      player.z += player.vz * dt;
+      if (player.z <= 0) {
+        player.z = 0; player.vz = 0;
+        if (player.action === "jump" || player.action === "kick") player.action = "idle";
+      }
+    }
+
+    // Movement (only when not in attack recovery)
+    const canMove = player.action === "idle" || player.action === "walk" || player.action === "jump";
+    if (canMove && (moveX !== 0 || moveY !== 0)) {
+      const sp = (player.z > 0 ? 110 : 95);
+      player.x += moveX * sp * dt;
+      player.y += moveY * (sp * 0.7) * dt;
+      if (moveX !== 0) player.facing = moveX > 0 ? 1 : -1;
+
+      if (player.z === 0 && player.action === "idle") player.action = "walk";
+
+      // Walk cycle animation
+      player.animTimer += dt * 10;
+      if (player.animTimer >= 1) {
+        player.animTimer = 0;
+        player.animFrame = (player.animFrame + 1) % 4;
+      }
+    } else if (player.action === "walk") {
+      player.action = "idle";
+      player.animFrame = 0;
+    }
+
+    // Boundaries
+    player.x = Math.max(cameraX + 16, Math.min(cameraX + VW - 20, player.x));
+    player.y = Math.max(FLOOR_MIN_Y, Math.min(FLOOR_MAX_Y, player.y));
+
+    // Camera follow player forward
+    const camTarget = player.x - VW * 0.35;
+    if (camTarget > cameraX) cameraX = Math.min(STAGE_W - VW, camTarget);
+
+    // Enemies update
+    for (const en of enemies) {
+      if (en.hp <= 0) continue;
+      if (en.flashWhite > 0) en.flashWhite -= dt;
+
+      // Z physics
+      if (en.z > 0 || en.vz !== 0) {
+        en.vz -= 700 * dt;
+        en.z += en.vz * dt;
+        if (en.z <= 0) { en.z = 0; en.vz = 0; if (en.action === "hurt") en.action = "walk"; }
+      }
+      en.vx *= Math.pow(0.85, dt * 60);
+      en.x += en.vx * dt;
+
+      // AI track player if in camera view
+      if (en.x > cameraX - 40 && en.x < cameraX + VW + 40 && en.action !== "hurt") {
+        const dx = player.x - en.x, dy = player.y - en.y;
+        const distX = Math.abs(dx), distY = Math.abs(dy);
+        en.facing = dx > 0 ? 1 : -1;
+
+        const speed = en.isBoss ? 42 : 55;
+        if (distX > 30) en.x += Math.sign(dx) * speed * dt;
+        if (distY > 8) en.y += Math.sign(dy) * (speed * 0.6) * dt;
+
+        en.animTimer = (en.animTimer || 0) + dt * 6;
+        if (en.animTimer >= 1) { en.animTimer = 0; en.animFrame = (en.animFrame + 1) % 2; }
+
+        // Enemy Attack
+        en.atkTimer += dt;
+        const atkCooldown = en.isBoss ? 1.6 : 2.2;
+        if (en.atkTimer > atkCooldown && distX < 34 && distY < 14) {
+          en.atkTimer = 0;
+          en.action = "punch";
+          setTimeout(() => { if (en.hp > 0 && en.action === "punch") en.action = "walk"; }, 300);
+
+          if (player.invuln <= 0) {
+            const dmg = en.isBoss ? 22 : 12;
+            player.hp -= dmg;
+            player.invuln = 0.55;
+            player.flashWhite = 0.15;
+            player.action = "hurt";
+            player.actionTimer = 0.28;
+            screenShake = en.isBoss ? 9 : 5;
+            hitPause = 3;
+            if (en.isBoss) sndBossRoar(); else sndKick();
+
+            addSparks(player.x, player.y - 18, "#ff2a6d", 12);
+            addFloatingText(player.x, player.y - 28, "-" + dmg, "#ff2a6d");
+
+            if (player.hp <= 0) {
+              player.hp = 0;
+              state = "gameover";
+              sndKo();
+              bestScore = Math.max(bestScore, score);
+              try { localStorage.setItem(SAVE_KEY, bestScore); } catch (e) {}
+            }
+          }
+        }
+      }
+    }
+
+    // Pickups
+    for (let i = items.length - 1; i >= 0; i--) {
+      const it = items[i];
+      if (Math.hypot(player.x - it.x, player.y - it.y) < 24) {
+        if (it.kind === "food") {
+          player.hp = Math.min(player.maxHp, player.hp + 40);
+          sndFood();
+          addSparks(player.x, player.y - 15, "#00f5d4", 10);
+          addFloatingText(player.x, player.y - 28, "+40 HP", "#00f5d4");
+        }
+        items.splice(i, 1);
+      }
+    }
+  }
+
+  // ------------------------------------------------ Drawing
+  function draw() {
+    ctx.fillStyle = "#08060f";
+    ctx.fillRect(0, 0, VW, VH);
+
+    if (state === "title") { drawTitle(); return; }
+
+    const shakeX = screenShake ? (Math.random() - 0.5) * screenShake : 0;
+    const shakeY = screenShake ? (Math.random() - 0.5) * screenShake : 0;
+    const cx = Math.floor(cameraX + shakeX), cy = Math.floor(shakeY);
+
+    ctx.save();
+    ctx.translate(-cx, -cy);
+
+    // 1. Distant Neon Skyscrapers (Parallax)
+    const paraX = Math.floor(cx * 0.25);
+    for (let i = 0; i < 24; i++) {
+      const bx = i * 75 - paraX;
+      if (bx > cx + VW + 80 || bx < cx - 100) continue;
+      const bh = 90 + (i % 5) * 22;
+      ctx.fillStyle = "#120e20";
+      ctx.fillRect(bx, 140 - bh, 65, bh);
+
+      // Windows
+      ctx.fillStyle = (i % 2 === 0 ? "#ff2a6d" : "#05d9e8");
+      ctx.fillRect(bx + 12, 140 - bh + 20, 6, 8);
+      ctx.fillRect(bx + 35, 140 - bh + 20, 6, 8);
+      ctx.fillRect(bx + 12, 140 - bh + 45, 6, 8);
+    }
+
+    // 2. Midground Brick Alley & Billboards
+    ctx.fillStyle = "#1c162e";
+    ctx.fillRect(cx - 20, 85, VW + 40, 85);
+    // Brick pattern
+    ctx.fillStyle = "#251e3c";
+    for (let by = 90; by < 165; by += 8) {
+      ctx.fillRect(cx - 20, by, VW + 40, 1);
+    }
+
+    // Neon Signs
+    drawText(ctx, "RAMEN 24H", 120, 95, "#ffea00", 2, true);
+    drawText(ctx, "NEON ARCADE", 480, 95, "#00f5d4", 2, true);
+    drawText(ctx, "CLUB CYBER", 850, 95, "#ff2a6d", 2, true);
+    drawText(ctx, "HOTEL TOKYO", 1240, 95, "#05d9e8", 2, true);
+    drawText(ctx, "WAREHOUSE 7", 1620, 95, "#ffea00", 2, true);
+
+    // 3. Street Road & Curbs
+    ctx.fillStyle = "#2a223c";
+    ctx.fillRect(0, FLOOR_MIN_Y - 8, STAGE_W, 6); // Curb top
+    ctx.fillStyle = "#161122";
+    ctx.fillRect(0, FLOOR_MIN_Y - 2, STAGE_W, VH - FLOOR_MIN_Y + 10); // Asphalt
+
+    // Pavement dithered puddle / reflections
+    ctx.fillStyle = "#1c162c";
+    for (let px = 60; px < STAGE_W; px += 240) {
+      ctx.fillRect(px, FLOOR_MIN_Y + 15, 70, 14);
+      ctx.fillRect(px + 10, FLOOR_MIN_Y + 12, 50, 20);
+    }
+
+    // 4. Street Lamps & Bayer Dithered Light Cones
+    for (let lx = 140; lx < STAGE_W; lx += 320) {
+      if (lx > cx - 60 && lx < cx + VW + 60) {
+        // Lamp Post
+        ctx.fillStyle = "#4a425a";
+        ctx.fillRect(lx - 2, 75, 4, 100);
+        ctx.fillRect(lx - 12, 75, 24, 4);
+        ctx.fillStyle = "#ffea00";
+        ctx.fillRect(lx - 6, 79, 12, 6);
+
+        // Bayer dithered cone
+        ditherLightCone(ctx, lx, 85, 240, 10, 65, "#ffea00", 0.22);
+      }
+    }
+
+    // 5. Props: Barrels, Food, Hydrants
+    for (const b of barrels) {
+      if (b.broken) {
+        ctx.drawImage(S.barrel_debris, b.x - 8, b.y - 4);
+      } else {
+        ctx.drawImage(S.shadow, b.x - 8, b.y - 2);
+        ctx.drawImage(S.barrel, b.x - 8, b.y - 18);
+      }
+    }
+    for (let hx = 220; hx < STAGE_W; hx += 450) {
+      ctx.drawImage(S.shadow, hx - 6, 175);
+      ctx.drawImage(S.hydrant, hx - 5, 160);
+    }
+    for (const it of items) {
+      if (it.kind === "food") {
+        ctx.drawImage(S.shadow, it.x - 7, it.y - 1);
+        ctx.drawImage(S.food_chicken, it.x - 8, it.y - 12);
+      }
+    }
+
+    // 6. Draw Characters (sorted by Y for correct 2.5D depth)
+    const drawables = [player, ...enemies.filter(e => e.hp > 0)];
+    drawables.sort((a, b) => a.y - b.y);
+
+    for (const d of drawables) {
+      if (d === player) {
+        // Player shadow
+        ctx.drawImage(S.shadow, player.x - 8, player.y - 2);
+
+        // Select sprite
+        let spName = "hero_idle";
+        if (player.action === "walk") {
+          const frames = ["hero_walk1", "hero_walk2", "hero_walk3", "hero_walk2"];
+          spName = frames[player.animFrame % 4];
+        } else if (player.action === "punch1") spName = "hero_punch1";
+        else if (player.action === "punch2") spName = "hero_punch2";
+        else if (player.action === "kick") spName = "hero_kick";
+        else if (player.action === "jump") spName = "hero_jump";
+        else if (player.action === "special") spName = "hero_special";
+        else if (player.action === "hurt") spName = "hero_hurt";
+
+        const flip = player.facing === -1;
+        const key = spName + (flip ? "_flip" : "") + (player.flashWhite > 0 ? "_w" : "");
+        const img = S[key] || S[spName];
+        if (img) {
+          ctx.drawImage(img, Math.floor(player.x - img.width / 2), Math.floor(player.y - player.z - img.height + 4));
+        }
+      } else {
+        // Enemy
+        const isBoss = d.isBoss;
+        ctx.drawImage(isBoss ? S.shadow_boss : S.shadow, d.x - (isBoss ? 12 : 8), d.y - 2);
+
+        let spName = isBoss ? "boss_idle" : "punk_idle";
+        if (d.action === "walk") {
+          spName = isBoss ? (d.animFrame === 0 ? "boss_walk1" : "boss_walk2") : (d.animFrame === 0 ? "punk_walk1" : "punk_walk2");
+        } else if (d.action === "punch") {
+          spName = isBoss ? "boss_slam" : "punk_punch";
+        } else if (d.action === "hurt") {
+          spName = isBoss ? "boss_hurt" : "punk_hurt";
+        }
+
+        const flip = d.facing === -1;
+        const key = spName + (flip ? "_flip" : "") + (d.flashWhite > 0 ? "_w" : "");
+        const img = S[key] || S[spName];
+        if (img) {
+          ctx.drawImage(img, Math.floor(d.x - img.width / 2), Math.floor(d.y - d.z - img.height + 4));
+        }
+
+        // Enemy mini health bar above head
+        if (d.hp < d.maxHp) {
+          const bw = isBoss ? 40 : 20, bh = 3;
+          const bx = Math.floor(d.x - bw / 2), by = Math.floor(d.y - d.z - (isBoss ? 34 : 26));
+          ctx.fillStyle = "#000000";
+          ctx.fillRect(bx - 1, by - 1, bw + 2, bh + 2);
+          ctx.fillStyle = isBoss ? "#ff2a6d" : "#ffea00";
+          ctx.fillRect(bx, by, Math.max(0, Math.floor(bw * (d.hp / d.maxHp))), bh);
+        }
+      }
+    }
+
+    // 7. Particles
+    for (const p of particles) {
+      ctx.fillStyle = p.col;
+      ctx.fillRect(Math.floor(p.x), Math.floor(p.y), 2, 2);
+    }
+
+    // 8. Floating Damage Text
+    for (const ft of floatingTexts) {
+      drawText(ctx, ft.text, Math.floor(ft.x - textWidth(ft.text) / 2), Math.floor(ft.y), ft.col, 1);
+    }
+
+    ctx.restore();
+
+    // ------------------------------------------------ HUD (Fixed on screen)
+    drawHud();
+
+    if (state === "gameover") drawGameOver();
+    if (state === "victory") drawVictory();
+  }
+
+  function drawHud() {
+    // Player Health Bar
+    drawText(ctx, "KID NEON", 12, 10, "#05d9e8", 1);
+    ctx.fillStyle = "#000000";
+    ctx.fillRect(11, 20, 102, 8);
+    ctx.fillStyle = "#ff2a6d";
+    ctx.fillRect(12, 21, 100, 6);
+    ctx.fillStyle = "#00f5d4";
+    ctx.fillRect(12, 21, Math.max(0, Math.floor(100 * (player.hp / player.maxHp))), 6);
+
+    // Score & Best
+    drawText(ctx, "SCORE: " + score, 150, 10, "#ffea00", 1);
+    drawText(ctx, "HI: " + bestScore, 150, 20, "#7a7094", 1);
+
+    // Boss Bar if Boss is nearby
+    const boss = enemies.find(e => e.isBoss && e.hp > 0);
+    if (boss && boss.x < cameraX + VW + 100) {
+      drawText(ctx, "BIG DIESEL", VW - 120, 10, "#ff2a6d", 1);
+      ctx.fillStyle = "#000000";
+      ctx.fillRect(VW - 121, 20, 102, 8);
+      ctx.fillStyle = "#4e1e82";
+      ctx.fillRect(VW - 120, 21, 100, 6);
+      ctx.fillStyle = "#ff2a6d";
+      ctx.fillRect(VW - 120, 21, Math.max(0, Math.floor(100 * (boss.hp / boss.maxHp))), 6);
+    }
+
+    // Combo Counter
+    if (combo >= 2) {
+      const comboCol = combo >= 5 ? "#ff2a6d" : "#ffea00";
+      drawText(ctx, combo + " HIT COMBO!", 12, 34, comboCol, 1);
+    }
+
+    // Controls hints
+    drawText(ctx, "(" + BL("x") + ") PUNCH   (" + BL("a") + ") JUMP   (" + BL("y") + ") SPECIAL", VW - 260, VH - 12, "#7a7094", 1);
+  }
+
+  function drawTitle() {
+    ctx.fillStyle = "#0d0b14";
+    ctx.fillRect(0, 0, VW, VH);
+
+    // Neon city skyline backdrop
+    for (let i = 0; i < 8; i++) {
+      ctx.fillStyle = "#1a1428";
+      ctx.fillRect(i * 65, 80, 55, 120);
+    }
+
+    drawCenterText(ctx, "NEON BRAWLER", 45, "#05d9e8", 3);
+    drawCenterText(ctx, "ARCADE CYBER BEAT 'EM UP", 80, "#ff2a6d", 1);
+
+    // Character showcase in title screen
+    ctx.drawImage(S.hero_punch2, 200, 120);
+    ctx.drawImage(S.punk_hurt_flip, 240, 120);
+
+    drawCenterText(ctx, "PRESS " + (SofaPad.connected() ? BL("a") : "ENTER") + " TO BRAWL", 185, "#ffea00", 1);
+    drawCenterText(ctx, "CONTROLS: DPAD/STICK = MOVE", 215, "#f0eef8", 1);
+    drawCenterText(ctx, "(" + BL("x") + ") PUNCH/COMBO   (" + BL("a") + ") JUMP KICK   (" + BL("y") + ") SPECIAL", 230, "#7a7094", 1);
+
+    if (bestScore > 0) {
+      drawCenterText(ctx, "HIGH SCORE: " + bestScore, 252, "#00f5d4", 1);
+    }
+  }
+
+  function drawGameOver() {
+    ctx.fillStyle = "rgba(10, 6, 20, 0.85)";
+    ctx.fillRect(0, 0, VW, VH);
+
+    drawCenterText(ctx, "K.O.", 70, "#ff2a6d", 4);
+    drawCenterText(ctx, "THE STREETS CLAIMED YOU", 125, "#f0eef8", 1);
+    drawCenterText(ctx, "FINAL SCORE: " + score, 150, "#ffea00", 1);
+    drawCenterText(ctx, "PRESS " + (SofaPad.connected() ? BL("a") : "ENTER") + " TO RETRY", 195, "#05d9e8", 1);
+  }
+
+  function drawVictory() {
+    ctx.fillStyle = "rgba(10, 6, 20, 0.85)";
+    ctx.fillRect(0, 0, VW, VH);
+
+    drawCenterText(ctx, "STAGE CLEAR!", 65, "#00f5d4", 3);
+    drawCenterText(ctx, "BIG DIESEL HAS BEEN DEFEATED!", 115, "#ffea00", 1);
+    drawCenterText(ctx, "FINAL SCORE: " + score, 145, "#f0eef8", 1);
+    if (score >= bestScore) {
+      drawCenterText(ctx, "NEW HIGH SCORE RECORD!", 168, "#ff2a6d", 1);
+    }
+    drawCenterText(ctx, "PRESS " + (SofaPad.connected() ? BL("a") : "ENTER") + " TO PLAY AGAIN", 205, "#05d9e8", 1);
+  }
+
+  requestAnimationFrame(loop);
+})();
+</script>
+</body></html>

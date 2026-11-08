@@ -7,6 +7,27 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.25
+
+- **Gloamwell, bigger.** Six zones now, 24 floors down to the Gloamheart and more below it: the Sunken Belfry
+  and the Cinderworks are new, with Sister Knell and the Kilnfather. Every guardian has its own moves, warned
+  of on the ground, and grows desperate at half its HP. Thirteen kinds of creature (hounds that charge and
+  stun themselves on walls, shield-bearers to go round, toads that spit, worms from below, oozes that split,
+  bell-ringers that raise the dead, wisps), and crowned ones with a power of their own.
+- **And deeper.** A third skill at level 5 (RT), a talent point each level for a tree of twelve, gear in five
+  places and five rarities (sets among them, and relics with a power each); what you wear changes how you
+  look. In Wickhollow: Vesk's forge betters your gear, a strongbox keeps it, and the notice board has tasks.
+  Three saves; a Wickbearer from before moves into the first free one.
+- **Better to look at and listen to, still smooth on a Pi 3:** your lamp throws shadows past walls, torches
+  flicker, water and lava move, blows spark and shake, and it has its own quiet music (Sound and options: the
+  two volumes, the shake, the controller's rumble). As light to run as before: everything is drawn once and
+  copied after.
+- **Seven more of the box's own games:** Cinder Knight, Shadow Heist, Rune Tactics, Micro Drifters, Neon
+  Brawler, Void Drifter and Cosmic Cascade, and longer Neon Dodge and Sky Hop. Each plays with the controller
+  (its buttons named as yours shows them, ✕ ○ □ △ too), and draws its letters and glows once, not every frame.
+  Fixed on the way: Rune Tactics and Shadow Heist didn't start, a controller couldn't start a race, Sky Hop's
+  platforms scrolled away, glows wiped out what was under them, and guards saw through walls on screen.
+
 ## 1.1.23
 
 - **Sofa Craft starts again.** A crash at its first start had left its world without its game, so every start

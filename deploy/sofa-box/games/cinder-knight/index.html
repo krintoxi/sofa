@@ -1,0 +1,1155 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Cinder Knight</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #06040a; color: #fff; overflow: hidden; user-select: none; }
+  canvas { position: absolute; image-rendering: pixelated; }
+</style></head><body>
+<canvas id="c" width="480" height="270"></canvas>
+<script src="../pad.js"></script>
+<script>
+/* Cinder Knight: a 16-bit precision dark-fantasy action platformer for Sofa Box OS.
+   Handcrafted pixel art sprites, Bayer-dithered lighting, 3-hit sword combos,
+   dodge roll with i-frames, wall-jumping, enemy AI, Sentinel boss, custom bitmap font.
+   Self-contained, Web Audio procedural synth, 100% offline. */
+(function () {
+  "use strict";
+  const VW = 480, VH = 270;
+  const cv = document.getElementById("c"), ctx = cv.getContext("2d", { alpha: false });
+  function fit() {
+    const s = Math.min(innerWidth / VW, innerHeight / VH);
+    const w = Math.round(VW * s), h = Math.round(VH * s);
+    cv.style.width = w + "px"; cv.style.height = h + "px";
+    cv.style.left = ((innerWidth - w) >> 1) + "px"; cv.style.top = ((innerHeight - h) >> 1) + "px";
+    ctx.imageSmoothingEnabled = false;
+  }
+  addEventListener("resize", fit); fit();
+
+  function mk(w, h) { const c = document.createElement("canvas"); c.width = w; c.height = h; return c; }
+  function g2(c) { const g = c.getContext("2d"); g.imageSmoothingEnabled = false; return g; }
+
+  // ------------------------------------------------ Palette & Pixel Art
+  const PAL = {
+    k: "#08060e", K: "#1a1426", g: "#4d485c", G: "#888299", w: "#ece8f4", s: "#dca072", S: "#9c603e",
+    r: "#c82836", R: "#721422", o: "#e8802e", O: "#904018", y: "#eebc42", Y: "#9c7018", b: "#426ec4",
+    B: "#203470", c: "#72d2ec", C: "#266682", n: "#664426", N: "#362214", e: "#529842", E: "#265224",
+    p: "#8444a8", P: "#442060", m: "#decfa2", M: "#9e8e58", v: "#b2dc68", x: "#f45484", t: "#c8bca6",
+    T: "#746654", z: "rgba(0,0,0,0.4)"
+  };
+
+  const SPR = {
+    // Knight (16x20): helmet, plume, plate armor, cape, sword
+    knightA: [
+      ".......krrr.....",
+      "......kRrrrk....",
+      ".....kRrrrrk....",
+      ".....kGGGGGk....",
+      ".....kGkyyGk....",
+      "....kGGGkGGk....",
+      "...kwkGGGGgk....",
+      "...kwkKgggKk....",
+      "..kwwkKGGGkk....",
+      "..kwkRkgGgkRk...",
+      "..kk.RkGGgkkRk..",
+      ".....RkgGgk.Rk..",
+      ".....RkGGgkkkk..",
+      ".....kKKKKk.....",
+      ".....kGgkGgk....",
+      ".....kGgkGgk....",
+      ".....kgkkggk....",
+      ".....kgk.kgk....",
+      "....kkk...kkk..."
+    ],
+    knightLegsB: [
+      "....kGgk..kGgk..",
+      "....kgk....kgk..",
+      "...kkk......kkk."
+    ],
+    knightLegsC: [
+      ".....kGgkk......",
+      ".....kggkk......",
+      "....kkkk........"
+    ],
+    knightRoll: [
+      "....kkkkkkk.....",
+      "...kRrrrrrRk....",
+      "..kRrrGGGrrRk...",
+      ".kRrrGkyyGgrRk..",
+      ".kRrrGGGGggrRk..",
+      ".kRrrKggggKrRk..",
+      ".kRrrKGGGgKrRk..",
+      "..kRrgGggGrRk...",
+      "...kRkKKKkRk....",
+      "....kkkkkkk....."
+    ],
+    knightJump: [
+      ".......krrr.....",
+      "......kRrrrk....",
+      ".....kRrrrrk....",
+      ".....kGGGGGk....",
+      ".....kGkyyGk....",
+      "....kGGGkGGk....",
+      "...kwkGGGGgk....",
+      "..kwwkKgggKkRk..",
+      "..kwkkKGGGkk.Rk.",
+      "..kk.RkgGgk..Rk.",
+      ".....RkGGgkkkRk.",
+      "....kRkKKKKkkk..",
+      "...kGgkk..kgk...",
+      "...kgk...kkk....",
+      "..kkk..........."
+    ],
+
+    // Skeleton Warrior (16x18): skull, glowing eye, ribcage, sword & buckler
+    skelA: [
+      "......kkkk......",
+      ".....kwwwwk.....",
+      "....kwwkrwwk....",
+      "....kwkkrwwk....",
+      ".....kwwwwk.....",
+      ".....kwwk.......",
+      "....kGkwwkGk....",
+      "...kGGkwwkGGk...",
+      "..kwwkwwwwkwwk..",
+      "..kwk.kwwk.kwk..",
+      "..kk..kwwk..kk..",
+      "......kwwk......",
+      "......kwwk......",
+      ".....kGkkGk.....",
+      ".....kwk.kwk....",
+      ".....kwk.kwk....",
+      ".....kgk.kgk....",
+      "....kkk...kkk..."
+    ],
+    skelLegsB: [
+      "....kwk...kwk...",
+      "....kgk...kgk...",
+      "...kkk.....kkk.."
+    ],
+
+    // Winged Gargoyle (16x14)
+    gargA: [
+      "..kk........kk..",
+      ".kPPk......kPPk.",
+      "kPppPk.kk.kPppPk",
+      "kPpyyPkwwkPpyyPk",
+      "kPpppPkKKkPpppPk",
+      ".kPppPkKKkPppPk.",
+      "..kPPkkKKkkPPk..",
+      "...kk.kKKk.kk...",
+      "......kKKk......",
+      ".....kGggGk.....",
+      ".....kggggk.....",
+      ".....kgkkggk....",
+      "....kkk..kkk...."
+    ],
+    gargB: [
+      "................",
+      ".......kk.......",
+      "......kwwk......",
+      "..kkk.kKKk.kkk..",
+      ".kPPPkkKKkkPPPk.",
+      "kPpyyPkKKkPpyyPk",
+      "kPpppPkKKkPpppPk",
+      ".kPppPkkkkPppPk.",
+      "..kPPk....kPPk..",
+      "...kk......kk...",
+      ".....kggggk.....",
+      ".....kgkkggk....",
+      "....kkk..kkk...."
+    ],
+
+    // Dungeon Slime (14x10)
+    slimeA: [
+      ".....kkkkk......",
+      "...kkvvvvvkk....",
+      "..kvveeeevevk...",
+      ".kveewkeeewkvek.",
+      ".kveewkeeewkvek.",
+      "keeeeeeeeeeeeek.",
+      "keeeekkkkeeeeek.",
+      "kEeeeeeeeeeeeEk.",
+      ".kEEEEEEEEEEEk..",
+      "..kkkkkkkkkkk..."
+    ],
+    slimeB: [
+      "................",
+      "...kkkkkkkkk....",
+      "..kkvvvvvvvkk...",
+      ".kvveeeeeeevevk.",
+      "keewkeeewkeeewk.",
+      "keewkeeewkeeewk.",
+      "keeeeeeeeeeeeek.",
+      "kEeeeeeeeeeeeEk.",
+      ".kEEEEEEEEEEEk..",
+      "..kkkkkkkkkkk..."
+    ],
+
+    // Dungeon Sentinel Boss (28x28)
+    sentinel: [
+      "..........kkkkkkkk..........",
+      "........kkTTTTTTTTkk........",
+      ".......kTTttttttttTTk.......",
+      "......kTTttttttttttTTk......",
+      ".....kTTttkkkkkkkkttTTk.....",
+      "....kTTttkkyyyyyykttkTTk....",
+      "....kTTttkywoooowykttTTk....",
+      "....kTTttkkyyyyyykttkTTk....",
+      "....kTTttkkkkkkkkkttTTk.....",
+      "....kTTttttttttttttTTk......",
+      "..kkkTTTttttttttttTTTkkk....",
+      ".kTTkTTTTttttttttTTTTkTTk...",
+      ".kTtkKTTTTTttttTTTTTk.ktTk..",
+      ".kTtkKKTTTTTTTTTTTKKk.ktTk..",
+      ".kTTkKKkkoooooookkKKk.kTTk..",
+      "..kk.KKkoooyyyookKKk...kk...",
+      ".....KKkooywwyookKKk........",
+      ".....KKkoooyyyookKKk........",
+      ".....KKkkoooooookkKKk.......",
+      ".....kKKKKKKKKKKKKKk........",
+      ".....kTTTkkk.kkkTTTk........",
+      ".....kTTtk.....ktTTk........",
+      ".....kTTtk.....ktTTk........",
+      ".....kTTtk.....ktTTk........",
+      ".....kTTtk.....ktTTk........",
+      ".....kKKkk.....kkKKk........",
+      "....kkkkk.......kkkkk......."
+    ],
+
+    // Sword Slashes
+    slash1: [
+      ".....kkwkk..",
+      "...kkyyyywk.",
+      "..kyyyyywwk.",
+      ".kyywwwwwk..",
+      ".kwwwwkk....",
+      "..kkkk......"
+    ],
+    slash2: [
+      "..kkkk......",
+      ".kwwwwkk....",
+      ".kyywwwwwk..",
+      "..kyyyyywwk.",
+      "...kkyyyywk.",
+      ".....kkwkk.."
+    ],
+    slash3: [
+      "...kkk......",
+      ".kkrrwwk....",
+      "krrroyywk...",
+      "krrooyyywk..",
+      ".krooyywk...",
+      "..kkoowk....",
+      "....kkk....."
+    ],
+    emberBurst: [
+      "...krrr....",
+      ".krooyrk...",
+      "krooyyowk..",
+      "kroyyyowk..",
+      "krooyyowk..",
+      ".krooyrk...",
+      "...krrr...."
+    ],
+
+    // Items & World
+    chestC: [
+      "....kkkkkkkkkkkk....",
+      "...knnnnnnnnnnnk....",
+      "..knNNNNNNNNNNnnk...",
+      "..kYYYYYYYYYYYYYk...",
+      "..knnnnnyyknnnnnk...",
+      "..knnnnnyyknnnnnk...",
+      "..knNNNNNNNNNNnnk...",
+      "..knnnnnnnnnnnnnk...",
+      "..kYYYYYYYYYYYYYk...",
+      "...kkkkkkkkkkkkk...."
+    ],
+    chestO: [
+      "....kkkkkkkkkkkk....",
+      "...kYYYYYYYYYYYYk...",
+      "..kyyyywyyyyyyyyk...",
+      "..knnnnnnnnnnnnnk...",
+      "..kyyyyywyywyyyyk...",
+      "..kyyyyyyyywyyyyk...",
+      "..knnnnnyyknnnnnk...",
+      "..knNNNNNNNNNNnnk...",
+      "..knnnnnnnnnnnnnk...",
+      "...kkkkkkkkkkkkk...."
+    ],
+    torchA: [
+      "...o...",
+      "..oyo..",
+      ".oyywo.",
+      ".ooyoo.",
+      "..kkk..",
+      "..knk..",
+      "..knk.."
+    ],
+    torchB: [
+      "...o...",
+      "..oyo..",
+      ".ooywo.",
+      "..oyo..",
+      "..kkk..",
+      "..knk..",
+      "..knk.."
+    ],
+    tonic: [
+      "....kkkk....",
+      ".....kNk....",
+      "....kwwk....",
+      "...krrrrk...",
+      "..krwrrrrk..",
+      "..krrrrrrk..",
+      "...kRRRRk...",
+      "....kkkk...."
+    ],
+    relic: [
+      "....kkkk....",
+      "...kcccck...",
+      "..kccwwcck..",
+      "..kcccccck..",
+      "...kcccck...",
+      "....kkkk...."
+    ],
+    brick: [
+      "kkkkkkkkkkkkkkkk",
+      "kGGgggggGgGGgggk",
+      "kGggggggggGggggk",
+      "kggGgggggggggggG",
+      "kkkkkkkkkkkkkkkk",
+      "kgggGkkkGggggggk",
+      "kggggkkkgGgggggk",
+      "kggggkkkggggGggk",
+      "kkkkkkkkkkkkkkkk"
+    ],
+    beam: [
+      "kkkkkkkkkkkkkkkk",
+      "knnnNnnnYnnNnnnk",
+      "knnNnnnnYnnnnNnk",
+      "kkkkkkkkkkkkkkkk"
+    ],
+    spikes: [
+      "...k.....k......",
+      "..kGk...kGk.....",
+      ".kGwgk.kGwgk....",
+      ".kGggk.kGggk....",
+      "kGGGGkkGGGGk....",
+      "kkkkkkkkkkkk...."
+    ]
+  };
+
+  function spr(rows, over) {
+    let w = 0; for (let i = 0; i < rows.length; i++) w = Math.max(w, rows[i].length);
+    const c = mk(w, rows.length), g = g2(c);
+    for (let y = 0; y < rows.length; y++) for (let x = 0; x < rows[y].length; x++) {
+      const ch = rows[y][x]; if (ch === ".") continue;
+      const col = (over && over[ch]) || PAL[ch]; if (!col) continue;
+      g.fillStyle = col; g.fillRect(x, y, 1, 1);
+    }
+    return c;
+  }
+  function flipped(src) { const c = mk(src.width, src.height), g = g2(c); g.translate(src.width, 0); g.scale(-1, 1); g.drawImage(src, 0, 0); return c; }
+  function whiteOf(src) {
+    const c = mk(src.width, src.height), g = g2(c); g.drawImage(src, 0, 0);
+    g.globalCompositeOperation = "source-in"; g.fillStyle = "#fff"; g.fillRect(0, 0, c.width, c.height); return c;
+  }
+  function scaled(src, k) { const c = mk(src.width * k, src.height * k), g = g2(c); g.drawImage(src, 0, 0, c.width, c.height); return c; }
+  function legs(base, r) { const f = base.slice(); for (let i = 0; i < r.length; i++) f[base.length - r.length + i] = r[i]; return f; }
+  function sset(frames, over, k) {
+    const r = [], l = [];
+    for (let i = 0; i < frames.length; i++) { let c = spr(frames[i], over); if (k > 1) c = scaled(c, k); r.push(c); l.push(flipped(c)); }
+    return { r, l, wr: whiteOf(r[0]), wl: whiteOf(l[0]), w: r[0].width, h: r[0].height };
+  }
+
+  const S = {};
+  function buildSprites() {
+    S.knight = sset([SPR.knightA, legs(SPR.knightA, SPR.knightLegsB), legs(SPR.knightA, SPR.knightLegsC)]);
+    S.knightRoll = sset([SPR.knightRoll]);
+    S.knightJump = sset([SPR.knightJump]);
+    S.skel = sset([SPR.skelA, legs(SPR.skelA, SPR.skelLegsB)]);
+    S.garg = sset([SPR.gargA, SPR.gargB]);
+    S.slime = sset([SPR.slimeA, SPR.slimeB]);
+    S.sentinel = sset([SPR.sentinel], null, 1);
+    S.slash1 = spr(SPR.slash1); S.slash2 = spr(SPR.slash2); S.slash3 = spr(SPR.slash3);
+    S.emberBurst = spr(SPR.emberBurst);
+    S.chestC = spr(SPR.chestC); S.chestO = spr(SPR.chestO);
+    S.torch = [spr(SPR.torchA), spr(SPR.torchB)];
+    S.tonic = spr(SPR.tonic); S.relic = spr(SPR.relic);
+    S.brick = spr(SPR.brick); S.beam = spr(SPR.beam); S.spikes = spr(SPR.spikes);
+  }
+  buildSprites();
+
+  // ------------------------------------------------ 5x7 Bitmap Font & Controller Badges
+  const FONT = {
+    "\x10": [0, 17, 10, 4, 10, 17, 0], "\x11": [0, 14, 17, 17, 17, 14, 0], "\x12": [0, 31, 17, 17, 17, 31, 0], "\x13": [0, 4, 4, 10, 10, 31, 0],   // the PlayStation buttons
+    A: [14, 17, 17, 31, 17, 17, 17], B: [30, 17, 17, 30, 17, 17, 30], C: [14, 17, 16, 16, 16, 17, 14], D: [28, 18, 17, 17, 17, 18, 28],
+    E: [31, 16, 16, 30, 16, 16, 31], F: [31, 16, 16, 30, 16, 16, 16], G: [14, 17, 16, 23, 17, 17, 15], H: [17, 17, 17, 31, 17, 17, 17],
+    I: [14, 4, 4, 4, 4, 4, 14], J: [7, 2, 2, 2, 2, 18, 12], K: [17, 18, 20, 24, 20, 18, 17], L: [16, 16, 16, 16, 16, 16, 31],
+    M: [17, 27, 21, 21, 17, 17, 17], N: [17, 17, 25, 21, 19, 17, 17], O: [14, 17, 17, 17, 17, 17, 14], P: [30, 17, 17, 30, 16, 16, 16],
+    Q: [14, 17, 17, 17, 21, 18, 13], R: [30, 17, 17, 30, 20, 18, 17], S: [15, 16, 16, 14, 1, 1, 30], T: [31, 4, 4, 4, 4, 4, 4],
+    U: [17, 17, 17, 17, 17, 17, 14], V: [17, 17, 17, 17, 17, 10, 4], W: [17, 17, 17, 21, 21, 21, 10], X: [17, 17, 10, 4, 10, 17, 17],
+    Y: [17, 17, 10, 4, 4, 4, 4], Z: [31, 1, 2, 4, 8, 16, 31],
+    "0": [14, 17, 19, 21, 25, 17, 14], "1": [4, 12, 4, 4, 4, 4, 14], "2": [14, 17, 1, 2, 4, 8, 31], "3": [31, 2, 4, 2, 1, 17, 14],
+    "4": [2, 6, 10, 18, 31, 2, 2], "5": [31, 16, 30, 1, 1, 17, 14], "6": [6, 8, 16, 30, 17, 17, 14], "7": [31, 1, 2, 4, 8, 8, 8],
+    "8": [14, 17, 17, 14, 17, 17, 14], "9": [14, 17, 17, 15, 1, 2, 12],
+    ".": [0, 0, 0, 0, 0, 12, 12], ",": [0, 0, 0, 0, 12, 4, 8], ":": [0, 12, 12, 0, 12, 12, 0],
+    "!": [4, 4, 4, 4, 4, 0, 4], "?": [14, 17, 1, 2, 4, 0, 4], "-": [0, 0, 0, 14, 0, 0, 0],
+    "+": [0, 4, 4, 31, 4, 4, 0], "/": [1, 1, 2, 4, 8, 16, 16], "(": [2, 4, 8, 8, 8, 4, 2],
+    ")": [8, 4, 2, 2, 2, 4, 8]
+  };
+  const FC = ["#ece8f4", "#888299", "#f2c14e", "#c82836", "#72d2ec", "#529842", "#e8802e", "#08060e"];
+  const GI = new Int16Array(256).fill(-1);
+  const ATL = [];
+  let GX, GW;
+  function buildFont() {
+    const rows = []; for (const k in FONT) { GI[k.charCodeAt(0)] = rows.length; rows.push(FONT[k]); }
+    const n = rows.length; GX = new Uint8Array(n); GW = new Uint8Array(n);
+    for (let i = 0; i < n; i++) {
+      let lo = 5, hi = -1;
+      for (let y = 0; y < 7; y++) for (let b = 0; b < 5; b++) if ((rows[i][y] >> (4 - b)) & 1) { lo = Math.min(lo, b); hi = Math.max(hi, b); }
+      if (hi < 0) { GX[i] = 0; GW[i] = 3; } else { GX[i] = lo; GW[i] = hi - lo + 1; }
+    }
+    for (let c = 0; c < FC.length; c++) {
+      const a = mk(n * 6, 7), g = g2(a); g.fillStyle = FC[c];
+      for (let i = 0; i < n; i++) for (let y = 0; y < 7; y++) for (let b = 0; b < 5; b++) if ((rows[i][y] >> (4 - b)) & 1) g.fillRect(i * 6 + b, y, 1, 1);
+      ATL.push(a);
+    }
+  }
+  buildFont();
+
+  function text(g, s, x, y, col, sc) {
+    sc = sc || 1; const at = ATL[col];
+    for (let i = 0; i < s.length; i++) {
+      let c = s.charCodeAt(i); if (c > 255) c = c === 0x2715 ? 16 : c === 0x25cb ? 17 : c === 0x25a1 ? 18 : c === 0x25b3 ? 19 : 63;   // (✕ ○ □ △)
+      if (c >= 97 && c <= 122) c -= 32;
+      if (c === 32) { x += 4 * sc; continue; }
+      const k = GI[c]; if (k < 0) { x += 4 * sc; continue; }
+      g.drawImage(at, k * 6 + GX[k], 0, GW[k], 7, x, y, GW[k] * sc, 7 * sc);
+      x += (GW[k] + 1) * sc;
+    }
+    return x;
+  }
+  function textW(s, sc) {
+    sc = sc || 1; let w = 0;
+    for (let i = 0; i < s.length; i++) {
+      let c = s.charCodeAt(i); if (c > 255) c = c === 0x2715 ? 16 : c === 0x25cb ? 17 : c === 0x25a1 ? 18 : c === 0x25b3 ? 19 : 63;   // (✕ ○ □ △)
+      if (c >= 97 && c <= 122) c -= 32;
+      const k = c === 32 ? -1 : GI[c]; w += (k < 0 ? 4 : GW[k] + 1) * sc;
+    }
+    return w - sc;
+  }
+  function stext(g, s, x, y, col, sc) {
+    text(g, s, x + (sc || 1), y + (sc || 1), 7, sc); // shadow
+    return text(g, s, x, y, col, sc);
+  }
+  function cstext(g, s, cx, y, col, sc) {
+    const x = Math.round(cx - textW(s, sc) / 2);
+    return stext(g, s, x, y, col, sc);
+  }
+
+  // ------------------------------------------------ Bayer Matrix Dithered Lighting
+  const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
+  function ditherDisc(w, h, r0, r1, maxA, rgb, levels) {
+    const c = mk(w, h), g = c.getContext("2d"), id = g.createImageData(w, h), u = new Uint32Array(id.data.buffer);
+    const cx = w / 2, cy = h / 2, base = (rgb[2] << 16 | rgb[1] << 8 | rgb[0]) >>> 0;
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const d = Math.sqrt((x + 0.5 - cx) * (x + 0.5 - cx) + (y + 0.5 - cy) * (y + 0.5 - cy));
+      let a = d <= r0 ? 0 : d >= r1 ? 1 : (d - r0) / (r1 - r0); a = a * a * (3 - 2 * a);
+      const q = a * levels, f = Math.floor(q), lv = Math.min(levels, f + ((q - f) * 16 > BAYER[(y & 3) * 4 + (x & 3)] + 0.5 ? 1 : 0));
+      const A = Math.round(lv / levels * maxA * 255);
+      u[y * w + x] = ((A << 24) | base) >>> 0;
+    }
+    g.putImageData(id, 0, 0); return c;
+  }
+  const darkDisc = ditherDisc(VW * 2, VH * 2, 48, 160, 0.92, [8, 6, 14], 5);
+
+  // ------------------------------------------------ Audio Synthesis
+  let AC = null, soundOn = true;
+  function wakeAudio() {
+    if (!soundOn) return;
+    if (!AC) {
+      try {
+        const A = window.AudioContext || window.webkitAudioContext;
+        if (A) AC = new A();
+      } catch (e) { AC = null; }
+    }
+    if (AC && AC.state === "suspended") AC.resume().catch(() => {});
+  }
+  function tone(f0, f1, dur, type, vol) {
+    if (!AC || !soundOn || AC.state !== "running") return;
+    try {
+      const t = AC.currentTime, o = AC.createOscillator(), g = AC.createGain();
+      o.type = type || "sawtooth";
+      o.frequency.setValueAtTime(f0, t);
+      if (f1) o.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t + dur);
+      g.gain.setValueAtTime(vol || 0.1, t);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      o.connect(g); g.connect(AC.destination);
+      o.start(t); o.stop(t + dur + 0.02);
+    } catch (e) {}
+  }
+  function noise(dur, vol, freq) {
+    if (!AC || !soundOn || AC.state !== "running") return;
+    try {
+      const n = (AC.sampleRate * dur) | 0, b = AC.createBuffer(1, n, AC.sampleRate);
+      const d = b.getChannelData(0); for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+      const s = AC.createBufferSource(); s.buffer = b;
+      const f = AC.createBiquadFilter(); f.type = "bandpass"; f.frequency.value = freq || 1000;
+      const g = AC.createGain(), t = AC.currentTime;
+      g.gain.setValueAtTime(vol || 0.12, t);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      s.connect(f); f.connect(g); g.connect(AC.destination);
+      s.start(t); s.stop(t + dur + 0.02);
+    } catch (e) {}
+  }
+
+  const sndJump = () => tone(220, 440, 0.12, "triangle", 0.08);
+  const sndSlash = () => { noise(0.08, 0.16, 2200); tone(340, 110, 0.07, "sawtooth", 0.06); };
+  const sndHit = () => { noise(0.07, 0.24, 750); tone(160, 50, 0.07, "square", 0.08); };
+  const sndRoll = () => noise(0.12, 0.1, 1400);
+  const sndFire = () => { tone(140, 480, 0.22, "sawtooth", 0.12); noise(0.25, 0.18, 600); };
+  const sndChest = () => { tone(440, 660, 0.12, "triangle", 0.1); tone(660, 880, 0.18, "triangle", 0.1); };
+  const sndHurt = () => tone(180, 70, 0.18, "sawtooth", 0.14);
+  const sndBossBoom = () => { noise(0.45, 0.35, 300); tone(90, 30, 0.4, "sine", 0.25); };
+
+  // ------------------------------------------------ Game Setup & Tilemap
+  const SAVE_KEY = "cinder-knight-best";
+  let bestScore = +localStorage.getItem(SAVE_KEY) || 0;
+  let state = "title"; // title, play, gameover, victory
+  let score = 0, embers = 0;
+  let screenShake = 0, hitPause = 0;
+
+  const TILE = 16, MAP_W = 100, MAP_H = 20;
+  // 0: empty, 1: brick stone, 2: beam platform, 3: spikes
+  const map = new Uint8Array(MAP_W * MAP_H);
+  function getTile(x, y) {
+    if (x < 0 || x >= MAP_W || y < 0 || y >= MAP_H) return 1;
+    return map[y * MAP_W + x];
+  }
+  function setTile(x, y, v) { map[y * MAP_W + x] = v; }
+
+  const player = {
+    x: 48, y: 180, vx: 0, vy: 0, w: 10, h: 18,
+    facing: 1, onGround: false, onWall: 0,
+    hp: 100, maxHp: 100, mana: 60, maxMana: 60,
+    slashTimer: 0, slashCombo: 0, rollTimer: 0, rollCooldown: 0,
+    invuln: 0, canDoubleJump: true, walkFrame: 0, walkTimer: 0
+  };
+
+  let enemies = [], slashes = [], particles = [], items = [], torches = [], floatTexts = [];
+  let cameraX = 0, cameraY = 0;
+
+  function buildLevel() {
+    map.fill(0);
+    // Borders
+    for (let x = 0; x < MAP_W; x++) { setTile(x, 0, 1); setTile(x, MAP_H - 1, 1); setTile(x, MAP_H - 2, 1); }
+    for (let y = 0; y < MAP_H; y++) { setTile(0, y, 1); setTile(MAP_W - 1, y, 1); }
+
+    // Stepping ruins & shafts
+    for (let x = 10; x <= 16; x++) setTile(x, 14, 1);
+    for (let x = 18; x <= 24; x++) setTile(x, 11, 2);
+
+    // Wall jump corridor
+    for (let y = 5; y <= 15; y++) { setTile(27, y, 1); setTile(31, y, 1); }
+    setTile(27, 12, 0); setTile(27, 13, 0); // entryway
+
+    // Upper bridge & spike pit below
+    for (let x = 31; x <= 45; x++) setTile(x, 7, 1);
+    for (let x = 32; x <= 44; x++) setTile(x, MAP_H - 3, 3); // spikes
+
+    // Hanging platforms over cavern
+    for (let x = 48; x <= 53; x++) setTile(x, 12, 2);
+    for (let x = 56; x <= 61; x++) setTile(x, 9, 2);
+    for (let x = 64; x <= 72; x++) setTile(x, 13, 1);
+
+    // Sentinel Boss Arena
+    for (let y = 5; y < MAP_H - 2; y++) setTile(78, y, (y > 14 ? 0 : 1));
+    for (let x = 84; x <= 92; x++) setTile(x, 13, 2);
+
+    // Entities
+    enemies = [];
+    slashes = [];
+    particles = [];
+    items = [];
+    torches = [];
+    floatTexts = [];
+
+    // Torches
+    for (const tx of [4, 13, 22, 33, 44, 58, 70, 80, 92]) {
+      torches.push({ x: tx * TILE + 8, y: 8 * TILE });
+    }
+
+    // Enemies
+    enemies.push(createEnemy("skel", 14 * TILE, 12 * TILE));
+    enemies.push(createEnemy("skel", 36 * TILE, 5 * TILE));
+    enemies.push(createEnemy("skel", 67 * TILE, 11 * TILE));
+
+    enemies.push(createEnemy("garg", 21 * TILE, 8 * TILE));
+    enemies.push(createEnemy("garg", 50 * TILE, 7 * TILE));
+
+    enemies.push(createEnemy("slime", 10 * TILE, (MAP_H - 3) * TILE));
+    enemies.push(createEnemy("slime", 68 * TILE, 11 * TILE));
+
+    // Boss Sentinel
+    enemies.push(createEnemy("sentinel", 88 * TILE, (MAP_H - 4) * TILE));
+
+    // Items
+    items.push({ x: 23 * TILE, y: 10 * TILE, kind: "chest", opened: false });
+    items.push({ x: 42 * TILE, y: 6 * TILE, kind: "chest", opened: false });
+    items.push({ x: 71 * TILE, y: 12 * TILE, kind: "tonic" });
+    items.push({ x: 96 * TILE, y: (MAP_H - 3) * TILE, kind: "relic" });
+
+    // Reset Player
+    player.x = 48; player.y = (MAP_H - 4) * TILE;
+    player.vx = 0; player.vy = 0; player.hp = 100; player.mana = 60;
+    player.invuln = 0; player.facing = 1;
+  }
+
+  function createEnemy(kind, x, y) {
+    if (kind === "skel") {
+      return { kind, name: "Skeleton", x, y, vx: -25, vy: 0, w: 12, h: 18, hp: 35, maxHp: 35, facing: -1, atkTimer: 0, walkTimer: 0, walkFrame: 0, hitFlash: 0 };
+    }
+    if (kind === "garg") {
+      return { kind, name: "Gargoyle", x, y, startY: y, vx: 0, vy: 0, w: 14, h: 14, hp: 20, maxHp: 20, state: "perch", facing: -1, animTimer: 0, hitFlash: 0 };
+    }
+    if (kind === "slime") {
+      return { kind, name: "Slime", x, y, vx: 30, vy: 0, w: 14, h: 10, hp: 16, maxHp: 16, facing: 1, jumpTimer: 1.5, onGround: true, hitFlash: 0 };
+    }
+    if (kind === "sentinel") {
+      return { kind, name: "SENTINEL", x, y, vx: 0, vy: 0, w: 28, h: 28, hp: 220, maxHp: 220, facing: -1, phaseTimer: 0, hitFlash: 0, isBoss: true };
+    }
+  }
+
+  function start() {
+    wakeAudio();
+    score = 0; embers = 0;
+    buildLevel();
+    state = "play";
+  }
+
+  function addFloat(txt, x, y, col) {
+    floatTexts.push({ txt, x, y, vy: -30, life: 0.65, col });
+  }
+
+  // ------------------------------------------------ Inputs
+  const keys = {};
+  addEventListener("keydown", e => {
+    wakeAudio();
+    if (window.SofaPad && SofaPad.echo(e)) return;
+    keys[e.key] = true;
+    if (state === "title" && (e.key === "Enter" || e.key === " " || e.key === "z")) start();
+    else if ((state === "gameover" || state === "victory") && (e.key === "Enter" || e.key === " ")) start();
+    else if (state === "play") {
+      if (e.key === " " || e.key === "z" || e.key === "w" || e.key === "ArrowUp") doJump();
+      if (e.key === "x" || e.key === "j") doAttack();
+      if (e.key === "c" || e.key === "k" || e.key === "Shift") doRoll();
+      if (e.key === "v" || e.key === "l") doEmberBurst();
+      if (e.key === "Escape") state = "title";
+    }
+    if (e.key.startsWith("Arrow") || e.key === " ") e.preventDefault();
+  });
+  addEventListener("keyup", e => { keys[e.key] = false; });
+
+  if (window.SofaPad) {
+    SofaPad.on((b, act) => {
+      wakeAudio();
+      if (state === "title" && (act === "press" && (b === "a" || b === "start"))) start();
+      else if ((state === "gameover" || state === "victory") && (act === "press" && (b === "a" || b === "start"))) start();
+      else if (state === "play" && act === "press") {
+        if (b === "a") doJump();
+        if (b === "x") doAttack();
+        if (b === "b" || b === "rt") doRoll();
+        if (b === "y" || b === "rb") doEmberBurst();
+        if (b === "start") state = "title";
+      }
+    });
+  }
+
+  function doJump() {
+    if (player.rollTimer > 0) return;
+    if (player.onGround) {
+      player.vy = -330;
+      player.onGround = false;
+      player.canDoubleJump = true;
+      sndJump();
+    } else if (player.onWall !== 0) {
+      player.vy = -320;
+      player.vx = -player.onWall * 190;
+      player.facing = -player.onWall;
+      player.onWall = 0;
+      sndJump();
+    } else if (player.canDoubleJump) {
+      player.vy = -290;
+      player.canDoubleJump = false;
+      sndJump();
+      addEmberParticles(player.x, player.y + 6, 8);
+    }
+  }
+
+  function doAttack() {
+    if (player.slashTimer > 0 || player.rollTimer > 0) return;
+    sndSlash();
+    player.slashCombo = (player.slashCombo % 3) + 1;
+    player.slashTimer = 0.22;
+    const sx = player.x + player.facing * 14;
+    slashes.push({
+      x: sx, y: player.y, facing: player.facing,
+      combo: player.slashCombo, life: 0.16, dmg: 14 + player.slashCombo * 4
+    });
+  }
+
+  function doRoll() {
+    if (player.rollTimer > 0 || player.rollCooldown > 0) return;
+    sndRoll();
+    player.rollTimer = 0.28;
+    player.rollCooldown = 0.55;
+    player.invuln = 0.28;
+    player.vx = player.facing * 240;
+    addEmberParticles(player.x, player.y + 8, 5);
+  }
+
+  function doEmberBurst() {
+    if (player.mana < 25 || player.rollTimer > 0) return;
+    player.mana -= 25;
+    sndFire();
+    screenShake = 6;
+    slashes.push({
+      x: player.x, y: player.y, facing: 0,
+      combo: 4, life: 0.28, dmg: 38
+    });
+    addEmberParticles(player.x, player.y, 20);
+  }
+
+  function addEmberParticles(x, y, count) {
+    for (let i = 0; i < count; i++) {
+      const a = Math.random() * Math.PI * 2, sp = 30 + Math.random() * 80;
+      particles.push({
+        x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 20,
+        life: 0.3 + Math.random() * 0.3, maxLife: 0.6,
+        col: Math.random() < 0.5 ? PAL.y : PAL.o
+      });
+    }
+  }
+
+  // ------------------------------------------------ Physics & Collisions
+  function collideBox(box, vx, vy, dt) {
+    box.x += vx * dt;
+    const l = Math.floor((box.x - box.w / 2) / TILE);
+    const r = Math.floor((box.x + box.w / 2) / TILE);
+    const t = Math.floor((box.y - box.h / 2) / TILE);
+    const b = Math.floor((box.y + box.h / 2 - 1) / TILE);
+
+    for (let ty = t; ty <= b; ty++) {
+      for (let tx = l; tx <= r; tx++) {
+        if (getTile(tx, ty) === 1) {
+          if (vx > 0) { box.x = tx * TILE - box.w / 2; vx = 0; }
+          else if (vx < 0) { box.x = (tx + 1) * TILE + box.w / 2; vx = 0; }
+        }
+      }
+    }
+
+    const oldY = box.y;
+    box.y += vy * dt;
+    const nl = Math.floor((box.x - box.w / 2) / TILE);
+    const nr = Math.floor((box.x + box.w / 2) / TILE);
+    const nt = Math.floor((box.y - box.h / 2) / TILE);
+    const nb = Math.floor((box.y + box.h / 2) / TILE);
+    let onGround = false;
+
+    for (let ty = nt; ty <= nb; ty++) {
+      for (let tx = nl; tx <= nr; tx++) {
+        const tile = getTile(tx, ty);
+        if (tile === 1) {
+          if (vy > 0) { box.y = ty * TILE - box.h / 2; vy = 0; onGround = true; }
+          else if (vy < 0) { box.y = (ty + 1) * TILE + box.h / 2; vy = 0; }
+        } else if (tile === 2) {
+          const platTop = ty * TILE;
+          if (vy > 0 && oldY + box.h / 2 <= platTop + 2 && box.y + box.h / 2 >= platTop) {
+            box.y = platTop - box.h / 2; vy = 0; onGround = true;
+          }
+        } else if (tile === 3 && box === player && player.invuln <= 0) {
+          hurtPlayer(25);
+          vy = -260;
+        }
+      }
+    }
+    return { vx, vy, onGround };
+  }
+
+  function hurtPlayer(dmg) {
+    if (player.invuln > 0) return;
+    sndHurt();
+    screenShake = 7;
+    hitPause = 0.08;
+    player.hp -= dmg;
+    player.invuln = 0.55;
+    addFloat(`-${dmg}`, player.x, player.y - 12, 3);
+    if (player.hp <= 0) {
+      player.hp = 0;
+      sndBossBoom();
+      state = "gameover";
+      bestScore = Math.max(bestScore, score);
+      try { localStorage.setItem(SAVE_KEY, bestScore); } catch (e) {}
+    }
+  }
+
+  // ------------------------------------------------ Game Loop
+  let lastTime = 0;
+  function update(dt) {
+    if (state !== "play") return;
+
+    if (hitPause > 0) { hitPause -= dt; return; }
+    if (screenShake > 0) screenShake = Math.max(0, screenShake - dt * 18);
+
+    // Read Controller
+    let moveX = 0;
+    if (window.SofaPad) {
+      const st = SofaPad.stick();
+      moveX = st.x;
+      if (SofaPad.held("left")) moveX -= 1;
+      if (SofaPad.held("right")) moveX += 1;
+    }
+    if (keys.ArrowLeft || keys.a) moveX -= 1;
+    if (keys.ArrowRight || keys.d) moveX += 1;
+
+    // Movement & Walk animation
+    if (player.rollTimer <= 0) {
+      if (Math.abs(moveX) > 0.2) {
+        player.facing = moveX > 0 ? 1 : -1;
+        player.vx = player.facing * 135;
+        player.walkTimer += dt;
+        if (player.walkTimer > 0.12) {
+          player.walkTimer = 0;
+          player.walkFrame = (player.walkFrame % 2) + 1;
+        }
+      } else {
+        player.walkFrame = 0;
+        player.vx *= Math.pow(0.72, dt * 60);
+      }
+    }
+
+    // Timers
+    if (player.slashTimer > 0) player.slashTimer -= dt;
+    if (player.rollTimer > 0) player.rollTimer -= dt;
+    if (player.rollCooldown > 0) player.rollCooldown -= dt;
+    if (player.invuln > 0) player.invuln -= dt;
+    player.mana = Math.min(player.maxMana, player.mana + dt * 7);
+
+    // Gravity & Wall slide
+    player.vy += 850 * dt;
+    if (player.vy > 480) player.vy = 480;
+
+    player.onWall = 0;
+    if (!player.onGround && player.vy > 0) {
+      const tileLeft = getTile(Math.floor((player.x - player.w / 2 - 2) / TILE), Math.floor(player.y / TILE));
+      const tileRight = getTile(Math.floor((player.x + player.w / 2 + 2) / TILE), Math.floor(player.y / TILE));
+      if (tileLeft === 1 && moveX < -0.2) { player.onWall = -1; player.vy = Math.min(player.vy, 65); }
+      else if (tileRight === 1 && moveX > 0.2) { player.onWall = 1; player.vy = Math.min(player.vy, 65); }
+    }
+
+    const res = collideBox(player, player.vx, player.vy, dt);
+    player.vx = res.vx; player.vy = res.vy; player.onGround = res.onGround;
+
+    // Slashes vs Enemies
+    for (let i = slashes.length - 1; i >= 0; i--) {
+      const sl = slashes[i];
+      sl.life -= dt;
+      for (const en of enemies) {
+        const hitRange = sl.combo === 4 ? 30 : 20;
+        if (Math.hypot(sl.x - en.x, sl.y - en.y) < hitRange + en.w / 2) {
+          en.hp -= sl.dmg;
+          en.hitFlash = 0.14;
+          sndHit();
+          screenShake = 4;
+          hitPause = 0.05;
+          addFloat(`${sl.dmg}`, en.x, en.y - 14, 2);
+          addEmberParticles(en.x, en.y, 6);
+          en.vx = (sl.facing || player.facing) * 110;
+
+          if (en.hp <= 0) {
+            sndBossBoom();
+            score += en.isBoss ? 2500 : 180;
+            embers += en.isBoss ? 60 : 6;
+            addEmberParticles(en.x, en.y, en.isBoss ? 40 : 15);
+            if (en.isBoss) {
+              state = "victory";
+              bestScore = Math.max(bestScore, score);
+              try { localStorage.setItem(SAVE_KEY, bestScore); } catch (e) {}
+            }
+          }
+        }
+      }
+      if (sl.life <= 0) slashes.splice(i, 1);
+    }
+    enemies = enemies.filter(e => e.hp > 0);
+
+    // Update Enemies
+    for (const en of enemies) {
+      if (en.hitFlash > 0) en.hitFlash -= dt;
+      const dist = Math.hypot(player.x - en.x, player.y - en.y);
+
+      if (en.kind === "skel") {
+        en.vy += 800 * dt;
+        if (dist < 130) {
+          en.facing = player.x > en.x ? 1 : -1;
+          en.vx = en.facing * 42;
+          en.walkTimer += dt;
+          if (en.walkTimer > 0.15) { en.walkTimer = 0; en.walkFrame = (en.walkFrame + 1) % 2; }
+        }
+        const er = collideBox(en, en.vx, en.vy, dt);
+        en.vx = er.vx; en.vy = er.vy;
+        if (dist < 14 && player.invuln <= 0) hurtPlayer(18);
+      } else if (en.kind === "garg") {
+        en.animTimer += dt;
+        if (dist < 120) en.state = "swoop";
+        if (en.state === "swoop") {
+          const a = Math.atan2(player.y - en.y, player.x - en.x);
+          en.vx = Math.cos(a) * 105; en.vy = Math.sin(a) * 105;
+          en.facing = en.vx > 0 ? 1 : -1;
+        }
+        en.x += en.vx * dt; en.y += en.vy * dt;
+        if (dist < 12 && player.invuln <= 0) hurtPlayer(14);
+      } else if (en.kind === "slime") {
+        en.vy += 800 * dt;
+        en.jumpTimer -= dt;
+        if (en.jumpTimer <= 0 && en.onGround) {
+          en.jumpTimer = 1.5;
+          en.vy = -180;
+          en.vx = (player.x > en.x ? 1 : -1) * 60;
+        }
+        const sr = collideBox(en, en.vx, en.vy, dt);
+        en.vx = sr.vx; en.vy = sr.vy; en.onGround = sr.onGround;
+        if (dist < 12 && player.invuln <= 0) hurtPlayer(10);
+      } else if (en.kind === "sentinel") {
+        en.vy += 800 * dt;
+        en.phaseTimer += dt;
+        en.facing = player.x > en.x ? 1 : -1;
+        if (en.phaseTimer > 2.8) {
+          en.phaseTimer = 0;
+          en.vy = -280;
+          en.vx = en.facing * 130;
+          screenShake = 6;
+        }
+        const br = collideBox(en, en.vx, en.vy, dt);
+        en.vx = br.vx; en.vy = br.vy;
+        if (dist < 26 && player.invuln <= 0) hurtPlayer(26);
+      }
+    }
+
+    // Pickups
+    for (const it of items) {
+      if (Math.hypot(player.x - it.x, player.y - it.y) < 18) {
+        if (it.kind === "chest" && !it.opened) {
+          it.opened = true;
+          sndChest();
+          score += 350; embers += 15;
+          addFloat("+350", it.x, it.y - 10, 2);
+          addEmberParticles(it.x, it.y, 14);
+        } else if (it.kind === "tonic") {
+          player.hp = Math.min(player.maxHp, player.hp + 40);
+          addFloat("+40 HP", it.x, it.y - 10, 5);
+          it.x = -999;
+          sndChest();
+        } else if (it.kind === "relic") {
+          score += 1000;
+          addFloat("+1000 RELIC", it.x, it.y - 10, 4);
+          it.x = -999;
+          sndChest();
+        }
+      }
+    }
+
+    // Floating text update
+    for (let i = floatTexts.length - 1; i >= 0; i--) {
+      const ft = floatTexts[i];
+      ft.y += ft.vy * dt; ft.life -= dt;
+      if (ft.life <= 0) floatTexts.splice(i, 1);
+    }
+
+    // Particles
+    for (let i = particles.length - 1; i >= 0; i--) {
+      const p = particles[i];
+      p.x += p.vx * dt; p.y += p.vy * dt; p.life -= dt;
+      if (p.life <= 0) particles.splice(i, 1);
+    }
+
+    // Camera smoothing
+    const targetCamX = player.x - VW / 2;
+    const targetCamY = player.y - VH / 2;
+    cameraX += (targetCamX - cameraX) * Math.min(1, dt * 8);
+    cameraY += (targetCamY - cameraY) * Math.min(1, dt * 8);
+    cameraX = Math.max(0, Math.min(MAP_W * TILE - VW, cameraX));
+    cameraY = Math.max(0, Math.min(MAP_H * TILE - VH, cameraY));
+  }
+
+  // ------------------------------------------------ Drawing
+  function draw() {
+    ctx.fillStyle = "#06040a";
+    ctx.fillRect(0, 0, VW, VH);
+
+    if (state === "title") { drawTitle(); return; }
+
+    const shakeX = screenShake ? (Math.random() - 0.5) * screenShake : 0;
+    const shakeY = screenShake ? (Math.random() - 0.5) * screenShake : 0;
+    const cx = Math.floor(cameraX + shakeX), cy = Math.floor(cameraY + shakeY);
+
+    ctx.save();
+    ctx.translate(-cx, -cy);
+
+    // Parallax gothic arches
+    ctx.fillStyle = "#120c1c";
+    for (let i = 0; i < 20; i++) {
+      const bx = (i * 80);
+      ctx.fillRect(bx, 30, 16, VH);
+      ctx.beginPath(); ctx.arc(bx + 8, 30, 12, Math.PI, 0); ctx.fill();
+    }
+
+    // Tiles
+    const startTX = Math.max(0, Math.floor(cx / TILE));
+    const endTX = Math.min(MAP_W - 1, Math.floor((cx + VW) / TILE) + 1);
+    const startTY = Math.max(0, Math.floor(cy / TILE));
+    const endTY = Math.min(MAP_H - 1, Math.floor((cy + VH) / TILE) + 1);
+
+    for (let ty = startTY; ty <= endTY; ty++) {
+      for (let tx = startTX; tx <= endTX; tx++) {
+        const t = getTile(tx, ty);
+        const px = tx * TILE, py = ty * TILE;
+        if (t === 1) ctx.drawImage(S.brick, px, py);
+        else if (t === 2) ctx.drawImage(S.beam, px, py);
+        else if (t === 3) ctx.drawImage(S.spikes, px, py);
+      }
+    }
+
+    // Torches
+    const tFrame = (performance.now() * 0.008) | 0;
+    for (const tr of torches) {
+      ctx.drawImage(S.torch[tFrame % 2], tr.x - 3, tr.y);
+    }
+
+    // Items
+    for (const it of items) {
+      if (it.kind === "chest") ctx.drawImage(it.opened ? S.chestO : S.chestC, it.x - 8, it.y - 10);
+      else if (it.kind === "tonic") ctx.drawImage(S.tonic, it.x - 6, it.y - 8);
+      else if (it.kind === "relic") ctx.drawImage(S.relic, it.x - 6, it.y - 8);
+    }
+
+    // Enemies
+    for (const en of enemies) {
+      const sprSet = en.kind === "skel" ? S.skel :
+                     en.kind === "garg" ? S.garg :
+                     en.kind === "slime" ? S.slime : S.sentinel;
+      const frames = en.facing === 1 ? sprSet.r : sprSet.l;
+      const wFrame = en.walkFrame || (en.animTimer ? ((en.animTimer * 6) | 0) % frames.length : 0);
+      const img = en.hitFlash > 0 ? (en.facing === 1 ? sprSet.wr : sprSet.wl) : frames[wFrame % frames.length];
+
+      ctx.drawImage(img, Math.round(en.x - sprSet.w / 2), Math.round(en.y - sprSet.h / 2));
+
+      // Boss Bar
+      if (en.isBoss) {
+        ctx.fillStyle = "rgba(0,0,0,0.6)";
+        ctx.fillRect(cameraX + VW / 2 - 100, cameraY + 12, 200, 10);
+        ctx.fillStyle = PAL.r;
+        ctx.fillRect(cameraX + VW / 2 - 98, cameraY + 14, 196 * (en.hp / en.maxHp), 6);
+        cstext(ctx, "DUNGEON SENTINEL", cameraX + VW / 2, cameraY + 4, 0, 1);
+      }
+    }
+
+    // Slashes
+    for (const sl of slashes) {
+      ctx.save();
+      ctx.translate(sl.x, sl.y);
+      if (sl.facing === -1) ctx.scale(-1, 1);
+      const img = sl.combo === 1 ? S.slash1 : sl.combo === 2 ? S.slash2 : sl.combo === 3 ? S.slash3 : S.emberBurst;
+      ctx.drawImage(img, -img.width / 2, -img.height / 2);
+      ctx.restore();
+    }
+
+    // Player
+    const pSet = player.rollTimer > 0 ? S.knightRoll :
+                 !player.onGround ? S.knightJump : S.knight;
+    const pFrames = player.facing === 1 ? pSet.r : pSet.l;
+    const pf = player.walkFrame % pFrames.length;
+    const pImg = player.invuln > 0 && ((player.invuln * 20) | 0) % 2 === 0 ?
+                 (player.facing === 1 ? pSet.wr : pSet.wl) : pFrames[pf];
+    ctx.drawImage(pImg, Math.round(player.x - pSet.w / 2), Math.round(player.y - pSet.h / 2));
+
+    // Particles
+    for (const p of particles) {
+      ctx.fillStyle = p.col;
+      ctx.fillRect(p.x | 0, p.y | 0, 2, 2);
+    }
+
+    // Floating Texts
+    for (const ft of floatTexts) {
+      cstext(ctx, ft.txt, ft.x, ft.y, ft.col, 1);
+    }
+
+    // Bayer Lighting Mask (Dithered Darkness Overlay)
+    ctx.drawImage(darkDisc, player.x - VW, player.y - VH);
+
+    ctx.restore();
+
+    // HUD
+    drawHUD();
+
+    if (state === "gameover") drawEnd("YOU HAVE FALLEN", 3);
+    if (state === "victory") drawEnd("SENTINEL VANQUISHED!", 5);
+  }
+
+  function drawHUD() {
+    // Health bar
+    ctx.fillStyle = "rgba(0,0,0,0.6)";
+    ctx.fillRect(16, 12, 100, 8);
+    ctx.fillStyle = PAL.r;
+    ctx.fillRect(17, 13, 98 * (player.hp / player.maxHp), 6);
+
+    // Mana bar
+    ctx.fillStyle = "rgba(0,0,0,0.6)";
+    ctx.fillRect(16, 22, 100, 6);
+    ctx.fillStyle = PAL.b;
+    ctx.fillRect(17, 23, 98 * (player.mana / player.maxMana), 4);
+
+    stext(ctx, `HP ${Math.ceil(player.hp)}`, 122, 13, 0, 1);
+    stext(ctx, `EMBERS: ${embers}`, 180, 13, 2, 1);
+    stext(ctx, `SCORE: ${score}`, VW - 90, 13, 0, 1);
+  }
+
+  function drawEnd(title, col) {
+    ctx.fillStyle = "rgba(6,4,10,0.85)";
+    ctx.fillRect(0, 0, VW, VH);
+    cstext(ctx, title, VW / 2, VH / 2 - 30, col, 2);
+    cstext(ctx, `FINAL SCORE: ${score}  BEST: ${bestScore}`, VW / 2, VH / 2 + 5, 0, 1);
+
+    const aBtn = window.SofaPad ? SofaPad.label("a") : "ENTER";
+    cstext(ctx, `PRESS [ ${aBtn} ] TO PLAY AGAIN`, VW / 2, VH / 2 + 35, 2, 1);
+  }
+
+  function drawTitle() {
+    cstext(ctx, "CINDER KNIGHT", VW / 2, 75, 6, 3);
+    cstext(ctx, "16-BIT DARK FANTASY ACTION COMBAT", VW / 2, 110, 2, 1);
+    cstext(ctx, "WALL JUMP - DODGE ROLL - STRIKE DOWN THE SENTINEL", VW / 2, 140, 1, 1);
+
+    const aBtn = window.SofaPad ? SofaPad.label("a") : "SPACE / Z";
+    const xBtn = window.SofaPad ? SofaPad.label("x") : "X";
+    const bBtn = window.SofaPad ? SofaPad.label("b") : "C";
+    const yBtn = window.SofaPad ? SofaPad.label("y") : "V";
+
+    cstext(ctx, `[ ${aBtn} ] JUMP  [ ${xBtn} ] SLASH  [ ${bBtn} ] ROLL  [ ${yBtn} ] EMBER BURST`, VW / 2, 185, 0, 1);
+    cstext(ctx, `PRESS [ ${aBtn} ] TO BEGIN`, VW / 2, 220, 2, 1);
+
+    if (bestScore > 0) {
+      cstext(ctx, `BEST: ${bestScore}`, VW / 2, 245, 5, 1);
+    }
+  }
+
+  function frame(now) {
+    const dt = Math.min(0.04, (now - lastTime) / 1000 || 0);
+    lastTime = now;
+    update(dt);
+    draw();
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+</script></body></html>

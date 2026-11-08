@@ -1,0 +1,1803 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Rune Tactics</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:#000;display:flex;align-items:center;justify-content:center;width:100vw;height:100vh;overflow:hidden;}
+canvas{image-rendering:pixelated;image-rendering:crisp-edges;}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script src="../pad.js" onerror="void 0"></script>
+<script>
+// ─────────────────────────── PALETTE ───────────────────────────
+const PAL={k:"#0d0b14",K:"#241d2e",g:"#5a5468",G:"#9a94a8",w:"#ece8f4",
+  s:"#e0a67a",S:"#a86a48",r:"#c8303a",R:"#7a1a26",o:"#ee8a3a",O:"#9a4a1e",
+  y:"#f2c14e",Y:"#a87a1e",b:"#4a78c8",B:"#243c78",c:"#7ad8f0",C:"#2e6e8a",
+  n:"#6e4c2e",N:"#3e2a1a",e:"#5aa04a",E:"#2e5a2a",p:"#8a4ab0",P:"#4a2468",
+  m:"#e2d49c",M:"#a89860",v:"#b8e070",x:"#ff5a8a",t:"#d0c4b0",T:"#7e6e5c",z:"rgba(0,0,0,0.42)"};
+
+// ─────────────────────────── CANVAS ───────────────────────────
+const W=480,H=270;
+const cv=document.getElementById("c");
+cv.width=W;cv.height=H;
+function resize(){
+  const sc=Math.min(window.innerWidth/W,window.innerHeight/H);
+  cv.style.width=Math.round(W*sc)+"px";cv.style.height=Math.round(H*sc)+"px";
+}
+resize();window.addEventListener("resize",resize);
+const ctx=cv.getContext("2d");
+ctx.imageSmoothingEnabled=false;
+
+// ─────────────────────────── HELPERS ───────────────────────────
+function mk(w,h){const c=document.createElement("canvas");c.width=w;c.height=h;return c;}
+function g2(c){const g=c.getContext("2d");g.imageSmoothingEnabled=false;return g;}
+function spr(rows,over){
+  let w=0;for(let i=0;i<rows.length;i++)w=Math.max(w,rows[i].length);
+  const c=mk(w,rows.length),g=g2(c);
+  for(let y=0;y<rows.length;y++)for(let x=0;x<rows[y].length;x++){
+    const ch=rows[y][x];if(ch===".")continue;
+    const col=(over&&over[ch])||PAL[ch];if(!col)continue;
+    g.fillStyle=col;g.fillRect(x,y,1,1);
+  }
+  return c;
+}
+function flipX(img){
+  const c=mk(img.width,img.height),g=g2(c);
+  g.translate(img.width,0);g.scale(-1,1);g.drawImage(img,0,0);return c;
+}
+function whiteOf(img){
+  const c=mk(img.width,img.height),g=g2(c);
+  g.drawImage(img,0,0);g.globalCompositeOperation="source-in";
+  g.fillStyle="#ffffff";g.fillRect(0,0,img.width,img.height);return c;
+}
+
+// ─────────────────────────── FONT ───────────────────────────
+const FONT_MAP={
+  'A':["01110","10001","11111","10001","10001"],
+  'B':["11110","10001","11110","10001","11110"],
+  'C':["01111","10000","10000","10000","01111"],
+  'D':["11110","10001","10001","10001","11110"],
+  'E':["11111","10000","11110","10000","11111"],
+  'F':["11111","10000","11110","10000","10000"],
+  'G':["01111","10000","10111","10001","01111"],
+  'H':["10001","10001","11111","10001","10001"],
+  'I':["11111","00100","00100","00100","11111"],
+  'J':["11111","00010","00010","10010","01100"],
+  'K':["10001","10010","11100","10010","10001"],
+  'L':["10000","10000","10000","10000","11111"],
+  'M':["10001","11011","10101","10001","10001"],
+  'N':["10001","11001","10101","10011","10001"],
+  'O':["01110","10001","10001","10001","01110"],
+  'P':["11110","10001","11110","10000","10000"],
+  'Q':["01110","10001","10101","10010","01101"],
+  'R':["11110","10001","11110","10010","10001"],
+  'S':["01111","10000","01110","00001","11110"],
+  'T':["11111","00100","00100","00100","00100"],
+  'U':["10001","10001","10001","10001","01110"],
+  'V':["10001","10001","10001","01010","00100"],
+  'W':["10001","10001","10101","11011","10001"],
+  'X':["10001","01010","00100","01010","10001"],
+  'Y':["10001","01010","00100","00100","00100"],
+  'Z':["11111","00010","00100","01000","11111"],
+  '0':["01110","10011","10101","11001","01110"],
+  '1':["00100","01100","00100","00100","01110"],
+  '2':["01110","10001","00110","01000","11111"],
+  '3':["11110","00001","00110","00001","11110"],
+  '4':["00110","01010","10010","11111","00010"],
+  '5':["11111","10000","11110","00001","11110"],
+  '6':["01110","10000","11110","10001","01110"],
+  '7':["11111","00001","00010","00100","00100"],
+  '8':["01110","10001","01110","10001","01110"],
+  '9':["01110","10001","01111","00001","01110"],
+  '!':["00100","00100","00100","00000","00100"],
+  '-':["00000","00000","01110","00000","00000"],
+  ':':["00000","00100","00000","00100","00000"],
+  '.':["00000","00000","00000","00000","00100"],
+  '/':["00001","00010","00100","01000","10000"],
+  ' ':["00000","00000","00000","00000","00000"],
+  '\u2715':["10001","01010","00100","01010","10001"],
+  '[':["01100","01000","01000","01000","01100"],
+  ']':["00110","00010","00010","00010","00110"],
+  '\u25cb':["01110","10001","10001","10001","01110"],
+  '\u25a1':["11111","10001","10001","10001","11111"],
+  '\u25b3':["00100","01010","01010","10001","11111"],
+  "'":["00100","00100","00000","00000","00000"],
+  '%':["11001","11010","00100","01011","10011"],
+  '+':["00000","00100","01110","00100","00000"],
+  '?':["01110","10001","00110","00000","00100"],
+};
+// the letters: each drawn once in each colour, then copied (far cheaper on a Pi than every pixel, every frame)
+let GLYPHS={}, glyphCols=0;
+function glyphOf(ch,col){
+  let set=GLYPHS[col];
+  if(!set){ if(++glyphCols>48){ GLYPHS={}; glyphCols=1; } set=GLYPHS[col]={}; }
+  let c=set[ch]; if(c) return c;
+  const rows=FONT_MAP[ch]||FONT_MAP[' '];
+  c=document.createElement("canvas"); c.width=5; c.height=5; const g=c.getContext("2d"); g.fillStyle=col;
+  for(let fy=0;fy<5;fy++) for(let fx=0;fx<rows[fy].length;fx++) if(rows[fy][fx]==='1') g.fillRect(fx,fy,1,1);
+  return set[ch]=c;
+}
+function drawText(ctx,str,x,y,col,scale,shadow){
+  scale=scale||1; const cw=(5+1)*scale, s=str.toUpperCase();
+  for(let i=0;i<s.length;i++){
+    const ch=s[i]; if(ch===' ') continue;
+    if(shadow) ctx.drawImage(glyphOf(ch,"#000000"),x+i*cw+scale,y+scale,5*scale,5*scale);
+    ctx.drawImage(glyphOf(ch,col),x+i*cw,y,5*scale,5*scale);
+  }
+}
+function textWidth(str,scale){return str.length*(5+1)*(scale||1);}
+function drawCenter(ctx,str,y,col,scale){
+  const tw=textWidth(str,scale);
+  drawText(ctx,str,Math.floor((W-tw)/2),y,col,scale,true);
+}
+
+// ─────────────────────────── BAYER DITHER ───────────────────────────
+const BAYER=[[ 0, 8, 2,10],
+             [12, 4,14, 6],
+             [ 3,11, 1, 9],
+             [15, 7,13, 5]];
+const DISCS={};
+function ditherDisc(ctx,cx,cy,r,hexCol,maxAlpha){       // (drawn once into a small canvas, then copied)
+  const key=r+hexCol+maxAlpha; let d=DISCS[key];
+  if(!d){ d=document.createElement("canvas"); d.width=d.height=r*2+2; ditherDiscRaw(d.getContext("2d"),r+1,r+1,r,hexCol,maxAlpha); DISCS[key]=d; }
+  ctx.drawImage(d,Math.round(cx-r-1),Math.round(cy-r-1));
+}
+function ditherDiscRaw(ctx,cx,cy,r,hexCol,maxAlpha){
+  const x0=Math.floor(cx-r),y0=Math.floor(cy-r);
+  const x1=Math.ceil(cx+r),y1=Math.ceil(cy+r);
+  const cr=parseInt(hexCol.slice(1,3),16);
+  const cg=parseInt(hexCol.slice(3,5),16);
+  const cb=parseInt(hexCol.slice(5,7),16);
+  for(let py=y0;py<=y1;py++){
+    for(let px=x0;px<=x1;px++){
+      const dx=px-cx,dy=py-cy;
+      const dist=Math.sqrt(dx*dx+dy*dy);
+      if(dist>r)continue;
+      const alpha=maxAlpha*(1-dist/r);
+      const threshold=(BAYER[py&3][px&3]/16);
+      if(alpha>threshold){
+        ctx.fillStyle=hexCol;
+        ctx.fillRect(px,py,1,1);
+      }
+    }
+  }
+}
+
+// ─────────────────────────── AUDIO ───────────────────────────
+const AC=new(window.AudioContext||window.webkitAudioContext)();
+function resumeAC(){if(AC.state==='suspended')AC.resume();}
+function playBlip(){
+  resumeAC();
+  const o=AC.createOscillator(),g=AC.createGain();
+  o.type='triangle';o.frequency.setValueAtTime(880,AC.currentTime);
+  g.gain.setValueAtTime(0.15,AC.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.001,AC.currentTime+0.12);
+  o.connect(g);g.connect(AC.destination);
+  o.start();o.stop(AC.currentTime+0.12);
+}
+function playMove(){
+  resumeAC();
+  const o=AC.createOscillator(),g=AC.createGain();
+  o.type='sine';o.frequency.setValueAtTime(220,AC.currentTime);
+  g.gain.setValueAtTime(0.1,AC.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.001,AC.currentTime+0.08);
+  o.connect(g);g.connect(AC.destination);
+  o.start();o.stop(AC.currentTime+0.08);
+}
+function playMelee(){
+  resumeAC();
+  const buf=AC.createBuffer(1,AC.sampleRate*0.15,AC.sampleRate);
+  const d=buf.getChannelData(0);
+  for(let i=0;i<d.length;i++)d[i]=(Math.random()*2-1)*Math.exp(-i/(AC.sampleRate*0.05));
+  const src=AC.createBufferSource(),g=AC.createGain();
+  g.gain.setValueAtTime(0.4,AC.currentTime);
+  src.buffer=buf;src.connect(g);g.connect(AC.destination);src.start();
+}
+function playFire(){
+  resumeAC();
+  const o=AC.createOscillator(),g=AC.createGain();
+  o.type='sawtooth';
+  o.frequency.setValueAtTime(150,AC.currentTime);
+  o.frequency.linearRampToValueAtTime(600,AC.currentTime+0.3);
+  g.gain.setValueAtTime(0.2,AC.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.001,AC.currentTime+0.3);
+  o.connect(g);g.connect(AC.destination);
+  o.start();o.stop(AC.currentTime+0.3);
+}
+function playFrost(){
+  resumeAC();
+  const o=AC.createOscillator(),g=AC.createGain();
+  o.type='sine';o.frequency.setValueAtTime(1800,AC.currentTime);
+  o.frequency.exponentialRampToValueAtTime(900,AC.currentTime+0.2);
+  g.gain.setValueAtTime(0.15,AC.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.001,AC.currentTime+0.2);
+  o.connect(g);g.connect(AC.destination);
+  o.start();o.stop(AC.currentTime+0.2);
+}
+function playLightning(){
+  resumeAC();
+  const buf=AC.createBuffer(1,AC.sampleRate*0.2,AC.sampleRate);
+  const d=buf.getChannelData(0);
+  for(let i=0;i<d.length;i++){
+    d[i]=(Math.random()*2-1)*Math.exp(-i/(AC.sampleRate*0.08));
+    if(i%800<400)d[i]*=2;
+  }
+  const src=AC.createBufferSource(),g=AC.createGain();
+  g.gain.setValueAtTime(0.35,AC.currentTime);
+  src.buffer=buf;src.connect(g);g.connect(AC.destination);src.start();
+}
+function playHeal(){
+  resumeAC();
+  const freqs=[440,550,660];
+  freqs.forEach((f,i)=>{
+    const o=AC.createOscillator(),g=AC.createGain();
+    o.type='sine';o.frequency.setValueAtTime(f,AC.currentTime+i*0.07);
+    g.gain.setValueAtTime(0,AC.currentTime+i*0.07);
+    g.gain.linearRampToValueAtTime(0.1,AC.currentTime+i*0.07+0.05);
+    g.gain.exponentialRampToValueAtTime(0.001,AC.currentTime+i*0.07+0.25);
+    o.connect(g);g.connect(AC.destination);
+    o.start(AC.currentTime+i*0.07);o.stop(AC.currentTime+i*0.07+0.25);
+  });
+}
+function playEnemyAtk(){
+  resumeAC();
+  const o=AC.createOscillator(),g=AC.createGain();
+  o.type='sawtooth';o.frequency.setValueAtTime(80,AC.currentTime);
+  o.frequency.exponentialRampToValueAtTime(40,AC.currentTime+0.2);
+  g.gain.setValueAtTime(0.3,AC.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.001,AC.currentTime+0.2);
+  o.connect(g);g.connect(AC.destination);
+  o.start();o.stop(AC.currentTime+0.2);
+}
+function playLevelClear(){
+  resumeAC();
+  const notes=[440,550,660,880];
+  notes.forEach((f,i)=>{
+    const o=AC.createOscillator(),g=AC.createGain();
+    o.type='triangle';o.frequency.setValueAtTime(f,AC.currentTime+i*0.15);
+    g.gain.setValueAtTime(0.2,AC.currentTime+i*0.15);
+    g.gain.exponentialRampToValueAtTime(0.001,AC.currentTime+i*0.15+0.4);
+    o.connect(g);g.connect(AC.destination);
+    o.start(AC.currentTime+i*0.15);o.stop(AC.currentTime+i*0.15+0.4);
+  });
+}
+function playBossDefeated(){
+  resumeAC();
+  const notes=[330,440,550,660,880,1100];
+  notes.forEach((f,i)=>{
+    const o=AC.createOscillator(),g=AC.createGain();
+    o.type='triangle';o.frequency.setValueAtTime(f,AC.currentTime+i*0.12);
+    g.gain.setValueAtTime(0.25,AC.currentTime+i*0.12);
+    g.gain.exponentialRampToValueAtTime(0.001,AC.currentTime+i*0.12+0.5);
+    o.connect(g);g.connect(AC.destination);
+    o.start(AC.currentTime+i*0.12);o.stop(AC.currentTime+i*0.12+0.5);
+  });
+}
+
+// ─────────────────────────── SPRITES ───────────────────────────
+const SPRITES={};
+function buildSprites(){
+  // RUNEMAGE
+  SPRITES.runemage=spr([
+    "....kPPPk...",
+    "...kPPPPPk..",
+    "..kPPPPPPPk.",
+    "...kPwwPPk..",
+    "....kwwwk...",
+    "...kssssk...",
+    "..kBBbBBBk..",
+    "..kBcBbBBk..",
+    ".kBBbBBBBBk.",
+    "..kBBbBBBk..",
+    "...kBBBBk...",
+    "..kBByBBk...",
+    "..kBBbBBk...",
+    "..kNNbNNk...",
+    "..kNNbNNk...",
+    "..kNk.kNk...",
+  ]);
+  // SHIELDWALL
+  SPRITES.shieldwall=spr([
+    "....kgggk...",
+    "...kgGGGgk..",
+    "...kgwwGgk..",
+    "...kgGGGgk..",
+    "....kgggk...",
+    "..kGGGGGGk..",
+    ".kbbGGGYYGk.",
+    ".kbcGGGYwGk.",
+    ".kbbGGGYYGk.",
+    ".kbcGGGGGGk.",
+    "..kGGGGGGk..",
+    "..kGGyGGk...",
+    "...kggggk...",
+    "..kNNgNNk...",
+    "..kNNgNNk...",
+    "..kNk.kNk...",
+  ]);
+  // TRICKSTER
+  SPRITES.trickster=spr([
+    "....keEek...",
+    "...keEEEek..",
+    "...keEkEek..",
+    "...keSSEek..",
+    "....ksSk....",
+    "..kEEeEEEk..",
+    "..kEeYeEEk..",
+    "..kEEeEEEk..",
+    ".kEEEeEEEEk.",
+    "..kEEeEEEk..",
+    "...kEeEEk...",
+    "...kEYEEk...",
+    "...kEeEEk...",
+    "...kNENNk...",
+    "...kNENNk...",
+    "...kNk.kNk..",
+  ]);
+  // GOBLIN
+  SPRITES.goblin=spr([
+    "..kevek...",
+    ".keEvEek..",
+    ".kevEyvk..",
+    ".kevyyEek.",
+    "..kEEEek..",
+    "..kwwwek..",
+    ".keEEeEek.",
+    ".kevEEEek.",
+    "..keEeek..",
+    "..kNeNNk..",
+    "..kNeNNk..",
+    "..kNk.kNk.",
+    "....knnk..",
+    "....knnk..",
+  ]);
+  // ORC WARRIOR
+  SPRITES.orc_warrior=spr([
+    ".....keEek.....",
+    "....keEEEek....",
+    "...keEEEEEek...",
+    "...keEwwEEek...",
+    "....kEwwEEk....",
+    "...kEEEEEEEk...",
+    "..knEEEEEEEnk..",
+    ".knnEEEEEEEnnk.",
+    "..knEEEEEEEnk..",
+    "..kYnEEEEEnYk..",
+    ".kYYnEEEEEnYYk.",
+    "..kYnEEEEEnYk..",
+    "...knEEEEEnk...",
+    "....knEEEnk....",
+    "....kNENNk.....",
+    "....kNENNk.....",
+    "...kNNENNNk....",
+    "...kNk...kNk...",
+  ]);
+  // BONE ARCHER
+  SPRITES.bone_archer=spr([
+    "....kwwwk...",
+    "...kwwwwwk..",
+    "...kwGwwwk..",
+    "...kwwwwwk..",
+    "....kwwwk...",
+    "..kGwwwwGk..",
+    "..kGwGwGGk..",
+    ".kGGwGwwGGk.",
+    "..kGwwGwGk..",
+    "..kGwwwGk...",
+    "...kGwGk....",
+    "...kGwGGk...",
+    "...kGwGGk...",
+    "...kwGwwk...",
+    "...kwGwwk...",
+    "...kwk.kwk..",
+  ]);
+  // DARK OVERLORD
+  SPRITES.dark_overlord=spr([
+    ".......kPPPPPPPk.......",
+    "....kPPpppPPPPpPPk.....",
+    "...kPPrprPPPPPrprPk....",
+    "...kPPPpPrPrPpPPPPk....",
+    "....kPPPPPrPPPPPPk.....",
+    ".....kPPPPrPPPPPk......",
+    "....kPPkPPwwPPkPPk.....",
+    "...kPPkKkPwwwPkKkPPk...",
+    "...kPPkKkPwwwPkKkPPk...",
+    "....kPPPPPrPPPPPPk.....",
+    "...kKKPPPPPPPPPKKk.....",
+    "..kKKKPPPPpPPPKKKk.....",
+    ".kKKkpPPPPpPPPpkKKk....",
+    ".kKKkPPPPPPPPPPkKKk....",
+    ".kKKkPPPPpPPPPPkKKk....",
+    "..kKKKPPPPpPPKKKk......",
+    "...kKKPPPPPPPKKk.......",
+    "....kKKPPPPPKKk........",
+    ".....kKPPKKPKk.........",
+    "......kKPPPKk..........",
+    "......kNPPNk...........",
+    "......kNk.kNk..........",
+  ]);
+  // SPELL FX
+  SPRITES.spell_fire=spr([
+    "....yyy.....",
+    "...yooyy....",
+    "..yooooyy...",
+    ".yoroooooy..",
+    ".yoroooory..",
+    "yyrroooory..",
+    "yyrroooorry.",
+    ".yrroorrry..",
+    "..yoooooy...",
+    "...yoory....",
+    "....yyy.....",
+    "............",
+  ]);
+  SPRITES.spell_frost=spr([
+    "....cwc.....",
+    "...cwwwc....",
+    "..cwbwwbc...",
+    ".cwwbwbwwc..",
+    "cwwwbbbwwwc.",
+    "cwwwbbbwwwc.",
+    ".cwwbwbwwc..",
+    "..cwbwwbc...",
+    "...cwwwc....",
+    "....cwc.....",
+    "............",
+    "............",
+  ]);
+  SPRITES.spell_lightning=spr([
+    "....wy......",
+    "...wyw......",
+    "..wyyw......",
+    ".wyyy.......",
+    "..yyy.......",
+    "..wyy.......",
+    "...wy.......",
+    "....wy......",
+    ".....wy.....",
+    "......wy....",
+    "......wyy...",
+    "......yyy...",
+  ]);
+  SPRITES.spell_heal=spr([
+    "....vev.....",
+    "...vevev....",
+    "..vevevev...",
+    ".veveeevev..",
+    "veveeeeevev.",
+    ".veveeevev..",
+    "..vevevev...",
+    "...vevev....",
+    "....vev.....",
+    "............",
+    "............",
+    "............",
+  ]);
+  // FLOOR TILES 16x16
+  SPRITES.tile_stone=spr([
+    "tttttttttttttttt",
+    "tTTTTTTtTTTTTTTt",
+    "tTmmmmTtTmmmmmmT",
+    "tTmmmmTtTmmmmmmT",
+    "tTmmmmTtTmmmmmmT",
+    "tTmmmmTtTmmmmmmT",
+    "tTTTTTTtTTTTTTTt",
+    "tttttttttttttttt",
+    "tTTTTTTTTTTTTTTt",
+    "tTmmmmmmTmmmmmmT",
+    "tTmmmmmmTmmmmmmT",
+    "tTmmmmmmTmmmmmmT",
+    "tTmmmmmmTmmmmmmT",
+    "tTTTTTTTTTTTTTTt",
+    "tttttttttttttttt",
+    "TTTTTTTTTTTTTTTT",
+  ]);
+  SPRITES.tile_stone_cracked=spr([
+    "tttttttttttttttt",
+    "tTTTTTTtTTTTTTTt",
+    "tTmmmmTtTmmmmmmT",
+    "tTmgmmTtTmmmmmmT",
+    "tTmmggTtTmmmmmmT",
+    "tTmmmmTtTmmmmmmT",
+    "tTTTTTTtTeETTTTt",
+    "ttttttttttttteTt",
+    "tTTTTTTTTTTTTTTt",
+    "tTmmmmggTmmmmmmT",
+    "tTmmmmmmTmmmmmmT",
+    "tTmmmmmmTmmmgmmT",
+    "tTmmmmmmTmmmmmmT",
+    "tTTTTTTTTTTTTTTt",
+    "tttttttttttttttt",
+    "TTTTTTTTTTTTTTTT",
+  ]);
+  SPRITES.tile_wall=spr([
+    "kKKKKKKKKKKKKKKk",
+    "kKKKKKKKKKKKKKKk",
+    "kKkkkkkkKkkkkkKk",
+    "kKkKKKkKKkKKKkKk",
+    "kKkKKKkKKkKKKkKk",
+    "kKkKKKkKKkKKKkKk",
+    "kKkkkkkkKkkkkkKk",
+    "kKKKKKKKKKKKKKKk",
+    "kKKKKKKKKKKKKKKk",
+    "kKkkkkkkkkkkkkKk",
+    "kKkKKKKkkKKKKkKk",
+    "kKkKKKKkkKKKKkKk",
+    "kKkKKKKkkKKKKkKk",
+    "kKkkkkkkkkkkkkKk",
+    "kKKKKKKKKKKKKKKk",
+    "kKKKKKKKKKKKKKKk",
+  ]);
+  SPRITES.tile_rune=spr([
+    "tttttttttttttttt",
+    "tTTTTTTTTTTTTTTt",
+    "tTmmmmmmmmmmmmTt",
+    "tTmmpppmmmmmmTt.",
+    "tTmmpPmmmmmmmTt.",
+    "tTmmpppmmmccmTt.",
+    "tTmmmmmmmmcCcTt.",
+    "tTmmmmmmmmccmTt.",
+    "tTmppmmmmmmmmTt.",
+    "tTmpPpmmmmmmmTt.",
+    "tTmppmmmmmmmmTt.",
+    "tTmmmmmmmmmmmTt.",
+    "tTmmmmmmmmmmmmTt",
+    "tTTTTTTTTTTTTTTt",
+    "tttttttttttttttt",
+    "TTTTTTTTTTTTTTTT",
+  ]);
+  SPRITES.tile_pit=spr([
+    "kkkkkkkkkkkkkkkk",
+    "kKKkkkkkkkkkkKKk",
+    "kKkKkkkkkkkkKkKk",
+    "kkkkKkkkkkkkKkkk",
+    "kkkkkkKkkkkkkkkk",
+    "kkkkkkkKkkkkkkkk",
+    "kkkkkkkkKkkkkkkk",
+    "kkkkkkkKkkkkkkkk",
+    "kkkkkkKkkkkkkkkk",
+    "kkkkkkkkkkkkkkkk",
+    "kkkkkKkkkkkkkkkk",
+    "kkkkKkKkkkkkkkKk",
+    "kkkKkkkKkkkkkKkk",
+    "kKKkkkkkkKkkkKKk",
+    "kKKKkkkkkkkkkKKk",
+    "kkkkkkkkkkkkkkkk",
+  ]);
+  // UI ICONS
+  SPRITES.icon_sword=spr([
+    "....ww....",
+    "...wYYw...",
+    "..wYYYYw..",
+    ".wYYYYYYw.",
+    "wYYYYYYYYw",
+    ".wGYYYYGw.",
+    "..wGYYGw..",
+    "...wGGw...",
+    "....ww....",
+    "..........",
+  ]);
+  SPRITES.icon_staff=spr([
+    "...pcp....",
+    "..pccccp..",
+    "...pcp....",
+    "....np....",
+    "....nn....",
+    "....nn....",
+    "....nn....",
+    "....nn....",
+    "....nn....",
+    "..........",
+  ]);
+  SPRITES.icon_shield=spr([
+    "..kbbk....",
+    ".kbcccbk..",
+    ".kbcccbk..",
+    ".kbGGGbk..",
+    ".kbGGGbk..",
+    "..kbGbk...",
+    "...kbk....",
+    "....k.....",
+    "..........",
+    "..........",
+  ]);
+  SPRITES.icon_heart=spr([
+    ".rr.rr..",
+    "rrrrrrrr",
+    "rRRRRRRr",
+    "rRRRRRRr",
+    ".rRRRRr.",
+    "..rRRr..",
+    "...rr...",
+    "........",
+  ]);
+  // Flipped versions
+  SPRITES.runemage_flip=flipX(SPRITES.runemage);
+  SPRITES.shieldwall_flip=flipX(SPRITES.shieldwall);
+  SPRITES.trickster_flip=flipX(SPRITES.trickster);
+  SPRITES.goblin_flip=flipX(SPRITES.goblin);
+  SPRITES.orc_warrior_flip=flipX(SPRITES.orc_warrior);
+  SPRITES.bone_archer_flip=flipX(SPRITES.bone_archer);
+  SPRITES.dark_overlord_flip=flipX(SPRITES.dark_overlord);
+  // White versions
+  SPRITES.runemage_white=whiteOf(SPRITES.runemage);
+  SPRITES.shieldwall_white=whiteOf(SPRITES.shieldwall);
+  SPRITES.trickster_white=whiteOf(SPRITES.trickster);
+  SPRITES.goblin_white=whiteOf(SPRITES.goblin);
+  SPRITES.orc_warrior_white=whiteOf(SPRITES.orc_warrior);
+  SPRITES.bone_archer_white=whiteOf(SPRITES.bone_archer);
+  SPRITES.dark_overlord_white=whiteOf(SPRITES.dark_overlord);
+}
+
+// ─────────────────────────── GRID CONSTANTS ───────────────────────────
+const GRID_COLS=10,GRID_ROWS=7,TILE=24;
+const GRID_OX=8,GRID_OY=8;
+const PANEL_X=248,PANEL_W=232,PANEL_H=270;
+
+// ─────────────────────────── FLOOR MAPS ───────────────────────────
+// Chars: '.' floor, '#' wall, 'R' rune tile, 'P' pit
+const FLOOR_MAPS=[
+  // Floor 1: Goblin Warrens (10x7)
+  [
+    "##########",
+    "#....#...#",
+    "#.R..#...#",
+    "#....###.#",
+    "#...P....#",
+    "#........#",
+    "##########",
+  ],
+  // Floor 2: Bone Crypt (10x7)
+  [
+    "##########",
+    "#...R....#",
+    "#.##.##..#",
+    "#.#R.R#..#",
+    "#.##.##..#",
+    "#....P...#",
+    "##########",
+  ],
+  // Floor 3: Overlord's Throne (10x7)
+  [
+    "##########",
+    "#.RRRRRR.#",
+    "#R......R#",
+    "#R..RR..R#",
+    "#R......R#",
+    "#.RRRRRR.#",
+    "##########",
+  ],
+];
+
+// ─────────────────────────── UNIT DEFINITIONS ───────────────────────────
+function makeUnit(type,gx,gy,isPlayer){
+  const defs={
+    runemage:  {name:"RUNEMAGE",  hp:16,maxHp:16,atk:5, def:0,spellPower:14,move:3,range:1,spells:["fire","frost","lightning","heal"],sprite:"runemage",  col:PAL.p},
+    shieldwall:{name:"SHIELDWALL",hp:28,maxHp:28,atk:12,def:6,spellPower:0, move:2,range:1,spells:[],                                  sprite:"shieldwall",col:PAL.b},
+    trickster: {name:"TRICKSTER", hp:18,maxHp:18,atk:9, def:2,spellPower:0, move:4,range:1,spells:[],                                  sprite:"trickster", col:PAL.e},
+    goblin:    {name:"GOBLIN",    hp:8, maxHp:8, atk:6, def:0,spellPower:0, move:3,range:1,spells:[],                                  sprite:"goblin",    col:PAL.e},
+    orc_warrior:{name:"ORC",     hp:22,maxHp:22,atk:11,def:2,spellPower:0, move:2,range:1,spells:[],                                  sprite:"orc_warrior",col:PAL.e},
+    bone_archer:{name:"ARCHER",  hp:12,maxHp:12,atk:8, def:0,spellPower:0, move:2,range:4,spells:[],                                  sprite:"bone_archer",col:PAL.G},
+    dark_overlord:{name:"OVERLORD",hp:50,maxHp:50,atk:16,def:4,spellPower:12,move:1,range:1,spells:["fire","lightning"],               sprite:"dark_overlord",col:PAL.p},
+  };
+  const def=defs[type];
+  return {
+    ...JSON.parse(JSON.stringify(def)),
+    type,gx,gy,isPlayer,
+    alive:true,
+    frozen:false,
+    frozenTurns:0,
+    acted:false,
+    moved:false,
+    animX:0,animY:0,// pixel offset for slide anim
+    flashTimer:0,
+    hitTimer:0,
+    telegraphCells:[],
+  };
+}
+
+// ─────────────────────────── FLOOR UNIT SETUPS ───────────────────────────
+const FLOOR_UNITS=[
+  // Floor 1
+  ()=>[
+    makeUnit("runemage",1,2,true),
+    makeUnit("shieldwall",1,4,true),
+    makeUnit("goblin",7,1,false),
+    makeUnit("goblin",8,3,false),
+    makeUnit("goblin",7,5,false),
+  ],
+  // Floor 2
+  ()=>[
+    makeUnit("runemage",1,1,true),
+    makeUnit("shieldwall",1,3,true),
+    makeUnit("trickster",1,5,true),
+    makeUnit("bone_archer",7,2,false),
+    makeUnit("bone_archer",7,4,false),
+    makeUnit("orc_warrior",8,3,false),
+  ],
+  // Floor 3
+  ()=>[
+    makeUnit("runemage",1,2,true),
+    makeUnit("shieldwall",1,3,true),
+    makeUnit("trickster",1,4,true),
+    makeUnit("orc_warrior",7,2,false),
+    makeUnit("orc_warrior",7,4,false),
+    makeUnit("dark_overlord",8,3,false),
+  ],
+];
+
+// ─────────────────────────── SPELL DATA ───────────────────────────
+const SPELL_DATA={
+  fire:     {name:"FIRE",    range:3,sprite:"spell_fire",    color:PAL.o,sound:playFire,    aoe:1,  baseDmg:10,splashDmg:4},
+  frost:    {name:"FROST",   range:2,sprite:"spell_frost",   color:PAL.c,sound:playFrost,   freeze:true,baseDmg:6},
+  lightning:{name:"LIGHTNING",range:4,sprite:"spell_lightning",color:PAL.y,sound:playLightning,line:true,baseDmg:8},
+  heal:     {name:"HEAL",    range:3,sprite:"spell_heal",    color:PAL.e,sound:playHeal,    healAmt:8,isHeal:true},
+};
+
+// ─────────────────────────── GAME STATE ───────────────────────────
+let gameState="title"; // title, playing, floor_clear, game_over, win
+let floorIndex=0;
+let units=[];
+let tileMap=[];
+let turnPhase="player"; // player, enemy
+let playerPhase="select_unit"; // select_unit, select_move, select_action, select_spell_target, select_attack_target
+let selectedUnit=null;
+let cursorX=0,cursorY=0;
+let reachableCells=[];
+let attackableCells=[];
+let spellTargetCells=[];
+let currentSpell=null;
+let actionMenuIndex=0;
+let actionMenuItems=[];
+let playerUnitIndex=0;
+let telegraphMarkers=[]; // {gx,gy,color}
+let animations=[]; // {type, ...}
+let transitionAlpha=0;
+let transitionDir=0; // 1=fade in, -1=fade out
+let titleAnim=0;
+let messageQueue=[];
+let messageTimer=0;
+let currentMessage="";
+
+// ─────────────────────────── CONTROLLER ───────────────────────────
+// The controller comes through the box's pad.js (SofaPad): each press is kept until the game reads it, and a held
+// direction repeats. The box also turns controller presses into keys for its menus: while a controller is in use
+// those are its echo, and ignored. The keyboard is for when there's no controller.
+let keys={}, keysPrev={};
+const padHit={};
+if(window.SofaPad) SofaPad.on((b,how)=>{ if(how==="press"||how==="repeat"){ padHit[b]=1; resumeAC(); } });
+document.addEventListener("keydown",e=>{
+  if(window.SofaPad&&SofaPad.echo(e)) return;
+  keys[e.code]=true; resumeAC();
+  if(/^(Arrow|Space$)/.test(e.code)) e.preventDefault();
+});
+document.addEventListener("keyup",e=>{ keys[e.code]=false; });
+const PADNAME={A:"a",B:"b",X:"x",Y:"y",LB:"lb",RB:"rb",DpadUp:"up",DpadDown:"down",DpadLeft:"left",DpadRight:"right"};
+const KEYMAP={A:["Space","KeyZ","Enter"],B:["Escape","KeyX","Backspace"],Y:["KeyC"],X:["KeyV"],DpadUp:["ArrowUp","KeyW"],DpadDown:["ArrowDown","KeyS"],
+  DpadLeft:["ArrowLeft","KeyA"],DpadRight:["ArrowRight","KeyD"],LB:["KeyQ"],RB:["KeyE"]};
+function btnJustPressed(btn){
+  const codes=KEYMAP[btn];
+  for(let i=0;i<codes.length;i++) if(keys[codes[i]]&&!keysPrev[codes[i]]) return true;
+  return padHit[PADNAME[btn]]===1;
+}
+function updatePadPrev(){ for(const k in keys) keysPrev[k]=keys[k]; for(const k in padHit) padHit[k]=0; }
+// a button's name as the controller in hand shows it (or the key, with no controller)
+const PS_GLYPH={a:"\u2715",b:"\u25cb",x:"\u25a1",y:"\u25b3"}, KEY_NAME={a:"Z",b:"X",x:"V",y:"C"};
+function BL(b){
+  if(window.SofaPad&&SofaPad.connected()) return SofaPad.kind()==="playstation"?PS_GLYPH[b]:b.toUpperCase();
+  return KEY_NAME[b];
+}
+
+// ─────────────────────────── MAP HELPERS ───────────────────────────
+function getTile(gx,gy){
+  if(!tileMap[gy]||gx<0||gx>=GRID_COLS)return '#';
+  return tileMap[gy][gx]||'#';
+}
+function isWalkable(gx,gy){
+  const t=getTile(gx,gy);
+  return t==='.'||t==='R';
+}
+function isPit(gx,gy){
+  return getTile(gx,gy)==='P';
+}
+function getUnitAt(gx,gy){
+  return units.find(u=>u.alive&&u.gx===gx&&u.gy===gy)||null;
+}
+
+// BFS for reachable cells
+function getReachableCells(unit){
+  const cells=[];
+  const visited=new Set();
+  const queue=[{gx:unit.gx,gy:unit.gy,steps:0}];
+  visited.add(unit.gx+","+unit.gy);
+  while(queue.length){
+    const {gx,gy,steps}=queue.shift();
+    if(steps>0){
+      const occ=getUnitAt(gx,gy);
+      if(!occ||occ===unit) cells.push({gx,gy});
+    }
+    if(steps>=unit.move)continue;
+    const dirs=[[0,-1],[0,1],[-1,0],[1,0]];
+    for(const [dx,dy] of dirs){
+      const nx=gx+dx,ny=gy+dy;
+      const key=nx+","+ny;
+      if(visited.has(key))continue;
+      visited.add(key);
+      if(!isWalkable(nx,ny)&&!isPit(nx,ny))continue;
+      const occ2=getUnitAt(nx,ny);
+      if(occ2&&occ2!==unit&&occ2.isPlayer===unit.isPlayer)continue; // blocked by own team
+      queue.push({gx:nx,gy:ny,steps:steps+1});
+    }
+  }
+  return cells;
+}
+
+// Get attackable cells (melee)
+function getAttackableCells(unit){
+  const cells=[];
+  const dirs=[[0,-1],[0,1],[-1,0],[1,0]];
+  if(unit.range<=1){
+    for(const [dx,dy] of dirs){
+      const nx=unit.gx+dx,ny=unit.gy+dy;
+      if(nx>=0&&nx<GRID_COLS&&ny>=0&&ny<GRID_ROWS) cells.push({gx:nx,gy:ny});
+    }
+  } else {
+    // Ranged: all cells within manhattan range
+    for(let gy=0;gy<GRID_ROWS;gy++){
+      for(let gx=0;gx<GRID_COLS;gx++){
+        const dist=Math.abs(gx-unit.gx)+Math.abs(gy-unit.gy);
+        if(dist>0&&dist<=unit.range) cells.push({gx,gy});
+      }
+    }
+  }
+  return cells;
+}
+
+// Get spell target cells
+function getSpellTargetCells(unit,spell){
+  const sd=SPELL_DATA[spell];
+  const cells=[];
+  for(let gy=0;gy<GRID_ROWS;gy++){
+    for(let gx=0;gx<GRID_COLS;gx++){
+      const dist=Math.abs(gx-unit.gx)+Math.abs(gy-unit.gy);
+      if(dist>0&&dist<=sd.range) cells.push({gx,gy});
+    }
+  }
+  return cells;
+}
+
+// ─────────────────────────── COMBAT ───────────────────────────
+function dealDamage(target,dmg,attackerGx,attackerGy){
+  if(!target||!target.alive)return;
+  const reduced=Math.max(1,dmg-target.def);
+  target.hp=Math.max(0,target.hp-reduced);
+  target.flashTimer=10;
+  if(target.hp<=0){
+    target.alive=false;
+  }
+  // Knockback for melee
+  if(attackerGx!==undefined&&attackerGy!==undefined){
+    const dx=Math.sign(target.gx-attackerGx);
+    const dy=Math.sign(target.gy-attackerGy);
+    const nx=target.gx+dx,ny=target.gy+dy;
+    if(nx>=0&&nx<GRID_COLS&&ny>=0&&ny<GRID_ROWS&&target.alive){
+      const occ=getUnitAt(nx,ny);
+      if(!occ){
+        // Slide animation
+        animations.push({type:"slide",unit:target,fromX:target.gx,fromY:target.gy,toX:nx,toY:ny,t:0,duration:12});
+        if(isPit(nx,ny)||!isWalkable(nx,ny)){
+          // Extra damage from wall/pit
+          target.hp=Math.max(0,target.hp-4);
+          if(target.hp<=0)target.alive=false;
+        } else {
+          target.gx=nx;target.gy=ny;
+        }
+      }
+    }
+  }
+}
+
+function performMeleeAttack(attacker,target){
+  playMelee();
+  const proj={type:"projectile",fromGx:attacker.gx,fromGy:attacker.gy,toGx:target.gx,toGy:target.gy,
+    sprite:"icon_sword",t:0,duration:18,onHit:()=>{
+      dealDamage(target,attacker.atk,attacker.gx,attacker.gy);
+    }};
+  animations.push(proj);
+}
+
+function performSpell(caster,spell,targetGx,targetGy){
+  const sd=SPELL_DATA[spell];
+  sd.sound();
+  const target=getUnitAt(targetGx,targetGy);
+  const proj={type:"projectile",fromGx:caster.gx,fromGy:caster.gy,toGx:targetGx,toGy:targetGy,
+    sprite:sd.sprite,t:0,duration:18,onHit:()=>{
+      if(sd.isHeal){
+        if(target){
+          target.hp=Math.min(target.maxHp,target.hp+sd.healAmt);
+          target.flashTimer=8;
+        }
+      } else if(sd.line){
+        // Lightning: hits all in line
+        const dx=Math.sign(targetGx-caster.gx);
+        const dy=Math.sign(targetGy-caster.gy);
+        let cx2=caster.gx+dx,cy2=caster.gy+dy;
+        for(let i=0;i<sd.range;i++){
+          const u=getUnitAt(cx2,cy2);
+          if(u&&u.isPlayer!==caster.isPlayer){
+            const dmg=Math.round(sd.baseDmg*caster.spellPower/14);
+            dealDamage(u,dmg);
+          }
+          cx2+=dx;cy2+=dy;
+        }
+      } else if(sd.aoe){
+        // Fire: splash
+        if(target&&target.isPlayer!==caster.isPlayer){
+          const dmg=Math.round(sd.baseDmg*caster.spellPower/14);
+          dealDamage(target,dmg);
+        }
+        const dirs=[[0,0],[0,-1],[0,1],[-1,0],[1,0]];
+        for(const [adx,ady] of dirs){
+          if(adx===0&&ady===0)continue;
+          const adj=getUnitAt(targetGx+adx,targetGy+ady);
+          if(adj&&adj.isPlayer!==caster.isPlayer){
+            const sdmg=Math.round(sd.splashDmg*caster.spellPower/14);
+            dealDamage(adj,sdmg);
+          }
+        }
+      } else {
+        // Frost
+        if(target&&target.isPlayer!==caster.isPlayer){
+          const dmg=Math.round(sd.baseDmg*caster.spellPower/14);
+          dealDamage(target,dmg);
+          if(target.alive&&sd.freeze){
+            target.frozen=true;
+            target.frozenTurns=1;
+          }
+        }
+      }
+    }};
+  animations.push(proj);
+}
+
+// ─────────────────────────── ENEMY AI ───────────────────────────
+function computeTelegraph(){
+  telegraphMarkers=[];
+  const enemies=units.filter(u=>u.alive&&!u.isPlayer);
+  for(const e of enemies){
+    // Find nearest player
+    const players=units.filter(u=>u.alive&&u.isPlayer);
+    if(!players.length)continue;
+    let nearest=null,nearestDist=999;
+    for(const p of players){
+      const d=Math.abs(p.gx-e.gx)+Math.abs(p.gy-e.gy);
+      if(d<nearestDist){nearestDist=d;nearest=p;}
+    }
+    if(!nearest)continue;
+    // Predict movement direction
+    const moveSteps=Math.min(e.move,nearestDist-1);
+    // Simplified: show attack target area
+    if(nearestDist<=e.range+e.move){
+      telegraphMarkers.push({gx:nearest.gx,gy:nearest.gy,color:PAL.r});
+      // Adjacent cells
+      const dirs=[[0,-1],[0,1],[-1,0],[1,0]];
+      for(const [dx,dy] of dirs){
+        telegraphMarkers.push({gx:nearest.gx+dx,gy:nearest.gy+dy,color:PAL.R});
+      }
+    }
+  }
+}
+
+function runEnemyTurn(){
+  turnPhase="enemy";
+  const enemies=units.filter(u=>u.alive&&!u.isPlayer&&!u.frozen);
+  let idx=0;
+  function nextEnemy(){
+    if(idx>=enemies.length){
+      // End enemy turn
+      endEnemyTurn();
+      return;
+    }
+    const e=enemies[idx];idx++;
+    if(!e.alive){nextEnemy();return;}
+    // Thaw frozen
+    if(e.frozen){
+      e.frozenTurns--;
+      if(e.frozenTurns<=0)e.frozen=false;
+      nextEnemy();return;
+    }
+    // AI: move toward nearest player, then attack if in range
+    const players=units.filter(u=>u.alive&&u.isPlayer);
+    if(!players.length){nextEnemy();return;}
+    let nearest=null,nearestDist=999;
+    for(const p of players){
+      const d=Math.abs(p.gx-e.gx)+Math.abs(p.gy-e.gy);
+      if(d<nearestDist){nearestDist=d;nearest=p;}
+    }
+    // Try to use spell
+    let usedSpell=false;
+    if(e.spells&&e.spells.length>0&&nearest){
+      const sdist=Math.abs(nearest.gx-e.gx)+Math.abs(nearest.gy-e.gy);
+      const spell=e.spells[0];
+      const sd=SPELL_DATA[spell];
+      if(sdist<=sd.range&&sdist>0){
+        performSpell(e,spell,nearest.gx,nearest.gy);
+        usedSpell=true;
+      }
+    }
+    // Move toward nearest
+    if(nearest&&!usedSpell){
+      let steps=e.move;
+      let cx=e.gx,cy=e.gy;
+      while(steps>0){
+        const dx=nearest.gx-cx,dy=nearest.gy-cy;
+        const adx=Math.abs(dx),ady=Math.abs(dy);
+        let moved2=false;
+        const dirs=[];
+        if(adx>=ady){
+          dirs.push([Math.sign(dx),0],[0,Math.sign(dy)],[Math.sign(dx)*-1,0],[0,Math.sign(dy)*-1]);
+        } else {
+          dirs.push([0,Math.sign(dy)],[Math.sign(dx),0],[0,Math.sign(dy)*-1],[Math.sign(dx)*-1,0]);
+        }
+        for(const [ddx,ddy] of dirs){
+          if(ddx===0&&ddy===0)continue;
+          const nx=cx+ddx,ny=cy+ddy;
+          if(nx<0||nx>=GRID_COLS||ny<0||ny>=GRID_ROWS)continue;
+          if(!isWalkable(nx,ny))continue;
+          const occ=getUnitAt(nx,ny);
+          if(occ&&occ!==e)continue;
+          if(Math.abs(nx-nearest.gx)+Math.abs(ny-nearest.gy)>=Math.abs(cx-nearest.gx)+Math.abs(cy-nearest.gy))continue;
+          cx=nx;cy=ny;moved2=true;break;
+        }
+        if(!moved2)break;
+        steps--;
+      }
+      if(cx!==e.gx||cy!==e.gy){
+        animations.push({type:"slide",unit:e,fromX:e.gx,fromY:e.gy,toX:cx,toY:cy,t:0,duration:10,onDone:()=>{
+          e.gx=cx;e.gy=cy;
+          // Melee attack after move
+          const dist2=Math.abs(nearest.gx-e.gx)+Math.abs(nearest.gy-e.gy);
+          if(dist2<=e.range&&nearest.alive){
+            setTimeout(()=>{
+              playEnemyAtk();
+              dealDamage(nearest,e.atk);
+              setTimeout(nextEnemy,300);
+            },200);
+          } else {
+            setTimeout(nextEnemy,100);
+          }
+        }});
+        return;
+      }
+      // Attack without moving
+      const dist2=Math.abs(nearest.gx-e.gx)+Math.abs(nearest.gy-e.gy);
+      if(dist2<=e.range&&nearest.alive){
+        playEnemyAtk();
+        dealDamage(nearest,e.atk);
+      }
+    }
+    setTimeout(nextEnemy,200);
+  }
+  setTimeout(nextEnemy,400);
+}
+
+function endEnemyTurn(){
+  telegraphMarkers=[];
+  // Unfreeze check
+  for(const u of units){
+    if(u.frozen&&u.frozenTurns<=0)u.frozen=false;
+  }
+  // Reset player unit states
+  for(const u of units){
+    if(u.isPlayer){
+      u.acted=false;
+      u.moved=false;
+    }
+  }
+  turnPhase="player";
+  playerPhase="select_unit";
+  selectedUnit=null;
+  reachableCells=[];
+  attackableCells=[];
+  computeTelegraph();
+  checkWinLose();
+}
+
+function checkWinLose(){
+  const players=units.filter(u=>u.alive&&u.isPlayer);
+  const enemies=units.filter(u=>u.alive&&!u.isPlayer);
+  if(!players.length){
+    gameState="game_over";return;
+  }
+  if(!enemies.length){
+    // Check if boss floor
+    const wasFloor3=floorIndex===2;
+    playLevelClear();
+    if(wasFloor3){
+      playBossDefeated();
+      gameState="win";
+    } else {
+      gameState="floor_clear";
+    }
+  }
+}
+
+// ─────────────────────────── FLOOR INIT ───────────────────────────
+function initFloor(idx){
+  floorIndex=idx;
+  tileMap=FLOOR_MAPS[idx];
+  units=FLOOR_UNITS[idx]();
+  turnPhase="player";
+  playerPhase="select_unit";
+  selectedUnit=null;
+  cursorX=1;cursorY=1;
+  reachableCells=[];
+  attackableCells=[];
+  spellTargetCells=[];
+  currentSpell=null;
+  actionMenuIndex=0;
+  actionMenuItems=[];
+  playerUnitIndex=0;
+  telegraphMarkers=[];
+  animations=[];
+  transitionAlpha=0;
+  transitionDir=0;
+  computeTelegraph();
+}
+
+// ─────────────────────────── ACTION MENU ───────────────────────────
+function buildActionMenu(unit){
+  const items=["ATTACK"];
+  if(unit.spells){
+    for(const s of unit.spells){
+      items.push(SPELL_DATA[s].name);
+    }
+  }
+  items.push("WAIT");
+  return items;
+}
+
+function handleActionSelected(unit,itemName){
+  if(itemName==="WAIT"){
+    unit.acted=true;
+    unit.moved=true;
+    checkAllPlayerActed();
+    return;
+  }
+  if(itemName==="ATTACK"){
+    attackableCells=getAttackableCells(unit);
+    // Set cursor to nearest enemy
+    const enemies=units.filter(u=>u.alive&&!u.isPlayer);
+    if(enemies.length){
+      cursorX=enemies[0].gx;cursorY=enemies[0].gy;
+    }
+    playerPhase="select_attack_target";
+    return;
+  }
+  // Spell
+  const spellKey=Object.keys(SPELL_DATA).find(k=>SPELL_DATA[k].name===itemName);
+  if(spellKey){
+    currentSpell=spellKey;
+    spellTargetCells=getSpellTargetCells(unit,spellKey);
+    const enemies=units.filter(u=>u.alive&&!u.isPlayer);
+    if(SPELL_DATA[spellKey].isHeal){
+      const allies=units.filter(u=>u.alive&&u.isPlayer);
+      if(allies.length){cursorX=allies[0].gx;cursorY=allies[0].gy;}
+    } else if(enemies.length){
+      cursorX=enemies[0].gx;cursorY=enemies[0].gy;
+    }
+    playerPhase="select_spell_target";
+  }
+}
+
+function checkAllPlayerActed(){
+  const players=units.filter(u=>u.alive&&u.isPlayer);
+  const allActed=players.every(u=>u.acted);
+  if(allActed){
+    runEnemyTurn();
+  } else {
+    playerPhase="select_unit";
+    selectedUnit=null;
+  }
+}
+
+// ─────────────────────────── INPUT HANDLING ───────────────────────────
+function handleInput(){
+  if(animations.some(a=>a.type==="projectile"||a.type==="slide"))return; // block during anims
+  if(gameState==="title"){
+    if(btnJustPressed("A")){
+      playBlip();
+      initFloor(0);
+      gameState="playing";
+    }
+    return;
+  }
+  if(gameState==="floor_clear"){
+    if(btnJustPressed("A")){
+      playBlip();
+      initFloor(floorIndex+1);
+      gameState="playing";
+    }
+    return;
+  }
+  if(gameState==="game_over"||gameState==="win"){
+    if(btnJustPressed("A")){
+      playBlip();
+      gameState="title";
+    }
+    return;
+  }
+  if(gameState!=="playing")return;
+  if(turnPhase==="enemy")return;
+
+  if(playerPhase==="select_unit"){
+    // Move cursor
+    if(btnJustPressed("DpadUp")){cursorY=Math.max(0,cursorY-1);playMove();}
+    if(btnJustPressed("DpadDown")){cursorY=Math.min(GRID_ROWS-1,cursorY+1);playMove();}
+    if(btnJustPressed("DpadLeft")){cursorX=Math.max(0,cursorX-1);playMove();}
+    if(btnJustPressed("DpadRight")){cursorX=Math.min(GRID_COLS-1,cursorX+1);playMove();}
+    // X: cycle player units
+    if(btnJustPressed("X")){
+      playBlip();
+      const players=units.filter(u=>u.alive&&u.isPlayer&&!u.acted);
+      if(players.length){
+        playerUnitIndex=(playerUnitIndex+1)%players.length;
+        const pu=players[playerUnitIndex];
+        cursorX=pu.gx;cursorY=pu.gy;
+      }
+    }
+    // A: select unit at cursor
+    if(btnJustPressed("A")){
+      const u=getUnitAt(cursorX,cursorY);
+      if(u&&u.isPlayer&&!u.acted){
+        playBlip();
+        selectedUnit=u;
+        if(!u.moved){
+          reachableCells=getReachableCells(u);
+          playerPhase="select_move";
+        } else {
+          actionMenuItems=buildActionMenu(u);
+          actionMenuIndex=0;
+          playerPhase="select_action";
+        }
+      }
+    }
+    // Y: end turn (all player units wait)
+    if(btnJustPressed("Y")){
+      playBlip();
+      for(const u of units.filter(u=>u.alive&&u.isPlayer)){
+        u.acted=true;u.moved=true;
+      }
+      runEnemyTurn();
+    }
+  }
+  else if(playerPhase==="select_move"){
+    if(btnJustPressed("DpadUp")){cursorY=Math.max(0,cursorY-1);playMove();}
+    if(btnJustPressed("DpadDown")){cursorY=Math.min(GRID_ROWS-1,cursorY+1);playMove();}
+    if(btnJustPressed("DpadLeft")){cursorX=Math.max(0,cursorX-1);playMove();}
+    if(btnJustPressed("DpadRight")){cursorX=Math.min(GRID_COLS-1,cursorX+1);playMove();}
+    if(btnJustPressed("B")){
+      playBlip();
+      selectedUnit=null;
+      playerPhase="select_unit";
+      reachableCells=[];
+    }
+    if(btnJustPressed("A")){
+      const inRange=reachableCells.some(c=>c.gx===cursorX&&c.gy===cursorY);
+      if(inRange){
+        playMove();
+        const fromX=selectedUnit.gx,fromY=selectedUnit.gy;
+        const toX=cursorX,toY=cursorY;
+        animations.push({type:"slide",unit:selectedUnit,fromX,fromY,toX,toY,t:0,duration:10,onDone:()=>{
+          selectedUnit.gx=toX;selectedUnit.gy=toY;
+          selectedUnit.moved=true;
+          actionMenuItems=buildActionMenu(selectedUnit);
+          actionMenuIndex=0;
+          playerPhase="select_action";
+          reachableCells=[];
+        }});
+      }
+    }
+  }
+  else if(playerPhase==="select_action"){
+    if(btnJustPressed("DpadUp")||btnJustPressed("LB")){
+      actionMenuIndex=(actionMenuIndex-1+actionMenuItems.length)%actionMenuItems.length;
+      playBlip();
+    }
+    if(btnJustPressed("DpadDown")||btnJustPressed("RB")){
+      actionMenuIndex=(actionMenuIndex+1)%actionMenuItems.length;
+      playBlip();
+    }
+    if(btnJustPressed("B")){
+      playBlip();
+      if(selectedUnit&&selectedUnit.moved&&!selectedUnit.acted){
+        // Go back to move
+        selectedUnit.moved=false;
+        selectedUnit.gx=selectedUnit.gx;// stay
+        reachableCells=getReachableCells(selectedUnit);
+        playerPhase="select_move";
+      } else {
+        selectedUnit=null;
+        playerPhase="select_unit";
+      }
+    }
+    if(btnJustPressed("A")){
+      playBlip();
+      handleActionSelected(selectedUnit,actionMenuItems[actionMenuIndex]);
+    }
+  }
+  else if(playerPhase==="select_attack_target"){
+    if(btnJustPressed("DpadUp")){cursorY=Math.max(0,cursorY-1);playMove();}
+    if(btnJustPressed("DpadDown")){cursorY=Math.min(GRID_ROWS-1,cursorY+1);playMove();}
+    if(btnJustPressed("DpadLeft")){cursorX=Math.max(0,cursorX-1);playMove();}
+    if(btnJustPressed("DpadRight")){cursorX=Math.min(GRID_COLS-1,cursorX+1);playMove();}
+    if(btnJustPressed("B")){
+      playBlip();
+      actionMenuItems=buildActionMenu(selectedUnit);
+      actionMenuIndex=0;
+      playerPhase="select_action";
+      attackableCells=[];
+    }
+    if(btnJustPressed("A")){
+      const inRange=attackableCells.some(c=>c.gx===cursorX&&c.gy===cursorY);
+      if(inRange){
+        const target=getUnitAt(cursorX,cursorY);
+        if(target&&!target.isPlayer){
+          performMeleeAttack(selectedUnit,target);
+          selectedUnit.acted=true;
+          selectedUnit.moved=true;
+          attackableCells=[];
+          setTimeout(()=>{
+            checkWinLose();
+            if(gameState==="playing")checkAllPlayerActed();
+          },400);
+        }
+      }
+    }
+  }
+  else if(playerPhase==="select_spell_target"){
+    if(btnJustPressed("DpadUp")){cursorY=Math.max(0,cursorY-1);playMove();}
+    if(btnJustPressed("DpadDown")){cursorY=Math.min(GRID_ROWS-1,cursorY+1);playMove();}
+    if(btnJustPressed("DpadLeft")){cursorX=Math.max(0,cursorX-1);playMove();}
+    if(btnJustPressed("DpadRight")){cursorX=Math.min(GRID_COLS-1,cursorX+1);playMove();}
+    if(btnJustPressed("B")){
+      playBlip();
+      actionMenuItems=buildActionMenu(selectedUnit);
+      actionMenuIndex=0;
+      playerPhase="select_action";
+      spellTargetCells=[];
+      currentSpell=null;
+    }
+    if(btnJustPressed("A")){
+      const inRange=spellTargetCells.some(c=>c.gx===cursorX&&c.gy===cursorY);
+      if(inRange){
+        performSpell(selectedUnit,currentSpell,cursorX,cursorY);
+        selectedUnit.acted=true;
+        selectedUnit.moved=true;
+        spellTargetCells=[];
+        currentSpell=null;
+        setTimeout(()=>{
+          checkWinLose();
+          if(gameState==="playing")checkAllPlayerActed();
+        },500);
+      }
+    }
+  }
+}
+
+// ─────────────────────────── ANIMATION UPDATE ───────────────────────────
+function updateAnimations(dt){
+  for(let i=animations.length-1;i>=0;i--){
+    const a=animations[i];
+    a.t++;
+    if(a.type==="slide"){
+      const prog=a.t/a.duration;
+      const sx=GRID_OX+a.fromX*TILE+TILE/2;
+      const sy=GRID_OY+a.fromY*TILE+TILE/2;
+      const ex=GRID_OX+a.toX*TILE+TILE/2;
+      const ey=GRID_OY+a.toY*TILE+TILE/2;
+      a.unit.animX=(ex-sx)*prog-(ex-sx);
+      a.unit.animY=(ey-sy)*prog-(ey-sy);
+      if(a.t>=a.duration){
+        a.unit.gx=a.toX;a.unit.gy=a.toY;
+        a.unit.animX=0;a.unit.animY=0;
+        if(a.onDone)a.onDone();
+        animations.splice(i,1);
+      }
+    } else if(a.type==="projectile"){
+      if(a.t>=a.duration){
+        if(a.onHit)a.onHit();
+        animations.splice(i,1);
+      }
+    }
+  }
+  // Flash timers
+  for(const u of units){
+    if(u.flashTimer>0)u.flashTimer--;
+  }
+}
+
+// ─────────────────────────── DRAWING ───────────────────────────
+function drawTile(gx,gy){
+  const t=getTile(gx,gy);
+  const px=GRID_OX+gx*TILE,py=GRID_OY+gy*TILE;
+  let sname="tile_stone";
+  if(t==='#')sname="tile_wall";
+  else if(t==='R')sname="tile_rune";
+  else if(t==='P')sname="tile_pit";
+  else {
+    // random crack
+    sname=(gx*7+gy*13)%5===0?"tile_stone_cracked":"tile_stone";
+  }
+  const sp=SPRITES[sname];
+  if(sp){
+    // Scale tile from 16x16 to 24x24
+    ctx.drawImage(sp,px,py,TILE,TILE);
+  }
+}
+
+function drawGrid(){
+  for(let gy=0;gy<GRID_ROWS;gy++){
+    for(let gx=0;gx<GRID_COLS;gx++){
+      drawTile(gx,gy);
+    }
+  }
+}
+
+function cellCenter(gx,gy){
+  return {x:GRID_OX+gx*TILE+TILE/2,y:GRID_OY+gy*TILE+TILE/2};
+}
+
+function drawHighlights(){
+  // Reachable cells
+  for(const c of reachableCells){
+    const px=GRID_OX+c.gx*TILE,py=GRID_OY+c.gy*TILE;
+    ctx.fillStyle="rgba(74,120,200,0.35)";
+    ctx.fillRect(px,py,TILE,TILE);
+    ctx.strokeStyle=PAL.b;ctx.lineWidth=1;
+    ctx.strokeRect(px+0.5,py+0.5,TILE-1,TILE-1);
+  }
+  // Attack cells
+  for(const c of attackableCells){
+    const px=GRID_OX+c.gx*TILE,py=GRID_OY+c.gy*TILE;
+    ctx.fillStyle="rgba(200,48,58,0.3)";
+    ctx.fillRect(px,py,TILE,TILE);
+    ctx.strokeStyle=PAL.r;ctx.lineWidth=1;
+    ctx.strokeRect(px+0.5,py+0.5,TILE-1,TILE-1);
+  }
+  // Spell cells
+  for(const c of spellTargetCells){
+    const px=GRID_OX+c.gx*TILE,py=GRID_OY+c.gy*TILE;
+    ctx.fillStyle="rgba(138,74,176,0.35)";
+    ctx.fillRect(px,py,TILE,TILE);
+    ctx.strokeStyle=PAL.p;ctx.lineWidth=1;
+    ctx.strokeRect(px+0.5,py+0.5,TILE-1,TILE-1);
+  }
+  // Telegraph markers
+  for(const m of telegraphMarkers){
+    if(m.gx<0||m.gx>=GRID_COLS||m.gy<0||m.gy>=GRID_ROWS)continue;
+    const px=GRID_OX+m.gx*TILE,py=GRID_OY+m.gy*TILE;
+    ctx.fillStyle="rgba(200,48,58,0.2)";
+    ctx.fillRect(px,py,TILE,TILE);
+    // Draw X
+    ctx.strokeStyle=PAL.r;ctx.lineWidth=2;
+    ctx.beginPath();
+    ctx.moveTo(px+3,py+3);ctx.lineTo(px+TILE-3,py+TILE-3);
+    ctx.moveTo(px+TILE-3,py+3);ctx.lineTo(px+3,py+TILE-3);
+    ctx.stroke();
+  }
+  // Dither glow on selected unit
+  if(selectedUnit&&selectedUnit.alive){
+    const cc=cellCenter(selectedUnit.gx,selectedUnit.gy);
+    ditherDisc(ctx,cc.x,cc.y,14,PAL.y,0.6);
+  }
+}
+
+function drawCursor(){
+  const px=GRID_OX+cursorX*TILE,py=GRID_OY+cursorY*TILE;
+  const t=Date.now();
+  const blink=Math.sin(t/180)>0;
+  if(blink){
+    ctx.strokeStyle=PAL.w;ctx.lineWidth=2;
+    ctx.strokeRect(px+1,py+1,TILE-2,TILE-2);
+  }
+  ctx.strokeStyle=PAL.y;ctx.lineWidth=1;
+  ctx.strokeRect(px+0.5,py+0.5,TILE-1,TILE-1);
+}
+
+function drawUnits(){
+  for(const u of units){
+    if(!u.alive)continue;
+    let sname=u.sprite;
+    // Enemy faces right (flipped), player faces right
+    if(!u.isPlayer) sname=u.sprite+"_flip";
+    let sp=SPRITES[sname]||SPRITES[u.sprite];
+    if(u.flashTimer>0){
+      const ws=SPRITES[u.sprite+"_white"]||whiteOf(sp);
+      sp=ws;
+    }
+    if(!sp)continue;
+    const px=GRID_OX+u.gx*TILE+u.animX;
+    const py=GRID_OY+u.gy*TILE+u.animY;
+    // Center sprite in cell
+    const sx=px+(TILE-sp.width)/2;
+    const sy=py+(TILE-sp.height)/2;
+    // Shadow
+    ctx.fillStyle="rgba(0,0,0,0.4)";
+    ctx.fillRect(sx+2,py+TILE-4,sp.width-2,3);
+    ctx.drawImage(sp,Math.round(sx),Math.round(sy));
+    // HP bar
+    const hbw=TILE-2;
+    const hbx=px+1,hby=py+TILE-3;
+    ctx.fillStyle=PAL.k;
+    ctx.fillRect(hbx,hby,hbw,2);
+    const hpf=u.hp/u.maxHp;
+    const hpcol=hpf>0.5?PAL.e:(hpf>0.25?PAL.y:PAL.r);
+    ctx.fillStyle=hpcol;
+    ctx.fillRect(hbx,hby,Math.round(hbw*hpf),2);
+    // Frozen indicator
+    if(u.frozen){
+      ctx.fillStyle="rgba(122,216,240,0.5)";
+      ctx.fillRect(px,py,TILE,TILE);
+    }
+    // Acted indicator
+    if(u.isPlayer&&u.acted){
+      ctx.fillStyle="rgba(0,0,0,0.4)";
+      ctx.fillRect(px,py,TILE,TILE);
+    }
+  }
+}
+
+function drawAnimations(){
+  for(const a of animations){
+    if(a.type==="projectile"){
+      const sp=SPRITES[a.sprite];
+      if(!sp)continue;
+      const prog=a.t/a.duration;
+      const sx=GRID_OX+a.fromGx*TILE+TILE/2;
+      const sy=GRID_OY+a.fromGy*TILE+TILE/2;
+      const ex=GRID_OX+a.toGx*TILE+TILE/2;
+      const ey=GRID_OY+a.toGy*TILE+TILE/2;
+      const px=sx+(ex-sx)*prog;
+      const py=sy+(ey-sy)*prog;
+      ctx.drawImage(sp,Math.round(px-sp.width/2),Math.round(py-sp.height/2));
+    }
+  }
+}
+
+// ─────────────────────────── HUD ───────────────────────────
+function drawPanel(){
+  // Panel background
+  ctx.fillStyle=PAL.K;
+  ctx.fillRect(PANEL_X,0,PANEL_W,H);
+  ctx.fillStyle=PAL.k;
+  ctx.fillRect(PANEL_X,0,2,H);
+
+  let py2=4;
+  // Floor indicator
+  drawText(ctx,"FLOOR "+(floorIndex+1)+"/3",PANEL_X+6,py2,PAL.y,1,true);
+  py2+=10;
+  // Enemy count
+  const foeCount=units.filter(u=>u.alive&&!u.isPlayer).length;
+  drawText(ctx,"FOES: "+foeCount,PANEL_X+6,py2,PAL.r,1,true);
+  py2+=10;
+  // Turn indicator
+  if(turnPhase==="player"){
+    drawText(ctx,"YOUR TURN",PANEL_X+6,py2,PAL.e,1,true);
+  } else {
+    drawText(ctx,"ENEMY TURN",PANEL_X+6,py2,PAL.r,1,true);
+  }
+  py2+=12;
+
+  // Divider
+  ctx.fillStyle=PAL.g;
+  ctx.fillRect(PANEL_X+4,py2,PANEL_W-8,1);
+  py2+=4;
+
+  // Selected unit info
+  const dispUnit=selectedUnit||(turnPhase==="player"?units.find(u=>u.alive&&u.isPlayer&&u.gx===cursorX&&u.gy===cursorY):null);
+  if(dispUnit){
+    drawText(ctx,dispUnit.name,PANEL_X+6,py2,dispUnit.isPlayer?PAL.c:PAL.r,1,true);
+    py2+=10;
+    // HP bar large
+    const hbw2=PANEL_W-16;
+    const hbx2=PANEL_X+8;
+    ctx.fillStyle=PAL.k;ctx.fillRect(hbx2,py2,hbw2,6);
+    const hpf2=dispUnit.hp/dispUnit.maxHp;
+    const hpcol2=hpf2>0.5?PAL.e:(hpf2>0.25?PAL.y:PAL.r);
+    ctx.fillStyle=hpcol2;ctx.fillRect(hbx2,py2,Math.round(hbw2*hpf2),6);
+    ctx.fillStyle=PAL.g;ctx.strokeStyle=PAL.g;ctx.lineWidth=1;ctx.strokeRect(hbx2+0.5,py2+0.5,hbw2-1,5);
+    py2+=8;
+    drawText(ctx,"HP:"+dispUnit.hp+"/"+dispUnit.maxHp,PANEL_X+6,py2,PAL.w,1,true);
+    py2+=10;
+    drawText(ctx,"ATK:"+dispUnit.atk+" DEF:"+(dispUnit.def||0),PANEL_X+6,py2,PAL.G,1,true);
+    py2+=10;
+    drawText(ctx,"MOV:"+dispUnit.move+" RNG:"+dispUnit.range,PANEL_X+6,py2,PAL.G,1,true);
+    py2+=10;
+    if(dispUnit.frozen){
+      drawText(ctx,"FROZEN!",PANEL_X+6,py2,PAL.c,1,true);
+      py2+=10;
+    }
+    if(dispUnit.isPlayer&&dispUnit.spells&&dispUnit.spells.length>0){
+      drawText(ctx,"SPELLS:",PANEL_X+6,py2,PAL.p,1,true);
+      py2+=9;
+      for(const s of dispUnit.spells){
+        drawText(ctx," "+SPELL_DATA[s].name,PANEL_X+6,py2,PAL.m,1,false);
+        py2+=8;
+      }
+    }
+  }
+
+  // Divider
+  py2=Math.max(py2+4,110);
+  ctx.fillStyle=PAL.g;
+  ctx.fillRect(PANEL_X+4,py2,PANEL_W-8,1);
+  py2+=4;
+
+  // Phase help text
+  if(turnPhase==="player"){
+    if(playerPhase==="select_unit"){
+      drawText(ctx,"["+BL("a")+"] SELECT UNIT",PANEL_X+6,py2,PAL.m,1,true);py2+=9;
+      drawText(ctx,"["+BL("x")+"] NEXT UNIT",PANEL_X+6,py2,PAL.m,1,true);py2+=9;
+      drawText(ctx,"["+BL("y")+"] END TURN",PANEL_X+6,py2,PAL.m,1,true);py2+=9;
+    } else if(playerPhase==="select_move"){
+      drawText(ctx,"MOVE UNIT",PANEL_X+6,py2,PAL.c,1,true);py2+=9;
+      drawText(ctx,"["+BL("a")+"] CONFIRM",PANEL_X+6,py2,PAL.m,1,true);py2+=9;
+      drawText(ctx,"["+BL("b")+"] CANCEL",PANEL_X+6,py2,PAL.m,1,true);py2+=9;
+    } else if(playerPhase==="select_action"){
+      drawText(ctx,"ACTION:",PANEL_X+6,py2,PAL.c,1,true);py2+=10;
+      for(let i=0;i<actionMenuItems.length;i++){
+        const col=i===actionMenuIndex?PAL.y:PAL.G;
+        const prefix=i===actionMenuIndex?"> ":"  ";
+        drawText(ctx,prefix+actionMenuItems[i],PANEL_X+6,py2,col,1,true);
+        py2+=9;
+      }
+      py2+=4;
+      drawText(ctx,"["+BL("a")+"] SELECT",PANEL_X+6,py2,PAL.m,1,true);py2+=9;
+      drawText(ctx,"["+BL("b")+"] BACK",PANEL_X+6,py2,PAL.m,1,true);py2+=9;
+    } else if(playerPhase==="select_attack_target"){
+      drawText(ctx,"SELECT TARGET",PANEL_X+6,py2,PAL.r,1,true);py2+=9;
+      drawText(ctx,"["+BL("a")+"] ATTACK",PANEL_X+6,py2,PAL.m,1,true);py2+=9;
+      drawText(ctx,"["+BL("b")+"] CANCEL",PANEL_X+6,py2,PAL.m,1,true);py2+=9;
+    } else if(playerPhase==="select_spell_target"){
+      if(currentSpell){
+        drawText(ctx,SPELL_DATA[currentSpell].name,PANEL_X+6,py2,PAL.p,1,true);py2+=9;
+        drawText(ctx,"RANGE:"+SPELL_DATA[currentSpell].range,PANEL_X+6,py2,PAL.m,1,true);py2+=9;
+      }
+      drawText(ctx,"["+BL("a")+"] CAST",PANEL_X+6,py2,PAL.m,1,true);py2+=9;
+      drawText(ctx,"["+BL("b")+"] CANCEL",PANEL_X+6,py2,PAL.m,1,true);py2+=9;
+    }
+  }
+
+  // Telegraph warning
+  if(telegraphMarkers.length>0&&turnPhase==="player"){
+    py2=H-30;
+    ctx.fillStyle="rgba(200,48,58,0.2)";
+    ctx.fillRect(PANEL_X+4,py2-2,PANEL_W-8,16);
+    drawText(ctx,"DANGER: "+telegraphMarkers.filter(m=>m.color===PAL.r).length+" TILES",PANEL_X+6,py2,PAL.r,1,true);
+  }
+
+  // Player unit overview at bottom
+  py2=H-50;
+  ctx.fillStyle=PAL.g;ctx.fillRect(PANEL_X+4,py2,PANEL_W-8,1);py2+=3;
+  const players=units.filter(u=>u.isPlayer);
+  for(const p of players){
+    if(!p.alive){
+      drawText(ctx,p.name.substring(0,6)+" DEAD",PANEL_X+6,py2,PAL.g,1,false);
+    } else {
+      const col=p.acted?PAL.g:PAL.w;
+      drawText(ctx,p.name.substring(0,6),PANEL_X+6,py2,col,1,false);
+      // Mini hp bar
+      const mbw=70,mbx=PANEL_X+78;
+      ctx.fillStyle=PAL.k;ctx.fillRect(mbx,py2+1,mbw,4);
+      const hf=p.hp/p.maxHp;
+      ctx.fillStyle=hf>0.5?PAL.e:(hf>0.25?PAL.y:PAL.r);
+      ctx.fillRect(mbx,py2+1,Math.round(mbw*hf),4);
+    }
+    py2+=9;
+  }
+}
+
+function drawTitleScreen(){
+  ctx.fillStyle=PAL.k;
+  ctx.fillRect(0,0,W,H);
+  // Stars background
+  for(let i=0;i<50;i++){
+    const sx=(i*73+13)%W,sy=(i*47+7)%H;
+    ctx.fillStyle=i%3===0?PAL.w:PAL.G;
+    ctx.fillRect(sx,sy,1,1);
+  }
+  // Title
+  drawCenter(ctx,"RUNE TACTICS",30,PAL.p,2);
+  drawCenter(ctx,"TACTICAL DUNGEON COMBAT",56,PAL.m,1);
+  // Animated sprites
+  const t=Date.now()/1000;
+  const mx=Math.sin(t*1.5)*3;
+  const my=Math.sin(t*2)*2;
+  const magesp=SPRITES.runemage;
+  const gobsp=SPRITES.goblin_flip;
+  if(magesp)ctx.drawImage(magesp,60+mx,110+my,magesp.width*2,magesp.height*2);
+  if(gobsp)ctx.drawImage(gobsp,340-mx,114+my,gobsp.width*2,gobsp.height*2);
+  // Glow
+  ditherDisc(ctx,74,122,20,PAL.p,0.5);
+  ditherDisc(ctx,354,126,16,PAL.e,0.5);
+  drawCenter(ctx,"PRESS "+BL("a")+" TO START",200,Math.sin(Date.now()/400)>0?PAL.y:PAL.w,1);
+  drawCenter(ctx,window.SofaPad&&SofaPad.connected()?"D-PAD MOVES THE CURSOR":"ARROW KEYS + Z/X/C/V",220,PAL.G,1);
+  drawCenter(ctx,"HOLD HOME TO LEAVE",230,PAL.G,1);
+}
+
+function drawFloorClear(){
+  ctx.fillStyle="rgba(0,0,0,0.75)";
+  ctx.fillRect(0,0,W,H);
+  drawCenter(ctx,"FLOOR CLEARED!",80,PAL.y,2);
+  drawCenter(ctx,"ADVANCE TO FLOOR "+(floorIndex+2),110,PAL.m,1);
+  drawCenter(ctx,"PRESS "+BL("a")+" TO CONTINUE",140,PAL.w,1);
+}
+
+function drawGameOver(){
+  ctx.fillStyle="rgba(0,0,0,0.85)";
+  ctx.fillRect(0,0,W,H);
+  drawCenter(ctx,"GAME OVER",90,PAL.r,2);
+  drawCenter(ctx,"YOUR PARTY HAS FALLEN",120,PAL.m,1);
+  drawCenter(ctx,"PRESS "+BL("a")+" TO RETURN",150,PAL.G,1);
+}
+
+function drawWin(){
+  ctx.fillStyle="rgba(13,11,20,0.9)";
+  ctx.fillRect(0,0,W,H);
+  // Stars
+  for(let i=0;i<80;i++){
+    const sx=(i*113+31)%W,sy=(i*67+5)%H;
+    ctx.fillStyle=i%4===0?PAL.y:PAL.G;
+    ctx.fillRect(sx,sy,1,1);
+  }
+  drawCenter(ctx,"VICTORY!",50,PAL.y,2);
+  drawCenter(ctx,"THE DARK OVERLORD",80,PAL.m,1);
+  drawCenter(ctx,"HAS BEEN DEFEATED!",92,PAL.m,1);
+  drawCenter(ctx,"RUNE TACTICS COMPLETE",120,PAL.p,1);
+  const ovsp=SPRITES.dark_overlord_white;
+  if(ovsp)ctx.drawImage(ovsp,Math.round(W/2-ovsp.width),130);
+  drawCenter(ctx,"PRESS "+BL("a")+" TO RETURN",200,PAL.w,1);
+}
+
+// ─────────────────────────── MAIN LOOP ───────────────────────────
+let lastTime=0;
+function loop(ts){
+  const dt=(ts-lastTime)/1000;lastTime=ts;
+  handleInput();
+  updateAnimations(dt);
+
+  // Draw
+  ctx.fillStyle=PAL.k;
+  ctx.fillRect(0,0,W,H);
+
+  if(gameState==="title"){
+    drawTitleScreen();
+  } else if(gameState==="playing"||gameState==="floor_clear"||gameState==="game_over"||gameState==="win"){
+    if(gameState==="playing"||gameState==="floor_clear"||gameState==="game_over"){
+      drawGrid();
+      drawHighlights();
+      drawUnits();
+      drawAnimations();
+      if(turnPhase==="player")drawCursor();
+      drawPanel();
+    }
+    if(gameState==="floor_clear")drawFloorClear();
+    if(gameState==="game_over")drawGameOver();
+    if(gameState==="win")drawWin();
+  }
+
+  updatePadPrev();
+  requestAnimationFrame(loop);
+}
+
+// ─────────────────────────── BOOT ───────────────────────────
+buildSprites();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

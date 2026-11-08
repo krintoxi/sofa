@@ -1,75 +1,494 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Neon Dodge</title>
 <style>
-  html, body { margin: 0; height: 100%; background: #07070c; color: #fff; font: 700 16px/1.3 system-ui, sans-serif; overflow: hidden; }
-  canvas { display: block; width: 100vw; height: 100vh; }
-  .ui { position: fixed; inset: 0; display: grid; place-content: center; text-align: center; gap: 12px; pointer-events: none; }
-  .ui h1 { margin: 0; font-size: 7vw; letter-spacing: -.03em; color: #FF2E88; text-shadow: 0 0 30px #FF2E88; }
-  .ui p { margin: 0; font-size: 2vw; color: #c9c9d6; }
-  .score { position: fixed; top: 3vh; right: 4vw; font-size: 3vw; color: #E8FF3A; text-shadow: 0 0 16px #E8FF3A; }
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  canvas { position: absolute; image-rendering: pixelated; }
 </style></head><body>
-<canvas id="c"></canvas><div class="score" id="score">0</div>
-<div class="ui" id="ui"><h1>NEON DODGE</h1><p id="how">← → switch lanes · OK to start</p><p id="best"></p></div>
+<canvas id="c" width="480" height="270"></canvas>
 <script src="../pad.js"></script>
 <script>
+/* Neon Dodge: 3-lane arcade dodger for Sofa Box OS.
+   Full pixel-art sprites, 5×7 bitmap font, Bayer dithered neon trails.
+   100% offline, controller-first. */
 (function () {
-  const c = document.getElementById("c"), x = c.getContext("2d");
-  let W, H, lane = 1, blocks = [], t = 0, speed, score = 0, playing = false, best = +localStorage.getItem("neonBest") || 0, last = 0, spawn = 0, px = 0;
-  const LANES = 3;
-  function size() { W = c.width = innerWidth * devicePixelRatio; H = c.height = innerHeight * devicePixelRatio; }
-  addEventListener("resize", size); size();
-  const laneX = l => W / 2 + (l - 1) * W * 0.18;
-  function start() { lane = 1; px = laneX(1); blocks = []; speed = H * 0.45; score = 0; playing = true; spawn = 0; ui.style.display = "none"; }
-  function over() {
-    playing = false; best = Math.max(best, Math.floor(score)); localStorage.setItem("neonBest", best);
-    ui.style.display = ""; ui.querySelector("h1").textContent = "CRASH"; document.getElementById("best").textContent = "Score " + Math.floor(score) + " · best " + best;
+  "use strict";
+  const VW = 480, VH = 270;
+  const cv = document.getElementById("c"), ctx = cv.getContext("2d", { alpha: false });
+  function fit() {
+    const s = Math.min(innerWidth / VW, innerHeight / VH);
+    const w = Math.round(VW * s), h = Math.round(VH * s);
+    cv.style.width = w + "px"; cv.style.height = h + "px";
+    cv.style.left = ((innerWidth - w) >> 1) + "px"; cv.style.top = ((innerHeight - h) >> 1) + "px";
+    ctx.imageSmoothingEnabled = false;
   }
-  const how = document.getElementById("how");
-  SofaPad.on((b, act) => {                      // the controller first: the stick or D-pad, a lane a press
-    if (b === "connected") { how.textContent = "Stick or D-pad: switch lanes · " + SofaPad.label("a") + " to start"; return; }
-    if (act !== "press") return;
-    if (b === "left") lane = Math.max(0, lane - 1);
-    else if (b === "right") lane = Math.min(LANES - 1, lane + 1);
-    else if ((b === "a" || b === "start") && !playing) start();
+  addEventListener("resize", fit); fit();
+
+  // Palette
+  const PAL = {
+    k: "#0d0b14", K: "#241d2e", g: "#5a5468", G: "#9a94a8", w: "#ece8f4",
+    s: "#e0a67a", S: "#a86a48", r: "#c8303a", R: "#7a1a26", o: "#ee8a3a",
+    O: "#9a4a1e", y: "#f2c14e", Y: "#a87a1e", b: "#4a78c8", B: "#243c78",
+    c: "#7ad8f0", C: "#2e6e8a", n: "#6e4c2e", N: "#3e2a1a", e: "#5aa04a",
+    E: "#2e5a2a", p: "#8a4ab0", P: "#4a2468", m: "#e2d49c", M: "#a89860",
+    v: "#b8e070", x: "#ff5a8a", t: "#d0c4b0", T: "#7e6e5c"
+  };
+
+  function mk(w, h) { const c = document.createElement("canvas"); c.width = w; c.height = h; return c; }
+  function g2(c) { const g = c.getContext("2d"); g.imageSmoothingEnabled = false; return g; }
+  function spr(rows, over) {
+    let w = 0; for (let i = 0; i < rows.length; i++) w = Math.max(w, rows[i].length);
+    const c = mk(w, rows.length), g = g2(c);
+    for (let y = 0; y < rows.length; y++) for (let x = 0; x < rows[y].length; x++) {
+      const ch = rows[y][x]; if (ch === ".") continue;
+      const col = (over && over[ch]) || PAL[ch]; if (!col) continue;
+      g.fillStyle = col; g.fillRect(x, y, 1, 1);
+    }
+    return c;
+  }
+
+  // Sprites
+  const SPR = {
+    // Player ship — retro fighter jet top-down view (12×16)
+    ship: [
+      "....kxxk....",
+      "....kxxk....",
+      "...kxxxxk...",
+      "...kxxxxk...",
+      "..kxxxxxxk..",
+      "..kxwwwwxk..",
+      ".kxxxxxxxxk.",
+      ".kxcccccxk.",
+      ".kxxxxxxxxk.",
+      "..kxwwwwxk..",
+      "..kxxxxxxk..",
+      "kkkxxxxxxxxk",
+      "kxxxxxxxxxxk",
+      ".kxxxxxxxxk.",
+      "..kxwwwwxk..",
+      "...kxxxxk..."
+    ],
+    // Enemy block — spiked hazard cube (14×10)
+    block: [
+      "..kyyyyyyyk..",
+      ".kyYYYYYYYyk.",
+      "kyYYywwYYYYyk",
+      "kYYYwwwwYYYYk",
+      "kYYYwwwwYYYYk",
+      "kyYYywwYYYYyk",
+      ".kyYYYYYYYyk.",
+      "..kyyyyyyyyk.",
+      "...kkkkkkk...",
+      "............."
+    ],
+    // Flame exhaust particle (4×6)
+    flame_a: [
+      ".oo.",
+      "oyyo",
+      "oyyo",
+      ".oo.",
+      ".oo.",
+      "..o."
+    ],
+    flame_b: [
+      ".oo.",
+      "oOOo",
+      "oOOo",
+      ".oo.",
+      "..o.",
+      "...."
+    ],
+    // Star (2×2 small)
+    star_s: ["kw", "wk"],
+    star_m: [".w.", "www", ".w."],
+    // Warning chevron (12×6)
+    warn: [
+      ".....kk.....",
+      "....krrk....",
+      "...krrrrk...",
+      "..krrrrrk...",
+      "...krrrrk...",
+      "....krrk...."
+    ]
+  };
+  const S = {};
+  for (const k in SPR) S[k] = spr(SPR[k]);
+
+  // 5×7 Bitmap font
+  const FONT = {
+    "\u2715":["#...#",".#.#.","..#..",".#.#.","#...#"],
+    "\u25cb":[".###.","#...#","#...#","#...#",".###."],
+    "\u25a1":["#####","#...#","#...#","#...#","#####"],
+    "\u25b3":["..#..",".#.#.",".#.#.","#...#","#####"],
+
+    A:["##.##","#...#","#####","#...#","#...#"],B:["####.","#...#","####.","#...#","####."],
+    C:[".####","#....","#....","#....","####."],D:["###..","#..#.","#...#","#..#.","###.."],
+    E:["#####","#....","####.","#....","#####"],F:["#####","#....","####.","#....","#...."],
+    G:[".####","#....","#.###","#...#",".####"],H:["#...#","#...#","#####","#...#","#...#"],
+    I:["#####","..#..","..#..","..#..","#####"],J:["..###","...#.","...#.","#..#.",".##.."],
+    K:["#...#","#..#.","###..","#..#.","#...#"],L:["#....","#....","#....","#....","#####"],
+    M:["#...#","##.##","#.#.#","#...#","#...#"],N:["#...#","##..#","#.#.#","#..##","#...#"],
+    O:[".###.","#...#","#...#","#...#",".###."],P:["####.","#...#","####.","#....","#...."],
+    Q:[".###.","#...#","#.#.#",".###.","....#"],R:["####.","#...#","####.","#..#.","#...#"],
+    S:[".####","#....","#####","....#","####."],T:["#####","..#..","..#..","..#..","..#.."],
+    U:["#...#","#...#","#...#","#...#",".###."],V:["#...#","#...#",".#.#.",".#.#.","..#.."],
+    W:["#...#","#...#","#.#.#","##.##","#...#"],X:["#...#",".#.#.","..#..",".#.#.","#...#"],
+    Y:["#...#",".#.#.","..#..","..#..","..#.."],Z:["#####","...#.","..#..","#....","#####"],
+    "0":[".###.","#..##","#.#.#","##..#",".###."],"1":["..#..","###..","..#..","..#..","#####"],
+    "2":[".###.","#...#","...#.","..#..","#####"],"3":["####.","....#","..##.","....#","####."],
+    "4":["#...#","#...#","#####","....#","....#"],"5":["#####","#....","####.","....#","####."],
+    "6":[".###.","#....","####.","#...#",".###."],"7":["#####","....#","...#.","..#..","..#.."],
+    "8":[".###.","#...#",".###.","#...#",".###."],"9":[".###.","#...#",".####","....#",".###."],
+    "!":["#","#","#",".","#"],":":["#.","#.","..","#.","#."]," ":["...","...","...","...","..."],
+    "-":["....","....","####","....","...."],"/":[".....","....#","...#.","..#..","#...."],
+    ".":[".",".",".",".",","],",":[".",".",".",".",","],"×":["#.#",".#.","#.#",".#.","#.#"]
+  };
+
+  // the letters: each drawn once in each colour, then copied (far cheaper on a Pi than every pixel, every frame)
+  let GLYPHS = {}, glyphCols = 0;
+  function glyphOf(ch, col) {
+    let set = GLYPHS[col];
+    if (!set) { if (++glyphCols > 48) { GLYPHS = {}; glyphCols = 1; } set = GLYPHS[col] = {}; }
+    let c = set[ch]; if (c) return c;
+    const gl = FONT[ch] || FONT[" "];
+    c = mk(gl[0].length, gl.length); const g = c.getContext("2d"); g.fillStyle = col;
+    for (let r = 0; r < gl.length; r++) for (let x = 0; x < gl[r].length; x++) if (gl[r][x] === "#") g.fillRect(x, r, 1, 1);
+    return set[ch] = c;
+  }
+  function drawText(g, str, x, y, col, scale) {
+    scale = scale || 1; str = String(str).toUpperCase(); col = col || "#ffffff";
+    let cx = x;
+    for (let i = 0; i < str.length; i++) {
+      const ch = str[i], gl = FONT[ch] || FONT[" "], gw = gl[0].length;
+      if (ch !== " ") { const a = glyphOf(ch, "#000000"), b = glyphOf(ch, col); g.drawImage(a, cx + 1, y + 1, gw * scale, gl.length * scale); g.drawImage(b, cx, y, gw * scale, gl.length * scale); }
+      cx += (gw + 1) * scale;
+    }
+  }
+  function textW(str, scale) {
+    scale = scale || 1; str = String(str).toUpperCase();
+    let w = 0; for (let i = 0; i < str.length; i++) { const gl = FONT[str[i]] || FONT[" "]; w += (gl[0].length + 1) * scale; }
+    return w;
+  }
+  function drawCenter(g, str, y, col, scale) {
+    drawText(g, str, Math.floor((VW - textW(str, scale)) / 2), y, col, scale);
+  }
+
+  // Bayer dithering for neon trail
+  const BAYER = [[0,8,2,10],[12,4,14,6],[3,11,1,9],[15,7,13,5]];
+  // a dithered glow: a fill with a 4×4 pattern in its colour (each pattern made once). It was put in with
+  // putImageData, which wiped out whatever was under it, and failed on the screen's left and top edges.
+  const DPAT = {};
+  function ditherRect(g, rx, ry, rw, rh, hexCol, alpha) {
+    const a = Math.round(alpha * 16) / 16; if (a <= 0) return;
+    const key = hexCol + a; let p = DPAT[key];
+    if (!p) { const c = mk(4, 4), q = c.getContext("2d"); q.fillStyle = hexCol; for (let y = 0; y < 4; y++) for (let x = 0; x < 4; x++) if (a > (BAYER[y][x] + 0.5) / 16) q.fillRect(x, y, 1, 1); p = DPAT[key] = g.createPattern(c, "repeat"); }
+    g.fillStyle = p; g.fillRect(rx, ry, rw, rh);
+  }
+  function hexToRgb(h) {
+    const c = h.replace("#", "");
+    return { r: parseInt(c.slice(0,2),16), g: parseInt(c.slice(2,4),16), b: parseInt(c.slice(4,6),16) };
+  }
+
+  // Audio
+  let AC = null;
+  function wakeAudio() {
+    if (!AC) {
+      try { const A = window.AudioContext || window.webkitAudioContext; if (A) AC = new A(); } catch (e) {}
+    }
+    if (AC && AC.state === "suspended") AC.resume().catch(() => {});
+  }
+  function beep(f0, f1, dur, type, vol) {
+    if (!AC || AC.state !== "running") return;
+    try {
+      const t = AC.currentTime, o = AC.createOscillator(), g = AC.createGain();
+      o.type = type || "sine"; o.frequency.setValueAtTime(f0, t);
+      if (f1) o.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t + dur);
+      g.gain.setValueAtTime(vol || 0.08, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      o.connect(g); g.connect(AC.destination); o.start(t); o.stop(t + dur + 0.02);
+    } catch (e) {}
+  }
+  function boop(dur, vol, freq) {
+    if (!AC || AC.state !== "running") return;
+    try {
+      const n = (AC.sampleRate * dur) | 0, b = AC.createBuffer(1, n, AC.sampleRate);
+      const d = b.getChannelData(0); for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+      const s = AC.createBufferSource(); s.buffer = b;
+      const f = AC.createBiquadFilter(); f.type = "lowpass"; f.frequency.value = freq || 600;
+      const g = AC.createGain(), t = AC.currentTime;
+      g.gain.setValueAtTime(vol || 0.1, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      s.connect(f); f.connect(g); g.connect(AC.destination); s.start(t); s.stop(t + dur + 0.02);
+    } catch (e) {}
+  }
+  const sndDodge = () => beep(400, 600, 0.06, "triangle", 0.07);
+  const sndCrash = () => { beep(200, 50, 0.3, "sawtooth", 0.18); boop(0.25, 0.2, 350); };
+  const sndStart = () => { beep(440, 880, 0.15, "triangle", 0.12); beep(660, 1320, 0.15, "triangle", 0.1); };
+  const sndMilestone = () => { beep(523, 784, 0.1, "triangle", 0.1); beep(784, 1046, 0.1, "triangle", 0.08); };
+
+  // Game state
+  const LANES = 3;
+  const LANE_X = [120, 240, 360];
+  let lane = 1, px = LANE_X[1], blocks = [], trails = [], stars = [];
+  let t = 0, speed = 180, score = 0, hiScore = 0, playing = false, state = "title";
+  let spawntimer = 0, spawnrate = 1.0, flameFrame = 0, flameTick = 0;
+  let shakeX = 0, shakeY = 0, shakeTimer = 0;
+  let warntimer = [], warnlane = -1;
+
+  try { hiScore = +localStorage.getItem("neonDodgeHi") || 0; } catch (e) {}
+
+  // Generate static starfield
+  for (let i = 0; i < 80; i++) {
+    stars.push({
+      x: Math.random() * VW, y: Math.random() * VH,
+      vy: 0.3 + Math.random() * 1.2,
+      size: Math.random() < 0.15 ? 2 : 1,
+      bright: Math.random()
+    });
+  }
+
+  function startGame() {
+    lane = 1; px = LANE_X[1]; blocks = []; trails = [];
+    speed = 180; score = 0; spawntimer = 0; spawnrate = 1.0;
+    shakeX = 0; shakeY = 0; shakeTimer = 0; warnlane = -1; warntimer = [];
+    playing = true; state = "playing";
+    sndStart();
+  }
+
+  function gameOver() {
+    playing = false; state = "gameover";
+    shakeX = 6; shakeY = 6; shakeTimer = 0.5;
+    if (score > hiScore) { hiScore = score; try { localStorage.setItem("neonDodgeHi", hiScore); } catch (e) {} }
+    sndCrash();
+  }
+
+  function changeLane(dir) {
+    const newLane = Math.max(0, Math.min(LANES - 1, lane + dir));
+    if (newLane !== lane) { lane = newLane; sndDodge(); }
+  }
+
+  // Input
+  const keys = {};
+  SofaPad.on((btn, act) => {
+    wakeAudio();
+    if (act === "press") {
+      if (state !== "playing") {
+        if (btn === "a" || btn === "start") { startGame(); return; }
+      }
+      if (state === "playing") {
+        if (btn === "left") changeLane(-1);
+        else if (btn === "right") changeLane(1);
+      }
+    }
   });
   addEventListener("keydown", e => {
-    if (SofaPad.echo(e)) return;                // (the box's key for a controller's button: the pad has it already)
-    if (e.key === "ArrowLeft") lane = Math.max(0, lane - 1);
-    else if (e.key === "ArrowRight") lane = Math.min(LANES - 1, lane + 1);
-    else if ((e.key === "Enter" || e.key === " ") && !playing) start();
-    else return;
-    e.preventDefault();
-  });
-  addEventListener("pointerdown", e => { if (!playing) return start(); lane = e.clientX < innerWidth / 3 ? Math.max(0, lane - 1) : e.clientX > innerWidth * 2 / 3 ? Math.min(2, lane + 1) : lane; });
-  function frame(now) {
-    const dt = Math.min(0.05, (now - last) / 1000 || 0); last = now; t += dt;
-    x.fillStyle = "#07070c"; x.fillRect(0, 0, W, H);
-    // the road: lines rushing past
-    x.strokeStyle = "rgba(255,46,136,.35)"; x.lineWidth = 2 * devicePixelRatio;
-    for (let i = 0; i <= LANES; i++) { const lx = W / 2 + (i - 1.5) * W * 0.18; x.beginPath(); x.moveTo(lx, 0); x.lineTo(lx, H); x.stroke(); }
-    const off = (t * (speed || H * .45)) % (H / 8);
-    x.fillStyle = "rgba(232,255,58,.12)";
-    for (let y = -H / 8 + off; y < H; y += H / 8) x.fillRect(W / 2 - W * 0.27, y, W * 0.54, 2 * devicePixelRatio);
-    if (playing) {
-      speed += H * 0.02 * dt; score += dt * 10;
-      spawn -= dt;
-      if (spawn <= 0) { const free = Math.floor(Math.random() * LANES); for (let l = 0; l < LANES; l++) if (l !== free && Math.random() < 0.55) blocks.push({ l, y: -H * 0.08 }); spawn = Math.max(0.35, 1.1 - score / 400); }
-      blocks.forEach(b => b.y += speed * dt);
-      blocks = blocks.filter(b => b.y < H * 1.1);
-      px += (laneX(lane) - px) * Math.min(1, dt * 18);
-      const py = H * 0.84, s = W * 0.05;
-      if (blocks.some(b => Math.abs(laneX(b.l) - px) < s * 1.3 && Math.abs(b.y - py) < s * 1.1)) over();
-      document.getElementById("score").textContent = Math.floor(score);
+    wakeAudio();
+    if (SofaPad.echo(e)) return;
+    keys[e.key] = true;
+    if (state !== "playing") {
+      if (e.key === "Enter" || e.key === " ") { startGame(); return; }
     }
-    const s = W * 0.05;
-    blocks.forEach(b => { x.shadowColor = "#E8FF3A"; x.shadowBlur = 20; x.fillStyle = "#E8FF3A"; x.fillRect(laneX(b.l) - s, b.y - s * 0.6, s * 2, s * 1.2); });
-    x.shadowColor = "#FF2E88"; x.shadowBlur = 30; x.fillStyle = "#FF2E88";
-    const py = H * 0.84; x.beginPath(); x.moveTo((px || laneX(1)), py - s); x.lineTo((px || laneX(1)) + s * 0.8, py + s * 0.7); x.lineTo((px || laneX(1)) - s * 0.8, py + s * 0.7); x.closePath(); x.fill();
-    x.shadowBlur = 0;
-    requestAnimationFrame(frame);
+    if (state === "playing") {
+      if (e.key === "ArrowLeft") changeLane(-1);
+      else if (e.key === "ArrowRight") changeLane(1);
+    }
+    if (e.key.startsWith("Arrow")) e.preventDefault();
+  });
+  addEventListener("keyup", e => { keys[e.key] = false; });
+
+  // Main loop
+  let lastTime = performance.now();
+  function loop(now) {
+    requestAnimationFrame(loop);
+    const dt = Math.min(0.05, (now - lastTime) / 1000);
+    lastTime = now;
+    update(dt);
+    draw();
   }
-  const ui = document.getElementById("ui");
-  if (best) document.getElementById("best").textContent = "Best " + best;
-  requestAnimationFrame(frame);
+
+  function update(dt) {
+    t += dt;
+    // Starfield scroll
+    for (const st of stars) {
+      st.y += st.vy * (1 + speed / 300);
+      if (st.y > VH) { st.y = 0; st.x = Math.random() * VW; }
+    }
+    // Screen shake decay
+    if (shakeTimer > 0) {
+      shakeTimer -= dt;
+      shakeX = Math.max(0, shakeX * 0.9);
+      shakeY = Math.max(0, shakeY * 0.9);
+      if (shakeTimer <= 0) { shakeX = 0; shakeY = 0; }
+    }
+    if (!playing) return;
+
+    score += dt * 10;
+    speed += dt * 8;
+    spawnrate = Math.max(0.32, 1.0 - score / 500);
+
+    // Milestone sound
+    const sc = Math.floor(score / 100) * 100;
+    if (sc > 0 && sc % 100 === 0 && Math.floor((score - dt * 10) / 100) * 100 < sc) sndMilestone();
+
+    // Flame animation
+    flameTick += dt;
+    if (flameTick > 0.12) { flameTick = 0; flameFrame = (flameFrame + 1) % 2; }
+
+    // Smooth lane slide
+    const targetX = LANE_X[lane];
+    px += (targetX - px) * Math.min(1, dt * 16);
+
+    // Spawn blocks
+    spawntimer -= dt;
+    if (spawntimer <= 0) {
+      spawntimer = spawnrate;
+      // Always keep at least 1 lane free
+      const freeLane = Math.floor(Math.random() * LANES);
+      for (let l = 0; l < LANES; l++) {
+        if (l !== freeLane && Math.random() < 0.6) {
+          blocks.push({ x: LANE_X[l], y: -20, lane: l });
+          // Warn if same lane as player
+          if (l === lane) { warnlane = l; warntimer = 1.0; }
+        }
+      }
+    }
+    if (warntimer > 0) warntimer -= dt; else warnlane = -1;
+
+    // Update blocks
+    for (const b of blocks) {
+      // Exhaust trail
+      trails.push({ x: b.x + (Math.random() - 0.5) * 6, y: b.y, life: 0.3, maxLife: 0.3 });
+      b.y += speed * dt;
+    }
+    // Expire trails
+    for (let i = trails.length - 1; i >= 0; i--) {
+      trails[i].life -= dt;
+      if (trails[i].life <= 0) trails.splice(i, 1);
+    }
+
+    // Check collision
+    const py = 200;
+    for (const b of blocks) {
+      if (Math.abs(b.x - px) < 18 && Math.abs(b.y - py) < 20) {
+        gameOver();
+        return;
+      }
+    }
+    blocks = blocks.filter(b => b.y < VH + 30);
+  }
+
+  function draw() {
+    const sx = Math.round((Math.random() - 0.5) * shakeX);
+    const sy = Math.round((Math.random() - 0.5) * shakeY);
+    ctx.fillStyle = "#07070c";
+    ctx.fillRect(0, 0, VW, VH);
+
+    ctx.save();
+    ctx.translate(sx, sy);
+
+    // Stars
+    for (const st of stars) {
+      const br = 0.4 + st.bright * 0.6;
+      ctx.fillStyle = st.bright > 0.8 ? "#c0d8ff" : "#6090aa";
+      ctx.fillRect(Math.floor(st.x), Math.floor(st.y), st.size, st.size);
+    }
+
+    // Road lanes with dithered edge glow
+    ctx.fillStyle = "#0e0a1a";
+    ctx.fillRect(80, 0, 310, VH);
+
+    // Lane dividers
+    const dashH = 24, dashGap = 12;
+    const dashOffset = (t * speed * 0.6) % (dashH + dashGap);
+    ctx.fillStyle = "#1e1830";
+    for (let dy = -dashH + dashOffset; dy < VH; dy += dashH + dashGap) {
+      ctx.fillRect(LANE_X[0] + 15, Math.floor(dy), 2, dashH);
+      ctx.fillRect(LANE_X[1] + 15, Math.floor(dy), 2, dashH);
+    }
+
+    // Edge gutters
+    ditherRect(ctx, 80, 0, 10, VH, "#4a78c8", 0.3);
+    ditherRect(ctx, 380, 0, 10, VH, "#4a78c8", 0.3);
+
+    // Trails
+    for (const tr of trails) {
+      const alpha = tr.life / tr.maxLife * 0.4;
+      ditherRect(ctx, Math.floor(tr.x) - 3, Math.floor(tr.y) - 3, 6, 6, "#ffea00", alpha);
+    }
+
+    // Warning indicator
+    if (playing && warnlane >= 0 && warntimer > 0) {
+      const wx = LANE_X[warnlane];
+      ctx.drawImage(S.warn, wx - 6, 20);
+    }
+
+    // Blocks (enemies)
+    for (const b of blocks) {
+      ctx.drawImage(S.block, Math.floor(b.x - 7), Math.floor(b.y - 5));
+      // Neon glow dither
+      ditherRect(ctx, Math.floor(b.x - 9), Math.floor(b.y - 7), 18, 14, "#f2c14e", 0.25);
+    }
+
+    // Player ship
+    const py = 200;
+    const flameImg = flameFrame === 0 ? S.flame_a : S.flame_b;
+    ctx.drawImage(flameImg, Math.floor(px - 2), py + 14);
+    ctx.drawImage(S.ship, Math.floor(px - 6), py - 8);
+
+    // Player glow
+    ditherRect(ctx, Math.floor(px - 8), py - 10, 16, 20, "#ff5a8a", 0.2);
+
+    ctx.restore();
+
+    // HUD
+    if (state === "playing") {
+      drawText(ctx, Math.floor(score), VW - 60, 10, "#f2c14e", 2);
+      if (hiScore > 0) {
+        drawText(ctx, "HI", 10, 10, "#5a5468", 1);
+        drawText(ctx, hiScore, 24, 10, "#9a94a8", 1);
+      }
+      // Speed bar
+      const barW = 60, barFill = Math.min(1, speed / 500);
+      ctx.fillStyle = "#1e1830";
+      ctx.fillRect(10, VH - 14, barW, 6);
+      ctx.fillStyle = speed > 350 ? "#c8303a" : (speed > 250 ? "#ee8a3a" : "#7ad8f0");
+      ctx.fillRect(10, VH - 14, Math.floor(barW * barFill), 6);
+      drawText(ctx, "SPD", 10, VH - 24, "#5a5468", 1);
+    }
+
+    if (state === "title") drawTitle();
+    if (state === "gameover") drawGameOver();
+  }
+
+  function drawTitle() {
+    // Dark vignette panel
+    ctx.fillStyle = "rgba(7,7,12,0.78)";
+    ctx.fillRect(60, 50, 360, 170);
+
+    drawCenter(ctx, "NEON DODGE", 62, "#ff5a8a", 3);
+    drawCenter(ctx, "SURVIVE THE GRID", 100, "#7ad8f0", 1);
+
+    // Draw ship showcase
+    ctx.drawImage(S.ship, 220, 118);
+
+    drawCenter(ctx, "PRESS " + (SofaPad.connected() ? SofaPad.label("a") : "ENTER") + " TO START", 160, "#f2c14e", 1);
+    drawCenter(ctx, "LEFT RIGHT TO SWITCH LANES", 178, "#9a94a8", 1);
+
+    if (hiScore > 0) {
+      drawCenter(ctx, "BEST: " + hiScore, 200, "#7ad8f0", 1);
+    }
+  }
+
+  function drawGameOver() {
+    ctx.fillStyle = "rgba(7,7,12,0.82)";
+    ctx.fillRect(80, 60, 320, 150);
+
+    drawCenter(ctx, "CRASH", 70, "#c8303a", 3);
+    drawCenter(ctx, "SCORE: " + Math.floor(score), 115, "#f2c14e", 2);
+    if (score >= hiScore && hiScore > 0) {
+      drawCenter(ctx, "NEW RECORD!", 140, "#ff5a8a", 1);
+    }
+    drawCenter(ctx, "PRESS " + (SofaPad.connected() ? SofaPad.label("a") : "ENTER"), 170, "#7ad8f0", 1);
+  }
+
+  requestAnimationFrame(loop);
 })();
-</script></body></html>
+</script>
+</body></html>
