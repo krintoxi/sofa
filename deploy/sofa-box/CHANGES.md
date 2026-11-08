@@ -9,6 +9,13 @@ GitHub builds the card and makes the release by itself.
 
 ## 1.1.24
 
+- **The box keeps itself quick, on any board.** Every page it opens (Home, Sofa, apps) measures how long each
+  press of the remote takes to show on the TV. On a board that has the full look by itself, the box takes the
+  light look when a fifth of the presses take a tenth of a second or more (as the player takes 720p when 1080p
+  drops frames), and says so; choosing a look in Settings → Performance starts it over. A report shows each
+  page's numbers, so a slow screen can be fixed from what the box saw.
+- Pictures on Home and in Sofa are decoded off to the side, so a banner changing or a row filling in never
+  holds up the remote.
 - **A controller does more.** **LT and RT set the volume** (held: on and on), and the TV shows it, over the
   video or whatever page is open; a remote's own volume and mute keys and the phone remote's set the box's
   volume the same way. **Menu** (Start, Options) opens the options for what's in focus: on Home an app's, in

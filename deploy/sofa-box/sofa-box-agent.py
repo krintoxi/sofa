@@ -59,7 +59,8 @@ def os_version():
 
 
 OS_VERSION = os_version()
-DEFAULTS = {"server": None, "quality": "auto", "hwdec": "auto", "audio": "auto", "learned_720": False, "performance": "auto",
+DEFAULTS = {"server": None, "quality": "auto", "hwdec": "auto", "audio": "auto", "learned_720": False, "learned_lite": False,
+            "performance": "auto",
             "mpv_args": [], "theme": "street", "boot_text": "", "shield": True, "welcomed": False, "secure_remote": True, "boot_sound": "on",
             "weather": "on", "weather_units": "auto", "weather_place": None}
 THEMES = ("street", "terminal", "pirate", "sofa", "midnight", "cinema", "ocean", "forest", "grape", "oled")
@@ -264,9 +265,12 @@ def slow_board():
 def light():
     """The light look (no costly effects, fewer apps open): Settings → Performance, or by itself on a Pi 3 or
     older, or with 1 GB or less."""
-    p = settings().get("performance")
+    s = settings()
+    p = s.get("performance")
     if p in ("light", "full"):
         return p == "light"
+    if s.get("learned_lite"):                               # (the box saw the full look was slow to draw here)
+        return True
     b = board()
     return 1 <= b["gen"] <= 3 or b["memory_mb"] <= 1100
 
@@ -911,6 +915,50 @@ def box_wake():
         home_page("#/")
         return True
     return False
+
+
+def smooth_lines(stats):
+    return ["  %s: %d presses, %d slower than 0.1 s (slowest %.2f s); %d long tasks (%.1f s in all)"
+            % (app, v.get("presses", 0), v.get("slow", 0), v.get("worst", 0) / 1000, v.get("long", 0), v.get("long_ms", 0) / 1000)
+            for app, v in sorted(stats.items())]
+
+
+def too_slow(presses, slow):
+    """The full look is too much for this board: of the last presses (enough of them to tell), a fifth or more took a
+    tenth of a second or longer to show."""
+    return presses >= 40 and slow >= presses * 0.2
+
+
+def watch_smoothness():
+    """On a board that has the full look by itself (Automatic): Home and Sofa measured as they're used, and the light
+    look chosen when they answer the remote slowly, as the player chooses 720p when 1080p drops frames."""
+    seen, presses, slow = {}, 0, 0
+    while True:
+        time.sleep(120)
+        s = settings()
+        if s.get("performance") != "auto" or light() or not (browser and browser.connected()) or playing():
+            seen, presses, slow = {}, 0, 0
+            continue
+        try:
+            stats = browser.smoothness()
+        except OSError:
+            continue
+        for app in ("home", "sofa"):
+            v, was = stats.get(app) or {}, seen.get(app) or {}
+            dp, ds = v.get("presses", 0) - was.get("presses", 0), v.get("slow", 0) - was.get("slow", 0)
+            if dp < 0:                                      # (the page started again: its counts did too)
+                dp, ds = v.get("presses", 0), v.get("slow", 0)
+            presses, slow = presses + max(dp, 0), slow + max(ds, 0)
+            seen[app] = v
+        if too_slow(presses, slow):
+            save_settings(learned_lite=True)
+            print("Smoothness: %d of %d presses took 0.1 s or more: the light look from now on" % (slow, presses),
+                  file=sys.stderr, flush=True)
+            toast("The box uses its lighter look from now on: it answers quicker on this board. Settings → Performance "
+                  "changes it.")
+            seen, presses, slow = {}, 0, 0
+        elif presses >= 400:                                # (a long while of presses: only the recent ones count)
+            presses, slow = presses // 2, slow // 2
 
 
 def watch_power():
@@ -2835,7 +2883,7 @@ def box_info():
             "wifi": ssid or None, "address": local_address(), "server": server(), "server_name": (found.get(server()) or {}).get("name"),
             "settings": {k: s[k] for k in ("quality", "hwdec", "audio", "theme", "boot_text", "performance", "boot_sound", "weather", "weather_units")},
             "weather_place": s.get("weather_place") or zone_place(current_timezone()), "weather_picked": bool(s.get("weather_place")),
-            "choices": CHOICES, "learned_720": s["learned_720"],
+            "choices": CHOICES, "learned_720": s["learned_720"], "learned_lite": bool(s.get("learned_lite")),
             "max_height": max_height(), "slow_board": slow_board(), "light": light(), "board": board(), "controllers": controllers}
 
 
@@ -2891,6 +2939,9 @@ def report_text():
         out.append("browser: %s, in front: %s" % ("connected" if browser.connected() else "not connected", browser.front_app()))
         out += ["  %s%s %s" % (t["app"], " (asleep)" if t["frozen"] else "", t["url"]) for t in safely(browser.running) or []]
         out += ["== The pages and their video players"] + (list(browser.notes) or ["(nothing)"])
+        out += ["== How quickly the pages answer the remote (look: %s%s)" % ("light" if light() else "full",
+                                                                         ", chosen by the box" if settings().get("learned_lite") else "")]
+        out += smooth_lines(safely(browser.smoothness) or {}) or ["(no presses yet)"]
     code, logs = run(["sudo", "-n", os.path.join(HERE, "sofa-box"), "report"], 90)
     if code != 0 and "== Sofa Box OS" not in logs:            # a box installed before reports: what it can see itself
         logs = run([os.path.join(HERE, "sofa-box"), "doctor"], 60)[1] + "\n\n" + run(["journalctl", "-b", "--no-pager", "-n", "400"], 30)[1]
@@ -3177,6 +3228,8 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/box/api/settings":
             data = json.loads(self.body() or b"{}") if self.command == "POST" else {}
             changes = {k: v for k, v in data.items() if k in CHOICES and v in CHOICES[k]}
+            if "performance" in changes:                        # (chosen again: the box looks again, from now)
+                changes["learned_lite"] = False
             if "welcomed" in data:                              # the first-start steps are done
                 changes["welcomed"] = bool(data["welcomed"])
             if "boot_text" in data:
@@ -3671,6 +3724,7 @@ def main():
     threading.Thread(target=watch_devices, daemon=True, name="devices").start()
     pairing_helper.start()                       # (BlueZ's pairings answered: an Xbox controller pairs)
     threading.Thread(target=watch_power, daemon=True, name="power").start()
+    threading.Thread(target=watch_smoothness, daemon=True, name="smoothness").start()
     if os.environ.get("SOFA_BOX_ICONS") != "0":
         apps.refresh_icons()                               # sharper app icons, once (boxos.ICONS_VERSION)
     if local_sofa.public():                                # open to the internet: it has to be there, from the start

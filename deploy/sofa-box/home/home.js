@@ -151,7 +151,7 @@
     } catch (e) { /* an icon from elsewhere: as it is */ }
   };
   function appIcon(a) {
-    if (a.icon_url) return `<img src="${esc(a.icon_url)}" alt="" loading="lazy" onload="sofaIcon(this)" onerror="this.parentNode.classList.add('mono');this.replaceWith(document.createTextNode('${esc((a.name || "?")[0])}'))">`;
+    if (a.icon_url) return `<img decoding="async" src="${esc(a.icon_url)}" alt="" loading="lazy" onload="sofaIcon(this)" onerror="this.parentNode.classList.add('mono');this.replaceWith(document.createTextNode('${esc((a.name || "?")[0])}'))">`;
     if (BUILTIN_ICON[a.id]) return icon(BUILTIN_ICON[a.id]);
     return esc((a.name || "?").replace(/^the\s+/i, "")[0].toUpperCase());
   }
@@ -185,7 +185,7 @@
       : data.servers ? "Sofa, Live TV and your apps are all here." : "Open Sofa to pick where it plays from, or watch free Live TV straight away.";
     const noApps = !watch.some(a => a.kind !== "builtin");
     return `<section class="mast${first && first.backdrop ? " has-art" : ""}">
-      ${first && first.backdrop ? `<img class="mast-art" src="${esc(artSrc(first.backdrop, 1280))}" alt="" onerror="this.remove()">` : `<div class="mast-logo">${icon("#mark")}</div>`}
+      ${first && first.backdrop ? `<img decoding="async" class="mast-art" src="${esc(artSrc(first.backdrop, 1280))}" alt="" onerror="this.remove()">` : `<div class="mast-logo">${icon("#mark")}</div>`}
       <div class="mast-main">
         <div class="mast-date" id="mDate">${esc(d.toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" }))}</div>
         <div class="mast-clock" id="mClock">${esc(hm)}${ap ? "<small>" + ap + "</small>" : ""}</div>
@@ -246,7 +246,7 @@
         <button class="tile app wide add" data-go="#/store"><span class="ic">${icon("#i-plus")}</span><b>Add apps</b><small>Netflix, YouTube, Prime…</small></button></div>
       ${inputsRow()}
       ${s.items && s.items.length > 1 ? `<h2 class="row-title">Continue watching <small>${esc(s.name || "Sofa")}</small></h2><div class="rail">${s.items.slice(1).map(it => `<button class="tile poster" data-sofa-hash="${esc(it.hash)}">
-          <img src="${esc(artSrc(it.art, 480))}" alt="" loading="lazy" onerror="this.style.visibility='hidden'"><span class="bar"><i style="width:${it.pct}%"></i></span>
+          <img decoding="async" src="${esc(artSrc(it.art, 480))}" alt="" loading="lazy" onerror="this.style.visibility='hidden'"><span class="bar"><i style="width:${it.pct}%"></i></span>
           <span class="meta"><b>${esc(it.title)}</b><small>${esc(it.sub)}</small></span></button>`).join("")}</div>` : ""}
       ${running.length ? `<h2 class="row-title">Open now <small>Home brings you back here; they keep playing</small></h2><div class="rail open-now">${running.map(r => {
           const a = data.apps.find(x => x.id === r.app) || { id: r.app, name: r.title || r.app, color: "var(--a)" };
@@ -262,7 +262,7 @@
   function viewStore() {
     if (!storeData) { api("/box/api/store").then(st => { storeData = st; render(true); setTimeout(refreshStoreIcons, 6000); }).catch(e => toast(e.message)); return `<h1 class="page">App Store</h1><p class="lede">Loading…</p>`; }
     const tile = e => `<button class="tile app${e.installed ? " have" : ""}" style="--c:${esc(e.color)}" data-store="${esc(e.id)}">
-        ${e.installed ? `<i class="badge">On Home</i>` : e.drm ? `<i class="badge warn" title="Uses DRM">DRM</i>` : ""}<span class="ic${e.icon_url ? "" : " mono"}">${e.icon_url ? `<img src="${esc(e.icon_url)}" alt="" loading="lazy" onload="sofaIcon(this)">` : esc(e.name.replace(/^the\s+/i, "")[0].toUpperCase())}</span><b>${esc(e.name)}</b></button>`;
+        ${e.installed ? `<i class="badge">On Home</i>` : e.drm ? `<i class="badge warn" title="Uses DRM">DRM</i>` : ""}<span class="ic${e.icon_url ? "" : " mono"}">${e.icon_url ? `<img decoding="async" src="${esc(e.icon_url)}" alt="" loading="lazy" onload="sofaIcon(this)">` : esc(e.name.replace(/^the\s+/i, "")[0].toUpperCase())}</span><b>${esc(e.name)}</b></button>`;
     return `<div class="view-in"><h1 class="page">App Store</h1>
       <p class="lede">Apps open full screen, with no browser around them. Press OK to put one on Home.</p>
       <div class="store-detail" id="storeDetail"></div>
@@ -283,7 +283,7 @@
     const box = $("#storeDetail"); if (!box || !storeData) return;
     const e = storeData.sections.flatMap(s => s.apps).find(x => x.id === id); if (!e) return;
     box.style.setProperty("--c", e.color);
-    box.innerHTML = `<span class="ic${e.icon_url ? "" : " mono"}">${e.icon_url ? `<img src="${esc(e.icon_url)}" alt="" onload="sofaIcon(this)">` : esc(e.name[0])}</span><div><h3>${esc(e.name)}</h3><p>${esc(e.about || "")}${e.drm ? ` <span class="warn">Uses DRM: on a Pi 3 the picture may be smaller, and some services may not play.</span>` : ""}</p>
+    box.innerHTML = `<span class="ic${e.icon_url ? "" : " mono"}">${e.icon_url ? `<img decoding="async" src="${esc(e.icon_url)}" alt="" onload="sofaIcon(this)">` : esc(e.name[0])}</span><div><h3>${esc(e.name)}</h3><p>${esc(e.about || "")}${e.drm ? ` <span class="warn">Uses DRM: on a Pi 3 the picture may be smaller, and some services may not play.</span>` : ""}</p>
       <p class="addr">${esc(e.url.replace(/^https?:\/\//, ""))}</p></div>
       <div>${e.installed ? `<button class="btn primary" data-app="${esc(e.id)}">Open</button> <button class="btn" data-remove="${esc(e.id)}">Remove</button>`
         : `<button class="btn primary" data-install="${esc(e.id)}">Add to Home</button>`}</div>`;
@@ -366,7 +366,7 @@
       const card = $(".sleep-card");
       if (card && n % 6 === 0) { card.style.left = (5 + Math.random() * 52) + "vw"; card.style.bottom = (8 + Math.random() * 46) + "vh"; }
     }, 10000);
-    return `<div class="sleep">${arts.map((a, i) => `<img class="sleep-art${i ? "" : " on"}" src="${esc(artSrc(a, 1280))}" alt="" onerror="this.remove()">`).join("")}
+    return `<div class="sleep">${arts.map((a, i) => `<img decoding="async" class="sleep-art${i ? "" : " on"}" src="${esc(artSrc(a, 1280))}" alt="" onerror="this.remove()">`).join("")}
       <div class="sleep-card"><div class="sleep-clock" id="sClock">${esc(hm)}${ap ? "<small>" + ap + "</small>" : ""}</div>
         <div class="sleep-date">${esc(d.toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" }))}</div>
         ${w ? `<div class="sleep-wx">${wxIcon(w.symbol)}<b>${w.temp}°</b><span>${esc(w.place)}</span></div>` : ""}
@@ -390,7 +390,7 @@
       <b>${esc(g.name)}</b><small>${esc(g.about)}</small></button>`;
   }
   // a game's own picture (games/icons/), or its emoji
-  function gameIc(g) { return g.icon ? `<img class="game-ic" src="/box/games/${esc(g.icon)}" alt="">` : esc(g.emoji || g.name[0]); }
+  function gameIc(g) { return g.icon ? `<img decoding="async" class="game-ic" src="/box/games/${esc(g.icon)}" alt="">` : esc(g.emoji || g.name[0]); }
   function nativeTile(g) {
     return `<button class="tile game" style="--c:${esc(g.color)}" data-play="${esc(g.id)}"><span class="ic">${gameIc(g)}</span>
       <b>${esc(g.name)}</b><small>${esc(g.about)}</small>${g.playing ? `<span class="meta">Playing now</span>` : ""}</button>`;
@@ -492,7 +492,7 @@
     if (kind === "video" || kind === "audio") { api("/box/api/files/play", { root: filesAt.root, path: filePath(name) }).catch(e => toast(e.message)); return; }
     if (kind === "image") {
       const v = document.createElement("div"); v.className = "viewer";
-      v.innerHTML = `<img src="/box/files/raw?root=${encodeURIComponent(filesAt.root)}&path=${encodeURIComponent(filePath(name))}" alt="">`;
+      v.innerHTML = `<img decoding="async" src="/box/files/raw?root=${encodeURIComponent(filesAt.root)}&path=${encodeURIComponent(filePath(name))}" alt="">`;
       v.addEventListener("click", () => v.remove()); document.body.appendChild(v); return;
     }
     fileMenu(name, kind);
@@ -578,7 +578,7 @@
         <div class="choices">${pick("quality", "auto", "Picture: automatic")}${pick("quality", "1080", "1080p")}${pick("quality", "720", "720p")}</div>
         <div class="choices" style="margin-top:.6rem">${pick("audio", "auto", "Sound: TV or soundbar")}${pick("audio", "passthrough", "AV receiver (surround)")}</div>
         <div class="choices" style="margin-top:.6rem">${pick("boot_sound", "on", "Sound at start: on")}${pick("boot_sound", "off", "Off")}</div>
-        <p style="margin-top:1rem">Performance: <b>${b.light ? "light" : "full"}</b>${s.performance === "auto" ? " (chosen for this board)" : ""}. The light look leaves out the effects that are slow to draw, and keeps fewer apps open.</p>
+        <p style="margin-top:1rem">Performance: <b>${b.light ? "light" : "full"}</b>${s.performance === "auto" ? (b.learned_lite ? " (the box chose it: the full look answered the remote slowly here)" : " (chosen for this board)") : ""}. The light look leaves out the effects that are slow to draw, and keeps fewer apps open. Automatic measures how quickly the box answers and picks the light look by itself when it needs to.</p>
         <div class="choices">${pick("performance", "auto", "Automatic")}${pick("performance", "light", "Light")}${pick("performance", "full", "Full")}</div></section>
       <section class="card"><h3>Weather on Home</h3><p>${s.weather === "off" ? "Off: Home shows no weather." : b.weather_place
           ? `For <b>${esc(b.weather_place.name)}</b>${b.weather_picked ? "" : " (the city of the box's time zone)"}, from MET Norway, every half hour.` : "Pick a town or city for it."}</p>
@@ -814,7 +814,7 @@
     return `<div class="setup view-in">${top}<div class="setup-body"><h1>What do you watch?</h1>
       <p class="lede">Pick the ones you use: they go on Home, ready to sign in. Sofa and free Live TV are there already; the App Store has many more, any time.</p>
       <div class="pick-grid">${list.map(e => `<button class="tile app pick${picks.has(e.id) ? " on" : ""}" style="--c:${esc(e.color)}" data-pick="${esc(e.id)}" aria-pressed="${picks.has(e.id)}">
-        <i class="tick">${icon("#i-check")}</i><span class="ic${e.icon_url ? "" : " mono"}">${e.icon_url ? `<img src="${esc(e.icon_url)}" alt="" onload="sofaIcon(this)">` : esc(e.name.replace(/^the\s+/i, "")[0].toUpperCase())}</span><b>${esc(e.name)}</b></button>`).join("")}</div>
+        <i class="tick">${icon("#i-check")}</i><span class="ic${e.icon_url ? "" : " mono"}">${e.icon_url ? `<img decoding="async" src="${esc(e.icon_url)}" alt="" onload="sofaIcon(this)">` : esc(e.name.replace(/^the\s+/i, "")[0].toUpperCase())}</span><b>${esc(e.name)}</b></button>`).join("")}</div>
       </div>${nav(true, `data-done="1"`, (n => n ? "Add " + n + " and finish" : "Finish")([...picks].filter(id => !have.has(id)).length))}</div>`;
   }
 
