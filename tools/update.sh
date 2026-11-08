@@ -16,6 +16,8 @@ set -e
 REPO="${SOFA_REPO:-krintoxi/sofa}"
 BRANCH="${SOFA_BRANCH:-main}"
 STAMP="$(date +%Y-%m-%d_%H%M%S)"
+# Sofa's code: what an update replaces (the same list as CODE in sofa/updater.py; data/ and vendor/ are never touched)
+PARTS="sofa client deploy tools docs integrations roku sofa.py README.md LICENSE .gitignore"
 
 say() { printf '\n==> %s\n' "$*"; }
 fail() { printf '\nSorry, the update stopped: %s\nNothing of yours was changed.\n' "$*" >&2; exit 1; }
@@ -88,10 +90,10 @@ else
   # puts the old code back, whole (sofa/swap.py)
   if [ -f "$TMP/new/sofa/swap.py" ]; then
     SWAP="$TMP/new/sofa/swap.py"
-    python3 "$SWAP" swap "$APP" "$TMP/new" sofa client deploy tools docs integrations sofa.py README.md LICENSE .gitignore \
+    python3 "$SWAP" swap "$APP" "$TMP/new" $PARTS \
       || { python3 "$SWAP" undo "$APP" >/dev/null 2>&1; fail "the new code couldn't be switched in"; }
   else
-    for name in sofa client deploy tools docs integrations sofa.py README.md LICENSE .gitignore; do
+    for name in $PARTS; do
       [ -e "$TMP/new/$name" ] || continue
       rm -rf "$APP/$name"
       cp -R "$TMP/new/$name" "$APP/$name"
@@ -115,7 +117,7 @@ go_back() {
   if [ -n "${BEFORE:-}" ]; then git -C "$APP" reset --hard "$BEFORE" >/dev/null
   elif [ -n "${SWAP:-}" ] && python3 "$SWAP" undo "$APP"; then :
   else
-    ( cd "$APP" && for name in sofa client deploy tools docs integrations sofa.py README.md LICENSE .gitignore; do rm -rf "$name"; done \
+    ( cd "$APP" && for name in $PARTS; do rm -rf "$name"; done \
       && tar xzf "$SNAP" )
   fi
   start_sofa

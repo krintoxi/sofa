@@ -289,6 +289,9 @@ class Handler(BaseHTTPRequestHandler):
         if path in ("/roku", "/roku.zip"):            # the Roku channel, to upload to a Roku in developer mode
             if self.network() not in HOME_NETS:
                 return self.send_body("Not found", status=404)
+            if not os.path.isfile(os.path.join(config.APP_DIR, "roku", "manifest")):
+                return self.send_body("This Sofa doesn't have the Roku channel yet: update Sofa (Server → Updates), "
+                                      "then try again.", status=404)
             return self.send_body(roku_package(), "application/zip",
                                   headers={"Content-Disposition": 'attachment; filename="sofa-roku.zip"'})
         if path == "/api/info":                       # for apps that found Sofa on the network (no sign-in)

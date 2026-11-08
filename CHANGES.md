@@ -6,6 +6,13 @@ has its own numbers and list: [deploy/sofa-box/CHANGES.md](deploy/sofa-box/CHANG
 A change to Sofa's code (`sofa/`, `client/`, `sofa.py`) gets a new version: raise `__version__`, add a section
 here, then `python3 tools/sofa-version.py` (a test checks it was done).
 
+## 1.4.4 (2026-11-08)
+
+- **Updates bring the Roku channel.** Neither the Update button nor `tools/update.sh` brought the `roku/` folder, so
+  a Sofa kept up to date by its updates could have no Roku channel, or an old one. On such a Sofa, the Roku
+  download (`/roku.zip`, Server → Apps) dropped the connection instead of answering. Now updates bring it, a Sofa
+  without it says so, and a test checks that both kinds of update replace the same parts.
+
 ## 1.4.3 (2026-11-08)
 
 - **Live TV that ffmpeg plays can't be steered home either.** Two kinds of channel are read by ffmpeg itself, not

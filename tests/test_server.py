@@ -3,7 +3,10 @@ remote, privacy. A real Sofa server runs on a free port for these."""
 import io
 import json
 import os
+import re
+import shutil
 import sqlite3
+import tempfile
 import threading
 import time
 import unittest
@@ -11,9 +14,10 @@ import urllib.error
 import urllib.request
 import zipfile
 from http.cookiejar import CookieJar
+from unittest import mock
 
 from tests import LIBRARY, video
-from sofa import auth, config, kids, screens, store, web
+from sofa import auth, config, kids, screens, store, updater, web
 from sofa.library import LIBRARY as LIB
 
 
@@ -89,6 +93,25 @@ class Server(unittest.TestCase):
         self.assertIn("manifest", names)               # at the top of the zip, as a Roku's developer page wants
         self.assertIn("components/MainScene.brs", names)
         self.assertIn("images/icon_hd.png", names)
+
+    def test_roku_channel_missing_says_so(self):
+        """A Sofa without roku/ (updates didn't bring it before 1.4.4): a clear 404, not a dropped connection."""
+        empty = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, empty, True)
+        with mock.patch.object(config, "APP_DIR", empty):
+            with self.assertRaises(urllib.error.HTTPError) as caught:
+                urllib.request.build_opener(urllib.request.ProxyHandler({})).open(self.base + "/roku.zip", timeout=20)
+        self.assertEqual(caught.exception.code, 404)
+        self.assertIn(b"update Sofa", caught.exception.read())
+
+    def test_updates_bring_every_part_of_sofa(self):
+        """What an update replaces: the Update button (updater.CODE) and tools/update.sh (PARTS) name the same parts,
+        and every part of the code Sofa serves from its folder (roku/ for /roku.zip, deploy/ for the box) is one."""
+        with open(os.path.join(config.APP_DIR, "tools", "update.sh"), encoding="utf-8") as f:
+            parts = re.search(r'^PARTS="([^"]+)"', f.read(), re.M).group(1).split()
+        self.assertEqual(sorted(parts), sorted(updater.CODE))
+        for name in ("sofa", "client", "deploy", "roku", "sofa.py"):
+            self.assertIn(name, updater.CODE)
 
     def test_sofa_box_files(self):
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
