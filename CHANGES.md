@@ -6,6 +6,26 @@ has its own numbers and list: [deploy/sofa-box/CHANGES.md](deploy/sofa-box/CHANG
 A change to Sofa's code (`sofa/`, `client/`, `sofa.py`) gets a new version: raise `__version__`, add a section
 here, then `python3 tools/sofa-version.py` (a test checks it was done).
 
+## 1.4.0 (2026-11-08)
+
+- **Live TV by era.** Live TV opens on tabs across the top: **Live now** (today's channels, from the channel
+  lists), **2009–2012**, the **2000s**, the **90s**, **80s**, **70s**, **60s** and **50s**, **Classic Cinema**,
+  and your **Favorites**. An era shows its guide; Live now shows today's channels by group, with a search.
+- **Seventeen more channels (39 in all).** 2009–2012: On Air, Kids TV (Cartoon Network, Nickelodeon, Disney XD,
+  PBS Kids), Music & Games (Fuse, the countdowns, X-Play) and Commercial Breaks. The 90s: Kids TV, Saturday
+  Mornings, On Air, Music TV (MTV, VH1) and Commercial Breaks. The 80s: Saturday Mornings, On Air, Music TV
+  (MTV's first decade, Friday Night Videos) and Commercial Breaks. The 2000s, 70s, 60s and 50s: Commercial
+  Breaks. The dial keeps an era together: the 2000s are 2 to 10, 2009–2012 are 11 to 14, Classic Cinema 20 to
+  28, the 90s from 90, the 80s from 80, the 70s 70, the 60s 60 and the 50s 50.
+- **Programmes by their own names.** A tape's title says what's on the tape ("Noggin VHS Recording Clip -
+  February 18, 2004"); the guide, the player and the box's banner say **Noggin**, aired **Feb 18, 2004**.
+- **The eras' TV is in English** (the tapes come from everywhere), with **no cigarette ads** (they were on TV
+  until 1971) and no tapes marked adult.
+- **The guide on a TV** has the room: the eras sit beside Live TV's name, the help line is gone (the keys are
+  under what's on), and six channels show at once on a 720p screen.
+- **On a Sofa box**, Home shows more at once: six or seven posters across with the next row in view, and the
+  rows' arrows only for the phone's touchpad pointer.
+
 ## 1.3.0 (2026-11-08)
 
 - **Live TV has a guide.** Retro TV and Classic Cinema by the clock, as on a TV: each channel

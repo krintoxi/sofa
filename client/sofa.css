@@ -557,6 +557,14 @@ body.has-bar footer { padding-bottom: 110px; }
 .tv .nudge { opacity: 1; width: 56px; background: rgba(var(--ink-rgb),.85); }
 .tv .nudge svg { width: 30px; height: 30px; }
 .tv .nudge[disabled] { opacity: 0; }
+/* A Sofa box: more of the library on the screen at once (six or seven posters across, the next row in view), and the
+   rows' arrows only for the phone's touchpad pointer, not standing over the last poster for the remote. */
+.box .rail.posters { grid-auto-columns: clamp(140px, 12.6vw, 200px); }
+.box .rail.wide { grid-auto-columns: clamp(230px, 21vw, 330px); }
+.box .rail { gap: 16px; }
+.box .row { margin-bottom: 30px; }
+.box .nudge { opacity: 0; }
+.box .rail-wrap:hover .nudge:not([disabled]) { opacity: 1; }
 /* One unmistakable highlight for the remote's focus and for Silk's pointer alike, readable from the sofa: the
    poster or episode in front grows a little in a white frame with an amber ring; a button in front turns white.
    The rows keep room around their posters for that (they scroll, so they'd cut it off). */
@@ -1446,6 +1454,28 @@ html.box::-webkit-scrollbar, html.box body::-webkit-scrollbar { display: none; }
 .chan-more { height: 1px; }
 
 /* Live TV's guide: the archive channels by the clock (app.js, drawGuide). Flat on purpose: a Pi 3 draws it. */
+/* Live TV's eras: a tab each (Live now, 2009–2012, the 2000s, ... Classic Cinema, Favorites) */
+.eras { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; padding: 4px 2px 16px; margin: 0 -2px; }
+.eras::-webkit-scrollbar { display: none; }
+.eras button { flex: none; display: inline-flex; align-items: center; gap: 8px; padding: 9px 18px; border-radius: 999px;
+  border: 1px solid var(--line); background: rgba(var(--slate-rgb), .55); color: var(--soft); font-size: 15px; font-weight: 700; }
+.eras button:hover { color: var(--paper); }
+.eras button[aria-selected="true"] { background: var(--paper); color: var(--ink); border-color: transparent; }
+.live-dot { width: 8px; height: 8px; border-radius: 50%; background: #FF3B30; box-shadow: 0 0 0 3px rgba(255, 59, 48, .25); }
+.tv .eras button:focus { background: #fff; color: #000; outline: 4px solid var(--amber); outline-offset: 3px; }
+.box .eras button:hover:not(:focus) { outline: none; }
+.tv .live-head { flex-wrap: nowrap; align-items: center; gap: 28px; margin-bottom: 18px; }
+.tv .live-head h1 { flex: none; font-size: 44px; }
+.tv .live-head .eras { min-width: 0; padding: 8px 6px; margin: 0; }
+.tv .live-page .live-tools { margin-bottom: 10px; }
+.g-keys { margin: 12px 0 0; color: var(--mist); font-size: 13px; }
+.g-keys b { display: inline-block; margin: 0 4px 0 10px; padding: 1px 7px; border-radius: 6px; border: 1px solid var(--line);
+  color: var(--soft); font-size: 12px; font-weight: 700; }
+.g-keys b:first-child { margin-left: 0; }
+.tv .g-now { min-height: 0; padding: 14px; gap: 22px; grid-template-columns: minmax(180px, 24%) 1fr; margin-bottom: 14px; }
+.tv .g-about { display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; margin-top: 8px; }
+.tv .g-rows { max-height: none; }
+.tv .g-row { height: 54px; }
 .tv-guide { --chw: clamp(150px, 19vw, 250px); }
 .g-now { --ch: var(--amber); display: grid; grid-template-columns: minmax(180px, 30%) 1fr; gap: 24px; align-items: center;
   padding: 16px; margin-bottom: 16px; min-height: 200px; border-radius: 16px; border: 1px solid var(--line);

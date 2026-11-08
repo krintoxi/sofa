@@ -211,15 +211,34 @@ def settings():
     return s
 
 
+def write_durably(path, text, mode=0o644):
+    """A small file the box mustn't lose: on the card before this returns, whole or not at all. (A Pi that restarts
+    by itself, a power cut, a weak power supply: without this, a change from the last few seconds was gone, and a box
+    that had just finished its setup asked for it again.)"""
+    folder = os.path.dirname(path)
+    os.makedirs(folder, exist_ok=True)
+    tmp = path + ".new"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(text)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, path)
+    try:
+        d = os.open(folder, os.O_RDONLY)
+        try:
+            os.fsync(d)
+        finally:
+            os.close(d)
+    except OSError:
+        pass
+
+
 def save_settings(**changes):
     with _lock:
         s = settings()
         s.update(changes)
-        os.makedirs(CONF_DIR, exist_ok=True)
-        tmp = SETTINGS + ".new"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(s, f, indent=1)
-        os.replace(tmp, SETTINGS)
+        write_durably(SETTINGS, json.dumps(s, indent=1))
     return s
 
 
@@ -2506,11 +2525,7 @@ class SecureRemote:
 
     def keep(self, name, data):
         os.makedirs(self.dir, mode=0o700, exist_ok=True)
-        tmp = self.path(name + ".new")
-        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(data if isinstance(data, str) else json.dumps(data, indent=1))
-        os.replace(tmp, self.path(name))
+        write_durably(self.path(name), data if isinstance(data, str) else json.dumps(data, indent=1), 0o600)
 
     def call(self, route, body, timeout=60):
         req = urllib.request.Request(self.SERVICE + route, json.dumps(body).encode(), method="POST",
@@ -2622,12 +2637,14 @@ class SecureRemote:
         while True:
             self.event.wait(wait)
             self.event.clear()
+            j = network.joining if network else None
+            soon = bool(j) and j.get("state") == "joined" and time.time() - j.get("at", 0) < 180   # (just joined one)
             try:
                 offline = self.step()
-                self.error, wait, fails = None, 30 if offline else 600, 0
+                self.error, wait, fails = None, (5 if soon else 30) if offline else 600, 0
             except Exception as exc:
                 fails += 1
-                self.error, wait = str(exc)[:200] or exc.__class__.__name__, 30 if fails <= 5 else 3600
+                self.error, wait = str(exc)[:200] or exc.__class__.__name__, 5 if soon else 30 if fails <= 5 else 3600
                 print("Secure phone remote: %s" % self.error, file=sys.stderr, flush=True)
                 try:
                     self.serve()                                # what it has still works
@@ -2704,16 +2721,17 @@ class PhoneRemote:
         """A phone with the code on the TV (each code works once); or one on the box's own Wi-Fi, whose password is on
         the TV too (its sign-in sheet pairs it, see Captive). Through the relay (from anywhere), only the QR code's
         long link: four digits could be guessed at from the internet."""
-        if not on_own_wifi and (not code or (str(code) != self.link and (relayed or str(code) != self.code))):
+        handoff = getattr(self, "handoff_link", None)
+        link = str(code) == self.link or (bool(handoff) and str(code) == handoff)
+        if not on_own_wifi and (not code or (not link and (relayed or str(code) != self.code))):
             return None
         token = os.urandom(24).hex()
         phones = self._load()
         phones[token] = {"name": str(name or "Phone")[:40], "at": int(time.time())}
-        os.makedirs(CONF_DIR, exist_ok=True)
-        with open(self.path, "w", encoding="utf-8") as f:
-            json.dump(phones, f)
-        os.chmod(self.path, 0o600)
-        if not on_own_wifi:
+        write_durably(self.path, json.dumps(phones), 0o600)
+        if not on_own_wifi and handoff and str(code) == handoff:
+            self.handoff_link = None                       # the setup's phone carried on: its own link, used once
+        elif not on_own_wifi:
             self.code, self.link = self._new_code(), os.urandom(12).hex()   # each code works once
         toast("%s is a remote now." % phones[token]["name"])
         return token
@@ -2894,8 +2912,9 @@ def setup_state():
             "bluetooth": safely(bluetooth.listing, {"devices": [], "scanning": False}),
             "network": {"wired": safely(network.wired, False), "wifi": ssid or None, "address": local_address(), "hotspot": network.hotspot,
                         "networks": network.cached, "problem": network.problem, "joining": network.joining,
-                        "clients": safely(network.clients, 0), "phone_at": network.phone_at}, "secure": safely(secure_remote.status, None),
-            "welcomed": s["welcomed"], "name": s["boot_text"],
+                        "clients": safely(network.clients, 0), "phone_at": network.phone_at,
+                        "from_phone": getattr(network, "from_phone", 0)}, "secure": safely(secure_remote.status, None),
+            "welcomed": s["welcomed"], "setup_step": s.get("setup_step", 0), "name": s["boot_text"],
             "theme": s["theme"], "timezone": safely(current_timezone, "UTC"), "tz_set": bool(s.get("tz_set"))}
 
 
@@ -3119,10 +3138,43 @@ def box_action(a, data):
         save_settings(learned_720=False)
         return {"ok": True}
     if a == "apply-boot":                          # the boot screen in the box's theme and name (takes a minute)
-        threading.Thread(target=lambda: run(["sudo", "-n", os.path.join(HERE, "sofa-box"), "apply-boot", SETTINGS], 300),
-                         daemon=True).start()
+        boot_screen.want()
         return {"ok": True, "message": "The new boot screen shows from the next start."}
     return {"ok": False, "message": "Unknown action."}
+
+
+class BootScreen:
+    """The boot screen in the box's theme and name. Making it rebuilds the Pi's start-up files (a minute of the whole
+    processor on a Pi 3), so: once, 30 seconds after the last change (a theme and a name at the setup are one), not
+    while a video plays or the setup is still going, at the lowest priority, never two at once, and written out
+    to the card before it's done (a restart in the middle mustn't leave the box unable to start)."""
+    QUIET = 30
+
+    def __init__(self):
+        self.at, self.thread = 0, None
+
+    def want(self):
+        self.at = time.time()
+        if not (self.thread and self.thread.is_alive()):
+            self.thread = threading.Thread(target=self._run, daemon=True, name="boot-screen")
+            self.thread.start()
+
+    def _run(self):
+        while True:
+            time.sleep(5)
+            if time.time() - self.at < self.QUIET or not settings()["welcomed"] or playing():
+                continue
+            done_for = self.at
+            code, out = run(["nice", "-n", "19", "ionice", "-c", "3", "sudo", "-n", os.path.join(HERE, "sofa-box"),
+                             "apply-boot", SETTINGS], 600)
+            run(["sync"], 60)
+            if code != 0:
+                print("The boot screen: %s" % out[-300:], file=sys.stderr, flush=True)
+            if self.at == done_for:                    # (no change while it was being made)
+                return
+
+
+boot_screen = BootScreen()
 
 
 def box_state():
@@ -3339,6 +3391,8 @@ class Handler(BaseHTTPRequestHandler):
                 changes["learned_lite"] = False
             if "welcomed" in data:                              # the first-start steps are done
                 changes["welcomed"] = bool(data["welcomed"])
+            if data.get("setup_step") in (0, 1, 2, 3):          # the step it's at (a restart goes on from there)
+                changes["setup_step"] = data["setup_step"]
             if "boot_text" in data:
                 changes["boot_text"] = re.sub(r"[^\w '’&.-]", "", str(data["boot_text"]))[:30].strip()
             if "weather_place" in data:                        # Settings -> Weather: a place, or null for the time zone's
@@ -3421,7 +3475,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(json.dumps({"apps": apps.listing(), "running": browser.running() if browser and browser.connected() else [],
                                          "devtools": bool(browser and browser.connected()), "sofa": server(),
                                          "sofa_name": (found.get(server()) or {}).get("name"), "theme": s["theme"],
-                                         "name": s["boot_text"], "welcomed": s["welcomed"], "slow": light(), "boot_sound": s["boot_sound"],
+                                         "name": s["boot_text"], "welcomed": s["welcomed"], "setup_step": s.get("setup_step", 0),
+                                         "slow": light(), "boot_sound": s["boot_sound"],
                                          "default_server": {k: default[k] for k in ("id", "name", "kind", "where")} if default else None,
                                          "ask": st["ask"], "servers": len(st["servers"]),
                                          "devices": {k: devices_seen[k] for k in ("drives", "disc", "n")},
@@ -3723,7 +3778,7 @@ class RemoteHandler(BaseHTTPRequestHandler):
                 return self.send("", status=302, headers={"Location": "/"})
             token = self.token() if phone.valid(self.token()) else \
                 phone.pair(None, (self.headers.get("User-Agent") or "").split("(")[-1].split(";")[0].strip() or "Phone", on_own_wifi=True)
-            return self.send("", status=302, headers={"Location": "/", "Set-Cookie": self.cookie(token)})
+            return self.send("", status=302, headers={"Location": "/?sheet=1", "Set-Cookie": self.cookie(token)})
         if path in ("/", "/index.html"):
             with open(os.path.join(HERE, "remote.html"), encoding="utf-8") as f:
                 return self.send(f.read(), "text/html; charset=utf-8")
@@ -3786,7 +3841,10 @@ class RemoteHandler(BaseHTTPRequestHandler):
             elif path == "/api/wifi/join":
                 out = network.join_soon(data.get("ssid") or "", data.get("password"))
                 if out.get("ok") and on_own_wifi(self.client_address[0]):   # the setup's phone: where to carry on
-                    out["next"] = secure_remote.handoff(phone.link)
+                    # (its own link, not the TV's: someone scanning the TV's code meanwhile mustn't use it up)
+                    phone.handoff_link = os.urandom(12).hex()
+                    out["next"] = secure_remote.handoff(phone.handoff_link)
+                    network.from_phone = time.time()
                 return self.send(json.dumps(out))
             elif path == "/api/report":
                 return self.send(json.dumps(send_report()))

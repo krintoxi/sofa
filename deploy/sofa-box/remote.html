@@ -219,6 +219,9 @@
   // At the setup: the remote's address through the Sofa Box service's relay, from the box before it left its own Wi-Fi.
   // Once the box is on the home Wi-Fi and the relay, its icon loads from there, and this page carries on, paired.
   let handoff = null, handoffTimer = 0;
+  // opened in the phone's Wi-Fi sign-in sheet (the box's own Wi-Fi): the sheet closes by itself once the box leaves that
+  // Wi-Fi, so this page can't carry on there; the camera and the TV's last code do
+  const inSheet = /[?&]sheet=1/.test(location.search);
   function awaitBox() {
     if (!handoff || handoffTimer) return;
     const base = handoff.replace(/\/r\/[0-9a-f]{24}$/, ""), started = Date.now();
@@ -249,7 +252,8 @@
     const lost = on && (onItsWifi || joining);
     $("moved").classList.toggle("on", !!lost);
     if (lost) $("moved").innerHTML = "<b>Last step.</b> " + (joining ? "The box is joining <b></b>, and your phone goes back to it too. " : "The box left its own Wi-Fi, most likely for your home Wi-Fi. ")
-      + (handoff ? "<span class=\"spinner\"></span>This page carries on by itself as soon as the box is there (up to a minute). If it doesn't, "
+      + (inSheet ? "This sheet closes by itself now. Then open your phone's <b>camera</b> and "
+         : handoff ? "<span class=\"spinner\"></span>This page carries on by itself as soon as the box is there (up to a minute). If it doesn't, "
                  : "When the TV says it's connected, ")
       + "<b>scan the code on the TV</b> to keep this phone as your remote. If the TV says it couldn't join, its own Wi-Fi is back: scan the first code on the TV again.";
     if (lost) awaitBox();
@@ -407,7 +411,8 @@
       const r = await (await post("api/wifi/join", { ssid: wifiSsid, password: $("wpass").value })).json();
       if (r.ok) { joining = wifiSsid; handoff = r.next || null; }
       $("wifiMsg").textContent = r.ok ? "The box is joining " + wifiSsid + ". This phone goes back to your Wi-Fi now"
-        + (handoff ? ", and this page carries on by itself when the box is there." : ": then scan the new code on the TV.")
+        + (inSheet ? ". This sheet closes by itself: then scan the last code on the TV with your camera (it keeps this phone as the remote)."
+           : handoff ? ", and this page carries on by itself when the box is there." : ": then scan the new code on the TV.")
         : (r.message || "That didn't work.");
     } catch (e) { joining = wifiSsid; /* the box left this network: that's expected */ }
   });

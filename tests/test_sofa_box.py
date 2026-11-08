@@ -298,6 +298,19 @@ class Agent(unittest.TestCase):
         finally:
             self.post("/box/api/settings", {"quality": "auto", "theme": "street", "boot_text": ""})
 
+    def test_the_setup_survives_a_restart(self):
+        """A box that restarts mid-setup carries on at the step it was at (kept on the card, not in the page), and
+        the settings file is whole on the card before the agent answers (nothing half-written left beside it)."""
+        try:
+            self.post("/box/api/settings", {"setup_step": 2})
+            self.assertEqual(json.loads(self.get("/box/api/apps"))["setup_step"], 2)
+            self.post("/box/api/settings", {"setup_step": 9})                        # not a step: ignored
+            with open(os.path.join(self.conf, "settings.json")) as f:
+                self.assertEqual(json.load(f)["setup_step"], 2)
+            self.assertFalse(os.path.exists(os.path.join(self.conf, "settings.json.new")))
+        finally:
+            self.post("/box/api/settings", {"setup_step": 0})
+
     def test_play_save_and_tell_the_page(self):
         n = json.loads(self.get("/box/native/events"))["n"]                     # a page opening: from now on
         self.post("/box/native/play", {"item": "m:heat:1995", "url": self.base + "/media/m%3Aheat%3A1995/file",
@@ -1324,6 +1337,13 @@ class BoxNetwork(unittest.TestCase):
             status, _, body = phone("/r/%s/api/state" % box["id"], cookie=cookie)
             self.assertEqual((status, json.loads(body)["paired"]), (200, True))        # the box's own answer, from anywhere
             self.assertEqual(phone("/r/%s/r/%s" % (box["id"], link))[1]["Location"], "/r/%s/?again=1" % box["id"])  # once
+            # the setup's phone carries on with a link of its own: someone scanning the TV's code meanwhile doesn't use
+            # it up, and it works once too
+            a.phone.handoff_link = handoff = "ab" * 12
+            self.assertEqual(phone("/r/%s/r/%s" % (box["id"], a.phone.link))[0], 302)   # the TV's code, scanned
+            status, headers, _ = phone("/r/%s/r/%s" % (box["id"], handoff))
+            self.assertEqual((status, headers["Location"]), (302, "/r/%s/" % box["id"]))
+            self.assertEqual(phone("/r/%s/r/%s" % (box["id"], handoff))[1]["Location"], "/r/%s/?again=1" % box["id"])
             code = a.phone.code                                                         # four digits: home only
             req = urllib.request.Request("http://127.0.0.1:%d/r/%s" % (remote.server_address[1], code), headers={"X-Sofa-Relay": "1"})
             try:

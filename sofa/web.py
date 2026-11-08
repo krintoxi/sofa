@@ -722,6 +722,7 @@ class Handler(BaseHTTPRequestHandler):
             out = live.listing(u["id"], adult=u.get("adult"))
             favs = {r["channel"] for r in store.q("SELECT channel FROM live_favorites WHERE user_id = ?", u["id"])}
             out["channels"] = [dict(c, fav=c["id"] in favs, playlist="archive.org") for c in archive.channels()] + out["channels"]
+            out["eras"] = [{"id": e, "name": n} for e, n in archive.ERAS] if archive.on() else []   # Live TV's tabs
             return self.json(out)
         if path == "/api/live/guide":                  # the archive channels' guide: what's on and next, by the clock
             return self.json({"at": int(time.time()), "channels": archive.guide()})

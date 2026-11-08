@@ -14,6 +14,7 @@ import re
 import sys
 import threading
 import time
+import unicodedata
 import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
@@ -31,9 +32,11 @@ NOT = (' AND NOT subject:(sex OR sexploitation OR erotic OR erotica OR nudity OR
        ' "exploitation film" OR exploitation OR drugs OR stag OR pinup OR striptease)'
        ' AND NOT title:(sex OR sexy OR nude OR naked OR nudist OR burlesque OR strip OR striptease OR molester OR'
        ' madness OR erotic OR virgin OR orgy OR lust OR perversion OR porn OR fetish OR xxx OR jailbait OR stripper OR'
-       ' playboy OR hentai OR marijuana OR cannabis OR "girls gone wild" OR "rated x")')
+       ' playboy OR hentai OR marijuana OR cannabis OR "girls gone wild" OR "rated x" OR adult OR Marlboro OR cigarette OR'
+       ' cigarettes OR tobacco)')
 NOT_WORDS = re.compile(r"\b(sex|sexy|nude|naked|nudist|burlesque|strip|striptease|strippers?|molest\w*|erotic\w*|orgy|lust|"
-                       r"xxx|pervers\w*|porn\w*|fetish\w*|jailbait|playboy|hentai|marijuana|cannabis|girls gone wild|rated x)\b", re.I)
+                       r"xxx|pervers\w*|porn\w*|fetish\w*|jailbait|playboy|hentai|marijuana|cannabis|girls gone wild|rated x|adults?|"
+                       r"marlboro|cigarettes?|tobacco)\b", re.I)
 
 # id, name, the archive search, a colour and a mark for its logo
 CHANNELS = [
@@ -47,6 +50,10 @@ CHANNELS = [
     ("ia-tv", "Classic TV", "collection:(classic_tv) AND mediatype:(movies)", "#3D7BE2", "▣"),
     ("ia-docs", "Documentaries", "collection:(prelinger OR documentaries) AND mediatype:(movies)", "#2E9C9A", "◉"),
 ]
+# (cigarette advertising was on TV until 1971: not on this one)
+NO_SMOKING = (' AND NOT title:("Virginia Slims" OR Winston OR Salem OR Camel OR Kool OR Newport OR "Lucky Strike" OR'
+              ' "Pall Mall" OR Viceroy OR Chesterfield OR Tareyton OR "Benson & Hedges" OR Parliament OR Kent OR Raleigh OR'
+              ' smoking OR smoke OR cigar OR cigars)')
 # Retro TV: a decade's television as it went out, its shows with two or three of that decade's commercials between them
 # (the archive's classic TV, its TV commercials, and from the 80s on, off-air recordings with their own breaks)
 def _retro(decade, colour):
@@ -55,6 +62,7 @@ def _retro(decade, colour):
         years, ' OR title:("VHS Recording" OR "with commercials" OR "Saturday Morning")' if decade >= 1980 else "")
     ads = ('mediatype:(movies) AND %s AND (collection:(classic_tv_commercials) OR subject:("tv commercials" OR'
            ' "television commercials"))' % years)
+    ads += NO_SMOKING
     name = "%02ds" % (decade % 100)
     return ("ia-retro%s" % name[:2], "Retro TV: %s" % name, shows, colour, name, ads)
 
@@ -84,13 +92,73 @@ CHANNELS += [_retro(2000, "#00897B"),
               ' AND NOT title:(Hellraiser OR horror OR "after dark")', "#6D4C41", "$"),
              _retro(1990, "#7B1FA2"), _retro(1980, "#C2185B"), _retro(1970, "#B5651D"), _retro(1960, "#D9822B"),
              _retro(1950, "#4F7CAC")]
-RETRO = {c[0] for c in CHANNELS if c[0].startswith("ia-retro") or c[0].endswith("00")}
-AIRED = {"ia-kids00", "ia-sat00", "ia-toons00", "ia-air00", "ia-music00"}     # whole broadcasts, their own commercials in
+
+
+# More of each era: recorded broadcasts (their own breaks in them), kids' TV, music TV and the commercial breaks people
+# taped, each era's own. (Titles name what's on the tape: "with commercials", the channel, the block.)
+def _tv(y0, y1, words):
+    return "mediatype:(movies) AND year:[%d TO %d] AND title:(%s)" % (y0, y1, words)
+
+
+ON_AIR = ('"with commercials" OR "commercial break" OR "commercial breaks" OR "full broadcast" OR "VHS Recording" OR'
+          ' "TV recording" OR "DVR recording" OR "original broadcast" OR "as aired"')
+BREAKS = 'commercials OR "commercial compilation" OR "commercial block" OR "ad break"'
+KIDS10 = ('"Cartoon Network" OR Nickelodeon OR "Nick Jr" OR "Disney XD" OR "Disney Channel" OR "Disney Junior" OR "The Hub"'
+          ' OR "Hub Network" OR Nicktoons OR "Kids WB" OR "PBS Kids" OR Boomerang')
+POP10 = ('"VH1 Top 20" OR "MTV Hits" OR Fuse OR "106 & Park" OR "music video countdown" OR MuchMusic OR "Top 40 countdown" OR'
+         ' "Attack of the Show" OR "X-Play" OR G4 OR G4TV OR GameTrailers OR "Bonus Round"')
+KIDS90 = ('"Fox Kids" OR Nickelodeon OR "Cartoon Network" OR "Disney Afternoon" OR "Kids WB" OR "Nick Jr" OR "Disney Channel"'
+          ' OR "One Saturday Morning" OR Snick OR Toonami')
+SAT90 = ('"Saturday Morning" OR "Saturday mornings" OR "Fox Kids" OR "Kids WB" OR "One Saturday Morning" OR "CBS Saturday"'
+         ' OR "NBC Saturday"')
+MUSIC90 = 'MTV OR VH1 OR "120 Minutes" OR "Yo! MTV Raps" OR "Headbangers Ball" OR "Friday Night Videos" OR "Video countdown"'
+SAT80 = ('"Saturday Morning" OR "Saturday mornings" OR "Saturday morning cartoons" OR "CBS Saturday" OR "NBC Saturday" OR'
+         ' "ABC Saturday"')
+MUSIC80 = 'MTV OR "Friday Night Videos" OR "Solid Gold" OR "American Bandstand" OR "Night Tracks" OR "Video countdown"'
+CHANNELS += [
+    ("ia-air10", "10s On Air", _tv(2009, 2012, ON_AIR) + " AND NOT title:(%s)" % KIDS10, "#1E88E5", "10s"),
+    ("ia-kids10", "10s Kids TV", _tv(2009, 2012, KIDS10), "#FB8C00", "10s"),
+    ("ia-pop10", "10s Music & Games", _tv(2009, 2012, POP10), "#8E24AA", "♪"),
+    ("ia-ads10", "10s Commercial Breaks", _tv(2009, 2012, BREAKS) + NO_SMOKING, "#00ACC1", "AD"),
+    ("ia-ads00", "00s Commercial Breaks", _tv(2000, 2008, BREAKS) + NO_SMOKING, "#26A69A", "AD"),
+    ("ia-kids90", "90s Kids TV", _tv(1990, 1999, KIDS90), "#F4511E", "90s"),
+    ("ia-sat90", "90s Saturday Mornings", _tv(1990, 1999, SAT90), "#FDD835", "SAT"),
+    ("ia-air90", "90s On Air", _tv(1990, 1999, ON_AIR) + " AND NOT title:(%s)" % KIDS90, "#3949AB", "90s"),
+    ("ia-music90", "90s Music TV", _tv(1990, 1999, MUSIC90), "#EC407A", "♪"),
+    ("ia-ads90", "90s Commercial Breaks", _tv(1990, 1999, BREAKS) + NO_SMOKING, "#7CB342", "AD"),
+    ("ia-sat80", "80s Saturday Mornings", _tv(1980, 1989, SAT80), "#FFA000", "SAT"),
+    ("ia-air80", "80s On Air", _tv(1980, 1989, ON_AIR), "#5C6BC0", "80s"),
+    ("ia-music80", "80s Music TV", _tv(1980, 1989, MUSIC80), "#AB47BC", "♪"),
+    ("ia-ads80", "80s Commercial Breaks", _tv(1980, 1989, BREAKS) + NO_SMOKING, "#9CCC65", "AD"),
+    ("ia-ads70", "70s Commercial Breaks", _tv(1970, 1979, BREAKS) + NO_SMOKING, "#D4A017", "AD"),
+    ("ia-ads60", "60s Commercial Breaks", _tv(1960, 1969, BREAKS) + NO_SMOKING, "#E08A3C", "AD"),
+    ("ia-ads50", "50s Commercial Breaks", _tv(1950, 1959, BREAKS) + NO_SMOKING, "#6F93B8", "AD"),
+]
+RETRO = {c[0] for c in CHANNELS if c[0].startswith("ia-retro") or re.search(r"\d0$", c[0])}
+# whole broadcasts, their own commercials in
+AIRED = {"ia-kids00", "ia-sat00", "ia-toons00", "ia-air00", "ia-music00", "ia-air10", "ia-kids10", "ia-kids90", "ia-sat90",
+         "ia-air90", "ia-music90", "ia-sat80", "ia-air80", "ia-music80"}
+BREAK_CHANNELS = {c[0] for c in CHANNELS if c[0].startswith("ia-ads")}
 # how long a channel's items may be (seconds): whole recorded tapes run for hours, and short clips aren't programmes
-LENGTHS = dict({c: (600, 4 * 3600) for c in AIRED}, **{"ia-game00": (600, 2 * 3600), "ia-info00": (600, 3600)})
-# the dial: Retro TV from 2 (the 2000s first), the archive's film channels from 20
-NUMBER = dict({c[0]: n for n, c in enumerate([c for c in CHANNELS if c[0] in RETRO], 2)},
-              **{c[0]: n for n, c in enumerate([c for c in CHANNELS if c[0] not in RETRO], 20)})
+LENGTHS = dict({c: (600, 4 * 3600) for c in AIRED}, **{c: (180, 3600) for c in BREAK_CHANNELS},
+               **{"ia-game00": (600, 2 * 3600), "ia-info00": (600, 3600), "ia-pop10": (600, 3 * 3600)})
+# Live TV's eras (and Live now, the channel lists of today, which aren't these): a tab each, in this order
+ERAS = [("now", "Live now"), ("2010s", "2009–2012"), ("2000s", "2000s"), ("1990s", "90s"), ("1980s", "80s"), ("1970s", "70s"),
+        ("1960s", "60s"), ("1950s", "50s"), ("cinema", "Classic Cinema")]
+
+
+def era(cid):
+    if cid not in RETRO:
+        return "cinema"
+    d = int(re.search(r"(\d)0$", cid).group(1))
+    return "2010s" if d == 1 else "2000s" if d == 0 else "19%d0s" % d
+
+
+# the dial: an era's channels together (the 2000s first, from 2; the 90s from 90, the 80s from 80, and so on)
+FIRST = {"2000s": 2, "2010s": 11, "cinema": 20, "1950s": 50, "1960s": 60, "1970s": 70, "1980s": 80, "1990s": 90}
+NUMBER = {}
+for _c in CHANNELS:
+    NUMBER[_c[0]] = FIRST[era(_c[0])] + sum(1 for c in NUMBER if era(c) == era(_c[0]))
 ABOUT = {
     "ia-retro00": "2000s shows as they went out, with the decade's commercials between them.",
     "ia-kids00": "After-school cable off old tapes: Cartoon Network, Nickelodeon, Disney and Noggin, commercials and all.",
@@ -100,6 +168,23 @@ ABOUT = {
     "ia-music00": "Music TV as it aired: TRL, 106 & Park, MTV Hits and the countdowns.",
     "ia-game00": "Video game TV: X-Play, Attack of the Show, The Screen Savers and the decade's game ads.",
     "ia-info00": "Late-night infomercials: the knives, the ovens, the music collections and a lot of enthusiasm.",
+    "ia-air10": "Evenings of TV recorded off the air from 2009 to 2012: the shows, the specials and the breaks.",
+    "ia-kids10": "Cartoon Network, Nickelodeon, Disney XD and PBS Kids, 2009 to 2012, as they aired.",
+    "ia-pop10": "Music video countdowns, Fuse and the game shows of G4: X-Play, Attack of the Show.",
+    "ia-ads10": "The commercial breaks of 2009 to 2012, back to back.",
+    "ia-ads00": "Commercial breaks from the 2000s: the toys, the cereal, the promos.",
+    "ia-kids90": "Fox Kids, Nickelodeon, Cartoon Network and the Disney Afternoon, commercials and all.",
+    "ia-sat90": "Whole 90s Saturday mornings off the VCR: Fox Kids, Kids' WB, One Saturday Morning.",
+    "ia-air90": "90s TV taped off the air: sitcoms, specials, marathons and the breaks between them.",
+    "ia-music90": "MTV and VH1 in the 90s: 120 Minutes, Yo! MTV Raps, Pop-Up Video and the countdowns.",
+    "ia-ads90": "Commercial breaks from the 90s, back to back.",
+    "ia-sat80": "80s Saturday morning cartoons, recorded as they aired.",
+    "ia-air80": "80s TV taped off the air: movies of the week, specials and the breaks.",
+    "ia-music80": "MTV's first decade, Friday Night Videos and Solid Gold.",
+    "ia-ads80": "Commercial breaks from the 80s, back to back.",
+    "ia-ads70": "Commercials from the 70s, back to back.",
+    "ia-ads60": "Commercials from the 60s, back to back.",
+    "ia-ads50": "Commercials from the 50s, back to back.",
     "ia-retro90": "1990s shows as they went out, with the decade's commercials between them.",
     "ia-retro80": "1980s shows as they went out, with the decade's commercials between them.",
     "ia-retro70": "1970s shows as they went out, with the decade's commercials between them.",
@@ -131,6 +216,85 @@ def _get(url, timeout=30):
         return json.loads(r.read())
 
 
+MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]
+MON = r"(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?"
+# what a tape's title says about the tape, not the programme
+NOISE = re.compile(r"""(?ix)
+   \b(vhs|dvd|dvr|tv)\s*(recording|rip|recorded|tape|capture)s?\b
+ | \bfull\s+(broadcast|programming|episode)s?\b | \bcomplete\s+(tv\s+)?(broadcast|series|episode|block)s?\b
+ | \b(with|w/|w/o|without)\s+(original\s+)?commercials?\b | \bwoc\b | \bnearly\s+complete\b
+ | \b(original|first)\s+(air(ing|ed)?|broadcast)\b | \bbroadcast\b | \btaped\b | \bas\s+aired\b | \bclip\b | \bhq\b | \b(avi|mp4|mkv)\b
+ | \btape\s*\#?\s*\d+\b | \btape\b | \bvhs\b | \(ctv\) | \brecorded\s+on\b.*$ | \bpt\.?\s*\d+\b | \bpart\s+\d+(\s+of\s+\d+)?\b
+""")
+
+def tidy(raw):
+    """A tape's title -> (the programme's name, when it aired as text or None)."""
+    t = " " + re.sub(r"[_]+", " ", unicodedata.normalize("NFKC", raw)) + " "   # (𝐁𝐨𝐥𝐝 letters: plain ones)
+    aired = None
+    pats = [
+        (r"\b%s\s+(\d{1,2})(st|nd|rd|th)?,?\s+((19|20)\d\d)\b" % MON, lambda m: (m.group(1)[:3], int(m.group(2)), m.group(4))),
+        (r"\b((19|20)\d\d)[.\-/](\d\d)[.\-/](\d\d)\b", lambda m: (MONTHS[int(m.group(3)) - 1] if 1 <= int(m.group(3)) <= 12 else None, int(m.group(4)), m.group(1))),
+        (r"\b(\d{1,2})/(\d{1,2})/((19|20)\d\d)\b", lambda m: (MONTHS[int(m.group(1)) - 1] if 1 <= int(m.group(1)) <= 12 else None, int(m.group(2)), m.group(3))),
+        (r"\b%s\s+((19|20)\d\d)\b" % MON, lambda m: (m.group(1)[:3], None, m.group(2))),
+        (r"\b(early|late|mid|summer|winter|spring|fall|autumn)[\s-]+((19|20)\d\d)\b", lambda m: (m.group(1).lower(), None, m.group(2))),
+        (r"\b((19|20)\d\d)\s+(summer|winter|spring|fall|autumn)\b", lambda m: (m.group(3).lower(), None, m.group(1))),
+        (r"\b(\d\d)-(\d\d)-(\d\d)\b", lambda m: (MONTHS[int(m.group(1)) - 1] if 1 <= int(m.group(1)) <= 12 else None, int(m.group(2)),
+                                               ("20" if int(m.group(3)) < 30 else "19") + m.group(3))),
+    ]
+    for pat, get in pats:
+        m = re.search(pat, t, re.I)
+        if m:
+            mon, day, year = get(m)
+            mon = mon.lower() if mon else mon
+            if mon in MONTHS:
+                aired = "%s %s%s" % (mon.capitalize(), ("%d, " % day) if day else "", year)
+            elif mon:
+                aired = "%s %s" % (mon.capitalize(), year)
+            else:
+                aired = year
+            t = t[:m.start()] + " " + t[m.end():]
+            break
+    t = NOISE.sub(" ", t)
+    if aired:                                              # (more of the dates and times: "; Feb. 27", "6:0")
+        t = re.sub(r"\b%s\s*\d{0,2}\b" % MON, " ", t, flags=re.I)
+    t = re.sub(r"\b\d{1,2}:\d{0,2}\s*([ap]\.?m\.?)?(?=\W|$)", " ", t, flags=re.I)
+    t = re.sub(r"\b\d{1,2}/\d{1,2}\b", " ", t)
+    t = re.sub(r"\s{2,}", " ", t).strip(" -–—:|;,#.")      # (tidy first: the year checks look at the ends)
+    if not aired:                                          # a year in brackets or at either end: when it aired
+        y = (re.search(r"\(\s*((19|20)\d\d)\b[^)]*\)", t) or re.search(r"\s[-–—]\s*((19|20)\d\d)\s*$", t)
+             or re.search(r"^\s*((19|20)\d\d)\s+(?=\S+\s+\S+)", t)
+             or (len(t.split()) >= 4 and re.search(r"\s((19|20)\d\d)\s*$", t)))
+        if y:
+            aired = y.group(1)
+            inner = y.group(0)
+            t = t.replace(inner, " " + (inner.replace(y.group(1), "").strip("( )") if inner.strip().startswith("(") else "") + " ")
+    t = re.sub(r"\((\s|block|blocks|#|\d|/|,|\.)*\)", " ", t, flags=re.I)   # brackets left with nothing in them
+    t = re.sub(r"\(\s*\)|\[\s*\]", " ", t)
+    t = re.sub(r"\(([^()]*)$", r"\1", t)                  # an unclosed bracket (a cut-off title)
+    t = re.sub(r"\s*[-–—:|;,#]\s*(?=[-–—:|;,#)\]]|$)", " ", t)   # separators left dangling
+    t = re.sub(r"^\s*[-–—:|;,#(]+\s*", "", t)
+    t = re.sub(r"\s*;\s*|\s+:\s+", " · ", t)
+    t = re.sub(r"(\s*·\s*)+(?=$|\s*[-–—)])", " ", t)
+    t = re.sub(r"\s{2,}", " ", t).strip(" -–—:|;,#.·\"'")
+    t = re.sub(r"\(\s*\)", "", t).strip()
+    t = re.sub(r"\s+\.\s+", " · ", t)                     # ("Nickelodeon . Spongebob")
+    t = re.sub(r"\(\s+", "(", re.sub(r"\s+\)", ")", t))
+    t = re.sub(r"(\s+\b(from|to|on|in|of|at|and|the|between|through)\b)+\s*$", "", t, flags=re.I)   # (its dates went)
+    t = t.strip(" -–—:|;,#.·")
+    t = t[:1].upper() + t[1:]
+    if len(t) < 3:
+        t = raw.strip()
+    return t, aired
+
+
+def shown(f):
+    """A programme as Live TV shows it: its name, and when it aired (a recorded tape) or its year (a film)."""
+    if f.get("ad"):
+        return {"title": "Commercials", "aired": None, "year": None}
+    title, aired = tidy(f["title"])
+    return {"title": title, "aired": aired, "year": f.get("year")}
+
+
 def group(cid):
     """Live TV's name for the channel's group: Sofa's own lineup (where the films come from isn't on the screen)."""
     return "Retro TV" if cid in RETRO else "Classic Cinema"
@@ -155,7 +319,7 @@ def channels():
         return []
     out = []
     for c in sorted(CHANNELS, key=lambda c: NUMBER[c[0]]):
-        ch = {"id": c[0], "name": c[1], "group": group(c[0]), "logo": logo(c[0]),
+        ch = {"id": c[0], "name": c[1], "group": group(c[0]), "logo": logo(c[0]), "era": era(c[0]),
               "archive": True, "number": NUMBER[c[0]], "about": ABOUT.get(c[0], ""), "color": c[3], "aired": c[0] in AIRED}
         fl = _saved(c[0])
         if fl:
@@ -198,8 +362,7 @@ def _programmes(fl, at, hours):
     out = []
     while len(out) < 48:
         start, length, f = blocks[i]
-        out.append({"start": int(base + start), "end": int(base + start + length), "id": f["id"],
-                    "title": "Commercials" if f.get("ad") else f["title"], "year": f.get("year")})
+        out.append(dict(shown(f), start=int(base + start), end=int(base + start + length), id=f["id"]))
         if base + start + length >= at + hours * 3600:
             break
         i += 1
@@ -209,9 +372,9 @@ def _programmes(fl, at, hours):
 
 
 def _name(f):
-    if f.get("ad"):
-        return "Commercials"
-    return f["title"] + (" (%d)" % f["year"] if f.get("year") else "")
+    s = shown(f)
+    when = s["aired"] or (str(s["year"]) if s["year"] else "")
+    return s["title"] + (" (%s)" % when if when else "")
 
 
 def _saved(cid):
@@ -245,10 +408,14 @@ def _text(v):
     return str(v or "")
 
 
-def _film(identifier, shortest=120, longest=None):
+def _film(identifier, shortest=120, longest=None, english=False):
     """One item's film: its one playable video file (an MP4, the smaller copy where there are two), and its length."""
     d = _get("https://archive.org/metadata/%s" % urllib.parse.quote(identifier))
     meta, files = d.get("metadata") or {}, d.get("files") or []
+    lang = _text(meta.get("language")).lower()
+    if english and (lang and not re.search(r"\b(en|eng|english)\b", lang)
+                    or re.search(r"[\u3040-\u30ff\u4e00-\u9fff\u0400-\u04ff\u0900-\u097f]", _text(meta.get("title")))):
+        return None
     title = meta.get("title")
     title = title[0] if isinstance(title, list) and title else title
     title = title.strip() if isinstance(title, str) and title.strip() else identifier
@@ -289,22 +456,22 @@ def _varied(docs, most=3):
     return out
 
 
-def _pick(docs, want, shortest=120, longest=None):
+def _pick(docs, want, shortest=120, longest=None, english=False):
     out = []
     with ThreadPoolExecutor(6) as pool:
-        for f in pool.map(lambda d: _safe_film(d["identifier"], shortest, longest), docs):
+        for f in pool.map(lambda d: _safe_film(d["identifier"], shortest, longest, english), docs):
             if f and len(out) < want:
                 out.append(f)
     return out
 
 
 def _build(cid):
-    c = BY_ID[cid]
+    c, english = BY_ID[cid], cid in RETRO
     if len(c) < 6:                                        # (recorded tapes: long, and their own ads in them)
         shortest, longest = LENGTHS.get(cid, (120, None))
-        return _pick(_varied(_search(c[2], FILMS * 4)), FILMS, shortest=shortest, longest=longest)
-    shows = _pick(_varied(_search(c[2], 80)), 20, shortest=300, longest=5400)   # Retro TV: shows, and the decade's commercials
-    ads = [dict(a, ad=True) for a in _pick(_search(c[5], 120), 40, shortest=10, longest=300)]
+        return _pick(_varied(_search(c[2], FILMS * 4)), FILMS, shortest=shortest, longest=longest, english=english)
+    shows = _pick(_varied(_search(c[2], 80)), 20, shortest=300, longest=5400, english=english)   # shows, and the decade's ads
+    ads = [dict(a, ad=True) for a in _pick(_search(c[5], 120), 40, shortest=10, longest=300, english=english)]
     if not ads:
         return shows
     out = []
@@ -314,16 +481,17 @@ def _build(cid):
     return out
 
 
-def _safe_film(identifier, shortest=120, longest=None):
+def _safe_film(identifier, shortest=120, longest=None, english=False):
     try:
-        return _film(identifier, shortest, longest)
+        return _film(identifier, shortest, longest, english)
     except (OSError, ValueError, KeyError):
         return None
 
 
 def _path(cid):
     """(Named for the channel's search too: a changed search fetches its films again, without waiting a week.)"""
-    return os.path.join(CACHE, "%s-%s.json" % (cid, hashlib.sha1(BY_ID[cid][2].encode()).hexdigest()[:8]))
+    c = BY_ID[cid]
+    return os.path.join(CACHE, "%s-%s.json" % (cid, hashlib.sha1((c[2] + (c[5] if len(c) > 5 else "")).encode()).hexdigest()[:8]))
 
 
 def films(cid, wait=True):
@@ -390,7 +558,10 @@ def now(cid, at=None, ahead=6):
     fl = films(cid)
     if not fl:
         raise OSError("This channel has nothing to show just now.")
-    return dict(_on(fl, at if at is not None else time.time(), ahead), channel=cid, name=BY_ID[cid][1])
+    r = _on(fl, at if at is not None else time.time(), ahead)
+    tidy_up = lambda f: f if f.get("ad") else dict(f, **{k: v for k, v in shown(f).items() if k != "year"})
+    r.update(film=tidy_up(r["film"]), next=[tidy_up(f) for f in r["next"]])  # (the player shows the programme's own name)
+    return dict(r, channel=cid, name=BY_ID[cid][1], number=NUMBER[cid], era=era(cid))
 
 
 def _on(fl, at, ahead=6):

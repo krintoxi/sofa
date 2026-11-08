@@ -618,7 +618,7 @@
   // ---- the first start: how you'll work it, the internet, Bluetooth, the box itself, your apps; then Home.
   // A new box may have nothing to press with: the phone remote (a QR code), a Bluetooth remote held in
   // pairing mode (it pairs by itself) or a keyboard's dongle all work from the first screen.
-  let step = 0, picks = null, setup = null, setupTimer = 0, wifiPick = null;
+  let step = 0, savedStep = 0, picks = null, setup = null, setupTimer = 0, wifiPick = null;
   const STEPS = ["Hello", "Internet", "Your box", "Apps"];       // (more Bluetooth devices: Settings, or Games, later)
   // The setup's apps: the few most people use, all on one screen (the App Store has the rest)
   const POPULAR = ["netflix", "youtube-tv", "prime-video", "disney-plus", "max", "hulu", "apple-tv", "spotify"];
@@ -678,11 +678,14 @@
     const fresh = j && j.state === "joined" && now - j.at < 600;
     // just joined: the secure (https) code follows within seconds, so not the plain one first and then a swap
     // ("error" too: just after joining, the box's DNS may not be ready, and it tries again in 30 seconds)
-    if (fresh && now - j.at < 180 && !/^https:/.test(r.url) && (sec.state === "working" || sec.state === "error"))
-      return codeSteps(3) + waiting("Connected. Getting the remote's secure address for your phone… a few seconds.");
+    if (fresh && now - j.at < 300 && !/^https:/.test(r.url) && (sec.state === "working" || sec.state === "error"))
+      return codeSteps(3) + waiting(now - j.at < 45 ? "Connected. Getting the remote's secure address for your phone… a few seconds."
+        : "Connected. The remote's secure address is taking longer than usual: the box keeps trying. (Your Wi-Fi may still be getting the box online.)");
     const open = r.home_at && now - r.home_at < 15;              // a remote open on the home Wi-Fi now
     return (fresh ? codeSteps(3) : "") + qrRow(r.pair_url, `
-      <b>${fresh ? "Scan this to keep your phone as the remote" : "Scan with your phone's camera"}</b><small>or open <b>${address}</b> and type <b>${esc(r.code)}</b></small>
+      <b>${fresh ? (n.from_phone && now - n.from_phone < 900 ? "Last step: scan this with your phone's camera to keep it as the remote"
+        : "Scan this to keep your phone as the remote") : "Scan with your phone's camera"}</b><small>${fresh && n.from_phone && now - n.from_phone < 900
+        ? "(if the Setup Assistant carried on by itself on your phone, there's nothing to scan)" : `or open <b>${address}</b> and type <b>${esc(r.code)}</b>`}</small>
       ${open ? `<p class="okay small">✓ Your phone is the remote</p>` : waiting("Waiting for your phone to scan this…")}
       ${/^https:/.test(r.url) ? "" : `<p class="small">iPhone says it isn't secure? Settings → Apps → Safari → turn off <b>Not Secure Connection Warning</b>.</p>`}`);
   }
@@ -692,7 +695,7 @@
   // the remote (a new code once it's on your Wi-Fi). Each shows only its own code, and says what the box waits for.
   // (the phone's side is the Sofa Setup Assistant: it connects to the box, opens, takes your Wi-Fi, then stays as the remote)
   const CODE_STEPS = ["Connect your phone", "Open the Setup Assistant", "Choose your Wi-Fi", "Keep the remote"];
-  let codesShown = null;                                    // "wifi" | "remote", shown again on request for a minute
+  let codesShown = null, joinedAt = 0;                      // "wifi" | "remote", shown again on request for a minute
   function codeSteps(at) {
     return `<ol class="code-steps">${CODE_STEPS.map((t, i) => `<li class="${i < at ? "done" : i === at ? "on" : ""}"><em>${i < at ? "✓" : i + 1}</em>${t}</li>`).join("")}</ol>`;
   }
@@ -700,12 +703,16 @@
     const now = Date.now() / 1000, asked = codesShown && codesShown.until > Date.now() ? codesShown.which : null;
     const remote = n.phone_at && now - n.phone_at < 15;      // a remote open on a phone on the box's Wi-Fi
     const joined = (n.clients || 0) > 0;                      // a phone (or something) on the box's Wi-Fi
+    if (!joined) joinedAt = 0; else if (!joinedAt) joinedAt = now;
     const stage = asked || (remote ? "details" : joined ? "remote" : "wifi");
+    if (stage === "remote" && !asked && now - joinedAt < 20) return codeSteps(1) + `<p class="okay big">✓ Your phone is on the box's Wi-Fi</p>
+      ${waiting("The Setup Assistant opens on your phone by itself: a sheet pops up. A few seconds…")}
+      <button class="mini" data-codes="remote">It didn't open? Show the code</button>`;
     if (stage === "wifi") return codeSteps(0) + qrRow(hs.wifi_qr, `
       <b>Scan with your phone's camera: it connects your phone to the box</b><small>(the box's own Wi-Fi, ${esc(hs.ssid)} · password ${esc(hs.password)})</small>
       ${waiting("Waiting for your phone to join…")}`);
     if (stage === "remote") return codeSteps(1) + qrRow(r.pair_url, `
-      <b>${joined ? "Now scan" : "Scan"} this: the Sofa Setup Assistant opens on your phone</b><small>or open ${address} and type ${esc(r.code)}</small>
+      <b>${joined ? "It didn't open by itself? Scan" : "Scan"} this: the Sofa Setup Assistant opens on your phone</b><small>or open ${address} and type ${esc(r.code)}</small>
       ${waiting("Waiting for the remote to open on your phone…")}<button class="mini" data-codes="wifi">Show the Wi-Fi code again</button>`);
     return codeSteps(2) + `<p class="okay big">✓ The Setup Assistant is open on your phone</p>
       <p class="small">On your phone: pick your home Wi-Fi, type its password, <b>Join</b>.</p>
@@ -767,6 +774,9 @@
   }
   function viewWelcome() {
     document.documentElement.classList.add("setup");
+    if (data.welcomed === false && step !== savedStep) {           // (kept on the box: a restart goes on from here)
+      savedStep = step; api("/box/api/settings", { setup_step: step }).catch(() => {});
+    }
     if (!setup) { loadSetup(true).then(() => render(true)); }
     setupLive();
     const steps = `<div class="setup-steps">${STEPS.map((n, i) => `<i class="${i < step ? "done" : i === step ? "on" : ""}"><em>${i < step ? "✓" : i + 1}</em><b>${n}</b></i>`).join("")}</div>`;
@@ -1197,7 +1207,7 @@
     loadWeather();
     api("/box/api/games").then(g => { games = g; if (!location.hash || location.hash === "#/" || location.hash === "#/games") render(true); }).catch(() => {});
     await loadSofa();
-    if (data.welcomed === false && !location.hash) location.hash = "#/welcome";
+    if (data.welcomed === false && !location.hash) { location.hash = "#/welcome"; step = savedStep = data.setup_step || 0; }
     render();
     await introDone;
     const shieldEl = $("#shield");

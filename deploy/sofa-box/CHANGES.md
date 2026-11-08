@@ -7,6 +7,28 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.29
+
+- **The setup is kept, whatever happens.** A box that restarted by itself a few seconds after its setup was
+  finished could ask for the whole setup again: its settings were saved, but not yet on the card. Now
+  settings, Home's apps, the Sofa servers, the phones that are remotes and the box's id are on the card before
+  the box goes on. And a setup that's interrupted carries on at the step it was at, not from the start.
+- **The boot screen is made once, gently.** Choosing a theme and a name rebuilds the Pi's start-up files (a
+  minute of the whole processor on a Pi 3, at the end of the setup, when the box was busiest). Now it waits
+  until the setup is done and nothing plays, does it once for both, at the lowest priority, and writes it out
+  to the card before it's finished.
+- **The setup's codes, polished.** When your phone joins the box's own Wi-Fi, it opens the Setup Assistant by
+  itself (a sheet pops up), so the TV no longer flashes the second code (a plain http:// address, which an
+  iPhone's camera may not open): it says the Setup Assistant is opening, and shows the code only if it doesn't
+  (or when asked). In that sheet, the Setup Assistant says what's next: the sheet closes by itself when the box
+  joins your Wi-Fi, then the camera and the TV's last code.
+- **After the box joins your Wi-Fi,** the last code is the secure one only: the TV waits for it (up to five
+  minutes, saying so when it takes long) instead of showing a plain address first, and the box looks for it
+  every five seconds instead of thirty. The phone that carried on by itself has a link of its own, so scanning
+  the TV's code at the same moment no longer uses it up.
+- **Live TV by era** (Sofa 1.4.0): Live now, 2009–2012, the 2000s, 90s, 80s, 70s, 60s, 50s and Classic Cinema,
+  with 17 more channels and programmes by their own names.
+
 ## 1.1.28
 
 - **Tidewing, a 3D game made for the box.** Race a skimmer, a small hover-craft with a wing, low over open water

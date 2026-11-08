@@ -150,8 +150,51 @@ class Archive(unittest.TestCase):
         self.assertEqual([x["id"] for x in next(c for c in later if c["id"] == "ia-retro60")["programs"][:2]], ["show1", "show2"])
         self.assertGreaterEqual(p[-1]["end"], at + 3 * 3600)
         self.assertLess(p[-2]["end"], at + 3 * 3600)
-        self.assertEqual((g["ia-retro60"]["tapes"], g["ia-retro60"]["number"]), (3, 13))
+        self.assertEqual((g["ia-retro60"]["tapes"], g["ia-retro60"]["number"], g["ia-retro60"]["era"]), (3, 60, "1960s"))
         self.assertEqual(g["ia-noir"]["programs"], [])      # not fetched yet
+
+    def test_tidy_titles(self):
+        """A tape's title says what's on the tape ("VHS Recording", "with commercials", "Tape #1036"): Live TV shows
+        the programme's own name, and when it aired."""
+        for raw, want in [("Noggin VHS Recording Clip - February 18, 2004", ("Noggin", "Feb 18, 2004")),
+                          ("Nick Jr. Programming (with commercials) - May 16, 2008 (pt 2", ("Nick Jr. Programming", "May 16, 2008")),
+                          ("Tape #1036: Bravo; Cartoon Network (Jan. 13, 2004; Feb. 27,", ("Bravo · Cartoon Network", "Jan 13, 2004")),
+                          ("X-Play 2008.11.26", ("X-Play", "Nov 26, 2008")),
+                          ("Toonami April 2004 VHS (Nearly Complete 4/24 Block, WOC)", ("Toonami", "Apr 2004")),
+                          ("Disney's 1 Saturday Morning on ABC (August 3rd, 2002)", ("Disney's 1 Saturday Morning on ABC", "Aug 3, 2002")),
+                          ("Kids Choice Awards 2006 Full Broadcast With Commercials", ("Kids Choice Awards", "2006")),
+                          ("227 (Complete TV Series) (CTV)", ("227", None)),
+                          ("Space 1999 (Complete Series 1)", ("Space 1999", None)),          # (a name with a year in it)
+                          ("His Girl Friday", ("His Girl Friday", None))]:
+            self.assertEqual(archive.tidy(raw), want, raw)
+        self.assertEqual(archive._name({"title": "Fox Box (October 12, 2002)", "year": 2002}), "Fox Box (Oct 12, 2002)")
+        self.assertEqual(archive._name({"title": "Detour", "year": 1945}), "Detour (1945)")
+        self.assertEqual(archive.shown({"title": "x", "ad": True})["title"], "Commercials")
+
+    def test_family_and_english(self):
+        """The eras' TV is English (the archive's tapes come from everywhere), and a family TV has no cigarette ads or
+        adult tapes."""
+        def fake(url, timeout=30):
+            ident = urllib.parse.unquote(url.rsplit("/", 1)[1])
+            meta = {"title": ident, "year": "1988"}
+            if ident == "jp":
+                meta["language"] = "jpn"
+            if ident == "kana":
+                meta["title"] = "1980年代CM集"
+            return {"metadata": meta, "files": [{"name": ident + ".mp4", "source": "original", "length": "20:00"}]}
+        real = archive._get
+        archive._get = fake
+        try:
+            self.assertIsNone(archive._film("jp", english=True))
+            self.assertIsNone(archive._film("kana", english=True))
+            self.assertIsNotNone(archive._film("jp"))                            # (Classic Cinema: any language)
+            self.assertIsNotNone(archive._film("en", english=True))
+        finally:
+            archive._get = real
+        self.assertTrue(archive.NOT_WORDS.search("1990s VHS • Adult Footage and MTV"))
+        self.assertTrue(archive.NOT_WORDS.search("Marlboro commercials"))
+        self.assertIn("Virginia Slims", archive.BY_ID["ia-ads60"][2])
+        self.assertIn("Virginia Slims", archive.BY_ID["ia-retro60"][5])          # (the breaks between shows too)
 
     def test_variety(self):
         """Three of one series at most (an upload in twenty parts, a show's every episode), and the family filter
@@ -195,8 +238,17 @@ class Archive(unittest.TestCase):
             retro = [ch["id"] for ch in ia if ch["group"] == "Retro TV"]
             self.assertEqual(retro[:3], ["ia-retro00", "ia-kids00", "ia-sat00"])      # the 2000s first, on the dial from 2
             self.assertEqual([ch["number"] for ch in ia][:3], [2, 3, 4])
-            self.assertEqual(len(retro), 13)
+            self.assertEqual(len(retro), 30)
             self.assertTrue(all(ch["about"] for ch in ia))
+            # the eras, in Live TV's order, each channel in one; the dial keeps an era's channels together
+            self.assertEqual([e["name"] for e in live["eras"]],
+                             ["Live now", "2009–2012", "2000s", "90s", "80s", "70s", "60s", "50s", "Classic Cinema"])
+            by = {}
+            for ch in ia:
+                by.setdefault(ch["era"], []).append(ch["number"])
+            self.assertEqual(set(by), {e["id"] for e in live["eras"]} - {"now"})
+            self.assertEqual((min(by["1990s"]), min(by["1980s"]), min(by["cinema"]), min(by["2010s"])), (90, 80, 20, 11))
+            self.assertEqual(len({ch["number"] for ch in ia}), len(ia))
             status, g = c.call("/api/live/guide")
             self.assertEqual(status, 200)
             self.assertEqual(len(g["channels"]), len(ia))

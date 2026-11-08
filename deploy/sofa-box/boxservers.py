@@ -222,6 +222,8 @@ class Servers:
         tmp = self.path + ".new"
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=1)
+            f.flush()
+            os.fsync(f.fileno())                        # (on the card at once: a sudden restart mustn't lose it)
         os.replace(tmp, self.path)
 
     def state(self):

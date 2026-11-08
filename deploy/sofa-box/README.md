@@ -260,12 +260,13 @@ you've added (open one, make it the one Sofa opens with, or remove it). Inside S
 **Servers** switches too. You stay signed in to each one.
 
 The **Live TV** tile opens Live TV in the Sofa it opens with, or in Sofa on the box. Channels play in the
-box's own player: up and down change the channel. Besides the free channel lists, there's **Classic
-Cinema** (classic movies, film noir, westerns, silent films, cartoons, classic TV, documentaries): films on a
-loop, on the clock, like TV; and **Retro TV**, its own group: the 2000s first, on channels 2 to 9 (Retro TV:
-00s, Kids TV, Saturday Mornings, Action Toons, On Air, Music TV, Game TV and Infomercials, most of them whole
-recorded broadcasts with the commercials they went out with), then a channel for each decade back to the 50s.
-Both have a **guide**, as on a TV: up and down go through the channels, OK watches, a channel's number goes
+box's own player: up and down change the channel. Live TV has a tab for each era: **Live now** (today's
+channels, from the free channel lists), **2009–2012**, the **2000s**, **90s**, **80s**, **70s**, **60s**,
+**50s**, and **Classic Cinema** (classic movies, film noir, westerns, silent films, cartoons, classic TV,
+documentaries). The eras are TV as it went out, most of it whole recorded broadcasts with their own
+commercials: Kids TV, Saturday Mornings, On Air, Music TV, Commercial Breaks and more (39 channels; the 2000s
+on 2 to 10, 2009–2012 on 11 to 14, Classic Cinema on 20 to 28, the 90s from 90, the 80s from 80 and so on).
+Each era has a **guide**, as on a TV: up and down go through the channels, OK watches, a channel's number goes
 straight to it, and Flip picks one. While a channel plays, its banner says what's on and what's next.
 
 ### USB drives and discs

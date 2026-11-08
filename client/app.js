@@ -1730,6 +1730,16 @@ const PRESETS = [
   ["Kids", "https://iptv-org.github.io/iptv/categories/kids.m3u"]
 ];
 let liveData = null, liveGroup = prefs.get("liveGroup", "Favorites"), liveQuery = "";
+// Live TV by era: Live now (today's channel lists), 2009–2012, the 2000s, the 90s and older, Classic Cinema, and the
+// channels you starred. (A server without Sofa's own lineup sends no eras: then the lists' groups, as before.)
+let liveEra = prefs.get("liveEra", "");
+const eraMode = () => !!(liveData && liveData.eras && liveData.eras.length);
+function liveEras() {
+  const has = id => id === "now" ? liveData.channels.some(c => !c.archive) : liveData.channels.some(c => c.era === id);
+  const out = (liveData.eras || []).filter(e => has(e.id));
+  if (liveData.channels.some(c => c.fav)) out.push({ id: "fav", name: "Favorites" });
+  return out;
+}
 const LIVE_PAGE = 60;                       // channels drawn at first; more as the end comes near
 let liveMore = null;
 function watchLiveMore() {
@@ -1750,6 +1760,11 @@ async function loadLive() {
 }
 function liveList() {
   const q = liveQuery.trim().toLowerCase();
+  if (eraMode() && !q) {
+    if (liveEra === "fav") return liveData.channels.filter(c => c.fav);
+    if (liveEra === "now") return liveData.channels.filter(c => !c.archive && (liveGroup === "All" || c.group === liveGroup));
+    return liveData.channels.filter(c => c.era === liveEra);
+  }
   return liveData.channels.filter(c =>
     (q ? c.name.toLowerCase().includes(q) : liveGroup === "All" ? true : liveGroup === "Favorites" ? c.fav : c.group === liveGroup));
 }
@@ -1765,12 +1780,30 @@ function viewLive() {
     <p class="count" style="max-width:60ch">Live TV channels come from the internet, and Sofa is set to work offline. Everything in your library plays as usual.
     ${session.user.admin ? `An admin can switch Work offline off under Server, Settings, Privacy.` : ""}</p></section>`;
   if (!liveData) { loadLive(); return `<section class="page"><div class="page-head"><h1>Live TV</h1></div><p class="count">Loading channels…</p></section>`; }
-  const head = `<div class="page-head"><h1>Live TV</h1><span class="count">${plural(liveData.channels.length, "channel")}</span></div>
+  const eras = eraMode() ? liveEras() : [];
+  if (eras.length && !eras.some(e => e.id === liveEra)) liveEra = (eras.find(e => e.id === "2000s") || eras[0]).id;
+  const tabs = eras.length ? `<div class="eras" role="tablist" aria-label="Eras">${eras.map(e => `<button role="tab" data-era="${esc(e.id)}"
+      aria-selected="${!liveQuery && e.id === liveEra}">${e.id === "now" ? `<i class="live-dot"></i>` : e.id === "fav" ? "★ " : ""}${esc(e.name)}</button>`).join("")}</div>` : "";
+  const head = eras.length ? `<div class="page-head live-head"><h1>Live TV</h1>${TV ? tabs : `<span class="count">${plural(liveData.channels.length, "channel")}</span>`}</div>${TV ? "" : tabs}`
+    : `<div class="page-head"><h1>Live TV</h1><span class="count">${plural(liveData.channels.length, "channel")}</span></div>
     ${TV ? `<p class="count live-how">${isGuide() ? "Up and down go through the channels, OK watches one; while it plays, up and down change the channel. Flip picks one for you." : "OK plays a channel, and while it plays, up and down change it. The ★ on a channel adds it to Favorites."}</p>` : ""}`;
   if (!liveData.channels.length) {
     return `<section class="page">${head}<p class="count" style="max-width:62ch">Free channels come from channel lists (M3U playlists), like the ones collected at github.com/iptv-org/iptv.
       ${session.user.admin ? "Add a list below, or any M3U link on the Server page." : "Ask whoever manages this server to add a channel list."}</p>
       ${session.user.admin ? `<div class="presets">${PRESETS.map(p => `<button class="btn" data-preset="${esc(p[1])}" data-name="${esc(p[0])}">Add ${esc(p[0])}</button>`).join("")}</div>` : ""}</section>`;
+  }
+  if (eras.length) {
+    // an era: its guide. Live now: today's channels by their lists' groups, and a search (thousands of them)
+    const now = liveEra === "now", groups = now ? [...new Set(liveData.channels.filter(c => !c.archive).map(c => c.group))].sort((a, b) => a.localeCompare(b)) : [];
+    if (now && liveGroup !== "All" && !groups.includes(liveGroup)) liveGroup = "All";
+    const list = liveList(), searching = !TV || now || liveEra === "fav" || liveQuery;
+    return `<section class="page live-page">${head}
+      ${searching ? `<div class="live-tools"><input id="liveSearch" type="search" placeholder="${now ? "Find a channel" : "Find any channel"}" aria-label="Find a channel" value="${esc(liveQuery)}"></div>` : ""}
+      ${now && !liveQuery ? `<div class="chips" role="group" aria-label="Channel groups">${["All"].concat(groups).map(g => `<button data-group="${esc(g)}" aria-pressed="${g === liveGroup}">${esc(g)}</button>`).join("")}</div>` : ""}
+      ${isGuide() ? `<div class="tv-guide" id="guide"><p class="count">Loading the guide…</p></div>` : `
+      <div class="channels" id="channels">${list.slice(0, LIVE_PAGE).map(channelCard).join("")}</div>
+      ${list.length > LIVE_PAGE ? `<div class="chan-more" id="chanMore" aria-hidden="true"></div>` : ""}`}
+      ${!list.length ? `<p class="count">${liveQuery ? "No channel by that name." : "No channels here yet."}</p>` : ""}</section>`;
   }
   const first = ["Retro TV", "Classic Cinema"], rank = g => first.includes(g) ? first.indexOf(g) : first.length;
   const groups = [...new Set(liveData.channels.map(c => c.group))].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
@@ -1794,7 +1827,8 @@ function viewLive() {
 let guideData = null, guideAt = 0, guideTimer = 0, guideT0 = 0, guidePicTimer = 0, guidePeekTimer = 0, guidePeek = null;
 let guideShown = null, guideHover = null, dialBuf = "", dialTimer = 0;
 const GUIDE_SPAN = 2 * 3600;
-const isGuide = () => !liveQuery && (liveGroup === "Retro TV" || liveGroup === "Classic Cinema");
+const isGuide = () => !liveQuery && (eraMode() ? !!liveEra && liveEra !== "now" && liveEra !== "fav"
+  : liveGroup === "Retro TV" || liveGroup === "Classic Cinema");
 const hhmm = t => new Date(t * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 const mins = s => { const m = Math.max(1, Math.round(s / 60)); return m >= 60 ? Math.floor(m / 60) + " h" + (m % 60 ? " " + (m % 60) + " min" : "") : m + " min"; };
 async function loadGuide() {
@@ -1806,7 +1840,7 @@ function watchGuide() {
   if (!$("#guide")) { clearInterval(guideTimer); stopPeek(); return; }
   if (guideData && Date.now() - guideAt < 10 * 60000) drawGuide(); else loadGuide();
 }
-const guideChannels = () => guideData ? guideData.channels.filter(c => c.group === liveGroup) : [];
+const guideChannels = () => guideData ? guideData.channels.filter(c => eraMode() ? c.era === liveEra : c.group === liveGroup) : [];
 function guideProg(b) {
   const c = b && guideData && guideData.channels.find(x => x.id === b.dataset.gch);
   return c ? (c.programs || [])[+b.dataset.gi] : null;
@@ -1853,14 +1887,16 @@ function showNow(b) {
   const on = p && p.start <= now && now < p.end, after = p ? progs[progs.indexOf(p) + 1] : null;
   panel.style.setProperty("--ch", c.color || "");
   panel.innerHTML = `<div class="g-pic" id="gPic"><span class="g-num">${c.number}</span></div>
-    <div class="g-info"><div class="g-chline"><b>${c.number}</b><span>${esc(c.name)}</span>${c.aired ? `<i class="g-aired">As it aired</i>` : ""}</div>
-      <h2>${p ? esc(p.title) + (p.year ? ` <small>${p.year}</small>` : "") : "Getting this channel ready…"}</h2>
+    <div class="g-info"><div class="g-chline"><b>${c.number}</b><span>${esc(c.name)}</span>${p && p.aired ? `<i class="g-aired">Aired ${esc(p.aired)}</i>`
+        : c.aired ? `<i class="g-aired">As it aired</i>` : ""}</div>
+      <h2>${p ? esc(p.title) + (p.year && !p.aired ? ` <small>${p.year}</small>` : "") : "Getting this channel ready…"}</h2>
       ${!p ? `<p class="g-when">Sofa is fetching its programmes: a minute or two.</p>` : on
         ? `<div class="g-bar"><i style="width:${((now - p.start) / (p.end - p.start) * 100).toFixed(1)}%"></i></div><p class="g-when">${mins(p.end - now)} left, until ${hhmm(p.end)}</p>`
         : `<p class="g-when">${hhmm(p.start)} to ${hhmm(p.end)} (${mins(p.end - p.start)}). OK tunes in now.</p>`}
       ${on && after ? `<p class="g-next">Next, at ${hhmm(after.start)}: ${esc(after.title)}</p>` : ""}
       <p class="g-about">${esc(c.about || "")}</p>
-      ${c.tapes ? `<p class="g-credit">${plural(c.tapes, c.aired ? "tape" : "programme")}, ${plural(c.hours, "hour")} on rotation</p>` : ""}</div>`;
+      ${TV ? `<p class="g-keys"><b>OK</b> watch <b>◀ ▶</b> what's on later <b>0–9</b> a channel's number</p>`
+        : c.tapes ? `<p class="g-credit">${plural(c.tapes, c.aired ? "tape" : "programme")}, ${plural(c.hours, "hour")} on rotation</p>` : ""}</div>`;
   clearTimeout(guidePicTimer); stopPeek();
   if (!p) return;
   guidePicTimer = setTimeout(() => {                    // (not for every channel the remote passes on its way)
@@ -2949,6 +2985,11 @@ document.addEventListener("click", e => {
     rerender(); return;
   }
   if (t.dataset.group) { liveGroup = t.dataset.group; liveQuery = ""; prefs.set("liveGroup", liveGroup); rerender(); return; }
+  if (t.dataset.era) {
+    liveEra = t.dataset.era; liveQuery = ""; prefs.set("liveEra", liveEra); guideShown = null; stopPeek(); rerender();
+    const tab = $(`[data-era="${CSS.escape(liveEra)}"]`); if (tab && TV && !isGuide()) tab.focus({ preventScroll: true });
+    return;
+  }
   if (t.dataset.preset) {
     t.disabled = true; t.textContent = "Adding " + t.dataset.name + "…";
     api("/api/admin/live", { add: { name: t.dataset.name, url: t.dataset.preset } })
