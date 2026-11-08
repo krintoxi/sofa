@@ -18,6 +18,16 @@ GitHub builds the card and makes the release by itself.
   places and five rarities (sets among them, and relics with a power each); what you wear changes how you
   look. In Wickhollow: Vesk's forge betters your gear, a strongbox keeps it, and the notice board has tasks.
   Three saves; a Wickbearer from before moves into the first free one.
+- **Make your own Wickbearer:** a name (typed with the controller), an origin that gives a head start, skin,
+  hair and its colour, a beard, scar or paint, and the colour of your clothes. What you wear shows: every
+  armour and helm has its own look, the weapon is in your hand, the Warden carries a shield, and rare,
+  relic and set pieces have their trim, a cape and a glow.
+- **Skills besides fighting:** Woodcutting (the village's trees and the great roots below), Mining (the
+  veins in the walls, a metal for each zone), Crafting at Vesk's forge (bars, better hatchets and picks,
+  weapons, armour, helms and rings, tonics and oil), and Hunting: Ysolde the huntress sets a creature to
+  hunt, and pays in hunt marks for her mask, rare finds, and a mount. Each skill levels up to 60.
+- **Mounts to win:** eight, from the guardians (now and then), from Ysolde, and one you make. L3 (the left
+  stick, pressed) rides and gets down. The four that fly cross water, lava, wax and spikes.
 - **Better to look at and listen to, still smooth on a Pi 3:** your lamp throws shadows past walls, torches
   flicker, water and lava move, blows spark and shake, and it has its own quiet music (Sound and options: the
   two volumes, the shake, the controller's rumble). As light to run as before: everything is drawn once and
