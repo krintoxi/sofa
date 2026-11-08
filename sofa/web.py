@@ -111,6 +111,12 @@ class Handler(BaseHTTPRequestHandler):
         if isinstance(data, str):
             data = data.encode("utf-8")
         headers = dict(headers or {})
+        if self.command not in ("GET", "HEAD") and not getattr(self, "body_read", False) and \
+                int(self.headers.get("Content-Length") or 0) > 0:
+            # a request turned down before its body was read: the body is still on the connection, and would be taken
+            # for the next request on it ("Unsupported method"); this connection ends with this answer
+            self.close_connection = True
+            headers["Connection"] = "close"
         if len(data) > 4096 and ctype.split(";")[0] in ("application/json", "text/plain", "text/html", "text/css", "text/javascript") \
                 and "gzip" in (self.headers.get("Accept-Encoding") or "") and "Content-Disposition" not in headers:
             data = gzip.compress(data, compresslevel=5)      # the library is ~10x smaller: matters on TV sticks and Wi-Fi
@@ -138,7 +144,9 @@ class Handler(BaseHTTPRequestHandler):
         if length > 65536:
             return None
         try:
-            return json.loads(self.rfile.read(length) or b"{}")
+            data = self.rfile.read(length)
+            self.body_read = True
+            return json.loads(data or b"{}")
         except ValueError:
             return None
 
@@ -317,6 +325,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_body("Not found", status=404)
 
     def do_POST(self):
+        self.body_read = False                        # (one handler serves every request on a kept-alive connection)
         if not self.gate():
             return
         path = unquote(urlsplit(self.path).path)      # IDs in the address ("e:the-sopranos:1:1") arrive %-encoded
@@ -325,6 +334,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_body("Not found", status=404)
             length = int(self.headers.get("Content-Length") or 0)
             body = self.rfile.read(min(length, 65536)).decode("utf-8", "replace")
+            self.body_read = length <= 65536
             action = (self.headers.get("SOAPACTION") or "").strip('"').split("#")[-1]
             args = {k: html.unescape(v) for k, v in re.findall(r"<(?:\w+:)?(\w+)>([^<]*)</(?:\w+:)?\1>", body)}
             status, xml = dlna.control(path, action, args, self.host_header())
@@ -712,6 +722,8 @@ class Handler(BaseHTTPRequestHandler):
             favs = {r["channel"] for r in store.q("SELECT channel FROM live_favorites WHERE user_id = ?", u["id"])}
             out["channels"] = [dict(c, fav=c["id"] in favs, playlist="archive.org") for c in archive.channels()] + out["channels"]
             return self.json(out)
+        if path == "/api/live/guide":                  # the archive channels' guide: what's on and next, by the clock
+            return self.json({"at": int(time.time()), "channels": archive.guide()})
         m = re.match(r"^/api/live/archive/(ia-[a-z0-9]+)/now$", path)
         if m:                                          # an Internet Archive channel: what's on, from where
             if m.group(1) not in archive.BY_ID or not archive.on():

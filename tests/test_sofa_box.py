@@ -1395,6 +1395,48 @@ class BoxNetwork(unittest.TestCase):
 
 assert tests.ROOT
 
+
+class LiveBanner(unittest.TestCase):
+    """Live TV in the box's player: the channel's banner (number, name, what's on, what's next) at each programme of
+    an archive channel, not at the commercials between them."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.conf = tempfile.mkdtemp()
+        old = {k: os.environ.get(k) for k in ("SOFA_BOX_CONF", "SOFA_BOX_DEVTOOLS", "SOFA_BOX_CAPTIVE_PORT")}
+        os.environ.update(SOFA_BOX_CONF=cls.conf, SOFA_BOX_DEVTOOLS="0", SOFA_BOX_CAPTIVE_PORT="0")
+        try:
+            cls.agent = load("sofa-box-agent")
+        finally:
+            for k, v in old.items():
+                os.environ.pop(k) if v is None else os.environ.__setitem__(k, v)
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.conf, ignore_errors=True)
+
+    def banner(self, payload, at):
+        p, said = self.agent.Player(), []
+        p.payload = payload
+        p.command = lambda *cmd: said.append(cmd)
+        p.banner(at)
+        self.assertEqual((said[0][0], said[0][2]), ("show-text", 5000))
+        return said[0][1]
+
+    def test_the_banner(self):
+        progs = [{"title": "Kids' WB {Feb 10, 2001}", "year": 2001, "ad": False}, {"title": "Ad", "ad": True},
+                 {"title": "Fox Box", "year": 2002, "ad": False}]
+        text = self.banner({"live": True, "title": "00s Saturday Mornings", "number": 4, "programs": progs}, 0)
+        self.assertTrue(text.startswith("${osd-ass-cc/0}"))
+        self.assertIn("4  {\\c&HFFFFFF&}00s Saturday Mornings", text)
+        self.assertIn("Kids' WB (Feb 10, 2001) (2001)", text)             # (ASS's braces out of the title)
+        self.assertIn("Next: Fox Box (2002)", text)
+        text = self.banner({"live": True, "title": "00s Saturday Mornings", "number": 4, "programs": progs}, 1)
+        self.assertIn("Commercials, then Fox Box (2002)", text)
+        text = self.banner({"live": True, "title": "A free channel", "programs": []}, 0)
+        self.assertNotIn("Next", text)
+
+
 if __name__ == "__main__":
     unittest.main()
 

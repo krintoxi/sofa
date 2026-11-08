@@ -1737,7 +1737,7 @@ function liveList() {
 function channelCard(c) {
   return `<div class="chan"><button class="card" data-live="${esc(c.id)}" style="display:block;width:100%">
       <span class="logo">${c.logo ? `<img src="${esc(c.logo)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : `<span>${esc(c.name)}</span>`}</span>
-      <span class="t1">${esc(c.name)}</span><span class="t2">${c.now ? "Now: " + esc(c.now) : esc(c.group)}</span></button>
+      <span class="t1">${c.number ? `<b class="ch-num">${c.number}</b> ` : ""}${esc(c.name)}</span><span class="t2">${c.now ? "Now: " + esc(c.now) : esc(c.group)}</span></button>
     <button class="star" data-fav="${esc(c.id)}" aria-pressed="${c.fav}" aria-label="${c.fav ? "Remove from favorites" : "Add to favorites"}">★</button></div>`;
 }
 function viewLive() {
@@ -1747,24 +1747,219 @@ function viewLive() {
     ${session.user.admin ? `An admin can switch Work offline off under Server, Settings, Privacy.` : ""}</p></section>`;
   if (!liveData) { loadLive(); return `<section class="page"><div class="page-head"><h1>Live TV</h1></div><p class="count">Loading channels…</p></section>`; }
   const head = `<div class="page-head"><h1>Live TV</h1><span class="count">${plural(liveData.channels.length, "channel")}</span></div>
-    ${TV ? `<p class="count live-how">OK plays a channel, and while it plays, up and down change it. The ★ on a channel adds it to Favorites.</p>` : ""}`;
+    ${TV ? `<p class="count live-how">${isGuide() ? "Up and down go through the channels, OK watches one; while it plays, up and down change the channel. Flip picks one for you." : "OK plays a channel, and while it plays, up and down change it. The ★ on a channel adds it to Favorites."}</p>` : ""}`;
   if (!liveData.channels.length) {
     return `<section class="page">${head}<p class="count" style="max-width:62ch">Free channels come from channel lists (M3U playlists), like the ones collected at github.com/iptv-org/iptv.
       ${session.user.admin ? "Add a list below, or any M3U link on the Server page." : "Ask whoever manages this server to add a channel list."}</p>
       ${session.user.admin ? `<div class="presets">${PRESETS.map(p => `<button class="btn" data-preset="${esc(p[1])}" data-name="${esc(p[0])}">Add ${esc(p[0])}</button>`).join("")}</div>` : ""}</section>`;
   }
-  const groups = [...new Set(liveData.channels.map(c => c.group))].sort((a, b) => a.localeCompare(b));
+  const first = ["Retro TV", "Internet Archive"], rank = g => first.includes(g) ? first.indexOf(g) : first.length;
+  const groups = [...new Set(liveData.channels.map(c => c.group))].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
   if (liveGroup !== "All" && liveGroup !== "Favorites" && !groups.includes(liveGroup)) liveGroup = "All";
-  if (liveGroup === "Favorites" && !liveData.channels.some(c => c.fav)) liveGroup = "All";
+  if (liveGroup === "Favorites" && !liveData.channels.some(c => c.fav)) liveGroup = groups.includes("Retro TV") ? "Retro TV" : "All";
   const list = liveList();
   const chips = ["Favorites", "All"].concat(groups).map(g => `<button data-group="${esc(g)}" aria-pressed="${!liveQuery && g === liveGroup}">${esc(g)}</button>`).join("");
   return `<section class="page">${head}
     <div class="live-tools"><input id="liveSearch" type="search" placeholder="Find a channel" aria-label="Find a channel" value="${esc(liveQuery)}"></div>
     <div class="chips" role="group" aria-label="Channel groups">${chips}</div>
+    ${isGuide() ? `<div class="tv-guide" id="guide"><p class="count">Loading the guide…</p></div>` : `
     <div class="channels" id="channels">${list.slice(0, LIVE_PAGE).map(channelCard).join("")}</div>
-    ${list.length > LIVE_PAGE ? `<div class="chan-more" id="chanMore" aria-hidden="true"></div>` : ""}
+    ${list.length > LIVE_PAGE ? `<div class="chan-more" id="chanMore" aria-hidden="true"></div>` : ""}`}
     ${!list.length ? `<p class="count">No channels here yet. Tap the star on a channel to add it to Favorites.</p>` : ""}</section>`;
 }
+
+/* ---------- Live TV's guide: the archive channels (Retro TV, the film channels) by the clock, as on a TV. Light on
+   purpose (a Raspberry Pi 3 draws it): two hours of one group's channels, a still of what's on (a muted preview on a
+   computer), redrawn only when a programme ends or the half hour turns. Up and down go through the channels at the
+   same time of day, left and right through a channel's programmes; OK watches; digits go straight to a channel. ---- */
+let guideData = null, guideAt = 0, guideTimer = 0, guideT0 = 0, guidePicTimer = 0, guidePeekTimer = 0, guidePeek = null;
+let guideShown = null, guideHover = null, dialBuf = "", dialTimer = 0;
+const GUIDE_SPAN = 2 * 3600;
+const isGuide = () => !liveQuery && (liveGroup === "Retro TV" || liveGroup === "Internet Archive");
+const hhmm = t => new Date(t * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+const mins = s => { const m = Math.max(1, Math.round(s / 60)); return m >= 60 ? Math.floor(m / 60) + " h" + (m % 60 ? " " + (m % 60) + " min" : "") : m + " min"; };
+async function loadGuide() {
+  try { guideData = await api("/api/live/guide"); } catch (e) { guideData = guideData || { error: e.message, channels: [] }; }
+  guideAt = Date.now();
+  drawGuide();
+}
+function watchGuide() {
+  if (!$("#guide")) { clearInterval(guideTimer); stopPeek(); return; }
+  if (guideData && Date.now() - guideAt < 10 * 60000) drawGuide(); else loadGuide();
+}
+const guideChannels = () => guideData ? guideData.channels.filter(c => c.group === liveGroup) : [];
+function guideProg(b) {
+  const c = b && guideData && guideData.channels.find(x => x.id === b.dataset.gch);
+  return c ? (c.programs || [])[+b.dataset.gi] : null;
+}
+function guideFind(id, t) {
+  const row = [...document.querySelectorAll("#gRows .g-prog")].filter(b => b.dataset.gch === id);
+  return row.find(b => { const p = guideProg(b); return p && p.start <= t && t < p.end; }) || row[0] || null;
+}
+function guideRows(now) {
+  const t0 = guideT0 = Math.floor(now / 1800) * 1800, t1 = t0 + GUIDE_SPAN, at = t => (Math.min(t1, Math.max(t0, t)) - t0) / GUIDE_SPAN * 100;
+  return guideChannels().map(c => {
+    const cells = (c.programs || []).map((p, i) => [p, i]).filter(([p]) => p.end > t0 && p.start < t1).map(([p, i]) => {
+      const on = p.start <= now && now < p.end, l = at(p.start), w = at(p.end) - l;
+      return `<button class="g-prog${on ? " on" : ""}" data-gch="${esc(c.id)}" data-gi="${i}" style="left:${l.toFixed(2)}%;width:${w.toFixed(2)}%${on ? ";--p:" + ((now - p.start) / (p.end - p.start) * 100).toFixed(1) + "%" : ""}"><span>${esc(p.title)}</span></button>`;
+    }).join("") || `<button class="g-prog on wait" data-gch="${esc(c.id)}" data-gi="-1" style="left:0;width:100%"><span>Getting this channel ready…</span></button>`;
+    return `<div class="g-row" style="--ch:${esc(c.color || "")}"><div class="g-ch"><b>${c.number}</b><span>${esc(c.name)}</span></div><div class="g-line">${cells}</div></div>`;
+  }).join("");
+}
+function drawGuide() {
+  const box = $("#guide");
+  if (!box || !guideData) return;
+  if (!guideChannels().length) { box.innerHTML = `<p class="count">${guideData.error ? "The guide didn't load: " + esc(guideData.error) : "No channels here yet."}</p>`; return; }
+  const now = Date.now() / 1000, a = document.activeElement;
+  const had = a && box.contains(a) && a.dataset.gch ? { id: a.dataset.gch, t: Math.max(now, (guideProg(a) || {}).start || now) } : null;
+  const t0 = Math.floor(now / 1800) * 1800;
+  box.innerHTML = `<div class="g-now" id="gNow"></div>
+    <div class="g-times"><div class="g-ch"><button class="btn g-flip" data-gflip title="Tunes to a channel at random">Flip</button></div>
+      <div class="g-line">${[0, 1, 2, 3].map(k => `<span style="left:${k * 25}%">${hhmm(t0 + k * 1800)}</span>`).join("")}<i class="g-mark" style="left:${((now - t0) / GUIDE_SPAN * 100).toFixed(2)}%"></i></div></div>
+    <div class="g-rows" id="gRows">${guideRows(now)}</div>`;
+  let target = had ? guideFind(had.id, had.t) : null;
+  if (!target && TV && (!a || a === document.body)) target = $("#gRows .g-prog.on");     // (the remote starts in the guide)
+  if (target) { target.focus({ preventScroll: true }); target.scrollIntoView({ block: "nearest" }); }
+  showNow(target || $("#gRows .g-prog.on"));
+  clearInterval(guideTimer); guideTimer = setInterval(guideTick, 20000);
+}
+function showNow(b) {
+  const panel = $("#gNow");
+  if (!panel || !guideData || !b) return;
+  const c = guideData.channels.find(x => x.id === b.dataset.gch);
+  if (!c) return;
+  const now = Date.now() / 1000, progs = c.programs || [], p = progs[+b.dataset.gi] || null;
+  if (guideShown && guideShown.c === c && guideShown.p === p) return;
+  guideShown = { c, p };
+  const on = p && p.start <= now && now < p.end, after = p ? progs[progs.indexOf(p) + 1] : null;
+  panel.style.setProperty("--ch", c.color || "");
+  panel.innerHTML = `<div class="g-pic" id="gPic"><span class="g-num">${c.number}</span></div>
+    <div class="g-info"><div class="g-chline"><b>${c.number}</b><span>${esc(c.name)}</span>${c.aired ? `<i class="g-aired">As it aired</i>` : ""}</div>
+      <h2>${p ? esc(p.title) + (p.year ? ` <small>${p.year}</small>` : "") : "Getting this channel ready…"}</h2>
+      ${!p ? `<p class="g-when">Sofa is fetching its programmes: a minute or two.</p>` : on
+        ? `<div class="g-bar"><i style="width:${((now - p.start) / (p.end - p.start) * 100).toFixed(1)}%"></i></div><p class="g-when">${mins(p.end - now)} left, until ${hhmm(p.end)}</p>`
+        : `<p class="g-when">${hhmm(p.start)} to ${hhmm(p.end)} (${mins(p.end - p.start)}). OK tunes in now.</p>`}
+      ${on && after ? `<p class="g-next">Next, at ${hhmm(after.start)}: ${esc(after.title)}</p>` : ""}
+      <p class="g-about">${esc(c.about || "")}</p>
+      <p class="g-credit">${c.tapes ? plural(c.tapes, c.aired ? "tape" : "programme") + ", " + c.hours + " hours, " : ""}from the Internet Archive</p></div>`;
+  clearTimeout(guidePicTimer); stopPeek();
+  if (!p) return;
+  guidePicTimer = setTimeout(() => {                    // (not for every channel the remote passes on its way)
+    const pic = $("#gPic");
+    if (!pic) return;
+    const img = new Image();
+    img.alt = ""; img.decoding = "async"; img.referrerPolicy = "no-referrer";
+    img.onload = () => { if (pic.isConnected && !pic.querySelector("video")) { pic.prepend(img); requestAnimationFrame(() => img.classList.add("in")); } };
+    img.src = "https://archive.org/services/img/" + encodeURIComponent(p.id);
+    if (!TV && on) guidePeekTimer = setTimeout(() => peek(c, pic), 900);
+  }, TV ? 300 : 120);
+}
+async function peek(c, pic) {
+  let at;
+  try { at = await api("/api/live/archive/" + c.id + "/now"); } catch (e) { return; }
+  if (!pic.isConnected || !guideShown || guideShown.c !== c) return;
+  stopPeek();
+  const asked = Date.now(), v = document.createElement("video");
+  v.muted = true; v.playsInline = true; v.preload = "auto";
+  v.addEventListener("playing", () => v.classList.add("in"), { once: true });       // (the still stays until it moves)
+  v.addEventListener("loadedmetadata", () => { try { v.currentTime = at.offset + (Date.now() - asked) / 1000; } catch (e) {} }, { once: true });
+  v.addEventListener("error", stopPeek, { once: true });
+  v.src = at.film.url;
+  pic.prepend(v);
+  v.play().catch(() => {});
+  guidePeek = v;
+}
+function stopPeek() {                                   // (a preview lets go of its video and its connection)
+  clearTimeout(guidePeekTimer);
+  if (!guidePeek) return;
+  guidePeek.pause(); guidePeek.removeAttribute("src"); guidePeek.load(); guidePeek.remove(); guidePeek = null;
+}
+function guideTick() {
+  const box = $("#guide");
+  if (!box) { clearInterval(guideTimer); stopPeek(); return; }
+  if (Player.isOpen() || document.hidden) return;
+  const now = Date.now() / 1000;
+  const waiting = guideChannels().some(c => !(c.programs || []).length);
+  if (Date.now() - guideAt > (waiting ? 60000 : 10 * 60000)) return loadGuide();
+  if (Math.floor(now / 1800) * 1800 !== guideT0 || [...box.querySelectorAll("#gRows .g-prog.on")].some(b => { const p = guideProg(b); return p && p.end <= now; })) {
+    guideShown = null; return drawGuide();
+  }
+  box.querySelectorAll("#gRows .g-prog.on").forEach(b => { const p = guideProg(b); if (p) b.style.setProperty("--p", ((now - p.start) / (p.end - p.start) * 100).toFixed(1) + "%"); });
+  const mark = $(".g-mark", box);
+  if (mark) mark.style.left = ((now - guideT0) / GUIDE_SPAN * 100).toFixed(2) + "%";
+  const s = guideShown, bar = $("#gNow .g-bar i"), when = $("#gNow .g-when");
+  if (s && s.p && bar && s.p.start <= now && now < s.p.end) {
+    bar.style.width = ((now - s.p.start) / (s.p.end - s.p.start) * 100).toFixed(1) + "%";
+    when.textContent = mins(s.p.end - now) + " left, until " + hhmm(s.p.end);
+  }
+}
+function tuneArchive(id) {
+  const list = (liveData ? liveData.channels : []).filter(c => c.archive), ch = list.find(c => c.id === id);
+  if (!ch) return;
+  stopPeek();
+  Player.openLive(ch, list);
+}
+function flip() {
+  const a = document.activeElement, cur = a && a.dataset ? a.dataset.gch : null;
+  const pool = guideChannels().filter(c => c.id !== cur && (c.programs || []).length);
+  if (!pool.length) return;
+  const c = pool[Math.floor(Math.random() * pool.length)], b = guideFind(c.id, Date.now() / 1000);
+  if (b) { b.focus({ preventScroll: true }); b.scrollIntoView({ block: "nearest" }); }
+  tuneArchive(c.id);
+}
+function dial(d) {                                      // a channel's number, typed: straight to it
+  dialBuf = (dialBuf + d).slice(-3);
+  let box = $("#gDial");
+  if (!box) { box = document.createElement("div"); box.id = "gDial"; box.className = "g-dial"; box.setAttribute("aria-live", "polite"); document.body.appendChild(box); }
+  box.textContent = dialBuf; box.hidden = false;
+  if (!guideData) loadGuide();
+  clearTimeout(dialTimer);
+  dialTimer = setTimeout(() => {
+    const n = +dialBuf, c = guideData && guideData.channels.find(x => x.number === n);
+    dialBuf = ""; box.hidden = true;
+    if (!c) return toast("There's no channel " + n + ".");
+    const b = guideFind(c.id, Date.now() / 1000);
+    if (b) { b.focus({ preventScroll: true }); b.scrollIntoView({ block: "nearest" }); }
+    tuneArchive(c.id);
+  }, 1100);
+}
+document.addEventListener("keydown", e => {
+  if (Player.isOpen() || e.metaKey || e.ctrlKey || e.altKey) return;
+  const a = document.activeElement;
+  if (/^[0-9]$/.test(e.key) && location.hash.startsWith("#/live") && !(a && (a.tagName === "INPUT" || a.tagName === "TEXTAREA"))) {
+    e.preventDefault(); dial(e.key); return;
+  }
+  if (!a || !a.classList || !a.classList.contains("g-prog")) return;
+  const row = a.closest(".g-row"), progs = [...row.querySelectorAll(".g-prog")], i = progs.indexOf(a);
+  let to = null;
+  if (e.key === "ArrowLeft") to = progs[i - 1];
+  else if (e.key === "ArrowRight") to = progs[i + 1];
+  else if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+    const other = e.key === "ArrowUp" ? row.previousElementSibling : row.nextElementSibling;
+    if (other) {
+      const p = guideProg(a), t = Math.max(Date.now() / 1000, p ? p.start : 0);
+      const there = [...other.querySelectorAll(".g-prog")];
+      to = there.find(b => { const q = guideProg(b); return q && q.start <= t && t < q.end; }) || there[0];
+    }
+  } else return;
+  if (!to) return;                                      // (at an edge: the remote's usual move, to the chips or the rail)
+  e.preventDefault(); e.stopPropagation();
+  document.body.classList.add("tv-nav");
+  to.focus({ preventScroll: true });
+  to.scrollIntoView({ block: "nearest", inline: "nearest", behavior: TV ? "auto" : "smooth" });
+}, true);
+document.addEventListener("focusin", e => { const b = e.target.closest && e.target.closest("#gRows .g-prog"); if (b) showNow(b); });
+document.addEventListener("pointerover", e => {
+  if (TV) return;
+  const b = e.target.closest && e.target.closest("#gRows .g-prog");
+  if (b && b !== guideHover) { guideHover = b; showNow(b); }
+});
+document.addEventListener("click", e => {
+  const t = e.target.closest && e.target.closest("#guide [data-gch], #guide [data-gflip]");
+  if (!t) return;
+  e.preventDefault();
+  if (t.dataset.gflip !== undefined) flip(); else tuneArchive(t.dataset.gch);
+});
 document.addEventListener("input", e => {
   if (e.target.id === "pageFilter") {
     pageFilter = e.target.value; const pos = e.target.selectionStart; rerender();
@@ -2583,6 +2778,7 @@ function route(animate) {
   }
   watchGrids();
   watchLiveMore();
+  watchGuide();
   updateNudges();
   startHero();
   if (trailer) keepTrailer(trailer); else if (animate !== false) startTrailer();
@@ -4010,6 +4206,7 @@ const Player = (function () {
     if (next && !nextHidden && opt("autoplay", true)) playNext(true); else wake();
   });
   video.addEventListener("error", () => {
+    if (el.classList.contains("is-live") && archiveNext && archiveNext()) return;
     if (el.classList.contains("is-live") && video.getAttribute("src")) return showError("This channel isn't available right now", "Free channels come and go. Try another one, or try this one later.");
     if (!item || (!video.getAttribute("src") && !hls)) return;
     playbackFailed();
@@ -4172,7 +4369,7 @@ const Player = (function () {
     $(".speed", el).textContent = video.playbackRate + "×";
     flashSeek(video.playbackRate + "×", "mid");
   }
-  let hls = null, liveList_ = null, liveIdx = 0, archiveTuned = 0;
+  let hls = null, liveList_ = null, liveIdx = 0, archiveTuned = 0, archiveNext = null;
   const filmName = f => f.title + (f.year ? " (" + f.year + ")" : "");
   function loadHlsJs() {
     if (window.Hls) return Promise.resolve();
@@ -4189,10 +4386,11 @@ const Player = (function () {
     // on a Sofa box: its own player, on the Pi's video chip; up and down change the channel there
     if (NATIVE && window.SofaBox && !nativeFailed.has("live:" + ch.id)) {
       const all = list || [ch];
-      const to = c => ({ id: c.id, name: c.name, group: c.group || "", archive: !!c.archive,
+      const to = c => ({ id: c.id, name: c.name, group: c.group || "", archive: !!c.archive, number: c.number || null,
                          url: location.origin + (c.archive ? "/api/live/archive/" + c.id + "/now" : "/live/" + c.id + "/index.m3u8") });
       nativeItem = { id: "live:" + ch.id, live: true, channel: ch, list: all }; nativeQueue = null;
       NATIVE.play(JSON.stringify({ item: null, live: true, title: ch.name, sub: onAir ? filmName(onAir.film) : ch.group || "", at: Math.max(0, all.indexOf(ch)),
+        number: ch.number || null, programs: onAir ? [onAir.film].concat(onAir.next).map(f => ({ title: f.title, year: f.year || null, ad: !!f.ad })) : [],
         url: onAir ? onAir.film.url : to(ch).url, start_at: onAir ? onAir.offset : 0, then: onAir ? onAir.next.map(f => f.url) : [],
         channels: all.length <= 600 ? all.map(to) : [to(ch)], duration: 0, subtitles: [], markers: [] }));
       return;
@@ -4206,7 +4404,8 @@ const Player = (function () {
     errorBox.hidden = chip.hidden = nextCard.hidden = ccMenu.hidden = epsPanel.hidden = helpBox.hidden = pauseInfo.hidden = true;
     ccBtn.hidden = epsBtn.hidden = true; pipBtn.hidden = TV || !document.pictureInPictureEnabled;
     showSpinner("Tuning in…");
-    $(".p-show", el).innerHTML = esc(ch.name) + '<span class="live-badge">LIVE</span>';
+    $(".p-show", el).innerHTML = (ch.number ? `<b class="p-num">${ch.number}</b>` : "") + esc(ch.name) + '<span class="live-badge">LIVE</span>';
+    archiveNext = null;
     $(".p-title", el).textContent = ch.group + (liveList_.length > 1 ? "  (Page Up / Page Down changes channel)" : "");
     $('[data-act="next"]', el).hidden = liveList_.length < 2;
     modeEl.hidden = true;
@@ -4215,6 +4414,14 @@ const Player = (function () {
     if (onAir) {                                        // a film from archive.org, from where the channel is now
       $(".p-title", el).textContent = filmName(onAir.film) + (liveList_.length > 1 ? "  (Page Up / Page Down changes channel)" : "");
       const tuned = ++archiveTuned;
+      let skipped = 0;                                  // a tape the archive can't send: the next one, from its start
+      archiveNext = () => {
+        const f = onAir.next[skipped++];
+        if (tuned !== archiveTuned || !f || skipped > 3) return false;
+        $(".p-title", el).textContent = filmName(f);
+        video.src = f.url; video.play().catch(() => {});
+        return true;
+      };
       video.src = onAir.film.url;
       video.addEventListener("loadedmetadata", () => { try { video.currentTime = onAir.offset; } catch (e) {} }, { once: true });
       video.addEventListener("ended", () => { if (tuned === archiveTuned && el.classList.contains("is-live")) openLive(ch, liveList_); }, { once: true });
