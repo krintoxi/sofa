@@ -43,6 +43,18 @@ on_its_own() {
     --setenv=SUDO_USER="${SUDO_USER:-}" --setenv=SOFA_BOX_BRANCH="${SOFA_BOX_BRANCH:-main}" "$0" "$1"
 }
 
+# The boot screen's rebuild, started from the TV: a minute of the whole processor on a Pi 3 (update-initramfs packs
+# with every core). Inside the agent's service it had the player's share of the processor and the card, and a Pi 3
+# at full power on all four cores can brown out on a weak supply. So: its own short service, at the lowest priority,
+# waited for (one at a time), and on one core.
+in_the_background() {
+  [ -z "$SOFA_BOX_ON_ITS_OWN" ] && grep -q 'sofa-box-agent' /proc/self/cgroup 2>/dev/null && command -v systemd-run >/dev/null || return 0
+  exec systemd-run --quiet --collect --wait --unit="sofa-box-$1" -p Nice=19 -p CPUWeight=10 -p IOWeight=10 \
+    -p IOSchedulingClass=idle --setenv=SOFA_BOX_ON_ITS_OWN=1 --setenv=SUDO_USER="${SUDO_USER:-}" "$0" "$@"
+}
+
+one_core() { if command -v taskset >/dev/null && [ "$(nproc 2>/dev/null || echo 1)" -gt 1 ]; then taskset -c 0 "$@"; else "$@"; fi; }
+
 # How big Sofa's pages are drawn: twice on a 1080p TV (like Fire TV), so they read from the sofa.
 scale() {
   [ -n "$SOFA_BOX_SCALE" ] && { echo "$SOFA_BOX_SCALE"; return; }
@@ -152,8 +164,9 @@ apply_boot() {               # (root) the boot screen in the box's theme and nam
   python3 "$LIB/sofa-box-art.py" plymouth /usr/share/plymouth/themes/sofa "$SETTINGS"
   plymouth-set-default-theme sofa
   if [ "${2:-}" != --no-initramfs ] && command -v update-initramfs >/dev/null; then
-    update-initramfs -u >/dev/null 2>&1 || true
+    one_core update-initramfs -u >/dev/null 2>&1 || true
   fi
+  sync                         # on the card before this says it's done: a restart now mustn't leave half a start-up file
   echo "The boot screen is set: it shows from the next start."
 }
 
@@ -357,7 +370,7 @@ case "${1:-}" in
     PHYS="$(cec-ctl -d "$DEV" | sed -n 's/.*Physical Address *: *\([0-9a-f.]*\).*/\1/p' | head -n 1)"
     cec-ctl -d "$DEV" --to 15 --active-source phys-addr="$PHYS" >/dev/null
     echo "Asked the TV to turn on and show the box." ;;
-  apply-boot) shift; apply_boot "$@" ;;
+  apply-boot) in_the_background "$@"; shift; apply_boot "$@" ;;
   setup-boot) shift; setup_boot "$@" ;;
   shield) shift; shield "$@" ;;
   games) shift; games "$@" ;;

@@ -58,8 +58,12 @@ DEFAULTS = {
     "doh": "https://cloudflare-dns.com/dns-query",  # to see the DNS record is out ("" waits "settle" seconds instead)
     "settle": 10,
     "new_per_week": 45,                           # Let's Encrypt: 50 new certificates a week per registered domain
-    "register_per_ip_day": 10,
-    "register_per_day": 500,
+    # New boxes: no limit for one home (an owner flashing card after card registers a new box each time; a box that
+    # couldn't register had no remote from away and its reports came back "Unknown box"). A new box costs nothing
+    # here now (the relay needs no certificate or DNS record), so only a cap for the whole service is left, high,
+    # against someone filling boxes.json. 0: no limit.
+    "register_per_ip_day": 0,
+    "register_per_day": 5000,
     "report_max": 200000,                         # a report's size (characters)
     "relay_base": "https://boxcert.edgeventure.uk",   # where phones open a box's remote (boxes are told: it can change)
     "reach_per_hour": 20,                         # "Check from outside" (a Sofa, or a box's Sofa), from one address
@@ -352,11 +356,17 @@ class Service:
         its phone remote's address through the relay is known at its setup (the phone carries on there by itself after
         the box joins the home Wi-Fi); a taken or odd one gets a new id."""
         now = self.now()
-        self.made = [(t, c) for t, c in self.made if now - t < 86400]
-        if sum(1 for _, c in self.made if c == client) >= self.cfg["register_per_ip_day"] or len(self.made) >= self.cfg["register_per_day"]:
-            raise Limit("Too many new boxes from here today. Try again tomorrow.")
         alphabet = "abcdefghijkmnpqrstuvwxyz23456789"
         want, given = str((data or {}).get("id") or ""), str((data or {}).get("secret") or "")
+        with self.boxes.lock:
+            had = self.boxes.data.get(want)
+            if had and re.match(r"^[0-9a-f]{48}$", given) and \
+                    hmac.compare_digest(had["secret"], hashlib.sha256(given.encode()).hexdigest()):
+                return {"id": want, "secret": given, "name": self.name(want)}   # asked again (the answer got lost): the same
+        self.made = [(t, c) for t, c in self.made if now - t < 86400]
+        per_ip, cap = self.cfg["register_per_ip_day"], self.cfg["register_per_day"]
+        if (per_ip and sum(1 for _, c in self.made if c == client) >= per_ip) or (cap and len(self.made) >= cap):
+            raise Limit("Too many new boxes from here today. Try again tomorrow.")
         with self.boxes.lock:
             if len(want) == 10 and all(ch in alphabet for ch in want) and want not in self.boxes.data \
                     and re.match(r"^[0-9a-f]{48}$", given):
@@ -587,6 +597,15 @@ class Limit(Exception):
     status = 429
 
 
+def content_length(headers):
+    """A request's size; one that says something odd (-1 would read until the connection closes) is too big."""
+    try:
+        n = int(headers.get("Content-Length") or 0)
+    except ValueError:
+        return 1 << 30
+    return n if n >= 0 else 1 << 30
+
+
 class Handler(BaseHTTPRequestHandler):
     service = None
     protocol_version = "HTTP/1.1"
@@ -650,7 +669,7 @@ class Handler(BaseHTTPRequestHandler):
         if rest == "/api/pair":                           # the TV's four digits: at home only (too few to be guessed at)
             return self.raw(403, json.dumps({"error": "Away from home, scan the code on the TV: typing it works at home only."}).encode(),
                             "application/json")
-        size = int(self.headers.get("Content-Length") or 0)
+        size = content_length(self.headers)
         if size > 65536:
             return self.raw(413, b'{"error":"Too big."}', "application/json")
         body = self.rfile.read(size) if size else b""
@@ -685,7 +704,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if self.path.startswith("/r/"):
             return self.phone()
-        size = int(self.headers.get("Content-Length") or 0)
+        size = content_length(self.headers)
         limit = 3 * self.service.cfg["report_max"] if self.path == "/v1/report" else 4 * 1024 * 1024 if self.path == "/v1/relay/answer" else 16384
         if size > limit:
             return self.reply(413, {"error": "Too big."})

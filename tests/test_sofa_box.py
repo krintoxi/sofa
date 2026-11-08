@@ -320,7 +320,7 @@ class Agent(unittest.TestCase):
         self.wait_for(lambda st: st.get("paused"))
         self.post("/box/native/control", {"cmd": "seek", "t": 40})
         self.wait_for(lambda st: st.get("t", 0) >= 40)
-        self.get("/box/native/key?k=back")                                       # Back on the remote
+        self.post("/box/native/key?k=back", {})                                       # Back on the remote
         done = self.ended("m:heat:1995", n)
         self.assertFalse(done[0]["ended"])
         self.assertGreaterEqual(done[0]["t"], 40)
@@ -343,7 +343,7 @@ class Agent(unittest.TestCase):
         said = [c["command"][1] for c in map(json.loads, read(self.log).splitlines()) if c.get("command", [""])[0] == "show-text"]
         self.assertIn("Resuming Heat at 10:00…", said)
         self.assertEqual(said[-1], "")                                            # cleared once it plays
-        self.get("/box/native/key?k=back")
+        self.post("/box/native/key?k=back", {})
         self.ended("m:heat:1995", n)
 
     def test_a_player_that_cant_start_hands_back_to_the_page(self):
@@ -363,6 +363,47 @@ class Agent(unittest.TestCase):
                 return r.status, dict(r.headers), r.read().decode("utf-8", "replace")
         except urllib.error.HTTPError as e:
             return e.code, dict(e.headers), e.read().decode("utf-8", "replace")
+
+    def test_a_report_before_the_box_is_registered(self):
+        """A box whose id the Sofa Box service hasn't taken yet (offline at first, or it said no) sends its report
+        without that id (counted by its address): with it, the service answered "Unknown box" and nothing arrived."""
+        agent = load("sofa-box-agent")
+        sent = []
+        agent.secure_remote.acct = {"id": "ab2cd3ef4g", "secret": "5e" * 24, "unregistered": True}
+        agent.secure_remote.call = lambda route, body, timeout=60: sent.append((route, body)) or {"report": "ABC123"}
+        agent.report_text = lambda: "the report"
+        agent.CONF_DIR = tempfile.mkdtemp()
+        try:
+            self.assertTrue(agent.send_report()["ok"])
+            self.assertEqual(sent[-1], ("/v1/report", {"report": "the report"}))
+            agent.secure_remote.acct.pop("unregistered")                          # taken: signed with its secret
+            agent._report["at"] = 0
+            agent.send_report()
+            self.assertEqual(sent[-1][1].get("id"), "ab2cd3ef4g")
+        finally:
+            shutil.rmtree(agent.CONF_DIR, ignore_errors=True)
+
+    def test_a_plain_get_only_reads(self):
+        """Any page the box's browser opens (an app from the store) can point an <img> at the agent: a GET mustn't do
+        anything. Factory reset, reboot, Home, the phones forgotten, a key: only a POST with X-Sofa-Box."""
+        home = "127.0.0.1:%d" % self.port
+        for path in ("/box/api/action/factory-reset", "/box/api/action/reboot", "/box/api/action/update",
+                     "/box/api/remote/forget", "/box/api/hotspot", "/box/api/sleep", "/box/api/home", "/box/api/go",
+                     "/box/native/key?k=home", "/box/native/control", "/box/native/play", "/box/api/bt/pair",
+                     "/box/api/sofa/remove", "/box/api/apps/remove", "/box/api/files/delete"):
+            status, headers, _ = self.raw(path, home)
+            self.assertEqual(status, 405, path)
+            self.assertEqual(headers.get("Allow"), "POST")
+        for path in ("/box/state", "/box/api/info", "/box/api/apps", "/box/native/caps", "/box/home/", "/box/api/games"):
+            self.assertEqual(self.raw(path, home)[0], 200, path)                       # what's on: still a GET
+        self.assertEqual(self.raw("/box/native/key?k=ok", home, {})[0], 400)          # a POST from elsewhere: no header
+        self.assertEqual(self.raw("/box/native/key?k=ok", home, {}, {"X-Sofa-Box": "1"})[0], 200)
+        with open(load("sofa-box-agent").live_input_conf(), encoding="utf-8") as f:   # mpv's keys post too
+            self.assertIn('"-X" "POST" "-H" "X-Sofa-Box: 1"', f.read())
+        with open(os.path.join(BOX, "mpv-input.conf"), encoding="utf-8") as f:
+            for line in f:
+                if "/box/" in line:
+                    self.assertIn('"-X" "POST" "-H" "X-Sofa-Box: 1"', line)
 
     def test_each_server_at_its_own_address(self):
         import importlib
@@ -395,7 +436,7 @@ class Agent(unittest.TestCase):
         self.raw("/box/native/play", host, {"item": "m:heat:1995", "url": "http://%s/media/m%%3Aheat%%3A1995/file" % host,
                                             "start": 0, "offset": 0, "duration": 100, "title": "Heat"}, {"X-Sofa-Box": "1", "Cookie": cookie})
         self.wait_for(lambda st: st.get("t", 0) >= 1)
-        self.get("/box/native/key?k=back")
+        self.post("/box/native/key?k=back", {})
         self.ended("m:heat:1995", n)
         fetched = [json.loads(line) for line in read(self.log).splitlines() if '"fetched"' in line]
         self.assertTrue(fetched[-1]["fetched"].startswith(self.sofa + "/media/"))
@@ -472,7 +513,7 @@ class Agent(unittest.TestCase):
             self.assertEqual(playing["title"], "Playing")
         finally:
             n = json.loads(self.get("/box/native/events"))["n"]
-            self.get("/box/native/key?k=back")
+            self.post("/box/native/key?k=back", {})
             self.ended("am:0123456789ab", n)
 
     @unittest.skipUnless(importlib.util.find_spec("PIL"), "needs Pillow")
@@ -535,7 +576,7 @@ class Agent(unittest.TestCase):
             self.assertEqual(st["d"], 30)
             self.post("/box/native/control", {"cmd": "skip", "by": 10}, base)
             self.wait_for(lambda s: s.get("t", 0) >= 15, 10, base)
-            self.get("/box/native/key?k=back", base)
+            self.post("/box/native/key?k=back", {}, base)
             self.assertGreaterEqual(self.ended("m:clock:2020", n, base)[0]["t"], 15)
         finally:
             proc.terminate()
@@ -1003,6 +1044,71 @@ class BoxNetwork(unittest.TestCase):
         self.assertEqual(joined, [("Home", "pw")])
         self.assertFalse(self.net.join_soon("", "pw")["ok"])
         self.assertFalse(self.net.join_soon("Other", "pw")["ok"])                  # one join at a time (still "joining")
+
+    def test_the_boot_screen_waits_for_a_settled_box(self):
+        """The rebuild (a minute of a Pi 3's whole processor) used to start within five seconds of Finish, as Home,
+        the apps and Sofa loaded: the moment a box restarted by itself. Now: three minutes after the setup (or a
+        start), half a minute after the last change, nothing playing, the processor not busy (or busy for ages)."""
+        a = self.agent
+        real = a.settings, a.playing, a.BootScreen.calm, a.STARTED
+        try:
+            now = 1_000_000.0
+            a.STARTED = now - 3600
+            a.settings = lambda: dict(a.DEFAULTS, welcomed=True)
+            a.playing = lambda: False
+            calm = [True]
+            a.BootScreen.calm = staticmethod(lambda: calm[0])
+            b = a.BootScreen()
+            b.at = now - 120                                                        # the theme picked two minutes ago
+            b.welcomed_at = now - 5                                                 # Finish, five seconds ago
+            self.assertFalse(b.due(now))
+            self.assertFalse(b.due(now + 170))
+            self.assertTrue(b.due(now + 180))                                       # three minutes after the setup
+            calm[0] = False
+            self.assertFalse(b.due(now + 180))                                      # the processor busy: later
+            self.assertTrue(b.due(now + 180 + b.BUSY_FOR))                          # (but not never)
+            calm[0] = True
+            a.playing = lambda: True
+            self.assertFalse(b.due(now + 400))                                      # a video on
+            a.playing = lambda: False
+            b.at = now + 390
+            self.assertFalse(b.due(now + 400))                                      # just changed again
+            a.settings = lambda: dict(a.DEFAULTS, welcomed=False)
+            self.assertFalse(b.due(now + 4000))                                     # the setup not done
+            a.settings = lambda: dict(a.DEFAULTS, welcomed=True)
+            b2 = a.BootScreen()
+            a.STARTED = now
+            self.assertFalse(b2.due(now + 60))                                      # a box that just started
+            self.assertTrue(b2.due(now + 180))
+        finally:
+            a.settings, a.playing, a.BootScreen.calm, a.STARTED = real
+        script = read(os.path.join(BOX, "sofa-box"))
+        self.assertIn('apply-boot) in_the_background "$@"', script)               # its own service, lowest priority
+        self.assertIn("one_core update-initramfs -u", script)
+
+    def test_typed_codes_cant_be_worked_through(self):
+        """Four digits are 10,000 tries for a laptop on the home Wi-Fi. After ten wrong ones in ten minutes typing rests
+        (even the right code), the code changes, and the QR code's long link goes on working."""
+        a = self.agent
+        folder = tempfile.mkdtemp()
+        try:
+            p = a.PhoneRemote()
+            p.path = os.path.join(folder, "phones.json")
+            right = p.code
+            wrong = [c for c in ("%04d" % n for n in range(10000)) if c != right][:10]
+            for c in wrong[:9]:
+                self.assertIsNone(p.pair(c, "Laptop"))
+            self.assertFalse(p.resting())
+            self.assertIsNone(p.pair(wrong[9], "Laptop"))
+            self.assertTrue(p.resting())
+            self.assertIsNone(p.pair(p.code, "Laptop"))                            # resting: not even the right one
+            self.assertIn(p.link, p.status()["pair_url"] or "/r/" + p.link)        # the QR code: the long link
+            self.assertTrue(p.pair(p.link, "Phone"))                                # which still pairs
+            p.misses = [t - p.MISS_WINDOW for t in p.misses]                        # ten minutes on
+            self.assertFalse(p.resting())
+            self.assertTrue(p.pair(p.code, "Phone"))
+        finally:
+            shutil.rmtree(folder, ignore_errors=True)
 
     def test_phones_on_its_own_wifi(self):
         """The setup shows the next code once a phone has joined the box's Wi-Fi: counted from the neighbour table."""

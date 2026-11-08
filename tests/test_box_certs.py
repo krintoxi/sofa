@@ -174,7 +174,9 @@ class BoxCerts(unittest.TestCase):
         box = self.service.register("203.0.113.5", own)
         self.assertEqual((box["id"], box["secret"]), (own["id"], own["secret"]))
         self.service.box(own)                                                     # (its secret works)
-        again = self.service.register("203.0.113.6", own)                         # taken: a new one
+        same = self.service.register("203.0.113.5", own)                          # asked again (the answer got lost)
+        self.assertEqual((same["id"], same["secret"]), (own["id"], own["secret"]))
+        again = self.service.register("203.0.113.6", dict(own, secret="6f" * 24))  # taken, by another: a new one
         self.assertNotEqual(again["id"], own["id"])
         self.assertNotEqual(again["secret"], own["secret"])
         for odd in ({"id": "ABCDEFGHJK", "secret": "5e" * 24}, {"id": "ab2cd3ef4l", "secret": "5e" * 24},
@@ -231,11 +233,23 @@ class BoxCerts(unittest.TestCase):
         self.assertEqual(len(FakeCloudflareAPI.calls), 1)                         # (Cloudflare had it already: no change)
 
     def test_limits(self):
-        for _ in range(10):
+        for _ in range(25):                                                        # card after card from one home: no limit
             self.service.register("203.0.113.5")
-        with self.assertRaises(self.certs.Limit):
+        self.service.made = []                                                     # (another day)
+        self.cfg.update(register_per_ip_day=3, register_per_day=6)                 # limits, for whoever sets them
+        own = {"id": "cd2ef3gh4j", "secret": "7a" * 24}
+        self.service.register("203.0.113.5", own)
+        for _ in range(4):
+            self.assertEqual(self.service.register("203.0.113.5", own)["id"], own["id"])   # asking again isn't a new box
+        self.service.register("203.0.113.5")
+        self.service.register("203.0.113.5")
+        with self.assertRaises(self.certs.Limit):                                  # three from one address
             self.service.register("203.0.113.5")
-        self.service.register("203.0.113.6")                                       # someone else still can
+        for n in range(3):
+            self.service.register("203.0.113.%d" % (20 + n))
+        with self.assertRaises(self.certs.Limit):                                  # six for the whole service
+            self.service.register("203.0.113.30")
+        self.cfg.update(register_per_ip_day=0, register_per_day=5000)
         box = self.service.register("203.0.113.7")
         self.service.cert(dict(box, csr=self.csr(box["name"])))
         with self.assertRaises(self.certs.Limit):                                  # one a week while it's fresh
@@ -347,6 +361,13 @@ class BoxCerts(unittest.TestCase):
             server.shutdown()
             server.server_close()
 
+    def test_an_odd_size_is_too_big(self):
+        """Content-Length: -1 would read until the connection closes (a thread held for minutes): refused as too big."""
+        for odd in ("-1", "abc", "1e9"):
+            self.assertGreater(self.certs.content_length({"Content-Length": odd}), 4 * 1024 * 1024, odd)
+        self.assertEqual(self.certs.content_length({}), 0)
+        self.assertEqual(self.certs.content_length({"Content-Length": "120"}), 120)
+
     def test_over_http(self):
         self.certs.Handler.service = self.service
         server = ThreadingHTTPServer(("127.0.0.1", 0), self.certs.Handler)
@@ -363,9 +384,8 @@ class BoxCerts(unittest.TestCase):
         try:
             with urllib.request.urlopen(base + "/v1/health", timeout=10) as r:
                 self.assertEqual(json.loads(r.read())["base"], "box.edgeventure.uk")
-            for _ in range(10):                                                    # behind the tunnel: the real address counts
+            for _ in range(12):                                                    # one home, card after card: all taken
                 self.assertEqual(post("/v1/register", {}, {"CF-Connecting-IP": "198.51.100.9"})[0], 200)
-            self.assertEqual(post("/v1/register", {}, {"CF-Connecting-IP": "198.51.100.9"})[0], 429)
             status, box = post("/v1/register", {}, {"CF-Connecting-IP": "198.51.100.10"})
             self.assertEqual(status, 200)
             self.assertEqual(post("/v1/address", dict(box, ip="8.8.8.8"))[0], 403)

@@ -59,6 +59,7 @@ def os_version():
 
 
 OS_VERSION = os_version()
+STARTED = time.time()
 DEFAULTS = {"server": None, "quality": "auto", "hwdec": "auto", "audio": "auto", "learned_720": False, "learned_lite": False,
             "performance": "auto",
             "mpv_args": [], "theme": "street", "boot_text": "", "shield": True, "welcomed": False, "secure_remote": True, "boot_sound": "on",
@@ -145,8 +146,14 @@ def live_input_conf():
     with open(path, "w", encoding="utf-8") as f:
         f.writelines(keep)
         for key, k in zap.items():
-            f.write('%-12s run "/usr/bin/curl" "-s" "-o" "/dev/null" "http://127.0.0.1:%d/box/native/key?k=%s"\n' % (key, PORT, k))
+            f.write("%-12s %s\n" % (key, key_command(k)))
     return path
+
+
+def key_command(k):
+    """What mpv runs for one of its keys that the box answers (OK, Back, the channel, the menu's): a POST, like every
+    call that does something (Handler.READ_ONLY)."""
+    return 'run "/usr/bin/curl" "-s" "-o" "/dev/null" "-X" "POST" "-H" "X-Sofa-Box: 1" "http://127.0.0.1:%d/box/native/key?k=%s"' % (PORT, k)
 
 
 def display_env():
@@ -729,8 +736,7 @@ class Player:
             return self.menu_close()
         if not playing():
             return
-        bindings = "\n".join('%s run "/usr/bin/curl" "-s" "-o" "/dev/null" "http://127.0.0.1:%d/box/native/key?k=menu-%s"'
-                              % (key, PORT, k) for key, k in self.MENU_KEYS.items())
+        bindings = "\n".join("%s %s" % (key, key_command("menu-" + k)) for key, k in self.MENU_KEYS.items())
         self.command("define-section", "sofa-menu", bindings, "force")
         self.command("enable-section", "sofa-menu", "exclusive")
         self.menu = {"items": self.menu_items(), "at": 0, "used": time.time()}
@@ -2689,6 +2695,7 @@ class PhoneRemote:
         self.code, self.kb, self.mouse, self.tried = self._new_code(), None, None, False
         self.at, self.parked, self.used, self.parker = [1.0, 1.0], True, 0.0, None     # the touchpad's pointer
         self.link = os.urandom(12).hex()                   # the QR code's: long enough for the internet (the relay)
+        self.misses = []                                   # when wrong four-digit codes were typed (MISSES)
 
     @staticmethod
     def _new_code():
@@ -2712,19 +2719,35 @@ class PhoneRemote:
 
     def status(self):
         u = self.url()
-        return {"url": u, "pair_url": u + "/r/" + (self.link if secure_remote.relayed(u) else self.code) if u else None,
+        return {"url": u, "pair_url": u + "/r/" + self.link if u else None,      # (the long link: it works while typing rests)
                 "code": self.code, "phones": len(self._load()),
                 "home_at": getattr(self, "home_at", 0),     # a remote last open on the home network
                 "hotspot": network.hotspot, "wired": network.wired(), "problem": None if u else network.problem}
 
+    MISSES, MISS_WINDOW = 10, 600                          # wrong four-digit codes in ten minutes: typing rests
+
     def pair(self, code, name, on_own_wifi=False, relayed=False):
         """A phone with the code on the TV (each code works once); or one on the box's own Wi-Fi, whose password is on
         the TV too (its sign-in sheet pairs it, see Captive). Through the relay (from anywhere), only the QR code's
-        long link: four digits could be guessed at from the internet."""
+        long link: four digits could be guessed at from the internet. At home too, they could be worked through (10,000
+        of them, a minute's work for a laptop on the Wi-Fi): after MISSES wrong ones in MISS_WINDOW, typed codes stop
+        working for a while and the code changes; the QR code (its long link) works all along."""
         handoff = getattr(self, "handoff_link", None)
         link = str(code) == self.link or (bool(handoff) and str(code) == handoff)
-        if not on_own_wifi and (not code or (not link and (relayed or str(code) != self.code))):
-            return None
+        if not on_own_wifi and not link:
+            if not code or relayed:
+                return None
+            now = time.time()
+            self.misses = [t for t in self.misses if now - t < self.MISS_WINDOW]
+            if len(self.misses) >= self.MISSES:
+                return None                                # being guessed at: typing rests
+            if str(code) != self.code:
+                self.misses.append(now)
+                if len(self.misses) >= self.MISSES:
+                    self.code = self._new_code()           # (whatever was learnt from the guesses is no use)
+                    print("Phone remote: %d wrong codes typed; typing rests for %d minutes" % (self.MISSES, self.MISS_WINDOW // 60),
+                          file=sys.stderr, flush=True)
+                return None
         token = os.urandom(24).hex()
         phones = self._load()
         phones[token] = {"name": str(name or "Phone")[:40], "at": int(time.time())}
@@ -2735,6 +2758,10 @@ class PhoneRemote:
             self.code, self.link = self._new_code(), os.urandom(12).hex()   # each code works once
         toast("%s is a remote now." % phones[token]["name"])
         return token
+
+    def resting(self):
+        """Typed codes resting after too many wrong ones (pair)."""
+        return len([t for t in self.misses if time.time() - t < self.MISS_WINDOW]) >= self.MISSES
 
     def valid(self, token):
         return bool(token) and token in self._load()
@@ -3093,7 +3120,7 @@ def send_report():
     except OSError:
         pass
     acct, body = secure_remote.account(), {"report": text}
-    if acct.get("id"):
+    if acct.get("id") and not acct.get("unregistered"):   # (an id the service hasn't taken yet would be "Unknown box")
         body.update(id=acct["id"], secret=acct["secret"])
     try:
         got = secure_remote.call("/v1/report", body, timeout=60)
@@ -3145,13 +3172,15 @@ def box_action(a, data):
 
 class BootScreen:
     """The boot screen in the box's theme and name. Making it rebuilds the Pi's start-up files (a minute of the whole
-    processor on a Pi 3), so: once, 30 seconds after the last change (a theme and a name at the setup are one), not
-    while a video plays or the setup is still going, at the lowest priority, never two at once, and written out
+    processor on a Pi 3), so: once, 30 seconds after the last change (a theme and a name at the setup are one), never
+    in the first minutes after the setup or a start (Home, the apps and Sofa loading: the box's busiest moment, and a
+    Pi 3 working flat out then, on a weak power supply, can restart), not while a video plays or the processor is
+    busy, at the lowest priority in a service of its own (sofa-box apply-boot), never two at once, and written out
     to the card before it's done (a restart in the middle mustn't leave the box unable to start)."""
-    QUIET = 30
+    QUIET, SETTLE, BUSY_FOR = 30, 180, 1200
 
     def __init__(self):
-        self.at, self.thread = 0, None
+        self.at, self.thread, self.welcomed_at = 0, None, 0
 
     def want(self):
         self.at = time.time()
@@ -3159,10 +3188,30 @@ class BootScreen:
             self.thread = threading.Thread(target=self._run, daemon=True, name="boot-screen")
             self.thread.start()
 
+    def welcomed(self):
+        """The setup was just finished."""
+        self.welcomed_at = time.time()
+
+    @staticmethod
+    def calm():
+        """The processor isn't busy: the last minute's load under about half the cores (always true where it can't
+        be told)."""
+        try:
+            return os.getloadavg()[0] < max(1.5, (os.cpu_count() or 1) * 0.6)
+        except (OSError, AttributeError):
+            return True
+
+    def due(self, now=None):
+        now = now or time.time()
+        if now - self.at < self.QUIET or not settings()["welcomed"] or playing():
+            return False
+        settled = max(self.at + self.QUIET, self.welcomed_at, STARTED) + self.SETTLE
+        return now >= settled and (self.calm() or now >= settled + self.BUSY_FOR)   # (busy for ever: after a while anyway)
+
     def _run(self):
         while True:
             time.sleep(5)
-            if time.time() - self.at < self.QUIET or not settings()["welcomed"] or playing():
+            if not self.due():
                 continue
             done_for = self.at
             code, out = run(["nice", "-n", "19", "ionice", "-c", "3", "sudo", "-n", os.path.join(HERE, "sofa-box"),
@@ -3305,6 +3354,21 @@ class Handler(BaseHTTPRequestHandler):
 
     # What a server's pages (<id>.localhost) may ask of the box: its player, and Sofa's server menu.
     SERVER_PAGE_OK = ("/box/native.js", "/box/native/", "/box/api/sofa/open", "/box/api/sofa/chooser", "/box/api/home", "/box/api/go")
+    # What a plain GET may do: show a page, a picture, or how things are. Everything that does something (plays,
+    # stops, goes Home, restarts, resets, updates, forgets the phones, pairs Bluetooth...) is a POST with X-Sofa-Box,
+    # which a page from another site can't send (it would have to ask first, and the box never says yes). Any site
+    # the box's browser opens (an app from the store) could otherwise work the box with an <img> pointed here.
+    READ_ONLY = frozenset(("/box/finder", "/box/state", "/box/native.js", "/box/native/caps", "/box/native/status",
+                           "/box/native/servers", "/box/native/events", "/box/splash.png", "/box/preview", "/box/files/raw",
+                           "/box/api/info", "/box/api/settings", "/box/api/thisbox/internet", "/box/api/weather",
+                           "/box/api/weather/places", "/box/api/apps", "/box/api/sofa", "/box/api/sofa/continue",
+                           "/box/api/setup", "/box/api/timezone", "/box/api/devices", "/box/api/store", "/box/api/files",
+                           "/box/api/files/list", "/box/api/games", "/box/api/shield"))
+    READ_ONLY_UNDER = ("/box/home", "/box/icons/", "/box/store-icons/", "/box/games/", "/box/fonts/")
+
+    @classmethod
+    def read_only(cls, path):
+        return path in cls.READ_ONLY or path.startswith(cls.READ_ONLY_UNDER)
 
     def route(self):
         path = urllib.parse.urlsplit(self.path).path
@@ -3314,7 +3378,10 @@ class Handler(BaseHTTPRequestHandler):
         if path.startswith("/box/"):
             if entry and not path.startswith(self.SERVER_PAGE_OK):
                 return self.send('{"error":"not for this page"}', status=403)
-            if self.command == "POST" and self.headers.get("X-Sofa-Box") != "1":
+            if self.command in ("GET", "HEAD"):
+                if not self.read_only(path):
+                    return self.send('{"error":"POST this, with X-Sofa-Box"}', status=405, headers={"Allow": "POST"})
+            elif self.headers.get("X-Sofa-Box") != "1":
                 return self.send('{"error":"missing X-Sofa-Box"}', status=400)  # no other site can post here
             return self.box(path, urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query), entry)
         if entry:
@@ -3391,6 +3458,8 @@ class Handler(BaseHTTPRequestHandler):
                 changes["learned_lite"] = False
             if "welcomed" in data:                              # the first-start steps are done
                 changes["welcomed"] = bool(data["welcomed"])
+                if changes["welcomed"] and not settings()["welcomed"]:
+                    boot_screen.welcomed()
             if data.get("setup_step") in (0, 1, 2, 3):          # the step it's at (a restart goes on from there)
                 changes["setup_step"] = data["setup_step"]
             if "boot_text" in data:
@@ -3522,8 +3591,8 @@ class Handler(BaseHTTPRequestHandler):
                 go_home()
             return self.send(json.dumps({"ok": True, "go": "/box/home" + to}))
         if path == "/box/api/setup":                       # the first start and Settings: remotes, Wi-Fi, Bluetooth
-            if arg("scan") == "1":
-                bluetooth.want(30, autopair=not settings()["welcomed"] or arg("autopair") == "1")
+            if arg("scan") == "1":                          # (pairs by itself only at the setup: a GET can't ask for it)
+                bluetooth.want(30, autopair=not settings()["welcomed"])
             return self.send(json.dumps(setup_state()))
         if path == "/box/api/bt/pair":
             bluetooth.pair(str(data.get("mac") or ""))
@@ -3801,7 +3870,9 @@ class RemoteHandler(BaseHTTPRequestHandler):
                 return self.send('{"error":"Away from home, scan the code on the TV: typing it works at home only."}', status=403)
             token = phone.pair(str(data.get("code") or "").strip(), data.get("name"))
             if not token:
-                return self.send('{"error":"That code isn\'t the one on the TV."}', status=403)
+                return self.send(json.dumps({"error": "Too many wrong codes were typed. Scan the code on the TV instead (typing "
+                                                      "works again in a few minutes)." if phone.resting() else
+                                             "That code isn't the one on the TV."}), status=429 if phone.resting() else 403)
             return self.send('{"ok":true}', headers={"Set-Cookie": self.cookie(token)})
         if not phone.valid(self.token()):
             return self.send(json.dumps({"paired": False, "name": settings().get("boot_text") or "Sofa Box"}), status=401)
