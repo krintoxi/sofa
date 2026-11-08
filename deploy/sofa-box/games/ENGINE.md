@@ -1,6 +1,12 @@
 # Low3D: the Sofa Box game engine
 
-`low3d.js` is the engine the box's own page games are built on. Tidewing (`tidewing/`) is the first game on it.
+`low3d.js` is the engine the box's own page games are built on. It has two ways to draw, for two kinds of game:
+
+- **3D** (`GL`, with a 2D fallback, `Flat`), for open worlds. Tidewing (`tidewing/`), a racer over the sea, is
+  drawn this way.
+- **Drawn by the processor** (`Ray`), for worlds on a grid: rooms, corridors, doors and floors at any height. It
+  looks the same on every box, GPU or not, and the GPU only adds a glow. Ironmaw (`ironmaw/`), an old-style
+  shooter, is drawn this way.
 It's one file: offline, no libraries, no build step. A game is one page that loads `../pad.js` and then
 `../low3d.js`, and adds its own content and rules.
 
@@ -25,6 +31,14 @@ here and the game keeps only what is its own.
   code, with one draw call each. A world's still things are merged into chunks. Nothing new is made while a game
   plays: matrices, particles, trails and dynamic meshes are made once and reused.
 
+## Which way to draw
+
+- Use 3D for big open spaces, for things seen from far off, and for a sea, sky and hills. It's sharp where there's
+  a GPU, and the 2D sea where there isn't.
+- Use `Ray` for indoor places on a grid, where it's all walls, steps and doors (shooters, dungeon crawlers, mazes,
+  tower defence on a grid). A Pi 3 draws it at 320×180 whether or not Chromium gives it the GPU, and every pixel is
+  under the game's control.
+
 ## The rungs (`LADDER`)
 
 | | rung 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |
@@ -35,8 +49,14 @@ here and the game keeps only what is its own.
 | extras | | | | sun glow | + waves | | | | |
 | **2D** height drawn | 112 | 135 | 160 | 160 | 200 | 240 | | | |
 
+| **Ray** height drawn | 120 | 144 | 180 | 180 | 216 | 270 | 360 | | |
+| frames a second | 30 | 30 | 30 | 60 | 60 | 60 | 60 | | |
+| glow (WebGL) | | | | | yes | yes | yes | | |
+
 Where it starts: a Pi 3's GPU (VC4) on 3D rung 1 (up to 3); a Pi 4's (V3D 4.x) on 3; a Pi 5's (V3D 7.x) on 4;
-a desktop GPU from the test. Software or no WebGL means 2D, its rung picked from the test's script time. A game
+a desktop GPU from the test. Software or no WebGL means 2D, its rung picked from the test's script time.
+A `Ray` game starts from the script time alone (`planRay`): the processor does its drawing. A Pi 3 is held to
+rung 3 at most (320×180). A game
 reads `E.rung` (`h`, `far`, `fps`, `waves`, `sun`, `detail`, `wakes`) and decides what each one means for it.
 
 ## A new game, from the start
@@ -73,6 +93,30 @@ E.start();
 Copy Tidewing's `<style>` for the view, menus, HUD and loading screen. In the address, `#fps` shows the frame rate
 and rung, `#flat` or `#gl` forces a renderer, `#rung=N` holds a rung, and `#test` is for a game's own checks.
 
+## A game drawn by the processor
+
+`L3.game({ kind: "ray", ... })`: the engine sizes `E.screen` (a picture, `E.screen.u32`) to the rung and calls
+`resized(E)`. The game hands that buffer to a `Ray`, draws into it in `draw()`, and the engine shows it each frame.
+That's WebGL with a glow on a real GPU, or a 2D canvas otherwise (picture "plain": always the canvas).
+
+```js
+const pal = new L3.Palette(RAMPS, [14, 15]);     // 16 colour ramps of 16 shades; ramps 14 and 15 glow (never darken)
+const ray = new L3.Ray(pal); ray.tex = [L3.Tex.make((u, v) => …), …]; ray.sky = …;
+const m = new L3.RayMap(w, h);                   // per cell: solid, wtex (wall), floor/ceil heights, ftex/ctex, light,
+                                                  // stex (a step's face), utex (a ceiling's lip, a door); ctex 255: sky
+function resized(E) { ray.size(E.screen.w, E.screen.h, E.screen.u32); }
+function draw() {
+  ray.render(m, { x, y, z: eyeHeight, a: facing, pitch, fov });
+  ray.sprite(pal.sprite(L3.bake(mesh, {...})), x, y, z, light);   // things in the world, behind what's nearer
+  ray.flush(); ray.blit(gunSprite, w / 2, h, scale, light);       // a weapon in hand
+}
+```
+
+A door is a cell whose ceiling comes down to its floor, and a lift is a cell whose floor moves. Set `m.ceil[i]` or
+`m.floor[i]` each frame and the renderer, the walking (`m.move`, `m.open`), the sight lines (`m.see`, `m.trace`) and
+the way-finding (`m.flow`, which can be told which doors walkers may open) all follow. `m.dyn` adds light for a
+frame (muzzle flashes, explosions), and `m.seen` marks what's been seen (an automap).
+
 ## The parts
 
 **Hardware.** `probe()` returns what the browser gives: WebGL 1 and 2, the unmasked GPU name, `family` (pi3, pi4,
@@ -101,7 +145,11 @@ shimmer); `air({top, horizon, fog, hill, hills, near, far})`; `draw(camera…)`;
 - `Mesh`: `at(x, y, z, yaw, sx, sy, sz, pitch, roll)` sets where the next part goes.
 - Parts: `tri`, `quad`, `both` (seen from both sides), `box`, `stack` (rings up an axis: cylinders, cones, rocks,
   hulls), `ico` and `disc`. A face is lit flat and faces away from the "outside" point you give.
-- `Mesh.join(list)` merges meshes; each vertex is 20 bytes.
+- `Mesh.join(list)` merges meshes; each vertex is 20 bytes. `mesh.turn(yaw, pitch, roll, pivot…)` turns all
+  that's built about a point. Build a body's parts separately, turn them, and join them: legs that walk, a body
+  that leans, falls or lies down.
+- Faces made with `m.alpha = 254` glow. `bake()` draws them unlit, and `Palette.sprite` keeps them full-bright
+  (eyes, fire, screens).
 - `Kit` has ready-made pieces: `palm`, `pine`, `rock`, `columns`, `hut`, `lighthouse`, `buoy`, `shadow`,
   `hills` and `skyline` (far hills for 3D and 2D), and `blob` (a soft 2D spot).
 - `Chunks(size, cell)` holds a world's still things: `mesh(x, z, "base" | "detail" | "glow")` to build into,
@@ -115,6 +163,21 @@ shimmer); `air({top, horizon, fog, hill, hills, near, far})`; `draw(camera…)`;
 - `Particles(n)` is a fixed pool: `emit`, `step`, `points(mesh)` for 3D, `sprites(flat)` for 2D.
 - Cameras: `camera()`; `chase(cam, thing, dt, dist, height, ahead)`; `orbit(cam, x, z, radius, height, angle)`;
   `begin(E, cam)` draws a frame from a camera in whichever renderer the box has.
+
+**Drawn by the processor.**
+- `Palette(ramps, glowRamps)` has `cmap` (32 light levels × 256), `maps(fog, haze)` for darkness or a coloured
+  haze, `near(r, g, b)`, `sprite(canvasOrBake)` (a sprite as indices), and `color(i)`.
+- `Tex.make(fn)` makes 64×64 textures (`fn(u, v)` → an index), with `Tex.noise(seed)`, `Tex.fbm` and
+  `Tex.shade(ramp, k)` to help.
+- `RayMap`: `open`, `move`, `floorAt`, `trace`, `see`, `flow`.
+- `Ray`: `render`, `sprite`, `dot` (a speck), `flush`, `blit`, `project`, and `dim` (light lost with distance),
+  `minL` (the darkest it gets) and `maxD` (how far it looks).
+- `Screen(canvas2d, canvasGL, useGL)` shows the picture (`size`, `present`); `planRay(probe, bench)` picks a
+  `Ray` game's starting rung.
+
+**The controller (`pad.js`).** Beyond the buttons and the left stick: `SofaPad.stick2()` (the right stick),
+`SofaPad.trigger("rt")` (how far a trigger is pulled), `SofaPad.button("left")` (the D-pad itself, not the stick),
+and `SofaPad.rumble(strong, weak, ms)`.
 
 **The rest.**
 - `game({...})` sets up the screen (16:9, as big as fits, `--u` a hundredth of its height for CSS), the tuning,
@@ -139,5 +202,5 @@ shimmer); `air({top, horizon, fog, hill, hills, near, far})`; `draw(camera…)`;
 
 ## Next, as games need it
 
-Height-field ground (hills you drive over), simple collision shapes, two players on one screen, and parts that
-move together (characters, doors). Each one comes with the game that first needs it.
+Height-field ground (hills you drive over) for 3D, and two players on one screen. In `Ray`: sloped floors, and
+sprites seen from 16 sides. Each one comes with the game that first needs it.

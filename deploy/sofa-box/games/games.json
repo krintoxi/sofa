@@ -10,7 +10,8 @@
   {"id": "neon-brawler", "name": "Neon Brawler", "emoji": "🥊", "color": "#FF2E88", "about": "A street beat 'em up under neon signs: punch combos, jump kicks, specials, and a boss at the end."},
   {"id": "void-drifter", "name": "Void Drifter", "emoji": "🚀", "color": "#7AD8F0", "about": "Fly a small ship, mine asteroids, upgrade at the docks, and take on a dreadnought."},
   {"id": "cosmic-cascade", "name": "Cosmic Cascade", "emoji": "🌠", "color": "#3CC8D8", "about": "Drop gems, match three of a colour, and let the sweeping beam clear the board."},
-  {"id": "tidewing", "name": "Tidewing", "emoji": "🌊", "color": "#2E9BD6", "about": "Race a skimmer through the gates over open water: six courses, three rivals, in low-poly 3D tuned to your box."}
+  {"id": "tidewing", "name": "Tidewing", "emoji": "🌊", "color": "#2E9BD6", "about": "Race a skimmer through the gates over open water: six courses, three rivals, in low-poly 3D tuned to your box."},
+  {"id": "ironmaw", "name": "Ironmaw", "emoji": "🔥", "color": "#C2461E", "about": "A fast old-style shooter in a foundry under the ice: four levels, five weapons, made for the controller."}
 ],
 "native": [
   {"id": "luanti", "name": "Sofa Craft", "icon": "icons/sofa-craft.svg", "emoji": "⛏️", "color": "#5DA130", "mb": 60, "pi": 3,
