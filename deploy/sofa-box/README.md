@@ -341,6 +341,11 @@ song in the box's player, or shows a picture; **Menu** renames, moves or deletes
   wear shows. Besides fighting: Woodcutting, Mining, Crafting and Hunting (Ysolde's tasks), and mounts to win,
   some that fly. Three Wickbearers can be kept; one from the first Gloamwell moves into the first free one. It plays offline with its own music (quiet unless you turn it up), with the
   controller from the start (the hints show its buttons: A B X Y, or ✕ ○ □ △) or a keyboard.
+- **Tidewing**, a race over open water in low-poly 3D: a skimmer through the gates of six courses against three
+  rivals, carving to fill your boost. It's built on the box's own game engine (Low3D, `games/low3d.js`), which
+  tunes each game to the box: 3D at a size it holds steady on a Pi 3, sharper on a Pi 4 or 5, and the same world
+  in 2D on a box without a real GPU. The graphics check (`127.0.0.1:8091/box/games/probe/` in the box's browser)
+  shows what it found.
 - More of the box's own games, each a page that plays offline with the controller: **Cinder Knight** (a
   platformer), **Shadow Heist** (stealth), **Rune Tactics** (turn-based tactics), **Micro Drifters** (top-down
   racing), **Neon Brawler** (a beat 'em up), **Void Drifter** (mining and upgrades in space), **Cosmic Cascade**

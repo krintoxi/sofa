@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Graphics check</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0b1420; color: #eef4fb; font: 600 16px/1.3 system-ui, sans-serif; }
+  #wrap { position: absolute; inset: 0; display: grid; grid-template-columns: 42% 58%; }
+  #stage { position: relative; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 2vh; padding-left: 3vw; }
+  #view { position: relative; width: 36vw; height: 20.25vw; border-radius: 1.4vh; overflow: hidden; background: #000; }
+  #view canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .hidden { display: none !important; }
+  #state { font-size: 2.6vh; opacity: .9; text-align: center; min-height: 3.4vh; }
+  #live { font: 600 2.2vh ui-monospace, monospace; opacity: .85; text-align: center; white-space: pre; min-height: 2.6vh; }
+  #panel { padding: 5vh 4vw 4vh 1vw; overflow: hidden; }
+  h1 { margin: 0 0 2vh; font-size: 4.6vh; font-weight: 800; }
+  table { border-collapse: collapse; font-size: 2.2vh; }
+  td { padding: .45vh 1.2vw; vertical-align: top; }
+  td:first-child { opacity: .7; text-align: right; white-space: nowrap; }
+  td:last-child { font-weight: 700; word-break: break-word; }
+  #line { margin-top: 2.2vh; padding: 1.4vh 1.4vw; border-radius: 1vh; background: rgba(255, 255, 255, .08); font: 600 2vh ui-monospace, monospace; word-break: break-word; }
+  .hint { margin-top: 2.2vh; font-size: 2.3vh; opacity: .85; }
+  kbd { display: inline-block; min-width: 1.4em; padding: 0 .35em; border-radius: .4em; background: rgba(255, 255, 255, .9); color: #0d2a40; font: inherit; font-weight: 800; text-align: center; }
+</style></head><body>
+<div id="wrap">
+  <div id="stage"><div id="view"><canvas id="gl"></canvas><canvas id="flat" class="hidden"></canvas></div><div id="state">Looking…</div><div id="live"></div></div>
+  <div id="panel"><h1>Graphics check</h1><table id="rows"></table><div id="line"></div><p class="hint" id="hint"></p></div>
+</div>
+<script src="../pad.js"></script>
+<script src="../low3d.js"></script>
+<script>
+/* Sofa Box OS: what this box's browser gives the box's own 3D games (Low3D, ../low3d.js). WebGL 1 and 2, the GPU behind
+   it (its unmasked renderer: on a Raspberry Pi, VC4 is a Pi 3, V3D 4.2 a Pi 4, V3D 7.1 a Pi 5; SwiftShader or llvmpipe
+   is software), the cores and memory the browser reports, and a ~2 s drawing test: draw calls and screens of fill
+   that hold 60 fps. Then what a game would choose, and a small scene drawn that way, its frame rate live (the engine's
+   governor steps it up or down as a game would). A runs the test again; Back is the box's. */
+(function () {
+  "use strict";
+  const L3 = window.Low3D, U = L3.U, $ = id => document.getElementById(id);
+  let probe = null, bench = null, board = null, running = false, gov = null, mode = null, g3 = null, flat = null, scene = null;
+  const glc = $("gl"), flc = $("flat"), cam = L3.camera();
+  function show(stateText) {
+    const pl = probe ? L3.plan(probe, bench) : null, rows = probe ? L3.rows(probe, bench, pl) : [];
+    if (board) rows.unshift(["Board", board]);
+    if (probe) rows.push(["Page", probe.view + " at " + probe.dpr + "× · screen " + probe.screen]);
+    $("rows").innerHTML = rows.map(r => "<tr><td>" + r[0] + "</td><td>" + U.esc(r[1]) + "</td></tr>").join("");
+    $("line").textContent = probe ? (board ? board + " | " : "") + L3.line(probe, bench, pl) : "";
+    if (stateText != null) $("state").textContent = stateText;
+  }
+  function hint() { $("hint").innerHTML = "<kbd>" + (SofaPad.connected() ? SofaPad.label("a") : "Enter") + "</kbd> test again &nbsp; Back: out"; }
+  function run() {
+    if (running) return; running = true; bench = null; scene = null;
+    probe = L3.probe(); show("Testing… (about two seconds)");
+    if (probe.webgl1 && !probe.software && !g3) { try { g3 = new L3.GL(glc); } catch (e) { g3 = null; show("WebGL is there but wouldn't start: " + e.message); } }
+    glc.classList.toggle("hidden", !g3); flc.classList.add("hidden");
+    L3.bench(probe.software ? null : g3, r => {
+      bench = r; running = false;
+      const pl = L3.plan(probe, bench);
+      show(pl.mode === "gl" ? "Games here draw in 3D, from rung " + pl.rung + ". The scene above is drawn that way." :
+        "Games here draw in 2D (" + (probe.software ? "the GPU is software, the 2D sea is quicker there" : pl.why) + "). The scene above is drawn that way.");
+      start(pl);
+    }, (phase, load, holds) => { $("state").textContent = (phase < 0 ? "The screen's rate…" : phase === 0 ? "Draw calls: " + load : "Fill: " + load + " screens") + (holds ? " ✓" : " ✗"); });
+  }
+  // a small scene, as a game would draw it here: an islet, buoys, the sea and sky, the camera going round
+  function start(pl) {
+    mode = pl.mode === "gl" && g3 ? "gl" : "flat";
+    if (mode === "flat" && !flat) flat = new L3.Flat(flc);
+    glc.classList.toggle("hidden", mode !== "gl"); flc.classList.toggle("hidden", mode !== "flat");
+    const lad = L3.LADDER[mode];
+    gov = new L3.Governor(lad, pl.rung, pl.top, () => size());
+    const pic = document.createElement("canvas"); pic.width = pic.height = 256;
+    const g = pic.getContext("2d"); g.fillStyle = "#1f6c9a"; g.fillRect(0, 0, 256, 256);
+    const gr = g.createRadialGradient(128, 128, 20, 128, 128, 70); gr.addColorStop(0, "#5ec0c4"); gr.addColorStop(1, "#5ec0c400"); g.fillStyle = gr; g.fillRect(0, 0, 256, 256);
+    g.fillStyle = "#e8d4a0"; g.beginPath(); g.arc(128, 128, 30, 0, 7); g.fill(); g.fillStyle = "#78a860"; g.beginPath(); g.arc(128, 128, 24, 0, 7); g.fill();
+    const air = { top: 0x4a7cc8, horizon: 0xcfe2f0, fog: 0xc8dcec, sun: [0.4, 0.6, 0.5], sunCol: 0xfff2dc, amb: 0x8ea4bc, ground: 0x585048 };
+    const isle = new L3.Mesh(1024); isle.seed = 5; isle.jit = 0.05;
+    isle.at(0, 0, 0); isle.stack([[30, -0.9], [28, 0.6]], 12, 0xe7d2a2, null, 0.06); isle.stack([[26, 0.6], [22, 5], [14, 10]], 10, [0x7da862, 0x74a05a], 0x86b06a, 0.1);
+    for (let i = 0; i < 6; i++) L3.Kit.palm(isle, Math.cos(i * 1.1) * 10, 8, Math.sin(i * 1.1) * 10, 1, 0x7a5a3e, 0x4f8a4c);
+    L3.Kit.lighthouse(isle, 4, 9, -4, null);
+    const marks = new L3.Mesh(512);
+    for (let i = 0; i < 8; i++) L3.Kit.buoy(marks, Math.cos(i / 8 * U.TAU) * 52, Math.sin(i / 8 * U.TAU) * 52, 0xee5e3c, 0xf4efe4);
+    const hills = []; const hr = U.rand(9); for (let i = 0; i < 20; i++) hills.push({ a: i / 20 * U.TAU, d: 900 + hr() * 300, r: 100 + hr() * 150, h: 40 + hr() * 100, seed: i });
+    if (mode === "gl") {
+      g3.light(Object.assign({ near: 120, far: 380 }, air));
+      const sea = new L3.Mesh(8); sea.at(0, 0, 0); sea.tri(-3000, 0, -3000, 3000, 0, -3000, 3000, 0, 3000, 0xffffff, 0, -1, 0); sea.tri(-3000, 0, -3000, 3000, 0, 3000, -3000, 0, 3000, 0xffffff, 0, -1, 0);
+      scene = { isle: g3.upload(L3.Mesh.join([isle, marks])), sea: g3.upload(sea), hills: g3.upload(L3.Kit.hills(hills, 0xa0a8c0)), tex: g3.texture(pic, true) };
+    } else {
+      flat.ground(pic, -128, -128, 256, 0x1f6c9a); flat.air({ top: air.top, horizon: air.horizon, fog: air.fog, hill: 0xb4bed0, hills: L3.Kit.skyline(hills, 720), near: 120, far: 380 });
+      const light = { sun: [-0.45, 0.8, -0.4], sunCol: U.rgb01(air.sunCol), amb: U.rgb01(air.amb), ground: U.rgb01(air.ground) };
+      const b = new L3.Mesh(256); L3.Kit.buoy(b, 0, 0, 0xee5e3c, 0xf4efe4);
+      scene = { isle: L3.bake(isle, { ppu: 3, pitch: 0.15, light }), buoy: L3.bake(b, { ppu: 10, pitch: 0.12, light }) };
+    }
+    size(); gov.hold(1200);
+  }
+  function size() {
+    const r = gov.cur, h = Math.min(r.h, Math.round($("view").clientHeight * (devicePixelRatio || 1))), w = Math.round(h * 16 / 9);
+    if (mode === "gl") { glc.width = w; glc.height = h; } else flat.size(w, h);
+  }
+  let liveAt = 0;
+  function frame(now) {
+    requestAnimationFrame(frame);
+    if (!scene || running || !gov.tick(now)) return;
+    const t0 = performance.now();
+    L3.orbit(cam, 0, 0, 78, 14, now / 6000, 0, 0); cam.ty = 4; cam.fov = 0.8;
+    if (mode === "gl") {
+      L3.begin({ mode, g3 }, cam, 0.6, 2400);
+      g3.lit(scene.hills, null, 1, 1, 1, 0); g3.lit(scene.isle, null, 1, 1, 1, 0);
+      g3.sea(scene.sea, scene.tex, -128, -128, 256, now / 1000, 0); g3.sky(gov.cur.sun);
+    } else {
+      L3.begin({ mode, flat }, cam);
+      flat.sprite(scene.isle, 0, 0, 0, 1 / 3);
+      for (let i = 0; i < 8; i++) flat.sprite(scene.buoy, Math.cos(i / 8 * U.TAU) * 52, 0, Math.sin(i / 8 * U.TAU) * 52, 0.1);
+      flat.flush();
+    }
+    gov.work(performance.now() - t0);
+    if (now - liveAt > 500) {
+      liveAt = now;
+      const w = mode === "gl" ? glc.width : flat.w, h = mode === "gl" ? glc.height : flat.h;
+      $("live").textContent = gov.fps + " fps · " + (mode === "gl" ? "3D" : "2D") + " rung " + gov.rung + " · " + w + "×" + h + (gov.log.length ? "\n" + gov.log[gov.log.length - 1] : "");
+    }
+  }
+  requestAnimationFrame(frame);
+  SofaPad.on((b, how) => { if (b === "connected") hint(); else if (how === "press" && (b === "a" || b === "start")) run(); });
+  addEventListener("keydown", e => { if (SofaPad.echo(e)) return; if (e.key === "Enter" || e.key === " ") { e.preventDefault(); run(); } });
+  // the board's own name, from the box (only on a Sofa Box; nothing leaves the box)
+  fetch("/box/api/info").then(r => r.ok ? r.json() : null).then(j => {
+    if (j && j.board) board = j.board.model + " · " + Math.round((j.board.memory_mb || 0) / 1024 * 10) / 10 + " GB · " + (j.light ? "light look" : "full look");
+    show(null);
+  }).catch(() => {});
+  hint(); setTimeout(run, 300);
+})();
+</script></body></html>

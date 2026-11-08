@@ -93,6 +93,118 @@ class TheList(unittest.TestCase):
         self.assertNotRegex(html, r"buttons\[16\]")                    # never Home, which is the box's
 
 
+class TheEngine(unittest.TestCase):
+    """Low3D (games/low3d.js), the box's own game engine: offline, on the controller, and the drawing each box gets."""
+    GAMES = os.path.join(BOX, "games")
+
+    def read(self, *path):
+        with open(os.path.join(self.GAMES, *path), encoding="utf-8") as f:
+            return f.read()
+
+    def test_offline_and_from_the_box(self):
+        js = self.read("low3d.js")
+        self.assertNotRegex(js, r"""(src|href|url)\s*[=(]\s*["']?(https?:)?//""")
+        for online in ("fetch(", "XMLHttpRequest", "WebSocket", "importScripts", "@import", "<link"):
+            self.assertNotIn(online, js)
+        self.assertNotRegex(js, r"buttons\[16\]")                     # Home is the box's
+        on_engine = []
+        for g in CATALOG["games"]:
+            html = self.read(g["id"], "index.html")
+            if "../low3d.js" in html:                                    # pad.js first: the engine's input reads it
+                on_engine.append(g["id"])
+                self.assertLess(html.index('src="../pad.js"'), html.index('src="../low3d.js"'), g["id"])
+                for online in ("fetch(", "XMLHttpRequest", "WebSocket"):
+                    self.assertNotIn(online, html, g["id"])
+        self.assertIn("tidewing", on_engine)
+        probe = self.read("probe", "index.html")                         # the graphics check: for the owner, not on Home
+        self.assertNotIn("probe", [g["id"] for g in CATALOG["games"]])
+        self.assertIn("../low3d.js", probe)
+        self.assertNotRegex(probe, r"""(src|href|url)\s*[=(]\s*["']?(https?:)?//""")
+        self.assertEqual(__import__("re").findall(r"fetch\(\"([^\"]+)\"", probe), ["/box/api/info"])   # it asks the box only
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_the_pages_parse(self):
+        """Every page game's own script, the engine, pad.js and the graphics check: no syntax slips."""
+        import re
+        tmp = tempfile.mkdtemp()
+        try:
+            pages = [os.path.join(g["id"], "index.html") for g in CATALOG["games"]] + [os.path.join("probe", "index.html")]
+            files = [os.path.join(self.GAMES, "low3d.js"), os.path.join(self.GAMES, "pad.js")]
+            for page in pages:
+                for i, body in enumerate(re.findall(r"<script>(.*?)</script>", self.read(page), re.S)):
+                    path = os.path.join(tmp, page.replace(os.sep, "_") + "_%d.js" % i)
+                    with open(path, "w", encoding="utf-8") as f:
+                        f.write(body)
+                    files.append(path)
+            for path in files:
+                r = subprocess.run(["node", "--check", path], capture_output=True, text=True, timeout=60)
+                self.assertEqual(r.returncode, 0, path + "\n" + r.stderr)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_each_box_gets_its_drawing(self):
+        """The GPU's name and the test pick 3D or 2D and the rung to start on; the governor holds the frame rate;
+        meshes face out; paths know where their points are."""
+        script = """
+const noop = () => {};
+globalThis.window = globalThis; globalThis.addEventListener = noop; globalThis.location = { hash: "" };
+globalThis.document = { hidden: false, createElement: () => ({ getContext: () => null }) };
+globalThis.screen = { width: 1920, height: 1080 }; globalThis.innerWidth = 960; globalThis.innerHeight = 540;
+eval(require("fs").readFileSync(process.argv[1], "utf8"));
+const L = window.Low3D, out = {};
+out.family = ["VC4 V3D 2.1", "V3D 4.2.14.0", "V3D 7.1.7.0", "ANGLE (Broadcom, V3D 4.2.14.0, OpenGL ES 3.1 Mesa 24.2.8)",
+  "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)", "llvmpipe (LLVM 15.0.6, 128 bits)",
+  "Mali-G52", "ANGLE (Intel, Mesa Intel(R) UHD Graphics 620 (KBL GT2), OpenGL 4.6)", ""].map(L.family);
+const box = (family, extra) => Object.assign({ webgl1: family !== "none", software: family === "software", family, renderer: family }, extra || {});
+const pick = (p, b) => { const r = L.plan(p, b); return r.mode + " " + r.rung + "/" + r.top; };
+out.plans = {
+  pi3: pick(box("pi3"), { draws: 32, fill: 2, cpu: 95 }), pi3slow: pick(box("pi3"), { draws: 4, fill: 0.25, cpu: 120 }),
+  pi4: pick(box("pi4"), { draws: 128, fill: 4, cpu: 40 }), pi5: pick(box("pi5"), { draws: 256, fill: 8, cpu: 20 }),
+  software: pick(box("software"), { cpu: 30 }), none: pick(box("none"), { cpu: 150 }), desktop: pick(box("desktop"), { draws: 1024, fill: 64, cpu: 5 })
+};
+// the governor: frames at 60 fps hold; late ones step it down; a busy game drops to a 30 fps rung at once
+const lad = L.LADDER.gl, g = new L.Governor(lad, 5, 8), steps = [];
+let t = 10000;
+for (let i = 0; i < 400; i++) { t += 1000 / 60; g.tick(t); g.work(2); }
+steps.push(g.rung);
+for (let i = 0; i < 300; i++) { t += i % 2 ? 1000 / 60 : 50; g.tick(t); g.work(4); }
+steps.push(g.rung);
+const b = new L.Governor(lad, 5, 8);
+for (let i = 0; i < 400; i++) { t += i % 3 ? 1000 / 60 : 45; b.tick(t); b.work(20); }
+steps.push(b.rung, lad[b.rung].fps);
+out.gov = steps;
+// a box's every face points out
+const m = new L.Mesh(); m.at(3, 0, -2, 0.7); m.box(0, 0, 0, 2, 3, 4, 0xffffff);
+let outward = 0; for (let i = 0; i < m.n; i += 3) {
+  let cx = 0, cy = 0, cz = 0; for (let k = 0; k < 3; k++) { cx += m.f[(i + k) * 5] / 3; cy += m.f[(i + k) * 5 + 1] / 3; cz += m.f[(i + k) * 5 + 2] / 3; }
+  const o = (i + 0) * 20; if (m.i8[o + 12] * (cx - 3) + m.i8[o + 13] * (cy - 1.5) + m.i8[o + 14] * (cz + 2) > 0) outward++;
+}
+out.mesh = [m.n / 3, outward];
+const P = new L.Path([[0, 0], [100, 0], [100, 100], [0, 100]]), at = new Float32Array(5);
+P.at(P.s[P.knots[2]], at); out.path = [P.knots.length, Math.round(at[0]), Math.round(at[1]), Math.round(P.len)];
+console.log(JSON.stringify(out));
+"""
+        r = subprocess.run(["node", "-e", script, os.path.join(self.GAMES, "low3d.js")], capture_output=True, text=True, timeout=60)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        out = json.loads(r.stdout)
+        self.assertEqual(out["family"], ["pi3", "pi4", "pi5", "pi4", "software", "software", "mobile", "desktop", "none"])
+        p = out["plans"]
+        self.assertEqual(p["pi3"], "gl 1/3")                             # a Pi 3's GPU: small and steady
+        self.assertEqual(p["pi3slow"], "gl 0/3")
+        self.assertEqual(p["pi4"], "gl 3/5")
+        self.assertEqual(p["pi5"], "gl 5/6")
+        self.assertTrue(p["software"].startswith("flat "))               # no real GPU: the 2D renderer
+        self.assertTrue(p["none"].startswith("flat "))
+        self.assertTrue(p["desktop"].startswith("gl 6"))
+        steady, late, busy, busy_fps = out["gov"]
+        self.assertEqual(steady, 6)                                      # room to spare: up a rung (no further: it stays a while)
+        self.assertLess(late, steady)                                    # late frames: down
+        self.assertEqual(busy_fps, 30)                                   # the game's own work fills a frame: 30 a second
+        self.assertEqual(out["mesh"], [12, 12])
+        self.assertEqual(out["path"], [4, 100, 100, 420])
+
+
 class Agent(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
