@@ -47,6 +47,7 @@ VOLUME = {"VOLUP": 4, "VOLDOWN": -4, "MUTE": "mute"}
 HOLD_HOME = 0.8                            # seconds Home is held to leave a game
 GAME_FILE = os.environ.get("SOFA_BOX_GAME_FILE") or os.path.join(
     os.environ.get("XDG_RUNTIME_DIR") or "/run/user/%d" % os.getuid(), "sofa-box-game")
+WEB_GAME_FILE = GAME_FILE + ".web"          # one of the box's own games in front, in the browser (the agent says)
 
 # Linux button numbers (input-event-codes.h)
 BTN_SOUTH, BTN_EAST, BTN_NORTH, BTN_WEST = 304, 305, 307, 308
@@ -138,6 +139,8 @@ class Pad:
         self.dirs = {}                                      # arrow -> when it next repeats
         self.triggers = {ABS_Z: False, ABS_RZ: False, ABS_GAS: False, ABS_BRAKE: False}
         self.trigger_buttons = set()                        # (pads whose triggers are buttons, BTN_TL2 / BTN_TR2)
+        self.web_game = False                               # the box's own game in front: it reads the triggers and
+        #                                                     Start itself (the volume and the options stay out of it)
         self.dpad_buttons = set()
 
     def _level(self, code, value):
@@ -159,6 +162,8 @@ class Pad:
             out.add("KEY_LEFT")
         if hx > 0 or sx > 0.6:
             out.add("KEY_RIGHT")
+        if self.web_game:
+            return out
         if self.triggers[ABS_Z] or self.triggers[ABS_BRAKE] or BTN_TL2 in self.trigger_buttons:
             out.add("VOLDOWN")
         if self.triggers[ABS_RZ] or self.triggers[ABS_GAS] or BTN_TR2 in self.trigger_buttons:
@@ -173,7 +178,7 @@ class Pad:
                 (self.dpad_buttons.add if value else self.dpad_buttons.discard)(BTN_DPAD[code])
             elif code in (BTN_TL2, BTN_TR2):
                 (self.trigger_buttons.add if value else self.trigger_buttons.discard)(code)
-            elif value == 1 and code in self.buttons:
+            elif value == 1 and code in self.buttons and not (self.web_game and code == BTN_START):
                 out.append(self.buttons[code])
         elif etype == 3:                                    # EV_ABS
             if code in self.triggers:
@@ -449,6 +454,9 @@ def main():
         now = time.time()
         if now - game_at > 0.5:                             # a game opened or ended (the agent says)
             game_at = now
+            web = os.path.exists(WEB_GAME_FILE)
+            for entry in pads.values():
+                entry[1].web_game = web
             g = read_game()
             if (g or {}).get("id") != (game or {}).get("id"):
                 for path in list(pads):

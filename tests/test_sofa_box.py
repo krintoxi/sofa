@@ -89,6 +89,20 @@ class Controllers(unittest.TestCase):
         self.assertEqual(p.feed(1, 315, 1, 8), ["KEY_F2"])                    # Menu: the options for what's in focus
         self.assertEqual(p.feed(1, 310, 1, 8.1), ["KEY_REWIND"])              # LB
 
+    def test_a_web_game_keeps_its_triggers(self):
+        """In one of the box's own games (Gloamwell: RT a skill, Start its menu), the triggers and Start are the
+        game's: no volume, no options over it. The rest still works for the box (Back, Home, the menus' keys)."""
+        p = pads.Pad("Xbox Wireless Controller", {10: (0, 1023), 9: (0, 1023)})
+        p.web_game = True
+        self.assertEqual(p.feed(3, 9, 1000, 0), [])                           # RT: the game's
+        self.assertEqual(p.due(1), [])
+        self.assertEqual(p.feed(1, 315, 1, 1.1), [])                          # Start: the game's
+        self.assertEqual(p.feed(1, 304, 1, 1.2), ["KEY_ENTER"])               # A: as ever (the game ignores it)
+        self.assertEqual(p.feed(1, 305, 1, 1.3), ["KEY_BACK"])                # B: Back stays the box's
+        p.web_game = False
+        p.feed(3, 9, 0, 2)
+        self.assertEqual(p.feed(3, 9, 1000, 3), ["VOLUP"])                    # Home again: the volume
+
     def test_trigger_buttons_and_remote_volume(self):
         p = pads.Pad("USB Gamepad")
         self.assertEqual(p.feed(1, 313, 1, 0), ["VOLUP"])                     # a pad whose triggers are buttons
