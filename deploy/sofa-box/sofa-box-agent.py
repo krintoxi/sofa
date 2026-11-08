@@ -1522,8 +1522,11 @@ PAD_KINDS = {"xbox": "Xbox", "playstation": "PlayStation", "nintendo": "Nintendo
 def _apt_why(out):
     """What went wrong installing a game, in a few words."""
     low = out.lower()
-    if "temporary failure resolving" in low or "could not resolve" in low or "network is unreachable" in low:
+    if "temporary failure resolving" in low or "could not resolve" in low or "network is unreachable" in low \
+            or "unable to resolve host" in low:                 # (the last: wget, a game that downloads its maps)
         return "The box couldn't reach the internet to download it. Check the Wi-Fi and try again."
+    if "hash mismatch" in low:
+        return "What it downloaded didn't check out, so it wasn't kept. Try again later."
     if "no space left" in low or "not enough free space" in low:
         return "There isn't room on the box's card for it."
     if "could not get lock" in low or "unable to acquire the dpkg frontend lock" in low:
@@ -1555,12 +1558,24 @@ class Games:
 
     @staticmethod
     def binary(g):
+        """The game's program, when it's on the box. With "data" (beside the program; AssaultCube's maps, which its
+        package downloads as it installs), only once that's there too: a download that failed isn't a game."""
         for name in g["run"]:
             for d in GAME_DIRS:
                 p = os.path.join(d, name)
                 if os.path.isfile(p) and os.access(p, os.X_OK):
+                    if g.get("data") and not os.path.exists(os.path.normpath(os.path.join(d, g["data"]))):
+                        return None
                     return p
         return None
+
+    @staticmethod
+    def screen(g):
+        """How big a 3D game draws, (width, height, the TV's height): on a Pi 3 as small as its list says
+        ("pi3_height"), and the TV scales it up; at most 1080p on a newer board; never more than the TV."""
+        tv = board()["tv_height"] or 1080
+        h = min(g["pi3_height"] if slow_board() else 1080, tv)
+        return h * 16 // 9, h, tv            # (1024×576, 1280×720, 1920×1080: sizes XWayland can give a game)
 
     @staticmethod
     def fits(g):
@@ -1670,7 +1685,74 @@ class Games:
                 os.makedirs(conf, exist_ok=True)
                 with open(os.path.join(conf, "settings.txt"), "w", encoding="utf-8") as f:
                     f.write("fullscreen=1\nenable_joystick=1\njoystick_device=0\nno_mouse=1\nmouse_move=0\nmouse_aim=0\n")
+        if g.get("setup") == "sauerbraten":                      # full screen at the board's size (each start)
+            w, h, _ = self.screen(g)
+            self._sauerbraten(slow)
+            return ["-t1", "-w%d" % w, "-h%d" % h]
+        if g.get("setup") == "assaultcube":
+            w, h, tv = self.screen(g)
+            own = h >= tv                                         # (the TV's own size: AssaultCube's "desktop" mode)
+            self._cfg_words(os.path.join(os.path.expanduser("~"), ".assaultcube", "config", "init.cfg"),
+                            {"fullscreen": "1", "fullscreendesktop": "1" if own else "0"})
+            return ["-t1"] + ([] if own else ["-w%d" % w, "-h%d" % h])
         return []
+
+    @staticmethod
+    def _cfg_words(path, want):
+        """A Cube engine's settings file ("name value" lines) with these values, the rest of it as it was."""
+        try:
+            with open(path, encoding="utf-8") as f:
+                lines = f.read().splitlines()
+        except OSError:
+            lines = []
+        out, done = [], set()
+        for line in lines:
+            name = (line.split(None, 1) or [""])[0]
+            if name in want:
+                if name in done:
+                    continue
+                line = "%s %s" % (name, want[name])
+                done.add(name)
+            out.append(line)
+        out += ["%s %s" % (k, v) for k, v in want.items() if k not in done]
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path + ".tmp", "w", encoding="utf-8") as f:
+            f.write("\n".join(out) + "\n")
+        os.replace(path + ".tmp", path)
+
+    SAUER_LOOKS = {     # (Sauerbraten's own on a Pi 4 or 5; a Pi 3: smaller textures, simpler shaders and water)
+        "light": "texreduce 1; shaderdetail 1; waterreflect 0; waterrefract 0; waterfade 0; caustics 0; "
+                 "maxdynlights 1; maxparticles 1000; maxfps 60",
+        "full": "texreduce 0; shaderdetail 3; waterreflect 1; waterrefract 1; waterfade 1; caustics 1; "
+                "maxdynlights 3; maxparticles 4000; maxfps 200"}
+
+    def _sauerbraten(self, slow):
+        """The box's settings for Sauerbraten (~/.sauerbraten/sofa-box.cfg, run by its autoexec.cfg at each start):
+        LT zooms while held, and the look for this board. Each is set once, when it isn't what the game saved last
+        (sofabox_* remembered with its settings), so what you change in its Options stays, until the board changes."""
+        home = os.path.join(os.path.expanduser("~"), ".sauerbraten")
+        os.makedirs(home, exist_ok=True)
+        look = "light" if slow else "full"
+        cfg = ("// Written by the Sofa Box each time it starts the game: your own settings stay in config.cfg.\n"
+               "// LT on a controller (the right mouse button) zooms while it's held.\n"
+               "if (=s (getalias sofabox_keys) 1) [] [\n"
+               "  bind MOUSE2 [zoom 1; onrelease [zoom -1]]\n"
+               "  sofabox_keys = 1\n]\n"
+               "// The look for this board (%s).\n"
+               "if (=s (getalias sofabox_look) %s) [] [\n  %s\n  sofabox_look = %s\n]\n"
+               ) % ("a Raspberry Pi 3: lighter" if slow else "the game's own", look, self.SAUER_LOOKS[look], look)
+        with open(os.path.join(home, "sofa-box.cfg.tmp"), "w", encoding="utf-8") as f:
+            f.write(cfg)
+        os.replace(os.path.join(home, "sofa-box.cfg.tmp"), os.path.join(home, "sofa-box.cfg"))
+        auto = os.path.join(home, "autoexec.cfg")                 # (anything else in it stays yours)
+        try:
+            with open(auto, encoding="utf-8") as f:
+                mine = f.read()
+        except OSError:
+            mine = ""
+        if "exec sofa-box.cfg" not in mine:
+            with open(auto, "w", encoding="utf-8") as f:
+                f.write("exec sofa-box.cfg\n" + mine)
 
     def play(self, gid):
         g = self.native(gid)
@@ -1695,7 +1777,13 @@ class Games:
         env = display_env()
         if env.get("WAYLAND_DISPLAY"):
             env.setdefault("SDL_VIDEODRIVER", "wayland,x11")
-        controls = None if g["controls"] == "pad" else self.catalog()["controls"][g["controls"]]
+        for k, v in (g.get("env") or {}).items():               # (the shooters: XWayland, whose mouse turns them
+            if re.match(r"^SDL_[A-Z0-9_]+$", k):                  # without end; cage can't hold a Wayland one still)
+                env[k] = str(v)
+        controls = None if g["controls"] == "pad" else dict(self.catalog()["controls"][g["controls"]])
+        if controls and g.get("pi3_height"):                      # drawn smaller and scaled up, a mouse moves less
+            _, h, tv = self.screen(g)                             # in it: the stick turns as fast at any size
+            controls["mouse_speed"] = round(float(controls.get("mouse_speed") or 1300) * tv / h)
         tmp = GAME_FILE + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump({"id": gid, "controls": controls}, f)
