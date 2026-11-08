@@ -338,9 +338,10 @@ vm.dirty_ratio = 10
 EOF
 sysctl -q -p /etc/sysctl.d/90-sofa-box.conf 2>/dev/null || true
 systemctl disable --now dphys-swapfile 2>/dev/null || true               # swapping to the SD card freezes everything
-# Logs in memory only (the card is slow to write, and a TV box keeps nothing it doesn't need).
-mkdir -p /etc/systemd/journald.conf.d
-printf '[Journal]\nStorage=volatile\nRuntimeMaxUse=24M\n' > /etc/systemd/journald.conf.d/sofa-box.conf
+# Logs kept across a restart, small (24 MB), so a report says how the start before ended (a box that restarted by
+# itself: power, or a crash); written every half minute, and alarms (like "under-voltage") at once.
+mkdir -p /etc/systemd/journald.conf.d /var/log/journal
+printf '[Journal]\nStorage=persistent\nSystemMaxUse=24M\nSystemMaxFileSize=4M\nSyncIntervalSec=30s\n' > /etc/systemd/journald.conf.d/sofa-box.conf
 # No maintenance jobs waking up while someone watches: package lists, manual pages, disk checks.
 for t in apt-daily.timer apt-daily-upgrade.timer man-db.timer dpkg-db-backup.timer e2scrub_all.timer; do
   systemctl disable --now "$t" >/dev/null 2>&1 || true

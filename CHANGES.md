@@ -6,6 +6,13 @@ has its own numbers and list: [deploy/sofa-box/CHANGES.md](deploy/sofa-box/CHANG
 A change to Sofa's code (`sofa/`, `client/`, `sofa.py`) gets a new version: raise `__version__`, add a section
 here, then `python3 tools/sofa-version.py` (a test checks it was done).
 
+## 1.2.3 (2026-11-07)
+
+- **Retro TV puts the 2000s first, with three channels:** Retro TV: 00s (shows with the decade's commercials),
+  **00s Kids TV** (whole recorded kids' TV, Nick Jr., Cartoon Network, Noggin, Disney, with the commercials they
+  went out with) and **00s On Air** (recorded broadcasts with their breaks: King of the Hill and Futurama in 2002,
+  Comedy Central in 2005, award shows…). Retro TV has its own group in Live TV.
+
 ## 1.2.2 (2026-11-04)
 
 - **Retro TV in Live TV.** A channel for each decade from the 50s to the 00s: its TV shows as they went out,

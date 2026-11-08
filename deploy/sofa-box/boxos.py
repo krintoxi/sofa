@@ -1053,6 +1053,31 @@ class Browser:
             except OSError:
                 pass
 
+    def rest(self, close_apps=False):
+        """A game takes the box: every page stops (frozen, Home too), the apps that aren't Sofa close on a small box,
+        and the browser lets go of the memory it can. Home wakes when it's brought back (activate)."""
+        for t, tab in list(self.tabs.items()):
+            if not tab.get("session"):
+                continue
+            if close_apps and tab.get("app") not in ("home", None) + KEEP_AWAKE:
+                try:
+                    self.close(t)
+                except OSError:
+                    pass
+                continue
+            if not tab.get("frozen"):
+                try:
+                    self.call("Page.setWebLifecycleState", {"state": "frozen"}, tab["session"], timeout=3)
+                    tab["frozen"] = True
+                except OSError:
+                    pass
+        home = self.tab_of("home")
+        if home and self.tabs[home].get("session"):
+            try:
+                self.call("Memory.simulatePressureNotification", {"level": "critical"}, self.tabs[home]["session"], timeout=3)
+            except OSError:
+                pass
+
     def front_app(self):
         """The app whose tab was last brought forward."""
         return (self.tabs.get(getattr(self, "front", None)) or {}).get("app")

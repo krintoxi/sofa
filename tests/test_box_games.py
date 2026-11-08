@@ -164,6 +164,29 @@ class Agent(unittest.TestCase):
         games.stop("tests")
         self.assertTrue(self.wait(lambda: games.playing is None))
 
+    def test_a_blank_world_is_mended(self):
+        """A crash had left Sofa Craft's world without its game ("Game [] could not be found" at every start after)."""
+        games = self.agent.games
+        games.change("luanti", "install")
+        self.assertEqual(self.wait_job()["state"], "done")
+        mt = os.path.join(os.environ["SOFA_BOX_GAME_DATA"], "luanti", "worlds", "Sofa Box", "world.mt")
+        os.makedirs(os.path.dirname(mt), exist_ok=True)
+        with open(mt, "w") as f:
+            f.write("gameid = \nbackend = leveldb\nworld_name = Mine\n")
+        games.play("luanti")
+        games.stop("tests")
+        self.assertTrue(self.wait(lambda: games.playing is None))
+        with open(mt) as f:
+            text = f.read()
+        self.assertIn("gameid = minetest", text)
+        self.assertIn("backend = leveldb", text)                          # (its storage stays what it is)
+        self.assertIn("world_name = Mine", text)
+        self.assertIn("mod_storage_backend = sqlite3", text)
+        with open(os.path.join(os.environ["SOFA_BOX_GAME_DATA"], "last-game.log")) as f:
+            self.assertIn(", Sofa Craft", f.read())                       # each start marked in the games' log
+        games.change("luanti", "remove")
+        self.assertEqual(self.wait_job()["state"], "done")
+
     def test_room_and_board(self):
         games = self.agent.games
         real = self.agent.board

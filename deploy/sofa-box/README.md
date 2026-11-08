@@ -262,8 +262,10 @@ you've added (open one, make it the one Sofa opens with, or remove it). Inside S
 The **Live TV** tile opens Live TV in the Sofa it opens with, or in Sofa on the box. Channels play in the
 box's own player: up and down change the channel. Besides the free channel lists, there are **Internet
 Archive** channels (classic movies, film noir, westerns, silent films, cartoons, classic TV, documentaries):
-free films on a loop, on the clock, like TV; and **Retro TV**, a channel for each decade with its shows
-and its commercials between them. The App Store's **Retro TV** section has the My Retro TVs sites too.
+free films on a loop, on the clock, like TV; and **Retro TV**, its own group: the 2000s first (Retro TV:
+00s, **00s Kids TV** and **00s On Air**, whole recorded broadcasts with the commercials they went out with),
+then a channel for each decade back to the 50s with its shows and its commercials between them. The App
+Store's **Retro TV** section has the My Retro TVs sites too.
 
 ### USB drives and discs
 
@@ -363,8 +365,9 @@ song in the box's player, or shows a picture; **Menu** renames, moves or deletes
 - **Help → Send a report:** when something doesn't work (a black screen, a controller that won't
   show), it sends the box's checks and what it has logged since it started to the Sofa Box team, and
   the TV shows the report's number: give it to whoever helps you. No titles, passwords or codes are in
-  it ([what's in it](../../docs/privacy.md#on-a-sofa-box)). Send it **before** restarting the box: a
-  restart clears the logs. When the TV's Settings are out of reach, the phone remote has it too, under
+  it ([what's in it](../../docs/privacy.md#on-a-sofa-box)). A box that restarted by itself: send one
+  after; it says how the start before ended, and whether the Pi was short of power (a weak power supply
+  is the usual reason). When the TV's Settings are out of reach, the phone remote has it too, under
   its buttons: **Something wrong? Send a report**. On a computer: `sudo sofa-box report` shows it.
 
 <img src="../../docs/images/box-themes.jpg" alt="The four themes: Street, Terminal, Pirate and Sofa" width="100%">
@@ -434,7 +437,8 @@ the box first:
   plays. Sofa on the box runs at the lowest priority.
 - **The system is kept quiet:**
   - no maintenance jobs while you watch;
-  - logs kept in memory, not written to the card;
+  - logs small (24 MB at most) and written to the card every half minute, so a restart doesn't lose
+    them;
   - swap is compressed memory, never the card;
   - the processor speeds up as soon as you press something.
 - **On a Pi 3, the home screen keeps its look** without the effects that are slow to draw (big glows
