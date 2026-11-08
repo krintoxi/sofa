@@ -26,6 +26,7 @@ here, then `python3 tools/sofa-version.py` (a test checks it was done).
   sign in with your phone, no typing ("Not now" puts it away for three days). Signing out (or Leave) shows
   the sign-in screen, which has Watch as a guest too.
 - On a TV, **Use a name and password instead** stays on the password form (it used to go back to the code).
+- Pictures decode off to the side (banners, posters, logos): the remote never waits for one.
 - **"Something went wrong (501)"** on the request after one Sofa had turned down (a refused sign-in, then the
   next try): the turned-down request's body was left on the connection. Fixed.
 

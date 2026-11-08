@@ -974,6 +974,11 @@ class Browser:
         tab = self.tabs.get(target) or {}
         try:
             self.call("Runtime.enable", {}, session)              # the page's messages come through only with it on
+            try:                                                  # (how quickly it answers: every page, Home too)
+                self.call("Page.addScriptToEvaluateOnNewDocument", {"source": SMOOTH_PROBE}, session, timeout=3)
+                self.call("Runtime.evaluate", {"expression": SMOOTH_PROBE}, session, timeout=3)
+            except OSError:
+                pass
             self.call("Runtime.addBinding", {"name": "__sofaBox", "executionContextName": "sofabox"}, session)
             for domain in ("Log", "Media"):                           # for the notes (Media: newer Chromiums only)
                 try:
@@ -1191,6 +1196,26 @@ class Browser:
             except OSError:
                 pass
 
+    def smoothness(self):
+        """How quickly each open page answers the remote: {app: {presses, slow, worst, long, long_ms}} (pages asleep
+        aren't asked)."""
+        out = {}
+        for t, tab in list(self.tabs.items()):
+            if not tab.get("session") or tab.get("frozen"):
+                continue
+            try:
+                r = self.call("Runtime.evaluate", {"expression": "window.__sofaSmooth ? __sofaSmooth() : ''",
+                                                   "returnByValue": True}, tab["session"], timeout=3)
+                v = json.loads((r.get("result") or {}).get("value") or "null")
+            except (OSError, ValueError, AttributeError):
+                continue
+            if isinstance(v, dict):
+                name = tab.get("app") or "page"
+                if name in out:                                  # (two of one app: added up)
+                    v = {k: (max if k == "worst" else sum)((out[name].get(k, 0), v.get(k, 0))) for k in v}
+                out[name] = v
+        return out
+
     def hud(self, text, level=None):
         """A short message over whatever is in front (Home, Sofa, an app), like a TV's own: the volume. Drawn in the page
         by the box (no page's code needed), gone after a moment."""
@@ -1204,6 +1229,30 @@ class Browser:
             return self.call("Runtime.evaluate", {"expression": expression}, tab["session"])
         return None
 
+
+# In every page the box opens, Home too: how quickly it answers the remote, measured by the browser itself (a key
+# press until the TV shows the answer; 0.1 s or more feels slow), and the tasks that held it up (50 ms or more). Read
+# by Browser.smoothness() (reports; the box choosing its light look by itself on a board too slow for the full one).
+SMOOTH_PROBE = r"""(function () {
+  if (window.__sofaSmooth) return;
+  var s = { presses: 0, slow: 0, worst: 0, long: 0, long_ms: 0 };
+  addEventListener("keydown", function () { s.presses++; }, true);
+  try {
+    new PerformanceObserver(function (list) {
+      list.getEntries().forEach(function (e) {
+        if (e.name !== "keydown") return;
+        if (e.duration > s.worst) s.worst = Math.round(e.duration);
+        if (e.duration >= 100) s.slow++;
+      });
+    }).observe({ type: "event", durationThreshold: 48 });          // (only presses it counted itself)
+  } catch (e) {}
+  try {
+    new PerformanceObserver(function (list) {
+      list.getEntries().forEach(function (e) { s.long++; s.long_ms += Math.round(e.duration); });
+    }).observe({ type: "longtask", buffered: true });
+  } catch (e) {}
+  window.__sofaSmooth = function () { return JSON.stringify(s); };
+})();"""
 
 HUD_JS = r"""(function (text, level) {
   var d = document.getElementById("__sofa_hud");

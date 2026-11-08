@@ -1442,6 +1442,28 @@ class LiveBanner(unittest.TestCase):
         self.assertEqual((said[0][0], said[0][2]), ("show-text", 5000))
         return said[0][1]
 
+    def test_smoothness(self):
+        """The box measures how quickly its pages answer the remote, says so in a report, and on a board with the full
+        look by itself (Automatic) takes the light look when a fifth of the presses take 0.1 s or more."""
+        a = self.agent
+        self.assertFalse(a.too_slow(30, 30))                       # (too few presses to tell)
+        self.assertFalse(a.too_slow(100, 10))
+        self.assertTrue(a.too_slow(100, 25))
+        line = a.smooth_lines({"home": {"presses": 120, "slow": 6, "worst": 240, "long": 3, "long_ms": 410}})[0]
+        self.assertEqual(line, "  home: 120 presses, 6 slower than 0.1 s (slowest 0.24 s); 3 long tasks (0.4 s in all)")
+        real = a.board
+        a.board = lambda: {"gen": 5, "memory_mb": 4096}
+        try:
+            a.save_settings(performance="auto", learned_lite=False)
+            self.assertFalse(a.light())
+            a.save_settings(learned_lite=True)                       # the box chose it
+            self.assertTrue(a.light())
+            a.save_settings(performance="full")
+            self.assertFalse(a.light())                              # (the owner's choice comes first)
+        finally:
+            a.board = real
+            a.save_settings(performance="auto", learned_lite=False)
+
     def test_the_volume(self):
         self.assertEqual(self.agent.parse_volume("Volume: 0.45\n"), (45, False))                 # wpctl
         self.assertEqual(self.agent.parse_volume("Volume: 0.30 [MUTED]\n"), (30, True))

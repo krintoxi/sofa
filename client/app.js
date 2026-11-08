@@ -225,7 +225,7 @@ function installOffer(asked) {
   const sheet = document.createElement("div");
   sheet.className = "install-sheet" + (ios && !installPrompt && !/iPad|Macintosh/.test(ua) ? " points-down" : "");
   sheet.setAttribute("role", "dialog"); sheet.setAttribute("aria-label", "Install Sofa");
-  sheet.innerHTML = `<img src="/client/icons/icon-192.png" alt="" width="56" height="56"><div class="is-body"><b>Install Sofa</b>${how}
+  sheet.innerHTML = `<img decoding="async" src="/client/icons/icon-192.png" alt="" width="56" height="56"><div class="is-body"><b>Install Sofa</b>${how}
     <div class="row-actions">${installPrompt ? `<button class="btn primary" data-install-go="1">Install</button>` : ""}<button class="btn ghost" data-install-later="1">${installPrompt ? "Not now" : "Got it"}</button></div></div>`;
   document.body.appendChild(sheet);
   requestAnimationFrame(() => sheet.classList.add("on"));
@@ -509,10 +509,10 @@ function heroFor(show, short) {
     action = `<button class="btn primary" data-play="${esc(nx.ep.id)}">${icon("i-play")}${verb} <small>${esc(epCode(nx.ep))}</small></button>`;
   }
   return `<section class="hero${short ? " short" : ""}"${short ? ` data-trailer="${esc(trailerFor(show))}"` : ""}>${short ? trailerCtl() : ""}
-    ${show.backdrop || (show.poster_still && show.poster) ? `<img class="hero-bg" src="${esc(artSrc(show.backdrop || show.poster, 1280))}" alt="">`
-      : show.poster ? `<img class="hero-bg blur" src="${esc(artSrc(show.poster, 480))}" alt="">` : ""}
+    ${show.backdrop || (show.poster_still && show.poster) ? `<img decoding="async" class="hero-bg" src="${esc(artSrc(show.backdrop || show.poster, 1280))}" alt="">`
+      : show.poster ? `<img decoding="async" class="hero-bg blur" src="${esc(artSrc(show.poster, 480))}" alt="">` : ""}
     <div class="hero-body">
-      ${show.logo ? `<img class="hero-logo" src="${esc(artSrc(show.logo, 720))}" alt="${esc(show.name)}">` : `<h1>${esc(show.name)}</h1>`}
+      ${show.logo ? `<img decoding="async" class="hero-logo" src="${esc(artSrc(show.logo, 720))}" alt="${esc(show.name)}">` : `<h1>${esc(show.name)}</h1>`}
       <p class="facts">${facts}</p>
       ${show.summary ? `<p class="summary${short ? "" : " clamp"}">${esc(show.summary)}</p>` : ""}
       <div class="actions">${action}${short ? "" : `<a class="btn" href="#/show/${encodeURIComponent(show.id)}">Episodes</a>`}${show.adult ? "" : listBtn(show.id)}${short && inRows(show) ? forgetBtn(show) : ""}
@@ -549,10 +549,10 @@ function heroSlide(x, i) {
   }
   const name = x.name || x.title, clipId = isShow ? (upNext(x) || { ep: x.order[0] || {} }).ep.id : x.id;
   return `<div class="slide${i ? "" : " on"}" data-glow="${esc(x.backdrop || x.poster || "")}"${clipId ? ` data-clip="${esc(clipId)}"` : ""} aria-hidden="${i ? "true" : "false"}">
-    ${x.backdrop ? `<img class="hero-bg" src="${esc(artSrc(x.backdrop, 1280))}" alt=""${i ? ` loading="lazy"` : ""}>`
-      : x.poster ? `<img class="hero-bg blur" src="${esc(artSrc(x.poster, 480))}" alt="">` : `<span class="hero-bg placeholder" style="--h:${hue(name)}"></span>`}
+    ${x.backdrop ? `<img decoding="async" class="hero-bg" src="${esc(artSrc(x.backdrop, 1280))}" alt=""${i ? ` loading="lazy"` : ""}>`
+      : x.poster ? `<img decoding="async" class="hero-bg blur" src="${esc(artSrc(x.poster, 480))}" alt="">` : `<span class="hero-bg placeholder" style="--h:${hue(name)}"></span>`}
     <div class="hero-body"><p class="eyebrow">${isShow ? (lastTouched(x) ? "Continue the series" : "Series") : "Movie"}</p>
-      ${x.logo ? `<img class="hero-logo" src="${esc(artSrc(x.logo, 720))}" alt="${esc(name)}">` : `<h1>${esc(name)}</h1>`}
+      ${x.logo ? `<img decoding="async" class="hero-logo" src="${esc(artSrc(x.logo, 720))}" alt="${esc(name)}">` : `<h1>${esc(name)}</h1>`}
       <p class="facts">${facts}</p>
       ${x.summary ? `<p class="summary clamp">${esc(x.summary)}</p>` : ""}
       <div class="actions">${action}${more}</div></div></div>`;
@@ -964,7 +964,7 @@ function viewBox() {
       </div>
       <div class="panel wide"><h2>Boot screen</h2>
         <p class="hint">What the TV shows while the box starts: Sofa's own loading screen in a colour of your choice, with a name under it.</p>
-        <div class="box-boot"><img src="/box/splash.png?phase=0.45&amp;v=${encodeURIComponent(s.theme + s.boot_text)}" alt="The boot screen">
+        <div class="box-boot"><img decoding="async" src="/box/splash.png?phase=0.45&amp;v=${encodeURIComponent(s.theme + s.boot_text)}" alt="The boot screen">
           <div><div class="themes">${themes}</div>
             <label class="field"><span>Name under the logo</span><input data-box-text="boot_text" data-box-key="boot-text" maxlength="30" value="${esc(s.boot_text || "")}" placeholder="Living room"></label>
             ${act("apply-boot", "Use it from the next start", "primary")}</div></div>
@@ -1133,7 +1133,7 @@ function viewCollection(name) {
   const art = list.find(m => m.backdrop) || list.find(m => m.poster);
   setGlow(art && (art.backdrop || art.poster));
   const next = list.find(m => !isDone(m.id)) || list[0];
-  return `<section class="hero short">${art && art.backdrop ? `<img class="hero-bg" src="${esc(artSrc(art.backdrop, 1280))}" alt="">` : ""}
+  return `<section class="hero short">${art && art.backdrop ? `<img decoding="async" class="hero-bg" src="${esc(artSrc(art.backdrop, 1280))}" alt="">` : ""}
     <div class="hero-body"><h1>${esc(name)}</h1><p class="facts"><span>${plural(list.length, "movie")}</span>
     <span>${esc([list[0].year, list[list.length - 1].year].filter(Boolean).filter((y, i, a) => a.indexOf(y) === i).join(" to "))}</span>
     <span>${list.filter(m => isDone(m.id)).length} watched</span></p>
@@ -1157,11 +1157,11 @@ function viewMovie(id) {
   const sibs = m.collection ? movies.concat(adultMovies).filter(x => x.collection === m.collection && x.id !== m.id)
     : m.adult && m.studio ? adultMovies.filter(x => x.studio === m.studio && x.id !== m.id).slice(0, 20) : [];
   return `<section class="hero movie-hero" data-trailer="${esc(m.id)}">${trailerCtl()}
-    ${m.backdrop || ((m.adult || m.poster_still) && m.poster) ? `<img class="hero-bg" src="${esc(artSrc(m.backdrop || m.poster, 1280))}" alt="">` : m.poster ? `<img class="hero-bg blur" src="${esc(artSrc(m.poster, 480))}" alt="">` : ""}
+    ${m.backdrop || ((m.adult || m.poster_still) && m.poster) ? `<img decoding="async" class="hero-bg" src="${esc(artSrc(m.backdrop || m.poster, 1280))}" alt="">` : m.poster ? `<img decoding="async" class="hero-bg blur" src="${esc(artSrc(m.poster, 480))}" alt="">` : ""}
     <div class="hero-body movie-body${m.adult ? " scene-body" : ""}">
       <span class="frame poster-frame${m.poster ? "" : " noimg"}${dressed(m) ? " still-poster" : ""}">${dressed(m) ? stillPoster(m, 720) : frameImg(m.poster, m.title, m.title, m.adult ? 720 : 480)}</span>
       <div>
-        ${m.logo ? `<img class="hero-logo" src="${esc(artSrc(m.logo, 720))}" alt="${esc(m.title)}">` : `<h1>${esc(m.title)}</h1>`}
+        ${m.logo ? `<img decoding="async" class="hero-logo" src="${esc(artSrc(m.logo, 720))}" alt="${esc(m.title)}">` : `<h1>${esc(m.title)}</h1>`}
         ${m.tagline ? `<p class="tagline">${esc(m.tagline)}</p>` : ""}
         <p class="facts">${facts}</p>
         ${m.performers && m.performers.length ? `<p class="facts"><span>With ${m.adult ? m.performers.map(x => link("performer", x)).join(", ") : esc(m.performers.join(", "))}</span></p>` : ""}
@@ -1214,7 +1214,7 @@ function adultHero(list) {
     const play = isShow ? nx && nx.ep.id : x.id;
     const clipId = isShow ? (nx || { ep: x.order[0] || {} }).ep.id : x.id;
     return `<div class="slide${i ? "" : " on"}" data-glow=""${clipId ? ` data-clip="${esc(clipId)}"` : ""} aria-hidden="${i ? "true" : "false"}">
-      <img class="hero-bg" src="${esc(artSrc(x.backdrop || x.poster, 1280))}" alt=""${i ? ` loading="lazy"` : ""}>
+      <img decoding="async" class="hero-bg" src="${esc(artSrc(x.backdrop || x.poster, 1280))}" alt=""${i ? ` loading="lazy"` : ""}>
       <div class="hero-body"><p class="eyebrow">${isShow ? "Series" : "New in Adult"}</p><h1>${esc(name)}</h1>
         <p class="facts">${facts}</p>
         ${x.performers && x.performers.length ? `<p class="facts"><span>With ${esc(x.performers.slice(0, 4).join(", "))}</span></p>` : ""}
@@ -1573,7 +1573,7 @@ function openPop(card) {
   const el = document.createElement("div");
   el.className = "pop";
   el.style.cssText = `left:${left}px;top:${top}px;width:${w}px;transform-origin:${r.left + r.width / 2 - left}px ${r.top + r.height / 2 - top}px`;
-  el.innerHTML = `<a class="pop-media" href="${esc(info.more)}" tabindex="-1">${info.art ? `<img src="${esc(artSrc(info.art, 720))}" alt="">` : `<span class="placeholder" style="--h:${hue(info.title)}">${esc(info.title)}</span>`}
+  el.innerHTML = `<a class="pop-media" href="${esc(info.more)}" tabindex="-1">${info.art ? `<img decoding="async" src="${esc(artSrc(info.art, 720))}" alt="">` : `<span class="placeholder" style="--h:${hue(info.title)}">${esc(info.title)}</span>`}
       ${p && !isDone(info.id || info.play) ? `<span class="progress"><i style="width:${p}%"></i></span>` : ""}</a>
     <div class="pop-body">
       <div class="pop-actions">${info.play ? `<button class="round primary" data-play="${esc(info.play)}" aria-label="${info.verb}">${icon("i-play")}</button>` : ""}
@@ -1755,7 +1755,7 @@ function liveList() {
 }
 function channelCard(c) {
   return `<div class="chan"><button class="card" data-live="${esc(c.id)}" style="display:block;width:100%">
-      <span class="logo">${c.logo ? `<img src="${esc(c.logo)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : `<span>${esc(c.name)}</span>`}</span>
+      <span class="logo">${c.logo ? `<img decoding="async" src="${esc(c.logo)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : `<span>${esc(c.name)}</span>`}</span>
       <span class="t1">${c.number ? `<b class="ch-num">${c.number}</b> ` : ""}${esc(c.name)}</span><span class="t2">${c.now ? "Now: " + esc(c.now) : esc(c.group)}</span></button>
     <button class="star" data-fav="${esc(c.id)}" aria-pressed="${c.fav}" aria-label="${c.fav ? "Remove from favorites" : "Add to favorites"}">★</button></div>`;
 }
@@ -2559,7 +2559,7 @@ function srvSharing(d) {
   if (!x) return `<p class="admin-lede">Loading…</p>`;
   const links = x.links.length ? x.links : x.path ? [{ where: "here", url: location.origin + x.path }] : [];
   const outside = links.find(l => l.where === "internet");
-  const titles = x.titles.map(t => `<li class="share-title"><span class="share-poster">${t.poster ? `<img src="${esc(artSrc(t.poster, 160))}" alt="" loading="lazy">` : ""}</span>
+  const titles = x.titles.map(t => `<li class="share-title"><span class="share-poster">${t.poster ? `<img decoding="async" src="${esc(artSrc(t.poster, 160))}" alt="" loading="lazy">` : ""}</span>
       <span><b>${esc(t.title)}</b>${t.year ? " (" + esc(t.year) + ")" : ""}<br><span class="when">${t.kind === "show" ? "Show" : "Movie"}</span></span>
       <span class="row-actions"><a class="mini" href="#/${t.kind}/${encodeURIComponent(t.id)}">Open</a><button class="mini" data-share-title="${esc(t.id)}" data-on="0">Stop sharing</button></span></li>`).join("");
   return `<div class="panels">
@@ -3068,7 +3068,7 @@ function openSuggest(q) {
   const { sh, mv, eps } = searchAll(q);
   const titles = sh.slice(0, 5).concat(mv.slice(0, 5)).sort((a, b) => sh.indexOf(a) + mv.indexOf(a) + 2 - (sh.indexOf(b) + mv.indexOf(b) + 2)).slice(0, 6);
   const row = (href, art, wide, name, sub) => `<a class="sg-item" role="option" href="${esc(href)}">
-      <span class="sg-art${wide ? " wide" : ""}">${art ? `<img src="${esc(artSrc(art, 240))}" alt="" loading="lazy">` : `<span class="placeholder" style="--h:${hue(name)}"></span>`}</span>
+      <span class="sg-art${wide ? " wide" : ""}">${art ? `<img decoding="async" src="${esc(artSrc(art, 240))}" alt="" loading="lazy">` : `<span class="placeholder" style="--h:${hue(name)}"></span>`}</span>
       <span class="sg-text"><b>${esc(name)}</b><small>${esc(sub)}</small></span></a>`;
   const items = titles.map(x => x.seasons
       ? row("#/show/" + encodeURIComponent(x.id), x.poster, false, x.name, ["Show", years(x), plural(x.regularSeasons, "season")].filter(Boolean).join(" · "))
@@ -3215,7 +3215,7 @@ function fixDialog(id) {
       const r = await api("/api/admin/match?id=" + encodeURIComponent(id) + "&q=" + encodeURIComponent(form.q.value) + (form.year ? "&year=" + encodeURIComponent(form.year.value) : ""));
       const tip = !isShow && !r.keys.tmdb ? `<p class="hint">Tip: add a free TMDB key on the Server page (Settings) for the best movie artwork.</p>` : "";
       box.innerHTML = r.results.length ? `<ul class="picks">${r.results.map(x => `<li><button data-pick-src="${esc(x.source)}" data-pick-id="${esc(x.id)}">
-        <span class="pk-art">${x.poster ? `<img src="${esc(x.poster)}" alt="" referrerpolicy="no-referrer" loading="lazy">` : ""}</span>
+        <span class="pk-art">${x.poster ? `<img decoding="async" src="${esc(x.poster)}" alt="" referrerpolicy="no-referrer" loading="lazy">` : ""}</span>
         <span class="pk-text"><b>${esc(x.title)}</b><span>${esc([x.year, x.detail].filter(Boolean).join(" · "))}</span></span></button></li>`).join("")}</ul>${tip}`
         : `<p class="count">Nothing found for "${esc(form.q.value)}". Try fewer words, or another spelling.</p>${tip}`;
     } catch (e) { box.innerHTML = `<p class="form-error">${esc(e.message)}</p>`; }
@@ -3587,7 +3587,7 @@ const Screens = (function () {
     const s = others.find(x => x.id === target.id) || { state: {} }, st = s.state || {}, it = st.item && byId.get(st.item);
     const owner = it ? it.show || it : null, art = it ? it.thumb || (owner && (owner.backdrop || owner.poster)) : "";
     bar.hidden = false; document.body.classList.add("has-remote");
-    bar.innerHTML = `<div class="rb-top">${art ? `<img src="${esc(artSrc(art, 240))}" alt="">` : `<span class="rb-noart">${icon("i-cast")}</span>`}
+    bar.innerHTML = `<div class="rb-top">${art ? `<img decoding="async" src="${esc(artSrc(art, 240))}" alt="">` : `<span class="rb-noart">${icon("i-cast")}</span>`}
         <div class="rb-text"><b>${esc(it ? owner.name || owner.title : "Nothing playing")}</b><span>${esc([it ? (it.kind === "episode" ? epCode(it) + (it.title ? " · " + it.title : "") : "") : "Press Play on anything", "on " + target.name].filter(Boolean).join(" · "))}</span></div>
         <button class="rb-leave" data-rc-leave="1" aria-label="Play here again" title="Play here again">${icon("i-close")}</button></div>
       ${it && st.d ? `<div class="rb-scrub" data-d="${st.d}"><i style="width:${Math.min(100, st.t / st.d * 100)}%"></i></div><div class="rb-time"><span>${clock(st.t)}</span><span>${clock(st.d)}</span></div>` : ""}
@@ -4591,7 +4591,7 @@ function trackRows(list, opts) {
   return `<ol class="tracks" data-list="${esc(list.map(t => t.id).join(","))}">${list.map((t, i) => `
     <li class="track${t.id === cur ? " playing" : ""}" data-mplay="${esc(t.id)}" data-idx="${i}" tabindex="0">
       <span class="num">${opts.numbers ? (t.n || i + 1) : i + 1}</span>
-      <span class="art">${t.art ? `<img src="${esc(artSrc(t.art, 240))}" alt="" loading="lazy">` : ""}</span>
+      <span class="art">${t.art ? `<img decoding="async" src="${esc(artSrc(t.art, 240))}" alt="" loading="lazy">` : ""}</span>
       <span class="name"><b>${esc(t.title)}</b><span>${esc(t.artist)}</span></span>
       <span class="alb">${esc(t.album === "Singles" ? "Single" : t.album)}</span>
       <span class="dur">${esc(durText(t.duration))}</span>
@@ -4662,7 +4662,7 @@ function viewAlbum(a) {
   const list = a.tracks.map(id => mById.get(id)).filter(Boolean);
   const total = list.reduce((s, t) => s + (t.duration || 0), 0);
   setGlow(a.art);
-  return `<section class="album-head"><div class="cover">${a.art ? `<img src="${esc(artSrc(a.art, 720))}" alt="">` : ""}</div>
+  return `<section class="album-head"><div class="cover">${a.art ? `<img decoding="async" src="${esc(artSrc(a.art, 720))}" alt="">` : ""}</div>
     <div><p class="kind">${a.title === "Singles" ? "Singles" : list.length <= 3 ? "EP" : "Album"}</p>
     <h1>${esc(a.title === "Singles" ? a.artist : a.title)}</h1>
     <p class="facts"><a href="#/music/artist/${encodeURIComponent(a.artist_id)}">${esc(a.artist)}</a>${a.year ? `<span>${a.year}</span>` : ""}<span>${plural(list.length, "song")}, ${Math.round(total / 60)} min</span></p>
@@ -4676,7 +4676,7 @@ function viewArtist(ar) {
   const list = MUSIC.tracks.filter(t => t.artist_id === ar.id);
   const vids = MUSIC.videos.filter(v => v.artist_id === ar.id);
   setGlow(ar.art);
-  return `<section class="album-head"><div class="cover round">${ar.art ? `<img src="${esc(artSrc(ar.art, 720))}" alt="">` : ""}</div>
+  return `<section class="album-head"><div class="cover round">${ar.art ? `<img decoding="async" src="${esc(artSrc(ar.art, 720))}" alt="">` : ""}</div>
     <div><p class="kind">Artist</p><h1>${esc(ar.name)}</h1>
     <p class="facts"><span>${plural(list.length, "song")}</span>${vids.length ? `<span>${plural(vids.length, "video")}</span>` : ""}</p>
     <div class="actions"><button class="btn primary" data-mplay-list="${esc(ar.id)}">${icon("i-play")}Play</button>
@@ -4753,7 +4753,7 @@ const MusicPlayer = (function () {
   function paintNow() {
     const t = current();
     if (!t) return;
-    $(".now .art", bar).innerHTML = t.art ? `<img src="${esc(artSrc(t.art, 240))}" alt="">` : "";
+    $(".now .art", bar).innerHTML = t.art ? `<img decoding="async" src="${esc(artSrc(t.art, 240))}" alt="">` : "";
     $(".now b", bar).textContent = t.title;
     $(".now div span", bar).textContent = t.artist + (label ? ", " + label : "");
     $('[data-m="like"]', bar).setAttribute("aria-pressed", likes.has(t.id));
@@ -4771,7 +4771,7 @@ const MusicPlayer = (function () {
   function paintQueue() {
     const upcoming = order.slice(idx).map(i => mById.get(queue[i])).filter(Boolean);
     qpanel.innerHTML = `<h3>Up next${label ? ": " + esc(label) : ""}</h3>` + (upcoming.length
-      ? upcoming.map((t, k) => `<div class="track${k === 0 ? " playing" : ""}" data-qjump="${idx + k}"><span class="art">${t.art ? `<img src="${esc(artSrc(t.art, 240))}" alt="" loading="lazy">` : ""}</span>
+      ? upcoming.map((t, k) => `<div class="track${k === 0 ? " playing" : ""}" data-qjump="${idx + k}"><span class="art">${t.art ? `<img decoding="async" src="${esc(artSrc(t.art, 240))}" alt="" loading="lazy">` : ""}</span>
         <span class="name"><b>${esc(t.title)}</b><span>${esc(t.artist)}</span></span><span class="dur">${esc(durText(t.duration))}</span></div>`).join("")
       : `<p class="count">Nothing queued.</p>`);
   }
