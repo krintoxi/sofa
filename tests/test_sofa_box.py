@@ -942,6 +942,34 @@ class BoxBrowser(unittest.TestCase):
         self.bar_says("/box/games/pair-up", {"a": "close"})
         self.wait(lambda d: [r["app"] for r in d["running"]] == ["sofa"])
 
+    def test_gloamwell_plays(self):
+        """Gloamwell in the box's browser: its newer creatures, elite powers and a champion fight on a floor for a
+        while with nothing thrown; XP rises in drops as it's won; a legend keeps its power through a save."""
+        self.post("/box/api/open", {"url": self.base + "/box/games/gloamwell/#test"})
+        js = lambda e: self.page_value("/box/games/gloamwell", e)
+        end = time.time() + 25
+        while time.time() < end:
+            try:
+                if js("typeof GW") == "object":
+                    break
+            except (StopIteration, OSError, KeyError):
+                pass
+            time.sleep(0.3)
+        js("window.errs = []; addEventListener('error', e => errs.push(String(e.message))); GW.newGame(0); GW.goFloor(13); GW.P.hp = GW.P.mhp = 99999; 1")
+        js("(() => { for (const t of [19, 20, 21, 23, 0]) { const m = GW.spawnMon(t, GW.P.x + 24, GW.P.y, true); if (m) m.awake = true; }"
+           " const c = GW.spawnMon(1, GW.P.x - 24, GW.P.y, false); GW.makeChampion(c); c.awake = true; return 1; })()")
+        time.sleep(4)
+        state = json.loads(js("JSON.stringify({ errs, champ: !!GW.champM && GW.champM.champ, el: GW.champM ? GW.champM.elS : '', alive: GW.P.hp > 0, mode: GW.mode })"))
+        self.assertEqual(state["errs"], [])
+        self.assertTrue(state["alive"] and state["mode"] == 3, state)
+        self.assertIn("\u0005", state["el"]) if state["champ"] else None          # (two powers, shown as one line)
+        drops = js("GW.skillXP(0, 60); GW.xpDrop(4, 25); GW.XD.filter(e => e.on).map(e => e.sk + ':' + e.s).join(',')")
+        self.assertIn("0:+60", drops)
+        self.assertIn("4:+25", drops)
+        kept = json.loads(js("(() => { const it = GW.genUnique(9, 6); GW.P.pack.push(it); GW.save(); const back = JSON.parse(JSON.stringify(it));"
+                             " return JSON.stringify({ ok: GW.validItem(back), r: back.r, n: back.n, in: JSON.stringify(GW.readSlot(0).pack).indexOf('HEARTSEEKER BAND') >= 0 }); })()"))
+        self.assertEqual(kept, {"ok": True, "r": 5, "n": "HEARTSEEKER BAND", "in": True})
+
 
 class BoxNetwork(unittest.TestCase):
     """When the box makes its own Wi-Fi: soon for a new box; a box that knows a Wi-Fi waits for it (a router

@@ -7,6 +7,34 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.31
+
+- **Gloamwell goes deeper.**
+  - **XP you can see.** Every gain rises at the side of the screen with its skill's picture (Woodcutting,
+    Mining, Crafting, Hunting, and the fight's own), and the skill you're training stays in view with how far
+    it is to the next level. A new level brings fireworks, a pillar of light, and what it lets you do now ("YOU
+    CAN CUT PALEROOT NOW"). Each stroke throws chips and sparks, what you take pops up, a clean stroke doubles
+    it ("PERFECT!"), and now and then there's a bird's nest in the roots or a geode in the vein.
+  - **Legends**, a sixth kind of gear, pink: eight things of old Wickhollow with powers you can see.
+    Embertongue sets foes alight, the Quiet Bell tolls every fourth blow and stuns all around, Stormwick's
+    blows leap as lightning, Mother's Needle looses ghost moths, Graveweave's bones take a heavy blow for you,
+    the Crown of the Drowned chills what strikes you, the Heartseeker Band heals every eighth kill, and the
+    Last Lamp reaches further and makes foes in its light smoulder. Guardians and champions carry them most
+    often; a legend on the floor shows as a tall pink beam.
+  - **New creatures:** the lampwraith, which drinks your lamp's light as it comes; the hookfiend, which throws
+    a hook along a line it shows you and hauls you in (roll to slip it); the spore mother and her pods; and,
+    in the Gloam Heart, a mirror shade of you that rolls and strikes as you do.
+  - **Elites' powers:** frostbound (its blows slow you), bloodthirsty (it heals as it hurts you), stormcalled
+    (lightning falls where it points), and warded (a ward to break first, which comes back). Deeper down, an
+    elite can have two.
+  - **Champions:** now and then a floor holds one, named ("Grisk the Gnawer"), twice the size, with two
+    powers, its own bar at the top, and a champion's spoils.
+  - **The fight, felt:** a swing leaves a fading crescent in the weapon's colours, blows land with a star of
+    light, numbers spring up (critical hits large), creatures break apart into their own pixels, kills in
+    quick succession make a streak worth XP at its end, the screen's edges redden when you're low, and each
+    place below has its own dust, wax flakes, spores or motes on the air.
+  - As before: all of it is drawn and made in the page, offline, and it stays smooth on a Pi 3.
+
 ## 1.1.30
 
 - **Setup's end is calm.** The boot screen's rebuild (a minute of a Pi 3's whole processor) started within five
