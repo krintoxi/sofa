@@ -54,6 +54,11 @@ class Archive(unittest.TestCase):
         archive._failed.clear()
         archive._wake.clear()
 
+    def test_a_year_in_the_name_isnt_said_twice(self):
+        self.assertEqual(archive.shown({"title": "Toonami from 2001", "year": 2001})["year"], None)
+        self.assertEqual(archive.shown({"title": "Detour", "year": 1945})["year"], 1945)
+        self.assertEqual(archive.shown({"title": "Space 20011", "year": 2001})["year"], 2001)
+
     def test_the_era_in_view_goes_first(self):
         """Live TV's guide open on an era whose channels aren't ready: they're fetched next, without the warm-up's
         pauses; one whose films didn't load just now isn't asked for again at once; the films are read from their

@@ -13,8 +13,9 @@ GitHub builds the card and makes the release by itself.
   even untouched; now twice, and right when a held arrow repeats (a stick that's a game's mouse still moves it
   smoothly). It also opened every keyboard, the TV's remote over HDMI and the box's own devices again every three
   seconds, to see whether they were controllers; now once, and again only when one changes.
-- **Sofa 1.4.2**: updates a power cut can't break, Live TV fetching the era you open first, and a quicker guide
-  ([Sofa's changes](../../CHANGES.md)).
+- **Sofa 1.4.2**: Live TV's era tabs work again (choosing an era did nothing), the era you open is fetched first,
+  a quicker guide, and updates a power cut can't break ([Sofa's changes](../../CHANGES.md)).
+
 ## 1.1.31
 
 - **Gloamwell goes deeper.**

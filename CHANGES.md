@@ -8,6 +8,9 @@ here, then `python3 tools/sofa-version.py` (a test checks it was done).
 
 ## 1.4.2 (2026-11-08)
 
+- **Live TV's era tabs work.** Choosing an era (clicking 90s, or OK on it with a remote) did nothing since 1.4.0:
+  the guide stayed on the 2000s. A test now checks that every button the page's click handlers act on reaches
+  them.
 - **An update can't leave Sofa broken.** The Update button (and `tools/update.sh`) deleted the old code, then
   copied the new; a power cut in those seconds left no code at all, and Sofa couldn't start, or go back. Now the
   new version is copied beside the old one, checked there, and switched in by renames, and the old one is let go
@@ -17,8 +20,9 @@ here, then `python3 tools/sofa-version.py` (a test checks it was done).
   itself says. (An update that didn't work used to record the new commit anyway.)
 - **Live TV opens on what you're looking at.** On a new Sofa, Retro TV's channels were fetched one at a time, ten
   seconds apart, so an era could say "Getting this channel ready…" for ten minutes. Now the era you open is
-  fetched first, without the pauses, and the guide looks again every few seconds until it's there. The warm-up
-  goes in the dial's order, so the 2000s, where Live TV opens, come first.
+  fetched first, without the pauses (the 90s' six channels in about a minute), and the guide looks again every few
+  seconds until they're there. The warm-up goes in the dial's order, so the 2000s, where Live TV opens, come first.
+- **A year that's in a programme's name isn't said twice** ("Toonami from 2001", not "Toonami from 2001 2001").
 - **The guide is ten times quicker to make** (16 ms to 1.6 ms on a Mac with 47 channels): programme names and each
   channel's films are kept in memory, and read again only when they change.
 - **Live TV can't be steered home by a name that changes its answer.** The check that a channel from the internet

@@ -300,7 +300,10 @@ def shown(f):
     if f.get("ad"):
         return {"title": "Commercials", "aired": None, "year": None}
     title, aired = tidy(f["title"])
-    return {"title": title, "aired": aired, "year": f.get("year")}
+    year = f.get("year")
+    if year and re.search(r"\b%s\b" % re.escape(str(year)), title):
+        year = None                                         # ("Toonami from 2001", not "Toonami from 2001 (2001)")
+    return {"title": title, "aired": aired, "year": year}
 
 
 def group(cid):
