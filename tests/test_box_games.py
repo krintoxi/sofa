@@ -52,6 +52,26 @@ class TheList(unittest.TestCase):
                 for part in action.split("+"):
                     self.assertRegex(part, r"^(KEY|BTN)_[A-Z0-9]+$|^WHEEL_(UP|DOWN)$", name)
 
+    def test_the_shooters(self):
+        """AssaultCube and Sauerbraten (Debian's, non-free: Raspberry Pi OS has it on): walk with the left stick,
+        look with the right, fire with RT; drawn small enough for a Pi 3, through XWayland."""
+        native = {g["id"]: g for g in CATALOG["native"]}
+        for gid, height in (("assaultcube", 720), ("sauerbraten", 576)):
+            g = native[gid]
+            self.assertEqual((g["pi"], g["pi3_height"], g["setup"]), (3, height, gid))
+            self.assertEqual(g["env"], {"SDL_VIDEODRIVER": "x11"})
+            c = CONTROLS[g["controls"]]
+            self.assertEqual((c["left"], c["right"]), ("wasd", "mouse"))
+            self.assertEqual((c["buttons"]["south"], c["buttons"]["rt"], c["buttons"]["lt"]), ("KEY_SPACE", "BTN_LEFT", "BTN_RIGHT"))
+            self.assertNotIn("KEY_E", c["buttons"].values())             # (E is their map editor)
+        self.assertEqual(native["sauerbraten"]["packages"], ["sauerbraten"])
+        self.assertEqual(native["assaultcube"]["data"], "../lib/games/assaultcube/packages")
+        for g in CATALOG["native"]:
+            for k in g.get("env") or {}:
+                self.assertRegex(k, r"^SDL_[A-Z0-9_]+$", g["id"])
+            if g.get("data"):
+                self.assertFalse(os.path.isabs(g["data"]), g["id"])     # (beside the program)
+
 
     def test_the_games_in_the_home_screen(self):
         """Each one ("games") is a page of its own in games/<id>/, all in one file, needing nothing from the internet."""
@@ -187,6 +207,74 @@ class Agent(unittest.TestCase):
         games.change("luanti", "remove")
         self.assertEqual(self.wait_job()["state"], "done")
 
+    def test_the_shooters_full_screen_at_the_boards_size(self):
+        """AssaultCube and Sauerbraten start through XWayland (its mouse turns them without end), full screen at a
+        size the board holds (1024×576 and 1280×720 on a Pi 3, the TV scaling it up; 1080p on a Pi 5), the stick
+        turning as fast at any size. Sauerbraten's look for the board is set once, its other settings the player's."""
+        games, real, home = self.agent.games, self.agent.board, os.environ.get("HOME")
+        os.environ["HOME"] = os.path.join(self.dir, "home")
+        os.makedirs(os.environ["HOME"], exist_ok=True)
+        data = os.path.join(self.dir, "lib", "games", "assaultcube", "packages")
+
+        def play(gid, gen):
+            self.agent.board = lambda: dict(real(), gen=gen, tv_height=1080)
+            prog = os.path.join(self.bin, gid)                      # (says what it was started with)
+            script(prog, 'echo "$SDL_VIDEODRIVER $@" > %s\ntrap "exit 0" TERM\nwhile :; do sleep 0.1; done\n' % self.played)
+            os.remove(self.played) if os.path.exists(self.played) else None
+            games.play(gid)
+            self.assertTrue(self.wait(lambda: os.path.exists(self.played)))
+            with open(self.played) as f:
+                said = f.read().split()
+            with open(os.environ["SOFA_BOX_GAME_FILE"]) as f:
+                speed = json.load(f)["controls"]["mouse_speed"]
+            games.stop("tests")
+            self.assertTrue(self.wait(lambda: games.playing is None))
+            return said, speed
+
+        try:
+            games.change("sauerbraten", "install")
+            self.assertEqual(self.wait_job()["state"], "done")
+            sauer = os.path.join(os.environ["HOME"], ".sauerbraten")
+            os.makedirs(sauer)
+            with open(os.path.join(sauer, "autoexec.cfg"), "w") as f:
+                f.write("bind F9 screenshot\n")                       # (the player's own: kept)
+            self.assertEqual(play("sauerbraten", 3), (["x11", "-t1", "-w1024", "-h576"], 3750))
+            with open(os.path.join(sauer, "sofa-box.cfg")) as f:
+                cfg = f.read()
+            self.assertIn("if (=s (getalias sofabox_look) light) [] [", cfg)
+            self.assertIn("texreduce 1;", cfg)
+            self.assertIn("bind MOUSE2 [zoom 1; onrelease [zoom -1]]", cfg)
+            self.assertEqual(cfg.count("["), cfg.count("]"))
+            self.assertEqual(play("sauerbraten", 5), (["x11", "-t1", "-w1920", "-h1080"], 2000))
+            with open(os.path.join(sauer, "sofa-box.cfg")) as f:
+                self.assertIn("(getalias sofabox_look) full) [] [\n  texreduce 0;", f.read())
+            with open(os.path.join(sauer, "autoexec.cfg")) as f:
+                self.assertEqual(f.read(), "exec sofa-box.cfg\nbind F9 screenshot\n")
+
+            games.change("assaultcube", "install")                   # its maps didn't come: not a game yet
+            self.assertEqual(self.wait_job()["state"], "failed")
+            self.assertFalse(next(g for g in games.listing()["native"] if g["id"] == "assaultcube")["installed"])
+            os.makedirs(data)
+            self.assertTrue(next(g for g in games.listing()["native"] if g["id"] == "assaultcube")["installed"])
+            init = os.path.join(os.environ["HOME"], ".assaultcube", "config", "init.cfg")
+            os.makedirs(os.path.dirname(init))
+            with open(init, "w") as f:
+                f.write("// automatically written on exit, DO NOT MODIFY\nfullscreen 1\nfullscreendesktop 1\nscr_w 1920\naudio 1\n")
+            self.assertEqual(play("assaultcube", 3), (["x11", "-t1", "-w1280", "-h720"], 3000))
+            with open(init) as f:
+                self.assertEqual(f.read(), "// automatically written on exit, DO NOT MODIFY\nfullscreen 1\nfullscreendesktop 0\n"
+                                           "scr_w 1920\naudio 1\n")
+            self.assertEqual(play("assaultcube", 5), (["x11", "-t1"], 2000))   # the TV's own size
+            with open(init) as f:
+                self.assertIn("\nfullscreendesktop 1\n", f.read())
+        finally:
+            self.agent.board = real
+            os.environ["HOME"] = home
+            for gid in ("sauerbraten", "assaultcube"):
+                games.change(gid, "remove")
+                self.wait_job()
+            shutil.rmtree(os.path.join(self.dir, "lib"), ignore_errors=True)
+
     def test_room_and_board(self):
         games = self.agent.games
         real = self.agent.board
@@ -227,6 +315,10 @@ class Agent(unittest.TestCase):
         self.assertIn("internet", self.agent._apt_why("Err:1 http://deb.debian.org trixie InRelease\n  Temporary failure resolving 'deb.debian.org'"))
         self.assertIn("room", self.agent._apt_why("E: You don't have enough free space in /var/cache/apt/archives/. No space left"))
         self.assertEqual(self.agent._apt_why("E: Unable to locate package flare-game"), "Unable to locate package flare-game")
+        self.assertIn("internet", self.agent._apt_why("Downloading game data…\nwget: unable to resolve host address 'github.com'\n"
+                                                      "E: Sub-process /usr/bin/dpkg returned an error code (1)"))
+        self.assertIn("didn't check out", self.agent._apt_why("Hash mismatch AssaultCube_v1.3.0.2.tar.bz2: expected 9b31…\n"
+                                                              "E: Sub-process /usr/bin/dpkg returned an error code (1)"))
 
 
 class RootHelper(unittest.TestCase):
@@ -260,6 +352,8 @@ class RootHelper(unittest.TestCase):
     def test_its_packages_only(self):
         self.assertEqual(self.run_helper("install", "openttd").returncode, 0)
         self.assertIn("install -y --no-install-recommends openttd openttd-opengfx openttd-opensfx openttd-openmsx", self.apt())
+        self.assertEqual(self.run_helper("install", "sauerbraten").returncode, 0)     # (its downloaded 1 GB not kept)
+        self.assertIn("-o APT::Keep-Downloaded-Packages=false install -y --no-install-recommends sauerbraten\n", self.apt())
         self.assertEqual(self.run_helper("remove", "openttd").returncode, 0)
         self.assertIn("remove -y --autoremove openttd openttd-opengfx", self.apt())
         before = self.apt()
@@ -307,6 +401,21 @@ class GameMode(unittest.TestCase):
         m.feed(3, 3, 1000)                                                         # (in the middle: still)
         self.assertEqual(m.tick(10.1), [])
         self.assertEqual(sorted(m.release()), [("key", "KEY_D", 0)])
+
+    def test_a_shooter(self):
+        sauer = pads.GameMap(dict(CONTROLS["sauerbraten"], mouse_speed=3750), "Xbox Wireless Controller", self.RANGES)
+        self.assertEqual(sauer.feed(3, 2, 250), [("btn", "BTN_RIGHT", 1)])        # LT: zoom while it's held
+        self.assertEqual(sauer.feed(3, 2, 0), [("btn", "BTN_RIGHT", 0)])
+        self.assertEqual(sauer.feed(1, 307, 1), [("btn", "BTN_MIDDLE", 1)])       # X: the next weapon
+        self.assertEqual(sauer.feed(1, 311, 1), [("rel", "REL_WHEEL", -1)])       # RB: so is the wheel
+        sauer.feed(3, 3, 32767)
+        sauer.tick(20.0)
+        self.assertAlmostEqual(sauer.tick(20.05)[0][2], 187, delta=3)              # (as fast drawn at 576 lines)
+        ac = pads.GameMap(CONTROLS["assaultcube"], "DualSense Wireless Controller", self.RANGES)
+        self.assertEqual(ac.feed(1, 308, 1), [("key", "KEY_R", 1)])               # □: reload
+        self.assertEqual(ac.feed(1, 310, 1), [("key", "KEY_G", 1)])               # L1: a grenade
+        self.assertEqual(ac.feed(1, 317, 1), [("key", "KEY_LEFTSHIFT", 1)])       # L3: crouch
+        self.assertEqual(ac.feed(3, 1, -30000), [("key", "KEY_W", 1)])            # forward
 
     def test_the_d_pad(self):
         m = pads.GameMap(CONTROLS["neverball"], "Wireless Controller", self.RANGES)

@@ -33,7 +33,17 @@
    "packages": ["wesnoth"], "run": ["wesnoth", "wesnoth-1.18"], "args": ["--fullscreen"], "controls": "wesnoth"},
   {"id": "openttd", "name": "OpenTTD", "emoji": "🚂", "color": "#2E86C1", "mb": 40, "pi": 3,
    "about": "Build a transport empire: trains, roads, ships and planes across a growing world.",
-   "packages": ["openttd", "openttd-opengfx", "openttd-opensfx", "openttd-openmsx"], "run": ["openttd"], "controls": "pointer"}
+   "packages": ["openttd", "openttd-opengfx", "openttd-opensfx", "openttd-openmsx"], "run": ["openttd"], "controls": "pointer"},
+  {"id": "assaultcube", "name": "AssaultCube", "emoji": "🪖", "color": "#6B7A2E", "mb": 60, "pi": 3,
+   "about": "A fast first-person shooter with a realistic look: rifles, pistols and grenades in close maps, against the computer's bots.",
+   "note": "Its maps come from AssaultCube's own site as it installs (about 50 MB). RT fires, LT aims, X reloads, LB throws a grenade.",
+   "packages": ["assaultcube"], "run": ["assaultcube"], "data": "../lib/games/assaultcube/packages",
+   "env": {"SDL_VIDEODRIVER": "x11"}, "pi3_height": 720, "controls": "assaultcube", "setup": "assaultcube"},
+  {"id": "sauerbraten", "name": "Sauerbraten", "emoji": "🚀", "color": "#C0612B", "mb": 1020, "pi": 3,
+   "about": "Cube 2's fast arena shooter: big jumps, rockets and rifles, matches against bots and single-player levels.",
+   "note": "About a 1 GB download: ten minutes or so. In its menus the right stick is the pointer and RT chooses.",
+   "packages": ["sauerbraten"], "run": ["sauerbraten"],
+   "env": {"SDL_VIDEODRIVER": "x11"}, "pi3_height": 576, "controls": "sauerbraten", "setup": "sauerbraten"}
 ],
 "controls": {
   "pointer": {"left": "mouse", "right": "arrows", "dpad": "arrows",
@@ -48,5 +58,13 @@
   "luanti": {"left": "wasd", "right": "mouse", "dpad": "arrows", "mouse_speed": 900,
              "buttons": {"south": "KEY_SPACE", "east": "KEY_ESC", "west": "KEY_Q", "north": "KEY_I",
                          "lb": "WHEEL_UP", "rb": "WHEEL_DOWN", "lt": "BTN_RIGHT", "rt": "BTN_LEFT",
-                         "l3": "KEY_E", "r3": "KEY_LEFTSHIFT", "start": "KEY_ESC", "select": "KEY_F5"}}
+                         "l3": "KEY_E", "r3": "KEY_LEFTSHIFT", "start": "KEY_ESC", "select": "KEY_F5"}},
+  "assaultcube": {"left": "wasd", "right": "mouse", "dpad": "arrows", "mouse_speed": 2000,
+                  "buttons": {"south": "KEY_SPACE", "east": "KEY_ESC", "west": "KEY_R", "north": "KEY_Q",
+                              "lb": "KEY_G", "rb": "WHEEL_DOWN", "lt": "BTN_RIGHT", "rt": "BTN_LEFT",
+                              "l3": "KEY_LEFTSHIFT", "r3": "BTN_MIDDLE", "start": "KEY_ESC", "select": "KEY_TAB"}},
+  "sauerbraten": {"left": "wasd", "right": "mouse", "dpad": "arrows", "mouse_speed": 2000,
+                  "buttons": {"south": "KEY_SPACE", "east": "KEY_ESC", "west": "BTN_MIDDLE", "north": "KEY_R",
+                              "lb": "WHEEL_UP", "rb": "WHEEL_DOWN", "lt": "BTN_RIGHT", "rt": "BTN_LEFT",
+                              "start": "KEY_ESC", "select": "KEY_TAB"}}
 }}
