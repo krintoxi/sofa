@@ -101,6 +101,22 @@ class Archive(unittest.TestCase):
         card = next(c for c in archive.channels() if c["id"] == "ia-retro60")
         self.assertIn("Retro TV: 60s", card["name"])
 
+    def test_recorded_tapes(self):
+        """00s Kids TV and 00s On Air play whole recorded tapes: hours long, so not held to a film's length, and no
+        short clips."""
+        docs = [{"identifier": i, "title": i} for i in ("tape", "clip", "toolong", "film")]
+        lengths = {"tape": "3:30:00", "clip": "5:00", "toolong": "5:00:00", "film": "1:30:00"}
+
+        def fake(url, timeout=30):
+            if "advancedsearch" in url:
+                return {"response": {"docs": docs}}
+            ident = urllib.parse.unquote(url.rsplit("/", 1)[1])
+            return {"metadata": {"title": ident, "year": "2003"},
+                    "files": [{"name": ident + ".mp4", "source": "original", "length": lengths[ident]}]}
+        archive._get = fake
+        self.assertEqual([f["id"] for f in archive.films("ia-kids00")], ["tape", "film"])
+        self.assertEqual([f["id"] for f in archive.films("ia-air00")], ["tape", "film"])
+
     def test_in_live_tv(self):
         httpd = web.Server(("127.0.0.1", 0), web.Handler)
         threading.Thread(target=httpd.serve_forever, daemon=True).start()
@@ -112,7 +128,10 @@ class Archive(unittest.TestCase):
             status, live = c.call("/api/live")
             self.assertEqual(status, 200)
             ia = [ch for ch in live["channels"] if ch.get("archive")]
-            self.assertEqual({ch["group"] for ch in ia}, {"Internet Archive"})
+            self.assertEqual({ch["group"] for ch in ia}, {"Internet Archive", "Retro TV"})
+            retro = [ch["id"] for ch in ia if ch["group"] == "Retro TV"]
+            self.assertEqual(retro[:3], ["ia-retro00", "ia-kids00", "ia-air00"])      # the 2000s first
+            self.assertEqual(len(retro), 8)
             status, on = c.call("/api/live/archive/ia-noir/now")
             self.assertEqual(status, 200)
             self.assertIn(on["film"]["id"], ("noir1", "noir2"))

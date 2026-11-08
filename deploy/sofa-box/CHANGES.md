@@ -7,6 +7,21 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.23
+
+- **Sofa Craft starts again.** A crash at its first start had left its world without its game, so every start
+  after stopped at once ("Game [] could not be found"), with Luanti's own menu to get out of. The box now mends
+  the world before each start (its game; its storage only where it's missing), and on a Pi 3 holds it to 30
+  frames a second, much lighter. When a game stops as it starts, OK on it tries again.
+- **A game gets the box.** When one starts, every page stops (Home too), the apps that aren't Sofa close on a
+  1 GB box, and the browser lets go of the memory it can; Home comes back when the game ends.
+- **When the box restarts by itself, the next report says why.** Its logs are kept across a restart now (24 MB
+  at most; alarms such as "under-voltage" written at once), and a report shows how the start before ended and
+  the Pi's own record of its power. The games' log keeps their last few starts, each marked.
+- **Short of power, the TV says so** (once): a weak power supply makes a Pi freeze or restart, more so while it
+  switches Wi-Fi or plays a game.
+- **Retro TV puts the 2000s first** (Sofa 1.2.3), with 00s Kids TV and 00s On Air.
+
 ## 1.1.22
 
 - **The setup in two scans.** When your phone gives the box your Wi-Fi, the box also gives it the remote's

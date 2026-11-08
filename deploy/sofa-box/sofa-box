@@ -303,8 +303,15 @@ report() {
     echo; echo "== Warnings and errors, the whole box"
     journalctl -b --no-pager -o short-monotonic -n 200 -p warning
     for f in /home/*/.local/share/sofa-box/games/last-game.log; do
-      [ -f "$f" ] && { echo; echo "== The last game it opened"; tail -n 60 "$f"; }
-    done; } 2>&1 | cut -c 1-400
+      [ -f "$f" ] && { echo; echo "== The games it opened last (each start marked ==)"; tail -n 120 "$f"; }
+    done
+    if journalctl -b -1 -n 1 --no-pager >/dev/null 2>&1; then
+      echo; echo "== How the start before this one ended"
+      journalctl -b -1 --no-pager -o short-monotonic -n 40
+      echo; echo "== Its warnings and errors"
+      journalctl -b -1 --no-pager -o short-monotonic -p warning -n 40
+    fi
+    command -v vcgencmd >/dev/null && { echo; echo "== Power (0x0: always enough since it started)"; vcgencmd get_throttled; }; } 2>&1 | cut -c 1-400
 }
 
 games() {                    # (root) a game from the box's list (games/games.json): its packages only, nothing else

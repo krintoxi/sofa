@@ -57,8 +57,18 @@ def _retro(decade, colour):
     return ("ia-retro%s" % name[:2], "Retro TV: %s" % name, shows, colour, name, ads)
 
 
-CHANNELS += [_retro(1950, "#4F7CAC"), _retro(1960, "#D9822B"), _retro(1970, "#B5651D"), _retro(1980, "#C2185B"),
-             _retro(1990, "#7B1FA2"), _retro(2000, "#00897B")]
+# The 2000s first (most asked for), with two more channels of their own: whole recorded broadcasts with the ads they
+# went out with, kids' TV (Cartoon Network, Nick, Disney…) and the rest
+Y00 = "year:[2000 TO 2009]"
+KIDS = '"Cartoon Network" OR Nickelodeon OR "Nick Jr" OR Noggin OR "Disney Channel" OR "Kids WB" OR Toonami OR "Fox Kids" OR Jetix OR "4Kids" OR "PBS Kids" OR "Playhouse Disney" OR "Toon Disney"'
+CHANNELS += [_retro(2000, "#00897B"),
+             ("ia-kids00", "00s Kids TV", 'mediatype:(movies) AND %s AND title:(%s)' % (Y00, KIDS), "#F57C00", "00s"),
+             ("ia-air00", "00s On Air", 'mediatype:(movies) AND %s AND title:("with commercials" OR "commercial break" OR'
+              ' "full broadcast" OR "VHS Recording" OR "TV recording") AND NOT title:(%s)' % (Y00, KIDS), "#5E35B1", "00s"),
+             _retro(1990, "#7B1FA2"), _retro(1980, "#C2185B"), _retro(1970, "#B5651D"), _retro(1960, "#D9822B"),
+             _retro(1950, "#4F7CAC")]
+RETRO = {c[0] for c in CHANNELS if c[0].startswith("ia-retro")} | {"ia-kids00", "ia-air00"}
+LONG = {"ia-kids00": 4 * 3600, "ia-air00": 4 * 3600}     # whole recorded tapes: up to four hours each
 BREAK = 3                            # commercials between two shows on Retro TV
 BY_ID = {c[0]: c for c in CHANNELS}
 _lock = threading.Lock()
@@ -94,7 +104,8 @@ def channels():
         return []
     out = []
     for c in CHANNELS:
-        ch = {"id": c[0], "name": c[1], "group": "Internet Archive", "logo": logo(c[0]), "archive": True}
+        ch = {"id": c[0], "name": c[1], "group": "Retro TV" if c[0] in RETRO else "Internet Archive", "logo": logo(c[0]),
+              "archive": True}
         fl = _saved(c[0])
         if fl:
             on_now = _on(fl, time.time())
@@ -176,8 +187,8 @@ def _pick(docs, want, shortest=120, longest=None):
 
 def _build(cid):
     c = BY_ID[cid]
-    if len(c) < 6:
-        return _pick(_search(c[2], FILMS * 3), FILMS)
+    if len(c) < 6:                                        # (recorded tapes: long, and their own ads in them)
+        return _pick(_search(c[2], FILMS * 3), FILMS, shortest=600 if cid in LONG else 120, longest=LONG.get(cid))
     shows = _pick(_search(c[2], 60), 20, shortest=300, longest=5400)       # Retro TV: shows, and the decade's commercials
     ads = [dict(a, ad=True) for a in _pick(_search(c[5], 120), 40, shortest=10, longest=300)]
     if not ads:

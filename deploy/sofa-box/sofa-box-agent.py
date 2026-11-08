@@ -726,6 +726,25 @@ def box_wake():
     return False
 
 
+def watch_power():
+    """The Pi's own record of power (vcgencmd get_throttled): short of power now, or since it started, said once."""
+    said = False
+    while not said:
+        time.sleep(60)
+        code, out = run(["vcgencmd", "get_throttled"], 5)
+        if code != 0:
+            return                                          # (not a Raspberry Pi)
+        try:
+            bits = int(out.strip().split("=")[-1], 16)
+        except ValueError:
+            continue
+        if bits & 0x10001:                                   # under-voltage now, or since the box started
+            said = True
+            print("Power: the Pi has been short of power (%s)" % out.strip(), file=sys.stderr, flush=True)
+            toast("The box is short of power: it can freeze or restart. Use its official power supply "
+                  "(2.5 A for a Pi 3, 3 A for a Pi 4, 5 A for a Pi 5) and a short cable.")
+
+
 def go_home():
     """The Home key, from anywhere: the box's home screen in front (a game that's open ends; asleep, it wakes)."""
     if box_wake():
@@ -1348,6 +1367,32 @@ class Games:
         else:
             toast("%s couldn't be %s. %s" % (g["name"], "installed" if action == "install" else "removed", self.job["error"]))
 
+    @staticmethod
+    def _world_mt(path, want, only_missing=False):
+        """A Luanti settings file ("key = value" lines) with these values: set where they're missing or blank (or
+        always, unless only_missing), the rest of it as it was."""
+        try:
+            with open(path, encoding="utf-8") as f:
+                lines = f.read().splitlines()
+        except OSError:
+            lines = []
+        have = {}
+        for i, line in enumerate(lines):
+            k, eq, v = line.partition("=")
+            if eq:
+                have[k.strip()] = (i, v.strip())
+        for k, v in want.items():
+            if k in have and (only_missing or have[k][1] == v) and have[k][1]:
+                continue
+            if k in have:
+                lines[have[k][0]] = "%s = %s" % (k, v)
+            else:
+                lines.append("%s = %s" % (k, v))
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path + ".tmp", "w", encoding="utf-8") as f:
+            f.write("\n".join(lines) + "\n")
+        os.replace(path + ".tmp", path)
+
     def _setup(self, g):
         """A game's own settings the first time (its controller, the screen, a lighter look on a Pi 3), and what it
         needs to start straight in (Luanti: a world, no menu)."""
@@ -1356,15 +1401,14 @@ class Games:
             base = os.path.join(GAME_DATA, "luanti")
             world = os.path.join(base, "worlds", "Sofa Box")
             os.makedirs(world, exist_ok=True)
-            if not os.path.exists(os.path.join(world, "world.mt")):
-                with open(os.path.join(world, "world.mt"), "w", encoding="utf-8") as f:
-                    f.write("gameid = minetest\nbackend = sqlite3\nplayer_backend = sqlite3\nauth_backend = sqlite3\n"
-                            "mod_storage_backend = sqlite3\n")
-            conf = os.path.join(base, "luanti.conf")
-            if not os.path.exists(conf):
-                with open(conf, "w", encoding="utf-8") as f:     # (the box works the controller: Luanti's own is off)
-                    f.write("fullscreen = true\nenable_joysticks = false\nviewing_range = %d\nenable_clouds = %s\n"
-                            "undersampling = %d\n" % (60 if slow else 160, "false" if slow else "true", 2 if slow else 1))
+            mt = os.path.join(world, "world.mt")
+            self._world_mt(mt, {"gameid": "minetest"})            # (its game, always; a world's storage, only when new)
+            self._world_mt(mt, {"backend": "sqlite3", "player_backend": "sqlite3", "auth_backend": "sqlite3",
+                                "mod_storage_backend": "sqlite3"}, only_missing=True)
+            conf = os.path.join(base, "luanti.conf")              # (the box works the controller: Luanti's own is off)
+            self._world_mt(conf, {"fullscreen": "true", "enable_joysticks": "false", "viewing_range": "60" if slow else "160",
+                                  "enable_clouds": "false" if slow else "true", "undersampling": "2" if slow else "1",
+                                  "fps_max": "30" if slow else "60"}, only_missing=True)
             return ["--config", conf, "--go", "--world", world]
         if g.get("setup") == "flare":
             conf = os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.join(os.path.expanduser("~"), ".config"), "flare")
@@ -1387,6 +1431,11 @@ class Games:
                 raise ValueError("Another game is open: hold Home to close it first.")
         if playing():
             player.stop(reason="a game")
+        if browser and browser.connected():
+            try:
+                browser.rest(close_apps=light())
+            except OSError:
+                pass
         os.makedirs(GAME_DATA, exist_ok=True)
         args = [exe] + list(g.get("args") or []) + self._setup(g)
         env = display_env()
@@ -1397,7 +1446,15 @@ class Games:
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump({"id": gid, "controls": controls}, f)
         os.replace(tmp, GAME_FILE)
-        log = open(os.path.join(GAME_DATA, "last-game.log"), "wb")
+        path = os.path.join(GAME_DATA, "last-game.log")
+        try:
+            with open(path, "rb") as f:
+                kept = f.read().splitlines()[-240:]
+        except OSError:
+            kept = []
+        log = open(path, "wb")
+        log.write(b"\n".join(kept + [("== %s, %s" % (time.strftime("%Y-%m-%d %H:%M:%S"), g["name"])).encode()]) + b"\n")
+        log.flush()
         try:
             proc = subprocess.Popen(args, env=env, cwd=os.path.expanduser("~"), stdin=subprocess.DEVNULL, stdout=log,
                                     stderr=subprocess.STDOUT, start_new_session=True)
@@ -1425,8 +1482,13 @@ class Games:
             os.remove(GAME_FILE)
         except OSError:
             pass
+        if browser and browser.connected():                # Home back in front, running again
+            try:
+                browser.home()
+            except OSError:
+                pass
         if code and not ending and time.time() - started < 20:
-            toast("%s stopped as it started. Settings → Help → Send a report has what it said." % g["name"])
+            toast("%s stopped as it started. OK on it tries again; Settings → Help → Send a report has what it said." % g["name"])
         if not ending:
             go("#/games")
 
@@ -3414,6 +3476,7 @@ def main():
     threading.Thread(target=look, daemon=True).start()
     threading.Thread(target=watch_devices, daemon=True, name="devices").start()
     pairing_helper.start()                       # (BlueZ's pairings answered: an Xbox controller pairs)
+    threading.Thread(target=watch_power, daemon=True, name="power").start()
     if os.environ.get("SOFA_BOX_ICONS") != "0":
         apps.refresh_icons()                               # sharper app icons, once (boxos.ICONS_VERSION)
     if local_sofa.public():                                # open to the internet: it has to be there, from the start
