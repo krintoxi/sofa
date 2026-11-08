@@ -243,7 +243,7 @@ function sset(frames, over, k) {
 // the four steps of a walk: standing, one foot, standing, the other
 function walk4(base, a, b) { return [base, legs(base, a), base, legs(base, b)]; }
 // The Wickbearer's clothes take the colour of the armour worn: the class's cloth letters, recoloured
-const CLOTH = [["b", "B"], ["r", "R"], ["e", "E"]];
+const CLOTHL = [["b", "B"], ["r", "R"], ["e", "E"]];
 const ARMCOL = [null, ["#8a6a44", "#4e3820"], ["#8e96a8", "#4a5060"], ["#c8d2e2", "#6a7488"], ["#d8b04a", "#7a5a1e"],
   ["#b06ad0", "#4a2468"], ["#6e9a48", "#2e4a26"]];
 const heroCache = {};
@@ -251,7 +251,7 @@ function heroSet(cls, armorBase) {
   const key = cls * 8 + armorBase;
   if (heroCache[key]) return heroCache[key];
   const name = ["warden", "ashcaller", "stalker"][cls], base = SPR[name], c = ARMCOL[armorBase], over = {};
-  if (c) { over[CLOTH[cls][0]] = c[0]; over[CLOTH[cls][1]] = c[1]; }
+  if (c) { over[CLOTHL[cls][0]] = c[0]; over[CLOTHL[cls][1]] = c[1]; }
   return (heroCache[key] = sset(walk4(base, SPR[name + "B"], SPR[name + "C"]), over));
 }
 // a weapon in the hand, turned to 16 directions (copied, never turned while drawing); the hand is at the middle
@@ -328,6 +328,193 @@ function buildSprites() {
     S.spike.push(c);
   }
 }
+
+// ---------------------------------------------------------------- the Wickbearer, drawn in layers
+// Body and face, hair or what's worn on the head, the armour (or the class's own clothes), a cape for relics and
+// sets, the weapon in hand, and an outline round it all. Put together once each time the gear or the look changes,
+// then copied like any other picture.
+const DW = 20, DH = 24;
+const SETCOL = ["#f2c14e", "#b06ad0", "#6e9a48", "#e2d49c", "#4a2468"];
+function shade(hex, k) {            // a colour, lighter (k > 1) or darker (k < 1)
+  const n = parseInt(hex.slice(1), 16), f = v => Math.max(0, Math.min(255, Math.round(v * k)));
+  return "#" + ((1 << 24) | (f(n >> 16 & 255) << 16) | (f(n >> 8 & 255) << 8) | f(n & 255)).toString(16).slice(1);
+}
+function outline(c) {                // a dark line round everything drawn: pixel art's edge, made for us
+  const g = c.getContext("2d"), id = g.getImageData(0, 0, c.width, c.height), u = new Uint32Array(id.data.buffer), w = c.width, h = c.height, out = new Uint8Array(w * h);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    if (u[y * w + x] >>> 24) continue;
+    if ((x > 0 && u[y * w + x - 1] >>> 24) || (x < w - 1 && u[y * w + x + 1] >>> 24) || (y > 0 && u[(y - 1) * w + x] >>> 24) || (y < h - 1 && u[(y + 1) * w + x] >>> 24)) out[y * w + x] = 1;
+  }
+  for (let i = 0; i < w * h; i++) if (out[i]) u[i] = 0xff140b0d;
+  g.putImageData(id, 0, 0);
+}
+// L: the look {skin, hair, hairC, mark, cloth}; G: the gear {cls, arm, armR, set, head, headR, mask, wpn, wpnR, up}
+function dollFrame(L, G, f, withWpn) {
+  const c = mk(DW, DH), g = g2(c);
+  const R = (x, y, w, h, col) => { g.fillStyle = col; g.fillRect(x, y, w, h); };
+  const sk = SKINS[L.skin], hc = HAIRCOL[L.hairC], cl = CLOTH[L.cloth], cld = shade(cl, 0.55);
+  const lf = f === 1 ? -1 : 0, rf = f === 3 ? -1 : 0;                 // (a foot lifted, in the walk)
+  const setc = G.set >= 0 ? SETCOL[G.set] : null;
+  // a cape behind, for relics and set pieces
+  if (setc || G.armR === R_RELIC) { const cc = setc || "#7a1a26"; R(5, 11, 9, 10, shade(cc, 0.7)); R(5, 20, 9, 1, shade(cc, 0.45)); R(13, 11, 1, 10, shade(cc, 0.5)); }
+  // legs and boots
+  const trou = G.cls === 2 ? "#3e2a1a" : "#3a3646";
+  R(6, 17 + lf, 3, 5, trou); R(10, 17 + rf, 3, 5, shade(trou, 0.8));
+  R(6, 21 + lf, 3, 2, "#2a1c12"); R(10, 21 + rf, 3, 2, "#2a1c12"); R(6, 21 + lf, 3, 1, "#4a3424");
+  // body: arms and torso in the class's own clothes first
+  const base = G.cls === 0 ? "#5a5468" : G.cls === 1 ? cl : "#4e3820";
+  R(5, 11, 9, 6, base); R(12, 11, 2, 6, shade(base, 0.75)); R(3, 11, 2, 5, base); R(15, 11, 2, 5, shade(base, 0.75));
+  R(3, 16, 2, 2, sk[0]); R(15, 16, 2, 2, sk[1]);                        // hands
+  if (G.cls === 0) { R(7, 11, 5, 8, cl); R(11, 11, 1, 8, cld); R(9, 13, 1, 2, "#f2c14e"); }          // the Warden's tabard
+  else if (G.cls === 1) { R(5, 17, 9, 5, cl); R(12, 17, 2, 5, cld); R(5, 15, 9, 1, "#f2c14e"); R(6, 21, 2, 1, cld); }   // the Ashcaller's robe
+  else { R(6, 10, 7, 2, cl); R(5, 16, 9, 1, "#2a1c12"); R(11, 16, 1, 1, "#9a94a8"); }                 // the Stalker's scarf and belt
+  // the armour over it
+  const A = G.arm;
+  if (A === 0) { R(5, 11, 9, 6, "#8a6a44"); R(12, 11, 2, 6, "#4e3820"); R(3, 11, 2, 4, "#8a6a44"); R(15, 11, 2, 4, "#4e3820"); R(6, 11, 7, 1, "#b08a5a"); R(9, 12, 1, 1, "#f2c14e"); R(9, 14, 1, 1, "#f2c14e"); R(5, 16, 9, 1, "#3e2a1a"); }
+  else if (A === 1) { R(5, 11, 9, 7, "#8e96a8"); R(3, 11, 2, 4, "#8e96a8"); R(15, 11, 2, 4, "#6a7080"); for (let y = 11; y < 18; y++) for (let x = 3 + (y & 1); x < 17; x += 2) if (x < 5 || x > 13 ? y < 15 : true) R(x, y, 1, 1, "#4a5060"); R(5, 16, 9, 1, "#3e2a1a"); }
+  else if (A === 2 || A === 3) {
+    const m = A === 2 ? "#c8d2e2" : "#d8b04a", md = A === 2 ? "#6a7488" : "#7a5a1e", mh = A === 2 ? "#f4f8ff" : "#fff0a8";
+    R(5, 11, 9, 6, m); R(12, 11, 2, 6, md); R(7, 12, 1, 3, mh); R(5, 16, 9, 1, md);
+    R(2, 10, 4, 3, m); R(14, 10, 4, 3, md); R(2, 10, 4, 1, mh); R(14, 10, 4, 1, m);                      // pauldrons
+    R(3, 13, 2, 3, md); R(15, 13, 2, 3, md);
+    R(6, 18 + lf, 3, 3, m); R(10, 18 + rf, 3, 3, md);                                                     // greaves
+    if (A === 3) { R(9, 13, 1, 1, "#ff7a2a"); R(2, 9, 1, 1, m); R(17, 9, 1, 1, md); R(9, 12, 1, 1, "#ffb05a"); }
+  }
+  else if (A === 4) { R(5, 11, 9, 11, "#b06ad0"); R(12, 11, 2, 11, "#4a2468"); R(1, 10, 4, 5, "#e0b8ff"); R(15, 10, 4, 5, "#c79bff"); R(1, 14, 3, 1, "#b06ad0"); R(16, 14, 3, 1, "#8a4ab0"); R(5, 15, 9, 1, "#f2c14e"); R(5, 21, 9, 1, "#f2c14e"); }
+  else if (A === 5) { R(5, 11, 9, 6, "#6e5030"); R(12, 11, 2, 6, "#3e2a1a"); for (let y = 11; y < 17; y += 2) R(5, y, 7, 1, "#8a6a3a"); R(2, 10, 4, 3, "#6e9a48"); R(14, 10, 4, 3, "#2e4a26"); R(3, 9, 1, 1, "#b8e070"); R(16, 9, 1, 1, "#b8e070"); R(6, 18 + lf, 3, 3, "#6e5030"); R(10, 18 + rf, 3, 3, "#3e2a1a"); }
+  if (A >= 0) {                                                       // its rarity, on its edges
+    const trim = setc || (G.armR === R_RARE ? "#f2c14e" : G.armR === R_RELIC ? "#ff7a2a" : null);
+    if (trim) { R(5, 11, 9, 1, trim); R(5, 16, 9, 1, trim); }
+    if (G.armR === R_RELIC) { R(7, 13, 1, 1, "#ffb05a"); R(11, 14, 1, 1, "#ffb05a"); }
+    if (G.up >= 3) R(6, 12, 1, 1, "#ffffff");
+  }
+  if (G.cls === 0) { const sc = A === 3 ? "#d8b04a" : A === 2 ? "#c8d2e2" : cl; R(1, 12, 4, 6, sc); R(1, 12, 4, 1, shade(sc, 1.3)); R(2, 14, 2, 2, "#f2c14e"); R(4, 12, 1, 6, shade(sc, 0.6)); }  // the Warden's shield
+  // the head: neck, face, eyes
+  R(8, 10, 3, 1, sk[1]);
+  R(6, 3, 7, 7, sk[0]); R(12, 4, 1, 6, sk[1]); R(6, 9, 7, 1, sk[1]); g.clearRect(6, 9, 1, 1); g.clearRect(12, 9, 1, 1);   // (a chin, not a box)
+  R(9, 6, 1, 1, "#1a1420"); R(11, 6, 1, 1, "#1a1420");
+  // markings
+  const mk2 = L.mark;
+  if (mk2 === 1) { R(7, 8, 6, 2, hc); R(8, 10, 4, 1, hc); }
+  else if (mk2 === 2) { R(7, 8, 6, 2, hc); R(8, 10, 4, 3, hc); R(9, 13, 2, 1, hc); }
+  else if (mk2 === 3) { R(11, 4, 1, 1, "#e08a8a"); R(10, 5, 1, 1, "#e08a8a"); R(10, 7, 1, 1, "#e08a8a"); }
+  else if (mk2 === 4) { R(6, 7, 7, 1, cl === "#d8d4e0" ? "#c8303a" : cl); }
+  else if (mk2 === 5) { R(8, 7, 1, 1, sk[1]); R(10, 8, 1, 1, sk[1]); R(12, 7, 1, 1, sk[1]); }
+  // the head's gear, or the hair
+  const H = G.head;
+  if (H === 0) {                                                      // a hood
+    const hcl = G.mask ? "#2a2633" : setc ? shade(setc, 0.7) : "#4a3a2a", hcd = shade(hcl, 0.6);
+    R(5, 1, 9, 4, hcl); R(5, 5, 2, 7, hcl); R(12, 5, 2, 7, hcd); R(8, 0, 3, 1, hcl); R(13, 2, 1, 3, hcd);
+    if (G.mask) { R(7, 5, 6, 2, "#141018"); R(9, 6, 1, 1, "#c8303a"); R(11, 6, 1, 1, "#c8303a"); R(6, 0, 1, 2, "#d0c4b0"); R(13, 0, 1, 2, "#d0c4b0"); }
+  } else if (H === 1) {                                               // a helm
+    const m = setc || (G.headR >= R_RARE ? "#d8b04a" : "#9aa0b0"), md = shade(m, 0.6);
+    R(5, 1, 9, 6, m); R(12, 1, 2, 6, md); R(5, 7, 2, 3, m); R(12, 7, 2, 3, md); R(7, 6, 6, 1, "#141018"); R(9, 6, 1, 3, md); R(6, 2, 1, 2, shade(m, 1.3));
+    if (G.headR >= R_RARE) { R(8, 0, 3, 1, "#c8303a"); R(9, 0, 1, 1, "#ff6a5a"); }
+  } else {
+    // hair first, then a circlet over it
+    if (L.hair === 0) { R(6, 2, 7, 2, hc); R(5, 3, 2, 3, hc); R(12, 3, 1, 2, shade(hc, 0.7)); R(9, 4, 2, 1, hc); }
+    else if (L.hair === 1) { R(6, 2, 7, 2, hc); R(4, 3, 3, 9, hc); R(12, 3, 2, 6, shade(hc, 0.7)); R(4, 12, 2, 1, shade(hc, 0.7)); }
+    else if (L.hair === 2) { R(6, 2, 7, 2, hc); R(5, 3, 1, 3, hc); R(8, 0, 3, 2, hc); R(9, 0, 1, 1, shade(hc, 1.3)); }
+    else if (L.hair === 3) { R(6, 3, 7, 1, shade(sk[1], 0.85)); }
+    else if (L.hair === 4) { R(6, 2, 7, 2, hc); R(5, 3, 2, 3, hc); for (let y = 6; y < 14; y++) R(5, y, 1, 1, y & 1 ? hc : shade(hc, 0.7)); R(13, 4, 1, 1, hc); for (let y = 5; y < 12; y++) R(13, y, 1, 1, y & 1 ? shade(hc, 0.7) : hc); }
+    else { R(6, 2, 7, 2, hc); R(5, 1, 1, 2, hc); R(7, 0, 1, 2, hc); R(10, 0, 1, 2, hc); R(13, 1, 1, 3, shade(hc, 0.7)); R(4, 3, 2, 4, hc); R(12, 3, 2, 3, shade(hc, 0.7)); }
+    if (H === 2) { const gem = G.headR === R_SET ? setc : G.headR === R_RELIC ? "#ff7a2a" : G.headR === R_RARE ? "#7ad8f0" : "#c8303a"; R(5, 4, 9, 1, "#f2c14e"); R(9, 3, 1, 1, gem); R(9, 4, 1, 1, shade(gem, 1.2)); }
+  }
+  // the weapon in hand
+  if (withWpn && G.wpn >= 0) {
+    const r = G.wpnR, steel = r === R_SET ? setc : r === R_RELIC ? "#ffb45e" : r === R_RARE ? "#f2e4a0" : "#d8deea", sd = shade(steel, 0.6), wood = "#6e4c2e";
+    switch (G.wpn) {
+      case 0: case 7: { const b = G.wpn === 7 ? "#7ad8f0" : steel; R(16, 11, 1, 5, b); R(17, 12, 1, 3, shade(b, 0.7)); R(15, 15, 3, 1, "#a87a1e"); break; }
+      case 1: case 8: { const b = G.wpn === 8 ? "#d0c4b0" : steel; R(16, 11, 1, 8, wood); R(17, 10, 2, 4, b); R(18, 10, 1, 4, G.wpn === 8 ? "#c8303a" : sd); break; }
+      case 2: R(16, 6, 1, 10, steel); R(17, 7, 1, 7, sd); R(16, 5, 1, 1, sd); R(15, 15, 3, 1, "#a87a1e"); break;
+      case 3: R(16, 6, 1, 15, wood); R(15, 3, 3, 3, r >= R_RARE ? "#7ad8f0" : "#ee8a3a"); R(16, 4, 1, 1, "#fff0c0"); break;
+      case 4: case 9: { const b = G.wpn === 9 ? "#d8b04a" : steel; R(16, 11, 1, 9, wood); R(14, 8, 5, 4, b); R(17, 8, 2, 4, shade(b, 0.6)); R(14, 8, 5, 1, shade(b, 1.25)); break; }
+      case 5: R(16, 2, 1, 19, wood); R(15, 0, 3, 3, steel); R(16, 0, 1, 1, "#ffffff"); break;
+      case 6: R(16, 3, 1, 18, wood); R(11, 2, 6, 1, steel); R(10, 3, 3, 1, steel); R(9, 4, 2, 1, sd); break;
+    }
+  }
+  outline(c);
+  return c;
+}
+let dollKey = "", dollSet = null, dollDirty = true;      // (dirty when the gear changes: recalc() says so)
+function gearKey() {
+  const e = P.eq, a = e[SL_ARMOR], h = e[SL_HEAD], w = e[SL_WEAPON];
+  return { cls: P.cls, arm: a ? a.b : -1, armR: a ? a.r : -1, set: a && a.r === R_SET ? a.set : h && h.r === R_SET ? h.set : w && w.r === R_SET ? w.set : -1,
+    head: h ? (h.b === 2 ? 2 : h.b === 1 ? 1 : 0) : -1, headR: h ? h.r : -1, mask: !!(h && h.hm), wpn: w ? w.b : -1, wpnR: w ? w.r : -1, up: a ? a.u || 0 : 0 };
+}
+function heroDoll() {           // the Wickbearer as worn now: four steps of the walk, and one empty-handed for a swing
+  if (!dollDirty && dollSet) return dollSet;
+  dollDirty = false;
+  const G = gearKey(), L = P.look, key = JSON.stringify(G) + JSON.stringify(L);
+  if (key === dollKey && dollSet) return dollSet;
+  const fr = [], none = dollFrame(L, G, 0, false);
+  for (let f = 0; f < 4; f++) fr.push(dollFrame(L, G, f, true));
+  dollSet = { r: fr, l: fr.map(flipped), wr: whiteOf(fr[0]), wl: whiteOf(flipped(fr[0])), er: none, el: flipped(none), w: DW, h: DH, G };
+  dollKey = key; return dollSet;
+}
+function previewDoll(cls, L, f) {   // for the screens that show a Wickbearer who isn't playing yet
+  return dollFrame(L, { cls, arm: -1, armR: -1, set: -1, head: -1, headR: -1, mask: false, wpn: CLS[cls].wb, wpnR: 0, up: 0 }, f, true);
+}
+const DEFLOOK = [{ skin: 1, hair: 0, hairC: 1, mark: 1, cloth: 0 }, { skin: 2, hair: 1, hairC: 4, mark: 0, cloth: 1 }, { skin: 0, hair: 4, hairC: 0, mark: 3, cloth: 2 }];
+// the mounts: a beast that walks (a quadruped) and one that flies (wings), each in its own colours
+const QUAD = ["......................", "................kk....", "...............kcck...", "..............kcwcck..", "..............kccccNk.",
+  "..k..........kcccck...", ".kck........kcccck....", "..kckkkkkkkkcccck.....", "..kcccttttccccck......", "..kcCcttttcccCck......",
+  "..kcCCccccccCCck......", "...kCkkCkkkCkkCk......", "...kCk.kCk.kCk.kk.....", "...kk..kk..kk.........", "......................"];
+const QUADB = ["...kCkkkCkkkCkkCk.....", "..kCk.kCk..kCk.kCk....", "..kk..kk...kk...kk...."];
+const WING = ["........................", "..kk................kk..", ".kwwk..............kwwk.", ".kwWwk............kwWwk.", "..kwWwk....kk....kwWwk..",
+  "...kwWwk..kcck..kwWwk...", "....kwWwkkcxxckkwWwk....", ".....kwwwccccccwwwk.....", "......kkcccccccckk......", ".......kcCccccCck.......",
+  "........kcCttCck........", ".........kcttck.........", "..........kcck..........", "...........kk...........", "........................", "........................"];
+const WINGB = ["........................", "........................", "........................", "........................", "...........kk...........",
+  "..........kcck..........", "..kkkkkkkkcxxckkkkkkkk..", ".kwwwwwwwccccccwwwwwwwk.", "kwWWWWWWkcccccckWWWWWWwk", ".kkkkkkkkcCccCckkkkkkkk.",
+  "........kcCttCck........", ".........kcttck.........", "..........kcck..........", "...........kk...........", "........................", "........................"];
+const mountSets = [];
+function mountSet(i) {
+  if (mountSets[i]) return mountSets[i];
+  const M = MOUNTS[i], over = M.pal;
+  let a, b;
+  if (M.body === "quad") { a = QUAD.slice(); b = legs(QUAD, QUADB); if (M.antlers) { const ant = r => r.map((row, y) => y === 0 ? "..............k.k.k..." : y === 1 ? "..............kkkkk..." : row); a = ant(a); b = ant(b); } }
+  else { a = WING; b = WINGB; }
+  return (mountSets[i] = sset([a, b], over, 2));     // (twice the size, like the guardians: a beast you sit on)
+}
+
+// ---------------------------------------------------------------- wood and ore to gather, and what they make
+function buildNodes() {
+  S.vein = []; S.root = []; S.mat = { w: [], o: [], b: [] };
+  for (let t = 0; t < 6; t++) {
+    const O = ORE[t], W = WOOD[t];
+    // an ore vein in a wall's face: lumps of the metal, catching the light
+    let c = mk(16, 16), g = g2(c), R2 = mulberry(900 + t);
+    for (let n = 0; n < 5; n++) {
+      const x = 2 + ((R2() * 11) | 0), y = 3 + ((R2() * 10) | 0);
+      g.fillStyle = "#0d0b14"; g.fillRect(x - 1, y - 1, 4, 4);
+      g.fillStyle = O.dark; g.fillRect(x, y, 3, 2); g.fillStyle = O.col; g.fillRect(x, y, 2, 1); g.fillStyle = "#fff"; g.fillRect(x, y, 1, 1);
+    }
+    S.vein.push(c);
+    // a great root down out of the wall and over the floor
+    c = mk(16, 26); g = g2(c);
+    g.fillStyle = "#0d0b14"; g.fillRect(5, 0, 7, 22); g.fillRect(2, 18, 13, 6);
+    g.fillStyle = W.dark; g.fillRect(6, 0, 5, 21); g.fillRect(3, 19, 11, 4);
+    g.fillStyle = W.col; g.fillRect(7, 0, 2, 20); g.fillRect(4, 19, 3, 2); g.fillRect(10, 20, 3, 1);
+    for (let y = 2; y < 18; y += 4) { g.fillStyle = W.dark; g.fillRect(7, y, 2, 1); }
+    if (t === 5) { g.fillStyle = "#e0b8ff"; g.fillRect(3, 0, 11, 3); g.fillStyle = "#8a4ab0"; g.fillRect(4, 3, 9, 1); }    // (the gloamcap's cap)
+    S.root.push(c);
+    // the satchel's icons: a log, a lump of ore, a bar
+    c = mk(9, 7); g = g2(c); g.fillStyle = "#0d0b14"; g.fillRect(0, 1, 9, 5); g.fillStyle = W.dark; g.fillRect(1, 2, 7, 3); g.fillStyle = W.col; g.fillRect(1, 2, 6, 1); g.fillStyle = shade(W.col, 1.3); g.fillRect(7, 2, 1, 3); S.mat.w.push(c);
+    c = mk(8, 7); g = g2(c); g.fillStyle = "#0d0b14"; g.fillRect(1, 0, 6, 7); g.fillRect(0, 1, 8, 5); g.fillStyle = "#4a4458"; g.fillRect(1, 1, 6, 5); g.fillStyle = O.col; g.fillRect(2, 2, 2, 2); g.fillRect(5, 3, 1, 2); S.mat.o.push(c);
+    c = mk(9, 6); g = g2(c); g.fillStyle = "#0d0b14"; g.fillRect(0, 0, 9, 6); g.fillStyle = O.dark; g.fillRect(1, 2, 7, 3); g.fillStyle = O.col; g.fillRect(2, 1, 5, 2); g.fillStyle = "#fff"; g.fillRect(2, 1, 1, 1); S.mat.b.push(c);
+  }
+  S.veinE = (() => { const c = mk(16, 16), g = g2(c); g.fillStyle = "#0d0b14"; for (let n = 0; n < 4; n++) g.fillRect(3 + n * 3, 5 + (n & 1) * 4, 3, 2); return c; })();
+  S.rootE = (() => { const c = mk(16, 26), g = g2(c); g.fillStyle = "#0d0b14"; g.fillRect(4, 17, 9, 7); g.fillStyle = "#4a3424"; g.fillRect(5, 18, 7, 5); g.fillStyle = "#8a6a3a"; g.fillRect(5, 18, 7, 1); return c; })();
+  const ic = (rows, over) => spr(rows, over);
+  S.ic.hatchet = ic(["............", ".....kkk....", "....kGGGk...", "...kGwGGGk..", "...kGGknGk..", "....kk.nk...", "......knk...", "......knk...", ".....knk....", ".....knk....", ".....kNk....", ".....kk....."]);
+  S.ic.pick = ic(["............", "..kkk..kkk..", ".kGGGkkGGGk.", "..kkGGGGkk..", "....kknk....", ".....knk....", ".....knk....", ".....knk....", ".....knk....", ".....knk....", ".....kNk....", ".....kk....."]);
+  S.ic.hammer = ic(["............", "...kkkkkk...", "..kgGGGGgk..", "..kGGwGGGk..", "..kgGGGGgk..", "...kkknkk...", ".....knk....", ".....knk....", ".....knk....", ".....knk....", ".....kNk....", ".....kk....."]);
+  S.ic.claw = ic(["............", ".k...k...k..", ".kr..kr..kr.", "..kr..kr..kr", "..kr..kr..kr", "...kr..kr..k", "...kr..kr...", "....k...k...", "............", "..kkkkkkk...", ".kmmmmmmmk..", "..kkkkkkk..."]);
+  S.ic.mount = ic(["............", "........kk..", ".......kGGk.", "......kGwGk.", "......kGGGNk", ".k...kGGGk..", "kGkkkGGGGk..", ".kGGttGGGk..", ".kGGttGGGk..", "..kGkkkkGk..", "..kGk..kGk..", "..kk...kk..."]);
+  const hl = { skin: 3, hair: 1, hairC: 5, mark: 4, cloth: 2 }, hg = { cls: 2, arm: 0, armR: 0, set: -1, head: 0, headR: 0, mask: false, wpn: 5, wpnR: 1, up: 0 };
+  const h0 = dollFrame(hl, hg, 0, true), h1 = dollFrame(hl, hg, 2, true);
+  S.huntress = { r: [h0, h1], l: [flipped(h0), flipped(h1)], wr: whiteOf(h0), wl: whiteOf(flipped(h0)), w: DW, h: DH };
+}
 // ---------------------------------------------------------------- the letters: a 5×7 pixel font, and the buttons' badges
 const FONT = { A: [14, 17, 17, 31, 17, 17, 17], B: [30, 17, 17, 30, 17, 17, 30], C: [14, 17, 16, 16, 16, 17, 14], D: [28, 18, 17, 17, 17, 18, 28],
   E: [31, 16, 16, 30, 16, 16, 31], F: [31, 16, 16, 30, 16, 16, 16], G: [14, 17, 16, 23, 17, 17, 15], H: [17, 17, 17, 31, 17, 17, 17],
@@ -375,7 +562,7 @@ const SCH_XBOX = 0, SCH_PS = 1, SCH_NIN = 2, SCH_KB = 3;
 let scheme = SCH_KB;
 const BADGE = [[], [], [], []];
 const T_A = "\x80", T_B = "\x81", T_X = "\x82", T_Y = "\x83", T_LB = "\x84", T_RB = "\x85", T_LT = "\x86", T_RT = "\x87",
-  T_START = "\x88", T_SEL = "\x89", T_MOVE = "\x8a", T_OK = "\x8b", T_BACK = "\x8c";
+  T_START = "\x88", T_SEL = "\x89", T_MOVE = "\x8a", T_OK = "\x8b", T_BACK = "\x8c", T_L3 = "\x8d";
 function glyph(g, code, x, y, col) { const i = GI[code]; if (i >= 0) g.drawImage(ATL[col], i * 6 + GX[i], 0, GW[i], 7, x, y, GW[i], 7); return i >= 0 ? GW[i] : 3; }
 function circleBadge(fill, code, col) {
   const c = mk(9, 9), g = g2(c); g.fillStyle = fill;
@@ -396,18 +583,18 @@ function stickBadge() {
 function buildBadges() {
   const sh = (l) => rectBadge(l, "#4a4458", C_W), key = (l) => rectBadge(l, "#d8d4e0", C_BLACK, "#8e88a0");
   const xb = [circleBadge("#3ea84a", 65, C_BLACK), circleBadge("#d8383e", 66, C_BLACK), circleBadge("#2f7be0", 88, C_BLACK), circleBadge("#e8b828", 89, C_BLACK)];
-  BADGE[SCH_XBOX] = [xb[0], xb[1], xb[2], xb[3], sh("LB"), sh("RB"), sh("LT"), sh("RT"), sh("MENU"), sh("VIEW"), stickBadge(), xb[0], xb[1]];
+  BADGE[SCH_XBOX] = [xb[0], xb[1], xb[2], xb[3], sh("LB"), sh("RB"), sh("LT"), sh("RT"), sh("MENU"), sh("VIEW"), stickBadge(), xb[0], xb[1], sh("LS")];
   const ps = [circleBadge("#2a2633", 0x10, C_BLUE), circleBadge("#2a2633", 0x11, C_RED), circleBadge("#2a2633", 0x12, C_PINK), circleBadge("#2a2633", 0x13, C_GREEN)];
-  BADGE[SCH_PS] = [ps[0], ps[1], ps[2], ps[3], sh("L1"), sh("R1"), sh("L2"), sh("R2"), sh("OPTIONS"), sh("SHARE"), stickBadge(), ps[0], ps[1]];
+  BADGE[SCH_PS] = [ps[0], ps[1], ps[2], ps[3], sh("L1"), sh("R1"), sh("L2"), sh("R2"), sh("OPTIONS"), sh("SHARE"), stickBadge(), ps[0], ps[1], sh("L3")];
   const ni = [circleBadge("#d8d4e0", 66, C_BLACK), circleBadge("#d8d4e0", 65, C_BLACK), circleBadge("#d8d4e0", 89, C_BLACK), circleBadge("#d8d4e0", 88, C_BLACK)];
-  BADGE[SCH_NIN] = [ni[0], ni[1], ni[2], ni[3], sh("L"), sh("R"), sh("ZL"), sh("ZR"), sh("+"), sh("-"), stickBadge(), ni[0], ni[1]];
-  BADGE[SCH_KB] = [key("J"), key("K"), key("U"), key("I"), key("Q"), key("E"), key("R"), key("O"), key("ESC"), key("TAB"), key("WASD"), key("ENTER"), key("ESC")];
+  BADGE[SCH_NIN] = [ni[0], ni[1], ni[2], ni[3], sh("L"), sh("R"), sh("ZL"), sh("ZR"), sh("+"), sh("-"), stickBadge(), ni[0], ni[1], sh("LS")];
+  BADGE[SCH_KB] = [key("J"), key("K"), key("U"), key("I"), key("Q"), key("E"), key("R"), key("O"), key("ESC"), key("TAB"), key("WASD"), key("ENTER"), key("ESC"), key("V")];
 }
 function text(g, s, x, y, col, sc) {
   sc = sc || 1; const at = ATL[col], bs = BADGE[scheme];
   for (let i = 0; i < s.length; i++) {
     let c = s.charCodeAt(i);
-    if (c >= 0x80 && c <= 0x8c) { const b = bs[c - 0x80]; g.drawImage(b, x, y - sc, b.width * sc, b.height * sc); x += (b.width + 2) * sc; continue; }
+    if (c >= 0x80 && c <= 0x8d) { const b = bs[c - 0x80]; g.drawImage(b, x, y - sc, b.width * sc, b.height * sc); x += (b.width + 2) * sc; continue; }
     if (c >= 97 && c <= 122) c -= 32;
     if (c === 32) { x += 4 * sc; continue; }
     const k = GI[c]; if (k < 0) { x += 4 * sc; continue; }
@@ -419,7 +606,7 @@ function textW(s, sc) {
   sc = sc || 1; let w = 0; const bs = BADGE[scheme];
   for (let i = 0; i < s.length; i++) {
     let c = s.charCodeAt(i);
-    if (c >= 0x80 && c <= 0x8c) { w += (bs[c - 0x80].width + 2) * sc; continue; }
+    if (c >= 0x80 && c <= 0x8d) { w += (bs[c - 0x80].width + 2) * sc; continue; }
     if (c >= 97 && c <= 122) c -= 32;
     const k = c === 32 ? -1 : GI[c]; w += (k < 0 ? 4 : GW[k] + 1) * sc;
   }
@@ -478,15 +665,15 @@ function buildFog() {
 }
 
 // ---------------------------------------------------------------- input: the controller, read directly, and the keyboard
-const NA = 15;
+const NA = 16;
 const A_UP = 0, A_DOWN = 1, A_LEFT = 2, A_RIGHT = 3, A_A = 4, A_B = 5, A_X = 6, A_Y = 7, A_LB = 8, A_RB = 9, A_LT = 10, A_RT = 11,
-  A_START = 12, A_SEL = 13, A_MAP = 14;
+  A_START = 12, A_SEL = 13, A_MAP = 14, A_L3 = 15;
 const kbHeld = new Uint8Array(NA), kbHit = new Uint8Array(NA), padHeld = new Uint8Array(NA), held = new Uint8Array(NA),
   prevHeld = new Uint8Array(NA), hit = new Uint8Array(NA), nav = new Uint8Array(4), repT = new Float32Array(4), kbT = new Float64Array(NA);
 // buttons for up, down, left, right, A, B, X, Y, LB, RB, LT, RT, Start, Select, by place: the standard mapping, an
 // Xbox-like pad the browser doesn't know, and the generic USB kind (buttons 1-4 top, right, bottom, left)
-const MAP_STD = [12, 13, 14, 15, 0, 1, 2, 3, 4, 5, 6, 7, 9, 8, -1], MAP_XPAD = [-1, -1, -1, -1, 0, 1, 2, 3, 4, 5, -1, -1, 7, 6, -1],
-  MAP_GEN = [-1, -1, -1, -1, 2, 1, 3, 0, 6, 7, 4, 5, 9, 8, -1];
+const MAP_STD = [12, 13, 14, 15, 0, 1, 2, 3, 4, 5, 6, 7, 9, 8, -1, 10], MAP_XPAD = [-1, -1, -1, -1, 0, 1, 2, 3, 4, 5, -1, -1, 7, 6, -1, 9],
+  MAP_GEN = [-1, -1, -1, -1, 2, 1, 3, 0, 6, 7, 4, 5, 9, 8, -1, 10];
 const padIds = [], padSch = [], padMap = [];
 let wakeT = -1e9, padUsed = -1, padAX = 0, padAY = 0, padRX = 0, padRY = 0, padKnown = false, padLast = -1e9, padFresh = false, MX = 0, MY = 0;
 const DZ = 0.24;
@@ -508,7 +695,7 @@ function pollPads(now) {
       padMap[i] = gp.mapping === "standard" ? MAP_STD : /xbox|x-box|8bitdo|054c|045e|057e|wireless controller|dualsense|dualshock/i.test(gp.id) ? MAP_XPAD : MAP_GEN;
     }
     const map = padMap[i], b = gp.buttons, ax = gp.axes; let any = false;
-    for (let j = 0; j < 14; j++) { const k = map[j]; if (k >= 0 && k < b.length) { const bt = b[k]; if (bt && (bt.pressed || bt.value > 0.5)) { padHeld[j] = 1; any = true; } } }
+    for (let j = 0; j < 16; j++) { if (j === 14) continue; const k = map[j]; if (k >= 0 && k < b.length) { const bt = b[k]; if (bt && (bt.pressed || bt.value > 0.5)) { padHeld[j] = 1; any = true; } } }
     if (ax.length >= 2) {
       const x = ax[0] || 0, y = ax[1] || 0;
       if (x * x + y * y > DZ * DZ) { padAX += x; padAY += y; any = true; if (x < -0.5) padHeld[A_LEFT] = 1; if (x > 0.5) padHeld[A_RIGHT] = 1; if (y < -0.5) padHeld[A_UP] = 1; if (y > 0.5) padHeld[A_DOWN] = 1; }
@@ -541,6 +728,7 @@ function mapKey(code, key) {
     case "KeyP": return A_START;
     case "Tab": case "KeyG": return A_SEL;
     case "KeyM": return A_MAP;
+    case "KeyV": return A_L3;
   }
   if (key === "BrowserBack" || key === "GoBack") return play ? A_START : A_B;
   if (key === "MediaPlayPause") return A_X;
@@ -576,6 +764,7 @@ function drainKeys(now) {
 }
 document.addEventListener("keydown", e => {
   const code = e.code || e.key;
+  if (mode === M_NAME && !padKnown && /^Key[A-Z]$/.test(code) && crName.length < 12) { crName += code.slice(3); dirty = true; e.preventDefault(); return; }   // (a keyboard types the name)
   const back = code === "Escape" || code === "Backspace" || code === "BrowserBack" || e.key === "BrowserBack" || e.key === "GoBack";
   if (back && mode === M_TITLE) return;                       // Back on the title screen: the box's, out of the game
   const act = mapKey(code, e.key); if (act < 0) return;
@@ -943,6 +1132,65 @@ const PACK = 20, STASH = 30, MAXLVL = 60;
 const Q_KILL = 0, Q_ELITE = 1, Q_URN = 2, Q_BRAZIER = 3, Q_FLOOR = 4, Q_FETCH = 5, Q_BOSS = 6;
 const LOST = ["LOCKET", "LANTERN", "PRAYER BOOK", "CELLAR KEY", "RAG DOLL", "LETTERS", "FLUTE", "WEDDING RING"];
 
+// ---------------------------------------------------------------- skills: cutting wood, mining ore, making things, and the hunt
+// Each skill has its own level (1 to 60) and XP. Wood and ore come in six kinds, one for each zone below (and the
+// village's own trees); each needs a level to work, and a better tool works it faster.
+const SK_WOOD = 0, SK_MINE = 1, SK_CRAFT = 2, SK_HUNT = 3, NSK = 4, SKMAX = 60;
+const SKN = ["WOODCUTTING", "MINING", "CRAFTING", "HUNTING"];
+const needS = l => Math.round(28 * Math.pow(1.1, l));            // XP from one skill level to the next
+const WOOD = [{ n: "ASHWOOD", lv: 1, xp: 12, col: "#c8a878", dark: "#6e5030" }, { n: "PALEROOT", lv: 8, xp: 20, col: "#d8d0b8", dark: "#7e7462" },
+  { n: "ROOTWOOD", lv: 16, xp: 30, col: "#8a6a3a", dark: "#4a3418" }, { n: "DROWNED OAK", lv: 25, xp: 44, col: "#6a8a84", dark: "#2e4440" },
+  { n: "EMBERBARK", lv: 35, xp: 62, col: "#c8502a", dark: "#5a1e10" }, { n: "GLOAMCAP", lv: 45, xp: 85, col: "#a070c8", dark: "#4a2468" }];
+const ORE = [{ n: "COPPER", lv: 1, xp: 12, col: "#d8884a", dark: "#7a3e1e" }, { n: "IRON", lv: 8, xp: 20, col: "#9aa0a8", dark: "#4a4e56" },
+  { n: "SILVER", lv: 16, xp: 30, col: "#e0e4f0", dark: "#7a8090" }, { n: "COLDSTONE", lv: 25, xp: 44, col: "#7ad8f0", dark: "#2e6e8a" },
+  { n: "EMBERITE", lv: 35, xp: 62, col: "#ff7a2a", dark: "#8a2a10" }, { n: "GLOAMSTEEL", lv: 45, xp: 85, col: "#c79bff", dark: "#4a2468" }];
+const TOOLN = ["COPPER", "IRON", "SILVER", "COLDSTONE", "EMBERITE", "GLOAMSTEEL"];
+// What Vesk's forge can make, a page for each kind of metal: bars from ore, tools, and gear (Crafting's level
+// decides how fine the gear comes out). Ingredients: [kind, tier, count] with kind "o" ore, "b" bars, "w" wood.
+const RC_BAR = 0, RC_AXE = 1, RC_PICK = 2, RC_WEAPON = 3, RC_ARMOR = 4, RC_HELM = 5, RC_RING = 6, RC_OIL = 7, RC_TONIC = 8, RC_SADDLE = 9;
+function recipesOf(t) {
+  const lv = t * 8 + 1, r = [
+    { k: RC_BAR, n: ORE[t].n + " BAR", lv, in: [["o", t, 2]], xp: 10 + t * 8 },
+    { k: RC_AXE, n: TOOLN[t] + " HATCHET", lv, in: [["b", t, 2], ["w", t, 2]], xp: 30 + t * 18 },
+    { k: RC_PICK, n: TOOLN[t] + " PICK", lv, in: [["b", t, 2], ["w", t, 2]], xp: 30 + t * 18 },
+    { k: RC_WEAPON, n: ORE[t].n + " WEAPON", lv: lv + 2, in: [["b", t, 3], ["w", t, 2]], xp: 45 + t * 25 },
+    { k: RC_ARMOR, n: ORE[t].n + " ARMOR", lv: lv + 3, in: [["b", t, 5], ["w", t, 1]], xp: 60 + t * 30 },
+    { k: RC_HELM, n: ORE[t].n + " HELM", lv: lv + 1, in: [["b", t, 3]], xp: 35 + t * 20 },
+    { k: RC_RING, n: ORE[t].n + " RING", lv: lv + 4, in: [["b", t, 2], ["w", t, 1]], xp: 40 + t * 22 }];
+  if (t === 0) r.push({ k: RC_OIL, n: "WICK OIL (2)", lv: 1, in: [["w", 0, 3]], xp: 8 }, { k: RC_TONIC, n: "RED TONIC", lv: 4, in: [["w", 1, 2]], xp: 12 });
+  if (t === 2) r.push({ k: RC_SADDLE, n: "ROOTBACK SADDLE (A MOUNT)", lv: 30, in: [["w", 2, 25], ["b", 2, 10]], xp: 400 });
+  return r;
+}
+// The hunt: Ysolde the huntress sets you a kind of creature to thin out; each kill of it teaches Hunting, and the whole
+// task earns hunt marks (more for every tenth in a row) to spend with her.
+const HUNT_SHOP = [{ n: "SET ME ANOTHER TASK", p: 20, d: "A DIFFERENT CREATURE TO HUNT, NOW" },
+  { n: "A HUNTER'S FIND", p: 40, d: "A RARE PIECE OF GEAR, FOR YOUR LEVEL" },
+  { n: "THE HUNTER'S MASK", p: 90, d: "HEAD GEAR: +20% DAMAGE TO YOUR TASK'S CREATURES" },
+  { n: "A WICKHOUND", p: 160, d: "A MOUNT: A HOUND OF THE VILLAGE, QUICK AND LOYAL" }];
+const huntReq = t => Math.max(1, (MT[t].lvz || 0) * 8);          // the Hunting level a creature can be set from
+// Mounts: ridden with L3 (the left stick, pressed). The flying ones cross water, lava, wax and spikes.
+const MOUNTS = [
+  { n: "WICKHOUND", fly: 0, spd: 45, from: "YSOLDE, FOR 160 HUNT MARKS", body: "quad", pal: { c: "#9a94a8", C: "#4a4458", w: "#f2c14e", N: "#2a2633", t: "#c8303a" } },
+  { n: "MIRE STRIDER", fly: 0, spd: 40, from: "OLD MIRE, NOW AND THEN", boss: 0, body: "quad", pal: { c: "#7aa04a", C: "#2e5a2a", w: "#ff5a8a", N: "#1f3a22", t: "#a8804a" } },
+  { n: "WAX STAG", fly: 0, spd: 52, from: "MOTHER TALLOW, NOW AND THEN", boss: 1, body: "quad", antlers: 1, pal: { c: "#e2d49c", C: "#a89860", w: "#7ad8f0", N: "#6e5030", t: "#7a1a26" } },
+  { n: "ROOTBACK", fly: 0, spd: 36, armor: 15, from: "CRAFTED: A ROOTBACK SADDLE", body: "quad", antlers: 1, pal: { c: "#6e8c45", C: "#3e2a1a", w: "#f2c14e", N: "#2a1c12", t: "#5a4030" } },
+  { n: "GLOAM MOTH", fly: 1, spd: 45, from: "THE MOTH REGENT, NOW AND THEN", boss: 2, body: "wing", pal: { w: "#b06ad0", W: "#5a2a78", c: "#2a2633", C: "#141018", x: "#f2c14e" } },
+  { n: "BELL-WING", fly: 1, spd: 55, from: "SISTER KNELL, NOW AND THEN", boss: 3, body: "wing", pal: { w: "#3a8a8a", W: "#1e4a52", c: "#c8e0d8", C: "#6a8a84", x: "#9ad8c8" } },
+  { n: "CINDER DRAKE", fly: 1, spd: 62, from: "THE KILNFATHER, NOW AND THEN", boss: 4, body: "wing", pal: { w: "#ee8a3a", W: "#8a2a10", c: "#c8303a", C: "#5a1010", x: "#f2c14e" } },
+  { n: "HEARTSHADE", fly: 1, spd: 72, from: "THE GLOAMHEART, NOW AND THEN", boss: 5, body: "wing", pal: { w: "#2a0f3a", W: "#120818", c: "#8a4ab0", C: "#4a2468", x: "#ff5a8a" } },
+];
+const MOUNT_DROP = 1 / 7;
+// the look: skin, hair (and its colour), a beard or markings, and the outfit's colour
+const SKINS = [["#f0c8a0", "#c08a68"], ["#e0a67a", "#a86a48"], ["#c88a5a", "#8a5634"], ["#a0663e", "#6a3e22"], ["#7a4a2e", "#4a2a18"], ["#b8c8b0", "#7a8a74"]];
+const HAIRS = ["SHORT", "LONG", "TOPKNOT", "SHAVED", "BRAIDS", "WILD"];
+const HAIRCOL = ["#2a1c12", "#6e4c2e", "#a8804a", "#e2c46a", "#c8502a", "#d8d4e0", "#3a2a4a", "#4a78c8"];
+const MARKS = ["NONE", "BEARD", "LONG BEARD", "SCAR", "WAR PAINT", "FRECKLES"];
+const CLOTH = ["#4a78c8", "#c8303a", "#5aa04a", "#8a4ab0", "#a8804a", "#3a3646", "#d8d4e0", "#ee8a3a"];
+const CLOTHN = ["BLUE", "RED", "GREEN", "VIOLET", "OCHRE", "SOOT", "BONE", "EMBER"];
+const NAME1 = ["BRAN", "WEN", "MOR", "ISA", "TOL", "HAR", "EDD", "SEL", "CAR", "ODE", "RIN", "LYS", "THA", "GAR", "VEL", "ASH", "KEL", "NIM"];
+const NAME2 = ["WICK", "DRA", "ETTE", "WYN", "OR", "ANE", "ITH", "ELL", "ORN", "IS", "ARD", "ESS", "UN", "ELLE", "ICK", "AR"];
+const randName = () => { let n = NAME1[ri(NAME1.length)] + NAME2[ri(NAME2.length)]; return n.length > 12 ? n.slice(0, 12) : n; };
+
 // ---------------------------------------------------------------- gear: making it and naming it
 function baseOf(it) { return BASES[it.s][it.b]; }
 function pickBase(slot, l) {           // a base found this deep (the finer ones only further down)
@@ -988,6 +1236,7 @@ function itemName(it) {
   if (it.r === R_SET && it.set >= 0) return SETS[it.set].p[it.sp][2];
   const base = baseOf(it).n, mat = MATS[it.s][tierOf(it.l)];
   if (it.r === R_RELIC) return OWNERS[it.o % OWNERS.length] + "'S " + base;
+  if (it.cr && it.mt >= 0 && it.mt < ORE.length) return (it.x.length && it.r >= R_FINE ? AFF[it.x[0][0]].pre + " " : "") + ORE[it.mt].n + " " + base;   // (made at the forge: named for its metal)
   if (it.r === R_RARE && it.x.length > 1) return AFF[it.x[0][0]].pre + " " + base + " " + AFF[it.x[1][0]].suf;
   if (it.x.length) return AFF[it.x[0][0]].pre + " " + mat + " " + base;
   return mat + " " + base;
@@ -1053,7 +1302,9 @@ function solidFor(e, x, y) {
 }
 function shotBlocked(x, y) { const tx = Math.floor(x / TS), ty = Math.floor(y / TS); if (tx < 0 || ty < 0 || tx >= MW || ty >= MH) return true; return SOLID_F[tiles[ty * MW + tx]] === 1; }
 const tidx = (x, y) => ((y / TS) | 0) * MW + ((x / TS) | 0);
-const I_STAIRS = 0, I_ROPE = 1, I_BRAZIER = 2, I_WELL = 3, I_SHRINE = 4, I_ELDER = 5, I_MERCHANT = 6, I_SMITH = 7, I_BOARD = 8, I_STASH = 9, I_FOUNT = 10;
+const I_STAIRS = 0, I_ROPE = 1, I_BRAZIER = 2, I_WELL = 3, I_SHRINE = 4, I_ELDER = 5, I_MERCHANT = 6, I_SMITH = 7, I_BOARD = 8, I_STASH = 9, I_FOUNT = 10, I_NODE = 11, I_HUNT = 12;
+// wood and ore to gather here: {kind 0 wood / 1 ore, tier, the wall tile it's in, where you stand, what's left}
+let FNODES = [], townNodes = [];
 function addInt(k, x, y, r, label) { INT.push({ k, x, y, r, prompt: T_A + " " + label, off: false }); }
 
 // pixel painting for the big map pictures (one ImageData, put once)
@@ -1247,6 +1498,21 @@ function populate(rooms, start, end, d, boss, R) {
       if (!near) { torchX[torchN] = x; torchY[torchN] = y; torchN++; }
     }
   }
+  // ore in the walls' faces and great roots down them: this zone's kinds, now and then the one before
+  FNODES = [];
+  let veins = 3 + ri2(3), roots = 2 + ri2(3);
+  for (let a = 0; a < 900 && (veins > 0 || roots > 0); a++) {
+    const x = 1 + ri2(MW - 2), y = 1 + ri2(MH - 3), i = y * MW + x;
+    if (tiles[i] !== T_WALL || tiles[i + MW] !== T_FLOOR || tiles[i - 1] !== T_WALL || tiles[i + 1] !== T_WALL) continue;
+    let near = false; for (let k = 0; k < torchN; k++) if (Math.abs(torchX[k] - x) + Math.abs(torchY[k] - y) < 2) near = true;
+    for (let k = 0; k < FNODES.length; k++) if (Math.abs(FNODES[k].tx - x) + Math.abs(FNODES[k].ty - y) < 4) near = true;
+    if (near) continue;
+    const kind = veins > 0 && (roots <= 0 || R() < 0.55) ? 1 : 0;
+    const tier = kind ? (zone > 0 && R() < 0.25 ? zone - 1 : zone) : Math.min(5, zone + (R() < 0.25 ? 0 : 1));
+    const n = { kind, tier, tx: x, ty: y, x: x * TS + 8, y: (y + 1) * TS + 10, left: 3 + ri2(4), rest: 0, town: false };
+    FNODES.push(n); if (kind) veins--; else roots--;
+    addInt(I_NODE, n.x, n.y, 16, (kind ? "MINE THE " : "CUT THE ") + (kind ? ORE : WOOD)[tier].n); INT[INT.length - 1].node = n;
+  }
   // the moving tiles, and the zone's small lights (glowing fungus, embers, crystals) along the walls' feet
   atN = 0; glN = 0;
   for (let i = 0; i < MW * MH && atN < NAT; i++) { const t = tiles[i]; if (t === T_POOL || t === T_SPIKE) { atX[atN] = i % MW; atY[atN] = (i / MW) | 0; atK[atN] = t; atN++; } }
@@ -1406,7 +1672,7 @@ function genTown() {
   if (!townCanvas) buildTown();
   tiles.set(townTiles); seen.fill(1, 0, MW * MH); visS.fill(0, 0, MW * MH);
   mapFull = mapSeen = townCanvas; gFull = gSeen = null; INT = townInts; NPCS = townNpcs; LAMPS = townLamps;
-  clearPools(); torchN = 0; BRZ.on = false; FNT.on = false; atN = 0; glN = 0;
+  clearPools(); torchN = 0; BRZ.on = false; FNT.on = false; atN = 0; glN = 0; FNODES = townNodes;
   mmReset(); for (let ty = 0; ty < MH; ty++) for (let tx = 0; tx < MW; tx++) mmTile(tx, ty);
 }
 function buildTown() {
@@ -1424,7 +1690,7 @@ function buildTown() {
     for (let xx = Math.min(dx, tx); xx <= Math.max(dx, tx); xx++) if (at(xx, ty) === K_GRASS) set(xx, ty, K_PATH);
   }
   set(12, 9, K_LAMP); set(27, 9, K_LAMP); set(12, 16, K_LAMP); set(27, 16, K_LAMP); set(18, 20, K_LAMP); set(21, 20, K_LAMP);
-  rect(19, 12, 2, 2, K_WELL); set(14, 12, K_SHRINE); rect(24, 12, 3, 1, K_STALL); set(25, 11, K_NPC); set(16, 11, K_NPC);
+  rect(19, 12, 2, 2, K_WELL); set(14, 12, K_SHRINE); rect(24, 12, 3, 1, K_STALL); set(25, 11, K_NPC); set(16, 11, K_NPC); set(23, 19, K_NPC);
   set(14, 15, K_ANVIL); set(15, 14, K_NPC); set(23, 15, K_BOARD); set(26, 15, K_STASH);
   for (let a = 0, n = 0; a < 400 && n < 34; a++) {
     const x = 1 + ri2(W - 2), y = 1 + ri2(H - 2); let ok = true;
@@ -1517,7 +1783,17 @@ function buildTown() {
   addInt(I_SMITH, 15 * TS + 8, 15 * TS + 6, 20, "ASK VESK THE SMITH");
   addInt(I_BOARD, 23 * TS + 8, 16 * TS + 4, 18, "READ THE NOTICES");
   addInt(I_STASH, 26 * TS + 8, 16 * TS + 4, 18, "OPEN YOUR STRONGBOX");
-  townNpcs = [{ x: 16 * TS + 8, y: 11 * TS + 14, s: "elder", f: 1 }, { x: 25 * TS + 8, y: 11 * TS + 14, s: "chandler", f: 1 }, { x: 15 * TS + 8, y: 14 * TS + 14, s: "smith", f: -1 }];
+  townNpcs = [{ x: 16 * TS + 8, y: 11 * TS + 14, s: "elder", f: 1 }, { x: 25 * TS + 8, y: 11 * TS + 14, s: "chandler", f: 1 }, { x: 15 * TS + 8, y: 14 * TS + 14, s: "smith", f: -1 },
+    { x: 23 * TS + 8, y: 19 * TS + 14, s: "huntress", f: -1 }];
+  addInt(I_HUNT, 23 * TS + 8, 20 * TS + 6, 20, "SPEAK TO YSOLDE THE HUNTRESS");
+  // Wickhollow's ash trees by the paths: a few logs each, then a rest
+  townNodes = [];
+  for (let ty = 1; ty < H - 1 && townNodes.length < 10; ty++) for (let tx = 1; tx < W - 1 && townNodes.length < 10; tx++) {
+    if (TK[ty * W + tx] !== K_TREE || TK[(ty + 1) * W + tx] === K_TREE || townTiles[(ty + 1) * W + tx] !== T_OPEN) continue;
+    if (townNodes.some(n => Math.abs(n.tx - tx) + Math.abs(n.ty - ty) < 3)) continue;
+    const n = { kind: 0, tier: 0, tx, ty, x: tx * TS + 8, y: (ty + 1) * TS + 10, left: 3 + ri2(4), rest: 0, town: true };
+    townNodes.push(n); addInt(I_NODE, n.x, n.y, 16, "CUT THE ASHWOOD"); INT[INT.length - 1].node = n;
+  }
   townLamps = [];
   for (let i = 0; i < W * H; i++) if (TK[i] === K_LAMP) townLamps.push({ x: (i % W) * TS + 8, y: ((i / W) | 0) * TS - 1, k: 0 });
   townLamps.push({ x: 14 * TS + 8, y: 12 * TS + 2, k: 0 }, { x: 20 * TS, y: 13 * TS + 2, k: 1 }, { x: 14 * TS - 8, y: 15 * TS + 6, k: 3 });
@@ -1598,7 +1874,9 @@ function newPlayer(cls) {
     spdPct: 0, leech: 0, leechP: 0, regen: 0, aspd: 0, wspd: 1, atkCD: 0, swing: 0, swingAng: 0, swingT: 0.16, dodgeCD: 0, dashT: 0, dvx: 0, dvy: 0, inv: 0, hurt: 0,
     cd: [0, 0, 0], roarT: 0, blessT: 0, sure: false, stepId: 1, stepping: false, charging: false, ashT: 0, dead: false, tx: -1, ty: -1, talked: 0,
     reach: 20, arc: 2, block: 0, thorns: 0, cdr: 0, cost: 0, find: 0, goldP: 0, lampK: 1, dodgeK: 1, B: {}, setN: [0, 0, 0, 0, 0],
-    undyingUsed: false, fleeT: 0, blows: 0, shadeT: 0, shadeX: 0, shadeY: 0, slowT: 0, armor: 1 };
+    undyingUsed: false, fleeT: 0, blows: 0, shadeT: 0, shadeX: 0, shadeY: 0, slowT: 0, armor: 1,
+    name: "", look: Object.assign({}, DEFLOOK[cls]), origin: 0, sxp: [0, 0, 0, 0], slv: [1, 1, 1, 1], mats: { w: [0, 0, 0, 0, 0, 0], o: [0, 0, 0, 0, 0, 0], b: [0, 0, 0, 0, 0, 0] },
+    axe: 0, pick: 0, hunt: null, marks: 0, streak: 0, mounts: [], mount: -1, riding: false, fly: 0, gather: null, gatherT: 0, gatherDur: 2, strokeT: 0 };
 }
 function starterKit() {
   const c = CLS[P.cls], w = genItem(1, 0, 0), a = genItem(1, 1, 0);
@@ -1612,6 +1890,7 @@ const talentPts = () => { let n = 0; for (let i = 0; i < 12; i++) n += P.tal[i];
 const branchPts = b => P.tal[b * 4] + P.tal[b * 4 + 1] + P.tal[b * 4 + 2] + P.tal[b * 4 + 3];
 const skillReady = i => P.lvl >= CLS[P.cls].sk[i].lv;
 function recalc() {
+  dollDirty = true;
   const c = CLS[P.cls], Lv = P.lvl - 1, B = {};
   const add = (k, v) => { B[k] = (B[k] || 0) + v; };
   for (let i = 0; i < 12; i++) if (P.tal[i]) add(c.tal[i].k, c.tal[i].v * P.tal[i]);
@@ -1683,8 +1962,8 @@ function gainXP(n) {
 function hurt(raw, src) {
   if (P.dead || P.inv > 0 || P.dashT > 0 || isTown) return;
   if (P.block > 0 && rnd() * 100 < P.block) { ftext(P.x, P.y - 20, "BLOCK", C_CYAN); sfx(SND_BLOCK); sparks(P.x, P.y - 8, 6, PC_WHITE, -Math.PI / 2, 1.2, 60); P.inv = 0.15; return; }
-  const d = Math.max(1, Math.round(raw * (1 - armRed()) * rr(0.9, 1.1)));
-  P.hp -= d; P.hurt = 0.18; P.inv = 0.1; shake(0.12, 2); sfx(SND_HURT); rumble(Math.min(1, 0.25 + d / P.mhp * 2), 120);
+  const d = Math.max(1, Math.round(raw * (1 - armRed()) * rr(0.9, 1.1) * (P.riding && MOUNTS[P.mount].armor ? 0.85 : 1)));
+  P.gather = null; P.hp -= d; P.hurt = 0.18; P.inv = 0.1; shake(0.12, 2); sfx(SND_HURT); rumble(Math.min(1, 0.25 + d / P.mhp * 2), 120);
   ftext(P.x, P.y - 20, "" + d, C_RED); burst(P.x, P.y - 8, 5, PC_RED, 40, 0.4);
   if (src && src.on && P.thorns > 0) { const back = Math.max(1, Math.round(d * P.thorns / 100)); hitMon(src, back, false, 0, 0, 0, true); }
   if (bon("fleeHit")) P.fleeT = 2;
@@ -2112,6 +2391,7 @@ function hitMon(m, dmg, crit, kx, ky, kb, quiet, fireHit) {
     if (bon("opp") && (m.stun > 0 || m.mark > 0)) d *= 1 + bon("opp") / 100;
     if ((m.kind === K_BOSS || m.elite) && bon("bossD")) d *= 1 + bon("bossD") / 100;
     if (bon("beacon")) d *= 1.1;
+    d *= huntBonus(m);
     if (m.kind === K_SHIELD && m.stun <= 0 && (kx || ky) && kx * Math.cos(m.angle) + ky * Math.sin(m.angle) < -0.45) {   // on its shield
       d *= 0.2; sparks(m.x + Math.cos(m.angle) * 6, m.y - 6 + Math.sin(m.angle) * 4, 5, PC_WHITE, m.angle, 0.9, 70); sfx(SND_BLOCK);
       if (!fireHit) { ftext(m.x, m.y - 20, "BLOCKED", C_GREY); kb *= 0.2; }
@@ -2147,7 +2427,7 @@ function killMon(m) {
   burst(m.x, m.y - 6, 14, m.blood, 60, 0.6, 2); stain(m.x, m.y, STAIN[m.blood], m.kind === K_BOSS ? 30 : 7);
   gainXP(m.xp); P.kills++;
   if (bon("killWick") || bon("flare")) P.mp = Math.min(P.mmp, P.mp + bon("killWick") + (bon("flare") ? 3 : 0));
-  if (m.kind !== K_BOSS) questTick(Q_KILL, m.t);
+  if (m.kind !== K_BOSS) { questTick(Q_KILL, m.t); huntKill(m); }
   if (m.elite) questTick(Q_ELITE, 0);
   if (m === markM) {                              // the mark moves on
     markM = null; let best = null, bd = 120 * 120;
@@ -2162,13 +2442,14 @@ function killMon(m) {
     for (let k = 0; k < 70; k++) part(m.x + rr(-14, 14), m.y - rr(0, 20), rr(-60, 60), rr(-110, -20), rr(0.6, 1.4), k % 3 === 0 ? PC_GOLD : m.blood, 2, true);
     ring(m.x, m.y - 8, 70, 0.7, PC_GOLD); ring(m.x, m.y - 8, 40, 0.5, PC_WHITE);
     P.bosses |= 1 << m.boss; questTick(Q_BOSS, m.boss);
+    for (let k = 0; k < MOUNTS.length; k++) if (MOUNTS[k].boss === m.boss && P.mounts.indexOf(k) < 0 && rnd() < (depth > FINAL ? 0.2 : MOUNT_DROP)) { gainMount(k, true); mountNews = k; mountNewsT = 3; }   // (now and then, its mount)
     loot(m.x, m.y, 2); dustT = 0;
     for (let i = 0; i < NM; i++) { const o = MON[i]; if (o.on && o.kind !== K_PROP && o.awake) { o.on = false; burst(o.x, o.y - 6, 8, o.blood, 40, 0.4); } }   // its brood falls with it
     if (m.boss === NZ - 1 && !P.won) { P.won = true; save(); later = () => { talk(VICTORY, "MARROW'S VOICE, FROM FAR ABOVE"); playSong(MUS_TITLE); }; laterT = 2.4; }
     banner(m.name + " FALLS", "THE STAIR DOWN IS OPEN"); save(); playSong(1 + zone);
   } else loot(m.x, m.y, m.elite ? 1 : 0);
 }
-let later = null, laterT = 0;
+let later = null, laterT = 0, mountNews = -1, mountNewsT = 0;
 function loot(x, y, q) {        // q: 0 a monster, 1 an elite, 2 a guardian, 3 a chest, 4 an urn
   const l = Math.max(1, depth), gold = () => Math.max(1, Math.round((2 + l * 2) * rr(0.6, 1.4) * (1 + P.goldP / 100)));
   if (q === 4) { if (rnd() < 0.5) drop(x, y, 0, gold(), null); if (rnd() < 0.12) drop(x, y, 1, rnd() < 0.7 ? 0 : 1, null); return; }
@@ -2258,7 +2539,7 @@ function updateHazards(dt) {
     if (h.kind === HZ_FIRE && rnd() < dt * 6) part(h.x + rr(-h.r, h.r) * 0.7, h.y + rr(-3, 3), 0, -rr(20, 40), 0.4, rnd() < 0.5 ? PC_ORANGE : PC_GOLD, 1, false);
     if (h.foe) {
       const dx = P.x - h.x, dy = (P.y - h.y) * 1.3;
-      if (dx * dx + dy * dy < (h.r + 3) * (h.r + 3) && P.dashT <= 0) {
+      if (dx * dx + dy * dy < (h.r + 3) * (h.r + 3) && P.dashT <= 0 && !P.fly) {
         if (h.kind === HZ_WAX) P.slowT = 0.25;
         if (h.tick >= 0.5) { h.tick -= 0.5; if (h.dps > 0) hurt(h.dps * 0.5); }
       }
@@ -2314,6 +2595,7 @@ function meleeArc(mult, reach, arc, kb) {
   return any;
 }
 function attack() {
+  if (P.riding && !dismount(false)) return;
   aimAssist(P.reach + 30, 1.0);
   P.atkCD = CLS[P.cls].atk * P.wspd / (1 + P.aspd / 100); swingAt(P.ang, Math.min(0.2, Math.max(0.12, P.atkCD * 0.45))); sfx(SND_SWING);
   let any = meleeArc(1, P.reach, P.arc, 70);
@@ -2339,6 +2621,7 @@ function hitAround(x, y, rad, mult, kb, fireHit, stun) {
 function useSkill(i) {
   const c = CLS[P.cls], sk = c.sk[i];
   if (P.cd[i] > 0 || !skillReady(i)) return;
+  if (P.riding && !dismount(false)) return;
   const cost = skCost(i);
   if (P.mp < cost) { if (hit[SKB[i]]) { toast("NOT ENOUGH WICK", C_ORANGE); sfx(SND_DENY); } return; }
   P.mp -= cost; P.cd[i] = skCD(i);
@@ -2448,6 +2731,8 @@ function interact(it) {
     case I_SMITH: smithSel = 0; smithArm = -1; openMenu(M_SMITH); break;
     case I_BOARD: questSel = 0; openMenu(M_BOARD); break;
     case I_STASH: stashSel = 0; stashSide = 0; openMenu(M_STASH); break;
+    case I_NODE: startGather(it.node); break;
+    case I_HUNT: huntSel = 0; openMenu(M_HUNT); break;
   }
 }
 function openMenu(m) { freeze(); mode = m; dirty = true; sfx(SND_OK); }
@@ -2484,19 +2769,24 @@ function updatePlayer(dt) {
     if (P.dashT <= 0) { P.stepping = false; P.charging = false; }
     return;
   }
+  if (hit[A_L3]) toggleMount();
+  if (P.gather) {                        // at work on a root or a vein: anything else stops it
+    updateGather(dt);
+    if (P.gather) { if (hit[A_START] || hit[A_SEL]) P.gather = null; return; }
+  }
   moveVec();
   const mv = MX * MX + MY * MY;
   if (mv > 0.04) { P.ang = Math.atan2(MY, MX); P.fx = Math.cos(P.ang); P.fy = Math.sin(P.ang); P.walk += dt * 9 * Math.sqrt(mv); }
   if (padRX * padRX + padRY * padRY > 0.25) { P.ang = Math.atan2(padRY, padRX); P.fx = Math.cos(P.ang); P.fy = Math.sin(P.ang); }
   if (Math.abs(P.fx) > 0.15) P.face = P.fx < 0 ? -1 : 1;
-  const sp = c.spd * (1 + P.spdPct / 100) * (P.swing > 0 ? 0.55 : 1) * (P.slowT > 0 ? 0.55 : 1) * (P.fleeT > 0 ? 1.3 : 1);
+  const sp = c.spd * (1 + P.spdPct / 100) * (P.swing > 0 ? 0.55 : 1) * (P.slowT > 0 && !P.fly ? 0.55 : 1) * (P.fleeT > 0 ? 1.3 : 1) * mountSpeed();
   moveEnt(P, MX * sp * dt, MY * sp * dt);
   for (let i = 0; i < NM; i++) { const m = MON[i]; if (m.on && m.kind === K_PROP) pushOut(P, m.x, m.y - 2, m.r); }
   if (BRZ.on) pushOut(P, BRZ.x, BRZ.y - 2, 6);
   if (FNT.on) pushOut(P, FNT.x, FNT.y - 4, 6);
   if (bossM && bossM.on && bossM.awake && bossM.st !== 11) pushOut(P, bossM.x, bossM.y, bossM.r);
   for (let i = 0; i < NPCS.length; i++) pushOut(P, NPCS[i].x, NPCS[i].y - 2, 5);
-  if (!isTown) {                          // the spikes, when they're up
+  if (!isTown && !P.fly) {                // the spikes, when they're up (flyers pass over)
     const ti = tidx(P.x, P.y);
     if (tiles[ti] === T_SPIKE && spikeState(ti % MW, (ti / MW) | 0) === 2 && P.inv <= 0) { hurt(4 + depth * 1.5); sfx(SND_SPIKE); P.inv = 0.5; }
   }
@@ -2522,11 +2812,139 @@ function findInt() {
   }
 }
 
+// ---------------------------------------------------------------- the skills at work
+const ORIGINS = [
+  { n: "WELLBORN", d: "A CHILD OF WICKHOLLOW: 60 MORE GOLD AND TWO TONICS", gold: 60 },
+  { n: "WOODSMAN", d: "WOODCUTTING 6, WITH AN IRON HATCHET", sk: SK_WOOD, axe: 1 },
+  { n: "MINER", d: "MINING 6, WITH AN IRON PICK", sk: SK_MINE, pick: 1 },
+  { n: "SMITH'S CHILD", d: "CRAFTING 6, AND TEN COPPER BARS", sk: SK_CRAFT, bars: 10 },
+  { n: "TRAPPER", d: "HUNTING 6, AND 20 HUNT MARKS", sk: SK_HUNT, marks: 20 }];
+function xpForLv(l) { let x = 0; for (let k = 1; k < l; k++) x += needS(k); return x; }
+function skLv(i) { let l = 1, x = P.sxp[i]; while (l < SKMAX && x >= needS(l)) { x -= needS(l); l++; } return l; }
+function skillXP(i, n) {
+  const before = P.slv[i]; P.sxp[i] = Math.min(xpForLv(SKMAX), P.sxp[i] + n); P.slv[i] = skLv(i);
+  if (P.slv[i] > before) { banner(SKN[i] + " LEVEL " + P.slv[i], i === SK_HUNT ? "YSOLDE WILL TRUST YOU WITH MORE" : "NEW KINDS ARE IN YOUR REACH"); sfx(SND_LEVEL); }
+}
+function applyOrigin(o) {
+  const O = ORIGINS[o];
+  if (O.gold) { P.gold += O.gold; P.belt[0] = Math.min(BELT[0].cap, P.belt[0] + 2); }
+  if (O.sk >= 0) { P.sxp[O.sk] = xpForLv(6); P.slv[O.sk] = 6; }
+  if (O.axe) P.axe = 1; if (O.pick) P.pick = 1; if (O.bars) P.mats.b[0] += 10; if (O.marks) P.marks += 20;
+}
+// gathering: stand at the root or the vein; each stroke may win a piece, more surely and sooner as you grow
+function nodeName(n) { return (n.kind ? ORE : WOOD)[n.tier].n; }
+function startGather(n) {
+  const sk = n.kind ? SK_MINE : SK_WOOD, req = (n.kind ? ORE : WOOD)[n.tier].lv;
+  if (P.slv[sk] < req) { toast("YOU NEED " + SKN[sk] + " " + req + " FOR " + nodeName(n), C_GREY); sfx(SND_DENY); return; }
+  if (n.left <= 0) { toast(n.town ? "THE TREE NEEDS A REST" : "NOTHING LEFT TO TAKE HERE", C_GREY); sfx(SND_DENY); return; }
+  if (P.riding) dismount(true);
+  P.gather = n; P.gatherT = 0; P.swing = 0;
+  const tool = n.kind ? P.pick : P.axe; P.gatherDur = 1.9 / (1 + 0.3 * tool + 0.012 * P.slv[sk]); P.strokeT = 0;
+  P.ang = Math.atan2(n.y - 14 - P.y, n.x - P.x); P.fx = Math.cos(P.ang); P.fy = Math.sin(P.ang); P.face = n.x < P.x ? -1 : 1;
+}
+function updateGather(dt) {
+  const n = P.gather; if (!n) return;
+  if (MX * MX + MY * MY > 0.04 || hit[A_B]) { P.gather = null; return; }
+  P.gatherT += dt;
+  P.strokeT -= dt; if (P.strokeT <= 0) { P.strokeT = 0.6; swingAt(P.ang, 0.22); sfx(n.kind ? SND_BLOCK : SND_HIT); }
+  if (P.gatherT < P.gatherDur) return;
+  P.gatherT = 0;
+  const sk = n.kind ? SK_MINE : SK_WOOD, D = (n.kind ? ORE : WOOD)[n.tier];
+  for (let k = 0; k < 5; k++) part(n.x + rr(-5, 5), n.y - 14, rr(-40, 40), -rr(20, 60), 0.5, n.kind ? PC_GREY : PC_BROWN, 1, true);
+  if (rnd() < clamp(0.55 + (P.slv[sk] - D.lv) * 0.04, 0.55, 0.95)) {
+    const arr = n.kind ? P.mats.o : P.mats.w; arr[n.tier] = Math.min(999, arr[n.tier] + 1);
+    ftext(P.x, P.y - 24, "+1 " + D.n, C_GOLD); skillXP(sk, D.xp); sfx(SND_PICK);
+    n.left--; if (n.left <= 0) { P.gather = null; if (n.town) n.rest = 30; toast(n.town ? "THE TREE NEEDS A REST" : "YOU'VE TAKEN ALL THERE IS", C_GREY); }
+  }
+}
+// the forge's other side: making things, from what you've gathered
+function haveAll(r) { for (let k = 0; k < r.in.length; k++) { const [m, t, n] = r.in[k]; if (P.mats[m][t] < n) return false; } return true; }
+function craft(r, t) {
+  if (P.slv[SK_CRAFT] < r.lv) { toast("YOU NEED CRAFTING " + r.lv, C_GREY); sfx(SND_DENY); return false; }
+  if (!haveAll(r)) { toast("YOU DON'T HAVE ALL IT TAKES", C_GREY); sfx(SND_DENY); return false; }
+  if ((r.k === RC_AXE && P.axe >= t) || (r.k === RC_PICK && P.pick >= t)) { toast("YOU HAVE ONE AS GOOD ALREADY", C_GREY); sfx(SND_DENY); return false; }
+  if (r.k === RC_SADDLE && P.mounts.indexOf(3) >= 0) { toast("YOU HAVE A ROOTBACK ALREADY", C_GREY); sfx(SND_DENY); return false; }
+  const gear = r.k === RC_WEAPON || r.k === RC_ARMOR || r.k === RC_HELM || r.k === RC_RING;
+  if (gear && P.pack.length >= PACK) { toast("YOUR PACK IS FULL", C_RED); sfx(SND_DENY); return false; }
+  for (let k = 0; k < r.in.length; k++) { const [m, tt, n] = r.in[k]; P.mats[m][tt] -= n; }
+  switch (r.k) {
+    case RC_BAR: P.mats.b[t]++; break;
+    case RC_AXE: P.axe = t; toast("A " + r.n + ": YOU CUT FASTER", C_GOLD); break;
+    case RC_PICK: P.pick = t; toast("A " + r.n + ": YOU MINE FASTER", C_GOLD); break;
+    case RC_OIL: P.belt[1] = Math.min(BELT[1].cap, P.belt[1] + 2); break;
+    case RC_TONIC: P.belt[0] = Math.min(BELT[0].cap, P.belt[0] + 1); break;
+    case RC_SADDLE: gainMount(3); break;
+    default: {
+      const over = P.slv[SK_CRAFT] - r.lv, q = rnd() * 100, rar = q < 1 + over * 0.2 ? R_RELIC : q < 8 + over * 2 ? R_RARE : R_FINE;
+      const slot = r.k === RC_WEAPON ? SL_WEAPON : r.k === RC_ARMOR ? SL_ARMOR : r.k === RC_HELM ? SL_HEAD : SL_RING;
+      const it = genItem(4 + t * 8 + ((P.slv[SK_CRAFT] / 8) | 0), slot, rar);
+      if (slot === SL_WEAPON) { const pref = [[1, 2, 4, 8, 9], [3, 3, 3, 3, 3], [0, 0, 7, 7, 5]][P.cls]; const b = pref[Math.min(4, t)]; if (!WB[b].ml || WB[b].ml <= it.l) { it.b = b; it.n = itemName(it); } }
+      it.cr = 1; it.mt = t; if (it.r !== R_RELIC) it.n = itemName(it); P.pack.push(it); toast("MADE: " + it.n, RAR_C[it.r]);
+    }
+  }
+  skillXP(SK_CRAFT, r.xp); sfx(SND_ANVIL); save(); return true;
+}
+// the hunt: a task from Ysolde, kills that count, marks to spend
+function huntPool() {
+  const z = zoneOf(Math.min(Math.max(1, P.deepest), FINAL)), out = [];
+  for (let k = 0; k <= z; k++) for (const t of ZONES[k].mon) if (out.indexOf(t) < 0 && huntReq(t) <= P.slv[SK_HUNT]) out.push(t);
+  return out.length ? out : [0];
+}
+function assignTask() {
+  const pool = huntPool(), t = pool[Math.min(pool.length - 1, Math.floor(Math.pow(rnd(), 0.6) * pool.length))];
+  const n = 12 + ri(12) + Math.round(P.slv[SK_HUNT] / 3);
+  P.hunt = { t, n, left: n }; sfx(SND_QUEST);
+  talk(["SLAY " + n + " " + MT[t].name + "S FOR ME. " + (MT[t].lvz > 0 ? "YOU'LL FIND THEM IN " + ZONES[MT[t].lvz].name + "." : "THEY CREEP IN THE CISTERN."), "COME BACK WHEN IT'S DONE, AND I'LL MARK IT IN THE BOOK."], "YSOLDE THE HUNTRESS");
+}
+function huntKill(m) {
+  if (!P.hunt || P.hunt.left <= 0 || m.t !== P.hunt.t || m.kind === K_BOSS) return;
+  P.hunt.left--; skillXP(SK_HUNT, Math.round(m.mhp * 0.5 + 6));
+  if (P.hunt.left === 0) {
+    P.streak++; const marks = (8 + Math.min(12, (P.slv[SK_HUNT] / 4) | 0)) * (P.streak % 10 === 0 ? 5 : 1); P.marks += marks;
+    banner("THE HUNT IS DONE", "+" + marks + " HUNT MARKS" + (P.streak % 10 === 0 ? ": A TENTH IN A ROW!" : "")); sfx(SND_QUEST);
+  }
+}
+const huntBonus = m => P.hunt && P.hunt.left > 0 && m.t === P.hunt.t && m.kind !== K_BOSS ? 1.1 + (P.eq[SL_HEAD] && P.eq[SL_HEAD].hm ? 0.2 : 0) : 1;
+function buyHunt(i) {
+  const H = HUNT_SHOP[i], free = i === 0 && (!P.hunt || P.hunt.left <= 0);
+  if (!free && P.marks < H.p) { toast("YOU NEED " + (H.p - P.marks) + " MORE HUNT MARKS", C_RED); sfx(SND_DENY); return; }
+  if (i === 3 && P.mounts.indexOf(0) >= 0) { toast("YOU HAVE A WICKHOUND ALREADY", C_GREY); return; }
+  if ((i === 1 || i === 2) && P.pack.length >= PACK) { toast("YOUR PACK IS FULL", C_RED); return; }
+  if (!free) P.marks -= H.p;
+  if (i === 0) { if (!free) P.streak = 0; assignTask(); }
+  else if (i === 1) { const it = genItem(Math.max(2, P.deepest + 1), -1, R_RARE); P.pack.push(it); toast("YSOLDE GIVES YOU " + it.n, RAR_C[it.r]); sfx(SND_RARE); }
+  else if (i === 2) {
+    const it = genItem(Math.max(5, P.deepest), SL_HEAD, R_RARE); it.b = 0; it.hm = 1; it.n = "THE HUNTER'S MASK"; P.pack.push(it); toast("THE HUNTER'S MASK: WEAR IT ON A HUNT", C_GOLD); sfx(SND_RARE);
+  } else gainMount(0);
+  save();
+}
+// mounts
+function gainMount(i, quiet) {
+  if (P.mounts.indexOf(i) >= 0) return false;
+  P.mounts.push(i); if (P.mount < 0) P.mount = i; save();
+  if (!quiet) mountBanner(i);
+  return true;
+}
+function mountBanner(i) {
+  banner("A MOUNT: " + MOUNTS[i].n, (MOUNTS[i].fly ? "IT FLIES! " : "") + "PRESS " + T_L3 + " TO RIDE"); sfx(SND_QUEST); rumble(0.5, 300);
+}
+function mountSpeed() { return P.riding ? 1 + MOUNTS[P.mount].spd / 100 : 1; }
+function dismount(quiet) {
+  if (!P.riding) return true;
+  if (MOUNTS[P.mount].fly && solidPx(P.x, P.y)) { if (!quiet) toast("NOT HERE: THERE'S NOWHERE TO STAND", C_GREY); return false; }
+  P.riding = false; P.fly = 0; if (!quiet) sfx(SND_STEP); burst(P.x, P.y - 4, 8, PC_GREY, 30, 0.4); return true;
+}
+function toggleMount() {
+  if (P.riding) { dismount(false); return; }
+  if (P.mount < 0) { toast("NO MOUNT YET: THE GUARDIANS, YSOLDE AND VESK'S FORGE HAVE THEM", C_GREY); sfx(SND_DENY); return; }
+  P.gather = null; P.riding = true; P.fly = MOUNTS[P.mount].fly; sfx(SND_CHARGE); burst(P.x, P.y - 6, 12, MOUNTS[P.mount].fly ? PC_LILAC : PC_BROWN, 40, 0.5);
+}
+
 // ---------------------------------------------------------------- going places
 function goFloor(d) {
   depth = d; isTown = false; zone = zoneOf(d);
   genDungeon(d, mulberry((Date.now() ^ (d * 7919)) >>> 0));
-  P.x = ropeX; P.y = ropeY + 14; P.dashT = 0; P.ashT = 0; P.tx = -1; P.undyingUsed = false; P.shadeT = 0; quakeT = 0; dustT = 0; pulseT = 0; later2 = 0;
+  P.x = ropeX; P.y = ropeY + 14; P.dashT = 0; P.ashT = 0; P.tx = -1; P.undyingUsed = false; P.shadeT = 0; quakeT = 0; dustT = 0; pulseT = 0; later2 = 0; P.gather = null;
   if (d > P.deepest) P.deepest = d;
   computeFOV(); buildFlow(); P.tx = (P.x / TS) | 0; P.ty = (P.y / TS) | 0;
   for (let i = 0; i < P.quests.length; i++) {
@@ -2543,12 +2961,13 @@ function goFloor(d) {
 function goTown() {
   depth = 0; genTown();
   P.x = 20 * TS; P.y = 15 * TS + 8; P.dashT = 0; P.ashT = 0; P.hp = P.mhp; P.mp = P.mmp; P.dead = false; P.ang = -Math.PI / 2; P.fx = 0; P.fy = -1;
-  P.shadeT = 0; quakeT = 0; dustT = 0; pulseT = 0;
+  P.shadeT = 0; quakeT = 0; dustT = 0; pulseT = 0; P.gather = null;
   computeFOV(); P.tx = -1;
   restock(); refreshQuests(); banner("WICKHOLLOW", "THE VILLAGE OVER THE WELL"); playSong(MUS_TOWN); save(); mode = M_PLAY; dirty = true;
 }
 function newGame(cls, slot) {
-  P = newPlayer(cls); P.slot = slot; starterKit(); recalc(); P.hp = P.mhp; P.mp = P.mmp;
+  P = newPlayer(cls); P.slot = slot; P.name = crName; P.look = Object.assign({}, crLook || DEFLOOK[cls]); P.origin = crOrigin; applyOrigin(crOrigin);
+  starterKit(); recalc(); P.hp = P.mhp; P.mp = P.mmp;
   goTown(); talk(INTRO, "MARROW, THE LAST LAMPWARDEN");
 }
 
@@ -2556,7 +2975,8 @@ function newGame(cls, slot) {
 const INTRO = ["YOU ANSWERED THE BELL. GOOD. I AM MARROW, THE LAST LAMPWARDEN OF WICKHOLLOW.",
   "FOR THREE HUNDRED WINTERS THE GREAT WICK BURNED AT THE BOTTOM OF OUR WELL, AND ITS LIGHT KEPT THE GLOAM DOWN IN THE DEEP.",
   "THIS AUTUMN IT GUTTERED OUT. NOW THE GLOAM CLIMBS THE SHAFT, AND THINGS CLIMB WITH IT.",
-  "GO DOWN. FIND WHAT CHOKED OUR FIRE AND PUT IT OUT. HESK SELLS TONICS AT HIS STALL, VESK MENDS AND SHARPENS AT HER FORGE, AND THE NOTICE BOARD HAS WORK FOR YOU."];
+  "GO DOWN. FIND WHAT CHOKED OUR FIRE AND PUT IT OUT. HESK SELLS TONICS AT HIS STALL, VESK MENDS AND SHARPENS AT HER FORGE, AND THE NOTICE BOARD HAS WORK FOR YOU.",
+  "AND THE DEEP HAS MORE THAN MONSTERS. CUT ITS ROOTS AND MINE ITS VEINS, AND VESK WILL HELP YOU MAKE THINGS OF THEM. YSOLDE BY THE SOUTH PATH WANTS HUNTERS, TOO."];
 const VICTORY = ["THE GLOAMHEART SHUDDERS AND GOES STILL. FAR ABOVE, A WARM WIND RISES UP THE SHAFT.",
   "THE GREAT WICK CATCHES AGAIN. WICKHOLLOW WILL HAVE ITS LIGHT.",
   "BUT THE STAIRS STILL GO DOWN, WICKBEARER. BELOW THE HEART, ECHOES OF WHAT YOU SLEW STIR AGAIN. THE DEEPER FLOORS ARE YOURS, IF YOU WANT THEM."];
@@ -2655,7 +3075,8 @@ function lsDel(k) { try { localStorage.removeItem(k); } catch (e) { /* (nothing 
 function save() {
   if (!P) return;
   const s = { v: 2, cls: P.cls, lvl: P.lvl, xp: P.xp, gold: P.gold, deepest: P.deepest, bosses: P.bosses, won: P.won, belt: P.belt, sel: P.sel,
-    eq: P.eq, pack: P.pack, stash: P.stash, tal: P.tal, quests: P.quests, qn: P.qn, time: Math.round(P.time), kills: P.kills, at: Date.now() };
+    eq: P.eq, pack: P.pack, stash: P.stash, tal: P.tal, quests: P.quests, qn: P.qn, time: Math.round(P.time), kills: P.kills, at: Date.now(),
+    name: P.name, look: P.look, origin: P.origin, sxp: P.sxp, mats: P.mats, axe: P.axe, pick: P.pick, hunt: P.hunt, marks: P.marks, streak: P.streak, mounts: P.mounts, mount: P.mount };
   lsSet(SLOTKEY(P.slot), JSON.stringify(s));
   if (lastSlot !== P.slot) { lastSlot = P.slot; saveOpts(); }
 }
@@ -2693,6 +3114,19 @@ function fromSave(s, slot) {
   if (Array.isArray(s.quests)) P.quests = s.quests.filter(q => q && typeof q === "object" && q.t >= 0 && q.t <= Q_BOSS && q.n > 0).slice(0, 3)
     .map(q => ({ t: q.t | 0, k: q.k | 0, n: q.n | 0, c: q.c | 0, done: !!q.done, g: q.g | 0, x: q.x | 0, rar: clamp(q.rar | 0, 0, R_RELIC), what: String(q.what || ""), who: String(q.who || ""), id: q.id | 0 }))
     .filter(q => (q.t !== Q_KILL || (q.k >= 0 && q.k < MT.length)) && (q.t !== Q_BOSS || (q.k >= 0 && q.k < NZ)));
+  // the look, the skills, the satchel, the hunt and the stable (a save from before these has none: it starts fresh)
+  P.name = String(s.name || "").toUpperCase().replace(/[^A-Z' -]/g, "").slice(0, 12);
+  const L = s.look && typeof s.look === "object" ? s.look : DEFLOOK[P.cls];
+  P.look = { skin: clamp(L.skin | 0, 0, SKINS.length - 1), hair: clamp(L.hair | 0, 0, HAIRS.length - 1), hairC: clamp(L.hairC | 0, 0, HAIRCOL.length - 1),
+    mark: clamp(L.mark | 0, 0, MARKS.length - 1), cloth: clamp(L.cloth | 0, 0, CLOTH.length - 1) };
+  P.origin = clamp(s.origin | 0, 0, ORIGINS.length - 1);
+  if (Array.isArray(s.sxp)) for (let k = 0; k < NSK; k++) P.sxp[k] = clamp(+s.sxp[k] || 0, 0, xpForLv(SKMAX));
+  for (let k = 0; k < NSK; k++) P.slv[k] = skLv(k);
+  if (s.mats && typeof s.mats === "object") for (const m of ["w", "o", "b"]) if (Array.isArray(s.mats[m])) for (let k = 0; k < 6; k++) P.mats[m][k] = clamp(s.mats[m][k] | 0, 0, 999);
+  P.axe = clamp(s.axe | 0, 0, 5); P.pick = clamp(s.pick | 0, 0, 5); P.marks = Math.max(0, s.marks | 0); P.streak = Math.max(0, s.streak | 0);
+  if (s.hunt && s.hunt.t >= 0 && s.hunt.t < MT.length) P.hunt = { t: s.hunt.t | 0, n: Math.max(1, s.hunt.n | 0), left: clamp(s.hunt.left | 0, 0, 999) };
+  if (Array.isArray(s.mounts)) P.mounts = s.mounts.filter((m, i, a) => m >= 0 && m < MOUNTS.length && a.indexOf(m) === i);
+  P.mount = P.mounts.indexOf(s.mount) >= 0 ? s.mount : P.mounts.length ? P.mounts[0] : -1;
   if (!P.eq[0]) starterKit();
   recalc(); P.hp = P.mhp; P.mp = P.mmp;
 }
@@ -2715,7 +3149,7 @@ addEventListener("pagehide", () => { if (P && !P.dead && mode !== M_TITLE && mod
 
 // ---------------------------------------------------------------- drawing the world
 const M_TITLE = 0, M_CLASS = 1, M_HELP = 2, M_PLAY = 3, M_PAUSE = 4, M_GEAR = 5, M_SHOP = 6, M_MAP = 7, M_TALK = 8, M_DEAD = 9, M_WELL = 10,
-  M_SLOTS = 11, M_SMITH = 12, M_BOARD = 13, M_STASH = 14, M_SHRINE = 15, M_OPTS = 16;
+  M_SLOTS = 11, M_SMITH = 12, M_BOARD = 13, M_STASH = 14, M_SHRINE = 15, M_OPTS = 16, M_CREATE = 17, M_NAME = 18, M_HUNT = 19;
 let mode = M_TITLE;
 const frozen = mk(VW, VH), gFrozen = g2(frozen);
 let freezing = false;
@@ -2789,6 +3223,13 @@ function drawWorld() {
     if (atK[k] === T_POOL) ctx.drawImage(pa[((gameTime * 3 + atX[k] * 0.7 + atY[k] * 1.3) | 0) & 3], X - camX, Y - camY);
     else { const s = spikeState(atX[k], atY[k]); if (s) ctx.drawImage(S.spike[s], X - camX, Y - camY); }
   }
+  // wood and ore: veins in the walls' faces, great roots down them (the village's trees are in its picture)
+  for (let k = 0; k < FNODES.length; k++) {
+    const n = FNODES[k]; if (n.town) continue;
+    const X = n.tx * TS, Y = n.ty * TS; if (X < x0 || X > x1 || Y < y0 - 16 || Y > y1 || !seen[n.ty * MW + n.tx]) continue;
+    if (n.kind) { ctx.drawImage(n.left > 0 ? S.vein[n.tier] : S.veinE, X - camX, Y - camY); if (n.left > 0 && rnd() < 0.03) part(X + 3 + ri(10), Y + 4 + ri(8), 0, -6, 0.4, PC_WHITE, 1, false); }
+    else ctx.drawImage(n.left > 0 ? S.root[n.tier] : S.rootE, X - camX, Y + 2 - camY);
+  }
   // the stair's grate; torches; the brazier; the wellspring
   if (bossAlive && seen[tidx(stairsX, stairsY)]) ctx.drawImage(S.grate, stairsX - 7 - camX, stairsY - 7 - camY);
   for (let k = 0; k < torchN; k++) if (seen[torchY[k] * MW + torchX[k]]) ctx.drawImage(S.torch[(fr + k * 2) % 3], torchX[k] * TS + 6 - camX, torchY[k] * TS + 3 - camY);
@@ -2858,7 +3299,7 @@ function drawWorld() {
     else if (k < -1) { const np = NPCS[-2 - k]; ctx.drawImage(S.shadow, np.x - 6 - camX, np.y - 3 - camY); drawSet(S[np.s], np.x - camX, np.y - camY, np.f, ((gameTime * 1.5 + k) | 0) & 1, 0); }
     else drawMon(MON[k], fr);
   }
-  if (P.shadeT > 0) { const set = heroSet(P.cls, P.armor); ctx.globalAlpha = 0.35 + 0.3 * ((fr & 1)); ctx.drawImage(P.face < 0 ? set.wl : set.wr, Math.round(P.shadeX - camX - set.w / 2), Math.round(P.shadeY - camY - set.h + 1)); ctx.globalAlpha = 1; }
+  if (P.shadeT > 0) { const set = heroDoll(); ctx.globalAlpha = 0.35 + 0.3 * ((fr & 1)); ctx.drawImage(P.face < 0 ? set.wl : set.wr, Math.round(P.shadeX - camX - set.w / 2), Math.round(P.shadeY - camY - set.h + 1)); ctx.globalAlpha = 1; }
   // in flight
   for (let i = 0; i < NPJ; i++) {
     const p = PJ[i]; if (!p.on) continue; const img = S.pj[p.kind === PJ_GLOB ? 4 : p.kind === PJ_FIRE ? 5 : p.kind];
@@ -2945,26 +3386,40 @@ function drawMon(m, fr) {
   if (m.burnT > 0 && (fr & 1)) part(m.x + rr(-4, 4), m.y - rr(4, 12), 0, -25, 0.3, PC_ORANGE, 1, false);
   if (m.kind === K_SHIELD && m.stun <= 0) { ctx.fillStyle = "rgba(236,232,244,0.35)"; const a = m.angle; for (let k = -2; k <= 2; k++) ctx.fillRect(Math.round(x + Math.cos(a + k * 0.25) * 11), Math.round(y - 6 + Math.sin(a + k * 0.25) * 8), 1, 2); }
 }
+const SET_PC = [PC_GOLD, PC_LILAC, PC_MIRE, PC_WAX, PC_PURP];
 function drawPlayer() {
-  const set = heroSet(P.cls, P.armor), x = P.x - camX, y = P.y - camY;
-  ctx.drawImage(S.shadow, Math.round(x - 6), Math.round(y - 3));
+  const set = heroDoll(), x = P.x - camX, y = P.y - camY, M = P.riding ? MOUNTS[P.mount] : null;
+  const moving = MX * MX + MY * MY > 0.04 && mode === M_PLAY && !P.gather, frame = moving ? ((P.walk | 0) & 3) : 0;
+  let lift = 0;
+  ctx.drawImage(M ? S.shadowH : S.shadow, Math.round(x - (M ? 18 : 6)), Math.round(y - (M ? 6 : 3)));
   if (P.dead) return;
-  const moving = MX * MX + MY * MY > 0.04 && mode === M_PLAY, frame = moving ? ((P.walk | 0) & 3) : 0;
-  const bob = moving ? (((P.walk | 0) & 1) ? -1 : 0) : (((gameTime * 1.6) | 0) & 1 ? 0 : -0);
+  if (M) {                                   // the mount under you: walking, or flying a little above the ground
+    const ms = mountSet(P.mount), mf = M.fly ? (((gameTime * 7) | 0) & 1) : moving ? ((P.walk * 0.7) | 0) & 1 : 0;
+    const hover = M.fly ? 10 + Math.round(Math.sin(gameTime * 4) * 2) : 0;
+    drawSet(ms, x, y - hover, P.face, mf, 0); lift = hover + (M.fly ? 12 : 14);
+  }
+  const bob = moving && !M ? (((P.walk | 0) & 1) ? -1 : 0) : 0;
   if (P.inv > 0 && P.dashT > 0) ctx.globalAlpha = 0.55;
   if (P.inv > 0.5 && !P.dashT && (((gameTime * 12) | 0) & 1)) ctx.globalAlpha = 0.5;       // (unbroken: flickering)
-  drawSet(set, x, y + bob, P.face, frame, P.hurt > 0 ? 1 : 0);
+  const empty = P.swing > 0 && (P.eq[0] || P.gather);
+  const img = P.hurt > 0 ? (P.face < 0 ? set.wl : set.wr) : empty ? (P.face < 0 ? set.el : set.er) : (P.face < 0 ? set.l : set.r)[M ? 0 : frame];
+  ctx.drawImage(img, Math.round(x - DW / 2), Math.round(y - DH + 1 + bob - lift));
   ctx.globalAlpha = 1;
+  const G = set.G;                         // relics smoulder; a set's pieces shine in its colour
+  if (G.armR === R_RELIC && rnd() < 0.08) part(P.x + rr(-5, 5), P.y - lift - rr(6, 16), 0, -14, 0.5, PC_EMBER, 1, false);
+  if (G.set >= 0 && rnd() < 0.1) part(P.x + rr(-7, 7), P.y - lift - rr(2, 20), 0, -10, 0.6, SET_PC[G.set], 1, false);
+  if (M && M.fly && rnd() < 0.15) part(P.x + rr(-8, 8), P.y - 4, 0, 8, 0.3, PC_LILAC, 1, false);
+  if (P.gather) { bar(Math.round(x - 10), Math.round(y - DH - 6), 20, 2, P.gatherT / P.gatherDur, "#7fd36a", "#241d2e"); }
   if (P.blessT > 0 && (((gameTime * 5) | 0) & 7) === 0) part(P.x + rr(-5, 5), P.y - rr(4, 14), 0, -15, 0.5, PC_GOLD, 1, false);
   if (P.roarT > 0 && (((gameTime * 6) | 0) & 7) === 0) part(P.x + rr(-6, 6), P.y - rr(2, 12), 0, -10, 0.4, PC_WHITE, 1, false);
-  if (P.swing > 0 && P.eq[0]) {        // the blow: the weapon you carry, swept through the arc, a trail behind it
-    const prog = 1 - P.swing / P.swingT, arc = P.arc, a0 = P.swingAng - arc / 2, a = a0 + arc * Math.min(1, prog * 1.15);
-    const rad = Math.min(P.reach, 24) - 4, hx = x + Math.cos(a) * 3, hy = y - 7 + Math.sin(a) * 3;
+  if (P.swing > 0 && (P.eq[0] || P.gather)) {        // the blow: the weapon you carry (or the tool), swept through the arc, a trail behind it
+    const prog = 1 - P.swing / P.swingT, arc = P.gather ? 1.2 : P.arc, a0 = P.swingAng - arc / 2, a = a0 + arc * Math.min(1, prog * 1.15);
+    const rad = Math.min(P.reach, 24) - 4, hx = x + Math.cos(a) * 3, hy = y - 9 - lift + Math.sin(a) * 3;
     ctx.fillStyle = "#ece8f4";
-    for (let k = 0; k < 10; k++) { const t = k / 9 * Math.min(1, prog * 1.15), aa = a0 + arc * t; ctx.fillRect(Math.round(x + Math.cos(aa) * rad), Math.round(y - 6 + Math.sin(aa) * rad * 0.8), 2, 2); }
+    if (!P.gather) for (let k = 0; k < 10; k++) { const t = k / 9 * Math.min(1, prog * 1.15), aa = a0 + arc * t; ctx.fillRect(Math.round(x + Math.cos(aa) * rad), Math.round(y - 6 + Math.sin(aa) * rad * 0.8), 2, 2); }
     ctx.fillStyle = "#f2c14e";
-    for (let k = 0; k < 6; k++) { const t = k / 5 * Math.min(1, prog * 1.15), aa = a0 + arc * t; ctx.fillRect(Math.round(x + Math.cos(aa) * (rad - 3)), Math.round(y - 6 + Math.sin(aa) * (rad - 3) * 0.8), 1, 1); }
-    const wset = S.wpn[WB[P.eq[0].b].ic]; if (wset) { const di = ((Math.round(a / (Math.PI / 8)) % 16) + 16) % 16; ctx.drawImage(wset[di], Math.round(hx - 17), Math.round(hy - 17)); }
+    if (!P.gather) for (let k = 0; k < 6; k++) { const t = k / 5 * Math.min(1, prog * 1.15), aa = a0 + arc * t; ctx.fillRect(Math.round(x + Math.cos(aa) * (rad - 3)), Math.round(y - 6 + Math.sin(aa) * (rad - 3) * 0.8), 1, 1); }
+    const wset = P.gather ? S.wpn[P.gather.kind ? "pick" : "hatchet"] : S.wpn[WB[P.eq[0].b].ic]; if (wset) { const di = ((Math.round(a / (Math.PI / 8)) % 16) + 16) % 16; ctx.drawImage(wset[di], Math.round(hx - 17), Math.round(hy - 17)); }
   }
 }
 function drawParts() {
@@ -3013,6 +3468,8 @@ function drawHUD() {
     const q = P.quests[qi]; if (qi !== HS.qi || q.c !== HS.qc || q.id !== HS.q) { HS.qi = qi; HS.qc = q.c; HS.q = q.id; HS.qS = questText(q) + (q.n > 1 ? "  " + q.c + "/" + q.n : ""); }
     ctx.drawImage(S.ic.scroll, 4, by - 27); text(ctx, HS.qS, 18, by - 24, C_GREY);
   }
+  if (P.hunt && P.hunt.left > 0) { if (P.hunt.left !== HS.hl) { HS.hl = P.hunt.left; HS.hS = "HUNT: " + P.hunt.left + " " + MT[P.hunt.t].name + (P.hunt.left > 1 ? "S" : "") + " LEFT"; } ctx.drawImage(S.ic.claw, 4, by - 41); text(ctx, HS.hS, 18, by - 38, C_PINK); }
+  if (P.mounts.length) text(ctx, T_L3 + (P.riding ? " DISMOUNT" : " RIDE"), 126, by + 5, C_GREY);
   const rx = VW - 6;
   stext(ctx, HS.depS, rx - textW(HS.depS), 6, C_W); stext(ctx, HS.zoneS, rx - textW(HS.zoneS), 15, C_GREY);
   ctx.drawImage(S.coin, rx - 6, 25); stext(ctx, HS.goldS, rx - 9 - textW(HS.goldS), 25, C_GOLD);
@@ -3100,7 +3557,11 @@ function selRow(x, y, w, h) { ctx.fillStyle = "rgba(242,193,78,0.15)"; ctx.fillR
 let titleBg = null, titleSel = 0, clsSel = 0, helpBack = M_TITLE, optBack = M_TITLE, pauseSel = 0, gearSel = 0, gearArm = -1, gearTab = 0, talSel = 0, wellSel = 1,
   slotSel = 0, slotArm = -1, optSel = 0, slotInfo = [null, null, null];
 const fmtTime = s => { s = s | 0; const h = (s / 3600) | 0, m = ((s / 60) | 0) % 60; return h + "H " + (m < 10 ? "0" : "") + m + "M"; };
-function readSlots() { for (let i = 0; i < NSLOTS; i++) slotInfo[i] = readSlot(i); }
+const slotDolls = [null, null, null], classDolls = [];
+function lookOf(s) { const L = s.look && typeof s.look === "object" ? s.look : DEFLOOK[s.cls]; return { skin: clamp(L.skin | 0, 0, SKINS.length - 1), hair: clamp(L.hair | 0, 0, HAIRS.length - 1), hairC: clamp(L.hairC | 0, 0, HAIRCOL.length - 1), mark: clamp(L.mark | 0, 0, MARKS.length - 1), cloth: clamp(L.cloth | 0, 0, CLOTH.length - 1) }; }
+function readSlots() {
+  for (let i = 0; i < NSLOTS; i++) { const s = slotInfo[i] = readSlot(i); slotDolls[i] = null; if (s) { const L = lookOf(s), fr = []; for (let f = 0; f < 4; f++) fr.push(previewDoll(s.cls, L, f)); slotDolls[i] = fr; } }
+}
 let TITLE_ITEMS = [], TITLE_SAVE = "";
 function setTitle() {
   readSlots(); const s = slotInfo[lastSlot];
@@ -3158,8 +3619,9 @@ function drawSlots() {
     panel(x, y, 144, 198); if (sel) { ctx.fillStyle = "#f2c14e"; ctx.fillRect(x, y, 144, 2); ctx.fillRect(x, y + 196, 144, 2); }
     ctext(ctx, "SAVE " + (i + 1), x + 72, y + 8, sel ? C_GOLD : C_GREY);
     if (!s) { ctext(ctx, "EMPTY", x + 72, y + 80, C_DARK, 2); ctext(ctx, "A NEW WICKBEARER", x + 72, y + 104, C_GREY); continue; }
-    const set = S[CLS[s.cls].spr], step = sel ? ((gameTime * 4) | 0) & 3 : 0;
-    ctx.drawImage(S.shadowB, x + 72 - 18, y + 72, 36, 6); ctx.drawImage(set.r[step], x + 72 - 24, y + 28, 48, 48);
+    const step = sel ? ((gameTime * 5) | 0) & 3 : 0;
+    ctx.drawImage(S.shadowB, x + 72 - 18, y + 74, 36, 6); ctx.drawImage(slotDolls[i][step], x + 72 - DW, y + 30, DW * 2, DH * 2);
+    if (s.name) ctext(ctx, s.name, x + 72, y + 20, C_GOLD);
     ctext(ctx, "LEVEL " + s.lvl + " " + CLS[s.cls].name, x + 72, y + 86, C_W);
     ctext(ctx, "DEEPEST FLOOR " + s.deepest, x + 72, y + 100, C_GREY);
     let nb = 0; for (let b = 0; b < NZ; b++) if (s.bosses & (1 << b)) nb++;
@@ -3176,7 +3638,7 @@ function updClass(dt) {
   if (nav[A_LEFT]) { clsSel = (clsSel + 2) % 3; sfx(SND_MENU); }
   if (nav[A_RIGHT]) { clsSel = (clsSel + 1) % 3; sfx(SND_MENU); }
   if (hit[A_B]) { mode = M_SLOTS; sfx(SND_MENU); return; }
-  if (hit[A_A]) { sfx(SND_OK); lastSlot = slotSel; saveOpts(); newGame(clsSel, slotSel); }
+  if (hit[A_A]) { sfx(SND_OK); startCreator(); }
 }
 function drawClass() {
   ctx.drawImage(titleBg, 0, 0); dim(0.86);
@@ -3184,8 +3646,9 @@ function drawClass() {
   for (let i = 0; i < 3; i++) {
     const c = CLS[i], x = 18 + i * 150, y = 32, sel = i === clsSel;
     panel(x, y, 144, 214); if (sel) { ctx.fillStyle = "#f2c14e"; ctx.fillRect(x, y, 144, 2); ctx.fillRect(x, y + 212, 144, 2); }
-    const set = S[c.spr], step = sel ? ((gameTime * 6) | 0) & 3 : 0;
-    ctx.drawImage(S.shadowB, x + 72 - 18, y + 54, 36, 6); ctx.drawImage(set.r[step], x + 72 - 24, y + 10, 48, 48);
+    const step = sel ? ((gameTime * 6) | 0) & 3 : 0;
+    if (!classDolls[i]) { classDolls[i] = []; for (let f = 0; f < 4; f++) classDolls[i].push(previewDoll(i, DEFLOOK[i], f)); }
+    ctx.drawImage(S.shadowB, x + 72 - 18, y + 56, 36, 6); ctx.drawImage(classDolls[i][step], x + 72 - DW, y + 12, DW * 2, DH * 2);
     ctext(ctx, c.name, x + 72, y + 64, sel ? C_GOLD : C_W);
     for (let k = 0; k < c.bl.length; k++) ctext(ctx, c.bl[k], x + 72, y + 76 + k * 9, C_GREY);
     text(ctx, c.stat, x + 8, y + 100, C_W);
@@ -3198,12 +3661,12 @@ function drawClass() {
   hints(CLASS_HINT);
 }
 const HELP = [[T_MOVE, "WALK"], [T_A, "ATTACK, OR TALK AND USE WHAT'S NEAR"], [T_B, "ROLL OUT OF THE WAY"], [T_X + " " + T_Y, "YOUR CLASS'S SKILLS (THEY BURN WICK)"],
-  [T_RT, "A THIRD SKILL, FROM LEVEL 5"], [T_LB + " " + T_RB, "PICK FROM YOUR BELT"], [T_LT, "DRINK OR USE IT"], [T_SEL, "GEAR, TALENTS AND TASKS"], [T_START, "MENU, THE MAP, OPTIONS"]];
+  [T_RT, "A THIRD SKILL, FROM LEVEL 5"], [T_LB + " " + T_RB, "PICK FROM YOUR BELT"], [T_LT, "DRINK OR USE IT"], [T_L3, "RIDE YOUR MOUNT, OR GET DOWN"], [T_SEL, "GEAR, TALENTS, SKILLS, TASKS"], [T_START, "MENU, THE MAP, OPTIONS"]];
 function updHelp() { if (hit[A_B] || hit[A_A]) { mode = helpBack; dirty = true; sfx(SND_MENU); } }
 function drawHelp() {
   if (helpBack === M_TITLE) { ctx.drawImage(titleBg, 0, 0); dim(0.75); } else { ctx.drawImage(frozen, 0, 0); dim(0.5); }
   panel(50, 14, 380, 242); cstext(ctx, "HOW TO PLAY", VW / 2, 22, C_GOLD, 2);
-  for (let i = 0; i < HELP.length; i++) { const y = 46 + i * 14; rtext(ctx, HELP[i][0], 176, y, C_W); text(ctx, HELP[i][1], 186, y, C_GREY); }
+  for (let i = 0; i < HELP.length; i++) { const y = 44 + i * 13; rtext(ctx, HELP[i][0], 176, y, C_W); text(ctx, HELP[i][1], 186, y, C_GREY); }
   cstext(ctx, "GO DOWN THE WELL, FLOOR BY FLOOR. EVERY FOURTH FLOOR, A GUARDIAN", VW / 2, 178, C_W);
   cstext(ctx, "SEALS THE STAIR. EACH LEVEL GIVES A TALENT POINT TO SPEND.", VW / 2, 188, C_W);
   cstext(ctx, "CLIMB THE ROPE, OR BURN HOMEWARD ASH, TO REST AND TRADE IN THE VILLAGE.", VW / 2, 198, C_W);
@@ -3270,7 +3733,7 @@ function drawOpts() {
   hints(T_MOVE + " CHANGE   " + T_BACK + " DONE");
 }
 // The character: three pages, LB and RB to turn them. Gear: what you wear on the left, your pack on the right.
-const TABS = ["GEAR", "TALENTS", "TASKS"];
+const TABS = ["GEAR", "TALENTS", "SKILLS", "TASKS"];
 function itemLines(it, cmp) {
   const out = [[nameOf(it), RAR_C[it.r]], [RAR_N[it.r] + " " + SLOT_N[it.s] + DOT + "ITEM LEVEL " + it.l, C_GREY]];
   if (it.s === SL_WEAPON) { const B = WB[it.b]; out.push([it.lo + "-" + it.hi + " DAMAGE" + (B.sp < 0.95 ? DOT + "FAST" : B.sp > 1.05 ? DOT + "SLOW" : ""), C_W]); if (B.regen) out.push(["+" + B.regen + " WICK A SECOND", C_W]); if (B.reach) out.push(["LONG REACH", C_W]); if (B.arc) out.push(["WIDE SWING", C_W]); if (B.crit) out.push(["+" + B.crit + "% CRITICAL HITS", C_W]); }
@@ -3292,12 +3755,13 @@ function drawDetails(it, cmp, x, y, w, maxY) {
   for (let i = 0, yy = y; i < ls.length; i++) { const wl = wrap(ls[i][0], w); for (let k = 0; k < wl.length && yy < (maxY || 999); k++, yy += 10) text(ctx, wl[k], x, yy, ls[i][1]); }
 }
 function gearItem(i) { return i < NSLOT ? P.eq[i] : P.pack[i - NSLOT] || null; }
-function tabKeys() { if (hit[A_LB]) { gearTab = (gearTab + 2) % 3; gearArm = -1; dirty = true; sfx(SND_MENU); return true; } if (hit[A_RB]) { gearTab = (gearTab + 1) % 3; gearArm = -1; dirty = true; sfx(SND_MENU); return true; } return false; }
+function tabKeys() { if (hit[A_LB]) { gearTab = (gearTab + 3) % 4; gearArm = -1; dirty = true; sfx(SND_MENU); return true; } if (hit[A_RB]) { gearTab = (gearTab + 1) % 4; gearArm = -1; dirty = true; sfx(SND_MENU); return true; } return false; }
 function updGear() {
   if (hit[A_B] || hit[A_SEL]) { mode = M_PLAY; return; }
   if (tabKeys()) return;
   if (gearTab === 1) { updTalents(); return; }
-  if (gearTab === 2) return;
+  if (gearTab === 2) { updSkillsTab(); return; }
+  if (gearTab === 3) return;
   let s = gearSel;
   if (s < NSLOT) {
     if (nav[A_UP]) s = (s + NSLOT - 1) % NSLOT; if (nav[A_DOWN]) s = (s + 1) % NSLOT; if (nav[A_RIGHT]) s = NSLOT + Math.min(3, s) * 5;
@@ -3319,13 +3783,14 @@ function updGear() {
   }
 }
 function drawTabs() {
-  for (let t = 0; t < 3; t++) { const x = 250 + t * 62; ctx.fillStyle = t === gearTab ? "#5a4a6a" : "#241d2e"; ctx.fillRect(x, 13, 58, 13); ctext(ctx, TABS[t], x + 29, 16, t === gearTab ? C_GOLD : C_GREY); }
-  text(ctx, T_LB, 232, 16, C_W); text(ctx, T_RB, 438, 16, C_W);
+  for (let t = 0; t < 4; t++) { const x = 222 + t * 54; ctx.fillStyle = t === gearTab ? "#5a4a6a" : "#241d2e"; ctx.fillRect(x, 13, 51, 13); ctext(ctx, TABS[t], x + 25, 16, t === gearTab ? C_GOLD : C_GREY); }
+  text(ctx, T_LB, 204, 16, C_W); text(ctx, T_RB, 440, 16, C_W);
 }
 function drawGear() {
   ctx.drawImage(frozen, 0, 0); dim(0.5); panel(14, 8, 452, 254); drawTabs();
   if (gearTab === 1) { drawTalents(); return; }
-  if (gearTab === 2) { drawTasks(); return; }
+  if (gearTab === 2) { drawSkillsTab(); return; }
+  if (gearTab === 3) { drawTasks(); return; }
   text(ctx, "GEAR", 24, 14, C_GOLD, 2); ctx.drawImage(S.coin, 214, 16); rtext(ctx, "" + P.gold, 210, 16, C_GOLD);
   for (let i = 0; i < NSLOT; i++) {
     const it = P.eq[i], y = 34 + i * 20; slot(24, y, it ? S.ic[baseOf(it).ic] : null, gearSel === i ? "#f2c14e" : it ? RAR_RGB[it.r] : null);
@@ -3368,7 +3833,7 @@ function updTalents() {
 }
 function drawTalents() {
   const c = CLS[P.cls]; text(ctx, "TALENTS", 24, 14, C_GOLD, 2);
-  rtext(ctx, talentPts() + " TO SPEND", 220, 16, talentPts() ? C_GOLD : C_GREY);
+  rtext(ctx, talentPts() + " TO SPEND", 196, 16, talentPts() ? C_GOLD : C_GREY);
   for (let b = 0; b < 3; b++) {
     const x = 24 + b * 146;
     ctext(ctx, c.br[b] + " (" + branchPts(b) + ")", x + 68, 32, C_PURP);
@@ -3472,6 +3937,8 @@ function drawShop() {
 function updSmith() {
   const items = smithItems();
   if (hit[A_B]) { mode = M_PLAY; save(); return; }
+  if (hit[A_LB] || hit[A_RB]) { smithTab ^= 1; smithArm = -1; dirty = true; sfx(SND_MENU); return; }
+  if (smithTab === 1) { updMake(); return; }
   if (nav[A_UP] && items.length) { smithSel = (smithSel + items.length - 1) % items.length; smithArm = -1; smithAff = 0; dirty = true; sfx(SND_MENU); }
   if (nav[A_DOWN] && items.length) { smithSel = (smithSel + 1) % items.length; smithArm = -1; smithAff = 0; dirty = true; sfx(SND_MENU); }
   const it = items[smithSel]; if (!it) return;
@@ -3492,6 +3959,9 @@ function updSmith() {
 function drawSmith() {
   ctx.drawImage(frozen, 0, 0); dim(0.5); panel(14, 8, 452, 254);
   text(ctx, "VESK'S FORGE", 24, 16, C_GOLD, 2); ctx.drawImage(S.coin, 448, 17); rtext(ctx, "" + P.gold, 444, 17, C_GOLD);
+  for (let t = 0; t < 2; t++) { const x = 250 + t * 56; ctx.fillStyle = t === smithTab ? "#5a4a6a" : "#241d2e"; ctx.fillRect(x, 16, 52, 12); ctext(ctx, t ? "MAKE" : "BETTER", x + 26, 19, t === smithTab ? C_GOLD : C_GREY); }
+  text(ctx, T_LB + T_RB, 366, 18, C_W);
+  if (smithTab === 1) { drawMake(); return; }
   const items = smithItems();
   if (!items.length) text(ctx, "YOU CARRY NOTHING TO WORK ON", 28, 44, C_DARK);
   const rows = items.map((it, i) => ({ k: 3, n: (i < P.eq.filter(Boolean).length ? "* " : "") + nameOf(it), ic: S.ic[baseOf(it).ic], c: RAR_C[it.r], p: null }));
@@ -3505,7 +3975,7 @@ function drawSmith() {
     if (it.x.length) { text(ctx, T_X + " REWORK: " + AFF[it.x[k][0]].f(it.x[k][1]), 256, 186, C_W); text(ctx, rerollCost(it) + " GOLD   " + T_Y + " ANOTHER CHARM", 256, 198, C_GREY); }
   }
   if (smithArm >= 0 && smithArm === smithSel) cstext(ctx, T_X + " AGAIN TO REWORK THAT CHARM: IT BECOMES ANOTHER, AT RANDOM", VW / 2, 246, C_ORANGE);
-  else { const say = wrap("\"STEEL REMEMBERS EVERY BLOW. LET ME GIVE IT A FEW MORE.\"", 196); for (let k = 0; k < say.length; k++) text(ctx, say[k], 256, 214 + k * 10, C_PURP); hints(T_MOVE + " CHOOSE   " + T_BACK + " LEAVE   (* WORN)"); }
+  else { const say = wrap("\"STEEL REMEMBERS EVERY BLOW. LET ME GIVE IT A FEW MORE.\"", 196); for (let k = 0; k < say.length; k++) text(ctx, say[k], 256, 214 + k * 10, C_PURP); hints(T_MOVE + " CHOOSE   " + T_LB + T_RB + " BETTER / MAKE   " + T_BACK + " LEAVE   (* WORN)"); }
 }
 // your strongbox in the village: your pack on the left, the box on the right; OK moves a thing across
 function updStash() {
@@ -3608,6 +4078,198 @@ function drawDead() {
   hints(T_OK + " RISE");
 }
 
+// ---------------------------------------------------------------- the Wickbearer made: name, origin and look
+let crLook = null, crName = "", crOrigin = 0, crSel = 0, crKey = "", crFrames = null, nmSel = 0;
+const CR_ROWS = ["NAME", "ORIGIN", "SKIN", "HAIR", "HAIR COLOUR", "MARKS", "CLOTHES", "BEGIN"];
+function startCreator() { crLook = Object.assign({}, DEFLOOK[clsSel]); crName = randName(); crOrigin = 0; crSel = 0; mode = M_CREATE; dirty = true; }
+function crPreview() {
+  const key = clsSel + JSON.stringify(crLook);
+  if (key !== crKey) { crKey = key; crFrames = []; for (let f = 0; f < 4; f++) crFrames.push(previewDoll(clsSel, crLook, f)); }
+  return crFrames;
+}
+function crCycle(dir) {
+  const L = crLook;
+  switch (crSel) {
+    case 1: crOrigin = (crOrigin + ORIGINS.length + dir) % ORIGINS.length; break;
+    case 2: L.skin = (L.skin + SKINS.length + dir) % SKINS.length; break;
+    case 3: L.hair = (L.hair + HAIRS.length + dir) % HAIRS.length; break;
+    case 4: L.hairC = (L.hairC + HAIRCOL.length + dir) % HAIRCOL.length; break;
+    case 5: L.mark = (L.mark + MARKS.length + dir) % MARKS.length; break;
+    case 6: L.cloth = (L.cloth + CLOTH.length + dir) % CLOTH.length; break;
+  }
+}
+function updCreate(dt) {
+  gameTime += dt;
+  if (nav[A_UP]) { crSel = (crSel + CR_ROWS.length - 1) % CR_ROWS.length; sfx(SND_MENU); }
+  if (nav[A_DOWN]) { crSel = (crSel + 1) % CR_ROWS.length; sfx(SND_MENU); }
+  if (nav[A_LEFT] || nav[A_RIGHT]) { if (crSel === 0) crName = randName(); else crCycle(nav[A_LEFT] ? -1 : 1); sfx(SND_MENU); }
+  if (hit[A_Y]) {             // all at random
+    crLook = { skin: ri(SKINS.length), hair: ri(HAIRS.length), hairC: ri(HAIRCOL.length), mark: ri(MARKS.length), cloth: ri(CLOTH.length) }; crName = randName(); sfx(SND_OK);
+  }
+  if (hit[A_B]) { mode = M_CLASS; sfx(SND_MENU); return; }
+  if (hit[A_START] || (hit[A_A] && crSel === CR_ROWS.length - 1)) { sfx(SND_OK); lastSlot = slotSel; saveOpts(); newGame(clsSel, slotSel); return; }
+  if (hit[A_A]) { if (crSel === 0) { nmSel = 0; mode = M_NAME; sfx(SND_OK); } else { crCycle(1); sfx(SND_MENU); } }
+}
+function drawCreate() {
+  ctx.drawImage(titleBg, 0, 0); dim(0.86);
+  cstext(ctx, "WHO GOES DOWN THE WELL?", VW / 2, 10, C_GOLD, 2);
+  panel(16, 30, 190, 214);
+  const fr = crPreview(), f = ((gameTime * 5) | 0) & 3, face = ((gameTime / 3) | 0) & 1;
+  ctx.drawImage(S.shadowB, 111 - 30, 196, 60, 10);
+  const img = fr[f]; if (face) { ctx.save(); ctx.translate(111 + DW * 2, 0); ctx.scale(-1, 1); ctx.drawImage(img, 0, 104, DW * 4, DH * 4); ctx.restore(); } else ctx.drawImage(img, 111 - DW * 2, 104, DW * 4, DH * 4);
+  ctext(ctx, crName || "NAMELESS", 111, 40, C_GOLD, 2);
+  ctext(ctx, CLS[clsSel].name + DOT + ORIGINS[crOrigin].n, 111, 60, C_W);
+  const ol = wrap(ORIGINS[crOrigin].d, 176); for (let k = 0; k < ol.length; k++) ctext(ctx, ol[k], 111, 72 + k * 9, C_GREY);
+  panel(216, 30, 248, 214);
+  const L = crLook, vals = [crName || "-", ORIGINS[crOrigin].n, "TONE " + (L.skin + 1), HAIRS[L.hair], "", MARKS[L.mark], CLOTHN[L.cloth], ""];
+  for (let i = 0; i < CR_ROWS.length; i++) {
+    const y = 42 + i * 24, sel = i === crSel; if (sel) selRow(222, y - 6, 236, 20);
+    text(ctx, CR_ROWS[i], 230, y, sel ? C_GOLD : i === CR_ROWS.length - 1 ? C_GREEN : C_W);
+    if (i === 4) { ctx.fillStyle = HAIRCOL[L.hairC]; ctx.fillRect(380, y - 2, 30, 10); }
+    else if (i === 2) { ctx.fillStyle = SKINS[L.skin][0]; ctx.fillRect(420, y - 2, 20, 10); }
+    else if (i === 6) { ctx.fillStyle = CLOTH[L.cloth]; ctx.fillRect(430, y - 2, 20, 10); }
+    if (i > 0 && i < CR_ROWS.length - 1) { text(ctx, LEFT, 340, y, sel ? C_GOLD : C_DARK); text(ctx, RIGHT, 452, y, sel ? C_GOLD : C_DARK); }
+    if (vals[i]) ctext(ctx, vals[i], i === 2 || i === 6 ? 380 : 396, y, C_W);
+  }
+  hints(T_MOVE + " CHOOSE   " + T_OK + (crSel === 0 ? " WRITE A NAME" : crSel === CR_ROWS.length - 1 ? " BEGIN" : " CHANGE") + "   " + T_Y + " ALL AT RANDOM   " + T_START + " BEGIN   " + T_BACK + " BACK");
+}
+// a name, a letter at a time, with the controller
+const NM_KEYS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ'- ", NM_COLS = 10, NM_N = NM_KEYS.length + 2;   // (and DELETE, DONE)
+function updName() {
+  const rows = Math.ceil(NM_N / NM_COLS); let s = nmSel;
+  if (nav[A_LEFT]) s = s % NM_COLS ? s - 1 : Math.min(NM_N - 1, s + NM_COLS - 1);
+  if (nav[A_RIGHT]) s = s % NM_COLS < NM_COLS - 1 && s + 1 < NM_N ? s + 1 : s - (s % NM_COLS);
+  if (nav[A_UP]) s = s >= NM_COLS ? s - NM_COLS : Math.min(NM_N - 1, s + NM_COLS * (rows - 1));
+  if (nav[A_DOWN]) s = s + NM_COLS < NM_N ? s + NM_COLS : s % NM_COLS;
+  if (s !== nmSel) { nmSel = s; dirty = true; sfx(SND_MENU); }
+  if (hit[A_B] || hit[A_X]) { crName = crName.slice(0, -1); dirty = true; sfx(SND_MENU); }
+  if (hit[A_Y]) { crName = randName(); dirty = true; sfx(SND_OK); }
+  if (hit[A_START]) { mode = M_CREATE; sfx(SND_OK); return; }
+  if (hit[A_A]) {
+    dirty = true; sfx(SND_MENU);
+    if (nmSel === NM_N - 1) { crName = crName.trim(); mode = M_CREATE; }
+    else if (nmSel === NM_N - 2) crName = crName.slice(0, -1);
+    else if (crName.length < 12) crName += NM_KEYS[nmSel];
+  }
+}
+function drawName() {
+  ctx.drawImage(titleBg, 0, 0); dim(0.88); panel(70, 40, 340, 190);
+  cstext(ctx, "YOUR NAME", VW / 2, 50, C_GOLD, 2);
+  ctx.fillStyle = "#241d2e"; ctx.fillRect(140, 74, 200, 20); cstext(ctx, crName + ((((gameTime * 3) | 0) & 1) ? "_" : " "), VW / 2, 80, C_W, 1);
+  for (let i = 0; i < NM_N; i++) {
+    const x = 90 + (i % NM_COLS) * 30, y = 110 + ((i / NM_COLS) | 0) * 26, sel = i === nmSel, lab = i === NM_N - 1 ? "DONE" : i === NM_N - 2 ? "DEL" : NM_KEYS[i] === " " ? "SPC" : NM_KEYS[i];
+    const w = lab.length > 1 ? 28 : 22;
+    ctx.fillStyle = sel ? "#5a4a6a" : "#1d1726"; ctx.fillRect(x, y, w, 20); if (sel) { ctx.fillStyle = "#f2c14e"; ctx.fillRect(x, y + 19, w, 1); }
+    ctext(ctx, lab, x + w / 2, y + 7, sel ? C_GOLD : C_W);
+  }
+  hints(T_OK + " TYPE   " + T_B + " DELETE   " + T_Y + " A NAME AT RANDOM   " + T_START + " DONE");
+}
+// the character screen's Skills page: the four skills, your tools, your satchel and your stable
+let skSel = 0;
+function updSkillsTab() {
+  const n = P.mounts.length;
+  if (n && (nav[A_LEFT] || nav[A_RIGHT])) { skSel = (skSel + n + (nav[A_LEFT] ? -1 : 1)) % n; dirty = true; sfx(SND_MENU); }
+  if (hit[A_A] && n) {
+    const m = P.mounts[skSel % n]; if (P.riding && !dismount(false)) return;
+    P.mount = m; toast(MOUNTS[m].n + " IS SADDLED", C_GOLD); sfx(SND_OK); dirty = true; save();
+  }
+}
+function drawSkillsTab() {
+  text(ctx, "SKILLS", 24, 14, C_GOLD, 2);
+  const ic = [S.ic.hatchet, S.ic.pick, S.ic.hammer, S.ic.claw];
+  for (let i = 0; i < NSK; i++) {
+    const y = 34 + i * 26, l = P.slv[i], into = P.sxp[i] - xpForLv(l), need = l >= SKMAX ? 1 : needS(l);
+    slot(24, y, ic[i], null); text(ctx, SKN[i], 46, y + 2, C_W); rtext(ctx, "LEVEL " + l, 214, y + 2, C_GOLD);
+    bar(46, y + 12, 168, 3, l >= SKMAX ? 1 : into / need, "#7fd36a", "#241d2e");
+  }
+  text(ctx, "HATCHET: " + TOOLN[P.axe] + "   PICK: " + TOOLN[P.pick], 24, 142, C_GREY);
+  text(ctx, P.hunt && P.hunt.left > 0 ? "HUNT: " + P.hunt.left + " " + MT[P.hunt.t].name + "S LEFT" : P.hunt ? "HUNT DONE: SEE YSOLDE" : "NO HUNT: SEE YSOLDE BY THE PATH", 24, 154, C_GREY);
+  text(ctx, P.marks + " HUNT MARKS" + DOT + P.streak + " DONE IN A ROW", 24, 166, C_PURP);
+  // the satchel
+  text(ctx, "SATCHEL", 250, 30, C_GREY);
+  const rows = [["w", S.mat.w, WOOD], ["o", S.mat.o, ORE], ["b", S.mat.b, ORE]];
+  for (let r = 0; r < 3; r++) for (let t = 0; t < 6; t++) {
+    const x = 250 + t * 34, y = 42 + r * 22, n = P.mats[rows[r][0]][t];
+    ctx.fillStyle = "#1d1726"; ctx.fillRect(x, y, 32, 18); ctx.drawImage(rows[r][1][t], x + 2, y + 6);
+    text(ctx, "" + n, x + 13, y + 6, n ? C_W : C_DARK);
+  }
+  text(ctx, "WOOD, ORE AND BARS, BY KIND", 250, 110, C_DARK);
+  // the stable
+  text(ctx, "STABLE " + P.mounts.length + "/" + MOUNTS.length, 250, 124, C_GREY);
+  if (!P.mounts.length) { const w = wrap("NO MOUNTS YET. THE GUARDIANS SOMETIMES LEAVE ONE; YSOLDE TRADES A WICKHOUND FOR HUNT MARKS; VESK CAN HELP YOU MAKE A ROOTBACK'S SADDLE.", 200); for (let k = 0; k < w.length; k++) text(ctx, w[k], 250, 138 + k * 10, C_DARK); }
+  for (let i = 0; i < P.mounts.length; i++) {
+    const m = P.mounts[i], x = 250 + (i % 4) * 52, y = 136 + ((i / 4) | 0) * 34, sel = i === skSel % P.mounts.length, ms = mountSet(m);
+    ctx.fillStyle = sel ? "#3a3048" : "#1d1726"; ctx.fillRect(x, y, 48, 30); if (P.mount === m) { ctx.fillStyle = "#f2c14e"; ctx.fillRect(x, y + 29, 48, 1); }
+    ctx.drawImage(ms.r[0], x + 24 - (ms.w >> 2), y + 15 - (ms.h >> 2), ms.w >> 1, ms.h >> 1);
+  }
+  if (P.mounts.length) { const M = MOUNTS[P.mounts[skSel % P.mounts.length]]; text(ctx, M.n + (M.fly ? ": FLIES" : "") + DOT + "+" + M.spd + "% SPEED", 24, 208, C_GOLD); text(ctx, "FROM " + M.from, 24, 220, C_DARK); }
+  else { text(ctx, "MOUNTS TO FIND:", 24, 196, C_GREY); const w = wrap(MOUNTS.map(m => m.n).join(", "), 420); for (let k = 0; k < w.length; k++) text(ctx, w[k], 24, 208 + k * 10, C_DARK); }
+  hints((P.mounts.length ? T_MOVE + " A MOUNT   " + T_OK + " SADDLE IT   " + T_L3 + " RIDE   " : "") + T_LB + T_RB + " PAGES   " + T_BACK + " CLOSE");
+}
+// Vesk's forge, its making side: a page for each metal
+let smithTab = 0, mkTier = 0, mkSel = 0;
+function updMake() {
+  const rs = recipesOf(mkTier);
+  if (nav[A_LEFT]) { mkTier = (mkTier + 5) % 6; mkSel = 0; dirty = true; sfx(SND_MENU); }
+  if (nav[A_RIGHT]) { mkTier = (mkTier + 1) % 6; mkSel = 0; dirty = true; sfx(SND_MENU); }
+  if (nav[A_UP]) { mkSel = (mkSel + rs.length - 1) % rs.length; dirty = true; sfx(SND_MENU); }
+  if (nav[A_DOWN]) { mkSel = (mkSel + 1) % rs.length; dirty = true; sfx(SND_MENU); }
+  if (hit[A_A]) { craft(rs[mkSel], mkTier); dirty = true; }
+}
+function drawMake() {
+  const rs = recipesOf(mkTier), O = ORE[mkTier];
+  ctext(ctx, LEFT + "  " + O.n + "  " + RIGHT, 131, 36, C_GOLD);
+  for (let i = 0; i < rs.length; i++) {
+    const r = rs[i], y = 50 + i * 18, sel = i === mkSel, can = P.slv[SK_CRAFT] >= r.lv && haveAll(r);
+    ctx.fillStyle = sel ? "#3a3048" : "#1d1726"; ctx.fillRect(24, y, 214, 16); if (sel) { ctx.fillStyle = "#f2c14e"; ctx.fillRect(24, y, 2, 16); }
+    text(ctx, r.n, 30, y + 5, can ? C_W : C_DARK); rtext(ctx, "LV " + r.lv, 232, y + 5, P.slv[SK_CRAFT] >= r.lv ? C_GREEN : C_RED);
+  }
+  const r = rs[mkSel];
+  ctx.fillStyle = "#241d2e"; ctx.fillRect(250, 34, 206, 206);
+  text(ctx, r.n, 256, 40, C_GOLD); text(ctx, "CRAFTING " + P.slv[SK_CRAFT] + " OF " + r.lv + " NEEDED" + DOT + "+" + r.xp + " XP", 256, 52, C_GREY);
+  for (let k = 0; k < r.in.length; k++) {
+    const [m, t, n] = r.in[k], have = P.mats[m][t], y = 70 + k * 16;
+    ctx.drawImage(S.mat[m][t], 258, y); text(ctx, n + " " + (m === "w" ? WOOD[t].n : ORE[t].n + (m === "b" ? " BAR" : " ORE")) + (n > 1 && m !== "w" ? "S" : ""), 272, y, have >= n ? C_W : C_RED);
+    rtext(ctx, "(" + have + ")", 450, y, C_DARK);
+  }
+  const what = r.k === RC_WEAPON || r.k === RC_ARMOR || r.k === RC_HELM || r.k === RC_RING ? "COMES OUT FINE, OR RARE (BETTER CHANCES AS YOUR CRAFTING GROWS PAST " + r.lv + ")" :
+    r.k === RC_AXE ? "CUTS WOOD FASTER (NOW: " + TOOLN[P.axe] + ")" : r.k === RC_PICK ? "MINES ORE FASTER (NOW: " + TOOLN[P.pick] + ")" : r.k === RC_SADDLE ? "A MOUNT: THE ROOTBACK, SLOW BUT HARDY" : "";
+  const wl = wrap(what, 196); for (let k = 0; k < wl.length; k++) text(ctx, wl[k], 256, 130 + k * 10, C_PURP);
+  hints(T_MOVE + " METAL AND RECIPE   " + T_OK + " MAKE   " + T_LB + T_RB + " BETTER / MAKE   " + T_BACK + " LEAVE");
+}
+// Ysolde the huntress: her task, and what hunt marks buy
+let huntSel = 0;
+function updHunt() {
+  if (hit[A_B]) { mode = M_PLAY; save(); return; }
+  if (nav[A_UP]) { huntSel = (huntSel + HUNT_SHOP.length) % (HUNT_SHOP.length + 1); dirty = true; sfx(SND_MENU); }
+  if (nav[A_DOWN]) { huntSel = (huntSel + 1) % (HUNT_SHOP.length + 1); dirty = true; sfx(SND_MENU); }
+  if (hit[A_A]) {
+    dirty = true;
+    if (huntSel === 0) {
+      if (!P.hunt || P.hunt.left <= 0) assignTask();
+      else { toast("FINISH THIS ONE FIRST, OR PAY ME TO SET ANOTHER", C_GREY); sfx(SND_DENY); }
+    } else buyHunt(huntSel - 1);
+  }
+}
+function drawHunt() {
+  ctx.drawImage(frozen, 0, 0); dim(0.5); panel(14, 8, 452, 254);
+  text(ctx, "YSOLDE THE HUNTRESS", 24, 16, C_GOLD, 2); rtext(ctx, P.marks + " MARKS", 456, 18, C_PURP);
+  text(ctx, "HUNTING " + P.slv[SK_HUNT] + DOT + P.streak + " IN A ROW", 24, 36, C_GREY);
+  const rows = [P.hunt && P.hunt.left > 0 ? "YOUR HUNT: " + P.hunt.left + " OF " + P.hunt.n + " " + MT[P.hunt.t].name + "S LEFT" : P.hunt ? "TELL HER THE HUNT IS DONE, AND TAKE ANOTHER" : "ASK FOR A HUNT"];
+  for (let i = 0; i < HUNT_SHOP.length; i++) rows.push(HUNT_SHOP[i].n);
+  for (let i = 0; i < rows.length; i++) {
+    const y = 52 + i * 26, sel = i === huntSel;
+    ctx.fillStyle = sel ? "#3a3048" : "#1d1726"; ctx.fillRect(24, y, 432, 22); if (sel) { ctx.fillStyle = "#f2c14e"; ctx.fillRect(24, y, 2, 22); }
+    if (i === 0) { ctx.drawImage(S.ic.claw, 30, y + 5); text(ctx, rows[i], 48, y + 8, P.hunt && P.hunt.left === 0 ? C_GREEN : C_W); continue; }
+    const H = HUNT_SHOP[i - 1], free = i === 1 && (!P.hunt || P.hunt.left <= 0);
+    text(ctx, H.n, 34, y + 4, C_W); text(ctx, H.d, 34, y + 13, C_DARK);
+    rtext(ctx, free ? "FREE" : H.p + " MARKS", 448, y + 8, free || P.marks >= H.p ? C_PURP : C_RED);
+  }
+  const say = wrap("\"THE DEEP BREEDS FASTER THAN WE KILL. PICK ONE KIND AT A TIME, AND KILL IT WELL. EVERY TENTH HUNT IN A ROW, I PAY FIVEFOLD.\"", 420);
+  for (let k = 0; k < say.length; k++) text(ctx, say[k], 30, 190 + k * 10, C_PURP);
+  hints(T_MOVE + " CHOOSE   " + T_OK + " SELECT   " + T_BACK + " LEAVE");
+}
+
 // ---------------------------------------------------------------- the loop
 const SHOW_FPS = /fps/i.test(location.hash);
 let last = 0, fpsT = 0, fpsN = 0, fpsS = "";
@@ -3619,6 +4281,7 @@ function updPlay(dt) {
   if (bannerT > 0) bannerT -= dt; if (targetT > 0) targetT -= dt;
   for (let k = 0; k < 3; k++) if (toasts[k].t > 0) toasts[k].t -= dt;
   if (later) { laterT -= dt; if (laterT <= 0) { const f = later; later = null; f(); return; } }
+  if (mountNewsT > 0) { mountNewsT -= dt; if (mountNewsT <= 0) mountBanner(mountNews); }
   if (later2 > 0) { later2 -= dt; if (later2 <= 0 && bossM && bossM.on) { wave(bossM.x, bossM.y, 280, 105, bossM.dmg, rnd() * 6.283, 0.75, PC_TEAL); sfx(SND_BELL); } }
   if (P.dead) { deadT -= dt; if (deadT <= 0) { freeze(); mode = M_DEAD; dirty = true; return; } }
   else {
@@ -3635,7 +4298,8 @@ function updPlay(dt) {
     if (rnd() < dt * 3 && torchN) { const k = ri(torchN); if (visS[torchY[k] * MW + torchX[k]] === visStamp) part(torchX[k] * TS + 8 + rr(-2, 2), torchY[k] * TS + 4, rr(-4, 4), -rr(15, 30), rr(0.5, 0.9), PC_ORANGE, 1, false); }
     if (zone === 4 && rnd() < dt * 6) part(P.x + rr(-200, 200), P.y + rr(-120, 120), rr(-6, 6), -rr(10, 25), rr(1, 2), rnd() < 0.5 ? PC_EMBER : PC_ORANGE, 1, false);   // (ash and sparks on the air)
     if (zone === 5 && rnd() < dt * 4) part(P.x + rr(-200, 200), P.y + rr(-120, 120), rr(-4, 4), -rr(4, 10), rr(1.5, 2.5), PC_LILAC, 1, false);
-  } else {                    // the village at night: smoke from the chimneys, and fireflies
+  } else {                    // the village at night: smoke from the chimneys, and fireflies; its trees grow back
+    for (let k = 0; k < townNodes.length; k++) { const n = townNodes[k]; if (n.rest > 0) { n.rest -= dt; if (n.rest <= 0) n.left = 3 + ri(4); } }
     if (rnd() < dt * 5) { const k = ri(townSmoke.length >> 1) * 2; part(townSmoke[k] + rr(-1, 1), townSmoke[k + 1], rr(-2, 4), -rr(8, 14), rr(1.6, 2.6), rnd() < 0.5 ? PC_DARK : PC_GREY, 2, false); }
     if (rnd() < dt * 3) part(P.x + rr(-220, 220), P.y + rr(-120, 120), rr(-6, 6), rr(-6, 6), rr(1.2, 2.2), PC_MIRE, 1, false);
   }
@@ -3653,12 +4317,12 @@ function frame(now) {
     case M_PLAY: updPlay(dt); break; case M_PAUSE: updPause(); break; case M_GEAR: updGear(); break; case M_SHOP: updShop(); break;
     case M_MAP: updMap(); break; case M_TALK: updTalk(); break; case M_DEAD: updDead(); break; case M_WELL: updWell(); break;
     case M_SMITH: updSmith(); break; case M_BOARD: updBoard(); break; case M_STASH: updStash(); break; case M_SHRINE: updShrine(); break;
-    case M_OPTS: updOpts(); break;
+    case M_OPTS: updOpts(); break; case M_CREATE: updCreate(dt); break; case M_NAME: gameTime += dt; updName(); break; case M_HUNT: updHunt(); break;
   }
   if (mode !== was) dirty = true;
   // the title screens move; the game draws every frame; a menu only when something on it changed
   switch (mode) {
-    case M_TITLE: drawTitle(); break; case M_CLASS: drawClass(); break; case M_SLOTS: drawSlots(); break;
+    case M_TITLE: drawTitle(); break; case M_CLASS: drawClass(); break; case M_SLOTS: drawSlots(); break; case M_CREATE: drawCreate(); break; case M_NAME: drawName(); break;
     case M_PLAY: drawWorld(); drawHUD(); break;
     default:
       if (!dirty) break;
@@ -3666,13 +4330,16 @@ function frame(now) {
         case M_HELP: drawHelp(); break; case M_PAUSE: drawPause(); break; case M_GEAR: drawGear(); break; case M_SHOP: drawShop(); break;
         case M_MAP: drawMapOv(); break; case M_TALK: drawTalk(); break; case M_DEAD: drawDead(); break; case M_WELL: drawWell(); break;
         case M_SMITH: drawSmith(); break; case M_BOARD: drawBoard(); break; case M_STASH: drawStash(); break; case M_SHRINE: drawShrine(); break;
-        case M_OPTS: drawOpts(); break;
+        case M_OPTS: drawOpts(); break; case M_HUNT: drawHunt(); break;
       }
   }
   dirty = false;
 }
 function init() {
-  buildSprites(); buildFont(); buildBadges(); buildLights(); buildFog(); buildPools(); buildHazards(); buildTitle();
+  buildSprites(); buildFont(); buildBadges(); buildLights(); buildFog(); buildPools(); buildHazards(); buildTitle(); buildNodes();
+  S.wpn.hatchet = turns(S.ic.hatchet); S.wpn.pick = turns(S.ic.pick);
+  for (let z = 0; z < NZ; z++) for (const t of ZONES[z].mon) if (MT[t].lvz === undefined) MT[t].lvz = z;      // (where each creature is first met)
+  MT[MT_OOZELING].lvz = MT[MT_THRALL].lvz = 99;                                                               // (never a hunt of their own)
   mmC = mk(MAXW, MAXH); mmG = mmC.getContext("2d");
   AMB_S = ZONES.map(z => "rgba(" + z.amb[0] + "," + z.amb[1] + "," + z.amb[2] + ",0.94)");
   loadOpts(); migrate();
@@ -3687,7 +4354,7 @@ function init() {
   // #test in the address: a handle for the automated checks (nothing changes for a player)
   if (/(^|[#&])test\b/.test(location.hash)) window.GW = { get P() { return P; }, get mode() { return mode; }, get depth() { return depth; }, MON, PJ, HZ, RG, DR, CLS, MT, BOSSES, SETS,
     goFloor, goTown, gainXP, genItem, genSetPiece, recalc, interact: k => { const it = INT.find(e => e.k === k); if (it) { P.x = it.x; P.y = it.y + 4; interact(it); } return !!it; },
-    get bossM() { return bossM; }, tileAt: (tx, ty) => solidAt(tx, ty), computeFOV: () => { computeFOV(); P.tx = -1; }, get INT() { return INT; }, setMode: m => { mode = m; dirty = true; }, M: { M_PLAY, M_GEAR, M_SHOP, M_SMITH, M_BOARD, M_STASH, M_SHRINE, M_OPTS, M_SLOTS, M_TITLE, M_DEAD },
+    get bossM() { return bossM; }, heroOnScreen: () => { const r = cv.getBoundingClientRect(), k = r.width / VW; return [Math.round(r.left + (P.x - camX) * k), Math.round(r.top + (P.y - camY) * k)]; }, tileAt: (tx, ty) => solidAt(tx, ty), computeFOV: () => { computeFOV(); P.tx = -1; }, get INT() { return INT; }, setMode: m => { mode = m; dirty = true; }, M: { M_PLAY, M_GEAR, M_SHOP, M_SMITH, M_BOARD, M_STASH, M_SHRINE, M_OPTS, M_SLOTS, M_TITLE, M_DEAD },
     save, readSlot, questTick, get OPT() { return OPT; }, spawnMon: (t, x, y, e) => spawnMon(t, x, y, e), get mus() { return mus.song; }, get AC() { return AC && AC.state; } };
 }
 init();

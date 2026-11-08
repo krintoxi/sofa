@@ -335,8 +335,9 @@ song in the box's player, or shows a picture; **Menu** renames, moves or deletes
   down), each with its own creatures and a guardian every fourth floor, and on past the last. Fight with a
   blade and three skills, roll out of the way, spend a talent point each level, and find gear in five
   rarities, sets among them. Back in the village: Hesk's stall, Vesk's forge (better your gear), your
-  strongbox, and the notice board's tasks. Three Wickbearers can be kept; one from the first Gloamwell moves
-  into the first free one. It plays offline with its own music (quiet unless you turn it up), with the
+  strongbox, and the notice board's tasks. Make your Wickbearer as you like (name, origin, look); the gear you
+  wear shows. Besides fighting: Woodcutting, Mining, Crafting and Hunting (Ysolde's tasks), and mounts to win,
+  some that fly. Three Wickbearers can be kept; one from the first Gloamwell moves into the first free one. It plays offline with its own music (quiet unless you turn it up), with the
   controller from the start (the hints show its buttons: A B X Y, or ✕ ○ □ △) or a keyboard.
 - More of the box's own games, each a page that plays offline with the controller: **Cinder Knight** (a
   platformer), **Shadow Heist** (stealth), **Rune Tactics** (turn-based tactics), **Micro Drifters** (top-down
