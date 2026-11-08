@@ -6,6 +6,24 @@ has its own numbers and list: [deploy/sofa-box/CHANGES.md](deploy/sofa-box/CHANG
 A change to Sofa's code (`sofa/`, `client/`, `sofa.py`) gets a new version: raise `__version__`, add a section
 here, then `python3 tools/sofa-version.py` (a test checks it was done).
 
+## 1.4.6 (2026-11-08)
+
+- **Games, in the browser.** Off a Sofa Box, Sofa has a **Games** page with the box's own games (Gloamwell,
+  Ironmaw, Tidewing and the rest). They play full screen with a keyboard or a game controller. Esc that the game
+  doesn't use, or the controller's Xbox/PS button, brings you back. On a Sofa Box the Sofa app leaves them out,
+  because the box's home screen has them. A public library can share them: **Games too** in Server → Sharing.
+- **A Sofa Box page.** Off a box, the menu has a highlighted **Sofa Box**, and phones have it under More. It says
+  what the box is, what you need and the three steps, and links to the download.
+- **A tunnel Sofa wasn't told about can't pass for home.** `cloudflared`, nginx or Caddy on the same computer brings
+  the internet's requests from 127.0.0.1. Until `trust_proxy` is on, Sofa took them for this computer, which counts
+  as home. Now a request that carries a proxy's headers gets what the internet gets, and the Activity log says how
+  to tell Sofa about the proxy. With `trust_proxy` on, Cloudflare's `CF-Connecting-IP` names the visitor, and
+  everyone arriving through the proxy no longer shares one address's connection limit.
+- **Away from home, Live TV comes straight from the channel** where the channel allows it (https, no headers of
+  its own, not a TV tuner at home). The video no longer uses your home upload, or a tunnel that mustn't carry
+  video. If it doesn't play that way on your device, the channel comes through Sofa as before.
+- **Visitors' More page** no longer offers Music, which they can't open, or Live TV when it isn't shared.
+
 ## 1.4.5 (2026-11-08)
 
 - **On a Sofa Box, the menu down the left feels like a TV app's.**

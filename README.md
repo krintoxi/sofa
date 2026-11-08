@@ -218,8 +218,8 @@ Internet** walks you through it, and Sofa gets and renews the certificate itself
 library**. Pick titles with **Share** on their page (or share everything except Adult), and send the
 **share link**. Whoever opens it sees a copy of Sofa with only those titles, can only watch, and
 never sees the rest. Signing in still works only at home (unless you've set up your own address with
-HTTPS). For a server that's only there to share, **Open to everyone** makes its plain address show
-the public library. [docs/sofa-anywhere.md](docs/sofa-anywhere.md)
+HTTPS). Live TV and the games can be shared too. For a server that's only there to share, **Open to
+everyone** makes its plain address show the public library. [docs/sofa-anywhere.md](docs/sofa-anywhere.md)
 
 **I watch from more than one Sofa.** Press your name, then **Servers**: paste another Sofa's address
 or a share link, and switch between them. A Sofa Box keeps a list of its own and stays signed in to
@@ -412,7 +412,7 @@ link you trust and tick **Adult channels**. [docs/adult.md](docs/adult.md)
 | Downloads | save videos from links; install yt-dlp; use a browser's sign-in; the "Send to Sofa" bookmark |
 | Live TV | channel lists |
 | People | accounts, Adult access, Kids profiles, guests |
-| Sharing | the **public library**: on/off, the share link (copy, QR code, make a new one), what visitors see it called, share everything, Live TV too, open to everyone, the shared titles |
+| Sharing | the **public library**: on/off, the share link (copy, QR code, make a new one), what visitors see it called, share everything, Live TV too, games too, open to everyone, the shared titles |
 | Settings | **privacy** (keep no logs, wipe all logs, work offline), name, theme, TV sharing, TMDB key, ThePornDB token, backups |
 | Updates | version, **Update now** |
 | Activity | everything Sofa did, filterable |

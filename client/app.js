@@ -898,11 +898,13 @@ function viewMore() {
   const u = session.user;
   return `<section class="more-page"><div class="more-me">${avatar(u, "")}<div><b>${esc(u.name)}</b><small>${u.guest ? "Guest" : u.kids ? "Kids profile" : u.admin ? "Runs this Sofa" : "Profile"}</small></div></div>
     <div class="more-list">
-      ${row("#/music", "i-music", "Music", "Albums, artists, stations")}
-      ${u.kids ? "" : row("#/live", "i-live", "Live TV", "Free channels")}
+      ${visitorMode() ? "" : row("#/music", "i-music", "Music", "Albums, artists, stations")}
+      ${u.kids || $('[data-nav="live"]').hidden ? "" : row("#/live", "i-live", "Live TV", "Free channels")}
+      ${gamesOn() ? row("#/games", "i-games", "Games", "Free, with a keyboard or a controller") : ""}
       ${u.adult && !$("#navAdult").hidden ? row("#/adult", "i-lock", "Adult", "") : ""}
       ${row("#/search", "i-search", "Search", "")}
     </div>
+    ${window.SofaBox ? "" : `<a href="#/sofabox" class="more-row more-promo">${icon("i-sofabox")}<span><b>Get a Sofa Box</b><small>Your own TV box on a Raspberry Pi: Sofa, Live TV, apps and games</small></span></a>`}
     <div class="more-list">
       ${u.guest ? "" : row("", "i-palette", "Theme", "Colours, subtitles, this device", 'data-more="theme"')}
       ${u.guest ? "" : row("", "i-tv", "Pair a TV", "Sign a TV in with this phone", 'data-more="pair"')}
@@ -1021,7 +1023,7 @@ function viewEmptyLibrary() {
   if (LIB.reading) return `<section class="empty"><i class="reading-spin" aria-hidden="true"></i><h1>Sofa is reading your library</h1>
     <p>It just started. Your shows and movies appear here in a moment, by themselves.</p></section>`;
   if (visitorMode()) return `<section class="empty"><h1>Nothing shared yet</h1>
-    <p>${esc((session.share || {}).title || "This Sofa")} hasn't shared any shows or movies yet. Come back later.</p>${(session.share || {}).live ? `<p><a class="btn primary" href="#/live">Watch Live TV</a></p>` : ""}</section>`;
+    <p>${esc((session.share || {}).title || "This Sofa")} hasn't shared any shows or movies yet. Come back later.</p>${(session.share || {}).live || gamesOn() ? `<p class="row-actions">${(session.share || {}).live ? `<a class="btn primary" href="#/live">${icon("i-live")} Watch Live TV</a>` : ""}${gamesOn() ? `<a class="btn" href="#/games">${icon("i-games")} Play a game</a>` : ""}</p>` : ""}</section>`;
   if (!session.user.admin && session.retro_tv)          // a guest or a viewer: something on now, not the server's chores
     return boxGuestOffer() + `<section class="empty"><h1>Retro TV is on</h1>
     <p>Saturday mornings, Toonami, TRL, the 2000s as they aired, and every decade back to the 50s, on the clock like real TV. Your own shows and movies show up here once they're on this Sofa.</p>
@@ -1420,6 +1422,111 @@ function viewMyList() {
   return `<section class="page"><div class="page-head"><h1>My List</h1><span class="count">${plural(list.length, "title")}</span></div>
     ${list.length ? `<div class="grid">${list.map(x => x.seasons ? posterCard(x) : movieCard(x)).join("")}</div>`
       : `<p class="count" style="max-width:56ch">Nothing here yet. Press <b>+ My List</b> on a show or a movie (or on the card that opens when you point at one) to keep it here for later.</p>`}</section>`;
+}
+/* ---------- Games: the Sofa Box's page games, in the browser off a box (a box has them on its own home screen) ---------- */
+let gamesList = null;
+const gamesOn = () => !window.SofaBox && !(visitorMode() && !(session.share || {}).games);
+const touchOnly = () => matchMedia("(pointer: coarse)").matches && !matchMedia("(any-pointer: fine)").matches &&
+  !(navigator.getGamepads && [...navigator.getGamepads()].some(Boolean));
+function viewGames() {
+  setGlow("");
+  if (!gamesList) {
+    api("/games/games.json").then(d => { gamesList = d.games || []; }).catch(() => { gamesList = []; })
+      .then(() => { if (location.hash.startsWith("#/games")) rerender(); });
+    return `<section class="page"><div class="page-head"><h1>Games</h1></div><p class="count">Loading…</p></section>`;
+  }
+  return `<section class="page games-page"><div class="page-head"><h1>Games</h1><span class="count">Free, right here in the browser. Play with a keyboard or a game controller.</span></div>
+    ${touchOnly() ? `<p class="games-note">${icon("i-games")}<span>These games want a keyboard or a game controller. Connect one to this ${matchMedia("(min-width: 700px)").matches ? "tablet" : "phone"}, or play on a computer or a <a href="#/sofabox">Sofa Box</a>.</span></p>` : ""}
+    ${gamesList.length ? `<div class="games-grid">${gamesList.map(g => `<button class="game-card" style="--c:${esc(g.color || "#7A8BA8")}" data-game-play="${esc(g.id)}">
+      <span class="game-ic" aria-hidden="true">${esc(g.emoji || g.name[0])}</span><span class="game-txt"><b>${esc(g.name)}</b><small>${esc(g.about || "")}</small></span></button>`).join("")}</div>`
+      : `<p class="count">The games didn't load. Update Sofa (Server → Updates) and try again.</p>`}</section>`;
+}
+const GamePlayer = (() => {
+  let el = null, back = null;
+  function open(id) {
+    const g = (gamesList || []).find(x => x.id === id);
+    if (!g || el) return;
+    back = document.activeElement;
+    el = document.createElement("div");
+    el.className = "game-stage";
+    el.setAttribute("role", "dialog"); el.setAttribute("aria-label", g.name);
+    el.innerHTML = `<iframe src="/games/${encodeURIComponent(g.id)}/" title="${esc(g.name)}" allow="fullscreen; gamepad; autoplay"></iframe>
+      <div class="game-tools"><button class="game-btn" data-game-full aria-label="Full screen">${icon("i-full")}</button><button class="game-btn" data-game-close aria-label="Close ${esc(g.name)}">${icon("i-close")}</button></div>`;
+    document.body.appendChild(el);
+    document.documentElement.classList.add("gaming");
+    const frame = el.querySelector("iframe");
+    frame.addEventListener("load", () => {
+      try {
+        frame.contentWindow.focus();
+        // After the game's own keys: Back (Esc) that the game didn't use leaves it, as on the box.
+        frame.contentWindow.addEventListener("keydown", e => {
+          if (e.defaultPrevented || !/^(Escape|Backspace|BrowserBack|GoBack)$/.test(e.key)) return;
+          if (/^(INPUT|TEXTAREA|SELECT)$/.test((e.target && e.target.tagName) || "") || frame.contentDocument.fullscreenElement) return;
+          e.preventDefault(); history.back();
+        });
+      } catch (err) {}
+    });
+    el.addEventListener("click", e => {
+      if (e.target.closest("[data-game-close]")) history.back();
+      else if (e.target.closest("[data-game-full]")) {
+        if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+        else if (el.requestFullscreen) el.requestFullscreen().then(() => { try { frame.contentWindow.focus(); } catch (err) {} }).catch(() => {});
+      }
+    });
+    history.pushState({ sofaLayer: "game" }, "");
+    frame.focus();
+  }
+  function close() {
+    if (!el) return;
+    if (document.fullscreenElement === el) document.exitFullscreen().catch(() => {});
+    el.remove(); el = null;
+    document.documentElement.classList.remove("gaming");
+    if (back && back.isConnected) back.focus({ preventScroll: true });
+  }
+  window.addEventListener("popstate", close);
+  document.addEventListener("click", e => {
+    const b = e.target.closest && e.target.closest("[data-game-play]");
+    if (b) open(b.dataset.gamePlay);
+  });
+  return { open, isOpen: () => !!el };
+})();
+
+/* ---------- Sofa Box: what it is and how to get one (shown everywhere but on a box) ---------- */
+function viewSofaBox() {
+  setGlow("");
+  const feat = (ic, t, d) => `<div class="sbx-feat">${icon(ic)}<b>${t}</b><span>${d}</span></div>`;
+  const step = (n, t, d) => `<li><i>${n}</i><div><b>${t}</b><span>${d}</span></div></li>`;
+  return `<section class="page sbx">
+    <div class="sbx-hero">
+      <div class="sbx-copy"><span class="sbx-kicker">${icon("i-sofabox")} Sofa Box</span>
+        <h1>Your own TV box, on a Raspberry Pi</h1>
+        <p>It starts on its own home screen, with Sofa, free Live TV, your streaming apps, games and a file manager. No ads, no account, and nothing watching what you watch.</p>
+        <div class="row-actions"><a class="btn primary" href="https://github.com/krintoxi/sofa/releases/tag/sofa-box" target="_blank" rel="noopener">${icon("i-download")} Download Sofa Box OS</a>
+          <a class="btn ghost" href="https://github.com/krintoxi/sofa/tree/main/deploy/sofa-box#readme" target="_blank" rel="noopener">The full guide</a></div>
+        <small class="sbx-free">Free and open source. The newest card is always on that page.</small></div>
+      <img class="sbx-shot" src="/pictures/box-home.jpg" alt="The Sofa Box home screen: the time, Open Sofa and Live TV, the weather, and a row of apps" loading="lazy" decoding="async">
+    </div>
+    <div class="sbx-feats">
+      ${feat("i-sofa", "Sofa, played properly", "Your own Sofa, a friend's, or one on the box itself. Its own player plays most files as they are.")}
+      ${feat("i-live", "Free Live TV", "Its own tile on the home screen, with or without a Sofa server.")}
+      ${feat("i-tv", "Your streaming apps", "Netflix, YouTube, Prime Video, Disney+ and more open full screen, like apps. Home brings you back.")}
+      ${feat("i-games", "Games", "Games made for the TV and a controller, and more to add from the box.")}
+      ${feat("i-phone", "Your phone is the remote", "Scan the code on the TV: it's a remote, a keyboard and a touchpad. A controller or the TV's remote work too.")}
+      ${feat("i-download", "Files and USB drives", "Videos, music and pictures from a USB drive, and DVDs from a USB disc drive.")}
+    </div>
+    <div class="sbx-cols">
+      <div class="sbx-need"><h2>What you need</h2><ul>
+        <li>A <b>Raspberry Pi 3 Model B+</b>, 4 or 5, and its own power supply</li>
+        <li>A <b>microSD card</b>, 8 GB or more</li>
+        <li>An <b>HDMI cable</b> to the TV, and a network cable if you can</li>
+        <li>Your <b>phone</b>, a game controller, a keyboard, or the TV's remote</li></ul></div>
+      <div class="sbx-steps"><h2>Three steps</h2><ol>
+        ${step(1, "Download the card", "<b>sofa-box.img.xz</b>, from the download page above.")}
+        ${step(2, "Write it", "In <b>Raspberry Pi Imager</b>: choose your Pi, then <b>Use custom</b> and the file, then the card.")}
+        ${step(3, "Put it in and turn it on", "The TV walks you through the rest: Wi-Fi, your phone as the remote, and your Sofa.")}</ol></div>
+    </div>
+    ${session.user.admin ? `<p class="hint sbx-admin">Running this Sofa? The <b>Apps</b> panel on <a href="#/server/overview">the Server page</a> has a one-line install for a Pi you already have set up.</p>` : ""}
+  </section>`;
 }
 function viewMissing() {
   return `<section class="empty"><h1>That page isn't here</h1><p>The show may have been renamed or removed.</p>
@@ -2629,6 +2736,7 @@ function srvSharing(d) {
         <button class="btn" type="submit">Save</button></form>
       ${shareSwitch("share_all", x.all, "Share everything", "Every show and movie (never the Adult section), not only the ones picked below.")}
       ${shareSwitch("share_live", x.live, "Live TV too", "Visitors can watch your Live TV channels as well.")}
+      ${shareSwitch("share_games", x.games, "Games too", "Visitors can play the Sofa Box's games in their browser, with a keyboard or a controller.")}
       ${shareSwitch("public_open", x.open, "Open to everyone at this address", "No link needed: the server's own address opens the public library from the internet. For a server that's only there to share.")}` : ""}</div>
     ${x.on ? `<div class="panel wide"><h2>Shared titles${x.all ? " (everything is shared)" : ""}</h2>
       <p class="hint">Share a show or movie from its page: open it and press <b>Share</b>.${x.all ? " With Share everything on, this list is what stays shared when you turn it off." : ""}</p>
@@ -2850,6 +2958,8 @@ function route(animate) {
   else if (name === "server" && session.user.admin) { html = viewServer(rest[0]); nav = "server"; }
   else if (name === "more") { html = viewMore(); nav = "more"; }
   else if (name === "box" && window.SofaBox) { html = viewBox(); nav = "box"; }
+  else if (name === "games" && gamesOn()) { html = viewGames(); nav = "games"; }
+  else if (name === "sofabox" && !window.SofaBox) { html = viewSofaBox(); nav = "sofabox"; }
   else { html = viewHome(); nav = "home"; }
   $("#searchBtn").toggleAttribute("aria-current", nav === "search");
   document.querySelectorAll("[data-nav]").forEach(a => { if (a.dataset.nav === nav) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current"); });
@@ -4348,6 +4458,7 @@ const Player = (function () {
   });
   video.addEventListener("error", () => {
     if (el.classList.contains("is-live") && archiveNext && archiveNext()) return;
+    if (el.classList.contains("is-live") && liveFallback && liveFallback()) return;
     if (el.classList.contains("is-live") && video.getAttribute("src")) return showError("This channel isn't available right now", "Free channels come and go. Try another one, or try this one later.");
     if (!item || (!video.getAttribute("src") && !hls)) return;
     playbackFailed();
@@ -4510,7 +4621,8 @@ const Player = (function () {
     $(".speed", el).textContent = video.playbackRate + "×";
     flashSeek(video.playbackRate + "×", "mid");
   }
-  let hls = null, liveList_ = null, liveIdx = 0, archiveTuned = 0, archiveNext = null;
+  let hls = null, liveList_ = null, liveIdx = 0, archiveTuned = 0, archiveNext = null, liveTuned = 0, liveFallback = null;
+  const liveRelayOnly = new Set();        // channels that didn't play straight from the channel here: through Sofa
   const filmName = f => f.title + (f.year ? " (" + f.year + ")" : "");
   function loadHlsJs() {
     if (window.Hls) return Promise.resolve();
@@ -4552,6 +4664,8 @@ const Player = (function () {
     modeEl.hidden = true;
     el.hidden = false; document.body.style.overflow = "hidden";
     if (hls) { hls.destroy(); hls = null; }
+    const myTune = ++liveTuned;
+    liveFallback = null;
     if (onAir) {                                        // a film from archive.org, from where the channel is now
       $(".p-title", el).textContent = filmName(onAir.film) + (liveList_.length > 1 ? "  (Page Up / Page Down changes channel)" : "");
       const tuned = ++archiveTuned;
@@ -4570,14 +4684,24 @@ const Player = (function () {
       wake(); toggleBtn.focus();
       return;
     }
-    const src = "/live/" + ch.id + "/index.m3u8";
+    // Away from home, straight from the channel when it allows it (so the video doesn't come through this Sofa's
+    // upload, or through a tunnel); through Sofa when it doesn't, or once that hasn't worked on this device.
+    const relay = "/live/" + ch.id + "/index.m3u8", src = ch.src && !liveRelayOnly.has(ch.id) ? ch.src : relay;
+    if (src !== relay) liveFallback = () => {
+      if (myTune !== liveTuned || !el.classList.contains("is-live")) return false;
+      liveRelayOnly.add(ch.id); liveFallback = null; openLive(ch, liveList_);
+      return true;
+    };
     if (nativeHls) { video.src = src; }
     else {
       try { await loadHlsJs(); } catch (e) { return showError("Live TV couldn't start", "The video library for live streams didn't load."); }
+      if (myTune !== liveTuned) return;                 // another channel was chosen meanwhile
       if (!window.Hls.isSupported()) { video.src = src; }
       else {
         hls = new window.Hls({ liveDurationInfinity: true });
-        hls.on(window.Hls.Events.ERROR, (_, data) => { if (data.fatal) showError(ch.name + " isn't available right now", "Free channels come and go. Try another one, or try this one later."); });
+        hls.on(window.Hls.Events.ERROR, (_, data) => {
+          if (data.fatal && !(liveFallback && liveFallback())) showError(ch.name + " isn't available right now", "Free channels come and go. Try another one, or try this one later.");
+        });
         hls.loadSource(src); hls.attachMedia(video);
       }
     }
@@ -4980,6 +5104,8 @@ async function boot() {
   $("#navAdult").hidden = !session.user.adult;
   $('[data-nav="live"]').hidden = !!session.user.kids || (visitor && !share.live);
   $('[data-nav="music"]').hidden = $('[data-nav="mylist"]').hidden = visitor;
+  $("#navGames").hidden = !gamesOn();
+  $("#navSofaBox").hidden = !!window.SofaBox;              // on a box it's the box's own home screen that has it all
   applyLook();
   $("#whoName").innerHTML = visitor ? `<span class="pub-tag">Public</span>${esc(share.title)}` : esc(session.user.name);
   $("#whoAv").outerHTML = avatar(session.user, "whoAv");
@@ -5050,6 +5176,12 @@ async function boot() {
     if (!pads.length) { running = false; return; }
     const now = performance.now(), down = new Set();
     pads.forEach(p => held(p).forEach(i => down.add(i)));
+    if (GamePlayer.isOpen()) {     // the game reads the controller itself; the Xbox/PS button leaves it
+      if (down.has(16) && !was[16]) history.back();
+      was = {}; down.forEach(i => { was[i] = true; });
+      requestAnimationFrame(tick);
+      return;
+    }
     down.forEach(i => {
       if (DIRS[i]) {             // arrows repeat while held, like a remote
         if (!was[i]) { key(DIRS[i]); repeatAt[i] = now + 420; }

@@ -111,6 +111,18 @@ The plan for the round that started 2026-11-02. Each part has a status: ☐ not 
      - the box guide (servers, no server, USB/DVD, install command);
      - the README (Sharing, Restart).
    - Tests for sharing, the box's servers and the mpv options.
+10. ◐ **The public Sofa** (the owner's free one, at a name like `sofa.edgeventure.uk`), from 2026-11-08.
+    - ☑ In Sofa 1.4.6:
+      - a tunnel or proxy on the same computer that Sofa wasn't told about (`trust_proxy`) gets what the
+        internet gets;
+      - with `trust_proxy`, Cloudflare's `CF-Connecting-IP` names the visitor, and the proxy's address isn't
+        held to the per-address connection limit;
+      - **Games** (the box's page games) for anyone not on a box, and for Visitors with **Games too**
+        (`share_games`);
+      - a highlighted **Sofa Box** page for anyone not on a box (what it is, what you need, the download);
+      - away from home, Live TV plays straight from the channel when the channel allows it (https, no
+        headers of its own, not a tuner at home), and through Sofa when it doesn't.
+    - ☐ Where it runs, and the hostname: the owner's call.
 
 ## How it looks
 

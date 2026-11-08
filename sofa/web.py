@@ -36,6 +36,20 @@ MIME = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=ut
         ".wma": "audio/x-ms-wma", ".aif": "audio/aiff", ".aiff": "audio/aiff", ".alac": "audio/mp4",
         ".woff2": "font/woff2", ".txt": "text/plain; charset=utf-8", ".webmanifest": "application/manifest+json"}
 HOME_NETS = ("local", "lan", "tailnet")
+# Headers a proxy or tunnel adds (Cloudflare's tunnel adds CF-Connecting-IP, CF-Ray and X-Forwarded-For)
+PROXY_HEADERS = ("X-Forwarded-For", "Forwarded", "X-Real-IP", "CF-Connecting-IP", "CF-Ray", "True-Client-IP", "CDN-Loop")
+UNKNOWN_INTERNET = "0.0.0.0"      # someone on the internet whose address the proxy didn't say (or can't be trusted to)
+GAMES_DIR = os.path.join(config.APP_DIR, "deploy", "sofa-box", "games")
+_proxy_noted = [0.0]
+
+
+def note_untrusted_proxy():
+    """Once an hour at most: the Server page's log says a proxy is in front and how to tell Sofa."""
+    if time.time() - _proxy_noted[0] > 3600:
+        _proxy_noted[0] = time.time()
+        store.log("internet", "Requests come through a tunnel or proxy on this computer, so Sofa treats them as the "
+                  "internet. If that proxy is yours, set \"trust_proxy\": true in data/config.json "
+                  "(see docs/remote-access.md).")
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -51,13 +65,26 @@ class Handler(BaseHTTPRequestHandler):
 
     def client_ip(self):
         peer = self.client_address[0]
-        if config.get("trust_proxy") and auth.network_of(peer) == "local":
-            # The proxy on this computer adds the address it saw to the END of X-Forwarded-For; anything before that
-            # came from the client and can say anything ("192.168.1.5", to pass for the home network). The last one.
-            fwd = [x.strip() for x in self.headers.get("X-Forwarded-For", "").split(",") if x.strip()]
-            if fwd:
-                return fwd[-1]
+        if auth.network_of(peer) == "local" and self.proxied():
+            if config.get("trust_proxy"):
+                # The proxy on this computer adds the address it saw to the END of X-Forwarded-For; anything before
+                # that came from the client and can say anything ("192.168.1.5", to pass for the home network).
+                fwd = [x.strip() for x in self.headers.get("X-Forwarded-For", "").split(",") if x.strip()]
+                if fwd:
+                    return fwd[-1]
+                cf = (self.headers.get("CF-Connecting-IP") or "").strip()   # a Cloudflare tunnel's, set by Cloudflare
+                if cf:
+                    return cf
+            else:
+                # A tunnel or proxy on this computer Sofa wasn't told about (cloudflared, nginx, Caddy): what it passes
+                # on comes from the internet, not from this computer, and gets what the internet gets.
+                note_untrusted_proxy()
+            return UNKNOWN_INTERNET
         return peer
+
+    def proxied(self):
+        """Sent on by a proxy or tunnel (a request straight from a browser or an app has none of these)."""
+        return any(self.headers.get(h) for h in PROXY_HEADERS)
 
     @staticmethod
     def burn_param(qs):
@@ -316,6 +343,14 @@ class Handler(BaseHTTPRequestHandler):
             return self.guest_entry()
         if path.startswith("/client/"):
             return self.static(path[len("/client/"):])
+        if path.startswith("/games/"):
+            return self.game_file(path[len("/games/"):])
+        m = re.match(r"^/pictures/([a-z0-9-]+\.jpg)$", path)
+        if m:                                         # the guide's own pictures (docs/images), for the Sofa Box page
+            full = os.path.join(config.APP_DIR, "docs", "images", m.group(1))
+            if os.path.isfile(full):
+                return self.send_file(full, cache="public, max-age=86400")
+            return self.send_body("Not found", status=404)
         if path.startswith("/dlna/"):
             return self.dlna_get(path)
         if path.startswith("/art/"):
@@ -426,6 +461,26 @@ class Handler(BaseHTTPRequestHandler):
             data = f.read()
         self.send_body(data, MIME.get(os.path.splitext(full)[1].lower(), "application/octet-stream"),   # bundled fonts and libraries: kept a week
                        headers={"Cache-Control": "private, max-age=604800" if rel.startswith(("vendor" + os.sep, "icons" + os.sep)) else "no-cache"})
+
+    def game_file(self, rel):
+        """The box's page games (deploy/sofa-box/games), for playing in the Sofa app off a box. A Visitor only
+        when the public library shares them."""
+        u = self.need_user()
+        if not u:
+            return
+        if u.get("visitor") and not config.get("share_games"):
+            return self.send_body("Not found", status=404)
+        rel = os.path.normpath(rel or "index.html")
+        if rel.endswith(os.sep) or os.path.isdir(os.path.join(GAMES_DIR, rel)):
+            rel = os.path.join(rel, "index.html")
+        full = os.path.join(GAMES_DIR, rel)
+        ext = os.path.splitext(full)[1].lower()
+        if rel.startswith((".", os.sep)) or ext not in (".html", ".js", ".json", ".svg", ".png", ".webp", ".jpg") \
+                or rel.split(os.sep)[0] == "probe" or not os.path.isfile(full):
+            return self.send_body("Not found", status=404)
+        with open(full, "rb") as f:
+            data = f.read()
+        self.send_body(data, MIME.get(ext, "application/octet-stream"), headers={"Cache-Control": "no-cache"})
 
     def art(self, rest, qs):
         if not self.user() and self.network() not in HOME_NETS:   # TVs fetch artwork without signing in
@@ -684,7 +739,7 @@ class Handler(BaseHTTPRequestHandler):
             u = self.user()
             return self.json({"name": config.get("name"), "version": __version__, "user": u, "theme": config.get("theme"),
                               "share": {"title": sharing.title(), "live": bool(config.get("share_live")),
-                                        "home": not self.visitor_only} if u and u.get("visitor") else None,
+                                        "games": bool(config.get("share_games")), "home": not self.visitor_only} if u and u.get("visitor") else None,
                               "offline": net.offline_mode(),
                               "needs_setup": auth.user_count() == 0, "network": self.network(),
                               "remote": config.get("remote"), "guest_available": bool(self.guest_ok()),
@@ -727,6 +782,11 @@ class Handler(BaseHTTPRequestHandler):
             return self.error(403, "Live TV isn't on for this profile.")
         if path == "/api/live":
             out = live.listing(u["id"], adult=u.get("adult"))
+            if self.network() == "internet":           # away from home: straight from the channel where it can be
+                for c in out["channels"]:
+                    src = live.direct_url(live.channel(c["id"]))
+                    if src:
+                        c["src"] = src
             favs = {r["channel"] for r in store.q("SELECT channel FROM live_favorites WHERE user_id = ?", u["id"])}
             out["channels"] = [dict(c, fav=c["id"] in favs, playlist="archive.org") for c in archive.channels()] + out["channels"]
             out["eras"] = [{"id": e, "name": n} for e, n in archive.ERAS] if archive.on() else []   # Live TV's tabs
@@ -1112,7 +1172,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.error(400, str(exc))
             return self.json(dict(places.status(LIBRARY), ok=True))
         if path == "/api/admin/sharing":             # the public library: on/off, what's in it, the link
-            changes = {k: bool(data[k]) for k in ("share_on", "share_all", "share_live", "public_open") if k in data}
+            changes = {k: bool(data[k]) for k in ("share_on", "share_all", "share_live", "share_games", "public_open") if k in data}
             if "share_title" in data:
                 changes["share_title"] = str(data["share_title"] or "").strip()[:60]
             if changes:
@@ -1649,8 +1709,10 @@ class Server(ThreadingHTTPServer):
 
     def process_request(self, request, client_address):
         ip = client_address[0] if isinstance(client_address, tuple) else ""
+        # a proxy or tunnel on this computer brings everyone's connections from one address: only the overall cap
+        cap = self.max_connections if config.get("trust_proxy") and auth.network_of(ip) == "local" else self.max_per_address
         with self._per_lock:
-            busy = self._per.get(ip, 0) >= self.max_per_address
+            busy = self._per.get(ip, 0) >= cap
             if not busy:
                 self._per[ip] = self._per.get(ip, 0) + 1
         if busy or not self._slots.acquire(blocking=False):
@@ -1771,7 +1833,7 @@ def sharing_status():
                "year": x.get("year"), "poster": x.get("poster")}
               for x in lib["shows"] + lib["movies"] if x["id"] in chosen and not x.get("adult")]
     return {"on": sharing.on(), "all": bool(config.get("share_all")), "live": bool(config.get("share_live")),
-            "open": bool(config.get("public_open")), "title": config.get("share_title") or "", "name": config.get("name"),
+            "games": bool(config.get("share_games")), "open": bool(config.get("public_open")), "title": config.get("share_title") or "", "name": config.get("name"),
             "links": share_links() if sharing.on() else [], "path": "/s/" + sharing.token() if sharing.on() else None, "titles": titles,
             "count": len(lib["shows"]) + len(lib["movies"]) if config.get("share_all") else len(titles),
             "remote": config.get("remote"), "domain": (config.get("domain") or "").strip(), "https": tls.trusted()}

@@ -301,9 +301,9 @@ class Sharing(unittest.TestCase):
         config.update({"share_on": False, "share_all": False, "public_open": False, "trust_proxy": False})
         cls.httpd.shutdown()
 
-    def raw(self, path, ip=None, cookie=None):
+    def raw(self, path, ip=None, cookie=None, headers=None):
         """A request as a browser on the internet makes it (`ip`: Sofa sits behind a proxy on this computer)."""
-        headers = {"X-Forwarded-For": ip} if ip else {}
+        headers = dict(headers or {}, **({"X-Forwarded-For": ip} if ip else {}))
         if cookie:
             headers["Cookie"] = cookie
         req = urllib.request.Request(self.base + path, headers=headers)
@@ -367,6 +367,81 @@ class Sharing(unittest.TestCase):
         self.admin.call("/api/admin/sharing", {"share_on": False})
         self.assertEqual(self.raw("/", net)[0], 403)
         self.assertNotIn("Visitor", [u["name"] for u in self.admin.call("/api/admin/status")[1]["users"]])
+
+
+    def test_a_tunnel_sofa_wasnt_told_about_is_the_internet(self):
+        """cloudflared (or nginx) on this computer: its requests come from 127.0.0.1, but they're the internet's.
+        Without "trust_proxy" they get what the internet gets, whatever address they claim."""
+        config.update({"trust_proxy": False, "share_on": False})
+        tunnel = {"CF-Connecting-IP": "192.168.1.5", "CF-Ray": "8a1b2c3d4e5f-LHR", "X-Forwarded-For": "192.168.1.5"}
+        jar = next(h.cookiejar for h in self.admin.opener.handlers if hasattr(h, "cookiejar"))
+        admin_cookie = "; ".join("%s=%s" % (c.name, c.value) for c in jar)
+        self.assertEqual(self.raw("/", headers=tunnel)[0], 403)
+        self.assertEqual(self.raw("/api/admin/status", cookie=admin_cookie, headers=tunnel)[0], 403)
+        self.assertEqual(self.raw("/api/admin/status", cookie=admin_cookie)[0], 200)      # this computer itself
+        # told about it: Cloudflare's own header says who it is
+        config.update({"trust_proxy": True})
+        self.assertEqual(self.raw("/api/admin/status", cookie=admin_cookie, headers={"CF-Connecting-IP": "203.0.113.4"})[0], 403)
+        config.update({"trust_proxy": False})
+
+    def test_games_and_the_sofa_box_page(self):
+        """The box's page games, in the browser: for signed-in people, and for Visitors when the library shares them."""
+        jar = next(h.cookiejar for h in self.admin.opener.handlers if hasattr(h, "cookiejar"))
+        admin_cookie = "; ".join("%s=%s" % (c.name, c.value) for c in jar)
+        st, headers, body = self.raw("/games/games.json", cookie=admin_cookie)
+        self.assertEqual(st, 200)
+        self.assertIn("neon-dodge", [g["id"] for g in json.loads(body)["games"]])
+        st, headers, body = self.raw("/games/neon-dodge/", cookie=admin_cookie)
+        self.assertEqual((st, headers["Content-Type"].split(";")[0]), (200, "text/html"))
+        self.assertEqual(self.raw("/games/pad.js", cookie=admin_cookie)[0], 200)
+        for bad in ("/games/../sofa-box-agent.py", "/games/%2e%2e/sofa-box-agent.py", "/games/probe/", "/games/ENGINE.md"):
+            self.assertEqual(self.raw(bad, cookie=admin_cookie)[0], 404, bad)
+        self.assertEqual(self.raw("/games/neon-dodge/", "203.0.113.9")[0], 403)        # nobody from the internet
+        self.assertEqual(self.raw("/pictures/box-home.jpg", cookie=admin_cookie)[0], 200)
+        self.assertEqual(self.raw("/pictures/nothing-here.jpg", cookie=admin_cookie)[0], 404)
+        # a Visitor: only when "Games too" is on
+        config.update({"trust_proxy": True})
+        net = "203.0.113.9"
+        sh = self.admin.call("/api/admin/sharing", {"share_on": True, "share_games": False})[1]
+        self.assertFalse(sh["games"])
+        st, headers, _ = self.raw(sh["path"], net)
+        cookie = headers["Set-Cookie"].split(";")[0]
+        self.assertFalse(json.loads(self.raw("/api/session", net, cookie)[2])["share"]["games"])
+        self.assertEqual(self.raw("/games/neon-dodge/", net, cookie)[0], 404)
+        self.assertTrue(self.admin.call("/api/admin/sharing", {"share_games": True})[1]["games"])
+        self.assertTrue(json.loads(self.raw("/api/session", net, cookie)[2])["share"]["games"])
+        self.assertEqual(self.raw("/games/neon-dodge/", net, cookie)[0], 200)
+        self.admin.call("/api/admin/sharing", {"share_on": False, "share_games": False})
+        config.update({"trust_proxy": False})
+
+    def test_live_tv_away_from_home_comes_straight_from_the_channel(self):
+        from sofa import live
+        chans = {
+            "aaaaaaaaaaaa": {"id": "aaaaaaaaaaaa", "name": "News", "logo": "", "group": "News", "playlist": "p",
+                             "url": "https://cdn.example/news/index.m3u8"},
+            "bbbbbbbbbbbb": {"id": "bbbbbbbbbbbb", "name": "Old", "logo": "", "group": "News", "playlist": "p",
+                             "url": "http://plain.example/old.m3u8"},                  # an https page can't play it
+            "cccccccccccc": {"id": "cccccccccccc", "name": "Picky", "logo": "", "group": "News", "playlist": "p",
+                             "url": "https://picky.example/a.m3u8", "headers": {"referer": "https://picky.example/"}},
+            "dddddddddddd": {"id": "dddddddddddd", "name": "Tuner", "logo": "", "group": "Home", "playlist": "p",
+                             "url": "https://192.168.1.20/auto/v2", "home": True},
+        }
+        config.update({"trust_proxy": True, "share_live": True})
+        try:
+            with mock.patch.dict(live._channels, chans, clear=True):
+                sh = self.admin.call("/api/admin/sharing", {"share_on": True})[1]
+                net = "203.0.113.9"
+                st, headers, _ = self.raw(sh["path"], net)
+                cookie = headers["Set-Cookie"].split(";")[0]
+                got = {c["id"]: c.get("src") for c in json.loads(self.raw("/api/live", net, cookie)[2])["channels"] if c["id"] in chans}
+                self.assertEqual(got, {"aaaaaaaaaaaa": "https://cdn.example/news/index.m3u8", "bbbbbbbbbbbb": None,
+                                       "cccccccccccc": None, "dddddddddddd": None})
+                home = [c for c in self.admin.call("/api/live")[1]["channels"] if c["id"] in chans]  # at home: through Sofa
+                self.assertEqual(len(home), 4)
+                self.assertFalse(any("src" in c for c in home))
+        finally:
+            self.admin.call("/api/admin/sharing", {"share_on": False})
+            config.update({"trust_proxy": False, "share_live": False})
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):

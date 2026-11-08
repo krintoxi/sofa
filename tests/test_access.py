@@ -186,6 +186,14 @@ class Access(unittest.TestCase):
         h.headers = {"X-Forwarded-For": "192.168.1.5, 203.0.113.9"}                # the first one, the client made up
         with mock.patch.dict(config._config, {"trust_proxy": True}):
             self.assertEqual(h.client_ip(), "203.0.113.9")
+        with mock.patch.dict(config._config, {"trust_proxy": False}):     # a proxy Sofa wasn't told about: the internet
+            self.assertEqual(auth.network_of(h.client_ip()), "internet")
+        h.headers = {"CF-Connecting-IP": "203.0.113.7", "CF-Ray": "8a1b2c3d4e5f-LHR"}   # a Cloudflare tunnel's
+        with mock.patch.dict(config._config, {"trust_proxy": True}):
+            self.assertEqual(h.client_ip(), "203.0.113.7")
+        with mock.patch.dict(config._config, {"trust_proxy": False}):
+            self.assertEqual(auth.network_of(h.client_ip()), "internet")
+        h.headers = {}                                                    # this computer itself: still this computer
         with mock.patch.dict(config._config, {"trust_proxy": False}):
             self.assertEqual(h.client_ip(), "127.0.0.1")
 

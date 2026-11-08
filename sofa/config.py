@@ -55,6 +55,7 @@ DEFAULTS = {
     "share_token": "",            # the link's secret part (made the first time sharing is switched on)
     "share_all": False,           # every show and movie (never Adult), not only the ones picked
     "share_live": False,          # Live TV too
+    "share_games": False,         # the page games too (off a Sofa Box)
     "public_open": False,         # the server's plain address opens the public library (a server only for sharing)
     # Time this computer's video conversion once, after starting (off for Sofa on a Sofa Box: a Pi doesn't convert).
     "machine_test": True,

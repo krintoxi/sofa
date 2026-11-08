@@ -135,7 +135,10 @@ account flagged; uploads through it stop at 100 MB. A name with the **grey cloud
 video goes straight from your router to the viewer, and that's fine.
 
 Settings for a tunnel: `"remote": "public"` and `"trust_proxy": true` in `data/config.json`, as with a
-reverse proxy.
+reverse proxy. Sofa then takes the visitor's address from what Cloudflare sends (`X-Forwarded-For`, or
+`CF-Connecting-IP`). Until `trust_proxy` is on, everything that comes through the tunnel counts as the
+internet, whatever it claims to be, and the Activity log says a proxy is in front. Away from home, Live TV
+plays straight from the channel where it can, so most channels don't go through the tunnel at all.
 
 **Already have a reverse proxy** (Caddy, nginx)? Leave Sofa's HTTPS off, set `"remote": "public"` and
 `"trust_proxy": true`, and let the proxy handle HTTPS. Sofa takes the visitor's address from the **last**

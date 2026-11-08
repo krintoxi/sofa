@@ -366,6 +366,17 @@ def listing(user_id, adult=False):
                           "playlist": c["playlist"], "fav": c["id"] in favs} for c in chans]}
 
 
+def direct_url(chan):
+    """The channel's own address, for a viewer on the internet to play straight from the channel instead of through
+    this Sofa (and its upload, or a tunnel that mustn't carry video). Only an https stream (an https page can't play
+    an http one) that needs no headers of its own, from a list on the internet, never a tuner at home."""
+    url = (chan or {}).get("url") or ""
+    if not url.lower().startswith("https://") or chan.get("home") or chan.get("adult") or \
+            (chan.get("headers") or {}).get("ua") or (chan.get("headers") or {}).get("referer"):
+        return None
+    return url
+
+
 def all_channels(adult=False):
     with _lock:
         return [c for c in _channels.values() if adult or not c.get("adult")]

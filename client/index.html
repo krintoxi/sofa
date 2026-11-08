@@ -76,6 +76,8 @@ try { var sp = JSON.parse(localStorage.getItem("sofa.splashBoot")), el = documen
   <symbol id="i-cast" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M3 8V6.5A1.5 1.5 0 0 1 4.5 5h15A1.5 1.5 0 0 1 21 6.5v11a1.5 1.5 0 0 1-1.5 1.5H14M3 12a7 7 0 0 1 7 7M3 15.5A3.5 3.5 0 0 1 6.5 19"/><circle cx="3.6" cy="18.6" r="1.1" fill="currentColor"/></symbol>
   <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6.5" y="6.5" width="11" height="11" rx="2" fill="currentColor"/></symbol>
   <symbol id="i-download" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M12 4v11M7 10.5l5 5 5-5M5 19.5h14"/></symbol>
+  <symbol id="i-games" viewBox="0 0 24 24"><path d="M7 8h10a4 4 0 0 1 4 4l.6 4a2.2 2.2 0 0 1-3.9 1.6L16 16H8l-1.7 1.6A2.2 2.2 0 0 1 2.4 16L3 12a4 4 0 0 1 4-4z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M7.5 11v3M6 12.5h3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="16" cy="11.5" r="1" fill="currentColor"/><circle cx="17.8" cy="13.5" r="1" fill="currentColor"/></symbol>
+  <symbol id="i-sofabox" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="11.5" rx="2" fill="none" stroke="currentColor" stroke-width="1.9"/><path d="M8 20h8M12 15.5V20" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/><rect x="7" y="7.5" width="4" height="4.5" rx=".8" fill="currentColor"/><path d="M13.5 8.5h3.5M13.5 11h2.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
   <symbol id="i-moon" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></symbol>
 </svg>
 
@@ -90,8 +92,10 @@ try { var sp = JSON.parse(localStorage.getItem("sofa.splashBoot")), el = documen
     <a href="#/mylist" data-nav="mylist"><svg aria-hidden="true"><use href="#i-bookmark"/></svg><span>My List</span></a>
     <a href="#/music" data-nav="music" class="nav-extra"><svg aria-hidden="true"><use href="#i-music"/></svg><span>Music</span></a>
     <a href="#/live" data-nav="live" class="nav-extra"><svg aria-hidden="true"><use href="#i-live"/></svg><span>Live TV</span></a>
+    <a href="#/games" data-nav="games" id="navGames" class="nav-extra" hidden><svg aria-hidden="true"><use href="#i-games"/></svg><span>Games</span></a>
     <a href="#/adult" data-nav="adult" id="navAdult" class="nav-extra" hidden><svg aria-hidden="true"><use href="#i-lock"/></svg><span>Adult</span></a>
     <a href="#/server" data-nav="server" id="navServer" class="nav-extra" hidden><svg aria-hidden="true"><use href="#i-gear"/></svg><span>Server</span></a>
+    <a href="#/sofabox" data-nav="sofabox" id="navSofaBox" class="nav-extra nav-promo" hidden><svg aria-hidden="true"><use href="#i-sofabox"/></svg><span>Sofa Box</span></a>
     <a href="#/more" data-nav="more" class="nav-more"><svg aria-hidden="true"><use href="#i-more"/></svg><span>More</span></a>
   </nav>
   <a class="search-btn" id="searchBtn" href="#/search" aria-label="Search" hidden><svg><use href="#i-search"/></svg></a>

@@ -6,7 +6,8 @@ never sees Adult, and can't reach anything else, even when the server is otherwi
 internet, only the share link and what a Visitor needs answer. Making a new link signs every Visitor out.
 
 Settings (Server → Sharing): share_on, share_token, share_all (every show and movie), share_live (Live TV
-too), public_open (the plain address opens the public library, for a server that only shares), share_title.
+too), share_games (the page games, off a Sofa Box), public_open (the plain address opens the public library,
+for a server that only shares), share_title.
 """
 import secrets
 import threading
