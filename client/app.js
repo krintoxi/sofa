@@ -754,7 +754,7 @@ function viewHome() {
   const waiting = session.user.admin && session.waiting ? `<section class="app-offer"><div><b>${session.waiting === 1 ? "Someone" : session.waiting + " people"} asked for an account</b>
     <span>They're waiting for you in Server → People.</span></div><div class="row-actions"><a class="btn primary" href="#/server/people">Have a look</a></div></section>` : "";
   const shown = order.filter(id => !hidden.has(id)), banner = shown[0] === "banner" ? rows.banner() : "";
-  return banner + waiting + appOffer() + shown.filter(id => id !== "banner").map(id => rows[id]()).join("") +   // notes under the banner (it reaches up under the header)
+  return banner + waiting + appOffer() + boxGuestOffer() + shown.filter(id => id !== "banner").map(id => rows[id]()).join("") +   // notes under the banner (it reaches up under the header)
     (session.user.guest ? "" : `<div class="home-edit"><button class="btn ghost" data-home-edit="1">${icon("i-palette")}Arrange Home</button></div>`);
 }
 /* What's on Home, and in which order: each profile's own (on every screen), or Sofa's. The banner stays
@@ -829,6 +829,21 @@ function appOffer() {
   return `<section class="app-offer"><div><b>${title}</b><span>${text}</span></div>
     <div class="row-actions"><button class="btn primary" data-app-install="1">${go}</button><button class="btn ghost" data-app-later="1">Not now</button></div></section>`;
 }
+/* A Sofa Box opens as Guest at home (something to watch straight away); Home offers signing in, gently: your own
+   list and places, on every screen, from the phone (no typing). "Not now" puts it away for three days. */
+function boxGuestOffer() {
+  if (!window.SofaBox || !session.user.guest || Date.now() - prefs.get("boxSignInLater", 0) < 3 * 864e5) return "";
+  return `<section class="app-offer box-offer"><div><b>Make this TV yours</b><span>You're watching as a guest. Sign in with your phone, no typing, and this TV shows your own list, picks up where you left off on any screen and keeps your favourite channels.</span></div>
+    <div class="row-actions"><button class="btn primary" data-box-signin="1">Sign in with your phone</button><button class="btn ghost" data-box-later="1">Not now</button></div></section>`;
+}
+document.addEventListener("click", async e => {
+  const b = e.target.closest && e.target.closest("[data-box-signin],[data-box-later]");
+  if (!b) return;
+  if (b.dataset.boxLater) { prefs.set("boxSignInLater", Date.now()); rerender(); return; }
+  prefs.set("boxSignIn", Date.now());
+  await api("/api/logout", {}).catch(() => {});
+  boot();
+});
 function appInstallDialog() {
   const update = !!NATIVE;
   const d = openDialog(`<h2>${update ? "Update the Sofa app" : "Install the Sofa app"}</h2>
@@ -1007,6 +1022,10 @@ function viewEmptyLibrary() {
     <p>It just started. Your shows and movies appear here in a moment, by themselves.</p></section>`;
   if (visitorMode()) return `<section class="empty"><h1>Nothing shared yet</h1>
     <p>${esc((session.share || {}).title || "This Sofa")} hasn't shared any shows or movies yet. Come back later.</p>${(session.share || {}).live ? `<p><a class="btn primary" href="#/live">Watch Live TV</a></p>` : ""}</section>`;
+  if (!session.user.admin && session.retro_tv)          // a guest or a viewer: something on now, not the server's chores
+    return boxGuestOffer() + `<section class="empty"><h1>Retro TV is on</h1>
+    <p>Saturday mornings, Toonami, TRL, the 2000s as they aired, and every decade back to the 50s, on the clock like real TV. Your own shows and movies show up here once they're on this Sofa.</p>
+    <p><a class="btn primary" href="#/live">Watch Retro TV</a></p></section>`;
   return `<section class="empty"><h1>Nothing to watch yet</h1>
     <p>Drop shows and movies into the <b>Inbox</b> folder on the server. Sofa names them, files them and adds artwork within a minute.</p>
     ${session.user.admin ? `<p><a class="btn" href="#/server">Open the Server page</a></p>` : ""}</section>`;
@@ -1753,7 +1772,7 @@ function viewLive() {
       ${session.user.admin ? "Add a list below, or any M3U link on the Server page." : "Ask whoever manages this server to add a channel list."}</p>
       ${session.user.admin ? `<div class="presets">${PRESETS.map(p => `<button class="btn" data-preset="${esc(p[1])}" data-name="${esc(p[0])}">Add ${esc(p[0])}</button>`).join("")}</div>` : ""}</section>`;
   }
-  const first = ["Retro TV", "Internet Archive"], rank = g => first.includes(g) ? first.indexOf(g) : first.length;
+  const first = ["Retro TV", "Classic Cinema"], rank = g => first.includes(g) ? first.indexOf(g) : first.length;
   const groups = [...new Set(liveData.channels.map(c => c.group))].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
   if (liveGroup !== "All" && liveGroup !== "Favorites" && !groups.includes(liveGroup)) liveGroup = "All";
   if (liveGroup === "Favorites" && !liveData.channels.some(c => c.fav)) liveGroup = groups.includes("Retro TV") ? "Retro TV" : "All";
@@ -1775,7 +1794,7 @@ function viewLive() {
 let guideData = null, guideAt = 0, guideTimer = 0, guideT0 = 0, guidePicTimer = 0, guidePeekTimer = 0, guidePeek = null;
 let guideShown = null, guideHover = null, dialBuf = "", dialTimer = 0;
 const GUIDE_SPAN = 2 * 3600;
-const isGuide = () => !liveQuery && (liveGroup === "Retro TV" || liveGroup === "Internet Archive");
+const isGuide = () => !liveQuery && (liveGroup === "Retro TV" || liveGroup === "Classic Cinema");
 const hhmm = t => new Date(t * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 const mins = s => { const m = Math.max(1, Math.round(s / 60)); return m >= 60 ? Math.floor(m / 60) + " h" + (m % 60 ? " " + (m % 60) + " min" : "") : m + " min"; };
 async function loadGuide() {
@@ -1841,7 +1860,7 @@ function showNow(b) {
         : `<p class="g-when">${hhmm(p.start)} to ${hhmm(p.end)} (${mins(p.end - p.start)}). OK tunes in now.</p>`}
       ${on && after ? `<p class="g-next">Next, at ${hhmm(after.start)}: ${esc(after.title)}</p>` : ""}
       <p class="g-about">${esc(c.about || "")}</p>
-      <p class="g-credit">${c.tapes ? plural(c.tapes, c.aired ? "tape" : "programme") + ", " + c.hours + " hours, " : ""}from the Internet Archive</p></div>`;
+      ${c.tapes ? `<p class="g-credit">${plural(c.tapes, c.aired ? "tape" : "programme")}, ${plural(c.hours, "hour")} on rotation</p>` : ""}</div>`;
   clearTimeout(guidePicTimer); stopPeek();
   if (!p) return;
   guidePicTimer = setTimeout(() => {                    // (not for every channel the remote passes on its way)
@@ -2012,7 +2031,13 @@ function authView(kind) {
   if (su) su.addEventListener("click", () => authView("signup"));
   const wp = $("#withPhone");
   if (wp) wp.addEventListener("click", () => phoneSignIn());
-  if (!setup && TV) return phoneSignIn();          // a TV: no typing with the remote
+  if (!setup && TV && kind !== "password") {      // a TV: no typing with the remote
+    // a Sofa Box at home: straight to something to watch (as Guest); signing in is offered on Home, not asked first
+    // (not again for a while after someone chose to sign in, or left)
+    if (window.SofaBox && session.guest_available && Date.now() - prefs.get("boxSignIn", 0) > 15 * 60000)
+      return api("/api/guest", {}).then(() => boot()).catch(() => phoneSignIn());
+    return phoneSignIn();
+  }
   form.name.focus();
   const g = $("#asGuest");
   if (g) g.addEventListener("click", async () => { try { await api("/api/guest", {}); boot(); } catch (ex) { $(".form-error", form).textContent = ex.message; } });
@@ -2081,10 +2106,13 @@ async function phoneSignIn() {
     <div class="pair-row"><div class="pair-qr" id="pairQr" data-url="${esc(r.url)}"></div>
       <div class="pair-code" aria-label="Code">${esc(r.code.slice(0, 3))}<span></span>${esc(r.code.slice(3))}</div></div>
     <p class="hint">The code works for 10 minutes. Waiting for your phone…</p>
-    <button class="btn ghost" type="button" id="withPassword">Use a name and password instead</button></div></section>`;
+    <button class="btn ghost" type="button" id="withPassword">Use a name and password instead</button>
+    ${session.guest_available ? `<button class="btn ghost" type="button" id="pairGuest">Watch as a guest</button>` : ""}</div></section>`;
   const box = $("#pairQr"), draw = () => { const q = window.qrcode(0, "M"); q.addData(box.dataset.url); q.make(); box.innerHTML = q.createSvgTag({ cellSize: 5, margin: 2, scalable: true }); };
   if (window.qrcode) draw(); else { const sc = document.createElement("script"); sc.src = "/client/vendor/qrcode.js"; sc.onload = draw; document.head.appendChild(sc); }
-  $("#withPassword").addEventListener("click", () => { clearTimeout(pairTimer); authView("login"); $("#authForm").name.focus(); });
+  $("#withPassword").addEventListener("click", () => { clearTimeout(pairTimer); authView("password"); $("#authForm").name.focus(); });
+  const asGuest = $("#pairGuest");
+  if (asGuest) asGuest.addEventListener("click", async () => { clearTimeout(pairTimer); try { await api("/api/guest", {}); boot(); } catch (e) { toast(e.message); } });
   $("#withPassword").focus();
   const started = Date.now();
   const check = async () => {
@@ -3137,6 +3165,7 @@ function serversDialog() {
 }
 async function signOut() {
   const visitor = session && session.user && session.user.visitor;
+  if (window.SofaBox) prefs.set("boxSignIn", Date.now());      // (a box: the sign-in screen next, not straight back as Guest)
   await api("/api/logout", {}).catch(() => {});
   if (visitor) { location.href = "/?signin=1"; return; }      // from the public library to the sign-in page
   location.hash = "#/"; boot();

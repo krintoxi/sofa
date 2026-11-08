@@ -131,6 +131,11 @@ def _get(url, timeout=30):
         return json.loads(r.read())
 
 
+def group(cid):
+    """Live TV's name for the channel's group: Sofa's own lineup (where the films come from isn't on the screen)."""
+    return "Retro TV" if cid in RETRO else "Classic Cinema"
+
+
 def logo(cid):
     """A channel's logo: its colour, its mark and its name (an SVG, made here)."""
     _id, name, _q, colour, mark = BY_ID[cid][:5]
@@ -139,18 +144,18 @@ def logo(cid):
            '<rect width="320" height="200" rx="18" fill="url(#g)"/>'
            '<text x="28" y="92" font-size="%d" font-weight="800" fill="#fff" font-family="sans-serif">%s</text>'
            '<text x="28" y="150" font-size="34" font-weight="700" fill="#fff" font-family="sans-serif">%s</text>'
-           '<text x="28" y="182" font-size="18" fill="#fff" opacity=".7" font-family="sans-serif">Internet Archive</text></svg>'
-           % (colour, 64 if len(mark) == 1 else 56, mark, name.replace("&", "&amp;")))
+           '<text x="28" y="182" font-size="18" fill="#fff" opacity=".7" font-family="sans-serif">%s</text></svg>'
+           % (colour, 64 if len(mark) == 1 else 56, mark, name.replace("&", "&amp;"), group(cid)))
     return "data:image/svg+xml;utf8," + urllib.parse.quote(svg)
 
 
 def channels():
-    """The channels, for Live TV's list (group "Internet Archive"), with what's on now where the films are known."""
+    """The channels, for Live TV's list (Retro TV and Classic Cinema), with what's on now where the films are known."""
     if not on():
         return []
     out = []
     for c in sorted(CHANNELS, key=lambda c: NUMBER[c[0]]):
-        ch = {"id": c[0], "name": c[1], "group": "Retro TV" if c[0] in RETRO else "Internet Archive", "logo": logo(c[0]),
+        ch = {"id": c[0], "name": c[1], "group": group(c[0]), "logo": logo(c[0]),
               "archive": True, "number": NUMBER[c[0]], "about": ABOUT.get(c[0], ""), "color": c[3], "aired": c[0] in AIRED}
         fl = _saved(c[0])
         if fl:
@@ -341,7 +346,7 @@ def films(cid, wait=True):
     except (OSError, ValueError) as exc:
         if saved and saved.get("films"):
             return saved["films"]                           # (the archive not answering: last week's list)
-        raise OSError("The Internet Archive didn't answer (%s)." % exc)
+        raise OSError("Its programmes didn't load just now (%s)." % exc)
     finally:
         with _lock:
             _building.discard(cid)
