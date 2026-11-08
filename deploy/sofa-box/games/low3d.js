@@ -717,14 +717,15 @@ function bake(mesh, o) {
     // the face's normal, turned the same way: does it face the viewer (towards -z)?
     let nx = t[9], ny = t[10], nz = t[11];
     const X = nx * cr - ny * sr, Y = nx * sr + ny * cr, Z = nz, xx = X * cy - Z * sy, zz = X * sy + Z * cy;
-    const vx = -xx, vy = Y * cp + zz * sp, vz = zz * cp - Y * sp;
-    if (vz > 0.02 && t[15] === 255) continue;          // (turned away)
+    const vx = -xx, vy = Y * cp + zz * sp, vz = zz * cp - Y * sp, emis = t[15] === 254;
+    if (vz > 0.02 && (t[15] === 255 || emis)) continue;   // (turned away)
     const d = Math.max(0, vx * sun[0] + vy * sun[1] + vz * sun[2]), hemi = 0.5 + 0.5 * vy;
     const lr = L.ground[0] + (L.amb[0] - L.ground[0]) * hemi + L.sunCol[0] * d, lg = L.ground[1] + (L.amb[1] - L.ground[1]) * hemi + L.sunCol[1] * d,
       lb = L.ground[2] + (L.amb[2] - L.ground[2]) * hemi + L.sunCol[2] * d;
     const glow = o.glow || 0;
-    const r = Math.min(255, t[12] * (lr + (1 - lr) * glow)) | 0, g = Math.min(255, t[13] * (lg + (1 - lg) * glow)) | 0, b = Math.min(255, t[14] * (lb + (1 - lb) * glow)) | 0;
-    P.push({ q, d: (q[2] + q[5] + q[8]) / 3, col: "rgb(" + r + "," + g + "," + b + ")", a: t[15] / 255 });
+    // (a face made with alpha 254 glows: drawn in its own colour, unlit, so Palette.sprite keeps it full-bright)
+    const r = emis ? t[12] : Math.min(255, t[12] * (lr + (1 - lr) * glow)) | 0, g = emis ? t[13] : Math.min(255, t[13] * (lg + (1 - lg) * glow)) | 0, b = emis ? t[14] : Math.min(255, t[14] * (lb + (1 - lb) * glow)) | 0;
+    P.push({ q, d: (q[2] + q[5] + q[8]) / 3, col: "rgb(" + r + "," + g + "," + b + ")", a: emis ? 1 : t[15] / 255 });
   }
   P.sort((p, q) => q.d - p.d);
   const W = Math.max(1, Math.ceil((x1 - x0) * ppu) + 2), H = Math.max(1, Math.ceil((y1 - y0) * ppu) + 2);
@@ -915,15 +916,15 @@ function rows(p, b, pl) {
     ["GPU", p.renderer || "–"], ["Made by", p.vendor || "–"], ["What it is", p.name + (p.caveat ? " (the browser calls it slow)" : "")],
     ["WebGL", (p.webgl1 ? "1 yes" : "1 no") + " · " + (p.webgl2 ? "2 yes" : "2 no") + (p.webgl1 ? " · max texture " + p.maxTex + (p.derivatives ? " · derivatives" : "") + (p.highp ? " · highp" : "") : "")],
     ["Processor", (p.cores || "?") + " cores · " + (p.memory ? p.memory + " GB (as the browser rounds it)" : "memory not said") + (p.arch ? " · " + p.arch : "") + (p.chrome ? " · Chromium " + p.chrome : "")],
-    ["Test", b.ms ? (b.draws != null ? b.draws + " draws and " + b.fill + " screens of fill at 60 fps · " : "no WebGL to test · ") + "script " + b.cpu + " ms · screen " + b.hz + " Hz · " + (b.ms / 1000).toFixed(1) + " s" : "not run yet"],
-    ["Chose", pl ? (pl.mode === "gl" ? "3D" : "2D") + ", rung " + pl.rung + " of " + (LADDER[pl.mode].length - 1) + " (up to " + pl.top + "): " + pl.why : "–"]
+    ["Test", b.ms ? (b.draws != null ? b.draws + " draws and " + b.fill + " screens of fill at 60 fps · " : p.webgl1 && !p.software ? "" : "no GPU to test · ") + "script " + b.cpu + " ms · screen " + b.hz + " Hz · " + (b.ms / 1000).toFixed(1) + " s" : "not run yet"],
+    ["Chose", pl ? (pl.mode === "gl" ? "3D" : pl.mode === "ray" ? "drawn by the processor" : "2D") + ", rung " + pl.rung + " of " + (LADDER[pl.mode].length - 1) + " (up to " + pl.top + "): " + pl.why : "–"]
   ];
 }
 function line(p, b, pl) {
   b = b || {};
   return [p.renderer || "no WebGL", "WebGL1 " + (p.webgl1 ? "yes" : "no") + " WebGL2 " + (p.webgl2 ? "yes" : "no") + (p.software ? " software" : ""),
     (p.cores || "?") + " cores " + (p.memory || "?") + " GB", "draws " + (b.draws == null ? "–" : b.draws) + " fill " + (b.fill == null ? "–" : b.fill),
-    "cpu " + b.cpu + " ms " + b.hz + " Hz", pl ? (pl.mode === "gl" ? "3D" : "2D") + " rung " + pl.rung + "/" + pl.top : ""].join(" | ");
+    "cpu " + b.cpu + " ms " + b.hz + " Hz", pl ? (pl.mode === "gl" ? "3D" : pl.mode === "ray" ? "ray" : "2D") + " rung " + pl.rung + "/" + pl.top : ""].join(" | ");
 }
 
 // ================================================================ the engine's other parts: what every game here needs
@@ -944,6 +945,19 @@ const U = {
   esc: s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]),
   time: t => !isFinite(t) || t >= 1e8 ? "–" : Math.floor(t / 60) + ":" + (t % 60).toFixed(1).padStart(4, "0"),
   ord: n => n + (n % 100 >= 11 && n % 100 <= 13 ? "th" : n % 10 === 1 ? "st" : n % 10 === 2 ? "nd" : n % 10 === 3 ? "rd" : "th")
+};
+// turns everything built so far about a pivot (ox oy oz): yaw, then pitch (nose down), then roll; normals too. With
+// meshes for parts joined after, that's a body that leans, falls or lies down (parts that move together)
+Mesh.prototype.turn = function (yaw, pitch, roll, ox, oy, oz) {
+  ox = ox || 0; oy = oy || 0; oz = oz || 0;
+  const M = M4.model(new Float32Array(16), 0, 0, 0, yaw || 0, pitch || 0, roll || 0, 1), f = this.f, i8 = this.i8;
+  for (let i = 0; i < this.n; i++) {
+    const x = f[i * 5] - ox, y = f[i * 5 + 1] - oy, z = f[i * 5 + 2] - oz, o = i * 20;
+    f[i * 5] = M[0] * x + M[4] * y + M[8] * z + ox; f[i * 5 + 1] = M[1] * x + M[5] * y + M[9] * z + oy; f[i * 5 + 2] = M[2] * x + M[6] * y + M[10] * z + oz;
+    const nx = i8[o + 12], ny = i8[o + 13], nz = i8[o + 14];
+    i8[o + 12] = Math.round(M[0] * nx + M[4] * ny + M[8] * nz); i8[o + 13] = Math.round(M[1] * nx + M[5] * ny + M[9] * nz); i8[o + 14] = Math.round(M[2] * nx + M[6] * ny + M[10] * nz);
+  }
+  return this;
 };
 Mesh.join = function (list) {                      // several meshes as one
   const out = new Mesh(list.reduce((a, m) => a + m.n, 0) + 3);
@@ -1433,6 +1447,9 @@ Synth.prototype = {
 // Low3D.game({ id, view, gl, flat, fps, loading: {el, bar, text}, aspect, picture() → "auto" | "light" | "rich" | "flat",
 //   input, ready(E), prepare(E) (build what the mode needs: after a level loads, and when the mode changes),
 //   rung(E, r), update(dt) (60 times a second), draw(now, dt) (each frame drawn), paused() })
+// kind: "ray" for a game drawn a pixel at a time (Ray): the CPU test alone picks its rung (LADDER.ray), E.screen is
+// its picture (E.screen.u32), shown through WebGL where the GPU is real (picture() "plain": never), resized(E) when
+// the picture's size changes.
 // In the address: #fps shows the rate and the rung, #flat or #gl picks the renderer, #rung=N holds a rung, #test is for checks.
 function game(o) {
   const H = location.hash || "";
@@ -1451,11 +1468,12 @@ function game(o) {
     o.view.style.setProperty("--u", (h / 100) + "px"); E.vw = w; E.vh = h;
     E.resize();
   };
-  E.size = () => { const h = Math.min(E.rung.h, Math.round(E.vh * (devicePixelRatio || 1))); return [Math.round(h * E.aspect), h]; };
+  E.size = () => { const h = E.mode === "ray" ? E.rung.h : Math.min(E.rung.h, Math.round(E.vh * (devicePixelRatio || 1))); return [Math.round(h * E.aspect), h]; };
   E.resize = () => {
     if (!E.rung) return;
     const [w, h] = E.size();
-    if (E.mode === "gl" && E.g3) { if (o.gl.width !== w || o.gl.height !== h) { o.gl.width = w; o.gl.height = h; } }
+    if (E.mode === "ray") { if (E.screen && E.screen.size(w, h, Math.min(E.rung.out || 1, (E.vh * (devicePixelRatio || 1)) / h)) && o.resized) o.resized(E); }
+    else if (E.mode === "gl" && E.g3) { if (o.gl.width !== w || o.gl.height !== h) { o.gl.width = w; o.gl.height = h; } }
     else if (E.flat) E.flat.size(w, h);
   };
   E.ladder = () => LADDER[E.mode];
@@ -1468,15 +1486,22 @@ function game(o) {
     return E.plan.mode;
   };
   E.renderer = (first) => {                          // the renderer, the rung to start on and the governor
-    const want = E.choice();
-    if (want === "gl" && !E.g3) { try { E.g3 = new GL(o.gl); } catch (e) { E.g3 = null; } }
-    E.mode = want === "gl" && E.g3 ? "gl" : "flat";
-    if (E.mode === "flat" && !E.flat) E.flat = new Flat(o.flat);
-    o.gl.classList.toggle("hidden", E.mode !== "gl"); o.flat.classList.toggle("hidden", E.mode !== "flat");
+    if (o.kind === "ray") {
+      const p = o.picture ? o.picture() : "auto", fx = E.plan.fx && p !== "plain" && !E.broken;
+      if (!E.screen || E.screen.fx !== fx) { E.screen = new Screen(o.flat, o.gl, fx); E.screen.fx = fx; E.screen.w = 0; }
+      E.mode = "ray";
+    }
+    const want = o.kind === "ray" ? "ray" : E.choice();
+    if (want !== "ray") {
+      if (want === "gl" && !E.g3) { try { E.g3 = new GL(o.gl); } catch (e) { E.g3 = null; } }
+      E.mode = want === "gl" && E.g3 ? "gl" : "flat";
+      if (E.mode === "flat" && !E.flat) E.flat = new Flat(o.flat);
+      o.gl.classList.toggle("hidden", E.mode !== "gl"); o.flat.classList.toggle("hidden", E.mode !== "flat");
+    }
     const lad = LADDER[E.mode], p = o.picture ? o.picture() : "auto";
     let start = E.mode === E.plan.mode ? E.plan.rung : E.mode === "gl" ? 1 : 2, top = E.mode === E.plan.mode ? E.plan.top : lad.length - 1;
     if (tune && tune.key === E.probe.key && tune.mode === E.mode && tune.rung != null && p === "auto") { start = tune.rung; top = Math.min(top, tune.top); }
-    if (p === "light") { start = Math.min(start, 1); top = Math.min(top, 2); }
+    if (p === "light") { start = Math.min(start, E.mode === "ray" ? 2 : 1); top = Math.min(top, E.mode === "ray" ? 3 : 2); }
     if (p === "rich") { start = Math.max(start, 4); top = lad.length - 1; }
     if (E.forceRung != null) start = top = E.forceRung;
     start = U.clamp(start, 0, lad.length - 1); top = U.clamp(Math.max(top, start), 0, lad.length - 1);
@@ -1490,16 +1515,20 @@ function game(o) {
   E.setPicture = () => { E.keep({ key: E.probe.key, bench: E.bench }); E.renderer(false); };
   E.test3d = (done, step) => {                       // the ~2 s test (software GL is left out: the 2D sea is quicker there)
     let g = null;
-    if (E.probe.webgl1 && !E.probe.software && E.force !== "flat") { try { g = E.g3 || new GL(o.gl); E.g3 = g; } catch (e) { g = null; } }
+    if (E.probe.webgl1 && !E.probe.software && E.force !== "flat" && o.kind !== "ray") { try { g = E.g3 || new GL(o.gl); E.g3 = g; } catch (e) { g = null; } }
     o.gl.classList.toggle("hidden", !g);
     if (o.loading) o.loading.el.classList.add("see");
     bench(g, r => { E.bench = r; o.gl.classList.add("hidden"); if (o.loading) o.loading.el.classList.remove("see"); done(r); }, step);
   };
-  E.retest = (done) => E.test3d(() => { E.plan = plan(E.probe, E.bench); E.keep({ key: E.probe.key, bench: E.bench }); E.renderer(false); if (done) done(); });
+  const planOf = () => o.kind === "ray" ? planRay(E.probe, E.bench) : plan(E.probe, E.bench);
+  E.retest = (done) => E.test3d(() => { E.plan = planOf(); E.keep({ key: E.probe.key, bench: E.bench }); E.renderer(false); if (done) done(); });
   E.rows = () => {                                   // "This box": what it is, what was chosen, what it's doing now
     const [w, h] = E.size(), R = E.rung, G3 = E.g3;
+    const now = E.mode === "ray"
+      ? ["Now", "drawn by the processor, rung " + E.gov.rung + " (top " + E.gov.top + "): " + w + "×" + h + ", " + R.fps + " fps wanted, " + E.gov.fps + " drawn" + (E.screen && E.screen.gl ? ", shown through WebGL" + (R.glow ? " with glow" : "") : ", shown in 2D")]
+      : null;
     return rows(E.probe, E.bench, E.plan).concat([
-      ["Now", (E.mode === "gl" ? "3D" : "2D") + ", rung " + E.gov.rung + " (top " + E.gov.top + "): " + w + "×" + h + ", " + R.fps + " fps wanted, " + E.gov.fps + " drawn" +
+      now || ["Now", (E.mode === "gl" ? "3D" : "2D") + ", rung " + E.gov.rung + " (top " + E.gov.top + "): " + w + "×" + h + ", " + R.fps + " fps wanted, " + E.gov.fps + " drawn" +
         (E.mode === "gl" ? ", draw distance " + R.far + " m" + (R.waves && G3 && G3.can("waves") ? ", waves" : "") : "")],
       ["Changes", E.gov.log.length ? E.gov.log.slice(-4).join(" · ") : "none yet"],
       ["Screen", E.probe.screen + " · page " + innerWidth + "×" + innerHeight + " at " + (devicePixelRatio || 1) + "×"],
@@ -1508,10 +1537,11 @@ function game(o) {
   };
   E.lost = (err) => {                                // the GPU went away: carry on in 2D
     console.warn("WebGL failed; drawing in 2D", err);
+    if (o.kind === "ray") { E.broken = true; E.plan = Object.assign({}, E.plan, { fx: false }); E.renderer(false); return; }
     E.g3 = null; E.broken = true; E.plan = Object.assign({}, E.plan, { mode: "flat", rung: 2, top: LADDER.flat.length - 1, why: "WebGL stopped" });
     E.renderer(false);
   };
-  o.gl.addEventListener("webglcontextlost", e => { e.preventDefault(); if (E.mode === "gl") E.lost(new Error("context lost")); });
+  o.gl.addEventListener("webglcontextlost", e => { e.preventDefault(); if (E.mode === "gl" || (E.screen && E.screen.gl)) E.lost(new Error("context lost")); });
   // the loop: input, then (when the governor says this frame is drawn) the fixed steps, then the drawing
   let last = 0, acc = 0, fpsAt = 0;
   function frame(now) {
@@ -1523,10 +1553,11 @@ function game(o) {
     let dt = (now - last) / 1000; last = now; if (dt > 0.25) dt = 0.25;
     if (!(o.paused && o.paused())) { acc += dt; let n = 0; while (acc >= E.DT && n < 6) { o.update(E.DT); acc -= E.DT; n++; } if (n === 6) acc = 0; }
     if (E.mode === "gl") { try { o.draw(now, dt); } catch (e) { E.lost(e); } } else o.draw(now, dt);
+    if (E.mode === "ray" && E.screen) E.screen.present(E.rung.glow, E.vig);
     E.gov.work(performance.now() - t0);
     if (E.showFps && o.fps && now - fpsAt > 500) {
       fpsAt = now; const [w, h] = E.size();
-      o.fps.textContent = E.gov.fps + " fps · " + (E.mode === "gl" ? "3D" : "2D") + " rung " + E.gov.rung + " · " + w + "×" + h +
+      o.fps.textContent = E.gov.fps + " fps · " + (E.mode === "gl" ? "3D" : E.mode === "ray" ? "ray" : "2D") + " rung " + E.gov.rung + " · " + w + "×" + h +
         (E.mode === "gl" ? " · " + E.g3.calls + " draws " + Math.round(E.g3.tris) + " tris" : "") + "\nwork " + (performance.now() - t0).toFixed(1) + " ms";
     }
   }
@@ -1534,7 +1565,7 @@ function game(o) {
     E.fit(); addEventListener("resize", E.fit);
     E.probe = probe();
     const go = () => {
-      E.plan = plan(E.probe, E.bench);
+      E.plan = planOf();
       E.renderer(true);
       if (o.loading && o.loading.text) o.loading.text.textContent = "Getting ready…";
       setTimeout(() => {
@@ -1564,6 +1595,397 @@ function begin(E, cam, near, far) {
   const v = viewOf(cam); E.flat.draw(cam.x, cam.y, cam.z, v.yaw, v.pitch, cam.fov);
 }
 
+// ================================================================ Ray: a software renderer for worlds on a grid
+// Rooms and corridors with floors and ceilings at any height (steps, ledges, pits, sky), doors and lifts (a cell's
+// ceiling or floor that moves), textures and sprites, drawn a pixel at a time into one picture: the same on every
+// box, GPU or not (a Pi 3 draws it at 320×180). Light is Doom-like: each cell its own level, fading with distance,
+// and a palette of 16 ramps of 16 shades with colormaps, so shading a pixel is a single look-up.
+
+// ---------------------------------------------------------------- the palette: index = ramp·16 + shade; 0 is see-through
+function Palette(ramps, glow) {
+  this.rgb = new Uint8Array(768); this.full = new Uint8Array(256); this.cube = new Int16Array(32768).fill(-1);
+  for (let r = 0; r < 16; r++) {
+    const base = ramps[r] || [128, 128, 128];
+    for (let s = 0; s < 16; s++) {
+      const k = 0.08 + (s / 15) * 1.22, i = r * 16 + s;
+      for (let c = 0; c < 3; c++) { let v = base[c] * Math.min(k, 1); if (k > 1) v += (255 - v) * (k - 1) * 0.85; this.rgb[i * 3 + c] = Math.max(0, Math.min(255, Math.round(v))); }
+      if (glow && glow.indexOf(r) >= 0) this.full[i] = 1;
+    }
+  }
+  this.maps(0x000000, 0);
+}
+
+Palette.prototype = {
+  color(i) { return (this.rgb[i * 3] << 16) | (this.rgb[i * 3 + 1] << 8) | this.rgb[i * 3 + 2]; },   // an index as 0xrrggbb
+  near(r, g, b) {                                    // the nearest colour's index (never 0, the see-through one)
+    const key = ((r >> 3) << 10) | ((g >> 3) << 5) | (b >> 3);
+    let v = this.cube[key];
+    if (v >= 0) return v;
+    let best = 1e9; v = 1;
+    for (let i = 1; i < 256; i++) {
+      if (this.full[i]) continue;                      // (glowing colours only where they're meant: Tex, emissive faces)
+      const dr = this.rgb[i * 3] - r, dg = this.rgb[i * 3 + 1] - g, db = this.rgb[i * 3 + 2] - b, d = dr * dr * 3 + dg * dg * 4 + db * db * 2;
+      if (d < best) { best = d; v = i; }
+    }
+    return (this.cube[key] = v);
+  },
+  // 32 light levels × 256 colours, packed for the picture; dark fades towards fog (a colour) as much as haze says
+  maps(fog, haze) {
+    const fr = (fog >> 16) & 255, fg = (fog >> 8) & 255, fb = fog & 255, cm = this.cmap || (this.cmap = new Uint32Array(32 * 256));
+    for (let L = 0; L < 32; L++) {
+      const b = Math.pow(L / 31, 1.15), h = (1 - b) * haze;
+      for (let i = 0; i < 256; i++) {
+        let r = this.rgb[i * 3], g = this.rgb[i * 3 + 1], bl = this.rgb[i * 3 + 2];
+        if (!this.full[i]) { r = r * b + fr * h; g = g * b + fg * h; bl = bl * b + fb * h; }
+        cm[L * 256 + i] = LE ? (0xff000000 | (Math.min(255, bl) << 16) | (Math.min(255, g) << 8) | Math.min(255, r)) >>> 0 : 0;
+      }
+    }
+    this.fogPx = LE ? (0xff000000 | (fb * haze) << 16 | (fg * haze) << 8 | (fr * haze)) >>> 0 : 0;
+    return cm;
+  },
+  // a picture (a canvas, or bake()'s sprite) as palette indices, columns first: what Ray draws
+  sprite(src) {
+    const c = src.c || src, w = c.width, h = c.height, d = c.getContext("2d").getImageData(0, 0, w, h).data, px = new Uint8Array(w * h);
+    if (!this.glowAt) { this.glowAt = new Map(); for (let i = 1; i < 256; i++) if (this.full[i]) this.glowAt.set((this.rgb[i * 3] << 16) | (this.rgb[i * 3 + 1] << 8) | this.rgb[i * 3 + 2], i); }
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const o = (y * w + x) * 4;
+      if (d[o + 3] > 110) { const g = this.glowAt.get((d[o] << 16) | (d[o + 1] << 8) | d[o + 2]); px[x * h + y] = g || this.near(d[o], d[o + 1], d[o + 2]); }
+    }
+    return { w, h, px, ax: src.ax != null ? src.ax : w / 2, ay: src.ay != null ? src.ay : h, ppu: src.ppu || 32 };
+  }
+};
+
+// ---------------------------------------------------------------- textures, made in code: 64×64 palette indices, columns first
+const Tex = {
+  make(fn, size) {                                    // fn(u, v) → a palette index, u and v from 0 to size-1
+    size = size || 64; const px = new Uint8Array(size * size);
+    for (let u = 0; u < size; u++) for (let v = 0; v < size; v++) px[u * size + v] = fn(u, v) || 1;
+    return { w: size, h: size, px };
+  },
+  // smooth noise that wraps every period (seamless tiles), 0..1
+  noise(seed) {
+    const r = U.rand(seed), g = new Float32Array(256 * 256); for (let i = 0; i < g.length; i++) g[i] = r();
+    const at = (x, y, p) => g[((y % p + p) % p) * 256 + ((x % p + p) % p)];
+    return function (x, y, p) {
+      p = p || 8; const xi = Math.floor(x), yi = Math.floor(y), fx = x - xi, fy = y - yi, sx = fx * fx * (3 - 2 * fx), sy = fy * fy * (3 - 2 * fy);
+      const a = at(xi, yi, p), b = at(xi + 1, yi, p), c = at(xi, yi + 1, p), d = at(xi + 1, yi + 1, p);
+      return a + (b - a) * sx + (c - a) * sy + (a - b - c + d) * sx * sy;
+    };
+  },
+  fbm(n, x, y, p, oct) { let s = 0, a = 0.5, t = 0; for (let o = 0; o < (oct || 3); o++) { s += n(x, y, p) * a; t += a; x *= 2; y *= 2; p *= 2; a *= 0.5; } return s / t; },
+  shade(ramp, k) { return ramp * 16 + Math.max(1, Math.min(15, Math.round(k * 15))); }   // a ramp's shade from 0..1
+};
+
+// ---------------------------------------------------------------- a world on a grid
+function RayMap(w, h) {
+  const n = w * h;
+  this.w = w; this.h = h;
+  this.solid = new Uint8Array(n); this.wtex = new Uint8Array(n); this.stex = new Uint8Array(n); this.utex = new Uint8Array(n);   // (stex: a step's face; utex: a ceiling's lip, a door)
+  this.ftex = new Uint8Array(n); this.ctex = new Uint8Array(n);
+  this.floor = new Float32Array(n); this.ceil = new Float32Array(n).fill(1);
+  this.light = new Uint8Array(n).fill(24); this.dyn = new Uint8Array(n); this.seen = new Uint8Array(n);
+  this.flowD = new Int16Array(n); this.q = new Int32Array(n);
+}
+RayMap.SKY = 255;
+RayMap.prototype = {
+  at(x, y) { return (y | 0) * this.w + (x | 0); },
+  inside(x, y) { return x >= 0 && y >= 0 && x < this.w && y < this.h; },
+  // can a body (radius r, standing at height z, stepping up to step, needing room) be at x y?
+  open(x, y, r, z, step, room) {
+    const x0 = Math.floor(x - r), x1 = Math.floor(x + r), y0 = Math.floor(y - r), y1 = Math.floor(y + r);
+    for (let cy = y0; cy <= y1; cy++) for (let cx = x0; cx <= x1; cx++) {
+      if (cx < 0 || cy < 0 || cx >= this.w || cy >= this.h) return false;
+      const i = cy * this.w + cx;
+      if (this.solid[i] || this.floor[i] > z + step || this.ceil[i] - Math.max(this.floor[i], z) < room) return false;
+    }
+    return true;
+  },
+  floorAt(x, y, r) {                                 // the highest floor under a body
+    const x0 = Math.floor(x - r), x1 = Math.floor(x + r), y0 = Math.floor(y - r), y1 = Math.floor(y + r);
+    let f = -1e9;
+    for (let cy = y0; cy <= y1; cy++) for (let cx = x0; cx <= x1; cx++) { const i = cy * this.w + cx; if (!this.solid[i] && this.floor[i] > f) f = this.floor[i]; }
+    return f;
+  },
+  // moves a body {x, y, z} by dx dy, sliding along walls; true when it moved all the way
+  move(b, dx, dy, r, step, room) {
+    let ok = true;
+    if (this.open(b.x + dx, b.y, r, b.z, step, room)) b.x += dx; else ok = false;
+    if (this.open(b.x, b.y + dy, r, b.z, step, room)) b.y += dy; else ok = false;
+    return ok;
+  },
+  // a straight line from one point to another (z the heights): the share of the way it gets before something stops it (1: clear)
+  trace(x0, y0, z0, x1, y1, z1) {
+    const dx = x1 - x0, dy = y1 - y0, len = Math.hypot(dx, dy) || 1e-6;
+    let mx = Math.floor(x0), my = Math.floor(y0);
+    const ex = Math.floor(x1), ey = Math.floor(y1), sx = dx < 0 ? -1 : 1, sy = dy < 0 ? -1 : 1;
+    const tdx = dx === 0 ? 1e30 : Math.abs(1 / dx), tdy = dy === 0 ? 1e30 : Math.abs(1 / dy);
+    let tx = dx === 0 ? 1e30 : (dx < 0 ? x0 - mx : mx + 1 - x0) * tdx, ty = dy === 0 ? 1e30 : (dy < 0 ? y0 - my : my + 1 - y0) * tdy;
+    for (let k = 0; k < 200; k++) {
+      if (mx === ex && my === ey) return 1;
+      let t;
+      if (tx < ty) { t = tx; tx += tdx; mx += sx; } else { t = ty; ty += tdy; my += sy; }
+      if (t >= 1) return 1;
+      if (!this.inside(mx, my)) return t;
+      const i = my * this.w + mx, z = z0 + (z1 - z0) * t;
+      if (this.solid[i] || z < this.floor[i] || z > this.ceil[i]) return t;
+    }
+    return 1;
+  },
+  see(x0, y0, z0, x1, y1, z1) { return this.trace(x0, y0, z0, x1, y1, z1) >= 0.999; },
+  // how many steps from every cell to x y, for things that walk (step: the highest step up; room: headroom; through:
+  // cells they get past whatever (doors they open)); -1: no way
+  flow(x, y, step, room, through) {
+    const d = this.flowD, q = this.q, w = this.w, n = this.w * this.h;
+    d.fill(-1); let head = 0, tail = 0;
+    const s = this.at(x, y); if (s < 0 || s >= n) return d;
+    d[s] = 0; q[tail++] = s;
+    while (head < tail) {
+      const i = q[head++], cx = i % w, cy = (i / w) | 0, fz = this.floor[i];
+      for (let k = 0; k < 4; k++) {
+        const nx = cx + (k === 0 ? 1 : k === 1 ? -1 : 0), ny = cy + (k === 2 ? 1 : k === 3 ? -1 : 0);
+        if (nx < 0 || ny < 0 || nx >= w || ny >= this.h) continue;
+        const j = ny * w + nx;
+        if (d[j] >= 0 || this.solid[j] || (this.ceil[j] - this.floor[j] < room && !(through && through[j]))) continue;
+        if (fz > this.floor[j] + step || this.floor[j] > fz + step) continue;      // (both ways: they walk to you)
+        d[j] = d[i] + 1; q[tail++] = j;
+      }
+    }
+    return d;
+  }
+};
+
+// ---------------------------------------------------------------- the renderer
+function Ray(pal) {
+  this.pal = pal; this.tex = []; this.sky = null; this.dim = 2.4; this.minL = 0; this.queue = []; this.qn = 0; this.w = 0;   // (minL: the darkest a lit thing gets)
+}
+Ray.prototype = {
+  size(w, h, buf) {
+    this.w = w; this.h = h; this.buf = buf;
+    this.depth = new Float32Array(w * h); this.rowInv = new Float32Array(h);
+  },
+  // the world from a camera {x, y, z (eye height), a (facing), pitch (looking up: a share of the height), fov (across)}
+  render(m, cam) {
+    const w = this.w, h = this.h, buf = this.buf, dep = this.depth, cm = this.pal.cmap, tex = this.tex, sky = this.sky, W = m.w, H = m.h;
+    const solid = m.solid, wtex = m.wtex, stex = m.stex, utex = m.utex, ftex = m.ftex, ctex = m.ctex, flo = m.floor, cei = m.ceil, lig = m.light, dyn = m.dyn, seen = m.seen;
+    const dirX = Math.cos(cam.a), dirY = Math.sin(cam.a), t = Math.tan(cam.fov / 2), plX = -dirY * t, plY = dirX * t;
+    const f = (w / 2) / t, hz = h / 2 + cam.pitch * h, px = cam.x, py = cam.y, ez = cam.z, dim = this.dim, rowInv = this.rowInv;
+    const fogPx = this.pal.fogPx, maxD = this.maxD || 40, mL = this.minL;
+    this.cam = cam; this.f = f; this.hz = hz; this.dirX = dirX; this.dirY = dirY;
+    for (let y = 0; y < h; y++) { const d = y + 0.5 - hz; rowInv[y] = Math.abs(d) < 1e-3 ? 1e3 : 1 / d; }
+    const R = (b) => b < 0 ? 0 : b > h ? h : Math.ceil(b - 0.5);
+    // a wall's column at d1, from zTop down to zBot (made once a frame: it reads the column's state below)
+    let x = 0, d1 = 0, top = 0, bot = h, u = 0, Lw = 0, vs = 0;
+    const wall = (T, zTop, zBot) => {
+      const yA = Math.max(R(hz - (zTop - ez) * f / d1), top), yB = Math.min(R(hz - (zBot - ez) * f / d1), bot);
+      if (yA >= yB) return;
+      let s = (Lw - d1 * dim) | 0; s = s < mL ? mL : s > 31 ? 31 : s; s <<= 8;
+      let v = (-(ez + (hz - (yA + 0.5)) * d1 / f)) * 64 + 65536;
+      const step = vs, uu = u, xx = x;
+      for (let y = yA; y < yB; y++, v += step) { const o = y * w + xx; buf[o] = cm[s | T[uu | ((v | 0) & 63)]]; dep[o] = d1; }
+    };
+    const skyW = sky ? sky.w : 1, skyH = sky ? sky.h : 1, skyK = sky ? skyH / (h * 0.62) : 0;
+    for (x = 0; x < w; x++) {
+      const camX = 2 * (x + 0.5) / w - 1, rdx = dirX + plX * camX, rdy = dirY + plY * camX;
+      let mx = Math.floor(px), my = Math.floor(py);
+      const ddx = rdx === 0 ? 1e30 : Math.abs(1 / rdx), ddy = rdy === 0 ? 1e30 : Math.abs(1 / rdy), stX = rdx < 0 ? -1 : 1, stY = rdy < 0 ? -1 : 1;
+      let sdx = rdx < 0 ? (px - mx) * ddx : (mx + 1 - px) * ddx, sdy = rdy < 0 ? (py - my) * ddy : (my + 1 - py) * ddy;
+      let ci = my * W + mx, d0 = 0; top = 0; bot = h;
+      let skyU = -1;
+      for (let guard = 0; guard < 128 && top < bot; guard++) {
+        let side;
+        if (sdx < sdy) { d1 = sdx; sdx += ddx; mx += stX; side = 0; } else { d1 = sdy; sdy += ddy; my += stY; side = 1; }
+        if (d1 > maxD) d1 = maxD;
+        const cF = flo[ci], cC = cei[ci], Lc = lig[ci] + dyn[ci];
+        seen[ci] = 1;
+        // this cell's floor, d0 to d1
+        if (ez > cF) {
+          const yA = Math.max(R(hz - (cF - ez) * f / d1), top), yB = Math.min(d0 > 0 ? R(hz - (cF - ez) * f / d0) : h, bot), k = (ez - cF) * f, T = tex[ftex[ci]].px;
+          for (let y = yA; y < yB; y++) {
+            const d = k * rowInv[y], o = y * w + x;
+            let s = (Lc - d * dim) | 0; s = s < mL ? mL : s > 31 ? 31 : s;
+            buf[o] = cm[(s << 8) | T[((((px + rdx * d) * 64) & 63) << 6) | (((py + rdy * d) * 64) & 63)]]; dep[o] = d;
+          }
+          if (yA < yB && yB > 0) bot = Math.min(bot, yA);
+        }
+        // its ceiling (or the sky)
+        if (ez < cC) {
+          const yA = Math.max(d0 > 0 ? R(hz - (cC - ez) * f / d0) : 0, top), yB = Math.min(R(hz - (cC - ez) * f / d1), bot);
+          if (ctex[ci] === 255 && sky) {
+            if (skyU < 0) { let a = (cam.a + Math.atan(camX * t)) / TAU; a -= Math.floor(a); skyU = ((a * skyW) | 0) * skyH; }
+            const S = sky.px;
+            for (let y = yA; y < yB; y++) { let v = (skyH - 1 + (y + 0.5 - hz) * skyK) | 0; v = v < 0 ? 0 : v >= skyH ? skyH - 1 : v; const o = y * w + x; buf[o] = cm[(31 << 8) | S[skyU + v]]; dep[o] = 1e9; }
+          } else {
+            const k = (ez - cC) * f, T = tex[ctex[ci]].px;
+            for (let y = yA; y < yB; y++) {
+              const d = k * rowInv[y], o = y * w + x;
+              let s = (Lc - d * dim) | 0; s = s < mL ? mL : s > 31 ? 31 : s;
+              buf[o] = cm[(s << 8) | T[((((px + rdx * d) * 64) & 63) << 6) | (((py + rdy * d) * 64) & 63)]]; dep[o] = d;
+            }
+          }
+          if (yA < yB) top = Math.max(top, yB);
+        }
+        if (d1 >= maxD || mx < 0 || my < 0 || mx >= W || my >= H) break;
+        const ni = my * W + mx;
+        // where the ray meets the next cell's edge, across the wall's face
+        let wx = side === 0 ? py + d1 * rdy : px + d1 * rdx; wx -= Math.floor(wx);
+        if ((side === 0 && rdx > 0) || (side === 1 && rdy < 0)) wx = 1 - wx;
+        u = ((wx * 64) | 0) << 6; Lw = Lc - (side ? 2 : 0); vs = 64 * d1 / f;
+        if (solid[ni]) { wall(tex[wtex[ni]].px, cC, cF); seen[ni] = 1; top = bot; break; }
+        const nF = flo[ni], nC = cei[ni];
+        if (nF > cF) { wall(tex[stex[ni]].px, nF, cF); bot = Math.min(bot, R(hz - (nF - ez) * f / d1)); }
+        else bot = Math.min(bot, R(hz - (cF - ez) * f / d1));
+        if (nC < cC) { wall(tex[utex[ni]].px, cC, nC); top = Math.max(top, R(hz - (nC - ez) * f / d1)); }
+        else top = Math.max(top, R(hz - (cC - ez) * f / d1));
+        ci = ni; d0 = d1;
+      }
+      for (let y = top; y < bot; y++) { const o = y * w + x; buf[o] = fogPx; dep[o] = 1e9; }   // (nothing there: far fog)
+    }
+    this.qn = 0;
+  },
+  // a sprite standing at x y (its foot at height z), light 0..31 (full: drawn as it is), flip: mirrored
+  sprite(s, x, y, z, light, full, flip, scale) {
+    const c = this.cam, dx = x - c.x, dy = y - c.y, d = dx * this.dirX + dy * this.dirY;
+    if (d < 0.15 || d > (this.maxD || 40)) return;
+    if (this.qn >= this.queue.length) this.queue.push({});
+    const q = this.queue[this.qn++];
+    q.s = s; q.d = d; q.lat = dx * -this.dirY + dy * this.dirX; q.z = z; q.light = light; q.full = full; q.flip = flip; q.k = scale || 1; q.dot = 0;
+  },
+  dot(x, y, z, idx, size, full) {                    // a speck (spark, blood, smoke): a small square, world size
+    const c = this.cam, dx = x - c.x, dy = y - c.y, d = dx * this.dirX + dy * this.dirY;
+    if (d < 0.15 || d > 24) return;
+    if (this.qn >= this.queue.length) this.queue.push({});
+    const q = this.queue[this.qn++];
+    q.s = null; q.d = d; q.lat = dx * -this.dirY + dy * this.dirX; q.z = z; q.idx = idx; q.size = size; q.full = full; q.dot = 1; q.light = 24;
+  },
+  flush() {                                           // the sprites, far to near, behind what's nearer
+    const Q = this.queue, n = this.qn, w = this.w, h = this.h, buf = this.buf, dep = this.depth, cm = this.pal.cmap, f = this.f, hz = this.hz, ez = this.cam.z, dim = this.dim, full = this.pal.full;
+    for (let i = 1; i < n; i++) { const e = Q[i]; let j = i - 1; while (j >= 0 && Q[j].d < e.d) { Q[j + 1] = Q[j]; j--; } Q[j + 1] = e; }
+    for (let i = 0; i < n; i++) {
+      const q = Q[i], d = q.d, sx = w / 2 + q.lat * f / d;
+      if (q.dot) {
+        const sz = Math.max(1, q.size * f / d) | 0, cy = hz - (q.z - ez) * f / d, x0 = (sx - sz / 2) | 0, y0 = (cy - sz / 2) | 0;
+        let s = (24 - d * dim) | 0; s = q.full ? 31 : s < 0 ? 0 : s > 31 ? 31 : s;
+        const col = cm[(s << 8) | q.idx];
+        for (let y = Math.max(0, y0); y < Math.min(h, y0 + sz); y++) for (let x = Math.max(0, x0); x < Math.min(w, x0 + sz); x++) { const o = y * w + x; if (dep[o] > d) buf[o] = col; }
+        continue;
+      }
+      const s = q.s; if (!s) continue;
+      const k = f / d / s.ppu * q.k, sw = s.w * k, sh = s.h * k;
+      const left = sx - s.ax * k, topY = hz - (q.z - ez) * f / d - s.ay * k;
+      const x0 = Math.max(0, Math.ceil(left - 0.5)), x1 = Math.min(w, Math.ceil(left + sw - 0.5)), y0 = Math.max(0, Math.ceil(topY - 0.5)), y1 = Math.min(h, Math.ceil(topY + sh - 0.5));
+      if (x0 >= x1 || y0 >= y1) continue;
+      let L = (q.light - d * dim) | 0; L = L < this.minL ? this.minL : L > 31 ? 31 : L; const Ls = L << 8;
+      const P = s.px, H = s.h, inv = 1 / k;
+      for (let x = x0; x < x1; x++) {
+        let u = ((x + 0.5 - left) * inv) | 0; if (u >= s.w) u = s.w - 1; if (q.flip) u = s.w - 1 - u;
+        const col = u * H;
+        let v = (y0 + 0.5 - topY) * inv;
+        for (let y = y0; y < y1; y++, v += inv) {
+          const o = y * w + x; if (dep[o] <= d) continue;
+          const idx = P[col + (v | 0)]; if (!idx) continue;
+          buf[o] = cm[(q.full || full[idx] ? 31 << 8 : Ls) | idx];
+        }
+      }
+    }
+    this.qn = 0;
+  },
+  // a sprite on the screen itself (a weapon in hand): its bottom middle at sx sy, scale screen pixels a sprite pixel
+  blit(s, sx, sy, scale, light) {
+    const w = this.w, h = this.h, buf = this.buf, cm = this.pal.cmap, full = this.pal.full, P = s.px, H = s.h;
+    const left = sx - s.w * scale / 2, topY = sy - s.h * scale, inv = 1 / scale, Ls = Math.max(0, Math.min(31, light | 0)) << 8;
+    const x0 = Math.max(0, Math.ceil(left - 0.5)), x1 = Math.min(w, Math.ceil(left + s.w * scale - 0.5)), y0 = Math.max(0, Math.ceil(topY - 0.5)), y1 = Math.min(h, Math.ceil(topY + s.h * scale - 0.5));
+    for (let x = x0; x < x1; x++) {
+      const col = Math.min(s.w - 1, ((x + 0.5 - left) * inv) | 0) * H;
+      let v = (y0 + 0.5 - topY) * inv;
+      for (let y = y0; y < y1; y++, v += inv) { const idx = P[col + Math.min(H - 1, v | 0)]; if (idx) buf[y * w + x] = cm[(full[idx] ? 31 << 8 : Ls) | idx]; }
+    }
+  },
+  // where a world point is on the screen: [x, y, distance], or null behind
+  project(x, y, z, out) {
+    const c = this.cam, dx = x - c.x, dy = y - c.y, d = dx * this.dirX + dy * this.dirY;
+    if (d < 0.1) return null;
+    out[0] = this.w / 2 + (dx * -this.dirY + dy * this.dirX) * this.f / d; out[1] = this.hz - (z - c.z) * this.f / d; out[2] = d;
+    return out;
+  }
+};
+
+// ---------------------------------------------------------------- the screen: a picture made a pixel at a time, shown
+// scaled up; through WebGL where the GPU is real (smooth or crisp scaling, a soft glow round bright things, a little
+// vignette: on a Pi 4 or 5), else straight onto a 2D canvas
+const POST_VS = `attribute vec2 aXY; varying vec2 vUV; void main() { vUV = vec2(aXY.x * 0.5 + 0.5, 0.5 - aXY.y * 0.5); gl_Position = vec4(aXY, 0.0, 1.0); }`;
+const POST_FS = `
+precision mediump float;
+uniform sampler2D uT; uniform vec2 uTexel; uniform float uGlow; uniform float uVig; varying vec2 vUV;
+void main() {
+  vec3 c = texture2D(uT, vUV).rgb;
+  if (uGlow > 0.0) {
+    vec3 b = texture2D(uT, vUV + vec2(uTexel.x * 1.5, 0.0)).rgb + texture2D(uT, vUV - vec2(uTexel.x * 1.5, 0.0)).rgb
+           + texture2D(uT, vUV + vec2(0.0, uTexel.y * 1.5)).rgb + texture2D(uT, vUV - vec2(0.0, uTexel.y * 1.5)).rgb;
+    c += max(b * 0.25 - 0.6, 0.0) * uGlow * 1.8;
+  }
+  vec2 d = vUV - 0.5; c *= 1.0 - uVig * dot(d, d) * 1.6;
+  gl_FragColor = vec4(c, 1.0);
+}`;
+function Screen(c2d, cgl, useGL) {
+  this.c2d = c2d; this.cgl = cgl; this.gl = null; this.w = 0; this.h = 0; this.crisp = true;
+  if (useGL) {
+    try {
+      const gl = cgl.getContext("webgl", { antialias: false, alpha: false, depth: false, preserveDrawingBuffer: false });
+      if (!gl) throw new Error("no WebGL");
+      const sh = (type, src) => { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s); if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; };
+      const p = gl.createProgram(); gl.attachShader(p, sh(gl.VERTEX_SHADER, POST_VS)); gl.attachShader(p, sh(gl.FRAGMENT_SHADER, POST_FS));
+      gl.bindAttribLocation(p, 0, "aXY"); gl.linkProgram(p); if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error("link");
+      gl.useProgram(p);
+      const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+      gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 8, 0);
+      this.tex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, this.tex);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      this.u = { texel: gl.getUniformLocation(p, "uTexel"), glow: gl.getUniformLocation(p, "uGlow"), vig: gl.getUniformLocation(p, "uVig") };
+      this.gl = gl;
+    } catch (e) { this.gl = null; }
+  }
+  cgl.classList.toggle("hidden", !this.gl); c2d.classList.toggle("hidden", !!this.gl);
+  if (!this.gl) this.ctx = c2d.getContext("2d", { alpha: false });
+}
+Screen.prototype = {
+  // the picture's size (what the game draws into: u32, one number a pixel); out: how much bigger WebGL shows it
+  size(w, h, out) {
+    if (w === this.w && h === this.h && (out || 1) === this.out) return false;
+    this.w = w; this.h = h; this.out = out || 1;
+    this.img = new ImageData(w, h); this.u8 = new Uint8Array(this.img.data.buffer); this.u32 = new Uint32Array(this.img.data.buffer);
+    if (this.gl) {
+      const gl = this.gl; this.cgl.width = Math.round(w * this.out); this.cgl.height = Math.round(h * this.out);
+      gl.viewport(0, 0, this.cgl.width, this.cgl.height);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+      gl.uniform2f(this.u.texel, 1 / w, 1 / h); this.filter();
+    } else { this.c2d.width = w; this.c2d.height = h; }
+    return true;
+  },
+  filter() { if (!this.gl) return; const gl = this.gl, F = this.crisp ? gl.NEAREST : gl.LINEAR; gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, F); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, F); },
+  present(glow, vig) {
+    if (this.gl) {
+      const gl = this.gl;
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, this.w, this.h, gl.RGBA, gl.UNSIGNED_BYTE, this.u8);
+      gl.uniform1f(this.u.glow, glow || 0); gl.uniform1f(this.u.vig, vig == null ? 0.35 : vig);
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    } else this.ctx.putImageData(this.img, 0, 0);
+  }
+};
+// the rungs for a software-drawn game: the size drawn (16:9), frames a second, the WebGL glow (where there's a GPU)
+LADDER.ray = [
+  { h: 120, fps: 30, glow: 0, out: 2 }, { h: 144, fps: 30, glow: 0, out: 2 }, { h: 180, fps: 30, glow: 0, out: 2 },
+  { h: 180, fps: 60, glow: 0, out: 2 }, { h: 216, fps: 60, glow: 1, out: 2 }, { h: 270, fps: 60, glow: 1, out: 2 }, { h: 360, fps: 60, glow: 1, out: 2 }
+];
+// where a software-drawn game starts: from the script test (the CPU does the drawing)
+function planRay(p, b) {
+  const cpu = b && b.cpu != null ? b.cpu : 100, top = LADDER.ray.length - 1;
+  let rung = cpu < 12 ? 6 : cpu < 30 ? 5 : cpu < 60 ? 4 : cpu < 110 ? 3 : cpu < 180 ? 2 : 1;
+  if (p.family === "pi3") rung = Math.min(rung, 3);
+  const fx = p.webgl1 && !p.software;
+  return { mode: "ray", rung, top: Math.min(top, rung + 2), fx, why: "the processor draws it (script " + cpu + " ms)" + (fx ? "; the GPU adds the glow" : "") };
+}
+
 window.Low3D = { probe, family, NAMES, bench, plan, rows, line, LADDER, Governor, GL, Mesh, Flat, bake, M4, px, hexRGB,
-  U, Kit, Path, Chunks, Trail, Particles, camera, chase, orbit, viewOf, begin, Input, Menu, Synth, game, version: 1 };
+  U, Kit, Path, Chunks, Trail, Particles, camera, chase, orbit, viewOf, begin, Input, Menu, Synth, game,
+  Palette, Tex, RayMap, Ray, Screen, planRay, version: 2 };
 })();

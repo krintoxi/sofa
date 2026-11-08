@@ -116,6 +116,7 @@ class TheEngine(unittest.TestCase):
                 for online in ("fetch(", "XMLHttpRequest", "WebSocket"):
                     self.assertNotIn(online, html, g["id"])
         self.assertIn("tidewing", on_engine)
+        self.assertIn("ironmaw", on_engine)
         probe = self.read("probe", "index.html")                         # the graphics check: for the owner, not on Home
         self.assertNotIn("probe", [g["id"] for g in CATALOG["games"]])
         self.assertIn("../low3d.js", probe)
@@ -203,6 +204,119 @@ console.log(JSON.stringify(out));
         self.assertEqual(busy_fps, 30)                                   # the game's own work fills a frame: 30 a second
         self.assertEqual(out["mesh"], [12, 12])
         self.assertEqual(out["path"], [4, 100, 100, 420])
+
+
+class TheRaycaster(unittest.TestCase):
+    """Low3D's Ray: worlds on a grid drawn a pixel at a time (Ironmaw's), the same on every box."""
+    GAMES = os.path.join(BOX, "games")
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_it_draws_and_things_move_in_it(self):
+        script = """
+const noop = () => {};
+globalThis.window = globalThis; globalThis.addEventListener = noop; globalThis.location = { hash: "" };
+globalThis.document = { hidden: false, createElement: () => ({ getContext: () => null }) };
+eval(require("fs").readFileSync(process.argv[1], "utf8"));
+const L = window.Low3D, out = {};
+const ramps = []; for (let r = 0; r < 16; r++) ramps.push([40 + r * 12, 60 + r * 8, 80 + r * 5]);
+const pal = new L.Palette(ramps, [14, 15]);
+out.glowFull = pal.cmap[(0 << 8) | (14 * 16 + 10)] === pal.cmap[(31 << 8) | (14 * 16 + 10)];   // glowing colours ignore the dark
+out.darkIsDark = pal.cmap[(0 << 8) | (3 * 16 + 10)] !== pal.cmap[(31 << 8) | (3 * 16 + 10)];
+out.nearNotGlow = !pal.full[pal.near(255, 140, 40)];
+// a room 8 x 6: walls round, a step in the middle, the sky over the far half, a door shut in the wall
+const m = new L.RayMap(8, 6);
+for (let y = 0; y < 6; y++) for (let x = 0; x < 8; x++) { const i = y * 8 + x; if (x === 0 || y === 0 || x === 7 || y === 5) { m.solid[i] = 1; m.wtex[i] = 1; } else { m.ftex[i] = 2; m.ctex[i] = x > 4 ? 255 : 3; m.ceil[i] = 1.2; m.light[i] = 24; } }
+m.floor[3 * 8 + 3] = 0.3; m.stex[3 * 8 + 3] = 4;
+const T = (k) => L.Tex.make(() => k * 16 + 8);
+const ray = new L.Ray(pal); ray.tex = [T(0), T(1), T(2), T(3), T(4)]; ray.sky = { w: 4, h: 4, px: new Uint8Array(16).fill(15 * 16 + 8) };
+const W = 64, H = 36, buf = new Uint32Array(W * H); ray.size(W, H, buf);
+ray.render(m, { x: 1.5, y: 2.5, z: 0.5, a: 0, pitch: 0, fov: 1.6 });
+const at = (x, y) => buf[y * W + x], idxOf = (c) => { for (let L2 = 0; L2 < 32; L2++) for (let i = 0; i < 256; i++) if (pal.cmap[(L2 << 8) | i] === c) return i >> 4; return -1; };
+out.wall = idxOf(at(32, 18));                     // straight ahead, at eye height: the far wall
+out.floor = idxOf(at(32, 35));                    // down at the bottom: the floor
+out.ceiling = idxOf(at(8, 0));                    // top left, over the near half: the ceiling
+const depthAhead = ray.depth[18 * W + 32];
+ray.render(m, { x: 4.6, y: 2.5, z: 0.5, a: 0, pitch: 0, fov: 1.6 }); out.sky = idxOf(at(32, 1));   // looking over the open half: the sky above it
+ray.render(m, { x: 1.5, y: 2.5, z: 0.5, a: 0, pitch: 0, fov: 1.6 });
+out.depth = depthAhead > 4 && depthAhead < 7;
+let painted = 0; for (let i = 0; i < W * H; i++) if (buf[i]) painted++; out.painted = painted === W * H;
+// sight lines, walking, the way round
+out.see = [m.see(1.5, 2.5, 0.5, 6.5, 2.5, 0.5), m.see(1.5, 2.5, 0.5, 9, 2.5, 0.5), m.see(1.5, 3.5, 0.1, 5.5, 3.5, 0.1)];   // clear; through a wall; low, across the step
+const b = { x: 1.5, y: 1.5, z: 0 }; m.move(b, -1, 0, 0.2, 0.35, 0.6); out.blocked = b.x > 1.15;
+const s = { x: 2.6, y: 3.5, z: 0 }; m.move(s, 0.6, 0, 0.2, 0.35, 0.6); out.stepUp = s.x > 3;
+m.floor[3 * 8 + 3] = 0.6; const t = { x: 2.6, y: 3.5, z: 0 }; m.move(t, 0.6, 0, 0.2, 0.35, 0.6); out.tooHigh = t.x < 2.9;
+const fl = m.flow(6.5, 4.5, 0.35, 0.6); out.flow = [fl[1 * 8 + 1], fl[3 * 8 + 3]];
+m.ceil[2 * 8 + 4] = 0; const shut = m.flow(6.5, 2.5, 0.35, 0.6), through = new Uint8Array(48); through[2 * 8 + 4] = 1;
+out.door = [shut[2 * 8 + 4], m.flow(6.5, 2.5, 0.35, 0.6, through)[2 * 8 + 4]];
+console.log(JSON.stringify(out));
+"""
+        r = subprocess.run(["node", "-e", script, os.path.join(self.GAMES, "low3d.js")], capture_output=True, text=True, timeout=60)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        out = json.loads(r.stdout)
+        self.assertTrue(out["glowFull"] and out["darkIsDark"] and out["nearNotGlow"])
+        self.assertEqual((out["wall"], out["floor"], out["ceiling"], out["sky"]), (1, 2, 3, 15))
+        self.assertTrue(out["depth"] and out["painted"])
+        self.assertEqual(out["see"], [True, False, False])
+        self.assertTrue(out["blocked"] and out["stepUp"] and out["tooHigh"])
+        self.assertEqual(out["flow"][0], 8)                              # 5 across and 3 up, a step at a time
+        self.assertEqual(out["flow"][1], -1)                             # the step's now too high to walk up
+        self.assertEqual(out["door"][0], -1)                             # a shut door blocks the way
+        self.assertGreater(out["door"][1], 0)                            # unless walkers may open it
+
+    def test_ironmaws_levels_can_be_played_through(self):
+        """Each level: one start, every key before its door, the exit (or the boss) reached, every enemy and item reached."""
+        import re
+        with open(os.path.join(self.GAMES, "ironmaw", "index.html"), encoding="utf-8") as f:
+            html = f.read()
+        block = html[html.index("const LEVELS = {"):html.index("};", html.index("const LEVELS = {"))]
+        levels = {m.group(1): re.findall(r'"([^"]*)"', m.group(2)) for m in re.finditer(r"(\w+): \[(.*?)\]", block, re.S)}
+        self.assertEqual(list(levels), ["intake", "refinery", "towers", "heart"])
+        solid, doors = set("#%&T|FRWX"), {"D": None, "Q": "q", "U": "u", "Y": "y", "?": None}
+        height = {"O": 0.25, "-": 0.25, "=": 0.5, "^": 0.9, "~": -0.06, "!": -0.06}
+        ground_chars, thing_chars = set(".,:*oO-=^~!L$") | set(doors), set("@hgsbw+mackerl3459quyxtpv")
+        for name, rows in levels.items():
+            w = max(len(r) for r in rows)
+            g = [list(r.ljust(w).replace(" ", "#")) for r in rows]
+            h = len(g)
+            ground, things = {}, []
+            for y in range(h):
+                for x in range(w):
+                    c = g[y][x]
+                    if (x in (0, w - 1) or y in (0, h - 1)) and c not in solid:
+                        self.fail("%s: open edge at %d,%d" % (name, x, y))
+                    if c in solid:
+                        continue
+                    self.assertIn(c, ground_chars | thing_chars, "%s: %r at %d,%d" % (name, c, x, y))
+                    if c in thing_chars:
+                        things.append((c, x, y))
+                        c = next((g[y][xx] for d in range(1, 6) for xx in (x - d, x + d) if 0 <= xx < w and g[y][xx] in ground_chars
+                                  and g[y][xx] not in doors and g[y][xx] != "L"), ".")
+                    ground[(x, y)] = c
+            starts = [(x, y) for c, x, y in things if c == "@"]
+            self.assertEqual(len(starts), 1, name)
+            keys = set()
+            while True:
+                seen, todo = {starts[0]}, [starts[0]]
+                while todo:
+                    x, y = todo.pop()
+                    for n in ((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)):
+                        if n in seen or n not in ground:
+                            continue
+                        c, here = ground[n], ground[(x, y)]
+                        if c in doors and doors[c] and doors[c] not in keys:
+                            continue
+                        if c != "L" and here != "L" and height.get(c, 0) > height.get(here, 0) + 0.35:
+                            continue
+                        seen.add(n); todo.append(n)
+                found = {c for c, x, y in things if c in "quy" and (x, y) in seen}
+                if found <= keys:
+                    break
+                keys |= found
+            unreached = [(c, x, y) for c, x, y in things if (x, y) not in seen]
+            self.assertEqual(unreached, [], name)
+            exits = [(x, y) for y in range(h) for x in range(w) if g[y][x] == "X"]
+            boss = any(c == "w" for c, x, y in things)
+            self.assertTrue(boss or any((ex + dx, ey + dy) in seen for ex, ey in exits for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))), name)
 
 
 class Agent(unittest.TestCase):

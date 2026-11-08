@@ -14,11 +14,20 @@ GitHub builds the card and makes the release by itself.
   pick up sparks, hit the boost pads, keep off the rocks. Low-poly islands and craft, a sea that moves on a Pi 4 or
   5, music made as it plays. It's in Games, with the controller from the start (A B X Y, or ✕ ○ □ △), and keeps
   your best times on the box.
+- **Ironmaw, an old-style shooter made for the box.** The Ironmaw foundry under the ice has gone quiet, and its
+  furnaces are still burning. Fight through four levels of rooms and corridors, keys and doors, lifts, lava and
+  secrets, with five weapons against five kinds of enemy, the Furnace Warden at the end. It's made for the
+  controller: the left stick moves, the right stick turns and looks, RT fires, LT aims, LB and RB change weapon,
+  A opens doors, B turns you round, Y shows the map. A little aim help is there (Options can take it off), and the
+  controller rumbles. It's drawn a pixel at a time, so a Pi 3 plays it whether or not it has a GPU; a Pi 4 or 5
+  draws it sharper, with a glow round fire and lights.
 - **The box's own games have a game engine.** Low3D (`games/low3d.js`) finds out what the box's browser can draw,
   tests it once (about two seconds), and starts at a size and distance the box holds steady. While you play it
   keeps the frame rate steady: a smaller picture, or 30 frames a second, when it must, and a sharper one when
-  there's room. On a box without a real GPU (or one Chromium won't use) it draws the same world in 2D. Each new
-  game on it gets that, the controller, menus and sound from the start (`games/ENGINE.md`).
+  there's room. On a box without a real GPU (or one Chromium won't use) it draws the same world in 2D. It can also
+  draw a world a pixel at a time, as Ironmaw does: rooms and corridors with floors at any height, doors and lifts,
+  light that fades into the dark. Each new game on it gets that, the controller (the right stick, triggers and
+  rumble too), menus and sound from the start (`games/ENGINE.md`).
 - **A graphics check.** In the box's browser, `127.0.0.1:8091/box/games/probe/` shows what the browser gives the
   box's games: the GPU (a Pi 3's is VC4, a Pi 4's V3D 4.2, a Pi 5's V3D 7.1), WebGL, a short test, the setting a
   game would start on, and a scene drawn that way with its frame rate. Tidewing's "This box" shows the same.

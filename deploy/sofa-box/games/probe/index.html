@@ -39,6 +39,7 @@
   function show(stateText) {
     const pl = probe ? L3.plan(probe, bench) : null, rows = probe ? L3.rows(probe, bench, pl) : [];
     if (board) rows.unshift(["Board", board]);
+    if (probe && bench) { const r = L3.planRay(probe, bench), h = L3.LADDER.ray[r.rung].h; rows.push(["Drawn by the processor", "games like Ironmaw start at " + Math.round(h * 16 / 9) + "×" + h + ", " + L3.LADDER.ray[r.rung].fps + " fps (rung " + r.rung + " of " + (L3.LADDER.ray.length - 1) + ")" + (r.fx ? ", the GPU adding the glow" : "")]); }
     if (probe) rows.push(["Page", probe.view + " at " + probe.dpr + "× · screen " + probe.screen]);
     $("rows").innerHTML = rows.map(r => "<tr><td>" + r[0] + "</td><td>" + U.esc(r[1]) + "</td></tr>").join("");
     $("line").textContent = probe ? (board ? board + " | " : "") + L3.line(probe, bench, pl) : "";

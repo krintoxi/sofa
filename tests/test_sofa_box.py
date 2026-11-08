@@ -637,11 +637,11 @@ class BoxOS(unittest.TestCase):
         for path in ("/box/home", "/box/home/home.js", "/box/home/home.css", "/box/games/pair-up/", "/box/games/gloamwell/",
                      "/box/games/cinder-knight/", "/box/games/shadow-heist/", "/box/games/rune-tactics/", "/box/games/micro-drifters/",
                      "/box/games/neon-brawler/", "/box/games/void-drifter/", "/box/games/cosmic-cascade/", "/box/games/pad.js",
-                     "/box/games/tidewing/", "/box/games/low3d.js", "/box/games/probe/",
+                     "/box/games/tidewing/", "/box/games/ironmaw/", "/box/games/low3d.js", "/box/games/probe/",
                      "/box/fonts/instrument-sans-latin-wght-normal.woff2"):
             with self.opener.open(self.base + path, timeout=20) as r:
                 self.assertEqual(r.status, 200, path)
-        self.assertEqual(len(self.get("/box/api/games")["games"]), 12)
+        self.assertEqual(len(self.get("/box/api/games")["games"]), 13)
         with self.assertRaises(urllib.error.HTTPError):
             self.opener.open(self.base + "/box/home/../sofa-box-agent.py", timeout=20)
 
