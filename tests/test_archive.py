@@ -50,6 +50,37 @@ class Archive(unittest.TestCase):
     def tearDown(self):
         archive._get, archive.CACHE = self.real_get, self.real_cache
         config.update(self.before)
+        del archive._first[:]
+        archive._failed.clear()
+        archive._wake.clear()
+
+    def test_the_era_in_view_goes_first(self):
+        """Live TV's guide open on an era whose channels aren't ready: they're fetched next, without the warm-up's
+        pauses; one whose films didn't load just now isn't asked for again at once; the films are read from their
+        file only when it changed."""
+        archive.films("ia-noir")
+        archive.want(["ia-noir", "ia-retro90", "ia-kids90", "ia-nothing"])
+        self.assertEqual(archive._first, ["ia-retro90", "ia-kids90"])        # (ia-noir has its films)
+        self.assertTrue(archive._wake.is_set())
+        archive.want(["ia-kids90"])
+        self.assertEqual(archive._first, ["ia-retro90", "ia-kids90"])        # (once each)
+        self.assertEqual(archive._wanted(), "ia-retro90")
+        archive._get = lambda url, timeout=30: (_ for _ in ()).throw(OSError("the archive is down"))
+        archive._warm_one("ia-retro90")
+        self.assertIn("ia-retro90", archive._failed)
+        del archive._first[:]
+        archive.want(["ia-retro90"])
+        self.assertEqual(archive._first, [])                                 # (failed just now: later)
+        self.assertTrue(archive._fresh("ia-noir"))
+        self.assertFalse(archive._fresh("ia-retro90"))
+        first = archive._saved("ia-noir")
+        self.assertIs(archive._saved("ia-noir"), first)                      # (not read again)
+        with open(archive._path("ia-noir"), "w", encoding="utf-8") as f:
+            json.dump({"at": 1, "films": first[:1]}, f)
+        self.assertEqual(len(archive._saved("ia-noir")), 1)                  # changed: read again
+        config.update({"archive_channels": False})
+        archive.want(["ia-kids90"])
+        self.assertEqual(archive._first, [])                                 # (Retro TV off: nothing fetched)
 
     def test_lengths(self):
         for text, want in (("1:17:26", 4646), ("95 min", 5700), ("01:18:35", 4715), ("123.4", 123), ("?", None), ("", None)):
@@ -252,6 +283,10 @@ class Archive(unittest.TestCase):
             status, g = c.call("/api/live/guide")
             self.assertEqual(status, 200)
             self.assertEqual(len(g["channels"]), len(ia))
+            self.assertEqual(archive._first, [])
+            status, g = c.call("/api/live/guide?era=1990s")                 # the 90s in view: theirs fetched first
+            self.assertEqual(archive._first, [ch["id"] for ch in ia if ch["era"] == "1990s"])
+            del archive._first[:]
             status, on = c.call("/api/live/archive/ia-noir/now")
             self.assertEqual(status, 200)
             self.assertIn(on["film"]["id"], ("noir1", "noir2"))

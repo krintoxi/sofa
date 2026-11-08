@@ -119,6 +119,49 @@ class Controllers(unittest.TestCase):
         self.assertEqual(pads.Pad("Sony Interactive Entertainment DualSense Wireless Controller").feed(1, 307, 1, 0),
                          ["KEY_SLASH"])                                                          # triangle: search
 
+    def test_idle_the_loop_sleeps(self):
+        """Nothing held: woken twice a second (to look at the game), not 33 times; a held arrow wakes it when it
+        repeats; a stick that's the mouse, pushed, often (smooth)."""
+        p = pads.Pad("Xbox Wireless Controller", {0: (-32768, 32767), 1: (-32768, 32767)})
+        entry = [None, p, False, None, {}]
+        self.assertAlmostEqual(pads.next_wait(100.0, 100.0, 100.0, {"a": entry}, None, {}), 0.5)
+        p.feed(1, 545, 1, 100.0)                                             # D-pad down held
+        self.assertAlmostEqual(pads.next_wait(100.0, 100.0, 100.0, {"a": entry}, None, {}), pads.FIRST)
+        p.feed(1, 545, 0, 100.1)
+        self.assertAlmostEqual(pads.next_wait(100.1, 100.0, 100.0, {"a": entry}, None, {}), 0.4)
+        game = {"id": "g", "controls": {"left": "mouse"}}
+        gm = pads.GameMap(game["controls"], "Xbox Wireless Controller", {0: (-32768, 32767), 1: (-32768, 32767)})
+        entry[3] = gm
+        self.assertAlmostEqual(pads.next_wait(100.0, 100.0, 100.0, {"a": entry}, game, {}), 0.5)
+        self.assertEqual(gm.tick(100.0), [])
+        gm.feed(3, 0, 32767)
+        self.assertAlmostEqual(pads.next_wait(100.0, 100.0, 100.0, {"a": entry}, game, {}), 0.012)
+        self.assertEqual(gm.tick(100.0), [])                                 # (from still: no jump on the first tick)
+        self.assertTrue(gm.tick(100.012))
+        self.assertAlmostEqual(pads.next_wait(100.0, 100.0, 100.0, {}, game, {"a": 99.5}), 0.3)   # Home held
+
+    def test_devices_that_arent_controllers_arent_opened_again(self):
+        tmp = tempfile.mkdtemp()
+        try:
+            kb, pad = os.path.join(tmp, "event0"), os.path.join(tmp, "event1")
+            for path in (kb, pad):
+                open(path, "w").close()
+            seen = pads.Seen()
+            found = seen.new([kb, pad])
+            self.assertEqual([p for p, _ in found], [kb, pad])
+            seen.skip(*found[0])                                             # a keyboard
+            self.assertEqual([p for p, _ in seen.new([kb, pad])], [pad])
+            os.remove(kb)
+            self.assertEqual(seen.new([pad]), [(pad, found[1][1])])
+            self.assertNotIn(kb, seen.known)
+            open(kb, "w").close()                                            # something new at that place
+            self.assertEqual([p for p, _ in seen.new([kb])], [kb])
+            seen.skip(*seen.new([kb])[0])
+            os.chmod(kb, 0o600)                                              # (udev giving it its permissions)
+            self.assertEqual([p for p, _ in seen.new([kb])], [kb])
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
 
 LCD_SHOW_CONFIG = """# For more options and information see
 dtparam=audio=on

@@ -196,6 +196,10 @@ class Pad:
                 del self.dirs[k]
         return out
 
+    def next_due(self):
+        """When an arrow held next repeats (None: none held)."""
+        return min(self.dirs.values()) if self.dirs else None
+
     def due(self, now):
         """Arrows held long enough to repeat."""
         out = []
@@ -296,8 +300,16 @@ class GameMap:
             return self._held("right", self._stick("right", ABS_RX, ABS_RY))
         return []
 
+    def moving(self):
+        """A stick that's the mouse, pushed: the mouse moves by itself, so tick() wants calling often."""
+        return any(self.c.get(which) == "mouse" and math.hypot(self._level(ax), self._level(ay)) >= 0.15
+                   for which, (ax, ay) in (("left", (ABS_X, ABS_Y)), ("right", (ABS_RX, ABS_RY))))
+
     def tick(self, now):
         """The mouse, moved by a stick that's its mouse: faster the further it's pushed."""
+        if not self.moving():
+            self.last = None                                # (from still, the next tick starts from now: no jump)
+            return []
         dt, self.last = (0.0 if self.last is None else min(0.1, now - self.last)), now
         out = []
         for which, (ax, ay) in (("left", (ABS_X, ABS_Y)), ("right", (ABS_RX, ABS_RY))):
@@ -322,6 +334,60 @@ class GameMap:
         for which in list(self.dirs):
             out += [("key", k, 0) for k in sorted(self.dirs.pop(which))]
         return out
+
+
+SCAN = 3.0                                  # seconds between looks for controllers that came (Bluetooth)
+GAME_CHECK = 0.5                            # seconds between looks at which game is open
+
+
+def next_wait(now, game_at, last_scan, pads, game, home_down):
+    """How long the loop may sleep: until a held arrow repeats, a held Home leaves a game, or the next look at the
+    game and the controllers. Only a stick that's the mouse, pushed, needs it often (smooth). Idle, the box's
+    controllers wake it twice a second (it used to be 33 times, even with nothing held)."""
+    at = min(game_at + GAME_CHECK, last_scan + SCAN)
+    for entry in pads.values():
+        pad, gm = entry[1], entry[3]
+        if gm is not None:
+            if gm.moving():
+                at = min(at, now + 0.012)
+        elif not game:
+            due = pad.next_due()
+            if due is not None:
+                at = min(at, due)
+    if game and home_down:
+        at = min(at, min(home_down.values()) + HOLD_HOME)
+    return max(0.0, at - now)
+
+
+class Seen:
+    """Input devices looked at already that aren't controllers or remotes (keyboards, the TV's remote over HDMI,
+    the box's own devices): not opened again at every look, until they change. A device that comes back is a new
+    node (another inode), and udev giving it its permissions changes its ctime: both are looked at again."""
+
+    def __init__(self):
+        self.known = {}
+
+    @staticmethod
+    def _key(path):
+        st = os.stat(path)
+        return st.st_ino, st.st_ctime_ns, st.st_rdev
+
+    def new(self, paths):
+        """The paths worth opening: (path, key), key for skip()."""
+        out = []
+        for path in paths:
+            try:
+                key = self._key(path)
+            except OSError:
+                continue
+            if self.known.get(path) != key:
+                out.append((path, key))
+        for path in set(self.known) - set(paths):
+            del self.known[path]
+        return out
+
+    def skip(self, path, key):
+        self.known[path] = key
 
 
 def read_game():
@@ -377,6 +443,7 @@ def main():
     kb = UInput({ecodes.EV_KEY: sorted(keys)}, name="Sofa box controllers")
     ptr = [None]                                            # a mouse, for the games that want one (made when needed)
     pads, remotes, last_scan = {}, {}, 0                    # path -> [device, Pad, generic?, GameMap in a game]
+    seen = Seen()
     names = {v: k for k, v in ecodes.ecodes.items() if k.startswith("KEY_")}
     game, game_at, told, told_at, home_down = None, 0, None, 0, {}
 
@@ -452,7 +519,7 @@ def main():
 
     while True:
         now = time.time()
-        if now - game_at > 0.5:                             # a game opened or ended (the agent says)
+        if now - game_at >= GAME_CHECK:                     # a game opened or ended (the agent says)
             game_at = now
             web = os.path.exists(WEB_GAME_FILE)
             for entry in pads.values():
@@ -469,17 +536,15 @@ def main():
                     for path in list(pads):
                         take(path)
                 print("Game: %s" % (game["id"] if game else "ended"), file=sys.stderr, flush=True)
-        if now - last_scan > 3:                             # controllers come and go (Bluetooth)
+        if now - last_scan >= SCAN:                         # controllers come and go (Bluetooth)
             last_scan = now
-            for path in list_devices():
-                if path in pads or path in remotes:
-                    continue
+            for path, key in seen.new([p for p in list_devices() if p not in pads and p not in remotes]):
                 try:
                     dev = InputDevice(path)
                     caps = dev.capabilities()
                     keys = caps.get(ecodes.EV_KEY, [])
                 except OSError:
-                    continue
+                    continue                                # (not ready yet: looked at again next time)
                 if is_remote(dev.name, keys):
                     try:
                         dev.grab()                          # its keys come from here now, translated
@@ -497,13 +562,16 @@ def main():
                     print("Controller: %s (%s)" % (dev.name, pad_kind(dev.name)), file=sys.stderr, flush=True)
                     if game:
                         take(path)
+                else:
+                    seen.skip(path, key)                    # (a keyboard, the box's own: not opened again)
+                    dev.close()
             now_pads = sorted(({"name": d.name, "kind": pad_kind(d.name)} for d, *_ in pads.values()), key=lambda p: p["name"])
             if now_pads != told or now - told_at > 30:
                 tell_pads(now_pads)
                 told, told_at = now_pads, now
         fds = [e[0].fd for e in pads.values()] + [d.fd for d, _ in remotes.values()]
-        wait = 0.012 if game and controls() else 0.03       # (a stick that's a mouse: smooth)
-        ready = select.select(fds, [], [], wait)[0] if fds else (time.sleep(0.5) or [])
+        wait = next_wait(time.time(), game_at, last_scan, pads, game, home_down)
+        ready = select.select(fds, [], [], wait)[0] if fds else (time.sleep(wait) or [])
         now = time.time()
         for path, (dev, remote) in list(remotes.items()):
             if dev.fd in ready:

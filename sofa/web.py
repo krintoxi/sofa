@@ -684,6 +684,7 @@ class Handler(BaseHTTPRequestHandler):
                               "needs_setup": auth.user_count() == 0, "network": self.network(),
                               "remote": config.get("remote"), "guest_available": bool(self.guest_ok()),
                               "retro_tv": archive.on() and not (u and (u.get("kids") or u.get("visitor"))),
+                              "previews": bool(config.get("previews")),     # (off: a clip that isn't made won't be)
                               "signup": bool(config.get("signups")),
                               "waiting": auth.waiting() if u and u.get("admin") else 0,
                               "profiles": self.may_switch(u) and len(auth.profiles()),
@@ -726,7 +727,11 @@ class Handler(BaseHTTPRequestHandler):
             out["eras"] = [{"id": e, "name": n} for e, n in archive.ERAS] if archive.on() else []   # Live TV's tabs
             return self.json(out)
         if path == "/api/live/guide":                  # the archive channels' guide: what's on and next, by the clock
-            return self.json({"at": int(time.time()), "channels": archive.guide()})
+            chans = archive.guide()
+            era, grp = (qs.get("era") or [""])[0], (qs.get("group") or [""])[0]
+            if era or grp:                             # the channels in view that aren't ready yet: fetched first
+                archive.want([c["id"] for c in chans if not c["programs"] and (c["era"] == era or c["group"] == grp)])
+            return self.json({"at": int(time.time()), "channels": chans})
         m = re.match(r"^/api/live/archive/(ia-[a-z0-9]+)/now$", path)
         if m:                                          # an Internet Archive channel: what's on, from where
             if m.group(1) not in archive.BY_ID or not archive.on():

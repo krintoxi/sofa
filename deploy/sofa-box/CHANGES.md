@@ -7,6 +7,14 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.32
+
+- **The controllers' service rests when nothing is held.** It woke 33 times a second whenever a controller was on,
+  even untouched; now twice, and right when a held arrow repeats (a stick that's a game's mouse still moves it
+  smoothly). It also opened every keyboard, the TV's remote over HDMI and the box's own devices again every three
+  seconds, to see whether they were controllers; now once, and again only when one changes.
+- **Sofa 1.4.2**: updates a power cut can't break, Live TV fetching the era you open first, and a quicker guide
+  ([Sofa's changes](../../CHANGES.md)).
 ## 1.1.31
 
 - **Gloamwell goes deeper.**

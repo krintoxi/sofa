@@ -55,7 +55,7 @@ esac
 # ---- 3. back up the old code and data/ (not your media)
 mkdir -p "$APP/data/backups"
 say "Saving a copy of the current version in data/backups"
-( cd "$APP" && tar czf "data/backups/code-${OLD:-old}-$STAMP.tar.gz" --exclude ./data --exclude ./vendor --exclude ./.git --exclude '__pycache__' . )
+( cd "$APP" && tar czf "data/backups/code-${OLD:-old}-$STAMP.tar.gz" --exclude ./data --exclude ./vendor --exclude ./.git --exclude '__pycache__' --exclude './.sofa-*' . )
 ( cd "$APP/data" && tar czf "backups/data-before-update-$STAMP.tar.gz" --exclude ./cache --exclude ./backups . ) || true
 
 # ---- 4. get the new code
@@ -80,12 +80,23 @@ else
   curl -fsSL "https://codeload.github.com/$REPO/tar.gz/${SHA:-refs/heads/$BRANCH}" -o "$TMP/sofa.tar.gz" || fail "the download didn't work (are you online?)"
   mkdir "$TMP/new" && tar xzf "$TMP/sofa.tar.gz" -C "$TMP/new" --strip-components 1
   [ -f "$TMP/new/sofa.py" ] && [ -f "$TMP/new/sofa/__init__.py" ] || fail "the download doesn't look like Sofa"
-  say "Replacing Sofa's code (data/ and vendor/ stay as they are)"
-  for name in sofa client deploy tools docs integrations sofa.py README.md LICENSE .gitignore; do
-    [ -e "$TMP/new/$name" ] || continue
-    rm -rf "$APP/$name"
-    cp -R "$TMP/new/$name" "$APP/$name"
-  done
+  # (GitHub's API didn't answer: the download itself says which commit it is, in its header)
+  [ -n "$SHA" ] || SHA="$(python3 -c 'import re, sys, tarfile; c = tarfile.open(sys.argv[1]).pax_headers.get("comment", ""); print(c if re.fullmatch("[0-9a-f]{40}", c) else "")' "$TMP/sofa.tar.gz" 2>/dev/null || true)"
+  python3 -m py_compile "$TMP/new/sofa.py" "$TMP/new"/sofa/*.py || fail "the new version didn't pass its check"
+  say "Switching Sofa's code over (data/ and vendor/ stay as they are)"
+  # copied beside the old code, then switched in by renames: cut off part way (a power cut), Sofa's next start
+  # puts the old code back, whole (sofa/swap.py)
+  if [ -f "$TMP/new/sofa/swap.py" ]; then
+    SWAP="$TMP/new/sofa/swap.py"
+    python3 "$SWAP" swap "$APP" "$TMP/new" sofa client deploy tools docs integrations sofa.py README.md LICENSE .gitignore \
+      || { python3 "$SWAP" undo "$APP" >/dev/null 2>&1; fail "the new code couldn't be switched in"; }
+  else
+    for name in sofa client deploy tools docs integrations sofa.py README.md LICENSE .gitignore; do
+      [ -e "$TMP/new/$name" ] || continue
+      rm -rf "$APP/$name"
+      cp -R "$TMP/new/$name" "$APP/$name"
+    done
+  fi
 fi
 
 # ---- 5. check it (start it once on the side), then start it again; if it doesn't work, the old one comes back
@@ -102,6 +113,7 @@ start_sofa() {
 go_back() {
   say "Putting the version you had back"
   if [ -n "${BEFORE:-}" ]; then git -C "$APP" reset --hard "$BEFORE" >/dev/null
+  elif [ -n "${SWAP:-}" ] && python3 "$SWAP" undo "$APP"; then :
   else
     ( cd "$APP" && for name in sofa client deploy tools docs integrations sofa.py README.md LICENSE .gitignore; do rm -rf "$name"; done \
       && tar xzf "$SNAP" )
@@ -122,6 +134,7 @@ NEW="$(sed -n 's/^__version__ = "\(.*\)"/\1/p' "$APP/sofa/__init__.py")"
 printf '{"from": "%s", "to": "%s", "commit": "%s", "snapshot": "%s", "at": %s, "starts": 0}\n' \
   "${OLD:-}" "${NEW:-}" "${BEFORE:-}" "$SNAP" "$(date +%s)" > "$APP/data/update-check.json"
 rm -f "$APP/data/update-rolled-back.json"
+[ -n "${SWAP:-}" ] && python3 "$SWAP" commit "$APP"                     # it works: the old code's copy is let go
 [ -n "${SHA:-}" ] && printf %s "$SHA" > "$APP/data/installed-commit"      # which commit this is (Server → Updates)
 start_sofa
 say "Done. Sofa ${OLD:-} -> ${NEW:-new version}. Your library, accounts and settings are untouched."

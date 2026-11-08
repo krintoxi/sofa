@@ -583,7 +583,7 @@ function heroClip(slide) {
   document.querySelectorAll(".hero-clip").forEach(v => { if (!slide.contains(v)) dropClip(v); });
   const h = slide.closest(".hero.carousel"); if (h) delete h.dataset.playing;
   const ctl = h && $(".banner-ctl", h); if (ctl) ctl.hidden = true;
-  if (motion() === "off" || !slide.dataset.clip || prefs.get("bannerClips", true) === false) return;
+  if (motion() === "off" || !slide.dataset.clip || clipless(slide.dataset.clip) || prefs.get("bannerClips", true) === false) return;
   clipTimer = setTimeout(() => {
     if (!document.contains(slide) || !slide.classList.contains("on") || Player.isOpen() || document.hidden || slide.querySelector(".hero-clip")) return;
     const v = clipVideo(slide.dataset.clip, true);
@@ -1506,12 +1506,17 @@ async function toggleFav(key, btn) {
    With a TV remote (or the keyboard), the focused card plays its clip in place. */
 let pvCard = null, pvTimer = 0, pop = null;
 const fineHover = matchMedia("(hover: hover) and (pointer: fine)").matches && !TV;
+// With previews off on the server, a title that has no clip has none to come: not asked for again (the banner
+// used to ask at every turn, and get "not ready" each time). With them on, "not ready" means it's being made.
+const noClip = new Set();
+const clipless = id => noClip.has(id);
 function clipVideo(id, hd) {
   const v = document.createElement("video");
   v.className = "pv"; v.muted = !clipSound(); v.loop = true; v.playsInline = true; v.preload = "auto";
   v.setAttribute("playsinline", ""); v.setAttribute("aria-hidden", "true");
+  if (clipless(id)) return v;
   v.addEventListener("playing", () => { v.classList.add("on"); soloSound(v); }, { once: true });
-  v.addEventListener("error", () => v.remove(), { once: true });
+  v.addEventListener("error", () => { if (session && session.previews === false) noClip.add(id); v.remove(); }, { once: true });
   v.src = "/media/" + encodeURIComponent(id) + "/preview.mp4" + (hd ? "?hd=1" : "");
   playClip(v);
   return v;
@@ -1533,7 +1538,7 @@ function startPreview(card) {
     if (pvCard !== card || Player.isOpen() || !document.contains(card)) return;
     if (fineHover && card.dataset.pop) return openPop(card);
     const frame = card.querySelector(".frame") || card;
-    frame.appendChild(clipVideo(card.dataset.pv));
+    if (!clipless(card.dataset.pv)) frame.appendChild(clipVideo(card.dataset.pv));
   }, TV ? 900 : 650);
 }
 function popInfo(x) {
@@ -1825,6 +1830,7 @@ function viewLive() {
    computer), redrawn only when a programme ends or the half hour turns. Up and down go through the channels at the
    same time of day, left and right through a channel's programmes; OK watches; digits go straight to a channel. ---- */
 let guideData = null, guideAt = 0, guideTimer = 0, guideT0 = 0, guidePicTimer = 0, guidePeekTimer = 0, guidePeek = null;
+let guideSoon = 0, guideTries = 0;
 let guideShown = null, guideHover = null, dialBuf = "", dialTimer = 0;
 const GUIDE_SPAN = 2 * 3600;
 const isGuide = () => !liveQuery && (eraMode() ? !!liveEra && liveEra !== "now" && liveEra !== "fav"
@@ -1832,13 +1838,24 @@ const isGuide = () => !liveQuery && (eraMode() ? !!liveEra && liveEra !== "now" 
 const hhmm = t => new Date(t * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 const mins = s => { const m = Math.max(1, Math.round(s / 60)); return m >= 60 ? Math.floor(m / 60) + " h" + (m % 60 ? " " + (m % 60) + " min" : "") : m + " min"; };
 async function loadGuide() {
-  try { guideData = await api("/api/live/guide"); } catch (e) { guideData = guideData || { error: e.message, channels: [] }; }
+  // (the era in view: its channels not ready yet are fetched first, and asked for again soon until they are)
+  const q = eraMode() ? (liveEra && liveEra !== "now" && liveEra !== "fav" ? "?era=" + encodeURIComponent(liveEra) : "")
+    : (liveGroup ? "?group=" + encodeURIComponent(liveGroup) : "");
+  try { guideData = await api("/api/live/guide" + q); } catch (e) { guideData = guideData || { error: e.message, channels: [] }; }
   guideAt = Date.now();
   drawGuide();
+  clearTimeout(guideSoon);
+  if (!guideData.error && guideChannels().some(c => !(c.programs || []).length)) {
+    guideTries++;
+    guideSoon = setTimeout(() => { if ($("#guide") && !Player.isOpen() && !document.hidden) loadGuide(); },
+      guideTries < 12 ? 6000 : 60000);
+  } else guideTries = 0;
 }
 function watchGuide() {
   if (!$("#guide")) { clearInterval(guideTimer); stopPeek(); return; }
-  if (guideData && Date.now() - guideAt < 10 * 60000) drawGuide(); else loadGuide();
+  const age = Date.now() - guideAt, waiting = guideData && guideChannels().some(c => !(c.programs || []).length);
+  if (guideData) drawGuide();
+  if (!guideData || age > 10 * 60000 || (waiting && age > 2000)) loadGuide();   // (an era not ready yet: asked for first)
 }
 const guideChannels = () => guideData ? guideData.channels.filter(c => eraMode() ? c.era === liveEra : c.group === liveGroup) : [];
 function guideProg(b) {
@@ -2987,7 +3004,7 @@ document.addEventListener("click", e => {
   }
   if (t.dataset.group) { liveGroup = t.dataset.group; liveQuery = ""; prefs.set("liveGroup", liveGroup); rerender(); return; }
   if (t.dataset.era) {
-    liveEra = t.dataset.era; liveQuery = ""; prefs.set("liveEra", liveEra); guideShown = null; stopPeek(); rerender();
+    liveEra = t.dataset.era; liveQuery = ""; prefs.set("liveEra", liveEra); guideShown = null; guideTries = 0; stopPeek(); rerender();
     const tab = $(`[data-era="${CSS.escape(liveEra)}"]`); if (tab && TV && !isGuide()) tab.focus({ preventScroll: true });
     return;
   }

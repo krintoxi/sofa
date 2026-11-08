@@ -95,6 +95,33 @@ class LiveTV(unittest.TestCase):
             live._StayOut().redirect_request(req, None, 302, "Found", {}, "http://192.168.1.1/")
         self.assertIsNotNone(live._StayOut().redirect_request(req, None, 302, "Found", {}, "http://1.1.1.1/b.m3u8"))
 
+    def test_a_name_that_changes_its_answer_gets_nowhere(self):
+        """Checked first and connected after, a name could answer an internet address, then this computer's: the
+        connection goes only to an address that was checked (DNS rebinding)."""
+        port = self.up.server_address[1]
+        seen, real = [], live.socket.getaddrinfo
+
+        def lookup(host, *a, **k):
+            if host != "rebind.example":
+                return real(host, *a, **k)
+            seen.append(host)
+            ip = "93.184.216.34" if len(seen) == 1 else "127.0.0.1"          # (an internet address the first time)
+            return [(live.socket.AF_INET, live.socket.SOCK_STREAM, 6, "", (ip, port))]
+        live.socket.getaddrinfo = lookup
+        try:
+            with self.assertRaises((PermissionError, urllib.error.URLError)) as caught:
+                live.fetch("http://rebind.example:%d/one/seg1.ts" % port, home_ok=False, timeout=5)
+        finally:
+            live.socket.getaddrinfo = real
+        self.assertEqual(len(seen), 2)                                            # checked, then looked up to connect
+        err = caught.exception
+        self.assertIsInstance(getattr(err, "reason", err), PermissionError)
+        with self.assertRaises(PermissionError):
+            live._connect_out(("127.0.0.1", port), 5)
+        # a list at home: fetched as before
+        with live.fetch(Upstream.base + "/one/seg1.ts", timeout=5) as r:
+            self.assertEqual(r.read(), b"G" * 188)
+
 
 if __name__ == "__main__":
     unittest.main()

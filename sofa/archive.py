@@ -7,6 +7,7 @@ category that has one playable video file and a length, leaving out what doesn't
 archive's films include exploitation pictures). A channel's list is fetched the first time someone tunes in, and
 again after a week; it's kept in data/cache/archive.
 """
+import functools
 import hashlib
 import json
 import os
@@ -204,6 +205,11 @@ BREAK = 3                            # commercials between two shows on Retro TV
 BY_ID = {c[0]: c for c in CHANNELS}
 _lock = threading.Lock()
 _building = set()
+_first = []                          # channels someone is waiting for (Live TV's guide open on their era): fetched next
+_wake = threading.Event()
+_mem = {}                            # a channel's file -> (how it was when read, its films)
+_failed = {}                         # channel -> when its films last didn't load (asked for again after a while)
+RETRY = 120
 
 
 def on():
@@ -227,8 +233,10 @@ NOISE = re.compile(r"""(?ix)
  | \btape\s*\#?\s*\d+\b | \btape\b | \bvhs\b | \(ctv\) | \brecorded\s+on\b.*$ | \bpt\.?\s*\d+\b | \bpart\s+\d+(\s+of\s+\d+)?\b
 """)
 
+@functools.lru_cache(maxsize=8192)
 def tidy(raw):
-    """A tape's title -> (the programme's name, when it aired as text or None)."""
+    """A tape's title -> (the programme's name, when it aired as text or None). (Kept: the guide asks for every
+    programme's, every time it's drawn.)"""
     t = " " + re.sub(r"[_]+", " ", unicodedata.normalize("NFKC", raw)) + " "   # (𝐁𝐨𝐥𝐝 letters: plain ones)
     aired = None
     pats = [
@@ -378,12 +386,31 @@ def _name(f):
 
 
 def _saved(cid):
-    """The channel's films as kept, without asking the archive (None: not fetched yet)."""
+    """The channel's films as kept, without asking the archive (None: not fetched yet). Read again only when its
+    file changed (Live TV's list and guide ask for every channel's)."""
+    path = _path(cid)
     try:
-        with open(_path(cid), encoding="utf-8") as f:
-            return json.load(f).get("films") or None
+        st = os.stat(path)
+    except OSError:
+        return None
+    key = (st.st_mtime_ns, st.st_size, st.st_ino)
+    hit = _mem.get(path)
+    if hit and hit[0] == key:
+        return hit[1]
+    try:
+        with open(path, encoding="utf-8") as f:
+            fl = json.load(f).get("films") or None
     except (OSError, ValueError):
         return None
+    _mem[path] = (key, fl)
+    return fl
+
+
+def _fresh(cid):
+    try:
+        return time.time() - os.path.getmtime(_path(cid)) < KEEP and _saved(cid) is not None
+    except OSError:
+        return False
 
 
 def seconds(length):
@@ -528,24 +555,69 @@ def films(cid, wait=True):
     return (saved or {}).get("films") or []
 
 
+def want(cids):
+    """Live TV's guide is open on these channels: the ones not fetched yet are fetched next, one after the other,
+    without the warm-up's pauses. (On a new box the era in view is ready in a minute, instead of its turn coming
+    in the ten minutes the whole warm-up takes.)"""
+    soon = time.time() - RETRY
+    new = [c for c in cids if c in BY_ID and _saved(c) is None and _failed.get(c, 0) < soon]
+    if not new or not on():
+        return
+    with _lock:
+        for c in new:
+            if c not in _first and c not in _building:
+                _first.append(c)
+    _wake.set()
+
+
+def _wanted():
+    with _lock:
+        return _first.pop(0) if _first else None
+
+
 def _warm():
-    """Every channel's films, ready before anyone tunes in (a few seconds each, a channel at a time), then kept fresh."""
-    time.sleep(120)                                         # (Sofa reads its library first)
+    """Every channel's films, ready before anyone tunes in (a few seconds each, a channel at a time, with a pause
+    between), then kept fresh. A channel someone is waiting for goes first (want())."""
+    _wake.wait(120)                                         # (Sofa reads its library first, unless Live TV is opened)
+    _wake.clear()
+    todo, next_round = [], 0.0
     while True:
-        _warm_once(pause=10)
-        time.sleep(6 * 3600)
+        cid = _wanted()
+        waited_for = cid is not None
+        if cid is None:
+            if not todo and time.time() >= next_round:
+                todo, next_round = sorted(BY_ID, key=NUMBER.get), time.time() + 6 * 3600   # (the dial's order: the 2000s first, where Live TV opens)
+            while todo and cid is None:
+                c = todo.pop(0)
+                cid = None if _fresh(c) else c              # (fetched already, for someone waiting: no pause for it)
+        if cid is None:
+            _wake.wait(max(1.0, next_round - time.time()) if not todo else 1.0)
+            _wake.clear()
+            continue
+        _warm_one(cid)
+        if not waited_for:
+            _wake.wait(10)                                  # (the pause between channels, cut short when someone waits)
+            _wake.clear()
+
+
+def _warm_one(cid):
+    """One channel; one that fails (the archive down, an odd item) waits for the next round, the rest go on."""
+    if not on():
+        return
+    try:
+        films(cid)
+        _failed.pop(cid, None)
+    except (OSError, ValueError):
+        _failed[cid] = time.time()
+    except Exception as e:                               # (never the end of the others: it used to stop them all)
+        _failed[cid] = time.time()
+        print("Archive channel %s: %s: %s" % (cid, type(e).__name__, e), file=sys.stderr, flush=True)
 
 
 def _warm_once(pause=0):
-    """Each channel in turn; one that fails (the archive down, an odd item) waits for the next round, the rest go on."""
+    """Each channel in turn, now."""
     for cid in BY_ID:
-        if on():
-            try:
-                films(cid)
-            except (OSError, ValueError):
-                pass
-            except Exception as e:                       # (never the end of the others: it used to stop them all)
-                print("Archive channel %s: %s: %s" % (cid, type(e).__name__, e), file=sys.stderr, flush=True)
+        _warm_one(cid)
         time.sleep(pause)
 
 

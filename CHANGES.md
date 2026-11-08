@@ -6,6 +6,26 @@ has its own numbers and list: [deploy/sofa-box/CHANGES.md](deploy/sofa-box/CHANG
 A change to Sofa's code (`sofa/`, `client/`, `sofa.py`) gets a new version: raise `__version__`, add a section
 here, then `python3 tools/sofa-version.py` (a test checks it was done).
 
+## 1.4.2 (2026-11-08)
+
+- **An update can't leave Sofa broken.** The Update button (and `tools/update.sh`) deleted the old code, then
+  copied the new; a power cut in those seconds left no code at all, and Sofa couldn't start, or go back. Now the
+  new version is copied beside the old one, checked there, and switched in by renames, and the old one is let go
+  only once the new one has passed its test start. Cut off at any point, Sofa's next start puts the version
+  before back, whole. Code that doesn't compile never touches the version you have.
+- **Server → Updates says which commit Sofa runs**, even when GitHub didn't answer the question: the download
+  itself says. (An update that didn't work used to record the new commit anyway.)
+- **Live TV opens on what you're looking at.** On a new Sofa, Retro TV's channels were fetched one at a time, ten
+  seconds apart, so an era could say "Getting this channel ready…" for ten minutes. Now the era you open is
+  fetched first, without the pauses, and the guide looks again every few seconds until it's there. The warm-up
+  goes in the dial's order, so the 2000s, where Live TV opens, come first.
+- **The guide is ten times quicker to make** (16 ms to 1.6 ms on a Mac with 47 channels): programme names and each
+  channel's films are kept in memory, and read again only when they change.
+- **Live TV can't be steered home by a name that changes its answer.** The check that a channel from the internet
+  doesn't lead into the home network looked a name up, then connected, and a name could answer differently the
+  second time. Now the connection goes to an address that was checked.
+- **With previews off, the banner doesn't ask again** for a clip that won't be made (it asked at every turn).
+
 ## 1.4.1 (2026-11-08)
 
 - **Retro TV and Classic Cinema favourites are kept.** Their ★ went nowhere (only a channel list's channels could be

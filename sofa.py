@@ -25,6 +25,58 @@ sys.path.insert(0, APP)
 CODE = ("sofa", "client", "deploy", "tools", "docs", "integrations", "sofa.py", "README.md", "LICENSE", ".gitignore")
 
 
+def _swapper():
+    """sofa/swap.py, loaded on its own (only the standard library), from wherever it is now: an update cut off
+    between two renames may have sofa/ itself moved aside, in .sofa-old (whose copy, the version before's, wrote
+    the swap's journal and is tried first)."""
+    import importlib.util
+    for where in (os.path.join(APP, ".sofa-old"), APP):
+        path = os.path.join(where, "sofa", "swap.py")
+        if os.path.isfile(path):
+            spec = importlib.util.spec_from_file_location("sofa_swap_at_start", path)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            return mod
+    return None
+
+
+def finish_swap():
+    """An update swaps Sofa's code by renames (sofa/swap.py). Cut off part way (a power cut, a restart), the version
+    before is put back here, whole, before anything of the new code is loaded."""
+    for name in os.listdir(APP):
+        if name.startswith(".sofa-restore-"):                     # (a saved copy being unpacked when it was cut off)
+            import shutil
+            shutil.rmtree(os.path.join(APP, name), ignore_errors=True)
+    if not any(os.path.lexists(os.path.join(APP, n)) for n in (".sofa-old", ".sofa-new", ".sofa-old-done", ".sofa-undone")):
+        return
+    try:
+        mod = _swapper()
+        if mod and mod.recover(APP):
+            print("An update was cut off part way, so the version before was put back.", flush=True)
+            data = os.environ.get("SOFA_DATA", os.path.join(APP, "data"))
+            try:
+                os.remove(os.path.join(data, "update-check.json"))     # (no new version to watch)
+            except OSError:
+                pass
+    except Exception as exc:
+        print("Finishing an update didn't work: %r" % (exc,), flush=True)
+
+
+def restore_snapshot(snapshot):
+    """The code from a saved copy (data/backups/code-*.tar.gz), switched in by renames like an update."""
+    import tempfile
+    with tempfile.TemporaryDirectory(dir=APP, prefix=".sofa-restore-") as tmp:
+        with tarfile.open(snapshot) as tar:
+            for t in tar.getmembers():
+                if t.name.startswith("/") or ".." in t.name.split("/"):
+                    raise RuntimeError("the saved copy has odd paths: %s" % t.name)
+            tar.extractall(tmp)
+        mod = _swapper()
+        if mod is None:
+            raise RuntimeError("sofa/swap.py is missing")
+        mod.replace_with(APP, tmp, [n for n in CODE if os.path.lexists(os.path.join(tmp, n))])
+
+
 def watch_update():
     """Right after an update, data/update-check.json is there. If the new version keeps stopping
     (a fourth start within its first minute and a half), go back to the version before by itself.
@@ -46,14 +98,7 @@ def watch_update():
         if m.get("commit") and os.path.isdir(os.path.join(APP, ".git")):
             subprocess.run(["git", "-C", APP, "reset", "--hard", m["commit"]], check=True, capture_output=True)
         elif m.get("snapshot") and os.path.isfile(m["snapshot"]):
-            for name in CODE:
-                p = os.path.join(APP, name)
-                if os.path.isdir(p) and not os.path.islink(p):
-                    subprocess.run(["rm", "-rf", p])
-                elif os.path.exists(p):
-                    os.remove(p)
-            with tarfile.open(m["snapshot"]) as tar:
-                tar.extractall(APP)
+            restore_snapshot(m["snapshot"])
         with open(os.path.join(data, "update-rolled-back.json"), "w", encoding="utf-8") as f:
             json.dump({"at": int(time.time()), "to": m.get("to"), "back_to": m.get("from")}, f)
     except Exception as exc:
@@ -67,6 +112,7 @@ def watch_update():
 
 
 if __name__ == "__main__" and sys.argv[1:2] == ["serve"]:
+    finish_swap()
     watch_update()
 
 from sofa import __version__, apps, auth, awake, ddns, tls, upnp, backup, config, discovery, dlna, organizer, store, updater, watcher, web  # noqa: E402

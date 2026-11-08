@@ -84,8 +84,10 @@ def urlopen(req, timeout=20, handlers=()):
     if time.time() < _down_until[0]:
         raise Offline("the internet can't be reached right now")
     try:
-        if handlers:
-            return urllib.request.build_opener(urllib.request.HTTPSHandler(context=context()), *handlers).open(req, timeout=timeout)
+        if handlers:                          # (live.py's own https handler, when it brings one, has this context)
+            own = any(isinstance(h, urllib.request.HTTPSHandler) for h in handlers)
+            base = () if own else (urllib.request.HTTPSHandler(context=context()),)
+            return urllib.request.build_opener(*base, *handlers).open(req, timeout=timeout)
         return urllib.request.urlopen(req, timeout=timeout, context=context())
     except urllib.error.HTTPError:
         raise

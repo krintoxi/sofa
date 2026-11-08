@@ -9,6 +9,9 @@ Before updating, Sofa makes its usual backup of data/ and a copy of the current
 code (data/backups/code-<version>-<date>.tar.gz), so an update can always be
 undone. If the new code doesn't even compile, the old code is put back.
 
+A downloaded version is copied beside the old code first and switched in by renames (sofa/swap.py), and the old
+code is let go only once the new one has passed a test start; a power cut part way leaves the old one, whole.
+
 Installs made with `git clone` update with git (local edits are stashed, not lost);
 others download the newest version as a .tar.gz from GitHub.
 """
@@ -27,7 +30,7 @@ import threading
 import time
 import urllib.request
 
-from . import __version__, backup, config, net, store
+from . import __version__, backup, config, net, store, swap
 
 CODE = ("sofa", "client", "deploy", "tools", "docs", "integrations", "sofa.py", "README.md", "LICENSE", ".gitignore")
 NEVER = ("data", "vendor", ".git")
@@ -211,14 +214,18 @@ def _snapshot_code():
 
 
 def _restore_code(snapshot):
-    with tarfile.open(snapshot) as tar:
-        for name in CODE:
-            p = os.path.join(config.APP_DIR, name)
-            if os.path.isdir(p):
-                shutil.rmtree(p)
-            elif os.path.exists(p):
-                os.remove(p)
-        tar.extractall(config.APP_DIR)
+    """The code from a saved copy, switched in by renames like an update."""
+    with tempfile.TemporaryDirectory(dir=config.APP_DIR, prefix=".sofa-restore-") as tmp:
+        with tarfile.open(snapshot) as tar:
+            _check_members(tar)
+            tar.extractall(tmp)
+        swap.replace_with(config.APP_DIR, tmp, [n for n in CODE if n not in NEVER and os.path.lexists(os.path.join(tmp, n))])
+
+
+def _check_members(tar):
+    for m in tar.getmembers():
+        if m.name.startswith("/") or ".." in m.name.split("/") or m.issym() or m.islnk():
+            raise RuntimeError("the download looks wrong (unsafe paths); nothing was changed")
 
 
 def _new_version():
@@ -242,18 +249,25 @@ def _selftest():
 
 
 def _go_back(snapshot, before):
-    if is_git_install() and before:
-        _git("reset", "--hard", before)
-    else:
+    if is_git_install():
+        if before:
+            _git("reset", "--hard", before)
+        return
+    try:
+        swap.undo(config.APP_DIR)                     # (nothing to undo when it stopped before the switch)
+        swap.commit(config.APP_DIR)                   # (and the staged copy cleared away)
+    except Exception as exc:
+        store.log("update", "Switching back by renames didn't work (%s); unpacking the saved copy." % exc)
         _restore_code(snapshot)
 
 
-def _compiles():
-    for d, _dirs, files in os.walk(os.path.join(config.APP_DIR, "sofa")):
+def _compiles(root=None):
+    root = root or config.APP_DIR
+    for d, _dirs, files in os.walk(os.path.join(root, "sofa")):
         for f in files:
             if f.endswith(".py"):
                 py_compile.compile(os.path.join(d, f), doraise=True)
-    py_compile.compile(os.path.join(config.APP_DIR, "sofa.py"), doraise=True)
+    py_compile.compile(os.path.join(root, "sofa.py"), doraise=True)
 
 
 def _update_git():
@@ -280,44 +294,52 @@ def _update_download():
     data = _get("https://codeload.github.com/%s/tar.gz/refs/heads/%s" % (repo, branch), timeout=600)
     with tempfile.TemporaryDirectory() as tmp:
         with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as tar:
-            for m in tar.getmembers():
-                if m.name.startswith("/") or ".." in m.name.split("/") or m.issym() or m.islnk():
-                    raise RuntimeError("the download looks wrong (unsafe paths); nothing was changed")
+            _check_members(tar)
+            sha = tar_commit(tar) or _state.get("latest_commit")
             tar.extractall(tmp)
         top = [os.path.join(tmp, n) for n in os.listdir(tmp)]
         src = top[0] if len(top) == 1 and os.path.isdir(top[0]) else tmp
         if not os.path.isfile(os.path.join(src, "sofa.py")) or not os.path.isfile(os.path.join(src, "sofa", "__init__.py")):
             raise RuntimeError("the download doesn't look like Sofa; nothing was changed")
-        _step("Replacing Sofa's code (your media, accounts and settings stay as they are)")
-        for name in CODE:
-            new, old = os.path.join(src, name), os.path.join(config.APP_DIR, name)
-            if not os.path.exists(new) or name in NEVER:
-                continue
-            if os.path.isdir(old):
-                shutil.rmtree(old)
-            elif os.path.exists(old):
-                os.remove(old)
-            (shutil.copytree if os.path.isdir(new) else shutil.copy2)(new, old)
-    sha = _state.get("latest_commit")
-    if sha:
-        with open(STAMP_FILE, "w") as f:
-            f.write(sha)
+        _step("Copying the new version beside the old one")
+        staged = swap.stage(config.APP_DIR, src, [n for n in CODE if n not in NEVER and os.path.lexists(os.path.join(src, n))])
+    _step("Checking the new version")
+    _compiles(staged)
+    _step("Switching Sofa's code over (your media, accounts and settings stay as they are)")
+    swap.swap(config.APP_DIR)
+    return sha
+
+
+def tar_commit(tar):
+    """The commit a GitHub download is of: git archive writes it in the file's header (even when GitHub's API,
+    asked which commit is newest, didn't answer)."""
+    sha = (tar.pax_headers or {}).get("comment", "")
+    return sha if re.fullmatch(r"[0-9a-f]{40}", sha) else None
 
 
 def _run():
     try:
         _step("Backing up accounts, watch history and settings")
         backup.make("before updating Sofa")
-        snapshot, before = _snapshot_code(), _local_commit()
+        snapshot, before, git = _snapshot_code(), _local_commit(), is_git_install()
+        sha = None
         try:
-            (_update_git if is_git_install() else _update_download)()
-            _step("Checking the new version")
-            _compiles()
+            if git:
+                _update_git()
+                _step("Checking the new version")
+                _compiles()
+            else:
+                sha = _update_download()
             _step("Starting the new version once on the side, to be sure it works")
             _selftest()
         except Exception:
             _go_back(snapshot, before)
             raise
+        if not git:
+            swap.commit(config.APP_DIR)                 # the new version works: the old one's copy is let go
+            if sha:
+                with open(STAMP_FILE, "w") as f:
+                    f.write(sha)
         with open(WATCH_FILE, "w", encoding="utf-8") as f:     # after the switch: go back by itself if it keeps stopping
             json.dump({"from": __version__, "to": _new_version(), "commit": before if is_git_install() else None,
                        "snapshot": snapshot, "at": int(time.time()), "starts": 0}, f)

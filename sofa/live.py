@@ -15,6 +15,7 @@ channels only come from lists you add yourself.
 import base64
 import hashlib
 import hmac
+import http.client
 import ipaddress
 import os
 import re
@@ -106,6 +107,9 @@ def parse_m3u(text, source, adult=False):
     return channels
 
 
+HOME = "a channel from the internet can't lead to the home network"
+
+
 def fetch(url, headers=None, timeout=15, home_ok=True):
     h = {"User-Agent": AGENT}
     h.update(headers or {})
@@ -113,8 +117,15 @@ def fetch(url, headers=None, timeout=15, home_ok=True):
     if home_ok:
         return net.urlopen(req, timeout=timeout)
     if at_home(url):
-        raise PermissionError("a channel from the internet can't lead to the home network")
-    return net.urlopen(req, timeout=timeout, handlers=(_StayOut(),))
+        raise PermissionError(HOME)
+    return net.urlopen(req, timeout=timeout, handlers=(_StayOut(), urllib.request.ProxyHandler({}),
+                                                       _OutHTTPHandler(), _OutHTTPSHandler(context=net.context())))
+
+
+def _home_ip(ip):
+    a = ipaddress.ip_address(ip.split("%")[0])
+    a = getattr(a, "ipv4_mapped", None) or a
+    return not a.is_global or a.is_multicast
 
 
 def at_home(url):
@@ -126,12 +137,55 @@ def at_home(url):
         found = {a[4][0] for a in socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)}
     except (OSError, UnicodeError):
         return False                                    # (it can't be fetched either)
-    for ip in found:
-        a = ipaddress.ip_address(ip.split("%")[0])
-        a = getattr(a, "ipv4_mapped", None) or a
-        if not a.is_global or a.is_multicast:
-            return True
-    return False
+    return any(_home_ip(ip) for ip in found)
+
+
+def _connect_out(address, timeout=socket._GLOBAL_DEFAULT_TIMEOUT, source_address=None):
+    """A connection to the internet and never to the home network: the name is looked up once, every address it gives
+    is checked, and the connection goes to one of those very addresses. (Checked first and connected after, a name
+    could change its answer in between, to a router's page or this computer.)"""
+    host, port = address
+    infos = socket.getaddrinfo(host, port, 0, socket.SOCK_STREAM)
+    if not infos or any(_home_ip(sa[0]) for *_x, sa in infos):
+        raise PermissionError(HOME)
+    err = None
+    for family, kind, proto, _name, sa in infos:
+        sock = None
+        try:
+            sock = socket.socket(family, kind, proto)
+            if timeout is not socket._GLOBAL_DEFAULT_TIMEOUT:
+                sock.settimeout(timeout)
+            if source_address:
+                sock.bind(source_address)
+            sock.connect(sa)
+            return sock
+        except OSError as exc:
+            err = exc
+            if sock is not None:
+                sock.close()
+    raise err
+
+
+class _OutHTTP(http.client.HTTPConnection):
+    def __init__(self, *a, **k):
+        super().__init__(*a, **k)
+        self._create_connection = _connect_out
+
+
+class _OutHTTPS(http.client.HTTPSConnection):
+    def __init__(self, *a, **k):
+        super().__init__(*a, **k)
+        self._create_connection = _connect_out
+
+
+class _OutHTTPHandler(urllib.request.HTTPHandler):
+    def http_open(self, req):
+        return self.do_open(_OutHTTP, req)
+
+
+class _OutHTTPSHandler(urllib.request.HTTPSHandler):
+    def https_open(self, req):
+        return self.do_open(_OutHTTPS, req, context=self._context)
 
 
 class _StayOut(urllib.request.HTTPRedirectHandler):
@@ -139,7 +193,7 @@ class _StayOut(urllib.request.HTTPRedirectHandler):
 
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         if at_home(newurl):
-            raise PermissionError("a channel from the internet can't lead to the home network")
+            raise PermissionError(HOME)
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
