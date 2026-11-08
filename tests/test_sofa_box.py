@@ -78,8 +78,27 @@ class Controllers(unittest.TestCase):
         self.assertEqual(p.feed(3, 17, 0, 1.5), [])
         self.assertEqual(p.due(3), [])
         self.assertEqual(p.feed(3, 0, 30000, 4), ["KEY_RIGHT"])               # the stick
-        self.assertEqual(p.feed(3, 10, 900, 5), ["KEY_REWIND"])               # a trigger, once per press
+        self.assertEqual(p.feed(3, 0, 0, 4.2), [])                           # (the stick let go)
+        self.assertEqual(p.feed(3, 10, 900, 5), ["VOLDOWN"])                  # LT: the volume down...
         self.assertEqual(p.feed(3, 10, 950, 5.1), [])
+        self.assertEqual(p.due(5.5), ["VOLDOWN"])                             # ...on and on while held
+        self.assertEqual(p.due(5.65), [])                                     # (a little slower than the arrows)
+        self.assertEqual(p.due(5.75), ["VOLDOWN"])
+        self.assertEqual(p.feed(3, 10, 0, 6), [])
+        self.assertEqual(p.due(7), [])
+        self.assertEqual(p.feed(1, 315, 1, 8), ["KEY_F2"])                    # Menu: the options for what's in focus
+        self.assertEqual(p.feed(1, 310, 1, 8.1), ["KEY_REWIND"])              # LB
+
+    def test_trigger_buttons_and_remote_volume(self):
+        p = pads.Pad("USB Gamepad")
+        self.assertEqual(p.feed(1, 313, 1, 0), ["VOLUP"])                     # a pad whose triggers are buttons
+        self.assertEqual(p.feed(1, 313, 0, 0.1), [])
+        r = pads.Remote({})
+        self.assertEqual(r.feed(1, 115, 1), [("VOLUP", 1)])                   # a remote's volume keys: the box's volume
+        self.assertEqual(r.feed(1, 114, 2), [("VOLDOWN", 1)])                 # (held: its repeats)
+        self.assertEqual(r.feed(1, 113, 1), [("MUTE", 1)])
+        self.assertEqual(r.feed(1, 113, 2), [])
+        self.assertEqual(r.feed(1, 115, 0), [])
 
     def test_playstation_layout(self):
         self.assertEqual(pads.Pad("Wireless Controller").feed(1, 308, 1, 0), ["KEY_PLAYPAUSE"])    # square
@@ -1422,6 +1441,45 @@ class LiveBanner(unittest.TestCase):
         p.banner(at)
         self.assertEqual((said[0][0], said[0][2]), ("show-text", 5000))
         return said[0][1]
+
+    def test_the_volume(self):
+        self.assertEqual(self.agent.parse_volume("Volume: 0.45\n"), (45, False))                 # wpctl
+        self.assertEqual(self.agent.parse_volume("Volume: 0.30 [MUTED]\n"), (30, True))
+        self.assertEqual(self.agent.parse_volume("Volume: front-left: 29491 /  45% / -20.81 dB,   front-right: 29491 /  45%"
+                                                 "\nMute: yes\n"), (45, True))                    # pactl
+        self.assertEqual(self.agent.parse_volume(""), (None, False))
+
+    def test_the_options_menu(self):
+        """Menu while a video plays: subtitles, sound, speed, volume; the arrows and OK are the menu's while it's open."""
+        a = self.agent
+        p, said = a.Player(), []
+        tracks = [{"type": "video", "id": 1}, {"type": "audio", "id": 1, "lang": "eng", "selected": True},
+                  {"type": "audio", "id": 2, "lang": "spa"}, {"type": "sub", "id": 1, "lang": "eng"},
+                  {"type": "sub", "id": 2, "title": "Signs", "forced": True}]
+        p.command = lambda *cmd: said.append(cmd) or ({"track-list": tracks, "speed": 1.0}.get(cmd[1]) if cmd[0] == "get_property" else None)
+        p.payload = {"title": "Heat"}
+        real = a.playing, a.volume_now
+        a.playing, a.volume_now = (lambda: True), (lambda: (40, False))
+        try:
+            p.menu_toggle()
+            self.assertIn(("enable-section", "sofa-menu", "exclusive"), said)
+            text = said[-1][1]
+            for word in ("Options", "Subtitles", "Off", "Sound", "Speed", "Volume", "40%", "Close"):
+                self.assertIn(word, text)
+            p.menu_key("right")                                            # Subtitles: Off -> English
+            self.assertIn(("set_property", "sid", 1), said)
+            p.menu_key("right")
+            self.assertIn(("set_property", "sid", 2), said)
+            self.assertIn("Signs (forced)", said[-1][1])
+            p.menu_key("down")                                             # Sound: English -> Spanish
+            p.menu_key("ok")
+            self.assertIn(("set_property", "aid", 2), said)
+            p.menu_key("back")
+            self.assertIn(("disable-section", "sofa-menu"), said)
+            self.assertIsNone(p.menu)
+            p.menu_key("ok")                                               # (closed: nothing)
+        finally:
+            a.playing, a.volume_now = real
 
     def test_the_banner(self):
         progs = [{"title": "Kids' WB {Feb 10, 2001}", "year": 2001, "ad": False}, {"title": "Ad", "ad": True},

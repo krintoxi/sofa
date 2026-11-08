@@ -409,12 +409,15 @@ Share/Create and PS). A USB cable works without pairing.
 | D-pad or left stick | move (like a remote's arrows) |
 | A (✕ on PlayStation) | OK: open, play, press |
 | B (○) or View/Select | Back |
-| X (□) or Start/Menu | play / pause |
+| X (□) | play / pause |
 | Y (△) | search; while playing, subtitles |
-| LB, LT / RB, RT | 10 seconds back / 30 seconds on |
+| Menu/Start (Options on PlayStation) | options: on Home, an app's (move, hide, remove); in an app, the box's bar; while a video plays, its options (subtitles, sound, speed, volume), chosen with the D-pad |
+| LB / RB | 10 seconds back / 30 seconds on |
+| LT / RT (L2 / R2) | volume down / up (held: on and on); the TV shows it |
 | Xbox / PS button | Home (in a game: hold it for a second to come back) |
 
-Generic USB controllers (buttons numbered 1 to 12) work too, with the usual layout of those. In a game
+A remote's or a keyboard-remote's own volume and mute keys set the box's volume too, as do the phone
+remote's. Generic USB controllers (buttons numbered 1 to 12) work too, with the usual layout of those. In a game
 from Games, the controller is the game's ([Files and games](#files-and-games)).
 
 ## Good to know

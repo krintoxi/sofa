@@ -9,6 +9,11 @@ GitHub builds the card and makes the release by itself.
 
 ## 1.1.24
 
+- **A controller does more.** **LT and RT set the volume** (held: on and on), and the TV shows it, over the
+  video or whatever page is open; a remote's own volume and mute keys and the phone remote's set the box's
+  volume the same way. **Menu** (Start, Options) opens the options for what's in focus: on Home an app's, in
+  an app the box's bar, and **while a video plays, its options**: subtitles, the sound track, speed and
+  volume, chosen with the D-pad, in the player itself. X still plays and pauses; LB and RB still skip.
 - **Live TV has a channel banner, as on a TV:** the channel's number and name, what's on and what's next, when
   a programme begins and when you change channel. Sofa 1.3.0's guide picks the channel: Retro TV's 2000s are
   channels 2 to 9.

@@ -79,6 +79,56 @@ def toast(text):
     player.tell(toast=text)
 
 
+# a sound or subtitle track's language, by its code (the player's options)
+LANGS = {"en": "English", "eng": "English", "es": "Spanish", "spa": "Spanish", "fr": "French", "fre": "French",
+         "fra": "French", "de": "German", "ger": "German", "deu": "German", "it": "Italian", "ita": "Italian",
+         "pt": "Portuguese", "por": "Portuguese", "ja": "Japanese", "jpn": "Japanese", "ko": "Korean", "kor": "Korean",
+         "zh": "Chinese", "chi": "Chinese", "zho": "Chinese", "ru": "Russian", "rus": "Russian", "ar": "Arabic",
+         "ara": "Arabic", "hi": "Hindi", "hin": "Hindi", "nl": "Dutch", "dut": "Dutch", "nld": "Dutch"}
+
+
+def volume_now():
+    """The box's volume now (0-100) and whether it's muted (None: not known)."""
+    env = dict(os.environ, XDG_RUNTIME_DIR=os.environ.get("XDG_RUNTIME_DIR") or "/run/user/%d" % os.getuid())
+    try:
+        if shutil_which("wpctl"):
+            out = subprocess.run(["wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@"], env=env, capture_output=True, text=True,
+                                 timeout=5).stdout
+        else:
+            out = subprocess.run(["pactl", "get-sink-volume", "@DEFAULT_SINK@"], env=env, capture_output=True, text=True,
+                                 timeout=5).stdout + subprocess.run(["pactl", "get-sink-mute", "@DEFAULT_SINK@"], env=env,
+                                                                     capture_output=True, text=True, timeout=5).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None, None
+    return parse_volume(out)
+
+
+def parse_volume(out):
+    """wpctl's "Volume: 0.45 [MUTED]", or pactl's "... / 45% / ..." and "Mute: yes"."""
+    m = re.search(r"Volume:\s*([0-9.]+)", out)
+    if m and "%" not in out.split("\n")[0]:
+        return int(round(float(m.group(1)) * 100)), "[MUTED]" in out
+    m = re.search(r"(\d+)%", out)
+    return (int(m.group(1)) if m else None), bool(re.search(r"Mute:\s*yes", out))
+
+
+def box_volume(by):
+    """The box's volume up or down (or muted): a controller's triggers, a remote's volume keys, the phone remote. The
+    TV shows it: over the video (the box's player) or over the page."""
+    PhoneRemote.volume(by)
+    level, muted = volume_now()
+    text = "Sound off" if muted else ("Volume %d%%" % level if level is not None else "Volume")
+    if playing():
+        bar = "" if level is None or muted else "\n" + "━" * (level // 5) + "┄" * (20 - level // 5)
+        player.command("show-text", text + bar, 1600)
+    elif browser and browser.connected():
+        try:
+            browser.hud(text, None if muted else level)
+        except OSError:
+            pass
+    return level, muted
+
+
 def go(where):
     """Send the TV's page somewhere ("#/" is Home)."""
     player.tell(go=where)
@@ -344,6 +394,7 @@ class Player:
         self.failures = []                      # the last few times it stopped by itself, and why (Send a report)
         self.cond = threading.Condition()
         self.req = 0
+        self.menu = None                        # the options menu, while it's open (Menu while a video plays)
 
     def _args(self, p):
         s, sock, base = settings(), self.sock_path, self.base
@@ -506,6 +557,7 @@ class Player:
                 drops_checked = True
                 self.check_drops()
         code = proc.wait()
+        self.menu = None
         time.sleep(0.2)                         # the last of mpv's messages
         err = "\n".join(l for l in proc.sofa_err if l.strip())
         t, d = self.status.get("t") or 0, self.status.get("d") or 0
@@ -613,6 +665,106 @@ class Player:
                                                   ch.get("group") or ""), 2500)
         self.status.update(title=ch.get("name"), sub=ch.get("group") or "")
         return True
+
+    # ---- the options menu while a video plays (Menu on a controller or remote): subtitles, sound track, speed and
+    # volume, in mpv's own screen; while it's open the arrows, OK and Back are its (an mpv input section)
+    MENU_KEYS = {"UP": "up", "DOWN": "down", "LEFT": "left", "RIGHT": "right", "ENTER": "ok", "KP_ENTER": "ok",
+                 "ESC": "back", "BS": "back", "GO_BACK": "back", "F2": "back", "MENU": "back", "q": "back",
+                 "PGUP": "up", "PGDWN": "down", "REWIND": "left", "FORWARD": "right"}
+    SPEEDS = [0.75, 1.0, 1.25, 1.5, 2.0]
+
+    def _tracks(self, kind):
+        out = []
+        for t in self.command("get_property", "track-list") or []:
+            if t.get("type") == kind:
+                name = t.get("title") or LANGS.get(str(t.get("lang") or "").lower()) or str(t.get("lang") or "").upper()
+                out.append((t.get("id"), (name or "Track %s" % t.get("id")) + (" (forced)" if t.get("forced") else ""),
+                            bool(t.get("selected"))))
+        return out
+
+    def menu_items(self):
+        """[label, [(value, shown)], index of the current one, what it sets] for this video."""
+        items = []
+        subs = self._tracks("sub")
+        if subs:
+            opts = [("no", "Off")] + [(i, n) for i, n, _ in subs]
+            items.append(["Subtitles", opts, next((k + 1 for k, (_, _, on) in enumerate(subs) if on), 0), "sid"])
+        audio = self._tracks("audio")
+        if len(audio) > 1:
+            items.append(["Sound", [(i, n) for i, n, _ in audio], next((k for k, (_, _, on) in enumerate(audio) if on), 0), "aid"])
+        if not (self.payload or {}).get("live"):
+            speed = float(self.command("get_property", "speed") or 1)
+            at = min(range(len(self.SPEEDS)), key=lambda k: abs(self.SPEEDS[k] - speed))
+            items.append(["Speed", [(v, ("%g×" % v) if v != 1 else "Normal") for v in self.SPEEDS], at, "speed"])
+        level, muted = volume_now()
+        items.append(["Volume", [(None, "Sound off" if muted else "%d%%" % level if level is not None else "‹ ›")], 0, "volume"])
+        items.append(["Close", [(None, "")], 0, "close"])
+        return items
+
+    def menu_toggle(self):
+        if getattr(self, "menu", None):
+            return self.menu_close()
+        if not playing():
+            return
+        bindings = "\n".join('%s run "/usr/bin/curl" "-s" "-o" "/dev/null" "http://127.0.0.1:%d/box/native/key?k=menu-%s"'
+                              % (key, PORT, k) for key, k in self.MENU_KEYS.items())
+        self.command("define-section", "sofa-menu", bindings, "force")
+        self.command("enable-section", "sofa-menu", "exclusive")
+        self.menu = {"items": self.menu_items(), "at": 0, "used": time.time()}
+        self.menu_draw()
+        threading.Thread(target=self._menu_idle, daemon=True).start()
+
+    def _menu_idle(self):
+        while getattr(self, "menu", None):
+            time.sleep(1)
+            m = self.menu
+            if m and time.time() - m["used"] > 12:
+                self.menu_close()
+
+    def menu_close(self):
+        self.menu = None
+        self.command("disable-section", "sofa-menu")
+        self.command("show-text", "", 1)
+
+    def menu_draw(self):
+        m = self.menu
+        if not m:
+            return
+        esc = lambda t: str(t).replace("\\", "/").replace("{", "(").replace("}", ")").replace("$", "$$")
+        rows = []
+        for k, (label, opts, at, _what) in enumerate(m["items"]):
+            shown = opts[at][1] if opts else ""
+            on = k == m["at"]
+            value = ("‹ %s ›" % esc(shown)) if shown and on and len(opts) > 1 else esc(shown)
+            if label == "Volume" and on:
+                value = "‹ %s ›" % esc(shown)
+            rows.append(("{\\c&H8A2EFF&}▸ {\\c&HFFFFFF&}{\\b1}" if on else "    {\\c&HBBBBBB&}") + label +
+                        ("{\\b0}" if on else "") + ("    " + value if value else "") + "{\\c&HFFFFFF&}")
+        hint = "{\\fs26\\c&H999999&}Left and right change it · Back closes"
+        self.command("show-text", "${osd-ass-cc/0}{\\an4}{\\fs38}{\\b1}Options{\\b0}\\N\\N" + "\\N".join(rows) +
+                     "\\N\\N" + hint, 13000)
+
+    def menu_key(self, k):
+        m = getattr(self, "menu", None)
+        if not m:
+            return
+        m["used"] = time.time()
+        item = m["items"][m["at"]]
+        if k == "back":
+            return self.menu_close()
+        if k in ("up", "down"):
+            m["at"] = (m["at"] + (1 if k == "down" else -1)) % len(m["items"])
+        elif item[3] == "close":
+            if k == "ok":
+                return self.menu_close()
+        elif item[3] == "volume":
+            if k in ("left", "right", "ok"):
+                level, muted = box_volume(-4 if k == "left" else 4)
+                item[1] = [(None, "Sound off" if muted else "%d%%" % level if level is not None else "‹ ›")]
+        elif k in ("left", "right", "ok"):
+            item[2] = (item[2] + (-1 if k == "left" else 1)) % len(item[1])
+            self.command("set_property", item[3], item[1][item[2]][0])
+        self.menu_draw()
 
     def ok(self):
         """OK on the remote while playing: skip the intro when it's on, else pause/play."""
@@ -3012,6 +3164,10 @@ class Handler(BaseHTTPRequestHandler):
                 go_home()
             elif k in ("chup", "chdown"):                   # Live TV: up and down change the channel
                 player.zap(-1 if k == "chup" else 1)
+            elif k == "menu":                               # Menu: the video's options (again: closes them)
+                player.menu_toggle()
+            elif k.startswith("menu-"):
+                player.menu_key(k[5:])
             return self.send('{"ok":true}')
         if path == "/box/native/events":
             since = (qs.get("since") or [None])[0]
@@ -3258,6 +3414,9 @@ class Handler(BaseHTTPRequestHandler):
                     return self.send(json.dumps({"ok": games.stop("asked")}))
                 raise ValueError("Install, remove, play or stop.")
             return self.send(json.dumps(games.listing()))
+        if path == "/box/api/volume":                   # the controller daemon: the triggers, a remote's volume keys
+            level, muted = box_volume(data.get("by"))
+            return self.send(json.dumps({"level": level, "muted": muted}))
         if path == "/box/api/pads":                     # the controller daemon: the controllers connected now
             for name in games.heard_pads(data.get("pads")):
                 kind = next(p["kind"] for p in games.pads if p["name"] == name)
@@ -3460,7 +3619,7 @@ class RemoteHandler(BaseHTTPRequestHandler):
             elif path == "/api/pointer":
                 phone.pointer(float(data.get("dx") or 0), float(data.get("dy") or 0), data.get("click"), float(data.get("scroll") or 0))
             elif path == "/api/volume":
-                phone.volume(data.get("by"))
+                box_volume(data.get("by"))
             elif path == "/api/wifi":
                 return self.send(json.dumps(dict(network.scan() if not network.hotspot else {"ok": True, "networks": network.cached},
                                                  hotspot=bool(network.hotspot))))

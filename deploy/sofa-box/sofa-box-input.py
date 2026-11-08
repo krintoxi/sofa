@@ -40,6 +40,10 @@ import urllib.request
 
 AGENT = "http://127.0.0.1:%s" % os.environ.get("SOFA_BOX_PORT", "8091")
 FIRST, AGAIN = 0.42, 0.13                  # seconds before an arrow repeats, then between repeats
+VOL_AGAIN = 0.2                             # (the volume, held: a little slower)
+# the box's volume (its sound, whatever plays): a controller's triggers, a remote's volume keys; the agent sets it and
+# shows it on the TV
+VOLUME = {"VOLUP": 4, "VOLDOWN": -4, "MUTE": "mute"}
 HOLD_HOME = 0.8                            # seconds Home is held to leave a game
 GAME_FILE = os.environ.get("SOFA_BOX_GAME_FILE") or os.path.join(
     os.environ.get("XDG_RUNTIME_DIR") or "/run/user/%d" % os.getuid(), "sofa-box-game")
@@ -62,7 +66,9 @@ KEYS = ("KEY_UP", "KEY_DOWN", "KEY_LEFT", "KEY_RIGHT", "KEY_ENTER", "KEY_BACK", 
 
 
 KEY_A, KEY_SELECT, KEY_HOMEPAGE, KEY_BACK, KEY_MENU, KEY_COMPOSE, KEY_OK = 30, 353, 172, 158, 139, 127, 352
-REMOTE_KEYS = {KEY_SELECT: "KEY_ENTER", KEY_OK: "KEY_ENTER", KEY_MENU: "KEY_F2", KEY_COMPOSE: "KEY_F2", KEY_HOMEPAGE: "HOME"}
+KEY_MUTE, KEY_VOLUMEDOWN, KEY_VOLUMEUP = 113, 114, 115
+REMOTE_KEYS = {KEY_SELECT: "KEY_ENTER", KEY_OK: "KEY_ENTER", KEY_MENU: "KEY_F2", KEY_COMPOSE: "KEY_F2", KEY_HOMEPAGE: "HOME",
+               KEY_VOLUMEUP: "VOLUP", KEY_VOLUMEDOWN: "VOLDOWN", KEY_MUTE: "MUTE"}
 PASS = ("KEY_UP", "KEY_DOWN", "KEY_LEFT", "KEY_RIGHT", "KEY_ENTER", "KEY_BACK", "KEY_ESC", "KEY_F2", "KEY_PLAYPAUSE",
         "KEY_PLAY", "KEY_PAUSE", "KEY_REWIND", "KEY_FASTFORWARD", "KEY_NEXTSONG", "KEY_PREVIOUSSONG", "KEY_STOP",
         "KEY_VOLUMEUP", "KEY_VOLUMEDOWN", "KEY_MUTE", "KEY_SEARCH", "KEY_BACKSPACE")
@@ -87,6 +93,8 @@ class Remote:
         to = REMOTE_KEYS.get(code) or self.names.get(code)
         if to == "HOME":
             return [("HOME", 1)] if value == 1 else []
+        if to in VOLUME:                                    # (held: the remote's own repeats, 2)
+            return [(to, 1)] if value in (1, 2) and (to != "MUTE" or value == 1) else []
         return [(to, value)] if to in PASS else []
 
 
@@ -120,14 +128,16 @@ class Pad:
     def __init__(self, name="", ranges=None):
         self.ranges = ranges or {}                          # axis -> (min, max)
         ps = is_playstation(name)
+        # A OK, B Back, X play/pause, Y search (subtitles in the player), LB/RB back/forward, the Xbox button Home,
+        # Menu (Start, Options) the options for what's in focus, LT/RT the volume (held: on and on), View Back
         self.buttons = {BTN_SOUTH: "KEY_ENTER", BTN_EAST: "KEY_BACK", BTN_SELECT: "KEY_BACK",
-                        BTN_START: "KEY_PLAYPAUSE", BTN_TL: "KEY_REWIND", BTN_TL2: "KEY_REWIND",
-                        BTN_TR: "KEY_FASTFORWARD", BTN_TR2: "KEY_FASTFORWARD", BTN_MODE: "HOME",
+                        BTN_START: "KEY_F2", BTN_TL: "KEY_REWIND", BTN_TR: "KEY_FASTFORWARD", BTN_MODE: "HOME",
                         # Xbox-style drivers give X as 307; PlayStation's square is 308 (and triangle 307)
                         BTN_NORTH: "KEY_SLASH" if ps else "KEY_PLAYPAUSE", BTN_WEST: "KEY_PLAYPAUSE" if ps else "KEY_SLASH"}
         self.axes = {}
         self.dirs = {}                                      # arrow -> when it next repeats
         self.triggers = {ABS_Z: False, ABS_RZ: False, ABS_GAS: False, ABS_BRAKE: False}
+        self.trigger_buttons = set()                        # (pads whose triggers are buttons, BTN_TL2 / BTN_TR2)
         self.dpad_buttons = set()
 
     def _level(self, code, value):
@@ -149,6 +159,10 @@ class Pad:
             out.add("KEY_LEFT")
         if hx > 0 or sx > 0.6:
             out.add("KEY_RIGHT")
+        if self.triggers[ABS_Z] or self.triggers[ABS_BRAKE] or BTN_TL2 in self.trigger_buttons:
+            out.add("VOLDOWN")
+        if self.triggers[ABS_RZ] or self.triggers[ABS_GAS] or BTN_TR2 in self.trigger_buttons:
+            out.add("VOLUP")
         return out
 
     def feed(self, etype, code, value, now):
@@ -157,15 +171,14 @@ class Pad:
         if etype == 1:                                      # EV_KEY
             if code in BTN_DPAD:
                 (self.dpad_buttons.add if value else self.dpad_buttons.discard)(BTN_DPAD[code])
+            elif code in (BTN_TL2, BTN_TR2):
+                (self.trigger_buttons.add if value else self.trigger_buttons.discard)(code)
             elif value == 1 and code in self.buttons:
                 out.append(self.buttons[code])
         elif etype == 3:                                    # EV_ABS
             if code in self.triggers:
                 lo, hi = self.ranges.get(code, (0, 255))
-                on = (value - lo) > 0.6 * ((hi - lo) or 1)
-                if on and not self.triggers[code]:
-                    out.append("KEY_REWIND" if code in (ABS_Z, ABS_BRAKE) else "KEY_FASTFORWARD")
-                self.triggers[code] = on
+                self.triggers[code] = (value - lo) > 0.6 * ((hi - lo) or 1)
             else:
                 self.axes[code] = value
         held = self.held()
@@ -184,7 +197,7 @@ class Pad:
         for k, at in self.dirs.items():
             if now >= at:
                 out.append(k)
-                self.dirs[k] = now + AGAIN
+                self.dirs[k] = now + (VOL_AGAIN if k in VOLUME else AGAIN)
         return out
 
 
@@ -327,6 +340,18 @@ def tell_pads(pads):
     threading.Thread(target=send, daemon=True).start()
 
 
+def volume(by):
+    """The box's volume, up or down (or mute); the agent shows it on the TV."""
+    def send():
+        try:
+            req = urllib.request.Request(AGENT + "/box/api/volume", data=json.dumps({"by": by}).encode(),
+                                         headers={"Content-Type": "application/json", "X-Sofa-Box": "1"})
+            urllib.request.build_opener(urllib.request.ProxyHandler({})).open(req, timeout=5).close()
+        except Exception:
+            pass
+    threading.Thread(target=send, daemon=True).start()
+
+
 def home():
     try:
         req = urllib.request.Request(AGENT + "/box/api/home", data=json.dumps({}).encode(),
@@ -353,12 +378,16 @@ def main():
     def send(name, value):
         if name == "HOME":
             return home()
+        if name in VOLUME:
+            return volume(VOLUME[name]) if value else None
         kb.write(ecodes.EV_KEY, ecodes.ecodes[name], value)
         kb.syn()
 
     def press(name):
         if name == "HOME":
             return home()
+        if name in VOLUME:
+            return volume(VOLUME[name])
         code = ecodes.ecodes[name]
         kb.write(ecodes.EV_KEY, code, 1)
         kb.write(ecodes.EV_KEY, code, 0)
