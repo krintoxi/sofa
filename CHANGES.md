@@ -6,6 +6,24 @@ has its own numbers and list: [deploy/sofa-box/CHANGES.md](deploy/sofa-box/CHANG
 A change to Sofa's code (`sofa/`, `client/`, `sofa.py`) gets a new version: raise `__version__`, add a section
 here, then `python3 tools/sofa-version.py` (a test checks it was done).
 
+## 1.3.0 (2026-11-08)
+
+- **Live TV has a guide.** Retro TV and the Internet Archive's channels by the clock, as on a TV: each channel
+  with its number and the next two hours; above them, what's on the channel in focus, with a picture of it (a
+  muted preview of the channel on a computer), how long is left and what's next. Up and down go through the
+  channels at the same time of day, left and right through a channel's programmes, OK watches; typing a
+  channel's number goes straight to it, and **Flip** tunes to one at random. Live TV opens on Retro TV until
+  you have favourites. Built to be light: a Raspberry Pi 3 draws it.
+- **Five more 2000s channels, whole tapes as they aired:** 00s Saturday Mornings (Kids' WB, Fox Box, 4Kids TV,
+  ABC), 00s Action Toons (Toonami, Cartoon Network Fridays), 00s Music TV (TRL, 106 & Park, MTV Hits), 00s Game
+  TV (X-Play, G4, TechTV) and 00s Infomercials. The 2000s are channels 2 to 9, the older decades 10 to 14, the
+  archive's film channels 20 to 28.
+- Channels have variety: three of one series at most (not twenty parts of one upload). The family filter knows
+  a few more words.
+- **A tape the archive can't send is skipped:** the next one plays.
+- **"Something went wrong (501)"** on the request after one Sofa had turned down (a refused sign-in, then the
+  next try): the turned-down request's body was left on the connection. Fixed.
+
 ## 1.2.5 (2026-11-07)
 
 - **Retro TV channels tune in.** Since they came (1.2.2), choosing one said it wasn't available: Sofa's address

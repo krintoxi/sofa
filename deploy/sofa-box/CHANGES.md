@@ -7,6 +7,11 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.24
+
+- **Live TV has a channel banner, as on a TV:** the channel's number and name, what's on and what's next, when
+  a programme begins and when you change channel. Sofa 1.3.0's guide picks the channel: Retro TV's 2000s are
+  channels 2 to 9.
 ## 1.1.25
 
 - **Gloamwell, bigger.** Six zones now, 24 floors down to the Gloamheart and more below it: the Sunken Belfry

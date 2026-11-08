@@ -451,7 +451,8 @@ class Player:
         and a black screen with nothing on it looks like the box has hung."""
         p = self.payload or {}
         if p.get("live"):
-            return "Tuning in to %s…\nUp and down change the channel. Back goes back." % str(p.get("title") or "the channel")
+            return "Tuning in to %s%s…\nUp and down change the channel. Back goes back." % (
+                "%s  " % p["number"] if p.get("number") else "", str(p.get("title") or "the channel"))
         title = "" if p.get("adult") else str(p.get("title") or "")
         at = int(float(p.get("offset") or 0) + float(p.get("start") or 0))
         when = "%d:%02d:%02d" % (at // 3600, at // 60 % 60, at % 60) if at >= 3600 else "%d:%02d" % (at // 60, at % 60)
@@ -475,9 +476,18 @@ class Player:
                     moving = True
                     if waited:
                         self.command("show-text", "", 1)
+                    if p.get("live"):
+                        p["banner_at"] = 0
+                        self.banner(0)
                 else:
                     waited += 1
                     self.command("show-text", self.starting_text(waited), 2500)
+            elif p.get("programs"):                             # an archive channel: its next programme began
+                at = self.command("get_property", "playlist-pos")
+                if isinstance(at, int) and at != p.get("banner_at", 0):
+                    p["banner_at"] = at
+                    if 0 <= at < len(p["programs"]) and not p["programs"][at].get("ad"):
+                        self.banner(at)
             t = self.position()
             if t is None:
                 continue
@@ -548,6 +558,26 @@ class Player:
             save_settings(learned_720=True)
             toast("Videos come as 720p on this box from now on: it couldn't keep up at 1080p.")
 
+    def banner(self, at=0):
+        """Live TV: the channel's banner, as on a TV (5 s): its number and name, what's on and what's next. At each
+        new programme of an archive channel (not at the commercials between them) and when the channel changes."""
+        p = self.payload or {}
+        progs = p.get("programs") or []
+        shows = [(i, x) for i, x in enumerate(progs) if not x.get("ad")]
+        now = next((x for i, x in shows if i >= at), None) if at < len(progs) and not progs[at].get("ad") else None
+        later = next((x for i, x in shows if i > at), None)
+        esc = lambda t: str(t or "").replace("\\", "/").replace("{", "(").replace("}", ")").replace("$", "$$").replace("\n", " ")
+        name = lambda x: esc(x.get("title")) + (" (%s)" % x["year"] if x.get("year") else "")
+        head = ("{\\c&H40B7F4&}%s  {\\c&HFFFFFF&}" % p["number"] if p.get("number") else "") + esc(p.get("title"))
+        lines = ["{\\fs40\\b1}" + head + "{\\b0}"]
+        if now:
+            lines.append("{\\fs52\\b1}" + name(now) + "{\\b0}")
+        elif progs:
+            lines.append("{\\fs40}Commercials" + (", then " + name(later) if later else ""))
+        if now and later:
+            lines.append("{\\fs32\\c&HCCCCCC&}Next: " + name(later))
+        self.command("show-text", "${osd-ass-cc/0}" + "\\N".join(lines), 5000)
+
     def zap(self, step):
         """Live TV: the next channel up or down (Sofa's channel list came with it), its name on the screen."""
         p = self.payload or {}
@@ -570,12 +600,17 @@ class Player:
                 self.command("loadfile", f["url"], "append")
             threading.Thread(target=self._seek_when_ready, args=(on.get("offset") or 0,), daemon=True).start()
             sub = on["film"]["title"] + (" (%s)" % on["film"]["year"] if on["film"].get("year") else "")
-            self.command("show-text", "%s  ·  %s" % (ch.get("name") or "", sub), 3000)
+            p.update(title=ch.get("name"), number=ch.get("number"), banner_at=0,
+                     programs=[{"title": f.get("title"), "year": f.get("year"), "ad": bool(f.get("ad"))}
+                               for f in [on["film"]] + list(on.get("next") or [])])
+            self.banner(0)
             self.status.update(title=ch.get("name"), sub=sub)
             return True
         self.command("set_property", "http-header-fields", self.sofa_headers().split(","))
         self.command("loadfile", rewrite(ch["url"], self.base), "replace")
-        self.command("show-text", "%s  ·  %s" % (ch.get("name") or "", ch.get("group") or ""), 2500)
+        p.update(title=ch.get("name"), number=ch.get("number"), programs=[])
+        self.command("show-text", "%s%s  ·  %s" % ("%s  " % ch["number"] if ch.get("number") else "", ch.get("name") or "",
+                                                  ch.get("group") or ""), 2500)
         self.status.update(title=ch.get("name"), sub=ch.get("group") or "")
         return True
 
