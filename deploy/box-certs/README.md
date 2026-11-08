@@ -162,7 +162,9 @@ phone remote: on, at …**, and the phone remote's QR code is the `https://` add
 - **Each box renews by itself** a month before its certificate runs out, and at most once a week.
 - **Only home addresses.** The service refuses to point a name at anything but a private address
   (`10.x`, `172.16–31.x`, `192.168.x`), so nobody can aim an `edgeventure.uk` name at a public site.
-- **New boxes per day:** at most 10 from one internet address and 500 in all.
+- **New boxes per day:** no limit from one home (flashing card after card registers a new box each time; a box
+  asking again with its own id and secret, its answer lost, gets the same one back), and 5,000 a day in all,
+  against someone filling `boxes.json`. `register_per_ip_day` in `config.json` sets a limit per address.
 - **Reports:** at most 10 a day from one box (or one internet address, for a box with no id yet), each
   up to 200,000 characters. A box with an id signs its reports with its secret.
 - **Routers that block it.** Some routers refuse DNS answers that point at home addresses ("DNS

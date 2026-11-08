@@ -7,6 +7,29 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.30
+
+- **Setup's end is calm.** The boot screen's rebuild (a minute of a Pi 3's whole processor) started within five
+  seconds of pressing Finish, just as Home, the apps and Sofa loaded: the box's busiest moment, and the one when a
+  box was seen to restart by itself. Now it waits three minutes after the setup (or after the box starts), until
+  nothing plays and the processor isn't busy, and runs as a service of its own at the lowest priority, on one
+  core, instead of inside the box's player service.
+- **No web page can work the box.** The box's own controls (factory reset, restart, update, forget the phones,
+  pair Bluetooth, go Home, the player's keys) answered a plain GET, so any site the box's browser opened (an app
+  from the store) could set them off with a picture pointed at them. Now they take only a POST from the box's own
+  pages; a GET only reads.
+- **The phone remote's four digits can't be worked through.** After ten wrong codes typed in ten minutes, typed
+  codes rest for ten minutes and the code changes; the QR code on the TV (now always its long link) keeps
+  working. Connections to the phone remote that send nothing close after two minutes.
+- **Reports arrive from a box that isn't registered yet.** A box whose id the Sofa Box service hadn't taken (it
+  was offline at first, or the service said no) sent its report with that id, and the service answered "Unknown
+  box". It sends it without the id now.
+- **No limit on new boxes from one home.** The Sofa Box service took ten new boxes a day from one home, so a card
+  flashed after that had no remote from away and no reports. It takes them all now (and a box asking again with
+  its own id gets the same one back). The service on the iMac needs the new `sofa-box-certs.py` for this.
+- **Sofa 1.4.1**: Retro TV favourites are kept, the guide's Right key stays in its row, and more (Sofa's
+  CHANGES.md).
+
 ## 1.1.29
 
 - **The setup is kept, whatever happens.** A box that restarted by itself a few seconds after its setup was

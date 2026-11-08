@@ -2316,6 +2316,7 @@ class CaptiveHandler(BaseHTTPRequestHandler):
     opens the phone remote. Unlike the browser, the sheet takes http:// pages even with "HTTPS only" switched on, and
     nothing needs scanning but the Wi-Fi."""
     protocol_version = "HTTP/1.1"
+    timeout = 30                         # (a connection that sends nothing doesn't keep its thread)
 
     def log_message(self, *args):
         pass
@@ -3805,6 +3806,7 @@ class RemoteHandler(BaseHTTPRequestHandler):
     with the code the TV shows (then a sign-in of their own)."""
     protocol_version = "HTTP/1.1"
     COOKIE = "sofa_remote"
+    timeout = 120                        # an idle connection from the home network closes (each kept a thread for ever)
 
     def log_message(self, *args):
         pass

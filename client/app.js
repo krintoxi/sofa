@@ -1997,6 +1997,7 @@ document.addEventListener("keydown", e => {
       to = there.find(b => { const q = guideProg(b); return q && q.start <= t && t < q.end; }) || there[0];
     }
   } else return;
+  if (!to && e.key === "ArrowRight") { e.preventDefault(); e.stopPropagation(); return; }   // the row's end: stay (not up to the eras)
   if (!to) return;                                      // (at an edge: the remote's usual move, to the chips or the rail)
   e.preventDefault(); e.stopPropagation();
   document.body.classList.add("tv-nav");

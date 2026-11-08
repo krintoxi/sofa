@@ -117,6 +117,9 @@ class MainActivity : Activity() {
         fun play(json: String) {
             runOnUiThread {
                 val base = server() ?: return@runOnUiThread
+                val page = web.url ?: ""
+                // only Sofa's own pages play (a link that led elsewhere in the app mustn't use its sign-in)
+                if (page != base.trimEnd('/') && !page.startsWith(base.trimEnd('/') + "/")) return@runOnUiThread
                 val intent = Intent(this@MainActivity, PlayerActivity::class.java)
                     .putExtra("payload", json)
                     .putExtra("base", base)

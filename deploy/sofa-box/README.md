@@ -480,7 +480,7 @@ the box first:
 
 | | |
 |---|---|
-| `sofa-box-agent.service` | the home screen, apps, store, files; finds Sofa; plays videos with mpv; opens apps as tabs of the box's one Chromium (over its DevTools port, `127.0.0.1` only); all on `127.0.0.1:8091`, only for the box itself. For phones on your network: the phone remote on port 8092 (`http://`) and 8093 (`https://`, with the box's certificate), and, only while the box's own setup Wi-Fi is on, its sign-in page on port 80 |
+| `sofa-box-agent.service` | the home screen, apps, store, files; finds Sofa; plays videos with mpv; opens apps as tabs of the box's one Chromium (over its DevTools port, `127.0.0.1` only); all on `127.0.0.1:8091`, only for the box itself (a plain GET there only reads: anything that does something is a POST with `X-Sofa-Box: 1`, so no web page the box opens can work it). For phones on your network: the phone remote on port 8092 (`http://`) and 8093 (`https://`, with the box's certificate), and, only while the box's own setup Wi-Fi is on, its sign-in page on port 80 |
 | `sofa-box.service` | the TV's screen: Chromium full screen in `cage` (a screen that shows one window), starting on the home screen |
 | `sofa-box-input.service` | game controllers as a remote |
 | `sofa-box-cec.service` | the TV remote's buttons over HDMI-CEC |

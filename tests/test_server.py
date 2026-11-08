@@ -55,6 +55,15 @@ class Server(unittest.TestCase):
     def tearDownClass(cls):
         cls.httpd.shutdown()
 
+    def test_a_place_is_a_number(self):
+        """A watch position that isn't a finite number is turned down: "NaN" was kept, and every later /api/progress
+        for that profile was no longer JSON (the app couldn't read anyone's places)."""
+        for bad in (float("nan"), float("inf"), "abc", -5):
+            self.assertEqual(self.admin.call("/api/progress/m:heat:1995", {"t": bad, "d": 100})[0], 400, bad)
+        self.assertEqual(self.admin.call("/api/progress/m:heat:1995", {"t": 12.5, "d": 100})[0], 200)
+        status, places = self.admin.call("/api/progress")
+        self.assertEqual((status, places["m:heat:1995"]["t"]), (200, 12.5))
+
     def test_the_internet_page(self):
         status, n = self.admin.call("/api/admin/internet")
         self.assertEqual(status, 200)

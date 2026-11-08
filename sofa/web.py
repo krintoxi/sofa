@@ -4,6 +4,7 @@ import gzip
 import html
 import io
 import json
+import math
 import os
 import platform
 import re
@@ -1033,9 +1034,11 @@ class Handler(BaseHTTPRequestHandler):
             if data.get("clear"):
                 store.ex("DELETE FROM progress WHERE user_id = ? AND item = ?", u["id"], item_id)
             else:
+                t, d = number(data.get("t")), number(data.get("d"))
+                if t is None or d is None:                  # ("NaN" would be kept, and /api/progress then not JSON)
+                    return self.error(400, "A place is a number of seconds.")
                 store.ex("INSERT OR REPLACE INTO progress (user_id, item, t, d, done, at) VALUES (?,?,?,?,?,?)",
-                         u["id"], item_id, float(data.get("t") or 0), float(data.get("d") or 0),
-                         1 if data.get("done") else 0, int(time.time() * 1000))
+                         u["id"], item_id, t, d, 1 if data.get("done") else 0, int(time.time() * 1000))
             return self.json({"ok": True})
         if path == "/api/admin/intros":
             intros.recheck()
@@ -1483,6 +1486,15 @@ class Handler(BaseHTTPRequestHandler):
 
 
 THEMES = ("street", "midnight", "cinema", "ocean", "forest", "grape", "oled")
+
+
+def number(v):
+    """A count of seconds from a client: a finite number of zero or more (empty: 0), or None."""
+    try:
+        f = float(v or 0)
+    except (TypeError, ValueError):
+        return None
+    return f if math.isfinite(f) and f >= 0 else None
 
 
 def download_name(item, ext):

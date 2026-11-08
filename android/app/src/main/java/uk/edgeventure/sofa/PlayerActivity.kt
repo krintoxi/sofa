@@ -22,6 +22,7 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.ResolvingDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.PlayerView
@@ -70,13 +71,15 @@ class PlayerActivity : Activity() {
         offset = payload.optDouble("offset", 0.0)
         length = payload.optDouble("duration", 0.0)
 
-        val headers = HashMap<String, String>()
-        if (cookie.isNotEmpty()) headers["Cookie"] = cookie
         val http = DefaultHttpDataSource.Factory()
             .setUserAgent("SofaApp/1")
             .setAllowCrossProtocolRedirects(true)
-            .setDefaultRequestProperties(headers)
-        player = ExoPlayer.Builder(this).setMediaSourceFactory(DefaultMediaSourceFactory(http)).build()
+        // Sofa's sign-in goes with requests to Sofa only, never to another address (a video, or a page that isn't
+        // Sofa's asking the app to play from its own server, would otherwise get it).
+        val signedIn = ResolvingDataSource.Factory(http) { spec ->
+            if (cookie.isNotEmpty() && fromSofa(spec.uri.toString())) spec.withAdditionalHeaders(mapOf("Cookie" to cookie)) else spec
+        }
+        player = ExoPlayer.Builder(this).setMediaSourceFactory(DefaultMediaSourceFactory(signedIn)).build()
 
         view = PlayerView(this)
         view.player = player
@@ -137,6 +140,8 @@ class PlayerActivity : Activity() {
     }
 
     private fun absolute(u: String): String = if (u.startsWith("http")) u else base + u
+
+    private fun fromSofa(u: String): Boolean = base.isNotEmpty() && (u == base || u.startsWith("$base/"))
 
     /** Where we are in the whole video, and how long it is (seconds). */
     private fun position(): Double = offset + player.currentPosition / 1000.0

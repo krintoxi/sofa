@@ -39,5 +39,6 @@ jobs:
               msg = "%0A".join(l.replace("%", "%25") for l in lines[:30])
               print("::error title=" + lines[0][:120].replace(":", " ") + "::" + msg)
           EOF
-      - name: Check the web app's JavaScript
-        run: node --check client/app.js
+      - name: Check the JavaScript (the web app, the box's home screen and games)
+        run: |
+          for f in client/app.js deploy/sofa-box/home/*.js deploy/sofa-box/games/*.js; do node --check "$f" || exit 1; done

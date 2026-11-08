@@ -6,6 +6,24 @@ has its own numbers and list: [deploy/sofa-box/CHANGES.md](deploy/sofa-box/CHANG
 A change to Sofa's code (`sofa/`, `client/`, `sofa.py`) gets a new version: raise `__version__`, add a section
 here, then `python3 tools/sofa-version.py` (a test checks it was done).
 
+## 1.4.1 (2026-11-08)
+
+- **Retro TV and Classic Cinema favourites are kept.** Their ★ went nowhere (only a channel list's channels could be
+  favourites), so the star lit up and was gone after a reload.
+- **In Live TV's guide, Right at the end of a row stays there**, instead of jumping up to the eras.
+- **A channel from the internet can't send Sofa into the home network.** A channel list's playlist (or a redirect)
+  naming a router's page, this computer, or a Sofa box's own controls isn't fetched any more; a list at home (a TV
+  tuner's) still is.
+- **A power cut can't stop Sofa starting.** Settings are on the disk before they're in place, and a config.json
+  that was cut off half way (from before) is kept aside instead of stopping Sofa at every start. Channel lists are
+  saved whole or not at all.
+- **Quicker first answers on a Raspberry Pi.** The database's tables were made again for every new connection to
+  the server; now once.
+- **Watch positions are numbers.** One that wasn't ("NaN") was kept, and that profile's places couldn't be read.
+- Fixing an Adult title's details takes an admin who may see the Adult section, as everything else about it does.
+- **Fire TV app:** Sofa's sign-in goes only to Sofa, never with a video from another address, and only Sofa's own
+  pages can start the player.
+
 ## 1.4.0 (2026-11-08)
 
 - **Live TV by era.** Live TV opens on tabs across the top: **Live now** (today's channels, from the channel
