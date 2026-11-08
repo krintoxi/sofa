@@ -150,6 +150,7 @@ class Agent(unittest.TestCase):
         self.assertIn("SuperTux is ready: it's in Games.", self.toasts)
         self.assertTrue(next(g for g in games.listing()["native"] if g["id"] == "supertux")["installed"])
 
+        os.remove(self.played) if os.path.exists(self.played) else None   # (an earlier game's, if it got to say)
         games.play("supertux")                                        # the game reads the controller itself
         self.assertTrue(self.wait(lambda: os.path.exists(self.played)))
         with open(self.played) as f:
