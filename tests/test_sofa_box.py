@@ -706,7 +706,7 @@ class BoxOS(unittest.TestCase):
         self.assertNotIn("somafm", self.ids())
 
     def test_opening_without_the_browser(self):
-        self.assertEqual(self.post("/box/api/open", {"id": "edge-music"})[1]["url"], "https://music.edgeventure.uk")
+        self.assertEqual(self.post("/box/api/open", {"id": "edge-music"})[1]["url"], "https://music.edgeventure.uk/?client=sofabox")
         self.assertEqual(self.post("/box/api/open", {"id": "sofa", "hash": "#/movies"})[1]["url"], self.base + "/?tv=1#/movies")
         self.assertEqual(self.post("/box/api/open", {"url": "javascript:alert(1)"})[0], 400)
         self.assertEqual(self.post("/box/api/open", {"id": "not-installed"})[0], 400)
@@ -780,6 +780,41 @@ class BoxBluetooth(unittest.TestCase):
             install = f.read()
         self.assertIn("cloud-final.service.d", install)                                         # cloud-init: the first start only
         self.assertIn("/etc/cloud/cloud-init.disabled", install)
+
+
+class MovedApps(unittest.TestCase):
+    """An app the store has since given a new address: a box that installed the old one gets the new one, once, and
+    nothing else on it changes (Edge Music's TV layout needs ?client=sofabox)."""
+
+    def test_an_old_edge_music_address_is_moved(self):
+        boxos, conf = load("boxos"), tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, conf, True)
+        new = "https://music.edgeventure.uk/?client=sofabox"
+        self.assertEqual(boxos.store_entry("edge-music")["url"], new)                     # what a new box installs
+        before = {"apps": [{"id": "edge-music", "name": "Edge Music", "kind": "web", "url": "https://music.edgeventure.uk",
+                            "color": "#FF2E88", "ua": "", "icon_file": "edge-music.png"},
+                           {"id": "kitchen", "name": "Kitchen radio", "kind": "web", "url": "https://music.edgeventure.uk"},
+                           {"id": "lj-showroom", "name": "The LJ Collection", "kind": "web", "url": "https://theljcollection.com/showroom.php"}],
+                  "order": ["edge-music", "sofa"], "hidden": ["games"]}
+        with open(os.path.join(conf, "apps.json"), "w") as f:
+            json.dump(before, f)
+        apps = boxos.Apps(conf)
+        self.assertEqual(apps.get("edge-music")["url"], new)
+        with open(os.path.join(conf, "apps.json")) as f:
+            saved = json.load(f)
+        expected = json.loads(json.dumps(before))
+        expected["apps"][0]["url"] = new                                                   # only that one address
+        self.assertEqual(saved, expected)
+        self.assertEqual(apps.get("kitchen")["url"], "https://music.edgeventure.uk")        # a site added by hand stays as it is
+
+    def test_a_box_already_moved_or_changed_by_hand_is_left_alone(self):
+        boxos = load("boxos")
+        for url in ("https://music.edgeventure.uk/?client=sofabox", "https://music.edgeventure.uk/player.html"):
+            data = {"apps": [{"id": "edge-music", "url": url}]}
+            self.assertFalse(boxos.moved_apps(data))
+            self.assertEqual(data["apps"][0]["url"], url)
+        self.assertTrue(boxos.moved_apps({"apps": [{"id": "edge-music", "url": "https://music.edgeventure.uk/"}]}))
+        self.assertFalse(boxos.moved_apps({"apps": ["not an app", {"url": "https://music.edgeventure.uk"}]}))
 
 
 class AppIcons(unittest.TestCase):
