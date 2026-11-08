@@ -6,6 +6,14 @@ has its own numbers and list: [deploy/sofa-box/CHANGES.md](deploy/sofa-box/CHANG
 A change to Sofa's code (`sofa/`, `client/`, `sofa.py`) gets a new version: raise `__version__`, add a section
 here, then `python3 tools/sofa-version.py` (a test checks it was done).
 
+## 1.2.4 (2026-11-07)
+
+- **Every archive channel says what's on.** Sofa fetches each channel's films in the background, one after
+  another; an item whose title the archive gives as a list stopped that at the third channel, so only Classic
+  Movies and Film Noir were ready (the others fetched theirs when tuned to, and their cards said nothing). Those
+  titles are read (and filtered) like the others now, and a channel that fails waits for the next round without
+  stopping the rest.
+
 ## 1.2.3 (2026-11-07)
 
 - **Retro TV puts the 2000s first, with three channels:** Retro TV: 00s (shows with the decade's commercials),
