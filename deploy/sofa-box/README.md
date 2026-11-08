@@ -336,11 +336,13 @@ song in the box's player, or shows a picture; **Menu** renames, moves or deletes
 - **Gloamwell**, the box's own game: a dark-fantasy dungeon crawler. Go down the well under the village of
   Wickhollow as a Warden, an Ashcaller or a Stalker, through six zones of floors (each one made as you go
   down), each with its own creatures and a guardian every fourth floor, and on past the last. Fight with a
-  blade and three skills, roll out of the way, spend a talent point each level, and find gear in five
-  rarities, sets among them. Back in the village: Hesk's stall, Vesk's forge (better your gear), your
+  blade and three skills, roll out of the way, spend a talent point each level, and find gear in six
+  rarities, sets among them, and eight legends, each with a power you can see (a blade that sets foes alight,
+  a maul that tolls, a rod whose blows leap as lightning). Elites have powers of their own (frost, thirst,
+  storms, wards), and now and then a named champion waits on a floor. Back in the village: Hesk's stall, Vesk's forge (better your gear), your
   strongbox, and the notice board's tasks. Make your Wickbearer as you like (name, origin, look); the gear you
-  wear shows. Besides fighting: Woodcutting, Mining, Crafting and Hunting (Ysolde's tasks), and mounts to win,
-  some that fly. Three Wickbearers can be kept; one from the first Gloamwell moves into the first free one. It plays offline with its own music (quiet unless you turn it up), with the
+  wear shows. Besides fighting: Woodcutting, Mining, Crafting and Hunting (Ysolde's tasks), each gain of XP
+  rising at the side of the screen as you work, and mounts to win, some that fly. Three Wickbearers can be kept; one from the first Gloamwell moves into the first free one. It plays offline with its own music (quiet unless you turn it up), with the
   controller from the start (the hints show its buttons: A B X Y, or ✕ ○ □ △) or a keyboard.
 - **Tidewing**, a race over open water in low-poly 3D: a skimmer through the gates of six courses against three
   rivals, carving to fill your boost. It's built on the box's own game engine (Low3D, `games/low3d.js`), which
