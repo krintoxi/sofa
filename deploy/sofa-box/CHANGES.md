@@ -7,6 +7,22 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.28
+
+- **Tidewing, a 3D game made for the box.** Race a skimmer, a small hover-craft with a wing, low over open water
+  through the gates of six courses, three laps against three rivals. Carve through the turns to fill your boost,
+  pick up sparks, hit the boost pads, keep off the rocks. Low-poly islands and craft, a sea that moves on a Pi 4 or
+  5, music made as it plays. It's in Games, with the controller from the start (A B X Y, or ✕ ○ □ △), and keeps
+  your best times on the box.
+- **The box's own games have a game engine.** Low3D (`games/low3d.js`) finds out what the box's browser can draw,
+  tests it once (about two seconds), and starts at a size and distance the box holds steady. While you play it
+  keeps the frame rate steady: a smaller picture, or 30 frames a second, when it must, and a sharper one when
+  there's room. On a box without a real GPU (or one Chromium won't use) it draws the same world in 2D. Each new
+  game on it gets that, the controller, menus and sound from the start (`games/ENGINE.md`).
+- **A graphics check.** In the box's browser, `127.0.0.1:8091/box/games/probe/` shows what the browser gives the
+  box's games: the GPU (a Pi 3's is VC4, a Pi 4's V3D 4.2, a Pi 5's V3D 7.1), WebGL, a short test, the setting a
+  game would start on, and a scene drawn that way with its frame rate. Tidewing's "This box" shows the same.
+
 ## 1.1.27
 
 - **Two first-person shooters in Games → Get more games**, free and open source, from Debian like the others,
@@ -49,6 +65,7 @@ GitHub builds the card and makes the release by itself.
 - **Live TV has a channel banner, as on a TV:** the channel's number and name, what's on and what's next, when
   a programme begins and when you change channel. Sofa 1.3.0's guide picks the channel: Retro TV's 2000s are
   channels 2 to 9.
+
 ## 1.1.25
 
 - **Gloamwell, bigger.** Six zones now, 24 floors down to the Gloamheart and more below it: the Sunken Belfry
