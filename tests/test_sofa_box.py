@@ -1013,6 +1013,37 @@ class BoxBrowser(unittest.TestCase):
                              " return JSON.stringify({ ok: GW.validItem(back), r: back.r, n: back.n, in: JSON.stringify(GW.readSlot(0).pack).indexOf('HEARTSEEKER BAND') >= 0 }); })()"))
         self.assertEqual(kept, {"ok": True, "r": 5, "n": "HEARTSEEKER BAND", "in": True})
 
+    def test_gloamwell_finds(self):
+        """Gloamwell's finds: a gem set in a socket gives its power and is kept through a save; a hidden vault's
+        cracked wall breaks open; a familiar follows you down; floors with an omen (a gilded thief, the restless
+        dead) play for a while with nothing thrown."""
+        self.post("/box/api/open", {"url": self.base + "/box/games/gloamwell/#test"})
+        js = lambda e: self.page_value("/box/games/gloamwell", e)
+        end = time.time() + 25
+        while time.time() < end:
+            try:
+                if js("typeof GW") == "object":
+                    break
+            except (StopIteration, OSError, KeyError):
+                pass
+            time.sleep(0.3)
+        js("window.errs = []; addEventListener('error', e => errs.push(String(e.message))); GW.newGame(1); GW.P.hp = GW.P.mhp = 99999; 1")
+        gem = json.loads(js("(() => { const P = GW.P, w = P.eq[0]; w.so = 2; w.gm = [-1, -1]; P.gems[11] = 1; GW.recalc(); const c0 = P.crit;"
+                            " GW.setGem(w, 0, 11); GW.save(); const back = GW.readSlot(0).eq[0];"
+                            " return JSON.stringify({ up: P.crit - c0, gm: back.gm, left: P.gems[11] }); })()"))
+        self.assertEqual(gem, {"up": 7, "gm": [11, -1], "left": 0})              # (a radiant topaz in a weapon: +7% critical hits)
+        vault = json.loads(js("(() => { if (!GW.vaultFloor(6)) return JSON.stringify({ found: false }); const was = GW.tile(GW.VLT.tx, GW.VLT.ty);"
+                              " GW.breakVault(); return JSON.stringify({ found: true, was, now: GW.tile(GW.VLT.tx, GW.VLT.ty), open: GW.VLT.open }); })()"))
+        self.assertEqual(vault, {"found": True, "was": 9, "now": 1, "open": True})
+        js("(() => { GW.gainFam(2, true); GW.P.fam = 2; GW.recalc(); GW.goFloorOmen(9, 3); GW.P.hp = GW.P.mhp = 99999; return 1; })()")
+        time.sleep(2.5)
+        state = json.loads(js("JSON.stringify({ errs, omen: GW.omen, thief: GW.MON.some(m => m.on && m.t === 24),"
+                              " near: Math.hypot(GW.FAM.x - GW.P.x, GW.FAM.y - GW.P.y) < 60, mode: GW.mode })"))
+        self.assertEqual(state, {"errs": [], "omen": 3, "thief": True, "near": True, "mode": 3})
+        js("GW.goFloorOmen(10, 4); 1")
+        time.sleep(1.5)
+        self.assertEqual(json.loads(js("JSON.stringify({ errs, omen: GW.omen })")), {"errs": [], "omen": 4})
+
 
 class BoxNetwork(unittest.TestCase):
     """When the box makes its own Wi-Fi: soon for a new box; a box that knows a Wi-Fi waits for it (a router

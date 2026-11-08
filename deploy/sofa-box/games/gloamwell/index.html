@@ -281,6 +281,23 @@ Object.assign(SPR, {
   ghostMoth: [".k...k.", "kwk.kwk", "kwwkwwk", ".kwwwk.", "..k.k.."],
   hook: [".kk..", "kGGk.", "k..Gk", "..kGk", ".kGk."],
 });
+// Gloamwell 4's pictures: the gilded thief, four familiars, and gems in three grades (c, C: the gem's own colours)
+Object.assign(SPR, {
+  thief: ["................", ".....kkkk.......", "....kNNNNk......", "....kNrNrk......", "....kNNNNk..kk..", "...kkNNNNk.kyyk.",
+    "..kNnnnnnkkyyyyk", "..kNnnnnnkyyYyyk", ".kNknnnnnkyyyyyk", ".kk.knnnkkyyyYk.", "....kNNNk.kkkk..", "....kNk.kNk.....", "....kkk.kkk....."],
+  thiefB: ["...kNk..kNk.....", "...kkk..kkk....."],
+  thiefC: ["....kNkkNk......", "....kkkkkk......"],
+  famRat: ["...............", "...........kk..", "....kkkkk.kTTk.", "..kkTTTTTkTTwk.", "xxkTTTTTTTTTTkk", "..kTtTTTTTTtTxk",
+    "...kkTkkkkTkkk.", "....kk....kk..."],
+  famRatB: ["...kTkkkkkkTkk.", "...kk......kk.."],
+  famMoth: ["...........", ".kk.....kk.", "kyyk...kyyk", "kyYyk.kyYyk", ".kyykwkyyk.", "..kkkwkkk..", "....kwk....", ".....k....."],
+  famMothB: ["...........", "...........", "....k.k....", ".kkkkwkkkk.", "kyyyYwYyyyk", "kyYyykyyYyk", ".kkk.k.kkk.", "..........."],
+  famWisp: ["....k....", "...kok...", "...kyok..", "..koyyok.", ".koyyyyok", ".kykyykyk", ".koyyyyok", "..koyyok.", "...kook..", "....kk..."],
+  famToad: ["............", "..kk....kk..", ".kwkk..kkwk.", ".keeekkeeek.", "keeeeeeeeeek", "kevvvvvvvvek", ".kEeeeeeeEk.", "kEk.kkkk.kEk"],
+  gem0: [".kkk..", "kcwck.", "kccCk.", ".kCk..", "..k..."],
+  gem1: ["..kkk..", ".kcwck.", "kcwccCk", "kccccCk", ".kcCCk.", "..kCk..", "...k..."],
+  gem2: ["...kkk...", "..kcwck..", ".kcwwcck.", "kcwccccCk", "kccccccCk", ".kcccCCk.", "..kcCCk..", "...kCk...", "....k...."],
+});
 function buildSprites() {
   S.warden = sset(walk4(SPR.warden, SPR.wardenB, SPR.wardenC));
   S.ashcaller = sset(walk4(SPR.ashcaller, SPR.ashcallerB, SPR.ashcallerC));
@@ -820,7 +837,7 @@ function moveVec() {
 
 // ---------------------------------------------------------------- sound: effects and music, all made here with Web Audio
 // Quiet unless turned up: the effects start at 4 of 10 and the music at 3. Both go through one gentle limiter.
-const OPT = { sfx: 4, mus: 3, shake: true, rumble: true, minimap: true };
+const OPT = { sfx: 4, mus: 3, shake: true, rumble: true, minimap: true, fx: 0 };
 let AC = null, NB = null, sfxBus = null, musBus = null;
 const sLast = new Float64Array(40);
 function volCurve(v) { return v <= 0 ? 0 : Math.pow(v / 10, 1.6); }
@@ -832,6 +849,9 @@ function wakeAudio() {
         AC = new A(); const n = (AC.sampleRate * 0.4) | 0; NB = AC.createBuffer(1, n, AC.sampleRate); const d = NB.getChannelData(0); for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
         const comp = AC.createDynamicsCompressor(); comp.threshold.value = -14; comp.knee.value = 10; comp.ratio.value = 4; comp.attack.value = 0.004; comp.release.value = 0.2;
         sfxBus = AC.createGain(); musBus = AC.createGain(); sfxBus.connect(comp); musBus.connect(comp); comp.connect(AC.destination);
+        if (AC.createStereoPanner) for (let k = 0; k < 5; k++) { const pn = AC.createStereoPanner(); pn.pan.value = (k - 2) * 0.4; pn.connect(sfxBus); PANB.push(pn); }
+        echoIn = AC.createGain(); echoD = AC.createDelay(1); echoFB = AC.createGain(); const ef = AC.createBiquadFilter(); ef.type = "lowpass"; ef.frequency.value = 1400;
+        echoIn.gain.value = 0; sfxBus.connect(echoIn); echoIn.connect(echoD); echoD.connect(ef); ef.connect(echoFB); echoFB.connect(echoD); ef.connect(comp); setEcho();
         applyVolumes();
       }
     } catch (e) { AC = null; }
@@ -846,22 +866,26 @@ function applyVolumes() {
 function tone(f0, f1, dur, type, vol, delay, bus) {
   const t = AC.currentTime + (delay || 0), o = AC.createOscillator(), g = AC.createGain();
   o.type = type; o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t + dur);
-  g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-  o.connect(g); g.connect(bus || sfxBus); o.start(t); o.stop(t + dur + 0.02);
+  g.gain.setValueAtTime(vol * sGain, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(g); g.connect(bus || sOut || sfxBus); o.start(t); o.stop(t + dur + 0.02);
 }
 function noise(dur, vol, freq, q, delay, kind) {
   const t = AC.currentTime + (delay || 0), s = AC.createBufferSource(), f = AC.createBiquadFilter(), g = AC.createGain();
   s.buffer = NB; f.type = kind || "bandpass"; f.frequency.value = freq; f.Q.value = q || 1;
-  g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-  s.connect(f); f.connect(g); g.connect(sfxBus); s.start(t, rnd() * 0.3); s.stop(t + dur + 0.02);
+  g.gain.setValueAtTime(vol * sGain, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  s.connect(f); f.connect(g); g.connect(sOut || sfxBus); s.start(t, rnd() * 0.3); s.stop(t + dur + 0.02);
 }
 const SND_SWING = 0, SND_HIT = 1, SND_HURT = 2, SND_COIN = 3, SND_POTION = 4, SND_LEVEL = 5, SND_BOLT = 6, SND_BOOM = 7,
   SND_STEP = 8, SND_PICK = 9, SND_MENU = 10, SND_OK = 11, SND_DIE = 12, SND_CAST = 13, SND_STAIRS = 14, SND_BOSS = 15, SND_BREAK = 16,
   SND_BLOCK = 17, SND_CHARGE = 18, SND_SPIT = 19, SND_BURROW = 20, SND_BELL = 21, SND_FIRE = 22, SND_CRIT = 23, SND_QUEST = 24,
-  SND_ANVIL = 25, SND_SPLIT = 26, SND_DENY = 27, SND_BLINK = 28, SND_SPIKE = 29, SND_RARE = 30, SND_ZAP = 31, SND_HOOK = 32, SND_LEGEND = 33, SND_FW = 34;
+  SND_ANVIL = 25, SND_SPLIT = 26, SND_DENY = 27, SND_BLINK = 28, SND_SPIKE = 29, SND_RARE = 30, SND_ZAP = 31, SND_HOOK = 32, SND_LEGEND = 33, SND_FW = 34, SND_GEM = 35;
 function sfx(id) {
   if (!AC || OPT.sfx <= 0 || AC.state !== "running") return;
   const t = AC.currentTime; if (t - sLast[id] < 0.045) return; sLast[id] = t;
+  if (SPON && POSS[id] && PANB.length) {          // (a creature's sound: from its side of the screen, quieter far off)
+    const dx = SPX - camX - VW / 2, dy = SPY - camY - VH / 2;
+    sOut = PANB[clamp(Math.round(dx / 80) + 2, 0, 4)]; sGain = clamp(1.2 - Math.sqrt(dx * dx + dy * dy) / 300, 0.35, 1);
+  }
   try {
     switch (id) {
       case SND_SWING: noise(0.09, 0.12, 2400 + rnd() * 600, 0.8); break;
@@ -899,8 +923,24 @@ function sfx(id) {
       case SND_HOOK: tone(320, 980, 0.14, "square", 0.05); noise(0.12, 0.16, 2600, 2); break;
       case SND_LEGEND: tone(523, 523, 0.14, "triangle", 0.07); tone(784, 784, 0.14, "triangle", 0.07, 0.1); tone(1046, 1046, 0.14, "triangle", 0.07, 0.2); tone(1568, 1568, 0.7, "triangle", 0.06, 0.3); tone(392, 392, 0.9, "sine", 0.08, 0.3); break;
       case SND_FW: noise(0.25, 0.1, 1300, 0.8); tone(900, 1900, 0.1, "triangle", 0.03); break;
+      case SND_GEM: tone(1568, 1568, 0.08, "triangle", 0.06); tone(2093, 2093, 0.2, "sine", 0.05, 0.06); tone(2637, 2637, 0.35, "sine", 0.035, 0.13); break;
     }
   } catch (e) { /* (a sound that can't play is skipped) */ }
+  sOut = null; sGain = 1;
+}
+// Sounds from where they happen: a creature's come from its side of the screen, quieter far off (five pans, made
+// once; each sound goes to the nearest). What's yours, and the menus', stays in the middle.
+const PANB = [], POSS = new Uint8Array(40);
+let SPON = false, SPX = 0, SPY = 0, sOut = null, sGain = 1, echoIn = null, echoD = null, echoFB = null;
+for (const id of [SND_HIT, SND_CRIT, SND_BOLT, SND_BOOM, SND_BREAK, SND_BLOCK, SND_CHARGE, SND_SPIT, SND_BURROW, SND_BELL, SND_FIRE, SND_SPLIT,
+  SND_BLINK, SND_ZAP, SND_HOOK, SND_BOSS, SND_CAST, SND_SPIKE, SND_SWING]) POSS[id] = 1;
+function sfxAt(id, x, y) { const o = SPON, ox = SPX, oy = SPY; SPON = true; SPX = x; SPY = y; sfx(id); SPON = o; SPX = ox; SPY = oy; }
+// The well's echo: what you hear comes back off the stone, longest in the cistern and the belfry; none in the
+// village. [delay, how much comes round again, how loud]
+const ECHO = [[0.26, 0.42, 0.34], [0.18, 0.3, 0.24], [0.13, 0.24, 0.18], [0.34, 0.5, 0.4], [0.15, 0.26, 0.2], [0.29, 0.44, 0.32]];
+function setEcho() {
+  if (!echoD) return; const t = AC.currentTime, E = isTown ? null : ECHO[zone];
+  echoIn.gain.setTargetAtTime(E ? E[2] : 0, t, 0.2); if (E) { echoD.delayTime.setTargetAtTime(E[0], t, 0.05); echoFB.gain.setTargetAtTime(E[1], t, 0.05); }
 }
 // The music: each place has a key, a scale, four chords of two bars each, a pace, and how busy it is. A short tune
 // is made from them when the music starts (from the place's own seed, so it's always that place's tune), played
@@ -1043,7 +1083,7 @@ const CLS = [
 const K_MELEE = 0, K_FLIT = 1, K_CASTER = 2, K_SLAM = 3, K_BOMB = 4, K_BOSS = 5, K_PROP = 6, K_CHARGE = 7, K_SHIELD = 8, K_SPIT = 9,
   K_BURROW = 10, K_SPLIT = 11, K_SUMMON = 12, K_BLINK = 13;
 const PC_ORANGE = 0, PC_GOLD = 1, PC_RED = 2, PC_GREEN = 3, PC_WAX = 4, PC_PURP = 5, PC_CYAN = 6, PC_GREY = 7, PC_WHITE = 8, PC_BROWN = 9, PC_MIRE = 10,
-  PC_PINK = 11, PC_BONE = 12, PC_DARK = 13, PC_LILAC = 14, PC_TEAL = 15, PC_EMBER = 16;
+  PC_PINK = 11, PC_BONE = 12, PC_DARK = 13, PC_LILAC = 14, PC_TEAL = 15, PC_EMBER = 16, PC_BLUE = 17;
 const MT = [
   { name: "MIRELING", kind: K_MELEE, hp: 10, dmg: 4, spd: 50, r: 5, xp: 5, range: 10, wind: 0.32, cd: 1.0, blood: PC_MIRE, spr: "mire" },
   { name: "WAX GHOUL", kind: K_MELEE, hp: 22, dmg: 7, spd: 36, r: 6, xp: 9, range: 12, wind: 0.45, cd: 1.3, blood: PC_WAX, spr: "ghoul" },
@@ -1075,6 +1115,10 @@ MT.push(
   { name: "SPORE POD", kind: K_POD, hp: 6, dmg: 8, spd: 0, r: 4, xp: 1, range: 0, wind: 0, cd: 0, blood: PC_MIRE, spr: "pod" },
   { name: "MIRROR SHADE", kind: K_MIRROR, hp: 40, dmg: 14, spd: 68, r: 5, xp: 32, range: 12, wind: 0.28, cd: 1.1, blood: PC_DARK, spr: "wraith" });
 const MT_WRAITH = 19, MT_HOOK = 20, MT_SPORE = 21, MT_POD = 22, MT_MIRROR = 23;
+// the gilded thief: only on a gilded floor (an omen), never in a zone's own crowd
+const K_THIEF = 19;
+MT.push({ name: "GILDED THIEF", kind: K_THIEF, hp: 30, dmg: 0, spd: 58, r: 5, xp: 40, range: 0, wind: 0, cd: 0, blood: PC_GOLD, spr: "thief" });
+const MT_THIEF = 24;
 const ELITE = ["HULKING", "FERAL", "BLOATED", "GLOAM-TOUCHED", "ASHEN", "HOLLOW-EYED", "BELL-STRUCK", "KILN-FIRED"];
 // what an elite can do beyond the rest: hit harder, move faster, burn, or come back once
 const EL_NONE = 0, EL_SWIFT = 1, EL_BURNING = 2, EL_UNDYING = 3, EL_FROST = 4, EL_VAMP = 5, EL_STORM = 6, EL_WARD = 7, NEL = 8;
@@ -1217,7 +1261,8 @@ function recipesOf(t) {
 const HUNT_SHOP = [{ n: "SET ME ANOTHER TASK", p: 20, d: "A DIFFERENT CREATURE TO HUNT, NOW" },
   { n: "A HUNTER'S FIND", p: 40, d: "A RARE PIECE OF GEAR, FOR YOUR LEVEL" },
   { n: "THE HUNTER'S MASK", p: 90, d: "HEAD GEAR: +20% DAMAGE TO YOUR TASK'S CREATURES" },
-  { n: "A WICKHOUND", p: 160, d: "A MOUNT: A HOUND OF THE VILLAGE, QUICK AND LOYAL" }];
+  { n: "A WICKHOUND", p: 160, d: "A MOUNT: A HOUND OF THE VILLAGE, QUICK AND LOYAL" },
+  { n: "A CELLAR RAT", p: 60, d: "A FAMILIAR: IT FETCHES GOLD AND TONICS, AND DIGS UP MORE" }];
 const huntReq = t => Math.max(1, (MT[t].lvz || 0) * 8);          // the Hunting level a creature can be set from
 // Mounts: ridden with L3 (the left stick, pressed). The flying ones cross water, lava, wax and spikes.
 const MOUNTS = [
@@ -1272,7 +1317,7 @@ function genItem(l, slot, rar) {
   if (slot < 0) slot = rollSlot();
   const it = { s: slot, b: pickBase(slot, l), l, r: rar, n: "", lo: 0, hi: 0, a: 0, x: [], v: 0, o: ri(OWNERS.length), u: 0 };
   baseStats(it, [1, 1.1, 1.22, 1.38][rar]);
-  rollAffixes(it, rar + (slot === SL_CHARM || slot === SL_RING ? 1 : 0));
+  rollAffixes(it, rar + (slot === SL_CHARM || slot === SL_RING ? 1 : 0)); rollSockets(it);
   if (rar === R_RELIC) it.p = ri(POWERS.length);
   it.v = itemValue(it); it.n = itemName(it);
   return it;
@@ -1280,12 +1325,12 @@ function genItem(l, slot, rar) {
 function genSetPiece(l, si, pi) {
   const Q = SETS[si].p[pi];
   const it = { s: Q[0], b: Q[1], l: Math.max(1, l | 0), r: R_SET, n: "", lo: 0, hi: 0, a: 0, x: [], v: 0, o: 0, u: 0, set: si, sp: pi };
-  baseStats(it, 1.3); rollAffixes(it, 2); it.v = itemValue(it); it.n = itemName(it);
+  baseStats(it, 1.3); rollAffixes(it, 2); rollSockets(it); it.v = itemValue(it); it.n = itemName(it);
   return it;
 }
 function genUnique(l, i) {
   const U = UNIQ[i], it = { s: U.s, b: U.b, l: Math.max(U.lv, l | 0), r: R_UNIQUE, n: U.n, lo: 0, hi: 0, a: 0, x: [], v: 0, o: 0, u: 0, uq: i };
-  baseStats(it, 1.45); rollAffixes(it, 2); it.v = itemValue(it);
+  baseStats(it, 1.45); rollAffixes(it, 2); rollSockets(it); it.v = itemValue(it);
   return it;
 }
 function pickUnique(l) {           // a legend found this deep; one you haven't got, if there is one
@@ -1336,6 +1381,9 @@ function validItem(it) {
   it.lo = Math.max(0, +it.lo || 0); it.hi = Math.max(it.lo, +it.hi || 0); it.a = Math.max(0, +it.a || 0);
   if (it.r === R_SET && !(it.set >= 0 && it.set < SETS.length && it.sp >= 0 && it.sp < 3)) it.r = R_RARE;
   if (it.r === R_UNIQUE && !(it.uq >= 0 && it.uq < UNIQ.length && UNIQ[it.uq].s === it.s)) it.r = R_RARE;
+  it.so = clamp(it.so | 0, 0, SOCK_MAX[it.s]);                    // its sockets, and the gems in them
+  if (it.so) { const gm = Array.isArray(it.gm) ? it.gm.slice(0, it.so).map(g => (g | 0) >= 0 && (g | 0) < NGEM ? g | 0 : -1) : []; while (gm.length < it.so) gm.push(-1); it.gm = gm; }
+  else { delete it.so; delete it.gm; }
   it.v = itemValue(it); it.o = (it.o | 0) >= 0 ? it.o | 0 : 0;
   return true;
 }
@@ -1345,9 +1393,9 @@ const MAXW = 64, MAXH = 48;
 let MW = 64, MH = 48;
 const tiles = new Uint8Array(MAXW * MAXH), seen = new Uint8Array(MAXW * MAXH), visS = new Int32Array(MAXW * MAXH),
   flow = new Int16Array(MAXW * MAXH), fq = new Int32Array(MAXW * MAXH), TK = new Uint8Array(MAXW * MAXH);
-const T_WALL = 0, T_FLOOR = 1, T_STAIRS = 2, T_ROPE = 3, T_SOLID = 4, T_OPEN = 5, T_POOL = 6, T_PILLAR = 7, T_SPIKE = 8;
+const T_WALL = 0, T_FLOOR = 1, T_STAIRS = 2, T_ROPE = 3, T_SOLID = 4, T_OPEN = 5, T_POOL = 6, T_PILLAR = 7, T_SPIKE = 8, T_CRACK = 9;
 // what stops a walker, a flyer (and a shot), and the eye
-const SOLID_W = new Uint8Array([1, 0, 0, 0, 1, 0, 1, 1, 0]), SOLID_F = new Uint8Array([1, 0, 0, 0, 1, 0, 0, 1, 0]), OPAQUE = new Uint8Array([1, 0, 0, 0, 0, 0, 0, 1, 0]);
+const SOLID_W = new Uint8Array([1, 0, 0, 0, 1, 0, 1, 1, 0, 1]), SOLID_F = new Uint8Array([1, 0, 0, 0, 1, 0, 0, 1, 0, 1]), OPAQUE = new Uint8Array([1, 0, 0, 0, 0, 0, 0, 1, 0, 1]);
 const FAR = 32000;
 let visStamp = 1, mapFull = null, mapSeen = null, gSeen = null, gFull = null, isTown = true, depth = 0, zone = 0, fogDirty = true;
 let INT = [], NPCS = [], LAMPS = [], ropeX = 0, ropeY = 0, stairsX = 0, stairsY = 0, bossM = null, bossAlive = false;
@@ -1368,7 +1416,7 @@ function solidFor(e, x, y) {
 }
 function shotBlocked(x, y) { const tx = Math.floor(x / TS), ty = Math.floor(y / TS); if (tx < 0 || ty < 0 || tx >= MW || ty >= MH) return true; return SOLID_F[tiles[ty * MW + tx]] === 1; }
 const tidx = (x, y) => ((y / TS) | 0) * MW + ((x / TS) | 0);
-const I_STAIRS = 0, I_ROPE = 1, I_BRAZIER = 2, I_WELL = 3, I_SHRINE = 4, I_ELDER = 5, I_MERCHANT = 6, I_SMITH = 7, I_BOARD = 8, I_STASH = 9, I_FOUNT = 10, I_NODE = 11, I_HUNT = 12;
+const I_STAIRS = 0, I_ROPE = 1, I_BRAZIER = 2, I_WELL = 3, I_SHRINE = 4, I_ELDER = 5, I_MERCHANT = 6, I_SMITH = 7, I_BOARD = 8, I_STASH = 9, I_FOUNT = 10, I_NODE = 11, I_HUNT = 12, I_VAULT = 13, I_CAGE = 14;
 // wood and ore to gather here: {kind 0 wood / 1 ore, tier, the wall tile it's in, where you stand, what's left}
 let FNODES = [], townNodes = [];
 function addInt(k, x, y, r, label) { INT.push({ k, x, y, r, prompt: T_A + " " + label, off: false }); }
@@ -1421,6 +1469,7 @@ function buildPools() {
 function genDungeon(d, R) {
   MW = 64; MH = 48; isTown = false;
   const N = MW * MH; tiles.fill(T_WALL, 0, N); seen.fill(0, 0, N);
+  VLT.on = false; VLT.open = false; VLT.hinted = false; VLT.cage = -1; VLT.int = null; VLT.cint = null; VLT.img = null;
   const boss = isBossFloor(d), rooms = [], ri2 = n => (R() * n) | 0;
   const free = (x, y, w, h) => {
     if (x < 2 || y < 2 || x + w > MW - 2 || y + h > MH - 2) return false;
@@ -1490,12 +1539,14 @@ function genDungeon(d, R) {
       if (hor || ver) { tiles[i] = T_SPIKE; n++; }
     }
   }
+  if (!boss && d >= 2 && R() < 0.45) carveVault(rooms, start, end, R);       // (now and then, a vault behind a cracked wall)
   ropeX = cxr(start) * TS + 8; ropeY = cyr(start) * TS + 8; tiles[cyr(start) * MW + cxr(start)] = T_ROPE;
   stairsX = cxr(end) * TS + 8; stairsY = cyr(end) * TS + 8; tiles[cyr(end) * MW + cxr(end)] = T_STAIRS;
   INT = []; NPCS = []; LAMPS = [];
   addInt(I_ROPE, ropeX, ropeY, 12, "CLIMB TO WICKHOLLOW");
   addInt(I_STAIRS, stairsX, stairsY, 12, d === FINAL - 1 ? "GO DOWN TO THE HEART" : "GO DOWN");
   populate(rooms, start, end, d, boss, R);
+  if (VLT.on) fillVault(d);
   renderDungeon(R);
 }
 function bfsFrom(sx, sy) {
@@ -1531,8 +1582,9 @@ function populate(rooms, start, end, d, boss, R) {
     const r = rooms[i]; if (r === start) continue;
     if (boss && r === end) { spawnBoss(d, (r.x + (r.w >> 1)) * TS + 8, (r.y + 2) * TS + 8); continue; }
     mids.push(r);
-    const n = Math.min(7, 2 + ri2(3) + Math.min(3, d >> 3) + (r.w * r.h > 50 ? 1 : 0)), pack = pool[ri2(pool.length)];
-    let elite = R() < 0.1 + d * 0.012;
+    let n = Math.min(7, 2 + ri2(3) + Math.min(3, d >> 3) + (r.w * r.h > 50 ? 1 : 0)), pack = pool[ri2(pool.length)];
+    if (omen === 2) n = Math.min(10, Math.round(n * 1.6));
+    let elite = R() < (0.1 + d * 0.012) * (omen === 1 ? 2.5 : 1);
     for (let k = 0; k < n; k++) {
       const s = spot(r); if (s < 0) continue;
       spawnMon(R() < 0.7 ? pack : pool[ri2(pool.length)], (s % MW) * TS + 8, ((s / MW) | 0) * TS + 8, elite); elite = false;
@@ -1549,6 +1601,7 @@ function populate(rooms, start, end, d, boss, R) {
     for (let i = 0; i < NM; i++) { const m = MON[i]; if (!m.on || m.kind === K_PROP || m.kind === K_MIRROR || m.kind === K_POD || m.kind === K_BURROW || m.elite) continue; const e = Math.abs(m.x - sx) + Math.abs(m.y - sy); if (e > bd && R() < 0.7) { bd = e; best = m; } }
     if (best) makeChampion(best);
   }
+  if (omen === 3 && mids.length) { const r = mids[ri2(mids.length)], s = spot(r); if (s >= 0) spawnMon(MT_THIEF, (s % MW) * TS + 8, ((s / MW) | 0) * TS + 8, false); }
   BRZ.on = false; BRZ.lit = false; FNT.on = false; FNT.used = false;
   if (mids.length > 1) {
     const r = mids[ri2(mids.length)], x = r.x + (r.w >> 1) + (r.w > 6 ? 2 : 0), y = r.y + (r.h >> 1);
@@ -1600,10 +1653,10 @@ function renderDungeon(R) {
     ledge = hexc(th.ledge), acc = hexc(th.acc), acc2 = hexc(th.acc2), bone = hexc("#c8bca8"), boneD = hexc("#8a7e6a"), water = hexc("#2a3e5a"), waterL = hexc("#4a6a8a"),
     lq = th.liq.map(hexc);
   const ri2 = n => (R() * n) | 0;
-  const wallAt = (x, y) => x < 0 || y < 0 || x >= MW || y >= MH || tiles[y * MW + x] === T_WALL;
+  const wallAt = (x, y) => x < 0 || y < 0 || x >= MW || y >= MH || tiles[y * MW + x] === T_WALL || tiles[y * MW + x] === T_CRACK;
   const tallAt = (x, y) => wallAt(x, y) || tiles[y * MW + x] === T_PILLAR;
   const poolAt = (x, y) => x >= 0 && y >= 0 && x < MW && y < MH && tiles[y * MW + x] === T_POOL;
-  for (let ty = 0; ty < MH; ty++) for (let tx = 0; tx < MW; tx++) {
+  const paint = (tx, ty) => {
     const t = tiles[ty * MW + tx], X = tx * TS, Y = ty * TS;
     if (t === T_POOL) {
       prect(X, Y, 16, 16, lq[1]);
@@ -1612,7 +1665,7 @@ function renderDungeon(R) {
       if (!poolAt(tx - 1, ty)) prect(X, Y, 1, 16, lq[0]);
       if (!poolAt(tx + 1, ty)) prect(X + 15, Y, 1, 16, lq[0]);
       if (!poolAt(tx, ty + 1)) { prect(X, Y + 14, 16, 2, lq[2]); prect(X, Y + 15, 16, 1, rim); }
-    } else if (t !== T_WALL) {
+    } else if (t !== T_WALL && t !== T_CRACK) {
       // flagstones: two in the top half, three (staggered) in the bottom
       for (let half = 0; half < 2; half++) {
         const cuts = half === 0 ? [0, 8, 16] : [0, 4, 12, 16];
@@ -1662,6 +1715,12 @@ function renderDungeon(R) {
           for (let bx = -off; bx < 16; bx += 8) { const x0 = Math.max(0, bx), x1 = Math.min(16, bx + 8); if (x1 > x0) { prect(X + x0, y0 + 1, x1 - x0, 3, face[ri2(3)]); pset(X + Math.max(0, bx), y0 + 1, mortar); pset(X + Math.max(0, bx), y0 + 2, mortar); pset(X + Math.max(0, bx), y0 + 3, mortar); } }
         }
         prect(X, Y, 16, 2, ledge); prect(X, Y + 15, 16, 1, mortar);
+        if (t === T_CRACK) {                                  // a crack down it, and a draught's dark at its foot
+          const dk = hexc("#0d0b14"); let xx = X + 7;
+          for (let y = 1; y < 16; y++) { pset(xx, Y + y, dk); pset(xx + 1, Y + y, dk); pset(xx + 2, Y + y, ledge); pset(xx - 1, Y + y, mortar); xx += y % 3 === 0 ? 1 : y % 3 === 1 ? -1 : 0; }
+          for (let k = 0; k < 3; k++) { pset(X + 3 + k, Y + 5 + (k >> 1), dk); pset(X + 10 + k, Y + 9 + (k >> 1), dk); }
+          prect(X + 4, Y + 13, 8, 3, dk); prect(X + 5, Y + 12, 6, 1, mortar);
+        }
         if (R() < 0.12) {                                     // moss, wax, roots, verdigris, glowing seams or a crack down the face
           const x = X + 2 + ri2(12);
           if (zone === 0) for (let y = 2; y < 8 + ri2(6); y++) pset(x + (y & 1), Y + y, y & 2 ? acc : acc2);
@@ -1683,13 +1742,23 @@ function renderDungeon(R) {
         }
       }
     }
-  }
+  };
+  for (let ty = 0; ty < MH; ty++) for (let tx = 0; tx < MW; tx++) paint(tx, ty);
   for (let k = 0; k < torchN; k++) {     // the torches' iron
     const X = torchX[k] * TS, Y = torchY[k] * TS, iron = hexc("#2a2633"), cup = hexc("#6a6478");
     prect(X + 7, Y + 8, 2, 5, iron); prect(X + 5, Y + 7, 6, 2, cup); prect(X + 6, Y + 9, 4, 1, iron);
   }
   const gl = zone === 2 ? [hexc("#b8e070"), hexc("#4a6a2a")] : zone === 3 ? [hexc("#9ad8c8"), hexc("#3a8a8a")] : zone === 4 ? [hexc("#f2c14e"), hexc("#c8303a")] : [hexc("#e0b8ff"), hexc("#8a4ab0")];
   for (let k = 0; k < glN; k++) { const x = glX[k], y = glY[k]; pset(x, y, gl[0]); pset(x + 1, y, gl[1]); pset(x, y + 1, gl[1]); pset(x - 1, y + 1, gl[1]); }
+  if (VLT.on) {          // the vault's wall, broken: painted now, kept aside, laid in when it's struck
+    const cx = VLT.tx, cy = VLT.ty, X0 = (cx - 1) * TS, Y0 = (cy - 1) * TS, keep = new Uint32Array(48 * 48);
+    for (let y = 0; y < 48; y++) for (let x = 0; x < 48; x++) keep[y * 48 + x] = U32[(Y0 + y) * IDW + X0 + x];
+    tiles[cy * MW + cx] = T_FLOOR;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) paint(cx + dx, cy + dy);
+    const c = mk(48, 48), g = c.getContext("2d"), id2 = g.createImageData(48, 48), u2 = new Uint32Array(id2.data.buffer);
+    for (let y = 0; y < 48; y++) for (let x = 0; x < 48; x++) { u2[y * 48 + x] = U32[(Y0 + y) * IDW + X0 + x]; U32[(Y0 + y) * IDW + X0 + x] = keep[y * 48 + x]; }
+    g.putImageData(id2, 0, 0); VLT.img = c; tiles[cy * MW + cx] = T_CRACK;
+  }
   gFull.putImageData(id, 0, 0); U32 = null;
   mapSeen = mk(W, H); gSeen = mapSeen.getContext("2d"); gSeen.fillStyle = "#000"; gSeen.fillRect(0, 0, W, H);
   fogDirty = true; mmReset();
@@ -1710,7 +1779,7 @@ for (let i = 0; i < NRAY; i++) { RCOS[i] = Math.cos(i / NRAY * Math.PI * 2); RSI
 // what you can see from where you stand: rays out to the lamp's reach, stopping at walls and pillars
 function computeFOV() {
   visStamp++;
-  const px = P.x / TS, py = (P.y - 4) / TS, steps = Math.round(27 * (P ? P.lampK : 1));
+  const px = P.x / TS, py = (P.y - 4) / TS, steps = Math.round(27 * (P ? P.lampK : 1) * (omen === 0 && !isTown ? 0.75 : 1));
   for (let r = 0; r < NRAY; r++) {
     let x = px, y = py; const dx = RCOS[r] * 0.34, dy = RSIN[r] * 0.34;
     for (let s = 0; s < steps; s++) {
@@ -1877,10 +1946,10 @@ for (let i = 0; i < NM; i++) MON.push({ on: false, t: 0, kind: 0, x: 0, y: 0, vx
   cd: 0, awake: false, hit: 0, face: 1, anim: 0, elite: false, el: 0, boss: -1, stun: 0, phT: 0, pat: 0, name: "", spr: null, ph: 0, sd: 1,
   stepHit: 0, ax: 0, ay: 0, fly: 0, blood: 0, burn: 0, burnT: 0, pois: 0, poisT: 0, mark: 0, under: false, sum: -1, kids: 0, angle: 0,
   revived: false, tick: 0, angry: false, mv: 0, spin: 0, wallHit: false, el2: 0, elS: "", ward: 0, wardMax: 0, wardT: 0, storm: 0, chill: 0,
-  champ: false, hx: 0, hy: 0, hd: 0, lkx: 0, lky: 0, zid: 0 });
+  champ: false, hx: 0, hy: 0, hd: 0, lkx: 0, lky: 0, zid: 0, risen: false });
 const NPJ = 110, PJ = [];
 for (let i = 0; i < NPJ; i++) PJ.push({ on: false, x: 0, y: 0, vx: 0, vy: 0, life: 0, dmg: 0, foe: false, kind: 0, r: 3, splash: 0, crit: false,
-  z: 0, vz: 0, bounce: 0, chain: 0, last: null, fire: 0, tgt: null });
+  z: 0, vz: 0, bounce: 0, chain: 0, last: null, fire: 0, tgt: null, fam: 0 });
 const PJ_EMBER = 0, PJ_KNIFE = 1, PJ_COLD = 2, PJ_ORB = 3, PJ_GLOB = 4, PJ_FIRE = 5, PJ_MOTH = 6;
 const NDR = 64, DR = [];
 for (let i = 0; i < NDR; i++) DR.push({ on: false, x: 0, y: 0, kind: 0, n: 0, item: null, t: 0, full: 0 });
@@ -1897,10 +1966,11 @@ const NP = 420, pX = new Float32Array(NP), pY = new Float32Array(NP), pVX = new 
   pL = new Float32Array(NP), pC = new Uint8Array(NP), pS = new Uint8Array(NP), pG = new Uint8Array(NP);
 let pNext = 0;
 const PCOL = ["#ee8a3a", "#f2c14e", "#c8303a", "#7aa04a", "#e2d49c", "#8a4ab0", "#7ad8f0", "#9a94a8", "#ece8f4", "#3e2a1a", "#b8e070", "#ff5a8a", "#d0c4b0", "#5a5468", "#c79bff",
-  "#3a8a8a", "#ff7a2a"];
+  "#3a8a8a", "#ff7a2a", "#5a9aff"];
 // what a creature's blood leaves on the floor
-const STAIN = ["#5a2a10", "#6a5a3a", "#4a1018", "#2e3a1a", "#6a6040", "#2a143a", "#1f4a5a", "#3a3a44", "#5a5a60", "#2a1c10", "#3a4a1a", "#4a1a30", "#5a5448", "#222028", "#3a2a4a", "#1e3a3a", "#4a1a0a"];
+const STAIN = ["#5a2a10", "#6a5a3a", "#4a1018", "#2e3a1a", "#6a6040", "#2a143a", "#1f4a5a", "#3a3a44", "#5a5a60", "#2a1c10", "#3a4a1a", "#4a1a30", "#5a5448", "#222028", "#3a2a4a", "#1e3a3a", "#4a1a0a", "#1a3a8a"];
 function part(x, y, vx, vy, life, col, size, grav) {
+  if (FXQ < 2 && (++pSkip % (FXQ ? 3 : 2)) === 0) return;         // (a box that can't keep up: fewer of them)
   const i = pNext; pNext = (pNext + 1) % NP;
   pX[i] = x; pY[i] = y; pVX[i] = vx; pVY[i] = vy; pL[i] = life; pC[i] = col; pS[i] = size; pG[i] = grav ? 1 : 0;
 }
@@ -1921,7 +1991,7 @@ function hazard(x, y, r, t, dps, kind, foe) {
 function clearPools() {
   for (let i = 0; i < NM; i++) MON[i].on = false; for (let i = 0; i < NPJ; i++) PJ[i].on = false;
   for (let i = 0; i < NDR; i++) DR[i].on = false; for (let i = 0; i < NFT; i++) FT[i].on = false; pL.fill(0);
-  for (let i = 0; i < NHZ; i++) HZ[i].on = false; for (let i = 0; i < NRG; i++) RG[i].on = false;
+  for (let i = 0; i < NHZ; i++) HZ[i].on = false; for (let i = 0; i < NRG; i++) RG[i].on = false; for (let i = 0; i < NRS; i++) RS[i].on = false; for (let i = 0; i < NLP; i++) LP[i].on = false;
   bossM = null; bossAlive = false; target = null; markM = null; champM = null; chainK = 0; chainT = 0;
   for (let i = 0; i < NFX; i++) FX[i].on = false; for (let i = 0; i < NSTK; i++) STK[i].on = false;
 }
@@ -2113,7 +2183,8 @@ function newPlayer(cls) {
     reach: 20, arc: 2, block: 0, thorns: 0, cdr: 0, cost: 0, find: 0, goldP: 0, lampK: 1, dodgeK: 1, B: {}, setN: [0, 0, 0, 0, 0],
     undyingUsed: false, fleeT: 0, blows: 0, shadeT: 0, shadeX: 0, shadeY: 0, slowT: 0, armor: 1,
     name: "", look: Object.assign({}, DEFLOOK[cls]), origin: 0, sxp: [0, 0, 0, 0], slv: [1, 1, 1, 1], mats: { w: [0, 0, 0, 0, 0, 0], o: [0, 0, 0, 0, 0, 0], b: [0, 0, 0, 0, 0, 0] },
-    axe: 0, pick: 0, hunt: null, marks: 0, streak: 0, mounts: [], mount: -1, riding: false, fly: 0, gather: null, gatherT: 0, gatherDur: 2, strokeT: 0 };
+    axe: 0, pick: 0, hunt: null, marks: 0, streak: 0, mounts: [], mount: -1, riding: false, fly: 0, gather: null, gatherT: 0, gatherDur: 2, strokeT: 0,
+    gems: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], fams: [], fam: -1 };
 }
 function starterKit() {
   const c = CLS[P.cls], w = genItem(1, 0, 0), a = genItem(1, 1, 0);
@@ -2145,6 +2216,10 @@ function recalc() {
       case 0: add("killWick", 2); break; case 1: add("bossD", 20); break; case 2: add("rollFire", 1); break; case 3: add("fifth", 1); break;
       case 4: add("fleeHit", 1); break; case 5: add("cost", 15); break; case 6: add("critHeal", 2); break; case 7: add("lamp", 25); add("dmgP", 10); break;
     }
+    if (it.so) for (let j = 0; j < it.gm.length; j++) {           // its gems
+      const g = it.gm[j]; if (g < 0) continue; const E = gemFx(it.s, g), v = E[1][g % 3];
+      if (E[0] === "hp") hp += v; else if (E[0] === "mp") mp += v; else if (E[0] === "arm") arm += v; else add(E[0], v);
+    }
     for (let j = 0; j < it.x.length; j++) {
       const v = it.x[j][1];
       switch (it.x[j][0]) {
@@ -2154,6 +2229,7 @@ function recalc() {
       }
     }
   }
+  if (P.fam === 0) add("gold", 10); if (P.fam === 1) add("lamp", 25);       // (a familiar's gift)
   for (let k = 0; k < SETS.length; k++) {
     if (setN[k] >= 2) for (let j = 0; j < SETS[k].b2.length; j++) add(SETS[k].b2[j][0], SETS[k].b2[j][1]);
     if (setN[k] >= 3) for (let j = 0; j < SETS[k].b3.length; j++) add(SETS[k].b3[j][0], SETS[k].b3[j][1]);
@@ -2194,7 +2270,7 @@ function gainXP(n) {
     if (P.lvl === nsk.lv) banner("LEVEL " + P.lvl, "A NEW SKILL: " + nsk.name + " (" + T_RT + ")");
     else banner("LEVEL " + P.lvl, "A TALENT POINT TO SPEND (" + T_SEL + ")");
     for (let k = 0; k < 30; k++) part(P.x + rr(-8, 8), P.y - rr(0, 4), rr(-10, 10), -rr(30, 70), rr(0.6, 1.2), k & 1 ? PC_GOLD : PC_ORANGE, 1, false);
-    ring(P.x, P.y - 6, 40, 0.5, PC_GOLD); if (mode === M_PLAY) { fx(FX_PILLAR, P.x, P.y, 0, 0, 1.2, PC_GOLD, null); for (let k = 0; k < 3; k++) fx(FX_FW, P.x + rr(-34, 34), P.y - rr(34, 56), 0, 0, 0.6, k & 1 ? PC_ORANGE : PC_GOLD, null, -k * 0.25); }
+    ring(P.x, P.y - 6, 40, 0.5, PC_GOLD); lpulse(P.x, P.y - 8, 96, 0.9, "gold"); if (mode === M_PLAY) { fx(FX_PILLAR, P.x, P.y, 0, 0, 1.2, PC_GOLD, null); for (let k = 0; k < 3; k++) fx(FX_FW, P.x + rr(-34, 34), P.y - rr(34, 56), 0, 0, 0.6, k & 1 ? PC_ORANGE : PC_GOLD, null, -k * 0.25); }
     save();
   }
 }
@@ -2255,7 +2331,7 @@ function freeMon() { for (let i = 0; i < NM; i++) if (!MON[i].on) return MON[i];
 function resetMon(m) {
   m.vx = m.vy = 0; m.st = 0; m.stT = 0; m.hit = 0; m.stun = 0; m.stepHit = 0; m.burn = 0; m.burnT = 0; m.pois = 0; m.poisT = 0; m.mark = 0;
   m.under = false; m.sum = -1; m.kids = 0; m.revived = false; m.tick = 0; m.angry = false; m.mv = 0; m.spin = 0; m.el = 0; m.boss = -1; m.elite = false;
-  m.el2 = 0; m.elS = ""; m.ward = 0; m.wardMax = 0; m.wardT = 0; m.storm = 2 + rnd() * 2; m.chill = 0; m.champ = false; m.hx = m.hy = m.hd = 0; m.lkx = m.lky = 0;
+  m.el2 = 0; m.elS = ""; m.ward = 0; m.wardMax = 0; m.wardT = 0; m.storm = 2 + rnd() * 2; m.chill = 0; m.champ = false; m.hx = m.hy = m.hd = 0; m.lkx = m.lky = 0; m.risen = false;
 }
 function spawnMon(t, x, y, elite) {
   const m = freeMon(); if (!m) return null;
@@ -2270,6 +2346,7 @@ function spawnMon(t, x, y, elite) {
     m.el = 1 + ri(d >= 3 ? NEL - 1 : 3); if (d >= 9 && rnd() < 0.5) { do m.el2 = 1 + ri(NEL - 1); while (m.el2 === m.el); }
     applyEl(m, m.el); if (m.el2) applyEl(m, m.el2); m.elS = elName(m);
   }
+  if (!isTown && T.kind !== K_PROP) { if (omen === 1) m.dmg *= 1.25; if (omen === 2) m.mhp = m.hp = Math.max(1, Math.round(m.hp * 0.65)); }   // (the omens)
   m.name = elite ? ELITE[ri(ELITE.length)] + " " + T.name : T.name;
   if (m.kind === K_BURROW) m.under = true;
   return m;
@@ -2300,6 +2377,7 @@ function spawnBoss(d, x, y) {
 function wake(m) {
   if (m.awake) return; m.awake = true;
   if (m.kind === K_BOSS) { banner(m.name, "RISES FROM THE DARK"); sfx(SND_BOSS); playSong(MUS_BOSS); rumble(0.6, 400); }
+  else if (m.kind === K_THIEF) { toast("A GILDED THIEF! CATCH IT BEFORE IT GETS AWAY", C_GOLD); sfx(SND_COIN); }
   else if (m.champ) { banner("A CHAMPION STIRS", m.name); sfx(SND_BOSS); rumble(0.4, 300); ring(m.x, m.y - 8, 34, 0.5, PC_GOLD); }
   for (let i = 0; i < NM; i++) { const o = MON[i]; if (o.on && !o.awake && o.kind !== K_PROP && o.kind !== K_BOSS && Math.abs(o.x - m.x) + Math.abs(o.y - m.y) < 80) o.awake = true; }
 }
@@ -2322,7 +2400,7 @@ function fire(x, y, vx, vy, life, dmg, foe, kind, r, splash, crit) {
   for (let i = 0; i < NPJ; i++) {
     const p = PJ[i]; if (p.on) continue;
     p.on = true; p.x = x; p.y = y; p.vx = vx; p.vy = vy; p.life = life; p.dmg = dmg; p.foe = foe; p.kind = kind; p.r = r; p.splash = splash || 0; p.crit = !!crit;
-    p.z = 0; p.vz = 0; p.bounce = 0; p.chain = 0; p.last = null; p.fire = 0;
+    p.z = 0; p.vz = 0; p.bounce = 0; p.chain = 0; p.last = null; p.fire = 0; p.fam = 0;
     return p;
   }
   return null;
@@ -2346,6 +2424,7 @@ function updateMonsters(dt) {
   awakeN = 0; dimD = 999;
   for (let i = 0; i < NM; i++) {
     const m = MON[i]; if (!m.on || m.kind === K_PROP) continue;
+    SPON = true; SPX = m.x; SPY = m.y;
     const dx = P.x - m.x, dy = P.y - m.y, d2 = dx * dx + dy * dy;
     if (!m.awake) { if (d2 < 150 * 150 && (visS[tidx(m.x, m.y)] === visStamp || m.under)) wake(m); else continue; }
     if (d2 > 440 * 440) continue;
@@ -2558,9 +2637,11 @@ function updateMonsters(dt) {
         chase(m, dt, ux, uy, d);
         break;
       }
+      case K_THIEF: thiefAI(m, dt, d); break;
       case K_BOSS: bossAI(m, dt, d, ux, uy); break;
     }
   }
+  SPON = false;
   // bodies don't stand in each other, or in you
   for (let a = 0; a < awakeN; a++) {
     const m = MON[awakeIdx[a]]; if (!m.on || m.under) continue;
@@ -2591,7 +2672,7 @@ function elTick(m, dt, d) {    // the elite powers that act on their own
 }
 function chill(m, t) { if (!m.on || m.kind === K_PROP) return; if (m.kind === K_BOSS) t *= 0.4; if (!(m.chill > 0)) m.spd *= 0.5; m.chill = Math.max(m.chill, t); }
 function explode(m) {
-  m.on = false; sfx(SND_BOOM); shake(0.2, 3); ring(m.x, m.y - 4, 34, 0.35, PC_ORANGE);
+  m.on = false; sfx(SND_BOOM); shake(0.2, 3); ring(m.x, m.y - 4, 34, 0.35, PC_ORANGE); lpulse(m.x, m.y - 6, 64, 0.35, "warmB");
   for (let k = 0; k < 28; k++) part(m.x, m.y - 6, rr(-90, 90), rr(-90, 60), rr(0.3, 0.7), k & 1 ? PC_ORANGE : PC_GOLD, 2, true);
   const dx = P.x - m.x, dy = P.y - m.y; if (dx * dx + dy * dy < (30 + P.r) * (30 + P.r)) hurt(m.dmg);
 }
@@ -2726,6 +2807,10 @@ let later2 = 0;      // (a guardian's second toll, a moment after the first)
 const ELN = ["", "SWIFT", "BURNING", "UNDYING", "FROSTBOUND", "BLOODTHIRSTY", "STORMCALLED", "WARDED"];
 const ELC = [C_W, C_GREEN, C_ORANGE, C_PURP, C_CYAN, C_RED, C_BLUE, C_GOLD], ELP = [PC_WHITE, PC_MIRE, PC_ORANGE, PC_PURP, PC_CYAN, PC_RED, PC_WHITE, PC_GOLD];
 function hitMon(m, dmg, crit, kx, ky, kb, quiet, fireHit) {
+  const so = SPON, sx = SPX, sy = SPY; SPON = true; SPX = m.x; SPY = m.y;
+  hitMon0(m, dmg, crit, kx, ky, kb, quiet, fireHit); SPON = so; SPX = sx; SPY = sy;
+}
+function hitMon0(m, dmg, crit, kx, ky, kb, quiet, fireHit) {
   if (!m.on || m.under) return;
   if (m.kind === K_PROP) { breakProp(m); return; }
   let d = dmg;
@@ -2757,9 +2842,12 @@ function hitMon(m, dmg, crit, kx, ky, kb, quiet, fireHit) {
     fx(FX_STAR, m.x - kx * 4, m.y - 8 - ky * 3, crit ? 1 : 0, 0, crit ? 0.22 : 0.15, 0, null);
     if (m.kind === K_SPORE) for (let k = 0; k < 4; k++) part(m.x + rr(-6, 6), m.y - rr(4, 14), rr(-20, 20), -rr(10, 30), 0.7, PC_PINK, 1, false);
     if (P.leech > 0 || P.leechP > 0) P.hp = Math.min(P.mhp, P.hp + P.leech + d * P.leechP / 100);
-    if (crit) { stop(0.05); ring(m.x, m.y - 6, 16, 0.2, PC_WHITE); sfx(SND_CRIT); if (bon("critHeal")) P.hp = Math.min(P.mhp, P.hp + P.mhp * 0.02); }
+    if (crit) { stop(0.05); ring(m.x, m.y - 6, 16, 0.2, PC_WHITE); lpulse(m.x, m.y - 8, 24, 0.16, "warm"); sfx(SND_CRIT); if (bon("critHeal")) P.hp = Math.min(P.mhp, P.hp + P.mhp * 0.02); }
     else sfx(SND_HIT);
     if (bon("poison") && !fireHit) { m.pois = Math.max(m.pois, d * bon("poison") / 100 / 3); m.poisT = 3; }
+    if (bon("chillP") && rnd() * 100 < bon("chillP")) { const was = m.chill > 0; chill(m, 1.6); if (!was) sparks(m.x, m.y - 8, 5, PC_BLUE, -1.57, 1.4, 45); }     // (sapphires)
+    if (bon("venomP") && !fireHit && rnd() * 100 < bon("venomP")) { m.pois = Math.max(m.pois, d * 0.3); m.poisT = 3; }                                       // (emeralds)
+    if (m.kind === K_THIEF) { drop(m.x, m.y, 0, Math.max(1, Math.round((2 + depth) * rr(1, 2.2))), null); sfx(SND_COIN); }                                  // (the thief spills gold)
     if (fireHit && bon("burn")) { m.burn = Math.max(m.burn, d * bon("burn") / 100 / 3); m.burnT = 3; }
     if (!inChain) {           // the legends' powers
       if (bon("uq0") && !fireHit) { m.burn = Math.max(m.burn, d * 0.1); m.burnT = 3; }
@@ -2773,7 +2861,7 @@ function hitMon(m, dmg, crit, kx, ky, kb, quiet, fireHit) {
 function breakProp(m) {
   m.on = false; sfx(SND_BREAK); questTick(Q_URN, m.t === MT_URN ? 0 : -1);
   if (m.t === MT_URN) { burst(m.x, m.y - 4, 10, PC_BROWN, 50, 0.5, 2); loot(m.x, m.y, 4); stain(m.x, m.y, "#3a2a1a", 5); }
-  else { burst(m.x, m.y - 6, 14, PC_GOLD, 60, 0.6, 2); loot(m.x, m.y, 3); sfx(SND_COIN); }
+  else { burst(m.x, m.y - 6, 14, PC_GOLD, 60, 0.6, 2); loot(m.x, m.y, 3); sfx(SND_COIN); lpulse(m.x, m.y - 6, 40, 0.4, "gold"); }
 }
 function killMon(m) {
   if (hasEl(m, EL_UNDYING) && !m.revived) {          // it gets up again, once
@@ -2786,7 +2874,7 @@ function killMon(m) {
   if (m.kind === K_DIM) { flash(0.12, "#e0f4ff"); ring(m.x, m.y - 8, 34, 0.4, PC_LILAC); sfx(SND_BLINK); }
   if (m.kind === K_SPORE) hazard(m.x, m.y, 20, 4, m.dmg * 0.5, HZ_POISON, true);
   if (hasEl(m, EL_FROST)) ring(m.x, m.y - 4, 30, 0.4, PC_CYAN);
-  gainXP(m.xp); P.kills++;
+  gainXP(Math.round(m.xp * OMXP[omen + 1])); P.kills++; famKill(); if (omen === 4) maybeRise(m);
   if (m.kind !== K_BOSS && m.t !== MT_THRALL) { chainK++; chainT = 2.4; chainPop = 0.25; if (chainK >= 3) chainS = chainK + " IN A ROW"; }
   if (bon("uq6") && ++heartN % 8 === 0) {        // the Heartseeker Band
     const h = Math.round(P.mhp * 0.2); P.hp = Math.min(P.mhp, P.hp + h); ftext(P.x, P.y - 24, "+" + h, C_PINK, true); sfx(SND_POTION);
@@ -2806,7 +2894,7 @@ function killMon(m) {
   if (m.kind === K_BOSS) {
     bossAlive = false; bossM = null; shake(0.6, 4); stop(0.18); flash(0.4, "#fff"); sfx(SND_BOOM); rumble(1, 600);
     for (let k = 0; k < 70; k++) part(m.x + rr(-14, 14), m.y - rr(0, 20), rr(-60, 60), rr(-110, -20), rr(0.6, 1.4), k % 3 === 0 ? PC_GOLD : m.blood, 2, true);
-    ring(m.x, m.y - 8, 70, 0.7, PC_GOLD); ring(m.x, m.y - 8, 40, 0.5, PC_WHITE);
+    ring(m.x, m.y - 8, 70, 0.7, PC_GOLD); ring(m.x, m.y - 8, 40, 0.5, PC_WHITE); lpulse(m.x, m.y - 10, 104, 1.1, "gold");
     P.bosses |= 1 << m.boss; questTick(Q_BOSS, m.boss);
     for (let k = 0; k < MOUNTS.length; k++) if (MOUNTS[k].boss === m.boss && P.mounts.indexOf(k) < 0 && rnd() < (depth > FINAL ? 0.2 : MOUNT_DROP)) { gainMount(k, true); mountNews = k; mountNewsT = 3; }   // (now and then, its mount)
     loot(m.x, m.y, 2); dustT = 0;
@@ -2815,12 +2903,14 @@ function killMon(m) {
     banner(m.name + " FALLS", "THE STAIR DOWN IS OPEN"); save(); playSong(1 + zone);
   } else if (m.champ) {
     champM = null; banner(m.name + " FALLS", "A CHAMPION'S SPOILS"); shake(0.3, 3); stop(0.1); flash(0.2, "#f2c14e"); sfx(SND_BOOM); rumble(0.8, 400);
-    ring(m.x, m.y - 8, 50, 0.6, PC_GOLD); fx(FX_PILLAR, m.x, m.y, 0, 0, 1, PC_GOLD, null); loot(m.x, m.y, 5);
-  } else loot(m.x, m.y, m.elite ? 1 : 0);
+    ring(m.x, m.y - 8, 50, 0.6, PC_GOLD); fx(FX_PILLAR, m.x, m.y, 0, 0, 1, PC_GOLD, null); loot(m.x, m.y, 5); lpulse(m.x, m.y - 10, 80, 0.7, "gold"); champFam();
+  } else if (m.kind === K_THIEF) thiefSpoils(m);
+  else { if (omen === 4) P.find += 30; loot(m.x, m.y, m.elite ? 1 : 0); if (omen === 4) P.find -= 30; }
 }
 let later = null, laterT = 0, mountNews = -1, mountNewsT = 0;
 function loot(x, y, q) {        // q: 0 a monster, 1 an elite, 2 a guardian, 3 a chest, 4 an urn
-  const l = Math.max(1, depth), gold = () => Math.max(1, Math.round((2 + l * 2) * rr(0.6, 1.4) * (1 + P.goldP / 100)));
+  const l = Math.max(1, depth), gold = () => Math.max(1, Math.round((2 + l * 2) * rr(0.6, 1.4) * (1 + P.goldP / 100) * (omen === 1 ? 1.6 : 1)));
+  gemLoot(x, y, q);
   if (q === 4) { if (rnd() < 0.5) drop(x, y, 0, gold(), null); if (rnd() < 0.12) drop(x, y, 1, rnd() < 0.7 ? 0 : 1, null); return; }
   if (q === 5) {              // a champion's spoils
     drop(x, y, 0, gold() * 6, null); drop(x, y, 1, rnd() < 0.6 ? 0 : 1, null);
@@ -2838,11 +2928,12 @@ function loot(x, y, q) {        // q: 0 a monster, 1 an elite, 2 a guardian, 3 a
   const uqCh = [l >= 6 ? 0.0008 : 0, l >= 3 ? 0.006 : 0, 0.25, l >= 4 ? 0.012 : 0][q] * (1 + P.find / 100);     // a legend
   if (rnd() < uqCh) drop(x, y, 2, 0, genUnique(l + (q === 2 ? 1 : 0), pickUnique(l + 1)));
 }
-function drop(x, y, kind, n, item) {
+function drop(x, y, kind, n, item, quiet) {
   let dd = null; for (let i = 0; i < NDR; i++) if (!DR[i].on) { dd = DR[i]; break; } if (!dd) return;
   let px = x + rr(-12, 12), py = y + rr(-8, 8); if (solidPx(px, py)) { px = x; py = y; }
   dd.on = true; dd.x = px; dd.y = py; dd.kind = kind; dd.n = n; dd.item = item; dd.t = rnd() * 6; dd.full = 0;
-  if (kind === 2 && item.r === R_UNIQUE) { sfx(SND_LEGEND); flash(0.2, "#ff7ad0"); fx(FX_PILLAR, px, py, 0, 0, 1.3, PC_PINK, null); toast("A LEGEND LIES HERE: " + item.n, C_PINK); }
+  if (quiet) return;
+  if (kind === 2 && item.r === R_UNIQUE) { sfx(SND_LEGEND); flash(0.2, "#ff7ad0"); lpulse(px, py - 8, 80, 0.8, "pink"); fx(FX_PILLAR, px, py, 0, 0, 1.3, PC_PINK, null); toast("A LEGEND LIES HERE: " + item.n, C_PINK); }
   else if (kind === 2 && item.r >= R_RARE) sfx(SND_RARE);
 }
 function updateDrops(dt) {
@@ -2853,7 +2944,8 @@ function updateDrops(dt) {
     else if (d.kind === 1) {
       if (P.belt[d.n] < BELT[d.n].cap) { P.belt[d.n]++; toast(BELT[d.n].n, C_RED); sfx(SND_PICK); d.on = false; }
       else if (d.full <= 0) { toast("YOUR BELT HOLDS NO MORE " + BELT[d.n].n, C_GREY); d.full = 4; }
-    } else if (d.kind === 3) { const q = P.quests[d.n]; if (q && !q.done) { q.c = 1; q.done = true; toast("FOUND " + q.what + ": TAKE IT BACK TO THE BOARD", C_GOLD); sfx(SND_QUEST); } d.on = false; }
+    } else if (d.kind === 4) pickGem(d);
+    else if (d.kind === 3) { const q = P.quests[d.n]; if (q && !q.done) { q.c = 1; q.done = true; toast("FOUND " + q.what + ": TAKE IT BACK TO THE BOARD", C_GOLD); sfx(SND_QUEST); } d.on = false; }
     else {
       if (P.pack.length < PACK) { P.pack.push(d.item); toast("FOUND " + d.item.n, RAR_C[d.item.r]); sfx(SND_PICK); d.on = false; if (d.item.r === R_UNIQUE) { banner(d.item.n, UNIQ[d.item.uq].d); save(); } }
       else if (d.full <= 0) { toast("YOUR PACK IS FULL: BREAK SOMETHING DOWN", C_GREY); d.full = 4; }
@@ -2869,8 +2961,12 @@ function updateProj(dt) {
       if (rnd() < 0.4) part(p.x, p.y - 8 - p.z, 0, 0, 0.3, PC_MIRE, 1, false);
       if (p.z <= 0) {
         p.on = false; burst(p.x, p.y - 2, 8, PC_GREEN, 40, 0.4); sfx(SND_SPIT);
-        hazard(p.x, p.y, 12, 4, p.dmg * 0.5, HZ_POISON, true);
-        const dx = P.x - p.x, dy = P.y - p.y; if (dx * dx + dy * dy < 14 * 14) hurt(p.dmg);
+        hazard(p.x, p.y, 12, 4, p.dmg * 0.5, HZ_POISON, p.foe);
+        if (p.foe) { const dx = P.x - p.x, dy = P.y - p.y; if (dx * dx + dy * dy < 14 * 14) hurt(p.dmg); }
+        else for (let k = 0; k < NM; k++) {           // (the toadling's: it lands among your foes)
+          const o = MON[k]; if (!o.on || o.kind === K_PROP || o.under) continue; const ex = o.x - p.x, ey = o.y - p.y;
+          if (ex * ex + ey * ey < (14 + o.r) * (14 + o.r)) { hitMon(o, p.dmg, false, 0, 0, 0, false, true); if (o.on) { o.pois = Math.max(o.pois, p.dmg * 0.3); o.poisT = 3; } }
+        }
       }
       continue;
     }
@@ -2890,8 +2986,9 @@ function updateProj(dt) {
         const dx = m.x - p.x, dy = m.y - p.y, rs = m.r + p.r + 2; if (dx * dx + dy * dy > rs * rs) continue;
         const l = Math.sqrt(p.vx * p.vx + p.vy * p.vy) || 1;
         hitMon(m, p.dmg, p.crit, p.vx / l, p.vy / l, 50, false, p.kind === PJ_EMBER);
+        if (p.fam === 1 && m.on) { m.burn = Math.max(m.burn, p.dmg * 0.2); m.burnT = 3; }
         if (p.splash) {
-          burst(p.x, p.y - 8, 12, PC_ORANGE, 60, 0.4); ring(p.x, p.y - 4, p.splash, 0.25, PC_ORANGE);
+          burst(p.x, p.y - 8, 12, PC_ORANGE, 60, 0.4); ring(p.x, p.y - 4, p.splash, 0.25, PC_ORANGE); lpulse(p.x, p.y - 8, 48, 0.3, "warmB");
           for (let k = 0; k < NM; k++) { const o = MON[k]; if (!o.on || o === m || o.kind === K_PROP) continue; const ex = o.x - p.x, ey = o.y - p.y; if (ex * ex + ey * ey < p.splash * p.splash) hitMon(o, Math.max(1, Math.round(p.dmg * 0.5)), false, 0, 0, 0, false, true); }
           if (p.chain > 0) chainFire(m, p.dmg, p.chain);
         }
@@ -3005,6 +3102,7 @@ function attack() {
   aimAssist(P.reach + 30, 1.0);
   P.atkCD = CLS[P.cls].atk * P.wspd / (1 + P.aspd / 100); swingAt(P.ang, Math.min(0.2, Math.max(0.12, P.atkCD * 0.45))); sfx(SND_SWING);
   let any = meleeArc(1, P.reach, P.arc, 70);
+  if (VLT.on && !VLT.open && !isTown) { const ex = VLT.x - P.x, ey = VLT.y + 10 - P.y; if (ex * ex + ey * ey < (P.reach + 14) * (P.reach + 14)) breakVault(); }
   if (any && bon("fifth") && ++P.blows % 5 === 0) { meleeArc(1, P.reach, P.arc, 40); ftext(P.x, P.y - 24, "TWICE!", C_ORANGE); }
   if (any && bon("uq1") && ++bellN % 4 === 0) {      // the Quiet Bell tolls
     hitAround(P.x, P.y, 48, 0.6, 150, false, 1.3); ring(P.x, P.y - 6, 52, 0.45, PC_TEAL); ring(P.x, P.y - 6, 30, 0.3, PC_WHITE); sfx(SND_BELL); shake(0.15, 2); stop(0.04);
@@ -3126,8 +3224,8 @@ function interact(it) {
   switch (it.k) {
     case I_STAIRS:
       if (bossAlive) { toast("A GRATE SEALS THE STAIR WHILE " + (bossM ? bossM.name : "ITS GUARDIAN") + " LIVES", C_RED); return; }
-      goFloor(depth + 1); break;
-    case I_ROPE: goTown(); break;
+      irisTo(() => goFloor(depth + 1)); break;
+    case I_ROPE: irisTo(goTown); break;
     case I_BRAZIER:
       it.off = true; BRZ.lit = true; P.blessT = bon("vigil") ? 180 : 90; P.hp = Math.min(P.mhp, P.hp + P.mhp * 0.5); P.mp = Math.min(P.mmp, P.mp + P.mmp * 0.5);
       questTick(Q_BRAZIER, 0); banner("THE BRAZIER CATCHES", "+20% DAMAGE FOR A WHILE"); sfx(SND_LEVEL); burst(BRZ.x, BRZ.y - 12, 20, PC_GOLD, 60, 0.8); ring(BRZ.x, BRZ.y - 10, 40, 0.5, PC_GOLD); break;
@@ -3142,6 +3240,8 @@ function interact(it) {
     case I_STASH: stashSel = 0; stashSide = 0; openMenu(M_STASH); break;
     case I_NODE: startGather(it.node); break;
     case I_HUNT: huntSel = 0; openMenu(M_HUNT); break;
+    case I_VAULT: breakVault(); break;
+    case I_CAGE: openCage(it); break;
   }
 }
 function openMenu(m) { freeze(); mode = m; dirty = true; sfx(SND_OK); }
@@ -3292,7 +3392,237 @@ function updateGather(dt) {
     arr[n.tier] = Math.min(999, arr[n.tier] + take);
     fx(FX_ICON, n.x, n.y - 10, 0, 0, 0.9, 0, (n.kind ? S.matO : S.matW)[n.tier]); ftext(P.x, P.y - 24, "+" + take + " " + D.n, C_GOLD); skillXP(sk, xp); sfx(SND_PICK);
     if (luck > 0.97) findTreasure(n, sk);
+    if (n.kind && rnd() < 0.045 + P.slv[SK_MINE] * 0.0012) findGem(n);
     n.left--; if (n.left <= 0) { P.gather = null; if (n.town) n.rest = 30; toast(n.town ? "THE TREE NEEDS A REST" : "YOU'VE TAKEN ALL THERE IS", C_GREY); }
+  }
+}
+// ---------------------------------------------------------------- gems
+// Five kinds, three grades: found in the veins as you mine, and on the deep's stronger creatures. Each kind does
+// one thing in a weapon, another in armour or a helm, and a third in a charm or a ring. [B's key, by grade, words]
+const GEMS = [
+  { n: "RUBY", c: "#ff4a5a", d: "#8a1424", pc: PC_RED, fc: C_RED, w: ["dmgP", [6, 11, 18], "% DAMAGE"], a: ["hp", [18, 40, 80], " MAX HP"], j: ["critD", [10, 20, 35], "% CRITICAL DAMAGE"] },
+  { n: "SAPPHIRE", c: "#5a9aff", d: "#1a3a8a", pc: PC_BLUE, fc: C_BLUE, w: ["chillP", [6, 11, 18], "% CHANCE TO CHILL"], a: ["arm", [6, 14, 28], " ARMOR"], j: ["mp", [10, 22, 45], " MAX WICK"] },
+  { n: "EMERALD", c: "#4ad870", d: "#14602a", pc: PC_MIRE, fc: C_GREEN, w: ["venomP", [8, 14, 22], "% CHANCE TO POISON"], a: ["thorns", [6, 12, 20], "% HARM RETURNED"], j: ["find", [6, 12, 20], "% BETTER FINDS"] },
+  { n: "TOPAZ", c: "#ffd04a", d: "#8a5a10", pc: PC_GOLD, fc: C_GOLD, w: ["crit", [2, 4, 7], "% CRITICAL HITS"], a: ["lamp", [6, 12, 20], "% LAMP REACH"], j: ["gold", [10, 20, 35], "% GOLD FOUND"] },
+  { n: "AMETHYST", c: "#c87aff", d: "#4a1a78", pc: PC_LILAC, fc: C_PURP, w: ["leech", [1, 2, 4], " HP EACH HIT"], a: ["regen", [0.3, 0.6, 1.2], " WICK A SECOND"], j: ["cdr", [3, 5, 8], "% SHORTER COOLDOWNS"] },
+];
+const GRADE = ["CHIPPED", "CLEAR", "RADIANT"], NGEM = 15, SOCK_MAX = [3, 3, 1, 2, 1];
+const gemName = g => GRADE[g % 3] + " " + GEMS[(g / 3) | 0].n;
+const gemFx = (sl, g) => { const G = GEMS[(g / 3) | 0]; return sl === SL_WEAPON ? G.w : sl === SL_ARMOR || sl === SL_HEAD ? G.a : G.j; };
+const gemEff = (sl, g) => { const E = gemFx(sl, g); return "+" + E[1][g % 3] + E[2]; };
+const anA = w => (/^[AEIOU]/.test(w) ? "AN " : "A ") + w;
+function rollSockets(it) {           // finer things come with more of them
+  const q = rnd(), n = Math.min(SOCK_MAX[it.s], [q < 0.12 ? 1 : 0, q < 0.3 ? 1 : 0, q < 0.35 ? 2 : 1, q < 0.5 ? 2 : 1, 1, 2][it.r]);
+  if (n > 0) { it.so = n; it.gm = []; for (let k = 0; k < n; k++) it.gm.push(-1); }
+}
+function returnGems(it) { let n = 0; if (it && it.so) for (let k = 0; k < it.gm.length; k++) if (it.gm[k] >= 0) { P.gems[it.gm[k]] = Math.min(99, P.gems[it.gm[k]] + 1); n++; } return n; }
+function gemGrade() { const l = Math.max(1, depth), q = rnd(); return l >= 13 && q < 0.16 ? 2 : (l >= 5 && q < 0.42) || (l >= 17 && q < 0.7) ? 1 : 0; }
+function gemLoot(x, y, q) {          // q as loot's: 0 a creature, 1 an elite, 2 a guardian, 3 a chest, 4 an urn, 5 a champion
+  const n = q === 2 ? 2 : q === 5 ? (rnd() < 0.5 ? 2 : 1) : rnd() < [0.012, 0.08, 0, 0.25, 0.01][q] ? 1 : 0;
+  for (let k = 0; k < n; k++) drop(x, y, 4, ri(5) * 3 + gemGrade(), null);
+}
+function findGem(n) {                // a gem in the vein
+  const g = ri(5) * 3 + (n.tier >= 3 && rnd() < 0.3 ? 2 : n.tier >= 1 && rnd() < 0.45 ? 1 : 0), G = GEMS[(g / 3) | 0];
+  P.gems[g] = Math.min(99, P.gems[g] + 1); sfx(SND_GEM); fx(FX_ICON, n.x + 6, n.y - 12, 0, 0, 1.1, 0, S.gem[g]); ftext(n.x, n.y - 34, anA(G.n) + "!", G.fc, true);
+  for (let k = 0; k < 12; k++) part(n.x + rr(-4, 4), n.y - 14, rr(-50, 50), -rr(30, 80), rr(0.4, 0.8), k & 1 ? G.pc : PC_WHITE, 1, true);
+  lpulse(n.x, n.y - 12, 32, 0.35, null); skillXP(SK_MINE, 15 + (g % 3) * 20); toast("A GEM IN THE ORE: " + gemName(g), G.fc);
+}
+function pickGem(d) {
+  const G = GEMS[(d.n / 3) | 0]; P.gems[d.n] = Math.min(99, P.gems[d.n] + 1); d.on = false;
+  toast("A GEM: " + gemName(d.n), G.fc); sfx(SND_GEM); fx(FX_ICON, d.x, d.y - 10, 0, 0, 0.9, 0, S.gem[d.n]); burst(d.x, d.y - 8, 8, G.pc, 40, 0.5);
+}
+function gemDots(it, x, y) {         // an item's sockets, small: each gem's colour, or dark where it's empty
+  if (!it || !it.so) return;
+  for (let j = 0; j < it.so; j++) { const g = it.gm[j]; ctx.fillStyle = "#0d0b14"; ctx.fillRect(x + j * 4, y, 4, 4); ctx.fillStyle = g < 0 ? "#4a4458" : GEMS[(g / 3) | 0].c; ctx.fillRect(x + j * 4 + 1, y + 1, 2, 2); }
+}
+
+// ---------------------------------------------------------------- familiars
+// Small creatures that follow you, one at a time: called from the character's pages (FAMILIARS)
+const FAMS = [
+  { n: "CELLAR RAT", spr: "famRat", gather: 2, d: "IT FETCHES GOLD AND TONICS NEAR YOU, AND NOW AND THEN DIGS UP MORE GOLD. +10% GOLD FOUND.", from: "YSOLDE, FOR 60 HUNT MARKS" },
+  { n: "LANTERN MOTH", spr: "famMoth", fly: 1, gather: 1, light: 34, d: "ITS LIGHT GOES WITH YOU: +25% LAMP REACH. IT FETCHES GOLD NEAR YOU.", from: "A CAGE IN A HIDDEN VAULT" },
+  { n: "EMBERWISP", spr: "famWisp", fly: 1, atk: 1, dmg: 0.35, light: 20, d: "IT SPITS EMBERS AT YOUR FOES AND SETS THEM ALIGHT.", from: "A FALLEN CHAMPION, NOW AND THEN" },
+  { n: "MIRE TOADLING", spr: "famToad", atk: 2, dmg: 0.6, d: "IT LOBS POISON AT YOUR FOES, AND THE PUDDLE IT LEAVES EATS AT THEM.", from: "A FALLEN CHAMPION, NOW AND THEN" },
+];
+const FAM = { x: 0, y: 0, vx: 0, r: 3, fly: 0, cd: 1, face: 1, anim: 0, tgt: null, skip: null, tt: 0, dig: 0, mv: 0 }, FAMK = -1000;
+let famNews = -1, famNewsT = 0;
+function famPlace() { if (!P) return; FAM.x = P.x - P.face * 14; FAM.y = P.y + 2; FAM.tgt = null; FAM.tt = 0; if (!isTown && solidPx(FAM.x, FAM.y)) { FAM.x = P.x; FAM.y = P.y; } }
+function gainFam(i, quiet) {
+  if (P.fams.indexOf(i) >= 0) return false;
+  P.fams.push(i); if (P.fam < 0) { P.fam = i; famPlace(); recalc(); } save();
+  if (!quiet) famBanner(i);
+  return true;
+}
+function famBanner(i) {
+  banner("A FAMILIAR: " + FAMS[i].n, P.fam === i ? "IT FOLLOWS YOU NOW" : "CALL IT FROM YOUR PAGES (" + T_SEL + ")"); sfx(SND_QUEST); rumble(0.4, 250);
+  fx(FX_PILLAR, P.x, P.y, 0, 0, 1, PC_GOLD, null); lpulse(P.x, P.y - 8, 64, 0.7, "gold");
+}
+function champFam() {               // a champion's familiar, now and then
+  if (rnd() > 0.3) return;
+  const o = [2, 3].filter(k => P.fams.indexOf(k) < 0); if (!o.length) return;
+  const k = o[ri(o.length)]; gainFam(k, true); famNews = k; famNewsT = 3.2;
+}
+function famKill() {                // the rat digs while you fight
+  if (P.fam !== 0 || isTown) return;
+  if (++FAM.dig % 9 === 0) { const g = Math.max(1, Math.round((4 + depth * 3) * rr(0.8, 1.4) * (1 + P.goldP / 100))); drop(FAM.x, FAM.y, 0, g, null); ftext(FAM.x, FAM.y - 16, "DUG UP!", C_GOLD); burst(FAM.x, FAM.y - 2, 8, PC_BROWN, 30, 0.4); }
+}
+function updFam(dt) {
+  if (P.fam < 0 || P.dead) return;
+  const F = FAMS[P.fam]; FAM.fly = F.fly ? 1 : 0; FAM.anim += dt; FAM.cd -= dt;
+  let tx = P.x - P.face * 15, ty = P.y + 3;
+  if (F.gather && !isTown) {          // gold (and tonics) to fetch
+    if (FAM.tgt && !FAM.tgt.on) FAM.tgt = null;
+    if (!FAM.tgt) for (let i = 0; i < NDR; i++) {
+      const d = DR[i]; if (!d.on || d === FAM.skip || !(d.kind === 0 || (F.gather > 1 && d.kind === 1 && P.belt[d.n] < BELT[d.n].cap))) continue;
+      const ex = d.x - P.x, ey = d.y - P.y; if (ex * ex + ey * ey < 100 * 100 && seen[tidx(d.x, d.y)]) { FAM.tgt = d; FAM.tt = 0; break; }
+    }
+    const d = FAM.tgt;
+    if (d) {
+      tx = d.x; ty = d.y; FAM.tt += dt;
+      const ex = d.x - FAM.x, ey = d.y - FAM.y;
+      if (ex * ex + ey * ey < 70) {
+        if (d.kind === 0) { P.gold += d.n; ftext(d.x, d.y - 10, "+" + d.n + " GOLD", C_GOLD); sfx(SND_COIN); }
+        else { P.belt[d.n]++; toast(BELT[d.n].n, C_RED); sfx(SND_PICK); }
+        d.on = false; FAM.tgt = null; sparks(d.x, d.y - 4, 5, PC_GOLD, -1.57, 1.2, 40);
+      } else if (FAM.tt > 3) { FAM.skip = d; FAM.tgt = null; }         // (out of its reach: it leaves that one)
+    }
+  }
+  const ex = tx - FAM.x, ey = ty - FAM.y, e = Math.sqrt(ex * ex + ey * ey);
+  if (e > 160) { famPlace(); burst(FAM.x, FAM.y - 6, 8, PC_LILAC, 30, 0.4); return; }
+  if (e > 3) {
+    const sp = Math.min(e * 5, F.fly ? 190 : 150) * dt, mx = ex / e * sp, my = ey / e * sp;
+    if (F.fly) { FAM.x += mx; FAM.y += my; } else moveEnt(FAM, mx, my);
+    if (Math.abs(ex) > 2) FAM.face = ex < 0 ? -1 : 1; FAM.mv = 1;
+  } else FAM.mv = 0;
+  if (F.atk && !isTown && FAM.cd <= 0) {      // the wisp's embers, the toadling's poison
+    let best = null, bd = 130 * 130;
+    for (let i = 0; i < NM; i++) {
+      const m = MON[i]; if (!m.on || !m.awake || m.kind === K_PROP || m.under || visS[tidx(m.x, m.y)] !== visStamp) continue;
+      const qx = m.x - FAM.x, qy = m.y - FAM.y, q2 = qx * qx + qy * qy; if (q2 < bd) { bd = q2; best = m; }
+    }
+    if (best) {
+      const qx = best.x - FAM.x, qy = best.y - FAM.y, q = Math.sqrt(bd) || 1, dmg = Math.max(1, Math.round((P.lo + P.hi) / 2 * P.power * F.dmg));
+      if (F.atk === 1) { const pj = fire(FAM.x, FAM.y - 4, qx / q * 190, qy / q * 190, 0.9, dmg, false, PJ_EMBER, 3, 0); if (pj) pj.fam = 1; FAM.cd = 1.3; sfxAt(SND_CAST, FAM.x, FAM.y); }
+      else { const t = 0.55, pj = fire(FAM.x, FAM.y, qx / t, qy / t, t + 0.5, dmg, false, PJ_GLOB, 4, 0); if (pj) { pj.z = 6; pj.vz = 80 * t - 6 / t; pj.fam = 2; } FAM.cd = 2.2; sfxAt(SND_SPIT, FAM.x, FAM.y); }
+      FAM.face = qx < 0 ? -1 : 1;
+    } else FAM.cd = 0.3;
+  }
+  if (P.fam === 2 && rnd() < dt * 10) part(FAM.x + rr(-2, 2), FAM.y - 16, rr(-5, 5), -rr(15, 30), 0.4, rnd() < 0.5 ? PC_ORANGE : PC_GOLD, 1, false);
+  if (P.fam === 1 && rnd() < dt * 4) part(FAM.x + rr(-4, 4), FAM.y - 10, 0, 8, 0.6, PC_GOLD, 1, false);
+}
+function drawFam() {
+  const F = FAMS[P.fam], set = S[F.spr], x = FAM.x - camX, y = FAM.y - camY, hov = F.fly ? 12 + Math.round(Math.sin(FAM.anim * 5) * 2) : 0;
+  ctx.drawImage(S.shadow, Math.round(x - 6), Math.round(y - 3));
+  const fr = F.fly ? ((FAM.anim * (P.fam === 1 ? 10 : 6)) | 0) & 1 : FAM.mv ? ((FAM.anim * 9) | 0) & 1 : 0;
+  drawSet(set, x, y - hov, FAM.face, fr, 0);
+}
+
+// ---------------------------------------------------------------- hidden vaults
+// Now and then a floor hides a small vault behind a cracked wall over one of its rooms. A draught gives it away;
+// a blow (or OK) breaks it open. Inside: a chest, gold, now and then gems, and once a caged lantern moth.
+const VLT = { on: false, open: false, hinted: false, tx: 0, ty: 0, x: 0, y: 0, x0: 0, y0: 0, w: 0, h: 0, img: null, int: null, cage: -1, cx: 0, cy: 0, cint: null };
+function carveVault(rooms, start, end, R) {
+  for (let a = 0; a < 80; a++) {
+    const r = rooms[(R() * rooms.length) | 0]; if (r === start || r === end || r.w < 4) continue;
+    const cx = r.x + 1 + ((R() * (r.w - 2)) | 0), cy = r.y - 1, w = 5 + ((R() * 2) | 0), h = 3 + ((R() * 2) | 0), x0 = cx - (w >> 1), y0 = cy - h;
+    if (x0 < 2 || y0 < 2 || x0 + w > MW - 2 || tiles[(cy + 1) * MW + cx] !== T_FLOOR) continue;
+    let ok = true;                              // (solid rock all round, and along the room's wall)
+    for (let y = y0 - 1; y <= cy && ok; y++) for (let x = x0 - 1; x <= x0 + w && ok; x++) if (tiles[y * MW + x] !== T_WALL) ok = false;
+    if (!ok) continue;
+    for (let y = y0; y < cy; y++) for (let x = x0; x < x0 + w; x++) tiles[y * MW + x] = T_FLOOR;
+    tiles[cy * MW + cx] = T_CRACK;
+    VLT.on = true; VLT.tx = cx; VLT.ty = cy; VLT.x = cx * TS + 8; VLT.y = cy * TS + 8; VLT.x0 = x0; VLT.y0 = y0; VLT.w = w; VLT.h = h;
+    return;
+  }
+}
+function fillVault(d) {
+  const x0 = VLT.x0, y0 = VLT.y0, w = VLT.w, h = VLT.h, mx = (x0 + (w >> 1)) * TS + 8, my = (y0 + (h >> 1)) * TS + 8, l = Math.max(1, d);
+  spawnProp(MT_CHEST, mx, my - 2);
+  const gold = () => Math.max(1, Math.round((6 + l * 4) * rr(0.8, 1.4) * (1 + P.goldP / 100)));
+  for (let k = 0, n = 3 + ri(3); k < n; k++) drop((x0 + ri(w)) * TS + 8, (y0 + ri(h)) * TS + 8, 0, gold(), null, true);
+  if (rnd() < 0.6) for (let k = 0, n = 1 + ri(2); k < n; k++) drop((x0 + ri(w)) * TS + 8, (y0 + ri(h)) * TS + 8, 4, ri(5) * 3 + gemGrade(), null, true);
+  if (P.fams.indexOf(1) < 0) { VLT.cage = 1; VLT.cx = (x0 + w - 1) * TS + 8; VLT.cy = y0 * TS + 14; addInt(I_CAGE, VLT.cx, VLT.cy + 8, 16, "OPEN THE CAGE"); VLT.cint = INT[INT.length - 1]; }
+  else if (rnd() < 0.5) drop(mx + 14, my, 2, 0, genItem(l + 1, -1, rnd() < 0.3 ? R_RELIC : R_RARE), true);
+  addInt(I_VAULT, VLT.x, (VLT.ty + 1) * TS + 6, 18, "BREAK THE CRACKED WALL"); VLT.int = INT[INT.length - 1]; VLT.int.off = true;
+}
+function breakVault() {
+  if (!VLT.on || VLT.open) return;
+  VLT.open = true; if (VLT.int) VLT.int.off = true;
+  tiles[VLT.ty * MW + VLT.tx] = T_FLOOR; gFull.drawImage(VLT.img, (VLT.tx - 1) * TS, (VLT.ty - 1) * TS);
+  for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const tx = VLT.tx + dx, ty = VLT.ty + dy; if (seen[ty * MW + tx]) revealTile(tx, ty); }
+  P.tx = -1;                                   // (what you see, again, next step)
+  shake(0.25, 3); stop(0.06); sfxAt(SND_BOOM, VLT.x, VLT.y); sfx(SND_BREAK); rumble(0.5, 220);
+  for (let k = 0; k < 26; k++) part(VLT.x + rr(-7, 7), VLT.y + rr(-6, 6), rr(-70, 70), rr(-60, 40), rr(0.4, 0.9), k & 1 ? PC_GREY : PC_BROWN, 2, true);
+  lpulse(VLT.x, VLT.y - 8, 72, 0.6, "gold"); banner("A HIDDEN VAULT", "WHAT THE WELL KEPT FROM YOU");
+}
+function openCage(it) {
+  it.off = true; if (VLT.cage < 0) return; const k = VLT.cage; VLT.cage = -1;
+  sfx(SND_BREAK); burst(VLT.cx, VLT.cy - 8, 20, PC_GOLD, 60, 0.7); gainFam(k);
+}
+function updVault(dt) {
+  if (!VLT.on) return;
+  if (VLT.open) { if (VLT.cage >= 0 && rnd() < dt * 3) part(VLT.cx + rr(-5, 5), VLT.cy - rr(4, 14), 0, -6, 0.6, PC_GOLD, 1, false); return; }
+  if (!seen[VLT.ty * MW + VLT.tx]) return;
+  if (rnd() < dt * 2.5) part(VLT.x + rr(-3, 3), VLT.y + rr(-2, 7), rr(-5, 5), rr(6, 14), rr(0.7, 1.2), PC_GREY, 1, false);       // (dust on a draught)
+  if (rnd() < dt * 0.8) part(VLT.x + rr(-1, 1), VLT.y + rr(-2, 5), 0, -3, 0.5, PC_GOLD, 1, false);                                // (and a glint behind)
+  if (!VLT.hinted) { const ex = VLT.x - P.x, ey = VLT.y - P.y; if (ex * ex + ey * ey < 80 * 80) { VLT.hinted = true; if (VLT.int) VLT.int.off = false; toast("A DRAUGHT HERE... THIS WALL IS CRACKED", C_GREY); sfx(SND_BLINK); } }
+}
+function drawCage() {
+  const x = Math.round(VLT.cx - camX), y = Math.round(VLT.cy - camY), set = S[FAMS[VLT.cage].spr];
+  drawSet(set, x, y - 3 + Math.round(Math.sin(gameTime * 3) * 1.5), 1, ((gameTime * 8) | 0) & 1, 0);
+  ctx.fillStyle = "#2a2633"; ctx.fillRect(x - 9, y - 18, 18, 2); ctx.fillRect(x - 9, y, 18, 2);
+  ctx.fillStyle = "#6a6478"; for (let k = 0; k < 5; k++) ctx.fillRect(x - 9 + k * 4 + (k === 4 ? 1 : 0), y - 17, 1, 17); ctx.fillRect(x - 9, y - 18, 18, 1); ctx.fillRect(x - 1, y - 21, 2, 3);
+}
+
+// ---------------------------------------------------------------- omens
+// From the third floor down, now and then a floor has an omen, told as you arrive
+const OMENS = [
+  { n: "THE DARK RUNS DEEP", d: "YOUR LAMP REACHES LESS FAR HERE, BUT YOU LEARN MORE: +40% XP", c: C_PURP },
+  { n: "A BLOOD MOON", d: "FOES HIT HARDER AND MORE ARE ELITES; MORE GOLD FALLS", c: C_RED },
+  { n: "THE SWARM", d: "MANY MORE FOES, EACH ONE WEAKER: +25% XP", c: C_GREEN },
+  { n: "A GILDED FLOOR", d: "A GILDED THIEF RUNS LOOSE WITH A SACK OF GOLD: CATCH IT!", c: C_GOLD },
+  { n: "THE RESTLESS DEAD", d: "WHAT YOU KILL MAY RISE AGAIN; WHAT FALLS IS FINER", c: C_CYAN },
+];
+const OMXP = [1, 1.4, 1, 1.25, 1, 1], AMB_BLOOD = "rgba(30,3,8,0.94)";     // (OMXP by omen + 1)
+let omen = -1, omenForce = -2;
+// The gilded thief: it runs from you with a sack of the well's gold, spilling coins when struck, stumbling now and
+// then; catch it and the sack bursts. Left alone half a minute, it's gone down a crack.
+function thiefAI(m, dt, d) {
+  m.stT += dt;
+  if (m.stT > 32) { m.on = false; if (target === m) target = null; burst(m.x, m.y - 8, 18, PC_GOLD, 50, 0.6); ring(m.x, m.y - 4, 20, 0.3, PC_GOLD); toast("THE GILDED THIEF SLIPS AWAY DOWN A CRACK", C_GREY); sfx(SND_BLINK); return; }
+  if (rnd() < dt * 5) part(m.x + rr(-5, 5), m.y - rr(3, 12), 0, -8, 0.5, PC_GOLD, 1, false);
+  if (m.st === 1) { m.ax -= dt; if (m.ax <= 0) m.st = 0; return; }              // (stumbling: your chance)
+  m.cd -= dt; if (m.cd <= 0 && d < 90) { m.cd = rr(2.6, 4); m.st = 1; m.ax = 0.7; ftext(m.x, m.y - 24, "!", C_GOLD); return; }
+  if (d > 220) return;                                                           // (far off: it counts its gold)
+  const tx = (m.x / TS) | 0, ty = (m.y / TS) | 0, f0 = flow[ty * MW + tx], cur = f0 >= FAR ? 40 : f0; let best = -1, bx = 0, by = 0;
+  for (let k = 0; k < 8; k++) {
+    const nx = tx + DX8[k], ny = ty + DY8[k]; if (solidAt(nx, ny) || (k >= 4 && (solidAt(nx, ty) || solidAt(tx, ny)))) continue;
+    const f = flow[ny * MW + nx], v = f >= FAR ? 40 : f; if (v > best) { best = v; bx = nx; by = ny; }
+  }
+  if (best > cur || (best === cur && best >= 40)) { const a = bx * TS + 8 - m.x, b = by * TS + 8 - m.y, l = Math.sqrt(a * a + b * b) || 1; moveEnt(m, a / l * m.spd * dt, b / l * m.spd * dt); m.face = a < 0 ? -1 : 1; }
+}
+function thiefSpoils(m) {
+  banner("THE THIEF'S SACK BURSTS", "THE WELL'S GOLD, AT YOUR FEET"); sfx(SND_LEGEND); shake(0.2, 2); flash(0.15, "#f2c14e"); lpulse(m.x, m.y - 8, 80, 0.8, "gold");
+  for (let k = 0; k < 40; k++) part(m.x + rr(-4, 4), m.y - 10, rr(-80, 80), -rr(40, 120), rr(0.6, 1.2), k & 1 ? PC_GOLD : PC_WHITE, k % 3 ? 1 : 2, true);
+  const g = Math.max(1, Math.round((10 + depth * 6) * (1 + P.goldP / 100)));
+  for (let k = 0; k < 6; k++) drop(m.x, m.y, 0, g, null);
+  loot(m.x, m.y, 5);
+}
+// The restless dead: on such a floor, what you kill may rise again, weaker, a moment later
+const NRS = 10, RS = [];
+for (let i = 0; i < NRS; i++) RS.push({ on: false, x: 0, y: 0, t: 0, ty: 0 });
+function maybeRise(m) {
+  if (m.kind === K_BOSS || m.kind === K_POD || m.kind === K_THIEF || m.kind === K_PROP || m.champ || m.risen || m.t === MT_THRALL || m.t === MT_OOZELING || rnd() > 0.3) return;
+  for (let i = 0; i < NRS; i++) { const r = RS[i]; if (r.on) continue; r.on = true; r.x = m.x; r.y = m.y; r.t = 1.4; r.ty = m.t; return; }
+}
+function updRise(dt) {
+  for (let i = 0; i < NRS; i++) {
+    const r = RS[i]; if (!r.on) continue; r.t -= dt;
+    if (rnd() < dt * 14) part(r.x + rr(-6, 6), r.y - rr(0, 4), 0, -rr(20, 40), 0.6, rnd() < 0.5 ? PC_CYAN : PC_LILAC, 1, false);
+    if (r.t > 0) continue; r.on = false;
+    const m = spawnMon(r.ty, r.x, r.y, false); if (!m) continue;
+    m.mhp = m.hp = Math.max(1, Math.round(m.mhp * 0.5)); m.xp = Math.round(m.xp * 0.5); m.risen = true; m.awake = true; m.name = "RISEN " + m.name; m.stun = 0.4;
+    burst(r.x, r.y - 6, 14, PC_CYAN, 50, 0.5); ring(r.x, r.y - 4, 22, 0.35, PC_CYAN); sfxAt(SND_BLINK, r.x, r.y);
   }
 }
 // the forge's other side: making things, from what you've gathered
@@ -3347,13 +3677,15 @@ function buyHunt(i) {
   const H = HUNT_SHOP[i], free = i === 0 && (!P.hunt || P.hunt.left <= 0);
   if (!free && P.marks < H.p) { toast("YOU NEED " + (H.p - P.marks) + " MORE HUNT MARKS", C_RED); sfx(SND_DENY); return; }
   if (i === 3 && P.mounts.indexOf(0) >= 0) { toast("YOU HAVE A WICKHOUND ALREADY", C_GREY); return; }
+  if (i === 4 && P.fams.indexOf(0) >= 0) { toast("YOU HAVE A CELLAR RAT ALREADY", C_GREY); return; }
   if ((i === 1 || i === 2) && P.pack.length >= PACK) { toast("YOUR PACK IS FULL", C_RED); return; }
   if (!free) P.marks -= H.p;
   if (i === 0) { if (!free) P.streak = 0; assignTask(); }
   else if (i === 1) { const it = genItem(Math.max(2, P.deepest + 1), -1, R_RARE); P.pack.push(it); toast("YSOLDE GIVES YOU " + it.n, RAR_C[it.r]); sfx(SND_RARE); }
   else if (i === 2) {
     const it = genItem(Math.max(5, P.deepest), SL_HEAD, R_RARE); it.b = 0; it.hm = 1; it.n = "THE HUNTER'S MASK"; P.pack.push(it); toast("THE HUNTER'S MASK: WEAR IT ON A HUNT", C_GOLD); sfx(SND_RARE);
-  } else gainMount(0);
+  } else if (i === 3) gainMount(0);
+  else gainFam(0);
   save();
 }
 // mounts
@@ -3381,6 +3713,7 @@ function toggleMount() {
 // ---------------------------------------------------------------- going places
 function goFloor(d) {
   depth = d; isTown = false; zone = zoneOf(d);
+  omen = omenForce > -2 ? omenForce : d >= 3 && !isBossFloor(d) && rnd() < 0.3 ? ri(OMENS.length) : -1; omenForce = -2;
   genDungeon(d, mulberry((Date.now() ^ (d * 7919)) >>> 0));
   P.x = ropeX; P.y = ropeY + 14; P.dashT = 0; P.ashT = 0; P.tx = -1; P.undyingUsed = false; P.shadeT = 0; quakeT = 0; dustT = 0; pulseT = 0; later2 = 0; P.gather = null;
   if (d > P.deepest) P.deepest = d;
@@ -3392,7 +3725,9 @@ function goFloor(d) {
       for (let a = 0; a < 30; a++) { const x = stairsX + rr(-60, 60), y = stairsY + rr(-50, 50); if (!solidPx(x, y) && !solidPx(x + 6, y) && !solidPx(x - 6, y)) { drop(x, y, 3, i, null); const dd = DR.find(e => e.on && e.kind === 3 && e.n === i); if (dd) { dd.x = x; dd.y = y; } break; } }
     }
   }
-  banner("FLOOR " + d, ZONES[zone].name + (isBossFloor(d) ? ": ITS GUARDIAN WAITS" : ""));
+  banner("FLOOR " + d, omen >= 0 ? "OMEN: " + OMENS[omen].n : ZONES[zone].name + (isBossFloor(d) ? ": ITS GUARDIAN WAITS" : ""));
+  if (omen >= 0) toast(OMENS[omen].d, OMENS[omen].c);
+  camSnap = true; irisOpen(); famPlace(); setEcho(); FAM.dig = 0;
   playSong(1 + zone);
   sfx(SND_STAIRS); save(); mode = M_PLAY; dirty = true;
 }
@@ -3401,6 +3736,7 @@ function goTown() {
   P.x = 20 * TS; P.y = 15 * TS + 8; P.dashT = 0; P.ashT = 0; P.hp = P.mhp; P.mp = P.mmp; P.dead = false; P.ang = -Math.PI / 2; P.fx = 0; P.fy = -1;
   P.shadeT = 0; quakeT = 0; dustT = 0; pulseT = 0; P.gather = null;
   computeFOV(); P.tx = -1;
+  omen = -1; VLT.on = false; camSnap = true; irisOpen(); famPlace(); setEcho();
   restock(); refreshQuests(); banner("WICKHOLLOW", "THE VILLAGE OVER THE WELL"); playSong(MUS_TOWN); save(); mode = M_PLAY; dirty = true;
 }
 function newGame(cls, slot) {
@@ -3514,7 +3850,7 @@ function save() {
   if (!P) return;
   const s = { v: 2, cls: P.cls, lvl: P.lvl, xp: P.xp, gold: P.gold, deepest: P.deepest, bosses: P.bosses, won: P.won, belt: P.belt, sel: P.sel,
     eq: P.eq, pack: P.pack, stash: P.stash, tal: P.tal, quests: P.quests, qn: P.qn, time: Math.round(P.time), kills: P.kills, at: Date.now(),
-    name: P.name, look: P.look, origin: P.origin, sxp: P.sxp, mats: P.mats, axe: P.axe, pick: P.pick, hunt: P.hunt, marks: P.marks, streak: P.streak, mounts: P.mounts, mount: P.mount };
+    name: P.name, look: P.look, origin: P.origin, sxp: P.sxp, mats: P.mats, axe: P.axe, pick: P.pick, hunt: P.hunt, marks: P.marks, streak: P.streak, mounts: P.mounts, mount: P.mount, gems: P.gems, fams: P.fams, fam: P.fam };
   lsSet(SLOTKEY(P.slot), JSON.stringify(s));
   if (lastSlot !== P.slot) { lastSlot = P.slot; saveOpts(); }
 }
@@ -3565,6 +3901,9 @@ function fromSave(s, slot) {
   if (s.hunt && s.hunt.t >= 0 && s.hunt.t < MT.length) P.hunt = { t: s.hunt.t | 0, n: Math.max(1, s.hunt.n | 0), left: clamp(s.hunt.left | 0, 0, 999) };
   if (Array.isArray(s.mounts)) P.mounts = s.mounts.filter((m, i, a) => m >= 0 && m < MOUNTS.length && a.indexOf(m) === i);
   P.mount = P.mounts.indexOf(s.mount) >= 0 ? s.mount : P.mounts.length ? P.mounts[0] : -1;
+  if (Array.isArray(s.gems)) for (let k = 0; k < NGEM; k++) P.gems[k] = clamp(s.gems[k] | 0, 0, 99);
+  if (Array.isArray(s.fams)) P.fams = s.fams.filter((f, i, a) => f >= 0 && f < FAMS.length && a.indexOf(f) === i);
+  P.fam = P.fams.indexOf(s.fam) >= 0 ? s.fam : -1;
   if (!P.eq[0]) starterKit();
   recalc(); P.hp = P.mhp; P.mp = P.mmp;
 }
@@ -3574,6 +3913,7 @@ function loadOpts() {
     if (o && typeof o === "object") {
       if (o.sfx >= 0 && o.sfx <= 10) OPT.sfx = o.sfx | 0; if (o.mus >= 0 && o.mus <= 10) OPT.mus = o.mus | 0;
       OPT.shake = o.shake !== false; OPT.rumble = o.rumble !== false; OPT.minimap = o.minimap !== false;
+      OPT.fx = o.fx >= 0 && o.fx <= 2 ? o.fx | 0 : 0; FXQ = OPT.fx === 2 ? 0 : OPT.fx === 1 ? 2 : o.fxq >= 0 && o.fxq <= 2 ? o.fxq | 0 : 2;
       lastSlot = clamp(o.last | 0, 0, NSLOTS - 1); migrated = !!o.migrated;
     } else {
       const old = JSON.parse(lsGet(OLDOPTS) || "{}");
@@ -3581,7 +3921,7 @@ function loadOpts() {
     }
   } catch (e) { /* defaults */ }
 }
-function saveOpts() { lsSet(OPTS, JSON.stringify({ sfx: OPT.sfx, mus: OPT.mus, shake: OPT.shake, rumble: OPT.rumble, minimap: OPT.minimap, last: lastSlot, migrated })); }
+function saveOpts() { lsSet(OPTS, JSON.stringify({ sfx: OPT.sfx, mus: OPT.mus, shake: OPT.shake, rumble: OPT.rumble, minimap: OPT.minimap, fx: OPT.fx, fxq: FXQ, last: lastSlot, migrated })); }
 document.addEventListener("visibilitychange", () => { if (document.hidden && P && !P.dead && mode !== M_TITLE && mode !== M_CLASS && mode !== M_SLOTS) save(); });
 addEventListener("pagehide", () => { if (P && !P.dead && mode !== M_TITLE && mode !== M_CLASS && mode !== M_SLOTS) save(); });
 
@@ -3592,11 +3932,11 @@ let mode = M_TITLE;
 const frozen = mk(VW, VH), gFrozen = g2(frozen);
 let freezing = false;
 function freeze() { if (P && mapSeen) { freezing = true; drawWorld(); drawHUD(); freezing = false; } gFrozen.drawImage(cv, 0, 0); }
-const DL = new Int16Array(NM + 8), DY = new Float32Array(NM + 8);
+const DL = new Int16Array(NM + 16), DY = new Float32Array(NM + 16);
 let AMB_S = [], TOWN_AMB = "rgba(6,4,18,0.6)";
 // the small map in the corner: a pixel a tile, painted as you see it
 let mmC = null, mmG = null;
-const MMCOL = ["#8e88a0", "#3a3446", "#f2c14e", "#7ad8f0", "#8e88a0", "#3a3446", "#1f3654", "#8e88a0", "#7a3a3a"];
+const MMCOL = ["#8e88a0", "#3a3446", "#f2c14e", "#7ad8f0", "#8e88a0", "#3a3446", "#1f3654", "#8e88a0", "#7a3a3a", "#8e88a0"];
 function mmReset() { mmG.clearRect(0, 0, MAXW, MAXH); }
 function mmTile(tx, ty) {
   const t = tiles[ty * MW + tx];
@@ -3643,11 +3983,64 @@ function warnLine(x, y, ux, uy, len) {
   ctx.fillStyle = ((gameTime * 12) | 0) & 1 ? "#ff6a5a" : "#c8303a";
   for (let s = 8; s < len; s += 6) ctx.fillRect(Math.round(x + ux * s), Math.round(y + uy * s * 0.9), 2, 2);
 }
+// ---------------------------------------------------------------- the engine's newer parts
+// The camera trails you a little and looks ahead where you're going; a new floor puts it straight on you.
+let camFX = 0, camFY = 0, camLX = 0, camLY = 0, camSnap = true, frameDT = 0.016;
+function camUpdate(MWp, MHp) {
+  const go = mode === M_PLAY && !P.dead && !P.gather && MX * MX + MY * MY > 0.04, k1 = 1 - Math.exp(-frameDT * 2.5);
+  camLX += ((go ? MX * 30 : 0) - camLX) * k1; camLY += ((go ? MY * 18 : 0) - camLY) * k1;
+  const fit = (v, full, view) => full <= view ? (full - view) / 2 : clamp(v, 0, full - view);
+  const tx = fit(P.x + camLX - VW / 2, MWp, VW), ty = fit(P.y - 8 + camLY - VH / 2, MHp, VH);
+  if (camSnap) { camFX = tx; camFY = ty; camLX = camLY = 0; camSnap = false; return; }
+  const k = 1 - Math.exp(-frameDT * 10); camFX += (tx - camFX) * k; camFY += (ty - camFY) * k;
+  const ox = P.x - camFX - VW / 2, oy = P.y - 8 - camFY - VH / 2;            // (never far off the middle: a dash, a hook)
+  if (ox > 100) camFX += ox - 100; else if (ox < -100) camFX += ox + 100; if (oy > 64) camFY += oy - 64; else if (oy < -64) camFY += oy + 64;
+  camFX = fit(camFX, MWp, VW); camFY = fit(camFY, MHp, VH);
+}
+// The effects governor: it watches how often frames come late, and on a box that can't keep up it sheds the
+// extras (FXQ 2: all of it; 1: fewer motes and glows; 0: no coloured light, half the particles). It never climbs
+// back to a level that ran late twice, and it remembers where it settled. Options can hold it at full or light.
+let FXQ = 2, govT = 0, govN = 0, govLate = 0, govGood = 0, baseDT = 1 / 60, pSkip = 0;
+const govFail = [0, 0, 0];
+function govern(dt) {
+  if (OPT.fx === 1) { FXQ = 2; return; } if (OPT.fx === 2) { FXQ = 0; return; }
+  if (mode !== M_PLAY || document.hidden || !(dt > 0) || dt > 0.25) return;
+  if (dt < baseDT) baseDT = Math.max(1 / 250, dt); else baseDT += (dt - baseDT) * 0.0004;     // (the screen's own pace)
+  govN++; if (dt > baseDT * 1.6) govLate++; govT += dt;
+  if (govT < 2) return;
+  const late = govLate / govN; govT = 0; govN = 0; govLate = 0;
+  if (late > 0.18 && FXQ > 0) { govFail[FXQ]++; FXQ--; govGood = 0; saveOpts(); }
+  else if (late < 0.03) { if (++govGood >= 5 && FXQ < 2 && govFail[FXQ + 1] < 2) { FXQ++; govGood = 0; saveOpts(); } }
+  else govGood = 0;
+}
+// Between floors the dark closes in on you, and opens again on the new floor
+let irisK = 1, irisV = 0, irisFn = null;
+function irisTo(fn) { if (irisFn) return; irisFn = fn; irisV = -3.4; }
+function irisOpen() { irisK = 0; irisV = 2.4; irisFn = null; }
+function updIris(dt) {
+  if (irisV < 0) { irisK += irisV * dt; if (irisK <= 0) { irisK = 0; irisV = 0; const f = irisFn; irisFn = null; if (f) { f(); return true; } } }
+  else if (irisV > 0) { irisK += irisV * dt; if (irisK >= 1) { irisK = 1; irisV = 0; } }
+  return false;
+}
+function drawIris() {
+  if (irisK >= 1) return;
+  const e = irisK * irisK * (3 - 2 * irisK), r = e * 290, cx = Math.round(P.x - camX), cy = Math.round(P.y - 10 - camY);
+  ctx.fillStyle = "#000"; ctx.beginPath(); ctx.rect(0, 0, VW, VH); if (r > 1) ctx.arc(cx, cy, r, 0, 6.2832, true); ctx.fill();
+  if (r > 1) { ctx.strokeStyle = "#4a2a5a"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(cx, cy, r, 0, 6.2832); ctx.stroke(); }
+}
+// Bursts of light: a blast, a critical hit, a level, a vault breaking open: the dark gives way for a moment
+const NLP = 12, LP = [];
+for (let i = 0; i < NLP; i++) LP.push({ on: false, x: 0, y: 0, r: 0, t: 0, life: 1, g: null });
+let lpN = 0;
+function lpulse(x, y, r, life, g) {
+  let q = null; for (let i = 0; i < NLP; i++) if (!LP[i].on) { q = LP[i]; break; } if (!q) q = LP[(lpN++) % NLP];
+  q.on = true; q.x = x; q.y = y; q.r = r; q.t = 0; q.life = life; q.g = g || null;
+}
+function updLP(dt) { for (let i = 0; i < NLP; i++) { const q = LP[i]; if (q.on && (q.t += dt) >= q.life) q.on = false; } }
 function drawWorld() {
   let sx = 0, sy = 0; if (shakeT > 0) { sx = (rnd() * 2 - 1) * shakeM; sy = (rnd() * 2 - 1) * shakeM; }
   const MWp = MW * TS, MHp = MH * TS;
-  camX = MWp <= VW ? (MWp - VW) / 2 : clamp(P.x - VW / 2, 0, MWp - VW); camY = MHp <= VH ? (MHp - VH) / 2 : clamp(P.y - 8 - VH / 2, 0, MHp - VH);
-  camX = Math.round(camX + sx); camY = Math.round(camY + sy);
+  camUpdate(MWp, MHp); camX = Math.round(camFX + sx); camY = Math.round(camFY + sy);
   let srcX = camX, srcY = camY, dx = 0, dy = 0, w = VW, h = VH;
   if (srcX < 0) { dx = -srcX; w += srcX; srcX = 0; } if (srcY < 0) { dy = -srcY; h += srcY; srcY = 0; }
   if (srcX + w > MWp) w = MWp - srcX; if (srcY + h > MHp) h = MHp - srcY;
@@ -3714,6 +4107,7 @@ function drawWorld() {
     const x = Math.round(d.x - camX), y = Math.round(d.y - camY), bob = Math.round(Math.sin(d.t * 3) * 1.5);
     if (d.kind === 0) ctx.drawImage(S.gold, x - 4, y - 5);
     else if (d.kind === 1) ctx.drawImage(S.ic[BELT[d.n].ic], x - 6, y - 12 + bob);
+    else if (d.kind === 4) { const im = S.gem[d.n]; ctx.drawImage(im, x - (im.width >> 1), y - 8 - im.height + bob); if ((fr & 7) === 0) part(d.x + rr(-3, 3), d.y - 10, 0, -14, 0.4, GEMS[(d.n / 3) | 0].pc, 1, false); }
     else if (d.kind === 3) { ctx.drawImage(S.ic.scroll, x - 6, y - 12 + bob); if ((fr & 3) === 0) part(d.x + rr(-3, 3), d.y - 14, 0, -20, 0.5, PC_GOLD, 1, false); }
     else {
       const it = d.item;
@@ -3722,6 +4116,11 @@ function drawWorld() {
       else if (it.r === R_FINE) { ctx.fillStyle = RAR_RGB[1]; ctx.fillRect(x - 1, y - 2, 3, 1); }
       ctx.drawImage(S.ic[baseOf(it).ic], x - 6, y - 13 + bob);
     }
+  }
+  if (VLT.on && VLT.cage >= 0 && seen[tidx(VLT.cx, VLT.cy)]) drawCage();
+  if (VLT.on && !VLT.open && seen[VLT.ty * MW + VLT.tx]) {        // stones fallen from the crack
+    const x = Math.round(VLT.x - camX), y = Math.round(VLT.y - camY); ctx.fillStyle = "#6a6478";
+    ctx.fillRect(x - 6, y + 10, 2, 1); ctx.fillRect(x + 3, y + 11, 1, 1); ctx.fillRect(x + 6, y + 9, 2, 1); ctx.fillStyle = "#3a3446"; ctx.fillRect(x - 2, y + 12, 2, 1); ctx.fillRect(x + 1, y + 9, 1, 1);
   }
   // bodies, back to front
   let n = 0;
@@ -3732,11 +4131,13 @@ function drawWorld() {
     DL[n] = i; DY[n] = m.y; n++;
   }
   DL[n] = -1; DY[n] = P.y; n++;
+  if (P.fam >= 0 && !P.dead) { DL[n] = FAMK; DY[n] = FAM.y; n++; }
   for (let i = 0; i < NPCS.length; i++) { DL[n] = -2 - i; DY[n] = NPCS[i].y; n++; }
   for (let i = 1; i < n; i++) { const a = DL[i], b = DY[i]; let j = i - 1; while (j >= 0 && DY[j] > b) { DL[j + 1] = DL[j]; DY[j + 1] = DY[j]; j--; } DL[j + 1] = a; DY[j + 1] = b; }
   for (let i = 0; i < n; i++) {
     const k = DL[i];
     if (k === -1) drawPlayer();
+    else if (k === FAMK) drawFam();
     else if (k < -1) { const np = NPCS[-2 - k]; ctx.drawImage(S.shadow, np.x - 6 - camX, np.y - 3 - camY); drawSet(S[np.s], np.x - camX, np.y - camY, np.f, ((gameTime * 1.5 + k) | 0) & 1, 0); }
     else drawMon(MON[k], fr);
   }
@@ -3759,11 +4160,12 @@ function holeAt(x, y, r) { const h = hole(r); lg.drawImage(h, ((x - camX) >> 1) 
 function glowAt(g, x, y) { ctx.drawImage(g, Math.round(x - camX - g.width / 2), Math.round(y - camY - g.height / 2)); }
 function drawLight(fr) {
   // the dark, with holes for each light
-  lg.globalCompositeOperation = "source-over"; lg.fillStyle = isTown ? TOWN_AMB : AMB_S[zone]; lg.fillRect(0, 0, LMW, LMH);
+  lg.globalCompositeOperation = "source-over"; lg.fillStyle = isTown ? TOWN_AMB : omen === 1 ? AMB_BLOOD : AMB_S[zone]; lg.fillRect(0, 0, LMW, LMH);
   lg.globalCompositeOperation = "destination-out";
   const flick = (fr & 3) === 0 ? 1 : (fr & 3) === 2 ? -1 : 0;
   let lamp = 66 * P.lampK * (isTown ? 1.5 : 1); if (dustT > 0) lamp *= 0.55; if (pulseT > 0) lamp *= 0.55 + 0.45 * (1 - pulseT / 1.5);
   if (dimD < 110) lamp *= 0.42 + 0.58 * clamp((dimD - 20) / 90, 0, 1);            // (a lampwraith near: your light gutters)
+  if (omen === 0 && !isTown) lamp *= 0.72;
   holeAt(P.x, P.y - 8, Math.round(lamp) + flick);
   const vx0 = camX - 80, vx1 = camX + VW + 80, vy0 = camY - 80, vy1 = camY + VH + 80;
   if (isTown) for (let i = 0; i < LAMPS.length; i++) { const l = LAMPS[i]; if (l.x > vx0 && l.x < vx1 && l.y > vy0 && l.y < vy1) holeAt(l.x, l.y, l.k === 2 ? 16 : l.k === 1 ? 34 : 30 + ((fr + i) % 3 === 0 ? 1 : 0)); }
@@ -3782,36 +4184,45 @@ function drawLight(fr) {
     if (bossM && bossM.on && bossM.awake && bossM.boss === 5) holeAt(bossM.x, bossM.y - 14, 28);
     for (let i = 0; i < NFX; i++) { const f = FX[i]; if (f.on && f.t >= 0 && (f.k === FX_BOLT || f.k === FX_SKY)) holeAt(f.a, f.b, 26); }
     for (let i = 0; i < NDR; i++) { const d = DR[i]; if (d.on && d.kind === 2 && d.item.r === R_UNIQUE) holeAt(d.x, d.y - 8, 16); }
+    if (VLT.on && VLT.cage >= 0 && seen[tidx(VLT.cx, VLT.cy)]) holeAt(VLT.cx, VLT.cy - 8, 22);
   }
+  if (P.fam >= 0 && FAMS[P.fam].light) holeAt(FAM.x, FAM.y - 12, FAMS[P.fam].light);
+  for (let i = 0; i < NLP; i++) { const q = LP[i]; if (q.on) holeAt(q.x, q.y, (((q.r * (0.35 + 0.65 * (1 - q.t / q.life))) / 8) | 0) * 8 + 8); }
   lg.globalCompositeOperation = "source-over";
   if (!isTown && fogC) {      // the shadows: what you can't see from here, laid back over the light
     updateFog();
     const tx0 = Math.max(0, Math.floor(camX / TS)), ty0 = Math.max(0, Math.floor(camY / TS)), ox = camX - tx0 * TS, oy = camY - ty0 * TS;
     const tw = Math.min(MW - tx0, (VW >> 4) + 2), th = Math.min(MH - ty0, (VH >> 4) + 2);
-    lg.imageSmoothingEnabled = true; lg.drawImage(fogC, tx0, ty0, tw, th, -(ox >> 1), -(oy >> 1), tw * 8, th * 8); lg.imageSmoothingEnabled = false;
+    lg.imageSmoothingEnabled = FXQ > 0; lg.drawImage(fogC, tx0, ty0, tw, th, -(ox >> 1), -(oy >> 1), tw * 8, th * 8); lg.imageSmoothingEnabled = false;
   }
   ctx.drawImage(L.map, 0, 0, LMW, LMH, 0, 0, VW, VH);
   // and the lights' colour, added on top
   ctx.globalCompositeOperation = "lighter";
   if (isTown) {
     for (let i = 0; i < LAMPS.length; i++) { const l = LAMPS[i], g = l.k === 1 ? L.violet : l.k === 2 ? L.warmS : l.k === 3 ? L.red : L.warm; glowAt(g, l.x, l.y); }
-  } else {
+  } else if (FXQ > 0) {
     for (let k = 0; k < torchN; k++) if (seen[torchY[k] * MW + torchX[k]]) glowAt(L.warm, torchX[k] * TS + 8, torchY[k] * TS + 5);
     if (BRZ.on && BRZ.lit) glowAt(L.warmB, BRZ.x, BRZ.y - 14);
     if (seen[tidx(ropeX, ropeY)]) glowAt(L.sky, ropeX, ropeY);
     const tg = THEMES[zone].glow;
-    if (tg) for (let k = 0, c = 0; k < atN && c < 12; k++) {
+    if (tg && FXQ > 1) for (let k = 0, c = 0; k < atN && c < 12; k++) {
       if (atK[k] !== T_POOL || (k % 3)) continue; const x = atX[k] * TS + 8, y = atY[k] * TS + 8;
       if (x > camX - 20 && x < camX + VW + 20 && y > camY - 20 && y < camY + VH + 20 && seen[atY[k] * MW + atX[k]]) { glowAt(L[tg], x, y); c++; }
     }
     const gg = zone === 2 ? L.green : zone === 3 ? L.teal : zone === 4 ? L.red : L.violet;
-    for (let k = 0; k < glN; k++) { const x = glX[k], y = glY[k]; if (x > camX - 10 && x < camX + VW + 10 && y > camY - 10 && y < camY + VH + 10 && seen[tidx(x, y)]) glowAt(gg, x, y); }
+    if (FXQ > 1) for (let k = 0; k < glN; k++) { const x = glX[k], y = glY[k]; if (x > camX - 10 && x < camX + VW + 10 && y > camY - 10 && y < camY + VH + 10 && seen[tidx(x, y)]) glowAt(gg, x, y); }
     for (let i = 0; i < NHZ; i++) { const z = HZ[i]; if (z.on && z.kind === HZ_FIRE && z.tick >= 0) glowAt(L.red, z.x, z.y - 4); }
     for (let i = 0; i < NPJ; i++) { const p = PJ[i]; if (!p.on) continue; const g = p.kind === PJ_EMBER ? L.warmS : p.kind === PJ_FIRE ? L.red : p.kind === PJ_COLD ? L.cold : p.kind === PJ_ORB ? L.pink : null; if (g) glowAt(g, p.x, p.y - 8); }
     if (P.blessT > 0) glowAt(L.gold, P.x, P.y - 8);
     for (let i = 0; i < NFX; i++) { const f = FX[i]; if (f.on && f.t >= 0 && (f.k === FX_BOLT || f.k === FX_SKY)) glowAt(L.cold, f.a, f.b); }
     for (let i = 0; i < NDR; i++) { const d = DR[i]; if (d.on && d.kind === 2 && d.item.r === R_UNIQUE) glowAt(L.pink, d.x, d.y - 8); }
     for (let i = 0; i < NPJ; i++) { const p = PJ[i]; if (p.on && p.kind === PJ_MOTH) glowAt(L.pink, p.x, p.y - 8); }
+    if (VLT.on && VLT.cage >= 0 && seen[tidx(VLT.cx, VLT.cy)]) glowAt(L.gold, VLT.cx, VLT.cy - 8);
+  }
+  if (FXQ > 0) {
+    if (P.fam === 1) glowAt(L.gold, FAM.x, FAM.y - 12); else if (P.fam === 2) glowAt(L.warmS, FAM.x, FAM.y - 14);
+    for (let i = 0; i < NLP; i++) { const q = LP[i]; if (q.on && q.g) { ctx.globalAlpha = 1 - q.t / q.life; glowAt(L[q.g], q.x, q.y); } }
+    ctx.globalAlpha = 1;
   }
   ctx.globalCompositeOperation = "source-over";
 }
@@ -3833,7 +4244,7 @@ function drawMon(m, fr) {
   const bob = m.fly ? Math.round(Math.sin(m.anim * 4 + m.ph) * 2) - 4 : 0, big = m.kind === K_BOSS || m.t === 12 || m.champ;
   if (m.champ) dots(x, y - 1, 15, 20, ((fr >> 1) & 1) ? "#f2c14e" : "#a87a1e", gameTime * 2, 0, 0);
   ctx.drawImage(big ? S.shadowH : m.kind === K_SLAM ? S.shadowB : S.shadow, Math.round(x - (big ? 18 : m.kind === K_SLAM ? 9 : 6)), Math.round(y - (big ? 6 : 3)));
-  const wind = m.st === 1 && m.kind !== K_CASTER && m.kind !== K_SUMMON && m.kind !== K_SPIT;
+  const wind = m.st === 1 && m.kind !== K_CASTER && m.kind !== K_SUMMON && m.kind !== K_SPIT && m.kind !== K_THIEF;
   const look = m.hit > 0 ? 1 : (wind && (fr & 1)) || (m.kind === K_CHARGE && m.st === 2 && (fr & 2)) ? 2 : (m.stun > 0 && (fr & 2)) ? 1 : 0;
   const moving = m.kind !== K_BOSS || m.st === 0;
   const frame = m.kind === K_POD ? (m.stT < 1.5 ? (fr >> 1) & 1 : 0) : moving ? ((m.anim * (m.fly ? 8 : 5)) | 0) : 0;
@@ -3852,6 +4263,7 @@ function drawMon(m, fr) {
   if (m.elite) { ctx.drawImage(S.crown, Math.round(x - 2), top - 3); if (m.el && (fr & 3) === 0) part(m.x + rr(-5, 5), m.y - rr(2, 14), 0, -12, 0.4, ELP[(fr & 4) && m.el2 ? m.el2 : m.el], 1, false); }
   if (m.mark > 0) { ctx.fillStyle = (fr & 2) ? "#ff6a5a" : "#c8303a"; ctx.fillRect(Math.round(x - 4), top - 7, 3, 1); ctx.fillRect(Math.round(x + 2), top - 7, 3, 1); ctx.fillRect(Math.round(x), top - 10, 1, 3); ctx.fillRect(Math.round(x), top - 5, 1, 2); }
   if (m.burnT > 0 && (fr & 1)) part(m.x + rr(-4, 4), m.y - rr(4, 12), 0, -25, 0.3, PC_ORANGE, 1, false);
+  if (m.risen && (fr & 3) === 0) part(m.x + rr(-4, 4), m.y - rr(2, 12), 0, -14, 0.4, PC_CYAN, 1, false);
   if (m.kind === K_SHIELD && m.stun <= 0) { ctx.fillStyle = "rgba(236,232,244,0.35)"; const a = m.angle; for (let k = -2; k <= 2; k++) ctx.fillRect(Math.round(x + Math.cos(a + k * 0.25) * 11), Math.round(y - 6 + Math.sin(a + k * 0.25) * 8), 1, 2); }
 }
 const SET_PC = [PC_GOLD, PC_LILAC, PC_MIRE, PC_WAX, PC_PURP];
@@ -3971,6 +4383,7 @@ function drawHUD() {
     if (((gameTime * 3) | 0) & 1) { ctx.fillStyle = "#ece8f4"; ctx.fillRect(mx + ((P.x / TS) | 0) * k - 1, my + ((P.y / TS) | 0) * k - 1, 3, 3); }
     if (bossM && bossM.awake && bossAlive) { ctx.fillStyle = "#ff6a5a"; ctx.fillRect(mx + ((bossM.x / TS) | 0) * k, my + ((bossM.y / TS) | 0) * k, 2, 2); }
   }
+  if (omen >= 0 && !isTown) { const os = OMENS[omen].n; stext(ctx, os, rx - textW(os), OPT.minimap && mmC ? 36 + MH + 4 : 36, OMENS[omen].c); }
   // the belt: LB and RB choose, LT uses
   for (let k = 0; k < 3; k++) {
     const x = 22 + k * 20; slot(x, by, S.ic[BELT[k].ic], k === P.sel ? "#f2c14e" : "#4a4458");
@@ -4199,11 +4612,11 @@ function drawPause() {
   hints(T_OK + " SELECT   " + T_BACK + " RESUME");
 }
 // options: the sound's two volumes, and the rest on or off
-const OPTN = ["EFFECTS VOLUME", "MUSIC VOLUME", "SCREEN SHAKE", "CONTROLLER RUMBLE", "SMALL MAP", "BACK"];
+const OPTN = ["EFFECTS VOLUME", "MUSIC VOLUME", "SCREEN SHAKE", "CONTROLLER RUMBLE", "SMALL MAP", "VISUAL EFFECTS", "BACK"], FXN = ["AUTO", "FULL", "LIGHT"];
 function updOpts() {
   if (nav[A_UP]) { optSel = (optSel + OPTN.length - 1) % OPTN.length; dirty = true; sfx(SND_MENU); }
   if (nav[A_DOWN]) { optSel = (optSel + 1) % OPTN.length; dirty = true; sfx(SND_MENU); }
-  if (hit[A_B] || (hit[A_A] && optSel === 5)) { saveOpts(); mode = optBack; if (optBack === M_TITLE) setTitle(); dirty = true; sfx(SND_MENU); return; }
+  if (hit[A_B] || (hit[A_A] && optSel === 6)) { saveOpts(); mode = optBack; if (optBack === M_TITLE) setTitle(); dirty = true; sfx(SND_MENU); return; }
   const dir = nav[A_LEFT] ? -1 : nav[A_RIGHT] || hit[A_A] ? 1 : 0; if (!dir) return;
   dirty = true; wakeAudio();
   switch (optSel) {
@@ -4212,6 +4625,7 @@ function updOpts() {
     case 2: OPT.shake = !OPT.shake; if (OPT.shake) shake(0.3, 3); sfx(SND_MENU); break;
     case 3: OPT.rumble = !OPT.rumble; if (OPT.rumble) rumble(0.5, 200); sfx(SND_MENU); break;
     case 4: OPT.minimap = !OPT.minimap; sfx(SND_MENU); break;
+    case 5: OPT.fx = (OPT.fx + (dir > 0 ? 1 : 2)) % 3; FXQ = OPT.fx === 2 ? 0 : 2; govFail.fill(0); sfx(SND_MENU); break;
   }
   saveOpts();
 }
@@ -4226,16 +4640,18 @@ function drawOpts() {
       const v = i === 0 ? OPT.sfx : OPT.mus;
       for (let k = 0; k < 10; k++) { ctx.fillStyle = k < v ? (sel ? "#f2c14e" : "#ece8f4") : "#3a3446"; ctx.fillRect(262 + k * 9, y - 1 + (9 - k), 6, k + 1); }
     } else if (i < 5) rtext(ctx, (i === 2 ? OPT.shake : i === 3 ? OPT.rumble : OPT.minimap) ? "ON" : "OFF", 354, y, sel ? C_GOLD : C_GREY);
+    else if (i === 5) rtext(ctx, FXN[OPT.fx], 354, y, sel ? C_GOLD : C_GREY);
   }
   hints(T_MOVE + " CHANGE   " + T_BACK + " DONE");
 }
 // The character: three pages, LB and RB to turn them. Gear: what you wear on the left, your pack on the right.
-const TABS = ["GEAR", "TALENTS", "SKILLS", "TASKS"];
+const TABS = ["GEAR", "TALENTS", "SKILLS", "TASKS", "FAMILIARS"];
 function itemLines(it, cmp) {
   const out = [[nameOf(it), RAR_C[it.r]], [RAR_N[it.r] + " " + SLOT_N[it.s] + DOT + "ITEM LEVEL " + it.l, C_GREY]];
   if (it.s === SL_WEAPON) { const B = WB[it.b]; out.push([it.lo + "-" + it.hi + " DAMAGE" + (B.sp < 0.95 ? DOT + "FAST" : B.sp > 1.05 ? DOT + "SLOW" : ""), C_W]); if (B.regen) out.push(["+" + B.regen + " WICK A SECOND", C_W]); if (B.reach) out.push(["LONG REACH", C_W]); if (B.arc) out.push(["WIDE SWING", C_W]); if (B.crit) out.push(["+" + B.crit + "% CRITICAL HITS", C_W]); }
   else if (it.s === SL_ARMOR || it.s === SL_HEAD) { const sp = it.s === SL_ARMOR ? AB[it.b].spd : HB[it.b].spd; out.push([it.a + " ARMOR" + (sp ? DOT + (sp > 0 ? "+" : "") + sp + "% SPEED" : ""), C_W]); }
   for (let j = 0; j < it.x.length; j++) out.push([AFF[it.x[j][0]].f(it.x[j][1]), C_BLUE]);
+  if (it.so) for (let j = 0; j < it.so; j++) { const g = it.gm[j]; out.push(g < 0 ? ["AN EMPTY SOCKET", C_DARK] : [GEMS[(g / 3) | 0].n + ": " + gemEff(it.s, g), GEMS[(g / 3) | 0].fc]); }
   const pw = powerOf(it); if (pw >= 0) out.push([POWERS[pw], C_ORANGE]);
   if (it.r === R_UNIQUE && UNIQ[it.uq]) out.push([UNIQ[it.uq].d, C_PINK]);
   if (it.r === R_SET) { const st = SETS[it.set], n = P.setN[it.set]; out.push([st.n + " (" + n + "/3 WORN)", C_GREEN]); out.push(["2: " + st.d2, n >= 2 ? C_GREEN : C_DARK]); out.push(["3: " + st.d3, n >= 3 ? C_GREEN : C_DARK]); }
@@ -4253,12 +4669,13 @@ function drawDetails(it, cmp, x, y, w, maxY) {
   for (let i = 0, yy = y; i < ls.length; i++) { const wl = wrap(ls[i][0], w); for (let k = 0; k < wl.length && yy < (maxY || 999); k++, yy += 10) text(ctx, wl[k], x, yy, ls[i][1]); }
 }
 function gearItem(i) { return i < NSLOT ? P.eq[i] : P.pack[i - NSLOT] || null; }
-function tabKeys() { if (hit[A_LB]) { gearTab = (gearTab + 3) % 4; gearArm = -1; dirty = true; sfx(SND_MENU); return true; } if (hit[A_RB]) { gearTab = (gearTab + 1) % 4; gearArm = -1; dirty = true; sfx(SND_MENU); return true; } return false; }
+function tabKeys() { if (hit[A_LB]) { gearTab = (gearTab + 4) % 5; gearArm = -1; dirty = true; sfx(SND_MENU); return true; } if (hit[A_RB]) { gearTab = (gearTab + 1) % 5; gearArm = -1; dirty = true; sfx(SND_MENU); return true; } return false; }
 function updGear() {
   if (hit[A_B] || hit[A_SEL]) { mode = M_PLAY; return; }
   if (tabKeys()) return;
   if (gearTab === 1) { updTalents(); return; }
   if (gearTab === 2) { updSkillsTab(); return; }
+  if (gearTab === 4) { updFams(); return; }
   if (gearTab === 3) return;
   let s = gearSel;
   if (s < NSLOT) {
@@ -4277,21 +4694,53 @@ function updGear() {
   }
   if (hit[A_X] && it && gearSel >= NSLOT) {
     if (gearArm !== gearSel) { gearArm = gearSel; dirty = true; sfx(SND_MENU); }
-    else { P.gold += it.v; P.pack.splice(gearSel - NSLOT, 1); toast("BROKE DOWN " + it.n + " FOR " + it.v + " GOLD", C_GOLD); gearArm = -1; sfx(SND_COIN); dirty = true; save(); }
+    else { P.gold += it.v; const gk = returnGems(it); P.pack.splice(gearSel - NSLOT, 1); toast("BROKE DOWN " + it.n + " FOR " + it.v + " GOLD" + (gk ? "; ITS GEMS ARE KEPT" : ""), C_GOLD); gearArm = -1; sfx(SND_COIN); dirty = true; save(); }
   }
 }
+let TABX = null;
 function drawTabs() {
-  for (let t = 0; t < 4; t++) { const x = 222 + t * 54; ctx.fillStyle = t === gearTab ? "#5a4a6a" : "#241d2e"; ctx.fillRect(x, 13, 51, 13); ctext(ctx, TABS[t], x + 25, 16, t === gearTab ? C_GOLD : C_GREY); }
-  text(ctx, T_LB, 204, 16, C_W); text(ctx, T_RB, 440, 16, C_W);
+  if (!TABX) { TABX = []; let x = 186; for (let t = 0; t < TABS.length; t++) { const w = textW(TABS[t]) + 10; TABX.push(x, w); x += w + 3; } }
+  for (let t = 0; t < TABS.length; t++) { const x = TABX[t * 2], w = TABX[t * 2 + 1]; ctx.fillStyle = t === gearTab ? "#5a4a6a" : "#241d2e"; ctx.fillRect(x, 13, w, 13); ctext(ctx, TABS[t], x + (w >> 1), 16, t === gearTab ? C_GOLD : C_GREY); }
+  text(ctx, T_LB, 172, 16, C_W); text(ctx, T_RB, TABX[TABX.length - 2] + TABX[TABX.length - 1] + 4, 16, C_W);
+}
+let famSel = 0;
+function updFams() {
+  const n = FAMS.length;
+  if (nav[A_UP]) { famSel = (famSel + n - 1) % n; dirty = true; sfx(SND_MENU); }
+  if (nav[A_DOWN]) { famSel = (famSel + 1) % n; dirty = true; sfx(SND_MENU); }
+  if (!hit[A_A]) return;
+  dirty = true;
+  if (P.fams.indexOf(famSel) < 0) { toast("NOT FOUND YET: " + FAMS[famSel].from, C_GREY); sfx(SND_DENY); return; }
+  P.fam = P.fam === famSel ? -1 : famSel; recalc(); if (P.fam >= 0) famPlace();
+  toast(P.fam >= 0 ? FAMS[famSel].n + " FOLLOWS YOU" : FAMS[famSel].n + " STAYS BEHIND", C_GOLD); sfx(SND_OK); save();
+}
+function drawFams() {
+  text(ctx, "FAMILIARS", 24, 14, C_GOLD, 2);
+  for (let i = 0; i < FAMS.length; i++) {
+    const F = FAMS[i], y = 34 + i * 50, sel = i === famSel, have = P.fams.indexOf(i) >= 0, set = S[F.spr];
+    ctx.fillStyle = sel ? "#3a3048" : "#1d1726"; ctx.fillRect(24, y, 214, 46); if (sel) { ctx.fillStyle = "#f2c14e"; ctx.fillRect(24, y, 2, 46); }
+    ctx.drawImage(have ? set.r[0] : set.sil, 44 - (set.w >> 1), y + 23 - (set.h >> 1));
+    text(ctx, have ? F.n : "? ? ?", 66, y + 12, have ? C_W : C_DARK);
+    text(ctx, P.fam === i ? "WITH YOU" : have ? "RESTING" : "NOT FOUND YET", 66, y + 25, P.fam === i ? C_GOLD : C_DARK);
+  }
+  const F = FAMS[famSel], have = P.fams.indexOf(famSel) >= 0, set = S[F.spr];
+  ctx.fillStyle = "#241d2e"; ctx.fillRect(250, 34, 206, 206);
+  ctx.drawImage(have ? set.r[0] : set.sil, 353 - set.w * 2, 76 - set.h * 2, set.w * 4, set.h * 4);
+  ctext(ctx, have ? F.n : "? ? ?", 353, 116, have ? C_GOLD : C_DARK);
+  const dl = wrap(have ? F.d : "SOMEWHERE IN THE WELL, OR IN WICKHOLLOW, ONE OF THESE WAITS FOR YOU.", 190);
+  for (let k = 0; k < dl.length; k++) text(ctx, dl[k], 258, 132 + k * 10, have ? C_W : C_DARK);
+  const fl = wrap("FOUND: " + F.from, 190); for (let k = 0; k < fl.length; k++) text(ctx, fl[k], 258, 200 + k * 10, C_PURP);
+  hints(T_MOVE + " CHOOSE   " + T_OK + (P.fam === famSel ? " SEND IT TO REST" : " CALL IT") + "   " + T_LB + T_RB + " PAGES   " + T_BACK + " CLOSE");
 }
 function drawGear() {
   ctx.drawImage(frozen, 0, 0); dim(0.5); panel(14, 8, 452, 254); drawTabs();
   if (gearTab === 1) { drawTalents(); return; }
   if (gearTab === 2) { drawSkillsTab(); return; }
   if (gearTab === 3) { drawTasks(); return; }
-  text(ctx, "GEAR", 24, 14, C_GOLD, 2); ctx.drawImage(S.coin, 214, 16); rtext(ctx, "" + P.gold, 210, 16, C_GOLD);
+  if (gearTab === 4) { drawFams(); return; }
+  text(ctx, "GEAR", 24, 14, C_GOLD, 2); ctx.drawImage(S.coin, 160, 16); rtext(ctx, "" + P.gold, 156, 16, C_GOLD);
   for (let i = 0; i < NSLOT; i++) {
-    const it = P.eq[i], y = 34 + i * 20; slot(24, y, it ? S.ic[baseOf(it).ic] : null, gearSel === i ? "#f2c14e" : it ? RAR_RGB[it.r] : null);
+    const it = P.eq[i], y = 34 + i * 20; slot(24, y, it ? S.ic[baseOf(it).ic] : null, gearSel === i ? "#f2c14e" : it ? RAR_RGB[it.r] : null); gemDots(it, 26, y + 13);
     const nm = it ? nameOf(it) : SLOT_N[i] + ": NOTHING"; text(ctx, nm.length > 32 ? nm.slice(0, 31) + "." : nm, 46, y + 2, it ? RAR_C[it.r] : C_DARK);
     text(ctx, it ? (it.s === SL_WEAPON ? it.lo + "-" + it.hi + " DAMAGE" : it.s === SL_ARMOR || it.s === SL_HEAD ? it.a + " ARMOR" : it.x.length + " CHARMS") : "", 46, y + 11, C_GREY);
   }
@@ -4306,7 +4755,7 @@ function drawGear() {
   text(ctx, "PACK " + P.pack.length + "/" + PACK, 252, 30, C_GREY);
   for (let i = 0; i < PACK; i++) {
     const it = P.pack[i], x = 252 + (i % 5) * 22, y = 40 + ((i / 5) | 0) * 22;
-    slot(x, y, it ? S.ic[baseOf(it).ic] : null, gearSel === i + NSLOT ? "#f2c14e" : it ? (it.r ? RAR_RGB[it.r] : "#5a5468") : "#2a2633");
+    slot(x, y, it ? S.ic[baseOf(it).ic] : null, gearSel === i + NSLOT ? "#f2c14e" : it ? (it.r ? RAR_RGB[it.r] : "#5a5468") : "#2a2633"); gemDots(it, x + 2, y + 13);
   }
   const it = gearItem(gearSel);
   ctx.fillStyle = "#241d2e"; ctx.fillRect(250, 128, 206, 112);
@@ -4398,7 +4847,7 @@ function updShop() {
   const r = rows[shopSel];
   if (hit[A_A] && r) {
     dirty = true; shopCache = null;
-    if (r.k === 2) { P.gold += r.p; P.pack.splice(r.i, 1); toast("SOLD " + r.n + " FOR " + r.p + " GOLD", C_GOLD); sfx(SND_COIN); shopSel = Math.min(shopSel, Math.max(0, P.pack.length - 1)); }
+    if (r.k === 2) { P.gold += r.p; returnGems(r.it); P.pack.splice(r.i, 1); toast("SOLD " + r.n + " FOR " + r.p + " GOLD", C_GOLD); sfx(SND_COIN); shopSel = Math.min(shopSel, Math.max(0, P.pack.length - 1)); }
     else if (P.gold < r.p) { toast("YOU NEED " + (r.p - P.gold) + " MORE GOLD", C_RED); sfx(SND_DENY); }
     else if (r.k === 0) { if (P.belt[r.i] >= BELT[r.i].cap) toast("YOUR BELT HOLDS NO MORE", C_GREY); else { P.belt[r.i]++; P.gold -= r.p; sfx(SND_COIN); } }
     else { if (P.pack.length >= PACK) toast("YOUR PACK IS FULL", C_RED); else { P.gold -= r.p; P.pack.push(r.it); stock.splice(r.i, 1); toast("BOUGHT " + r.n, RAR_C[r.it.r]); sfx(SND_COIN); shopSel = Math.max(0, Math.min(shopSel, rowsNow().length - 1)); } }
@@ -4411,6 +4860,7 @@ function listRows(rows, sel, x, y, w, n) {
     const r = rows[i], yy = y + (i - top) * 18, s = i === sel;
     ctx.fillStyle = s ? "#3a3048" : "#1d1726"; ctx.fillRect(x, yy, w, 16); if (s) { ctx.fillStyle = "#f2c14e"; ctx.fillRect(x, yy, 2, 16); }
     ctx.drawImage(r.ic, x + 4, yy + 2); text(ctx, r.n.length > 26 ? r.n.slice(0, 25) + "." : r.n, x + 20, yy + 5, r.c);
+    if (r.dots && r.it && r.it.so) gemDots(r.it, x + w - 6 - r.it.so * 4, yy + 6);
     if (r.p != null) { rtext(ctx, "" + r.p, x + w - 12, yy + 5, r.k === 2 || r.k === 3 || P.gold >= r.p ? C_GOLD : C_RED); ctx.drawImage(S.coin, x + w - 9, yy + 5); }
   }
 }
@@ -4434,9 +4884,10 @@ function drawShop() {
 // Vesk's forge: make a thing better (up to +5), or turn one of its charms into another
 function updSmith() {
   const items = smithItems();
-  if (hit[A_B]) { mode = M_PLAY; save(); return; }
-  if (hit[A_LB] || hit[A_RB]) { smithTab ^= 1; smithArm = -1; dirty = true; sfx(SND_MENU); return; }
+  if (hit[A_B] && !(smithTab === 2 && gemPick)) { mode = M_PLAY; save(); return; }
+  if (hit[A_LB] || hit[A_RB]) { smithTab = (smithTab + (hit[A_RB] ? 1 : 2)) % 3; smithArm = -1; gemPick = false; gemArm = ""; dirty = true; sfx(SND_MENU); return; }
   if (smithTab === 1) { updMake(); return; }
+  if (smithTab === 2) { updGems(); return; }
   if (nav[A_UP] && items.length) { smithSel = (smithSel + items.length - 1) % items.length; smithArm = -1; smithAff = 0; dirty = true; sfx(SND_MENU); }
   if (nav[A_DOWN] && items.length) { smithSel = (smithSel + 1) % items.length; smithArm = -1; smithAff = 0; dirty = true; sfx(SND_MENU); }
   const it = items[smithSel]; if (!it) return;
@@ -4457,12 +4908,13 @@ function updSmith() {
 function drawSmith() {
   ctx.drawImage(frozen, 0, 0); dim(0.5); panel(14, 8, 452, 254);
   text(ctx, "VESK'S FORGE", 24, 16, C_GOLD, 2); ctx.drawImage(S.coin, 448, 17); rtext(ctx, "" + P.gold, 444, 17, C_GOLD);
-  for (let t = 0; t < 2; t++) { const x = 250 + t * 56; ctx.fillStyle = t === smithTab ? "#5a4a6a" : "#241d2e"; ctx.fillRect(x, 16, 52, 12); ctext(ctx, t ? "MAKE" : "BETTER", x + 26, 19, t === smithTab ? C_GOLD : C_GREY); }
-  text(ctx, T_LB + T_RB, 366, 18, C_W);
+  for (let t = 0; t < 3; t++) { const x = 222 + t * 52; ctx.fillStyle = t === smithTab ? "#5a4a6a" : "#241d2e"; ctx.fillRect(x, 16, 48, 12); ctext(ctx, ["BETTER", "MAKE", "GEMS"][t], x + 24, 19, t === smithTab ? C_GOLD : C_GREY); }
+  text(ctx, T_LB + T_RB, 380, 18, C_W);
   if (smithTab === 1) { drawMake(); return; }
+  if (smithTab === 2) { drawGems(); return; }
   const items = smithItems();
   if (!items.length) text(ctx, "YOU CARRY NOTHING TO WORK ON", 28, 44, C_DARK);
-  const rows = items.map((it, i) => ({ k: 3, n: (i < P.eq.filter(Boolean).length ? "* " : "") + nameOf(it), ic: S.ic[baseOf(it).ic], c: RAR_C[it.r], p: null }));
+  const rows = items.map((it, i) => ({ k: 3, n: (i < P.eq.filter(Boolean).length ? "* " : "") + nameOf(it), ic: S.ic[baseOf(it).ic], c: RAR_C[it.r], p: null, it, dots: 1 }));
   listRows(rows, smithSel, 24, 36, 214, 11);
   ctx.fillStyle = "#241d2e"; ctx.fillRect(250, 34, 206, 206);
   const it = items[smithSel];
@@ -4473,7 +4925,7 @@ function drawSmith() {
     if (it.x.length) { text(ctx, T_X + " REWORK: " + AFF[it.x[k][0]].f(it.x[k][1]), 256, 186, C_W); text(ctx, rerollCost(it) + " GOLD   " + T_Y + " ANOTHER CHARM", 256, 198, C_GREY); }
   }
   if (smithArm >= 0 && smithArm === smithSel) cstext(ctx, T_X + " AGAIN TO REWORK THAT CHARM: IT BECOMES ANOTHER, AT RANDOM", VW / 2, 246, C_ORANGE);
-  else { const say = wrap("\"STEEL REMEMBERS EVERY BLOW. LET ME GIVE IT A FEW MORE.\"", 196); for (let k = 0; k < say.length; k++) text(ctx, say[k], 256, 214 + k * 10, C_PURP); hints(T_MOVE + " CHOOSE   " + T_LB + T_RB + " BETTER / MAKE   " + T_BACK + " LEAVE   (* WORN)"); }
+  else { const say = wrap("\"STEEL REMEMBERS EVERY BLOW. LET ME GIVE IT A FEW MORE.\"", 196); for (let k = 0; k < say.length; k++) text(ctx, say[k], 256, 214 + k * 10, C_PURP); hints(T_MOVE + " CHOOSE   " + T_LB + T_RB + " PAGES   " + T_BACK + " LEAVE   (* WORN)"); }
 }
 // your strongbox in the village: your pack on the left, the box on the right; OK moves a thing across
 function updStash() {
@@ -4733,7 +5185,103 @@ function drawMake() {
   const what = r.k === RC_WEAPON || r.k === RC_ARMOR || r.k === RC_HELM || r.k === RC_RING ? "COMES OUT FINE, OR RARE (BETTER CHANCES AS YOUR CRAFTING GROWS PAST " + r.lv + ")" :
     r.k === RC_AXE ? "CUTS WOOD FASTER (NOW: " + TOOLN[P.axe] + ")" : r.k === RC_PICK ? "MINES ORE FASTER (NOW: " + TOOLN[P.pick] + ")" : r.k === RC_SADDLE ? "A MOUNT: THE ROOTBACK, SLOW BUT HARDY" : "";
   const wl = wrap(what, 196); for (let k = 0; k < wl.length; k++) text(ctx, wl[k], 256, 130 + k * 10, C_PURP);
-  hints(T_MOVE + " METAL AND RECIPE   " + T_OK + " MAKE   " + T_LB + T_RB + " BETTER / MAKE   " + T_BACK + " LEAVE");
+  hints(T_MOVE + " METAL AND RECIPE   " + T_OK + " MAKE   " + T_LB + T_RB + " PAGES   " + T_BACK + " LEAVE");
+}
+// Vesk's forge, its third page: gems. Set one in an empty socket, take one out (for a fee), punch a new socket,
+// and fuse three of a grade into one of the next.
+let gemSel = 0, gemSock = 0, gemPick = false, gemPX = 0, gemPY = 0, gemArm = "";
+const sockCost = it => Math.round((40 + it.l * 10) * (1 + (it.so || 0)) * (it.r >= R_RELIC ? 1.5 : 1));
+const unsetCost = g => 15 + (g % 3) * 30;
+function setGem(it, k, g) {
+  if (!it || k >= (it.so || 0)) { toast("CHOOSE AN EMPTY SOCKET FIRST (" + T_BACK + ")", C_GREY); sfx(SND_DENY); return; }
+  if (it.gm[k] >= 0) { toast("THAT SOCKET HOLDS A GEM ALREADY", C_GREY); sfx(SND_DENY); return; }
+  if (P.gems[g] <= 0) { toast("YOU HAVE NO " + gemName(g), C_GREY); sfx(SND_DENY); return; }
+  P.gems[g]--; it.gm[k] = g; recalc(); gemPick = false; toast(gemName(g) + ": " + gemEff(it.s, g), GEMS[(g / 3) | 0].fc); sfx(SND_GEM); save();
+}
+function fuseGem(g) {
+  const gr = g % 3;
+  if (gr >= 2) { toast("A RADIANT GEM IS AS FINE AS THEY COME", C_GREY); sfx(SND_DENY); return; }
+  const need = [5, 20][gr];
+  if (P.gems[g] < 3) { toast("IT TAKES THREE OF THESE", C_GREY); sfx(SND_DENY); return; }
+  if (P.slv[SK_CRAFT] < need) { toast("YOU NEED CRAFTING " + need + " TO FUSE THESE", C_GREY); sfx(SND_DENY); return; }
+  P.gems[g] -= 3; P.gems[g + 1] = Math.min(99, P.gems[g + 1] + 1); skillXP(SK_CRAFT, gr ? 90 : 35);
+  toast("FUSED: " + gemName(g + 1), GEMS[(g / 3) | 0].fc); sfx(SND_ANVIL); save();
+}
+function updGems() {
+  const items = smithItems();
+  if (gemPick) {                       // choosing from the pouch
+    if (hit[A_B]) { gemPick = false; dirty = true; sfx(SND_MENU); return; }
+    let mv = false;
+    if (nav[A_LEFT]) { gemPX = (gemPX + 4) % 5; mv = true; } if (nav[A_RIGHT]) { gemPX = (gemPX + 1) % 5; mv = true; }
+    if (nav[A_UP]) { gemPY = (gemPY + 2) % 3; mv = true; } if (nav[A_DOWN]) { gemPY = (gemPY + 1) % 3; mv = true; }
+    if (mv) { dirty = true; sfx(SND_MENU); }
+    const g = gemPX * 3 + gemPY;
+    if (hit[A_Y]) { fuseGem(g); dirty = true; }
+    if (hit[A_A]) { setGem(items[gemSel], gemSock, g); dirty = true; }
+    return;
+  }
+  if (nav[A_UP] && items.length) { gemSel = (gemSel + items.length - 1) % items.length; gemSock = 0; gemArm = ""; dirty = true; sfx(SND_MENU); }
+  if (nav[A_DOWN] && items.length) { gemSel = (gemSel + 1) % items.length; gemSock = 0; gemArm = ""; dirty = true; sfx(SND_MENU); }
+  if (hit[A_Y]) { gemPick = true; gemArm = ""; dirty = true; sfx(SND_MENU); return; }
+  const it = items[gemSel]; if (!it) return;
+  const so = it.so || 0, nS = so + (so < SOCK_MAX[it.s] ? 1 : 0);
+  if (gemSock >= nS) gemSock = 0;
+  if (nav[A_LEFT] && nS) { gemSock = (gemSock + nS - 1) % nS; gemArm = ""; dirty = true; sfx(SND_MENU); }
+  if (nav[A_RIGHT] && nS) { gemSock = (gemSock + 1) % nS; gemArm = ""; dirty = true; sfx(SND_MENU); }
+  if (hit[A_A]) {
+    dirty = true;
+    if (gemSock >= so) {                                    // a new socket, punched
+      const cost = sockCost(it), key = "p" + gemSel;
+      if (P.gold < cost) { toast("YOU NEED " + (cost - P.gold) + " MORE GOLD", C_RED); sfx(SND_DENY); }
+      else if (gemArm !== key) { gemArm = key; sfx(SND_MENU); }
+      else { P.gold -= cost; it.so = so + 1; it.gm = (it.gm || []).concat([-1]); gemArm = ""; toast("VESK PUNCHES A NEW SOCKET", C_GOLD); sfx(SND_ANVIL); shake(0.08, 1); save(); }
+    } else if (it.gm[gemSock] < 0) { gemPick = true; sfx(SND_MENU); }
+    else { toast("THAT SOCKET HOLDS A GEM: " + T_X + " TAKES IT OUT", C_GREY); sfx(SND_DENY); }
+  }
+  if (hit[A_X] && gemSock < so && it.gm[gemSock] >= 0) {
+    dirty = true; const g = it.gm[gemSock], cost = unsetCost(g), key = "u" + gemSel + "_" + gemSock;
+    if (P.gold < cost) { toast("YOU NEED " + (cost - P.gold) + " MORE GOLD", C_RED); sfx(SND_DENY); }
+    else if (gemArm !== key) { gemArm = key; sfx(SND_MENU); }
+    else { P.gold -= cost; it.gm[gemSock] = -1; P.gems[g] = Math.min(99, P.gems[g] + 1); recalc(); gemArm = ""; toast(gemName(g) + " IS BACK IN YOUR POUCH", GEMS[(g / 3) | 0].fc); sfx(SND_PICK); save(); }
+  }
+}
+function drawGems() {
+  const items = smithItems(), eqN = P.eq.filter(Boolean).length;
+  if (!items.length) text(ctx, "YOU CARRY NOTHING TO WORK ON", 28, 44, C_DARK);
+  listRows(items.map((it, i) => ({ k: 3, n: (i < eqN ? "* " : "") + nameOf(it), ic: S.ic[baseOf(it).ic], c: RAR_C[it.r], p: null, it, dots: 1 })), gemSel, 24, 36, 214, 11);
+  ctx.fillStyle = "#241d2e"; ctx.fillRect(250, 34, 206, 206);
+  const it = items[gemSel];
+  if (it) {
+    const so = it.so || 0, nS = so + (so < SOCK_MAX[it.s] ? 1 : 0), nm = nameOf(it);
+    text(ctx, nm.length > 32 ? nm.slice(0, 31) + "." : nm, 256, 40, RAR_C[it.r]); text(ctx, SLOT_N[it.s] + DOT + so + " OF " + SOCK_MAX[it.s] + " SOCKETS", 256, 50, C_GREY);
+    for (let k = 0; k < nS; k++) {
+      const x = 256 + k * 24, y = 62, sel = k === gemSock && !gemPick;
+      ctx.fillStyle = sel ? "#f2c14e" : "#4a4458"; ctx.fillRect(x, y, 20, 20); ctx.fillStyle = "#0d0b14"; ctx.fillRect(x + 1, y + 1, 18, 18);
+      if (k >= so) ctext(ctx, "+", x + 10, y + 7, C_GOLD);
+      else if (it.gm[k] >= 0) { const im = S.gem[it.gm[k]]; ctx.drawImage(im, x + 10 - (im.width >> 1), y + 10 - (im.height >> 1)); }
+      else { ctx.fillStyle = "#2a2633"; ctx.fillRect(x + 6, y + 6, 8, 8); }
+    }
+    let line = "", col = C_W;
+    if (gemSock >= so) { line = T_OK + " PUNCH A NEW SOCKET: " + sockCost(it) + " GOLD"; col = P.gold >= sockCost(it) ? C_W : C_RED; }
+    else if (it.gm[gemSock] >= 0) { const g = it.gm[gemSock]; line = gemName(g) + ": " + gemEff(it.s, g); col = GEMS[(g / 3) | 0].fc; }
+    else line = "AN EMPTY SOCKET: " + T_OK + " SETS A GEM";
+    const wl = wrap(line, 196); for (let k = 0; k < wl.length; k++) text(ctx, wl[k], 256, 88 + k * 10, col);
+    if (gemSock < so && it.gm[gemSock] >= 0) text(ctx, T_X + " TAKE IT OUT: " + unsetCost(it.gm[gemSock]) + " GOLD", 256, 108, C_GREY);
+  }
+  text(ctx, "YOUR GEMS", 256, 124, C_GREY);
+  for (let k = 0; k < 5; k++) for (let gr = 0; gr < 3; gr++) {         // the pouch: five kinds across, three grades down
+    const g = k * 3 + gr, x = 256 + k * 40, y = 136 + gr * 22, sel = gemPick && gemPX === k && gemPY === gr, n = P.gems[g], im = S.gem[g];
+    ctx.fillStyle = sel ? "#5a4a6a" : "#1d1726"; ctx.fillRect(x, y, 36, 20); if (sel) { ctx.fillStyle = "#f2c14e"; ctx.fillRect(x, y + 19, 36, 1); }
+    if (!n) ctx.globalAlpha = 0.25; ctx.drawImage(im, x + 9 - (im.width >> 1), y + 10 - (im.height >> 1)); ctx.globalAlpha = 1;
+    text(ctx, "" + n, x + 20, y + 7, n ? C_W : C_DARK);
+  }
+  if (gemPick) {
+    const g = gemPX * 3 + gemPY; text(ctx, gemName(g), 256, 204, GEMS[gemPX].fc);
+    if (it) text(ctx, "IN THIS: " + gemEff(it.s, g), 256, 214, C_W);
+    if (gemPY < 2) text(ctx, T_Y + " FUSE THREE: ONE " + GRADE[gemPY + 1] + " (CRAFTING " + [5, 20][gemPY] + ")", 256, 226, P.gems[g] >= 3 ? C_W : C_DARK);
+  } else { const say = wrap("\"A STONE IN STEEL SINGS. LET ME FIND IT A PLACE.\"", 196); for (let k = 0; k < say.length; k++) text(ctx, say[k], 256, 210 + k * 10, C_PURP); }
+  if (gemArm) cstext(ctx, gemArm[0] === "p" ? T_OK + " AGAIN TO PAY FOR A NEW SOCKET" : T_X + " AGAIN TO TAKE THE GEM OUT", VW / 2, 246, C_ORANGE);
+  else hints(gemPick ? T_MOVE + " A GEM   " + T_OK + " SET IT   " + T_Y + " FUSE   " + T_BACK + " BACK" : T_MOVE + " ITEM, SOCKET   " + T_OK + " SET / PUNCH   " + T_Y + " POUCH   " + T_LB + T_RB + " PAGES   " + T_BACK + " LEAVE");
 }
 // Ysolde the huntress: her task, and what hunt marks buy
 let huntSel = 0;
@@ -4756,15 +5304,15 @@ function drawHunt() {
   const rows = [P.hunt && P.hunt.left > 0 ? "YOUR HUNT: " + P.hunt.left + " OF " + P.hunt.n + " " + MT[P.hunt.t].name + "S LEFT" : P.hunt ? "TELL HER THE HUNT IS DONE, AND TAKE ANOTHER" : "ASK FOR A HUNT"];
   for (let i = 0; i < HUNT_SHOP.length; i++) rows.push(HUNT_SHOP[i].n);
   for (let i = 0; i < rows.length; i++) {
-    const y = 52 + i * 26, sel = i === huntSel;
-    ctx.fillStyle = sel ? "#3a3048" : "#1d1726"; ctx.fillRect(24, y, 432, 22); if (sel) { ctx.fillStyle = "#f2c14e"; ctx.fillRect(24, y, 2, 22); }
+    const y = 50 + i * 23, sel = i === huntSel;
+    ctx.fillStyle = sel ? "#3a3048" : "#1d1726"; ctx.fillRect(24, y, 432, 21); if (sel) { ctx.fillStyle = "#f2c14e"; ctx.fillRect(24, y, 2, 21); }
     if (i === 0) { ctx.drawImage(S.ic.claw, 30, y + 5); text(ctx, rows[i], 48, y + 8, P.hunt && P.hunt.left === 0 ? C_GREEN : C_W); continue; }
     const H = HUNT_SHOP[i - 1], free = i === 1 && (!P.hunt || P.hunt.left <= 0);
     text(ctx, H.n, 34, y + 4, C_W); text(ctx, H.d, 34, y + 13, C_DARK);
     rtext(ctx, free ? "FREE" : H.p + " MARKS", 448, y + 8, free || P.marks >= H.p ? C_PURP : C_RED);
   }
   const say = wrap("\"THE DEEP BREEDS FASTER THAN WE KILL. PICK ONE KIND AT A TIME, AND KILL IT WELL. EVERY TENTH HUNT IN A ROW, I PAY FIVEFOLD.\"", 420);
-  for (let k = 0; k < say.length; k++) text(ctx, say[k], 30, 190 + k * 10, C_PURP);
+  for (let k = 0; k < say.length; k++) text(ctx, say[k], 30, 196 + k * 10, C_PURP);
   hints(T_MOVE + " CHOOSE   " + T_OK + " SELECT   " + T_BACK + " LEAVE");
 }
 
@@ -4775,6 +5323,8 @@ const AMBP = [[3, PC_GREY, -5, 4], [4, PC_WAX, 7, 5], [4, PC_MIRE, -6, 6], [3, P
 function updPlay(dt) {
   if (hitStop > 0) { hitStop -= dt; dt *= 0.08; }          // a big blow: the world all but stops for a moment
   gameTime += dt;
+  if (irisV && updIris(dt)) return;
+  if (irisFn) { updateParts(dt); updLP(dt); return; }       // (the dark closing in: the world holds still)
   if (shakeT > 0) { shakeT -= dt; if (shakeT <= 0) shakeM = 0; }
   if (flashT > 0) flashT -= dt; if (dustT > 0) dustT -= dt; if (pulseT > 0) pulseT -= dt;
   if (bannerT > 0) bannerT -= dt; if (targetT > 0) targetT -= dt;
@@ -4782,6 +5332,7 @@ function updPlay(dt) {
   if (wardT > 0) wardT -= dt; if (chainPop > 0) chainPop -= dt; if (chainT > 0) { chainT -= dt; if (chainT <= 0) endStreak(); }
   if (later) { laterT -= dt; if (laterT <= 0) { const f = later; later = null; f(); return; } }
   if (mountNewsT > 0) { mountNewsT -= dt; if (mountNewsT <= 0) mountBanner(mountNews); }
+  if (famNewsT > 0) { famNewsT -= dt; if (famNewsT <= 0) famBanner(famNews); }
   if (later2 > 0) { later2 -= dt; if (later2 <= 0 && bossM && bossM.on) { wave(bossM.x, bossM.y, 280, 105, bossM.dmg, rnd() * 6.283, 0.75, PC_TEAL); sfx(SND_BELL); } }
   if (P.dead) { deadT -= dt; if (deadT <= 0) { freeze(); mode = M_DEAD; dirty = true; return; } }
   else {
@@ -4796,23 +5347,25 @@ function updPlay(dt) {
   if (!isTown) {
     updateMonsters(dt); updateProj(dt); updateDrops(dt); updateHazards(dt);
     if (rnd() < dt * 3 && torchN) { const k = ri(torchN); if (visS[torchY[k] * MW + torchX[k]] === visStamp) part(torchX[k] * TS + 8 + rr(-2, 2), torchY[k] * TS + 4, rr(-4, 4), -rr(15, 30), rr(0.5, 0.9), PC_ORANGE, 1, false); }
-    if (zone === 4 && rnd() < dt * 6) part(P.x + rr(-200, 200), P.y + rr(-120, 120), rr(-6, 6), -rr(10, 25), rr(1, 2), rnd() < 0.5 ? PC_EMBER : PC_ORANGE, 1, false);   // (ash and sparks on the air)
-    if (zone === 5 && rnd() < dt * 4) part(P.x + rr(-200, 200), P.y + rr(-120, 120), rr(-4, 4), -rr(4, 10), rr(1.5, 2.5), PC_LILAC, 1, false);
-    if (zone < 4) { const a = AMBP[zone]; if (rnd() < dt * a[0]) part(P.x + rr(-220, 220), P.y + rr(-130, 110), rr(-a[3], a[3]), a[2] * rr(0.5, 1.5), rr(1.5, 3), a[1], 1, false); }   // (dust, wax, spores, the belfry's motes)
-    updateStrikes(dt);
+    const ambK = FXQ === 2 ? 1 : FXQ === 1 ? 0.5 : 0;
+    if (omen === 1 && rnd() < dt * 3 * ambK) part(P.x + rr(-220, 220), P.y + rr(-130, 110), rr(-4, 4), -rr(4, 10), rr(1.5, 2.5), PC_RED, 1, false);
+    if (zone === 4 && rnd() < dt * 6 * ambK) part(P.x + rr(-200, 200), P.y + rr(-120, 120), rr(-6, 6), -rr(10, 25), rr(1, 2), rnd() < 0.5 ? PC_EMBER : PC_ORANGE, 1, false);   // (ash and sparks on the air)
+    if (zone === 5 && rnd() < dt * 4 * ambK) part(P.x + rr(-200, 200), P.y + rr(-120, 120), rr(-4, 4), -rr(4, 10), rr(1.5, 2.5), PC_LILAC, 1, false);
+    if (zone < 4) { const a = AMBP[zone]; if (rnd() < dt * a[0] * ambK) part(P.x + rr(-220, 220), P.y + rr(-130, 110), rr(-a[3], a[3]), a[2] * rr(0.5, 1.5), rr(1.5, 3), a[1], 1, false); }   // (dust, wax, spores, the belfry's motes)
+    updateStrikes(dt); updVault(dt); updRise(dt);
     if (bon("uq7")) { lampT -= dt; if (lampT <= 0) { lampT = 1; lastLamp(); } }
   } else {                    // the village at night: smoke from the chimneys, and fireflies; its trees grow back
     for (let k = 0; k < townNodes.length; k++) { const n = townNodes[k]; if (n.rest > 0) { n.rest -= dt; if (n.rest <= 0) n.left = 3 + ri(4); } }
     if (rnd() < dt * 5) { const k = ri(townSmoke.length >> 1) * 2; part(townSmoke[k] + rr(-1, 1), townSmoke[k + 1], rr(-2, 4), -rr(8, 14), rr(1.6, 2.6), rnd() < 0.5 ? PC_DARK : PC_GREY, 2, false); }
     if (rnd() < dt * 3) part(P.x + rr(-220, 220), P.y + rr(-120, 120), rr(-6, 6), rr(-6, 6), rr(1.2, 2.2), PC_MIRE, 1, false);
   }
-  updateParts(dt); updateFX(dt);
+  updateParts(dt); updateFX(dt); updFam(dt); updLP(dt);
   for (let i = 0; i < NFT; i++) { const f = FT[i]; if (!f.on) continue; f.t -= dt; f.y += f.vy * dt; f.vy += 110 * dt; if (f.vy > -8) f.vy = -8; if (f.t <= 0) f.on = false; }
 }
 function frame(now) {
   requestAnimationFrame(frame);
-  let dt = (now - last) / 1000; last = now; if (!(dt > 0)) dt = 0; if (dt > 0.05) dt = 0.05;
-  if (SHOW_FPS) { fpsT += dt; fpsN++; if (fpsT >= 1) { fpsS = fpsN + " FPS"; fpsT = 0; fpsN = 0; } }
+  let dt = (now - last) / 1000; last = now; if (!(dt > 0)) dt = 0; govern(dt); if (dt > 0.05) dt = 0.05; frameDT = dt;
+  if (SHOW_FPS) { fpsT += dt; fpsN++; if (fpsT >= 1) { fpsS = fpsN + " FPS" + DOT + "FX " + FXQ; fpsT = 0; fpsN = 0; } }
   readInput(now, dt); musicTick(); updXP(dt);
   const was = mode;
   switch (mode) {
@@ -4827,7 +5380,7 @@ function frame(now) {
   if (mode === M_SMITH && xpN > 0) dirty = true;           // (the XP from making things rises over the forge)
   switch (mode) {
     case M_TITLE: drawTitle(); break; case M_CLASS: drawClass(); break; case M_SLOTS: drawSlots(); break; case M_CREATE: drawCreate(); break; case M_NAME: drawName(); break;
-    case M_PLAY: drawWorld(); drawHUD(); break;
+    case M_PLAY: drawWorld(); drawIris(); drawHUD(); break;
     default:
       if (!dirty) break;
       switch (mode) {
@@ -4859,9 +5412,16 @@ function init() {
   S.matW = WOOD.map(w => matIcon(w.col, w.dark, false)); S.matO = ORE.map(o => matIcon(o.col, o.dark, true));
   for (const A of [WOOD, ORE]) for (const t of A) { t.pc = pcolHex(t.col); t.pd = pcolHex(t.dark); }
   SKIC = [S.ic.hatchet, S.ic.pick, S.ic.hammer, S.ic.claw, S.ic.sabre];
+  S.thief = sset(walk4(SPR.thief, SPR.thiefB, SPR.thiefC));
+  S.famRat = sset([SPR.famRat, legs(SPR.famRat, SPR.famRatB)], { T: "#8a7a68", t: "#c8b8a0", x: "#e8909a" });
+  S.famMoth = sset([SPR.famMoth, SPR.famMothB]); S.famWisp = sset([SPR.famWisp, sway(SPR.famWisp, 0, 3, 1)]); S.famToad = sset([SPR.famToad, up1(SPR.famToad)]);
+  for (const k of ["famRat", "famMoth", "famWisp", "famToad"]) S[k].sil = whiteOf(S[k].r[0], "#3a3446");
+  S.gem = []; const GT = [SPR.gem0, SPR.gem1, SPR.gem2];
+  for (let k = 0; k < GEMS.length; k++) for (let gr = 0; gr < 3; gr++) S.gem.push(spr(GT[gr], { c: GEMS[k].c, C: GEMS[k].d, w: "#ffffff" }));
+  for (let r = 8; r <= 112; r += 8) hole(r);
   shC = mk(DW, DH); shG = g2(shC);
   for (let z = 0; z < NZ; z++) for (const t of ZONES[z].mon) if (MT[t].lvz === undefined) MT[t].lvz = z;      // (where each creature is first met)
-  MT[MT_OOZELING].lvz = MT[MT_THRALL].lvz = MT[MT_POD].lvz = 99;                                                               // (never a hunt of their own)
+  MT[MT_OOZELING].lvz = MT[MT_THRALL].lvz = MT[MT_POD].lvz = MT[MT_THIEF].lvz = 99;                                                               // (never a hunt of their own)
   mmC = mk(MAXW, MAXH); mmG = mmC.getContext("2d");
   AMB_S = ZONES.map(z => "rgba(" + z.amb[0] + "," + z.amb[1] + "," + z.amb[2] + ",0.94)");
   loadOpts(); migrate();
@@ -4877,7 +5437,10 @@ function init() {
   if (/(^|[#&])test\b/.test(location.hash)) window.GW = { get P() { return P; }, get mode() { return mode; }, get depth() { return depth; }, MON, PJ, HZ, RG, DR, CLS, MT, BOSSES, SETS,
     goFloor, goTown, gainXP, genItem, genSetPiece, recalc, interact: k => { const it = INT.find(e => e.k === k); if (it) { P.x = it.x; P.y = it.y + 4; interact(it); } return !!it; },
     get bossM() { return bossM; }, heroOnScreen: () => { const r = cv.getBoundingClientRect(), k = r.width / VW; return [Math.round(r.left + (P.x - camX) * k), Math.round(r.top + (P.y - camY) * k)]; }, tileAt: (tx, ty) => solidAt(tx, ty), computeFOV: () => { computeFOV(); P.tx = -1; }, get INT() { return INT; }, setMode: m => { mode = m; dirty = true; }, M: { M_PLAY, M_GEAR, M_SHOP, M_SMITH, M_BOARD, M_STASH, M_SHRINE, M_OPTS, M_SLOTS, M_TITLE, M_DEAD },
-    save, readSlot, questTick, newGame: c => { newGame(c, 0); mode = M_PLAY; dirty = true; }, genUnique, makeChampion, xpDrop, skillXP, UNIQ, get champM() { return champM; }, FX, XD, validItem, get OPT() { return OPT; }, spawnMon: (t, x, y, e) => spawnMon(t, x, y, e), get mus() { return mus.song; }, get AC() { return AC && AC.state; } };
+    save, readSlot, questTick, newGame: c => { newGame(c, 0); mode = M_PLAY; dirty = true; }, genUnique, makeChampion, xpDrop, skillXP, UNIQ, get champM() { return champM; }, FX, XD, validItem, get OPT() { return OPT; }, spawnMon: (t, x, y, e) => spawnMon(t, x, y, e), get mus() { return mus.song; }, get AC() { return AC && AC.state; },
+    GEMS, FAMS, VLT, gainFam, breakVault, setGem, fuseGem, lpulse, get FXQ() { return FXQ; }, get omen() { return omen; }, get FAM() { return FAM; }, RS, returnGems,
+    goFloorOmen: (d, o) => { omenForce = o; goFloor(d); return omen; }, vaultFloor: d => { for (let k = 0; k < 40; k++) { goFloor(d); if (VLT.on) return true; } return false; },
+    tile: (tx, ty) => tiles[ty * MW + tx], get irisK() { return irisK; }, get camFX() { return camFX; } };
 }
 init();
 })();

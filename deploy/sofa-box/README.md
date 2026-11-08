@@ -339,7 +339,9 @@ song in the box's player, or shows a picture; **Menu** renames, moves or deletes
   blade and three skills, roll out of the way, spend a talent point each level, and find gear in six
   rarities, sets among them, and eight legends, each with a power you can see (a blade that sets foes alight,
   a maul that tolls, a rod whose blows leap as lightning). Elites have powers of their own (frost, thirst,
-  storms, wards), and now and then a named champion waits on a floor. Back in the village: Hesk's stall, Vesk's forge (better your gear), your
+  storms, wards), and now and then a named champion waits on a floor. Set gems in your gear's sockets, keep a
+  familiar at your side (a rat, a lantern moth, an emberwisp, a toadling), break open the vaults hidden behind
+  cracked walls, and meet the omens some floors carry (a blood moon, the swarm, a gilded thief to catch). Back in the village: Hesk's stall, Vesk's forge (better your gear), your
   strongbox, and the notice board's tasks. Make your Wickbearer as you like (name, origin, look); the gear you
   wear shows. Besides fighting: Woodcutting, Mining, Crafting and Hunting (Ysolde's tasks), each gain of XP
   rising at the side of the screen as you work, and mounts to win, some that fly. Three Wickbearers can be kept; one from the first Gloamwell moves into the first free one. It plays offline with its own music (quiet unless you turn it up), with the

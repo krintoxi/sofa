@@ -7,6 +7,39 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.33
+
+- **Gloamwell: gems, familiars, hidden vaults and omens.**
+  - **Gems.** Rubies, sapphires, emeralds, topazes and amethysts, each chipped, clear or radiant, turn up as you
+    mine (with a chime and a burst of their colour) and on the deep's stronger creatures. Gear now comes with
+    sockets (finer gear with more), and Vesk's forge has a third page, GEMS: set a gem, take one out, punch a
+    new socket, or fuse three of a grade into one of the next (Crafting XP). A gem does one thing in a weapon
+    (a ruby: more damage; a sapphire: a chance to chill; an emerald: to poison), another in armour or a helm,
+    and a third in a charm or a ring. Sockets show as coloured dots on the gear, and gems in gear you sell or
+    break down come back to your pouch.
+  - **Familiars**, a new page among your character's (FAMILIARS): a cellar rat that fetches gold and tonics and
+    digs up more (Ysolde, for hunt marks), a lantern moth that lights your way and gathers gold (caged in a
+    hidden vault), and, from fallen champions, an emberwisp that spits fire at your foes and a mire toadling
+    that lobs poison.
+  - **Hidden vaults.** Now and then a cracked wall over a room hides a small vault: dust drifts from the
+    crack, a draught gives it away, and a blow breaks it open on a chest, gold, and sometimes gems or the moth.
+  - **Omens.** From the third floor down a floor can have one, told as you arrive: the dark runs deep (less
+    light, more XP), a blood moon (a red dark, harder foes, more elites and gold), the swarm (many more, weaker
+    foes), a gilded floor (a gilded thief runs from you spilling coins; catch it before it slips away and its
+    sack bursts), and the restless dead (what you kill may rise again).
+- **Gloamwell's engine.**
+  - **The camera** trails you a little and looks ahead where you're going, instead of being nailed to you.
+  - **An effects governor:** the game watches its own frames, and on a box that can't keep up it sheds the
+    extras step by step (motes, then the coloured glows, then some particles), never climbing back to a step
+    that ran late twice, and remembering where it settled. Options has VISUAL EFFECTS: AUTO, FULL or LIGHT. `#fps`
+    in the address shows the step.
+  - **Sound from where it happens:** a creature's sounds come from its side of the screen, quieter far off,
+    and the well echoes: long in the cistern and the belfry, short in the tight halls, none in the village.
+  - **Light that flares:** blasts, critical hits, levels, legends and vaults throw a moment of light into the dark.
+  - **Between floors** the dark closes in on you, and opens again on the new floor.
+  - As before: all of it is drawn and made in the page, offline. 60 frames a second with the processor slowed
+    ten times; slowed thirty times, it drops one step and holds 55 to 61.
+
 ## 1.1.32
 
 - **The controllers' service rests when nothing is held.** It woke 33 times a second whenever a controller was on,
