@@ -7,7 +7,7 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
-## 1.1.33
+## 1.1.34
 
 - **Gloamwell: gems, familiars, hidden vaults and omens.**
   - **Gems.** Rubies, sapphires, emeralds, topazes and amethysts, each chipped, clear or radiant, turn up as you
@@ -39,6 +39,15 @@ GitHub builds the card and makes the release by itself.
   - **Between floors** the dark closes in on you, and opens again on the new floor.
   - As before: all of it is drawn and made in the page, offline. 60 frames a second with the processor slowed
     ten times; slowed thirty times, it drops one step and holds 55 to 61.
+
+## 1.1.33
+
+- **Edge Music opens as a TV app.** The box now opens it at `https://music.edgeventure.uk/?client=sofabox`, and
+  Edge Music answers with its TV layout: straight to the player, remote-sized buttons with a clear focus ring, the
+  arrows moving between them, and the remote's Back closing the full player, a menu or a dialog before it leaves
+  the page. Things that need a phone or a computer (saving songs to the device, files from "this device", app
+  installs, Creator Studio) are left out on the TV. A box that installed Edge Music before gets the new address by
+  itself; nothing else on it changes.
 
 ## 1.1.32
 

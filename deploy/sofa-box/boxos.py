@@ -64,6 +64,12 @@ BUILTIN = [   # always there; can be moved and hidden, not removed
     {"id": "settings", "name": "Settings", "kind": "builtin", "url": "/box/home#/settings", "color": "#8C94AB", "icon": "settings"},
 ]
 FIRST_APPS = ["edge-music", "lj-showroom", "lj-fragrances", "youtube-tv"]   # installed on a new box
+# Addresses the store has changed since boxes installed them: an installed app keeps the address it was given, so
+# a box that still has the old one gets the new one. (Edge Music shows its TV layout when it's opened with
+# ?client=sofabox, and remembers it; 2026-11-08.)
+MOVED_APPS = {
+    "edge-music": ({"https://music.edgeventure.uk", "https://music.edgeventure.uk/"}, "https://music.edgeventure.uk/?client=sofabox"),
+}
 
 
 class Apps:
@@ -81,6 +87,11 @@ class Apps:
                 data = json.load(f)
         except (OSError, ValueError):
             data = None
+        if isinstance(data, dict) and moved_apps(data):         # an address the store has changed since
+            try:
+                self._save(data)
+            except OSError:
+                pass
         if not isinstance(data, dict):                       # a new box: our own apps to begin with
             data = {"apps": [], "order": [], "hidden": []}
             for sid in FIRST_APPS:
@@ -199,6 +210,17 @@ class Apps:
             if hidden is not None:
                 data["hidden"] = [i for i in hidden if i in known]
             self._save(data)
+
+
+def moved_apps(data):
+    """An installed app whose address the store has since changed gets the new one (MOVED_APPS). True if any did."""
+    changed = False
+    for a in data.get("apps") or []:
+        old, new = MOVED_APPS.get(a.get("id") if isinstance(a, dict) else None, ((), None))
+        if new and a.get("url") in old:
+            a["url"] = new
+            changed = True
+    return changed
 
 
 def slug(text):
