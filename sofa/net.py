@@ -77,12 +77,15 @@ def _unreachable(exc):
     return isinstance(reason, OSError) and reason.errno in (errno.ENETUNREACH, errno.EHOSTUNREACH, errno.ENETDOWN)
 
 
-def urlopen(req, timeout=20):
+def urlopen(req, timeout=20, handlers=()):
+    """`handlers`: more urllib handlers (live.py's, which checks where a redirect goes)."""
     if offline_mode():
         raise Offline("Sofa is set to work offline (Server, Settings)")
     if time.time() < _down_until[0]:
         raise Offline("the internet can't be reached right now")
     try:
+        if handlers:
+            return urllib.request.build_opener(urllib.request.HTTPSHandler(context=context()), *handlers).open(req, timeout=timeout)
         return urllib.request.urlopen(req, timeout=timeout, context=context())
     except urllib.error.HTTPError:
         raise

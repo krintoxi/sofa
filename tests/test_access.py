@@ -166,6 +166,14 @@ class Access(unittest.TestCase):
         self.assertEqual(viewer.call("/api/admin/settings")[0], 403)                  # never an admin by asking
 
     # ---- other sites, proxies
+    def test_an_admin_without_the_adult_section_cant_fix_its_titles(self):
+        """Fix the details (Server, Missing details) on an Adult title: only for an admin who may see that section,
+        as everywhere else (moving it, its pictures, Kids)."""
+        private = {"id": "am:private-title", "adult": True, "title": "Private"}
+        with mock.patch.object(LIB, "find", side_effect=lambda key: private if key == private["id"] else None):
+            self.assertEqual(self.admin.call("/api/admin/match?id=am:private-title")[0], 404)
+            self.assertEqual(self.admin.call("/api/admin/match", {"id": "am:private-title", "title": "x"})[0], 404)
+
     def test_other_sites_are_turned_away(self):
         self.assertEqual(self.admin.call("/api/me/prefs", {"look": {"motion": "calm"}}, origin="https://evil.example")[0], 403)
         self.assertEqual(self.admin.call("/api/me/prefs", {"look": {"motion": "calm"}}, origin=self.base)[0], 200)

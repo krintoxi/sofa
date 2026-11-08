@@ -55,21 +55,39 @@ MIGRATIONS = [
 ]
 
 
+_ready = set()          # (path, inode) of the database files whose tables are made: other connections just open them
+_ready_lock = threading.Lock()
+
+
+def _key(path):
+    try:
+        return path, os.stat(path).st_ino
+    except OSError:
+        return None
+
+
 def db():
+    """This thread's connection. Each connection to the web server is a thread of its own, so the tables are made
+    (and the migrations tried) once per database file, not for every new connection: on a Raspberry Pi that was
+    several milliseconds before each page's first answer."""
     conn = getattr(_local, "conn", None)
     if conn is None:
         os.makedirs(config.DATA_DIR, exist_ok=True)
-        conn = sqlite3.connect(os.path.join(config.DATA_DIR, "sofa.db"), timeout=15)
+        path = os.path.join(config.DATA_DIR, "sofa.db")
+        conn = sqlite3.connect(path, timeout=15)
         conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA foreign_keys=ON")
-        conn.executescript(SCHEMA)
-        for ddl in MIGRATIONS:
-            try:
-                conn.execute(ddl)
-                conn.commit()
-            except sqlite3.OperationalError:
-                pass   # already applied
+        if _key(path) not in _ready:
+            with _ready_lock:
+                conn.execute("PRAGMA journal_mode=WAL")   # (kept in the file)
+                conn.executescript(SCHEMA)
+                for ddl in MIGRATIONS:
+                    try:
+                        conn.execute(ddl)
+                        conn.commit()
+                    except sqlite3.OperationalError:
+                        pass   # already applied
+                _ready.add(_key(path))
         _local.conn = conn
     return conn
 

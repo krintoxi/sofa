@@ -15,9 +15,11 @@ channels only come from lists you add yourself.
 import base64
 import hashlib
 import hmac
+import ipaddress
 import os
 import re
 import secrets
+import socket
 import threading
 import time
 import urllib.parse
@@ -104,11 +106,41 @@ def parse_m3u(text, source, adult=False):
     return channels
 
 
-def fetch(url, headers=None, timeout=15):
+def fetch(url, headers=None, timeout=15, home_ok=True):
     h = {"User-Agent": AGENT}
     h.update(headers or {})
     req = urllib.request.Request(url, headers=h)
-    return net.urlopen(req, timeout=timeout)
+    if home_ok:
+        return net.urlopen(req, timeout=timeout)
+    if at_home(url):
+        raise PermissionError("a channel from the internet can't lead to the home network")
+    return net.urlopen(req, timeout=timeout, handlers=(_StayOut(),))
+
+
+def at_home(url):
+    """Does this address lead to this computer or the home network (a router's page, a Sofa box's own controls)?"""
+    host = urllib.parse.urlsplit(url).hostname
+    if not host:
+        return True
+    try:
+        found = {a[4][0] for a in socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)}
+    except (OSError, UnicodeError):
+        return False                                    # (it can't be fetched either)
+    for ip in found:
+        a = ipaddress.ip_address(ip.split("%")[0])
+        a = getattr(a, "ipv4_mapped", None) or a
+        if not a.is_global or a.is_multicast:
+            return True
+    return False
+
+
+class _StayOut(urllib.request.HTTPRedirectHandler):
+    """A channel from the internet that answers "go to 192.168.1.1": not followed."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if at_home(newurl):
+            raise PermissionError("a channel from the internet can't lead to the home network")
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
 def refresh(force=False):
@@ -126,8 +158,9 @@ def refresh(force=False):
                     data = r.read(20 * 2**20).decode("utf-8", "replace")
                 if "#EXTINF" not in data:
                     raise ValueError("that address isn't an M3U channel list")
-                with open(path, "w", encoding="utf-8") as f:
+                with open(path + ".tmp", "w", encoding="utf-8") as f:   # (a cut-off write mustn't pass for the list)
                     f.write(data)
+                os.replace(path + ".tmp", path)
             except Exception as exc:
                 error = str(exc)[:200]
                 store.log("live", "Couldn't update channel list \"%s\": %s" % (name, error))
@@ -136,7 +169,9 @@ def refresh(force=False):
                 found = parse_m3u(f.read(), name, bool(pl.get("adult")))
         except OSError:
             found = []
+        home = at_home(url)                             # a tuner's list at home (HDHomeRun): its channels are at home too
         for c in found:
+            c["home"] = home
             channels.setdefault(c["id"], c)
         _status[url] = {"name": name, "url": url, "count": len(found), "error": error, "adult": bool(pl.get("adult")),
                         "updated": int(os.path.getmtime(path)) if os.path.exists(path) else None}
@@ -206,12 +241,15 @@ def proxied(url, cid):
 
 
 def open_upstream(url, chan):
+    """A channel's stream, or a part of it, through Sofa. A channel from a list on the internet can't send Sofa to the
+    home network or this computer: its playlist (or a redirect) naming a router's page, or a Sofa box's own controls,
+    isn't fetched. A list at home (a TV tuner's) can."""
     headers = {}
     if chan and chan.get("headers", {}).get("ua"):
         headers["User-Agent"] = chan["headers"]["ua"]
     if chan and chan.get("headers", {}).get("referer"):
         headers["Referer"] = chan["headers"]["referer"]
-    return fetch(url, headers, timeout=20)
+    return fetch(url, headers, timeout=20, home_ok=bool(chan and chan.get("home")))
 
 
 def is_playlist(resp, url):

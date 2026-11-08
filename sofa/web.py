@@ -528,7 +528,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_body(dlna.icon_png(), "image/png")
         if path.startswith("/dlna/live/"):
             chan = live.channel(path[len("/dlna/live/"):])
-            if not chan or chan.get("adult") or not media.tool("ffmpeg"):
+            if not chan or chan.get("adult") or not media.tool("ffmpeg") or (not chan.get("home") and live.at_home(chan["url"])):
                 return self.send_body("Not found", status=404)
             return self.stream({"id": "live:" + chan["id"], "path": chan["url"], "title": chan["name"]}, "remux", 0,
                                "TV at " + self.client_ip(), dlna_headers=True)
@@ -867,7 +867,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.json(fetch.status(viewer_adult=u.get("adult")))
         if path == "/api/admin/match":
             entry = LIBRARY.find((qs.get("id") or [""])[0])
-            if not entry:
+            if not entry or (entry.get("adult") and not u.get("adult")):
                 return self.error(404, "That isn't in the library any more.")
             query = ((qs.get("q") or [""])[0] or entry.get("name") or entry.get("title") or "").strip()
             year = (qs.get("year") or [""])[0]
@@ -1183,8 +1183,10 @@ class Handler(BaseHTTPRequestHandler):
             return self.json({"ok": True})
         if path.startswith("/api/live") and u.get("kids"):
             return self.error(403, "Live TV isn't on for this profile.")
-        m = re.match(r"^/api/live/favorite/([0-9a-f]{12})$", path)
+        m = re.match(r"^/api/live/favorite/([0-9a-f]{12}|ia-[a-z0-9]{1,40})$", path)   # a list's channel, or Retro TV's
         if m:
+            if m.group(1).startswith("ia-") and m.group(1) not in archive.BY_ID:
+                return self.error(404, "That channel isn't on.")
             if data.get("on"):
                 store.ex("INSERT OR IGNORE INTO live_favorites (user_id, channel) VALUES (?,?)", u["id"], m.group(1))
             else:
@@ -1294,7 +1296,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.json(updater.check(force=True))
         if path == "/api/admin/match":
             entry = LIBRARY.find(data.get("id") or "")
-            if not entry:
+            if not entry or (entry.get("adult") and not u.get("adult")):
                 return self.error(404, "That isn't in the library any more.")
             if data.get("clear"):
                 choice = None

@@ -149,6 +149,11 @@ def load():
                 data = json.load(f)
         except FileNotFoundError:
             pass
+        except ValueError:                       # damaged (from before writes were made safe): kept aside, defaults
+            try:
+                os.replace(CONFIG_PATH, CONFIG_PATH + ".damaged")
+            except OSError:
+                pass
         merged = copy.deepcopy(DEFAULTS)
         merged.update(data)
         _config = merged
@@ -180,8 +185,20 @@ def update(changes):
 
 
 def _write(data):
+    """On the disk before it's in place, whole or not at all: a power cut (a Sofa box on a weak supply) mustn't leave
+    an empty config.json, which would start Sofa over with every setting back to how it came."""
     os.makedirs(DATA_DIR, exist_ok=True)
     tmp = CONFIG_PATH + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
+        f.flush()
+        os.fsync(f.fileno())
     os.replace(tmp, CONFIG_PATH)
+    try:
+        d = os.open(DATA_DIR, os.O_RDONLY)
+        try:
+            os.fsync(d)
+        finally:
+            os.close(d)
+    except OSError:
+        pass

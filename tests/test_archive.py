@@ -262,6 +262,12 @@ class Archive(unittest.TestCase):
                 if status == 200:
                     self.assertEqual(on["channel"], ch["id"])
             self.assertEqual(c.call("/api/live/archive/ia-kids00/now")[0], 200)     # whole tapes: the stand-ins suit it
+            # a Retro TV channel can be a favourite (its ★ used to go nowhere: only a channel list's ids were taken)
+            self.assertEqual(c.call("/api/live/favorite/ia-kids00", {"on": True})[0], 200)
+            self.assertTrue(next(ch for ch in c.call("/api/live")[1]["channels"] if ch["id"] == "ia-kids00")["fav"])
+            self.assertEqual(c.call("/api/live/favorite/ia-kids00", {"on": False})[0], 200)
+            self.assertFalse(next(ch for ch in c.call("/api/live")[1]["channels"] if ch["id"] == "ia-kids00")["fav"])
+            self.assertEqual(c.call("/api/live/favorite/ia-nothing", {"on": True})[0], 404)
         finally:
             httpd.shutdown()
             shutil.rmtree(archive.CACHE, ignore_errors=True)
