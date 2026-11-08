@@ -321,8 +321,9 @@ song in the box's player, or shows a picture; **Menu** renames, moves or deletes
   kind it is and says so.
 - **Get more games**: free, open-source games the box installs when you press OK (a few minutes, from
   Debian's archive), then plays **without the internet**: SuperTux (a platformer), Flare (a dark-fantasy
-  action RPG), Neverball, Battle for Wesnoth, OpenTTD, and SuperTuxKart on a Pi 4 or 5. Each says how
-  much room it takes; **Remove a game** frees it.
+  action RPG), Neverball, Battle for Wesnoth, OpenTTD, two first-person shooters (AssaultCube, and Cube 2:
+  Sauerbraten, a 1 GB download), and SuperTuxKart on a Pi 4 or 5. Each says how much room it takes;
+  **Remove a game** frees it. On a Pi 3 the shooters draw smaller and the TV scales them up.
 - **Sofa Craft** is on every box from the start: an endless world of blocks to explore, mine, build and
   craft in, straight into your world with the controller. It's built on Luanti, the open-source block
   game (with its Minetest Game).

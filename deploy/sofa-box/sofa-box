@@ -327,8 +327,9 @@ EOF
   case "$ACTION" in
     install)
       apt-get -o DPkg::Lock::Timeout=180 update -qq || true
+      # (the downloaded packages aren't kept once they're in: Sauerbraten's alone is nearly 1 GB)
       # shellcheck disable=SC2086
-      apt-get -o DPkg::Lock::Timeout=180 install -y --no-install-recommends $PKGS ;;
+      apt-get -o DPkg::Lock::Timeout=180 -o APT::Keep-Downloaded-Packages=false install -y --no-install-recommends $PKGS ;;
     remove)
       # shellcheck disable=SC2086
       apt-get -o DPkg::Lock::Timeout=180 remove -y --autoremove $PKGS ;;

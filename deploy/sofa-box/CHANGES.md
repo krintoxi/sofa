@@ -7,6 +7,27 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.27
+
+- **Two first-person shooters in Games → Get more games**, free and open source, from Debian like the others,
+  played offline against the computer's bots with a controller from the start:
+  - **AssaultCube**: fast, with a realistic look: rifles, pistols and grenades in close maps. Its maps come from
+    AssaultCube's own site as it installs (about 50 MB, checked against what Debian expects).
+  - **Sauerbraten** (Cube 2): a fast arena shooter: big jumps, rockets and rifles, bot matches and its
+    single-player levels. About a 1 GB download.
+  - The left stick walks, the right one looks, **RT fires** and **LT aims** (Sauerbraten zooms while it's held),
+    A jumps, B and Start open its menu; in AssaultCube X reloads, Y swaps weapons, LB throws a grenade and L3
+    crouches; LB and RB (or X) change weapon in Sauerbraten. In Sauerbraten's menus the right stick is the
+    pointer and RT chooses; AssaultCube's take the D-pad and A.
+  - Both start full screen. **On a Pi 3** they draw smaller and the TV scales them up (Sauerbraten 1024×576 with a
+    lighter look, AssaultCube 1280×720), and the stick turns as fast as at full size; on a Pi 4 or 5 they draw
+    at up to 1080p, with Sauerbraten's own look. The size is the box's each time; anything else you change in
+    their options stays (Sauerbraten's look until the card goes into another kind of board).
+  - They run through XWayland: the box's screen can't hold a Wayland game's mouse still, so it would stop turning
+    at the edge of the TV.
+- A game the box downloads no longer leaves its packages behind on the card (Sauerbraten's would have taken
+  another gigabyte).
+
 ## 1.1.26
 
 - **Sofa's own Retro TV and Classic Cinema are the box's.** The App Store no longer lists the outside retro TV
