@@ -189,7 +189,9 @@ class Archive(unittest.TestCase):
             status, live = c.call("/api/live")
             self.assertEqual(status, 200)
             ia = [ch for ch in live["channels"] if ch.get("archive")]
-            self.assertEqual({ch["group"] for ch in ia}, {"Internet Archive", "Retro TV"})
+            self.assertEqual({ch["group"] for ch in ia}, {"Classic Cinema", "Retro TV"})
+            seen = json.dumps(ia) + urllib.parse.unquote("".join(ch["logo"] for ch in ia))
+            self.assertNotIn("Internet Archive", seen)                      # Sofa's own lineup on the screen
             retro = [ch["id"] for ch in ia if ch["group"] == "Retro TV"]
             self.assertEqual(retro[:3], ["ia-retro00", "ia-kids00", "ia-sat00"])      # the 2000s first, on the dial from 2
             self.assertEqual([ch["number"] for ch in ia][:3], [2, 3, 4])

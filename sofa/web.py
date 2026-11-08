@@ -682,6 +682,7 @@ class Handler(BaseHTTPRequestHandler):
                               "offline": net.offline_mode(),
                               "needs_setup": auth.user_count() == 0, "network": self.network(),
                               "remote": config.get("remote"), "guest_available": bool(self.guest_ok()),
+                              "retro_tv": archive.on() and not (u and (u.get("kids") or u.get("visitor"))),
                               "signup": bool(config.get("signups")),
                               "waiting": auth.waiting() if u and u.get("admin") else 0,
                               "profiles": self.may_switch(u) and len(auth.profiles()),

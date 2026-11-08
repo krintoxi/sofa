@@ -260,9 +260,9 @@ you've added (open one, make it the one Sofa opens with, or remove it). Inside S
 **Servers** switches too. You stay signed in to each one.
 
 The **Live TV** tile opens Live TV in the Sofa it opens with, or in Sofa on the box. Channels play in the
-box's own player: up and down change the channel. Besides the free channel lists, there are **Internet
-Archive** channels (classic movies, film noir, westerns, silent films, cartoons, classic TV, documentaries):
-free films on a loop, on the clock, like TV; and **Retro TV**, its own group: the 2000s first (Retro TV:
+box's own player: up and down change the channel. Besides the free channel lists, there's **Classic
+Cinema** (classic movies, film noir, westerns, silent films, cartoons, classic TV, documentaries): films on a
+loop, on the clock, like TV; and **Retro TV**, its own group: the 2000s first (Retro TV:
 00s, **00s Kids TV** and **00s On Air**, whole recorded broadcasts with the commercials they went out with),
 then a channel for each decade back to the 50s with its shows and its commercials between them. The App
 Store's **Retro TV** section has the My Retro TVs sites too.

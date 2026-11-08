@@ -8,7 +8,7 @@ here, then `python3 tools/sofa-version.py` (a test checks it was done).
 
 ## 1.3.0 (2026-11-08)
 
-- **Live TV has a guide.** Retro TV and the Internet Archive's channels by the clock, as on a TV: each channel
+- **Live TV has a guide.** Retro TV and Classic Cinema by the clock, as on a TV: each channel
   with its number and the next two hours; above them, what's on the channel in focus, with a picture of it (a
   muted preview of the channel on a computer), how long is left and what's next. Up and down go through the
   channels at the same time of day, left and right through a channel's programmes, OK watches; typing a
@@ -16,11 +16,16 @@ here, then `python3 tools/sofa-version.py` (a test checks it was done).
   you have favourites. Built to be light: a Raspberry Pi 3 draws it.
 - **Five more 2000s channels, whole tapes as they aired:** 00s Saturday Mornings (Kids' WB, Fox Box, 4Kids TV,
   ABC), 00s Action Toons (Toonami, Cartoon Network Fridays), 00s Music TV (TRL, 106 & Park, MTV Hits), 00s Game
-  TV (X-Play, G4, TechTV) and 00s Infomercials. The 2000s are channels 2 to 9, the older decades 10 to 14, the
-  archive's film channels 20 to 28.
+  TV (X-Play, G4, TechTV) and 00s Infomercials. The 2000s are channels 2 to 9, the older decades 10 to 14, and
+  the film channels, now **Classic Cinema**, 20 to 28.
 - Channels have variety: three of one series at most (not twenty parts of one upload). The family filter knows
   a few more words.
-- **A tape the archive can't send is skipped:** the next one plays.
+- **A tape that won't play is skipped:** the next one plays.
+- **On a Sofa Box, Sofa opens on something to watch.** At home it goes straight in as Guest (when the house
+  has guests on): the library, Live TV and Retro TV, no sign-in first. Home then offers **Make this TV yours**:
+  sign in with your phone, no typing ("Not now" puts it away for three days). Signing out (or Leave) shows
+  the sign-in screen, which has Watch as a guest too.
+- On a TV, **Use a name and password instead** stays on the password form (it used to go back to the code).
 - **"Something went wrong (501)"** on the request after one Sofa had turned down (a refused sign-in, then the
   next try): the turned-down request's body was left on the connection. Fixed.
 
