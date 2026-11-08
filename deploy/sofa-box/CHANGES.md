@@ -7,6 +7,14 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.37
+
+- **No black arrow in the middle of the screen at the start.** As soon as anything on the box can point (the phone
+  remote's touchpad, a controller's stick), the screen's shell draws its own black arrow mid-screen. Nothing hid it
+  until the pointer first moved, which usually meant until a controller was used. Now Home, once it's on the screen,
+  has the box put the pointer in its corner, which hands it to the page, and the page hides it. Pages also ignore
+  that move, so the box's own pointer doesn't flash up for it.
+
 ## 1.1.36
 
 - **Settings, as on a TV.** What there is to set is a list down the left, and the one you're on shows beside it:

@@ -2832,12 +2832,24 @@ class PhoneRemote:
         self.mouse.write(e.EV_ABS, e.ABS_X, int(self.at[0] * self.SPAN))
         self.mouse.write(e.EV_ABS, e.ABS_Y, int(self.at[1] * self.SPAN))
 
-    def _park(self):
-        """Out of the way: the bottom right corner (only its tip could show there; pages hide it anyway)."""
+    def _park(self, nudge=False):
+        """Out of the way: the bottom right corner (only its tip could show there; pages hide it anyway). `nudge`: from
+        just beside it, so it really moves (the kernel drops a move to where the pointer is already)."""
         if self.mouse:
+            if nudge:
+                self.at = [0.995, 0.995]
+                self._place()
+                self.mouse.syn()
             self.at, self.parked = [1.0, 1.0], True
             self._place()
             self.mouse.syn()
+
+    def park_now(self):
+        """Home is on the screen: the pointer to its corner, through the page, which hides it. At a start the screen's
+        shell (cage) draws its own black arrow mid-screen as soon as anything can point, and nothing hid it until the
+        pointer first moved (a controller's stick). Not while a phone is using it."""
+        if self._devices() is not None and self.mouse and time.time() - self.used > self.PARK_AFTER:
+            self._park(nudge=True)
 
     @staticmethod
     def accelerate(d):
@@ -3134,6 +3146,10 @@ def send_report():
 def box_action(a, data):
     if a == "send-report":
         return send_report()
+    if a == "park-pointer":                       # Home, just shown: the pointer out of sight (PhoneRemote.park_now)
+        if phone:
+            threading.Thread(target=phone.park_now, daemon=True, name="park").start()
+        return {"ok": True}
     if a == "pair-controller":
         threading.Thread(target=lambda: run([os.path.join(HERE, "sofa-box"), "pair-controller"], 60), daemon=True).start()
         return {"ok": True, "message": "Put the controller in pairing mode now (Xbox: hold the pair button until it flashes fast)."}

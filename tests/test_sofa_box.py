@@ -743,6 +743,49 @@ class BoxOS(unittest.TestCase):
             self.opener.open(self.base + "/box/home/../sofa-box-agent.py", timeout=20)
 
 
+class BoxPointer(unittest.TestCase):
+    """At a start the screen's shell (cage) draws its black arrow mid-screen as soon as anything can point, and nothing
+    hid it until the pointer first moved. Home, once shown, asks the box to put it in its corner, where pages hide it."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.conf = tempfile.mkdtemp()
+        old = {k: os.environ.get(k) for k in ("SOFA_BOX_CONF", "SOFA_BOX_DEVTOOLS", "SOFA_BOX_CAPTIVE_PORT")}
+        os.environ.update(SOFA_BOX_CONF=cls.conf, SOFA_BOX_DEVTOOLS="0", SOFA_BOX_CAPTIVE_PORT="0")
+        try:
+            cls.agent = load("sofa-box-agent")
+        finally:
+            for k, v in old.items():
+                os.environ.pop(k) if v is None else os.environ.__setitem__(k, v)
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.conf, ignore_errors=True)
+
+    def test_parking_really_moves_it(self):
+        moves = []
+
+        class Device:
+            def write(self, kind, code, value):
+                moves.append((code, value))
+
+            def syn(self):
+                moves.append("syn")
+        p = self.agent.PhoneRemote.__new__(self.agent.PhoneRemote)
+        p.tried, p.kb, p.mouse, p.used, p.parked, p.at = True, object(), Device(), 0, True, [1.0, 1.0]
+        p.ecodes = type("E", (), {"EV_ABS": 3, "ABS_X": 0, "ABS_Y": 1})
+        p.park_now()
+        span = self.agent.PhoneRemote.SPAN
+        xs = [v for m in moves if m != "syn" for c, v in [m] if c == 0]
+        self.assertEqual(xs[-1], span)                                   # in the corner
+        self.assertLess(xs[0], span)                                     # from beside it: a real move (not dropped)
+        moves.clear()
+        p.used = __import__("time").time()                               # a phone using it right now: left alone
+        p.park_now()
+        self.assertEqual(moves, [])
+        self.assertEqual(self.agent.box_action("park-pointer", {}), {"ok": True})
+
+
 class BoxBluetooth(unittest.TestCase):
     """Bluetooth devices from one call to bluetoothd (busctl), and what each one is."""
 

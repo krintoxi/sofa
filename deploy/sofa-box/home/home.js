@@ -51,7 +51,9 @@
 
   // The pointer hides when it's still (a TV), and shows when the mouse moves.
   let still = 0;
-  document.addEventListener("mousemove", () => {
+  document.addEventListener("mousemove", e => {
+    // (the box putting the pointer in its corner, out of sight: not a mouse moving)
+    if (document.documentElement.hasAttribute("data-nocursor") && e.clientX >= innerWidth - 2 && e.clientY >= innerHeight - 2) return;
     document.documentElement.removeAttribute("data-nocursor");
     clearTimeout(still); still = setTimeout(() => document.documentElement.setAttribute("data-nocursor", ""), 3000);
   });
@@ -1346,6 +1348,9 @@
     await loadSofa();
     if (data.welcomed === false && !location.hash) { location.hash = "#/welcome"; step = savedStep = data.setup_step || 0; }
     render();
+    // the screen's own black arrow, drawn mid-screen from the start: to its corner, where this page hides it (twice:
+    // the screen may pick the pointer up late)
+    for (const ms of [3500, 20000]) setTimeout(() => api("/box/api/action/park-pointer", {}).catch(() => {}), ms);
     await introDone;
     const shieldEl = $("#shield");
     api("/box/api/shield").then(s => { if (s.on) { shieldEl.hidden = false; $("b", shieldEl).textContent = s.sites > 999 ? Math.round(s.sites / 1000) + "k" : s.sites; shieldEl.title = "Sofa Shield: " + s.sites + " sites blocked"; } }).catch(() => {});

@@ -180,6 +180,7 @@
 
   // ---- the mouse: the bar at the top edge, the pointer when it moves
   window.addEventListener("mousemove", function (e) {
+    if (hiddenPtr && e.clientX >= innerWidth - 2 && e.clientY >= innerHeight - 2) return;   // (the box parking it: not a mouse)
     pointer(true);
     clearTimeout(still); still = setTimeout(function () { if (!open) pointer(false); }, 3000);
     if (e.clientY <= 3 && !open) show(true, false);
