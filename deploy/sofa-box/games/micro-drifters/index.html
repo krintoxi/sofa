@@ -1,0 +1,1299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=480, initial-scale=1">
+<title>Micro Drifters</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0d0b14; display: flex; align-items: center; justify-content: center; width: 100vw; height: 100vh; overflow: hidden; }
+  canvas { image-rendering: pixelated; image-rendering: crisp-edges; display: block; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script src="../pad.js"></script>
+<script>
+"use strict";
+
+// ─── Palette ───────────────────────────────────────────────────────────────
+const PAL = {
+  k:"#0d0b14", K:"#241d2e", g:"#5a5468", G:"#9a94a8", w:"#ece8f4",
+  s:"#e0a67a", S:"#a86a48", r:"#c8303a", R:"#7a1a26", o:"#ee8a3a", O:"#9a4a1e",
+  y:"#f2c14e", Y:"#a87a1e", b:"#4a78c8", B:"#243c78", c:"#7ad8f0", C:"#2e6e8a",
+  n:"#6e4c2e", N:"#3e2a1a", e:"#5aa04a", E:"#2e5a2a", p:"#8a4ab0", P:"#4a2468",
+  m:"#e2d49c", M:"#a89860", v:"#b8e070", x:"#ff5a8a", t:"#d0c4b0", T:"#7e6e5c", z:"rgba(0,0,0,0.42)"
+};
+
+// ─── Canvas Setup ──────────────────────────────────────────────────────────
+const W = 480, H = 270;
+const canvas = document.getElementById("c");
+canvas.width = W; canvas.height = H;
+const ctx = canvas.getContext("2d");
+ctx.imageSmoothingEnabled = false;
+
+// Scale to viewport
+function resize() {
+  const sx = window.innerWidth / W, sy = window.innerHeight / H;
+  const sc = Math.min(sx, sy);
+  canvas.style.width = (W * sc) + "px";
+  canvas.style.height = (H * sc) + "px";
+}
+resize();
+window.addEventListener("resize", resize);
+
+// ─── Helper: make offscreen canvas ────────────────────────────────────────
+function mk(w, h) {
+  const c = document.createElement("canvas");
+  c.width = w; c.height = h; return c;
+}
+function g2(c) {
+  const g = c.getContext("2d");
+  g.imageSmoothingEnabled = false;
+  return g;
+}
+
+// ─── Sprite Parser ─────────────────────────────────────────────────────────
+function spr(rows, over) {
+  let w = 0;
+  for (let i = 0; i < rows.length; i++) w = Math.max(w, rows[i].length);
+  const c = mk(w, rows.length), g = g2(c);
+  for (let y = 0; y < rows.length; y++) {
+    for (let x = 0; x < rows[y].length; x++) {
+      const ch = rows[y][x];
+      if (ch === ".") continue;
+      const col = (over && over[ch]) || PAL[ch];
+      if (!col) continue;
+      g.fillStyle = col; g.fillRect(x, y, 1, 1);
+    }
+  }
+  return c;
+}
+
+// ─── Bitmap Font (5×7) ────────────────────────────────────────────────────
+const FONT_MAP = {
+  "A":["..#..","..#..","##.##","#####","##.##","#...#","#...#"],
+  "B":["####.","#...#","####.","####.","#...#","#...#","####."],
+  "C":["#####","#....","#....","#....","#....","#....","#####"],
+  "D":["####.","#...#","#...#","#...#","#...#","#...#","####."],
+  "E":["#####","#....","#....","####.","#....","#....","#####"],
+  "F":["#####","#....","#....","####.","#....","#....","#...."],
+  "G":["#####","#....","#....","#.###","#...#","#...#","#####"],
+  "H":["#...#","#...#","#...#","#####","#...#","#...#","#...#"],
+  "I":["#####","..#..","..#..","..#..","..#..","..#..","#####"],
+  "J":["#####","....#","....#","....#","#...#","#...#","#####"],
+  "K":["#...#","#..#.","#.#..","##...","#.#..","#..#.","#...#"],
+  "L":["#....","#....","#....","#....","#....","#....","#####"],
+  "M":["#...#","##.##","#.#.#","#...#","#...#","#...#","#...#"],
+  "N":["#...#","##..#","#.#.#","#..##","#...#","#...#","#...#"],
+  "O":["#####","#...#","#...#","#...#","#...#","#...#","#####"],
+  "P":["####.","#...#","#...#","####.","#....","#....","#...."],
+  "Q":["#####","#...#","#...#","#...#","#.#.#","#..##","#####"],
+  "R":["####.","#...#","#...#","####.","#.#..","#..#.","#...#"],
+  "S":["#####","#....","#....","#####","....#","....#","#####"],
+  "T":["#####","..#..","..#..","..#..","..#..","..#..","..#.."],
+  "U":["#...#","#...#","#...#","#...#","#...#","#...#","#####"],
+  "V":["#...#","#...#","#...#","#...#","#...#",".#.#.","..#.."],
+  "W":["#...#","#...#","#...#","#.#.#","##.##","##.##","#...#"],
+  "X":["#...#",".#.#.","..#..","..#..",".#.#.","#...#","#...#"],
+  "Y":["#...#","#...#",".#.#.","..#..","..#..","..#..","..#.."],
+  "Z":["#####","....#","...#.","..#..","..#..","##...","#####"],
+  "0":["#####","#...#","#..##","#.#.#","##..#","#...#","#####"],
+  "1":["..#..","..#..","..#..","..#..","..#..","..#..","..#.."],
+  "2":["#####","....#","....#","#####","#....","#....","#####"],
+  "3":["#####","....#","....#","#####","....#","....#","#####"],
+  "4":["#...#","#...#","#...#","#####","....#","....#","....#"],
+  "5":["#####","#....","#....","#####","....#","....#","#####"],
+  "6":["#####","#....","#....","#####","#...#","#...#","#####"],
+  "7":["#####","....#","....#","....#","....#","....#","....#"],
+  "8":["#####","#...#","#...#","#####","#...#","#...#","#####"],
+  "9":["#####","#...#","#...#","#####","....#","....#","#####"],
+  "!":["..#..","..#..","..#..","..#..","..#..","....","..#.."],
+  "-":[".....",".....","#####","#####",".....",".....","...."],
+  ":":["..#..","..#..",".....",".....","..#..","..#..","...."],
+  ".":[".....",".....",".....",".....",".....",".....","..#.."],
+  " ":[".....",".....",".....",".....",".....",".....","...."],
+  "/":["....#","...#.","...#.","..#..","..#..",".#...","#...."],
+  "'":["..#..","..#..","..#..",".....",".....",".....","....."]
+};
+
+// the letters: each drawn once in each colour, then copied (far cheaper on a Pi than every pixel, every frame)
+let GLYPHS = {}, glyphCols = 0;
+function glyphOf(ch, col) {
+  let set = GLYPHS[col];
+  if (!set) { if (++glyphCols > 48) { GLYPHS = {}; glyphCols = 1; } set = GLYPHS[col] = {}; }
+  let c = set[ch]; if (c) return c;
+  const rows = FONT_MAP[ch] || FONT_MAP[" "] || ["....."];
+  c = document.createElement("canvas"); c.width = 5; c.height = rows.length; const g = c.getContext("2d"); g.fillStyle = col;
+  for (let r = 0; r < rows.length; r++) for (let x = 0; x < rows[r].length; x++) if (rows[r][x] === "#") g.fillRect(x, r, 1, 1);
+  return set[ch] = c;
+}
+function drawChar(ctx, ch, px, py, col, sc) {
+  ch = ch.toUpperCase(); if (ch === " ") return;
+  const g = glyphOf(ch, col);
+  ctx.drawImage(glyphOf(ch, PAL.k), px + 1, py + 1, 5 * sc, g.height * sc);
+  ctx.drawImage(g, px, py, 5 * sc, g.height * sc);
+}
+
+function drawText(ctx, str, x, y, col, sc) {
+  sc = sc || 1;
+  col = col || PAL.w;
+  let cx = x;
+  for (let i = 0; i < str.length; i++) {
+    drawChar(ctx, str[i], cx, y, col, sc);
+    cx += (5 + 1) * sc;
+  }
+}
+
+function textWidth(str, sc) {
+  return str.length * (5 + 1) * (sc || 1);
+}
+
+function drawCenter(ctx, str, y, col, sc) {
+  const tw = textWidth(str, sc);
+  drawText(ctx, str, Math.floor((W - tw) / 2), y, col, sc);
+}
+
+// ─── Bayer Dithering ───────────────────────────────────────────────────────
+const BAYER4 = [
+  [ 0,  8,  2, 10],
+  [12,  4, 14,  6],
+  [ 3, 11,  1,  9],
+  [15,  7, 13,  5]
+];
+
+const DISCS = {};
+function ditherDisc(ctx, cx, cy, r, hexColor, maxAlpha) {       // (drawn once into a small canvas, then copied)
+  const key = r + hexColor + maxAlpha; let d = DISCS[key];
+  if (!d) { d = document.createElement("canvas"); d.width = d.height = r * 2 + 3; ditherDiscRaw(d.getContext("2d"), r + 1, r + 1, r, hexColor, maxAlpha); DISCS[key] = d; }
+  ctx.drawImage(d, Math.round(cx - r - 1), Math.round(cy - r - 1));
+}
+function ditherDiscRaw(ctx, cx, cy, r, hexColor, maxAlpha) {
+  const r2 = r * r;
+  const x0 = Math.floor(cx - r), y0 = Math.floor(cy - r);
+  const x1 = Math.ceil(cx + r),  y1 = Math.ceil(cy + r);
+  ctx.fillStyle = hexColor;
+  for (let py = y0; py <= y1; py++) {
+    for (let px = x0; px <= x1; px++) {
+      const dx = px - cx, dy = py - cy;
+      const d2 = dx * dx + dy * dy;
+      if (d2 > r2) continue;
+      const dist = Math.sqrt(d2) / r;
+      const alpha = maxAlpha * (1 - dist);
+      const threshold = BAYER4[(py & 3)][(px & 3)] / 16;
+      if (alpha >= threshold) {
+        ctx.fillRect(px, py, 1, 1);
+      }
+    }
+  }
+}
+
+// ─── Web Audio ─────────────────────────────────────────────────────────────
+let audioCtx = null;
+let engineOsc = null, engineGain = null;
+let scretchGain = null;
+
+function resumeSound() { if (audioCtx && audioCtx.state === "suspended") audioCtx.resume().catch(() => {}); }
+function initAudio() {
+  if (audioCtx) return;
+  try {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    engineGain = audioCtx.createGain();
+    engineGain.gain.value = 0.08;
+    engineGain.connect(audioCtx.destination);
+
+    engineOsc = audioCtx.createOscillator();
+    engineOsc.type = "sawtooth";
+    engineOsc.frequency.value = 80;
+    engineOsc.connect(engineGain);
+    engineOsc.start();
+
+    // Screech noise
+    const bufSize = audioCtx.sampleRate * 0.5;
+    const noiseBuffer = audioCtx.createBuffer(1, bufSize, audioCtx.sampleRate);
+    const data = noiseBuffer.getChannelData(0);
+    for (let i = 0; i < bufSize; i++) data[i] = Math.random() * 2 - 1;
+    const noiseSource = audioCtx.createBufferSource();
+    noiseSource.buffer = noiseBuffer;
+    noiseSource.loop = true;
+
+    const filter = audioCtx.createBiquadFilter();
+    filter.type = "bandpass";
+    filter.frequency.value = 2000;
+    filter.Q.value = 1;
+
+    scretchGain = audioCtx.createGain();
+    scretchGain.gain.value = 0;
+
+    noiseSource.connect(filter);
+    filter.connect(scretchGain);
+    scretchGain.connect(audioCtx.destination);
+    noiseSource.start();
+  } catch (e) { audioCtx = null; }
+}
+
+function setEngineFreq(speed) {
+  if (!engineOsc) return;
+  const f = 60 + speed * 1.8;
+  engineOsc.frequency.setTargetAtTime(Math.min(f, 400), audioCtx.currentTime, 0.05);
+}
+
+function setScreechVol(v) {
+  if (!scretchGain) return;
+  scretchGain.gain.setTargetAtTime(Math.max(0, Math.min(v, 0.3)), audioCtx.currentTime, 0.05);
+}
+
+function playBoost() {
+  if (!audioCtx) return;
+  const osc = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  osc.type = "square";
+  osc.frequency.value = 300;
+  osc.frequency.linearRampToValueAtTime(900, audioCtx.currentTime + 0.3);
+  g.gain.value = 0.15;
+  g.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.4);
+  osc.connect(g); g.connect(audioCtx.destination);
+  osc.start(); osc.stop(audioCtx.currentTime + 0.4);
+}
+
+function playLapComplete() {
+  if (!audioCtx) return;
+  const notes = [523, 659, 784, 1047];
+  notes.forEach((freq, i) => {
+    const osc = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    osc.type = "square";
+    osc.frequency.value = freq;
+    g.gain.value = 0.12;
+    g.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.08 + i * 0.12);
+    osc.connect(g); g.connect(audioCtx.destination);
+    osc.start(audioCtx.currentTime + i * 0.1);
+    osc.stop(audioCtx.currentTime + 0.12 + i * 0.1);
+  });
+}
+
+function playVictory() {
+  if (!audioCtx) return;
+  const melody = [523,523,523,659,523,659,784];
+  melody.forEach((freq, i) => {
+    const osc = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    osc.type = "triangle";
+    osc.frequency.value = freq;
+    g.gain.value = 0.14;
+    g.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.14 + i * 0.15);
+    osc.connect(g); g.connect(audioCtx.destination);
+    osc.start(audioCtx.currentTime + i * 0.14);
+    osc.stop(audioCtx.currentTime + 0.18 + i * 0.14);
+  });
+}
+
+// ─── Sprites ───────────────────────────────────────────────────────────────
+const SPR = {};
+
+// Car shadow
+SPR.car_shadow = spr([
+  "....KKKKKK....",
+  "..KKKKKKKKKK..",
+  ".KKKKKKKKKKKK.",
+  "KKKKKKKKKKKKKK",
+  "KKKKKKKKKKKKKK",
+  ".KKKKKKKKKKKK.",
+  "..KKKKKKKKKK..",
+  "....KKKKKK...."
+], { K: "rgba(0,0,0,0.35)" });
+
+// Player red car (12 wide × 18 tall, top-down)
+SPR.car_red = spr([
+  "....yyyy....",
+  "...yGGGy....",
+  "..RRRRRRRR..",
+  ".RrrrrrrrR..",
+  ".RrrrrrrrR..",
+  ".RrrrrrrrR..",
+  ".RrrGGGrrR..",
+  ".RrrGGGrrR..",
+  ".RrrGGGrrR..",
+  ".RrrrrrrrR..",
+  ".RrrrrrrrR..",
+  ".RrrrrrrrR..",
+  "..RRRRRRRR..",
+  "..RggggggR..",
+  "..RggggggR..",
+  "..RRRRRRRR..",
+  "....KKKK....",
+  "....KKKK...."
+], { g: PAL.G });
+
+// Blue AI car
+SPR.car_blue = spr([
+  "....yyyy....",
+  "...yGGGy....",
+  "..BBBBBBbb..",
+  ".BbbbbbbbB..",
+  ".BbbbbbbbB..",
+  ".BbbbbbbbB..",
+  ".BbbGGGbbB..",
+  ".BbbGGGbbB..",
+  ".BbbGGGbbB..",
+  ".BbbbbbbbB..",
+  ".BbbbbbbbB..",
+  ".BbbbbbbbB..",
+  "..BBBBBBbb..",
+  "..BggggggB..",
+  "..BggggggB..",
+  "..BBBBBBbb..",
+  "....KKKK....",
+  "....KKKK...."
+], { g: PAL.G });
+
+// Green AI car
+SPR.car_green = spr([
+  "....yyyy....",
+  "...yGGGy....",
+  "..EEEEEEee..",
+  ".EeeeeeeeE..",
+  ".EeeeeeeeE..",
+  ".EeeeeeeeE..",
+  ".EeeGGGeeE..",
+  ".EeeGGGeeE..",
+  ".EeeGGGeeE..",
+  ".EeeeeeeeE..",
+  ".EeeeeeeeE..",
+  ".EeeeeeeeE..",
+  "..EEEEEEee..",
+  "..EggggggE..",
+  "..EggggggE..",
+  "..EEEEEEee..",
+  "....KKKK....",
+  "....KKKK...."
+], { g: PAL.G, e: PAL.e, E: PAL.E });
+
+// Yellow AI car
+SPR.car_yellow = spr([
+  "....cccc....",
+  "...cGGGc....",
+  "..YYYYYYyy..",
+  ".YyyyyyYyY..",
+  ".YyyyyyYyY..",
+  ".YyyyyyYyY..",
+  ".YyyGGGyyY..",
+  ".YyyGGGyyY..",
+  ".YyyGGGyyY..",
+  ".YyyyyyYyY..",
+  ".YyyyyyYyY..",
+  ".YyyyyyYyY..",
+  "..YYYYYYyy..",
+  "..YggggggY..",
+  "..YggggggY..",
+  "..YYYYYYyy..",
+  "....KKKK....",
+  "....KKKK...."
+], { g: PAL.G, y: PAL.y, Y: PAL.Y, c: PAL.c });
+
+// Boost pad
+SPR.boost_pad = spr([
+  "TTTTyyyyyyTTTT",
+  "TTTTyyyyyyTTTT",
+  "TT..yyyyy..TTT",
+  "T...yyyyy...TT",
+  "....yyyyy.....",
+  ".....yyy......",
+  "......y.......",
+  ".....yyy......",
+  "....yyyyy.....",
+  "T...yyyyy...TT",
+  "TT..yyyyy..TTT",
+  "TTTTyyyyyyTTTT",
+  "TTTTyyyyyyTTTT"
+], {});
+
+// Tire barrier
+SPR.tire_barrier = spr([
+  ".NNNNN.",
+  "NkkkkkN",
+  "NkKKkkN",
+  "NkKKkkN",
+  "NkkkkkN",
+  ".NNNNN.",
+  ".NNNNN.",
+  "NkkkkkN",
+  "NkKKkkN",
+  "NkKKkkN",
+  "NkkkkkN",
+  ".NNNNN."
+], {});
+
+// Traffic cone
+SPR.cone = spr([
+  ".....",
+  "..y..",
+  "..y..",
+  ".yoy.",
+  ".yoy.",
+  "yoOoy",
+  "yoOoy",
+  "yoOoy",
+  "mmmmm"
+], {});
+
+// Checkerboard flag
+SPR.flag_checker = spr([
+  "wkwkwkwk",
+  "kwkwkwkw",
+  "wkwkwkwk",
+  "kwkwkwkw",
+  "wkwkwkwk",
+  "kwkwkwkw",
+  "wkwkwkwk",
+  "kwkwkwkw"
+], {});
+
+// ─── Tracks ────────────────────────────────────────────────────────────────
+// World coords are ~1500×1500. Each track defined by waypoints on that grid.
+const TRACKS = [
+  {
+    name: "CIRCUIT ALPHA",
+    desc: "WIDE OVAL - BEGINNER",
+    color: PAL.e,
+    // waypoints trace center of road, world space
+    waypoints: [
+      {x:400,  y:200},
+      {x:600,  y:120},
+      {x:850,  y:100},
+      {x:1100, y:120},
+      {x:1250, y:200},
+      {x:1300, y:400},
+      {x:1250, y:600},
+      {x:1100, y:680},
+      {x:850,  y:700},
+      {x:600,  y:680},
+      {x:400,  y:600},
+      {x:350,  y:400},
+    ],
+    startX: 400, startY: 200, startAngle: 0,
+    roadW: 80,
+    boostPads: [
+      {x:850, y:100, angle: 0},
+      {x:1300,y:400, angle: Math.PI/2},
+      {x:850, y:700, angle: Math.PI},
+      {x:350, y:400, angle: -Math.PI/2}
+    ]
+  },
+  {
+    name: "NEON CANYON",
+    desc: "S-CURVE HAIRPIN",
+    color: PAL.c,
+    waypoints: [
+      {x:300,  y:150},
+      {x:500,  y:120},
+      {x:700,  y:150},
+      {x:850,  y:250},
+      {x:900,  y:400},
+      {x:850,  y:550},
+      {x:700,  y:650},
+      {x:550,  y:680},
+      {x:400,  y:650},
+      {x:300,  y:580},
+      {x:250,  y:450},
+      {x:300,  y:320},
+      {x:450,  y:280},
+      {x:600,  y:300},
+      {x:650,  y:400},
+      {x:600,  y:480},
+    ],
+    startX: 300, startY: 150, startAngle: 0,
+    roadW: 70,
+    boostPads: [
+      {x:700, y:150, angle:0},
+      {x:900, y:400, angle:Math.PI/2},
+      {x:400, y:650, angle:Math.PI},
+      {x:600, y:300, angle:0}
+    ]
+  },
+  {
+    name: "CHAOS GRID",
+    desc: "FIGURE-8 CROSSOVER",
+    color: PAL.x,
+    waypoints: [
+      {x:400,  y:200},
+      {x:550,  y:150},
+      {x:700,  y:200},
+      {x:800,  y:320},
+      {x:900,  y:200},
+      {x:1050, y:150},
+      {x:1200, y:200},
+      {x:1300, y:350},
+      {x:1200, y:500},
+      {x:1050, y:550},
+      {x:900,  y:500},
+      {x:800,  y:380},
+      {x:700,  y:500},
+      {x:550,  y:550},
+      {x:400,  y:500},
+      {x:300,  y:380},
+      {x:250,  y:250},
+      {x:280,  y:150},
+      {x:350,  y:120},
+      {x:380,  y:160}
+    ],
+    startX: 400, startY: 200, startAngle: 0,
+    roadW: 65,
+    boostPads: [
+      {x:700, y:200, angle:0},
+      {x:1200,y:200, angle:0},
+      {x:1200,y:500, angle:Math.PI},
+      {x:400, y:500, angle:Math.PI},
+      {x:280, y:150, angle:0}
+    ]
+  }
+];
+
+// ─── Track Rendering ───────────────────────────────────────────────────────
+// Precompute track geometry for drawing
+function buildTrackCanvas(track) {
+  const tw = 1600, th = 800;
+  const c = mk(tw, th);
+  const g = g2(c);
+
+  const wp = track.waypoints;
+  const N = wp.length;
+
+  // Draw road base (asphalt)
+  g.strokeStyle = PAL.T;
+  g.lineWidth = track.roadW;
+  g.lineCap = "round";
+  g.lineJoin = "round";
+  g.beginPath();
+  g.moveTo(wp[0].x, wp[0].y);
+  for (let i = 1; i < N; i++) g.lineTo(wp[i].x, wp[i].y);
+  g.lineTo(wp[0].x, wp[0].y);
+  g.stroke();
+
+  // Road edge lines (white kerbs)
+  g.lineWidth = 4;
+  for (let i = 0; i < N; i++) {
+    const a = wp[i], b = wp[(i+1)%N];
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const len = Math.sqrt(dx*dx+dy*dy);
+    if (len < 1) continue;
+    const nx = -dy/len * (track.roadW/2), ny = dx/len * (track.roadW/2);
+    // Kerb stripe: alternate red/white every 16px
+    const segs = Math.ceil(len/16);
+    for (let s = 0; s < segs; s++) {
+      const t0 = s/segs, t1 = (s+1)/segs;
+      const x0l = a.x + dx*t0 + nx, y0l = a.y + dy*t0 + ny;
+      const x1l = a.x + dx*t1 + nx, y1l = a.y + dy*t1 + ny;
+      const x0r = a.x + dx*t0 - nx, y0r = a.y + dy*t0 - ny;
+      const x1r = a.x + dx*t1 - nx, y1r = a.y + dy*t1 - ny;
+      g.strokeStyle = s % 2 === 0 ? PAL.r : PAL.w;
+      g.lineWidth = 5;
+      g.beginPath(); g.moveTo(x0l,y0l); g.lineTo(x1l,y1l); g.stroke();
+      g.beginPath(); g.moveTo(x0r,y0r); g.lineTo(x1r,y1r); g.stroke();
+    }
+  }
+
+  // Road dark inner edge
+  g.strokeStyle = PAL.K;
+  g.lineWidth = track.roadW - 12;
+  g.lineCap = "round";
+  g.lineJoin = "round";
+  g.beginPath();
+  g.moveTo(wp[0].x, wp[0].y);
+  for (let i = 1; i < N; i++) g.lineTo(wp[i].x, wp[i].y);
+  g.lineTo(wp[0].x, wp[0].y);
+  g.stroke();
+
+  // Road center lines
+  g.strokeStyle = PAL.Y;
+  g.lineWidth = 2;
+  g.setLineDash([12, 12]);
+  g.beginPath();
+  g.moveTo(wp[0].x, wp[0].y);
+  for (let i = 1; i < N; i++) g.lineTo(wp[i].x, wp[i].y);
+  g.lineTo(wp[0].x, wp[0].y);
+  g.stroke();
+  g.setLineDash([]);
+
+  // Start/finish line
+  const sx = wp[0].x, sy = wp[0].y;
+  const nxt = wp[1];
+  const fang = Math.atan2(nxt.y - sy, nxt.x - sx) + Math.PI/2;
+  const hw = track.roadW / 2;
+  g.save();
+  g.translate(sx, sy);
+  g.rotate(fang);
+  for (let i = -4; i < 4; i++) {
+    for (let j = 0; j < 2; j++) {
+      g.fillStyle = (i + j) % 2 === 0 ? PAL.w : PAL.k;
+      g.fillRect(i * 8, -hw + j * 8, 8, 8);
+    }
+  }
+  g.restore();
+
+  // Boost pads
+  if (track.boostPads) {
+    for (const bp of track.boostPads) {
+      g.save();
+      g.translate(bp.x, bp.y);
+      g.rotate(bp.angle);
+      g.drawImage(SPR.boost_pad, -SPR.boost_pad.width/2, -SPR.boost_pad.height/2);
+      g.restore();
+    }
+  }
+
+  return c;
+}
+
+// ─── Car Physics ───────────────────────────────────────────────────────────
+const MAX_SPEED = 180;
+const ACCEL = 180;
+const DRIFT_FRICTION = 0.015;
+const NORMAL_FRICTION = 0.03;
+const STEER_SPEED = 2.8;
+const BOOST_MUL = 1.5;
+const BOOST_DUR = 1500;
+
+function createCar(x, y, angle, sprKey, isPlayer) {
+  return {
+    x, y, angle,
+    vx: 0, vy: 0,
+    speed: 0,
+    steer: 0,
+    throttle: 0,
+    drifting: false,
+    boostTimer: 0,
+    sprKey,
+    isPlayer,
+    // lap data
+    lap: 0,
+    nextWP: 1,
+    lapTimes: [],
+    lapStart: 0,
+    bestLap: Infinity,
+    finished: false,
+    position: 1,
+    // skid marks
+    skids: []
+  };
+}
+
+function updateCar(car, dt, track) {
+  if (car.finished) return;
+
+  const boost = car.boostTimer > 0 ? BOOST_MUL : 1.0;
+  car.boostTimer -= dt * 1000;
+  if (car.boostTimer < 0) car.boostTimer = 0;
+
+  const maxSpd = MAX_SPEED * boost;
+  const accel = ACCEL * boost;
+
+  // Steering
+  car.angle += car.steer * STEER_SPEED * dt;
+
+  // Throttle
+  if (car.throttle > 0) {
+    car.vx += Math.cos(car.angle) * accel * car.throttle * dt;
+    car.vy += Math.sin(car.angle) * accel * car.throttle * dt;
+  } else if (car.throttle < 0) {           // braking
+    const k = Math.max(0, 1 - 2.6 * dt); car.vx *= k; car.vy *= k;
+  }
+
+  car.speed = Math.sqrt(car.vx * car.vx + car.vy * car.vy);
+
+  // Determine drifting
+  if (car.speed > 0.1) {
+    const moveAngle = Math.atan2(car.vy, car.vx);
+    let angleDiff = car.angle - moveAngle;
+    // Normalize
+    while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+    while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+    car.drifting = Math.abs(angleDiff) > 0.3;
+  } else {
+    car.drifting = false;
+  }
+
+  if (car.drifting && car.speed > 40) car.charge = Math.min(1, (car.charge || 0) + dt * 0.45);   // a drift charges the boost
+  const friction = car.drifting ? DRIFT_FRICTION : NORMAL_FRICTION;
+  car.vx *= (1 - friction * 60 * dt);
+  car.vy *= (1 - friction * 60 * dt);
+
+  // Clamp speed
+  if (car.speed > maxSpd) {
+    car.vx = (car.vx / car.speed) * maxSpd;
+    car.vy = (car.vy / car.speed) * maxSpd;
+    car.speed = maxSpd;
+  }
+
+  car.x += car.vx * dt;
+  car.y += car.vy * dt;
+
+  // Skid marks
+  if (car.drifting && car.speed > 20) {
+    car.skids.push({x: car.x, y: car.y, alpha: 0.6, life: 2.5});
+  }
+  for (let i = car.skids.length - 1; i >= 0; i--) {
+    car.skids[i].life -= dt;
+    car.skids[i].alpha = car.skids[i].life / 2.5 * 0.6;
+    if (car.skids[i].life <= 0) car.skids.splice(i, 1);
+  }
+
+  // Waypoint progress & lap counting
+  checkWaypoint(car, track);
+
+  // Clamp to world bounds
+  car.x = Math.max(50, Math.min(1550, car.x));
+  car.y = Math.max(50, Math.min(750, car.y));
+}
+
+function checkWaypoint(car, track) {
+  const wp = track.waypoints;
+  const N = wp.length;
+  const target = wp[car.nextWP];
+  const dx = target.x - car.x, dy = target.y - car.y;
+  const dist = Math.sqrt(dx*dx + dy*dy);
+  if (dist < 60) {
+    car.nextWP = (car.nextWP + 1) % N;
+    // Lap complete when wrapping from last WP through WP 0 → WP 1
+    if (car.nextWP === 1) {
+      const now = performance.now();
+      if (car.lapStart > 0) {
+        const lapTime = (now - car.lapStart) / 1000;
+        car.lapTimes.push(lapTime);
+        if (lapTime < car.bestLap) car.bestLap = lapTime;
+        if (car.lap > 0) {
+          if (car.isPlayer) playLapComplete();
+        }
+      }
+      car.lapStart = now;
+      car.lap++;
+    }
+  }
+
+  // Boost pad check
+  if (track.boostPads) {
+    for (const bp of track.boostPads) {
+      const bx = car.x - bp.x, by = car.y - bp.y;
+      if (bx*bx + by*by < 30*30 && car.boostTimer <= 0) {
+        car.boostTimer = BOOST_DUR;
+        if (car.isPlayer) playBoost();
+      }
+    }
+  }
+}
+
+// ─── AI Logic ──────────────────────────────────────────────────────────────
+function updateAI(car, track, dt) {
+  if (car.finished) return;
+  const wp = track.waypoints;
+  const target = wp[car.nextWP];
+  const dx = target.x - car.x, dy = target.y - car.y;
+  const targetAngle = Math.atan2(dy, dx);
+  let angleDiff = targetAngle - car.angle;
+  while (angleDiff > Math.PI) angleDiff -= Math.PI*2;
+  while (angleDiff < -Math.PI) angleDiff += Math.PI*2;
+
+  car.steer = Math.max(-1, Math.min(1, angleDiff * 2));
+  car.throttle = 0.85 + Math.random() * 0.15;
+  updateCar(car, dt, track);
+}
+
+// ─── Game State ───────────────────────────────────────────────────────────
+const TOTAL_LAPS = 3;
+const SCENE = { TITLE: 0, RACE: 1, RESULTS: 2 };
+let scene = SCENE.TITLE;
+let selectedTrack = 0;
+let currentTrack = null;
+let trackCanvas = null;
+let cars = [];
+let player = null;
+let raceStart = 0;
+let raceTime = 0;
+let countdown = 3;
+let countdownTimer = 0;
+let newRecord = false;
+let stars = [];
+let lastTime = 0;
+
+// Star field for title
+function initStars() {
+  stars = [];
+  for (let i = 0; i < 80; i++) {
+    stars.push({
+      x: Math.random() * W,
+      y: Math.random() * H,
+      b: Math.random(),
+      s: Math.random() < 0.5 ? 1 : 2
+    });
+  }
+}
+
+function initRace(trackIdx) {
+  currentTrack = TRACKS[trackIdx];
+  trackCanvas = currentTrack._canvas || buildTrackCanvas(currentTrack);
+  const sx = currentTrack.startX, sy = currentTrack.startY;
+  const sa = currentTrack.startAngle;
+
+  player = createCar(sx, sy - 20, sa, "car_red", true);
+  player.lapStart = 0;
+
+  const aiCars = [
+    createCar(sx - 20, sy + 15, sa, "car_blue", false),
+    createCar(sx + 20, sy + 15, sa, "car_green", false),
+    createCar(sx,      sy + 40, sa, "car_yellow", false)
+  ];
+
+  // Stagger AI starting waypoints slightly
+  aiCars[0].nextWP = 1;
+  aiCars[1].nextWP = 1;
+  aiCars[2].nextWP = 1;
+
+  cars = [player, ...aiCars];
+
+  raceStart = performance.now();
+  countdown = 3;
+  countdownTimer = 0;
+  newRecord = false;
+}
+
+// ─── Camera ────────────────────────────────────────────────────────────────
+let camX = 0, camY = 0;
+function updateCamera() {
+  const targetX = player.x - W/2;
+  const targetY = player.y - H/2;
+  camX += (targetX - camX) * 0.12;
+  camY += (targetY - camY) * 0.12;
+}
+
+// ─── Input ─────────────────────────────────────────────────────────────────
+// The controller through the box's pad.js (SofaPad): A or RT to drive, B or LT to brake, the stick or the D-pad to
+// steer, X or RB to spend the boost a drift has charged. The keyboard is for when there's no controller; while one is
+// in use, the keys the box sends for its presses (for its own menus) are ignored.
+let keys = {};
+window.addEventListener("keydown", e => { if (window.SofaPad && SofaPad.echo(e)) return; keys[e.code] = true; if (/^(Arrow|Space$)/.test(e.code)) e.preventDefault(); resumeSound(); });
+window.addEventListener("keyup",   e => { keys[e.code] = false; });
+const padHit = { a: 0, b: 0, x: 0, rb: 0, up: 0, down: 0, start: 0 };
+if (window.SofaPad) SofaPad.on((btn, act) => { if ((act === "press" || act === "repeat") && btn in padHit) padHit[btn] = 1; if (act === "press") resumeSound(); });
+const kbHit = {};
+function keyHit(code) { if (keys[code] && !kbHit[code]) { kbHit[code] = 1; return true; } if (!keys[code]) kbHit[code] = 0; return false; }
+function hitA() { return padHit.a === 1 || padHit.start === 1 || keyHit("Enter") || keyHit("Space"); }
+function hitB() { return padHit.b === 1 || keyHit("Escape") || keyHit("Backspace"); }
+function clearHits() { for (const k in padHit) padHit[k] = 0; }
+function getStick() { return window.SofaPad ? SofaPad.stick() : { x: 0, y: 0 }; }
+function padHeld(btn) { return !!(window.SofaPad && SofaPad.held(btn)); }
+function getSteerInput() {
+  const st = getStick();
+  if (Math.abs(st.x) > 0.1) return st.x;
+  if (padHeld("left")  || keys["ArrowLeft"]  || keys["KeyA"]) return -1;
+  if (padHeld("right") || keys["ArrowRight"] || keys["KeyD"]) return  1;
+  return 0;
+}
+function getThrottle() {
+  if (padHeld("b") || padHeld("lt") || keys["ArrowDown"] || keys["KeyS"]) return -1;      // the brake
+  if (padHeld("a") || padHeld("rt") || keys["ArrowUp"] || keys["KeyW"]) return 1;
+  const st = getStick(); if (st.y < -0.1) return -st.y;
+  return 0;
+}
+function getBoostInput() { return padHeld("x") || padHeld("rb") || keys["ShiftLeft"] || keys["KeyX"]; }
+function handleTitleKeys() {
+  if (padHit.up || keyHit("ArrowUp") || keyHit("KeyW")) { selectedTrack = (selectedTrack + TRACKS.length - 1) % TRACKS.length; }
+  if (padHit.down || keyHit("ArrowDown") || keyHit("KeyS")) { selectedTrack = (selectedTrack + 1) % TRACKS.length; }
+}
+// a button's name as the controller in hand shows it (or the key, with no controller)
+function BL(b) {
+  if (window.SofaPad && SofaPad.connected()) return SofaPad.kind() === "playstation" ? ({ a: "\u2715", b: "\u25cb", x: "\u25a1", rt: "R2", lt: "L2", rb: "R1" })[b] : b.toUpperCase();
+  return ({ a: "UP", b: "DOWN", x: "SHIFT", rt: "UP", lt: "DOWN", rb: "SHIFT" })[b];
+}
+
+// ─── Minimap ────────────────────────────────────────────────────────────────
+function drawMinimap(ctx, track, carsArr) {
+  const mx = W - 85, my = 10, mw = 75, mh = 50;
+  // Background
+  ctx.fillStyle = PAL.K;
+  ctx.fillRect(mx - 1, my - 1, mw + 2, mh + 2);
+  ctx.fillStyle = PAL.k;
+  ctx.fillRect(mx, my, mw, mh);
+
+  // Track outline
+  const wp = track.waypoints;
+  if (!track._mm) { let a = 1e9, b = -1e9, c = 1e9, d = -1e9; for (const p of wp) { a = Math.min(a, p.x); b = Math.max(b, p.x); c = Math.min(c, p.y); d = Math.max(d, p.y); } track._mm = [a, b, c, d]; }
+  const minX = track._mm[0], maxX = track._mm[1], minY = track._mm[2], maxY = track._mm[3];
+  const rngX = maxX - minX || 1, rngY = maxY - minY || 1;
+
+  function mapX(x) { return mx + ((x - minX) / rngX) * mw; }
+  function mapY(y) { return my + ((y - minY) / rngY) * mh; }
+
+  ctx.strokeStyle = PAL.T;
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.moveTo(mapX(wp[0].x), mapY(wp[0].y));
+  for (let i = 1; i < wp.length; i++) ctx.lineTo(mapX(wp[i].x), mapY(wp[i].y));
+  ctx.closePath();
+  ctx.stroke();
+
+  // Cars as dots
+  const dotColors = [PAL.r, PAL.b, PAL.e, PAL.y];
+  for (let i = 0; i < carsArr.length; i++) {
+    const car = carsArr[i];
+    ctx.fillStyle = dotColors[i];
+    ctx.fillRect(Math.round(mapX(car.x)) - 1, Math.round(mapY(car.y)) - 1, 3, 3);
+  }
+
+  // Border
+  ctx.strokeStyle = PAL.G;
+  ctx.lineWidth = 1;
+  ctx.strokeRect(mx, my, mw, mh);
+}
+
+// ─── HUD ──────────────────────────────────────────────────────────────────
+function formatTime(sec) {
+  if (!isFinite(sec) || sec === Infinity) return "--:--.--";
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  const ms = Math.floor((sec % 1) * 10);
+  return m + ":" + (s < 10 ? "0" : "") + s + "." + ms;
+}
+
+function drawHUD(ctx, car, elapsed) {
+  const spd = Math.round(car.speed * 1.2);
+  const lap  = Math.min(car.lap + 1, TOTAL_LAPS);
+  // Determine position (rank by lap then waypoint)
+  let pos = 1;
+  for (const c of cars) {
+    if (c === car) continue;
+    if (c.lap > car.lap) pos++;
+    else if (c.lap === car.lap && c.nextWP > car.nextWP) pos++;
+  }
+
+  // Panel bg
+  ctx.fillStyle = "rgba(13,11,20,0.75)";
+  ctx.fillRect(2, 2, 110, 68);
+  ctx.strokeStyle = PAL.G;
+  ctx.lineWidth = 1;
+  ctx.strokeRect(2, 2, 110, 68);
+
+  drawText(ctx, "LAP " + lap + "/" + TOTAL_LAPS, 6, 6,  PAL.c, 1);
+  drawText(ctx, "POS " + pos + "/4",             6, 18, PAL.y, 1);
+  drawText(ctx, "SPD " + spd,                    6, 30, PAL.w, 1);
+
+  const bt = car.bestLap;
+  drawText(ctx, "BEST " + formatTime(bt),        6, 42, PAL.m, 1);
+  drawText(ctx, formatTime(elapsed),             6, 56, PAL.G, 1);
+
+  // the drift's charge, and the boost
+  const ch = car.charge || 0;
+  ctx.fillStyle = PAL.K; ctx.fillRect(2, 80, 110, 4); ctx.fillStyle = ch >= 1 ? PAL.y : PAL.c; ctx.fillRect(2, 80, Math.round(110 * ch), 4);
+  drawText(ctx, ch >= 1 ? BL("x") + " BOOST!" : "DRIFT TO CHARGE", 6, 88, ch >= 1 ? PAL.y : PAL.g, 1);
+  if (car.boostTimer > 0) {
+    const pct = car.boostTimer / BOOST_DUR;
+    ctx.fillStyle = PAL.x;
+    ctx.fillRect(2, 72, Math.round(110 * pct), 4);
+    ditherDisc(ctx, 57, 74, 10, PAL.x, 0.5);
+  }
+}
+
+// ─── Countdown ─────────────────────────────────────────────────────────────
+function drawCountdown(ctx, cd) {
+  if (cd <= 0) return;
+  const txt = cd > 0 ? String(Math.ceil(cd)) : "GO";
+  drawCenter(ctx, txt, H/2 - 14, PAL.y, 4);
+}
+
+// ─── Race positions ─────────────────────────────────────────────────────────
+function getPositions() {
+  return [...cars].sort((a, b) => {
+    if (b.lap !== a.lap) return b.lap - a.lap;
+    return b.nextWP - a.nextWP;
+  });
+}
+
+// ─── RENDER ─────────────────────────────────────────────────────────────────
+function drawTitle() {
+  // Background
+  ctx.fillStyle = PAL.k;
+  ctx.fillRect(0, 0, W, H);
+
+  // Stars
+  for (const st of stars) {
+    const blink = 0.5 + 0.5 * Math.sin(performance.now() / 600 + st.b * 10);
+    ctx.fillStyle = `rgba(236,232,244,${0.3 + 0.7 * blink})`;
+    ctx.fillRect(Math.round(st.x), Math.round(st.y), st.s, st.s);
+  }
+
+  // Title glow
+  ditherDisc(ctx, W/2, 60, 90, PAL.c, 0.4);
+
+  // Title text
+  drawCenter(ctx, "MICRO", 20, PAL.c, 3);
+  drawCenter(ctx, "DRIFTERS", 44, PAL.w, 3);
+  drawCenter(ctx, "RETRO DRIFT RACER", 80, PAL.G, 1);
+
+  // Track selection
+  ctx.fillStyle = "rgba(13,11,20,0.8)";
+  ctx.fillRect(100, 110, 280, 115);
+  ctx.strokeStyle = PAL.C;
+  ctx.lineWidth = 1;
+  ctx.strokeRect(100, 110, 280, 115);
+
+  drawCenter(ctx, "SELECT TRACK", 115, PAL.c, 1);
+
+  for (let i = 0; i < TRACKS.length; i++) {
+    const ty = 130 + i * 28;
+    if (i === selectedTrack) {
+      ctx.fillStyle = PAL.B;
+      ctx.fillRect(104, ty - 2, 272, 22);
+      ditherDisc(ctx, 240, ty + 9, 30, TRACKS[i].color, 0.3);
+      drawCenter(ctx, "> " + TRACKS[i].name + " <", ty + 2, TRACKS[i].color, 1);
+      drawCenter(ctx, TRACKS[i].desc, ty + 13, PAL.G, 1);
+    } else {
+      drawCenter(ctx, TRACKS[i].name, ty + 7, PAL.g, 1);
+    }
+  }
+
+  drawCenter(ctx, "PRESS " + (window.SofaPad && SofaPad.connected() ? BL("a") : "ENTER") + " TO RACE", 232, PAL.y, 1);
+  drawCenter(ctx, window.SofaPad && SofaPad.connected() ? BL("a") + " OR " + BL("rt") + " DRIVE   " + BL("b") + " BRAKE   " + BL("x") + " BOOST" : "ARROWS DRIVE   SHIFT BOOST", 244, PAL.g, 1);
+
+  // Mini car sprites on title
+  const t = performance.now() / 1000;
+  ctx.save();
+  ctx.translate(60, 150 + Math.sin(t * 1.3) * 4);
+  ctx.rotate(-0.3 + Math.sin(t * 0.7) * 0.1);
+  ctx.scale(2, 2);
+  ctx.drawImage(SPR.car_red, -6, -9);
+  ctx.restore();
+
+  ctx.save();
+  ctx.translate(W - 60, 150 + Math.sin(t * 1.1 + 1) * 4);
+  ctx.rotate(0.3 + Math.sin(t * 0.9) * 0.1);
+  ctx.scale(2, 2);
+  ctx.drawImage(SPR.car_blue, -6, -9);
+  ctx.restore();
+}
+
+function drawRace(dt) {
+  // Clear
+  ctx.fillStyle = PAL.E;
+  ctx.fillRect(0, 0, W, H);
+
+  // Draw track
+  ctx.save();
+  ctx.translate(-camX, -camY);
+  if (trackCanvas) ctx.drawImage(trackCanvas, 0, 0);
+
+  // Draw all skid marks
+  for (const car of cars) {
+    for (const sk of car.skids) {
+      ctx.fillStyle = `rgba(36,29,46,${sk.alpha})`;
+      ctx.fillRect(Math.round(sk.x) - 1, Math.round(sk.y) - 1, 3, 3);
+    }
+  }
+
+  // Draw shadows then cars
+  for (const car of cars) {
+    ctx.save();
+    ctx.translate(Math.round(car.x + 2), Math.round(car.y + 4));
+    ctx.drawImage(SPR.car_shadow, -SPR.car_shadow.width/2, -SPR.car_shadow.height/2);
+    ctx.restore();
+  }
+
+  for (const car of cars) {
+    ctx.save();
+    ctx.translate(Math.round(car.x), Math.round(car.y));
+    ctx.rotate(car.angle + Math.PI/2);
+    // Boost glow
+    if (car.boostTimer > 0) {
+      ditherDisc(ctx, 0, 0, 14, PAL.x, 0.6);
+    }
+    ctx.drawImage(SPR[car.sprKey], -6, -9);
+    ctx.restore();
+  }
+
+  ctx.restore();
+
+  // HUD
+  const elapsed = (performance.now() - raceStart) / 1000;
+  drawHUD(ctx, player, elapsed);
+  drawMinimap(ctx, currentTrack, cars);
+
+  // Countdown overlay
+  if (countdown > 0) {
+    ctx.fillStyle = "rgba(13,11,20,0.5)";
+    ctx.fillRect(0, 0, W, H);
+    const cdTxt = countdown <= 1 ? "GO" : String(Math.ceil(countdown));
+    const col = countdown <= 1 ? PAL.v : PAL.y;
+    drawCenter(ctx, cdTxt, H/2 - 20, col, 4);
+  }
+
+  // Lap flash
+  if (player.lap > 0 && player.lapTimes.length > 0) {
+    const lt = player.lapTimes[player.lapTimes.length - 1];
+    const age = (elapsed - (player.lapTimes.reduce((a,b) => a+b, 0)));
+    if (age > -0.5 && age < 1.5) {
+      drawCenter(ctx, "LAP " + formatTime(lt), 90, PAL.c, 1);
+    }
+  }
+}
+
+function drawResults() {
+  ctx.fillStyle = PAL.k;
+  ctx.fillRect(0, 0, W, H);
+
+  // Stars
+  for (const st of stars) {
+    ctx.fillStyle = PAL.g;
+    ctx.fillRect(Math.round(st.x), Math.round(st.y), 1, 1);
+  }
+
+  ditherDisc(ctx, W/2, 60, 80, PAL.y, 0.3);
+  drawCenter(ctx, "RACE COMPLETE", 12, PAL.y, 2);
+
+  // Results table
+  ctx.fillStyle = "rgba(13,11,20,0.8)";
+  ctx.fillRect(60, 50, 360, 160);
+  ctx.strokeStyle = PAL.G;
+  ctx.lineWidth = 1;
+  ctx.strokeRect(60, 50, 360, 160);
+
+  drawText(ctx, "POS  CAR     TIME    BEST", 68, 56, PAL.G, 1);
+
+  const sorted = getPositions();
+  const posColors = [PAL.y, PAL.w, PAL.G, PAL.g];
+  const carNames = ["RED", "BLUE", "GRN", "YLW"];
+  const carCols = [PAL.r, PAL.b, PAL.e, PAL.y];
+  const sprKeys = ["car_red","car_blue","car_green","car_yellow"];
+
+  for (let i = 0; i < sorted.length; i++) {
+    const car = sorted[i];
+    const origIdx = cars.indexOf(car);
+    const ty = 70 + i * 32;
+    const totalTime = car.lapTimes.reduce((a,b) => a+b, 0);
+
+    if (i === 0) {
+      ctx.fillStyle = PAL.B;
+      ctx.fillRect(63, ty - 2, 354, 28);
+    }
+
+    drawText(ctx, (i+1)+".", 68, ty + 4, posColors[i], 1);
+    drawText(ctx, carNames[origIdx < 0 ? 0 : origIdx], 90, ty + 4, carCols[origIdx < 0 ? 0 : origIdx], 1);
+    drawText(ctx, formatTime(totalTime), 148, ty + 4, PAL.w, 1);
+    drawText(ctx, formatTime(car.bestLap), 240, ty + 4, PAL.m, 1);
+
+    // Mini car icon
+    ctx.save();
+    ctx.translate(320, ty + 10);
+    ctx.scale(1.5, 1.5);
+    ctx.drawImage(SPR[sprKeys[origIdx < 0 ? 0 : origIdx]], -6, -9);
+    ctx.restore();
+  }
+
+  if (newRecord) {
+    ditherDisc(ctx, W/2, 220, 50, PAL.y, 0.5);
+    drawCenter(ctx, "NEW RECORD!", 215, PAL.y, 2);
+  }
+
+  drawCenter(ctx, "A: RETRY   B: TRACK SELECT", 237, PAL.c, 1);
+  drawCenter(ctx, "ENTER: RETRY   ESC: MENU", 249, PAL.g, 1);
+}
+
+// ─── Main Loop ─────────────────────────────────────────────────────────────
+function startRace() {
+  initAudio(); if (engineGain) engineGain.gain.value = 0.05;
+  initRace(selectedTrack);
+  scene = SCENE.RACE;
+  lastTime = performance.now();
+}
+
+function checkRaceEnd() {
+  let allDone = true;
+  for (const car of cars) {
+    if (car.lap >= TOTAL_LAPS && !car.finished) {
+      car.finished = true;
+      if (car.isPlayer) {
+        playVictory();
+        // Check record
+        const prevBest = parseFloat(localStorage.getItem("md_best_" + selectedTrack) || "999999");
+        if (car.bestLap < prevBest) {
+          newRecord = true;
+          localStorage.setItem("md_best_" + selectedTrack, car.bestLap.toFixed(3));
+        }
+      }
+    }
+    if (!car.finished) allDone = false;
+  }
+  // End race if player finished
+  if (player.finished) {
+    scene = SCENE.RESULTS;
+  }
+}
+
+function loop(now) {
+  requestAnimationFrame(loop);
+  const dt = Math.min((now - lastTime) / 1000, 0.05);
+  lastTime = now;
+
+  if (scene === SCENE.TITLE) {
+    handleTitleKeys();
+    if (hitA()) { clearHits(); startRace(); return; }
+    drawTitle();
+
+  } else if (scene === SCENE.RACE) {
+    // Countdown
+    if (countdown > 0) {
+      countdownTimer += dt;
+      if (countdownTimer >= 1) {
+        countdown--;
+        countdownTimer = 0;
+        if (countdown === 0) {
+          raceStart = performance.now();
+          for (const car of cars) car.lapStart = raceStart;
+        }
+      }
+    } else {
+      // Player input
+      player.steer = getSteerInput();
+      player.throttle = getThrottle();
+      if (getBoostInput() && player.boostTimer <= 0 && (player.charge || 0) >= 1) {      // spend the drift's charge
+        player.boostTimer = BOOST_DUR; player.charge = 0;
+      }
+
+      updateCar(player, dt, currentTrack);
+
+      // AI
+      for (let i = 1; i < cars.length; i++) {
+        updateAI(cars[i], currentTrack, dt);
+      }
+
+      updateCamera();
+      setEngineFreq(player.speed);
+      setScreechVol(player.drifting ? 0.2 : 0);
+
+      checkRaceEnd();
+    }
+
+    drawRace(dt);
+
+    // Keyboard results shortcuts
+    if (scene === SCENE.RESULTS) {
+      // just entered results, handled next frame
+    }
+
+  } else if (scene === SCENE.RESULTS) {
+    if (engineGain) { engineGain.gain.value = 0; setScreechVol(0); }      // (the engine quiet off the track)
+    drawResults();
+    if (hitA()) startRace();
+    else if (hitB()) scene = SCENE.TITLE;
+  }
+  clearHits();
+}
+
+// ─── Boot ───────────────────────────────────────────────────────────────────
+initStars();
+// Pre-build all track canvases
+for (let i = 0; i < TRACKS.length; i++) {
+  TRACKS[i]._canvas = buildTrackCanvas(TRACKS[i]);
+}
+requestAnimationFrame(t => { lastTime = t; loop(t); });
+
+</script>
+</body>
+</html>

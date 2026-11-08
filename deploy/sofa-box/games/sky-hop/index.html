@@ -1,58 +1,531 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Sky Hop</title>
 <style>
-  html, body { margin: 0; height: 100%; overflow: hidden; background: linear-gradient(#7fd3ff, #d9f3ff); font: 700 16px/1.3 system-ui, sans-serif; }
-  canvas { display: block; width: 100vw; height: 100vh; }
-  .ui { position: fixed; inset: 0; display: grid; place-content: center; text-align: center; gap: 10px; pointer-events: none; color: #134; }
-  .ui h1 { margin: 0; font-size: 7vw; color: #2f8f2f; text-shadow: 0 4px 0 #fff; }
-  .score { position: fixed; top: 3vh; left: 4vw; font-size: 3.4vw; color: #134; }
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  canvas { position: absolute; image-rendering: pixelated; }
 </style></head><body>
-<canvas id="c"></canvas><div class="score" id="score">0</div>
-<div class="ui" id="ui"><h1>SKY HOP</h1><p id="how">← → to steer · OK to start</p><p id="best"></p></div>
+<canvas id="c" width="480" height="270"></canvas>
 <script src="../pad.js"></script>
 <script>
+/* Sky Hop: retro pixel-art platform hopper for Sofa Box OS.
+   Full pixel art sprites (frog, clouds, platforms, birds), 5×7 bitmap font,
+   Bayer dithered sky gradient, Web Audio synthesis. 100% offline, controller-first. */
 (function () {
-  const c = document.getElementById("c"), x = c.getContext("2d"), ui = document.getElementById("ui");
-  let W, H, me, plats, cam, keys = {}, playing = false, height = 0, best = +localStorage.getItem("hopBest") || 0, last = 0;
-  function size() { W = c.width = innerWidth * devicePixelRatio; H = c.height = innerHeight * devicePixelRatio; }
-  addEventListener("resize", size); size();
-  function start() {
-    me = { x: W / 2, y: H * 0.7, vx: 0, vy: -H * 1.3 }; cam = 0; height = 0; plats = [];
-    for (let i = 0; i < 12; i++) plats.push({ x: Math.random() * (W - W * 0.16), y: H - i * H * 0.11, w: W * 0.16 });
-    playing = true; ui.style.display = "none";
+  "use strict";
+  const VW = 480, VH = 270;
+  const cv = document.getElementById("c"), ctx = cv.getContext("2d", { alpha: false });
+  function fit() {
+    const s = Math.min(innerWidth / VW, innerHeight / VH);
+    const w = Math.round(VW * s), h = Math.round(VH * s);
+    cv.style.width = w + "px"; cv.style.height = h + "px";
+    cv.style.left = ((innerWidth - w) >> 1) + "px"; cv.style.top = ((innerHeight - h) >> 1) + "px";
+    ctx.imageSmoothingEnabled = false;
   }
-  const how = document.getElementById("how");
-  SofaPad.on((b, act) => {
-    if (b === "connected") { how.textContent = "Stick to steer · " + SofaPad.label("a") + " to start"; return; }
-    if (act === "press" && (b === "a" || b === "start") && !playing) start();
-  });
-  addEventListener("keydown", e => { if (SofaPad.echo(e)) return; keys[e.key] = true; if ((e.key === "Enter" || e.key === " ") && !playing) start(); if (e.key.startsWith("Arrow")) e.preventDefault(); });
-  addEventListener("keyup", e => { keys[e.key] = false; });
-  addEventListener("pointerdown", e => { if (!playing) start(); keys.tap = e.clientX < innerWidth / 2 ? -1 : 1; });
-  addEventListener("pointerup", () => { keys.tap = 0; });
-  function frame(now) {
-    const dt = Math.min(0.033, (now - last) / 1000 || 0); last = now;
-    x.clearRect(0, 0, W, H);
-    if (playing) {
-      const pad = SofaPad.stick().x || ((SofaPad.held("left") ? -1 : 0) + (SofaPad.held("right") ? 1 : 0));
-      const dir = Math.max(-1, Math.min(1, (keys.ArrowLeft ? -1 : 0) + (keys.ArrowRight ? 1 : 0) + (keys.tap || 0) + pad));
-      me.vx = dir * W * 0.6; me.x = (me.x + me.vx * dt + W) % W;
-      me.vy += H * 2.6 * dt; me.y += me.vy * dt;
-      if (me.vy > 0) plats.forEach(p => { if (me.x > p.x - 10 && me.x < p.x + p.w + 10 && me.y > p.y - 12 && me.y < p.y + 14) me.vy = -H * 1.3; });
-      if (me.y < H * 0.4) { const d = H * 0.4 - me.y; me.y += d; plats.forEach(p => p.y += d); height += d; }
-      plats = plats.filter(p => p.y < H + 20);
-      while (plats.length < 12) { const top = Math.min(...plats.map(p => p.y)); plats.push({ x: Math.random() * (W - W * 0.16), y: top - H * (0.09 + Math.random() * 0.06), w: W * (0.1 + Math.random() * 0.08) }); }
-      document.getElementById("score").textContent = Math.floor(height / H * 10);
-      if (me.y > H + 40) { playing = false; const s = Math.floor(height / H * 10); best = Math.max(best, s); localStorage.setItem("hopBest", best);
-        ui.style.display = ""; ui.querySelector("h1").textContent = "SPLAT"; document.getElementById("best").textContent = "Height " + s + " · best " + best; }
+  addEventListener("resize", fit); fit();
+
+  // Palette
+  const PAL = {
+    k: "#0d0b14", K: "#241d2e", g: "#5a5468", G: "#9a94a8", w: "#ece8f4",
+    s: "#e0a67a", S: "#a86a48", r: "#c8303a", R: "#7a1a26", o: "#ee8a3a",
+    O: "#9a4a1e", y: "#f2c14e", Y: "#a87a1e", b: "#4a78c8", B: "#243c78",
+    c: "#7ad8f0", C: "#2e6e8a", n: "#6e4c2e", N: "#3e2a1a", e: "#5aa04a",
+    E: "#2e5a2a", p: "#8a4ab0", P: "#4a2468", m: "#e2d49c", M: "#a89860",
+    v: "#b8e070", x: "#ff5a8a", t: "#d0c4b0", T: "#7e6e5c"
+  };
+
+  function mk(w, h) { const c = document.createElement("canvas"); c.width = w; c.height = h; return c; }
+  function g2(c) { const g = c.getContext("2d"); g.imageSmoothingEnabled = false; return g; }
+  function spr(rows, over) {
+    let w = 0; for (let i = 0; i < rows.length; i++) w = Math.max(w, rows[i].length);
+    const c = mk(w, rows.length), g = g2(c);
+    for (let y = 0; y < rows.length; y++) for (let x = 0; x < rows[y].length; x++) {
+      const ch = rows[y][x]; if (ch === ".") continue;
+      const col = (over && over[ch]) || PAL[ch]; if (!col) continue;
+      g.fillStyle = col; g.fillRect(x, y, 1, 1);
     }
-    (plats || []).forEach(p => { x.fillStyle = "#3a9b3a"; x.fillRect(p.x, p.y, p.w, H * 0.018); x.fillStyle = "#8BD46E"; x.fillRect(p.x, p.y, p.w, H * 0.008); });
-    if (me) { const r = W * 0.025; x.fillStyle = "#2f8f2f"; x.beginPath(); x.ellipse(me.x, me.y - r, r * 1.2, r, 0, 0, Math.PI * 2); x.fill();
-      x.fillStyle = "#fff"; x.beginPath(); x.arc(me.x - r * .45, me.y - r * 1.5, r * .35, 0, 7); x.arc(me.x + r * .45, me.y - r * 1.5, r * .35, 0, 7); x.fill();
-      x.fillStyle = "#123"; x.beginPath(); x.arc(me.x - r * .45, me.y - r * 1.5, r * .16, 0, 7); x.arc(me.x + r * .45, me.y - r * 1.5, r * .16, 0, 7); x.fill(); }
-    requestAnimationFrame(frame);
+    return c;
   }
-  if (best) document.getElementById("best").textContent = "Best " + best;
-  requestAnimationFrame(frame);
+
+  // Sprites
+  const SPR = {
+    // Frog — sitting (14×12)
+    frog_sit: [
+      "....kkkk......",
+      "...kevvek.....",
+      "..kevvvvek....",
+      "..keyyyvek....",
+      "..keevvevek...",
+      ".kkkevvevkk...",
+      ".keevvvvveek..",
+      ".keevvvvveek..",
+      "keevvvvvvveek.",
+      "k.evvvvvvvee.k",
+      "k.evvvvvvvee.k",
+      "..kekkkkkek..."
+    ],
+    // Frog — jumping (14×14)
+    frog_jump: [
+      "....kkkk......",
+      "...kevvek.....",
+      "..kevvvvek....",
+      "..keyyyvek....",
+      "..keevvevek...",
+      ".kkkevvevkk...",
+      ".keevvvvveek..",
+      ".keevvvvveek..",
+      "keevvvvvvveek.",
+      "k.evvvvvvee..k",
+      "k.e...vvvee..k",
+      "k..k.kvvvek..k",
+      "...kvkkvvkvk..",
+      "....kk..kk...."
+    ],
+    // Platform tile — grassy (16×8)
+    plat_top: [
+      "kvvvvvvvvvvvvvvk",
+      "kvvevvvvvvevvvvk",
+      "kveevvvvvvvevvvk",
+      "kEvEEvvvvvEEvvEk",
+      "kEEEEEEEEEEEEEEk",
+      "knnnnnnnnnnnnnnnk",
+      "knnnnnnnnnnnnnnnk",
+      "kkkkkkkkkkkkkkkkk"
+    ],
+    // Platform tile — stone (16×8)
+    plat_stone: [
+      "kttttttttttttttk",
+      "kttGtttttttGtttk",
+      "ktGGtttttttGGttk",
+      "kGGGGGGGGGGGGGGk",
+      "kgggggggggggggggk",
+      "kgggggggggggggggk",
+      "kTTTTTTTTTTTTTTk",
+      "kkkkkkkkkkkkkkkkk"
+    ],
+    // Platform tile — cloud (20×6)
+    plat_cloud: [
+      "..kwwwwwwwwwwwwwwk...",
+      ".kwwwwwwwwwwwwwwwwk..",
+      "kwwwwwwwwwwwwwwwwwwk.",
+      "kwwwwwwwwwwwwwwwwwwk.",
+      ".kwwwwwwwwwwwwwwwwk..",
+      "..kGGGGGGGGGGGGGGk..."
+    ],
+    // Star pickup (8×8)
+    star: [
+      "...ky...",
+      "..kyyy..",
+      ".kywyyk.",
+      "kywwwyyk",
+      ".kywyyk.",
+      "..kyyy..",
+      "...ky...",
+      "........"
+    ],
+    // Bird (10×6)
+    bird: [
+      "....kk....",
+      "..kbbbk...",
+      ".kbbbbbbk.",
+      "kbbwbbwbbk",
+      ".kbbbbbbk.",
+      "..kk..kk.."
+    ],
+    // Cloud background (32×12)
+    cloud_bg: [
+      "........kwwwwwwwk..........kk....",
+      ".......kwwwwwwwwwk........kwwk...",
+      "......kwwwwwwwwwwwk......kwwwwk..",
+      ".....kwwwwwwwwwwwwwk.....kwwwwk..",
+      "......kGGGGGGGGGGGk......kwwwwk..",
+      ".........................................kwwwwwwk......",
+      "............................................kGGGGk.....",
+      ".....................................................",
+      ".....................................................",
+      ".....................................................",
+      ".....................................................",
+      "....................................................."
+    ],
+    // Sun (12×12)
+    sun: [
+      "...kyyyyyk...",
+      "..kyyyyyyyy..",
+      ".kyyyyyyyyy..",
+      "kyyyyyyyyyyk.",
+      "kyyyyyyyyyyy.",
+      "kyyyyyyyyyyk.",
+      ".kyyyyyyyyy..",
+      "..kyyyyyy.....",
+      "...kyyyyy.....",
+      "....kyyyyyyyyk",
+      ".....kyyyyyyyk",
+      "......kyyyyk.."
+    ],
+    // Shadow oval
+    shadow: [".zzzzzzz.", "zzzzzzzzz", "zzzzzzzzz", ".zzzzzzz."]
+  };
+
+  const S = {};
+  for (const k in SPR) S[k] = spr(SPR[k]);
+
+  // Bitmap font
+  const FONT = {
+    "\u2715":["#...#",".#.#.","..#..",".#.#.","#...#"],
+    "\u25cb":[".###.","#...#","#...#","#...#",".###."],
+    "\u25a1":["#####","#...#","#...#","#...#","#####"],
+    "\u25b3":["..#..",".#.#.",".#.#.","#...#","#####"],
+
+    A:["##.##","#...#","#####","#...#","#...#"],B:["####.","#...#","####.","#...#","####."],
+    C:[".####","#....","#....","#....","####."],D:["###..","#..#.","#...#","#..#.","###.."],
+    E:["#####","#....","####.","#....","#####"],F:["#####","#....","####.","#....","#...."],
+    G:[".####","#....","#.###","#...#",".####"],H:["#...#","#...#","#####","#...#","#...#"],
+    I:["###","..#","..#","..#","###"],J:["..###","...#.","...#.","#..#.",".##.."],
+    K:["#...#","#..#.","###..","#..#.","#...#"],L:["#....","#....","#....","#....","#####"],
+    M:["#...#","##.##","#.#.#","#...#","#...#"],N:["#...#","##..#","#.#.#","#..##","#...#"],
+    O:[".###.","#...#","#...#","#...#",".###."],P:["####.","#...#","####.","#....","#...."],
+    Q:[".###.","#...#","#.#.#",".###.","....#"],R:["####.","#...#","####.","#..#.","#...#"],
+    S:[".####","#....","#####","....#","####."],T:["#####","..#..","..#..","..#..","..#.."],
+    U:["#...#","#...#","#...#","#...#",".###."],V:["#...#","#...#",".#.#.",".#.#.","..#.."],
+    W:["#...#","#...#","#.#.#","##.##","#...#"],X:["#...#",".#.#.","..#..",".#.#.","#...#"],
+    Y:["#...#",".#.#.","..#..","..#..","..#.."],Z:["#####","...#.","..#..","#....","#####"],
+    "0":[".###.","#..##","#.#.#","##..#",".###."],"1":["..#","###","..#","..#","###"],
+    "2":[".###.","#...#","...#.","..#..","#####"],"3":["####.","....#","..##.","....#","####."],
+    "4":["#...#","#...#","#####","....#","....#"],"5":["#####","#....","####.","....#","####."],
+    "6":[".###.","#....","####.","#...#",".###."],"7":["#####","....#","...#.","..#..","..#.."],
+    "8":[".###.","#...#",".###.","#...#",".###."],"9":[".###.","#...#",".####","....#",".###."],
+    "!":["#","#","#",".","#"]," ":["...","...","...","...","..."],
+    "-":["....","....","####","....","...."],":":["#.","..","#.","..",".."]
+  };
+
+  // the letters: each drawn once in each colour, then copied (far cheaper on a Pi than every pixel, every frame)
+  let GLYPHS = {}, glyphCols = 0;
+  function glyphOf(ch, col) {
+    let set = GLYPHS[col];
+    if (!set) { if (++glyphCols > 48) { GLYPHS = {}; glyphCols = 1; } set = GLYPHS[col] = {}; }
+    let c = set[ch]; if (c) return c;
+    const gl = FONT[ch] || FONT[" "];
+    c = document.createElement("canvas"); c.width = gl[0].length; c.height = gl.length; const g = c.getContext("2d"); g.fillStyle = col;
+    for (let r = 0; r < gl.length; r++) for (let x = 0; x < gl[r].length; x++) if (gl[r][x] === "#") g.fillRect(x, r, 1, 1);
+    return set[ch] = c;
+  }
+  function drawText(g, str, x, y, col, scale) {
+    scale = scale || 1; str = String(str).toUpperCase(); col = col || "#ffffff";
+    let cx = x;
+    for (let i = 0; i < str.length; i++) {
+      const ch = str[i], gl = FONT[ch] || FONT[" "], gw = gl[0].length;
+      if (ch !== " ") { g.drawImage(glyphOf(ch, "#000000"), cx + 1, y + 1, gw * scale, gl.length * scale); g.drawImage(glyphOf(ch, col), cx, y, gw * scale, gl.length * scale); }
+      cx += (gw + 1) * scale;
+    }
+  }
+
+  function textW(str, scale) {
+    scale = scale || 1; str = String(str).toUpperCase();
+    let w = 0; for (let i = 0; i < str.length; i++) { const gl = FONT[str[i]] || FONT[" "]; w += (gl[0].length + 1) * scale; }
+    return w;
+  }
+  function drawCenter(g, str, y, col, scale) {
+    drawText(g, str, Math.floor((VW - textW(str, scale)) / 2), y, col, scale);
+  }
+
+  // Bayer sky gradient
+  const BAYER = [[0,8,2,10],[12,4,14,6],[3,11,1,9],[15,7,13,5]];
+  let skyC = null;
+  function drawSkyGradient() {       // the sky, made once and copied each frame (it was made pixel by pixel every frame)
+    if (!skyC) { skyC = document.createElement("canvas"); skyC.width = VW; skyC.height = VH - 20; makeSky(skyC.getContext("2d")); }
+    ctx.drawImage(skyC, 0, 0);
+  }
+  function makeSky(ctx) {
+    // Dithered sky: deep blue at top, lighter at horizon
+    const topCol = { r: 0x14, g: 0x24, b: 0x5a };
+    const botCol = { r: 0x7a, g: 0xc0, b: 0xf0 };
+    const id = ctx.createImageData(VW, VH - 20);
+    const d = id.data;
+    for (let y = 0; y < VH - 20; y++) {
+      const prog = y / (VH - 20);
+      const r = topCol.r + (botCol.r - topCol.r) * prog;
+      const g = topCol.g + (botCol.g - topCol.g) * prog;
+      const b = topCol.b + (botCol.b - topCol.b) * prog;
+      for (let x = 0; x < VW; x++) {
+        const t = (BAYER[y % 4][x % 4] + 0.5) / 16;
+        const dither = t * 8;
+        const i = (y * VW + x) * 4;
+        d[i] = Math.min(255, r + dither);
+        d[i+1] = Math.min(255, g + dither);
+        d[i+2] = Math.min(255, b + dither);
+        d[i+3] = 255;
+      }
+    }
+    ctx.putImageData(id, 0, 0);
+  }
+
+  // Audio
+  let AC = null;
+  function wakeAudio() {
+    if (!AC) {
+      try { const A = window.AudioContext || window.webkitAudioContext; if (A) AC = new A(); } catch (e) {}
+    }
+    if (AC && AC.state === "suspended") AC.resume().catch(() => {});
+  }
+  function beep(f0, f1, dur, type, vol) {
+    if (!AC || AC.state !== "running") return;
+    try {
+      const t = AC.currentTime, o = AC.createOscillator(), g = AC.createGain();
+      o.type = type || "triangle"; o.frequency.setValueAtTime(f0, t);
+      if (f1) o.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t + dur);
+      g.gain.setValueAtTime(vol || 0.08, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      o.connect(g); g.connect(AC.destination); o.start(t); o.stop(t + dur + 0.02);
+    } catch (e) {}
+  }
+  const sndBounce = () => beep(220, 440, 0.08, "triangle", 0.1);
+  const sndStar = () => { beep(880, 1320, 0.1, "triangle", 0.1); beep(1320, 1760, 0.08, "triangle", 0.08); };
+  const sndFall = () => beep(400, 80, 0.3, "sawtooth", 0.12);
+  const sndMilestone = () => { beep(523, 784, 0.12, "triangle", 0.1); beep(784, 1046, 0.1, "triangle", 0.08); };
+
+  // Game state
+  let state = "title";
+  let plat = { x: VW / 2, y: VH * 0.7, vx: 0, vy: 0 };
+  let cam = 0, height = 0, hiHeight = 0, score = 0;
+  let platforms = [], birds = [], bgClouds = [];
+  let keys = {};
+
+  try { hiHeight = +localStorage.getItem("skyHopHi") || 0; } catch (e) {}
+
+  // Background clouds
+  function resetBgClouds() {
+    bgClouds = [];
+    for (let i = 0; i < 10; i++) {
+      bgClouds.push({ x: Math.random() * VW, y: Math.random() * VH * 2, speed: 4 + Math.random() * 8 });
+    }
+  }
+
+  function platKind(h) {
+    // Deeper = more stone, higher = more clouds
+    const r = Math.random();
+    if (h > 1500) return r < 0.4 ? "cloud" : (r < 0.7 ? "stone" : "grass");
+    if (h > 500) return r < 0.2 ? "cloud" : (r < 0.5 ? "stone" : "grass");
+    return "grass";
+  }
+
+  function startGame() {
+    plat = { x: VW / 2, y: VH * 0.7, vx: 0, vy: -380 };
+    cam = 0; height = 0; score = 0;
+    platforms = [];
+    birds = [];
+    resetBgClouds();
+    // Initial platforms
+    for (let i = 0; i < 12; i++) {
+      const kind = platKind(i * 60);
+      const pw = kind === "cloud" ? 80 : (40 + Math.random() * 40);
+      platforms.push({
+        x: Math.random() * (VW - pw), y: VH - i * 60,
+        w: pw, kind, hasStar: Math.random() < 0.15, starTaken: false
+      });
+    }
+    state = "playing";
+    sndBounce();
+  }
+
+  SofaPad.on((btn, act) => {
+    wakeAudio();
+    if (act === "press") {
+      if (state !== "playing" && (btn === "a" || btn === "start")) { startGame(); return; }
+    }
+  });
+  addEventListener("keydown", e => {
+    wakeAudio();
+    if (SofaPad.echo(e)) return;
+    keys[e.key] = true;
+    if (state !== "playing" && (e.key === "Enter" || e.key === " ")) { startGame(); return; }
+    if (e.key.startsWith("Arrow")) e.preventDefault();
+  });
+  addEventListener("keyup", e => { keys[e.key] = false; });
+
+  let lastTime = performance.now();
+  function loop(now) {
+    requestAnimationFrame(loop);
+    const dt = Math.min(0.05, (now - lastTime) / 1000);
+    lastTime = now;
+    update(dt);
+    draw();
+  }
+
+  function update(dt) {
+    // Scroll bg clouds
+    for (const c of bgClouds) {
+      c.x -= c.speed * dt * 0.5;
+      if (c.x < -60) { c.x = VW + 10; c.y = cam + Math.random() * VH; }
+    }
+
+    if (state !== "playing") return;
+
+    // Input
+    const stickX = SofaPad.stick().x || 0;
+    const moveLeft = SofaPad.held("left") || keys.ArrowLeft;
+    const moveRight = SofaPad.held("right") || keys.ArrowRight;
+    const dpad = (moveLeft ? -1 : 0) + (moveRight ? 1 : 0);
+    const dir = Math.max(-1, Math.min(1, dpad + stickX));
+
+    plat.vx = dir * 200;
+    plat.x = (plat.x + plat.vx * dt + VW) % VW;
+    plat.vy += 650 * dt;
+    plat.y += plat.vy * dt;
+
+    // Check platforms
+    if (plat.vy > 0) {
+      for (const p of platforms) {
+        const pw = p.w;
+        if (plat.x > p.x && plat.x < p.x + pw && plat.y > p.y - 6 && plat.y < p.y + 10) {
+          plat.vy = -380;
+          sndBounce();
+          // Star pickup
+          if (p.hasStar && !p.starTaken && Math.abs(plat.x - (p.x + pw / 2)) < pw * 0.5) {
+            p.starTaken = true; score += 50; sndStar();
+          }
+        }
+      }
+    }
+
+    // the camera climbs with you (up is less y: the camera's y goes down as you go up)
+    if (plat.y - cam < VH * 0.4) {
+      const d = VH * 0.4 - (plat.y - cam);
+      cam -= d; height += d;
+      // Milestone sound
+      const ms = Math.floor(height / 500) * 500;
+      if (ms > 0 && height - d < ms) sndMilestone();
+    }
+
+    // Scroll platforms, spawn new ones
+    platforms = platforms.filter(p => p.y < cam + VH + 30);
+    while (platforms.length < 14) {
+      let topY = cam + VH; for (const p of platforms) if (p.y < topY) topY = p.y;
+      const kind = platKind(-topY);
+      const pw = kind === "cloud" ? 80 : (40 + Math.random() * 40);
+      platforms.push({
+        x: Math.random() * (VW - pw),
+        y: topY - 50 - Math.random() * 40,
+        w: pw, kind, hasStar: Math.random() < 0.12, starTaken: false
+      });
+    }
+
+    // Birds
+    if (height > 400 && Math.random() < dt * 0.4) {
+      birds.push({ x: Math.random() < 0.5 ? -20 : VW + 20, y: cam + 30 + Math.random() * (VH - 60), vx: 30 + Math.random() * 50, frame: 0, timer: 0 });
+      if (birds[birds.length - 1].x > 0) birds[birds.length - 1].vx *= -1;
+    }
+    for (const b of birds) {
+      b.x += b.vx * dt; b.timer += dt;
+      if (b.timer > 0.25) { b.timer = 0; b.frame = (b.frame + 1) % 2; }
+    }
+    birds = birds.filter(b => b.x > -40 && b.x < VW + 40);
+
+    // Fall death
+    if (plat.y > cam + VH + 40) {
+      state = "gameover";
+      if (height > hiHeight) { hiHeight = Math.floor(height); try { localStorage.setItem("skyHopHi", hiHeight); } catch (e) {} }
+      sndFall();
+    }
+  }
+
+  function draw() {
+    // Sky
+    drawSkyGradient();
+
+    // Ground stripe
+    ctx.fillStyle = "#3a7a3a";
+    ctx.fillRect(0, VH - 20, VW, 20);
+    ctx.fillStyle = "#2e5a2a";
+    ctx.fillRect(0, VH - 10, VW, 10);
+
+    // Sun (only in title / near ground)
+    if (cam < 200) {
+      ctx.drawImage(S.sun, VW - 60, 10 - Math.floor(cam * 0.05));
+    }
+
+    // Background clouds
+    for (const c of bgClouds) {
+      const cy = c.y - cam;
+      if (cy > -20 && cy < VH + 20) {
+        ctx.globalAlpha = 0.35;
+        ctx.drawImage(S.cloud_bg, Math.floor(c.x), Math.floor(cy));
+        ctx.globalAlpha = 1;
+      }
+    }
+
+    // Platforms
+    for (const p of platforms) {
+      const py = Math.floor(p.y - cam);
+      if (py < -20 || py > VH + 20) continue;
+      const img = p.kind === "cloud" ? S.plat_cloud : (p.kind === "stone" ? S.plat_stone : S.plat_top);
+      const tileW = img.width;
+      const count = Math.ceil(p.w / tileW);
+      for (let i = 0; i < count; i++) {
+        ctx.drawImage(img, Math.floor(p.x) + i * tileW, py - img.height + 4);
+      }
+      // Star on platform
+      if (p.hasStar && !p.starTaken) {
+        ctx.drawImage(S.star, Math.floor(p.x + p.w / 2 - 4), py - img.height - 10);
+      }
+    }
+
+    // Birds
+    for (const b of birds) {
+      const by = Math.floor(b.y - cam);
+      ctx.save();
+      if (b.vx < 0) { ctx.translate(Math.floor(b.x) + 10, by); ctx.scale(-1, 1); ctx.drawImage(S.bird, -10, 0); }
+      else { ctx.drawImage(S.bird, Math.floor(b.x), by); }
+      ctx.restore();
+    }
+
+    // Player frog shadow on platform below
+    for (const p of platforms) {
+      if (plat.vy > 0 && plat.y < p.y && Math.abs(plat.x - (p.x + p.w / 2)) < p.w) {
+        const shY = Math.floor(p.y - cam);
+        ctx.drawImage(S.shadow, Math.floor(plat.x - 4), shY - 4);
+        break;
+      }
+    }
+
+    // Player frog
+    const fy = Math.floor(plat.y - cam);
+    const frogImg = plat.vy < -50 ? S.frog_jump : S.frog_sit;
+    ctx.drawImage(frogImg, Math.floor(plat.x - 7), fy - frogImg.height + 4);
+
+    // HUD
+    if (state === "playing" || state === "gameover") {
+      const hStr = Math.floor(height / 10);
+      drawText(ctx, hStr, VW - textW(String(hStr), 2) - 8, 10, "#f2c14e", 2);
+      if (score > 0) drawText(ctx, "★ " + score, 10, 10, "#f2c14e", 1);
+      if (hiHeight > 0) drawText(ctx, "HI " + Math.floor(hiHeight / 10), 10, 22, "#9a94a8", 1);
+    }
+
+    if (state === "title") {
+      ctx.fillStyle = "rgba(13,11,20,0.72)";
+      ctx.fillRect(60, 50, 360, 160);
+      drawCenter(ctx, "SKY HOP", 60, "#b8e070", 3);
+      drawCenter(ctx, "BOUNCE UP! DON'T FALL!", 100, "#7ad8f0", 1);
+      ctx.drawImage(S.frog_jump, 220, 115);
+      drawCenter(ctx, "PRESS " + (SofaPad.connected() ? SofaPad.label("a") : "ENTER") + " TO JUMP", 162, "#f2c14e", 1);
+      drawCenter(ctx, "LEFT RIGHT TO STEER", 180, "#9a94a8", 1);
+      if (hiHeight > 0) drawCenter(ctx, "BEST: " + Math.floor(hiHeight / 10), 200, "#b8e070", 1);
+    }
+    if (state === "gameover") {
+      ctx.fillStyle = "rgba(13,11,20,0.82)";
+      ctx.fillRect(80, 65, 320, 140);
+      drawCenter(ctx, "SPLAT!", 75, "#c8303a", 3);
+      drawCenter(ctx, "HEIGHT: " + Math.floor(height / 10), 115, "#f2c14e", 2);
+      if (height >= hiHeight * 10 && hiHeight > 0) drawCenter(ctx, "NEW RECORD!", 140, "#b8e070", 1);
+      drawCenter(ctx, "PRESS " + (SofaPad.connected() ? SofaPad.label("a") : "ENTER"), 170, "#7ad8f0", 1);
+    }
+  }
+
+  function textW(str, scale) {
+    scale = scale || 1; str = String(str).toUpperCase();
+    let w = 0; for (let i = 0; i < str.length; i++) { const gl = FONT[str[i]] || FONT[" "]; w += (gl[0].length + 1) * scale; }
+    return w;
+  }
+
+  resetBgClouds();
+  requestAnimationFrame(loop);
 })();
-</script></body></html>
+</script>
+</body></html>

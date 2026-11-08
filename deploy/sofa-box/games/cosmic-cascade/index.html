@@ -1,0 +1,1190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Cosmic Cascade</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:#000;display:flex;align-items:center;justify-content:center;width:100vw;height:100vh;overflow:hidden;}
+canvas{image-rendering:pixelated;image-rendering:crisp-edges;}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script src="../pad.js" onerror="window._padMissing=true"></script>
+<script>
+// ─── PALETTE ───────────────────────────────────────────────────────────────
+const PAL={k:"#0d0b14",K:"#241d2e",g:"#5a5468",G:"#9a94a8",w:"#ece8f4",
+  s:"#e0a67a",S:"#a86a48",r:"#c8303a",R:"#7a1a26",o:"#ee8a3a",O:"#9a4a1e",
+  y:"#f2c14e",Y:"#a87a1e",b:"#4a78c8",B:"#243c78",c:"#7ad8f0",C:"#2e6e8a",
+  n:"#6e4c2e",N:"#3e2a1a",e:"#5aa04a",E:"#2e5a2a",p:"#8a4ab0",P:"#4a2468",
+  m:"#e2d49c",M:"#a89860",v:"#b8e070",x:"#ff5a8a",t:"#d0c4b0",T:"#7e6e5c",z:"rgba(0,0,0,0.42)"};
+
+// ─── CANVAS SETUP ──────────────────────────────────────────────────────────
+const W=480,H=270;
+const canvas=document.getElementById("c");
+canvas.width=W;canvas.height=H;
+const ctx=canvas.getContext("2d");
+ctx.imageSmoothingEnabled=false;
+function scaleCanvas(){
+  const sx=Math.floor(window.innerWidth/W),sy=Math.floor(window.innerHeight/H);
+  const sc=Math.max(1,Math.min(sx,sy));
+  canvas.style.width=(W*sc)+"px";canvas.style.height=(H*sc)+"px";
+}
+scaleCanvas();
+window.addEventListener("resize",scaleCanvas);
+
+function mk(w,h){const c=document.createElement("canvas");c.width=w;c.height=h;return c;}
+function g2(c){const g=c.getContext("2d");g.imageSmoothingEnabled=false;return g;}
+function spr(rows,over){
+  let w=0;for(let i=0;i<rows.length;i++)w=Math.max(w,rows[i].length);
+  const c=mk(w,rows.length),g=g2(c);
+  for(let y=0;y<rows.length;y++)for(let x=0;x<rows[y].length;x++){
+    const ch=rows[y][x];if(ch===".")continue;
+    const col=(over&&over[ch])||PAL[ch];if(!col)continue;
+    g.fillStyle=col;g.fillRect(x,y,1,1);
+  }
+  return c;
+}
+
+// ─── BAYER DITHER ──────────────────────────────────────────────────────────
+const BAYER=[[0,8,2,10],[12,4,14,6],[3,11,1,9],[15,7,13,5]];
+function ditherDisc(ctx,cx,cy,r,hexCol,maxAlpha){
+  const r2=r*r;
+  const x0=Math.floor(cx-r),x1=Math.ceil(cx+r);
+  const y0=Math.floor(cy-r),y1=Math.ceil(cy+r);
+  for(let py=y0;py<=y1;py++){
+    for(let px=x0;px<=x1;px++){
+      const dx=px-cx,dy=py-cy,d2=dx*dx+dy*dy;
+      if(d2>r2)continue;
+      const dist=Math.sqrt(d2)/r;
+      const alpha=maxAlpha*(1-dist);
+      const thr=BAYER[py&3][px&3]/16;
+      if(alpha>thr){ctx.fillStyle=hexCol;ctx.fillRect(px,py,1,1);}
+    }
+  }
+}
+function ditherRect(ctx,x,y,w,h,hexCol,alpha){
+  for(let py=y;py<y+h;py++){
+    for(let px=x;px<x+w;px++){
+      const thr=BAYER[py&3][px&3]/16;
+      if(alpha>thr){ctx.fillStyle=hexCol;ctx.fillRect(px,py,1,1);}
+    }
+  }
+}
+
+// ─── 5×7 BITMAP FONT ───────────────────────────────────────────────────────
+const FONT_MAP={
+    "\u2715":["00000","10001","01010","00100","01010","10001","00000"],
+    "\u25cb":["00000","01110","10001","10001","10001","01110","00000"],
+    "\u25a1":["00000","11111","10001","10001","10001","11111","00000"],
+    "\u25b3":["00000","00100","01010","01010","10001","11111","00000"],
+
+  "A":["01110","10001","10001","11111","10001","10001","10001"],
+  "B":["11110","10001","10001","11110","10001","10001","11110"],
+  "C":["01111","10000","10000","10000","10000","10000","01111"],
+  "D":["11110","10001","10001","10001","10001","10001","11110"],
+  "E":["11111","10000","10000","11110","10000","10000","11111"],
+  "F":["11111","10000","10000","11110","10000","10000","10000"],
+  "G":["01111","10000","10000","10111","10001","10001","01111"],
+  "H":["10001","10001","10001","11111","10001","10001","10001"],
+  "I":["11111","00100","00100","00100","00100","00100","11111"],
+  "J":["11111","00001","00001","00001","00001","10001","01110"],
+  "K":["10001","10010","10100","11000","10100","10010","10001"],
+  "L":["10000","10000","10000","10000","10000","10000","11111"],
+  "M":["10001","11011","10101","10001","10001","10001","10001"],
+  "N":["10001","11001","10101","10011","10001","10001","10001"],
+  "O":["01110","10001","10001","10001","10001","10001","01110"],
+  "P":["11110","10001","10001","11110","10000","10000","10000"],
+  "Q":["01110","10001","10001","10001","10101","10010","01101"],
+  "R":["11110","10001","10001","11110","10100","10010","10001"],
+  "S":["01111","10000","10000","01110","00001","00001","11110"],
+  "T":["11111","00100","00100","00100","00100","00100","00100"],
+  "U":["10001","10001","10001","10001","10001","10001","01110"],
+  "V":["10001","10001","10001","10001","10001","01010","00100"],
+  "W":["10001","10001","10001","10101","10101","11011","10001"],
+  "X":["10001","01010","00100","00100","00100","01010","10001"],
+  "Y":["10001","10001","01010","00100","00100","00100","00100"],
+  "Z":["11111","00001","00010","00100","01000","10000","11111"],
+  "0":["01110","10001","10011","10101","11001","10001","01110"],
+  "1":["00100","01100","00100","00100","00100","00100","01110"],
+  "2":["01110","10001","00001","00110","01000","10000","11111"],
+  "3":["11110","00001","00001","01110","00001","00001","11110"],
+  "4":["00010","00110","01010","10010","11111","00010","00010"],
+  "5":["11111","10000","10000","11110","00001","00001","11110"],
+  "6":["01111","10000","10000","11110","10001","10001","01110"],
+  "7":["11111","00001","00010","00100","01000","01000","01000"],
+  "8":["01110","10001","10001","01110","10001","10001","01110"],
+  "9":["01110","10001","10001","01111","00001","00001","11110"],
+  "!":["00100","00100","00100","00100","00100","00000","00100"],
+  "-":["00000","00000","00000","11111","00000","00000","00000"],
+  ":":["00000","00100","00000","00000","00000","00100","00000"],
+  ".":["00000","00000","00000","00000","00000","00000","00100"],
+  "×":["00000","10001","01010","00100","01010","10001","00000"],
+  " ":["00000","00000","00000","00000","00000","00000","00000"],
+  "*":["00000","10101","01110","11111","01110","10101","00000"],
+  "/":["00001","00001","00010","00100","01000","10000","10000"],
+  "+":["00000","00100","00100","11111","00100","00100","00000"],
+  "#":["01010","01010","11111","01010","11111","01010","01010"],
+  ">":["10000","01000","00100","00010","00100","01000","10000"],
+  "<":["00001","00010","00100","01000","00100","00010","00001"],
+};
+// the letters: each drawn once in each colour, then copied (far cheaper on a Pi than every pixel, every frame)
+let GLYPHS={}, glyphCols=0;
+function glyphOf(ch,col){
+  let set=GLYPHS[col];
+  if(!set){ if(++glyphCols>48){ GLYPHS={}; glyphCols=1; } set=GLYPHS[col]={}; }
+  let c=set[ch]; if(c) return c;
+  const glyph=FONT_MAP[ch]||FONT_MAP[" "];
+  c=document.createElement("canvas"); c.width=5; c.height=7; const g=c.getContext("2d"); g.fillStyle=col;
+  for(let gy=0;gy<7;gy++){ const row=glyph[gy]||"00000"; for(let gx=0;gx<5;gx++) if(row[gx]==="1") g.fillRect(gx,gy,1,1); }
+  return set[ch]=c;
+}
+function drawText(ctx,str,x,y,col,scale,shadow){
+  scale=scale||1; const s=str.toUpperCase(); col=col||PAL.w;
+  let cx=x;
+  for(let i=0;i<s.length;i++){
+    const ch=s[i];
+    if(ch!==" "){ if(shadow) ctx.drawImage(glyphOf(ch,PAL.k),cx+scale,y+scale,5*scale,7*scale); ctx.drawImage(glyphOf(ch,col),cx,y,5*scale,7*scale); }
+    cx+=6*scale;
+  }
+}
+function textWidth(str,scale){return str.length*(5+1)*(scale||1);}
+function drawCenter(ctx,str,y,col,scale){
+  const tw=textWidth(str,scale);
+  drawText(ctx,str,Math.floor((W-tw)/2),y,col,scale,true);
+}
+
+// ─── SPRITES ───────────────────────────────────────────────────────────────
+const SPRITES={};
+function buildSprites(){
+  // GEM RED (Ruby)
+  SPRITES.gem_red=spr([
+    ".....kkkk.....",
+    "....krrrrrk...",
+    "...krwwrrrrrk.",
+    "..kkrwwrrrRrrk",
+    "..krrrrrrrrRRk",
+    "..krrrrrRRRRRk",
+    "..krrrRRRRRkkk",
+    "..krRRRRRkk...",
+    "..kkRRRkk.....",
+    "...kRRk.......",
+    "....kk........",
+    "..............",
+    "..............",
+    "..............",
+  ]);
+  // GEM BLUE (Sapphire)
+  SPRITES.gem_blue=spr([
+    ".....kkkk.....",
+    "....kbbbbbk...",
+    "...kbcbbbbbk..",
+    "..kkbcbbbbBbbk",
+    "..kbbbbbbbBBBk",
+    "..kbbbbbBBBBBk",
+    "..kbbbBBBBBkkk",
+    "..kbBBBBBkk...",
+    "..kkBBBkk.....",
+    "...kBBk.......",
+    "....kk........",
+    "..............",
+    "..............",
+    "..............",
+  ]);
+  // GEM CYAN (Aquamarine)
+  SPRITES.gem_cyan=spr([
+    ".....kkkk.....",
+    "....kccccck...",
+    "...kcwccccck..",
+    "..kkcwcccccCck",
+    "..kcccccccCCCk",
+    "..kcccccCCCCCk",
+    "..kccCCCCCkkkk",
+    "..kcCCCCCkk...",
+    "..kkCCCkk.....",
+    "...kCCk.......",
+    "....kk........",
+    "..............",
+    "..............",
+    "..............",
+  ]);
+  // GEM GREEN (Emerald)
+  SPRITES.gem_green=spr([
+    ".....kkkk.....",
+    "....keeeek....",
+    "...keveeeeek..",
+    "..kkeveeeeEek.",
+    "..keeeeeeeEEk.",
+    "..keeeeeEEEEk.",
+    "..keeeEEEEkkk.",
+    "..keEEEEkk....",
+    "..kkEEkk......",
+    "...kEk........",
+    "....kk........",
+    "..............",
+    "..............",
+    "..............",
+  ]);
+  // GEM YELLOW (Topaz)
+  SPRITES.gem_yellow=spr([
+    ".....kkkk.....",
+    "....kyyyyk....",
+    "...kmyyyyyk...",
+    "..kkmyyyyYyk..",
+    "..kyyyyyyyyYk.",
+    "..kyyyyYYYYYk.",
+    "..kyyyYYYYkkk.",
+    "..kyYYYYkk....",
+    "..kkYYkk......",
+    "...kYk........",
+    "....kk........",
+    "..............",
+    "..............",
+    "..............",
+  ]);
+  // GEM PURPLE (Amethyst)
+  SPRITES.gem_purple=spr([
+    ".....kkkk.....",
+    "....kppppk....",
+    "...kpxpppppk..",
+    "..kkpxpppPppk.",
+    "..kpppppppPPk.",
+    "..kpppppPPPPk.",
+    "..kpppPPPPkkk.",
+    "..kpPPPPkk....",
+    "..kkPPkk......",
+    "...kPk........",
+    "....kk........",
+    "..............",
+    "..............",
+    "..............",
+  ]);
+  // GEM WILD (Rainbow)
+  SPRITES.gem_wild=spr([
+    ".....kkkk.....",
+    "....kwwwwk....",
+    "...krybcppk...",
+    "..kkrycbppgk..",
+    "..kybcpprybk..",
+    "..kbcpprybck..",
+    "..kcpprybckk..",
+    "..kpprybckk...",
+    "..kkrybkk.....",
+    "...kybk.......",
+    "....kk........",
+    "..............",
+    "..............",
+    "..............",
+  ]);
+  // GEM SHATTER (fragment)
+  SPRITES.gem_shatter=spr([
+    "..............",
+    "....k..k......",
+    "...kRk.kr.....",
+    "..kRRk..krk...",
+    ".kRRk....krk..",
+    "kRRk......k...",
+    "..............",
+    "..............",
+    "..............",
+    "..............",
+    "..............",
+    "..............",
+    "..............",
+    "..............",
+  ]);
+  // STAR ICON
+  SPRITES.star_icon=spr([
+    "...y....",
+    "..yyy...",
+    "yyyYyyy.",
+    ".yyyyy..",
+    "..yyy...",
+    ".y.y.y..",
+    "y.....y.",
+    "........",
+  ]);
+  // CROWN ICON
+  SPRITES.crown_icon=spr([
+    "y.y.y.....",
+    "yyyyyyy...",
+    "yyyyyyy...",
+    "yyyyyyy...",
+    "yyyyyyy...",
+    "yyyyyyy...",
+    "mmmmmmm...",
+    "mmmmmmm...",
+  ]);
+  // STARFIELD TILES
+  SPRITES.starfield_1=spr([
+    "k.......","........","...k....","........",
+    "......k.","..k.....","........","....k..."
+  ]);
+  SPRITES.starfield_2=spr([
+    "........",".k......","........","......k.",
+    "...k....","........",".....k..","........"
+  ]);
+  // NEBULA PATCH
+  SPRITES.nebula_patch=spr([
+    "................",
+    ".K..............",
+    "..KP............",
+    "...KPp..........",
+    "....Ppc.........",
+    ".....pcC........",
+    "......cCB.......",
+    "................",
+  ]);
+  // NEXT GEM FRAME
+  SPRITES.next_gem_frame=spr([
+    "gggggggg",
+    "g......g",
+    "g......g",
+    "g......g",
+    "g......g",
+    "g......g",
+    "g......g",
+    "gggggggg",
+  ]);
+}
+
+// ─── WEB AUDIO ─────────────────────────────────────────────────────────────
+let audioCtx=null;
+function ensureAudio(){
+  if(!audioCtx)audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+  return audioCtx;
+}
+function playTone(freq,type,dur,vol,delay,when){
+  const ac=ensureAudio();
+  const t=(when||ac.currentTime)+(delay||0);
+  const osc=ac.createOscillator();
+  const gain=ac.createGain();
+  osc.connect(gain);gain.connect(ac.destination);
+  osc.type=type||"sine";
+  osc.frequency.setValueAtTime(freq,t);
+  gain.gain.setValueAtTime(vol||0.15,t);
+  gain.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+  osc.start(t);osc.stop(t+dur+0.01);
+}
+function sfxLand(){playTone(180,"triangle",0.08,0.1);}
+function sfxMatch(gemColor){
+  const notes={r:261.6,b:329.6,c:392,e:440,y:523.2,p:659.3};
+  const f=notes[gemColor]||261.6;
+  playTone(f,"sine",0.2,0.15);
+  playTone(f*1.5,"sine",0.15,0.07,0.05);
+}
+function sfxChain(len){
+  const base=261.6;
+  for(let i=0;i<len;i++){
+    playTone(base*Math.pow(1.2,i),"sine",0.15,0.12,i*0.08);
+  }
+}
+function sfxBeamFire(){
+  const ac=ensureAudio();
+  const t=ac.currentTime;
+  const osc=ac.createOscillator();
+  const gain=ac.createGain();
+  osc.connect(gain);gain.connect(ac.destination);
+  osc.type="sine";
+  osc.frequency.setValueAtTime(200,t);
+  osc.frequency.linearRampToValueAtTime(800,t+0.4);
+  gain.gain.setValueAtTime(0.15,t);
+  gain.gain.exponentialRampToValueAtTime(0.0001,t+0.4);
+  osc.start(t);osc.stop(t+0.5);
+}
+function sfxBeamFusion(){
+  const scale=[523.2,587.3,659.3,784,880];
+  for(let i=0;i<scale.length;i++){
+    playTone(scale[i],"sine",0.08,0.12,i*0.05);
+  }
+}
+function sfxHyperMode(){
+  const chord=[261.6,329.6,392,523.2];
+  chord.forEach((f,i)=>{playTone(f,"sawtooth",0.3,0.08,i*0.02);});
+}
+function sfxLevelUp(){
+  [392,440,523.2].forEach((f,i)=>{playTone(f,"sine",0.15,0.15,i*0.1);});
+}
+function sfxGameOver(){
+  [392,349.2,311.1,261.6,220].forEach((f,i)=>{playTone(f,"triangle",0.2,0.12,i*0.12);});
+}
+function sfxWild(){
+  for(let i=0;i<6;i++)playTone(300+i*100,"sine",0.05,0.1,i*0.04);
+}
+
+// ─── CONTROLLER / KEYBOARD ────────────────────────────────────────────────
+// The controller through the box's pad.js (SofaPad): presses kept until the frame reads them, the stick and the
+// D-pad both move. The keyboard is for when there's no controller; while one is in use, the keys the box sends for
+// its presses (for its own menus) are ignored.
+const keys={};
+document.addEventListener("keydown",e=>{ if(window.SofaPad&&SofaPad.echo(e)) return; keys[e.code]=true; if(/^(Arrow|Space$)/.test(e.code)) e.preventDefault(); ensureAudio(); });
+document.addEventListener("keyup",e=>{keys[e.code]=false;});
+const padHit={};
+if(window.SofaPad) SofaPad.on((b,how)=>{ if(how==="press"){ padHit[b]=1; ensureAudio(); } });
+const PADBTN={0:"a",1:"b",2:"x",3:"y",9:"start"};
+function btnPressed(idx){ return padHit[PADBTN[idx]]===1; }
+function btnHeld(idx){ return !!(window.SofaPad&&SofaPad.held(PADBTN[idx])); }
+function axisX(){
+  if(!window.SofaPad) return 0;
+  return SofaPad.held("left")?-1:SofaPad.held("right")?1:SofaPad.stick().x;
+}
+function padDown(){ return !!(window.SofaPad&&(SofaPad.held("down")||SofaPad.held("a")||SofaPad.stick().y>0.6)); }
+const prevKeys={};
+function keyJustPressed(code){ return !!keys[code]&&!prevKeys[code]; }
+function updatePrevKeys(){ for(const k in keys){prevKeys[k]=keys[k];} }
+function BL(b){
+  if(window.SofaPad&&SofaPad.connected()) return SofaPad.kind()==="playstation"?({a:"\u2715",b:"\u25cb",start:"OPTIONS"})[b]:(b==="start"?"MENU":b.toUpperCase());
+  return ({a:"SPACE",b:"SHIFT",start:"ESC"})[b];
+}
+
+// ─── GAME CONSTANTS ────────────────────────────────────────────────────────
+const COLS=8,ROWS=14,CELL=14;
+const BX=100,BY=14; // board origin
+const SIDE_X=BX+COLS*CELL+8; // side panel x
+
+const GEM_TYPES=["r","b","c","e","y","p"]; // colors
+const GEM_WILD="w_";
+const BEAM_INTERVAL=8000; // ms
+const MATCH_SIZE=3;
+
+// ─── GAME STATE ────────────────────────────────────────────────────────────
+let state="title";
+let board=[];
+let falling={col:4,row:-1,color:"r"};
+let nextGems=[];
+let held=null;
+let heldUsed=false;
+let score=0,hiScore=0,level=1,chain=0;
+let fallTimer=0,fallSpeed=800;
+let beamTimer=0,beamCol=-1,beamActive=false,beamHighlight=false,beamHighlightTimer=0;
+let fusionBonus=false;
+let hyperMode=false;
+let particles=[];
+let scorePopups=[];
+let titleStars=[];
+let bgStars=[];
+let flashTimer=0,flashCol=PAL.c;
+let chainDisplay=0,chainTimer=0;
+let inputDelay={left:0,right:0,down:0};
+let gameTime=0;
+let levelScore=0;
+let bgNebulae=[];
+let titleGems=[];
+let letterColors=[];
+let blinkTimer=0;
+let titleAnimTime=0;
+
+// ─── INIT ─────────────────────────────────────────────────────────────────
+function initBoard(){
+  board=[];
+  for(let r=0;r<ROWS;r++){board.push(new Array(COLS).fill(null));}
+}
+function randomGem(){
+  if(Math.random()<0.03)return GEM_WILD;
+  return GEM_TYPES[Math.floor(Math.random()*GEM_TYPES.length)];
+}
+function initGame(){
+  initBoard();
+  score=0;level=1;chain=0;levelScore=0;
+  fallSpeed=800;hyperMode=false;
+  beamTimer=0;beamCol=-1;beamActive=false;beamHighlight=false;
+  particles=[];scorePopups=[];
+  flashTimer=0;chainDisplay=0;chainTimer=0;
+  inputDelay={left:0,right:0,down:0};
+  nextGems=[randomGem(),randomGem(),randomGem()];
+  held=null;heldUsed=false;
+  spawnGem();
+  gameTime=0;
+}
+function spawnGem(){
+  const col=COLS>>1;
+  if(board[0][col]!==null){state="gameover";sfxGameOver();return;}
+  falling.col=col;
+  falling.row=-1;
+  falling.color=nextGems.shift();
+  nextGems.push(randomGem());
+  heldUsed=false;
+  fallTimer=0;
+}
+
+// ─── MATCHING ─────────────────────────────────────────────────────────────
+function checkMatches(){
+  const matched=new Set();
+  // horizontal
+  for(let r=0;r<ROWS;r++){
+    for(let c=0;c<=COLS-MATCH_SIZE;c++){
+      const gc=board[r][c];
+      if(!gc)continue;
+      let run=1;
+      while(c+run<COLS&&(board[r][c+run]===gc||gc===GEM_WILD||board[r][c+run]===GEM_WILD))run++;
+      if(run>=MATCH_SIZE){for(let i=0;i<run;i++)matched.add(r*COLS+(c+i));}
+    }
+  }
+  // vertical
+  for(let c=0;c<COLS;c++){
+    for(let r=0;r<=ROWS-MATCH_SIZE;r++){
+      const gc=board[r][c];
+      if(!gc)continue;
+      let run=1;
+      while(r+run<ROWS&&(board[r+run][c]===gc||gc===GEM_WILD||board[r+run][c]===GEM_WILD))run++;
+      if(run>=MATCH_SIZE){for(let i=0;i<run;i++)matched.add((r+i)*COLS+c);}
+    }
+  }
+  // diagonal ↘
+  for(let r=0;r<=ROWS-MATCH_SIZE;r++){
+    for(let c=0;c<=COLS-MATCH_SIZE;c++){
+      const gc=board[r][c];
+      if(!gc)continue;
+      let run=1;
+      while(r+run<ROWS&&c+run<COLS&&(board[r+run][c+run]===gc||gc===GEM_WILD||board[r+run][c+run]===GEM_WILD))run++;
+      if(run>=MATCH_SIZE){for(let i=0;i<run;i++)matched.add((r+i)*COLS+(c+i));}
+    }
+  }
+  // diagonal ↙
+  for(let r=0;r<=ROWS-MATCH_SIZE;r++){
+    for(let c=MATCH_SIZE-1;c<COLS;c++){
+      const gc=board[r][c];
+      if(!gc)continue;
+      let run=1;
+      while(r+run<ROWS&&c-run>=0&&(board[r+run][c-run]===gc||gc===GEM_WILD||board[r+run][c-run]===GEM_WILD))run++;
+      if(run>=MATCH_SIZE){for(let i=0;i<run;i++)matched.add((r+i)*COLS+(c-i));}
+    }
+  }
+  return matched;
+}
+function resolveMatches(){
+  let totalCleared=0;
+  let chainCount=0;
+  let clearing=true;
+  while(clearing){
+    const matched=checkMatches();
+    if(matched.size===0){clearing=false;break;}
+    chainCount++;
+    // particles + popups
+    const matchColors={};
+    matched.forEach(idx=>{
+      const r=Math.floor(idx/COLS),c=idx%COLS;
+      const gc=board[r][c];
+      if(!matchColors[gc])matchColors[gc]=0;
+      matchColors[gc]++;
+      spawnShatter(BX+c*CELL+CELL/2,BY+r*CELL+CELL/2,gc);
+      board[r][c]=null;
+    });
+    // score
+    const matchSize=matched.size;
+    let pts=0;
+    if(matchSize>=5)pts=600;
+    else if(matchSize>=4)pts=300;
+    else pts=100;
+    pts*=level;
+    if(chainCount>1)pts*=chainCount;
+    if(fusionBonus){pts*=3;fusionBonus=false;sfxBeamFusion();}
+    // color-based sound
+    const topColor=Object.keys(matchColors).sort((a,b)=>matchColors[b]-matchColors[a])[0];
+    sfxMatch(topColor);
+    if(chainCount>1)sfxChain(chainCount);
+    score+=pts;
+    levelScore+=pts;
+    totalCleared+=matchSize;
+    // popup at board center
+    const firstIdx=[...matched][0];
+    const pr=Math.floor(firstIdx/COLS),pc=firstIdx%COLS;
+    scorePopups.push({x:BX+pc*CELL,y:BY+pr*CELL,val:pts,life:1.5,alpha:1});
+    // gravity
+    gravityDrop();
+    // chain display
+    chainDisplay=chainCount;
+    chainTimer=1.5;
+  }
+  if(totalCleared>0){
+    chain=chainCount;
+    checkLevelUp();
+  }
+}
+function gravityDrop(){
+  for(let c=0;c<COLS;c++){
+    let write=ROWS-1;
+    for(let r=ROWS-1;r>=0;r--){
+      if(board[r][c]!==null){board[write][c]=board[r][c];if(write!==r)board[r][c]=null;write--;}
+    }
+    while(write>=0){board[write][c]=null;write--;}
+  }
+}
+function checkLevelUp(){
+  if(score>hiScore)hiScore=score;
+  const newLevel=Math.floor(score/2000)+1;
+  if(newLevel>level){
+    level=newLevel;
+    fallSpeed=Math.max(150,800-level*80);
+    sfxLevelUp();
+    if(score>=5000&&!hyperMode){hyperMode=true;sfxHyperMode();flashTimer=0.6;flashCol=PAL.y;}
+  }
+}
+
+// ─── PARTICLES ─────────────────────────────────────────────────────────────
+function spawnShatter(x,y,color){
+  const colMap={r:PAL.r,b:PAL.b,c:PAL.c,e:PAL.e,y:PAL.y,p:PAL.p,[GEM_WILD]:PAL.w};
+  const col=colMap[color]||PAL.w;
+  for(let i=0;i<8;i++){
+    const angle=Math.random()*Math.PI*2;
+    const spd=0.5+Math.random()*2;
+    particles.push({
+      x,y,vx:Math.cos(angle)*spd,vy:Math.sin(angle)*spd-1,
+      col,life:0.4+Math.random()*0.2,maxLife:0.6,size:2+Math.floor(Math.random()*2)
+    });
+  }
+}
+function updateParticles(dt){
+  for(let i=particles.length-1;i>=0;i--){
+    const p=particles[i];
+    p.x+=p.vx;p.y+=p.vy;p.vy+=0.08;
+    p.life-=dt;
+    if(p.life<=0)particles.splice(i,1);
+  }
+}
+function drawParticles(){
+  for(const p of particles){
+    const alpha=p.life/p.maxLife;
+    ctx.globalAlpha=Math.min(1,alpha);
+    ctx.fillStyle=p.col;
+    ctx.fillRect(Math.round(p.x-p.size/2),Math.round(p.y-p.size/2),p.size,p.size);
+  }
+  ctx.globalAlpha=1;
+}
+
+// ─── SCORE POPUPS ──────────────────────────────────────────────────────────
+function updatePopups(dt){
+  for(let i=scorePopups.length-1;i>=0;i--){
+    const p=scorePopups[i];
+    p.y-=20*dt;
+    p.life-=dt;
+    p.alpha=p.life/1.5;
+    if(p.life<=0)scorePopups.splice(i,1);
+  }
+}
+function drawPopups(){
+  for(const p of scorePopups){
+    ctx.globalAlpha=Math.min(1,p.alpha);
+    drawText(ctx,"+"+p.val,Math.round(p.x),Math.round(p.y),PAL.y,1,true);
+    ctx.globalAlpha=1;
+  }
+}
+
+// ─── BACKGROUND ────────────────────────────────────────────────────────────
+function initBg(){
+  bgStars=[];
+  for(let i=0;i<80;i++){
+    bgStars.push({x:Math.random()*W,y:Math.random()*H,spd:0.03+Math.random()*0.1,
+      bright:Math.random()>0.8,twinkle:Math.random()*6.28});
+  }
+  bgNebulae=[];
+  for(let i=0;i<4;i++){
+    bgNebulae.push({x:Math.random()*W,y:Math.random()*H,
+      col:[PAL.B,PAL.P,PAL.C,PAL.K][i%4],r:10+Math.random()*20,alpha:0.08+Math.random()*0.12});
+  }
+}
+function drawBg(dt){
+  ctx.fillStyle=PAL.k;ctx.fillRect(0,0,W,H);
+  // nebulae
+  for(const n of bgNebulae){
+    ctx.save();ctx.globalAlpha=n.alpha;
+    ditherDisc(ctx,n.x,n.y,n.r,n.col,1);
+    ctx.globalAlpha=1;ctx.restore();
+  }
+  // stars
+  for(const s of bgStars){
+    s.x-=s.spd;if(s.x<0)s.x=W;
+    s.twinkle+=dt*2;
+    const a=s.bright?0.5+0.5*Math.sin(s.twinkle):0.3;
+    ctx.globalAlpha=a;
+    ctx.fillStyle=s.bright?PAL.w:PAL.G;
+    ctx.fillRect(Math.round(s.x),Math.round(s.y),1,1);
+  }
+  ctx.globalAlpha=1;
+}
+
+// ─── SWEEP BEAM ────────────────────────────────────────────────────────────
+function updateBeam(dt){
+  beamTimer+=dt*1000;
+  const interval=hyperMode?BEAM_INTERVAL*0.6:BEAM_INTERVAL;
+  if(beamTimer>=interval&&!beamActive){
+    beamTimer=0;
+    beamActive=true;
+    beamCol=0;
+    sfxBeamFire();
+  }
+  if(beamActive){
+    const spd=hyperMode?60:40; // px per sec
+    beamCol+=spd*dt;
+    if(beamCol>COLS){
+      beamActive=false;
+      beamHighlight=false;
+      beamCol=-1;
+    } else {
+      const col=Math.floor(beamCol);
+      if(col>=0&&col<COLS){
+        beamHighlight=true;
+        beamHighlightTimer=1.0;
+      }
+    }
+  }
+  if(beamHighlight){
+    beamHighlightTimer-=dt;
+    if(beamHighlightTimer<=0){beamHighlight=false;}
+  }
+}
+function drawBeam(){
+  if(!beamActive)return;
+  const bx=BX+Math.floor(beamCol)*CELL;
+  // glow
+  for(let i=0;i<3;i++){
+    const r=CELL/2+i*4;
+    for(let row=0;row<ROWS;row++){
+      const cy=BY+row*CELL+CELL/2;
+      ditherDisc(ctx,bx+CELL/2,cy,r,PAL.c,0.5/(i+1));
+    }
+  }
+  // solid core
+  ctx.globalAlpha=0.7;
+  ctx.fillStyle=PAL.w;
+  ctx.fillRect(bx+CELL/2-1,BY,2,ROWS*CELL);
+  ctx.globalAlpha=1;
+}
+function getHighlightedCol(){
+  if(!beamHighlight)return -1;
+  return Math.floor(beamCol);
+}
+
+// ─── DRAWING BOARD ─────────────────────────────────────────────────────────
+function drawBoard(){
+  // board background
+  ctx.fillStyle=PAL.K;
+  ctx.fillRect(BX-1,BY-1,COLS*CELL+2,ROWS*CELL+2);
+  // grid
+  ctx.fillStyle=PAL.k;
+  for(let r=0;r<=ROWS;r++)ctx.fillRect(BX,BY+r*CELL,COLS*CELL,1);
+  for(let c=0;c<=COLS;c++)ctx.fillRect(BX+c*CELL,BY,1,ROWS*CELL);
+
+  // gems on board
+  for(let r=0;r<ROWS;r++){
+    for(let c=0;c<COLS;c++){
+      const gc=board[r][c];
+      if(!gc)continue;
+      const sp=gemSprite(gc);
+      if(sp)ctx.drawImage(sp,BX+c*CELL,BY+r*CELL);
+    }
+  }
+
+  // beam highlight columns
+  const hcol=getHighlightedCol();
+  if(beamHighlight&&hcol>=0&&hcol<COLS){
+    const alpha=Math.min(1,(beamHighlightTimer/0.3))*0.3;
+    ditherRect(ctx,BX+hcol*CELL,BY,CELL,ROWS*CELL,PAL.c,alpha);
+  }
+
+  // falling gem
+  if(falling.row>=0&&falling.row<ROWS){
+    const sp=gemSprite(falling.color);
+    if(sp)ctx.drawImage(sp,BX+falling.col*CELL,BY+falling.row*CELL);
+  } else if(falling.row===-1){
+    // above board, show at top
+    const sp=gemSprite(falling.color);
+    if(sp){ctx.globalAlpha=0.6;ctx.drawImage(sp,BX+falling.col*CELL,BY);ctx.globalAlpha=1;}
+  }
+
+  // ghost gem
+  {
+    let ghostRow=falling.row;
+    while(ghostRow+1<ROWS&&board[ghostRow+1][falling.col]===null)ghostRow++;
+    if(ghostRow>falling.row){
+      const sp=gemSprite(falling.color);
+      if(sp){ctx.globalAlpha=0.25;ctx.drawImage(sp,BX+falling.col*CELL,BY+ghostRow*CELL);ctx.globalAlpha=1;}
+    }
+  }
+
+  // board border flash
+  if(flashTimer>0){
+    const a=Math.min(1,flashTimer/0.3)*0.6;
+    ditherRect(ctx,BX-2,BY-2,COLS*CELL+4,2,flashCol,a);
+    ditherRect(ctx,BX-2,BY+ROWS*CELL,COLS*CELL+4,2,flashCol,a);
+    ditherRect(ctx,BX-2,BY-2,2,ROWS*CELL+4,flashCol,a);
+    ditherRect(ctx,BX+COLS*CELL,BY-2,2,ROWS*CELL+4,flashCol,a);
+  }
+}
+function gemSprite(color){
+  if(color===GEM_WILD)return SPRITES.gem_wild;
+  const map={r:SPRITES.gem_red,b:SPRITES.gem_blue,c:SPRITES.gem_cyan,
+    e:SPRITES.gem_green,y:SPRITES.gem_yellow,p:SPRITES.gem_purple};
+  return map[color]||null;
+}
+
+// ─── HUD ───────────────────────────────────────────────────────────────────
+function drawHUD(){
+  const sx=SIDE_X;
+  // title small
+  drawText(ctx,"COSMIC",sx,2,PAL.c,1,true);
+  drawText(ctx,"CASCADE",sx,10,PAL.c,1,true);
+
+  // score
+  ctx.drawImage(SPRITES.star_icon,sx,22);
+  drawText(ctx,score.toString(),sx+10,23,PAL.y,1,true);
+
+  // hi score
+  ctx.drawImage(SPRITES.crown_icon,sx,34);
+  drawText(ctx,"HI",sx,35,PAL.G,1,false);
+  drawText(ctx,hiScore.toString(),sx+14,35,PAL.w,1,true);
+
+  // level
+  drawText(ctx,"LVL "+level,sx,46,PAL.v,1,true);
+
+  // next gems
+  drawText(ctx,"NEXT",sx,58,PAL.G,1,false);
+  for(let i=0;i<2;i++){
+    const nx=nextGems[i];
+    if(!nx)continue;
+    const sp=gemSprite(nx);
+    const gy=66+i*16;
+    ctx.fillStyle=PAL.K;ctx.fillRect(sx,gy,14,14);
+    if(sp)ctx.drawImage(sp,sx,gy);
+  }
+
+  // held gem
+  drawText(ctx,"HOLD",sx,100,PAL.G,1,false);
+  ctx.fillStyle=PAL.K;ctx.fillRect(sx,108,14,14);
+  if(held){
+    const sp=gemSprite(held);
+    if(sp){
+      if(heldUsed)ctx.globalAlpha=0.4;
+      ctx.drawImage(sp,sx,108);
+      ctx.globalAlpha=1;
+    }
+  }
+
+  // beam timer bar
+  drawText(ctx,"BEAM",sx,126,PAL.G,1,false);
+  const barW=60,barH=4;
+  ctx.fillStyle=PAL.K;ctx.fillRect(sx,133,barW,barH);
+  const interval=hyperMode?BEAM_INTERVAL*0.6:BEAM_INTERVAL;
+  const fill=Math.min(1,beamTimer/interval);
+  const col=fill>0.8?PAL.c:fill>0.5?PAL.b:PAL.B;
+  ctx.fillStyle=col;ctx.fillRect(sx,133,Math.round(barW*fill),barH);
+  if(beamActive){
+    ditherRect(ctx,sx,133,barW,barH,PAL.c,0.6);
+  }
+
+  // chain counter
+  if(chainTimer>0){
+    const a=Math.min(1,chainTimer);
+    ctx.globalAlpha=a;
+    drawText(ctx,"CHAIN x"+chainDisplay,sx,142,PAL.o,1,true);
+    ctx.globalAlpha=1;
+  }
+
+  // hyper mode indicator
+  if(hyperMode){
+    const pulse=0.5+0.5*Math.sin(gameTime*8);
+    ctx.globalAlpha=0.5+0.5*pulse;
+    drawText(ctx,"HYPER!",sx,154,PAL.x,1,true);
+    ctx.globalAlpha=1;
+  }
+}
+
+// ─── TITLE SCREEN ──────────────────────────────────────────────────────────
+function initTitle(){
+  titleStars=[];
+  for(let i=0;i<100;i++){
+    titleStars.push({x:Math.random()*W,y:Math.random()*H,
+      spd:0.05+Math.random()*0.15,bright:Math.random()>0.7,twinkle:Math.random()*6.28});
+  }
+  titleGems=[];
+  for(let i=0;i<12;i++){
+    titleGems.push({
+      x:Math.random()*W,y:-Math.random()*H,
+      color:GEM_TYPES[Math.floor(Math.random()*GEM_TYPES.length)],
+      spd:0.3+Math.random()*0.6
+    });
+  }
+  const title="COSMIC CASCADE";
+  letterColors=title.split("").map((_,i)=>{
+    const idx=i%GEM_TYPES.length;
+    const cmap={r:PAL.r,b:PAL.b,c:PAL.c,e:PAL.e,y:PAL.y,p:PAL.p};
+    return cmap[GEM_TYPES[idx]];
+  });
+  titleAnimTime=0;blinkTimer=0;
+}
+function updateTitle(dt){
+  titleAnimTime+=dt;blinkTimer+=dt;
+  for(const s of titleStars){
+    s.x-=s.spd;if(s.x<0){s.x=W;s.y=Math.random()*H;}
+    s.twinkle+=dt*3;
+  }
+  for(const g of titleGems){
+    g.y+=g.spd;
+    if(g.y>H+20){g.y=-20;g.x=Math.random()*W;g.color=GEM_TYPES[Math.floor(Math.random()*GEM_TYPES.length)];}
+  }
+}
+function drawTitle(){
+  ctx.fillStyle=PAL.k;ctx.fillRect(0,0,W,H);
+  // nebula bg
+  ditherDisc(ctx,120,80,60,PAL.P,0.5);
+  ditherDisc(ctx,360,160,50,PAL.B,0.4);
+  ditherDisc(ctx,240,200,40,PAL.C,0.3);
+  // stars
+  for(const s of titleStars){
+    const a=s.bright?0.6+0.4*Math.sin(s.twinkle):0.25;
+    ctx.globalAlpha=a;
+    ctx.fillStyle=s.bright?PAL.w:PAL.G;
+    ctx.fillRect(Math.round(s.x),Math.round(s.y),1,1);
+  }
+  ctx.globalAlpha=1;
+  // falling bg gems
+  for(const g of titleGems){
+    const sp=gemSprite(g.color);
+    if(sp){ctx.globalAlpha=0.35;ctx.drawImage(sp,Math.round(g.x),Math.round(g.y));ctx.globalAlpha=1;}
+  }
+  // title letters color-cycling
+  const title="COSMIC CASCADE";
+  const scale=2;
+  const lw=(5+1)*scale;
+  const totalW=title.length*lw;
+  let startX=Math.floor((W-totalW)/2);
+  const ty=50;
+  for(let i=0;i<title.length;i++){
+    if(title[i]===" "){startX+=lw;continue;}
+    const phase=titleAnimTime*3+i*0.5;
+    const idx=Math.floor(phase)%GEM_TYPES.length;
+    const cmap={r:PAL.r,b:PAL.b,c:PAL.c,e:PAL.e,y:PAL.y,p:PAL.p};
+    const col=cmap[GEM_TYPES[idx]];
+    const bobY=Math.round(Math.sin(titleAnimTime*2+i*0.4)*2);
+    drawText(ctx,title[i],startX+i*lw,ty+bobY,col,scale,true);
+  }
+  // subtitle
+  drawCenter(ctx,"GEM FUSION PUZZLE",80,PAL.c,1);
+  // hi score
+  drawCenter(ctx,"HI SCORE  "+hiScore,100,PAL.G,1);
+  // controls hint
+  drawCenter(ctx,window.SofaPad&&SofaPad.connected()?"D-PAD OR STICK TO MOVE":"ARROW KEYS TO MOVE",120,PAL.T,1);
+  drawCenter(ctx,BL("a")+" TO DROP  "+BL("b")+" TO HOLD",130,PAL.T,1);
+  // blink press a
+  if(Math.floor(blinkTimer*2)%2===0){
+    drawCenter(ctx,"PRESS "+BL("a")+" TO PLAY",150,PAL.w,1);
+  }
+}
+
+// ─── GAME OVER SCREEN ──────────────────────────────────────────────────────
+function drawGameOver(){
+  ctx.fillStyle=PAL.k;ctx.fillRect(0,0,W,H);
+  ditherDisc(ctx,240,135,100,PAL.R,0.6);
+  drawCenter(ctx,"SIGNAL LOST",60,PAL.r,2);
+  drawCenter(ctx,"FINAL SCORE",90,PAL.G,1);
+  drawCenter(ctx,score.toString(),100,PAL.y,2);
+  drawCenter(ctx,"BEST "+hiScore,118,PAL.G,1);
+  if(score>=hiScore&&score>0){
+    drawCenter(ctx,"NEW RECORD!",130,PAL.x,1);
+  }
+  if(Math.floor(blinkTimer*2)%2===0){
+    drawCenter(ctx,"PRESS "+BL("a")+" TO RESTART",150,PAL.w,1);
+  }
+}
+
+// ─── INPUT HANDLING ────────────────────────────────────────────────────────
+function handleInput(dt){
+  // move left
+  const leftKey=keys["ArrowLeft"]||keys["KeyA"];
+  const rightKey=keys["ArrowRight"]||keys["KeyD"];
+  const downKey=keys["ArrowDown"]||keys["KeyS"]||keys["Space"];
+  const aBtn=btnPressed(0);
+  const bBtn=btnPressed(1);
+  const startBtn=btnPressed(9);
+  const ax=axisX();
+
+  // axis movement
+  const leftInput=leftKey||(ax<-0.5);
+  const rightInput=rightKey||(ax>0.5);
+  const downInput=downKey||aBtn||padDown();
+
+  // left
+  if(leftInput){
+    if(inputDelay.left<=0){
+      moveFalling(-1);
+      inputDelay.left=inputDelay.left===0?0.15:0.08;
+    } else inputDelay.left-=dt;
+  } else inputDelay.left=0;
+
+  // right
+  if(rightInput){
+    if(inputDelay.right<=0){
+      moveFalling(1);
+      inputDelay.right=inputDelay.right===0?0.15:0.08;
+    } else inputDelay.right-=dt;
+  } else inputDelay.right=0;
+
+  // drop
+  if(downInput){
+    if(inputDelay.down<=0){
+      dropGem();
+      inputDelay.down=0.05;
+    } else inputDelay.down-=dt;
+  } else inputDelay.down=0;
+
+  // hold
+  const holdKey=keyJustPressed("ShiftLeft")||keyJustPressed("ShiftRight")||keyJustPressed("KeyZ");
+  if(bBtn||holdKey){
+    if(!heldUsed)doHold();
+  }
+
+  // pause
+  if(state==="game"&&(startBtn||keyJustPressed("Escape")||keyJustPressed("KeyP"))) state="pause";
+}
+function moveFalling(dir){
+  const nc=falling.col+dir;
+  if(nc>=0&&nc<COLS){
+    // check collision
+    if(falling.row<0||board[falling.row][nc]===null){
+      falling.col=nc;
+    }
+  }
+}
+function dropGem(){
+  // drop to bottom
+  while(falling.row+1<ROWS&&board[falling.row+1][falling.col]===null){
+    falling.row++;
+  }
+  landGem();
+}
+function doHold(){
+  if(heldUsed)return;
+  heldUsed=true;
+  const cur=falling.color;
+  if(held===null){
+    held=cur;
+    spawnGem();
+  } else {
+    falling.color=held;
+    held=cur;
+    falling.row=-1;
+    fallTimer=0;
+  }
+}
+
+// ─── LANDING ───────────────────────────────────────────────────────────────
+function landGem(){
+  if(falling.row<0){
+    // can't place, game over
+    state="gameover";sfxGameOver();return;
+  }
+  // check beam fusion
+  const col=falling.col;
+  const hcol=Math.floor(beamCol);
+  if(beamHighlight&&hcol===col){
+    // check if there's a matching gem in the column
+    for(let r=0;r<ROWS;r++){
+      if(board[r][col]===falling.color){fusionBonus=true;break;}
+    }
+    if(fusionBonus){flashTimer=0.4;flashCol=PAL.c;}
+  }
+  board[falling.row][falling.col]=falling.color;
+  sfxLand();
+  resolveMatches();
+  spawnGem();
+}
+
+// ─── UPDATE GAME ───────────────────────────────────────────────────────────
+function updateGame(dt){
+  gameTime+=dt;
+  updateParticles(dt);
+  updatePopups(dt);
+  updateBeam(dt);
+  if(chainTimer>0)chainTimer-=dt;
+  if(flashTimer>0)flashTimer-=dt;
+
+  // fall
+  fallTimer+=dt*1000;
+  const speed=hyperMode?fallSpeed*0.6:fallSpeed;
+  if(fallTimer>=speed){
+    fallTimer=0;
+    if(falling.row+1<ROWS&&board[falling.row+1][falling.col]===null){
+      falling.row++;
+    } else {
+      landGem();
+    }
+  }
+  handleInput(dt);
+}
+
+// ─── PAUSE SCREEN ──────────────────────────────────────────────────────────
+function drawPause(){
+  ctx.globalAlpha=0.5;
+  ctx.fillStyle=PAL.k;
+  ctx.fillRect(0,0,W,H);
+  ctx.globalAlpha=1;
+  drawCenter(ctx,"PAUSED",100,PAL.w,2);
+  drawCenter(ctx,"PRESS "+BL("start")+" TO RESUME",118,PAL.G,1);
+}
+
+// ─── MAIN LOOP ─────────────────────────────────────────────────────────────
+let lastTime=0;
+function loop(ts){
+  const dt=Math.min(0.05,(ts-lastTime)/1000);
+  lastTime=ts;
+
+  if(state==="title"){
+    updateTitle(dt);
+    drawTitle();
+    // input to start
+    const aBtn=btnPressed(0);
+    const startBtn=btnPressed(9);
+    if(aBtn||startBtn||keyJustPressed("Space")||keyJustPressed("Enter")||keyJustPressed("KeyZ")){
+      ensureAudio();
+      initGame();
+      state="game";
+    }
+    blinkTimer+=dt;
+  } else if(state==="game"){
+    for(const s of bgStars){s.x-=s.spd;if(s.x<0)s.x=W;s.twinkle+=dt*2;}
+    drawBg(dt);
+    updateGame(dt);
+    drawBeam();
+    drawBoard();
+    drawParticles();
+    drawPopups();
+    drawHUD();
+  } else if(state==="pause"){
+    for(const s of bgStars){s.x-=s.spd;if(s.x<0)s.x=W;s.twinkle+=dt*2;}
+    drawBg(dt);
+    drawBeam();
+    drawBoard();
+    drawParticles();
+    drawPopups();
+    drawHUD();
+    drawPause();
+    // resume
+    if(btnPressed(9)||btnPressed(1)||keyJustPressed("Escape")||keyJustPressed("KeyP")){state="game";}
+  } else if(state==="gameover"){
+    blinkTimer+=dt;
+    drawGameOver();
+    const aBtn=btnPressed(0);
+    const startBtn=btnPressed(9);
+    if(aBtn||startBtn||keyJustPressed("Space")||keyJustPressed("Enter")||keyJustPressed("KeyZ")){
+      ensureAudio();
+      initGame();
+      state="game";
+    }
+  }
+
+  // update prevKeys
+  for(const k in keys)prevKeys[k]=keys[k];
+  for(const k in padHit) padHit[k]=0;
+
+  requestAnimationFrame(loop);
+}
+
+// ─── BOOT ──────────────────────────────────────────────────────────────────
+buildSprites();
+initBg();
+initTitle();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
