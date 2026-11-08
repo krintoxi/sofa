@@ -1,0 +1,1010 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Void Drifter</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #04030a; color: #fff; overflow: hidden; user-select: none; }
+  canvas { position: absolute; image-rendering: pixelated; }
+</style></head><body>
+<canvas id="c" width="480" height="270"></canvas>
+<script src="../pad.js"></script>
+<script>
+/* Void Drifter: a 16-bit space roguelite combat and asteroid miner for Sofa Box OS.
+   Pixel art spaceships, mineral veins, orbital docks, Bayer-dithered nebula lighting,
+   dreadnought flagship boss, custom bitmap font. Self-contained, Web Audio synth, 100% offline. */
+(function () {
+  "use strict";
+  const VW = 480, VH = 270;
+  const cv = document.getElementById("c"), ctx = cv.getContext("2d", { alpha: false });
+  function fit() {
+    const s = Math.min(innerWidth / VW, innerHeight / VH);
+    const w = Math.round(VW * s), h = Math.round(VH * s);
+    cv.style.width = w + "px"; cv.style.height = h + "px";
+    cv.style.left = ((innerWidth - w) >> 1) + "px"; cv.style.top = ((innerHeight - h) >> 1) + "px";
+    ctx.imageSmoothingEnabled = false;
+  }
+  addEventListener("resize", fit); fit();
+
+  function mk(w, h) { const c = document.createElement("canvas"); c.width = w; c.height = h; return c; }
+  function g2(c) { const g = c.getContext("2d"); g.imageSmoothingEnabled = false; return g; }
+
+  // ------------------------------------------------ Palette & Pixel Art
+  const PAL = {
+    k: "#04030a", K: "#121024", g: "#424058", G: "#7a7694", w: "#ece8f4", s: "#dca072",
+    r: "#c82836", R: "#721422", o: "#e8802e", O: "#904018", y: "#eebc42", Y: "#9c7018",
+    b: "#426ec4", B: "#1a2c58", c: "#72d2ec", C: "#1e5270", n: "#664426", N: "#362214",
+    e: "#529842", p: "#8444a8", P: "#442060", m: "#decfa2", t: "#b4a690", T: "#6e6252"
+  };
+
+  const SPR = {
+    // Player Ship (16x16)
+    ship: [
+      ".......kk.......",
+      "......kwwk......",
+      ".....kcccck.....",
+      ".....kcccck.....",
+      "....kGGwwGGk....",
+      "....kGGccGGk....",
+      "...kGGccccGGk...",
+      "...kGGBwwBGGk...",
+      "..kGGGBBBGGGk...",
+      "..kGGkBBBBkGGk..",
+      ".kGGk.kBBk.kGGk.",
+      ".kGk..kBBk..kGk.",
+      ".kk...kBBk...kk.",
+      "......kBBk......",
+      ".......kk.......",
+      "................"
+    ],
+    // Thruster Flames
+    flameA: [
+      "......kRRk......",
+      ".....kroork.....",
+      ".....koyyok.....",
+      "......kwwk......",
+      ".......kk......."
+    ],
+    flameB: [
+      "......kRRk......",
+      ".....kroork.....",
+      "....krooyork....",
+      ".....koyyok.....",
+      "......kwwk......",
+      ".......kk......."
+    ],
+
+    // Pirate Drone (14x14)
+    drone: [
+      "......kk......",
+      ".....kRRk.....",
+      "....krrrrk....",
+      "...kRrrrrRk...",
+      "..kRryyyyrRk..",
+      "..kRrywwyrRk..",
+      ".kRRryyyyrRRk.",
+      ".kRRkrrrrkRRk.",
+      "kRRk.kRRk.kRRk",
+      "kRk..kRRk..kRk",
+      "kk...kRRk...kk",
+      "......kk......"
+    ],
+
+    // Dreadnought Boss (28x28)
+    boss: [
+      "..........kkkkkk..........",
+      ".........kRRRRRRk.........",
+      "........kRrrrrrrRk........",
+      ".......kRrrrrrrrrRk.......",
+      "......kRrrGGwwGGrrRk......",
+      ".....kRrrGGkyyGgGrrRk.....",
+      "....kRrrGGkkyykkGGrrRk....",
+      "...kRRrrGGkkwwkkGGrrRRk...",
+      "..kRRRrrrGGkwwkGGrrrRRRk..",
+      ".kRRRRrrrrGGGGGrrrrRRRRk..",
+      ".kRRkRrrrrkRRkrrrrRkRRk...",
+      "kRRk.kRrrrkyykrrrRk.kRRk..",
+      "kRk..kRrrrkwwkrrrRk..kRk..",
+      "kk...kRrrrrkkrrrrRk...kk..",
+      ".....kRRrrrrrrrrRRk.......",
+      ".....kRRRrrrrrrRRRk.......",
+      ".....kRRRkkooookkRRk......",
+      "....kRRk.koyyyyok.kRRk....",
+      "...kRRk..kooyyyok..kRRk...",
+      "..kRRk...kooyyyok...kRRk..",
+      "..kRk.....kooook.....kRk..",
+      "..kk.......kkkk.......kk.."
+    ],
+
+    // Asteroids: Iron (16x16)
+    astIron: [
+      ".....kkkkkk.....",
+      "...kkNNnnnnkk...",
+      "..kNNnnnnTnnnk..",
+      ".kNNnnTTTTnnnk..",
+      ".kNNnTTTTTnnNnk.",
+      "kNNnTTTTTnnNNNk.",
+      "kNNnnTTnnnNNNNk.",
+      "kNNnnnnnnnNNNNk.",
+      "kNNnnnnnnnNNNNk.",
+      ".kNNnnnNNNNNNk..",
+      "..kNNNNNNNNNk...",
+      "....kkkkkkk....."
+    ],
+    // Asteroid Cobalt (16x16)
+    astCobalt: [
+      ".....kkkkkk.....",
+      "...kkCCcccckk...",
+      "..kCCccccwccck..",
+      ".kCCccwwwwccck..",
+      ".kCCnwwwwwnCnk..",
+      "kCCnwwwwwwnCCCk.",
+      "kCCnnwwnnnCCCCk.",
+      "kCCnnnnnnnCCCCk.",
+      ".kCCnnnCCCCCCk..",
+      "..kCCCCCCCCCk...",
+      "....kkkkkkk....."
+    ],
+    // Asteroid Hyper (16x16)
+    astHyper: [
+      ".....kkkkkk.....",
+      "...kkPPppppkk...",
+      "..kPPppppwpppk..",
+      ".kPPppwwwwpppk..",
+      ".kPPnwwwwwwnPnk.",
+      "kPPnwwwwwwnPPPk.",
+      "kPPnnwwnnnPPPPk.",
+      "kPPnnnnnnnPPPPk.",
+      ".kPPnnnPPPPPPk..",
+      "..kPPPPPPPPPk...",
+      "....kkkkkkk....."
+    ],
+
+    // Space Station Hub (24x24)
+    station: [
+      "........kkkkkkk.........",
+      "......kkbbbbbbbkk.......",
+      "....kkbBwwwwwBbk........",
+      "...kbBwwwwwwwwwBbk......",
+      "..kbBwwwwccccccwBbk.....",
+      ".kbBwwwccccccccwBbk.....",
+      ".kbBwwwccccccccwBbk.....",
+      "kbBwwwwccccccwBbk.......",
+      "kbBwwwwwwwwwwwBbk.......",
+      ".kbBwwwwwwwwwBbk........",
+      "..kbBwwwwwwwBbk.........",
+      "...kkbbbbbbbkk..........",
+      "........kkk............."
+    ]
+  };
+
+  function spr(rows) {
+    let w = 0; for (let i = 0; i < rows.length; i++) w = Math.max(w, rows[i].length);
+    const c = mk(w, rows.length), g = g2(c);
+    for (let y = 0; y < rows.length; y++) for (let x = 0; x < rows[y].length; x++) {
+      const ch = rows[y][x]; if (ch === ".") continue;
+      const col = PAL[ch]; if (!col) continue;
+      g.fillStyle = col; g.fillRect(x, y, 1, 1);
+    }
+    return c;
+  }
+  function whiteOf(src) {
+    const c = mk(src.width, src.height), g = g2(c); g.drawImage(src, 0, 0);
+    g.globalCompositeOperation = "source-in"; g.fillStyle = "#fff"; g.fillRect(0, 0, c.width, c.height); return c;
+  }
+  function scaled(src, k) { const c = mk(src.width * k, src.height * k), g = g2(c); g.drawImage(src, 0, 0, c.width, c.height); return c; }
+
+  const S = {};
+  function buildSprites() {
+    S.ship = spr(SPR.ship); S.shipW = whiteOf(S.ship);
+    S.flameA = spr(SPR.flameA); S.flameB = spr(SPR.flameB);
+    S.drone = spr(SPR.drone); S.droneW = whiteOf(S.drone);
+    S.boss = spr(SPR.boss); S.bossW = whiteOf(S.boss);
+    S.astIron = spr(SPR.astIron); S.astCobalt = spr(SPR.astCobalt); S.astHyper = spr(SPR.astHyper);
+    S.astIronLg = scaled(S.astIron, 2); S.astCobaltLg = scaled(S.astCobalt, 2); S.astHyperLg = scaled(S.astHyper, 2);
+    S.station = spr(SPR.station);
+  }
+  buildSprites();
+
+  // ------------------------------------------------ 5x7 Bitmap Font
+  const FONT = {
+    "\x10": [0, 17, 10, 4, 10, 17, 0], "\x11": [0, 14, 17, 17, 17, 14, 0], "\x12": [0, 31, 17, 17, 17, 31, 0], "\x13": [0, 4, 4, 10, 10, 31, 0],   // the PlayStation buttons
+    A: [14, 17, 17, 31, 17, 17, 17], B: [30, 17, 17, 30, 17, 17, 30], C: [14, 17, 16, 16, 16, 17, 14], D: [28, 18, 17, 17, 17, 18, 28],
+    E: [31, 16, 16, 30, 16, 16, 31], F: [31, 16, 16, 30, 16, 16, 16], G: [14, 17, 16, 23, 17, 17, 15], H: [17, 17, 17, 31, 17, 17, 17],
+    I: [14, 4, 4, 4, 4, 4, 14], J: [7, 2, 2, 2, 2, 18, 12], K: [17, 18, 20, 24, 20, 18, 17], L: [16, 16, 16, 16, 16, 16, 31],
+    M: [17, 27, 21, 21, 17, 17, 17], N: [17, 17, 25, 21, 19, 17, 17], O: [14, 17, 17, 17, 17, 17, 14], P: [30, 17, 17, 30, 16, 16, 16],
+    Q: [14, 17, 17, 17, 21, 18, 13], R: [30, 17, 17, 30, 20, 18, 17], S: [15, 16, 16, 14, 1, 1, 30], T: [31, 4, 4, 4, 4, 4, 4],
+    U: [17, 17, 17, 17, 17, 17, 14], V: [17, 17, 17, 17, 17, 10, 4], W: [17, 17, 17, 21, 21, 21, 10], X: [17, 17, 10, 4, 10, 17, 17],
+    Y: [17, 17, 10, 4, 4, 4, 4], Z: [31, 1, 2, 4, 8, 16, 31],
+    "0": [14, 17, 19, 21, 25, 17, 14], "1": [4, 12, 4, 4, 4, 4, 14], "2": [14, 17, 1, 2, 4, 8, 31], "3": [31, 2, 4, 2, 1, 17, 14],
+    "4": [2, 6, 10, 18, 31, 2, 2], "5": [31, 16, 30, 1, 1, 17, 14], "6": [6, 8, 16, 30, 17, 17, 14], "7": [31, 1, 2, 4, 8, 8, 8],
+    "8": [14, 17, 17, 14, 17, 17, 14], "9": [14, 17, 17, 15, 1, 2, 12],
+    ".": [0, 0, 0, 0, 0, 12, 12], ":": [0, 12, 12, 0, 12, 12, 0], "-": [0, 0, 0, 14, 0, 0, 0],
+    "+": [0, 4, 4, 31, 4, 4, 0], "/": [1, 1, 2, 4, 8, 16, 16], "%": [24, 25, 2, 4, 8, 19, 3],
+    "[": [14, 8, 8, 8, 8, 8, 14], "]": [14, 2, 2, 2, 2, 2, 14]
+  };
+  const FC = ["#ece8f4", "#7a7694", "#eebc42", "#c82836", "#72d2ec", "#529842", "#e8802e", "#04030a"];
+  const GI = new Int16Array(256).fill(-1);
+  const ATL = [];
+  let GX, GW;
+  function buildFont() {
+    const rows = []; for (const k in FONT) { GI[k.charCodeAt(0)] = rows.length; rows.push(FONT[k]); }
+    const n = rows.length; GX = new Uint8Array(n); GW = new Uint8Array(n);
+    for (let i = 0; i < n; i++) {
+      let lo = 5, hi = -1;
+      for (let y = 0; y < 7; y++) for (let b = 0; b < 5; b++) if ((rows[i][y] >> (4 - b)) & 1) { lo = Math.min(lo, b); hi = Math.max(hi, b); }
+      if (hi < 0) { GX[i] = 0; GW[i] = 3; } else { GX[i] = lo; GW[i] = hi - lo + 1; }
+    }
+    for (let c = 0; c < FC.length; c++) {
+      const a = mk(n * 6, 7), g = g2(a); g.fillStyle = FC[c];
+      for (let i = 0; i < n; i++) for (let y = 0; y < 7; y++) for (let b = 0; b < 5; b++) if ((rows[i][y] >> (4 - b)) & 1) g.fillRect(i * 6 + b, y, 1, 1);
+      ATL.push(a);
+    }
+  }
+  buildFont();
+
+  function text(g, s, x, y, col, sc) {
+    sc = sc || 1; const at = ATL[col];
+    for (let i = 0; i < s.length; i++) {
+      let c = s.charCodeAt(i); if (c > 255) c = c === 0x2715 ? 16 : c === 0x25cb ? 17 : c === 0x25a1 ? 18 : c === 0x25b3 ? 19 : 63;   // (✕ ○ □ △)
+      if (c >= 97 && c <= 122) c -= 32;
+      if (c === 32) { x += 4 * sc; continue; }
+      const k = GI[c]; if (k < 0) { x += 4 * sc; continue; }
+      g.drawImage(at, k * 6 + GX[k], 0, GW[k], 7, x, y, GW[k] * sc, 7 * sc);
+      x += (GW[k] + 1) * sc;
+    }
+    return x;
+  }
+  function textW(s, sc) {
+    sc = sc || 1; let w = 0;
+    for (let i = 0; i < s.length; i++) {
+      let c = s.charCodeAt(i); if (c > 255) c = c === 0x2715 ? 16 : c === 0x25cb ? 17 : c === 0x25a1 ? 18 : c === 0x25b3 ? 19 : 63;   // (✕ ○ □ △)
+      if (c >= 97 && c <= 122) c -= 32;
+      const k = c === 32 ? -1 : GI[c]; w += (k < 0 ? 4 : GW[k] + 1) * sc;
+    }
+    return w - sc;
+  }
+  function stext(g, s, x, y, col, sc) { text(g, s, x + (sc || 1), y + (sc || 1), 7, sc); return text(g, s, x, y, col, sc); }
+  function cstext(g, s, cx, y, col, sc) { return stext(g, s, Math.round(cx - textW(s, sc) / 2), y, col, sc); }
+
+  // ------------------------------------------------ Bayer Matrix Dithered Lighting
+  const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
+  function glowOf(r, rgb, maxA) {
+    const s = r * 2, c = mk(s, s), g = c.getContext("2d"), id = g.createImageData(s, s), u = new Uint32Array(id.data.buffer), base = (rgb[2] << 16 | rgb[1] << 8 | rgb[0]) >>> 0;
+    for (let y = 0; y < s; y++) for (let x = 0; x < s; x++) {
+      const d = Math.sqrt((x + 0.5 - r) * (x + 0.5 - r) + (y + 0.5 - r) * (y + 0.5 - r)) / r;
+      let a = 1 - Math.min(1, d); a = a * a; const q = a * 4, f = Math.floor(q), lv = f + ((q - f) * 16 > BAYER[(y & 3) * 4 + (x & 3)] + 0.5 ? 1 : 0);
+      u[y * s + x] = ((Math.round(lv / 4 * maxA * 255) << 24) | base) >>> 0;
+    }
+    g.putImageData(id, 0, 0); return c;
+  }
+  const shieldGlow = glowOf(32, [114, 210, 236], 0.35);
+
+  // ------------------------------------------------ Audio Synthesis
+  let AC = null, soundOn = true;
+  function wakeAudio() {
+    if (!soundOn) return;
+    if (!AC) {
+      try {
+        const A = window.AudioContext || window.webkitAudioContext;
+        if (A) AC = new A();
+      } catch (e) { AC = null; }
+    }
+    if (AC && AC.state === "suspended") AC.resume().catch(() => {});
+  }
+  function tone(f0, f1, dur, type, vol) {
+    if (!AC || !soundOn || AC.state !== "running") return;
+    try {
+      const t = AC.currentTime, o = AC.createOscillator(), g = AC.createGain();
+      o.type = type || "sawtooth";
+      o.frequency.setValueAtTime(f0, t);
+      if (f1) o.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t + dur);
+      g.gain.setValueAtTime(vol || 0.1, t);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      o.connect(g); g.connect(AC.destination);
+      o.start(t); o.stop(t + dur + 0.02);
+    } catch (e) {}
+  }
+  function noise(dur, vol, freq) {
+    if (!AC || !soundOn || AC.state !== "running") return;
+    try {
+      const n = (AC.sampleRate * dur) | 0, b = AC.createBuffer(1, n, AC.sampleRate);
+      const d = b.getChannelData(0); for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+      const s = AC.createBufferSource(); s.buffer = b;
+      const f = AC.createBiquadFilter(); f.type = "bandpass"; f.frequency.value = freq || 800;
+      const g = AC.createGain(), t = AC.currentTime;
+      g.gain.setValueAtTime(vol || 0.12, t);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      s.connect(f); f.connect(g); g.connect(AC.destination);
+      s.start(t); s.stop(t + dur + 0.02);
+    } catch (e) {}
+  }
+
+  const sndLaser = () => tone(880, 220, 0.1, "sawtooth", 0.08);
+  const sndHit = () => noise(0.08, 0.18, 900);
+  const sndBoom = () => { noise(0.35, 0.3, 300); tone(120, 30, 0.35, "sine", 0.2); };
+  const sndGem = () => tone(1050, 1400, 0.08, "triangle", 0.1);
+  const sndShield = () => tone(240, 480, 0.2, "sine", 0.12);
+  const sndBuy = () => tone(523.25, 783.99, 0.15, "square", 0.08);
+  const sndWarp = () => { tone(200, 900, 0.4, "sawtooth", 0.12); noise(0.4, 0.15, 1200); };
+
+  // ------------------------------------------------ Game State
+  const SAVE_KEY = "void-drifter-best";
+  let bestScore = +localStorage.getItem(SAVE_KEY) || 0;
+  let state = "title"; // title, play, dock, gameover, victory
+  let score = 0, minerals = 0, threat = 0, sector = 1;
+  let screenShake = 0, dockedStation = null, upgradeCursor = 0;
+
+  const upgrades = [
+    { id: "hull", name: "REINFORCED HULL", desc: "+25 MAX HULL INTEGRITY", cost: 30, level: 0, max: 4 },
+    { id: "shield", name: "PLASMA SHIELD", desc: "+20 SHIELD & FAST RECHARGE", cost: 40, level: 0, max: 4 },
+    { id: "lasers", name: "TWIN BLASTERS", desc: "DUAL PLASMA CONVERTERS", cost: 50, level: 0, max: 3 },
+    { id: "thrust", name: "ION THRUSTERS", desc: "+30% THRUST & AFTERBURNER", cost: 35, level: 0, max: 3 },
+    { id: "magnet", name: "TRACTOR BEAM", desc: "+50% MINERAL MAGNET RANGE", cost: 25, level: 0, max: 4 }
+  ];
+
+  const player = {
+    x: 0, y: 0, vx: 0, vy: 0, angle: -Math.PI / 2,
+    hull: 100, maxHull: 100, shield: 50, maxShield: 50, shieldRecharge: 0,
+    fireTimer: 0, invuln: 0, boost: 100, maxBoost: 100, boosting: false, hitFlash: 0
+  };
+
+  let stars = [], asteroids = [], enemies = [], bullets = [], particles = [], gems = [], stations = [], floatTexts = [];
+  const WORLD = 1800;
+
+  function initWorld() {
+    stars = [];
+    for (let i = 0; i < 200; i++) {
+      stars.push({
+        x: (Math.random() - 0.5) * WORLD * 2.2,
+        y: (Math.random() - 0.5) * WORLD * 2.2,
+        s: Math.random() < 0.2 ? 2 : 1,
+        b: 0.3 + Math.random() * 0.7,
+        c: Math.random() < 0.2 ? PAL.c : Math.random() < 0.1 ? PAL.p : PAL.w
+      });
+    }
+    asteroids = [];
+    for (let i = 0; i < 35; i++) spawnAsteroid();
+    stations = [
+      { x: 0, y: -240, r: 36, angle: 0, name: "ORBITAL DOCK ALPHA" },
+      { x: 900, y: 700, r: 36, angle: 0, name: "VANGUARD OUTPOST" },
+      { x: -850, y: 750, r: 36, angle: 0, name: "SIGMA DEPOT" }
+    ];
+    enemies = [];
+    bullets = [];
+    particles = [];
+    gems = [];
+    floatTexts = [];
+    threat = 0;
+  }
+
+  function spawnAsteroid(x, y, tier) {
+    tier = tier || (Math.random() < 0.3 ? 2 : 1); // 1: normal, 2: large
+    const kind = Math.random() < 0.2 ? "hyper" : Math.random() < 0.35 ? "cobalt" : "iron";
+    let ax = x, ay = y;
+    if (ax === undefined) {
+      const d = 350 + Math.random() * (WORLD - 450);
+      const a = Math.random() * Math.PI * 2;
+      ax = player.x + Math.cos(a) * d; ay = player.y + Math.sin(a) * d;
+    }
+    asteroids.push({
+      x: ax, y: ay, vx: (Math.random() - 0.5) * 35, vy: (Math.random() - 0.5) * 35,
+      angle: Math.random() * Math.PI * 2, vAngle: (Math.random() - 0.5) * 1.2,
+      tier, kind, hp: tier * 4, r: tier === 2 ? 16 : 8
+    });
+  }
+
+  function spawnEnemy(isBoss) {
+    const a = Math.random() * Math.PI * 2, d = 400 + Math.random() * 250;
+    const ex = player.x + Math.cos(a) * d, ey = player.y + Math.sin(a) * d;
+    if (isBoss) {
+      enemies.push({
+        isBoss: true, name: "DREADNOUGHT OMEGA",
+        x: ex, y: ey, vx: 0, vy: 0, angle: 0, r: 24,
+        hp: 140 + sector * 40, maxHp: 140 + sector * 40,
+        fireTimer: 0, hitFlash: 0
+      });
+      sndWarp();
+    } else {
+      enemies.push({
+        isBoss: false, name: "Drone",
+        x: ex, y: ey, vx: 0, vy: 0, angle: 0, r: 10,
+        hp: 5 + sector, maxHp: 5 + sector,
+        fireTimer: Math.random() * 2, hitFlash: 0
+      });
+    }
+  }
+
+  function spawnGem(x, y, kind) {
+    const a = Math.random() * Math.PI * 2, sp = 30 + Math.random() * 60;
+    gems.push({
+      x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+      kind, val: kind === "hyper" ? 5 : kind === "cobalt" ? 2 : 1,
+      life: 25
+    });
+  }
+
+  function addFloat(txt, x, y, col) {
+    floatTexts.push({ txt, x, y, vy: -25, life: 0.65, col });
+  }
+
+  function start() {
+    wakeAudio();
+    score = 0; minerals = 0; sector = 1; threat = 0;
+    for (const u of upgrades) u.level = 0;
+    player.maxHull = 100; player.hull = 100;
+    player.maxShield = 50; player.shield = 50;
+    player.x = 0; player.y = 0; player.vx = 0; player.vy = 0;
+    player.angle = -Math.PI / 2;
+    initWorld();
+    state = "play";
+  }
+
+  // ------------------------------------------------ Inputs
+  const keys = {};
+  addEventListener("keydown", e => {
+    wakeAudio();
+    if (window.SofaPad && SofaPad.echo(e)) return;
+    keys[e.key] = true;
+    if (state === "title" && (e.key === "Enter" || e.key === " " || e.key === "z")) start();
+    else if (state === "gameover" && (e.key === "Enter" || e.key === " ")) start();
+    else if (state === "dock") {
+      if (e.key === "ArrowUp" || e.key === "w") { upgradeCursor = (upgradeCursor + upgrades.length - 1) % upgrades.length; sndHit(); }
+      if (e.key === "ArrowDown" || e.key === "s") { upgradeCursor = (upgradeCursor + 1) % upgrades.length; sndHit(); }
+      if (e.key === "Enter" || e.key === " " || e.key === "z") buyUpgrade();
+      if (e.key === "Escape" || e.key === "x") { state = "play"; sndHit(); }
+    } else if (state === "play") {
+      if (e.key === "e" || e.key === "c") tryDock();
+      if (e.key === "Escape" || e.key === "p") state = "title";
+    }
+    if (e.key.startsWith("Arrow") || e.key === " ") e.preventDefault();
+  });
+  addEventListener("keyup", e => { keys[e.key] = false; });
+
+  if (window.SofaPad) {
+    SofaPad.on((b, act) => {
+      wakeAudio();
+      if (state === "title" && (act === "press" && (b === "a" || b === "start"))) start();
+      else if (state === "gameover" && (act === "press" && (b === "a" || b === "start"))) start();
+      else if (state === "dock") {
+        if (act === "press" || act === "repeat") {
+          if (b === "up") { upgradeCursor = (upgradeCursor + upgrades.length - 1) % upgrades.length; sndHit(); }
+          if (b === "down") { upgradeCursor = (upgradeCursor + 1) % upgrades.length; sndHit(); }
+          if (b === "a" || b === "x") buyUpgrade();
+          if (b === "b" || b === "start" || b === "y") { state = "play"; sndHit(); }
+        }
+      } else if (state === "play" && act === "press") {
+        if (b === "y" || b === "lb") tryDock();
+        if (b === "start") state = "title";
+      }
+    });
+  }
+
+  function buyUpgrade() {
+    const u = upgrades[upgradeCursor];
+    if (u.level < u.max && minerals >= u.cost) {
+      minerals -= u.cost;
+      u.level++;
+      u.cost = Math.round(u.cost * 1.5);
+      sndBuy();
+      const hullUp = upgrades.find(x => x.id === "hull").level;
+      player.maxHull = 100 + hullUp * 25;
+      player.hull = Math.min(player.maxHull, player.hull + 25);
+      const shieldUp = upgrades.find(x => x.id === "shield").level;
+      player.maxShield = 50 + shieldUp * 20;
+      player.shield = Math.min(player.maxShield, player.shield + 20);
+    } else {
+      sndHit();
+    }
+  }
+
+  function tryDock() {
+    for (const s of stations) {
+      if (Math.hypot(player.x - s.x, player.y - s.y) < s.r + 45) {
+        dockedStation = s;
+        state = "dock";
+        upgradeCursor = 0;
+        player.vx = 0; player.vy = 0;
+        sndBuy();
+        return;
+      }
+    }
+  }
+
+  // ------------------------------------------------ Physics Loop
+  let lastTime = 0, enemySpawnTimer = 0;
+  function update(dt) {
+    if (state !== "play") return;
+
+    if (screenShake > 0) screenShake = Math.max(0, screenShake - dt * 15);
+    if (player.hitFlash > 0) player.hitFlash -= dt;
+
+    // Controller input
+    let padX = 0, padY = 0, padFire = false, padBoost = false;
+    if (window.SofaPad) {
+      const st = SofaPad.stick();
+      padX = st.x; padY = st.y;
+      if (SofaPad.held("left")) padX -= 1;
+      if (SofaPad.held("right")) padX += 1;
+      if (SofaPad.held("up")) padY -= 1;
+      if (SofaPad.held("down")) padY += 1;
+      padFire = SofaPad.held("a") || SofaPad.held("x") || SofaPad.held("rt");
+      padBoost = SofaPad.held("b") || SofaPad.held("lb");
+    }
+    if (keys.ArrowLeft || keys.a) padX -= 1;
+    if (keys.ArrowRight || keys.d) padX += 1;
+    if (keys.ArrowUp || keys.w) padY -= 1;
+    if (keys.ArrowDown || keys.s) padY += 1;
+    const isFire = padFire || keys.z || keys[" "] || keys.Enter;
+    const isBoost = padBoost || keys.Shift || keys.x;
+
+    const mag = Math.hypot(padX, padY);
+    if (mag > 0.2) {
+      const targetAngle = Math.atan2(padY, padX);
+      let diff = targetAngle - player.angle;
+      while (diff < -Math.PI) diff += Math.PI * 2;
+      while (diff > Math.PI) diff -= Math.PI * 2;
+      player.angle += diff * Math.min(1, dt * 11);
+    }
+
+    const thrustUp = upgrades.find(x => x.id === "thrust").level;
+    const baseThrust = 260 + thrustUp * 65;
+    let thrust = 0;
+    if (mag > 0.25 || keys.ArrowUp || keys.w) thrust = baseThrust * Math.min(1, mag || 1);
+
+    if (isBoost && player.boost > 5) {
+      thrust *= 1.8;
+      player.boost = Math.max(0, player.boost - dt * 35);
+      player.boosting = true;
+    } else {
+      player.boost = Math.min(player.maxBoost, player.boost + dt * 18);
+      player.boosting = false;
+    }
+
+    if (thrust > 0) {
+      player.vx += Math.cos(player.angle) * thrust * dt;
+      player.vy += Math.sin(player.angle) * thrust * dt;
+      // Thruster exhaust particles
+      particles.push({
+        x: player.x - Math.cos(player.angle) * 12 + (Math.random() - 0.5) * 4,
+        y: player.y - Math.sin(player.angle) * 12 + (Math.random() - 0.5) * 4,
+        vx: -Math.cos(player.angle) * 120 + (Math.random() - 0.5) * 40,
+        vy: -Math.sin(player.angle) * 120 + (Math.random() - 0.5) * 40,
+        life: 0.2, maxLife: 0.2, col: player.boosting ? PAL.c : PAL.y
+      });
+    }
+
+    player.vx *= Math.pow(0.96, dt * 60);
+    player.vy *= Math.pow(0.96, dt * 60);
+    player.x += player.vx * dt; player.y += player.vy * dt;
+    player.x = Math.max(-WORLD, Math.min(WORLD, player.x));
+    player.y = Math.max(-WORLD, Math.min(WORLD, player.y));
+
+    // Shield Recharge
+    player.shieldRecharge += dt;
+    if (player.shieldRecharge > 3.0 && player.shield < player.maxShield) {
+      const shieldUp = upgrades.find(x => x.id === "shield").level;
+      player.shield = Math.min(player.maxShield, player.shield + dt * (12 + shieldUp * 5));
+    }
+    if (player.invuln > 0) player.invuln -= dt;
+
+    // Firing Plasma
+    player.fireTimer -= dt;
+    if (isFire && player.fireTimer <= 0) {
+      sndLaser();
+      const laserUp = upgrades.find(x => x.id === "lasers").level;
+      player.fireTimer = Math.max(0.12, 0.22 - laserUp * 0.03);
+      const sp = 550;
+      if (laserUp === 0) {
+        bullets.push({ x: player.x + Math.cos(player.angle) * 12, y: player.y + Math.sin(player.angle) * 12,
+                       vx: player.vx * 0.3 + Math.cos(player.angle) * sp, vy: player.vy * 0.3 + Math.sin(player.angle) * sp,
+                       life: 0.9, fromPlayer: true, dmg: 1.5 });
+      } else {
+        for (let a of [-0.14, 0.14]) {
+          bullets.push({ x: player.x + Math.cos(player.angle + a) * 12, y: player.y + Math.sin(player.angle + a) * 12,
+                         vx: player.vx * 0.3 + Math.cos(player.angle + a) * sp, vy: player.vy * 0.3 + Math.sin(player.angle + a) * sp,
+                         life: 0.9, fromPlayer: true, dmg: 1.5 });
+        }
+      }
+    }
+
+    // Update Bullets
+    for (let i = bullets.length - 1; i >= 0; i--) {
+      const b = bullets[i];
+      b.x += b.vx * dt; b.y += b.vy * dt; b.life -= dt;
+      if (b.life <= 0) { bullets.splice(i, 1); continue; }
+
+      if (b.fromPlayer) {
+        let hit = false;
+        // Hit Asteroids
+        for (let j = asteroids.length - 1; j >= 0; j--) {
+          const a = asteroids[j];
+          if (Math.hypot(b.x - a.x, b.y - a.y) < a.r) {
+            a.hp -= b.dmg;
+            sndHit();
+            hit = true;
+            if (a.hp <= 0) {
+              score += a.tier * 30;
+              threat = Math.min(100, threat + a.tier * 2.5);
+              sndBoom();
+              screenShake = 3;
+              addFloat(`+${a.tier * 30}`, a.x, a.y - 10, 2);
+              const gemCount = a.tier === 2 ? 4 : 2;
+              for (let k = 0; k < gemCount; k++) spawnGem(a.x, a.y, a.kind);
+              if (a.tier === 2) {
+                spawnAsteroid(a.x - 8, a.y - 8, 1);
+                spawnAsteroid(a.x + 8, a.y + 8, 1);
+              }
+              asteroids.splice(j, 1);
+              setTimeout(spawnAsteroid, 3000);
+            }
+            break;
+          }
+        }
+        if (hit) { bullets.splice(i, 1); continue; }
+
+        // Hit Enemies
+        for (let j = enemies.length - 1; j >= 0; j--) {
+          const en = enemies[j];
+          if (Math.hypot(b.x - en.x, b.y - en.y) < en.r + 4) {
+            en.hp -= b.dmg;
+            en.hitFlash = 0.12;
+            sndHit();
+            hit = true;
+            if (en.hp <= 0) {
+              sndBoom();
+              screenShake = en.isBoss ? 8 : 4;
+              if (en.isBoss) {
+                score += 2000;
+                threat = 0;
+                sector++;
+                sndWarp();
+                addFloat("+2000 BOSS CLEAR", en.x, en.y - 14, 4);
+                for (let k = 0; k < 12; k++) spawnGem(en.x, en.y, "hyper");
+              } else {
+                score += 120;
+                threat = Math.min(100, threat + 6);
+                addFloat("+120", en.x, en.y - 10, 0);
+                spawnGem(en.x, en.y, Math.random() < 0.4 ? "cobalt" : "iron");
+              }
+              enemies.splice(j, 1);
+            }
+            break;
+          }
+        }
+        if (hit) { bullets.splice(i, 1); continue; }
+      } else {
+        if (player.invuln <= 0 && Math.hypot(b.x - player.x, b.y - player.y) < 12) {
+          hurtPlayer(b.dmg || 15);
+          bullets.splice(i, 1);
+          continue;
+        }
+      }
+    }
+
+    // Asteroids movement
+    for (const a of asteroids) {
+      a.x += a.vx * dt; a.y += a.vy * dt; a.angle += a.vAngle * dt;
+      if (a.x < -WORLD) a.x += WORLD * 2; if (a.x > WORLD) a.x -= WORLD * 2;
+      if (a.y < -WORLD) a.y += WORLD * 2; if (a.y > WORLD) a.y -= WORLD * 2;
+      if (player.invuln <= 0 && Math.hypot(player.x - a.x, player.y - a.y) < a.r + 8) {
+        hurtPlayer(a.tier * 12);
+        const ba = Math.atan2(player.y - a.y, player.x - a.x);
+        player.vx += Math.cos(ba) * 140; player.vy += Math.sin(ba) * 140;
+      }
+    }
+
+    // Enemies update
+    enemySpawnTimer -= dt;
+    if (enemySpawnTimer <= 0) {
+      enemySpawnTimer = Math.max(4, 9 - sector);
+      if (threat >= 100 && !enemies.some(e => e.isBoss)) spawnEnemy(true);
+      else if (enemies.length < 3 + sector) spawnEnemy(false);
+    }
+
+    for (const en of enemies) {
+      if (en.hitFlash > 0) en.hitFlash -= dt;
+      const dx = player.x - en.x, dy = player.y - en.y, dist = Math.hypot(dx, dy);
+      en.angle = Math.atan2(dy, dx);
+
+      if (en.isBoss) {
+        if (dist > 200) { en.vx += Math.cos(en.angle) * 60 * dt; en.vy += Math.sin(en.angle) * 60 * dt; }
+        else { en.vx -= Math.cos(en.angle) * 40 * dt; en.vy -= Math.sin(en.angle) * 40 * dt; }
+        en.vx *= Math.pow(0.9, dt * 60); en.vy *= Math.pow(0.9, dt * 60);
+        en.x += en.vx * dt; en.y += en.vy * dt;
+
+        en.fireTimer += dt;
+        if (en.fireTimer > 1.3 && dist < 500) {
+          en.fireTimer = 0;
+          sndLaser();
+          for (let sp = -0.3; sp <= 0.3; sp += 0.2) {
+            bullets.push({
+              x: en.x + Math.cos(en.angle + sp) * 20, y: en.y + Math.sin(en.angle + sp) * 20,
+              vx: Math.cos(en.angle + sp) * 290, vy: Math.sin(en.angle + sp) * 290,
+              life: 1.8, fromPlayer: false, dmg: 16
+            });
+          }
+        }
+      } else {
+        const perp = en.angle + Math.PI / 2;
+        en.vx = Math.cos(en.angle) * (dist - 160) * 0.7 + Math.cos(perp) * 100;
+        en.vy = Math.sin(en.angle) * (dist - 160) * 0.7 + Math.sin(perp) * 100;
+        en.x += en.vx * dt; en.y += en.vy * dt;
+
+        en.fireTimer += dt;
+        if (en.fireTimer > 2.0 && dist < 400) {
+          en.fireTimer = 0;
+          sndLaser();
+          bullets.push({
+            x: en.x + Math.cos(en.angle) * 10, y: en.y + Math.sin(en.angle) * 10,
+            vx: Math.cos(en.angle) * 260, vy: Math.sin(en.angle) * 260,
+            life: 1.6, fromPlayer: false, dmg: 12
+          });
+        }
+      }
+      if (player.invuln <= 0 && dist < en.r + 10) hurtPlayer(en.isBoss ? 28 : 14);
+    }
+
+    // Mineral Gems Magnet
+    const magnetUp = upgrades.find(x => x.id === "magnet").level;
+    const magnetRange = 70 + magnetUp * 35;
+    for (let i = gems.length - 1; i >= 0; i--) {
+      const g = gems[i];
+      const dx = player.x - g.x, dy = player.y - g.y, dist = Math.hypot(dx, dy);
+      if (dist < magnetRange) {
+        const pull = (1 - dist / magnetRange) * 380;
+        g.vx += (dx / dist) * pull * dt;
+        g.vy += (dy / dist) * pull * dt;
+      }
+      g.vx *= Math.pow(0.94, dt * 60); g.vy *= Math.pow(0.94, dt * 60);
+      g.x += g.vx * dt; g.y += g.vy * dt;
+      g.life -= dt;
+      if (dist < 16) {
+        minerals += g.val;
+        score += g.val * 20;
+        sndGem();
+        addFloat(`+${g.val} MINERAL`, player.x, player.y - 10, 2);
+        gems.splice(i, 1);
+        continue;
+      }
+      if (g.life <= 0) gems.splice(i, 1);
+    }
+
+    // Floating text update
+    for (let i = floatTexts.length - 1; i >= 0; i--) {
+      const ft = floatTexts[i];
+      ft.y += ft.vy * dt; ft.life -= dt;
+      if (ft.life <= 0) floatTexts.splice(i, 1);
+    }
+
+    // Particles
+    for (let i = particles.length - 1; i >= 0; i--) {
+      const p = particles[i];
+      p.x += p.vx * dt; p.y += p.vy * dt; p.life -= dt;
+      if (p.life <= 0) particles.splice(i, 1);
+    }
+  }
+
+  function hurtPlayer(amt) {
+    sndShield();
+    screenShake = 6;
+    player.shieldRecharge = 0;
+    player.invuln = 0.45;
+    player.hitFlash = 0.15;
+    if (player.shield > 0) {
+      if (player.shield >= amt) player.shield -= amt;
+      else { const rem = amt - player.shield; player.shield = 0; player.hull -= rem; }
+    } else {
+      player.hull -= amt;
+    }
+    addFloat(`-${amt}`, player.x, player.y - 12, 3);
+    if (player.hull <= 0) {
+      player.hull = 0;
+      sndBoom();
+      state = "gameover";
+      bestScore = Math.max(bestScore, score);
+      try { localStorage.setItem(SAVE_KEY, bestScore); } catch (e) {}
+    }
+  }
+
+  // ------------------------------------------------ Drawing
+  function draw() {
+    ctx.fillStyle = "#04030a";
+    ctx.fillRect(0, 0, VW, VH);
+
+    if (state === "title") { drawTitle(); return; }
+
+    const shakeX = screenShake ? (Math.random() - 0.5) * screenShake : 0;
+    const shakeY = screenShake ? (Math.random() - 0.5) * screenShake : 0;
+    const camX = Math.floor(player.x - VW / 2 + shakeX);
+    const camY = Math.floor(player.y - VH / 2 + shakeY);
+
+    // Stars
+    for (const s of stars) {
+      const sx = ((s.x - camX * 0.4) % (VW * 1.5) + VW * 1.5) % (VW * 1.5) - VW * 0.25;
+      const sy = ((s.y - camY * 0.4) % (VH * 1.5) + VH * 1.5) % (VH * 1.5) - VH * 0.25;
+      ctx.fillStyle = s.c;
+      ctx.fillRect(sx | 0, sy | 0, s.s, s.s);
+    }
+
+    ctx.save();
+    ctx.translate(-camX, -camY);
+
+    // Space Stations
+    for (const st of stations) {
+      ctx.drawImage(S.station, Math.round(st.x - S.station.width / 2), Math.round(st.y - S.station.height / 2));
+      cstext(ctx, st.name, st.x, st.y - 28, 4, 1);
+      if (Math.hypot(player.x - st.x, player.y - st.y) < st.r + 45) {
+        const yBtn = window.SofaPad ? SofaPad.label("y") : "E";
+        cstext(ctx, `[ ${yBtn} ] DOCK AT BAY`, st.x, st.y + 20, 2, 1);
+      }
+    }
+
+    // Asteroids
+    for (const a of asteroids) {
+      ctx.save();
+      ctx.translate(a.x, a.y);
+      ctx.rotate(a.angle);
+      const img = a.tier === 2 ? (a.kind === "hyper" ? S.astHyperLg : a.kind === "cobalt" ? S.astCobaltLg : S.astIronLg) :
+                                 (a.kind === "hyper" ? S.astHyper : a.kind === "cobalt" ? S.astCobalt : S.astIron);
+      ctx.drawImage(img, -img.width / 2, -img.height / 2);
+      ctx.restore();
+    }
+
+    // Mineral Gems
+    for (const g of gems) {
+      ctx.fillStyle = g.kind === "hyper" ? PAL.p : g.kind === "cobalt" ? PAL.c : PAL.y;
+      ctx.fillRect(g.x - 2, g.y - 2, 4, 4);
+    }
+
+    // Particles
+    for (const p of particles) {
+      ctx.fillStyle = p.col;
+      ctx.fillRect(p.x | 0, p.y | 0, 2, 2);
+    }
+
+    // Bullets
+    for (const b of bullets) {
+      ctx.fillStyle = b.fromPlayer ? PAL.c : PAL.r;
+      ctx.fillRect(b.x - 2, b.y - 2, 4, 4);
+    }
+
+    // Enemies
+    for (const en of enemies) {
+      ctx.save();
+      ctx.translate(en.x, en.y);
+      ctx.rotate(en.angle + Math.PI / 2);
+      const img = en.isBoss ? (en.hitFlash > 0 ? S.bossW : S.boss) : (en.hitFlash > 0 ? S.droneW : S.drone);
+      ctx.drawImage(img, -img.width / 2, -img.height / 2);
+      ctx.restore();
+
+      if (en.isBoss) {
+        ctx.fillStyle = "rgba(0,0,0,0.6)";
+        ctx.fillRect(camX + VW / 2 - 100, camY + 12, 200, 10);
+        ctx.fillStyle = PAL.r;
+        ctx.fillRect(camX + VW / 2 - 98, camY + 14, 196 * (en.hp / en.maxHp), 6);
+        cstext(ctx, "DREADNOUGHT OMEGA", camX + VW / 2, camY + 4, 0, 1);
+      }
+    }
+
+    // Player Ship
+    ctx.save();
+    ctx.translate(player.x, player.y);
+    ctx.rotate(player.angle + Math.PI / 2);
+
+    // Thruster flame
+    if (Math.hypot(player.vx, player.vy) > 30) {
+      const fl = ((performance.now() * 0.015) | 0) % 2 === 0 ? S.flameA : S.flameB;
+      ctx.drawImage(fl, -fl.width / 2, 6);
+    }
+
+    // Ship Sprite
+    const pImg = player.hitFlash > 0 ? S.shipW : S.ship;
+    ctx.drawImage(pImg, -pImg.width / 2, -pImg.height / 2);
+
+    // Shield Dome Glow
+    if (player.shield > 0) {
+      ctx.drawImage(shieldGlow, -shieldGlow.width / 2, -shieldGlow.height / 2);
+    }
+    ctx.restore();
+
+    // Floating text
+    for (const ft of floatTexts) cstext(ctx, ft.txt, ft.x, ft.y, ft.col, 1);
+
+    ctx.restore();
+
+    // HUD
+    drawHUD();
+
+    if (state === "dock") drawDockShop();
+    if (state === "gameover") drawEnd("SHIP DESTROYED", 3);
+  }
+
+  function drawHUD() {
+    // Hull Bar
+    ctx.fillStyle = "rgba(0,0,0,0.6)";
+    ctx.fillRect(16, 12, 100, 8);
+    ctx.fillStyle = PAL.e;
+    ctx.fillRect(17, 13, 98 * (player.hull / player.maxHull), 6);
+
+    // Shield Bar
+    ctx.fillStyle = "rgba(0,0,0,0.6)";
+    ctx.fillRect(16, 22, 100, 6);
+    ctx.fillStyle = PAL.c;
+    ctx.fillRect(17, 23, 98 * (player.shield / player.maxShield), 4);
+
+    stext(ctx, `HULL ${Math.ceil(player.hull)}`, 122, 13, 0, 1);
+    stext(ctx, `MINERALS: ${minerals}`, 180, 13, 2, 1);
+    stext(ctx, `SCORE: ${score}`, VW - 90, 13, 0, 1);
+    stext(ctx, `THREAT: ${Math.floor(threat)}%`, VW - 90, 23, 3, 1);
+  }
+
+  function drawDockShop() {
+    ctx.fillStyle = "rgba(4,3,10,0.9)";
+    ctx.fillRect(40, 20, VW - 80, VH - 40);
+    ctx.strokeStyle = PAL.c;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(40, 20, VW - 80, VH - 40);
+
+    cstext(ctx, `${dockedStation.name} - UPGRADE BAY`, VW / 2, 35, 4, 1);
+    cstext(ctx, `MINERALS AVAILABLE: ${minerals}`, VW / 2, 48, 2, 1);
+
+    const startY = 70;
+    for (let i = 0; i < upgrades.length; i++) {
+      const u = upgrades[i];
+      const isSel = i === upgradeCursor;
+      const y = startY + i * 32;
+
+      if (isSel) {
+        ctx.fillStyle = "rgba(114, 210, 236, 0.2)";
+        ctx.fillRect(56, y - 10, VW - 112, 26);
+        ctx.strokeStyle = PAL.y;
+        ctx.strokeRect(56, y - 10, VW - 112, 26);
+      }
+      stext(ctx, `${u.name} (RANK ${u.level}/${u.max})`, 68, y - 4, isSel ? 0 : 1, 1);
+      stext(ctx, u.desc, 68, y + 6, 1, 1);
+
+      if (u.level >= u.max) {
+        stext(ctx, "MAXED", VW - 110, y + 1, 5, 1);
+      } else {
+        stext(ctx, `${u.cost} ORE`, VW - 110, y + 1, minerals >= u.cost ? 2 : 3, 1);
+      }
+    }
+
+    const aBtn = window.SofaPad ? SofaPad.label("a") : "ENTER";
+    const bBtn = window.SofaPad ? SofaPad.label("b") : "ESC";
+    cstext(ctx, `[ ${aBtn} ] UPGRADE  [ ${bBtn} ] LAUNCH SHIP`, VW / 2, VH - 36, 0, 1);
+  }
+
+  function drawEnd(title, col) {
+    ctx.fillStyle = "rgba(4,3,10,0.88)";
+    ctx.fillRect(0, 0, VW, VH);
+    cstext(ctx, title, VW / 2, VH / 2 - 30, col, 2);
+    cstext(ctx, `FINAL SCORE: ${score}  BEST: ${bestScore}`, VW / 2, VH / 2 + 5, 0, 1);
+
+    const aBtn = window.SofaPad ? SofaPad.label("a") : "ENTER";
+    cstext(ctx, `PRESS [ ${aBtn} ] TO LAUNCH NEW SHIP`, VW / 2, VH / 2 + 35, 2, 1);
+  }
+
+  function drawTitle() {
+    cstext(ctx, "VOID DRIFTER", VW / 2, 75, 4, 3);
+    cstext(ctx, "16-BIT DEEP SPACE MINER & COMBAT", VW / 2, 110, 2, 1);
+    cstext(ctx, "MINE MINERALS - UPGRADE AT ORBITAL DOCKS - DEFEAT DREADNOUGHTS", VW / 2, 140, 1, 1);
+
+    const aBtn = window.SofaPad ? SofaPad.label("a") : "SPACE / Z";
+    const bBtn = window.SofaPad ? SofaPad.label("b") : "SHIFT";
+    const yBtn = window.SofaPad ? SofaPad.label("y") : "E";
+
+    cstext(ctx, `STICK: STEER  [ ${aBtn} ] FIRE  [ ${bBtn} ] BOOST  [ ${yBtn} ] DOCK`, VW / 2, 185, 0, 1);
+    cstext(ctx, `PRESS [ ${aBtn} ] TO LAUNCH`, VW / 2, 220, 2, 1);
+
+    if (bestScore > 0) cstext(ctx, `BEST RECORD: ${bestScore}`, VW / 2, 245, 5, 1);
+  }
+
+  function frame(now) {
+    const dt = Math.min(0.04, (now - lastTime) / 1000 || 0);
+    lastTime = now;
+    update(dt);
+    draw();
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+</script></body></html>

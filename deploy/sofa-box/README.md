@@ -331,12 +331,17 @@ song in the box's player, or shows a picture; **Menu** renames, moves or deletes
   pointer, the buttons are the game's keys and clicks.
 - **To come back from a game, hold Home** (the Xbox or PS button, or a remote's Home) for a second.
 - **Gloamwell**, the box's own game: a dark-fantasy dungeon crawler. Go down the well under the village of
-  Wickhollow as a Warden, an Ashcaller or a Stalker, floor by floor (each one made as you go down): fight with
-  a blade and two skills, roll out of the way, pick up gold, tonics and gear, level up, and beat the guardian
-  every fourth floor. Climb the rope back up to rest and trade. It plays offline, with the controller from the
-  start (the hints show its buttons: A B X Y, or ✕ ○ □ △) or a keyboard, and keeps your Wickbearer on the box.
-- Small games that run in the home screen (Neon Dodge, Pair Up, Sky Hop) are there too, worked with the
-  arrows and OK.
+  Wickhollow as a Warden, an Ashcaller or a Stalker, through six zones of floors (each one made as you go
+  down), each with its own creatures and a guardian every fourth floor, and on past the last. Fight with a
+  blade and three skills, roll out of the way, spend a talent point each level, and find gear in five
+  rarities, sets among them. Back in the village: Hesk's stall, Vesk's forge (better your gear), your
+  strongbox, and the notice board's tasks. Three Wickbearers can be kept; one from the first Gloamwell moves
+  into the first free one. It plays offline with its own music (quiet unless you turn it up), with the
+  controller from the start (the hints show its buttons: A B X Y, or ✕ ○ □ △) or a keyboard.
+- More of the box's own games, each a page that plays offline with the controller: **Cinder Knight** (a
+  platformer), **Shadow Heist** (stealth), **Rune Tactics** (turn-based tactics), **Micro Drifters** (top-down
+  racing), **Neon Brawler** (a beat 'em up), **Void Drifter** (mining and upgrades in space), **Cosmic Cascade**
+  (a falling-gems puzzle), and the small ones, **Neon Dodge**, **Pair Up** and **Sky Hop**.
 
 ### Settings and themes
 
