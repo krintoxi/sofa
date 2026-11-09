@@ -376,10 +376,20 @@ song in the box's player, or shows a picture; **Menu** renames, moves or deletes
   stick turns, RT fires, LT aims, A opens doors. It's drawn
   by the processor, so it plays on a Pi 3 with or without a GPU, with helpers drawing strips of the picture on the
   Pi's other cores (Options: Drawing), and sharper on a Pi 4 or 5.
-- More of the box's own games, each a page that plays offline with the controller: **Cinder Knight** (a
-  platformer), **Shadow Heist** (stealth), **Rune Tactics** (turn-based tactics), **Micro Drifters** (top-down
-  racing), **Neon Brawler** (a beat 'em up), **Void Drifter** (mining and upgrades in space), **Cosmic Cascade**
-  (a falling-gems puzzle), and the small ones, **Neon Dodge**, **Pair Up** and **Sky Hop**.
+- **Cinder Knight**, a dark-fantasy platformer: the last ember of a cold world's hearth, in a knight's black iron,
+  climbing to light it again. Four regions of four stages (the Sootwood, the Sunken Kilns, the Glasswater Deep and
+  the Hearthspire), each ending in a boss whose bar shows once you're in its room: Old Charhorn, Brickmaw, the
+  Shard Wyrm and the Snuffer. Braziers to rise at, three ember shards hidden in every stage, and a forge on the
+  Ember Road to spend them on (blade, heart, glow, draughts). You learn moves as you go: the second leap, the
+  cinder dash, the wall climb and the ember shield, each needed for the next region, so some shards wait for you to
+  come back. Eight kinds of foe. It's dark, but torches and the knight's own glow light the way. Three journeys and
+  your best times are kept on the box. It's the first game on the box's 2D engine (Low2D, `games/low2d.js`), which
+  picks a look and a pace for the box (light at 60 on a Pi 3, full or rich on a Pi 4, a Pi 5 or a computer, and a
+  steady 30 rather than a stutter) and keeps it steady; Options: Look and Frames change it.
+- More of the box's own games, each a page that plays offline with the controller: **Shadow Heist** (stealth),
+  **Rune Tactics** (turn-based tactics), **Micro Drifters** (top-down racing), **Neon Brawler** (a beat 'em up),
+  **Void Drifter** (mining and upgrades in space), **Cosmic Cascade** (a falling-gems puzzle), and the small ones,
+  **Neon Dodge**, **Pair Up** and **Sky Hop**.
 - **How smoothly each game runs on your box**: the graphics check (`127.0.0.1:8091/box/games/probe/` in the box's
   browser) has a **Games check**. It plays each of the box's own games for 15 seconds, one after another (about
   four minutes), then shows a table on the TV: frames a second, late frames, the slowest frame, the game's own

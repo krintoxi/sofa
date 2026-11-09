@@ -7,6 +7,37 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.43
+
+- **Cinder Knight, a whole adventure.** Four regions of four stages: the Sootwood, the Sunken Kilns, the Glasswater
+  Deep and the Hearthspire, each ending in a boss (Old Charhorn, Brickmaw, the Shard Wyrm and the Snuffer). A boss's
+  bar shows only once you're in its room, and its gates shut behind you until it falls.
+  - Braziers to rise at, three ember shards hidden in every stage (behind cracked walls, up high, behind frost
+    veils), and a forge on the Ember Road to spend them on: blade, heart, glow and draughts.
+  - Moves learned as you go: the second leap (from a shrine in 1-2), then the cinder dash, the wall climb and the
+    ember shield, one from each boss. Each is needed in the next region, and some shards wait until you can come
+    back for them.
+  - Eight kinds of foe: cinderlings, ashbats, husks with spears, kiln grubs, spouters, shardbacks (their crystal
+    front turns your blade), glass wisps and snuff shades.
+  - Dark but readable: torches, braziers and the knight's own glow light the way, in colour; layered backgrounds;
+    a world map, three journeys kept on the box, your best times, and its own music. Every stage can be finished
+    with the moves you have by then (a test plays them all).
+  - `#demo` has it play itself (for the games check), keeping nothing.
+- **The box's 2D engine (Low2D, `games/low2d.js`).** Built on the box's game engine, for the box's games in pixels:
+  a crisp picture fitted to the TV, a fixed-step loop, tiles drawn once and copied after, layered backgrounds,
+  particles, light and shadow with coloured glows, screen shake and hit-stop, a pixel font, and the title, pause,
+  options and saves in one look, controller first. Cinder Knight is the first game on it; the box's other small
+  page games move onto it as each is made better.
+  - Three looks (light, full, rich), each at 60 frames a second or a steady 30. The box picks (a Pi 3 starts light)
+    and a governor keeps it steady, stepping down before a stutter shows. A steady 30 is better than an uneven 60,
+    so a box that can't hold 60 keeps the full look at a steady 30, and nothing goes below 30.
+  - Options in every game on it: **Look** and **Frames**, "for this box" or held, the same in the box's browser,
+    in Sofa or on a website. The box's test runs once for all the games on it.
+  - Depth (a block's side receding into the screen), a layer in front of the camera, reflections in still water,
+    and the camera's moments (it leans in when a boss enters, and tilts with a hard blow).
+- **For the games' makers:** `games/ENGINE.md` has a section on Low2D; `#tier=light|full|rich` and `#pace=60|30`
+  hold a look and a pace for checks.
+
 ## 1.1.42
 
 - **Gloamwell for two.** A second controller joins at any time: Start on it (or A when the screen asks). Its player

@@ -7,8 +7,13 @@
 - **Drawn by the processor** (`Ray`), for worlds on a grid: rooms, corridors, doors and floors at any height. It
   looks the same on every box, GPU or not, and the GPU only adds a glow. Ironmaw (`ironmaw/`), an old-style
   shooter, is drawn this way.
+
 It's one file: offline, no libraries, no build step. A game is one page that loads `../pad.js` and then
 `../low3d.js`, and adds its own content and rules.
+
+For games in pixels (side-on or from above: platformers, brawlers, tactics, racers seen from the sky) there's a
+second file on top of it, **Low2D** (`low2d.js`): see [Low2D: the 2D engine](#low2d-the-2d-engine). Cinder Knight
+(`cinder-knight/`) is built on it, and the box's other small page games move onto it as each is made better.
 
 The engine grows with each game. When a game needs something another game could use, the general part goes
 here and the game keeps only what is its own.
@@ -269,6 +274,106 @@ of its page with `#demo`, lets it settle, and times 15 s from the game's own win
 can round it and refresh it only every 20 minutes, and the check notices), and what `SofaStats` says. The frame can't take the keys and the game sees no
 controller, so B stops the check and nothing starts or saves. On a Pi 3 it is the measure of each game.
 
+## Low2D: the 2D engine
+
+`low2d.js` is loaded after `../pad.js` and `../low3d.js`, and builds on Low3D: its probe and processor test, its
+`Input` (the controller first, every controller a player, the box's echo keys dropped), its `Synth`, its `Governor`,
+`#demo` and `window.SofaStats`, and `#slow=N`. What it adds is the 2D part, the same for every game on it, so they
+all have the same menus, pause, options and saves, the same controller handling, and the same tuning to the box.
+
+### What it promises every game
+
+- **A pixel picture**, 480×270, drawn crisp. On a 1080p TV it's 4 times as big exactly (on 4K, 8); where a whole
+  number doesn't fill enough of the screen (a 720p TV: 2.67) it's as big as fits, still without smoothing.
+- **A fixed-step loop**: the game's rules run 60 steps a second whatever is drawn. A frame that comes a whole
+  number of steps after the last takes exactly that many (no judder at 60 or at 30). `G.stop(ms)` holds the world
+  still for a moment (hit-stop) while the picture goes on; `G.shake(k)` shakes it (Options: off, gentle, full).
+- **Three looks and two paces, held steady.** A game reads `G.tier` and decides what each means for it:
+  - *light*: the light map at a quarter of the screen's size, smoothed; a few coloured glows; fewer particles; two
+    background layers;
+  - *full*: the light map at half the size in dithered steps (the pixel look); every glow; three layers; depth (a
+    block's far face receding into the screen); a layer in front of the camera; reflections in still water;
+  - *rich*: as full, with the light at the screen's own size, smooth, and more particles, glows and weather.
+
+  Each is drawn at 60 frames a second or a **steady 30** (a frame on every other refresh, never one late). A steady
+  30 is better than an uneven 60, so on its own a box goes rich 60, full 60, light 60, then full at a steady 30 (twice
+  the time a frame is room for the full look), then light at 30, and **never below 30**.
+- **The box picks.** A Pi 3 (its GPU, or any 1 GB ARM board) starts light at 60 and goes no higher at 60; a slow
+  processor (the test, as `#slow` makes it) starts light and may climb to full; a fast one with a real GPU (a
+  desktop, a Pi 5) starts rich; the rest start full and may climb. The box's test runs once for every game on the
+  engine (kept as `sofa:box`); each game keeps where its own governor settled.
+- **The governor steps down before a stutter shows**: it judges each 2 s by the 90th percentile of the frame's own
+  work, and goes a rung down when that passes 70% of the frame, or when more than 6% of frames came late. After three
+  calm windows (none late, under 35%) it goes a rung up, but never back to a rung that failed twice.
+- **Options in every game**: music and sounds, rumble, screen shake, **Look** (for this box, rich, full, light)
+  and **Frames** (for this box, smoothest at 60, steady 30). The same choices work in the box's browser, in Sofa, or
+  on a website: "for this box" is the auto-detect.
+
+### A new game, from the start
+
+```html
+<canvas id="c"></canvas>
+<script src="../pad.js"></script><script src="../low3d.js"></script><script src="../low2d.js"></script>
+<script>
+const L2 = Low2D;
+const G = L2.game({ id: "my-game", canvas: document.getElementById("c"),
+  keys: { " ": "a", x: "x" }, keyNames: { a: "SPACE" },          // keys beyond Enter, Escape and the arrows
+  on(b, how, who) { },                    // presses the menus didn't take (who: the player, 0 for a key)
+  ready(G) { menu.show("title"); },       // after the box's tuning
+  tier(G, t) { light.size(t.light); },    // the look or the pace changed
+  update(dt) { },                         // 60 times a second
+  draw(g) { },                            // the world: through the camera's zoom and tilt
+  hud(g) { } });                          // over it, never zoomed
+const pad = G.control();                  // what a fixed step reads: pad.x(), pad.held("a"), pad.take("a", 120)
+const menu = new L2.Menu(G, { top: "title", screens: { title: { items: [{ t: "PLAY", act: "play" }] },
+  options: { title: "OPTIONS", back: "title", items: L2.optionItems() } }, choose(it) { } });
+G.menu = menu;
+G.start();
+</script>
+```
+
+Cinder Knight keeps its rules (the knight's moves, the stages and what's in them) in a script of their own before
+the game's, so the tests can play every stage in node with the game's own physics.
+
+### The parts
+
+- `game(o)` → `G`: `g` (the canvas's 2D context), `tier`, `gov`, `control(n)`, `input` (Low3D's), `synth`,
+  `shake(k)`, `stop(ms)`, `fade(fn)`, `zoomOn(z, x, y)` and `tiltBy(a)` (the camera's moments: a boss walks in, a
+  hard blow; off with screen shake), `rumble(s, w, ms, who)`, `label(b)` (a button as the player knows it: A or ✕,
+  or the key's name), `options(o)`, `rows()`.
+- `Control`: one player's controller and, for player 1 and "anyone", the keys: `x()`, `y()`, `held(b)`, and
+  `take(b, ms)`: a press kept a moment, so a fixed step never misses one (and a jump pressed just before landing
+  still jumps).
+- `TileMap(w, h, ts)`: tiles drawn once into 256-pixel chunks and copied after. `paint(g, x, y, kind, map, px, py)`
+  draws a tile (it can look at its neighbours); `flags[kind]` says `SOLID`, `ONEWAY` (a ledge you jump up through)
+  or `HURT`. A changed tile (a wall broken, a ledge crumbling) is drawn again where it is, not its whole chunk.
+  `move(body, dx, dy, drop)` moves a box through it (never through a wall, however fast); `touch`, `ground`,
+  `solidAt`. `drawDepth(g, camX, camY, vw, vh, k, colour)` draws the blocks' far faces, each chunk's shape smaller
+  towards the middle of the view, so a platform shows its side as the camera passes.
+- `art(rows, palette)`, `sheet(frames, palette, {ax, ay})` (each frame facing both ways, with a flash copy),
+  `put(g, sheet, frame, x, y, face, flash)`; `flip`, `silhouette`, `outline`.
+- `Layer(w, h, paint, {k, ky, y})`: a strip drawn once that scrolls at its own pace (0 far … 1 the world; over 1, a
+  layer in front of the camera). `gradient(w, h, colours)` for a sky.
+- `Particles(max, dots(colours))`: a fixed pool drawn from a sheet of dots (each colour at four strengths and three
+  sizes); `k` and `cap` follow the look. `emit(x, y, n, {c, v, a, sp, life, g, drag, s, up, bright})`.
+- `Light(G)`: the dark with a hole cut for each light (`begin(fill)`, `cut(x, y, r, k)`, `end(g)`), coloured glows
+  added on top (`glowOf(r, rgb, a)` once, then `glowBegin`, `glow`, `glowEnd`: as many as the look allows), and
+  bursts of light (`pulse(x, y, r, life, glow)`).
+- `reflect(g, x, y, w, h, alpha, t)`: still water, mirroring what's over it in slices that sway.
+- `font` (5×7, with ✕ ○ □ △ ◀ ▶ ♥ ★ in it): `text`, `shadow`, `center`, `width`, `wrap`, `colour(css)`;
+  `Label(w)`: a line drawn once and copied after; `badge(g, G, b, x, y)`: a button in a little box.
+- `Menu(G, {top, screens, choose, changed})`: title, pause, options and the rest in one look, worked with the
+  controller (◀ ▶ change an option) and the keys; Back on the top screen is the box's (it leaves the game).
+  `optionItems(extra)` are the engine's options.
+- `Store(id, fresh)`: what's kept on the box (`data`, `save()`), never written in `#demo`.
+
+### Checking a 2D game
+
+`#fps` shows the frame rate, the look, the pace and the work a frame; `#tier=light|full|rich` and `#pace=60|30` hold
+them; `#slow=N`, `#demo` and `#test` work as in Low3D. Cinder Knight on this Mac's headless Chrome (A18 Pro, no GPU):
+0.27 ms of script a frame on the full look, 0.6 ms on rich; on the light look with `#slow=20` (each frame's work 20
+times as long) 60 frames a second and none late.
+
 ## Checking a game
 
 - In a browser: `python3 deploy/sofa-box/sofa-box-agent.py` with `SOFA_BOX_CONF=<tmp> SOFA_BOX_ICONS=0
@@ -278,9 +383,12 @@ controller, so B stops the check and nothing starts or saves. On a Pi 3 it is th
   screen shows the same, plus what the governor has done. Its Games check plays every game in turn and shows a
   table of how each one ran.
 - `tests/test_box_games.py` (`TheEngine`) checks that games stay offline and on the controller, that every page's
-  script parses, and that each kind of box gets the right drawing.
+  script parses, and that each kind of box gets the right drawing. `TheEngine2D` checks Low2D's looks and paces,
+  its governor, loop, tiles, particles and saves in node; `TheCinderKnight` plays every one of Cinder Knight's stages
+  with the moves you'd have by then.
 
 ## Next, as games need it
 
-Height-field ground (hills you drive over) for 3D, and two players on one screen. In `Ray`: sloped floors. Each one
-comes with the game that first needs it.
+Height-field ground (hills you drive over) for 3D, and two players on one screen. In `Ray`: sloped floors. In
+Low2D: a 3D backdrop drawn by `GL` behind the pixels on the rich look (a tower that turns as you climb), split
+screens for couch play, slopes. Each one comes with the game that first needs it.

@@ -3,7 +3,7 @@
   {"id": "pair-up", "name": "Pair Up", "emoji": "🃏", "color": "#3CC8D8", "about": "Find the pairs in as few turns as you can."},
   {"id": "sky-hop", "name": "Sky Hop", "emoji": "🐸", "color": "#8BD46E", "about": "Bounce up from platform to platform."},
   {"id": "gloamwell", "name": "Gloamwell", "emoji": "🕯️", "color": "#8A4AB0", "about": "Go down the well under a village: a dark-fantasy dungeon crawler with loot, talents and guardians, made for a controller."},
-  {"id": "cinder-knight", "name": "Cinder Knight", "emoji": "🔥", "color": "#FF6A30", "about": "A dark-fantasy platformer: sword strikes, wall jumps, dodge rolls, and a sentinel at the end of the dungeon."},
+  {"id": "cinder-knight", "name": "Cinder Knight", "emoji": "🔥", "color": "#FF6A30", "about": "A dark-fantasy platformer: four regions, four bosses, ember shards to find and a forge, and new moves as you go."},
   {"id": "shadow-heist", "name": "Shadow Heist", "emoji": "💎", "color": "#4A78C8", "about": "Sneak past guards and cameras, keep out of their sight, and steal the diamond from the vault."},
   {"id": "rune-tactics", "name": "Rune Tactics", "emoji": "🔮", "color": "#A84AB0", "about": "Turn-based tactics on a grid: read the enemy's warnings, cast spells, and knock foes into pits."},
   {"id": "micro-drifters", "name": "Micro Drifters", "emoji": "🏁", "color": "#E0405A", "about": "Top-down racing on three tracks: drift to charge your boost, then let it go on the straights."},

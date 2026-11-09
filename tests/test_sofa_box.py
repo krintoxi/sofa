@@ -1321,6 +1321,64 @@ class BoxBrowser(unittest.TestCase):
         js("delete navigator.getGamepads; 1")
         self.assertEqual(state, {"errs": [], "two": False, "p1": "BRAN", "mode": 3})
         self.assertLess(hp1, hp2 * 0.7)                              # (the foes, back to their strength for one)
+    def test_cinder_knight_plays(self):
+        """Cinder Knight in the box's browser, on the 2D engine: the first stage of each region plays a while with every
+        move and nothing thrown; a boss's bar shows only once you're in its room, its gates shut behind you and open
+        when it falls, leaving its move; a shard and a stage's end are kept; the forge spends shards and embers; the
+        demo plays itself, says so, and keeps nothing."""
+        self.post("/box/api/open", {"url": self.base + "/box/games/cinder-knight/#test"})
+        js = lambda e: self.page_value("/box/games/cinder-knight", e)
+
+        def until(check, seconds=30):
+            end = time.time() + seconds
+            while time.time() < end:
+                try:
+                    if js(check):
+                        return
+                except (StopIteration, OSError, KeyError):
+                    pass
+                time.sleep(0.3)
+            self.fail("never: " + check)
+        until("typeof CK === 'object' && CK.mode === 'title'")
+        js("window.errs = []; addEventListener('error', e => errs.push(String(e.message))); localStorage.removeItem('cinder-knight'); CK.newJourney(0); 1")
+        for i in (0, 4, 8, 12):
+            js("CK.loadStage(%d); CK.MV = { double: true, dash: true, climb: true, shield: true }; CK.setMode('play'); CK.KN.hp = 99; 1" % i)
+            time.sleep(1.2)
+        self.assertEqual(js("errs.length"), 0, js("JSON.stringify(errs)"))
+        # Old Charhorn: no bar until you're in its room; the gates shut (stone, 10) and open (9) again; the dash is learned
+        before = json.loads(js("(() => { CK.loadStage(3); CK.MV = CK.R.movesAt(3); CK.setMode('play'); const b = { on: CK.ST.bossOn, awake: CK.ST.boss.awake };"
+                               " CK.KN.x = CK.ST.arena.x0 + 6 * 16; CK.KN.y = CK.ST.arena.floor; return JSON.stringify(b); })()"))
+        self.assertEqual(before, {"on": False, "awake": False})
+        time.sleep(1.5)
+        room = json.loads(js("JSON.stringify({ on: CK.ST.bossOn, awake: CK.ST.boss.awake, gate: CK.ST.map.at(CK.ST.gates[0].x, CK.ST.gates[0].y), dash: CK.MV.dash })"))
+        self.assertEqual(room, {"on": True, "awake": True, "gate": 10, "dash": False})
+        js("CK.KN.hp = 99; CK.hitBoss(CK.ST.boss, 999); 1")
+        time.sleep(1.8)
+        down = json.loads(js("JSON.stringify({ on: CK.ST.bossOn, done: CK.ST.bossDone, gate: CK.ST.map.at(CK.ST.gates[0].x, CK.ST.gates[0].y), dash: CK.MV.dash,"
+                             " kept: !!JSON.parse(localStorage.getItem('cinder-knight')).slots[0].learned.dash })"))
+        self.assertEqual(down, {"on": False, "done": True, "gate": 9, "dash": True, "kept": True})
+        # a shard, then the way out: kept on the box
+        js("(() => { CK.loadStage(0); CK.setMode('play'); const it = CK.ST.items.find(i => i.k === 'shard'); CK.KN.x = it.x; CK.KN.y = it.y + 8; return 1; })()")
+        time.sleep(0.6)
+        self.assertGreater(js("JSON.parse(localStorage.getItem('cinder-knight')).slots[0].shards[0]"), 0)
+        js("CK.KN.x = CK.ST.exit.x; CK.KN.y = CK.ST.exit.y; 1")
+        time.sleep(1.5)
+        clear = json.loads(js("(() => { const s = JSON.parse(localStorage.getItem('cinder-knight')).slots[0]; return JSON.stringify({ mode: CK.mode, best: s.best['1-1'] > 0, reached: s.reached }); })()"))
+        self.assertEqual(clear, {"mode": "tally", "best": True, "reached": 1})
+        forge = json.loads(js("(() => { CK.slot.embers = 100; CK.slot.shards[1] = 7; CK.buy(CK.FORGE[0]); return JSON.stringify({ blade: CK.slot.forge.blade, embers: CK.slot.embers, spent: CK.slot.spent }); })()"))
+        self.assertEqual(forge, {"blade": 1, "embers": 40, "spent": 3})
+        self.assertEqual(js("errs.length"), 0, js("JSON.stringify(errs)"))
+        # the demo: it plays by itself, says so, and keeps nothing
+        js("localStorage.removeItem('cinder-knight'); location.hash = '#demo-test'; location.reload(); 1")
+        time.sleep(1)
+        until("typeof CK === 'object' && CK.mode === 'play' && SofaStats.demo === true")
+        x0 = js("CK.KN.x")
+        time.sleep(5)
+        demo = json.loads(js("JSON.stringify({ mode: CK.mode, moved: CK.KN.x - %f, kept: localStorage.getItem('cinder-knight'), tier: SofaStats.tier })" % x0))
+        self.assertEqual(demo["mode"], "play")
+        self.assertGreater(demo["moved"], 48)                             # it runs on by itself,
+        self.assertIsNone(demo["kept"])                                   # keeps nothing,
+        self.assertTrue(demo["tier"].startswith("2D "), demo["tier"])     # and says how it's drawn
 
 
 class BoxNetwork(unittest.TestCase):

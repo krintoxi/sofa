@@ -274,7 +274,7 @@ console.log(JSON.stringify(out));
             self.assertIn(column, probe)
         self.assertIn("../low3d.js", probe)
         # the games that play by themselves say so, and keep nothing while they do
-        for gid in ("tidewing", "cosmic-cascade", "micro-drifters", "shadow-heist", "gloamwell"):
+        for gid in ("tidewing", "cosmic-cascade", "micro-drifters", "shadow-heist", "gloamwell", "cinder-knight"):
             html = self.read(gid, "index.html")
             self.assertRegex(html, r"SofaStats(\.demo = true|=\{demo:true\}| = \{ demo: true \})", gid)
         drifters = self.read("micro-drifters", "index.html")
@@ -308,6 +308,17 @@ class TheEngine(unittest.TestCase):
                     self.assertNotIn(online, html, g["id"])
         self.assertIn("tidewing", on_engine)
         self.assertIn("ironmaw", on_engine)
+        js2 = self.read("low2d.js")                                      # the 2D engine: offline too, Home never read
+        self.assertNotRegex(js2, r"""(src|href|url)\s*[=(]\s*["']?(https?:)?//""")
+        for online in ("fetch(", "XMLHttpRequest", "WebSocket", "importScripts", "@import", "<link"):
+            self.assertNotIn(online, js2)
+        self.assertNotRegex(js2, r"buttons\[16\]")
+        on_2d = [g["id"] for g in CATALOG["games"] if "../low2d.js" in self.read(g["id"], "index.html")]
+        self.assertIn("cinder-knight", on_2d)
+        for gid in on_2d:                                                 # pad.js, then Low3D, then Low2D on top of it
+            html = self.read(gid, "index.html")
+            self.assertLess(html.index('src="../pad.js"'), html.index('src="../low3d.js"'), gid)
+            self.assertLess(html.index('src="../low3d.js"'), html.index('src="../low2d.js"'), gid)
         probe = self.read("probe", "index.html")                         # the graphics check: for the owner, not on Home
         self.assertNotIn("probe", [g["id"] for g in CATALOG["games"]])
         self.assertIn("../low3d.js", probe)
@@ -321,7 +332,7 @@ class TheEngine(unittest.TestCase):
         tmp = tempfile.mkdtemp()
         try:
             pages = [os.path.join(g["id"], "index.html") for g in CATALOG["games"]] + [os.path.join("probe", "index.html")]
-            files = [os.path.join(self.GAMES, "low3d.js"), os.path.join(self.GAMES, "pad.js")]
+            files = [os.path.join(self.GAMES, "low3d.js"), os.path.join(self.GAMES, "low2d.js"), os.path.join(self.GAMES, "pad.js")]
             for page in pages:
                 for i, body in enumerate(re.findall(r"<script>(.*?)</script>", self.read(page), re.S)):
                     path = os.path.join(tmp, page.replace(os.sep, "_") + "_%d.js" % i)
@@ -626,6 +637,273 @@ console.log(JSON.stringify(out));
                 unreached = [(c, x, y) for c, x, y in things if (x, y) not in seen and c not in "xtpvSd"]
                 self.assertEqual(unreached, [], "%s from %s" % (name, s))
                 self.assertTrue(all(p in seen for p in ring), "%s: the ring from %s" % (name, s))
+
+
+# Low2D in node: PADS_JS's window, then the screen and a fake localStorage
+L2_JS = r"""
+def("innerWidth", 1920); def("innerHeight", 1080); def("devicePixelRatio", 1); def("screen", { width: 1920, height: 1080 });
+document.addEventListener = () => {};
+const store = {}; def("localStorage", { getItem: k => k in store ? store[k] : null, setItem: (k, v) => { store[k] = String(v); }, removeItem: k => { delete store[k]; } });
+const L2 = window.Low2D, name = t => t.name + t.fps, wait = ms => new Promise(r => setTimeout(r, ms));
+const canvas = () => ({ width: 0, height: 0, style: {}, getContext: () => null });
+const drawable = () => ({ width: 256, height: 256, style: {}, getContext: () => ({ save() {}, restore() {}, beginPath() {}, rect() {}, clip() {}, clearRect() {}, drawImage() {}, fillRect() {} }) });
+"""
+
+
+class TheEngine2D(unittest.TestCase):
+    """Low2D (games/low2d.js), the box's 2D engine on top of Low3D: the looks and the pace each box gets, the governor that
+    keeps them steady (stepping down before a stutter shows, never below 30 a second), the fixed-step loop and its
+    hit-stop, tiles to move through, the particles' pool, saves that #demo never writes, presses kept for the fixed
+    steps, and the picture fitted to the TV at a whole-number scale."""
+
+    def node(self, script):
+        return pads_in_node(self, L2_JS + "(async () => {" + script + "\nconsole.log(JSON.stringify(out)); })().catch(e => { console.error(e); process.exit(1); });",
+                            "pad.js", "low3d.js", "low2d.js")
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_the_looks_and_the_pace_each_box_gets(self):
+        out = self.node(r"""
+out.ladders = [L2.ladder("auto", "auto"), L2.ladder("auto", "30"), L2.ladder("full", "auto"), L2.ladder("light", "60")].map(l => l.map(name));
+const P = (family, cpu, extra, lad) => { lad = lad || L2.TIERS; const r = L2.plan(Object.assign({ family, webgl1: family !== "none", software: family === "software", memory: 4, arch: "" }, extra || {}), { cpu }, 1, lad);
+  return name(lad[r.rung]) + " up to " + name(lad[r.top]); };
+out.plans = { pi3: P("pi3", 95), pi3steady: P("pi3", 95, null, L2.ladder("auto", "30")), pi4: P("pi4", 30), slow: P("desktop", 80), fast: P("desktop", 5),
+  software: P("software", 5), small: P("none", 50, { memory: 1, arch: "arm64" }) };
+const slowed = L2.plan({ family: "desktop", webgl1: true, memory: 8, arch: "" }, { cpu: 4 }, 20); out.slowed = name(L2.TIERS[slowed.rung]);   // (#slow=20: a fast box as a slow one)
+""")
+        self.assertEqual(out["ladders"], [["light30", "full30", "light60", "full60", "rich60"], ["light30", "full30", "rich30"], ["full30", "full60"], ["light60"]])
+        p = out["plans"]
+        self.assertEqual(p["pi3"], "light60 up to light60")                 # a Pi 3 starts light and stays there at 60,
+        self.assertEqual(p["pi3steady"], "light30 up to full30")           # (at a steady 30 there's room for the full look)
+        self.assertEqual(p["pi4"], "full60 up to rich60")
+        self.assertEqual(p["slow"], "light60 up to full60")
+        self.assertEqual(p["fast"], "rich60 up to rich60")                 # a fast processor with a real GPU: the rich look
+        self.assertEqual(p["software"], "full60 up to rich60")             # (fast, but no GPU: full)
+        self.assertEqual(p["small"], "light60 up to light60")              # a 1 GB ARM board, whatever its GPU says
+        self.assertEqual(out["slowed"], "light60")
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_the_governor_steps_before_a_stutter_and_never_below_30(self):
+        out = self.node(r"""
+const lad = L2.ladder("auto", "auto"), g = new L2.Governor(lad, 3, 4);
+let drawn = 0, late = 0, last = 0;
+const run = (secs, work, stop) => { drawn = 0; for (let i = 0; i < secs * 60 && !(stop && stop()); i++) { now += 1000 / 60; if (g.tick(now)) { drawn++; if (last && now - last > 1000 / lad[g.rung].fps * 1.5) late++; last = now; g.work(work); } } };
+const at = () => name(lad[g.rung]);
+g.hold(0);
+run(14, 2); out.up = at();                                           // calm: up to the top (rich)
+run(4, 13, () => g.rung < 4); out.down = [at(), g.log[g.log.length - 1], late];   // 13 ms of 16.7 a frame, none late yet: down before it stutters
+run(16, 26); out.floor = at();                                        // far too busy: all the way down, then
+run(4, 26); out.stays = at();                                         // no lower than a steady 30
+run(3, 20); out.drawn30 = drawn;                                      // (every other refresh drawn)
+out.path = g.log.map(l => l.match(/(\d)→(\d)/).slice(1).join(">")).join(" ");
+const h = new L2.Governor(lad, 4, 4); h.hold(0);
+for (let k = 0; k < 2; k++) { for (let i = 0; i < 260; i++) { now += 1000 / 60; if (h.tick(now)) h.work(13); } for (let i = 0; i < 900; i++) { now += 1000 / 60; if (h.tick(now)) h.work(2); } }
+out.twice = name(lad[h.rung]);                                        // rich failed twice: not tried a third time
+""")
+        self.assertEqual(out["up"], "rich60")
+        self.assertEqual(out["down"][0], "full60")
+        self.assertIn("busy", out["down"][1])                              # down on the work alone,
+        self.assertEqual(out["down"][2], 0)                                # before a frame was late
+        self.assertEqual(out["path"], "3>4 4>3 3>2 2>1 1>0")               # rich, full, light at 60; then full, light at a steady 30
+        self.assertEqual((out["floor"], out["stays"]), ("light30", "light30"))
+        self.assertTrue(85 <= out["drawn30"] <= 95, out["drawn30"])         # 3 s at 30 a second: about 90 frames
+        self.assertEqual(out["twice"], "full60")
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_the_loop_hit_stop_and_the_tv(self):
+        out = self.node(r"""
+let ups = 0;
+location.hash = "#tier=full&pace=60";
+const G = L2.game({ id: "t1", canvas: canvas(), update() { ups++; }, draw() {} });
+G.start(); await wait(40); frames(4, 1000 / 60);
+out.ready = G.ready; out.tier = SofaStats.tier; out.box = JSON.parse(localStorage.getItem("sofa:box") || "null") !== null;
+ups = 0; frames(120, 1000 / 60); out.at60 = ups;                     // 2 s at 60 a second: 120 steps
+G.stop(100); ups = 0; frames(5, 1000 / 60); out.stopped = ups;        // hit-stop: the world holds 100 ms
+frames(10, 1000 / 60); out.after = ups;
+ups = 0; frames(30, 1000 / 30); out.slowFrames = ups;                 // frames twice as far apart: two steps each
+// the TV: 1080p is 4 times 480×270 exactly; 720p isn't a whole number, so it fits as big as it can
+G.fit(); out.scale1080 = G.scale; def("innerWidth", 1280); def("innerHeight", 720); G.fit(); out.scale720 = Math.round(G.scale * 100) / 100;
+// steady 30: half the frames drawn, the same game speed
+location.hash = "#tier=light&pace=30"; let ups2 = 0;
+const G2 = L2.game({ id: "t2", canvas: canvas(), update() { ups2++; }, draw() {} });
+G2.start(); await wait(40); frames(4, 1000 / 60); ups2 = 0;
+frames(120, 1000 / 60); out.at30 = ups2; out.drawn30 = G2.gov.frames;
+// presses kept for the fixed steps: taken once, and not when they're stale
+const c = G2.control(); G2.pressAt[0].a = performance.now(); out.take = [c.take("a"), c.take("a")];
+G2.pressAt[0].b = performance.now() - 300; out.stale = c.take("b", 120);
+""")
+        self.assertTrue(out["ready"] and out["box"])                        # the box's test, kept for every game (sofa:box)
+        self.assertEqual(out["tier"], "2D full, 60 fps (rung 0 of 0)")
+        self.assertTrue(118 <= out["at60"] <= 122, out["at60"])
+        self.assertLessEqual(out["stopped"], 1)                              # held still,
+        self.assertGreaterEqual(out["after"], 7)                             # then on again
+        self.assertTrue(58 <= out["slowFrames"] <= 62, out["slowFrames"])
+        self.assertEqual((out["scale1080"], out["scale720"]), (4, 2.67))
+        self.assertTrue(118 <= out["at30"] <= 122, out["at30"])
+        self.assertEqual(out["take"], [True, False])
+        self.assertFalse(out["stale"])
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_tiles_particles_and_saves(self):
+        out = self.node(r"""
+const m = new L2.TileMap(12, 8, 16); m.flags[1] = L2.SOLID; m.flags[2] = L2.ONEWAY; m.outside = 1;
+for (let x = 0; x < 12; x++) m.t[7 * 12 + x] = 1;                    // the floor's top: y 112
+for (let y = 2; y < 7; y++) m.t[y * 12 + 7] = 1;                     // a wall at x 112
+for (let x = 1; x < 5; x++) m.t[4 * 12 + x] = 2;                     // a ledge you jump up through: y 64
+const b = { x: 40, y: 90, w: 10, h: 20 };
+let hit = 0; for (let i = 0; i < 20; i++) hit |= m.move(b, 0, 4);
+out.floor = [b.y, !!(hit & L2.DOWN), m.ground(b)];
+hit = m.move(b, 200, 0); out.wall = [b.x, !!(hit & L2.RIGHT)];        // a dash at the wall stops at it (no passing through)
+b.x = 40; b.y = 112; m.move(b, 0, -60); out.through = b.y;            // up through the ledge,
+hit = 0; for (let i = 0; i < 10; i++) hit |= m.move(b, 0, 3); out.onLedge = [b.y, !!(hit & L2.DOWN)];   // and down onto it
+m.move(b, 0, 6, true); out.dropped = b.y;                             // (down and jump: through it)
+out.touch = m.touch({ x: 120, y: 60, w: 10, h: 20 }, L2.SOLID) >= 0;
+// a changed tile: drawn again where it is, the chunk not made again
+let painted = 0; m.paint = () => { painted++; }; m.chunks[0] = drawable(); m.dirty[0] = 0; m.set(3, 2, 1); out.repaint = [painted > 0, painted < 30, m.dirty[0]];
+// particles: a fixed pool, the tier's share of each burst
+const P = new L2.Particles(16, { c: null }); P.emit(0, 0, 40, { c: 0, life: 1 }); P.step(0.01); out.pool = P.alive;
+P.clear(); P.k = 0.5; P.emit(0, 0, 10, { c: 0, life: 1 }); P.step(0.01); out.half = P.alive;
+// saves: kept, but never in #demo
+location.hash = ""; const A = new L2.Store("t-save", () => ({ n: 1, opts: { music: 5 } })); A.data.n = 7; out.saved = A.save();
+const B = new L2.Store("t-save", () => ({ n: 1, opts: { music: 5, sound: 3 } })); out.loaded = [B.data.n, B.data.opts.music, B.data.opts.sound];
+location.hash = "#demo"; const D = new L2.Store("t-demo", () => ({ n: 1 })); out.demo = [D.save(), localStorage.getItem("t-demo"), new L2.Store("t-save", () => ({ n: 1 })).data.n];
+// the pixel font has the controller's buttons in it
+out.font = [L2.font.width("A"), L2.font.code("✕", 0), L2.font.code("△", 0), L2.font.wrap("THE HEARTH THAT WARMED THE REACH", 80).length];
+""")
+        self.assertEqual(out["floor"], [112, True, True])
+        self.assertEqual(out["wall"], [107, True])
+        self.assertEqual(out["through"], 52)
+        self.assertEqual(out["onLedge"], [64, True])
+        self.assertGreater(out["dropped"], 64)
+        self.assertTrue(out["touch"])
+        self.assertEqual(out["repaint"], [True, True, 0])
+        self.assertEqual((out["pool"], out["half"]), (16, 5))
+        self.assertEqual((out["saved"], out["loaded"]), (True, [7, 5, 3]))   # what was kept over the defaults, new defaults kept
+        self.assertEqual(out["demo"], [False, None, 1])                       # #demo: nothing written, nothing read
+        self.assertEqual(out["font"], [5, 16, 19, 3])
+
+
+# the knight in node: the game's own rules (its first script) played from every place it can stand
+REACH_JS = r"""
+const R = window.CinderRules, TS = R.TS, K = R.K;
+function reach(rows, moves) {
+  const st = R.parse(rows), map = st.map, W = st.w, H = st.h;
+  for (let i = 0; i < map.t.length; i++) { if (map.t[i] === K.CRACK) map.t[i] = K.AIR; if (map.t[i] === K.VEIL && moves.shield) map.t[i] = K.AIR; }
+  const solid = (x, y) => (map.flag(x, y) & L2.SOLID) !== 0, hurt = (x, y) => (map.flag(x, y) & L2.HURT) !== 0;
+  const stand = (x, y) => x >= 0 && x < W && y >= 1 && y < H && (map.flag(x, y) & (L2.SOLID | L2.ONEWAY)) && !solid(x, y - 1) && !solid(x, y - 2) && !hurt(x, y - 1) && !hurt(x, y - 2);
+  const thingAt = new Map(); for (const t of st.things) thingAt.set(t.y * W + t.x, t);
+  const start = st.things.find(t => t.c === "@"); let sy = start.y + 1; while (sy < H && !stand(start.x, sy)) sy++;
+  const seen = new Set(), clings = new Map(), todo = [], touched = new Set();
+  const add = (x, y) => { const k = y * W + x; if (!seen.has(k) && stand(x, y)) { seen.add(k); todo.push(["s", x, y]); } };
+  const addCling = k => { const id = k.cling + ":" + Math.floor(k.x / TS) + ":" + Math.floor(k.y / 8); if (!clings.has(id)) { clings.set(id, { x: k.x, y: k.y, s: k.cling }); todo.push(["c", id]); } };
+  const touch = (k, out) => { const x0 = Math.floor((k.x - k.w / 2) / TS), x1 = Math.floor((k.x + k.w / 2 - 0.01) / TS), y0 = Math.floor((k.y - k.h) / TS), y1 = Math.floor((k.y - 0.01) / TS);
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) if (thingAt.has(y * W + x)) out.push(y * W + x); };
+  const HOLD = [9, 0.12];
+  function run(k0, plan) {
+    const k = Object.assign({}, k0), inp = { x: plan.x, y: plan.y || 0, jump: false, held: false, dash: false, slow: 1 }, got = [];
+    let t = 0, left = false;
+    for (let n = 0; n < 200; n++) {
+      inp.jump = plan.jumpAt === 0 && n === 0; inp.held = plan.jumpAt === 0 ? t < plan.hold : plan.didDouble && t < plan.hold2; inp.dash = false;
+      if (!k.ground) left = true;
+      if (plan.double && !plan.didDouble && (plan.double === "apex" ? k.vy >= 0 && t > 0.02 : left && t > 0.06)) { inp.jump = true; plan.didDouble = true; plan.hold2 = t + 9; plan.dt2 = t + 0.3; }
+      if (plan.dash && !plan.didDash && (plan.dash === "apex" ? k.vy >= 0 && t > 0.02 && (!plan.double || plan.didDouble && t > plan.dt2) : plan.dash === "early" ? t > 0.08 : left && t > 0.04)) { inp.dash = true; plan.didDash = true; }
+      R.step(k, inp, 1 / 60, map, moves); t += 1 / 60;
+      if (k.y > H * TS + 40 || map.touch(k, L2.HURT) >= 0) return null;
+      touch(k, got);
+      if (k.cling && plan.from !== "c") { for (const g of got) touched.add(g); addCling(k); return null; }
+      if (k.ground && left && n > 1) { for (const g of got) touched.add(g); return k; }
+      if (plan.from === "walk" && k.ground && !left && n > 120) return null;
+    }
+    return null;
+  }
+  const landed = k => { if (!k) return; const y = Math.round(k.y / TS), a = Math.floor((k.x - k.w / 2) / TS), b = Math.floor((k.x + k.w / 2 - 0.01) / TS), m = Math.floor(k.x / TS);
+    if (stand(m, y)) add(m, y); else { if (stand(a, y)) add(a, y); if (stand(b, y)) add(b, y); } };
+  const fresh = (x, y) => { const k = R.knight(x * TS + 8, y * TS); k.ground = true; k.coyote = R.PHYS.coyote; k.air2 = !!moves.double; return k; };
+  const DBL = moves.double ? [null, "apex"] : [null], DSH = moves.dash ? [null, "apex", "early"] : [null];
+  if (!stand(start.x, sy)) return null;
+  add(start.x, sy);
+  while (todo.length) {
+    const n = todo.pop();
+    if (n[0] === "s") {
+      const x = n[1], y = n[2], k0 = fresh(x, y), got = []; touch(k0, got); for (const g of got) touched.add(g);
+      add(x - 1, y); add(x + 1, y);
+      for (const xi of [-1, -0.5, 0, 0.5, 1]) for (const hold of HOLD) for (const d2 of DBL) for (const da of DSH) landed(run(k0, { x: xi, jumpAt: 0, hold, double: d2, dash: da }));
+      for (const d of [-1, 1]) if (!stand(x + d, y)) {
+        const kr = fresh(x, y); kr.x += d * 7; kr.vx = d * R.PHYS.run; kr.face = d;
+        for (const hold of HOLD) for (const d2 of DBL) for (const da of DSH) landed(run(kr, { x: d, jumpAt: 0, hold, double: d2, dash: da }));
+        for (const xi of [d, d * 0.5]) for (const d2 of DBL) for (const da of (moves.dash ? [null, "fall"] : [null])) landed(run(k0, { x: xi, jumpAt: -1, hold: 0, double: d2 && "fall", dash: da, from: "walk" }));
+      }
+    } else {
+      const c = clings.get(n[1]), k0 = R.knight(c.x, c.y); k0.cling = c.s; k0.air2 = !!moves.double;
+      landed(run(k0, { x: c.s, y: -1, jumpAt: -1, hold: 0, from: "c" })); landed(run(k0, { x: c.s, y: 1, jumpAt: -1, hold: 0, from: "c" }));
+      for (const xi of [-c.s, -c.s * 0.5, 0, c.s]) for (const hold of HOLD) for (const d2 of DBL) for (const da of (moves.dash ? [null, "apex"] : [null])) landed(run(k0, { x: xi, jumpAt: 0, hold, double: d2, dash: da }));
+    }
+  }
+  return st.things.map(t => ({ c: t.c, x: t.x, y: t.y, got: touched.has(t.y * W + t.x) }));
+}
+const all = { double: true, dash: true, climb: true, shield: true }, NEWEST = [null, "dash", "climb", "shield"];
+out.stages = R.STAGES.map((s, i) => {
+  const moves = R.movesAt(i); let first = reach(s.rows, moves);
+  if (s.shrine && first.some(t => t.c === "D" && t.got)) { moves[s.shrine] = true; first = reach(s.rows, moves); }
+  const every = reach(s.rows, all), without = Object.assign({}, R.movesAt(i));
+  const newest = i < 2 ? null : i < 4 ? "double" : NEWEST[s.region]; if (newest) without[newest] = false;
+  const w = newest ? reach(s.rows, without) : null;
+  const got = (list, c) => list.filter(t => t.c === c && t.got).length, n = (c) => first.filter(t => t.c === c).length;
+  return { id: s.id, region: s.region, exit: got(first, "E") > 0, shards: n("*"), shardsNow: got(first, "*"), shardsAll: got(every, "*"),
+    cps: [got(first, "C"), n("C")], boss: n("B"), bossReached: got(first, "B") > 0, shrine: [n("D"), got(first, "D")], foes: first.filter(t => R.FOES[t.c]).map(t => t.c).join(""),
+    needs: newest, without: w ? got(w, "E") > 0 : null };
+});
+out.moves = R.STAGES.map((s, i) => Object.entries(R.movesAt(i)).filter(e => e[1]).map(e => e[0]).join("+"));
+"""
+
+
+class TheCinderKnight(unittest.TestCase):
+    """Cinder Knight, on the 2D engine: four regions of four stages, a boss ending each region; every stage can be
+    finished with the moves you have by then (and not without the newest one), every brazier reached, three ember
+    shards in each (two found on the way, all with every move), eight kinds of foe."""
+    GAMES = os.path.join(BOX, "games")
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_every_stage_can_be_finished(self):
+        import re
+        with open(os.path.join(self.GAMES, "cinder-knight", "index.html"), encoding="utf-8") as f:
+            html = f.read()
+        rules = re.findall(r"<script>(.*?)</script>", html, re.S)[0]
+        self.assertIn("window.CinderRules", rules)
+        tmp = tempfile.mkdtemp()
+        try:
+            path = os.path.join(tmp, "rules.js")
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(rules)
+            r = subprocess.run(["node", "-e", PADS_JS + "const L2 = window.Low2D;" + REACH_JS + "console.log(JSON.stringify(out));"]
+                               + [os.path.join(self.GAMES, f) for f in ("pad.js", "low3d.js", "low2d.js")] + [path],
+                               capture_output=True, text=True, timeout=600)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        out = json.loads(r.stdout.strip().splitlines()[-1])
+        stages = out["stages"]
+        self.assertEqual([s["id"] for s in stages], ["%d-%d" % (a, b) for a in range(1, 5) for b in range(1, 5)])
+        self.assertEqual(out["moves"][0], "")                                 # nothing at the start;
+        self.assertEqual(out["moves"][4], "double+dash")                      # the second leap (1-2's shrine) and the dash (Old Charhorn),
+        self.assertEqual(out["moves"][8], "double+dash+climb")                # the climb (Brickmaw),
+        self.assertEqual(out["moves"][12], "double+dash+climb+shield")        # the ember shield (the Shard Wyrm)
+        kinds = set()
+        for s in stages:
+            sid = s["id"]
+            self.assertTrue(s["exit"], sid)                                   # finished with the moves you have then
+            self.assertEqual(s["shards"], 3, sid)
+            self.assertEqual(s["shardsAll"], 3, sid)                          # every shard can be had,
+            self.assertGreaterEqual(s["shardsNow"], 2, sid)                   # two of them on the first time through
+            self.assertEqual(s["cps"][0], s["cps"][1], sid)                   # every brazier reached
+            self.assertGreaterEqual(s["cps"][1], 2, sid)
+            self.assertEqual(s["boss"], 1 if sid.endswith("-4") else 0, sid)  # a boss at the end of each region
+            if s["boss"]:
+                self.assertTrue(s["bossReached"], sid)
+            if s["needs"]:
+                self.assertFalse(s["without"], sid + " can be finished without " + s["needs"])
+            kinds |= set(s["foes"])
+        self.assertEqual(stages[1]["shrine"], [1, 1])                          # 1-2's shrine teaches the second leap
+        self.assertEqual(len(kinds), 8, kinds)                                 # eight kinds of foe
 
 
 class Agent(unittest.TestCase):
