@@ -633,9 +633,12 @@ Light.prototype = {
     for (let r = 2; r <= 150 / scale; r += 2) this.hole(r);       // (made now, not mid-game)
   },
   hole(r) { r = Math.max(2, Math.min(76, Math.round(r / 2) * 2)); return this.holes[r] || (this.holes[r] = holeOf(r, this.dither)); },
-  begin(fill) {
+  // fill: the dark's colour. A see-through fill lays over the last frame's map (the dark builds up where no light has
+  // been, and a light that moves leaves a moment of glow behind); fresh: clear it first, so the dark is the fill's own
+  begin(fill, fresh) {
     const g = this.g; if (!g) return;
     g.globalCompositeOperation = "source-over";
+    if (fresh) g.clearRect(0, 0, this.w, this.h);
     if (fill !== this.fill) { g.fillStyle = fill; this.fill = fill; }
     g.fillRect(0, 0, this.w, this.h);
     g.globalCompositeOperation = "destination-out"; this.cutN = 0;

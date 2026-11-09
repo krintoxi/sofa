@@ -4,1384 +4,1184 @@
   html, body { margin: 0; height: 100%; background: #000; overflow: hidden; user-select: none; }
   canvas { position: absolute; image-rendering: pixelated; }
 </style></head><body>
-<canvas id="c" width="480" height="270"></canvas>
+<canvas id="c"></canvas>
 <script src="../pad.js"></script>
+<script src="../low3d.js"></script>
+<script src="../low2d.js"></script>
 <script>
-/* Neon Brawler: 16-bit arcade street beat 'em up for Sofa Box OS.
-   Procedural ASCII pixel art, multi-frame fighters, Bayer-dithered streetlights,
-   combos, jump kicks, special moves, floating damage numbers, Web Audio synthesis.
-   100% offline, controller-first. */
+/* Neon Brawler: a street beat 'em up for Sofa Box OS, on Low2D (../low2d.js), the box's 2D engine. Five stages through
+   a city at night (a rain-soaked street, a neon market, a speeding train, the docks, a tower's roof), three fighters
+   to choose from, eight kinds of foe and four bosses, one player or two together (a second controller joins at any
+   time with Start). Combos that end in a launch, juggles, grabs, knees and throws, things to pick up and swing or
+   throw, a special meter, hit-stop and shake; records kept on the box. Everything is the game's own and made in code:
+   the figures are drawn from their bones (a pose a frame) a pixel at a time, the streets, the music. Offline, the
+   controller first (or the keyboard). In the address: #fps, #tier=…, #pace=…, #slow=N, #test (window.NB, for checks),
+   #demo (it fights by itself). */
 (function () {
-  "use strict";
-  const VW = 480, VH = 270;
-  const cv = document.getElementById("c"), ctx = cv.getContext("2d", { alpha: false });
-  let dirty = true;
-  function fit() {
-    const s = Math.min(innerWidth / VW, innerHeight / VH);
-    const w = Math.round(VW * s), h = Math.round(VH * s);
-    cv.style.width = w + "px"; cv.style.height = h + "px";
-    cv.style.left = ((innerWidth - w) >> 1) + "px"; cv.style.top = ((innerHeight - h) >> 1) + "px";
-    ctx.imageSmoothingEnabled = false; dirty = true;
-  }
-  addEventListener("resize", fit); fit();
+"use strict";
+const L2 = window.Low2D, U = L2.U, clamp = U.clamp, font = L2.font, mk = L2.mk;
+const VW = 480, VH = 270, Y0 = 182, Y1 = 254, TAU = Math.PI * 2;
+const rnd = Math.random, lerp = (a, b, t) => a + (b - a) * t;
+function g2(c) { const g = c.getContext("2d"); g.imageSmoothingEnabled = false; return g; }
+function px(g, x, y, w, h, c) { g.fillStyle = c; g.fillRect(x, y, w, h); }
+function rgb(h) { const v = parseInt(h.slice(1), 16); return [(v >> 16) & 255, (v >> 8) & 255, v & 255]; }
+function shade(h, k) { const c = rgb(h); return "#" + c.map(v => Math.max(0, Math.min(255, Math.round(v * k))).toString(16).padStart(2, "0")).join(""); }
 
-  // ------------------------------------------------ Color Palette
-  const PAL = {
-    k: "#08060f", K: "#1a1428", g: "#423854", G: "#7a7094", w: "#f0eef8",
-    s: "#f0b08a", S: "#a86048", r: "#ff2a6d", R: "#9e1038", o: "#ff6c11",
-    O: "#a83800", y: "#ffea00", Y: "#9a8a00", b: "#05d9e8", B: "#006888",
-    p: "#9b5de5", P: "#4e1e82", e: "#00f5d4", E: "#007a6a", m: "#8a5830",
-    M: "#4e2c14", n: "#2c263c", z: "rgba(0,0,0,0.45)"
+// ---------------------------------------------------------------- figures, drawn from their bones
+// A figure is a spec (its sizes, colours, hair, clothes, what it holds) and a pose (the angles of its limbs, in degrees:
+// 0 hangs straight down, more turns it to the front; a knee bends the shin back, an elbow the forearm up). Each pose is
+// drawn a pixel at a time into a small picture, outlined, crisp; the front hand's place and the forearm's angle are kept
+// (a weapon picked up is drawn there).
+const OUT = "#0b0814";
+function u32(h) { const c = rgb(h); return ((255 << 24) | (c[2] << 16) | (c[1] << 8) | c[0]) >>> 0; }
+function figure(sp, P, W, H) {
+  const S = sp.size || 1, wd = sp.wide || 1, ax = W >> 1, ay = H - 3, R = Math.PI / 180;
+  const buf = new Uint32Array(W * H), C = {};
+  const col = h => C[h] || (C[h] = u32(h));
+  const put = (x, y, c) => { if (x >= 0 && y >= 0 && x < W && y < H) buf[y * W + x] = c; };
+  const disc = (cx, cy, r, c) => {
+    const r2 = r * r, x0 = Math.floor(cx - r), x1 = Math.ceil(cx + r), y0 = Math.floor(cy - r), y1 = Math.ceil(cy + r);
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) { const dx = x + 0.5 - cx, dy = y + 0.5 - cy; if (dx * dx + dy * dy <= r2) put(x, y, c); }
   };
-
-  // ------------------------------------------------ Sprite Parser
-  function mk(w, h) { const c = document.createElement("canvas"); c.width = w; c.height = h; return c; }
-  function g2(c) { const g = c.getContext("2d"); g.imageSmoothingEnabled = false; return g; }
-
-  function spr(rows, over) {
-    let w = 0; for (let i = 0; i < rows.length; i++) w = Math.max(w, rows[i].length);
-    const c = mk(w, rows.length), g = g2(c);
-    for (let y = 0; y < rows.length; y++) {
-      for (let x = 0; x < rows[y].length; x++) {
-        const ch = rows[y][x]; if (ch === ".") continue;
-        const col = (over && over[ch]) || PAL[ch]; if (!col) continue;
-        g.fillStyle = col; g.fillRect(x, y, 1, 1);
+  const cap = (x0, y0, x1, y1, r0, r1, c) => { const n = Math.max(1, Math.ceil(Math.hypot(x1 - x0, y1 - y0) * 2)); for (let i = 0; i <= n; i++) { const t = i / n; disc(x0 + (x1 - x0) * t, y0 + (y1 - y0) * t, r0 + (r1 - r0) * t, c); } };
+  const poly = (pts, c) => {                       // a convex shape, filled row by row
+    let y0 = 1e9, y1 = -1e9; for (let i = 1; i < pts.length; i += 2) { y0 = Math.min(y0, pts[i]); y1 = Math.max(y1, pts[i]); }
+    for (let y = Math.floor(y0); y <= Math.ceil(y1); y++) {
+      let lo = 1e9, hi = -1e9; const yc = y + 0.5;
+      for (let i = 0; i < pts.length; i += 2) {
+        const j = (i + 2) % pts.length, ax_ = pts[i], ay_ = pts[i + 1], bx = pts[j], by = pts[j + 1];
+        if ((ay_ <= yc && by > yc) || (by <= yc && ay_ > yc)) { const x = ax_ + (yc - ay_) / (by - ay_) * (bx - ax_); lo = Math.min(lo, x); hi = Math.max(hi, x); }
       }
+      for (let x = Math.round(lo); x < Math.round(hi); x++) put(x, y, c);
     }
-    return c;
-  }
-
-  function flipX(img) {
-    const c = mk(img.width, img.height), g = g2(c);
-    g.translate(img.width, 0); g.scale(-1, 1); g.drawImage(img, 0, 0);
-    return c;
-  }
-
-  function whiteOf(img) {
-    const c = mk(img.width, img.height), g = g2(c);
-    g.drawImage(img, 0, 0);
-    g.globalCompositeOperation = "source-in";
-    g.fillStyle = "#ffffff";
-    g.fillRect(0, 0, img.width, img.height);
-    return c;
-  }
-
-  // ------------------------------------------------ Handcrafted Pixel Art
-  const RAW_SPRITES = {
-    // Player "Kid Neon" (16x26)
-    hero_idle: [
-      ".....kkkkk......",
-      "....kyyyyyk.....",
-      "....ksssssk.....",
-      "....kkskskk.....",
-      "....ksssssk.....",
-      ".....ksssk......",
-      "...kkkbbkkk.....",
-      "..kbbbbbbbbk....",
-      ".kbbwbbbbwbk....",
-      ".kssbbbbbbssk...",
-      ".kssbbbbbbssk...",
-      ".kkkbbbbbbkkk...",
-      "....kYYYYk......",
-      "....kggggk......",
-      "....kg..gk......",
-      "....kg..gk......",
-      "....kK..Kk......",
-      "....kK..Kk......",
-      "....kw..wk......",
-      "....kwwwwk......",
-      ".....kkkk......."
-    ],
-    hero_walk1: [
-      ".....kkkkk......",
-      "....kyyyyyk.....",
-      "....ksssssk.....",
-      "....kkskskk.....",
-      "....ksssssk.....",
-      ".....ksssk......",
-      "...kkkbbkkk.....",
-      "..kbbbbbbbbk....",
-      ".ksswbbbbwbk....",
-      ".kssbbbbbbssk...",
-      "..kkbbbbbbssk...",
-      "....kYYYYk.kk...",
-      "....kggggk......",
-      "...kgg..gk......",
-      "...kg....gk.....",
-      "..kK......Kk....",
-      "..kw......wk....",
-      "..kwww...kwww...",
-      "...kkk....kkk..."
-    ],
-    hero_walk2: [
-      ".....kkkkk......",
-      "....kyyyyyk.....",
-      "....ksssssk.....",
-      "....kkskskk.....",
-      "....ksssssk.....",
-      ".....ksssk......",
-      "...kkkbbkkk.....",
-      "..kbbbbbbbbk....",
-      ".kbbwbbbbwbk....",
-      ".kssbbbbbbssk...",
-      ".kssbbbbbbssk...",
-      ".kkkbbbbbbkkk...",
-      "....kYYYYk......",
-      "....kggggk......",
-      "....kg..gk......",
-      "....kg..gk......",
-      "....kK..Kk......",
-      "....kw..wk......",
-      "....kwwwwk......",
-      ".....kkkk......."
-    ],
-    hero_walk3: [
-      ".....kkkkk......",
-      "....kyyyyyk.....",
-      "....ksssssk.....",
-      "....kkskskk.....",
-      "....ksssssk.....",
-      ".....ksssk......",
-      "...kkkbbkkk.....",
-      "..kbbbbbbbbk....",
-      ".kbbwbbbbwssk...",
-      ".kssbbbbbbssk...",
-      ".kssbbbbbbkk....",
-      "..kk.kYYYYk.....",
-      "....kggggk......",
-      "....kg..ggk.....",
-      "...kg....gk.....",
-      "...kK......Kk...",
-      "...kw......wk...",
-      "..kwww...kwww...",
-      "...kkk....kkk..."
-    ],
-    hero_punch1: [
-      ".....kkkkk......",
-      "....kyyyyyk.....",
-      "....ksssssk.....",
-      "....kkskskk.....",
-      "....ksssssk.....",
-      ".....ksssk......",
-      "...kkkbbkkkkkk..",
-      "..kbbbbbbbbsssk.",
-      ".ksswbbbbwbsssk.",
-      ".kssbbbbbbkkkk..",
-      "..kkbbbbbbk.....",
-      "....kYYYYk......",
-      "....kggggk......",
-      "...kgg..gk......",
-      "...kg....gk.....",
-      "..kK......Kk....",
-      "..kw......wk....",
-      "..kwww...kwww...",
-      "...kkk....kkk..."
-    ],
-    hero_punch2: [
-      ".....kkkkk......",
-      "....kyyyyyk.....",
-      "....ksssssk.....",
-      "....kkskskk.....",
-      "....ksssssk.....",
-      ".....ksssk......",
-      "...kkkbbkkkkkkk.",
-      "..kbbbbbbbbssswk",
-      ".kbbwbbbbwbssswk",
-      ".kssbbbbbbkkkkk.",
-      ".kssbbbbbbk.....",
-      ".kkk.kYYYYk.....",
-      "....kggggk......",
-      "....kg..ggk.....",
-      "...kg....gk.....",
-      "...kK......Kk...",
-      "...kw......wk...",
-      "..kwww...kwww...",
-      "...kkk....kkk..."
-    ],
-    hero_kick: [
-      ".....kkkkk......",
-      "....kyyyyyk.....",
-      "....ksssssk.....",
-      "....kkskskk.....",
-      "....ksssssk.....",
-      ".....ksssk......",
-      "...kkkbbkkk.....",
-      "..kbbbbbbbbk....",
-      ".kssbbbbbbssk...",
-      "..kkbbbbbbk.....",
-      "....kYYYYkkkkk..",
-      "....kggggggggk..",
-      "...kggkKkkkKk...",
-      "...kg.kwkwkkk...",
-      "...kK.kwwk......",
-      "..kw..kkk.......",
-      "..kwwk..........",
-      "...kk..........."
-    ],
-    hero_jump: [
-      ".....kkkkk......",
-      "....kyyyyyk.....",
-      "....ksssssk.....",
-      "....kkskskk.....",
-      "....ksssssk.....",
-      "...kkkbbkkk.....",
-      "..kbbbbbbbbk....",
-      ".ksswbbbbwbssk..",
-      ".kssbbbbbbkssk..",
-      "..kkkYYYYkkkk...",
-      "...kggggggggk...",
-      "...kggk..kggk...",
-      "...kKk....kKk...",
-      "...kwwk..kwwk...",
-      "....kk....kk...."
-    ],
-    hero_special: [
-      "..kkkyyyykkk....",
-      ".krrrryyyyrrrk..",
-      ".krrrrssssrrrk..",
-      "krrrrrsssssrrrk.",
-      "krrbbbbbbbbbbrk.",
-      "krrbbwwbbwwbbrk.",
-      "krrbbbbbbbbbbrk.",
-      ".krrYYYYYYYYrrk.",
-      "..krrggggggrrk..",
-      "...krrKKKKrrk...",
-      "....krrwwrrk....",
-      ".....kkkkkk....."
-    ],
-    hero_hurt: [
-      "....kkkkk.......",
-      "...kyyyyyk......",
-      "...ksssssk......",
-      "...kkskskk......",
-      "...ksssssk......",
-      "....ksssk.......",
-      "..kkkbbkkk......",
-      ".kbbbbbbbbk.....",
-      "ksswbbbbwbssk...",
-      "kssbbbbbbkssk...",
-      ".kkkYYYYkkk.....",
-      "...kggggk.......",
-      "...kg..gk.......",
-      "..kK....Kk......",
-      "..kw....wk......",
-      ".kwww..kwww.....",
-      "..kk....kk......"
-    ],
-
-    // Punk Thug (16x22)
-    punk_idle: [
-      ".....krrrrk.....",
-      "....krrrrrrk....",
-      "....kssssssk....",
-      "....kskssksk....",
-      "....kssssssk....",
-      "....kKssssKk....",
-      "...kkkKKKKkkk...",
-      "..kKKKKKKKKKk...",
-      ".kssKKgKKgKKssk.",
-      ".kssKKgKKgKKssk.",
-      "..kkKKKKKKKkkk..",
-      "....knnnnnk.....",
-      "....kn...nk.....",
-      "....kn...nk.....",
-      "....kK...Kk.....",
-      "....kw...wk.....",
-      "....kkk.kkk....."
-    ],
-    punk_walk1: [
-      ".....krrrrk.....",
-      "....krrrrrrk....",
-      "....kssssssk....",
-      "....kskssksk....",
-      "....kssssssk....",
-      "....kKssssKk....",
-      "...kkkKKKKkkk...",
-      "..kKKKKKKKKKk...",
-      ".kssKKgKKgKKk...",
-      "..kkKKKKKKKkssk.",
-      "....knnnnnkkkk..",
-      "...knn...nk.....",
-      "...kn.....nk....",
-      "..kK.......Kk...",
-      "..kw.......wk...",
-      "..kkk.....kkk..."
-    ],
-    punk_walk2: [
-      ".....krrrrk.....",
-      "....krrrrrrk....",
-      "....kssssssk....",
-      "....kskssksk....",
-      "....kssssssk....",
-      "....kKssssKk....",
-      "...kkkKKKKkkk...",
-      "..kKKKKKKKKKk...",
-      "...kKKgKKgKKssk.",
-      ".kssKKKKKKKkkk..",
-      "..kkknnnnnk.....",
-      "....kn...nnk....",
-      "...kn.....nk....",
-      "...kK.....Kk....",
-      "...kw.....wk....",
-      "...kkk...kkk...."
-    ],
-    punk_punch: [
-      ".....krrrrk.....",
-      "....krrrrrrk....",
-      "....kssssssk....",
-      "....kskssksk....",
-      "....kssssssk....",
-      "....kKssssKk....",
-      "...kkkKKKKkkkkkk",
-      "..kKKKKKKKKKssss",
-      ".kssKKgKKgKKssss",
-      "..kkKKKKKKKkkkkk",
-      "....knnnnnk.....",
-      "...knn...nk.....",
-      "...kn.....nk....",
-      "..kK.......Kk...",
-      "..kw.......wk...",
-      "..kkk.....kkk..."
-    ],
-    punk_hurt: [
-      "....krrrrk......",
-      "...krrrrrrk.....",
-      "...kssssssk.....",
-      "...kskssksk.....",
-      "...kssssssk.....",
-      "...kKssssKk.....",
-      "..kkkKKKKkkk....",
-      ".kKKKKKKKKKk....",
-      "kssKKgKKgKKssk..",
-      ".kkKKKKKKKkkk...",
-      "...knnnnnk......",
-      "...kn...nk......",
-      "..kn.....nk.....",
-      "..kK.....Kk.....",
-      "..kw.....wk.....",
-      "..kkk...kkk....."
-    ],
-
-    // Brute Boss "Big Diesel" (24x28)
-    boss_idle: [
-      "........kkkkkkk.........",
-      ".......kKKKKKKKk........",
-      ".......ksssssssk........",
-      ".......ksksskskk........",
-      ".......ksssssssk........",
-      "......kkkssssskkk.......",
-      "....kkRRRRRRRRRRRkk.....",
-      "...kRRRRRRRRRRRRRRRk....",
-      "..kssRRRwRRRRRwRRRssk...",
-      "..kssRRRwRRRRRwRRRssk...",
-      "..kssRRRRRRRRRRRRRssk...",
-      "...kkRRRRRRRRRRRRRkk....",
-      ".....kKKKKKKKKKKk.......",
-      ".....kggggggggggk.......",
-      ".....kgg......ggk.......",
-      ".....kgg......ggk.......",
-      ".....kKK......KKk.......",
-      ".....kKK......KKk.......",
-      ".....kww......wwk.......",
-      ".....kkk......kkk......."
-    ],
-    boss_walk1: [
-      "........kkkkkkk.........",
-      ".......kKKKKKKKk........",
-      ".......ksssssssk........",
-      ".......ksksskskk........",
-      ".......ksssssssk........",
-      "......kkkssssskkk.......",
-      "....kkRRRRRRRRRRRkk.....",
-      "...kRRRRRRRRRRRRRRRk....",
-      "..kssRRRwRRRRRwRRRk.....",
-      "..kssRRRRRRRRRRRRRkssk..",
-      "...kkRRRRRRRRRRRRRkssk..",
-      ".....kKKKKKKKKKKkkkk....",
-      "....kgggg....ggggk......",
-      "...kgg..........ggk.....",
-      "...kKK..........KKk.....",
-      "...kww..........wwk.....",
-      "...kkk..........kkk....."
-    ],
-    boss_walk2: [
-      "........kkkkkkk.........",
-      ".......kKKKKKKKk........",
-      ".......ksssssssk........",
-      ".......ksksskskk........",
-      ".......ksssssssk........",
-      "......kkkssssskkk.......",
-      "....kkRRRRRRRRRRRkk.....",
-      "...kRRRRRRRRRRRRRRRk....",
-      ".....kRRRwRRRRRwRRRssk..",
-      "..kssRRRRRRRRRRRRRkssk..",
-      "..kssRRRRRRRRRRRRRkkk...",
-      "....kkkKKKKKKKKKKk......",
-      "......kgggg....ggggk....",
-      ".....kgg..........ggk...",
-      ".....kKK..........KKk...",
-      ".....kww..........wwk...",
-      ".....kkk..........kkk..."
-    ],
-    boss_slam: [
-      "........kkkkkkk.........",
-      ".......kKKKKKKKk........",
-      ".......ksssssssk........",
-      ".......ksksskskk........",
-      ".......ksssssssk........",
-      "......kkkssssskkk.......",
-      "....kkRRRRRRRRRRRkkkkkk.",
-      "...kRRRRRRRRRRRRRRRssssk",
-      "..kssRRRwRRRRRwRRRRssssk",
-      "..kssRRRRRRRRRRRRRRkkkkk",
-      "...kkRRRRRRRRRRRRRk.....",
-      ".....kKKKKKKKKKKk.......",
-      ".....kggggggggggk.......",
-      "....kgg........ggk......",
-      "...kKK..........KKk.....",
-      "...kww..........wwk.....",
-      "...kkk..........kkk....."
-    ],
-    boss_hurt: [
-      ".......kkkkkkk..........",
-      "......kKKKKKKKk.........",
-      "......ksssssssk.........",
-      "......ksksskskk.........",
-      "......ksssssssk.........",
-      ".....kkkssssskkk........",
-      "...kkRRRRRRRRRRRkk......",
-      "..kRRRRRRRRRRRRRRRk.....",
-      ".kssRRRwRRRRRwRRRssk....",
-      "..kkRRRRRRRRRRRRRkk.....",
-      "....kKKKKKKKKKKk........",
-      "....kggggggggggk........",
-      "...kgg........ggk.......",
-      "...kKK........KKk.......",
-      "...kww........wwk.......",
-      "...kkk........kkk......."
-    ],
-
-    // Props & Pickups
-    barrel: [
-      "...kkkkkkkkkk...",
-      "..kmmmmmmmmmmk..",
-      ".kMmMmMmMmMmMk.",
-      ".kKKKKKKKKKKKk.",
-      ".kmmmmmmmmmmmk.",
-      ".kMmMmMmMmMmMk.",
-      ".kKKKKKKKKKKKk.",
-      ".kmmmmmmmmmmmk.",
-      ".kMmMmMmMmMmMk.",
-      "..kkkkkkkkkkk..."
-    ],
-    barrel_debris: [
-      "kmmk..kMMk..kmmk",
-      ".kMMk.kmmk..kMMk",
-      "..kk..kkk....kk."
-    ],
-    food_chicken: [
-      "....kkkkk.......",
-      "..kkooooookk....",
-      ".koooooooooook..",
-      "koooyyoooooookk.",
-      "kooyyyyoooooookk",
-      "koooyyoooooookkk",
-      ".kooooooooooook.",
-      "..kkooooooookk..",
-      "....kkwkkwkk....",
-      ".....kk..kk....."
-    ],
-    hydrant: [
-      ".....kkkk.....",
-      "....krrrGk....",
-      "...kkrrrrGkk..",
-      "..kGkrrrrGkGk.",
-      "..kGkrrrrGkGk.",
-      "...kkrrrrGkk..",
-      "....krrrrGk...",
-      "....krrrGk....",
-      "...kkkkkkkk..."
-    ],
-    shadow: [
-      "...zzzzzzzzzz...",
-      ".zzzzzzzzzzzzzz.",
-      "zzzzzzzzzzzzzzzz",
-      ".zzzzzzzzzzzzzz.",
-      "...zzzzzzzzzz..."
-    ],
-    shadow_boss: [
-      "....zzzzzzzzzzzzzz....",
-      "..zzzzzzzzzzzzzzzzzz..",
-      ".zzzzzzzzzzzzzzzzzzzz.",
-      "zzzzzzzzzzzzzzzzzzzzzz",
-      ".zzzzzzzzzzzzzzzzzzzz.",
-      "..zzzzzzzzzzzzzzzzzz..",
-      "....zzzzzzzzzzzzzz...."
-    ]
   };
-
-  const S = {};
-  for (const k in RAW_SPRITES) {
-    S[k] = spr(RAW_SPRITES[k]);
-    S[k + "_w"] = whiteOf(S[k]);
-    S[k + "_flip"] = flipX(S[k]);
-    S[k + "_flip_w"] = whiteOf(S[k + "_flip"]);
+  // the bones (the hip, then up the body and down the legs), turned all together when the figure falls or lies
+  const L = { th: 9.6 * S * (sp.legs || 1), sh: 9.4 * S * (sp.legs || 1), to: 13 * S, ua: 7.2 * S * (sp.arms || 1), fa: 7 * S * (sp.arms || 1), hr: 4.4 * S * (sp.head || 1) };
+  const dn = a => [Math.sin(a * R), Math.cos(a * R)];
+  let hx = ax + (P.hx || 0) * S, hy = ay - (L.th + L.sh) * 0.96 + (P.c || 0) * S;
+  const lean = (P.l || 0) * R, sx = hx + Math.sin(lean) * L.to, sy = hy - Math.cos(lean) * L.to;
+  const hd = (P.h || 0) * R + lean, nx = sx + Math.sin(hd) * (L.hr + 1.2 * S), ny = sy - Math.cos(hd) * (L.hr + 1.2 * S);
+  const leg = (a, k) => { const d1 = dn(a), kx = hx + d1[0] * L.th, ky = hy + d1[1] * L.th, d2 = dn(a - k); return [kx, ky, kx + d2[0] * L.sh, ky + d2[1] * L.sh]; };
+  const arm = (a, e, back) => { const ox = sx - Math.cos(lean) * (back ? 1.5 : -1) * S, oy = sy + 1.5 * S, d1 = dn(a), ex = ox + d1[0] * L.ua, ey = oy + d1[1] * L.ua, d2 = dn(a + e); return [ox, oy, ex, ey, ex + d2[0] * L.fa, ey + d2[1] * L.fa]; };
+  const BL = leg(P.bt || 0, P.bk || 0), FL = leg(P.ft || 0, P.fk || 0), BA = arm(P.ba || 0, P.be || 0, 1), FA = arm(P.fa || 0, P.fe || 0, 0);
+  let pts = { hip: [hx, hy], sh: [sx, sy], head: [nx, ny], bl: BL, fl: FL, ba: BA, fa: FA };
+  if (P.r) {                                        // the whole figure turned (falling, lying down)
+    const a = P.r * R, ca = Math.cos(a), sa = Math.sin(a), rot = (x, y) => [hx + (x - hx) * ca - (y - hy) * sa, hy + (x - hx) * sa + (y - hy) * ca];
+    const turn = arr => { const o = []; for (let i = 0; i < arr.length; i += 2) { const p = rot(arr[i], arr[i + 1]); o.push(p[0], p[1]); } return o; };
+    for (const k in pts) pts[k] = turn(pts[k]);
+    let low = -1e9; for (const k in pts) for (let i = 1; i < pts[k].length; i += 2) low = Math.max(low, pts[k][i]);
+    const dy = P.lie ? ay - 1.5 * S - low : (P.dy || 0) * S;
+    for (const k in pts) for (let i = 1; i < pts[k].length; i += 2) pts[k][i] += dy;
   }
-
-  // ------------------------------------------------ Bayer Dithering Matrix (4x4)
-  const BAYER4 = [
-    [ 0,  8,  2, 10],
-    [12,  4, 14,  6],
-    [ 3, 11,  1,  9],
-    [15,  7, 13,  5]
-  ];
-
-  // A street lamp's light: drawn once into its own see-through canvas, then copied over the street. (It was put
-  // straight onto the screen with putImageData, which doesn't blend: the cone's empty corners came out as solid boxes.)
-  const CONES = {};
-  function ditherLightCone(g, cx, topY, botY, topR, botR, colHex, alphaMax) {
-    const key = topR + "," + botR + "," + (botY - topY) + colHex + alphaMax; let c = CONES[key];
-    if (!c) { c = document.createElement("canvas"); c.width = botR * 2; c.height = botY - topY; makeLightCone(c.getContext("2d"), botR, 0, botY - topY, topR, botR, colHex, alphaMax); CONES[key] = c; }
-    g.drawImage(c, Math.round(cx - botR), topY);
-  }
-  function makeLightCone(g, cx, topY, botY, topR, botR, colHex, alphaMax) {
-    const rgb = hexToRgb(colHex);
-    const id = g.createImageData(botR * 2, botY - topY);
-    const d = id.data;
-    const h = botY - topY;
-    const halfW = botR;
-    for (let y = 0; y < h; y++) {
-      const prog = y / h;
-      const curR = topR + (botR - topR) * prog;
-      const bayerY = (topY + y) % 4;
-      for (let x = 0; x < botR * 2; x++) {
-        const distFromCenter = Math.abs(x - halfW);
-        if (distFromCenter <= curR) {
-          const bayerX = (cx - halfW + x) % 4;
-          const threshold = (BAYER4[bayerY][bayerX] + 0.5) / 16;
-          const falloff = 1 - (distFromCenter / curR);
-          const intensity = falloff * alphaMax * (0.4 + 0.6 * prog);
-          if (intensity > threshold) {
-            const idx = (y * botR * 2 + x) * 4;
-            d[idx] = rgb.r;
-            d[idx + 1] = rgb.g;
-            d[idx + 2] = rgb.b;
-            d[idx + 3] = 255;
-          }
-        }
-      }
-    }
-    g.putImageData(id, cx - botR, topY);
-  }
-
-  function hexToRgb(hex) {
-    let c = hex.replace("#", "");
-    if (c.length === 3) c = c[0] + c[0] + c[1] + c[1] + c[2] + c[2];
-    const num = parseInt(c, 16);
-    return { r: (num >> 16) & 255, g: (num >> 8) & 255, b: num & 255 };
-  }
-
-  // ------------------------------------------------ 5x7 Bitmapped Retro Font
-  const FONT_MAP = {
-    "\u2715":[".....","#...#",".#.#.","..#..",".#.#.","#...#","....."],
-    "\u25cb":[".....",".###.","#...#","#...#","#...#",".###.","....."],
-    "\u25a1":[".....","#####","#...#","#...#","#...#","#####","....."],
-    "\u25b3":[".....","..#..",".#.#.",".#.#.","#...#","#####","....."],
-
-    A: [".###.", "#...#", "#...#", "#####", "#...#", "#...#", "#...#"],
-    B: ["####.", "#...#", "####.", "#...#", "#...#", "####.", "....."],
-    C: [".####", "#....", "#....", "#....", "#....", ".####", "....."],
-    D: ["###..", "#..#.", "#...#", "#...#", "#..#.", "###..", "....."],
-    E: ["#####", "#....", "####.", "#....", "#####", ".....", "....."],
-    F: ["#####", "#....", "####.", "#....", "#....", ".....", "....."],
-    G: [".####", "#....", "#.###", "#...#", ".####", ".....", "....."],
-    H: ["#...#", "#...#", "#####", "#...#", "#...#", ".....", "....."],
-    I: ["###", ".#.", ".#.", ".#.", "###"],
-    J: ["..###", "...#.", "...#.", "#..#.", ".##.."],
-    K: ["#...#", "#..#.", "###..", "#..#.", "#...#"],
-    L: ["#....", "#....", "#....", "#....", "#####"],
-    M: ["#...#", "##.##", "#.#.#", "#...#", "#...#"],
-    N: ["#...#", "##..#", "#.#.#", "#..##", "#...#"],
-    O: [".###.", "#...#", "#...#", "#...#", ".###."],
-    P: ["####.", "#...#", "####.", "#....", "#...."],
-    Q: [".###.", "#...#", "#.#.#", ".###.", "....#"],
-    R: ["####.", "#...#", "####.", "#..#.", "#...#"],
-    S: [".####", "#....", ".###.", "....#", "####."],
-    T: ["#####", "..#..", "..#..", "..#..", "..#.."],
-    U: ["#...#", "#...#", "#...#", "#...#", ".###."],
-    V: ["#...#", "#...#", ".#.#.", ".#.#.", "..#.."],
-    W: ["#...#", "#...#", "#.#.#", "##.##", "#...#"],
-    X: ["#...#", ".#.#.", "..#..", ".#.#.", "#...#"],
-    Y: ["#...#", ".#.#.", "..#..", "..#..", "..#.."],
-    Z: ["#####", "...#.", "..#..", ".#...", "#####"],
-    "0": [".###.", "#..##", "#.#.#", "##..#", ".###."],
-    "1": ["..#..", "###..", "..#..", "..#..", "#####"],
-    "2": [".###.", "#...#", "...#.", ".##..", "#####"],
-    "3": ["####.", "....#", "..##.", "....#", "####."],
-    "4": ["#...#", "#...#", "#####", "....#", "....#"],
-    "5": ["#####", "#....", "####.", "....#", "####."],
-    "6": [".###.", "#....", "####.", "#...#", ".###."],
-    "7": ["#####", "....#", "...#.", "..#..", "..#.."],
-    "8": [".###.", "#...#", ".###.", "#...#", ".###."],
-    "9": [".###.", "#...#", ".####", "....#", ".###."],
-    ":": [".", "#", ".", ".", "#", "."],
-    "!": ["#", "#", "#", "#", ".", "#"],
-    "-": [".....", ".....", "#####", ".....", "....."],
-    "+": ["..#..", "..#..", "#####", "..#..", "..#.."],
-    "/": ["....#", "...#.", "..#..", ".#...", "#...."],
-    ".": ["...", "...", "...", "...", "..#"],
-    " ": ["...", "...", "...", "...", "..."],
-    "(": [".#.", "#..", "#..", "#..", ".#."],
-    ")": [".#.", "..#", "..#", "..#", ".#."]
+  const back = c => shade(c, 0.72), skin = sp.skin, top = sp.top, pants = sp.pants, armTop = sp.style === "tank" || sp.style === "vest" ? skin : top;
+  const limb = (p, c1, c2, r1, r2, r3) => { cap(p[0], p[1], p[2], p[3], r1, r2, col(c1)); cap(p[2], p[3], p[4], p[5], r2 * 0.95, r3, col(c2)); };
+  const legDraw = (p, dark) => {
+    const pc = dark ? back(pants) : pants, sc = sp.shorts ? (dark ? back(skin) : skin) : pc, shoe = dark ? back(sp.shoes) : sp.shoes;
+    cap(pts.hip[0], pts.hip[1], p[0], p[1], 2.8 * S * wd, 2.4 * S * wd, col(pc)); cap(p[0], p[1], p[2], p[3], 2.3 * S * wd, 2 * S, col(sc));
+    const dx = (p[2] - p[0]), dy = (p[3] - p[1]), l = Math.hypot(dx, dy) || 1, fx = P.r ? 0 : 1;   // the shoe: heel and toe, pointing ahead
+    disc(p[2], p[3], 2.3 * S, col(shoe)); disc(p[2] + (fx ? 2.4 * S : dy / l * 2.4 * S), p[3] + (fx ? 0.4 : -dx / l * 2.4) * S, 1.9 * S, col(shoe));
   };
-
-  // the letters: each drawn once in each colour, then copied (far cheaper on a Pi than every pixel, every frame)
-  let GLYPHS = {}, glyphCols = 0;
-  function glyphOf(ch, col) {
-    let set = GLYPHS[col];
-    if (!set) { if (++glyphCols > 48) { GLYPHS = {}; glyphCols = 1; } set = GLYPHS[col] = {}; }
-    let c = set[ch]; if (c) return c;
-    const gl = FONT_MAP[ch] || FONT_MAP[" "];
-    c = document.createElement("canvas"); c.width = gl[0].length; c.height = gl.length; const q = c.getContext("2d"); q.fillStyle = col;
-    for (let r = 0; r < gl.length; r++) for (let x = 0; x < gl[r].length; x++) if (gl[r][x] === "#") q.fillRect(x, r, 1, 1);
-    return set[ch] = c;
-  }
-  function drawText(g, str, x, y, col, scale = 1, shadow = true) {
-    str = String(str).toUpperCase(); col = col || "#ffffff";
-    let cx = x;
-    for (let i = 0; i < str.length; i++) {
-      const ch = str[i], gl = FONT_MAP[ch] || FONT_MAP[" "], gw = gl[0].length;
-      if (ch !== " ") {
-        if (shadow) g.drawImage(glyphOf(ch, "#000000"), cx + scale, y + scale, gw * scale, gl.length * scale);
-        g.drawImage(glyphOf(ch, col), cx, y, gw * scale, gl.length * scale);
-      }
-      cx += (gw + 1) * scale;
-    }
-  }
-
-  function textWidth(str, scale = 1) {
-    str = String(str).toUpperCase();
-    let w = 0;
-    for (let i = 0; i < str.length; i++) {
-      const glyph = FONT_MAP[str[i]] || FONT_MAP[" "];
-      w += (glyph[0].length + 1) * scale;
-    }
-    return w;
-  }
-
-  function drawCenterText(g, str, y, col, scale = 1) {
-    const w = textWidth(str, scale);
-    drawText(g, str, Math.floor((VW - w) / 2), y, col, scale);
-  }
-
-  // ------------------------------------------------ Web Audio Procedural Synthesis
-  let AC = null, soundOn = true;
-  function wakeAudio() {
-    if (!soundOn) return;
-    if (!AC) {
-      try {
-        const A = window.AudioContext || window.webkitAudioContext;
-        if (A) AC = new A();
-      } catch (e) { AC = null; }
-    }
-    if (AC && AC.state === "suspended") AC.resume().catch(() => {});
-  }
-
-  function synthTone(f0, f1, dur, type, vol) {
-    if (!AC || !soundOn || AC.state !== "running") return;
-    try {
-      const t = AC.currentTime, o = AC.createOscillator(), g = AC.createGain();
-      o.type = type || "sine";
-      o.frequency.setValueAtTime(f0, t);
-      if (f1) o.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t + dur);
-      g.gain.setValueAtTime(vol || 0.15, t);
-      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-      o.connect(g); g.connect(AC.destination);
-      o.start(t); o.stop(t + dur + 0.02);
-    } catch (e) {}
-  }
-
-  function synthNoise(dur, vol, freq) {
-    if (!AC || !soundOn || AC.state !== "running") return;
-    try {
-      const n = (AC.sampleRate * dur) | 0, b = AC.createBuffer(1, n, AC.sampleRate);
-      const d = b.getChannelData(0); for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
-      const s = AC.createBufferSource(); s.buffer = b;
-      const f = AC.createBiquadFilter(); f.type = "lowpass"; f.frequency.value = freq || 900;
-      const g = AC.createGain(), t = AC.currentTime;
-      g.gain.setValueAtTime(vol || 0.18, t);
-      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-      s.connect(f); f.connect(g); g.connect(AC.destination);
-      s.start(t); s.stop(t + dur + 0.02);
-    } catch (e) {}
-  }
-
-  const sndPunch = () => { synthTone(180, 60, 0.09, "sawtooth", 0.18); synthNoise(0.07, 0.15, 1200); };
-  const sndKick = () => { synthTone(130, 40, 0.14, "triangle", 0.22); synthNoise(0.12, 0.22, 700); };
-  const sndSpecial = () => { synthTone(440, 880, 0.25, "sawtooth", 0.25); synthNoise(0.22, 0.2, 1600); };
-  const sndWhoosh = () => { synthTone(240, 110, 0.12, "sine", 0.12); };
-  const sndFood = () => { synthTone(350, 700, 0.14, "triangle", 0.2); };
-  const sndKo = () => { synthTone(200, 50, 0.35, "sawtooth", 0.3); synthNoise(0.3, 0.25, 400); };
-  const sndBossRoar = () => { synthTone(90, 45, 0.45, "sawtooth", 0.35); synthNoise(0.4, 0.3, 300); };
-
-  // ------------------------------------------------ Game Constants & State
-  const STAGE_W = 1900;
-  const FLOOR_MIN_Y = 175;
-  const FLOOR_MAX_Y = 250;
-  const SAVE_KEY = "neonBrawler_hi";
-
-  let state = "title"; // title, playing, gameover, victory
-  let score = 0, bestScore = 0;
-  try { bestScore = +localStorage.getItem(SAVE_KEY) || 0; } catch (e) {}
-
-  let cameraX = 0;
-  let screenShake = 0;
-  let combo = 0, comboTimer = 0;
-  let floatingTexts = [];
-  let particles = [];
-  let hitPause = 0;
-
-  // Player
-  const player = {
-    x: 80, y: 210, z: 0, vx: 0, vy: 0, vz: 0,
-    hp: 100, maxHp: 100, facing: 1,
-    action: "idle", actionTimer: 0,
-    comboStep: 0, invuln: 0, flashWhite: 0,
-    animFrame: 0, animTimer: 0
+  const armDraw = (p, dark) => {
+    const ac = dark ? back(armTop) : armTop, fc = sp.style === "jacket" || sp.style === "suit" || sp.style === "hoodie" ? ac : dark ? back(skin) : skin, gl = sp.glove ? (dark ? back(sp.glove) : sp.glove) : fc === ac ? (dark ? back(skin) : skin) : fc;
+    cap(p[0], p[1], p[2], p[3], 2.2 * S * wd, 2 * S * wd, col(ac)); cap(p[2], p[3], p[4], p[5], 1.9 * S * wd, 1.8 * S, col(fc)); disc(p[4], p[5], 2.3 * S * Math.sqrt(wd), col(gl));
   };
-
-  let enemies = [];
-  let barrels = [];
-  let items = [];
-
-  function spawnWorld() {
-    cameraX = 0;
-    player.x = 80; player.y = 210; player.z = 0;
-    player.vx = 0; player.vy = 0; player.vz = 0;
-    player.hp = 100; player.action = "idle";
-    player.actionTimer = 0; player.comboStep = 0;
-    player.facing = 1; player.invuln = 0; player.flashWhite = 0;
-
-    score = 0; combo = 0; comboTimer = 0;
-    floatingTexts = []; particles = [];
-
-    // Barrels & Hydrants
-    barrels = [
-      { x: 300, y: 195, broken: false },
-      { x: 620, y: 235, broken: false },
-      { x: 950, y: 190, broken: false },
-      { x: 1350, y: 220, broken: false },
-      { x: 1600, y: 200, broken: false }
-    ];
-    items = [];
-
-    // Enemies
-    enemies = [
-      // Wave 1: Street Alley
-      { x: 360, y: 190, z: 0, vx: 0, vz: 0, hp: 35, maxHp: 35, type: "punk", facing: -1, atkTimer: 0, action: "walk", animFrame: 0, flashWhite: 0 },
-      { x: 440, y: 230, z: 0, vx: 0, vz: 0, hp: 35, maxHp: 35, type: "punk", facing: -1, atkTimer: 0.6, action: "walk", animFrame: 0, flashWhite: 0 },
-      
-      // Wave 2: Neon Club front
-      { x: 740, y: 185, z: 0, vx: 0, vz: 0, hp: 40, maxHp: 40, type: "punk", facing: -1, atkTimer: 0.2, action: "walk", animFrame: 0, flashWhite: 0 },
-      { x: 820, y: 240, z: 0, vx: 0, vz: 0, hp: 40, maxHp: 40, type: "punk", facing: -1, atkTimer: 0.8, action: "walk", animFrame: 0, flashWhite: 0 },
-      { x: 900, y: 205, z: 0, vx: 0, vz: 0, hp: 45, maxHp: 45, type: "punk", facing: -1, atkTimer: 1.4, action: "walk", animFrame: 0, flashWhite: 0 },
-
-      // Wave 3: Subway crossing
-      { x: 1180, y: 190, z: 0, vx: 0, vz: 0, hp: 45, maxHp: 45, type: "punk", facing: -1, atkTimer: 0.4, action: "walk", animFrame: 0, flashWhite: 0 },
-      { x: 1260, y: 235, z: 0, vx: 0, vz: 0, hp: 45, maxHp: 45, type: "punk", facing: -1, atkTimer: 1.0, action: "walk", animFrame: 0, flashWhite: 0 },
-      { x: 1380, y: 210, z: 0, vx: 0, vz: 0, hp: 50, maxHp: 50, type: "punk", facing: -1, atkTimer: 1.6, action: "walk", animFrame: 0, flashWhite: 0 },
-
-      // Boss encounter: Big Diesel
-      { x: 1750, y: 215, z: 0, vx: 0, vz: 0, hp: 220, maxHp: 220, type: "boss", facing: -1, atkTimer: 0, action: "idle", animFrame: 0, isBoss: true, flashWhite: 0 }
-    ];
+  armDraw(pts.ba, true); legDraw(pts.bl, true);
+  // the body: shoulders to hips, as deep as it's built
+  { const [a, b] = pts.sh, [c, d] = pts.hip, ang = Math.atan2(c - a, d - b), px_ = Math.cos(ang), py_ = -Math.sin(ang), tw = 4.6 * S * wd, hw = 3.6 * S * wd;
+    poly([a - px_ * tw, b - py_ * tw, a + px_ * tw, b + py_ * tw, c + px_ * hw, d + py_ * hw, c - px_ * hw, d - py_ * hw], col(sp.style === "overalls" ? sp.top : top));
+    if (sp.style === "overalls") { const k = 0.55; poly([lerp(a, c, k) - px_ * tw * 0.8, lerp(b, d, k) - py_ * tw * 0.8, lerp(a, c, k) + px_ * tw * 0.8, lerp(b, d, k) + py_ * tw * 0.8, c + px_ * hw, d + py_ * hw, c - px_ * hw, d - py_ * hw], col(pants)); }
+    if (sp.top2) { const f = 1; cap(a + px_ * tw * 0.7 * f, b + py_ * tw * 0.7 * f, c + px_ * hw * 0.7 * f, d + py_ * hw * 0.7 * f, 0.9 * S, 0.9 * S, col(sp.top2)); }   // (a stripe, an open front, a tie)
+    if (sp.belt) cap(c - px_ * hw, d - py_ * hw, c + px_ * hw, d + py_ * hw, 1 * S, 1 * S, col(sp.belt));
   }
+  legDraw(pts.fl, false);
+  // the head: skin, hair by its style, an eye looking ahead (every part placed from the head's middle, turned with the figure)
+  { const [hxx, hyy] = pts.head, r = L.hr, H_ = sp.hair, hs = sp.hairStyle || "short", ca = Math.cos((P.r || 0) * R), sa = Math.sin((P.r || 0) * R);
+    const O = (dx, dy) => [hxx + dx * ca - dy * sa, hyy + dx * sa + dy * ca], D = (dx, dy, rr, c) => { const q = O(dx, dy); disc(q[0], q[1], rr, col(c)); };
+    const K = (x0, y0, x1, y1, r0, r1, c) => { const a = O(x0, y0), b = O(x1, y1); cap(a[0], a[1], b[0], b[1], r0, r1, col(c)); };
+    if (hs === "ponytail") K(-r * 1.05, -r * 0.2, -r * 1.85, r * 1.4, r * 0.45, r * 0.3, H_);
+    if (hs === "bun") D(-r * 0.85, -r * 0.95, r * 0.45, H_);
+    if (hs === "hood") D(-r * 0.15, -r * 0.05, r * 1.22, sp.top);
+    D(0, 0, r, skin);
+    if (hs === "short" || hs === "ponytail" || hs === "bun" || hs === "spiky" || hs === "slick") {
+      D(-r * 0.3, -r * 0.38, r * 0.86, H_); D(r * 0.42, r * 0.2, r * 0.72, skin);
+      if (hs === "spiky") for (let i = 0; i < 3; i++) { const a = -2.2 + i * 0.6; K(-r * 0.2 + Math.cos(a) * r * 0.6, -r * 0.4 + Math.sin(a) * r * 0.6, -r * 0.2 + Math.cos(a) * r * 1.45, -r * 0.4 + Math.sin(a) * r * 1.45, r * 0.32, r * 0.08, H_); }
+      if (sp.streak) K(-r * 0.1, -r * 0.95, r * 0.5, -r * 0.7, r * 0.18, r * 0.18, sp.streak);
+    } else if (hs === "mohawk") { for (let i = 0; i < 5; i++) { const a = -2.6 + i * 0.34; K(Math.cos(a) * r * 0.8, Math.sin(a) * r * 0.8, Math.cos(a) * r * 1.6, Math.sin(a) * r * 1.6, r * 0.3, r * 0.14, H_); } }
+    else if (hs === "cap" || hs === "beanie" || hs === "helmet" || hs === "hardhat") {
+      const hc = hs === "hardhat" ? sp.hat || "#ffb43a" : sp.hat || H_;
+      D(-r * 0.05, -r * 0.3, r * 1.02, hc); D(r * 0.45, r * (hs === "helmet" ? 0.3 : 0.38), r * 0.66, skin);
+      if (hs === "cap" || hs === "hardhat") K(r * 0.2, -r * 0.45, r * 1.6, -r * 0.35, 0.9 * S, 0.7 * S, hc);
+      if (hs === "helmet" && sp.visor) K(r * 0.15, -r * 0.05, r * 0.95, -r * 0.05, 1.3 * S, 1.3 * S, sp.visor);
+    } else if (hs === "hood") D(r * 0.45, r * 0.15, r * 0.62, skin);
+    if (sp.beard) D(r * 0.35, r * 0.6, r * 0.62, sp.beard);
+    if (sp.shades) K(r * 0.25, -r * 0.1, r * 1.0, -r * 0.1, 0.9 * S, 0.9 * S, sp.shades);
+    else if (!(hs === "helmet" && sp.visor)) { const q = O(r * 0.55, -r * 0.15); put(Math.round(q[0]), Math.round(q[1]), col(sp.eye || OUT)); }
+  }
+  if (sp.shield) {                                 // the riot shield, held up in front
+    const [, , , , hx2, hy2] = pts.fa, w = 3 * S, h = 13 * S;
+    for (let y = Math.round(hy2 - h * 0.62); y < hy2 + h * 0.38; y++) for (let x = Math.round(hx2 + 1); x < hx2 + 1 + w; x++) put(x, y, col(sp.shield));
+    for (let y = Math.round(hy2 - h * 0.4); y < hy2 - h * 0.2; y++) put(Math.round(hx2 + 2), y, col("#7ad8f0"));
+  }
+  armDraw(pts.fa, false);
+  // what it always holds, along the forearm from the hand
+  const hold = (p, kind) => {
+    const dx = p[4] - p[2], dy = p[5] - p[3], l = Math.hypot(dx, dy) || 1, ux = dx / l, uy = dy / l;
+    if (kind === "knife") { cap(p[4], p[5], p[4] + ux * 2 * S, p[5] + uy * 2 * S, 0.8 * S, 0.8 * S, col("#3a2a1a")); cap(p[4] + ux * 2 * S, p[5] + uy * 2 * S, p[4] + ux * 8 * S, p[5] + uy * 8 * S, 1 * S, 0.3 * S, col("#d8dde8")); }
+    else if (kind === "cane") { cap(p[4] - ux * 3 * S, p[5] - uy * 3 * S, p[4] + ux * 15 * S, p[5] + uy * 15 * S, 0.7 * S, 0.7 * S, col("#14101c")); disc(p[4] + ux * 15 * S, p[5] + uy * 15 * S, 1.6 * S, col("#7af8ff")); }
+    else if (kind === "sledge") {
+      const ex = p[4] + ux * 16 * S, ey = p[5] + uy * 16 * S; cap(p[4] - ux * 2 * S, p[5] - uy * 2 * S, ex, ey, 0.9 * S, 0.9 * S, col("#6a4a2a"));
+      poly([ex - uy * 4 * S - ux * 2 * S, ey + ux * 4 * S - uy * 2 * S, ex + uy * 4 * S - ux * 2 * S, ey - ux * 4 * S - uy * 2 * S, ex + uy * 4 * S + ux * 3 * S, ey - ux * 4 * S + uy * 3 * S, ex - uy * 4 * S + ux * 3 * S, ey + ux * 4 * S + uy * 3 * S], col("#4a4e58"));
+    }
+  };
+  if (sp.holds) { hold(pts.fa, sp.holds); if (sp.holds2) hold(pts.ba, sp.holds2); }
+  // the outline: every clear pixel next to the figure
+  const out = col(OUT), o = new Uint32Array(buf);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const i = y * W + x; if (buf[i]) continue;
+    if ((x > 0 && buf[i - 1]) || (x < W - 1 && buf[i + 1]) || (y > 0 && buf[i - W]) || (y < H - 1 && buf[i + W])) o[i] = out;
+  }
+  const c = mk(W, H), g = c.getContext("2d"), id = g.createImageData(W, H); new Uint32Array(id.data.buffer).set(o); g.putImageData(id, 0, 0);
+  const fa = pts.fa;
+  return { c, hand: [fa[4] - ax, fa[5] - ay, Math.atan2(fa[5] - fa[3], fa[4] - fa[2])] };
+}
 
-  // ------------------------------------------------ Actions
-  function doPunch() {
-    if (player.z !== 0) {
-      // Jump kick
-      if (player.action !== "kick") {
-        player.action = "kick";
-        player.actionTimer = 0.35;
-        sndKick();
-        hitCheck(22, true, false);
+// poses (degrees): l lean, h head, c crouch, hx hip ahead; thighs bt/ft and knees bk/fk; upper arms ba/fa and elbows
+// be/fe; r the whole figure turned, lie: resting on the ground
+const GUARD = { ba: 35, be: 100, fa: 55, fe: 88 };
+const POSES = {
+  idle0: Object.assign({ l: 4, c: 2, bt: -18, bk: 12, ft: 14, fk: 16 }, GUARD), idle1: Object.assign({ l: 5, c: 3, bt: -18, bk: 14, ft: 14, fk: 18, h: 3 }, GUARD),
+  walk0: Object.assign({ l: 6, c: 1, bt: -26, bk: 6, ft: 26, fk: 10 }, GUARD), walk1: Object.assign({ l: 6, c: 0, bt: -6, bk: 32, ft: 6, fk: 4 }, GUARD),
+  walk2: Object.assign({ l: 6, c: 1, bt: 26, bk: 10, ft: -26, fk: 6 }, GUARD), walk3: Object.assign({ l: 6, c: 0, bt: 6, bk: 4, ft: -6, fk: 32 }, GUARD),
+  run0: { l: 18, c: 2, bt: -42, bk: 42, ft: 48, fk: 50, ba: -30, be: 80, fa: 70, fe: 80 }, run1: { l: 18, c: 0, bt: 40, bk: 60, ft: -40, fk: 30, ba: 60, be: 80, fa: -20, fe: 80 },
+  jab0: { l: 6, c: 2, bt: -18, bk: 12, ft: 16, fk: 16, ba: 35, be: 100, fa: 40, fe: 110 }, jab1: { l: 12, c: 2, hx: 1, bt: -22, bk: 10, ft: 18, fk: 14, ba: 35, be: 100, fa: 88, fe: 4 },
+  cross0: { l: 4, c: 2, bt: -18, bk: 12, ft: 16, fk: 16, ba: 30, be: 120, fa: 55, fe: 88 }, cross1: { l: 20, c: 3, hx: 3, bt: -30, bk: 6, ft: 22, fk: 18, ba: 88, be: 2, fa: 40, fe: 110 },
+  hook1: { l: 14, c: 2, hx: 2, bt: -22, bk: 12, ft: 18, fk: 16, ba: 35, be: 100, fa: 78, fe: 58 },
+  upper1: { l: -6, c: -1, bt: -14, bk: 8, ft: 10, fk: 6, ba: 35, be: 100, fa: 150, fe: 35 },
+  kick0: { l: -6, c: 1, bt: -8, bk: 8, ft: 70, fk: 95, ba: 40, be: 90, fa: 30, fe: 60 }, kick1: { l: -16, c: 1, bt: -10, bk: 6, ft: 92, fk: 2, ba: 50, be: 80, fa: -10, fe: 50 },
+  round1: { l: -26, c: 1, bt: -8, bk: 4, ft: 108, fk: 8, ba: -40, be: 40, fa: 30, fe: 40 },
+  hammer0: { l: -8, c: 0, bt: -16, bk: 10, ft: 14, fk: 12, ba: 172, be: 8, fa: 175, fe: 8 }, hammer1: { l: 30, c: 8, bt: -30, bk: 30, ft: 30, fk: 40, ba: 62, be: 20, fa: 66, fe: 18 },
+  spin1: { l: -28, c: 1, bt: 115, bk: 4, ft: -6, fk: 10, ba: -50, be: 30, fa: 60, fe: 40 },
+  knee: { l: 14, c: 0, bt: -10, bk: 6, ft: 86, fk: 125, ba: 88, be: 32, fa: 96, fe: 28 },
+  jump: { l: 0, c: -2, bt: 15, bk: 70, ft: 45, fk: 85, ba: 60, be: 80, fa: 80, fe: 70 }, jkick: { l: -18, c: -2, bt: -10, bk: 80, ft: 82, fk: 3, ba: -30, be: 40, fa: 20, fe: 50 },
+  hurt0: { l: -24, h: -20, c: 3, bt: -12, bk: 14, ft: 18, fk: 12, ba: -15, be: 30, fa: 15, fe: 40 }, hurt1: { l: 30, h: 15, c: 5, bt: -16, bk: 20, ft: 16, fk: 24, ba: 25, be: 20, fa: 35, fe: 25 },
+  fall: { r: -55, dy: -4, l: -10, bt: 30, bk: 20, ft: 60, fk: 30, ba: 150, be: 20, fa: 120, fe: 30 },
+  down: { r: -90, lie: 1, l: 0, bt: 8, bk: 10, ft: 14, fk: 20, ba: 160, be: 10, fa: 30, fe: 20 },
+  getup: { l: 40, c: 12, bt: -10, bk: 110, ft: 50, fk: 100, ba: 20, be: 20, fa: 40, fe: 20 },
+  grab: { l: 10, c: 3, bt: -20, bk: 12, ft: 14, fk: 16, ba: 80, be: 20, fa: 86, fe: 14 },
+  throw0: { l: -18, c: 1, bt: -14, bk: 10, ft: 12, fk: 10, ba: 160, be: 30, fa: 160, fe: 30 }, throw1: { l: 30, c: 4, bt: -30, bk: 10, ft: 30, fk: 24, ba: 70, be: 5, fa: 72, fe: 5 },
+  swing0: { l: -8, c: 1, bt: -18, bk: 10, ft: 14, fk: 14, ba: 35, be: 100, fa: 165, fe: 25 }, swing1: { l: 18, c: 3, hx: 2, bt: -26, bk: 8, ft: 20, fk: 18, ba: 35, be: 100, fa: 75, fe: 0 },
+  lunge: { l: 32, c: 4, hx: 3, bt: -50, bk: 20, ft: 60, fk: 40, ba: -30, be: 30, fa: 90, fe: 0 },
+  quake0: { l: -4, c: -4, bt: -10, bk: 6, ft: 10, fk: 6, ba: 170, be: 10, fa: 172, fe: 12 }, quake1: { l: 42, c: 12, bt: -30, bk: 40, ft: 40, fk: 60, ba: 25, be: 10, fa: 30, fe: 10 },
+  cyc0: { l: -10, c: -3, bt: -95, bk: 0, ft: 95, fk: 0, ba: -80, be: 0, fa: 80, fe: 0 }, cyc1: { l: 10, c: -3, bt: 95, bk: 0, ft: -95, fk: 0, ba: 80, be: 0, fa: -80, fe: 0 },
+  win: { l: -4, c: 1, bt: -16, bk: 10, ft: 14, fk: 12, ba: 20, be: 30, fa: 170, fe: 0 },
+  block: { l: 4, c: 3, bt: -20, bk: 14, ft: 16, fk: 18, ba: 40, be: 90, fa: 70, fe: 80 },
+  toss0: { l: -10, c: 1, bt: -12, bk: 10, ft: 16, fk: 14, ba: 50, be: 60, fa: 175, fe: 40 }, toss1: { l: 16, c: 2, bt: -24, bk: 10, ft: 22, fk: 16, ba: 30, be: 60, fa: 100, fe: 10 },
+  charge: { l: 36, c: 3, bt: -40, bk: 30, ft: 46, fk: 40, ba: 60, be: 20, fa: 62, fe: 20 },
+  taunt: { l: -6, c: 1, bt: -20, bk: 10, ft: 16, fk: 12, ba: -30, be: 60, fa: 40, fe: 70 }
+};
+// each figure's moves, as the poses they pass through; the sheet's frames in this order
+const MOVES = ["idle", "walk", "run", "jab", "cross", "hook", "upper", "kick", "fin", "knee", "jump", "jkick", "hurt", "gut", "fall", "down", "getup", "grab", "throw", "swing", "special", "win", "block", "toss", "charge", "taunt"];
+const FIGHTER_MOVES = ["idle", "walk", "run", "jab", "cross", "hook", "upper", "kick", "fin", "knee", "jump", "jkick", "hurt", "gut", "fall", "down", "getup", "grab", "throw", "swing", "special", "win"];
+const FOE_MOVES = ["idle", "walk", "jab", "hook", "hurt", "gut", "fall", "down", "getup", "taunt"];
+const ANIM = {
+  idle: ["idle0", "idle1"], walk: ["walk0", "walk1", "walk2", "walk3"], run: ["run0", "run1"], jab: ["jab0", "jab1"], cross: ["cross0", "cross1"], hook: ["jab0", "hook1"],
+  upper: ["cross0", "upper1"], kick: ["kick0", "kick1"], fin: ["kick0", "round1"], knee: ["knee"], jump: ["jump"], jkick: ["jkick"], hurt: ["hurt0"], gut: ["hurt1"],
+  fall: ["fall"], down: ["down"], getup: ["getup"], grab: ["grab"], throw: ["throw0", "throw1"], swing: ["swing0", "swing1"], special: ["lunge"], win: ["win"], block: ["block"],
+  toss: ["toss0", "toss1"], charge: ["charge", "run1"], taunt: ["taunt"]
+};
+
+// ---------------------------------------------------------------- who fights
+// the fighters: a spec to draw, how fast, how hard, how much health, their chain of blows (each: the move it looks like,
+// damage, reach, and what it does: launch, knock down), their finisher, their special
+const FIGHTERS = [
+  { id: "vex", name: "VEX", about: "EVEN ALL ROUND. A FOUR-HIT CHAIN, A ROUNDHOUSE TO END IT.", spd: 1, pow: 1, hp: 110, col: "#ff2a6d",
+    spec: { skin: "#f0b08a", hair: "#241a2e", streak: "#ff2a6d", hairStyle: "short", style: "jacket", top: "#c8283c", top2: "#1a1428", pants: "#2c2a44", shoes: "#f0eef8", glove: "#1a1428", belt: "#14101c" },
+    chain: [["jab", 6, 30], ["jab", 6, 30], ["cross", 9, 32], ["fin", 15, 36, "launch"]], fin: { round1: 1 }, special: "rush" },
+  { id: "brick", name: "BRICK", about: "SLOW AND HEAVY. THROWS HARDER, SLAMS THE GROUND.", spd: 0.8, pow: 1.4, hp: 140, col: "#ffb43a",
+    spec: { size: 1.1, wide: 1.32, skin: "#b07850", hair: "#3a2416", hairStyle: "bald", beard: "#3a2416", style: "tank", top: "#e8e4d8", pants: "#4a5a3a", shoes: "#2a2018", glove: "#f0eef8", belt: "#2a2018" },
+    chain: [["hook", 10, 30], ["hook", 11, 30], ["fin", 22, 34, "down"]], fin: { hammer: 1 }, special: "quake" },
+  { id: "juno", name: "JUNO", about: "QUICK. A FIVE-HIT CHAIN, A SPINNING KICK, FAST ON HER FEET.", spd: 1.22, pow: 0.82, hp: 95, col: "#12d8c6",
+    spec: { size: 0.96, wide: 0.86, legs: 1.06, skin: "#e8c0a0", hair: "#1a1414", hairStyle: "ponytail", style: "jacket", top: "#12b8a6", top2: "#f0eef8", pants: "#12b8a6", shoes: "#ff6c11", belt: "#0e6a60" },
+    chain: [["jab", 5, 28], ["jab", 5, 28], ["cross", 6, 30], ["knee", 8, 26], ["fin", 12, 34, "launch"]], fin: { spin: 1 }, special: "cyclone" }
+];
+// the foes: a spec, health, what a hit of theirs does, how fast, how they fight (moves: the ones beyond every foe's)
+const FOES = {
+  punk: { name: "PUNK", hp: 30, dmg: 7, spd: 58, reach: 28, score: 200, spec: { skin: "#d8a07a", hair: "#9b5de5", hairStyle: "mohawk", style: "vest", top: "#2c263c", top2: "#ff2a6d", pants: "#423854", shoes: "#1a1428" } },
+  slicer: { name: "SLICER", hp: 26, dmg: 9, spd: 84, reach: 30, score: 260, spec: { skin: "#c89a7a", hair: "#2a2a34", hairStyle: "hood", style: "hoodie", top: "#3a3a46", pants: "#1e1e28", shoes: "#5a5a66", holds: "knife" } },
+  bruiser: { name: "BRUISER", hp: 62, dmg: 12, spd: 44, reach: 30, score: 400, grabs: 1, moves: ["grab"], spec: { size: 1.18, wide: 1.36, skin: "#c8906a", hair: "#2a1a10", hairStyle: "bald", style: "tank", top: "#6a1a24", pants: "#2a2a36", shoes: "#1a1418", belt: "#1a1418" } },
+  runner: { name: "RUNNER", hp: 24, dmg: 9, spd: 150, reach: 26, score: 260, charges: 1, moves: ["charge"], spec: { skin: "#a8784a", hair: "#1a1414", hairStyle: "cap", hat: "#ffea00", style: "jacket", top: "#ff6c11", pants: "#1a1428", shorts: 1, shoes: "#f0eef8" } },
+  tosser: { name: "TOSSER", hp: 28, dmg: 8, spd: 60, reach: 26, score: 300, tosses: 1, moves: ["toss"], spec: { skin: "#e0b08a", hair: "#05d9e8", hairStyle: "beanie", hat: "#05d9e8", style: "jacket", top: "#3e5a2c", pants: "#423854", shoes: "#2a2a36" } },
+  riot: { name: "RIOT", hp: 46, dmg: 10, spd: 48, reach: 30, score: 380, shield: 1, moves: ["block"], spec: { skin: "#d0a080", hair: "#1e2a3a", hairStyle: "helmet", hat: "#1e2a3a", visor: "#7ad8f0", style: "jacket", top: "#1e2a3a", pants: "#1e2a3a", shoes: "#0e141c", shield: "#3a4a5e" } },
+  drone: { name: "DRONE", hp: 16, dmg: 6, spd: 80, reach: 0, score: 300, flies: 1 },
+  wrecker: { name: "WRECKER", hp: 92, dmg: 18, spd: 40, reach: 40, score: 600, armour: 2, swings: 1, moves: ["swing"], spec: { size: 1.28, wide: 1.4, skin: "#b88058", hair: "#2a1a10", hairStyle: "hardhat", hat: "#ffb43a", style: "overalls", top: "#6a4a3a", pants: "#3a4a6a", shoes: "#2a2018", holds: "sledge" } }
+};
+const BOSSES = {
+  diesel: { name: "DIESEL", hp: 330, dmg: 16, spd: 52, reach: 40, score: 5000, boss: 1, charges: 1, grabs: 1, armour: 1, moves: ["grab", "charge", "swing"],
+    spec: { size: 1.5, wide: 1.5, skin: "#b07850", hair: "#2a1a10", hairStyle: "bald", beard: "#2a1a10", style: "overalls", top: "#8a2a1a", pants: "#2a3a5a", shoes: "#1a1418", glove: "#1a1a1a" } },
+  razor: { name: "RAZOR", hp: 300, dmg: 12, spd: 96, reach: 34, score: 5000, boss: 1, knives: 1, moves: ["toss", "special"],
+    spec: { size: 1.28, wide: 0.92, legs: 1.08, skin: "#e8c8b0", hair: "#f0eef8", hairStyle: "spiky", style: "jacket", top: "#1a1428", top2: "#ff2a6d", pants: "#1a1428", shoes: "#ff2a6d", holds: "knife", holds2: "knife" } },
+  hammerhead: { name: "HAMMERHEAD", hp: 430, dmg: 22, spd: 40, reach: 52, score: 6000, boss: 1, armour: 3, swings: 1, calls: "wrecker", moves: ["swing"],
+    spec: { size: 1.62, wide: 1.6, skin: "#a87050", hair: "#2a1a10", hairStyle: "hardhat", hat: "#ff8a1a", beard: "#2a1a10", style: "overalls", top: "#4a3a2a", pants: "#2a3a4a", shoes: "#1a1418", holds: "sledge" } },
+  vox: { name: "VOX", hp: 520, dmg: 14, spd: 70, reach: 46, score: 8000, boss: 1, cane: 1, calls: "drone", moves: ["swing", "toss"],
+    spec: { size: 1.42, wide: 1.05, skin: "#e8d0c0", hair: "#e8e4d8", hairStyle: "slick", shades: "#ff2a6d", style: "suit", top: "#2a1a4a", top2: "#ffea00", pants: "#2a1a4a", shoes: "#0e0a14", holds: "cane" } }
+};
+
+// ---------------------------------------------------------------- sheets: every figure's moves, drawn once
+const BUILT = {};
+function sheetOf(id, spec, fin, moves) {          // (made the first time it's wanted; a frame as big as its figure needs)
+  if (BUILT[id]) return BUILT[id];
+  moves = moves || FIGHTER_MOVES;
+  const S = spec.size || 1, ext = spec.holds === "sledge" ? 22 : spec.holds ? 12 : 0;
+  const W = Math.round((54 + ext) * S * Math.max(1, (spec.wide || 1) * 0.9)), H = Math.round((60 + (spec.holds === "sledge" ? 14 : 4)) * S);
+  const frames = [], hands = [], at = {}, n = {};
+  for (const m of moves) {
+    at[m] = frames.length; n[m] = ANIM[m].length;
+    for (let name of ANIM[m]) {
+      if (m === "fin" && fin) { const f0 = Object.keys(fin)[0]; name = f0 === "hammer" ? (name === "kick0" ? "hammer0" : "hammer1") : name === "kick0" ? "kick0" : f0 === "spin" ? "spin1" : "round1"; }
+      const f = figure(spec, POSES[name], W, H); frames.push(f.c); hands.push(f.hand);
+    }
+  }
+  const sh = L2.sheet(frames, null, { ax: W >> 1, ay: H - 3 });
+  sh.at = at; sh.n = n; sh.hands = hands;
+  return (BUILT[id] = sh);
+}
+function foeSheet(kind) { const K = FOES[kind] || BOSSES[kind]; return K.flies ? droneSheet() : sheetOf(kind, K.spec, null, FOE_MOVES.concat(K.moves || [])); }
+function forget(keep) { for (const k in BUILT) if (keep.indexOf(k) < 0) delete BUILT[k]; }   // (a stage's foes, let go after it)
+function droneSheet() {                           // a drone: a lit body, a ring, two rotors that blur
+  if (BUILT.drone) return BUILT.drone;
+  const frames = [0, 1, 2].map(f => { const c = mk(26, 18), g = g2(c);
+    px(g, 7, 7, 12, 5, "#1a1428"); px(g, 8, 6, 10, 1, "#2c263c"); px(g, 9, 8, 8, 2, "#ff2a6d"); px(g, 12, 8, 2, 2, "#ffea00");
+    px(g, 2, 4, 6, 1, f === 1 ? "#7a7094" : "#b8b0c8"); px(g, 18, 4, 6, 1, f === 2 ? "#7a7094" : "#b8b0c8"); px(g, 4, 5, 1, 2, "#423854"); px(g, 21, 5, 1, 2, "#423854");
+    px(g, 11, 12, 4, 2, "#05d9e8"); return c; });
+  return (BUILT.drone = L2.sheet(frames, null, { ax: 13, ay: 17 }));
+}
+
+// ---------------------------------------------------------------- things about: weapons, food, crates, bottles
+const ART = {};
+function things() {
+  const pal = { k: OUT, g: "#7a7094", G: "#b8b0c8", w: "#f0eef8", b: "#8a5830", B: "#4e2c14", r: "#ff2a6d", y: "#ffea00", o: "#ff6c11", e: "#00f5d4", E: "#007a6a", n: "#2c263c", s: "#c8ccd8" };
+  ART.pipe = L2.art(["kkkkkkkkkkkkkkkk", "kGGGGGGGGGGGGGgk", "kggggggggggggggk", "kkkkkkkkkkkkkkkk"], pal);
+  ART.bat = L2.art(["....kkkkkkkkkkkk", "kkkkbbbbbbbbbbbk", "kBBbbbbbbbbbbbbk", "kkkkBBBBBBBBBBBk", "....kkkkkkkkkkkk"], pal);
+  ART.bottle = L2.art([".kk.", "kEek", ".kk.", "keEk", "keEk", "keEk", "kEEk", ".kk."], pal);
+  ART.noodles = L2.art(["..kkkkkk..", ".kwwyywwk.", "kwywywywwk", "kkkkkkkkkk", ".krrrrrrk.", "..krrrrk..", "...kkkk..."], pal);
+  ART.can = L2.art([".kkkk.", "kGGGGk", "keeeek", "kyeeyk", "keeeek", "kGGGGk", ".kkkk."], pal);
+  ART.chip = L2.art(["..kk..", ".kyyk.", "kyywyk", "kyyyyk", ".kyyk.", "..kk.."], pal);
+  ART.crate = L2.art(["kkkkkkkkkkkkkk", "kbbbbbbbbbbbbk", "kbBkkkkkkkkBbk", "kbkBbbbbbbBkbk", "kbkbBbbbbBbkbk", "kbkbbBbbBbbkbk", "kbkbbbBBbbbkbk", "kbkbbBbbBbbkbk", "kbkbBbbbbBbkbk", "kbkBbbbbbbBkbk", "kbBkkkkkkkkBbk", "kbbbbbbbbbbbbk", "kkkkkkkkkkkkkk"], pal);
+  ART.barrel = L2.art([".kkkkkkkkk.", "knnnnnnnnnk", "kGGGGGGGGGk", "knnnnnnnnnk", "knnnooonnnk", "knnnoyonnnk", "knnnooonnnk", "knnnnnnnnnk", "kGGGGGGGGGk", "knnnnnnnnnk", ".kkkkkkkkk."], pal);
+  ART.bin = L2.art([".kkkkkkkk.", "kGGGGGGGGk", "kkkkkkkkkk", ".kgggggk..", ".kgGgGgk..", ".kgGgGgk..", ".kgGgGgk..", ".kgggggk..", ".kkkkkkk.."], pal);
+  ART.knifeT = L2.art(["kkk.....", "kswkkkkk", "kkk....."], pal);
+  // a weapon in the hand at 16 angles, each way round (drawn where the front hand is)
+  for (const k of ["pipe", "bat", "bottle"]) {
+    const src = ART[k], n = 16, list = [];
+    for (let i = 0; i < n; i++) { const a = i / n * TAU, s = Math.ceil(Math.hypot(src.width, src.height)) + 2, c = mk(s, s), g = c.getContext("2d"); g.imageSmoothingEnabled = false; g.translate(s / 2, s / 2); g.rotate(a); g.drawImage(src, -2, -src.height / 2); list.push(c); }
+    ART[k + "R"] = list;
+  }
+  ART.shadow = (() => { const c = mk(32, 8), g = c.getContext("2d"); g.fillStyle = "rgba(4,2,10,0.42)"; g.beginPath(); g.ellipse(16, 4, 15, 3.5, 0, 0, TAU); g.fill(); return c; })();
+  ART.bigShadow = (() => { const c = mk(56, 12), g = c.getContext("2d"); g.fillStyle = "rgba(4,2,10,0.45)"; g.beginPath(); g.ellipse(28, 6, 27, 5.5, 0, 0, TAU); g.fill(); return c; })();
+}
+
+// ---------------------------------------------------------------- the stages
+// each: a name, how long, its look (a painter for the layers behind, the ground, what's in front, the weather, the dark),
+// and its fights: at each place the screen holds still until the waves there are beaten (the last: the boss)
+const STAGES = [
+  { id: "street", name: "RAIN STREET", sub: "THE NIGHT IT STARTED", len: 2700, music: { seed: 3, root: 45, tempo: 128 }, rain: 1, dark: "rgba(10,4,24,0.5)",
+    zones: [{ at: 260, waves: [["punk", "punk"], ["punk", "slicer"]] }, { at: 760, waves: [["punk", "punk", "slicer"], ["tosser", "punk"]] },
+      { at: 1300, waves: [["bruiser", "punk"], ["slicer", "slicer", "punk"]] }, { at: 1820, waves: [["runner", "punk", "punk"], ["bruiser", "tosser"]] }, { at: 2220, boss: "diesel", waves: [["punk", "punk"]] }],
+    props: [[330, 200, "barrel", "noodles"], [700, 240, "bin", "pipe"], [1060, 190, "crate", "can"], [1500, 236, "barrel", "bat"], [1700, 196, "bin", "noodles"], [2120, 220, "crate", "chip"]] },
+  { id: "market", name: "NEON MARKET", sub: "LANTERNS AND KNIVES", len: 2900, music: { seed: 17, root: 47, tempo: 134 }, dark: "rgba(16,6,20,0.38)",
+    zones: [{ at: 280, waves: [["slicer", "punk", "punk"], ["tosser", "slicer"]] }, { at: 820, waves: [["riot", "punk"], ["slicer", "slicer", "tosser"]] },
+      { at: 1400, waves: [["runner", "runner", "punk"], ["bruiser", "riot"]] }, { at: 1960, waves: [["tosser", "tosser", "slicer"], ["riot", "bruiser", "punk"]] }, { at: 2420, boss: "razor", waves: [["slicer", "slicer"]] }],
+    props: [[400, 230, "crate", "noodles"], [640, 196, "crate", "bottle"], [1100, 236, "barrel", "can"], [1260, 192, "crate", "bat"], [1780, 220, "crate", "noodles"], [2300, 200, "barrel", "chip"]] },
+  { id: "train", name: "NIGHT TRAIN", sub: "HOLD ON TIGHT", len: 2300, music: { seed: 29, root: 43, tempo: 142 }, train: 1, dark: "rgba(8,6,20,0.26)",
+    zones: [{ at: 220, waves: [["punk", "runner"], ["slicer", "punk", "drone"]] }, { at: 700, waves: [["tosser", "riot", "punk"], ["drone", "drone", "runner"]] },
+      { at: 1180, waves: [["bruiser", "slicer", "slicer"], ["wrecker"]] }, { at: 1820, waves: [["riot", "riot", "tosser"], ["drone", "runner", "runner", "punk"], ["wrecker", "bruiser"]] }],
+    props: [[360, 236, "crate", "pipe"], [900, 200, "bin", "noodles"], [1400, 230, "crate", "can"], [1700, 196, "crate", "noodles"], [2000, 240, "bin", "bottle"]] },
+  { id: "docks", name: "FOUNDRY DOCKS", sub: "STEEL AND SALT", len: 3000, music: { seed: 41, root: 40, tempo: 120 }, water: 1, dark: "rgba(14,6,4,0.46)",
+    zones: [{ at: 300, waves: [["wrecker", "punk"], ["tosser", "tosser", "punk"]] }, { at: 860, waves: [["riot", "slicer", "punk"], ["bruiser", "runner", "runner"]] },
+      { at: 1440, waves: [["wrecker", "riot"], ["drone", "drone", "tosser"]] }, { at: 2040, waves: [["bruiser", "bruiser", "slicer"], ["wrecker", "wrecker"]] }, { at: 2520, boss: "hammerhead", waves: [] }],
+    props: [[420, 200, "barrel", "noodles"], [760, 236, "crate", "pipe"], [1220, 194, "barrel", "can"], [1660, 230, "crate", "bat"], [1960, 200, "barrel", "noodles"], [2400, 230, "crate", "chip"]] },
+  { id: "tower", name: "SKYLINE TOWER", sub: "THE ROOF OF THE CITY", len: 2800, music: { seed: 53, root: 49, tempo: 138 }, rain: 1, roof: 1, dark: "rgba(8,4,22,0.5)",
+    zones: [{ at: 260, waves: [["riot", "riot", "drone"], ["slicer", "slicer", "runner"]] }, { at: 820, waves: [["wrecker", "tosser", "tosser"], ["bruiser", "riot", "drone"]] },
+      { at: 1400, waves: [["runner", "runner", "slicer", "punk"], ["wrecker", "drone", "drone"]] }, { at: 1960, waves: [["bruiser", "riot", "wrecker"], ["slicer", "slicer", "tosser", "drone"]] }, { at: 2320, boss: "vox", waves: [] }],
+    props: [[360, 230, "crate", "noodles"], [900, 200, "bin", "bat"], [1300, 236, "crate", "can"], [1800, 196, "crate", "noodles"], [2200, 230, "bin", "chip"]] }
+];
+
+// ---------------------------------------------------------------- what's kept on the box
+const store = new L2.Store("neon-brawler", () => ({ v: 2, best: 0, combo: 0, reached: 0, clears: {}, opts: { music: 6, sound: 8, rumble: 1, shake: 2, fx: "auto", pace: "auto" } }));
+const SAVE = store.data;
+try { const old = +localStorage.getItem("neonBrawler_hi"); if (old > SAVE.best) SAVE.best = old; } catch (e) { /* none */ }
+
+// ---------------------------------------------------------------- the engine
+const KEYS = { z: "x", Z: "x", j: "x", J: "x", x: "a", X: "a", k: "a", K: "a", " ": "a", c: "y", C: "y", l: "y", L: "y", v: "b", V: "b", ";": "b", p: "start", P: "start" };
+const G = L2.game({ id: "neon-brawler", canvas: document.getElementById("c"), keys: KEYS, keyNames: { x: "Z", a: "X", y: "C", b: "V", start: "P" },
+  on: onButton, update, draw, hud, ready, tier: onTier, hidden: () => { if (mode === "play") pause(); }, joined: () => {}, left: () => {} });
+const synth = G.synth, DEMO = G.demo;
+let mode = "boot", modeT = 0;                       // boot title select intro play pause clear over ending
+function setMode(m) { mode = m; modeT = 0; }
+
+function sounds() {
+  const d = (n, f) => synth.define(n, f);
+  d("jab", (s, t) => { s.noise(t, 0.06, 0.22, 1800, 1.4); s.note(t, 220, 0.05, "square", 0.05, null, 0.002, 1600); });
+  d("smack", (s, t) => { s.noise(t, 0.1, 0.32, 900, 1); s.note(t, 130, 0.1, "square", 0.08, null, 0.002, 900); });
+  d("crunch", (s, t) => { s.noise(t, 0.18, 0.42, 500, 0.8); s.note(t, 80, 0.2, "sine", 0.3); });
+  d("whiff", (s, t) => s.noise(t, 0.08, 0.1, 2600, 2.2));
+  d("jump", (s, t) => s.noise(t, 0.12, 0.08, 1400, 1.6));
+  d("land", (s, t) => s.noise(t, 0.08, 0.14, 400, 1));
+  d("thud", (s, t) => { s.noise(t, 0.25, 0.4, 220, 0.8); s.note(t, 60, 0.25, "sine", 0.35); });
+  d("clank", (s, t) => { s.note(t, 1250, 0.16, "square", 0.05, null, 0.001, 5000); s.noise(t, 0.05, 0.16, 4000, 2); });
+  d("glass", (s, t) => { s.noise(t, 0.25, 0.3, 5200, 1.2); [2200, 2900, 3600].forEach((f, i) => s.note(t + i * 0.02, f, 0.12, "triangle", 0.03)); });
+  d("eat", (s, t) => [523, 659, 784].forEach((f, i) => s.note(t + i * 0.06, f, 0.16, "square", 0.05, null, 0.004, 2400)));
+  d("chip", (s, t) => [988, 1319].forEach((f, i) => s.note(t + i * 0.05, f, 0.14, "triangle", 0.07)));
+  d("meter", (s, t) => [392, 523, 659, 784].forEach((f, i) => s.note(t + i * 0.05, f, 0.2, "triangle", 0.07)));
+  d("special", (s, t) => { s.noise(t, 0.5, 0.35, 1200, 0.5); [262, 392, 523, 784].forEach((f, i) => s.note(t + i * 0.04, f, 0.4, "sawtooth", 0.06, null, 0.004, 3000)); });
+  d("quake", (s, t) => { s.noise(t, 0.8, 0.5, 120, 0.5); s.note(t, 45, 0.7, "sine", 0.45); });
+  d("zap", (s, t) => { s.note(t, 1800, 0.12, "sawtooth", 0.05, null, 0.001, 6000); s.noise(t, 0.12, 0.15, 6000, 3); });
+  d("hurt", (s, t) => { s.note(t, 200, 0.2, "sawtooth", 0.09, null, 0.003, 1200); s.noise(t, 0.1, 0.25, 800, 1); });
+  d("ko", (s, t) => { [330, 262, 196].forEach((f, i) => s.note(t + i * 0.09, f, 0.3, "square", 0.07, null, 0.004, 1800)); s.noise(t, 0.4, 0.3, 300, 0.6); });
+  d("roar", (s, t) => { s.note(t, 90, 0.8, "sawtooth", 0.16, null, 0.05, 600); s.noise(t, 0.8, 0.3, 300, 0.5); });
+  d("go", (s, t) => [523, 659, 784, 1047].forEach((f, i) => s.note(t + i * 0.07, f, 0.24, "square", 0.06, null, 0.004, 2600)));
+  d("clear", (s, t) => [392, 523, 659, 784, 1047, 1319].forEach((f, i) => s.note(t + i * 0.09, f, 0.5, "triangle", 0.1)));
+  d("bell", (s, t) => { s.note(t, 880, 0.6, "sine", 0.1); s.note(t + 0.25, 660, 0.7, "sine", 0.1); });
+  d("move", (s, t) => s.note(t, 880, 0.04, "square", 0.04, null, 0.003, 2000));
+  d("ok", (s, t) => { s.note(t, 660, 0.08, "square", 0.05, null, 0.003, 2400); s.note(t + 0.05, 990, 0.1, "square", 0.05, null, 0.003, 2400); });
+}
+
+// ---------------------------------------------------------------- the city behind: each stage's layers, drawn once
+let BG = null;
+function stars(g, w, h, n, seed, col) { const r = U.rand(seed); g.fillStyle = col; for (let i = 0; i < n; i++) g.fillRect((r() * w) | 0, (r() * h) | 0, 1, 1); }
+function skyline(g, w, top, base, cols, seed, lit) {
+  const r = U.rand(seed); let x = 0;
+  while (x < w) {
+    const bw = 18 + (r() * 46) | 0, bh = top + r() * (base - top) * 0.8, c = cols[(r() * cols.length) | 0];
+    px(g, x, base - bh, bw, bh + 2, c);
+    if (r() < 0.3) px(g, x + (bw >> 1) - 1, base - bh - 6 - ((r() * 10) | 0), 2, 8, c);
+    if (lit) for (let wy = base - bh + 4; wy < base - 4; wy += 5) for (let wx = x + 3; wx < x + bw - 3; wx += 4) if (r() < lit) px(g, wx, wy, 2, 2, r() < 0.7 ? "#ffd27a" : r() < 0.5 ? "#7ad8f0" : "#ff7ab8");
+    x += bw + ((r() * 4) | 0);
+  }
+}
+function sign(g, x, y, text, c, bg) { const w = font.width(text) + 8; px(g, x, y, w, 13, bg || "#120a1c"); px(g, x, y, w, 1, c); px(g, x, y + 12, w, 1, c); font.text(g, text, x + 4, y + 3, font.colour(c)); return w; }
+function stageArt(st) {
+  const B = { layers: [], fore: null, ground: null, lamps: [], glows: [], sky: null };
+  const id = st.id;
+  if (id === "street" || id === "tower") {
+    B.sky = L2.gradient(VW, VH, id === "tower" ? ["#04020e", "#140a2e", "#3a1446"] : ["#0a0618", "#1e0a2e", "#3e1238"]);
+    B.layers.push(new L2.Layer(640, 200, (g, w) => { stars(g, w, 80, 70, 5, "#6a5a8a"); skyline(g, w, 40, 200, ["#160c26", "#1c1030", "#120a20"], 11, 0.18); }, { k: 0.12, y: 0 }));
+    B.layers.push(new L2.Layer(720, 200, (g, w) => { skyline(g, w, 70, 200, ["#24123a", "#2a1640", "#1e0e30"], 23, 0.3);
+      const r = U.rand(77); for (let x = 30; x < w; x += 120 + ((r() * 60) | 0)) sign(g, x, 70 + ((r() * 60) | 0), ["NOODLES", "HOTEL", "24/7", "ARCADE", "BAR", "KARAOKE"][(r() * 6) | 0], ["#ff2a6d", "#05d9e8", "#ffea00", "#9b5de5"][(r() * 4) | 0]); }, { k: 0.35, y: 0 }));
+    if (id === "street") B.layers.push(new L2.Layer(960, 190, (g, w) => {        // the shopfronts behind the pavement
+      const r = U.rand(91);
+      for (let x = 0; x < w; x += 160) {
+        const c = ["#3a2650", "#44263c", "#2c2848"][(x / 160) % 3];
+        px(g, x, 60, 156, 130, c); px(g, x, 58, 156, 3, shade(c, 1.4)); px(g, x + 10, 120, 60, 52, "#0e0a18"); px(g, x + 12, 122, 56, 48, r() < 0.5 ? "#3a2050" : "#1a3a4a");
+        px(g, x + 90, 128, 30, 44, "#0e0a18"); px(g, x + 92, 130, 26, 42, "#4a2a1a"); px(g, x + 100, 148, 2, 4, "#ffd27a");
+        sign(g, x + 14, 96, ["RAMEN", "TAILOR", "PAWN", "ARCADE", "CAFE"][(x / 160) % 5], ["#ff7ab8", "#7ad8f0", "#ffd27a", "#9bff8a", "#ff9a3c"][(x / 160) % 5]);
+        for (let wy = 66; wy < 92; wy += 10) for (let wx = x + 8; wx < x + 150; wx += 14) px(g, wx, wy, 8, 6, r() < 0.4 ? "#ffd27a" : "#1a1428");
       }
+      px(g, 0, 172, w, 18, "#1a1622"); for (let x = 0; x < w; x += 32) px(g, x, 172, 1, 18, "#100e16");
+    }, { k: 1, y: 0 }));
+    else B.layers.push(new L2.Layer(800, 190, (g, w) => {                         // the roof's edge, the great sign's frame
+      px(g, 0, 150, w, 40, "#1a1424"); px(g, 0, 148, w, 3, "#3a2c4a");
+      for (let x = 20; x < w; x += 140) { px(g, x, 112, 40, 38, "#2a2436"); px(g, x + 3, 116, 34, 4, "#3a3446"); px(g, x + 6, 124, 28, 18, "#14101c"); for (let k = 0; k < 4; k++) px(g, x + 8 + k * 7, 126, 3, 14, "#2a2436"); }
+      for (let x = 100; x < w; x += 400) { px(g, x, 20, 3, 130, "#3a3446"); px(g, x + 160, 20, 3, 130, "#3a3446"); px(g, x, 20, 163, 3, "#3a3446");
+        const L3s = ["V", "O", "X"]; L3s.forEach((ch, i) => font.text(g, ch, x + 22 + i * 46, 40, font.colour("#ff2a6d"), 6)); }
+      px(g, 600, 30, 2, 120, "#2a2436"); px(g, 598, 26, 6, 6, "#ff2a6d");
+    }, { k: 1, y: 0 }));
+    B.ground = groundOf(id === "tower" ? ["#2a2638", "#221e30", "#3a3448"] : ["#1e1a2a", "#16121e", "#2e2a3c"], id === "tower" ? 1 : 0);
+    B.lamps = id === "street" ? [80, 400] : [200, 520];
+    B.signs = id === "street" ? [0, 160, 320, 480, 640, 800].map(x => [x + 40, 102, ["#ff7ab8", "#7ad8f0", "#ffd27a", "#9bff8a", "#ff9a3c"][(x / 160) % 5]]) : [];
+    B.signW = id === "street" ? 960 : 0;
+    B.foreEvery = 300;
+  } else if (id === "market") {
+    B.sky = L2.gradient(VW, VH, ["#160a22", "#2e0e2e", "#5a1a32"]);
+    B.layers.push(new L2.Layer(640, 200, (g, w) => { stars(g, w, 70, 40, 7, "#8a6a8a"); skyline(g, w, 50, 200, ["#24102a", "#2a1430", "#1e0c24"], 13, 0.22); }, { k: 0.12 }));
+    B.layers.push(new L2.Layer(720, 200, (g, w) => {                              // strings of lanterns across the street
+      for (let x = 0; x < w; x += 180) { for (let i = 0; i < 12; i++) { const lx = x + i * 15, ly = 46 + Math.round(Math.sin(i / 11 * Math.PI) * 18); px(g, lx, ly, 1, 3, "#3a2030"); px(g, lx - 2, ly + 3, 5, 6, i % 3 ? "#ff3a3a" : "#ffb43a"); px(g, lx - 1, ly + 4, 3, 4, "#ffd27a"); } }
+      skyline(g, w, 80, 200, ["#341830", "#3a1c34", "#2a1428"], 31, 0.25);
+    }, { k: 0.4 }));
+    B.layers.push(new L2.Layer(900, 190, (g, w) => {                              // the stalls, their awnings striped
+      const r = U.rand(57);
+      for (let x = 0; x < w; x += 150) {
+        const a = ["#c8283c", "#12b8a6", "#ffb43a", "#9b5de5"][(x / 150) % 4];
+        px(g, x + 6, 100, 138, 72, "#2a1a20"); for (let s = 0; s < 138; s += 12) px(g, x + 6 + s, 92, 6, 16, a), px(g, x + 12 + s, 92, 6, 16, "#f0eef8");
+        px(g, x + 6, 108, 138, 2, "#100a12"); for (let k = 0; k < 6; k++) px(g, x + 14 + k * 21, 140, 14, 12, ["#ff6c11", "#9bff8a", "#ffea00", "#ff7ab8"][(r() * 4) | 0]);
+        px(g, x + 10, 152, 130, 20, "#4a2a1a"); px(g, x + 10, 152, 130, 2, "#6a4a2a");
+        sign(g, x + 30, 116, ["DUMPLINGS", "FRUIT", "TEA", "SKEWERS", "FISH"][(x / 150) % 5], "#ffd27a", "#1a0e14");
+      }
+      px(g, 0, 172, w, 18, "#2a1a22");
+    }, { k: 1 }));
+    B.ground = groundOf(["#2e2026", "#26181e", "#3e2c32"], 2);
+    B.lamps = [70, 230, 390, 550];
+    B.foreEvery = 0;
+  } else if (id === "train") {
+    B.sky = L2.gradient(VW, VH, ["#060410", "#0e0a22", "#1a1032"]);
+    B.city = new L2.Layer(800, 140, (g, w) => { skyline(g, w, 20, 140, ["#1a1030", "#140c26", "#201436"], 61, 0.35); }, { k: 0, y: 34 });   // (outside: rushes past whatever the camera does)
+    B.layers.push(new L2.Layer(640, 190, (g, w) => {                              // the carriage: framed windows, red seats, poles and straps
+      px(g, 0, 0, w, 36, "#2e2c3c"); px(g, 0, 30, w, 6, "#46445a"); px(g, 0, 36, w, 2, "#5e5c74");
+      for (let x = 0; x < w; x += 160) {
+        px(g, x, 38, 160, 112, "#3e3c50"); px(g, x, 112, 160, 4, "#56546c");
+        for (const wx of [8, 88]) { px(g, x + wx - 3, 37, 70, 76, "#6a6884"); px(g, x + wx - 1, 39, 66, 72, "#2a2838"); px(g, x + wx, 40, 64, 70, "#0a0814"); }
+        px(g, x + 4, 118, 152, 30, "#7a2a3a"); px(g, x + 4, 118, 152, 4, "#9a3a4a"); for (let k = 0; k < 4; k++) px(g, x + 8 + k * 38, 124, 2, 22, "#5a1e2a");
+        px(g, x + 78, 30, 4, 120, "#c8c4d8"); px(g, x + 79, 30, 1, 120, "#f0eef8");
+        for (let k = 0; k < 6; k++) { const sx = x + 14 + k * 26; px(g, sx, 36, 1, 10, "#8a88a0"); px(g, sx - 3, 46, 7, 5, "#d8d4e8"); px(g, sx - 2, 47, 5, 3, "#3e3c50"); }
+      }
+      px(g, 0, 148, w, 24, "#2a2838"); px(g, 0, 148, w, 2, "#5e5c74"); px(g, 0, 172, w, 18, "#1e1c2a");
+    }, { k: 1 }));
+    B.windows = 1;
+    B.ground = groundOf(["#2a2834", "#22202c", "#34323e"], 3);
+    B.lamps = [80, 240, 400, 560];
+    B.foreEvery = 0;
+  } else if (id === "docks") {
+    B.sky = L2.gradient(VW, VH, ["#0e0610", "#2a0e14", "#6a2a1a"]);
+    B.layers.push(new L2.Layer(700, 200, (g, w) => {                              // cranes on the glow
+      for (let x = 40; x < w; x += 230) { px(g, x, 30, 4, 140, "#1a0c10"); px(g, x - 60, 30, 130, 4, "#1a0c10"); for (let k = 0; k < 8; k++) px(g, x - 56 + k * 16, 34, 1, 8, "#1a0c10"); px(g, x + 50, 34, 1, 50, "#1a0c10"); px(g, x + 44, 84, 14, 10, "#1a0c10"); px(g, x + 1, 24, 2, 4, "#ff3a2a"); }
+      px(g, 0, 168, w, 32, "#1a0c10");
+    }, { k: 0.15 }));
+    B.layers.push(new L2.Layer(800, 200, (g, w) => {                              // stacked containers
+      const r = U.rand(43);
+      for (let x = 0; x < w; x += 70) { const n = 1 + ((r() * 3) | 0); for (let k = 0; k < n; k++) { const c = ["#8a2a1a", "#1a5a6a", "#6a6a1a", "#3a2a6a", "#7a3a1a"][(r() * 5) | 0]; px(g, x, 168 - (k + 1) * 30, 66, 29, c); for (let s = 4; s < 64; s += 5) px(g, x + s, 168 - (k + 1) * 30 + 2, 1, 25, shade(c, 0.7)); } }
+    }, { k: 0.45 }));
+    B.layers.push(new L2.Layer(640, 190, (g, w) => {                              // the quay: bollards, chains, the edge
+      px(g, 0, 160, w, 30, "#2a2420"); px(g, 0, 158, w, 3, "#4a4038"); for (let x = 20; x < w; x += 160) { px(g, x, 146, 12, 14, "#1a1614"); px(g, x - 1, 144, 14, 3, "#3a3028"); }
+      for (let x = 0; x < w; x += 40) px(g, x, 170, 20, 3, "#ffb43a");
+    }, { k: 1 }));
+    B.ground = groundOf(["#3a3430", "#302a26", "#4a443e"], 4);
+    B.lamps = [150, 470];
+    B.foreEvery = 260;
+    B.sparks = 1;
+  }
+  return B;
+}
+// the ground to fight on: pavement, kerb and road (or tiles, a carriage's floor, the quay's concrete), drawn once
+function groundOf(c, kind) {
+  return new L2.Layer(512, 100, (g, w, h) => {
+    px(g, 0, 0, w, h, c[0]);
+    if (kind === 0) { for (let x = 0; x < w; x += 32) for (let y = 0; y < 22; y += 11) px(g, x + ((y / 11) & 1) * 16, y, 31, 10, c[2]); px(g, 0, 22, w, 3, "#4a4458"); px(g, 0, 25, w, h, c[1]); for (let x = 10; x < w; x += 64) px(g, x, 58, 30, 3, "#8a8494"); }
+    else if (kind === 1) { for (let x = 0; x < w; x += 24) for (let y = 0; y < h; y += 12) { px(g, x + 1, y + 1, 22, 10, (x / 24 + y / 12) & 1 ? c[2] : c[0]); } }
+    else if (kind === 2) { for (let x = 0; x < w; x += 16) for (let y = 0; y < h; y += 16) px(g, x, y, 15, 15, (x / 16 + y / 16) & 1 ? c[2] : c[1]); }
+    else if (kind === 3) { for (let y = 4; y < h; y += 8) px(g, 0, y, w, 1, c[1]); for (let x = 0; x < w; x += 64) px(g, x, 0, 2, h, c[2]); px(g, 0, 0, w, 3, "#5a5868"); }
+    else { for (let x = 0; x < w; x += 48) for (let y = 0; y < h; y += 24) px(g, x + 1, y + 1, 46, 22, (x / 48 + y / 24) & 1 ? c[2] : c[0]); px(g, 0, 30, w, 2, "#ffb43a"); }
+  }, { k: 1, y: 172 });
+}
+
+// ---------------------------------------------------------------- the people in the fight
+let P = [], FO = [], PROPS = [], ITEMS = [], SHOTS = [], camX = 0, lockAt = -1, zoneI = 0, waveI = 0, boss = null, st = null, stI = 0, stageT = 0, goT = 0, shown = { combo: 0 };
+let score = [0, 0], picks = [0, 1], joinedPads = [];
+const particles = new L2.Particles(720, L2.dots(["#ffea00", "#ff2a6d", "#00f5d4", "#f0eef8", "#ff6c11", "#7ad8f0", "#9b5de5", "#c8ccd8"]));
+let light = null;
+function newFighter(k, fi, pad) {
+  const F = FIGHTERS[fi], sh = sheetOf(F.id, F.spec, F.fin);
+  return { k, fi, F, sh, pad: G.control(pad), padN: pad, x: camX + 70 + k * 30, y: 214 + k * 18, z: 60, vx: 0, vy: 0, vz: 0, face: 1, hp: F.hp, max: F.hp, lives: 3, meter: 0,
+    act: "jump", t: 0, frame: 0, chain: 0, chainT: 0, hitT: 0, inv: 1.5, flash: 0, combo: 0, comboT: 0, grabbing: null, knees: 0, weapon: null, uses: 0, out: false,
+    tap: { l: -9, r: -9 }, running: false, special: false, hits: null, ko: 0 };
+}
+function foeOf(kind, x, y, z) {
+  const K = FOES[kind] || BOSSES[kind], f = { kind, K, sh: foeSheet(kind), x, y, z: z || 0, vx: 0, vy: 0, vz: 0, face: x < camX + VW / 2 ? 1 : -1,
+    hp: K.hp * (twoUp() ? 1.4 : 1), max: K.hp * (twoUp() ? 1.4 : 1), act: "walk", t: 0, cd: 1 + rnd() * 1.2, flash: 0, target: null, armour: K.armour || 0, armourHits: 0, hits: null, think: 0, slot: rnd() < 0.5 ? -1 : 1,
+    held: null, dead: false, deadT: 0, phase: 0, tele: 0, guard: !!K.shield, juggle: 0, hover: K.flies ? 46 + rnd() * 14 : 0, score: K.score };
+  if (K.flies) f.z = f.hover;
+  return f;
+}
+const twoUp = () => P.filter(p => !p.out).length > 1;
+function alive(f) { return !f.dead && !f.dying; }
+
+// ---------------------------------------------------------------- the fight's rules
+const GRAV = 820;
+function start(stage, keep) {
+  stI = stage; st = STAGES[stage]; BG = stageArt(st);
+  const kinds = {}; for (const z of st.zones) { for (const w of z.waves) for (const k of w) kinds[k] = 1; if (z.boss) { kinds[z.boss] = 1; if (BOSSES[z.boss].calls) kinds[BOSSES[z.boss].calls] = 1; } }
+  forget(FIGHTERS.map(F => F.id).concat(Object.keys(kinds), ["drone", "riot-bare"])); for (const k in kinds) foeSheet(k); camX = 0; lockAt = -1; zoneI = 0; waveI = 0; boss = null; FO = []; ITEMS = []; SHOTS = []; stageT = 0; goT = 0;
+  PROPS = st.props.map(p => ({ x: p[0], y: p[1], kind: p[2], item: p[3], hp: p[2] === "crate" ? 2 : 1, hitT: 0 }));
+  particles.clear(); if (light) light.clear();
+  const pads = P.length ? P.map(p => p.padN) : [joinedPads[0] || 0];
+  const lives = P.map(p => p.lives);
+  P = pads.map((n, k) => newFighter(k, picks[k], n));
+  if (keep) P.forEach((p, k) => { p.lives = Math.max(1, lives[k] || 3); });
+  setMode("intro"); synth.song(Object.assign({}, st.music, { calm: false })); synth.play("bell");
+  G.fade(null, 3);
+}
+function zoneNow() { return st.zones[zoneI] || null; }
+function spawnWave(list) {
+  const z = zoneNow();
+  list.forEach((kind, i) => {
+    const left = (i + waveI) % 2 === 1 && camX > 40, x = left ? camX - 30 - i * 12 : camX + VW + 30 + i * 12, y = Y0 + 6 + rnd() * (Y1 - Y0 - 12);
+    const f = foeOf(kind, x, y, st.train && rnd() < 0.3 && !FOES[kind].flies ? 160 : 0); FO.push(f);
+  });
+  if (z && z.boss && waveI === 0) { const b = foeOf(z.boss, camX + VW + 40, (Y0 + Y1) / 2); b.face = -1; boss = b; FO.push(b); banner(BOSSES[z.boss].name, 2.2); synth.play("roar"); G.zoomOn(1.08, VW * 0.7, 210, 3); setTimeout(() => G.zoomOn(1, null, null, 3), 1200); }
+}
+let bannerText = "", bannerT = 0;
+function banner(s, t) { bannerText = s; bannerT = t || 1.6; }
+function update(dt) {
+  modeT += dt;
+  if (mode === "title" || mode === "select") { titleUpdate(dt); return; }
+  if (mode === "intro") { stageT += dt; worldStep(dt); itemsStep(); if (modeT > 2.2) setMode("play"); return; }
+  if (mode === "play" || mode === "clear" || mode === "over" || mode === "ending") { stageT += dt; worldStep(dt); }
+  if (mode === "play" || mode === "intro" || mode === "clear") { itemsStep(); boltsStep(dt); }
+  for (const f of FO) if (f.tele > 0) f.tele -= dt;
+  for (let i = FLOATS.length - 1; i >= 0; i--) if ((FLOATS[i].t += dt) > 0.9) FLOATS.splice(i, 1);
+  if (mode === "play") {
+    // the screen holds at each place until its waves are beaten; then on (GO)
+    const z = zoneNow();
+    if (lockAt < 0 && z && camX >= z.at - 2) { lockAt = z.at; camX = z.at; waveI = 0; spawnWave(z.waves[0] || []); }
+    if (lockAt >= 0 && !FO.some(f => alive(f) && !f.leaving)) {
+      const zz = zoneNow();
+      if (zz && waveI + 1 < zz.waves.length) { waveI++; spawnWave(zz.waves[waveI]); }
+      else if (zz && zz.boss && boss && alive(boss)) { /* (the boss still stands) */ }
+      else { lockAt = -1; zoneI++; if (zoneI >= st.zones.length) stageClear(); else { goT = 3; synth.play("go"); } }
+    }
+    if (P.every(p => p.out)) gameOver();
+  }
+  if (bannerT > 0) bannerT -= dt;
+  if (goT > 0) goT -= dt;
+}
+function worldStep(dt) {
+  for (const p of P) if (!p.out) fighterStep(p, dt);
+  for (const f of FO) foeStep(f, dt);
+  for (let i = SHOTS.length - 1; i >= 0; i--) if (!shotStep(SHOTS[i], dt)) SHOTS.splice(i, 1);
+  for (let i = ITEMS.length - 1; i >= 0; i--) { const it = ITEMS[i]; if (it.vz || it.z > 0) { it.vz -= GRAV * dt; it.z = Math.max(0, it.z + it.vz * dt); it.x += it.vx * dt; if (it.z === 0) { it.vz = 0; it.vx = 0; } } it.t += dt; if (it.t > 14 && it.kind !== "pipe" && it.kind !== "bat" && it.kind !== "bottle") ITEMS.splice(i, 1); }
+  for (let i = FO.length - 1; i >= 0; i--) if (FO[i].dead && FO[i].deadT > 1.6) FO.splice(i, 1);
+  for (const pr of PROPS) if (pr.hitT > 0) pr.hitT -= dt;
+  particles.step(dt); if (light) light.step(dt);
+  // the camera: on with the players (never back), to the next hold
+  const live = P.filter(p => !p.out);
+  if (live.length && lockAt < 0) {
+    const lead = Math.max(...live.map(p => p.x)), back = Math.min(...live.map(p => p.x));
+    let want = Math.min(lead - VW * 0.45, back - 40), z = zoneNow();
+    const cap = z ? z.at : st.len - VW; want = Math.min(want, cap, st.len - VW);
+    if (want > camX) camX = Math.min(want, camX + 220 * dt);
+  }
+  if (BG && BG.sparks && rnd() < dt * 2) { const x = camX + rnd() * VW; particles.emit(x, 120 + rnd() * 40, 6, { c: [0, 4], v: 90, a: -Math.PI / 2, sp: 1.6, life: 0.5, g: 300, bright: 1 }); if (light) light.pulse(x, 130, 40, 0.25); }
+}
+
+// a fighter's turn: the controller, then what they're doing
+function fighterStep(p, dt) {
+  const c = p.pad, F = p.F, busy = p.act !== "idle" && p.act !== "walk" && p.act !== "run";
+  p.t += dt; if (p.inv > 0) p.inv -= dt; if (p.flash > 0) p.flash -= dt; if (p.comboT > 0 && (p.comboT -= dt) <= 0) p.combo = 0; if (p.chainT > 0) p.chainT -= dt;
+  const mx = DEMO && p.k === 0 ? bot.x : c.x(), my = DEMO && p.k === 0 ? bot.y : c.y();
+  const press = b => DEMO && p.k === 0 ? bot.take(b) : c.take(b, 150);
+  // the air: jumping, falling, thrown
+  if (p.z > 0 || p.vz) {
+    p.vz -= GRAV * dt; p.z += p.vz * dt; p.x += p.vx * dt; p.y = clamp(p.y + p.vy * dt, Y0, Y1);
+    if (p.z <= 0) {
+      p.z = 0; p.vz = 0; p.vx = 0; p.vy = 0;
+      if (p.act === "fall") { setAct(p, "down"); synth.play("thud"); G.shake(0.15); dust(p.x, p.y); }
+      else if (p.act === "jump" || p.act === "jkick") { setAct(p, "idle"); synth.play("land"); }
+    }
+  }
+  if (p.act === "down") { if (p.t > (p.hp <= 0 ? 1.2 : 0.7)) { if (p.hp <= 0) return fighterOut(p); setAct(p, "getup"); } return clampP(p); }
+  if (p.act === "getup") { if (p.t > 0.3) { setAct(p, "idle"); p.inv = 1; } return clampP(p); }
+  if (p.act === "hurt" || p.act === "gut") { if (p.t > 0.32) setAct(p, "idle"); p.x += p.vx * dt; p.vx *= Math.pow(0.02, dt); return clampP(p); }
+  if (p.act === "fall") return clampP(p);
+  // holding someone: knees, a throw, or let go
+  if (p.act === "grab") {
+    const f = p.grabbing;
+    if (!f || !alive(f) || p.t > 1.6) { release(p); return clampP(p); }
+    f.x = p.x + p.face * 14; f.y = p.y; f.z = 0; f.act = "hurt"; f.t = 0;
+    if (press("x")) { if ((mx * p.face < -0.5) || p.knees >= 2) throwFoe(p, f, mx * p.face < -0.5 ? -p.face : p.face); else { p.knees++; setAct(p, "knee"); p.kneeOf = f; hitFoe(p, f, 8 * F.pow, "knee", 0); } }
+    else if (press("b")) throwFoe(p, f, p.face);
+    return clampP(p);
+  }
+  if (p.act === "knee") { if (p.t > 0.22) { const f = p.kneeOf; if (f && alive(f)) { p.act = "grab"; p.t = 0.6; p.grabbing = f; } else setAct(p, "idle"); } return clampP(p); }
+  if (p.act === "throw") { if (p.t > 0.4) setAct(p, "idle"); return clampP(p); }
+  // the moves
+  if (p.act === "attack" || p.act === "swing" || p.act === "jkick" || p.act === "special") {
+    const mv = p.move;
+    if (p.act === "special" && p.special) specialStep(p, dt);
+    if (p.act !== "special" && !p.hitDone && p.t >= mv.on) { p.hitDone = true; strike(p, mv); }
+    if (p.act === "attack" && p.t >= mv.on && press("x")) p.queued = true;
+    if (p.t >= mv.end) {
+      if (p.act === "jkick") { p.act = "jump"; return; }
+      if (p.act === "attack" && p.queued && p.chain < F.chain.length) { attack(p); return; }
+      setAct(p, "idle"); p.chainT = 0.35; if (p.chain >= F.chain.length) p.chain = 0;
+    }
+    if (p.act === "special" && p.special === "rush") { p.x += p.face * 300 * dt; }
+    return clampP(p);
+  }
+  if (p.act === "jump") { if (press("x")) { p.move = { on: 0.05, end: 0.5, dmg: 13 * F.pow, reach: 34, kind: "down", air: 1, name: "jkick" }; setAct(p, "jkick"); p.hitDone = false; synth.play("whiff"); } return clampP(p); }
+  // on the ground and free: move, run, jump, attack, grab, pick up, the special
+  const sp = 82 * F.spd * (p.running ? 1.75 : 1);
+  if (mx) { if (Math.sign(mx) !== p.face) p.running = false; p.face = mx > 0 ? 1 : -1; }
+  const side = mx > 0 ? "r" : mx < 0 ? "l" : null;
+  if (side && !p.held_) { if (G.time - p.tap[side] < 0.28) p.running = true; p.tap[side] = G.time; }
+  p.held_ = !!side; if (!mx) p.running = false;
+  p.x += mx * sp * dt; p.y = clamp(p.y + my * 56 * F.spd * dt, Y0, Y1);
+  if (!busy) setAct(p, mx || my ? (p.running ? "run" : "walk") : "idle", true);
+  if (press("a")) { p.vz = 300; p.vx = mx * sp; p.vy = my * 40; p.z = 0.1; setAct(p, "jump"); synth.play("jump"); return clampP(p); }
+  if (press("y")) { doSpecial(p); return clampP(p); }
+  if (press("b")) { if (pickUp(p)) return clampP(p); if (p.weapon) { throwWeapon(p); return clampP(p); } const f = grabbable(p); if (f) { grab(p, f); return clampP(p); } }
+  if (press("x")) {
+    if (p.running) { p.move = { on: 0.06, end: 0.42, dmg: 14 * F.pow, reach: 34, kind: "down", name: "lunge" }; setAct(p, "attack"); p.anim = "special"; p.hitDone = false; p.running = false; synth.play("whiff"); }
+    else if (p.weapon) { p.move = { on: 0.12, end: 0.36, dmg: (p.weapon === "bat" ? 17 : p.weapon === "pipe" ? 14 : 10) * F.pow, reach: 40, kind: p.weapon === "bat" ? "down" : null, name: "swing", weapon: 1 }; setAct(p, "swing"); p.hitDone = false; synth.play("whiff"); }
+    else { if (p.chainT <= 0) p.chain = 0; attack(p); }
+  } else if (!mx && !my && !busy) { const f = grabbable(p); if (f && f.act === "hurt" && p.t > 0.1 && Math.abs(f.x - p.x) < 18) { /* (walk into a stunned foe to grab: below) */ } }
+  if (mx && !p.weapon && !p.running) { const f = grabbable(p); if (f && Math.abs(f.x - p.x) < 15 && (f.act === "hurt" || f.act === "idle" || f.act === "walk" || f.act === "gut") && !f.guard && Math.sign(f.x - p.x) === p.face && Math.sign(mx) === p.face) grab(p, f); }
+  clampP(p);
+}
+function clampP(p) { p.x = clamp(p.x, camX + 14, camX + VW - 14); if (lockAt < 0) p.x = Math.min(p.x, (zoneNow() ? zoneNow().at : st.len - VW) + VW - 14); }
+function setAct(p, a, keep) { if (keep && p.act === a) return; p.act = a; p.t = 0; }
+function attack(p) {
+  const F = p.F; if (p.chain >= F.chain.length) p.chain = 0;
+  const step = F.chain[p.chain], fin = p.chain === F.chain.length - 1;
+  p.move = { on: 0.07, end: fin ? 0.4 : 0.24, dmg: step[1] * F.pow, reach: step[2], kind: step[3] || null, name: step[0], air: fin };
+  p.anim = step[0]; p.chain++; p.queued = false; p.hitDone = false; setAct(p, "attack"); synth.play(fin ? "whiff" : "jab");
+  if (p.chain > 1) p.x += p.face * 4;                // (each blow of a chain steps in)
+}
+// a blow lands (or doesn't): every foe in reach, in the lane, at the right height; crates break
+function strike(p, mv) {
+  let hit = 0;
+  for (const f of FO) {
+    if (!alive(f) || f.act === "down" && !mv.low) continue;
+    const dx = (f.x - p.x) * p.face, dy = Math.abs(f.y - p.y), big = f.K.boss ? 10 : 0;
+    if (dx < -6 || dx > mv.reach + big || dy > 13 + big * 0.5) continue;
+    if (f.K.flies && f.z > 20 && !(mv.air || mv.name === "upper" || p.z > 10)) continue;
+    if (f.z > 4 && !f.K.flies && !(mv.air || p.z > 10 || f.juggle)) continue;
+    hitFoe(p, f, mv.dmg, mv.kind, mv.name === "fin" || mv.kind === "launch" ? 1 : 0, mv); hit++;
+  }
+  for (const pr of PROPS) { if (pr.hp <= 0) continue; const dx = (pr.x - p.x) * p.face; if (dx > -6 && dx < mv.reach + 8 && Math.abs(pr.y - p.y) < 14) { breakProp(pr, p); hit++; } }
+  if (mv.weapon && hit) { p.uses--; if (p.uses <= 0) { if (p.weapon === "bottle") { synth.play("glass"); spark(p.x + p.face * 20, p.y - 24, [7, 5], 14); } p.weapon = null; } }
+  if (!hit) synth.play("whiff");
+}
+function hitFoe(p, f, dmg, kind, heavy, mv) {
+  // a riot's shield turns blows from the front (not a throw, a jump kick, nor a finisher)
+  if (f.guard && f.act !== "hurt" && Math.sign(p.x - f.x) === f.face && !(mv && (mv.air || mv.name === "fin")) && kind !== "thrown") {
+    synth.play("clank"); spark(f.x + f.face * 10, f.y - f.z - 22, [3, 7], 8); p.vx = -p.face * 60; G.stop(40); f.cd = Math.min(f.cd, 0.25); return false;
+  }
+  if (f.guard && mv && (mv.air || mv.name === "fin")) f.guard = false;     // (the shield knocked aside)
+  dmg = Math.round(dmg * (p.weapon && mv && mv.weapon ? 1 : 1));
+  f.hp -= dmg; f.flash = 0.1; p.combo++; p.comboT = 1.4; shown.combo = Math.max(shown.combo, p.combo);
+  if (p.act !== "special") { p.meter = Math.min(1, p.meter + 0.045 + dmg * 0.002); if (p.meter >= 1 && !p.full) { p.full = true; synth.play("meter"); } }   // (a special's own hits don't fill it again)
+  addScore(p.k, Math.round(dmg * 10 * (1 + p.combo * 0.08)));
+  const big = heavy || kind === "launch" || kind === "down" || kind === "thrown";
+  synth.play(big ? "crunch" : "smack"); G.stop(big ? 90 : 55); G.shake(big ? 0.22 : 0.08); if (big) G.tiltBy(p.face * 0.012); p.pad.rumble(big ? 0.5 : 0.25, big ? 0.6 : 0.2, big ? 160 : 80);
+  spark(f.x - p.face * 4, f.y - f.z - (f.K.boss ? 34 : 24), big ? [1, 0, 3] : [0, 3], big ? 14 : 8);
+  if (light) light.pulse(f.x, f.y - f.z - 20, big ? 44 : 26, 0.18);
+  // armour: a heavy one doesn't flinch from the first blows of a chain
+  if (f.armour && !big && f.armourHits < f.armour && f.hp > 0) { f.armourHits++; return true; }
+  f.armourHits = 0;
+  if (f.held) { f.held = null; }
+  if (f.hp <= 0) { kill(p, f, kind === "thrown" ? 1 : 0); return true; }
+  if (f.K.flies) { f.vz = -40; f.act = "hurt"; f.t = 0; return true; }
+  if (f.z > 4 || kind === "launch") { f.vz = kind === "launch" ? 330 : Math.max(150, 260 - f.juggle * 45); f.vx = p.face * 50; f.juggle++; f.act = "fall"; f.t = 0; return true; }
+  if (kind === "down" || kind === "thrown") { f.vz = 200; f.vx = p.face * 140; f.act = "fall"; f.t = 0; return true; }
+  f.act = mv && mv.name === "cross" ? "gut" : "hurt"; f.t = 0; f.vx = p.face * 16; f.cd = Math.max(f.cd, 0.5);   // (a light blow: pushed a little, still in reach)
+  return true;
+}
+function kill(p, f, thrown) {
+  f.hp = 0; f.act = "fall"; f.vz = 260; f.vx = (p ? p.face : 1) * 170; f.t = 0; f.dying = true;
+  synth.play("ko"); G.shake(0.25); G.stop(120);
+  if (p) { addScore(p.k, f.score); p.ko++; }
+  if (f.K.boss) { G.stop(260); G.shake(0.6); G.zoomOn(1.12, f.x - camX, f.y - 30, 2); setTimeout(() => G.zoomOn(1, null, null, 2), 1400); for (const o of FO) if (o !== f && alive(o)) { o.hp = 0; o.act = "fall"; o.vz = 200; o.dying = true; } banner("K.O.", 2.4); }
+  if (rnd() < 0.18 && !f.K.boss) drop(f.x, f.y, rnd() < 0.5 ? "chip" : "can");
+  if (f.weaponDrop) drop(f.x, f.y, f.weaponDrop);
+}
+function grabbable(p) { let best = null, bd = 30; for (const f of FO) { if (!alive(f) || f.z > 2) continue; const d = Math.abs(f.x - p.x); if (d < bd && Math.abs(f.y - p.y) < 10) { bd = d; best = f; } } return best; }
+function grab(p, f) {
+  if (f.K.boss || f.K.flies || f.kind === "wrecker" || f.act === "down" || f.act === "fall") return false;
+  p.grabbing = f; p.knees = 0; setAct(p, "grab"); f.act = "hurt"; f.t = 0; f.heldBy = p; synth.play("jab"); return true;
+}
+function release(p) { if (p.grabbing) p.grabbing.heldBy = null; p.grabbing = null; setAct(p, "idle"); }
+function throwFoe(p, f, dir) {
+  p.face = dir; setAct(p, "throw"); p.grabbing = null; f.heldBy = null;
+  f.thrownBy = p; f.x = p.x + dir * 10; hitFoe(p, f, 16 * p.F.pow * (p.F.id === "brick" ? 1.5 : 1), "thrown", 1);
+  if (alive(f) || f.dying) { f.vz = 240; f.vx = dir * 240; f.act = "fall"; f.flying = 0.8; }
+  synth.play("whiff");
+}
+function fighterOut(p) {
+  p.lives--;
+  if (p.lives > 0) { p.hp = p.max; p.x = camX + 60 + p.k * 30; p.y = (Y0 + Y1) / 2; p.z = 90; p.vz = 0; setAct(p, "jump"); p.inv = 2.5; p.meter = Math.max(p.meter, 0.5); p.weapon = null; banner(p.F.name + " IS BACK", 1.2); }
+  else { p.out = true; p.hp = 0; }
+}
+function hurtFighter(p, dmg, from, kind) {
+  if (p.inv > 0 || p.out || p.act === "down" || p.act === "getup") return false;
+  if (p.act === "special" && p.special !== "desp") return false;
+  if (p.grabbing) release(p);
+  p.hp -= dmg; p.flash = 0.12; p.combo = 0; p.meter = Math.min(1, p.meter + 0.06); if (p.meter >= 1 && !p.full) { p.full = true; synth.play("meter"); }
+  const dir = from ? Math.sign(p.x - from.x) || 1 : 1;
+  synth.play("hurt"); G.stop(70); G.shake(0.2); p.pad.rumble(0.7, 0.5, 200);
+  spark(p.x, p.y - p.z - 26, [1, 4], 10);
+  if (p.weapon && rnd() < 0.5) { drop(p.x, p.y, p.weapon, p.uses); p.weapon = null; }
+  if (p.hp <= 0) { p.hp = 0; p.vz = 260; p.vx = dir * 150; p.z = 0.1; setAct(p, "fall"); p.inv = 0; return true; }
+  if (kind === "down") { p.vz = 230; p.vx = dir * 130; p.z = 0.1; setAct(p, "fall"); }
+  else { setAct(p, kind === "gut" ? "gut" : "hurt"); p.vx = dir * 70; }
+  p.inv = 0.45;
+  return true;
+}
+function doSpecial(p) {
+  const F = p.F;
+  if (p.meter >= 1) { p.meter = 0; p.full = false; p.special = F.special; }
+  else if (p.hp > 12) { p.hp -= 8; p.special = "desp"; }
+  else { synth.play("whiff"); return; }
+  setAct(p, "special"); p.hitDone = false; p.inv = 0.6; p.spT = 0; p.spHits = 0;
+  p.move = p.special === "desp" ? { on: 0.1, end: 0.42, dmg: 12 * F.pow, reach: 30, kind: "down", name: "desp", all: 1 }
+    : p.special === "rush" ? { on: 0.05, end: 0.62, dmg: 0, reach: 0, name: "rush" }
+    : p.special === "quake" ? { on: 0.32, end: 0.8, dmg: 0, reach: 0, name: "quake" } : { on: 0.08, end: 0.95, dmg: 0, reach: 0, name: "cyclone" };
+  p.anim = p.special === "quake" ? "throw" : p.special === "cyclone" ? "kick" : p.special === "desp" ? "fin" : "special";
+  synth.play("special"); G.shake(0.2); if (light) light.pulse(p.x, p.y - 24, 90, 0.5);
+  spark(p.x, p.y - 24, [1, 2, 6], 22);
+}
+function specialStep(p, dt) {
+  p.spT += dt;
+  const all = (r, dmg, kind, ydep) => { for (const f of FO) { if (!alive(f)) continue; if (Math.abs(f.x - p.x) < r && Math.abs(f.y - p.y) < (ydep || 18)) { f.guard = false; hitFoe(p, f, dmg, kind, 1, { air: 1, name: "fin" }); } } };
+  if (p.special === "desp" && !p.hitDone && p.t > 0.1) { p.hitDone = true; all(36, p.move.dmg, "down"); }
+  if (p.special === "rush" && p.spHits < 6 && p.t > p.spHits * 0.09) { p.spHits++; for (const f of FO) if (alive(f) && Math.abs(f.y - p.y) < 18 && (f.x - p.x) * p.face > -10 && (f.x - p.x) * p.face < 30) hitFoe(p, f, 7 * p.F.pow, p.spHits === 6 ? "launch" : null, 1, { air: 1, name: "fin" }); spark(p.x + p.face * 14, p.y - 24, [1, 6], 4); }
+  if (p.special === "quake" && !p.hitDone && p.t > 0.32) { p.hitDone = true; synth.play("quake"); G.shake(0.6); G.stop(140); all(130, 34 * p.F.pow, "launch", 40); dust(p.x - 40, p.y); dust(p.x + 40, p.y); if (light) light.pulse(p.x, p.y, 140, 0.6); }
+  if (p.special === "cyclone") { p.z = Math.min(40, p.z + 120 * dt); p.vz = 0; if (p.spHits < 7 && p.t > 0.1 + p.spHits * 0.11) { p.spHits++; p.face = -p.face; all(46, 6 * p.F.pow, p.spHits === 7 ? "launch" : null, 22); spark(p.x, p.y - 30 - p.z, [2, 5], 6); } if (p.t > 0.92) { p.vz = -10; } }
+}
+function pickUp(p) {
+  for (let i = 0; i < ITEMS.length; i++) {
+    const it = ITEMS[i]; if (Math.abs(it.x - p.x) > 18 || Math.abs(it.y - p.y) > 12 || it.z > 4) continue;
+    if (it.kind === "pipe" || it.kind === "bat" || it.kind === "bottle") { if (p.weapon) continue; p.weapon = it.kind; p.uses = it.uses || (it.kind === "bottle" ? 3 : it.kind === "bat" ? 6 : 8); ITEMS.splice(i, 1); synth.play("jab"); return true; }
+  }
+  return false;
+}
+function throwWeapon(p) {
+  SHOTS.push({ kind: p.weapon, x: p.x + p.face * 10, y: p.y, z: 26, vx: p.face * 360, vz: 40, by: p, t: 0, dmg: p.weapon === "bottle" ? 20 : 16, spin: 0, friendly: 1 });
+  p.weapon = null; setAct(p, "throw"); synth.play("whiff");
+}
+function shotStep(s, dt) {
+  s.t += dt; s.x += s.vx * dt; s.vz -= (s.friendly ? 300 : 500) * dt; s.z += s.vz * dt; s.spin += dt * 20;
+  if (s.z <= 0) { if (s.kind === "bottle") { synth.play("glass"); spark(s.x, s.y - 4, [7, 5], 12); return false; } if (s.friendly) { drop(s.x, s.y, s.kind, 2); return false; } return false; }
+  if (s.x < camX - 60 || s.x > camX + VW + 60) return false;
+  if (s.friendly) { for (const f of FO) if (alive(f) && Math.abs(f.x - s.x) < 14 && Math.abs(f.y - s.y) < 12 && Math.abs(f.z + 20 - s.z) < 26) { hitFoe(s.by, f, s.dmg * s.by.F.pow, "down", 1, { air: 1, name: "fin" }); if (s.kind === "bottle") synth.play("glass"); return false; } }
+  else for (const p of P) if (!p.out && Math.abs(p.x - s.x) < 12 && Math.abs(p.y - s.y) < 12 && Math.abs(p.z + 20 - s.z) < 22) { if (hurtFighter(p, s.dmg, s, s.kind === "bottle" ? null : null)) { if (s.kind === "bottle") synth.play("glass"); spark(s.x, s.y - s.z, [7, 5], 8); } return false; }
+  return true;
+}
+function breakProp(pr, p) {
+  pr.hp--; pr.hitT = 0.15; synth.play(pr.kind === "barrel" ? "clank" : "crunch"); spark(pr.x, pr.y - 12, [4, 7, 0], 8);
+  if (pr.hp <= 0) { drop(pr.x, pr.y, pr.item); spark(pr.x, pr.y - 10, [4, 7], 16); addScore(p ? p.k : 0, 100); }
+}
+function drop(x, y, kind, uses) { ITEMS.push({ x, y, z: 10, vz: 140, vx: 0, kind, uses, t: 0 }); }
+function addScore(k, n) { score[k] = (score[k] || 0) + n; }
+function spark(x, y, cols, n) { particles.emit(x, y, n, { c: cols, v: 150, sp: Math.PI * 2, life: 0.35, g: 400, bright: 1 }); }
+function dust(x, y) { particles.emit(x, y - 2, 10, { c: 7, v: 70, a: -Math.PI / 2, sp: 2.4, life: 0.5, g: 60, drag: 2 }); }
+
+// food and the rest, picked up by walking over them
+function itemsStep() {
+  for (let i = ITEMS.length - 1; i >= 0; i--) {
+    const it = ITEMS[i]; if (it.z > 2) continue;
+    for (const p of P) {
+      if (p.out || Math.abs(it.x - p.x) > 16 || Math.abs(it.y - p.y) > 10) continue;
+      if (it.kind === "noodles") { p.hp = Math.min(p.max, p.hp + 40); synth.play("eat"); floatText(p.x, p.y - 50, "+40", 5); }
+      else if (it.kind === "can") { p.hp = Math.min(p.max, p.hp + 15); p.meter = Math.min(1, p.meter + 0.35); if (p.meter >= 1 && !p.full) { p.full = true; synth.play("meter"); } synth.play("eat"); floatText(p.x, p.y - 50, "ENERGY", 4); }
+      else if (it.kind === "chip") { addScore(p.k, 1000); synth.play("chip"); floatText(p.x, p.y - 50, "+1000", 2); }
+      else continue;
+      ITEMS.splice(i, 1); break;
+    }
+  }
+}
+const FLOATS = [];
+function floatText(x, y, s, col) { FLOATS.push({ x, y, s, col, t: 0 }); }
+
+// ---------------------------------------------------------------- the foes' minds
+// Each picks the nearest fighter, keeps a place to one side of them, and only so many attack at once (two on each
+// fighter, the boss apart): the rest wait their turn, circling. An attack is shown coming (a flash, a wind-up).
+function foeStep(f, dt) {
+  f.t += dt; if (f.flash > 0) f.flash -= dt;
+  if (f.dead) { f.deadT += dt; return; }
+  if (f.heldBy) { f.t = 0; return; }
+  // the air: launched, juggled, thrown
+  if (!f.K.flies && (f.z > 0 || f.vz)) {
+    f.vz -= GRAV * dt; f.z += f.vz * dt; f.x += f.vx * dt;
+    if (f.flying > 0) { f.flying -= dt; for (const o of FO) if (o !== f && alive(o) && !o.K.boss && Math.abs(o.x - f.x) < 16 && Math.abs(o.y - f.y) < 12 && o.act !== "fall") hitFoe(f.thrownBy || P[0], o, 12, "down", 1, { air: 1, name: "fin" }); }
+    if (f.z <= 0) {
+      f.z = 0; f.vz = 0; f.vx = 0; f.flying = 0;
+      if (f.act === "fall") { f.act = "down"; f.t = 0; f.juggle = 0; synth.play("thud"); dust(f.x, f.y); if (f.K.boss) G.shake(0.3); }
+    }
+    return;
+  }
+  if (f.act === "fall" && f.z <= 0) { f.act = "down"; f.t = 0; }
+  if (f.act === "down") { if (f.dying || f.hp <= 0) { f.dead = true; f.deadT = 0; return; } if (f.t > (f.K.boss ? 0.9 : 1.1)) { f.act = "getup"; f.t = 0; } return; }
+  if (f.act === "getup") { if (f.t > 0.35) { f.act = "walk"; f.t = 0; f.cd = 0.6 + rnd(); } return; }
+  if (f.act === "hurt" || f.act === "gut") { f.x += f.vx * dt; f.vx *= Math.pow(0.02, dt); if (f.t > (f.K.flies ? 0.25 : 0.42)) { f.act = "walk"; f.t = 0; } return; }
+  // whom: the nearest fighter still in it
+  let T = null, bd = 1e9; for (const p of P) { if (p.out) continue; const d = Math.abs(p.x - f.x) + Math.abs(p.y - f.y) * 2; if (d < bd) { bd = d; T = p; } }
+  if (!T) { f.act = "taunt"; return; }
+  f.target = T; f.cd -= dt;
+  if (f.K.boss) return bossStep(f, T, dt);
+  if (f.K.flies) return droneStep(f, T, dt);
+  // the attack under way: wind-up (shown), the blow, the recovery
+  if (f.act === "atk") {
+    const wind = f.windup || 0.38;
+    if (f.t >= wind && !f.struck) { f.struck = true; foeBlow(f, T); }
+    if (f.t >= wind + 0.3) { f.act = "walk"; f.t = 0; f.cd = 1 + rnd() * 1.4; f.attacking = false; }
+    return;
+  }
+  if (f.act === "charge") { f.x += f.face * f.K.spd * 1.1 * dt; for (const p of P) if (!p.out && Math.abs(p.x - f.x) < 14 && Math.abs(p.y - f.y) < 12) hurtFighter(p, f.K.dmg, f, "down"); if (f.t > 1.3 || f.x < camX - 40 || f.x > camX + VW + 40) { f.act = "walk"; f.t = 0; f.cd = 1.5 + rnd(); f.attacking = false; } return; }
+  const dx = T.x - f.x, dy = T.y - f.y, ax = Math.abs(dx);
+  f.face = dx > 0 ? 1 : -1;
+  const busy = FO.filter(o => o !== f && o.attacking && o.target === T).length, myTurn = busy < 2 && f.cd <= 0;
+  // tossers keep away and throw; runners charge across; the rest close in on their side
+  if (f.K.tosses && ax < 220 && ax > 70 && myTurn && Math.abs(dy) < 30) { f.act = "atk"; f.anim = "toss"; f.t = 0; f.struck = false; f.windup = 0.5; f.attacking = true; f.tele = 0.5; return; }
+  if (f.K.charges && myTurn && ax > 60 && ax < 260 && Math.abs(dy) < 12) { f.act = "charge"; f.t = 0; f.attacking = true; synth.play("whiff"); return; }
+  // the side of its target it keeps to: the one it's on, unless the screen's edge leaves no room there
+  let side = f.x < T.x ? -1 : 1; if (T.x - camX < 70) side = 1; else if (camX + VW - T.x < 70) side = -1;
+  const want = f.K.tosses ? 120 : myTurn ? f.K.reach * 0.8 : 70 + (f.slot > 0 ? 10 : 0), wx = T.x + side * want, wy = T.y + (myTurn ? 0 : f.slot * 16);
+  const mxx = wx - f.x, myy = wy - f.y, sp = f.K.spd * (myTurn ? 1 : 0.6);
+  let moving = false;
+  if (Math.abs(mxx) > 4) { f.x += Math.sign(mxx) * Math.min(Math.abs(mxx), sp * dt); moving = true; }
+  if (Math.abs(myy) > 3) { f.y = clamp(f.y + Math.sign(myy) * Math.min(Math.abs(myy), sp * 0.6 * dt), Y0, Y1); moving = true; }
+  f.face = dx > 0 ? 1 : -1;
+  f.act = moving ? "walk" : "idle";
+  keepIn(f);
+  if (myTurn && ax < f.K.reach + 6 && Math.abs(dy) < 10) {
+    if (f.K.grabs && rnd() < 0.35 && T.act !== "down") { f.act = "atk"; f.anim = "grab"; f.grabbing = 1; } else { f.act = "atk"; f.anim = f.K.swings ? "swing" : f.kind === "slicer" ? "jab" : rnd() < 0.5 ? "jab" : "hook"; f.grabbing = 0; }
+    f.t = 0; f.struck = false; f.windup = f.K.swings ? 0.6 : f.kind === "slicer" ? 0.25 : 0.38; f.attacking = true; f.tele = f.windup;
+  }
+}
+// once a foe has walked onto the screen it stays on it (nobody fights off the edge)
+function keepIn(f) { if (f.x > camX + 12 && f.x < camX + VW - 12) f.inside = true; if (f.inside) f.x = clamp(f.x, camX + 12, camX + VW - 12); }
+function foeBlow(f, T) {
+  if (f.anim === "toss") { SHOTS.push({ kind: "bottle", x: f.x + f.face * 8, y: f.y, z: 34, vx: f.face * Math.min(220, Math.abs(T.x - f.x) * 1.6), vz: 160, t: 0, dmg: f.K.dmg, spin: 0, friendly: 0 }); synth.play("whiff"); return; }
+  const dx = (T.x - f.x) * f.face, dy = Math.abs(T.y - f.y);
+  if (dx < -4 || dx > f.K.reach + 8 || dy > 12 || T.z > 20) { synth.play("whiff"); return; }
+  if (f.grabbing) { hurtFighter(T, f.K.dmg * 1.4, f, "down"); return; }
+  if (f.K.swings) { hurtFighter(T, f.K.dmg, f, "down"); synth.play("crunch"); G.shake(0.3); dust(f.x + f.face * 30, f.y); return; }
+  hurtFighter(T, f.K.dmg, f, f.K.reach > 34 ? "down" : null);
+}
+function droneStep(f, T, dt) {
+  f.t2 = (f.t2 || 0) + dt;
+  const wx = T.x + Math.sin(f.t2 * 1.3 + f.slot) * 50, wy = T.y + Math.cos(f.t2 * 0.9) * 10;
+  f.x += clamp(wx - f.x, -f.K.spd * dt, f.K.spd * dt); f.y = clamp(f.y + clamp(wy - f.y, -40 * dt, 40 * dt), Y0, Y1); keepIn(f);
+  f.z += (f.hover - f.z) * Math.min(1, dt * 3); f.face = T.x > f.x ? 1 : -1;
+  if (f.cd <= 0 && Math.abs(T.x - f.x) < 60 && Math.abs(T.y - f.y) < 14) { f.cd = 2 + rnd(); f.zap = 0.35; f.tele = 0.35; }
+  if (f.zap > 0) { f.zap -= dt; if (f.zap <= 0) { synth.play("zap"); if (light) light.pulse(f.x, f.y - 10, 60, 0.25); for (const p of P) if (!p.out && Math.abs(p.x - f.x) < 26 && Math.abs(p.y - f.y) < 14) hurtFighter(p, f.K.dmg, f, null); spark(f.x, f.y - 6, [5, 2], 10); } }
+}
+// the bosses: their moves in turn, faster and meaner below half
+function bossStep(f, T, dt) {
+  const K = f.K, dx = T.x - f.x, ax = Math.abs(dx), rage = f.hp < f.max * 0.5 ? 1 : 0;
+  if (rage && !f.raged) { f.raged = true; banner(K.name + " IS ANGRY", 1.4); synth.play("roar"); G.shake(0.3); if (K.calls) { spawnAt(K.calls); spawnAt(K.calls); } }
+  if (f.act === "atk") {
+    const wind = f.windup;
+    if (f.t >= wind && !f.struck) { f.struck = true; bossBlow(f, T); }
+    if (f.anim === "charge" && f.t >= wind && f.t < wind + 0.9) { f.x += f.face * 260 * dt; for (const p of P) if (!p.out && Math.abs(p.x - f.x) < 22 && Math.abs(p.y - f.y) < 16) hurtFighter(p, K.dmg, f, "down"); }
+    if (f.t >= wind + (f.anim === "charge" ? 0.95 : 0.45)) { f.act = "walk"; f.t = 0; f.cd = (rage ? 0.6 : 1.1) + rnd() * 0.6; }
+    return;
+  }
+  f.face = dx > 0 ? 1 : -1;
+  if (f.cd <= 0) {
+    const r = rnd(), opts = [];
+    if (ax < K.reach + 10) opts.push(K.swings ? "swing" : "hook", "hook");
+    if (K.charges && ax > 80) opts.push("charge");
+    if (K.knives && ax > 60) opts.push("toss");
+    if (K.cane) opts.push(ax < 70 ? "swing" : "zap");
+    if (K.swings && ax < 90) opts.push("quake");
+    if (K.knives && ax < 90) opts.push("dash");
+    if (opts.length) {
+      const a = opts[(r * opts.length) | 0];
+      f.act = "atk"; f.anim = a === "quake" ? "swing" : a === "dash" ? "special" : a === "zap" ? "toss" : a; f.move = a; f.t = 0; f.struck = false;
+      f.windup = a === "charge" ? 0.5 : a === "quake" ? 0.75 : a === "dash" ? 0.3 : a === "zap" ? 0.6 : 0.42; if (rage) f.windup *= 0.75; f.tele = f.windup;
+      if (a === "charge" || a === "quake") synth.play("roar");
       return;
     }
-    if (player.action === "special" || player.action === "hurt") return;
-    player.comboStep = (player.comboStep % 3) + 1;
-    player.action = player.comboStep === 3 ? "kick" : (player.comboStep === 2 ? "punch2" : "punch1");
-    player.actionTimer = 0.22;
-    if (player.comboStep === 3) sndKick(); else sndPunch();
-    hitCheck(player.comboStep === 3 ? 18 : 10, player.comboStep === 3, false);
   }
-
-  function doJump() {
-    if (player.z !== 0 || player.action === "hurt" || player.action === "special") return;
-    player.vz = 240;
-    player.action = "jump";
-    sndWhoosh();
+  // close in (Razor and Vox circle and step back; the big ones plod)
+  let side = f.x < T.x ? -1 : 1; if (T.x - camX < 80) side = 1; else if (camX + VW - T.x < 80) side = -1;
+  const want = K.knives || K.cane ? (f.cd > 0.5 ? 90 : K.reach * 0.8) : K.reach * 0.8, wx = T.x + side * want, wy = T.y;
+  const sp = K.spd * (rage ? 1.25 : 1);
+  if (Math.abs(wx - f.x) > 4) f.x += Math.sign(wx - f.x) * Math.min(Math.abs(wx - f.x), sp * dt);
+  if (Math.abs(wy - f.y) > 3) f.y = clamp(f.y + Math.sign(wy - f.y) * Math.min(Math.abs(wy - f.y), sp * 0.6 * dt), Y0, Y1);
+  f.act = Math.abs(wx - f.x) > 4 || Math.abs(wy - f.y) > 3 ? "walk" : "idle";
+  keepIn(f);
+}
+function bossBlow(f, T) {
+  const K = f.K, m = f.move;
+  if (m === "toss") { for (let k = -1; k <= 1; k++) SHOTS.push({ kind: "knife", x: f.x + f.face * 12, y: clamp(f.y + k * 14, Y0, Y1), z: 30, vx: f.face * 300, vz: 20, t: 0, dmg: K.dmg, spin: 0, friendly: 0 }); synth.play("whiff"); return; }
+  if (m === "zap") {                               // Vox: lightning where each fighter stands, shown a moment before
+    for (const p of P) if (!p.out) BOLTS.push({ x: p.x, y: p.y, t: 0 });
+    synth.play("zap"); return;
   }
-
-  function doSpecial() {
-    if (player.hp <= 6 || player.action === "special" || player.action === "hurt") return;
-    player.hp -= 6;
-    player.action = "special";
-    player.actionTimer = 0.45;
-    player.invuln = 0.5;
-    sndSpecial();
-    screenShake = 6;
-    hitPause = 3;
-    hitCheck(30, true, true);
+  if (m === "quake") { synth.play("quake"); G.shake(0.5); dust(f.x - 30, f.y); dust(f.x + 30, f.y); for (const p of P) if (!p.out && Math.abs(p.x - f.x) < 120 && Math.abs(p.y - f.y) < 30 && p.z < 4) hurtFighter(p, K.dmg * 0.8, f, "down"); return; }
+  if (m === "dash") { f.x += f.face * 80; for (const p of P) if (!p.out && Math.abs(p.x - f.x) < 50 && Math.abs(p.y - f.y) < 14) hurtFighter(p, K.dmg, f, null); spark(f.x, f.y - 30, [3, 7], 10); synth.play("whiff"); return; }
+  if (m === "charge") return;
+  const dx = (T.x - f.x) * f.face;
+  if (dx > -6 && dx < K.reach + 14 && Math.abs(T.y - f.y) < 16) hurtFighter(T, K.dmg, f, K.swings || m === "swing" ? "down" : null);
+  else synth.play("whiff");
+}
+const BOLTS = [];
+function boltsStep(dt) {
+  for (let i = BOLTS.length - 1; i >= 0; i--) {
+    const b = BOLTS[i]; b.t += dt;
+    if (b.t > 0.7 && !b.hit) { b.hit = true; G.shake(0.25); if (light) light.pulse(b.x, b.y - 40, 90, 0.3); synth.play("zap"); for (const p of P) if (!p.out && Math.abs(p.x - b.x) < 18 && Math.abs(p.y - b.y) < 12) hurtFighter(p, 14, b, "down"); spark(b.x, b.y - 6, [5, 3], 14); }
+    if (b.t > 1) BOLTS.splice(i, 1);
   }
+}
+function spawnAt(kind) { const left = rnd() < 0.5; FO.push(foeOf(kind, left ? camX - 30 : camX + VW + 30, Y0 + rnd() * (Y1 - Y0))); }
 
-  function hitCheck(dmg, isKnockback, isAoE) {
-    const reach = 38;
-    for (const en of enemies) {
-      if (en.hp <= 0) continue;
-      const inFront = isAoE || (player.facing === 1 ? en.x >= player.x - 12 : en.x <= player.x + 12);
-      const distX = Math.abs(en.x - player.x);
-      const distY = Math.abs(en.y - player.y);
+// ---------------------------------------------------------------- the stage's end, the game's end
+function stageClear() {
+  setMode("clear"); synth.play("clear"); banner("STAGE CLEAR", 3);
+  SAVE.reached = Math.max(SAVE.reached, Math.min(STAGES.length - 1, stI + 1));
+  const total = score[0] + (score[1] || 0); SAVE.best = Math.max(SAVE.best, total); SAVE.combo = Math.max(SAVE.combo, shown.combo);
+  if (stI === STAGES.length - 1) for (const p of P) SAVE.clears[p.F.id] = (SAVE.clears[p.F.id] || 0) + 1;
+  store.save();
+  setTimeout(() => {
+    if (mode !== "clear") return;
+    if (stI + 1 < STAGES.length) G.fade(() => start(stI + 1, true), 2);
+    else { setMode("ending"); synth.song({ seed: 99, root: 48, tempo: 100, calm: true }); setTimeout(() => { if (mode === "ending" && !DEMO) menu.show("ending"); else if (DEMO) G.fade(() => { score = [0, 0]; P = []; start(0); }, 2); }, 4000); }
+  }, DEMO ? 1500 : 3200);
+}
+function gameOver() {
+  if (mode !== "play") return;
+  setMode("over"); synth.play("ko");
+  SAVE.best = Math.max(SAVE.best, score[0] + (score[1] || 0)); SAVE.combo = Math.max(SAVE.combo, shown.combo); store.save();
+  if (DEMO) setTimeout(() => G.fade(() => { score = [0, 0]; P = []; start(0); }, 2), 2000);
+  else setTimeout(() => { if (mode === "over") menu.show("over"); }, 1600);
+}
 
-      if (inFront && distX < reach && distY < 20) {
-        en.hp -= dmg;
-        en.flashWhite = 0.12;
-        en.action = "hurt";
-        en.animTimer = 0.25;
-        screenShake = isKnockback ? 5 : 2;
-        hitPause = 2;
+// ---------------------------------------------------------------- the demo: a fighter who plays by itself
+const bot = { x: 0, y: 0, want: {}, take(b) { if (this.want[b]) { this.want[b] = 0; return true; } return false; } };
+function botThink(dt) {
+  const p = P[0]; if (!p || p.out) return;
+  p.hp = Math.max(p.hp, 40); p.lives = 3;
+  let T = null, bd = 1e9; for (const f of FO) { if (!alive(f)) continue; const d = Math.abs(f.x - p.x) + Math.abs(f.y - p.y) * 2; if (d < bd) { bd = d; T = f; } }
+  bot.x = 0; bot.y = 0;
+  if (!T) { bot.x = lockAt >= 0 ? 0 : 1; return; }
+  const dx = T.x - p.x, dy = T.y - p.y;
+  if (Math.abs(dy) > 6) bot.y = Math.sign(dy);
+  if (Math.abs(dx) > 26) bot.x = Math.sign(dx); else if (Math.abs(dx) < 12) bot.x = -Math.sign(dx);
+  else if ((p.act === "idle" || p.act === "walk" || p.act === "attack") && Math.abs(dy) < 8 && rnd() < dt * 9) { if (p.face !== Math.sign(dx)) bot.x = Math.sign(dx); else bot.want.x = 1; }
+  if (rnd() < dt * 0.4) bot.want.a = 1;
+  if (p.meter >= 1 && rnd() < dt * 0.5) bot.want.y = 1;
+}
 
-        addSparks(en.x, en.y - en.z - 16, isKnockback ? "#ff2a6d" : "#ffea00", 10);
-        addFloatingText(en.x, en.y - en.z - 26, isKnockback ? "CRIT " + dmg : "" + dmg, isKnockback ? "#ff2a6d" : "#ffea00");
-
-        if (isKnockback) {
-          en.vx = player.facing * 180;
-          en.vz = 130;
-        }
-
-        combo++;
-        comboTimer = 2.0;
-        score += dmg * 10;
-
-        if (en.hp <= 0) {
-          en.hp = 0;
-          sndKo();
-          screenShake = 8;
-          addSparks(en.x, en.y - 15, "#00f5d4", 18);
-          score += en.isBoss ? 2500 : 300;
-          if (en.isBoss) {
-            state = "victory";
-            bestScore = Math.max(bestScore, score);
-            try { localStorage.setItem(SAVE_KEY, bestScore); } catch (e) {}
-          }
-        }
-      }
-    }
-
-    // Barrels
-    for (const b of barrels) {
-      if (!b.broken && Math.abs(player.x - b.x) < 32 && Math.abs(player.y - b.y) < 18) {
-        b.broken = true;
-        sndKick();
-        screenShake = 3;
-        addSparks(b.x, b.y - 12, "#ff6c11", 14);
-        items.push({ x: b.x, y: b.y, kind: "food" });
-      }
-    }
+// ---------------------------------------------------------------- drawing: the city, the fight in depth, the light
+function onTier(G2, t) { if (light) light.size(t.light); particles.k = t.parts; particles.cap = Math.min(particles.max, t.cap); }
+function draw(g) {
+  if (mode === "title" || mode === "select" || mode === "boot") return drawTitle(g);
+  const T = G.tier, cx = Math.round(camX) + G.ox, cy = G.oy;
+  g.drawImage(BG.sky, 0, 0);
+  BG.layers.forEach((L, i) => { if (i < BG.layers.length - 1 && i >= T.layers - 1 && BG.layers.length > T.layers) return; L.draw(g, cx, 0, VW); });
+  if (BG.windows) {                                // the train: the city rushing past outside, seen through the windows
+    g.save(); g.beginPath(); for (let x = -((cx) % 160) - 160; x < VW + 160; x += 160) { g.rect(x + 8, 40, 64, 70); g.rect(x + 88, 40, 64, 70); } g.clip();
+    g.drawImage(BG.sky, 0, 0); BG.city.draw(g, stageT * 900, 0, VW); if ((stageT % 7) < 1.2) { g.fillStyle = "#04030a"; g.fillRect(0, 34, VW, 80); g.fillStyle = "#ffd27a"; for (let k = 0; k < 3; k++) g.fillRect(((stageT * 2400 + k * 190) % 640) - 80, 70, 30, 3); }
+    g.restore();
   }
-
-  function addSparks(x, y, col, count) {
-    for (let i = 0; i < count; i++) {
-      const a = Math.random() * Math.PI * 2, sp = 40 + Math.random() * 90;
-      particles.push({
-        x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 20,
-        life: 0.28, maxLife: 0.28, col
-      });
-    }
+  BG.ground.draw(g, cx, -cy, VW);
+  for (const lx of BG.lamps) for (let x = Math.floor((cx - 100) / 640) * 640 + lx; x < cx + VW + 100; x += 640) lamp(g, Math.round(x - cx), st);
+  // the things on the ground, then the people, front to back by depth
+  const list = [];
+  for (const pr of PROPS) if (pr.hp > 0 && pr.x > cx - 40 && pr.x < cx + VW + 40) list.push({ y: pr.y, k: 0, o: pr });
+  for (const it of ITEMS) if (it.x > cx - 30 && it.x < cx + VW + 30) list.push({ y: it.y - 0.5, k: 1, o: it });
+  for (const f of FO) if (f.x > cx - 80 && f.x < cx + VW + 80 && !(f.dead && (f.deadT * 8 | 0) & 1)) list.push({ y: f.y, k: 2, o: f });
+  for (const p of P) if (!p.out && !(p.inv > 0 && p.act !== "fall" && ((G.frame >> 2) & 1) && p.inv < 2)) list.push({ y: p.y, k: 3, o: p });
+  for (const s of SHOTS) list.push({ y: s.y, k: 4, o: s });
+  list.sort((a, b) => a.y - b.y);
+  for (const e of list) { const o = e.o, sx = Math.round(o.x - cx), big = o.K && o.K.boss || o.F && o.F.id === "brick"; g.drawImage(big ? ART.bigShadow : ART.shadow, sx - (big ? 28 : 16), Math.round(o.y - cy) - (big ? 6 : 4)); }
+  for (const b of BOLTS) { const sx = Math.round(b.x - cx), sy = Math.round(b.y - cy); g.fillStyle = (G.frame >> 2) & 1 ? "#ff2a6d" : "#ffea00"; g.globalAlpha = Math.min(1, b.t * 2); g.fillRect(sx - 16, sy - 2, 32, 1); g.fillRect(sx - 16, sy + 1, 32, 1); g.fillRect(sx - 18, sy - 1, 1, 2); g.fillRect(sx + 17, sy - 1, 1, 2); g.globalAlpha = 1;
+    if (b.t > 0.7 && b.t < 0.85) { g.fillStyle = "#f0f8ff"; for (let y = 0; y < sy; y += 6) g.fillRect(sx - 1 + ((y * 7) % 5) - 2, y, 3, 6); } }
+  for (const e of list) drawThing(g, e.k, e.o, cx, cy);
+  particles.draw(g, cx, cy, false, VW, VH);
+  // the dark of the night, with holes for the lamps, the neon, each fighter, every blow
+  if (light && st.dark) {
+    light.begin(st.dark, true);
+    for (const lx of BG.lamps) { const per = BG.layers.length ? 1 : 1, w = 640; for (let x = Math.floor((cx - 100) / w) * w + lx; x < cx + VW + 100; x += w) light.cut(x - cx, 150, 110, 1); }
+    if (BG.signW) for (const sg of BG.signs) for (let x = Math.floor((cx - 80) / BG.signW) * BG.signW + sg[0]; x < cx + VW + 80; x += BG.signW) light.cut(x - cx, sg[1], 46, 0.6);
+    for (const p of P) if (!p.out) light.cut(p.x - cx, p.y - cy - 24, 70, 0.8);
+    for (const f of FO) if (alive(f)) light.cut(f.x - cx, f.y - f.z - cy - (f.K.boss ? 34 : 22), f.K.boss ? 80 : 46, 0.6);
+    light.pulses(cx, cy);
+    light.end(g);
+    light.glowBegin(g);
+    if (!GLOWS.pink) { GLOWS.pink = L2.glowOf(26, [255, 42, 109], 0.5); GLOWS.cyan = L2.glowOf(26, [5, 217, 232], 0.5); GLOWS.lamp = L2.glowOf(30, [255, 210, 122], 0.45); GLOWS.fire = L2.glowOf(22, [255, 108, 17], 0.6); }
+    for (const lx of BG.lamps) for (let x = Math.floor((cx - 100) / 640) * 640 + lx; x < cx + VW + 100; x += 640) light.glow(g, x - cx, 96, GLOWS.lamp, 0.9);
+    if (BG.signW) for (const sg of BG.signs) for (let x = Math.floor((cx - 80) / BG.signW) * BG.signW + sg[0]; x < cx + VW + 80; x += BG.signW) light.glow(g, x - cx, sg[1], GLOWS.pink, 0.35);
+    for (const f of FO) if (f.K.flies && alive(f)) light.glow(g, f.x - cx, f.y - f.z - cy - 8, GLOWS.pink, 0.8);
+    for (const p of P) if (!p.out && p.full) light.glow(g, p.x - cx, p.y - cy - 24, p.F.id === "juno" ? GLOWS.cyan : GLOWS.pink, 0.4 + 0.2 * Math.sin(G.time * 8));
+    light.pulseGlows(g, cx, cy);
+    light.glowEnd(g);
   }
-
-  function addFloatingText(x, y, text, col) {
-    floatingTexts.push({ x, y, text, col, life: 0.6, maxLife: 0.6 });
+  particles.draw(g, cx, cy, true, VW, VH);
+  // in front of the camera: lamp posts and railings passing
+  if (T.fore && BG.foreEvery) {                     // (a rail and its posts, close to the camera, along the bottom edge)
+    const k = 1.3, off = cx * k; px(g, 0, VH - 9, VW, 2, "#0a0810"); px(g, 0, VH - 8, VW, 1, "#2a2436");
+    for (let x = Math.floor(off / BG.foreEvery) * BG.foreEvery; x < off + VW + BG.foreEvery; x += BG.foreEvery) { const sx = Math.round(x - off); if (sx < -10 || sx > VW + 10) continue; px(g, sx, VH - 16, 6, 16, "#0a0810"); px(g, sx + 1, VH - 16, 2, 16, "#2a2436"); px(g, sx - 1, VH - 18, 8, 3, "#14101c"); }
   }
-
-  // ------------------------------------------------ Input Handling
-  const keys = {};
-  addEventListener("keydown", e => {
-    wakeAudio();
-    if (SofaPad.echo(e)) return;
-    keys[e.key] = true;
-    if (state === "title" || state === "gameover" || state === "victory") {
-      if (e.key === "Enter" || e.key === " " || e.key === "z" || e.key === "x") {
-        spawnWorld(); state = "playing"; return;
-      }
-    }
-    if (state === "playing") {
-      if (e.key === "z" || e.key === "j" || e.key === "a") doPunch();
-      if (e.key === "x" || e.key === "k" || e.key === "s") doJump();
-      if (e.key === "c" || e.key === "l" || e.key === "d") doSpecial();
-    }
-    if (e.key.startsWith("Arrow")) e.preventDefault();
-  });
-  addEventListener("keyup", e => { keys[e.key] = false; });
-
-  SofaPad.on((btn, act) => {
-    wakeAudio();
-    if (act !== "press") return;
-    if (state === "title" || state === "gameover" || state === "victory") {
-      if (btn === "a" || btn === "start" || btn === "b" || btn === "x") {
-        spawnWorld(); state = "playing"; return;
-      }
-    }
-    if (state === "playing") {                // (X punches, A jumps, Y or RB the special: as the hints say)
-      if (btn === "x" || btn === "b") doPunch();
-      if (btn === "a") doJump();
-      if (btn === "y" || btn === "rb") doSpecial();
-    }
-  });
-
-  // a button's name as the controller in hand shows it (or the key, with no controller)
-  function BL(b) {
-    if (SofaPad.connected()) return SofaPad.kind() === "playstation" ? ({ a: "\u2715", b: "\u25cb", x: "\u25a1", y: "\u25b3" })[b] : b.toUpperCase();
-    return ({ a: "X", b: "Z", x: "Z", y: "C" })[b];
+  if (st.water && T.reflect) L2.reflect(g, 0, 254, VW, 16, 0.25, G.time);
+  if (st.rain) rain(g, T);
+  for (const fl of FLOATS) font.center(g, fl.s, Math.round(fl.x - cx), Math.round(fl.y - cy - fl.t * 24), fl.col, 1);
+}
+const GLOWS = {};
+function lamp(g, sx, st) {                          // a street lamp at the pavement's back edge, a ceiling light on the train, lanterns
+  if (sx < -20 || sx > VW + 20) return;
+  if (st.train) { px(g, sx - 10, 34, 20, 3, "#4a4858"); px(g, sx - 8, 37, 16, 2, "#fff4d0"); return; }
+  if (st.id === "market") { px(g, sx, 70, 1, 18, "#3a2030"); px(g, sx - 4, 88, 9, 11, "#ff3a3a"); px(g, sx - 2, 90, 5, 7, "#ffd27a"); return; }
+  const h = st.water ? 40 : 86; px(g, sx - 1, 176 - h - 10, 3, h + 12, "#141020"); px(g, sx - 1, 176 - h - 10, 14, 3, "#141020"); px(g, sx + 8, 176 - h - 8, 8, 3, "#fff4d0"); px(g, sx - 3, 174, 7, 3, "#0e0a16");
+}
+function rain(g, T) {                               // streaks: each one's place from the time alone
+  const n = T.name === "light" ? 50 : T.name === "full" ? 90 : 140, t = G.time;
+  g.fillStyle = "rgba(170,200,235,0.42)";
+  for (let i = 0; i < n; i++) { const x = ((i * 97.3 + t * 70) % (VW + 40)) - 20, y = ((i * 53.7 + t * (380 + (i % 5) * 30)) % (VH + 30)) - 15; g.fillRect(x | 0, y | 0, 1, 4); g.fillRect((x | 0) - 1, (y | 0) + 4, 1, 3); }
+}
+let bareRiot = null;
+function drawThing(g, kind, o, cx, cy) {
+  const sx = Math.round(o.x - cx), sy = Math.round(o.y - (o.z || 0) - cy);
+  if (kind === 0) { const a = ART[o.kind]; g.drawImage(a, sx - (a.width >> 1) + (o.hitT > 0 ? ((G.frame & 1) ? 1 : -1) : 0), sy - a.height); return; }
+  if (kind === 1) { const a = ART[o.kind] || ART.chip, bob = o.z > 0 ? 0 : Math.round(Math.sin(o.t * 5) * 1); g.drawImage(a, sx - (a.width >> 1), sy - a.height - bob - 1); return; }
+  if (kind === 4) { const r = o.kind === "knife" ? ART.knifeT : ART[o.kind + "R"] ? ART[o.kind + "R"][((o.spin | 0) % 16 + 16) % 16] : ART.bottle; g.drawImage(r, sx - (r.width >> 1), sy - (r.height >> 1) - 20); return; }
+  let s = o.sh;
+  if (kind === 2 && o.kind === "riot" && !o.guard) s = bareRiot || (bareRiot = sheetOf("riot-bare", Object.assign({}, FOES.riot.spec, { shield: null }), null, FOE_MOVES.concat(["block"])));
+  if (kind === 2 && o.K.flies) { L2.put(g, s, (G.frame >> 2) % 3, sx, sy, o.face, o.flash > 0 || (o.tele > 0 && o.zap > 0 && (G.frame >> 2) & 1)); return; }
+  const a = animOf(o, kind === 3), m = s.at[a.m] != null ? a.m : s.at.jab != null && (a.m === "swing" || a.m === "toss" || a.m === "special" || a.m === "grab") ? "jab" : "idle", fr = s.at[m] + Math.min(s.n[m] - 1, a.f), flash = o.flash > 0 || (kind === 2 && o.act === "atk" && o.t < (o.windup || 0.4) && ((G.frame >> 2) & 1) && o.t > (o.windup || 0.4) - 0.3);
+  L2.put(g, s, fr, sx, sy, o.face, flash);
+  if (kind === 3 && o.weapon) {                     // what they hold, at the hand
+    const h = s.hands[fr], ang = o.face > 0 ? h[2] : Math.PI - h[2], hx = sx + (o.face > 0 ? h[0] : -h[0]), hy = sy + h[1], list = ART[o.weapon + "R"], i = ((Math.round(ang / TAU * 16) % 16) + 16) % 16, im = list[i];
+    g.drawImage(im, hx - (im.width >> 1), hy - (im.height >> 1));
   }
+}
+// which frame: the move (or what it looks like) and how far through
+function animOf(o, fighter) {
+  const a = o.act, t = o.t;
+  if (a === "idle") return o.guard ? { m: "block", f: 0 } : { m: "idle", f: ((G.time * 2.4) | 0) & 1 };
+  if (a === "walk") return { m: "walk", f: ((G.time * (fighter ? 8 : 6.5)) | 0) & 3 };
+  if (a === "run") return { m: "run", f: ((G.time * 10) | 0) & 1 };
+  if (a === "attack" || a === "swing" || a === "atk") { const m = a === "swing" ? "swing" : o.anim || "jab", on = fighter ? o.move.on : (o.windup || 0.4); return { m: m === "special" ? "special" : m, f: t < on ? 0 : 1 }; }
+  if (a === "special") return { m: o.anim || "special", f: t < 0.1 ? 0 : 1 };
+  if (a === "jkick") return { m: "jkick", f: 0 };
+  if (a === "jump") return { m: "jump", f: 0 };
+  if (a === "hurt") return { m: "hurt", f: 0 };
+  if (a === "gut") return { m: "gut", f: 0 };
+  if (a === "fall") return { m: "fall", f: 0 };
+  if (a === "down") return { m: "down", f: 0 };
+  if (a === "getup") return { m: "getup", f: 0 };
+  if (a === "grab") return { m: "grab", f: 0 };
+  if (a === "knee") return { m: "knee", f: 0 };
+  if (a === "throw") return { m: "throw", f: t < 0.15 ? 0 : 1 };
+  if (a === "charge") return { m: "charge", f: ((G.time * 10) | 0) & 1 };
+  if (a === "taunt") return { m: "taunt", f: 0 };
+  return { m: "idle", f: 0 };
+}
 
-  // ------------------------------------------------ Main Loop
-  let lastTime = performance.now();
-
-  function loop(now) {
-    requestAnimationFrame(loop);
-    const dt = Math.min(0.05, (now - lastTime) / 1000);
-    lastTime = now;
-
-    if (hitPause > 0) {
-      hitPause--;
-      draw();
-      return;
-    }
-
-    update(dt);
-    draw();
+// ---------------------------------------------------------------- the numbers on screen (over the world, never zoomed)
+const LB = { s0: new L2.Label(90), s1: new L2.Label(90), c0: new L2.Label(80, 18, 2), c1: new L2.Label(80, 18, 2) };
+function hud(g) {
+  if (mode !== "play" && mode !== "intro" && mode !== "clear" && mode !== "over" && mode !== "pause") return;
+  for (let k = 0; k < 2; k++) {
+    const p = P[k], x = k ? VW - 152 : 8;
+    if (!p) { if (k === 1 && !DEMO && (G.frame >> 5) & 1) font.shadow(g, "2P: PRESS START", VW - 96, 10, 1); continue; }
+    font.shadow(g, p.F.name, x, 6, p.out ? 1 : 0);
+    for (let l = 0; l < p.lives; l++) font.text(g, "♥", x + 36 + l * 7, 6, 3);
+    px(g, x, 16, 104, 6, "#14101c"); px(g, x + 1, 17, Math.round(102 * clamp(p.hp / p.max, 0, 1)), 4, p.hp / p.max < 0.3 ? "#ff2a6d" : "#9bff8a");
+    px(g, x, 23, 104, 3, "#14101c"); px(g, x + 1, 24, Math.round(102 * p.meter), 1, p.full ? ((G.frame >> 3) & 1 ? "#ffea00" : "#ff6c11") : "#05d9e8");
+    LB["s" + k].set(String(score[k] || 0).padStart(7, "0"), 2); LB["s" + k].draw(g, x + 108, 16);
+    if (p.combo > 2 && p.comboT > 0) { LB["c" + k].set(p.combo + " HITS", p.combo >= 10 ? 2 : 6); LB["c" + k].draw(g, x, 30); }
   }
-
-  function update(dt) {
-    if (screenShake > 0) screenShake = Math.max(0, screenShake - dt * 25);
-    if (comboTimer > 0) {
-      comboTimer -= dt;
-      if (comboTimer <= 0) combo = 0;
-    }
-
-    // Floating text update
-    for (let i = floatingTexts.length - 1; i >= 0; i--) {
-      const ft = floatingTexts[i];
-      ft.y -= 25 * dt;
-      ft.life -= dt;
-      if (ft.life <= 0) floatingTexts.splice(i, 1);
-    }
-
-    // Particles update
-    for (let i = particles.length - 1; i >= 0; i--) {
-      const p = particles[i];
-      p.x += p.vx * dt; p.y += p.vy * dt;
-      p.vy += 320 * dt;
-      p.life -= dt;
-      if (p.life <= 0) particles.splice(i, 1);
-    }
-
-    if (state !== "playing") return;
-
-    // Controls
-    const stick = SofaPad.stick();
-    let moveX = stick.x || 0, moveY = stick.y || 0;
-    if (SofaPad.held("left") || keys.ArrowLeft) moveX = -1;
-    if (SofaPad.held("right") || keys.ArrowRight) moveX = 1;
-    if (SofaPad.held("up") || keys.ArrowUp) moveY = -1;
-    if (SofaPad.held("down") || keys.ArrowDown) moveY = 1;
-
-    // Player action timer
-    if (player.actionTimer > 0) {
-      player.actionTimer -= dt;
-      if (player.actionTimer <= 0) {
-        player.action = player.z > 0 ? "jump" : "idle";
-      }
-    }
-    if (player.invuln > 0) player.invuln -= dt;
-    if (player.flashWhite > 0) player.flashWhite -= dt;
-
-    // Z physics (Jump)
-    if (player.z > 0 || player.vz !== 0) {
-      player.vz -= 720 * dt;
-      player.z += player.vz * dt;
-      if (player.z <= 0) {
-        player.z = 0; player.vz = 0;
-        if (player.action === "jump" || player.action === "kick") player.action = "idle";
-      }
-    }
-
-    // Movement (only when not in attack recovery)
-    const canMove = player.action === "idle" || player.action === "walk" || player.action === "jump";
-    if (canMove && (moveX !== 0 || moveY !== 0)) {
-      const sp = (player.z > 0 ? 110 : 95);
-      player.x += moveX * sp * dt;
-      player.y += moveY * (sp * 0.7) * dt;
-      if (moveX !== 0) player.facing = moveX > 0 ? 1 : -1;
-
-      if (player.z === 0 && player.action === "idle") player.action = "walk";
-
-      // Walk cycle animation
-      player.animTimer += dt * 10;
-      if (player.animTimer >= 1) {
-        player.animTimer = 0;
-        player.animFrame = (player.animFrame + 1) % 4;
-      }
-    } else if (player.action === "walk") {
-      player.action = "idle";
-      player.animFrame = 0;
-    }
-
-    // Boundaries
-    player.x = Math.max(cameraX + 16, Math.min(cameraX + VW - 20, player.x));
-    player.y = Math.max(FLOOR_MIN_Y, Math.min(FLOOR_MAX_Y, player.y));
-
-    // Camera follow player forward
-    const camTarget = player.x - VW * 0.35;
-    if (camTarget > cameraX) cameraX = Math.min(STAGE_W - VW, camTarget);
-
-    // Enemies update
-    for (const en of enemies) {
-      if (en.hp <= 0) continue;
-      if (en.flashWhite > 0) en.flashWhite -= dt;
-
-      // Z physics
-      if (en.z > 0 || en.vz !== 0) {
-        en.vz -= 700 * dt;
-        en.z += en.vz * dt;
-        if (en.z <= 0) { en.z = 0; en.vz = 0; if (en.action === "hurt") en.action = "walk"; }
-      }
-      en.vx *= Math.pow(0.85, dt * 60);
-      en.x += en.vx * dt;
-
-      // AI track player if in camera view
-      if (en.x > cameraX - 40 && en.x < cameraX + VW + 40 && en.action !== "hurt") {
-        const dx = player.x - en.x, dy = player.y - en.y;
-        const distX = Math.abs(dx), distY = Math.abs(dy);
-        en.facing = dx > 0 ? 1 : -1;
-
-        const speed = en.isBoss ? 42 : 55;
-        if (distX > 30) en.x += Math.sign(dx) * speed * dt;
-        if (distY > 8) en.y += Math.sign(dy) * (speed * 0.6) * dt;
-
-        en.animTimer = (en.animTimer || 0) + dt * 6;
-        if (en.animTimer >= 1) { en.animTimer = 0; en.animFrame = (en.animFrame + 1) % 2; }
-
-        // Enemy Attack
-        en.atkTimer += dt;
-        const atkCooldown = en.isBoss ? 1.6 : 2.2;
-        if (en.atkTimer > atkCooldown && distX < 34 && distY < 14) {
-          en.atkTimer = 0;
-          en.action = "punch";
-          setTimeout(() => { if (en.hp > 0 && en.action === "punch") en.action = "walk"; }, 300);
-
-          if (player.invuln <= 0) {
-            const dmg = en.isBoss ? 22 : 12;
-            player.hp -= dmg;
-            player.invuln = 0.55;
-            player.flashWhite = 0.15;
-            player.action = "hurt";
-            player.actionTimer = 0.28;
-            screenShake = en.isBoss ? 9 : 5;
-            hitPause = 3;
-            if (en.isBoss) sndBossRoar(); else sndKick();
-
-            addSparks(player.x, player.y - 18, "#ff2a6d", 12);
-            addFloatingText(player.x, player.y - 28, "-" + dmg, "#ff2a6d");
-
-            if (player.hp <= 0) {
-              player.hp = 0;
-              state = "gameover";
-              sndKo();
-              bestScore = Math.max(bestScore, score);
-              try { localStorage.setItem(SAVE_KEY, bestScore); } catch (e) {}
-            }
-          }
-        }
-      }
-    }
-
-    // Pickups
-    for (let i = items.length - 1; i >= 0; i--) {
-      const it = items[i];
-      if (Math.hypot(player.x - it.x, player.y - it.y) < 24) {
-        if (it.kind === "food") {
-          player.hp = Math.min(player.maxHp, player.hp + 40);
-          sndFood();
-          addSparks(player.x, player.y - 15, "#00f5d4", 10);
-          addFloatingText(player.x, player.y - 28, "+40 HP", "#00f5d4");
-        }
-        items.splice(i, 1);
-      }
-    }
+  if (boss && !boss.dead) {
+    const w = 220, x = (VW - w) >> 1;
+    font.shadow(g, boss.K.name, x, VH - 22, 3); px(g, x, VH - 13, w, 6, "#14101c"); px(g, x + 1, VH - 12, Math.round((w - 2) * clamp(boss.hp / boss.max, 0, 1)), 4, "#ff2a6d");
   }
+  if (goT > 0 && (G.frame >> 4) & 1) { font.shadow(g, "GO", VW - 52, 120, 2, 2); font.text(g, "▶", VW - 26, 122, 2, 2); }
+  if (mode === "intro") { font.center(g, "STAGE " + (stI + 1), VW / 2, 92, 2, 2); font.center(g, st.name, VW / 2, 114, 0, 3); font.center(g, st.sub, VW / 2, 142, 1, 1); }
+  if (bannerT > 0 && bannerText) font.center(g, bannerText, VW / 2, 104, bannerText === "K.O." ? 3 : 2, 3);
+  if (mode === "clear") { const tot = score[0] + (score[1] || 0); font.center(g, "SCORE " + tot, VW / 2, 150, 0, 2); font.center(g, "BEST COMBO " + shown.combo, VW / 2, 172, 1, 1); }
+  if (mode === "over" && !menu.at) font.center(g, "GAME OVER", VW / 2, 110, 3, 3);
+  if (mode === "ending" && !menu.at) { font.center(g, "THE CITY SLEEPS", VW / 2, 84, 2, 3); font.center(g, "VOX IS DOWN. THE NEON STAYS ON.", VW / 2, 116, 0, 1); font.center(g, "SCORE " + (score[0] + (score[1] || 0)), VW / 2, 136, 2, 2); }
+}
 
-  // ------------------------------------------------ Drawing
-  function draw() {
-    ctx.fillStyle = "#08060f";
-    ctx.fillRect(0, 0, VW, VH);
-
-    if (state === "title") { drawTitle(); return; }
-
-    const shakeX = screenShake ? (Math.random() - 0.5) * screenShake : 0;
-    const shakeY = screenShake ? (Math.random() - 0.5) * screenShake : 0;
-    const cx = Math.floor(cameraX + shakeX), cy = Math.floor(shakeY);
-
-    ctx.save();
-    ctx.translate(-cx, -cy);
-
-    // 1. Distant Neon Skyscrapers (Parallax)
-    const paraX = Math.floor(cx * 0.25);
-    for (let i = 0; i < 24; i++) {
-      const bx = i * 75 - paraX;
-      if (bx > cx + VW + 80 || bx < cx - 100) continue;
-      const bh = 90 + (i % 5) * 22;
-      ctx.fillStyle = "#120e20";
-      ctx.fillRect(bx, 140 - bh, 65, bh);
-
-      // Windows
-      ctx.fillStyle = (i % 2 === 0 ? "#ff2a6d" : "#05d9e8");
-      ctx.fillRect(bx + 12, 140 - bh + 20, 6, 8);
-      ctx.fillRect(bx + 35, 140 - bh + 20, 6, 8);
-      ctx.fillRect(bx + 12, 140 - bh + 45, 6, 8);
-    }
-
-    // 2. Midground Brick Alley & Billboards
-    ctx.fillStyle = "#1c162e";
-    ctx.fillRect(cx - 20, 85, VW + 40, 85);
-    // Brick pattern
-    ctx.fillStyle = "#251e3c";
-    for (let by = 90; by < 165; by += 8) {
-      ctx.fillRect(cx - 20, by, VW + 40, 1);
-    }
-
-    // Neon Signs
-    drawText(ctx, "RAMEN 24H", 120, 95, "#ffea00", 2, true);
-    drawText(ctx, "NEON ARCADE", 480, 95, "#00f5d4", 2, true);
-    drawText(ctx, "CLUB CYBER", 850, 95, "#ff2a6d", 2, true);
-    drawText(ctx, "HOTEL TOKYO", 1240, 95, "#05d9e8", 2, true);
-    drawText(ctx, "WAREHOUSE 7", 1620, 95, "#ffea00", 2, true);
-
-    // 3. Street Road & Curbs
-    ctx.fillStyle = "#2a223c";
-    ctx.fillRect(0, FLOOR_MIN_Y - 8, STAGE_W, 6); // Curb top
-    ctx.fillStyle = "#161122";
-    ctx.fillRect(0, FLOOR_MIN_Y - 2, STAGE_W, VH - FLOOR_MIN_Y + 10); // Asphalt
-
-    // Pavement dithered puddle / reflections
-    ctx.fillStyle = "#1c162c";
-    for (let px = 60; px < STAGE_W; px += 240) {
-      ctx.fillRect(px, FLOOR_MIN_Y + 15, 70, 14);
-      ctx.fillRect(px + 10, FLOOR_MIN_Y + 12, 50, 20);
-    }
-
-    // 4. Street Lamps & Bayer Dithered Light Cones
-    for (let lx = 140; lx < STAGE_W; lx += 320) {
-      if (lx > cx - 60 && lx < cx + VW + 60) {
-        // Lamp Post
-        ctx.fillStyle = "#4a425a";
-        ctx.fillRect(lx - 2, 75, 4, 100);
-        ctx.fillRect(lx - 12, 75, 24, 4);
-        ctx.fillStyle = "#ffea00";
-        ctx.fillRect(lx - 6, 79, 12, 6);
-
-        // Bayer dithered cone
-        ditherLightCone(ctx, lx, 85, 240, 10, 65, "#ffea00", 0.22);
-      }
-    }
-
-    // 5. Props: Barrels, Food, Hydrants
-    for (const b of barrels) {
-      if (b.broken) {
-        ctx.drawImage(S.barrel_debris, b.x - 8, b.y - 4);
-      } else {
-        ctx.drawImage(S.shadow, b.x - 8, b.y - 2);
-        ctx.drawImage(S.barrel, b.x - 8, b.y - 18);
-      }
-    }
-    for (let hx = 220; hx < STAGE_W; hx += 450) {
-      ctx.drawImage(S.shadow, hx - 6, 175);
-      ctx.drawImage(S.hydrant, hx - 5, 160);
-    }
-    for (const it of items) {
-      if (it.kind === "food") {
-        ctx.drawImage(S.shadow, it.x - 7, it.y - 1);
-        ctx.drawImage(S.food_chicken, it.x - 8, it.y - 12);
-      }
-    }
-
-    // 6. Draw Characters (sorted by Y for correct 2.5D depth)
-    const drawables = [player, ...enemies.filter(e => e.hp > 0)];
-    drawables.sort((a, b) => a.y - b.y);
-
-    for (const d of drawables) {
-      if (d === player) {
-        // Player shadow
-        ctx.drawImage(S.shadow, player.x - 8, player.y - 2);
-
-        // Select sprite
-        let spName = "hero_idle";
-        if (player.action === "walk") {
-          const frames = ["hero_walk1", "hero_walk2", "hero_walk3", "hero_walk2"];
-          spName = frames[player.animFrame % 4];
-        } else if (player.action === "punch1") spName = "hero_punch1";
-        else if (player.action === "punch2") spName = "hero_punch2";
-        else if (player.action === "kick") spName = "hero_kick";
-        else if (player.action === "jump") spName = "hero_jump";
-        else if (player.action === "special") spName = "hero_special";
-        else if (player.action === "hurt") spName = "hero_hurt";
-
-        const flip = player.facing === -1;
-        const key = spName + (flip ? "_flip" : "") + (player.flashWhite > 0 ? "_w" : "");
-        const img = S[key] || S[spName];
-        if (img) {
-          ctx.drawImage(img, Math.floor(player.x - img.width / 2), Math.floor(player.y - player.z - img.height + 4));
-        }
-      } else {
-        // Enemy
-        const isBoss = d.isBoss;
-        ctx.drawImage(isBoss ? S.shadow_boss : S.shadow, d.x - (isBoss ? 12 : 8), d.y - 2);
-
-        let spName = isBoss ? "boss_idle" : "punk_idle";
-        if (d.action === "walk") {
-          spName = isBoss ? (d.animFrame === 0 ? "boss_walk1" : "boss_walk2") : (d.animFrame === 0 ? "punk_walk1" : "punk_walk2");
-        } else if (d.action === "punch") {
-          spName = isBoss ? "boss_slam" : "punk_punch";
-        } else if (d.action === "hurt") {
-          spName = isBoss ? "boss_hurt" : "punk_hurt";
-        }
-
-        const flip = d.facing === -1;
-        const key = spName + (flip ? "_flip" : "") + (d.flashWhite > 0 ? "_w" : "");
-        const img = S[key] || S[spName];
-        if (img) {
-          ctx.drawImage(img, Math.floor(d.x - img.width / 2), Math.floor(d.y - d.z - img.height + 4));
-        }
-
-        // Enemy mini health bar above head
-        if (d.hp < d.maxHp) {
-          const bw = isBoss ? 40 : 20, bh = 3;
-          const bx = Math.floor(d.x - bw / 2), by = Math.floor(d.y - d.z - (isBoss ? 34 : 26));
-          ctx.fillStyle = "#000000";
-          ctx.fillRect(bx - 1, by - 1, bw + 2, bh + 2);
-          ctx.fillStyle = isBoss ? "#ff2a6d" : "#ffea00";
-          ctx.fillRect(bx, by, Math.max(0, Math.floor(bw * (d.hp / d.maxHp))), bh);
-        }
-      }
-    }
-
-    // 7. Particles
-    for (const p of particles) {
-      ctx.fillStyle = p.col;
-      ctx.fillRect(Math.floor(p.x), Math.floor(p.y), 2, 2);
-    }
-
-    // 8. Floating Damage Text
-    for (const ft of floatingTexts) {
-      drawText(ctx, ft.text, Math.floor(ft.x - textWidth(ft.text) / 2), Math.floor(ft.y), ft.col, 1);
-    }
-
-    ctx.restore();
-
-    // ------------------------------------------------ HUD (Fixed on screen)
-    drawHud();
-
-    if (state === "gameover") drawGameOver();
-    if (state === "victory") drawVictory();
+// ---------------------------------------------------------------- the title and the choosing of fighters
+let sel = null;                                    // the select screen: [{pad, fi, done}]
+function titleUpdate(dt) {
+  if (mode !== "select" || !sel) return;
+  for (const s of sel) {
+    const c = s.ctl || (s.ctl = G.control(s.pad));
+    if (!s.done) {
+      if (c.take("left", 200)) { s.fi = (s.fi + 2) % 3; synth.play("move"); }
+      if (c.take("right", 200)) { s.fi = (s.fi + 1) % 3; synth.play("move"); }
+      if (c.take("a", 200) || c.take("x", 200) || c.take("start", 200)) { s.done = true; synth.play("ok"); }
+    } else if (c.take("b", 200)) { s.done = false; synth.play("move"); }
   }
-
-  function drawHud() {
-    // Player Health Bar
-    drawText(ctx, "KID NEON", 12, 10, "#05d9e8", 1);
-    ctx.fillStyle = "#000000";
-    ctx.fillRect(11, 20, 102, 8);
-    ctx.fillStyle = "#ff2a6d";
-    ctx.fillRect(12, 21, 100, 6);
-    ctx.fillStyle = "#00f5d4";
-    ctx.fillRect(12, 21, Math.max(0, Math.floor(100 * (player.hp / player.maxHp))), 6);
-
-    // Score & Best
-    drawText(ctx, "SCORE: " + score, 150, 10, "#ffea00", 1);
-    drawText(ctx, "HI: " + bestScore, 150, 20, "#7a7094", 1);
-
-    // Boss Bar if Boss is nearby
-    const boss = enemies.find(e => e.isBoss && e.hp > 0);
-    if (boss && boss.x < cameraX + VW + 100) {
-      drawText(ctx, "BIG DIESEL", VW - 120, 10, "#ff2a6d", 1);
-      ctx.fillStyle = "#000000";
-      ctx.fillRect(VW - 121, 20, 102, 8);
-      ctx.fillStyle = "#4e1e82";
-      ctx.fillRect(VW - 120, 21, 100, 6);
-      ctx.fillStyle = "#ff2a6d";
-      ctx.fillRect(VW - 120, 21, Math.max(0, Math.floor(100 * (boss.hp / boss.maxHp))), 6);
-    }
-
-    // Combo Counter
-    if (combo >= 2) {
-      const comboCol = combo >= 5 ? "#ff2a6d" : "#ffea00";
-      drawText(ctx, combo + " HIT COMBO!", 12, 34, comboCol, 1);
-    }
-
-    // Controls hints
-    drawText(ctx, "(" + BL("x") + ") PUNCH   (" + BL("a") + ") JUMP   (" + BL("y") + ") SPECIAL", VW - 260, VH - 12, "#7a7094", 1);
+  if (sel[0] && !sel[0].done && (sel[0].ctl || (sel[0].ctl = G.control(sel[0].pad))).take("back", 200)) { sel = null; setMode("title"); menu.show("title"); return; }
+  if (sel.every(s => s.done) && modeT > 0.3) { picks = sel.map(s => s.fi); joinedPads = sel.map(s => s.pad); score = [0, 0]; shown.combo = 0; P = joinedPads.map((n, k) => ({ padN: n, lives: 3 })); const from = selFrom; sel = null; start(from); }
+}
+let selFrom = 0;
+function drawTitle(g) {
+  g.drawImage(TITLE.sky, 0, 0); TITLE.city.draw(g, G.time * 12, 0, VW); TITLE.near.draw(g, G.time * 30, 0, VW);
+  if (mode !== "select") {
+    const y = 40 + Math.round(Math.sin(G.time * 2) * 2);
+    font.center(g, "NEON", VW / 2, y, (G.frame >> 4) % 7 ? 3 : 0, 5); font.center(g, "BRAWLER", VW / 2, y + 40, 4, 4);
+    font.center(g, "FIVE STAGES · THREE FIGHTERS · ONE OR TWO PLAYERS", VW / 2, y + 76, 1, 1);
+    if (SAVE.best) font.center(g, "BEST " + SAVE.best + "  ·  BEST COMBO " + SAVE.combo, VW / 2, VH - 16, 2, 1);
+    for (let k = 0; k < 3; k++) { const sh = sheetOf(FIGHTERS[k].id, FIGHTERS[k].spec, FIGHTERS[k].fin); L2.put(g, sh, sh.at.idle + (((G.time * 2.4) | 0) & 1), 60 + k * 30, 250, 1); }
+    return;
   }
-
-  function drawTitle() {
-    ctx.fillStyle = "#0d0b14";
-    ctx.fillRect(0, 0, VW, VH);
-
-    // Neon city skyline backdrop
-    for (let i = 0; i < 8; i++) {
-      ctx.fillStyle = "#1a1428";
-      ctx.fillRect(i * 65, 80, 55, 120);
-    }
-
-    drawCenterText(ctx, "NEON BRAWLER", 45, "#05d9e8", 3);
-    drawCenterText(ctx, "ARCADE CYBER BEAT 'EM UP", 80, "#ff2a6d", 1);
-
-    // Character showcase in title screen
-    ctx.drawImage(S.hero_punch2, 200, 120);
-    ctx.drawImage(S.punk_hurt_flip, 240, 120);
-
-    drawCenterText(ctx, "PRESS " + (SofaPad.connected() ? BL("a") : "ENTER") + " TO BRAWL", 185, "#ffea00", 1);
-    drawCenterText(ctx, "CONTROLS: DPAD/STICK = MOVE", 215, "#f0eef8", 1);
-    drawCenterText(ctx, "(" + BL("x") + ") PUNCH/COMBO   (" + BL("a") + ") JUMP KICK   (" + BL("y") + ") SPECIAL", 230, "#7a7094", 1);
-
-    if (bestScore > 0) {
-      drawCenterText(ctx, "HIGH SCORE: " + bestScore, 252, "#00f5d4", 1);
-    }
+  font.center(g, "CHOOSE YOUR FIGHTER", VW / 2, 14, 2, 2);
+  for (let k = 0; k < 3; k++) {
+    const F = FIGHTERS[k], x = 40 + k * 140, chosen = sel.filter(s => s.fi === k);
+    px(g, x, 40, 120, 180, chosen.length ? "#241a34" : "#140e1e"); px(g, x, 40, 120, 1, F.col); px(g, x, 219, 120, 1, F.col);
+    chosen.forEach((s, i) => { const c = s.pad === sel[0].pad ? "#05d9e8" : "#ff2a6d"; px(g, x - 2 + i * 3, 38 + i * 3, 124 - i * 6, 2, c); px(g, x - 2 + i * 3, 220 - i * 3, 124 - i * 6, 2, c); px(g, x - 2 + i * 3, 38 + i * 3, 2, 184 - i * 6, c); px(g, x + 120 - i * 3, 38 + i * 3, 2, 184 - i * 6, c); font.text(g, (s === sel[0] ? "1P" : "2P") + (s.done ? " ✓" : ""), x + 4 + i * 30, 44, s === sel[0] ? 4 : 3); });
+    const sh = sheetOf(F.id, F.spec, F.fin), moving = chosen.length && !chosen.every(s => s.done), m = moving ? "walk" : chosen.some(s => s.done) ? "win" : "idle";
+    L2.put(g, sh, sh.at[m] + (m === "walk" ? ((G.time * 8) | 0) & 3 : m === "idle" ? ((G.time * 2.4) | 0) & 1 : 0), x + 60, 140, 1);
+    font.center(g, F.name, x + 60, 150, font.colour(F.col), 2);
+    const bars = [["POWER", F.pow / 1.4], ["SPEED", F.spd / 1.22], ["HEALTH", F.hp / 140]];
+    bars.forEach((b, i) => { font.text(g, b[0], x + 8, 172 + i * 10, 1); px(g, x + 52, 173 + i * 10, 60, 5, "#08060c"); px(g, x + 53, 174 + i * 10, Math.round(58 * b[1]), 3, F.col); });
+    font.wrap(F.about, 112).forEach((l, i) => font.text(g, l, x + 4, 226 + i * 9, 1));
   }
+  const hint = sel.length < 2 ? "2P: PRESS START ON A SECOND CONTROLLER" : "";
+  if (hint && (G.frame >> 5) & 1) font.center(g, hint, VW / 2, VH - 12, 1, 1);
+}
+let TITLE = null;
+function titleArt() {
+  TITLE = { sky: L2.gradient(VW, VH, ["#08041a", "#2a0a3e", "#5a1446"]),
+    city: new L2.Layer(640, VH, (g, w) => { stars(g, w, 90, 90, 3, "#8a7aaa"); skyline(g, w, 50, 230, ["#160a26", "#1c0e30", "#120822"], 7, 0.3); }, { k: 1 }),
+    near: new L2.Layer(720, VH, (g, w) => { skyline(g, w, 90, VH, ["#0e0618", "#120a1e"], 19, 0.12); const r = U.rand(5); for (let x = 30; x < w; x += 150) sign(g, x, 150 + ((r() * 50) | 0), ["NEON", "OPEN", "HOTEL", "BAR"][(r() * 4) | 0], ["#ff2a6d", "#05d9e8", "#ffea00"][(r() * 3) | 0]); }, { k: 1 }) };
+}
 
-  function drawGameOver() {
-    ctx.fillStyle = "rgba(10, 6, 20, 0.85)";
-    ctx.fillRect(0, 0, VW, VH);
-
-    drawCenterText(ctx, "K.O.", 70, "#ff2a6d", 4);
-    drawCenterText(ctx, "THE STREETS CLAIMED YOU", 125, "#f0eef8", 1);
-    drawCenterText(ctx, "FINAL SCORE: " + score, 150, "#ffea00", 1);
-    drawCenterText(ctx, "PRESS " + (SofaPad.connected() ? BL("a") : "ENTER") + " TO RETRY", 195, "#05d9e8", 1);
+// ---------------------------------------------------------------- menus
+const menu = new L2.Menu(G, {
+  top: "title", values: SAVE.opts, accent: "#ff2a6d",
+  screens: {
+    title: { y: 150, w: 210, items: () => [{ t: "NEW GAME", act: "new" }].concat(SAVE.reached ? [{ t: "CONTINUE", act: "cont", sub: "STAGE " + (SAVE.reached + 1) }] : [])
+      .concat([{ t: "RECORDS", act: "records" }, { t: "OPTIONS", act: "options" }]) },
+    options: { title: "OPTIONS", back: () => menu.show(pausedFrom ? "pause" : "title", 0), w: 280, items: L2.optionItems() },
+    records: { title: "RECORDS", back: "title", w: 280, items: [{ t: "BACK", act: "back" }] },
+    pause: { title: "PAUSED", back: () => resume(), w: 220, items: [{ t: "CARRY ON", act: "resume" }, { t: "START THE STAGE AGAIN", act: "restart" }, { t: "OPTIONS", act: "options" }, { t: "QUIT TO THE TITLE", act: "quit" }] },
+    over: { title: "GAME OVER", back: null, w: 240, items: [{ t: "CONTINUE FROM THIS STAGE", act: "retry" }, { t: "QUIT TO THE TITLE", act: "quit" }] },
+    ending: { title: "THE CITY SLEEPS", back: null, w: 300, items: [{ t: "TO THE TITLE", act: "quit" }] }
+  },
+  choose(it) {
+    const a = it.act;
+    if (a === "new" || a === "cont") { menu.hide(); selFrom = a === "cont" ? SAVE.reached : 0; openSelect(); }
+    else if (a === "records") { menu.o.screens.records.lines = [["BEST SCORE", SAVE.best], ["BEST COMBO", SAVE.combo + " HITS"], ["FURTHEST", "STAGE " + (SAVE.reached + 1)]].concat(FIGHTERS.map(F => [F.name + " CLEARED IT", (SAVE.clears[F.id] || 0) + " TIMES"])); menu.show("records"); }
+    else if (a === "options") menu.show("options");
+    else if (a === "back") menu.back();
+    else if (a === "resume") resume();
+    else if (a === "restart") { menu.hide(); pausedFrom = null; const sc = score.slice(); start(stI, true); score = sc; }
+    else if (a === "retry") { menu.hide(); score = [0, 0]; P.forEach(p => { p.out = false; p.lives = 3; }); start(stI); }
+    else if (a === "quit") { menu.hide(); pausedFrom = null; toTitle(); }
+  },
+  changed() { G.options(SAVE.opts); store.save(); }
+});
+G.menu = menu;
+let pausedFrom = null;
+function openSelect() {
+  const pads = G.input.players(), first = pads[0] || 0;
+  sel = [{ pad: first, fi: picks[0] || 0, done: false }];
+  setMode("select");
+}
+function toTitle() { setMode("title"); P = []; FO = []; boss = null; sel = null; synth.song({ seed: 1, root: 45, tempo: 110, calm: true }); menu.show("title"); }
+function pause() { if (mode !== "play" || menu.at) return; pausedFrom = mode; setMode("pause"); menu.show("pause"); }
+function resume() { menu.hide(); setMode(pausedFrom || "play"); pausedFrom = null; G.gov.hold(800); }
+function onButton(b, how, who) {
+  if (how !== "press") return;
+  if (mode === "select" && sel) {                  // a second controller joins the choosing
+    if ((b === "start" || b === "a") && who && !sel.some(s => s.pad === who) && sel.length < 2 && who !== sel[0].pad) { sel.push({ pad: who, fi: (sel[0].fi + 1) % 3, done: false }); synth.play("ok"); }
+    return;
   }
-
-  function drawVictory() {
-    ctx.fillStyle = "rgba(10, 6, 20, 0.85)";
-    ctx.fillRect(0, 0, VW, VH);
-
-    drawCenterText(ctx, "STAGE CLEAR!", 65, "#00f5d4", 3);
-    drawCenterText(ctx, "BIG DIESEL HAS BEEN DEFEATED!", 115, "#ffea00", 1);
-    drawCenterText(ctx, "FINAL SCORE: " + score, 145, "#f0eef8", 1);
-    if (score >= bestScore) {
-      drawCenterText(ctx, "NEW HIGH SCORE RECORD!", 168, "#ff2a6d", 1);
-    }
-    drawCenterText(ctx, "PRESS " + (SofaPad.connected() ? BL("a") : "ENTER") + " TO PLAY AGAIN", 205, "#05d9e8", 1);
+  if ((mode === "play" || mode === "intro") && b === "start") {
+    if (who && P.length < 2 && !P.some(p => p.padN === who)) { const fi = [0, 1, 2].find(i => !P.some(p => p.fi === i)); picks[1] = fi; const np = newFighter(1, fi, who); np.x = camX + 40; P.push(np); score[1] = 0; banner(np.F.name + " JOINS", 1.4); synth.play("ok"); return; }
+    pause();
   }
-
-  requestAnimationFrame(loop);
+  if ((mode === "play" || mode === "intro") && b === "back") pause();
+}
+function ready() {
+  sounds(); things(); titleArt(); light = new L2.Light(G); onTier(G, G.tier); G.options(SAVE.opts);
+  for (const F of FIGHTERS) sheetOf(F.id, F.spec, F.fin);
+  if (DEMO) { window.SofaStats.demo = true; picks = [0]; joinedPads = [0]; P = [{ padN: 0, lives: 3 }]; start(0); setInterval(() => { if (mode === "play" || mode === "intro") botThink(1 / 30); }, 33); return; }
+  toTitle();
+}
+if (G.test) window.NB = { get mode() { return mode; }, get BG() { return BG; }, get P() { return P; }, get FO() { return FO; }, get boss() { return boss; }, get stage() { return stI; }, get camX() { return camX; }, set camX(v) { camX = v; },
+  get score() { return score; }, get zone() { return zoneI; }, set zone(v) { zoneI = v; lockAt = -1; }, get lockAt() { return lockAt; }, STAGES, FIGHTERS, FOES, BOSSES, SAVE, store, menu, G,
+  start(i, fighters) { picks = fighters || [0]; joinedPads = picks.map((f, k) => k ? 2 : 0); P = picks.map((f, k) => ({ padN: joinedPads[k], lives: 3 })); score = [0, 0]; start(i); },
+  spawn(kind, x, y) { const f = foeOf(kind, x == null ? camX + 300 : x, y == null ? 220 : y); FO.push(f); return f; }, hitFoe, kill, strike, attack, doSpecial, grab, throwFoe, stageClear, sheetOf, figure, POSES,
+  get ITEMS() { return ITEMS; }, get SHOTS() { return SHOTS; }, drop, pickUp, throwWeapon, hurtFighter, onButton, BUILT,
+  clearZone() { for (const f of FO) { f.hp = 0; f.dead = true; f.deadT = 5; } } };
+G.start();
 })();
-</script>
-</body></html>
+</script></body></html>

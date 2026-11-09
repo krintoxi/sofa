@@ -274,7 +274,7 @@ console.log(JSON.stringify(out));
             self.assertIn(column, probe)
         self.assertIn("../low3d.js", probe)
         # the games that play by themselves say so, and keep nothing while they do
-        for gid in ("tidewing", "cosmic-cascade", "micro-drifters", "shadow-heist", "gloamwell", "cinder-knight"):
+        for gid in ("tidewing", "cosmic-cascade", "micro-drifters", "shadow-heist", "gloamwell", "cinder-knight", "neon-brawler"):
             html = self.read(gid, "index.html")
             self.assertRegex(html, r"SofaStats(\.demo = true|=\{demo:true\}| = \{ demo: true \})", gid)
         drifters = self.read("micro-drifters", "index.html")
@@ -315,6 +315,7 @@ class TheEngine(unittest.TestCase):
         self.assertNotRegex(js2, r"buttons\[16\]")
         on_2d = [g["id"] for g in CATALOG["games"] if "../low2d.js" in self.read(g["id"], "index.html")]
         self.assertIn("cinder-knight", on_2d)
+        self.assertIn("neon-brawler", on_2d)
         for gid in on_2d:                                                 # pad.js, then Low3D, then Low2D on top of it
             html = self.read(gid, "index.html")
             self.assertLess(html.index('src="../pad.js"'), html.index('src="../low3d.js"'), gid)

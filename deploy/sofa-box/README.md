@@ -390,8 +390,15 @@ song in the box's player, or shows a picture; **Menu** renames, moves or deletes
   your best times are kept on the box. It's the first game on the box's 2D engine (Low2D, `games/low2d.js`), which
   picks a look and a pace for the box (light at 60 on a Pi 3, full or rich on a Pi 4, a Pi 5 or a computer, and a
   steady 30 rather than a stutter) and keeps it steady; Options: Look and Frames change it.
+- **Neon Brawler**, a street beat 'em up through a city at night: five stages (a rain-soaked street, a neon market,
+  a speeding train, the docks, a tower's roof), three fighters to choose from (Vex, even all round; Brick, slow and
+  heavy; Juno, quick), eight kinds of foe and four bosses: Diesel, Razor, Hammerhead and Vox. Chains of blows that
+  end in a launch, juggles, grabs with knees and throws, pipes, bats and bottles to swing or throw, a special meter
+  that fills as you fight, hit-stop and shake. One player, or two together: a second controller joins at any time
+  with Start. Your best score, best combo and the furthest stage are kept on the box. It's on the box's 2D engine,
+  with lamps, neon and rain in the light of the full look.
 - More of the box's own games, each a page that plays offline with the controller: **Shadow Heist** (stealth),
-  **Rune Tactics** (turn-based tactics), **Micro Drifters** (top-down racing), **Neon Brawler** (a beat 'em up),
+  **Rune Tactics** (turn-based tactics), **Micro Drifters** (top-down racing),
   **Void Drifter** (mining and upgrades in space), **Cosmic Cascade** (a falling-gems puzzle), and the small ones,
   **Neon Dodge**, **Pair Up** and **Sky Hop**.
 - **How smoothly each game runs on your box**: the graphics check (`127.0.0.1:8091/box/games/probe/` in the box's

@@ -1255,6 +1255,81 @@ class BoxBrowser(unittest.TestCase):
         self.assertTrue(any(abs(a - b) > 1 for a, b in zip(x0, demo["x"])))   # they race by themselves
         self.assertIsNone(demo["kept"])                                  # and nothing is kept
 
+    def test_neon_brawler_plays(self):
+        """Neon Brawler in the box's browser: five stages, three fighters, eight kinds of foe, four bosses; a chain of
+        blows ends in a launch, a grabbed foe is thrown, a riot's shield turns a jab but not a jump kick, a full meter's
+        special hits what's ahead, a pipe is picked up and thrown; the first boss comes once, and beating it clears the
+        stage and starts the next; two fight together; the demo fights by itself and keeps nothing."""
+        self.post("/box/api/open", {"url": self.base + "/box/games/neon-brawler/#test"})
+        js = lambda e: self.page_value("/box/games/neon-brawler", e)
+
+        def until(expr, secs=30):
+            end = time.time() + secs
+            while time.time() < end:
+                try:
+                    if js(expr):
+                        return True
+                except (StopIteration, OSError, KeyError):
+                    pass
+                time.sleep(0.3)
+            return False
+        self.assertTrue(until("typeof NB === 'object' && NB.mode === 'title'"))
+        js("window.errs = []; addEventListener('error', e => errs.push(String(e.message))); 1")
+        self.assertEqual(json.loads(js("JSON.stringify([NB.STAGES.length, NB.FIGHTERS.length, Object.keys(NB.FOES).length, Object.keys(NB.BOSSES).length])")), [5, 3, 8, 4])
+        for i in range(5):                                              # each stage starts, its foes drawn ready
+            js("NB.menu.hide(); NB.start(%d, [%d]); 1" % (i, i % 3))
+            time.sleep(0.4)
+            need = json.loads(js("JSON.stringify([...new Set(NB.STAGES[%d].zones.flatMap(z => z.waves.flat().concat(z.boss ? [z.boss] : [])))].filter(k => !NB.BUILT[k]))" % i))
+            self.assertEqual(need, [], i)
+        js("NB.start(0, [0]); 1")
+        self.assertTrue(until("NB.mode === 'play'", 10))
+        # a chain: jab, jab, cross, then the finisher launches
+        js("""(() => { const p = NB.P[0]; p.x = 200; p.y = 220; p.face = 1; window.f1 = NB.spawn('punk', 222, 220); f1.inside = true; f1.cd = 99; f1.hp = 60; window.acts = [];
+               let n = 0; const iv = setInterval(() => { if (p.act === 'attack' && p.t > 0.08) p.queued = true; if (p.act === 'idle' && n < 4) { n++; NB.attack(p); } acts.push(f1.act); }, 30);
+               setTimeout(() => clearInterval(iv), 2000); return 1; })()""")
+        time.sleep(2.3)
+        chain = json.loads(js("JSON.stringify({ hp: f1.hp, acts: [...new Set(acts)], combo: NB.P[0].combo })"))
+        self.assertLessEqual(chain["hp"], 60 - 6 - 6 - 9 - 15 + 1)
+        self.assertIn("fall", chain["acts"])
+        self.assertGreaterEqual(chain["combo"], 4)
+        throw = json.loads(js("""(() => { const p = NB.P[0]; p.act = 'idle'; p.x = 200; p.face = 1; const f = NB.spawn('punk', 214, 220); f.inside = true; f.cd = 99;
+               const g = NB.grab(p, f); NB.throwFoe(p, f, 1); return JSON.stringify({ g, act: f.act, hp: f.hp, vx: f.vx }); })()"""))
+        self.assertEqual((throw["g"], throw["act"]), (True, "fall"))
+        self.assertLess(throw["hp"], 30)
+        self.assertGreater(throw["vx"], 100)
+        riot = json.loads(js("""(() => { const p = NB.P[0]; p.act = 'idle'; p.x = 200; p.face = 1; const r = NB.spawn('riot', 226, 220); r.inside = true; r.face = -1; r.cd = 99; r.act = 'idle';
+               const h0 = r.hp; NB.hitFoe(p, r, 10, null, 0, { name: 'jab' }); const blocked = r.hp === h0; NB.hitFoe(p, r, 13, 'down', 1, { air: 1, name: 'jkick' });
+               return JSON.stringify([blocked, r.hp < h0, !r.guard]); })()"""))
+        self.assertEqual(riot, [True, True, True])
+        js("""(() => { const p = NB.P[0]; p.act = 'idle'; p.x = 120; p.face = 1; p.meter = 1; p.full = true; window.ahead = [NB.spawn('punk', 160, 220), NB.spawn('slicer', 200, 222)];
+               ahead.forEach(f => { f.inside = true; f.cd = 99; }); NB.doSpecial(p); return 1; })()""")
+        time.sleep(0.9)
+        special = json.loads(js("JSON.stringify({ meter: NB.P[0].meter, hurt: ahead.every(f => f.hp < f.max) })"))
+        self.assertEqual(special, {"meter": 0, "hurt": True})
+        js("(() => { const p = NB.P[0]; p.act = 'idle'; p.special = null; p.x = 240; p.y = 230; NB.drop(240, 230, 'pipe'); return 1; })()")
+        time.sleep(0.8)
+        self.assertEqual(json.loads(js("JSON.stringify([NB.pickUp(NB.P[0]), NB.P[0].weapon])")), [True, "pipe"])
+        self.assertEqual(json.loads(js("NB.throwWeapon(NB.P[0]); JSON.stringify([NB.P[0].weapon, NB.SHOTS.length])")), [None, 1])
+        # the first boss: once, and beating it clears the stage and the next one starts
+        js("""(() => { NB.FO.forEach(f => { f.hp = 0; f.dead = true; f.deadT = 9; }); const z = NB.STAGES[0].zones; NB.zone = z.length - 1; NB.camX = z[z.length - 1].at - 1;
+               NB.P[0].x = NB.camX + 100; return 1; })()""")
+        self.assertTrue(until("NB.boss && NB.boss.kind === 'diesel'", 10))
+        self.assertEqual(js("NB.FO.filter(f => f.K.boss).length"), 1)
+        js("NB.kill(NB.P[0], NB.boss); NB.FO.forEach(f => { if (!f.K.boss) { f.hp = 0; f.dying = true; } }); 1")
+        self.assertTrue(until("NB.mode === 'clear'", 10))
+        self.assertTrue(until("NB.stage === 1 && NB.mode === 'play'", 15))
+        self.assertEqual(js("NB.SAVE.reached"), 1)
+        two = json.loads(js("NB.start(2, [1, 2]); JSON.stringify(NB.P.map(p => p.F.id))"))
+        self.assertEqual(two, ["brick", "juno"])
+        time.sleep(1)
+        self.assertEqual(js("errs.length"), 0)
+        js("localStorage.removeItem('neon-brawler'); location.hash = '#demo-test'; location.reload(); 1")
+        time.sleep(1)
+        self.assertTrue(until("typeof NB === 'object' && window.SofaStats.demo === true && NB.mode === 'play'", 30))
+        s0 = js("NB.score[0]")
+        self.assertTrue(until("NB.score[0] > %d" % s0, 40))              # it fights by itself
+        self.assertIsNone(js("localStorage.getItem('neon-brawler')"))    # and keeps nothing
+
     def test_gloamwell_finds(self):
         """Gloamwell's finds: a gem set in a socket gives its power and is kept through a save; a hidden vault's
         cracked wall breaks open; a familiar follows you down; floors with an omen (a gilded thief, the restless

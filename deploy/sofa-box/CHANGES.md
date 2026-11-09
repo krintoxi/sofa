@@ -7,6 +7,22 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.45
+
+- **Neon Brawler, a whole beat 'em up.** Five stages through a city at night: Rain Street, the Neon Market, the Night
+  Train, the Foundry Docks and Skyline Tower, each with its own look (rain, lanterns, the city rushing past the
+  train's windows, containers under work lamps, a roof under the great neon sign). Three fighters to choose from:
+  Vex (even all round, a four-hit chain ending in a roundhouse), Brick (slow and heavy, throws harder, slams the
+  ground) and Juno (quick, a five-hit chain and a spinning kick). Eight kinds of foe (punks, knife-wielding slicers,
+  bruisers who grab, runners who charge, tossers who throw bottles, riot police behind shields, flying drones,
+  wreckers with sledgehammers) and four bosses: Diesel, Razor, Hammerhead and Vox, each with moves of their own and
+  angrier below half. Chains that end in a launch, juggles, grabs with knees and throws, pipes, bats and bottles,
+  a special meter (or a special that costs a little health when it isn't full), hit-stop and shake. Two players
+  together: a second controller joins at any time with Start. Your best score, best combo and the furthest stage
+  are kept on the box. It's on the box's 2D engine now: the fighters are drawn from their bones a pose at a time.
+- **The 2D engine's light** can be cleared each frame (`Light.begin(fill, true)`), so a see-through dark stays as dark
+  as it's asked for.
+
 ## 1.1.44
 
 - **Tidewing 2.** Six new waters, twelve in all: Stormwall (a gale under the cliffs, with rain, lightning and a

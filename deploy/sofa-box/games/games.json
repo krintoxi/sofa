@@ -7,7 +7,7 @@
   {"id": "shadow-heist", "name": "Shadow Heist", "emoji": "💎", "color": "#4A78C8", "about": "Sneak past guards and cameras, keep out of their sight, and steal the diamond from the vault."},
   {"id": "rune-tactics", "name": "Rune Tactics", "emoji": "🔮", "color": "#A84AB0", "about": "Turn-based tactics on a grid: read the enemy's warnings, cast spells, and knock foes into pits."},
   {"id": "micro-drifters", "name": "Micro Drifters", "emoji": "🏁", "color": "#E0405A", "about": "Top-down racing on three tracks: drift to charge your boost, then let it go on the straights."},
-  {"id": "neon-brawler", "name": "Neon Brawler", "emoji": "🥊", "color": "#FF2E88", "about": "A street beat 'em up under neon signs: punch combos, jump kicks, specials, and a boss at the end."},
+  {"id": "neon-brawler", "name": "Neon Brawler", "emoji": "🥊", "color": "#FF2E88", "about": "A street beat 'em up through a city at night: five stages, three fighters, four bosses, one player or two together."},
   {"id": "void-drifter", "name": "Void Drifter", "emoji": "🚀", "color": "#7AD8F0", "about": "Fly a small ship, mine asteroids, upgrade at the docks, and take on a dreadnought."},
   {"id": "cosmic-cascade", "name": "Cosmic Cascade", "emoji": "🌠", "color": "#3CC8D8", "about": "Drop gems, match three of a colour, and let the sweeping beam clear the board."},
   {"id": "tidewing", "name": "Tidewing", "emoji": "🌊", "color": "#2E9BD6", "about": "Race a skimmer over open water: twelve courses in three cups, time trials and two players on one screen, in low-poly 3D tuned to your box."},

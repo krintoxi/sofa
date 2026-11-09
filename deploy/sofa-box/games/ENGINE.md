@@ -365,7 +365,9 @@ the game's, so the tests can play every stage in node with the game's own physic
   layer in front of the camera). `gradient(w, h, colours)` for a sky.
 - `Particles(max, dots(colours))`: a fixed pool drawn from a sheet of dots (each colour at four strengths and three
   sizes); `k` and `cap` follow the look. `emit(x, y, n, {c, v, a, sp, life, g, drag, s, up, bright})`.
-- `Light(G)`: the dark with a hole cut for each light (`begin(fill)`, `cut(x, y, r, k)`, `end(g)`), coloured glows
+- `Light(G)`: the dark with a hole cut for each light (`begin(fill, fresh)`, `cut(x, y, r, k)`, `end(g)`; a see-through
+  fill lays over the last frame's dark, so it builds up where no light has been: `fresh` clears it first, so the dark is
+  the fill's own), coloured glows
   added on top (`glowOf(r, rgb, a)` once, then `glowBegin`, `glow`, `glowEnd`: as many as the look allows), and
   bursts of light (`pulse(x, y, r, life, glow)`).
 - `reflect(g, x, y, w, h, alpha, t)`: still water, mirroring what's over it in slices that sway.
