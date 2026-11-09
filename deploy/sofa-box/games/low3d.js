@@ -859,6 +859,7 @@ function Governor(ladder, rung, top, change) {
   this.ladder = ladder; this.rung = rung; this.top = top == null ? ladder.length - 1 : top; this.change = change || null;
   this.last = 0; this.win = 0; this.n = 0; this.late = 0; this.workSum = 0; this.calm = 0; this.quiet = 0; this.wait = 0;
   this.fps = 0; this.shown = 0; this.frames = 0; this.fpsAt = 0; this.lock = false; this.log = [];
+  this.workMs = 0;                                   // the game's work a frame drawn, smoothed (ms)
 }
 Governor.prototype = {
   get cur() { return this.ladder[this.rung]; },
@@ -876,7 +877,7 @@ Governor.prototype = {
     if (now - this.win >= 2000) this.judge(now, iv);
     return true;
   },
-  work(ms) { this.workSum += ms; },
+  work(ms) { this.workSum += ms; this.workMs += (ms - this.workMs) * 0.05; },
   reset(now) { this.win = 0; this.n = 0; this.late = 0; this.workSum = 0; this.wait = now + 800; },
   hold(ms) { this.wait = performance.now() + (ms || 1500); this.win = 0; this.n = 0; this.late = 0; this.workSum = 0; },
   judge(now, iv) {
@@ -1233,13 +1234,19 @@ function viewOf(cam) {
 // The box turns a controller's buttons into keys as well (arrows, Enter, Back…, for its menus): while a controller is
 // there, such a key waits a moment and is dropped when the controller itself was just pressed (so nothing happens
 // twice); a remote's or the phone's keys still come through. Back (B, or a remote's Back) on the game's top screen is
-// left to the box: it leaves the game. o: { keys: {key: action}, on(action, how), top() → ms since the top screen showed, or 0 }
+// left to the box: it leaves the game. o: { keys: {key: action}, on(action, how, who), top() → ms since the top screen
+// showed, or 0, joined(n), left(n) }. who: the player whose controller it was (1, 2, …: pad.js numbers them as they
+// come), or 0 for a key (the keyboard, a remote, the phone). joined(n) and left(n): a controller became player n, or
+// player n's went away. input.player(n) reads player n's controller alone; the rest of Input is everyone's at once.
 const ECHO = /^(Arrow|Enter$|NumpadEnter$|Escape$|Backspace$|BrowserBack$|GoBack$|Media|\/$)/;
 const BACKS = /^(Escape|Backspace|BrowserBack|GoBack)$/;
+const NOPAD = { n: 0, on() {}, held: () => false, button: () => false, stick: () => ({ x: 0, y: 0 }), stick2: () => ({ x: 0, y: 0 }), trigger: () => 0,
+  rumble() {}, active: () => false, connected: () => false, kind: () => null, label: b => b };   // (no pad.js: nobody)
 function Input(o) {
   this.o = o; this.k = {}; this.q = []; this.lastPad = -1e9;
   const pad = window.SofaPad;
-  if (pad) pad.on((b, how) => { if (b === "connected") { if (o.connected) o.connected(); return; } this.lastPad = performance.now(); o.on(b, how); });
+  if (pad) pad.on((b, how, p) => { if (b === "connected") { if (o.connected) o.connected(); return; } this.lastPad = performance.now(); o.on(b, how, p && p.n || 1); });
+  if (pad && pad.players) { pad.on("joined", p => { if (o.joined) o.joined(p.n); }); pad.on("left", p => { if (o.left) o.left(p.n); }); }
   addEventListener("keydown", e => {
     const back = BACKS.test(e.key) || e.code === "BrowserBack", top = o.top ? o.top() : 0;
     if (back && top && performance.now() - top > 500) return;      // the box's: out of the game
@@ -1247,12 +1254,12 @@ function Input(o) {
     if (act || back) e.preventDefault();
     if (!act) return;
     if (pad && pad.connected() && ECHO.test(e.key)) { if (!e.repeat) this.q.push({ act, t: performance.now(), down: true }); return; }
-    this.k[act] = true; o.on(act, e.repeat ? "repeat" : "press");
+    this.k[act] = true; o.on(act, e.repeat ? "repeat" : "press", 0);
   });
   addEventListener("keyup", e => {
     const act = o.keys[e.key] || o.keys[e.code]; if (!act) return;
     if (pad && pad.connected() && ECHO.test(e.key)) { this.q.push({ act, t: performance.now(), down: false }); return; }
-    this.k[act] = false; o.on(act, "release");
+    this.k[act] = false; o.on(act, "release", 0);
   });
   addEventListener("blur", () => { for (const a in this.k) this.k[a] = false; });
 }
@@ -1261,9 +1268,13 @@ Input.prototype = {
     while (this.q.length && now - this.q[0].t > 60) {
       const e = this.q.shift();
       if (this.lastPad > e.t - 300 || (window.SofaPad && window.SofaPad.active())) continue;   // the controller's own echo
-      this.k[e.act] = e.down; this.o.on(e.act, e.down ? "press" : "release");
+      this.k[e.act] = e.down; this.o.on(e.act, e.down ? "press" : "release", 0);
     }
   },
+  // player n's own controller (pad.js's player: held, button, stick, stick2, trigger, rumble, label, kind, active,
+  // connected), the same object for good; players(): the numbers of those who have joined so far
+  player(n) { const pad = window.SofaPad; return pad && pad.player ? pad.player(n) : NOPAD; },
+  players() { const pad = window.SofaPad; return pad && pad.players ? pad.players().map(p => p.n) : []; },
   held(a) { return (window.SofaPad && window.SofaPad.held(a)) || !!this.k[a]; },
   key(a) { return !!this.k[a]; },
   stick() { return window.SofaPad ? window.SofaPad.stick() : { x: 0, y: 0 }; },
@@ -1457,6 +1468,16 @@ function game(o) {
     o, mode: "flat", g3: null, flat: null, gov: null, rung: null, probe: null, bench: null, plan: null, ready: false, broken: false,
     test: /test/.test(H), showFps: /fps/.test(H), force: /flat|2d/.test(H) ? "flat" : /\bgl\b|3d/.test(H) ? "gl" : null,
     forceRung: /rung=(\d+)/.test(H) ? +H.match(/rung=(\d+)/)[1] : null, aspect: o.aspect || 16 / 9, vw: 960, vh: 540, DT: 1 / 60
+  };
+  // #demo: the game plays by itself (an attract mode that saves nothing and takes no controller), for the games
+  // check (probe/), which reads window.SofaStats: whether it's ready and playing itself, the rung, the frame rate drawn
+  E.demo = /demo/.test(H);
+  window.SofaStats = {
+    get ready() { return E.ready; },
+    get tier() { return E.ready && E.gov ? (E.mode === "gl" ? "3D" : E.mode === "ray" ? "ray" : "2D") + " rung " + E.gov.rung + " of " + (LADDER[E.mode].length - 1) : null; },
+    get fps() { return E.gov ? E.gov.fps : 0; },
+    get workMs() { return E.gov ? Math.round(E.gov.workMs * 100) / 100 : 0; },
+    demo: false                                      // (the game sets it while its #demo plays)
   };
   const KEY = (o.id || "game") + ":tune";
   let tune = null;

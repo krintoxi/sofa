@@ -273,6 +273,19 @@ function updatePrevBtn(){
   prevBtn.a=btnA(); prevBtn.b=btnB(); prevBtn.y=btnY(); prevBtn.start=btnStart();
   padHit.a=padHit.b=padHit.x=padHit.y=padHit.start=0;
 }
+// #demo (the box's games check opens it so): it plays by itself, the thief wandering the level while the guards and
+// cameras do their rounds; no controller (this game keeps no records)
+const DEMO=/demo/.test(location.hash);
+if(DEMO) window.SofaStats={demo:true};
+const demoGo={dx:1,dy:0};
+function demoWalk(){
+  const open=[[1,0],[-1,0],[0,1],[0,-1]].filter(d=>!isWall(player.tx+d[0],player.ty+d[1]));
+  if(open.length&&(isWall(player.tx+demoGo.dx,player.ty+demoGo.dy)||Math.random()<0.18)){
+    const on=open.filter(d=>d[0]!==-demoGo.dx||d[1]!==-demoGo.dy), from=on.length?on:open, d=from[Math.floor(Math.random()*from.length)];
+    demoGo.dx=d[0]; demoGo.dy=d[1];
+  }
+  return demoGo;
+}
 function getDX(){
   if(padHeld('left')||keys['ArrowLeft']||keys['KeyA']) return -1;
   if(padHeld('right')||keys['ArrowRight']||keys['KeyD']) return 1;
@@ -1118,7 +1131,7 @@ function updatePlayer(dt){
     }
   } else {
     // Input
-    const dx=getDX(), dy=getDY();
+    const go=DEMO?demoWalk():null, dx=go?go.dx:getDX(), dy=go?go.dy:getDY();
     if(dx!==0||dy!==0){
       if(dx!==0) tryMovePlayer(dx,0);
       else tryMovePlayer(0,dy);
@@ -1531,7 +1544,7 @@ function update(ts){
   titleTick+=dt;
 
   if(state===GAME_STATE.TITLE){
-    if(btnAPressed()){
+    if(DEMO||btnAPressed()){
       currentLevel=0; lives=3; spotted=false;
       initLevel(currentLevel);
       state=GAME_STATE.PLAYING;
@@ -1548,12 +1561,14 @@ function update(ts){
     if(smokeEffect&&smokeEffect.timer>0) smokeEffect.timer-=dt;
 
     // Input
-    if(btnBPressed()){
-      player.crouching=!player.crouching;
+    if(!DEMO){
+      if(btnBPressed()){
+        player.crouching=!player.crouching;
+      }
+      if(btnAPressed()) doInteract();
+      if(btnYPressed()) doSmoke();
+      if(btnStartPressed()) state=GAME_STATE.PAUSED;
     }
-    if(btnAPressed()) doInteract();
-    if(btnYPressed()) doSmoke();
-    if(btnStartPressed()) state=GAME_STATE.PAUSED;
 
   } else if(state===GAME_STATE.PAUSED){
     if(btnStartPressed()) state=GAME_STATE.PLAYING;
@@ -1584,7 +1599,7 @@ function update(ts){
     }
 
   } else if(state===GAME_STATE.GAME_OVER){
-    if(btnAPressed()){
+    if(DEMO||btnAPressed()){
       currentLevel=0; lives=3; spotted=false;
       initLevel(currentLevel);
       state=GAME_STATE.PLAYING;

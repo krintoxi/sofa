@@ -7,6 +7,31 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.39
+
+- **The box's own games can tell controllers apart.** Each controller is a player, numbered as it connects (when
+  several turn up at once, the one pressed first is player 1), and a game can let someone join at any time. A
+  player whose controller goes away keeps the place for when it comes back.
+  - Games for one player follow whichever controller was used last, so any controller works them; before, most of
+    them heard only the first one.
+  - Holding a direction on the D-pad for more than two and a half seconds let the box's own repeated arrow keys
+    through as well, so a list could move two places at a time. A held direction now counts as the controller in
+    use.
+- **A games check, to measure the box.** The graphics check (`127.0.0.1:8091/box/games/probe/` in the box's
+  browser) has a Games check: it plays each of the box's own games for 15 seconds in turn and shows on the TV how
+  each one ran: frames a second, late frames (more than 25 ms apart), the slowest frame, the game's own work each
+  frame, memory, and the rung the game chose. A starts it, B stops it or goes back. On a Pi 3 it is the measure of
+  each game.
+  - Games can play by themselves for it (`#demo` in their address): Tidewing (riding behind a rival), Cosmic
+    Cascade, Micro Drifters and Shadow Heist do now. The others are measured on their title screen, and the table
+    says which. A game playing by itself takes no controller and saves nothing.
+  - Memory: the box's free memory while each game runs (`/box/api/info` gives it now, `memory_free`), and the
+    page's script memory where the browser gives that exactly (Chromium can round it and refresh it only every
+    20 minutes; the check notices and says so).
+- **For the games' makers:** `pad.js` has `SofaPad.players()`, `SofaPad.player(n)` and the `joined` and `left`
+  events; Low3D's `Input` says who pressed and has `input.player(n)`; Low3D games report their rung to the check
+  (`window.SofaStats`). `games/ENGINE.md` says how.
+
 ## 1.1.38
 
 - **A new box comes with no channel lists.**

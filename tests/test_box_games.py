@@ -93,6 +93,196 @@ class TheList(unittest.TestCase):
         self.assertNotRegex(html, r"buttons\[16\]")                    # never Home, which is the box's
 
 
+# pad.js in node: a fake navigator.getGamepads() holding the controllers, frames stepped by hand
+PADS_JS = r"""
+const fs = require("fs");
+let now = 1000, rafq = [];
+const def = (k, v) => Object.defineProperty(globalThis, k, { value: v, configurable: true, writable: true });
+const pads = [null, null, null, null], on = {}, shook = [];
+def("window", globalThis); def("navigator", { getGamepads: () => pads }); def("performance", { now: () => now });
+def("location", { hash: "" }); def("document", { hidden: false, createElement: () => ({ getContext: () => null }) });
+def("addEventListener", (t, f) => (on[t] = on[t] || []).push(f));
+def("requestAnimationFrame", cb => rafq.push(cb));
+for (const f of process.argv.slice(1)) eval(fs.readFileSync(f, "utf8"));
+const frame = (ms) => { now += ms || 16; const q = rafq; rafq = []; for (const cb of q) cb(now); };
+const frames = (n, ms) => { for (let i = 0; i < n; i++) frame(ms); };
+const mk = (index, id, mapping) => ({ index, id, mapping: mapping == null ? "standard" : mapping, connected: true, axes: [0, 0, 0, 0],
+  buttons: Array.from({ length: 17 }, () => ({ pressed: false, value: 0 })),
+  vibrationActuator: { playEffect: (k, o) => { shook.push(index + ":" + o.strongMagnitude); return Promise.resolve(); } } });
+const XBOX = "Xbox Wireless Controller (STANDARD GAMEPAD Vendor: 045e Product: 0b13)", PS = "DualSense Wireless Controller (STANDARD GAMEPAD Vendor: 054c Product: 0ce6)";
+const PRO = "Pro Controller (STANDARD GAMEPAD Vendor: 057e Product: 2009)", BITDO = "8BitDo Ultimate (STANDARD GAMEPAD Vendor: 2dc8 Product: 3106)";
+const P = window.SofaPad, out = {}, log = [];
+"""
+
+
+def pads_in_node(test, script, *files):
+    """PADS_JS, then the files (from games/), then the script; what it prints last, as JSON."""
+    r = subprocess.run(["node", "-e", PADS_JS + script] + [os.path.join(BOX, "games", f) for f in files],
+                       capture_output=True, text=True, timeout=60)
+    test.assertEqual(r.returncode, 0, r.stderr)
+    return json.loads(r.stdout.strip().splitlines()[-1])
+
+
+class ThePads(unittest.TestCase):
+    """pad.js: every controller a player (numbered as they come, joining at any time), while the one-player calls
+    follow whichever controller was used last, exactly as before; the box's echo keys still dropped."""
+
+    def node(self, script, *files):
+        return pads_in_node(self, script, *files)
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_several_controllers(self):
+        out = self.node(r"""
+P.on((b, how, p) => log.push(b + " " + how + " " + (p ? p.n : "-")));
+P.on("joined", p => log.push("joined " + p.n)); P.on("left", p => log.push("left " + p.n));
+const two = P.player(2), mine = { 1: [], 2: [] };              // held before anyone joins: the same object for good
+P.player(1).on(b => mine[1].push(b)); two.on(b => mine[2].push(b));
+out.before = [P.connected(), P.players().length, two.connected(), two.held("a"), P.held("a"), P.kind(), P.label("a"), P.stick().x];
+const xbox = mk(0, XBOX), ps = mk(1, PS);                       // two at once (a page's first press shows them all):
+pads[0] = xbox; pads[1] = ps; ps.buttons[0].pressed = true;     // the one pressed is player 1
+frame(); out.first = log.splice(0);
+out.numbers = P.players().map(p => p.n + " " + p.kind());
+out.two = [P.player(2) === two, two.kind(), P.kind(), P.label("a")];
+ps.buttons[0].pressed = false; frame(); log.length = 0;
+xbox.buttons[14].pressed = true; xbox.axes[2] = 0.9; frame();  // the one-player calls follow the one used last
+out.follow = [P.kind(), P.label("a"), P.held("left"), P.button("left"), P.stick2().x > 0.8, P.player(1).held("left"), two.held("left"), two.button("left")];
+xbox.axes[2] = 0; frames(36);                                    // held: repeats after 380 ms, then every 120
+xbox.buttons[14].pressed = false; frame(); out.held = log.splice(0);
+xbox.axes[0] = -0.3; frame();                                    // (a stick at -0.3: in use, but no direction yet)
+out.small = [P.held("left"), P.stick().x < -0.15 && P.stick().x > -0.2]; xbox.axes[0] = 0; frame();
+pads[2] = mk(2, PRO); pads[2].axes[0] = 0.3; frame();            // someone joins later: player 3; a stick resting off
+two.on(() => {}); xbox.buttons[1].pressed = true; frame(); xbox.buttons[1].pressed = false;   // the middle doesn't take over
+frames(10); out.third = [log.filter(x => x.startsWith("joined")), P.kind(), P.players().length];
+pads[2].axes[0] = -0.9; frame(); out.pushed = [P.kind(), P.held("left")]; pads[2].axes[0] = 0; frame();
+const odd = mk(3, "USB Gamepad (Vendor: 0079 Product: 0006)", ""); pads[3] = odd; frame();   // a plain USB pad (its D-pad
+odd.axes[0] = 0.9; frame(); out.odd = [P.players().length, P.kind(), P.held("right")];      // often an axis): player 4
+odd.axes[0] = 0; frame(); pads[3] = null; frame();
+xbox.buttons[16].pressed = true; log.length = 0; frames(3); out.home = [log.length, P.held("a")];   // Home: never read
+xbox.buttons[16].pressed = false;
+P.player(3).rumble(1, 0.5, 50); out.shook = shook.slice();
+ps.buttons[1].pressed = true; frame(); log.length = 0;            // player 1 holding B, then gone
+pads[1] = null; pads[0] = null; frame(); out.gone = [log.splice(0), P.player(1).connected(), P.players().length, P.connected(), P.kind()];
+pads[1] = mk(1, XBOX); frame();                                  // back: the same kind takes its own place first,
+pads[0] = mk(0, BITDO); frame();                                 // anyone else the first place free
+out.back = [log.splice(0), P.players().map(p => p.n + " " + p.kind()), P.player(2) === two];
+out.mine = [mine[1].join(" "), mine[2].join(" ")];
+console.log(JSON.stringify(out));
+""", "pad.js")
+        self.assertEqual(out["before"], [False, 0, False, False, False, None, "A", 0])
+        self.assertEqual(out["first"], ["joined 1", "joined 2", "a press 1"])
+        self.assertEqual(out["numbers"], ["1 playstation", "2 xbox"])
+        self.assertEqual(out["two"], [True, "xbox", "playstation", "✕"])
+        self.assertEqual(out["follow"], ["xbox", "A", True, True, True, False, True, True])
+        self.assertEqual(out["held"], ["left press 2", "left repeat 2", "left repeat 2", "left release 2"])
+        self.assertEqual(out["small"], [False, True])
+        self.assertEqual(out["third"], [["joined 3"], "xbox", 3])
+        self.assertEqual(out["pushed"], ["nintendo", True])
+        self.assertEqual(out["odd"], [4, "other", True])
+        self.assertEqual(out["home"], [0, False])
+        self.assertEqual(out["shook"], ["2:1"])
+        gone, back = out["gone"], out["back"]
+        self.assertEqual(gone[0], ["b release 1", "left 1", "left 2"])
+        self.assertEqual(gone[1:], [False, 4, True, "nintendo"])
+        self.assertEqual(back[0], ["joined 2", "joined 1"])
+        self.assertEqual(back[1], ["1 other", "2 xbox", "3 nintendo", "4 null"])   # (player 4's went away)
+        self.assertTrue(back[2])
+        self.assertEqual(out["mine"], ["a a b b", "left left left left b b"])   # each player's own
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_the_boxs_echo_keys(self):
+        """The box turns every controller's presses into keys too: dropped while any controller is in use, a held
+        direction included (the box repeats its arrows), and kept when none is (a remote's keys)."""
+        out = self.node(r"""
+const key = k => ({ key: k });
+const a = mk(0, XBOX), b = mk(1, PS); pads[0] = a; frame(); pads[1] = b; frame();
+on.gamepadconnected.forEach(f => f());
+out.connected = [P.active(), P.echo(key("ArrowLeft")), P.echo(key("Enter")), P.echo(key("a"))];
+frames(30, 100); out.idle = [P.active(), P.echo(key("ArrowLeft"))];
+b.buttons[13].pressed = true; frames(30, 100);                   // player 2 holds down for 3 s
+out.holding = [P.active(), P.player(2).active(), P.player(1).active(), P.echo(key("ArrowDown"))];
+b.buttons[13].pressed = false; frames(30, 100); out.after = P.active();
+console.log(JSON.stringify(out));
+""", "pad.js")
+        self.assertEqual(out["connected"], [True, True, True, False])
+        self.assertEqual(out["idle"], [False, False])
+        self.assertEqual(out["holding"], [True, True, False, True])
+        self.assertFalse(out["after"])
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_the_engines_input_reads_each_player(self):
+        """Low3D's Input: who pressed (the player's number, 0 for a key), joined and left, and input.player(n)."""
+        out = self.node(r"""
+const got = [], kd = k => on.keydown.forEach(f => f({ key: k, code: k, repeat: false, preventDefault() {} }));
+const input = new Low3D.Input({ keys: { ArrowLeft: "left", Enter: "a", x: "x" }, on: (b, how, who) => got.push(b + " " + how + " " + who),
+  joined: n => got.push("joined " + n), left: n => got.push("left " + n) });
+const a = mk(0, XBOX), b = mk(1, PS); pads[0] = a; pads[1] = b; frame();
+out.players = [input.players(), input.player(2) === P.player(2), input.player(2).kind(), input.player(7).connected()];
+b.buttons[0].pressed = true; frame(); b.buttons[0].pressed = false; frame();
+kd("x");                                                           // a key of its own: the keyboard's, player 0
+a.buttons[14].pressed = true; frame(); kd("ArrowLeft");            // the box's echo of that press: dropped
+frames(10); input.tick(now); a.buttons[14].pressed = false; frame();
+out.held = [input.player(1).held("left"), input.player(2).held("left")];
+frames(40, 100); kd("ArrowLeft"); frames(6); input.tick(now);     // a remote's arrow, no controller in use: kept
+pads[1] = null; frame();
+out.got = got;
+console.log(JSON.stringify(out));
+""", "pad.js", "low3d.js")
+        self.assertEqual(out["players"], [[1, 2], True, "playstation", False])
+        self.assertEqual(out["held"], [False, False])
+        self.assertEqual(out["got"], ["joined 1", "joined 2", "a press 2", "a release 2", "x press 0", "left press 1", "left release 1",
+                                      "left press 0", "left 2"])
+
+
+class TheGamesCheck(unittest.TestCase):
+    """The graphics check's games check (probe/): each game opened with #demo in a frame of its page and timed; a game
+    says what it chose, and whether it's playing itself, in window.SofaStats (Low3D games get it from the engine)."""
+    GAMES = os.path.join(BOX, "games")
+
+    def read(self, *path):
+        with open(os.path.join(self.GAMES, *path), encoding="utf-8") as f:
+            return f.read()
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_the_engine_says_how_it_goes(self):
+        out = pads_in_node(self, r"""
+const cv = () => ({ classList: { toggle() {}, add() {}, remove() {} }, addEventListener() {}, getContext: () => null, style: {} });
+const view = { style: { setProperty() {} } }, L = window.Low3D;
+location.hash = "#demo";
+const E = L.game({ id: "check", view, gl: cv(), flat: cv(), update() {}, draw() {} });
+out.before = [E.demo, SofaStats.ready, SofaStats.tier, SofaStats.fps, SofaStats.demo];
+E.mode = "gl"; E.gov = new L.Governor(L.LADDER.gl, 3, 5); E.ready = true;   // as it is once tuned to the box
+for (let i = 0; i < 100; i++) E.gov.work(4);
+SofaStats.demo = true;
+out.after = [SofaStats.ready, SofaStats.tier, SofaStats.workMs, SofaStats.demo];
+location.hash = "#fps"; out.plain = L.game({ id: "plain", view, gl: cv(), flat: cv(), update() {}, draw() {} }).demo;
+console.log(JSON.stringify(out));
+""", "pad.js", "low3d.js")
+        self.assertEqual(out["before"], [True, False, None, 0, False])
+        ready, tier, work, demo = out["after"]
+        self.assertEqual((ready, tier, demo), (True, "3D rung 3 of 8", True))
+        self.assertTrue(3.9 < work <= 4, work)
+        self.assertFalse(out["plain"])
+
+    def test_the_check_page(self):
+        import re
+        probe = self.read("probe", "index.html")
+        self.assertIn('fetch("../games.json")', probe)                  # every game on the list, in turn,
+        self.assertIn('"/#demo"', probe)                                # opened to play by itself,
+        self.assertIn('setAttribute("inert", "")', probe)              # in a frame that can't take the keys,
+        self.assertIn("getGamepads", probe)                             # nor the controller (B stops the check)
+        for column in ("Frames a second", "Late (over 25 ms)", "Slowest", "Memory", "It chose"):
+            self.assertIn(column, probe)
+        self.assertIn("../low3d.js", probe)
+        # the games that play by themselves say so, and keep nothing while they do
+        for gid in ("tidewing", "cosmic-cascade", "micro-drifters", "shadow-heist"):
+            html = self.read(gid, "index.html")
+            self.assertRegex(html, r"SofaStats(\.demo = true|=\{demo:true\}| = \{ demo: true \})", gid)
+        drifters = self.read("micro-drifters", "index.html")
+        self.assertIn("car.bestLap < prevBest && !DEMO", drifters)     # (its only record: the best lap)
+        self.assertIn("if (E.demo) return;", self.read("tidewing", "index.html"))
+        self.assertTrue(re.search(r"E\.demo = /demo/\.test\(H\)", self.read("low3d.js")))
+
+
 class TheEngine(unittest.TestCase):
     """Low3D (games/low3d.js), the box's own game engine: offline, on the controller, and the drawing each box gets."""
     GAMES = os.path.join(BOX, "games")
@@ -121,7 +311,7 @@ class TheEngine(unittest.TestCase):
         self.assertNotIn("probe", [g["id"] for g in CATALOG["games"]])
         self.assertIn("../low3d.js", probe)
         self.assertNotRegex(probe, r"""(src|href|url)\s*[=(]\s*["']?(https?:)?//""")
-        self.assertEqual(__import__("re").findall(r"fetch\(\"([^\"]+)\"", probe), ["/box/api/info"])   # it asks the box only
+        self.assertEqual(sorted(__import__("re").findall(r"fetch\(\"([^\"]+)\"", probe)), ["../games.json", "/box/api/info"])   # the box only
 
     @unittest.skipUnless(shutil.which("node"), "needs node")
     def test_the_pages_parse(self):

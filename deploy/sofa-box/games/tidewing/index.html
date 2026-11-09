@@ -392,6 +392,7 @@ const menu = new L3.Menu({
   }
 });
 function onButton(b, how) {
+  if (E.demo) return;                               // (#demo: the rivals race by themselves; no controller, nothing saved)
   synth.start();
   if (how !== "press" && how !== "repeat") return;
   if (menu.button(b, how)) return;
@@ -425,7 +426,7 @@ const E = L3.game({
   id: "tidewing", view: $("view"), gl: $("gl"), flat: $("flat"), fps: $("fps"), input,
   loading: { el: $("loading"), bar: $("loadbar"), text: $("loadtext") },
   picture: () => save.opts.picture,
-  ready() { setCourse(0, true); state = "attract"; menu.show("title"); hints(); synth.start(); volumes(); synth.song({ seed: COURSES[0].seed, root: 50 + COURSES[0].key, tempo: COURSES[0].tempo, calm: true }); crisp(); },
+  ready() { setCourse(0, true); state = "attract"; if (E.demo) window.SofaStats.demo = true; else menu.show("title"); hints(); synth.start(); volumes(); synth.song({ seed: COURSES[0].seed, root: 50 + COURSES[0].key, tempo: COURSES[0].tempo, calm: true }); crisp(); },
   prepare, rung: applyRung, update, draw, paused: () => state === "paused"
 });
 function crisp() { $("view").classList.toggle("crisp", !!save.opts.crisp); }
@@ -700,6 +701,10 @@ function finish() {
 
 // ---------------------------------------------------------------- the camera
 function updateCam(dt, now) {
+  if (E.demo && state === "attract") {              // #demo (the box's games check): riding behind one of them, as in a race
+    const r = racers[racers.length - 1];
+    L3.chase(cam, r, dt, 8.2, 3.3, 6); cam.fov = 0.8; cam.roll = r.bank * 0.25; return;
+  }
   if (!you || state === "attract") {                // the title: slowly round the course, high up
     const b = world.bounds, cx = (b[0] + b[2]) / 2, cz = (b[1] + b[3]) / 2, lead = racers[0];
     L3.orbit(cam, cx, cz, Math.max(b[2] - b[0], b[3] - b[1]) * 0.42, 34, now / 1000 * 0.05, lerp(cx, lead.x, 0.6), lerp(cz, lead.z, 0.6));

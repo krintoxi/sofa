@@ -1037,6 +1037,27 @@ function handleInput(dt){
   // pause
   if(state==="game"&&(startBtn||keyJustPressed("Escape")||keyJustPressed("KeyP"))) state="pause";
 }
+// #demo (the box's games check opens it so): it plays by itself, each gem to a column with its colour on top or the
+// lowest one, then down; no controller, and nothing is kept (this game keeps no records)
+const DEMO=/demo/.test(location.hash);
+let demoAim=-1,demoWait=0;
+function demoPlay(dt){
+  if((demoWait-=dt)>0) return;
+  demoWait=0.11;
+  if(demoAim<0){
+    let best=-1,top=-1e9;
+    for(let c=0;c<COLS;c++){
+      let r=0; while(r<ROWS&&board[r][c]===null) r++;
+      if(r===0) continue;
+      const s=r*2+(r<ROWS&&board[r][c]===falling.color?9:0)+Math.random()*3;
+      if(s>top){top=s;best=c;}
+    }
+    demoAim=best<0?falling.col:best;
+  }
+  const was=falling.col;
+  if(falling.col!==demoAim) moveFalling(falling.col<demoAim?1:-1);
+  if(falling.col===was){ dropGem(); demoAim=-1; }
+}
 function moveFalling(dir){
   const nc=falling.col+dir;
   if(nc>=0&&nc<COLS){
@@ -1110,7 +1131,7 @@ function updateGame(dt){
       landGem();
     }
   }
-  handleInput(dt);
+  if(DEMO) demoPlay(dt); else handleInput(dt);
 }
 
 // ─── PAUSE SCREEN ──────────────────────────────────────────────────────────
@@ -1135,7 +1156,7 @@ function loop(ts){
     // input to start
     const aBtn=btnPressed(0);
     const startBtn=btnPressed(9);
-    if(aBtn||startBtn||keyJustPressed("Space")||keyJustPressed("Enter")||keyJustPressed("KeyZ")){
+    if(DEMO||aBtn||startBtn||keyJustPressed("Space")||keyJustPressed("Enter")||keyJustPressed("KeyZ")){
       ensureAudio();
       initGame();
       state="game";
@@ -1166,7 +1187,7 @@ function loop(ts){
     drawGameOver();
     const aBtn=btnPressed(0);
     const startBtn=btnPressed(9);
-    if(aBtn||startBtn||keyJustPressed("Space")||keyJustPressed("Enter")||keyJustPressed("KeyZ")){
+    if(DEMO||aBtn||startBtn||keyJustPressed("Space")||keyJustPressed("Enter")||keyJustPressed("KeyZ")){
       ensureAudio();
       initGame();
       state="game";
@@ -1184,6 +1205,7 @@ function loop(ts){
 buildSprites();
 initBg();
 initTitle();
+if(DEMO) window.SofaStats={demo:true};
 requestAnimationFrame(loop);
 </script>
 </body>

@@ -26,7 +26,8 @@ here and the game keeps only what is its own.
 - **The controller first.** `Input` reads pad.js (buttons by their place: A/✕ at the bottom) and the keyboard. The
   box also turns controller presses into keys; `Input` drops those echoes, so nothing happens twice. A remote's or
   the phone's keys still come through. Back on the game's top screen is left to the box (it leaves the game);
-  Home is always the box's.
+  Home is always the box's. Every controller is a player of its own, for games with more than one (see Several
+  players).
 - **Cheap to draw.** WebGL 1, drawn at a small size and scaled up by the browser. Flat-shaded meshes are built in
   code, with one draw call each. A world's still things are merged into chunks. Nothing new is made while a game
   plays: matrices, particles, trails and dynamic meshes are made once and reused.
@@ -177,7 +178,8 @@ shimmer); `air({top, horizon, fog, hill, hills, near, far})`; `draw(camera…)`;
 
 **The controller (`pad.js`).** Beyond the buttons and the left stick: `SofaPad.stick2()` (the right stick),
 `SofaPad.trigger("rt")` (how far a trigger is pulled), `SofaPad.button("left")` (the D-pad itself, not the stick),
-and `SofaPad.rumble(strong, weak, ms)`.
+and `SofaPad.rumble(strong, weak, ms)`. These follow whichever controller was used last; each player's own are
+`SofaPad.player(n)`'s (Several players, below).
 
 **The rest.**
 - `game({...})` sets up the screen (16:9, as big as fits, `--u` a hundredth of its height for CSS), the tuning,
@@ -190,13 +192,57 @@ and `SofaPad.rumble(strong, weak, ms)`.
   changed with `set(pitch, brightness, volume)`.
 - `U` has small tools: `clamp`, `lerp`, `wrap`, `rand(seed)`, colors (`hex`, `shade`, `mix`), `time` and `ord`.
 
+## Several players
+
+Every controller is a player, numbered in the order they come: as each one connects, and when several turn up at
+once (a browser shows a page every controller at its first press) the one pressed first is player 1. Someone can
+join at any time. A player whose controller goes away (switched off, flat) keeps the number, and the first
+controller to come back takes the first place free, the same kind of controller first. The one-player calls
+(`SofaPad.held`, `input.held`, `input.stick`…) follow whichever controller was used last, so a one-player game
+works with any of them.
+
+```js
+const input = new L3.Input({ keys: KEYS, top: () => menu.top(),
+  on: (b, how, who) => { },      // who: the player whose controller it was (1, 2, …), or 0 for a key (keyboard, remote, phone)
+  joined: n => addPlayer(n),      // a controller became player n (someone new, or back)
+  left: n => holdPlace(n) });     // player n's controller went away
+const p2 = input.player(2);       // the same object for good: it reads nothing until someone is player 2
+p2.held("left"); p2.stick(); p2.stick2(); p2.trigger("rt"); p2.button("up"); p2.rumble(0.6, 0.3, 120);
+p2.label("a"); p2.kind(); p2.connected(); p2.active();
+input.players();                  // the numbers of those who have joined so far
+```
+
+Without Low3D it's pad.js alone: `SofaPad.players()`, `SofaPad.player(n)` (with `n` and the same calls, `on(h)`
+among them, for that controller's own presses), `SofaPad.on("joined", p => …)` and `SofaPad.on("left", p => …)`;
+`SofaPad.on((b, how, p) => …)` hears every controller and says whose it was. The box turns every controller's
+presses into keys; while any of them is in use (a direction held included), those keys are dropped as before.
+
+## Playing by itself, and the games check
+
+A game opened with `#demo` at the end of its address plays by itself: an attract mode that takes no controller and
+keeps nothing (no saves, records or settings), and says so with `window.SofaStats.demo = true`. The games check
+uses it to measure each game playing. In a Low3D game the engine sets `E.demo` and makes `window.SofaStats` (its
+`ready`, `tier`: the mode and rung, `fps`: frames drawn a second, and `workMs`: its work a frame drawn); the game
+sets `demo`. A game of its own sets `window.SofaStats = { demo: true }`, with `tier`, `fps` and `workMs` if it has
+them. Tidewing rides behind a rival, Cosmic Cascade drops its own gems, Micro Drifters' car drives itself and
+Shadow Heist's thief wanders the level.
+
+The games check is in the graphics check ("Games check", or `probe/#games`; `&run` starts it, `&secs=N` measures N
+seconds a game, `&only=id+id` checks those alone). It opens each game in `games.json`'s `games` in turn, in a frame
+of its page with `#demo`, lets it settle, and times 15 s from the game's own window: frames a second, late frames
+(more than 25 ms apart), the slowest, the game's work each frame (its requestAnimationFrame callbacks), memory
+(the box's free memory from the agent, and the page's script memory where the browser gives it exactly: Chromium
+can round it and refresh it only every 20 minutes, and the check notices), and what `SofaStats` says. The frame can't take the keys and the game sees no
+controller, so B stops the check and nothing starts or saves. On a Pi 3 it is the measure of each game.
+
 ## Checking a game
 
 - In a browser: `python3 deploy/sofa-box/sofa-box-agent.py` with `SOFA_BOX_CONF=<tmp> SOFA_BOX_ICONS=0
   SOFA_BOX_UINPUT=0`, then `http://127.0.0.1:8091/box/games/<id>/#fps`.
 - On a box: the graphics check at `http://127.0.0.1:8091/box/games/probe/` (in the box's browser) shows the GPU,
   the test, the rung a game would pick, and a scene drawn that way with its live frame rate. Tidewing's "This box"
-  screen shows the same, plus what the governor has done.
+  screen shows the same, plus what the governor has done. Its Games check plays every game in turn and shows a
+  table of how each one ran.
 - `tests/test_box_games.py` (`TheEngine`) checks that games stay offline and on the controller, that every page's
   script parses, and that each kind of box gets the right drawing.
 

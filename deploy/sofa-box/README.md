@@ -364,6 +364,11 @@ song in the box's player, or shows a picture; **Menu** renames, moves or deletes
   platformer), **Shadow Heist** (stealth), **Rune Tactics** (turn-based tactics), **Micro Drifters** (top-down
   racing), **Neon Brawler** (a beat 'em up), **Void Drifter** (mining and upgrades in space), **Cosmic Cascade**
   (a falling-gems puzzle), and the small ones, **Neon Dodge**, **Pair Up** and **Sky Hop**.
+- **How smoothly each game runs on your box**: the graphics check (`127.0.0.1:8091/box/games/probe/` in the box's
+  browser) has a **Games check**. It plays each of the box's own games for 15 seconds, one after another (about
+  four minutes), then shows a table on the TV: frames a second, late frames, the slowest frame, the game's own
+  work each frame, memory, and the quality the game chose. Games that can play by themselves are measured
+  playing, the others on their title screen. A starts it, B stops it or goes back, and no game's saves are touched.
 
 ### Settings and themes
 

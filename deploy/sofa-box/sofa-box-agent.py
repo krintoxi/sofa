@@ -3043,10 +3043,13 @@ def box_info():
     controllers = [line.split(" ", 2)[2] for line in paired.splitlines() if line.startswith("Device ") and len(line.split(" ", 2)) == 3]
     try:
         with open("/proc/meminfo") as f:
-            mem = int(re.search(r"MemTotal:\s+(\d+)", f.read()).group(1)) * 1024
+            meminfo = f.read()
+        mem = int(re.search(r"MemTotal:\s+(\d+)", meminfo).group(1)) * 1024
+        free = re.search(r"MemAvailable:\s+(\d+)", meminfo)            # (what's left for more: the games check shows it)
+        free = int(free.group(1)) * 1024 if free else None
     except (OSError, AttributeError):
-        mem = None
-    return {"version": OS_VERSION, "newest": newest_version(), "model": model() or "this computer", "memory": mem, "temperature": temp,
+        mem = free = None
+    return {"version": OS_VERSION, "newest": newest_version(), "model": model() or "this computer", "memory": mem, "memory_free": free, "temperature": temp,
             "wifi": ssid or None, "address": local_address(), "server": server(), "server_name": (found.get(server()) or {}).get("name"),
             "settings": {k: s[k] for k in ("quality", "hwdec", "audio", "theme", "boot_text", "performance", "boot_sound", "weather", "weather_units")},
             "weather_place": s.get("weather_place") or zone_place(current_timezone()), "weather_picked": bool(s.get("weather_place")),

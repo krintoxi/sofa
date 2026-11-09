@@ -881,6 +881,10 @@ function hitB() { return padHit.b === 1 || keyHit("Escape") || keyHit("Backspace
 function clearHits() { for (const k in padHit) padHit[k] = 0; }
 function getStick() { return window.SofaPad ? SofaPad.stick() : { x: 0, y: 0 }; }
 function padHeld(btn) { return !!(window.SofaPad && SofaPad.held(btn)); }
+// #demo (the box's games check opens it so): it races by itself, the rivals' driving at the wheel; no controller, and
+// no lap record kept
+const DEMO = /demo/.test(location.hash);
+if (DEMO) window.SofaStats = { demo: true };
 function getSteerInput() {
   const st = getStick();
   if (Math.abs(st.x) > 0.1) return st.x;
@@ -1212,7 +1216,7 @@ function checkRaceEnd() {
         playVictory();
         // Check record
         const prevBest = parseFloat(localStorage.getItem("md_best_" + selectedTrack) || "999999");
-        if (car.bestLap < prevBest) {
+        if (car.bestLap < prevBest && !DEMO) {
           newRecord = true;
           localStorage.setItem("md_best_" + selectedTrack, car.bestLap.toFixed(3));
         }
@@ -1233,7 +1237,7 @@ function loop(now) {
 
   if (scene === SCENE.TITLE) {
     handleTitleKeys();
-    if (hitA()) { clearHits(); startRace(); return; }
+    if (DEMO || hitA()) { clearHits(); startRace(); return; }
     drawTitle();
 
   } else if (scene === SCENE.RACE) {
@@ -1249,14 +1253,16 @@ function loop(now) {
         }
       }
     } else {
-      // Player input
-      player.steer = getSteerInput();
-      player.throttle = getThrottle();
-      if (getBoostInput() && player.boostTimer <= 0 && (player.charge || 0) >= 1) {      // spend the drift's charge
-        player.boostTimer = BOOST_DUR; player.charge = 0;
+      // Player input (#demo: the car drives itself, as the rivals do)
+      if (DEMO) updateAI(player, currentTrack, dt);
+      else {
+        player.steer = getSteerInput();
+        player.throttle = getThrottle();
+        if (getBoostInput() && player.boostTimer <= 0 && (player.charge || 0) >= 1) {      // spend the drift's charge
+          player.boostTimer = BOOST_DUR; player.charge = 0;
+        }
+        updateCar(player, dt, currentTrack);
       }
-
-      updateCar(player, dt, currentTrack);
 
       // AI
       for (let i = 1; i < cars.length; i++) {
@@ -1280,7 +1286,7 @@ function loop(now) {
   } else if (scene === SCENE.RESULTS) {
     if (engineGain) { engineGain.gain.value = 0; setScreechVol(0); }      // (the engine quiet off the track)
     drawResults();
-    if (hitA()) startRace();
+    if (DEMO || hitA()) startRace();
     else if (hitB()) scene = SCENE.TITLE;
   }
   clearHits();
