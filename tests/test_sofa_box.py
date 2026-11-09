@@ -1330,6 +1330,92 @@ class BoxBrowser(unittest.TestCase):
         self.assertTrue(until("NB.score[0] > %d" % s0, 40))              # it fights by itself
         self.assertIsNone(js("localStorage.getItem('neon-brawler')"))    # and keeps nothing
 
+    def test_micro_drifters_plays(self):
+        """Micro Drifters in the box's browser: twelve tracks in four settings, four cars, five cups. The bots get round
+        every track (and over every gap); a held drift lets go as a boost; a wall keeps a car on the road; skid marks stay
+        on the ground; a slow car drops into a canyon's gap and is put back on the road after it; a cup's points add up
+        to a podium with the same rivals throughout, and winning it unlocks Bolt; a time trial keeps the best lap and its
+        ghost; Knockout ends with a winner; a second player left off the screen catches up; the demo races by itself and
+        keeps nothing."""
+        self.post("/box/api/open", {"url": self.base + "/box/games/micro-drifters/#test"})
+        js = lambda e: self.page_value("/box/games/micro-drifters", e)
+
+        def until(expr, secs=30):
+            end = time.time() + secs
+            while time.time() < end:
+                try:
+                    if js(expr):
+                        return True
+                except (StopIteration, OSError, KeyError):
+                    pass
+                time.sleep(0.3)
+            return False
+        self.assertTrue(until("typeof MD === 'object' && MD.mode === 'title'"))
+        js("window.errs = []; addEventListener('error', e => errs.push(String(e.message))); 1")
+        sets = json.loads(js("JSON.stringify([MD.TRACKS.length, [...new Set(MD.TRACKS.map(t => t.set))].sort(), MD.CLASSES.length, MD.CUPS.length])"))
+        self.assertEqual(sets, [12, ["city", "desert", "night", "snow"], 4, 5])
+        # every track: the bots go round (two laps each) and clear every gap
+        laps = json.loads(js("""JSON.stringify(MD.TRACKS.map(T => { MD.startRace({ kind: 'demo', track: T.id, laps: 2, tier: 0 }); MD.sim(170);
+               return [T.id, MD.RACE.state, Math.min(...MD.cars.map(c => c.lap)), MD.cars.reduce((a, c) => a + (c.falls || 0), 0),
+                       T.feats.some(f => f.k === 'ramp') ? Math.min(...MD.cars.map(c => c.jumps || 0)) : 1]; }))"""))
+        for tid, state, low, falls, jumps in laps:
+            self.assertEqual(state, "over", tid)
+            self.assertGreaterEqual(low, 2, tid)
+            self.assertLessEqual(falls, 2, tid)                          # (a shove into the water now and then)
+            self.assertGreaterEqual(jumps, 1, tid)
+        # a drift held through a bend lets go as a boost; its marks stay on the ground
+        drift = json.loads(js("""(() => { MD.P = [{ pad: 0, ci: 1, col: '#e8463c' }]; MD.startRace({ kind: 'quick', track: 'harbour', laps: 3, tier: 1 }); MD.sim(3.2);
+               const c = MD.cars.find(c => c.human), R = MD.TR; c.ctl = null; c.human = true;
+               const i = R.at(9.4); c.si = i; c.x = R.x[i]; c.y = R.y[i]; c.a = Math.atan2(R.ty[i], R.tx[i]); c.vx = R.tx[i] * 170; c.vy = R.ty[i] * 170; MD.locate(c);
+               const g = R.ground.getContext('2d'), before = g.getImageData(0, 0, R.T.w, R.T.h).data.reduce((a, v) => a + v, 0);
+               c.ctl = { x: () => -0.9, held: b => b === 'a' || b === 'x', take: () => false, rumble() {} };
+               MD.sim(0.4); const charged = c.drifting && c.charge; c.charge = 1.5; c.ctl.held = b => b === 'a'; MD.sim(1 / 60);
+               const after = g.getImageData(0, 0, R.T.w, R.T.h).data.reduce((a, v) => a + v, 0);
+               return JSON.stringify({ charged, boost: c.boost, marked: after < before }); })()"""))
+        self.assertGreater(drift["charged"], 0.3)                         # it charges while held
+        self.assertGreater(drift["boost"], 0.7)                           # (a second-level charge: 0.8 s of boost)
+        self.assertTrue(drift["marked"])
+        # a wall: driven straight at it, the car stays on its side
+        wall = json.loads(js("""(() => { const c = MD.cars.find(c => c.human), R = MD.TR, i = R.at(10.5); c.ctl = { x: () => 0, held: b => b === 'a', take: () => false, rumble() {} };
+               c.si = i; c.x = R.x[i]; c.y = R.y[i]; c.a = Math.atan2(R.ny[i], R.nx[i]); c.vx = R.nx[i] * 180; c.vy = R.ny[i] * 180; c.av = 0; MD.locate(c);
+               MD.sim(1.2); return JSON.stringify([MD.clearOf(R, c.x, c.y) <= 0, c.fall]); })()"""))
+        self.assertEqual(wall, [True, 0])
+        # too slow for the canyon's gap: in it goes, and back on the road beyond it
+        gap = json.loads(js("""(() => { MD.startRace({ kind: 'quick', track: 'canyon', laps: 3, tier: 1 }); MD.sim(3.2); const c = MD.cars.find(c => c.human), R = MD.TR, rp = R.ramps.find(r => r.gap);
+               const i = (rp.i - 12 + R.N) % R.N; c.ctl = { x: () => 0, held: b => b === 'a', take: () => false, rumble() {} };
+               c.si = i; c.x = R.x[i]; c.y = R.y[i]; c.a = Math.atan2(R.ty[i], R.tx[i]); c.vx = R.tx[i] * 40; c.vy = R.ty[i] * 40; MD.locate(c);
+               MD.sim(3); return JSON.stringify([c.falls || 0, (c.si - rp.i + R.N) % R.N > 10 && (c.si - rp.i + R.N) % R.N < 200]); })()"""))
+        self.assertEqual(gap, [1, True])
+        # a cup of three: points, the same rivals throughout, a podium, Bolt unlocked
+        cup = json.loads(js("""(() => { const cup = { id: 'city', name: 'CITY CUP', tracks: ['harbour', 'market', 'skyline'], i: 0, tier: 1, pts: {}, who: {} }; let rivals = null, same = true;
+               for (const id of cup.tracks) { MD.startRace({ kind: 'cup', track: id, laps: 1, tier: 1, cup }); const r = MD.cars.filter(c => !c.human).map(c => c.name + c.ci).join();
+                 if (rivals && r !== rivals) same = false; rivals = r; MD.cars.forEach(c => { if (c.human) { c.auto = 1; c.k = 1.3; } }); MD.sim(120); cup.i++; }
+               cup.i = 2; MD.cupDone(cup); const st = MD.standings(cup);
+               return JSON.stringify({ same, n: st.length, total: st.reduce((a, w) => a + w.pts, 0), top: st[0].human === true, bolt: MD.SAVE.unlocked.bolt, medal: MD.SAVE.cups.city.pro }); })()"""))
+        self.assertEqual(cup, {"same": True, "n": 6, "total": 3 * 28, "top": True, "bolt": 1, "medal": 3})
+        self.assertEqual(js("JSON.parse(localStorage.getItem('micro-drifters')).unlocked.bolt"), 1)
+        # a time trial: the best lap kept, and its ghost
+        trial = json.loads(js("""(() => { MD.P = [{ pad: 0, ci: 2, col: '#4ac860' }]; MD.startRace({ kind: 'trial', track: 'pines', laps: 99, tier: 1 }); MD.cars[0].auto = 1; MD.sim(70);
+               const b = JSON.parse(localStorage.getItem('micro-drifters')).best.pines; return JSON.stringify([MD.cars.length, b.lap > 10 && b.lap < 40, b.ghost.length > 1000, !!MD.RACE.ghost]); })()"""))
+        self.assertEqual(trial, [1, True, True, True])
+        # Knockout: a round ends with one car left, and a point for it
+        ko = json.loads(js("""(() => { MD.P = [{ pad: 0, ci: 0, col: '#3a7ae8' }]; MD.startRace({ kind: 'ko', track: 'dunes', tier: 1, target: 3 }); MD.cars.forEach(c => { if (c.human) c.auto = 1; });
+               MD.sim(45); return JSON.stringify([MD.cars.length, MD.RACE.state, MD.cars.reduce((a, c) => a + c.pts, 0)]); })()"""))
+        self.assertEqual(ko, [4, "round", 1])
+        # two players: the one left off the screen is brought back behind the leader
+        two = json.loads(js("""(() => { MD.P = [{ pad: 0, ci: 0, col: '#e8463c' }, { pad: 2, ci: 1, col: '#3a7ae8' }]; MD.startRace({ kind: 'quick', track: 'neon', laps: 3, tier: 1 });
+               MD.cars.forEach(c => { if (c.human) c.auto = 1; }); MD.sim(10); const [a, b] = MD.cars.filter(c => c.human), R = MD.TR, lead = a.prog > b.prog ? a : b, lag = lead === a ? b : a;
+               const i = (lead.si - (R.N / 3 | 0) + R.N) % R.N; lag.si = i; lag.x = R.x[i]; lag.y = R.y[i]; lag.vx = lag.vy = 0; MD.locate(lag); MD.sim(1);
+               return JSON.stringify([Math.hypot(lag.x - lead.x, lag.y - lead.y) < 200, lag.msg]); })()"""))
+        self.assertEqual(two, [True, "CATCH UP!"])
+        self.assertEqual(js("JSON.stringify(errs)"), "[]")
+        js("localStorage.removeItem('micro-drifters'); location.hash = '#demo-test'; location.reload(); 1")
+        time.sleep(1)
+        self.assertTrue(until("typeof MD === 'object' && window.SofaStats.demo === true && MD.mode === 'play' && MD.RACE.state === 'race'", 30))
+        p0 = js("Math.max(...MD.cars.map(c => c.prog))")
+        self.assertTrue(until("Math.max(...MD.cars.map(c => c.prog)) > %d + 60" % p0, 30))   # it races by itself
+        self.assertIsNone(js("localStorage.getItem('micro-drifters')"))                       # and keeps nothing
+
     def test_gloamwell_finds(self):
         """Gloamwell's finds: a gem set in a socket gives its power and is kept through a save; a hidden vault's
         cracked wall breaks open; a familiar follows you down; floors with an omen (a gilded thief, the restless

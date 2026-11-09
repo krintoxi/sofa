@@ -278,7 +278,7 @@ console.log(JSON.stringify(out));
             html = self.read(gid, "index.html")
             self.assertRegex(html, r"SofaStats(\.demo = true|=\{demo:true\}| = \{ demo: true \})", gid)
         drifters = self.read("micro-drifters", "index.html")
-        self.assertIn("car.bestLap < prevBest && !DEMO", drifters)     # (its only record: the best lap)
+        self.assertIn('new L2.Store("micro-drifters"', drifters)       # (its records, kept by Low2D's Store: nothing in #demo)
         self.assertIn("if (E.demo) return;", self.read("tidewing", "index.html"))
         self.assertIn("if (!P || DEMO) return;", self.read("gloamwell", "index.html"))   # (Gloamwell's demo: no saves)
         self.assertTrue(re.search(r"E\.demo = /demo/\.test\(H\)", self.read("low3d.js")))
@@ -316,6 +316,7 @@ class TheEngine(unittest.TestCase):
         on_2d = [g["id"] for g in CATALOG["games"] if "../low2d.js" in self.read(g["id"], "index.html")]
         self.assertIn("cinder-knight", on_2d)
         self.assertIn("neon-brawler", on_2d)
+        self.assertIn("micro-drifters", on_2d)
         for gid in on_2d:                                                 # pad.js, then Low3D, then Low2D on top of it
             html = self.read(gid, "index.html")
             self.assertLess(html.index('src="../pad.js"'), html.index('src="../low3d.js"'), gid)

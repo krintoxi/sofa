@@ -7,6 +7,20 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.46
+
+- **Micro Drifters, a whole racing game.** Twelve tracks in four settings, each with its own weather: Harbour Loop,
+  Market Run (rain) and Skyline Sprint (a figure of eight over a bridge at sundown) in the city; Dune Rally, Canyon
+  Jump (a sandstorm, and a gap to clear) and Mesa Mirage in the desert; Pine Ridge, Frozen Lake (across the ice) and
+  Avalanche Pass (switchbacks in a blizzard) in the snow; Neon Strip, Dockside (a storm, and a canal to jump) and
+  Midnight Express (fog, over the overpass) at night, with headlights, street lamps and neon. Skid marks and tyre
+  ruts stay for the race; cones, drums and snowmen get knocked flying. Four cars that drive differently (Pip,
+  Brute, Scout, and Bolt, unlocked by winning a cup); drifts that charge a boost; rocket starts; jumps, ice, oil,
+  puddles, mud and boost pads. One to four players on one screen with bots filling a field of six: a championship
+  of four cups and a fifth for champions, at Club, Pro or Legend; quick races; time trials against the ghost of your
+  best lap; Knockout. Best laps, best races, medals and the longest drift are kept on the box. It's on the box's 2D
+  engine now: the cars are drawn a pixel at a time at every angle, and the tracks are painted as they load.
+
 ## 1.1.45
 
 - **Neon Brawler, a whole beat 'em up.** Five stages through a city at night: Rain Street, the Neon Market, the Night

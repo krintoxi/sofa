@@ -397,8 +397,19 @@ song in the box's player, or shows a picture; **Menu** renames, moves or deletes
   that fills as you fight, hit-stop and shake. One player, or two together: a second controller joins at any time
   with Start. Your best score, best combo and the furthest stage are kept on the box. It's on the box's 2D engine,
   with lamps, neon and rain in the light of the full look.
+- **Micro Drifters**, top-down racing for one to four on one screen: twelve tracks in four settings (the city by
+  day, the desert, the snow, the city at night), each with its own weather (rain, sundown, a sandstorm, snow, a
+  blizzard with wind, a storm with lightning, fog). Jumps (some over a gap: go flat out or drop in), a bridge to
+  cross over the road below, ice, oil, puddles, mud and boost pads; skid marks and tyre tracks that stay for the
+  race, and cones that stay where they're knocked. Four cars that drive differently (Pip, Brute, Scout, and Bolt
+  once a cup is won): hold X or RB through a bend to drift, and let go for a boost (the sparks change colour as it
+  charges); A or RT for gas, B or LT to brake, Y for the horn. Bots fill a field of six. A championship of four
+  cups (and a Champions Cup once all four are won) at Club, Pro or Legend; quick races; time trials against the
+  ghost of your best lap; and Knockout, where whoever's left off the screen is out. With several players the
+  screen follows the leader, and anyone left behind is brought back just behind them. Records kept on the box.
+  Options: Driving help holds the gas for you.
 - More of the box's own games, each a page that plays offline with the controller: **Shadow Heist** (stealth),
-  **Rune Tactics** (turn-based tactics), **Micro Drifters** (top-down racing),
+  **Rune Tactics** (turn-based tactics),
   **Void Drifter** (mining and upgrades in space), **Cosmic Cascade** (a falling-gems puzzle), and the small ones,
   **Neon Dodge**, **Pair Up** and **Sky Hop**.
 - **How smoothly each game runs on your box**: the graphics check (`127.0.0.1:8091/box/games/probe/` in the box's

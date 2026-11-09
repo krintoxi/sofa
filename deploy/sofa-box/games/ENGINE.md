@@ -13,7 +13,8 @@ It's one file: offline, no libraries, no build step. A game is one page that loa
 
 For games in pixels (side-on or from above: platformers, brawlers, tactics, racers seen from the sky) there's a
 second file on top of it, **Low2D** (`low2d.js`): see [Low2D: the 2D engine](#low2d-the-2d-engine). Cinder Knight
-(`cinder-knight/`) is built on it, and the box's other small page games move onto it as each is made better.
+(`cinder-knight/`), Neon Brawler (`neon-brawler/`) and Micro Drifters (`micro-drifters/`) are built on it, and the
+box's other small page games move onto it as each is made better.
 
 The engine grows with each game. When a game needs something another game could use, the general part goes
 here and the game keeps only what is its own.
@@ -383,7 +384,10 @@ the game's, so the tests can play every stage in node with the game's own physic
 `#fps` shows the frame rate, the look, the pace and the work a frame; `#tier=light|full|rich` and `#pace=60|30` hold
 them; `#slow=N`, `#demo` and `#test` work as in Low3D. Cinder Knight on this Mac's headless Chrome (A18 Pro, no GPU):
 0.27 ms of script a frame on the full look, 0.6 ms on rich; on the light look with `#slow=20` (each frame's work 20
-times as long) 60 frames a second and none late.
+times as long) 60 frames a second and none late. Micro Drifters, racing by itself: 0.16 ms on the light look,
+0.25 ms on full and rich; with `#slow=20` it holds 60 on the light look, 3.6 ms of work a frame on a day track,
+5.6 ms in the night's storm (lamps and headlights in the light map) and 8.2 ms in the blizzard. A track is painted
+as it loads (about 0.1 s here; longer on a Pi 3, not yet timed on one, behind the fade).
 
 ## Checking a game
 
