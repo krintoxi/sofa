@@ -13,7 +13,7 @@ It's one file: offline, no libraries, no build step. A game is one page that loa
 
 For games in pixels (side-on or from above: platformers, brawlers, tactics, racers seen from the sky) there's a
 second file on top of it, **Low2D** (`low2d.js`): see [Low2D: the 2D engine](#low2d-the-2d-engine). Cinder Knight
-(`cinder-knight/`), Neon Brawler (`neon-brawler/`), Micro Drifters (`micro-drifters/`), Shadow Heist (`shadow-heist/`) and Rune Tactics (`rune-tactics/`) are built on it, and the
+(`cinder-knight/`), Neon Brawler (`neon-brawler/`), Micro Drifters (`micro-drifters/`), Shadow Heist (`shadow-heist/`), Rune Tactics (`rune-tactics/`) and Void Drifter (`void-drifter/`) are built on it, and the
 box's other small page games move onto it as each is made better.
 
 The engine grows with each game. When a game needs something another game could use, the general part goes
@@ -393,6 +393,8 @@ frame). Its light map is worked out a tile at a time when a lamp, a door or smok
 then, so a frame only copies it (scaling it each frame cost more than the rest of the drawing).
 Rune Tactics: 0.15 ms a frame on the light look, 0.27 ms on full; with `#slow=20` it holds the light look at 60
 (4.1 ms a frame). Its field is drawn once and again only when the ground changes (forest burnt, water frozen).
+Void Drifter: 0.1 to 0.5 ms a frame here; with `#slow=20` it holds the light look at 60 (4 ms a frame, 5.3 ms in
+the Dreadnought's fight). Its ships are drawn at 32 angles once, from their outlines, a pixel at a time.
 
 ## Checking a game
 

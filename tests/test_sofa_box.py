@@ -1556,6 +1556,64 @@ class BoxBrowser(unittest.TestCase):
         self.assertTrue(until("RT.BT && RT.BT.round >= 2", 60))                                 # it fights by itself
         self.assertIsNone(js("localStorage.getItem('rune-tactics')"))                           # and keeps nothing
 
+    def test_void_drifter_plays(self):
+        """Void Drifter in the box's browser: four ships, six weapons, eight modules, four bosses, five events. A zone's
+        map has five columns of sectors and the boss, every one reachable, a shop in each zone; a fight clears; an
+        asteroid field ends; each boss can be beaten and the next zone opens; every weapon fires; a shield takes a hit
+        before the hull; a trader fits a module; a shop sells a weapon; a second ship joins mid-run and brings a downed
+        one back; beating the Dreadnought unlocks the Spectre and is kept; the demo flies by itself and keeps nothing."""
+        self.post("/box/api/open", {"url": self.base + "/box/games/void-drifter/#test"})
+        js = lambda e: self.page_value("/box/games/void-drifter", e)
+
+        def until(expr, secs=30):
+            end = time.time() + secs
+            while time.time() < end:
+                try:
+                    if js(expr):
+                        return True
+                except (StopIteration, OSError, KeyError):
+                    pass
+                time.sleep(0.3)
+            return False
+        self.assertTrue(until("typeof VD === 'object' && VD.mode === 'title'"))
+        js("window.errs = []; addEventListener('error', e => errs.push(String(e.message))); 1")
+        self.assertEqual(json.loads(js("JSON.stringify([Object.keys(VD.SHIPS).length, Object.keys(VD.WEAPONS).length, Object.keys(VD.MODULES).length, VD.BOSSES.length, VD.EVENTS.length])")), [4, 6, 8, 4, 5])
+        maps = json.loads(js("""JSON.stringify([0, 1, 2, 3].map(z => { const M = VD.zoneMap(z, 1234 + z); const reach = new Set([0, 1].map(i => '0,' + i));
+               for (let c = 0; c < 5; c++) for (const s of M[c]) if (reach.has(c + ',' + s.i)) for (const j of s.next) reach.add((c + 1) + ',' + j);
+               return [M.length, M[5][0].type, M.flat().every(s => reach.has(s.c + ',' + s.i)), M.flat().some(s => s.type === 'shop')]; }))"""))
+        self.assertEqual(maps, [[6, "boss", True, True]] * 4)
+        once = json.loads(js("""(() => { VD.start('vagrant', [{ pad: 0 }]); VD.openMap(); VD.RUN.map[0].forEach(s => s.type = 'fight'); VD.goNode(VD.nextNodes()[0]); VD.goNode(0); return JSON.stringify([VD.RUN.col, VD.mode]); })()"""))
+        self.assertEqual(once, [0, "fading"])                          # (a sector chosen once, however often it's pressed while the screen fades)
+        fight = json.loads(js("""(() => { VD.start('vagrant', [{ pad: 0, bot: true }]); VD.RUN.weapons = [{ id: 'missile', lvl: 3 }]; VD.PL[0].hull = VD.PL[0].max = 600; VD.fly('fight'); VD.sim(180); const a = VD.mode;
+               VD.start('vagrant', [{ pad: 0, bot: true }]); VD.fly('mine'); VD.sim(60); return JSON.stringify([a, VD.mode, VD.RUN.ore > 0]); })()"""))
+        self.assertEqual(fight, ["fading", "fading", True])
+        bosses = json.loads(js("""JSON.stringify([0, 1, 2, 3].map(z => { VD.start('vagrant', [{ pad: 0, bot: true }]); VD.RUN.zone = z; VD.RUN.weapons = [{ id: 'missile', lvl: 3 }];
+               VD.PL[0].hull = VD.PL[0].max = 900; VD.fly('boss'); const name = VD.BOSS.D.name; VD.sim(300); return [name, VD.BOSS === null, VD.mode, VD.RUN.zone]; }))"""))
+        for z, (name, dead, mode, zone) in enumerate(bosses):
+            self.assertTrue(dead, name)
+            self.assertEqual((mode, zone), ("over", 3) if z == 3 else ("fading", z + 1), name)
+        guns = json.loads(js("""(() => { const out = {}; for (const id of Object.keys(VD.WEAPONS)) { VD.start('vagrant', [{ pad: 0 }]); VD.RUN.weapons = [{ id, lvl: 1 }]; VD.fly('fight');
+               const p = VD.PL[0]; p.ctl = { x: () => 0, y: () => 0, held: b => b === 'a', take: () => false, pad: () => null, rumble() {} }; VD.sim(0.5); out[id] = VD.B.length > 0 || !!p.beam; } return JSON.stringify(out); })()"""))
+        self.assertTrue(all(guns.values()), guns)
+        mods = json.loads(js("""(() => { VD.start('vagrant', [{ pad: 0 }]); const max0 = VD.PL[0].max; VD.RUN.mods.push('armor', 'shield'); VD.fitStats(); const p = VD.PL[0]; p.shield = p.smax; p.inv = 0;
+               const h = p.hull; VD.hurtPilot(p, 10); const a = [p.max > max0, p.hull === h, p.shield < p.smax];
+               VD.RUN.ore = 200; VD.RUN.col = 0; VD.RUN.row = 0; VD.EVT = Object.assign({}, VD.EVENTS[2]); VD.eventChoice('trade'); a.push(VD.RUN.mods.length === 3, VD.RUN.ore === 110);
+               VD.openShop(); const it = VD.SHOP.find(i => i.t === 'SPREAD GUN' || i.t === 'LASER' || i.t === 'MISSILES' || i.t === 'RAILGUN' || i.t === 'FLAK'); VD.RUN.ore = 500; it.buy(); a.push(VD.RUN.weapons.length === 2);
+               return JSON.stringify(a); })()"""))
+        self.assertEqual(mods, [True, True, True, True, True, True])
+        two = json.loads(js("""(() => { VD.start('vagrant', [{ pad: 0 }]); VD.fly('mine'); VD.onButton('start', 'press', 2); const [a, b] = VD.PL; b.inv = 0; b.dashT = 0; VD.hurtPilot(b, 9999);
+               const down = b.down; a.x = b.x + 10; a.y = b.y; a.vx = a.vy = 0; VD.RO.length = 0; a.ctl = { x: () => 0, y: () => 0, held: () => false, take: () => false, pad: () => null, rumble() {} }; b.ctl = a.ctl; VD.sim(2.5); return JSON.stringify([VD.PL.length, down, b.down]); })()"""))
+        self.assertEqual(two, [2, True, False])
+        won = json.loads(js("""(() => { VD.start('vagrant', [{ pad: 0 }]); VD.RUN.zone = 3; VD.RUN.won = true; VD.runOver(true); const s = JSON.parse(localStorage.getItem('void-drifter'));
+               return JSON.stringify([s.ships.spectre, s.ships.wasp, s.ships.bulwark, s.wins]); })()"""))
+        self.assertEqual(won, [1, 1, 1, 1])
+        self.assertEqual(js("JSON.stringify(errs)"), "[]")
+        js("localStorage.removeItem('void-drifter'); location.hash = '#demo-test'; location.reload(); 1")
+        time.sleep(1)
+        self.assertTrue(until("typeof VD === 'object' && window.SofaStats.demo === true && !!VD.RUN", 30))
+        self.assertTrue(until("VD.RUN && (VD.RUN.col >= 0 || VD.RUN.kills > 0)", 60))        # it flies by itself (chooses its own way on the map)
+        self.assertIsNone(js("localStorage.getItem('void-drifter')"))                          # and keeps nothing
+
     def test_gloamwell_finds(self):
         """Gloamwell's finds: a gem set in a socket gives its power and is kept through a save; a hidden vault's
         cracked wall breaks open; a familiar follows you down; floors with an omen (a gilded thief, the restless

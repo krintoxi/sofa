@@ -7,6 +7,18 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.49
+
+- **Void Drifter, a whole space run.** Four zones (the Outer Belt, the Hive Reaches, the Glass Nebula, the Deep), each
+  a map of sectors where you choose the route: fights in waves, asteroid fields to mine, events with choices (a
+  distress call that may be a trap, a derelict to strip, a trader drone, an ion storm, a smuggler's cache) and shops,
+  then a boss: the Maw lunges and spits rock, the Hive Carrier sends its swarm, the Prism sweeps beams and fires
+  rings, the Dreadnought broadsides, fires missiles and charges a beam across the sector. Six weapons, levelled up
+  at shops; eight modules (shield, magnet, drone, armour, thrusters, salvager, nanites, overclock). Five kinds of
+  foe. Ships unlocked between runs: the Wasp, the Bulwark and the Spectre. Fly with one stick and aim with the
+  other, or let A aim at what's nearest. Two ships together; a downed one comes back when the other flies close.
+  Your best score and furthest zone are kept on the box. It's on the box's 2D engine now.
+
 ## 1.1.48
 
 - **Rune Tactics, a whole tactics game.** A campaign of fifteen battles on a map whose roads branch: meadows,

@@ -1,1010 +1,839 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Void Drifter</title>
 <style>
-  html, body { margin: 0; height: 100%; background: #04030a; color: #fff; overflow: hidden; user-select: none; }
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; user-select: none; }
   canvas { position: absolute; image-rendering: pixelated; }
 </style></head><body>
-<canvas id="c" width="480" height="270"></canvas>
+<canvas id="c"></canvas>
 <script src="../pad.js"></script>
+<script src="../low3d.js"></script>
+<script src="../low2d.js"></script>
 <script>
-/* Void Drifter: a 16-bit space roguelite combat and asteroid miner for Sofa Box OS.
-   Pixel art spaceships, mineral veins, orbital docks, Bayer-dithered nebula lighting,
-   dreadnought flagship boss, custom bitmap font. Self-contained, Web Audio synth, 100% offline. */
+/* Void Drifter: a space run for Sofa Box OS, on Low2D (../low2d.js), the box's 2D engine. Each run crosses four zones
+   of a sector map, choosing the route: fights, asteroid fields to mine, events (a distress call, a derelict, a trader,
+   an ion storm), shops, and a boss at the end of each zone (the Maw, the Hive Carrier, the Prism, the Dreadnought).
+   Six weapons, eight modules to fit, ore to spend; ships unlocked between runs (the Vagrant, the Wasp, the Bulwark, the
+   Spectre). One ship, or two flying together. Fly with the left stick, aim and fire with the right (or fire at what's
+   nearest). Everything is the game's own and made in code. Offline, the controller first (or the keyboard). In the
+   address: #fps, #tier=…, #pace=…, #slow=N, #test (window.VD, for checks), #demo (it flies by itself). */
 (function () {
-  "use strict";
-  const VW = 480, VH = 270;
-  const cv = document.getElementById("c"), ctx = cv.getContext("2d", { alpha: false });
-  function fit() {
-    const s = Math.min(innerWidth / VW, innerHeight / VH);
-    const w = Math.round(VW * s), h = Math.round(VH * s);
-    cv.style.width = w + "px"; cv.style.height = h + "px";
-    cv.style.left = ((innerWidth - w) >> 1) + "px"; cv.style.top = ((innerHeight - h) >> 1) + "px";
-    ctx.imageSmoothingEnabled = false;
-  }
-  addEventListener("resize", fit); fit();
+"use strict";
+const L2 = window.Low2D, U = L2.U, clamp = U.clamp, font = L2.font, mk = L2.mk;
+const VW = 480, VH = 270, TAU = Math.PI * 2, DT = 1 / 60, AW = 800, AH = 460;
+const rnd = Math.random;
+function g2(c) { const g = c.getContext("2d"); g.imageSmoothingEnabled = false; return g; }
+function px(g, x, y, w, h, c) { g.fillStyle = c; g.fillRect(x, y, w, h); }
+function rgb(h) { const v = parseInt(h.slice(1), 16); return [(v >> 16) & 255, (v >> 8) & 255, v & 255]; }
+function shade(h, k) { return "#" + rgb(h).map(q => Math.max(0, Math.min(255, Math.round(q * k))).toString(16).padStart(2, "0")).join(""); }
+const angTo = (a, b) => Math.atan2(b.y - a.y, b.x - a.x);
 
-  function mk(w, h) { const c = document.createElement("canvas"); c.width = w; c.height = h; return c; }
-  function g2(c) { const g = c.getContext("2d"); g.imageSmoothingEnabled = false; return g; }
+// ---------------------------------------------------------------- ships, weapons, modules
+// shape: polygons in the ship's own frame (x forward), each with a part: 1 hull, 2 trim, 3 canopy, 4 engine
+const SHIPS = {
+  vagrant: { name: "VAGRANT", hull: 100, speed: 150, acc: 420, weapon: "blaster", col: "#7a9ac8", trim: "#d8d8e8", about: "AN OLD HAULER, GOOD AT EVERYTHING AND BEST AT NOTHING.",
+    shape: [[1, [[9, 0], [-6, -6], [-3, 0], [-6, 6]]], [2, [[2, -3], [-5, -8], [-6, -6]]], [2, [[2, 3], [-5, 8], [-6, 6]]], [3, [[5, 0], [1, -2], [1, 2]]], [4, [[-6, -2], [-8, -2], [-8, 2], [-6, 2]]]] },
+  wasp: { name: "WASP", hull: 70, speed: 190, acc: 560, weapon: "spread", col: "#e8c040", trim: "#2a2a30", unlock: "REACH THE SECOND ZONE", about: "QUICK AND THIN-SKINNED. STARTS WITH A SPREAD GUN.",
+    shape: [[1, [[10, 0], [-4, -3], [-7, 0], [-4, 3]]], [2, [[-1, -1], [-6, -9], [-4, -2]]], [2, [[-1, 1], [-6, 9], [-4, 2]]], [3, [[6, 0], [2, -1], [2, 1]]], [4, [[-7, -1], [-9, -1], [-9, 1], [-7, 1]]]] },
+  bulwark: { name: "BULWARK", hull: 150, speed: 125, acc: 330, weapon: "flak", col: "#8a9a6a", trim: "#d8b040", unlock: "REACH THE THIRD ZONE", about: "A FLYING BRICK. STARTS WITH FLAK AND TAKES A BEATING.",
+    shape: [[1, [[8, -4], [8, 4], [-7, 7], [-7, -7]]], [2, [[8, -4], [10, -2], [10, 2], [8, 4]]], [3, [[4, 0], [0, -3], [0, 3]]], [4, [[-7, -5], [-9, -5], [-9, -1], [-7, -1]]], [4, [[-7, 1], [-9, 1], [-9, 5], [-7, 5]]]] },
+  spectre: { name: "SPECTRE", hull: 90, speed: 170, acc: 480, weapon: "laser", module: "shield", col: "#9a7ad8", trim: "#5ae0ff", unlock: "BEAT THE DREADNOUGHT", about: "A SLIPPERY GHOST. STARTS WITH A LASER AND A SHIELD.",
+    shape: [[1, [[11, 0], [-2, -7], [-7, -5], [-4, 0], [-7, 5], [-2, 7]]], [2, [[-2, -7], [-9, -9], [-7, -5]]], [2, [[-2, 7], [-9, 9], [-7, 5]]], [3, [[6, 0], [1, -2], [1, 2]]], [4, [[-5, -1], [-8, -1], [-8, 1], [-5, 1]]]] }
+};
+const SHIP_IDS = ["vagrant", "wasp", "bulwark", "spectre"];
+// dmg a shot, rate shots a second, spd, life (s); kinds: shot, spread, beam, missile, rail, flak
+const WEAPONS = {
+  blaster: { name: "BLASTER", dmg: 6, rate: 7, spd: 360, life: 0.9, col: "#7af0ff", about: "STEADY BOLTS." },
+  spread: { name: "SPREAD GUN", dmg: 4, rate: 5, spd: 320, life: 0.6, n: 3, arc: 0.28, col: "#ffd04a", about: "THREE AT ONCE, WIDENING WITH EACH LEVEL." },
+  laser: { name: "LASER", dmg: 26, rate: 0, beam: 150, col: "#ff4af0", about: "A BEAM THAT BURNS WHILE IT'S HELD ON." },
+  missile: { name: "MISSILES", dmg: 14, rate: 2.2, spd: 200, life: 2.2, home: 1, col: "#ff8a3a", about: "THEY FIND THEIR OWN WAY." },
+  rail: { name: "RAILGUN", dmg: 30, rate: 1.4, spd: 900, life: 0.6, pierce: 1, col: "#e8f4ff", about: "SLOW, AND STRAIGHT THROUGH EVERYTHING." },
+  flak: { name: "FLAK", dmg: 3, rate: 2.5, spd: 260, life: 0.35, n: 8, arc: 0.7, col: "#ffb070", about: "A CLOUD OF SHRAPNEL, CLOSE IN." }
+};
+const WEAPON_IDS = Object.keys(WEAPONS);
+const MODULES = {
+  shield: { name: "SHIELD", about: "A SHIELD THAT COMES BACK WHEN YOU'RE NOT HIT FOR A WHILE." },
+  magnet: { name: "MAGNET", about: "ORE COMES TO YOU FROM FURTHER OFF." },
+  drone: { name: "DRONE", about: "A LITTLE GUN THAT CIRCLES YOU AND SHOOTS." },
+  armor: { name: "ARMOUR", about: "A THIRD MORE HULL." },
+  thruster: { name: "THRUSTERS", about: "FASTER, AND THE DASH COMES BACK SOONER." },
+  salvage: { name: "SALVAGER", about: "HALF AGAIN AS MUCH ORE FROM ROCKS AND WRECKS." },
+  repair: { name: "NANITES", about: "THE HULL MENDS ITSELF, SLOWLY." },
+  overclock: { name: "OVERCLOCK", about: "A QUARTER FASTER FIRING." }
+};
+const MOD_IDS = Object.keys(MODULES);
+// ---------------------------------------------------------------- foes and bosses
+const FOES = {
+  scout: { name: "SCOUT", hp: 12, speed: 120, r: 6, col: "#e85a5a", ore: 4, score: 10 },
+  gunship: { name: "GUNSHIP", hp: 26, speed: 70, r: 8, col: "#c87a3a", ore: 8, score: 25, gun: 1.6 },
+  dart: { name: "DART", hp: 6, speed: 230, r: 5, col: "#ff4a8a", ore: 3, score: 12, ram: 1 },
+  layer: { name: "MINELAYER", hp: 30, speed: 60, r: 9, col: "#8a6ad8", ore: 10, score: 30, mines: 3 },
+  turret: { name: "TURRET", hp: 40, speed: 0, r: 8, col: "#6a8a9a", ore: 12, score: 30, gun: 1.2 }
+};
+const BOSSES = [
+  { id: "maw", name: "THE MAW", hp: 1100, r: 26, col: "#a85a3a", about: "IT EATS ROCK. IT WILL EAT YOU." },
+  { id: "hive", name: "THE HIVE CARRIER", hp: 1700, r: 30, col: "#8a8a3a", about: "IT DOESN'T FIGHT. IT SENDS OTHERS." },
+  { id: "prism", name: "THE PRISM", hp: 2200, r: 24, col: "#5ae0ff", about: "BEAMS THAT SWEEP THE SECTOR." },
+  { id: "dread", name: "THE DREADNOUGHT", hp: 3300, r: 34, col: "#c83a4a", about: "THE END OF THE LINE. THREE WAYS TO DIE." }
+];
+const ZONES = [
+  { name: "THE OUTER BELT", sky: ["#04060e", "#0a1028"], neb: ["#2a3a7a", "#1a2a5a"], music: { seed: 13, root: 47, tempo: 112 } },
+  { name: "THE HIVE REACHES", sky: ["#0a0806", "#20180a"], neb: ["#6a5a1a", "#3a2a0a"], music: { seed: 17, root: 45, tempo: 118 } },
+  { name: "THE GLASS NEBULA", sky: ["#020a0e", "#082028"], neb: ["#1a6a7a", "#2a3a6a"], music: { seed: 19, root: 49, tempo: 124 } },
+  { name: "THE DEEP", sky: ["#0a0206", "#200810"], neb: ["#7a1a3a", "#3a0a2a"], music: { seed: 23, root: 43, tempo: 130 } }
+];
+const EVENTS = [
+  { id: "beacon", name: "A DISTRESS CALL", text: "A FREIGHTER IS DRIFTING, ITS BEACON BLINKING. IT MIGHT BE A TRAP.", opts: [["DOCK AND HELP", "beacon"], ["FLY ON", "none"]] },
+  { id: "derelict", name: "A DERELICT", text: "A DEAD WARSHIP, ITS HOLD STILL FULL. ITS REACTOR IS STILL WARM.", opts: [["STRIP IT (SOME RISK)", "derelict"], ["LEAVE IT", "none"]] },
+  { id: "trader", name: "A TRADER DRONE", text: "A LITTLE DRONE OFFERS A MODULE FOR ORE. IT WON'T HAGGLE.", opts: [["TRADE 90 ORE", "trade"], ["NO THANKS", "none"]] },
+  { id: "storm", name: "AN ION STORM", text: "THE STORM IS FULL OF CHARGED ORE. FLYING THROUGH IT WILL HURT.", opts: [["FLY THROUGH IT", "storm"], ["GO ROUND (SLOWER)", "round"]] },
+  { id: "cache", name: "A HIDDEN CACHE", text: "A SMUGGLER'S CACHE, CLAMPED TO A ROCK. A WEAPON INSIDE?", opts: [["CRACK IT OPEN", "cache"], ["LEAVE IT", "none"]] }
+];
 
-  // ------------------------------------------------ Palette & Pixel Art
-  const PAL = {
-    k: "#04030a", K: "#121024", g: "#424058", G: "#7a7694", w: "#ece8f4", s: "#dca072",
-    r: "#c82836", R: "#721422", o: "#e8802e", O: "#904018", y: "#eebc42", Y: "#9c7018",
-    b: "#426ec4", B: "#1a2c58", c: "#72d2ec", C: "#1e5270", n: "#664426", N: "#362214",
-    e: "#529842", p: "#8444a8", P: "#442060", m: "#decfa2", t: "#b4a690", T: "#6e6252"
-  };
-
-  const SPR = {
-    // Player Ship (16x16)
-    ship: [
-      ".......kk.......",
-      "......kwwk......",
-      ".....kcccck.....",
-      ".....kcccck.....",
-      "....kGGwwGGk....",
-      "....kGGccGGk....",
-      "...kGGccccGGk...",
-      "...kGGBwwBGGk...",
-      "..kGGGBBBGGGk...",
-      "..kGGkBBBBkGGk..",
-      ".kGGk.kBBk.kGGk.",
-      ".kGk..kBBk..kGk.",
-      ".kk...kBBk...kk.",
-      "......kBBk......",
-      ".......kk.......",
-      "................"
-    ],
-    // Thruster Flames
-    flameA: [
-      "......kRRk......",
-      ".....kroork.....",
-      ".....koyyok.....",
-      "......kwwk......",
-      ".......kk......."
-    ],
-    flameB: [
-      "......kRRk......",
-      ".....kroork.....",
-      "....krooyork....",
-      ".....koyyok.....",
-      "......kwwk......",
-      ".......kk......."
-    ],
-
-    // Pirate Drone (14x14)
-    drone: [
-      "......kk......",
-      ".....kRRk.....",
-      "....krrrrk....",
-      "...kRrrrrRk...",
-      "..kRryyyyrRk..",
-      "..kRrywwyrRk..",
-      ".kRRryyyyrRRk.",
-      ".kRRkrrrrkRRk.",
-      "kRRk.kRRk.kRRk",
-      "kRk..kRRk..kRk",
-      "kk...kRRk...kk",
-      "......kk......"
-    ],
-
-    // Dreadnought Boss (28x28)
-    boss: [
-      "..........kkkkkk..........",
-      ".........kRRRRRRk.........",
-      "........kRrrrrrrRk........",
-      ".......kRrrrrrrrrRk.......",
-      "......kRrrGGwwGGrrRk......",
-      ".....kRrrGGkyyGgGrrRk.....",
-      "....kRrrGGkkyykkGGrrRk....",
-      "...kRRrrGGkkwwkkGGrrRRk...",
-      "..kRRRrrrGGkwwkGGrrrRRRk..",
-      ".kRRRRrrrrGGGGGrrrrRRRRk..",
-      ".kRRkRrrrrkRRkrrrrRkRRk...",
-      "kRRk.kRrrrkyykrrrRk.kRRk..",
-      "kRk..kRrrrkwwkrrrRk..kRk..",
-      "kk...kRrrrrkkrrrrRk...kk..",
-      ".....kRRrrrrrrrrRRk.......",
-      ".....kRRRrrrrrrRRRk.......",
-      ".....kRRRkkooookkRRk......",
-      "....kRRk.koyyyyok.kRRk....",
-      "...kRRk..kooyyyok..kRRk...",
-      "..kRRk...kooyyyok...kRRk..",
-      "..kRk.....kooook.....kRk..",
-      "..kk.......kkkk.......kk.."
-    ],
-
-    // Asteroids: Iron (16x16)
-    astIron: [
-      ".....kkkkkk.....",
-      "...kkNNnnnnkk...",
-      "..kNNnnnnTnnnk..",
-      ".kNNnnTTTTnnnk..",
-      ".kNNnTTTTTnnNnk.",
-      "kNNnTTTTTnnNNNk.",
-      "kNNnnTTnnnNNNNk.",
-      "kNNnnnnnnnNNNNk.",
-      "kNNnnnnnnnNNNNk.",
-      ".kNNnnnNNNNNNk..",
-      "..kNNNNNNNNNk...",
-      "....kkkkkkk....."
-    ],
-    // Asteroid Cobalt (16x16)
-    astCobalt: [
-      ".....kkkkkk.....",
-      "...kkCCcccckk...",
-      "..kCCccccwccck..",
-      ".kCCccwwwwccck..",
-      ".kCCnwwwwwnCnk..",
-      "kCCnwwwwwwnCCCk.",
-      "kCCnnwwnnnCCCCk.",
-      "kCCnnnnnnnCCCCk.",
-      ".kCCnnnCCCCCCk..",
-      "..kCCCCCCCCCk...",
-      "....kkkkkkk....."
-    ],
-    // Asteroid Hyper (16x16)
-    astHyper: [
-      ".....kkkkkk.....",
-      "...kkPPppppkk...",
-      "..kPPppppwpppk..",
-      ".kPPppwwwwpppk..",
-      ".kPPnwwwwwwnPnk.",
-      "kPPnwwwwwwnPPPk.",
-      "kPPnnwwnnnPPPPk.",
-      "kPPnnnnnnnPPPPk.",
-      ".kPPnnnPPPPPPk..",
-      "..kPPPPPPPPPk...",
-      "....kkkkkkk....."
-    ],
-
-    // Space Station Hub (24x24)
-    station: [
-      "........kkkkkkk.........",
-      "......kkbbbbbbbkk.......",
-      "....kkbBwwwwwBbk........",
-      "...kbBwwwwwwwwwBbk......",
-      "..kbBwwwwccccccwBbk.....",
-      ".kbBwwwccccccccwBbk.....",
-      ".kbBwwwccccccccwBbk.....",
-      "kbBwwwwccccccwBbk.......",
-      "kbBwwwwwwwwwwwBbk.......",
-      ".kbBwwwwwwwwwBbk........",
-      "..kbBwwwwwwwBbk.........",
-      "...kkbbbbbbbkk..........",
-      "........kkk............."
-    ]
-  };
-
-  function spr(rows) {
-    let w = 0; for (let i = 0; i < rows.length; i++) w = Math.max(w, rows[i].length);
-    const c = mk(w, rows.length), g = g2(c);
-    for (let y = 0; y < rows.length; y++) for (let x = 0; x < rows[y].length; x++) {
-      const ch = rows[y][x]; if (ch === ".") continue;
-      const col = PAL[ch]; if (!col) continue;
-      g.fillStyle = col; g.fillRect(x, y, 1, 1);
+// ---------------------------------------------------------------- sprites: every angle, a pixel at a time
+const ANG = 32, SHEETS = {};
+function polyIn(p, x, y) { let ins = false; for (let i = 0, j = p.length - 1; i < p.length; j = i++) if ((p[i][1] > y) !== (p[j][1] > y) && x < (p[j][0] - p[i][0]) * (y - p[i][1]) / (p[j][1] - p[i][1]) + p[i][0]) ins = !ins; return ins; }
+function shipSheet(key, shape, col, trim, size) {
+  if (SHEETS[key]) return SHEETS[key];
+  const S = size || 24, c = mk(S * ANG, S), g = g2(c), id = g.createImageData(S * ANG, S), out = new Uint32Array(id.data.buffer);
+  const P = h => { const c2 = rgb(h); return ((255 << 24) | (c2[2] << 16) | (c2[1] << 8) | c2[0]) >>> 0; };
+  const pal = [0, P(col), P(trim), P("#1a2a48"), P("#ffb04a")], hi = P(shade(col, 1.35)), lo = P(shade(col, 0.6)), OUT = P("#06040c"), canHi = P("#7ab8f0");
+  const code = new Uint8Array(S * S), sc = S / 24;
+  for (let a = 0; a < ANG; a++) {
+    const th = a / ANG * TAU, co = Math.cos(th), si = Math.sin(th);
+    for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+      const cnt = [0, 0, 0, 0, 0];
+      for (const [ox, oy] of [[0.25, 0.25], [0.75, 0.25], [0.25, 0.75], [0.75, 0.75]]) {
+        const dx = (x + ox - S / 2) / sc, dy = (y + oy - S / 2) / sc, u = dx * co + dy * si, v = -dx * si + dy * co;
+        let k = 0; for (const [part, poly] of shape) if (polyIn(poly, u, v)) k = part; cnt[k]++;
+      }
+      let best = 0, bn = 0; for (let k = 1; k < 5; k++) if (cnt[k] > bn) { bn = cnt[k]; best = k; }
+      code[y * S + x] = bn >= 2 ? best : 0;
     }
-    return c;
-  }
-  function whiteOf(src) {
-    const c = mk(src.width, src.height), g = g2(c); g.drawImage(src, 0, 0);
-    g.globalCompositeOperation = "source-in"; g.fillStyle = "#fff"; g.fillRect(0, 0, c.width, c.height); return c;
-  }
-  function scaled(src, k) { const c = mk(src.width * k, src.height * k), g = g2(c); g.drawImage(src, 0, 0, c.width, c.height); return c; }
-
-  const S = {};
-  function buildSprites() {
-    S.ship = spr(SPR.ship); S.shipW = whiteOf(S.ship);
-    S.flameA = spr(SPR.flameA); S.flameB = spr(SPR.flameB);
-    S.drone = spr(SPR.drone); S.droneW = whiteOf(S.drone);
-    S.boss = spr(SPR.boss); S.bossW = whiteOf(S.boss);
-    S.astIron = spr(SPR.astIron); S.astCobalt = spr(SPR.astCobalt); S.astHyper = spr(SPR.astHyper);
-    S.astIronLg = scaled(S.astIron, 2); S.astCobaltLg = scaled(S.astCobalt, 2); S.astHyperLg = scaled(S.astHyper, 2);
-    S.station = spr(SPR.station);
-  }
-  buildSprites();
-
-  // ------------------------------------------------ 5x7 Bitmap Font
-  const FONT = {
-    "\x10": [0, 17, 10, 4, 10, 17, 0], "\x11": [0, 14, 17, 17, 17, 14, 0], "\x12": [0, 31, 17, 17, 17, 31, 0], "\x13": [0, 4, 4, 10, 10, 31, 0],   // the PlayStation buttons
-    A: [14, 17, 17, 31, 17, 17, 17], B: [30, 17, 17, 30, 17, 17, 30], C: [14, 17, 16, 16, 16, 17, 14], D: [28, 18, 17, 17, 17, 18, 28],
-    E: [31, 16, 16, 30, 16, 16, 31], F: [31, 16, 16, 30, 16, 16, 16], G: [14, 17, 16, 23, 17, 17, 15], H: [17, 17, 17, 31, 17, 17, 17],
-    I: [14, 4, 4, 4, 4, 4, 14], J: [7, 2, 2, 2, 2, 18, 12], K: [17, 18, 20, 24, 20, 18, 17], L: [16, 16, 16, 16, 16, 16, 31],
-    M: [17, 27, 21, 21, 17, 17, 17], N: [17, 17, 25, 21, 19, 17, 17], O: [14, 17, 17, 17, 17, 17, 14], P: [30, 17, 17, 30, 16, 16, 16],
-    Q: [14, 17, 17, 17, 21, 18, 13], R: [30, 17, 17, 30, 20, 18, 17], S: [15, 16, 16, 14, 1, 1, 30], T: [31, 4, 4, 4, 4, 4, 4],
-    U: [17, 17, 17, 17, 17, 17, 14], V: [17, 17, 17, 17, 17, 10, 4], W: [17, 17, 17, 21, 21, 21, 10], X: [17, 17, 10, 4, 10, 17, 17],
-    Y: [17, 17, 10, 4, 4, 4, 4], Z: [31, 1, 2, 4, 8, 16, 31],
-    "0": [14, 17, 19, 21, 25, 17, 14], "1": [4, 12, 4, 4, 4, 4, 14], "2": [14, 17, 1, 2, 4, 8, 31], "3": [31, 2, 4, 2, 1, 17, 14],
-    "4": [2, 6, 10, 18, 31, 2, 2], "5": [31, 16, 30, 1, 1, 17, 14], "6": [6, 8, 16, 30, 17, 17, 14], "7": [31, 1, 2, 4, 8, 8, 8],
-    "8": [14, 17, 17, 14, 17, 17, 14], "9": [14, 17, 17, 15, 1, 2, 12],
-    ".": [0, 0, 0, 0, 0, 12, 12], ":": [0, 12, 12, 0, 12, 12, 0], "-": [0, 0, 0, 14, 0, 0, 0],
-    "+": [0, 4, 4, 31, 4, 4, 0], "/": [1, 1, 2, 4, 8, 16, 16], "%": [24, 25, 2, 4, 8, 19, 3],
-    "[": [14, 8, 8, 8, 8, 8, 14], "]": [14, 2, 2, 2, 2, 2, 14]
-  };
-  const FC = ["#ece8f4", "#7a7694", "#eebc42", "#c82836", "#72d2ec", "#529842", "#e8802e", "#04030a"];
-  const GI = new Int16Array(256).fill(-1);
-  const ATL = [];
-  let GX, GW;
-  function buildFont() {
-    const rows = []; for (const k in FONT) { GI[k.charCodeAt(0)] = rows.length; rows.push(FONT[k]); }
-    const n = rows.length; GX = new Uint8Array(n); GW = new Uint8Array(n);
-    for (let i = 0; i < n; i++) {
-      let lo = 5, hi = -1;
-      for (let y = 0; y < 7; y++) for (let b = 0; b < 5; b++) if ((rows[i][y] >> (4 - b)) & 1) { lo = Math.min(lo, b); hi = Math.max(hi, b); }
-      if (hi < 0) { GX[i] = 0; GW[i] = 3; } else { GX[i] = lo; GW[i] = hi - lo + 1; }
-    }
-    for (let c = 0; c < FC.length; c++) {
-      const a = mk(n * 6, 7), g = g2(a); g.fillStyle = FC[c];
-      for (let i = 0; i < n; i++) for (let y = 0; y < 7; y++) for (let b = 0; b < 5; b++) if ((rows[i][y] >> (4 - b)) & 1) g.fillRect(i * 6 + b, y, 1, 1);
-      ATL.push(a);
+    for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+      const k = code[y * S + x], o = y * S * ANG + a * S + x, at = (xx, yy) => xx < 0 || yy < 0 || xx >= S || yy >= S ? 0 : code[yy * S + xx];
+      if (!k) { if (at(x - 1, y) || at(x + 1, y) || at(x, y - 1) || at(x, y + 1)) out[o] = OUT; continue; }
+      let cc = pal[k]; if (k === 1) { if (!at(x - 1, y - 1) || !at(x, y - 1)) cc = hi; else if (!at(x + 1, y + 1) || !at(x, y + 1)) cc = lo; }
+      if (k === 3 && at(x - 1, y - 1) !== 3) cc = canHi; out[o] = cc;
     }
   }
-  buildFont();
-
-  function text(g, s, x, y, col, sc) {
-    sc = sc || 1; const at = ATL[col];
-    for (let i = 0; i < s.length; i++) {
-      let c = s.charCodeAt(i); if (c > 255) c = c === 0x2715 ? 16 : c === 0x25cb ? 17 : c === 0x25a1 ? 18 : c === 0x25b3 ? 19 : 63;   // (✕ ○ □ △)
-      if (c >= 97 && c <= 122) c -= 32;
-      if (c === 32) { x += 4 * sc; continue; }
-      const k = GI[c]; if (k < 0) { x += 4 * sc; continue; }
-      g.drawImage(at, k * 6 + GX[k], 0, GW[k], 7, x, y, GW[k] * sc, 7 * sc);
-      x += (GW[k] + 1) * sc;
-    }
-    return x;
-  }
-  function textW(s, sc) {
-    sc = sc || 1; let w = 0;
-    for (let i = 0; i < s.length; i++) {
-      let c = s.charCodeAt(i); if (c > 255) c = c === 0x2715 ? 16 : c === 0x25cb ? 17 : c === 0x25a1 ? 18 : c === 0x25b3 ? 19 : 63;   // (✕ ○ □ △)
-      if (c >= 97 && c <= 122) c -= 32;
-      const k = c === 32 ? -1 : GI[c]; w += (k < 0 ? 4 : GW[k] + 1) * sc;
-    }
-    return w - sc;
-  }
-  function stext(g, s, x, y, col, sc) { text(g, s, x + (sc || 1), y + (sc || 1), 7, sc); return text(g, s, x, y, col, sc); }
-  function cstext(g, s, cx, y, col, sc) { return stext(g, s, Math.round(cx - textW(s, sc) / 2), y, col, sc); }
-
-  // ------------------------------------------------ Bayer Matrix Dithered Lighting
-  const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
-  function glowOf(r, rgb, maxA) {
-    const s = r * 2, c = mk(s, s), g = c.getContext("2d"), id = g.createImageData(s, s), u = new Uint32Array(id.data.buffer), base = (rgb[2] << 16 | rgb[1] << 8 | rgb[0]) >>> 0;
+  g.putImageData(id, 0, 0);
+  return (SHEETS[key] = { c, S });
+}
+const FOE_SHAPES = {
+  scout: [[1, [[7, 0], [-5, -5], [-2, 0], [-5, 5]]], [3, [[3, 0], [0, -1.5], [0, 1.5]]]],
+  gunship: [[1, [[8, -3], [8, 3], [-6, 6], [-6, -6]]], [2, [[8, -1], [12, -1], [12, 1], [8, 1]]], [3, [[3, 0], [-1, -2], [-1, 2]]]],
+  dart: [[1, [[8, 0], [-6, -3], [-6, 3]]], [4, [[-6, -1], [-8, 0], [-6, 1]]]],
+  layer: [[1, [[6, -6], [6, 6], [-6, 6], [-6, -6]]], [2, [[-6, -3], [-9, -3], [-9, 3], [-6, 3]]], [3, [[2, -2], [-2, -2], [-2, 2], [2, 2]]]],
+  turret: [[1, [[6, -6], [6, 6], [-6, 6], [-6, -6]]], [2, [[2, -1.5], [11, -1.5], [11, 1.5], [2, 1.5]]], [3, [[2, 2], [-2, 2], [-2, -2], [2, -2]]]]
+};
+function frameOf(a) { return ((Math.round(a / TAU * ANG) % ANG) + ANG) % ANG; }
+function drawSheet(g, sh, a, x, y, alpha) { const S = sh.S; if (alpha != null) g.globalAlpha = alpha; g.drawImage(sh.c, frameOf(a) * S, 0, S, S, Math.round(x - S / 2), Math.round(y - S / 2), S, S); if (alpha != null) g.globalAlpha = 1; }
+const ROCKS = [];
+function rockSprites() {                             // a few rocks of each size, lumpy and lit from the top left
+  for (const r of [6, 10, 16]) for (let k = 0; k < 3; k++) {
+    const s = r * 2 + 4, c = mk(s, s), g = g2(c), id = g.createImageData(s, s), u = new Uint32Array(id.data.buffer), rr = U.rand(r * 31 + k * 7);
+    const lumps = []; for (let i = 0; i < 7; i++) lumps.push([rr() * TAU, 0.7 + rr() * 0.35]);
     for (let y = 0; y < s; y++) for (let x = 0; x < s; x++) {
-      const d = Math.sqrt((x + 0.5 - r) * (x + 0.5 - r) + (y + 0.5 - r) * (y + 0.5 - r)) / r;
-      let a = 1 - Math.min(1, d); a = a * a; const q = a * 4, f = Math.floor(q), lv = f + ((q - f) * 16 > BAYER[(y & 3) * 4 + (x & 3)] + 0.5 ? 1 : 0);
-      u[y * s + x] = ((Math.round(lv / 4 * maxA * 255) << 24) | base) >>> 0;
+      const dx = x - s / 2 + 0.5, dy = y - s / 2 + 0.5, d = Math.hypot(dx, dy), ang = Math.atan2(dy, dx);
+      let rad = r; for (const [la, lk] of lumps) rad *= 1 + (lk - 0.85) * Math.max(0, Math.cos(ang - la)) * 0.6;
+      if (d > rad) continue;
+      const light = (-dx - dy) / (rad * 1.4) + 0.5 - d / rad * 0.25 + (rr() - 0.5) * 0.12, v = clamp(light, 0, 1);
+      const base = [[54, 46, 52], [92, 80, 84], [136, 120, 118]][v < 0.35 ? 0 : v < 0.7 ? 1 : 2];
+      u[y * s + x] = ((255 << 24) | (base[2] << 16) | (base[1] << 8) | base[0]) >>> 0;
+      if (rr() < 0.04) u[y * s + x] = 0xff3a3a46;
     }
-    g.putImageData(id, 0, 0); return c;
+    g.putImageData(id, 0, 0); ROCKS.push({ c, r, k });
   }
-  const shieldGlow = glowOf(32, [114, 210, 236], 0.35);
+}
 
-  // ------------------------------------------------ Audio Synthesis
-  let AC = null, soundOn = true;
-  function wakeAudio() {
-    if (!soundOn) return;
-    if (!AC) {
-      try {
-        const A = window.AudioContext || window.webkitAudioContext;
-        if (A) AC = new A();
-      } catch (e) { AC = null; }
+// ---------------------------------------------------------------- a run: its map of sectors
+// Four zones, each five columns of two or three sectors and a boss; each sector leads on to one or two in the next
+// column. A shop in every zone before its boss.
+function zoneMap(zone, seed) {
+  const r = U.rand(seed * 131 + zone * 17), cols = [];
+  for (let c = 0; c < 5; c++) {
+    const n = c === 0 ? 2 : 2 + (r() < 0.5 ? 1 : 0), col = [];
+    for (let i = 0; i < n; i++) { const q = r(); col.push({ type: q < 0.42 ? "fight" : q < 0.62 ? "mine" : q < 0.84 ? "event" : "shop", next: [], done: false, c, i, n }); }
+    cols.push(col);
+  }
+  if (!cols[3].some(s => s.type === "shop") && !cols[2].some(s => s.type === "shop")) cols[3][0].type = "shop";
+  cols.push([{ type: "boss", next: [], done: false, c: 5, i: 0, n: 1 }]);
+  for (let c = 0; c < 5; c++) {
+    const a = cols[c], b = cols[c + 1];
+    a.forEach((s, i) => { const j = Math.round(i * (b.length - 1) / Math.max(1, a.length - 1)); s.next.push(j); if (b.length > 1 && r() < 0.5) { const k = clamp(j + (r() < 0.5 ? -1 : 1), 0, b.length - 1); if (!s.next.includes(k)) s.next.push(k); } });
+    b.forEach((t, j) => { if (!a.some(s => s.next.includes(j))) a[Math.min(a.length - 1, j)].next.push(j); });
+  }
+  return cols;
+}
+let RUN = null, PL = [], FO = [], RO = [], ORE = [], B = [], EB = [], MINES = [], BOSS = null, SEC = null, camX = 0, camY = 0;
+function newRun(shipId, players) {
+  const S = SHIPS[shipId], seed = (rnd() * 1e6) | 0;
+  RUN = { ship: shipId, seed, zone: 0, col: -1, row: -1, map: zoneMap(0, seed), ore: 0, score: 0, kills: 0, weapons: [{ id: S.weapon, lvl: 1 }], mods: S.module ? [S.module] : [], bombs: 2, t: 0, won: false };
+  PL = players.map((p, k) => newPilot(k, p.pad, p.bot, p.ship || shipId));
+}
+function newPilot(n, pad, bot, shipId) {
+  const S = SHIPS[shipId];
+  return { n, pad, bot: !!bot, ctl: bot ? null : ctlOf(pad), ship: shipId, S, sheet: shipSheet(shipId + n, S.shape, n && shipId === RUN.ship ? "#d87a5a" : S.col, S.trim), x: AW / 2 - 20 + n * 40, y: AH / 2, vx: 0, vy: 0, a: 0, aim: 0,
+    hull: 0, max: 0, shield: 0, smax: 0, sT: 0, dashT: 0, dashCD: 0, inv: 1.5, fireT: 0, wi: 0, firing: false, beam: null, down: false, revT: 0, droneA: 0, droneT: 0 };
+}
+function fitStats() {                                // the hull and shield the modules give
+  for (const p of PL) {
+    const max = Math.round(p.S.hull * (has("armor") ? 1.33 : 1)); if (!p.max) p.hull = max; else p.hull = Math.round(p.hull * max / p.max); p.max = max;
+    p.smax = has("shield") ? 40 : 0; if (p.shield > p.smax) p.shield = p.smax;
+  }
+}
+const has = m => RUN && RUN.mods.includes(m);
+const wpn = () => RUN.weapons[Math.min(RUN.weapons.length - 1, PL[0] ? PL[0].wi : 0)];
+
+// ---------------------------------------------------------------- a sector: what's in it
+function enterSector(type, extra) {
+  FO = []; RO = []; ORE = []; B = []; EB = []; MINES = []; BOSS = null; parts.clear();
+  const z = RUN.zone, r = U.rand(RUN.seed + RUN.col * 97 + RUN.row * 13 + z * 1001);
+  SEC = { type, t: 0, waves: [], wave: 0, clear: false, clearT: 0, gate: null, z, r, extra: extra || {} };
+  for (const p of PL) { p.x = 120 + p.n * 30; p.y = AH / 2 + p.n * 20; p.vx = 60; p.vy = 0; p.inv = 1.5; if (p.down) { p.down = false; p.hull = Math.round(p.max * 0.3); } }
+  const rocks = type === "mine" ? 26 : type === "boss" ? (z === 0 ? 10 : 4) : 8 + ((r() * 6) | 0);
+  for (let k = 0; k < rocks; k++) { const tier = r() < 0.35 ? 2 : r() < 0.6 ? 1 : 0; spawnRock(220 + r() * (AW - 260), 30 + r() * (AH - 60), tier, r); }
+  if (type === "fight" || (type === "event" && extra && extra.ambush)) {
+    const pool = ["scout", "scout", "dart", "gunship"].concat(z >= 1 ? ["layer", "turret"] : []).concat(z >= 2 ? ["gunship", "dart"] : []);
+    const nW = 2 + Math.min(2, z) + (extra && extra.ambush ? 0 : 0);
+    for (let w = 0; w < nW; w++) { const list = [], n = 3 + z + w + (PL.length > 1 ? 2 : 0); for (let k = 0; k < n; k++) list.push(pool[(r() * pool.length) | 0]); SEC.waves.push(list); }
+  } else if (type === "mine") { SEC.waves.push(["scout", "scout"]); SEC.mineT = 32; }
+  else if (type === "boss") spawnBoss(z);
+  if (extra && extra.storm) SEC.storm = 1;
+  if (SEC.waves.length) spawnWave();
+  synth.song(Object.assign({}, ZONES[z].music, type === "boss" ? { tempo: ZONES[z].music.tempo + 14 } : {}));
+  camX = 0; camY = clamp(AH / 2 - VH / 2, 0, AH - VH);
+}
+function spawnRock(x, y, tier, r) {
+  const opts = ROCKS.filter(q => q.r === [6, 10, 16][tier]), sp = opts[((r || rnd)() * opts.length) | 0];
+  RO.push({ x, y, vx: ((r || rnd)() - 0.5) * 20, vy: ((r || rnd)() - 0.5) * 20, tier, r: sp.r, sp, hp: [8, 24, 60][tier], flash: 0, rich: SEC && SEC.type === "mine" && (r || rnd)() < 0.4 });
+}
+function spawnWave() {
+  const list = SEC.waves[SEC.wave]; if (!list) return;
+  list.forEach((k, i) => { const side = i % 3, x = side === 0 ? AW + 20 : 300 + rnd() * (AW - 320), y = side === 1 ? -20 : side === 2 ? AH + 20 : 40 + rnd() * (AH - 80); spawnFoe(k, k === "turret" ? clamp(x, 300, AW - 40) : x, k === "turret" ? clamp(y, 40, AH - 40) : y); });
+  banner(SEC.wave ? "WAVE " + (SEC.wave + 1) : SEC.type === "mine" ? "AN ASTEROID FIELD" : "HOSTILES", 1.4);
+}
+function spawnFoe(k, x, y) {
+  const F = FOES[k], z = SEC.z, sc = 1 + z * 0.35;
+  const f = { k, F, x, y, vx: 0, vy: 0, a: Math.PI, hp: Math.round(F.hp * sc), max: Math.round(F.hp * sc), r: F.r, t: rnd() * 3, flash: 0, gunT: 1 + rnd() * 2, sheet: shipSheet("f" + k, FOE_SHAPES[k], F.col, "#d8d8e0", k === "layer" || k === "turret" ? 26 : 22) };
+  FO.push(f); return f;
+}
+function spawnBoss(z) {
+  const D = BOSSES[z], hp = Math.round(D.hp * (PL.length > 1 ? 1.5 : 1));
+  BOSS = { D, z, x: AW - 160, y: AH / 2, vx: 0, vy: 0, a: Math.PI, hp, max: hp, r: D.r, t: 0, flash: 0, act: 0, actT: 2, beams: [], phase: 0, spawnT: 3 };
+  banner(D.name, 2.4); play("boss");
+}
+
+// ---------------------------------------------------------------- flying, shooting
+function input(p) {
+  if (p.bot) return botPilot(p);
+  const c = p.ctl, pad = c.pad() || window.SofaPad, s2 = pad && pad.stick2 ? pad.stick2() : { x: 0, y: 0 };
+  let mx = c.x(), my = c.y(); const m = Math.hypot(mx, my); if (m > 1) { mx /= m; my /= m; }
+  const aiming = Math.hypot(s2.x, s2.y) > 0.35;
+  return { mx, my, ax: s2.x, ay: s2.y, aiming, fire: aiming || c.held("a") || c.held("rt"), dash: c.take("b", 150) || c.take("lt", 150), swap: c.take("y", 200), bomb: c.take("x", 200) };
+}
+function nearestTarget(x, y, range) {
+  let best = null, bd = range * range;
+  const look = q => { const d = (q.x - x) ** 2 + (q.y - y) ** 2; if (d < bd) { bd = d; best = q; } };
+  for (const f of FO) look(f); if (BOSS) look(BOSS); if (!best) for (const r of RO) look(r);
+  return best;
+}
+// where to aim at q to hit it: ahead of it by the time a shot takes to get there (the aim that leads)
+function leadAt(p, q) { const W = RUN.weapons[p.wi] || RUN.weapons[0], spd = WEAPONS[W.id].spd || 600, d = Math.hypot(q.x - p.x, q.y - p.y), t = d / spd;
+  return Math.atan2(q.y + (q.vy || 0) * t - p.y, q.x + (q.vx || 0) * t - p.x); }
+function stepPilot(p, dt) {
+  if (p.inv > 0) p.inv -= dt; if (p.dashCD > 0) p.dashCD -= dt; if (p.dashT > 0) p.dashT -= dt;
+  if (p.down) { const o = PL.find(q => q !== p && !q.down); if (o && Math.hypot(o.x - p.x, o.y - p.y) < 30) { p.revT += dt; if (p.revT > 2) { p.down = false; p.hull = Math.round(p.max * 0.35); p.inv = 2; banner(p.S.name + " IS BACK", 1.2); play("revive"); } } else p.revT = 0; return; }
+  const I = input(p), S = p.S, spd = S.speed * (has("thruster") ? 1.15 : 1), acc = S.acc;
+  p.vx += I.mx * acc * dt; p.vy += I.my * acc * dt;
+  const sp = Math.hypot(p.vx, p.vy), cap = p.dashT > 0 ? spd * 2.6 : spd; if (sp > cap) { p.vx *= cap / sp; p.vy *= cap / sp; }
+  if (!I.mx && !I.my) { p.vx *= Math.exp(-1.6 * dt); p.vy *= Math.exp(-1.6 * dt); }
+  if (I.dash && p.dashCD <= 0) { const a = I.mx || I.my ? Math.atan2(I.my, I.mx) : p.a; p.vx = Math.cos(a) * spd * 2.6; p.vy = Math.sin(a) * spd * 2.6; p.dashT = 0.22; p.dashCD = has("thruster") ? 0.8 : 1.2; p.inv = Math.max(p.inv, 0.3); play("dash"); parts.emit(p.x, p.y, 8, { c: [2, 3], v: 60, life: 0.4 }); }
+  p.x += p.vx * dt; p.y += p.vy * dt;
+  if (p.x < 10) { p.x = 10; p.vx = Math.abs(p.vx) * 0.5; } if (p.x > AW - 10) { p.x = AW - 10; p.vx = -Math.abs(p.vx) * 0.5; }
+  if (p.y < 10) { p.y = 10; p.vy = Math.abs(p.vy) * 0.5; } if (p.y > AH - 10) { p.y = AH - 10; p.vy = -Math.abs(p.vy) * 0.5; }
+  const o = PL.find(q => q !== p && !q.down);       // two ships stay on one screen
+  if (o) { if (Math.abs(p.x - o.x) > VW - 40) p.x = o.x + Math.sign(p.x - o.x) * (VW - 40); if (Math.abs(p.y - o.y) > VH - 40) p.y = o.y + Math.sign(p.y - o.y) * (VH - 40); }
+  // facing: where it aims; with no aim, at what's nearest (when firing) or the way it's going
+  if (I.aiming) p.aim = Math.atan2(I.ay, I.ax);
+  else if (I.fire) { const t = nearestTarget(p.x, p.y, 260); if (t) p.aim = leadAt(p, t); else if (sp > 20) p.aim = Math.atan2(p.vy, p.vx); }
+  else if (sp > 20) p.aim = Math.atan2(p.vy, p.vx);
+  p.a += U.wrap(p.aim - p.a) * Math.min(1, dt * 14);
+  if (I.swap && RUN.weapons.length > 1) { p.wi = (p.wi + 1) % RUN.weapons.length; play("swap"); }
+  if (I.bomb && RUN.bombs > 0) bomb(p);
+  p.firing = I.fire; p.beam = null;
+  if (I.fire) fire(p, dt);
+  // the engine's trail
+  if ((G.steps & 1) === 0 && (I.mx || I.my)) parts.emit(p.x - Math.cos(p.a) * 8, p.y - Math.sin(p.a) * 8, 1, { c: [4, 5], v: 30, a: p.a + Math.PI, sp: 0.6, life: 0.3 });
+  // shield back after a while; nanites mend; a drone circles
+  if (p.smax) { p.sT += dt; if (p.sT > 3) p.shield = Math.min(p.smax, p.shield + 12 * dt); }
+  if (has("repair")) p.hull = Math.min(p.max, p.hull + 0.6 * dt);
+  if (has("drone")) { p.droneA += dt * 3; p.droneT -= dt; if (p.droneT <= 0) { const dx = p.x + Math.cos(p.droneA) * 18, dy = p.y + Math.sin(p.droneA) * 18, t = nearestTarget(dx, dy, 200); if (t) { p.droneT = 0.5; shoot(dx, dy, angTo({ x: dx, y: dy }, t), 340, 4, 0.7, "#9aff7a", {}); } } }
+}
+function fire(p, dt) {
+  const W = RUN.weapons[p.wi] || RUN.weapons[0], D = WEAPONS[W.id], L = W.lvl, rate = (D.rate || 1) * (1 + (L - 1) * 0.15) * (has("overclock") ? 1.25 : 1), dmg = D.dmg * (1 + (L - 1) * 0.3);
+  const mx = p.x + Math.cos(p.a) * 9, my = p.y + Math.sin(p.a) * 9;
+  if (W.id === "laser") { const len = D.beam + (L - 1) * 30; p.beam = beamHit(mx, my, p.a, len, dmg * dt * (has("overclock") ? 1.25 : 1)); if ((G.steps & 7) === 0) play("laser"); return; }
+  p.fireT -= dt; if (p.fireT > 0) return; p.fireT = 1 / rate;
+  if (W.id === "blaster") shoot(mx, my, p.a, D.spd, dmg, D.life, D.col, {});
+  else if (W.id === "spread") { const n = D.n + L - 1, arc = D.arc + (L - 1) * 0.08; for (let k = 0; k < n; k++) shoot(mx, my, p.a - arc + 2 * arc * k / (n - 1), D.spd, dmg, D.life, D.col, {}); }
+  else if (W.id === "missile") for (let k = 0; k < L; k++) shoot(mx, my, p.a + (k - (L - 1) / 2) * 0.4, D.spd, dmg, D.life, D.col, { home: 1 });
+  else if (W.id === "rail") shoot(mx, my, p.a, D.spd, dmg, D.life, D.col, { pierce: 1, rail: 1 });
+  else if (W.id === "flak") { const n = D.n + (L - 1) * 3; for (let k = 0; k < n; k++) shoot(mx, my, p.a + (rnd() - 0.5) * 2 * D.arc, D.spd * (0.7 + rnd() * 0.5), dmg, D.life * (0.8 + rnd() * 0.4), D.col, {}); }
+  play(W.id === "rail" ? "rail" : W.id === "missile" ? "missile" : W.id === "flak" ? "flak" : "shot");
+}
+function shoot(x, y, a, spd, dmg, life, col, o) { if (B.length > 260) return; B.push({ x, y, vx: Math.cos(a) * spd, vy: Math.sin(a) * spd, dmg, life, col, home: o.home, pierce: o.pierce, rail: o.rail, hit: o.pierce ? [] : null }); }
+function beamHit(x, y, a, len, dmg) {                // the nearest thing the beam crosses takes it
+  const dx = Math.cos(a), dy = Math.sin(a); let best = null, bt = len;
+  const test = q => { const ox = q.x - x, oy = q.y - y, t = ox * dx + oy * dy; if (t < 0 || t > bt) return; const d2 = ox * ox + oy * oy - t * t; if (d2 < q.r * q.r) { bt = t - Math.sqrt(q.r * q.r - d2); best = q; } };
+  for (const f of FO) test(f); if (BOSS) test(BOSS); for (const r of RO) test(r);
+  if (best) { damageThing(best, dmg); if ((G.steps & 3) === 0) parts.emit(x + dx * bt, y + dy * bt, 1, { c: [6, 3], v: 50, life: 0.25, bright: 1 }); }
+  return { x0: x, y0: y, x1: x + dx * bt, y1: y + dy * bt };
+}
+function bomb(p) {                                   // a burst: foes' shots gone, everything near hurt
+  RUN.bombs--; play("bomb"); EB = []; G.shake(0.5);
+  for (const f of FO) if (Math.hypot(f.x - p.x, f.y - p.y) < 160) damageThing(f, 60);
+  if (BOSS && Math.hypot(BOSS.x - p.x, BOSS.y - p.y) < 180) damageThing(BOSS, 80);
+  for (const r of RO.slice()) if (Math.hypot(r.x - p.x, r.y - p.y) < 140) damageThing(r, 80);
+  RINGS.push({ x: p.x, y: p.y, t: 0, r: 160 });
+}
+let RINGS = [];
+function damageThing(q, d) {
+  q.hp -= d; q.flash = 0.08;
+  if (q.hp > 0) return;
+  if (q === BOSS) { bossDown(); return; }
+  if (FO.includes(q)) { FO.splice(FO.indexOf(q), 1); RUN.kills++; RUN.score += q.F.score; dropOre(q.x, q.y, q.F.ore); boom(q.x, q.y, 1); if (rnd() < 0.05) ORE.push({ x: q.x, y: q.y, vx: 0, vy: 0, v: 0, heal: 1, t: 0 }); }
+  else if (RO.includes(q)) { RO.splice(RO.indexOf(q), 1); dropOre(q.x, q.y, [2, 4, 8][q.tier] * (q.rich ? 2 : 1)); parts.emit(q.x, q.y, 6 + q.tier * 4, { c: [7, 1], v: 60, life: 0.6, drag: 1 }); play("crack"); if (q.tier > 0) for (let k = 0; k < 2; k++) spawnRock(q.x + (rnd() - 0.5) * 10, q.y + (rnd() - 0.5) * 10, q.tier - 1); }
+}
+function dropOre(x, y, n) { n = Math.round(n * (has("salvage") ? 1.5 : 1)); for (let k = 0; k < n; k++) ORE.push({ x, y, vx: (rnd() - 0.5) * 120, vy: (rnd() - 0.5) * 120, v: 1, t: 0 }); }
+function boom(x, y, k) { parts.emit(x, y, 10 * k, { c: [3, 4, 5, 6], v: 90 * k, life: 0.5, bright: 1 }); light.pulse(x, y, 30 * k, 0.3); play(k > 1 ? "bigboom" : "boom"); }
+function hurtPilot(p, d) {
+  if (p.down || p.inv > 0 || p.dashT > 0) return;
+  p.sT = 0; if (p.shield > 0) { const s = Math.min(p.shield, d); p.shield -= s; d -= s; }
+  if (d <= 0) { play("shieldhit"); p.inv = 0.25; return; }
+  p.hull -= d; p.inv = 0.6; play("hurt"); G.shake(0.25); if (p.ctl) p.ctl.rumble(0.6, 0.5, 160);
+  if (p.hull <= 0) { p.hull = 0; p.down = true; boom(p.x, p.y, 2); if (PL.every(q => q.down)) runOver(false); else banner(p.S.name + " IS DOWN: FLY CLOSE TO BRING IT BACK", 2.2); }
+}
+
+// ---------------------------------------------------------------- the foes
+const nearestPilot = (x, y) => { let best = null, bd = 1e12; for (const p of PL) { if (p.down) continue; const d = (p.x - x) ** 2 + (p.y - y) ** 2; if (d < bd) { bd = d; best = p; } } return best; };
+function eshoot(x, y, a, spd, dmg, col, o) { if (EB.length > 300) return; EB.push(Object.assign({ x, y, vx: Math.cos(a) * spd, vy: Math.sin(a) * spd, dmg, life: 4, col: col || "#ff5a5a" }, o || {})); }
+function stepFoe(f, dt) {
+  const p = nearestPilot(f.x, f.y); f.t += dt; if (f.flash > 0) f.flash -= dt; if (!p) return;
+  const F = f.F, to = angTo(f, p), d = Math.hypot(p.x - f.x, p.y - f.y);
+  let tx = 0, ty = 0;
+  if (f.k === "scout") { const o = to + Math.sin(f.t * 1.5) * 0.8; tx = Math.cos(o); ty = Math.sin(o); }
+  else if (f.k === "gunship") { const want = d > 160 ? 1 : d < 110 ? -1 : 0, side = to + Math.PI / 2; tx = Math.cos(to) * want + Math.cos(side) * 0.6; ty = Math.sin(to) * want + Math.sin(side) * 0.6; }
+  else if (f.k === "dart") { f.a += U.wrap(to - f.a) * Math.min(1, dt * 1.6); tx = Math.cos(f.a); ty = Math.sin(f.a); }
+  else if (f.k === "layer") { tx = Math.cos(f.t * 0.4); ty = Math.sin(f.t * 0.6); f.mineT = (f.mineT || 2) - dt; if (f.mineT <= 0) { f.mineT = 3; MINES.push({ x: f.x, y: f.y, t: 0, r: 5 }); } }
+  if (f.x < 40 || f.x > AW - 40 || f.y < 40 || f.y > AH - 40) { const c = Math.atan2(AH / 2 - f.y, AW / 2 - f.x); tx += Math.cos(c) * 1.5; ty += Math.sin(c) * 1.5; }   // (back in from the edges)
+  if (F.speed) { f.vx += tx * F.speed * 3 * dt; f.vy += ty * F.speed * 3 * dt; const s = Math.hypot(f.vx, f.vy); if (s > F.speed) { f.vx *= F.speed / s; f.vy *= F.speed / s; } }
+  f.x += f.vx * dt; f.y += f.vy * dt; f.x = clamp(f.x, -30, AW + 30); f.y = clamp(f.y, -30, AH + 30);
+  if (f.k !== "dart") f.a += U.wrap((f.k === "scout" ? Math.atan2(f.vy, f.vx) : to) - f.a) * Math.min(1, dt * 6);
+  if (F.gun) { f.gunT -= dt; if (f.gunT <= 0 && d < 320) { f.gunT = F.gun * (0.8 + rnd() * 0.4) / (1 + SEC.z * 0.15); const n = f.k === "turret" ? 3 : 1; for (let k = 0; k < n; k++) eshoot(f.x, f.y, to + (k - (n - 1) / 2) * 0.18, 140 + SEC.z * 15, 8 + SEC.z * 2); play("eshot"); } }
+  if (d < f.r + 7) { hurtPilot(p, F.ram ? 16 : 9); if (F.ram) { f.hp = 0; damageThing(f, 1); } else { const k = 120 / Math.max(1, d); f.vx = (f.x - p.x) * k; f.vy = (f.y - p.y) * k; } }
+}
+// the bosses: the Maw lunges and spits rock; the Hive Carrier sends its swarm; the Prism sweeps beams and fires rings;
+// the Dreadnought broadsides, then missiles, then a charged beam across the sector
+function stepBoss(b, dt) {
+  const p = nearestPilot(b.x, b.y); b.t += dt; if (b.flash > 0) b.flash -= dt; if (!p) return;
+  const id = b.D.id, to = angTo(b, p), frac = b.hp / b.max;
+  b.phase = frac < 0.33 ? 2 : frac < 0.66 ? 1 : 0;
+  b.actT -= dt;
+  if (id === "maw") {
+    if (b.lunge > 0) { b.lunge -= dt; } else { b.vx += Math.cos(to) * 40 * dt; b.vy += Math.sin(to) * 40 * dt; }
+    if (b.actT <= 0) { if (b.act++ % 2) { b.lunge = 0.7; b.vx = Math.cos(to) * 260; b.vy = Math.sin(to) * 260; play("roar"); } else { for (let k = -2; k <= 2; k++) eshoot(b.x, b.y, to + k * 0.2, 150, 12, "#c89a6a", { big: 1 }); play("spit"); } b.actT = 1.8 - b.phase * 0.3; }
+    for (const r of RO.slice()) if (Math.hypot(r.x - b.x, r.y - b.y) < b.r + r.r) { RO.splice(RO.indexOf(r), 1); b.hp = Math.min(b.max, b.hp + 25); parts.emit(r.x, r.y, 8, { c: [7, 1], v: 40, life: 0.4 }); }
+    b.vx *= Math.exp(-0.8 * dt); b.vy *= Math.exp(-0.8 * dt);
+  } else if (id === "hive") {
+    b.vy = Math.sin(b.t * 0.5) * 60; b.vx = (AW - 170 - b.x) * 0.5;
+    b.spawnT -= dt; if (b.spawnT <= 0 && FO.length < 8 + b.phase * 2) { b.spawnT = 4.5 - b.phase; for (let k = 0; k < 3; k++) spawnFoe(k ? "scout" : "dart", b.x - 20, b.y + (k - 1) * 20); play("spawn"); }
+    if (b.actT <= 0) { b.actT = 1.2; for (const oy of [-24, 24]) eshoot(b.x - 10, b.y + oy, angTo({ x: b.x, y: b.y + oy }, p), 170, 10); play("eshot"); }
+  } else if (id === "prism") {
+    b.vx = Math.cos(b.t * 0.3) * 50; b.vy = Math.sin(b.t * 0.45) * 50;
+    const n = 2 + b.phase; b.beams = []; for (let k = 0; k < n; k++) b.beams.push(b.t * (0.5 + b.phase * 0.15) + k * TAU / n);
+    for (const a of b.beams) for (const q of PL) { if (q.down) continue; const dx = Math.cos(a), dy = Math.sin(a), ox = q.x - b.x, oy = q.y - b.y, t = ox * dx + oy * dy; if (t > b.r && t < 420 && Math.abs(-ox * dy + oy * dx) < 5) hurtPilot(q, 14); }
+    if (b.actT <= 0) { b.actT = 2.6 - b.phase * 0.5; const n2 = 12 + b.phase * 4; for (let k = 0; k < n2; k++) eshoot(b.x, b.y, k * TAU / n2 + b.t, 110, 10, "#9af0ff"); play("ring"); }
+  } else {
+    b.vy = Math.sin(b.t * 0.35) * 40; b.vx = (AW - 180 - b.x) * 0.4;
+    if (b.actT <= 0) {
+      b.act++; b.actT = 1.4;
+      for (const oy of [-30, -10, 10, 30]) eshoot(b.x - 20, b.y + oy, angTo({ x: b.x, y: b.y + oy }, p) + (rnd() - 0.5) * 0.2, 160, 11);
+      if (b.phase >= 1 && b.act % 2 === 0) for (const oy of [-34, 34]) eshoot(b.x, b.y + oy, Math.PI, 110, 16, "#ff8a3a", { home: 1, life: 3.5 });
+      if (b.phase >= 2 && b.act % 4 === 0) { b.charge = 1.2; b.chargeY = p.y; play("charge"); }
+      play("eshot");
     }
-    if (AC && AC.state === "suspended") AC.resume().catch(() => {});
+    if (b.charge > 0) { b.charge -= dt; if (b.charge <= 0) { b.fireBeam = 0.6; play("beam"); G.shake(0.4); } }
+    if (b.fireBeam > 0) { b.fireBeam -= dt; for (const q of PL) if (!q.down && Math.abs(q.y - b.chargeY) < 12 && q.x < b.x) hurtPilot(q, 30); }
   }
-  function tone(f0, f1, dur, type, vol) {
-    if (!AC || !soundOn || AC.state !== "running") return;
-    try {
-      const t = AC.currentTime, o = AC.createOscillator(), g = AC.createGain();
-      o.type = type || "sawtooth";
-      o.frequency.setValueAtTime(f0, t);
-      if (f1) o.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t + dur);
-      g.gain.setValueAtTime(vol || 0.1, t);
-      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-      o.connect(g); g.connect(AC.destination);
-      o.start(t); o.stop(t + dur + 0.02);
-    } catch (e) {}
+  b.x += b.vx * dt; b.y += b.vy * dt; b.x = clamp(b.x, 60, AW - 40); b.y = clamp(b.y, 40, AH - 40);
+  b.a += U.wrap(to - b.a) * Math.min(1, dt * 2);
+  for (const q of PL) if (!q.down && Math.hypot(q.x - b.x, q.y - b.y) < b.r + 6) hurtPilot(q, 18);
+}
+function bossDown() {
+  const b = BOSS; BOSS = null; boom(b.x, b.y, 3); G.shake(0.8); RUN.score += 500 * (b.z + 1); dropOre(b.x, b.y, 40 + b.z * 15); RUN.bombs++;
+  for (const f of FO) boom(f.x, f.y, 1); FO = []; EB = [];
+  banner(b.D.name + " IS DESTROYED", 2.6); play("victory");
+  SEC.clear = true; SEC.clearT = 0;
+}
+
+// ---------------------------------------------------------------- shots, rocks, ore, mines
+function stepWorld(dt) {
+  for (let i = B.length - 1; i >= 0; i--) {
+    const s = B[i]; s.life -= dt; if (s.life <= 0) { B.splice(i, 1); continue; }
+    if (s.home) { const t = nearestTarget(s.x, s.y, 240); if (t && t !== null && !RO.includes(t)) { const a = Math.atan2(s.vy, s.vx), want = angTo(s, t), sp = Math.hypot(s.vx, s.vy), na = a + clamp(U.wrap(want - a), -4 * dt, 4 * dt); s.vx = Math.cos(na) * sp; s.vy = Math.sin(na) * sp; } }
+    s.x += s.vx * dt; s.y += s.vy * dt;
+    let gone = false;
+    const hitQ = q => { if (gone || (s.hit && s.hit.includes(q))) return; if ((q.x - s.x) ** 2 + (q.y - s.y) ** 2 < (q.r + 2) ** 2) { damageThing(q, s.dmg); parts.emit(s.x, s.y, 2, { c: [3, 6], v: 40, life: 0.2, bright: 1 }); if (s.hit) s.hit.push(q); else gone = true; } };
+    for (const f of FO.slice()) hitQ(f); if (BOSS) hitQ(BOSS); for (const r of RO.slice()) hitQ(r);
+    if (gone) B.splice(i, 1);
   }
-  function noise(dur, vol, freq) {
-    if (!AC || !soundOn || AC.state !== "running") return;
-    try {
-      const n = (AC.sampleRate * dur) | 0, b = AC.createBuffer(1, n, AC.sampleRate);
-      const d = b.getChannelData(0); for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
-      const s = AC.createBufferSource(); s.buffer = b;
-      const f = AC.createBiquadFilter(); f.type = "bandpass"; f.frequency.value = freq || 800;
-      const g = AC.createGain(), t = AC.currentTime;
-      g.gain.setValueAtTime(vol || 0.12, t);
-      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-      s.connect(f); f.connect(g); g.connect(AC.destination);
-      s.start(t); s.stop(t + dur + 0.02);
-    } catch (e) {}
+  for (let i = EB.length - 1; i >= 0; i--) {
+    const s = EB[i]; s.life -= dt;
+    if (s.home) { const p = nearestPilot(s.x, s.y); if (p) { const a = Math.atan2(s.vy, s.vx), na = a + clamp(U.wrap(angTo(s, p) - a), -1.6 * dt, 1.6 * dt), sp = Math.hypot(s.vx, s.vy); s.vx = Math.cos(na) * sp; s.vy = Math.sin(na) * sp; } }
+    s.x += s.vx * dt; s.y += s.vy * dt;
+    if (s.life <= 0 || s.x < -40 || s.y < -40 || s.x > AW + 40 || s.y > AH + 40) { EB.splice(i, 1); continue; }
+    for (const p of PL) if (!p.down && (p.x - s.x) ** 2 + (p.y - s.y) ** 2 < (s.big ? 64 : 30)) { hurtPilot(p, s.dmg); EB.splice(i, 1); break; }
   }
-
-  const sndLaser = () => tone(880, 220, 0.1, "sawtooth", 0.08);
-  const sndHit = () => noise(0.08, 0.18, 900);
-  const sndBoom = () => { noise(0.35, 0.3, 300); tone(120, 30, 0.35, "sine", 0.2); };
-  const sndGem = () => tone(1050, 1400, 0.08, "triangle", 0.1);
-  const sndShield = () => tone(240, 480, 0.2, "sine", 0.12);
-  const sndBuy = () => tone(523.25, 783.99, 0.15, "square", 0.08);
-  const sndWarp = () => { tone(200, 900, 0.4, "sawtooth", 0.12); noise(0.4, 0.15, 1200); };
-
-  // ------------------------------------------------ Game State
-  const SAVE_KEY = "void-drifter-best";
-  let bestScore = +localStorage.getItem(SAVE_KEY) || 0;
-  let state = "title"; // title, play, dock, gameover, victory
-  let score = 0, minerals = 0, threat = 0, sector = 1;
-  let screenShake = 0, dockedStation = null, upgradeCursor = 0;
-
-  const upgrades = [
-    { id: "hull", name: "REINFORCED HULL", desc: "+25 MAX HULL INTEGRITY", cost: 30, level: 0, max: 4 },
-    { id: "shield", name: "PLASMA SHIELD", desc: "+20 SHIELD & FAST RECHARGE", cost: 40, level: 0, max: 4 },
-    { id: "lasers", name: "TWIN BLASTERS", desc: "DUAL PLASMA CONVERTERS", cost: 50, level: 0, max: 3 },
-    { id: "thrust", name: "ION THRUSTERS", desc: "+30% THRUST & AFTERBURNER", cost: 35, level: 0, max: 3 },
-    { id: "magnet", name: "TRACTOR BEAM", desc: "+50% MINERAL MAGNET RANGE", cost: 25, level: 0, max: 4 }
-  ];
-
-  const player = {
-    x: 0, y: 0, vx: 0, vy: 0, angle: -Math.PI / 2,
-    hull: 100, maxHull: 100, shield: 50, maxShield: 50, shieldRecharge: 0,
-    fireTimer: 0, invuln: 0, boost: 100, maxBoost: 100, boosting: false, hitFlash: 0
-  };
-
-  let stars = [], asteroids = [], enemies = [], bullets = [], particles = [], gems = [], stations = [], floatTexts = [];
-  const WORLD = 1800;
-
-  function initWorld() {
-    stars = [];
-    for (let i = 0; i < 200; i++) {
-      stars.push({
-        x: (Math.random() - 0.5) * WORLD * 2.2,
-        y: (Math.random() - 0.5) * WORLD * 2.2,
-        s: Math.random() < 0.2 ? 2 : 1,
-        b: 0.3 + Math.random() * 0.7,
-        c: Math.random() < 0.2 ? PAL.c : Math.random() < 0.1 ? PAL.p : PAL.w
-      });
-    }
-    asteroids = [];
-    for (let i = 0; i < 35; i++) spawnAsteroid();
-    stations = [
-      { x: 0, y: -240, r: 36, angle: 0, name: "ORBITAL DOCK ALPHA" },
-      { x: 900, y: 700, r: 36, angle: 0, name: "VANGUARD OUTPOST" },
-      { x: -850, y: 750, r: 36, angle: 0, name: "SIGMA DEPOT" }
-    ];
-    enemies = [];
-    bullets = [];
-    particles = [];
-    gems = [];
-    floatTexts = [];
-    threat = 0;
+  for (const r of RO) {
+    r.x += r.vx * dt; r.y += r.vy * dt; if (r.flash > 0) r.flash -= dt;
+    if (r.x < r.r || r.x > AW - r.r) r.vx = -r.vx; if (r.y < r.r || r.y > AH - r.r) r.vy = -r.vy;
+    for (const p of PL) { if (p.down) continue; const dx = p.x - r.x, dy = p.y - r.y, d = Math.hypot(dx, dy); if (d < r.r + 6) { const k = (r.r + 6 - d) / (d || 1); p.x += dx * k; p.y += dy * k; const vn = (p.vx * dx + p.vy * dy) / (d || 1); if (vn < -40) hurtPilot(p, 4); p.vx += dx / (d || 1) * 60; p.vy += dy / (d || 1) * 60; } }
   }
-
-  function spawnAsteroid(x, y, tier) {
-    tier = tier || (Math.random() < 0.3 ? 2 : 1); // 1: normal, 2: large
-    const kind = Math.random() < 0.2 ? "hyper" : Math.random() < 0.35 ? "cobalt" : "iron";
-    let ax = x, ay = y;
-    if (ax === undefined) {
-      const d = 350 + Math.random() * (WORLD - 450);
-      const a = Math.random() * Math.PI * 2;
-      ax = player.x + Math.cos(a) * d; ay = player.y + Math.sin(a) * d;
-    }
-    asteroids.push({
-      x: ax, y: ay, vx: (Math.random() - 0.5) * 35, vy: (Math.random() - 0.5) * 35,
-      angle: Math.random() * Math.PI * 2, vAngle: (Math.random() - 0.5) * 1.2,
-      tier, kind, hp: tier * 4, r: tier === 2 ? 16 : 8
-    });
+  const reach = has("magnet") ? 90 : 46;
+  for (let i = ORE.length - 1; i >= 0; i--) {
+    const o = ORE[i]; o.t += dt; o.x += o.vx * dt; o.y += o.vy * dt; o.vx *= Math.exp(-3 * dt); o.vy *= Math.exp(-3 * dt);
+    const p = nearestPilot(o.x, o.y); if (!p) continue;
+    const dx = p.x - o.x, dy = p.y - o.y, d = Math.hypot(dx, dy);
+    if (d < reach || (SEC.clear && SEC.clearT > 0.4)) { const k = 260 / Math.max(10, d); o.vx += dx * k * dt * 6; o.vy += dy * k * dt * 6; }
+    if (d < 9) { ORE.splice(i, 1); if (o.heal) { p.hull = Math.min(p.max, p.hull + 25); play("heal"); } else { RUN.ore++; RUN.score += 2; if ((G.steps & 1) === 0) play("ore"); } }
   }
+  for (let i = MINES.length - 1; i >= 0; i--) { const m = MINES[i]; m.t += dt; const p = nearestPilot(m.x, m.y); if (m.t > 0.8 && p && Math.hypot(p.x - m.x, p.y - m.y) < 26) { MINES.splice(i, 1); boom(m.x, m.y, 1); for (const q of PL) if (Math.hypot(q.x - m.x, q.y - m.y) < 40) hurtPilot(q, 18); } else if (m.t > 14) MINES.splice(i, 1); }
+  for (let i = RINGS.length - 1; i >= 0; i--) { RINGS[i].t += dt; if (RINGS[i].t > 0.5) RINGS.splice(i, 1); }
+  if (SEC.storm && (G.steps % 90) === 0) for (const p of PL) { hurtPilot(p, 5); dropOre(p.x + (rnd() - 0.5) * 100, p.y + (rnd() - 0.5) * 100, 3); }
+}
 
-  function spawnEnemy(isBoss) {
-    const a = Math.random() * Math.PI * 2, d = 400 + Math.random() * 250;
-    const ex = player.x + Math.cos(a) * d, ey = player.y + Math.sin(a) * d;
-    if (isBoss) {
-      enemies.push({
-        isBoss: true, name: "DREADNOUGHT OMEGA",
-        x: ex, y: ey, vx: 0, vy: 0, angle: 0, r: 24,
-        hp: 140 + sector * 40, maxHp: 140 + sector * 40,
-        fireTimer: 0, hitFlash: 0
-      });
-      sndWarp();
-    } else {
-      enemies.push({
-        isBoss: false, name: "Drone",
-        x: ex, y: ey, vx: 0, vy: 0, angle: 0, r: 10,
-        hp: 5 + sector, maxHp: 5 + sector,
-        fireTimer: Math.random() * 2, hitFlash: 0
-      });
-    }
+// ---------------------------------------------------------------- a sector's end; the map; events; the shop
+function stepSector(dt) {
+  SEC.t += dt;
+  if (!SEC.clear) {
+    if (SEC.type === "boss") { if (!BOSS) { SEC.clear = true; SEC.clearT = 0; } }
+    else if (SEC.type === "mine") { SEC.mineT -= dt; if (SEC.t > 12 && FO.length < 3 && rnd() < dt * 0.25) spawnFoe("scout", AW + 20, 40 + rnd() * (AH - 80)); if (SEC.mineT <= 0) { SEC.clear = true; SEC.clearT = 0; FO = []; banner("THE JUMP DRIVE IS CHARGED", 1.5); } }
+    else if (!FO.length) { if (SEC.wave + 1 < SEC.waves.length) { SEC.wave++; spawnWave(); } else { SEC.clear = true; SEC.clearT = 0; banner("SECTOR CLEAR", 1.5); play("clear"); } }
+  } else {
+    SEC.clearT += dt;
+    if (SEC.clearT > (SEC.type === "boss" ? 3.5 : 2.2)) leaveSector();
   }
-
-  function spawnGem(x, y, kind) {
-    const a = Math.random() * Math.PI * 2, sp = 30 + Math.random() * 60;
-    gems.push({
-      x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
-      kind, val: kind === "hyper" ? 5 : kind === "cobalt" ? 2 : 1,
-      life: 25
-    });
+}
+function leaveSector() {
+  if (mode !== "play") return;
+  const node = RUN.map[RUN.col][RUN.row]; node.done = true;
+  for (const p of PL) if (p.down) { p.down = false; p.hull = Math.round(p.max * 0.3); }
+  if (SEC.type === "boss") {
+    if (RUN.zone === 3) { RUN.won = true; runOver(true); return; }
+    RUN.zone++; RUN.map = zoneMap(RUN.zone, RUN.seed); RUN.col = -1; RUN.row = -1;
+    for (const p of PL) p.hull = Math.min(p.max, p.hull + Math.round(p.max * 0.4));
+    banner("ON TO " + ZONES[RUN.zone].name, 2.5);
   }
+  mode = "fading"; G.fade(() => openMap(), 4);       // (once: the sector's over while it fades)
+}
+function openMap() { mode = "map"; modeT = 0; SEC = null; FO = []; B = []; EB = []; synth.song({ seed: 3 + RUN.zone, root: 50, tempo: 92, calm: true }); mapSel = 0; }
+let mapSel = 0;
+const nextNodes = () => RUN.col < 0 ? RUN.map[0].map((s, i) => i) : RUN.map[RUN.col][RUN.row].next;
+function goNode(i) {
+  if (mode !== "map") return;                         // (only from the map, once)
+  RUN.col++; RUN.row = i; const s = RUN.map[RUN.col][i];
+  if (s.type === "event") { EVT = EVENTS[(RUN.seed + RUN.col * 7 + i * 3 + RUN.zone * 11) % EVENTS.length]; mode = "event"; modeT = 0; evSel = 0; play("ok"); return; }
+  if (s.type === "shop") { openShop(); return; }
+  mode = "fading"; G.fade(() => { mode = "play"; modeT = 0; enterSector(s.type); }, 4);   // (once: no second press while it fades)
+}
+let EVT = null, evSel = 0, evOut = "";
+function eventChoice(k) {
+  const r = rnd(); let ambush = false, sector = null; evOut = "";
+  if (k === "beacon") { if (r < 0.55) { for (const p of PL) p.hull = Math.min(p.max, p.hull + 30); RUN.ore += 40; evOut = "THE CREW THANK YOU: REPAIRS, AND 40 ORE."; } else { ambush = true; evOut = "IT WAS A TRAP. RAIDERS DROP OUT OF THE DARK."; } }
+  else if (k === "derelict") { const n = 60 + ((rnd() * 60) | 0); RUN.ore += n; evOut = n + " ORE FROM THE HOLD."; if (r < 0.3) { for (const p of PL) p.hull = Math.max(1, p.hull - 25); evOut += " THE REACTOR BLOWS AS YOU LEAVE."; } }
+  else if (k === "trade") { if (RUN.ore >= 90) { const m = MOD_IDS.filter(x => !RUN.mods.includes(x)); if (m.length && RUN.mods.length < 4) { const got = m[(rnd() * m.length) | 0]; RUN.ore -= 90; RUN.mods.push(got); fitStats(); evOut = "FITTED: " + MODULES[got].name + "."; } else evOut = "NOTHING IT HAS FITS."; } else evOut = "NOT ENOUGH ORE. IT DRIFTS AWAY."; }
+  else if (k === "storm") { sector = "mine"; evOut = "INTO THE STORM."; }
+  else if (k === "round") evOut = "THE LONG WAY ROUND. NOTHING HAPPENS.";
+  else if (k === "cache") { if (r < 0.6) { const w = WEAPON_IDS.filter(x => !RUN.weapons.some(q => q.id === x)); if (w.length) { const got = w[(rnd() * w.length) | 0]; RUN.weapons.push({ id: got, lvl: 1 }); evOut = "A " + WEAPONS[got].name + " INSIDE. Y SWAPS WEAPONS."; } else { RUN.ore += 60; evOut = "60 ORE INSIDE."; } } else { ambush = true; evOut = "MINES! AND THEIR OWNERS."; } }
+  else evOut = "YOU FLY ON.";
+  EVT.done = true; EVT.out = evOut; EVT.next = ambush ? "ambush" : sector;
+}
+let SHOP = null, shopSel = 0;
+function openShop() {
+  mode = "shop"; modeT = 0; shopSel = 0; const r = U.rand(RUN.seed + RUN.col * 31 + RUN.zone * 7);
+  const ws = WEAPON_IDS.filter(x => !RUN.weapons.some(q => q.id === x)).sort(() => r() - 0.5).slice(0, 2), ms = MOD_IDS.filter(x => !RUN.mods.includes(x)).sort(() => r() - 0.5).slice(0, 2);
+  SHOP = [].concat(ws.map(id => ({ t: WEAPONS[id].name, about: WEAPONS[id].about, cost: 120 + RUN.zone * 20, buy: () => RUN.weapons.push({ id, lvl: 1 }) })),
+    ms.map(id => ({ t: MODULES[id].name, about: MODULES[id].about, cost: 100 + RUN.zone * 20, buy: () => { RUN.mods.push(id); fitStats(); }, off: () => RUN.mods.length >= 4 })),
+    RUN.weapons.filter(w => w.lvl < 3).slice(0, 2).map(w => ({ t: WEAPONS[w.id].name + " TO LEVEL " + (w.lvl + 1), about: "STRONGER AND QUICKER.", cost: 80 * w.lvl + RUN.zone * 15, buy: () => w.lvl++ })),
+    [{ t: "REPAIRS", about: "A THIRD OF THE HULL BACK.", cost: 40, buy: () => { for (const p of PL) p.hull = Math.min(p.max, p.hull + Math.round(p.max / 3)); } }, { t: "A BOMB", about: "X: CLEARS SHOTS AND HURTS ALL ROUND.", cost: 50, buy: () => RUN.bombs++ }, { t: "LEAVE", leave: 1 }]);
+  play("ok");
+}
+function runOver(won) {
+  if (mode === "over") return;
+  mode = "over"; modeT = 0; synth.stopSong(); play(won ? "victory" : "lose");
+  if (DEMO || PL.some(p => p.bot)) return;
+  const reached = RUN.zone + (won ? 1 : 0);
+  SAVE.runs++; if (won) SAVE.wins++;
+  if (RUN.score > SAVE.best) SAVE.best = RUN.score; if (reached > SAVE.deepest) SAVE.deepest = reached;
+  RUN.unlocks = [];
+  if (reached >= 1 && !SAVE.ships.wasp) { SAVE.ships.wasp = 1; RUN.unlocks.push("WASP"); }
+  if (reached >= 2 && !SAVE.ships.bulwark) { SAVE.ships.bulwark = 1; RUN.unlocks.push("BULWARK"); }
+  if (won && !SAVE.ships.spectre) { SAVE.ships.spectre = 1; RUN.unlocks.push("SPECTRE"); }
+  store.save();
+}
 
-  function addFloat(txt, x, y, col) {
-    floatTexts.push({ txt, x, y, vy: -25, life: 0.65, col });
-  }
+// ---------------------------------------------------------------- what's kept on the box
+const store = new L2.Store("void-drifter", () => ({ v: 2, best: 0, deepest: 0, runs: 0, wins: 0, ships: { vagrant: 1, wasp: 0, bulwark: 0, spectre: 0 }, opts: { music: 6, sound: 8, rumble: 1, shake: 2, fx: "auto", pace: "auto" } }));
+const SAVE = store.data;
+try { const old = +localStorage.getItem("voidDrifter_best"); if (old > SAVE.best) SAVE.best = old; } catch (e) { /* none */ }
 
-  function start() {
-    wakeAudio();
-    score = 0; minerals = 0; sector = 1; threat = 0;
-    for (const u of upgrades) u.level = 0;
-    player.maxHull = 100; player.hull = 100;
-    player.maxShield = 50; player.shield = 50;
-    player.x = 0; player.y = 0; player.vx = 0; player.vy = 0;
-    player.angle = -Math.PI / 2;
-    initWorld();
-    state = "play";
-  }
+// ---------------------------------------------------------------- the engine
+const KEYS = { z: "a", Z: "a", x: "b", X: "b", c: "y", C: "y", v: "x", V: "x", p: "start", P: "start" };
+const G = L2.game({ id: "void-drifter", canvas: document.getElementById("c"), keys: KEYS, keyNames: { a: "Z", b: "X", y: "C", x: "V", start: "P" },
+  on: onButton, update, draw, hud, ready, tier: onTier, hidden: () => { if (mode === "play") pause(); }, joined: () => {}, left: () => {} });
+const synth = G.synth, DEMO = G.demo;
+const CTL = {}, ctlOf = n => CTL[n] || (CTL[n] = G.control(n));
+let mode = "boot", modeT = 0, parts = null, light = null, GL = null;
+function onTier(G, t) { if (parts) { parts.k = t.parts; parts.cap = Math.min(parts.max, t.cap); } if (light) light.size(t.light); }
+function play(n) { synth.play(n); }
+let bannerText = "", bannerT = 0;
+function banner(t, s) { bannerText = t; bannerT = s || 2; }
+function sounds() {
+  const d = (n, f) => synth.define(n, f);
+  d("shot", (s, t) => s.note(t, 1200, 0.06, "square", 0.025, null, 0.001, 4000));
+  d("flak", (s, t) => s.noise(t, 0.12, 0.18, 1600, 1));
+  d("rail", (s, t) => { s.note(t, 2400, 0.25, "sawtooth", 0.05, null, 0.001, 8000); s.noise(t, 0.2, 0.2, 4000, 2); });
+  d("missile", (s, t) => s.noise(t, 0.3, 0.12, 900, 0.8));
+  d("laser", (s, t) => s.note(t, 880 + Math.random() * 60, 0.1, "sawtooth", 0.02, null, 0.001, 3000));
+  d("eshot", (s, t) => s.note(t, 500, 0.08, "square", 0.03, null, 0.001, 2000));
+  d("boom", (s, t) => { s.noise(t, 0.3, 0.3, 400, 0.8); s.note(t, 80, 0.25, "sine", 0.2); });
+  d("bigboom", (s, t) => { s.noise(t, 0.9, 0.5, 200, 0.5); s.note(t, 50, 0.8, "sine", 0.4); });
+  d("crack", (s, t) => s.noise(t, 0.15, 0.2, 1200, 1.2));
+  d("ore", (s, t) => s.note(t, 1600 + Math.random() * 400, 0.05, "sine", 0.03));
+  d("heal", (s, t) => [659, 880].forEach((f, i) => s.note(t + i * 0.06, f, 0.2, "sine", 0.08)));
+  d("hurt", (s, t) => { s.noise(t, 0.2, 0.35, 600, 0.8); s.note(t, 120, 0.2, "square", 0.08, null, 0.002, 900); });
+  d("shieldhit", (s, t) => s.note(t, 900, 0.15, "triangle", 0.08));
+  d("dash", (s, t) => s.noise(t, 0.25, 0.15, 2000, 1));
+  d("bomb", (s, t) => { s.noise(t, 1, 0.5, 300, 0.4); [220, 330, 440].forEach((f, i) => s.note(t + i * 0.04, f, 0.6, "sawtooth", 0.05, null, 0.01, 1500)); });
+  d("swap", (s, t) => s.note(t, 700, 0.06, "square", 0.04, null, 0.002, 2400));
+  d("boss", (s, t) => [110, 104, 98].forEach((f, i) => s.note(t + i * 0.3, f, 0.6, "sawtooth", 0.08, null, 0.05, 700)));
+  d("roar", (s, t) => { s.note(t, 70, 0.6, "sawtooth", 0.12, null, 0.05, 500); s.noise(t, 0.6, 0.3, 300, 0.5); });
+  d("spit", (s, t) => s.noise(t, 0.25, 0.25, 500, 1));
+  d("spawn", (s, t) => [440, 554].forEach((f, i) => s.note(t + i * 0.05, f, 0.15, "square", 0.04, null, 0.003, 2000)));
+  d("ring", (s, t) => s.note(t, 1320, 0.3, "triangle", 0.06));
+  d("charge", (s, t) => s.note(t, 200, 1.2, "sawtooth", 0.06, null, 1, 2000));
+  d("beam", (s, t) => { s.noise(t, 0.6, 0.4, 1500, 0.6); s.note(t, 110, 0.6, "sawtooth", 0.1, null, 0.01, 1200); });
+  d("clear", (s, t) => [523, 659, 784].forEach((f, i) => s.note(t + i * 0.08, f, 0.3, "triangle", 0.09)));
+  d("victory", (s, t) => [392, 523, 659, 784, 1047].forEach((f, i) => s.note(t + i * 0.1, f, 0.6, "triangle", 0.11)));
+  d("lose", (s, t) => [392, 330, 262, 196].forEach((f, i) => s.note(t + i * 0.18, f, 0.5, "triangle", 0.1)));
+  d("revive", (s, t) => [523, 784, 1047].forEach((f, i) => s.note(t + i * 0.07, f, 0.3, "triangle", 0.09)));
+  d("buy", (s, t) => [988, 1319].forEach((f, i) => s.note(t + i * 0.05, f, 0.15, "triangle", 0.08)));
+  d("move", (s, t) => s.note(t, 880, 0.04, "square", 0.03, null, 0.003, 2000));
+  d("ok", (s, t) => { s.note(t, 660, 0.08, "square", 0.05, null, 0.003, 2400); s.note(t + 0.05, 990, 0.1, "square", 0.05, null, 0.003, 2400); });
+}
 
-  // ------------------------------------------------ Inputs
-  const keys = {};
-  addEventListener("keydown", e => {
-    wakeAudio();
-    if (window.SofaPad && SofaPad.echo(e)) return;
-    keys[e.key] = true;
-    if (state === "title" && (e.key === "Enter" || e.key === " " || e.key === "z")) start();
-    else if (state === "gameover" && (e.key === "Enter" || e.key === " ")) start();
-    else if (state === "dock") {
-      if (e.key === "ArrowUp" || e.key === "w") { upgradeCursor = (upgradeCursor + upgrades.length - 1) % upgrades.length; sndHit(); }
-      if (e.key === "ArrowDown" || e.key === "s") { upgradeCursor = (upgradeCursor + 1) % upgrades.length; sndHit(); }
-      if (e.key === "Enter" || e.key === " " || e.key === "z") buyUpgrade();
-      if (e.key === "Escape" || e.key === "x") { state = "play"; sndHit(); }
-    } else if (state === "play") {
-      if (e.key === "e" || e.key === "c") tryDock();
-      if (e.key === "Escape" || e.key === "p") state = "title";
-    }
-    if (e.key.startsWith("Arrow") || e.key === " ") e.preventDefault();
+// ---------------------------------------------------------------- the demo's pilot: keeps off, circles, shoots, picks
+function botPilot(p) {
+  const t = BOSS || nearestTarget(p.x, p.y, 2000), out = { mx: 0, my: 0, ax: 0, ay: 0, aiming: false, fire: false, dash: false, swap: false, bomb: false };
+  if (t) {
+    const d = Math.hypot(t.x - p.x, t.y - p.y), a = angTo(p, t), want = BOSS ? 160 : RO.includes(t) ? 60 : 90, side = a + Math.PI / 2 * (Math.sin(G.time * 0.4 + p.n) > 0 ? 1 : -1);
+    out.mx = Math.cos(a) * clamp((d - want) / 60, -1, 1) + Math.cos(side) * 0.6; out.my = Math.sin(a) * clamp((d - want) / 60, -1, 1) + Math.sin(side) * 0.6;
+    const la = leadAt(p, t); out.ax = Math.cos(la); out.ay = Math.sin(la); out.aiming = d < 340; out.fire = d < 340;
+  } else if (ORE.length) { const o = ORE[0]; const a = angTo(p, o); out.mx = Math.cos(a); out.my = Math.sin(a); }
+  for (const s of EB) { const dx = s.x - p.x, dy = s.y - p.y; if (dx * dx + dy * dy < 900) { out.mx -= dx / 20; out.my -= dy / 20; } }
+  const m = Math.hypot(out.mx, out.my); if (m > 1) { out.mx /= m; out.my /= m; }
+  if (p.hull < p.max * 0.3 && EB.length > 6 && RUN.bombs) out.bomb = true;
+  return out;
+}
+
+// ---------------------------------------------------------------- the loop
+function update(dt) {
+  modeT += dt; if (bannerT > 0) bannerT -= dt;
+  if (mode === "hangar") return hangarInput();
+  if (mode === "map") return mapInput();
+  if (mode === "event") return eventInput();
+  if (mode === "shop") return shopInput();
+  if (mode === "over") { if (modeT > 1.5) { const c = ctlOf(padOf0()); if (DEMO || PL.some(p => p.bot) ? modeT > 4 : c.take("a", 300) || c.take("start", 300)) { if (DEMO) demoRun(); else toTitle(); } } return; }
+  if (mode !== "play" || !RUN || !SEC) return;
+  RUN.t += dt;
+  for (const p of PL) stepPilot(p, dt);
+  for (const f of FO.slice()) stepFoe(f, dt);
+  if (BOSS) stepBoss(BOSS, dt);
+  stepWorld(dt); stepSector(dt);
+  parts.step(dt); light.step(dt);
+  // the camera: between the ships (just ahead of one)
+  const on = PL.filter(p => !p.down), q = on.length ? on : PL;
+  let tx = q.reduce((a, p) => a + p.x + p.vx * 0.25, 0) / q.length, ty = q.reduce((a, p) => a + p.y + p.vy * 0.2, 0) / q.length; const k = 1 - Math.exp(-5 * dt);
+  if (BOSS) { tx += (BOSS.x - tx) * 0.35; ty += (BOSS.y - ty) * 0.3; }   // (a boss in the picture too, as far as it'll go)
+  camX += (tx - VW / 2 - camX) * k; camY += (ty - VH / 2 - camY) * k; camX = clamp(camX, 0, AW - VW); camY = clamp(camY, 0, AH - VH);
+}
+const padOf0 = () => PL[0] && !PL[0].bot ? PL[0].pad : G.input.players()[0] || 0;
+let BG = [];
+function zoneArt() {                                 // each zone's sky, made once: a gradient, nebula clouds, two layers of stars
+  BG = ZONES.map((Z, zi) => {
+    const sky = L2.gradient(VW, VH, Z.sky);
+    const neb = new L2.Layer(640, VH, (g, w, h) => { const r = U.rand(zi * 7 + 3); for (let k = 0; k < 9; k++) { const x = r() * w, y = r() * h, rad = 40 + r() * 90, gr = g.createRadialGradient(x, y, 0, x, y, rad); gr.addColorStop(0, Z.neb[k & 1] + "66"); gr.addColorStop(1, Z.neb[k & 1] + "00"); g.fillStyle = gr; g.fillRect(0, 0, w, h); } }, { k: 0.15, ky: 0.15 });
+    const far = new L2.Layer(512, VH + 120, (g, w, h) => { const r = U.rand(zi * 11 + 5); for (let k = 0; k < 140; k++) px(g, (r() * w) | 0, (r() * h) | 0, 1, 1, r() < 0.8 ? "#5a6a8a" : "#c8d0e8"); }, { k: 0.3, ky: 0.3 });
+    const near = new L2.Layer(640, VH + 200, (g, w, h) => { const r = U.rand(zi * 13 + 9); for (let k = 0; k < 50; k++) { const x = (r() * w) | 0, y = (r() * h) | 0; px(g, x, y, 1, 1, "#ffffff"); if (r() < 0.2) { px(g, x - 1, y, 3, 1, "#8aa0d8"); px(g, x, y - 1, 1, 3, "#8aa0d8"); } } }, { k: 0.6, ky: 0.6 });
+    return { sky, neb, far, near };
   });
-  addEventListener("keyup", e => { keys[e.key] = false; });
-
-  if (window.SofaPad) {
-    SofaPad.on((b, act) => {
-      wakeAudio();
-      if (state === "title" && (act === "press" && (b === "a" || b === "start"))) start();
-      else if (state === "gameover" && (act === "press" && (b === "a" || b === "start"))) start();
-      else if (state === "dock") {
-        if (act === "press" || act === "repeat") {
-          if (b === "up") { upgradeCursor = (upgradeCursor + upgrades.length - 1) % upgrades.length; sndHit(); }
-          if (b === "down") { upgradeCursor = (upgradeCursor + 1) % upgrades.length; sndHit(); }
-          if (b === "a" || b === "x") buyUpgrade();
-          if (b === "b" || b === "start" || b === "y") { state = "play"; sndHit(); }
-        }
-      } else if (state === "play" && act === "press") {
-        if (b === "y" || b === "lb") tryDock();
-        if (b === "start") state = "title";
-      }
-    });
+}
+function draw(g) {
+  const z = RUN ? RUN.zone : 0, Bk = BG[z];
+  g.drawImage(Bk.sky, 0, 0);
+  const cx = Math.round(camX), cy = Math.round(camY);
+  Bk.neb.draw(g, cx + G.time * 4, cy, VW); Bk.far.draw(g, cx + G.time * 8, cy * 0.3 + 40, VW); Bk.near.draw(g, cx + G.time * 14, cy * 0.6 + 80, VW);
+  if (mode !== "play" && mode !== "over" && mode !== "pause") return;
+  if (!SEC) return;
+  g.strokeStyle = "rgba(120,140,200,0.18)"; g.lineWidth = 1; g.strokeRect(0.5 - cx, 0.5 - cy, AW - 1, AH - 1);
+  for (const r of RO) { const x = r.x - cx, y = r.y - cy; if (x < -30 || y < -30 || x > VW + 30 || y > VH + 30) continue; g.drawImage(r.sp.c, Math.round(x - r.sp.c.width / 2), Math.round(y - r.sp.c.height / 2)); if (r.rich) px(g, Math.round(x) - 1, Math.round(y) - 1, 3, 3, "#5affd8"); if (r.flash > 0) { g.globalAlpha = 0.5; g.fillStyle = "#fff"; g.beginPath(); g.arc(x, y, r.r, 0, TAU); g.fill(); g.globalAlpha = 1; } }
+  for (const o of ORE) { const x = Math.round(o.x - cx), y = Math.round(o.y - cy); if (o.heal) { px(g, x - 2, y - 1, 5, 3, "#ff4a5a"); px(g, x - 1, y - 2, 3, 5, "#ff4a5a"); } else { px(g, x - 1, y - 2, 2, 4, "#5affd8"); px(g, x - 2, y - 1, 4, 2, "#3ac8b0"); } }
+  for (const m of MINES) { const x = Math.round(m.x - cx), y = Math.round(m.y - cy); px(g, x - 3, y - 3, 6, 6, "#3a2a3a"); px(g, x - 1, y - 1, 2, 2, (G.frame >> 3) & 1 ? "#ff3a3a" : "#5a1a1a"); }
+  for (const f of FO) { drawSheet(g, f.sheet, f.a, f.x - cx, f.y - cy); if (f.flash > 0) { g.globalAlpha = 0.6; g.fillStyle = "#fff"; g.beginPath(); g.arc(f.x - cx, f.y - cy, f.r, 0, TAU); g.fill(); g.globalAlpha = 1; } }
+  if (BOSS) drawBoss(g, BOSS, cx, cy);
+  for (const p of PL) {
+    if (p.down) { const x = p.x - cx, y = p.y - cy; g.globalAlpha = 0.4; drawSheet(g, p.sheet, p.a, x, y); g.globalAlpha = 1; if (p.revT > 0) { px(g, x - 10, y - 16, 20, 3, "#08060c"); px(g, x - 9, y - 15, Math.round(18 * p.revT / 2), 1, "#7ae07a"); } continue; }
+    if (p.inv > 0 && (G.frame >> 2) & 1 && p.dashT <= 0) continue;
+    drawSheet(g, p.sheet, p.a, p.x - cx, p.y - cy);
+    if (p.shield > 1) { g.strokeStyle = "rgba(120,220,255," + (0.25 + p.shield / p.smax * 0.4) + ")"; g.beginPath(); g.arc(p.x - cx, p.y - cy, 13, 0, TAU); g.stroke(); }
+    if (has("drone")) px(g, Math.round(p.x - cx + Math.cos(p.droneA) * 18) - 1, Math.round(p.y - cy + Math.sin(p.droneA) * 18) - 1, 3, 3, "#9aff7a");
+    if (PL.length > 1) font.text(g, "P" + (p.n + 1), Math.round(p.x - cx) - 5, Math.round(p.y - cy) - 20, p.n ? 6 : 4);
   }
-
-  function buyUpgrade() {
-    const u = upgrades[upgradeCursor];
-    if (u.level < u.max && minerals >= u.cost) {
-      minerals -= u.cost;
-      u.level++;
-      u.cost = Math.round(u.cost * 1.5);
-      sndBuy();
-      const hullUp = upgrades.find(x => x.id === "hull").level;
-      player.maxHull = 100 + hullUp * 25;
-      player.hull = Math.min(player.maxHull, player.hull + 25);
-      const shieldUp = upgrades.find(x => x.id === "shield").level;
-      player.maxShield = 50 + shieldUp * 20;
-      player.shield = Math.min(player.maxShield, player.shield + 20);
-    } else {
-      sndHit();
-    }
+  // beams
+  for (const p of PL) if (p.beam) { const b = p.beam; g.strokeStyle = "#ff4af0"; g.lineWidth = 3; g.globalAlpha = 0.5; g.beginPath(); g.moveTo(b.x0 - cx, b.y0 - cy); g.lineTo(b.x1 - cx, b.y1 - cy); g.stroke(); g.globalAlpha = 1; g.strokeStyle = "#ffd0ff"; g.lineWidth = 1; g.stroke(); }
+  // shots: ours, theirs
+  for (const s of B) { const x = Math.round(s.x - cx), y = Math.round(s.y - cy); if (s.rail) { g.strokeStyle = s.col; g.lineWidth = 1; g.beginPath(); g.moveTo(x, y); g.lineTo(x - s.vx * 0.03, y - s.vy * 0.03); g.stroke(); } else px(g, x - 1, y - 1, s.home ? 3 : 2, s.home ? 3 : 2, s.col); }
+  for (const s of EB) { const x = Math.round(s.x - cx), y = Math.round(s.y - cy), r = s.big ? 3 : 2; px(g, x - r, y - r, r * 2, r * 2, s.col); px(g, x - 1, y - 1, 2, 2, "#ffffff"); }
+  for (const r of RINGS) { g.strokeStyle = "rgba(255,220,160," + (1 - r.t / 0.5) + ")"; g.lineWidth = 2; g.beginPath(); g.arc(r.x - cx, r.y - cy, r.r * r.t / 0.5, 0, TAU); g.stroke(); }
+  parts.draw(g, cx, cy, false); parts.draw(g, cx, cy, true);
+  // glows: shots and engines, over all
+  light.glowBegin(g);
+  for (const s of EB) light.glow(g, s.x - cx, s.y - cy, GL.red, 0.7);
+  for (const s of B) light.glow(g, s.x - cx, s.y - cy, GL.blue, 0.5);
+  for (const p of PL) if (!p.down) light.glow(g, p.x - cx - Math.cos(p.a) * 9, p.y - cy - Math.sin(p.a) * 9, GL.engine, 0.8);
+  light.pulseGlows(g, cx, cy); light.glowEnd(g);
+  if (SEC.storm) { g.fillStyle = "rgba(120,160,255," + (0.05 + 0.05 * Math.sin(G.time * 7)) + ")"; g.fillRect(0, 0, VW, VH); }
+}
+function drawBoss(g, b, cx, cy) {
+  const x = b.x - cx, y = b.y - cy, id = b.D.id, flash = b.flash > 0;
+  g.save(); g.translate(Math.round(x), Math.round(y));
+  if (id === "maw") {
+    g.fillStyle = flash ? "#ffffff" : "#7a4a2a"; g.beginPath(); g.arc(0, 0, b.r, 0, TAU); g.fill();
+    g.fillStyle = "#a85a3a"; g.beginPath(); g.arc(-6, -6, b.r * 0.7, 0, TAU); g.fill();
+    g.rotate(b.a); const open = 0.4 + Math.sin(b.t * 6) * 0.2 + (b.lunge > 0 ? 0.3 : 0);
+    g.fillStyle = "#1a0808"; g.beginPath(); g.moveTo(0, 0); g.arc(0, 0, b.r - 3, -open, open); g.fill();
+    g.fillStyle = "#e8e0c8"; for (let k = -2; k <= 2; k++) { const a = k * open / 2.5; g.fillRect(Math.cos(a) * (b.r - 7), Math.sin(a) * (b.r - 7) - 1, 4, 2); }
+    g.fillStyle = "#ffea00"; g.fillRect(-6, -b.r * 0.6, 3, 3); g.fillRect(-6, b.r * 0.6 - 3, 3, 3);
+  } else if (id === "hive") {
+    g.fillStyle = flash ? "#ffffff" : "#5a5a2a"; g.fillRect(-34, -26, 68, 52); g.fillStyle = "#7a7a3a"; g.fillRect(-34, -26, 68, 6); g.fillStyle = "#3a3a1a"; g.fillRect(-38, -10, 8, 20);
+    for (let k = 0; k < 6; k++) { g.fillStyle = (G.frame >> 3) % 6 === k ? "#ffd04a" : "#8a6a2a"; g.fillRect(-26 + k * 10, -14, 6, 4); g.fillRect(-26 + k * 10, 10, 6, 4); }
+    g.fillStyle = "#ff5a3a"; g.fillRect(-12, -24, 4, 4); g.fillRect(-12, 20, 4, 4);
+  } else if (id === "prism") {
+    for (const a of b.beams) { g.strokeStyle = "rgba(90,224,255,0.25)"; g.lineWidth = 9; g.beginPath(); g.moveTo(Math.cos(a) * b.r, Math.sin(a) * b.r); g.lineTo(Math.cos(a) * 420, Math.sin(a) * 420); g.stroke(); g.strokeStyle = "#dafaff"; g.lineWidth = 2; g.stroke(); }
+    g.rotate(b.t * 0.8); g.fillStyle = flash ? "#ffffff" : "#3ab8d8"; g.beginPath(); g.moveTo(0, -b.r); g.lineTo(b.r * 0.7, 0); g.lineTo(0, b.r); g.lineTo(-b.r * 0.7, 0); g.fill();
+    g.fillStyle = "#9af0ff"; g.beginPath(); g.moveTo(0, -b.r); g.lineTo(b.r * 0.7, 0); g.lineTo(0, 0); g.fill();
+  } else {
+    if (b.charge > 0) { g.strokeStyle = "rgba(255,80,80," + (0.3 + (1.2 - b.charge) * 0.5) + ")"; g.lineWidth = 1; g.beginPath(); g.moveTo(-30, b.chargeY - b.y); g.lineTo(-x - 10, b.chargeY - b.y); g.stroke(); }
+    if (b.fireBeam > 0) { g.fillStyle = "rgba(255,120,120,0.8)"; g.fillRect(-x - 10, b.chargeY - b.y - 8, x - 20, 16); g.fillStyle = "#fff0f0"; g.fillRect(-x - 10, b.chargeY - b.y - 3, x - 20, 6); }
+    g.fillStyle = flash ? "#ffffff" : "#5a2a34"; g.beginPath(); g.moveTo(-44, 0); g.lineTo(-20, -30); g.lineTo(40, -26); g.lineTo(48, 0); g.lineTo(40, 26); g.lineTo(-20, 30); g.fill();
+    g.fillStyle = "#8a3a4a"; g.fillRect(-20, -22, 56, 8); g.fillStyle = "#3a1a20"; g.fillRect(-10, -6, 40, 12);
+    for (const oy of [-30, -10, 10, 30]) { g.fillStyle = "#c83a4a"; g.fillRect(-26, oy - 2, 8, 4); }
+    g.fillStyle = "#ff8a3a"; g.fillRect(44, -8, 6, 16);
   }
+  g.restore();
+}
 
-  function tryDock() {
-    for (const s of stations) {
-      if (Math.hypot(player.x - s.x, player.y - s.y) < s.r + 45) {
-        dockedStation = s;
-        state = "dock";
-        upgradeCursor = 0;
-        player.vx = 0; player.vy = 0;
-        sndBuy();
-        return;
-      }
-    }
+// ---------------------------------------------------------------- the numbers on screen, and the screens between sectors
+function bar(g, x, y, w, k, col, bg) { px(g, x, y, w, 4, bg || "#08060c"); px(g, x + 1, y + 1, Math.max(0, Math.round((w - 2) * clamp(k, 0, 1))), 2, col); }
+function hud(g) {
+  if (mode === "title" || mode === "boot") { const y = 40 + Math.round(Math.sin(G.time * 1.5) * 2); font.center(g, "VOID", VW / 2, y, 4, 5); font.center(g, "DRIFTER", VW / 2, y + 40, 6, 4); font.center(g, "FOUR ZONES · SIX WEAPONS · ONE OR TWO SHIPS", VW / 2, y + 76, 1, 1); return; }
+  if (mode === "hangar") return drawHangar(g);
+  if (mode === "map") return drawMap(g);
+  if (mode === "event") return drawEvent(g);
+  if (mode === "shop") return drawShop(g);
+  if (!RUN || !SEC) return;
+  PL.forEach((p, i) => {
+    const x = i ? VW - 110 : 6, y = 6;
+    g.fillStyle = "rgba(6,4,12,0.55)"; g.fillRect(x - 3, y - 3, 108, 26);
+    font.text(g, (PL.length > 1 ? "P" + (i + 1) + " " : "") + p.S.name, x, y, p.down ? 3 : 0);
+    bar(g, x, y + 9, 100, p.hull / p.max, p.hull < p.max * 0.3 ? "#ff4a4a" : "#7ae07a"); if (p.smax) bar(g, x, y + 14, 100, p.shield / p.smax, "#5ad8ff");
+  });
+  const W = RUN.weapons[PL[0].wi] || RUN.weapons[0], info = WEAPONS[W.id].name + (W.lvl > 1 ? " " + W.lvl : "") + "   ORE " + RUN.ore + "   BOMBS " + RUN.bombs;
+  g.fillStyle = "rgba(6,4,12,0.55)"; g.fillRect(0, VH - 13, VW, 13);
+  font.text(g, info, 6, VH - 10, 1);
+  font.text(g, ZONES[RUN.zone].name + " · " + (SEC.type === "boss" ? "BOSS" : SEC.type === "mine" ? "FIELD " + Math.max(0, Math.ceil(SEC.mineT)) : SEC.waves.length ? "WAVE " + (SEC.wave + 1) + "/" + SEC.waves.length : SEC.type.toUpperCase()), VW - 6 - font.width(ZONES[RUN.zone].name + " · WAVE 9/9"), VH - 10, 1);
+  if (BOSS) { const bx = BOSS.x - camX, by = BOSS.y - camY; if (bx < 0 || bx > VW || by < 0 || by > VH) { const a = Math.atan2(by - VH / 2, bx - VW / 2), ax = clamp(VW / 2 + Math.cos(a) * 220, 8, VW - 14), ay = clamp(VH / 2 + Math.sin(a) * 118, 24, VH - 40);
+    font.text(g, Math.abs(Math.cos(a)) > Math.abs(Math.sin(a)) ? (Math.cos(a) > 0 ? "▶" : "◀") : (Math.sin(a) > 0 ? "↓" : "↑"), ax, ay, 3); } }
+  if (BOSS) { const w = 240, x = (VW - w) / 2; font.center(g, BOSS.D.name, VW / 2, VH - 30, 3, 1); bar(g, x, VH - 21, w, BOSS.hp / BOSS.max, "#ff4a5a"); }
+  if (bannerT > 0 && bannerText) font.center(g, bannerText, VW / 2, 60, 2, bannerText.length > 22 ? 1 : 2);
+  if (mode === "over") drawOver(g);
+  if (mode === "pause") { g.fillStyle = "rgba(0,0,0,0.35)"; g.fillRect(0, 0, VW, VH); }
+}
+// the hangar: a ship each (a second controller joins with A)
+let HG = null;
+function openHangar() { menu.hide(); mode = "hangar"; modeT = 0; const pads = G.input.players(); HG = { p: [{ pad: pads[0] || 0, i: SHIP_IDS.indexOf(SAVE.lastShip || "vagrant"), done: false }] }; }
+function hangarInput() {
+  for (const s of HG.p) {
+    const c = ctlOf(s.pad);
+    if (!s.done) {
+      if (c.take("left", 200)) { s.i = (s.i + 3) % 4; play("move"); } if (c.take("right", 200)) { s.i = (s.i + 1) % 4; play("move"); }
+      if (c.take("a", 200) || c.take("start", 200)) { if (SAVE.ships[SHIP_IDS[s.i]]) { s.done = true; play("ok"); } else play("no"); }
+    } else if (c.take("b", 200)) { s.done = false; play("move"); }
   }
-
-  // ------------------------------------------------ Physics Loop
-  let lastTime = 0, enemySpawnTimer = 0;
-  function update(dt) {
-    if (state !== "play") return;
-
-    if (screenShake > 0) screenShake = Math.max(0, screenShake - dt * 15);
-    if (player.hitFlash > 0) player.hitFlash -= dt;
-
-    // Controller input
-    let padX = 0, padY = 0, padFire = false, padBoost = false;
-    if (window.SofaPad) {
-      const st = SofaPad.stick();
-      padX = st.x; padY = st.y;
-      if (SofaPad.held("left")) padX -= 1;
-      if (SofaPad.held("right")) padX += 1;
-      if (SofaPad.held("up")) padY -= 1;
-      if (SofaPad.held("down")) padY += 1;
-      padFire = SofaPad.held("a") || SofaPad.held("x") || SofaPad.held("rt");
-      padBoost = SofaPad.held("b") || SofaPad.held("lb");
-    }
-    if (keys.ArrowLeft || keys.a) padX -= 1;
-    if (keys.ArrowRight || keys.d) padX += 1;
-    if (keys.ArrowUp || keys.w) padY -= 1;
-    if (keys.ArrowDown || keys.s) padY += 1;
-    const isFire = padFire || keys.z || keys[" "] || keys.Enter;
-    const isBoost = padBoost || keys.Shift || keys.x;
-
-    const mag = Math.hypot(padX, padY);
-    if (mag > 0.2) {
-      const targetAngle = Math.atan2(padY, padX);
-      let diff = targetAngle - player.angle;
-      while (diff < -Math.PI) diff += Math.PI * 2;
-      while (diff > Math.PI) diff -= Math.PI * 2;
-      player.angle += diff * Math.min(1, dt * 11);
-    }
-
-    const thrustUp = upgrades.find(x => x.id === "thrust").level;
-    const baseThrust = 260 + thrustUp * 65;
-    let thrust = 0;
-    if (mag > 0.25 || keys.ArrowUp || keys.w) thrust = baseThrust * Math.min(1, mag || 1);
-
-    if (isBoost && player.boost > 5) {
-      thrust *= 1.8;
-      player.boost = Math.max(0, player.boost - dt * 35);
-      player.boosting = true;
-    } else {
-      player.boost = Math.min(player.maxBoost, player.boost + dt * 18);
-      player.boosting = false;
-    }
-
-    if (thrust > 0) {
-      player.vx += Math.cos(player.angle) * thrust * dt;
-      player.vy += Math.sin(player.angle) * thrust * dt;
-      // Thruster exhaust particles
-      particles.push({
-        x: player.x - Math.cos(player.angle) * 12 + (Math.random() - 0.5) * 4,
-        y: player.y - Math.sin(player.angle) * 12 + (Math.random() - 0.5) * 4,
-        vx: -Math.cos(player.angle) * 120 + (Math.random() - 0.5) * 40,
-        vy: -Math.sin(player.angle) * 120 + (Math.random() - 0.5) * 40,
-        life: 0.2, maxLife: 0.2, col: player.boosting ? PAL.c : PAL.y
-      });
-    }
-
-    player.vx *= Math.pow(0.96, dt * 60);
-    player.vy *= Math.pow(0.96, dt * 60);
-    player.x += player.vx * dt; player.y += player.vy * dt;
-    player.x = Math.max(-WORLD, Math.min(WORLD, player.x));
-    player.y = Math.max(-WORLD, Math.min(WORLD, player.y));
-
-    // Shield Recharge
-    player.shieldRecharge += dt;
-    if (player.shieldRecharge > 3.0 && player.shield < player.maxShield) {
-      const shieldUp = upgrades.find(x => x.id === "shield").level;
-      player.shield = Math.min(player.maxShield, player.shield + dt * (12 + shieldUp * 5));
-    }
-    if (player.invuln > 0) player.invuln -= dt;
-
-    // Firing Plasma
-    player.fireTimer -= dt;
-    if (isFire && player.fireTimer <= 0) {
-      sndLaser();
-      const laserUp = upgrades.find(x => x.id === "lasers").level;
-      player.fireTimer = Math.max(0.12, 0.22 - laserUp * 0.03);
-      const sp = 550;
-      if (laserUp === 0) {
-        bullets.push({ x: player.x + Math.cos(player.angle) * 12, y: player.y + Math.sin(player.angle) * 12,
-                       vx: player.vx * 0.3 + Math.cos(player.angle) * sp, vy: player.vy * 0.3 + Math.sin(player.angle) * sp,
-                       life: 0.9, fromPlayer: true, dmg: 1.5 });
-      } else {
-        for (let a of [-0.14, 0.14]) {
-          bullets.push({ x: player.x + Math.cos(player.angle + a) * 12, y: player.y + Math.sin(player.angle + a) * 12,
-                         vx: player.vx * 0.3 + Math.cos(player.angle + a) * sp, vy: player.vy * 0.3 + Math.sin(player.angle + a) * sp,
-                         life: 0.9, fromPlayer: true, dmg: 1.5 });
-        }
-      }
-    }
-
-    // Update Bullets
-    for (let i = bullets.length - 1; i >= 0; i--) {
-      const b = bullets[i];
-      b.x += b.vx * dt; b.y += b.vy * dt; b.life -= dt;
-      if (b.life <= 0) { bullets.splice(i, 1); continue; }
-
-      if (b.fromPlayer) {
-        let hit = false;
-        // Hit Asteroids
-        for (let j = asteroids.length - 1; j >= 0; j--) {
-          const a = asteroids[j];
-          if (Math.hypot(b.x - a.x, b.y - a.y) < a.r) {
-            a.hp -= b.dmg;
-            sndHit();
-            hit = true;
-            if (a.hp <= 0) {
-              score += a.tier * 30;
-              threat = Math.min(100, threat + a.tier * 2.5);
-              sndBoom();
-              screenShake = 3;
-              addFloat(`+${a.tier * 30}`, a.x, a.y - 10, 2);
-              const gemCount = a.tier === 2 ? 4 : 2;
-              for (let k = 0; k < gemCount; k++) spawnGem(a.x, a.y, a.kind);
-              if (a.tier === 2) {
-                spawnAsteroid(a.x - 8, a.y - 8, 1);
-                spawnAsteroid(a.x + 8, a.y + 8, 1);
-              }
-              asteroids.splice(j, 1);
-              setTimeout(spawnAsteroid, 3000);
-            }
-            break;
-          }
-        }
-        if (hit) { bullets.splice(i, 1); continue; }
-
-        // Hit Enemies
-        for (let j = enemies.length - 1; j >= 0; j--) {
-          const en = enemies[j];
-          if (Math.hypot(b.x - en.x, b.y - en.y) < en.r + 4) {
-            en.hp -= b.dmg;
-            en.hitFlash = 0.12;
-            sndHit();
-            hit = true;
-            if (en.hp <= 0) {
-              sndBoom();
-              screenShake = en.isBoss ? 8 : 4;
-              if (en.isBoss) {
-                score += 2000;
-                threat = 0;
-                sector++;
-                sndWarp();
-                addFloat("+2000 BOSS CLEAR", en.x, en.y - 14, 4);
-                for (let k = 0; k < 12; k++) spawnGem(en.x, en.y, "hyper");
-              } else {
-                score += 120;
-                threat = Math.min(100, threat + 6);
-                addFloat("+120", en.x, en.y - 10, 0);
-                spawnGem(en.x, en.y, Math.random() < 0.4 ? "cobalt" : "iron");
-              }
-              enemies.splice(j, 1);
-            }
-            break;
-          }
-        }
-        if (hit) { bullets.splice(i, 1); continue; }
-      } else {
-        if (player.invuln <= 0 && Math.hypot(b.x - player.x, b.y - player.y) < 12) {
-          hurtPlayer(b.dmg || 15);
-          bullets.splice(i, 1);
-          continue;
-        }
-      }
-    }
-
-    // Asteroids movement
-    for (const a of asteroids) {
-      a.x += a.vx * dt; a.y += a.vy * dt; a.angle += a.vAngle * dt;
-      if (a.x < -WORLD) a.x += WORLD * 2; if (a.x > WORLD) a.x -= WORLD * 2;
-      if (a.y < -WORLD) a.y += WORLD * 2; if (a.y > WORLD) a.y -= WORLD * 2;
-      if (player.invuln <= 0 && Math.hypot(player.x - a.x, player.y - a.y) < a.r + 8) {
-        hurtPlayer(a.tier * 12);
-        const ba = Math.atan2(player.y - a.y, player.x - a.x);
-        player.vx += Math.cos(ba) * 140; player.vy += Math.sin(ba) * 140;
-      }
-    }
-
-    // Enemies update
-    enemySpawnTimer -= dt;
-    if (enemySpawnTimer <= 0) {
-      enemySpawnTimer = Math.max(4, 9 - sector);
-      if (threat >= 100 && !enemies.some(e => e.isBoss)) spawnEnemy(true);
-      else if (enemies.length < 3 + sector) spawnEnemy(false);
-    }
-
-    for (const en of enemies) {
-      if (en.hitFlash > 0) en.hitFlash -= dt;
-      const dx = player.x - en.x, dy = player.y - en.y, dist = Math.hypot(dx, dy);
-      en.angle = Math.atan2(dy, dx);
-
-      if (en.isBoss) {
-        if (dist > 200) { en.vx += Math.cos(en.angle) * 60 * dt; en.vy += Math.sin(en.angle) * 60 * dt; }
-        else { en.vx -= Math.cos(en.angle) * 40 * dt; en.vy -= Math.sin(en.angle) * 40 * dt; }
-        en.vx *= Math.pow(0.9, dt * 60); en.vy *= Math.pow(0.9, dt * 60);
-        en.x += en.vx * dt; en.y += en.vy * dt;
-
-        en.fireTimer += dt;
-        if (en.fireTimer > 1.3 && dist < 500) {
-          en.fireTimer = 0;
-          sndLaser();
-          for (let sp = -0.3; sp <= 0.3; sp += 0.2) {
-            bullets.push({
-              x: en.x + Math.cos(en.angle + sp) * 20, y: en.y + Math.sin(en.angle + sp) * 20,
-              vx: Math.cos(en.angle + sp) * 290, vy: Math.sin(en.angle + sp) * 290,
-              life: 1.8, fromPlayer: false, dmg: 16
-            });
-          }
-        }
-      } else {
-        const perp = en.angle + Math.PI / 2;
-        en.vx = Math.cos(en.angle) * (dist - 160) * 0.7 + Math.cos(perp) * 100;
-        en.vy = Math.sin(en.angle) * (dist - 160) * 0.7 + Math.sin(perp) * 100;
-        en.x += en.vx * dt; en.y += en.vy * dt;
-
-        en.fireTimer += dt;
-        if (en.fireTimer > 2.0 && dist < 400) {
-          en.fireTimer = 0;
-          sndLaser();
-          bullets.push({
-            x: en.x + Math.cos(en.angle) * 10, y: en.y + Math.sin(en.angle) * 10,
-            vx: Math.cos(en.angle) * 260, vy: Math.sin(en.angle) * 260,
-            life: 1.6, fromPlayer: false, dmg: 12
-          });
-        }
-      }
-      if (player.invuln <= 0 && dist < en.r + 10) hurtPlayer(en.isBoss ? 28 : 14);
-    }
-
-    // Mineral Gems Magnet
-    const magnetUp = upgrades.find(x => x.id === "magnet").level;
-    const magnetRange = 70 + magnetUp * 35;
-    for (let i = gems.length - 1; i >= 0; i--) {
-      const g = gems[i];
-      const dx = player.x - g.x, dy = player.y - g.y, dist = Math.hypot(dx, dy);
-      if (dist < magnetRange) {
-        const pull = (1 - dist / magnetRange) * 380;
-        g.vx += (dx / dist) * pull * dt;
-        g.vy += (dy / dist) * pull * dt;
-      }
-      g.vx *= Math.pow(0.94, dt * 60); g.vy *= Math.pow(0.94, dt * 60);
-      g.x += g.vx * dt; g.y += g.vy * dt;
-      g.life -= dt;
-      if (dist < 16) {
-        minerals += g.val;
-        score += g.val * 20;
-        sndGem();
-        addFloat(`+${g.val} MINERAL`, player.x, player.y - 10, 2);
-        gems.splice(i, 1);
-        continue;
-      }
-      if (g.life <= 0) gems.splice(i, 1);
-    }
-
-    // Floating text update
-    for (let i = floatTexts.length - 1; i >= 0; i--) {
-      const ft = floatTexts[i];
-      ft.y += ft.vy * dt; ft.life -= dt;
-      if (ft.life <= 0) floatTexts.splice(i, 1);
-    }
-
-    // Particles
-    for (let i = particles.length - 1; i >= 0; i--) {
-      const p = particles[i];
-      p.x += p.vx * dt; p.y += p.vy * dt; p.life -= dt;
-      if (p.life <= 0) particles.splice(i, 1);
-    }
+  const c0 = ctlOf(HG.p[0].pad);
+  if (!HG.p[0].done && c0.take("b", 200)) { toTitle(); return; }
+  if (HG.p.every(s => s.done) && modeT > 0.3) {
+    SAVE.lastShip = SHIP_IDS[HG.p[0].i]; store.save();
+    newRun(SHIP_IDS[HG.p[0].i], HG.p.map(s => ({ pad: s.pad, ship: SHIP_IDS[s.i] }))); fitStats(); for (const p of PL) p.hull = p.max;
+    HG = null; G.fade(() => openMap(), 4); mode = "fading";
   }
-
-  function hurtPlayer(amt) {
-    sndShield();
-    screenShake = 6;
-    player.shieldRecharge = 0;
-    player.invuln = 0.45;
-    player.hitFlash = 0.15;
-    if (player.shield > 0) {
-      if (player.shield >= amt) player.shield -= amt;
-      else { const rem = amt - player.shield; player.shield = 0; player.hull -= rem; }
-    } else {
-      player.hull -= amt;
-    }
-    addFloat(`-${amt}`, player.x, player.y - 12, 3);
-    if (player.hull <= 0) {
-      player.hull = 0;
-      sndBoom();
-      state = "gameover";
-      bestScore = Math.max(bestScore, score);
-      try { localStorage.setItem(SAVE_KEY, bestScore); } catch (e) {}
-    }
+}
+function drawHangar(g) {
+  g.fillStyle = "rgba(4,4,12,0.7)"; g.fillRect(0, 0, VW, VH);
+  font.center(g, "THE HANGAR: CHOOSE A SHIP", VW / 2, 10, 2, 2);
+  SHIP_IDS.forEach((id, k) => {
+    const S = SHIPS[id], x = 14 + k * 116, y = 40, own = SAVE.ships[id], who = HG.p.filter(s => s.i === k);
+    px(g, x, y, 108, 180, who.length ? "#1c1830" : "#120e1e");
+    who.forEach((s, j) => { px(g, x, y + j * 3, 108, 2, s.done ? "#7ae07a" : j ? "#ff8a5a" : "#5ad8ff"); font.text(g, "P" + (HG.p.indexOf(s) + 1) + (s.done ? " READY" : ""), x + 4, y + 6 + j * 9, HG.p.indexOf(s) ? 6 : 4); });
+    const sh = shipSheet("h" + id, S.shape, own ? S.col : "#3a3a46", own ? S.trim : "#2a2a34", 48); g.drawImage(sh.c, frameOf(-Math.PI / 2 + Math.sin(G.time + k) * 0.3) * 48, 0, 48, 48, x + 30, y + 26, 48, 48);
+    font.center(g, S.name, x + 54, y + 80, own ? 0 : 1, 1);
+    if (own) { [["HULL", S.hull / 150], ["SPEED", S.speed / 190]].forEach((b, i) => { font.text(g, b[0], x + 6, y + 96 + i * 10, 1); bar(g, x + 44, y + 97 + i * 10, 58, b[1], S.col); });
+      font.text(g, WEAPONS[S.weapon].name, x + 6, y + 118, 4); font.wrap(S.about, 100).forEach((l, i) => font.text(g, l, x + 4, y + 132 + i * 9, 1)); }
+    else font.wrap("LOCKED: " + S.unlock, 96).forEach((l, i) => font.text(g, l, x + 6, y + 100 + i * 9, 1));
+  });
+  font.center(g, HG.p.length < 2 ? "2P: PRESS " + G.label("a") + " ON A SECOND CONTROLLER" : "", VW / 2, VH - 30, 1, 1);
+  font.center(g, "◀ ▶ SHIP   " + G.label("a") + " LAUNCH   " + G.label("b") + " BACK", VW / 2, VH - 16, 1, 1);
+}
+// the map of the zone: columns of sectors, the boss at the end
+const NODE_COL = { fight: "#ff5a5a", mine: "#9a9aa8", event: "#5ad8ff", shop: "#ffd04a", boss: "#ff2a6d" };
+const NODE_NAME = { fight: "A FIGHT", mine: "AN ASTEROID FIELD", event: "SOMETHING ODD", shop: "A SHOP", boss: "THE BOSS" };
+const nodeXY = (s) => [44 + s.c * 78, 60 + (s.i + 0.5) * (150 / s.n)];
+function mapInput() {
+  const c = ctlOf(padOf0()), next = nextNodes();
+  if (DEMO || PL[0].bot) { if (modeT > 1.2) goNode(next[0]); return; }
+  if (c.take("up", 200) || c.take("left", 200)) { mapSel = (mapSel + next.length - 1) % next.length; play("move"); }
+  if (c.take("down", 200) || c.take("right", 200)) { mapSel = (mapSel + 1) % next.length; play("move"); }
+  if (modeT > 0.4 && (c.take("a", 200) || c.take("start", 200))) { play("ok"); goNode(next[mapSel % next.length]); }
+}
+function drawMap(g) {
+  g.fillStyle = "rgba(4,4,12,0.6)"; g.fillRect(0, 0, VW, VH);
+  font.center(g, ZONES[RUN.zone].name + " · ZONE " + (RUN.zone + 1) + " OF 4", VW / 2, 10, 2, 2);
+  const M = RUN.map, next = nextNodes();
+  for (const col of M) for (const s of col) for (const j of s.next) { const [x1, y1] = nodeXY(s), [x2, y2] = nodeXY(M[s.c + 1][j]); g.strokeStyle = s.done ? "#c8b878" : "#3a3a5a"; g.lineWidth = 1; g.beginPath(); g.moveTo(x1, y1); g.lineTo(x2, y2); g.stroke(); }
+  for (const col of M) for (const s of col) {
+    const [x, y] = nodeXY(s), here = s.c === RUN.col && s.i === RUN.row, choice = s.c === RUN.col + 1 && next.includes(s.i), sel = choice && next[mapSel % next.length] === s.i, r = s.type === "boss" ? 9 : 6;
+    g.fillStyle = "#06040c"; g.beginPath(); g.arc(x, y, r + 2, 0, TAU); g.fill();
+    g.fillStyle = s.done ? shade(NODE_COL[s.type], 0.5) : choice ? NODE_COL[s.type] : shade(NODE_COL[s.type], 0.35); g.beginPath(); g.arc(x, y, r, 0, TAU); g.fill();
+    font.text(g, { fight: "!", mine: "·", event: "?", shop: "+", boss: "★" }[s.type], x - 2, y - 3, 7);
+    if (here) { g.strokeStyle = "#ffffff"; g.strokeRect(x - r - 3.5, y - r - 3.5, r * 2 + 7, r * 2 + 7); }
+    if (sel && (G.frame >> 4) & 1) { g.strokeStyle = "#ffd27a"; g.beginPath(); g.arc(x, y, r + 5, 0, TAU); g.stroke(); }
   }
-
-  // ------------------------------------------------ Drawing
-  function draw() {
-    ctx.fillStyle = "#04030a";
-    ctx.fillRect(0, 0, VW, VH);
-
-    if (state === "title") { drawTitle(); return; }
-
-    const shakeX = screenShake ? (Math.random() - 0.5) * screenShake : 0;
-    const shakeY = screenShake ? (Math.random() - 0.5) * screenShake : 0;
-    const camX = Math.floor(player.x - VW / 2 + shakeX);
-    const camY = Math.floor(player.y - VH / 2 + shakeY);
-
-    // Stars
-    for (const s of stars) {
-      const sx = ((s.x - camX * 0.4) % (VW * 1.5) + VW * 1.5) % (VW * 1.5) - VW * 0.25;
-      const sy = ((s.y - camY * 0.4) % (VH * 1.5) + VH * 1.5) % (VH * 1.5) - VH * 0.25;
-      ctx.fillStyle = s.c;
-      ctx.fillRect(sx | 0, sy | 0, s.s, s.s);
-    }
-
-    ctx.save();
-    ctx.translate(-camX, -camY);
-
-    // Space Stations
-    for (const st of stations) {
-      ctx.drawImage(S.station, Math.round(st.x - S.station.width / 2), Math.round(st.y - S.station.height / 2));
-      cstext(ctx, st.name, st.x, st.y - 28, 4, 1);
-      if (Math.hypot(player.x - st.x, player.y - st.y) < st.r + 45) {
-        const yBtn = window.SofaPad ? SofaPad.label("y") : "E";
-        cstext(ctx, `[ ${yBtn} ] DOCK AT BAY`, st.x, st.y + 20, 2, 1);
-      }
-    }
-
-    // Asteroids
-    for (const a of asteroids) {
-      ctx.save();
-      ctx.translate(a.x, a.y);
-      ctx.rotate(a.angle);
-      const img = a.tier === 2 ? (a.kind === "hyper" ? S.astHyperLg : a.kind === "cobalt" ? S.astCobaltLg : S.astIronLg) :
-                                 (a.kind === "hyper" ? S.astHyper : a.kind === "cobalt" ? S.astCobalt : S.astIron);
-      ctx.drawImage(img, -img.width / 2, -img.height / 2);
-      ctx.restore();
-    }
-
-    // Mineral Gems
-    for (const g of gems) {
-      ctx.fillStyle = g.kind === "hyper" ? PAL.p : g.kind === "cobalt" ? PAL.c : PAL.y;
-      ctx.fillRect(g.x - 2, g.y - 2, 4, 4);
-    }
-
-    // Particles
-    for (const p of particles) {
-      ctx.fillStyle = p.col;
-      ctx.fillRect(p.x | 0, p.y | 0, 2, 2);
-    }
-
-    // Bullets
-    for (const b of bullets) {
-      ctx.fillStyle = b.fromPlayer ? PAL.c : PAL.r;
-      ctx.fillRect(b.x - 2, b.y - 2, 4, 4);
-    }
-
-    // Enemies
-    for (const en of enemies) {
-      ctx.save();
-      ctx.translate(en.x, en.y);
-      ctx.rotate(en.angle + Math.PI / 2);
-      const img = en.isBoss ? (en.hitFlash > 0 ? S.bossW : S.boss) : (en.hitFlash > 0 ? S.droneW : S.drone);
-      ctx.drawImage(img, -img.width / 2, -img.height / 2);
-      ctx.restore();
-
-      if (en.isBoss) {
-        ctx.fillStyle = "rgba(0,0,0,0.6)";
-        ctx.fillRect(camX + VW / 2 - 100, camY + 12, 200, 10);
-        ctx.fillStyle = PAL.r;
-        ctx.fillRect(camX + VW / 2 - 98, camY + 14, 196 * (en.hp / en.maxHp), 6);
-        cstext(ctx, "DREADNOUGHT OMEGA", camX + VW / 2, camY + 4, 0, 1);
-      }
-    }
-
-    // Player Ship
-    ctx.save();
-    ctx.translate(player.x, player.y);
-    ctx.rotate(player.angle + Math.PI / 2);
-
-    // Thruster flame
-    if (Math.hypot(player.vx, player.vy) > 30) {
-      const fl = ((performance.now() * 0.015) | 0) % 2 === 0 ? S.flameA : S.flameB;
-      ctx.drawImage(fl, -fl.width / 2, 6);
-    }
-
-    // Ship Sprite
-    const pImg = player.hitFlash > 0 ? S.shipW : S.ship;
-    ctx.drawImage(pImg, -pImg.width / 2, -pImg.height / 2);
-
-    // Shield Dome Glow
-    if (player.shield > 0) {
-      ctx.drawImage(shieldGlow, -shieldGlow.width / 2, -shieldGlow.height / 2);
-    }
-    ctx.restore();
-
-    // Floating text
-    for (const ft of floatTexts) cstext(ctx, ft.txt, ft.x, ft.y, ft.col, 1);
-
-    ctx.restore();
-
-    // HUD
-    drawHUD();
-
-    if (state === "dock") drawDockShop();
-    if (state === "gameover") drawEnd("SHIP DESTROYED", 3);
+  const s = M[RUN.col + 1] && M[RUN.col + 1][next[mapSel % next.length]];
+  px(g, 0, VH - 62, VW, 62, "#120e1e");
+  if (s) font.text(g, "NEXT: " + NODE_NAME[s.type] + (s.type === "boss" ? ": " + BOSSES[RUN.zone].name : ""), 8, VH - 56, 2);
+  PL.forEach((p, i) => { font.text(g, (PL.length > 1 ? "P" + (i + 1) + " " : "") + p.S.name, 8 + i * 160, VH - 42, 0); bar(g, 8 + i * 160, VH - 32, 100, p.hull / p.max, "#7ae07a"); });
+  font.text(g, "ORE " + RUN.ore + "   BOMBS " + RUN.bombs + "   SCORE " + RUN.score, 8, VH - 22, 1);
+  font.text(g, "GUNS: " + RUN.weapons.map(w => WEAPONS[w.id].name + (w.lvl > 1 ? " " + w.lvl : "")).join(", "), 8, VH - 12, 4);
+  font.text(g, "FITTED: " + (RUN.mods.map(m => MODULES[m].name).join(", ") || "NOTHING"), 260, VH - 22, 5);
+}
+function eventInput() {
+  const c = ctlOf(padOf0()), bot = DEMO || PL[0].bot;
+  if (!EVT.done) {
+    if (c.take("up", 200) || c.take("down", 200)) { evSel = 1 - evSel; play("move"); }
+    if ((bot && modeT > 1.5) || (modeT > 0.4 && c.take("a", 200))) { play("ok"); eventChoice(EVT.opts[bot ? 0 : evSel][1]); modeT = 0; }
+  } else if ((bot && modeT > 1.5) || (modeT > 0.4 && c.take("a", 200))) {
+    const nx = EVT.next; EVT = Object.assign({}, EVT, { done: false });
+    if (nx === "ambush") G.fade(() => { mode = "play"; modeT = 0; enterSector("fight", { ambush: 1 }); }, 4);
+    else if (nx === "mine") G.fade(() => { mode = "play"; modeT = 0; enterSector("mine", { storm: 1 }); }, 4);
+    else { RUN.map[RUN.col][RUN.row].done = true; openMap(); }
+    mode = "fading";
   }
-
-  function drawHUD() {
-    // Hull Bar
-    ctx.fillStyle = "rgba(0,0,0,0.6)";
-    ctx.fillRect(16, 12, 100, 8);
-    ctx.fillStyle = PAL.e;
-    ctx.fillRect(17, 13, 98 * (player.hull / player.maxHull), 6);
-
-    // Shield Bar
-    ctx.fillStyle = "rgba(0,0,0,0.6)";
-    ctx.fillRect(16, 22, 100, 6);
-    ctx.fillStyle = PAL.c;
-    ctx.fillRect(17, 23, 98 * (player.shield / player.maxShield), 4);
-
-    stext(ctx, `HULL ${Math.ceil(player.hull)}`, 122, 13, 0, 1);
-    stext(ctx, `MINERALS: ${minerals}`, 180, 13, 2, 1);
-    stext(ctx, `SCORE: ${score}`, VW - 90, 13, 0, 1);
-    stext(ctx, `THREAT: ${Math.floor(threat)}%`, VW - 90, 23, 3, 1);
+}
+function drawEvent(g) {
+  g.fillStyle = "rgba(4,4,12,0.8)"; g.fillRect(0, 0, VW, VH); px(g, 60, 50, 360, 170, "#14101e");
+  font.center(g, EVT.name, VW / 2, 60, 4, 2);
+  font.wrap(EVT.text, 330).forEach((l, i) => font.text(g, l, 76, 90 + i * 11, 0));
+  if (!EVT.done) EVT.opts.forEach((o, i) => { const y = 140 + i * 16, on = i === evSel; if (on) px(g, 72, y - 3, 336, 13, "#2a2040"); font.text(g, o[0], 84, y, on ? 2 : 1); });
+  else { font.wrap(EVT.out, 330).forEach((l, i) => font.text(g, l, 76, 140 + i * 11, 5)); if ((G.frame >> 5) & 1) font.center(g, G.label("a") + " CARRY ON", VW / 2, 200, 0, 1); }
+}
+function shopInput() {
+  const c = ctlOf(padOf0());
+  if (DEMO || PL[0].bot) { if (modeT > 1) { RUN.map[RUN.col][RUN.row].done = true; openMap(); } return; }
+  if (c.take("up", 200)) { shopSel = (shopSel + SHOP.length - 1) % SHOP.length; play("move"); } if (c.take("down", 200)) { shopSel = (shopSel + 1) % SHOP.length; play("move"); }
+  if (c.take("b", 200)) { RUN.map[RUN.col][RUN.row].done = true; openMap(); return; }
+  if (modeT > 0.3 && c.take("a", 200)) {
+    const it = SHOP[shopSel]; if (it.leave) { RUN.map[RUN.col][RUN.row].done = true; openMap(); return; }
+    if (it.sold || RUN.ore < it.cost || (it.off && it.off())) { play("no"); return; }
+    RUN.ore -= it.cost; it.buy(); if (!it.t.startsWith("REPAIRS") && !it.t.startsWith("A BOMB")) it.sold = true; play("buy");
   }
+}
+function drawShop(g) {
+  g.fillStyle = "rgba(4,4,12,0.8)"; g.fillRect(0, 0, VW, VH); px(g, 50, 24, 380, 226, "#14101e");
+  font.center(g, "A SHOP IN THE DARK", VW / 2, 32, 2, 2); font.center(g, "ORE " + RUN.ore, VW / 2, 52, 5, 1);
+  SHOP.forEach((it, i) => { const y = 70 + i * 14, on = i === shopSel; if (on) px(g, 58, y - 3, 364, 13, "#2a2040"); const can = !it.leave && !it.sold && RUN.ore >= it.cost && !(it.off && it.off());
+    font.text(g, it.t, 66, y, it.sold ? 1 : on ? 2 : 0); if (!it.leave) font.text(g, it.sold ? "BOUGHT" : String(it.cost), 380, y, it.sold ? 1 : can ? 5 : 3); });
+  const it = SHOP[shopSel]; if (it && it.about) font.text(g, it.about, 66, 232, 1);
+}
+function drawOver(g) {
+  g.fillStyle = "rgba(4,4,12,0.85)"; g.fillRect(80, 50, 320, 170);
+  font.center(g, RUN.won ? "THE DREADNOUGHT FALLS" : "THE RUN ENDS", VW / 2, 60, RUN.won ? 2 : 3, 2);
+  font.center(g, "REACHED " + ZONES[Math.min(3, RUN.zone)].name, VW / 2, 86, 1, 1);
+  font.center(g, "SCORE " + RUN.score + "   KILLS " + RUN.kills + "   ORE " + RUN.ore, VW / 2, 104, 0, 1);
+  if (RUN.score >= SAVE.best && RUN.score > 0) font.center(g, "A NEW BEST", VW / 2, 120, 2, 1);
+  (RUN.unlocks || []).forEach((u, i) => font.center(g, "THE " + u + " IS READY IN THE HANGAR", VW / 2, 140 + i * 12, 5, 1));
+  if (modeT > 1.5 && (G.frame >> 5) & 1) font.center(g, G.label("a") + " TO THE TITLE", VW / 2, 200, 0, 1);
+}
 
-  function drawDockShop() {
-    ctx.fillStyle = "rgba(4,3,10,0.9)";
-    ctx.fillRect(40, 20, VW - 80, VH - 40);
-    ctx.strokeStyle = PAL.c;
-    ctx.lineWidth = 2;
-    ctx.strokeRect(40, 20, VW - 80, VH - 40);
-
-    cstext(ctx, `${dockedStation.name} - UPGRADE BAY`, VW / 2, 35, 4, 1);
-    cstext(ctx, `MINERALS AVAILABLE: ${minerals}`, VW / 2, 48, 2, 1);
-
-    const startY = 70;
-    for (let i = 0; i < upgrades.length; i++) {
-      const u = upgrades[i];
-      const isSel = i === upgradeCursor;
-      const y = startY + i * 32;
-
-      if (isSel) {
-        ctx.fillStyle = "rgba(114, 210, 236, 0.2)";
-        ctx.fillRect(56, y - 10, VW - 112, 26);
-        ctx.strokeStyle = PAL.y;
-        ctx.strokeRect(56, y - 10, VW - 112, 26);
-      }
-      stext(ctx, `${u.name} (RANK ${u.level}/${u.max})`, 68, y - 4, isSel ? 0 : 1, 1);
-      stext(ctx, u.desc, 68, y + 6, 1, 1);
-
-      if (u.level >= u.max) {
-        stext(ctx, "MAXED", VW - 110, y + 1, 5, 1);
-      } else {
-        stext(ctx, `${u.cost} ORE`, VW - 110, y + 1, minerals >= u.cost ? 2 : 3, 1);
-      }
-    }
-
-    const aBtn = window.SofaPad ? SofaPad.label("a") : "ENTER";
-    const bBtn = window.SofaPad ? SofaPad.label("b") : "ESC";
-    cstext(ctx, `[ ${aBtn} ] UPGRADE  [ ${bBtn} ] LAUNCH SHIP`, VW / 2, VH - 36, 0, 1);
-  }
-
-  function drawEnd(title, col) {
-    ctx.fillStyle = "rgba(4,3,10,0.88)";
-    ctx.fillRect(0, 0, VW, VH);
-    cstext(ctx, title, VW / 2, VH / 2 - 30, col, 2);
-    cstext(ctx, `FINAL SCORE: ${score}  BEST: ${bestScore}`, VW / 2, VH / 2 + 5, 0, 1);
-
-    const aBtn = window.SofaPad ? SofaPad.label("a") : "ENTER";
-    cstext(ctx, `PRESS [ ${aBtn} ] TO LAUNCH NEW SHIP`, VW / 2, VH / 2 + 35, 2, 1);
-  }
-
-  function drawTitle() {
-    cstext(ctx, "VOID DRIFTER", VW / 2, 75, 4, 3);
-    cstext(ctx, "16-BIT DEEP SPACE MINER & COMBAT", VW / 2, 110, 2, 1);
-    cstext(ctx, "MINE MINERALS - UPGRADE AT ORBITAL DOCKS - DEFEAT DREADNOUGHTS", VW / 2, 140, 1, 1);
-
-    const aBtn = window.SofaPad ? SofaPad.label("a") : "SPACE / Z";
-    const bBtn = window.SofaPad ? SofaPad.label("b") : "SHIFT";
-    const yBtn = window.SofaPad ? SofaPad.label("y") : "E";
-
-    cstext(ctx, `STICK: STEER  [ ${aBtn} ] FIRE  [ ${bBtn} ] BOOST  [ ${yBtn} ] DOCK`, VW / 2, 185, 0, 1);
-    cstext(ctx, `PRESS [ ${aBtn} ] TO LAUNCH`, VW / 2, 220, 2, 1);
-
-    if (bestScore > 0) cstext(ctx, `BEST RECORD: ${bestScore}`, VW / 2, 245, 5, 1);
-  }
-
-  function frame(now) {
-    const dt = Math.min(0.04, (now - lastTime) / 1000 || 0);
-    lastTime = now;
-    update(dt);
-    draw();
-    requestAnimationFrame(frame);
-  }
-  requestAnimationFrame(frame);
+// ---------------------------------------------------------------- menus
+const menu = new L2.Menu(G, {
+  top: "title", values: SAVE.opts, accent: "#5ad8ff",
+  screens: {
+    title: { y: 148, w: 200, items: [{ t: "LAUNCH", act: "play" }, { t: "RECORDS", act: "records" }, { t: "OPTIONS", act: "options" }, { t: "HOW TO FLY", act: "how" }] },
+    options: { title: "OPTIONS", back: () => menu.show(pausedFrom ? "pause" : "title", 0), w: 280, items: L2.optionItems() },
+    records: { title: "RECORDS", back: "title", w: 280, items: [{ t: "BACK", act: "back" }] },
+    how: { title: "HOW TO FLY", back: "title", w: 400, items: [{ t: "BACK", act: "back" }], lines: [["LEFT STICK: FLY   RIGHT STICK: AIM AND FIRE", ""], ["A OR RT: FIRE AT WHAT'S NEAREST", ""], ["B: DASH   Y: CHANGE WEAPON   X: BOMB", ""], ["SHOOT ROCKS FOR ORE. SPEND IT AT SHOPS.", ""], ["CHOOSE YOUR ROUTE. A BOSS ENDS EACH ZONE.", ""]] },
+    pause: { title: "PAUSED", back: () => resume(), w: 220, items: [{ t: "CARRY ON", act: "resume" }, { t: "OPTIONS", act: "options" }, { t: "ABANDON THE RUN", act: "quit" }] }
+  },
+  choose(it) {
+    const a = it.act;
+    if (a === "play") openHangar();
+    else if (a === "records") { menu.o.screens.records.lines = [["BEST SCORE", SAVE.best], ["FURTHEST", SAVE.deepest >= 4 ? "ALL THE WAY" : "ZONE " + Math.max(1, SAVE.deepest + (SAVE.runs ? 1 : 0))], ["RUNS", SAVE.runs], ["DREADNOUGHTS DOWN", SAVE.wins], ["SHIPS", SHIP_IDS.filter(k => SAVE.ships[k]).length + " OF 4"]]; menu.show("records"); }
+    else if (a === "options") menu.show("options");
+    else if (a === "how") menu.show("how");
+    else if (a === "back") menu.back();
+    else if (a === "resume") resume();
+    else if (a === "quit") { menu.hide(); pausedFrom = null; runOver(false); }
+  },
+  changed() { G.options(SAVE.opts); store.save(); }
+});
+G.menu = menu;
+let pausedFrom = null;
+function pause() { if (mode !== "play" || menu.at) return; pausedFrom = mode; mode = "pause"; menu.show("pause"); }
+function resume() { menu.hide(); mode = pausedFrom || "play"; pausedFrom = null; G.gov.hold(800); }
+function toTitle() { mode = "title"; RUN = null; SEC = null; synth.song({ seed: 7, root: 47, tempo: 96, calm: true }); menu.show("title"); }
+function onButton(b, how, who) {
+  if (how !== "press") return;
+  if (mode === "hangar" && HG && who && !HG.p.some(s => s.pad === who) && HG.p.length < 2 && (b === "a" || b === "start")) { HG.p.push({ pad: who, i: SHIP_IDS.findIndex((k, i) => SAVE.ships[k] && i !== HG.p[0].i) >= 0 ? SHIP_IDS.findIndex((k, i) => SAVE.ships[k] && i !== HG.p[0].i) : 0, done: false }); play("ok"); return; }
+  if ((mode === "play" || mode === "map") && b === "start" && who && PL.length === 1 && who !== PL[0].pad && !PL[0].bot) {   // a second ship joins mid-run
+    const q = newPilot(1, who, false, RUN.ship); PL.push(q); fitStats(); q.hull = q.max; q.x = PL[0].x; q.y = PL[0].y; banner("A SECOND SHIP JOINS", 2); play("ok"); return; }
+  if (mode === "play" && (b === "start" || b === "back")) pause();
+}
+function demoRun() { newRun("vagrant", [{ pad: 0, bot: true }]); RUN.weapons.push({ id: "spread", lvl: 2 }); fitStats(); for (const p of PL) p.hull = p.max; openMap(); }
+function ready() {
+  sounds(); rockSprites(); zoneArt(); G.options(SAVE.opts);
+  parts = new L2.Particles(500, L2.dots(["#e8e8f0", "#8c8c9c", "#7ad8ff", "#ffd04a", "#ff8a3a", "#ff4a3a", "#ff4af0", "#a89a90"]));
+  light = new L2.Light(G); onTier(G, G.tier);
+  GL = { red: L2.glowOf(5, [255, 80, 80], 0.6), blue: L2.glowOf(4, [120, 220, 255], 0.5), engine: L2.glowOf(6, [255, 170, 80], 0.6) };
+  for (const k of SHIP_IDS) shipSheet(k + 0, SHIPS[k].shape, SHIPS[k].col, SHIPS[k].trim);
+  if (DEMO) { window.SofaStats.demo = true; demoRun(); return; }
+  toTitle();
+}
+// for the checks: the sector flown ahead in steps, as fast as it goes
+function sim(secs) { const n = Math.round(secs / DT); for (let i = 0; i < n && mode === "play"; i++) { update(DT); G.steps++; } return mode; }
+if (G.test) window.VD = { get mode() { return mode; }, set mode(v) { mode = v; }, get RUN() { return RUN; }, get PL() { return PL; }, get FO() { return FO; }, get RO() { return RO; }, get ORE() { return ORE; }, get BOSS() { return BOSS; }, get SEC() { return SEC; }, get EVT() { return EVT; }, set EVT(v) { EVT = v; }, get SHOP() { return SHOP; },
+  get B() { return B; }, get EB() { return EB; }, SHIPS, WEAPONS, MODULES, BOSSES, ZONES, EVENTS, FOES, SAVE, store, menu, G, newRun, fitStats, enterSector, openMap, goNode, nextNodes, zoneMap, sim, spawnFoe, damageThing, hurtPilot, botPilot, nearestTarget, leadAt, bomb, eventChoice, openShop, runOver, openHangar, onButton, leaveSector,
+  start(ship, players) { menu.hide(); newRun(ship || "vagrant", players || [{ pad: 0 }]); fitStats(); for (const p of PL) p.hull = p.max; return RUN; }, fly(type) { mode = "play"; modeT = 0; RUN.col = Math.max(0, RUN.col); RUN.row = Math.max(0, RUN.row); enterSector(type); return SEC; } };
+G.start();
 })();
 </script></body></html>

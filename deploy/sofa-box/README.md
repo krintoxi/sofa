@@ -423,8 +423,15 @@ song in the box's player, or shows a picture; **Menu** renames, moves or deletes
   three bosses (the Bog King, the Emberwyrm, the Hollow Crown). The campaign is saved between battles; skirmishes
   on fields made up each time; two players taking turns, the heroes against the warband (one controller can be
   passed round).
-- More of the box's own games, each a page that plays offline with the controller:
-  **Void Drifter** (mining and upgrades in space), **Cosmic Cascade** (a falling-gems puzzle), and the small ones,
+- **Void Drifter**, a space run: four zones of a sector map, choosing the route each time through fights,
+  asteroid fields to mine, events (a distress call, a derelict, a trader, an ion storm, a hidden cache) and shops,
+  with a boss at the end of each zone: the Maw, the Hive Carrier, the Prism and the Dreadnought. Six weapons
+  (blaster, spread gun, laser, missiles, railgun, flak) and eight modules to fit; ore from rocks and wrecks to spend.
+  Ships unlocked between runs: the Vagrant, the Wasp, the Bulwark and the Spectre. Fly with the left stick, aim and
+  fire with the right (or press A to fire at what's nearest, leading it); B dashes, Y swaps weapons, X sets off a
+  bomb. One ship, or two flying together: a second controller joins in the hangar or with Start mid-run, and can
+  bring a downed ship back by flying close.
+- More of the box's own games, each a page that plays offline with the controller: **Cosmic Cascade** (a falling-gems puzzle), and the small ones,
   **Neon Dodge**, **Pair Up** and **Sky Hop**.
 - **How smoothly each game runs on your box**: the graphics check (`127.0.0.1:8091/box/games/probe/` in the box's
   browser) has a **Games check**. It plays each of the box's own games for 15 seconds, one after another (about
