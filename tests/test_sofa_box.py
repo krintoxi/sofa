@@ -1092,6 +1092,59 @@ class BoxBrowser(unittest.TestCase):
                              " return JSON.stringify({ ok: GW.validItem(back), r: back.r, n: back.n, in: JSON.stringify(GW.readSlot(0).pack).indexOf('HEARTSEEKER BAND') >= 0 }); })()"))
         self.assertEqual(kept, {"ok": True, "r": 5, "n": "HEARTSEEKER BAND", "in": True})
 
+    def test_ironmaw_plays(self):
+        """Ironmaw in the box's browser: each of its nine levels starts and plays a moment with every weapon fired and
+        everything awake, with nothing thrown, and walls take the marks; the Coldheart's shut core lets little through
+        until it opens, and below half it calls its drones; the demo plays itself and keeps nothing."""
+        self.post("/box/api/open", {"url": self.base + "/box/games/ironmaw/#test"})
+        js = lambda e: self.page_value("/box/games/ironmaw", e)
+
+        def ready():
+            end = time.time() + 30
+            while time.time() < end:
+                try:
+                    if js("typeof IM === 'object' && IM.state === 'title'"):
+                        return
+                except (StopIteration, OSError, KeyError):
+                    pass
+                time.sleep(0.3)
+        ready()
+        js("window.errs = []; addEventListener('error', e => errs.push(String(e.message))); 1")
+        for k in range(9):
+            js("IM.startLevel(%d, false); IM.P.owned = [1, 1, 1, 1, 1, 1, 1]; IM.P.ammo = { rivets: 200, shells: 50, cells: 300, slag: 40 };"
+               " IM.P.hp = 1e6; for (const f of IM.foes) f.st = 'chase'; 1" % k)
+            for w in range(7):
+                js("IM.P.weapon = %d; IM.P.swap = 0; IM.P.next = -1; IM.P.cool = 0; IM.P.spin = 1; IM.fire(); IM.P.a += 0.7; 1" % w)
+            time.sleep(0.5)
+        state = json.loads(js("JSON.stringify({ errs, state: IM.state, marks: IM.marks.tex.length - 1, levels: IM.ORDER.length })"))
+        self.assertEqual(state["errs"], [])
+        self.assertEqual((state["state"], state["levels"]), ("play", 9))
+        self.assertGreater(state["marks"], 0)
+        boss = json.loads(js("(() => { IM.startLevel(8, false); IM.P.hp = 1e6; const b = IM.foes[0]; b.st = 'chase'; const h0 = b.hp; IM.damage(b, 100, IM.P.x, IM.P.y);"
+                             " const shut = h0 - b.hp; b.open = 3; const h1 = b.hp; IM.damage(b, 100, IM.P.x, IM.P.y); const open = h1 - b.hp;"
+                             " b.open = 3; IM.damage(b, b.hp - b.max * 0.45, IM.P.x, IM.P.y); b.call = 0; return JSON.stringify({ shut, open }); })()"))
+        self.assertLess(boss["shut"], 20)                                 # (its core shut)
+        self.assertEqual(boss["open"], 100)
+        time.sleep(1.5)
+        self.assertGreater(js("IM.foes.filter(f => f.k === 'drone').length"), 0)
+        self.assertEqual(js("errs.length"), 0)
+        js("localStorage.removeItem('ironmaw'); location.hash = '#demo-test'; location.reload(); 1")
+        time.sleep(1)
+        end = time.time() + 30
+        while time.time() < end:
+            try:
+                if js("typeof IM === 'object' && IM.state === 'play'"):
+                    break
+            except (StopIteration, OSError, KeyError):
+                pass
+            time.sleep(0.3)
+        x0 = json.loads(js("JSON.stringify([IM.P.x, IM.P.y])"))
+        time.sleep(5)
+        demo = json.loads(js("JSON.stringify({ state: IM.state, at: [IM.P.x, IM.P.y], kept: localStorage.getItem('ironmaw') })"))
+        self.assertEqual(demo["state"], "play")
+        self.assertGreater(abs(demo["at"][0] - x0[0]) + abs(demo["at"][1] - x0[1]), 0.5)   # it walks by itself
+        self.assertIsNone(demo["kept"])                                  # and keeps nothing
+
     def test_gloamwell_finds(self):
         """Gloamwell's finds: a gem set in a socket gives its power and is kept through a save; a hidden vault's
         cracked wall breaks open; a familiar follows you down; floors with an omen (a gilded thief, the restless

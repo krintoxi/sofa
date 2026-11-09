@@ -878,6 +878,7 @@ Governor.prototype = {
     return true;
   },
   work(ms) { this.workSum += ms; this.workMs += (ms - this.workMs) * 0.05; },
+  miss(k) { if (performance.now() >= this.wait) this.late += k; },   // frames drawn late elsewhere (a Ray game's helpers, still busy)
   reset(now) { this.win = 0; this.n = 0; this.late = 0; this.workSum = 0; this.wait = now + 800; },
   hold(ms) { this.wait = performance.now() + (ms || 1500); this.win = 0; this.n = 0; this.late = 0; this.workSum = 0; },
   judge(now, iv) {
@@ -1353,7 +1354,7 @@ Menu.prototype = {
 
 // ---------------------------------------------------------------- sound, made as it plays (WebAudio): notes and noise,
 // named effects (define your own), a music sequencer that writes a tune from a seed, and drones (engines, wind)
-function Synth() { this.ac = null; this.fx = Object.assign({}, FX); this.seq = null; this.vol = { music: 0.6, sound: 0.8 }; }
+function Synth() { this.ac = null; this.fx = Object.assign({}, FX); this.seq = null; this.vol = { music: 0.6, sound: 0.8 }; this.cur = null; this.routes = []; }
 const FX = {
   move: (s, t) => s.note(t, 880, 0.05, "sine", 0.06),
   ok: (s, t) => { s.note(t, 660, 0.1, "sine", 0.1); s.note(t + 0.05, 990, 0.14, "sine", 0.1); },
@@ -1394,7 +1395,7 @@ Synth.prototype = {
     o.type = type; o.frequency.value = freq;
     g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(vol, t + (attack || 0.008)); g.gain.exponentialRampToValueAtTime(0.0008, t + dur);
     if (cutoff) { const f = ac.createBiquadFilter(); f.type = "lowpass"; f.frequency.value = cutoff; o.connect(f); f.connect(g); } else o.connect(g);
-    g.connect(dest || this.sfxBus); o.start(t); o.stop(t + dur + 0.05);
+    g.connect(dest || this.cur || this.sfxBus); o.start(t); o.stop(t + dur + 0.05);
     return g;
   },
   noise(t, dur, vol, freq, q, dest) {
@@ -1402,10 +1403,28 @@ Synth.prototype = {
     const ac = this.ac, s = ac.createBufferSource(), f = ac.createBiquadFilter(), g = ac.createGain();
     s.buffer = this.noiseBuf; f.type = "bandpass"; f.frequency.value = freq; f.Q.value = q || 1;
     g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0008, t + dur);
-    s.connect(f); f.connect(g); g.connect(dest || this.sfxBus); s.start(t, Math.random() * 0.5); s.stop(t + dur + 0.05);
+    s.connect(f); f.connect(g); g.connect(dest || this.cur || this.sfxBus); s.start(t, Math.random() * 0.5); s.stop(t + dur + 0.05);
   },
   define(name, fn) { this.fx[name] = fn; },
-  play(name) { if (this.ac && this.fx[name]) this.fx[name](this, this.ac.currentTime + 0.01); },
+  // an effect; pan (-1 left .. 1 right) and gain (0..1) place it: a sound from where it happens. Nothing's made for it:
+  // 9 pans × 5 loudnesses, each a gain and a panner made the first time it's wanted.
+  play(name, pan, gain) {
+    if (!this.ac || !this.fx[name]) return;
+    if (pan == null && gain == null) { this.fx[name](this, this.ac.currentTime + 0.01); return; }
+    const gi = Math.round(U.clamp(gain == null ? 1 : gain, 0, 1) * 5); if (!gi) return;      // (too far off to hear)
+    this.cur = this.route(U.clamp(pan || 0, -1, 1), gi);
+    try { this.fx[name](this, this.ac.currentTime + 0.01); } finally { this.cur = null; }
+  },
+  route(pan, gi) {
+    const pi = Math.round((pan + 1) * 4), key = pi * 8 + gi;
+    let r = this.routes[key];
+    if (!r) {
+      const ac = this.ac; r = ac.createGain(); r.gain.value = Math.pow(gi / 5, 1.4);
+      if (ac.createStereoPanner) { const p = ac.createStereoPanner(); p.pan.value = pi / 4 - 1; r.connect(p); p.connect(this.sfxBus); } else r.connect(this.sfxBus);
+      this.routes[key] = r;
+    }
+    return r;
+  },
   // a tune written from a seed and played on: { seed, root (MIDI note), tempo, calm (no drums, slower), prog (chords
   // as semitones over the root, a bar each), lead: a melody from the seed after the first bars }
   song(o) {
@@ -1457,7 +1476,8 @@ Synth.prototype = {
 // ---------------------------------------------------------------- a game: its screen, tuned to the box, and its loop
 // Low3D.game({ id, view, gl, flat, fps, loading: {el, bar, text}, aspect, picture() → "auto" | "light" | "rich" | "flat",
 //   input, ready(E), prepare(E) (build what the mode needs: after a level loads, and when the mode changes),
-//   rung(E, r), update(dt) (60 times a second), draw(now, dt) (each frame drawn), paused() })
+//   rung(E, r), update(dt) (60 times a second), draw(now, dt) (each frame drawn), paused(), missed() (frames drawn late
+//   elsewhere, as a Ray's helpers say) and helperWork() (their time a frame, ms) })
 // kind: "ray" for a game drawn a pixel at a time (Ray): the CPU test alone picks its rung (LADDER.ray), E.screen is
 // its picture (E.screen.u32), shown through WebGL where the GPU is real (picture() "plain": never), resized(E) when
 // the picture's size changes.
@@ -1467,7 +1487,10 @@ function game(o) {
   const E = {
     o, mode: "flat", g3: null, flat: null, gov: null, rung: null, probe: null, bench: null, plan: null, ready: false, broken: false,
     test: /test/.test(H), showFps: /fps/.test(H), force: /flat|2d/.test(H) ? "flat" : /\bgl\b|3d/.test(H) ? "gl" : null,
-    forceRung: /rung=(\d+)/.test(H) ? +H.match(/rung=(\d+)/)[1] : null, aspect: o.aspect || 16 / 9, vw: 960, vh: 540, DT: 1 / 60
+    forceRung: /rung=(\d+)/.test(H) ? +H.match(/rung=(\d+)/)[1] : null, aspect: o.aspect || 16 / 9, vw: 960, vh: 540, DT: 1 / 60,
+    // for checks: #slow=N makes every frame's work take N times as long (a slower processor, as a Pi's is), #threads=N
+    // holds the helpers that draw a Ray game's picture (0: the page draws it all)
+    slow: /slow=(\d+)/.test(H) ? Math.max(1, +H.match(/slow=(\d+)/)[1]) : 1, threads: /threads=(\d+)/.test(H) ? +H.match(/threads=(\d+)/)[1] : null
   };
   // #demo: the game plays by itself (an attract mode that saves nothing and takes no controller), for the games
   // check (probe/), which reads window.SofaStats: whether it's ready and playing itself, the rung, the frame rate drawn
@@ -1541,7 +1564,12 @@ function game(o) {
     if (o.loading) o.loading.el.classList.add("see");
     bench(g, r => { E.bench = r; o.gl.classList.add("hidden"); if (o.loading) o.loading.el.classList.remove("see"); done(r); }, step);
   };
-  const planOf = () => o.kind === "ray" ? planRay(E.probe, E.bench) : plan(E.probe, E.bench);
+  const planOf = () => {
+    const b = E.slow > 1 && E.bench ? Object.assign({}, E.bench, { cpu: E.bench.cpu * E.slow }) : E.bench;
+    if (o.kind !== "ray") return plan(E.probe, b);
+    const pl = planRay(E.probe, b); if (E.threads != null) pl.helpers = E.threads;
+    return pl;
+  };
   E.retest = (done) => E.test3d(() => { E.plan = planOf(); E.keep({ key: E.probe.key, bench: E.bench }); E.renderer(false); if (done) done(); });
   E.rows = () => {                                   // "This box": what it is, what was chosen, what it's doing now
     const [w, h] = E.size(), R = E.rung, G3 = E.g3;
@@ -1575,7 +1603,9 @@ function game(o) {
     if (!(o.paused && o.paused())) { acc += dt; let n = 0; while (acc >= E.DT && n < 6) { o.update(E.DT); acc -= E.DT; n++; } if (n === 6) acc = 0; }
     if (E.mode === "gl") { try { o.draw(now, dt); } catch (e) { E.lost(e); } } else o.draw(now, dt);
     if (E.mode === "ray" && E.screen) E.screen.present(E.rung.glow, E.vig);
-    E.gov.work(performance.now() - t0);
+    if (E.slow > 1) { const until = performance.now() + (performance.now() - t0) * (E.slow - 1); while (performance.now() < until) { /* #slow: as a slower processor would */ } }
+    if (o.missed) { const k = o.missed(); if (k) E.gov.miss(k); }
+    E.gov.work(Math.max(performance.now() - t0, o.helperWork ? o.helperWork() : 0));
     if (E.showFps && o.fps && now - fpsAt > 500) {
       fpsAt = now; const [w, h] = E.size();
       o.fps.textContent = E.gov.fps + " fps · " + (E.mode === "gl" ? "3D" : E.mode === "ray" ? "ray" : "2D") + " rung " + E.gov.rung + " · " + w + "×" + h +
@@ -1620,11 +1650,14 @@ function begin(E, cam, near, far) {
 // Rooms and corridors with floors and ceilings at any height (steps, ledges, pits, sky), doors and lifts (a cell's
 // ceiling or floor that moves), textures and sprites, drawn a pixel at a time into one picture: the same on every
 // box, GPU or not (a Pi 3 draws it at 320×180). Light is Doom-like: each cell its own level, fading with distance,
-// and a palette of 16 ramps of 16 shades with colormaps, so shading a pixel is a single look-up.
+// and a palette of 16 ramps of 16 shades with colormaps, so shading a pixel is a single look-up. A cell's light can
+// have a colour (lava orange, ice blue: a colormap of its own), walls and floors keep the marks left on them (a copy
+// of their texture with the mark in it), and some cells are walls you see through (grates, railings, bars, windows).
+// Where the processor has cores to spare, helpers (web workers) each draw a strip of the picture at the same time.
 
 // ---------------------------------------------------------------- the palette: index = ramp·16 + shade; 0 is see-through
 function Palette(ramps, glow) {
-  this.rgb = new Uint8Array(768); this.full = new Uint8Array(256); this.cube = new Int16Array(32768).fill(-1);
+  this.rgb = new Uint8Array(768); this.full = new Uint8Array(256); this.cube = new Int16Array(32768).fill(-1); this.ver = 0; this.tintRGB = [[1, 1, 1]];
   for (let r = 0; r < 16; r++) {
     const base = ramps[r] || [128, 128, 128];
     for (let s = 0; s < 16; s++) {
@@ -1650,18 +1683,27 @@ Palette.prototype = {
     }
     return (this.cube[key] = v);
   },
-  // 32 light levels × 256 colours, packed for the picture; dark fades towards fog (a colour) as much as haze says
+  // coloured light: each tint ([r, g, b], 1 = as it is) gets a colormap of its own, after plain light (tint 0). A cell's
+  // tint (RayMap.tint, or .dtint for a frame) picks it. Call maps() after.
+  tints(list) { this.tintRGB = [[1, 1, 1]].concat(list || []); },
+  // 32 light levels × 256 colours for each tint, packed for the picture (cmap[tint · 8192 + light · 256 + colour]); dark
+  // fades towards fog (a colour) as much as haze says. Glowing colours stay as they are in every light and tint.
   maps(fog, haze) {
-    const fr = (fog >> 16) & 255, fg = (fog >> 8) & 255, fb = fog & 255, cm = this.cmap || (this.cmap = new Uint32Array(32 * 256));
-    for (let L = 0; L < 32; L++) {
-      const b = Math.pow(L / 31, 1.15), h = (1 - b) * haze;
-      for (let i = 0; i < 256; i++) {
-        let r = this.rgb[i * 3], g = this.rgb[i * 3 + 1], bl = this.rgb[i * 3 + 2];
-        if (!this.full[i]) { r = r * b + fr * h; g = g * b + fg * h; bl = bl * b + fb * h; }
-        cm[L * 256 + i] = LE ? (0xff000000 | (Math.min(255, bl) << 16) | (Math.min(255, g) << 8) | Math.min(255, r)) >>> 0 : 0;
+    const fr = (fog >> 16) & 255, fg = (fog >> 8) & 255, fb = fog & 255, T = this.tintRGB, n = T.length * 8192;
+    const cm = this.cmap && this.cmap.length === n ? this.cmap : (this.cmap = new Uint32Array(n));
+    for (let t = 0; t < T.length; t++) {
+      const kr = T[t][0], kg = T[t][1], kb = T[t][2], base = t * 8192;
+      for (let L = 0; L < 32; L++) {
+        const b = Math.pow(L / 31, 1.15), h = (1 - b) * haze;
+        for (let i = 0; i < 256; i++) {
+          let r = this.rgb[i * 3], g = this.rgb[i * 3 + 1], bl = this.rgb[i * 3 + 2];
+          if (!this.full[i]) { r = r * b * kr + fr * h; g = g * b * kg + fg * h; bl = bl * b * kb + fb * h; }
+          cm[base + L * 256 + i] = LE ? (0xff000000 | (Math.min(255, bl) << 16) | (Math.min(255, g) << 8) | Math.min(255, r)) >>> 0 : 0;
+        }
       }
     }
     this.fogPx = LE ? (0xff000000 | (fb * haze) << 16 | (fg * haze) << 8 | (fr * haze)) >>> 0 : 0;
+    this.ver++;
     return cm;
   },
   // a picture (a canvas, or bake()'s sprite) as palette indices, columns first: what Ray draws
@@ -1683,6 +1725,12 @@ const Tex = {
     for (let u = 0; u < size; u++) for (let v = 0; v < size; v++) px[u * size + v] = fn(u, v) || 1;
     return { w: size, h: size, px };
   },
+  // a see-through texture (a grate, bars, a railing, a window): 0 where you see past it
+  mask(fn, size) {
+    size = size || 64; const px = new Uint8Array(size * size);
+    for (let u = 0; u < size; u++) for (let v = 0; v < size; v++) px[u * size + v] = fn(u, v) || 0;
+    return { w: size, h: size, px };
+  },
   // smooth noise that wraps every period (seamless tiles), 0..1
   noise(seed) {
     const r = U.rand(seed), g = new Float32Array(256 * 256); for (let i = 0; i < g.length; i++) g[i] = r();
@@ -1698,14 +1746,22 @@ const Tex = {
 };
 
 // ---------------------------------------------------------------- a world on a grid
+// Per cell: solid, wtex (a wall's texture), floor and ceiling heights with their textures (ftex, ctex; ctex 255: sky),
+// stex (a step's face), utex (a ceiling's lip, a door), light (0..31) and dyn (light added for a frame), tint (the
+// light's colour, a Palette tint) and dtint (a tint for a frame), mask (a wall you see through: a texture made with
+// Tex.mask, in a cell nothing walks through), seen (an automap); wdec and fdec: the marks on a wall's four faces and
+// on a floor (Marks keeps them).
 function RayMap(w, h) {
   const n = w * h;
   this.w = w; this.h = h;
-  this.solid = new Uint8Array(n); this.wtex = new Uint8Array(n); this.stex = new Uint8Array(n); this.utex = new Uint8Array(n);   // (stex: a step's face; utex: a ceiling's lip, a door)
+  this.solid = new Uint8Array(n); this.wtex = new Uint8Array(n); this.stex = new Uint8Array(n); this.utex = new Uint8Array(n);
   this.ftex = new Uint8Array(n); this.ctex = new Uint8Array(n);
   this.floor = new Float32Array(n); this.ceil = new Float32Array(n).fill(1);
   this.light = new Uint8Array(n).fill(24); this.dyn = new Uint8Array(n); this.seen = new Uint8Array(n);
+  this.tint = new Uint8Array(n); this.dtint = new Uint8Array(n); this.mask = new Uint8Array(n);
+  this.wdec = new Uint16Array(n * 4); this.fdec = new Uint16Array(n);
   this.flowD = new Int16Array(n); this.q = new Int32Array(n);
+  this.hitI = -1; this.hitFace = -1;
 }
 RayMap.SKY = 255;
 RayMap.prototype = {
@@ -1717,7 +1773,7 @@ RayMap.prototype = {
     for (let cy = y0; cy <= y1; cy++) for (let cx = x0; cx <= x1; cx++) {
       if (cx < 0 || cy < 0 || cx >= this.w || cy >= this.h) return false;
       const i = cy * this.w + cx;
-      if (this.solid[i] || this.floor[i] > z + step || this.ceil[i] - Math.max(this.floor[i], z) < room) return false;
+      if (this.solid[i] || this.mask[i] || this.floor[i] > z + step || this.ceil[i] - Math.max(this.floor[i], z) < room) return false;
     }
     return true;
   },
@@ -1734,21 +1790,24 @@ RayMap.prototype = {
     if (this.open(b.x, b.y + dy, r, b.z, step, room)) b.y += dy; else ok = false;
     return ok;
   },
-  // a straight line from one point to another (z the heights): the share of the way it gets before something stops it (1: clear)
+  // a straight line from one point to another (z the heights): the share of the way it gets before something stops it
+  // (1: clear). What stopped it: hitI (a cell, or -1) and hitFace (0 its west face, 1 east, 2 north, 3 south). Walls you
+  // see through let it pass.
   trace(x0, y0, z0, x1, y1, z1) {
-    const dx = x1 - x0, dy = y1 - y0, len = Math.hypot(dx, dy) || 1e-6;
+    const dx = x1 - x0, dy = y1 - y0;
     let mx = Math.floor(x0), my = Math.floor(y0);
     const ex = Math.floor(x1), ey = Math.floor(y1), sx = dx < 0 ? -1 : 1, sy = dy < 0 ? -1 : 1;
     const tdx = dx === 0 ? 1e30 : Math.abs(1 / dx), tdy = dy === 0 ? 1e30 : Math.abs(1 / dy);
     let tx = dx === 0 ? 1e30 : (dx < 0 ? x0 - mx : mx + 1 - x0) * tdx, ty = dy === 0 ? 1e30 : (dy < 0 ? y0 - my : my + 1 - y0) * tdy;
+    this.hitI = -1; this.hitFace = -1;
     for (let k = 0; k < 200; k++) {
       if (mx === ex && my === ey) return 1;
-      let t;
-      if (tx < ty) { t = tx; tx += tdx; mx += sx; } else { t = ty; ty += tdy; my += sy; }
+      let t, face;
+      if (tx < ty) { t = tx; tx += tdx; mx += sx; face = sx > 0 ? 0 : 1; } else { t = ty; ty += tdy; my += sy; face = sy > 0 ? 2 : 3; }
       if (t >= 1) return 1;
-      if (!this.inside(mx, my)) return t;
+      if (!this.inside(mx, my)) { this.hitFace = face; return t; }
       const i = my * this.w + mx, z = z0 + (z1 - z0) * t;
-      if (this.solid[i] || z < this.floor[i] || z > this.ceil[i]) return t;
+      if (this.solid[i] || z < this.floor[i] || z > this.ceil[i]) { this.hitI = i; this.hitFace = face; return t; }
     }
     return 1;
   },
@@ -1766,7 +1825,7 @@ RayMap.prototype = {
         const nx = cx + (k === 0 ? 1 : k === 1 ? -1 : 0), ny = cy + (k === 2 ? 1 : k === 3 ? -1 : 0);
         if (nx < 0 || ny < 0 || nx >= w || ny >= this.h) continue;
         const j = ny * w + nx;
-        if (d[j] >= 0 || this.solid[j] || (this.ceil[j] - this.floor[j] < room && !(through && through[j]))) continue;
+        if (d[j] >= 0 || this.solid[j] || this.mask[j] || (this.ceil[j] - this.floor[j] < room && !(through && through[j]))) continue;
         if (fz > this.floor[j] + step || this.floor[j] > fz + step) continue;      // (both ways: they walk to you)
         d[j] = d[i] + 1; q[tail++] = j;
       }
@@ -1775,140 +1834,424 @@ RayMap.prototype = {
   }
 };
 
-// ---------------------------------------------------------------- the renderer
+// ---------------------------------------------------------------- the drawing itself
+// RAYCORE makes the code that draws: the same on the page and in the helpers (its source starts them), so it uses
+// nothing from outside itself. A Core draws columns x0..x1 of a picture w×h into buf (x1 - x0 wide).
+function RAYCORE() {
+  "use strict";
+  function Core() {
+    this.w = 0; this.h = 0; this.x0 = 0; this.x1 = 0; this.sw = 0; this.buf = null; this.depth = null; this.rowInv = null;
+    this.tex = []; this.sky = null; this.dtex = [null]; this.cm = null; this.full = null; this.fogPx = 0;
+    this.dim = 2.4; this.minL = 0; this.maxD = 40; this.queue = []; this.qn = 0; this.track = null; this.map = null; this.cam = null;
+    this.mD = new Float32Array(6); this.mI = new Int32Array(6); this.mU = new Int32Array(6); this.mS = new Int32Array(6); this.mT = new Int32Array(6); this.mB = new Int32Array(6);
+  }
+  Core.prototype = {
+    size(w, h, x0, x1, buf) {
+      this.w = w; this.h = h; this.x0 = x0; this.x1 = x1; this.sw = x1 - x0;
+      this.buf = buf || new Uint32Array(this.sw * h); this.depth = new Float32Array(this.sw * h); this.rowInv = new Float32Array(h);
+    },
+    // where the camera is, without drawing (what sprite() and project() need)
+    view(m, cam) {
+      const t = Math.tan(cam.fov / 2);
+      this.map = m; this.cam = cam; this.f = (this.w / 2) / t; this.hz = this.h / 2 + cam.pitch * this.h; this.dirX = Math.cos(cam.a); this.dirY = Math.sin(cam.a); this.qn = 0;
+    },
+    // the world from a camera {x, y, z (eye height), a (facing), pitch (looking up: a share of the height), fov (across)}
+    render(m, cam) {
+      this.view(m, cam);
+      const w = this.w, h = this.h, x0 = this.x0, x1 = this.x1, sw = this.sw, buf = this.buf, dep = this.depth, CM = this.cm, tex = this.tex, sky = this.sky, dtex = this.dtex, W = m.w, H = m.h;
+      const solid = m.solid, wtex = m.wtex, stex = m.stex, utex = m.utex, ftex = m.ftex, ctex = m.ctex, flo = m.floor, cei = m.ceil, lig = m.light, dyn = m.dyn, seen = m.seen;
+      const tint = m.tint, dtint = m.dtint, wdec = m.wdec, fdec = m.fdec, mask = m.mask, track = this.track;
+      const dirX = this.dirX, dirY = this.dirY, t = Math.tan(cam.fov / 2), plX = -dirY * t, plY = dirX * t;
+      const f = this.f, hz = this.hz, px = cam.x, py = cam.y, ez = cam.z, dim = this.dim, rowInv = this.rowInv;
+      const fogPx = this.fogPx, maxD = this.maxD || 40, mL = this.minL;
+      for (let y = 0; y < h; y++) { const d = y + 0.5 - hz; rowInv[y] = Math.abs(d) < 1e-3 ? 1e3 : 1 / d; }
+      const R = (b) => b < 0 ? 0 : b > h ? h : Math.ceil(b - 0.5);
+      // a wall's column at d1, from zTop down to zBot (made once a frame: it reads the column's state below)
+      let xo = 0, d1 = 0, top = 0, bot = h, u = 0, Lw = 0, vs = 0, cb = 0;
+      const wall = (T, zTop, zBot) => {
+        const yA = Math.max(R(hz - (zTop - ez) * f / d1), top), yB = Math.min(R(hz - (zBot - ez) * f / d1), bot);
+        if (yA >= yB) return;
+        let s = (Lw - d1 * dim) | 0; s = s < mL ? mL : s > 31 ? 31 : s; s = cb | (s << 8);
+        let v = (-(ez + (hz - (yA + 0.5)) * d1 / f)) * 64 + 65536;
+        const step = vs, uu = u;
+        for (let y = yA, o = yA * sw + xo; y < yB; y++, v += step, o += sw) { buf[o] = CM[s | T[uu | ((v | 0) & 63)]]; dep[o] = d1; }
+      };
+      const mD = this.mD, mI = this.mI, mU = this.mU, mS = this.mS, mT = this.mT, mB = this.mB, MM = mD.length;
+      const skyW = sky ? sky.w : 1, skyH = sky ? sky.h : 1, skyK = sky ? skyH / (h * 0.62) : 0, TAU = Math.PI * 2;
+      for (let x = x0; x < x1; x++) {
+        xo = x - x0;
+        const camX = 2 * (x + 0.5) / w - 1, rdx = dirX + plX * camX, rdy = dirY + plY * camX;
+        let mx = Math.floor(px), my = Math.floor(py);
+        const ddx = rdx === 0 ? 1e30 : Math.abs(1 / rdx), ddy = rdy === 0 ? 1e30 : Math.abs(1 / rdy), stX = rdx < 0 ? -1 : 1, stY = rdy < 0 ? -1 : 1;
+        let sdx = rdx < 0 ? (px - mx) * ddx : (mx + 1 - px) * ddx, sdy = rdy < 0 ? (py - my) * ddy : (my + 1 - py) * ddy;
+        let ci = my * W + mx, d0 = 0, mn = 0; top = 0; bot = h;
+        let skyU = -1;
+        for (let guard = 0; guard < 128 && top < bot; guard++) {
+          let side;
+          if (sdx < sdy) { d1 = sdx; sdx += ddx; mx += stX; side = 0; } else { d1 = sdy; sdy += ddy; my += stY; side = 1; }
+          if (d1 > maxD) d1 = maxD;
+          const cF = flo[ci], cC = cei[ci], Lc = lig[ci] + dyn[ci];
+          cb = (dtint[ci] || tint[ci]) << 13;
+          if (!seen[ci]) { seen[ci] = 1; if (track) track.push(ci); }
+          // this cell's floor, d0 to d1 (its marks, if it has them)
+          if (ez > cF) {
+            const yA = Math.max(R(hz - (cF - ez) * f / d1), top), yB = Math.min(d0 > 0 ? R(hz - (cF - ez) * f / d0) : h, bot), k = (ez - cF) * f, fd = fdec[ci], T = fd ? dtex[fd].px : tex[ftex[ci]].px;
+            for (let y = yA, o = yA * sw + xo; y < yB; y++, o += sw) {
+              const d = k * rowInv[y];
+              let s = (Lc - d * dim) | 0; s = s < mL ? mL : s > 31 ? 31 : s;
+              buf[o] = CM[cb | (s << 8) | T[((((px + rdx * d) * 64) & 63) << 6) | (((py + rdy * d) * 64) & 63)]]; dep[o] = d;
+            }
+            if (yA < yB && yB > 0) bot = Math.min(bot, yA);
+          }
+          // its ceiling (or the sky)
+          if (ez < cC) {
+            const yA = Math.max(d0 > 0 ? R(hz - (cC - ez) * f / d0) : 0, top), yB = Math.min(R(hz - (cC - ez) * f / d1), bot);
+            if (ctex[ci] === 255 && sky) {
+              if (skyU < 0) { let a = (cam.a + Math.atan(camX * t)) / TAU; a -= Math.floor(a); skyU = ((a * skyW) | 0) * skyH; }
+              const S = sky.px;
+              for (let y = yA, o = yA * sw + xo; y < yB; y++, o += sw) { let v = (skyH - 1 + (y + 0.5 - hz) * skyK) | 0; v = v < 0 ? 0 : v >= skyH ? skyH - 1 : v; buf[o] = CM[7936 | S[skyU + v]]; dep[o] = 1e9; }
+            } else {
+              const k = (ez - cC) * f, T = tex[ctex[ci]].px;
+              for (let y = yA, o = yA * sw + xo; y < yB; y++, o += sw) {
+                const d = k * rowInv[y];
+                let s = (Lc - d * dim) | 0; s = s < mL ? mL : s > 31 ? 31 : s;
+                buf[o] = CM[cb | (s << 8) | T[((((px + rdx * d) * 64) & 63) << 6) | (((py + rdy * d) * 64) & 63)]]; dep[o] = d;
+              }
+            }
+            if (yA < yB) top = Math.max(top, yB);
+          }
+          if (d1 >= maxD || mx < 0 || my < 0 || mx >= W || my >= H) break;
+          const ni = my * W + mx;
+          // where the ray meets the next cell's edge, across the wall's face
+          let wx = side === 0 ? py + d1 * rdy : px + d1 * rdx; wx -= Math.floor(wx);
+          if ((side === 0 && rdx > 0) || (side === 1 && rdy < 0)) wx = 1 - wx;
+          u = ((wx * 64) | 0) << 6; Lw = Lc - (side ? 2 : 0); vs = 64 * d1 / f;
+          if (solid[ni]) {
+            const dc = wdec[ni * 4 + (side === 0 ? (stX > 0 ? 0 : 1) : (stY > 0 ? 2 : 3))];
+            wall(dc ? dtex[dc].px : tex[wtex[ni]].px, cC, cF);
+            if (!seen[ni]) { seen[ni] = 1; if (track) track.push(ni); }
+            top = bot; break;
+          }
+          if (mask[ni] && mn < MM) {                   // a wall you see through: drawn over the rest of this column, after
+            let s = (Lw - d1 * dim) | 0; s = s < mL ? mL : s > 31 ? 31 : s;
+            mD[mn] = d1; mI[mn] = ni; mU[mn] = u; mS[mn] = cb | (s << 8); mT[mn] = top; mB[mn] = bot; mn++;
+          }
+          const nF = flo[ni], nC = cei[ni];
+          if (nF > cF) { wall(tex[stex[ni]].px, nF, cF); bot = Math.min(bot, R(hz - (nF - ez) * f / d1)); }
+          else bot = Math.min(bot, R(hz - (cF - ez) * f / d1));
+          if (nC < cC) { wall(tex[utex[ni]].px, cC, nC); top = Math.max(top, R(hz - (nC - ez) * f / d1)); }
+          else top = Math.max(top, R(hz - (cC - ez) * f / d1));
+          ci = ni; d0 = d1;
+        }
+        for (let y = top, o = top * sw + xo; y < bot; y++, o += sw) { buf[o] = fogPx; dep[o] = 1e9; }   // (nothing there: far fog)
+        // the walls you see through, the far ones first: one texture tall, standing on their cell's floor
+        for (let k = mn - 1; k >= 0; k--) {
+          const d = mD[k], ni = mI[k], T = tex[mask[ni]].px, uu = mU[k], s = mS[k], fz = flo[ni];
+          const yA = Math.max(R(hz - (Math.min(cei[ni], fz + 1) - ez) * f / d), mT[k]), yB = Math.min(R(hz - (fz - ez) * f / d), mB[k]);
+          if (yA >= yB) continue;
+          const step = 64 * d / f; let v = (fz + 1 - ez - (hz - (yA + 0.5)) * d / f) * 64;
+          for (let y = yA, o = yA * sw + xo; y < yB; y++, v += step, o += sw) { const idx = T[uu | ((v | 0) & 63)]; if (idx) { buf[o] = CM[s | idx]; dep[o] = d; } }
+        }
+      }
+    },
+    // the light's colour where a thing stands (its cell's tint), as a colormap offset
+    tintAt(x, y) { const m = this.map; if (!m || x < 0 || y < 0 || x >= m.w || y >= m.h) return 0; const i = (y | 0) * m.w + (x | 0); return (m.dtint[i] || m.tint[i]) << 13; },
+    // a sprite standing at x y (its foot at height z), light 0..31 (full: drawn as it is), flip: mirrored, scale
+    sprite(s, x, y, z, light, full, flip, scale) {
+      const c = this.cam, dx = x - c.x, dy = y - c.y, d = dx * this.dirX + dy * this.dirY;
+      if (d < 0.15 || d > (this.maxD || 40)) return;
+      if (this.qn >= this.queue.length) this.queue.push({});
+      const q = this.queue[this.qn++];
+      q.s = s; q.d = d; q.lat = dx * -this.dirY + dy * this.dirX; q.z = z; q.light = light; q.full = full; q.flip = flip; q.k = scale || 1; q.dot = 0;
+      q.cb = full ? 0 : this.tintAt(x, y); q.x = x; q.y = y;
+    },
+    dot(x, y, z, idx, size, full) {                  // a speck (spark, blood, smoke): a small square, world size
+      const c = this.cam, dx = x - c.x, dy = y - c.y, d = dx * this.dirX + dy * this.dirY;
+      if (d < 0.3 || d > 24) return;                 // (none right at the eye: they'd fill the screen)
+      if (this.qn >= this.queue.length) this.queue.push({});
+      const q = this.queue[this.qn++];
+      q.s = null; q.d = d; q.lat = dx * -this.dirY + dy * this.dirX; q.z = z; q.idx = idx; q.size = size; q.full = full; q.dot = 1; q.light = 24;
+      q.cb = full ? 0 : this.tintAt(x, y); q.x = x; q.y = y;
+    },
+    flush() {                                         // the sprites, far to near, behind what's nearer
+      const Q = this.queue, n = this.qn, w = this.w, h = this.h, x0 = this.x0, x1 = this.x1, sw = this.sw, buf = this.buf, dep = this.depth, CM = this.cm;
+      const f = this.f, hz = this.hz, ez = this.cam.z, dim = this.dim, full = this.full, mL = this.minL, dotMax = Math.max(2, Math.round(h / 45));
+      for (let i = 1; i < n; i++) { const e = Q[i]; let j = i - 1; while (j >= 0 && Q[j].d < e.d) { Q[j + 1] = Q[j]; j--; } Q[j + 1] = e; }
+      for (let i = 0; i < n; i++) {
+        const q = Q[i], d = q.d, sx = w / 2 + q.lat * f / d;
+        if (q.dot) {
+          const sz = Math.min(dotMax, Math.max(1, q.size * f / d) | 0), cy = hz - (q.z - ez) * f / d, X0 = (sx - sz / 2) | 0, Y0 = (cy - sz / 2) | 0;
+          let s = (24 - d * dim) | 0; s = q.full ? 31 : s < 0 ? 0 : s > 31 ? 31 : s;
+          const col = CM[q.cb | (s << 8) | q.idx];
+          for (let y = Math.max(0, Y0); y < Math.min(h, Y0 + sz); y++) for (let x = Math.max(x0, X0); x < Math.min(x1, X0 + sz); x++) { const o = y * sw + x - x0; if (dep[o] > d) buf[o] = col; }
+          continue;
+        }
+        const s = q.s; if (!s) continue;
+        const k = f / d / s.ppu * q.k, swd = s.w * k, sh = s.h * k;
+        const left = sx - s.ax * k, topY = hz - (q.z - ez) * f / d - s.ay * k;
+        const X0 = Math.max(x0, Math.ceil(left - 0.5)), X1 = Math.min(x1, Math.ceil(left + swd - 0.5)), Y0 = Math.max(0, Math.ceil(topY - 0.5)), Y1 = Math.min(h, Math.ceil(topY + sh - 0.5));
+        if (X0 >= X1 || Y0 >= Y1) continue;
+        let L = (q.light - d * dim) | 0; L = L < mL ? mL : L > 31 ? 31 : L; const Ls = q.cb | (L << 8);
+        const P = s.px, H = s.h, inv = 1 / k;
+        for (let x = X0; x < X1; x++) {
+          let uu = ((x + 0.5 - left) * inv) | 0; if (uu >= s.w) uu = s.w - 1; if (q.flip) uu = s.w - 1 - uu;
+          const col = uu * H;
+          let v = (Y0 + 0.5 - topY) * inv;
+          for (let y = Y0, o = Y0 * sw + x - x0; y < Y1; y++, v += inv, o += sw) {
+            if (dep[o] <= d) continue;
+            const idx = P[col + (v | 0)]; if (!idx) continue;
+            buf[o] = CM[(q.full || full[idx] ? 7936 : Ls) | idx];
+          }
+        }
+      }
+      this.qn = 0;
+    }
+  };
+  return Core;
+}
+const RayCore = RAYCORE();
+
+// a helper's side: it keeps its own copy of the textures, the sprites and the map (sent once, then what changed), and
+// draws its strip of each frame it's sent, handing the picture back
+function RAYHELPER(Core) {
+  const core = new Core(), store = [];
+  let m = null; const seenNew = []; core.track = seenNew;
+  onmessage = (e) => {
+    const d = e.data;
+    if (d.k === "pal") { core.cm = d.cm; core.full = d.full; core.fogPx = d.fogPx; return; }
+    if (d.k === "tex") { store[d.id] = d.t; return; }
+    if (d.k === "map") { m = d.m; core.dtex = [null]; return; }
+    if (d.k === "dtex") { core.dtex[d.slot] = { px: d.px }; return; }
+    if (d.k !== "frame" || !m) return;
+    const t0 = performance.now(), c = d.ch;
+    for (let k = 0; k < c.i.length; k++) { const i = c.i[k]; m.floor[i] = c.floor[k]; m.ceil[i] = c.ceil[k]; m.light[i] = c.light[k]; m.dyn[i] = c.dyn[k]; m.tint[i] = c.tint[k]; m.dtint[i] = c.dtint[k]; }
+    for (let k = 0; k < d.wd.length; k += 2) m.wdec[d.wd[k]] = d.wd[k + 1];
+    for (let k = 0; k < d.fd.length; k += 2) m.fdec[d.fd[k]] = d.fd[k + 1];
+    core.tex.length = d.tex.length; for (let k = 0; k < d.tex.length; k++) core.tex[k] = store[d.tex[k]];
+    core.sky = d.sky >= 0 ? store[d.sky] : null; core.dim = d.dim; core.minL = d.minL; core.maxD = d.maxD;
+    const need = (d.x1 - d.x0) * d.h;
+    if (core.w !== d.w || core.h !== d.h || core.x0 !== d.x0 || core.x1 !== d.x1) core.size(d.w, d.h, d.x0, d.x1, null);
+    core.buf = d.buf && d.buf.byteLength === need * 4 ? new Uint32Array(d.buf) : new Uint32Array(need);
+    seenNew.length = 0;
+    core.render(m, d.cam);
+    const q = d.q;
+    for (let k = 0; k < d.qn; k++) {
+      const o = k * 8;
+      if (q[o] < 0) core.dot(q[o + 1], q[o + 2], q[o + 3], q[o + 4], q[o + 5], q[o + 6]);
+      else core.sprite(store[q[o]], q[o + 1], q[o + 2], q[o + 3], q[o + 4], q[o + 5], q[o + 6], q[o + 7]);
+    }
+    core.flush();
+    const ms = performance.now() - t0;
+    if (d.slow > 1) { const until = performance.now() + ms * (d.slow - 1); while (performance.now() < until) { /* a slower processor, for checks */ } }
+    postMessage({ k: "strip", id: d.id, x0: d.x0, buf: core.buf.buffer, seen: Int32Array.from(seenNew), ms: performance.now() - t0 }, [core.buf.buffer]);
+  };
+}
+
+// ---------------------------------------------------------------- the helpers, from the page's side
+// n web workers, each drawing a strip of every frame. Two frames can be on their way at once, so the helpers never wait
+// on the page; the newest finished world is what the page shows (the game's blits, a weapon in hand, go on top of it
+// each frame): a frame or two behind, so the page's own work and the drawing overlap.
+let helperURL = null;
+function Helpers(n, onFail) {
+  if (!helperURL) helperURL = URL.createObjectURL(new Blob(["\"use strict\";\nconst Core = (" + RAYCORE.toString() + ")();\n(" + RAYHELPER.toString() + ")(Core);\n"], { type: "text/javascript" }));
+  this.n = n; this.list = []; this.id = 0; this.done = 0; this.frames = new Map(); this.world = null; this.w = 0; this.h = 0; this.palVer = -1; this.map = null; this.shadow = null;
+  this.ids = new WeakMap(); this.nextId = 1; this.ms = 0; this.fresh = 0; this.dead = false; this.onFail = onFail; this.depth = 2;
+  for (let i = 0; i < n; i++) {
+    const wk = new Worker(helperURL);
+    wk.onmessage = e => this.back(i, e.data);
+    wk.onerror = () => this.fail();
+    this.list.push({ wk, free: [], ms: 0 });
+  }
+}
+Helpers.prototype = {
+  get busy() { return this.frames.size; },
+  fail() { if (this.dead) return; this.dead = true; this.stop(); if (this.onFail) this.onFail(); },
+  stop() { for (const h of this.list) { try { h.wk.terminate(); } catch (e) { /* gone */ } } this.list = []; },
+  post(msg, transfer) { for (const h of this.list) h.wk.postMessage(msg, transfer || []); },
+  idOf(t) {                                          // a texture's or sprite's number: sent to the helpers the first time
+    if (!t || typeof t !== "object") return 0;
+    let id = this.ids.get(t);
+    if (!id) { id = this.nextId++; this.ids.set(t, id); this.post({ k: "tex", id, t: { w: t.w, h: t.h, px: t.px, ax: t.ax, ay: t.ay, ppu: t.ppu } }); }
+    return id;
+  },
+  prime(list) { for (const t of list) this.idOf(t); },   // send these now (a level's sprites), not when first drawn
+  // one frame: send what changed, the camera and the sprites; false when two are already on their way
+  send(ray, m, cam, core, slow) {
+    if (this.frames.size >= this.depth || this.dead || !this.list.length) return false;
+    const pal = ray.pal, n = m.w * m.h;
+    if (pal.ver !== this.palVer) { this.palVer = pal.ver; this.post({ k: "pal", cm: pal.cmap, full: pal.full, fogPx: pal.fogPx }); }
+    if (m !== this.map) {
+      this.map = m; const keep = ["solid", "wtex", "stex", "utex", "ftex", "ctex", "floor", "ceil", "light", "dyn", "seen", "tint", "dtint", "mask", "wdec", "fdec"], copy = { w: m.w, h: m.h };
+      for (const k of keep) copy[k] = m[k].slice();
+      this.post({ k: "map", m: copy });
+      this.shadow = { floor: m.floor.slice(), ceil: m.ceil.slice(), light: m.light.slice(), dyn: m.dyn.slice(), tint: m.tint.slice(), dtint: m.dtint.slice() };
+      const mk0 = ray.marks;
+      if (mk0 && mk0.map === m) { for (let s = 1; s < mk0.tex.length; s++) this.post({ k: "dtex", slot: s, px: mk0.tex[s].px.slice() }); mk0.dirty.length = 0; mk0.wchanges.length = 0; mk0.fchanges.length = 0; }
+    }
+    const mk = ray.marks;
+    if (mk && mk.map === m) { for (const s of mk.dirty) this.post({ k: "dtex", slot: s, px: mk.tex[s].px.slice() }); mk.dirty.length = 0; }
+    // the cells that changed (doors, lifts, lights)
+    const S = this.shadow, ch = [];
+    for (let i = 0; i < n; i++) {
+      if (m.floor[i] !== S.floor[i] || m.ceil[i] !== S.ceil[i] || m.light[i] !== S.light[i] || m.dyn[i] !== S.dyn[i] || m.tint[i] !== S.tint[i] || m.dtint[i] !== S.dtint[i]) {
+        ch.push(i); S.floor[i] = m.floor[i]; S.ceil[i] = m.ceil[i]; S.light[i] = m.light[i]; S.dyn[i] = m.dyn[i]; S.tint[i] = m.tint[i]; S.dtint[i] = m.dtint[i];
+      }
+    }
+    const k = ch.length, C = { i: new Int32Array(ch), floor: new Float32Array(k), ceil: new Float32Array(k), light: new Uint8Array(k), dyn: new Uint8Array(k), tint: new Uint8Array(k), dtint: new Uint8Array(k) };
+    for (let j = 0; j < k; j++) { const i = ch[j]; C.floor[j] = m.floor[i]; C.ceil[j] = m.ceil[i]; C.light[j] = m.light[i]; C.dyn[j] = m.dyn[i]; C.tint[j] = m.tint[i]; C.dtint[j] = m.dtint[i]; }
+    const wd = mk && mk.map === m ? mk.wchanges.splice(0) : [], fd = mk && mk.map === m ? mk.fchanges.splice(0) : [];
+    const tex = new Int32Array(ray.tex.length); for (let j = 0; j < ray.tex.length; j++) tex[j] = ray.tex[j] ? this.idOf(ray.tex[j]) : 0;
+    const sky = ray.sky ? this.idOf(ray.sky) : -1;
+    // the sprites and specks, as numbers
+    const qn = core.qn, q = new Float64Array(qn * 8);
+    for (let j = 0; j < qn; j++) {
+      const e = core.queue[j], o = j * 8;
+      if (e.dot) { q[o] = -1; q[o + 1] = e.x; q[o + 2] = e.y; q[o + 3] = e.z; q[o + 4] = e.idx; q[o + 5] = e.size; q[o + 6] = e.full ? 1 : 0; }
+      else { q[o] = this.idOf(e.s); q[o + 1] = e.x; q[o + 2] = e.y; q[o + 3] = e.z; q[o + 4] = e.light; q[o + 5] = e.full ? 1 : 0; q[o + 6] = e.flip ? 1 : 0; q[o + 7] = e.k; }
+    }
+    core.qn = 0;
+    const w = ray.w, h = ray.h, cv = { x: cam.x, y: cam.y, z: cam.z, a: cam.a, pitch: cam.pitch, fov: cam.fov }, id = ++this.id;
+    this.frames.set(id, { left: this.list.length, w, h, strips: [] });
+    this.list.forEach((hp, j) => {
+      const x0 = Math.round(w * j / this.list.length), x1 = Math.round(w * (j + 1) / this.list.length), need = (x1 - x0) * h * 4;
+      let buf = null; while (hp.free.length) { const b0 = hp.free.pop(); if (b0.byteLength === need) { buf = b0; break; } }
+      hp.wk.postMessage({ k: "frame", id, x0, x1, w, h, buf, cam: cv, ch: C, wd: new Int32Array(wd), fd: new Int32Array(fd), tex, sky, dim: ray.dim, minL: ray.minL, maxD: ray.maxD, q, qn, slow: slow || 1 }, buf ? [buf] : []);
+    });
+    return true;
+  },
+  back(i, d) {                                       // a strip, drawn
+    const hp = this.list[i]; if (!hp) return;
+    hp.ms = d.ms;
+    if (this.map && d.seen.length) for (let k = 0; k < d.seen.length; k++) this.map.seen[d.seen[k]] = 1;
+    const f = this.frames.get(d.id);
+    if (!f) { hp.free.push(d.buf); return; }
+    f.strips.push({ i, x0: d.x0, buf: d.buf });
+    if (--f.left > 0) return;
+    // all of them: the picture, put together (unless it's a size the screen no longer is)
+    this.frames.delete(d.id);
+    const w = f.w, h = f.h;
+    if (w === this.w && h === this.h && d.id > this.done) {
+      if (!this.world || this.world.length !== w * h) this.world = new Uint32Array(w * h);
+      for (const s of f.strips) {
+        const src = new Uint32Array(s.buf), sw = src.length / h;
+        for (let y = 0; y < h; y++) this.world.set(src.subarray(y * sw, y * sw + sw), y * w + s.x0);
+      }
+      this.done = d.id; this.fresh++;
+    }
+    let ms = 0; for (const s of f.strips) { this.list[s.i].free.push(s.buf); ms = Math.max(ms, this.list[s.i].ms); }
+    this.ms = this.ms ? this.ms + (ms - this.ms) * 0.15 : ms;           // (smoothed: one slow strip isn't a slow box)
+  },
+  size(w, h) { this.w = w; this.h = h; this.world = null; this.ms = 0; for (const hp of this.list) hp.free.length = 0; }
+};
+
+// ---------------------------------------------------------------- marks that stay (rivet holes, scorch, blood, oil)
+// stamped into a copy of the wall's face or the floor's texture, so drawing them costs nothing; a pool of copies (max),
+// the oldest given back when it's full. A stamp: {r: its radius in texels (64 a cell), kind: "hole" (dark, a rim),
+// "scorch" (darker, fading out), "splat" (a colour: ramp), "stain" (a colour, faint), "frost" (a white star, ramp at its edges)}
+function Marks(ray, m, max) {
+  this.ray = ray; this.map = m; this.max = Math.max(4, max || 96); this.tex = [null]; this.key = [0]; this.order = []; this.byKey = new Map();
+  this.dirty = []; this.wchanges = []; this.fchanges = []; this.seed = 1;
+  ray.marks = this;
+}
+Marks.prototype = {
+  // the slot for a wall face (key i·4 + face + 1) or a floor (key -(i + 1)), copied from its texture the first time
+  slot(key, base) {
+    let s = this.byKey.get(key);
+    if (s) return s;
+    if (this.tex.length <= this.max) { s = this.tex.length; this.tex.push({ px: new Uint8Array(4096) }); this.key.push(0); }
+    else { s = this.order.shift(); this.unhook(this.key[s]); }
+    this.tex[s].px.set(base.px.length === 4096 ? base.px : new Uint8Array(4096).fill(1));
+    this.key[s] = key; this.byKey.set(key, s); this.order.push(s); this.hook(key, s);
+    return s;
+  },
+  hook(key, s) { const m = this.map; if (key > 0) { m.wdec[key - 1] = s; this.wchanges.push(key - 1, s); } else { m.fdec[-key - 1] = s; this.fchanges.push(-key - 1, s); } },
+  unhook(key) { if (!key) return; this.byKey.delete(key); this.hook(key, 0); },
+  rnd() { this.seed = (this.seed * 16807) % 2147483647; return this.seed / 2147483647; },
+  // one stamp into a texture's pixels, centred on texel (u, v); col: true when the texture's columns run up a wall
+  stamp(px, u, v, st, wrapV) {
+    const r = st.r, full = this.ray.pal.full, R2 = r * r, ramp = st.ramp == null ? 12 : st.ramp;
+    for (let du = -Math.ceil(r); du <= r; du++) for (let dv = -Math.ceil(r); dv <= r; dv++) {
+      const d2 = du * du + dv * dv; if (d2 > R2) continue;
+      let uu = u + du, vv = v + dv; if (uu < 0 || uu > 63) continue;
+      if (vv < 0 || vv > 63) { if (!wrapV) continue; vv &= 63; }
+      const o = uu * 64 + vv, idx = px[o], k = Math.sqrt(d2) / Math.max(1, r), sh = idx & 15, rp = idx >> 4;
+      if (full[idx] && st.kind !== "scorch") continue;
+      if (st.kind === "hole") px[o] = k < 0.55 ? rp * 16 + 1 : k < 0.85 ? rp * 16 + Math.max(1, sh - 4) : rp * 16 + Math.min(15, sh + 2);
+      else if (st.kind === "scorch") { if (this.rnd() < 1.15 - k) px[o] = (full[idx] ? 12 : rp) * 16 + Math.max(1, Math.round(sh * (0.25 + k * 0.7))); }
+      else if (st.kind === "splat") { if (this.rnd() < (1 - k * k) * 0.95) px[o] = ramp * 16 + Math.max(1, Math.min(15, 4 + ((this.rnd() * 5) | 0) - (k > 0.7 ? 2 : 0))); }
+      else if (st.kind === "stain") { if (this.rnd() < (1 - k) * 0.7) px[o] = ramp * 16 + Math.max(1, Math.min(sh, 3 + ((this.rnd() * 3) | 0))); }
+      else if (st.kind === "frost") { const a = Math.atan2(dv, du) * 3, star = 0.55 + 0.45 * Math.abs(Math.cos(a)); if (this.rnd() < (1 - k / star) * 1.2) px[o] = (this.rnd() < 0.35 ? ramp : 0) * 16 + 11 + ((this.rnd() * 5) | 0); }
+    }
+  },
+  // a mark on the face of wall cell i (face as RayMap.trace says), where the line hit it at x y z
+  wall(i, face, x, y, z, st) {
+    const m = this.map; if (i < 0 || face < 0 || !m.solid[i]) return;
+    const base = this.ray.tex[m.wtex[i]]; if (!base) return;
+    let a = face < 2 ? y : x; a -= Math.floor(a); if (face === 0 || face === 3) a = 1 - a;
+    const s = this.slot(i * 4 + face + 1, base), u = Math.min(63, (a * 64) | 0), v = ((Math.floor(-z * 64) % 64) + 64) % 64;
+    this.stamp(this.tex[s].px, u, v, st, true); this.touch(s);
+  },
+  // a mark on the floor, centred at x y: into every cell it reaches
+  floor(x, y, st) {
+    const m = this.map, rc = st.r / 64;
+    for (let cy = Math.floor(y - rc); cy <= Math.floor(y + rc); cy++) for (let cx = Math.floor(x - rc); cx <= Math.floor(x + rc); cx++) {
+      if (cx < 0 || cy < 0 || cx >= m.w || cy >= m.h) continue;
+      const i = cy * m.w + cx; if (m.solid[i] || m.mask[i]) continue;
+      const base = this.ray.tex[m.ftex[i]]; if (!base) continue;
+      const s = this.slot(-(i + 1), base);
+      this.stamp(this.tex[s].px, Math.round((x - cx) * 64), Math.round((y - cy) * 64), st, false); this.touch(s);
+    }
+  },
+  touch(s) { if (this.dirty.indexOf(s) < 0) this.dirty.push(s); }
+};
+
+// ---------------------------------------------------------------- the renderer, from the game's side
+const NOMARKS = [null];
 function Ray(pal) {
-  this.pal = pal; this.tex = []; this.sky = null; this.dim = 2.4; this.minL = 0; this.queue = []; this.qn = 0; this.w = 0;   // (minL: the darkest a lit thing gets)
+  this.pal = pal; this.tex = []; this.sky = null; this.dim = 2.4; this.minL = 0; this.maxD = 40; this.w = 0; this.h = 0;   // (minL: the darkest a lit thing gets)
+  this.core = new RayCore(); this.helpers = null; this.marks = null; this.slow = 1; this.drew = 0; this.missed = 0;
 }
 Ray.prototype = {
   size(w, h, buf) {
     this.w = w; this.h = h; this.buf = buf;
-    this.depth = new Float32Array(w * h); this.rowInv = new Float32Array(h);
+    this.core.size(w, h, 0, w, buf); this.depth = this.core.depth; this.rowInv = this.core.rowInv;
+    if (this.helpers) this.helpers.size(w, h);
+  },
+  // helpers: n web workers each drawing a strip of the picture (0: all on the page). Where they can't start, the page draws.
+  threads(n) {
+    if (this.helpers) { this.helpers.stop(); this.helpers = null; }
+    if (!n || typeof Worker === "undefined" || typeof Blob === "undefined") return 0;
+    try { this.helpers = new Helpers(n, () => { this.helpers = null; }); this.helpers.size(this.w, this.h); } catch (e) { this.helpers = null; }
+    return this.helpers ? n : 0;
+  },
+  get threaded() { return !!(this.helpers && !this.helpers.dead); },
+  takeMissed() { const k = this.missed; this.missed = 0; return k; },   // frames the helpers couldn't take (for the governor)
+  prime(list) { if (this.threaded) this.helpers.prime(list); },        // textures and sprites to the helpers now, not when first drawn
+  get helperMs() { return this.threaded ? this.helpers.ms : 0; },
+  sync() {
+    const c = this.core, p = this.pal;
+    c.tex = this.tex; c.sky = this.sky; c.dim = this.dim; c.minL = this.minL; c.maxD = this.maxD; c.cm = p.cmap; c.full = p.full; c.fogPx = p.fogPx;
+    c.dtex = this.marks && this.marks.map === this.m ? this.marks.tex : NOMARKS;
   },
   // the world from a camera {x, y, z (eye height), a (facing), pitch (looking up: a share of the height), fov (across)}
   render(m, cam) {
-    const w = this.w, h = this.h, buf = this.buf, dep = this.depth, cm = this.pal.cmap, tex = this.tex, sky = this.sky, W = m.w, H = m.h;
-    const solid = m.solid, wtex = m.wtex, stex = m.stex, utex = m.utex, ftex = m.ftex, ctex = m.ctex, flo = m.floor, cei = m.ceil, lig = m.light, dyn = m.dyn, seen = m.seen;
-    const dirX = Math.cos(cam.a), dirY = Math.sin(cam.a), t = Math.tan(cam.fov / 2), plX = -dirY * t, plY = dirX * t;
-    const f = (w / 2) / t, hz = h / 2 + cam.pitch * h, px = cam.x, py = cam.y, ez = cam.z, dim = this.dim, rowInv = this.rowInv;
-    const fogPx = this.pal.fogPx, maxD = this.maxD || 40, mL = this.minL;
-    this.cam = cam; this.f = f; this.hz = hz; this.dirX = dirX; this.dirY = dirY;
-    for (let y = 0; y < h; y++) { const d = y + 0.5 - hz; rowInv[y] = Math.abs(d) < 1e-3 ? 1e3 : 1 / d; }
-    const R = (b) => b < 0 ? 0 : b > h ? h : Math.ceil(b - 0.5);
-    // a wall's column at d1, from zTop down to zBot (made once a frame: it reads the column's state below)
-    let x = 0, d1 = 0, top = 0, bot = h, u = 0, Lw = 0, vs = 0;
-    const wall = (T, zTop, zBot) => {
-      const yA = Math.max(R(hz - (zTop - ez) * f / d1), top), yB = Math.min(R(hz - (zBot - ez) * f / d1), bot);
-      if (yA >= yB) return;
-      let s = (Lw - d1 * dim) | 0; s = s < mL ? mL : s > 31 ? 31 : s; s <<= 8;
-      let v = (-(ez + (hz - (yA + 0.5)) * d1 / f)) * 64 + 65536;
-      const step = vs, uu = u, xx = x;
-      for (let y = yA; y < yB; y++, v += step) { const o = y * w + xx; buf[o] = cm[s | T[uu | ((v | 0) & 63)]]; dep[o] = d1; }
-    };
-    const skyW = sky ? sky.w : 1, skyH = sky ? sky.h : 1, skyK = sky ? skyH / (h * 0.62) : 0;
-    for (x = 0; x < w; x++) {
-      const camX = 2 * (x + 0.5) / w - 1, rdx = dirX + plX * camX, rdy = dirY + plY * camX;
-      let mx = Math.floor(px), my = Math.floor(py);
-      const ddx = rdx === 0 ? 1e30 : Math.abs(1 / rdx), ddy = rdy === 0 ? 1e30 : Math.abs(1 / rdy), stX = rdx < 0 ? -1 : 1, stY = rdy < 0 ? -1 : 1;
-      let sdx = rdx < 0 ? (px - mx) * ddx : (mx + 1 - px) * ddx, sdy = rdy < 0 ? (py - my) * ddy : (my + 1 - py) * ddy;
-      let ci = my * W + mx, d0 = 0; top = 0; bot = h;
-      let skyU = -1;
-      for (let guard = 0; guard < 128 && top < bot; guard++) {
-        let side;
-        if (sdx < sdy) { d1 = sdx; sdx += ddx; mx += stX; side = 0; } else { d1 = sdy; sdy += ddy; my += stY; side = 1; }
-        if (d1 > maxD) d1 = maxD;
-        const cF = flo[ci], cC = cei[ci], Lc = lig[ci] + dyn[ci];
-        seen[ci] = 1;
-        // this cell's floor, d0 to d1
-        if (ez > cF) {
-          const yA = Math.max(R(hz - (cF - ez) * f / d1), top), yB = Math.min(d0 > 0 ? R(hz - (cF - ez) * f / d0) : h, bot), k = (ez - cF) * f, T = tex[ftex[ci]].px;
-          for (let y = yA; y < yB; y++) {
-            const d = k * rowInv[y], o = y * w + x;
-            let s = (Lc - d * dim) | 0; s = s < mL ? mL : s > 31 ? 31 : s;
-            buf[o] = cm[(s << 8) | T[((((px + rdx * d) * 64) & 63) << 6) | (((py + rdy * d) * 64) & 63)]]; dep[o] = d;
-          }
-          if (yA < yB && yB > 0) bot = Math.min(bot, yA);
-        }
-        // its ceiling (or the sky)
-        if (ez < cC) {
-          const yA = Math.max(d0 > 0 ? R(hz - (cC - ez) * f / d0) : 0, top), yB = Math.min(R(hz - (cC - ez) * f / d1), bot);
-          if (ctex[ci] === 255 && sky) {
-            if (skyU < 0) { let a = (cam.a + Math.atan(camX * t)) / TAU; a -= Math.floor(a); skyU = ((a * skyW) | 0) * skyH; }
-            const S = sky.px;
-            for (let y = yA; y < yB; y++) { let v = (skyH - 1 + (y + 0.5 - hz) * skyK) | 0; v = v < 0 ? 0 : v >= skyH ? skyH - 1 : v; const o = y * w + x; buf[o] = cm[(31 << 8) | S[skyU + v]]; dep[o] = 1e9; }
-          } else {
-            const k = (ez - cC) * f, T = tex[ctex[ci]].px;
-            for (let y = yA; y < yB; y++) {
-              const d = k * rowInv[y], o = y * w + x;
-              let s = (Lc - d * dim) | 0; s = s < mL ? mL : s > 31 ? 31 : s;
-              buf[o] = cm[(s << 8) | T[((((px + rdx * d) * 64) & 63) << 6) | (((py + rdy * d) * 64) & 63)]]; dep[o] = d;
-            }
-          }
-          if (yA < yB) top = Math.max(top, yB);
-        }
-        if (d1 >= maxD || mx < 0 || my < 0 || mx >= W || my >= H) break;
-        const ni = my * W + mx;
-        // where the ray meets the next cell's edge, across the wall's face
-        let wx = side === 0 ? py + d1 * rdy : px + d1 * rdx; wx -= Math.floor(wx);
-        if ((side === 0 && rdx > 0) || (side === 1 && rdy < 0)) wx = 1 - wx;
-        u = ((wx * 64) | 0) << 6; Lw = Lc - (side ? 2 : 0); vs = 64 * d1 / f;
-        if (solid[ni]) { wall(tex[wtex[ni]].px, cC, cF); seen[ni] = 1; top = bot; break; }
-        const nF = flo[ni], nC = cei[ni];
-        if (nF > cF) { wall(tex[stex[ni]].px, nF, cF); bot = Math.min(bot, R(hz - (nF - ez) * f / d1)); }
-        else bot = Math.min(bot, R(hz - (cF - ez) * f / d1));
-        if (nC < cC) { wall(tex[utex[ni]].px, cC, nC); top = Math.max(top, R(hz - (nC - ez) * f / d1)); }
-        else top = Math.max(top, R(hz - (cC - ez) * f / d1));
-        ci = ni; d0 = d1;
-      }
-      for (let y = top; y < bot; y++) { const o = y * w + x; buf[o] = fogPx; dep[o] = 1e9; }   // (nothing there: far fog)
+    this.m = m; this.sync();
+    if (this.threaded) { this.core.view(m, cam); this.cam = cam; return; }
+    this.core.render(m, cam); this.cam = cam;
+  },
+  sprite(s, x, y, z, light, full, flip, scale) { this.core.sprite(s, x, y, z, light, full, flip, scale); },
+  dot(x, y, z, idx, size, full) { this.core.dot(x, y, z, idx, size, full); },
+  // the sprites; with helpers, this frame goes to them and the newest one they've finished is put in the picture
+  flush() {
+    if (this.threaded) {
+      const H = this.helpers;
+      if (!H.send(this, this.m, this.core.cam, this.core, this.slow)) { this.missed++; this.core.qn = 0; }
+      if (H.world && H.world.length === this.buf.length) this.buf.set(H.world);
+      this.drew = H.fresh;
+      return;
     }
-    this.qn = 0;
-  },
-  // a sprite standing at x y (its foot at height z), light 0..31 (full: drawn as it is), flip: mirrored
-  sprite(s, x, y, z, light, full, flip, scale) {
-    const c = this.cam, dx = x - c.x, dy = y - c.y, d = dx * this.dirX + dy * this.dirY;
-    if (d < 0.15 || d > (this.maxD || 40)) return;
-    if (this.qn >= this.queue.length) this.queue.push({});
-    const q = this.queue[this.qn++];
-    q.s = s; q.d = d; q.lat = dx * -this.dirY + dy * this.dirX; q.z = z; q.light = light; q.full = full; q.flip = flip; q.k = scale || 1; q.dot = 0;
-  },
-  dot(x, y, z, idx, size, full) {                    // a speck (spark, blood, smoke): a small square, world size
-    const c = this.cam, dx = x - c.x, dy = y - c.y, d = dx * this.dirX + dy * this.dirY;
-    if (d < 0.15 || d > 24) return;
-    if (this.qn >= this.queue.length) this.queue.push({});
-    const q = this.queue[this.qn++];
-    q.s = null; q.d = d; q.lat = dx * -this.dirY + dy * this.dirX; q.z = z; q.idx = idx; q.size = size; q.full = full; q.dot = 1; q.light = 24;
-  },
-  flush() {                                           // the sprites, far to near, behind what's nearer
-    const Q = this.queue, n = this.qn, w = this.w, h = this.h, buf = this.buf, dep = this.depth, cm = this.pal.cmap, f = this.f, hz = this.hz, ez = this.cam.z, dim = this.dim, full = this.pal.full;
-    for (let i = 1; i < n; i++) { const e = Q[i]; let j = i - 1; while (j >= 0 && Q[j].d < e.d) { Q[j + 1] = Q[j]; j--; } Q[j + 1] = e; }
-    for (let i = 0; i < n; i++) {
-      const q = Q[i], d = q.d, sx = w / 2 + q.lat * f / d;
-      if (q.dot) {
-        const sz = Math.max(1, q.size * f / d) | 0, cy = hz - (q.z - ez) * f / d, x0 = (sx - sz / 2) | 0, y0 = (cy - sz / 2) | 0;
-        let s = (24 - d * dim) | 0; s = q.full ? 31 : s < 0 ? 0 : s > 31 ? 31 : s;
-        const col = cm[(s << 8) | q.idx];
-        for (let y = Math.max(0, y0); y < Math.min(h, y0 + sz); y++) for (let x = Math.max(0, x0); x < Math.min(w, x0 + sz); x++) { const o = y * w + x; if (dep[o] > d) buf[o] = col; }
-        continue;
-      }
-      const s = q.s; if (!s) continue;
-      const k = f / d / s.ppu * q.k, sw = s.w * k, sh = s.h * k;
-      const left = sx - s.ax * k, topY = hz - (q.z - ez) * f / d - s.ay * k;
-      const x0 = Math.max(0, Math.ceil(left - 0.5)), x1 = Math.min(w, Math.ceil(left + sw - 0.5)), y0 = Math.max(0, Math.ceil(topY - 0.5)), y1 = Math.min(h, Math.ceil(topY + sh - 0.5));
-      if (x0 >= x1 || y0 >= y1) continue;
-      let L = (q.light - d * dim) | 0; L = L < this.minL ? this.minL : L > 31 ? 31 : L; const Ls = L << 8;
-      const P = s.px, H = s.h, inv = 1 / k;
-      for (let x = x0; x < x1; x++) {
-        let u = ((x + 0.5 - left) * inv) | 0; if (u >= s.w) u = s.w - 1; if (q.flip) u = s.w - 1 - u;
-        const col = u * H;
-        let v = (y0 + 0.5 - topY) * inv;
-        for (let y = y0; y < y1; y++, v += inv) {
-          const o = y * w + x; if (dep[o] <= d) continue;
-          const idx = P[col + (v | 0)]; if (!idx) continue;
-          buf[o] = cm[(q.full || full[idx] ? 31 << 8 : Ls) | idx];
-        }
-      }
-    }
-    this.qn = 0;
+    this.core.flush(); this.drew++;
+    const mk = this.marks; if (mk) { mk.dirty.length = 0; mk.wchanges.length = 0; mk.fchanges.length = 0; }   // (drawn here: nothing to send)
   },
   // a sprite on the screen itself (a weapon in hand): its bottom middle at sx sy, scale screen pixels a sprite pixel
   blit(s, sx, sy, scale, light) {
@@ -1923,12 +2266,14 @@ Ray.prototype = {
   },
   // where a world point is on the screen: [x, y, distance], or null behind
   project(x, y, z, out) {
-    const c = this.cam, dx = x - c.x, dy = y - c.y, d = dx * this.dirX + dy * this.dirY;
+    const c = this.core, cam = c.cam, dx = x - cam.x, dy = y - cam.y, d = dx * c.dirX + dy * c.dirY;
     if (d < 0.1) return null;
-    out[0] = this.w / 2 + (dx * -this.dirY + dy * this.dirX) * this.f / d; out[1] = this.hz - (z - c.z) * this.f / d; out[2] = d;
+    out[0] = this.w / 2 + (dx * -c.dirY + dy * c.dirX) * c.f / d; out[1] = c.hz - (z - cam.z) * c.f / d; out[2] = d;
     return out;
   }
 };
+// how many helpers a box gets: none on one or two cores; on four (every Pi), two, leaving the page and the browser theirs
+function helpersFor(p) { const c = (p && p.cores) || navigator.hardwareConcurrency || 1; return c >= 4 ? Math.min(3, c - 2) : 0; }
 
 // ---------------------------------------------------------------- the screen: a picture made a pixel at a time, shown
 // scaled up; through WebGL where the GPU is real (smooth or crisp scaling, a soft glow round bright things, a little
@@ -1999,14 +2344,15 @@ LADDER.ray = [
 ];
 // where a software-drawn game starts: from the script test (the CPU does the drawing)
 function planRay(p, b) {
-  const cpu = b && b.cpu != null ? b.cpu : 100, top = LADDER.ray.length - 1;
-  let rung = cpu < 12 ? 6 : cpu < 30 ? 5 : cpu < 60 ? 4 : cpu < 110 ? 3 : cpu < 180 ? 2 : 1;
+  const cpu = b && b.cpu != null ? b.cpu : 100, top = LADDER.ray.length - 1, help = helpersFor(p), eff = help >= 2 ? cpu / 1.7 : cpu;
+  let rung = eff < 12 ? 6 : eff < 30 ? 5 : eff < 60 ? 4 : eff < 110 ? 3 : eff < 180 ? 2 : 1;   // (helpers: the picture drawn on other cores too)
   if (p.family === "pi3") rung = Math.min(rung, 3);
   const fx = p.webgl1 && !p.software;
-  return { mode: "ray", rung, top: Math.min(top, rung + 2), fx, why: "the processor draws it (script " + cpu + " ms)" + (fx ? "; the GPU adds the glow" : "") };
+  return { mode: "ray", rung, top: Math.min(top, rung + 2), fx, helpers: help,
+    why: "the processor draws it (script " + cpu + " ms" + (help ? ", " + help + " helpers on other cores" : "") + ")" + (fx ? "; the GPU adds the glow" : "") };
 }
 
 window.Low3D = { probe, family, NAMES, bench, plan, rows, line, LADDER, Governor, GL, Mesh, Flat, bake, M4, px, hexRGB,
   U, Kit, Path, Chunks, Trail, Particles, camera, chase, orbit, viewOf, begin, Input, Menu, Synth, game,
-  Palette, Tex, RayMap, Ray, Screen, planRay, version: 2 };
+  Palette, Tex, RayMap, Ray, Marks, Screen, planRay, helpersFor, version: 3 };
 })();

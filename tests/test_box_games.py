@@ -453,17 +453,82 @@ console.log(JSON.stringify(out));
         self.assertEqual(out["door"][0], -1)                             # a shut door blocks the way
         self.assertGreater(out["door"][1], 0)                            # unless walkers may open it
 
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_coloured_light_marks_and_walls_you_see_through(self):
+        """A cell's tint picks its own colormap (glowing colours stay as they are); marks are stamped into copies of a
+        wall's face or a floor's texture, the oldest copy given back when the pool is full; a see-through wall is drawn
+        over what's behind it, blocks walking and the way round, but not sight; a line says which face it hit."""
+        script = """
+const noop = () => {};
+globalThis.window = globalThis; globalThis.addEventListener = noop; globalThis.location = { hash: "" };
+globalThis.document = { hidden: false, createElement: () => ({ getContext: () => null }) };
+eval(require("fs").readFileSync(process.argv[1], "utf8"));
+const L = window.Low3D, out = {};
+const ramps = []; for (let r = 0; r < 16; r++) ramps.push([40 + r * 12, 60 + r * 8, 80 + r * 5]);
+const pal = new L.Palette(ramps, [14, 15]); pal.tints([[1.4, 0.6, 0.4]]); pal.maps(0, 0);
+out.tinted = pal.cmap.length === 2 * 8192 && pal.cmap[8192 + (31 << 8) + 3 * 16 + 10] !== pal.cmap[(31 << 8) + 3 * 16 + 10];
+out.glowSame = pal.cmap[8192 + (10 << 8) + 14 * 16 + 9] === pal.cmap[(10 << 8) + 14 * 16 + 9];
+const m = new L.RayMap(8, 6);
+for (let y = 0; y < 6; y++) for (let x = 0; x < 8; x++) { const i = y * 8 + x; if (x === 0 || y === 0 || x === 7 || y === 5) { m.solid[i] = 1; m.wtex[i] = 1; } else { m.ftex[i] = 2; m.ctex[i] = 3; m.ceil[i] = 1.2; m.light[i] = 31; } }
+const T = (k) => L.Tex.make(() => k * 16 + 8);
+const bars = L.Tex.mask((u, v) => (u & 15) < 4 ? 5 * 16 + 8 : 0);
+const ray = new L.Ray(pal); ray.tex = [T(0), T(1), T(2), T(3), bars];
+const W = 64, H = 36, buf = new Uint32Array(W * H); ray.size(W, H, buf);
+const cam = { x: 1.5, y: 2.5, z: 0.5, a: 0, pitch: 0, fov: 1.6 };
+ray.render(m, cam); const plain = buf.slice();
+for (let i = 0; i < 48; i++) m.tint[i] = 1;
+ray.render(m, cam); let changed = 0; for (let i = 0; i < W * H; i++) if (buf[i] !== plain[i]) changed++;
+out.tintDraws = changed > W * H * 0.5;
+m.tint.fill(0);
+// marks: a hole in the far wall where a line straight ahead hits it, a scorch on the floor
+const t = m.trace(1.5, 2.5, 0.5, 9, 2.5, 0.5); out.hit = [m.hitI === 2 * 8 + 7, m.hitFace];
+const marks = new L.Marks(ray, m, 4);
+marks.wall(m.hitI, m.hitFace, 1.5 + 7.5 * t, 2.5, 0.5, { r: 6, kind: "hole" });
+out.wallMarked = m.wdec[(2 * 8 + 7) * 4 + 0] > 0;
+marks.floor(3.5, 3.5, { r: 40, kind: "scorch" });
+let floors = 0; for (let i = 0; i < 48; i++) if (m.fdec[i]) floors++;
+out.floorCells = floors;                                   // (a scorch 40 texels across reaches its neighbours)
+ray.render(m, cam); let marked = 0; for (let i = 0; i < W * H; i++) if (buf[i] !== plain[i]) marked++;
+out.marksDrawn = marked > 0;
+out.pool = marks.tex.length - 1;                           // never more copies than it was given
+// a row of bars across the room at x = 4: drawn, blocking, seen through
+for (let y = 1; y < 5; y++) m.mask[y * 8 + 4] = 4;
+m.wdec.fill(0); m.fdec.fill(0);
+ray.render(m, cam);
+const barCols = new Set(); for (let L2 = 0; L2 < 32; L2++) barCols.add(pal.cmap[(L2 << 8) + 5 * 16 + 8]);
+out.barsDrawn = (() => { let n = 0; for (let i = 0; i < W * H; i++) if (barCols.has(buf[i])) n++; return n > 20; })();
+const b = { x: 3.5, y: 2.5, z: 0 }; m.move(b, 0.9, 0, 0.2, 0.35, 0.6); out.blocked = b.x < 4;
+out.seeThrough = m.see(1.5, 2.5, 0.5, 6.5, 2.5, 0.5);
+out.noWay = m.flow(6.5, 2.5, 0.35, 0.6)[2 * 8 + 1];
+out.helpers = typeof L.helpersFor({ cores: 4 }) === "number" && L.helpersFor({ cores: 4 }) === 2 && L.helpersFor({ cores: 2 }) === 0;
+console.log(JSON.stringify(out));
+"""
+        r = subprocess.run(["node", "-e", script, os.path.join(self.GAMES, "low3d.js")], capture_output=True, text=True, timeout=60)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        out = json.loads(r.stdout)
+        self.assertTrue(out["tinted"] and out["glowSame"] and out["tintDraws"])
+        self.assertEqual(out["hit"], [True, 0])                          # the far wall's west face
+        self.assertTrue(out["wallMarked"] and out["marksDrawn"])
+        self.assertGreater(out["floorCells"], 1)
+        self.assertLessEqual(out["pool"], 4)
+        self.assertTrue(out["barsDrawn"] and out["blocked"] and out["seeThrough"])
+        self.assertEqual(out["noWay"], -1)                               # the bars close the room in two
+        self.assertTrue(out["helpers"])
+
     def test_ironmaws_levels_can_be_played_through(self):
-        """Each level: one start, every key before its door, the exit (or the boss) reached, every enemy and item reached."""
+        """Each level: one start, every key before its door, the exit (or a great one) reached, every enemy and item
+        reached. Walls you see through (H bars, _ railings, G windows, Z fences) are walls to walk into."""
         import re
         with open(os.path.join(self.GAMES, "ironmaw", "index.html"), encoding="utf-8") as f:
             html = f.read()
         block = html[html.index("const LEVELS = {"):html.index("};", html.index("const LEVELS = {"))]
         levels = {m.group(1): re.findall(r'"([^"]*)"', m.group(2)) for m in re.finditer(r"(\w+): \[(.*?)\]", block, re.S)}
-        self.assertEqual(list(levels), ["intake", "refinery", "towers", "heart"])
-        solid, doors = set("#%&T|FRWX"), {"D": None, "Q": "q", "U": "u", "Y": "y", "?": None}
-        height = {"O": 0.25, "-": 0.25, "=": 0.5, "^": 0.9, "~": -0.06, "!": -0.06}
-        ground_chars, thing_chars = set(".,:*oO-=^~!L$") | set(doors), set("@hgsbw+mackerl3459quyxtpv")
+        self.assertEqual(list(levels), ["intake", "refinery", "towers", "heart", "cryo", "mine", "pumps", "reactor", "engine"])
+        order = html[html.index("const ORDER = ["):html.index("];", html.index("const ORDER = ["))]
+        self.assertEqual(re.findall(r'id: "(\w+)"', order), list(levels))           # each map has its place, in order
+        solid, masks, doors = set("#%&T|FRWXICKMP"), set("HGZ_"), {"D": None, "Q": "q", "U": "u", "Y": "y", "?": None}
+        height = {"O": 0.25, "-": 0.25, "=": 0.5, "^": 0.9, "~": -0.06, "!": -0.06, "J": 0.25, ";": 0.25, "n": -0.08}
+        ground_chars, thing_chars, bosses = set(".,:*oO-=^~!L$ijJE;nVA") | set(doors), set("@hgsbwfBzN+mackerl34567quyxtpvSd"), set("wN")
         for name, rows in levels.items():
             w = max(len(r) for r in rows)
             g = [list(r.ljust(w).replace(" ", "#")) for r in rows]
@@ -474,7 +539,7 @@ console.log(JSON.stringify(out));
                     c = g[y][x]
                     if (x in (0, w - 1) or y in (0, h - 1)) and c not in solid:
                         self.fail("%s: open edge at %d,%d" % (name, x, y))
-                    if c in solid:
+                    if c in solid or c in masks:
                         continue
                     self.assertIn(c, ground_chars | thing_chars, "%s: %r at %d,%d" % (name, c, x, y))
                     if c in thing_chars:
@@ -505,8 +570,11 @@ console.log(JSON.stringify(out));
             unreached = [(c, x, y) for c, x, y in things if (x, y) not in seen]
             self.assertEqual(unreached, [], name)
             exits = [(x, y) for y in range(h) for x in range(w) if g[y][x] == "X"]
-            boss = any(c == "w" for c, x, y in things)
+            boss = any(c in bosses for c, x, y in things)
             self.assertTrue(boss or any((ex + dx, ey + dy) in seen for ex, ey in exits for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))), name)
+            for d, k in doors.items():                                   # a door that needs a key has its key on the map
+                if k and any(d in r for r in rows):
+                    self.assertIn(k, {c for c, x, y in things}, name)
 
 
 class Agent(unittest.TestCase):

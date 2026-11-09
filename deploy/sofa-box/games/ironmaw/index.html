@@ -7,6 +7,8 @@
   #view.smooth canvas.world { image-rendering: auto; }
   .hidden { display: none !important; }
   #tint { position: absolute; inset: 0; pointer-events: none; opacity: 0; transition: opacity .25s; }
+  #frost { position: absolute; inset: 0; pointer-events: none; opacity: 0; transition: opacity .3s;
+    background: radial-gradient(ellipse at 50% 50%, rgba(160, 220, 255, 0) 45%, rgba(170, 225, 255, .35) 75%, rgba(220, 245, 255, .75) 100%); }
   /* the HUD: health and armour, keys, the weapon and its ammo, the crosshair */
   #hud { position: absolute; inset: 0; pointer-events: none; text-shadow: 0 calc(var(--u) * .2) calc(var(--u) * .5) rgba(0, 0, 0, .8); }
   .stat { position: absolute; bottom: calc(var(--u) * 3); display: flex; align-items: flex-end; gap: calc(var(--u) * 3.5); }
@@ -61,6 +63,10 @@
   .item.row { display: flex; justify-content: space-between; gap: calc(var(--u) * 4); text-align: left; min-width: calc(var(--u) * 74); font-size: calc(var(--u) * 2.8); }
   .item small { display: block; font-size: .6em; font-weight: 600; opacity: .75; margin-top: .2em; }
   .item.locked { opacity: .35; }
+  #levelList { flex-direction: row; gap: calc(var(--u) * 3); min-width: 0; align-items: flex-start; }
+  #levelList .ep { display: flex; flex-direction: column; gap: calc(var(--u) * .9); width: calc(var(--u) * 58); }
+  #levelList .eph { font-size: calc(var(--u) * 2.2); letter-spacing: .16em; text-transform: uppercase; opacity: .7; text-align: center; margin-bottom: calc(var(--u) * .3); }
+  #levelList .item { font-size: calc(var(--u) * 2.5); padding: calc(var(--u) * .8) calc(var(--u) * 2); }
   .hint { position: absolute; bottom: calc(var(--u) * 3.5); left: 0; right: 0; text-align: center; font-size: calc(var(--u) * 2.3); opacity: .85; }
   kbd { display: inline-block; min-width: 1.4em; padding: 0 .35em; border-radius: .35em; background: rgba(255, 244, 224, .92); color: #1a0e06; font: inherit; font-weight: 900; text-align: center; }
   table.box { border-collapse: collapse; font-size: calc(var(--u) * 2.2); max-width: calc(var(--u) * 150); font-weight: 600; }
@@ -79,7 +85,7 @@
 <div id="view">
   <canvas id="gl" class="world hidden"></canvas>
   <canvas id="flat" class="world hidden"></canvas>
-  <div id="tint"></div>
+  <div id="tint"></div><div id="frost"></div>
   <div id="hud" class="hidden">
     <div id="cross"></div><div id="hit"></div>
     <div class="dmg" id="dmg0"></div><div class="dmg" id="dmg1"></div><div class="dmg" id="dmg2"></div>
@@ -93,7 +99,7 @@
     <canvas id="map" class="hidden" width="640" height="440"></canvas>
   </div>
   <div id="title" class="screen hidden">
-    <h1 class="logo">IRONMAW</h1><p class="tag">The foundry under the ice went quiet. The furnaces are still burning.</p>
+    <h1 class="logo">IRONMAW</h1><p class="tag">The foundry under the ice went quiet. The furnaces are still burning. Below them, something keeps the ice cold.</p>
     <div class="menu"><div class="item" data-do="new">New game</div><div class="item" data-do="levels">Choose a level</div><div class="item" data-do="options">Options</div><div class="item" data-do="box">This box</div></div>
     <p class="hint" id="titleHint"></p>
   </div>
@@ -116,32 +122,41 @@
 <script>
 /* Ironmaw: a fast shooter for Sofa Box OS, in the old style (rooms and corridors, keys and doors, secrets, a lot to
    shoot), with a controller made for it: the left stick moves, the right stick turns, the triggers aim and fire.
-   Everything is the game's own and made in code: four levels, five weapons, five kinds of enemy, the textures, the
-   sound. It's drawn a pixel at a time by the box's engine (Low3D's Ray, ../low3d.js) so a Raspberry Pi 3 plays it
-   whether or not it has a GPU; on a Pi 4 or 5 it's drawn bigger and WebGL adds a glow round lights and fire.
-   Offline; records kept on the box. In the address: #fps, #rung=N, #test (window.IM, for checks). */
+   Everything is the game's own and made in code: two episodes (the Foundry, and the Ice under it), nine levels, seven
+   weapons, nine kinds of enemy and two great ones, the textures, the sound. It's drawn a pixel at a time by the box's
+   engine (Low3D's Ray, ../low3d.js) so a Raspberry Pi 3 plays it whether or not it has a GPU, with helpers drawing
+   strips of the picture on the processor's other cores; light has colour (lava, ice, alarms), and walls and floors
+   keep the marks left on them. On a Pi 4 or 5 it's drawn bigger and WebGL adds a glow round lights and fire.
+   Offline; records kept on the box. In the address: #fps, #rung=N, #test (window.IM, for checks), #demo (it plays
+   itself), #slow=N and #threads=N (for checks: a slower processor, the helpers). */
 (function () {
 "use strict";
 const L3 = window.Low3D, U = L3.U, TAU = U.TAU, clamp = U.clamp, lerp = U.lerp, wrap = U.wrap, $ = id => document.getElementById(id);
 
 // ---------------------------------------------------------------- what's kept on the box
 const SAVE = "ironmaw";
-function fresh() { return { v: 1, reached: 1, skill: 1, best: {}, opts: { turn: 6, look: 1, assist: 1, invert: 0, rumble: 1, bob: 1, music: 5, sound: 8, crisp: 1, picture: "auto" } }; }
+function fresh() { return { v: 1, reached: 1, skill: 1, best: {}, opts: { turn: 6, look: 1, assist: 1, invert: 0, rumble: 1, bob: 1, shake: 1, music: 5, sound: 8, crisp: 1, picture: "auto", cores: "auto" } }; }
 let save = fresh();
 try { const j = JSON.parse(localStorage.getItem(SAVE) || "null"); if (j && j.v === 1) save = Object.assign(fresh(), j, { opts: Object.assign(fresh().opts, j.opts || {}) }); } catch (e) { /* a fresh start */ }
-function store() { try { localStorage.setItem(SAVE, JSON.stringify(save)); } catch (e) { /* full or blocked */ } }
+const DEMO = /(^|[#&-])demo\b/.test(location.hash);              // #demo: it plays itself, and keeps nothing
+function store() { if (DEMO) return; try { localStorage.setItem(SAVE, JSON.stringify(save)); } catch (e) { /* full or blocked */ } }
 
 // ---------------------------------------------------------------- the palette and the textures, made in code
 const RAMPS = [[150, 150, 156], [112, 126, 146], [150, 84, 46], [190, 160, 112], [92, 112, 58], [184, 34, 30], [222, 122, 36], [232, 192, 58],
   [44, 150, 150], [54, 92, 204], [122, 62, 150], [204, 152, 132], [66, 68, 78], [192, 122, 64], [255, 140, 40], [150, 228, 255]];
 const pal = new L3.Palette(RAMPS, [14, 15]);
+// the light's colours (a cell's tint): near lava and furnaces, in the cold, the alarms, the reactor's green, under the
+// night sky, a lamp's warm light
+const TI = { ember: 1, cryo: 2, alarm: 3, toxic: 4, night: 5, lamp: 6 };
+pal.tints([[1.38, 0.8, 0.52], [0.62, 0.86, 1.36], [1.5, 0.42, 0.36], [0.72, 1.3, 0.58], [0.74, 0.84, 1.16], [1.22, 1.02, 0.76]]);
 const C = (ramp, k) => L3.Tex.shade(ramp, k), GLOW = (ramp, s) => pal.color(ramp * 16 + s);
 const N1 = L3.Tex.noise(7), N2 = L3.Tex.noise(19), N3 = L3.Tex.noise(33);
 const fb = (n, u, v, p, o) => L3.Tex.fbm(n, u / 64 * p, v / 64 * p, p, o || 3);
 const T_STEEL = 1, T_RUST = 2, T_STONE = 3, T_TECH = 4, T_PIPES = 5, T_HAZARD = 6, T_DOOR = 7, T_DOORQ = 8, T_DOORU = 9, T_DOORY = 10, T_GRATE = 11,
   T_CONCRETE = 12, T_CEILLIGHT = 13, T_SLIME = 14, T_LAVA = 15, T_SWITCH = 16, T_SWITCHON = 17, T_ROCK = 18, T_CRATE = 19, T_FURNACE = 20, T_CEILDARK = 21,
-  T_ASH = 22, T_LIFT = 23, T_TILE = 24;
-const TEX = [], SLIME = [], LAVA = [];
+  T_ASH = 22, T_LIFT = 23, T_TILE = 24, T_ICE = 25, T_SNOW = 26, T_ICEWALL = 27, T_LAB = 28, T_GLACIER = 29, T_MACHINE = 30, T_WATER = 31,
+  T_CEILICE = 32, T_VENT = 33, T_REACTOR = 34, T_PUMP = 35, M_BARS = 36, M_RAIL = 37, M_GLASS = 38, M_FENCE = 39, T_ICECEIL = 40, T_LABFLOOR = 41;
+const TEX = [], SLIME = [], LAVA = [], WATER = [];
 function steel(u, v, base) {
   const pu = u & 31, pv = v & 31, n = fb(N1, u, v, 8);
   if (pu === 0 || pv === 0) return C(12, 0.22);
@@ -210,6 +225,34 @@ function makeTextures() {
   TEX[T_ASH] = L3.Tex.make((u, v) => { const n = fb(N2, u, v, 4, 4); return n > 0.6 ? C(3, 0.22 + n * 0.2) : C(0, 0.18 + n * 0.25); });
   TEX[T_LIFT] = L3.Tex.make((u, v) => (u < 6 || u > 57 || v < 6 || v > 57 ? (((u + v) >> 3) & 1 ? C(7, 0.75) : C(12, 0.2)) : steel(u, v, 1)));
   TEX[T_TILE] = L3.Tex.make((u, v) => ((u & 15) === 0 || (v & 15) === 0 ? C(0, 0.3) : C(0, ((u >> 4) + (v >> 4)) & 1 ? 0.62 : 0.54)));
+  // the Ice: its floors, walls and ceilings
+  TEX[T_ICE] = L3.Tex.make((u, v) => { const n = fb(N1, u, v, 4, 4), cr = Math.abs(N2(u / 6, v / 6, 10) - 0.5); return cr < 0.02 ? C(9, 0.85) : C(8, 0.6 + n * 0.32); });
+  TEX[T_SNOW] = L3.Tex.make((u, v) => { const n = fb(N3, u, v, 4, 4); return N1(u * 1.7, v * 1.7, 64) > 0.84 ? C(0, 1.05) : C(0, 0.76 + n * 0.24); });
+  TEX[T_ICEWALL] = L3.Tex.make((u, v) => { const st = fb(N3, u * 0.25, v * 1.6, 8, 3); return N2(u / 3, v / 3, 21) > 0.86 ? C(0, 0.95) : C(8, 0.42 + st * 0.5); });
+  TEX[T_LAB] = L3.Tex.make((u, v) => { const pu = u & 31, pv = v & 31; if (pu === 0 || pv === 0) return C(12, 0.3); if ((pv === 26 || pv === 27) && pu > 3 && pu < 29) return C(15, 0.7); return C(0, 0.62 + fb(N1, u, v, 8) * 0.12 + (pv === 1 ? 0.1 : 0)); });
+  TEX[T_LABFLOOR] = L3.Tex.make((u, v) => ((u & 15) === 0 || (v & 15) === 0 ? C(1, 0.45) : C(0, ((u >> 4) + (v >> 4)) & 1 ? 0.72 : 0.64)));
+  TEX[T_GLACIER] = L3.Tex.make((u, v) => { const n = fb(N1, u, v, 4, 4), m = fb(N3, u, v, 8, 2); return m > 0.64 ? C(8, 0.55 + n * 0.3) : C(12, 0.22 + n * 0.3); });
+  TEX[T_MACHINE] = L3.Tex.make((u, v) => {
+    const pu = u & 31; if (v >= 54) return ((u + v) >> 3) & 1 ? C(7, 0.7) : C(12, 0.18);
+    if (pu === 0 || v === 0) return C(12, 0.12); if ((pu === 8 || pu === 24) && v > 10 && v < 44 && (v & 3) === 0) return C(15, 0.8);
+    return C(12, 0.3 + fb(N2, u, v, 8) * 0.15);
+  });
+  TEX[T_CEILICE] = L3.Tex.make((u, v) => { const pu = u & 31, pv = v & 31; if (pu >= 10 && pu < 22 && pv >= 10 && pv < 22) return C(15, pu === 10 || pu === 21 || pv === 10 || pv === 21 ? 0.45 : 0.75); if (pu === 0 || pv === 0) return C(12, 0.2); return C(1, 0.32 + fb(N1, u, v, 8) * 0.12); });
+  TEX[T_ICECEIL] = L3.Tex.make((u, v) => C(9, 0.18 + fb(N3, u, v, 4, 3) * 0.2));
+  TEX[T_VENT] = L3.Tex.make((u, v) => { const cx = (u & 15) - 7.5, cy = (v & 15) - 7.5; return cx * cx + cy * cy < 20 ? C(12, 0.06) : C(1, 0.42 + fb(N1, u, v, 8) * 0.12); });
+  TEX[T_REACTOR] = L3.Tex.make((u, v) => ((u & 15) === 0 || (v & 15) === 0) ? (((u + v) & 7) < 4 ? C(15, 0.5) : C(12, 0.2)) : C(12, 0.26 + fb(N1, u, v, 8) * 0.1));
+  TEX[T_PUMP] = L3.Tex.make((u, v) => {
+    const x = (u & 31) - 15.5, sh = Math.sqrt(Math.max(0, 1 - (x / 16) ** 2));
+    if (v >= 24 && v < 34 && Math.abs(x) < 9) return ((u + v) & 3) ? C(5, 0.5) : C(5, 0.3);
+    if ((v & 31) < 2) return C(12, 0.2); return C(8, 0.18 + sh * 0.55 + fb(N2, u, v, 8) * 0.08);
+  });
+  for (let k = 0; k < 4; k++) WATER.push(L3.Tex.make((u, v) => { const n = fb(N3, u + k * 11, v + Math.sin((u + k * 11) / 9) * 3, 4, 3); return n > 0.62 ? C(0, 0.5 + n * 0.35) : C(9, 0.22 + n * 0.35); }));
+  TEX[T_WATER] = WATER[0];
+  // walls you see through (0: see past): bars, a railing, a window, a fence. Drawn one cell tall from the floor up.
+  TEX[M_BARS] = L3.Tex.mask((u, v) => { if (v < 4 || (v > 29 && v < 33)) return C(1, v < 2 || v === 30 ? 0.8 : 0.45); const b = u & 15; return b < 3 ? C(1, b === 0 ? 0.75 : 0.42) : 0; });
+  TEX[M_RAIL] = L3.Tex.mask((u, v) => { if (v >= 28 && v < 31) return C(7, v === 28 ? 0.85 : 0.55); if (v >= 44 && v < 46) return C(12, 0.4); if ((u & 31) < 3 && v >= 28) return C(12, 0.35 + (u & 31) * 0.05); return 0; });
+  TEX[M_GLASS] = L3.Tex.mask((u, v) => { if (u < 3 || u > 60 || v < 3 || v > 60 || u === 31 || u === 32) return C(1, u < 1 || v < 1 ? 0.7 : 0.4); return (u * 7 + v * 13) % 23 === 0 ? C(0, 0.95) : (u + v * 3) % 37 === 0 ? C(8, 0.8) : 0; });
+  TEX[M_FENCE] = L3.Tex.mask((u, v) => { if ((u & 31) < 2) return C(1, 0.5); if (v < 2) return C(1, 0.6); return ((u + v) & 7) === 0 || ((u - v + 64) & 7) === 0 ? C(0, 0.62) : 0; });
   // the sky: smoke over a burning horizon, chimneys and towers against it (256 × 72, drawn full-bright)
   const SW = 256, SH = 72, px = new Uint8Array(SW * SH);
   for (let u = 0; u < SW; u++) {
@@ -222,7 +265,20 @@ function makeTextures() {
       px[u * SH + v] = c;
     }
   }
-  return { w: SW, h: SH, px };
+  // the Ice's sky: night over the glacier, stars, a green ribbon of light, mountains against it
+  const cold = new Uint8Array(SW * SH);
+  for (let u = 0; u < SW; u++) {
+    const hp = 8 + N2(u / 14, 0.5, 256 / 14 | 0) * 14 + (N1(u / 5, 2.5, 256 / 5 | 0) > 0.7 ? 5 : 0);
+    for (let v = 0; v < SH; v++) {
+      const t = v / (SH - 1), rib = Math.abs(t - 0.32 - Math.sin(u / 26) * 0.08);
+      let c = C(9, 0.06 + t * 0.32);
+      if (rib < 0.05 && N3(u / 6, v / 3, 256 / 6 | 0) > 0.42) c = C(15, 0.18 + (0.05 - rib) * 4);
+      if (((u * 73 + v * 151) % 211) === 0 && t < 0.6) c = C(0, 1.1);
+      if (SH - 1 - v < hp) c = SH - 1 - v > hp - 3 ? C(0, 0.55) : C(1, 0.14);
+      cold[u * SH + v] = c;
+    }
+  }
+  return { fire: { w: SW, h: SH, px }, cold: { w: SW, h: SH, px: cold } };
 }
 
 // ---------------------------------------------------------------- models: low-poly, posed, baked into sprites from 8 sides
@@ -247,7 +303,13 @@ function body(P, S) {
     up.at(0, sh - S.arm * 0.55, S.torsoD / 2 + 0.06, 0, 1, 1, 1, P.aim || 0); up.box(-0.03, -0.04, 0.1, 0.06, 0.07, 0.36, 0x2a2c34);
     if (P.flash) { up.at(0, sh - S.arm * 0.55, S.torsoD / 2 + 0.06, 0, 1, 1, 1, P.aim || 0); lit(up, () => up.box(-0.03, -0.07, 0.3, 0.14, 0.13, 0.08, GLOW(14, 15))); }
   }
-  if (S.horns) { up.at(0, hipY + S.torso, 0); for (const x of [-1, 1]) { up.at(x * S.torsoW * 0.42, hipY + S.torso, -S.torsoD * 0.2); up.stack([[0.06, 0], [0.05, 0.22], [0.02, 0.32]], 5, 0x3a3434); } }
+  if (S.horns) { up.at(0, hipY + S.torso, 0); for (const x of [-1, 1]) { up.at(x * S.torsoW * 0.42, hipY + S.torso, -S.torsoD * 0.2); up.stack([[0.06, 0], [0.05, 0.22], [0.02, 0.32]], 5, S.hornCol || 0x3a3434); } }
+  if (S.shield) {                                    // a plate carried in front: shots from ahead glance off it
+    up.at(0, hipY - 0.04, S.torsoD / 2 + 0.09, 0, 1, 1, 1, -(P.bash || 0)); up.box(0, 0, 0, S.shield[0], S.shield[1], 0.06, S.shieldCol, S.shieldTop);
+    up.at(0, hipY - 0.04, S.torsoD / 2 + 0.09, 0, 1, 1, 1, -(P.bash || 0)); lit(up, () => up.box(0, S.shield[1] * 0.72, 0.035, S.shield[0] * 0.6, 0.035, 0.01, GLOW(14, 12)));
+  }
+  if (S.pack) { up.at(0, hipY + S.torso * 0.25, -S.torsoD / 2 - 0.06); up.box(0, 0, 0, S.torsoW * 0.8, S.torso * 0.6, 0.12, S.packCol, S.packCol); }
+  if (S.bomb && (P.flash || P.hold)) { up.at(S.torsoW / 2 + S.armW / 2, sh, 0, 0, 1, 1, 1, P.armA); lit(up, () => up.box(0, -S.arm - 0.1, 0, 0.12, 0.12, 0.12, GLOW(14, P.flash ? 15 : 12))); }
   up.turn(0, P.lean || 0, 0, 0, hipY, 0);
   const m = L3.Mesh.join([legs, up]);
   if (P.fall) m.turn(0, -P.fall, 0, 0, 0, -0.1);
@@ -268,6 +330,19 @@ function crawler(P, S) {                            // four legs, a low body, a 
   if (P.sink) { for (let i = 0; i < m.n; i++) m.f[i * 5 + 1] = Math.max(0.01, m.f[i * 5 + 1] - P.sink); }
   return m;
 }
+function drone(P, S) {                              // a lens of steel with an eye, two rotors: it hovers (its height is the game's)
+  const m = new L3.Mesh(512), y = 0.3, tilt = (P.legA || 0) * 0.25;
+  m.at(0, y, 0, 0, 1, 1, 1, tilt); m.stack([[0.04, -0.12], [0.2, -0.07], [0.23, 0.01], [0.13, 0.1], [0.03, 0.13]], 8, [S.col, S.col2, S.col], S.col2);
+  for (const x of [-1, 1]) {
+    m.at(x * 0.25, y + 0.02, 0, 0, 1, 1, 1, tilt); m.box(0, 0, 0, 0.12, 0.03, 0.05, S.col2);
+    m.at(x * 0.32, y + 0.05, 0, (P.legB || 0) + x, 1, 1, 1, tilt); m.box(0, 0, 0, 0.2, 0.012, 0.03, 0x1a1a1e);
+  }
+  m.at(0, y - 0.13, 0); m.stack([[0.01, 0], [0.012, -0.1]], 4, 0x2a2a30);
+  m.at(0, y, 0.2, 0, 1, 1, 1, tilt); lit(m, () => m.box(0, -0.04, 0, 0.1, 0.08, 0.02, GLOW(P.flash ? 14 : 15, 15)));
+  if (P.fall) m.turn(0, P.fall, P.fall * 0.6, 0, 0, 0);
+  if (P.sink) { for (let i = 0; i < m.n; i++) m.f[i * 5 + 1] = Math.max(0.01, m.f[i * 5 + 1] - P.sink); }
+  return m;
+}
 const SHAPES = {
   husk: { model: body, ppu: 88, S: { leg: 0.3, legW: 0.08, hip: 0.07, torso: 0.28, torsoW: 0.24, torsoD: 0.14, head: 0.13, headF: 0.04, arm: 0.3, armW: 0.06,
     legCol: 0x5a3a2a, bootCol: 0x2a2220, torsoCol: 0x7a4a2e, torsoTop: 0x8a5a3a, headCol: 0xb8a08a, armCol: 0xb09884, eye: GLOW(14, 15) } },
@@ -277,31 +352,43 @@ const SHAPES = {
   brute: { model: body, ppu: 70, S: { leg: 0.36, legW: 0.13, hip: 0.12, torso: 0.4, torsoW: 0.46, torsoD: 0.28, head: 0.13, headF: 0.08, arm: 0.36, armW: 0.12, fist: 0.18,
     legCol: 0x4a4038, bootCol: 0x2a2420, torsoCol: 0x5a5048, torsoTop: 0x6a6056, headCol: 0x4a403a, armCol: 0x5a5048, fistCol: 0x3a3430, eye: GLOW(14, 15), belly: GLOW(14, 13) } },
   warden: { model: body, ppu: 52, S: { leg: 0.5, legW: 0.18, hip: 0.18, torso: 0.62, torsoW: 0.7, torsoD: 0.4, head: 0.18, headF: 0.06, arm: 0.5, armW: 0.18, fist: 0.24,
-    legCol: 0x3a3030, bootCol: 0x201a1a, torsoCol: 0x4a3a34, torsoTop: 0x5a463e, headCol: 0x3a3030, armCol: 0x4a3a34, fistCol: 0x2a2424, eye: GLOW(14, 15), belly: GLOW(14, 14), horns: 1 } }
+    legCol: 0x3a3030, bootCol: 0x201a1a, torsoCol: 0x4a3a34, torsoTop: 0x5a463e, headCol: 0x3a3030, armCol: 0x4a3a34, fistCol: 0x2a2424, eye: GLOW(14, 15), belly: GLOW(14, 14), horns: 1 } },
+  drone: { model: drone, ppu: 96, S: { col: 0x5a6a7a, col2: 0x2e3640 } },
+  bulwark: { model: body, ppu: 74, S: { leg: 0.34, legW: 0.11, hip: 0.1, torso: 0.36, torsoW: 0.38, torsoD: 0.22, head: 0.14, headF: 0.03, arm: 0.32, armW: 0.1,
+    legCol: 0x3a3e46, bootCol: 0x1e2024, torsoCol: 0x4a505c, torsoTop: 0x5a606c, headCol: 0x30343c, armCol: 0x4a505c, eye: GLOW(14, 15),
+    shield: [0.5, 0.78], shieldCol: 0x6a6e78, shieldTop: 0x8a8e98 } },
+  sapper: { model: body, ppu: 88, S: { leg: 0.28, legW: 0.08, hip: 0.07, torso: 0.27, torsoW: 0.25, torsoD: 0.15, head: 0.13, headF: 0.05, arm: 0.28, armW: 0.065,
+    legCol: 0x4a4a32, bootCol: 0x26261c, torsoCol: 0x5a5a3a, torsoTop: 0x6a6a46, headCol: 0x8a7a5a, armCol: 0x5a5a3a, eye: GLOW(14, 14), pack: 1, packCol: 0x3a3a26, bomb: 1 } },
+  coldheart: { model: body, ppu: 44, S: { leg: 0.56, legW: 0.2, hip: 0.2, torso: 0.72, torsoW: 0.82, torsoD: 0.46, head: 0.2, headF: 0.08, arm: 0.56, armW: 0.2, fist: 0.28,
+    legCol: 0x4a5a6e, bootCol: 0x2a3440, torsoCol: 0x5a6e86, torsoTop: 0x8aa6c0, headCol: 0x4a5a6e, armCol: 0x5a6e86, fistCol: 0x3a4a5e, eye: GLOW(15, 15), belly: 0x24303c, horns: 1, hornCol: 0xa8c8e0 } }
 };
 const POSES = {
-  walkA: { legA: 0.45, legB: -0.45, armA: -0.3, armB: 0.3 }, walkB: { legA: -0.45, legB: 0.45, armA: 0.3, armB: -0.3 },
-  attack: { legA: 0.1, legB: -0.1, armA: -1.45, armB: -1.45, lean: 0.18, aim: 1.45, flash: 1, mouth: 0.1, head: 0.05 },
+  walkA: { legA: 0.45, legB: -0.45, armA: -0.3, armB: 0.3 }, walkM: { legA: 0.05, legB: -0.05, armA: 0, armB: 0, lean: 0.04 }, walkB: { legA: -0.45, legB: 0.45, armA: 0.3, armB: -0.3 },
+  attack: { legA: 0.1, legB: -0.1, armA: -1.45, armB: -1.45, lean: 0.18, aim: 1.45, flash: 1, mouth: 0.1, head: 0.05, bash: 0.35, open: 1 },
   pain: { legA: 0.2, legB: -0.1, armA: 0.5, armB: 0.6, lean: -0.32, mouth: 0.06 },
   die1: { legA: 0.3, legB: -0.2, armA: 0.8, armB: 0.6, lean: -0.5, sink: 0.06, fall: 0.3 }, die2: { legA: 0.6, legB: 0.2, armA: 1.2, armB: 0.9, fall: 1.0, sink: 0.12 },
   die3: { legA: 0.2, legB: 0.1, armA: 1.6, armB: 1.4, fall: 1.52, sink: 0.04 }
 };
+// the Coldheart's core shows open when it's about to fire (and takes harm then); it's shut the rest of the time
 const SPR = {};
-function bakeShapes(progress) {
-  const kinds = Object.keys(SHAPES);
-  kinds.forEach((k, ki) => {
-    const sh = SHAPES[k], out = { walk: [[], []], attack: [], pain: [], die: [] };
-    const make = pose => sh.model(Object.assign({ legA: 0, legB: 0, armA: 0, armB: 0 }, POSES[pose], k === "gunner" && pose !== "attack" ? { aim: 1.1 } : {}), sh.S);
-    const meshes = { walkA: make("walkA"), walkB: make("walkB"), attack: make("attack"), pain: make("pain") };
-    for (let d = 0; d < 8; d++) {
-      const view = (m) => pal.sprite(L3.bake(m, { yaw: Math.PI + d * TAU / 8, pitch: 0.05, ppu: sh.ppu, light: VIEW }));
-      out.walk[0].push(view(meshes.walkA)); out.walk[1].push(view(meshes.walkB)); out.attack.push(view(meshes.attack)); out.pain.push(view(meshes.pain));
-    }
-    for (const p of ["die1", "die2", "die3"]) out.die.push(pal.sprite(L3.bake(make(p), { yaw: Math.PI, pitch: 0.12, ppu: sh.ppu, light: VIEW })));
-    SPR[k] = out;
-    if (progress) progress((ki + 1) / kinds.length);
-  });
+function bakeShape(k) {                             // its sprites from 8 sides: four steps of walking, the attack, a flinch, and three of falling
+  if (SPR[k]) return SPR[k];
+  const sh = SHAPES[k], out = { walk: [[], [], [], []], attack: [], pain: [], die: [] };
+  const make = pose => {
+    const S = k === "coldheart" && pose === "attack" ? Object.assign({}, sh.S, { belly: GLOW(15, 15) }) : sh.S;
+    return sh.model(Object.assign({ legA: 0, legB: 0, armA: 0, armB: 0 }, POSES[pose], k === "gunner" && pose !== "attack" ? { aim: 1.1 } : {}, k === "sapper" && pose !== "attack" ? { hold: 0 } : {}), S);
+  };
+  const meshes = { walkA: make("walkA"), walkM: make("walkM"), walkB: make("walkB"), attack: make("attack"), pain: make("pain") };
+  for (let d = 0; d < 8; d++) {
+    const view = (m) => pal.sprite(L3.bake(m, { yaw: Math.PI + d * TAU / 8, pitch: 0.05, ppu: sh.ppu, light: VIEW }));
+    const a = view(meshes.walkA), mid = view(meshes.walkM), b = view(meshes.walkB);
+    out.walk[0].push(a); out.walk[1].push(mid); out.walk[2].push(b); out.walk[3].push(mid);
+    out.attack.push(view(meshes.attack)); out.pain.push(view(meshes.pain));
+  }
+  for (const p of ["die1", "die2", "die3"]) out.die.push(pal.sprite(L3.bake(make(p), { yaw: Math.PI, pitch: 0.12, ppu: sh.ppu, light: VIEW })));
+  return (SPR[k] = out);
 }
+function bakeShapes(kinds) { for (const k of kinds || Object.keys(SHAPES)) bakeShape(k); }
 // things lying about, and weapons in hand
 function item(fn, ppu, pitch) { const m = new L3.Mesh(256); m.at(0, 0, 0); fn(m); return pal.sprite(L3.bake(m, { yaw: 0.6, pitch: pitch == null ? 0.35 : pitch, ppu: ppu || 110, light: VIEW })); }
 const GUNS = {};
@@ -331,6 +418,19 @@ function gunMesh(id, firing) {
     m.at(0, 0.05, 0.34, 0, 0.025, 0.06, 0.025, Math.PI / 2); m.stack([[1, -1], [1, 1]], 6, 0x2a2a30);
     m.at(0, 0, 0); m.box(0, -0.13, -0.1, 0.1, 0.12, 0.12, skin); m.box(0, -0.15, -0.38, 0.12, 0.12, 0.28, sleeve);
   }
+  if (id === "nail") {                               // six barrels round a spindle, a drum under it
+    for (let k = 0; k < 6; k++) { const a = k * TAU / 6 + (firing ? 0.52 : 0); m.at(Math.cos(a) * 0.036, 0.03 + Math.sin(a) * 0.036, 0.16, 0, 0.014, 0.3, 0.014, Math.PI / 2); m.stack([[1, -1], [1, 1]], 6, 0x4a4c52, 0x101012); }
+    m.at(0, 0, 0); m.box(0, -0.03, -0.08, 0.13, 0.11, 0.26, 0x5a5e66, 0x6a6e78); m.box(0, -0.12, -0.04, 0.11, 0.09, 0.13, 0x3a3c42);
+    lit(m, () => m.box(0.066, 0.02, -0.06, 0.01, 0.03, 0.08, GLOW(14, firing ? 15 : 11)));
+    m.box(0, -0.14, -0.18, 0.1, 0.1, 0.12, skin); m.box(0, -0.16, -0.44, 0.12, 0.12, 0.28, sleeve);
+  }
+  if (id === "lance") {                              // a long rifle wound with cold coils, a crystal at its tip
+    m.box(0, 0, -0.14, 0.09, 0.09, 0.58, 0x5a6a7c, 0x8a9aaa); m.box(0, 0.09, -0.06, 0.05, 0.03, 0.34, 0x3a4250);
+    lit(m, () => m.box(0.046, 0.03, -0.1, 0.008, 0.02, 0.4, GLOW(15, firing ? 15 : 12)));
+    for (let k = 0; k < 3; k++) { m.at(0, 0.045, 0.04 + k * 0.1, 0, 0.082, 0.018, 0.082, Math.PI / 2); lit(m, () => m.stack([[1, -1], [1, 1]], 8, GLOW(15, firing ? 15 : 11 - k))); }
+    m.at(0, 0.045, 0.36, 0, 0.04, 0.12, 0.04, Math.PI / 2); lit(m, () => m.stack([[1, -1], [0.15, 1]], 6, GLOW(15, 14)));
+    m.at(0, 0, 0); m.box(0, -0.12, -0.12, 0.1, 0.12, 0.12, skin); m.box(0, -0.14, -0.4, 0.12, 0.12, 0.28, sleeve);
+  }
   if (id === "slag") {
     m.at(0, 0.05, 0.05, 0, 0.09, 0.3, 0.09, Math.PI / 2); m.stack([[1, -1], [1.1, 0.8], [1, 1]], 10, [0x5a4a3a, 0x6a5a4a], 0x140e0a);
     m.at(0, 0.05, -0.12); lit(m, () => m.box(0.091, -0.02, 0, 0.012, 0.05, 0.14, GLOW(14, firing ? 15 : 12)));
@@ -339,7 +439,7 @@ function gunMesh(id, firing) {
   return m;
 }
 function bakeGuns() {
-  for (const id of ["cutter", "rivet", "scatter", "arc", "slag"]) {
+  for (const id of ["cutter", "rivet", "scatter", "arc", "slag", "nail", "lance"]) {
     const v = { yaw: -0.38, pitch: 0.2, roll: 0.08, ppu: 190, light: { sun: [-0.3, 0.8, -0.5], sunCol: [0.75, 0.72, 0.68], amb: [0.55, 0.55, 0.6], ground: [0.3, 0.28, 0.28] } };
     GUNS[id] = { idle: pal.sprite(L3.bake(gunMesh(id, false), v)), fire: pal.sprite(L3.bake(gunMesh(id, true), v)),
       floor: pal.sprite(L3.bake(gunMesh(id, false), { yaw: Math.PI / 2, pitch: 0.4, ppu: 120, light: VIEW })) };
@@ -368,22 +468,31 @@ function bakeItems() {
   ITEMS.t = item(m => { m.box(0, 0, 0, 0.5, 0.5, 0.5, 0x7a5030, 0x8a6040); m.box(0, 0.5, 0, 0.52, 0.02, 0.06, 0x5a3a20); }, 80, 0.15);
   ITEMS.p = item(m => { m.stack([[0.14, 0], [0.12, 0.08], [0.1, 1.1], [0.14, 1.2]], 8, [0x4a4e58, 0x5a5e68, 0x4a4e58], 0x3a3e48); }, 70, 0.05);
   ITEMS.v = SPR.husk.die[2];
-  for (const id of ["3", "4", "5"]) ITEMS[id] = GUNS[{ 3: "scatter", 4: "arc", 5: "slag" }[id]].floor;
+  for (const id of ["3", "4", "5", "6", "7"]) ITEMS[id] = GUNS[{ 3: "scatter", 4: "arc", 5: "slag", 6: "nail", 7: "lance" }[id]].floor;
+  ITEMS.S = item(m => { m.stack([[0.2, 0], [0.2, 0.08]], 10, 0x3a4250, 0x4a5262); m.at(0, 0.08, 0); lit(m, () => m.stack([[0.16, 0], [0.16, 0.7]], 10, GLOW(15, 9), GLOW(15, 12)));
+    m.at(0, 0.78, 0); m.stack([[0.2, 0], [0.18, 0.1], [0.08, 0.16]], 10, 0x3a4250, 0x5a6272); }, 80, 0.08);
+  ITEMS.d = item(m => { m.stack([[0.15, 0], [0.16, 0.12], [0.16, 0.3], [0.15, 0.42]], 10, [0x3a5a4a, 0x8a8a7a, 0x3a5a4a], 0x2a4a3a); }, 100, 0.12);
   ITEMS.shot = glowBall(10, "#ff8a2a", 48); ITEMS.slag = glowBall(14, "#ff6a1a", 40); ITEMS.zap = glowBall(8, "#9ae8ff", 64);
+  ITEMS.frost = glowBall(12, "#bff4ff", 52); ITEMS.bomb = glowBall(9, "#ffb040", 60); ITEMS.charge = glowBall(12, "#ffc060", 90); ITEMS.chargeCold = glowBall(14, "#a8f0ff", 80);
   ITEMS.flash = glowBall(28, "#ffb24a", 100); ITEMS.boom = [0, 1, 2, 3].map(k => glowBall(18 + k * 10, ["#ffe08a", "#ff9a3a", "#d0501a", "#6a2a14"][k], 22));
+  ITEMS.steam = [0, 1, 2].map(k => glowBall(16 + k * 8, ["#e8f0f4", "#c8d4dc", "#a8b4bc"][k], 40));
 }
 
 // ---------------------------------------------------------------- the levels: drawn as text (each checked to be playable)
+// Walls: # steel, % rust, & stone, T tech, | pipes, F furnace, R rock, W crates, X the exit's switch; the Ice's I ice,
+// C lab panels, K glacier rock, M machines, P pumps. Walls you see through (nothing walks through them): H bars, _ a
+// railing, G a window, Z a fence. Ground: see GROUND. Things: @ the start; h g s b w f B z N the enemies (w and N the
+// great ones); + m a c k e r l 3 4 5 6 7 q u y x t p v S d what lies about (see take() and bakeItems()).
 const LEVELS = {
   intake: [
     "##########################################",
     "#,,,,,,,#&&&&&&&&&&&&&&&#oooooooooooooooo#",
-    "#,,,,,,,#...............#oooooooooooooooo#",
+    "#,,,,,,,G...............#oooooooooooooooo#",
     "#,,@,,,,D......h........DooooxoooooooOOOO#",
-    "#,,,,,,,#...............#ooooooooooooOOqO#",
+    "#,,,,,,,G...............#ooooooooooooOOqO#",
     "#,c,,+,,#....-------....#oooooohoooooOOOO#",
     "####,####....-=====-....#oooooooooooooooo#",
-    "   #,#  #....-=.e.=-..g.#oooooooooooxoooo#",
+    "   #V#  #....-=.e.=-..g.#oooooooooooxoooo#",
     "   #,#  #....-=====-....######oooooo######",
     "   #,#  #....-------....#    #oooooo#",
     "####,####.............h.#    ###DD###",
@@ -403,14 +512,14 @@ const LEVELS = {
     "                     #...#",
     "                     #.g.X",
     "                     #...#",
-    "                     #####",
+    "                     #####"
   ],
   refinery: [
     "################################################",
     "#,,,,,#FFFFFFFFFFFFFFFFFFFF#,,,,,,,,,,,,,,,,,,,#",
-    "#,,@,,#....................#,,,,,,,,,,,,,,,,,,,#",
+    "#,,@,,G....................G,,,,,,,,,,,,,,,,,,,#",
     "#,,,,,D....!!!!!!!!!!!!....D,,,,,s,,,,,,,,,,,,,#",
-    "#,c,,,#....!!!!!!!!!!!!....#,,,,,,,,,,,,,,,,,,,#",
+    "#,c,,,G....!!!!!!!!!!!!....G,,,,,,,,,,,,,,,,,,,#",
     "###D###..h.!!--====--!!....####,,,,########D####",
     "  #,#  ....!!--=^^=--!!....#  #,,,,#      #,#",
     "  #,#  ....!!--=^4=--!!..g.#  #,,,,#      #,#",
@@ -423,16 +532,16 @@ const LEVELS = {
     "  #,########################          ####U######",
     "  #,,,,,,,,,,,,,,,,,,,,,,,,#             #,#",
     "  ######################D##   ##########,##########",
-    "                     #.....#  #*****************X#",
+    "                     #.....#  #****V************X#",
     "                     #..k..#  #**g****~~~~****s**#",
-    "                     #.....#  #*******~~~~*******#",
+    "                     #.....#  #*******~~~~**V****#",
     "                     #..h..D,,D*******~~~~***e***#",
-    "                     #######  ####################",
+    "                     #######  ####################"
   ],
   towers: [
     "##################################################",
     "#oooooooooooooooooooooo#,,,,,,,,,,,,,,,#ooooooooo#",
-    "#oo@ooooooooooooooooooo#,,,,,,,,,,,,,,,#ooooooooo#",
+    "#oo@ooooooooooooooooooG,,,,,,,,,,,,,,,G#oooobooooo#",
     "#ooooooooxooooooooooooo#,,,,,,g,,,,,,,,#oooobooooo#",
     "#oooooo&&&&ooooooo&&&&oD,,,,,,,,,,,,,,,DoooooooooO#",
     "#oooooo&==&ooooooo&==&o#,,,,,,,,,,,,,,,#ooooooooOO#",
@@ -451,7 +560,7 @@ const LEVELS = {
     "                   ###D####",
     "                    #...#",
     "                    #.g.X",
-    "                    #####",
+    "                    #####"
   ],
   heart: [
     "#############################",
@@ -469,49 +578,215 @@ const LEVELS = {
     "F!!..........................F",
     "F!!...+.................m...!!F",
     "F!!!!!!!!!!!!!!!!!!!!!!!!!!!!F",
-    "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFF",
+    "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
+  ],
+  cryo: [
+    "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+    "CC$a$CCCCC........x................CEEEEEEEEEEEC",
+    "CCC?CCCCCC..+...............h......CE+EEEEEEEhEC",
+    "CiiiiiikiC....S.....S.....S.....S..GEEE-----EEEC",
+    "CiiiiiiiiG.........................CEEE-===-EEEC",
+    "Cii@iiiiiD............f............QEEE-=u=-EEEC",
+    "CiiiiiiiiC.......h............f....CEBE-===-EEEC",
+    "Ci+iiiiciG.........................CEEE-----EEEC",
+    "CiiiiiiiiC....S.....S.....S.....S..GEEEEEEEEfEEC",
+    "CCCCDCCCCC.c............h........g.CEEhEEEEEEeEC",
+    "CCCC,CCCCC.........................CEEEEEEEEEEEC",
+    "CCCC,CCCCCDCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+    "CCCC,CCCCC,C,h,CC,,,CC,q,CC,,,CC,,,CCCCCCCCCCCCC",
+    "CCCC,CCCCC,C,,,CC,,,CC,,,CC,,,CC,+,CCCCCCCiiiiiC",
+    "CCCCVCCCCC,CHDHCCHDHCCHDHCCHDHCCHDHCCCCCCCiigiiC",
+    "CCCC,CCCCC,,,,,,,,,,,,,,,,f,,,,,,,,,,,,,,UiiiiiX",
+    "CCCC,CCCCC,CHDHCCHDHCCHDHCCHDHCCHDHCCCCCCCiiiBiC",
+    "CCCC,CCCCC,C,,,CC,h,CC,,,CC,g,CC,,,CCCCCCCiigiiC",
+    "CCCC,CCCCC,C,e,CC,,,CC,,,CC,,,CC,c,CCCCCCCimiiiC",
+    "CCCC,CCCCC,CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+    "Ciiii6iziC,CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+    "CiinnnnniD,CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+    "CihnnnnniCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+    "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
+  ],
+  mine: [
+    "KKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKK",
+    "KKKKKKKKKKKKKKKK^^^^^^^^qKKKKKKKKKKKKKKKKKKKKKKKKKKK",
+    "KKKKKKEEEEEEEEEEEELEEEEEEEEEEEEKKKKKKKKKKKKKKKKKKKKK",
+    "KKKKKKE;;;;;EEEEEEEEEEEEE;;;;;EKKKKKKKKEEEEEEEEEEEEK",
+    "KKKKKKE;;z;;EEEEEEhEEEEEE;;z;;EKKKKKKKKEE;;;u;;z;EEK",
+    "KKKKKKE;;;;;EEEEEEEEEEEEE;;;;;EKKKKKKKKEE;;;;;;;;EEK",
+    "KK$r$KEEEEEEEEEIIEEEEEEEE;;;;;EKEEEEEEKEEEEEEEEEEEEK",
+    "KK$a$?EEEEEEEEEIIEEEEEEEfEEEEEEKEEEEEEKEEEEEEEEEEEEK",
+    "KK$$$KEEEEEEEEEEEEEEEEEEEEEEEEEQEEEBEEDEEEEEEEEEEEEK",
+    "KKKKKKEEEEEEEEfEEEEEEIIEEEEEEEEKE+EEEEKEEEEEEfEEEEEK",
+    "KKKKEEEEEEEEEEEEEEEEEIIEEEEEEEEKEEEEEEKEEEEEEEEEEEEK",
+    "KKKKEEE;;;;;;EEEEEEEEEE;;;;;;;EKKKKKKKKEgEEEEEEEEkEK",
+    "KKKKEhE;e;;h;EEEEEEsEEE;;;h;c;EKKKKKKKKEEEEEEEEEEEEK",
+    "KKKKEEE;;;;;;EEEEEEEEEE;;;;;;;EKKKKKKKKKKKKKUKKKKKKK",
+    "KKKKEEEEEEEEEEEEEEEEEEEEEEEEEEEKKKKKKKKKKKKEEEKKKKKK",
+    "KKKKEEKKKKEEEEEEEEEDEEEEEEEDEEKKKKKKKKKKKKKEEEKKKKKK",
+    "KKKKEEKKKKDKKKKKKKKKKKKKKKKKKKjjjjjjjjjjjjjjjjjjjjjK",
+    "KKKKEEKKKKEKKKKKKKKKKKKKKKKKKKjjjjgjjjjjjjjjjjjjjjjK",
+    "KKZZEEZZZKEKKKKKKKKKKKKKKKKKKKjjjjjjxjjjjjjjjjjjgjjK",
+    "KjjjjjjjjDKKKKKKKKKKKKKKKKKKKKjjjjjjjjjjjjjjjjjjjjjK",
+    "KjjjjjjjcjKKKKKKKKKKKKKKKKKKKKjjZZZZZZZZZjjjjjjjjjjK",
+    "KjjjjjjjjjKKKKKKKKKKKKKKKKKKKKjjjjjjjjjjjjjjBjjjjjjK",
+    "Kjj@jjjjjjKKKKKKKKKKKKKKKKKKKKjhjjjjjjjjjjjjjxjjjjjX",
+    "Kjjjjjjj+jKKKKKKKKKKKKKKKKKKKKjjjmjjjjhjjjjjjjjjjjjK",
+    "KjjjjjjjjjKKKKKKKKKKKKKKKKKKKKjjjjjjjjjjjjjjjjjjjjjK",
+    "KKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKK"
+  ],
+  pumps: [
+    "PPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPP",
+    "P,,,,,,,,P.........................P,,,,,,,,,,,,,P",
+    "P,,,,,,,,G.nnnnnnnnnnnnnnnnnnnnnnn.H,nnngnnnnnnq,P",
+    "P,,@,,,,,D.nSnnnnnnnnnnnnhnnnnBnnn.D,nnnnnnnznnn,P",
+    "P,,,,,,,,P.nnn-=e-nnnnnnnnnnnnnnnn.H,nnnnnnnnnnn,P",
+    "P,,,,,,+,G.nnn----nnnnnnnnnnnnnnnn.D,nnnnnnnnnnn,P",
+    "P,c,,,,,,P.nnnnnnnnnBnnnnnnnnnnnnn.H,nmnnnnnnngn,P",
+    "PPPPDPPPPP.nnnnnnnnnnnnnnn----nnnn.P,,,,,,,,,,,,,P",
+    "PPPP,PPPPP.nnnnnnnnnnnnnnn-=c-nnnn.PPPPPPPPPPPPPPP",
+    "P$$P,PPPPP.nnfnnnnnnnnfnnn----nnnn.PPPPPPPPPPPPPPP",
+    "Pa$?,PPPPP.nnnnnnnhnnnnnnnnnnnnnSn.PPPPPPPPPPPPPPP",
+    "P$$P,PPPPP.nnnnnnnnnnnnnnnnnnnnnnn.PPPPPPPPPPPPPPP",
+    "PPPPVPPPPP.........................PPPPPPPPPPPPPPP",
+    "PPPP,PPPPPPPPPPPPPPPPPQPPPPPPPPPPPPPPPPPPPPPPPPPPP",
+    "PPPP,PPPPPPPPPPPPPPP,,,,,,,PPPPPPPPPPPPPPPPPPPPPPP",
+    "PPPP,PPPPPPPPPPPPPPP,nnnnh,PPPPP,,,,,,,,,,,,,,,,,P",
+    "PPPP,PPPPPPPPPPPPPPP,n^^un,PPPPP,,,g,,,,,,,,,g,,,P",
+    "PPPP,PPPPPPPPPPPPPPP,nn^nn,PPPPP,,,,,,,,,,,,,,,,,P",
+    "PPPP,PPPPPPPPPPPPPPP,nnLnn,D,,,U,,,,,,,,,,,,,,,,,P",
+    "P.h.......PPPPPPPPPP,nnnnn,PPPPP,,H,H,H,H,H,H,H,,P",
+    "P.nnnnnnn.PPPPPPPPPP,nnnnn,PPPPP,,,,,,,,,,,,,,,,,X",
+    "P.nnn6nnn.PPPPPPPPPP,fnnnn,PPPPP,,,,,,,,,,,,,,,,,P",
+    "P.nnnnnnn.D,,,,,,,,,D,,,,,,PPPPP,,,,,,,,B,,,,,,,,P",
+    "P.nnnnsnn.PPPPPPPPPPPPPPPPPPPPPP,,,,,,,,,,,,,,,z,P",
+    "P.......h.PPPPPPPPPPPPPPPPPPPPPP,m,,,,,,,,,,,,,,,P",
+    "PPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPP"
+  ],
+  reactor: [
+    "MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM",
+    "MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM",
+    "MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM,,,,,,,M",
+    "MMMMMMMMMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM,k,,,,,M",
+    "MMMMMMMMMAAgAAAAAAAAAAAAAAAAAAhAAAAAAcAAAM,,,,,,,M",
+    "MMMMMMMMMAAAAAAAAAAAAAAAfAAAAAAAAAgAAAAAAM,,,,7,,M",
+    "MMMMMMMMMAAAVAAAAAAAAAAAAAAAAAAAAAAAVAAAAD,,,,,,,M",
+    "MMMMMMMMMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM,,,,,,,M",
+    "MMMMMMMMMAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAM,,,h,m,M",
+    "MMMMMMMMMASAAxAAAAAAAAAAAAAAAAAAAAAAAAASAM,,,,,,,M",
+    "MAAAAAAAMAAAAAAAAAAAMMGMDMMGMMAAAAAfAAAAAMMMMMMMMM",
+    "MAAAAAkAMAAAAAAAAAAAMVAAAAAAVMAAAAAAAAAAAMMMMMMMMM",
+    "MAA@AAAADAAAAAAAAVAAGAAAyAAAAGAAAAAAAAzAAMMMMMMMMM",
+    "MAAAAAAAMAAAAAAAAAAAGAAAAAAAAGAAVAAAAAAAAMMMMMMMMM",
+    "MAAAAA+AMAAAAAAAAAAAMVAAAAAAVMAAAAAAAAAAAMMMMMMMMM",
+    "MAAAAAAAMAAAAAAAAAAAMMGMMMMGMMAAAAAAAAAAAMMMMMMMMM",
+    "MMMMMMMMMASAAAAAAAAAAAAAAAAAAAAAAAAAxAASAMAAAAAAAM",
+    "MMMMMMMMMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMAAAgAAAM",
+    "M$$$$$MMMAAAAAAfAAAAAAAAAAAAAAAAABAAAAAAAYAAAAAAAM",
+    "M$$$$$MMMAAAVAAAAAAAAAAAAAAAAAAAAAAAVAAAAMAAAAABAX",
+    "M$a$$$?AAAAeAAAAAAhAAAAAzAAAAAAAAAAAAAAAAMAAAAAAAM",
+    "M$$$r$MMMAhAAAAAAAAAAAAAA+AAAAAAAAAAAAgAAMAAAgAAAM",
+    "M$$$$$MMMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMAAAAAAAM",
+    "MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM",
+    "MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM",
+    "MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM"
+  ],
+  engine: [
+    "IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII",
+    "I,,,,m,IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII",
+    "I,@,,,kIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII",
+    "I,,,,,,D,,,,,D,IIIIIIIIIIIIIIIIIIIIIIIII",
+    "I,r,,+,IIIIIII,IIIIIIIIIIIIIIIIIIIIIIIII",
+    "IIIIIIIIIIIIII,IIIIIIIIIIIIIIIIIIIIIIIII",
+    "IIEEEEEEEEEEEEDEEEEEEEEEEEEEEEEEEEEEEEII",
+    "IIE;;;;;;..........e...........;;;;;;EII",
+    "IIE;+;;;;......................;;;;c;EII",
+    "IIE;;;;;;..........VV..........;;;;;;EII",
+    "IIE..................................EII",
+    "IIE.........II............II.........EII",
+    "IIE.........II............II.........EII",
+    "IIE..................................EII",
+    "IIE.......V..................V.......EII",
+    "IIE..................................EII",
+    "IIE.........II............II.........EII",
+    "IIE.........II......N.....II.........EII",
+    "IIE..................................EII",
+    "IIE;;;;;;..........VV..........;;;;;;EII",
+    "IIE;k;;;;......................;;;;+;EII",
+    "IIE;;;;;;...........r..........;;;;;;EII",
+    "IIEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEII",
+    "IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII"
   ]
 };
 const ORDER = [
-  { id: "intake", name: "Intake Shaft", par: 120, tag: "Where the ore came in. Where they came out." },
-  { id: "refinery", name: "Slag Refinery", par: 180, tag: "Molten metal and the things that like it." },
-  { id: "towers", name: "Cooling Towers", par: 210, tag: "Out under the burning sky." },
-  { id: "heart", name: "The Furnace Heart", par: 150, tag: "It keeps the fires fed." }
+  { id: "intake", name: "Intake Shaft", par: 120, tag: "Where the ore came in. Where they came out.", ep: 0, sky: "fire", amb: "furnace", flicker: 0.1 },
+  { id: "refinery", name: "Slag Refinery", par: 180, tag: "Molten metal and the things that like it.", ep: 0, sky: "fire", amb: "furnace", flicker: 0.06 },
+  { id: "towers", name: "Cooling Towers", par: 210, tag: "Out under the burning sky.", ep: 0, sky: "fire", amb: "wind", outdoor: 1, flicker: 0.08 },
+  { id: "heart", name: "The Furnace Heart", par: 150, tag: "It keeps the fires fed.", ep: 0, sky: "fire", amb: "furnace", boss: "warden" },
+  { id: "cryo", name: "Cryo Labs", par: 200, tag: "Where they froze the ore to test it. Something thawed.", ep: 1, sky: "cold", amb: "hum", tint: TI.cryo, flicker: 0.14 },
+  { id: "mine", name: "Glacier Mine", par: 240, tag: "They dug for ore in the ice. The ice dug back.", ep: 1, sky: "cold", amb: "wind", snow: 1, flicker: 0.05 },
+  { id: "pumps", name: "Drowned Pumpworks", par: 230, tag: "The pumps stopped. The water stayed.", ep: 1, sky: "cold", amb: "drip", tint: TI.cryo, flicker: 0.1 },
+  { id: "reactor", name: "The Reactor", par: 210, tag: "Green light, warm floors, and a key you shouldn't take.", ep: 1, sky: "cold", amb: "hum", alarm: "y", flicker: 0.12 },
+  { id: "engine", name: "The Frost Engine", par: 180, tag: "What cooled the furnaces. What's awake now.", ep: 1, sky: "cold", amb: "hum", boss: "coldheart", tint: TI.cryo }
 ];
+const EPISODES = ["The Foundry", "The Ice"];
 const SKY = 255;
-const GROUND = {                                    // what each letter of a map is
+const GROUND = {                                    // what each letter of a map is (base: a room's own ground, its ceiling and light)
   ".": { f: 0, c: 1.25, ft: T_CONCRETE, ct: T_CEILLIGHT, L: 24, st: T_HAZARD, base: 1 }, ",": { f: 0, c: 1.0, ft: T_GRATE, ct: T_CEILDARK, L: 20, st: T_HAZARD, base: 1 },
   ":": { f: 0, c: 1.25, ft: T_CONCRETE, ct: T_CEILDARK, L: 12, st: T_HAZARD, base: 1 }, "*": { f: 0, c: 1.25, ft: T_TILE, ct: T_CEILLIGHT, L: 29, st: T_HAZARD, base: 1 },
   "o": { f: 0, c: 2.6, ft: T_ASH, ct: SKY, L: 25, st: T_ROCK, base: 1 }, "O": { f: 0.25, c: 2.6, ft: T_ASH, ct: SKY, L: 25, st: T_ROCK, base: 1 },
   "-": { f: 0.25, ft: T_CONCRETE, st: T_HAZARD }, "=": { f: 0.5, ft: T_GRATE, st: T_HAZARD }, "^": { f: 0.9, ft: T_GRATE, st: T_STEEL },
-  "~": { f: -0.06, ft: T_SLIME, st: T_STONE, hurt: 4, Ladd: -2 }, "!": { f: -0.06, ft: T_LAVA, st: T_FURNACE, hurt: 14, L: 30 },
+  "~": { f: -0.06, ft: T_SLIME, st: T_STONE, hurt: 4, Ladd: -2, tint: TI.toxic }, "!": { f: -0.06, ft: T_LAVA, st: T_FURNACE, hurt: 14, L: 30, tint: TI.ember },
   "$": { f: 0, ft: T_CONCRETE, st: T_HAZARD, secret: 1, L: 13 }, "L": { lift: 1, ft: T_LIFT, st: T_LIFT },
-  "D": { door: 1, st: T_DOOR }, "Q": { door: 1, st: T_DOORQ, key: "q" }, "U": { door: 1, st: T_DOORU, key: "u" }, "Y": { door: 1, st: T_DOORY, key: "y" }, "?": { door: 1, st: T_STEEL, secret: 1 }
+  "D": { door: 1, st: T_DOOR }, "Q": { door: 1, st: T_DOORQ, key: "q" }, "U": { door: 1, st: T_DOORU, key: "u" }, "Y": { door: 1, st: T_DOORY, key: "y" }, "?": { door: 1, st: T_STEEL, secret: 1 },
+  // the Ice: labs, snow under the night sky, ice caves and their ledges, cold water (it slows you), steam vents, the reactor's floor
+  "i": { f: 0, c: 1.25, ft: T_LABFLOOR, ct: T_CEILICE, L: 26, st: T_LAB, base: 1, tint: TI.cryo },
+  "j": { f: 0, c: 2.8, ft: T_SNOW, ct: SKY, L: 27, st: T_GLACIER, base: 1, tint: TI.night }, "J": { f: 0.25, c: 2.8, ft: T_SNOW, ct: SKY, L: 27, st: T_GLACIER, base: 1, tint: TI.night },
+  "E": { f: 0, c: 1.7, ft: T_ICE, ct: T_ICECEIL, L: 17, st: T_ICEWALL, base: 1, tint: TI.cryo }, ";": { f: 0.25, ft: T_ICE, st: T_ICEWALL },
+  "n": { f: -0.08, ft: T_WATER, st: T_PUMP, wet: 1 }, "V": { f: 0, ft: T_VENT, st: T_HAZARD, vent: 1 },
+  "A": { f: 0, c: 1.6, ft: T_REACTOR, ct: T_CEILDARK, L: 19, st: T_MACHINE, base: 1, tint: TI.toxic }
 };
-const WALLS = { "#": T_STEEL, "%": T_RUST, "&": T_STONE, "T": T_TECH, "|": T_PIPES, "F": T_FURNACE, "R": T_ROCK, "W": T_CRATE, "X": T_SWITCH };
+const WALLS = { "#": T_STEEL, "%": T_RUST, "&": T_STONE, "T": T_TECH, "|": T_PIPES, "F": T_FURNACE, "R": T_ROCK, "W": T_CRATE, "X": T_SWITCH,
+  "I": T_ICEWALL, "C": T_LAB, "K": T_GLACIER, "M": T_MACHINE, "P": T_PUMP };
+const MASKS = { "H": M_BARS, "_": M_RAIL, "G": M_GLASS, "Z": M_FENCE };
+const THINGS = /[@hgsbwfBzN+mackerl34567quyxtpvSd]/;
 const KEYNAME = { q: "copper", u: "cobalt", y: "amber" }, KEYCOL = { q: "#d88848", u: "#4a7ae8", y: "#f0c84a" };
 function parseLevel(id) {
-  const rows = LEVELS[id], H = rows.length, W = Math.max(...rows.map(r => r.length));
+  const rows = LEVELS[id], def = ORDER.find(o => o.id === id) || {}, H = rows.length, W = Math.max(...rows.map(r => r.length));
   const g = rows.map(r => r.padEnd(W, "#").replace(/ /g, "#").split(""));
   const m = new L3.RayMap(W, H), things = [], doors = [], lifts = [], hurt = new Float32Array(W * H), secret = new Uint8Array(W * H), exits = [];
+  const wet = new Uint8Array(W * H), vents = [], lamps = [];
   const geoOf = (x, y) => { for (let d = 1; d < 6; d++) for (const xx of [x - d, x + d]) { const c = (g[y] || [])[xx]; if (c && GROUND[c] && !GROUND[c].door && !GROUND[c].lift) return c; } return "."; };
   const kind = [];
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
     let c = g[y][x], i = y * W + x;
-    if (WALLS[c] != null || !(GROUND[c] || /[@hgsbw+mackerl3459quyxtpv]/.test(c))) { m.solid[i] = 1; m.wtex[i] = WALLS[c] != null ? WALLS[c] : T_STEEL; if (c === "X") exits.push(i); continue; }
-    if (!GROUND[c]) { things.push({ c, x: x + 0.5, y: y + 0.5 }); c = geoOf(x, y); }
+    if (WALLS[c] != null || !(GROUND[c] || MASKS[c] || THINGS.test(c))) { m.solid[i] = 1; m.wtex[i] = WALLS[c] != null ? WALLS[c] : T_STEEL; if (c === "X") exits.push(i); continue; }
+    if (MASKS[c]) { m.mask[i] = MASKS[c]; c = geoOf(x, y); }
+    else if (!GROUND[c]) { things.push({ c, x: x + 0.5, y: y + 0.5 }); c = geoOf(x, y); }
     kind[i] = c;
   }
-  // ceilings, ceiling textures and light come from the nearest plain ground (a step in a yard has the sky over it)
+  // ceilings, ceiling textures, light and its colour come from the nearest plain ground (a step in a yard has the sky over it)
   const baseNear = (x, y) => { for (let d = 0; d < 6; d++) for (let dy = -d; dy <= d; dy++) for (let dx = -d; dx <= d; dx++) { const k = kind[(y + dy) * W + (x + dx)]; if (k && GROUND[k].base) return GROUND[k]; } return GROUND["."]; };
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
     const i = y * W + x, c = kind[i]; if (!c) continue;
     const G = GROUND[c], B = G.base ? G : baseNear(x, y);
     m.floor[i] = G.f || 0; m.ftex[i] = G.ft || B.ft; m.ctex[i] = B.ct; m.stex[i] = G.st || B.st || T_HAZARD; m.utex[i] = G.door ? G.st : B.ct === SKY ? T_ROCK : T_STEEL;
     m.ceil[i] = Math.max(B.c, (G.f || 0) + 0.75); m.light[i] = clamp((G.L || B.L) + (G.Ladd || 0), 0, 31);
+    m.tint[i] = G.tint || B.tint || def.tint || 0;
     if (G.hurt) hurt[i] = G.hurt;
+    if (G.wet) wet[i] = 1;
+    if (G.vent) vents.push({ i, x: x + 0.5, y: y + 0.5, t: 1 + ((x * 7 + y * 13) % 9) * 0.45, on: 0 });
     if (G.secret && !G.door) secret[i] = 255;
     if (G.door) { m.ftex[i] = T_GRATE; m.ceil[i] = 0; doors.push({ i, x, y, key: G.key || null, secret: !!G.secret, open: 0, target: 0, t: 0, top: Math.min(B.c, 1.0) }); }
+  }
+  // the light's colour spills: lava and furnaces warm the cells near them, slime greens them
+  for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) {
+    const i = y * W + x; if (!kind[i] || kind[i] === "!" || kind[i] === "~") continue;
+    let warm = 0, green = 0;
+    for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
+      const yy = y + dy, xx = x + dx; if (yy < 0 || xx < 0 || yy >= H || xx >= W) continue;
+      const c = g[yy][xx]; if (c === "!" || c === "F") warm++; else if (c === "~" && Math.abs(dx) < 2 && Math.abs(dy) < 2) green++;
+    }
+    if (warm >= 2) m.tint[i] = TI.ember; else if (green) m.tint[i] = TI.toxic;
   }
   let groups = 0;                                    // hidden areas: each group of $ cells is one secret
   for (let i = 0; i < W * H; i++) if (secret[i] === 255) {
@@ -523,32 +798,50 @@ function parseLevel(id) {
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {   // lifts: between the highest ground beside them and the lowest (not counting hot floors)
     const i = y * W + x; if (kind[i] !== "L") continue;
     let hi = -1e9, lo = 1e9;
-    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const j = (y + dy) * W + x + dx, k = kind[j]; if (!k || k === "L" || GROUND[k].door) continue; hi = Math.max(hi, m.floor[j]); if (!GROUND[k].hurt) lo = Math.min(lo, m.floor[j]); }
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const j = (y + dy) * W + x + dx, k = kind[j]; if (!k || k === "L" || GROUND[k].door || m.mask[j]) continue; hi = Math.max(hi, m.floor[j]); if (!GROUND[k].hurt) lo = Math.min(lo, m.floor[j]); }
     if (lo > hi) lo = hi;
     m.floor[i] = hi; m.ceil[i] = Math.max(m.ceil[i], hi + 1.1); lifts.push({ i, x, y, hi, lo, pos: hi, state: "up", t: 0 });
   }
-  for (const t of things) if (t.c === "l") {          // lamps light round them
-    for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) { const j = ((t.y | 0) + dy) * W + (t.x | 0) + dx; if (j >= 0 && j < W * H && !m.solid[j]) m.light[j] = Math.min(31, m.light[j] + 7 - (Math.abs(dx) + Math.abs(dy)) * 2); }
+  for (const t of things) if (t.c === "l" || t.c === "S") {          // lamps and cryo tanks light round them (a tank's light is cold)
+    for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
+      const j = ((t.y | 0) + dy) * W + (t.x | 0) + dx; if (j < 0 || j >= W * H || m.solid[j]) continue;
+      m.light[j] = Math.min(31, m.light[j] + (t.c === "l" ? 7 : 4) - (Math.abs(dx) + Math.abs(dy)) * 2);
+      if (t.c === "l" && Math.abs(dx) + Math.abs(dy) <= 2 && !m.tint[j]) m.tint[j] = TI.lamp;
+      if (t.c === "S" && Math.abs(dx) + Math.abs(dy) <= 1) m.tint[j] = TI.cryo;
+    }
   }
-  return { m, things, doors, lifts, hurt, secret, groups, pass, found: new Uint8Array(groups + 1), exits, W, H };
+  // lamps that flicker: a share of the cells under lit ceilings, picked the same way each time
+  const rnd = U.rand(id.length * 977 + W * 31 + H);
+  for (let i = 0; i < W * H; i++) if (kind[i] && (m.ctex[i] === T_CEILLIGHT || m.ctex[i] === T_CEILICE) && rnd() < (def.flicker || 0)) lamps.push({ i, base: m.light[i], s: rnd() * 100, kind: rnd() < 0.25 ? 1 : 0 });
+  return { m, things, doors, lifts, hurt, secret, groups, pass, found: new Uint8Array(groups + 1), exits, W, H, wet, vents, lamps, def };
 }
 
 // ---------------------------------------------------------------- weapons and enemies
 const WEAPONS = [
   { id: "cutter", name: "Cutter", ammo: null, rate: 0.42, dmg: [18, 28], melee: 1.0 },
-  { id: "rivet", name: "Rivet gun", ammo: "rivets", rate: 0.3, dmg: [9, 14], spread: 0.018, pellets: 1, kick: 6, rumble: [0.1, 0.35] },
-  { id: "scatter", name: "Scattergun", ammo: "shells", rate: 0.9, dmg: [5, 9], spread: 0.085, pellets: 7, kick: 14, rumble: [0.55, 0.6] },
-  { id: "arc", name: "Arc rifle", ammo: "cells", rate: 0.095, dmg: [7, 11], spread: 0.03, pellets: 1, kick: 3, tracer: 1, rumble: [0.05, 0.25] },
-  { id: "slag", name: "Slag launcher", ammo: "slag", rate: 0.85, proj: { speed: 11, dmg: [55, 75], splash: 70, radius: 1.8 }, kick: 12, rumble: [0.6, 0.4] }
+  { id: "rivet", name: "Rivet gun", ammo: "rivets", rate: 0.3, dmg: [9, 14], spread: 0.018, pellets: 1, kick: 6, rumble: [0.1, 0.35], casing: 7 },
+  { id: "scatter", name: "Scattergun", ammo: "shells", rate: 0.9, dmg: [5, 9], spread: 0.085, pellets: 7, kick: 14, rumble: [0.55, 0.6], casing: 5 },
+  { id: "arc", name: "Arc rifle", ammo: "cells", rate: 0.095, dmg: [7, 11], spread: 0.03, pellets: 1, kick: 3, tracer: 1, rumble: [0.05, 0.25], cold: 1 },
+  { id: "slag", name: "Slag launcher", ammo: "slag", rate: 0.85, proj: { speed: 11, dmg: [55, 75], splash: 70, radius: 1.8 }, kick: 12, rumble: [0.6, 0.4] },
+  // the Ice's: a rivet gun with six barrels (it winds up), and a beam of cold that goes through everything in its way
+  { id: "nail", name: "Nailstorm", ammo: "rivets", rate: 0.065, dmg: [6, 9], spread: 0.045, pellets: 1, kick: 2.2, spin: 0.45, rumble: [0.12, 0.28], casing: 7 },
+  { id: "lance", name: "Frost lance", ammo: "cells", cost: 10, rate: 1.05, dmg: [48, 64], beam: 1, freeze: 2.2, kick: 9, rumble: [0.45, 0.7], cold: 1 }
 ];
+const NW = WEAPONS.length;
 const AMMO = { rivets: 200, shells: 50, cells: 300, slag: 40 };
+// flesh: what's left of them (blood, or oil and sparks); fly: hovers this high; shield: a plate in front; boss: one of the great ones
 const KINDS = {
-  husk: { name: "Husk", hp: 40, speed: 1.25, r: 0.24, h: 0.74, attack: "melee", dmg: [6, 12], range: 0.8, cd: 1.0, wind: 0.35, pain: 0.6, sight: 12, fly: 0 },
-  gunner: { name: "Gunner", hp: 30, speed: 1.55, r: 0.24, h: 0.8, attack: "shot", dmg: [3, 7], shots: 3, range: 13, cd: 1.8, wind: 0.5, pain: 0.55, drop: "c", sight: 14 },
-  spitter: { name: "Spitter", hp: 70, speed: 1.9, r: 0.28, h: 0.5, attack: "spit", dmg: [9, 15], range: 12, cd: 1.9, wind: 0.5, pain: 0.35, sight: 13 },
-  brute: { name: "Brute", hp: 240, speed: 1.45, charge: 2.9, r: 0.36, h: 1.0, attack: "melee", dmg: [18, 30], range: 1.0, cd: 1.3, wind: 0.42, pain: 0.15, sight: 14 },
-  warden: { name: "Furnace Warden", hp: 1300, speed: 1.05, r: 0.5, h: 1.45, attack: "volley", dmg: [10, 16], range: 24, cd: 2.0, wind: 0.65, pain: 0.04, sight: 30 }
+  husk: { name: "Husk", hp: 40, speed: 1.25, r: 0.24, h: 0.74, attack: "melee", dmg: [6, 12], range: 0.8, cd: 1.0, wind: 0.35, pain: 0.6, sight: 12, flesh: 1 },
+  gunner: { name: "Gunner", hp: 30, speed: 1.55, r: 0.24, h: 0.8, attack: "shot", dmg: [3, 7], shots: 3, range: 13, cd: 1.8, wind: 0.5, pain: 0.55, drop: "c", sight: 14, flesh: 1, glowAt: 0.62 },
+  spitter: { name: "Spitter", hp: 70, speed: 1.9, r: 0.28, h: 0.5, attack: "spit", dmg: [9, 15], range: 12, cd: 1.9, wind: 0.5, pain: 0.35, sight: 13, flesh: 1, glowAt: 0.3 },
+  brute: { name: "Brute", hp: 240, speed: 1.45, charge: 2.9, r: 0.36, h: 1.0, attack: "melee", dmg: [18, 30], range: 1.0, cd: 1.3, wind: 0.42, pain: 0.15, sight: 14, flesh: 1 },
+  warden: { name: "Furnace Warden", hp: 1300, speed: 1.05, r: 0.5, h: 1.45, attack: "volley", dmg: [10, 16], range: 24, cd: 2.0, wind: 0.65, pain: 0.04, sight: 30, flesh: 1, boss: 1, glowAt: 0.6 },
+  drone: { name: "Drone", hp: 28, speed: 2.3, r: 0.22, h: 0.36, fly: 1.0, attack: "zap", dmg: [5, 9], range: 12, cd: 1.3, wind: 0.4, pain: 0.5, sight: 15, flesh: 0, glowAt: 0.6 },
+  bulwark: { name: "Bulwark", hp: 170, speed: 1.15, r: 0.34, h: 0.95, attack: "melee", dmg: [14, 22], range: 1.05, cd: 1.4, wind: 0.45, pain: 0.1, sight: 13, shield: 1, flesh: 1 },
+  sapper: { name: "Sapper", hp: 55, speed: 1.6, r: 0.24, h: 0.72, attack: "bomb", dmg: [32, 48], range: 11, cd: 2.6, wind: 0.6, pain: 0.4, sight: 14, drop: "e", flesh: 1, glowAt: 0.5 },
+  coldheart: { name: "The Coldheart", hp: 2400, speed: 0.95, r: 0.64, h: 1.75, attack: "frost", dmg: [9, 14], range: 26, cd: 2.4, wind: 1.1, pain: 0.02, sight: 32, flesh: 0, boss: 1, glowAt: 0.55 }
 };
+const FOE = { h: "husk", g: "gunner", s: "spitter", b: "brute", w: "warden", f: "drone", B: "bulwark", z: "sapper", N: "coldheart" };
 const BODY = { r: 0.2, step: 0.36, room: 0.62, eye: 0.52 };
 
 // ---------------------------------------------------------------- sound
@@ -557,29 +850,69 @@ synth.define("rivet", (s, t) => { s.noise(t, 0.12, 0.5, 2600, 1.2); s.note(t, 18
 synth.define("scatter", (s, t) => { s.noise(t, 0.4, 0.8, 700, 0.6); s.note(t, 70, 0.3, "sine", 0.5); s.noise(t + 0.25, 0.08, 0.15, 3000, 2); });
 synth.define("arc", (s, t) => { s.note(t, 1400 + Math.random() * 300, 0.06, "sawtooth", 0.06, null, 0.002, 4000); s.noise(t, 0.05, 0.12, 5000, 1); });
 synth.define("slag", (s, t) => { s.noise(t, 0.35, 0.45, 400, 0.8); s.note(t, 120, 0.25, "triangle", 0.3); });
+synth.define("nail", (s, t) => { s.noise(t, 0.07, 0.32, 3200, 1.4); s.note(t, 240, 0.05, "square", 0.07, null, 0.002, 1500); });
+synth.define("spin", (s, t) => { s.note(t, 160, 0.45, "sawtooth", 0.05, null, 0.05, 900); s.note(t + 0.1, 320, 0.35, "sawtooth", 0.04, null, 0.05, 1400); });
+synth.define("lance", (s, t) => { s.note(t, 2400, 0.5, "sine", 0.12, null, 0.003); s.note(t, 1800, 0.6, "triangle", 0.1, null, 0.003, 5000); s.noise(t, 0.35, 0.3, 6000, 1.5); });
 synth.define("boom", (s, t) => { s.noise(t, 0.9, 0.9, 260, 0.5); s.note(t, 55, 0.7, "sine", 0.6); s.noise(t, 0.3, 0.4, 1200, 0.7); });
 synth.define("cut", (s, t) => { s.note(t, 220, 0.18, "sawtooth", 0.08, null, 0.01, 1600); s.noise(t, 0.15, 0.2, 2200, 2); });
 synth.define("click", (s, t) => s.note(t, 1200, 0.03, "square", 0.05, null, 0.001, 3000));
 synth.define("hurt", (s, t) => { s.note(t, 140, 0.22, "square", 0.12, null, 0.005, 700); s.note(t + 0.04, 100, 0.25, "square", 0.1, null, 0.005, 600); });
 synth.define("growl", (s, t) => s.note(t, 90 + Math.random() * 40, 0.5, "sawtooth", 0.1, null, 0.05, 500));
+synth.define("buzz", (s, t) => { s.note(t, 520 + Math.random() * 60, 0.35, "sawtooth", 0.05, null, 0.02, 2400); s.note(t, 530, 0.3, "square", 0.03, null, 0.02, 1800); });
 synth.define("epain", (s, t) => s.note(t, 260 + Math.random() * 80, 0.18, "sawtooth", 0.09, null, 0.005, 1400));
 synth.define("edie", (s, t) => { s.note(t, 200, 0.6, "sawtooth", 0.1, null, 0.01, 900); s.noise(t, 0.4, 0.2, 500, 0.8); });
+synth.define("crash", (s, t) => { s.noise(t, 0.5, 0.5, 1800, 0.9); s.note(t, 300, 0.4, "square", 0.06, null, 0.005, 1200); s.note(t + 0.1, 150, 0.4, "square", 0.05, null, 0.005, 900); });
 synth.define("eshot", (s, t) => { s.noise(t, 0.1, 0.35, 1800, 1.4); s.note(t, 150, 0.08, "square", 0.08, null, 0.002, 1000); });
+synth.define("zap", (s, t) => { s.note(t, 1700, 0.1, "square", 0.05, null, 0.002, 4000); s.note(t + 0.03, 900, 0.12, "sawtooth", 0.04, null, 0.002, 3000); });
+synth.define("charge", (s, t) => { s.note(t, 200, 0.6, "sawtooth", 0.06, null, 0.25, 1600); s.note(t + 0.2, 400, 0.4, "sawtooth", 0.04, null, 0.15, 2000); });
 synth.define("spit", (s, t) => { s.noise(t, 0.3, 0.3, 600, 1.5); s.note(t, 300, 0.25, "triangle", 0.12); });
+synth.define("lob", (s, t) => { s.noise(t, 0.2, 0.2, 900, 1.2); s.note(t, 500, 0.15, "triangle", 0.08); });
+synth.define("tick", (s, t) => s.note(t, 1600, 0.04, "square", 0.04, null, 0.001, 4000));
+synth.define("clang", (s, t) => { s.note(t, 1100 + Math.random() * 200, 0.3, "triangle", 0.12); s.note(t, 1650, 0.25, "sine", 0.06); s.noise(t, 0.06, 0.2, 4000, 2); });
+synth.define("frost", (s, t) => { s.noise(t, 0.6, 0.4, 3500, 0.8); s.note(t, 880, 0.5, "sine", 0.08, null, 0.05); s.note(t + 0.08, 1320, 0.4, "sine", 0.06, null, 0.05); });
+synth.define("roar", (s, t) => { s.note(t, 70, 1.2, "sawtooth", 0.2, null, 0.1, 600); s.note(t, 104, 1.1, "sawtooth", 0.14, null, 0.1, 700); s.noise(t, 1.0, 0.3, 300, 0.6); });
 synth.define("door", (s, t) => { s.noise(t, 0.7, 0.25, 180, 0.9); s.note(t, 60, 0.6, "sawtooth", 0.06, null, 0.1, 300); });
 synth.define("switch", (s, t) => { s.note(t, 440, 0.1, "square", 0.08, null, 0.002, 2000); s.note(t + 0.08, 880, 0.2, "square", 0.08, null, 0.002, 2000); });
 synth.define("item", (s, t) => { s.note(t, 880, 0.1, "triangle", 0.12); s.note(t + 0.06, 1320, 0.14, "triangle", 0.1); });
 synth.define("gun", (s, t) => [440, 554, 660, 880].forEach((f, i) => s.note(t + i * 0.06, f, 0.25, "square", 0.07, null, 0.005, 2400)));
 synth.define("secret", (s, t) => [523, 659, 784, 1046, 784, 1046].forEach((f, i) => s.note(t + i * 0.09, f, 0.3, "triangle", 0.1)));
+synth.define("hiss", (s, t) => { s.noise(t, 1.5, 0.22, 5200, 0.5); s.noise(t + 0.1, 1.2, 0.12, 2400, 0.4); });
+synth.define("spark", (s, t) => { s.noise(t, 0.12, 0.25, 6000, 2); s.note(t, 2200, 0.05, "square", 0.03, null, 0.001, 6000); });
+synth.define("siren", (s, t) => { s.note(t, 620, 0.42, "square", 0.05, null, 0.03, 1800); s.note(t + 0.45, 480, 0.42, "square", 0.05, null, 0.03, 1600); });
+synth.define("tink", (s, t) => s.note(t, 2600 + Math.random() * 900, 0.06, "triangle", 0.035));
+synth.define("splash", (s, t) => { s.noise(t, 0.3, 0.25, 900, 0.6); s.noise(t + 0.05, 0.2, 0.12, 2500, 1); });
+// footsteps: a sound for each kind of floor
+synth.define("stepHard", (s, t) => { s.noise(t, 0.05, 0.13, 900, 2); s.note(t, 90, 0.05, "sine", 0.05); });
+synth.define("stepGrate", (s, t) => { s.noise(t, 0.06, 0.09, 2400, 3); s.note(t, 330 + Math.random() * 60, 0.05, "square", 0.022, null, 0.002, 1800); });
+synth.define("stepSoft", (s, t) => s.noise(t, 0.09, 0.1, 500, 1));
+synth.define("stepSnow", (s, t) => { s.noise(t, 0.1, 0.11, 1500, 0.7); s.noise(t + 0.03, 0.06, 0.06, 3000, 1); });
+synth.define("stepWet", (s, t) => { s.noise(t, 0.14, 0.14, 700, 0.7); s.noise(t + 0.05, 0.08, 0.06, 2200, 1.2); });
 synth.define("locked", synth.fx.no);
 let musicOn = false;
-function music(level) { const k = ORDER.findIndex(o => o.id === level); synth.song({ seed: 300 + k * 17, root: 45 + [0, 3, 5, -2][k], tempo: [128, 120, 134, 140][k], prog: [[9, 5, 0, 7], [9, 7, 5, 4], [2, 9, 5, 7], [9, 10, 5, 4]][k] }); musicOn = true; }
+const MUS = [[45, 128, [9, 5, 0, 7]], [48, 120, [9, 7, 5, 4]], [50, 134, [2, 9, 5, 7]], [43, 140, [9, 10, 5, 4]],
+  [47, 112, [9, 5, 7, 4]], [44, 118, [2, 7, 9, 5]], [46, 104, [9, 4, 5, 7]], [49, 138, [9, 10, 7, 5]], [42, 146, [9, 5, 10, 7]]];
+function music(level) { const k = Math.max(0, ORDER.findIndex(o => o.id === level)), M = MUS[k % MUS.length]; synth.song({ seed: 300 + k * 17, root: M[0], tempo: M[1], prog: M[2] }); musicOn = true; }
 function volumes() { synth.volume(save.opts.music / 10, save.opts.sound / 10); }
+// a sound from where it happens: to the left or the right of you, quieter further off (loud: how far it carries)
+function snd(name, x, y, loud) {
+  if (x == null) { synth.play(name); return; }
+  const dx = x - P.x, dy = y - P.y, d = Math.hypot(dx, dy), k = loud || 1;
+  if (d < 0.6) { synth.play(name); return; }
+  const g = clamp(k * 1.3 / (1 + d * d * 0.02 / k), 0, 1), rel = Math.atan2(dy, dx) - P.a;
+  synth.play(name, Math.sin(rel) * Math.min(1, d / 2.5) * 0.85, g);
+}
+// what's always there: a furnace's roar, the wind, the reactor's hum, water dripping
+let amb = null, ambKind = null;
+function ambience(kind) {
+  if (amb) { amb.stop(); amb = null; } ambKind = kind;
+  if (!kind || !synth.ac) return;
+  amb = synth.drone(kind === "hum" ? "saw" : "noise");
+}
 
 // ---------------------------------------------------------------- input
 const KEYS = { w: "fwd", W: "fwd", s: "rev", S: "rev", a: "strafeL", A: "strafeL", d: "strafeR", D: "strafeR", ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right",
   " ": "fire", Control: "fire", e: "use", E: "use", Enter: "a", f: "use", q: "lb", Q: "lb", r: "rb", R: "rb", Tab: "map", m: "map", M: "map", Escape: "back", Backspace: "back",
-  BrowserBack: "back", GoBack: "back", p: "start", P: "start", Shift: "aim", "1": "w1", "2": "w2", "3": "w3", "4": "w4", "5": "w5", c: "turn", C: "turn" };
+  BrowserBack: "back", GoBack: "back", p: "start", P: "start", Shift: "aim", "1": "w1", "2": "w2", "3": "w3", "4": "w4", "5": "w5", "6": "w6", "7": "w7", c: "turn", C: "turn" };
 const KEYNAMES = { a: "Enter", b: "Esc", start: "P", y: "Tab", x: "E" };
 const input = new L3.Input({ keys: KEYS, on: onButton, top: () => menu.top(), connected: hints });
 const kb = b => input.kbd(b, KEYNAMES);
@@ -590,49 +923,70 @@ const pic = { w: 0, h: 0 };
 const E = L3.game({
   kind: "ray", id: "ironmaw", view: $("view"), gl: $("gl"), flat: $("flat"), fps: $("fps"), input,
   loading: { el: $("loading"), bar: $("loadbar"), text: $("loadtext") },
-  picture: () => save.opts.picture, ready, resized, update, draw, paused: () => state !== "play" && state !== "dead" && state !== "done"
+  picture: () => save.opts.picture, ready, resized, update, draw, paused: () => state !== "play" && state !== "dead" && state !== "done",
+  missed: () => ray.takeMissed(), helperWork: () => ray.helperMs
 });
 const ray = new L3.Ray(pal);
 function resized() { ray.size(E.screen.w, E.screen.h, E.screen.u32); pic.w = E.screen.w; pic.h = E.screen.h; E.screen.crisp = !!save.opts.crisp; E.screen.filter(); $("view").classList.toggle("smooth", !save.opts.crisp); }
 
 // ---------------------------------------------------------------- the game's state
-let state = "boot", lv = null, level = 0, skill = 1, mapOn = false, levelT = 0, deadT = 0, attract = false;
-const P = { x: 0, y: 0, z: 0, a: 0, pitch: 0, vx: 0, vy: 0, vz: 0, hp: 100, armor: 0, weapon: 1, owned: [1, 1, 0, 0, 0], ammo: { rivets: 50, shells: 0, cells: 0, slag: 0 },
-  keys: {}, bob: 0, bobK: 0, kick: 0, cool: 0, swap: 0, next: -1, hurt: 0, flash: 0, turnV: 0, quick: 0, firing: false, aim: 0, fireAnim: 0, onLift: null };
-let foes = [], items = [], shots = [], booms = [], decor = [], specks = [];
+let state = "boot", lv = null, level = 0, skill = 1, mapOn = false, levelT = 0, deadT = 0, attract = false, marks = null, alarm = 0, demoT = 0;
+const P = { x: 0, y: 0, z: 0, a: 0, pitch: 0, vx: 0, vy: 0, vz: 0, hp: 100, armor: 0, weapon: 1, owned: [1, 1, 0, 0, 0, 0, 0], ammo: { rivets: 50, shells: 0, cells: 0, slag: 0 },
+  keys: {}, bob: 0, bobK: 0, kick: 0, cool: 0, swap: 0, next: -1, hurt: 0, flash: 0, turnV: 0, quick: 0, firing: false, aim: 0, fireAnim: 0, onLift: null,
+  land: 0, step: 0, chill: 0, shake: 0, spin: 0, wet: 0 };
+let foes = [], items = [], shots = [], booms = [], decor = [], specks = [], bits = [], flakes = [], puffs = [], colds = [];
 let stats = { kills: 0, killsAll: 0, items: 0, itemsAll: 0, secrets: 0, secretsAll: 0 };
 let flowT = 0, flow = null, slimeT = 0, frameNo = 0;
 const R = Math.random, rr = (a) => a[0] + R() * (a[1] - a[0]);
+const FX = { light: true };                        // the light tier (a Pi 3): fewer bits, flakes, puffs and marks
+function tier() { FX.light = !E.rung || E.rung.h <= 180; }
 
+function newFoe(k, x, y, hp) {
+  const K = KINDS[k];
+  return { k, K, x, y, z: lv.m.floor[lv.m.at(x, y)] + (K.fly || 0), a: R() * TAU, hp, max: hp, st: "idle", t: R() * 2, cd: 1 + R(), anim: R() * 2, hurt: 0,
+    dead: 0, wake: 0, shots: 0, seen: 0, charge: 0, frozen: 0, open: 0, phase: 1, bob: R() * 6, call: 6 };
+}
 function startLevel(k, keep) {
   level = k; const def = ORDER[k];
-  lv = parseLevel(def.id);
-  ray.tex = TEX; ray.sky = SKYTEX; ray.maxD = 34; ray.minL = 3;
-  const outdoor = def.id === "towers";
-  pal.maps(outdoor ? 0x2a1410 : 0x050304, outdoor ? 0.55 : 0.0); ray.dim = outdoor ? 1.4 : 2.0;
-  foes = []; items = []; shots = []; booms = []; decor = []; specks = [];
+  lv = parseLevel(def.id); tier();
+  ray.tex = TEX; ray.sky = def.sky === "cold" ? SKIES.cold : SKIES.fire; ray.maxD = 34; ray.minL = 3;
+  const outdoor = def.outdoor || def.snow, cold = def.sky === "cold";
+  pal.maps(cold ? (outdoor ? 0x1a2636 : 0x05070c) : (outdoor ? 0x2a1410 : 0x050304), outdoor ? 0.55 : cold ? 0.12 : 0.0); ray.dim = outdoor ? 1.4 : cold ? 1.8 : 2.0;
+  marks = new L3.Marks(ray, lv.m, FX.light ? 64 : 160);
+  foes = []; items = []; shots = []; booms = []; decor = []; specks = []; bits = []; flakes = []; puffs = []; colds = []; lights = [];
   stats = { kills: 0, killsAll: 0, items: 0, itemsAll: 0, secrets: 0, secretsAll: lv.groups + lv.doors.filter(d => d.secret).length };
-  let n = 0;
+  alarm = 0;
+  let n = 0; const kinds = new Set();
   for (const t of lv.things) {
     const c = t.c;
     if (c === "@") { P.x = t.x; P.y = t.y; P.a = startAngle(t.x, t.y); continue; }
-    const kindOf = { h: "husk", g: "gunner", s: "spitter", b: "brute", w: "warden" }[c];
+    const kindOf = FOE[c];
     if (kindOf) {
-      n++; if (skill === 0 && kindOf !== "warden" && n % 3 === 0) continue;
-      const K = KINDS[kindOf], hp = Math.round(K.hp * (skill === 2 ? 1.25 : 1));
-      foes.push({ k: kindOf, K, x: t.x, y: t.y, z: lv.m.floor[lv.m.at(t.x, t.y)], a: R() * TAU, hp, max: hp, st: "idle", t: R() * 2, cd: 1 + R(), anim: R() * 2, hurt: 0, dead: 0, wake: 0, shots: 0, seen: 0, charge: 0 });
-      stats.killsAll++; continue;
+      n++; if (skill === 0 && !KINDS[kindOf].boss && n % 3 === 0) continue;
+      kinds.add(kindOf);
+      const hp = Math.round(KINDS[kindOf].hp * (skill === 2 ? 1.25 : 1));
+      foes.push(newFoe(kindOf, t.x, t.y, hp)); stats.killsAll++; continue;
     }
-    if (c === "x" || c === "t" || c === "p" || c === "l" || c === "v") { decor.push({ c, x: t.x, y: t.y, hp: c === "x" ? 20 : 0, solid: c !== "l" && c !== "v", r: c === "t" ? 0.32 : c === "p" ? 0.16 : 0.18 }); continue; }
+    if (/[xtpvlSd]/.test(c)) { decor.push({ c, x: t.x, y: t.y, hp: c === "x" ? 20 : 0, solid: c !== "l" && c !== "v", r: c === "t" ? 0.32 : c === "p" ? 0.16 : c === "S" ? 0.24 : 0.18 }); continue; }
     items.push({ c, x: t.x, y: t.y, z: lv.m.floor[lv.m.at(t.x, t.y)], got: false }); stats.itemsAll++;
   }
-  if (!keep) { P.hp = 100; P.armor = 0; P.owned = [1, 1, 0, 0, 0]; P.ammo = { rivets: 50, shells: 0, cells: 0, slag: 0 }; P.weapon = 1; }
+  if (def.boss === "coldheart") kinds.add("drone");  // (it calls them)
+  bakeShapes([...kinds]); primeHelpers([...kinds]);
+  if (!keep) { P.hp = 100; P.armor = 0; P.owned = [1, 1, 0, 0, 0, 0, 0]; P.ammo = { rivets: 50, shells: 0, cells: 0, slag: 0 }; P.weapon = 1; }
   P.keys = {}; P.z = lv.m.floor[lv.m.at(P.x, P.y)]; P.vx = P.vy = P.vz = 0; P.pitch = 0; P.hurt = 0; P.flash = 0; P.cool = 0; P.swap = 0; P.next = -1; P.quick = 0; P.onLift = null;
+  P.land = 0; P.chill = 0; P.shake = 0; P.spin = 0; P.wet = lv.wet[lv.m.at(P.x, P.y)];
   levelT = 0; deadT = 0; flowT = 0; mapOn = false; $("map").classList.add("hidden");
   computeFlow();
   state = "play"; $("hud").classList.remove("hidden"); menu.hide();
-  center(def.name + "<small>" + def.tag + "</small>", 3);
-  music(def.id); E.gov.hold(1500); hud(true);
+  center((def.ep && k === ORDER.findIndex(o => o.ep === def.ep) ? "<small>" + EPISODES[def.ep] + "</small>" : "") + def.name + "<small>" + def.tag + "</small>", 3);
+  music(def.id); ambience(def.amb); E.gov.hold(ray.threaded ? 3000 : 1500); hud(true);   // (the helpers need a moment to get going)
+}
+function primeHelpers(kinds) {                     // the level's textures and sprites to the helpers now, not when first seen
+  if (!ray.threaded) return;
+  const list = TEX.filter(Boolean).concat(SLIME, LAVA, WATER, [SKIES.fire, SKIES.cold]);
+  for (const v of Object.values(ITEMS)) { if (Array.isArray(v)) list.push(...v); else list.push(v); }
+  for (const k of kinds) { const S = SPR[k]; if (!S) continue; for (const a of S.walk) list.push(...a); list.push(...S.attack, ...S.pain, ...S.die); }
+  ray.prime(list);
 }
 function startAngle(x, y) {                        // face the most open way
   let best = 0, bd = -1;
@@ -658,7 +1012,7 @@ function hud(force) {
   setH("slots", P.owned.map((o, i) => `<span class="${o ? "have" : ""}${i === P.weapon ? " on" : ""}">${i + 1}</span>`).join(""), true);
   setH("keys", Object.keys(P.keys).map(k => `<i style="color:${KEYCOL[k]}"></i>`).join(""), true);
 }
-let hitT = 0, crossOn = false;
+let hitT = 0, crossOn = false, frostOn = -1;
 const dmgEls = [$("dmg0"), $("dmg1"), $("dmg2")]; let dmgI = 0;
 function damageFrom(x, y) {                         // a red arc towards where it came from
   const el = dmgEls[dmgI++ % 3], a = Math.atan2(y - P.y, x - P.x) - P.a;
@@ -667,11 +1021,13 @@ function damageFrom(x, y) {                         // a red arc towards where i
 }
 function tint(col, a) { const t = $("tint"); t.style.transition = "none"; t.style.background = col; t.style.opacity = a; requestAnimationFrame(() => { t.style.transition = "opacity .35s"; t.style.opacity = 0; }); }
 function rumble(s, w, ms) { if (save.opts.rumble && window.SofaPad) SofaPad.rumble(s, w, ms); }
+function shake(k) { if (save.opts.shake) P.shake = Math.min(1, P.shake + k); }
 
 // ---------------------------------------------------------------- the player
 function onButton(b, how) {
   synth.start();
   if (how === "release") return;
+  if (DEMO) return;                                  // (the demo takes no controller: the games check is using it)
   if (menu.button(b, how)) return;
   if (state === "dead" && how === "press" && (b === "a" || b === "start" || b === "use" || b === "fire")) { if (deadT > 1) startLevel(level, false); return; }
   if (state === "done") return;
@@ -683,12 +1039,12 @@ function onButton(b, how) {
   else if (b === "rb" || (b === "right" && input.pad() && window.SofaPad.button("right"))) cycle(1);
   else if (b === "lb" || (b === "left" && input.pad() && window.SofaPad.button("left"))) cycle(-1);
   else if (b === "b" || b === "turn") { if (!P.quick) P.quick = Math.PI; }
-  else if (/^w[1-5]$/.test(b)) pick(+b[1] - 1);
+  else if (/^w[1-7]$/.test(b)) pick(+b[1] - 1);
 }
-function hasAmmo(i) { const w = WEAPONS[i]; return !w.ammo || P.ammo[w.ammo] > 0; }
-function cycle(d) { for (let k = 1; k <= 5; k++) { const i = (P.weapon + d * k + 5) % 5; if (P.owned[i] && hasAmmo(i)) { pick(i); return; } } }
-function pick(i) { if (!P.owned[i] || i === P.weapon || P.next >= 0) return; P.next = i; P.swap = 0.32; synth.play("click"); }
-function bestWeapon() { for (const i of [3, 2, 1, 4, 0]) if (P.owned[i] && hasAmmo(i)) return i; return 0; }
+function hasAmmo(i) { const w = WEAPONS[i]; return !w.ammo || P.ammo[w.ammo] >= (w.cost || 1); }
+function cycle(d) { for (let k = 1; k <= NW; k++) { const i = (P.weapon + d * k + NW * 2) % NW; if (P.owned[i] && hasAmmo(i)) { pick(i); return; } } }
+function pick(i) { if (!P.owned[i] || i === P.weapon || P.next >= 0) return; P.next = i; P.swap = 0.32; P.spin = 0; synth.play("click"); }
+function bestWeapon() { for (const i of [5, 3, 2, 1, 6, 4, 0]) if (P.owned[i] && hasAmmo(i)) return i; return 0; }
 function use() {                                   // A: a door, a lift, the exit switch, a secret wall, in front
   const m = lv.m;
   for (let d = 0.3; d <= 1.25; d += 0.15) {
@@ -698,7 +1054,7 @@ function use() {                                   // A: a door, a lift, the exi
     const lf = lv.lifts.find(o => o.i === i);
     if (lf) { if (lf.state === "up") { lf.state = "down"; synth.play("door"); } return; }
     if (lv.exits.indexOf(i) >= 0) { m.wtex[i] = T_SWITCHON; synth.play("switch"); finishLevel(); return; }
-    if (m.solid[i]) { synth.play("click"); return; }
+    if (m.solid[i] || m.mask[i]) { synth.play("click"); return; }
   }
 }
 function openDoor(dr, byPlayer) {
@@ -706,26 +1062,32 @@ function openDoor(dr, byPlayer) {
   if (dr.key && !P.keys[dr.key]) { if (byPlayer) { say("This door needs the " + KEYNAME[dr.key] + " key."); synth.play("locked"); } return; }
   if (dr.secret && byPlayer && !dr.found) { dr.found = 1; stats.secrets++; say("A secret!"); synth.play("secret"); }
   if (dr.secret && !byPlayer) return;
-  dr.target = 1; dr.t = 0; synth.play("door");
+  dr.target = 1; dr.t = 0; snd("door", dr.x + 0.5, dr.y + 0.5);
 }
-function hurtPlayer(n, fx, fy) {
+function hurtPlayer(n, fx, fy, kind) {
   if (state !== "play") return;
   n *= skill === 0 ? 0.6 : skill === 2 ? 1.3 : 1;
   const absorb = Math.min(P.armor, n / 3); P.armor -= absorb; n -= absorb;
   P.hp -= n; P.hurt = Math.min(1, P.hurt + n / 30);
-  tint("rgba(200,20,10,0.6)", clamp(n / 25, 0.15, 0.6)); rumble(clamp(n / 20, 0.3, 1), 0.5, 160); synth.play("hurt");
+  if (DEMO && P.hp < 20) P.hp = 60;                  // (a demo never ends in a death)
+  if (kind === "frost") { P.chill = Math.max(P.chill, 1.8); tint("rgba(150,220,255,0.5)", 0.45); } else tint("rgba(200,20,10,0.6)", clamp(n / 25, 0.15, 0.6));
+  rumble(clamp(n / 20, 0.3, 1), 0.5, 160); synth.play("hurt"); shake(clamp(n / 45, 0.08, 0.5));
   if (fx != null) damageFrom(fx, fy);
   if (P.hp <= 0) { P.hp = 0; state = "dead"; deadT = 0; center("You fell in the Ironmaw<small>" + kb("a") + " to try again</small>", 999); tint("rgba(120,0,0,0.8)", 0.8); }
   hud();
 }
+const FLOORSTEP = {};
+FLOORSTEP[T_GRATE] = FLOORSTEP[T_VENT] = FLOORSTEP[T_LIFT] = "stepGrate"; FLOORSTEP[T_ASH] = "stepSoft"; FLOORSTEP[T_SNOW] = "stepSnow";
+FLOORSTEP[T_SLIME] = FLOORSTEP[T_LAVA] = FLOORSTEP[T_WATER] = "stepWet";
 function stepPlayer(dt) {
-  const m = lv.m, o = save.opts, st = input.stick(), st2 = input.pad() ? window.SofaPad.stick2() : { x: 0, y: 0 };
+  const m = lv.m, o = save.opts, auto = DEMO ? pilot(dt) : null, st = auto ? auto.st : input.stick(), st2 = auto ? { x: auto.turn, y: 0 } : input.pad() ? window.SofaPad.stick2() : { x: 0, y: 0 };
   // turning: the right stick (a curve: gentle near the middle, quick at the edge), the keyboard's arrows, a mouse
   let tx = st2.x; tx = Math.sign(tx) * Math.pow(Math.abs(tx), 1.8);
-  if (input.key("left")) tx = -1; else if (input.key("right")) tx = 1;
-  const aiming = (input.pad() ? window.SofaPad.trigger("lt") > 0.35 : false) || input.key("aim") || mouse.aim;
+  if (!auto) { if (input.key("left")) tx = -1; else if (input.key("right")) tx = 1; }
+  const aiming = !auto && ((input.pad() ? window.SofaPad.trigger("lt") > 0.35 : false) || input.key("aim") || mouse.aim);
   P.aim += ((aiming ? 1 : 0) - P.aim) * (1 - Math.exp(-12 * dt));
-  let rate = (1.6 + o.turn * 0.42) * (1 - P.aim * 0.45);
+  const cold = 1 - 0.38 * Math.min(1, P.chill);
+  let rate = (1.6 + o.turn * 0.42) * (1 - P.aim * 0.45) * (0.75 + 0.25 * cold);
   // aim help: turning slows over a target, and drifts a little with it while you move
   const tgt = o.assist ? target(0.13) : null;
   if (tgt) rate *= o.assist === 2 ? 0.5 : 0.65;
@@ -737,39 +1099,54 @@ function stepPlayer(dt) {
   }
   if (P.quick) { const s = Math.min(P.quick, 12 * dt); P.a += s; P.quick -= s; }
   P.a = wrap(P.a);
-  if (o.look) { const ly = (o.invert ? -1 : 1) * -st2.y; P.pitch = clamp(P.pitch + ly * 1.1 * dt - mouse.dy * 0.002, -0.22, 0.22); }
+  if (o.look && !auto) { const ly = (o.invert ? -1 : 1) * -st2.y; P.pitch = clamp(P.pitch + ly * 1.1 * dt - mouse.dy * 0.002, -0.22, 0.22); }
   else P.pitch += (0 - P.pitch) * (1 - Math.exp(-8 * dt));
   mouse.dy = 0;
-  // moving: the left stick (as far as it's pushed), the keys; quick to start, quick to stop
+  // moving: the left stick (as far as it's pushed), the keys; quick to start, quick to stop; water and cold slow you
   let mf = -st.y, ms = st.x;
-  if (input.key("fwd") || input.key("up")) mf = 1; else if (input.key("rev") || input.key("down")) mf = -1;
-  if (input.key("strafeL")) ms = -1; else if (input.key("strafeR")) ms = 1;
+  if (!auto) { if (input.key("fwd") || input.key("up")) mf = 1; else if (input.key("rev") || input.key("down")) mf = -1; if (input.key("strafeL")) ms = -1; else if (input.key("strafeR")) ms = 1; }
   const len = Math.hypot(mf, ms); if (len > 1) { mf /= len; ms /= len; }
-  const speed = 3.1 * (1 - P.aim * 0.3), c = Math.cos(P.a), s = Math.sin(P.a);
+  const ci0 = m.at(P.x, P.y), wading = lv.wet[ci0] && P.z < m.floor[ci0] + 0.05;
+  const speed = 3.1 * (1 - P.aim * 0.3) * cold * (wading ? 0.62 : 1), c = Math.cos(P.a), s = Math.sin(P.a);
   const wx = (c * mf - s * ms) * speed, wy = (s * mf + c * ms) * speed, k = 1 - Math.exp(-(len > 0.05 ? 11 : 14) * dt);
   P.vx += (wx - P.vx) * k; P.vy += (wy - P.vy) * k;
   const bx0 = P.x, by0 = P.y;
   m.move(P, P.vx * dt, P.vy * dt, BODY.r, BODY.step, BODY.room);
   for (const d of decor) if (d.solid && d.hp >= 0) { const dx = P.x - d.x, dy = P.y - d.y, dd = Math.hypot(dx, dy), rr2 = d.r + BODY.r; if (dd < rr2 && dd > 0) { P.x = d.x + dx / dd * rr2; P.y = d.y + dy / dd * rr2; } }
-  for (const f of foes) if (!f.dead) { const dx = P.x - f.x, dy = P.y - f.y, dd = Math.hypot(dx, dy), rr2 = f.K.r + BODY.r; if (dd < rr2 && dd > 0) { P.x = f.x + dx / dd * rr2; P.y = f.y + dy / dd * rr2; } }
+  for (const f of foes) if (!f.dead && !f.K.fly) { const dx = P.x - f.x, dy = P.y - f.y, dd = Math.hypot(dx, dy), rr2 = f.K.r + BODY.r; if (dd < rr2 && dd > 0) { P.x = f.x + dx / dd * rr2; P.y = f.y + dy / dd * rr2; } }
   if (!m.open(P.x, P.y, BODY.r, P.z, BODY.step, BODY.room)) { P.x = bx0; P.y = by0; }
-  // standing: on the floor (steps up quickly, falls down)
+  // standing: on the floor (steps up quickly, falls down; a hard landing dips the view)
   const fl = m.floorAt(P.x, P.y, BODY.r * 0.7);
-  if (fl > P.z) P.z = Math.min(fl, P.z + 2.6 * dt + (fl - P.z) * 0.3); else { P.vz -= 9 * dt; P.z = Math.max(fl, P.z + P.vz * dt); if (P.z === fl) P.vz = 0; }
+  if (fl > P.z) P.z = Math.min(fl, P.z + 2.6 * dt + (fl - P.z) * 0.3);
+  else {
+    P.vz -= 9 * dt; P.z = Math.max(fl, P.z + P.vz * dt);
+    if (P.z === fl) { if (P.vz < -2.2) { P.land = Math.min(1, -P.vz / 6); footstep(true); shake(P.land * 0.25); } P.vz = 0; }
+  }
+  P.land = Math.max(0, P.land - dt * 3);
   const moving = Math.hypot(P.vx, P.vy) / 3.1;
   P.bob += dt * 8.5 * moving; P.bobK += (moving - P.bobK) * (1 - Math.exp(-8 * dt));
-  // the floor: hot ones hurt (every so often), a secret's counted when found
+  const ph = Math.floor(P.bob / Math.PI); if (ph !== P.step) { P.step = ph; if (moving > 0.2) footstep(false); }
+  // the floor: hot ones hurt (every so often), water splashes, a secret's counted when found
   const ci = m.at(P.x, P.y);
   if (lv.hurt[ci] && P.z < m.floor[ci] + 0.05) { P.burn = (P.burn || 0) + dt; if (P.burn > 0.5) { P.burn = 0; hurtPlayer(lv.hurt[ci] * 0.5); } }
+  const w2 = lv.wet[ci] && P.z < m.floor[ci] + 0.05; if (w2 && !P.wet) { synth.play("splash"); for (let q = 0; q < 6; q++) specks.push({ x: P.x + c * 0.4, y: P.y + s * 0.4, z: P.z + 0.05, vx: (R() - 0.5) * 1.4, vy: (R() - 0.5) * 1.4, vz: 1 + R(), life: 0.4, idx: 0 * 16 + 13, size: 0.03, full: 0 }); } P.wet = w2;
   const sg = lv.secret[ci]; if (sg && !lv.found[sg]) { lv.found[sg] = 1; stats.secrets++; say("A secret!"); synth.play("secret"); }
   m.seen[ci] = 1;
+  if (P.chill > 0) P.chill = Math.max(0, P.chill - dt);
   // pick up what's here
   for (const it of items) if (!it.got && Math.hypot(it.x - P.x, it.y - P.y) < 0.42 && Math.abs(it.z - P.z) < 0.4) take(it);
-  // weapons: switching, firing
+  // weapons: switching, winding up, firing
   if (P.swap > 0) { P.swap -= dt; if (P.swap <= 0.16 && P.next >= 0) { P.weapon = P.next; P.next = -1; hud(); } if (P.swap < 0) P.swap = 0; }
   P.cool -= dt; P.kick *= Math.exp(-14 * dt); P.flash = Math.max(0, P.flash - dt); P.fireAnim = Math.max(0, P.fireAnim - dt); P.hurt = Math.max(0, P.hurt - dt * 0.8);
-  const firing = (input.pad() && window.SofaPad.trigger("rt") > 0.35) || input.key("fire") || mouse.fire;
-  if (firing && P.cool <= 0 && P.swap <= 0) fire();
+  P.shake = Math.max(0, P.shake - dt * 2.2);
+  const firing = auto ? auto.fire : (input.pad() && window.SofaPad.trigger("rt") > 0.35) || input.key("fire") || mouse.fire, w = WEAPONS[P.weapon];
+  if (w.spin) { if (firing && P.swap <= 0 && hasAmmo(P.weapon)) { if (P.spin === 0) synth.play("spin"); P.spin = Math.min(w.spin, P.spin + dt); } else P.spin = Math.max(0, P.spin - dt * 1.5); }
+  if (auto && auto.use) use();
+  if (firing && P.cool <= 0 && P.swap <= 0 && (!w.spin || P.spin >= w.spin)) fire();
+}
+function footstep(hard) {                          // the sound of the floor you're on
+  const i = lv.m.at(P.x, P.y), t = lv.m.ftex[i];
+  synth.play(lv.wet[i] ? "stepWet" : hard ? "stepHard" : FLOORSTEP[t] || "stepHard");
 }
 function take(it) {
   const c = it.c; let t = "";
@@ -780,19 +1157,22 @@ function take(it) {
   else if (c === "e") { if (P.ammo.shells >= AMMO.shells) return; P.ammo.shells = Math.min(AMMO.shells, P.ammo.shells + 8); t = "Shells"; }
   else if (c === "k") { if (P.ammo.cells >= AMMO.cells) return; P.ammo.cells = Math.min(AMMO.cells, P.ammo.cells + 40); t = "A power cell"; }
   else if (c === "r") { if (P.ammo.slag >= AMMO.slag) return; P.ammo.slag = Math.min(AMMO.slag, P.ammo.slag + 4); t = "Slag charges"; }
-  else if (c === "3" || c === "4" || c === "5") {
+  else if (/[34567]/.test(c)) {
     const wi = +c - 1, w = WEAPONS[wi], first = !P.owned[wi];
-    P.owned[wi] = 1; P.ammo[w.ammo] = Math.min(AMMO[w.ammo], P.ammo[w.ammo] + { shells: 8, cells: 60, slag: 4 }[w.ammo]);
+    P.owned[wi] = 1; P.ammo[w.ammo] = Math.min(AMMO[w.ammo], P.ammo[w.ammo] + { rivets: 40, shells: 8, cells: 60, slag: 4 }[w.ammo]);
     t = "The " + w.name.toLowerCase() + "!"; if (first) pick(wi); synth.play("gun");
   }
-  else if (c === "q" || c === "u" || c === "y") { P.keys[c] = 1; t = "The " + KEYNAME[c] + " key"; synth.play("secret"); }
+  else if (c === "q" || c === "u" || c === "y") {
+    P.keys[c] = 1; t = "The " + KEYNAME[c] + " key"; synth.play("secret");
+    if (lv.def.alarm === c && !alarm) { alarm = 1; center("ALARM<small>The reactor knows its key is gone</small>", 3); wakeAll(60); }
+  }
   it.got = true; if (!it.drop) stats.items++;
-  if (!/[345quy]/.test(c)) synth.play("item");
+  if (!/[34567quy]/.test(c)) synth.play("item");
   tint("rgba(255,220,140,0.35)", 0.35); say(t); hud();
 }
 
 // ---------------------------------------------------------------- shooting
-const HIT = { f: null, d: 0 };
+const HIT = { f: null, d: 0, wi: -1, wf: -1, decor: null };
 function target(cone) {                            // the enemy nearest the middle of the view, within cone, in sight
   let best = null, bd = cone;
   for (const f of foes) {
@@ -803,10 +1183,10 @@ function target(cone) {                            // the enemy nearest the midd
   }
   return best;
 }
-function hitscan(a, range) {                        // along a: the first enemy (or barrel) in the way, or the wall
+function hitscan(a, range) {                        // along a: the first enemy (or barrel) in the way, or the wall (and which face)
   const m = lv.m, ez = P.z + BODY.eye, c = Math.cos(a), s = Math.sin(a);
   const wall = m.trace(P.x, P.y, ez, P.x + c * range, P.y + s * range, ez) * range;
-  HIT.f = null; HIT.d = wall; HIT.decor = null;
+  HIT.f = null; HIT.d = wall; HIT.decor = null; HIT.wi = m.hitI; HIT.wf = m.hitFace;
   for (const f of foes) {
     if (f.dead) continue;
     const dx = f.x - P.x, dy = f.y - P.y, along = dx * c + dy * s; if (along <= 0 || along > HIT.d) continue;
@@ -821,21 +1201,24 @@ function hitscan(a, range) {                        // along a: the first enemy 
   }
   return HIT;
 }
+function aimZ(d) { return P.z + BODY.eye + P.pitch * pic.h * d / (ray.core.f || 1); }   // where the cross is, that far off
 function fire() {
-  const w = WEAPONS[P.weapon];
-  if (w.ammo && P.ammo[w.ammo] <= 0) { P.cool = 0.25; synth.play("click"); const b = bestWeapon(); if (b !== P.weapon) pick(b); return; }
+  const w = WEAPONS[P.weapon], cost = w.cost || 1;
+  if (w.ammo && P.ammo[w.ammo] < cost) { P.cool = 0.25; synth.play("click"); const b = bestWeapon(); if (b !== P.weapon) pick(b); return; }
   P.cool = w.rate; P.fireAnim = Math.min(0.12, w.rate * 0.8); P.kick += w.kick || 4; P.flash = w.melee ? 0 : 0.06;
-  if (w.ammo) P.ammo[w.ammo]--;
-  if (w.rumble) rumble(w.rumble[0], w.rumble[1], w.id === "arc" ? 50 : 110);
+  if (w.ammo) P.ammo[w.ammo] -= cost;
+  if (w.rumble) rumble(w.rumble[0], w.rumble[1], w.id === "arc" || w.id === "nail" ? 50 : 110);
+  if (w.casing) casing(w.casing);
   wakeAll(w.melee ? 3 : 11);
   if (w.melee) {
     synth.play("cut");
     const h = hitscan(P.a, w.melee);
-    if (h.f) { damage(h.f, rr(w.dmg), P.x, P.y); speck(h.f.x, h.f.y, h.f.z + h.f.K.h * 0.6, 5, 4); }
+    if (h.f) { damage(h.f, rr(w.dmg), P.x, P.y); speck(h.f.x, h.f.y, h.f.z + h.f.K.h * 0.6, h.f.K.flesh ? 5 : 14, 4, !h.f.K.flesh); }
     else if (h.decor) hitDecor(h.decor, rr(w.dmg));
     hud(); return;
   }
   synth.play(w.id);
+  if (w.beam) { lance(P.a, w); hud(); return; }
   if (w.proj) {
     const tg = target(0.2), a = P.a, sp = w.proj.speed;
     const vz = tg ? clamp(((tg.z + tg.K.h * 0.5) - (P.z + BODY.eye - 0.08)) / Math.max(0.5, Math.hypot(tg.x - P.x, tg.y - P.y)) * sp, -6, 6) : P.pitch * 12;
@@ -847,36 +1230,84 @@ function fire() {
   for (let p = 0; p < w.pellets; p++) {
     const a = P.a + (w.pellets > 1 ? (R() - 0.5) * 2 * spread : (P.cool > 0 && R() < 0.5 ? (R() - 0.5) * 2 * spread : 0));
     const h = hitscan(a, 30);
-    if (h.f) { any = true; if (damage(h.f, rr(w.dmg), P.x, P.y)) kill = true; speck(h.f.x, h.f.y, h.f.z + h.f.K.h * (0.4 + R() * 0.4), 5, 3); }
+    if (h.f) { any = true; if (damage(h.f, rr(w.dmg), P.x, P.y)) kill = true; speck(h.f.x, h.f.y, h.f.z + h.f.K.h * (0.4 + R() * 0.4), h.f.K.flesh ? 5 : 14, 3, !h.f.K.flesh); }
     else if (h.decor) hitDecor(h.decor, rr(w.dmg));
-    else { const d = h.d - 0.05; speck(P.x + Math.cos(a) * d, P.y + Math.sin(a) * d, P.z + BODY.eye + P.pitch * d * 2, 14, 2, true); }
+    else {
+      const d = h.d - 0.05, hx = P.x + Math.cos(a) * h.d, hy = P.y + Math.sin(a) * h.d, z = aimZ(h.d);
+      speck(P.x + Math.cos(a) * d, P.y + Math.sin(a) * d, z, 14, 2, true);
+      if (h.wi >= 0) marks.wall(h.wi, h.wf, hx, hy, z, { r: w.pellets > 1 ? 1.8 : 2.4, kind: "hole" });
+    }
     if (w.tracer) for (let k = 1; k < Math.min(h.d, 12); k += 0.9) specks.push({ x: P.x + Math.cos(a) * k, y: P.y + Math.sin(a) * k, z: P.z + BODY.eye - 0.06, vx: 0, vy: 0, vz: 0, life: 0.05, idx: 15 * 16 + 14, size: 0.035, full: 1 });
   }
   if (any) { hitT = 0.12; $("hit").classList.toggle("kill", kill); }
   hud();
 }
+function lance(a, w) {                              // a beam of cold: everything in its way, to the wall
+  const m = lv.m, ez = P.z + BODY.eye, c = Math.cos(a), s = Math.sin(a), wall = m.trace(P.x, P.y, ez, P.x + c * 30, P.y + s * 30, ez) * 30, wi = m.hitI, wf = m.hitFace;
+  let hits = 0, kill = false;
+  for (const f of foes) {
+    if (f.dead) continue;
+    const dx = f.x - P.x, dy = f.y - P.y, along = dx * c + dy * s; if (along <= 0 || along > wall) continue;
+    if (Math.abs(-dx * s + dy * c) > f.K.r + 0.12) continue;
+    hits++; if (!f.K.boss) f.frozen = Math.max(f.frozen, w.freeze); if (damage(f, rr(w.dmg), P.x, P.y, "cold")) kill = true;
+    speck(f.x, f.y, f.z + f.K.h * 0.6, 15, 6, true);
+  }
+  for (const d of decor) if (d.c === "x" && d.hp > 0) { const dx = d.x - P.x, dy = d.y - P.y, along = dx * c + dy * s; if (along > 0 && along < wall && Math.abs(-dx * s + dy * c) < 0.22) hitDecor(d, 100); }
+  for (let k = 0.6; k < wall; k += 0.3) { specks.push({ x: P.x + c * k, y: P.y + s * k, z: ez - 0.08 + Math.sin(k * 3) * 0.02, vx: 0, vy: 0, vz: 0, life: 0.2, idx: 15 * 16 + 13, size: 0.05, full: 1 }); if ((k * 10 | 0) % 6 === 0) colds.push({ x: P.x + c * k, y: P.y + s * k, t: 0.25 }); }
+  if (wi >= 0) marks.wall(wi, wf, P.x + c * wall, P.y + s * wall, ez, { r: 12, kind: "frost", ramp: 8 });
+  shake(0.15);
+  if (hits) { hitT = 0.15; $("hit").classList.toggle("kill", kill); }
+}
+// spent rivets and shells, flying out to the right and bouncing
+function casing(ramp) {
+  if (bits.length > (FX.light ? 40 : 80)) return;
+  const c = Math.cos(P.a), s = Math.sin(P.a), rx = -s, ry = c;
+  bits.push({ x: P.x + c * 0.28 + rx * 0.16, y: P.y + s * 0.28 + ry * 0.16, z: P.z + BODY.eye - 0.14, vx: rx * (1.2 + R()) + c * 0.3, vy: ry * (1.2 + R()) + s * 0.3, vz: 1 + R() * 0.8,
+    life: 1.4, idx: ramp * 16 + 10 + (R() * 3 | 0), size: 0.022, full: 0, b: 0, tink: 1 });
+}
 function speck(x, y, z, ramp, n, full) {
   for (let k = 0; k < n; k++) specks.push({ x, y, z, vx: (R() - 0.5) * 1.6, vy: (R() - 0.5) * 1.6, vz: 0.4 + R() * 1.4, life: 0.35 + R() * 0.3, idx: ramp * 16 + 8 + (R() * 6 | 0), size: 0.03 + R() * 0.02, full: full ? 1 : 0 });
 }
-function damage(f, n, fx, fy) {                    // true when it dies
+function damage(f, n, fx, fy, kind) {              // true when it dies
   if (f.dead) return false;
-  f.hp -= n; f.wake = 1; if (f.st === "idle") { f.st = "chase"; synth.play("growl"); }
-  if (f.hp <= 0) {
-    f.dead = 1; f.st = "dead"; f.t = 0; stats.kills++; synth.play("edie"); speck(f.x, f.y, f.z + f.K.h * 0.5, 5, 10);
-    if (f.K.drop) items.push({ c: f.K.drop, x: f.x, y: f.y, z: f.z, got: false, drop: true });
-    if (f.k === "warden") bossDown();
-    return true;
+  const K = f.K;
+  if (K.shield && kind !== "splash" && fx != null && Math.abs(wrap(Math.atan2(fy - f.y, fx - f.x) - f.a)) < 1.05) {   // the plate: shots from ahead glance off
+    n *= 0.12; speck(f.x + Math.cos(f.a) * 0.32, f.y + Math.sin(f.a) * 0.32, f.z + 0.5, 7, 3, true); if (R() < 0.6) snd("clang", f.x, f.y);
   }
-  if (R() < f.K.pain) { f.st = "pain"; f.t = 0.22; synth.play("epain"); }
+  if (f.k === "coldheart") { if (kind === "cold") n *= 0.3; else if (!f.open) n *= 0.12; }   // it drinks the cold; its core shut, little gets through
+  f.hp -= n; f.wake = 1; if (f.st === "idle") { f.st = "chase"; snd(K.fly ? "buzz" : "growl", f.x, f.y); }
+  if (f.hp <= 0) { die(f, kind, n); return true; }
+  if (R() < K.pain) { f.st = "pain"; f.t = 0.22; snd("epain", f.x, f.y); }
   return false;
+}
+function die(f, kind, n) {
+  const K = f.K;
+  f.dead = 1; f.st = "dead"; f.t = 0; stats.kills++; snd(K.flesh ? "edie" : "crash", f.x, f.y, 1.5);
+  if (K.flesh) { speck(f.x, f.y, f.z + K.h * 0.5, 5, 10); marks.floor(f.x, f.y, { r: 14 + K.r * 40, kind: "splat", ramp: 5 }); }
+  else { speck(f.x, f.y, f.z + K.h * 0.5, 14, 12, true); marks.floor(f.x, f.y, { r: 12 + K.r * 30, kind: "stain", ramp: 12 }); }
+  if ((kind === "splash" && n > 45) || K.fly || K.boss) burst(f);
+  if (K.fly) f.z = lv.m.floor[lv.m.at(f.x, f.y)];
+  if (K.drop) items.push({ c: K.drop, x: f.x, y: f.y, z: lv.m.floor[lv.m.at(f.x, f.y)], got: false, drop: true });
+  if (f.k === "warden") bossDown("The Warden falls", "The furnaces go dark, one by one");
+  if (f.k === "coldheart") bossDown("The Coldheart breaks", "The cold goes out of the ice. Above you, the furnaces wake.");
+}
+function burst(f) {                                 // broken apart: glowing slag from flesh, metal and sparks from machines
+  const n = (FX.light ? 10 : 18) * (f.K.boss ? 3 : 1);
+  for (let k = 0; k < n; k++) bits.push({ x: f.x, y: f.y, z: f.z + f.K.h * 0.5, vx: (R() - 0.5) * 4, vy: (R() - 0.5) * 4, vz: 1 + R() * 3, life: 1.2 + R() * 1.2,
+    idx: (k & 1 ? 14 : f.K.flesh ? 13 : 1) * 16 + 8 + (R() * 6 | 0), size: 0.05 + R() * 0.04, full: k & 1 ? 1 : 0, b: 0 });
+  if (f.K.flesh && !f.K.boss) f.gone = 1;            // nothing left to lie there
+  marks.floor(f.x, f.y, { r: 30, kind: "scorch" });
 }
 function hitDecor(d, n) { d.hp -= n; if (d.hp <= 0) { d.hp = -1; explode(d.x, d.y, 0.3, 80, 1.9, null); } }
 function explode(x, y, z, dmg, radius, owner) {
-  booms.push({ x, y, z, t: 0 }); synth.play("boom");
+  booms.push({ x, y, z, t: 0 }); snd("boom", x, y, 2.5);
   const pd = Math.hypot(P.x - x, P.y - y); if (pd < 6) rumble(clamp(1 - pd / 6, 0.2, 1), 0.8, 300);
-  for (const f of foes) { if (f.dead) continue; const d = Math.hypot(f.x - x, f.y - y); if (d < radius && lv.m.see(x, y, z + 0.2, f.x, f.y, f.z + 0.4)) damage(f, dmg * (1 - d / radius), x, y); }
+  shake(clamp(1 - pd / 8, 0, 1) * 0.8);
+  for (const f of foes) { if (f.dead) continue; const d = Math.hypot(f.x - x, f.y - y); if (d < radius && lv.m.see(x, y, z + 0.2, f.x, f.y, f.z + 0.4)) damage(f, dmg * (1 - d / radius), x, y, "splash"); }
   if (pd < radius && lv.m.see(x, y, z + 0.2, P.x, P.y, P.z + 0.4)) hurtPlayer(dmg * (1 - pd / radius) * (owner === "player" ? 0.5 : 1), x, y);
   for (const d of decor) if (d.c === "x" && d.hp > 0 && Math.hypot(d.x - x, d.y - y) < radius) { d.hp = 0; setTimeout(() => { if (d.hp === 0) { d.hp = -1; explode(d.x, d.y, 0.3, 80, 1.9, null); } }, 120); }
+  marks.floor(x, y, { r: Math.min(44, radius * 22), kind: "scorch" });
+  for (let k = 0; k < (FX.light ? 6 : 12); k++) bits.push({ x, y, z: z + 0.2, vx: (R() - 0.5) * 5, vy: (R() - 0.5) * 5, vz: 1.5 + R() * 3, life: 0.8 + R() * 0.8, idx: 14 * 16 + 9 + (R() * 6 | 0), size: 0.04, full: 1, b: 0 });
   lightBurst(x, y, 12, 0.35);
 }
 let lights = [];
@@ -884,72 +1315,124 @@ function lightBurst(x, y, add, secs) { lights.push({ x, y, add, t: secs, max: se
 function wakeAll(radius) { for (const f of foes) if (!f.dead && f.st === "idle" && Math.hypot(f.x - P.x, f.y - P.y) < radius && (radius < 4 || lv.m.see(P.x, P.y, P.z + 0.5, f.x, f.y, f.z + 0.5) || Math.hypot(f.x - P.x, f.y - P.y) < radius * 0.5)) { f.st = "chase"; f.wake = 1; } }
 
 // ---------------------------------------------------------------- the enemies
+function flyOK(f, x, y) { const m = lv.m, i = m.at(x, y); return !m.solid[i] && !m.mask[i] && m.ceil[i] - m.floor[i] > 0.6 && m.ceil[i] > f.z + 0.15; }
+function walk(f, dx, dy) {                          // a step: walkers on the floor, flyers through the air
+  if (!f.K.fly) { const ok = lv.m.move(f, dx, dy, f.K.r, 0.4, 0.55); f.z = lv.m.floorAt(f.x, f.y, f.K.r * 0.5); return ok; }
+  let ok = true;
+  if (flyOK(f, f.x + dx + Math.sign(dx) * f.K.r, f.y)) f.x += dx; else ok = false;
+  if (flyOK(f, f.x, f.y + dy + Math.sign(dy) * f.K.r)) f.y += dy; else ok = false;
+  return ok;
+}
 function stepFoe(f, dt) {
   const K = f.K, m = lv.m;
-  f.anim += dt; f.t -= dt; f.cd -= dt;
+  if (f.frozen > 0) { f.frozen -= dt; dt *= 0.35; }    // in the lance's cold: everything slower
+  f.anim += dt; f.t -= dt; f.cd -= dt; f.bob += dt * 3;
   if (f.dead) { f.t += dt * 2; return; }
+  if (K.fly) { const goal = m.floorAt(f.x, f.y, 0.1) + K.fly + Math.sin(f.bob) * 0.08, top = m.ceil[m.at(f.x, f.y)] - K.h - 0.08; f.z += (Math.min(goal, top) - f.z) * Math.min(1, dt * 3); }
   const dx = P.x - f.x, dy = P.y - f.y, dist = Math.hypot(dx, dy);
   f.seenT = (f.seenT || 0) - dt;
   if (f.seenT <= 0) { f.seenT = 0.2; f.seen = dist < K.sight && m.see(f.x, f.y, f.z + K.h * 0.8, P.x, P.y, P.z + BODY.eye) ? 1 : 0; }
   const sees = f.seen;
   if (f.st === "idle") {
-    if (sees && (dist < 6 || Math.abs(wrap(Math.atan2(dy, dx) - f.a)) < 1.4)) { f.st = "chase"; synth.play("growl"); }
+    if (sees && (dist < 6 || Math.abs(wrap(Math.atan2(dy, dx) - f.a)) < 1.4)) { f.st = "chase"; snd(K.fly ? "buzz" : K.boss ? "roar" : "growl", f.x, f.y, K.boss ? 3 : 1); if (K.boss && !alarm) alarm = 2; }
     return;
   }
   if (state === "dead") { f.st = "chase"; }
+  if (f.k === "coldheart") coldheart(f, dt, dist, sees);
   if (f.st === "pain") { if (f.t <= 0) f.st = "chase"; return; }
   if (f.st === "attack") {
     f.a = Math.atan2(dy, dx);
-    if (f.t <= 0) { attack(f, dist, sees); f.st = "chase"; f.cd = K.cd * (0.7 + R() * 0.6); }
+    if (f.t <= 0) { attack(f, dist, sees); f.st = "chase"; f.cd = K.cd * (0.7 + R() * 0.6) * (f.phase === 2 ? 0.6 : 1); }
     return;
   }
   // chase: straight at you when it sees you, else down the flow towards you
-  if (state === "play" && sees && f.cd <= 0 && dist < K.range && (K.attack !== "melee" || dist < K.range)) { f.st = "attack"; f.t = K.wind; f.charge = 0; return; }
-  if (K.attack !== "melee" && sees && dist < K.range * 0.55 && f.k !== "warden") { strafe(f, dt); return; }
+  if (state === "play" && sees && f.cd <= 0 && dist < K.range) { f.st = "attack"; f.t = K.wind; f.charge = 0; if (K.attack !== "melee") snd(K.fly ? "zap" : "charge", f.x, f.y); if (f.k === "coldheart") f.open = K.wind + 1.6; return; }
+  if (K.attack !== "melee" && sees && dist < K.range * 0.55 && !K.boss) { strafe(f, dt); return; }
   let tx = P.x, ty = P.y;
   if (!sees || dist > 4) {
     const i = m.at(f.x, f.y), cx = i % lv.W, cy = (i / lv.W) | 0; let bd = flow[i] >= 0 ? flow[i] : 1e9, bx = -1, by = -1;
     for (const [ox, oy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const j = (cy + oy) * lv.W + cx + ox, v = flow[j]; if (v >= 0 && v < bd) { bd = v; bx = cx + ox; by = cy + oy; } }
     if (bx >= 0) { tx = bx + 0.5; ty = by + 0.5; const dr = lv.doors.find(o => o.i === by * lv.W + bx); if (dr && dr.open < 0.6) { openDoor(dr, false); return; } }
   }
-  const a = Math.atan2(ty - f.y, tx - f.x); f.a = a;
-  const sp = (f.k === "brute" && sees && dist < 6 ? K.charge : K.speed) * (skill === 2 ? 1.1 : 1) * dt;
-  if (!m.move(f, Math.cos(a) * sp, Math.sin(a) * sp, K.r, 0.4, 0.55)) f.a += (R() - 0.5) * 2;
-  f.z = m.floorAt(f.x, f.y, K.r * 0.5);
+  const a = Math.atan2(ty - f.y, tx - f.x);
+  f.a = K.shield && sees ? Math.atan2(dy, dx) : a;     // (a bulwark keeps its plate towards you)
+  const sp = (f.k === "brute" && sees && dist < 6 ? K.charge : K.speed) * (skill === 2 ? 1.1 : 1) * (f.phase === 2 ? 1.35 : 1) * dt;
+  if (!walk(f, Math.cos(a) * sp, Math.sin(a) * sp)) f.a += (R() - 0.5) * 2;
 }
 function strafe(f, dt) {                           // ranged ones keep their distance, side-stepping
   f.side = f.side || (R() < 0.5 ? 1 : -1); if (R() < dt * 0.5) f.side = -f.side;
   const a = Math.atan2(P.y - f.y, P.x - f.x) + f.side * Math.PI / 2, sp = f.K.speed * 0.6 * dt;
-  if (!lv.m.move(f, Math.cos(a) * sp, Math.sin(a) * sp, f.K.r, 0.4, 0.55)) f.side = -f.side;
-  f.a = Math.atan2(P.y - f.y, P.x - f.x); f.z = lv.m.floorAt(f.x, f.y, f.K.r * 0.5);
+  if (!walk(f, Math.cos(a) * sp, Math.sin(a) * sp)) f.side = -f.side;
+  f.a = Math.atan2(P.y - f.y, P.x - f.x);
+}
+function coldheart(f, dt, dist, sees) {            // the great one under the Ice: a core that opens to fire, and a second wind
+  f.open = Math.max(0, f.open - dt);
+  if (f.phase === 1 && f.hp < f.max * 0.5) {
+    f.phase = 2; f.open = 2.5; alarm = 2; snd("roar", f.x, f.y, 4); center("The Coldheart wakes fully<small>It calls its drones. The vents breathe frost.</small>", 3); shake(0.6);
+  }
+  if (f.phase === 2) {
+    f.call -= dt;
+    if (f.call <= 0) {
+      f.call = 9;
+      if (foes.filter(o => o.k === "drone" && !o.dead).length < 4) for (const s of [-1, 1]) {
+        const x = f.x + Math.cos(f.a + s * 1.2) * 1.4, y = f.y + Math.sin(f.a + s * 1.2) * 1.4;
+        if (!lv.m.solid[lv.m.at(x, y)]) { const d = newFoe("drone", x, y, KINDS.drone.hp); d.st = "chase"; d.z = f.z + 1.2; foes.push(d); stats.killsAll++; }
+      }
+      snd("buzz", f.x, f.y, 2);
+    }
+  }
 }
 function attack(f, dist, sees) {
   const K = f.K, mult = skill === 2 ? 1.2 : 1;
-  if (K.attack === "melee") { if (dist < K.range + 0.15) { hurtPlayer(rr(K.dmg) * mult, f.x, f.y); synth.play("cut"); } return; }
+  if (K.attack === "melee") { if (dist < K.range + 0.15) { hurtPlayer(rr(K.dmg) * mult, f.x, f.y); snd(K.shield ? "clang" : "cut", f.x, f.y); } return; }
   if (!sees) return;
   if (K.attack === "shot") {
-    synth.play("eshot"); lightBurst(f.x, f.y, 6, 0.08);
+    snd("eshot", f.x, f.y, 1.5); lightBurst(f.x, f.y, 6, 0.08);
     for (let s = 0; s < K.shots; s++) { const miss = clamp(dist / 18, 0.15, 0.7) + Math.hypot(P.vx, P.vy) * 0.05; if (R() > miss) hurtPlayer(rr(K.dmg) * mult, f.x, f.y); }
     return;
   }
-  const fireBall = (a, sp, dmg, spr) => {
-    const z0 = f.z + K.h * 0.55, d = Math.max(0.5, dist);
-    shots.push({ x: f.x + Math.cos(a) * (K.r + 0.1), y: f.y + Math.sin(a) * (K.r + 0.1), z: z0, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, vz: ((P.z + 0.4) - z0) / d * sp, mine: false, dmg, splash: 0, radius: 0, spr, life: 5 });
+  const z0 = f.z + K.h * (K.glowAt || 0.55);
+  const fireBall = (a, sp, dmg, spr, extra) => {
+    const d = Math.max(0.5, dist);
+    shots.push(Object.assign({ x: f.x + Math.cos(a) * (K.r + 0.1), y: f.y + Math.sin(a) * (K.r + 0.1), z: z0, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, vz: ((P.z + 0.4) - z0) / d * sp, mine: false, dmg, splash: 0, radius: 0, spr, life: 5 }, extra || {}));
   };
   const a = Math.atan2(P.y - f.y, P.x - f.x);
-  if (K.attack === "spit") { synth.play("spit"); fireBall(a, 7, K.dmg.map(v => v * mult), "shot"); }
-  if (K.attack === "volley") { synth.play("spit"); for (let k = -2; k <= 2; k++) fireBall(a + k * 0.14, 8, K.dmg.map(v => v * mult), "shot"); }
+  if (K.attack === "spit") { snd("spit", f.x, f.y); fireBall(a, 7, K.dmg.map(v => v * mult), "shot"); }
+  if (K.attack === "zap") { snd("zap", f.x, f.y); fireBall(a + (R() - 0.5) * 0.06, 10, K.dmg.map(v => v * mult), "zap"); }
+  if (K.attack === "volley") { snd("spit", f.x, f.y, 2); for (let k = -2; k <= 2; k++) fireBall(a + k * 0.14, 8, K.dmg.map(v => v * mult), "shot"); }
+  if (K.attack === "frost") { snd("frost", f.x, f.y, 3); const n = f.phase === 2 ? 4 : 3; for (let k = -n; k <= n; k++) fireBall(a + k * 0.11, 7.5, K.dmg.map(v => v * mult), "frost", { frost: 1 }); }
+  if (K.attack === "bomb") {                          // a lob: it arcs, bounces, and goes off
+    snd("lob", f.x, f.y);
+    const lead = Math.min(1, dist / 8), tx = P.x + P.vx * 0.5 * lead, ty = P.y + P.vy * 0.5 * lead, dd = Math.hypot(tx - f.x, ty - f.y), T = Math.max(0.5, dd / 6), b = Math.atan2(ty - f.y, tx - f.x);
+    shots.push({ x: f.x + Math.cos(b) * 0.3, y: f.y + Math.sin(b) * 0.3, z: z0 + 0.2, vx: Math.cos(b) * dd / T, vy: Math.sin(b) * dd / T, vz: ((P.z - z0) + 4.5 * T * T) / T, g: 9, mine: false,
+      dmg: K.dmg.map(v => v * mult), splash: 1, radius: 1.9, spr: "bomb", life: 2.6, fuse: 9, bomb: 1 });
+  }
 }
 function stepShots(dt) {
   const m = lv.m;
   for (let i = shots.length - 1; i >= 0; i--) {
-    const s = shots[i], nx = s.x + s.vx * dt, ny = s.y + s.vy * dt, nz = s.z + s.vz * dt;
+    const s = shots[i]; let nx = s.x + s.vx * dt, ny = s.y + s.vy * dt, nz = s.z + s.vz * dt;
     s.life -= dt;
+    if (s.bomb) {                                     // gravity, bounces, a fuse once it's down
+      s.vz -= s.g * dt; nz = s.z + s.vz * dt;
+      const ci = m.at(nx, ny);
+      if (m.solid[ci] || m.mask[ci]) { s.vx *= -0.5; s.vy *= -0.5; nx = s.x; ny = s.y; }
+      const fl = m.floorAt(nx, ny, 0.05);
+      if (nz < fl + 0.06) { nz = fl + 0.06; if (s.vz < -1) { s.vz = -s.vz * 0.42; snd("tick", nx, ny); } else s.vz = 0; s.vx *= 0.6; s.vy *= 0.6; if (s.fuse > 1) s.fuse = 0.9; }
+      s.fuse -= dt; s.x = nx; s.y = ny; s.z = nz;
+      if (s.fuse <= 0 || s.life <= 0 || Math.hypot(P.x - s.x, P.y - s.y) < 0.4) { explode(s.x, s.y, s.z, rr(s.dmg), s.radius, "foe"); shots.splice(i, 1); }
+      else if ((s.fuse * 8 | 0) !== (s.blink || 0)) { s.blink = s.fuse * 8 | 0; lightBurst(s.x, s.y, 3, 0.05); }
+      continue;
+    }
     let hit = s.life <= 0 || m.trace(s.x, s.y, s.z, nx, ny, nz) < 1;
     if (!hit && s.mine) for (const f of foes) { if (!f.dead && Math.hypot(f.x - nx, f.y - ny) < f.K.r + 0.12 && nz > f.z - 0.1 && nz < f.z + f.K.h + 0.1) { hit = true; damage(f, rr(s.dmg), s.x, s.y); break; } }
-    if (!hit && !s.mine && Math.hypot(P.x - nx, P.y - ny) < BODY.r + 0.12 && nz > P.z - 0.1 && nz < P.z + 0.8) { hit = true; hurtPlayer(rr(s.dmg), s.x, s.y); }
+    if (!hit && !s.mine && Math.hypot(P.x - nx, P.y - ny) < BODY.r + 0.12 && nz > P.z - 0.1 && nz < P.z + 0.8) { hit = true; hurtPlayer(rr(s.dmg), s.x, s.y, s.frost ? "frost" : null); }
     if (!hit && s.mine) for (const d of decor) if (d.c === "x" && d.hp > 0 && Math.hypot(d.x - nx, d.y - ny) < 0.22) { hit = true; hitDecor(d, 100); break; }
-    if (hit) { if (s.splash) explode(s.x, s.y, s.z, s.splash, s.radius, "player"); else speck(s.x, s.y, s.z, 14, 6, true); shots.splice(i, 1); continue; }
+    if (hit) {
+      if (s.splash) explode(s.x, s.y, s.z, s.splash, s.radius, "player");
+      else { speck(s.x, s.y, s.z, s.frost || s.spr === "zap" ? 15 : 14, 6, true); if (m.hitI >= 0) marks.wall(m.hitI, m.hitFace, s.x, s.y, s.z, s.frost ? { r: 8, kind: "frost", ramp: 8 } : { r: 5, kind: "scorch" }); }
+      shots.splice(i, 1); continue;
+    }
     s.x = nx; s.y = ny; s.z = nz;
     lightBurst(s.x, s.y, 5, 0.02);
   }
@@ -957,38 +1440,118 @@ function stepShots(dt) {
 function stepWorld(dt) {
   const m = lv.m;
   for (const d of lv.doors) {                        // doors: up, a wait, down (not on anyone)
-    if (d.target === 1) { d.open = Math.min(1, d.open + dt * 1.6); if (d.open >= 1) { d.t += dt; if (!d.secret && d.t > 4 && !bodyIn(d.i)) { d.target = 0; synth.play("door"); } } }
+    if (d.target === 1) { d.open = Math.min(1, d.open + dt * 1.6); if (d.open >= 1) { d.t += dt; if (!d.secret && d.t > 4 && !bodyIn(d.i)) { d.target = 0; snd("door", d.x + 0.5, d.y + 0.5); } } }
     else if (d.open > 0) { if (bodyIn(d.i)) { d.target = 1; continue; } d.open = Math.max(0, d.open - dt * 1.6); }
     m.ceil[d.i] = m.floor[d.i] + d.open * d.top;
   }
   for (const l of lv.lifts) {                        // lifts: down, a wait, back up (carrying whoever's on them)
     if (l.state === "down") { l.pos = Math.max(l.lo, l.pos - dt * 0.8); if (l.pos <= l.lo) { l.state = "wait"; l.t = 2.6; } }
-    else if (l.state === "wait") { l.t -= dt; if (l.t <= 0) { l.state = "rise"; synth.play("door"); } }
+    else if (l.state === "wait") { l.t -= dt; if (l.t <= 0) { l.state = "rise"; snd("door", l.x + 0.5, l.y + 0.5); } }
     else if (l.state === "rise") { l.pos = Math.min(l.hi, l.pos + dt * 0.8); if (l.pos >= l.hi) l.state = "up"; }
     m.floor[l.i] = l.pos;
     if (m.at(P.x, P.y) === l.i && P.z > l.pos - 0.2) P.z = Math.max(P.z, l.pos);
   }
-  slimeT += dt; if (slimeT > 0.14) { slimeT = 0; frameNo++; TEX[T_SLIME] = SLIME[frameNo & 3]; TEX[T_LAVA] = LAVA[frameNo & 3]; }
+  slimeT += dt; if (slimeT > 0.14) { slimeT = 0; frameNo++; TEX[T_SLIME] = SLIME[frameNo & 3]; TEX[T_LAVA] = LAVA[frameNo & 3]; TEX[T_WATER] = WATER[(frameNo >> 1) & 3]; }
+  // vents: a breath of steam now and then (it scalds whoever stands in it; the Coldheart's breathe frost)
+  const frosty = lv.def.boss === "coldheart";
+  for (const v of lv.vents) {
+    v.t -= dt;
+    if (!v.on && v.t <= 0) { v.on = 1.4; v.t = 2.6 + R() * 3 * (frosty && alarm ? 0.5 : 1); snd("hiss", v.x, v.y, 0.8); }
+    if (v.on > 0) {
+      v.on -= dt;
+      if (puffs.length < (FX.light ? 30 : 70) && R() < dt * 18) puffs.push({ x: v.x + (R() - 0.5) * 0.5, y: v.y + (R() - 0.5) * 0.5, z: m.floor[v.i] + 0.05, vz: 0.9 + R() * 0.6, life: 1.4, max: 1.4, cold: frosty });
+      if (m.at(P.x, P.y) === v.i && P.z < m.floor[v.i] + 0.3) { v.hurtT = (v.hurtT || 0) + dt; if (v.hurtT > 0.45) { v.hurtT = 0; hurtPlayer(frosty ? 5 : 6, v.x, v.y, frosty ? "frost" : null); } }
+    }
+  }
+  for (let i = puffs.length - 1; i >= 0; i--) { const q = puffs[i]; q.life -= dt; if (q.life <= 0) { puffs.splice(i, 1); continue; } q.z += q.vz * dt; q.vz *= 1 - dt * 0.6; }
+  // lamps that flicker (and now and then spit sparks)
+  for (const l of lv.lamps) {
+    const t = levelT * 14 + l.s, n = Math.sin(t) * Math.sin(t * 2.7 + 1.3);
+    m.light[l.i] = clamp(l.base - (n > 0.55 ? 9 : n > 0.3 ? 4 : 0), 0, 31);
+    if (l.kind && R() < dt * 0.25) { const x = l.i % lv.W + 0.5, y = (l.i / lv.W | 0) + 0.5; snd("spark", x, y, 0.6); for (let k = 0; k < 6; k++) specks.push({ x, y, z: m.ceil[l.i] - 0.05, vx: (R() - 0.5) * 1.2, vy: (R() - 0.5) * 1.2, vz: -R(), life: 0.6, idx: 14 * 16 + 12, size: 0.025, full: 1 }); }
+  }
+  // snow, round you, where there's sky over you
+  if (lv.def.snow) {
+    const want = FX.light ? 50 : 120;
+    for (let k = 0; flakes.length < want && k < 6; k++) {
+      const x = P.x + (R() - 0.5) * 12, y = P.y + (R() - 0.5) * 12; if (!m.inside(x, y)) continue;
+      const i = m.at(x, y); if (m.solid[i] || m.ctex[i] !== SKY) continue;
+      flakes.push({ x, y, z: P.z + 1.4 + R() * 1.2, vz: -(0.5 + R() * 0.4), ph: R() * 6, i });
+    }
+    for (let i = flakes.length - 1; i >= 0; i--) { const q = flakes[i]; q.z += q.vz * dt; q.ph += dt; q.x += Math.sin(q.ph) * 0.15 * dt; if (q.z < m.floor[q.i] || Math.hypot(q.x - P.x, q.y - P.y) > 8) flakes.splice(i, 1); }
+  }
+  // bits and spent cases: flying, bouncing, lying a while
+  for (let i = bits.length - 1; i >= 0; i--) {
+    const b = bits[i]; b.life -= dt; if (b.life <= 0) { bits.splice(i, 1); continue; }
+    if (b.rest) continue;
+    b.vz -= 9 * dt; const nx = b.x + b.vx * dt, ny = b.y + b.vy * dt, ci = m.at(nx, ny);
+    if (m.solid[ci] || m.mask[ci]) { b.vx *= -0.4; b.vy *= -0.4; } else { b.x = nx; b.y = ny; }
+    b.z += b.vz * dt; const fl = m.floor[m.at(b.x, b.y)];
+    if (b.z < fl + 0.01) { b.z = fl + 0.01; b.vz = -b.vz * 0.35; b.vx *= 0.55; b.vy *= 0.55; b.b++; if (b.tink && b.b === 1) snd("tink", b.x, b.y, 0.4); if (b.b > 2 || Math.abs(b.vz) < 0.4) b.rest = 1; }
+  }
   for (let i = specks.length - 1; i >= 0; i--) { const s = specks[i]; s.life -= dt; if (s.life <= 0) { specks.splice(i, 1); continue; } s.vz -= 6 * dt; s.x += s.vx * dt; s.y += s.vy * dt; s.z += s.vz * dt; }
   for (let i = booms.length - 1; i >= 0; i--) { booms[i].t += dt; if (booms[i].t > 0.5) booms.splice(i, 1); }
   for (let i = lights.length - 1; i >= 0; i--) { lights[i].t -= dt; if (lights[i].t <= 0) lights.splice(i, 1); }
+  for (let i = colds.length - 1; i >= 0; i--) { colds[i].t -= dt; if (colds[i].t <= 0) colds.splice(i, 1); }
+  // the alarm: a siren, and red light that comes and goes
+  if (alarm && state === "play") { const was = alarm === 1 || alarm === 2 ? (levelT - dt) % 0.9 : 0; if ((levelT % 0.9) < was) snd("siren"); }
+  // what's always there, louder where it comes from
+  if (amb) {
+    const i = m.at(P.x, P.y), sky = m.ctex[i] === SKY, warm = m.tint[i] === TI.ember;
+    if (ambKind === "furnace") amb.set(0, 160 + (warm ? 120 : 0), warm ? 0.16 : 0.06);
+    else if (ambKind === "wind") amb.set(0, 700 + Math.sin(levelT * 0.7) * 260, sky ? 0.09 : 0.025);
+    else if (ambKind === "hum") amb.set(55, 260, 0.03);
+    else amb.set(0, 2200, 0.015);
+  }
+  if (ambKind === "drip" && R() < dt * 0.6) snd("tick", P.x + (R() - 0.5) * 10, P.y + (R() - 0.5) * 10, 0.5);
 }
-function bodyIn(i) { const m = lv.m; if (m.at(P.x, P.y) === i) return true; for (const f of foes) if (!f.dead && m.at(f.x, f.y) === i) return true; return false; }
-function lighting() {                              // this frame's light on top of the level's: shots, flashes, explosions
-  const m = lv.m; m.dyn.fill(0);
-  const add = (x, y, v, r) => { for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) { const cx = (x | 0) + dx, cy = (y | 0) + dy; if (cx < 0 || cy < 0 || cx >= lv.W || cy >= lv.H) continue; const j = cy * lv.W + cx; m.dyn[j] = Math.min(31, m.dyn[j] + Math.max(0, v - (Math.abs(dx) + Math.abs(dy)) * 3)); } };
-  if (P.flash > 0) add(P.x, P.y, 9, 2);
-  for (const l of lights) add(l.x, l.y, l.add * clamp(l.t / l.max * 1.5, 0, 1), 2);
+function bodyIn(i) { const m = lv.m; if (m.at(P.x, P.y) === i) return true; for (const f of foes) if (!f.dead && !f.K.fly && m.at(f.x, f.y) === i) return true; return false; }
+function lighting() {                              // this frame's light on top of the level's: shots, flashes, explosions, and their colours
+  const m = lv.m, W = lv.W, H = lv.H; m.dyn.fill(0);
+  m.dtint.fill(alarm && state !== "title" && (levelT % 0.9) < 0.45 ? TI.alarm : 0);
+  const add = (x, y, v, r, t) => { for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) { const cx = (x | 0) + dx, cy = (y | 0) + dy; if (cx < 0 || cy < 0 || cx >= W || cy >= H) continue; const j = cy * W + cx, k = Math.abs(dx) + Math.abs(dy); m.dyn[j] = Math.min(31, m.dyn[j] + Math.max(0, v - k * 3)); if (t && k <= r - 1) m.dtint[j] = t; } };
+  if (P.flash > 0) add(P.x, P.y, 9, 2, WEAPONS[P.weapon].cold ? TI.cryo : TI.lamp);
+  for (const l of lights) add(l.x, l.y, l.add * clamp(l.t / l.max * 1.5, 0, 1), 2, l.add >= 10 ? TI.ember : 0);
+  for (const c of colds) add(c.x, c.y, 4, 1, TI.cryo);
+  for (const f of foes) if (!f.dead && (f.frozen > 0 || (f.k === "coldheart" && f.open > 0))) add(f.x, f.y, f.open > 0 ? 6 : 0, 1, TI.cryo);
 }
 function finishLevel() {
   if (state !== "play") return;
-  state = "done"; synth.stopSong(); synth.play("win");
+  state = "done"; synth.stopSong(); synth.play("win"); ambience(null);
   const def = ORDER[level], b = save.best[def.id] || {};
   if (!b.time || levelT < b.time) b.time = levelT; save.best[def.id] = b;
   save.reached = Math.max(save.reached, Math.min(ORDER.length, level + 2)); save.skill = skill; store();
+  if (DEMO) { setTimeout(() => demoNext(), 900); return; }
   setTimeout(tally, 900);
 }
-function bossDown() { center("The Warden falls<small>The furnaces go dark, one by one</small>", 4); setTimeout(() => { if (state === "play") { state = "play"; finishLevel(); } }, 3500); }
+function bossDown(title, line) { alarm = 0; center(title + "<small>" + line + "</small>", 4); setTimeout(() => { if (state === "play") finishLevel(); }, 3500); }
+
+// ---------------------------------------------------------------- the demo: it plays itself (#demo), for the box's games check
+let demo = { goal: null, t: 0, flowT: 0, df: null, stuck: 0, lx: 0, ly: 0, use: 0 };
+function pilot(dt) {                                // which way to go, where to look, when to fire
+  const out = { st: { x: 0, y: 0 }, turn: 0, fire: false, use: false };
+  const t = target(0.6) || foes.filter(f => !f.dead && f.seen && Math.hypot(f.x - P.x, f.y - P.y) < 14).sort((a, b) => Math.hypot(a.x - P.x, a.y - P.y) - Math.hypot(b.x - P.x, b.y - P.y))[0];
+  demo.flowT -= dt;
+  if (!t && demo.flowT <= 0) {                        // no one in sight: walk the flow towards the nearest one left (or an exit)
+    demo.flowT = 0.6; const live = foes.filter(f => !f.dead && !f.K.fly);
+    const goal = live.sort((a, b) => Math.hypot(a.x - P.x, a.y - P.y) - Math.hypot(b.x - P.x, b.y - P.y))[0];
+    demo.df = goal ? lv.m.flow(goal.x, goal.y, 0.4, 0.55, lv.pass).slice() : null;
+  }
+  let want = P.a;
+  if (t) { want = Math.atan2(t.y - P.y, t.x - P.x); const off = Math.abs(wrap(want - P.a)); out.fire = off < 0.08; out.st.y = Math.hypot(t.x - P.x, t.y - P.y) > 5 ? -0.6 : 0.2; out.st.x = Math.sin(levelT * 0.8) * 0.5; }
+  else if (demo.df) {
+    const m = lv.m, i = m.at(P.x, P.y), cx = i % lv.W, cy = (i / lv.W) | 0; let bd = demo.df[i] >= 0 ? demo.df[i] : 1e9, bx = -1, by = -1;
+    for (const [ox, oy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const j = (cy + oy) * lv.W + cx + ox, v = demo.df[j]; if (v >= 0 && v < bd) { bd = v; bx = cx + ox; by = cy + oy; } }
+    if (bx >= 0) { want = Math.atan2(by + 0.5 - P.y, bx + 0.5 - P.x); out.st.y = -0.85; }
+  }
+  const d = wrap(want - P.a); out.turn = clamp(d * 2.4, -1, 1);
+  demo.stuck = Math.hypot(P.x - demo.lx, P.y - demo.ly) < 0.01 && Math.abs(out.st.y) > 0.3 ? demo.stuck + dt : 0; demo.lx = P.x; demo.ly = P.y;
+  if (demo.stuck > 0.4) { out.use = true; out.st.x = 0.8; demo.stuck = 0; }
+  if (P.weapon !== bestWeapon() && P.next < 0) pick(bestWeapon());
+  demoT += dt; if (demoT > 75 && state === "play") demoNext();
+  return out;
+}
+function demoNext() { demoT = 0; demo = { goal: null, t: 0, flowT: 0, df: null, stuck: 0, lx: 0, ly: 0 }; skill = 1; const k = (level + 1 + (R() * 3 | 0)) % ORDER.length; startLevel(k, false); P.owned = [1, 1, 1, 1, 1, 1, 1]; P.ammo = { rivets: 200, shells: 50, cells: 300, slag: 40 }; P.weapon = 5; hud(true); }
 
 // ---------------------------------------------------------------- each frame: the rules, then the picture
 function update(dt) {
@@ -1004,38 +1567,46 @@ function update(dt) {
 const PRJ = new Float32Array(3);
 function draw(now) {
   if (!lv) return;
-  if (state === "title") { P.a += 0.003; P.z = lv.m.floor[lv.m.at(P.x, P.y)]; P.pitch = 0; P.aim = 0; P.bobK = 0; }
+  if (state === "title") { P.a += 0.003; P.z = lv.m.floor[lv.m.at(P.x, P.y)]; P.pitch = 0; P.aim = 0; P.bobK = 0; P.shake = 0; P.land = 0; }
   lighting();
-  const bob = save.opts.bob ? Math.sin(P.bob) * 0.012 * P.bobK : 0;
-  const cam = { x: P.x, y: P.y, z: P.z + BODY.eye + bob, a: P.a, pitch: P.pitch + (state === "dead" ? -0.05 : 0), fov: 1.62 - P.aim * 0.34 };
+  const bob = save.opts.bob ? Math.sin(P.bob) * 0.012 * P.bobK : 0, sh = P.shake * P.shake;
+  const cam = { x: P.x, y: P.y, z: P.z + BODY.eye + bob - P.land * 0.05, a: P.a + (sh ? (R() - 0.5) * 0.04 * sh : 0), pitch: P.pitch + (state === "dead" ? -0.05 : 0) + (sh ? (R() - 0.5) * 0.04 * sh : 0), fov: 1.62 - P.aim * 0.34 };
   ray.render(lv.m, cam);
   const m = lv.m;
   for (const f of foes) {                           // the enemies: which way they face from here, walking, hurting, falling
+    if (f.gone) continue;
     const d2 = (f.x - P.x) ** 2 + (f.y - P.y) ** 2; if (d2 > 900) continue;
-    const S = SPR[f.k], i = m.at(f.x, f.y), L = m.light[i] + m.dyn[i];
+    const S = SPR[f.k], i = m.at(f.x, f.y), L = m.light[i] + m.dyn[i] + (f.K.boss ? 8 : 0);
     let spr;
     if (f.dead) spr = S.die[clamp((f.t * 3) | 0, 0, 2)];
     else {
       const rel = wrap(Math.atan2(P.y - f.y, P.x - f.x) - f.a), dir = ((Math.round(rel / (TAU / 8)) % 8) + 8) % 8;
-      spr = f.st === "pain" ? S.pain[dir] : f.st === "attack" && f.t < f.K.wind * 0.5 ? S.attack[dir] : f.st === "idle" ? S.walk[0][dir] : S.walk[((f.anim * f.K.speed * 2.2) | 0) & 1][dir];
+      spr = f.st === "pain" ? S.pain[dir] : (f.st === "attack" && f.t < f.K.wind * 0.5) || f.open > 0 ? S.attack[dir] : f.st === "idle" ? S.walk[0][dir] : S.walk[((f.anim * f.K.speed * 2.6) | 0) & 3][dir];
     }
     ray.sprite(spr, f.x, f.y, f.z, L, false);
+    if (f.st === "attack" && !f.dead && f.K.glowAt) {   // what's coming: a glow where it'll come from, growing
+      const k = clamp(1 - f.t / f.K.wind, 0, 1), cold = f.k === "drone" || f.k === "coldheart";
+      ray.sprite(cold ? ITEMS.chargeCold : ITEMS.charge, f.x + Math.cos(f.a) * f.K.r, f.y + Math.sin(f.a) * f.K.r, f.z + f.K.h * f.K.glowAt - 0.1, 31, true, false, 0.3 + k * (f.K.boss ? 2.2 : 0.8));
+    }
   }
   for (const it of items) { if (it.got) continue; const i = m.at(it.x, it.y), key = /[quy]/.test(it.c); ray.sprite(ITEMS[it.c], it.x, it.y, it.z + (key ? 0.08 + Math.sin(now / 300) * 0.04 : 0), m.light[i] + m.dyn[i] + (key ? 6 : 0), false); }
-  for (const d of decor) { if (d.hp < 0) continue; const i = m.at(d.x, d.y); ray.sprite(ITEMS[d.c], d.x, d.y, m.floor[i], m.light[i] + m.dyn[i], false); }
-  for (const s of shots) ray.sprite(ITEMS[s.spr], s.x, s.y, s.z, 31, true);
+  for (const d of decor) { if (d.hp < 0) continue; const i = m.at(d.x, d.y); ray.sprite(ITEMS[d.c], d.x, d.y, m.floor[i], m.light[i] + m.dyn[i] + (d.c === "S" ? 4 : 0), false); }
+  for (const s of shots) ray.sprite(ITEMS[s.spr], s.x, s.y, s.z - (s.bomb ? 0.08 : 0), 31, true, false, s.bomb && (s.blink & 1) ? 1.3 : 1);
   for (const b of booms) ray.sprite(ITEMS.boom[Math.min(3, (b.t * 8) | 0)], b.x, b.y, b.z + 0.3, 31, true, false, 1 + b.t * 1.5);
+  for (const q of puffs) { const k = 1 - q.life / q.max, i = m.at(q.x, q.y); ray.sprite(ITEMS.steam[Math.min(2, (k * 3) | 0)], q.x, q.y, q.z, Math.min(31, m.light[i] + 6), false, false, 0.5 + k * 1.4); }
   for (const s of specks) ray.dot(s.x, s.y, s.z, s.idx, s.size, s.full);
+  for (const b of bits) ray.dot(b.x, b.y, b.z, b.idx, b.size, b.full);
+  for (const q of flakes) ray.dot(q.x, q.y, q.z, 15, 0.022, 0);
   ray.flush();
-  // the weapon in hand: bobbing as you walk, kicking when it fires, down and up when it changes
+  // the weapon in hand: bobbing as you walk, kicking when it fires, dipping as you land, down and up when it changes
   if (state === "play" || state === "done") {
     const w = WEAPONS[P.weapon], G = GUNS[w.id], h = pic.h, sc = h / 180;
     const bx = Math.cos(P.bob * 0.5) * 7 * P.bobK * sc, by = Math.abs(Math.sin(P.bob * 0.5)) * 5 * P.bobK * sc;
     const swap = P.swap > 0 ? (P.swap > 0.16 ? (0.32 - P.swap) / 0.16 : P.swap / 0.16) : 0;
-    const sx = pic.w * 0.6 + bx - P.turnV * 4 * sc, sy = h + 26 * sc + by + P.kick * sc * 0.6 + swap * 70 * sc;
+    const sx = pic.w * 0.6 + bx - P.turnV * 4 * sc, sy = h + 26 * sc + by + P.kick * sc * 0.6 + swap * 70 * sc + P.land * 16 * sc;
     const i = m.at(P.x, P.y), L = Math.min(31, m.light[i] + m.dyn[i] + 4);
-    if (P.flash > 0 && !w.melee) ray.blit(ITEMS.flash, sx - 2 * sc, sy - G.idle.h * sc * 0.82, sc * 0.9, 31);
-    ray.blit(P.fireAnim > 0 ? G.fire : G.idle, sx, sy, sc, L);
+    if (P.flash > 0 && !w.melee) ray.blit(w.cold ? ITEMS.chargeCold : ITEMS.flash, sx - 2 * sc, sy - G.idle.h * sc * 0.82, sc * 0.9, 31);
+    ray.blit(P.fireAnim > 0 || (P.spin > 0 && ((now / 40) | 0) & 1) ? G.fire : G.idle, sx, sy, sc, L);
   }
   crossHair();
   if (mapOn) drawMap();
@@ -1045,6 +1616,8 @@ function crossHair() {
   const t = target(0.035); const on = !!t;
   if (on !== crossOn) { crossOn = on; $("cross").classList.toggle("on", on); }
   $("hit").style.opacity = hitT > 0 ? 1 : 0;
+  const fr = P.chill > 0 ? Math.round(Math.min(1, P.chill * 0.6) * 10) / 10 : 0;
+  if (fr !== frostOn) { frostOn = fr; $("frost").style.opacity = fr; }
 }
 function hudTick(now) {
   let changed = false;
@@ -1058,7 +1631,8 @@ function drawMap() {                               // where you've been, the wal
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
     const i = y * W + x; if (!m.seen[i]) continue;
     if (m.solid[i]) { mc.fillStyle = lv.exits.indexOf(i) >= 0 ? "#ffd890" : "#8a7a6a"; mc.fillRect(ox + x * s, oy + y * s, s, s); }
-    else { const d = lv.doors.find(o => o.i === i); mc.fillStyle = d ? (d.key ? KEYCOL[d.key] : "#c8a050") : lv.hurt[i] ? "#5a3a1a" : "rgba(255,255,255,0.08)"; mc.fillRect(ox + x * s + 0.5, oy + y * s + 0.5, s - 1, s - 1); }
+    else if (m.mask[i]) { mc.fillStyle = "#5a6a7a"; mc.fillRect(ox + x * s + s * 0.3, oy + y * s + s * 0.3, s * 0.4, s * 0.4); }
+    else { const d = lv.doors.find(o => o.i === i); mc.fillStyle = d ? (d.key ? KEYCOL[d.key] : "#c8a050") : lv.hurt[i] ? "#5a3a1a" : lv.wet[i] ? "rgba(90,140,200,0.35)" : "rgba(255,255,255,0.08)"; mc.fillRect(ox + x * s + 0.5, oy + y * s + 0.5, s - 1, s - 1); }
   }
   const px = ox + P.x * s, py = oy + P.y * s;
   mc.fillStyle = "#ffd890"; mc.beginPath(); mc.moveTo(px + Math.cos(P.a) * s * 0.9, py + Math.sin(P.a) * s * 0.9);
@@ -1073,10 +1647,12 @@ const OPTS = [
   { k: "invert", name: "Looking", vals: [0, 1], names: { 0: "Up is up", 1: "Up is down" } },
   { k: "rumble", name: "Rumble", vals: [0, 1], names: { 0: "Off", 1: "On" } },
   { k: "bob", name: "Head bob", vals: [0, 1], names: { 0: "Off", 1: "On" } },
+  { k: "shake", name: "Screen shake", vals: [0, 1], names: { 0: "Off", 1: "On" } },
   { k: "music", name: "Music", vals: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10] },
   { k: "sound", name: "Sounds", vals: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10] },
   { k: "crisp", name: "Pixels", vals: [0, 1], names: { 0: "Smooth", 1: "Crisp" } },
-  { k: "picture", name: "Picture", vals: ["auto", "light", "rich", "plain"], names: { auto: "Tuned to this box", light: "Smoother", rich: "Sharper", plain: "No glow" } }
+  { k: "picture", name: "Picture", vals: ["auto", "light", "rich", "plain"], names: { auto: "Tuned to this box", light: "Smoother", rich: "Sharper", plain: "No glow" } },
+  { k: "cores", name: "Drawing", vals: ["auto", "one"], names: { auto: "On every core", one: "On one core" } }
 ];
 let pausedFrom = null;
 const menu = new L3.Menu({
@@ -1108,48 +1684,64 @@ const menu = new L3.Menu({
 });
 function controlsText() {
   return input.pad() ? "Left stick: move · Right stick: turn and look · " + kb("rt") + " fire · " + kb("lt") + " aim · " + kb("lb") + kb("rb") + " weapons · " + kb("a") + " open, use · " + kb("b") + " turn round · " + kb("y") + " map"
-    : "W A S D: move · ← →: turn · Space: fire · Shift: aim · E: open, use · Q R or 1–5: weapons · C: turn round · Tab: map · a click lets the mouse look";
+    : "W A S D: move · ← →: turn · Space: fire · Shift: aim · E: open, use · Q R or 1–7: weapons · C: turn round · Tab: map · a click lets the mouse look";
 }
 function hints() {
   $("titleHint").innerHTML = kb("a") + " choose &nbsp; " + (input.pad() ? kb("b") + " back to the box" : "↑ ↓ move");
   for (const id of ["skillHint", "levelsHint", "boxHint"]) $(id).innerHTML = kb("a") + " choose &nbsp; " + kb("b") + " back";
   $("optionsHint").innerHTML = "◀ ▶ change &nbsp; " + kb("b") + " back"; $("pauseHint").innerHTML = kb("a") + " choose &nbsp; " + kb("start") + " carry on"; $("tallyHint").innerHTML = kb("a") + " choose";
 }
-function renderLevels() {
-  $("levelList").innerHTML = ORDER.map((o, k) => { const b = save.best[o.id]; return `<div class="item${k < save.reached ? "" : " locked"}" data-do="level" data-k="${k}">${k + 1}. ${o.name}<small>${k < save.reached ? (b && b.time ? "Best " + U.time(b.time) + " · par " + U.time(o.par) : o.tag) : "Not reached yet"}</small></div>`; }).join("");
+function renderLevels() {                         // two episodes, side by side
+  const col = ep => `<div class="ep"><div class="eph">${EPISODES[ep]}</div>` + ORDER.map((o, k) => {
+    if (o.ep !== ep) return ""; const b = save.best[o.id];
+    return `<div class="item${k < save.reached ? "" : " locked"}" data-do="level" data-k="${k}">${k + 1}. ${o.name}<small>${k < save.reached ? (b && b.time ? "Best " + U.time(b.time) + " · par " + U.time(o.par) : o.tag) : "Not reached yet"}</small></div>`;
+  }).join("") + "</div>";
+  $("levelList").innerHTML = col(0) + col(1);
   return Math.max(0, save.reached - 1);
 }
-function renderBox() { $("boxtable").innerHTML = E.rows().map(r => `<tr><td>${r[0]}</td><td>${U.esc(r[1])}</td></tr>`).join(""); }
+function renderBox() {
+  const rows = E.rows().concat([["Drawing", ray.threaded ? ray.helpers.list.length + " helpers on other cores, " + ray.helperMs.toFixed(1) + " ms a strip" : "all on the page" + (E.plan.helpers ? " (Options: Drawing)" : "")]]);
+  $("boxtable").innerHTML = rows.map(r => `<tr><td>${r[0]}</td><td>${U.esc(r[1])}</td></tr>`).join("");
+}
 function optionChanged(k) {
   store();
   if (k === "music" || k === "sound") volumes();
   if (k === "crisp") resized();
   if (k === "picture") { clearTimeout(optionChanged.t); optionChanged.t = setTimeout(() => E.setPicture(), 600); }
+  if (k === "cores") { ray.threads(save.opts.cores === "one" ? 0 : E.plan.helpers || 0); if (lv) primeHelpers(Object.keys(SPR)); E.gov.hold(2500); }
 }
-function pause() { if (menu.at) return; pausedFrom = state; state = "paused"; mapOn = false; $("map").classList.add("hidden"); menu.show("pause"); synth.stopSong(); }
-function resume() { menu.hide(); state = pausedFrom || "play"; pausedFrom = null; E.gov.hold(800); music(ORDER[level].id); }
-function toTitle() { pausedFrom = null; state = "title"; lv = lv || null; $("hud").classList.add("hidden"); $("center").innerHTML = ""; menu.show("title"); synth.song({ seed: 999, root: 45, tempo: 90, calm: true, prog: [9, 5, 0, 7] }); attractView(); }
+function pause() { if (menu.at) return; pausedFrom = state; state = "paused"; mapOn = false; $("map").classList.add("hidden"); menu.show("pause"); synth.stopSong(); ambience(null); }
+function resume() { menu.hide(); state = pausedFrom || "play"; pausedFrom = null; E.gov.hold(800); music(ORDER[level].id); ambience(ORDER[level].amb); }
+function toTitle() { pausedFrom = null; state = "title"; alarm = 0; ambience(null); $("hud").classList.add("hidden"); $("center").innerHTML = ""; menu.show("title"); synth.song({ seed: 999, root: 45, tempo: 90, calm: true, prog: [9, 5, 0, 7] }); attractView(); }
 function tally() {
   const def = ORDER[level], pct = (a, b) => b ? Math.round(a / b * 100) + "%" : "–";
-  $("tallyTitle").textContent = def.name + (level + 1 === ORDER.length ? ": the Ironmaw is quiet" : ": done");
+  const last = level + 1 === ORDER.length, epEnd = !last && ORDER[level + 1].ep !== def.ep;
+  $("tallyTitle").textContent = def.name + (last ? ": the Ironmaw is quiet" : epEnd ? ": " + EPISODES[def.ep] + " is done. Below it, the Ice" : ": done");
   $("tally").innerHTML = `<span>Kills</span><b>${pct(stats.kills, stats.killsAll)}</b><span>Items</span><b>${pct(stats.items, stats.itemsAll)}</b><span>Secrets</span><b>${pct(stats.secrets, stats.secretsAll)}</b><span>Time</span><b>${U.time(levelT)}</b><span>Par</span><b>${U.time(def.par)}</b>`;
   $("tallyButtons").innerHTML = (level + 1 < ORDER.length ? `<div class="item" data-do="next">Next: ${ORDER[level + 1].name}</div>` : `<div class="item" data-do="title">The end. Back to the start</div>`) + `<div class="item" data-do="again">Play it again</div>`;
   $("hud").classList.add("hidden"); menu.show("tallyScr");
 }
-function attractView() {                           // behind the title: the first level, turning slowly
-  if (!lv) { lv = parseLevel("intake"); ray.tex = TEX; ray.sky = SKYTEX; foes = []; items = []; decor = []; shots = []; booms = []; specks = []; for (const t of lv.things) if (t.c === "@") { P.x = t.x; P.y = t.y; } }
+function attractView() {                           // behind the title: a level you've reached, turning slowly
+  const id = ORDER[Math.min(save.reached, ORDER.length) - 1 >= 4 && R() < 0.5 ? 4 : 0].id, def = ORDER.find(o => o.id === id);
+  if (!lv || state === "title") {
+    lv = parseLevel(id); ray.tex = TEX; ray.sky = def.sky === "cold" ? SKIES.cold : SKIES.fire; pal.maps(def.sky === "cold" ? 0x05070c : 0x050304, 0); marks = new L3.Marks(ray, lv.m, 32);
+    foes = []; items = []; decor = []; shots = []; booms = []; specks = []; bits = []; flakes = []; puffs = []; colds = []; lights = [];
+    for (const t of lv.things) if (t.c === "@") { P.x = t.x; P.y = t.y; }
+  }
   attract = true;
 }
 
 // ---------------------------------------------------------------- start: textures, models, then the title
-let SKYTEX = null;
+let SKIES = null;
 function ready() {
+  ray.slow = E.slow; ray.threads(save.opts.cores === "one" ? 0 : E.plan.helpers || 0);   // (helpers draw strips of the picture on the other cores)
   $("loadtext").textContent = "Forging the textures…";
-  SKYTEX = makeTextures();
+  SKIES = makeTextures();
   $("loadtext").textContent = "Casting the creatures…";
-  bakeShapes(); bakeGuns(); bakeItems();
+  bakeShapes(["husk", "gunner"]); bakeGuns(); bakeItems();   // (the rest as each level needs them)
   volumes(); hints();
   toTitle();
+  if (DEMO) { if (window.SofaStats) window.SofaStats.demo = true; level = -1; demoNext(); }
 }
 // a mouse, for a desktop: a click lets it look
 $("view").addEventListener("click", () => { if (state === "play" && $("view").requestPointerLock) $("view").requestPointerLock(); });
@@ -1160,7 +1752,8 @@ addEventListener("contextmenu", e => { if (document.pointerLockElement) e.preven
 addEventListener("pointerdown", () => synth.start());
 document.addEventListener("visibilitychange", () => { if (document.hidden && state === "play") pause(); });
 if (E.test) window.IM = { get state() { return state; }, P, get foes() { return foes; }, get items() { return items; }, get lv() { return lv; }, get stats() { return stats; },
-  get gov() { return E.gov; }, get screen() { return menu.at; }, E, menu, startLevel, finishLevel, save: () => save, ray, target, WEAPONS };
+  get gov() { return E.gov; }, get screen() { return menu.at; }, E, menu, startLevel, finishLevel, save: () => save, ray, target, WEAPONS, KINDS, ORDER, LEVELS,
+  get marks() { return marks; }, get alarm() { return alarm; }, get shots() { return shots; }, get bits() { return bits; }, newFoe, damage, explode, fire, pick, bakeShape, SPR, get FX() { return FX; } };
 E.start();
 })();
 </script></body></html>

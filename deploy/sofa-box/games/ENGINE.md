@@ -92,7 +92,10 @@ E.start();
 ```
 
 Copy Tidewing's `<style>` for the view, menus, HUD and loading screen. In the address, `#fps` shows the frame rate
-and rung, `#flat` or `#gl` forces a renderer, `#rung=N` holds a rung, and `#test` is for a game's own checks.
+and rung, `#flat` or `#gl` forces a renderer, `#rung=N` holds a rung, and `#test` is for a game's own checks. For
+checks: `#slow=N` makes each frame's work take N times as long (a slower processor), and `#threads=N` holds a Ray
+game's helpers (0: the page draws it all). Chrome's own CPU slowdown isn't a fair stand-in for a Pi: slowed "10×" it
+stretches a short frame's work about 3×, and it doesn't slow web workers at all.
 
 ## A game drawn by the processor
 
@@ -117,6 +120,25 @@ A door is a cell whose ceiling comes down to its floor, and a lift is a cell who
 `m.floor[i]` each frame and the renderer, the walking (`m.move`, `m.open`), the sight lines (`m.see`, `m.trace`) and
 the way-finding (`m.flow`, which can be told which doors walkers may open) all follow. `m.dyn` adds light for a
 frame (muzzle flashes, explosions), and `m.seen` marks what's been seen (an automap).
+
+Light can have a colour. `pal.tints([[r, g, b], …])` (then `pal.maps(…)`) gives each tint a colormap of its own, and
+a cell's `m.tint[i]` picks one (lava's warm light, ice's cold one, a lamp's); `m.dtint[i]` does it for a frame (an
+alarm, a muzzle flash). It costs nothing a pixel: the colormap is picked once a cell. Glowing colours stay as they are.
+
+Walls and floors keep the marks left on them: `new L3.Marks(ray, m, max)`, then `marks.wall(i, face, x, y, z, stamp)`
+where a line hit a wall (`m.trace` says which cell and face: `m.hitI`, `m.hitFace`), or `marks.floor(x, y, stamp)`. A
+stamp is `{r, kind}`: a rivet hole, scorch, a splat or stain of a colour, frost. Each mark goes into a copy of that
+face's or floor's texture, so drawing it costs nothing; the oldest copy is given back when `max` are used.
+
+Some walls you see through: `m.mask[i]` is a texture made with `Tex.mask` (0 where you see past it: bars, a railing,
+a window, a fence). It's drawn one cell tall from the floor, over what's behind it; nothing walks through it, but
+sight lines and shots pass.
+
+Where the processor has cores to spare (four on every Pi), `ray.threads(n)` has n helpers (web workers) each draw a
+strip of the picture at the same time, a frame or two behind the page so the page's work and the drawing overlap
+(`planRay` says how many: `E.plan.helpers`). The game's code doesn't change: `render`, `sprite`, `flush` and `blit` work
+the same. `ray.prime(list)` sends a level's textures and sprites ahead; give the engine `missed: () =>
+ray.takeMissed()` and `helperWork: () => ray.helperMs` so the governor counts the helpers' frames.
 
 ## The parts
 
@@ -170,9 +192,13 @@ shimmer); `air({top, horizon, fog, hill, hills, near, far})`; `draw(camera…)`;
   haze, `near(r, g, b)`, `sprite(canvasOrBake)` (a sprite as indices), and `color(i)`.
 - `Tex.make(fn)` makes 64×64 textures (`fn(u, v)` → an index), with `Tex.noise(seed)`, `Tex.fbm` and
   `Tex.shade(ramp, k)` to help.
-- `RayMap`: `open`, `move`, `floorAt`, `trace`, `see`, `flow`.
-- `Ray`: `render`, `sprite`, `dot` (a speck), `flush`, `blit`, `project`, and `dim` (light lost with distance),
-  `minL` (the darkest it gets) and `maxD` (how far it looks).
+- `Palette.tints(list)`: coloured light (see above).
+- `RayMap`: `open`, `move`, `floorAt`, `trace` (and what it hit: `hitI`, `hitFace`), `see`, `flow`; per cell `tint`,
+  `dtint`, `mask`, and the marks' `wdec`, `fdec`.
+- `Ray`: `render`, `sprite`, `dot` (a speck; none right at the eye), `flush`, `blit`, `project`, and `dim` (light lost
+  with distance), `minL` (the darkest it gets) and `maxD` (how far it looks); `threads(n)`, `prime(list)`,
+  `takeMissed()`, `helperMs`.
+- `Marks(ray, map, max)`: `wall(i, face, x, y, z, stamp)`, `floor(x, y, stamp)`.
 - `Screen(canvas2d, canvasGL, useGL)` shows the picture (`size`, `present`); `planRay(probe, bench)` picks a
   `Ray` game's starting rung.
 
@@ -187,7 +213,8 @@ and `SofaPad.rumble(strong, weak, ms)`. These follow whichever controller was us
   away. It returns `E`, with `mode`, `g3`, `flat`, `rung`, `gov`, `rows()`, `retest()` and `setPicture()`.
 - `Input` and `Menu`: screens of `.item` elements. A screen can be a list, a `grid` of columns, a `row`, or
   `options` (◀ ▶ to change values).
-- `Synth`: `play(name)` plays effects, and `define(name, fn)` adds your own. `song({seed, root, tempo, calm})`
+- `Synth`: `play(name)` plays effects, `play(name, pan, gain)` from a place (left -1 to right 1, and how loud), and
+  `define(name, fn)` adds your own. `song({seed, root, tempo, calm})`
   writes a tune from a seed and plays it. `drone("saw" | "noise")` is a sound that goes on (an engine, the wind),
   changed with `set(pitch, brightness, volume)`.
 - `U` has small tools: `clamp`, `lerp`, `wrap`, `rand(seed)`, colors (`hex`, `shade`, `mix`), `time` and `ord`.
@@ -248,5 +275,5 @@ controller, so B stops the check and nothing starts or saves. On a Pi 3 it is th
 
 ## Next, as games need it
 
-Height-field ground (hills you drive over) for 3D, and two players on one screen. In `Ray`: sloped floors, and
-sprites seen from 16 sides. Each one comes with the game that first needs it.
+Height-field ground (hills you drive over) for 3D, and two players on one screen. In `Ray`: split views for two to
+four players, a sprite's colours swapped for a team, sloped floors. Each one comes with the game that first needs it.

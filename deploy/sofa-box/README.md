@@ -357,9 +357,15 @@ song in the box's player, or shows a picture; **Menu** renames, moves or deletes
   tunes each game to the box: 3D at a size it holds steady on a Pi 3, sharper on a Pi 4 or 5, and the same world
   in 2D on a box without a real GPU. The graphics check (`127.0.0.1:8091/box/games/probe/` in the box's browser)
   shows what it found.
-- **Ironmaw**, an old-style shooter in a foundry under the ice: four levels, five weapons, keys, lifts and
-  secrets. The left stick moves, the right stick turns, RT fires, LT aims, A opens doors. It's drawn by the
-  processor, so it plays on a Pi 3 with or without a GPU, and sharper on a Pi 4 or 5.
+- **Ironmaw**, an old-style shooter in a foundry under the ice, in two episodes: the Foundry (four levels and its
+  Warden) and the Ice below it (cryo labs, a glacier mine, the drowned pumpworks, the reactor, and the Coldheart,
+  whose core shields it until it opens). Seven weapons, among them the six-barrelled Nailstorm and the Frost lance
+  that goes through everything in its way; drones that fly, bulwarks behind their plates, sappers that lob bombs.
+  Light has colour (lava, ice, the reactor's green, alarms), walls and floors keep the marks of a fight, you see
+  through grates, bars and windows, steam vents breathe, lamps flicker, snow falls in the yards, and sounds come
+  from where they happen. The left stick moves, the right stick turns, RT fires, LT aims, A opens doors. It's drawn
+  by the processor, so it plays on a Pi 3 with or without a GPU, with helpers drawing strips of the picture on the
+  Pi's other cores (Options: Drawing), and sharper on a Pi 4 or 5.
 - More of the box's own games, each a page that plays offline with the controller: **Cinder Knight** (a
   platformer), **Shadow Heist** (stealth), **Rune Tactics** (turn-based tactics), **Micro Drifters** (top-down
   racing), **Neon Brawler** (a beat 'em up), **Void Drifter** (mining and upgrades in space), **Cosmic Cascade**

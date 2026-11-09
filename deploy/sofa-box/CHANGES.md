@@ -7,6 +7,26 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.40
+
+- **Ironmaw 2: the Ice.** A second episode under the foundry: Cryo Labs, the Glacier Mine, the Drowned Pumpworks
+  (wading slows you), the Reactor (take its key and the alarms start), and the Frost Engine, where the Coldheart
+  waits: its core shields it until it opens to fire, and below half it calls its drones and the vents breathe
+  frost. Four new enemies (drones that fly, bulwarks whose plates turn shots from the front, sappers that lob
+  bombs, and the Coldheart) and two new weapons (the Nailstorm, six barrels that wind up, and the Frost lance, a
+  beam of cold through everything in its way). The four foundry levels get windows, vents and flickering lamps.
+- **More to see, and to hear, in Ironmaw.** Light has colour (warm by the lava, cold in the Ice, green in the
+  reactor, red when the alarm sounds), walls and floors keep rivet holes, scorch, blood and frost, grates, bars,
+  railings, windows and fences are see-through, steam vents breathe, lamps flicker and spark, snow falls in the
+  yards. Enemies walk in four steps, show their attacks coming with a glow, and break into glowing slag in a big
+  blast; spent rivets and shells bounce; the view dips when you land and shakes with a blast (Options: Screen
+  shake); footsteps sound like the floor; every sound comes from where it happens. Specks right at the eye no
+  longer fill the screen.
+- **The box's game engine draws on every core.** On a Pi (four cores), two helpers draw strips of Ironmaw's
+  picture at the same time as the page runs the game (Options: Drawing, to keep it on one). The page stays at a
+  steady 60 a second while they draw. `#demo` has Ironmaw play itself (for the games check), and `#slow=N` is
+  for checks: Chrome's own slowdown stretches a frame's work only about 3× when it says 10×.
+
 ## 1.1.39
 
 - **The box's own games can tell controllers apart.** Each controller is a player, numbered as it connects (when
