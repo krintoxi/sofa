@@ -1624,3 +1624,9 @@ html.gaming, html.gaming body { overflow: hidden; }
   .sbx-hero, .sbx-cols { grid-template-columns: 1fr; }
   .sbx-hero { gap: 22px; }
 }
+.about-body { max-width: 68ch; padding-bottom: 40px; color: var(--soft); font-size: 17px; line-height: 1.6; }
+.about-body h2 { font: 700 22px/1.2 var(--display); color: var(--paper); margin: 26px 0 6px; }
+.about-body p { margin: 0 0 10px; }
+.about-body a { color: var(--amber); text-decoration: underline; }
+.list li .row-actions { display: flex; gap: 6px; align-items: center; flex: none; }
+.mini[data-live-public][aria-pressed="true"] { color: var(--amber-ink); background: var(--amber); border-color: transparent; }

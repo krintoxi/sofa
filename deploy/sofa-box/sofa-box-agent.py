@@ -1224,8 +1224,9 @@ class LocalSofa:
         conf.update(name=(settings().get("boot_text") or "Sofa Box"), port=self.PORT, dlna=False, guest_access=False,
                     drive_folders=["/media/" + user, "/media"], auto_drives=True, auto_convert=False, previews=False, trickplay=False,
                     detect_intros=False, machine_test=False,
-                    live_playlists=[{"name": "English", "url": "https://iptv-org.github.io/iptv/languages/eng.m3u"},
-                                    {"name": "Spanish-language", "url": "https://iptv-org.github.io/iptv/languages/spa.m3u"}])
+                    # (no channel lists of its own: whoever owns the box adds the ones they want, from Live TV. A box
+                    # that came with other people's channels on it is what the "fully loaded box" cases were about.)
+                    live_playlists=[])
         for v in conf.values():
             if isinstance(v, str) and v.startswith(lib):
                 os.makedirs(v, exist_ok=True)

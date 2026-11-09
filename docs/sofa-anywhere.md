@@ -122,7 +122,21 @@ The plan for the round that started 2026-11-02. Each part has a status: ☐ not 
       - a highlighted **Sofa Box** page for anyone not on a box (what it is, what you need, the download);
       - away from home, Live TV plays straight from the channel when the channel allows it (https, no
         headers of its own, not a tuner at home), and through Sofa when it doesn't.
-    - ☐ Where it runs, and the hostname: the owner's call.
+    - ☑ In Sofa 1.5.0, from the industry study's guardrails (`~/IRONGATE/research`, owner's go 2026-11-08):
+      - away from home, and for every Visitor, a channel plays only straight from where it's streamed; Sofa's relay
+        answers only at home, and a channel that can't play directly isn't listed away from home;
+      - the public library gets only the channel lists an admin marks for visitors (Server → Live TV), and
+        Classic Cinema only with **Classic Cinema too** (`share_cinema`);
+      - Retro TV's decades (recordings of broadcasts, rights not cleared) are off unless an admin turns them on,
+        for the household only, and never reach Visitors;
+      - channels that need a made-up browser name or referrer are hidden unless allowed (`live_headers`);
+      - visitors get an **About** page: privacy, copyright and where notices go (`share_contact`);
+      - a new Sofa Box adds no channel lists of its own.
+    - ☐ The owner's, before launch:
+      - where it runs: a separate free-only Sofa, not the iMac's, on a Cloudflare account apart from boxcert's;
+      - a DMCA agent (copyright.gov, $6, renewed every 3 years) and the contact in Sharing;
+      - which channels are on its public list (owner-published free streams only), with a lawyer's view;
+      - an outside look at its security.
 
 ## How it looks
 

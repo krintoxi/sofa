@@ -56,6 +56,8 @@ DEFAULTS = {
     "share_all": False,           # every show and movie (never Adult), not only the ones picked
     "share_live": False,          # Live TV too
     "share_games": False,         # the page games too (off a Sofa Box)
+    "share_cinema": False,        # Live TV's Classic Cinema channels too (the decades' recordings: never)
+    "share_contact": "",          # where copyright notices go (shown to visitors on the About page)
     "public_open": False,         # the server's plain address opens the public library (a server only for sharing)
     # Time this computer's video conversion once, after starting (off for Sofa on a Sofa Box: a Pi doesn't convert).
     "machine_test": True,
@@ -77,6 +79,8 @@ DEFAULTS = {
     # Live TV channel lists (M3U). Each: {"name": ..., "url": ...}
     "live_playlists": [],
     "archive_channels": True,            # Live TV's Internet Archive channels (sofa/archive.py)
+    "retro_eras": False,                 # Retro TV's decades: recordings of TV as it aired (rights not cleared): opt-in, at home
+    "live_headers": False,               # channels that ask for a made-up browser name or referrer: hidden unless allowed
     # Where updates come from (the Update button on the Server page, and tools/update.sh).
     "update_repo": "krintoxi/sofa",
     "update_branch": "main",

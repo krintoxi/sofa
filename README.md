@@ -410,9 +410,9 @@ link you trust and tick **Adult channels**. [docs/adult.md](docs/adult.md)
 | Library | folders, rescan, **missing details** (fix them in a click), **duplicates** (keep the best copy), new pictures, free up space, the Deleted folder, Skip Intro progress, Needs Review |
 | Converting | the convert-to-MP4 queue with progress; automatic converting on/off |
 | Downloads | save videos from links; install yt-dlp; use a browser's sign-in; the "Send to Sofa" bookmark |
-| Live TV | channel lists |
+| Live TV | channel lists (and which ones the public library's visitors get), made-up browser names, Retro TV: Classic Cinema, and the decades as they aired (off unless turned on) |
 | People | accounts, Adult access, Kids profiles, guests |
-| Sharing | the **public library**: on/off, the share link (copy, QR code, make a new one), what visitors see it called, share everything, Live TV too, games too, open to everyone, the shared titles |
+| Sharing | the **public library**: on/off, the share link (copy, QR code, make a new one), what visitors see it called, share everything, Live TV too, Classic Cinema too, games too, where copyright notices go, open to everyone, the shared titles |
 | Settings | **privacy** (keep no logs, wipe all logs, work offline), name, theme, TV sharing, TMDB key, ThePornDB token, backups |
 | Updates | version, **Update now** |
 | Activity | everything Sofa did, filterable |

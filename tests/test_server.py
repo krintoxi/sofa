@@ -415,33 +415,91 @@ class Sharing(unittest.TestCase):
         config.update({"trust_proxy": False})
 
     def test_live_tv_away_from_home_comes_straight_from_the_channel(self):
+        """Away from home, and for every Visitor, a channel plays straight from where it's streamed or not at all: the
+        relay answers only at home. Visitors get only the lists an admin marked for them; a channel that asks for a
+        made-up browser name or referrer is hidden unless an admin allowed that."""
         from sofa import live
+        pub, home_only = "https://lists.example/public.m3u", "https://lists.example/mine.m3u"
+        def ch(cid, url, lists, **kw):
+            return dict({"id": cid, "name": cid, "logo": "", "group": "News", "playlist": "p", "url": url, "lists": lists}, **kw)
         chans = {
-            "aaaaaaaaaaaa": {"id": "aaaaaaaaaaaa", "name": "News", "logo": "", "group": "News", "playlist": "p",
-                             "url": "https://cdn.example/news/index.m3u8"},
-            "bbbbbbbbbbbb": {"id": "bbbbbbbbbbbb", "name": "Old", "logo": "", "group": "News", "playlist": "p",
-                             "url": "http://plain.example/old.m3u8"},                  # an https page can't play it
-            "cccccccccccc": {"id": "cccccccccccc", "name": "Picky", "logo": "", "group": "News", "playlist": "p",
-                             "url": "https://picky.example/a.m3u8", "headers": {"referer": "https://picky.example/"}},
-            "dddddddddddd": {"id": "dddddddddddd", "name": "Tuner", "logo": "", "group": "Home", "playlist": "p",
-                             "url": "https://192.168.1.20/auto/v2", "home": True},
+            "aaaaaaaaaaaa": ch("aaaaaaaaaaaa", "https://cdn.example/news/index.m3u8", [pub]),
+            "bbbbbbbbbbbb": ch("bbbbbbbbbbbb", "http://plain.example/old.m3u8", [pub]),             # an https page can't play it
+            "cccccccccccc": ch("cccccccccccc", "https://picky.example/a.m3u8", [pub], headers={"referer": "https://picky.example/"}),
+            "dddddddddddd": ch("dddddddddddd", "https://192.168.1.20/auto/v2", [pub], home=True),   # a tuner at home
+            "eeeeeeeeeeee": ch("eeeeeeeeeeee", "https://geo.example/a.m3u8", [pub], geo=True),      # its country only
+            "ffffffffffff": ch("ffffffffffff", "https://cdn.example/mine.m3u8", [home_only]),        # not for visitors
         }
-        config.update({"trust_proxy": True, "share_live": True})
+        before = {k: config.get(k) for k in ("trust_proxy", "share_live", "live_playlists", "live_headers")}
+        config.update({"trust_proxy": True, "share_live": True, "live_headers": False,
+                       "live_playlists": [{"name": "Public", "url": pub}, {"name": "Mine", "url": home_only}]})
         try:
             with mock.patch.dict(live._channels, chans, clear=True):
+                # Server → Live TV: this list for visitors too
+                self.assertEqual(self.admin.call("/api/admin/live", {"public": {"url": pub, "on": True}})[0], 200)
+                self.assertEqual(self.admin.call("/api/admin/live", {"public": {"url": "https://nope.example/x.m3u", "on": True}})[0], 400)
+                lists = {p["url"]: p["public"] for p in self.admin.call("/api/live")[1]["playlists"]}
+                self.assertEqual(lists, {pub: True, home_only: False})
                 sh = self.admin.call("/api/admin/sharing", {"share_on": True})[1]
                 net = "203.0.113.9"
                 st, headers, _ = self.raw(sh["path"], net)
                 cookie = headers["Set-Cookie"].split(";")[0]
-                got = {c["id"]: c.get("src") for c in json.loads(self.raw("/api/live", net, cookie)[2])["channels"] if c["id"] in chans}
-                self.assertEqual(got, {"aaaaaaaaaaaa": "https://cdn.example/news/index.m3u8", "bbbbbbbbbbbb": None,
-                                       "cccccccccccc": None, "dddddddddddd": None})
-                home = [c for c in self.admin.call("/api/live")[1]["channels"] if c["id"] in chans]  # at home: through Sofa
-                self.assertEqual(len(home), 4)
-                self.assertFalse(any("src" in c for c in home))
+                got = json.loads(self.raw("/api/live", net, cookie)[2])
+                self.assertTrue(got["away"])
+                self.assertEqual(got["playlists"], [])                                  # (a list's own address: not theirs)
+                self.assertEqual({c["id"]: c.get("src") for c in got["channels"] if c["id"] in chans},
+                                 {"aaaaaaaaaaaa": "https://cdn.example/news/index.m3u8"})
+                for cid in ("aaaaaaaaaaaa", "ffffffffffff"):                            # the relay: never for them
+                    self.assertEqual(self.raw("/live/%s/index.m3u8" % cid, net, cookie)[0], 403)
+                # at home: everything that may be shown, through Sofa (no own addresses)
+                home = {c["id"]: c for c in self.admin.call("/api/live")[1]["channels"] if c["id"] in chans}
+                self.assertEqual(set(home), set(chans) - {"cccccccccccc"})             # (a made-up referrer: hidden)
+                self.assertFalse(any("src" in c for c in home.values()))
+                jar = next(h.cookiejar for h in self.admin.opener.handlers if hasattr(h, "cookiejar"))
+                admin_cookie = "; ".join("%s=%s" % (c.name, c.value) for c in jar)
+                self.assertEqual(self.raw("/live/cccccccccccc/index.m3u8", cookie=admin_cookie)[0], 404)
+                config.update({"live_headers": True})
+                self.assertIn("cccccccccccc", {c["id"] for c in self.admin.call("/api/live")[1]["channels"]})
+                # where copyright notices go: an email address or an https page, shown to visitors
+                self.assertEqual(self.admin.call("/api/admin/sharing", {"share_contact": "not an address"})[0], 400)
+                self.assertEqual(self.admin.call("/api/admin/sharing", {"share_contact": "javascript:alert(1)"})[0], 400)
+                self.assertEqual(self.admin.call("/api/admin/sharing", {"share_contact": "rights@example.com"})[1]["contact"],
+                                 "rights@example.com")
+                self.assertEqual(json.loads(self.raw("/api/session", net, cookie)[2])["share"]["contact"], "rights@example.com")
+        finally:
+            self.admin.call("/api/admin/sharing", {"share_on": False, "share_contact": ""})
+            config.update(before)
+
+    def test_retro_tv_decades_never_reach_visitors(self):
+        from sofa import archive
+        before = {k: config.get(k) for k in ("trust_proxy", "offline", "archive_channels", "retro_eras", "share_cinema", "share_live")}
+        config.update({"trust_proxy": True, "offline": False, "archive_channels": True, "retro_eras": True,
+                       "share_cinema": False, "share_live": True})
+        try:
+            at_home = self.admin.call("/api/live")[1]
+            self.assertIn("2000s", [e["id"] for e in at_home["eras"]])
+            self.assertIn("ia-kids00", {c["id"] for c in at_home["channels"]})
+            sh = self.admin.call("/api/admin/sharing", {"share_on": True})[1]
+            net = "203.0.113.9"
+            st, headers, _ = self.raw(sh["path"], net)
+            cookie = headers["Set-Cookie"].split(";")[0]
+            got = json.loads(self.raw("/api/live", net, cookie)[2])
+            self.assertEqual([c for c in got["channels"] if c.get("archive")], [])        # Classic Cinema not shared
+            self.assertEqual([e["id"] for e in got["eras"]], ["now", "cinema"])
+            self.assertEqual(self.raw("/api/live/archive/ia-kids00/now", net, cookie)[0], 404)
+            self.assertEqual(self.raw("/api/live/archive/ia-noir/now", net, cookie)[0], 404)
+            config.update({"share_cinema": True})
+            got = json.loads(self.raw("/api/live", net, cookie)[2])
+            ids = {c["id"] for c in got["channels"] if c.get("archive")}
+            self.assertIn("ia-noir", ids)
+            self.assertFalse(ids & archive.RETRO)                                         # never the decades
+            self.assertFalse({c["id"] for c in json.loads(self.raw("/api/live/guide", net, cookie)[2])["channels"]} & archive.RETRO)
+            config.update({"retro_eras": False})                                          # off: not at home either
+            self.assertNotIn("ia-kids00", {c["id"] for c in self.admin.call("/api/live")[1]["channels"]})
+            self.assertEqual(self.admin.call("/api/live/archive/ia-kids00/now")[0], 404)
         finally:
             self.admin.call("/api/admin/sharing", {"share_on": False})
-            config.update({"trust_proxy": False, "share_live": False})
+            config.update(before)
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):

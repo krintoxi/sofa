@@ -904,6 +904,7 @@ function viewMore() {
       ${u.adult && !$("#navAdult").hidden ? row("#/adult", "i-lock", "Adult", "") : ""}
       ${row("#/search", "i-search", "Search", "")}
     </div>
+    ${visitorMode() ? `<div class="more-list">${row("#/about", "i-info", "About this Sofa", "Privacy, copyright and who to write to")}</div>` : ""}
     ${window.SofaBox ? "" : `<a href="#/sofabox" class="more-row more-promo">${icon("i-sofabox")}<span><b>Get a Sofa Box</b><small>Your own TV box on a Raspberry Pi: Sofa, Live TV, apps and games</small></span></a>`}
     <div class="more-list">
       ${u.guest ? "" : row("", "i-palette", "Theme", "Colours, subtitles, this device", 'data-more="theme"')}
@@ -1025,9 +1026,11 @@ function viewEmptyLibrary() {
   if (visitorMode()) return `<section class="empty"><h1>Nothing shared yet</h1>
     <p>${esc((session.share || {}).title || "This Sofa")} hasn't shared any shows or movies yet. Come back later.</p>${(session.share || {}).live || gamesOn() ? `<p class="row-actions">${(session.share || {}).live ? `<a class="btn primary" href="#/live">${icon("i-live")} Watch Live TV</a>` : ""}${gamesOn() ? `<a class="btn" href="#/games">${icon("i-games")} Play a game</a>` : ""}</p>` : ""}</section>`;
   if (!session.user.admin && session.retro_tv)          // a guest or a viewer: something on now, not the server's chores
-    return boxGuestOffer() + `<section class="empty"><h1>Retro TV is on</h1>
+    return boxGuestOffer() + (session.retro_eras ? `<section class="empty"><h1>Retro TV is on</h1>
     <p>Saturday mornings, Toonami, TRL, the 2000s as they aired, and every decade back to the 50s, on the clock like real TV. Your own shows and movies show up here once they're on this Sofa.</p>
-    <p><a class="btn primary" href="#/live">Watch Retro TV</a></p></section>`;
+    <p><a class="btn primary" href="#/live">Watch Retro TV</a></p></section>` : `<section class="empty"><h1>Classic Cinema is on</h1>
+    <p>Old films and classic TV on the clock, like real TV: noir, westerns, silent films, cartoons and more. Your own shows and movies show up here once they're on this Sofa.</p>
+    <p><a class="btn primary" href="#/live">Watch Classic Cinema</a></p></section>`);
   return `<section class="empty"><h1>Nothing to watch yet</h1>
     <p>Drop shows and movies into the <b>Inbox</b> folder on the server. Sofa names them, files them and adds artwork within a minute.</p>
     ${session.user.admin ? `<p><a class="btn" href="#/server">Open the Server page</a></p>` : ""}</section>`;
@@ -1491,6 +1494,27 @@ const GamePlayer = (() => {
   return { open, isOpen: () => !!el };
 })();
 
+/* ---------- About, for the public library's visitors: what this is, privacy, copyright, who to write to ---------- */
+function viewAbout() {
+  setGlow("");
+  const sh = session.share || {}, c = sh.contact || "";
+  const named = sh.title && !/^sofa$/i.test(sh.title.trim()), who = named ? esc(sh.title) : "this Sofa";
+  const write = !c ? "whoever runs it" : /^https:/.test(c) ? `<a href="${esc(c)}" target="_blank" rel="noopener">${esc(c)}</a>`
+    : `<a href="mailto:${esc(c)}">${esc(c)}</a>`;
+  const here = ["shows and films its owners chose to share"];
+  if (sh.live) here.push("free TV channels that play straight from the people who stream them (this Sofa doesn't host them or pass them on)");
+  if (sh.games) here.push("games that run in your browser");
+  const list = here.length > 1 ? here.slice(0, -1).join("; ") + "; and " + here[here.length - 1] : here[0];
+  return `<section class="page about-page"><div class="page-head"><h1>About ${who}</h1></div>
+    <div class="about-body">
+      <p>${named ? who + " is a free Sofa" : "This is a free Sofa"}: anyone can watch what's here, with no account and no ads in Sofa's own screens.</p>
+      <h2>What's here</h2><p>${list.charAt(0).toUpperCase() + list.slice(1)}.</p>
+      <h2>Privacy</h2><p>No ads and no trackers. A cookie keeps this browser signed in as a visitor, and where you stopped in a video is kept in this browser, not on the server. When you open the link, the server notes this browser's address and type with the visitor sign-in, as websites do.</p>
+      <h2>Copyright</h2><p>If something here is yours and you want it taken down, write to ${write}, saying what it is and where it appears. It comes down while it's looked at.</p>
+      <h2>Using it</h2><p>It's for watching, for yourself. Please don't copy what's here or put it up somewhere else.</p>
+    </div></section>`;
+}
+
 /* ---------- Sofa Box: what it is and how to get one (shown everywhere but on a box) ---------- */
 function viewSofaBox() {
   setGlow("");
@@ -1866,8 +1890,18 @@ function watchLiveMore() {
   }, { rootMargin: "900px 0px" });
   liveMore.observe(end);
 }
+const noDirectKey = () => "liveNoDirect:" + location.host;
+function noDirect(id) {
+  const ids = prefs.get(noDirectKey(), []) || [];
+  if (!ids.includes(id)) prefs.set(noDirectKey(), ids.concat(id).slice(-400));
+  if (liveData && liveData.channels) liveData.channels = liveData.channels.filter(c => c.id !== id);
+}
 async function loadLive() {
   try { liveData = await api("/api/live"); } catch (e) { liveData = { error: e.message, channels: [], playlists: [] }; }
+  if (liveData.away) {                     // (away from home: what didn't play straight from the channel here, before)
+    const gone = new Set(prefs.get(noDirectKey(), []) || []);
+    liveData.channels = liveData.channels.filter(c => c.archive || !gone.has(c.id));
+  }
   if (location.hash.startsWith("#/live")) rerender();
 }
 function liveList() {
@@ -1899,6 +1933,9 @@ function viewLive() {
   const head = eras.length ? `<div class="page-head live-head"><h1>Live TV</h1>${TV ? tabs : `<span class="count">${plural(liveData.channels.length, "channel")}</span>`}</div>${TV ? "" : tabs}`
     : `<div class="page-head"><h1>Live TV</h1><span class="count">${plural(liveData.channels.length, "channel")}</span></div>
     ${TV ? `<p class="count live-how">${isGuide() ? "Up and down go through the channels, OK watches one; while it plays, up and down change the channel. Flip picks one for you." : "OK plays a channel, and while it plays, up and down change it. The ★ on a channel adds it to Favorites."}</p>` : ""}`;
+  if (!liveData.channels.length && visitorMode()) {
+    return `<section class="page">${head}<p class="count" style="max-width:62ch">Nothing's on Live TV here yet. Come back later.</p></section>`;
+  }
   if (!liveData.channels.length) {
     return `<section class="page">${head}<p class="count" style="max-width:62ch">Free channels come from channel lists (M3U playlists), like the ones collected at github.com/iptv-org/iptv.
       ${session.user.admin ? "Add a list below, or any M3U link on the Server page." : "Ask whoever manages this server to add a channel list."}</p>
@@ -2664,17 +2701,34 @@ function srvDownloads(d) {
   </div>`;
 }
 function srvLive(d) {
-  return `<div class="panels"><div class="panel wide"><h2>Live TV channel lists</h2><p class="hint">M3U playlists of free channels. Sofa re-downloads them twice a day. Click a list below to add it.</p>
+  const s = d.settings || {};
+  return `<div class="panels"><div class="panel wide"><h2>Live TV channel lists</h2><p class="hint">M3U playlists of free channels. Sofa re-downloads them twice a day. At home they play through Sofa; away from home, and for visitors, straight from where each channel is streamed, or not at all.</p>
     <ul class="list">${(d.live || []).map(p => `<li><span><b>${esc(p.name)}</b>${p.adult ? ` <span class="tag">Adult</span>` : ""}<br><span class="when">${p.error ? "Problem: " + esc(p.error) : plural(p.count || 0, "channel")}</span></span>
-      <button class="mini danger" data-live-remove="${esc(p.url)}">Remove</button></li>`).join("") || `<li class="empty-row">No channel lists yet.</li>`}</ul>
+      <span class="row-actions">${p.adult ? "" : `<button class="mini" data-live-public="${esc(p.url)}" aria-pressed="${!!p.public}" title="The public library's visitors get this list's channels too (with Live TV shared, in Sharing)">${p.public ? "Visitors: on" : "Visitors: off"}</button>`}
+      <button class="mini danger" data-live-remove="${esc(p.url)}">Remove</button></span></li>`).join("") || `<li class="empty-row">No channel lists yet.</li>`}</ul>
+    <p class="hint" style="margin-top:14px">Community lists from iptv-org: channels that are streamed openly on the internet, collected by volunteers. Sofa doesn't host or check them, and being reachable doesn't make a channel yours to pass on, so keep them for watching at home.</p>
     <div class="presets">${PRESETS.filter(p => !(d.live || []).some(x => x.url === p[1])).map(p => `<button class="mini" data-preset="${esc(p[1])}" data-name="${esc(p[0])}">+ ${esc(p[0])}</button>`).join("")}</div>
     <form class="inline-form" id="addList"><label class="field"><span>Name</span><input name="name" maxlength="60" placeholder="My channels"></label>
       <label class="field"><span>M3U link</span><input name="url" type="url" required placeholder="https://…/list.m3u"></label>
       <button class="btn" type="submit">Add</button>
       <label class="check"><input type="checkbox" name="adult"> Adult channels (only people allowed to see Adult get them; never TVs or guests)</label>
       <div class="form-error" role="alert" style="grid-column:1/-1"></div></form>
-    <p class="hint" style="margin-top:14px">About adult channels: the free iptv-org lists stopped carrying adult channels in January 2024, so there's no free list Sofa can suggest. If you have an M3U link from a service you trust, add it with the Adult box ticked.</p></div></div>`;
+    <p class="hint" style="margin-top:14px">About adult channels: the free iptv-org lists stopped carrying adult channels in January 2024, so there's no free list Sofa can suggest. If you have an M3U link from a service you trust, add it with the Adult box ticked.</p>
+    ${srvSwitch("live_headers", s.live_headers, "Channels that ask for a made-up browser name", "Some lists give a channel a browser name or a page to pretend to come from, to get past a site that wants its stream watched only on its own pages. Off: those channels are left out.")}</div>
+    <div class="panel wide"><h2>Retro TV</h2>
+    ${srvSwitch("archive_channels", s.archive_channels, "Classic Cinema", "Old films and classic TV on the clock, like a TV channel: noir, westerns, silent films, cartoons and more. They play straight from a public video library, not through Sofa.")}
+    ${srvSwitch("retro_eras", s.retro_eras, "The decades, as they aired", "Recordings people made of TV from the 50s to 2012, commercials and all: Saturday mornings, music TV, kids' channels. Nobody has cleared their rights, so they're off unless you turn them on for your own household. Visitors to a public library never get them.")}</div></div>`;
 }
+document.addEventListener("click", e => {
+  const b = e.target.closest && e.target.closest("[data-live-public]");
+  if (!b) return;
+  const on = b.getAttribute("aria-pressed") !== "true";
+  adminAction(async () => {
+    await api("/api/admin/live", { public: { url: b.dataset.livePublic, on } });
+    liveData = null;
+    toast(on ? "Visitors get this list's channels, with Live TV shared (Sharing)." : "Visitors don't get this list any more.");
+  });
+});
 function devicesPanel(list) {
   if (!list) return "";
   const kind = s => /^Paired: /.test(s.device) ? s.device.slice(8) + " (TV)" : /iPhone|iPad/.test(s.device) ? "iPhone or iPad" : /Android/.test(s.device) ? "Android"
@@ -2734,8 +2788,12 @@ function srvSharing(d) {
         <div class="row-actions"><button class="mini" data-share-new="1">Make a new link</button></div></div></div>
       <form class="inline-form share-form" id="shareName"><label class="field"><span>Shown to visitors as</span><input name="v" maxlength="60" placeholder="${esc(x.name)}" value="${esc(x.title)}"></label>
         <button class="btn" type="submit">Save</button></form>
+      <form class="inline-form share-form" id="shareContact"><label class="field"><span>Copyright notices go to</span><input name="v" maxlength="120" placeholder="an email address or an https:// page" value="${esc(x.contact || "")}"></label>
+        <button class="btn" type="submit">Save</button></form>
+      <p class="hint">Shown to visitors on the About page. A public library needs somewhere for anyone whose work is on it to write.</p>
       ${shareSwitch("share_all", x.all, "Share everything", "Every show and movie (never the Adult section), not only the ones picked below.")}
-      ${shareSwitch("share_live", x.live, "Live TV too", "Visitors can watch your Live TV channels as well.")}
+      ${shareSwitch("share_live", x.live, "Live TV too", "Visitors get the channel lists you mark for visitors (Server → Live TV), each channel straight from where it's streamed. Only channels their owners stream for everyone belong here.")}
+      ${shareSwitch("share_cinema", x.cinema, "Classic Cinema too", "The old films on Live TV's Classic Cinema tab. Share them only if you're sure they're public domain where your visitors are. The decades' recordings are never shared.")}
       ${shareSwitch("share_games", x.games, "Games too", "Visitors can play the Sofa Box's games in their browser, with a keyboard or a controller.")}
       ${shareSwitch("public_open", x.open, "Open to everyone at this address", "No link needed: the server's own address opens the public library from the internet. For a server that's only there to share.")}` : ""}</div>
     ${x.on ? `<div class="panel wide"><h2>Shared titles${x.all ? " (everything is shared)" : ""}</h2>
@@ -2960,6 +3018,7 @@ function route(animate) {
   else if (name === "box" && window.SofaBox) { html = viewBox(); nav = "box"; }
   else if (name === "games" && gamesOn()) { html = viewGames(); nav = "games"; }
   else if (name === "sofabox" && !window.SofaBox) { html = viewSofaBox(); nav = "sofabox"; }
+  else if (name === "about" && visitorMode()) { html = viewAbout(); nav = "more"; }
   else { html = viewHome(); nav = "home"; }
   $("#searchBtn").toggleAttribute("aria-current", nav === "search");
   document.querySelectorAll("[data-nav]").forEach(a => { if (a.dataset.nav === nav) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current"); });
@@ -3155,6 +3214,7 @@ document.addEventListener("click", e => {
   else if (t.dataset.admin === "scan") { t.disabled = true; t.textContent = "Checking…"; adminAction(async () => { await api("/api/admin/scan", {}); await reloadLibrary(); }); }
   else if (t.dataset.setting) {
     const on = t.getAttribute("aria-checked") !== "true";
+    if (/^(archive_channels|retro_eras|live_headers)$/.test(t.dataset.setting)) liveData = null;
     adminAction(() => api("/api/admin/settings", { [t.dataset.setting]: on }));
   }
   else if (t.dataset.shareSetting) {
@@ -3187,6 +3247,12 @@ document.addEventListener("submit", e => {
     e.preventDefault();
     const v = e.target.v.value.trim();
     adminAction(async () => { await api("/api/admin/sharing", { share_title: v }); toast("Saved."); });
+    return;
+  }
+  if (e.target.id === "shareContact") {
+    e.preventDefault();
+    const v = e.target.v.value.trim();
+    adminAction(async () => { await api("/api/admin/sharing", { share_contact: v }); toast("Saved."); });
     return;
   }
   if (e.target.dataset.quietForm) {
@@ -4622,7 +4688,6 @@ const Player = (function () {
     flashSeek(video.playbackRate + "×", "mid");
   }
   let hls = null, liveList_ = null, liveIdx = 0, archiveTuned = 0, archiveNext = null, liveTuned = 0, liveFallback = null;
-  const liveRelayOnly = new Set();        // channels that didn't play straight from the channel here: through Sofa
   const filmName = f => f.title + (f.year ? " (" + f.year + ")" : "");
   function loadHlsJs() {
     if (window.Hls) return Promise.resolve();
@@ -4640,7 +4705,7 @@ const Player = (function () {
     if (NATIVE && window.SofaBox && !nativeFailed.has("live:" + ch.id)) {
       const all = list || [ch];
       const to = c => ({ id: c.id, name: c.name, group: c.group || "", archive: !!c.archive, number: c.number || null,
-                         url: location.origin + (c.archive ? "/api/live/archive/" + c.id + "/now" : "/live/" + c.id + "/index.m3u8") });
+                         url: c.src || location.origin + (c.archive ? "/api/live/archive/" + c.id + "/now" : "/live/" + c.id + "/index.m3u8") });
       nativeItem = { id: "live:" + ch.id, live: true, channel: ch, list: all }; nativeQueue = null;
       NATIVE.play(JSON.stringify({ item: null, live: true, title: ch.name, sub: onAir ? filmName(onAir.film) : ch.group || "", at: Math.max(0, all.indexOf(ch)),
         number: ch.number || null, programs: onAir ? [onAir.film].concat(onAir.next).map(f => ({ title: f.title, year: f.year || null, ad: !!f.ad })) : [],
@@ -4684,12 +4749,13 @@ const Player = (function () {
       wake(); toggleBtn.focus();
       return;
     }
-    // Away from home, straight from the channel when it allows it (so the video doesn't come through this Sofa's
-    // upload, or through a tunnel); through Sofa when it doesn't, or once that hasn't worked on this device.
-    const relay = "/live/" + ch.id + "/index.m3u8", src = ch.src && !liveRelayOnly.has(ch.id) ? ch.src : relay;
-    if (src !== relay) liveFallback = () => {
+    // At home through Sofa. Away from home (and on a public Sofa) straight from where the channel is streamed, or not at
+    // all: a channel that won't play that way on this device is left out of its list here from now on (liveNoDirect).
+    const src = ch.src || "/live/" + ch.id + "/index.m3u8";
+    if (ch.src) liveFallback = () => {
       if (myTune !== liveTuned || !el.classList.contains("is-live")) return false;
-      liveRelayOnly.add(ch.id); liveFallback = null; openLive(ch, liveList_);
+      liveFallback = null; noDirect(ch.id);
+      showError(ch.name + " doesn't play here", "Away from home, a channel plays straight from where it's streamed, and this one doesn't allow that on this device. It's left out of the list here from now on.");
       return true;
     };
     if (nativeHls) { video.src = src; }
@@ -5087,6 +5153,7 @@ async function reloadLibrary() {
   progress = visitorMode() ? prefs.get("visitorProgress:" + location.host, {}) || {} : prog; indexLibrary(lib);
   $("#foot").innerHTML = esc(lib.reading ? "Reading the library... " : "Library updated " + new Date(lib.generated * 1000).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) + ". New files in the Inbox show up on their own. ")
     + `<a href="?tv=${TV ? 0 : 1}" class="link-btn">${TV ? "Turn off TV mode on this device" : "Use TV mode on this device"}</a>`
+    + (visitorMode() ? ` <a href="#/about" class="link-btn">About, privacy and copyright</a>` : "")
     + `<span class="credit">Sofa ${esc(session.version || "")} · Project by <a href="https://edgeventure.uk" target="_blank" rel="noopener">EdgeVenture.uk</a></span>`;
 }
 let refreshing = 0;

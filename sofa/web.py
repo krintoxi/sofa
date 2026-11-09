@@ -587,7 +587,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_body(dlna.icon_png(), "image/png")
         if path.startswith("/dlna/live/"):
             chan = live.channel(path[len("/dlna/live/"):])
-            if not chan or chan.get("adult") or not media.tool("ffmpeg") or (not chan.get("home") and live.at_home(chan["url"])):
+            if not live.visible(chan) or chan.get("adult") or not media.tool("ffmpeg") or (not chan.get("home") and live.at_home(chan["url"])):
                 return self.send_body("Not found", status=404)
             return self.stream({"id": "live:" + chan["id"], "path": chan["url"], "title": chan["name"],
                                 "input_opts": live.ffmpeg_input(chan)}, "remux", 0, "TV at " + self.client_ip(),
@@ -612,8 +612,15 @@ class Handler(BaseHTTPRequestHandler):
             return
         m = re.match(r"^/live/([0-9a-f]{12})/(index\.m3u8|p/([\w.=-]+))$", path)
         chan = live.channel(m.group(1)) if m else None
-        if not chan or (chan.get("adult") and not u.get("adult")) or u.get("kids") or (u.get("visitor") and not config.get("share_live")):
+        if not live.visible(chan) or (chan.get("adult") and not u.get("adult")) or u.get("kids") or \
+                (u.get("visitor") and not config.get("share_live")):
             return self.send_body("Not found", status=404)
+        if u.get("visitor") or self.network() == "internet":
+            # Through this Sofa only at home. Away (and for anyone the public library lets in) a channel plays straight
+            # from where it's streamed, or not at all: relayed, it would go out on the home's connection, past the
+            # channel's own country limits, and make this Sofa a broadcaster (sofa/live.py, listing).
+            return self.send_body("Away from home, a channel plays straight from where it's streamed; this one can't "
+                                  "be played that way.", status=403)
         url = chan["url"] if m.group(2) == "index.m3u8" else live.unpack(m.group(3))
         if not url:
             return self.send_body("Not found", status=404)
@@ -739,11 +746,14 @@ class Handler(BaseHTTPRequestHandler):
             u = self.user()
             return self.json({"name": config.get("name"), "version": __version__, "user": u, "theme": config.get("theme"),
                               "share": {"title": sharing.title(), "live": bool(config.get("share_live")),
-                                        "games": bool(config.get("share_games")), "home": not self.visitor_only} if u and u.get("visitor") else None,
+                                        "games": bool(config.get("share_games")), "cinema": bool(config.get("share_cinema")),
+                                        "contact": config.get("share_contact") or "",
+                                        "home": not self.visitor_only} if u and u.get("visitor") else None,
                               "offline": net.offline_mode(),
                               "needs_setup": auth.user_count() == 0, "network": self.network(),
                               "remote": config.get("remote"), "guest_available": bool(self.guest_ok()),
                               "retro_tv": archive.on() and not (u and (u.get("kids") or u.get("visitor"))),
+                              "retro_eras": archive.on() and archive.eras_on(),
                               "previews": bool(config.get("previews")),     # (off: a clip that isn't made won't be)
                               "signup": bool(config.get("signups")),
                               "waiting": auth.waiting() if u and u.get("admin") else 0,
@@ -752,8 +762,11 @@ class Handler(BaseHTTPRequestHandler):
         u = self.need_user(admin=path.startswith("/api/admin/"))
         if not u:
             return
-        if u.get("visitor") and not re.match(r"^/api/(library|progress|live|music|screens|apps|play/.+|hls/.+)$", path):
+        if u.get("visitor") and not re.match(r"^/api/(library|progress|live|live/guide|live/archive/ia-[a-z0-9]+/now|music|screens|apps|"
+                                             r"play/.+|hls/.+)$", path):
             return self.error(403, "Sign in to do that.")
+        if u.get("visitor") and path.startswith("/api/live/") and not config.get("share_live"):
+            return self.error(404, "Live TV isn't shared here.")
         if u.get("visitor") and path in ("/api/progress", "/api/music", "/api/screens", "/api/apps") or \
                 (u.get("visitor") and path == "/api/live" and not config.get("share_live")):
             return self.json({"/api/progress": {}, "/api/screens": {"screens": []}, "/api/apps": {},
@@ -781,25 +794,23 @@ class Handler(BaseHTTPRequestHandler):
         if path.startswith("/api/live") and u.get("kids"):
             return self.error(403, "Live TV isn't on for this profile.")
         if path == "/api/live":
-            out = live.listing(u["id"], adult=u.get("adult"))
-            if self.network() == "internet":           # away from home: straight from the channel where it can be
-                for c in out["channels"]:
-                    src = live.direct_url(live.channel(c["id"]))
-                    if src:
-                        c["src"] = src
+            visitor = bool(u.get("visitor"))
+            away = visitor or self.network() == "internet"  # straight from the channel, or not at all (live_get)
+            out = live.listing(u["id"], adult=u.get("adult"), public_only=visitor, direct_only=away)
             favs = {r["channel"] for r in store.q("SELECT channel FROM live_favorites WHERE user_id = ?", u["id"])}
-            out["channels"] = [dict(c, fav=c["id"] in favs, playlist="archive.org") for c in archive.channels()] + out["channels"]
-            out["eras"] = [{"id": e, "name": n} for e, n in archive.ERAS] if archive.on() else []   # Live TV's tabs
+            out["channels"] = [dict(c, fav=c["id"] in favs, playlist="archive.org") for c in archive.channels(visitor)] + out["channels"]
+            out["eras"] = archive.eras(visitor)          # Live TV's tabs
+            out["away"] = away
             return self.json(out)
         if path == "/api/live/guide":                  # the archive channels' guide: what's on and next, by the clock
-            chans = archive.guide()
+            chans = archive.guide(visitor=bool(u.get("visitor")))
             era, grp = (qs.get("era") or [""])[0], (qs.get("group") or [""])[0]
             if era or grp:                             # the channels in view that aren't ready yet: fetched first
                 archive.want([c["id"] for c in chans if not c["programs"] and (c["era"] == era or c["group"] == grp)])
             return self.json({"at": int(time.time()), "channels": chans})
         m = re.match(r"^/api/live/archive/(ia-[a-z0-9]+)/now$", path)
         if m:                                          # an Internet Archive channel: what's on, from where
-            if m.group(1) not in archive.BY_ID or not archive.on():
+            if not archive.available(m.group(1), visitor=bool(u.get("visitor"))):
                 return self.error(404, "That channel isn't on.")
             try:
                 return self.json(archive.now(m.group(1)))
@@ -1172,9 +1183,15 @@ class Handler(BaseHTTPRequestHandler):
                 return self.error(400, str(exc))
             return self.json(dict(places.status(LIBRARY), ok=True))
         if path == "/api/admin/sharing":             # the public library: on/off, what's in it, the link
-            changes = {k: bool(data[k]) for k in ("share_on", "share_all", "share_live", "share_games", "public_open") if k in data}
+            changes = {k: bool(data[k]) for k in ("share_on", "share_all", "share_live", "share_games", "share_cinema", "public_open")
+                       if k in data}
             if "share_title" in data:
                 changes["share_title"] = str(data["share_title"] or "").strip()[:60]
+            if "share_contact" in data:                 # an email address or a web page: where copyright notices go
+                contact = str(data["share_contact"] or "").strip()[:120]
+                if contact and not (re.match(r"^[^@\s<>\"]+@[^@\s<>\"]+\.[^@\s<>\"]+$", contact) or re.match(r"^https://[^\s<>\"]+$", contact)):
+                    return self.error(400, "Use an email address or an https:// page.")
+                changes["share_contact"] = contact
             if changes:
                 config.update(changes)
                 sharing.settings_changed()
@@ -1293,6 +1310,10 @@ class Handler(BaseHTTPRequestHandler):
                 if data.get("remove"):
                     live.remove_playlist(data["remove"])
                     store.log("live", "%s removed a channel list" % u["name"])
+                if isinstance(data.get("public"), dict):
+                    live.set_public(str(data["public"].get("url") or ""), bool(data["public"].get("on")))
+                    store.log("live", "%s %s a channel list for visitors" % (u["name"], "shared" if data["public"].get("on") else "stopped sharing"))
+                    return self.json({"ok": True})
             except ValueError as exc:
                 return self.error(400, str(exc))
             count = live.refresh(force=bool(data.get("refresh") or data.get("add")))
@@ -1455,7 +1476,7 @@ class Handler(BaseHTTPRequestHandler):
                                             "guest_access", "auto_convert", "keep_originals", "tidy_library",
                                             "free_movie_lookup", "theme", "detect_intros", "trickplay", "previews",
                                             "ytdlp_cookies", "gentle", "quiet_hours", "offline", "no_logs", "keep_awake",
-                                            "signups") if k in data}
+                                            "signups", "archive_channels", "retro_eras", "live_headers") if k in data}
             if "gentle" in allowed and allowed["gentle"] not in (True, False, "auto"):
                 allowed.pop("gentle")
             if "quiet_hours" in allowed and not re.match(r"^([01]\d|2[0-3]):[0-5]\d-([01]\d|2[0-3]):[0-5]\d$", str(allowed["quiet_hours"])):
@@ -1465,7 +1486,8 @@ class Handler(BaseHTTPRequestHandler):
             if "name" in allowed:
                 allowed["name"] = str(allowed["name"]).strip()[:40] or "Sofa"
             for k in ("dlna", "tvmaze", "guest_access", "auto_convert", "keep_originals", "tidy_library", "free_movie_lookup",
-                      "detect_intros", "trickplay", "previews", "offline", "no_logs", "keep_awake", "signups"):
+                      "detect_intros", "trickplay", "previews", "offline", "no_logs", "keep_awake", "signups",
+                      "archive_channels", "retro_eras", "live_headers"):
                 if k in allowed:
                     allowed[k] = bool(allowed[k])
             for k in ("tmdb_api_key", "theporndb_api_key"):
@@ -1833,7 +1855,8 @@ def sharing_status():
                "year": x.get("year"), "poster": x.get("poster")}
               for x in lib["shows"] + lib["movies"] if x["id"] in chosen and not x.get("adult")]
     return {"on": sharing.on(), "all": bool(config.get("share_all")), "live": bool(config.get("share_live")),
-            "games": bool(config.get("share_games")), "open": bool(config.get("public_open")), "title": config.get("share_title") or "", "name": config.get("name"),
+            "games": bool(config.get("share_games")), "cinema": bool(config.get("share_cinema")),
+            "contact": config.get("share_contact") or "", "open": bool(config.get("public_open")), "title": config.get("share_title") or "", "name": config.get("name"),
             "links": share_links() if sharing.on() else [], "path": "/s/" + sharing.token() if sharing.on() else None, "titles": titles,
             "count": len(lib["shows"]) + len(lib["movies"]) if config.get("share_all") else len(titles),
             "remote": config.get("remote"), "domain": (config.get("domain") or "").strip(), "https": tls.trusted()}

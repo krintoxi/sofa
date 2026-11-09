@@ -138,7 +138,8 @@ Settings for a tunnel: `"remote": "public"` and `"trust_proxy": true` in `data/c
 reverse proxy. Sofa then takes the visitor's address from what Cloudflare sends (`X-Forwarded-For`, or
 `CF-Connecting-IP`). Until `trust_proxy` is on, everything that comes through the tunnel counts as the
 internet, whatever it claims to be, and the Activity log says a proxy is in front. Away from home, Live TV
-plays straight from the channel where it can, so most channels don't go through the tunnel at all.
+plays only straight from where each channel is streamed, never through Sofa, so no channel goes through the
+tunnel: a channel that can't play that way isn't listed away from home.
 
 **Already have a reverse proxy** (Caddy, nginx)? Leave Sofa's HTTPS off, set `"remote": "public"` and
 `"trust_proxy": true`, and let the proxy handle HTTPS. Sofa takes the visitor's address from the **last**

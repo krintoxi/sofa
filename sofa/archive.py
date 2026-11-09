@@ -216,6 +216,29 @@ def on():
     return bool(config.get("archive_channels")) and not config.get("offline")
 
 
+def eras_on():
+    """Retro TV's decades: recordings of TV as it went out, its commercials in, that people uploaded. Nobody has cleared
+    their rights, so they're off unless an admin turns them on for their own household (retro_eras)."""
+    return bool(config.get("retro_eras"))
+
+
+def available(cid, visitor=False):
+    """A channel this viewer may tune to: the decades' recordings only when they're on, and never for the public
+    library's Visitors; Classic Cinema for Visitors only when it's shared (share_cinema)."""
+    if cid not in BY_ID or not on():
+        return False
+    if cid in RETRO:
+        return eras_on() and not visitor
+    return not visitor or bool(config.get("share_cinema"))
+
+
+def eras(visitor=False):
+    """Live TV's tabs for this viewer: Live now and Classic Cinema, and the decades when they're on."""
+    if not on():
+        return []
+    return [{"id": e, "name": n} for e, n in ERAS if e in ("now", "cinema") or (eras_on() and not visitor)]
+
+
 def _get(url, timeout=30):
     req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "application/json"})
     with net.urlopen(req, timeout=timeout) as r:
@@ -324,12 +347,15 @@ def logo(cid):
     return "data:image/svg+xml;utf8," + urllib.parse.quote(svg)
 
 
-def channels():
-    """The channels, for Live TV's list (Retro TV and Classic Cinema), with what's on now where the films are known."""
+def channels(visitor=False):
+    """The channels this viewer may watch, for Live TV's list (Retro TV and Classic Cinema), with what's on now where
+    the films are known."""
     if not on():
         return []
     out = []
     for c in sorted(CHANNELS, key=lambda c: NUMBER[c[0]]):
+        if not available(c[0], visitor):
+            continue
         ch = {"id": c[0], "name": c[1], "group": group(c[0]), "logo": logo(c[0]), "era": era(c[0]),
               "archive": True, "number": NUMBER[c[0]], "about": ABOUT.get(c[0], ""), "color": c[3], "aired": c[0] in AIRED}
         fl = _saved(c[0])
@@ -342,13 +368,13 @@ def channels():
     return out
 
 
-def guide(at=None, hours=3):
+def guide(at=None, hours=3, visitor=False):
     """Live TV's guide: every channel's programmes from the one on now to `hours` ahead, from the films Sofa has (it
     never waits on the archive; a channel not fetched yet has none). The commercials after a show are the show's, as
     in a TV guide."""
     at = time.time() if at is None else at
     out = []
-    for ch in channels():
+    for ch in channels(visitor):
         fl = _saved(ch["id"]) or []
         shows = [f for f in fl if not f.get("ad")]
         out.append(dict(ch, programs=_programmes(fl, at, hours) if fl else [], tapes=len(shows),
@@ -563,7 +589,7 @@ def want(cids):
     without the warm-up's pauses. (On a new box the era in view is ready in a minute, instead of its turn coming
     in the ten minutes the whole warm-up takes.)"""
     soon = time.time() - RETRY
-    new = [c for c in cids if c in BY_ID and _saved(c) is None and _failed.get(c, 0) < soon]
+    new = [c for c in cids if available(c) and _saved(c) is None and _failed.get(c, 0) < soon]
     if not new or not on():
         return
     with _lock:
@@ -589,7 +615,7 @@ def _warm():
         waited_for = cid is not None
         if cid is None:
             if not todo and time.time() >= next_round:
-                todo, next_round = sorted(BY_ID, key=NUMBER.get), time.time() + 6 * 3600   # (the dial's order: the 2000s first, where Live TV opens)
+                todo, next_round = sorted((c for c in BY_ID if available(c)), key=NUMBER.get), time.time() + 6 * 3600   # (the dial's order)
             while todo and cid is None:
                 c = todo.pop(0)
                 cid = None if _fresh(c) else c              # (fetched already, for someone waiting: no pause for it)
@@ -605,7 +631,7 @@ def _warm():
 
 def _warm_one(cid):
     """One channel; one that fails (the archive down, an odd item) waits for the next round, the rest go on."""
-    if not on():
+    if not available(cid):
         return
     try:
         films(cid)

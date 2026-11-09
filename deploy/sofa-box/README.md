@@ -18,7 +18,8 @@ ads, no account, and nothing watching what you watch; the TV itself never needs 
 - **Sofa from anywhere:** your Sofa Server at home, a Sofa Server on the internet (a share link someone
   sent you), **Sofa on the box itself** (no other computer needed), or your Jellyfin, Emby or Plex server.
   It plays with the box's own player (mpv, on the Pi's video chip), so most files play as they are.
-- **Free Live TV** has its own tile, and works with no server at all.
+- **Free Live TV** has its own tile, and works with no server at all: Classic Cinema from the start, and the
+  free channel lists you add.
 - **Streaming apps** (Netflix, YouTube, Prime Video, Disney+, Max, Hulu…), our own (Edge Music,
   The LJ Collection, LJ Fragrances) and anything else from the **App Store** open full screen, with
   no browser around them. **Home** brings you back; they keep playing.
@@ -57,9 +58,10 @@ ads, no account, and nothing watching what you watch; the TV itself never needs 
    The release's title says which version the newest card is.
 2. Install **Raspberry Pi Imager** (raspberrypi.com/software) on your computer and open it.
    Choose your Pi, then **Choose OS → Use custom** and pick the file, then your card.
-3. When it asks about **OS customisation**, you can press **Edit settings** to add your Wi-Fi, and
-   a user name and password with SSH under Services (only needed to look inside the box later). Or
-   press **No**: a network cable needs nothing.
+3. When it asks about **OS customisation**, you can press **Edit settings** to add your Wi-Fi
+   (**Configure wireless LAN**). Leave **Set username and password** unticked: a user made there stops the
+   box's own screen from starting (a fix is on the way). Or press **No**: a network cable needs nothing,
+   and the box's setup can join your Wi-Fi itself.
 4. Write it, put the card in the Pi, plug in HDMI (and the network cable), then power.
 5. The TV shows the Sofa Box boot screen, then the **setup** (see below). The first start takes a
    few minutes.
@@ -260,13 +262,17 @@ you've added (open one, make it the one Sofa opens with, or remove it). Inside S
 **Servers** switches too. You stay signed in to each one.
 
 The **Live TV** tile opens Live TV in the Sofa it opens with, or in Sofa on the box. Channels play in the
-box's own player: up and down change the channel. Live TV has a tab for each era: **Live now** (today's
-channels, from the free channel lists), **2009–2012**, the **2000s**, **90s**, **80s**, **70s**, **60s**,
-**50s**, and **Classic Cinema** (classic movies, film noir, westerns, silent films, cartoons, classic TV,
-documentaries). The eras are TV as it went out, most of it whole recorded broadcasts with their own
-commercials: Kids TV, Saturday Mornings, On Air, Music TV, Commercial Breaks and more (39 channels; the 2000s
-on 2 to 10, 2009–2012 on 11 to 14, Classic Cinema on 20 to 28, the 90s from 90, the 80s from 80 and so on).
-Each era has a **guide**, as on a TV: up and down go through the channels, OK watches, a channel's number goes
+box's own player: up and down change the channel.
+- **Live now:** today's channels, from the channel lists you add. A new box comes with none: add the ones you
+  want from Live TV (the community lists from iptv-org are one press each).
+- **Classic Cinema:** classic movies, film noir, westerns, silent films, cartoons, classic TV and documentaries,
+  on 20 to 28.
+- **The decades:** 2009–2012, the 2000s, 90s, 80s, 70s, 60s and 50s, TV as it went out, most of it whole
+  recorded broadcasts with their own commercials (Kids TV, Saturday Mornings, On Air, Music TV, Commercial
+  Breaks and more). Nobody has cleared their rights, so they're off until someone turns them on for their own
+  household, in the Sofa's Server → Live TV.
+
+Each tab has a **guide**, as on a TV: up and down go through the channels, OK watches, a channel's number goes
 straight to it, and Flip picks one. While a channel plays, its banner says what's on and what's next.
 
 ### USB drives and discs

@@ -35,6 +35,7 @@ REFRESH_EVERY = 12 * 3600
 AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
 ATTR = re.compile(r'([\w-]+)="([^"]*)"')
 ADULT_GROUP = re.compile(r"\b(xxx|adult|adults|18\+|erotic|porn|nsfw)\b", re.I)
+GEO = re.compile(r"\[geo-?blocked\]|\u24bc", re.I)      # a list's own mark for "only in its country" ([Geo-blocked], Ⓖ)
 
 _lock = threading.Lock()
 _channels = {}      # id -> channel
@@ -92,7 +93,7 @@ def parse_m3u(text, source, adult=False):
             name = line.rsplit(",", 1)[-1].strip() if "," in line else attrs.get("tvg-name", "Channel")
             info = {"name": name or attrs.get("tvg-name") or "Channel", "logo": attrs.get("tvg-logo") or None,
                     "group": (attrs.get("group-title") or "Other").split(";")[0].strip() or "Other",
-                    "tvg": attrs.get("tvg-id") or None}
+                    "tvg": attrs.get("tvg-id") or None, "geo": bool(GEO.search(line))}
             opts = {}
         elif line.startswith("#EXTVLCOPT:"):
             k, _, v = line[len("#EXTVLCOPT:"):].partition("=")
@@ -341,7 +342,10 @@ def refresh(force=False):
         home = at_home(url)                             # a tuner's list at home (HDHomeRun): its channels are at home too
         for c in found:
             c["home"] = home
-            channels.setdefault(c["id"], c)
+            kept = channels.setdefault(c["id"], c)
+            kept.setdefault("lists", [])
+            if url not in kept["lists"]:
+                kept["lists"].append(url)               # (the same stream in two lists: one channel, in both)
         _status[url] = {"name": name, "url": url, "count": len(found), "error": error, "adult": bool(pl.get("adult")),
                         "updated": int(os.path.getmtime(path)) if os.path.exists(path) else None}
     with _lock:
@@ -355,15 +359,39 @@ def channel(cid):
         return _channels.get(cid)
 
 
-def listing(user_id, adult=False):
+def visible(chan):
+    """Shown at all. A channel whose list asks for a made-up browser name or referrer (to get past a site that wants its
+    stream played only on its own pages) only when an admin allowed that (live_headers)."""
+    h = (chan or {}).get("headers") or {}
+    return bool(chan) and (bool(config.get("live_headers")) or not (h.get("ua") or h.get("referer")))
+
+
+def listing(user_id, adult=False, public_only=False, direct_only=False):
+    """Live TV's channels for one viewer. `public_only`: a Visitor of the public library, who gets only the lists an
+    admin marked for visitors. `direct_only`: away from home (and every Visitor), where a channel plays straight from
+    where it's streamed or not at all: never through this Sofa, which would make the home's connection theirs (past a
+    channel's own country limits) and its upload a public broadcaster. Each such channel carries its own address (src)."""
     favs = {r["channel"] for r in store.q("SELECT channel FROM live_favorites WHERE user_id = ?", user_id)}
+    lists = [p for p in playlists() if adult or not p.get("adult")]
+    public = {p["url"] for p in lists if p.get("public")}
     with _lock:
-        chans = sorted((c for c in _channels.values() if adult or not c.get("adult")),
+        chans = sorted((c for c in _channels.values() if (adult or not c.get("adult")) and visible(c)
+                        and (not public_only or public.intersection(c.get("lists") or ()))),
                        key=lambda c: (c["group"].lower(), c["name"].lower()))
-    return {"playlists": [_status.get(p["url"], {"name": p.get("name"), "url": p["url"], "count": 0, "adult": bool(p.get("adult"))})
-                          for p in playlists() if adult or not p.get("adult")],
-            "channels": [{"id": c["id"], "name": c["name"], "logo": c["logo"], "group": c["group"], "adult": c.get("adult", False),
-                          "playlist": c["playlist"], "fav": c["id"] in favs} for c in chans]}
+    out = []
+    for c in chans:
+        row = {"id": c["id"], "name": c["name"], "logo": c["logo"], "group": c["group"], "adult": c.get("adult", False),
+               "playlist": c["playlist"], "fav": c["id"] in favs}
+        if direct_only:
+            src = direct_url(c)
+            if not src or c.get("geo"):                  # (marked for its own country only: it wouldn't play out here)
+                continue
+            row["src"] = src
+        out.append(row)
+    return {"playlists": [] if public_only else
+            [dict(_status.get(p["url"], {"name": p.get("name"), "url": p["url"], "count": 0, "adult": bool(p.get("adult"))}),
+                  public=bool(p.get("public"))) for p in lists],
+            "channels": out}
 
 
 def direct_url(chan):
@@ -379,7 +407,7 @@ def direct_url(chan):
 
 def all_channels(adult=False):
     with _lock:
-        return [c for c in _channels.values() if adult or not c.get("adult")]
+        return [c for c in _channels.values() if (adult or not c.get("adult")) and visible(c)]
 
 
 def favorites_anyone():
@@ -391,6 +419,14 @@ def add_playlist(name, url, adult=False):
         raise ValueError("Use an http:// or https:// address.")
     pls = [p for p in playlists() if p["url"] != url] + [{"name": name.strip()[:60] or url, "url": url, "adult": bool(adult)}]
     config.update({"live_playlists": pls})
+
+
+def set_public(url, on):
+    """A list's channels for the public library's Visitors too (an admin's choice, list by list)."""
+    pls = playlists()
+    if not any(p["url"] == url for p in pls):
+        raise ValueError("That channel list isn't on this Sofa.")
+    config.update({"live_playlists": [dict(p, public=bool(on)) if p["url"] == url else p for p in pls]})
 
 
 def remove_playlist(url):

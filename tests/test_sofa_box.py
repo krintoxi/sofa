@@ -1838,6 +1838,25 @@ class LiveBanner(unittest.TestCase):
         self.assertNotIn("Next", text)
 
 
+class ThisBoxDefaults(unittest.TestCase):
+    def test_a_new_box_brings_no_channel_lists(self):
+        """A new box's own Sofa starts without anyone else's channel lists: whoever owns the box adds the ones they want
+        from Live TV. (A box that came loaded with other people's channels is what the "fully loaded box" cases were
+        about.)"""
+        from unittest import mock
+        agent = load("sofa-box-agent")
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(agent, "settings", return_value={}):
+            here = agent.LocalSofa()
+            here.data = os.path.join(d, "sofa")
+            real = os.path.expanduser
+            with mock.patch("os.path.expanduser", side_effect=lambda p: p.replace("~", d, 1) if p.startswith("~") else real(p)):
+                here._config()
+            with open(os.path.join(here.data, "config.json"), encoding="utf-8") as f:
+                conf = json.load(f)
+        self.assertEqual(conf["live_playlists"], [])
+        self.assertNotIn("iptv-org", json.dumps(conf))
+
+
 if __name__ == "__main__":
     unittest.main()
 

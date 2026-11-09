@@ -7,6 +7,18 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.38
+
+- **A new box comes with no channel lists.**
+  - The box's own Sofa used to add two community channel lists, English and Spanish, by itself.
+  - Now Live TV starts with Classic Cinema, and you add the lists you want from Live TV, one press each.
+  - Boxes set up before keep their lists.
+- **The guide no longer suggests a user name in Raspberry Pi Imager.** Setting one there stops the box's own screen
+  from starting. Step 3 now says to leave it unticked; a fix is on the way.
+- **With Sofa 1.5.0:**
+  - Retro TV's decades are off until someone turns them on in the box's Sofa (Server → Live TV).
+  - Away from home, Live TV plays only straight from where each channel is streamed.
+
 ## 1.1.37
 
 - **No black arrow in the middle of the screen at the start.** As soon as anything on the box can point (the phone

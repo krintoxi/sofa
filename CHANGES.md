@@ -6,6 +6,35 @@ has its own numbers and list: [deploy/sofa-box/CHANGES.md](deploy/sofa-box/CHANG
 A change to Sofa's code (`sofa/`, `client/`, `sofa.py`) gets a new version: raise `__version__`, add a section
 here, then `python3 tools/sofa-version.py` (a test checks it was done).
 
+## 1.5.0 (2026-11-08)
+
+- **Retro TV's decades are off unless you turn them on.**
+  - The 2009–2012, 2000s, 90s, 80s, 70s, 60s and 50s tabs are recordings people made of TV as it aired,
+    commercials and all, and nobody has cleared their rights.
+  - They now start switched off. An admin can turn them on for their own household (Server → Live TV → The
+    decades, as they aired), and the public library's visitors never get them.
+  - On a Sofa set up before, they go off too, until someone turns them back on.
+  - Classic Cinema stays on, with a switch of its own beside it.
+- **Away from home, Live TV never comes through Sofa.**
+  - 1.4.6 played a channel straight from where it's streamed when it could, and through Sofa when it couldn't.
+    Through Sofa, a channel goes out on the home's connection, past its own country limits, and on a public Sofa
+    behind a tunnel it makes Sofa the broadcaster.
+  - Now Sofa passes a channel on only at home. Away from home, and for every visitor, a channel plays straight
+    from where it's streamed, or it isn't listed.
+  - A channel that won't play that way on a device is left out of the list on that device from then on.
+- **The public library shares only the channel lists you pick.**
+  - "Live TV too" used to share every list. Now each list has its own **Visitors** switch (Server → Live TV).
+  - Classic Cinema is shared only with **Classic Cinema too** (Sharing).
+  - Visitors no longer see the lists' names or addresses.
+  - Visitors can now open Live TV's guide and Classic Cinema's channels when they're shared; before, they got a
+    "Sign in" error.
+- **Channels that ask for a made-up browser name are hidden.** Some lists give a channel a browser name or a page to
+  pretend to come from, to get past a site that wants its stream watched only on its own pages. Those channels are
+  left out unless an admin allows them (Server → Live TV).
+- **Visitors get an About page:** what's here, privacy, copyright, and where to write. Set the address in Sharing →
+  "Copyright notices go to". The page is linked from the footer and from More.
+- **Server → Live TV** says plainly what the community channel lists are, and has Retro TV's switches.
+
 ## 1.4.6 (2026-11-08)
 
 - **Games, in the browser.** Off a Sofa Box, Sofa has a **Games** page with the box's own games (Gloamwell,

@@ -44,8 +44,8 @@ class Archive(unittest.TestCase):
             ident = urllib.parse.unquote(url.rsplit("/", 1)[1])
             return META[ident]
         archive._get = fake
-        self.before = {k: config.get(k) for k in ("offline", "archive_channels")}
-        config.update({"offline": False, "archive_channels": True})
+        self.before = {k: config.get(k) for k in ("offline", "archive_channels", "retro_eras", "share_cinema")}
+        config.update({"offline": False, "archive_channels": True, "retro_eras": True})   # (the decades: these tests' subject)
 
     def tearDown(self):
         archive._get, archive.CACHE = self.real_get, self.real_cache
@@ -86,6 +86,30 @@ class Archive(unittest.TestCase):
         config.update({"archive_channels": False})
         archive.want(["ia-kids90"])
         self.assertEqual(archive._first, [])                                 # (Retro TV off: nothing fetched)
+
+    def test_the_decades_are_opt_in_and_never_for_visitors(self):
+        """Retro TV's decades are recordings of broadcasts whose rights nobody cleared: off until an admin turns them on,
+        and even then never for the public library's Visitors. Classic Cinema reaches Visitors only when shared."""
+        cinema = {c[0] for c in archive.CHANNELS if c[0] not in archive.RETRO}
+        config.update({"retro_eras": False})
+        self.assertEqual({c["id"] for c in archive.channels()}, cinema)
+        self.assertEqual([e["id"] for e in archive.eras()], ["now", "cinema"])
+        self.assertFalse(archive.available("ia-kids00"))
+        self.assertTrue(archive.available("ia-noir"))
+        archive.want(["ia-kids00", "ia-retro90"])
+        self.assertEqual(archive._first, [])                                 # (not even fetched)
+        config.update({"retro_eras": True})
+        self.assertEqual(len(archive.channels()), len(archive.CHANNELS))
+        self.assertEqual(len(archive.eras()), len(archive.ERAS))
+        self.assertTrue(archive.available("ia-kids00"))
+        config.update({"share_cinema": False})
+        self.assertEqual(archive.channels(visitor=True), [])                 # a Visitor: nothing unless shared
+        self.assertEqual([e["id"] for e in archive.eras(visitor=True)], ["now", "cinema"])
+        self.assertFalse(archive.available("ia-noir", visitor=True))
+        config.update({"share_cinema": True})
+        self.assertEqual({c["id"] for c in archive.channels(visitor=True)}, cinema)   # Classic Cinema, never the decades
+        self.assertFalse(archive.available("ia-kids00", visitor=True))
+        self.assertEqual({c["id"] for c in archive.guide(visitor=True)}, cinema)
 
     def test_lengths(self):
         for text, want in (("1:17:26", 4646), ("95 min", 5700), ("01:18:35", 4715), ("123.4", 123), ("?", None), ("", None)):
