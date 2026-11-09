@@ -341,8 +341,10 @@ song in the box's player, or shows a picture; **Menu** renames, moves or deletes
 - **To come back from a game, hold Home** (the Xbox or PS button, or a remote's Home) for a second.
 - **Gloamwell**, the box's own game: a dark-fantasy dungeon crawler. Go down the well under the village of
   Wickhollow as a Warden, an Ashcaller or a Stalker, through six zones of floors (each one made as you go
-  down), each with its own creatures and a guardian every fourth floor, and on past the last. Fight with a
-  blade and three skills, roll out of the way, spend a talent point each level, and find gear in six
+  down), each with its own creatures and a guardian every fourth floor, and on past the last. Each guardian
+  has a room of its own (a dripping cistern, great candles that weep wax, stinging moths, falling bells, vents
+  that erupt, veins that pulse with a heartbeat), comes in with a scene of its own, and makes a last stand below a
+  quarter of its HP. Fight with a blade and three skills, roll out of the way, spend a talent point each level, and find gear in six
   rarities, sets among them, and eight legends, each with a power you can see (a blade that sets foes alight,
   a maul that tolls, a rod whose blows leap as lightning). Elites have powers of their own (frost, thirst,
   storms, wards), and now and then a named champion waits on a floor. Set gems in your gear's sockets, keep a
@@ -350,8 +352,12 @@ song in the box's player, or shows a picture; **Menu** renames, moves or deletes
   cracked walls, and meet the omens some floors carry (a blood moon, the swarm, a gilded thief to catch). Back in the village: Hesk's stall, Vesk's forge (better your gear), your
   strongbox, and the notice board's tasks. Make your Wickbearer as you like (name, origin, look); the gear you
   wear shows. Besides fighting: Woodcutting, Mining, Crafting and Hunting (Ysolde's tasks), each gain of XP
-  rising at the side of the screen as you work, and mounts to win, some that fly. Three Wickbearers can be kept; one from the first Gloamwell moves into the first free one. It plays offline with its own music (quiet unless you turn it up), with the
-  controller from the start (the hints show its buttons: A B X Y, or ✕ ○ □ △) or a keyboard.
+  rising at the side of the screen as you work, and mounts to win, some that fly. Three Wickbearers can be kept; one from the first Gloamwell moves into the first free one. Two can play on one
+  screen: a second controller joins at any time (Start on it) with one of the three, or a new one, each with their
+  own loot, XP, belt, skills and half of the screen; either brings the other back when they fall, and either can
+  leave again (the keyboard is the first player's). It plays offline with its own music (quiet unless you turn it
+  up), with the controller from the start (the hints show its buttons: A B X Y, or ✕ ○ □ △) or a keyboard, and it
+  sheds effects to stay smooth on a Pi 3.
 - **Tidewing**, a race over open water in low-poly 3D: a skimmer through the gates of six courses against three
   rivals, carving to fill your boost. It's built on the box's own game engine (Low3D, `games/low3d.js`), which
   tunes each game to the box: 3D at a size it holds steady on a Pi 3, sharper on a Pi 4 or 5, and the same world

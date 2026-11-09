@@ -274,12 +274,13 @@ console.log(JSON.stringify(out));
             self.assertIn(column, probe)
         self.assertIn("../low3d.js", probe)
         # the games that play by themselves say so, and keep nothing while they do
-        for gid in ("tidewing", "cosmic-cascade", "micro-drifters", "shadow-heist"):
+        for gid in ("tidewing", "cosmic-cascade", "micro-drifters", "shadow-heist", "gloamwell"):
             html = self.read(gid, "index.html")
             self.assertRegex(html, r"SofaStats(\.demo = true|=\{demo:true\}| = \{ demo: true \})", gid)
         drifters = self.read("micro-drifters", "index.html")
         self.assertIn("car.bestLap < prevBest && !DEMO", drifters)     # (its only record: the best lap)
         self.assertIn("if (E.demo) return;", self.read("tidewing", "index.html"))
+        self.assertIn("if (!P || DEMO) return;", self.read("gloamwell", "index.html"))   # (Gloamwell's demo: no saves)
         self.assertTrue(re.search(r"E\.demo = /demo/\.test\(H\)", self.read("low3d.js")))
 
 

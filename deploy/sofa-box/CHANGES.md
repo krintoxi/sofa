@@ -7,6 +7,46 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.42
+
+- **Gloamwell for two.** A second controller joins at any time: Start on it (or A when the screen asks). Its player
+  brings one of the three Wickbearers or makes a new one, and plays beside the first on the same screen, with their
+  own gear, loot (marked in their colour), XP, belt, skills, familiar and half of the HUD, and their own menus (one
+  at a time in the village). Kills and the notice board's tasks count for both. The camera keeps both in view and
+  neither can walk off the screen. A fallen Wickbearer comes back when the other holds A beside them; if both fall,
+  the descent ends. The foes are tougher for two. Either can leave from their pause menu (when the first leaves, the
+  second plays on as the first), and both are kept. The keyboard is the first player's.
+  - Each controller is read on its own. The box's echo of a press (the keys it makes for its own menus) is dropped
+    only when that same button was just pressed, so a keyboard's keys still count while someone else plays.
+- **Gloamwell's guardians, reworked.** Each has a room of its own, an entrance (A or Start cuts it short), and a
+  last stand below a quarter of its HP, with a move kept for the end:
+  - Old Mire rises out of the mire. The cistern's roof drips mud where a mark shows first; at the last it
+    belly-flops twice, a wave from each landing.
+  - Mother Tallow rises out of her own wax as four great candles catch, one by one. The candles weep lines of hot
+    wax; at the last she melts, burning where she walks, and the candles spit fire.
+  - The Moth Regent comes down through a column of dust. Moths drift round the room, stinging and dimming your lamp;
+    at the last there are more of them, and an eclipse covers two dives.
+  - Sister Knell tolls three times, nearer each time, and is there. Old bells fall from the belfry's roof; at the
+    last her bell cracks (a second, slower wave) and she sings a requiem: three blinks, a ring of orbs from each.
+  - The Kilnfather comes down among vents that wake one after another. They erupt in turn; at the last two at a
+    time, his slam sends fire out along eight lines, and he melts down in three rings of fire.
+  - The Gloamheart beats three times, its veins answering, before its eye opens. The veins pulse with its beat, one
+    set and then the other, so there's always a way through; at the last, a nova of three waves.
+  - The whole room is in view once its guardian wakes, the guardian carries a light of its own, and its bar marks
+    a half and a quarter. Saves are as before.
+- **Gloamwell is smoother on a Pi 3.** A frame takes about half the work it did: words and the HUD are drawn once
+  and copied, the floor's still lights and its shadows are made ready ahead, and the floor's pictures are copied
+  whole. The effects setting (Auto) steps down within a second or two when frames come late, and on its lightest
+  step draws the dark at a quarter of the screen's size and leaves out the crowd's shadows. With each frame made to
+  take 20 times as long (about a Pi 3), a big fight with every effect takes 13 ms a frame and runs at 59 frames a
+  second (it took 20 to 26 ms, at 38 to 49 frames a second); on the lightest step, 11 ms (it took 18). Two players
+  in a big fight, and the guardians' last stands, run at 59 too. A real Pi 3 is still to check.
+- **`#demo` has Gloamwell play itself**, for the games check: a Wickbearer who can't fall, fighting on the sixth
+  floor. It keeps nothing.
+- **`#slow=N` makes each of Gloamwell's frames take N times as long**, as on a processor N times slower, so a fast
+  computer can stand in for a Pi. Chrome's own slowdown is no good for this: it stretches short frames only a few
+  times over (about 3× when it says 10×).
+
 ## 1.1.41
 
 - **Ironmaw's arena.** Six arenas of its own: the Crucible round a lava pit, the Coldyard under falling snow, the

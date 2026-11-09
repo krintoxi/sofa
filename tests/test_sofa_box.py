@@ -1219,6 +1219,109 @@ class BoxBrowser(unittest.TestCase):
         time.sleep(1.5)
         self.assertEqual(json.loads(js("JSON.stringify({ errs, omen: GW.omen })")), {"errs": [], "omen": 4})
 
+    def gloamwell(self):
+        """Gloamwell open in the box's browser, with its test handle, a fresh error list and nothing on the slots."""
+        self.post("/box/api/open", {"url": self.base + "/box/games/gloamwell/#test"})
+        js = lambda e: self.page_value("/box/games/gloamwell", e)
+        end = time.time() + 25
+        while time.time() < end:
+            try:
+                if js("typeof GW") == "object":
+                    break
+            except (StopIteration, OSError, KeyError):
+                pass
+            time.sleep(0.3)
+        js("window.errs = []; addEventListener('error', e => errs.push(String(e.message))); for (let i = 0; i < 3; i++) localStorage.removeItem('gloamwell-slot-' + i); 1")
+        return js
+
+    def until(self, js, check, seconds=8):
+        """Polls an expression in the page until it's true (or the time's up); its last value."""
+        end, v = time.time() + seconds, None
+        while time.time() < end:
+            v = js(check)
+            if v:
+                return v
+            time.sleep(0.2)
+        return v
+
+    def test_gloamwell_guardians(self):
+        """Gloamwell's six guardians: each comes in with an entrance of its own when you walk into its room, its
+        room's hazard starts, it grows desperate below half its HP, and below a quarter makes its last stand with a
+        move kept for the end; nothing is thrown, and you're still standing."""
+        js = self.gloamwell()
+        js("GW.newGame(0); 1")
+        for b in range(6):
+            js("(() => { GW.goFloorOmen(%d, -1); const P = GW.P, A = GW.ARENA; P.hp = P.mhp = 99999; P.x = A.cx; P.y = A.y1 - 30; GW.computeFOV(); return 1; })()" % ((b + 1) * 4))
+            self.assertTrue(self.until(js, "GW.ENTR.on", 5), "guardian %d: no entrance" % b)
+            js("GW.endIntro(); GW.bossHP(0.4); 1")
+            self.assertTrue(self.until(js, "GW.bossM.angry", 4), "guardian %d: never desperate" % b)
+            js("GW.P.hp = GW.P.mhp; GW.bossHP(0.2); 1")
+            self.until(js, "GW.bossM && GW.bossM.used3 > 0", 10)
+            state = json.loads(js("JSON.stringify({ errs, b: GW.bossM.boss, ph3: GW.bossM.ph3, used: GW.bossM.used3 > 0, live: GW.ARENA.live, mode: GW.mode, up: GW.P.hp > 0 })"))
+            self.assertEqual(state, {"errs": [], "b": b, "ph3": True, "used": True, "live": True, "mode": 3, "up": True})
+
+    PADS = """(() => {          // two controllers the test holds: standard mapping, A 0, X 2, Start 9, down 13
+      const mk = i => ({ id: "Xbox Wireless Controller (STANDARD GAMEPAD Vendor: 045e Product: 02fd)", index: i, connected: false, mapping: "standard",
+        timestamp: 0, buttons: Array.from({ length: 17 }, () => ({ pressed: false, touched: false, value: 0 })), axes: [0, 0, 0, 0] });
+      const pads = window.__pads = [mk(0), mk(1)];
+      navigator.getGamepads = () => pads.map(p => p.connected ? p : null);
+      window.__btn = (i, b, on) => { const B = pads[i].buttons[b]; B.pressed = on; B.value = on ? 1 : 0; pads[i].connected = true; };
+      window.__tap = (i, b) => { __btn(i, b, true); setTimeout(() => __btn(i, b, false), 120); };
+      return 1; })()"""
+
+    def test_gloamwell_two_players(self):
+        """Two Wickbearers on one sofa: a second controller joins with a saved Wickbearer (Start, then A) and plays
+        beside the first; a chest's loot is each one's own and a kill's XP is both's; the box's echo of the second's
+        press isn't taken as the first's; a fallen one is brought back by the other holding A; both are saved; the
+        second leaves from their own pause menu, and the foes go back to their strength for one."""
+        js = self.gloamwell()
+        tap = lambda pad, b: (js("__tap(%d, %d)" % (pad, b)), time.sleep(0.35))
+        js("GW.newGame(1); GW.P.name = 'ODA'; GW.P.slot = 1; GW.save(); GW.newGame(0); GW.P.name = 'BRAN'; GW.save(); 1")
+        js(self.PADS)
+        tap(0, 0)                                                    # the first controller pressed: the first player's
+        tap(1, 9)                                                    # Start on the second: who joins?
+        self.assertEqual(json.loads(js("JSON.stringify({ mode: GW.mode, p1Pad: GW.p1Pad })")), {"mode": 20, "p1Pad": 0})
+        tap(1, 0)                                                    # A: Oda, from the second save
+        self.assertEqual(json.loads(js("JSON.stringify({ two: !!GW.PL[1], name: GW.PL[1] && GW.PL[1].name, pi: GW.PL[1] && GW.PL[1].pi, mode: GW.mode })")),
+                         {"two": True, "name": "ODA", "pi": 1, "mode": 3})
+        js("(() => { GW.goFloorOmen(5, -1); for (const Q of GW.PL) Q.hp = Q.mhp = 9999; GW.INT.forEach(i => i.off = true); return 1; })()")
+        loot = json.loads(js("(() => { const A = GW.PL[0], g = [A.gold, GW.PL[1].gold]; A.fx = 1; A.fy = 0; A.face = 1;"
+                             " const c = GW.spawnMon(7, A.x + 14, A.y, false); c.hp = c.mhp = 1; GW.use(0); return JSON.stringify(g); })()"))
+        tap(0, 0)                                                    # the first breaks the chest open
+        owners = json.loads(js("JSON.stringify([0, 1].map(w => GW.DR.some(d => d.on && d.pl === w) || GW.PL[w].gold > %d))" % max(loot)))
+        self.assertEqual(owners, [True, True])                       # (a share each: on the ground in their colour, or picked up)
+        js("(() => { const A = GW.PL[0]; for (let k = 0; k < 4; k++) { const m = GW.spawnMon(0, A.x + 12, A.y + (k & 1 ? 6 : -6), false); if (m) { m.awake = true; m.hp = m.mhp = 1; } } return 1; })()")
+        js("__btn(0, 0, true); __btn(1, 0, true); 1")
+        time.sleep(2.5)
+        js("__btn(0, 0, false); __btn(1, 0, false); 1")
+        xp = json.loads(js("JSON.stringify(GW.PL.map(Q => Q.xp + Q.lvl * 1000))"))
+        self.assertTrue(xp[0] == xp[1] and xp[0] > 1000, xp)          # (both given the kills' XP)
+        js("(() => { const A = GW.PL[0]; A.swing = 0; A.atkCD = 0; return 1; })()")
+        js("__btn(1, 0, true); setTimeout(() => document.dispatchEvent(new KeyboardEvent('keydown', { code: 'Enter', key: 'Enter' })), 15);"
+           " setTimeout(() => { document.dispatchEvent(new KeyboardEvent('keyup', { code: 'Enter', key: 'Enter' })); __btn(1, 0, false); }, 120); 1")
+        time.sleep(0.6)
+        self.assertEqual(js("GW.PL[0].swing > 0"), False)            # (the daemon's Enter for the second's A: dropped)
+        js("GW.hurtP(1, 1e9); 1")
+        self.assertEqual(json.loads(js("JSON.stringify({ down: GW.PL[1].dead, mode: GW.mode })")), {"down": True, "mode": 3})
+        js("(() => { const A = GW.PL[0], B = GW.PL[1]; A.x = B.x + 8; A.y = B.y; return 1; })()")
+        js("__btn(0, 0, true); 1")
+        time.sleep(1.7)
+        js("__btn(0, 0, false); 1")
+        self.assertEqual(js("GW.PL[1].dead"), False)
+        js("GW.goFloorOmen(6, -1); 1")
+        self.assertEqual(json.loads(js("JSON.stringify([GW.readSlot(0).deepest, GW.readSlot(1).deepest, GW.readSlot(1).name])")), [6, 6, "ODA"])
+        hp2 = js("GW.MON.filter(m => m.on && m.kind !== 6).reduce((s, m) => s + m.mhp, 0)")
+        tap(1, 9)                                                    # the second's Start: their own pause menu
+        self.assertEqual(json.loads(js("JSON.stringify({ mode: GW.mode, cur: GW.cur })")), {"mode": 4, "cur": 1})
+        for _ in range(5):
+            tap(1, 13)
+        tap(1, 0)                                                    # LEAVE THE GAME
+        state = json.loads(js("JSON.stringify({ errs, two: !!GW.PL[1], p1: GW.PL[0].name, mode: GW.mode })"))
+        hp1 = js("GW.MON.filter(m => m.on && m.kind !== 6).reduce((s, m) => s + m.mhp, 0)")
+        js("delete navigator.getGamepads; 1")
+        self.assertEqual(state, {"errs": [], "two": False, "p1": "BRAN", "mode": 3})
+        self.assertLess(hp1, hp2 * 0.7)                              # (the foes, back to their strength for one)
+
 
 class BoxNetwork(unittest.TestCase):
     """When the box makes its own Wi-Fi: soon for a new box; a box that knows a Wi-Fi waits for it (a router
