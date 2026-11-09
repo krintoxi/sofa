@@ -109,8 +109,8 @@ takes you through four steps, one code at a time, and says under each what it's 
    password. The box leaves its own Wi-Fi to join yours, and your phone goes back to your Wi-Fi. The TV
    shows "The box is joining…", then either that it's connected or why not (the password, say). If it
    didn't work, the box's own Wi-Fi comes back with the same name and password: join it again and retry.
-4. **Keep the remote:** once it's connected, **scan the code on the TV** to carry on. At home the remote
-   has the box's own secure address (`https://…box.edgeventure.uk:8093`, see
+4. **Keep the remote:** once it's connected, **scan the code on the TV** to carry on. From then on the
+   remote has a secure address through the Sofa Box service (`https://boxcert.edgeventure.uk/r/…`, see
    [The phone remote](#the-phone-remote)).
 
 A step that went too fast or a phone that dropped off: **Show the code again** under the step brings it
@@ -118,9 +118,9 @@ back.
 
 **An iPhone that only opens secure pages** (**Settings → Apps → Safari → Not Secure Connection
 Warning** on): Safari refuses the box's page on its own Wi-Fi ("HTTPS only"), so switch that setting off
-for the setup and back on afterwards. At home the remote is `https://`, which it opens either way. If the
-TV still shows a plain `http://` address at home, wait a moment for it to change, or see the router note
-under [The phone remote](#the-phone-remote).
+for the setup and back on afterwards. Once the box is on your Wi-Fi, the remote is `https://`, which it
+opens either way. If the TV still shows a plain `http://` address, wait a moment: the box connects to the
+Sofa Box service first, and **Settings → Remotes and Bluetooth** shows how that's going.
 
 **The setup says it couldn't make its own Wi-Fi?** Plug a network cable from your router into the box:
 the code to scan shows within seconds. Or write the card again, and in Raspberry Pi Imager press
@@ -139,8 +139,8 @@ if you've moved house), and after ten quiet minutes on it, it looks for your Wi-
 There's nothing to install from an app store: **the box serves the remote itself**.
 
 - **Connect a phone:** scan the QR code on the TV with the phone's camera (Settings → Remotes and
-  Bluetooth shows it any time). Or open the address under it and type the four numbers. The phone
-  needs to be on the same Wi-Fi as the box.
+  Bluetooth shows it any time). Scanning works at home or away. Typing the four numbers instead works
+  only on the home Wi-Fi, while the TV shows a plain `http://` address.
 - **Keep it like an app:**
   - **iPhone:** in Safari, tap **Share** (the square with the arrow), then **Add to Home Screen**.
     It gets the box's skull icon, and opens full screen like any app.
@@ -154,11 +154,11 @@ There's nothing to install from an app store: **the box serves the remote itself
   - **Wi-Fi** changes the box's network.
 - **Several phones** can be remotes at once. Settings → **Forget phones** makes them all scan again.
 - **Good to know:**
-  - It works at home only; a phone from outside never gets in.
-  - If your router gives the box a new address, scan the code again. Reserving the box's address
-    in the router stops that. (With the secure remote below, its name follows the box, so the phone
-    keeps working.)
-- **Secure (https) at home.** Some phones only open secure pages, for example an iPhone with
+  - The secure address below works from anywhere, but only for a phone that scanned the TV's code.
+    A plain `http://` remote works at home only.
+  - The secure address stays the same when your router gives the box a new one. On plain `http://`, scan
+    the code again after that; reserving the box's address in the router stops it happening.
+- **Secure (https), at home or away.** Some phones only open secure pages, for example an iPhone with
   **Settings → Apps → Safari → Not Secure Connection Warning** on. So once the box is online, its remote
   has a secure address through the **Sofa Box service's relay**:
   `https://boxcert.edgeventure.uk/r/k3x9q2abcd/`. The QR code on the TV uses it by itself, and it works
