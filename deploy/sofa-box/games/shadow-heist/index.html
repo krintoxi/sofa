@@ -1,1648 +1,859 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<title>Shadow Heist</title>
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Shadow Heist</title>
 <style>
-  * { margin:0; padding:0; box-sizing:border-box; }
-  body { background:#000; display:flex; justify-content:center; align-items:center;
-         width:100vw; height:100vh; overflow:hidden; }
-  canvas { image-rendering: pixelated; image-rendering: crisp-edges; display:block; }
-</style>
-</head>
-<body>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; user-select: none; }
+  canvas { position: absolute; image-rendering: pixelated; }
+</style></head><body>
 <canvas id="c"></canvas>
-<script src="../pad.js" onerror="window.SofaPad=null"></script>
+<script src="../pad.js"></script>
+<script src="../low3d.js"></script>
+<script src="../low2d.js"></script>
 <script>
-'use strict';
+/* Shadow Heist: a stealth game for Sofa Box OS, on Low2D (../low2d.js), the box's 2D engine. Twelve heists in three
+   buildings (Ashcombe Manor, the Coppergate Bank, Halcyon Tower), each laid out from its own seed: rooms and doors,
+   lamps on switches, carpet, wood, tile and metal underfoot. Stay in the dark (the light's worked out a tile at a time,
+   round the walls); sneak, walk or run (the floor and the pace make the noise); guards with torches who hear, look,
+   search, radio each other and call for help; cameras that sweep. Smoke, a noise-maker, lock picks and a camera jammer.
+   Loot for a better rating, ranks for never being seen and never raising the alarm, records kept on the box. One
+   thief, or two together. Everything is the game's own and made in code. Offline, the controller first (or the
+   keyboard). In the address: #fps, #tier=…, #pace=…, #slow=N, #test (window.SH, for checks), #demo (it plays itself). */
+(function () {
+"use strict";
+const L2 = window.Low2D, U = L2.U, clamp = U.clamp, font = L2.font, mk = L2.mk;
+const VW = 480, VH = 270, TAU = Math.PI * 2, TS = 16, DT = 1 / 60;
+const rnd = Math.random;
+function g2(c) { const g = c.getContext("2d"); g.imageSmoothingEnabled = false; return g; }
+function px(g, x, y, w, h, c) { g.fillStyle = c; g.fillRect(x, y, w, h); }
+function shade(h, k) { const v = parseInt(h.slice(1), 16), c = [(v >> 16) & 255, (v >> 8) & 255, v & 255]; return "#" + c.map(q => Math.max(0, Math.min(255, Math.round(q * k))).toString(16).padStart(2, "0")).join(""); }
+function hash(x, y) { let h = (Math.imul(x, 374761393) + Math.imul(y, 668265263)) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; }
+const fmt = t => Math.floor(t / 60) + ":" + String(Math.floor(t % 60)).padStart(2, "0");
 
-// ─── Palette ───────────────────────────────────────────────────────────────
-const PAL = {
-  k:"#0d0b14", K:"#241d2e", g:"#5a5468", G:"#9a94a8", w:"#ece8f4",
-  s:"#e0a67a", S:"#a86a48", r:"#c8303a", R:"#7a1a26", o:"#ee8a3a", O:"#9a4a1e",
-  y:"#f2c14e", Y:"#a87a1e", b:"#4a78c8", B:"#243c78", c:"#7ad8f0", C:"#2e6e8a",
-  n:"#6e4c2e", N:"#3e2a1a", e:"#5aa04a", E:"#2e5a2a", p:"#8a4ab0", P:"#4a2468",
-  m:"#e2d49c", M:"#a89860", v:"#b8e070", x:"#ff5a8a", t:"#d0c4b0", T:"#7e6e5c",
-  z:"rgba(0,0,0,0.42)"
-};
+// ---------------------------------------------------------------- the tiles
+const FLOOR = 0, WALL = 1, DOOR = 2, OPEN = 3, LOCK = 4, TABLE = 5, SHELF = 6, EXIT = 7;
+const solid = t => t === WALL || t === DOOR || t === LOCK || t === TABLE || t === SHELF;
+const opaque = t => t === WALL || t === DOOR || t === LOCK || t === SHELF;
+// floors: how loud a step is on each
+const FLOORS = [{ name: "CARPET", k: 0.45 }, { name: "WOOD", k: 1 }, { name: "TILE", k: 1.1 }, { name: "MARBLE", k: 1.3 }, { name: "METAL", k: 1.9 }];
 
-// ─── Canvas Setup ──────────────────────────────────────────────────────────
-const W=480, H=270;
-const canvas = document.getElementById('c');
-canvas.width  = W;
-canvas.height = H;
-const ctx = canvas.getContext('2d');
-ctx.imageSmoothingEnabled = false;
-
-function resize(){
-  const s = Math.min(window.innerWidth/W, window.innerHeight/H);
-  canvas.style.width  = Math.round(W*s)+'px';
-  canvas.style.height = Math.round(H*s)+'px';
-}
-window.addEventListener('resize', resize);
-resize();
-
-// ─── Helpers ───────────────────────────────────────────────────────────────
-function mk(w,h){const c=document.createElement('canvas');c.width=w;c.height=h;return c;}
-function g2(c){const g=c.getContext('2d');g.imageSmoothingEnabled=false;return g;}
-
-function spr(rows, over){
-  let w=0;
-  for(let i=0;i<rows.length;i++) w=Math.max(w,rows[i].length);
-  const c=mk(w,rows.length), g=g2(c);
-  for(let y=0;y<rows.length;y++){
-    for(let x=0;x<rows[y].length;x++){
-      const ch=rows[y][x];
-      if(ch==='.') continue;
-      const col=(over&&over[ch])||PAL[ch];
-      if(!col) continue;
-      g.fillStyle=col; g.fillRect(x,y,1,1);
-    }
-  }
-  return c;
-}
-
-function flipX(src){
-  const c=mk(src.width,src.height), g=g2(c);
-  g.translate(src.width,0); g.scale(-1,1);
-  g.drawImage(src,0,0);
-  return c;
-}
-
-// ─── Bayer 4×4 Dithering ───────────────────────────────────────────────────
-const BAYER=[[ 0, 8, 2,10],
-             [12, 4,14, 6],
-             [ 3,11, 1, 9],
-             [15, 7,13, 5]];
-
-// A vision cone: one wedge, filled with a dither pattern in its colour (the pattern made once for each colour and
-// strength). It used to be drawn a pixel at a time into a new full-screen canvas, for every guard, every frame.
-const CONE_PAT={};
-function conePattern(ctx2, col, alpha){
-  const key=col+alpha; let p=CONE_PAT[key]; if(p) return p;
-  const c=mk(4,4), g=c.getContext('2d'); g.fillStyle=col;
-  for(let y=0;y<4;y++) for(let x=0;x<4;x++) if(alpha>BAYER[y][x]/16) g.fillRect(x,y,1,1);
-  return CONE_PAT[key]=ctx2.createPattern(c,'repeat');
-}
-function ditherCone(ctx2, gx, gy, angle, fov, range, col, alpha){
-  // the cone stops at walls, as the guard's sight does: rays out across it, each to the first wall
-  const r=range*TILE, n=22;
-  ctx2.fillStyle=conePattern(ctx2, col, Math.round(alpha*16)/16);
-  ctx2.beginPath(); ctx2.moveTo(gx,gy);
-  for(let i=0;i<=n;i++){
-    const a=angle-fov/2+fov*i/n, ca=Math.cos(a), sa=Math.sin(a);
-    let d=4; while(d<r && !isWall(Math.floor((gx+ca*d)/TILE),Math.floor((gy+sa*d)/TILE))) d+=4;
-    ctx2.lineTo(gx+ca*Math.min(d,r),gy+sa*Math.min(d,r));
-  }
-  ctx2.closePath(); ctx2.fill();
-}
-
-// ─── 5×7 Bitmap Font ───────────────────────────────────────────────────────
-const FONT_MAP={
-  '\u2715':["00000","10001","01010","00100","01010","10001","00000"],
-  '\u25cb':["00000","01110","10001","10001","10001","01110","00000"],
-  '\u25a1':["00000","11111","10001","10001","10001","11111","00000"],
-  '\u25b3':["00000","00100","01010","01010","10001","11111","00000"],
-  'A':["01110","10001","10001","11111","10001","10001","10001"],
-  'B':["11110","10001","10001","11110","10001","10001","11110"],
-  'C':["01111","10000","10000","10000","10000","10000","01111"],
-  'D':["11110","10001","10001","10001","10001","10001","11110"],
-  'E':["11111","10000","10000","11110","10000","10000","11111"],
-  'F':["11111","10000","10000","11110","10000","10000","10000"],
-  'G':["01111","10000","10000","10111","10001","10001","01111"],
-  'H':["10001","10001","10001","11111","10001","10001","10001"],
-  'I':["11111","00100","00100","00100","00100","00100","11111"],
-  'J':["11111","00010","00010","00010","00010","10010","01100"],
-  'K':["10001","10010","10100","11000","10100","10010","10001"],
-  'L':["10000","10000","10000","10000","10000","10000","11111"],
-  'M':["10001","11011","10101","10001","10001","10001","10001"],
-  'N':["10001","11001","10101","10011","10001","10001","10001"],
-  'O':["01110","10001","10001","10001","10001","10001","01110"],
-  'P':["11110","10001","10001","11110","10000","10000","10000"],
-  'Q':["01110","10001","10001","10001","10101","10010","01101"],
-  'R':["11110","10001","10001","11110","10100","10010","10001"],
-  'S':["01111","10000","10000","01110","00001","00001","11110"],
-  'T':["11111","00100","00100","00100","00100","00100","00100"],
-  'U':["10001","10001","10001","10001","10001","10001","01110"],
-  'V':["10001","10001","10001","10001","10001","01010","00100"],
-  'W':["10001","10001","10001","10101","10101","11011","10001"],
-  'X':["10001","10001","01010","00100","01010","10001","10001"],
-  'Y':["10001","10001","01010","00100","00100","00100","00100"],
-  'Z':["11111","00001","00010","00100","01000","10000","11111"],
-  '0':["01110","10001","10011","10101","11001","10001","01110"],
-  '1':["00100","01100","00100","00100","00100","00100","01110"],
-  '2':["01110","10001","00001","00110","01000","10000","11111"],
-  '3':["11110","00001","00001","01110","00001","00001","11110"],
-  '4':["00010","00110","01010","10010","11111","00010","00010"],
-  '5':["11111","10000","10000","11110","00001","00001","11110"],
-  '6':["01110","10000","10000","11110","10001","10001","01110"],
-  '7':["11111","00001","00010","00100","01000","01000","01000"],
-  '8':["01110","10001","10001","01110","10001","10001","01110"],
-  '9':["01110","10001","10001","01111","00001","00001","01110"],
-  '.':["00000","00000","00000","00000","00000","00100","00100"],
-  ',':["00000","00000","00000","00000","00100","00100","01000"],
-  '!':["00100","00100","00100","00100","00100","00000","00100"],
-  '?':["01110","10001","00001","00110","00100","00000","00100"],
-  ':':["00000","00100","00100","00000","00100","00100","00000"],
-  '-':["00000","00000","00000","11111","00000","00000","00000"],
-  '/':["00001","00010","00010","00100","01000","01000","10000"],
-  ' ':["00000","00000","00000","00000","00000","00000","00000"],
-  '*':["00000","10101","01110","11111","01110","10101","00000"],
-  '+':["00000","00100","00100","11111","00100","00100","00000"],
-  '#':["01010","01010","11111","01010","11111","01010","01010"],
-  '"':["01010","01010","01010","00000","00000","00000","00000"],
-  "'":["00100","00100","00100","00000","00000","00000","00000"],
-};
-
-// the letters: each drawn once in each colour, then copied (far cheaper on a Pi than every pixel, every frame)
-let GLYPHS={}, glyphCols=0;
-function glyphOf(ch,col){
-  let set=GLYPHS[col];
-  if(!set){ if(++glyphCols>48){ GLYPHS={}; glyphCols=1; } set=GLYPHS[col]={}; }
-  let c=set[ch]; if(c) return c;
-  const rows=FONT_MAP[ch]||FONT_MAP[' ']; const h=rows?rows.length:7;
-  c=document.createElement('canvas'); c.width=5; c.height=h; const g=c.getContext('2d'); g.fillStyle=col;
-  if(rows) for(let r=0;r<h;r++) for(let x=0;x<rows[r].length;x++) if(rows[r][x]==='1') g.fillRect(x,r,1,1);
-  return set[ch]=c;
-}
-function drawChar(ctx2, ch, x, y, col, scale, shadow){
-  ch=ch.toUpperCase(); if(ch===' ') return;
-  const g=glyphOf(ch,col||'#fff');
-  if(shadow) ctx2.drawImage(glyphOf(ch,'#000'),x+scale,y+scale,5*scale,g.height*scale);
-  ctx2.drawImage(g,x,y,5*scale,g.height*scale);
-}
-
-function drawText(ctx2, str, x, y, col, scale, shadow){
-  scale=scale||1;
-  let cx=x;
-  for(let i=0;i<str.length;i++){
-    drawChar(ctx2, str[i], cx, y, col, scale, shadow);
-    cx += (5+1)*scale;
-  }
-}
-
-function textWidth(str, scale){
-  scale=scale||1;
-  return str.length*(5+1)*scale;
-}
-
-function drawCenter(ctx2, str, y, col, scale){
-  const tw = textWidth(str,scale);
-  drawText(ctx2, str, Math.floor((W-tw)/2), y, col, scale, true);
-}
-
-// ─── Audio ────────────────────────────────────────────────────────────────
-let AC=null;
-function getAC(){
-  if(!AC) AC=new (window.AudioContext||window.webkitAudioContext)();
-  return AC;
-}
-
-function playTone(freq, type, dur, vol, startDelay){
-  try{
-    const ac=getAC(); const t=ac.currentTime+(startDelay||0);
-    const osc=ac.createOscillator(); const gain=ac.createGain();
-    osc.type=type||'sine'; osc.frequency.setValueAtTime(freq,t);
-    gain.gain.setValueAtTime(vol||0.15,t);
-    gain.gain.exponentialRampToValueAtTime(0.0001,t+dur);
-    osc.connect(gain); gain.connect(ac.destination);
-    osc.start(t); osc.stop(t+dur+0.05);
-  }catch(e){}
-}
-
-function playNoise(dur, vol){
-  try{
-    const ac=getAC(); const t=ac.currentTime;
-    const buf=ac.createBuffer(1,ac.sampleRate*dur,ac.sampleRate);
-    const d=buf.getChannelData(0);
-    for(let i=0;i<d.length;i++) d[i]=(Math.random()*2-1);
-    const src=ac.createBufferSource(); src.buffer=buf;
-    const gain=ac.createGain(); gain.gain.setValueAtTime(vol||0.1,t);
-    gain.gain.exponentialRampToValueAtTime(0.0001,t+dur);
-    src.connect(gain); gain.connect(ac.destination);
-    src.start(t); src.stop(t+dur);
-  }catch(e){}
-}
-
-function sfxFootstep(){
-  playTone(220,'triangle',0.04,0.05);
-}
-function sfxAlert(){
-  playTone(440,'sawtooth',0.1,0.2);
-  playTone(660,'sawtooth',0.1,0.2,0.12);
-  playTone(880,'sawtooth',0.15,0.3,0.25);
-}
-function sfxDiamond(){
-  [523,659,784,1047].forEach((f,i)=>playTone(f,'sine',0.12,0.2,i*0.08));
-}
-function sfxSmoke(){
-  playNoise(0.3,0.15);
-  playTone(100,'sine',0.3,0.1);
-}
-function sfxLevelComplete(){
-  [523,659,784].forEach((f,i)=>playTone(f,'square',0.2,0.15,i*0.15));
-  playTone(1047,'square',0.4,0.2,0.5);
-}
-function sfxCaught(){
-  [300,200,100].forEach((f,i)=>playTone(f,'sawtooth',0.2,0.25,i*0.18));
-}
-function sfxCamera(){
-  playTone(800,'square',0.05,0.1);
-}
-
-// ─── Input ────────────────────────────────────────────────────────────────
-// The controller through the box's pad.js (SofaPad); the keyboard when there's no controller. While a controller
-// is in use, the keys the box sends for its presses (for its own menus) are ignored: the game has the press already.
-const keys={};
-document.addEventListener('keydown',e=>{ if(window.SofaPad&&SofaPad.echo(e)) return; keys[e.code]=true; if(/^(Arrow|Space$)/.test(e.code)) e.preventDefault(); });
-document.addEventListener('keyup',  e=>{ keys[e.code]=false; });
-const padHit={a:0,b:0,x:0,y:0,start:0};
-if(window.SofaPad) SofaPad.on((b,how)=>{ if(how==="press"&&b in padHit) padHit[b]=1; });
-function updatePad(){}
-const padHeld=b=>!!(window.SofaPad&&SofaPad.held(b));
-function btnA(){ return keys['KeyZ']||keys['Enter']||keys['Space']; }
-function btnB(){ return keys['KeyX']||keys['ShiftLeft']; }
-function btnY(){ return keys['KeyC']; }
-function btnStart(){ return keys['Escape']||keys['KeyP']; }
-const prevBtn={a:false,b:false,y:false,start:false};
-function btnAPressed(){ return padHit.a===1||(btnA()&&!prevBtn.a); }
-function btnBPressed(){ return padHit.b===1||(btnB()&&!prevBtn.b); }
-function btnYPressed(){ return padHit.y===1||padHit.x===1||(btnY()&&!prevBtn.y); }
-function btnStartPressed(){ return padHit.start===1||(btnStart()&&!prevBtn.start); }
-function updatePrevBtn(){
-  prevBtn.a=btnA(); prevBtn.b=btnB(); prevBtn.y=btnY(); prevBtn.start=btnStart();
-  padHit.a=padHit.b=padHit.x=padHit.y=padHit.start=0;
-}
-// #demo (the box's games check opens it so): it plays by itself, the thief wandering the level while the guards and
-// cameras do their rounds; no controller (this game keeps no records)
-const DEMO=/demo/.test(location.hash);
-if(DEMO) window.SofaStats={demo:true};
-const demoGo={dx:1,dy:0};
-function demoWalk(){
-  const open=[[1,0],[-1,0],[0,1],[0,-1]].filter(d=>!isWall(player.tx+d[0],player.ty+d[1]));
-  if(open.length&&(isWall(player.tx+demoGo.dx,player.ty+demoGo.dy)||Math.random()<0.18)){
-    const on=open.filter(d=>d[0]!==-demoGo.dx||d[1]!==-demoGo.dy), from=on.length?on:open, d=from[Math.floor(Math.random()*from.length)];
-    demoGo.dx=d[0]; demoGo.dy=d[1];
-  }
-  return demoGo;
-}
-function getDX(){
-  if(padHeld('left')||keys['ArrowLeft']||keys['KeyA']) return -1;
-  if(padHeld('right')||keys['ArrowRight']||keys['KeyD']) return 1;
-  const st=window.SofaPad?SofaPad.stick():null; if(st&&Math.abs(st.x)>0.25) return st.x;
-  return 0;
-}
-function getDY(){
-  if(padHeld('up')||keys['ArrowUp']||keys['KeyW']) return -1;
-  if(padHeld('down')||keys['ArrowDown']||keys['KeyS']) return 1;
-  const st=window.SofaPad?SofaPad.stick():null; if(st&&Math.abs(st.y)>0.25) return st.y;
-  return 0;
-}
-// a button's name as the controller in hand shows it (or the key, with no controller)
-function BL(b){
-  if(window.SofaPad&&SofaPad.connected()) return SofaPad.kind()==="playstation"?({a:"\u2715",b:"\u25cb",x:"\u25a1",y:"\u25b3",start:"OPTIONS"})[b]:(b==="start"?"MENU":b.toUpperCase());
-  return ({a:"Z",b:"X",x:"C",y:"C",start:"ESC"})[b];
-}
-
-// ─── Tile Constants ───────────────────────────────────────────────────────
-const TILE=16;
-
-// ─── Sprites ──────────────────────────────────────────────────────────────
-
-// Ghost player sprites (10×14)
-const SPR = {};
-
-SPR.ghost_south = spr([
-  ".....k....",
-  "....kBk...",
-  "...kBwBk..",
-  "...kBwBk..",
-  "....kBk...",
-  "...kBBBk..",
-  "..kBBBBBk.",
-  ".kBBBBBBBk",
-  "kBBBBBBBBk",
-  ".kBBkkkBBk",
-  "..kBk.kBk.",
-  "...kk..kk.",
-  "..kKk..kKk",
-  "...k....k.",
-]);
-SPR.ghost_north = spr([
-  ".....k....",
-  "....kKk...",
-  "...kKKKk..",
-  "..kKKKKKk.",
-  ".kKKKKKKKk",
-  "kBBKKKKBBk",
-  "kBBBBBBBBk",
-  ".kBBBBBBk.",
-  "..kBBBBk..",
-  "...kBBk...",
-  "....kBk...",
-  "....kBk...",
-  "...kKk.kKk",
-  "...k....k.",
-]);
-SPR.ghost_east = spr([
-  "........k.",
-  ".......kBk",
-  "......kBwk",
-  ".....kBwBk",
-  "......kBBk",
-  ".....kBBBk",
-  "....kBBBBk",
-  "...kBBBBBk",
-  "....kBBBBk",
-  ".....kBBBk",
-  "......kBBk",
-  ".......kBk",
-  "......kKkk",
-  "......k..k",
-]);
-SPR.ghost_west = flipX(SPR.ghost_east);
-
-SPR.ghost_crouch = spr([
-  ".....k....",
-  "....kBk...",
-  "...kBwBk..",
-  "....kBk...",
-  "..kBBBBBk.",
-  ".kBBBBBBBk",
-  "kBBBBBBBBBk",
-  ".kBkBBBkBk",
-  "..k..k..k.",
-]);
-SPR.ghost_white = spr([
-  ".....w....",
-  "....www...",
-  "...wwwww..",
-  "...wwwww..",
-  "....www...",
-  "...wwwwww.",
-  "..wwwwwww.",
-  ".wwwwwwwww",
-  "wwwwwwwwww",
-  ".wwwwwwwww",
-  "..www..www",
-  "...w....w.",
-]);
-SPR.smoke = spr([
-  "..GGG.....",
-  ".GGGGGg...",
-  "GGGGGGG...",
-  ".GGGGGGg..",
-  "..GGGGGGg.",
-  "...GGGGgg.",
-  "....GGgg..",
-  ".....gg...",
-],{G:PAL.G+'cc',g:PAL.g+'88'});
-
-// Guard sprites (10×14)
-SPR.guard_south = spr([
-  ".....k....",
-  "....ksk...",
-  "...kssSk..",
-  "...kssSk..",
-  "....ksk...",
-  "...kgygk..",
-  "..kgyyyGk.",
-  ".kgygGGgGk",
-  "kgyyyGGGGk",
-  ".kggkkkggk",
-  "..kgk.kgk.",
-  "...kk..kk.",
-  "..kgk..kgk",
-  "...k....k.",
-]);
-SPR.guard_north = spr([
-  ".....k....",
-  "....ksk...",
-  "...kssSk..",
-  "..ksSSSsk.",
-  ".kgggggggk",
-  "kgyyyGGGGk",
-  ".kgggGGggk",
-  "..kgGGgk..",
-  "...kggk...",
-  "....kgk...",
-  "....kgk...",
-  "....kgk...",
-  "...kgk.kgk",
-  "...k....k.",
-]);
-SPR.guard_east = spr([
-  ".........k",
-  "........ksk",
-  ".......ksSk",
-  "......ksSsk",
-  ".......kssk",
-  "......kgygk",
-  ".....kgyygk",
-  "....kgyyyyk",
-  ".....kgyGok",
-  "......kgggk",
-  ".......kggk",
-  "........kgk",
-  ".......kgkk",
-  ".......k..k",
-]);
-SPR.guard_west = flipX(SPR.guard_east);
-
-SPR.guard_alert = spr([
-  "....kyk...",
-  "...kyykk..",
-  "....kyk...",
-  "....kyk...",
-  ".....k....",
-  ".....k....",
-  "....ksk...",
-  "...kssSk..",
-  "....ksk...",
-  "...kgygk..",
-  "..kgyyyGk.",
-  ".kgygGGgGk",
-  "kgyyyGGGGk",
-  ".kggkkkggk",
-]);
-SPR.guard_ko = spr([
-  "....k......k....",
-  "...ksk....ksk...",
-  "..kgygk..kgygk..",
-  ".kggggggggggggk.",
-  "kggggggGGGGggggk",
-  ".kgggGGGGGGgggk.",
-  "..kggGGGGGGggk..",
-  "...kgggggggggk..",
-  "....kgggggggk...",
-  ".....kgggggk....",
-]);
-
-// Environment tiles (16×16)
-SPR.tile_floor = spr([
-  "tttttttttttttttt",
-  "tttttttttttttttT",
-  "tTtttttttttttttt",
-  "tttttttttttttttt",
-  "tttttttttttttttt",
-  "tttttTtttttttttt",
-  "tttttttttttttttt",
-  "ttttttttTttttttt",
-  "tttttttttttttttt",
-  "tTtttttttttttttt",
-  "tttttttttttttttt",
-  "ttttttttttttttTt",
-  "tttttttttttttttt",
-  "tttttttTtttttttt",
-  "tttttttttttttttt",
-  "tttttttttttttttt",
-]);
-SPR.tile_wall = spr([
-  "KKKKKKKKKKKKKKKK",
-  "KkkkkkkkKkkkkkKK",
-  "KkkkkkkkKkkkkkKK",
-  "KkkkkkkkKkkkkkKK",
-  "KkkkkkkkKkkkkkKK",
-  "KkkkkkkkKkkkkkKK",
-  "KkKKKKKKKKKKKKKK",
-  "KkkkkkkkKkkkkkKK",
-  "KkkkkkkkKkkkkkKK",
-  "KkkkkkkkKkkkkkKK",
-  "KkkkkkkkKkkkkkKK",
-  "KkkkkkkkKkkkkkKK",
-  "KkKKKKKKKKKKKKKK",
-  "KkkkkkkkKkkkkkKK",
-  "KkkkkkkkKkkkkkKK",
-  "KKKKKKKKKKKKKKKK",
-]);
-SPR.tile_vault_door = spr([
-  "KKKKKKKKKKKKKKKK",
-  "KgggggggggggggKK",
-  "KggGGGGGGGGggKKK",
-  "KgGGkkkkkGGgKKK.",
-  "KgGkkGGGkkGgKKK.",
-  "KgGkGGGGGkGgKKK.",
-  "KgGkGGGGGkGgKKK.",
-  "KgGkGGGGGkGgKKK.",
-  "KgGkkGGGkkGgKKK.",
-  "KgGGkkkkkGGgKKK.",
-  "KggGGGGGGGGggKKK",
-  "KgggGKGKGgggKKKK",
-  "KgggGKGKGgggKKKK",
-  "KggggggggggggKKK",
-  "KgggggggggggggKK",
-  "KKKKKKKKKKKKKKKK",
-]);
-SPR.tile_diamond = spr([
-  "................",
-  "................",
-  "......bBb.......",
-  ".....bbbBbb.....",
-  "....bcccccBb....",
-  "....bccccccb....",
-  "...bcccwccccb...",
-  "...bcccccccb....",
-  "....bccccccb....",
-  "....bcccccBb....",
-  ".....bbbBbb.....",
-  "......bBb.......",
-  "................",
-  "....kwkkwkk.....",
-  "...k..ww..k.....",
-  "................",
-]);
-SPR.tile_camera = spr([
-  "KKKKKKKKKKKKKKKK",
-  "KKKKKKKKKKKKKKKr",
-  "KKkkkKKKKKKKKKKK",
-  "KKkcckKKKKKKKKKK",
-  "KKkccKgggggKKKKK",
-  "KKkckgGgGggKKKKK",
-  "KKkckgGgGggKKKKK",
-  "KKkcckKgggKKKKKK",
-  "KKkkcKKKKKKKKKKK",
-  "KKkkkKKKKKKKKKKK",
-  "KKKKKKKKKKKKKKKK",
-  "KKKKKKKKKKKKKKKK",
-  "KKKKKKKKKKKKKKKK",
-  "KKKKKKKKKKKKKKKK",
-  "KKKKKKKKKKKKKKKK",
-  "KKKKKKKKKKKKKKKK",
-]);
-SPR.tile_keypad = spr([
-  "................",
-  ".KKKKKKKKKKKKKk.",
-  ".KeeeeeeeeeeKk..",
-  ".KeeeeeeeeeeKk..",
-  ".KeeeeeeeeeeKk..",
-  ".KKKKKKKKKKKKk..",
-  ".KwkwkwkwkwkKk..",
-  ".KkwkwkwkwkwKk..",
-  ".KwkwkwkwkwkKk..",
-  ".KkwkwkwkwkwKk..",
-  ".KwkwkwkwkwkKk..",
-  ".KKKKKKKKKKKKk..",
-  "..kkkkkkkkkkkk..",
-  "................",
-  "................",
-  "................",
-]);
-SPR.tile_desk = spr([
-  "................",
-  "................",
-  ".nnnnnnnnnnnnnn.",
-  ".nwwwwwwwwwwwwn.",
-  ".nwwwwwwwwwwwwn.",
-  ".nwwwwwwwwwwwwn.",
-  ".nwwwTwwwwwwwwn.",
-  ".nwwwwwwwwwwwwn.",
-  ".nnnnnnnnnnnnnn.",
-  ".n............n.",
-  ".n............n.",
-  ".nNNNnNNNnNNNn.",
-  ".nNNNnNNNnNNNn.",
-  ".nNNNnNNNnNNNn.",
-  "................",
-  "................",
-]);
-SPR.tile_plant = spr([
-  "................",
-  "................",
-  "....eEeEe.......",
-  "...EeEeEeE......",
-  "..eEeEeEeEe.....",
-  "...EeEeEeE......",
-  "....eEeEe.......",
-  "......e.........",
-  ".....ene........",
-  "....ennne.......",
-  "...ennnNne......",
-  "...enNNNne......",
-  "....ennne.......",
-  ".....nnn........",
-  "................",
-  "................",
-]);
-
-// HUD icons
-SPR.heart = spr([
-  ".r.r.",
-  "rrrrr",
-  "rrrrr",
-  ".rrr.",
-  "..r..",
-]);
-SPR.heart_empty = spr([
-  ".r.r.",
-  "r...r",
-  "r...r",
-  ".r.r.",
-  "..r..",
-]);
-SPR.bomb_icon = spr([
-  "..k..",
-  ".kKk.",
-  "kKKKk",
-  "kKKKk",
-  ".kKk.",
-  "..k..",
-]);
-
-// ─── Level Maps ───────────────────────────────────────────────────────────
-// Tile chars: . floor  # wall  D vault-door  G diamond  C camera
-//             K keypad  d desk  p plant  S player-start  E exit
-//             1/2/3/4 guard spawns
-// Map size 30×17 tiles (480/16=30, 270/16=16.875→17)
-
-const LEVELS = [
-  {
-    name: "THE GALLERY",
-    map: [
-      "##############################",
-      "#............................#",
-      "#.pp...C.................pp..#",
-      "#............................#",
-      "#....####.........####.......#",
-      "#....#..#.........#..#.......#",
-      "#....#..#.........#..#...E...#",
-      "#....#..#.........#..#.......#",
-      "#....####.........####.......#",
-      "#............................#",
-      "#....1.........G.............#",
-      "#............................#",
-      "#....2.......................#",
-      "#............................#",
-      "#.S..........................#",
-      "#............................#",
-      "##############################",
-    ],
-    guardDefs:[
-      {id:0,route:[[5,10],[10,10],[10,13],[5,13]],dir:'south'},
-      {id:1,route:[[5,12],[14,12],[14,14],[5,14]],dir:'east'},
-    ],
-    cameraDefs:[
-      {tx:9,ty:2,baseAngle:Math.PI/2},
-    ],
-  },
-  {
-    name: "EXECUTIVE SUITE",
-    map: [
-      "##############################",
-      "#............................#",
-      "#.d.d.d.d.1..C.d.d.d.d.d....#",
-      "#............................#",
-      "#.d.d.d.d....d.d.d.d.d...2..#",
-      "#............................#",
-      "#######.....######...........#",
-      "#......#...#......###########",
-      "#......#...#.................#",
-      "#..S...#...#..G.....3........#",
-      "#......#...#.................#",
-      "#......#K..#.................#",
-      "#######....####..............#",
-      "#...........................C#",
-      "#............................#",
-      "#......................E......#",
-      "##############################",
-    ],
-    guardDefs:[
-      {id:0,route:[[11,2],[18,2],[18,4],[11,4]],dir:'east'},
-      {id:1,route:[[24,4],[24,8],[24,10],[18,10]],dir:'south'},
-      {id:2,route:[[15,9],[22,9],[22,11],[15,11]],dir:'east'},
-    ],
-    cameraDefs:[
-      {tx:14,ty:2,baseAngle:Math.PI/2},
-      {tx:28,ty:13,baseAngle:Math.PI},
-    ],
-  },
-  {
-    name: "THE VAULT",
-    map: [
-      "##############################",
-      "#............................#",
-      "#.S..###########.............#",
-      "#....#.........#.....1.......#",
-      "#....#.........#.............#",
-      "#....#.G.......#.....2.......#",
-      "#....#.........####..........#",
-      "#....#.........#C.#.....3....#",
-      "#K...#.........#..###########",
-      "#....############.........4..#",
-      "#....C...........#...........#",
-      "#....#############...........#",
-      "#............................#",
-      "#.....G.....#####............#",
-      "#...........#...#............#",
-      "#...........#.E.#............#",
-      "##############################",
-    ],
-    guardDefs:[
-      {id:0,route:[[18,3],[24,3],[24,5],[18,5]],dir:'east'},
-      {id:1,route:[[18,5],[22,5],[22,7],[18,7]],dir:'south'},
-      {id:2,route:[[22,7],[26,7],[26,9],[22,9]],dir:'east'},
-      {id:3,route:[[22,9],[26,9],[26,11],[22,11]],dir:'south'},
-    ],
-    cameraDefs:[
-      {tx:19,ty:7,baseAngle:Math.PI},
-      {tx:5,ty:10,baseAngle:Math.PI/2},
-      {tx:14,ty:7,baseAngle:0},
-    ],
-  },
+// ---------------------------------------------------------------- the buildings and their heists
+const BUILDINGS = [
+  { id: "manor", name: "ASHCOMBE MANOR", amb: 0.12, wall: "#4a3a34", wallTop: "#6a544a", floors: [0, 1, 1, 0, 2], furn: "manor",
+    music: { seed: 61, root: 45, tempo: 92 }, loot: [["PAINTING", 300], ["SILVER", 150], ["PEARLS", 250], ["CLOCK", 200]] },
+  { id: "bank", name: "COPPERGATE BANK", amb: 0.2, wall: "#3e4450", wall2: "#5a6270", wallTop: "#6a7280", floors: [2, 3, 3, 0, 4], furn: "bank",
+    music: { seed: 73, root: 47, tempo: 100 }, loot: [["CASH", 200], ["GOLD BAR", 400], ["BONDS", 300], ["DEED BOX", 250]] },
+  { id: "tower", name: "HALCYON TOWER", amb: 0.18, wall: "#2e3440", wallTop: "#4a5466", floors: [4, 2, 0, 4, 3], furn: "tower",
+    music: { seed: 89, root: 49, tempo: 108 }, loot: [["DRIVE", 300], ["SCULPTURE", 450], ["CHIPS", 250], ["WATCH", 350]] }
 ];
+const HEISTS = [
+  { b: 0, name: "THE GILDED EGG", seed: 11, w: 38, h: 26, d: 0, about: "A JEWELLED EGG IN THE STUDY. TWO GUARDS, AND THE LAMPS ARE LIT." },
+  { b: 0, name: "THE SIGNET RING", seed: 23, w: 42, h: 28, d: 1, about: "THE OLD LORD'S RING, IN A BEDROOM AT THE BACK." },
+  { b: 0, name: "THE LOST SCORE", seed: 37, w: 44, h: 30, d: 1, about: "A COMPOSER'S LOST MUSIC, LOCKED IN THE LIBRARY." },
+  { b: 0, name: "THE FAMILY SILVER", seed: 41, w: 46, h: 30, d: 2, about: "THE WHOLE CABINET. THE STAFF ARE UP LATE." },
+  { b: 1, name: "SAFE DEPOSIT 12", seed: 53, w: 40, h: 26, d: 1, about: "ONE BOX IN THE BASEMENT. CAMERAS ON EVERY CORRIDOR." },
+  { b: 1, name: "THE NIGHT DROP", seed: 67, w: 44, h: 28, d: 1, about: "THE DAY'S TAKINGS, BEFORE THE VAN COMES." },
+  { b: 1, name: "THE BEARER BONDS", seed: 71, w: 46, h: 30, d: 2, about: "BONDS IN THE MANAGER'S SAFE. A GUARD WHO NEVER SLEEPS." },
+  { b: 1, name: "THE GOLD VAULT", seed: 83, w: 48, h: 32, d: 3, about: "THE VAULT ITSELF. EVERYONE IS ON SHIFT." },
+  { b: 2, name: "THE PROTOTYPE", seed: 97, w: 42, h: 28, d: 2, about: "A CHIP IN THE LAB. METAL FLOORS: TREAD SOFTLY." },
+  { b: 2, name: "THE SERVER ROOM", seed: 101, w: 44, h: 30, d: 2, about: "A DRIVE FROM THE RACKS. THE CAMERAS NEVER BLINK." },
+  { b: 2, name: "THE PENTHOUSE", seed: 113, w: 46, h: 30, d: 3, about: "A SCULPTURE IN THE PENTHOUSE. GUARDS ON EVERY FLOOR." },
+  { b: 2, name: "THE CHAIRMAN'S SAFE", seed: 127, w: 48, h: 32, d: 3, about: "THE LAST JOB. THE WHOLE TOWER IS AWAKE." }
+];
+const TARGETS = ["GILDED EGG", "SIGNET RING", "LOST SCORE", "SILVER CHEST", "DEPOSIT BOX", "CASH BAG", "BONDS", "GOLD BARS", "PROTOTYPE", "DRIVE", "SCULPTURE", "LEDGER"];
 
-// ─── Game State ───────────────────────────────────────────────────────────
-const GAME_STATE = {
-  TITLE:0, PLAYING:1, PAUSED:2, LEVEL_CLEAR:3, GAME_OVER:4, CAUGHT:5
-};
-let state = GAME_STATE.TITLE;
-let currentLevel = 0;
-let lives = 3;
-let spotted = false;
-let totalTime = 0;
-let levelTime = 0;
-let levelClearTimer = 0;
-let caughtTimer = 0;
-let alarmTimer = 0;
-let alarmActive = false;
-let alarmFlash = 0;
-
-// Player
-const player = {
-  tx:1, ty:1,        // tile position
-  px:16, py:16,      // pixel position (center)
-  dir:'south',
-  crouching:false,
-  smoke:1,           // smoke bombs
-  hasDiamond:false,
-  moving:false,
-  moveTimer:0,
-  moveDuration:0,
-  fromPx:0, fromPy:0,
-  toPx:0,   toPy:0,
-  lastMoveDir:null,
-  stepTimer:0,
-  flashTimer:0,
-};
-
-// Guards
-let guards=[];
-let cameras=[];
-let smokeEffect=null; // {px,py,timer,maxTimer}
-let mapData=null;
-let exitPos={tx:0,ty:0};
-
-function initLevel(lvlIdx){
-  const lvl = LEVELS[lvlIdx];
-  mapData = lvl.map.map(row=>row.split(''));
-  
-  // Find player start and exit
-  for(let ty=0;ty<mapData.length;ty++){
-    for(let tx=0;tx<mapData[ty].length;tx++){
-      const ch=mapData[ty][tx];
-      if(ch==='S'){
-        player.tx=tx; player.ty=ty;
-        player.px=(tx+0.5)*TILE; player.py=(ty+0.5)*TILE;
-        mapData[ty][tx]='.';
-      }
-      if(ch==='E'){
-        exitPos={tx,ty};
-      }
+// ---------------------------------------------------------------- laying a heist out from its seed
+// The building is cut into rooms (a wall between each cut, a door through it), then a few more doors for second ways
+// round. The way in is on the bottom wall; the prize is in the room furthest from it, behind a locked door from the
+// second heist on. Lamps and their switch for most rooms, furniture along the walls (never closing a way), loot,
+// cameras, guards walking rounds through the rooms.
+function layout(hi) {
+  const H = HEISTS[hi], B = BUILDINGS[H.b], W = H.w, Hh = H.h, r = U.rand(H.seed * 7919 + 13);
+  const t = new Uint8Array(W * Hh).fill(WALL), fl = new Uint8Array(W * Hh), room = new Int16Array(W * Hh).fill(-1);
+  const at = (x, y) => x < 0 || y < 0 || x >= W || y >= Hh ? WALL : t[y * W + x];
+  const set = (x, y, v) => { if (x >= 0 && y >= 0 && x < W && y < Hh) t[y * W + x] = v; };
+  const leaves = [], doors = [];
+  function split(x, y, w, h, depth) {
+    const big = w > 14 || h > 11, can = (w >= 11 || h >= 9) && depth < 6;
+    if (!can || (!big && r() < 0.25 && depth > 2)) { leaves.push({ x, y, w, h }); for (let j = y; j < y + h; j++) for (let i = x; i < x + w; i++) set(i, j, FLOOR); return; }
+    const vert = w / h > 1.25 ? true : h / w > 1.25 ? false : r() < 0.5;
+    if (vert && w >= 11) { const s = x + 5 + Math.floor(r() * (w - 10)); split(x, y, s - x, h, depth + 1); split(s + 1, y, x + w - s - 1, h, depth + 1); doors.push({ v: 1, at: s, a: y, b: y + h - 1 }); }
+    else if (!vert && h >= 9) { const s = y + 4 + Math.floor(r() * (h - 8)); split(x, y, w, s - y, depth + 1); split(x, s + 1, w, y + h - s - 1, depth + 1); doors.push({ v: 0, at: s, a: x, b: x + w - 1 }); }
+    else { leaves.push({ x, y, w, h }); for (let j = y; j < y + h; j++) for (let i = x; i < x + w; i++) set(i, j, FLOOR); }
+  }
+  split(1, 1, W - 2, Hh - 2, 0);
+  const door = d => {                                  // a door through the cut, where both sides are floor
+    const opts = [];
+    for (let k = d.a + 1; k < d.b; k++) { const [x, y] = d.v ? [d.at, k] : [k, d.at]; const a1 = d.v ? at(x - 1, y) : at(x, y - 1), a2 = d.v ? at(x + 1, y) : at(x, y + 1);
+      if (a1 === FLOOR && a2 === FLOOR) opts.push([x, y]); }
+    if (!opts.length) return false; const p = opts[(r() * opts.length) | 0]; set(p[0], p[1], DOOR); return true;
+  };
+  for (const d of doors) door(d);
+  // rooms: what each floor tile belongs to
+  const rooms = [];
+  for (let i = 0; i < W * Hh; i++) if (t[i] === FLOOR && room[i] < 0) {
+    const id = rooms.length, q = [i], cells = []; room[i] = id;
+    while (q.length) { const c = q.pop(); cells.push(c); const x = c % W, y = (c / W) | 0; for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const n = (y + dy) * W + x + dx; if (t[n] === FLOOR && room[n] < 0) { room[n] = id; q.push(n); } } }
+    let x0 = W, y0 = Hh, x1 = 0, y1 = 0; for (const c of cells) { const x = c % W, y = (c / W) | 0; x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
+    rooms.push({ id, cells, x0, y0, x1, y1, cx: (x0 + x1) / 2, cy: (y0 + y1) / 2, floor: B.floors[(r() * B.floors.length) | 0], lamps: [], sw: null, dark: false });
+  }
+  // a few more doors, for second ways round (more as heists get harder)
+  let extra = 3 + H.d * 2;
+  for (let k = 0; k < 400 && extra > 0; k++) {
+    const x = 2 + ((r() * (W - 4)) | 0), y = 2 + ((r() * (Hh - 4)) | 0);
+    if (at(x, y) !== WALL) continue;
+    const h1 = at(x - 1, y) === FLOOR && at(x + 1, y) === FLOOR && room[y * W + x - 1] !== room[y * W + x + 1] && at(x, y - 1) === WALL && at(x, y + 1) === WALL;
+    const v1 = at(x, y - 1) === FLOOR && at(x, y + 1) === FLOOR && room[(y - 1) * W + x] !== room[(y + 1) * W + x] && at(x - 1, y) === WALL && at(x + 1, y) === WALL;
+    if (h1 || v1) { set(x, y, DOOR); extra--; }
+  }
+  // the way in: a room on the bottom wall, the door out through it
+  const bottom = rooms.filter(R => R.y1 === Hh - 2);
+  const inR = bottom.sort((a, b) => Math.abs(a.cx - W / 2) - Math.abs(b.cx - W / 2))[0] || rooms[0];
+  const ex = Math.round(inR.cx), ey = Hh - 1; set(ex, ey, EXIT);
+  // distances in rooms from the way in (doors as steps), for the prize's room
+  const dist = bfs(t, W, Hh, ey * W + ex, c => !(t[c] === WALL || t[c] === TABLE || t[c] === SHELF));
+  let far = inR, fd = -1; for (const R of rooms) { const d = dist[Math.round(R.cy) * W + Math.round(R.cx)]; if (d > fd && R !== inR && R.cells.length >= 12) { fd = d; far = R; } }
+  const L = { hi, H, B, W, Hh, t, fl, room, rooms, inR, exit: [ex, ey], prize: null, lamps: [], switches: [], loot: [], cams: [], guards: [], picks: 0 };
+  for (const R of rooms) for (const c of R.cells) fl[c] = R.floor;
+  // the prize's room: locked from the second heist on (and the doors round it)
+  if (H.d >= 1 || hi > 0) for (let c = 0; c < W * Hh; c++) if (t[c] === DOOR) { const x = c % W, y = (c / W) | 0; for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (room[(y + dy) * W + x + dx] === far.id) { t[c] = LOCK; L.picks++; break; } }
+  let more = H.d;                                    // and a few others locked, for the harder ones
+  for (let c = 0; c < W * Hh && more > 0; c++) if (t[c] === DOOR && r() < 0.12) { t[c] = LOCK; L.picks++; more--; }
+  // lamps and switches: most rooms lit, some left dark (more dark rooms in the manor)
+  for (const R of rooms) {
+    if (R === inR && r() < 0.5) continue;
+    if (r() < (H.b === 0 ? 0.28 : 0.15) && R !== far) { R.dark = true; continue; }
+    const n = R.cells.length > 60 ? 2 : 1;
+    for (let k = 0; k < n; k++) { const c = R.cells[(r() * R.cells.length) | 0], x = c % W, y = (c / W) | 0; const lp = { x, y, on: true, room: R.id, r: 3 + ((r() * 2) | 0) }; L.lamps.push(lp); R.lamps.push(lp); }
+    // the switch: beside a door, inside the room
+    for (const c of R.cells) { const x = c % W, y = (c / W) | 0; if ([[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => at(x + dx, y + dy) === DOOR || at(x + dx, y + dy) === LOCK)) { R.sw = { x, y, room: R.id }; L.switches.push(R.sw); break; } }
+  }
+  // the prize
+  { const c = far.cells.reduce((a, b) => Math.hypot((b % W) - far.cx, ((b / W) | 0) - far.cy) < Math.hypot((a % W) - far.cx, ((a / W) | 0) - far.cy) ? b : a);
+    L.prize = { x: c % W, y: (c / W) | 0, name: TARGETS[hi], taken: false, by: null }; L.prizeRoom = far.id; }
+  // furniture along the walls, never closing a way through
+  const keep = new Set([L.prize.y * W + L.prize.x, (ey - 1) * W + ex]); for (const s of L.switches) keep.add(s.y * W + s.x); for (const lp of L.lamps) keep.add(lp.y * W + lp.x);
+  const reach = () => { const d = bfs(t, W, Hh, (ey - 1) * W + ex, c => !solid(t[c]) || t[c] === DOOR || t[c] === LOCK); for (let c = 0; c < W * Hh; c++) if ((t[c] === FLOOR || t[c] === DOOR || t[c] === LOCK) && d[c] < 0) return false; return true; };
+  for (const R of rooms) {
+    const want = Math.floor(R.cells.length / 14);
+    for (let k = 0, tries = 0; k < want && tries < 40; tries++) {
+      const c = R.cells[(r() * R.cells.length) | 0], x = c % W, y = (c / W) | 0;
+      if (keep.has(c) || t[c] !== FLOOR) continue;
+      const byWall = at(x - 1, y) === WALL || at(x + 1, y) === WALL || at(x, y - 1) === WALL || at(x, y + 1) === WALL;
+      const byDoor = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]].some(([dx, dy]) => [DOOR, LOCK, EXIT].includes(at(x + dx, y + dy)));
+      if (byDoor) continue;
+      const kind = byWall && r() < 0.6 ? SHELF : TABLE;
+      t[c] = kind; if (!reach()) { t[c] = FLOOR; continue; } k++;
     }
   }
-
-  player.dir='south'; player.crouching=false;
-  player.moving=false; player.smoke=1;
-  player.hasDiamond=false; player.flashTimer=0;
-  player.stepTimer=0;
-
-  // Build guards from defs
-  guards=[];
-  for(const def of lvl.guardDefs){
-    const [rtx,rty]=def.route[0];
-    guards.push({
-      id:def.id,
-      tx:rtx, ty:rty,
-      px:(rtx+0.5)*TILE, py:(rty+0.5)*TILE,
-      dir:def.dir,
-      route:def.route.map(r=>[...r]),
-      routeIdx:0,
-      moving:false,
-      moveTimer:0, moveDuration:0,
-      fromPx:0, fromPy:0,
-      toPx:0, toPy:0,
-      state:'patrol', // patrol | alert | chase | ko
-      alertTimer:0,
-      chaseCooldown:0,
-      koTimer:0,
-      lastPlayerTx:-1, lastPlayerTy:-1,
-      stepTimer:0,
-    });
+  // loot: in rooms other than the way in
+  const spots = [];
+  for (const R of rooms) if (R !== inR) for (const c of R.cells) if (t[c] === FLOOR && !keep.has(c)) spots.push(c);
+  const nl = 5 + H.d * 2;
+  for (let k = 0; k < nl && spots.length; k++) { const i = (r() * spots.length) | 0, c = spots.splice(i, 1)[0], kind = B.loot[(r() * B.loot.length) | 0];
+    L.loot.push({ x: c % W, y: (c / W) | 0, name: kind[0], val: kind[1], taken: false }); keep.add(c); }
+  // cameras: from the bank on, on walls looking into a room or a corridor
+  const ncam = H.b === 0 ? (H.d >= 2 ? 1 : 0) : 1 + H.d + (H.b === 2 ? 1 : 0);
+  for (let k = 0, tries = 0; k < ncam && tries < 300; tries++) {
+    const R = rooms[(r() * rooms.length) | 0]; if (R === inR) continue;
+    const c = R.cells[(r() * R.cells.length) | 0], x = c % W, y = (c / W) | 0;
+    let face = null; if (at(x, y - 1) === WALL) face = Math.PI / 2; else if (at(x - 1, y) === WALL) face = 0; else if (at(x + 1, y) === WALL) face = Math.PI; else continue;
+    if (L.cams.some(q => Math.abs(q.x - x) + Math.abs(q.y - y) < 6)) continue;
+    L.cams.push({ x, y, face, a: face, sweep: 0.7, t: r() * TAU, jam: 0, see: 0 }); k++;
   }
-
-  // Build cameras
-  cameras=[];
-  for(const def of lvl.cameraDefs){
-    cameras.push({
-      tx:def.tx, ty:def.ty,
-      angle:def.baseAngle,
-      baseAngle:def.baseAngle,
-      sweep:0,
-      sweepDir:1,
-      alertTimer:0,
-      disabled:false,
-      disableTimer:0,
-    });
+  // guards: walking rounds through three or four rooms (one keeps to the prize's room from the second building on)
+  const ng = 2 + H.d + (H.b > 0 ? 1 : 0);
+  const pick = () => { for (let k = 0; k < 50; k++) { const R = rooms[(r() * rooms.length) | 0]; if (R === inR) continue; const c = R.cells[(r() * R.cells.length) | 0]; if (t[c] === FLOOR) return c; } return far.cells[0]; };
+  for (let k = 0; k < ng; k++) {
+    let route;
+    if (k === 0 && H.b > 0) { route = [0, 1, 2].map(() => far.cells[(r() * far.cells.length) | 0]).filter(c => t[c] === FLOOR); if (route.length < 2) route = [pick(), pick()]; }
+    else route = [pick(), pick(), pick()].concat(r() < 0.5 ? [pick()] : []);
+    const s = route[0];
+    if (Math.hypot((s % W) - ex, ((s / W) | 0) - ey) < 9) { k--; continue; }
+    L.guards.push({ route: route.map(c => [c % W, (c / W) | 0]), ri: 0 });
   }
-
-  smokeEffect=null;
-  alarmActive=false;
-  alarmTimer=0;
-  alarmFlash=0;
-  spotted=false;
-  levelTime=0;
+  L.picks += 1;
+  L.gadgets = { smoke: 1 + (H.d >= 2 ? 1 : 0), noise: 2 + (H.d >= 1 ? 1 : 0), jam: H.b === 0 ? (H.d >= 2 ? 1 : 0) : 1 + (H.d >= 2 ? 1 : 0) };
+  return L;
+}
+function bfs(t, W, H, from, ok) {
+  const d = new Int16Array(W * H).fill(-1), q = new Int32Array(W * H); let a = 0, b = 0; d[from] = 0; q[b++] = from;
+  while (a < b) { const c = q[a++], x = c % W, y = (c / W) | 0;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const nx = x + dx, ny = y + dy; if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue; const n = ny * W + nx; if (d[n] < 0 && ok(n)) { d[n] = d[c] + 1; q[b++] = n; } } }
+  return d;
 }
 
-// ─── Map helpers ──────────────────────────────────────────────────────────
-function getTile(tx,ty){
-  if(!mapData||ty<0||ty>=mapData.length||tx<0||tx>=mapData[0].length) return '#';
-  return mapData[ty][tx];
+// ---------------------------------------------------------------- drawing the building (once, a tile at a time after)
+const FLOORCOL = { manor: ["#5a2630", "#6a4a30", "#7a7672", "#b8b2a6", "#4a5058"], bank: ["#2a4a3c", "#6a4a30", "#7e7e86", "#c4c0b8", "#4a5058"], tower: ["#283048", "#5a4430", "#6e7480", "#b4b8c0", "#444c56"] };
+function paintTile(L, g, x, y) {
+  const W = L.W, c = y * W + x, t = L.t[c], B = L.B, X = x * TS, Y = y * TS, fcol = FLOORCOL[B.id][L.fl[c]], h = hash(x, y);
+  const floor = () => {
+    const f = L.fl[c]; px(g, X, Y, TS, TS, fcol);
+    if (f === 0) { px(g, X, Y, TS, 1, shade(fcol, 1.15)); if (h > 0.5) px(g, X + 4 + ((h * 8) | 0), Y + 7, 2, 2, shade(fcol, 1.25)); }
+    else if (f === 1) { for (let k = 0; k < 4; k++) px(g, X, Y + k * 4 + 3, TS, 1, shade(fcol, 0.75)); px(g, X + ((x * 7 + y * 3) % 4) * 4, Y, 1, TS, shade(fcol, 0.8)); }
+    else if (f === 2) { for (let k = 0; k < 4; k++) px(g, X + (k & 1) * 8, Y + (k >> 1) * 8, 8, 8, ((x + y + k + (k >> 1)) & 1) ? fcol : shade(fcol, 0.88)); }
+    else if (f === 3) { px(g, X, Y, TS, 1, shade(fcol, 0.9)); px(g, X, Y, 1, TS, shade(fcol, 0.9)); if (h > 0.6) px(g, X + 3, Y + ((h * 12) | 0), 9, 1, shade(fcol, 0.85)); }
+    else { for (let j = 2; j < TS; j += 4) for (let i = 2; i < TS; i += 4) px(g, X + i, Y + j, 2, 2, shade(fcol, 0.6)); px(g, X, Y, TS, 1, shade(fcol, 1.2)); }
+  };
+  const at = (xx, yy) => xx < 0 || yy < 0 || xx >= W || yy >= L.Hh ? WALL : L.t[yy * W + xx];
+  if (t === WALL) {
+    px(g, X, Y, TS, TS, B.wallTop); px(g, X, Y, TS, 1, shade(B.wallTop, 1.2));
+    if (at(x, y + 1) !== WALL) { px(g, X, Y + 9, TS, 7, B.wall); px(g, X, Y + 9, TS, 1, shade(B.wall, 1.3)); px(g, X, Y + 15, TS, 1, shade(B.wall, 0.6));
+      if (B.id === "manor") for (let k = 2; k < TS; k += 5) px(g, X + k, Y + 10, 1, 5, shade(B.wall, 0.85)); else if (B.id === "tower" && (x & 1)) px(g, X + 3, Y + 10, 10, 3, "#3a6a8a"); }
+    return;
+  }
+  floor();
+  if (t === DOOR || t === LOCK || t === OPEN) {
+    const across = at(x - 1, y) === WALL && at(x + 1, y) === WALL;     // a door in a wall running left to right
+    const col = B.id === "tower" ? "#5a6a7a" : B.id === "bank" ? "#6a5a40" : "#7a4a2a";
+    if (t === OPEN) { if (across) { px(g, X, Y, 3, TS, col); px(g, X, Y, 3, 1, shade(col, 1.3)); } else { px(g, X, Y, TS, 3, col); } return; }
+    if (across) { px(g, X, Y + 4, TS, 9, col); px(g, X, Y + 4, TS, 1, shade(col, 1.3)); px(g, X, Y + 12, TS, 1, shade(col, 0.6)); px(g, X + 11, Y + 8, 2, 2, "#d8b050"); }
+    else { px(g, X + 4, Y, 8, TS, col); px(g, X + 4, Y, 1, TS, shade(col, 1.3)); px(g, X + 11, Y, 1, TS, shade(col, 0.6)); px(g, X + 7, Y + 10, 2, 2, "#d8b050"); }
+    if (t === LOCK) { px(g, X + 5, Y + 5, 6, 6, "#1a1410"); px(g, X + 6, Y + 6, 4, 4, "#e0b040"); px(g, X + 7, Y + 8, 2, 2, "#1a1410"); }
+  } else if (t === TABLE) {
+    px(g, X + 2, Y + 4, 13, 11, "rgba(0,0,0,0.3)");
+    const tc = B.id === "manor" ? "#8a5a34" : B.id === "bank" ? "#6e6e78" : "#5a8aa0";
+    px(g, X + 1, Y + 2, 13, 10, tc); px(g, X + 1, Y + 2, 13, 1, shade(tc, 1.3)); px(g, X + 1, Y + 11, 13, 2, shade(tc, 0.6));
+    if (h > 0.5) px(g, X + 4, Y + 5, 4, 3, B.id === "tower" ? "#9ad8f0" : "#e8e0c8");
+  } else if (t === SHELF) {
+    const sc = B.id === "manor" ? "#5a3a24" : B.id === "bank" ? "#5a6068" : "#22262e";
+    px(g, X + 1, Y, 14, 14, sc); px(g, X + 1, Y + 10, 14, 5, shade(sc, 0.65));
+    if (B.id === "manor") for (let k = 0; k < 6; k++) px(g, X + 2 + k * 2, Y + 2 + ((hash(x + k, y) * 3) | 0), 2, 7, ["#8a2a2a", "#2a5a3a", "#c8a050", "#2a3a6a"][(hash(k, x + y) * 4) | 0]);
+    else if (B.id === "bank") for (let k = 0; k < 3; k++) { px(g, X + 3, Y + 1 + k * 3, 10, 2, shade(sc, 1.2)); px(g, X + 7, Y + 1 + k * 3, 2, 1, "#c8c8d0"); }
+    else for (let k = 0; k < 4; k++) { px(g, X + 3, Y + 1 + k * 2, 10, 1, "#3a404c"); if (hash(x, y + k) > 0.4) px(g, X + 4 + ((hash(k, x) * 8) | 0), Y + 1 + k * 2, 1, 1, hash(y, k) > 0.5 ? "#4af07a" : "#4ab0ff"); }
+  } else if (t === EXIT) {
+    px(g, X, Y, TS, TS, "#1a2a1e"); px(g, X + 2, Y + 2, 12, 12, "#2a5a34");
+    g.fillStyle = "#8ae08a"; g.beginPath(); g.moveTo(X + 8, Y + 13); g.lineTo(X + 3, Y + 7); g.lineTo(X + 13, Y + 7); g.fill();
+  }
 }
-function isWall(tx,ty){
-  const c=getTile(tx,ty);
-  return c==='#'||c==='D';
+function paintLevel(L) {
+  const c = mk(L.W * TS, L.Hh * TS), g = g2(c);
+  for (let y = 0; y < L.Hh; y++) for (let x = 0; x < L.W; x++) paintTile(L, g, x, y);
+  L.c = c; L.g = g; decor(L);
 }
+function decor(L) {                                  // lamps on the ceiling, switches by the doors
+  const g = L.g;
+  for (const lp of L.lamps) { const X = lp.x * TS + 8, Y = lp.y * TS + 8; px(g, X - 3, Y - 3, 6, 6, "#2a2a30"); px(g, X - 2, Y - 2, 4, 4, lp.on ? "#ffe8a0" : "#4a4a40"); }
+  for (const s of L.switches) { const R = L.rooms[s.room], on = R.lamps.some(l => l.on); px(g, s.x * TS + 6, s.y * TS + 1, 4, 5, "#d8d0c0"); px(g, s.x * TS + 7, s.y * TS + (on ? 2 : 4), 2, 1, on ? "#3a3a3a" : "#c83030"); }
+}
+function retile(L, x, y) { paintTile(L, L.g, x, y); decorAt(L, x, y); }
+function decorAt(L, x, y) { for (const lp of L.lamps) if (lp.x === x && lp.y === y) decor(L); for (const s of L.switches) if (s.x === x && s.y === y) decor(L); }
 
-function tileCenter(tx,ty){ return {x:(tx+0.5)*TILE, y:(ty+0.5)*TILE}; }
-
-// ─── Line of Sight ─────────────────────────────────────────────────────────
-function hasLOS(ax,ay,bx,by){
-  // Ray march in tile space
-  const steps=32;
-  for(let i=1;i<=steps;i++){
-    const t=i/steps;
-    const x=ax+(bx-ax)*t;
-    const y=ay+(by-ay)*t;
-    const tx2=Math.floor(x/TILE);
-    const ty2=Math.floor(y/TILE);
-    if(isWall(tx2,ty2)) return false;
-    // smoke check
-    if(smokeEffect&&smokeEffect.timer>0){
-      const sdx=x-smokeEffect.px, sdy=y-smokeEffect.py;
-      if(Math.sqrt(sdx*sdx+sdy*sdy)<TILE*2.5) return false;
-    }
+// ---------------------------------------------------------------- light, a tile at a time, round the walls
+function sightClear(L, x0, y0, x1, y1) {            // a line between tile centres: nothing in the way that hides
+  let dx = Math.abs(x1 - x0), dy = Math.abs(y1 - y0), sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1, err = dx - dy, x = x0, y = y0;
+  while (x !== x1 || y !== y1) {
+    const e2 = err * 2; if (e2 > -dy) { err -= dy; x += sx; } if (e2 < dx) { err += dx; y += sy; }
+    if (x === x1 && y === y1) break;
+    if (opaque(L.t[y * L.W + x]) || smokeAt(x, y)) return false;
   }
   return true;
 }
+function relight(L) {
+  const W = L.W, H = L.Hh, lt = L.light || (L.light = new Float32Array(W * H));
+  lt.fill(L.B.amb);
+  for (const lp of L.lamps) if (lp.on) for (let y = lp.y - lp.r; y <= lp.y + lp.r; y++) for (let x = lp.x - lp.r; x <= lp.x + lp.r; x++) {
+    if (x < 0 || y < 0 || x >= W || y >= H) continue; const d = Math.hypot(x - lp.x, y - lp.y); if (d > lp.r) continue;
+    const c = y * W + x; if (L.t[c] === WALL) continue;
+    if (!sightClear(L, lp.x, lp.y, x, y)) continue;
+    lt[c] = Math.max(lt[c], 1 - Math.pow(d / (lp.r + 0.5), 1.4) * 0.9);
+  }
+  const [ex, ey] = L.exit; for (let y = ey - 2; y <= ey; y++) for (let x = ex - 2; x <= ex + 2; x++) if (x >= 0 && y >= 0 && x < W && y < H) lt[y * W + x] = Math.max(lt[y * W + x], 0.45);
+  // the picture of it: a pixel a tile, the dark's strength (walls take their lightest neighbour's)
+  const c = L.lc || (L.lc = mk(W, H)), g = g2(c), id = g.createImageData(W, H), u = new Uint32Array(id.data.buffer);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    let v = lt[y * W + x];
+    if (L.t[y * W + x] === WALL) { v = 0; for (const [dx, dy] of [[0, 1], [0, -1], [1, 0], [-1, 0]]) { const n = (y + dy) * W + x + dx; if (y + dy >= 0 && y + dy < H && x + dx >= 0 && x + dx < W && L.t[n] !== WALL) v = Math.max(v, lt[n] * 0.9); } if (!v) v = L.B.amb * 0.6; }
+    const a = Math.round(clamp((1 - v) * 0.93, 0, 0.92) * 255);
+    u[y * W + x] = ((a << 24) | (24 << 16) | (8 << 8) | 6) >>> 0;
+  }
+  g.putImageData(id, 0, 0);
+  // and at full size, smoothed between tiles, made once each time the light changes (a frame only copies it)
+  const big = L.lb || (L.lb = mk(W * TS, H * TS)), bg = big.getContext("2d");
+  bg.clearRect(0, 0, big.width, big.height); bg.imageSmoothingEnabled = true; bg.drawImage(c, 0, 0, W, H, 0, 0, big.width, big.height);
+}
+const lightAt = (L, x, y) => { const tx = Math.floor(x / TS), ty = Math.floor(y / TS); return tx < 0 || ty < 0 || tx >= L.W || ty >= L.Hh ? 0 : L.light[ty * L.W + tx]; };
 
-function inCone(srcPx,srcPy,angle,fovRad,rangeTiles,targetPx,targetPy){
-  const dx=targetPx-srcPx, dy=targetPy-srcPy;
-  const dist=Math.sqrt(dx*dx+dy*dy);
-  if(dist>rangeTiles*TILE) return false;
-  let a=Math.atan2(dy,dx);
-  let da=a-angle;
-  while(da< -Math.PI) da+=Math.PI*2;
-  while(da>  Math.PI) da-=Math.PI*2;
-  return Math.abs(da)<=fovRad/2;
+// ---------------------------------------------------------------- the people: a thief, a guard (drawn once, each way)
+const PEOPLE = {};
+function person(kind) {
+  if (PEOPLE[kind]) return PEOPLE[kind];
+  const c = mk(16 * 12, 18), g = g2(c);
+  const thief = kind[0] === "t", col = kind === "t2" ? "#3a2a46" : "#1c1a24", skin = "#d8a07a";
+  for (let dir = 0; dir < 4; dir++) for (let f = 0; f < 3; f++) {
+    const X = (dir * 3 + f) * 16, leg = f === 0 ? 0 : f === 1 ? 1 : -1;
+    px(g, X + 4, 16, 8, 2, "rgba(0,0,0,0.35)");
+    // legs
+    px(g, X + 5 + (dir >= 2 ? leg : 0), 12 + (dir < 2 && leg > 0 ? -1 : 0), 2, 4, thief ? "#121018" : "#1e2a4a"); px(g, X + 9 - (dir >= 2 ? leg : 0), 12 + (dir < 2 && leg < 0 ? -1 : 0), 2, 4, thief ? "#121018" : "#1e2a4a");
+    // body
+    const body = thief ? col : "#2e4478";
+    px(g, X + 4, 6, 8, 7, body); px(g, X + 4, 6, 8, 1, shade(body, 1.4));
+    if (!thief) { px(g, X + 4, 11, 8, 1, "#141a2a"); if (dir === 0) px(g, X + 9, 7, 1, 1, "#e0c050"); }
+    if (thief && dir !== 0) px(g, dir === 1 ? X + 5 : dir === 2 ? X + 10 : X + 2, 7, 4, 5, "#7a5a34");   // the sack
+    // arms
+    px(g, X + 3, 7 + (leg > 0 ? 1 : 0), 1, 5, shade(body, 0.8)); px(g, X + 12, 7 + (leg < 0 ? 1 : 0), 1, 5, shade(body, 0.8));
+    if (!thief && dir !== 1) { const hx = dir === 2 ? X + 2 : dir === 3 ? X + 13 : X + 12; px(g, hx, 10, 2, 2, "#c8c8c8"); px(g, hx, 10, 1, 1, "#fff8c0"); }
+    // head
+    px(g, X + 5, 1, 6, 6, thief ? "#26242e" : skin);
+    if (thief) { if (dir === 0) { px(g, X + 6, 3, 4, 1, "#e8e8f0"); px(g, X + 6, 3, 1, 1, "#141018"); px(g, X + 9, 3, 1, 1, "#141018"); } else if (dir === 2) px(g, X + 5, 3, 2, 1, "#e8e8f0"); else if (dir === 3) px(g, X + 9, 3, 2, 1, "#e8e8f0"); }
+    else { px(g, X + 4, 0, 8, 2, "#1a2648"); if (dir === 0) { px(g, X + 4, 2, 8, 1, "#141a30"); px(g, X + 6, 4, 1, 1, "#2a1a10"); px(g, X + 9, 4, 1, 1, "#2a1a10"); } else if (dir === 2) px(g, X + 3, 2, 3, 1, "#141a30"); else if (dir === 3) px(g, X + 10, 2, 3, 1, "#141a30"); }
+  }
+  return (PEOPLE[kind] = c);
+}
+const dirOf = a => { const c = Math.cos(a), s = Math.sin(a); return Math.abs(c) > Math.abs(s) ? (c > 0 ? 3 : 2) : (s > 0 ? 0 : 1); };
+function drawPerson(g, kind, x, y, a, moving, t, cx, cy, flash) {
+  const f = moving ? 1 + (((t * 8) | 0) & 1) : 0, d = dirOf(a);
+  if (flash && ((G.frame >> 2) & 1)) return;
+  g.drawImage(person(kind), (d * 3 + f) * 16, 0, 16, 18, Math.round(x - cx - 8), Math.round(y - cy - 15), 16, 18);
 }
 
-function guardAngle(dir){
-  if(dir==='east')  return 0;
-  if(dir==='south') return Math.PI/2;
-  if(dir==='west')  return Math.PI;
-  if(dir==='north') return -Math.PI/2;
-  return 0;
+// ---------------------------------------------------------------- the heist's state
+let dirtyLight = false;                            // (the light's worked out again once a frame at most)
+let L = null, PL = [], GU = [], SMOKE = [], RINGS = [], PROJ = [], INV = null, camX = 0, camY = 0;
+const ALARM = { on: false, t: 0, quiet: 0, reinf: false };
+const STATS = { seen: false, alarm: false, t: 0, loot: 0 };
+function smokeAt(tx, ty) { for (const s of SMOKE) { const dx = (tx + 0.5) * TS - s.x, dy = (ty + 0.5) * TS - s.y; if (dx * dx + dy * dy < s.r * s.r) return true; } return false; }
+const tileOf = (x, y) => [Math.floor(x / TS), Math.floor(y / TS)];
+const passG = c => { const t = L.t[c]; return t !== WALL && t !== TABLE && t !== SHELF; };
+function pathTo(sx, sy, tx, ty) {                    // tiles to walk (a guard's way round, doors opened as it goes)
+  const W = L.W, from = sy * W + sx, to = ty * W + tx; if (from === to) return [];
+  const d = bfs(L.t, W, L.Hh, to, passG); if (d[from] < 0) return [];
+  const out = []; let c = from;
+  while (c !== to && out.length < 400) { const x = c % W, y = (c / W) | 0; let best = -1;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const n = (y + dy) * W + x + dx; if (d[n] >= 0 && d[n] < d[c] && (best < 0 || d[n] < d[best])) best = n; }
+    if (best < 0) break; out.push(best); c = best; }
+  return out;
+}
+function noise(x, y, r, who) {                        // a sound r tiles round (through a wall, half as far): guards come to look
+  if (r < 0.6) return;
+  RINGS.push({ x, y, r: r * TS, t: 0 });
+  const [tx, ty] = tileOf(x, y);
+  for (const g of GU) {
+    const [gx, gy] = tileOf(g.x, g.y), d = Math.hypot(gx - tx, gy - ty), reach = sightClear(L, gx, gy, tx, ty) ? r : r * 0.5;
+    if (d > reach || g.state === "alert") continue;
+    g.sus = Math.min(0.9, g.sus + 0.25); setState(g, "check"); g.target = { x, y }; g.path = null; g.icon = "?"; g.iconT = 1.5;
+  }
+}
+function setState(g, s) { if (g.state !== s) { g.state = s; g.t = 0; } }
+
+// ---------------------------------------------------------------- a heist starting
+function startHeist(hi, players) {
+  L = layout(hi); paintLevel(L); SMOKE = []; RINGS = []; PROJ = []; relight(L); dirtyLight = false;
+  INV = { picks: L.picks, smoke: L.gadgets.smoke * Math.max(1, players.length), noise: L.gadgets.noise * Math.max(1, players.length), jam: L.gadgets.jam };
+  const [ex, ey] = L.exit;
+  PL = players.map((p, k) => ({ n: k, pad: p.pad, bot: !!p.bot, ctl: p.bot ? null : ctlOf(p.pad), kind: k ? "t2" : "t1", x: (ex + (k ? 1 : 0)) * TS + 8 - (k ? 0 : 0), y: (ey - 1) * TS + 8 - k * 4,
+    a: -Math.PI / 2, moving: false, pace: "walk", stepT: 0, caught: false, hold: null, sel: "smoke", prize: false, msg: "", msgT: 0, freeT: 0, vis: 0, path: null }));
+  GU = L.guards.map((q, k) => newGuard(q.route[0][0] * TS + 8, q.route[0][1] * TS + 8, q.route, k));
+  Object.assign(ALARM, { on: false, t: 0, quiet: 0, reinf: false }); Object.assign(STATS, { seen: false, alarm: false, t: 0, loot: 0 });
+  camX = clamp(PL[0].x - VW / 2, 0, Math.max(0, L.W * TS - VW)); camY = clamp(PL[0].y - VH / 2, 0, Math.max(0, L.Hh * TS - VH));
+  synth.song(Object.assign({}, L.B.music, { calm: true }));
+  banner(HEISTS[hi].name, 2.5);
+  G.gov.hold(1200);
+}
+function newGuard(x, y, route, id) {
+  return { id, x, y, a: Math.PI / 2, route, ri: 0, state: "patrol", t: 0, path: null, target: null, sus: 0, lost: 0, wait: 1 + rnd(), moving: false, icon: "", iconT: 0, rep: 0, last: null, look: rnd() * TAU, poly: null, pk: "" };
 }
 
-// ─── Guard AI ─────────────────────────────────────────────────────────────
-const GUARD_SPEED_MS = 400; // ms per tile
-const GUARD_FOV = Math.PI/3; // 60 degrees
-const GUARD_RANGE = 6;
-
-function startGuardMove(g, dtx, dty){
-  if(g.moving) return;
-  if(isWall(dtx,dty)) return;
-  g.tx=dtx; g.ty=dty;
-  g.fromPx=g.px; g.fromPy=g.py;
-  g.toPx=(dtx+0.5)*TILE; g.toPy=(dty+0.5)*TILE;
-  g.moveTimer=0; g.moveDuration=GUARD_SPEED_MS;
-  g.moving=true;
+// ---------------------------------------------------------------- the thieves
+const SPEED = { sneak: 30, walk: 54, run: 92 };
+function movePlayer(p, mx, my, dt) {
+  const sp = SPEED[p.pace]; let dx = mx * sp * dt, dy = my * sp * dt;
+  // two thieves stay on one screen: neither walks off the other's
+  const o = PL.find(q => q !== p && !q.caught);
+  if (o) { if (Math.abs(p.x + dx - o.x) > VW - 40 && Math.abs(p.x + dx - o.x) > Math.abs(p.x - o.x)) dx = 0; if (Math.abs(p.y + dy - o.y) > VH - 40 && Math.abs(p.y + dy - o.y) > Math.abs(p.y - o.y)) dy = 0; }
+  const R = 5, hits = (x, y) => { for (const [ox, oy] of [[-R, -3], [R, -3], [-R, 4], [R, 4]]) { const [tx, ty] = tileOf(x + ox, y + oy), c = ty * L.W + tx; if (solid(L.t[c])) return c; } return -1; };
+  // blocked one way, a corner slides it round: nudged towards the middle of its tile across the way it's going
+  const cxT = Math.floor(p.x / TS) * TS + 8, cyT = Math.floor(p.y / TS) * TS + 8;
+  let h = hits(p.x + dx, p.y);
+  if (h < 0) p.x += dx; else { bump(p, h); if (dx && Math.abs(dy) < Math.abs(dx) && hits(p.x + dx, cyT) < 0) p.y += clamp(cyT - p.y, -Math.abs(dx), Math.abs(dx)); }
+  h = hits(p.x, p.y + dy);
+  if (h < 0) p.y += dy; else { bump(p, h); if (dy && Math.abs(dx) < Math.abs(dy) && hits(cxT, p.y + dy) < 0) p.x += clamp(cxT - p.x, -Math.abs(dy), Math.abs(dy)); }
+  return Math.hypot(dx, dy);
 }
-
-function updateGuard(g, dt){
-  // Animate movement
-  if(g.moving){
-    g.moveTimer+=dt*1000;
-    const t=Math.min(g.moveTimer/g.moveDuration,1);
-    g.px=g.fromPx+(g.toPx-g.fromPx)*t;
-    g.py=g.fromPy+(g.toPy-g.fromPy)*t;
-    if(t>=1){
-      g.px=g.toPx; g.py=g.toPy;
-      g.moving=false;
+function bump(p, c) {                                // walking into a closed door opens it (a locked one needs picking)
+  if (L.t[c] === DOOR) { L.t[c] = OPEN; retile(L, c % L.W, (c / L.W) | 0); dirtyLight = true; noise(p.x, p.y, 1.5 * floorK(p)); play("door", p.x); }
+  else if (L.t[c] === LOCK && !p.lockMsg) { say(p, INV.picks ? "HOLD " + G.label("a") + " TO PICK THE LOCK" : "LOCKED: NO PICKS LEFT", 1.5); p.lockMsg = 1; }
+}
+const floorK = p => { const [tx, ty] = tileOf(p.x, p.y); return FLOORS[L.fl[ty * L.W + tx]].k; };
+function say(p, m, t) { p.msg = m; p.msgT = t || 2; }
+function interactables(p) {                          // what's in reach: the tile it's on, the one it faces, those round it
+  const [tx, ty] = tileOf(p.x, p.y), d = dirOf(p.a), f = [[0, 1], [0, -1], [-1, 0], [1, 0]][d];
+  const cells = [[tx, ty], [tx + f[0], ty + f[1]], [tx + 1, ty], [tx - 1, ty], [tx, ty + 1], [tx, ty - 1]];
+  const out = [];
+  for (const q of PL) if (q !== p && q.caught && Math.hypot(q.x - p.x, q.y - p.y) < 18) out.push({ k: "free", q });
+  if (L.prize && !L.prize.taken && cells.some(([x, y]) => x === L.prize.x && y === L.prize.y)) out.push({ k: "prize" });
+  for (const lo of L.loot) if (!lo.taken && cells.some(([x, y]) => x === lo.x && y === lo.y)) out.push({ k: "loot", lo });
+  // the door faced comes before a switch beside it (a switch is always by a door)
+  { const c = cells[1][1] * L.W + cells[1][0], t = L.t[c]; if (t === DOOR || t === OPEN || t === LOCK) out.push({ k: "door", c, t }); }
+  for (const s of L.switches) if (cells.slice(0, 2).some(([x, y]) => x === s.x && y === s.y)) out.push({ k: "switch", s });
+  for (const [x, y] of cells.slice(2)) { const c = y * L.W + x, t = L.t[c]; if (t === DOOR || t === OPEN || t === LOCK) out.push({ k: "door", c, t }); }
+  return out;
+}
+function interact(p, held, pressed, dt) {
+  if (p.hold) {
+    if (!held) { p.hold = null; return; }
+    p.hold.t += dt; p.hold.n = (p.hold.n || 0) + dt;
+    if (p.hold.what === "pick" && p.hold.n > 0.5) { p.hold.n = 0; noise(p.x, p.y, 1.2); play("pick", p.x); }
+    if (p.hold.t >= p.hold.need) {
+      const h = p.hold; p.hold = null;
+      if (h.what === "pick") { if (INV.picks > 0) { INV.picks--; L.t[h.c] = OPEN; retile(L, h.c % L.W, (h.c / L.W) | 0); dirtyLight = true; play("unlock", p.x); say(p, "UNLOCKED · " + INV.picks + " PICKS LEFT", 1.6); } }
+      else if (h.what === "free") { h.q.caught = false; h.q.flash = 1.5; play("free", p.x); say(h.q, "FREE!", 1.2); }
     }
     return;
   }
-
-  if(g.state==='ko'){
-    g.koTimer-=dt;
-    if(g.koTimer<=0){
-      g.state='patrol';
-    }
-    return;
-  }
-
-  // Check vision
-  const ppx=player.px, ppy=player.py;
-  const angle=guardAngle(g.dir);
-  const canSee = !player.crouching &&
-    inCone(g.px,g.py,angle,GUARD_FOV,GUARD_RANGE,ppx,ppy) &&
-    hasLOS(g.px,g.py,ppx,ppy);
-
-  if(g.state==='patrol'){
-    if(canSee){
-      g.state='alert';
-      g.alertTimer=1.0;
-      g.lastPlayerTx=player.tx;
-      g.lastPlayerTy=player.ty;
-      sfxAlert();
-      spotted=true;
-      alarmActive=true;
-      alarmTimer=5.0;
-      player.flashTimer=0.3;
-    } else {
-      // Follow patrol route
-      const target=g.route[g.routeIdx];
-      const targetPx=(target[0]+0.5)*TILE, targetPy=(target[1]+0.5)*TILE;
-      if(Math.abs(g.px-targetPx)<2&&Math.abs(g.py-targetPy)<2){
-        g.routeIdx=(g.routeIdx+1)%g.route.length;
-      } else {
-        const dx=targetPx-g.px, dy=targetPy-g.py;
-        if(Math.abs(dx)>=Math.abs(dy)){
-          const ndx=dx>0?1:-1;
-          const ntx=g.tx+ndx;
-          g.dir=dx>0?'east':'west';
-          startGuardMove(g,ntx,g.ty);
-        } else {
-          const ndy=dy>0?1:-1;
-          const nty=g.ty+ndy;
-          g.dir=dy>0?'south':'north';
-          startGuardMove(g,g.tx,nty);
-        }
-      }
-    }
-  } else if(g.state==='alert'){
-    g.alertTimer-=dt;
-    g.lastPlayerTx=player.tx;
-    g.lastPlayerTy=player.ty;
-    if(g.alertTimer<=0){
-      g.state='chase';
-      g.chaseCooldown=0;
-    }
-  } else if(g.state==='chase'){
-    if(canSee){
-      g.lastPlayerTx=player.tx;
-      g.lastPlayerTy=player.ty;
-    }
-    // Simple chase: move toward last known position
-    const targetPx=(g.lastPlayerTx+0.5)*TILE;
-    const targetPy=(g.lastPlayerTy+0.5)*TILE;
-    const dx=targetPx-g.px, dy=targetPy-g.py;
-    const dist=Math.sqrt(dx*dx+dy*dy);
-    if(dist<TILE*0.6){
-      // Reached last known pos
-      if(!canSee){
-        g.chaseCooldown+=dt;
-        if(g.chaseCooldown>3){
-          g.state='patrol';
-          g.chaseCooldown=0;
-          alarmTimer=Math.max(alarmTimer-3,0);
-        }
-      }
-    } else {
-      g.chaseCooldown=0;
-      if(Math.abs(dx)>=Math.abs(dy)){
-        const ndx2=dx>0?1:-1;
-        const ntx2=g.tx+ndx2;
-        g.dir=dx>0?'east':'west';
-        if(!isWall(ntx2,g.ty)) startGuardMove(g,ntx2,g.ty);
-        else {
-          // try vertical
-          const ndy2=dy>0?1:-1;
-          g.dir=dy>0?'south':'north';
-          if(!isWall(g.tx,g.ty+(dy>0?1:-1))) startGuardMove(g,g.tx,g.ty+(dy>0?1:-1));
-        }
-      } else {
-        const ndy3=dy>0?1:-1;
-        const nty3=g.ty+ndy3;
-        g.dir=dy>0?'south':'north';
-        if(!isWall(g.tx,nty3)) startGuardMove(g,g.tx,nty3);
-        else {
-          const ndx3=dx>0?1:-1;
-          g.dir=dx>0?'east':'west';
-          if(!isWall(g.tx+(dx>0?1:-1),g.ty)) startGuardMove(g,g.tx+(dx>0?1:-1),g.ty);
-        }
-      }
-    }
-    // Check if caught
-    const cdx=g.px-player.px, cdy=g.py-player.py;
-    if(Math.sqrt(cdx*cdx+cdy*cdy)<TILE*0.75){
-      onCaught();
-    }
+  if (!pressed) return;
+  const it = interactables(p)[0]; if (!it) return;
+  if (it.k === "free") p.hold = { what: "free", q: it.q, t: 0, need: 1 };
+  else if (it.k === "prize") { L.prize.taken = true; L.prize.by = p.n; p.prize = true; play("prize", p.x); banner("GOT THE " + L.prize.name + "! GET OUT", 3); }
+  else if (it.k === "loot") { it.lo.taken = true; STATS.loot += it.lo.val; play("loot", p.x); say(p, it.lo.name + " +" + it.lo.val, 1.4); }
+  else if (it.k === "switch") { const R = L.rooms[it.s.room], on = !R.lamps.some(l => l.on); for (const lp of R.lamps) lp.on = on; dirtyLight = true; decor(L); play("click", p.x); noise(p.x, p.y, 1); R.offBy = on ? 0 : 1; }
+  else if (it.k === "door") {
+    const x = it.c % L.W, y = (it.c / L.W) | 0;
+    if (it.t === LOCK) { if (!INV.picks) { say(p, "NO PICKS LEFT", 1.5); play("no"); } else p.hold = { what: "pick", c: it.c, t: 0, need: 1.6 }; }
+    else if (it.t === DOOR) { L.t[it.c] = OPEN; retile(L, x, y); dirtyLight = true; play("door", p.x); noise(p.x, p.y, 1.2 * floorK(p)); }
+    else if (!PL.some(q => tileOf(q.x, q.y).join() === [x, y].join()) && !GU.some(g => tileOf(g.x, g.y).join() === [x, y].join())) { L.t[it.c] = DOOR; retile(L, x, y); dirtyLight = true; play("door", p.x); }
   }
 }
-
-// ─── Camera update ─────────────────────────────────────────────────────────
-const CAM_SWEEP_SPEED = 0.6; // rad/sec
-const CAM_FOV = Math.PI/2;   // 90 degrees
-const CAM_RANGE = 5;
-
-function updateCamera(cam, dt){
-  if(cam.disabled){
-    cam.disableTimer-=dt;
-    if(cam.disableTimer<=0) cam.disabled=false;
-    return;
+const GADGETS = ["smoke", "noise", "jam"], GNAME = { smoke: "SMOKE", noise: "NOISE-MAKER", jam: "JAMMER" };
+function useGadget(p) {
+  const k = p.sel; if (!INV[k]) { say(p, "NO " + GNAME[k] + " LEFT", 1.2); play("no"); return; }
+  INV[k]--;
+  if (k === "smoke") { SMOKE.push({ x: p.x, y: p.y, r: 2.6 * TS, t: 8, full: 8 }); dirtyLight = true; play("smoke", p.x); for (const g of GU) if (Math.hypot(g.x - p.x, g.y - p.y) < 2.6 * TS) { g.sus = 0; g.dazed = 2.5; } }
+  else if (k === "noise") {
+    let x = p.x, y = p.y; const fx = Math.cos(p.a), fy = Math.sin(p.a);
+    for (let s = 0; s < 5 * TS; s += 4) { const nx = x + fx * 4, ny = y + fy * 4, [tx, ty] = tileOf(nx, ny); if (solid(L.t[ty * L.W + tx])) break; x = nx; y = ny; }
+    PROJ.push({ x0: p.x, y0: p.y, x, y, t: 0 }); play("throw", p.x);
+  } else { let n = 0; for (const c of L.cams) if (Math.hypot(c.x * TS + 8 - p.x, c.y * TS + 8 - p.y) < 8 * TS) { c.jam = 12; n++; } play("jam", p.x); say(p, n ? n + " CAMERA" + (n > 1 ? "S" : "") + " JAMMED" : "NO CAMERA IN RANGE", 1.4); }
+}
+function stepPlayer(p, dt) {
+  if (p.msgT > 0) p.msgT -= dt; if (p.flash > 0) p.flash -= dt;
+  if (p.caught) { p.moving = false; return; }
+  let mx = 0, my = 0, held = false, pressed = false, sneak = false, run = false;
+  if (p.bot) { const b = botThief(p); mx = b.mx; my = b.my; held = b.a; pressed = b.a; sneak = true; }
+  else {
+    const c = p.ctl; mx = c.x(); my = c.y();
+    const m = Math.hypot(mx, my); if (m > 1) { mx /= m; my /= m; }
+    held = c.held("a"); pressed = c.take("a", 150); sneak = c.held("b") || c.held("lt"); run = c.held("rt") || c.held("rb");
+    if (c.take("x", 150)) useGadget(p);
+    if (c.take("lb", 200) || c.take("y", 200)) { p.sel = GADGETS[(GADGETS.indexOf(p.sel) + 2) % 3]; play("move"); }
+    if (c.take("rb", 200) && !run) { p.sel = GADGETS[(GADGETS.indexOf(p.sel) + 1) % 3]; play("move"); }
+    if (m > 0.2 && m < 0.6) sneak = true;
   }
-  cam.sweep+=CAM_SWEEP_SPEED*cam.sweepDir*dt;
-  if(cam.sweep>Math.PI/4){cam.sweep=Math.PI/4;cam.sweepDir=-1;}
-  if(cam.sweep<-Math.PI/4){cam.sweep=-Math.PI/4;cam.sweepDir=1;}
-  cam.angle=cam.baseAngle+cam.sweep;
+  p.pace = sneak ? "sneak" : run ? "run" : "walk";
+  if (p.hold) { mx = 0; my = 0; }
+  const moved = (mx || my) ? movePlayer(p, mx, my, dt) : 0;
+  p.moving = moved > 0.01; if (mx || my) p.a = Math.atan2(my, mx);
+  if (p.moving) { p.stepT += moved; if (p.stepT > 14) { p.stepT = 0; const r = floorK(p) * (p.pace === "sneak" ? 0.6 : p.pace === "run" ? 5 : 2.1); noise(p.x, p.y, r, p); if (r > 1.6) play("step", p.x, Math.min(1, r / 6)); } }
+  if (p.lockMsg && !(mx || my)) p.lockMsg = 0;
+  interact(p, held, pressed, dt);
+  const [tx, ty] = tileOf(p.x, p.y);
+  if (p.prize && tx === L.exit[0] && ty === L.exit[1]) escaped();      // out the way in, with the prize
+  p.vis = visibility(p, null);
+}
+// how easily the thief is seen: the light where they stand (a torch on them counts), and how they move
+function visibility(p, g) {
+  let v = lightAt(L, p.x, p.y);
+  for (const q of GU) { const dx = p.x - q.x, dy = p.y - q.y, d = Math.hypot(dx, dy) / TS; if (d < 4.5 && Math.abs(U.wrap(Math.atan2(dy, dx) - q.a)) < 0.5 && sightClear(L, ...tileOf(q.x, q.y), ...tileOf(p.x, p.y))) v = Math.max(v, 0.9 - d / 4.5 * 0.45); }
+  if (p.pace === "sneak") v *= 0.7; else if (p.pace === "run") v = Math.min(1, v * 1.3 + 0.1); else if (p.moving) v = Math.min(1, v * 1.1);
+  return v;
+}
 
-  const cpx=(cam.tx+0.5)*TILE, cpy=(cam.ty+0.5)*TILE;
-  const ppx=player.px, ppy=player.py;
-  const canSee = !player.crouching &&
-    inCone(cpx,cpy,cam.angle,CAM_FOV,CAM_RANGE,ppx,ppy) &&
-    hasLOS(cpx,cpy,ppx,ppy);
+// ---------------------------------------------------------------- the guards: rounds, a look at a noise, a search, the
+// chase and the radio; a lamp found off is put back on
+function stepGuard(g, dt) {
+  if (g.iconT > 0) g.iconT -= dt; if (g.dazed > 0) { g.dazed -= dt; g.a += dt * 3; g.moving = false; return; }
+  g.t += dt;
+  // what it sees
+  let saw = null;
+  for (const p of PL) {
+    if (p.caught) continue;
+    const dx = p.x - g.x, dy = p.y - g.y, d = Math.hypot(dx, dy); if (d > 10 * TS) continue;
+    const ang = Math.abs(U.wrap(Math.atan2(dy, dx) - g.a)), close = d < 1.3 * TS;
+    if (ang > 0.62 && !close) continue;
+    if (!sightClear(L, ...tileOf(g.x, g.y), ...tileOf(p.x, p.y))) continue;
+    const v = p.vis, range = (1.6 + v * 6.4) * TS;
+    if (d > range && !close) continue;
+    const s = close ? 1 : 1 - d / range * 0.6;
+    g.sus += dt * s * (1 + v * 2.6) * (g.state === "alert" ? 3 : 1);
+    saw = p;
+  }
+  if (!saw && g.state !== "alert") g.sus = Math.max(0, g.sus - dt * 0.2);
+  if (saw) { g.last = { x: saw.x, y: saw.y }; g.lost = 0;
+    if (g.sus >= 1 && g.state !== "alert") alert(g, saw.x, saw.y, true);
+    else if (g.sus > 0.35 && (g.state === "patrol" || g.state === "return" || g.state === "search")) { setState(g, "check"); g.target = { x: saw.x, y: saw.y }; g.path = null; g.icon = "?"; g.iconT = 1.5; play("huh", g.x); } }
+  const S = g.state;
+  if (S === "patrol") {
+    const R = L.rooms[L.room[tileOf(g.x, g.y)[1] * L.W + tileOf(g.x, g.y)[0]]];
+    if (R && R.lamps.length && R.offBy && !R.lamps.some(l => l.on) && R.sw) { setState(g, "relight"); g.target = { x: R.sw.x * TS + 8, y: R.sw.y * TS + 8 }; g.path = null; g.icon = "?"; g.iconT = 1.2; }
+    else if (g.wait > 0) { g.wait -= dt; g.moving = false; g.a = g.look + Math.sin(g.t * 1.4) * 0.9; }
+    else { const w = g.route[g.ri]; if (walk(g, w[0] * TS + 8, w[1] * TS + 8, 34, dt)) { g.ri = (g.ri + 1) % g.route.length; g.wait = 1.2 + rnd() * 1.5; g.look = g.a; } }
+  } else if (S === "check") {
+    if (walk(g, g.target.x, g.target.y, 44, dt)) { setState(g, "search"); g.spots = 3; g.target = null; }
+  } else if (S === "relight") {
+    if (walk(g, g.target.x, g.target.y, 40, dt)) { const R = L.rooms[L.switches.find(s => s.x * TS + 8 === g.target.x && s.y * TS + 8 === g.target.y).room]; for (const lp of R.lamps) lp.on = true; R.offBy = 0; dirtyLight = true; decor(L); play("click", g.x); setState(g, "return"); }
+  } else if (S === "search") {
+    if (!g.target) { if (g.spots-- <= 0 || g.t > 12) { setState(g, "return"); g.path = null; } else { g.target = randomNear(g.x, g.y, 4); g.path = null; g.pause = 1.2; } }
+    else if (g.pause > 0 && g.moving === false && g.arrived) { g.pause -= dt; g.a += dt * 2.2; if (g.pause <= 0) { g.target = null; g.arrived = false; } }
+    else if (walk(g, g.target.x, g.target.y, 40, dt)) { g.arrived = true; }
+  } else if (S === "return") {
+    let best = 0, bd = 1e9; g.route.forEach((w, i) => { const d = Math.hypot(w[0] * TS + 8 - g.x, w[1] * TS + 8 - g.y); if (d < bd) { bd = d; best = i; } });
+    g.ri = best; setState(g, "patrol"); g.path = null; g.wait = 0.5;
+  } else if (S === "alert") {
+    if (!saw) g.lost += dt;
+    if (saw && (g.rep -= dt) <= 0) { g.rep = 0.4; g.path = null; g.target = { x: saw.x, y: saw.y }; }
+    if (g.lost > 4.5) { setState(g, "search"); g.spots = 4; g.target = null; g.sus = 0.6; }
+    else if (g.target && walk(g, g.target.x, g.target.y, 74, dt) && !saw) { g.target = randomNear(g.x, g.y, 3); g.path = null; }
+    for (const p of PL) if (!p.caught && Math.hypot(p.x - g.x, p.y - g.y) < 11) catchThief(p, g);
+  }
+}
+function walk(g, tx, ty, sp, dt) {                   // along a path of tiles to a point; true on arrival
+  const [gx, gy] = tileOf(g.x, g.y), [ttx, tty] = tileOf(tx, ty);
+  if (!g.path || g.pathTo !== ttx + "," + tty) { g.path = pathTo(gx, gy, ttx, tty); g.pathTo = ttx + "," + tty; g.pi = 0; }
+  let nx = tx, ny = ty;
+  if (g.pi < g.path.length) { const c = g.path[g.pi]; nx = (c % L.W) * TS + 8; ny = ((c / L.W) | 0) * TS + 8;
+    if (L.t[c] === DOOR || L.t[c] === LOCK) { L.t[c] = OPEN; retile(L, c % L.W, (c / L.W) | 0); dirtyLight = true; if (inView(nx, ny)) play("door", nx); } }
+  const dx = nx - g.x, dy = ny - g.y, d = Math.hypot(dx, dy);
+  if (d < 1.5) { if (g.pi < g.path.length) { g.pi++; return false; } g.moving = false; return true; }
+  const st = Math.min(d, sp * dt); g.x += dx / d * st; g.y += dy / d * st; g.moving = true;
+  g.a += U.wrap(Math.atan2(dy, dx) - g.a) * Math.min(1, dt * 10);
+  return false;
+}
+function randomNear(x, y, r) {
+  const [tx, ty] = tileOf(x, y);
+  for (let k = 0; k < 30; k++) { const nx = tx + Math.round((rnd() - 0.5) * 2 * r), ny = ty + Math.round((rnd() - 0.5) * 2 * r); if (nx > 0 && ny > 0 && nx < L.W && ny < L.Hh && L.t[ny * L.W + nx] === FLOOR) return { x: nx * TS + 8, y: ny * TS + 8 }; }
+  return { x, y };
+}
+function alert(g, x, y, sight) {
+  setState(g, "alert"); g.sus = 1; g.target = { x, y }; g.path = null; g.lost = 0; g.icon = "!"; g.iconT = 2;
+  if (sight) { STATS.seen = true; play("spot", g.x); }
+  if (!g.radioed) { g.radioed = true; setTimeout(() => radio(g, x, y, 18), 600); }
+}
+function radio(from, x, y, reach) {                   // the radio: the others come, the alarm's up
+  if (!L || mode !== "play") return;
+  play("radio"); ALARM.on = true; ALARM.quiet = 0; STATS.alarm = true;
+  for (const g of GU) if (g !== from && g.state !== "alert" && Math.hypot(g.x - x, g.y - y) < reach * TS) { setState(g, "alert"); g.target = { x, y }; g.path = null; g.lost = 0; g.icon = "!"; g.iconT = 1.5; g.sus = 0.95; }
+  banner("ALARM!", 1.6);
+}
+function catchThief(p, g) {
+  p.caught = true; p.hold = null; play("caught", p.x); say(p, "CAUGHT!", 3); g.lost = 9;
+  if (p.prize) { p.prize = false; L.prize.taken = false; L.prize.x = tileOf(p.x, p.y)[0]; L.prize.y = tileOf(p.x, p.y)[1]; }
+  if (PL.every(q => q.caught)) { mode = "caught"; modeT = 0; synth.stopSong(); G.gov.hold(800); menu.show("caught"); }
+}
+// cameras: a sweep, a red eye; one that watches a thief long enough raises the alarm. A jammer blinds them a while.
+function stepCam(c, dt) {
+  if (c.jam > 0) { c.jam -= dt; return; }
+  c.t += dt; c.a = c.face + Math.sin(c.t * 0.55) * c.sweep;
+  const cx = c.x * TS + 8, cy = c.y * TS + 8; let saw = false;
+  for (const p of PL) {
+    if (p.caught) continue;
+    const dx = p.x - cx, dy = p.y - cy, d = Math.hypot(dx, dy); if (d > 7 * TS) continue;
+    if (Math.abs(U.wrap(Math.atan2(dy, dx) - c.a)) > 0.42) continue;
+    if (!sightClear(L, c.x, c.y, ...tileOf(p.x, p.y))) continue;
+    const v = p.vis; if (d > (1.5 + v * 5.5) * TS) continue;
+    saw = true; c.see += dt * (0.8 + v);
+    if (c.see >= 1) { c.see = 0.4; STATS.seen = true; play("camera", cx); radio(null, p.x, p.y, 40); for (const g of GU) if (g.state !== "alert") { setState(g, "alert"); g.target = { x: p.x, y: p.y }; g.path = null; g.lost = 0; } }
+  }
+  if (!saw) c.see = Math.max(0, c.see - dt * 0.5);
+}
+function escaped() {
+  if (mode !== "play") return;
+  mode = "done"; modeT = 0; synth.stopSong(); play("win");
+  const total = L.loot.reduce((a, l) => a + l.val, 0), share = total ? STATS.loot / total : 1;
+  const stars = 1 + (share >= 0.5 ? 1 : 0) + (!STATS.alarm ? 1 : 0);
+  const res = { stars, time: STATS.t, loot: STATS.loot, total, ghost: !STATS.seen, silent: !STATS.alarm, clean: share >= 1 };
+  RESULT = res;
+  if (!DEMO && !PL.some(p => p.bot)) {                 // (a bot's heist is the demo's: nothing kept)
+    const b = SAVE.best[L.hi] || (SAVE.best[L.hi] = {}), first = !b.stars;
+    b.stars = Math.max(b.stars || 0, stars); b.loot = Math.max(b.loot || 0, STATS.loot); if (!b.time || STATS.t < b.time) b.time = Math.round(STATS.t);
+    if (res.ghost) b.ghost = 1; if (res.silent) b.silent = 1; if (res.clean) b.clean = 1;
+    SAVE.reached = Math.max(SAVE.reached, L.hi + 1); SAVE.heists++; if (first) res.first = true; store.save();
+  }
+  G.gov.hold(800);
+}
+let RESULT = null;
 
-  if(canSee){
-    cam.alertTimer+=dt;
-    sfxCamera();
-    if(cam.alertTimer>=1.0){
-      spotted=true;
-      alarmActive=true;
-      alarmTimer=5.0;
-      player.flashTimer=0.3;
-      sfxAlert();
-      for(const g of guards) if(g.state==='patrol'){ g.state='chase'; g.lastPlayerTx=player.tx; g.lastPlayerTy=player.ty; }
+// ---------------------------------------------------------------- what's kept on the box
+const store = new L2.Store("shadow-heist", () => ({ v: 2, best: {}, reached: 0, heists: 0, opts: { music: 6, sound: 8, rumble: 1, shake: 2, fx: "auto", pace: "auto" } }));
+const SAVE = store.data;
+
+// ---------------------------------------------------------------- the engine
+const KEYS = { z: "a", Z: "a", x: "x", X: "x", c: "b", C: "b", Shift: "rt", q: "lb", Q: "lb", e: "rb", E: "rb", p: "start", P: "start" };
+const G = L2.game({ id: "shadow-heist", canvas: document.getElementById("c"), keys: KEYS, keyNames: { a: "Z", x: "X", b: "C", rt: "SHIFT", lb: "Q", rb: "E", start: "P" },
+  on: onButton, update, draw, hud, ready, tier: () => {}, hidden: () => { if (mode === "play") pause(); }, joined: () => {}, left: () => {} });
+const synth = G.synth, DEMO = G.demo;
+const CTL = {}, ctlOf = n => CTL[n] || (CTL[n] = G.control(n));
+let mode = "boot", modeT = 0;                       // boot title select play pause caught done
+const inView = (x, y) => x > camX - 40 && x < camX + VW + 40 && y > camY - 40 && y < camY + VH + 40;
+function play(n, x, gain) { if (x == null) { synth.play(n); return; } if (!inView(x, camY + VH / 2) && n !== "radio") return; synth.play(n, clamp((x - camX - VW / 2) / (VW / 2), -1, 1) * 0.7, gain == null ? 1 : gain); }
+let bannerText = "", bannerT = 0;
+function banner(t, s) { bannerText = t; bannerT = s || 2; }
+function sounds() {
+  const d = (n, f) => synth.define(n, f);
+  d("step", (s, t) => s.noise(t, 0.05, 0.12, 700, 1.5));
+  d("door", (s, t) => { s.noise(t, 0.12, 0.15, 400, 1); s.note(t, 140, 0.1, "square", 0.04, null, 0.002, 700); });
+  d("pick", (s, t) => s.note(t, 2400 + Math.random() * 400, 0.03, "square", 0.03, null, 0.001, 5000));
+  d("unlock", (s, t) => { s.note(t, 1800, 0.05, "square", 0.05, null, 0.001, 5000); s.note(t + 0.08, 1200, 0.08, "square", 0.05, null, 0.001, 4000); });
+  d("click", (s, t) => s.note(t, 1500, 0.03, "square", 0.05, null, 0.001, 4000));
+  d("loot", (s, t) => [880, 1175].forEach((f, i) => s.note(t + i * 0.06, f, 0.18, "triangle", 0.08)));
+  d("prize", (s, t) => [523, 659, 784, 1047].forEach((f, i) => s.note(t + i * 0.08, f, 0.4, "triangle", 0.1)));
+  d("huh", (s, t) => { s.note(t, 330, 0.12, "triangle", 0.07); s.note(t + 0.1, 440, 0.15, "triangle", 0.07); });
+  d("spot", (s, t) => { s.note(t, 880, 0.3, "sawtooth", 0.06, null, 0.004, 3000); s.note(t + 0.05, 1320, 0.3, "sawtooth", 0.05, null, 0.004, 3000); });
+  d("radio", (s, t) => { s.noise(t, 0.3, 0.12, 2400, 2); s.note(t + 0.05, 1200, 0.08, "square", 0.04, null, 0.002, 3000); s.note(t + 0.18, 1200, 0.08, "square", 0.04, null, 0.002, 3000); });
+  d("camera", (s, t) => [1046, 1046, 1046].forEach((f, i) => s.note(t + i * 0.12, f, 0.08, "square", 0.05, null, 0.002, 3000)));
+  d("caught", (s, t) => [392, 330, 262, 196].forEach((f, i) => s.note(t + i * 0.12, f, 0.3, "square", 0.06, null, 0.004, 1800)));
+  d("free", (s, t) => [523, 784].forEach((f, i) => s.note(t + i * 0.08, f, 0.2, "triangle", 0.08)));
+  d("smoke", (s, t) => s.noise(t, 1.2, 0.3, 900, 0.4));
+  d("throw", (s, t) => s.noise(t, 0.2, 0.08, 1800, 1.5));
+  d("clank", (s, t) => { s.note(t, 900, 0.3, "square", 0.06, null, 0.001, 4000); s.note(t + 0.07, 640, 0.3, "square", 0.05, null, 0.001, 4000); s.noise(t, 0.2, 0.2, 3000, 2); });
+  d("jam", (s, t) => { s.note(t, 200, 0.4, "sawtooth", 0.05, null, 0.01, 900); s.noise(t, 0.4, 0.15, 5000, 3); });
+  d("win", (s, t) => [523, 659, 784, 1047, 1319].forEach((f, i) => s.note(t + i * 0.1, f, 0.5, "triangle", 0.1)));
+  d("move", (s, t) => s.note(t, 880, 0.04, "square", 0.04, null, 0.003, 2000));
+  d("ok", (s, t) => { s.note(t, 660, 0.08, "square", 0.05, null, 0.003, 2400); s.note(t + 0.05, 990, 0.1, "square", 0.05, null, 0.003, 2400); });
+}
+
+// ---------------------------------------------------------------- the demo's thief: loot on the way, the prize, out
+function botThief(p) {
+  const out = { mx: 0, my: 0, a: false }, [tx, ty] = tileOf(p.x, p.y), W = L.W;
+  p.bt = (p.bt || 0) + DT;
+  let goal = null;
+  if (!L.prize.taken) {                              // the nearest loot (kept to until it's taken), then the prize
+    if (!p.aim || p.aim.taken) { p.aim = null; if ((p.got || 0) < 3) { let bd = 10; for (const l of L.loot) { const d = Math.hypot(l.x - tx, l.y - ty); if (!l.taken && d < bd) { bd = d; p.aim = l; } } } }
+    goal = p.aim ? [p.aim.x, p.aim.y, "loot"] : [L.prize.x, L.prize.y, "prize"]; }
+  else goal = [L.exit[0], L.exit[1], "exit"];
+  if (goal[2] !== "exit" && Math.abs(goal[0] - tx) + Math.abs(goal[1] - ty) <= 1) { p.a = Math.atan2(goal[1] - ty, goal[0] - tx); if (goal[2] === "loot" && p.aim && !p.aim.taken && p.pressed) { p.got = (p.got || 0) + 1; p.aim.taken = p.aim.taken; } p.pressed = !p.pressed; out.a = p.pressed; return out; }
+  const key = goal.join();
+  if (!p.path || p.pathKey !== key || p.bt > 2) {
+    p.bt = 0; p.pathKey = key;
+    const d = bfs(L.t, W, L.Hh, goal[1] * W + goal[0], c => !(L.t[c] === WALL || L.t[c] === TABLE || L.t[c] === SHELF) || c === goal[1] * W + goal[0]);
+    const path = []; let c = ty * W + tx;
+    while (d[c] > 0 && path.length < 300) { const x = c % W, y = (c / W) | 0; let b = -1; for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const n = (y + dy) * W + x + dx; if (d[n] >= 0 && d[n] < d[c] && (b < 0 || d[n] < d[b])) b = n; } if (b < 0) break; path.push(b); c = b; }
+    p.path = path; p.pi = 0;
+  }
+  while (p.pi < p.path.length && p.path[p.pi] === ty * W + tx) p.pi++;
+  const n = p.path[p.pi]; if (n == null) return out;
+  const nx = (n % W) * TS + 8, ny = ((n / W) | 0) * TS + 8;
+  if (L.t[n] === LOCK) { p.a = Math.atan2(ny - p.y, nx - p.x); out.a = true; return out; }
+  // (keep to the middle of the way: across first, if it's drifted off it)
+  const cx0 = tx * TS + 8, cy0 = ty * TS + 8, horiz = Math.abs(nx - cx0) > Math.abs(ny - cy0);
+  let gx = nx, gy = ny; if (horiz && Math.abs(p.y - cy0) > 1.5) { gx = p.x; gy = cy0; } else if (!horiz && Math.abs(p.x - cx0) > 1.5) { gx = cx0; gy = p.y; }
+  const dx = gx - p.x, dy = gy - p.y, d = Math.hypot(dx, dy) || 1; out.mx = dx / d; out.my = dy / d;
+  return out;
+}
+
+// ---------------------------------------------------------------- the loop
+function update(dt) {
+  modeT += dt; if (bannerT > 0) bannerT -= dt;
+  if (mode === "select") return selectUpdate();
+  if (mode === "done") { const c = ctlOf(PL[0] && !PL[0].bot ? PL[0].pad : 0); if (modeT > 1.2 && (c.take("a", 300) || c.take("start", 300))) { if (DEMO) { demoNext(); return; } openSelect(); } if (DEMO && modeT > 4) demoNext(); return; }
+  if (mode === "caught" && DEMO && modeT > 2.5) { menu.hide(); demoNext(); return; }
+  if (mode !== "play" || !L) return;
+  STATS.t += dt;
+  for (const p of PL) stepPlayer(p, dt);
+  for (const g of GU) stepGuard(g, dt);
+  for (const c of L.cams) stepCam(c, dt);
+  if (dirtyLight) { dirtyLight = false; relight(L); }
+  for (let i = SMOKE.length - 1; i >= 0; i--) { const s = SMOKE[i]; s.t -= dt; if (s.t <= 0) { SMOKE.splice(i, 1); dirtyLight = true; } }
+  for (let i = PROJ.length - 1; i >= 0; i--) { const q = PROJ[i]; q.t += dt; if (q.t >= 0.45) { PROJ.splice(i, 1); noise(q.x, q.y, 8); play("clank", q.x); } }
+  for (let i = RINGS.length - 1; i >= 0; i--) { RINGS[i].t += dt; if (RINGS[i].t > 0.6) RINGS.splice(i, 1); }
+  // the alarm: help comes after a while; with nobody chasing for long enough, it's quiet again
+  if (ALARM.on) {
+    ALARM.t += dt;
+    if (GU.some(g => g.state === "alert" || g.state === "search")) ALARM.quiet = 0; else ALARM.quiet += dt;
+    if (ALARM.t > 20 && !ALARM.reinf) { ALARM.reinf = true; const [ex, ey] = L.exit, last = GU.find(g => g.last) || {}; for (let k = 0; k < 2; k++) { const g = newGuard((ex + k) * TS + 8, (ey - 1) * TS + 8, [[ex, ey - 2], [ex, ey - 3]], GU.length); GU.push(g); setState(g, "alert"); g.target = last.last || { x: PL[0].x, y: PL[0].y }; g.icon = "!"; g.iconT = 2; } banner("THEY'VE CALLED FOR HELP", 2.5); play("radio"); }
+    if (ALARM.quiet > 15) { ALARM.on = false; ALARM.t = 0; banner("ALL QUIET AGAIN", 2); for (const g of GU) g.radioed = false; }
+  }
+  // the camera: on the thief (between two)
+  const live = PL.filter(p => !p.caught), on = live.length ? live : PL;
+  const tx = on.reduce((a, p) => a + p.x, 0) / on.length, ty = on.reduce((a, p) => a + p.y, 0) / on.length, k = 1 - Math.exp(-6 * dt);
+  camX += (tx - VW / 2 - camX) * k; camY += (ty - VH / 2 - camY) * k;
+  camX = clamp(camX, 0, Math.max(0, L.W * TS - VW)); camY = clamp(camY, -8, Math.max(0, L.Hh * TS - VH));
+}
+
+// ---------------------------------------------------------------- drawing
+function sightPoly(x, y, a, half, range) {           // where a torch or a lens reaches, stopped by walls and smoke
+  const pts = [x, y], n = 14;
+  for (let i = 0; i < n; i++) {
+    const ang = a - half + (2 * half) * i / (n - 1), fx = Math.cos(ang) * 5, fy = Math.sin(ang) * 5;
+    let px2 = x, py2 = y;
+    for (let s = 0; s < range; s += 5) { const nx = px2 + fx, ny = py2 + fy, [tx, ty] = tileOf(nx, ny); if (tx < 0 || ty < 0 || tx >= L.W || ty >= L.Hh || opaque(L.t[ty * L.W + tx]) || smokeAt(tx, ty)) break; px2 = nx; py2 = ny; }
+    pts.push(px2, py2);
+  }
+  return pts;
+}
+function fillPoly(g, pts, cx, cy) { g.beginPath(); g.moveTo(pts[0] - cx, pts[1] - cy); for (let i = 2; i < pts.length; i += 2) g.lineTo(pts[i] - cx, pts[i + 1] - cy); g.closePath(); g.fill(); }
+function draw(g) {
+  px(g, 0, 0, VW, VH, "#06050a");
+  if (!L || mode === "select" || mode === "boot") { if (mode === "select" || mode === "title" || mode === "boot") drawBackdrop(g); return; }
+  const cx = Math.round(camX), cy = Math.round(camY);
+  g.drawImage(L.c, cx, cy, VW, VH, 0, 0, VW, VH);
+  // the loot, the prize
+  for (const lo of L.loot) if (!lo.taken) { const X = lo.x * TS - cx, Y = lo.y * TS - cy; px(g, X + 4, Y + 9, 9, 4, "rgba(0,0,0,0.3)"); lootIcon(g, lo.name, X + 4, Y + 3); }
+  if (!L.prize.taken) { const X = L.prize.x * TS - cx, Y = L.prize.y * TS - cy; px(g, X + 2, Y + 8, 12, 7, "#3a3040"); px(g, X + 2, Y + 8, 12, 1, "#8a7a9a"); const b = Math.sin(G.time * 3) * 1.5; px(g, X + 5, Y + 2 + b, 6, 6, "#ffd27a"); px(g, X + 6, Y + 3 + b, 2, 2, "#fff4c8"); }
+  for (const c of L.cams) { const X = c.x * TS + 8 - cx, Y = c.y * TS + 8 - cy; px(g, X - 3, Y - 3, 6, 6, "#2a2a30"); px(g, Math.round(X + Math.cos(c.a) * 3) - 1, Math.round(Y + Math.sin(c.a) * 3) - 1, 3, 3, c.jam > 0 ? "#5a5a5a" : (G.frame >> 4) & 1 ? "#ff3030" : "#a01818"); }
+  // the people, back to front
+  const list = PL.map(p => ({ y: p.y, f: () => drawPerson(g, p.kind, p.x, p.y, p.a, p.moving, G.time, cx, cy, p.flash > 0) })).concat(GU.map(q => ({ y: q.y, f: () => drawPerson(g, "g", q.x, q.y, q.a, q.moving, G.time + q.id, cx, cy) })));
+  list.sort((a, b) => a.y - b.y); for (const q of list) q.f();
+  for (const s of SMOKE) { const k = Math.min(1, s.t / 1.5, (s.full - s.t) * 3 + 0.2); for (let i = 0; i < 9; i++) { const ang = i * 0.7 + G.time * 0.3, rr = s.r * (0.3 + (i % 3) * 0.25); g.fillStyle = "rgba(170,170,180," + 0.22 * k + ")"; g.beginPath(); g.arc(s.x + Math.cos(ang) * rr - cx, s.y + Math.sin(ang) * rr * 0.8 - cy, s.r * 0.45, 0, TAU); g.fill(); } }
+  // the dark, a tile at a time (smoothed between tiles)
+  g.drawImage(L.lb, cx, cy, VW, VH, 0, 0, VW, VH);
+  // torches and lenses, laid over the dark
+  g.globalCompositeOperation = "lighter";
+  for (const q of GU) { if (!inView(q.x, q.y) || q.dazed > 0) continue;
+    const k = q.x.toFixed(0) + "," + q.y.toFixed(0) + "," + (q.a * 30 | 0); if (q.pk !== k) { q.pk = k; q.poly = sightPoly(q.x, q.y - 4, q.a, 0.55, 5.5 * TS); }
+    g.fillStyle = q.state === "alert" ? "rgba(255,70,50,0.16)" : q.sus > 0.35 ? "rgba(255,170,60,0.15)" : "rgba(255,230,150,0.13)"; fillPoly(g, q.poly, cx, cy); }
+  for (const c of L.cams) { if (c.jam > 0 || !inView(c.x * TS, c.y * TS)) continue; g.fillStyle = "rgba(255,40,40," + (0.07 + c.see * 0.12) + ")"; fillPoly(g, sightPoly(c.x * TS + 8, c.y * TS + 8, c.a, 0.42, 6 * TS), cx, cy); }
+  g.globalCompositeOperation = "source-over";
+  // noise you make, thrown things, marks over heads
+  for (const r of RINGS) { const k = r.t / 0.6; g.strokeStyle = "rgba(220,220,255," + (0.35 * (1 - k)) + ")"; g.lineWidth = 1; g.beginPath(); g.arc(r.x - cx, r.y - cy, Math.max(1, r.r * k), 0, TAU); g.stroke(); }
+  for (const q of PROJ) { const k = q.t / 0.45, x = q.x0 + (q.x - q.x0) * k, y = q.y0 + (q.y - q.y0) * k - Math.sin(k * Math.PI) * 14; px(g, Math.round(x - cx) - 1, Math.round(y - cy) - 1, 3, 3, "#e0d0a0"); }
+  for (const q of GU) if (q.iconT > 0 || q.state === "alert" || q.sus > 0.35) { const ic = q.state === "alert" ? "!" : "?"; font.shadow(g, ic, Math.round(q.x - cx) - 2, Math.round(q.y - cy) - 26, ic === "!" ? 3 : 2); }
+  for (const p of PL) { const x = Math.round(p.x - cx), y = Math.round(p.y - cy); px(g, x - 2, y - 22, 5, 2, p.n ? "#c87aff" : "#7ad8f0"); px(g, x - 1, y - 20, 3, 1, p.n ? "#c87aff" : "#7ad8f0");
+    if (p.hold) { px(g, x - 9, y - 27, 18, 3, "#08060c"); px(g, x - 8, y - 26, Math.round(16 * p.hold.t / p.hold.need), 1, "#ffd27a"); }
+    if (p.caught) font.center(g, "CAUGHT", x, y - 30, 3, 1); }
+  if (ALARM.on && (G.frame >> 4) & 1) { g.fillStyle = "rgba(255,30,30,0.18)"; g.fillRect(0, 0, VW, 3); g.fillRect(0, VH - 3, VW, 3); g.fillRect(0, 0, 3, VH); g.fillRect(VW - 3, 0, 3, VH); }
+}
+function lootIcon(g, name, x, y) {
+  const c = { PAINTING: "#c8a050", SILVER: "#d8dce8", PEARLS: "#f4f0f8", CLOCK: "#b8884a", CASH: "#5ab06a", "GOLD BAR": "#ffd040", BONDS: "#e8e0c8", "DEED BOX": "#8a5a3a", DRIVE: "#4a8ae0", SCULPTURE: "#c8c8d0", CHIPS: "#4ad08a", WATCH: "#e0c070" }[name] || "#ffd27a";
+  px(g, x, y, 8, 6, shade(c, 0.6)); px(g, x + 1, y + 1, 6, 4, c); if ((G.frame >> 4) % 6 === 0) px(g, x + 1, y + 1, 2, 1, "#ffffff");
+}
+let BACK = null;
+function drawBackdrop(g) {                           // the title: a building in the dark, a torch sweeping
+  if (!BACK) { BACK = mk(VW, VH); const b = g2(BACK); px(b, 0, 0, VW, VH, "#08070e"); const r = U.rand(5);
+    for (let x = 0; x < VW; x += 40) { const h = 80 + r() * 120; px(b, x, VH - h, 38, h, ["#12101c", "#161424", "#0e0c16"][(r() * 3) | 0]); for (let wy = VH - h + 8; wy < VH - 8; wy += 12) for (let wx = x + 5; wx < x + 34; wx += 9) if (r() < 0.18) px(b, wx, wy, 5, 6, r() < 0.8 ? "#3a3220" : "#e8c070"); } }
+  g.drawImage(BACK, 0, 0);
+  const a = Math.sin(G.time * 0.5) * 0.6 + Math.PI / 2;
+  g.globalCompositeOperation = "lighter"; g.fillStyle = "rgba(255,230,150,0.08)"; g.beginPath(); g.moveTo(VW / 2, 0); g.lineTo(VW / 2 + Math.cos(a - 0.25) * 400, Math.sin(a - 0.25) * 400); g.lineTo(VW / 2 + Math.cos(a + 0.25) * 400, Math.sin(a + 0.25) * 400); g.fill(); g.globalCompositeOperation = "source-over";
+}
+
+// ---------------------------------------------------------------- the numbers on screen
+const LB = {}; const lab = (k, w, sc) => LB[k] || (LB[k] = new L2.Label(w || 160, null, sc));
+function eye(g, x, y, v) {                           // how seen you are: shut in the dark, half in the shadow, wide in the light
+  const lvl = v < 0.3 ? 0 : v < 0.55 ? 1 : 2, col = ["#5a8a6a", "#d8b050", "#ff5040"][lvl];
+  px(g, x, y + 3, 14, 1, col);
+  if (lvl) { px(g, x + 2, y + 1, 10, 1, col); px(g, x + 2, y + 5, 10, 1, col); px(g, x + 1, y + 2, 1, 3, col); px(g, x + 12, y + 2, 1, 3, col); px(g, x + 5, y + 2, 4, lvl === 2 ? 3 : 2, col); }
+  const E = lab("eye" + x, 60); E.set(["HIDDEN", "SHADOW", "IN LIGHT"][lvl], lvl === 2 ? 3 : lvl ? 2 : 5, false); E.draw(g, x + 18, y);
+}
+function hud(g) {
+  if (mode === "title" || mode === "boot") { const y = 40 + Math.round(Math.sin(G.time * 1.6) * 2); font.center(g, "SHADOW", VW / 2, y, 1, 5); font.center(g, "HEIST", VW / 2, y + 40, 2, 5); font.center(g, "TWELVE HEISTS · THREE BUILDINGS · ONE OR TWO THIEVES", VW / 2, y + 82, 1, 1); return; }
+  if (mode === "select") return drawSelect(g);
+  if (!L) return;
+  const H = HEISTS[L.hi];
+  g.fillStyle = "rgba(6,4,12,0.6)"; g.fillRect(0, 0, VW, 13);
+  const N = lab("name", 200); N.set(H.name, 2, false); N.draw(g, 4, 3);
+  const goal = L.prize.taken ? "OUT THE WAY IN WITH THE " + L.prize.name : "FIND THE " + L.prize.name;
+  const Gl = lab("goal", 260); Gl.set(goal, L.prize.taken ? 5 : 1, false); Gl.draw(g, 4 + N.w + 10, 3);
+  const T = lab("t"); T.set(fmt(STATS.t) + "  $" + STATS.loot, 0); T.draw(g, VW - 4 - T.w, 3);
+  PL.forEach((p, i) => {
+    const x = i ? VW - 168 : 4, y = VH - 24;
+    g.fillStyle = "rgba(6,4,12,0.6)"; g.fillRect(x - 2, y - 3, 166, 26);
+    eye(g, x, y, p.vis);
+    let gx = x; GADGETS.forEach(k => { const on = p.sel === k, s = GNAME[k] + " " + INV[k], Q = lab("g" + i + k, 90); Q.set(s, on ? 2 : 1, false); Q.draw(g, gx, y + 11); if (on) px(g, gx, y + 19, Q.w - 1, 1, "#ffd27a"); gx += Q.w + 6; });
+    const Pk = lab("pk" + i, 60); Pk.set("PICKS " + INV.picks, 1, false); Pk.draw(g, x + 92, y);
+    if (p.msgT > 0) { const M = lab("m" + i, 220); M.set(p.msg, 2); M.draw(g, i ? VW - 4 - M.w : 4, VH - 38); }
+  });
+  if (L.prize.taken) {                               // the way out, when it's off the screen
+    const ex = L.exit[0] * TS + 8 - camX, ey = L.exit[1] * TS + 8 - camY;
+    if (ex < 0 || ey < 0 || ex > VW || ey > VH) { const a = Math.atan2(ey - VH / 2, ex - VW / 2), x = clamp(VW / 2 + Math.cos(a) * 200, 8, VW - 16), y = clamp(VH / 2 + Math.sin(a) * 110, 16, VH - 40); font.text(g, Math.abs(Math.cos(a)) > Math.abs(Math.sin(a)) ? (Math.cos(a) > 0 ? "▶" : "◀") : (Math.sin(a) > 0 ? "↓" : "↑"), x, y, 5); font.text(g, "EXIT", x - 6, y + 9, 5); }
+  }
+  if (bannerT > 0 && bannerText) font.center(g, bannerText, VW / 2, 70, bannerText === "ALARM!" ? 3 : 2, 2);
+  if (mode === "done" && RESULT) {
+    g.fillStyle = "rgba(6,4,12,0.88)"; g.fillRect(90, 50, 300, 170);
+    font.center(g, "CLEAN GETAWAY", VW / 2, 60, 5, 2);
+    font.center(g, "★".repeat(RESULT.stars) + "\x18".repeat(3 - RESULT.stars), VW / 2, 84, 2, 3);
+    font.text(g, "LOOT", 120, 116, 1); font.text(g, "$" + RESULT.loot + " OF $" + RESULT.total, 230, 116, 0);
+    font.text(g, "TIME", 120, 128, 1); font.text(g, fmt(RESULT.time), 230, 128, 0);
+    font.text(g, "SEEN", 120, 140, 1); font.text(g, RESULT.ghost ? "NEVER" : "YES", 230, 140, RESULT.ghost ? 5 : 3);
+    font.text(g, "ALARM", 120, 152, 1); font.text(g, RESULT.silent ? "NEVER RAISED" : "RAISED", 230, 152, RESULT.silent ? 5 : 3);
+    const ranks = [RESULT.ghost && "GHOST", RESULT.silent && "SILENT", RESULT.clean && "CLEAN SWEEP"].filter(Boolean);
+    font.center(g, ranks.length ? ranks.join(" · ") : "NO RANKS THIS TIME", VW / 2, 172, ranks.length ? 2 : 1, 1);
+    if (modeT > 1.2 && (G.frame >> 5) & 1) font.center(g, G.label("a") + " CARRY ON", VW / 2, 200, 0, 1);
+  }
+}
+// ---------------------------------------------------------------- choosing a heist (a second thief joins here)
+let sel = null;
+function openSelect() { menu.hide(); const pads = G.input.players(); sel = { i: Math.min(SAVE.reached, HEISTS.length - 1), pad: pads[0] || 0, two: sel && sel.two != null && pads.includes(sel.two) ? sel.two : null }; mode = "select"; modeT = 0; L = null; synth.song({ seed: 5, root: 45, tempo: 90, calm: true }); }
+function selectUpdate() {
+  const c = ctlOf(sel.pad);
+  if (c.take("left", 200)) { sel.i = (sel.i + 8) % 12; play("move"); }
+  if (c.take("right", 200)) { sel.i = (sel.i + 4) % 12; play("move"); }
+  if (c.take("up", 200)) { sel.i = (sel.i & ~3) + ((sel.i + 3) & 3); play("move"); }
+  if (c.take("down", 200)) { sel.i = (sel.i & ~3) + ((sel.i + 1) & 3); play("move"); }
+  if (modeT > 0.3 && (c.take("a", 200) || c.take("start", 200))) { if (sel.i > SAVE.reached) { play("no"); return; } play("ok"); const ps = [{ pad: sel.pad }].concat(sel.two != null ? [{ pad: sel.two }] : []); const hi = sel.i; G.fade(() => { mode = "play"; modeT = 0; startHeist(hi, ps); }, 4); mode = "fading"; }
+  if (c.take("b", 200) || c.take("back", 200)) { toTitle(); }
+  if (sel.two != null && ctlOf(sel.two).take("b", 200)) { sel.two = null; play("move"); }
+}
+function drawSelect(g) {
+  g.fillStyle = "rgba(6,4,12,0.72)"; g.fillRect(0, 0, VW, VH);
+  font.center(g, "CHOOSE A HEIST", VW / 2, 8, 2, 2);
+  BUILDINGS.forEach((B, bi) => {
+    const x = 16 + bi * 152; font.text(g, B.name, x, 32, 4);
+    for (let k = 0; k < 4; k++) {
+      const i = bi * 4 + k, H = HEISTS[i], y = 46 + k * 22, on = sel.i === i, locked = i > SAVE.reached, b = SAVE.best[i] || {};
+      px(g, x, y, 144, 19, on ? "#2a2040" : "#14101e"); if (on) px(g, x, y, 2, 19, "#ffd27a");
+      font.text(g, (i + 1) + ". " + (locked ? "LOCKED" : H.name), x + 6, y + 3, locked ? 1 : on ? 2 : 0);
+      if (b.stars) font.text(g, "★".repeat(b.stars), x + 6, y + 11, 2);
+      if (b.ghost) font.text(g, "G", x + 120, y + 11, 5); if (b.silent) font.text(g, "S", x + 128, y + 11, 4); if (b.clean) font.text(g, "C", x + 136, y + 11, 6);
     }
-  } else {
-    cam.alertTimer=Math.max(0,cam.alertTimer-dt*0.5);
+  });
+  const H = HEISTS[sel.i], b = SAVE.best[sel.i] || {}, y = 140;
+  px(g, 16, y, 448, 98, "#14101e");
+  if (sel.i > SAVE.reached) font.text(g, "FINISH THE HEIST BEFORE IT FIRST.", 24, y + 8, 1);
+  else {
+    font.text(g, H.name, 24, y + 8, 0, 2); font.wrap(H.about, 420).forEach((l, k) => font.text(g, l, 24, y + 28 + k * 10, 1));
+    font.text(g, "BEST: " + (b.stars ? "★".repeat(b.stars) + "  $" + b.loot + "  " + fmt(b.time) : "NOT DONE YET"), 24, y + 52, b.stars ? 2 : 1);
+    font.text(g, "RANKS: " + ([b.ghost && "GHOST", b.silent && "SILENT", b.clean && "CLEAN SWEEP"].filter(Boolean).join(" · ") || "-"), 24, y + 64, 1);
   }
+  font.text(g, sel.two != null ? "2P READY (" + G.label("b") + " ON THEIRS TO LEAVE)" : "2P: PRESS " + G.label("a") + " ON A SECOND CONTROLLER", 24, y + 82, sel.two != null ? 5 : 1);
+  font.text(g, G.label("a") + " GO   " + G.label("b") + " BACK", 380, y + 82, 1);
 }
-
-// ─── Player movement ──────────────────────────────────────────────────────
-const PLAYER_SPEED_NORMAL = 250; // ms per tile
-const PLAYER_SPEED_CROUCH = 400;
-
-function tryMovePlayer(dx, dy){
-  if(player.moving) return;
-  const ntx=player.tx+dx, nty=player.ty+dy;
-  if(isWall(ntx,nty)) return;
-
-  // set direction
-  if(dx===1) player.dir='east';
-  else if(dx===-1) player.dir='west';
-  else if(dy===1) player.dir='south';
-  else if(dy===-1) player.dir='north';
-
-  player.tx=ntx; player.ty=nty;
-  player.fromPx=player.px; player.fromPy=player.py;
-  player.toPx=(ntx+0.5)*TILE; player.toPy=(nty+0.5)*TILE;
-  player.moveTimer=0;
-  player.moveDuration=player.crouching?PLAYER_SPEED_CROUCH:PLAYER_SPEED_NORMAL;
-  player.moving=true;
+// ---------------------------------------------------------------- menus
+const menu = new L2.Menu(G, {
+  top: "title", values: SAVE.opts, accent: "#7ad8f0",
+  screens: {
+    title: { y: 150, w: 200, items: [{ t: "PLAY", act: "play" }, { t: "RECORDS", act: "records" }, { t: "OPTIONS", act: "options" }, { t: "HOW TO PLAY", act: "how" }] },
+    options: { title: "OPTIONS", back: () => menu.show(pausedFrom ? "pause" : "title", 0), w: 280, items: L2.optionItems() },
+    records: { title: "RECORDS", back: "title", w: 340, items: [{ t: "BACK", act: "back" }] },
+    how: { title: "HOW TO PLAY", back: "title", w: 400, items: [{ t: "BACK", act: "back" }], lines: [["STICK: MOVE (A GENTLE PUSH SNEAKS)", ""], ["B OR LT: SNEAK   RT: RUN (LOUD)", ""], ["A: DOORS, SWITCHES, LOOT, HOLD TO PICK A LOCK", ""], ["X: USE A GADGET   LB/RB OR Y: CHANGE IT", ""], ["STAY IN THE DARK. CARPET IS QUIET, METAL ISN'T.", ""], ["TAKE THE PRIZE AND LEAVE THE WAY YOU CAME.", ""]] },
+    pause: { title: "PAUSED", back: () => resume(), w: 220, items: [{ t: "CARRY ON", act: "resume" }, { t: "START AGAIN", act: "restart" }, { t: "OPTIONS", act: "options" }, { t: "QUIT THE HEIST", act: "quit" }] },
+    caught: { title: "CAUGHT", back: null, w: 220, items: [{ t: "TRY AGAIN", act: "restart" }, { t: "CHOOSE ANOTHER", act: "quit" }] }
+  },
+  choose(it) {
+    const a = it.act;
+    if (a === "play") openSelect();
+    else if (a === "records") { menu.o.screens.records.lines = HEISTS.map((H, i) => { const b = SAVE.best[i] || {}; return [(i + 1) + ". " + H.name, b.stars ? "★".repeat(b.stars) + " $" + b.loot + " " + fmt(b.time) : "-", b.stars ? 2 : 1]; }).concat([["HEISTS PULLED", SAVE.heists]]); menu.show("records"); }
+    else if (a === "options") menu.show("options");
+    else if (a === "how") menu.show("how");
+    else if (a === "back") menu.back();
+    else if (a === "resume") resume();
+    else if (a === "restart") { menu.hide(); pausedFrom = null; const hi = L.hi, ps = PL.map(p => ({ pad: p.pad, bot: p.bot })); G.fade(() => { mode = "play"; modeT = 0; startHeist(hi, ps); }, 5); }
+    else if (a === "quit") { menu.hide(); pausedFrom = null; openSelect(); }
+  },
+  changed() { G.options(SAVE.opts); store.save(); }
+});
+G.menu = menu;
+let pausedFrom = null;
+function pause() { if (mode !== "play" || menu.at) return; pausedFrom = mode; mode = "pause"; menu.show("pause"); }
+function resume() { menu.hide(); mode = pausedFrom || "play"; pausedFrom = null; G.gov.hold(800); }
+function toTitle() { mode = "title"; sel = null; L = null; synth.song({ seed: 5, root: 45, tempo: 90, calm: true }); menu.show("title"); }
+function onButton(b, how, who) {
+  if (how !== "press") return;
+  if (mode === "select" && sel && (b === "a" || b === "start") && who && who !== sel.pad && sel.two == null) { sel.two = who; play("ok"); return; }
+  if (mode === "play" && b === "start" && who && PL.length === 1 && who !== PL[0].pad && !PL[0].bot) {   // a second thief, mid-heist
+    const p0 = PL[0]; PL.push({ n: 1, pad: who, ctl: ctlOf(who), kind: "t2", x: p0.x, y: p0.y, a: p0.a, moving: false, pace: "walk", stepT: 0, caught: false, hold: null, sel: "noise", prize: false, msg: "", msgT: 0, vis: 0, flash: 1.5 });
+    INV.smoke += L.gadgets.smoke; INV.noise += L.gadgets.noise; banner("A SECOND THIEF JOINS", 2); play("ok"); return; }
+  if (mode === "play" && (b === "start" || b === "back")) pause();
 }
-
-function updatePlayer(dt){
-  if(player.flashTimer>0) player.flashTimer-=dt;
-
-  if(player.moving){
-    player.moveTimer+=dt*1000;
-    const t=Math.min(player.moveTimer/player.moveDuration,1);
-    player.px=player.fromPx+(player.toPx-player.fromPx)*t;
-    player.py=player.fromPy+(player.toPy-player.fromPy)*t;
-    if(t>=1){
-      player.px=player.toPx; player.py=player.toPy;
-      player.moving=false;
-      // Footstep
-      if(!player.crouching){
-        player.stepTimer=0;
-        sfxFootstep();
-      }
-      onPlayerReachedTile();
-    }
-  } else {
-    // Input
-    const go=DEMO?demoWalk():null, dx=go?go.dx:getDX(), dy=go?go.dy:getDY();
-    if(dx!==0||dy!==0){
-      if(dx!==0) tryMovePlayer(dx,0);
-      else tryMovePlayer(0,dy);
-    }
-  }
+let demoI = 0;
+function demoNext() { demoI = (demoI + 1) % HEISTS.length; mode = "play"; modeT = 0; startHeist(demoI, [{ pad: 0, bot: true }]); }
+function ready() {
+  sounds(); G.options(SAVE.opts);
+  for (const k of ["t1", "t2", "g"]) person(k);
+  if (DEMO) { window.SofaStats.demo = true; demoI = -1; demoNext(); return; }
+  toTitle();
 }
-
-function onPlayerReachedTile(){
-  const tile=getTile(player.tx,player.ty);
-  if(tile==='G'){
-    // Pick up diamond
-    mapData[player.ty][player.tx]='.';
-    player.hasDiamond=true;
-    sfxDiamond();
-  }
-  if(tile==='K'&&player.hasDiamond){
-    // Interact with keypad (disable nearby camera)
-    for(const cam of cameras){
-      const dx=Math.abs(cam.tx-player.tx), dy=Math.abs(cam.ty-player.ty);
-      if(dx<=3&&dy<=3){
-        cam.disabled=true;
-        cam.disableTimer=8.0;
-      }
-    }
-  }
-  // Check exit
-  if(player.tx===exitPos.tx&&player.ty===exitPos.ty&&player.hasDiamond){
-    onLevelComplete();
-  }
-}
-
-// ─── Interactions ─────────────────────────────────────────────────────────
-function doInteract(){
-  // Interact with adjacent tiles or current tile
-  const dirs=[[0,0],[1,0],[-1,0],[0,1],[0,-1]];
-  for(const [dx2,dy2] of dirs){
-    const tx2=player.tx+dx2, ty2=player.ty+dy2;
-    const tile=getTile(tx2,ty2);
-    if(tile==='G'){
-      mapData[ty2][tx2]='.';
-      player.hasDiamond=true;
-      sfxDiamond();
-      return;
-    }
-    if(tile==='C'||tile==='K'){
-      // Disable camera or keypad
-      for(const cam of cameras){
-        if(Math.abs(cam.tx-tx2)<=1&&Math.abs(cam.ty-ty2)<=1){
-          cam.disabled=true;
-          cam.disableTimer=8.0;
-        }
-      }
-      return;
-    }
-  }
-}
-
-function doSmoke(){
-  if(player.smoke<=0) return;
-  player.smoke--;
-  smokeEffect={px:player.px, py:player.py, timer:3.0, maxTimer:3.0};
-  sfxSmoke();
-}
-
-// ─── Events ───────────────────────────────────────────────────────────────
-function onCaught(){
-  if(state!==GAME_STATE.PLAYING) return;
-  state=GAME_STATE.CAUGHT;
-  caughtTimer=2.5;
-  sfxCaught();
-  lives--;
-}
-
-function onLevelComplete(){
-  if(state!==GAME_STATE.PLAYING) return;
-  state=GAME_STATE.LEVEL_CLEAR;
-  levelClearTimer=4.0;
-  sfxLevelComplete();
-}
-
-// ─── Alarm system ─────────────────────────────────────────────────────────
-function updateAlarm(dt){
-  if(!alarmActive) return;
-  alarmTimer-=dt;
-  alarmFlash+=dt*4;
-  // Check if all guards lost sight
-  let anyAlert=false;
-  for(const g of guards){
-    if(g.state==='alert'||g.state==='chase') anyAlert=true;
-  }
-  for(const cam of cameras){
-    if(cam.alertTimer>0) anyAlert=true;
-  }
-  if(!anyAlert&&alarmTimer<=0){
-    alarmActive=false;
-    alarmFlash=0;
-    for(const g of guards){
-      if(g.state==='chase') g.state='patrol';
-    }
-  }
-}
-
-// ─── Render helpers ───────────────────────────────────────────────────────
-function drawSpr(ctx2, sprite, px, py, scale){
-  scale=scale||1;
-  ctx2.drawImage(sprite,
-    Math.floor(px-sprite.width*scale/2),
-    Math.floor(py-sprite.height*scale/2),
-    sprite.width*scale, sprite.height*scale);
-}
-
-function drawTile(ctx2, tile, px, py){
-  ctx2.drawImage(tile, px, py);
-}
-
-// ─── Camera offset (scrolling) ────────────────────────────────────────────
-let camOffX=0, camOffY=0;
-const MAP_W_PX=()=>mapData[0].length*TILE;
-const MAP_H_PX=()=>mapData.length*TILE;
-
-function updateCamera2(){
-  const targetX=player.px-W/2;
-  const targetY=player.py-H/2;
-  camOffX=Math.max(0,Math.min(MAP_W_PX()-W,targetX));
-  camOffY=Math.max(0,Math.min(MAP_H_PX()-H,targetY));
-  // Smooth
-}
-
-// ─── Main render ──────────────────────────────────────────────────────────
-function renderGame(){
-  updateCamera2();
-  ctx.save();
-  ctx.translate(-camOffX,-camOffY);
-
-  // Draw tiles
-  const rows=mapData.length, cols=mapData[0].length;
-  for(let ty=0;ty<rows;ty++){
-    for(let tx2=0;tx2<cols;tx2++){
-      const px=tx2*TILE, py=ty*TILE;
-      const ch=mapData[ty][tx2];
-      if(ch==='#') drawTile(ctx,SPR.tile_wall,px,py);
-      else {
-        drawTile(ctx,SPR.tile_floor,px,py);
-        if(ch==='D') drawTile(ctx,SPR.tile_vault_door,px,py);
-        else if(ch==='G') drawTile(ctx,SPR.tile_diamond,px,py);
-        else if(ch==='C') drawTile(ctx,SPR.tile_camera,px,py);
-        else if(ch==='K') drawTile(ctx,SPR.tile_keypad,px,py);
-        else if(ch==='d') drawTile(ctx,SPR.tile_desk,px,py);
-        else if(ch==='p') drawTile(ctx,SPR.tile_plant,px,py);
-        else if(ch==='E'){
-          // Draw exit marker
-          ctx.fillStyle=PAL.e;
-          ctx.fillRect(px+2,py+2,12,12);
-          ctx.fillStyle=PAL.v;
-          ctx.fillRect(px+5,py+5,6,6);
-        }
-      }
-    }
-  }
-
-  // Draw camera vision cones
-  for(const cam of cameras){
-    if(cam.disabled) continue;
-    const cpx=(cam.tx+0.5)*TILE, cpy=(cam.ty+0.5)*TILE;
-    const col = cam.alertTimer>0.5 ? PAL.r : PAL.y;
-    const alpha = cam.alertTimer>0.5 ? 0.7 : 0.35;
-    ditherCone(ctx, cpx, cpy, cam.angle, CAM_FOV, CAM_RANGE, col, alpha);
-  }
-
-  // Draw guard vision cones
-  for(const g of guards){
-    if(g.state==='ko') continue;
-    const angle=guardAngle(g.dir);
-    const col = g.state==='alert'||g.state==='chase' ? PAL.r : PAL.y;
-    const alpha = g.state==='alert'||g.state==='chase' ? 0.6 : 0.3;
-    ditherCone(ctx, g.px, g.py, angle, GUARD_FOV, GUARD_RANGE, col, alpha);
-  }
-
-  // Draw smoke
-  if(smokeEffect&&smokeEffect.timer>0){
-    const a=smokeEffect.timer/smokeEffect.maxTimer;
-    ctx.globalAlpha=a*0.7;
-    for(let i=-2;i<=2;i++){
-      for(let j=-2;j<=2;j++){
-        ctx.drawImage(SPR.smoke,
-          smokeEffect.px-SPR.smoke.width/2+i*8,
-          smokeEffect.py-SPR.smoke.height/2+j*8);
-      }
-    }
-    ctx.globalAlpha=1;
-  }
-
-  // Draw guards
-  for(const g of guards){
-    let gsprite;
-    if(g.state==='ko'){
-      gsprite=SPR.guard_ko;
-      drawSpr(ctx,gsprite,g.px,g.py,1);
-      continue;
-    }
-    if(g.state==='alert') gsprite=SPR.guard_alert;
-    else if(g.dir==='south') gsprite=SPR.guard_south;
-    else if(g.dir==='north') gsprite=SPR.guard_north;
-    else if(g.dir==='east')  gsprite=SPR.guard_east;
-    else                      gsprite=SPR.guard_west;
-    drawSpr(ctx,gsprite,g.px,g.py,1);
-  }
-
-  // Draw player
-  let psprite;
-  if(player.flashTimer>0) psprite=SPR.ghost_white;
-  else if(player.crouching) psprite=SPR.ghost_crouch;
-  else if(player.dir==='south') psprite=SPR.ghost_south;
-  else if(player.dir==='north') psprite=SPR.ghost_north;
-  else if(player.dir==='east')  psprite=SPR.ghost_east;
-  else                           psprite=SPR.ghost_west;
-  drawSpr(ctx,psprite,player.px,player.py,1);
-
-  ctx.restore();
-
-  // ── Alarm overlay
-  if(alarmActive){
-    const pulse=Math.sin(alarmFlash)*0.5+0.5;
-    ctx.fillStyle=`rgba(200,30,30,${0.08*pulse})`;
-    ctx.fillRect(0,0,W,H);
-  }
-
-  // ── HUD
-  drawHUD();
-}
-
-function drawHUD(){
-  // Dark HUD bar
-  ctx.fillStyle='rgba(0,0,0,0.65)';
-  ctx.fillRect(0,0,W,16);
-  ctx.fillRect(0,H-16,W,16);
-
-  // Lives (hearts)
-  for(let i=0;i<3;i++){
-    const hsprite = i<lives ? SPR.heart : SPR.heart_empty;
-    ctx.drawImage(hsprite,4+i*14,4);
-  }
-
-  // Smoke bombs
-  ctx.drawImage(SPR.bomb_icon,52,3);
-  drawText(ctx,'x'+player.smoke,60,4,PAL.w,1,true);
-
-  // Alert status
-  if(alarmActive){
-    const p=Math.abs(Math.sin(alarmFlash*2));
-    const col=`rgb(${Math.floor(200+55*p)},${Math.floor(30)},${Math.floor(30)})`;
-    drawText(ctx,'ALERT!',W/2-18,4,col,1,true);
-  } else {
-    drawText(ctx,'CLEAR',W/2-15,4,PAL.e,1,true);
-  }
-
-  // Level name
-  const lvlName=LEVELS[currentLevel].name;
-  drawText(ctx,lvlName,W-lvlName.length*6-4,4,PAL.G,1,true);
-
-  // Bottom HUD: diamond status
-  if(player.hasDiamond){
-    drawText(ctx,'* DIAMOND SECURED *',W/2-60,H-13,PAL.c,1,true);
-  } else {
-    drawText(ctx,'FIND THE DIAMOND',W/2-48,H-13,PAL.m,1,true);
-  }
-  if(player.hasDiamond){
-    // Show exit direction hint
-    drawText(ctx,'REACH EXIT',4,H-13,PAL.v,1,true);
-  }
-
-  // Level timer
-  const ts=Math.floor(levelTime);
-  const tm=Math.floor(ts/60), ts2=ts%60;
-  const tstr=(tm<10?'0':'')+tm+':'+(ts2<10?'0':'')+ts2;
-  drawText(ctx,tstr,W-40,H-13,PAL.G,1,true);
-}
-
-// ─── Title Screen ─────────────────────────────────────────────────────────
-let titleTick=0;
-
-function renderTitle(){
-  // Background with wall texture
-  ctx.fillStyle=PAL.k;
-  ctx.fillRect(0,0,W,H);
-  // Subtle wall lines
-  ctx.fillStyle=PAL.K;
-  for(let y=0;y<H;y+=16){
-    ctx.fillRect(0,y,W,1);
-    for(let x=0;x<W;x+=32){
-      ctx.fillRect(x,y+1,1,15);
-      ctx.fillRect(x+16,y+9,1,7);
-    }
-  }
-
-  // Dithered stripes for depth
-  for(let y=0;y<H;y+=4){
-    for(let x=0;x<W;x+=4){
-      const t=BAYER[y&3][x&3]/16;
-      if(t<0.4){
-        ctx.fillStyle='rgba(0,0,0,0.3)';
-        ctx.fillRect(x,y,1,1);
-      }
-    }
-  }
-
-  // Title
-  drawCenter(ctx,'SHADOW',60,PAL.G,3);
-  drawCenter(ctx,'HEIST',80,PAL.c,3);
-
-  // Subtitle
-  drawCenter(ctx,'STEAL THE DIAMOND',110,PAL.m,1);
-  drawCenter(ctx,'STAY IN THE SHADOWS',120,PAL.m,1);
-
-  // Controls hint
-  drawCenter(ctx,(window.SofaPad&&SofaPad.connected()?'STICK OR D-PAD':'ARROW KEYS')+'  MOVE',145,PAL.g,1);
-  drawCenter(ctx,BL('b')+'  CROUCH   '+BL('a')+'  INTERACT   '+BL('y')+'  SMOKE',155,PAL.g,1);
-
-  // Blink press A
-  if(Math.floor(titleTick*2)%2===0){
-    drawCenter(ctx,'PRESS '+BL('a')+' TO START',180,PAL.w,1);
-  }
-
-  // Decorative diamond
-  ctx.drawImage(SPR.tile_diamond, W/2-8, 215);
-
-  // Version
-  drawText(ctx,'V1.0',W-28,H-10,PAL.K,1,false);
-}
-
-// ─── Level Clear Screen ───────────────────────────────────────────────────
-function renderLevelClear(){
-  ctx.fillStyle='rgba(0,0,20,0.85)';
-  ctx.fillRect(0,0,W,H);
-
-  drawCenter(ctx,'STAGE CLEAR',60,PAL.v,2);
-  drawCenter(ctx,LEVELS[currentLevel].name,90,PAL.c,1);
-
-  const ts=Math.floor(levelTime);
-  const tm=Math.floor(ts/60), ts2=ts%60;
-  drawCenter(ctx,'TIME '+(tm<10?'0':'')+tm+':'+(ts2<10?'0':'')+ts2,110,PAL.m,1);
-
-  // Star rating
-  let stars=3;
-  if(spotted) stars=Math.max(1,stars-1);
-  if(levelTime>120) stars=Math.max(1,stars-1);
-  let starStr='';
-  for(let i=0;i<3;i++) starStr+=(i<stars?'*':'-');
-  drawCenter(ctx,starStr,125,PAL.y,2);
-
-  if(!spotted){
-    drawCenter(ctx,'GHOST RATING!',145,PAL.c,1);
-  }
-
-  if(currentLevel<LEVELS.length-1){
-    drawCenter(ctx,'PRESS '+BL('a')+' FOR NEXT LEVEL',175,PAL.w,1);
-  } else {
-    drawCenter(ctx,'HEIST COMPLETE!',165,PAL.v,2);
-    drawCenter(ctx,'PRESS '+BL('a')+' TO PLAY AGAIN',185,PAL.w,1);
-  }
-}
-
-// ─── Game Over Screen ─────────────────────────────────────────────────────
-function renderGameOver(){
-  ctx.fillStyle='rgba(30,0,0,0.9)';
-  ctx.fillRect(0,0,W,H);
-  // Scanlines
-  for(let y=0;y<H;y+=2){
-    ctx.fillStyle='rgba(0,0,0,0.3)';
-    ctx.fillRect(0,y,W,1);
-  }
-  drawCenter(ctx,'COMPROMISED',80,PAL.r,2);
-  drawCenter(ctx,'YOUR COVER IS BLOWN',115,PAL.R,1);
-  drawCenter(ctx,'PRESS '+BL('a')+' TO RETRY',160,PAL.w,1);
-}
-
-// ─── Caught Screen ────────────────────────────────────────────────────────
-function renderCaught(){
-  ctx.fillStyle='rgba(50,0,0,0.75)';
-  ctx.fillRect(0,0,W,H);
-  drawCenter(ctx,'CAUGHT!',100,PAL.r,2);
-  drawCenter(ctx,'LIVES '+lives,130,PAL.w,1);
-  if(lives<=0) drawCenter(ctx,'GAME OVER',150,PAL.R,1);
-}
-
-// ─── Pause Screen ─────────────────────────────────────────────────────────
-function renderPause(){
-  ctx.fillStyle='rgba(0,0,0,0.7)';
-  ctx.fillRect(0,0,W,H);
-  drawCenter(ctx,'PAUSED',100,PAL.w,2);
-  drawCenter(ctx,'PRESS '+BL('start')+' TO RESUME',130,PAL.G,1);
-
-  drawCenter(ctx,'CONTROLS',155,PAL.c,1);
-  drawCenter(ctx,(window.SofaPad&&SofaPad.connected()?'STICK':'ARROWS')+'   MOVE',165,PAL.g,1);
-  drawCenter(ctx,BL('b')+'        CROUCH',175,PAL.g,1);
-  drawCenter(ctx,BL('a')+'        INTERACT',185,PAL.g,1);
-  drawCenter(ctx,BL('y')+'        SMOKE BOMB',195,PAL.g,1);
-}
-
-// ─── Main Update ──────────────────────────────────────────────────────────
-let lastTime=null;
-
-function update(ts){
-  if(lastTime===null) lastTime=ts;
-  let dt=(ts-lastTime)/1000;
-  lastTime=ts;
-  if(dt>0.1) dt=0.1;
-
-  updatePad();
-  titleTick+=dt;
-
-  if(state===GAME_STATE.TITLE){
-    if(DEMO||btnAPressed()){
-      currentLevel=0; lives=3; spotted=false;
-      initLevel(currentLevel);
-      state=GAME_STATE.PLAYING;
-    }
-  } else if(state===GAME_STATE.PLAYING){
-    levelTime+=dt;
-    totalTime+=dt;
-
-    updatePlayer(dt);
-    for(const g of guards) updateGuard(g,dt);
-    for(const cam of cameras) updateCamera(cam,dt);
-    updateAlarm(dt);
-
-    if(smokeEffect&&smokeEffect.timer>0) smokeEffect.timer-=dt;
-
-    // Input
-    if(!DEMO){
-      if(btnBPressed()){
-        player.crouching=!player.crouching;
-      }
-      if(btnAPressed()) doInteract();
-      if(btnYPressed()) doSmoke();
-      if(btnStartPressed()) state=GAME_STATE.PAUSED;
-    }
-
-  } else if(state===GAME_STATE.PAUSED){
-    if(btnStartPressed()) state=GAME_STATE.PLAYING;
-
-  } else if(state===GAME_STATE.LEVEL_CLEAR){
-    levelClearTimer-=dt;
-    if(btnAPressed()||levelClearTimer<=0){
-      if(currentLevel<LEVELS.length-1){
-        currentLevel++;
-        initLevel(currentLevel);
-        state=GAME_STATE.PLAYING;
-      } else {
-        // All levels done → title
-        currentLevel=0; lives=3;
-        state=GAME_STATE.TITLE;
-      }
-    }
-
-  } else if(state===GAME_STATE.CAUGHT){
-    caughtTimer-=dt;
-    if(caughtTimer<=0){
-      if(lives<=0){
-        state=GAME_STATE.GAME_OVER;
-      } else {
-        initLevel(currentLevel);
-        state=GAME_STATE.PLAYING;
-      }
-    }
-
-  } else if(state===GAME_STATE.GAME_OVER){
-    if(DEMO||btnAPressed()){
-      currentLevel=0; lives=3; spotted=false;
-      initLevel(currentLevel);
-      state=GAME_STATE.PLAYING;
-    }
-  }
-
-  updatePrevBtn();
-}
-
-// ─── Main Render ──────────────────────────────────────────────────────────
-function render(){
-  ctx.fillStyle=PAL.k;
-  ctx.fillRect(0,0,W,H);
-
-  if(state===GAME_STATE.TITLE){
-    renderTitle();
-  } else if(state===GAME_STATE.PLAYING){
-    renderGame();
-  } else if(state===GAME_STATE.PAUSED){
-    renderGame();
-    renderPause();
-  } else if(state===GAME_STATE.LEVEL_CLEAR){
-    renderGame();
-    renderLevelClear();
-  } else if(state===GAME_STATE.CAUGHT){
-    renderGame();
-    renderCaught();
-  } else if(state===GAME_STATE.GAME_OVER){
-    renderGameOver();
-  }
-}
-
-// ─── Game Loop ────────────────────────────────────────────────────────────
-function loop(ts){
-  update(ts);
-  render();
-  requestAnimationFrame(loop);
-}
-
-// ─── Boot ─────────────────────────────────────────────────────────────────
-initLevel(0); // pre-init so sprites are ready
-state=GAME_STATE.TITLE;
-requestAnimationFrame(loop);
-</script>
-</body>
-</html>
+// for the checks: the heist run ahead in steps, as fast as it goes
+function sim(secs) { const n = Math.round(secs / DT); for (let i = 0; i < n && mode === "play"; i++) update(DT); return mode; }
+if (G.test) window.SH = { get mode() { return mode; }, set mode(v) { mode = v; }, get L() { return L; }, get PL() { return PL; }, get GU() { return GU; }, get INV() { return INV; }, get sel() { return sel; },
+  ALARM, STATS, HEISTS, BUILDINGS, SAVE, store, menu, G, layout, startHeist: (hi, ps) => { menu.hide(); mode = "play"; modeT = 0; startHeist(hi, ps || [{ pad: 0 }]); return L; }, sim, noise, alert, catchThief, useGadget,
+  interact, interactables, relight, lightAt, visibility, sightClear, stepPlayer, stepGuard, escaped, openSelect, onButton, bfs, get RESULT() { return RESULT; }, tileOf, pathTo };
+G.start();
+})();
+</script></body></html>

@@ -7,6 +7,18 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.47
+
+- **Shadow Heist, a whole stealth game.** Twelve heists in three buildings: Ashcombe Manor (carpets, libraries,
+  a jewelled egg), the Coppergate Bank (marble, cameras, the gold vault) and Halcyon Tower (metal floors, server
+  racks, the chairman's safe), each laid out from its own seed and harder than the last. Light worked out a tile
+  at a time round the walls: switch a room's lamps off to hide in it, until a guard notices and puts them back on.
+  Noise from your pace and the floor you're on. Guards with torches who hear and come to look, search, chase,
+  radio each other and call for help; cameras that sweep. Smoke, a noise-maker, lock picks and a jammer. Stars for
+  the loot you take, ranks for never being seen and never raising the alarm, records kept on the box. Two thieves
+  together: a second controller joins on the heist screen or mid-heist, and frees a caught partner. It's on the
+  box's 2D engine now.
+
 ## 1.1.46
 
 - **Micro Drifters, a whole racing game.** Twelve tracks in four settings, each with its own weather: Harbour Loop,

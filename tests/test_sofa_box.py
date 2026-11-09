@@ -1416,6 +1416,78 @@ class BoxBrowser(unittest.TestCase):
         self.assertTrue(until("Math.max(...MD.cars.map(c => c.prog)) > %d + 60" % p0, 30))   # it races by itself
         self.assertIsNone(js("localStorage.getItem('micro-drifters')"))                       # and keeps nothing
 
+    def test_shadow_heist_plays(self):
+        """Shadow Heist in the box's browser: twelve heists in three buildings, each one possible (the prize, the loot and
+        the way out all reachable, a pick for every lock); a guard spots a thief in the light ahead of it, chases and
+        catches, but not one in the dark behind it; a noise brings a guard to look; smoke hides; a lamp switched off
+        darkens its room and a guard puts it back on; a lock is picked with a pick; a jammer blinds a camera; the
+        prize taken out the way in finishes the heist, with its stars, ranks and record kept; a second thief joins;
+        the demo plays by itself and keeps nothing."""
+        self.post("/box/api/open", {"url": self.base + "/box/games/shadow-heist/#test"})
+        js = lambda e: self.page_value("/box/games/shadow-heist", e)
+
+        def until(expr, secs=30):
+            end = time.time() + secs
+            while time.time() < end:
+                try:
+                    if js(expr):
+                        return True
+                except (StopIteration, OSError, KeyError):
+                    pass
+                time.sleep(0.3)
+            return False
+        self.assertTrue(until("typeof SH === 'object' && SH.mode === 'title'"))
+        js("window.errs = []; addEventListener('error', e => errs.push(String(e.message))); 1")
+        self.assertEqual(json.loads(js("JSON.stringify([SH.HEISTS.length, SH.BUILDINGS.length])")), [12, 3])
+        plans = json.loads(js("""JSON.stringify(SH.HEISTS.map((H, i) => { const L = SH.layout(i), W = L.W, ok = c => ![1, 5, 6].includes(L.t[c]);
+               const d = SH.bfs(L.t, W, L.Hh, (L.exit[1] - 1) * W + L.exit[0], ok), locks = [...L.t].filter(v => v === 4).length;
+               return [d[L.prize.y * W + L.prize.x] > 0, L.loot.every(l => d[l.y * W + l.x] > 0), L.picks > locks, L.guards.length >= 2, L.lamps.length > 5]; }))"""))
+        for i, p in enumerate(plans):
+            self.assertEqual(p, [True] * 5, i)
+        # every heist can be done: the demo's thief, nobody watching, takes the prize out
+        done = json.loads(js("""JSON.stringify(SH.HEISTS.map((H, i) => { SH.startHeist(i, [{ pad: 0, bot: true }]); SH.GU.forEach(g => { g.x = -9999; g.y = -9999; });
+               SH.L.cams.forEach(c => c.jam = 9999); SH.sim(300); return SH.mode; }))"""))
+        self.assertEqual(done, ["done"] * 12)
+        # in the light ahead: spotted, chased, caught; in the dark behind: not
+        seen = json.loads(js("""(() => { const r = []; for (const [a, light] of [[0, 1], [Math.PI, 0.05]]) { SH.startHeist(0); const g = SH.GU[0], p = SH.PL[0]; SH.GU.slice(1).forEach(q => q.x = -9999);
+                 g.wait = 99; g.look = a; const [gx, gy] = SH.tileOf(g.x, g.y); let k = 2; while (k < 4 && SH.L.t[gy * SH.L.W + gx + k + 1] === 0) k++;
+                 p.x = (gx + k) * 16 + 8; p.y = gy * 16 + 8; SH.L.light.fill(light); SH.sim(2.5); r.push([g.state, p.caught, SH.STATS.seen]); } return JSON.stringify(r); })()"""))
+        self.assertEqual(seen, [["alert", True, True], ["patrol", False, False]])
+        # a noise: a guard comes to look; smoke between them hides the thief
+        hear = json.loads(js("""(() => { SH.startHeist(4); const g = SH.GU[1]; g.wait = 0; SH.noise(g.x + 40, g.y, 6); const s1 = g.state;
+               const p = SH.PL[0]; SH.useGadget(p); const smoked = SH.sightClear(SH.L, ...SH.tileOf(p.x, p.y), ...SH.tileOf(p.x + 48, p.y)) === false || SH.L.t[SH.tileOf(p.x + 48, p.y)[1] * SH.L.W + SH.tileOf(p.x + 48, p.y)[0]] !== 0;
+               return JSON.stringify([s1, smoked, SH.INV.smoke]); })()"""))
+        self.assertEqual(hear[0], "check")
+        self.assertTrue(hear[1])
+        # a lamp switched off: its room goes dark; a guard on its round puts it back on
+        lamp = json.loads(js("""(() => { SH.startHeist(0); const L = SH.L, R = L.rooms.find(r => r.lamps.length && r.sw), lp = R.lamps[0], before = L.light[lp.y * L.W + lp.x];
+               const p = SH.PL[0]; p.x = R.sw.x * 16 + 8; p.y = R.sw.y * 16 + 8; SH.interact(p, true, true, 1 / 60); SH.sim(1 / 60); const after = L.light[lp.y * L.W + lp.x];
+               const g = SH.GU[0]; g.x = R.cells[0] % L.W * 16 + 8; g.y = (R.cells[0] / L.W | 0) * 16 + 8; g.state = 'patrol'; g.wait = 0; p.x = -9999;
+               SH.sim(25); return JSON.stringify([before > after, R.lamps.some(l => l.on)]); })()"""))
+        self.assertEqual(lamp, [True, True])
+        # a lock: held A with a pick opens it, and the pick is spent
+        pick = json.loads(js("""(() => { SH.startHeist(1); const L = SH.L, c = [...L.t].findIndex(v => v === 4), x = c % L.W, y = (c / L.W) | 0;
+               const W = L.W; let from = null; for (const [dx, dy, a] of [[0, 1, -Math.PI / 2], [0, -1, Math.PI / 2], [1, 0, Math.PI], [-1, 0, 0]]) if (L.t[(y + dy) * W + x + dx] === 0) { from = [x + dx, y + dy, a]; break; }
+               const p = SH.PL[0]; p.x = from[0] * 16 + 8; p.y = from[1] * 16 + 8; p.a = from[2]; const n0 = SH.INV.picks; SH.GU.forEach(g => g.x = -9999);
+               p.ctl = { x: () => 0, y: () => 0, held: b => b === 'a', take: b => b === 'a', rumble() {} }; SH.sim(2); return JSON.stringify([L.t[c], n0 - SH.INV.picks]); })()"""))
+        self.assertEqual(pick, [3, 1])
+        jam = json.loads(js("""(() => { SH.startHeist(5); const c = SH.L.cams[0], p = SH.PL[0]; p.x = c.x * 16 + 8; p.y = c.y * 16 + 24; p.sel = 'jam'; SH.useGadget(p); return JSON.stringify([c.jam > 5]); })()"""))
+        self.assertEqual(jam, [True])
+        # the prize, out the way in: stars, ranks, the record and the next heist
+        fin = json.loads(js("""(() => { SH.startHeist(0); const L = SH.L, p = SH.PL[0]; SH.GU.forEach(g => g.x = -9999); p.x = L.prize.x * 16 + 8; p.y = L.prize.y * 16 + 8;
+               SH.interact(p, true, true, 1 / 60); p.x = L.exit[0] * 16 + 8; p.y = L.exit[1] * 16 + 4; SH.sim(0.1); const b = JSON.parse(localStorage.getItem('shadow-heist'));
+               return JSON.stringify([SH.mode, SH.RESULT.stars >= 2, SH.RESULT.ghost, SH.RESULT.silent, b.best['0'].stars >= 2, b.reached]); })()"""))
+        self.assertEqual(fin, ["done", True, True, True, True, 1])
+        two = json.loads(js("SH.startHeist(2); SH.onButton('start', 'press', 2); JSON.stringify([SH.PL.length, SH.PL[1].pad])"))
+        self.assertEqual(two, [2, 2])
+        self.assertEqual(js("JSON.stringify(errs)"), "[]")
+        js("localStorage.removeItem('shadow-heist'); location.hash = '#demo-test'; location.reload(); 1")
+        time.sleep(1)
+        self.assertTrue(until("typeof SH === 'object' && window.SofaStats.demo === true && SH.mode === 'play'", 30))
+        x0 = js("SH.PL[0].x + SH.PL[0].y")
+        self.assertTrue(until("Math.abs(SH.PL[0].x + SH.PL[0].y - %f) > 20" % x0, 20))       # it plays by itself
+        self.assertIsNone(js("localStorage.getItem('shadow-heist')"))                         # and keeps nothing
+
     def test_gloamwell_finds(self):
         """Gloamwell's finds: a gem set in a socket gives its power and is kept through a save; a hidden vault's
         cracked wall breaks open; a familiar follows you down; floors with an omen (a gilded thief, the restless

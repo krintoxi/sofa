@@ -408,7 +408,14 @@ song in the box's player, or shows a picture; **Menu** renames, moves or deletes
   ghost of your best lap; and Knockout, where whoever's left off the screen is out. With several players the
   screen follows the leader, and anyone left behind is brought back just behind them. Records kept on the box.
   Options: Driving help holds the gas for you.
-- More of the box's own games, each a page that plays offline with the controller: **Shadow Heist** (stealth),
+- **Shadow Heist**, a stealth game seen from above: twelve heists in three buildings (Ashcombe Manor, the
+  Coppergate Bank, Halcyon Tower), each a prize to take out the way you came in. Stay in the dark (switch the lamps
+  off, but a guard who finds a room dark puts them back on); sneak, walk or run (carpet is quiet, metal isn't);
+  guards with torches who hear, come to look, search, radio each other and call for help; cameras that sweep. Smoke,
+  a noise-maker, lock picks and a camera jammer. Loot for more stars; ranks for never being seen (Ghost), never
+  raising the alarm (Silent) and taking everything (Clean Sweep). One thief or two: a second controller joins on
+  the heist screen, or with Start mid-heist, and frees a caught partner. Records kept on the box.
+- More of the box's own games, each a page that plays offline with the controller:
   **Rune Tactics** (turn-based tactics),
   **Void Drifter** (mining and upgrades in space), **Cosmic Cascade** (a falling-gems puzzle), and the small ones,
   **Neon Dodge**, **Pair Up** and **Sky Hop**.

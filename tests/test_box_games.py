@@ -317,6 +317,7 @@ class TheEngine(unittest.TestCase):
         self.assertIn("cinder-knight", on_2d)
         self.assertIn("neon-brawler", on_2d)
         self.assertIn("micro-drifters", on_2d)
+        self.assertIn("shadow-heist", on_2d)
         for gid in on_2d:                                                 # pad.js, then Low3D, then Low2D on top of it
             html = self.read(gid, "index.html")
             self.assertLess(html.index('src="../pad.js"'), html.index('src="../low3d.js"'), gid)
