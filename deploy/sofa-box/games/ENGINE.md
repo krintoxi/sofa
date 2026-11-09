@@ -13,7 +13,7 @@ It's one file: offline, no libraries, no build step. A game is one page that loa
 
 For games in pixels (side-on or from above: platformers, brawlers, tactics, racers seen from the sky) there's a
 second file on top of it, **Low2D** (`low2d.js`): see [Low2D: the 2D engine](#low2d-the-2d-engine). Cinder Knight
-(`cinder-knight/`), Neon Brawler (`neon-brawler/`), Micro Drifters (`micro-drifters/`) and Shadow Heist (`shadow-heist/`) are built on it, and the
+(`cinder-knight/`), Neon Brawler (`neon-brawler/`), Micro Drifters (`micro-drifters/`), Shadow Heist (`shadow-heist/`) and Rune Tactics (`rune-tactics/`) are built on it, and the
 box's other small page games move onto it as each is made better.
 
 The engine grows with each game. When a game needs something another game could use, the general part goes
@@ -391,6 +391,8 @@ as it loads (about 0.1 s here; longer on a Pi 3, not yet timed on one, behind th
 Shadow Heist: about 0.45 ms of work a frame here; with `#slow=20` a heist holds the light look at 60 (5.6 ms a
 frame). Its light map is worked out a tile at a time when a lamp, a door or smoke changes it, and scaled up once
 then, so a frame only copies it (scaling it each frame cost more than the rest of the drawing).
+Rune Tactics: 0.15 ms a frame on the light look, 0.27 ms on full; with `#slow=20` it holds the light look at 60
+(4.1 ms a frame). Its field is drawn once and again only when the ground changes (forest burnt, water frozen).
 
 ## Checking a game
 

@@ -415,8 +415,15 @@ song in the box's player, or shows a picture; **Menu** renames, moves or deletes
   a noise-maker, lock picks and a camera jammer. Loot for more stars; ranks for never being seen (Ghost), never
   raising the alarm (Silent) and taking everything (Clean Sweep). One thief or two: a second controller joins on
   the heist screen, or with Start mid-heist, and frees a caught partner. Records kept on the box.
+- **Rune Tactics**, turn-based tactics: a campaign of fifteen battles on a map of branching roads, from the mill at
+  Millbrook to the Hollow Throne, with five heroes who level up and learn spells (Kael the knight, Lyra the archer,
+  Orin the pyromancer, Sefa the cleric, Vesk the stormcaller; two of them join you on the way). Ground that matters:
+  high ground hits harder and lets bows reach further, forest gives cover, fire spreads through grass and trees,
+  frost turns water to ice, and pits are there to knock foes into. Ten kinds of foe with tricks of their own and
+  three bosses (the Bog King, the Emberwyrm, the Hollow Crown). The campaign is saved between battles; skirmishes
+  on fields made up each time; two players taking turns, the heroes against the warband (one controller can be
+  passed round).
 - More of the box's own games, each a page that plays offline with the controller:
-  **Rune Tactics** (turn-based tactics),
   **Void Drifter** (mining and upgrades in space), **Cosmic Cascade** (a falling-gems puzzle), and the small ones,
   **Neon Dodge**, **Pair Up** and **Sky Hop**.
 - **How smoothly each game runs on your box**: the graphics check (`127.0.0.1:8091/box/games/probe/` in the box's

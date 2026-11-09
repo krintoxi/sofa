@@ -1488,6 +1488,74 @@ class BoxBrowser(unittest.TestCase):
         self.assertTrue(until("Math.abs(SH.PL[0].x + SH.PL[0].y - %f) > 20" % x0, 20))       # it plays by itself
         self.assertIsNone(js("localStorage.getItem('shadow-heist')"))                         # and keeps nothing
 
+    def test_rune_tactics_plays(self):
+        """Rune Tactics in the box's browser: a campaign of fifteen battles on branching roads, five heroes, ten kinds
+        of foe and three bosses, fields on six kinds of land. A battle on each land plays out to a winner; a shove into
+        a pit kills; frost freezes water into ice; a heavy golem can't be blown back; fire spreads through forest;
+        a fallen hero is revived; the Bog King's tongue pulls a hero in; a hold battle is won by lasting; a won battle
+        levels heroes up, opens the next roads and is kept; a hero joins on the road; the controls choose, move and
+        attack; the demo fights by itself and keeps nothing."""
+        self.post("/box/api/open", {"url": self.base + "/box/games/rune-tactics/#test"})
+        js = lambda e: self.page_value("/box/games/rune-tactics", e)
+
+        def until(expr, secs=30):
+            end = time.time() + secs
+            while time.time() < end:
+                try:
+                    if js(expr):
+                        return True
+                except (StopIteration, OSError, KeyError):
+                    pass
+                time.sleep(0.3)
+            return False
+        self.assertTrue(until("typeof RT === 'object' && RT.mode === 'title'"))
+        js("window.errs = []; addEventListener('error', e => errs.push(String(e.message))); 1")
+        counts = json.loads(js("JSON.stringify([RT.NODES.length, Object.keys(RT.HEROES).length, RT.KINDS10.length, Object.values(RT.FOES).filter(f => f.boss).length, Object.keys(RT.THEMES).length])"))
+        self.assertEqual(counts, [15, 5, 10, 3, 6])
+        lands = json.loads(js("""JSON.stringify(Object.keys(RT.THEMES).map((th, k) => { RT.startBattle({ mode: 'demo', theme: th, seed: 100 + k, heroes: ['kael', 'lyra', 'orin', 'sefa', 'vesk'].map(id => ({ id, lvl: 4 })),
+               foes: ['brute', 'wolf', 'wolf', 'archer', 'shaman', 'imp', 'golem', 'bomber', 'slime', 'wraith'], foeLvl: 2 }); RT.sim(400); return [RT.mode, RT.BT.winner != null]; }))"""))
+        self.assertEqual(lands, [["result", True]] * 6)
+        js("""window.flat = () => { const B = RT.BT; B.f.t.fill(0); B.f.h.fill(0); B.f.fire.fill(0); B.units.length = 0; }; window.put = (u, x, y) => { u.x = x; u.y = y; RT.BT.units.push(u); return u; };
+              window.mk = () => RT.startBattle({ mode: 'skirmish', theme: 'meadow', seed: 5, heroes: [{ id: 'kael', lvl: 5 }], foes: ['goblin'] }); 1""")
+        rules = json.loads(js("""(() => { const out = {};
+               mk(); flat(); let B = RT.BT; let k = put(RT.heroUnit('kael', 2), 3, 4), g = put(RT.foeUnit('brute'), 4, 4); B.f.t[4 * 14 + 5] = 3; g.hp = 30; g.max = 30;
+               RT.useSkill(k, 'bash', 4, 4); RT.sim(2); out.pit = g.dead;
+               mk(); flat(); B = RT.BT; const v = put(RT.heroUnit('vesk', 4), 3, 4); g = put(RT.foeUnit('golem'), 5, 4); B.f.t[4 * 14 + 6] = 2;
+               RT.useSkill(v, 'frost', 6, 4); RT.sim(1.5); out.ice = B.f.t[4 * 14 + 6]; RT.useSkill(v, 'gust', 5, 4); RT.sim(1.5); out.golem = g.x;
+               mk(); flat(); B = RT.BT; for (let i = 0; i < 140; i++) B.f.t[i] = (i % 14) > 5 ? 1 : 0; const o = put(RT.heroUnit('orin', 3), 2, 4); put(RT.foeUnit('wolf'), 6, 4);
+               RT.useSkill(o, 'firebolt', 6, 4); RT.sim(1.5); const lit = [...B.f.fire].filter(Boolean).length; for (let r = 0; r < 3; r++) RT.fireTick(); out.spread = [...B.f.fire].filter(Boolean).length > lit;
+               mk(); flat(); B = RT.BT; const s = put(RT.heroUnit('sefa', 4), 2, 4); k = put(RT.heroUnit('kael', 4), 3, 4); k.dead = true; k.hp = 0; B.fallen.push(k);
+               RT.useSkill(s, 'revive', 2, 5); RT.sim(1); out.revived = !k.dead && k.hp > 0;
+               mk(); flat(); B = RT.BT; k = put(RT.heroUnit('kael', 5), 2, 4); const b = put(RT.foeUnit('bogking', 1, 3), 6, 4); B.boss = true; B.side = 1; B.ai = [false, true]; B.aiQ = [b]; b.done = false;
+               RT.sim(3); out.pulled = k.x === 5;
+               return JSON.stringify(out); })()"""))
+        self.assertEqual(rules, {"pit": True, "ice": 5, "golem": 5, "spread": True, "revived": True, "pulled": True})
+        # the controls: choose Kael, move him, attack the goblin beside him
+        ctl = json.loads(js("""(() => { mk(); flat(); const B = RT.BT; const k = put(RT.heroUnit('kael', 5), 3, 4), g = put(RT.foeUnit('goblin'), 6, 4); B.ai = [false, true];
+               let n = 0; const press = b => { RT.G.pressAt[0][b] = performance.now() + (n += 0.01); RT.sim(0.05); };   // (each press its own moment)
+               RT.cur.x = 3; RT.cur.y = 4; press('a'); const moving = RT.ui; RT.cur.x = 5; press('a'); RT.sim(0.6); const acting = RT.ui; press('a'); const aiming = RT.ui; press('a'); RT.sim(1);
+               return JSON.stringify([moving, acting, aiming, k.x, g.hp < g.max]); })()"""))
+        self.assertEqual(ctl, ["move", "act", "target", 5, True])
+        # the campaign: a won battle levels heroes, opens the roads beyond it, is kept; a hero joins at Reedwater
+        js("RT.SAVE.camp = RT.newCamp(); RT.store.save(); RT.campBattle(0); 1")
+        self.assertTrue(until("RT.mode === 'battle' && RT.BT && RT.BT.node === 0", 10))
+        won = json.loads(js("""(() => { const B = RT.BT; B.units.filter(u => u.hero).forEach(u => u.gain = 40); for (const u of B.units) if (u.side === 1) { u.hp = 0; u.dead = true; } RT.sim(2);
+               const c = JSON.parse(localStorage.getItem('rune-tactics')).camp; return JSON.stringify([RT.mode, c.done['0'], c.heroes.kael.lvl > 1, RT.NODES.filter(n => n.from.includes(0)).length, (RT.BT.levels || []).length > 0]); })()"""))
+        self.assertEqual(won, ["result", 1, True, 2, True])
+        js("RT.campBattle(2); 1")
+        self.assertTrue(until("RT.mode === 'battle' && RT.BT && RT.BT.node === 2", 10))
+        joined = json.loads(js("""(() => { for (const u of RT.BT.units) if (u.side === 1) { u.hp = 0; u.dead = true; } RT.sim(2); return JSON.stringify(JSON.parse(localStorage.getItem('rune-tactics')).camp.joined); })()"""))
+        self.assertIn("sefa", joined)
+        hold = json.loads(js("""(() => { RT.startBattle({ mode: 'skirmish', theme: 'meadow', seed: 9, heroes: [{ id: 'kael', lvl: 8 }], foes: ['goblin'], hold: 2 }); const B = RT.BT;
+               for (const u of B.units) if (u.side === 1) { u.x = 13; u.y = 0; u.st.frozen = 9; } B.ai = [true, true]; RT.sim(30); return JSON.stringify([B.winner, B.round]); })()"""))
+        self.assertEqual(hold[0], 0)
+        self.assertEqual(js("JSON.stringify(errs)"), "[]")
+        js("localStorage.removeItem('rune-tactics'); location.hash = '#demo-test'; location.reload(); 1")
+        time.sleep(1)
+        self.assertTrue(until("typeof RT === 'object' && window.SofaStats.demo === true && RT.mode === 'battle'", 30))
+        self.assertTrue(until("RT.BT && RT.BT.round >= 2", 60))                                 # it fights by itself
+        self.assertIsNone(js("localStorage.getItem('rune-tactics')"))                           # and keeps nothing
+
     def test_gloamwell_finds(self):
         """Gloamwell's finds: a gem set in a socket gives its power and is kept through a save; a hidden vault's
         cracked wall breaks open; a familiar follows you down; floors with an omen (a gilded thief, the restless

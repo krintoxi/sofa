@@ -7,6 +7,19 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.48
+
+- **Rune Tactics, a whole tactics game.** A campaign of fifteen battles on a map whose roads branch: meadows,
+  marshes, ashlands, frostfell, ruins and a crypt, three of them bosses (the Bog King pulls heroes in with his
+  tongue, the Emberwyrm breathes a row of fire, the Hollow Crown raises its dead and slips away when crowded), and
+  two to hold for a set number of rounds. Five heroes who level up and learn spells: Kael (shield bash, guard,
+  cleave), Lyra (pin shot, volley), Orin (firebolt, flame wall, meteor), Sefa (mend, bless, revive) and Vesk
+  (frost, gust, chain lightning). High ground, cover, fire that spreads, water to freeze, pits to shove foes into.
+  Ten kinds of foe, each with a trick: goblins, bone archers, brutes that shove, shamans that heal, wolves that
+  flank, slimes that split, fire imps, golems that can't be moved, wraiths that drain, bombers that go off. The
+  campaign is saved between battles; skirmishes on fields made up each time; two players taking turns. It's on
+  the box's 2D engine now.
+
 ## 1.1.47
 
 - **Shadow Heist, a whole stealth game.** Twelve heists in three buildings: Ashcombe Manor (carpets, libraries,

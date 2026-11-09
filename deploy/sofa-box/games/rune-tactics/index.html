@@ -1,1803 +1,875 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<title>Rune Tactics</title>
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Rune Tactics</title>
 <style>
-*{margin:0;padding:0;box-sizing:border-box;}
-body{background:#000;display:flex;align-items:center;justify-content:center;width:100vw;height:100vh;overflow:hidden;}
-canvas{image-rendering:pixelated;image-rendering:crisp-edges;}
-</style>
-</head>
-<body>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; user-select: none; }
+  canvas { position: absolute; image-rendering: pixelated; }
+</style></head><body>
 <canvas id="c"></canvas>
-<script src="../pad.js" onerror="void 0"></script>
+<script src="../pad.js"></script>
+<script src="../low3d.js"></script>
+<script src="../low2d.js"></script>
 <script>
-// ─────────────────────────── PALETTE ───────────────────────────
-const PAL={k:"#0d0b14",K:"#241d2e",g:"#5a5468",G:"#9a94a8",w:"#ece8f4",
-  s:"#e0a67a",S:"#a86a48",r:"#c8303a",R:"#7a1a26",o:"#ee8a3a",O:"#9a4a1e",
-  y:"#f2c14e",Y:"#a87a1e",b:"#4a78c8",B:"#243c78",c:"#7ad8f0",C:"#2e6e8a",
-  n:"#6e4c2e",N:"#3e2a1a",e:"#5aa04a",E:"#2e5a2a",p:"#8a4ab0",P:"#4a2468",
-  m:"#e2d49c",M:"#a89860",v:"#b8e070",x:"#ff5a8a",t:"#d0c4b0",T:"#7e6e5c",z:"rgba(0,0,0,0.42)"};
+/* Rune Tactics: turn-based tactics for Sofa Box OS, on Low2D (../low2d.js), the box's 2D engine. A campaign of
+   fifteen battles on a map of branching roads, five heroes who level up and learn spells (Kael the knight, Lyra the
+   archer, Orin the pyromancer, Sefa the cleric, Vesk the stormcaller). Ground that matters: high ground (reach and
+   harder blows), forest, water to freeze, fire that spreads, pits to knock foes into. Ten kinds of foe with tricks of
+   their own and three bosses. The campaign is saved between battles; skirmishes on maps made up each time; two
+   players taking turns, heroes against the warband. Everything is the game's own and made in code. Offline, the
+   controller first (or the keyboard). In the address: #fps, #tier=…, #pace=…, #slow=N, #test (window.RT, for checks),
+   #demo (two armies fight it out by themselves). */
+(function () {
+"use strict";
+const L2 = window.Low2D, U = L2.U, clamp = U.clamp, font = L2.font, mk = L2.mk;
+const VW = 480, VH = 270, TS = 20, MW = 14, MH = 10, OX = 8, OY = 44, LIFT = 5;
+function g2(c) { const g = c.getContext("2d"); g.imageSmoothingEnabled = false; return g; }
+function px(g, x, y, w, h, c) { g.fillStyle = c; g.fillRect(x, y, w, h); }
+function shade(h, k) { const v = parseInt(h.slice(1), 16), c = [(v >> 16) & 255, (v >> 8) & 255, v & 255]; return "#" + c.map(q => Math.max(0, Math.min(255, Math.round(q * k))).toString(16).padStart(2, "0")).join(""); }
+function hash(x, y) { let h = (Math.imul(x, 374761393) + Math.imul(y, 668265263)) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; }
+const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 
-// ─────────────────────────── CANVAS ───────────────────────────
-const W=480,H=270;
-const cv=document.getElementById("c");
-cv.width=W;cv.height=H;
-function resize(){
-  const sc=Math.min(window.innerWidth/W,window.innerHeight/H);
-  cv.style.width=Math.round(W*sc)+"px";cv.style.height=Math.round(H*sc)+"px";
-}
-resize();window.addEventListener("resize",resize);
-const ctx=cv.getContext("2d");
-ctx.imageSmoothingEnabled=false;
-
-// ─────────────────────────── HELPERS ───────────────────────────
-function mk(w,h){const c=document.createElement("canvas");c.width=w;c.height=h;return c;}
-function g2(c){const g=c.getContext("2d");g.imageSmoothingEnabled=false;return g;}
-function spr(rows,over){
-  let w=0;for(let i=0;i<rows.length;i++)w=Math.max(w,rows[i].length);
-  const c=mk(w,rows.length),g=g2(c);
-  for(let y=0;y<rows.length;y++)for(let x=0;x<rows[y].length;x++){
-    const ch=rows[y][x];if(ch===".")continue;
-    const col=(over&&over[ch])||PAL[ch];if(!col)continue;
-    g.fillStyle=col;g.fillRect(x,y,1,1);
-  }
-  return c;
-}
-function flipX(img){
-  const c=mk(img.width,img.height),g=g2(c);
-  g.translate(img.width,0);g.scale(-1,1);g.drawImage(img,0,0);return c;
-}
-function whiteOf(img){
-  const c=mk(img.width,img.height),g=g2(c);
-  g.drawImage(img,0,0);g.globalCompositeOperation="source-in";
-  g.fillStyle="#ffffff";g.fillRect(0,0,img.width,img.height);return c;
-}
-
-// ─────────────────────────── FONT ───────────────────────────
-const FONT_MAP={
-  'A':["01110","10001","11111","10001","10001"],
-  'B':["11110","10001","11110","10001","11110"],
-  'C':["01111","10000","10000","10000","01111"],
-  'D':["11110","10001","10001","10001","11110"],
-  'E':["11111","10000","11110","10000","11111"],
-  'F':["11111","10000","11110","10000","10000"],
-  'G':["01111","10000","10111","10001","01111"],
-  'H':["10001","10001","11111","10001","10001"],
-  'I':["11111","00100","00100","00100","11111"],
-  'J':["11111","00010","00010","10010","01100"],
-  'K':["10001","10010","11100","10010","10001"],
-  'L':["10000","10000","10000","10000","11111"],
-  'M':["10001","11011","10101","10001","10001"],
-  'N':["10001","11001","10101","10011","10001"],
-  'O':["01110","10001","10001","10001","01110"],
-  'P':["11110","10001","11110","10000","10000"],
-  'Q':["01110","10001","10101","10010","01101"],
-  'R':["11110","10001","11110","10010","10001"],
-  'S':["01111","10000","01110","00001","11110"],
-  'T':["11111","00100","00100","00100","00100"],
-  'U':["10001","10001","10001","10001","01110"],
-  'V':["10001","10001","10001","01010","00100"],
-  'W':["10001","10001","10101","11011","10001"],
-  'X':["10001","01010","00100","01010","10001"],
-  'Y':["10001","01010","00100","00100","00100"],
-  'Z':["11111","00010","00100","01000","11111"],
-  '0':["01110","10011","10101","11001","01110"],
-  '1':["00100","01100","00100","00100","01110"],
-  '2':["01110","10001","00110","01000","11111"],
-  '3':["11110","00001","00110","00001","11110"],
-  '4':["00110","01010","10010","11111","00010"],
-  '5':["11111","10000","11110","00001","11110"],
-  '6':["01110","10000","11110","10001","01110"],
-  '7':["11111","00001","00010","00100","00100"],
-  '8':["01110","10001","01110","10001","01110"],
-  '9':["01110","10001","01111","00001","01110"],
-  '!':["00100","00100","00100","00000","00100"],
-  '-':["00000","00000","01110","00000","00000"],
-  ':':["00000","00100","00000","00100","00000"],
-  '.':["00000","00000","00000","00000","00100"],
-  '/':["00001","00010","00100","01000","10000"],
-  ' ':["00000","00000","00000","00000","00000"],
-  '\u2715':["10001","01010","00100","01010","10001"],
-  '[':["01100","01000","01000","01000","01100"],
-  ']':["00110","00010","00010","00010","00110"],
-  '\u25cb':["01110","10001","10001","10001","01110"],
-  '\u25a1':["11111","10001","10001","10001","11111"],
-  '\u25b3':["00100","01010","01010","10001","11111"],
-  "'":["00100","00100","00000","00000","00000"],
-  '%':["11001","11010","00100","01011","10011"],
-  '+':["00000","00100","01110","00100","00000"],
-  '?':["01110","10001","00110","00000","00100"],
+// ---------------------------------------------------------------- the ground
+const GRASS = 0, FOREST = 1, WATER = 2, PIT = 3, ROCK = 4, ICE = 5, MUD = 6, FLOOR = 7;
+const TERRAIN = [
+  { name: "GRASS", cost: 1, def: 0 }, { name: "FOREST", cost: 2, def: 2, burns: 4 }, { name: "WATER", cost: 99, def: 0, wet: 1 }, { name: "PIT", cost: 99, def: 0, pit: 1 },
+  { name: "ROCK", cost: 99, def: 0, wall: 1 }, { name: "ICE", cost: 1, def: 0 }, { name: "MUD", cost: 2, def: 0 }, { name: "STONE", cost: 1, def: 0 }];
+const THEMES = {
+  meadow: { name: "MEADOW", grass: "#5a9a44", grass2: "#4c8a3a", forest: "#2e6a32", water: "#2e6aa0", pit: "#141018", rock: "#7a7a84", side: "#3a5a2a", floor: "#8a8a7a", mud: "#6a5a3a" },
+  marsh: { name: "MARSH", grass: "#5a7a44", grass2: "#4e6c3a", forest: "#2e5a36", water: "#2a5a6a", pit: "#101418", rock: "#6a7068", side: "#34482a", floor: "#7a7a6a", mud: "#5a4a2e" },
+  ash: { name: "ASHLANDS", grass: "#6a5a52", grass2: "#5c4e48", forest: "#3a2e2a", water: "#3a2a2a", pit: "#0e0808", rock: "#4a4246", side: "#3a2e2a", floor: "#7a6a62", mud: "#4a3a30" },
+  frost: { name: "FROSTFELL", grass: "#d8e2ee", grass2: "#c8d4e4", forest: "#2e5a4a", water: "#3a7ab0", pit: "#18202e", rock: "#8a94a4", side: "#9aa8bc", floor: "#b0b8c4", mud: "#9aa4b4" },
+  ruins: { name: "RUINS", grass: "#6a8a4a", grass2: "#5e7e40", forest: "#3a6a3a", water: "#3a6a90", pit: "#100c14", rock: "#8a8478", side: "#5a5448", floor: "#9a9284", mud: "#6a5a40" },
+  crypt: { name: "CRYPT", grass: "#4a4652", grass2: "#423e4a", forest: "#2a3a34", water: "#2a3a5a", pit: "#060408", rock: "#5a5464", side: "#2e2a36", floor: "#5e5868", mud: "#3e3a44" }
 };
-// the letters: each drawn once in each colour, then copied (far cheaper on a Pi than every pixel, every frame)
-let GLYPHS={}, glyphCols=0;
-function glyphOf(ch,col){
-  let set=GLYPHS[col];
-  if(!set){ if(++glyphCols>48){ GLYPHS={}; glyphCols=1; } set=GLYPHS[col]={}; }
-  let c=set[ch]; if(c) return c;
-  const rows=FONT_MAP[ch]||FONT_MAP[' '];
-  c=document.createElement("canvas"); c.width=5; c.height=5; const g=c.getContext("2d"); g.fillStyle=col;
-  for(let fy=0;fy<5;fy++) for(let fx=0;fx<rows[fy].length;fx++) if(rows[fy][fx]==='1') g.fillRect(fx,fy,1,1);
-  return set[ch]=c;
-}
-function drawText(ctx,str,x,y,col,scale,shadow){
-  scale=scale||1; const cw=(5+1)*scale, s=str.toUpperCase();
-  for(let i=0;i<s.length;i++){
-    const ch=s[i]; if(ch===' ') continue;
-    if(shadow) ctx.drawImage(glyphOf(ch,"#000000"),x+i*cw+scale,y+scale,5*scale,5*scale);
-    ctx.drawImage(glyphOf(ch,col),x+i*cw,y,5*scale,5*scale);
+
+// ---------------------------------------------------------------- the heroes, their skills
+const HEROES = {
+  kael: { name: "KAEL", cls: "KNIGHT", hp: 30, atk: 8, def: 3, mov: 4, rng: [1, 1], grow: [4, 1, 1], col: "#3a6ad8", learn: { 1: "bash", 3: "guard", 5: "cleave" } },
+  lyra: { name: "LYRA", cls: "ARCHER", hp: 20, atk: 7, def: 1, mov: 4, rng: [2, 4], grow: [3, 1, 0.5], col: "#4aa04a", learn: { 1: "pin", 4: "volley" } },
+  orin: { name: "ORIN", cls: "PYROMANCER", hp: 18, atk: 4, def: 1, mov: 4, rng: [1, 1], grow: [2.5, 1, 0.5], col: "#d84a3a", learn: { 1: "firebolt", 3: "flamewall", 5: "meteor" } },
+  sefa: { name: "SEFA", cls: "CLERIC", hp: 22, atk: 5, def: 2, mov: 4, rng: [1, 1], grow: [3, 0.5, 1], col: "#e8d8a0", learn: { 1: "heal", 2: "bless", 4: "revive" } },
+  vesk: { name: "VESK", cls: "STORMCALLER", hp: 19, atk: 5, def: 1, mov: 4, rng: [1, 1], grow: [2.5, 1, 0.5], col: "#7a5ad8", learn: { 1: "frost", 2: "gust", 4: "chain" } }
+};
+const HERO_IDS = ["kael", "lyra", "orin", "sefa", "vesk"];
+// tgt: foe, ally, tile, self. pow: a share of attack; dmg: fixed. area: radius round the target; line: tiles in a row
+const SKILLS = {
+  bash: { name: "SHIELD BASH", rng: [1, 1], tgt: "foe", pow: 1, push: 1, cd: 2, about: "A BLOW THAT KNOCKS IT BACK A TILE" },
+  guard: { name: "GUARD", tgt: "self", cd: 3, about: "ALLIES BESIDE KAEL TAKE HALF DAMAGE TILL HIS NEXT TURN" },
+  cleave: { name: "CLEAVE", tgt: "self", pow: 0.9, around: 1, cd: 3, about: "HITS EVERY FOE BESIDE HIM" },
+  pin: { name: "PIN SHOT", rng: [2, 4], tgt: "foe", pow: 0.8, pin: 1, cd: 2, about: "IT CAN'T MOVE ON ITS NEXT TURN" },
+  volley: { name: "VOLLEY", rng: [2, 5], tgt: "tile", pow: 0.7, area: 1, cd: 3, about: "ARROWS ON A 3 BY 3 PATCH" },
+  firebolt: { name: "FIREBOLT", rng: [1, 3], tgt: "tile", dmg: 8, ignite: 1, cd: 1, about: "BURNS WHERE IT LANDS" },
+  flamewall: { name: "FLAME WALL", rng: [1, 3], tgt: "tile", dmg: 4, line: 3, ignite: 1, cd: 3, about: "A ROW OF FIRE ACROSS THE WAY" },
+  meteor: { name: "METEOR", rng: [2, 4], tgt: "tile", dmg: 12, area: 1, ignite: 1, cd: 4, about: "A ROCK OF FIRE ON A 3 BY 3 PATCH" },
+  heal: { name: "MEND", rng: [0, 2], tgt: "ally", heal: 10, cd: 1, about: "HEALS 10" },
+  bless: { name: "BLESS", rng: [0, 2], tgt: "ally", bless: 3, cd: 2, about: "+3 ATTACK FOR TWO TURNS" },
+  revive: { name: "REVIVE", rng: [1, 1], tgt: "fallen", cd: 5, about: "A FALLEN ALLY BESIDE HER STANDS AGAIN" },
+  frost: { name: "FROST", rng: [1, 3], tgt: "tile", dmg: 6, freeze: 1, cd: 1, about: "FREEZES A FOE, WATER TO ICE, FIRE OUT" },
+  gust: { name: "GUST", rng: [1, 2], tgt: "foe", dmg: 3, push: 2, cd: 2, about: "BLOWS IT BACK TWO TILES: MIND THE PITS" },
+  chain: { name: "CHAIN LIGHTNING", rng: [1, 3], tgt: "foe", dmg: 7, chain: 3, cd: 3, about: "LEAPS TO TWO MORE FOES NEARBY" }
+};
+// ---------------------------------------------------------------- the foes, the bosses
+const FOES = {
+  goblin: { name: "GOBLIN", hp: 10, atk: 5, def: 0, mov: 5, rng: [1, 1], col: "#5a9a3a", xp: 3 },
+  archer: { name: "BONE ARCHER", hp: 9, atk: 5, def: 0, mov: 4, rng: [2, 4], col: "#d8d0bc", xp: 3 },
+  brute: { name: "BRUTE", hp: 22, atk: 8, def: 2, mov: 3, rng: [1, 1], push: 1, col: "#8a5a3a", xp: 5 },
+  shaman: { name: "SHAMAN", hp: 12, atk: 3, def: 0, mov: 4, rng: [1, 2], heal: 6, col: "#3a8a7a", xp: 4 },
+  wolf: { name: "WOLF", hp: 12, atk: 6, def: 0, mov: 6, rng: [1, 1], flank: 3, col: "#8a8a94", xp: 3 },
+  slime: { name: "SLIME", hp: 14, atk: 4, def: 0, mov: 3, rng: [1, 1], split: 1, col: "#6ad84a", xp: 3 },
+  slimelet: { name: "SLIMELET", hp: 5, atk: 3, def: 0, mov: 3, rng: [1, 1], col: "#8ae86a", xp: 1 },
+  imp: { name: "FIRE IMP", hp: 9, atk: 4, def: 0, mov: 5, rng: [1, 2], fly: 1, ignite: 1, col: "#e8502a", xp: 3 },
+  golem: { name: "GOLEM", hp: 30, atk: 7, def: 4, mov: 2, rng: [1, 1], heavy: 1, col: "#8a8478", xp: 6 },
+  wraith: { name: "WRAITH", hp: 14, atk: 5, def: 1, mov: 5, rng: [1, 1], fly: 1, drain: 1, col: "#5a4a7a", xp: 4 },
+  bomber: { name: "BOMBER", hp: 8, atk: 3, def: 0, mov: 4, rng: [1, 1], bomb: 1, col: "#6a8a3a", xp: 3 },
+  skeleton: { name: "SKELETON", hp: 8, atk: 5, def: 1, mov: 4, rng: [1, 1], col: "#e0dccc", xp: 2 },
+  bogking: { name: "THE BOG KING", hp: 62, atk: 9, def: 2, mov: 3, rng: [1, 1], boss: 1, tongue: 1, heavy: 1, col: "#6a8a3a", xp: 20 },
+  wyrm: { name: "EMBERWYRM", hp: 78, atk: 10, def: 3, mov: 4, rng: [1, 1], boss: 1, fly: 1, breath: 1, heavy: 1, col: "#c83a2a", xp: 25 },
+  crown: { name: "THE HOLLOW CROWN", hp: 92, atk: 9, def: 3, mov: 3, rng: [1, 2], boss: 1, summon: 1, blink: 1, heavy: 1, col: "#9a8ad8", xp: 30 }
+};
+const KINDS10 = ["goblin", "archer", "brute", "shaman", "wolf", "slime", "imp", "golem", "wraith", "bomber"];
+
+// ---------------------------------------------------------------- the campaign's map: fifteen battles, roads that branch
+// from: the battles any one of which opens this one. hold: survive that many rounds (otherwise: rout them, or beat the boss)
+const NODES = [
+  { id: 0, name: "MILLBROOK", theme: "meadow", seed: 3, x: 40, y: 150, from: [], foes: ["goblin", "goblin", "goblin", "archer"], about: "GOBLINS AT THE MILL. A FIRST FIGHT." },
+  { id: 1, name: "THE OLD ROAD", theme: "meadow", seed: 7, x: 90, y: 100, from: [0], foes: ["goblin", "goblin", "wolf", "wolf", "archer"], about: "WOLVES RUN WITH THE GOBLINS NOW." },
+  { id: 2, name: "REEDWATER", theme: "marsh", seed: 11, x: 90, y: 200, from: [0], foes: ["slime", "slime", "goblin", "shaman"], join: "sefa", about: "SLIMES IN THE REEDS. A CLERIC IS TRAPPED THERE." },
+  { id: 3, name: "HOLLOW OAK", theme: "meadow", seed: 13, x: 140, y: 90, from: [1], foes: ["wolf", "wolf", "goblin", "shaman", "archer"], hold: 6, about: "HOLD THE OAK FOR SIX ROUNDS." },
+  { id: 4, name: "SUNKEN CAUSEWAY", theme: "marsh", seed: 17, x: 145, y: 190, from: [2, 1], foes: ["slime", "brute", "goblin", "goblin", "archer"], about: "A CAUSEWAY OVER DEEP WATER." },
+  { id: 5, name: "THE BOG KING'S THRONE", theme: "marsh", seed: 19, x: 195, y: 150, from: [3, 4], boss: "bogking", foes: ["slime", "goblin", "shaman"], about: "THE BOG KING. HIS TONGUE PULLS YOU IN." },
+  { id: 6, name: "CINDER PASS", theme: "ash", seed: 23, x: 245, y: 90, from: [5], foes: ["imp", "imp", "goblin", "brute", "archer"], join: "vesk", about: "IMPS SET THE PASS ALIGHT. A STORMCALLER WAITS." },
+  { id: 7, name: "SMELTERS' RUIN", theme: "ruins", seed: 29, x: 250, y: 150, from: [5], foes: ["golem", "bomber", "bomber", "archer", "goblin"], about: "BOMBERS IN THE OLD SMELTERY." },
+  { id: 8, name: "GLASS DUNES", theme: "ash", seed: 31, x: 250, y: 215, from: [5], foes: ["wolf", "wolf", "imp", "brute", "shaman"], about: "WOLVES ON THE BURNT DUNES." },
+  { id: 9, name: "THE WARDEN STONES", theme: "ruins", seed: 37, x: 300, y: 120, from: [6, 7], foes: ["golem", "golem", "archer", "shaman"], hold: 7, about: "HOLD THE STONES WHILE THE RUNES WAKE." },
+  { id: 10, name: "EMBERWYRM'S ROOST", theme: "ash", seed: 41, x: 300, y: 195, from: [7, 8], boss: "wyrm", foes: ["imp", "imp", "bomber"], about: "THE EMBERWYRM. IT BREATHES A ROW OF FIRE." },
+  { id: 11, name: "RIMEHOLD", theme: "frost", seed: 43, x: 355, y: 120, from: [10], foes: ["wraith", "wraith", "wolf", "archer", "brute"], about: "WRAITHS IN THE FROZEN KEEP." },
+  { id: 12, name: "THE BLACK LAKE", theme: "frost", seed: 47, x: 360, y: 205, from: [10], foes: ["slime", "slime", "wraith", "golem", "shaman"], about: "A FROZEN LAKE. FREEZE THE WATER, OR SINK." },
+  { id: 13, name: "THE BONE GATE", theme: "crypt", seed: 53, x: 410, y: 160, from: [11, 12], foes: ["skeleton", "skeleton", "archer", "archer", "wraith", "bomber"], about: "THE GATE OF THE CRYPT." },
+  { id: 14, name: "THE HOLLOW THRONE", theme: "crypt", seed: 59, x: 455, y: 110, from: [13], boss: "crown", foes: ["skeleton", "wraith", "archer"], about: "THE HOLLOW CROWN. IT CALLS ITS DEAD." }
+];
+
+// ---------------------------------------------------------------- a battlefield, made from a seed
+// Height in steps (0-2) from smooth noise, then the theme's ground: forest, water, pits, rock, mud, ice. Your side
+// deploys on the left, the foes' on the right; a way through for walkers is kept, and pits never wall it off.
+function makeField(theme, seed) {
+  const r = U.rand(seed * 977 + 31), t = new Uint8Array(MW * MH), h = new Uint8Array(MW * MH);
+  const n = (x, y, s, o) => { const fx = x / s + o, fy = y / s + o * 1.7, ix = Math.floor(fx), iy = Math.floor(fy), tx = fx - ix, ty = fy - iy, a = hash(ix + seed, iy), b = hash(ix + 1 + seed, iy), c = hash(ix + seed, iy + 1), d = hash(ix + 1 + seed, iy + 1);
+    return a + (b - a) * tx + (c - a) * ty + (a - b - c + d) * tx * ty; };
+  const P = { meadow: [0.12, 0.08, 0.04, 0.04, 0, 0, 0], marsh: [0.1, 0.22, 0.04, 0.02, 0, 0.14, 0], ash: [0.04, 0.04, 0.09, 0.06, 0, 0.04, 0], frost: [0.08, 0.16, 0.05, 0.05, 0.08, 0, 0],
+    ruins: [0.06, 0.05, 0.07, 0.1, 0, 0, 0.35], crypt: [0.02, 0.04, 0.12, 0.08, 0, 0, 0.6] }[theme];
+  for (let y = 0; y < MH; y++) for (let x = 0; x < MW; x++) {
+    const i = y * MW + x, hv = n(x, y, 4.5, 0.3);
+    h[i] = hv > 0.68 ? 2 : hv > 0.48 ? 1 : 0;
+    const q = r(); let k = GRASS, acc = 0;
+    for (const [kind, p] of [[FOREST, P[0]], [WATER, P[1]], [PIT, P[2]], [ROCK, P[3]], [ICE, P[4]], [MUD, P[5]], [FLOOR, P[6]]]) { acc += p; if (q < acc) { k = kind; break; } }
+    if (k === WATER || k === PIT || k === ICE) h[i] = 0;
+    if ((k === WATER || k === PIT || k === ROCK) && (x < 2 || x > MW - 3)) k = theme === "crypt" || theme === "ruins" ? FLOOR : GRASS;
+    t[i] = k;
   }
-}
-function textWidth(str,scale){return str.length*(5+1)*(scale||1);}
-function drawCenter(ctx,str,y,col,scale){
-  const tw=textWidth(str,scale);
-  drawText(ctx,str,Math.floor((W-tw)/2),y,col,scale,true);
+  // water and ice and pits in clumps: a lone pool grows a neighbour
+  for (let i = 0; i < MW * MH; i++) if ((t[i] === WATER || t[i] === ICE) && r() < 0.6) { const [dx, dy] = DIRS[(r() * 4) | 0], x = i % MW + dx, y = ((i / MW) | 0) + dy; if (x > 1 && y >= 0 && x < MW - 2 && y < MH) { t[y * MW + x] = t[i]; h[y * MW + x] = 0; } }
+  // a way across for walkers: if the right can't be reached from the left, clear a winding path
+  const ok = i => TERRAIN[t[i]].cost < 99;
+  const reach = () => { const seen = new Uint8Array(MW * MH), q = []; for (let y = 0; y < MH; y++) if (ok(y * MW)) { seen[y * MW] = 1; q.push(y * MW); }
+    while (q.length) { const c = q.pop(), x = c % MW, y = (c / MW) | 0; for (const [dx, dy] of DIRS) { const nx = x + dx, ny = y + dy; if (nx < 0 || ny < 0 || nx >= MW || ny >= MH) continue; const k = ny * MW + nx; if (!seen[k] && ok(k) && Math.abs(h[k] - h[c]) < 2) { seen[k] = 1; q.push(k); } } }
+    let right = 0; for (let y = 0; y < MH; y++) if (seen[y * MW + MW - 1]) right++; let all = 0, got = 0; for (let k = 0; k < MW * MH; k++) if (ok(k)) { all++; if (seen[k]) got++; } return right >= 3 && got >= all * 0.9; };
+  for (let tries = 0; tries < 6 && !reach(); tries++) {
+    let y = (r() * MH) | 0;
+    for (let x = 0; x < MW; x++) { const i = y * MW + x; if (!ok(i)) t[i] = theme === "crypt" || theme === "ruins" ? FLOOR : GRASS; if (x > 0) h[i] = Math.min(h[i], h[i - 1] + 1); if (r() < 0.3) { y = clamp(y + (r() < 0.5 ? -1 : 1), 0, MH - 1); const j = y * MW + x; if (!ok(j)) t[j] = GRASS; h[j] = Math.min(h[j], h[i] + 1); } }
+    // cliffs too steep: soften them
+    for (let k = 0; k < MW * MH; k++) for (const [dx, dy] of DIRS) { const x = k % MW + dx, yy = ((k / MW) | 0) + dy; if (x < 0 || yy < 0 || x >= MW || yy >= MH) continue; const j = yy * MW + x; if (h[k] - h[j] > 1) h[k] = h[j] + 1; }
+  }
+  return { t, h, fire: new Uint8Array(MW * MH), theme };
 }
 
-// ─────────────────────────── BAYER DITHER ───────────────────────────
-const BAYER=[[ 0, 8, 2,10],
-             [12, 4,14, 6],
-             [ 3,11, 1, 9],
-             [15, 7,13, 5]];
-const DISCS={};
-function ditherDisc(ctx,cx,cy,r,hexCol,maxAlpha){       // (drawn once into a small canvas, then copied)
-  const key=r+hexCol+maxAlpha; let d=DISCS[key];
-  if(!d){ d=document.createElement("canvas"); d.width=d.height=r*2+2; ditherDiscRaw(d.getContext("2d"),r+1,r+1,r,hexCol,maxAlpha); DISCS[key]=d; }
-  ctx.drawImage(d,Math.round(cx-r-1),Math.round(cy-r-1));
+// ---------------------------------------------------------------- the figures (drawn once each, two frames)
+const SPR = {};
+function sprite(k) {
+  if (SPR[k]) return SPR[k];
+  const big = FOES[k] && FOES[k].boss, w = big ? 28 : 16, hh = big ? 31 : 23, c = mk(w * 2, hh), g = g2(c);
+  for (let f = 0; f < 2; f++) { g.save(); g.translate(f * w, 3 + (f ? 1 : 0)); drawFig(g, k, w, hh); g.restore(); }   // (room above for hats)
+  // an outline round it, so it reads on any ground
+  const o = mk(w * 2 + 2, hh + 2), og = g2(o), sil = L2.silhouette(c, "#0b0912");
+  for (const [dx, dy] of [[0, 1], [2, 1], [1, 0], [1, 2]]) og.drawImage(sil, dx, dy); og.drawImage(c, 1, 1);
+  return (SPR[k] = { c: o, w, h: hh });
 }
-function ditherDiscRaw(ctx,cx,cy,r,hexCol,maxAlpha){
-  const x0=Math.floor(cx-r),y0=Math.floor(cy-r);
-  const x1=Math.ceil(cx+r),y1=Math.ceil(cy+r);
-  const cr=parseInt(hexCol.slice(1,3),16);
-  const cg=parseInt(hexCol.slice(3,5),16);
-  const cb=parseInt(hexCol.slice(5,7),16);
-  for(let py=y0;py<=y1;py++){
-    for(let px=x0;px<=x1;px++){
-      const dx=px-cx,dy=py-cy;
-      const dist=Math.sqrt(dx*dx+dy*dy);
-      if(dist>r)continue;
-      const alpha=maxAlpha*(1-dist/r);
-      const threshold=(BAYER[py&3][px&3]/16);
-      if(alpha>threshold){
-        ctx.fillStyle=hexCol;
-        ctx.fillRect(px,py,1,1);
-      }
+function drawFig(g, k, w, h) {
+  const P = (x, y, ww, hh, c) => px(g, x, y, ww, hh, c);
+  const man = (body, head, legs) => { P(5, 15, 2, 4, legs || "#3a3040"); P(9, 15, 2, 4, legs || "#3a3040"); P(4, 8, 8, 8, body); P(4, 8, 8, 1, shade(body, 1.3)); P(5, 3, 6, 5, head || "#d8a07a"); P(3, 9, 1, 5, shade(body, 0.8)); P(12, 9, 1, 5, shade(body, 0.8)); };
+  switch (k) {
+    case "kael": man("#5a6a8a"); P(4, 8, 8, 2, "#c8ccd8"); P(5, 2, 6, 3, "#c8ccd8"); P(5, 5, 6, 1, "#8a90a0"); P(1, 8, 4, 7, "#3a6ad8"); P(2, 9, 2, 5, "#e8d070"); P(12, 3, 1, 8, "#e8e8f0"); P(11, 10, 3, 1, "#a87a3a"); P(7, 15, 2, 3, "#3a6ad8"); break;
+    case "lyra": man("#4a7a3a"); P(4, 2, 8, 3, "#3a8a3a"); P(4, 4, 2, 4, "#3a8a3a"); P(10, 4, 2, 4, "#3a8a3a"); P(12, 4, 1, 11, "#8a5a2a"); P(13, 5, 1, 9, "#e8e0c8"); P(3, 7, 2, 6, "#6a4a2a"); break;
+    case "orin": man("#b83a2a"); P(4, 0, 8, 2, "#8a2a1e"); P(6, -2, 4, 2, "#8a2a1e"); P(7, -3, 2, 1, "#8a2a1e"); P(3, 14, 10, 2, "#8a2a1e"); P(12, 8, 2, 2, "#ffd27a"); P(12, 6, 2, 2, "#ff8a3a"); P(6, 5, 1, 1, "#141018"); P(9, 5, 1, 1, "#141018"); break;
+    case "sefa": man("#e8e4d8", null, "#c8c0b0"); P(4, 12, 8, 1, "#d8b040"); P(5, 2, 6, 2, "#d8b040"); P(13, 2, 1, 14, "#a87a3a"); P(12, 1, 3, 3, "#ffd27a"); P(3, 14, 10, 2, "#e8e4d8"); break;
+    case "vesk": man("#5a3a9a"); P(5, 2, 6, 2, "#9ad8f0"); P(13, 3, 1, 13, "#6a5a8a"); P(12, 1, 3, 3, "#5ae0ff"); P(3, 14, 10, 2, "#4a2e7a"); P(4, 11, 8, 1, "#9ad8f0"); break;
+    case "goblin": case "bomber": P(5, 15, 2, 3, "#3a4a2a"); P(9, 15, 2, 3, "#3a4a2a"); P(4, 9, 8, 7, "#6a5a3a"); P(4, 4, 8, 6, "#6aa04a"); P(2, 5, 2, 2, "#6aa04a"); P(12, 5, 2, 2, "#6aa04a"); P(6, 6, 1, 1, "#ffea00"); P(9, 6, 1, 1, "#ffea00");
+      if (k === "goblin") { P(12, 9, 1, 5, "#c8c8d0"); } else { P(10, 10, 5, 5, "#2a2a30"); P(11, 11, 2, 2, "#5a5a68"); P(13, 8, 1, 2, "#ff8a3a"); } break;
+    case "archer": case "skeleton": P(5, 14, 2, 5, "#d8d0bc"); P(9, 14, 2, 5, "#d8d0bc"); P(5, 8, 6, 7, "#a8a090"); for (let y = 9; y < 14; y += 2) P(5, y, 6, 1, "#d8d0bc"); P(5, 2, 6, 6, "#e8e0cc"); P(6, 4, 1, 2, "#141018"); P(9, 4, 1, 2, "#141018");
+      if (k === "archer") { P(12, 4, 1, 11, "#6a4a2a"); P(13, 5, 1, 9, "#c8c0b0"); } else { P(12, 7, 1, 7, "#c8c8d0"); P(2, 8, 3, 5, "#6a6a74"); } break;
+    case "brute": P(3, 15, 4, 4, "#4a3020"); P(9, 15, 4, 4, "#4a3020"); P(2, 6, 12, 10, "#8a5a3a"); P(2, 6, 12, 1, "#a87048"); P(5, 1, 6, 6, "#a87048"); P(6, 3, 1, 1, "#141018"); P(9, 3, 1, 1, "#141018"); P(0, 7, 2, 7, "#8a5a3a"); P(14, 7, 2, 7, "#8a5a3a"); P(14, 2, 2, 6, "#6a4a2a"); P(13, 0, 4, 3, "#5a5a64"); break;
+    case "shaman": man("#3a7a6a", "#6aa04a"); P(4, 0, 8, 3, "#c84a3a"); P(5, -2, 1, 3, "#ffd27a"); P(10, -2, 1, 3, "#5ad8f0"); P(13, 2, 1, 14, "#8a6a3a"); P(12, 1, 3, 2, "#e8e0c8"); break;
+    case "wolf": P(1, 9, 13, 6, "#7a7a84"); P(1, 9, 13, 1, "#9a9aa4"); P(2, 15, 2, 4, "#5a5a64"); P(11, 15, 2, 4, "#5a5a64"); P(11, 5, 5, 6, "#8a8a94"); P(14, 8, 2, 2, "#5a5a64"); P(12, 6, 1, 1, "#ffea00"); P(11, 3, 2, 3, "#7a7a84"); P(0, 8, 2, 2, "#7a7a84"); break;
+    case "slime": case "slimelet": { const s = k === "slime" ? 0 : 3; P(2 + s, 9 + s, 12 - s * 2, 9 - s, "#5ac83a"); P(3 + s, 7 + s, 10 - s * 2, 3, "#6ad84a"); P(4 + s, 9 + s, 3, 2, "#c8ffb0"); P(6, 12, 1, 1, "#141018"); P(9, 12, 1, 1, "#141018"); break; }
+    case "imp": P(1, 6, 4, 5, "#8a2a1e"); P(11, 6, 4, 5, "#8a2a1e"); P(5, 7, 6, 8, "#e8502a"); P(5, 3, 6, 5, "#e8602a"); P(5, 1, 1, 2, "#ffd27a"); P(10, 1, 1, 2, "#ffd27a"); P(6, 5, 1, 1, "#ffea00"); P(9, 5, 1, 1, "#ffea00"); P(7, 15, 2, 3, "#c83a1e"); break;
+    case "golem": P(2, 14, 5, 5, "#6a6458"); P(9, 14, 5, 5, "#6a6458"); P(1, 4, 14, 11, "#8a8478"); P(1, 4, 14, 1, "#a8a294"); P(4, 0, 8, 5, "#9a9488"); P(6, 2, 1, 1, "#5ae0ff"); P(9, 2, 1, 1, "#5ae0ff"); P(4, 8, 2, 2, "#6a6458"); P(9, 11, 3, 2, "#6a6458"); break;
+    case "wraith": P(3, 6, 10, 10, "#4a3a6a"); P(4, 16, 2, 3, "#3a2a5a"); P(8, 16, 2, 2, "#3a2a5a"); P(11, 16, 1, 3, "#3a2a5a"); P(4, 1, 8, 7, "#5a4a7a"); P(6, 4, 1, 1, "#9ad8ff"); P(9, 4, 1, 1, "#9ad8ff"); P(1, 8, 2, 6, "#4a3a6a"); P(13, 8, 2, 6, "#4a3a6a"); break;
+    case "bogking": P(2, 12, 24, 14, "#5a7a34"); P(2, 12, 24, 2, "#7a9a44"); P(4, 6, 8, 8, "#5a7a34"); P(16, 6, 8, 8, "#5a7a34"); P(6, 8, 4, 4, "#ffea00"); P(18, 8, 4, 4, "#ffea00"); P(7, 9, 2, 2, "#141018"); P(19, 9, 2, 2, "#141018"); P(6, 18, 16, 2, "#3a4a1e"); P(8, 2, 12, 5, "#d8b040"); for (let x = 8; x < 20; x += 3) P(x, 0, 2, 3, "#d8b040"); break;
+    case "wyrm": P(0, 8, 8, 10, "#8a2a1e"); P(20, 8, 8, 10, "#8a2a1e"); P(6, 10, 16, 14, "#c83a2a"); P(6, 10, 16, 2, "#e85a3a"); P(10, 2, 9, 9, "#c83a2a"); P(12, 5, 2, 2, "#ffea00"); P(16, 5, 2, 2, "#ffea00"); P(10, 0, 2, 3, "#5a1a10"); P(17, 0, 2, 3, "#5a1a10"); P(9, 18, 10, 3, "#ffb04a"); P(13, 24, 3, 4, "#8a2a1e"); break;
+    case "crown": P(6, 8, 16, 18, "#3a2e5a"); P(6, 8, 16, 2, "#5a4a8a"); P(9, 2, 10, 8, "#d8d0e8"); P(11, 5, 2, 2, "#9a5aff"); P(15, 5, 2, 2, "#9a5aff"); for (let x = 9; x < 19; x += 3) P(x, 0, 2, 3, "#ffd27a"); P(9, 0, 10, 1, "#ffd27a"); P(2, 10, 4, 12, "#3a2e5a"); P(22, 10, 4, 12, "#3a2e5a"); P(24, 4, 2, 20, "#8a7a9a"); P(23, 2, 4, 3, "#c87aff"); break;
+  }
+}
+
+// ---------------------------------------------------------------- a battle's state
+let BT = null;                                       // { f, units, side, round, node, mode, hold, winner, ai: [bool, bool] }
+let SEQ = [], FX = [];                               // steps that play out (moves, blows, spells); numbers that float up
+let uid = 1;
+function heroUnit(id, lvl) {
+  const H = HEROES[id], L = lvl || 1, sk = Object.keys(H.learn).filter(l => +l <= L).map(l => H.learn[l]);
+  return { id: uid++, k: id, hero: true, side: 0, name: H.name, lvl: L, xp: 0, hp: Math.round(H.hp + H.grow[0] * (L - 1)), max: Math.round(H.hp + H.grow[0] * (L - 1)),
+    atk: Math.round(H.atk + H.grow[1] * (L - 1)), def: Math.round(H.def + H.grow[2] * (L - 1)), mov: H.mov, rng: H.rng.slice(), skills: sk, cd: {}, st: {}, gain: 0 };
+}
+function foeUnit(k, side, lvlUp) {
+  const F = FOES[k], up = lvlUp || 0;
+  return { id: uid++, k, hero: false, side: side == null ? 1 : side, name: F.name, lvl: 1 + up, hp: Math.round(F.hp * (1 + up * 0.12)), max: Math.round(F.hp * (1 + up * 0.12)), atk: F.atk + Math.floor(up * 0.7), def: F.def + Math.floor(up / 3),
+    mov: F.mov, rng: F.rng.slice(), fly: !!F.fly, boss: !!F.boss, heavy: !!F.heavy, skills: [], cd: {}, st: {}, F };
+}
+const at = (x, y) => x < 0 || y < 0 || x >= MW || y >= MH ? -1 : y * MW + x;
+const unitAt = (x, y) => BT.units.find(u => !u.dead && u.x === x && u.y === y);
+const foesOf = u => BT.units.filter(v => !v.dead && v.side !== u.side);
+const friendsOf = u => BT.units.filter(v => !v.dead && v.side === u.side);
+const dist = (a, b, c, d) => Math.abs(a - c) + Math.abs(b - d);
+// where a unit can get to this turn: ground costs, climbing a step costs one more, two steps up is a cliff; fliers go
+// over water and pits; friends can be passed, foes can't
+function reach(u) {
+  const f = BT.f, cost = new Int16Array(MW * MH).fill(999), prev = new Int16Array(MW * MH).fill(-1), q = [at(u.x, u.y)];
+  cost[q[0]] = 0;
+  const mov = u.st.pin ? 0 : u.mov;
+  while (q.length) {
+    q.sort((a, b) => cost[b] - cost[a]); const c = q.pop(), x = c % MW, y = (c / MW) | 0;
+    for (const [dx, dy] of DIRS) {
+      const nx = x + dx, ny = y + dy, n = at(nx, ny); if (n < 0) continue;
+      const T = TERRAIN[f.t[n]]; let k;
+      if (u.fly) { if (T.wall) continue; k = 1; }
+      else { if (T.cost >= 99) continue; const dh = f.h[n] - f.h[c]; if (Math.abs(dh) > 1) continue; k = T.cost + (dh > 0 ? 1 : 0); }
+      const o = unitAt(nx, ny); if (o && o.side !== u.side) continue;
+      if (cost[c] + k <= mov && cost[c] + k < cost[n]) { cost[n] = cost[c] + k; prev[n] = c; q.push(n); }
+    }
+  }
+  const tiles = []; for (let i = 0; i < MW * MH; i++) if (cost[i] <= mov) { const o = unitAt(i % MW, (i / MW) | 0); if (!o || o === u) tiles.push(i); }
+  return { tiles, cost, prev };
+}
+function pathTo(R, to) { const p = []; let c = to; while (c >= 0) { p.unshift(c); c = R.prev[c]; } return p; }
+const rangeMax = u => u.rng[1] + (u.rng[1] > 1 && BT.f.h[at(u.x, u.y)] === 2 ? 1 : 0);   // (high ground: a bow reaches further)
+// a blow: attack against defence, harder from above, softer from below; forest guards; a blessing adds, a guard halves
+function damage(a, d, pow, fixed, ax, ay) {
+  const f = BT.f, ha = f.h[at(ax == null ? a.x : ax, ay == null ? a.y : ay)], hd = f.h[at(d.x, d.y)], mult = clamp(1 + 0.2 * (ha - hd), 0.7, 1.4);
+  let n;
+  if (fixed) n = Math.round((fixed + Math.floor((a.lvl || 1) / 2)) * mult);
+  else n = Math.round((a.atk + (a.st.bless ? 3 : 0) - (a.st.hex ? 2 : 0)) * (pow || 1) * mult) - d.def - TERRAIN[f.t[at(d.x, d.y)]].def;
+  if (a.F && a.F.flank && friendsOf(a).some(o => o !== a && dist(o.x, o.y, d.x, d.y) === 1)) n += a.F.flank;
+  if (d.side === 0 && BT.units.some(k => !k.dead && k.st.guard && k !== d && k.side === d.side && dist(k.x, k.y, d.x, d.y) === 1)) n = Math.floor(n / 2);
+  return Math.max(1, n);
+}
+function hurt(u, n, by, why) {                       // a hit: numbers, a flash, death, the xp for it
+  if (u.dead || n <= 0) return;
+  u.hp -= n; u.flash = 0.3; fx(u, "-" + n, 3);
+  if (by && by.hero) { by.gain += Math.min(n, u.hp + n) * 0.4; }
+  if (u.hp <= 0) die(u, by, why);
+}
+function die(u, by, why) {
+  u.hp = 0; u.dead = true; play(u.boss ? "bossdie" : "die");
+  if (by && by.hero) by.gain += (u.F ? u.F.xp : 4) * 2;
+  if (u.F && u.F.split) for (const [dx, dy] of DIRS) { if (BT.units.filter(v => v.splitOf === u.id).length >= 2) break; const x = u.x + dx, y = u.y + dy, n = at(x, y); if (n >= 0 && !unitAt(x, y) && TERRAIN[BT.f.t[n]].cost < 99) { const s = foeUnit("slimelet", u.side); s.x = x; s.y = y; s.splitOf = u.id; s.done = true; BT.units.push(s); } }
+  if (u.F && u.F.bomb) explode(u);
+  if (u.hero) BT.fallen.push(u);
+}
+function explode(u) {
+  play("boom"); FX.push({ boom: 1, x: u.x, y: u.y, t: 0 });
+  for (let y = u.y - 1; y <= u.y + 1; y++) for (let x = u.x - 1; x <= u.x + 1; x++) { const o = unitAt(x, y); if (o && o !== u) hurt(o, 6, null); ignite(x, y); }
+}
+function ignite(x, y) { const i = at(x, y); if (i < 0) return; const T = TERRAIN[BT.f.t[i]]; if (T.wet || T.pit || T.wall || BT.f.t[i] === ICE) return; BT.f.fire[i] = Math.max(BT.f.fire[i], T.burns || 2); }
+// pushed: a tile at a time; into a pit is gone (a boss climbs out, hurt), into water stuck a turn, into a wall or another
+// unit, a bump for both
+function push(u, dx, dy, n) {
+  if (u.heavy || u.dead) { if (u.heavy) fx(u, "HOLDS", 1); return; }
+  for (let k = 0; k < n; k++) {
+    const x = u.x + dx, y = u.y + dy, i = at(x, y);
+    const o = i >= 0 ? unitAt(x, y) : null, T = i >= 0 ? TERRAIN[BT.f.t[i]] : null;
+    if (i < 0 || T.wall || o || (!u.fly && BT.f.h[i] - BT.f.h[at(u.x, u.y)] > 1)) { hurt(u, 2, null); if (o) hurt(o, 2, null); play("bump"); return; }
+    u.x = x; u.y = y; u.slide = 0.15;
+    if (T.pit && !u.fly) { fx(u, "FELL!", 3); play("fall"); u.fallT = 0.6; die(u, BT.pusher, "fell"); return; }
+    if (T.wet && !u.fly) { hurt(u, 3, null); u.st.frozen = Math.max(u.st.frozen || 0, 1); fx(u, "SPLASH", 4); play("splash"); return; }
+  }
+}
+function fx(u, txt, col) { FX.push({ x: u.x, y: u.y, txt, col, t: 0 }); }
+
+// ---------------------------------------------------------------- what plays out: steps one after another
+function step(d, o) { SEQ.push(Object.assign({ d, t: 0 }, o)); }
+function runSeq(dt) {
+  if (!SEQ.length) return;
+  const s = SEQ[0]; if (!s.go) { s.go = 1; if (s.on) s.on(); }
+  s.t += dt; if (s.tick) s.tick(Math.min(1, s.t / s.d));
+  if (s.t >= s.d) { if (s.end) s.end(); SEQ.shift(); check(); }
+}
+function walkTo(u, path) {                           // along the way, a tile at a time
+  if (path.length < 2) return;
+  step(0.075 * (path.length - 1), { on: () => play("step"), tick: k => { const p = k * (path.length - 1), i = Math.min(path.length - 2, Math.floor(p)), q = p - i;
+    const a = path[i], b = path[i + 1]; u.dx = ((a % MW) + ((b % MW) - (a % MW)) * q) - u.x; u.dy = (((a / MW) | 0) + (((b / MW) | 0) - ((a / MW) | 0)) * q) - u.y; },
+    end: () => { const e = path[path.length - 1]; u.x = e % MW; u.y = (e / MW) | 0; u.dx = 0; u.dy = 0; } });
+}
+function blow(a, tx, ty, apply, sound) {             // a lunge, the hit at the middle of it
+  let hit = false;
+  step(0.26, { tick: k => { const s = Math.sin(k * Math.PI) * 0.35; a.dx = (tx - a.x) * s; a.dy = (ty - a.y) * s; if (k >= 0.5 && !hit) { hit = true; play(sound || "hit"); apply(); } }, end: () => { a.dx = 0; a.dy = 0; if (!hit) apply(); } });
+}
+function shot(a, tx, ty, kind, apply) {             // an arrow, a bolt of fire, a shard of ice, a spark
+  step(0.24 + 0.03 * dist(a.x, a.y, tx, ty), { on: () => play(kind === "arrow" ? "bow" : kind), shot: { x0: a.x, y0: a.y, x1: tx, y1: ty, kind }, end: apply });
+}
+// ---------------------------------------------------------------- doing things: an attack, a skill
+function canHit(u, d, fromX, fromY) { const r = dist(fromX == null ? u.x : fromX, fromY == null ? u.y : fromY, d.x, d.y); return r >= u.rng[0] && r <= (fromX == null ? rangeMax(u) : u.rng[1] + (u.rng[1] > 1 && BT.f.h[at(fromX, fromY)] === 2 ? 1 : 0)); }
+function attack(u, d) {
+  const ranged = dist(u.x, u.y, d.x, d.y) > 1;
+  const apply = () => {
+    const n = damage(u, d, 1); hurt(d, n, u);
+    if (u.F && u.F.drain) { u.hp = Math.min(u.max, u.hp + Math.ceil(n / 2)); fx(u, "+" + Math.ceil(n / 2), 5); }
+    if (u.F && u.F.ignite) ignite(d.x, d.y);
+    if (u.F && u.F.push && !d.dead) { BT.pusher = u; push(d, Math.sign(d.x - u.x), Math.sign(d.y - u.y), 1); }
+  };
+  if (ranged) shot(u, d.x, d.y, u.F && u.F.ignite ? "fire" : u.k === "crown" ? "spark" : "arrow", apply); else blow(u, d.x, d.y, apply);
+}
+function skillTiles(u, key) {
+  const S = SKILLS[key], out = [];
+  if (S.tgt === "self") return [at(u.x, u.y)];
+  if (S.tgt === "fallen") { if (!BT.fallen.some(h => h.side === u.side)) return []; for (const [dx, dy] of DIRS) { const x = u.x + dx, y = u.y + dy, i = at(x, y); if (i >= 0 && !unitAt(x, y) && TERRAIN[BT.f.t[i]].cost < 99) out.push(i); } return out; }
+  for (let y = 0; y < MH; y++) for (let x = 0; x < MW; x++) {
+    const d = dist(u.x, u.y, x, y); if (d < S.rng[0] || d > S.rng[1]) continue;
+    const o = unitAt(x, y);
+    if (S.tgt === "foe" && !(o && o.side !== u.side)) continue;
+    if (S.tgt === "ally" && !(o && o.side === u.side)) continue;
+    if (S.tgt === "tile" && TERRAIN[BT.f.t[at(x, y)]].wall) continue;
+    out.push(at(x, y));
+  }
+  return out;
+}
+function areaOf(u, key, tx, ty) {                    // the tiles a skill aimed at (tx, ty) touches
+  const S = SKILLS[key], out = [];
+  if (S.area) { for (let y = ty - S.area; y <= ty + S.area; y++) for (let x = tx - S.area; x <= tx + S.area; x++) if (at(x, y) >= 0) out.push([x, y]); }
+  else if (S.line) { const across = Math.abs(tx - u.x) >= Math.abs(ty - u.y); for (let k = -1; k <= 1; k++) { const x = across ? tx : tx + k, y = across ? ty + k : ty; if (at(x, y) >= 0) out.push([x, y]); } }
+  else if (S.around) { for (const [dx, dy] of DIRS) out.push([u.x + dx, u.y + dy]); }
+  else out.push([tx, ty]);
+  return out;
+}
+function useSkill(u, key, tx, ty) {
+  const S = SKILLS[key]; u.cd[key] = S.cd + 1;
+  const d = unitAt(tx, ty), dirx = Math.sign(tx - u.x), diry = Math.sign(ty - u.y);
+  const area = areaOf(u, key, tx, ty);
+  const hitAll = (fn) => { for (const [x, y] of area) { const o = unitAt(x, y); fn(o, x, y); } };
+  switch (key) {
+    case "bash": blow(u, tx, ty, () => { hurt(d, damage(u, d, S.pow), u); if (!d.dead) { BT.pusher = u; push(d, dirx, diry, 1); } }, "bash"); break;
+    case "guard": step(0.3, { on: () => { u.st.guard = 1; fx(u, "GUARD", 4); play("guard"); } }); break;
+    case "cleave": blow(u, u.x + 1, u.y, () => { hitAll(o => { if (o && o.side !== u.side) hurt(o, damage(u, o, S.pow), u); }); }, "cleave"); break;
+    case "pin": shot(u, tx, ty, "arrow", () => { hurt(d, damage(u, d, S.pow), u); if (!d.dead) { d.st.pin = 1; fx(d, "PINNED", 2); } }); break;
+    case "volley": shot(u, tx, ty, "arrow", () => { FX.push({ rain: 1, x: tx, y: ty, t: 0 }); hitAll(o => { if (o && o.side !== u.side) hurt(o, damage(u, o, S.pow), u); }); }); break;
+    case "firebolt": case "meteor": shot(u, tx, ty, "fire", () => { if (key === "meteor") { FX.push({ boom: 1, x: tx, y: ty, t: 0 }); play("boom"); } hitAll((o, x, y) => { if (o) hurt(o, damage(u, o, 0, S.dmg), u); ignite(x, y); }); }); break;
+    case "flamewall": shot(u, tx, ty, "fire", () => hitAll((o, x, y) => { if (o) hurt(o, damage(u, o, 0, S.dmg), u); ignite(x, y); })); break;
+    case "heal": step(0.4, { on: () => { play("heal"); const n = Math.min(S.heal + (u.lvl >> 1), d.max - d.hp); d.hp += n; fx(d, "+" + n, 5); u.gain += n * 0.5; } }); break;
+    case "bless": step(0.4, { on: () => { play("heal"); d.st.bless = 2; fx(d, "BLESSED", 2); u.gain += 3; } }); break;
+    case "revive": step(0.6, { on: () => { const h = BT.fallen.filter(q => q.side === u.side).pop(); if (!h) return; BT.fallen.splice(BT.fallen.indexOf(h), 1); h.dead = false; h.hp = Math.ceil(h.max / 2); h.x = tx; h.y = ty; h.done = true; h.st = {}; fx(h, "REVIVED", 5); play("revive"); u.gain += 8; } }); break;
+    case "frost": shot(u, tx, ty, "frost", () => { const i = at(tx, ty); if (BT.f.t[i] === WATER) { BT.f.t[i] = ICE; BT.dirty = true; } BT.f.fire[i] = 0; if (d) { hurt(d, damage(u, d, 0, S.dmg), u); if (!d.dead && !d.boss) { d.st.frozen = 1; fx(d, "FROZEN", 4); } } }); break;
+    case "gust": shot(u, tx, ty, "gust", () => { hurt(d, damage(u, d, 0, S.dmg), u); if (!d.dead) { BT.pusher = u; push(d, dirx, diry, 2); } }); break;
+    case "chain": {
+      const hitL = [d]; let last = d;
+      for (let k = 0; k < S.chain - 1; k++) { const nx = foesOf(u).filter(o => !hitL.includes(o) && dist(o.x, o.y, last.x, last.y) <= 3).sort((a, b) => dist(a.x, a.y, last.x, last.y) - dist(b.x, b.y, last.x, last.y))[0]; if (!nx) break; hitL.push(nx); last = nx; }
+      let from = u; hitL.forEach((o, k) => { const f = from; shot(f, o.x, o.y, "spark", () => hurt(o, damage(u, o, 0, S.dmg - k * 2), u)); from = o; });
+      break;
     }
   }
 }
-
-// ─────────────────────────── AUDIO ───────────────────────────
-const AC=new(window.AudioContext||window.webkitAudioContext)();
-function resumeAC(){if(AC.state==='suspended')AC.resume();}
-function playBlip(){
-  resumeAC();
-  const o=AC.createOscillator(),g=AC.createGain();
-  o.type='triangle';o.frequency.setValueAtTime(880,AC.currentTime);
-  g.gain.setValueAtTime(0.15,AC.currentTime);
-  g.gain.exponentialRampToValueAtTime(0.001,AC.currentTime+0.12);
-  o.connect(g);g.connect(AC.destination);
-  o.start();o.stop(AC.currentTime+0.12);
-}
-function playMove(){
-  resumeAC();
-  const o=AC.createOscillator(),g=AC.createGain();
-  o.type='sine';o.frequency.setValueAtTime(220,AC.currentTime);
-  g.gain.setValueAtTime(0.1,AC.currentTime);
-  g.gain.exponentialRampToValueAtTime(0.001,AC.currentTime+0.08);
-  o.connect(g);g.connect(AC.destination);
-  o.start();o.stop(AC.currentTime+0.08);
-}
-function playMelee(){
-  resumeAC();
-  const buf=AC.createBuffer(1,AC.sampleRate*0.15,AC.sampleRate);
-  const d=buf.getChannelData(0);
-  for(let i=0;i<d.length;i++)d[i]=(Math.random()*2-1)*Math.exp(-i/(AC.sampleRate*0.05));
-  const src=AC.createBufferSource(),g=AC.createGain();
-  g.gain.setValueAtTime(0.4,AC.currentTime);
-  src.buffer=buf;src.connect(g);g.connect(AC.destination);src.start();
-}
-function playFire(){
-  resumeAC();
-  const o=AC.createOscillator(),g=AC.createGain();
-  o.type='sawtooth';
-  o.frequency.setValueAtTime(150,AC.currentTime);
-  o.frequency.linearRampToValueAtTime(600,AC.currentTime+0.3);
-  g.gain.setValueAtTime(0.2,AC.currentTime);
-  g.gain.exponentialRampToValueAtTime(0.001,AC.currentTime+0.3);
-  o.connect(g);g.connect(AC.destination);
-  o.start();o.stop(AC.currentTime+0.3);
-}
-function playFrost(){
-  resumeAC();
-  const o=AC.createOscillator(),g=AC.createGain();
-  o.type='sine';o.frequency.setValueAtTime(1800,AC.currentTime);
-  o.frequency.exponentialRampToValueAtTime(900,AC.currentTime+0.2);
-  g.gain.setValueAtTime(0.15,AC.currentTime);
-  g.gain.exponentialRampToValueAtTime(0.001,AC.currentTime+0.2);
-  o.connect(g);g.connect(AC.destination);
-  o.start();o.stop(AC.currentTime+0.2);
-}
-function playLightning(){
-  resumeAC();
-  const buf=AC.createBuffer(1,AC.sampleRate*0.2,AC.sampleRate);
-  const d=buf.getChannelData(0);
-  for(let i=0;i<d.length;i++){
-    d[i]=(Math.random()*2-1)*Math.exp(-i/(AC.sampleRate*0.08));
-    if(i%800<400)d[i]*=2;
+// ---------------------------------------------------------------- the turns
+function startSide(s) {
+  BT.side = s; BT.cursorSet = false;
+  for (const u of BT.units) if (!u.dead && u.side === s) {
+    u.done = false; u.moved = false; u.ox = u.x; u.oy = u.y;
+    for (const k in u.cd) if (u.cd[k] > 0) u.cd[k]--;
+    if (u.st.bless) u.st.bless--; if (u.st.hex) u.st.hex--; u.st.guard = 0;
+    if (u.st.frozen) { u.st.frozen--; u.done = true; fx(u, "FROZEN", 4); }
   }
-  const src=AC.createBufferSource(),g=AC.createGain();
-  g.gain.setValueAtTime(0.35,AC.currentTime);
-  src.buffer=buf;src.connect(g);g.connect(AC.destination);src.start();
+  BT.aiQ = BT.ai[s] ? friendsOfSide(s).slice().sort((a, b) => (b.F && b.F.heal ? -1 : 0) - (a.F && a.F.heal ? -1 : 0) || (FOES[a.k] && FOES[a.k].rng[1] > 1 ? -1 : 1)) : null;
+  BT.banner = BT.mode === "versus" || BT.mode === "demo" ? (s ? "WARBAND'S TURN" : "HEROES' TURN") : s ? "THEIR TURN" : "YOUR TURN"; BT.bannerT = 1.2;
+  if (s === 1 && BT.boss) bossRound();
+  sel = null; ui = "select";
 }
-function playHeal(){
-  resumeAC();
-  const freqs=[440,550,660];
-  freqs.forEach((f,i)=>{
-    const o=AC.createOscillator(),g=AC.createGain();
-    o.type='sine';o.frequency.setValueAtTime(f,AC.currentTime+i*0.07);
-    g.gain.setValueAtTime(0,AC.currentTime+i*0.07);
-    g.gain.linearRampToValueAtTime(0.1,AC.currentTime+i*0.07+0.05);
-    g.gain.exponentialRampToValueAtTime(0.001,AC.currentTime+i*0.07+0.25);
-    o.connect(g);g.connect(AC.destination);
-    o.start(AC.currentTime+i*0.07);o.stop(AC.currentTime+i*0.07+0.25);
-  });
+const friendsOfSide = s => BT.units.filter(u => !u.dead && u.side === s);
+function endSide() {
+  if (BT.winner != null) return;
+  for (const u of friendsOfSide(BT.side)) u.st.pin = 0;
+  if (BT.side === 1) {
+    fireTick(); BT.round++;
+    if (BT.hold && BT.round > BT.hold && BT.winner == null) { BT.winner = 0; finishBattle(); return; }
+  }
+  check(); if (BT.winner != null) return;
+  startSide(1 - BT.side);
 }
-function playEnemyAtk(){
-  resumeAC();
-  const o=AC.createOscillator(),g=AC.createGain();
-  o.type='sawtooth';o.frequency.setValueAtTime(80,AC.currentTime);
-  o.frequency.exponentialRampToValueAtTime(40,AC.currentTime+0.2);
-  g.gain.setValueAtTime(0.3,AC.currentTime);
-  g.gain.exponentialRampToValueAtTime(0.001,AC.currentTime+0.2);
-  o.connect(g);g.connect(AC.destination);
-  o.start();o.stop(AC.currentTime+0.2);
+function fireTick() {                                // the fire: burns who's standing in it, spreads, burns out
+  const f = BT.f, r = BT.rng, next = f.fire.slice();
+  for (let i = 0; i < MW * MH; i++) if (f.fire[i]) {
+    const u = unitAt(i % MW, (i / MW) | 0); if (u && !(u.F && u.F.ignite) && u.k !== "wyrm") hurt(u, 3, null, "fire");
+    for (const [dx, dy] of DIRS) { const n = at(i % MW + dx, ((i / MW) | 0) + dy); if (n < 0 || next[n]) continue; const t = f.t[n]; if ((t === FOREST && r() < 0.4) || (t === GRASS && r() < 0.18)) next[n] = TERRAIN[t].burns || 2; }
+    next[i] = f.fire[i] - 1; if (!next[i] && f.t[i] === FOREST) { f.t[i] = GRASS; BT.dirty = true; BT.scorch[i] = 1; }
+  }
+  f.fire.set(next);
 }
-function playLevelClear(){
-  resumeAC();
-  const notes=[440,550,660,880];
-  notes.forEach((f,i)=>{
-    const o=AC.createOscillator(),g=AC.createGain();
-    o.type='triangle';o.frequency.setValueAtTime(f,AC.currentTime+i*0.15);
-    g.gain.setValueAtTime(0.2,AC.currentTime+i*0.15);
-    g.gain.exponentialRampToValueAtTime(0.001,AC.currentTime+i*0.15+0.4);
-    o.connect(g);g.connect(AC.destination);
-    o.start(AC.currentTime+i*0.15);o.stop(AC.currentTime+i*0.15+0.4);
-  });
+function check() {                                   // won, lost?
+  if (!BT || BT.winner != null) return;
+  const alive = s => BT.units.some(u => !u.dead && u.side === s);
+  if (BT.boss && BT.units.some(u => u.boss && u.dead)) { for (const u of BT.units) if (u.side === 1 && !u.dead) { u.dead = true; u.fled = true; } BT.winner = 0; }
+  else if (!alive(1)) BT.winner = 0; else if (!alive(0)) BT.winner = 1;
+  if (BT.winner != null) step(0.8, { end: finishBattle });
 }
-function playBossDefeated(){
-  resumeAC();
-  const notes=[330,440,550,660,880,1100];
-  notes.forEach((f,i)=>{
-    const o=AC.createOscillator(),g=AC.createGain();
-    o.type='triangle';o.frequency.setValueAtTime(f,AC.currentTime+i*0.12);
-    g.gain.setValueAtTime(0.25,AC.currentTime+i*0.12);
-    g.gain.exponentialRampToValueAtTime(0.001,AC.currentTime+i*0.12+0.5);
-    o.connect(g);g.connect(AC.destination);
-    o.start(AC.currentTime+i*0.12);o.stop(AC.currentTime+i*0.12+0.5);
-  });
+// ---------------------------------------------------------------- the foes' thinking
+// For each place it can reach, each blow it could strike from there: the damage, more for a kill or a push into a pit,
+// a little for high ground and cover. A healer mends first, a bomber goes off among heroes. Nothing to hit: closer.
+function aiPlan(u) {
+  const R = reach(u), f = BT.f, foes = foesOf(u), allies = friendsOf(u);
+  let best = null;
+  const consider = (score, to, act) => { if (!best || score > best.score) best = { score, to, act }; };
+  for (const i of R.tiles) {
+    const x = i % MW, y = (i / MW) | 0, place = f.h[i] * 1.5 + TERRAIN[f.t[i]].def * 0.8 - (f.fire[i] ? 6 : 0);
+    if (u.F && u.F.heal) for (const a of allies) { const miss = a.max - a.hp; if (miss >= 5 && dist(x, y, a.x, a.y) <= 2) consider(14 + miss + place, i, { type: "heal", t: a }); }
+    if (u.F && u.F.bomb) { const n = foes.filter(o => Math.max(Math.abs(o.x - x), Math.abs(o.y - y)) <= 1).length; if (n) consider(10 * n + place, i, { type: "bomb" }); }
+    for (const d of foes) {
+      if (!canHit(u, d, x, y)) continue;
+      const n = damage(u, d, 1, 0, x, y); let sc = n + (n >= d.hp ? 25 : 0) + place + (u.rng[1] > 1 ? dist(x, y, d.x, d.y) : 0);
+      if (u.F && u.F.push) { const px2 = d.x + Math.sign(d.x - x), py2 = d.y + Math.sign(d.y - y), j = at(px2, py2); if (j >= 0 && TERRAIN[f.t[j]].pit && !d.fly) sc += 30; }
+      if (d.hero && d.hp < d.max * 0.4) sc += 4;
+      consider(sc, i, { type: "attack", t: d });
+    }
+  }
+  if (best) return best;
+  // nothing in reach: towards the nearest foe (by the way round, not as the crow flies)
+  const dmap = new Int16Array(MW * MH).fill(999), q = [];
+  for (const d of foes) { const k = at(d.x, d.y); dmap[k] = 0; q.push(k); }
+  while (q.length) { const c = q.shift(); for (const [dx, dy] of DIRS) { const n = at(c % MW + dx, ((c / MW) | 0) + dy); if (n < 0 || dmap[n] <= dmap[c] + 1) continue; const T = TERRAIN[f.t[n]]; if (!u.fly && (T.cost >= 99 || Math.abs(f.h[n] - f.h[c]) > 1)) continue; if (T.wall) continue; dmap[n] = dmap[c] + 1; q.push(n); } }
+  let to = at(u.x, u.y), bd = dmap[to];
+  for (const i of R.tiles) if (dmap[i] < bd || (dmap[i] === bd && f.h[i] > f.h[to])) { bd = dmap[i]; to = i; }
+  return { score: 0, to, act: null };
 }
-
-// ─────────────────────────── SPRITES ───────────────────────────
-const SPRITES={};
-function buildSprites(){
-  // RUNEMAGE
-  SPRITES.runemage=spr([
-    "....kPPPk...",
-    "...kPPPPPk..",
-    "..kPPPPPPPk.",
-    "...kPwwPPk..",
-    "....kwwwk...",
-    "...kssssk...",
-    "..kBBbBBBk..",
-    "..kBcBbBBk..",
-    ".kBBbBBBBBk.",
-    "..kBBbBBBk..",
-    "...kBBBBk...",
-    "..kBByBBk...",
-    "..kBBbBBk...",
-    "..kNNbNNk...",
-    "..kNNbNNk...",
-    "..kNk.kNk...",
-  ]);
-  // SHIELDWALL
-  SPRITES.shieldwall=spr([
-    "....kgggk...",
-    "...kgGGGgk..",
-    "...kgwwGgk..",
-    "...kgGGGgk..",
-    "....kgggk...",
-    "..kGGGGGGk..",
-    ".kbbGGGYYGk.",
-    ".kbcGGGYwGk.",
-    ".kbbGGGYYGk.",
-    ".kbcGGGGGGk.",
-    "..kGGGGGGk..",
-    "..kGGyGGk...",
-    "...kggggk...",
-    "..kNNgNNk...",
-    "..kNNgNNk...",
-    "..kNk.kNk...",
-  ]);
-  // TRICKSTER
-  SPRITES.trickster=spr([
-    "....keEek...",
-    "...keEEEek..",
-    "...keEkEek..",
-    "...keSSEek..",
-    "....ksSk....",
-    "..kEEeEEEk..",
-    "..kEeYeEEk..",
-    "..kEEeEEEk..",
-    ".kEEEeEEEEk.",
-    "..kEEeEEEk..",
-    "...kEeEEk...",
-    "...kEYEEk...",
-    "...kEeEEk...",
-    "...kNENNk...",
-    "...kNENNk...",
-    "...kNk.kNk..",
-  ]);
-  // GOBLIN
-  SPRITES.goblin=spr([
-    "..kevek...",
-    ".keEvEek..",
-    ".kevEyvk..",
-    ".kevyyEek.",
-    "..kEEEek..",
-    "..kwwwek..",
-    ".keEEeEek.",
-    ".kevEEEek.",
-    "..keEeek..",
-    "..kNeNNk..",
-    "..kNeNNk..",
-    "..kNk.kNk.",
-    "....knnk..",
-    "....knnk..",
-  ]);
-  // ORC WARRIOR
-  SPRITES.orc_warrior=spr([
-    ".....keEek.....",
-    "....keEEEek....",
-    "...keEEEEEek...",
-    "...keEwwEEek...",
-    "....kEwwEEk....",
-    "...kEEEEEEEk...",
-    "..knEEEEEEEnk..",
-    ".knnEEEEEEEnnk.",
-    "..knEEEEEEEnk..",
-    "..kYnEEEEEnYk..",
-    ".kYYnEEEEEnYYk.",
-    "..kYnEEEEEnYk..",
-    "...knEEEEEnk...",
-    "....knEEEnk....",
-    "....kNENNk.....",
-    "....kNENNk.....",
-    "...kNNENNNk....",
-    "...kNk...kNk...",
-  ]);
-  // BONE ARCHER
-  SPRITES.bone_archer=spr([
-    "....kwwwk...",
-    "...kwwwwwk..",
-    "...kwGwwwk..",
-    "...kwwwwwk..",
-    "....kwwwk...",
-    "..kGwwwwGk..",
-    "..kGwGwGGk..",
-    ".kGGwGwwGGk.",
-    "..kGwwGwGk..",
-    "..kGwwwGk...",
-    "...kGwGk....",
-    "...kGwGGk...",
-    "...kGwGGk...",
-    "...kwGwwk...",
-    "...kwGwwk...",
-    "...kwk.kwk..",
-  ]);
-  // DARK OVERLORD
-  SPRITES.dark_overlord=spr([
-    ".......kPPPPPPPk.......",
-    "....kPPpppPPPPpPPk.....",
-    "...kPPrprPPPPPrprPk....",
-    "...kPPPpPrPrPpPPPPk....",
-    "....kPPPPPrPPPPPPk.....",
-    ".....kPPPPrPPPPPk......",
-    "....kPPkPPwwPPkPPk.....",
-    "...kPPkKkPwwwPkKkPPk...",
-    "...kPPkKkPwwwPkKkPPk...",
-    "....kPPPPPrPPPPPPk.....",
-    "...kKKPPPPPPPPPKKk.....",
-    "..kKKKPPPPpPPPKKKk.....",
-    ".kKKkpPPPPpPPPpkKKk....",
-    ".kKKkPPPPPPPPPPkKKk....",
-    ".kKKkPPPPpPPPPPkKKk....",
-    "..kKKKPPPPpPPKKKk......",
-    "...kKKPPPPPPPKKk.......",
-    "....kKKPPPPPKKk........",
-    ".....kKPPKKPKk.........",
-    "......kKPPPKk..........",
-    "......kNPPNk...........",
-    "......kNk.kNk..........",
-  ]);
-  // SPELL FX
-  SPRITES.spell_fire=spr([
-    "....yyy.....",
-    "...yooyy....",
-    "..yooooyy...",
-    ".yoroooooy..",
-    ".yoroooory..",
-    "yyrroooory..",
-    "yyrroooorry.",
-    ".yrroorrry..",
-    "..yoooooy...",
-    "...yoory....",
-    "....yyy.....",
-    "............",
-  ]);
-  SPRITES.spell_frost=spr([
-    "....cwc.....",
-    "...cwwwc....",
-    "..cwbwwbc...",
-    ".cwwbwbwwc..",
-    "cwwwbbbwwwc.",
-    "cwwwbbbwwwc.",
-    ".cwwbwbwwc..",
-    "..cwbwwbc...",
-    "...cwwwc....",
-    "....cwc.....",
-    "............",
-    "............",
-  ]);
-  SPRITES.spell_lightning=spr([
-    "....wy......",
-    "...wyw......",
-    "..wyyw......",
-    ".wyyy.......",
-    "..yyy.......",
-    "..wyy.......",
-    "...wy.......",
-    "....wy......",
-    ".....wy.....",
-    "......wy....",
-    "......wyy...",
-    "......yyy...",
-  ]);
-  SPRITES.spell_heal=spr([
-    "....vev.....",
-    "...vevev....",
-    "..vevevev...",
-    ".veveeevev..",
-    "veveeeeevev.",
-    ".veveeevev..",
-    "..vevevev...",
-    "...vevev....",
-    "....vev.....",
-    "............",
-    "............",
-    "............",
-  ]);
-  // FLOOR TILES 16x16
-  SPRITES.tile_stone=spr([
-    "tttttttttttttttt",
-    "tTTTTTTtTTTTTTTt",
-    "tTmmmmTtTmmmmmmT",
-    "tTmmmmTtTmmmmmmT",
-    "tTmmmmTtTmmmmmmT",
-    "tTmmmmTtTmmmmmmT",
-    "tTTTTTTtTTTTTTTt",
-    "tttttttttttttttt",
-    "tTTTTTTTTTTTTTTt",
-    "tTmmmmmmTmmmmmmT",
-    "tTmmmmmmTmmmmmmT",
-    "tTmmmmmmTmmmmmmT",
-    "tTmmmmmmTmmmmmmT",
-    "tTTTTTTTTTTTTTTt",
-    "tttttttttttttttt",
-    "TTTTTTTTTTTTTTTT",
-  ]);
-  SPRITES.tile_stone_cracked=spr([
-    "tttttttttttttttt",
-    "tTTTTTTtTTTTTTTt",
-    "tTmmmmTtTmmmmmmT",
-    "tTmgmmTtTmmmmmmT",
-    "tTmmggTtTmmmmmmT",
-    "tTmmmmTtTmmmmmmT",
-    "tTTTTTTtTeETTTTt",
-    "ttttttttttttteTt",
-    "tTTTTTTTTTTTTTTt",
-    "tTmmmmggTmmmmmmT",
-    "tTmmmmmmTmmmmmmT",
-    "tTmmmmmmTmmmgmmT",
-    "tTmmmmmmTmmmmmmT",
-    "tTTTTTTTTTTTTTTt",
-    "tttttttttttttttt",
-    "TTTTTTTTTTTTTTTT",
-  ]);
-  SPRITES.tile_wall=spr([
-    "kKKKKKKKKKKKKKKk",
-    "kKKKKKKKKKKKKKKk",
-    "kKkkkkkkKkkkkkKk",
-    "kKkKKKkKKkKKKkKk",
-    "kKkKKKkKKkKKKkKk",
-    "kKkKKKkKKkKKKkKk",
-    "kKkkkkkkKkkkkkKk",
-    "kKKKKKKKKKKKKKKk",
-    "kKKKKKKKKKKKKKKk",
-    "kKkkkkkkkkkkkkKk",
-    "kKkKKKKkkKKKKkKk",
-    "kKkKKKKkkKKKKkKk",
-    "kKkKKKKkkKKKKkKk",
-    "kKkkkkkkkkkkkkKk",
-    "kKKKKKKKKKKKKKKk",
-    "kKKKKKKKKKKKKKKk",
-  ]);
-  SPRITES.tile_rune=spr([
-    "tttttttttttttttt",
-    "tTTTTTTTTTTTTTTt",
-    "tTmmmmmmmmmmmmTt",
-    "tTmmpppmmmmmmTt.",
-    "tTmmpPmmmmmmmTt.",
-    "tTmmpppmmmccmTt.",
-    "tTmmmmmmmmcCcTt.",
-    "tTmmmmmmmmccmTt.",
-    "tTmppmmmmmmmmTt.",
-    "tTmpPpmmmmmmmTt.",
-    "tTmppmmmmmmmmTt.",
-    "tTmmmmmmmmmmmTt.",
-    "tTmmmmmmmmmmmmTt",
-    "tTTTTTTTTTTTTTTt",
-    "tttttttttttttttt",
-    "TTTTTTTTTTTTTTTT",
-  ]);
-  SPRITES.tile_pit=spr([
-    "kkkkkkkkkkkkkkkk",
-    "kKKkkkkkkkkkkKKk",
-    "kKkKkkkkkkkkKkKk",
-    "kkkkKkkkkkkkKkkk",
-    "kkkkkkKkkkkkkkkk",
-    "kkkkkkkKkkkkkkkk",
-    "kkkkkkkkKkkkkkkk",
-    "kkkkkkkKkkkkkkkk",
-    "kkkkkkKkkkkkkkkk",
-    "kkkkkkkkkkkkkkkk",
-    "kkkkkKkkkkkkkkkk",
-    "kkkkKkKkkkkkkkKk",
-    "kkkKkkkKkkkkkKkk",
-    "kKKkkkkkkKkkkKKk",
-    "kKKKkkkkkkkkkKKk",
-    "kkkkkkkkkkkkkkkk",
-  ]);
-  // UI ICONS
-  SPRITES.icon_sword=spr([
-    "....ww....",
-    "...wYYw...",
-    "..wYYYYw..",
-    ".wYYYYYYw.",
-    "wYYYYYYYYw",
-    ".wGYYYYGw.",
-    "..wGYYGw..",
-    "...wGGw...",
-    "....ww....",
-    "..........",
-  ]);
-  SPRITES.icon_staff=spr([
-    "...pcp....",
-    "..pccccp..",
-    "...pcp....",
-    "....np....",
-    "....nn....",
-    "....nn....",
-    "....nn....",
-    "....nn....",
-    "....nn....",
-    "..........",
-  ]);
-  SPRITES.icon_shield=spr([
-    "..kbbk....",
-    ".kbcccbk..",
-    ".kbcccbk..",
-    ".kbGGGbk..",
-    ".kbGGGbk..",
-    "..kbGbk...",
-    "...kbk....",
-    "....k.....",
-    "..........",
-    "..........",
-  ]);
-  SPRITES.icon_heart=spr([
-    ".rr.rr..",
-    "rrrrrrrr",
-    "rRRRRRRr",
-    "rRRRRRRr",
-    ".rRRRRr.",
-    "..rRRr..",
-    "...rr...",
-    "........",
-  ]);
-  // Flipped versions
-  SPRITES.runemage_flip=flipX(SPRITES.runemage);
-  SPRITES.shieldwall_flip=flipX(SPRITES.shieldwall);
-  SPRITES.trickster_flip=flipX(SPRITES.trickster);
-  SPRITES.goblin_flip=flipX(SPRITES.goblin);
-  SPRITES.orc_warrior_flip=flipX(SPRITES.orc_warrior);
-  SPRITES.bone_archer_flip=flipX(SPRITES.bone_archer);
-  SPRITES.dark_overlord_flip=flipX(SPRITES.dark_overlord);
-  // White versions
-  SPRITES.runemage_white=whiteOf(SPRITES.runemage);
-  SPRITES.shieldwall_white=whiteOf(SPRITES.shieldwall);
-  SPRITES.trickster_white=whiteOf(SPRITES.trickster);
-  SPRITES.goblin_white=whiteOf(SPRITES.goblin);
-  SPRITES.orc_warrior_white=whiteOf(SPRITES.orc_warrior);
-  SPRITES.bone_archer_white=whiteOf(SPRITES.bone_archer);
-  SPRITES.dark_overlord_white=whiteOf(SPRITES.dark_overlord);
+function aiAct(u) {
+  if (u.dead || u.done) return;
+  u.done = true;
+  if (u.boss && bossMove(u)) return;
+  const plan = aiPlan(u), R = reach(u);
+  if (plan.to !== at(u.x, u.y)) walkTo(u, pathTo(R, plan.to));
+  const a = plan.act; if (!a) return;
+  if (a.type === "attack") step(0.05, { end: () => { if (!u.dead && !a.t.dead && canHit(u, a.t)) attack(u, a.t); } });
+  else if (a.type === "heal") step(0.4, { on: () => { const n = Math.min(u.F.heal, a.t.max - a.t.hp); a.t.hp += n; fx(a.t, "+" + n, 5); play("heal"); } });
+  else if (a.type === "bomb") step(0.4, { on: () => { fx(u, "BOOM", 6); die(u, null, "bomb"); } });
+}
+// the bosses: the Bog King's tongue pulls a hero in; the Emberwyrm breathes a row of fire; the Hollow Crown calls its
+// dead every third round and slips away when it's crowded
+function bossRound() {
+  const b = BT.units.find(u => u.boss && !u.dead && u.side === 1); if (!b) return;
+  if (b.F.summon && BT.round % 3 === 0) {
+    let n = 0; for (const [dx, dy] of DIRS.concat([[1, 1], [-1, -1], [1, -1], [-1, 1]])) { if (n >= 2) break; const x = b.x + dx * 2, y = b.y + dy, i = at(x, y); if (i >= 0 && !unitAt(x, y) && TERRAIN[BT.f.t[i]].cost < 99) { const s = foeUnit(Math.random() < 0.5 ? "skeleton" : "archer", 1); s.x = x; s.y = y; s.done = true; BT.units.push(s); fx(s, "RISES", 2); n++; } }
+    if (n) { BT.banner = "THE DEAD RISE"; BT.bannerT = 1.4; play("summon"); }
+  }
+}
+function bossMove(b) {
+  const foes = foesOf(b);
+  if (b.F.tongue && !(b.cd.tongue > 0)) {               // a hero in a straight line, up to 4 away, nothing between
+    for (const d of foes) { if (d.x !== b.x && d.y !== b.y) continue; const r = dist(b.x, b.y, d.x, d.y); if (r < 2 || r > 4) continue;
+      const sx = Math.sign(d.x - b.x), sy = Math.sign(d.y - b.y); let clear = true; for (let k = 1; k < r; k++) { const x = b.x + sx * k, y = b.y + sy * k; if (unitAt(x, y) || TERRAIN[BT.f.t[at(x, y)]].wall) clear = false; }
+      if (!clear) continue;
+      b.cd.tongue = 3;
+      shot(b, d.x, d.y, "tongue", () => { d.x = b.x + sx; d.y = b.y + sy; fx(d, "PULLED", 3); hurt(d, 3, null); });
+      step(0.1, { end: () => { if (!d.dead) attack(b, d); } }); return true; }
+  }
+  if (b.F.breath && !(b.cd.breath > 0)) {               // the row with most heroes in it
+    let bestD = null, bn = 0;
+    for (const [dx, dy] of DIRS) { let n = 0; for (let k = 1; k <= 4; k++) { const o = unitAt(b.x + dx * k, b.y + dy * k); if (o && o.side !== b.side) n++; } if (n > bn) { bn = n; bestD = [dx, dy]; } }
+    if (bn >= 1) { b.cd.breath = 2; const [dx, dy] = bestD;
+      step(0.6, { on: () => { play("breath"); FX.push({ breath: 1, x: b.x, y: b.y, dx, dy, t: 0 }); }, end: () => { for (let k = 1; k <= 4; k++) { const x = b.x + dx * k, y = b.y + dy * k, o = unitAt(x, y); if (o) hurt(o, damage(b, o, 0, 9), b); ignite(x, y); } } });
+      return true; }
+  }
+  if (b.F.blink && foes.filter(o => dist(o.x, o.y, b.x, b.y) === 1).length >= 2) {
+    let far = null, fd = -1; for (let i = 0; i < MW * MH; i++) { const x = i % MW, y = (i / MW) | 0; if (unitAt(x, y) || TERRAIN[BT.f.t[i]].cost >= 99) continue; const d = Math.min(...foes.map(o => dist(o.x, o.y, x, y))); if (d > fd && d <= 6) { fd = d; far = i; } }
+    if (far != null) { step(0.5, { on: () => { play("blink"); fx(b, "VANISHES", 2); }, end: () => { b.x = far % MW; b.y = (far / MW) | 0; } }); return true; }
+  }
+  return false;
 }
 
-// ─────────────────────────── GRID CONSTANTS ───────────────────────────
-const GRID_COLS=10,GRID_ROWS=7,TILE=24;
-const GRID_OX=8,GRID_OY=8;
-const PANEL_X=248,PANEL_W=232,PANEL_H=270;
+// ---------------------------------------------------------------- what's kept on the box
+const fresh = () => ({ v: 2, camp: null, best: {}, wins: { battles: 0, skirmish: 0, campaigns: 0 }, versus: { played: 0, heroes: 0, warband: 0 },
+  opts: { music: 6, sound: 8, rumble: 1, shake: 2, fx: "auto", pace: "auto", land: "any", hlvl: 4, nfoes: 7 } });
+const store = new L2.Store("rune-tactics", fresh);
+const SAVE = store.data;
+const newCamp = () => ({ done: {}, heroes: { kael: { lvl: 1, xp: 0 }, lyra: { lvl: 1, xp: 0 }, orin: { lvl: 1, xp: 0 } }, joined: ["kael", "lyra", "orin"], at: 0 });
 
-// ─────────────────────────── FLOOR MAPS ───────────────────────────
-// Chars: '.' floor, '#' wall, 'R' rune tile, 'P' pit
-const FLOOR_MAPS=[
-  // Floor 1: Goblin Warrens (10x7)
-  [
-    "##########",
-    "#....#...#",
-    "#.R..#...#",
-    "#....###.#",
-    "#...P....#",
-    "#........#",
-    "##########",
-  ],
-  // Floor 2: Bone Crypt (10x7)
-  [
-    "##########",
-    "#...R....#",
-    "#.##.##..#",
-    "#.#R.R#..#",
-    "#.##.##..#",
-    "#....P...#",
-    "##########",
-  ],
-  // Floor 3: Overlord's Throne (10x7)
-  [
-    "##########",
-    "#.RRRRRR.#",
-    "#R......R#",
-    "#R..RR..R#",
-    "#R......R#",
-    "#.RRRRRR.#",
-    "##########",
-  ],
-];
-
-// ─────────────────────────── UNIT DEFINITIONS ───────────────────────────
-function makeUnit(type,gx,gy,isPlayer){
-  const defs={
-    runemage:  {name:"RUNEMAGE",  hp:16,maxHp:16,atk:5, def:0,spellPower:14,move:3,range:1,spells:["fire","frost","lightning","heal"],sprite:"runemage",  col:PAL.p},
-    shieldwall:{name:"SHIELDWALL",hp:28,maxHp:28,atk:12,def:6,spellPower:0, move:2,range:1,spells:[],                                  sprite:"shieldwall",col:PAL.b},
-    trickster: {name:"TRICKSTER", hp:18,maxHp:18,atk:9, def:2,spellPower:0, move:4,range:1,spells:[],                                  sprite:"trickster", col:PAL.e},
-    goblin:    {name:"GOBLIN",    hp:8, maxHp:8, atk:6, def:0,spellPower:0, move:3,range:1,spells:[],                                  sprite:"goblin",    col:PAL.e},
-    orc_warrior:{name:"ORC",     hp:22,maxHp:22,atk:11,def:2,spellPower:0, move:2,range:1,spells:[],                                  sprite:"orc_warrior",col:PAL.e},
-    bone_archer:{name:"ARCHER",  hp:12,maxHp:12,atk:8, def:0,spellPower:0, move:2,range:4,spells:[],                                  sprite:"bone_archer",col:PAL.G},
-    dark_overlord:{name:"OVERLORD",hp:50,maxHp:50,atk:16,def:4,spellPower:12,move:1,range:1,spells:["fire","lightning"],               sprite:"dark_overlord",col:PAL.p},
-  };
-  const def=defs[type];
-  return {
-    ...JSON.parse(JSON.stringify(def)),
-    type,gx,gy,isPlayer,
-    alive:true,
-    frozen:false,
-    frozenTurns:0,
-    acted:false,
-    moved:false,
-    animX:0,animY:0,// pixel offset for slide anim
-    flashTimer:0,
-    hitTimer:0,
-    telegraphCells:[],
-  };
+// ---------------------------------------------------------------- the engine
+const KEYS = { z: "a", Z: "a", x: "b", X: "b", c: "y", C: "y", q: "lb", Q: "lb", e: "rb", E: "rb", p: "start", P: "start" };
+const G = L2.game({ id: "rune-tactics", canvas: document.getElementById("c"), keys: KEYS, keyNames: { a: "Z", b: "X", y: "C", lb: "Q", rb: "E", start: "P" },
+  on: onButton, update, draw, hud, ready, tier: () => {}, hidden: () => {}, joined: () => {}, left: () => {} });
+const synth = G.synth, DEMO = G.demo;
+const CTL = {}, ctlOf = n => CTL[n] || (CTL[n] = G.control(n));
+let mode = "boot", modeT = 0;                       // boot title map battle result
+let ui = "select", sel = null, R = null, cur = { x: 0, y: 0 }, acts = [], ai = 0, targets = [], pending = null, rep = {};
+function play(n) { synth.play(n); }
+function sounds() {
+  const d = (n, f) => synth.define(n, f);
+  d("step", (s, t) => s.noise(t, 0.04, 0.08, 900, 1.5));
+  d("hit", (s, t) => { s.noise(t, 0.1, 0.3, 900, 1); s.note(t, 160, 0.1, "square", 0.07, null, 0.002, 900); });
+  d("bash", (s, t) => { s.noise(t, 0.18, 0.4, 400, 0.8); s.note(t, 90, 0.2, "sine", 0.3); });
+  d("cleave", (s, t) => { s.noise(t, 0.25, 0.3, 1800, 1.2); s.noise(t + 0.08, 0.2, 0.25, 900, 1); });
+  d("bow", (s, t) => { s.noise(t, 0.12, 0.12, 2600, 2); s.note(t, 600, 0.06, "triangle", 0.04); });
+  d("fire", (s, t) => { s.noise(t, 0.4, 0.3, 700, 0.6); s.note(t, 200, 0.3, "sawtooth", 0.04, null, 0.01, 1200); });
+  d("frost", (s, t) => [1760, 2350, 2960].forEach((f, i) => s.note(t + i * 0.03, f, 0.2, "triangle", 0.05)));
+  d("spark", (s, t) => { s.noise(t, 0.15, 0.25, 5000, 3); s.note(t, 1800, 0.08, "sawtooth", 0.04, null, 0.001, 6000); });
+  d("gust", (s, t) => s.noise(t, 0.4, 0.25, 1200, 0.5));
+  d("tongue", (s, t) => { s.note(t, 300, 0.2, "sine", 0.1); s.note(t + 0.1, 120, 0.2, "sine", 0.1); });
+  d("breath", (s, t) => { s.noise(t, 0.8, 0.5, 500, 0.4); s.note(t, 80, 0.7, "sawtooth", 0.08, null, 0.05, 700); });
+  d("heal", (s, t) => [523, 659, 784].forEach((f, i) => s.note(t + i * 0.07, f, 0.3, "sine", 0.08)));
+  d("revive", (s, t) => [392, 523, 659, 784, 1047].forEach((f, i) => s.note(t + i * 0.08, f, 0.5, "triangle", 0.08)));
+  d("guard", (s, t) => { s.note(t, 330, 0.3, "square", 0.05, null, 0.004, 1500); s.note(t + 0.05, 440, 0.3, "square", 0.05, null, 0.004, 1500); });
+  d("bump", (s, t) => { s.noise(t, 0.12, 0.3, 300, 1); s.note(t, 70, 0.12, "sine", 0.25); });
+  d("fall", (s, t) => { s.note(t, 700, 0.6, "triangle", 0.08); s.note(t + 0.25, 300, 0.6, "triangle", 0.06); });
+  d("splash", (s, t) => s.noise(t, 0.4, 0.3, 900, 0.6));
+  d("die", (s, t) => [330, 247, 196].forEach((f, i) => s.note(t + i * 0.08, f, 0.2, "square", 0.05, null, 0.004, 1600)));
+  d("bossdie", (s, t) => { s.noise(t, 1.2, 0.4, 200, 0.5); [262, 196, 147, 110].forEach((f, i) => s.note(t + i * 0.15, f, 0.5, "sawtooth", 0.07, null, 0.01, 900)); });
+  d("boom", (s, t) => { s.noise(t, 0.6, 0.5, 250, 0.6); s.note(t, 55, 0.5, "sine", 0.4); });
+  d("summon", (s, t) => [220, 233, 220, 196].forEach((f, i) => s.note(t + i * 0.12, f, 0.4, "sawtooth", 0.05, null, 0.02, 800)));
+  d("blink", (s, t) => [1200, 600, 1600].forEach((f, i) => s.note(t + i * 0.05, f, 0.12, "sine", 0.06)));
+  d("level", (s, t) => [523, 659, 784, 1047, 1319].forEach((f, i) => s.note(t + i * 0.08, f, 0.4, "triangle", 0.1)));
+  d("win", (s, t) => [392, 523, 659, 784, 1047].forEach((f, i) => s.note(t + i * 0.1, f, 0.6, "triangle", 0.11)));
+  d("lose", (s, t) => [392, 349, 311, 262].forEach((f, i) => s.note(t + i * 0.18, f, 0.5, "triangle", 0.1)));
+  d("move", (s, t) => s.note(t, 880, 0.04, "square", 0.03, null, 0.003, 2000));
+  d("ok", (s, t) => { s.note(t, 660, 0.08, "square", 0.05, null, 0.003, 2400); s.note(t + 0.05, 990, 0.1, "square", 0.05, null, 0.003, 2400); });
 }
 
-// ─────────────────────────── FLOOR UNIT SETUPS ───────────────────────────
-const FLOOR_UNITS=[
-  // Floor 1
-  ()=>[
-    makeUnit("runemage",1,2,true),
-    makeUnit("shieldwall",1,4,true),
-    makeUnit("goblin",7,1,false),
-    makeUnit("goblin",8,3,false),
-    makeUnit("goblin",7,5,false),
-  ],
-  // Floor 2
-  ()=>[
-    makeUnit("runemage",1,1,true),
-    makeUnit("shieldwall",1,3,true),
-    makeUnit("trickster",1,5,true),
-    makeUnit("bone_archer",7,2,false),
-    makeUnit("bone_archer",7,4,false),
-    makeUnit("orc_warrior",8,3,false),
-  ],
-  // Floor 3
-  ()=>[
-    makeUnit("runemage",1,2,true),
-    makeUnit("shieldwall",1,3,true),
-    makeUnit("trickster",1,4,true),
-    makeUnit("orc_warrior",7,2,false),
-    makeUnit("orc_warrior",7,4,false),
-    makeUnit("dark_overlord",8,3,false),
-  ],
-];
+// ---------------------------------------------------------------- a battle starting
+// o: { mode: campaign | skirmish | versus | demo, node, theme, seed, heroes: [{id, lvl}], foes: [kinds], foeLvl, hold, boss }
+function startBattle(o) {
+  const f = makeField(o.theme, o.seed);
+  BT = { f, units: [], side: 0, round: 1, mode: o.mode, node: o.node == null ? null : o.node, hold: o.hold || 0, boss: !!o.boss, winner: null, fallen: [], rng: U.rand(o.seed + 7),
+    dirty: true, scorch: new Uint8Array(MW * MH), ai: o.mode === "demo" ? [true, true] : o.mode === "versus" ? [false, false] : [false, true], pads: o.pads || [0, 0], name: o.name, o };
+  const spots = (x0, x1) => { const out = []; for (let x = x0; x <= x1; x++) for (let y = 0; y < MH; y++) { const i = at(x, y); if (TERRAIN[f.t[i]].cost < 99) out.push([x, y, Math.abs(y - MH / 2) + Math.abs(x - (x0 + x1) / 2) * 0.6]); } return out.sort((a, b) => a[2] - b[2]); };
+  const left = spots(0, 2), right = spots(MW - 3, MW - 1);
+  for (const h of o.heroes) { const u = h.unit || heroUnit(h.id, h.lvl); const p = left.shift(); u.x = p[0]; u.y = p[1]; u.side = 0; BT.units.push(u); }
+  const list = (o.boss ? [o.boss] : []).concat(o.foes);
+  for (const k of list) { const u = foeUnit(k, 1, o.foeLvl || 0); const p = right.shift(); if (!p) break; u.x = p[0]; u.y = p[1]; BT.units.push(u); }
+  for (const u of BT.units) { const i = at(u.x, u.y); f.fire[i] = 0; }
+  if (o.theme === "ash") for (let k = 0; k < 4; k++) { const x = 4 + ((BT.rng() * 6) | 0), y = (BT.rng() * MH) | 0; if (!unitAt(x, y)) ignite(x, y); }
+  SEQ = []; FX = []; mode = "battle"; modeT = 0; menu.hide();
+  synth.song({ seed: (o.seed % 7) + 11, root: o.boss ? 43 : 45 + (o.seed % 5), tempo: o.boss ? 118 : 104 });
+  const first = BT.units.find(u => u.side === 0); cur = { x: first.x, y: first.y };
+  startSide(0); G.gov.hold(1200);
+}
+function finishBattle() {
+  if (mode !== "battle") return;
+  const B = BT, won = B.winner === 0; mode = "result"; modeT = 0; synth.stopSong(); play(won || B.mode === "versus" ? "win" : "lose");
+  B.levels = [];
+  if (B.mode === "campaign" && won && !DEMO && SAVE.camp) {
+    const C = SAVE.camp, node = NODES[B.node];
+    for (const u of B.units.filter(u => u.hero)) {
+      const H = C.heroes[u.k]; if (!H) continue;
+      H.xp += Math.round(u.gain) + 6;
+      while (H.lvl < 8 && H.xp >= H.lvl * 12) { H.xp -= H.lvl * 12; H.lvl++; const learnt = HEROES[u.k].learn[H.lvl]; B.levels.push(u.name + " REACHES LEVEL " + H.lvl + (learnt ? ": " + SKILLS[learnt].name : "")); }
+    }
+    C.done[B.node] = 1; if (node.join && !C.joined.includes(node.join)) { const avg = Math.round(C.joined.reduce((a, k) => a + C.heroes[k].lvl, 0) / C.joined.length); C.joined.push(node.join); C.heroes[node.join] = { lvl: avg, xp: 0 }; B.levels.push(HEROES[node.join].name + " THE " + HEROES[node.join].cls + " JOINS YOU"); }
+    if (!SAVE.best[B.node] || B.round < SAVE.best[B.node]) SAVE.best[B.node] = B.round;
+    SAVE.wins.battles++; if (B.node === 14) { SAVE.wins.campaigns++; B.ended = true; }
+    store.save();
+  } else if (B.mode === "skirmish" && won && !DEMO) { SAVE.wins.skirmish++; store.save(); }
+  else if (B.mode === "versus" && !DEMO) { SAVE.versus.played++; if (B.winner === 0) SAVE.versus.heroes++; else SAVE.versus.warband++; store.save(); }
+  if (B.levels.length) play("level");
+}
 
-// ─────────────────────────── SPELL DATA ───────────────────────────
-const SPELL_DATA={
-  fire:     {name:"FIRE",    range:3,sprite:"spell_fire",    color:PAL.o,sound:playFire,    aoe:1,  baseDmg:10,splashDmg:4},
-  frost:    {name:"FROST",   range:2,sprite:"spell_frost",   color:PAL.c,sound:playFrost,   freeze:true,baseDmg:6},
-  lightning:{name:"LIGHTNING",range:4,sprite:"spell_lightning",color:PAL.y,sound:playLightning,line:true,baseDmg:8},
-  heal:     {name:"HEAL",    range:3,sprite:"spell_heal",    color:PAL.e,sound:playHeal,    healAmt:8,isHeal:true},
-};
+// ---------------------------------------------------------------- your turn: the cursor, the choices
+const padOf = s => BT.pads[s] != null ? BT.pads[s] : BT.pads[0];
+function dirPress(c, b) {                            // a press, then held: again every 0.08 s after a moment
+  if (c.take(b, 200)) { rep[b] = performance.now() + 260; return true; }
+  if (c.held(b) && rep[b] && performance.now() > rep[b]) { rep[b] = performance.now() + 80; return true; }
+  if (!c.held(b)) rep[b] = 0; return false;
+}
+function cursorMove(c) {
+  let mv = false;
+  if (dirPress(c, "left")) { cur.x--; mv = true; } if (dirPress(c, "right")) { cur.x++; mv = true; }
+  if (dirPress(c, "up")) { cur.y--; mv = true; } if (dirPress(c, "down")) { cur.y++; mv = true; }
+  cur.x = clamp(cur.x, 0, MW - 1); cur.y = clamp(cur.y, 0, MH - 1); if (mv) play("move");
+}
+function actionsFor(u) {
+  const out = [];
+  if (foesOf(u).some(d => canHit(u, d))) out.push({ t: "ATTACK", k: "attack" });
+  for (const s of u.skills) { const S = SKILLS[s], ok = !(u.cd[s] > 0) && skillTiles(u, s).length; out.push({ t: S.name, k: s, off: !ok, sub: u.cd[s] > 0 ? "IN " + u.cd[s] : "" }); }
+  out.push({ t: "WAIT", k: "wait" });
+  return out;
+}
+function playerInput() {
+  const c = ctlOf(padOf(BT.side));
+  if (c.take("start", 250)) { menu.show("pause"); return; }
+  if (ui === "select") {
+    cursorMove(c);
+    if (c.take("lb", 200) || c.take("rb", 200) || c.take("y", 200)) { const ready = friendsOfSide(BT.side).filter(u => !u.done); if (ready.length) { const i = (ready.findIndex(u => u.x === cur.x && u.y === cur.y) + 1) % ready.length; cur.x = ready[i].x; cur.y = ready[i].y; play("move"); } }
+    if (c.take("a", 200)) { const u = unitAt(cur.x, cur.y); if (u && u.side === BT.side && !u.done) { sel = u; R = reach(u); ui = "move"; play("ok"); } }
+  } else if (ui === "move") {
+    cursorMove(c);
+    if (c.take("b", 200)) { ui = "select"; sel = null; play("move"); return; }
+    if (c.take("a", 200)) { const i = at(cur.x, cur.y); if (R.tiles.includes(i)) { sel.ox = sel.x; sel.oy = sel.y; walkTo(sel, pathTo(R, i)); sel.moved = true; ui = "act"; acts = actionsFor({ ...sel, x: cur.x, y: cur.y }); pending = "acts"; ai = 0; play("ok"); } }
+  } else if (ui === "act") {
+    if (SEQ.length) return;
+    if (pending === "acts") { acts = actionsFor(sel); pending = null; ai = 0; }
+    if (dirPress(c, "up")) { ai = (ai + acts.length - 1) % acts.length; play("move"); }
+    if (dirPress(c, "down")) { ai = (ai + 1) % acts.length; play("move"); }
+    if (c.take("b", 200)) { sel.x = sel.ox; sel.y = sel.oy; cur.x = sel.x; cur.y = sel.y; R = reach(sel); ui = "move"; play("move"); return; }
+    if (c.take("a", 200)) {
+      const a = acts[ai]; if (a.off) { play("no"); return; }
+      if (a.k === "wait") { sel.done = true; ui = "select"; sel = null; play("ok"); return; }
+      targets = a.k === "attack" ? foesOf(sel).filter(d => canHit(sel, d)).map(d => at(d.x, d.y)) : skillTiles(sel, a.k);
+      ui = "target"; BT.act = a.k; const t0 = targets[0]; cur.x = t0 % MW; cur.y = (t0 / MW) | 0; play("ok");
+    }
+  } else if (ui === "target") {
+    cursorMove(c);
+    if (c.take("b", 200)) { ui = "act"; cur.x = sel.x; cur.y = sel.y; play("move"); return; }
+    if (c.take("a", 200)) { const i = at(cur.x, cur.y); if (!targets.includes(i)) { play("no"); return; }
+      if (BT.act === "attack") attack(sel, unitAt(cur.x, cur.y)); else useSkill(sel, BT.act, cur.x, cur.y);
+      sel.done = true; ui = "select"; const was = sel; sel = null; cur.x = was.x; cur.y = was.y; }
+  }
+}
+// ---------------------------------------------------------------- the loop
+function update(dt) {
+  modeT += dt;
+  for (let i = FX.length - 1; i >= 0; i--) { FX[i].t += dt; if (FX[i].t > (FX[i].boom ? 0.5 : FX[i].breath ? 0.7 : 1)) FX.splice(i, 1); }
+  if (mode === "map") return mapInput();
+  if (mode === "result") return resultInput();
+  if (mode !== "battle" || !BT || menu.at) return;
+  if (BT.bannerT > 0) BT.bannerT -= dt;
+  for (const u of BT.units) { if (u.flash > 0) u.flash -= dt; if (u.fallT > 0) u.fallT -= dt; }
+  runSeq(dt);
+  if (!SEQ.length) check();
+  if (SEQ.length || BT.winner != null) return;
+  if (BT.dirty) renderField();
+  if (BT.ai[BT.side]) {
+    if (BT.bannerT > 0.5) return;
+    if (!BT.aiQ) BT.aiQ = friendsOfSide(BT.side).slice();
+    if (BT.aiQ.length) { const u = BT.aiQ.shift(); if (!u.dead && !u.done) { aiAct(u); step(DEMO ? 0.15 : 0.22, {}); } }
+    else endSide();
+  } else {
+    playerInput();
+    if (!SEQ.length && ui === "select" && friendsOfSide(BT.side).every(u => u.done)) endSide();
+  }
+}
 
-// ─────────────────────────── GAME STATE ───────────────────────────
-let gameState="title"; // title, playing, floor_clear, game_over, win
-let floorIndex=0;
-let units=[];
-let tileMap=[];
-let turnPhase="player"; // player, enemy
-let playerPhase="select_unit"; // select_unit, select_move, select_action, select_spell_target, select_attack_target
-let selectedUnit=null;
-let cursorX=0,cursorY=0;
-let reachableCells=[];
-let attackableCells=[];
-let spellTargetCells=[];
-let currentSpell=null;
-let actionMenuIndex=0;
-let actionMenuItems=[];
-let playerUnitIndex=0;
-let telegraphMarkers=[]; // {gx,gy,color}
-let animations=[]; // {type, ...}
-let transitionAlpha=0;
-let transitionDir=0; // 1=fade in, -1=fade out
-let titleAnim=0;
-let messageQueue=[];
-let messageTimer=0;
-let currentMessage="";
+// ---------------------------------------------------------------- drawing the field (once, again when it changes)
+let FC = null;
+function renderField() {
+  BT.dirty = false;
+  const f = BT.f, T = THEMES[f.theme], c = FC || (FC = mk(MW * TS, MH * TS + 3 * LIFT + 4)), g = g2(c);
+  g.clearRect(0, 0, c.width, c.height);
+  const base = 3 * LIFT;
+  for (let y = 0; y < MH; y++) for (let x = 0; x < MW; x++) {
+    const i = at(x, y), t = f.t[i], h = f.h[i], X = x * TS, Y = base + y * TS - h * LIFT, hsh = hash(x, y);
+    let top = hsh > 0.5 ? T.grass : T.grass2;
+    if (t === FLOOR) top = ((x + y) & 1) ? T.floor : shade(T.floor, 0.92); else if (t === MUD) top = T.mud; else if (t === ICE) top = "#bce4f4"; else if (t === ROCK) top = T.rock; else if (t === WATER) top = T.water; else if (t === PIT) top = T.pit;
+    if (BT.scorch[i]) top = shade(top, 0.6);
+    // the side, down to the ground below
+    if (h > 0 || t === PIT || t === WATER) { const sideH = t === PIT ? 0 : h * LIFT + 3; px(g, X, Y + TS, TS, sideH, T.side); px(g, X, Y + TS, TS, 1, shade(T.side, 0.7)); }
+    px(g, X, Y, TS, TS, top);
+    px(g, X, Y, TS, 1, shade(top, 1.15)); px(g, X, Y, 1, TS, shade(top, 1.08)); px(g, X + TS - 1, Y, 1, TS, shade(top, 0.85));
+    if (t === GRASS && hsh > 0.7) { px(g, X + 5, Y + 6, 1, 2, shade(top, 1.25)); px(g, X + 13, Y + 12, 1, 2, shade(top, 1.25)); }
+    if (t === FOREST) { for (const [ox, oy, r] of [[6, 7, 5], [14, 9, 5], [9, 14, 5]]) { g.fillStyle = shade(T.forest, 0.8); g.beginPath(); g.arc(X + ox, Y + oy + 1, r, 0, Math.PI * 2); g.fill(); g.fillStyle = T.forest; g.beginPath(); g.arc(X + ox, Y + oy, r - 1, 0, Math.PI * 2); g.fill(); g.fillStyle = shade(T.forest, 1.3); g.fillRect(X + ox - 2, Y + oy - 2, 2, 2); } }
+    if (t === WATER) { px(g, X + 3, Y + 6, 6, 1, shade(T.water, 1.3)); px(g, X + 10, Y + 13, 6, 1, shade(T.water, 1.3)); }
+    if (t === ICE) { px(g, X + 3, Y + 4, 8, 1, "#ffffff"); px(g, X + 9, Y + 12, 6, 1, "#e8f6ff"); }
+    if (t === PIT) { px(g, X + 2, Y + 2, TS - 4, TS - 4, "#000000"); px(g, X + 2, Y + 2, TS - 4, 2, shade(T.side, 0.5)); }
+    if (t === ROCK) { px(g, X + 2, Y - 4, TS - 4, TS, shade(T.rock, 0.8)); px(g, X + 3, Y - 5, TS - 6, TS - 6, T.rock); px(g, X + 4, Y - 4, 5, 2, shade(T.rock, 1.3)); }
+    if (t === MUD && hsh > 0.4) px(g, X + 6, Y + 8, 6, 3, shade(T.mud, 0.8));
+  }
+}
+const sx = x => OX + x * TS, sy = (x, y) => OY + y * TS - BT.f.h[at(Math.round(x), Math.round(y))] * LIFT;
+function tileBox(g, x, y, col, a) { g.globalAlpha = a; px(g, sx(x), sy(x, y), TS, TS, col); g.globalAlpha = 1; }
+function draw(g) {
+  if (mode === "map" || mode === "title" || mode === "boot" || (mode === "result" && BT && BT.mode === "campaign" && !BT)) return drawMap(g);
+  px(g, 0, 0, VW, VH, "#0b0912");
+  if (!BT) return drawMap(g);
+  if (BT.dirty) renderField();
+  g.drawImage(FC, OX, OY - 3 * LIFT);
+  const f = BT.f, t = G.time;
+  // fire on the ground
+  for (let i = 0; i < MW * MH; i++) if (f.fire[i]) { const x = i % MW, y = (i / MW) | 0, X = sx(x), Y = sy(x, y); for (let k = 0; k < 4; k++) { const fl = (Math.sin(t * 9 + k * 2 + i) + 1) * 2; px(g, X + 3 + k * 4, Y + 10 - fl, 3, 6 + fl, k & 1 ? "#ff6c11" : "#ffb02a"); px(g, X + 4 + k * 4, Y + 12 - fl, 1, 3, "#fff4b0"); } }
+  // what can be reached, struck, touched
+  if (mode === "battle" && !BT.ai[BT.side]) {
+    if (ui === "move" && R) for (const i of R.tiles) tileBox(g, i % MW, (i / MW) | 0, "#3a8aff", 0.3);
+    if (ui === "move" && sel) for (let y = 0; y < MH; y++) for (let x = 0; x < MW; x++) { const o = unitAt(x, y); if (o && o.side !== sel.side && R.tiles.some(i => canHit(sel, o, i % MW, (i / MW) | 0))) tileBox(g, x, y, "#ff3a3a", 0.25); }
+    if (ui === "target") { for (const i of targets) tileBox(g, i % MW, (i / MW) | 0, "#ff3a3a", 0.3); if (BT.act !== "attack" && targets.includes(at(cur.x, cur.y))) for (const [x, y] of areaOf(sel, BT.act, cur.x, cur.y)) tileBox(g, x, y, "#ffb02a", 0.35); }
+    if (ui === "select") { const o = unitAt(cur.x, cur.y); if (o && o.side !== BT.side) { const r = reach(o); for (const i of r.tiles) tileBox(g, i % MW, (i / MW) | 0, "#ff6a3a", 0.16); } }
+  }
+  // the units, back to front
+  const list = BT.units.filter(u => !u.dead || u.fallT > 0).sort((a, b) => (a.y + a.dy || a.y) - (b.y + b.dy || b.y));
+  for (const u of list) {
+    const S = sprite(u.k), ux = u.x + (u.dx || 0), uy = u.y + (u.dy || 0), X = OX + ux * TS + TS / 2 - S.w / 2 - 1, Y = sy(u.x, u.y) + TS - S.h - 2 + (u.dy || 0) * TS;
+    const fr = ((t * 2 + u.id) | 0) & 1;
+    if (u.fallT > 0) { const k = u.fallT / 0.6; g.globalAlpha = k; g.drawImage(S.c, 0, 0, S.w + 2, S.h + 2, X + (1 - k) * 6, Y + (1 - k) * 16, (S.w + 2) * k, (S.h + 2) * k); g.globalAlpha = 1; continue; }
+    g.globalAlpha = 0.35; px(g, X + 3, Y + S.h - 1, S.w - 4, 3, "#000"); g.globalAlpha = 1;
+    if (u.done && u.side === BT.side && !BT.ai[BT.side]) g.globalAlpha = 0.55;
+    g.drawImage(S.c, fr * S.w + (fr ? 1 : 0), 0, S.w + 1, S.h + 2, X, Y, S.w + 1, S.h + 2);
+    if (u.flash > 0 && (G.frame >> 1) & 1) { g.globalCompositeOperation = "lighter"; g.drawImage(S.c, fr * S.w, 0, S.w + 1, S.h + 2, X, Y, S.w + 1, S.h + 2); g.globalCompositeOperation = "source-over"; }
+    g.globalAlpha = 1;
+    // health, and a mark for side, the frozen, the pinned, the blessed, the guarding
+    const bw = 14, bx = OX + ux * TS + 3, by = Y + S.h + 2;
+    px(g, bx, by, bw, 3, "#08060c"); px(g, bx + 1, by + 1, Math.max(1, Math.round((bw - 2) * u.hp / u.max)), 1, u.side ? (BT.mode === "versus" ? "#ff8a3a" : "#ff4a4a") : "#7ae07a");
+    if (u.st.frozen) px(g, X + 2, Y + 4, S.w - 2, S.h - 6, "rgba(160,220,255,0.35)");
+    if (u.st.pin) font.text(g, "×", X + S.w - 3, Y, 3); if (u.st.bless) font.text(g, "★", X - 2, Y, 2); if (u.st.guard) font.text(g, "□", X - 2, Y + 7, 4);
+    if (u.boss) font.text(g, "★", X + S.w / 2 - 2, Y - 6, 3);
+  }
+  // shots in flight, blasts, breath, numbers
+  const s0 = SEQ[0];
+  if (s0 && s0.shot && s0.go) { const k = Math.min(1, s0.t / s0.d), q = s0.shot, x = OX + (q.x0 + (q.x1 - q.x0) * k) * TS + TS / 2, y = sy(q.x0, q.y0) + ((q.y1 - q.y0) * k) * TS + 6 - Math.sin(k * Math.PI) * (q.kind === "arrow" ? 14 : 6);
+    const col = { arrow: "#e8e0c8", fire: "#ff8a2a", frost: "#9ad8ff", spark: "#e0c8ff", gust: "#e8f0ff", tongue: "#e86a8a" }[q.kind] || "#fff";
+    if (q.kind === "tongue") { g.strokeStyle = col; g.lineWidth = 2; g.beginPath(); g.moveTo(OX + q.x0 * TS + TS / 2, sy(q.x0, q.y0) + 8); g.lineTo(x, y); g.stroke(); } else { px(g, x - 2, y - 2, 4, 4, col); px(g, x - 1, y - 1, 2, 2, "#fff"); } }
+  for (const e of FX) {
+    if (e.boom) { const r = 6 + e.t * 40; g.globalAlpha = 1 - e.t / 0.5; g.fillStyle = "#ffb02a"; g.beginPath(); g.arc(OX + e.x * TS + TS / 2, sy(e.x, e.y) + TS / 2, r, 0, Math.PI * 2); g.fill(); g.globalAlpha = 1; }
+    else if (e.breath) { for (let k = 1; k <= 4; k++) { const x = e.x + e.dx * k, y = e.y + e.dy * k; if (at(x, y) < 0) continue; g.globalAlpha = 0.6; px(g, sx(x) + 2, sy(x, y) + 2, TS - 4, TS - 4, k & 1 ? "#ff6c11" : "#ffd27a"); g.globalAlpha = 1; } }
+    else if (e.rain) { for (let k = 0; k < 12; k++) px(g, OX + (e.x - 1) * TS + ((k * 37) % 60), sy(e.x, e.y) - 10 + ((k * 23 + e.t * 200) % 40), 1, 4, "#e8e0c8"); }
+    else if (e.txt) { const y = sy(e.x, e.y) - 6 - e.t * 14; font.center(g, e.txt, OX + e.x * TS + TS / 2, y, e.col, 1); }
+  }
+  if (mode === "battle" && !BT.ai[BT.side] && SEQ.length === 0) { const X = sx(cur.x), Y = sy(cur.x, cur.y), on = (G.frame >> 4) & 1; g.strokeStyle = on ? "#ffd27a" : "#ffffff"; g.lineWidth = 1; g.strokeRect(X + 0.5, Y + 0.5, TS - 1, TS - 1); px(g, X - 1, Y - 1, 4, 1, "#ffd27a"); px(g, X - 1, Y - 1, 1, 4, "#ffd27a"); px(g, X + TS - 3, Y + TS, 4, 1, "#ffd27a"); px(g, X + TS, Y + TS - 3, 1, 4, "#ffd27a"); }
+}
 
-// ─────────────────────────── CONTROLLER ───────────────────────────
-// The controller comes through the box's pad.js (SofaPad): each press is kept until the game reads it, and a held
-// direction repeats. The box also turns controller presses into keys for its menus: while a controller is in use
-// those are its echo, and ignored. The keyboard is for when there's no controller.
-let keys={}, keysPrev={};
-const padHit={};
-if(window.SofaPad) SofaPad.on((b,how)=>{ if(how==="press"||how==="repeat"){ padHit[b]=1; resumeAC(); } });
-document.addEventListener("keydown",e=>{
-  if(window.SofaPad&&SofaPad.echo(e)) return;
-  keys[e.code]=true; resumeAC();
-  if(/^(Arrow|Space$)/.test(e.code)) e.preventDefault();
+// ---------------------------------------------------------------- the panel beside the field
+function hud(g) {
+  if (mode === "title" || mode === "boot") { font.center(g, "RUNE", VW / 2, 34, 2, 5); font.center(g, "TACTICS", VW / 2, 72, 4, 4); font.center(g, "FIFTEEN BATTLES · FIVE HEROES · ONE OR TWO PLAYERS", VW / 2, 106, 1, 1); return; }
+  if (mode === "map") return mapHud(g);
+  if (!BT) return;
+  // the top: where, which round, whose turn
+  px(g, 0, 0, VW, 14, "#14101e");
+  font.text(g, BT.name || "SKIRMISH", 6, 4, 2);
+  font.text(g, "ROUND " + BT.round + (BT.hold ? " OF " + BT.hold : ""), 200, 4, 1);
+  font.text(g, BT.mode === "versus" ? (BT.side ? "WARBAND (P2)" : "HEROES (P1)") : BT.mode === "demo" ? (BT.side ? "THE WARBAND" : "THE HEROES") : BT.side ? "THEIR TURN" : "YOUR TURN", 300, 4, BT.side ? 3 : 5);
+  if (BT.mode === "demo") { font.text(g, "DEMO", 440, 4, 1); return; }
+  const PX = 300, PY = 22;
+  px(g, PX - 4, PY - 4, VW - PX + 2, VH - PY - 2, "#110d1a");
+  // the unit under the cursor (or the one chosen)
+  const u = sel || (unitAt(cur.x, cur.y) || null);
+  if (u) {
+    const S = sprite(u.k); g.save(); g.translate(PX, PY); g.scale(2, 2); g.drawImage(S.c, 0, 0, S.w + 1, S.h + 2, 0, 0, S.w + 1, S.h + 2); g.restore();
+    font.text(g, u.name, PX + 40, PY, u.side ? 3 : 5); font.text(g, u.hero ? HEROES[u.k].cls + " · LV " + u.lvl : u.boss ? "BOSS" : "FOE", PX + 40, PY + 10, 1);
+    px(g, PX + 40, PY + 22, 90, 5, "#08060c"); px(g, PX + 41, PY + 23, Math.round(88 * u.hp / u.max), 3, u.side ? "#ff4a4a" : "#7ae07a"); font.text(g, u.hp + "/" + u.max, PX + 136, PY + 21, 0);
+    font.text(g, "ATK " + u.atk + "  DEF " + u.def + "  MOV " + u.mov + (u.rng[1] > 1 ? "  RNG " + u.rng[0] + "-" + u.rng[1] : ""), PX + 40, PY + 32, 0);
+    const traits = u.F ? [u.F.fly && "FLIES", u.F.push && "SHOVES", u.F.heal && "HEALS", u.F.flank && "FLANKS", u.F.split && "SPLITS", u.F.ignite && "SETS FIRES", u.F.drain && "DRAINS LIFE", u.F.bomb && "EXPLODES", u.heavy && "CAN'T BE MOVED", u.F.tongue && "PULLS", u.F.breath && "BREATHES FIRE", u.F.summon && "RAISES THE DEAD"].filter(Boolean).join(", ") : "";
+    if (traits) font.wrap(traits, 170).slice(0, 2).forEach((l, k) => font.text(g, l, PX, PY + 50 + k * 9, 6));
+    if (u.hero && ui !== "act" && ui !== "target") u.skills.forEach((s, k) => font.text(g, SKILLS[s].name + (u.cd[s] > 0 ? " (" + u.cd[s] + ")" : ""), PX, PY + 50 + k * 9, u.cd[s] > 0 ? 1 : 4));
+  }
+  // the ground under the cursor
+  const i = at(cur.x, cur.y), T = TERRAIN[BT.f.t[i]];
+  font.text(g, T.name + (BT.f.h[i] ? " · HIGH " + BT.f.h[i] : "") + (T.def ? " · COVER +" + T.def : "") + (BT.f.fire[i] ? " · BURNING" : ""), PX, 100, 1);
+  // the choices, or what a blow would do
+  if (ui === "act" && sel && !SEQ.length && !pending) {
+    acts.forEach((a, k) => { const y = 116 + k * 12, on = k === ai; if (on) px(g, PX - 2, y - 2, 176, 11, "#2a2040"); font.text(g, a.t, PX + 4, y, a.off ? 1 : on ? 2 : 0); if (a.sub) font.text(g, a.sub, PX + 140, y, 1); });
+    const a = acts[ai]; if (a && SKILLS[a.k]) font.wrap(SKILLS[a.k].about, 170).forEach((l, k) => font.text(g, l, PX, 118 + acts.length * 12 + k * 9, 1));
+  } else if (ui === "target" && sel) {
+    const d = unitAt(cur.x, cur.y);
+    font.text(g, BT.act === "attack" ? "ATTACK" : SKILLS[BT.act].name, PX, 118, 2);
+    if (d && targets.includes(i)) {
+      const S = SKILLS[BT.act]; let n = null;
+      if (BT.act === "attack") n = damage(sel, d, 1); else if (S && S.pow) n = damage(sel, d, S.pow); else if (S && S.dmg) n = damage(sel, d, 0, S.dmg);
+      if (n != null && d.side !== sel.side) { font.text(g, d.name + ": " + d.hp + " → " + Math.max(0, d.hp - n), PX, 132, 0); if (n >= d.hp) font.text(g, "IT FALLS", PX, 144, 3); }
+      else if (S && S.heal) font.text(g, d.name + ": +" + Math.min(S.heal + (sel.lvl >> 1), d.max - d.hp), PX, 132, 5);
+    }
+  }
+  // the buttons
+  const hint = ui === "select" ? G.label("a") + " CHOOSE  " + G.label("y") + " NEXT  " + G.label("start") + " MENU" : ui === "move" ? G.label("a") + " MOVE HERE  " + G.label("b") + " BACK" : ui === "act" ? G.label("a") + " DO IT  " + G.label("b") + " UNDO MOVE" : G.label("a") + " TARGET  " + G.label("b") + " BACK";
+  if (!BT.ai[BT.side] && mode === "battle") font.text(g, hint, PX, VH - 12, 1);
+  if (BT.bannerT > 0) font.center(g, BT.banner, OX + MW * TS / 2, 120, BT.side ? 3 : 2, 2);
+  if (mode === "result") drawResult(g);
+}
+function drawResult(g) {
+  g.fillStyle = "rgba(6,4,12,0.85)"; g.fillRect(40, 50, 400, 170);
+  const B = BT, won = B.winner === 0;
+  const title = B.mode === "versus" ? (B.winner === 0 ? "THE HEROES WIN" : "THE WARBAND WINS") : won ? (B.ended ? "THE HOLLOW CROWN FALLS" : "VICTORY") : "DEFEAT";
+  font.center(g, title, VW / 2, 62, won || B.mode === "versus" ? 2 : 3, 3);
+  font.center(g, "IN " + B.round + " ROUND" + (B.round > 1 ? "S" : ""), VW / 2, 92, 1, 1);
+  (B.levels || []).slice(0, 6).forEach((l, k) => font.center(g, l, VW / 2, 110 + k * 12, 5, 1));
+  if (B.ended) font.center(g, "THE CAMPAIGN IS WON. THE LAND SLEEPS EASY.", VW / 2, 190, 2, 1);
+  if (modeT > 1 && (G.frame >> 5) & 1) font.center(g, G.label("a") + (won || B.mode !== "campaign" ? " CARRY ON" : " TRY AGAIN   " + G.label("b") + " TO THE MAP"), VW / 2, 204, 0, 1);
+}
+function resultInput() {
+  if (modeT < 1) return;
+  const c = ctlOf(BT.pads[0] || 0);
+  if (DEMO) { if (modeT > 3) demoNext(); return; }
+  const B = BT, won = B.winner === 0;
+  if (c.take("a", 300) || c.take("start", 300)) {
+    play("ok");
+    if (B.mode === "campaign") { if (won) { if (B.ended) { SAVE.camp = null; store.save(); toTitle(); } else openMap(); } else campBattle(B.node); }
+    else toTitle();
+  } else if (c.take("b", 300) && B.mode === "campaign" && !won) openMap();
+}
+
+// ---------------------------------------------------------------- the campaign's map
+let mapI = 0, MAPBG = null;
+const nodeOpen = n => !SAVE.camp ? false : SAVE.camp.done[n.id] || !n.from.length || n.from.some(p => SAVE.camp.done[p]);
+function openMap() { mode = "map"; modeT = 0; BT = null; menu.hide(); synth.song({ seed: 9, root: 50, tempo: 88, calm: true });
+  const open = NODES.filter(n => nodeOpen(n) && !SAVE.camp.done[n.id]); mapI = open.length ? open[open.length - 1].id : 0; }
+function campBattle(id) {
+  const n = NODES[id], C = SAVE.camp, heroes = C.joined.map(k => ({ id: k, lvl: C.heroes[k].lvl }));
+  const lvl = heroes.reduce((a, h) => a + h.lvl, 0) / heroes.length, foeLvl = (id >= 3 ? 1 : 0) + Math.max(0, Math.round(id * 0.45 + (lvl - 1) * 0.3 - 0.5));
+  const extra = id >= 9 && n.foes.length < 6 ? [KINDS10[(n.seed + id) % 10]] : [];
+  C.at = id; store.save();
+  G.fade(() => startBattle({ mode: "campaign", node: id, name: n.name, theme: n.theme, seed: n.seed, heroes, foes: n.foes.concat(extra), foeLvl, hold: n.hold, boss: n.boss, pads: [ctlPad()] }), 4);
+}
+const ctlPad = () => G.input.players()[0] || 0;
+function mapInput() {
+  const c = ctlOf(ctlPad());
+  const pickDir = (dx, dy) => { const a = NODES[mapI]; let best = null, bd = 1e9; for (const n of NODES) { if (n.id === mapI || !nodeOpen(n)) continue; const vx = n.x - a.x, vy = n.y - a.y; if (vx * dx + vy * dy <= 0) continue; const d = Math.hypot(vx, vy) * (1 + Math.abs(vx * dy - vy * dx) / (Math.hypot(vx, vy) + 1)); if (d < bd) { bd = d; best = n; } } if (best) { mapI = best.id; play("move"); } };
+  if (c.take("left", 200)) pickDir(-1, 0); if (c.take("right", 200)) pickDir(1, 0); if (c.take("up", 200)) pickDir(0, -1); if (c.take("down", 200)) pickDir(0, 1);
+  if (modeT > 0.3 && c.take("a", 200) && nodeOpen(NODES[mapI])) { play("ok"); campBattle(mapI); }
+  if (c.take("b", 200) || c.take("start", 200)) toTitle();
+}
+function drawMap(g) {
+  if (!MAPBG) { MAPBG = mk(VW, VH); const b = g2(MAPBG), r = U.rand(77);
+    px(b, 0, 0, VW, VH, "#2a2418");
+    for (let y = 0; y < VH; y += 2) for (let x = 0; x < VW; x += 2) { const v = hash(x >> 3, y >> 3); if (v > 0.55) px(b, x, y, 2, 2, v > 0.8 ? "#3a3220" : "#322a1c"); }
+    const zones = [[60, 150, "#3a5a2a"], [120, 200, "#2e4a3a"], [270, 160, "#4a3428"], [370, 160, "#4a5a6a"], [440, 120, "#2a2434"]];
+    for (const [x, y, col] of zones) { b.fillStyle = col; b.globalAlpha = 0.5; b.beginPath(); b.arc(x, y, 70, 0, Math.PI * 2); b.fill(); b.globalAlpha = 1; }
+    for (let k = 0; k < 120; k++) { const x = r() * VW, y = 30 + r() * (VH - 60); px(b, x, y, 2, 2, "#1e3a1e"); }
+  }
+  g.drawImage(MAPBG, 0, 0);
+  if (mode !== "map") return;
+  for (const n of NODES) for (const p of n.from) { const a = NODES[p], done = SAVE.camp && SAVE.camp.done[p]; g.strokeStyle = done ? "#d8b878" : "#5a4a34"; g.lineWidth = 2; g.setLineDash(done ? [] : [3, 3]); g.beginPath(); g.moveTo(a.x, a.y); g.lineTo(n.x, n.y); g.stroke(); g.setLineDash([]); }
+  for (const n of NODES) {
+    const done = SAVE.camp && SAVE.camp.done[n.id], open = nodeOpen(n), on = n.id === mapI, r = n.boss ? 7 : 5;
+    g.fillStyle = "#08060c"; g.beginPath(); g.arc(n.x, n.y, r + 2, 0, Math.PI * 2); g.fill();
+    g.fillStyle = done ? "#ffd27a" : open ? ((G.frame >> 4) & 1 ? "#ffffff" : "#c8c0b0") : "#5a5048"; g.beginPath(); g.arc(n.x, n.y, r, 0, Math.PI * 2); g.fill();
+    if (n.boss) font.text(g, "★", n.x - 2, n.y - 3, done ? 7 : 3);
+    if (on) { g.strokeStyle = "#ff6a3a"; g.lineWidth = 1; g.strokeRect(n.x - r - 4.5, n.y - r - 4.5, r * 2 + 9, r * 2 + 9); }
+  }
+}
+function mapHud(g) {
+  const n = NODES[mapI], C = SAVE.camp;
+  px(g, 0, 0, VW, 14, "#14101e"); font.text(g, "THE CAMPAIGN · " + Object.keys(C.done).length + " OF 15 BATTLES WON", 6, 4, 2);
+  px(g, 0, VH - 56, VW, 56, "#14101e");
+  font.text(g, n.name + (n.boss ? " · BOSS" : "") + (n.hold ? " · HOLD " + n.hold + " ROUNDS" : ""), 8, VH - 50, nodeOpen(n) ? 2 : 1);
+  font.text(g, nodeOpen(n) ? n.about : "WIN A BATTLE NEXT TO IT FIRST.", 8, VH - 39, 1);
+  if (C.done[n.id]) font.text(g, "WON IN " + SAVE.best[n.id] + " ROUNDS", 330, VH - 50, 5);
+  C.joined.forEach((k, i) => { const x = 8 + i * 92, H = C.heroes[k]; g.drawImage(sprite(k).c, 0, 0, 17, 25, x, VH - 28, 17, 25); font.text(g, HEROES[k].name, x + 20, VH - 24, 0); font.text(g, "LV " + H.lvl, x + 20, VH - 14, 4); });
+  font.text(g, G.label("a") + " FIGHT  " + G.label("b") + " TITLE", VW - 90, 4, 1);
+}
+
+// ---------------------------------------------------------------- menus
+const menu = new L2.Menu(G, {
+  top: "title", values: SAVE.opts, accent: "#9a7aff",
+  screens: {
+    title: { y: 128, w: 220, items: () => (SAVE.camp ? [{ t: "CARRY ON THE CAMPAIGN", act: "cont", sub: Object.keys(SAVE.camp.done).length + "/15" }] : []).concat([{ t: "NEW CAMPAIGN", act: "new" }, { t: "SKIRMISH", act: "skirmish" }, { t: "TWO PLAYERS", act: "versus" }, { t: "RECORDS", act: "records" }, { t: "OPTIONS", act: "options" }, { t: "HOW TO PLAY", act: "how" }]) },
+    confirm: { title: "START AGAIN?", sub: "THE CAMPAIGN SO FAR WILL BE LOST.", back: "title", w: 260, items: [{ t: "YES, A NEW CAMPAIGN", act: "newyes" }, { t: "NO", act: "back" }] },
+    skirmish: { title: "SKIRMISH", sub: "A FIELD MADE UP NOW. ALL FIVE HEROES AGAINST A WARBAND.", back: "title", w: 300, items: [{ t: "FIGHT", act: "skgo" },
+      { t: "LAND", k: "land", vals: ["any", "meadow", "marsh", "ash", "frost", "ruins", "crypt"], names: { any: "ANY", meadow: "MEADOW", marsh: "MARSH", ash: "ASHLANDS", frost: "FROSTFELL", ruins: "RUINS", crypt: "CRYPT" } },
+      { t: "HEROES' LEVEL", k: "hlvl", vals: [2, 4, 6, 8], names: { 2: "2", 4: "4", 6: "6", 8: "8" } }, { t: "FOES", k: "nfoes", vals: [5, 6, 7, 8, 9, 10], names: { 5: "5", 6: "6", 7: "7", 8: "8", 9: "9", 10: "10" } }] },
+    versus: { title: "TWO PLAYERS", sub: "P1 LEADS THE HEROES, P2 THE WARBAND, TURN ABOUT. ONE CONTROLLER? PASS IT ROUND.", back: "title", w: 320, items: [{ t: "FIGHT", act: "vsgo" }] },
+    options: { title: "OPTIONS", back: () => menu.show(BT && mode === "battle" ? "pause" : "title", 0), w: 280, items: L2.optionItems() },
+    records: { title: "RECORDS", back: "title", w: 300, items: [{ t: "BACK", act: "back" }] },
+    how: { title: "HOW TO PLAY", back: "title", w: 420, items: [{ t: "BACK", act: "back" }], lines: [["CHOOSE A HERO, WHERE TO GO, THEN WHAT TO DO.", ""], ["HIGH GROUND HITS HARDER AND BOWS REACH FURTHER.", ""], ["FOREST GIVES COVER. FIRE SPREADS THROUGH GRASS AND TREES.", ""], ["SHOVE FOES INTO PITS. FREEZE WATER TO WALK ON IT.", ""], ["Y: THE NEXT HERO. B: BACK, OR UNDO A MOVE.", ""]] },
+    pause: { title: "PAUSED", back: () => menu.hide(), w: 220, items: [{ t: "CARRY ON", act: "resume" }, { t: "END THE TURN", act: "endturn" }, { t: "OPTIONS", act: "options" }, { t: "GIVE UP", act: "giveup" }] }
+  },
+  choose(it) {
+    const a = it.act;
+    if (a === "cont") openMap();
+    else if (a === "new") { if (SAVE.camp) menu.show("confirm"); else { SAVE.camp = newCamp(); store.save(); openMap(); } }
+    else if (a === "newyes") { SAVE.camp = newCamp(); store.save(); openMap(); }
+    else if (a === "skirmish") menu.show("skirmish");
+    else if (a === "versus") menu.show("versus");
+    else if (a === "skgo") skirmish();
+    else if (a === "vsgo") versus();
+    else if (a === "records") { menu.o.screens.records.lines = [["BATTLES WON", SAVE.wins.battles], ["CAMPAIGNS WON", SAVE.wins.campaigns], ["SKIRMISHES WON", SAVE.wins.skirmish], ["TWO-PLAYER GAMES", SAVE.versus.played + " (" + SAVE.versus.heroes + " TO " + SAVE.versus.warband + ")"]]
+      .concat(NODES.filter(n => SAVE.best[n.id]).slice(-6).map(n => [n.name, SAVE.best[n.id] + " ROUNDS"])); menu.show("records"); }
+    else if (a === "options") menu.show("options");
+    else if (a === "how") menu.show("how");
+    else if (a === "back") menu.back();
+    else if (a === "resume") menu.hide();
+    else if (a === "endturn") { menu.hide(); for (const u of friendsOfSide(BT.side)) u.done = true; ui = "select"; sel = null; }
+    else if (a === "giveup") { menu.hide(); BT.winner = 1 - (BT.mode === "versus" ? BT.side : 0); finishBattle(); }
+  },
+  changed() { G.options(SAVE.opts); store.save(); }
 });
-document.addEventListener("keyup",e=>{ keys[e.code]=false; });
-const PADNAME={A:"a",B:"b",X:"x",Y:"y",LB:"lb",RB:"rb",DpadUp:"up",DpadDown:"down",DpadLeft:"left",DpadRight:"right"};
-const KEYMAP={A:["Space","KeyZ","Enter"],B:["Escape","KeyX","Backspace"],Y:["KeyC"],X:["KeyV"],DpadUp:["ArrowUp","KeyW"],DpadDown:["ArrowDown","KeyS"],
-  DpadLeft:["ArrowLeft","KeyA"],DpadRight:["ArrowRight","KeyD"],LB:["KeyQ"],RB:["KeyE"]};
-function btnJustPressed(btn){
-  const codes=KEYMAP[btn];
-  for(let i=0;i<codes.length;i++) if(keys[codes[i]]&&!keysPrev[codes[i]]) return true;
-  return padHit[PADNAME[btn]]===1;
+G.menu = menu;
+function skirmish(seed) {
+  const s = seed || ((Math.random() * 1e6) | 0), r = U.rand(s), themes = Object.keys(THEMES), th = SAVE.opts.land === "any" ? themes[(r() * themes.length) | 0] : SAVE.opts.land;
+  const foes = []; for (let k = 0; k < SAVE.opts.nfoes; k++) foes.push(KINDS10[(r() * KINDS10.length) | 0]);
+  G.fade(() => startBattle({ mode: "skirmish", name: "SKIRMISH · " + THEMES[th].name, theme: th, seed: s, heroes: HERO_IDS.map(id => ({ id, lvl: SAVE.opts.hlvl })), foes, foeLvl: Math.round(SAVE.opts.hlvl * 0.6), pads: [ctlPad()] }), 4);
 }
-function updatePadPrev(){ for(const k in keys) keysPrev[k]=keys[k]; for(const k in padHit) padHit[k]=0; }
-// a button's name as the controller in hand shows it (or the key, with no controller)
-const PS_GLYPH={a:"\u2715",b:"\u25cb",x:"\u25a1",y:"\u25b3"}, KEY_NAME={a:"Z",b:"X",x:"V",y:"C"};
-function BL(b){
-  if(window.SofaPad&&SofaPad.connected()) return SofaPad.kind()==="playstation"?PS_GLYPH[b]:b.toUpperCase();
-  return KEY_NAME[b];
+function versus(demo) {
+  const s = (Math.random() * 1e6) | 0, themes = Object.keys(THEMES), th = themes[s % themes.length], pads = G.input.players();
+  G.fade(() => startBattle({ mode: demo ? "demo" : "versus", name: demo ? "DEMO · " + THEMES[th].name : "HEROES AGAINST THE WARBAND", theme: th, seed: s, heroes: ["kael", "lyra", "orin", "sefa", "vesk"].map(id => ({ id, lvl: 4 })),
+    foes: ["brute", "wolf", "wolf", "archer", "archer", "shaman", "imp", "golem", "bomber"], foeLvl: 2, pads: [pads[0] || 0, pads[1] != null ? pads[1] : null] }), 4);
 }
-
-// ─────────────────────────── MAP HELPERS ───────────────────────────
-function getTile(gx,gy){
-  if(!tileMap[gy]||gx<0||gx>=GRID_COLS)return '#';
-  return tileMap[gy][gx]||'#';
+function toTitle() { mode = "title"; BT = null; synth.song({ seed: 9, root: 50, tempo: 88, calm: true }); menu.show("title"); }
+function onButton(b, how, who) {}
+function demoNext() { versus(true); }
+function ready() {
+  sounds(); G.options(SAVE.opts);
+  for (const k of HERO_IDS.concat(Object.keys(FOES))) sprite(k);
+  if (DEMO) { window.SofaStats.demo = true; demoNext(); return; }
+  toTitle();
 }
-function isWalkable(gx,gy){
-  const t=getTile(gx,gy);
-  return t==='.'||t==='R';
-}
-function isPit(gx,gy){
-  return getTile(gx,gy)==='P';
-}
-function getUnitAt(gx,gy){
-  return units.find(u=>u.alive&&u.gx===gx&&u.gy===gy)||null;
-}
-
-// BFS for reachable cells
-function getReachableCells(unit){
-  const cells=[];
-  const visited=new Set();
-  const queue=[{gx:unit.gx,gy:unit.gy,steps:0}];
-  visited.add(unit.gx+","+unit.gy);
-  while(queue.length){
-    const {gx,gy,steps}=queue.shift();
-    if(steps>0){
-      const occ=getUnitAt(gx,gy);
-      if(!occ||occ===unit) cells.push({gx,gy});
-    }
-    if(steps>=unit.move)continue;
-    const dirs=[[0,-1],[0,1],[-1,0],[1,0]];
-    for(const [dx,dy] of dirs){
-      const nx=gx+dx,ny=gy+dy;
-      const key=nx+","+ny;
-      if(visited.has(key))continue;
-      visited.add(key);
-      if(!isWalkable(nx,ny)&&!isPit(nx,ny))continue;
-      const occ2=getUnitAt(nx,ny);
-      if(occ2&&occ2!==unit&&occ2.isPlayer===unit.isPlayer)continue; // blocked by own team
-      queue.push({gx:nx,gy:ny,steps:steps+1});
-    }
-  }
-  return cells;
-}
-
-// Get attackable cells (melee)
-function getAttackableCells(unit){
-  const cells=[];
-  const dirs=[[0,-1],[0,1],[-1,0],[1,0]];
-  if(unit.range<=1){
-    for(const [dx,dy] of dirs){
-      const nx=unit.gx+dx,ny=unit.gy+dy;
-      if(nx>=0&&nx<GRID_COLS&&ny>=0&&ny<GRID_ROWS) cells.push({gx:nx,gy:ny});
-    }
-  } else {
-    // Ranged: all cells within manhattan range
-    for(let gy=0;gy<GRID_ROWS;gy++){
-      for(let gx=0;gx<GRID_COLS;gx++){
-        const dist=Math.abs(gx-unit.gx)+Math.abs(gy-unit.gy);
-        if(dist>0&&dist<=unit.range) cells.push({gx,gy});
-      }
-    }
-  }
-  return cells;
-}
-
-// Get spell target cells
-function getSpellTargetCells(unit,spell){
-  const sd=SPELL_DATA[spell];
-  const cells=[];
-  for(let gy=0;gy<GRID_ROWS;gy++){
-    for(let gx=0;gx<GRID_COLS;gx++){
-      const dist=Math.abs(gx-unit.gx)+Math.abs(gy-unit.gy);
-      if(dist>0&&dist<=sd.range) cells.push({gx,gy});
-    }
-  }
-  return cells;
-}
-
-// ─────────────────────────── COMBAT ───────────────────────────
-function dealDamage(target,dmg,attackerGx,attackerGy){
-  if(!target||!target.alive)return;
-  const reduced=Math.max(1,dmg-target.def);
-  target.hp=Math.max(0,target.hp-reduced);
-  target.flashTimer=10;
-  if(target.hp<=0){
-    target.alive=false;
-  }
-  // Knockback for melee
-  if(attackerGx!==undefined&&attackerGy!==undefined){
-    const dx=Math.sign(target.gx-attackerGx);
-    const dy=Math.sign(target.gy-attackerGy);
-    const nx=target.gx+dx,ny=target.gy+dy;
-    if(nx>=0&&nx<GRID_COLS&&ny>=0&&ny<GRID_ROWS&&target.alive){
-      const occ=getUnitAt(nx,ny);
-      if(!occ){
-        // Slide animation
-        animations.push({type:"slide",unit:target,fromX:target.gx,fromY:target.gy,toX:nx,toY:ny,t:0,duration:12});
-        if(isPit(nx,ny)||!isWalkable(nx,ny)){
-          // Extra damage from wall/pit
-          target.hp=Math.max(0,target.hp-4);
-          if(target.hp<=0)target.alive=false;
-        } else {
-          target.gx=nx;target.gy=ny;
-        }
-      }
-    }
-  }
-}
-
-function performMeleeAttack(attacker,target){
-  playMelee();
-  const proj={type:"projectile",fromGx:attacker.gx,fromGy:attacker.gy,toGx:target.gx,toGy:target.gy,
-    sprite:"icon_sword",t:0,duration:18,onHit:()=>{
-      dealDamage(target,attacker.atk,attacker.gx,attacker.gy);
-    }};
-  animations.push(proj);
-}
-
-function performSpell(caster,spell,targetGx,targetGy){
-  const sd=SPELL_DATA[spell];
-  sd.sound();
-  const target=getUnitAt(targetGx,targetGy);
-  const proj={type:"projectile",fromGx:caster.gx,fromGy:caster.gy,toGx:targetGx,toGy:targetGy,
-    sprite:sd.sprite,t:0,duration:18,onHit:()=>{
-      if(sd.isHeal){
-        if(target){
-          target.hp=Math.min(target.maxHp,target.hp+sd.healAmt);
-          target.flashTimer=8;
-        }
-      } else if(sd.line){
-        // Lightning: hits all in line
-        const dx=Math.sign(targetGx-caster.gx);
-        const dy=Math.sign(targetGy-caster.gy);
-        let cx2=caster.gx+dx,cy2=caster.gy+dy;
-        for(let i=0;i<sd.range;i++){
-          const u=getUnitAt(cx2,cy2);
-          if(u&&u.isPlayer!==caster.isPlayer){
-            const dmg=Math.round(sd.baseDmg*caster.spellPower/14);
-            dealDamage(u,dmg);
-          }
-          cx2+=dx;cy2+=dy;
-        }
-      } else if(sd.aoe){
-        // Fire: splash
-        if(target&&target.isPlayer!==caster.isPlayer){
-          const dmg=Math.round(sd.baseDmg*caster.spellPower/14);
-          dealDamage(target,dmg);
-        }
-        const dirs=[[0,0],[0,-1],[0,1],[-1,0],[1,0]];
-        for(const [adx,ady] of dirs){
-          if(adx===0&&ady===0)continue;
-          const adj=getUnitAt(targetGx+adx,targetGy+ady);
-          if(adj&&adj.isPlayer!==caster.isPlayer){
-            const sdmg=Math.round(sd.splashDmg*caster.spellPower/14);
-            dealDamage(adj,sdmg);
-          }
-        }
-      } else {
-        // Frost
-        if(target&&target.isPlayer!==caster.isPlayer){
-          const dmg=Math.round(sd.baseDmg*caster.spellPower/14);
-          dealDamage(target,dmg);
-          if(target.alive&&sd.freeze){
-            target.frozen=true;
-            target.frozenTurns=1;
-          }
-        }
-      }
-    }};
-  animations.push(proj);
-}
-
-// ─────────────────────────── ENEMY AI ───────────────────────────
-function computeTelegraph(){
-  telegraphMarkers=[];
-  const enemies=units.filter(u=>u.alive&&!u.isPlayer);
-  for(const e of enemies){
-    // Find nearest player
-    const players=units.filter(u=>u.alive&&u.isPlayer);
-    if(!players.length)continue;
-    let nearest=null,nearestDist=999;
-    for(const p of players){
-      const d=Math.abs(p.gx-e.gx)+Math.abs(p.gy-e.gy);
-      if(d<nearestDist){nearestDist=d;nearest=p;}
-    }
-    if(!nearest)continue;
-    // Predict movement direction
-    const moveSteps=Math.min(e.move,nearestDist-1);
-    // Simplified: show attack target area
-    if(nearestDist<=e.range+e.move){
-      telegraphMarkers.push({gx:nearest.gx,gy:nearest.gy,color:PAL.r});
-      // Adjacent cells
-      const dirs=[[0,-1],[0,1],[-1,0],[1,0]];
-      for(const [dx,dy] of dirs){
-        telegraphMarkers.push({gx:nearest.gx+dx,gy:nearest.gy+dy,color:PAL.R});
-      }
-    }
-  }
-}
-
-function runEnemyTurn(){
-  turnPhase="enemy";
-  const enemies=units.filter(u=>u.alive&&!u.isPlayer&&!u.frozen);
-  let idx=0;
-  function nextEnemy(){
-    if(idx>=enemies.length){
-      // End enemy turn
-      endEnemyTurn();
-      return;
-    }
-    const e=enemies[idx];idx++;
-    if(!e.alive){nextEnemy();return;}
-    // Thaw frozen
-    if(e.frozen){
-      e.frozenTurns--;
-      if(e.frozenTurns<=0)e.frozen=false;
-      nextEnemy();return;
-    }
-    // AI: move toward nearest player, then attack if in range
-    const players=units.filter(u=>u.alive&&u.isPlayer);
-    if(!players.length){nextEnemy();return;}
-    let nearest=null,nearestDist=999;
-    for(const p of players){
-      const d=Math.abs(p.gx-e.gx)+Math.abs(p.gy-e.gy);
-      if(d<nearestDist){nearestDist=d;nearest=p;}
-    }
-    // Try to use spell
-    let usedSpell=false;
-    if(e.spells&&e.spells.length>0&&nearest){
-      const sdist=Math.abs(nearest.gx-e.gx)+Math.abs(nearest.gy-e.gy);
-      const spell=e.spells[0];
-      const sd=SPELL_DATA[spell];
-      if(sdist<=sd.range&&sdist>0){
-        performSpell(e,spell,nearest.gx,nearest.gy);
-        usedSpell=true;
-      }
-    }
-    // Move toward nearest
-    if(nearest&&!usedSpell){
-      let steps=e.move;
-      let cx=e.gx,cy=e.gy;
-      while(steps>0){
-        const dx=nearest.gx-cx,dy=nearest.gy-cy;
-        const adx=Math.abs(dx),ady=Math.abs(dy);
-        let moved2=false;
-        const dirs=[];
-        if(adx>=ady){
-          dirs.push([Math.sign(dx),0],[0,Math.sign(dy)],[Math.sign(dx)*-1,0],[0,Math.sign(dy)*-1]);
-        } else {
-          dirs.push([0,Math.sign(dy)],[Math.sign(dx),0],[0,Math.sign(dy)*-1],[Math.sign(dx)*-1,0]);
-        }
-        for(const [ddx,ddy] of dirs){
-          if(ddx===0&&ddy===0)continue;
-          const nx=cx+ddx,ny=cy+ddy;
-          if(nx<0||nx>=GRID_COLS||ny<0||ny>=GRID_ROWS)continue;
-          if(!isWalkable(nx,ny))continue;
-          const occ=getUnitAt(nx,ny);
-          if(occ&&occ!==e)continue;
-          if(Math.abs(nx-nearest.gx)+Math.abs(ny-nearest.gy)>=Math.abs(cx-nearest.gx)+Math.abs(cy-nearest.gy))continue;
-          cx=nx;cy=ny;moved2=true;break;
-        }
-        if(!moved2)break;
-        steps--;
-      }
-      if(cx!==e.gx||cy!==e.gy){
-        animations.push({type:"slide",unit:e,fromX:e.gx,fromY:e.gy,toX:cx,toY:cy,t:0,duration:10,onDone:()=>{
-          e.gx=cx;e.gy=cy;
-          // Melee attack after move
-          const dist2=Math.abs(nearest.gx-e.gx)+Math.abs(nearest.gy-e.gy);
-          if(dist2<=e.range&&nearest.alive){
-            setTimeout(()=>{
-              playEnemyAtk();
-              dealDamage(nearest,e.atk);
-              setTimeout(nextEnemy,300);
-            },200);
-          } else {
-            setTimeout(nextEnemy,100);
-          }
-        }});
-        return;
-      }
-      // Attack without moving
-      const dist2=Math.abs(nearest.gx-e.gx)+Math.abs(nearest.gy-e.gy);
-      if(dist2<=e.range&&nearest.alive){
-        playEnemyAtk();
-        dealDamage(nearest,e.atk);
-      }
-    }
-    setTimeout(nextEnemy,200);
-  }
-  setTimeout(nextEnemy,400);
-}
-
-function endEnemyTurn(){
-  telegraphMarkers=[];
-  // Unfreeze check
-  for(const u of units){
-    if(u.frozen&&u.frozenTurns<=0)u.frozen=false;
-  }
-  // Reset player unit states
-  for(const u of units){
-    if(u.isPlayer){
-      u.acted=false;
-      u.moved=false;
-    }
-  }
-  turnPhase="player";
-  playerPhase="select_unit";
-  selectedUnit=null;
-  reachableCells=[];
-  attackableCells=[];
-  computeTelegraph();
-  checkWinLose();
-}
-
-function checkWinLose(){
-  const players=units.filter(u=>u.alive&&u.isPlayer);
-  const enemies=units.filter(u=>u.alive&&!u.isPlayer);
-  if(!players.length){
-    gameState="game_over";return;
-  }
-  if(!enemies.length){
-    // Check if boss floor
-    const wasFloor3=floorIndex===2;
-    playLevelClear();
-    if(wasFloor3){
-      playBossDefeated();
-      gameState="win";
-    } else {
-      gameState="floor_clear";
-    }
-  }
-}
-
-// ─────────────────────────── FLOOR INIT ───────────────────────────
-function initFloor(idx){
-  floorIndex=idx;
-  tileMap=FLOOR_MAPS[idx];
-  units=FLOOR_UNITS[idx]();
-  turnPhase="player";
-  playerPhase="select_unit";
-  selectedUnit=null;
-  cursorX=1;cursorY=1;
-  reachableCells=[];
-  attackableCells=[];
-  spellTargetCells=[];
-  currentSpell=null;
-  actionMenuIndex=0;
-  actionMenuItems=[];
-  playerUnitIndex=0;
-  telegraphMarkers=[];
-  animations=[];
-  transitionAlpha=0;
-  transitionDir=0;
-  computeTelegraph();
-}
-
-// ─────────────────────────── ACTION MENU ───────────────────────────
-function buildActionMenu(unit){
-  const items=["ATTACK"];
-  if(unit.spells){
-    for(const s of unit.spells){
-      items.push(SPELL_DATA[s].name);
-    }
-  }
-  items.push("WAIT");
-  return items;
-}
-
-function handleActionSelected(unit,itemName){
-  if(itemName==="WAIT"){
-    unit.acted=true;
-    unit.moved=true;
-    checkAllPlayerActed();
-    return;
-  }
-  if(itemName==="ATTACK"){
-    attackableCells=getAttackableCells(unit);
-    // Set cursor to nearest enemy
-    const enemies=units.filter(u=>u.alive&&!u.isPlayer);
-    if(enemies.length){
-      cursorX=enemies[0].gx;cursorY=enemies[0].gy;
-    }
-    playerPhase="select_attack_target";
-    return;
-  }
-  // Spell
-  const spellKey=Object.keys(SPELL_DATA).find(k=>SPELL_DATA[k].name===itemName);
-  if(spellKey){
-    currentSpell=spellKey;
-    spellTargetCells=getSpellTargetCells(unit,spellKey);
-    const enemies=units.filter(u=>u.alive&&!u.isPlayer);
-    if(SPELL_DATA[spellKey].isHeal){
-      const allies=units.filter(u=>u.alive&&u.isPlayer);
-      if(allies.length){cursorX=allies[0].gx;cursorY=allies[0].gy;}
-    } else if(enemies.length){
-      cursorX=enemies[0].gx;cursorY=enemies[0].gy;
-    }
-    playerPhase="select_spell_target";
-  }
-}
-
-function checkAllPlayerActed(){
-  const players=units.filter(u=>u.alive&&u.isPlayer);
-  const allActed=players.every(u=>u.acted);
-  if(allActed){
-    runEnemyTurn();
-  } else {
-    playerPhase="select_unit";
-    selectedUnit=null;
-  }
-}
-
-// ─────────────────────────── INPUT HANDLING ───────────────────────────
-function handleInput(){
-  if(animations.some(a=>a.type==="projectile"||a.type==="slide"))return; // block during anims
-  if(gameState==="title"){
-    if(btnJustPressed("A")){
-      playBlip();
-      initFloor(0);
-      gameState="playing";
-    }
-    return;
-  }
-  if(gameState==="floor_clear"){
-    if(btnJustPressed("A")){
-      playBlip();
-      initFloor(floorIndex+1);
-      gameState="playing";
-    }
-    return;
-  }
-  if(gameState==="game_over"||gameState==="win"){
-    if(btnJustPressed("A")){
-      playBlip();
-      gameState="title";
-    }
-    return;
-  }
-  if(gameState!=="playing")return;
-  if(turnPhase==="enemy")return;
-
-  if(playerPhase==="select_unit"){
-    // Move cursor
-    if(btnJustPressed("DpadUp")){cursorY=Math.max(0,cursorY-1);playMove();}
-    if(btnJustPressed("DpadDown")){cursorY=Math.min(GRID_ROWS-1,cursorY+1);playMove();}
-    if(btnJustPressed("DpadLeft")){cursorX=Math.max(0,cursorX-1);playMove();}
-    if(btnJustPressed("DpadRight")){cursorX=Math.min(GRID_COLS-1,cursorX+1);playMove();}
-    // X: cycle player units
-    if(btnJustPressed("X")){
-      playBlip();
-      const players=units.filter(u=>u.alive&&u.isPlayer&&!u.acted);
-      if(players.length){
-        playerUnitIndex=(playerUnitIndex+1)%players.length;
-        const pu=players[playerUnitIndex];
-        cursorX=pu.gx;cursorY=pu.gy;
-      }
-    }
-    // A: select unit at cursor
-    if(btnJustPressed("A")){
-      const u=getUnitAt(cursorX,cursorY);
-      if(u&&u.isPlayer&&!u.acted){
-        playBlip();
-        selectedUnit=u;
-        if(!u.moved){
-          reachableCells=getReachableCells(u);
-          playerPhase="select_move";
-        } else {
-          actionMenuItems=buildActionMenu(u);
-          actionMenuIndex=0;
-          playerPhase="select_action";
-        }
-      }
-    }
-    // Y: end turn (all player units wait)
-    if(btnJustPressed("Y")){
-      playBlip();
-      for(const u of units.filter(u=>u.alive&&u.isPlayer)){
-        u.acted=true;u.moved=true;
-      }
-      runEnemyTurn();
-    }
-  }
-  else if(playerPhase==="select_move"){
-    if(btnJustPressed("DpadUp")){cursorY=Math.max(0,cursorY-1);playMove();}
-    if(btnJustPressed("DpadDown")){cursorY=Math.min(GRID_ROWS-1,cursorY+1);playMove();}
-    if(btnJustPressed("DpadLeft")){cursorX=Math.max(0,cursorX-1);playMove();}
-    if(btnJustPressed("DpadRight")){cursorX=Math.min(GRID_COLS-1,cursorX+1);playMove();}
-    if(btnJustPressed("B")){
-      playBlip();
-      selectedUnit=null;
-      playerPhase="select_unit";
-      reachableCells=[];
-    }
-    if(btnJustPressed("A")){
-      const inRange=reachableCells.some(c=>c.gx===cursorX&&c.gy===cursorY);
-      if(inRange){
-        playMove();
-        const fromX=selectedUnit.gx,fromY=selectedUnit.gy;
-        const toX=cursorX,toY=cursorY;
-        animations.push({type:"slide",unit:selectedUnit,fromX,fromY,toX,toY,t:0,duration:10,onDone:()=>{
-          selectedUnit.gx=toX;selectedUnit.gy=toY;
-          selectedUnit.moved=true;
-          actionMenuItems=buildActionMenu(selectedUnit);
-          actionMenuIndex=0;
-          playerPhase="select_action";
-          reachableCells=[];
-        }});
-      }
-    }
-  }
-  else if(playerPhase==="select_action"){
-    if(btnJustPressed("DpadUp")||btnJustPressed("LB")){
-      actionMenuIndex=(actionMenuIndex-1+actionMenuItems.length)%actionMenuItems.length;
-      playBlip();
-    }
-    if(btnJustPressed("DpadDown")||btnJustPressed("RB")){
-      actionMenuIndex=(actionMenuIndex+1)%actionMenuItems.length;
-      playBlip();
-    }
-    if(btnJustPressed("B")){
-      playBlip();
-      if(selectedUnit&&selectedUnit.moved&&!selectedUnit.acted){
-        // Go back to move
-        selectedUnit.moved=false;
-        selectedUnit.gx=selectedUnit.gx;// stay
-        reachableCells=getReachableCells(selectedUnit);
-        playerPhase="select_move";
-      } else {
-        selectedUnit=null;
-        playerPhase="select_unit";
-      }
-    }
-    if(btnJustPressed("A")){
-      playBlip();
-      handleActionSelected(selectedUnit,actionMenuItems[actionMenuIndex]);
-    }
-  }
-  else if(playerPhase==="select_attack_target"){
-    if(btnJustPressed("DpadUp")){cursorY=Math.max(0,cursorY-1);playMove();}
-    if(btnJustPressed("DpadDown")){cursorY=Math.min(GRID_ROWS-1,cursorY+1);playMove();}
-    if(btnJustPressed("DpadLeft")){cursorX=Math.max(0,cursorX-1);playMove();}
-    if(btnJustPressed("DpadRight")){cursorX=Math.min(GRID_COLS-1,cursorX+1);playMove();}
-    if(btnJustPressed("B")){
-      playBlip();
-      actionMenuItems=buildActionMenu(selectedUnit);
-      actionMenuIndex=0;
-      playerPhase="select_action";
-      attackableCells=[];
-    }
-    if(btnJustPressed("A")){
-      const inRange=attackableCells.some(c=>c.gx===cursorX&&c.gy===cursorY);
-      if(inRange){
-        const target=getUnitAt(cursorX,cursorY);
-        if(target&&!target.isPlayer){
-          performMeleeAttack(selectedUnit,target);
-          selectedUnit.acted=true;
-          selectedUnit.moved=true;
-          attackableCells=[];
-          setTimeout(()=>{
-            checkWinLose();
-            if(gameState==="playing")checkAllPlayerActed();
-          },400);
-        }
-      }
-    }
-  }
-  else if(playerPhase==="select_spell_target"){
-    if(btnJustPressed("DpadUp")){cursorY=Math.max(0,cursorY-1);playMove();}
-    if(btnJustPressed("DpadDown")){cursorY=Math.min(GRID_ROWS-1,cursorY+1);playMove();}
-    if(btnJustPressed("DpadLeft")){cursorX=Math.max(0,cursorX-1);playMove();}
-    if(btnJustPressed("DpadRight")){cursorX=Math.min(GRID_COLS-1,cursorX+1);playMove();}
-    if(btnJustPressed("B")){
-      playBlip();
-      actionMenuItems=buildActionMenu(selectedUnit);
-      actionMenuIndex=0;
-      playerPhase="select_action";
-      spellTargetCells=[];
-      currentSpell=null;
-    }
-    if(btnJustPressed("A")){
-      const inRange=spellTargetCells.some(c=>c.gx===cursorX&&c.gy===cursorY);
-      if(inRange){
-        performSpell(selectedUnit,currentSpell,cursorX,cursorY);
-        selectedUnit.acted=true;
-        selectedUnit.moved=true;
-        spellTargetCells=[];
-        currentSpell=null;
-        setTimeout(()=>{
-          checkWinLose();
-          if(gameState==="playing")checkAllPlayerActed();
-        },500);
-      }
-    }
-  }
-}
-
-// ─────────────────────────── ANIMATION UPDATE ───────────────────────────
-function updateAnimations(dt){
-  for(let i=animations.length-1;i>=0;i--){
-    const a=animations[i];
-    a.t++;
-    if(a.type==="slide"){
-      const prog=a.t/a.duration;
-      const sx=GRID_OX+a.fromX*TILE+TILE/2;
-      const sy=GRID_OY+a.fromY*TILE+TILE/2;
-      const ex=GRID_OX+a.toX*TILE+TILE/2;
-      const ey=GRID_OY+a.toY*TILE+TILE/2;
-      a.unit.animX=(ex-sx)*prog-(ex-sx);
-      a.unit.animY=(ey-sy)*prog-(ey-sy);
-      if(a.t>=a.duration){
-        a.unit.gx=a.toX;a.unit.gy=a.toY;
-        a.unit.animX=0;a.unit.animY=0;
-        if(a.onDone)a.onDone();
-        animations.splice(i,1);
-      }
-    } else if(a.type==="projectile"){
-      if(a.t>=a.duration){
-        if(a.onHit)a.onHit();
-        animations.splice(i,1);
-      }
-    }
-  }
-  // Flash timers
-  for(const u of units){
-    if(u.flashTimer>0)u.flashTimer--;
-  }
-}
-
-// ─────────────────────────── DRAWING ───────────────────────────
-function drawTile(gx,gy){
-  const t=getTile(gx,gy);
-  const px=GRID_OX+gx*TILE,py=GRID_OY+gy*TILE;
-  let sname="tile_stone";
-  if(t==='#')sname="tile_wall";
-  else if(t==='R')sname="tile_rune";
-  else if(t==='P')sname="tile_pit";
-  else {
-    // random crack
-    sname=(gx*7+gy*13)%5===0?"tile_stone_cracked":"tile_stone";
-  }
-  const sp=SPRITES[sname];
-  if(sp){
-    // Scale tile from 16x16 to 24x24
-    ctx.drawImage(sp,px,py,TILE,TILE);
-  }
-}
-
-function drawGrid(){
-  for(let gy=0;gy<GRID_ROWS;gy++){
-    for(let gx=0;gx<GRID_COLS;gx++){
-      drawTile(gx,gy);
-    }
-  }
-}
-
-function cellCenter(gx,gy){
-  return {x:GRID_OX+gx*TILE+TILE/2,y:GRID_OY+gy*TILE+TILE/2};
-}
-
-function drawHighlights(){
-  // Reachable cells
-  for(const c of reachableCells){
-    const px=GRID_OX+c.gx*TILE,py=GRID_OY+c.gy*TILE;
-    ctx.fillStyle="rgba(74,120,200,0.35)";
-    ctx.fillRect(px,py,TILE,TILE);
-    ctx.strokeStyle=PAL.b;ctx.lineWidth=1;
-    ctx.strokeRect(px+0.5,py+0.5,TILE-1,TILE-1);
-  }
-  // Attack cells
-  for(const c of attackableCells){
-    const px=GRID_OX+c.gx*TILE,py=GRID_OY+c.gy*TILE;
-    ctx.fillStyle="rgba(200,48,58,0.3)";
-    ctx.fillRect(px,py,TILE,TILE);
-    ctx.strokeStyle=PAL.r;ctx.lineWidth=1;
-    ctx.strokeRect(px+0.5,py+0.5,TILE-1,TILE-1);
-  }
-  // Spell cells
-  for(const c of spellTargetCells){
-    const px=GRID_OX+c.gx*TILE,py=GRID_OY+c.gy*TILE;
-    ctx.fillStyle="rgba(138,74,176,0.35)";
-    ctx.fillRect(px,py,TILE,TILE);
-    ctx.strokeStyle=PAL.p;ctx.lineWidth=1;
-    ctx.strokeRect(px+0.5,py+0.5,TILE-1,TILE-1);
-  }
-  // Telegraph markers
-  for(const m of telegraphMarkers){
-    if(m.gx<0||m.gx>=GRID_COLS||m.gy<0||m.gy>=GRID_ROWS)continue;
-    const px=GRID_OX+m.gx*TILE,py=GRID_OY+m.gy*TILE;
-    ctx.fillStyle="rgba(200,48,58,0.2)";
-    ctx.fillRect(px,py,TILE,TILE);
-    // Draw X
-    ctx.strokeStyle=PAL.r;ctx.lineWidth=2;
-    ctx.beginPath();
-    ctx.moveTo(px+3,py+3);ctx.lineTo(px+TILE-3,py+TILE-3);
-    ctx.moveTo(px+TILE-3,py+3);ctx.lineTo(px+3,py+TILE-3);
-    ctx.stroke();
-  }
-  // Dither glow on selected unit
-  if(selectedUnit&&selectedUnit.alive){
-    const cc=cellCenter(selectedUnit.gx,selectedUnit.gy);
-    ditherDisc(ctx,cc.x,cc.y,14,PAL.y,0.6);
-  }
-}
-
-function drawCursor(){
-  const px=GRID_OX+cursorX*TILE,py=GRID_OY+cursorY*TILE;
-  const t=Date.now();
-  const blink=Math.sin(t/180)>0;
-  if(blink){
-    ctx.strokeStyle=PAL.w;ctx.lineWidth=2;
-    ctx.strokeRect(px+1,py+1,TILE-2,TILE-2);
-  }
-  ctx.strokeStyle=PAL.y;ctx.lineWidth=1;
-  ctx.strokeRect(px+0.5,py+0.5,TILE-1,TILE-1);
-}
-
-function drawUnits(){
-  for(const u of units){
-    if(!u.alive)continue;
-    let sname=u.sprite;
-    // Enemy faces right (flipped), player faces right
-    if(!u.isPlayer) sname=u.sprite+"_flip";
-    let sp=SPRITES[sname]||SPRITES[u.sprite];
-    if(u.flashTimer>0){
-      const ws=SPRITES[u.sprite+"_white"]||whiteOf(sp);
-      sp=ws;
-    }
-    if(!sp)continue;
-    const px=GRID_OX+u.gx*TILE+u.animX;
-    const py=GRID_OY+u.gy*TILE+u.animY;
-    // Center sprite in cell
-    const sx=px+(TILE-sp.width)/2;
-    const sy=py+(TILE-sp.height)/2;
-    // Shadow
-    ctx.fillStyle="rgba(0,0,0,0.4)";
-    ctx.fillRect(sx+2,py+TILE-4,sp.width-2,3);
-    ctx.drawImage(sp,Math.round(sx),Math.round(sy));
-    // HP bar
-    const hbw=TILE-2;
-    const hbx=px+1,hby=py+TILE-3;
-    ctx.fillStyle=PAL.k;
-    ctx.fillRect(hbx,hby,hbw,2);
-    const hpf=u.hp/u.maxHp;
-    const hpcol=hpf>0.5?PAL.e:(hpf>0.25?PAL.y:PAL.r);
-    ctx.fillStyle=hpcol;
-    ctx.fillRect(hbx,hby,Math.round(hbw*hpf),2);
-    // Frozen indicator
-    if(u.frozen){
-      ctx.fillStyle="rgba(122,216,240,0.5)";
-      ctx.fillRect(px,py,TILE,TILE);
-    }
-    // Acted indicator
-    if(u.isPlayer&&u.acted){
-      ctx.fillStyle="rgba(0,0,0,0.4)";
-      ctx.fillRect(px,py,TILE,TILE);
-    }
-  }
-}
-
-function drawAnimations(){
-  for(const a of animations){
-    if(a.type==="projectile"){
-      const sp=SPRITES[a.sprite];
-      if(!sp)continue;
-      const prog=a.t/a.duration;
-      const sx=GRID_OX+a.fromGx*TILE+TILE/2;
-      const sy=GRID_OY+a.fromGy*TILE+TILE/2;
-      const ex=GRID_OX+a.toGx*TILE+TILE/2;
-      const ey=GRID_OY+a.toGy*TILE+TILE/2;
-      const px=sx+(ex-sx)*prog;
-      const py=sy+(ey-sy)*prog;
-      ctx.drawImage(sp,Math.round(px-sp.width/2),Math.round(py-sp.height/2));
-    }
-  }
-}
-
-// ─────────────────────────── HUD ───────────────────────────
-function drawPanel(){
-  // Panel background
-  ctx.fillStyle=PAL.K;
-  ctx.fillRect(PANEL_X,0,PANEL_W,H);
-  ctx.fillStyle=PAL.k;
-  ctx.fillRect(PANEL_X,0,2,H);
-
-  let py2=4;
-  // Floor indicator
-  drawText(ctx,"FLOOR "+(floorIndex+1)+"/3",PANEL_X+6,py2,PAL.y,1,true);
-  py2+=10;
-  // Enemy count
-  const foeCount=units.filter(u=>u.alive&&!u.isPlayer).length;
-  drawText(ctx,"FOES: "+foeCount,PANEL_X+6,py2,PAL.r,1,true);
-  py2+=10;
-  // Turn indicator
-  if(turnPhase==="player"){
-    drawText(ctx,"YOUR TURN",PANEL_X+6,py2,PAL.e,1,true);
-  } else {
-    drawText(ctx,"ENEMY TURN",PANEL_X+6,py2,PAL.r,1,true);
-  }
-  py2+=12;
-
-  // Divider
-  ctx.fillStyle=PAL.g;
-  ctx.fillRect(PANEL_X+4,py2,PANEL_W-8,1);
-  py2+=4;
-
-  // Selected unit info
-  const dispUnit=selectedUnit||(turnPhase==="player"?units.find(u=>u.alive&&u.isPlayer&&u.gx===cursorX&&u.gy===cursorY):null);
-  if(dispUnit){
-    drawText(ctx,dispUnit.name,PANEL_X+6,py2,dispUnit.isPlayer?PAL.c:PAL.r,1,true);
-    py2+=10;
-    // HP bar large
-    const hbw2=PANEL_W-16;
-    const hbx2=PANEL_X+8;
-    ctx.fillStyle=PAL.k;ctx.fillRect(hbx2,py2,hbw2,6);
-    const hpf2=dispUnit.hp/dispUnit.maxHp;
-    const hpcol2=hpf2>0.5?PAL.e:(hpf2>0.25?PAL.y:PAL.r);
-    ctx.fillStyle=hpcol2;ctx.fillRect(hbx2,py2,Math.round(hbw2*hpf2),6);
-    ctx.fillStyle=PAL.g;ctx.strokeStyle=PAL.g;ctx.lineWidth=1;ctx.strokeRect(hbx2+0.5,py2+0.5,hbw2-1,5);
-    py2+=8;
-    drawText(ctx,"HP:"+dispUnit.hp+"/"+dispUnit.maxHp,PANEL_X+6,py2,PAL.w,1,true);
-    py2+=10;
-    drawText(ctx,"ATK:"+dispUnit.atk+" DEF:"+(dispUnit.def||0),PANEL_X+6,py2,PAL.G,1,true);
-    py2+=10;
-    drawText(ctx,"MOV:"+dispUnit.move+" RNG:"+dispUnit.range,PANEL_X+6,py2,PAL.G,1,true);
-    py2+=10;
-    if(dispUnit.frozen){
-      drawText(ctx,"FROZEN!",PANEL_X+6,py2,PAL.c,1,true);
-      py2+=10;
-    }
-    if(dispUnit.isPlayer&&dispUnit.spells&&dispUnit.spells.length>0){
-      drawText(ctx,"SPELLS:",PANEL_X+6,py2,PAL.p,1,true);
-      py2+=9;
-      for(const s of dispUnit.spells){
-        drawText(ctx," "+SPELL_DATA[s].name,PANEL_X+6,py2,PAL.m,1,false);
-        py2+=8;
-      }
-    }
-  }
-
-  // Divider
-  py2=Math.max(py2+4,110);
-  ctx.fillStyle=PAL.g;
-  ctx.fillRect(PANEL_X+4,py2,PANEL_W-8,1);
-  py2+=4;
-
-  // Phase help text
-  if(turnPhase==="player"){
-    if(playerPhase==="select_unit"){
-      drawText(ctx,"["+BL("a")+"] SELECT UNIT",PANEL_X+6,py2,PAL.m,1,true);py2+=9;
-      drawText(ctx,"["+BL("x")+"] NEXT UNIT",PANEL_X+6,py2,PAL.m,1,true);py2+=9;
-      drawText(ctx,"["+BL("y")+"] END TURN",PANEL_X+6,py2,PAL.m,1,true);py2+=9;
-    } else if(playerPhase==="select_move"){
-      drawText(ctx,"MOVE UNIT",PANEL_X+6,py2,PAL.c,1,true);py2+=9;
-      drawText(ctx,"["+BL("a")+"] CONFIRM",PANEL_X+6,py2,PAL.m,1,true);py2+=9;
-      drawText(ctx,"["+BL("b")+"] CANCEL",PANEL_X+6,py2,PAL.m,1,true);py2+=9;
-    } else if(playerPhase==="select_action"){
-      drawText(ctx,"ACTION:",PANEL_X+6,py2,PAL.c,1,true);py2+=10;
-      for(let i=0;i<actionMenuItems.length;i++){
-        const col=i===actionMenuIndex?PAL.y:PAL.G;
-        const prefix=i===actionMenuIndex?"> ":"  ";
-        drawText(ctx,prefix+actionMenuItems[i],PANEL_X+6,py2,col,1,true);
-        py2+=9;
-      }
-      py2+=4;
-      drawText(ctx,"["+BL("a")+"] SELECT",PANEL_X+6,py2,PAL.m,1,true);py2+=9;
-      drawText(ctx,"["+BL("b")+"] BACK",PANEL_X+6,py2,PAL.m,1,true);py2+=9;
-    } else if(playerPhase==="select_attack_target"){
-      drawText(ctx,"SELECT TARGET",PANEL_X+6,py2,PAL.r,1,true);py2+=9;
-      drawText(ctx,"["+BL("a")+"] ATTACK",PANEL_X+6,py2,PAL.m,1,true);py2+=9;
-      drawText(ctx,"["+BL("b")+"] CANCEL",PANEL_X+6,py2,PAL.m,1,true);py2+=9;
-    } else if(playerPhase==="select_spell_target"){
-      if(currentSpell){
-        drawText(ctx,SPELL_DATA[currentSpell].name,PANEL_X+6,py2,PAL.p,1,true);py2+=9;
-        drawText(ctx,"RANGE:"+SPELL_DATA[currentSpell].range,PANEL_X+6,py2,PAL.m,1,true);py2+=9;
-      }
-      drawText(ctx,"["+BL("a")+"] CAST",PANEL_X+6,py2,PAL.m,1,true);py2+=9;
-      drawText(ctx,"["+BL("b")+"] CANCEL",PANEL_X+6,py2,PAL.m,1,true);py2+=9;
-    }
-  }
-
-  // Telegraph warning
-  if(telegraphMarkers.length>0&&turnPhase==="player"){
-    py2=H-30;
-    ctx.fillStyle="rgba(200,48,58,0.2)";
-    ctx.fillRect(PANEL_X+4,py2-2,PANEL_W-8,16);
-    drawText(ctx,"DANGER: "+telegraphMarkers.filter(m=>m.color===PAL.r).length+" TILES",PANEL_X+6,py2,PAL.r,1,true);
-  }
-
-  // Player unit overview at bottom
-  py2=H-50;
-  ctx.fillStyle=PAL.g;ctx.fillRect(PANEL_X+4,py2,PANEL_W-8,1);py2+=3;
-  const players=units.filter(u=>u.isPlayer);
-  for(const p of players){
-    if(!p.alive){
-      drawText(ctx,p.name.substring(0,6)+" DEAD",PANEL_X+6,py2,PAL.g,1,false);
-    } else {
-      const col=p.acted?PAL.g:PAL.w;
-      drawText(ctx,p.name.substring(0,6),PANEL_X+6,py2,col,1,false);
-      // Mini hp bar
-      const mbw=70,mbx=PANEL_X+78;
-      ctx.fillStyle=PAL.k;ctx.fillRect(mbx,py2+1,mbw,4);
-      const hf=p.hp/p.maxHp;
-      ctx.fillStyle=hf>0.5?PAL.e:(hf>0.25?PAL.y:PAL.r);
-      ctx.fillRect(mbx,py2+1,Math.round(mbw*hf),4);
-    }
-    py2+=9;
-  }
-}
-
-function drawTitleScreen(){
-  ctx.fillStyle=PAL.k;
-  ctx.fillRect(0,0,W,H);
-  // Stars background
-  for(let i=0;i<50;i++){
-    const sx=(i*73+13)%W,sy=(i*47+7)%H;
-    ctx.fillStyle=i%3===0?PAL.w:PAL.G;
-    ctx.fillRect(sx,sy,1,1);
-  }
-  // Title
-  drawCenter(ctx,"RUNE TACTICS",30,PAL.p,2);
-  drawCenter(ctx,"TACTICAL DUNGEON COMBAT",56,PAL.m,1);
-  // Animated sprites
-  const t=Date.now()/1000;
-  const mx=Math.sin(t*1.5)*3;
-  const my=Math.sin(t*2)*2;
-  const magesp=SPRITES.runemage;
-  const gobsp=SPRITES.goblin_flip;
-  if(magesp)ctx.drawImage(magesp,60+mx,110+my,magesp.width*2,magesp.height*2);
-  if(gobsp)ctx.drawImage(gobsp,340-mx,114+my,gobsp.width*2,gobsp.height*2);
-  // Glow
-  ditherDisc(ctx,74,122,20,PAL.p,0.5);
-  ditherDisc(ctx,354,126,16,PAL.e,0.5);
-  drawCenter(ctx,"PRESS "+BL("a")+" TO START",200,Math.sin(Date.now()/400)>0?PAL.y:PAL.w,1);
-  drawCenter(ctx,window.SofaPad&&SofaPad.connected()?"D-PAD MOVES THE CURSOR":"ARROW KEYS + Z/X/C/V",220,PAL.G,1);
-  drawCenter(ctx,"HOLD HOME TO LEAVE",230,PAL.G,1);
-}
-
-function drawFloorClear(){
-  ctx.fillStyle="rgba(0,0,0,0.75)";
-  ctx.fillRect(0,0,W,H);
-  drawCenter(ctx,"FLOOR CLEARED!",80,PAL.y,2);
-  drawCenter(ctx,"ADVANCE TO FLOOR "+(floorIndex+2),110,PAL.m,1);
-  drawCenter(ctx,"PRESS "+BL("a")+" TO CONTINUE",140,PAL.w,1);
-}
-
-function drawGameOver(){
-  ctx.fillStyle="rgba(0,0,0,0.85)";
-  ctx.fillRect(0,0,W,H);
-  drawCenter(ctx,"GAME OVER",90,PAL.r,2);
-  drawCenter(ctx,"YOUR PARTY HAS FALLEN",120,PAL.m,1);
-  drawCenter(ctx,"PRESS "+BL("a")+" TO RETURN",150,PAL.G,1);
-}
-
-function drawWin(){
-  ctx.fillStyle="rgba(13,11,20,0.9)";
-  ctx.fillRect(0,0,W,H);
-  // Stars
-  for(let i=0;i<80;i++){
-    const sx=(i*113+31)%W,sy=(i*67+5)%H;
-    ctx.fillStyle=i%4===0?PAL.y:PAL.G;
-    ctx.fillRect(sx,sy,1,1);
-  }
-  drawCenter(ctx,"VICTORY!",50,PAL.y,2);
-  drawCenter(ctx,"THE DARK OVERLORD",80,PAL.m,1);
-  drawCenter(ctx,"HAS BEEN DEFEATED!",92,PAL.m,1);
-  drawCenter(ctx,"RUNE TACTICS COMPLETE",120,PAL.p,1);
-  const ovsp=SPRITES.dark_overlord_white;
-  if(ovsp)ctx.drawImage(ovsp,Math.round(W/2-ovsp.width),130);
-  drawCenter(ctx,"PRESS "+BL("a")+" TO RETURN",200,PAL.w,1);
-}
-
-// ─────────────────────────── MAIN LOOP ───────────────────────────
-let lastTime=0;
-function loop(ts){
-  const dt=(ts-lastTime)/1000;lastTime=ts;
-  handleInput();
-  updateAnimations(dt);
-
-  // Draw
-  ctx.fillStyle=PAL.k;
-  ctx.fillRect(0,0,W,H);
-
-  if(gameState==="title"){
-    drawTitleScreen();
-  } else if(gameState==="playing"||gameState==="floor_clear"||gameState==="game_over"||gameState==="win"){
-    if(gameState==="playing"||gameState==="floor_clear"||gameState==="game_over"){
-      drawGrid();
-      drawHighlights();
-      drawUnits();
-      drawAnimations();
-      if(turnPhase==="player")drawCursor();
-      drawPanel();
-    }
-    if(gameState==="floor_clear")drawFloorClear();
-    if(gameState==="game_over")drawGameOver();
-    if(gameState==="win")drawWin();
-  }
-
-  updatePadPrev();
-  requestAnimationFrame(loop);
-}
-
-// ─────────────────────────── BOOT ───────────────────────────
-buildSprites();
-requestAnimationFrame(loop);
-</script>
-</body>
-</html>
+// for the checks: the battle played ahead in steps, as fast as it goes
+function sim(secs) { const n = Math.round(secs / (1 / 60)); for (let i = 0; i < n && mode === "battle"; i++) { update(1 / 60); G.steps++; } return mode; }
+if (G.test) window.RT = { get mode() { return mode; }, get BT() { return BT; }, get ui() { return ui; }, get sel() { return sel; }, get cur() { return cur; }, get SEQ() { return SEQ; }, NODES, HEROES, FOES, SKILLS, THEMES, KINDS10, SAVE, store, menu, G,
+  makeField, startBattle: o => { menu.hide(); startBattle(o); return BT; }, reach, damage, push, useSkill, attack, aiPlan, endSide, sim, finishBattle, openMap, heroUnit, foeUnit, unitAt, skillTiles, fireTick, ignite, campBattle, newCamp,
+  get mapI() { return mapI; }, set mapI(v) { mapI = v; } };
+G.start();
+})();
+</script></body></html>
