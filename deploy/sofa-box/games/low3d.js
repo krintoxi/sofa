@@ -444,10 +444,13 @@ GL.prototype = {
     else gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
     return t;
   },
-  // a frame: the camera (eye, target), the field of view (radians, up and down), near and far; clears the screen
-  begin(ex, ey, ez, tx, ty, tz, fov, near, far, roll) {
-    const gl = this.gl, w = this.canvas.width, h = this.canvas.height;
-    gl.viewport(0, 0, w, h);
+  // a frame: the camera (eye, target), the field of view (radians, up and down), near and far; clears the screen, or only
+  // rect: [x, y, w, h] of it from its top left, in pixels (one view of a split screen: begin() each view in turn)
+  begin(ex, ey, ez, tx, ty, tz, fov, near, far, roll, rect) {
+    const gl = this.gl, W = this.canvas.width, H = this.canvas.height;
+    const x = rect ? rect[0] : 0, y = rect ? rect[1] : 0, w = rect ? rect[2] : W, h = rect ? rect[3] : H;
+    gl.viewport(x, H - y - h, w, h); this.vh = h;
+    if (rect) { gl.enable(gl.SCISSOR_TEST); gl.scissor(x, H - y - h, w, h); } else gl.disable(gl.SCISSOR_TEST);
     const L = this.L; gl.clearColor(L.fogCol[0], L.fogCol[1], L.fogCol[2], 1);
     gl.depthMask(true); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);   // (tiled GPUs, the Pi's: clearing is what's quick)
     const r = roll || 0;
@@ -495,7 +498,7 @@ GL.prototype = {
     if (blend === "add") gl.blendFunc(gl.SRC_ALPHA, gl.ONE); else gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     gl.uniformMatrix4fv(u.uM, false, m || IDENT);
     gl.uniform4f(u.uTint, r, g, b, a);
-    gl.uniform1f(u.uPoint, points ? points * this.canvas.height / 2 / Math.tan(this.fov / 2) : 1);
+    gl.uniform1f(u.uPoint, points ? points * (this.vh || this.canvas.height) / 2 / Math.tan(this.fov / 2) : 1);
     gl.uniform1f(u.uRound, points ? 1 : 0);
     this.bind(h);
     gl.drawArrays(points ? gl.POINTS : gl.TRIANGLES, 0, h.n); this.calls++;
@@ -554,6 +557,9 @@ Flat.prototype = {
     this.img = this.ctx.createImageData(w, h); this.u32 = new Uint32Array(this.img.data.buffer);
     this.ctx.imageSmoothingEnabled = false;
   },
+  // where the next frame goes: the whole picture (null), or [x, y, w, h] of it (one view of a split screen: view(), then
+  // draw(), sprites and flush() for each view in turn)
+  view(rect) { this.rect = rect || null; },
   // the ground: a picture (canvas) of the world from above, x0 z0 its corner, size its side in world units (a power of
   // two in pixels); smaller copies are made for far away (no shimmer)
   ground(canvas, x0, z0, size, outside) {
@@ -581,10 +587,10 @@ Flat.prototype = {
   // draws the sky and the ground for a camera at x y(height) z, turned yaw (0 faces +z), pitched down by pitch, with a
   // field of view fov (radians, up and down)
   draw(cx, cy, cz, yaw, pitch, fov) {
-    const w = this.w, h = this.h, u = this.u32, L = this.levels;
+    const W = this.w, r = this.rect, ox = r ? r[0] : 0, oy = r ? r[1] : 0, w = r ? r[2] : W, h = r ? r[3] : this.h, u = this.u32, L = this.levels;
     const f = h / 2 / Math.tan(fov / 2), cp = Math.cos(pitch), sp = Math.sin(pitch);
     const fx = Math.sin(yaw), fz = Math.cos(yaw), rx = -Math.cos(yaw), rz = Math.sin(yaw);
-    this.cam = { x: cx, y: cy, z: cz, fx, fz, rx, rz, f, cp, sp, hz: h / 2 - f * Math.tan(pitch), yaw };
+    this.cam = { x: cx, y: cy, z: cz, fx, fz, rx, rz, f, cp, sp, hz: h / 2 - f * Math.tan(pitch), yaw, ox, oy, vw: w, vh: h };
     const sky = this.sky, fogC = sky.fog, fogPx = px(fogC[0], fogC[1], fogC[2]);
     const near = this.fogNear, far = this.fogFar;
     const horizon = Math.max(0, Math.min(h, Math.ceil(this.cam.hz)));
@@ -594,7 +600,7 @@ Flat.prototype = {
       const r = (fogC[0] + ((sky.horizon[0] + (sky.top[0] - sky.horizon[0]) * k) - fogC[0]) * hz) | 0;
       const g = (fogC[1] + ((sky.horizon[1] + (sky.top[1] - sky.horizon[1]) * k) - fogC[1]) * hz) | 0;
       const b = (fogC[2] + ((sky.horizon[2] + (sky.top[2] - sky.horizon[2]) * k) - fogC[2]) * hz) | 0;
-      u.fill(px(r, g, b), y * w, y * w + w);
+      u.fill(px(r, g, b), (oy + y) * W + ox, (oy + y) * W + ox + w);
     }
     if (sky.hills && horizon > 0) {                  // far hills, by the angle they're at
       const H = sky.hills, n = H.length, hc = sky.hill, hp = px(hc[0], hc[1], hc[2]);
@@ -603,17 +609,17 @@ Flat.prototype = {
         let i = Math.floor(((a / TAU) % 1 + 1) % 1 * n);
         const e = H[i];                                // its height: an angle above the horizon
         const top = Math.max(0, Math.floor(h / 2 - f * Math.tan(pitch + e)));
-        for (let y = top; y < horizon; y++) u[y * w + x] = hp;
+        for (let y = top; y < horizon; y++) u[(oy + y) * W + ox + x] = hp;
       }
     }
-    if (!L) { u.fill(fogPx, horizon * w); this.ctx.putImageData(this.img, 0, 0); return; }
+    if (!L) { for (let y = horizon; y < h; y++) u.fill(fogPx, (oy + y) * W + ox, (oy + y) * W + ox + w); this.put(); return; }
     const x0 = this.x0, z0 = this.z0, out = this.outside, fr = fogC[0], fg = fogC[1], fb = fogC[2];
     for (let y = horizon; y < h; y++) {              // the ground: each row a line across the world
       const v = (h / 2 - y - 0.5) / f, den = sp - cp * v;
-      if (den <= 1e-5) { u.fill(fogPx, y * w, y * w + w); continue; }
+      if (den <= 1e-5) { u.fill(fogPx, (oy + y) * W + ox, (oy + y) * W + ox + w); continue; }
       const t = cy / den, D = t * (cp + sp * v), step = t / f;
       const fog = D <= near ? 0 : D >= far ? 256 : ((D - near) / (far - near) * 256) | 0;
-      let i = y * w;
+      let i = (oy + y) * W + ox;
       if (fog >= 256) { u.fill(fogPx, i, i + w); continue; }
       let lv = 0; const tpp = step * L[0].k;
       while (lv + 1 < L.length && tpp > (2 << lv)) lv++;
@@ -634,16 +640,17 @@ Flat.prototype = {
         }
       }
     }
-    this.ctx.putImageData(this.img, 0, 0);
+    this.put();
     this.qn = 0;
   },
+  put() { const c = this.cam; if (this.rect) this.ctx.putImageData(this.img, 0, 0, c.ox, c.oy, c.vw, c.vh); else this.ctx.putImageData(this.img, 0, 0); },
   // where a point in the world falls on the screen: [x, y, scale (pixels a world unit), depth], or null behind
   project(x, y, z, o) {
     const c = this.cam, dx = x - c.x, dy = y - c.y, dz = z - c.z;
     const hd = dx * c.fx + dz * c.fz, lat = dx * c.rx + dz * c.rz;
     const d = hd * c.cp - dy * c.sp, up = hd * c.sp + dy * c.cp;
     if (d < 0.5) return null;
-    o[0] = this.w / 2 + lat * c.f / d; o[1] = this.h / 2 - up * c.f / d; o[2] = c.f / d; o[3] = d;
+    o[0] = c.ox + c.vw / 2 + lat * c.f / d; o[1] = c.oy + c.vh / 2 - up * c.f / d; o[2] = c.f / d; o[3] = d;
     return o;
   },
   // a sprite to draw this frame (all drawn far to near by flush()): s from bake(), standing at x y z, size: world units a pixel of it
@@ -651,7 +658,7 @@ Flat.prototype = {
     const P = this._p || (this._p = new Float32Array(4));
     if (!this.project(x, y, z, P) || P[3] > this.fogFar) return;
     const k = P[2] * scale, w = s.c.width * k, hh = s.c.height * k, left = P[0] - s.ax * k;
-    if (left + w < 0 || left > this.w || w < 0.6 || P[1] - s.ay * k > this.h) return;
+    const c = this.cam; if (left + w < c.ox || left > c.ox + c.vw || w < 0.6 || P[1] - s.ay * k > c.oy + c.vh) return;
     if (this.qn >= this.queue.length) this.queue.push({ s: null, x: 0, y: 0, k: 0, d: 0, a: 1, poly: null, col: "" });
     const q = this.queue[this.qn++];
     q.s = s; q.x = left; q.y = P[1] - s.ay * k; q.w = w; q.h = hh; q.d = P[3]; q.poly = null;
@@ -672,7 +679,8 @@ Flat.prototype = {
     q.a = (alpha == null ? 1 : alpha) * (1 - fog * fog);
   },
   flush() {
-    const q = this.queue, n = this.qn, ctx = this.ctx;
+    const q = this.queue, n = this.qn, ctx = this.ctx, c = this.cam;
+    if (this.rect && c) { ctx.save(); ctx.beginPath(); ctx.rect(c.ox, c.oy, c.vw, c.vh); ctx.clip(); }
     for (let i = 1; i < n; i++) {                    // far to near (an insertion sort: nearly sorted from frame to frame)
       const e = q[i]; let j = i - 1;
       while (j >= 0 && q[j].d < e.d) { q[j + 1] = q[j]; j--; }
@@ -688,6 +696,7 @@ Flat.prototype = {
       }
     }
     ctx.globalAlpha = 1;
+    if (this.rect && c) ctx.restore();
     this.qn = 0;
   }
 };
@@ -802,6 +811,7 @@ function bench(g3, done, onStep) {
   }
   if (!g3) { r.ms = Math.round(performance.now() - t0); return setTimeout(() => done(r), 0); }
   const gl = g3.gl, cv = g3.canvas, ow = cv.width, oh = cv.height;
+  gl.disable(gl.SCISSOR_TEST);                       // (a split screen's last view may have left it on)
   const rock = new Mesh(); rock.seed = 7; rock.jit = 0.06;
   rock.stack([[1, 0], [0.9, 0.6], [0.55, 1.1], [0.2, 1.4]], 14, [0x8a8076, 0x9a9086, 0xaaa096], 0xb8b0a6, 0.12);
   const R = g3.upload(rock), M = new Float32Array(16);
@@ -1146,6 +1156,127 @@ Chunks.prototype = {
     return k;
   },
   free() { if (this.g3) for (const c of this.list) { this.g3.free(c.base); this.g3.free(c.detail); this.g3.free(c.glow); } this.list.length = 0; this.order.length = 0; }
+};
+
+// ---------------------------------------------------------------- land: ground with height over a square world (coasts,
+// islands, hills, a gorge's walls), a height at each corner of an n × n grid. The GPU draws it as chunks of flat-lit
+// triangles where it's near or above the water; the 2D renderer has it painted into the ground's picture, shaded by
+// its slopes, with its banks stood up where it leaves the water (banks()); anything can ask its height (to float, or to
+// bump into the shore).
+function Land(size, n, base) {
+  this.size = size; this.n = n; this.N = n + 1; this.cell = size / n; this.half = size / 2; this.jit = 0.04;
+  this.h = new Float32Array(this.N * this.N).fill(base == null ? -4 : base);
+}
+Land.prototype = {
+  fill(fn) {                                         // fn(x, z, now) → the height at each corner
+    const N = this.N, c = this.cell, h = this.h;
+    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) { const k = j * N + i; h[k] = fn(-this.half + i * c, -this.half + j * c, h[k]); }
+    return this;
+  },
+  at(x, z) {                                         // the height at x z, smoothly between the corners (past the edge: the edge's)
+    const n = this.n, N = this.N, h = this.h;
+    let fx = (x + this.half) / this.cell, fz = (z + this.half) / this.cell;
+    fx = fx < 0 ? 0 : fx > n ? n : fx; fz = fz < 0 ? 0 : fz > n ? n : fz;
+    let i = fx | 0, j = fz | 0; if (i >= n) i = n - 1; if (j >= n) j = n - 1;
+    const tx = fx - i, tz = fz - j, k = j * N + i, a = h[k], b = h[k + 1], c = h[k + N], d = h[k + N + 1];
+    return a + (b - a) * tx + (c - a) * tz + (a - b - c + d) * tx * tz;
+  },
+  slope(x, z, out) {                                 // which way it rises at x z: out = [rise a unit along x, along z]
+    const e = this.cell * 0.5;
+    out[0] = (this.at(x + e, z) - this.at(x - e, z)) / (2 * e); out[1] = (this.at(x, z + e) - this.at(x, z - e)) / (2 * e);
+    return out;
+  },
+  // each cell's two triangles (split along the diagonal that follows the ground): corners, and a colour from
+  // col(height, steepness: 0 flat … 1 a wall, x, z); fn(ax, ay, az, bx, by, bz, cx, cy, cz, col, nx, ny, nz) for every
+  // cell with a corner above water - under (the shore carries on under the sea)
+  each(col, water, under, fn) {
+    const N = this.N, h = this.h, c = this.cell, lo = (water || 0) - (under == null ? 2 : under);
+    const tri = (ax, ay, az, bx, by, bz, cx, cy, cz) => {
+      const ux = bx - ax, uy = by - ay, uz = bz - az, vx = cx - ax, vy = cy - ay, vz = cz - az;
+      let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx; const l = Math.hypot(nx, ny, nz) || 1;
+      nx /= l; ny /= l; nz /= l; if (ny < 0) { nx = -nx; ny = -ny; nz = -nz; }
+      fn(ax, ay, az, bx, by, bz, cx, cy, cz, col((ay + by + cy) / 3, 1 - ny, (ax + bx + cx) / 3, (az + bz + cz) / 3), nx, ny, nz);
+    };
+    for (let j = 0; j < this.n; j++) for (let i = 0; i < this.n; i++) {
+      const k = j * N + i, a = h[k], b = h[k + 1], d = h[k + N], e = h[k + N + 1];
+      if (a < lo && b < lo && d < lo && e < lo) continue;
+      const x0 = -this.half + i * c, z0 = -this.half + j * c, x1 = x0 + c, z1 = z0 + c;
+      if (Math.abs(a - e) <= Math.abs(b - d)) { tri(x0, a, z0, x1, b, z0, x1, e, z1); tri(x0, a, z0, x1, e, z1, x0, d, z1); }
+      else { tri(x0, a, z0, x1, b, z0, x0, d, z1); tri(x1, b, z0, x1, e, z1, x0, d, z1); }
+    }
+  },
+  // its triangles into chunks (Chunks: one mesh a chunk, layer "base" unless said), faceted like everything else
+  mesh(chunks, col, water, layer) {
+    this.each(col, water, 2, (ax, ay, az, bx, by, bz, cx, cy, cz, k) => {
+      const m = chunks.mesh((ax + bx + cx) / 3, (az + bz + cz) / 3, layer), jit = m.jit;
+      m.at(0, 0, 0); m.jit = this.jit;
+      m.tri(ax, ay, az, bx, by, bz, cx, cy, cz, k, (ax + bx + cx) / 3, Math.min(ay, by, cy) - 10, (az + bz + cz) / 3);
+      m.jit = jit;
+    });
+    return this;
+  },
+  // painted into a picture of the world from above (g: its 2D context, k: its pixels a world unit, its 0 0 at the world's
+  // corner): ground above the water in its colours, lit on its slopes by sun (towards it: [x, y, z]); under the water
+  // a wash of shallow ("#rrggbb" or 0xrrggbb) that fades out by `depth` down. noGround: the shallows alone (where the
+  // GPU draws the ground itself)
+  paint(g, k, col, sun, water, shallow, depth, noGround) {
+    const W = g.canvas.width, H = g.canvas.height, img = g.getImageData(0, 0, W, H), d8 = img.data, w = water || 0, dp = depth || 4;
+    const sl = Math.hypot(sun[0], sun[1], sun[2]), s0 = sun[0] / sl, s1 = sun[1] / sl, s2 = sun[2] / sl, sh = hexRGB(shallow);
+    // the ground: each triangle filled (a pixel's centre inside it), lit as the GPU would light it
+    if (!noGround) this.each(col, w, 0, (ax, ay, az, bx, by, bz, cx, cy, cz, c, nx, ny, nz) => {
+      if (ay < w && by < w && cy < w) return;
+      const L = 0.62 + 0.5 * Math.max(0, nx * s0 + ny * s1 + nz * s2), r = Math.min(255, ((c >> 16) & 255) * L) | 0, gg = Math.min(255, ((c >> 8) & 255) * L) | 0, b = Math.min(255, (c & 255) * L) | 0;
+      const X0 = Math.max(0, Math.floor((Math.min(ax, bx, cx) + this.half) * k)), X1 = Math.min(W - 1, Math.ceil((Math.max(ax, bx, cx) + this.half) * k));
+      const Z0 = Math.max(0, Math.floor((Math.min(az, bz, cz) + this.half) * k)), Z1 = Math.min(H - 1, Math.ceil((Math.max(az, bz, cz) + this.half) * k));
+      const den = (bz - cz) * (ax - cx) + (cx - bx) * (az - cz) || 1;
+      for (let pz = Z0; pz <= Z1; pz++) for (let px_ = X0; px_ <= X1; px_++) {
+        const x = (px_ + 0.5) / k - this.half, z = (pz + 0.5) / k - this.half;
+        const l1 = ((bz - cz) * (x - cx) + (cx - bx) * (z - cz)) / den, l2 = ((cz - az) * (x - cx) + (ax - cx) * (z - cz)) / den, l3 = 1 - l1 - l2;
+        if (l1 < -1e-6 || l2 < -1e-6 || l3 < -1e-6) continue;
+        const o = (pz * W + px_) * 4;
+        if (l1 * ay + l2 * by + l3 * cy < w) continue;   // (this pixel's under the water: the wash, below)
+        d8[o] = r; d8[o + 1] = gg; d8[o + 2] = b;
+      }
+    });
+    // the shallows: pixel by pixel from the height under each, in the cells that have some (not open water, nor dry land)
+    const N = this.N, h = this.h, cp = this.cell * k;
+    for (let j = 0; j < this.n; j++) for (let i = 0; i < this.n; i++) {
+      const q = j * N + i, a0 = h[q], b0 = h[q + 1], c0 = h[q + N], d0 = h[q + N + 1];
+      if (Math.max(a0, b0, c0, d0) < w - dp || Math.min(a0, b0, c0, d0) >= w) continue;
+      const X0 = Math.max(0, Math.floor(i * cp)), X1 = Math.min(W, Math.ceil((i + 1) * cp)), Z0 = Math.max(0, Math.floor(j * cp)), Z1 = Math.min(H, Math.ceil((j + 1) * cp));
+      for (let pz = Z0; pz < Z1; pz++) for (let px_ = X0; px_ < X1; px_++) {
+        const hh = this.at((px_ + 0.5) / k - this.half, (pz + 0.5) / k - this.half);
+        if (hh >= w || hh < w - dp) continue;
+        const a = (1 - (w - hh) / dp) * 0.8, o = (pz * W + px_) * 4;
+        d8[o] += (sh[0] - d8[o]) * a; d8[o + 1] += (sh[1] - d8[o + 1]) * a; d8[o + 2] += (sh[2] - d8[o + 2]) * a;
+      }
+    }
+    g.putImageData(img, 0, 0);
+  },
+  // where it leaves the water, stood up for the 2D renderer: a list of banks, each from two points on the waterline up to
+  // the ground a cell inland ({ax, az, bx, bz, ah, bh, x2..: the tops, nx nz: facing out, col}), found on the grid
+  banks(col, water) {
+    const N = this.N, h = this.h, c = this.cell, w = water || 0, out = [], P = [];
+    const cut = (x0, z0, h0, x1, z1, h1) => { const t = (w - h0) / (h1 - h0); P.push(x0 + (x1 - x0) * t, z0 + (z1 - z0) * t); };
+    for (let j = 0; j < this.n; j++) for (let i = 0; i < this.n; i++) {
+      const k = j * N + i, a = h[k], b = h[k + 1], d = h[k + N], e = h[k + N + 1];
+      const up = (a >= w) + (b >= w) + (d >= w) + (e >= w); if (up === 0 || up === 4) continue;
+      const x0 = -this.half + i * c, z0 = -this.half + j * c, x1 = x0 + c, z1 = z0 + c;
+      P.length = 0;                                    // where the waterline crosses the cell's sides (marching squares)
+      if ((a >= w) !== (b >= w)) cut(x0, z0, a, x1, z0, b);
+      if ((b >= w) !== (e >= w)) cut(x1, z0, b, x1, z1, e);
+      if ((e >= w) !== (d >= w)) cut(x1, z1, e, x0, z1, d);
+      if ((d >= w) !== (a >= w)) cut(x0, z1, d, x0, z0, a);
+      for (let q = 0; q + 3 < P.length; q += 4) {
+        const ax = P[q], az = P[q + 1], bx = P[q + 2], bz = P[q + 3], mx = (ax + bx) / 2, mz = (az + bz) / 2;
+        let nx = -(bz - az), nz = bx - ax; const l = Math.hypot(nx, nz) || 1; nx /= l; nz /= l;
+        if (this.at(mx + nx * c * 0.5, mz + nz * c * 0.5) > this.at(mx - nx * c * 0.5, mz - nz * c * 0.5)) { nx = -nx; nz = -nz; }   // (facing the water)
+        const ix = -nx * c, iz = -nz * c, ah = Math.max(0.4, this.at(ax + ix, az + iz)), bh = Math.max(0.4, this.at(bx + ix, bz + iz));
+        out.push({ ax, az, bx, bz, ah, bh, tx: ix, tz: iz, x: mx, z: mz, nx, nz, col: col((ah + bh) / 2, Math.min(1, Math.max(ah, bh) / c / 1.5), mx, mz) });
+      }
+    }
+    return out;
+  }
 };
 
 // ---------------------------------------------------------------- trails behind moving things (wakes, light trails, tyre
@@ -1641,9 +1772,9 @@ function game(o) {
 
 // one frame of a world from a camera in either renderer: GL begin() (the caller draws its things after), or the 2D
 // ground and sky (the caller adds sprites, then flat.flush())
-function begin(E, cam, near, far) {
-  if (E.mode === "gl") { E.g3.begin(cam.x, cam.y, cam.z, cam.tx, cam.ty, cam.tz, cam.fov, near || 0.6, far || 2600, cam.roll); return; }
-  const v = viewOf(cam); E.flat.draw(cam.x, cam.y, cam.z, v.yaw, v.pitch, cam.fov);
+function begin(E, cam, near, far, rect) {               // (rect: one view of a split screen, [x, y, w, h] in pixels)
+  if (E.mode === "gl") { E.g3.begin(cam.x, cam.y, cam.z, cam.tx, cam.ty, cam.tz, cam.fov, near || 0.6, far || 2600, cam.roll, rect); return; }
+  const v = viewOf(cam); E.flat.view(rect); E.flat.draw(cam.x, cam.y, cam.z, v.yaw, v.pitch, cam.fov);
 }
 
 // ================================================================ Ray: a software renderer for worlds on a grid
@@ -2364,6 +2495,6 @@ function planRay(p, b) {
 }
 
 window.Low3D = { probe, family, NAMES, bench, plan, rows, line, LADDER, Governor, GL, Mesh, Flat, bake, M4, px, hexRGB,
-  U, Kit, Path, Chunks, Trail, Particles, camera, chase, orbit, viewOf, begin, Input, Menu, Synth, game,
+  U, Kit, Path, Chunks, Land, Trail, Particles, camera, chase, orbit, viewOf, begin, Input, Menu, Synth, game,
   Palette, Tex, RayMap, Ray, Marks, Screen, planRay, helpersFor, version: 3 };
 })();

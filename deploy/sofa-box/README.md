@@ -358,8 +358,12 @@ song in the box's player, or shows a picture; **Menu** renames, moves or deletes
   leave again (the keyboard is the first player's). It plays offline with its own music (quiet unless you turn it
   up), with the controller from the start (the hints show its buttons: A B X Y, or ✕ ○ □ △) or a keyboard, and it
   sheds effects to stay smooth on a Pi 3.
-- **Tidewing**, a race over open water in low-poly 3D: a skimmer through the gates of six courses against three
-  rivals, carving to fill your boost. It's built on the box's own game engine (Low3D, `games/low3d.js`), which
+- **Tidewing**, a race over open water in low-poly 3D: a skimmer through the gates of twelve courses against three
+  rivals, carving to fill your boost, riding in another's slipstream and jumping the crests of the swell. Three cups
+  (points for every place; a trophy opens the next cup and wins a new skimmer), time trials against the ghost of your
+  best lap, four skimmers that handle differently, and two players on one screen with the rivals. The newer waters
+  have weather (a gale with lightning, snow on the ice, ash off a volcano, water that glows) and land with height:
+  cliffs, a red-rock gorge, a volcano, a reef. It's built on the box's own game engine (Low3D, `games/low3d.js`), which
   tunes each game to the box: 3D at a size it holds steady on a Pi 3, sharper on a Pi 4 or 5, and the same world
   in 2D on a box without a real GPU. The graphics check (`127.0.0.1:8091/box/games/probe/` in the box's browser)
   shows what it found.

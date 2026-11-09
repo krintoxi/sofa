@@ -161,7 +161,8 @@ for a "This box" screen. `Governor(ladder, rung, top, onChange)` keeps the frame
 
 **3D (`GL`).**
 - `upload(mesh, dynamic)` puts a mesh on the GPU; `update(handle, mesh)` sends a dynamic one again.
-- `begin(eye…, target…, fov, near, far, roll)` starts a frame, `sees(x, y, z, r)` culls against the view.
+- `begin(eye…, target…, fov, near, far, roll, rect)` starts a frame (rect: `[x, y, w, h]`, one view of a split
+  screen), `sees(x, y, z, r)` culls against the view.
 - `lit(handle, matrix, r, g, b, glow)` draws a mesh, lit by the sun and fogged.
 - `glow(handle, matrix, r, g, b, a, "add" or "mix", pointSize)` draws see-through things: lights, shadows, trails,
   and round particles when given a point size.
@@ -174,6 +175,7 @@ for a "This box" screen. `Governor(ladder, rung, top, onChange)` keeps the frame
 **2D (`Flat`).** `size(w, h)`; `ground(canvas, x0, z0, size, outside)` (mip levels made, so far ground doesn't
 shimmer); `air({top, horizon, fog, hill, hills, near, far})`; `draw(camera…)`; `project(x, y, z, out)`;
 `sprite(s, x, y, z, scale, alpha)` and `poly(12 numbers, color)` queue things, and `flush()` draws them far to near.
+`view(rect)` before `draw` puts the next frame in a part of the picture (a split screen's view; `null`: all of it).
 `bake(mesh, {yaw, pitch, roll, ppu, light, glow})` draws a mesh once into a sprite, lit the same way as 3D.
 
 **Building things.**
@@ -189,6 +191,12 @@ shimmer); `air({top, horizon, fog, hill, hills, near, far})`; `draw(camera…)`;
   `hills` and `skyline` (far hills for 3D and 2D), and `blob` (a soft 2D spot).
 - `Chunks(size, cell)` holds a world's still things: `mesh(x, z, "base" | "detail" | "glow")` to build into,
   `upload(g3)`, then `draw(g3, x, z, far, detail)` each frame (culled, nearest first).
+- `Land(size, n, base)` is ground with height: an n × n grid over the world, `fill((x, z) => height)`, then `at(x,
+  z)` anywhere (to float on it, or bump into the shore) and `slope(x, z, out)`. `mesh(chunks, colour(h, steep),
+  water)` builds its triangles into chunks where it's near or above the water; for the 2D renderer, `paint(ctx, k,
+  colour, sun, water, shallow, depth)` paints it into the ground's picture (shaded by its slopes, shallows round it)
+  and `banks(colour, water)` gives the quads that stand its edge up from the water. Tidewing's cliffs, gorge and
+  volcano are made this way.
 
 **Moving things.**
 - `Path(points, {closed, step})` is a smooth line to race, ride or patrol along. It has `at(s)`, `side(s, off)`,
@@ -197,7 +205,8 @@ shimmer); `air({top, horizon, fog, hill, hills, near, far})`; `draw(camera…)`;
   `spots(flat, …)` for 2D.
 - `Particles(n)` is a fixed pool: `emit`, `step`, `points(mesh)` for 3D, `sprites(flat)` for 2D.
 - Cameras: `camera()`; `chase(cam, thing, dt, dist, height, ahead)`; `orbit(cam, x, z, radius, height, angle)`;
-  `begin(E, cam)` draws a frame from a camera in whichever renderer the box has.
+  `begin(E, cam, near, far, rect)` draws a frame from a camera in whichever renderer the box has. Two players:
+  a camera each and a rect each (the screen's top half and bottom half), and the game draws its world twice.
 
 **Drawn by the processor.**
 - `Palette(ramps, glowRamps)` has `cmap` (32 light levels × 256), `maps(fog, haze)` for darkness or a coloured
@@ -389,6 +398,5 @@ times as long) 60 frames a second and none late.
 
 ## Next, as games need it
 
-Height-field ground (hills you drive over) for 3D, and two players on one screen. In `Ray`: sloped floors. In
-Low2D: a 3D backdrop drawn by `GL` behind the pixels on the rich look (a tower that turns as you climb), split
-screens for couch play, slopes. Each one comes with the game that first needs it.
+In `Ray`: sloped floors. In Low2D: a 3D backdrop drawn by `GL` behind the pixels on the rich look (a tower that
+turns as you climb), split screens for couch play, slopes. Each one comes with the game that first needs it.

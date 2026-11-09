@@ -407,6 +407,42 @@ console.log(JSON.stringify(out));
         self.assertEqual(out["mesh"], [12, 12])
         self.assertEqual(out["path"], [4, 100, 100, 420])
 
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_land_with_height(self):
+        """Land (E4): a height anywhere (smooth between the grid's corners, the edge's past it), which way it rises,
+        triangles only where it's near or above the water, every one facing up, and banks where it leaves the water,
+        each facing the water."""
+        script = """
+const noop = () => {};
+globalThis.window = globalThis; globalThis.addEventListener = noop; globalThis.location = { hash: "" };
+globalThis.document = { hidden: false, createElement: () => ({ getContext: () => null }) };
+globalThis.screen = { width: 1920, height: 1080 }; globalThis.innerWidth = 960; globalThis.innerHeight = 540;
+eval(require("fs").readFileSync(process.argv[1], "utf8"));
+const L = window.Low3D, out = {};
+const land = new L.Land(64, 8, -4).fill((x, z) => 10 - Math.hypot(x, z) * 0.5);   // a cone: 10 high, at the water 20 out
+out.at = [land.at(0, 0), land.at(20, 0), land.at(4, 4), land.at(100, 100)].map(v => Math.round(v * 100) / 100);
+const s = land.slope(10, 0, [0, 0]); out.slope = s.map(v => Math.round(v * 100) / 100);
+let tris = 0, up = 0, top = -1e9; land.each(() => 0x808080, 0, 2, (ax, ay, az, bx, by, bz, cx, cy, cz, c, nx, ny) => { tris++; if (ny > 0) up++; top = Math.max(top, ay, by, cy); });
+out.tris = [tris, up, top];
+const ch = new L.Chunks(64, 32); land.mesh(ch, () => 0x808080, 0); let verts = 0; ch.each(c => verts += c.base.n); out.mesh = verts === tris * 3;
+const banks = land.banks(() => 0x808080, 0);
+out.banks = [banks.length > 0, banks.every(b => b.nx * b.x + b.nz * b.z > 0), banks.every(b => Math.abs(land.at((b.ax + b.bx) / 2, (b.az + b.bz) / 2)) < 0.6)];
+console.log(JSON.stringify(out));
+"""
+        r = subprocess.run(["node", "-e", script, os.path.join(self.GAMES, "low3d.js")], capture_output=True, text=True, timeout=60)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        out = json.loads(r.stdout)
+        self.assertEqual(out["at"][:2], [10, 0])
+        self.assertAlmostEqual(out["at"][2], 10 - (32 ** 0.5) * 0.5, delta=0.6)   # (between corners: near the cone)
+        self.assertLess(out["at"][3], -10)                               # past the edge: the corner's own height
+        self.assertEqual(out["slope"], [-0.5, 0])                        # it falls away from the middle
+        tris, up, top = out["tris"]
+        self.assertEqual(tris, up)
+        self.assertTrue(0 < tris < 2 * 8 * 8)                            # the cells near the shore and above it, not the deep water's
+        self.assertEqual(top, 10)
+        self.assertTrue(out["mesh"])
+        self.assertEqual(out["banks"], [True, True, True])               # on the waterline, facing out to the water
+
 
 class TheRaycaster(unittest.TestCase):
     """Low3D's Ray: worlds on a grid drawn a pixel at a time (Ironmaw's), the same on every box."""

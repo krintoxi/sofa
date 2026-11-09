@@ -7,6 +7,19 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.44
+
+- **Tidewing 2.** Six new waters, twelve in all: Stormwall (a gale under the cliffs, with rain, lightning and a
+  big swell), Glasswater Lagoon (a reef-ringed lagoon at night where the water glows), Floe Run (ice cliffs, floes
+  and snow), Riverrun Gorge (up a river between red-rock walls), Ember Atoll (round a smoking volcano, ash on the
+  wind) and Drowned Arcades (a sunken city's arches in clear shallows). Three cups of four races with points for
+  every place: a trophy opens the next cup and wins a skimmer. Four skimmers that handle differently (the even
+  Wren, the quick-turning Swift, the fast Gannet, the heavy Albatross). Time trials against the ghost of your best
+  lap, kept on the box. Ride close behind another for its slipstream, and jump the crests of the swell: both fill
+  your boost. With two controllers, two players race on one screen, a view each, with the three rivals.
+- **The box's game engine** has ground with height for its 3D worlds (`Land`: drawn by the GPU, or painted and
+  stood up on the 2D sea) and draws a split screen in 3D and on the 2D sea.
+
 ## 1.1.43
 
 - **Cinder Knight, a whole adventure.** Four regions of four stages: the Sootwood, the Sunken Kilns, the Glasswater

@@ -1188,6 +1188,73 @@ class BoxBrowser(unittest.TestCase):
         time.sleep(0.5)
         self.assertEqual(json.loads(js("JSON.stringify([IM.state, IM.arena, IM.views.length, errs])")), ["title", None, 0, []])
 
+    def test_tidewing_plays(self):
+        """Tidewing in the box's browser: every course's line is clear of its land, each new course starts and runs,
+        a cup's four races end in standings and a trophy that wins a skimmer, a time trial races the ghost of a best
+        lap, two players race on two views with the rivals, and the demo plays by itself and keeps nothing."""
+        self.post("/box/api/open", {"url": self.base + "/box/games/tidewing/#test"})
+        js = lambda e: self.page_value("/box/games/tidewing", e)
+
+        def until(expr, secs=30):
+            end = time.time() + secs
+            while time.time() < end:
+                try:
+                    if js(expr):
+                        return True
+                except (StopIteration, OSError, KeyError):
+                    pass
+                time.sleep(0.3)
+            return False
+        self.assertTrue(until("typeof TW === 'object' && TW.state === 'attract' && TW.screen === 'title'"))
+        js("window.errs = []; addEventListener('error', e => errs.push(String(e.message))); 1")
+        self.assertEqual(json.loads(js("JSON.stringify([TW.COURSES.length, TW.CUPS.length, TW.CRAFT.length])")), [12, 3, 4])
+        clear = json.loads(js("JSON.stringify(TW.COURSES.map((c, i) => TW.checkCourse(i)))"))
+        self.assertEqual(clear, [[]] * 12)                               # the line, its gates, sparks and crests on the water
+        for ci in range(6, 12):                                          # the six new waters: they start and the rivals race
+            js("TW.race = 'single'; TW.startRace(%d); 1" % ci)
+            time.sleep(0.4)
+        js("TW.startRace(9); 1")
+        self.assertTrue(until("TW.state === 'race'", 15))
+        time.sleep(2)
+        self.assertGreater(js("TW.racers.filter(r => r.ai && r.speed > 10).length"), 1)
+        # a cup: four races (each ended at once), the player first in each: gold, and the Swift
+        js("TW.startCup(0); 1")
+        for race in range(4):
+            self.assertTrue(until("TW.state === 'race' || TW.state === 'countdown' || TW.state === 'intro'", 10))
+            js("TW.you.passed = 99; TW.you.u = 1e6; TW.finishNow(); 1")
+            self.assertTrue(until("TW.screen === 'standings'", 10))
+            if race < 3:
+                js("TW.menu.button('a', 'press'); 1")
+        final = json.loads(js("JSON.stringify({ cups: TW.save().cups, title: document.getElementById('standTitle').textContent, note: document.getElementById('standNote').textContent })"))
+        self.assertEqual(final["cups"], {"tide": 1})
+        self.assertIn("final standings", final["title"])
+        self.assertIn("Swift", final["note"])
+        # a time trial against a ghost: a lap's samples along the line, kept as the best; it's raced
+        js("""(() => { const W = TW.buildCourse(TW.COURSES[0]), P = W.P, rec = [];
+                for (let t = 0; t < 30; t += 0.1) { const i = Math.floor(t / 30 * P.n) % P.n; rec.push(Math.round(P.x[i] * 10), Math.round(P.z[i] * 10), 0); }
+                TW.save().ghost.wren = TW.packGhost(rec, 30, 'swift'); TW.save().trial.wren = 30; TW.race = 'trial'; TW.startRace(0); return 1; })()""")
+        self.assertTrue(until("TW.state === 'race'", 15))
+        trial = json.loads(js("TW.you.passed = 1; JSON.stringify({ racers: TW.racers.length, ghost: !!TW.ghost, craft: TW.ghost && TW.ghost.c })"))
+        self.assertEqual(trial, {"racers": 1, "ghost": True, "craft": "swift"})
+        time.sleep(0.5)
+        self.assertIsNotNone(json.loads(js("JSON.stringify(TW.ghostAt())")))   # out on the water with you
+        # two players: a view each, the three rivals too
+        js("TW.race = 'single'; TW.two = true; TW.startRace(9); 1")
+        self.assertTrue(until("TW.state === 'race'", 15))
+        two = json.loads(js("JSON.stringify({ players: TW.players.length, racers: TW.racers.length, views: document.querySelectorAll('#pvs .pv').length })"))
+        self.assertEqual(two, {"players": 2, "racers": 5, "views": 2})
+        time.sleep(1)
+        js("TW.two = false; 1")
+        self.assertEqual(js("errs.length"), 0)
+        js("localStorage.removeItem('tidewing'); location.hash = '#demo-test'; location.reload(); 1")
+        time.sleep(1)
+        self.assertTrue(until("typeof TW === 'object' && TW.state === 'attract' && window.SofaStats.demo === true", 30))
+        x0 = json.loads(js("JSON.stringify(TW.racers.map(r => r.x))"))
+        time.sleep(3)
+        demo = json.loads(js("JSON.stringify({ x: TW.racers.map(r => r.x), kept: localStorage.getItem('tidewing') })"))
+        self.assertTrue(any(abs(a - b) > 1 for a, b in zip(x0, demo["x"])))   # they race by themselves
+        self.assertIsNone(demo["kept"])                                  # and nothing is kept
+
     def test_gloamwell_finds(self):
         """Gloamwell's finds: a gem set in a socket gives its power and is kept through a save; a hidden vault's
         cracked wall breaks open; a familiar follows you down; floors with an omen (a gilded thief, the restless
