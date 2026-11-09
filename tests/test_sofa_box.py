@@ -1145,6 +1145,49 @@ class BoxBrowser(unittest.TestCase):
         self.assertGreater(abs(demo["at"][0] - x0[0]) + abs(demo["at"][1] - x0[1]), 0.5)   # it walks by itself
         self.assertIsNone(demo["kept"])                                  # and keeps nothing
 
+    def test_ironmaw_arena(self):
+        """Ironmaw's arena in the box's browser: every arena starts (a ring each, a fighter per start asked for), bots
+        walk and fight until someone is fragged, two players get two views, the last shift sends its creatures, and
+        leaving goes back to the menu, with nothing thrown."""
+        self.post("/box/api/open", {"url": self.base + "/box/games/ironmaw/#test"})
+        js = lambda e: self.page_value("/box/games/ironmaw", e)
+        end = time.time() + 30
+        while time.time() < end:
+            try:
+                if js("typeof IM === 'object' && IM.state === 'title'"):
+                    break
+            except (StopIteration, OSError, KeyError):
+                pass
+            time.sleep(0.3)
+        js("window.errs = []; addEventListener('error', e => errs.push(String(e.message))); 1")
+        start = ("(() => { Object.assign(IM.save().arena, %s); IM.joined.length = 0; IM.joined.push(...%s); IM.startArena();"
+                 " return JSON.stringify({ map: IM.arena.A.id, mode: IM.arena.M.id, fighters: IM.fighters.length, ring: IM.lv.ring.length, views: IM.views.length }); })()")
+        for k in range(6):
+            got = json.loads(js(start % (json.dumps({"mode": k % 4, "map": k, "bots": 5, "skill": 1, "limit": 2, "time": 2}), "[1]")))
+            self.assertEqual((got["fighters"], got["views"]), (6, 1), got)
+            self.assertGreater(got["ring"], 0, got)
+            time.sleep(0.6)
+        js(start % (json.dumps({"mode": 0, "map": 0, "bots": 6, "skill": 2, "limit": 2, "time": 2}), "[1]"))
+        x0 = json.loads(js("JSON.stringify(IM.fighters.map(F => [F.x, F.y]))"))
+        end, frags = time.time() + 40, 0
+        while time.time() < end and not frags:
+            time.sleep(1)
+            frags = js("IM.fighters.reduce((n, F) => n + F.frags, 0)")
+        self.assertGreater(frags, 0)                                      # bots find each other and fight
+        moved = json.loads(js("JSON.stringify(IM.fighters.map(F => [F.x, F.y]))"))
+        self.assertGreaterEqual(sum(abs(a[0] - b[0]) + abs(a[1] - b[1]) > 1 for a, b in zip(x0[1:], moved[1:])), 4)
+        two = json.loads(js(start % (json.dumps({"mode": 1, "map": 5, "bots": 4, "skill": 1, "limit": 2, "time": 2}), "[1, 2]")))
+        self.assertEqual((two["views"], two["fighters"]), (2, 6))
+        js(start % (json.dumps({"mode": 3, "map": 3, "bots": 2, "skill": 1, "limit": 2, "time": 2}), "[1]") + "; IM.arena.waveT = 0; 1")
+        end, foes = time.time() + 10, 0
+        while time.time() < end and not foes:
+            time.sleep(0.5)
+            foes = js("IM.foes.filter(f => !f.dead).length")
+        self.assertGreater(foes, 0)                                       # the first wave comes
+        js("IM.toTitle(); 1")                                            # (leaving, as the pause menu does)
+        time.sleep(0.5)
+        self.assertEqual(json.loads(js("JSON.stringify([IM.state, IM.arena, IM.views.length, errs])")), ["title", None, 0, []])
+
     def test_gloamwell_finds(self):
         """Gloamwell's finds: a gem set in a socket gives its power and is kept through a save; a hidden vault's
         cracked wall breaks open; a familiar follows you down; floors with an omen (a gilded thief, the restless

@@ -140,6 +140,13 @@ strip of the picture at the same time, a frame or two behind the page so the pag
 the same. `ray.prime(list)` sends a level's textures and sprites ahead; give the engine `missed: () =>
 ray.takeMissed()` and `helperWork: () => ray.helperMs` so the governor counts the helpers' frames.
 
+A split screen is one `Ray` a view, each with a picture of its own (`r.size(w, h, new Uint32Array(w * h))`), drawn as
+usual and put into the screen's with `r.paste(E.screen.u32, E.screen.w, x, y)`; where there are cores to spare each
+view can have a helper of its own (`r.threads(1)`). One set of sprites serves every crew: `pal.remap(from, to)` swaps
+each ramp in `from` for the one in `to`, shade for shade, and goes as `ray.sprite`'s last argument. Things that walk
+can be told what to keep out of: `m.flow(x, y, step, room, through, avoid)` goes round the cells set in `avoid` (fire)
+and crosses them only when there's no other way.
+
 ## The parts
 
 **Hardware.** `probe()` returns what the browser gives: WebGL 1 and 2, the unmasked GPU name, `family` (pi3, pi4,
@@ -192,12 +199,12 @@ shimmer); `air({top, horizon, fog, hill, hills, near, far})`; `draw(camera…)`;
   haze, `near(r, g, b)`, `sprite(canvasOrBake)` (a sprite as indices), and `color(i)`.
 - `Tex.make(fn)` makes 64×64 textures (`fn(u, v)` → an index), with `Tex.noise(seed)`, `Tex.fbm` and
   `Tex.shade(ramp, k)` to help.
-- `Palette.tints(list)`: coloured light (see above).
-- `RayMap`: `open`, `move`, `floorAt`, `trace` (and what it hit: `hitI`, `hitFace`), `see`, `flow`; per cell `tint`,
-  `dtint`, `mask`, and the marks' `wdec`, `fdec`.
-- `Ray`: `render`, `sprite`, `dot` (a speck; none right at the eye), `flush`, `blit`, `project`, and `dim` (light lost
-  with distance), `minL` (the darkest it gets) and `maxD` (how far it looks); `threads(n)`, `prime(list)`,
-  `takeMissed()`, `helperMs`.
+- `Palette.tints(list)`: coloured light (see above); `Palette.remap(from, to)`: a sprite in other colours.
+- `RayMap`: `open`, `move`, `floorAt`, `trace` (and what it hit: `hitI`, `hitFace`), `see`, `flow` (round what to
+  `avoid`); per cell `tint`, `dtint`, `mask`, and the marks' `wdec`, `fdec`.
+- `Ray`: `render`, `sprite`, `dot` (a speck; none right at the eye), `flush`, `blit`, `project`, `paste` (a view into
+  a split screen), and `dim` (light lost with distance), `minL` (the darkest it gets) and `maxD` (how far it looks);
+  `threads(n)`, `prime(list)`, `takeMissed()`, `helperMs`.
 - `Marks(ray, map, max)`: `wall(i, face, x, y, z, stamp)`, `floor(x, y, stamp)`.
 - `Screen(canvas2d, canvasGL, useGL)` shows the picture (`size`, `present`); `planRay(probe, bench)` picks a
   `Ray` game's starting rung.
@@ -275,5 +282,5 @@ controller, so B stops the check and nothing starts or saves. On a Pi 3 it is th
 
 ## Next, as games need it
 
-Height-field ground (hills you drive over) for 3D, and two players on one screen. In `Ray`: split views for two to
-four players, a sprite's colours swapped for a team, sloped floors. Each one comes with the game that first needs it.
+Height-field ground (hills you drive over) for 3D, and two players on one screen. In `Ray`: sloped floors. Each one
+comes with the game that first needs it.

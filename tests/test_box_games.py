@@ -576,6 +576,56 @@ console.log(JSON.stringify(out));
                 if k and any(d in r for r in rows):
                     self.assertIn(k, {c for c, x, y in things}, name)
 
+    def test_ironmaws_arenas_are_fair(self):
+        """Each arena: closed, at least 8 starts (one per fighter), a ring to hold, and from every start every other
+        start, the ring and every pickup can be walked to (nobody starts shut in, nothing is out of reach)."""
+        import re
+        with open(os.path.join(self.GAMES, "ironmaw", "index.html"), encoding="utf-8") as f:
+            html = f.read()
+        block = html[html.index("const ARENAS = {"):html.index("};", html.index("const ARENAS = {"))]
+        arenas = {m.group(1): re.findall(r'"([^"]*)"', m.group(2)) for m in re.finditer(r"(\w+): \[(.*?)\]", block, re.S)}
+        listed = html[html.index("const ARENA_LIST = ["):html.index("];", html.index("const ARENA_LIST = ["))]
+        self.assertEqual(re.findall(r'id: "(\w+)"', listed), list(arenas))
+        self.assertEqual(len(arenas), 6)
+        solid, masks = set("#%&T|FRWXICKMP"), set("HGZ_")
+        height = {"O": 0.25, "-": 0.25, "=": 0.5, "^": 0.9, "~": -0.06, "!": -0.06, "J": 0.25, ";": 0.25, "n": -0.08}
+        ground_chars, thing_chars = set(".,:*oO-=^~!L$ijJE;nVA0812"), set("@+mackerl34567xtpvSd")
+        for name, rows in arenas.items():
+            w = max(len(r) for r in rows)
+            g = [list(r.ljust(w).replace(" ", "#")) for r in rows]
+            ground, things = {}, []
+            for y in range(len(g)):
+                for x in range(w):
+                    c = g[y][x]
+                    if (x in (0, w - 1) or y in (0, len(g) - 1)) and c not in solid:
+                        self.fail("%s: open edge at %d,%d" % (name, x, y))
+                    if c in solid or c in masks:
+                        continue
+                    self.assertIn(c, ground_chars | thing_chars, "%s: %r at %d,%d" % (name, c, x, y))
+                    if c in thing_chars:
+                        things.append((c, x, y))
+                        c = next((g[y][xx] for d in range(1, 6) for xx in (x - d, x + d) if 0 <= xx < w and g[y][xx] in ground_chars and g[y][xx] != "L"), None)
+                        self.assertIsNotNone(c, "%s: %r at %d,%d is in a wall" % (name, things[-1][0], x, y))
+                    ground[(x, y)] = c
+            starts = [(x, y) for c, x, y in things if c == "@"]
+            ring = [p for p, c in ground.items() if c == "0"]
+            self.assertGreaterEqual(len(starts), 8, name)
+            self.assertTrue(ring, name + ": no ring")
+            for s in starts:
+                seen, todo = {s}, [s]
+                while todo:
+                    x, y = todo.pop()
+                    for n in ((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)):
+                        if n in seen or n not in ground:
+                            continue
+                        c, here = ground[n], ground[(x, y)]
+                        if c != "L" and here != "L" and height.get(c, 0) > height.get(here, 0) + 0.35:
+                            continue
+                        seen.add(n); todo.append(n)
+                unreached = [(c, x, y) for c, x, y in things if (x, y) not in seen and c not in "xtpvSd"]
+                self.assertEqual(unreached, [], "%s from %s" % (name, s))
+                self.assertTrue(all(p in seen for p in ring), "%s: the ring from %s" % (name, s))
+
 
 class Agent(unittest.TestCase):
     @classmethod

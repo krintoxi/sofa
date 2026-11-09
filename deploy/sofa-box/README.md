@@ -363,7 +363,11 @@ song in the box's player, or shows a picture; **Menu** renames, moves or deletes
   that goes through everything in its way; drones that fly, bulwarks behind their plates, sappers that lob bombs.
   Light has colour (lava, ice, the reactor's green, alarms), walls and floors keep the marks of a fight, you see
   through grates, bars and windows, steam vents breathe, lamps flicker, snow falls in the yards, and sounds come
-  from where they happen. The left stick moves, the right stick turns, RT fires, LT aims, A opens doors. It's drawn
+  from where they happen. Its arena has six maps of its own and four ways to play (everyone for themselves, two
+  crews, holding the ring, and the Last Shift: everyone together against the foundry's waves) against bots of five
+  skills, alone or on a split screen for up to four players with a controller each (two bots fewer and two players
+  on a Pi 3). The left stick moves, the right
+  stick turns, RT fires, LT aims, A opens doors. It's drawn
   by the processor, so it plays on a Pi 3 with or without a GPU, with helpers drawing strips of the picture on the
   Pi's other cores (Options: Drawing), and sharper on a Pi 4 or 5.
 - More of the box's own games, each a page that plays offline with the controller: **Cinder Knight** (a

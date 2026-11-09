@@ -47,6 +47,33 @@
   #center { position: absolute; left: 0; right: 0; top: 28%; text-align: center; font-size: calc(var(--u) * 4.6); font-weight: 900; letter-spacing: .04em; }
   #center small { display: block; font-size: .5em; font-weight: 700; opacity: .85; margin-top: .3em; letter-spacing: 0; }
   #map { position: absolute; inset: 6% 10%; width: 80%; height: 88%; opacity: .92; }
+  /* the arena: the score, the feed, the board, a split screen's views each with its own numbers */
+  #score { position: absolute; left: 0; right: 0; top: calc(var(--u) * 2.2); text-align: center; font-size: calc(var(--u) * 2.5); opacity: .92; }
+  #feed { position: absolute; right: calc(var(--u) * 3); top: calc(var(--u) * 8); font-size: calc(var(--u) * 2.2); text-align: right; max-width: 44%; }
+  #feed div { margin-bottom: calc(var(--u) * .4); background: rgba(10, 6, 4, .45); padding: calc(var(--u) * .2) calc(var(--u) * 1); border-radius: .3em; display: inline-block; clear: both; float: right; }
+  #board { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); background: rgba(8, 4, 3, .88); padding: calc(var(--u) * 2) calc(var(--u) * 4); border-radius: calc(var(--u) * 1); }
+  #board table, table.results { border-collapse: collapse; font-size: calc(var(--u) * 2.6); min-width: calc(var(--u) * 50); }
+  #board td, table.results td, table.results th { padding: calc(var(--u) * .4) calc(var(--u) * 1.6); text-align: right; }
+  #board td:first-child, table.results td:first-child { text-align: left; }
+  table.results th { font-size: .7em; opacity: .7; font-weight: 700; text-transform: uppercase; letter-spacing: .1em; }
+  table.results tr.me td { background: rgba(255, 216, 144, .14); }
+  table.results small { opacity: .6; font-size: .7em; }
+  #arena .item.row { min-width: calc(var(--u) * 80); }
+  .joins { font-size: calc(var(--u) * 2.3); opacity: .85; margin: 0; }
+  #hud.split > .stat, #hud.split > #keys, #hud.split > #cross, #hud.split > #hit, #hud.split > .dmg, #hud.split > #msg { display: none; }
+  #hud.split #score { top: 50%; transform: translateY(-50%); font-size: calc(var(--u) * 2); pointer-events: none; }
+  #hud.split #feed { top: auto; bottom: calc(var(--u) * 50 + var(--u) * 2); right: 50%; transform: translateX(50%); text-align: center; }
+  .phud { position: absolute; overflow: hidden; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .6); }
+  .phud .ptint { position: absolute; inset: 0; opacity: 0; transition: opacity .25s; }
+  .phud .pcross { position: absolute; left: 50%; top: 50%; width: calc(var(--u) * 2); height: calc(var(--u) * 2); margin: calc(var(--u) * -1) 0 0 calc(var(--u) * -1); border: 2px solid rgba(255, 255, 255, .7); border-radius: 50%; }
+  .phud .pcross.on { border-color: #ffd890; }
+  .phud .pmsg { position: absolute; left: 0; right: 0; top: 30%; text-align: center; font-size: calc(var(--u) * 3.6); font-weight: 900; }
+  .phud .pname { position: absolute; left: calc(var(--u) * 1.5); top: calc(var(--u) * 1.2); font-size: calc(var(--u) * 2); }
+  .phud .pstat { position: absolute; left: calc(var(--u) * 1.5); bottom: calc(var(--u) * 1.2); font-size: calc(var(--u) * 2); }
+  .phud .parm { position: absolute; right: calc(var(--u) * 1.5); bottom: calc(var(--u) * 1.2); font-size: calc(var(--u) * 2); text-align: right; }
+  .phud b { font-size: 1.8em; font-variant-numeric: tabular-nums; } .phud .pam { color: #ffd890; }
+  .phud span { opacity: .75; margin: 0 .5em 0 .25em; font-size: .85em; }
+  .phud.q b { font-size: 1.3em; } .phud.down { background: rgba(60, 0, 0, .25); }
   #fps { position: absolute; right: calc(var(--u) * 3.5); top: calc(var(--u) * 2.5); font: 600 calc(var(--u) * 1.9) ui-monospace, monospace; opacity: .8; text-align: right; white-space: pre; }
   /* menus */
   .screen { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: calc(var(--u) * 2);
@@ -90,6 +117,8 @@
     <div id="cross"></div><div id="hit"></div>
     <div class="dmg" id="dmg0"></div><div class="dmg" id="dmg1"></div><div class="dmg" id="dmg2"></div>
     <div id="msg"></div><div id="center"></div>
+    <div id="score"></div><div id="feed"></div><div id="phuds"></div>
+    <div id="board" class="hidden"><h2>The board</h2><table id="boardTable"></table></div>
     <div class="stat" id="vitals">
       <div id="hpBox"><div class="lbl">Health</div><div class="big" id="hp">100</div><div class="meter"><i id="hpBar"></i></div></div>
       <div id="arBox"><div class="lbl">Armour</div><div class="big" id="ar">0</div><div class="meter"><i id="arBar"></i></div></div>
@@ -100,7 +129,7 @@
   </div>
   <div id="title" class="screen hidden">
     <h1 class="logo">IRONMAW</h1><p class="tag">The foundry under the ice went quiet. The furnaces are still burning. Below them, something keeps the ice cold.</p>
-    <div class="menu"><div class="item" data-do="new">New game</div><div class="item" data-do="levels">Choose a level</div><div class="item" data-do="options">Options</div><div class="item" data-do="box">This box</div></div>
+    <div class="menu"><div class="item" data-do="new">New game</div><div class="item" data-do="arena">Arena</div><div class="item" data-do="levels">Choose a level</div><div class="item" data-do="options">Options</div><div class="item" data-do="box">This box</div></div>
     <p class="hint" id="titleHint"></p>
   </div>
   <div id="skill" class="screen solid hidden"><h2>How hard?</h2><div class="menu">
@@ -111,6 +140,10 @@
   <div id="options" class="screen solid hidden"><h2>Options</h2><div class="menu" id="optList"></div><p class="hint" id="optionsHint"></p></div>
   <div id="box" class="screen solid hidden"><h2>This box</h2><table class="box" id="boxtable"></table>
     <div class="row-buttons"><div class="item" data-do="retest">Test again</div><div class="item" data-do="back">Back</div></div><p class="hint" id="boxHint"></p></div>
+  <div id="arena" class="screen solid hidden"><h2>Arena</h2><p class="tag" id="arenaTag"></p><div class="menu" id="arenaList"></div>
+    <p class="joins" id="arenaPlayers"></p><p class="hint" id="arenaHint"></p></div>
+  <div id="arenaEnd" class="screen solid hidden"><h2 id="arenaEndTitle"></h2><table class="results" id="arenaTable"></table><p class="tag" id="arenaRec"></p>
+    <div class="row-buttons"><div class="item" data-do="arenaAgain">Play again</div><div class="item" data-do="arena">Change the match</div><div class="item" data-do="title">Leave</div></div><p class="hint" id="arenaEndHint"></p></div>
   <div id="pause" class="screen hidden"><h2>Paused</h2><div class="menu"><div class="item" data-do="resume">Carry on</div><div class="item" data-do="restart">Start the level again</div>
     <div class="item" data-do="options">Options</div><div class="item" data-do="quit">Leave the level</div></div><div class="controls" id="controls"></div><p class="hint" id="pauseHint"></p></div>
   <div id="tallyScr" class="screen solid hidden"><h2 id="tallyTitle"></h2><div class="tally" id="tally"></div><div class="row-buttons" id="tallyButtons"></div><p class="hint" id="tallyHint"></p></div>
@@ -123,7 +156,8 @@
 /* Ironmaw: a fast shooter for Sofa Box OS, in the old style (rooms and corridors, keys and doors, secrets, a lot to
    shoot), with a controller made for it: the left stick moves, the right stick turns, the triggers aim and fire.
    Everything is the game's own and made in code: two episodes (the Foundry, and the Ice under it), nine levels, seven
-   weapons, nine kinds of enemy and two great ones, the textures, the sound. It's drawn a pixel at a time by the box's
+   weapons, nine kinds of enemy and two great ones, the textures, the sound; and an arena (six maps, four ways to play)
+   against bots, on a split screen for up to four players with a controller each. It's drawn a pixel at a time by the box's
    engine (Low3D's Ray, ../low3d.js) so a Raspberry Pi 3 plays it whether or not it has a GPU, with helpers drawing
    strips of the picture on the processor's other cores; light has colour (lava, ice, alarms), and walls and floors
    keep the marks left on them. On a Pi 4 or 5 it's drawn bigger and WebGL adds a glow round lights and fire.
@@ -138,6 +172,7 @@ const SAVE = "ironmaw";
 function fresh() { return { v: 1, reached: 1, skill: 1, best: {}, opts: { turn: 6, look: 1, assist: 1, invert: 0, rumble: 1, bob: 1, shake: 1, music: 5, sound: 8, crisp: 1, picture: "auto", cores: "auto" } }; }
 let save = fresh();
 try { const j = JSON.parse(localStorage.getItem(SAVE) || "null"); if (j && j.v === 1) save = Object.assign(fresh(), j, { opts: Object.assign(fresh().opts, j.opts || {}) }); } catch (e) { /* a fresh start */ }
+save.arena = Object.assign({ mode: 0, map: 0, bots: 4, skill: 1, limit: 1, time: 1, crews: 0 }, save.arena || {});   // (the arena's last settings)
 const DEMO = /(^|[#&-])demo\b/.test(location.hash);              // #demo: it plays itself, and keeps nothing
 function store() { if (DEMO) return; try { localStorage.setItem(SAVE, JSON.stringify(save)); } catch (e) { /* full or blocked */ } }
 
@@ -155,7 +190,7 @@ const fb = (n, u, v, p, o) => L3.Tex.fbm(n, u / 64 * p, v / 64 * p, p, o || 3);
 const T_STEEL = 1, T_RUST = 2, T_STONE = 3, T_TECH = 4, T_PIPES = 5, T_HAZARD = 6, T_DOOR = 7, T_DOORQ = 8, T_DOORU = 9, T_DOORY = 10, T_GRATE = 11,
   T_CONCRETE = 12, T_CEILLIGHT = 13, T_SLIME = 14, T_LAVA = 15, T_SWITCH = 16, T_SWITCHON = 17, T_ROCK = 18, T_CRATE = 19, T_FURNACE = 20, T_CEILDARK = 21,
   T_ASH = 22, T_LIFT = 23, T_TILE = 24, T_ICE = 25, T_SNOW = 26, T_ICEWALL = 27, T_LAB = 28, T_GLACIER = 29, T_MACHINE = 30, T_WATER = 31,
-  T_CEILICE = 32, T_VENT = 33, T_REACTOR = 34, T_PUMP = 35, M_BARS = 36, M_RAIL = 37, M_GLASS = 38, M_FENCE = 39, T_ICECEIL = 40, T_LABFLOOR = 41;
+  T_CEILICE = 32, T_VENT = 33, T_REACTOR = 34, T_PUMP = 35, M_BARS = 36, M_RAIL = 37, M_GLASS = 38, M_FENCE = 39, T_ICECEIL = 40, T_LABFLOOR = 41, T_RING = 42, T_PAD = 43;
 const TEX = [], SLIME = [], LAVA = [], WATER = [];
 function steel(u, v, base) {
   const pu = u & 31, pv = v & 31, n = fb(N1, u, v, 8);
@@ -240,6 +275,8 @@ function makeTextures() {
   TEX[T_CEILICE] = L3.Tex.make((u, v) => { const pu = u & 31, pv = v & 31; if (pu >= 10 && pu < 22 && pv >= 10 && pv < 22) return C(15, pu === 10 || pu === 21 || pv === 10 || pv === 21 ? 0.45 : 0.75); if (pu === 0 || pv === 0) return C(12, 0.2); return C(1, 0.32 + fb(N1, u, v, 8) * 0.12); });
   TEX[T_ICECEIL] = L3.Tex.make((u, v) => C(9, 0.18 + fb(N3, u, v, 4, 3) * 0.2));
   TEX[T_VENT] = L3.Tex.make((u, v) => { const cx = (u & 15) - 7.5, cy = (v & 15) - 7.5; return cx * cx + cy * cy < 20 ? C(12, 0.06) : C(1, 0.42 + fb(N1, u, v, 8) * 0.12); });
+  TEX[T_RING] = L3.Tex.make((u, v) => { const d = Math.hypot(u - 31.5, v - 31.5); return Math.abs(d - 26) < 2.2 || Math.abs(d - 18) < 1.2 ? C(14, 0.75) : (u & 15) === 0 || (v & 15) === 0 ? C(12, 0.3) : C(0, 0.42 + fb(N1, u, v, 8) * 0.12); });
+  TEX[T_PAD] = L3.Tex.make((u, v) => { const d = Math.hypot(u - 31.5, v - 31.5); return d < 20 ? (((u >> 2) + (v >> 2)) & 1 ? C(12, 0.12) : C(14, 0.45 + (20 - d) * 0.02)) : d < 24 ? C(7, 0.7) : C(1, 0.42 + fb(N1, u, v, 8) * 0.1); });
   TEX[T_REACTOR] = L3.Tex.make((u, v) => ((u & 15) === 0 || (v & 15) === 0) ? (((u + v) & 7) < 4 ? C(15, 0.5) : C(12, 0.2)) : C(12, 0.26 + fb(N1, u, v, 8) * 0.1));
   TEX[T_PUMP] = L3.Tex.make((u, v) => {
     const x = (u & 31) - 15.5, sh = Math.sqrt(Math.max(0, 1 - (x / 16) ** 2));
@@ -359,6 +396,8 @@ const SHAPES = {
     shield: [0.5, 0.78], shieldCol: 0x6a6e78, shieldTop: 0x8a8e98 } },
   sapper: { model: body, ppu: 88, S: { leg: 0.28, legW: 0.08, hip: 0.07, torso: 0.27, torsoW: 0.25, torsoD: 0.15, head: 0.13, headF: 0.05, arm: 0.28, armW: 0.065,
     legCol: 0x4a4a32, bootCol: 0x26261c, torsoCol: 0x5a5a3a, torsoTop: 0x6a6a46, headCol: 0x8a7a5a, armCol: 0x5a5a3a, eye: GLOW(14, 14), pack: 1, packCol: 0x3a3a26, bomb: 1 } },
+  fighter: { model: body, ppu: 86, S: { leg: 0.32, legW: 0.09, hip: 0.075, torso: 0.3, torsoW: 0.28, torsoD: 0.17, head: 0.14, arm: 0.28, armW: 0.075,
+    legCol: 0x3a3c44, bootCol: 0x22242a, torsoCol: pal.color(10 * 16 + 8), torsoTop: pal.color(10 * 16 + 11), headCol: pal.color(10 * 16 + 9), armCol: pal.color(10 * 16 + 7), eye: GLOW(15, 13), gun: 1 } },
   coldheart: { model: body, ppu: 44, S: { leg: 0.56, legW: 0.2, hip: 0.2, torso: 0.72, torsoW: 0.82, torsoD: 0.46, head: 0.2, headF: 0.08, arm: 0.56, armW: 0.2, fist: 0.28,
     legCol: 0x4a5a6e, bootCol: 0x2a3440, torsoCol: 0x5a6e86, torsoTop: 0x8aa6c0, headCol: 0x4a5a6e, armCol: 0x5a6e86, fistCol: 0x3a4a5e, eye: GLOW(15, 15), belly: 0x24303c, horns: 1, hornCol: 0xa8c8e0 } }
 };
@@ -717,6 +756,190 @@ const LEVELS = {
     "IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII"
   ]
 };
+// the arenas (see the arena, further down): several starts (@) each, a ring to hold (0), steam pads (8)
+const ARENAS = {
+  crucible: [
+    "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF",
+    "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF",
+    "FFFFF==============================FFFFF",
+    "FFFFF===============5==============FFFFF",
+    "FFFFF11111111111111--11111111111111FFFFF",
+    "FF==111111111111111111111111111111117=FF",
+    "FF==11@1111+11c1111111111k1111111@11==FF",
+    "FF==1111111111111111@111111111111111==FF",
+    "FF==1111W11111111111m1111111111W1111==FF",
+    "FF==111111111111111111111111111111+1==FF",
+    "FF=@111111111!!!!!!!!!!!!!!111111111==FF",
+    "FF==111111111!!!!!!!!!!!!!!111111411==FF",
+    "FF==11111e111!!!!!!!!!!!!!!111111111==FF",
+    "FF==111111111!!!!!!!!!!!!!!111111111==FF",
+    "FF==-11@11-========00========-11111-r=FF",
+    "FF=r-11111-========00========-11@11-==FF",
+    "FF==111111111!!!!!!!!!!!!!!111111111==FF",
+    "FF==111111111!!!!!!!!!!!!!!111e11111==FF",
+    "FF==113111111!!!!!!!!!!!!!!111111111==FF",
+    "FF==111111111!!!!!!!!!!!!!!111111111@=FF",
+    "FF==1+111111111111111111111111111111==FF",
+    "FF==1111W1111111111a11111111111W1111==FF",
+    "FF==111111111111111@1111111111111111==FF",
+    "FF==11@1111111k1111111111c11+1111@11==FF",
+    "FF==11111111111111111111111111111111==FF",
+    "FFFFF11111111111111--11111111111111FFFFF",
+    "FFFFF==============6===============FFFFF",
+    "FFFFF==============================FFFFF",
+    "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF",
+    "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
+  ],
+  coldyard: [
+    "KKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKK",
+    "KjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjK",
+    "KjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjK",
+    "Kjj@jjjjjjjjjjjj+jjjjjjjjjjjjjkjjjjjjjjj@jjK",
+    "Kjjjjjjjjjjjjjjjjjjjj@jjjjjjjjjjjjjjjjjjjjjK",
+    "Kjjjj=====jjjjjjjjjjjjjjjcjjjjjjjjjjjjjjjjjK",
+    "Kjjjj=====jjjjttjjjjjjjjjjjjjjjjjjjjjtjjjjjK",
+    "Kjjjj==7==-jjjtjjjjjjjjjjjjjjjjjjjjjjjjjjjjK",
+    "Kjjjj=====jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjK",
+    "Kjmjj=====jjjjjjjjjjjjjjjjjjjjjjjjjjjjjrjjjK",
+    "Kjjjjjj-jjjjjjjjjjjj3jjjjjjjttjjjjjjjjjjjjjK",
+    "KjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjK",
+    "Kjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj+jjjjjjjjjK",
+    "Kjjjjjjjjjjj@jjjjjjjjjjjjjjjjjjjjjjjjjjj@jjK",
+    "Kjjjjjjjejjjjjjjjjjjj00jjjjjjjjjjjjjjjjjjjjK",
+    "Kjjjjjjjjjjjjjjjjjjjj0ajjjjjjjjjjjjjjjjjjjjK",
+    "KZZZZZZZjjZZZZZZZZZZZ00ZZZZZZZZZZZjjZZZZZZZK",
+    "Kjjjjjjjjjjjjjjjjjjjj00jjjjjjjjjjjjjjjjjjjjK",
+    "Kjj@jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjejjjjjjjK",
+    "Kjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj@jjjjjjjjjjjK",
+    "Kjjjjjjjjj+jjjjjjjjjjjj6jjjjjjjjjjjjjjjjjjjK",
+    "Kjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj-jjjjjjK",
+    "Kjjjjjjjjjjjjjjjjjjjttjjjjjjjjjjjj=====j4jjK",
+    "Kjjjjjjjjjjjjjjjjjjjjtjjjjjjjjjjjj=====jjjjK",
+    "Kjjjjjjjjjjjttjjjjjjjjjjjjjjjjjjj-==5==jjmjK",
+    "Kjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj=====jjjjK",
+    "Kjjjjjjjjjjjjjjjjjcjjjjjjjjjjjtjjj=====jjjjK",
+    "Kjjjjjtjjjjjjjjjjjjjjj@jjjjjjjjjjjjjjjjjjjjK",
+    "Kjj@jjjjjjjjjjjjjjjjjjjjjjj+jjjjjjjjjjjj@jjK",
+    "KjjjjjjjjjjjjkjjjjjjjjjjjjjjjjjjjjjjjjjjjjjK",
+    "KjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjK",
+    "KKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKK"
+  ],
+  catwalks: [
+    "########################################",
+    "#======================================#",
+    "#==@========r======@================@==#",
+    "#===================5==========c=======#",
+    "#======================================#",
+    "#=m==___-_____-_____-_____-_____-__====#",
+    "#====--2-22222-22222-22222-22222---==6=#",
+    "#====_2222+22222222222222k22222222_====#",
+    "#====_2222222222222222222222222222_====#",
+    "#==e=_222!!!!!!!!!!!!!!!!!!!!!!222_====#",
+    "#====_2222222222222222222222222222_====#",
+    "#====--22222222222224222+22222222--====#",
+    "#====_2222@22222220000222222222222_====#",
+    "#=@==_2222228l22220000222222222222_====#",
+    "#====_22222222222200002222l8222222_==@=#",
+    "#====_22222222222200002222222@2222_====#",
+    "#====--22222222+222a2222222222222--====#",
+    "#====_2222222222222222222222222222_====#",
+    "#====_222!!!!!!!!!!!!!!!!!!!!!!222_=e==#",
+    "#====_2222222222222222222222222222_====#",
+    "#====_22222222k22222222222222+2222_====#",
+    "#=3==--2-22222-22222-22222-22222---====#",
+    "#====___-_____-_____-_____-_____-__==m=#",
+    "#======================================#",
+    "#=======c==========7===================#",
+    "#==@================@===============@==#",
+    "#======================================#",
+    "########################################"
+  ],
+  rivetrow: [
+    "%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%",
+    "%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%",
+    "%%,,,,,%%%.....%%%,,,,,%%%.....%%%,,,,,%%",
+    "%%,@,,,%%%..3..%%%,,,,,%%%...c.%%%,,,@,%%",
+    "%%,,,,,G,,.....,,,,,@,,,,,.m...,,,,,,,,%%",
+    "%%,,+,,%%%.....%%%,,,,,%%%.....%%%,,+,,%%",
+    "%%,,,,,%%%.....%%%,,,,,%%%.....%%%,,,,,%%",
+    "%%%%,%%%%%%%,%%%%%%%,%%%%%%%,%%%%%%%,%%%%",
+    "%%%%,%%%%%%%,%%%%%%%,%%%%%%%,%%%%%%%,%%%%",
+    "%,,,,,,,,,,,,,,,,,,,,e,,,,,,,,,,,,,,,,,,%",
+    "%%.....%%%,,,,,%%%.....%%%,,,,,%%%.....%%",
+    "%%.....%%%,,,,,%%%.000.%%%,,,,,%%%.....%%",
+    "%%.r...,,,,@,,,,,,.040.G,,,,,,,,,,..@..%%",
+    "%%..@..%%%,,,,,%%%.00a.%%%,,@,,%%%.....%%",
+    "%%.....%%%,,+,,%%%.....%%%,,,,,%%%.....%%",
+    "%%%%,%%%%%%%,%%%%%%%,%%%%%%%,%%%%%%%,%%%%",
+    "%%%%,%%%%%%%,%%%%%%%,%%%%%%%,%%%%%%%,%%%%",
+    "%,,,,,,,,,,,,,,,,,,,e,,,,,,,,,,,,,,,,,,,%",
+    "%%,,,,,%%%.....%%%,,,,,%%%.....%%%,,,,,%%",
+    "%%,,,,,%%%.....%%%,+,,,%%%.....%%%,5,,,%%",
+    "%%,,,7,,,,.....G,,,,,,,,,,.....G,,,,,,,%%",
+    "%%,,,,,%%%...m.%%%,,@,,%%%..6..%%%,,,k,%%",
+    "%%,,@,,%%%.c...%%%,,,,,%%%.....%%%,,@,,%%",
+    "%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%",
+    "%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%",
+    "%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%",
+    "%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%"
+  ],
+  pumpworks: [
+    "PPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPP",
+    "P,,,,,,,,,......................,,,,,,,,,P",
+    "P,,,,,,,+,.nnnnnnnn--r-nnnnnnnn.,e,,,,,,,P",
+    "P,,@,,,,,,.nnnnnnnn----nnnnnnnn.,,,,,,@,,P",
+    "P,,,,,,,,,.nnnSnnnn-@--nnnnSnnn.,,,,,,,,,P",
+    "P,,,,,,,,,.nnnnnnnn----nnnnnnnn.,,,,,,,,,P",
+    "P,,,,,,,,,.nnnnnnnn----nnnnnnnn.,,,,,,,,,P",
+    "P,,,,6,,,,-----k-------------+--,,,,,,m,,P",
+    "P,,,,,,,,,----------------------,,,,,,,,,P",
+    "P,,,,,,,,,.nnnnnnnn----nnnnnnnn.,,,,,,5,,P",
+    "P,c,,,,,,,.nnnnnnnn-3--nnnnnnnn.,,,,,,,,,P",
+    "P,,,,,,,,,.nnnnnnnn----nnnnnnnn.,,,,,,,,,P",
+    "P,,,,,,,,,.nnnnnnnn0000nnnnnnnn.,,,,,,,,,P",
+    "P,,,,@,,,,.nn@nnnnn0a00nnnnnnnn.,,,,,,,,,P",
+    "P,,,,,,,,,.nnnnnnnn0000nnnnn@nn.,,,,@,,,,P",
+    "P,,,,,,,,,.nnnnnnnn0000nnnnnnnn.,,,,,,,,,P",
+    "P,,,,,,,,,.nnnnnnnn----nnnnnnnn.,,,,,,,,,P",
+    "P,,,,,,,,,.nnnnnnnn--4-nnnnnnnn.,,,,,,,c,P",
+    "P,,,,,,,,,.nnnnnnnn----nnnnnnnn.,,,,,,,,,P",
+    "P,,,,,,,,,----------------------,,,,,,,,,P",
+    "P,,m,,,,,,--+-------------k-----,,,,7,,,,P",
+    "P,,,,,,,,,.nnnnnnnn----nnnnnnnn.,,,,,,,,,P",
+    "P,,,,,,,,,.nnnnnnnn----nnnnnnnn.,,,,,,,,,P",
+    "P,,,,,,,,,.nnnSnnnn--@-nnnnSnnn.,,,,,,,,,P",
+    "P,,@,,,,,,.nnnnnnnn----nnnnnnnn.,,,,,,@,,P",
+    "P,,,,,,,e,.nnnnnnnn----nnnnnnnn.,+,,,,,,,P",
+    "P,,,,,,,,,......................,,,,,,,,,P",
+    "PPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPP"
+  ],
+  kiln: [
+    "##############################################",
+    "#..........,,,,,,,,,,,,,,,,,,,,,,,,iiiiiiiiii#",
+    "#.@...3....,4,,,,,,,,,6,,,,,,,,,,e,iiiiiiii@i#",
+    "#........l.,,,,,,,,,,,,,,,,,,,,+,,,iiiciiiiii#",
+    "#..+.......,,,,,,,,,,,,,,,,,,,,,,,,iiiiiiiiii#",
+    "#..........!!!!!!!!!!!!!!!!!!!!!!!!iiiiiiiiii#",
+    "#....W..@..!!!!!!!!!!!!!!!!!!!!!!!!ii@iiWiiii#",
+    "#..........!!!!!!!!!!!!!!!!!!!!!!!!iiiiiiiiii#",
+    "#..........!!!!!!111111111111!!!!!!iiiiiiiiii#",
+    "#..........!!!!!!11r115111111!!!!!!iiiiiiiiki#",
+    "#..........!!!!!!111100001111!!!!!!iiiiiiiiii#",
+    "#.7.@.....-======-1110000111-======-iiiiiii7i#",
+    "#........m-======-1110000111-======-miiii@iii#",
+    "#..........!!!!!!111100001111!!!!!!iiiiiiiiii#",
+    "#.k........!!!!!!11111a111r11!!!!!!iiiiiiiiii#",
+    "#..........!!!!!!111111111111!!!!!!iiiiiiiiii#",
+    "#..........!!!!!!!!!!!!!!!!!!!!!!!!iiiiiiiiii#",
+    "#....W..@..!!!!!!!!!!!!!!!!!!!!!!!!ii@iiWiiii#",
+    "#..........!!!!!!!!!!!!!!!!!!!!!!!!iiiiiiiiii#",
+    "#..........,,,,,,,,,,,,,,,,,,,,,,,,iiiiiii+ii#",
+    "#......c.l.,,,+,,,,,,,,,,,,,,,,,,,,iiiiiiiiii#",
+    "#.@........,e,,,,,,,,,,6,,,,,,,,,4,iiii3iii@i#",
+    "#..........,,,,,,,,,,,,,,,,,,,,,,,,iiiiiiiiii#",
+    "##############################################"
+  ]
+};
 const ORDER = [
   { id: "intake", name: "Intake Shaft", par: 120, tag: "Where the ore came in. Where they came out.", ep: 0, sky: "fire", amb: "furnace", flicker: 0.1 },
   { id: "refinery", name: "Slag Refinery", par: 180, tag: "Molten metal and the things that like it.", ep: 0, sky: "fire", amb: "furnace", flicker: 0.06 },
@@ -743,7 +966,10 @@ const GROUND = {                                    // what each letter of a map
   "j": { f: 0, c: 2.8, ft: T_SNOW, ct: SKY, L: 27, st: T_GLACIER, base: 1, tint: TI.night }, "J": { f: 0.25, c: 2.8, ft: T_SNOW, ct: SKY, L: 27, st: T_GLACIER, base: 1, tint: TI.night },
   "E": { f: 0, c: 1.7, ft: T_ICE, ct: T_ICECEIL, L: 17, st: T_ICEWALL, base: 1, tint: TI.cryo }, ";": { f: 0.25, ft: T_ICE, st: T_ICEWALL },
   "n": { f: -0.08, ft: T_WATER, st: T_PUMP, wet: 1 }, "V": { f: 0, ft: T_VENT, st: T_HAZARD, vent: 1 },
-  "A": { f: 0, c: 1.6, ft: T_REACTOR, ct: T_CEILDARK, L: 19, st: T_MACHINE, base: 1, tint: TI.toxic }
+  "A": { f: 0, c: 1.6, ft: T_REACTOR, ct: T_CEILDARK, L: 19, st: T_MACHINE, base: 1, tint: TI.toxic },
+  // the arenas: the ring to hold, a steam pad that throws you up
+  "0": { f: 0, ft: T_RING, st: T_HAZARD, ring: 1, L: 28 }, "8": { f: 0, ft: T_PAD, st: T_HAZARD, pad: 1 },
+  "1": { f: 0, c: 2.3, ft: T_CONCRETE, ct: T_CEILLIGHT, L: 23, st: T_HAZARD, base: 1 }, "2": { f: 0, c: 2.3, ft: T_GRATE, ct: T_CEILDARK, L: 23, st: T_HAZARD, base: 1 }
 };
 const WALLS = { "#": T_STEEL, "%": T_RUST, "&": T_STONE, "T": T_TECH, "|": T_PIPES, "F": T_FURNACE, "R": T_ROCK, "W": T_CRATE, "X": T_SWITCH,
   "I": T_ICEWALL, "C": T_LAB, "K": T_GLACIER, "M": T_MACHINE, "P": T_PUMP };
@@ -751,10 +977,10 @@ const MASKS = { "H": M_BARS, "_": M_RAIL, "G": M_GLASS, "Z": M_FENCE };
 const THINGS = /[@hgsbwfBzN+mackerl34567quyxtpvSd]/;
 const KEYNAME = { q: "copper", u: "cobalt", y: "amber" }, KEYCOL = { q: "#d88848", u: "#4a7ae8", y: "#f0c84a" };
 function parseLevel(id) {
-  const rows = LEVELS[id], def = ORDER.find(o => o.id === id) || {}, H = rows.length, W = Math.max(...rows.map(r => r.length));
+  const rows = LEVELS[id] || ARENAS[id], def = ORDER.find(o => o.id === id) || ARENA_LIST.find(o => o.id === id) || {}, H = rows.length, W = Math.max(...rows.map(r => r.length));
   const g = rows.map(r => r.padEnd(W, "#").replace(/ /g, "#").split(""));
   const m = new L3.RayMap(W, H), things = [], doors = [], lifts = [], hurt = new Float32Array(W * H), secret = new Uint8Array(W * H), exits = [];
-  const wet = new Uint8Array(W * H), vents = [], lamps = [];
+  const wet = new Uint8Array(W * H), vents = [], lamps = [], pads = new Uint8Array(W * H), ringAt = new Uint8Array(W * H), ring = [];
   const geoOf = (x, y) => { for (let d = 1; d < 6; d++) for (const xx of [x - d, x + d]) { const c = (g[y] || [])[xx]; if (c && GROUND[c] && !GROUND[c].door && !GROUND[c].lift) return c; } return "."; };
   const kind = [];
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
@@ -774,6 +1000,8 @@ function parseLevel(id) {
     m.tint[i] = G.tint || B.tint || def.tint || 0;
     if (G.hurt) hurt[i] = G.hurt;
     if (G.wet) wet[i] = 1;
+    if (G.pad) pads[i] = 1;
+    if (G.ring) { ringAt[i] = 1; ring.push(i); }
     if (G.vent) vents.push({ i, x: x + 0.5, y: y + 0.5, t: 1 + ((x * 7 + y * 13) % 9) * 0.45, on: 0 });
     if (G.secret && !G.door) secret[i] = 255;
     if (G.door) { m.ftex[i] = T_GRATE; m.ceil[i] = 0; doors.push({ i, x, y, key: G.key || null, secret: !!G.secret, open: 0, target: 0, t: 0, top: Math.min(B.c, 1.0) }); }
@@ -810,10 +1038,18 @@ function parseLevel(id) {
       if (t.c === "S" && Math.abs(dx) + Math.abs(dy) <= 1) m.tint[j] = TI.cryo;
     }
   }
+  if (ARENAS[id]) for (let i = 0; i < W * H; i++) if (kind[i] === "!") {     // in the arenas the fire lights what's round it, warm
+    const x = i % W, y = (i / W) | 0;
+    for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
+      const j = (y + dy) * W + x + dx, k = kind[j], n = Math.abs(dx) + Math.abs(dy); if (!n || n > 2 || !k || k === "!" || m.solid[j]) continue;
+      m.light[j] = Math.max(m.light[j], Math.min(31, 27 - n * 3)); if (!m.tint[j]) m.tint[j] = TI.ember;
+    }
+  }
   // lamps that flicker: a share of the cells under lit ceilings, picked the same way each time
   const rnd = U.rand(id.length * 977 + W * 31 + H);
   for (let i = 0; i < W * H; i++) if (kind[i] && (m.ctex[i] === T_CEILLIGHT || m.ctex[i] === T_CEILICE) && rnd() < (def.flicker || 0)) lamps.push({ i, base: m.light[i], s: rnd() * 100, kind: rnd() < 0.25 ? 1 : 0 });
-  return { m, things, doors, lifts, hurt, secret, groups, pass, found: new Uint8Array(groups + 1), exits, W, H, wet, vents, lamps, def };
+  return { m, things, doors, lifts, hurt, secret, groups, pass, found: new Uint8Array(groups + 1), exits, W, H, wet, vents, lamps, def, pads, ring, ringAt,
+    spawns: things.filter(t => t.c === "@") };
 }
 
 // ---------------------------------------------------------------- weapons and enemies
@@ -896,10 +1132,15 @@ function volumes() { synth.volume(save.opts.music / 10, save.opts.sound / 10); }
 // a sound from where it happens: to the left or the right of you, quieter further off (loud: how far it carries)
 function snd(name, x, y, loud) {
   if (x == null) { synth.play(name); return; }
-  const dx = x - P.x, dy = y - P.y, d = Math.hypot(dx, dy), k = loud || 1;
+  const L = ear(x, y), dx = x - L.x, dy = y - L.y, d = Math.hypot(dx, dy), k = loud || 1;
   if (d < 0.6) { synth.play(name); return; }
-  const g = clamp(k * 1.3 / (1 + d * d * 0.02 / k), 0, 1), rel = Math.atan2(dy, dx) - P.a;
+  const g = clamp(k * 1.3 / (1 + d * d * 0.02 / k), 0, 1), rel = Math.atan2(dy, dx) - L.a;
   synth.play(name, Math.sin(rel) * Math.min(1, d / 2.5) * 0.85, g);
+}
+function ear(x, y) {                               // who hears it: you, or in the arena the player nearest to it
+  if (!arena) return P;
+  let best = null, bd = 1e9; for (const F of fighters) if (F.human) { const d = Math.hypot(F.x - x, F.y - y); if (d < bd) { bd = d; best = F; } }
+  return best || P;
 }
 // what's always there: a furnace's roar, the wind, the reactor's hum, water dripping
 let amb = null, ambKind = null;
@@ -924,16 +1165,21 @@ const E = L3.game({
   kind: "ray", id: "ironmaw", view: $("view"), gl: $("gl"), flat: $("flat"), fps: $("fps"), input,
   loading: { el: $("loading"), bar: $("loadbar"), text: $("loadtext") },
   picture: () => save.opts.picture, ready, resized, update, draw, paused: () => state !== "play" && state !== "dead" && state !== "done",
-  missed: () => ray.takeMissed(), helperWork: () => ray.helperMs
+  missed: () => { let k = ray.takeMissed(); for (const v of views) if (v.ray !== ray) k += v.ray.takeMissed(); return k; },   // (a split screen's views too)
+  helperWork: () => { let ms = ray.helperMs; for (const v of views) if (v.ray !== ray) ms = Math.max(ms, v.ray.helperMs); return ms; }
 });
 const ray = new L3.Ray(pal);
-function resized() { ray.size(E.screen.w, E.screen.h, E.screen.u32); pic.w = E.screen.w; pic.h = E.screen.h; E.screen.crisp = !!save.opts.crisp; E.screen.filter(); $("view").classList.toggle("smooth", !save.opts.crisp); }
+function resized() {
+  ray.size(E.screen.w, E.screen.h, E.screen.u32); pic.w = E.screen.w; pic.h = E.screen.h; E.screen.crisp = !!save.opts.crisp; E.screen.filter(); $("view").classList.toggle("smooth", !save.opts.crisp);
+  if (arena && arena.split && fighters.length) setupViews();          // (a split screen's views follow the picture's size)
+}
 
 // ---------------------------------------------------------------- the game's state
-let state = "boot", lv = null, level = 0, skill = 1, mapOn = false, levelT = 0, deadT = 0, attract = false, marks = null, alarm = 0, demoT = 0;
-const P = { x: 0, y: 0, z: 0, a: 0, pitch: 0, vx: 0, vy: 0, vz: 0, hp: 100, armor: 0, weapon: 1, owned: [1, 1, 0, 0, 0, 0, 0], ammo: { rivets: 50, shells: 0, cells: 0, slag: 0 },
+let state = "boot", lv = null, level = 0, skill = 1, mapOn = false, levelT = 0, deadT = 0, attract = false, marks = null, alarm = 0, demoT = 0, curFoe = null;
+let P = { x: 0, y: 0, z: 0, a: 0, pitch: 0, vx: 0, vy: 0, vz: 0, hp: 100, armor: 0, weapon: 1, owned: [1, 1, 0, 0, 0, 0, 0], ammo: { rivets: 50, shells: 0, cells: 0, slag: 0 },
   keys: {}, bob: 0, bobK: 0, kick: 0, cool: 0, swap: 0, next: -1, hurt: 0, flash: 0, turnV: 0, quick: 0, firing: false, aim: 0, fireAnim: 0, onLift: null,
   land: 0, step: 0, chill: 0, shake: 0, spin: 0, wet: 0 };
+const P1 = P; P1.human = 1; P1.alive = true;         // (the campaign's one player; in the arena, P is whoever's turn it is)
 let foes = [], items = [], shots = [], booms = [], decor = [], specks = [], bits = [], flakes = [], puffs = [], colds = [];
 let stats = { kills: 0, killsAll: 0, items: 0, itemsAll: 0, secrets: 0, secretsAll: 0 };
 let flowT = 0, flow = null, slimeT = 0, frameNo = 0;
@@ -993,7 +1239,7 @@ function startAngle(x, y) {                        // face the most open way
   for (let k = 0; k < 4; k++) { const a = k * Math.PI / 2; let d = 0; while (d < 20 && !lv.m.solid[lv.m.at(x + Math.cos(a) * d, y + Math.sin(a) * d)]) d += 0.5; if (d > bd) { bd = d; best = a; } }
   return best;
 }
-function computeFlow() { flow = lv.m.flow(P.x, P.y, 0.4, 0.55, lv.pass); }
+function computeFlow() { flow = lv.m.flow(P.x, P.y, 0.4, 0.55, lv.pass).slice(); }   // (a copy: other ways are worked out with the same buffer)
 
 // ---------------------------------------------------------------- messages and the HUD
 const msgs = [];
@@ -1005,6 +1251,7 @@ const hudCache = {};
 function setH(id, v, html) { if (hudCache[id] === v) return; hudCache[id] = v; if (html) $(id).innerHTML = v; else $(id).textContent = v; }
 function hud(force) {
   if (force) for (const k in hudCache) delete hudCache[k];
+  if (!P.human || (arena && arena.split)) return;      // (a split screen's numbers are each view's own)
   setH("hp", String(Math.max(0, Math.ceil(P.hp)))); $("hpBar").style.width = clamp(P.hp, 0, 100) + "%"; $("hpBox").classList.toggle("low", P.hp <= 25);
   setH("ar", String(Math.ceil(P.armor))); $("arBar").style.width = clamp(P.armor / 2, 0, 100) + "%";
   const w = WEAPONS[P.weapon];
@@ -1015,17 +1262,20 @@ function hud(force) {
 let hitT = 0, crossOn = false, frostOn = -1;
 const dmgEls = [$("dmg0"), $("dmg1"), $("dmg2")]; let dmgI = 0;
 function damageFrom(x, y) {                         // a red arc towards where it came from
+  if (!P.human || (arena && arena.split)) return;
   const el = dmgEls[dmgI++ % 3], a = Math.atan2(y - P.y, x - P.x) - P.a;
   el.style.transform = "rotate(" + (wrap(a) * 180 / Math.PI).toFixed(0) + "deg)"; el.style.transition = "none"; el.style.opacity = 1;
   requestAnimationFrame(() => { el.style.transition = "opacity .9s"; el.style.opacity = 0; });
 }
-function tint(col, a) { const t = $("tint"); t.style.transition = "none"; t.style.background = col; t.style.opacity = a; requestAnimationFrame(() => { t.style.transition = "opacity .35s"; t.style.opacity = 0; }); }
-function rumble(s, w, ms) { if (save.opts.rumble && window.SofaPad) SofaPad.rumble(s, w, ms); }
-function shake(k) { if (save.opts.shake) P.shake = Math.min(1, P.shake + k); }
+function tint(col, a) { if (!P.human) return; const t = P.hudEls ? P.hudEls.tint : $("tint"); t.style.transition = "none"; t.style.background = col; t.style.opacity = a; requestAnimationFrame(() => { t.style.transition = "opacity .35s"; t.style.opacity = 0; }); }
+function rumble(s, w, ms) { if (!save.opts.rumble || !window.SofaPad || !P.human) return; if (arena && arena.split) input.player(P.human).rumble(s, w, ms); else SofaPad.rumble(s, w, ms); }
+function shake(k) { if (save.opts.shake && P.human) P.shake = Math.min(1, P.shake + k); }
 
 // ---------------------------------------------------------------- the player
-function onButton(b, how) {
+function onButton(b, how, who) {
   synth.start();
+  if (menu.at === "arena" && how === "press" && b === "a" && who >= 2 && arenaJoin(who)) return;
+  if (arena && arenaButton(b, how, who || 0)) return;
   if (how === "release") return;
   if (DEMO) return;                                  // (the demo takes no controller: the games check is using it)
   if (menu.button(b, how)) return;
@@ -1064,47 +1314,57 @@ function openDoor(dr, byPlayer) {
   if (dr.secret && !byPlayer) return;
   dr.target = 1; dr.t = 0; snd("door", dr.x + 0.5, dr.y + 0.5);
 }
-function hurtPlayer(n, fx, fy, kind) {
+function hurtPlayer(n, fx, fy, kind, by, how) {
   if (state !== "play") return;
-  n *= skill === 0 ? 0.6 : skill === 2 ? 1.3 : 1;
+  if (arena) { by = by || curFoe; if (!P.alive || arena.over || P.guard > 0) return; if (by && by !== P && ally(by, P)) return; }
+  else n *= skill === 0 ? 0.6 : skill === 2 ? 1.3 : 1;
   const absorb = Math.min(P.armor, n / 3); P.armor -= absorb; n -= absorb;
   P.hp -= n; P.hurt = Math.min(1, P.hurt + n / 30);
-  if (DEMO && P.hp < 20) P.hp = 60;                  // (a demo never ends in a death)
+  if (DEMO && !arena && P.hp < 20) P.hp = 60;        // (a demo never ends in a death)
   if (kind === "frost") { P.chill = Math.max(P.chill, 1.8); tint("rgba(150,220,255,0.5)", 0.45); } else tint("rgba(200,20,10,0.6)", clamp(n / 25, 0.15, 0.6));
-  rumble(clamp(n / 20, 0.3, 1), 0.5, 160); synth.play("hurt"); shake(clamp(n / 45, 0.08, 0.5));
+  rumble(clamp(n / 20, 0.3, 1), 0.5, 160); if (P.human) synth.play("hurt"); shake(clamp(n / 45, 0.08, 0.5));
   if (fx != null) damageFrom(fx, fy);
+  if (arena) { if (P.hp <= 0) fighterDown(P, by || null, how || kind || "boom"); hud(); return; }
   if (P.hp <= 0) { P.hp = 0; state = "dead"; deadT = 0; center("You fell in the Ironmaw<small>" + kb("a") + " to try again</small>", 999); tint("rgba(120,0,0,0.8)", 0.8); }
   hud();
 }
 const FLOORSTEP = {};
 FLOORSTEP[T_GRATE] = FLOORSTEP[T_VENT] = FLOORSTEP[T_LIFT] = "stepGrate"; FLOORSTEP[T_ASH] = "stepSoft"; FLOORSTEP[T_SNOW] = "stepSnow";
 FLOORSTEP[T_SLIME] = FLOORSTEP[T_LAVA] = FLOORSTEP[T_WATER] = "stepWet";
+function controls(dt) {                           // what the one whose turn it is (P) wants: a bot's mind, the demo, or a player's sticks
+  if (P.brain) return think(P, dt);
+  if (DEMO && !arena) { const a = pilot(dt); return { st: a.st, turn: a.turn, look: 0, fire: a.fire, aim: false, use: a.use, keys: false, human: false }; }
+  const kbd = !arena || P.human === 1, pad = arena && arena.split ? input.player(P.human) : input.pad() ? window.SofaPad : null;
+  const st = pad ? pad.stick() : { x: 0, y: 0 }, st2 = pad ? pad.stick2() : { x: 0, y: 0 };
+  return { st, turn: st2.x, look: st2.y, fire: (pad && pad.trigger("rt") > 0.35) || (kbd && (input.key("fire") || mouse.fire)),
+    aim: (pad && pad.trigger("lt") > 0.35) || (kbd && (input.key("aim") || mouse.aim)), use: false, keys: kbd, human: true };
+}
 function stepPlayer(dt) {
-  const m = lv.m, o = save.opts, auto = DEMO ? pilot(dt) : null, st = auto ? auto.st : input.stick(), st2 = auto ? { x: auto.turn, y: 0 } : input.pad() ? window.SofaPad.stick2() : { x: 0, y: 0 };
+  const m = lv.m, o = save.opts, ct = controls(dt), st = ct.st, kbd = ct.keys;
   // turning: the right stick (a curve: gentle near the middle, quick at the edge), the keyboard's arrows, a mouse
-  let tx = st2.x; tx = Math.sign(tx) * Math.pow(Math.abs(tx), 1.8);
-  if (!auto) { if (input.key("left")) tx = -1; else if (input.key("right")) tx = 1; }
-  const aiming = !auto && ((input.pad() ? window.SofaPad.trigger("lt") > 0.35 : false) || input.key("aim") || mouse.aim);
+  let tx = ct.turn; if (ct.human) tx = Math.sign(tx) * Math.pow(Math.abs(tx), 1.8);
+  if (kbd) { if (input.key("left")) tx = -1; else if (input.key("right")) tx = 1; }
+  const aiming = ct.aim;
   P.aim += ((aiming ? 1 : 0) - P.aim) * (1 - Math.exp(-12 * dt));
   const cold = 1 - 0.38 * Math.min(1, P.chill);
-  let rate = (1.6 + o.turn * 0.42) * (1 - P.aim * 0.45) * (0.75 + 0.25 * cold);
+  let rate = (ct.human ? 1.6 + o.turn * 0.42 : 4.1) * (1 - P.aim * 0.45) * (0.75 + 0.25 * cold);
   // aim help: turning slows over a target, and drifts a little with it while you move
-  const tgt = o.assist ? target(0.13) : null;
+  const tgt = o.assist && ct.human ? target(0.13) : null;
   if (tgt) rate *= o.assist === 2 ? 0.5 : 0.65;
   P.turnV += (tx * rate - P.turnV) * (1 - Math.exp(-(Math.abs(tx) > Math.abs(P.turnV / rate) ? 14 : 20) * dt));
-  P.a += P.turnV * dt + mouse.dx * 0.0035; mouse.dx = 0;
+  P.a += P.turnV * dt + (kbd ? mouse.dx * 0.0035 : 0); if (kbd) mouse.dx = 0;
   if (tgt && (Math.abs(st.x) > 0.2 || Math.abs(st.y) > 0.2 || Math.abs(tx) > 0.05)) {
     const d = wrap(Math.atan2(tgt.y - P.y, tgt.x - P.x) - P.a), k = (o.assist === 2 ? 1.2 : 0.6) * dt;
     P.a += clamp(d, -k, k);
   }
   if (P.quick) { const s = Math.min(P.quick, 12 * dt); P.a += s; P.quick -= s; }
   P.a = wrap(P.a);
-  if (o.look && !auto) { const ly = (o.invert ? -1 : 1) * -st2.y; P.pitch = clamp(P.pitch + ly * 1.1 * dt - mouse.dy * 0.002, -0.22, 0.22); }
+  if (o.look && ct.human) { const ly = (o.invert ? -1 : 1) * -ct.look; P.pitch = clamp(P.pitch + ly * 1.1 * dt - (kbd ? mouse.dy * 0.002 : 0), -0.22, 0.22); }
   else P.pitch += (0 - P.pitch) * (1 - Math.exp(-8 * dt));
-  mouse.dy = 0;
+  if (kbd) mouse.dy = 0;
   // moving: the left stick (as far as it's pushed), the keys; quick to start, quick to stop; water and cold slow you
   let mf = -st.y, ms = st.x;
-  if (!auto) { if (input.key("fwd") || input.key("up")) mf = 1; else if (input.key("rev") || input.key("down")) mf = -1; if (input.key("strafeL")) ms = -1; else if (input.key("strafeR")) ms = 1; }
+  if (kbd) { if (input.key("fwd") || input.key("up")) mf = 1; else if (input.key("rev") || input.key("down")) mf = -1; if (input.key("strafeL")) ms = -1; else if (input.key("strafeR")) ms = 1; }
   const len = Math.hypot(mf, ms); if (len > 1) { mf /= len; ms /= len; }
   const ci0 = m.at(P.x, P.y), wading = lv.wet[ci0] && P.z < m.floor[ci0] + 0.05;
   const speed = 3.1 * (1 - P.aim * 0.3) * cold * (wading ? 0.62 : 1), c = Math.cos(P.a), s = Math.sin(P.a);
@@ -1114,6 +1374,7 @@ function stepPlayer(dt) {
   m.move(P, P.vx * dt, P.vy * dt, BODY.r, BODY.step, BODY.room);
   for (const d of decor) if (d.solid && d.hp >= 0) { const dx = P.x - d.x, dy = P.y - d.y, dd = Math.hypot(dx, dy), rr2 = d.r + BODY.r; if (dd < rr2 && dd > 0) { P.x = d.x + dx / dd * rr2; P.y = d.y + dy / dd * rr2; } }
   for (const f of foes) if (!f.dead && !f.K.fly) { const dx = P.x - f.x, dy = P.y - f.y, dd = Math.hypot(dx, dy), rr2 = f.K.r + BODY.r; if (dd < rr2 && dd > 0) { P.x = f.x + dx / dd * rr2; P.y = f.y + dy / dd * rr2; } }
+  if (arena) for (const F of fighters) if (F !== P && F.alive) { const dx = P.x - F.x, dy = P.y - F.y, dd = Math.hypot(dx, dy), rr2 = BODY.r * 2; if (dd < rr2 && dd > 0) { P.x = F.x + dx / dd * rr2; P.y = F.y + dy / dd * rr2; } }
   if (!m.open(P.x, P.y, BODY.r, P.z, BODY.step, BODY.room)) { P.x = bx0; P.y = by0; }
   // standing: on the floor (steps up quickly, falls down; a hard landing dips the view)
   const fl = m.floorAt(P.x, P.y, BODY.r * 0.7);
@@ -1128,7 +1389,11 @@ function stepPlayer(dt) {
   const ph = Math.floor(P.bob / Math.PI); if (ph !== P.step) { P.step = ph; if (moving > 0.2) footstep(false); }
   // the floor: hot ones hurt (every so often), water splashes, a secret's counted when found
   const ci = m.at(P.x, P.y);
-  if (lv.hurt[ci] && P.z < m.floor[ci] + 0.05) { P.burn = (P.burn || 0) + dt; if (P.burn > 0.5) { P.burn = 0; hurtPlayer(lv.hurt[ci] * 0.5); } }
+  if (lv.hurt[ci] && P.z < m.floor[ci] + 0.05) { P.burn = (P.burn || 0) + dt; if (P.burn > 0.5) { P.burn = 0; hurtPlayer(lv.hurt[ci] * 0.5, null, null, null, null, "lava"); } }
+  if (lv.pads && lv.pads[ci] && P.z < m.floor[ci] + 0.05 && (P.padT || 0) <= 0) {     // a steam pad: up you go
+    P.vz = 6.4; P.padT = 0.9; snd("hiss", P.x, P.y, 0.9); for (let q = 0; q < 6; q++) puffs.push({ x: P.x + (R() - 0.5) * 0.4, y: P.y + (R() - 0.5) * 0.4, z: m.floor[ci], vz: 1.6 + R(), life: 1, max: 1 });
+  }
+  if (P.padT > 0) P.padT -= dt;
   const w2 = lv.wet[ci] && P.z < m.floor[ci] + 0.05; if (w2 && !P.wet) { synth.play("splash"); for (let q = 0; q < 6; q++) specks.push({ x: P.x + c * 0.4, y: P.y + s * 0.4, z: P.z + 0.05, vx: (R() - 0.5) * 1.4, vy: (R() - 0.5) * 1.4, vz: 1 + R(), life: 0.4, idx: 0 * 16 + 13, size: 0.03, full: 0 }); } P.wet = w2;
   const sg = lv.secret[ci]; if (sg && !lv.found[sg]) { lv.found[sg] = 1; stats.secrets++; say("A secret!"); synth.play("secret"); }
   m.seen[ci] = 1;
@@ -1139,14 +1404,14 @@ function stepPlayer(dt) {
   if (P.swap > 0) { P.swap -= dt; if (P.swap <= 0.16 && P.next >= 0) { P.weapon = P.next; P.next = -1; hud(); } if (P.swap < 0) P.swap = 0; }
   P.cool -= dt; P.kick *= Math.exp(-14 * dt); P.flash = Math.max(0, P.flash - dt); P.fireAnim = Math.max(0, P.fireAnim - dt); P.hurt = Math.max(0, P.hurt - dt * 0.8);
   P.shake = Math.max(0, P.shake - dt * 2.2);
-  const firing = auto ? auto.fire : (input.pad() && window.SofaPad.trigger("rt") > 0.35) || input.key("fire") || mouse.fire, w = WEAPONS[P.weapon];
+  const firing = ct.fire, w = WEAPONS[P.weapon];
   if (w.spin) { if (firing && P.swap <= 0 && hasAmmo(P.weapon)) { if (P.spin === 0) synth.play("spin"); P.spin = Math.min(w.spin, P.spin + dt); } else P.spin = Math.max(0, P.spin - dt * 1.5); }
-  if (auto && auto.use) use();
+  if (ct.use) use();
   if (firing && P.cool <= 0 && P.swap <= 0 && (!w.spin || P.spin >= w.spin)) fire();
 }
-function footstep(hard) {                          // the sound of the floor you're on
-  const i = lv.m.at(P.x, P.y), t = lv.m.ftex[i];
-  synth.play(lv.wet[i] ? "stepWet" : hard ? "stepHard" : FLOORSTEP[t] || "stepHard");
+function footstep(hard) {                          // the sound of the floor you're on (another's, from where they are)
+  const i = lv.m.at(P.x, P.y), t = lv.m.ftex[i], name = lv.wet[i] ? "stepWet" : hard ? "stepHard" : FLOORSTEP[t] || "stepHard";
+  if (P.human) synth.play(name); else snd(name, P.x, P.y, 0.35);
 }
 function take(it) {
   const c = it.c; let t = "";
@@ -1160,19 +1425,20 @@ function take(it) {
   else if (/[34567]/.test(c)) {
     const wi = +c - 1, w = WEAPONS[wi], first = !P.owned[wi];
     P.owned[wi] = 1; P.ammo[w.ammo] = Math.min(AMMO[w.ammo], P.ammo[w.ammo] + { rivets: 40, shells: 8, cells: 60, slag: 4 }[w.ammo]);
-    t = "The " + w.name.toLowerCase() + "!"; if (first) pick(wi); synth.play("gun");
+    t = "The " + w.name.toLowerCase() + "!"; if (first) pick(wi); if (P.human) synth.play("gun");
   }
   else if (c === "q" || c === "u" || c === "y") {
     P.keys[c] = 1; t = "The " + KEYNAME[c] + " key"; synth.play("secret");
     if (lv.def.alarm === c && !alarm) { alarm = 1; center("ALARM<small>The reactor knows its key is gone</small>", 3); wakeAll(60); }
   }
   it.got = true; if (!it.drop) stats.items++;
+  if (arena) { it.back = RESPAWN[c] || 15; if (P.human) { if (!/[34567]/.test(c)) synth.play("item"); tint("rgba(255,220,140,0.35)", 0.35); hud(); } else snd("item", P.x, P.y, 0.5); return; }
   if (!/[34567quy]/.test(c)) synth.play("item");
   tint("rgba(255,220,140,0.35)", 0.35); say(t); hud();
 }
 
 // ---------------------------------------------------------------- shooting
-const HIT = { f: null, d: 0, wi: -1, wf: -1, decor: null };
+const HIT = { f: null, F: null, d: 0, wi: -1, wf: -1, decor: null };
 function target(cone) {                            // the enemy nearest the middle of the view, within cone, in sight
   let best = null, bd = cone;
   for (const f of foes) {
@@ -1181,12 +1447,18 @@ function target(cone) {                            // the enemy nearest the midd
     const off = Math.abs(wrap(Math.atan2(dy, dx) - P.a)) - Math.atan(f.K.r / dist);
     if (off < bd && lv.m.see(P.x, P.y, P.z + BODY.eye, f.x, f.y, f.z + f.K.h * 0.6)) { bd = off; best = f; }
   }
+  if (arena) for (const F of fighters) {
+    if (F === P || !F.alive || ally(F, P)) continue;
+    const dx = F.x - P.x, dy = F.y - P.y, dist = Math.hypot(dx, dy); if (dist > 22) continue;
+    const off = Math.abs(wrap(Math.atan2(dy, dx) - P.a)) - Math.atan(0.24 / dist);
+    if (off < bd && lv.m.see(P.x, P.y, P.z + BODY.eye, F.x, F.y, F.z + 0.5)) { bd = off; best = F; }
+  }
   return best;
 }
 function hitscan(a, range) {                        // along a: the first enemy (or barrel) in the way, or the wall (and which face)
   const m = lv.m, ez = P.z + BODY.eye, c = Math.cos(a), s = Math.sin(a);
   const wall = m.trace(P.x, P.y, ez, P.x + c * range, P.y + s * range, ez) * range;
-  HIT.f = null; HIT.d = wall; HIT.decor = null; HIT.wi = m.hitI; HIT.wf = m.hitFace;
+  HIT.f = null; HIT.F = null; HIT.d = wall; HIT.decor = null; HIT.wi = m.hitI; HIT.wf = m.hitFace;
   for (const f of foes) {
     if (f.dead) continue;
     const dx = f.x - P.x, dy = f.y - P.y, along = dx * c + dy * s; if (along <= 0 || along > HIT.d) continue;
@@ -1194,35 +1466,46 @@ function hitscan(a, range) {                        // along a: the first enemy 
     if (!m.see(P.x, P.y, ez, f.x, f.y, f.z + f.K.h * 0.55)) continue;   // (aimed up or down to it: vertical aim is the game's)
     HIT.f = f; HIT.d = along;
   }
+  if (arena) for (const F of fighters) {
+    if (F === P || !F.alive || ally(F, P)) continue;
+    const dx = F.x - P.x, dy = F.y - P.y, along = dx * c + dy * s; if (along <= 0 || along > HIT.d) continue;
+    if (Math.abs(-dx * s + dy * c) > 0.27 || !m.see(P.x, P.y, ez, F.x, F.y, F.z + 0.5)) continue;
+    HIT.F = F; HIT.f = null; HIT.d = along;
+  }
   for (const d of decor) {
     if (d.c !== "x" || d.hp <= 0) continue;
     const dx = d.x - P.x, dy = d.y - P.y, along = dx * c + dy * s; if (along <= 0 || along > HIT.d) continue;
-    if (Math.abs(-dx * s + dy * c) < 0.18) { HIT.f = null; HIT.decor = d; HIT.d = along; }
+    if (Math.abs(-dx * s + dy * c) < 0.18) { HIT.f = null; HIT.F = null; HIT.decor = d; HIT.d = along; }
   }
   return HIT;
 }
+function hitF(F, n, how, kind) {                  // a fighter hit by whoever's turn it is: true when it falls
+  const by = P; P = F; hurtPlayer(n, by.x, by.y, kind || null, by, how); P = by; return !F.alive;
+}
+function gunSound(name) { if (P.human) synth.play(name); else snd(name, P.x, P.y, 1.6); }
 function aimZ(d) { return P.z + BODY.eye + P.pitch * pic.h * d / (ray.core.f || 1); }   // where the cross is, that far off
 function fire() {
   const w = WEAPONS[P.weapon], cost = w.cost || 1;
-  if (w.ammo && P.ammo[w.ammo] < cost) { P.cool = 0.25; synth.play("click"); const b = bestWeapon(); if (b !== P.weapon) pick(b); return; }
+  if (w.ammo && P.ammo[w.ammo] < cost) { P.cool = 0.25; if (P.human) synth.play("click"); const b = bestWeapon(); if (b !== P.weapon) pick(b); return; }
   P.cool = w.rate; P.fireAnim = Math.min(0.12, w.rate * 0.8); P.kick += w.kick || 4; P.flash = w.melee ? 0 : 0.06;
   if (w.ammo) P.ammo[w.ammo] -= cost;
   if (w.rumble) rumble(w.rumble[0], w.rumble[1], w.id === "arc" || w.id === "nail" ? 50 : 110);
-  if (w.casing) casing(w.casing);
+  if (w.casing && P.human) casing(w.casing);
   wakeAll(w.melee ? 3 : 11);
   if (w.melee) {
-    synth.play("cut");
+    gunSound("cut");
     const h = hitscan(P.a, w.melee);
-    if (h.f) { damage(h.f, rr(w.dmg), P.x, P.y); speck(h.f.x, h.f.y, h.f.z + h.f.K.h * 0.6, h.f.K.flesh ? 5 : 14, 4, !h.f.K.flesh); }
+    if (h.F) { hitF(h.F, rr(w.dmg), w.id); speck(h.F.x, h.F.y, h.F.z + 0.6, 5, 4); }
+    else if (h.f) { damage(h.f, rr(w.dmg), P.x, P.y); speck(h.f.x, h.f.y, h.f.z + h.f.K.h * 0.6, h.f.K.flesh ? 5 : 14, 4, !h.f.K.flesh); }
     else if (h.decor) hitDecor(h.decor, rr(w.dmg));
     hud(); return;
   }
-  synth.play(w.id);
+  gunSound(w.id);
   if (w.beam) { lance(P.a, w); hud(); return; }
   if (w.proj) {
     const tg = target(0.2), a = P.a, sp = w.proj.speed;
-    const vz = tg ? clamp(((tg.z + tg.K.h * 0.5) - (P.z + BODY.eye - 0.08)) / Math.max(0.5, Math.hypot(tg.x - P.x, tg.y - P.y)) * sp, -6, 6) : P.pitch * 12;
-    shots.push({ x: P.x + Math.cos(a) * 0.3, y: P.y + Math.sin(a) * 0.3, z: P.z + BODY.eye - 0.08, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, vz, mine: true, dmg: w.proj.dmg, splash: w.proj.splash, radius: w.proj.radius, spr: "slag", life: 4 });
+    const vz = tg ? clamp(((tg.z + (tg.K ? tg.K.h : 0.9) * 0.5) - (P.z + BODY.eye - 0.08)) / Math.max(0.5, Math.hypot(tg.x - P.x, tg.y - P.y)) * sp, -6, 6) : P.pitch * 12;
+    shots.push({ x: P.x + Math.cos(a) * 0.3, y: P.y + Math.sin(a) * 0.3, z: P.z + BODY.eye - 0.08, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, vz, mine: true, dmg: w.proj.dmg, splash: w.proj.splash, radius: w.proj.radius, spr: "slag", life: 4, by: P });
     hud(); return;
   }
   const spread = (w.spread || 0) * (1 - P.aim * 0.6);
@@ -1230,7 +1513,8 @@ function fire() {
   for (let p = 0; p < w.pellets; p++) {
     const a = P.a + (w.pellets > 1 ? (R() - 0.5) * 2 * spread : (P.cool > 0 && R() < 0.5 ? (R() - 0.5) * 2 * spread : 0));
     const h = hitscan(a, 30);
-    if (h.f) { any = true; if (damage(h.f, rr(w.dmg), P.x, P.y)) kill = true; speck(h.f.x, h.f.y, h.f.z + h.f.K.h * (0.4 + R() * 0.4), h.f.K.flesh ? 5 : 14, 3, !h.f.K.flesh); }
+    if (h.F) { any = true; if (hitF(h.F, rr(w.dmg), w.id)) kill = true; speck(h.F.x, h.F.y, h.F.z + 0.3 + R() * 0.4, 5, 3); }
+    else if (h.f) { any = true; if (damage(h.f, rr(w.dmg), P.x, P.y)) kill = true; speck(h.f.x, h.f.y, h.f.z + h.f.K.h * (0.4 + R() * 0.4), h.f.K.flesh ? 5 : 14, 3, !h.f.K.flesh); }
     else if (h.decor) hitDecor(h.decor, rr(w.dmg));
     else {
       const d = h.d - 0.05, hx = P.x + Math.cos(a) * h.d, hy = P.y + Math.sin(a) * h.d, z = aimZ(h.d);
@@ -1239,7 +1523,7 @@ function fire() {
     }
     if (w.tracer) for (let k = 1; k < Math.min(h.d, 12); k += 0.9) specks.push({ x: P.x + Math.cos(a) * k, y: P.y + Math.sin(a) * k, z: P.z + BODY.eye - 0.06, vx: 0, vy: 0, vz: 0, life: 0.05, idx: 15 * 16 + 14, size: 0.035, full: 1 });
   }
-  if (any) { hitT = 0.12; $("hit").classList.toggle("kill", kill); }
+  if (any && P.human && !(arena && arena.split)) { hitT = 0.12; $("hit").classList.toggle("kill", kill); }
   hud();
 }
 function lance(a, w) {                              // a beam of cold: everything in its way, to the wall
@@ -1252,11 +1536,16 @@ function lance(a, w) {                              // a beam of cold: everythin
     hits++; if (!f.K.boss) f.frozen = Math.max(f.frozen, w.freeze); if (damage(f, rr(w.dmg), P.x, P.y, "cold")) kill = true;
     speck(f.x, f.y, f.z + f.K.h * 0.6, 15, 6, true);
   }
+  if (arena) for (const F of fighters) {
+    if (F === P || !F.alive || ally(F, P)) continue;
+    const dx = F.x - P.x, dy = F.y - P.y, along = dx * c + dy * s; if (along <= 0 || along > wall || Math.abs(-dx * s + dy * c) > 0.34) continue;
+    hits++; if (hitF(F, rr(w.dmg), "lance", "frost")) kill = true; speck(F.x, F.y, F.z + 0.6, 15, 6, true);
+  }
   for (const d of decor) if (d.c === "x" && d.hp > 0) { const dx = d.x - P.x, dy = d.y - P.y, along = dx * c + dy * s; if (along > 0 && along < wall && Math.abs(-dx * s + dy * c) < 0.22) hitDecor(d, 100); }
   for (let k = 0.6; k < wall; k += 0.3) { specks.push({ x: P.x + c * k, y: P.y + s * k, z: ez - 0.08 + Math.sin(k * 3) * 0.02, vx: 0, vy: 0, vz: 0, life: 0.2, idx: 15 * 16 + 13, size: 0.05, full: 1 }); if ((k * 10 | 0) % 6 === 0) colds.push({ x: P.x + c * k, y: P.y + s * k, t: 0.25 }); }
   if (wi >= 0) marks.wall(wi, wf, P.x + c * wall, P.y + s * wall, ez, { r: 12, kind: "frost", ramp: 8 });
   shake(0.15);
-  if (hits) { hitT = 0.15; $("hit").classList.toggle("kill", kill); }
+  if (hits && P.human && !(arena && arena.split)) { hitT = 0.15; $("hit").classList.toggle("kill", kill); }
 }
 // spent rivets and shells, flying out to the right and bouncing
 function casing(ramp) {
@@ -1301,10 +1590,19 @@ function burst(f) {                                 // broken apart: glowing sla
 function hitDecor(d, n) { d.hp -= n; if (d.hp <= 0) { d.hp = -1; explode(d.x, d.y, 0.3, 80, 1.9, null); } }
 function explode(x, y, z, dmg, radius, owner) {
   booms.push({ x, y, z, t: 0 }); snd("boom", x, y, 2.5);
-  const pd = Math.hypot(P.x - x, P.y - y); if (pd < 6) rumble(clamp(1 - pd / 6, 0.2, 1), 0.8, 300);
-  shake(clamp(1 - pd / 8, 0, 1) * 0.8);
+  if (arena) {                                         // (in a match: every fighter near it feels it, and is harmed in reach)
+    const keep = P, by = owner && owner.name ? owner : null;
+    for (const F of fighters) {
+      if (!F.alive) continue; P = F; const d = Math.hypot(F.x - x, F.y - y);
+      if (d < 6) rumble(clamp(1 - d / 6, 0.2, 1), 0.8, 300); shake(clamp(1 - d / 8, 0, 1) * 0.8);
+      if (d < radius && lv.m.see(x, y, z + 0.2, F.x, F.y, F.z + 0.4)) hurtPlayer(dmg * (1 - d / radius) * (F === by ? 0.5 : 1), x, y, null, by, "slag");
+    }
+    P = keep;
+  }
+  const pd = Math.hypot(P.x - x, P.y - y); if (!arena && pd < 6) rumble(clamp(1 - pd / 6, 0.2, 1), 0.8, 300);
+  if (!arena) shake(clamp(1 - pd / 8, 0, 1) * 0.8);
   for (const f of foes) { if (f.dead) continue; const d = Math.hypot(f.x - x, f.y - y); if (d < radius && lv.m.see(x, y, z + 0.2, f.x, f.y, f.z + 0.4)) damage(f, dmg * (1 - d / radius), x, y, "splash"); }
-  if (pd < radius && lv.m.see(x, y, z + 0.2, P.x, P.y, P.z + 0.4)) hurtPlayer(dmg * (1 - pd / radius) * (owner === "player" ? 0.5 : 1), x, y);
+  if (!arena && pd < radius && lv.m.see(x, y, z + 0.2, P.x, P.y, P.z + 0.4)) hurtPlayer(dmg * (1 - pd / radius) * (owner === "player" ? 0.5 : 1), x, y);
   for (const d of decor) if (d.c === "x" && d.hp > 0 && Math.hypot(d.x - x, d.y - y) < radius) { d.hp = 0; setTimeout(() => { if (d.hp === 0) { d.hp = -1; explode(d.x, d.y, 0.3, 80, 1.9, null); } }, 120); }
   marks.floor(x, y, { r: Math.min(44, radius * 22), kind: "scorch" });
   for (let k = 0; k < (FX.light ? 6 : 12); k++) bits.push({ x, y, z: z + 0.2, vx: (R() - 0.5) * 5, vy: (R() - 0.5) * 5, vz: 1.5 + R() * 3, life: 0.8 + R() * 0.8, idx: 14 * 16 + 9 + (R() * 6 | 0), size: 0.04, full: 1, b: 0 });
@@ -1394,7 +1692,7 @@ function attack(f, dist, sees) {
   const z0 = f.z + K.h * (K.glowAt || 0.55);
   const fireBall = (a, sp, dmg, spr, extra) => {
     const d = Math.max(0.5, dist);
-    shots.push(Object.assign({ x: f.x + Math.cos(a) * (K.r + 0.1), y: f.y + Math.sin(a) * (K.r + 0.1), z: z0, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, vz: ((P.z + 0.4) - z0) / d * sp, mine: false, dmg, splash: 0, radius: 0, spr, life: 5 }, extra || {}));
+    shots.push(Object.assign({ x: f.x + Math.cos(a) * (K.r + 0.1), y: f.y + Math.sin(a) * (K.r + 0.1), z: z0, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, vz: ((P.z + 0.4) - z0) / d * sp, mine: false, dmg, splash: 0, radius: 0, spr, life: 5, from: f }, extra || {}));
   };
   const a = Math.atan2(P.y - f.y, P.x - f.x);
   if (K.attack === "spit") { snd("spit", f.x, f.y); fireBall(a, 7, K.dmg.map(v => v * mult), "shot"); }
@@ -1426,10 +1724,17 @@ function stepShots(dt) {
     }
     let hit = s.life <= 0 || m.trace(s.x, s.y, s.z, nx, ny, nz) < 1;
     if (!hit && s.mine) for (const f of foes) { if (!f.dead && Math.hypot(f.x - nx, f.y - ny) < f.K.r + 0.12 && nz > f.z - 0.1 && nz < f.z + f.K.h + 0.1) { hit = true; damage(f, rr(s.dmg), s.x, s.y); break; } }
-    if (!hit && !s.mine && Math.hypot(P.x - nx, P.y - ny) < BODY.r + 0.12 && nz > P.z - 0.1 && nz < P.z + 0.8) { hit = true; hurtPlayer(rr(s.dmg), s.x, s.y, s.frost ? "frost" : null); }
+    if (!hit && arena) for (const F of fighters) {
+      if (!F.alive || F === s.by || ally(s.by, F)) continue;
+      if (Math.hypot(F.x - nx, F.y - ny) < BODY.r + 0.12 && nz > F.z - 0.1 && nz < F.z + 0.8) {
+        hit = true; if (!s.splash) { const keep = P; P = F; hurtPlayer(rr(s.dmg), s.x, s.y, s.frost ? "frost" : null, s.by || s.from || null, s.by ? "boom" : null); P = keep; }
+        break;
+      }
+    }
+    if (!hit && !arena && !s.mine && Math.hypot(P.x - nx, P.y - ny) < BODY.r + 0.12 && nz > P.z - 0.1 && nz < P.z + 0.8) { hit = true; hurtPlayer(rr(s.dmg), s.x, s.y, s.frost ? "frost" : null); }
     if (!hit && s.mine) for (const d of decor) if (d.c === "x" && d.hp > 0 && Math.hypot(d.x - nx, d.y - ny) < 0.22) { hit = true; hitDecor(d, 100); break; }
     if (hit) {
-      if (s.splash) explode(s.x, s.y, s.z, s.splash, s.radius, "player");
+      if (s.splash) explode(s.x, s.y, s.z, s.splash, s.radius, arena ? s.by || null : "player");
       else { speck(s.x, s.y, s.z, s.frost || s.spr === "zap" ? 15 : 14, 6, true); if (m.hitI >= 0) marks.wall(m.hitI, m.hitFace, s.x, s.y, s.z, s.frost ? { r: 8, kind: "frost", ramp: 8 } : { r: 5, kind: "scorch" }); }
       shots.splice(i, 1); continue;
     }
@@ -1449,7 +1754,7 @@ function stepWorld(dt) {
     else if (l.state === "wait") { l.t -= dt; if (l.t <= 0) { l.state = "rise"; snd("door", l.x + 0.5, l.y + 0.5); } }
     else if (l.state === "rise") { l.pos = Math.min(l.hi, l.pos + dt * 0.8); if (l.pos >= l.hi) l.state = "up"; }
     m.floor[l.i] = l.pos;
-    if (m.at(P.x, P.y) === l.i && P.z > l.pos - 0.2) P.z = Math.max(P.z, l.pos);
+    for (const F of arena ? fighters : [P]) if (m.at(F.x, F.y) === l.i && F.z > l.pos - 0.2) F.z = Math.max(F.z, l.pos);
   }
   slimeT += dt; if (slimeT > 0.14) { slimeT = 0; frameNo++; TEX[T_SLIME] = SLIME[frameNo & 3]; TEX[T_LAVA] = LAVA[frameNo & 3]; TEX[T_WATER] = WATER[(frameNo >> 1) & 3]; }
   // vents: a breath of steam now and then (it scalds whoever stands in it; the Coldheart's breathe frost)
@@ -1460,7 +1765,8 @@ function stepWorld(dt) {
     if (v.on > 0) {
       v.on -= dt;
       if (puffs.length < (FX.light ? 30 : 70) && R() < dt * 18) puffs.push({ x: v.x + (R() - 0.5) * 0.5, y: v.y + (R() - 0.5) * 0.5, z: m.floor[v.i] + 0.05, vz: 0.9 + R() * 0.6, life: 1.4, max: 1.4, cold: frosty });
-      if (m.at(P.x, P.y) === v.i && P.z < m.floor[v.i] + 0.3) { v.hurtT = (v.hurtT || 0) + dt; if (v.hurtT > 0.45) { v.hurtT = 0; hurtPlayer(frosty ? 5 : 6, v.x, v.y, frosty ? "frost" : null); } }
+      v.hurtT = (v.hurtT || 0) + dt;
+      if (v.hurtT > 0.45) { v.hurtT = 0; const keep = P; for (const F of arena ? fighters : [P]) if ((!arena || F.alive) && m.at(F.x, F.y) === v.i && F.z < m.floor[v.i] + 0.3) { P = F; hurtPlayer(frosty ? 5 : 6, v.x, v.y, frosty ? "frost" : null, null, "steam"); } P = keep; }
     }
   }
   for (let i = puffs.length - 1; i >= 0; i--) { const q = puffs[i]; q.life -= dt; if (q.life <= 0) { puffs.splice(i, 1); continue; } q.z += q.vz * dt; q.vz *= 1 - dt * 0.6; }
@@ -1505,12 +1811,13 @@ function stepWorld(dt) {
   }
   if (ambKind === "drip" && R() < dt * 0.6) snd("tick", P.x + (R() - 0.5) * 10, P.y + (R() - 0.5) * 10, 0.5);
 }
-function bodyIn(i) { const m = lv.m; if (m.at(P.x, P.y) === i) return true; for (const f of foes) if (!f.dead && !f.K.fly && m.at(f.x, f.y) === i) return true; return false; }
+function bodyIn(i) { const m = lv.m; if (m.at(P.x, P.y) === i) return true; if (arena) for (const F of fighters) if (F.alive && m.at(F.x, F.y) === i) return true; for (const f of foes) if (!f.dead && !f.K.fly && m.at(f.x, f.y) === i) return true; return false; }
 function lighting() {                              // this frame's light on top of the level's: shots, flashes, explosions, and their colours
   const m = lv.m, W = lv.W, H = lv.H; m.dyn.fill(0);
   m.dtint.fill(alarm && state !== "title" && (levelT % 0.9) < 0.45 ? TI.alarm : 0);
   const add = (x, y, v, r, t) => { for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) { const cx = (x | 0) + dx, cy = (y | 0) + dy; if (cx < 0 || cy < 0 || cx >= W || cy >= H) continue; const j = cy * W + cx, k = Math.abs(dx) + Math.abs(dy); m.dyn[j] = Math.min(31, m.dyn[j] + Math.max(0, v - k * 3)); if (t && k <= r - 1) m.dtint[j] = t; } };
-  if (P.flash > 0) add(P.x, P.y, 9, 2, WEAPONS[P.weapon].cold ? TI.cryo : TI.lamp);
+  for (const F of arena ? fighters : [P]) if (F.flash > 0) add(F.x, F.y, 9, 2, WEAPONS[F.weapon].cold ? TI.cryo : TI.lamp);
+  if (arena && lv.ring.length && typeof arena.holder === "number") for (const i of lv.ring) m.dtint[i] = arena.holder === 0 ? TI.ember : TI.cryo;
   for (const l of lights) add(l.x, l.y, l.add * clamp(l.t / l.max * 1.5, 0, 1), 2, l.add >= 10 ? TI.ember : 0);
   for (const c of colds) add(c.x, c.y, 4, 1, TI.cryo);
   for (const f of foes) if (!f.dead && (f.frozen > 0 || (f.k === "coldheart" && f.open > 0))) add(f.x, f.y, f.open > 0 ? 6 : 0, 1, TI.cryo);
@@ -1556,6 +1863,12 @@ function demoNext() { demoT = 0; demo = { goal: null, t: 0, flowT: 0, df: null, 
 // ---------------------------------------------------------------- each frame: the rules, then the picture
 function update(dt) {
   if (state !== "play" && state !== "dead" && state !== "done") return;
+  if (arena) {
+    if (!arena.over) arenaUpdate(dt);
+    curFoe = null; stepShots(dt); stepWorld(dt); P = arena.me;
+    if (centerT > 0) { centerT -= dt; if (centerT <= 0) $("center").innerHTML = ""; }
+    hitT = Math.max(0, hitT - dt); return;
+  }
   if (state === "play") { levelT += dt; stepPlayer(dt); }
   if (state === "dead") { deadT += dt; P.z = Math.max(P.z - dt * 0.6, lv.m.floor[lv.m.at(P.x, P.y)] - 0.3); }
   flowT -= dt; if (flowT <= 0) { flowT = 0.4; computeFlow(); }
@@ -1569,9 +1882,17 @@ function draw(now) {
   if (!lv) return;
   if (state === "title") { P.a += 0.003; P.z = lv.m.floor[lv.m.at(P.x, P.y)]; P.pitch = 0; P.aim = 0; P.bobK = 0; P.shake = 0; P.land = 0; }
   lighting();
+  if (arena) { arenaDraw(now); return; }
+  drawView(ray, now, pic.w, pic.h, 1.62);
+  crossHair();
+  if (mapOn) drawMap();
+  if (now - (draw.hudAt || 0) > 120) { draw.hudAt = now; hudTick(now); }
+}
+// the world from P's eyes into r (vw × vh): walls and floors, everything in it, and the weapon in hand
+function drawView(r, now, vw, vh, fov) {
   const bob = save.opts.bob ? Math.sin(P.bob) * 0.012 * P.bobK : 0, sh = P.shake * P.shake;
-  const cam = { x: P.x, y: P.y, z: P.z + BODY.eye + bob - P.land * 0.05, a: P.a + (sh ? (R() - 0.5) * 0.04 * sh : 0), pitch: P.pitch + (state === "dead" ? -0.05 : 0) + (sh ? (R() - 0.5) * 0.04 * sh : 0), fov: 1.62 - P.aim * 0.34 };
-  ray.render(lv.m, cam);
+  const cam = { x: P.x, y: P.y, z: P.z + BODY.eye + bob - P.land * 0.05, a: P.a + (sh ? (R() - 0.5) * 0.04 * sh : 0), pitch: P.pitch + (state === "dead" || (arena && !P.alive) ? -0.05 : 0) + (sh ? (R() - 0.5) * 0.04 * sh : 0), fov: fov - P.aim * 0.34 * fov / 1.62 };
+  r.render(lv.m, cam);
   const m = lv.m;
   for (const f of foes) {                           // the enemies: which way they face from here, walking, hurting, falling
     if (f.gone) continue;
@@ -1583,34 +1904,32 @@ function draw(now) {
       const rel = wrap(Math.atan2(P.y - f.y, P.x - f.x) - f.a), dir = ((Math.round(rel / (TAU / 8)) % 8) + 8) % 8;
       spr = f.st === "pain" ? S.pain[dir] : (f.st === "attack" && f.t < f.K.wind * 0.5) || f.open > 0 ? S.attack[dir] : f.st === "idle" ? S.walk[0][dir] : S.walk[((f.anim * f.K.speed * 2.6) | 0) & 3][dir];
     }
-    ray.sprite(spr, f.x, f.y, f.z, L, false);
+    r.sprite(spr, f.x, f.y, f.z, L, false);
     if (f.st === "attack" && !f.dead && f.K.glowAt) {   // what's coming: a glow where it'll come from, growing
       const k = clamp(1 - f.t / f.K.wind, 0, 1), cold = f.k === "drone" || f.k === "coldheart";
-      ray.sprite(cold ? ITEMS.chargeCold : ITEMS.charge, f.x + Math.cos(f.a) * f.K.r, f.y + Math.sin(f.a) * f.K.r, f.z + f.K.h * f.K.glowAt - 0.1, 31, true, false, 0.3 + k * (f.K.boss ? 2.2 : 0.8));
+      r.sprite(cold ? ITEMS.chargeCold : ITEMS.charge, f.x + Math.cos(f.a) * f.K.r, f.y + Math.sin(f.a) * f.K.r, f.z + f.K.h * f.K.glowAt - 0.1, 31, true, false, 0.3 + k * (f.K.boss ? 2.2 : 0.8));
     }
   }
-  for (const it of items) { if (it.got) continue; const i = m.at(it.x, it.y), key = /[quy]/.test(it.c); ray.sprite(ITEMS[it.c], it.x, it.y, it.z + (key ? 0.08 + Math.sin(now / 300) * 0.04 : 0), m.light[i] + m.dyn[i] + (key ? 6 : 0), false); }
-  for (const d of decor) { if (d.hp < 0) continue; const i = m.at(d.x, d.y); ray.sprite(ITEMS[d.c], d.x, d.y, m.floor[i], m.light[i] + m.dyn[i] + (d.c === "S" ? 4 : 0), false); }
-  for (const s of shots) ray.sprite(ITEMS[s.spr], s.x, s.y, s.z - (s.bomb ? 0.08 : 0), 31, true, false, s.bomb && (s.blink & 1) ? 1.3 : 1);
-  for (const b of booms) ray.sprite(ITEMS.boom[Math.min(3, (b.t * 8) | 0)], b.x, b.y, b.z + 0.3, 31, true, false, 1 + b.t * 1.5);
-  for (const q of puffs) { const k = 1 - q.life / q.max, i = m.at(q.x, q.y); ray.sprite(ITEMS.steam[Math.min(2, (k * 3) | 0)], q.x, q.y, q.z, Math.min(31, m.light[i] + 6), false, false, 0.5 + k * 1.4); }
-  for (const s of specks) ray.dot(s.x, s.y, s.z, s.idx, s.size, s.full);
-  for (const b of bits) ray.dot(b.x, b.y, b.z, b.idx, b.size, b.full);
-  for (const q of flakes) ray.dot(q.x, q.y, q.z, 15, 0.022, 0);
-  ray.flush();
+  for (const it of items) { if (it.got) continue; const i = m.at(it.x, it.y), key = /[quy]/.test(it.c); r.sprite(ITEMS[it.c], it.x, it.y, it.z + (key ? 0.08 + Math.sin(now / 300) * 0.04 : 0), m.light[i] + m.dyn[i] + (key ? 6 : 0), false); }
+  for (const d of decor) { if (d.hp < 0) continue; const i = m.at(d.x, d.y); r.sprite(ITEMS[d.c], d.x, d.y, m.floor[i], m.light[i] + m.dyn[i] + (d.c === "S" ? 4 : 0), false); }
+  for (const s of shots) r.sprite(ITEMS[s.spr], s.x, s.y, s.z - (s.bomb ? 0.08 : 0), 31, true, false, s.bomb && (s.blink & 1) ? 1.3 : 1);
+  for (const b of booms) r.sprite(ITEMS.boom[Math.min(3, (b.t * 8) | 0)], b.x, b.y, b.z + 0.3, 31, true, false, 1 + b.t * 1.5);
+  for (const q of puffs) { const k = 1 - q.life / q.max, i = m.at(q.x, q.y); r.sprite(ITEMS.steam[Math.min(2, (k * 3) | 0)], q.x, q.y, q.z, Math.min(31, m.light[i] + 6), false, false, 0.5 + k * 1.4); }
+  for (const s of specks) r.dot(s.x, s.y, s.z, s.idx, s.size, s.full);
+  for (const b of bits) r.dot(b.x, b.y, b.z, b.idx, b.size, b.full);
+  for (const q of flakes) r.dot(q.x, q.y, q.z, 15, 0.022, 0);
+  if (arena) for (const F of fighters) if (F !== P) fighterSprite(r, F, now);
+  r.flush();
   // the weapon in hand: bobbing as you walk, kicking when it fires, dipping as you land, down and up when it changes
-  if (state === "play" || state === "done") {
-    const w = WEAPONS[P.weapon], G = GUNS[w.id], h = pic.h, sc = h / 180;
+  if ((state === "play" || state === "done") && (!arena || P.alive)) {
+    const w = WEAPONS[P.weapon], G = GUNS[w.id], h = vh, sc = h / 180;
     const bx = Math.cos(P.bob * 0.5) * 7 * P.bobK * sc, by = Math.abs(Math.sin(P.bob * 0.5)) * 5 * P.bobK * sc;
     const swap = P.swap > 0 ? (P.swap > 0.16 ? (0.32 - P.swap) / 0.16 : P.swap / 0.16) : 0;
-    const sx = pic.w * 0.6 + bx - P.turnV * 4 * sc, sy = h + 26 * sc + by + P.kick * sc * 0.6 + swap * 70 * sc + P.land * 16 * sc;
+    const sx = vw * 0.6 + bx - P.turnV * 4 * sc, sy = h + 26 * sc + by + P.kick * sc * 0.6 + swap * 70 * sc + P.land * 16 * sc;
     const i = m.at(P.x, P.y), L = Math.min(31, m.light[i] + m.dyn[i] + 4);
-    if (P.flash > 0 && !w.melee) ray.blit(w.cold ? ITEMS.chargeCold : ITEMS.flash, sx - 2 * sc, sy - G.idle.h * sc * 0.82, sc * 0.9, 31);
-    ray.blit(P.fireAnim > 0 || (P.spin > 0 && ((now / 40) | 0) & 1) ? G.fire : G.idle, sx, sy, sc, L);
+    if (P.flash > 0 && !w.melee) r.blit(w.cold ? ITEMS.chargeCold : ITEMS.flash, sx - 2 * sc, sy - G.idle.h * sc * 0.82, sc * 0.9, 31);
+    r.blit(P.fireAnim > 0 || (P.spin > 0 && ((now / 40) | 0) & 1) ? G.fire : G.idle, sx, sy, sc, L);
   }
-  crossHair();
-  if (mapOn) drawMap();
-  if (now - (draw.hudAt || 0) > 120) { draw.hudAt = now; hudTick(now); }
 }
 function crossHair() {
   const t = target(0.035); const on = !!t;
@@ -1639,6 +1958,451 @@ function drawMap() {                               // where you've been, the wal
   mc.lineTo(px + Math.cos(P.a + 2.5) * s * 0.6, py + Math.sin(P.a + 2.5) * s * 0.6); mc.lineTo(px + Math.cos(P.a - 2.5) * s * 0.6, py + Math.sin(P.a - 2.5) * s * 0.6); mc.fill();
 }
 
+// ---------------------------------------------------------------- the arena: matches against bots, and friends on the sofa
+// Six arenas of our own, four ways to play (everyone for themselves, two crews, holding the ring, the last shift against
+// the foundry's waves), eight bots with their own names and habits at five skill levels, and up to four players on one
+// screen (two on a Pi 3), each with a view of their own. A fighter is the same thing you are in the campaign: the
+// campaign's rules (moving, the weapons, harm) run for each in turn, with P pointing at whoever's turn it is.
+const ARENA_LIST = [
+  { id: "crucible", name: "The Crucible", tag: "Round a lava pit, a bridge across it, the ring in its middle", sky: "fire", amb: "furnace" },
+  { id: "coldyard", name: "The Coldyard", tag: "Snow, crates, a fence and two towers", sky: "cold", amb: "wind", snow: 1, outdoor: 1 },
+  { id: "catwalks", name: "The Catwalks", tag: "Walkways round a smelter; steam pads throw you up", sky: "fire", amb: "furnace" },
+  { id: "rivetrow", name: "Rivet Row", tag: "Tight halls and small rooms", sky: "fire", amb: "hum" },
+  { id: "pumpworks", name: "The Pumpworks", tag: "A flooded hall: wading slows you", sky: "cold", amb: "drip", tint: TI.cryo },
+  { id: "kiln", name: "Kiln Ring", tag: "Two bases and a ring in a lava moat: made for crews", sky: "fire", amb: "furnace", bases: 1 }
+];
+const MODES = [
+  { id: "melee", name: "Melee", tag: "Everyone for themselves", limit: [10, 15, 25], unit: "frags" },
+  { id: "crews", name: "Crews", tag: "Ember against Frost", limit: [20, 30, 50], unit: "frags", teams: 1 },
+  { id: "hold", name: "Hold the ring", tag: "Two crews; stand in the ring to score", limit: [60, 120, 200], unit: "points", teams: 1 },
+  { id: "shift", name: "Last Shift", tag: "Together against the foundry's waves", limit: [10, 15, 20], unit: "waves", coop: 1 }
+];
+const BOTS = [{ name: "Cinder", ramp: 6, style: "rusher" }, { name: "Gauge", ramp: 8, style: "marksman" }, { name: "Tallow", ramp: 7, style: "scavenger" },
+  { name: "Clinker", ramp: 1, style: "guard" }, { name: "Ferra", ramp: 5, style: "balanced" }, { name: "Slagger", ramp: 13, style: "blaster" },
+  { name: "Rime", ramp: 9, style: "cold" }, { name: "Brazen", ramp: 11, style: "brawler" }];
+// how each one likes to fight: the range it keeps (near, far), how much it wants what's lying about, how much it holds
+// the ring, its favourite weapons (by number)
+const STYLES = {
+  rusher: { near: 1.8, far: 6, greed: 0.4, hold: 0.3, fav: [2, 5, 1] }, marksman: { near: 7, far: 15, greed: 0.5, hold: 0.4, fav: [6, 3, 1] },
+  scavenger: { near: 4, far: 10, greed: 0.95, hold: 0.2, fav: [5, 3, 2] }, guard: { near: 4, far: 11, greed: 0.35, hold: 0.9, fav: [3, 5, 4] },
+  balanced: { near: 3.5, far: 9, greed: 0.6, hold: 0.5, fav: [5, 3, 2] }, blaster: { near: 5, far: 11, greed: 0.5, hold: 0.4, fav: [4, 5, 2] },
+  cold: { near: 6, far: 13, greed: 0.5, hold: 0.5, fav: [6, 3, 5] }, brawler: { near: 1, far: 4, greed: 0.45, hold: 0.4, fav: [2, 0, 5] }
+};
+// how good a bot is: how long it takes to react, how far its aim wanders, how fast it turns, how well it leads a shot,
+// how much it side-steps and how often it gets out of a shot's way
+const SKILLS = [
+  { name: "Apprentice", react: 0.75, err: 0.15, turn: 2.2, lead: 0.2, strafe: 0.35, dodge: 0 },
+  { name: "Journeyman", react: 0.5, err: 0.095, turn: 3.0, lead: 0.5, strafe: 0.6, dodge: 0.2 },
+  { name: "Ironclad", react: 0.34, err: 0.06, turn: 3.8, lead: 0.75, strafe: 0.85, dodge: 0.45 },
+  { name: "Forgemaster", react: 0.24, err: 0.04, turn: 4.6, lead: 0.9, strafe: 1, dodge: 0.7 },
+  { name: "Ironmaw", react: 0.16, err: 0.025, turn: 5.4, lead: 1, strafe: 1, dodge: 0.9 }
+];
+const CREWS = [{ name: "Ember", ramp: 6, col: "#ff9a4a" }, { name: "Frost", ramp: 9, col: "#7ab4ff" }];
+const RESPAWN = { "+": 18, m: 30, a: 35, c: 14, e: 14, k: 14, r: 18, "3": 15, "4": 15, "5": 20, "6": 20, "7": 25 };
+const VERB = { cutter: "cuts down", rivet: "rivets", scatter: "scatters", arc: "arcs", slag: "melts", nail: "nails", lance: "freezes", boom: "blows up", frost: "freezes" };
+const STREAK = { 3: "Hot streak", 5: "White heat", 8: "Meltdown", 12: "Forged in fire" }, MULTI = { 2: "Two at once", 3: "Three at once", 4: "Four at once" };
+let arena = null, fighters = [], views = [], joined = [1];          // (joined: the players' controllers, from the settings screen)
+const FLOWS = new Map();
+
+function newFighter(o) {
+  return Object.assign({ x: 0, y: 0, z: 0, a: 0, pitch: 0, vx: 0, vy: 0, vz: 0, hp: 100, armor: 0, weapon: 1, owned: [1, 1, 0, 0, 0, 0, 0], ammo: { rivets: 50, shells: 0, cells: 0, slag: 0 },
+    keys: {}, bob: 0, bobK: 0, kick: 0, cool: 0, swap: 0, next: -1, hurt: 0, flash: 0, turnV: 0, quick: 0, firing: false, aim: 0, fireAnim: 0, onLift: null,
+    land: 0, step: 0, chill: 0, shake: 0, spin: 0, wet: 0, padT: 0,
+    name: "", team: -1, ramp: 7, human: 0, brain: null, frags: 0, deaths: 0, streak: 0, best: 0, multi: 0, multiT: 0, alive: false, respawnT: 0.4, deadT: 0, guard: 0 }, o);
+}
+function arenaCfg() { return Object.assign({ mode: 0, map: 0, bots: 4, skill: 1, limit: 1, time: 1, crews: 0 }, save.arena || {}); }
+// the arena's settings, a match, and its people
+function startArena(again) {
+  const c = arenaCfg(), A = ARENA_LIST[c.map], M = MODES[c.mode];
+  level = -1; lv = parseLevel(A.id); tier();
+  ray.tex = TEX; ray.sky = A.sky === "cold" ? SKIES.cold : SKIES.fire; ray.maxD = 34; ray.minL = 3;
+  const cold = A.sky === "cold";
+  pal.maps(cold ? (A.outdoor ? 0x1a2636 : 0x05070c) : 0x050304, A.outdoor ? 0.55 : cold ? 0.12 : 0); ray.dim = A.outdoor ? 1.4 : cold ? 1.8 : 2.0;
+  marks = new L3.Marks(ray, lv.m, FX.light ? 64 : 160);
+  foes = []; items = []; shots = []; booms = []; decor = []; specks = []; bits = []; flakes = []; puffs = []; colds = []; lights = []; FLOWS.clear();
+  stats = { kills: 0, killsAll: 0, items: 0, itemsAll: 0, secrets: 0, secretsAll: 0 }; alarm = 0;
+  for (const t of lv.things) {
+    if (t.c === "@") continue;
+    if (/[xtpvlSd]/.test(t.c)) { decor.push({ c: t.c, x: t.x, y: t.y, hp: t.c === "x" ? 20 : 0, solid: t.c !== "l" && t.c !== "v", r: t.c === "t" ? 0.32 : t.c === "p" ? 0.16 : t.c === "S" ? 0.24 : 0.18 }); continue; }
+    items.push({ c: t.c, x: t.x, y: t.y, z: lv.m.floor[lv.m.at(t.x, t.y)], got: false });
+  }
+  // who plays: the players who joined (one each controller), then the bots
+  const humans = joined.slice(0, FX.light ? 2 : 4), maxBots = FX.light ? 5 : 7;
+  fighters = [];
+  humans.forEach((n, k) => fighters.push(newFighter({ name: humans.length > 1 ? "Player " + (k + 1) : "You", human: n, ramp: [7, 8, 10, 4][k], team: M.teams || M.coop ? (M.coop ? 0 : c.crews && k % 2 ? 1 : 0) : -1 })));
+  const nb = Math.min(c.bots, maxBots), order = BOTS.slice().sort(() => R() - 0.5);
+  for (let k = 0; k < nb; k++) {
+    const b = order[k], team = M.coop ? 0 : M.teams ? (fighters.filter(F => F.team === 0).length > fighters.filter(F => F.team === 1).length ? 1 : 0) : -1;
+    fighters.push(newFighter({ name: b.name, ramp: b.ramp, team, brain: { skill: clamp(c.skill + (R() < 0.3 ? (R() < 0.5 ? -1 : 1) : 0), 0, 4), style: b.style,
+      senseT: 0, target: null, sees: false, react: 0, track: 0, wob: R() * 6, strafe: R() < 0.5 ? 1 : -1, strafeT: 0, wT: 0, goal: -1, goalUntil: 0, dodge: 0, dodgeT: 0, stuck: 0, px: 0, py: 0 } }));
+  }
+  for (const F of fighters) F.rm = pal.remap([10], [M.teams ? CREWS[F.team].ramp : F.ramp]);
+  bakeShapes(["fighter"].concat(M.coop ? ["husk", "gunner", "spitter", "drone", "sapper", "bulwark", "brute", "warden"] : []));
+  arena = { A, M, c, t: 0, time: [300, 480, 720, 0][c.time], limit: M.limit[c.limit], scores: [0, 0], over: false, teams: !!M.teams,
+    feed: [], wave: 0, waveOn: false, waveT: 5, spawnQ: [], spawnT: 0, flowT: 0, holder: null, ringT: 0, board: false, split: false, me: fighters[0], hudAt: 0 };
+  for (const F of fighters) respawn(F);
+  P = fighters[0]; setupViews(); primeHelpers(["fighter"]);
+  levelT = 0; mapOn = false; $("map").classList.add("hidden");
+  state = "play"; menu.hide(); $("hud").classList.remove("hidden"); $("hud").classList.add("arena");
+  center(A.name + "<small>" + M.name + ": " + M.tag + "</small>", 3); feedLine("The match begins: " + M.name + " in " + A.name);
+  synth.song({ seed: 900 + c.map * 7 + c.mode, root: 45 + c.map, tempo: 132 + c.mode * 4, prog: [[9, 5, 0, 7], [2, 9, 5, 7], [9, 10, 5, 4], [9, 7, 5, 4]][c.mode] }); ambience(A.amb);
+  E.gov.hold(ray.threaded || views.length > 1 ? 3000 : 1500); hud(true);
+}
+function leaveArena() {
+  for (const v of views) if (v.ray !== ray) v.ray.threads(0);
+  views = []; $("phuds").innerHTML = ""; $("hud").classList.remove("split", "arena"); $("feed").innerHTML = ""; $("score").textContent = ""; $("board").classList.add("hidden");
+  if (arena && arena.split) ray.threads(save.opts.cores === "one" ? 0 : E.plan.helpers || 0);
+  arena = null; fighters = []; P = P1;
+}
+// a place to come back: the spawn furthest from those who'd harm you (your crew's side, in Kiln Ring), not on top of anyone
+function respawn(F) {
+  let best = lv.spawns[0], bv = -1e9;
+  for (const s of lv.spawns) {
+    let near = 30, crowd = 0;
+    for (const o of fighters) { if (o === F || !o.alive) continue; const d = Math.hypot(o.x - s.x, o.y - s.y); if (d < 1.2) crowd = 1; if (!ally(o, F)) near = Math.min(near, d); }
+    for (const f of foes) if (!f.dead) near = Math.min(near, Math.hypot(f.x - s.x, f.y - s.y));
+    let v = Math.min(near, 20) + R() * 4 - crowd * 50;
+    if (arena.A.bases && arena.teams) v += (F.team === 0) === (s.x < lv.W / 2) ? 16 : 0;
+    if (v > bv) { bv = v; best = s; }
+  }
+  Object.assign(F, { x: best.x, y: best.y, z: lv.m.floor[lv.m.at(best.x, best.y)], vx: 0, vy: 0, vz: 0, hp: 100, armor: 0, weapon: 1, next: -1, swap: 0, owned: [1, 1, 0, 0, 0, 0, 0],
+    ammo: { rivets: 50, shells: 0, cells: 0, slag: 0 }, alive: true, guard: 1.5, chill: 0, spin: 0, deadT: 0, hurt: 0, flash: 0, kick: 0, cool: 0, land: 0, shake: 0, pitch: 0, respawnT: 0 });
+  F.a = startAngle(F.x, F.y);
+  if (F.brain) Object.assign(F.brain, { target: null, sees: false, goal: -1, goalUntil: 0, stuck: 0, px: F.x, py: F.y });
+  if (F.human) snd("item", F.x, F.y, 0.5);
+}
+// friends: two fighters on one side (a crew, or everyone on the last shift); a creature is never one
+function ally(a, b) { return !!(arena && a && b && typeof a.team === "number" && typeof b.team === "number" && (arena.M.coop || (arena.teams && a.team === b.team))); }
+function nameOf(F) { return `<b style="color:${arena.teams ? CREWS[F.team].col : "#" + pal.color(F.ramp * 16 + 11).toString(16).padStart(6, "0")}">${F.name}</b>`; }
+function feedLine(html) { arena.feed.push({ html, t: arena.t }); if (arena.feed.length > 5) arena.feed.shift(); $("feed").innerHTML = arena.feed.map(e => `<div>${e.html}</div>`).join(""); }
+function callout(F, text) { const v = views.find(w => w.F === F); if (v && v.el) { v.el.msg.textContent = text; v.msgT = 2; } else center(text, 1.6); synth.play("secret"); }
+// a fighter down: a frag for whoever did it, a line in the feed, its weapon left on the floor; back in a moment (in the
+// last shift, at the end of the wave)
+function fighterDown(F, by, how) {
+  const A = arena; if (!F.alive) return;
+  F.alive = false; F.hp = 0; F.deaths++; F.streak = 0; F.deadT = 0; F.respawnT = A.M.coop ? -1 : 2.6; F.vx = F.vy = 0; F.spin = 0;
+  if (F.weapon >= 2) items.push({ c: String(F.weapon + 1), x: F.x, y: F.y, z: lv.m.floor[lv.m.at(F.x, F.y)], got: false, drop: true, life: 20 });
+  speck(F.x, F.y, F.z + 0.5, 5, 10); marks.floor(F.x, F.y, { r: 22, kind: "splat", ramp: 5 }); snd("edie", F.x, F.y, 1.4);
+  let line;
+  if (by && by !== F && by.name) {
+    by.frags++; by.streak++; by.best = Math.max(by.best, by.streak); by.multi = by.multiT > 0 ? by.multi + 1 : 1; by.multiT = 3;
+    if (A.teams && A.M.id !== "hold") A.scores[by.team]++;
+    line = nameOf(by) + " " + (VERB[how] || "takes down") + " " + nameOf(F);
+    const call = MULTI[by.multi] || STREAK[by.streak]; if (call && by.human) callout(by, call);
+  } else if (by === F) { F.frags = Math.max(0, F.frags - 1); line = nameOf(F) + (how === "slag" ? " caught their own blast" : " went down"); }
+  else line = nameOf(F) + (how === "lava" ? " fell in the fire" : how === "steam" ? " was scalded" : by && by.K ? " was taken by a " + by.K.name.toLowerCase() : " went down");
+  feedLine(line);
+  if (F.human) { const v = views.find(w => w.F === F); if (v && v.el) v.el.msg.textContent = A.M.coop ? "Down: back when the wave's over" : "Down"; }
+  checkWin();
+}
+function checkWin() {
+  const A = arena; if (A.over) return;
+  if (A.M.coop) return;
+  if (A.teams) { const t = A.scores[0] >= A.limit ? 0 : A.scores[1] >= A.limit ? 1 : -1; if (t >= 0) endMatch(); return; }
+  if (fighters.some(F => F.frags >= A.limit)) endMatch();
+}
+function ranked() { return fighters.slice().sort((a, b) => b.frags - a.frags || a.deaths - b.deaths); }
+function endMatch(lost) {
+  const A = arena; if (A.over) return;
+  A.over = true; state = "done"; synth.stopSong(); synth.play(lost ? "no" : "win"); ambience(null);
+  const top = ranked(), key = A.M.id + ":" + A.A.id, rec = (save.arenaRec = save.arenaRec || {})[key] || { played: 0, wins: 0, best: 0 };
+  rec.played++;
+  const me = A.me, won = A.M.coop ? !lost : A.teams ? A.scores[me.team] >= A.scores[1 - me.team] : top[0] === me;
+  if (won) rec.wins++;
+  rec.best = Math.max(rec.best, A.M.coop ? A.wave - (lost ? 1 : 0) : me.frags); save.arenaRec[key] = rec; store();
+  const title = A.M.coop ? (lost ? "The shift ends at wave " + A.wave : "The shift is held: " + A.limit + " waves") : A.teams ? (A.scores[0] === A.scores[1] ? "A draw" : CREWS[A.scores[0] > A.scores[1] ? 0 : 1].name + " wins") : top[0].name + " wins";
+  setTimeout(() => {
+    $("arenaEndTitle").textContent = title;
+    $("arenaTable").innerHTML = `<tr><th></th><th>${A.M.coop ? "Kills" : "Frags"}</th><th>Down</th><th>Best streak</th></tr>` +
+      top.map((F, k) => `<tr class="${F.human ? "me" : ""}"><td>${k + 1}. ${nameOf(F)}${F.brain ? ` <small>${SKILLS[F.brain.skill].name}</small>` : ""}</td><td>${F.frags}</td><td>${F.deaths}</td><td>${F.best}</td></tr>`).join("") +
+      (A.teams ? `<tr><td colspan="4">${CREWS[0].name} ${A.scores[0]} · ${CREWS[1].name} ${A.scores[1]}</td></tr>` : "");
+    $("arenaRec").textContent = (A.M.coop ? "Your best here: wave " : "Your best here: ") + rec.best + " · " + rec.wins + " won of " + rec.played;
+    $("hud").classList.add("hidden"); $("board").classList.add("hidden"); menu.show("arenaEnd");
+  }, 1600);
+}
+// everything that happens in a match, a step at a time
+function arenaUpdate(dt) {
+  const A = arena; A.t += dt; levelT += dt;
+  if (A.M.coop) { A.flowT -= dt; if (A.flowT <= 0) { A.flowT = 0.4; flow = flowFrom(fighters.filter(F => F.alive)); } }
+  for (const F of fighters) {
+    if (F.guard > 0) F.guard -= dt;
+    if (F.multiT > 0) F.multiT -= dt;
+    if (!F.alive) { F.deadT += dt; F.z = Math.max(F.z - dt * 0.6, lv.m.floor[lv.m.at(F.x, F.y)] - 0.3); if (F.respawnT > 0 && (F.respawnT -= dt) <= 0 && !A.over) respawn(F); continue; }
+    P = F; stepPlayer(dt);
+  }
+  for (const f of foes) { P = nearestTo(f) || fighters[0]; curFoe = f; stepFoe(f, dt); }
+  P = A.me; curFoe = null;
+  for (let i = items.length - 1; i >= 0; i--) {
+    const it = items[i];
+    if (it.drop) { it.life -= dt; if (it.got || it.life <= 0) items.splice(i, 1); continue; }
+    if (it.got && it.back > 0 && (it.back -= dt) <= 0) { it.got = false; snd("item", it.x, it.y, 0.4); }
+  }
+  if (A.M.id === "hold") holdRing(dt);
+  if (A.M.coop) shiftWaves(dt);
+  if (A.time && A.t >= A.time && !A.over) endMatch(A.M.coop);
+}
+function nearestTo(f) { let best = null, bd = 1e9; for (const F of fighters) if (F.alive) { const d = Math.hypot(F.x - f.x, F.y - f.y); if (d < bd) { bd = d; best = F; } } return best; }
+// the ring: a point a second to the one crew alone in it
+function holdRing(dt) {
+  const A = arena; A.ringT += dt; if (A.ringT < 1) return; A.ringT -= 1;
+  const there = new Set(); for (const F of fighters) if (F.alive && lv.ringAt[lv.m.at(F.x, F.y)]) there.add(F.team);
+  A.holder = there.size === 1 ? [...there][0] : there.size > 1 ? "both" : null;
+  if (typeof A.holder === "number") { A.scores[A.holder]++; if (A.scores[A.holder] % 10 === 0) feedLine(`<b style="color:${CREWS[A.holder].col}">${CREWS[A.holder].name}</b> holds the ring: ${A.scores[A.holder]}`); checkWin(); }
+}
+// the last shift: waves of the foundry's creatures; between them a breath, those who fell back on their feet
+function waveOf(n) {
+  const pool = n < 3 ? ["husk", "husk", "gunner"] : n < 5 ? ["husk", "gunner", "spitter", "drone"] : n < 8 ? ["gunner", "spitter", "drone", "sapper", "bulwark"] : ["gunner", "spitter", "drone", "sapper", "bulwark", "brute"];
+  const list = []; for (let k = 0; k < 4 + n * 2; k++) list.push(pool[(R() * pool.length) | 0]);
+  if (n % 5 === 0) list.push(n >= 10 ? "warden" : "brute", "brute");
+  return list;
+}
+function shiftWaves(dt) {
+  const A = arena;
+  if (!A.waveOn) {
+    A.waveT -= dt;
+    if (A.waveT <= 0 && !A.over) { A.wave++; A.waveOn = true; A.spawnQ = waveOf(A.wave); A.spawnT = 0.4; center("Wave " + A.wave + "<small>" + A.spawnQ.length + " of them</small>", 2); synth.play("roar"); }
+    return;
+  }
+  if (A.spawnQ.length && (A.spawnT -= dt) <= 0) {
+    A.spawnT = 0.7; const k = A.spawnQ.shift();
+    let best = lv.spawns[0], bv = -1; for (const s of lv.spawns) { let near = 99; for (const F of fighters) if (F.alive) near = Math.min(near, Math.hypot(F.x - s.x, F.y - s.y)); if (near > bv + R() * 4) { bv = near; best = s; } }
+    const f = newFoe(k, best.x, best.y, Math.round(KINDS[k].hp * (1 + A.wave * 0.04))); f.st = "chase"; foes.push(f); bakeShape(k);
+  }
+  if (!A.spawnQ.length && foes.every(f => f.dead)) {
+    A.waveOn = false; A.waveT = 8; A.scores[0] = A.wave; foes = foes.filter(f => !f.dead || f.t < 4);
+    for (const F of fighters) if (!F.alive) { respawn(F); F.hp = 60; }
+    for (const it of items) if (it.got && !it.drop) { it.got = false; it.back = 0; }
+    feedLine("Wave " + A.wave + " held");
+    if (A.wave >= A.limit) endMatch(false); else center("Wave " + A.wave + " held<small>A breath: the next in 8 seconds</small>", 3);
+    return;
+  }
+  if (!fighters.some(F => F.human && F.alive)) endMatch(true);
+}
+// the way to the nearest of several (the waves' creatures go for whoever's nearest)
+function flowFrom(list) {
+  const m = lv.m, W = lv.W, n = W * lv.H, d = new Int16Array(n).fill(-1), q = new Int32Array(n); let head = 0, tail = 0;
+  for (const F of list) { const i = m.at(F.x, F.y); if (d[i] < 0) { d[i] = 0; q[tail++] = i; } }
+  while (head < tail) {
+    const i = q[head++], cx = i % W, cy = (i / W) | 0, fz = m.floor[i];
+    for (let k = 0; k < 4; k++) {
+      const nx = cx + (k === 0 ? 1 : k === 1 ? -1 : 0), ny = cy + (k === 2 ? 1 : k === 3 ? -1 : 0); if (nx < 0 || ny < 0 || nx >= W || ny >= lv.H) continue;
+      const j = ny * W + nx; if (d[j] >= 0 || m.solid[j] || m.mask[j] || m.ceil[j] - m.floor[j] < 0.55 || Math.abs(fz - m.floor[j]) > 0.4) continue;
+      d[j] = d[i] + 1; q[tail++] = j;
+    }
+  }
+  return d;
+}
+
+// ---------------------------------------------------------------- the bots' minds
+function flowAt(g) {                               // the way to a cell, from everywhere (kept a few seconds)
+  let e = FLOWS.get(g);
+  if (!e || arena.t - e.t > 4) {
+    if (!e && FLOWS.size > 40) FLOWS.delete(FLOWS.keys().next().value);
+    const W = lv.W; e = { d: lv.m.flow(g % W + 0.5, ((g / W) | 0) + 0.5, 0.4, 0.55, lv.pass, lv.hurt).slice(), t: arena.t }; FLOWS.set(g, e);   // (round the fire, not through it)
+  }
+  return e.d;
+}
+function flowStep(F, B, g) {                       // which way to walk to get to cell g: down its flow
+  const m = lv.m, W = lv.W, i = m.at(F.x, F.y);
+  if (i === g) return Math.atan2(((g / W) | 0) + 0.5 - F.y, g % W + 0.5 - F.x);
+  const d = flowAt(g), cx = i % W, cy = (i / W) | 0; let bd = d[i] >= 0 ? d[i] : 1e9, bi = -1;
+  for (const [ox, oy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const j = (cy + oy) * W + cx + ox, v = d[j]; if (v >= 0 && v < bd) { bd = v; bi = j; } }
+  if (bi < 0) { B.goalUntil = 0; return null; }
+  return Math.atan2(((bi / W) | 0) + 0.5 - F.y, bi % W + 0.5 - F.x);
+}
+function sense(F, B) {                             // who it can see: the nearest threat, keeping to the one it's on
+  const m = lv.m, ez = F.z + BODY.eye; let best = null, bd = 1e9; B.sees = false;
+  const look = (T, z) => { const d = Math.hypot(T.x - F.x, T.y - F.y); if (d > 26 || !m.see(F.x, F.y, ez, T.x, T.y, z)) return; const v = d - (T === B.target ? 4 : 0) - (T.hp < 40 ? 2 : 0); if (v < bd) { bd = v; best = T; } };
+  for (const T of fighters) if (T !== F && T.alive && !ally(T, F)) look(T, T.z + 0.5);
+  for (const f of foes) if (!f.dead) look(f, f.z + f.K.h * 0.6);
+  if (best) { if (best !== B.target) { B.target = best; B.react = SKILLS[B.skill].react * (0.7 + R() * 0.6); B.track = 0; } B.sees = true; B.lastX = best.x; B.lastY = best.y; B.lastT = arena.t; }
+  else if (B.target && (B.target.alive === false || B.target.dead || arena.t - (B.lastT || 0) > 6)) B.target = null;
+}
+function botWeapon(F, B, T) {                      // the right weapon for the range, and its own liking
+  const d = T ? Math.hypot(T.x - F.x, T.y - F.y) : 8, S = STYLES[B.style]; let best = 0, bv = -1e9;
+  for (let i = 0; i < NW; i++) {
+    if (!F.owned[i] || !hasAmmo(i)) continue;
+    let v = [1, 4, 6, 7, 6, 8, 7][i];
+    if (i === 0) v = d < 1.4 ? 9 : 0;
+    if (i === 2) v += d < 4 ? 4 : d > 8 ? -4 : 0;
+    if (i === 4) v += d < 3.2 ? -9 : d < 11 ? 2 : -2;
+    if (i === 6) v += d > 8 ? 3 : -1;
+    const fv = S.fav.indexOf(i); if (fv >= 0) v += 2.5 - fv;
+    if (v > bv) { bv = v; best = i; }
+  }
+  return best;
+}
+function botGoal(F, B) {                           // where to go: the ring, what it needs, the one it lost, or anywhere
+  if (B.goal >= 0 && arena.t < B.goalUntil && lv.m.at(F.x, F.y) !== B.goal) return B.goal;
+  const S = STYLES[B.style], m = lv.m, A = arena; let g = -1, best = -1e9;
+  if (A.M.id === "hold" && lv.ring.length) { const v = 40 * S.hold + (A.holder !== F.team ? 25 : 0); if (v > best) { best = v; g = lv.ring[(R() * lv.ring.length) | 0]; } }
+  for (const it of items) {
+    if (it.got) continue;
+    const c = it.c, d = Math.hypot(it.x - F.x, it.y - F.y); let v = 0;
+    if (c === "+" || c === "m") v = F.hp < 100 ? (100 - F.hp) * (c === "m" ? 0.9 : 0.45) : 0;
+    else if (c === "a") v = F.armor < 60 ? 45 : 0;
+    else if (/[34567]/.test(c)) { const wi = +c - 1; v = F.owned[wi] ? 6 : 38 + (S.fav.indexOf(wi) >= 0 ? 22 : 0); }
+    else v = 7;
+    v = v * (0.5 + S.greed) - d * 2.2;
+    if (v > best) { best = v; g = m.at(it.x, it.y); }
+  }
+  if (B.target && B.lastT && A.t - B.lastT < 5) { const v = 30 * (1 - S.greed * 0.5); if (v > best) { best = v; g = m.at(B.lastX, B.lastY); } }
+  if (A.M.coop) { const f = foes.find(o => !o.dead); if (f && 20 > best) { best = 20; g = m.at(f.x, f.y); } }
+  if (best < 4) { const s = lv.spawns[(R() * lv.spawns.length) | 0]; g = m.at(s.x, s.y); }
+  B.goal = g; B.goalUntil = A.t + 3 + R() * 3;
+  return g;
+}
+// a bot's turn: what it sees, what it fires, where it walks and looks (as a player's sticks and triggers would)
+function think(F, dt) {
+  const B = F.brain, sk = SKILLS[B.skill], S = STYLES[B.style], out = { st: { x: 0, y: 0 }, turn: 0, look: 0, fire: false, aim: false, use: false, keys: false, human: false };
+  B.senseT -= dt; if (B.senseT <= 0) { B.senseT = 0.12 + R() * 0.08; sense(F, B); }
+  const T = B.target;
+  B.wT -= dt; if (B.wT <= 0) { B.wT = 0.7 + R() * 0.5; const w = botWeapon(F, B, T); if (w !== F.weapon && F.next < 0) pick(w); }
+  let want = null, move = null;
+  if (T && B.sees) {
+    B.react -= dt; B.track = Math.min(1.5, B.track + dt);
+    const d = Math.hypot(T.x - F.x, T.y - F.y), w = WEAPONS[F.weapon], sp = w.proj ? w.proj.speed : 0, lead = sp ? (d / sp) * sk.lead : 0;
+    B.wob += dt * (1.1 + R() * 0.4);
+    const amp = sk.err * (1.6 - Math.min(1, B.track) * 0.6), px = T.x + (T.vx || 0) * lead, py = T.y + (T.vy || 0) * lead;
+    want = Math.atan2(py - F.y, px - F.x) + Math.sin(B.wob * 2.1) * amp + Math.sin(B.wob * 3.7 + 1.3) * amp * 0.5;
+    const off = Math.abs(wrap(want - F.a)), close = Math.max(0.045, Math.atan2(0.28, d)) + (w.pellets > 1 ? 0.07 : 0);
+    out.fire = B.react <= 0 && off < close && !(w.melee && d > 1.15) && !(w.proj && d < 2.6);
+    out.aim = w.id === "lance" || (d > 9 && sk.err < 0.07);
+    if (d > S.far) move = Math.atan2(T.y - F.y, T.x - F.x); else if (d < S.near) move = Math.atan2(F.y - T.y, F.x - T.x);
+    B.strafeT -= dt; if (B.strafeT <= 0) { B.strafe = -B.strafe; B.strafeT = 0.45 + R() * 1.2; }
+    out.st.x = B.strafe * sk.strafe;
+  } else { B.track = 0; B.react = sk.react * (0.7 + R() * 0.6); }
+  if (move == null && !(T && B.sees && S.hold > 0.8 && R() < 0.98)) { const g = botGoal(F, B); if (g >= 0) move = flowStep(F, B, g); }
+  if (move != null) { const rel = wrap(move - F.a); out.st.y -= Math.cos(rel); out.st.x += Math.sin(rel); }
+  const len = Math.hypot(out.st.x, out.st.y); if (len > 1) { out.st.x /= len; out.st.y /= len; }
+  if (want == null) want = move != null ? move : F.a;
+  out.turn = clamp(wrap(want - F.a) * 3.2, -1, 1) * Math.min(1.3, sk.turn / 4.1);
+  if (sk.dodge && (B.dodgeT -= dt) <= 0) for (const s of shots) {     // a shot coming: step out of its way
+    if (s.by === F || ally(s.by, F)) continue;
+    const dx = F.x - s.x, dy = F.y - s.y, d = Math.hypot(dx, dy), v = Math.hypot(s.vx, s.vy) || 1; if (d > 4) continue;
+    const across = (dx * s.vy - dy * s.vx) / v; if ((dx * s.vx + dy * s.vy) / v > 0 && Math.abs(across) < 0.7 && R() < sk.dodge) { B.dodge = across > 0 ? 1 : -1; B.dodgeT = 0.5; break; }
+  }
+  if (B.dodgeT > 0.2 && B.dodge) out.st.x = B.dodge;
+  // fire a step ahead (and none underfoot): no strafing or dodging into it, and the way round to whoever it's after
+  const into = st => { if (!st.x && !st.y) return false; const a = F.a + Math.atan2(st.x, -st.y); return lv.hurt[lv.m.at(F.x + Math.cos(a) * 0.75, F.y + Math.sin(a) * 0.75)] > 0; };
+  if (!lv.hurt[lv.m.at(F.x, F.y)] && into(out.st)) {
+    let dir = move;
+    if (dir != null && T && B.sees) { const f = flowStep(F, B, lv.m.at(T.x, T.y)); if (f != null) dir = f; }
+    out.st.x = 0; out.st.y = 0;
+    if (dir != null) { const rel = wrap(dir - F.a); out.st.y = -Math.cos(rel); out.st.x = Math.sin(rel); }
+  }
+  const moved = Math.hypot(F.x - B.px, F.y - B.py); B.px = F.x; B.py = F.y;
+  B.stuck = moved < 0.008 && len > 0.3 ? B.stuck + dt : 0;
+  if (B.stuck > 0.5) { out.use = true; B.strafe = -B.strafe; B.stuck = 0; B.goalUntil = 0; }
+  return out;
+}
+
+// ---------------------------------------------------------------- the arena on screen: a view each, the scores, the feed
+function setupViews() {
+  const hs = fighters.filter(F => F.human), n = hs.length, W = E.screen.w, H = E.screen.h;
+  for (const v of views) if (v.ray !== ray) v.ray.threads(0);
+  views = []; $("phuds").innerHTML = "";
+  if (n <= 1) { views.push({ F: hs[0], ray, x: 0, y: 0, w: W, h: H, fov: 1.62 }); arena.split = false; $("hud").classList.remove("split"); return; }
+  arena.split = true; $("hud").classList.add("split"); ray.threads(0);
+  const rects = n === 2 ? [[0, 0, W >> 1, H], [W >> 1, 0, W - (W >> 1), H]] : [[0, 0, W >> 1, H >> 1], [W >> 1, 0, W - (W >> 1), H >> 1], [0, H >> 1, W >> 1, H - (H >> 1)], [W >> 1, H >> 1, W - (W >> 1), H - (H >> 1)]];
+  const workers = save.opts.cores === "one" ? 0 : E.threads != null ? Math.min(n, E.threads) : Math.max(E.plan.helpers || 0, Math.min(n, (navigator.hardwareConcurrency || 2) - 1));
+  hs.forEach((F, k) => {
+    const [x, y, w, h] = rects[k], r = new L3.Ray(pal);
+    r.size(w, h, new Uint32Array(w * h)); r.tex = TEX; r.sky = ray.sky; r.dim = ray.dim; r.minL = ray.minL; r.maxD = ray.maxD; r.marks = marks; r.slow = E.slow;
+    if (k < workers) r.threads(1);
+    const el = document.createElement("div"); el.className = "phud" + (n > 2 ? " q" : "");
+    Object.assign(el.style, { left: (x / W * 100) + "%", top: (y / H * 100) + "%", width: (w / W * 100) + "%", height: (h / H * 100) + "%" });
+    el.innerHTML = `<div class="ptint"></div><div class="pcross"></div><div class="pmsg"></div><div class="pname">${nameOf(F)}</div>` +
+      `<div class="pstat"><b class="php">100</b><span>HP</span> <b class="par">0</b><span>AR</span></div><div class="parm"><span class="pwn"></span> <b class="pam"></b></div>`;
+    $("phuds").appendChild(el);
+    const q = s => el.querySelector(s);
+    views.push({ F, ray: r, x, y, w, h, fov: n === 2 ? 1.05 : 1.62, el: { root: el, tint: q(".ptint"), cross: q(".pcross"), msg: q(".pmsg"), hp: q(".php"), ar: q(".par"), wn: q(".pwn"), am: q(".pam") }, msgT: 0, cache: {} });
+    F.hudEls = views[views.length - 1].el;
+  });
+  for (const v of views) if (v.ray.threaded) v.ray.prime(TEX.filter(Boolean).concat(SLIME, LAVA, WATER, [SKIES.fire, SKIES.cold]));
+}
+function fighterSprite(r, F, now) {                // another fighter as you see them: which way they face, walking, firing, falling
+  const S = SPR.fighter, m = lv.m, i = m.at(F.x, F.y), L = m.light[i] + m.dyn[i] + 2;
+  let spr;
+  if (!F.alive) { if (F.deadT > 4) return; spr = S.die[clamp((F.deadT * 3) | 0, 0, 2)]; }
+  else {
+    const rel = wrap(Math.atan2(P.y - F.y, P.x - F.x) - F.a), dir = ((Math.round(rel / (TAU / 8)) % 8) + 8) % 8;
+    spr = F.fireAnim > 0 ? S.attack[dir] : F.hurt > 0.5 ? S.pain[dir] : Math.hypot(F.vx, F.vy) > 0.4 ? S.walk[((F.bob / Math.PI * 2) | 0) & 3][dir] : S.walk[0][dir];
+  }
+  r.sprite(spr, F.x, F.y, F.z, F.guard > 0 && ((now / 90) | 0) & 1 ? 31 : L, false, false, 1, F.rm);
+}
+function arenaDraw(now) {
+  const A = arena;
+  for (const v of views) {
+    P = v.F;
+    drawView(v.ray, now, v.w, v.h, v.fov);
+    if (A.split) v.ray.paste(E.screen.u32, E.screen.w, v.x, v.y);
+  }
+  P = A.me;
+  if (!A.split) crossHair();
+  if (now - A.hudAt > 120) { A.hudAt = now; arenaHud(now); }
+}
+function arenaHud(now) {                           // the numbers on screen: each player's, the score, the time, the feed
+  const A = arena;
+  if (A.split) for (const v of views) {
+    const F = v.F, e = v.el, c = v.cache, w = WEAPONS[F.weapon], set = (k, el, val) => { if (c[k] !== val) { c[k] = val; el.textContent = val; } };
+    set("hp", e.hp, String(Math.max(0, Math.ceil(F.hp)))); set("ar", e.ar, String(Math.ceil(F.armor))); set("wn", e.wn, w.name); set("am", e.am, w.ammo ? String(F.ammo[w.ammo]) : "∞");
+    if (v.msgT > 0) { v.msgT -= 0.12; if (v.msgT <= 0) e.msg.textContent = ""; }
+    if (F.alive && e.msg.textContent === "Down") e.msg.textContent = "";
+    e.root.classList.toggle("down", !F.alive);
+  }
+  const left = A.time ? Math.max(0, Math.ceil(A.time - A.t)) : 0, clock = A.time ? " · " + ((left / 60) | 0) + ":" + String(left % 60).padStart(2, "0") : "";
+  let line;
+  if (A.M.coop) line = "Wave " + A.wave + " of " + A.limit + (A.waveOn ? " · " + (A.spawnQ.length + foes.filter(f => !f.dead).length) + " left" : " · a breath") + clock;
+  else if (A.teams) line = CREWS[0].name + " " + A.scores[0] + " · " + CREWS[1].name + " " + A.scores[1] + " · to " + A.limit + (A.M.id === "hold" ? " · the ring: " + (A.holder === "both" ? "fought over" : typeof A.holder === "number" ? CREWS[A.holder].name : "empty") : "") + clock;
+  else { const top = ranked(), me = A.me, k = top.indexOf(me) + 1; line = (A.split ? "" : "You " + me.frags + " · " + ord(k) + " of " + top.length + " · ") + "leading: " + top[0].name + " " + top[0].frags + " · to " + A.limit + clock; }
+  $("score").textContent = line;
+  const fresh = A.feed.filter(e => A.t - e.t < 6); if (fresh.length !== A.feed.length) { A.feed = fresh; $("feed").innerHTML = A.feed.map(e => `<div>${e.html}</div>`).join(""); }
+  if (A.board) $("boardTable").innerHTML = ranked().map((F, k) => `<tr><td>${k + 1}. ${nameOf(F)}</td><td>${F.frags}</td><td>${F.deaths}</td></tr>`).join("");
+}
+function ord(k) { return k + (k % 10 === 1 && k !== 11 ? "st" : k % 10 === 2 && k !== 12 ? "nd" : k % 10 === 3 && k !== 13 ? "rd" : "th"); }
+// a player's buttons, in a match: the one whose controller it was (the keyboard is player 1's)
+function arenaButton(b, how, who) {
+  const A = arena;
+  if (b === "y" || b === "map" || b === "select") { if (state === "play" && how !== "repeat") { A.board = how === "press"; $("board").classList.toggle("hidden", !A.board); arenaHud(performance.now()); } return state === "play"; }
+  if (!A.split || how !== "press" || state !== "play" || menu.at) return false;
+  if (b === "start" || b === "back") return false;                // (the match's pause: anyone's)
+  const F = fighters.find(o => o.human === (who || 1)); if (!F || !F.alive) return true;
+  const pad = input.player(F.human), keep = P; P = F;
+  if (b === "a" || b === "use" || b === "x") use();
+  else if (b === "rb" || (b === "right" && pad.button("right"))) cycle(1);
+  else if (b === "lb" || (b === "left" && pad.button("left"))) cycle(-1);
+  else if (b === "b" || b === "turn") { if (!F.quick) F.quick = Math.PI; }
+  else if (/^w[1-7]$/.test(b)) pick(+b[1] - 1);
+  P = keep;
+  return true;
+}
+// the match's settings, and players joining on the settings screen (A on another controller; B again to leave)
+const ARENA_OPTS = [
+  { k: "mode", name: "Mode", vals: [0, 1, 2, 3], names: { 0: "Melee", 1: "Crews", 2: "Hold the ring", 3: "Last Shift" } },
+  { k: "map", name: "Arena", vals: [0, 1, 2, 3, 4, 5], names: Object.fromEntries(ARENA_LIST.map((a, k) => [k, a.name])) },
+  { k: "bots", name: "Bots", vals: [0, 1, 2, 3, 4, 5, 6, 7], names: { 0: "None", 1: "1", 2: "2", 3: "3", 4: "4", 5: "5", 6: "6", 7: "7" } },
+  { k: "skill", name: "Bots' skill", vals: [0, 1, 2, 3, 4], names: Object.fromEntries(SKILLS.map((s, k) => [k, s.name])) },
+  { k: "limit", name: "Play to", vals: [0, 1, 2], names: {} },
+  { k: "time", name: "Time", vals: [0, 1, 2, 3], names: { 0: "5 minutes", 1: "8 minutes", 2: "12 minutes", 3: "No limit" } },
+  { k: "crews", name: "Players", vals: [0, 1], names: { 0: "On one crew", 1: "Across the crews" } }
+];
+function arenaNames() {
+  const c = arenaCfg(), M = MODES[c.mode];
+  ARENA_OPTS[4].names = Object.fromEntries(M.limit.map((v, k) => [k, v + " " + M.unit]));
+  ARENA_OPTS[2].name = M.coop ? "Bots with you" : "Bots";
+  const most = FX.light ? 2 : 4;
+  $("arenaPlayers").innerHTML = "Players: " + joined.length + (joined.length < most ? " · another controller's " + kb("a") + " joins (up to " + most + " here)" : "") +
+    (c.bots > (FX.light ? 5 : 7) ? " · this box plays " + (FX.light ? 5 : 7) + " bots at most" : "");
+  const rec = (save.arenaRec || {})[M.id + ":" + ARENA_LIST[c.map].id];
+  $("arenaTag").textContent = M.tag + " · " + ARENA_LIST[c.map].tag + (rec ? " · your best here: " + (M.coop ? "wave " : "") + rec.best : "");
+}
+function arenaJoin(who) {                          // on the settings screen: another controller joins
+  const most = FX.light ? 2 : 4;
+  if (joined.indexOf(who) >= 0 || joined.length >= most) return false;
+  joined.push(who); synth.play("secret"); arenaNames(); return true;
+}
+
 // ---------------------------------------------------------------- menus
 const OPTS = [
   { k: "turn", name: "Turning speed", vals: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] },
@@ -1662,8 +2426,11 @@ const menu = new L3.Menu({
     levels: { back: "title", enter: renderLevels },
     options: { options: OPTS, values: save.opts, back: () => menu.show(pausedFrom ? "pause" : "title"), changed: optionChanged },
     box: { row: true, back: "title", enter: renderBox },
-    pause: { back: () => resume(), enter: () => { $("controls").innerHTML = controlsText(); } },
-    tallyScr: { row: true, back: () => toTitle() }
+    pause: { back: () => resume(), enter: () => { $("controls").innerHTML = controlsText(); $("pause").querySelector('[data-do="restart"]').firstChild.textContent = arena ? "Start the match again" : "Start the level again"; } },
+    tallyScr: { row: true, back: () => toTitle() },
+    arena: { options: ARENA_OPTS, values: save.arena, back: () => toTitle(), list: $("arenaList"), extra: '<div class="item" data-do="arenaGo">Start the match</div>', enter: arenaNames,
+      changed: k => { store(); arenaNames(); if (k === "mode") menu.renderOptions(); } },
+    arenaEnd: { row: true, back: () => toTitle() }
   },
   choose(el, act) {
     if (act === "new") menu.show("skill");
@@ -1675,11 +2442,13 @@ const menu = new L3.Menu({
     else if (act === "back") menu.back();
     else if (act === "retest") { $("boxtable").innerHTML = "<tr><td>Test</td><td>running…</td></tr>"; E.retest(renderBox); }
     else if (act === "resume") resume();
-    else if (act === "restart") { pausedFrom = null; startLevel(level, false); }
+    else if (act === "restart") { pausedFrom = null; if (arena) startArena(); else startLevel(level, false); }
     else if (act === "quit") toTitle();
     else if (act === "next") { if (level + 1 < ORDER.length) startLevel(level + 1, true); else toTitle(); }
     else if (act === "again") startLevel(level, false);
     else if (act === "title") toTitle();
+    else if (act === "arena") { if (arena) leaveArena(); if (state !== "title") toTitle(); menu.show("arena"); }
+    else if (act === "arenaGo" || act === "arenaAgain") startArena();
   }
 });
 function controlsText() {
@@ -1689,6 +2458,7 @@ function controlsText() {
 function hints() {
   $("titleHint").innerHTML = kb("a") + " choose &nbsp; " + (input.pad() ? kb("b") + " back to the box" : "↑ ↓ move");
   for (const id of ["skillHint", "levelsHint", "boxHint"]) $(id).innerHTML = kb("a") + " choose &nbsp; " + kb("b") + " back";
+  $("arenaHint").innerHTML = "◀ ▶ change &nbsp; " + kb("a") + " start &nbsp; " + kb("b") + " back"; $("arenaEndHint").innerHTML = kb("a") + " choose";
   $("optionsHint").innerHTML = "◀ ▶ change &nbsp; " + kb("b") + " back"; $("pauseHint").innerHTML = kb("a") + " choose &nbsp; " + kb("start") + " carry on"; $("tallyHint").innerHTML = kb("a") + " choose";
 }
 function renderLevels() {                         // two episodes, side by side
@@ -1711,8 +2481,8 @@ function optionChanged(k) {
   if (k === "cores") { ray.threads(save.opts.cores === "one" ? 0 : E.plan.helpers || 0); if (lv) primeHelpers(Object.keys(SPR)); E.gov.hold(2500); }
 }
 function pause() { if (menu.at) return; pausedFrom = state; state = "paused"; mapOn = false; $("map").classList.add("hidden"); menu.show("pause"); synth.stopSong(); ambience(null); }
-function resume() { menu.hide(); state = pausedFrom || "play"; pausedFrom = null; E.gov.hold(800); music(ORDER[level].id); ambience(ORDER[level].amb); }
-function toTitle() { pausedFrom = null; state = "title"; alarm = 0; ambience(null); $("hud").classList.add("hidden"); $("center").innerHTML = ""; menu.show("title"); synth.song({ seed: 999, root: 45, tempo: 90, calm: true, prog: [9, 5, 0, 7] }); attractView(); }
+function resume() { menu.hide(); state = pausedFrom || "play"; pausedFrom = null; E.gov.hold(800); if (arena) { ambience(arena.A.amb); return; } music(ORDER[level].id); ambience(ORDER[level].amb); }
+function toTitle() { if (arena) leaveArena(); pausedFrom = null; state = "title"; alarm = 0; ambience(null); $("hud").classList.add("hidden"); $("center").innerHTML = ""; menu.show("title"); synth.song({ seed: 999, root: 45, tempo: 90, calm: true, prog: [9, 5, 0, 7] }); attractView(); }
 function tally() {
   const def = ORDER[level], pct = (a, b) => b ? Math.round(a / b * 100) + "%" : "–";
   const last = level + 1 === ORDER.length, epEnd = !last && ORDER[level + 1].ep !== def.ep;
@@ -1753,7 +2523,8 @@ addEventListener("pointerdown", () => synth.start());
 document.addEventListener("visibilitychange", () => { if (document.hidden && state === "play") pause(); });
 if (E.test) window.IM = { get state() { return state; }, P, get foes() { return foes; }, get items() { return items; }, get lv() { return lv; }, get stats() { return stats; },
   get gov() { return E.gov; }, get screen() { return menu.at; }, E, menu, startLevel, finishLevel, save: () => save, ray, target, WEAPONS, KINDS, ORDER, LEVELS,
-  get marks() { return marks; }, get alarm() { return alarm; }, get shots() { return shots; }, get bits() { return bits; }, newFoe, damage, explode, fire, pick, bakeShape, SPR, get FX() { return FX; } };
+  get marks() { return marks; }, get alarm() { return alarm; }, get arena() { return arena; }, get fighters() { return fighters; }, get views() { return views; },
+  startArena, leaveArena, toTitle, joined, ARENA_LIST, MODES, SKILLS, think, setP: F => { P = F; }, get shots() { return shots; }, get bits() { return bits; }, newFoe, damage, explode, fire, pick, bakeShape, SPR, get FX() { return FX; } };
 E.start();
 })();
 </script></body></html>

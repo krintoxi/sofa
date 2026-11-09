@@ -7,6 +7,19 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.41
+
+- **Ironmaw's arena.** Six arenas of its own: the Crucible round a lava pit, the Coldyard under falling snow, the
+  Catwalks over a smelter (steam pads throw you up to the walkways), Rivet Row's tight halls, the flooded Pumpworks,
+  and Kiln Ring, two bases across a lava moat. Four ways to play: everyone for themselves, two crews (Ember and
+  Frost), holding the ring, and the Last Shift, everyone together against the foundry's waves. Up to seven bots of
+  five skills, each with a way of fighting and weapons it likes: they find their way round the fire, go for what
+  they need, dodge, and lead their shots. Up to four players share the screen, each with a controller and a view
+  of their own, and anyone joins from the arena screen with a press. Streaks are called out, every match ends with
+  a table, and the box keeps your best on each arena. A Pi 3 plays up to five bots and two players.
+- **The box's game engine** draws split screens (a picture a view, each with a helper where there are cores to
+  spare), swaps a sprite's colours for a crew, and finds ways round fire.
+
 ## 1.1.40
 
 - **Ironmaw 2: the Ice.** A second episode under the foundry: Cryo Labs, the Glacier Mine, the Drowned Pumpworks
