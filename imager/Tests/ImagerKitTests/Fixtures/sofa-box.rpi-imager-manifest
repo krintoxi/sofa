@@ -1,0 +1,112 @@
+{
+  "imager": {
+    "devices": [
+      {
+        "name": "Raspberry Pi 5",
+        "description": "Raspberry Pi 5",
+        "tags": [
+          "pi5-64bit"
+        ],
+        "matching_type": "exclusive"
+      },
+      {
+        "name": "Raspberry Pi 4",
+        "description": "Raspberry Pi 4 Model B",
+        "tags": [
+          "pi4-64bit"
+        ],
+        "matching_type": "exclusive"
+      },
+      {
+        "name": "Raspberry Pi 3",
+        "description": "Raspberry Pi 3 Model B+ (with its own 2.5 A power supply)",
+        "tags": [
+          "pi3-64bit"
+        ],
+        "matching_type": "exclusive"
+      }
+    ]
+  },
+  "os_list": [
+    {
+      "name": "Sofa Box OS 1.1.55",
+      "description": "Your own TV box: Sofa, free Live TV, your streaming apps and games. Raspberry Pi OS Lite (64-bit) underneath.",
+      "icon": "https://raw.githubusercontent.com/krintoxi/sofa/main/docs/images/sofa-box-os-icon.png",
+      "url": "https://github.com/krintoxi/sofa/releases/download/box-os-v1.1.55/sofa-box-os-1.1.55.img.xz",
+      "extract_size": 5227151360,
+      "extract_sha256": "5656565656565656565656565656565656565656565656565656565656565656",
+      "image_download_size": 1368000000,
+      "release_date": "2026-11-11",
+      "init_format": "none",
+      "devices": [
+        "pi5-64bit",
+        "pi4-64bit",
+        "pi3-64bit"
+      ],
+      "architecture": "armv8",
+      "website": "https://github.com/krintoxi/sofa/releases/tag/box-os-v1.1.55"
+    },
+    {
+      "name": "Sofa Box OS 1.1.56, newest build (testing)",
+      "description": "Built 2026-11-12 from every change since the last numbered version. For trying fixes early; the numbered version above is the one to keep.",
+      "icon": "https://raw.githubusercontent.com/krintoxi/sofa/main/docs/images/sofa-box-os-icon.png",
+      "url": "https://github.com/krintoxi/sofa/releases/download/sofa-box/sofa-box.img.xz",
+      "extract_size": 5228199936,
+      "extract_sha256": "abababababababababababababababababababababababababababababababab",
+      "image_download_size": 1370000000,
+      "release_date": "2026-11-12",
+      "init_format": "none",
+      "devices": [
+        "pi5-64bit",
+        "pi4-64bit",
+        "pi3-64bit"
+      ],
+      "architecture": "armv8",
+      "website": "https://github.com/krintoxi/sofa/releases/tag/sofa-box"
+    },
+    {
+      "name": "Sofa Box OS: earlier versions",
+      "description": "The 2 versions before the newest, newest first.",
+      "icon": "https://raw.githubusercontent.com/krintoxi/sofa/main/docs/images/sofa-box-os-icon.png",
+      "website": "https://github.com/krintoxi/sofa/releases?q=box-os",
+      "subitems": [
+        {
+          "name": "Sofa Box OS 1.1.54",
+          "description": "An earlier version, to go back to if a newer one misbehaves.",
+          "icon": "https://raw.githubusercontent.com/krintoxi/sofa/main/docs/images/sofa-box-os-icon.png",
+          "url": "https://github.com/krintoxi/sofa/releases/download/box-os-v1.1.54/sofa-box-os-1.1.54.img.xz",
+          "extract_size": 5226102784,
+          "extract_sha256": "8b1b6299541a101af1e03f761b150f1cc606a6f067cdca301a17ff927a913e5a",
+          "image_download_size": 1367936428,
+          "release_date": "2026-11-09",
+          "init_format": "none",
+          "devices": [
+            "pi5-64bit",
+            "pi4-64bit",
+            "pi3-64bit"
+          ],
+          "architecture": "armv8",
+          "website": "https://github.com/krintoxi/sofa/releases/tag/box-os-v1.1.54"
+        },
+        {
+          "name": "Sofa Box OS 1.1.49",
+          "description": "An earlier version, to go back to if a newer one misbehaves.",
+          "icon": "https://raw.githubusercontent.com/krintoxi/sofa/main/docs/images/sofa-box-os-icon.png",
+          "url": "https://github.com/krintoxi/sofa/releases/download/box-os-v1.1.49/sofa-box-os-1.1.49.img.xz",
+          "extract_size": 5100273664,
+          "extract_sha256": "4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a",
+          "image_download_size": 1300000000,
+          "release_date": "2026-11-01",
+          "init_format": "none",
+          "devices": [
+            "pi5-64bit",
+            "pi4-64bit",
+            "pi3-64bit"
+          ],
+          "architecture": "armv8",
+          "website": "https://github.com/krintoxi/sofa/releases/tag/box-os-v1.1.49"
+        }
+      ]
+    }
+  ]
+}

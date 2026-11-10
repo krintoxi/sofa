@@ -1,0 +1,59 @@
+name: Sofa Box Imager
+
+# Builds Sofa Box Imager (imager/) and runs its tests on GitHub's Macs. Unsigned: no certificate or key is used here.
+# imager/README.md ("Signing") says what a signed, notarised build needs.
+
+on:
+  push:
+    paths: ["imager/**", ".github/workflows/imager.yml"]
+  pull_request:
+    paths: ["imager/**", ".github/workflows/imager.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mac:
+    name: ${{ matrix.mac }}
+    runs-on: ${{ matrix.mac }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Apple silicon on the newest macOS and the one before, and an Intel Mac (the app is built for both).
+        mac: [macos-26, macos-15, macos-15-intel]
+    steps:
+      - uses: actions/checkout@v5
+      - name: What's on this Mac
+        run: |
+          sw_vers
+          uname -m
+          swift --version
+          xcodebuild -version
+      - name: Run the tests
+        # They write only disks they attach themselves (RAM disks), after checking each is the one just attached.
+        working-directory: imager
+        run: |
+          set -o pipefail
+          swift test 2>&1 | tee test-output.txt
+      - name: The tests that write a disk ran (a skip there would hide a broken writer)
+        working-directory: imager
+        run: |
+          grep -E "WriteJobTests.* (passed|failed|skipped)" test-output.txt
+          if grep -E "(WriteJobTests|DiskListTests|AuthOpenTests).* skipped" test-output.txt; then
+            echo "::error title=Disk tests were skipped::hdiutil could not attach a RAM disk on this runner, so the write path was not tested."
+            exit 1
+          fi
+      - name: Build Sofa Box Imager.app (Apple silicon and Intel, unsigned)
+        working-directory: imager
+        run: BUILD=${{ github.run_number }} scripts/build-app.sh
+      - name: The built app starts, reads a list and looks at this Mac's disks (it only reads)
+        run: |
+          "imager/build/Sofa Box Imager.app/Contents/MacOS/SofaBoxImager" \
+            --list imager/Tests/ImagerKitTests/Fixtures/sofa-box.rpi-imager-manifest --versions --disks
+      - uses: actions/upload-artifact@v4
+        if: matrix.mac == 'macos-26'
+        with:
+          name: sofa-box-imager-mac-unsigned
+          path: imager/build/*.zip
+          if-no-files-found: error

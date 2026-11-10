@@ -454,6 +454,7 @@ docs/                install, updating, folders, storage (drives), playback, TV,
 tests/               the tests
 android/             Sofa for Fire TV (Android app, built by GitHub)
 roku/                Sofa for Roku (channel; Sofa serves it as /roku.zip)
+imager/              Sofa Box Imager (Mac app that writes a Sofa Box OS card; built by GitHub, not signed yet)
 ```
 
 ## License
