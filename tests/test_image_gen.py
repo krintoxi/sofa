@@ -114,6 +114,8 @@ class Layer(unittest.TestCase):
         self.assertIn("  user1sudo: passwd\n", config)         # (none would remove sudo, which the box's rules need)
 
     def test_a_pi_3_starts_64_bit_and_the_card_grows(self):
+        self.assertIn("systemctl enable rpi-resize.service", read(LAYER_D, "hooks", "customize50-sofa-box"))
+        self.assertIn("SYSTEMD_OFFLINE=1", read(LAYER_D, "hooks", "customize50-sofa-box"))
         self.assertIn("\narm_64bit=1\n", read(LAYER_D, "for", "rpi-boot-firmware", "config.txt.d", "90-sofa-box"))
         fragment = read(LAYER_D, "for", "linux-base", "cmdline.d", "90-sofa-box")
         self.assertEqual(len(fragment.splitlines()), 1)        # rpi-image-gen takes one line per fragment
@@ -159,6 +161,7 @@ class BootSettings(unittest.TestCase):
         self.assertTrue(config.endswith("\ndisable_splash=1\n"))   # after the last [all]: for every board
         self.assertEqual(read(boot, "config.txt.before-sofa-box"), CONFIG)
         self.assertIn("image-gen prototype", read(boot, "sofa-box.txt"))
+        self.assertEqual(read(root, "etc", "machine-id"), "uninitialized\n")   # a first start, as on Raspberry Pi OS
         self.assertIn("config.txt changes: < dtparam=audio=on > dtparam=audio=off > disable_splash=1",
                       read(out, "report-boot.txt"))
 
@@ -210,6 +213,17 @@ class CardReader(unittest.TestCase):
             self.assertEqual(sorted(entries), ["BOOTCODE.BIN", "config.txt", "kernel_2712.img"])
             e = entries["config.txt"]
             self.assertEqual(fat.data(e["cluster"], e["size"]), b"arm_64bit=1\n")
+
+    def test_cve_summary_counts_each_cve_once(self):
+        def match(cve, pkg, sev, state="not-fixed"):
+            return {"vulnerability": {"id": cve, "severity": sev, "fix": {"state": state}},
+                    "artifact": {"name": pkg, "upstreams": [{"name": "linux"}] if pkg.startswith("linux") else []}}
+        report = {"matches": [match("CVE-1", "linux-image-rpi-v8", "High"), match("CVE-1", "linux-image-rpi-2712", "High"),
+                              match("CVE-2", "chromium", "Critical", "wont-fix"), match("CVE-3", "curl", "Low")]}
+        line = card.cve_summary(report)
+        self.assertTrue(line.startswith("3 CVEs (4 matches): Critical 1, High 1, Low 1;"), line)
+        self.assertIn("not-fixed 2, wont-fix 1", line)
+        self.assertIn("most in: linux 1", line)
 
     def test_dpkg_status(self):
         status = ("Package: mpv\nStatus: install ok installed\nVersion: 0.40.0-3\n\n"

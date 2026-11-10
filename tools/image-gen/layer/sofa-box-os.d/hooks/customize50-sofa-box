@@ -30,6 +30,11 @@ chroot "$ROOT" /usr/bin/env SYSTEMD_OFFLINE=1 /bin/sh -eu -c '
   passwd -l sofabox >/dev/null
   SOFA_BOX_USER=sofabox sh /tmp/sofa/deploy/sofa-box/install.sh --image ${1:+"$1"}
   systemctl disable ssh.service >/dev/null 2>&1 || true
+  # The first start grows the root filesystem (rpi-resize.service, from raspberrypi-sys-mods, pulls in
+  # systemd-growfs-root), as on Raspberry Pi OS; the package leaves it off, pi-gen turns it on.
+  systemctl enable rpi-resize.service
+  # The language, as on Raspberry Pi OS (rpi-image-gen writes C.UTF-8).
+  if locale -a 2>/dev/null | grep -qi "^en_GB.utf8$"; then update-locale LANG=en_GB.UTF-8; fi
   apt-get clean
 ' sh "${IGconf_sofabox_sofa:-}"
 rm -rf "$ROOT/tmp/sofa"
