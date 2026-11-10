@@ -18,9 +18,17 @@ FROM python:3.12-slim-trixie
 ARG DEBIAN_FRONTEND=noninteractive
 # ffmpeg: Debian's own build (with chromaprint for Skip Intro). procps: `ps`, which Sofa uses to find a helper it
 # started before a restart. Nothing else; no Python packages at all.
+#
+# Debian's ffmpeg brings Mesa's software OpenGL along (for the preview window ffplay-style tools can open: 180 MB of
+# LLVM and drivers) that a server never draws with. Those packages are removed again, with dpkg told to ignore the
+# dependency; ffmpeg loads and converts without them (the image's tests play an HEVC MKV through it). `apt-get` inside
+# this image would want them back; nothing else notices.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ffmpeg procps \
  && rm -rf /var/lib/apt/lists/* \
+ && gl="$(dpkg-query -W -f '${db:Status-Status} ${Package}\n' 'libgl1-mesa-dri' 'mesa-libgallium' 'libllvm*' 'libz3-*' 2>/dev/null | awk '$1 == "installed" {print $2}' | tr '\n' ' ')" \
+ && dpkg --purge --force-depends $gl \
+ && ffmpeg -v error -f lavfi -i testsrc2=size=320x180:rate=25 -t 1 -c:v libx264 -f null - \
  && groupadd -g 1000 sofa \
  && useradd -u 1000 -g sofa -d /data -M -s /usr/sbin/nologin sofa \
  && mkdir -p /data /media \
