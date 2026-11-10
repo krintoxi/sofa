@@ -1383,6 +1383,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.json({"ok": True})
         if path == "/api/admin/update":
             if data.get("install"):
+                if updater.in_container():
+                    return self.error(409, updater.container_note())
                 if not updater.start_update():
                     return self.error(409, "An update is already running.")
                 store.log("update", "%s started an update" % u["name"])

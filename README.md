@@ -140,7 +140,8 @@ from **Settings → Software**.
 For your own shows and movies (the **Sofa Server** and the **Sofa App**):
 
 - **A computer that stays on**, for the Sofa Server: a Mac (an old one is fine: Sofa runs on a 2011
-  iMac) or a Linux computer.
+  iMac), a Linux computer, or anything that runs Docker (a NAS, a Windows PC with Docker Desktop; see
+  [In Docker](docs/install.md#in-docker)).
 - **Your shows and movies** as files (from your own discs, downloads, a camera...).
 - **Something to watch on**, with the Sofa App: a TV with a Fire TV stick, a Roku or a Raspberry Pi
   with Sofa Box OS; or any phone, tablet or laptop.
@@ -163,6 +164,10 @@ Steps 1 to 3 set up the **Sofa Server**; step 4 is the **Sofa App** on your scre
 3. Wait for **All done** (a minute or two; longer if it installs ffmpeg, the tool that lets every
    kind of video play). Then close Terminal. Sofa keeps running in the background, and starts again
    by itself when the computer restarts.
+
+**Docker instead?** On a computer or NAS that runs Docker, `docker compose up -d` in a folder with Sofa's
+[compose.yml](compose.yml) does the same (the library in `./media`, Sofa's data in `./data`, on the computer's own
+network so TVs find it): [In Docker](docs/install.md#in-docker).
 
 ### Step 2. Make your account
 
@@ -289,7 +294,8 @@ cd ~/Sofa
 brew install ffmpeg          # macOS (on Linux: sudo apt install ffmpeg)
 ```
 
-Or run it in a Terminal window instead of in the background: `python3 sofa.py serve`.
+Or run it in a Terminal window instead of in the background: `python3 sofa.py serve`. Or in Docker:
+`docker compose up -d` in the same folder (it builds the image if there's none to pull).
 More detail, and what to do if something goes wrong: [docs/install.md](docs/install.md).
 </details>
 
@@ -488,7 +494,8 @@ throwaway library and data folder, never yours, and no internet). GitHub runs th
 sofa.py              command line entry point
 sofa/                server: library, inbox, streaming, converter, intro finder, DLNA, live TV, accounts, updater
 client/              web app (no build step)
-deploy/              install script, macOS LaunchAgent, Linux systemd unit, the Sofa box (Raspberry Pi)
+deploy/              install script, macOS LaunchAgent, Linux systemd unit, the container's entrypoint, the Sofa box (Raspberry Pi)
+Dockerfile, compose.yml   Sofa in Docker (ghcr.io/krintoxi/sofa)
 tools/               get-sofa.sh, update.sh, convert.py; the Sofa box's preview and card builder
 docs/                install, updating, folders, storage (drives), playback, TV, adult, privacy, remote access, api (for apps),
                      capabilities (what works, tested where), compare (vs Jellyfin and Plex), roadmap (what's next and missing)

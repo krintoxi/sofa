@@ -25,6 +25,18 @@ to boxes. What each version brought: [CHANGES.md](../CHANGES.md).
 Sofa watches: if it stops three times, the next start goes back to the version you had, by
 itself, and the Updates tab says so. Your media, accounts and settings are never part of this.
 
+## In Docker
+
+A Sofa that runs from the container image ([install.md](install.md#in-docker)) isn't updated in place: the
+Updates tab says when GitHub has a newer version, and the update is a new image, on the computer that runs Docker:
+
+```sh
+docker compose pull && docker compose up -d
+```
+
+Your `./data` and `./media` folders stay as they are. There is no **Update now** button in a container, and the
+Terminal command below doesn't apply.
+
 ## The Terminal command (works with every version)
 
 For a copy of Sofa that's older than the Update button, or if the button ever fails:

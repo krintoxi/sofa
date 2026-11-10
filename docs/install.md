@@ -26,7 +26,7 @@ Want Sofa somewhere else? Add the folder at the end:
 
 | | |
 |---|---|
-| A Mac (macOS 11 or newer is easiest) or Linux | Windows isn't supported |
+| A Mac (macOS 11 or newer is easiest) or Linux; or Docker on anything ([below](#in-docker)) | Windows only through Docker Desktop |
 | Python 3.8 or newer | Macs: run `xcode-select --install` once if `python3` is missing |
 | ffmpeg | Mac: `brew install ffmpeg` (get Homebrew at [brew.sh](https://brew.sh)). Linux: `sudo apt install ffmpeg` |
 
@@ -42,6 +42,55 @@ cd ~/Sofa
 
 Or just run it in a Terminal window: `cd ~/Sofa && python3 sofa.py serve`. Close the
 window and Sofa stops.
+
+## In Docker
+
+For a computer or NAS that runs Docker (Linux, a Synology or similar, a Windows PC with Docker Desktop). The
+image is `ghcr.io/krintoxi/sofa` (Python 3.12 on Debian 13 with Debian's ffmpeg, a non-root user, nothing else),
+built by GitHub from every change to main and tagged `latest` and with Sofa's version, for amd64 and arm64.
+
+1. Make a folder for Sofa and put [compose.yml](../compose.yml) in it (or clone the repository: the file is at its
+   top).
+2. In that folder:
+
+   ```sh
+   docker compose up -d
+   ```
+
+   The first time this pulls the image (or builds it there when it can't: `docker compose up -d --build`).
+3. Open `http://<that computer's address>:8090` from a device at home and create the admin account.
+
+Two folders appear beside the file: `./media`, with `Shows/`, `Movies/`, `Music/`, `Music Videos/`, `Inbox/`,
+`Needs Review/`, `Adult/` and `Converted Originals/` (drop new things in `Inbox/`), and `./data`, which is Sofa's
+`data/` folder (accounts, watch history, settings, artwork, backups: keep it). Sofa runs inside as the user `1000:1000`
+unless you set `PUID` and `PGID` to the user that owns those folders (`PUID=$(id -u) PGID=$(id -g) docker compose up -d`);
+folders Docker makes itself on the first start are handed to that user (the container starts as root for that one
+step and drops to the user before Sofa runs).
+Settings live in `./data/config.json` like everywhere else; the first start writes one that points the library at
+`/media`, and it's never overwritten.
+
+What's different from an install on the computer itself:
+
+- **The container uses the computer's own network** (`network_mode: host`), not Docker's bridge: TVs and the Sofa
+  apps find Sofa by SSDP, and "home network only", the TV sign-in from your phone and Guest access go by the
+  address a request comes from, which behind a bridge would always be Docker's. Sofa's port is the `port` setting
+  (8090); there is no port mapping to change. Docker Desktop on a Mac or Windows passes host networking through to
+  its virtual machine since Docker Desktop 4.34; without it, the Sofa apps can still be given the address by hand.
+- **No Bonjour:** the image has no `avahi` or `dns-sd`, so Sofa isn't announced by mDNS. SSDP still is, and the
+  apps and a Sofa Box fall back to it (or to the address you type).
+- **Updating is a new image:** `docker compose pull && docker compose up -d`. Server → Updates says when GitHub has
+  a newer version and shows this command instead of **Update now** (the files inside an image aren't swapped in
+  place). `./data` and `./media` stay as they are.
+- **Keep this computer awake** has nothing to work with inside a container (no `caffeinate`, no `systemd-inhibit`);
+  the computer's own power settings decide.
+- **Another drive:** add it to `volumes` under `/mnt`, for example `- /mnt/bigdisk:/mnt/bigdisk`, and Server →
+  Storage sees it (`drive_folders` is `/mnt` in the container; `/media` is the library, not a drive).
+- **Hardware encoding:** none in the container (x264 in software), the same as Sofa on Linux today.
+- The other commands work through compose: `docker compose run --rm sofa status`, `... backup`, `... inbox`.
+  The log: `docker compose logs -f sofa`.
+
+Without compose: `docker run -d --name sofa --init --network host -v ./data:/data -v ./media:/media
+ghcr.io/krintoxi/sofa`. To build the image yourself: `docker build -t sofa .` in a clone.
 
 ## Where things are
 

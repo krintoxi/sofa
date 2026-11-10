@@ -9,10 +9,12 @@ of work, not a promise, and there are no dates. What has shipped is in [CHANGES.
 
 Read this before you install, so nothing surprises you.
 
-- **The server runs on a Mac or Linux only.** No Windows, no Docker image, no NAS packages. Python and ffmpeg are
-  all it needs. The one-line install is used daily on Macs; on Linux the test suite runs on every push, and the
-  install was run once in a clean Debian 13 container for the record (see [install.md](install.md)); nobody has
-  written down running it as a daily server on Linux.
+- **The server runs on a Mac, on Linux, or in Docker.** No native Windows server (Docker Desktop is the way in) and
+  no NAS packages (the Docker image is how a NAS runs it). Python and ffmpeg are all it needs. The one-line install
+  is used daily on Macs; on Linux the test suite runs on every push, and the install was run in a clean Debian 13
+  system with systemd for the record (Sofa 1.5.5, the tested-on table in [capabilities.md](capabilities.md#tested-on));
+  the Docker image has run on one Linux virtual machine (arm64) and nowhere else yet. Nobody has written down
+  running Sofa as a daily server on Linux or in Docker.
 - **No hardware transcoding on Linux.** Sofa encodes with Apple's VideoToolbox on Macs and with x264 in software
   everywhere else; there is no VAAPI, Quick Sync or NVENC path yet. Files a device plays as they are aren't
   transcoded at all, and the background conversion to MP4 makes the second play free.
@@ -51,6 +53,8 @@ The last few weeks, from the changelogs:
   `rpi-image-gen` prototype; thirteen games of its own on two engines, with several controllers.
 - **The record:** [capabilities.md](capabilities.md) with its tested-on table, [hardware.md](hardware.md), the issue
   templates, this page and [compare.md](compare.md).
+- **Sofa 1.5.5: Sofa in Docker.** A `Dockerfile` and a `compose.yml` on the computer's own network, the image
+  published as `ghcr.io/krintoxi/sofa` by GitHub; in a container, Updates says to pull the new image.
 
 ## Next
 
@@ -71,8 +75,8 @@ In order. Each one ends with a line in the tested-on table.
 
 ## Later
 
-- **A Docker image**, and Linux written up as a daily server (this also gives Windows users a way in through Docker
-  Desktop).
+- **Linux and Docker written up as a daily server** (the image exists since Sofa 1.5.5; a week of real use on a
+  Linux box or a NAS, with what went wrong, is what's missing).
 - **Hardware transcoding on Linux** (VAAPI and Quick Sync first), measured on a real machine.
 - A **Google TV** build, tested on a cheap Google TV box, with the package registered before Google's 2027 developer
   verification.

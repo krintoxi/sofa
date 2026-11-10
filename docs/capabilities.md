@@ -22,7 +22,7 @@ from automated tests. There is no company behind it and no support line: problem
 
 A program on a computer that stays on (a Mac, or Linux). It keeps your shows, movies and music, serves the web app to
 every screen at home, converts what a device can't play, and holds everyone's accounts. Python's standard library
-and ffmpeg, nothing else to install. Windows isn't supported.
+and ffmpeg, nothing else to install; or the Docker image (Sofa 1.5.5). Windows only through Docker Desktop.
 
 | What | Status | Where it lives, and the evidence |
 |---|---|---|
@@ -48,7 +48,8 @@ and ffmpeg, nothing else to install. Windows isn't supported.
 | **Backups** of accounts, watch history and settings, nightly, three kept. | Works | `sofa/backup.py`; `python3 sofa.py backup` and `restore`. Your media isn't backed up by Sofa. |
 | **Privacy switches:** Keep no logs, Wipe all logs, Work offline. | Works | `tests/test_server.py::test_no_logs_and_wipe`. [privacy.md](privacy.md) |
 | **Power cuts.** Settings are written whole or not at all; a config file cut off half way is kept aside instead of stopping Sofa. | Works | `tests/test_durability.py`. |
-| Subtitle downloads, watch-together, photos, TV recording (HDHomeRun), a Docker image, Plex or Jellyfin history import | **Not built** | On the list in [HANDOFF.md](HANDOFF.md); nothing in the code yet. |
+| **In Docker:** `ghcr.io/krintoxi/sofa` (Python 3.12 on Debian 13 with Debian's ffmpeg, a non-root user), `compose.yml` on the computer's own network, `./data` and `./media`; the first start points the library at `/media`; Updates says to pull a new image. | Works (one Linux VM, arm64) | `Dockerfile`, `compose.yml`, `deploy/docker/entrypoint.sh`, `.github/workflows/docker-image.yml`; `tests/test_docker.py`. The tested-on table has the one run. No Bonjour inside the container (SSDP works); no hardware encoding. |
+| Subtitle downloads, watch-together, photos, TV recording (HDHomeRun), Plex or Jellyfin history import | **Not built** | On the list in [HANDOFF.md](HANDOFF.md); nothing in the code yet. |
 
 **The Adult section** exists (its own front page, categories from your folders, a PIN, never shown to guests, TVs or
 visitors). It's documented in [adult.md](adult.md) and not on this page.

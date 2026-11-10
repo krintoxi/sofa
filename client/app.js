@@ -2925,27 +2925,29 @@ function srvSettings(d) {
 }
 function srvUpdate(d) {
   const u = d.update || {};
-  const cmd = "curl -fsSL https://raw.githubusercontent.com/" + esc((u.repo || "krintoxi/sofa@main").split("@")[0]) + "/main/tools/update.sh | sh";
+  const image = !!u.container;        // Sofa from a container image: a new image is pulled, nothing is swapped in place
+  const cmd = image ? "docker compose pull && docker compose up -d"
+    : "curl -fsSL https://raw.githubusercontent.com/" + esc((u.repo || "krintoxi/sofa@main").split("@")[0]) + "/main/tools/update.sh | sh";
   let state;
   if (u.running) state = `<div class="alert"><b>Updating…</b><span>${esc(u.step || "")}</span></div>`;
   else if (u.error) state = `<div class="alert bad"><b>The update didn't work.</b><span>${esc(u.error)} The old version is still running. Try again, or use the Terminal command below.</span></div>`;
   else if (u.done) state = `<div class="alert"><b>Updated. Sofa is restarting…</b><span>This page reloads by itself in a moment.</span></div>`;
   else if (u.rolled_back) state = `<div class="alert bad"><b>The last update was undone.</b><span>${esc(u.rolled_back)}</span></div>`;
-  else if (u.available) state = `<div class="alert"><b>A new version is ready${u.latest ? ": Sofa " + esc(u.latest) : ""}.</b><span>${esc(u.latest_message || "")}${u.latest_date ? " (" + esc(new Date(u.latest_date).toLocaleDateString()) + ")" : ""}</span></div>`;
+  else if (u.available) state = `<div class="alert"><b>A new version is ready${u.latest ? ": Sofa " + esc(u.latest) : ""}.</b><span>${esc(u.latest_message || "")}${u.latest_date ? " (" + esc(new Date(u.latest_date).toLocaleDateString()) + ")" : ""}${image ? " This Sofa runs from a container image, so it isn't updated here: on the computer that runs Docker, pull the new image and start it again (the command below)." : ""}</span></div>`;
   else if (u.checked) state = `<div class="alert soft"><b>You're up to date: Sofa ${esc(u.current || d.server.version)}${u.commit_date ? ", from " + esc(dateOf(u.commit_date)) : ""}.</b><span>Checked ${esc(ago(u.checked))}.</span></div>`;
   else state = `<div class="alert soft"><b>Not checked yet.</b></div>`;
   if (u.done) setTimeout(waitForRestart, 4000);
   return `<div class="panels"><div class="panel wide"><h2>Updates</h2>
-    <p class="hint">Updating replaces Sofa's own program files with the newest version from GitHub. <b>Your shows, movies, music, accounts, watch history and settings are not touched.</b> Sofa backs up its settings and keeps a copy of the old version first, so nothing is lost if something goes wrong.</p>
+    <p class="hint">${image ? "This Sofa runs from a container image, so an update is a new image: pull it and start it again on the computer that runs Docker. Nothing is swapped in place here." : "Updating replaces Sofa's own program files with the newest version from GitHub."} <b>Your shows, movies, music, accounts, watch history and settings are not touched.</b>${image ? "" : " Sofa backs up its settings and keeps a copy of the old version first, so nothing is lost if something goes wrong."}</p>
     ${state}${u.error && !u.running ? "" : ""}
     <dl class="kv"><dt>Running</dt><dd>Sofa ${esc(u.current || d.server.version)}${u.commit ? " · " + esc(u.commit.slice(0, 7)) : ""}${u.commit_date ? " · " + esc(dateOf(u.commit_date)) : ""}${u.installed_at ? `<small class="muted"> (installed ${esc(dateOf(u.installed_at * 1000))})</small>` : ""}</dd>
       <dt>Newest on GitHub</dt><dd>${u.latest ? "Sofa " + esc(u.latest) : "unknown"}${u.latest_commit ? " · " + esc(u.latest_commit.slice(0, 7)) : ""}${u.latest_date ? " · " + esc(dateOf(u.latest_date)) : ""}${u.latest_message ? `<small class="muted"> ${esc(u.latest_message)}</small>` : ""}</dd>
       ${u.box_os ? `<dt>For Sofa boxes</dt><dd>Sofa Box OS ${esc(u.box_os)}</dd>` : ""}
-      <dt>Updates with</dt><dd>${u.method === "git" ? "git (this folder is a git clone)" : "a download from GitHub"}</dd></dl>
-    <div class="actions" style="margin-top:16px">${u.available && !u.running ? `<button class="btn primary" data-update="install">Update now</button>` : ""}
+      <dt>Updates with</dt><dd>${image ? "a new container image (" + esc(String(u.container)) + ")" : u.method === "git" ? "git (this folder is a git clone)" : "a download from GitHub"}</dd></dl>
+    <div class="actions" style="margin-top:16px">${u.available && !u.running && !image ? `<button class="btn primary" data-update="install">Update now</button>` : ""}
       <button class="btn" data-update="check"${u.running ? " disabled" : ""}>Check again</button></div></div>
-    <div class="panel wide"><h2>Updating by hand</h2><p class="hint">If the button ever fails, or on a copy of Sofa older than this page, open Terminal on this computer and paste:</p>
-      <code class="cmd">${cmd}</code><p class="hint" style="margin-top:10px">It finds your Sofa folder, stops Sofa, saves a backup, updates, and starts it again. Details in the README.</p></div></div>`;
+    <div class="panel wide"><h2>${image ? "Updating the container" : "Updating by hand"}</h2><p class="hint">${image ? "In the folder with Sofa's compose.yml, on the computer that runs Docker:" : "If the button ever fails, or on a copy of Sofa older than this page, open Terminal on this computer and paste:"}</p>
+      <code class="cmd">${cmd}</code><p class="hint" style="margin-top:10px">${image ? "Docker fetches the new image and starts Sofa again from it; ./data and ./media stay as they are. Details in docs/install.md." : "It finds your Sofa folder, stops Sofa, saves a backup, updates, and starts it again. Details in the README."}</p></div></div>`;
 }
 async function waitForRestart() {
   for (let i = 0; i < 40; i++) {

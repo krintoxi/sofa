@@ -1,0 +1,32 @@
+# Sofa in Docker.
+#
+#     docker compose up -d
+#
+# then open http://<this computer>:8090 from a device at home and create the admin account. Your media goes in
+# ./media (Sofa makes Shows/, Movies/, Music/, Inbox/ and the rest there; drop new files in Inbox/) and everything
+# Sofa keeps (accounts, watch history, settings, artwork, backups) in ./data. Both folders must be writable by the
+# user below. Sofa's port is the `port` setting in ./data/config.json (8090 unless you change it).
+#
+# To update: docker compose pull && docker compose up -d   (Server → Updates says when there's a new version).
+services:
+  sofa:
+    image: ghcr.io/krintoxi/sofa:latest
+    build: .                        # no image to pull (or you changed Sofa): `docker compose up -d --build` builds it here
+    container_name: sofa
+    # The real home network, not Docker's own bridge. TVs and the Sofa apps find Sofa by SSDP (DLNA) and Bonjour,
+    # both of which need the computer's own interfaces; and "home network only", the TV sign-in from your phone
+    # and Guest access all go by the address a request comes from, which behind Docker's bridge would always be
+    # Docker's. (Bonjour itself needs avahi or dns-sd, which the image doesn't carry: apps fall back to SSDP, or
+    # you type the address.)
+    network_mode: host
+    # The user Sofa runs as inside: the one that owns ./data and ./media on this computer (`id -u` and `id -g`),
+    # so Sofa can write to them. Folders Docker makes itself (a first start in an empty folder) are handed to it.
+    #     PUID=1001 PGID=1001 docker compose up -d
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+    init: true                      # tidies ffmpeg's finished processes and passes signals on
+    volumes:
+      - ./data:/data                # Sofa's data/ folder: keep it (back it up: Server → Backups does, nightly)
+      - ./media:/media              # your library; another drive: add "- /mnt/bigdisk:/mnt/bigdisk" and Server → Storage sees it
+    restart: unless-stopped

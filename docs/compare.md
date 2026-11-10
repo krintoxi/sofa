@@ -9,7 +9,7 @@ line is out of date, [open an issue](https://github.com/krintoxi/sofa/issues/new
 player you build a setup around. Sofa is a server made for a household rather than a homelab: drop files in a folder
 and they come out named with posters, the TV signs in by approving it on your phone, your phone is the remote, there
 are no accounts with anyone, and it comes with its own TV box for a Raspberry Pi. It runs on a Mac or a Linux computer
-with Python and ffmpeg and nothing else. It is also weeks old, made by one person, source-available rather than open
+with Python and ffmpeg and nothing else, or in Docker. It is also weeks old, made by one person, source-available rather than open
 source, without hardware transcoding on Linux, without an Android TV or Apple TV app, and untested on a Pi 4 or 5.
 **Sofa does not do everything Jellyfin does, and doesn't try to.** Pick it for less to run, a household's habits, and
 the box.
@@ -21,7 +21,7 @@ the box.
 | **What it's for** | A household's own streaming service at home, and its own TV box | A full media server for people who run their own | A media server and a streaming service in one product | A media server, between Jellyfin and Plex | A player for one screen (LibreELEC: a whole OS for it), with add-ons for servers |
 | **Price** | Free for noncommercial use. No paid tier. | Free. Donations. | Free with limits; **Plex Pass** $6.99 a month, $69.99 a year, or $749.99 once (the lifetime price since 2026-07-01); remote streaming of your own library needs a Pass or the **Remote Watch Pass** at $1.99 a month since April 2025 [¹](#sources) | Free with limits; **Emby Premiere** $4.99 a month, $54 a year, $119 once [²](#sources) | Free |
 | **Licence** | Source-available: **PolyForm Noncommercial 1.0.0** (not an open-source licence by the OSI's definition). Read, change, share, run at home; selling it or boxes with it needs EdgeVenture's licence | Open source (GPL-2.0) [³](#sources) | Proprietary | Proprietary (the server); some apps open source | Open source (GPL-2.0-or-later) [⁴](#sources) |
-| **Hardware for the server** | A Mac (an old one is fine) or a Linux computer. **No Windows, no Docker image, no NAS packages** | Windows, macOS, Linux, Docker, FreeBSD, most NAS brands | Windows, macOS, Linux, Docker, NAS brands, NVIDIA Shield | Windows, macOS, Linux, Docker, NAS brands | No server: Kodi plays from folders, shares or another server |
+| **Hardware for the server** | A Mac (an old one is fine), a Linux computer, or Docker (`ghcr.io/krintoxi/sofa`, with a `compose.yml`; how a NAS or a Windows PC with Docker Desktop runs it). **No native Windows server, no NAS packages** | Windows, macOS, Linux, Docker, FreeBSD, most NAS brands | Windows, macOS, Linux, Docker, NAS brands, NVIDIA Shield | Windows, macOS, Linux, Docker, NAS brands | No server: Kodi plays from folders, shares or another server |
 | **Library and metadata** | An **Inbox**: drop files with download-style names and Sofa names them, files them into Shows and Movies, attaches subtitles and posters that came along, and deletes nothing. Details from TVmaze, the iTunes Store and Wikipedia, TMDB with your key, `.nfo` files; a still from the video when nothing is found | You name and sort folders by their guide; metadata from TMDB, TheTVDB and plugins | You name and sort folders by their guide; Plex's own metadata service | You name and sort folders; its own scrapers | You name and sort folders; scrapers per library |
 | **Formats and transcoding** | MP4 served as it is; MKV repackaged; HEVC, 10-bit, DTS and old codecs converted as they play and converted to MP4 in the background for next time. **Hardware encoding on Macs only** (VideoToolbox); software x264 on Linux | Transcodes on the fly; hardware acceleration (QSV, NVENC, AMF, VAAPI, VideoToolbox, RKMPP) at no charge [⁵](#sources) | Transcodes on the fly; hardware transcoding needs Plex Pass | Transcodes on the fly; hardware transcoding needs Premiere [²](#sources) | Plays almost anything itself; no transcoding (the client decodes) |
 | **Skip Intro** | Built in: from chapters, or by listening to neighbouring episodes (chromaprint). Recap and Credits too | Media segments in the server; detection through a plugin | Intro and credits detection need Plex Pass | Premiere | Add-ons |
@@ -57,7 +57,7 @@ the box.
 
 ## Pick Jellyfin, Plex or Emby if
 
-- you need Windows, Docker or a NAS;
+- you need a native Windows server or a NAS package (Sofa on a NAS or on Windows is its Docker image);
 - you want an app from the TV's own store on every TV, or hardware transcoding on a Linux box;
 - you record TV from a tuner, or want photos, plugins, or a client of your choice;
 - you want open source in the strict sense (Jellyfin), or the most polished apps on the most devices and don't mind
@@ -69,8 +69,8 @@ the box.
 
 ## What Sofa doesn't do yet
 
-The list, in order, is in [roadmap.md](roadmap.md). The biggest gaps against the others: no Windows or Docker, no
-store apps, no hardware transcoding on Linux, no tuner or recording, no subtitle downloads, no photos, no plugins,
+The list, in order, is in [roadmap.md](roadmap.md). The biggest gaps against the others: no native Windows server or NAS
+packages, no store apps, no hardware transcoding on Linux, no tuner or recording, no subtitle downloads, no photos, no plugins,
 and one tester on one Raspberry Pi.
 
 ## Sources

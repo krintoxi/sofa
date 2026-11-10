@@ -6,6 +6,17 @@ has its own numbers and list: [deploy/sofa-box/CHANGES.md](deploy/sofa-box/CHANG
 A change to Sofa's code (`sofa/`, `client/`, `sofa.py`) gets a new version: raise `__version__`, add a section
 here, then `python3 tools/sofa-version.py` (a test checks it was done).
 
+## 1.5.5 (2026-11-10)
+
+- **Sofa in Docker.** A `Dockerfile` (Python 3.12 on Debian 13 with Debian's ffmpeg, a non-root user, nothing else)
+  and a `compose.yml`: `docker compose up -d` with `./data` for Sofa's data and `./media` for the library, on the
+  computer's own network so TVs find it and the home-network rules work. The image is published as
+  `ghcr.io/krintoxi/sofa` on every change to main (`.github/workflows/docker-image.yml`). The first start writes a
+  `config.json` that points the library at `/media` (`deploy/docker/entrypoint.sh`).
+- In a container, **Server → Updates** says to pull the new image (`docker compose pull && docker compose up -d`)
+  instead of offering **Update now**, and the API refuses to swap files in place; the Updates tab shows the commit
+  the image was built from.
+
 ## 1.5.4 (2026-11-10)
 
 - **Licence: PolyForm Noncommercial 1.0.0** (`LICENSE`), copyright EdgeVenture. Sofa stays open to read, use, change

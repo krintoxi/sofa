@@ -44,6 +44,19 @@ AGENT = {"User-Agent": "Sofa updater (https://github.com/krintoxi/sofa)"}
 _state = {"checked": 0, "running": False, "step": None, "error": None, "done": None}
 _lock = threading.Lock()
 
+# Sofa from a container image (the Dockerfile sets SOFA_CONTAINER to the image's name): its code isn't swapped in
+# place, a new image is pulled instead, and the page says so.
+PULL = "docker compose pull && docker compose up -d"
+
+
+def in_container():
+    return bool(os.environ.get("SOFA_CONTAINER"))
+
+
+def container_note():
+    return ("This Sofa runs from a container image (%s), so it isn't updated in place: on the computer that runs "
+            "Docker, pull the new image and start it again:  %s" % (os.environ.get("SOFA_CONTAINER") or "Docker", PULL))
+
 
 def _repo():
     return config.get("update_repo"), config.get("update_branch")
@@ -109,7 +122,9 @@ def _local_commit():
         with open(STAMP_FILE) as f:
             return f.read().strip() or None
     except OSError:
-        return None
+        pass
+    sha = (os.environ.get("SOFA_COMMIT") or "").strip()            # an image: the commit it was built from
+    return sha if re.fullmatch(r"[0-9a-f]{40}", sha) else None
 
 
 def _vtuple(v):
@@ -154,7 +169,8 @@ def status():
     newer_version = bool(s.get("latest")) and _vtuple(s["latest"]) > _vtuple(__version__)
     other_commit = bool(s.get("latest_commit")) and bool(mine) and s["latest_commit"] != mine
     s.update(current=__version__, commit=mine, commit_date=_commit_date(mine, s), installed_at=_installed_at(),
-             box_os=_box_os(), method="git" if is_git_install() else "download",
+             box_os=_box_os(), container=os.environ.get("SOFA_CONTAINER") or False,
+             method="image" if in_container() else "git" if is_git_install() else "download",
              available=newer_version or other_commit or (not mine and bool(s.get("latest_commit"))
                                                          and _vtuple(s.get("latest")) >= _vtuple(__version__)),
              repo="%s@%s" % _repo())
@@ -359,6 +375,8 @@ def _run():
 
 
 def start_update():
+    if in_container():
+        raise RuntimeError(container_note())
     with _lock:
         if _state["running"]:
             return False
@@ -384,7 +402,8 @@ def _loop():
         try:
             s = check()
             if s.get("available"):
-                store.log("update", "A new version of Sofa is available (%s). Update it from the Server page." % (s.get("latest") or "newer"))
+                store.log("update", "A new version of Sofa is available (%s). %s" % (
+                    s.get("latest") or "newer", container_note() if in_container() else "Update it from the Server page."))
         except Exception:
             pass
         time.sleep(CHECK_EVERY)

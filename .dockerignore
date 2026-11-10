@@ -1,0 +1,23 @@
+# What the image carries: sofa/, client/, sofa.py, deploy/ (the Sofa Box files Sofa hands to boxes), roku/ (the
+# channel Sofa serves as /roku.zip), integrations/, LICENSE, NOTICE, TRADEMARKS.md, README.md. Not: anything of
+# yours, the tests, the other apps' sources, the docs with their pictures.
+.git
+.github
+.gitignore
+.dockerignore
+Dockerfile
+compose.yml
+data/
+vendor/
+docs/
+tests/
+tools/
+android/
+imager/
+workINprogress/
+**/__pycache__/
+**/*.pyc
+**/.DS_Store
+.sofa-*
+CHANGES.md
+CONTRIBUTING.md
