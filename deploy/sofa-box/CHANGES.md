@@ -17,8 +17,9 @@ GitHub builds the card and makes the release by itself.
   - **Plain Debian 13 (Trixie), x86-64 and arm64:** `other-hardware.sh` adds what Debian has in place of the Pi's parts.
     VA-API decoding for mpv and Chromium (Intel and AMD graphics; `/etc/chromium.d/sofa-box`), Debian's firmware packages
     for a laptop's Wi-Fi, graphics and sound where apt has them, and HDMI-CEC only through a Pulse-Eight USB adapter
-    (the CEC service waits for a `/dev/cec` instead of restarting for ever). No power or heat note without the Pi's
-    record; About says which system the box is built on.
+    (the CEC service waits for a `/dev/cec` instead of restarting for ever). Debian 13's Chromium dies at its start
+    without a `~/.config/chromium/Crash Reports` folder, so the box's user gets one; in a VM Chromium draws with its own
+    software renderer. No power or heat note without the Pi's record; About says which system the box is built on.
   - **`sudo sofa-box widevine`** (x86-64): Widevine for the DRM apps from Google Chrome's own package, into where Debian's
     Chromium looks. A chosen step, never part of an image; `sofa-box doctor` says whether it's there, and what the graphics
     chip decodes.

@@ -71,6 +71,16 @@ Run as root after the box's files are in place, `--image` while an image is buil
   rule that starts `sofa-box-cec.service` when any `/dev/cec` appears. The service itself gets a drop-in
   `ConditionPathExistsGlob=/dev/cec*`, so a PC without one has it skipped instead of restarting every five seconds
   for ever. The Pi's unit file is unchanged.
+- **Chromium's crash-reports folder:** Debian 13's Chromium (156.0.8078.79) dies the moment it starts when the user has
+  no `~/.config/chromium/Crash Reports` yet. It starts its crash handler without a database folder, the handler quits
+  (`chrome_crashpad_handler: --database is required` is the only message), and Chromium stops on a check that prints
+  nothing (`trap int3` in the kernel log). Found with `strace` inside the VM image: `access("…/Crash Reports") =
+  ENOENT`, the handler's exit, then `SIGTRAP`; headless, with and without the sandbox, with and without the GPU, all the
+  same; with the empty folder in place everything runs. The script makes the folder for the box's user. It looks like
+  a Debian packaging bug worth reporting (the owner's call); crash reports are never sent (the browser's rules).
+- **A virtual machine draws with SwiftShader:** when `systemd-detect-virt --vm` says so, `/etc/chromium.d/sofa-box` adds
+  `--use-gl=angle --use-angle=swiftshader --enable-unsafe-swiftshader`, Chromium's own software renderer, since a VM
+  mostly has no OpenGL to give (no virgl, VirtualBox without 3D). A real PC keeps its graphics chip.
 - **Widevine is not installed.** It is a separate, chosen step (below).
 
 ### Installing on an existing Debian 13 or Ubuntu
@@ -173,18 +183,28 @@ GitHub calls nested virtualization unsupported but it works there), builds the i
 
 - copies the image and makes two changes in the copy only: the kernel console on the serial port (`console=ttyS0`, the
   log is a file) and a oneshot service `sofa-box-vm-proof.service` running `tools/sofa-box-vm-proof.sh`;
-- starts QEMU with 2 GB, 2 cores, `virtio-vga` (a KMS device, so `cage` starts; no display), user-mode networking with the
-  phone remote's port 8092 forwarded;
+- starts QEMU with 2 GB, 2 cores, `virtio-vga` with a VNC display nobody looks at (so the virtual screen has a
+  connected output, 1280x800, for `cage` and Chromium), QEMU's monitor for a screenshot, and user-mode networking with
+  the phone remote's port 8092 forwarded;
 - the in-VM script waits for the box's helper on `127.0.0.1:8091` and prints `/box/api/info` (Sofa Box OS version, model
   "this computer", OS, `gen 0`) and `/box/home` (200); asks `box.localhost:8091/api/info`, which makes the helper start
   Sofa on the box, and prints Sofa's own `127.0.0.1:8095/api/info`; waits for `sofa-box.service` active, `cage` running and
   Chromium's DevTools port answering; prints the services, the CEC condition (skipped: no `/dev/cec`), `vainfo` (0 profiles),
   `sofa-box doctor`'s ticks, then `SOFA-BOX-PROOF done` and powers the VM off;
-- the host meanwhile asks the phone remote through the forwarded port, like a phone on the home network would;
+- the host meanwhile asks the phone remote through the forwarded port, like a phone on the home network would, and
+  takes a screenshot of the VM's screen (`screendump`) once the in-VM script has reported on the screen;
 - the step fails unless every `SOFA-BOX-PROOF` line is ok, `done` was printed, and the remote answered from outside.
 
+What the first boots found, fixed on the way (the runs are on the pull request): the proof unit was ordered after the
+target that wanted it (an ordering cycle); `/box/api/info` takes longer than 5 s on a box with no Bluetooth adapter
+(`bluetoothctl`'s 5 s wait, so the proof waits 40 s); and Debian's Chromium 156 dying at its start without its
+`Crash Reports` folder (§2), which took the image booted on this Mac under QEMU's emulation, the box's `sofa` user
+over SSH and `strace` to see. The setup screen of that locally booted copy of the GitHub-built image:
+
+![The Sofa Box setup screen in the x86-64 VM](images/sofa-box-vm-x86_64.png)
+
 The run's artifact `sofa-box-vm` (kept a week) holds `sofa-box-os-<VERSION>-x86_64.qcow2.xz`, `.img.xz`, the `.sha256`,
-the report, and `console-uefi.log` and `console-bios.log`. The job summary shows the report and the proof lines. **No
+the report, `console-uefi.log` and `console-bios.log`, and `screen-uefi.png` and `screen-bios.png`. The job summary shows the report and the proof lines. **No
 release is made**: the image is a run artifact only, the owner says if and when it is published.
 
 ### Trying it
@@ -270,7 +290,7 @@ of §3 in QEMU as GitHub boots it (no decoder, no Wi-Fi, no Bluetooth, no HDMI).
 
 | Capability | Pi 3 B+ | Pi 4 | Pi 5 | x86-64 PC | VM | Note |
 |---|---|---|---|---|---|---|
-| Home screen (the box's own, in cage + Chromium) | Works | Works | Works | Untested | Works | VM: proven (`/box/home` 200, cage up, DevTools answers). PC: the same packages, no real PC booted by this change. |
+| Home screen (the box's own, in cage + Chromium) | Works | Works | Works | Untested | Works | VM: proven (`/box/home` 200, cage up, DevTools answers, the setup screen in the screenshot). PC: the same packages, no real PC booted by this change. |
 | Sofa (a Sofa at home, a share link, Jellyfin/Emby/Plex) | Works | Works | Works | Untested | Works | VM: Sofa on the box answers `/api/info` and through the helper; a remote Sofa needs a network the test VM hasn't got. |
 | Sofa on this box ("This box") | Works | Works | Works | Untested | Works | VM: started by the helper on first visit, proven. |
 | Live TV | Works | Works | Works | Untested | Partly | Plays through mpv; in a VM in software only, and the test VM has no internet. |
