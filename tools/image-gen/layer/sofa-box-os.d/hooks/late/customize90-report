@@ -23,6 +23,6 @@ echo "First start: cloud-init $(dpkg-query -W -f='${Version}' cloud-init 2>/dev/
 echo "SSH: $(systemctl is-enabled ssh 2>/dev/null) (an empty file named ssh on the boot partition switches it on: sshswitch $(systemctl is-enabled sshswitch 2>/dev/null))"
 echo "Box files: $(ls /usr/local/lib/sofa-box /usr/local/lib/sofa-box/fonts | tr '\n' ' ')"
 EOF
-chroot "$ROOT" /bin/sh /tmp/sofa-box-report.sh > "$OUT/report-body.txt" 2>&1 || true
+chroot "$ROOT" /usr/bin/env SYSTEMD_OFFLINE=1 /bin/sh /tmp/sofa-box-report.sh > "$OUT/report-body.txt" 2>&1 || true
 rm -f "$ROOT/tmp/sofa-box-report.sh"
 cat "$OUT/report-body.txt"

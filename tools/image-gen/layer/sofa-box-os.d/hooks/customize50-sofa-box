@@ -19,9 +19,13 @@ mkdir -p "$ROOT/tmp/sofa/deploy"
 cp -r "$REPO/deploy/sofa-box" "$ROOT/tmp/sofa/deploy/"
 cp -r "$REPO/client" "$REPO/sofa" "$REPO/sofa.py" "$REPO/LICENSE" "$ROOT/tmp/sofa/"   # Sofa itself too, for "This box"
 
+# SYSTEMD_OFFLINE=1: rpi-image-gen's build runs in its own PID namespace, where systemctl doesn't see a chroot and
+# looks for a running systemd (install.sh's `systemctl daemon-reload` failed: "System has not been booted with
+# systemd"). Offline, systemctl does what it does in a chroot: enable, disable and set-default edit the files, and
+# daemon-reload is skipped. install.sh itself is unchanged.
 # SSH ends up off, as on Raspberry Pi OS (rpi-image-gen's openssh-server layer turns it on): an empty file named
 # ssh on the card's boot partition switches it on at the next start (sshswitch.service, from raspberrypi-sys-mods).
-chroot "$ROOT" /bin/sh -eu -c '
+chroot "$ROOT" /usr/bin/env SYSTEMD_OFFLINE=1 /bin/sh -eu -c '
   id -u sofabox >/dev/null 2>&1 || useradd -m -s /bin/bash sofabox
   passwd -l sofabox >/dev/null
   SOFA_BOX_USER=sofabox sh /tmp/sofa/deploy/sofa-box/install.sh --image ${1:+"$1"}
