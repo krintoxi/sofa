@@ -25,12 +25,12 @@ jobs:
       RPI_IMAGE_GEN_COMMIT: d2d5705bcb37284c4b08c0ce43c039b1f1004e25
       # grype, for the CVE report: pinned, and checked against its release's checksums
       GRYPE_VERSION: 0.121.0
-      # rpi-image-gen's work folder (the card's root, the image, caches): outside the folder that gets uploaded
-      SOFA_BOX_IMAGE_GEN_WORK: ${{ runner.temp }}/image-gen-work
     steps:
       - uses: actions/checkout@v4
       - name: rpi-image-gen at the pinned commit, and what it needs
         run: |
+          # rpi-image-gen's work folder (the card's root, the image, caches): outside the folder that gets uploaded
+          echo "SOFA_BOX_IMAGE_GEN_WORK=$RUNNER_TEMP/image-gen-work" >> "$GITHUB_ENV"
           git init -q "$RUNNER_TEMP/rpi-image-gen"
           cd "$RUNNER_TEMP/rpi-image-gen"
           git fetch -q --depth 1 https://github.com/raspberrypi/rpi-image-gen.git "$RPI_IMAGE_GEN_COMMIT"
