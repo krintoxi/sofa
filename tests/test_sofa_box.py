@@ -1584,7 +1584,7 @@ class BoxBrowser(unittest.TestCase):
         self.assertEqual(maps, [[6, "boss", True, True]] * 4)
         once = json.loads(js("""(() => { VD.start('vagrant', [{ pad: 0 }]); VD.openMap(); VD.RUN.map[0].forEach(s => s.type = 'fight'); VD.goNode(VD.nextNodes()[0]); VD.goNode(0); return JSON.stringify([VD.RUN.col, VD.mode]); })()"""))
         self.assertEqual(once, [0, "fading"])                          # (a sector chosen once, however often it's pressed while the screen fades)
-        fight = json.loads(js("""(() => { VD.start('vagrant', [{ pad: 0, bot: true }]); VD.RUN.weapons = [{ id: 'missile', lvl: 3 }]; VD.PL[0].hull = VD.PL[0].max = 600; VD.fly('fight'); VD.sim(180); const a = VD.mode;
+        fight = json.loads(js("""(() => { VD.start('vagrant', [{ pad: 0, bot: true }]); VD.RUN.weapons = [{ id: 'missile', lvl: 3 }]; VD.PL[0].hull = VD.PL[0].max = 2000; VD.fly('fight'); VD.sim(360); const a = VD.mode;
                VD.start('vagrant', [{ pad: 0, bot: true }]); VD.fly('mine'); VD.sim(60); return JSON.stringify([a, VD.mode, VD.RUN.ore > 0]); })()"""))
         self.assertEqual(fight, ["fading", "fading", True])
         bosses = json.loads(js("""JSON.stringify([0, 1, 2, 3].map(z => { VD.start('vagrant', [{ pad: 0, bot: true }]); VD.RUN.zone = z; VD.RUN.weapons = [{ id: 'missile', lvl: 3 }];
@@ -1613,6 +1613,64 @@ class BoxBrowser(unittest.TestCase):
         self.assertTrue(until("typeof VD === 'object' && window.SofaStats.demo === true && !!VD.RUN", 30))
         self.assertTrue(until("VD.RUN && (VD.RUN.col >= 0 || VD.RUN.kills > 0)", 60))        # it flies by itself (chooses its own way on the map)
         self.assertIsNone(js("localStorage.getItem('void-drifter')"))                          # and keeps nothing
+
+    def test_cosmic_cascade_plays(self):
+        """Cosmic Cascade in the box's browser: three of a colour in any line clear (across, down, slanting; a wild for
+        any), a stone beside a match breaks, what falls into place clears again as a chain; all sixty puzzles can be
+        solved with the gems they give (and start with nothing lined up), a solved one is kept, the hint finds a way;
+        endless gets faster and ends, its best kept; in versus a big clear sends stones across, the sky falls in a
+        long round, and a match against the computer is played to two wins; the board of the day is the same for
+        everyone that day; the demo plays by itself and keeps nothing."""
+        self.post("/box/api/open", {"url": self.base + "/box/games/cosmic-cascade/#test"})
+        js = lambda e: self.page_value("/box/games/cosmic-cascade", e)
+
+        def until(expr, secs=30):
+            end = time.time() + secs
+            while time.time() < end:
+                try:
+                    if js(expr):
+                        return True
+                except (StopIteration, OSError, KeyError):
+                    pass
+                time.sleep(0.3)
+            return False
+        self.assertTrue(until("typeof CC === 'object' && CC.mode === 'title'"))
+        js("window.errs = []; addEventListener('error', e => errs.push(String(e.message))); 1")
+        rules = json.loads(js("""(() => { const C = CC.COLS, R = CC.ROWS, at = (g, r, c, v) => g[r * C + c] = v, out = {};
+               let g = new Uint8Array(C * R); at(g, 13, 0, 1); at(g, 13, 1, 1); out.across = CC.drop(g, 2, 1).cleared;
+               g = new Uint8Array(C * R); at(g, 13, 0, 2); at(g, 12, 0, 2); out.down = CC.drop(g, 0, 2).cleared;
+               g = new Uint8Array(C * R); at(g, 13, 0, 3); at(g, 13, 1, 4); at(g, 12, 1, 3); at(g, 13, 2, 4); at(g, 12, 2, 4); out.slant = CC.drop(g, 2, 3).cleared;
+               g = new Uint8Array(C * R); at(g, 13, 0, 5); at(g, 13, 1, CC.WILD); out.wild = CC.drop(g, 2, 5).cleared;
+               g = new Uint8Array(C * R); at(g, 13, 0, 6); at(g, 13, 1, 6); at(g, 12, 2, CC.STONE); at(g, 13, 2, 1); const r = CC.drop(g, 3, 6); out.stoneStays = g[12 * C + 2] === CC.STONE;
+               g = new Uint8Array(C * R); at(g, 13, 0, 6); at(g, 13, 1, 6); at(g, 13, 3, CC.STONE); out.stone = CC.drop(g, 2, 6).stones;
+               g = new Uint8Array(C * R); at(g, 13, 0, 1); at(g, 13, 1, 1); at(g, 13, 2, 3); at(g, 12, 2, 1); at(g, 13, 4, 3);
+               out.chain = CC.drop(g, 3, 3).chains; return JSON.stringify(out); })()"""))
+        self.assertEqual(rules, {"across": 3, "down": 3, "slant": 3, "wild": 3, "stoneStays": True, "stone": 1, "chain": 2})
+        puzzles = json.loads(js("""JSON.stringify(CC.PUZZLES.map((p, i) => { const P = CC.decodePuzzle(i), g = P.g.slice(); const flat = !CC.findMatches(P.g) && CC.starsLeft(P.g) > 0;
+               P.sol.forEach((c, k) => CC.drop(g, c, P.seq[k])); return flat && CC.starsLeft(g) === 0 && P.sol.length <= P.seq.length; }))"""))
+        self.assertEqual((len(puzzles), all(puzzles)), (60, True))
+        solved = json.loads(js("""(() => { CC.startGame({ kind: 'puzzle', puzzle: 4 }); const b = CC.B[0], P = CC.decodePuzzle(4); const h = CC.hint(b);
+               for (const c of P.sol) { b.piece.c = c; CC.land(b); CC.sim(2); if (b.won) break; } CC.sim(0.2);
+               return JSON.stringify([h != null, b.won, !!JSON.parse(localStorage.getItem('cosmic-cascade')).solved['4']]); })()"""))
+        self.assertEqual(solved, [True, True, True])
+        endless = json.loads(js("""(() => { CC.startGame({ kind: 'endless' }); const b = CC.B[0]; b.ctl = null; b.ai = { lvl: 2 }; CC.sim(120); const lv = b.level, sc = b.score;
+               b.ai = null; b.ctl = { held: () => false, take: b => b === 'a', x: () => 0, y: () => 0 }; CC.sim(120);
+               return JSON.stringify([lv > 1, sc > 0, b.over, JSON.parse(localStorage.getItem('cosmic-cascade')).endless.score === b.score]); })()"""))
+        self.assertEqual(endless, [True, True, True, True])
+        vs = json.loads(js("""(() => { CC.startGame({ kind: 'cpu', cpu: 1 }); const [a, b] = CC.B; const C = CC.COLS; a.g.fill(0); for (const c of [0, 1, 3, 4]) a.g[13 * C + c] = 1; a.piece.v = 1; a.piece.c = 2; const j0 = b.junk; CC.land(a); CC.sim(1.5); const sent = b.junk + 0 > j0 || b.g.includes(CC.STONE);
+               a.ctl = null; a.ai = { lvl: 2 }; CC.GAME.rt = 89; CC.sim(7); const sky = CC.GAME.sky > 0;
+               b.ai = { lvl: 0 }; let t = 0; while (t < 600 && CC.GAME.ended !== true) { CC.sim(5); t += 5; }
+               return JSON.stringify([sent, sky, CC.GAME.ended, Math.max(a.wins, b.wins)]); })()"""))
+        self.assertEqual(vs, [True, True, True, 2])
+        daily = json.loads(js("""(() => { CC.startGame({ kind: 'daily' }); const a = CC.B[0].next.concat([CC.B[0].piece.v]).join(); CC.startGame({ kind: 'daily' }); const b = CC.B[0].next.concat([CC.B[0].piece.v]).join();
+               CC.GAME.t = 179.9; CC.sim(0.5); return JSON.stringify([a === b, CC.B[0].over, CC.GAME.ended]); })()"""))
+        self.assertEqual(daily, [True, True, True])
+        self.assertEqual(js("JSON.stringify(errs)"), "[]")
+        js("localStorage.removeItem('cosmic-cascade'); location.hash = '#demo-test'; location.reload(); 1")
+        time.sleep(1)
+        self.assertTrue(until("typeof CC === 'object' && window.SofaStats.demo === true && CC.mode === 'play'", 30))
+        self.assertTrue(until("CC.B.length === 2 && CC.B[0].score + CC.B[1].score > 0", 40))      # two computers play
+        self.assertIsNone(js("localStorage.getItem('cosmic-cascade')"))                          # and nothing's kept
 
     def test_gloamwell_finds(self):
         """Gloamwell's finds: a gem set in a socket gives its power and is kept through a save; a hidden vault's

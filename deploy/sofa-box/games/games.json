@@ -9,7 +9,7 @@
   {"id": "micro-drifters", "name": "Micro Drifters", "emoji": "🏁", "color": "#E0405A", "about": "Top-down racing for one to four: twelve tracks in four settings, cups, time trials against your ghost, and Knockout."},
   {"id": "neon-brawler", "name": "Neon Brawler", "emoji": "🥊", "color": "#FF2E88", "about": "A street beat 'em up through a city at night: five stages, three fighters, four bosses, one player or two together."},
   {"id": "void-drifter", "name": "Void Drifter", "emoji": "🚀", "color": "#7AD8F0", "about": "A space run for one or two: a sector map of choices, six weapons, eight modules, four bosses, ships to unlock."},
-  {"id": "cosmic-cascade", "name": "Cosmic Cascade", "emoji": "🌠", "color": "#3CC8D8", "about": "Drop gems, match three of a colour, and let the sweeping beam clear the board."},
+  {"id": "cosmic-cascade", "name": "Cosmic Cascade", "emoji": "🌠", "color": "#3CC8D8", "about": "Falling gems for one or two: endless, sixty puzzle boards, versus with stones sent across, and a board of the day."},
   {"id": "tidewing", "name": "Tidewing", "emoji": "🌊", "color": "#2E9BD6", "about": "Race a skimmer over open water: twelve courses in three cups, time trials and two players on one screen, in low-poly 3D tuned to your box."},
   {"id": "ironmaw", "name": "Ironmaw", "emoji": "🔥", "color": "#C2461E", "about": "A fast old-style shooter in a foundry under the ice: nine levels, seven weapons, and an arena against bots, alone or on a split screen."}
 ],

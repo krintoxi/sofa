@@ -320,6 +320,7 @@ class TheEngine(unittest.TestCase):
         self.assertIn("shadow-heist", on_2d)
         self.assertIn("rune-tactics", on_2d)
         self.assertIn("void-drifter", on_2d)
+        self.assertIn("cosmic-cascade", on_2d)
         for gid in on_2d:                                                 # pad.js, then Low3D, then Low2D on top of it
             html = self.read(gid, "index.html")
             self.assertLess(html.index('src="../pad.js"'), html.index('src="../low3d.js"'), gid)

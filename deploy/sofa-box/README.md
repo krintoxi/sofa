@@ -431,7 +431,13 @@ song in the box's player, or shows a picture; **Menu** renames, moves or deletes
   fire with the right (or press A to fire at what's nearest, leading it); B dashes, Y swaps weapons, X sets off a
   bomb. One ship, or two flying together: a second controller joins in the hangar or with Start mid-run, and can
   bring a downed ship back by flying close.
-- More of the box's own games, each a page that plays offline with the controller: **Cosmic Cascade** (a falling-gems puzzle), and the small ones,
+- **Cosmic Cascade**, a falling-gems puzzle: three or more of a colour in a line clear (across, down or slanting; a
+  wild gem stands in for any), and what falls into place can clear again as a chain. Endless (faster with each
+  level), sixty puzzle boards in six chapters (clear every starred gem with the gems you're given; Y for a hint, B
+  to start again), versus (two players, or against the computer at three levels: big clears and chains send stones
+  across, and after a minute and a half the sky falls) and a board of the day, the same for everyone. Y holds a gem
+  for later; a full star meter fires a beam down a column (X). Records kept on the box.
+- More of the box's own games, each a page that plays offline with the controller: the small ones,
   **Neon Dodge**, **Pair Up** and **Sky Hop**.
 - **How smoothly each game runs on your box**: the graphics check (`127.0.0.1:8091/box/games/probe/` in the box's
   browser) has a **Games check**. It plays each of the box's own games for 15 seconds, one after another (about

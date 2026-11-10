@@ -1,1212 +1,548 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<title>Cosmic Cascade</title>
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Cosmic Cascade</title>
 <style>
-*{margin:0;padding:0;box-sizing:border-box;}
-body{background:#000;display:flex;align-items:center;justify-content:center;width:100vw;height:100vh;overflow:hidden;}
-canvas{image-rendering:pixelated;image-rendering:crisp-edges;}
-</style>
-</head>
-<body>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; user-select: none; }
+  canvas { position: absolute; image-rendering: pixelated; }
+</style></head><body>
 <canvas id="c"></canvas>
-<script src="../pad.js" onerror="window._padMissing=true"></script>
+<script src="../pad.js"></script>
+<script src="../low3d.js"></script>
+<script src="../low2d.js"></script>
 <script>
-// ─── PALETTE ───────────────────────────────────────────────────────────────
-const PAL={k:"#0d0b14",K:"#241d2e",g:"#5a5468",G:"#9a94a8",w:"#ece8f4",
-  s:"#e0a67a",S:"#a86a48",r:"#c8303a",R:"#7a1a26",o:"#ee8a3a",O:"#9a4a1e",
-  y:"#f2c14e",Y:"#a87a1e",b:"#4a78c8",B:"#243c78",c:"#7ad8f0",C:"#2e6e8a",
-  n:"#6e4c2e",N:"#3e2a1a",e:"#5aa04a",E:"#2e5a2a",p:"#8a4ab0",P:"#4a2468",
-  m:"#e2d49c",M:"#a89860",v:"#b8e070",x:"#ff5a8a",t:"#d0c4b0",T:"#7e6e5c",z:"rgba(0,0,0,0.42)"};
+/* Cosmic Cascade: a falling-gems puzzle for Sofa Box OS, on Low2D (../low2d.js), the box's 2D engine. Gems fall one
+   at a time; three or more of a colour in a line (across, down or slanting; a wild gem stands in for any) clear, and
+   what falls into place after can clear again, a chain. A star meter fills as you clear and fires a beam down a
+   column. Endless (faster as you go), sixty puzzle boards (clear the starred gems with the gems you're given), versus
+   (two players, or against the computer: big clears and chains send stones across) and a board of the day. Records
+   kept on the box. Everything is the game's own and made in code. Offline, the controller first (or the keyboard).
+   In the address: #fps, #tier=…, #pace=…, #slow=N, #test (window.CC, for checks), #demo (two computers play). */
+(function () {
+"use strict";
+const L2 = window.Low2D, U = L2.U, clamp = U.clamp, font = L2.font, mk = L2.mk;
+const VW = 480, VH = 270, CELL = 14, DT = 1 / 60;
+const rnd = Math.random;
+function g2(c) { const g = c.getContext("2d"); g.imageSmoothingEnabled = false; return g; }
+function px(g, x, y, w, h, c) { g.fillStyle = c; g.fillRect(x, y, w, h); }
+function shade(h, k) { const v = parseInt(h.slice(1), 16), c = [(v >> 16) & 255, (v >> 8) & 255, v & 255]; return "#" + c.map(q => Math.max(0, Math.min(255, Math.round(q * k))).toString(16).padStart(2, "0")).join(""); }
 
-// ─── CANVAS SETUP ──────────────────────────────────────────────────────────
-const W=480,H=270;
-const canvas=document.getElementById("c");
-canvas.width=W;canvas.height=H;
-const ctx=canvas.getContext("2d");
-ctx.imageSmoothingEnabled=false;
-function scaleCanvas(){
-  const sx=Math.floor(window.innerWidth/W),sy=Math.floor(window.innerHeight/H);
-  const sc=Math.max(1,Math.min(sx,sy));
-  canvas.style.width=(W*sc)+"px";canvas.style.height=(H*sc)+"px";
-}
-scaleCanvas();
-window.addEventListener("resize",scaleCanvas);
-
-function mk(w,h){const c=document.createElement("canvas");c.width=w;c.height=h;return c;}
-function g2(c){const g=c.getContext("2d");g.imageSmoothingEnabled=false;return g;}
-function spr(rows,over){
-  let w=0;for(let i=0;i<rows.length;i++)w=Math.max(w,rows[i].length);
-  const c=mk(w,rows.length),g=g2(c);
-  for(let y=0;y<rows.length;y++)for(let x=0;x<rows[y].length;x++){
-    const ch=rows[y][x];if(ch===".")continue;
-    const col=(over&&over[ch])||PAL[ch];if(!col)continue;
-    g.fillStyle=col;g.fillRect(x,y,1,1);
-  }
-  return c;
-}
-
-// ─── BAYER DITHER ──────────────────────────────────────────────────────────
-const BAYER=[[0,8,2,10],[12,4,14,6],[3,11,1,9],[15,7,13,5]];
-function ditherDisc(ctx,cx,cy,r,hexCol,maxAlpha){
-  const r2=r*r;
-  const x0=Math.floor(cx-r),x1=Math.ceil(cx+r);
-  const y0=Math.floor(cy-r),y1=Math.ceil(cy+r);
-  for(let py=y0;py<=y1;py++){
-    for(let px=x0;px<=x1;px++){
-      const dx=px-cx,dy=py-cy,d2=dx*dx+dy*dy;
-      if(d2>r2)continue;
-      const dist=Math.sqrt(d2)/r;
-      const alpha=maxAlpha*(1-dist);
-      const thr=BAYER[py&3][px&3]/16;
-      if(alpha>thr){ctx.fillStyle=hexCol;ctx.fillRect(px,py,1,1);}
-    }
-  }
-}
-function ditherRect(ctx,x,y,w,h,hexCol,alpha){
-  for(let py=y;py<y+h;py++){
-    for(let px=x;px<x+w;px++){
-      const thr=BAYER[py&3][px&3]/16;
-      if(alpha>thr){ctx.fillStyle=hexCol;ctx.fillRect(px,py,1,1);}
-    }
-  }
-}
-
-// ─── 5×7 BITMAP FONT ───────────────────────────────────────────────────────
-const FONT_MAP={
-    "\u2715":["00000","10001","01010","00100","01010","10001","00000"],
-    "\u25cb":["00000","01110","10001","10001","10001","01110","00000"],
-    "\u25a1":["00000","11111","10001","10001","10001","11111","00000"],
-    "\u25b3":["00000","00100","01010","01010","10001","11111","00000"],
-
-  "A":["01110","10001","10001","11111","10001","10001","10001"],
-  "B":["11110","10001","10001","11110","10001","10001","11110"],
-  "C":["01111","10000","10000","10000","10000","10000","01111"],
-  "D":["11110","10001","10001","10001","10001","10001","11110"],
-  "E":["11111","10000","10000","11110","10000","10000","11111"],
-  "F":["11111","10000","10000","11110","10000","10000","10000"],
-  "G":["01111","10000","10000","10111","10001","10001","01111"],
-  "H":["10001","10001","10001","11111","10001","10001","10001"],
-  "I":["11111","00100","00100","00100","00100","00100","11111"],
-  "J":["11111","00001","00001","00001","00001","10001","01110"],
-  "K":["10001","10010","10100","11000","10100","10010","10001"],
-  "L":["10000","10000","10000","10000","10000","10000","11111"],
-  "M":["10001","11011","10101","10001","10001","10001","10001"],
-  "N":["10001","11001","10101","10011","10001","10001","10001"],
-  "O":["01110","10001","10001","10001","10001","10001","01110"],
-  "P":["11110","10001","10001","11110","10000","10000","10000"],
-  "Q":["01110","10001","10001","10001","10101","10010","01101"],
-  "R":["11110","10001","10001","11110","10100","10010","10001"],
-  "S":["01111","10000","10000","01110","00001","00001","11110"],
-  "T":["11111","00100","00100","00100","00100","00100","00100"],
-  "U":["10001","10001","10001","10001","10001","10001","01110"],
-  "V":["10001","10001","10001","10001","10001","01010","00100"],
-  "W":["10001","10001","10001","10101","10101","11011","10001"],
-  "X":["10001","01010","00100","00100","00100","01010","10001"],
-  "Y":["10001","10001","01010","00100","00100","00100","00100"],
-  "Z":["11111","00001","00010","00100","01000","10000","11111"],
-  "0":["01110","10001","10011","10101","11001","10001","01110"],
-  "1":["00100","01100","00100","00100","00100","00100","01110"],
-  "2":["01110","10001","00001","00110","01000","10000","11111"],
-  "3":["11110","00001","00001","01110","00001","00001","11110"],
-  "4":["00010","00110","01010","10010","11111","00010","00010"],
-  "5":["11111","10000","10000","11110","00001","00001","11110"],
-  "6":["01111","10000","10000","11110","10001","10001","01110"],
-  "7":["11111","00001","00010","00100","01000","01000","01000"],
-  "8":["01110","10001","10001","01110","10001","10001","01110"],
-  "9":["01110","10001","10001","01111","00001","00001","11110"],
-  "!":["00100","00100","00100","00100","00100","00000","00100"],
-  "-":["00000","00000","00000","11111","00000","00000","00000"],
-  ":":["00000","00100","00000","00000","00000","00100","00000"],
-  ".":["00000","00000","00000","00000","00000","00000","00100"],
-  "×":["00000","10001","01010","00100","01010","10001","00000"],
-  " ":["00000","00000","00000","00000","00000","00000","00000"],
-  "*":["00000","10101","01110","11111","01110","10101","00000"],
-  "/":["00001","00001","00010","00100","01000","10000","10000"],
-  "+":["00000","00100","00100","11111","00100","00100","00000"],
-  "#":["01010","01010","11111","01010","11111","01010","01010"],
-  ">":["10000","01000","00100","00010","00100","01000","10000"],
-  "<":["00001","00010","00100","01000","00100","00010","00001"],
-};
-// the letters: each drawn once in each colour, then copied (far cheaper on a Pi than every pixel, every frame)
-let GLYPHS={}, glyphCols=0;
-function glyphOf(ch,col){
-  let set=GLYPHS[col];
-  if(!set){ if(++glyphCols>48){ GLYPHS={}; glyphCols=1; } set=GLYPHS[col]={}; }
-  let c=set[ch]; if(c) return c;
-  const glyph=FONT_MAP[ch]||FONT_MAP[" "];
-  c=document.createElement("canvas"); c.width=5; c.height=7; const g=c.getContext("2d"); g.fillStyle=col;
-  for(let gy=0;gy<7;gy++){ const row=glyph[gy]||"00000"; for(let gx=0;gx<5;gx++) if(row[gx]==="1") g.fillRect(gx,gy,1,1); }
-  return set[ch]=c;
-}
-function drawText(ctx,str,x,y,col,scale,shadow){
-  scale=scale||1; const s=str.toUpperCase(); col=col||PAL.w;
-  let cx=x;
-  for(let i=0;i<s.length;i++){
-    const ch=s[i];
-    if(ch!==" "){ if(shadow) ctx.drawImage(glyphOf(ch,PAL.k),cx+scale,y+scale,5*scale,7*scale); ctx.drawImage(glyphOf(ch,col),cx,y,5*scale,7*scale); }
-    cx+=6*scale;
-  }
-}
-function textWidth(str,scale){return str.length*(5+1)*(scale||1);}
-function drawCenter(ctx,str,y,col,scale){
-  const tw=textWidth(str,scale);
-  drawText(ctx,str,Math.floor((W-tw)/2),y,col,scale,true);
-}
-
-// ─── SPRITES ───────────────────────────────────────────────────────────────
-const SPRITES={};
-function buildSprites(){
-  // GEM RED (Ruby)
-  SPRITES.gem_red=spr([
-    ".....kkkk.....",
-    "....krrrrrk...",
-    "...krwwrrrrrk.",
-    "..kkrwwrrrRrrk",
-    "..krrrrrrrrRRk",
-    "..krrrrrRRRRRk",
-    "..krrrRRRRRkkk",
-    "..krRRRRRkk...",
-    "..kkRRRkk.....",
-    "...kRRk.......",
-    "....kk........",
-    "..............",
-    "..............",
-    "..............",
-  ]);
-  // GEM BLUE (Sapphire)
-  SPRITES.gem_blue=spr([
-    ".....kkkk.....",
-    "....kbbbbbk...",
-    "...kbcbbbbbk..",
-    "..kkbcbbbbBbbk",
-    "..kbbbbbbbBBBk",
-    "..kbbbbbBBBBBk",
-    "..kbbbBBBBBkkk",
-    "..kbBBBBBkk...",
-    "..kkBBBkk.....",
-    "...kBBk.......",
-    "....kk........",
-    "..............",
-    "..............",
-    "..............",
-  ]);
-  // GEM CYAN (Aquamarine)
-  SPRITES.gem_cyan=spr([
-    ".....kkkk.....",
-    "....kccccck...",
-    "...kcwccccck..",
-    "..kkcwcccccCck",
-    "..kcccccccCCCk",
-    "..kcccccCCCCCk",
-    "..kccCCCCCkkkk",
-    "..kcCCCCCkk...",
-    "..kkCCCkk.....",
-    "...kCCk.......",
-    "....kk........",
-    "..............",
-    "..............",
-    "..............",
-  ]);
-  // GEM GREEN (Emerald)
-  SPRITES.gem_green=spr([
-    ".....kkkk.....",
-    "....keeeek....",
-    "...keveeeeek..",
-    "..kkeveeeeEek.",
-    "..keeeeeeeEEk.",
-    "..keeeeeEEEEk.",
-    "..keeeEEEEkkk.",
-    "..keEEEEkk....",
-    "..kkEEkk......",
-    "...kEk........",
-    "....kk........",
-    "..............",
-    "..............",
-    "..............",
-  ]);
-  // GEM YELLOW (Topaz)
-  SPRITES.gem_yellow=spr([
-    ".....kkkk.....",
-    "....kyyyyk....",
-    "...kmyyyyyk...",
-    "..kkmyyyyYyk..",
-    "..kyyyyyyyyYk.",
-    "..kyyyyYYYYYk.",
-    "..kyyyYYYYkkk.",
-    "..kyYYYYkk....",
-    "..kkYYkk......",
-    "...kYk........",
-    "....kk........",
-    "..............",
-    "..............",
-    "..............",
-  ]);
-  // GEM PURPLE (Amethyst)
-  SPRITES.gem_purple=spr([
-    ".....kkkk.....",
-    "....kppppk....",
-    "...kpxpppppk..",
-    "..kkpxpppPppk.",
-    "..kpppppppPPk.",
-    "..kpppppPPPPk.",
-    "..kpppPPPPkkk.",
-    "..kpPPPPkk....",
-    "..kkPPkk......",
-    "...kPk........",
-    "....kk........",
-    "..............",
-    "..............",
-    "..............",
-  ]);
-  // GEM WILD (Rainbow)
-  SPRITES.gem_wild=spr([
-    ".....kkkk.....",
-    "....kwwwwk....",
-    "...krybcppk...",
-    "..kkrycbppgk..",
-    "..kybcpprybk..",
-    "..kbcpprybck..",
-    "..kcpprybckk..",
-    "..kpprybckk...",
-    "..kkrybkk.....",
-    "...kybk.......",
-    "....kk........",
-    "..............",
-    "..............",
-    "..............",
-  ]);
-  // GEM SHATTER (fragment)
-  SPRITES.gem_shatter=spr([
-    "..............",
-    "....k..k......",
-    "...kRk.kr.....",
-    "..kRRk..krk...",
-    ".kRRk....krk..",
-    "kRRk......k...",
-    "..............",
-    "..............",
-    "..............",
-    "..............",
-    "..............",
-    "..............",
-    "..............",
-    "..............",
-  ]);
-  // STAR ICON
-  SPRITES.star_icon=spr([
-    "...y....",
-    "..yyy...",
-    "yyyYyyy.",
-    ".yyyyy..",
-    "..yyy...",
-    ".y.y.y..",
-    "y.....y.",
-    "........",
-  ]);
-  // CROWN ICON
-  SPRITES.crown_icon=spr([
-    "y.y.y.....",
-    "yyyyyyy...",
-    "yyyyyyy...",
-    "yyyyyyy...",
-    "yyyyyyy...",
-    "yyyyyyy...",
-    "mmmmmmm...",
-    "mmmmmmm...",
-  ]);
-  // STARFIELD TILES
-  SPRITES.starfield_1=spr([
-    "k.......","........","...k....","........",
-    "......k.","..k.....","........","....k..."
-  ]);
-  SPRITES.starfield_2=spr([
-    "........",".k......","........","......k.",
-    "...k....","........",".....k..","........"
-  ]);
-  // NEBULA PATCH
-  SPRITES.nebula_patch=spr([
-    "................",
-    ".K..............",
-    "..KP............",
-    "...KPp..........",
-    "....Ppc.........",
-    ".....pcC........",
-    "......cCB.......",
-    "................",
-  ]);
-  // NEXT GEM FRAME
-  SPRITES.next_gem_frame=spr([
-    "gggggggg",
-    "g......g",
-    "g......g",
-    "g......g",
-    "g......g",
-    "g......g",
-    "g......g",
-    "gggggggg",
-  ]);
-}
-
-// ─── WEB AUDIO ─────────────────────────────────────────────────────────────
-let audioCtx=null;
-function ensureAudio(){
-  if(!audioCtx)audioCtx=new(window.AudioContext||window.webkitAudioContext)();
-  return audioCtx;
-}
-function playTone(freq,type,dur,vol,delay,when){
-  const ac=ensureAudio();
-  const t=(when||ac.currentTime)+(delay||0);
-  const osc=ac.createOscillator();
-  const gain=ac.createGain();
-  osc.connect(gain);gain.connect(ac.destination);
-  osc.type=type||"sine";
-  osc.frequency.setValueAtTime(freq,t);
-  gain.gain.setValueAtTime(vol||0.15,t);
-  gain.gain.exponentialRampToValueAtTime(0.0001,t+dur);
-  osc.start(t);osc.stop(t+dur+0.01);
-}
-function sfxLand(){playTone(180,"triangle",0.08,0.1);}
-function sfxMatch(gemColor){
-  const notes={r:261.6,b:329.6,c:392,e:440,y:523.2,p:659.3};
-  const f=notes[gemColor]||261.6;
-  playTone(f,"sine",0.2,0.15);
-  playTone(f*1.5,"sine",0.15,0.07,0.05);
-}
-function sfxChain(len){
-  const base=261.6;
-  for(let i=0;i<len;i++){
-    playTone(base*Math.pow(1.2,i),"sine",0.15,0.12,i*0.08);
-  }
-}
-function sfxBeamFire(){
-  const ac=ensureAudio();
-  const t=ac.currentTime;
-  const osc=ac.createOscillator();
-  const gain=ac.createGain();
-  osc.connect(gain);gain.connect(ac.destination);
-  osc.type="sine";
-  osc.frequency.setValueAtTime(200,t);
-  osc.frequency.linearRampToValueAtTime(800,t+0.4);
-  gain.gain.setValueAtTime(0.15,t);
-  gain.gain.exponentialRampToValueAtTime(0.0001,t+0.4);
-  osc.start(t);osc.stop(t+0.5);
-}
-function sfxBeamFusion(){
-  const scale=[523.2,587.3,659.3,784,880];
-  for(let i=0;i<scale.length;i++){
-    playTone(scale[i],"sine",0.08,0.12,i*0.05);
-  }
-}
-function sfxHyperMode(){
-  const chord=[261.6,329.6,392,523.2];
-  chord.forEach((f,i)=>{playTone(f,"sawtooth",0.3,0.08,i*0.02);});
-}
-function sfxLevelUp(){
-  [392,440,523.2].forEach((f,i)=>{playTone(f,"sine",0.15,0.15,i*0.1);});
-}
-function sfxGameOver(){
-  [392,349.2,311.1,261.6,220].forEach((f,i)=>{playTone(f,"triangle",0.2,0.12,i*0.12);});
-}
-function sfxWild(){
-  for(let i=0;i<6;i++)playTone(300+i*100,"sine",0.05,0.1,i*0.04);
-}
-
-// ─── CONTROLLER / KEYBOARD ────────────────────────────────────────────────
-// The controller through the box's pad.js (SofaPad): presses kept until the frame reads them, the stick and the
-// D-pad both move. The keyboard is for when there's no controller; while one is in use, the keys the box sends for
-// its presses (for its own menus) are ignored.
-const keys={};
-document.addEventListener("keydown",e=>{ if(window.SofaPad&&SofaPad.echo(e)) return; keys[e.code]=true; if(/^(Arrow|Space$)/.test(e.code)) e.preventDefault(); ensureAudio(); });
-document.addEventListener("keyup",e=>{keys[e.code]=false;});
-const padHit={};
-if(window.SofaPad) SofaPad.on((b,how)=>{ if(how==="press"){ padHit[b]=1; ensureAudio(); } });
-const PADBTN={0:"a",1:"b",2:"x",3:"y",9:"start"};
-function btnPressed(idx){ return padHit[PADBTN[idx]]===1; }
-function btnHeld(idx){ return !!(window.SofaPad&&SofaPad.held(PADBTN[idx])); }
-function axisX(){
-  if(!window.SofaPad) return 0;
-  return SofaPad.held("left")?-1:SofaPad.held("right")?1:SofaPad.stick().x;
-}
-function padDown(){ return !!(window.SofaPad&&(SofaPad.held("down")||SofaPad.held("a")||SofaPad.stick().y>0.6)); }
-const prevKeys={};
-function keyJustPressed(code){ return !!keys[code]&&!prevKeys[code]; }
-function updatePrevKeys(){ for(const k in keys){prevKeys[k]=keys[k];} }
-function BL(b){
-  if(window.SofaPad&&SofaPad.connected()) return SofaPad.kind()==="playstation"?({a:"\u2715",b:"\u25cb",start:"OPTIONS"})[b]:(b==="start"?"MENU":b.toUpperCase());
-  return ({a:"SPACE",b:"SHIFT",start:"ESC"})[b];
-}
-
-// ─── GAME CONSTANTS ────────────────────────────────────────────────────────
-const COLS=8,ROWS=14,CELL=14;
-const BX=100,BY=14; // board origin
-const SIDE_X=BX+COLS*CELL+8; // side panel x
-
-const GEM_TYPES=["r","b","c","e","y","p"]; // colors
-const GEM_WILD="w_";
-const BEAM_INTERVAL=8000; // ms
-const MATCH_SIZE=3;
-
-// ─── GAME STATE ────────────────────────────────────────────────────────────
-let state="title";
-let board=[];
-let falling={col:4,row:-1,color:"r"};
-let nextGems=[];
-let held=null;
-let heldUsed=false;
-let score=0,hiScore=0,level=1,chain=0;
-let fallTimer=0,fallSpeed=800;
-let beamTimer=0,beamCol=-1,beamActive=false,beamHighlight=false,beamHighlightTimer=0;
-let fusionBonus=false;
-let hyperMode=false;
-let particles=[];
-let scorePopups=[];
-let titleStars=[];
-let bgStars=[];
-let flashTimer=0,flashCol=PAL.c;
-let chainDisplay=0,chainTimer=0;
-let inputDelay={left:0,right:0,down:0};
-let gameTime=0;
-let levelScore=0;
-let bgNebulae=[];
-let titleGems=[];
-let letterColors=[];
-let blinkTimer=0;
-let titleAnimTime=0;
-
-// ─── INIT ─────────────────────────────────────────────────────────────────
-function initBoard(){
-  board=[];
-  for(let r=0;r<ROWS;r++){board.push(new Array(COLS).fill(null));}
-}
-function randomGem(){
-  if(Math.random()<0.03)return GEM_WILD;
-  return GEM_TYPES[Math.floor(Math.random()*GEM_TYPES.length)];
-}
-function initGame(){
-  initBoard();
-  score=0;level=1;chain=0;levelScore=0;
-  fallSpeed=800;hyperMode=false;
-  beamTimer=0;beamCol=-1;beamActive=false;beamHighlight=false;
-  particles=[];scorePopups=[];
-  flashTimer=0;chainDisplay=0;chainTimer=0;
-  inputDelay={left:0,right:0,down:0};
-  nextGems=[randomGem(),randomGem(),randomGem()];
-  held=null;heldUsed=false;
-  spawnGem();
-  gameTime=0;
-}
-function spawnGem(){
-  const col=COLS>>1;
-  if(board[0][col]!==null){state="gameover";sfxGameOver();return;}
-  falling.col=col;
-  falling.row=-1;
-  falling.color=nextGems.shift();
-  nextGems.push(randomGem());
-  heldUsed=false;
-  fallTimer=0;
-}
-
-// ─── MATCHING ─────────────────────────────────────────────────────────────
-function checkMatches(){
-  const matched=new Set();
-  // horizontal
-  for(let r=0;r<ROWS;r++){
-    for(let c=0;c<=COLS-MATCH_SIZE;c++){
-      const gc=board[r][c];
-      if(!gc)continue;
-      let run=1;
-      while(c+run<COLS&&(board[r][c+run]===gc||gc===GEM_WILD||board[r][c+run]===GEM_WILD))run++;
-      if(run>=MATCH_SIZE){for(let i=0;i<run;i++)matched.add(r*COLS+(c+i));}
-    }
-  }
-  // vertical
-  for(let c=0;c<COLS;c++){
-    for(let r=0;r<=ROWS-MATCH_SIZE;r++){
-      const gc=board[r][c];
-      if(!gc)continue;
-      let run=1;
-      while(r+run<ROWS&&(board[r+run][c]===gc||gc===GEM_WILD||board[r+run][c]===GEM_WILD))run++;
-      if(run>=MATCH_SIZE){for(let i=0;i<run;i++)matched.add((r+i)*COLS+c);}
-    }
-  }
-  // diagonal ↘
-  for(let r=0;r<=ROWS-MATCH_SIZE;r++){
-    for(let c=0;c<=COLS-MATCH_SIZE;c++){
-      const gc=board[r][c];
-      if(!gc)continue;
-      let run=1;
-      while(r+run<ROWS&&c+run<COLS&&(board[r+run][c+run]===gc||gc===GEM_WILD||board[r+run][c+run]===GEM_WILD))run++;
-      if(run>=MATCH_SIZE){for(let i=0;i<run;i++)matched.add((r+i)*COLS+(c+i));}
-    }
-  }
-  // diagonal ↙
-  for(let r=0;r<=ROWS-MATCH_SIZE;r++){
-    for(let c=MATCH_SIZE-1;c<COLS;c++){
-      const gc=board[r][c];
-      if(!gc)continue;
-      let run=1;
-      while(r+run<ROWS&&c-run>=0&&(board[r+run][c-run]===gc||gc===GEM_WILD||board[r+run][c-run]===GEM_WILD))run++;
-      if(run>=MATCH_SIZE){for(let i=0;i<run;i++)matched.add((r+i)*COLS+(c-i));}
-    }
-  }
-  return matched;
-}
-function resolveMatches(){
-  let totalCleared=0;
-  let chainCount=0;
-  let clearing=true;
-  while(clearing){
-    const matched=checkMatches();
-    if(matched.size===0){clearing=false;break;}
-    chainCount++;
-    // particles + popups
-    const matchColors={};
-    matched.forEach(idx=>{
-      const r=Math.floor(idx/COLS),c=idx%COLS;
-      const gc=board[r][c];
-      if(!matchColors[gc])matchColors[gc]=0;
-      matchColors[gc]++;
-      spawnShatter(BX+c*CELL+CELL/2,BY+r*CELL+CELL/2,gc);
-      board[r][c]=null;
-    });
-    // score
-    const matchSize=matched.size;
-    let pts=0;
-    if(matchSize>=5)pts=600;
-    else if(matchSize>=4)pts=300;
-    else pts=100;
-    pts*=level;
-    if(chainCount>1)pts*=chainCount;
-    if(fusionBonus){pts*=3;fusionBonus=false;sfxBeamFusion();}
-    // color-based sound
-    const topColor=Object.keys(matchColors).sort((a,b)=>matchColors[b]-matchColors[a])[0];
-    sfxMatch(topColor);
-    if(chainCount>1)sfxChain(chainCount);
-    score+=pts;
-    levelScore+=pts;
-    totalCleared+=matchSize;
-    // popup at board center
-    const firstIdx=[...matched][0];
-    const pr=Math.floor(firstIdx/COLS),pc=firstIdx%COLS;
-    scorePopups.push({x:BX+pc*CELL,y:BY+pr*CELL,val:pts,life:1.5,alpha:1});
-    // gravity
-    gravityDrop();
-    // chain display
-    chainDisplay=chainCount;
-    chainTimer=1.5;
-  }
-  if(totalCleared>0){
-    chain=chainCount;
-    checkLevelUp();
-  }
-}
-function gravityDrop(){
-  for(let c=0;c<COLS;c++){
-    let write=ROWS-1;
-    for(let r=ROWS-1;r>=0;r--){
-      if(board[r][c]!==null){board[write][c]=board[r][c];if(write!==r)board[r][c]=null;write--;}
-    }
-    while(write>=0){board[write][c]=null;write--;}
-  }
-}
-function checkLevelUp(){
-  if(score>hiScore)hiScore=score;
-  const newLevel=Math.floor(score/2000)+1;
-  if(newLevel>level){
-    level=newLevel;
-    fallSpeed=Math.max(150,800-level*80);
-    sfxLevelUp();
-    if(score>=5000&&!hyperMode){hyperMode=true;sfxHyperMode();flashTimer=0.6;flashCol=PAL.y;}
-  }
-}
-
-// ─── PARTICLES ─────────────────────────────────────────────────────────────
-function spawnShatter(x,y,color){
-  const colMap={r:PAL.r,b:PAL.b,c:PAL.c,e:PAL.e,y:PAL.y,p:PAL.p,[GEM_WILD]:PAL.w};
-  const col=colMap[color]||PAL.w;
-  for(let i=0;i<8;i++){
-    const angle=Math.random()*Math.PI*2;
-    const spd=0.5+Math.random()*2;
-    particles.push({
-      x,y,vx:Math.cos(angle)*spd,vy:Math.sin(angle)*spd-1,
-      col,life:0.4+Math.random()*0.2,maxLife:0.6,size:2+Math.floor(Math.random()*2)
-    });
-  }
-}
-function updateParticles(dt){
-  for(let i=particles.length-1;i>=0;i--){
-    const p=particles[i];
-    p.x+=p.vx;p.y+=p.vy;p.vy+=0.08;
-    p.life-=dt;
-    if(p.life<=0)particles.splice(i,1);
-  }
-}
-function drawParticles(){
-  for(const p of particles){
-    const alpha=p.life/p.maxLife;
-    ctx.globalAlpha=Math.min(1,alpha);
-    ctx.fillStyle=p.col;
-    ctx.fillRect(Math.round(p.x-p.size/2),Math.round(p.y-p.size/2),p.size,p.size);
-  }
-  ctx.globalAlpha=1;
-}
-
-// ─── SCORE POPUPS ──────────────────────────────────────────────────────────
-function updatePopups(dt){
-  for(let i=scorePopups.length-1;i>=0;i--){
-    const p=scorePopups[i];
-    p.y-=20*dt;
-    p.life-=dt;
-    p.alpha=p.life/1.5;
-    if(p.life<=0)scorePopups.splice(i,1);
-  }
-}
-function drawPopups(){
-  for(const p of scorePopups){
-    ctx.globalAlpha=Math.min(1,p.alpha);
-    drawText(ctx,"+"+p.val,Math.round(p.x),Math.round(p.y),PAL.y,1,true);
-    ctx.globalAlpha=1;
-  }
-}
-
-// ─── BACKGROUND ────────────────────────────────────────────────────────────
-function initBg(){
-  bgStars=[];
-  for(let i=0;i<80;i++){
-    bgStars.push({x:Math.random()*W,y:Math.random()*H,spd:0.03+Math.random()*0.1,
-      bright:Math.random()>0.8,twinkle:Math.random()*6.28});
-  }
-  bgNebulae=[];
-  for(let i=0;i<4;i++){
-    bgNebulae.push({x:Math.random()*W,y:Math.random()*H,
-      col:[PAL.B,PAL.P,PAL.C,PAL.K][i%4],r:10+Math.random()*20,alpha:0.08+Math.random()*0.12});
-  }
-}
-function drawBg(dt){
-  ctx.fillStyle=PAL.k;ctx.fillRect(0,0,W,H);
-  // nebulae
-  for(const n of bgNebulae){
-    ctx.save();ctx.globalAlpha=n.alpha;
-    ditherDisc(ctx,n.x,n.y,n.r,n.col,1);
-    ctx.globalAlpha=1;ctx.restore();
-  }
-  // stars
-  for(const s of bgStars){
-    s.x-=s.spd;if(s.x<0)s.x=W;
-    s.twinkle+=dt*2;
-    const a=s.bright?0.5+0.5*Math.sin(s.twinkle):0.3;
-    ctx.globalAlpha=a;
-    ctx.fillStyle=s.bright?PAL.w:PAL.G;
-    ctx.fillRect(Math.round(s.x),Math.round(s.y),1,1);
-  }
-  ctx.globalAlpha=1;
-}
-
-// ─── SWEEP BEAM ────────────────────────────────────────────────────────────
-function updateBeam(dt){
-  beamTimer+=dt*1000;
-  const interval=hyperMode?BEAM_INTERVAL*0.6:BEAM_INTERVAL;
-  if(beamTimer>=interval&&!beamActive){
-    beamTimer=0;
-    beamActive=true;
-    beamCol=0;
-    sfxBeamFire();
-  }
-  if(beamActive){
-    const spd=hyperMode?60:40; // px per sec
-    beamCol+=spd*dt;
-    if(beamCol>COLS){
-      beamActive=false;
-      beamHighlight=false;
-      beamCol=-1;
-    } else {
-      const col=Math.floor(beamCol);
-      if(col>=0&&col<COLS){
-        beamHighlight=true;
-        beamHighlightTimer=1.0;
+// ENGINE-START (the board's rules: shared by the game and the puzzle maker)
+const COLS = 8, ROWS = 14, NCOL = 6, WILD = 7, STONE = 8, STAR = 16;
+const kind = v => v & 15;
+function landRow(g, c) { let r = 0; while (r < ROWS && !g[r * COLS + c]) r++; return r - 1; }
+function findMatches(g) {                          // lines of three or more of a colour (a wild stands in for any), any way
+  const m = new Uint8Array(COLS * ROWS); let any = false;
+  for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+    const s = kind(g[r * COLS + c]); if (!s || s === STONE) continue;
+    for (const [dc, dr] of [[1, 0], [0, 1], [1, 1], [-1, 1]]) {
+      for (let col = 1; col <= NCOL; col++) {
+        if (s !== col && s !== WILD) continue;
+        let n = 0, rr = r, cc = c;
+        while (rr >= 0 && rr < ROWS && cc >= 0 && cc < COLS) { const k = kind(g[rr * COLS + cc]); if (k !== col && k !== WILD) break; n++; rr += dr; cc += dc; }
+        if (n >= 3) { let wild = 0; for (let i = 0; i < n; i++) if (kind(g[(r + dr * i) * COLS + c + dc * i]) === WILD) wild++; if (wild === n) continue;
+          for (let i = 0; i < n; i++) m[(r + dr * i) * COLS + c + dc * i] = 1; any = true; }
       }
     }
   }
-  if(beamHighlight){
-    beamHighlightTimer-=dt;
-    if(beamHighlightTimer<=0){beamHighlight=false;}
-  }
+  return any ? m : null;
 }
-function drawBeam(){
-  if(!beamActive)return;
-  const bx=BX+Math.floor(beamCol)*CELL;
-  // glow
-  for(let i=0;i<3;i++){
-    const r=CELL/2+i*4;
-    for(let row=0;row<ROWS;row++){
-      const cy=BY+row*CELL+CELL/2;
-      ditherDisc(ctx,bx+CELL/2,cy,r,PAL.c,0.5/(i+1));
+function gravity(g) {
+  for (let c = 0; c < COLS; c++) { let w = ROWS - 1; for (let r = ROWS - 1; r >= 0; r--) { const v = g[r * COLS + c]; if (v) { g[r * COLS + c] = 0; g[w * COLS + c] = v; w--; } } }
+}
+// clear what matches, break stones beside it, let it fall, again until nothing more: what went, round by round
+function resolve(g, snaps) {
+  const out = { chains: 0, cleared: 0, stars: 0, stones: 0, steps: [] };
+  for (;;) {
+    const m = findMatches(g); if (!m) break;
+    out.chains++; if (snaps) snaps.push(g.slice());
+    const cells = [];
+    for (let i = 0; i < COLS * ROWS; i++) if (m[i]) { const r = (i / COLS) | 0, c = i % COLS; for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const rr = r + dr, cc = c + dc; if (rr >= 0 && rr < ROWS && cc >= 0 && cc < COLS && kind(g[rr * COLS + cc]) === STONE) m[rr * COLS + cc] = 2; } }
+    for (let i = 0; i < COLS * ROWS; i++) if (m[i]) { const v = g[i]; cells.push([i, v]); if (m[i] === 2) out.stones++; else { out.cleared++; if (v & STAR) out.stars++; } g[i] = 0; }
+    out.steps.push(cells); gravity(g);
+  }
+  return out;
+}
+function drop(g, c, v) { const r = landRow(g, c); if (r < 0) return null; g[r * COLS + c] = v; const res = resolve(g); res.row = r; return res; }
+const starsLeft = g => { let n = 0; for (let i = 0; i < COLS * ROWS; i++) if (g[i] & STAR) n++; return n; };
+// ENGINE-END
+const PUZZLES = [
+  "...................................................................................a.....b.c...abcBa...bbcBacbba|bb|02",
+  "........................................................................................a.a...a.b.ac..CbcbcbbabC|cc|55",
+  "................................................................................b....Ab.c.b..Ab.cacb.ca.bccaacac|ca|05",
+  ".................................................................................c.b.....B.c....acBba...caacaccb|bc|02",
+  "..................................................................................c...a...a...a.C.Aab.caccbcbacc|ac|10",
+  "................................................................................b.ba.c..c.bc.ac.B.cb.baacaBbaacb|bb|11",
+  ".................................................................................b..cba.cc..Bbc.aa.cBcb.ccacabbc|ba|3",
+  "..................................................................................b..B.b.ca..a.c.bc.Bbcbababcabc|ab|04",
+  "...................................................................................a...a.bCc...c.Bac.a.abacbbabc|bc|21",
+  ".........................................................................................c......Cb.....bcbcCabcb|cc|02",
+  ".........................................................................a..A....a..A...bb..c...bb..a...caAbcaca|aac|035",
+  ".................................................................................b.......c...B.ccb...B.acabaAcab|bac|556",
+  "............................................................................C.a.....a.c..bC.B.c..ac.acb.cbbaacca|bcc|302",
+  "..................................................................................c.C.....a.b.....b.Ac..cbaaCcba|ccb|363",
+  "............................................................................b.......c...a...C.babcB.b.aaaaCbacab|cbc|233",
+  ".........................................................................c..b....c..a....a..b...bC..a.b.cacbAcBc|cba|05",
+  ".........................................................................b...a...c..bcc..a..bbA.ab.Baca.Bbaacacc|bab|372",
+  "........................................................................c......ca......bbc.a.c.cbb.caabcaccBACcb|abb|645",
+  "........................................................................A.......B.......cc..c.b.bcb.b.a.bAababcb|bcc|002",
+  ".........................................................................bc.b....aC.a..c.bb.ac.b.ba.cb.CaccBcbcc|baa|633",
+  "................................................................o....a.bb....c.dd.c..c.dd.d..Boccab.daddbaadBDaa|aba|064",
+  "..............................................................................a......dD.o..cBda.dbodccb.cabCdbcd|ddw|423",
+  "......................................................................................a....Cb.a.acoab.b.caCBcbbc|ccb|455",
+  ".................................................................d.......b.......a....d..c.ao.bd.c.aB.cddaCBabcb|cwa|22",
+  ".................................................................d.....dcD..da.aaa.occ.bdC.cba.cadocdc.daabaCacc|acd|021",
+  "..................................................................o.......d....d..B....dc.a..b.cbacbAC.abadccaob|cab|031",
+  ".......................................................................o......ob......cA....bbdcd..aacaBccaddaaB|dcb|55",
+  ".......................................................................a.....b.d.....Coc.d...dda.aao.BbaadbcaBab|cdc|44",
+  "................................................................b..a....B..ca.o.c..Ab.b.d..bB.b.c.obd.a.bbcadcad|cbw|102",
+  "................................................................d..ob...ca.cD.a.ac.dboa.abadcdb.bbccddBccAdabbdb|cdc|02",
+  "....................................................................d....o..c.c..bB.ada.bDD.daC.dbd.bbd.cdaoacab|wbdc|3025",
+  "........................................................ac......cb..d...cd.da.d.dc.DD.B.dbobaoa.bbdaadB.dcbdbcba|dacb|05",
+  ".............................................................A.a.....d.b.....a.b.a.d.b.a.d.D.c.bbdAA.dodacabccda|wwbd|5502",
+  "................................................................a..c....b..A....B..D....aa.d....bd.B.bb.bbdaoabc|abbw|4122",
+  "..............................................................c...C...c...a...D...da..C.o.bc.cb.aobb.Db.cdcadacb|wccb|2245",
+  "..................................................................................oB.....DAd.....aba.d..odcdcBcc|dbda|2431",
+  ".........................................................C.......Bc......Aa...a..bb...b..Aa.b.cb.bb.c.aaoddobbad|daca|3333",
+  "...........................................................a.......b......oad..co.ddC.aba.aabbcdcacdaabadcdCCDda|caww|1044",
+  "........................................................d.c.....A.d.....b.b..d.aB.B..d.ad.ab.b.bboac.coAcddadcab|bcba|6111",
+  "..........................................................b...o...c...a...d..dc..aa.obdc.bd.AdbB.da.bAcdaccdBabd|cdab|3334",
+  "..........................................................o.......eb..o.o.Ac..d.aDeb..c.adcc..c.badeo.e.AddeeDee|cdda|455",
+  "....................................................e.......d.......b....a..a....c..d....d..b.Coob..bbcCeaoBdbDe|bedc|5555",
+  ".........................................................E.......e.oB....c.bea...e.ead..od.eeB.ebdoddbacdecDaaca|eewc|123",
+  "....................................................o.......b....o.dB.b..eaed.B..ceeA.d.odedd.e.eadbe.A.aeecdoec|baaw|5555",
+  "................................................c.......e.......b.......eD......Dc.....oad.....dcC..oeocacdCdadd|ccdd|2211",
+  "....................................................o.....odbc....ceCc....abeb....dbca.c..Bcacocb.DbdadbaoabdCeb|dadw|6633",
+  ".....................................................a...bb.od...cB.Ce...ed.da...ecoac...decabo..EddbDc.abbcaddo|bewc|3336",
+  ".................................................d.o.....d.b.d...e.e.b...b.d.d...b.D.c.ood.b.bEEda.a.cdbbabbcCae|debc|454",
+  "..............................................................a.o.....E.e..A..a.a..b.da.b.Cd.Ac.ccdc.aeodcadeece|ddww|4454",
+  ".................................................d..o....E..c....bo.A....eD.d....dE.e...edaaeb..bbadbceobcceedae|webw|2333",
+  "........................................................o...o...d...d...b...b...d...co..e...eB..d..CbdbcdAoaCDec|bacaw|21215",
+  "....................................................b.....D.a.....d.cc.oo.c.ca.ddob.eC.eCca.bB.Bcdeocc.edececbob|wadec|63236",
+  "......................................................o......ae......cb......Da.oCa..ad.cbceoac.aeabAcboaeAddAae|cbcea|077",
+  "...................................................o.......b.......b.......cc...a..bb...c..eb...ac.Dcc.oaEoDCCea|wcddw|22112",
+  ".................................................b.......b.....o.co..c.e.ac..e.c.cbb.B.coadA.a.bbdbc.EobebdBdeaC|cwwac|64545",
+  "..........................................................................o.ba....d.dDb...b.BbC.ode.dca.eEdbeDbo|wdbwc|43737",
+  "...............................................................b.ao....c.ac..o.a.CD..c.aoaCD.eodceba.bCbbdbceadc|decwd|04061",
+  "..............................................................o....o..ab...a..ed...eb.aa...bd.ea..adDoBbcoEdbDcA|dbebc|5542",
+  "..................................................o.......Co......aa..o...bC..b...edo.a.oCbAa.bbaebbDeaeabcaaeea|dbebw|20011",
+  ".............................................................B.....b.a.....boB.....ece.o...dcCab...BddedcooCcbaa|becwb|24621"
+];
+
+// ---------------------------------------------------------------- the gems (drawn once each)
+const GEMCOL = [null, "#ff4a5a", "#4a9aff", "#5ae07a", "#ffd04a", "#c06aff", "#5ae8e8"];
+const GEMS = [];
+function gemArt() {
+  for (let k = 1; k <= 8; k++) {
+    const c = mk(CELL, CELL), g = g2(c);
+    if (k <= NCOL) {                                  // a cut stone: dark rim, a lit facet top left, a glint
+      const col = GEMCOL[k], shapes = [[[7, 1], [13, 7], [7, 13], [1, 7]], [[3, 1], [11, 1], [13, 7], [11, 13], [3, 13], [1, 7]], [[7, 1], [13, 5], [11, 13], [3, 13], [1, 5]], [[2, 2], [12, 2], [12, 12], [2, 12]], [[7, 1], [13, 13], [1, 13]], [[4, 1], [10, 1], [13, 4], [13, 10], [10, 13], [4, 13], [1, 10], [1, 4]]][k - 1];
+      g.fillStyle = shade(col, 0.45); g.beginPath(); shapes.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y)); g.closePath(); g.fill();
+      g.save(); g.translate(7, 7); g.scale(0.78, 0.78); g.translate(-7, -7); g.fillStyle = col; g.beginPath(); shapes.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y)); g.closePath(); g.fill(); g.restore();
+      g.fillStyle = shade(col, 1.45); g.fillRect(4, 4, 3, 2); g.fillRect(4, 4, 2, 3); px(g, 5, 5, 1, 1, "#ffffff");
+    } else if (k === WILD) {                          // a star of every colour
+      for (let i = 0; i < 6; i++) { g.fillStyle = GEMCOL[i + 1]; g.beginPath(); g.moveTo(7, 7); const a = i / 6 * Math.PI * 2; g.arc(7, 7, 6, a, a + Math.PI / 3); g.fill(); }
+      px(g, 5, 5, 4, 4, "#ffffff"); px(g, 6, 3, 2, 8, "#ffffff"); px(g, 3, 6, 8, 2, "#ffffff");
+    } else {                                          // a stone: dull, cracked
+      px(g, 1, 1, 12, 12, "#4a4652"); px(g, 1, 1, 12, 2, "#6a6672"); px(g, 1, 11, 12, 2, "#34303c"); px(g, 4, 4, 1, 4, "#2a2630"); px(g, 5, 7, 3, 1, "#2a2630"); px(g, 9, 3, 1, 3, "#2a2630");
     }
+    GEMS[k] = c;
   }
-  // solid core
-  ctx.globalAlpha=0.7;
-  ctx.fillStyle=PAL.w;
-  ctx.fillRect(bx+CELL/2-1,BY,2,ROWS*CELL);
-  ctx.globalAlpha=1;
 }
-function getHighlightedCol(){
-  if(!beamHighlight)return -1;
-  return Math.floor(beamCol);
+function drawGem(g, v, x, y, a) {
+  const k = kind(v); if (!k) return;
+  if (a != null) g.globalAlpha = a;
+  g.drawImage(GEMS[k], x, y);
+  if (v & STAR) { const t = (G.frame >> 3) & 3; g.strokeStyle = t & 1 ? "#ffd27a" : "#ff9a3c"; g.lineWidth = 1; g.strokeRect(x + 0.5, y + 0.5, CELL - 1, CELL - 1); px(g, x + 9, y + 1, 4, 4, "#08060c"); px(g, x + 10, y + 2, 2, 2, t === 0 ? "#ffffff" : "#ffd27a"); px(g, x + 9 + (t & 1), y + 3 - (t >> 1), 1, 1, "#ffffff"); }
+  if (a != null) g.globalAlpha = 1;
 }
 
-// ─── DRAWING BOARD ─────────────────────────────────────────────────────────
-function drawBoard(){
-  // board background
-  ctx.fillStyle=PAL.K;
-  ctx.fillRect(BX-1,BY-1,COLS*CELL+2,ROWS*CELL+2);
-  // grid
-  ctx.fillStyle=PAL.k;
-  for(let r=0;r<=ROWS;r++)ctx.fillRect(BX,BY+r*CELL,COLS*CELL,1);
-  for(let c=0;c<=COLS;c++)ctx.fillRect(BX+c*CELL,BY,1,ROWS*CELL);
+// ---------------------------------------------------------------- a board in play
+// mode: endless | puzzle | daily | versus. ctl: a player's controller, or ai: the computer's skill
+function newBoard(o) {
+  const b = { g: new Uint8Array(COLS * ROWS), x: o.x, y: o.y || 30, mode: o.mode, ctl: o.ctl || null, ai: o.ai || null, name: o.name || "", piece: null, next: [], hold: 0, held: false,
+    fallT: 0, level: 1, score: 0, cleared: 0, chain: 0, best: 0, meter: 0, over: false, anim: null, junk: 0, sentT: 0, rng: o.seed != null ? U.rand(o.seed) : Math.random, seq: o.seq || null, seqI: 0,
+    msg: "", msgT: 0, wins: 0, beam: 0, rep: {}, aiT: 0, aiTo: null, opp: null };
+  if (o.grid) b.g.set(o.grid);
+  for (let i = 0; i < 3; i++) b.next.push(nextGem(b));
+  spawn(b);
+  return b;
+}
+function nextGem(b) {
+  if (b.seq) { const v = b.seq[b.seqI++]; return v == null ? 0 : v; }
+  const r = b.rng(); return r < 0.035 ? WILD : 1 + ((b.rng() * NCOL) | 0);
+}
+const SPAWN = 3;
+function spawn(b) {
+  const v = b.next.shift(); b.next.push(b.seq ? (b.seq[b.seqI++] || 0) : nextGem(b));
+  if (!v) { b.piece = null; return; }
+  if (b.g[SPAWN]) { b.over = true; b.piece = null; return; }
+  b.piece = { c: SPAWN, y: -0.4, v }; b.held = false; b.fallT = 0;
+}
+const speedOf = b => b.mode === "puzzle" ? 0 : Math.max(0.05, 0.75 * Math.pow(0.86, b.level - 1));   // seconds a row
+function canAt(b, c, y) { if (c < 0 || c >= COLS) return false; const r = Math.max(0, Math.ceil(y)); return !b.g[r * COLS + c]; }
+function land(b) {                                   // the gem in place, then what it clears, a round at a time
+  const p = b.piece; b.piece = null;
+  const r = landRow(b.g, p.c); if (r < 0) { b.over = true; return; }
+  b.g[r * COLS + p.c] = p.v; play("land");
+  const snaps = [], g = b.g.slice(), res = resolve(g, snaps);
+  if (res.chains) b.anim = { snaps, steps: res.steps, i: 0, t: 0, final: g, res };
+  else afterLand(b, res);
+}
+function afterLand(b, res) {
+  if (res.chains) {
+    let pts = 0; res.steps.forEach((s, k) => { pts += s.length * 10 * (k + 1) * b.level; }); pts += res.stars * 100;
+    b.score += pts; b.cleared += res.cleared; b.meter = Math.min(1, b.meter + res.cleared / 30); b.chain = Math.max(b.chain, res.chains);
+    if (res.chains > 1) say(b, res.chains + " CHAIN!", 1.4); else if (res.cleared >= 5) say(b, "BIG CLEAR!", 1.2);
+    if (b.mode === "versus" && b.opp) { let send = Math.max(0, res.cleared - 2) + (res.chains - 1) * 3; const cancel = Math.min(b.junk, send); b.junk -= cancel; send -= cancel; if (send > 0) { b.opp.junk += send; play("send"); b.sentT = 0.6; } }
+    const lv = 1 + Math.floor(b.cleared / 25); if (lv > b.level && b.mode !== "puzzle") { b.level = lv; say(b, "LEVEL " + lv, 1.4); play("level"); }
+  }
+  if (b.mode === "puzzle" && !starsLeft(b.g)) { b.won = true; return; }
+  if (b.junk > 0 && b.mode === "versus") {           // stones arrive on top, a row's worth at most
+    const n = Math.min(b.junk, COLS * 2); b.junk -= n; const cols = [0, 1, 2, 3, 4, 5, 6, 7].sort(() => rnd() - 0.5); for (let k = 0; k < n; k++) cols.push(cols[k]);
+    for (const c of cols.slice(0, n)) { const r = landRow(b.g, c); if (r >= 0) b.g[r * COLS + c] = STONE; } play("stones");
+  }
+  spawn(b);
+  if (b.mode === "puzzle" && !b.piece && starsLeft(b.g)) b.failed = true;
+}
+function beam(b) {                                   // the star meter spent: a beam down the gem's column clears it all
+  if (b.meter < 1 || !b.piece || b.mode === "puzzle") return;
+  b.meter = 0; const c = b.piece.c; let n = 0;
+  for (let r = 0; r < ROWS; r++) { const v = b.g[r * COLS + c]; if (v) { n++; if (v & STAR) b.stars = (b.stars || 0) + 1; parts.emit(b.x + c * CELL + 7, b.y + r * CELL + 7, 3, { c: [0, 2], v: 60, life: 0.5, bright: 1 }); b.g[r * COLS + c] = 0; } }
+  b.score += n * 15 * b.level; b.beam = 0.5; play("beam"); G.shake(0.25);
+  if (b.mode === "puzzle" && !starsLeft(b.g)) b.won = true;
+}
+function say(b, t, s) { b.msg = t; b.msgT = s || 1.5; }
 
-  // gems on board
-  for(let r=0;r<ROWS;r++){
-    for(let c=0;c<COLS;c++){
-      const gc=board[r][c];
-      if(!gc)continue;
-      const sp=gemSprite(gc);
-      if(sp)ctx.drawImage(sp,BX+c*CELL,BY+r*CELL);
+// ---------------------------------------------------------------- one board's step: the controls, or the computer
+function dirPress(b, c, k) {
+  if (c.take(k, 200)) { b.rep[k] = performance.now() + 170; return true; }
+  if (c.held(k) && b.rep[k] && performance.now() > b.rep[k]) { b.rep[k] = performance.now() + 55; return true; }
+  if (!c.held(k)) b.rep[k] = 0; return false;
+}
+function stepBoard(b, dt) {
+  if (b.msgT > 0) b.msgT -= dt; if (b.beam > 0) b.beam -= dt; if (b.sentT > 0) b.sentT -= dt;
+  if (b.over || b.won || b.failed) return;
+  if (b.anim) {                                      // a round of clearing: the gems flash, then go, then the rest fall
+    const A = b.anim; A.t += dt;
+    if (A.t >= 0.32) {
+      for (const [i, v] of A.steps[A.i]) parts.emit(b.x + (i % COLS) * CELL + 7, b.y + ((i / COLS) | 0) * CELL + 7, 4, { c: kind(v) === STONE ? [3] : [kind(v) + 3 > 9 ? 0 : kind(v) + 3, 0], v: 70, life: 0.5, bright: 1 });
+      play(A.i ? "chain" + Math.min(4, A.i) : "clear"); A.i++; A.t = 0;
+      if (A.i >= A.steps.length) { b.g.set(A.final); b.anim = null; afterLand(b, A.res); }
     }
+    return;
   }
-
-  // beam highlight columns
-  const hcol=getHighlightedCol();
-  if(beamHighlight&&hcol>=0&&hcol<COLS){
-    const alpha=Math.min(1,(beamHighlightTimer/0.3))*0.3;
-    ditherRect(ctx,BX+hcol*CELL,BY,CELL,ROWS*CELL,PAL.c,alpha);
-  }
-
-  // falling gem
-  if(falling.row>=0&&falling.row<ROWS){
-    const sp=gemSprite(falling.color);
-    if(sp)ctx.drawImage(sp,BX+falling.col*CELL,BY+falling.row*CELL);
-  } else if(falling.row===-1){
-    // above board, show at top
-    const sp=gemSprite(falling.color);
-    if(sp){ctx.globalAlpha=0.6;ctx.drawImage(sp,BX+falling.col*CELL,BY);ctx.globalAlpha=1;}
-  }
-
-  // ghost gem
-  {
-    let ghostRow=falling.row;
-    while(ghostRow+1<ROWS&&board[ghostRow+1][falling.col]===null)ghostRow++;
-    if(ghostRow>falling.row){
-      const sp=gemSprite(falling.color);
-      if(sp){ctx.globalAlpha=0.25;ctx.drawImage(sp,BX+falling.col*CELL,BY+ghostRow*CELL);ctx.globalAlpha=1;}
-    }
-  }
-
-  // board border flash
-  if(flashTimer>0){
-    const a=Math.min(1,flashTimer/0.3)*0.6;
-    ditherRect(ctx,BX-2,BY-2,COLS*CELL+4,2,flashCol,a);
-    ditherRect(ctx,BX-2,BY+ROWS*CELL,COLS*CELL+4,2,flashCol,a);
-    ditherRect(ctx,BX-2,BY-2,2,ROWS*CELL+4,flashCol,a);
-    ditherRect(ctx,BX+COLS*CELL,BY-2,2,ROWS*CELL+4,flashCol,a);
-  }
+  const p = b.piece; if (!p) return;
+  let left = false, right = false, soft = false, hard = false, hold = false, fire = false;
+  if (b.ai) { const a = aiStep(b, dt); left = a.left; right = a.right; hard = a.hard; soft = a.soft; }
+  else if (b.ctl) { const c = b.ctl; left = dirPress(b, c, "left"); right = dirPress(b, c, "right"); soft = c.held("down"); hard = c.take("up", 200) || c.take("a", 200); hold = c.take("y", 200) || c.take("lb", 200); fire = c.take("x", 200) || c.take("rb", 200); }
+  if (left && canAt(b, p.c - 1, p.y)) { p.c--; play("move"); }
+  if (right && canAt(b, p.c + 1, p.y)) { p.c++; play("move"); }
+  if (hold && b.mode !== "puzzle" && !b.held) { const v = p.v; if (b.hold) { p.v = b.hold; b.hold = v; } else { b.hold = v; b.piece = null; spawn(b); } b.held = true; play("hold"); return; }
+  if (fire) beam(b);
+  if (hard) { land(b); return; }
+  const sp = speedOf(b), rate = soft ? 22 : sp ? 1 / sp : 0;
+  p.y += rate * dt;
+  const r = landRow(b.g, p.c);
+  if (p.y >= r) { p.y = r; b.fallT += dt; if (b.fallT > (soft ? 0.05 : 0.35) || b.mode === "puzzle" && soft) land(b); } else b.fallT = 0;
 }
-function gemSprite(color){
-  if(color===GEM_WILD)return SPRITES.gem_wild;
-  const map={r:SPRITES.gem_red,b:SPRITES.gem_blue,c:SPRITES.gem_cyan,
-    e:SPRITES.gem_green,y:SPRITES.gem_yellow,p:SPRITES.gem_purple};
-  return map[color]||null;
+// the computer: for each column (and the held gem), the drop played out; the best clears and chains, a low, even
+// stack, gems kept beside their colour; it slides there and drops (quicker, and wiser, at each level)
+const AIL = [{ name: "EASY", think: 0.9, move: 5, noise: 40, look: 0 }, { name: "NORMAL", think: 0.45, move: 9, noise: 14, look: 1 }, { name: "HARD", think: 0.18, move: 16, noise: 3, look: 1 }];
+function judge(g, c, v) {
+  const h = g.slice(), res = drop(h, c, v); if (!res) return -1e9;
+  let s = res.cleared * 12 + res.chains * res.chains * 30 + res.stones * 8;
+  let maxH = 0, bump = 0, prev = -1;
+  for (let cc = 0; cc < COLS; cc++) { const top = landRow(h, cc) + 1, ht = ROWS - top; maxH = Math.max(maxH, ht); if (prev >= 0) bump += Math.abs(ht - prev); prev = ht; }
+  s -= maxH * 4 + bump * 1.5 + (maxH > ROWS - 4 ? 200 : 0);
+  if (!res.chains) { const r = landRow(h, c) + 1; for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [1, 1], [-1, 1]]) { const rr = r + dr, cc = c + dc; if (rr < ROWS && cc >= 0 && cc < COLS && kind(h[rr * COLS + cc]) === kind(v)) s += 6; } }
+  return s;
+}
+function aiStep(b, dt) {
+  const L = AIL[b.ai.lvl], p = b.piece, out = {};
+  if (b.aiTo && b.aiTo.p !== p) b.aiTo = null;        // (a new gem: think again)
+  if (!b.aiTo) { b.aiT += dt; if (b.aiT < L.think) return out; b.aiT = 0;
+    let best = p.c, bs = -1e9; for (let c = 0; c < COLS; c++) { const s = judge(b.g, c, p.v) + (rnd() - 0.5) * L.noise; if (s > bs) { bs = s; best = c; } }
+    b.aiTo = { c: best, t: 0, p }; }
+  b.aiTo.t += dt;
+  if (b.aiTo.t > 1 / L.move) { b.aiTo.t = 0; if (p.c < b.aiTo.c) out.right = true; else if (p.c > b.aiTo.c) out.left = true; else { out.hard = b.ai.lvl > 0; out.soft = true; } }
+  if (b.meter >= 1 && landRow(b.g, p.c) < 4) beam(b);
+  return out;
 }
 
-// ─── HUD ───────────────────────────────────────────────────────────────────
-function drawHUD(){
-  const sx=SIDE_X;
-  // title small
-  drawText(ctx,"COSMIC",sx,2,PAL.c,1,true);
-  drawText(ctx,"CASCADE",sx,10,PAL.c,1,true);
+// ---------------------------------------------------------------- what's kept on the box
+const store = new L2.Store("cosmic-cascade", () => ({ v: 2, endless: { score: 0, level: 0, chain: 0 }, solved: {}, daily: {}, cpu: [0, 0, 0], duels: 0,
+  opts: { music: 6, sound: 8, rumble: 1, shake: 2, fx: "auto", pace: "auto", cpu: 1 } }));
+const SAVE = store.data;
+try { const old = +localStorage.getItem("cosmicCascade_hi"); if (old > SAVE.endless.score) SAVE.endless.score = old; } catch (e) { /* none */ }
 
-  // score
-  ctx.drawImage(SPRITES.star_icon,sx,22);
-  drawText(ctx,score.toString(),sx+10,23,PAL.y,1,true);
-
-  // hi score
-  ctx.drawImage(SPRITES.crown_icon,sx,34);
-  drawText(ctx,"HI",sx,35,PAL.G,1,false);
-  drawText(ctx,hiScore.toString(),sx+14,35,PAL.w,1,true);
-
-  // level
-  drawText(ctx,"LVL "+level,sx,46,PAL.v,1,true);
-
-  // next gems
-  drawText(ctx,"NEXT",sx,58,PAL.G,1,false);
-  for(let i=0;i<2;i++){
-    const nx=nextGems[i];
-    if(!nx)continue;
-    const sp=gemSprite(nx);
-    const gy=66+i*16;
-    ctx.fillStyle=PAL.K;ctx.fillRect(sx,gy,14,14);
-    if(sp)ctx.drawImage(sp,sx,gy);
-  }
-
-  // held gem
-  drawText(ctx,"HOLD",sx,100,PAL.G,1,false);
-  ctx.fillStyle=PAL.K;ctx.fillRect(sx,108,14,14);
-  if(held){
-    const sp=gemSprite(held);
-    if(sp){
-      if(heldUsed)ctx.globalAlpha=0.4;
-      ctx.drawImage(sp,sx,108);
-      ctx.globalAlpha=1;
-    }
-  }
-
-  // beam timer bar
-  drawText(ctx,"BEAM",sx,126,PAL.G,1,false);
-  const barW=60,barH=4;
-  ctx.fillStyle=PAL.K;ctx.fillRect(sx,133,barW,barH);
-  const interval=hyperMode?BEAM_INTERVAL*0.6:BEAM_INTERVAL;
-  const fill=Math.min(1,beamTimer/interval);
-  const col=fill>0.8?PAL.c:fill>0.5?PAL.b:PAL.B;
-  ctx.fillStyle=col;ctx.fillRect(sx,133,Math.round(barW*fill),barH);
-  if(beamActive){
-    ditherRect(ctx,sx,133,barW,barH,PAL.c,0.6);
-  }
-
-  // chain counter
-  if(chainTimer>0){
-    const a=Math.min(1,chainTimer);
-    ctx.globalAlpha=a;
-    drawText(ctx,"CHAIN x"+chainDisplay,sx,142,PAL.o,1,true);
-    ctx.globalAlpha=1;
-  }
-
-  // hyper mode indicator
-  if(hyperMode){
-    const pulse=0.5+0.5*Math.sin(gameTime*8);
-    ctx.globalAlpha=0.5+0.5*pulse;
-    drawText(ctx,"HYPER!",sx,154,PAL.x,1,true);
-    ctx.globalAlpha=1;
-  }
+// ---------------------------------------------------------------- the engine
+const KEYS = { z: "a", Z: "a", x: "x", X: "x", c: "y", C: "y", p: "start", P: "start" };
+const G = L2.game({ id: "cosmic-cascade", canvas: document.getElementById("c"), keys: KEYS, keyNames: { a: "Z", x: "X", y: "C", start: "P" },
+  on: onButton, update, draw, hud, ready, tier: onTier, hidden: () => { if (mode === "play") pause(); }, joined: () => {}, left: () => {} });
+const synth = G.synth, DEMO = G.demo;
+const CTL = {}, ctlOf = n => CTL[n] || (CTL[n] = G.control(n));
+let mode = "boot", modeT = 0, parts = null, BOARDS = [], GAME = null;
+function onTier(G, t) { if (parts) { parts.k = t.parts; parts.cap = Math.min(parts.max, t.cap); } }
+function play(n) { synth.play(n); }
+function sounds() {
+  const d = (n, f) => synth.define(n, f);
+  d("move", (s, t) => s.note(t, 660, 0.03, "square", 0.025, null, 0.002, 2400));
+  d("land", (s, t) => s.note(t, 180, 0.08, "triangle", 0.09));
+  d("hold", (s, t) => s.note(t, 520, 0.08, "triangle", 0.06));
+  d("clear", (s, t) => [784, 988, 1175].forEach((f, i) => s.note(t + i * 0.04, f, 0.18, "triangle", 0.08)));
+  for (let k = 1; k <= 4; k++) d("chain" + k, (s, t) => [784, 988, 1175, 1568].forEach((f, i) => s.note(t + i * 0.04, f * Math.pow(1.122, k), 0.2, "triangle", 0.08)));
+  d("beam", (s, t) => { s.noise(t, 0.5, 0.3, 2000, 0.6); s.note(t, 440, 0.5, "sawtooth", 0.06, null, 0.01, 3000); s.note(t, 880, 0.5, "sawtooth", 0.04, null, 0.01, 4000); });
+  d("send", (s, t) => s.note(t, 330, 0.2, "square", 0.05, null, 0.004, 1600));
+  d("stones", (s, t) => { s.noise(t, 0.25, 0.3, 300, 1); s.note(t, 90, 0.2, "sine", 0.2); });
+  d("level", (s, t) => [523, 659, 784, 1047].forEach((f, i) => s.note(t + i * 0.07, f, 0.25, "square", 0.05, null, 0.004, 2600)));
+  d("over", (s, t) => [392, 330, 262, 196].forEach((f, i) => s.note(t + i * 0.16, f, 0.4, "triangle", 0.1)));
+  d("win", (s, t) => [523, 659, 784, 1047, 1319].forEach((f, i) => s.note(t + i * 0.09, f, 0.5, "triangle", 0.11)));
+  d("ok", (s, t) => { s.note(t, 660, 0.08, "square", 0.05, null, 0.003, 2400); s.note(t + 0.05, 990, 0.1, "square", 0.05, null, 0.003, 2400); });
 }
 
-// ─── TITLE SCREEN ──────────────────────────────────────────────────────────
-function initTitle(){
-  titleStars=[];
-  for(let i=0;i<100;i++){
-    titleStars.push({x:Math.random()*W,y:Math.random()*H,
-      spd:0.05+Math.random()*0.15,bright:Math.random()>0.7,twinkle:Math.random()*6.28});
-  }
-  titleGems=[];
-  for(let i=0;i<12;i++){
-    titleGems.push({
-      x:Math.random()*W,y:-Math.random()*H,
-      color:GEM_TYPES[Math.floor(Math.random()*GEM_TYPES.length)],
-      spd:0.3+Math.random()*0.6
-    });
-  }
-  const title="COSMIC CASCADE";
-  letterColors=title.split("").map((_,i)=>{
-    const idx=i%GEM_TYPES.length;
-    const cmap={r:PAL.r,b:PAL.b,c:PAL.c,e:PAL.e,y:PAL.y,p:PAL.p};
-    return cmap[GEM_TYPES[idx]];
-  });
-  titleAnimTime=0;blinkTimer=0;
+// ---------------------------------------------------------------- the games
+// o: { kind: endless | daily | puzzle | cpu | duel | demo, puzzle (its number), cpu (level) }
+function today() { const d = new Date(); return d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate(); }
+function decodePuzzle(i) {
+  const [b, s, sol] = PUZZLES[i].split("|"), g = new Uint8Array(COLS * ROWS);
+  for (let k = 0; k < b.length; k++) { const ch = b[k]; g[k] = ch === "." ? 0 : ch === "o" ? STONE : ch === "w" ? WILD : ch >= "a" ? ch.charCodeAt(0) - 96 : (ch.charCodeAt(0) - 64) | STAR; }
+  return { g, seq: s.split("").map(ch => ch === "w" ? WILD : ch.charCodeAt(0) - 96), sol: sol.split("").map(Number) };
 }
-function updateTitle(dt){
-  titleAnimTime+=dt;blinkTimer+=dt;
-  for(const s of titleStars){
-    s.x-=s.spd;if(s.x<0){s.x=W;s.y=Math.random()*H;}
-    s.twinkle+=dt*3;
+function startGame(o) {
+  menu.hide(); BOARDS = []; parts.clear();
+  const pads = G.input.players(), p1 = pads[0] || 0;
+  GAME = { o, t: 0, round: 1, ended: false };
+  if (o.kind === "endless") BOARDS.push(newBoard({ x: 184, mode: "endless", ctl: ctlOf(p1) }));
+  else if (o.kind === "daily") { GAME.date = today(); GAME.limit = 180; BOARDS.push(newBoard({ x: 184, mode: "daily", ctl: ctlOf(p1), seed: GAME.date })); }
+  else if (o.kind === "puzzle") { const P = decodePuzzle(o.puzzle); GAME.P = P; BOARDS.push(newBoard({ x: 184, mode: "puzzle", ctl: ctlOf(p1), grid: P.g, seq: P.seq })); }
+  else {
+    const seed = (rnd() * 1e6) | 0;
+    const left = o.kind === "demo" ? { ai: { lvl: 2 }, name: "CPU" } : { ctl: ctlOf(p1), name: "P1" };
+    const right = o.kind === "duel" ? { ctl: ctlOf(pads[1] != null ? pads[1] : p1), name: "P2" } : { ai: { lvl: o.kind === "demo" ? 1 : o.cpu }, name: "CPU " + AIL[o.kind === "demo" ? 1 : o.cpu].name };
+    const a = newBoard(Object.assign({ x: 48, mode: "versus", seed }, left)), b = newBoard(Object.assign({ x: 320, mode: "versus", seed }, right));
+    a.opp = b; b.opp = a; BOARDS.push(a, b);
   }
-  for(const g of titleGems){
-    g.y+=g.spd;
-    if(g.y>H+20){g.y=-20;g.x=Math.random()*W;g.color=GEM_TYPES[Math.floor(Math.random()*GEM_TYPES.length)];}
-  }
+  mode = "play"; modeT = 0;
+  synth.song({ seed: o.kind === "puzzle" ? 31 : 17 + (o.puzzle || 0) % 3, root: 52, tempo: o.kind === "puzzle" ? 84 : 116, calm: o.kind === "puzzle" });
+  G.gov.hold(800);
 }
-function drawTitle(){
-  ctx.fillStyle=PAL.k;ctx.fillRect(0,0,W,H);
-  // nebula bg
-  ditherDisc(ctx,120,80,60,PAL.P,0.5);
-  ditherDisc(ctx,360,160,50,PAL.B,0.4);
-  ditherDisc(ctx,240,200,40,PAL.C,0.3);
-  // stars
-  for(const s of titleStars){
-    const a=s.bright?0.6+0.4*Math.sin(s.twinkle):0.25;
-    ctx.globalAlpha=a;
-    ctx.fillStyle=s.bright?PAL.w:PAL.G;
-    ctx.fillRect(Math.round(s.x),Math.round(s.y),1,1);
-  }
-  ctx.globalAlpha=1;
-  // falling bg gems
-  for(const g of titleGems){
-    const sp=gemSprite(g.color);
-    if(sp){ctx.globalAlpha=0.35;ctx.drawImage(sp,Math.round(g.x),Math.round(g.y));ctx.globalAlpha=1;}
-  }
-  // title letters color-cycling
-  const title="COSMIC CASCADE";
-  const scale=2;
-  const lw=(5+1)*scale;
-  const totalW=title.length*lw;
-  let startX=Math.floor((W-totalW)/2);
-  const ty=50;
-  for(let i=0;i<title.length;i++){
-    if(title[i]===" "){startX+=lw;continue;}
-    const phase=titleAnimTime*3+i*0.5;
-    const idx=Math.floor(phase)%GEM_TYPES.length;
-    const cmap={r:PAL.r,b:PAL.b,c:PAL.c,e:PAL.e,y:PAL.y,p:PAL.p};
-    const col=cmap[GEM_TYPES[idx]];
-    const bobY=Math.round(Math.sin(titleAnimTime*2+i*0.4)*2);
-    drawText(ctx,title[i],startX+i*lw,ty+bobY,col,scale,true);
-  }
-  // subtitle
-  drawCenter(ctx,"GEM FUSION PUZZLE",80,PAL.c,1);
-  // hi score
-  drawCenter(ctx,"HI SCORE  "+hiScore,100,PAL.G,1);
-  // controls hint
-  drawCenter(ctx,window.SofaPad&&SofaPad.connected()?"D-PAD OR STICK TO MOVE":"ARROW KEYS TO MOVE",120,PAL.T,1);
-  drawCenter(ctx,BL("a")+" TO DROP  "+BL("b")+" TO HOLD",130,PAL.T,1);
-  // blink press a
-  if(Math.floor(blinkTimer*2)%2===0){
-    drawCenter(ctx,"PRESS "+BL("a")+" TO PLAY",150,PAL.w,1);
-  }
-}
-
-// ─── GAME OVER SCREEN ──────────────────────────────────────────────────────
-function drawGameOver(){
-  ctx.fillStyle=PAL.k;ctx.fillRect(0,0,W,H);
-  ditherDisc(ctx,240,135,100,PAL.R,0.6);
-  drawCenter(ctx,"SIGNAL LOST",60,PAL.r,2);
-  drawCenter(ctx,"FINAL SCORE",90,PAL.G,1);
-  drawCenter(ctx,score.toString(),100,PAL.y,2);
-  drawCenter(ctx,"BEST "+hiScore,118,PAL.G,1);
-  if(score>=hiScore&&score>0){
-    drawCenter(ctx,"NEW RECORD!",130,PAL.x,1);
-  }
-  if(Math.floor(blinkTimer*2)%2===0){
-    drawCenter(ctx,"PRESS "+BL("a")+" TO RESTART",150,PAL.w,1);
-  }
-}
-
-// ─── INPUT HANDLING ────────────────────────────────────────────────────────
-function handleInput(dt){
-  // move left
-  const leftKey=keys["ArrowLeft"]||keys["KeyA"];
-  const rightKey=keys["ArrowRight"]||keys["KeyD"];
-  const downKey=keys["ArrowDown"]||keys["KeyS"]||keys["Space"];
-  const aBtn=btnPressed(0);
-  const bBtn=btnPressed(1);
-  const startBtn=btnPressed(9);
-  const ax=axisX();
-
-  // axis movement
-  const leftInput=leftKey||(ax<-0.5);
-  const rightInput=rightKey||(ax>0.5);
-  const downInput=downKey||aBtn||padDown();
-
-  // left
-  if(leftInput){
-    if(inputDelay.left<=0){
-      moveFalling(-1);
-      inputDelay.left=inputDelay.left===0?0.15:0.08;
-    } else inputDelay.left-=dt;
-  } else inputDelay.left=0;
-
-  // right
-  if(rightInput){
-    if(inputDelay.right<=0){
-      moveFalling(1);
-      inputDelay.right=inputDelay.right===0?0.15:0.08;
-    } else inputDelay.right-=dt;
-  } else inputDelay.right=0;
-
-  // drop
-  if(downInput){
-    if(inputDelay.down<=0){
-      dropGem();
-      inputDelay.down=0.05;
-    } else inputDelay.down-=dt;
-  } else inputDelay.down=0;
-
-  // hold
-  const holdKey=keyJustPressed("ShiftLeft")||keyJustPressed("ShiftRight")||keyJustPressed("KeyZ");
-  if(bBtn||holdKey){
-    if(!heldUsed)doHold();
-  }
-
-  // pause
-  if(state==="game"&&(startBtn||keyJustPressed("Escape")||keyJustPressed("KeyP"))) state="pause";
-}
-// #demo (the box's games check opens it so): it plays by itself, each gem to a column with its colour on top or the
-// lowest one, then down; no controller, and nothing is kept (this game keeps no records)
-const DEMO=/demo/.test(location.hash);
-let demoAim=-1,demoWait=0;
-function demoPlay(dt){
-  if((demoWait-=dt)>0) return;
-  demoWait=0.11;
-  if(demoAim<0){
-    let best=-1,top=-1e9;
-    for(let c=0;c<COLS;c++){
-      let r=0; while(r<ROWS&&board[r][c]===null) r++;
-      if(r===0) continue;
-      const s=r*2+(r<ROWS&&board[r][c]===falling.color?9:0)+Math.random()*3;
-      if(s>top){top=s;best=c;}
-    }
-    demoAim=best<0?falling.col:best;
-  }
-  const was=falling.col;
-  if(falling.col!==demoAim) moveFalling(falling.col<demoAim?1:-1);
-  if(falling.col===was){ dropGem(); demoAim=-1; }
-}
-function moveFalling(dir){
-  const nc=falling.col+dir;
-  if(nc>=0&&nc<COLS){
-    // check collision
-    if(falling.row<0||board[falling.row][nc]===null){
-      falling.col=nc;
-    }
-  }
-}
-function dropGem(){
-  // drop to bottom
-  while(falling.row+1<ROWS&&board[falling.row+1][falling.col]===null){
-    falling.row++;
-  }
-  landGem();
-}
-function doHold(){
-  if(heldUsed)return;
-  heldUsed=true;
-  const cur=falling.color;
-  if(held===null){
-    held=cur;
-    spawnGem();
+function update(dt) {
+  modeT += dt;
+  if (mode === "puzzles") return puzzlePick();
+  if (mode !== "play" || !GAME) return;
+  GAME.t += dt;
+  for (const b of BOARDS) stepBoard(b, dt);
+  parts.step(dt);
+  const K = GAME.o.kind;
+  if (K === "endless" || K === "daily") {
+    const b = BOARDS[0];
+    if (K === "daily" && GAME.t >= GAME.limit && !b.over) { b.over = true; say(b, "TIME", 3); }
+    if (b.over && !GAME.ended) gameEnd();
+  } else if (K === "puzzle") {
+    const b = BOARDS[0];
+    if ((b.won || b.failed) && !GAME.ended) gameEnd();
+    if (!GAME.ended && b.ctl && b.ctl.take("b", 200)) { G.fade(() => startGame(GAME.o), 5); }       // B: the board again
   } else {
-    falling.color=held;
-    held=cur;
-    falling.row=-1;
-    fallTimer=0;
-  }
-}
-
-// ─── LANDING ───────────────────────────────────────────────────────────────
-function landGem(){
-  if(falling.row<0){
-    // can't place, game over
-    state="gameover";sfxGameOver();return;
-  }
-  // check beam fusion
-  const col=falling.col;
-  const hcol=Math.floor(beamCol);
-  if(beamHighlight&&hcol===col){
-    // check if there's a matching gem in the column
-    for(let r=0;r<ROWS;r++){
-      if(board[r][col]===falling.color){fusionBonus=true;break;}
+    const [a, b] = BOARDS;
+    // a round that goes on: after a minute and a half the sky falls, stones on both every few seconds
+    if (!GAME.ended) { GAME.rt = (GAME.rt || 0) + dt; if (GAME.rt > 90 && ((GAME.rt - dt) % 6) > (GAME.rt % 6)) { const n = 3 + Math.floor((GAME.rt - 90) / 15) * 2; a.junk += n; b.junk += n; GAME.sky = (GAME.sky || 0) + 1; if (GAME.rt < 97) { say(a, "THE SKY FALLS", 2); say(b, "THE SKY FALLS", 2); } } }
+    if ((a.over || b.over) && !GAME.ended) {
+      const w = a.over && b.over ? null : a.over ? b : a; if (w) w.wins++;
+      if (w && w.wins < 2 || !w) { GAME.ended = "round"; GAME.endT = 0; say(w || a, w ? "ROUND TO " + (w.name || "") : "A DRAW", 2); play("level"); }
+      else gameEnd();
     }
-    if(fusionBonus){flashTimer=0.4;flashCol=PAL.c;}
+    if (GAME.ended === "round") { GAME.endT += dt; if (GAME.endT > 2.2) nextRound(); }
   }
-  board[falling.row][falling.col]=falling.color;
-  sfxLand();
-  resolveMatches();
-  spawnGem();
-}
-
-// ─── UPDATE GAME ───────────────────────────────────────────────────────────
-function updateGame(dt){
-  gameTime+=dt;
-  updateParticles(dt);
-  updatePopups(dt);
-  updateBeam(dt);
-  if(chainTimer>0)chainTimer-=dt;
-  if(flashTimer>0)flashTimer-=dt;
-
-  // fall
-  fallTimer+=dt*1000;
-  const speed=hyperMode?fallSpeed*0.6:fallSpeed;
-  if(fallTimer>=speed){
-    fallTimer=0;
-    if(falling.row+1<ROWS&&board[falling.row+1][falling.col]===null){
-      falling.row++;
-    } else {
-      landGem();
-    }
+  if (GAME.ended === true && modeT > 1.5) {
+    const c = ctlOf(G.input.players()[0] || 0);
+    if (DEMO ? modeT > 4 : c.take("a", 300) || c.take("start", 300)) { if (DEMO) startGame({ kind: "demo" }); else if (K === "puzzle") puzzleAfter(); else toTitle(); }
   }
-  if(DEMO) demoPlay(dt); else handleInput(dt);
 }
-
-// ─── PAUSE SCREEN ──────────────────────────────────────────────────────────
-function drawPause(){
-  ctx.globalAlpha=0.5;
-  ctx.fillStyle=PAL.k;
-  ctx.fillRect(0,0,W,H);
-  ctx.globalAlpha=1;
-  drawCenter(ctx,"PAUSED",100,PAL.w,2);
-  drawCenter(ctx,"PRESS "+BL("start")+" TO RESUME",118,PAL.G,1);
+function nextRound() {
+  const [a, b] = BOARDS, seed = (rnd() * 1e6) | 0;
+  for (const q of [a, b]) { const w = q.wins; const n = newBoard({ x: q.x, mode: "versus", seed, ctl: q.ctl, ai: q.ai, name: q.name }); Object.assign(q, n, { wins: w, opp: q.opp }); }
+  a.opp = b; b.opp = a; GAME.ended = false; GAME.round++; GAME.rt = 0; parts.clear();
 }
-
-// ─── MAIN LOOP ─────────────────────────────────────────────────────────────
-let lastTime=0;
-function loop(ts){
-  const dt=Math.min(0.05,(ts-lastTime)/1000);
-  lastTime=ts;
-
-  if(state==="title"){
-    updateTitle(dt);
-    drawTitle();
-    // input to start
-    const aBtn=btnPressed(0);
-    const startBtn=btnPressed(9);
-    if(DEMO||aBtn||startBtn||keyJustPressed("Space")||keyJustPressed("Enter")||keyJustPressed("KeyZ")){
-      ensureAudio();
-      initGame();
-      state="game";
+function gameEnd() {
+  GAME.ended = true; modeT = 0; const K = GAME.o.kind, b = BOARDS[0];
+  if (K === "puzzle") { play(b.won ? "win" : "over"); if (b.won && !DEMO) { SAVE.solved[GAME.o.puzzle] = 1; store.save(); } return; }
+  if (K === "endless" || K === "daily") {
+    play("over"); GAME.newBest = false;
+    if (!DEMO) {
+      if (K === "endless") { const E = SAVE.endless; if (b.score > E.score) { E.score = b.score; GAME.newBest = true; } E.level = Math.max(E.level, b.level); E.chain = Math.max(E.chain, b.chain); }
+      else { const prev = SAVE.daily[GAME.date] || 0; if (b.score > prev) { SAVE.daily[GAME.date] = b.score; GAME.newBest = true; } const keys = Object.keys(SAVE.daily).sort(); while (keys.length > 14) delete SAVE.daily[keys.shift()]; }
+      store.save();
     }
-    blinkTimer+=dt;
-  } else if(state==="game"){
-    for(const s of bgStars){s.x-=s.spd;if(s.x<0)s.x=W;s.twinkle+=dt*2;}
-    drawBg(dt);
-    updateGame(dt);
-    drawBeam();
-    drawBoard();
-    drawParticles();
-    drawPopups();
-    drawHUD();
-  } else if(state==="pause"){
-    for(const s of bgStars){s.x-=s.spd;if(s.x<0)s.x=W;s.twinkle+=dt*2;}
-    drawBg(dt);
-    drawBeam();
-    drawBoard();
-    drawParticles();
-    drawPopups();
-    drawHUD();
-    drawPause();
-    // resume
-    if(btnPressed(9)||btnPressed(1)||keyJustPressed("Escape")||keyJustPressed("KeyP")){state="game";}
-  } else if(state==="gameover"){
-    blinkTimer+=dt;
-    drawGameOver();
-    const aBtn=btnPressed(0);
-    const startBtn=btnPressed(9);
-    if(DEMO||aBtn||startBtn||keyJustPressed("Space")||keyJustPressed("Enter")||keyJustPressed("KeyZ")){
-      ensureAudio();
-      initGame();
-      state="game";
-    }
+    return;
   }
-
-  // update prevKeys
-  for(const k in keys)prevKeys[k]=keys[k];
-  for(const k in padHit) padHit[k]=0;
-
-  requestAnimationFrame(loop);
+  const [a] = BOARDS, won = a.wins >= 2; play(won || K === "duel" ? "win" : "over");
+  if (!DEMO) { if (K === "cpu" && won) { SAVE.cpu[GAME.o.cpu]++; } if (K === "duel") SAVE.duels++; store.save(); }
 }
 
-// ─── BOOT ──────────────────────────────────────────────────────────────────
-buildSprites();
-initBg();
-initTitle();
-if(DEMO) window.SofaStats={demo:true};
-requestAnimationFrame(loop);
-</script>
-</body>
-</html>
+// ---------------------------------------------------------------- drawing
+let SKY = null, STARS = null, FRAME = null;
+function art() {
+  SKY = L2.gradient(VW, VH, ["#05030e", "#120a2a", "#24103a"]);
+  STARS = [new L2.Layer(480, VH, (g, w, h) => { const r = U.rand(3); for (let k = 0; k < 160; k++) px(g, (r() * w) | 0, (r() * h) | 0, 1, 1, r() < 0.8 ? "#5a5a8a" : "#d8d8f8"); const gr = g.createRadialGradient(330, 90, 0, 330, 90, 160); gr.addColorStop(0, "rgba(140,60,200,0.25)"); gr.addColorStop(1, "rgba(140,60,200,0)"); g.fillStyle = gr; g.fillRect(0, 0, w, h); }, { k: 1 }),
+    new L2.Layer(480, VH, (g, w, h) => { const r = U.rand(9); for (let k = 0; k < 50; k++) { const x = (r() * w) | 0, y = (r() * h) | 0; px(g, x, y, 1, 1, "#ffffff"); if (r() < 0.3) { px(g, x - 1, y, 3, 1, "#8a8ad8"); px(g, x, y - 1, 1, 3, "#8a8ad8"); } } }, { k: 1 })];
+  FRAME = mk(COLS * CELL + 8, ROWS * CELL + 8); const g = g2(FRAME);   // the board's glass: a frame, faint lines
+  px(g, 0, 0, FRAME.width, FRAME.height, "#2a2240"); px(g, 1, 1, FRAME.width - 2, FRAME.height - 2, "#5a4a8a"); px(g, 3, 3, FRAME.width - 6, FRAME.height - 6, "#0a0816");
+  g.globalAlpha = 0.5; for (let c = 1; c < COLS; c++) px(g, 4 + c * CELL, 4, 1, ROWS * CELL, "#16122a"); for (let r = 1; r < ROWS; r++) px(g, 4, 4 + r * CELL, COLS * CELL, 1, "#16122a"); g.globalAlpha = 1;
+}
+function draw(g) {
+  g.drawImage(SKY, 0, 0); STARS[0].draw(g, G.time * 3, 0, VW); STARS[1].draw(g, G.time * 8, 0, VW);
+  if (mode !== "play" && mode !== "pause" || !GAME) return;
+  for (const b of BOARDS) drawBoard(g, b);
+  parts.draw(g, 0, 0, false); parts.draw(g, 0, 0, true);
+}
+function drawBoard(g, b) {
+  const X = b.x, Y = b.y;
+  g.drawImage(FRAME, X - 4, Y - 4);
+  const A = b.anim, grid = A ? A.snaps[A.i] : b.g, flash = A ? new Set(A.steps[A.i].map(q => q[0])) : null;
+  for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+    const i = r * COLS + c, v = grid[i]; if (!v) continue;
+    if (flash && flash.has(i)) { if ((G.frame >> 2) & 1) px(g, X + c * CELL, Y + r * CELL, CELL, CELL, "#ffffff"); else drawGem(g, v, X + c * CELL, Y + r * CELL); }
+    else drawGem(g, v, X + c * CELL, Y + r * CELL);
+  }
+  const p = b.piece;
+  if (p) {
+    const lr = landRow(b.g, p.c); if (lr >= 0) drawGem(g, p.v, X + p.c * CELL, Y + lr * CELL, 0.3);     // where it'll land
+    drawGem(g, p.v, X + p.c * CELL, Math.round(Y + Math.max(-0.4, p.y) * CELL));
+  }
+  if (b.beam > 0 && p) { g.globalAlpha = b.beam * 1.6; px(g, X + p.c * CELL + 2, Y, CELL - 4, ROWS * CELL, "#fff4c0"); g.globalAlpha = 1; }
+  if (b.over || b.failed) { g.fillStyle = "rgba(6,4,12,0.6)"; g.fillRect(X, Y, COLS * CELL, ROWS * CELL); }
+}
+const LB = {}; const lab = (k, w, sc) => LB[k] || (LB[k] = new L2.Label(w || 120, null, sc));
+function side(g, b, x, right) {                       // a board's numbers: score, level, the next gems, the held one, the meter
+  const al = (w) => right ? x - w : x;
+  let y = b.y;
+  if (b.mode !== "puzzle") { const S = lab("s" + b.x, 110, 2); S.set(String(b.score), 0); font.text(g, b.name || "SCORE", al(font.width(b.name || "SCORE")), y, 1); S.draw(g, al(S.w), y + 9); y += 32; }
+  if (b.mode === "endless" || b.mode === "daily") { font.text(g, "LEVEL " + b.level, al(font.width("LEVEL " + b.level)), y, 4); y += 12; }
+  if (b.mode === "versus") { font.text(g, "★".repeat(b.wins) + "\x18".repeat(2 - b.wins), al(20), y, 2); y += 12; if (b.junk) { font.text(g, "STONES " + b.junk, al(font.width("STONES " + b.junk)), y, 3); } y += 12; }
+  font.text(g, "NEXT", al(font.width("NEXT")), y, 1); y += 9;
+  b.next.forEach((v, i) => { if (v) drawGem(g, v, al(CELL) + (right ? 0 : 0), y + i * (CELL + 2)); }); y += 3 * (CELL + 2) + 4;
+  if (b.mode !== "puzzle") { font.text(g, "HOLD", al(font.width("HOLD")), y, 1); y += 9; px(g, al(CELL + 2) - (right ? 0 : 1), y - 1, CELL + 2, CELL + 2, "#14102a"); if (b.hold) drawGem(g, b.hold, al(CELL), y); y += CELL + 8; }
+  if (b.mode === "puzzle") { if (b.msgT > 0) { const M = lab("m" + b.x, 140); M.set(b.msg, 2); M.draw(g, b.x + (COLS * CELL - M.w) / 2, b.y + 60); } return; }
+  font.text(g, "STAR", al(font.width("STAR")), y, 1); y += 9; px(g, al(40), y, 40, 5, "#08060c"); px(g, al(40) + 1, y + 1, Math.round(38 * b.meter), 3, b.meter >= 1 ? ((G.frame >> 3) & 1 ? "#ffd27a" : "#ffffff") : "#c06aff");
+  if (b.meter >= 1) font.text(g, G.label("x") + " BEAM", al(font.width(G.label("x") + " BEAM")), y + 8, 2);
+  if (b.msgT > 0) { const M = lab("m" + b.x, 140); M.set(b.msg, 2); M.draw(g, b.x + (COLS * CELL - M.w) / 2, b.y + 60); }
+  if (b.sentT > 0) font.center(g, "STONES SENT", b.x + COLS * CELL / 2, b.y + 80, 3, 1);
+}
+function hud(g) {
+  if (mode === "title" || mode === "boot") { const y = 34 + Math.round(Math.sin(G.time * 1.5) * 2); font.center(g, "COSMIC", VW / 2, y, 4, 5); font.center(g, "CASCADE", VW / 2, y + 38, 2, 5); font.center(g, "THREE IN A LINE, ANY WAY ROUND · ONE OR TWO PLAYERS", VW / 2, y + 78, 1, 1); return; }
+  if (mode === "puzzles") return drawPicker(g);
+  if (!GAME) return;
+  const K = GAME.o.kind;
+  if (BOARDS.length === 1) {
+    const b = BOARDS[0];
+    side(g, b, 172, true); 
+    let y = b.y;
+    if (K === "endless") { font.text(g, "BEST", 312, y, 1); font.text(g, String(SAVE.endless.score), 312, y + 9, 2); y += 24; font.text(g, "LONGEST CHAIN " + Math.max(b.chain, SAVE.endless.chain), 312, y, 1); }
+    if (K === "daily") { font.text(g, "BOARD OF THE DAY", 312, y, 4); const left = Math.max(0, GAME.limit - GAME.t); font.text(g, Math.floor(left / 60) + ":" + String(Math.floor(left % 60)).padStart(2, "0"), 312, y + 10, left < 20 ? 3 : 0, 2); font.text(g, "TODAY'S BEST " + (SAVE.daily[GAME.date] || 0), 312, y + 32, 1); }
+    if (K === "puzzle") { const n = GAME.o.puzzle; font.text(g, "PUZZLE " + (n + 1) + " OF 60", 312, y, 4); font.text(g, "CLEAR EVERY ★ GEM", 312, y + 12, 0); font.text(g, "STARS LEFT " + starsLeft(b.g), 312, y + 24, 2);
+      font.text(g, "GEMS LEFT " + (b.next.filter(Boolean).length + (b.piece ? 1 : 0)), 312, y + 36, 1); font.text(g, G.label("b") + " START AGAIN", 312, y + 52, 1); font.text(g, G.label("y") + " A HINT", 312, y + 62, 1); }
+    font.center(g, "◀ ▶ MOVE  ↓ DROP  " + G.label("a") + " SLAM" + (K !== "puzzle" ? "  " + G.label("y") + " HOLD" : ""), 240, VH - 12, 1, 1, false);
+  } else {
+    side(g, BOARDS[0], 168, false); side(g, BOARDS[1], 312, true);
+    font.center(g, "ROUND " + GAME.round, VW / 2, 6, 1, 1);
+  }
+  if (GAME.ended === true) {
+    g.fillStyle = "rgba(6,4,12,0.85)"; g.fillRect(120, 90, 240, 90);
+    const b = BOARDS[0];
+    if (K === "puzzle") { font.center(g, b.won ? "SOLVED!" : "NOT THIS TIME", VW / 2, 100, b.won ? 2 : 3, 2); font.center(g, b.won ? "PUZZLE " + (GAME.o.puzzle + 1) + " DONE" : "STARS LEFT: " + starsLeft(b.g), VW / 2, 124, 1, 1); }
+    else if (BOARDS.length === 1) { font.center(g, K === "daily" ? "TIME!" : "GAME OVER", VW / 2, 100, 3, 2); font.center(g, "SCORE " + b.score, VW / 2, 124, 0, 1); if (GAME.newBest) font.center(g, "A NEW BEST", VW / 2, 138, 2, 1); }
+    else { const w = BOARDS.find(q => q.wins >= 2); font.center(g, w ? (w.name || "") + " WINS" : "A DRAW", VW / 2, 100, 2, 2); }
+    if (modeT > 1.5 && (G.frame >> 5) & 1) font.center(g, G.label("a") + " CARRY ON", VW / 2, 162, 0, 1);
+  }
+  if (mode === "pause") { g.fillStyle = "rgba(0,0,0,0.35)"; g.fillRect(0, 0, VW, VH); }
+}
+// ---------------------------------------------------------------- choosing a puzzle: six chapters of ten
+let pickI = 0;
+const puzzleOpen = i => i < 3 || [1, 2, 3].some(k => SAVE.solved[i - k]);
+function openPicker() { menu.hide(); mode = "puzzles"; modeT = 0; pickI = 0; for (let i = 0; i < 60; i++) if (puzzleOpen(i) && !SAVE.solved[i]) { pickI = i; break; } }
+function puzzlePick() {
+  const c = ctlOf(G.input.players()[0] || 0);
+  if (c.take("left", 180)) { pickI = (pickI + 59) % 60; play("move"); } if (c.take("right", 180)) { pickI = (pickI + 1) % 60; play("move"); }
+  if (c.take("up", 180)) { pickI = (pickI + 50) % 60; play("move"); } if (c.take("down", 180)) { pickI = (pickI + 10) % 60; play("move"); }
+  if (modeT > 0.3 && c.take("a", 200)) { if (!puzzleOpen(pickI)) { play("no"); return; } play("ok"); const i = pickI; G.fade(() => startGame({ kind: "puzzle", puzzle: i }), 4); mode = "fading"; }
+  if (c.take("b", 200)) toTitle();
+}
+function drawPicker(g) {
+  g.fillStyle = "rgba(6,4,12,0.6)"; g.fillRect(0, 0, VW, VH);
+  font.center(g, "PUZZLES · " + Object.keys(SAVE.solved).length + " OF 60 SOLVED", VW / 2, 10, 2, 2);
+  const names = ["FIRST LIGHT", "TWIN SUNS", "STONEWORK", "DEEP FIELD", "SUPERNOVA", "EVENT HORIZON"];
+  for (let ch = 0; ch < 6; ch++) {
+    font.text(g, names[ch], 40, 40 + ch * 30, 4);
+    for (let k = 0; k < 10; k++) { const i = ch * 10 + k, x = 150 + k * 30, y = 36 + ch * 30, on = i === pickI, open = puzzleOpen(i);
+      px(g, x, y, 24, 18, on ? "#ffd27a" : SAVE.solved[i] ? "#3a6a3a" : open ? "#2a2240" : "#140e1e"); px(g, x + 1, y + 1, 22, 16, on ? "#3a2a50" : SAVE.solved[i] ? "#244a24" : open ? "#1c1630" : "#0e0a16");
+      font.center(g, String(i + 1), x + 12, y + 6, SAVE.solved[i] ? 5 : open ? 0 : 1, 1); }
+  }
+  const P = decodePuzzle(pickI);
+  font.text(g, puzzleOpen(pickI) ? "PUZZLE " + (pickI + 1) + ": " + P.seq.length + " GEMS, " + starsLeft(P.g) + " STARS TO CLEAR" : "SOLVE ONE OF THE THREE BEFORE IT", 40, VH - 34, 1);
+  font.text(g, "◀ ▶ ↑ ↓ CHOOSE   " + G.label("a") + " PLAY   " + G.label("b") + " BACK", 40, VH - 18, 1);
+}
+function puzzleAfter() {
+  const b = BOARDS[0];
+  if (b.won && GAME.o.puzzle < 59) { const n = GAME.o.puzzle + 1; G.fade(() => startGame({ kind: "puzzle", puzzle: n }), 4); mode = "fading"; }
+  else if (b.won) openPicker(); else { G.fade(() => startGame(GAME.o), 4); mode = "fading"; }
+}
+// a hint: the column for this gem, worked out from here (if there's still a way)
+function hint(b) {
+  const seq = [b.piece.v].concat(b.next.filter(Boolean)), sols = [];
+  (function solve(g, i, path) { if (!starsLeft(g)) { sols.push(path.slice()); return; } if (i >= seq.length || sols.length) return;
+    for (let c = 0; c < COLS && !sols.length; c++) { const h = g.slice(); if (!drop(h, c, seq[i])) continue; path.push(c); solve(h, i + 1, path); path.pop(); } })(b.g.slice(), 0, []);
+  if (!sols.length) { say(b, "NO WAY FROM HERE: " + G.label("b") + " TO RETRY", 2.5); return null; }
+  say(b, "TRY COLUMN " + (sols[0][0] + 1), 2); b.hintC = sols[0][0]; return sols[0][0];
+}
+
+// ---------------------------------------------------------------- menus
+const menu = new L2.Menu(G, {
+  top: "title", values: SAVE.opts, accent: "#c06aff",
+  screens: {
+    title: { y: 132, w: 220, items: [{ t: "ENDLESS", act: "endless", sub: SAVE.endless.score ? "BEST " + SAVE.endless.score : "" }, { t: "PUZZLES", act: "puzzles", sub: Object.keys(SAVE.solved).length + "/60" }, { t: "VERSUS", act: "versus" }, { t: "BOARD OF THE DAY", act: "daily" }, { t: "RECORDS", act: "records" }, { t: "OPTIONS", act: "options" }] },
+    versus: { title: "VERSUS", sub: "BIG CLEARS AND CHAINS SEND STONES ACROSS. A MATCH BESIDE A STONE BREAKS IT. BEST OF THREE.", back: "title", w: 300,
+      items: [{ t: "AGAINST THE COMPUTER", act: "cpu" }, { t: "COMPUTER", k: "cpu", vals: [0, 1, 2], names: { 0: "EASY", 1: "NORMAL", 2: "HARD" } }, { t: "TWO PLAYERS", act: "duel" }] },
+    options: { title: "OPTIONS", back: () => menu.show(pausedFrom ? "pause" : "title", 0), w: 280, items: L2.optionItems() },
+    records: { title: "RECORDS", back: "title", w: 280, items: [{ t: "BACK", act: "back" }] },
+    pause: { title: "PAUSED", back: () => resume(), w: 220, items: [{ t: "CARRY ON", act: "resume" }, { t: "START AGAIN", act: "restart" }, { t: "OPTIONS", act: "options" }, { t: "QUIT", act: "quit" }] }
+  },
+  choose(it) {
+    const a = it.act;
+    if (a === "endless" || a === "daily") { menu.hide(); G.fade(() => startGame({ kind: a }), 4); }
+    else if (a === "puzzles") openPicker();
+    else if (a === "versus") menu.show("versus");
+    else if (a === "cpu") { menu.hide(); G.fade(() => startGame({ kind: "cpu", cpu: SAVE.opts.cpu }), 4); }
+    else if (a === "duel") { menu.hide(); G.fade(() => startGame({ kind: "duel" }), 4); }
+    else if (a === "records") { const E = SAVE.endless; menu.o.screens.records.lines = [["ENDLESS BEST", E.score], ["HIGHEST LEVEL", E.level], ["LONGEST CHAIN", E.chain], ["PUZZLES SOLVED", Object.keys(SAVE.solved).length + " OF 60"],
+      ["TODAY'S BOARD", SAVE.daily[today()] || "-"], ["WINS: EASY · NORMAL · HARD", SAVE.cpu.join(" · ")], ["TWO-PLAYER MATCHES", SAVE.duels]]; menu.show("records"); }
+    else if (a === "options") menu.show("options");
+    else if (a === "back") menu.back();
+    else if (a === "resume") resume();
+    else if (a === "restart") { menu.hide(); pausedFrom = null; const o = GAME.o; G.fade(() => startGame(o), 5); }
+    else if (a === "quit") { menu.hide(); pausedFrom = null; toTitle(); }
+  },
+  changed() { G.options(SAVE.opts); store.save(); }
+});
+G.menu = menu;
+let pausedFrom = null;
+function pause() { if (mode !== "play" || menu.at || !GAME || GAME.ended) return; pausedFrom = mode; mode = "pause"; menu.show("pause"); }
+function resume() { menu.hide(); mode = pausedFrom || "play"; pausedFrom = null; G.gov.hold(800); }
+function toTitle() { mode = "title"; GAME = null; BOARDS = []; synth.song({ seed: 5, root: 50, tempo: 92, calm: true }); menu.show("title"); menu.refresh(); }
+function onButton(b, how, who) {
+  if (how !== "press") return;
+  if (mode === "play" && GAME && GAME.o.kind === "puzzle" && b === "y" && BOARDS[0].piece) { hint(BOARDS[0]); return; }
+  if (mode === "play" && (b === "start" || b === "back")) pause();
+}
+function ready() {
+  sounds(); gemArt(); art(); G.options(SAVE.opts);
+  parts = new L2.Particles(500, L2.dots(["#ffffff", "#c8c8e0", "#ffd27a", "#8a8494", "#ff4a5a", "#4a9aff", "#5ae07a", "#ffd04a", "#c06aff", "#5ae8e8"]));
+  onTier(G, G.tier);
+  if (DEMO) { window.SofaStats.demo = true; startGame({ kind: "demo" }); return; }
+  toTitle();
+}
+// for the checks: played ahead in steps, as fast as it goes
+function sim(secs) { const n = Math.round(secs / DT); for (let i = 0; i < n && mode === "play"; i++) { update(DT); G.steps++; } return mode; }
+if (G.test) window.CC = { get mode() { return mode; }, get B() { return BOARDS; }, get GAME() { return GAME; }, PUZZLES, SAVE, store, menu, G, COLS, ROWS, WILD, STONE, STAR, decodePuzzle, startGame, sim, drop, resolve, findMatches, starsLeft, landRow, land, beam, hint, judge, openPicker, onButton,
+  get pickI() { return pickI; } };
+G.start();
+})();
+</script></body></html>

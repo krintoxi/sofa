@@ -7,6 +7,17 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.50
+
+- **Cosmic Cascade, a whole puzzle game.** Gems fall one at a time; three or more of a colour in any line clear (a
+  wild gem stands in for any), and chains follow. Endless, faster with each level; sixty puzzle boards in six
+  chapters, each made to be solvable with the gems it gives (with a hint that works out a way from where you are);
+  versus, two players or against the computer at three levels, where big clears and chains send stones across and
+  a long round ends with the sky falling; and a board of the day. Hold a gem for later; a full star meter fires a
+  beam down a column. Best score, highest level, longest chain, puzzles solved, the day's board and wins against
+  the computer are kept on the box (the old "HI" label is gone). It's on the box's 2D engine now, and holds 60
+  frames a second at a Pi 3's pace.
+
 ## 1.1.49
 
 - **Void Drifter, a whole space run.** Four zones (the Outer Belt, the Hive Reaches, the Glass Nebula, the Deep), each
