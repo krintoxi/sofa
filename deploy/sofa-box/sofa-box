@@ -9,7 +9,7 @@
 #   sofa-box tv-on             wake the TV and switch it to the box (HDMI-CEC)
 #   sofa-box desktop           go back to the desktop instead of Sofa (sudo; undo: sofa-box appliance)
 #   sofa-box shield on|off|update   Sofa Shield: ads and trackers kept out of the whole box (sudo)
-#   sofa-box update            the newest Sofa Box from GitHub (sudo)
+#   sofa-box update            a newer Sofa Box OS from GitHub: stable, or testing (Settings → Software) (sudo)
 #   sofa-box tune              a quick processor for the TV (sudo; at every start)
 #   sofa-box factory-reset     back to how it came: apps, sign-ins, Wi-Fi, Bluetooth, files gone (sudo)
 #   sofa-box kiosk             the TV's screen (started by sofa-box.service; not by hand)
@@ -40,7 +40,7 @@ wifi_on() {
 on_its_own() {
   [ -z "$SOFA_BOX_ON_ITS_OWN" ] && grep -q 'sofa-box-agent' /proc/self/cgroup 2>/dev/null && command -v systemd-run >/dev/null || return 0
   exec systemd-run --quiet --collect --unit="sofa-box-$1" --setenv=SOFA_BOX_ON_ITS_OWN=1 \
-    --setenv=SUDO_USER="${SUDO_USER:-}" --setenv=SOFA_BOX_BRANCH="${SOFA_BOX_BRANCH:-main}" "$0" "$1"
+    --setenv=SUDO_USER="${SUDO_USER:-}" --setenv=SOFA_BOX_BRANCH="${SOFA_BOX_BRANCH:-}" "$0" "$1"
 }
 
 # The boot screen's rebuild, started from the TV: a minute of the whole processor on a Pi 3 (update-initramfs packs
@@ -333,6 +333,60 @@ report() {
     command -v vcgencmd >/dev/null && { echo; echo "== Power (0x0: always enough since it started)"; vcgencmd get_throttled; }; } 2>&1 | cut -c 1-400
 }
 
+# Updates: which Sofa Box OS the box gets is its channel's (Settings → Software). Stable, the default: the version marked
+# stable (deploy/sofa-box/STABLE on main: tried on a real box), from its own release's commit (the tag box-os-v<version>),
+# and only if it's newer than the box's. Testing: main's newest, never older than the box's. SOFA_BOX_BRANCH=<branch>
+# (from SSH): that branch's newest, whatever the channel. Each version installs with its own install.sh.
+GITHUB_RAW="${SOFA_BOX_RAW:-https://raw.githubusercontent.com/krintoxi/sofa}"            # (tests point these at folders)
+GITHUB_TAR="${SOFA_BOX_TARBALLS:-https://codeload.github.com/krintoxi/sofa/tar.gz}"
+is_version() { echo "$1" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; }
+newer() {                    # whether version $1 is newer than $2
+  is_version "$1" && is_version "$2" && [ "$1" != "$2" ] || return 1
+  [ "$(printf '%s\n%s\n' "$1" "$2" | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1)" = "$1" ]
+}
+channel() {                  # the box's channel, in its settings (the agent's user's)
+  F="${SOFA_BOX_SETTINGS:-$(getent passwd "$(systemctl show -p User --value sofa-box-agent 2>/dev/null)" 2>/dev/null | cut -d: -f6)/.config/sofa-box/settings.json}"
+  python3 - "$F" <<'EOF' 2>/dev/null || echo stable
+import json, sys
+try:
+    print("testing" if json.load(open(sys.argv[1], encoding="utf-8")).get("channel") == "testing" else "stable")
+except (OSError, ValueError, AttributeError):
+    print("stable")
+EOF
+}
+
+update() {                   # (root) the installer restarts what changed
+  HAS="$(tr -d ' \n' 2>/dev/null < "${SOFA_BOX_LIB:-$LIB}/VERSION" || true)"      # (SOFA_BOX_LIB: tests)
+  WANT="" WHAT="the newest Sofa Box OS (testing)" REF=refs/heads/main
+  if [ -n "${SOFA_BOX_BRANCH:-}" ]; then
+    WHAT="the newest on $SOFA_BOX_BRANCH" REF="refs/heads/$SOFA_BOX_BRANCH"
+  elif [ "$(channel)" != testing ]; then
+    S="$(curl -fsSL -m 30 "$GITHUB_RAW/main/deploy/sofa-box/STABLE")" || { echo "Couldn't reach GitHub. Is the box online?"; exit 1; }
+    WANT="$(printf '%s\n' "$S" | tr -d '\r ' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1)"
+    [ -n "$WANT" ] || { echo "No version is marked stable yet: the box stays on Sofa Box OS $HAS (Settings → Software → Testing gets the newest)."; exit 0; }
+    if ! newer "$WANT" "$HAS"; then echo "The stable version is Sofa Box OS $WANT, and this box has $HAS: nothing newer to install."; exit 0; fi
+    WHAT="Sofa Box OS $WANT (stable)" REF="refs/tags/box-os-v$WANT"
+  fi
+  echo "Getting $WHAT from GitHub…"
+  T="$(mktemp -d)"
+  if ! curl -fsSL -o "$T/box.tar.gz" "$GITHUB_TAR/$REF" || ! tar xzf "$T/box.tar.gz" -C "$T" 2>/dev/null; then
+    rm -rf "$T"; echo "Couldn't get it from GitHub. Is the box online?"; exit 1
+  fi
+  D="$(ls -d "$T"/*/deploy/sofa-box 2>/dev/null | head -n 1)"
+  GOT="$(tr -d ' \n' 2>/dev/null < "$D/VERSION" || true)"
+  NO=""
+  if [ ! -f "$D/install.sh" ] || ! is_version "$GOT"; then NO="what came from GitHub isn't a Sofa box"
+  elif [ -n "$WANT" ] && [ "$GOT" != "$WANT" ]; then NO="its release box-os-v$WANT holds Sofa Box OS $GOT, not $WANT"
+  elif [ -z "${SOFA_BOX_BRANCH:-}" ] && newer "$HAS" "$GOT"; then NO="that's Sofa Box OS $GOT, older than this box's $HAS"
+  fi
+  if [ -n "$NO" ]; then rm -rf "$T"; echo "Left as it was: $NO."; exit 1; fi
+  echo "Installing Sofa Box OS $GOT."
+  R=0
+  sh "$D/install.sh" || R=$?
+  rm -rf "$T"
+  return "$R"
+}
+
 games() {                    # (root) a game from the box's list (games/games.json): its packages only, nothing else
   ACTION="${1:-}"; ID="${2:-}"
   PKGS="$(python3 - "$LIB/games/games.json" "$ID" <<'EOF'
@@ -406,9 +460,9 @@ case "${1:-}" in
   timezone)                  # (root) the box's time zone, from the setup screen or a phone
     echo "${2:-}" | grep -Eq '^[A-Za-z]+(/[A-Za-z0-9_+-]+){1,2}$' || { echo "Which time zone? (like Europe/London)"; exit 1; }
     timedatectl set-timezone "$2" ;;
-  update)                    # (root) the newest box from GitHub; the installer restarts what changed
+  update)                    # (root) a newer box from GitHub, for its channel (update(), above)
     on_its_own update
-    curl -fsSL "https://raw.githubusercontent.com/krintoxi/sofa/${SOFA_BOX_BRANCH:-main}/deploy/sofa-box/install.sh" | sh ;;
+    update ;;
   factory-reset)             # (root) everything of the owner's goes; the box starts at its setup screen
     on_its_own factory-reset
     WHO="$(systemctl show -p User --value sofa-box-agent 2>/dev/null)"

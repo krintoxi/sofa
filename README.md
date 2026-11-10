@@ -55,11 +55,12 @@ own version numbers, counted separately: "Sofa 1.1.0" and "Sofa Box OS 1.1.0" ar
 |---|---|---|---|
 | Its version | **Server page → Updates** | the same as its Sofa Server (it comes from it); the Fire TV app also has a build number | **Settings → About this box**, and on the box's boot screen |
 | Updating it | **Server page → Update now** | by itself, with its Sofa Server; the Fire TV app shows **Update the app**; a Roku takes the newer channel the same way you added it | **Settings → Software → Update the box** |
-| Downloads | [one line in Terminal](#step-1-install-the-sofa-server) | nothing (phones), or from the Sofa Server (TV apps) | [the newest card](https://github.com/krintoxi/sofa/releases/tag/sofa-box) |
+| Downloads | [one line in Terminal](#step-1-install-the-sofa-server) | nothing (phones), or from the Sofa Server (TV apps) | [the stable card](https://github.com/krintoxi/sofa/releases/tag/sofa-box-stable) (or [the newest](https://github.com/krintoxi/sofa/releases/tag/sofa-box), testing) |
 
 ## Sofa Box OS: your own TV box
 
-**[⬇ Download Sofa Box OS](https://github.com/krintoxi/sofa/releases/tag/sofa-box)** (the newest card) ·
+**[⬇ Download Sofa Box OS](https://github.com/krintoxi/sofa/releases/tag/sofa-box-stable)** (the stable card, tried on a real box) ·
+[The newest card](https://github.com/krintoxi/sofa/releases/tag/sofa-box) (testing) ·
 [Every version](https://github.com/krintoxi/sofa/releases?q=box-os) ·
 [What's new](deploy/sofa-box/CHANGES.md) ·
 [The guide](deploy/sofa-box/README.md)
@@ -72,8 +73,9 @@ without one), and you don't need a remote: your phone works it.
 
 <img src="docs/images/box-home.jpg" alt="The Sofa Box home screen: the time and a hello, Open Sofa and Live TV, the weather, and a Watch row" width="100%">
 
-1. Download **`sofa-box.img.xz`** from the [newest card](https://github.com/krintoxi/sofa/releases/tag/sofa-box)
-   (under **Assets**).
+1. Download **`sofa-box-stable.img.xz`** from the [stable card](https://github.com/krintoxi/sofa/releases/tag/sofa-box-stable)
+   (under **Assets**): the newest version tried on a real box. (The [newest card](https://github.com/krintoxi/sofa/releases/tag/sofa-box),
+   `sofa-box.img.xz`, is the testing one: made again with every change, before anyone has tried it.)
 2. Write it to a microSD card with **Raspberry Pi Imager** (raspberrypi.com/software):
    **Choose Device** → your Pi, **Choose OS → Use custom** → the file, then your card. When it asks
    about settings, **No** is fine.

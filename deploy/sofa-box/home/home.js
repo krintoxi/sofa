@@ -671,16 +671,36 @@
         <dt>Temperature</dt><dd>${b.temperature != null ? b.temperature + " °C" : "?"}</dd><dt>Software</dt><dd>Sofa Box OS ${esc(b.version)}</dd></dl>
         <div class="choices" style="margin-top:1rem"><button class="btn" data-action="restart">Restart Sofa Box</button><button class="btn" data-action="reboot">Restart the box</button>
         <button class="btn" data-go="#/welcome">Setup steps again</button></div></section>`;
-    if (setTab === "software") return head("Software", `This is <b>Sofa Box OS ${esc(b.version)}</b>.`) +
+    if (setTab === "software") return head("Software", `This is <b>Sofa Box OS ${esc(b.version)}</b>${softwareIs(b.software || {})}.`) +
       `<section class="card">${b.newest ? `<p class="update-ready"><b>Sofa Box OS ${esc(b.newest)} is ready.</b> Update the box to get it.</p>` : ""}
-        <p>The newest one comes from GitHub; the box restarts by itself when it's done.</p>
+        <p>${s.channel === "testing" ? "It comes from GitHub: the newest Sofa Box OS, before it's been tried on a real box."
+          : "It comes from GitHub, and only once it's been tried on a real box (stable)."} The box restarts by itself when it's done.</p>
         <div class="choices"><button class="btn${b.newest ? " primary" : ""}" data-action="update">Update the box</button></div></section>
+      ${softwareCards(b, s, pick)}
       <section class="card"><h3>Reset to how it came</h3><p>Your apps, sign-ins, Wi-Fi, Bluetooth devices and the files in Downloads, Videos, Music and Pictures go,
         and it starts at the setup steps (for a new owner, or a fresh start).</p><div class="choices"><button class="btn danger" data-action="factory-reset">Reset to how it came</button></div></section>`;
     return head("Help", "Something not working?") +
       `<section class="card"><p><b>Send a report</b> sends the Sofa Box team what the box checks and what it has logged since it started,
         so we can see what went wrong. No titles, passwords or codes are in it. Send it before you restart the box: a restart clears the logs. (Your phone's remote has it too.)</p>
         <div class="choices"><button class="btn primary" data-action="send-report">Send a report</button></div><p class="small" id="reportNo">${lastReport ? "Last report: number <b>" + esc(lastReport) + "</b>." : ""}</p></section>`;
+  }
+
+  // ---- Settings → Software: where updates come from (Stable, tried on a real box; or Testing, the newest), and the weekly
+  // update by itself (Stable only).
+  function softwareIs(w) {
+    return w.is === "stable" ? ", the stable version" : w.is === "testing" ? `, a testing version${w.stable ? "" : " (none is marked stable yet)"}` : "";
+  }
+  function softwareCards(b, s, pick) {
+    const w = b.software || {}, testing = s.channel === "testing", wk = w.weekly || {};
+    const day = t => new Date(t * 1000).toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" });
+    const now = w.looked ? `<p class="small">On GitHub now: Stable ${w.stable ? "<b>" + esc(w.stable) + "</b>" : "none yet"} · Testing <b>${esc(w.testing || "?")}</b></p>` : "";
+    const last = wk.to && wk.to === b.version && wk.came_from !== wk.to ? ` It updated itself to Sofa Box OS ${esc(wk.to)} on ${esc(day(wk.at))}.` : "";
+    return `<section class="card"><h3>Updates from</h3><p><b>Stable</b>: versions that have been tried on a real box first. <b>Testing</b>: the newest, as soon as it's made; for trying things out, and it may have problems.</p>
+        <div class="choices">${pick("channel", "stable", "Stable")}${pick("channel", "testing", "Testing")}</div>${now}</section>
+      <section class="card"><div class="toggle-row"><div><h3>Update by itself every week</h3><p>${testing
+        ? "Only on Stable. On Testing, the box updates when you press Update the box."
+        : "Once a week, at night, when nothing's playing: a new stable version, if there is one." + last}</p></div>
+        ${testing ? "" : `<button class="switch" id="autoUpdate" role="switch" aria-checked="${s.auto_update === "weekly"}" data-auto-update="1" aria-label="Update by itself every week"></button>`}</div></section>`;
   }
 
   // ---- Wi-Fi: one list (Settings and the setup's Internet step), and joining from it: the password typed with the remote
@@ -1220,6 +1240,9 @@
       else if (d.wxReset) { boxInfo = Object.assign(boxInfo, await api("/box/api/settings", { weather_place: null })); loadWeather(); render(true); }
       else if (d.shield) { const on = t.getAttribute("aria-checked") !== "true"; t.setAttribute("aria-checked", on); boxInfo.shield = await api("/box/api/shield", { on });
         toast(on ? "Sofa Shield is on: ads and trackers are kept out." : "Sofa Shield is off."); }
+      else if (d.autoUpdate) { const on = t.getAttribute("aria-checked") !== "true";
+        boxInfo = Object.assign(boxInfo, await api("/box/api/settings", { auto_update: on ? "weekly" : "off" })); refreshPane();
+        toast(on ? "The box updates itself once a week, at night, to a new stable version." : "The box updates only when you press Update the box."); }
       else if (d.move) await moveApp(d.move, +d.by);
       else if (d.hide) await hideApp(d.hide);
       else if (d.action) await action(d.action, t);

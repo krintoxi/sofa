@@ -29,7 +29,9 @@ Nothing about one box is shared with another:
    [its Sofa Box OS release](https://github.com/krintoxi/sofa/releases?q=box-os), to a good card
    (32 GB, A1/A2). A numbered one stays the same, so every box in a batch is alike and you know which
    version a customer has (Settings → About this box). The
-   [newest card](https://github.com/krintoxi/sofa/releases/tag/sofa-box) changes with every fix.
+   [newest card](https://github.com/krintoxi/sofa/releases/tag/sofa-box) changes with every fix (it's the testing
+   card). Sell the stable one: the release titled "(stable)", tried on a real box
+   ([the stable card](https://github.com/krintoxi/sofa/releases/tag/sofa-box-stable)).
 2. Boot it once on a TV, and check it reaches the setup. If you set anything up to test it, use
    Settings → Software → **Reset to how it came**. The reset also restarts it into the setup.
 3. Switch it off at the setup screen, and box it.

@@ -10,7 +10,8 @@ ads, no account, and nothing watching what you watch; the TV itself never needs 
 > one on the box itself. You don't need a Sofa Server for Live TV or streaming apps.
 > [The three parts, side by side](../../README.md#three-parts-sofa-server-sofa-app-and-sofa-box-os)
 
-**[⬇ Download Sofa Box OS](https://github.com/krintoxi/sofa/releases/tag/sofa-box)** (the newest card) ·
+**[⬇ Download Sofa Box OS](https://github.com/krintoxi/sofa/releases/tag/sofa-box-stable)** (the stable card, tried
+on a real box) · [The newest card](https://github.com/krintoxi/sofa/releases/tag/sofa-box) (testing) ·
 [Every version](https://github.com/krintoxi/sofa/releases?q=box-os) · [What's new](CHANGES.md)
 
 <img src="../../docs/images/box-home.jpg" alt="The Sofa Box home screen: the time and a hello, Open Sofa and Live TV, the weather, and a Watch row with Sofa, Live TV and YouTube" width="100%">
@@ -51,11 +52,13 @@ ads, no account, and nothing watching what you watch; the TV itself never needs 
 
 ## Setting it up: the ready-made card (easiest)
 
-1. Download **`sofa-box.img.xz`** from the
-   [newest card](https://github.com/krintoxi/sofa/releases/tag/sofa-box), under **Assets**. GitHub
-   makes it again every time the box changes. Each version also has a release of its own that stays,
-   "Sofa Box OS 1.1.1" and so on ([every version](https://github.com/krintoxi/sofa/releases?q=box-os)).
-   The release's title says which version the newest card is.
+1. Download **`sofa-box-stable.img.xz`** from the
+   [stable card](https://github.com/krintoxi/sofa/releases/tag/sofa-box-stable), under **Assets**: the
+   newest version that has been tried on a real box. Or take **`sofa-box.img.xz`** from the
+   [newest card](https://github.com/krintoxi/sofa/releases/tag/sofa-box), the testing one: GitHub makes it
+   again every time the box changes, before anyone has tried it. Each version also has a release of its
+   own that stays, "Sofa Box OS 1.1.1" and so on ([every version](https://github.com/krintoxi/sofa/releases?q=box-os));
+   the one marked "(stable)" is the stable card ([Stable and testing](#stable-and-testing)).
 2. Install **Raspberry Pi Imager** (raspberrypi.com/software) on your computer and open it.
    Choose your Pi, then **Choose OS → Use custom** and pick the file, then your card.
 3. When it asks about **OS customisation**, you can press **Edit settings** to add your Wi-Fi
@@ -186,7 +189,8 @@ systems. From the Pi's own keyboard and screen, or over SSH (`ssh you@raspberryp
 curl -fsSL https://raw.githubusercontent.com/krintoxi/sofa/main/deploy/sofa-box/install.sh | sudo sh
 ```
 
-It gets everything from GitHub, so no Sofa Server is needed. To start with your Sofa Server
+It gets everything from GitHub, so no Sofa Server is needed: the stable version (tried on a real box),
+or main's newest while no version is marked stable. To start with your Sofa Server
 already on the box's list, add its address at the end (Sofa's **Server → Overview → Apps** shows the
 whole line ready to copy):
 
@@ -205,7 +209,9 @@ It takes about 10 minutes on a Pi 3, then Sofa appears on the TV. Restart once w
 - **An old system** without the `cage` screen program (Raspbian Buster and older) gets a bare X
   screen instead. It works, but the ready-made card is faster and gets updates.
 
-Running the same line again later updates the box.
+Running the same line again later puts main's newest on the box (the testing version). To update it
+the way **Update the box** does, by its channel (Stable or Testing), run `sudo sofa-box update`;
+`sudo SOFA_BOX_BRANCH=<branch> sofa-box update` tries out a branch.
 
 ## Try it on your computer first
 
@@ -463,9 +469,15 @@ song in the box's player, or shows a picture; **Menu** renames, moves or deletes
   headphones.
 - **Time zone**, and which apps show on Home.
 - **Software:**
-  - Which **Sofa Box OS** version it has (also under **About this box**). When a newer one is out,
-    it says so here (the box looks on GitHub once a day).
-  - **Update the box** gets the newest version from GitHub and restarts by itself (a few minutes).
+  - Which **Sofa Box OS** version it has (also under **About this box**), and whether it's the stable
+    one. When a newer one is out for its channel, it says so here (the box looks on GitHub once a day).
+  - **Updates from: Stable or Testing.** Stable, the default: only versions that have been tried on a
+    real box. Testing: the newest, as soon as it's made (for trying things out; it may have problems).
+    See [Stable and testing](#stable-and-testing).
+  - **Update the box** gets that version from GitHub and restarts by itself (a few minutes). On Stable it
+    installs the stable version itself, and only if it's newer than the box's.
+  - **Update by itself every week** (off until you switch it on; Stable only): once a week, at night
+    (between 3 and 5), when nothing's playing, the box installs a new stable version if there is one.
   - **Reset to how it came** wipes everything of the owner's and starts at the setup again. Your
     apps, sign-ins, Wi-Fi, Bluetooth devices and files all go. Use it before giving or selling a box
     to someone.
@@ -613,7 +625,30 @@ sudo tools/build-sofa-box-image.sh out --sofa http://192.168.1.20:8090
 `--sofa` builds your Sofa's address in (optional: the box finds Sofa by itself). On a computer that
 isn't Arm it needs `qemu-user-static`. The card has Raspberry Pi OS's own `pi` user for SSH (no
 password until Raspberry Pi Imager's settings give it a name and password) and `sofabox`, which runs
-Sofa on the TV. Each build writes a report of what's on the card next to it.
+Sofa on the TV. Each build writes a report of what's on the card next to it, ending with every
+package on the card and its exact version.
+
+### The base image
+
+Every card is built on one dated Raspberry Pi OS Lite (64-bit) image, named with its SHA-256 in
+[`tools/sofa-box-base-image.txt`](../../tools/sofa-box-base-image.txt). The build downloads that image and
+stops if its checksum isn't that one, so a commit makes the same system on any day (`--base` builds on
+another image instead, and the report says it isn't the pinned one). The packages the installer adds
+(Chromium, mpv, ffmpeg…) still come from apt on the day of the build: the report's package list says
+exactly which, so two cards can be compared.
+
+To move it to a newer Raspberry Pi OS:
+
+1. Find the newest image: `curl -sIL https://downloads.raspberrypi.com/raspios_lite_arm64_latest | grep -i '^location'`
+   (or the dated folders at <https://downloads.raspberrypi.com/raspios_lite_arm64/images/>).
+2. Its SHA-256 is in the `.sha256` file beside it: `curl -sL <the image's address>.sha256`.
+3. Put both on the `url=` and `sha256=` lines of `tools/sofa-box-base-image.txt`, raise `VERSION`, and
+   say so in `CHANGES.md` (a new base is a new card to try on a real box before it's stable).
+4. The pull request's card (its workflow run, under **Artifacts**) is the card to try: its report shows
+   the new base and every package.
+
+The pin is one file read in one place (the "Raspberry Pi OS Lite" part of the build script), so a build
+of our own (Raspberry Pi's `rpi-image-gen`, say) can take its place.
 
 ### Versions
 
@@ -621,13 +656,47 @@ Sofa Box OS has a version number of its own, in [`VERSION`](VERSION) (like `1.0.
 [`CHANGES.md`](CHANGES.md). The box shows it on its boot screen and in Settings, and the card is named
 after it (`sofa-box-os-1.0.0.img.xz`).
 
-- Every change to the box merged into `main` makes a new **newest card**
+- Every change to the box merged into `main` makes a new **newest card**, the **testing** card
   ([releases/tag/sofa-box](https://github.com/krintoxi/sofa/releases/tag/sofa-box); its file is always
   `sofa-box.img.xz`, so the link never changes). The new card uploads beside the old one and only then
-  takes its place, so the download is never missing.
+  takes its place, so the download is never missing. Merges go one at a time, in order, and a card only
+  replaces one at least as new: never a lower version, nor the same version from an earlier commit.
 - The first time `main` has a new number, GitHub also makes the release **Sofa Box OS X.Y.Z** (tag
   `box-os-vX.Y.Z`) with that card and its part of CHANGES.md, and keeps it.
 - So a new version is: raise the number in `VERSION` (1.0.1 for fixes, 1.1.0 for something new), add a
   section at the top of `CHANGES.md`, merge.
-- Neither release is marked "Latest" on GitHub: that one stays the Fire TV app's, because Sofa
+- No release is marked "Latest" on GitHub: that one stays the Fire TV app's, because Sofa
   downloads the app from there.
+
+### Stable and testing
+
+A box gets its updates from one of two channels (Settings → Software):
+
+- **Stable**, the default: the version named in [`STABLE`](STABLE), which the owner changes once that
+  version's own card has been tried on a real box. A box on Stable is offered that version only, and
+  only when it's newer than its own; **Update the box** installs exactly it (the files of its release's
+  commit, `box-os-vX.Y.Z`, with that version's own installer), and the weekly update (if it's on) does
+  the same at night. Its card is the **stable card**,
+  [releases/tag/sofa-box-stable](https://github.com/krintoxi/sofa/releases/tag/sofa-box-stable) (its
+  file is always `sofa-box-stable.img.xz`), and its own release is titled "Sofa Box OS X.Y.Z (stable)".
+- **Testing**: main's newest (`VERSION`), as soon as it's merged, before anyone has tried it: the newest
+  card, and what every box got before 1.1.55. Never an older version than the box has.
+
+**Marking a version stable** (the owner, once its card has passed on a real box):
+
+1. Make sure the card you tried is that version's own: its SHA-256 (`sha256sum` of the file, or the `.sha256`
+   beside it) must be the one in that release's `sofa-box-os-X.Y.Z.img.xz.sha256`. Only a numbered card
+   can be stable: a version that never got a release of its own (merged together with a newer one) can't.
+2. Change the last line of [`STABLE`](STABLE) from `none` (or the old version) to that version, say
+   `1.1.54`, and merge it to `main`: a one-line pull request, or **Edit** on GitHub and commit.
+3. That's all. Boxes on Stable see it within a day (or when someone presses **Update the box**), and the
+   workflow [sofa-box-stable.yml](../../.github/workflows/sofa-box-stable.yml) marks the releases: the
+   version's release says "(stable)", and the stable card becomes its card. If that version has no release
+   with a card, the workflow fails and changes nothing (boxes don't offer such a version either).
+
+Going back to an older stable version works the same way (boxes that have a newer one keep it; new
+boxes get the older one), and `none` means no stable card. A change to `STABLE` builds no card.
+
+A box older than 1.1.55 doesn't know the channels yet: its next **Update the box** still takes main's
+newest, and from then on it follows Stable. A new box set up with the one-line install gets the stable
+version (or main's newest, before one is marked).

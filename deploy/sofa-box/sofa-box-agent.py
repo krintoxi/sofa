@@ -64,10 +64,12 @@ OS_VERSION = os_version()
 STARTED = time.time()
 DEFAULTS = {"server": None, "quality": "auto", "hwdec": "auto", "audio": "auto", "learned_720": False, "learned_lite": False,
             "performance": "auto",
+            "channel": "stable", "auto_update": "off",          # Settings → Software (weekly updates off: the owner's choice)
             "mpv_args": [], "theme": "street", "boot_text": "", "shield": True, "welcomed": False, "secure_remote": True, "boot_sound": "on",
             "weather": "on", "weather_units": "auto", "weather_place": None}
 THEMES = ("street", "terminal", "pirate", "sofa", "midnight", "cinema", "ocean", "forest", "grape", "oled")
 CHOICES = {"quality": ("auto", "720", "1080"), "audio": ("auto", "passthrough"), "performance": ("auto", "light", "full"),
+           "channel": ("stable", "testing"), "auto_update": ("off", "weekly"),
            "hwdec": ("auto", "no", "v4l2m2m-copy", "drm", "auto-safe"), "theme": THEMES, "boot_sound": ("on", "off"),
            "weather": ("on", "off"), "weather_units": ("auto", "c", "f")}
 HOP = {"connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailers", "transfer-encoding",
@@ -3434,35 +3436,101 @@ def run(cmd, timeout=20):
         return 1, str(exc)
 
 
+# Updates come from one of two channels (Settings → Software). Stable, the default: the version marked stable in
+# deploy/sofa-box/STABLE on main (tried on a real box), once its own release (box-os-v<version>) is there. Testing: main's
+# newest (VERSION). `sofa-box update` installs the same one.
 NEWEST_URL = "https://raw.githubusercontent.com/krintoxi/sofa/main/deploy/sofa-box/VERSION"
-_newest = {"at": 0, "version": None}
+STABLE_URL = "https://raw.githubusercontent.com/krintoxi/sofa/main/deploy/sofa-box/STABLE"
+RELEASE_URL = "https://raw.githubusercontent.com/krintoxi/sofa/box-os-v%s/deploy/sofa-box/VERSION"
+_newest = {"at": 0, "version": None, "stable": None, "looked": 0}
 
 
 def newer(a, b):
     try:
         return tuple(int(x) for x in a.split(".")) > tuple(int(x) for x in b.split("."))
-    except ValueError:
+    except (AttributeError, ValueError):
         return False
 
 
+def version_in(text):
+    """The version in one of GitHub's small files (VERSION; STABLE, with its notes: the line that's a version)."""
+    for line in (text or "").splitlines():
+        if re.match(r"^\d+\.\d+\.\d+$", line.strip()):
+            return line.strip()
+    return None
+
+
+def fetch_text(url):
+    """A small file from GitHub: its text, "" if it isn't there, None if GitHub couldn't be reached."""
+    try:
+        with urllib.request.urlopen(url, timeout=8) as r:
+            return r.read(4096).decode("utf-8", "replace")
+    except urllib.error.HTTPError as exc:
+        return "" if exc.code == 404 else None
+    except (OSError, ValueError):
+        return None
+
+
+def look_for_updates():
+    """What each channel has on GitHub now: main's newest, and the version marked stable if it has a release of its own
+    (a version that never got a card isn't offered). False if GitHub couldn't be reached (what it knew stays)."""
+    testing, stable = fetch_text(NEWEST_URL), fetch_text(STABLE_URL)
+    if testing is None or stable is None:
+        return False
+    stable = version_in(stable)
+    if stable and stable != _newest["stable"]:
+        released = fetch_text(RELEASE_URL % stable)
+        if released is None:
+            return False
+        stable = stable if version_in(released) == stable else None
+    _newest.update(version=version_in(testing), stable=stable, looked=time.time())
+    return True
+
+
+def offered(channel, stable, testing, current):
+    """The Sofa Box OS a box is offered, or None. Stable (the default): the stable version only. Testing: main's newest
+    (or the stable one, if that's ahead). Never one that isn't newer than the box's own."""
+    v = testing if channel == "testing" and testing and not newer(stable or "0.0.0", testing) else stable
+    return v if v and newer(v, current) else None
+
+
 def newest_version():
-    """A newer Sofa Box OS on GitHub, if there is one (looked up in the background, once a day); else None."""
+    """A newer Sofa Box OS for this box's channel, if there is one (looked up in the background, once a day); else None."""
     if os.environ.get("SOFA_BOX_NEWEST") == "0":
         return None
     if time.time() - _newest["at"] > 86400:
         _newest["at"] = time.time()
+        threading.Thread(target=look_for_updates, daemon=True).start()
+    return offered(settings().get("channel"), _newest["stable"], _newest["version"], OS_VERSION)
 
-        def look():
-            try:
-                with urllib.request.urlopen(NEWEST_URL, timeout=8) as r:
-                    v = r.read(32).decode("ascii", "replace").strip()
-                if re.match(r"^\d+\.\d+\.\d+$", v):
-                    _newest["version"] = v
-            except (OSError, ValueError):
-                pass
-        threading.Thread(target=look, daemon=True).start()
-    v = _newest["version"]
-    return v if v and newer(v, OS_VERSION) else None
+
+def software():
+    """Settings → Software: the box's channel, what each channel has (once it has looked), whether this box's version is
+    the stable one or one being tested, and its last update by itself."""
+    s, st = settings(), _newest["stable"]
+    return {"channel": "testing" if s.get("channel") == "testing" else "stable", "stable": st, "testing": _newest["version"],
+            "looked": _newest["looked"] or None, "auto": s.get("auto_update") == "weekly", "weekly": s.get("update_week") or {},
+            "is": None if not _newest["looked"] else "stable" if st == OS_VERSION else
+                  "older" if st and newer(st, OS_VERSION) else "testing"}
+
+
+def update_box():
+    """Update the box (Settings → Software): it looks on GitHub first (the daily look may be a day old), then installs
+    what its channel offers (`sofa-box update`, its own service: the box restarts by itself when it's done). On Stable,
+    nothing unless a newer stable version is there; on Testing, main's newest, as it always did."""
+    if os.environ.get("SOFA_BOX_NEWEST") != "0" and not look_for_updates():
+        return {"ok": False, "message": "The box couldn't reach GitHub to look for an update. Is it online?"}
+    channel, st, main = software()["channel"], _newest["stable"], _newest["version"]
+    v = offered(channel, st, main, OS_VERSION)
+    if not v and channel == "stable":
+        return {"ok": True, "message": "No version is marked stable yet, so the box stays as it is." if not st else
+                "This box has Sofa Box OS %s, the stable version." % st if st == OS_VERSION else
+                "This box's Sofa Box OS %s is newer than the stable version (%s): it stays as it is." % (OS_VERSION, st)}
+    if not v and main and newer(OS_VERSION, main):
+        return {"ok": True, "message": "This box's Sofa Box OS %s is newer than main's newest (%s): it stays as it is." % (OS_VERSION, main)}
+    threading.Thread(target=lambda: run(["sudo", "-n", os.path.join(HERE, "sofa-box"), "update"], 1800), daemon=True).start()
+    return {"ok": True, "version": v, "message": "Updating to %s from GitHub. The box restarts by itself when it's done (a few minutes)."
+            % ("Sofa Box OS " + (v or main) if v or main else "the newest Sofa Box OS")}
 
 
 def box_info():
@@ -3487,7 +3555,8 @@ def box_info():
         mem = free = None
     return {"version": OS_VERSION, "newest": newest_version(), "model": model() or "this computer", "memory": mem, "memory_free": free, "temperature": temp,
             "wifi": ssid or None, "address": local_address(), "server": server(), "server_name": (found.get(server()) or {}).get("name"),
-            "settings": {k: s[k] for k in ("quality", "hwdec", "audio", "theme", "boot_text", "performance", "boot_sound", "weather", "weather_units")},
+            "settings": {k: s[k] for k in ("quality", "hwdec", "audio", "theme", "boot_text", "performance", "boot_sound", "weather", "weather_units",
+                                           "channel", "auto_update")}, "software": software(),
             "weather_place": s.get("weather_place") or zone_place(current_timezone()), "weather_picked": bool(s.get("weather_place")),
             "choices": CHOICES, "learned_720": s["learned_720"], "learned_lite": bool(s.get("learned_lite")),
             "max_height": max_height(), "slow_board": slow_board(), "light": light(), "board": board(), "controllers": controllers}
@@ -3615,9 +3684,8 @@ def box_action(a, data):
     if a == "factory-reset":                       # back to how it came: for the next owner, or a fresh start
         threading.Timer(1.0, lambda: run(["sudo", "-n", os.path.join(HERE, "sofa-box"), "factory-reset"], 120)).start()
         return {"ok": True, "message": "Resetting. The box starts again as new in a minute."}
-    if a == "update":                              # the newest Sofa Box from GitHub (takes a few minutes)
-        threading.Thread(target=lambda: run(["sudo", "-n", os.path.join(HERE, "sofa-box"), "update"], 1800), daemon=True).start()
-        return {"ok": True, "message": "Updating from GitHub. The box restarts by itself when it's done (a few minutes)."}
+    if a == "update":                              # a newer Sofa Box OS from GitHub, for the box's channel (a few minutes)
+        return update_box()
     if a == "forget-720":
         save_settings(learned_720=False)
         return {"ok": True}
@@ -3681,6 +3749,64 @@ class BootScreen:
 
 
 boot_screen = BootScreen()
+
+
+class WeeklyUpdate:
+    """Settings → Software → Update by itself every week (off until someone switches it on; Stable only). Once a week,
+    at night (3 to 5 o'clock where the box is), with the setup done, nothing playing and no game open, the box looks on
+    GitHub and installs a newer stable version if there is one, as Update the box does. One that didn't take (the box
+    still has its old version: no internet, say) is tried again the next night, three nights at most, then the next
+    week. Kept in the settings ("update_week"): when it looks next, and the last update it started."""
+    WEEK, NIGHT, AGAIN, TRIES = 7 * 86400, (3, 5), 18 * 3600, 3
+
+    @staticmethod
+    def hour(now):
+        """The hour where the box is (its time zone, which the setup may have set after the agent started)."""
+        try:
+            import datetime
+            import zoneinfo
+            return datetime.datetime.fromtimestamp(now, zoneinfo.ZoneInfo(current_timezone())).hour
+        except Exception:                                   # (Python 3.8 and older, or no time zone data)
+            return time.localtime(now).tm_hour
+
+    @staticmethod
+    def busy():
+        return playing() or bool(games.proc and games.proc.poll() is None)
+
+    def due(self, now):
+        s = settings()
+        return (s.get("auto_update") == "weekly" and s.get("channel") != "testing" and bool(s.get("welcomed"))
+                and self.NIGHT[0] <= self.hour(now) < self.NIGHT[1] and now >= (s.get("update_week") or {}).get("next", 0)
+                and not self.busy())
+
+    def look(self, now):
+        """The week's look (or the next night's): True if it started an update."""
+        w = dict(settings().get("update_week") or {})
+        v = offered("stable", _newest["stable"], _newest["version"], OS_VERSION) if look_for_updates() else False
+        tries = (w.get("tries", 0) + 1 if v == w.get("to") else 1) if v else 0
+        if v is False:                                      # GitHub out of reach: the next night
+            w["next"] = now + self.AGAIN
+        elif v and tries <= self.TRIES:                     # (the next night again, if it didn't take)
+            w.update(to=v, came_from=OS_VERSION, at=now, tries=tries, next=now + self.AGAIN)
+            save_settings(update_week=w)
+            run(["sudo", "-n", os.path.join(HERE, "sofa-box"), "update"], 1800)
+            return True
+        else:                                               # nothing newer, or three nights didn't take: next week
+            w.update(tries=0, next=now + self.WEEK - 6 * 3600)          # (a few hours early: the same night each week)
+        save_settings(update_week=w)
+        return False
+
+    def watch(self):
+        while True:
+            time.sleep(600)
+            try:
+                if self.due(time.time()):
+                    self.look(time.time())
+            except Exception as exc:
+                print("The weekly update: %s" % exc, file=sys.stderr, flush=True)
+
+
+weekly_update = WeeklyUpdate()
 
 
 def box_state():
@@ -4507,6 +4633,8 @@ def main():
     threading.Thread(target=watch_power, daemon=True, name="power").start()
     threading.Thread(target=watch_smoothness, daemon=True, name="smoothness").start()
     threading.Thread(target=watch_web_game, daemon=True, name="web-game").start()
+    if os.environ.get("SOFA_BOX_NEWEST") != "0":
+        threading.Thread(target=weekly_update.watch, daemon=True, name="weekly-update").start()   # (if it's switched on)
     if os.environ.get("SOFA_BOX_ICONS") != "0":
         apps.refresh_icons()                               # sharper app icons, once (boxos.ICONS_VERSION)
     if local_sofa.public():                                # open to the internet: it has to be there, from the start

@@ -1,0 +1,6 @@
+# The Raspberry Pi OS that every Sofa Box OS card is built on (tools/build-sofa-box-image.sh): one dated image of
+# Raspberry Pi OS Lite (64-bit) and its SHA-256. The build downloads this image and stops if its checksum isn't this
+# one, so a commit makes the same card's system on any day. (Sofa Box OS 1.1.54's card was built on this image.)
+# Moving it to a newer Raspberry Pi OS: deploy/sofa-box/README.md, "The base image". Only the two lines below are read.
+url=https://downloads.raspberrypi.com/raspios_lite_arm64/images/raspios_lite_arm64-2026-10-06/2026-10-06-raspios-trixie-arm64-lite.img.xz
+sha256=483db18a48da399b5b7022ffae9a07bc6d99daab30e593aedac09b69ff422843

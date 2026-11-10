@@ -1,0 +1,5 @@
+# Sofa Box OS: the version marked stable, the newest one tried on a real box. Boxes on Stable (the default, Settings ->
+# Software) are offered this version only; boxes on Testing get main's newest (VERSION). It must be a version with a
+# release of its own (box-os-v<version>). Marking one: deploy/sofa-box/README.md, "Stable and testing". The line below
+# is the version, or "none".
+none

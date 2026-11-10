@@ -1,0 +1,36 @@
+name: Sofa box stable card
+
+# deploy/sofa-box/STABLE names the Sofa Box OS version the owner has tried on a real box (or "none"). When it changes
+# on main, or when this is run by hand (Actions → Sofa box stable card → Run workflow: to put the releases right
+# again), tools/sofa-box-releases.py mark-stable makes the releases match it:
+# - that version's own release (box-os-vX.Y.Z) is titled "Sofa Box OS X.Y.Z (stable)", and says so first;
+# - the release "sofa-box-stable", the stable card at https://github.com/krintoxi/sofa/releases/tag/sofa-box-stable,
+#   holds that version's card, copied from its own release and checked against its SHA-256 (its file is always
+#   sofa-box-stable.img.xz, so links to it never change);
+# - a version that was stable before loses the mark (its first line says it was tested).
+# It stops, changing nothing, if that version has no release with a card: only a numbered card can be the stable one.
+# Boxes read STABLE from main themselves (Settings → Software); this is the releases page's side. It builds nothing.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ["deploy/sofa-box/STABLE"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sofa-box-releases                 # one at a time with the card runs on main (sofa-box-image.yml)
+  queue: max
+
+jobs:
+  stable:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Mark the stable card
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 tools/sofa-box-releases.py mark-stable

@@ -5,7 +5,10 @@
 #   sudo tools/build-sofa-box-image.sh [OUT_DIR] [--sofa http://192.168.1.20:8090] [--base FILE_OR_URL]
 #
 #   --sofa   the Sofa computer's address, built in (it still looks for Sofa itself if that changes)
-#   --base   another Raspberry Pi OS Lite image (.img or .img.xz) instead of the latest one
+#   --base   another Raspberry Pi OS Lite image (.img or .img.xz, a file or an address) instead of the pinned one
+#
+# It's built on the Raspberry Pi OS pinned in tools/sofa-box-base-image.txt (a dated image and its SHA-256: it stops
+# if the download isn't that image). The card's report lists every package on it with its version (dpkg-query -W).
 #
 # On Linux, as root. On an Arm computer (GitHub's ubuntu-24.04-arm, a Pi) it runs the Pi's own programs
 # directly; elsewhere it needs qemu-user-static. GitHub builds it (.github/workflows/sofa-box-image.yml)
@@ -14,7 +17,7 @@
 # On the card: Raspberry Pi OS's own login user (uid 1000, "pi"; Raspberry Pi Imager's settings give it
 # your name and a password, and can turn SSH and Wi-Fi on), and "sofabox", which runs Sofa on the TV.
 set -eu
-OUT=out SOFA="" BASE="https://downloads.raspberrypi.com/raspios_lite_arm64_latest"
+OUT=out SOFA="" BASE=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --sofa) SOFA="${2%/}"; shift ;;
@@ -47,19 +50,30 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 echo "== Raspberry Pi OS Lite"
+PIN="$REPO/tools/sofa-box-base-image.txt"       # the image the cards are built on, and its SHA-256
+if [ -z "$BASE" ]; then
+  BASE="$(sed -n 's/^url=//p' "$PIN" 2>/dev/null | head -n 1)"
+  SUM="$(sed -n 's/^sha256=//p' "$PIN" 2>/dev/null | head -n 1)"
+  case "$BASE" in https://*) ;; *) echo "No url= line in $PIN."; exit 1 ;; esac
+  echo "$SUM" | grep -Eq '^[0-9a-f]{64}$' || { echo "No sha256= line (64 hex digits) in $PIN."; exit 1; }
+  BUILT_ON="pinned in tools/sofa-box-base-image.txt"
+else
+  SUM="" BUILT_ON="not the pinned one: --base"
+fi
 case "$BASE" in
   http*)
     FINAL="$(curl -fsSIL -o /dev/null -w '%{url_effective}' "$BASE")"
     echo "   $FINAL"
     curl -fL --retry 3 -o "$WORK/base.img.xz" "$FINAL"
-    if curl -fsSL -o "$WORK/base.sha256" "$FINAL.sha256"; then
-      echo "$(cut -d' ' -f1 "$WORK/base.sha256")  $WORK/base.img.xz" | sha256sum -c -
-    else
-      echo "   (no checksum published next to it)"
-    fi
+    if [ -z "$SUM" ] && curl -fsSL -o "$WORK/base.sha256" "$FINAL.sha256"; then SUM="$(cut -d' ' -f1 "$WORK/base.sha256")"; fi
     SRC="$WORK/base.img.xz" ;;
   *) SRC="$BASE" ;;
 esac
+if [ -n "$SUM" ]; then
+  echo "$SUM  $SRC" | sha256sum -c - || { echo "Stopped: $(basename "${FINAL:-$SRC}") isn't the image with SHA-256 $SUM."; exit 1; }
+else
+  echo "   (no checksum to check it against)"
+fi
 case "$SRC" in
   *.xz) xz -dc "$SRC" > "$WORK/sofa-box.img" ;;
   *) cp "$SRC" "$WORK/sofa-box.img" ;;
@@ -123,7 +137,13 @@ chroot "$ROOT" /bin/sh -c '
   echo "Space: $(df -h / | tail -n 1 | awk "{print \$3\" used, \"\$4\" free\"}")"
 ' > "$REPORT" 2>&1 || true
 echo "Wi-Fi as Raspberry Pi OS left it: $WIFI_BEFORE" >> "$REPORT"
+echo "Built on: $(basename "${FINAL:-$SRC}"), SHA-256 ${SUM:-not checked} ($BUILT_ON)" >> "$REPORT"
+# Every package on the card with its exact version: install.sh gets them from apt on the day of the build, so two
+# cards of one commit can differ there, and this says how.
+chroot "$ROOT" dpkg-query -W -f='${db:Status-Abbrev} ${binary:Package} ${Version}\n' 2>/dev/null \
+  | awk '$1 == "ii" { print "  " $2 " " $3 }' > "$WORK/packages.txt" || true
 cat "$REPORT"
+echo "Packages: $(wc -l < "$WORK/packages.txt" | tr -d ' '), each with its version in the card's report"
 rm -f "$ROOT/usr/sbin/policy-rc.d" "$ROOT/usr/bin/qemu-aarch64-static"
 cat > "$ROOT/boot/firmware/sofa-box.txt" <<EOF
 Sofa Box OS $VER card, made $(date -u +%Y-%m-%d) from $(basename "${FINAL:-$SRC}").
@@ -144,6 +164,7 @@ cleanup_mounts() {
 cleanup_mounts
 xz -T0 -6 -c "$WORK/sofa-box.img" > "$OUT/$NAME.img.xz"
 (cd "$OUT" && sha256sum "$NAME.img.xz" > "$NAME.img.xz.sha256")
-{ cat "$REPORT"; echo "Card: $NAME.img.xz, $(du -h "$OUT/$NAME.img.xz" | cut -f1) packed, $(du -h --apparent-size "$WORK/sofa-box.img" | cut -f1) written"; } > "$OUT/$NAME-report.txt"
+{ cat "$REPORT"; echo "Card: $NAME.img.xz, $(du -h "$OUT/$NAME.img.xz" | cut -f1) packed, $(du -h --apparent-size "$WORK/sofa-box.img" | cut -f1) written"
+  echo; echo "== Packages on the card ($(wc -l < "$WORK/packages.txt" | tr -d ' ')), with their versions (dpkg-query -W)"; cat "$WORK/packages.txt"; } > "$OUT/$NAME-report.txt"
 ls -lh "$OUT/$NAME.img.xz"
 echo "Write it to a card with Raspberry Pi Imager: Choose OS -> Use custom -> $NAME.img.xz"

@@ -77,9 +77,25 @@ say "Copying the Sofa box files"
 if [ ! -f "$HERE/sofa-box-agent.py" ]; then        # run through curl: the box (and Sofa) come from GitHub
   FETCHED="$(mktemp -d)"
   BRANCH="${SOFA_BOX_BRANCH:-main}"
-  if curl -fsSL "https://codeload.github.com/krintoxi/sofa/tar.gz/refs/heads/$BRANCH" | tar xz -C "$FETCHED" 2>/dev/null \
-      && [ -f "$FETCHED/sofa-$BRANCH/deploy/sofa-box/sofa-box-agent.py" ]; then
-    HERE="$FETCHED/sofa-$BRANCH/deploy/sofa-box"
+  REF="refs/heads/$BRANCH" STABLE=""
+  # A new box starts on the stable version (deploy/sofa-box/STABLE: tried on a real box), from its own release, once
+  # one is marked. SOFA_BOX_BRANCH, or a Sofa box already (an update from a box older than 1.1.55): that branch's newest.
+  if [ -z "${SOFA_BOX_BRANCH:-}" ] && [ ! -f "$LIB/VERSION" ]; then
+    STABLE="$(curl -fsSL -m 30 https://raw.githubusercontent.com/krintoxi/sofa/main/deploy/sofa-box/STABLE 2>/dev/null \
+      | tr -d '\r ' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1)"
+    if [ -n "$STABLE" ] && curl -fsS -m 30 -o /dev/null "https://raw.githubusercontent.com/krintoxi/sofa/box-os-v$STABLE/deploy/sofa-box/VERSION"; then
+      REF="refs/tags/box-os-v$STABLE"
+    else
+      STABLE=""                                     # (none marked, or no release of its own: main's newest)
+    fi
+  fi
+  if curl -fsSL "https://codeload.github.com/krintoxi/sofa/tar.gz/$REF" | tar xz -C "$FETCHED" 2>/dev/null \
+      && [ -f "$(ls -d "$FETCHED"/*/deploy/sofa-box 2>/dev/null | head -n 1)/sofa-box-agent.py" ]; then
+    HERE="$(ls -d "$FETCHED"/*/deploy/sofa-box | head -n 1)"
+    if [ -n "$STABLE" ]; then                       # that version's own installer, with its own files
+      say "Sofa Box OS $STABLE (stable)"
+      exec sh "$HERE/install.sh" ${SOFA:+"$SOFA"}
+    fi
   elif [ -n "$SOFA" ] && curl -fsSL "$SOFA/sofa-box.tar.gz" | tar xz -C "$FETCHED"; then
     HERE="$FETCHED/sofa-box"                         # no GitHub: from the Sofa computer instead
   else

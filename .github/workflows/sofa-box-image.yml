@@ -1,14 +1,17 @@
 name: Sofa box card
 
 # A ready-to-write card for the Sofa Box (Raspberry Pi OS Lite, 64-bit, with Sofa Box OS set up), built on
-# GitHub's Arm computers.
+# GitHub's Arm computers, on the Raspberry Pi OS image pinned in tools/sofa-box-base-image.txt.
 # - A change to the box on main publishes:
-#   - the release "sofa-box", always the newest card, at https://github.com/krintoxi/sofa/releases/tag/sofa-box
-#     (its file is always sofa-box.img.xz, so links to it never change; a new card goes up beside the old one
-#     and takes its name at the end, so the download never goes missing);
+#   - the release "sofa-box", the testing card: always the newest, not tried on a real box yet, at
+#     https://github.com/krintoxi/sofa/releases/tag/sofa-box (its file is always sofa-box.img.xz, so links to it never
+#     change; a new card goes up beside the old one and takes its name at the end, so the download never goes missing).
+#     Never backwards: a card replaces it only if it's at least as new (tools/sofa-box-releases.py may-replace);
 #   - "Sofa Box OS X.Y.Z" (tag box-os-vX.Y.Z), the first time main has that number in deploy/sofa-box/VERSION,
 #     kept for good, with what's new from deploy/sofa-box/CHANGES.md. A new version: raise the number.
-#   Neither is ever marked "latest": that stays the Fire TV app's, which Sofa downloads from there.
+#   The stable card (sofa-box-stable) is a numbered one, tried on a real box: deploy/sofa-box/STABLE names it, and
+#   sofa-box-stable.yml marks it (a change to STABLE alone builds nothing here).
+#   None is ever marked "latest": that stays the Fire TV app's, which Sofa downloads from there.
 # - Publishing a release by hand whose tag starts with "box-v" or "box-os-v" builds the card and attaches it.
 # - Changes on other branches build it as a check, kept for a week under the run's Artifacts.
 on:
@@ -20,11 +23,21 @@ on:
     paths:
       - "deploy/sofa-box/**"
       - "!deploy/sofa-box/README.md"
+      - "!deploy/sofa-box/STABLE"
       - "tools/build-sofa-box-image.sh"
+      - "tools/sofa-box-base-image.txt"
+      - "tools/sofa-box-releases.py"
       - ".github/workflows/sofa-box-image.yml"
 
 permissions:
   contents: write
+
+# What's published from main goes one run at a time, in the order they came (queue: max holds up to 100 waiting, and
+# never cancels one that's running or waiting): two at once raced over the testing card's files, and the last to finish
+# won, even when it was older. sofa-box-stable.yml waits in the same queue. Other branches' checks run side by side.
+concurrency:
+  group: ${{ (github.ref == 'refs/heads/main' || github.event_name == 'release') && 'sofa-box-releases' || format('sofa-box-check-{0}', github.run_id) }}
+  queue: max
 
 jobs:
   card:
@@ -39,9 +52,12 @@ jobs:
         run: sudo tools/build-sofa-box-image.sh out
       - name: What's on it
         run: |
-          { echo '### What is on the card'; echo '```'; cat out/*-report.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
-          # the same as a notice, readable through the API too (newlines as %0A)
-          echo "::notice title=Sofa box card::$(sed ':a;N;$!ba;s/%/%25/g;s/\n/%0A/g' out/*-report.txt)"
+          R="$(ls out/*-report.txt | head -1)"
+          { echo '### What is on the card'; echo '```'; sed '/^== Packages/,$d' "$R"; echo '```'
+            echo '<details><summary>Every package on it, with its version</summary>'; echo; echo '```'; sed -n '/^== Packages/,$p' "$R"; echo '```'; echo '</details>'
+          } >> "$GITHUB_STEP_SUMMARY"
+          # the same as a notice, readable through the API too (newlines as %0A); the packages are in the report
+          echo "::notice title=Sofa box card::$(sed '/^== Packages/,$d' "$R" | sed ':a;N;$!ba;s/%/%25/g;s/\n/%0A/g')"
       - name: Keep it (a week)
         if: github.event_name != 'release'
         uses: actions/upload-artifact@v4
@@ -84,7 +100,7 @@ jobs:
           2. Open Raspberry Pi Imager (raspberrypi.com/software): Choose Device → your Pi; Choose OS → Use custom → this file; Choose Storage → your microSD card. Write it.
           3. Put the card in the Pi, plug HDMI into the TV, then the power. The setup shows a QR code: scan it with your phone and the phone works the box.
 
-          A Pi that already has Raspberry Pi OS: \`curl -fsSL https://raw.githubusercontent.com/krintoxi/sofa/main/deploy/sofa-box/install.sh | sudo sh\`
+          A Pi that already has Raspberry Pi OS: \`curl -fsSL https://raw.githubusercontent.com/krintoxi/sofa/main/deploy/sofa-box/install.sh | sudo sh\` (the stable version, or main's newest while none is marked)
 
           What's on the card: $2. The guide: https://github.com/krintoxi/sofa/blob/main/deploy/sofa-box/README.md. Every version: https://github.com/krintoxi/sofa/releases?q=box-os
 
@@ -92,13 +108,21 @@ jobs:
           EOF
             cat pub/new.md
           }
-          # 1. the newest card, always at the same address
-          { echo "The newest card for the **Sofa Box** (Raspberry Pi 3 B+, 4 or 5): **Sofa Box OS $VER**, built $DAY from $SHORT on main."; echo
+          STABLE_PAGE="https://github.com/krintoxi/sofa/releases/tag/sofa-box-stable"
+          # 1. the testing card (the newest), always at the same address. Never backwards: a lower version, or the same
+          #    one from an earlier commit (a re-run of an old run), leaves the newer card there (exit 10).
+          GUARD=0
+          python3 tools/sofa-box-releases.py may-replace "$VER" "$GITHUB_SHA" || GUARD=$?
+          [ "$GUARD" = 0 ] || [ "$GUARD" = 10 ] || exit "$GUARD"
+          { echo "<!-- sofa-box-card version=$VER commit=$GITHUB_SHA -->"
+            echo "The **testing** card for the **Sofa Box** (Raspberry Pi 3 B+, 4 or 5): **Sofa Box OS $VER**, the newest, built $DAY from $SHORT on main. It hasn't been tried on a real box yet: the tested card is the stable one, $STABLE_PAGE"; echo
             how sofa-box.img.xz sofa-box-report.txt; } > pub/newest.md
           R="repos/$GITHUB_REPOSITORY/releases"
-          if ! gh api "$R/tags/sofa-box" >/dev/null 2>&1; then
+          if [ "$GUARD" = 10 ]; then
+            echo "::notice title=The testing card stays::Sofa Box OS $VER from $SHORT isn't newer than the testing card there now, so it stays (this run's version release is still made if it's missing)."
+          elif ! gh api "$R/tags/sofa-box" >/dev/null 2>&1; then
             gh release create sofa-box pub/newest/* --target "$GITHUB_SHA" --latest=false \
-              --title "Sofa Box OS $VER: the newest card ($DAY)" --notes-file pub/newest.md
+              --title "Sofa Box OS $VER (testing): the newest card ($DAY)" --notes-file pub/newest.md
           else
             # The download link never breaks: the new files go up beside the old ones (next-…, the slow part),
             # then the old ones go and the new ones take their names, a second or two apart.
@@ -119,17 +143,19 @@ jobs:
             done
             gh api -X PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/sofa-box" -f sha="$GITHUB_SHA" -F force=true >/dev/null \
               || echo "(the tag sofa-box stays on its old commit; the card is the new one)"
-            gh release edit sofa-box --title "Sofa Box OS $VER: the newest card ($DAY)" --notes-file pub/newest.md
+            gh release edit sofa-box --title "Sofa Box OS $VER (testing): the newest card ($DAY)" --notes-file pub/newest.md
           fi
           # 2. this version's own release, kept: made once, the first time main has this number
           if gh api "repos/$GITHUB_REPOSITORY/releases/tags/box-os-v$VER" >/dev/null 2>&1; then
-            echo "Sofa Box OS $VER is already released; only the newest card changed (raise deploy/sofa-box/VERSION for a new version)."
+            echo "Sofa Box OS $VER is already released: only the testing card can change (raise deploy/sofa-box/VERSION for a new version)."
           else
             mkdir -p pub/version
             cp "$IMG" "pub/version/sofa-box-os-$VER.img.xz"
             cp "$REP" "pub/version/sofa-box-os-$VER-report.txt"
             (cd pub/version && sha256sum "sofa-box-os-$VER.img.xz" > "sofa-box-os-$VER.img.xz.sha256")
-            { echo "**Sofa Box OS $VER** for the Sofa Box (Raspberry Pi 3 B+, 4 or 5), built $DAY from $SHORT."; echo
+            # (testing until it's tried on a real box: sofa-box-stable.yml changes this first line when STABLE names it)
+            { echo "<!-- sofa-box-status -->**Testing**: not tried on a real box yet. The tested card is the stable one: $STABLE_PAGE<!-- /sofa-box-status -->"; echo
+              echo "**Sofa Box OS $VER** for the Sofa Box (Raspberry Pi 3 B+, 4 or 5), built $DAY from $SHORT."; echo
               how "sofa-box-os-$VER.img.xz" "sofa-box-os-$VER-report.txt"; } > pub/version.md
             gh release create "box-os-v$VER" pub/version/* --target "$GITHUB_SHA" --latest=false \
               --title "Sofa Box OS $VER" --notes-file pub/version.md

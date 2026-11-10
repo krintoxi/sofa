@@ -1,11 +1,45 @@
 # Sofa Box OS: what's new
 
 Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card to download:
-<https://github.com/krintoxi/sofa/releases?q=box-os>. The newest card is always at
-<https://github.com/krintoxi/sofa/releases/tag/sofa-box>.
+<https://github.com/krintoxi/sofa/releases?q=box-os>. The newest card (testing) is always at
+<https://github.com/krintoxi/sofa/releases/tag/sofa-box>, and the stable card (tried on a real box) at
+<https://github.com/krintoxi/sofa/releases/tag/sofa-box-stable>.
 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
+
+## 1.1.55
+
+- **Stable and testing.** A box now gets its updates from one of two channels (Settings → Software).
+  **Stable**, the default: only a version that has been tried on a real box, the one named in
+  `deploy/sofa-box/STABLE`. **Testing**: main's newest, as soon as it's merged, which is what every box got until
+  now. A box on Stable is offered the stable version only, and only when it's newer than its own.
+  - **Update the box installs exactly the version it offers.** Before, it ran main's installer, which took
+    whatever was newest on main that minute. Now a box on Stable gets the files of the stable version's own
+    release (its tag, `box-os-vX.Y.Z`), installed by that version's own installer; a box on Testing gets main's
+    newest, as before. Neither ever goes back to an older version than it has.
+  - Software says which version this box has (the stable one, or a testing one), and what each channel has on
+    GitHub now.
+  - No version is marked stable yet: until the owner marks one, a box on Stable is offered nothing.
+  - A box older than 1.1.55 doesn't know the channels: its next update still takes main's newest, and from then on
+    it follows Stable. A new box set up with the one-line install gets the stable version.
+- **Update by itself every week** (Settings → Software; off unless you switch it on, and Stable only): once a week,
+  at night (3 to 5 o'clock where the box is), with nothing playing and no game open, the box installs a new
+  stable version if there is one. One that didn't take (no internet, say) is tried again the next night, three
+  nights at most.
+- **The releases page says which card is which.** The newest card (`sofa-box`, the same link as ever) is the
+  **testing** card now. The **stable** card is at <https://github.com/krintoxi/sofa/releases/tag/sofa-box-stable>
+  (its file always `sofa-box-stable.img.xz`), copied from the stable version's own release, which is titled
+  "(stable)". Marking a version stable is a one-line change to `deploy/sofa-box/STABLE` (the guide's "Stable and
+  testing"); only a numbered card can be stable.
+- **The same system on a card from the same commit, any day.** Cards are built on one dated Raspberry Pi OS Lite
+  image, pinned with its SHA-256 in `tools/sofa-box-base-image.txt` (2026-10-06, the one 1.1.54's card was built
+  on), and the build stops if the download isn't that image. It used to take whatever Raspberry Pi OS was newest
+  that day. The packages the installer adds still come from apt on the day, so each card's report now ends with
+  every package on it and its exact version.
+- **Cards are published one at a time, and never backwards.** Merges close together used to build at once and
+  race over the newest card's files, and the last to finish won, even when it was older. Now they queue, in order,
+  and a card replaces the testing card only if it's at least as new.
 
 ## 1.1.54
 
