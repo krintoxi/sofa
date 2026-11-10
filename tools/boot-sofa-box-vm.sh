@@ -95,8 +95,8 @@ while kill -0 "$QEMU" 2>/dev/null; do
   sleep 3
 done
 wait "$QEMU" 2>/dev/null || true
-echo "== What the VM said (SOFA-BOX-PROOF lines of $LOG)"
-grep -a 'SOFA-BOX-PROOF' "$LOG" || echo "(none: it never got that far)"
+echo "== What the VM said (SOFA-BOX-PROOF and SOFA-BOX-LOG lines of $LOG)"
+grep -a -E 'SOFA-BOX-(PROOF|LOG)' "$LOG" | sed 's/^.*vm-proof.sh\[[0-9]*\]: //' || echo "(none: it never got that far)"
 echo "SOFA-BOX-PROOF outside: phone remote on 8092 from the host: $OUTSIDE" | tee -a "$LOG"
 FAILS=$(grep -a -c 'SOFA-BOX-PROOF .*: fail' "$LOG" || true)
 if grep -aq 'SOFA-BOX-PROOF done' "$LOG" && [ "$FAILS" = 0 ] && [ "$OUTSIDE" = yes ]; then

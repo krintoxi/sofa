@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BOX = os.path.join(HERE, "deploy", "sofa-box")
@@ -216,12 +217,11 @@ class WithoutThePisRecord(unittest.TestCase):
         a = self.agent
         real = a.run
         a.run = lambda cmd, timeout=10, **kw: (127, "") if cmd[:1] == ["vcgencmd"] else real(cmd, timeout, **kw)
-        a.time.sleep = lambda s: None
         try:
-            a.watch_power()                                   # returns at once: not a Pi
+            with mock.patch.object(a.time, "sleep"):          # (the module is everyone's: patched and put back)
+                a.watch_power()                               # returns at once: not a Pi
         finally:
             a.run = real
-            a.time.sleep = __import__("time").sleep
         self.assertIsNone(a.power["note"])
         self.assertIn("power", a.box_info())
         self.assertIsNone(a.box_info()["power"])
