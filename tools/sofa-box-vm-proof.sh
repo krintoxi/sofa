@@ -19,7 +19,7 @@ say "start: $(. /etc/os-release; echo "$PRETTY_NAME"), kernel $(uname -r), $(awk
 # 1. the box's helper (the home screen, apps, player, settings) on its port
 if wait_for agent 240 curl -fs -m 3 "$AGENT/box/state"; then
   say "agent: ok $AGENT/box/state answers"
-  INFO="$(curl -fs -m 5 "$AGENT/box/api/info" 2>/dev/null)"
+  INFO="$(curl -fs -m 40 "$AGENT/box/api/info" 2>/dev/null)"   # (box_info asks bluetoothctl and iwgetid, up to 5 s each)
   if echo "$INFO" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["version"]; print(d["version"], d.get("model"), d.get("os"), d["board"]["gen"])' >"/tmp/info" 2>/dev/null; then
     say "home api: ok /box/api/info: Sofa Box OS $(cat /tmp/info)"
   else
@@ -52,6 +52,12 @@ if wait_for screen 180 sh -c 'systemctl is-active --quiet sofa-box.service && pg
 else
   say "screen: fail sofa-box.service $(systemctl is-active sofa-box.service), cage $(pgrep -x cage >/dev/null && echo running || echo not running), devtools $(curl -fs -m 3 -o /dev/null -w '%{http_code}' http://127.0.0.1:9222/json/version); $(journalctl -u sofa-box -n 8 --no-pager -o cat | tr '\n' ' ' | head -c 400)"
 fi
+
+# What the TV's screen said, line by line (SOFA-BOX-LOG lines never count as failed checks)
+journalctl -u sofa-box -b --no-pager -o cat 2>/dev/null | grep -v '^$' | tail -n 60 | cut -c1-300 | sed 's/^/SOFA-BOX-LOG sofa-box: /'
+echo "SOFA-BOX-LOG processes: $(pgrep -a -f 'cage|chromium' | cut -c1-160 | tr '\n' ';' | head -c 900)"
+echo "SOFA-BOX-LOG run/user: $(ls /run/user 2>/dev/null | tr '\n' ' '); display file: $(cat /run/user/*/sofa-box-display 2>/dev/null | tr '\n' ' ')"
+echo "SOFA-BOX-LOG chromium flags: $(sh -c '. /etc/chromium.d/sofa-box 2>/dev/null; echo $CHROMIUM_FLAGS')"
 
 # 4. the rest of the box, for the record
 for s in sofa-box-agent sofa-box sofa-box-input sofa-box-tune NetworkManager; do

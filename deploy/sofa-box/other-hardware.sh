@@ -36,6 +36,11 @@ mkdir -p /etc/chromium.d
 cat > /etc/chromium.d/sofa-box <<'EOF'
 # Sofa box (other-hardware.sh): the graphics chip decodes video where Linux has a VA-API driver for it
 export CHROMIUM_FLAGS="$CHROMIUM_FLAGS --enable-features=VaapiVideoDecodeLinuxGL,VaapiIgnoreDriverChecks --ignore-gpu-blocklist"
+# A virtual machine mostly has no OpenGL to give (no virgl; VirtualBox without 3D): Chromium draws with its own
+# software renderer (SwiftShader) rather than have its GPU process crash until it gives up.
+if systemd-detect-virt --vm -q 2>/dev/null; then
+  export CHROMIUM_FLAGS="$CHROMIUM_FLAGS --use-gl=angle --use-angle=swiftshader --enable-unsafe-swiftshader"
+fi
 EOF
 
 echo "   Firmware for Wi-Fi, Bluetooth, graphics and sound (where apt has Debian's non-free-firmware)"
