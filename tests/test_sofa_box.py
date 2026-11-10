@@ -2047,7 +2047,7 @@ class BoxNetwork(unittest.TestCase):
         """The setup loop on a real box: its own Wi-Fi had been on for minutes (so it had been "offline" that long);
         joining the home Wi-Fi switches it off, and the 10-second look found the box offline with no Wi-Fi of its
         own and brought it back, mid-join, every time. It waits for the join now."""
-        self.offline = 0
+        self.saved_wifi, self.offline = [], 0                        # a new box: no Wi-Fi of its own saved yet
         self.run_for(20)                                             # a new box: its own Wi-Fi after 15 seconds
         self.assertEqual(len(self.started), 1)
         self.run_for(300, 30)                                        # minutes on it, the phone setting it up
@@ -2066,7 +2066,7 @@ class BoxNetwork(unittest.TestCase):
             self.assertEqual(len(self.started), 2)
 
     def test_a_new_box_makes_its_own_wifi_soon(self):
-        self.offline = 0
+        self.saved_wifi, self.offline = [], 0
         self.run_for(20)
         self.assertEqual(len(self.started), 1)
 
@@ -2112,13 +2112,14 @@ class BoxNetwork(unittest.TestCase):
             self.assertIn(["nmcli", "radio", "wifi", "on"], calls)                   # Raspberry Pi OS starts with it off
             self.assertLess(calls.index(["nmcli", "radio", "wifi", "on"]), next(i for i, c in enumerate(calls) if "hotspot" in c))
             self.assertIn("Wi-Fi is disabled", net.problem)                         # said on the TV, not a spinner for ever
-            tried = len(calls)
+            tried = len([c for c in calls if "show" not in c])
             net.tick(0, net.failed_at + 20)                                          # not again straight away
-            self.assertEqual(len(calls), tried)
+            self.assertEqual(len([c for c in calls if "show" not in c]), tried)     # (only the saved Wi-Fi looked at)
             answers["hotspot"] = (0, "Device 'wlan0' successfully activated")
             net.tick(0, net.failed_at + 50)
             self.assertTrue(net.hotspot and net.problem is None)
-            self.assertIn(["nmcli", "connection", "modify", "sofa-box-setup", "802-11-wireless-security.pmf", "disable"], calls)
+            self.assertIn(["nmcli", "connection", "modify", "sofa-box-setup", "802-11-wireless-security.pmf", "disable",
+                           "ipv6.method", "disabled"], calls)
             self.assertIsNotNone(a.captive.server)                                    # its sign-in page, with it
             net.stop_hotspot()
             self.assertIsNone(a.captive.server)

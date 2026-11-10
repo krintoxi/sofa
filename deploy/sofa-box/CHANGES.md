@@ -7,6 +7,34 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.51
+
+- **The setup carries on after a restart.** On a Pi 3, joining the home Wi-Fi at the setup could restart the box,
+  and the setup then began again from its first screen. Raspberry Pi OS restarts a Pi whose system stops answering
+  for a minute (its watchdog), and at that moment the setup was making the Wi-Fi chip do everything at once: it
+  switched from the box's own Wi-Fi to the home one while Bluetooth looked for remotes non-stop on the same chip. Now
+  Bluetooth rests while the box joins. If the box restarts anyway, it waits for the home Wi-Fi it was given (it made
+  its own again after 15 seconds, before a Pi 3 had joined, which took the chip off the home Wi-Fi), remembers that
+  it joined, and the TV goes on at the last step, keeping the phone as the remote. The phone's link to carry on with
+  still works after the restart, and the phone waits for the box for up to seven minutes.
+- **The Setup Assistant opens on the phone.** The box's own Wi-Fi had the same name every time a box was set up
+  (from its Wi-Fi chip), so a phone used for an earlier setup remembered it, and its sign-in sheet didn't open by
+  itself. Each card now names it afresh. Its sign-in page is up before a phone can join, and the Wi-Fi has no IPv6.
+  When a phone has joined, the TV shows the code to scan at once instead of waiting for a sheet that might not come.
+- **The setup opens by itself on a new box,** even when the box's helper is slow to answer at the first start.
+- **Typing the Wi-Fi password on the TV.** A bigger field you can read from the sofa, with the letters showing (Hide
+  hides them) and how many there are; even rows of bigger keys; Join at the end of the keyboard's last row, a press
+  or two from any key. Back closes it (at the setup, Back did nothing there).
+- **A new phone remote.** A bigger pad that lights the edge you press, labelled Back, Home and Menu just under it,
+  the player's and the volume's buttons in two bars, a tab bar that stays put. The Setup Assistant shows its steps as
+  a bar, Wi-Fi networks with their signal, and the password under the one you picked, with Show.
+- **The remote answers quicker.** Buttons press when they're touched, not when the finger lifts (a tap's tenth of a
+  second or so); a shorter swipe is a step; a held arrow repeats sooner and faster. On the box, each press is
+  answered at once and done in order (measured here: the phone's answer 21 ms before, 1 ms now, with the browser
+  taking 8 ms a call), the browser gets the key without waiting for a round trip first, answers go out in one
+  packet (Nagle's algorithm held a second one until the phone acknowledged the first, up to 200 ms on a phone), and
+  through the relay presses are done on the box itself, with two requests always waiting at the service.
+
 ## 1.1.50
 
 - **Cosmic Cascade, a whole puzzle game.** Gems fall one at a time; three or more of a colour in any line clear (a

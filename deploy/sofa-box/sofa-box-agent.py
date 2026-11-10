@@ -18,6 +18,7 @@ The box's browser (Chromium, full screen) opens http://127.0.0.1:8091/. This age
 Standard library only (Python 3.7+). Settings: ~/.config/sofa-box/settings.json.
 """
 import base64
+import collections
 import http.client
 import json
 import os
@@ -1999,7 +2000,18 @@ class Bluetooth:
         self.until = self.autopair_until = 0
         self.devices, self.state = [], {}               # mac -> "pairing" | "paired" | "failed"
         self.pairing_until = 0
+        self.paused_until = 0                            # while the box joins a Wi-Fi: no looking (see pause)
         self.lock, self.thread = threading.Lock(), None
+
+    def pause(self, seconds):
+        """No Bluetooth discovery for a while (0: from now on, it may look again). On a Pi 3 one chip does both Wi-Fi
+        and Bluetooth, through one aerial: discovery all through a Wi-Fi join (the setup's first screen looks every few
+        seconds) slowed the join down and kept the chip at its busiest just as it switched from the box's own Wi-Fi to
+        the home one, which is when a 1.1.49 box restarted by itself."""
+        self.paused_until = time.time() + seconds if seconds else 0
+
+    def paused(self):
+        return time.time() < self.paused_until
 
     def want(self, seconds=30, autopair=False):
         now = time.time()
@@ -2020,8 +2032,12 @@ class Bluetooth:
         run(["bluetoothctl", "pairable", "on"], 10)         # (only while looking: a controller asking to pair is let in)
         scan = None
         while time.time() < self.until:
-            if playing():                                 # not while a video plays
-                time.sleep(3)
+            if playing() or self.paused():                # not while a video plays, or while a Wi-Fi is being joined
+                if scan and scan.poll() is None:
+                    scan.terminate()
+                    run(["bluetoothctl", "scan", "off"], 10)
+                scan = None
+                time.sleep(2)
                 continue
             if not scan or scan.poll() is not None:     # discovery lasts as long as this asks for it
                 try:
@@ -2126,17 +2142,19 @@ class Network:
             self.scan()                                      # while it still can: a hotspot can't look around
         ssid, password = self.credentials(dev)
         run(["nmcli", "connection", "delete", self.CON], 10)  # one left from before
+        captive.start()                                      # first: a phone that joins asks it straight away
         code, out = run(["nmcli", "device", "wifi", "hotspot", "ifname", dev, "con-name", self.CON, "ssid", ssid, "password", password], 30)
         if code == 0:
-            # the Pi's Wi-Fi chip can't do PMF as a hotspot: with it on, iPhones see the network but can't join
-            if run(["nmcli", "connection", "modify", self.CON, "802-11-wireless-security.pmf", "disable"], 10)[0] == 0:
-                run(["nmcli", "connection", "up", self.CON], 30)
             self.hotspot = {"ssid": ssid, "password": password, "address": "10.42.0.1", "at": time.time(),
                             "wifi_qr": "WIFI:T:WPA;S:%s;P:%s;;" % (ssid.replace(";", r"\;"), password)}
+            # the Pi's Wi-Fi chip can't do PMF as a hotspot: with it on, iPhones see the network but can't join. No
+            # IPv6 on it either: a phone that finds only IPv4 here asks the sign-in page (the box) at once.
+            if run(["nmcli", "connection", "modify", self.CON, "802-11-wireless-security.pmf", "disable", "ipv6.method", "disabled"], 10)[0] == 0:
+                run(["nmcli", "connection", "up", self.CON], 30)
             self.problem = None
-            captive.start()
             toast("No internet yet: the box made its own Wi-Fi, %s, for your phone." % ssid)
         else:
+            captive.stop()
             self.problem, self.failed_at = (out.splitlines() or ["the box couldn't make its own Wi-Fi"])[-1][:200], time.time()
             print("The box's own Wi-Fi: %s" % out[-300:], file=sys.stderr, flush=True)
         return self.hotspot
@@ -2160,8 +2178,7 @@ class Network:
                 return saved["ssid"], saved["password"]
         except (OSError, ValueError, AttributeError):
             pass
-        tail = (re.sub(r"[^0-9]", "", local_mac(dev)) or str(os.getpid()))[-4:]
-        ssid, password = "Sofa Box " + tail, "%08d" % (int.from_bytes(os.urandom(4), "big") % 10 ** 8)
+        ssid, password = Network.new_name(), "%08d" % (int.from_bytes(os.urandom(4), "big") % 10 ** 8)
         try:
             os.makedirs(CONF_DIR, exist_ok=True)
             with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w", encoding="utf-8") as f:
@@ -2169,6 +2186,14 @@ class Network:
         except OSError:
             pass
         return ssid, password
+
+    @staticmethod
+    def new_name():
+        """A name for the box's own Wi-Fi, new for each card (kept from then on). It was the last four digits of the
+        Wi-Fi chip's address, the same every time a box was set up again: a phone keeps what it learnt about a Wi-Fi by
+        its name (that it has no internet, that its sign-in sheet was closed once, "Auto-Join" or "Auto-Login" off), so
+        on a box set up a second time the Setup Assistant never opened by itself on that phone."""
+        return "Sofa Box %04d" % (int.from_bytes(os.urandom(2), "big") % 10000)
 
     def find(self, ssid, dev, limit=25):
         """Just off its own Wi-Fi, the box's list of networks is empty (a hotspot can't look around): look until the one
@@ -2184,11 +2209,48 @@ class Network:
                 return False
             time.sleep(3)
 
+    KEPT = "setup-joined.json"                               # the setup's home Wi-Fi join, kept across a restart
+
+    def keep_joined(self, link=None):
+        """At the setup: the home Wi-Fi it joined (and the phone's link to carry on with), on the card at once, so the
+        setup goes on from there after a restart instead of from its first screen."""
+        if settings()["welcomed"] or not self.joining or self.joining.get("state") != "joined":
+            return
+        kept = {"ssid": self.joining["ssid"], "at": time.time()}
+        link = link or (phone and getattr(phone, "handoff_link", None))
+        if link:
+            kept["link"] = link
+        try:
+            write_durably(os.path.join(CONF_DIR, self.KEPT), json.dumps(kept), 0o600)
+        except OSError:
+            pass
+
+    def resume(self):
+        """After a restart in the middle of the setup: the home Wi-Fi it had joined counts as just joined (the TV shows
+        the setup's last step, keeping the phone as the remote), and the phone's carry-on link still works."""
+        path = os.path.join(CONF_DIR, self.KEPT)
+        try:
+            with open(path, encoding="utf-8") as f:
+                kept = json.load(f)
+        except (OSError, ValueError):
+            return None
+        if settings()["welcomed"] or not isinstance(kept, dict) or not kept.get("ssid"):
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+            return None
+        self.joining = {"ssid": str(kept["ssid"]), "state": "joined", "message": "Connected to %s." % kept["ssid"],
+                        "at": time.time(), "resumed": True}
+        self.from_phone = time.time() if kept.get("link") else 0
+        return kept
+
     def join(self, ssid, password):
         """The home Wi-Fi. If it doesn't work out, the box's own Wi-Fi comes back with the same name and password, and
         `joining` says why (the TV shows it)."""
         ssid = str(ssid)
         self.joining = {"ssid": ssid, "state": "joining", "message": "Joining %s…" % ssid, "at": time.time()}
+        bluetooth.pause(150)                                # the Wi-Fi chip to itself while it joins (Bluetooth.pause)
         with self.lock:                                     # never while the watch is starting the box's own Wi-Fi
             had = bool(self.hotspot)
             try:
@@ -2214,6 +2276,9 @@ class Network:
         if code != 0:
             print("Joining %s: %s" % (ssid, out[-300:]), file=sys.stderr, flush=True)
         self.joining = {"ssid": ssid, "state": "joined" if code == 0 else "failed", "message": message, "at": time.time()}
+        if code == 0:
+            self.keep_joined(getattr(self, "pending_link", None))
+        bluetooth.pause(20 if code == 0 else 0)             # (a moment more after joining: getting an address there)
         return {"ok": code == 0, "message": message}
 
     def join_soon(self, ssid, password):
@@ -2249,9 +2314,13 @@ class Network:
         restarting, and a hotspot would keep the box off it, so a few minutes. Otherwise a minute, for a slow router."""
         if os.environ.get("SOFA_BOX_HOTSPOT_AFTER"):
             return int(os.environ["SOFA_BOX_HOTSPOT_AFTER"])
+        saved = self.saved()
         if not settings()["welcomed"]:
-            return 15
-        return 180 if self.saved() else 50
+            # in the middle of its setup, a box that has been given a home Wi-Fi (it restarted, say): that Wi-Fi first.
+            # (It waited 15 seconds here whatever it knew; a Pi 3 starting up can take longer than that to join, so the
+            # box made its own Wi-Fi again, which took the Wi-Fi chip off the home one, and the setup began again.)
+            return 90 if saved else 15
+        return 180 if saved else 50
 
     def is_joining(self):
         """A home Wi-Fi being joined right now (a join takes up to about 90 seconds: looking for it, then joining)."""
@@ -2436,8 +2505,10 @@ class SecureRemote:
         self.dir = os.path.join(CONF_DIR, "secure-remote")
         self.acct, self.server, self.served, self.resolves = None, None, None, False
         self.error, self.event = None, threading.Event()
-        self.relay_base, self.relay_at, self.relay_thread = None, 0, None
-        self.polls, self.answers = _Kept(), _Kept()       # the relay's two kept connections: waiting, and answering
+        self.relay_base, self.relay_at, self.relay_threads = None, 0, []
+        # the relay's kept connections: two waiting (one is always there while the other brings a press down and asks
+        # again, a round trip to the service that a quick second press waited for), and one answering
+        self.polls, self.polls2, self.answers = _Kept(), _Kept(), _Kept()
 
     # -- the relay (the default): the remote from anywhere, through the service, with no certificate or name per box
     # (no Let's Encrypt limits; routers that block names pointing home don't matter). The box keeps a request open
@@ -2449,11 +2520,15 @@ class SecureRemote:
         return bool(url and self.relay_base and url.startswith(self.relay_base))
 
     def start_relay(self):
-        if not (self.relay_thread and self.relay_thread.is_alive()):
-            self.relay_thread = threading.Thread(target=self._relay, daemon=True, name="relay")
-            self.relay_thread.start()
+        if not any(t.is_alive() for t in self.relay_threads):
+            self.relay_threads = [threading.Thread(target=self._relay, args=(kept, i * 0.5), daemon=True, name="relay")
+                                  for i, kept in enumerate((self.polls, self.polls2))]
+            for t in self.relay_threads:
+                t.start()
 
-    def _relay(self):
+    def _relay(self, kept=None, delay=0):
+        kept = kept or self.polls
+        time.sleep(delay)
         backoff, first = 2, True
         while self.on() and self.relaying():
             acct = self.account()
@@ -2461,17 +2536,45 @@ class SecureRemote:
                 time.sleep(5)
                 continue
             try:                                           # (the first comes back at once: the TV's code shows straight away)
-                got = self.polls.post(self.SERVICE, "/v1/relay/poll", dict({"id": acct["id"], "secret": acct["secret"]},
+                got = kept.post(self.SERVICE, "/v1/relay/poll", dict({"id": acct["id"], "secret": acct["secret"]},
                                                                             **({"wait": 0} if first else {})), 45)
                 first = False
                 self.relay_base, self.relay_at, backoff = got.get("base") or self.relay_base, time.time(), 2
                 for req in got.get("requests") or []:
-                    threading.Thread(target=self._relay_one, args=(acct, req), daemon=True).start()
+                    if not self._relay_input(acct, req):     # presses: here, in order; the rest on a thread each
+                        threading.Thread(target=self._relay_one, args=(acct, req), daemon=True).start()
             except Exception as exc:                       # offline, or the service restarting: again, more slowly
                 self.error, first = "relay: %s" % (str(exc)[:160] or exc.__class__.__name__), True
                 time.sleep(backoff)
                 backoff = min(backoff * 2, 60)
         self.relay_at = 0
+
+    def _relay_input(self, acct, req):
+        """A press (or typing, the touchpad, the volume) through the relay, done here and now instead of as a request to
+        the remote on this box (a new connection and a whole request for each, on a Pi 3 tens of milliseconds); the same
+        checks as there. False: not a press, for _relay_one."""
+        path = urllib.parse.urlsplit(req.get("path") or "/").path
+        if req.get("method") != "POST" or path not in INPUT_PATHS or not phone:
+            return False
+        headers = {k.lower(): v for k, v in (req.get("headers") or {}).items()}
+        token = re.search(r"(?:^|;\s*)%s=([0-9a-f]{48})" % RemoteHandler.COOKIE, headers.get("cookie") or "")
+        if headers.get("x-sofa-remote") != "1" or not (token and phone.valid(token.group(1))):
+            return False                                   # (the remote itself says what's wrong)
+        try:
+            data = json.loads(base64.b64decode(req.get("body") or "") or b"{}")
+            phone_input(path, data if isinstance(data, dict) else {})
+            status, body = 200, b'{"ok":true}'
+        except (ValueError, TypeError) as exc:
+            status, body = 400, json.dumps({"error": str(exc)}).encode()
+        threading.Thread(target=self._answer, args=(acct, req, status, [], body), daemon=True).start()
+        return True
+
+    def _answer(self, acct, req, status, keep, data):
+        try:
+            self.answers.post(self.SERVICE, "/v1/relay/answer", {"id": acct["id"], "secret": acct["secret"], "rid": req.get("rid"),
+                              "answer": {"status": status, "headers": keep, "body": base64.b64encode(data).decode()}}, 20)
+        except Exception:
+            pass
 
     def _relay_one(self, acct, req):
         """One phone request, to the remote on this box as the phone sent it (its sign-in, its body), marked as coming
@@ -2493,11 +2596,7 @@ class SecureRemote:
         except (OSError, ValueError):
             status, hdrs, data = 502, None, b'{"error":"The remote on the box didn\'t answer."}'
         keep = [[k, v] for k, v in (hdrs.items() if hdrs else []) if k.lower() in ("set-cookie", "location")]
-        try:
-            self.answers.post(self.SERVICE, "/v1/relay/answer", {"id": acct["id"], "secret": acct["secret"], "rid": req.get("rid"),
-                              "answer": {"status": status, "headers": keep, "body": base64.b64encode(data).decode()}}, 20)
-        except Exception:
-            pass
+        self._answer(acct, req, status, keep, data)
 
     def on(self):
         return self.SERVICE != "0" and settings().get("secure_remote", True) is not False
@@ -2704,9 +2803,18 @@ class PhoneRemote:
         return "%04d" % (int.from_bytes(os.urandom(2), "big") % 10000)
 
     def _load(self):
+        """The phones with a sign-in. Kept in memory while the file is unchanged: every press checks it, and reading it
+        from the card each time cost a Pi 3 a few milliseconds a press."""
         try:
+            st = os.stat(self.path)
+            stamp = (st.st_mtime_ns, st.st_size, st.st_ino)
+            cached = getattr(self, "_cache", None)
+            if cached and cached[0] == stamp:
+                return dict(cached[1])
             with open(self.path, encoding="utf-8") as f:
-                return json.load(f)
+                phones = json.load(f)
+            self._cache = (stamp, phones)
+            return dict(phones)
         except (OSError, ValueError):
             return {}
 
@@ -2756,6 +2864,8 @@ class PhoneRemote:
         write_durably(self.path, json.dumps(phones), 0o600)
         if not on_own_wifi and handoff and str(code) == handoff:
             self.handoff_link = None                       # the setup's phone carried on: its own link, used once
+            network.pending_link = None
+            network.keep_joined()
         elif not on_own_wifi:
             self.code, self.link = self._new_code(), os.urandom(12).hex()   # each code works once
         toast("%s is a remote now." % phones[token]["name"])
@@ -3336,6 +3446,9 @@ def finder_page():
 
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
+    # Small answers go at once: with Nagle's algorithm on, a kept-alive connection's answer (written as its headers,
+    # then its body) waited for the phone to acknowledge the headers, which phones put off by up to 200 ms.
+    disable_nagle_algorithm = True
 
     def log_message(self, *args):
         pass
@@ -3348,9 +3461,10 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         for k, v in (headers or {}).items():
             self.send_header(k, v)
-        self.end_headers()
+        self._headers_buffer.append(b"\r\n")              # the headers and the body in one write (one packet)
         if self.command != "HEAD":
-            self.wfile.write(data)
+            self._headers_buffer.append(data)
+        self.flush_headers()
 
     def body(self):
         n = int(self.headers.get("Content-Length") or 0)
@@ -3481,6 +3595,10 @@ class Handler(BaseHTTPRequestHandler):
                 changes["welcomed"] = bool(data["welcomed"])
                 if changes["welcomed"] and not settings()["welcomed"]:
                     boot_screen.welcomed()
+                    try:
+                        os.remove(os.path.join(CONF_DIR, Network.KEPT))
+                    except OSError:
+                        pass
             if data.get("setup_step") in (0, 1, 2, 3):          # the step it's at (a restart goes on from there)
                 changes["setup_step"] = data["setup_step"]
             if "boot_text" in data:
@@ -3612,7 +3730,7 @@ class Handler(BaseHTTPRequestHandler):
                 go_home()
             return self.send(json.dumps({"ok": True, "go": "/box/home" + to}))
         if path == "/box/api/setup":                       # the first start and Settings: remotes, Wi-Fi, Bluetooth
-            if arg("scan") == "1":                          # (pairs by itself only at the setup: a GET can't ask for it)
+            if arg("scan") == "1" and not network.is_joining():   # (pairs by itself only at the setup: a GET can't ask for it)
                 bluetooth.want(30, autopair=not settings()["welcomed"])
             return self.send(json.dumps(setup_state()))
         if path == "/box/api/bt/pair":
@@ -3825,6 +3943,7 @@ class RemoteHandler(BaseHTTPRequestHandler):
     """The phone remote, on the home network: its page, and what it presses. Phones at home only, and only
     with the code the TV shows (then a sign-in of their own)."""
     protocol_version = "HTTP/1.1"
+    disable_nagle_algorithm = True                      # (see Handler)
     COOKIE = "sofa_remote"
     timeout = 120                        # an idle connection from the home network closes (each kept a thread for ever)
 
@@ -3910,9 +4029,8 @@ class RemoteHandler(BaseHTTPRequestHandler):
                                              "front": browser.front_app() if browser and browser.connected() else None,
                                              "hotspot": bool(network.hotspot), "joining": network.joining, "welcomed": settings()["welcomed"],
                                              "asleep": asleep["on"]}))
-            if path == "/api/key":
-                if not box_wake():                         # asleep: a key wakes the box (and does nothing else)
-                    phone.key(str(data.get("k") or ""))
+            if path in INPUT_PATHS:
+                phone_input(path, data)
             elif path == "/api/power":                      # the phone's power button: the box rests, or wakes
                 a = data.get("action") or "toggle"
                 if a == "sleep" or (a == "toggle" and not asleep["on"]):
@@ -3922,12 +4040,6 @@ class RemoteHandler(BaseHTTPRequestHandler):
                 return self.send(json.dumps({"ok": True, "asleep": asleep["on"]}))
             elif path == "/api/hello":                      # the phone's time zone, for a box that doesn't know its own
                 set_timezone(str(data.get("tz") or ""), only_if_unset=True)
-            elif path == "/api/text":
-                phone.text(data.get("t") or "")
-            elif path == "/api/pointer":
-                phone.pointer(float(data.get("dx") or 0), float(data.get("dy") or 0), data.get("click"), float(data.get("scroll") or 0))
-            elif path == "/api/volume":
-                box_volume(data.get("by"))
             elif path == "/api/wifi":
                 return self.send(json.dumps(dict(network.scan() if not network.hotspot else {"ok": True, "networks": network.cached},
                                                  hotspot=bool(network.hotspot))))
@@ -3938,6 +4050,7 @@ class RemoteHandler(BaseHTTPRequestHandler):
                     phone.handoff_link = os.urandom(12).hex()
                     out["next"] = secure_remote.handoff(phone.handoff_link)
                     network.from_phone = time.time()
+                    network.pending_link = phone.handoff_link       # kept on the card once the join works
                 return self.send(json.dumps(out))
             elif path == "/api/report":
                 return self.send(json.dumps(send_report()))
@@ -3946,6 +4059,63 @@ class RemoteHandler(BaseHTTPRequestHandler):
         except ValueError as exc:
             return self.send(json.dumps({"error": str(exc)}), status=400)
         return self.send('{"ok":true}')
+
+
+class InputQueue:
+    """What a phone presses, done in the order it was pressed on one thread of its own, while the phone has its answer
+    at once. (A press used to be answered only after the browser had taken the key going down and coming up: two
+    round trips to Chromium on every press, before the phone could send the next one on that connection.)"""
+
+    def __init__(self):
+        self.q, self.cond, self.thread = collections.deque(), threading.Condition(), None
+
+    def put(self, fn, *args):
+        with self.cond:
+            if len(self.q) > 64:                         # a phone gone wild: the oldest go
+                self.q.popleft()
+            self.q.append((fn, args))
+            if not (self.thread and self.thread.is_alive()):
+                self.thread = threading.Thread(target=self._run, daemon=True, name="remote-input")
+                self.thread.start()
+            self.cond.notify()
+
+    def _run(self):
+        while True:
+            with self.cond:
+                while not self.q:
+                    if not self.cond.wait(60):
+                        self.thread = None
+                        return
+                fn, args = self.q.popleft()
+            try:
+                fn(*args)
+            except Exception as exc:
+                print("Phone remote: %s" % exc, file=sys.stderr, flush=True)
+
+
+remote_input = InputQueue()
+INPUT_PATHS = ("/api/key", "/api/text", "/api/pointer", "/api/volume")
+
+
+def phone_key(name):
+    if not box_wake():                                   # asleep: a key wakes the box (and does nothing else)
+        phone.key(name)
+
+
+def phone_input(path, data):
+    """A press, typing, the touchpad or the volume from a paired phone: checked now, done in order (InputQueue). The
+    same for a phone at home and one through the relay. Raises ValueError for what isn't a press."""
+    if path == "/api/key":
+        k = str(data.get("k") or "")
+        if k != "home" and k not in PhoneRemote.KEYS:
+            raise ValueError("Which key?")
+        remote_input.put(phone_key, k)
+    elif path == "/api/text":
+        remote_input.put(phone.text, str(data.get("t") or ""))
+    elif path == "/api/pointer":
+        remote_input.put(phone.pointer, float(data.get("dx") or 0), float(data.get("dy") or 0), data.get("click"), float(data.get("scroll") or 0))
+    elif path == "/api/volume":
+        remote_input.put(box_volume, data.get("by"))
 
 
 class SecureRemoteHandler(RemoteHandler):
@@ -3989,6 +4159,9 @@ def main():
     if local_sofa.public():                                # open to the internet: it has to be there, from the start
         threading.Thread(target=local_sofa.ensure, args=(120,), daemon=True, name="this-box-sofa").start()
     phone = PhoneRemote()
+    kept = network.resume()                              # restarted in the middle of the setup: on from where it was
+    if kept and kept.get("link"):
+        phone.handoff_link = kept["link"]
     try:
         remote = Server(("0.0.0.0", PhoneRemote.PORT), RemoteHandler)
         threading.Thread(target=remote.serve_forever, daemon=True, name="phone-remote").start()

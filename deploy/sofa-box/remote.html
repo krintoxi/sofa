@@ -14,102 +14,167 @@
 <!-- The Sofa Box's phone remote: served by the box itself (port 8092) to phones on the home network.
      Swipe or tap the pad like a TV remote; type into the TV; a touchpad; the box's Wi-Fi. -->
 <style>
-  :root { --bg: #0D0D10; --bg2: #18181E; --fg: #F6F6F8; --mist: #9C9CA8; --a: #FF2E88; --a2: #E8FF3A; --line: rgba(255,255,255,.12);
+  /* The phone remote. One thumb: the pad sits where a thumb rests, the buttons it needs most are just under it, and
+     everything answers on touch (not on lifting the finger). Dark, quiet, one accent colour. */
+  :root { --bg: #0B0B0E; --bg2: #16161B; --bg3: #1F1F26; --fg: #F6F6F8; --mist: #8E8E9A; --a: #FF2E88; --a2: #E8FF3A; --ok: #3DDC84;
+    --line: rgba(255,255,255,.09); --line2: rgba(255,255,255,.16);
     --safe-t: env(safe-area-inset-top); --safe-b: env(safe-area-inset-bottom); }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); font: 16px/1.4 -apple-system, "SF Pro Text", system-ui, sans-serif;
-    -webkit-user-select: none; user-select: none; overscroll-behavior: none; touch-action: manipulation; }
-  body { display: flex; flex-direction: column; padding: calc(var(--safe-t) + 10px) 18px calc(var(--safe-b) + 8px); }
-  button { font: inherit; color: inherit; border: 0; background: none; cursor: pointer; }
-  header { display: flex; align-items: center; gap: 10px; min-height: 44px; }
-  header svg { width: 30px; height: 28px; color: var(--a); }
-  header b { font-size: 19px; letter-spacing: -.01em; }
-  header .dot { margin-left: auto; display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--mist); }
-  header .dot i { width: 8px; height: 8px; border-radius: 50%; background: #3ddc84; box-shadow: 0 0 8px #3ddc84; }
-  /* the power button: the box rests (its screensaver), and a touch anywhere wakes it */
-  .power { margin-left: 6px; width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; background: var(--bg2);
-    box-shadow: inset 0 0 0 1px var(--line); color: var(--fg); }
-  .power svg { width: 19px; height: 19px; }
-  .power.asleep { color: var(--a); }
+    -webkit-user-select: none; user-select: none; overscroll-behavior: none; touch-action: manipulation; -webkit-font-smoothing: antialiased; }
+  body { display: flex; flex-direction: column; padding: calc(var(--safe-t) + 8px) 16px 0;
+    background: radial-gradient(120% 60% at 50% -10%, rgba(255,46,136,.10), transparent 60%), var(--bg); }
+  button { font: inherit; color: inherit; border: 0; background: none; cursor: pointer; padding: 0; }
+  [hidden] { display: none !important; }
+
+  header { display: flex; align-items: center; gap: 10px; min-height: 48px; }
+  header > svg { width: 28px; height: 26px; color: var(--a); flex: none; }
+  header b { font-size: 18px; font-weight: 700; letter-spacing: -.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  header .dot { margin-left: auto; display: flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 99px; font-size: 12px;
+    color: var(--mist); background: var(--bg2); box-shadow: inset 0 0 0 1px var(--line); white-space: nowrap; }
+  header .dot i { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+  header .dot.off i { background: #ff5a5f; box-shadow: none; }
+  header .dot.off { color: #ffb3b5; }
+  .power { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; background: var(--bg2); flex: none;
+    box-shadow: inset 0 0 0 1px var(--line); }
+  .power svg { width: 18px; height: 18px; }
+  .power.asleep { color: var(--a); box-shadow: inset 0 0 0 1px var(--a); }
+
   .wake { position: fixed; inset: 0; z-index: 30; display: grid; place-items: center; text-align: center; padding: 24px;
     background: rgba(8, 8, 12, .94); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
-  .wake[hidden] { display: none; }
-  /* on the box's own Wi-Fi, at its setup: this page is the Sofa Setup Assistant */
-  .assistant { margin: 4px 0 18px; padding: 16px 18px; border-radius: 18px; background: var(--bg2); box-shadow: inset 0 0 0 1px var(--line); }
-  .assistant[hidden] { display: none; }
-  body.assisting main { justify-content: flex-start; }        /* (from the top: a long list of Wi-Fi never covers the header) */
-  .assistant h1 { margin: 0 0 10px; font-size: 21px; }
-  .assistant ol { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 14px; color: var(--mist); }
-  .assistant li { display: flex; align-items: center; gap: 6px; }
-  .assistant li em { font-style: normal; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: 12px;
-    font-weight: 700; background: #2a2a33; }
-  .assistant li.done em { background: #3ddc84; color: #04210f; }
-  .assistant li.on { color: var(--fg); font-weight: 700; }
-  .assistant li.on em { background: var(--a); color: #fff; }
   .wake svg { width: 64px; height: 64px; color: var(--a); }
   .wake h2 { margin: 14px 0 6px; font-size: 24px; }
   .wake p { margin: 0; color: var(--mist); }
-  header .dot.off i { background: #ff5a5f; box-shadow: none; }
-  .now { margin: 6px 0 0; padding: 10px 14px; border-radius: 14px; background: var(--bg2); font-size: 14px; color: var(--mist); display: none; }
+
+  .now { margin: 6px 0 0; padding: 10px 14px; border-radius: 14px; background: var(--bg2); box-shadow: inset 0 0 0 1px var(--line);
+    font-size: 14px; color: var(--mist); display: none; }
   .now.on { display: block; }
   .now b { color: var(--fg); }
-  main { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 18px; min-height: 0; }
-  [hidden] { display: none !important; }
-  /* the pad: swipe to move, tap for OK, tap an edge for that arrow, hold an edge to keep going */
-  .pad { position: relative; width: min(84vw, 340px); aspect-ratio: 1; margin: 0 auto; border-radius: 50%;
-    background: radial-gradient(circle at 50% 40%, #26262e, #15151a 70%); box-shadow: inset 0 0 0 1px var(--line), 0 20px 50px rgba(0,0,0,.5);
-    touch-action: none; }
-  .pad .ok { position: absolute; inset: 31%; border-radius: 50%; background: #2a2a33; box-shadow: inset 0 0 0 1px var(--line), 0 6px 20px rgba(0,0,0,.4);
-    display: grid; place-items: center; font-weight: 700; letter-spacing: .06em; color: var(--mist); transition: background .12s, transform .12s; }
-  .pad .arr { position: absolute; width: 22px; height: 22px; color: var(--mist); opacity: .8; transition: color .12s, transform .12s; }
-  .pad .u { top: 9%; left: calc(50% - 11px); } .pad .d { bottom: 9%; left: calc(50% - 11px); transform: rotate(180deg); }
-  .pad .l { left: 9%; top: calc(50% - 11px); transform: rotate(-90deg); } .pad .r { right: 9%; top: calc(50% - 11px); transform: rotate(90deg); }
-  .pad.hit-ok .ok { background: var(--a); color: #fff; transform: scale(.95); }
-  .pad.hit-up .u, .pad.hit-down .d, .pad.hit-left .l, .pad.hit-right .r { color: var(--a); opacity: 1; }
-  .row { display: flex; justify-content: center; gap: 14px; }
-  .key { width: 64px; height: 64px; border-radius: 50%; background: var(--bg2); box-shadow: inset 0 0 0 1px var(--line); display: grid; place-items: center;
-    transition: transform .1s, background .1s; }
-  .key svg { width: 24px; height: 24px; }
-  .key.wide { width: auto; padding: 0 22px; border-radius: 32px; gap: 8px; display: flex; align-items: center; }
-  .key:active, .key.hit { transform: scale(.92); background: #2c2c35; }
-  .key.home { background: var(--a); color: #fff; box-shadow: 0 8px 24px rgba(255,46,136,.35); }
+  .spinner { display: inline-block; width: 12px; height: 12px; margin-right: 6px; vertical-align: -1px; border-radius: 50%;
+    border: 2px solid var(--line2); border-top-color: var(--a); animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  main { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 18px; min-height: 0; padding: 10px 0 14px; }
+  body.assisting main { justify-content: flex-start; }        /* (from the top: a long list of Wi-Fi never covers the header) */
+
+  /* the Setup Assistant (on the box's own Wi-Fi, at its setup) */
+  .assistant { padding: 16px 16px 14px; border-radius: 20px; background: var(--bg2); box-shadow: inset 0 0 0 1px var(--line); }
+  .assistant h1 { margin: 0 0 12px; font-size: 22px; letter-spacing: -.02em; }
+  .assistant ol { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .assistant li { display: grid; gap: 6px; font-size: 12px; color: var(--mist); }
+  .assistant li::before { content: ""; height: 4px; border-radius: 4px; background: var(--bg3); }
+  .assistant li.done::before { background: var(--ok); }
+  .assistant li.on::before { background: var(--a); }
+  .assistant li.on { color: var(--fg); font-weight: 700; }
+  .assistant li em { display: none; }
+
+  /* the pad: swipe anywhere on it, tap the middle for OK or an edge for that arrow, hold an edge to keep going */
+  .pad { position: relative; width: min(82vw, 330px, 46vh); aspect-ratio: 1; margin: 0 auto; border-radius: 50%; touch-action: none;
+    background: radial-gradient(circle at 50% 35%, #24242c, #141419 72%);
+    box-shadow: inset 0 0 0 1px var(--line2), inset 0 -18px 40px rgba(0,0,0,.35), 0 24px 60px rgba(0,0,0,.55); }
+  .pad::before { content: ""; position: absolute; inset: 0; border-radius: 50%; opacity: 0; transition: opacity .25s;
+    background: conic-gradient(from var(--wedge, 0deg), rgba(255,46,136,.32) 0 90deg, transparent 90deg); 
+    -webkit-mask: radial-gradient(circle, transparent 33%, #000 34%); mask: radial-gradient(circle, transparent 33%, #000 34%); }
+  .pad.hit-up::before, .pad.hit-down::before, .pad.hit-left::before, .pad.hit-right::before { opacity: 1; transition: opacity .02s; }
+  .pad.hit-up { --wedge: -45deg; } .pad.hit-right { --wedge: 45deg; } .pad.hit-down { --wedge: 135deg; } .pad.hit-left { --wedge: 225deg; }
+  .pad .ok { position: absolute; inset: 31%; border-radius: 50%; display: grid; place-items: center; font-weight: 800; font-size: 15px;
+    letter-spacing: .08em; color: var(--fg); background: radial-gradient(circle at 50% 30%, #34343e, #23232b);
+    box-shadow: inset 0 0 0 1px var(--line2), 0 8px 22px rgba(0,0,0,.45); transition: transform .15s, background .15s; }
+  .pad .arr { position: absolute; width: 22px; height: 22px; color: var(--mist); transition: color .15s; }
+  .pad .u { top: 8%; left: calc(50% - 11px); } .pad .d { bottom: 8%; left: calc(50% - 11px); transform: rotate(180deg); }
+  .pad .l { left: 8%; top: calc(50% - 11px); transform: rotate(-90deg); } .pad .r { right: 8%; top: calc(50% - 11px); transform: rotate(90deg); }
+  .pad.hit-ok .ok { background: var(--a); color: #fff; transform: scale(.94); transition: transform .03s, background .03s; }
+  .pad.hit-up .u, .pad.hit-down .d, .pad.hit-left .l, .pad.hit-right .r { color: #fff; }
+  .pad-hint { text-align: center; margin: -8px 0 4px; color: var(--mist); font-size: 12px; }
+  #tab-remote:not([hidden]) { display: grid; gap: 14px; }
+
+  /* the buttons: each one answers on touch */
+  .keys { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; width: min(100%, 360px); margin: 0 auto; }
+  .key { height: 58px; border-radius: 18px; background: var(--bg2); box-shadow: inset 0 0 0 1px var(--line); display: grid; place-items: center;
+    gap: 2px; transition: transform .14s, background .14s; touch-action: manipulation; }
+  .key svg { width: 22px; height: 22px; }
+  .key small { font-size: 10.5px; color: var(--mist); line-height: 1; }
+  .key.lab { grid-template-rows: auto auto; align-content: center; }
+  .key.down, .key.hit { transform: scale(.93); background: var(--bg3); transition: transform .03s, background .03s; }
+  .key.home { background: var(--a); color: #fff; box-shadow: 0 8px 24px rgba(255,46,136,.32); }
+  .key.home small { color: rgba(255,255,255,.85); }
+  .key.home.down, .key.home.hit { background: #e0186f; }
+  .bar { display: grid; grid-template-columns: repeat(3, 1fr); width: min(100%, 360px); margin: 0 auto; border-radius: 18px; overflow: hidden;
+    background: var(--bg2); box-shadow: inset 0 0 0 1px var(--line); }
+  .bar .key { border-radius: 0; height: 50px; background: transparent; box-shadow: none; }
+  .bar .key + .key { box-shadow: inset 1px 0 0 var(--line); }
+  .bar .key.down, .bar .key.hit { background: var(--bg3); transform: none; }
+  .pair-bars { display: grid; gap: 10px; }
+
   /* keyboard */
-  .type { display: flex; flex-direction: column; gap: 14px; }
-  .type textarea { width: 100%; min-height: 120px; border-radius: 18px; border: 1px solid var(--line); background: var(--bg2); color: var(--fg); font: 18px/1.4 inherit;
-    padding: 14px; resize: none; -webkit-user-select: text; user-select: text; }
-  .type p { margin: 0; color: var(--mist); font-size: 14px; text-align: center; }
+  .type { display: flex; flex-direction: column; gap: 12px; }
+  .type textarea { width: 100%; min-height: 130px; border-radius: 18px; border: 0; box-shadow: inset 0 0 0 1px var(--line2); background: var(--bg2); color: var(--fg);
+    font-family: inherit; font-size: 18px; line-height: 1.45; padding: 14px 16px; resize: none; -webkit-user-select: text; user-select: text; }
+  .type textarea:focus { outline: none; box-shadow: inset 0 0 0 2px var(--a); }
+  .type p { margin: 0; color: var(--mist); font-size: 14px; }
+  .type .keys .key { height: 50px; font-weight: 700; font-size: 14px; }
+
   /* touchpad */
-  .touch { flex: 1; min-height: 300px; border-radius: 24px; background: linear-gradient(160deg, #1f1f27, #141419); box-shadow: inset 0 0 0 1px var(--line);
-    touch-action: none; display: grid; place-items: center; color: var(--mist); font-size: 14px; text-align: center; padding: 20px;
-    position: relative; overflow: hidden; }
-  .touch .dot { position: absolute; width: 56px; height: 56px; margin: -28px 0 0 -28px; border-radius: 50%; pointer-events: none;
-    background: radial-gradient(circle, color-mix(in srgb, var(--a) 55%, transparent), transparent 70%); opacity: 0; transition: opacity .25s; }
+  .touch { flex: 1; min-height: 300px; border-radius: 24px; touch-action: none; display: grid; place-items: center; color: var(--mist);
+    font-size: 14px; text-align: center; padding: 24px; position: relative; overflow: hidden;
+    background: linear-gradient(160deg, #1c1c23, #121216); box-shadow: inset 0 0 0 1px var(--line); }
+  .touch .dot { position: absolute; width: 64px; height: 64px; margin: -32px 0 0 -32px; border-radius: 50%; pointer-events: none;
+    background: radial-gradient(circle, rgba(255,46,136,.5), transparent 70%); opacity: 0; transition: opacity .25s; }
   .touch .dot.on { opacity: 1; transition: opacity .05s; }
-  /* Wi-Fi and pairing */
-  .list { display: grid; gap: 8px; max-height: 50vh; overflow: auto; }
-  .net { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-radius: 14px; background: var(--bg2); text-align: left; }
-  .net small { margin-left: auto; color: var(--mist); }
-  .field { width: 100%; padding: 14px 16px; border-radius: 14px; border: 1px solid var(--line); background: var(--bg2); color: var(--fg); font: inherit;
-    -webkit-user-select: text; user-select: text; }
-  .btn { padding: 15px 22px; border-radius: 16px; background: var(--a); color: #fff; font-weight: 700; text-align: center; }
+
+  /* Wi-Fi */
+  .lede { color: var(--mist); margin: 0 0 10px; font-size: 14px; }
+  .list { display: grid; gap: 2px; max-height: 46vh; overflow: auto; border-radius: 18px; background: var(--bg2); box-shadow: inset 0 0 0 1px var(--line);
+    -webkit-overflow-scrolling: touch; }
+  .list > p { margin: 0; padding: 16px; color: var(--mist); }
+  .net { display: flex; align-items: center; gap: 12px; padding: 15px 16px; text-align: left; width: 100%; }
+  .net + .net { box-shadow: inset 0 1px 0 var(--line); }
+  .net span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+  .net small { color: var(--mist); font-size: 13px; }
+  .net.sel { background: rgba(255,46,136,.10); }
+  .net.sel span { color: #fff; }
+  .sig { display: inline-flex; align-items: flex-end; gap: 2px; height: 14px; flex: none; }
+  .sig i { width: 3px; border-radius: 1px; background: var(--line2); }
+  .sig i:nth-child(1) { height: 30%; } .sig i:nth-child(2) { height: 55%; } .sig i:nth-child(3) { height: 80%; } .sig i:nth-child(4) { height: 100%; }
+  .sig.s1 i:nth-child(-n+1), .sig.s2 i:nth-child(-n+2), .sig.s3 i:nth-child(-n+3), .sig.s4 i { background: var(--fg); }
+  .join { display: grid; gap: 10px; margin-top: 12px; padding: 14px; border-radius: 18px; background: var(--bg2); box-shadow: inset 0 0 0 1px var(--a); }
+  .join b { font-size: 15px; }
+  .pw { position: relative; }
+  .pw .field { padding-right: 70px; }
+  .pw button { position: absolute; right: 6px; top: 6px; bottom: 6px; padding: 0 12px; border-radius: 10px; color: var(--mist); font-size: 13px; font-weight: 600; background: var(--bg3); }
+  .field { width: 100%; padding: 15px 16px; border-radius: 14px; border: 0; box-shadow: inset 0 0 0 1px var(--line2); background: var(--bg); color: var(--fg);
+    font-family: inherit; font-size: 17px; -webkit-user-select: text; user-select: text; }
+  .field:focus { outline: none; box-shadow: inset 0 0 0 2px var(--a); }
+  .btn { padding: 15px 22px; border-radius: 14px; background: var(--a); color: #fff; font-weight: 700; text-align: center; transition: transform .1s, opacity .1s; }
+  .btn:active { transform: scale(.98); }
+  .btn:disabled { opacity: .5; }
   .btn.ghost { background: var(--bg2); color: var(--fg); }
-  .report { display: block; margin: 28px auto 0; color: var(--mist); font-size: 14px; text-decoration: underline; text-underline-offset: 3px; }
-  #reportMsg { text-align: center; margin-top: 8px; }
+  .report { display: block; margin: 6px auto 0; color: var(--mist); font-size: 13px; text-decoration: underline; text-underline-offset: 3px; }
+  #reportMsg { text-align: center; }
+  .msg { min-height: 20px; color: var(--a2); text-align: center; font-size: 14px; }
+  .msg:empty { min-height: 0; }
+
   .pair { text-align: center; display: grid; gap: 14px; }
+  .pair svg { width: 64px; height: 58px; color: var(--a); margin: 0 auto; }
   .pair h1 { margin: 0; font-size: 28px; letter-spacing: -.02em; }
   .pair p { margin: 0; color: var(--mist); }
   .pair .code { font: 700 40px/1 ui-monospace, "SF Mono", monospace; letter-spacing: .3em; text-align: center; padding: 14px; }
-  .msg { min-height: 20px; color: var(--a2); text-align: center; font-size: 14px; }
-  .tip { position: fixed; left: 14px; right: 14px; bottom: calc(var(--safe-b) + 78px); z-index: 5; padding: 14px 16px; border-radius: 18px;
+
+  .tip { position: fixed; left: 12px; right: 12px; bottom: calc(var(--safe-b) + 76px); z-index: 5; padding: 14px 16px; border-radius: 18px;
     background: #22222b; box-shadow: 0 16px 40px rgba(0,0,0,.6), inset 0 0 0 1px var(--line); display: grid; grid-template-columns: 44px 1fr auto; gap: 12px; align-items: center; }
   .tip img { width: 44px; height: 44px; border-radius: 10px; }
   .tip b { display: block; } .tip span { color: var(--mist); font-size: 14px; }
   .tip button { color: var(--mist); font-size: 22px; padding: 4px 8px; }
-  nav.tabs { display: flex; justify-content: space-around; padding-top: 8px; border-top: 1px solid var(--line); }
-  nav.tabs button { flex: 1; display: grid; justify-items: center; gap: 3px; font-size: 11px; color: var(--mist); padding: 6px 0; }
+
+  nav.tabs { display: flex; justify-content: space-around; margin: 0 -16px; padding: 6px 8px calc(var(--safe-b) + 6px);
+    background: rgba(14,14,18,.86); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); box-shadow: inset 0 1px 0 var(--line); }
+  nav.tabs button { flex: 1; display: grid; justify-items: center; gap: 3px; font-size: 11px; font-weight: 600; color: var(--mist); padding: 6px 0; border-radius: 12px; }
   nav.tabs button svg { width: 24px; height: 24px; }
-  nav.tabs button[aria-current="true"] { color: var(--a); }
-  @media (max-height: 640px) { .pad { width: min(70vw, 260px); } .key { width: 54px; height: 54px; } }
+  nav.tabs button[aria-current="true"] { color: var(--fg); }
+  nav.tabs button[aria-current="true"] svg { color: var(--a); }
+  @media (max-height: 700px) { .key { height: 50px; } .bar .key { height: 44px; } main { gap: 12px; } }
+  @media (max-height: 600px) { .pad { width: min(64vw, 240px); } .pad-hint { display: none; } }
+  @media (prefers-reduced-motion: reduce) { *, *::before { transition: none !important; animation: none !important; } }
 </style>
 </head>
 <body>
@@ -144,7 +209,7 @@
     <ol><li class="done"><em>✓</em>Connected</li><li class="on" id="asWifi"><em>2</em>Your Wi-Fi</li><li id="asRemote"><em>3</em>Your remote</li></ol>
   </section>
   <section id="pairing" class="pair" hidden>
-    <svg style="width:64px;height:58px;color:var(--a);margin:0 auto"><use href="#skull"/></svg>
+    <svg><use href="#skull"/></svg>
     <h1>Connect to your Sofa Box</h1>
     <p>Type the four numbers on the TV.</p>
     <input class="field code" id="code" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="one-time-code" placeholder="····">
@@ -158,20 +223,23 @@
       <svg class="arr l"><use href="#arrow"/></svg><svg class="arr r"><use href="#arrow"/></svg>
       <div class="ok">OK</div>
     </div>
-    <div class="row" style="margin-top:22px">
-      <button class="key" data-k="back" aria-label="Back"><svg><use href="#back"/></svg></button>
-      <button class="key home" data-k="home" aria-label="Home"><svg><use href="#home"/></svg></button>
-      <button class="key" data-k="menu" aria-label="Menu"><svg><use href="#menu"/></svg></button>
-    </div>
-    <div class="row" style="margin-top:14px">
-      <button class="key" data-k="rewind" aria-label="Back 10 seconds"><svg><use href="#rew"/></svg></button>
-      <button class="key" data-k="play" aria-label="Play or pause"><svg><use href="#play"/></svg></button>
-      <button class="key" data-k="forward" aria-label="On 30 seconds"><svg><use href="#fwd"/></svg></button>
-    </div>
-    <div class="row" style="margin-top:14px">
-      <button class="key" data-vol="-5" aria-label="Quieter"><svg><use href="#voldown"/></svg></button>
-      <button class="key" data-vol="mute" aria-label="Mute"><svg><use href="#mute"/></svg></button>
-      <button class="key" data-vol="5" aria-label="Louder"><svg><use href="#volup"/></svg></button>
+    <p class="pad-hint">Swipe or tap the edges · hold to keep going</p>
+    <div class="pair-bars">
+      <div class="keys">
+        <button class="key lab" data-k="back" aria-label="Back"><svg><use href="#back"/></svg><small>Back</small></button>
+        <button class="key lab home" data-k="home" aria-label="Home"><svg><use href="#home"/></svg><small>Home</small></button>
+        <button class="key lab" data-k="menu" aria-label="Menu"><svg><use href="#menu"/></svg><small>Menu</small></button>
+      </div>
+      <div class="bar">
+        <button class="key" data-k="rewind" aria-label="Back 10 seconds"><svg><use href="#rew"/></svg></button>
+        <button class="key" data-k="play" aria-label="Play or pause"><svg><use href="#play"/></svg></button>
+        <button class="key" data-k="forward" aria-label="On 30 seconds"><svg><use href="#fwd"/></svg></button>
+      </div>
+      <div class="bar">
+        <button class="key" data-vol="-5" aria-label="Quieter"><svg><use href="#voldown"/></svg></button>
+        <button class="key" data-vol="mute" aria-label="Mute"><svg><use href="#mute"/></svg></button>
+        <button class="key" data-vol="5" aria-label="Louder"><svg><use href="#volup"/></svg></button>
+      </div>
     </div>
     <button class="report" id="reportBtn">Something wrong? Send a report</button>
     <div class="msg" id="reportMsg"></div>
@@ -180,7 +248,7 @@
   <section id="tab-type" class="type" hidden>
     <p>What you type here appears in the box: a search, an address, a password.</p>
     <textarea id="typing" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Type here"></textarea>
-    <div class="row"><button class="key wide" data-k="backspace">⌫ Delete</button><button class="key wide" data-k="tab">Next field</button><button class="key wide home" data-k="enter">Enter</button></div>
+    <div class="keys"><button class="key" data-k="backspace">⌫ Delete</button><button class="key" data-k="tab">Next field</button><button class="key home" data-k="enter">Enter</button></div>
   </section>
 
   <section id="tab-touch" hidden>
@@ -188,10 +256,12 @@
   </section>
 
   <section id="tab-wifi" hidden>
-    <p style="color:var(--mist);margin:0 0 10px" id="wifiLede">Wi-Fi for the box.</p>
-    <div class="list" id="nets"><p style="color:var(--mist)">Looking…</p></div>
-    <div id="join" hidden style="display:grid;gap:10px;margin-top:12px">
-      <input class="field" id="wpass" type="password" placeholder="Password" autocomplete="off">
+    <p class="lede" id="wifiLede">Wi-Fi for the box.</p>
+    <div class="list" id="nets"><p>Looking…</p></div>
+    <div class="join" id="join" hidden>
+      <b id="joinName"></b>
+      <div class="pw"><input class="field" id="wpass" type="password" placeholder="Password" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="join">
+        <button id="wshow" type="button">Show</button></div>
       <button class="btn" id="joinBtn">Join</button>
     </div>
     <div class="msg" id="wifiMsg"></div>
@@ -228,7 +298,7 @@
     const look = () => {
       const img = new Image();
       img.onload = () => { location.href = handoff; };
-      img.onerror = () => { handoffTimer = Date.now() - started < 240000 ? setTimeout(look, 3000) : 0; };
+      img.onerror = () => { handoffTimer = Date.now() - started < 420000 ? setTimeout(look, 3000) : 0; };   // (a box that restarts: a few minutes)
       img.src = base + "/icon.png?t=" + Date.now();
     };
     look();
@@ -322,12 +392,12 @@
     e.preventDefault(); pad.setPointerCapture(e.pointerId);
     start = { x: e.clientX, y: e.clientY }; moved = false;
     const z = zone(e.clientX, e.clientY);
-    if (z !== "ok") holdTimer = setTimeout(() => { moved = true; key(z); flash(z); repeatTimer = setInterval(() => { key(z); flash(z); }, 140); }, 450);
+    if (z !== "ok") holdTimer = setTimeout(() => { moved = true; key(z); flash(z); repeatTimer = setInterval(() => { key(z); flash(z); }, 120); }, 380);
   });
   pad.addEventListener("pointermove", e => {
     if (!start) return;
     const dx = e.clientX - start.x, dy = e.clientY - start.y;
-    if (Math.hypot(dx, dy) > 34) {                // a swipe: one step per stretch of the finger
+    if (Math.hypot(dx, dy) > 26) {                // a swipe: one step per stretch of the finger
       stopRepeat(); moved = true;
       const k = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? "right" : "left") : (dy > 0 ? "down" : "up");
       key(k); flash(k); start = { x: e.clientX, y: e.clientY };
@@ -340,12 +410,22 @@
   });
   pad.addEventListener("pointercancel", () => { stopRepeat(); start = null; });
 
+  // The buttons answer the moment they're touched, not when the finger lifts (a tap holds it down for about a tenth
+  // of a second: that was added to every press). A click with no pointer (VoiceOver, a keyboard) still works.
+  function press(b) {
+    if (b.dataset.k) key(b.dataset.k);
+    else { buzz(); post("api/volume", { by: b.dataset.vol === "mute" ? "mute" : +b.dataset.vol }); }
+  }
+  document.addEventListener("pointerdown", e => {
+    const b = e.target.closest("[data-k],[data-vol]"); if (!b || e.button > 0) return;
+    b.classList.add("down"); press(b);
+    const up = () => { b.classList.remove("down"); };
+    b.addEventListener("pointerup", up, { once: true }); b.addEventListener("pointercancel", up, { once: true }); b.addEventListener("pointerleave", up, { once: true });
+  });
   document.addEventListener("click", e => {
     const b = e.target.closest("[data-k],[data-vol],[data-tab]"); if (!b) return;
     if (b.dataset.tab) return show(b.dataset.tab);
-    b.classList.add("hit"); setTimeout(() => b.classList.remove("hit"), 120);
-    if (b.dataset.k) key(b.dataset.k);
-    else { buzz(); post("api/volume", { by: b.dataset.vol === "mute" ? "mute" : +b.dataset.vol }); }
+    if (e.detail === 0) { b.classList.add("hit"); setTimeout(() => b.classList.remove("hit"), 120); press(b); }   // (no pointer: pressed here)
   });
 
   // typing: each letter goes to the box as it's typed
@@ -388,24 +468,35 @@
 
   // Wi-Fi
   async function loadWifi() {
-    $("nets").innerHTML = `<p style="color:var(--mist)">Looking…</p>`;
+    $("nets").innerHTML = `<p><span class="spinner"></span>Looking for Wi-Fi…</p>`;
     try {
       const r = await (await post("api/wifi")).json();
       $("wifiLede").textContent = r.hotspot ? "Pick your home Wi-Fi and type its password. The box joins it, and your phone goes back to it too; then one last code on the TV keeps this phone as your remote." : "Wi-Fi for the box:";
       $("nets").innerHTML = "";
       (r.networks || []).forEach(n => {
         const b = document.createElement("button"); b.className = "net";
-        b.innerHTML = "<span></span><small></small>"; b.firstChild.textContent = n.ssid + (n.on ? " ✓" : "");
-        b.lastChild.textContent = (n.secure ? "🔒 " : "") + n.signal + "%";
-        b.addEventListener("click", () => { wifiSsid = n.ssid; $("join").hidden = false; $("wpass").value = ""; $("wpass").placeholder = n.secure ? "Password for " + n.ssid : "No password needed";
-          $("wpass").disabled = !n.secure; if (n.secure) $("wpass").focus(); });
+        b.innerHTML = `<i class="sig s${Math.max(1, Math.min(4, Math.ceil((n.signal || 0) / 25)))}"><i></i><i></i><i></i><i></i></i><span></span><small></small>`;
+        b.querySelector("span").textContent = n.ssid;
+        b.querySelector("small").textContent = n.on ? "Connected" : n.secure ? "🔒" : "Open";
+        b.addEventListener("click", () => {
+          wifiSsid = n.ssid; document.querySelectorAll(".net.sel").forEach(x => x.classList.remove("sel")); b.classList.add("sel");
+          $("join").hidden = false; $("joinName").textContent = n.secure ? "Password for " + n.ssid : n.ssid + " (open: no password)";
+          $("wpass").value = ""; $("wpass").placeholder = n.secure ? "Password" : "No password needed"; $("wpass").disabled = !n.secure;
+          $("wshow").hidden = !n.secure; $("wifiMsg").textContent = "";
+          if (n.secure) $("wpass").focus(); else $("joinBtn").focus();
+          setTimeout(() => $("join").scrollIntoView({ block: "nearest", behavior: "smooth" }), 250);
+        });
         $("nets").appendChild(b);
       });
-      if (!(r.networks || []).length) $("nets").innerHTML = `<p style="color:var(--mist)">${r.message || "No networks found."}</p>`;
-    } catch (e) { $("nets").innerHTML = `<p style="color:var(--mist)">Can't reach the box.</p>`; }
+      if (!(r.networks || []).length) $("nets").innerHTML = `<p>${r.message || "No networks found."}</p>`;
+    } catch (e) { $("nets").innerHTML = `<p>Can't reach the box.</p>`; }
   }
+  $("wshow").addEventListener("click", () => { const f = $("wpass"); f.type = f.type === "password" ? "text" : "password"; $("wshow").textContent = f.type === "password" ? "Show" : "Hide"; f.focus(); });
+  $("wpass").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); $("joinBtn").click(); } });
   $("joinBtn").addEventListener("click", async () => {
     if (!wifiSsid) return;
+    if (!$("wpass").disabled && $("wpass").value.length < 8) { $("wifiMsg").textContent = "A Wi-Fi password has at least 8 characters."; return; }
+    $("joinBtn").disabled = true; setTimeout(() => { $("joinBtn").disabled = false; }, 4000);
     $("wifiMsg").textContent = "Joining " + wifiSsid + "…";
     try {
       const r = await (await post("api/wifi/join", { ssid: wifiSsid, password: $("wpass").value })).json();

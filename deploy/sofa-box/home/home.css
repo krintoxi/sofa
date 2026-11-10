@@ -247,21 +247,41 @@ h2.row-title small { margin-left: .6rem; font: 500 .85rem var(--text); color: va
 .set-pane .wifi-list { display: grid; gap: .45rem; }
 .wifi-row .lock { opacity: .7; }
 .wifi-row .pill { background: #3DDC84; color: #062; }
-/* the TV's own keyboard (typing with the remote): in a sheet, under the field it types into */
-.sheet:has(.kb) { width: min(44rem, 94vw); }
-.kb-field { display: flex; gap: .6rem; align-items: center; }
-.kb-field .field { font-size: 1.1rem; letter-spacing: .02em; }
-.kb { display: grid; gap: .35rem; margin: .3rem 0 .2rem; }
-.kb-row { display: grid; grid-template-columns: repeat(10, 1fr); gap: .35rem; }
-.kb-row:last-child { grid-template-columns: 2fr 2fr 4fr 2fr; }
-.kb-key { height: 2.5rem; border-radius: .6rem; background: var(--tile); border: 1px solid var(--line); font: 700 1.05rem/1 var(--display); color: var(--fg); }
-.kb-key.wide, .kb-key.space { font-size: .85rem; }
-.kb-key.on { background: var(--a); color: var(--a-ink); }
-.kb-key.f { background: var(--fg); color: var(--bg); box-shadow: 0 0 0 .14rem var(--a); }
+/* the TV's own keyboard (typing with the remote): in a sheet, under the field it types into. Big keys in even rows,
+   the sheet's own button (Join, Done) at the end of the last row, the field big enough to read from the sofa. */
+.sheet:has(.kb) { width: min(50rem, 94vw); padding: 1.5rem 1.6rem 1.2rem; gap: .75rem; }
+.kb-head { display: flex; align-items: center; gap: .9rem; }
+.kb-head > svg { width: 2.4rem; height: 2.4rem; flex: none; padding: .45rem; border-radius: .8rem; color: var(--a);
+  background: color-mix(in srgb, var(--a) 14%, transparent); }
+.kb-head h3 { margin: 0; }
+.kb-head p { margin: .1rem 0 0; color: var(--mist); font-size: .85rem; }
+.kb-head p b { color: var(--fg); }
+.kb-field { position: relative; display: flex; gap: .6rem; align-items: center; }
+.kb-field .field { width: 100%; height: 3.4rem; padding: 0 7rem 0 1.1rem; border-radius: .9rem; font: 600 1.45rem/1 var(--text); letter-spacing: .04em;
+  background: var(--bg); border: .14rem solid color-mix(in srgb, var(--a) 60%, var(--line)); caret-color: var(--a); }
+.kb-field .field::placeholder { color: var(--mist); opacity: .6; letter-spacing: 0; }
+.kb-count { position: absolute; right: 1rem; color: var(--mist); font-size: .78rem; pointer-events: none; }
+.kb-count.short { color: #FFB86B; }
+.kb { display: grid; gap: .4rem; margin: .1rem 0 0; }
+.kb-row { display: grid; grid-template-columns: repeat(10, 1fr); gap: .4rem; }
+.kb-row.last { grid-template-columns: 1.4fr 1.4fr 4fr 1.4fr 2fr; }
+.kb-row.last.with-hide { grid-template-columns: 1.3fr 1.3fr 3.4fr 1.2fr 1.2fr 2fr; }
+.kb-key { height: 2.85rem; border-radius: .7rem; background: var(--tile); border: 1px solid var(--line); font: 600 1.2rem/1 var(--text); color: var(--fg);
+  transition: background .08s, transform .08s; }
+.kb-key.wide, .kb-key.space { font-size: .9rem; color: var(--mist); }
+.kb-key.on { background: color-mix(in srgb, var(--a) 30%, var(--tile)); color: var(--fg); }
+.kb-key.done { background: var(--a); color: var(--a-ink); border-color: transparent; font: 800 1rem/1 var(--display); text-transform: var(--word-transform); }
+.kb-key.done:disabled { opacity: .55; }
+.kb-key.f { background: var(--fg); color: var(--bg); border-color: transparent; box-shadow: 0 0 0 .16rem var(--a); transform: scale(1.06); }
+.kb-key.done.f { background: var(--fg); color: var(--bg); }
 .sheet-row { display: flex; gap: .6rem; justify-content: flex-end; margin-top: .3rem; }
-.kb-msg { min-height: 1.2rem; margin: .1rem 0 0; }
+.kb-msg { min-height: 1.2rem; margin: -.2rem 0 0; display: flex; align-items: center; gap: .5rem; }
+.kb-msg:empty { display: none; }
 .kb-msg .bad { color: #FF6B6B; }
+.kb-hint { margin: 0; text-align: right; color: var(--mist); font-size: .75rem; }
+.kb-hint kbd { font: 700 .7rem var(--text); padding: .1rem .45rem; border-radius: .35rem; border: 1px solid var(--line); color: var(--fg); margin-right: .25rem; }
 html.lite .set-tab, html.lite .kb-key { transition: none; }
+html.lite .kb-key.f { transform: none; }
 .card { padding: 1.3rem 1.4rem; border-radius: calc(var(--r) * 1.2); background: var(--bg2); border: 1px solid var(--line); }
 .card h3 { margin: 0 0 .3rem; font: 800 1.2rem/1.2 var(--display); }
 .card p { margin: 0 0 1rem; color: var(--mist); font-size: .9rem; }

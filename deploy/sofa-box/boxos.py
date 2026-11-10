@@ -931,6 +931,18 @@ class Browser:
             raise OSError(box["reply"]["error"].get("message", "error"))
         return box["reply"].get("result", {})
 
+    def tell(self, method, params=None, session=None):
+        """A call whose answer nobody waits for (the reader drops it)."""
+        if not self.ws:
+            raise OSError("no browser")
+        with self.lock:
+            self.next_id += 1
+            mid = self.next_id
+        msg = {"id": mid, "method": method, "params": params or {}}
+        if session:
+            msg["sessionId"] = session
+        self.ws.send(json.dumps(msg))
+
     # -- what the browser tells us
     def _track(self, info):
         tab = self.tabs.setdefault(info["targetId"], {"app": None, "used": time.time(), "session": None, "audible": False})
@@ -1177,9 +1189,11 @@ class Browser:
         if session:
             text = {"Enter": "\r"}.get(key)
             down = {"type": "keyDown", "text": text, "unmodifiedText": text} if text else {"type": "rawKeyDown"}
-            for event in (down, {"type": "keyUp"}):
-                self.call("Input.dispatchKeyEvent", dict(event, key=key, code=key, windowsVirtualKeyCode=keycode,
-                                                         nativeVirtualKeyCode=keycode), session)
+            # the key going down sent without waiting for the browser's answer (it takes events in the order they're
+            # sent), so the page has it a round trip sooner; the wait is for the key coming up
+            events = [dict(e, key=key, code=key, windowsVirtualKeyCode=keycode, nativeVirtualKeyCode=keycode) for e in (down, {"type": "keyUp"})]
+            self.tell("Input.dispatchKeyEvent", events[0], session)
+            self.call("Input.dispatchKeyEvent", events[1], session)
 
     def insert_text(self, text):
         """Text typed on the phone, into whatever is focused in the tab in front."""

@@ -679,10 +679,14 @@
   }
   function joinWifi(ssid, secure) {
     if ((boxInfo || {}).wifi === ssid && location.hash.startsWith("#/settings")) return toast("The box is on " + ssid + " already.");
-    sheet(`<h3>Join ${esc(ssid)}</h3>${secure ? `<div class="kb-field"><input class="field kb-target" id="kbText" type="password" autocomplete="off" spellcheck="false" placeholder="Its password">
-        <button class="mini" data-kb="show">Show</button></div>${kbHtml()}` : `<p class="sheet-note">An open network: no password.</p>`}
-      <p class="small kb-msg" id="kbMsg" role="status"></p>
-      <div class="sheet-row"><button class="btn primary" data-sheet="join">Join</button><button class="btn" data-sheet="close">Cancel</button></div>`, async a => {
+    // (the password shows as it's typed, as on other TV boxes: with a remote, each letter is a few presses away, and
+    // dots hid the one that went wrong; Hide is on the keyboard)
+    sheet(`<div class="kb-head">${icon("#i-wifi")}<div><h3>${esc(ssid)}</h3><p>${secure ? "Its password. Or type it on your phone: the remote's <b>Keyboard</b> tab." : "An open network: no password."}</p></div></div>
+      ${secure ? `<div class="kb-field"><input class="field kb-target" id="kbText" type="text" autocomplete="off" spellcheck="false" placeholder="Password" maxlength="63">
+        <span class="kb-count" id="kbCount"></span></div>
+      <p class="small kb-msg" id="kbMsg" role="status"></p>${kbHtml("Join", "join", true)}`
+      : `<p class="small kb-msg" id="kbMsg" role="status"></p><div class="sheet-row"><button class="btn primary" data-sheet="join">Join</button><button class="btn" data-sheet="close">Cancel</button></div>`}
+      ${secure ? `<p class="kb-hint"><kbd>Back</kbd> cancels</p>` : ""}`, async a => {
       if (a !== "join") return closeSheet();
       const msg = $("#kbMsg"), btn = $(".sheet [data-sheet='join']"), pw = ($("#kbText") || {}).value || "";
       if (secure && pw.length < 8) { msg.textContent = "A Wi-Fi password has at least 8 characters."; return; }
@@ -714,11 +718,20 @@
   const KB_ROWS = ["1234567890", "qwertyuiop", "asdfghjkl@", "zxcvbnm.-_"];
   const KB_SYMS = ["1234567890", "!@#$%^&*()", "-_=+[]{};:", "'\",.<>/?~`"];
   let kbShift = false, kbSym = false;
-  function kbHtml() {
+  // The keyboard's last row ends with what the sheet is for (Join, Done), so OK is a press or two away from any key
+  // instead of below the whole keyboard; `hide`: a Hide/Show key for a password.
+  function kbHtml(doneLabel, doneAct, hide) {
     kbShift = false; kbSym = false;
     return `<div class="kb" role="group" aria-label="Keyboard">${KB_ROWS.map(r => `<div class="kb-row">${[...r].map(c => `<button class="kb-key" data-kb="${esc(c)}">${esc(c)}</button>`).join("")}</div>`).join("")}
-      <div class="kb-row"><button class="kb-key wide" data-kb="shift">⇧ ABC</button><button class="kb-key wide" data-kb="sym">#+=</button>
-        <button class="kb-key space" data-kb="space">Space</button><button class="kb-key wide" data-kb="bksp">⌫ Delete</button></div></div>`;
+      <div class="kb-row last${hide ? " with-hide" : ""}"><button class="kb-key wide" data-kb="shift">⇧ abc</button><button class="kb-key wide" data-kb="sym">#+=</button>
+        <button class="kb-key space" data-kb="space">space</button><button class="kb-key wide" data-kb="bksp">⌫</button>
+        ${hide ? `<button class="kb-key wide" data-kb="show">Hide</button>` : ""}
+        <button class="kb-key done" data-sheet="${doneAct || "ok"}">${esc(doneLabel || "Done")}</button></div></div>`;
+  }
+  function kbCount() {
+    const f = $(".sheet .kb-target"), c = $("#kbCount"); if (!f || !c) return;
+    c.textContent = f.value.length ? f.value.length + (f.value.length === 1 ? " character" : " characters") : "";
+    c.classList.toggle("short", f.value.length > 0 && f.value.length < 8);
   }
   function kbLabels() {
     const rows = kbSym ? KB_SYMS : KB_ROWS;
@@ -726,7 +739,7 @@
       const c = rows[i][j], ch = kbShift && !kbSym ? c.toUpperCase() : c;
       b.dataset.kb = ch; b.textContent = ch;
     }));
-    const sh = $(".kb [data-kb='shift']"); if (sh) sh.classList.toggle("on", kbShift);
+    const sh = $(".kb [data-kb='shift']"); if (sh) { sh.classList.toggle("on", kbShift); sh.textContent = kbShift ? "⇧ ABC" : "⇧ abc"; }
     const sy = $(".kb [data-kb='sym']"); if (sy) { sy.classList.toggle("on", kbSym); sy.textContent = kbSym ? "ABC" : "#+="; }
   }
   function kbPress(k) {
@@ -736,13 +749,14 @@
     if (k === "show") { f.type = f.type === "password" ? "text" : "password"; const b = $(".sheet [data-kb='show']"); if (b) b.textContent = f.type === "password" ? "Show" : "Hide"; return; }
     if (k === "bksp") f.value = f.value.slice(0, -1);
     else if (f.value.length < (+f.maxLength > 0 ? +f.maxLength : 128)) f.value += k === "space" ? " " : k;
+    kbCount(); const m = $("#kbMsg"); if (m && m.querySelector(".bad")) m.textContent = "";
     if (kbShift && k.length === 1) { kbShift = false; kbLabels(); }
   }
   function typeSheet(input) {                  // a field on a page: its keyboard in a sheet, Done puts the text back
     const label = input.getAttribute("aria-label") || input.placeholder || "Type";
     sheet(`<h3>${esc(label.split(":")[0])}</h3><div class="kb-field"><input class="field kb-target" id="kbText" value="${esc(input.value)}" maxlength="${input.maxLength > 0 ? input.maxLength : 200}"
-        type="${input.type === "password" ? "password" : "text"}" spellcheck="false" autocomplete="off"></div>${kbHtml()}
-      <div class="sheet-row"><button class="btn primary" data-sheet="ok">Done</button><button class="btn" data-sheet="close">Cancel</button></div>`, a => {
+        type="${input.type === "password" ? "password" : "text"}" spellcheck="false" autocomplete="off"></div>${kbHtml("Done", "ok", input.type === "password")}
+      <p class="kb-hint"><kbd>Back</kbd> cancels</p>`, a => {
       const v = ($("#kbText") || {}).value;
       closeSheet();
       if (a === "ok" && document.contains(input)) { input.value = v; input.dataset.typed = "1"; focus(input);
@@ -841,15 +855,15 @@
     const joined = (n.clients || 0) > 0;                      // a phone (or something) on the box's Wi-Fi
     if (!joined) joinedAt = 0; else if (!joinedAt) joinedAt = now;
     const stage = asked || (remote ? "details" : joined ? "remote" : "wifi");
-    if (stage === "remote" && !asked && now - joinedAt < 20) return codeSteps(1) + `<p class="okay big">✓ Your phone is on the box's Wi-Fi</p>
-      ${waiting("The Setup Assistant opens on your phone by itself: a sheet pops up. A few seconds…")}
-      <button class="mini" data-codes="remote">It didn't open? Show the code</button>`;
+    // (the phone's sign-in sheet opens the Setup Assistant by itself on most phones, but not all: one that has been on
+    // this Wi-Fi before may not, so its code shows at once rather than after a wait for a sheet that may never come)
     if (stage === "wifi") return codeSteps(0) + qrRow(hs.wifi_qr, `
       <b>Scan with your phone's camera: it connects your phone to the box</b><small>(the box's own Wi-Fi, ${esc(hs.ssid)} · password ${esc(hs.password)})</small>
       ${waiting("Waiting for your phone to join…")}`);
     if (stage === "remote") return codeSteps(1) + qrRow(r.pair_url, `
-      <b>${joined ? "It didn't open by itself? Scan" : "Scan"} this: the Sofa Setup Assistant opens on your phone</b><small>or open ${address} and type ${esc(r.code)}</small>
-      ${waiting("Waiting for the remote to open on your phone…")}<button class="mini" data-codes="wifi">Show the Wi-Fi code again</button>`);
+      ${joined ? `<p class="okay">✓ Your phone is on the box's Wi-Fi</p>` : ""}
+      <b>Scan this: the Sofa Setup Assistant opens on your phone</b><small>${joined ? "(if a <b>Sofa Box</b> sheet opened by itself, carry on there instead) · " : ""}or open ${address} and type ${esc(r.code)}</small>
+      ${waiting("Waiting for the Setup Assistant to open on your phone…")}<button class="mini" data-codes="wifi">Show the Wi-Fi code again</button>`);
     return codeSteps(2) + `<p class="okay big">✓ The Setup Assistant is open on your phone</p>
       <p class="small">On your phone: pick your home Wi-Fi, type its password, <b>Join</b>.</p>
       ${waiting("Waiting for your Wi-Fi details…")}<button class="mini" data-codes="remote">Show the remote's code again</button>`;
@@ -981,8 +995,8 @@
     return true;
   }
   function askText(label, value, then) {
-    sheet(`<h3>${esc(label)}</h3><div class="kb-field"><input class="field kb-target" id="sheetText" value="${esc(value)}" spellcheck="false" autocomplete="off"></div>${kbHtml()}
-      <div class="sheet-row"><button class="btn primary" data-sheet="ok">OK</button><button class="btn" data-sheet="close">Cancel</button></div>`,
+    sheet(`<h3>${esc(label)}</h3><div class="kb-field"><input class="field kb-target" id="sheetText" value="${esc(value)}" spellcheck="false" autocomplete="off"></div>${kbHtml("OK", "ok")}
+      <p class="kb-hint"><kbd>Back</kbd> cancels</p>`,
       a => { if (a === "ok") then($("#sheetText").value); else closeSheet(); });
     focus($(".sheet [data-kb='q']"));
   }
@@ -1089,7 +1103,7 @@
   }
   function back() {
     if ($(".viewer")) { $(".viewer").remove(); return; }
-    if (location.hash.startsWith("#/welcome")) { if (step > 0 && !$(".sheet-back")) { step--; render(true); } return; }
+    if (location.hash.startsWith("#/welcome")) { if (closeSheet()) return; if (step > 0) { step--; render(true); } return; }   // (a sheet first: Back closes the Wi-Fi password)
     if (closeSheet()) return;
     if (cur && cur.closest("#setPane")) { focus($(".set-tab[aria-current='true']")); return; }
     if (location.hash.startsWith("#/files") && filesAt.path) { filesAt.path = filesAt.path.split("/").slice(0, -1).join("/"); loadFiles(); return; }
@@ -1342,11 +1356,14 @@
   async function start() {
     try { history.scrollRestoration = "manual"; } catch (e) {}       // (a TV app: each page from its top, not where it was)
     await loadApps();
+    // A new card's first start: the agent may not answer yet (a Pi 3 setting itself up), and without its answer Home
+    // didn't know the box was new, so it showed Home instead of the setup. Ask again until it says.
+    for (let i = 0; data.welcomed === undefined && i < 40; i++) { await new Promise(r => setTimeout(r, 1500)); await loadApps(); }
     const introDone = intro();
     loadWeather();
     api("/box/api/games").then(g => { games = g; if (!location.hash || location.hash === "#/" || location.hash === "#/games") render(true); }).catch(() => {});
-    await loadSofa();
-    if (data.welcomed === false && !location.hash) { location.hash = "#/welcome"; step = savedStep = data.setup_step || 0; }
+    if (data.welcomed === false) { if (!location.hash.startsWith("#/welcome")) location.hash = "#/welcome"; step = savedStep = data.setup_step || 0; }
+    if (data.welcomed === false) loadSofa(); else await loadSofa();   // (a new box: the setup doesn't wait for a Sofa it hasn't got)
     render();
     // the screen's own black arrow, drawn mid-screen from the start: to its corner, where this page hides it (twice:
     // the screen may pick the pointer up late)
