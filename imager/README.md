@@ -293,7 +293,7 @@ Tests/                        see "What's tested, and where"; Tests/FakeAuthOpen
 
 ## Licence
 
-MIT, like the rest of Sofa; the two typefaces are under the SIL Open Font License 1.1. No code is copied from Raspberry Pi Imager. Its macOS disk code (Apache-2.0,
+PolyForm Noncommercial License 1.0.0, like the rest of Sofa (see `LICENSE` and `TRADEMARKS.md` at the root); the two typefaces are under the SIL Open Font License 1.1. No code is copied from Raspberry Pi Imager. Its macOS disk code (Apache-2.0,
 version 2.0.12) was read to see how it uses `authopen` and DiskArbitration, and three of its habits are
 followed: blanking a disk's last megabyte, giving that write a time limit, and holding the first block back
 until the end. The app uses no Raspberry Pi logos; "Raspberry Pi" appears only to say which boards the card

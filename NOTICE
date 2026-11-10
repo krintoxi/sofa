@@ -1,0 +1,21 @@
+Sofa, Sofa Box OS and Sofa Box Imager
+Copyright (c) 2026 EdgeVenture (https://www.edgeventure.uk)
+
+Licensed under the PolyForm Noncommercial License 1.0.0 (see LICENSE). Versions published
+before 2026-11-10 were published under the MIT License and stay under it.
+
+Third-party parts bundled in this repository keep their own licences:
+
+  client/vendor/hls.js                hls.js, Apache License 2.0 (client/vendor/hls.LICENSE)
+  deploy/sofa-box/home/qrcode.js      qrcode-generator by Kazuhiko Arase, MIT License (notice in the file)
+  client/vendor/fonts/                Bricolage Grotesque and Instrument Sans, SIL Open Font License 1.1
+                                      (LICENSE-*.txt next to them)
+
+A Sofa Box card is built from Raspberry Pi OS and other free software (Chromium, mpv, FFmpeg, Luanti and
+more), each under its own licence. Every part on a card, with its licence and source, is listed in
+deploy/sofa-box/home/credits.json and shown on the box under Settings -> This box -> About -> Credits
+and licences. Games whose data is not free software are never on a card; a box installs them only when
+its owner asks.
+
+"Sofa", "Sofa Box", "Sofa Box OS", "Sofa Box Imager" and the Sofa logos are trademarks of EdgeVenture.
+See TRADEMARKS.md.

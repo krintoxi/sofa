@@ -22,7 +22,7 @@ import time
 
 APP = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, APP)
-CODE = ("sofa", "client", "deploy", "tools", "docs", "integrations", "sofa.py", "README.md", "LICENSE", ".gitignore")
+CODE = ("sofa", "client", "deploy", "tools", "docs", "integrations", "sofa.py", "README.md", "LICENSE", "NOTICE", "TRADEMARKS.md", ".gitignore")
 
 
 def _swapper():

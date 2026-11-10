@@ -33,7 +33,7 @@ import urllib.request
 from . import __version__, backup, config, net, store, swap
 
 CODE = ("sofa", "client", "deploy", "tools", "docs", "integrations", "roku", "sofa.py", "README.md", "LICENSE",
-        ".gitignore")                                  # (PARTS in tools/update.sh: the same list)
+        "NOTICE", "TRADEMARKS.md", ".gitignore")                                  # (PARTS in tools/update.sh: the same list)
 NEVER = ("data", "vendor", ".git")
 STAMP_FILE = os.path.join(config.DATA_DIR, "installed-commit")
 CHECK_EVERY = 12 * 3600

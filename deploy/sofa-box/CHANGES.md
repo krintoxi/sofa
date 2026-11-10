@@ -8,6 +8,14 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.59
+
+- **Licence.** Sofa, Sofa Box OS and the box's own games are now under the PolyForm Noncommercial License 1.0.0
+  (copyright EdgeVenture): free to use, change and share for noncommercial purposes, at home above all; selling
+  boxes or services built on them needs EdgeVenture's licence. Credits and licences (Settings → This box → About)
+  says so for the three Sofa entries; every other part on the card keeps its own licence, as before. Cards before
+  this one stay under the MIT licence they came with. The names and logos are trademarks (`TRADEMARKS.md`).
+
 ## 1.1.58
 
 - **Credits and licences** (Settings → This box → About): every part on the card and every game the box can install,

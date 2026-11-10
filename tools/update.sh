@@ -17,7 +17,7 @@ REPO="${SOFA_REPO:-krintoxi/sofa}"
 BRANCH="${SOFA_BRANCH:-main}"
 STAMP="$(date +%Y-%m-%d_%H%M%S)"
 # Sofa's code: what an update replaces (the same list as CODE in sofa/updater.py; data/ and vendor/ are never touched)
-PARTS="sofa client deploy tools docs integrations roku sofa.py README.md LICENSE .gitignore"
+PARTS="sofa client deploy tools docs integrations roku sofa.py README.md LICENSE NOTICE TRADEMARKS.md .gitignore"
 
 say() { printf '\n==> %s\n' "$*"; }
 fail() { printf '\nSorry, the update stopped: %s\nNothing of yours was changed.\n' "$*" >&2; exit 1; }

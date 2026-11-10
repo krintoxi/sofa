@@ -459,5 +459,14 @@ imager/              Sofa Box Imager (Mac app that writes a Sofa Box OS card; bu
 
 ## License
 
-MIT. Bundled in `client/vendor`: hls.js (Apache-2.0), qrcode-generator (MIT), and the Bricolage
-Grotesque and Instrument Sans fonts (SIL Open Font License 1.1, licenses next to them).
+**PolyForm Noncommercial License 1.0.0** (`LICENSE`), copyright EdgeVenture. The source is open to read, use,
+change and share for any noncommercial purpose, at home above all; commercial use (selling it, selling boxes or
+devices with it, or offering it as a service) needs a licence from EdgeVenture: hello@edgeventure.uk. Versions
+published before 2026-11-10 stay under the MIT License they came with.
+
+Contributions are welcome under the agreement in `CONTRIBUTING.md`. "Sofa", "Sofa Box" and the logos are
+EdgeVenture's trademarks (`TRADEMARKS.md`): a changed version you share needs its own name.
+
+Bundled parts keep their own licences (`NOTICE`): hls.js (Apache-2.0), qrcode-generator (MIT), and the Bricolage
+Grotesque and Instrument Sans fonts (SIL Open Font License 1.1, licenses next to them). What a Sofa Box card is
+built from, part by part, is on the box under Settings → This box → About → Credits and licences.

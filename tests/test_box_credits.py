@@ -76,7 +76,8 @@ class Credits(unittest.TestCase):
         self.assertEqual({p["game"] for p in PARTS if p.get("game")} - set(native), set(), "credits for a game the box doesn't have")
         own = next(p for p in PARTS if p.get("games"))
         self.assertEqual(sorted(own["games"]), sorted(g["id"] for g in GAMES["games"]))
-        self.assertEqual(own["licence"], "MIT")
+        self.assertIn("PolyForm Noncommercial 1.0.0", own["licence"])
+        self.assertEqual(own["by"], "EdgeVenture")
 
     def test_what_is_on_the_card_says_so(self):
         """A game's "On the box" or "Get more games" on the credits page is what install.sh does."""

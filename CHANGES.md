@@ -6,6 +6,14 @@ has its own numbers and list: [deploy/sofa-box/CHANGES.md](deploy/sofa-box/CHANG
 A change to Sofa's code (`sofa/`, `client/`, `sofa.py`) gets a new version: raise `__version__`, add a section
 here, then `python3 tools/sofa-version.py` (a test checks it was done).
 
+## 1.5.4 (2026-11-10)
+
+- **Licence: PolyForm Noncommercial 1.0.0** (`LICENSE`), copyright EdgeVenture. Sofa stays open to read, use, change
+  and share for any noncommercial purpose; selling it, or boxes and services built on it, needs EdgeVenture's licence.
+  Versions before this one stay MIT. New at the root: `NOTICE` (the bundled parts and their licences), `TRADEMARKS.md`
+  (the names and logos, and what a fork must do) and `CONTRIBUTING.md` (the contributor agreement). An update
+  carries `NOTICE` and `TRADEMARKS.md` along with `LICENSE`.
+
 ## 1.5.3 (2026-11-10)
 
 - **Quicker on a Sofa box on a Raspberry Pi 3** (the box's light look). Each row of posters is a layer of its own the

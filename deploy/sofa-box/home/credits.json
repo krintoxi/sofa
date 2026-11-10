@@ -88,8 +88,9 @@
      "licence": "LGPL-2.1-or-later", "source": "https://github.com/avahi/avahi", "packages": ["avahi-utils"]}
   ]},
   {"id": "games", "name": "Games", "parts": [
-    {"name": "Sofa Box's own games", "what": "Gloamwell, Ironmaw, Tidewing and the others on Home.", "by": "Sofa contributors",
-     "licence": "MIT", "source": "https://github.com/krintoxi/sofa/tree/main/deploy/sofa-box/games",
+    {"name": "Sofa Box's own games", "what": "Gloamwell, Ironmaw, Tidewing and the others on Home.", "by": "EdgeVenture",
+     "licence": "PolyForm Noncommercial 1.0.0 (source available: free to use, change and share for noncommercial purposes)",
+     "source": "https://github.com/krintoxi/sofa/tree/main/deploy/sofa-box/games",
      "games": ["neon-dodge", "pair-up", "sky-hop", "gloamwell", "cinder-knight", "shadow-heist", "rune-tactics", "micro-drifters",
                "neon-brawler", "void-drifter", "cosmic-cascade", "tidewing", "ironmaw"]},
     {"name": "Luanti", "shown_as": "Sofa Craft, powered by Luanti", "game": "luanti",
@@ -138,10 +139,12 @@
                "client/vendor/fonts/LICENSE-Instrument-Sans.txt"]}
   ]},
   {"id": "sofa", "name": "Sofa and Sofa Box", "parts": [
-    {"name": "Sofa Box OS", "what": "Home, the store, Files, Games, Settings, the phone remote and the box's player screen.", "by": "Sofa contributors (EdgeVenture)",
-     "licence": "MIT", "source": "https://github.com/krintoxi/sofa/tree/main/deploy/sofa-box"},
-    {"name": "Sofa", "what": "The Sofa app, and Sofa on this box (This box), with free Live TV.", "by": "Sofa contributors (EdgeVenture)",
-     "licence": "MIT", "source": "https://github.com/krintoxi/sofa", "files": ["LICENSE"]},
+    {"name": "Sofa Box OS", "what": "Home, the store, Files, Games, Settings, the phone remote and the box's player screen.", "by": "EdgeVenture",
+     "licence": "PolyForm Noncommercial 1.0.0 (source available: free to use, change and share for noncommercial purposes)",
+     "source": "https://github.com/krintoxi/sofa/tree/main/deploy/sofa-box"},
+    {"name": "Sofa", "what": "The Sofa app, and Sofa on this box (This box), with free Live TV.", "by": "EdgeVenture",
+     "licence": "PolyForm Noncommercial 1.0.0 (source available: free to use, change and share for noncommercial purposes)",
+     "source": "https://github.com/krintoxi/sofa", "files": ["LICENSE", "NOTICE", "TRADEMARKS.md"]},
     {"name": "qrcode-generator (qrcode.js)", "what": "Draws the codes your phone scans.", "by": "Kazuhiko Arase",
      "licence": "MIT", "source": "https://github.com/kazuhikoarase/qrcode-generator",
      "files": ["deploy/sofa-box/home/qrcode.js", "client/vendor/qrcode.js"]},
