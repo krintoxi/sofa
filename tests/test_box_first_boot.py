@@ -168,6 +168,10 @@ class ImagerSettings(unittest.TestCase):
         self.assertIn("touch /etc/cloud/cloud-init.disabled", final)                # (cloud-init: the first start only)
         self.assertIn("set-property --runtime cloud-init-main.service CPUWeight=10", final)
         self.assertIn("systemctl disable userconfig.service", read(os.path.join(HERE, "tools", "build-sofa-box-image.sh")))
+        # no login on the TV's screen from the start: systemd's presets enable getty@tty1 at a card's first start (seen
+        # booting the 1.1.54 card), and it's off on a box set up over an older Raspberry Pi OS
+        self.assertIn('echo "disable getty@.service" > /etc/systemd/system-preset/10-sofa-box.preset', install)
+        self.assertIn("systemctl disable getty@tty1.service", install)
 
     def test_sofa_shield_comes_back_after_cloud_init_rewrites_hosts(self):
         """Imager's host name comes with `manage_etc_hosts: true`: cloud-init writes /etc/hosts from its template at the

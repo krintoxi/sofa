@@ -420,8 +420,13 @@ elif [ -f /etc/default/zramswap ]; then
   sed -i -E 's/^#?PERCENT=.*/PERCENT=50/' /etc/default/zramswap
 fi
 
+# tty1 is the TV's screen, and Sofa's: no login there. (systemd's own presets turn one on at a card's first start, and
+# it only ever lost to Sofa's screen; Raspberry Pi OS's cancel-rename turns it on too: `sofa-box own-screen`.)
+mkdir -p /etc/systemd/system-preset
+echo "disable getty@.service" > /etc/systemd/system-preset/10-sofa-box.preset
 systemctl daemon-reload
 systemctl set-default graphical.target >/dev/null
+systemctl disable getty@tty1.service >/dev/null 2>&1 || true
 systemctl enable sofa-box-agent.service sofa-box.service sofa-box-input.service sofa-box-cec.service sofa-box-shield.timer sofa-box-tune.service \
   sofa-box-first-start.service
 if ! grep -q '^# >>> Sofa Shield' /etc/hosts; then
