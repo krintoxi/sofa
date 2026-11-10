@@ -439,6 +439,17 @@ html.lite .kb-key.f { transform: none; }
 [data-theme="street"] .mast-date { color: var(--a2); }
 [data-theme="terminal"] .mast-clock { font-weight: 700; letter-spacing: -.02em; text-shadow: 0 0 1.2rem var(--glow); }
 [data-theme="pirate"] .mast-clock { color: var(--a); }
+/* the Pi short of power, or hot: a calm note under the hello (once a start), and its line in Settings → Help */
+.power-note { --warn: #FFB547; display: flex; gap: .8rem; align-items: flex-start; max-width: 40rem; margin: -.3rem 0 1.1rem;
+  padding: .75rem 1rem; border-radius: var(--r); background: color-mix(in srgb, var(--warn) 12%, var(--bg));
+  box-shadow: inset 3px 0 0 var(--warn), inset 0 0 0 1px color-mix(in srgb, var(--warn) 30%, transparent); }
+.power-note.heat { --warn: #FF8A5B; }
+.power-note svg { flex: none; width: 1.6rem; height: 1.6rem; margin-top: .1rem; fill: none; stroke: var(--warn);
+  stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.power-note p { margin: 0; color: var(--fg); font-size: .95rem; line-height: 1.4; }
+.power-note b { color: var(--warn); }
+.card.power-help.power p b { color: #FFB547; } .card.power-help.heat p b { color: #FF8A5B; }
+.card.power-help p { margin: 0; }
 /* the weather */
 .wx:empty { display: none; }
 .wx-card { min-width: 19rem; padding: 1.1rem 1.3rem 1rem; border-radius: var(--r); background: color-mix(in srgb, var(--bg) 55%, transparent);

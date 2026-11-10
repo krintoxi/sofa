@@ -19,6 +19,7 @@ AGENT=http://127.0.0.1:8091
 SERVICES="sofa-box-agent sofa-box sofa-box-input sofa-box-cec"
 
 boot_dir() { for d in /boot/firmware /boot; do [ -f "$d/config.txt" ] && { echo "$d"; return; }; done; }
+warn() { if [ -t 1 ]; then echo "$*"; else echo "<4>$*"; fi; }     # (from a service: a warning in the log, so reports have it)
 
 # Wi-Fi on (root). Raspberry Pi OS starts with Wi-Fi switched off until a country is set in Raspberry Pi Imager
 # (NetworkManager's WirelessEnabled=false, or an rfkill block); a box set up with no network then can't make its own
@@ -33,6 +34,26 @@ wifi_on() {
   if command -v rfkill >/dev/null; then rfkill unblock wifi 2>/dev/null || true; rfkill unblock bluetooth 2>/dev/null || true; fi
   if command -v nmcli >/dev/null; then nmcli radio wifi on 2>/dev/null || true; fi
   if command -v bluetoothctl >/dev/null; then timeout 10 bluetoothctl power on >/dev/null 2>&1 || true; fi
+}
+
+# The TV's screen stays the box's (root; at every start, with tune, and after cloud-init's first start). Raspberry Pi
+# Imager's settings (a user name and password, by cloud-init or Imager's older firstrun.sh) end with Raspberry Pi OS's
+# userconf, then cancel-rename: it sets the box to start into a text console (multi-user.target), turns the login on
+# tty1 back on (getty@tty1), and starts it, which stops Sofa there (the two can't share the TV's screen). The TV stayed
+# on the boot screen (the login waits for it to go, and only Sofa's start makes it go), or showed a login. So: back to
+# the TV's own start, and Sofa on it now. (Not after `sofa-box desktop`: the desktop has the screen then.)
+own_screen() {
+  systemctl is-enabled --quiet sofa-box.service 2>/dev/null || return 0
+  WAS="$(systemctl get-default 2>/dev/null || true)" FIXED=""
+  if [ -n "$WAS" ] && [ "$WAS" != graphical.target ]; then
+    systemctl set-default graphical.target >/dev/null 2>&1 && FIXED="it starts into the TV's screen again (not $WAS)"
+  fi
+  if systemctl is-enabled --quiet getty@tty1.service 2>/dev/null; then
+    systemctl disable getty@tty1.service >/dev/null 2>&1 && FIXED="${FIXED:+$FIXED, }no login on the TV's screen"
+  fi
+  [ -n "$FIXED" ] || return 0
+  warn "The TV's screen is the box's again: $FIXED (Raspberry Pi Imager's settings, most likely)."
+  systemctl --no-block start sofa-box.service || true     # (and the login that would have taken its place doesn't start)
 }
 
 # Update and Reset, started from the TV, run inside the agent's service; they restart or stop that service,
@@ -202,10 +223,19 @@ setup_boot() {               # (root) a Raspberry Pi's config.txt and cmdline.tx
   sed -i 's/console=tty1/console=tty3/' "$CMD"
 }
 
-# Sofa Shield: a blocklist of ad and tracker sites in /etc/hosts, between two marker lines.
+# Sofa Shield: a blocklist of ad and tracker sites in /etc/hosts, between two marker lines. A copy is kept, and put
+# back at every start if something wrote /etc/hosts afresh (Raspberry Pi Imager's settings: cloud-init's
+# manage_etc_hosts does, at the first start).
 SHIELD_LIST="${SOFA_BOX_SHIELD_LIST:-https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts}"
+SHIELD_KEPT="${SOFA_BOX_SHIELD_KEPT:-/var/lib/sofa-box/shield.hosts}"
 shield() {                    # (root)
   HOSTS="${SOFA_BOX_HOSTS:-/etc/hosts}"
+  if [ "${1:-}" = back ]; then
+    if [ -s "$SHIELD_KEPT" ] && ! grep -q '^# >>> Sofa Shield' "$HOSTS"; then
+      cat "$SHIELD_KEPT" >> "$HOSTS"; warn "Sofa Shield is back in /etc/hosts (something had written it afresh)."
+    fi
+    return 0
+  fi
   KEEP="$(mktemp)"
   sed '/^# >>> Sofa Shield/,/^# <<< Sofa Shield/d' "$HOSTS" > "$KEEP"
   case "${1:-}" in
@@ -221,12 +251,13 @@ shield() {                    # (root)
       { cat "$KEEP"; echo "# >>> Sofa Shield ($N sites, $(date -u +%Y-%m-%d)): sofa-box shield off takes it out"
         sed 's/^/0.0.0.0 /' "$LIST.names"; echo "# <<< Sofa Shield"; } > "$LIST.hosts"
       cat "$LIST.hosts" > "$HOSTS"                 # the same file (its owner and links stay)
+      mkdir -p "$(dirname "$SHIELD_KEPT")" 2>/dev/null && sed -n '/^# >>> Sofa Shield/,/^# <<< Sofa Shield/p' "$LIST.hosts" > "$SHIELD_KEPT" || true
       rm -f "$LIST" "$LIST.names" "$LIST.hosts" "$KEEP"
       echo "Sofa Shield is on: $N ad and tracker sites kept out." ;;
     off)
-      cat "$KEEP" > "$HOSTS"; rm -f "$KEEP"
+      cat "$KEEP" > "$HOSTS"; rm -f "$KEEP" "$SHIELD_KEPT"
       echo "Sofa Shield is off." ;;
-    *) rm -f "$KEEP"; echo "sofa-box shield on|off|update"; exit 1 ;;
+    *) rm -f "$KEEP"; echo "sofa-box shield on|off|update|back"; exit 1 ;;
   esac
 }
 
@@ -256,6 +287,9 @@ doctor() {
     note "temperature $(vcgencmd measure_temp 2>/dev/null | cut -d= -f2)"
   fi
   echo "Running"
+  T="$(systemctl get-default 2>/dev/null)"
+  if [ "$T" = graphical.target ]; then ok "starts into the TV's screen"
+  elif [ -n "$T" ]; then bad "starts into $T, not the TV's screen" "sudo sofa-box tune   (it puts that right at every start)"; fi
   for s in $SERVICES; do
     if systemctl is-active --quiet "$s"; then ok "$s"; else bad "$s isn't running" "sofa-box logs   (then: sudo systemctl restart $s)"; fi
   done
@@ -455,8 +489,11 @@ case "${1:-}" in
     [ -w "$OD/up_threshold" ] && echo 40 > "$OD/up_threshold"
     [ -w "$OD/sampling_down_factor" ] && echo 20 > "$OD/sampling_down_factor"
     wifi_on
+    own_screen
+    shield back
     echo "Tuned: $(cat /sys/devices/system/cpu/cpufreq/policy0/scaling_governor 2>/dev/null || echo "no cpufreq here")" ;;
   wifi-on) wifi_on "${2:-}" ;;                # (root) Wi-Fi switched on (also at every start, with tune)
+  own-screen) own_screen; shield back ;;      # (root) the TV's screen the box's again (also at every start, with tune)
   timezone)                  # (root) the box's time zone, from the setup screen or a phone
     echo "${2:-}" | grep -Eq '^[A-Za-z]+(/[A-Za-z0-9_+-]+){1,2}$' || { echo "Which time zone? (like Europe/London)"; exit 1; }
     timedatectl set-timezone "$2" ;;
@@ -474,6 +511,7 @@ case "${1:-}" in
     nmcli -t -f NAME,TYPE connection show 2>/dev/null | while IFS=: read -r name type; do
       [ "$type" = 802-11-wireless ] && nmcli connection delete "$name" >/dev/null 2>&1 || true
     done
+    rm -f /etc/netplan/50-cloud-init.yaml         # Imager's Wi-Fi, if NetworkManager hadn't taken it over (cloud-init's copy)
     bluetoothctl devices Paired 2>/dev/null | awk '{print $2}' | while read -r mac; do bluetoothctl remove "$mac" >/dev/null 2>&1 || true; done
     echo "Back to how it came. Starting again…"
     systemctl reboot ;;

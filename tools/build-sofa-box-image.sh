@@ -123,11 +123,12 @@ chroot "$ROOT" /bin/sh -c '
   echo "Raspberry Pi OS: $(. /etc/os-release; echo "$PRETTY_NAME")"
   dpkg-query -W -f="\${Package} \${Version}\n" cage chromium mpv plymouth plymouth-label python3 python3-pil python3-evdev \
     pipewire-pulse network-manager dnsmasq-base rfkill iw systemd-zram-generator zram-tools udisks2 ffmpeg eject libdvdnav4 libbluray2 \
+    cloud-init userconf-pi raspberrypi-sys-mods netplan.io rpi-preseed \
     2>/dev/null | sed "s/^/  /"
   echo "Wi-Fi at the first start: $(grep -h "^WirelessEnabled" /var/lib/NetworkManager/NetworkManager.state 2>/dev/null || echo "no NetworkManager state (on)")$(for f in /var/lib/systemd/rfkill/*:wlan; do if [ -f "$f" ]; then printf ", rfkill %s=%s" "$(basename "$f")" "$(cat "$f")"; fi; done)"
   echo "Sofa on the box (This box): $(cat /usr/local/lib/sofa-box/sofa-server/sofa/__init__.py 2>/dev/null | grep -o "__version__ = .*" || echo missing)"
   echo "Services: $(for s in sofa-box sofa-box-agent sofa-box-input sofa-box-cec sofa-box-tune; do printf "%s=%s " $s "$(systemctl is-enabled $s 2>/dev/null)"; done)"
-  echo "Starts into: $(systemctl get-default)"
+  echo "Starts into: $(systemctl get-default), a login on the TV (getty@tty1): $(systemctl is-enabled getty@tty1 2>/dev/null)"
   echo "Boot screen: $(plymouth-set-default-theme 2>/dev/null)  initramfs: $(ls /boot/firmware/initramfs* 2>/dev/null | xargs -n1 basename 2>/dev/null | tr "\n" " ")"
   echo "Users: $(getent passwd 1000 | cut -d: -f1) (uid 1000), sofabox ($(id -nG sofabox | tr " " ","))"
   echo "sudo for the settings: $(visudo -cf /etc/sudoers.d/sofa-box >/dev/null 2>&1 && echo ok || echo MISSING)"

@@ -1325,23 +1325,50 @@ def watch_smoothness():
             presses, slow = presses // 2, slow // 2
 
 
+power = {"note": None, "shown": False}                       # (watch_power; Home shows the note once a start)
+
+
+def power_note(out, board_model=""):
+    """What the Pi's own record (vcgencmd get_throttled, "throttled=0x50005") says, for Home and Settings → Help: None
+    when it can't be read, kind "ok", "power" (under-voltage now or since the box started: bits 0 and 16), or "heat"
+    (the soft temperature limit, bits 3 and 19; or held back and slowed down, bits 1, 2, 17 and 18, with power enough:
+    under-voltage does that too), with what to do about it."""
+    try:
+        bits = int(str(out).strip().split("=")[-1], 16)
+    except ValueError:
+        return None
+    short = bool(bits & 0x10001)
+    hot = bool(bits & 0x80008) or (not short and bool(bits & 0x60006))
+    note = {"kind": "power" if short else "heat" if hot else "ok", "bits": "0x%x" % bits}
+    m = re.search(r"Raspberry Pi (\d)", board_model or "")
+    supply = {"3": "its official 2.5 A power supply", "4": "its official 3 A USB-C power supply",
+              "5": "its official 27 W (5 A) USB-C power supply"}.get(m.group(1) if m else "",
+                                                                       "its official power supply")
+    air = "Leave air around it: out of a closed cabinet and not pressed against the TV. A case with a heat sink or a fan helps."
+    if short:
+        note.update(title="The box is short of power",
+                    text="It can freeze or restart by itself. Plug it into the wall with %s and a short cable: a phone "
+                         "charger or the TV's USB socket isn't enough.%s" % (supply, (" It got hot too. " + air) if hot else ""))
+    elif hot:
+        note.update(title="The box got hot and slowed itself down", text=air)
+    return note
+
+
 def watch_power():
-    """The Pi's own record of power (vcgencmd get_throttled): short of power now, or since it started, said once."""
-    said = False
-    while not said:
-        time.sleep(60)
+    """The Pi's own record of power and heat (vcgencmd get_throttled), read every minute. Home says so once a start: a
+    calm note, until you leave Home (power_note); Settings → Help says it all along."""
+    time.sleep(10)
+    while True:
         code, out = run(["vcgencmd", "get_throttled"], 5)
         if code != 0:
             return                                          # (not a Raspberry Pi)
-        try:
-            bits = int(out.strip().split("=")[-1], 16)
-        except ValueError:
-            continue
-        if bits & 0x10001:                                   # under-voltage now, or since the box started
-            said = True
-            print("Power: the Pi has been short of power (%s)" % out.strip(), file=sys.stderr, flush=True)
-            toast("The box is short of power: it can freeze or restart. Use its official power supply "
-                  "(2.5 A for a Pi 3, 3 A for a Pi 4, 5 A for a Pi 5) and a short cable.")
+        note = power_note(out, model())
+        if note:
+            was = (power["note"] or {}).get("kind")
+            power["note"] = note
+            if note["kind"] != "ok" and note["kind"] != was:
+                print("Power: %s (%s)" % (note["title"], out.strip()), file=sys.stderr, flush=True)
+        time.sleep(60)
 
 
 def go_home():
@@ -3166,10 +3193,18 @@ class PhoneRemote:
         ip = local_address()
         return "http://%s:%d" % (ip, self.PORT) if ip else None
 
+    def home_url(self, u):
+        """Where a phone at home types the code (the TV's "or open … and type …"): the remote's own address, never the
+        relay's (from the internet, that takes only the QR code's long link)."""
+        if u and not secure_remote.relayed(u):
+            return u
+        ip = local_address()
+        return "http://%s:%d" % (ip, self.PORT) if ip else None
+
     def status(self):
         u = self.url()
         return {"url": u, "pair_url": u + "/r/" + self.link if u else None,      # (the long link: it works while typing rests)
-                "code": self.code, "phones": len(self._load()),
+                "home_url": self.home_url(u), "code": self.code, "phones": len(self._load()),
                 "home_at": getattr(self, "home_at", 0),     # a remote last open on the home network
                 "hotspot": network.hotspot, "wired": network.wired(), "problem": None if u else network.problem}
 
@@ -3577,7 +3612,8 @@ def box_info():
                                            "channel", "auto_update")}, "software": software(),
             "weather_place": s.get("weather_place") or zone_place(current_timezone()), "weather_picked": bool(s.get("weather_place")),
             "choices": CHOICES, "learned_720": s["learned_720"], "learned_lite": bool(s.get("learned_lite")),
-            "max_height": max_height(), "slow_board": slow_board(), "light": light(), "board": board(), "controllers": controllers}
+            "max_height": max_height(), "slow_board": slow_board(), "light": light(), "board": board(), "controllers": controllers,
+            "power": power["note"]}
 
 
 def local_address():
@@ -4188,7 +4224,12 @@ class Handler(BaseHTTPRequestHandler):
                                          "default_server": {k: default[k] for k in ("id", "name", "kind", "where")} if default else None,
                                          "ask": st["ask"], "servers": len(st["servers"]),
                                          "devices": {k: devices_seen[k] for k in ("drives", "disc", "n")},
+                                         "power": power["note"] if power["note"] and power["note"]["kind"] != "ok"
+                                         and not power["shown"] else None,         # (Home's note, once a start)
                                          "front": browser.front_app() if browser and browser.connected() else None}))
+        if path == "/box/api/power/seen":                 # Home showed its note: not again until the box starts again
+            power["shown"] = True
+            return self.send('{"ok":true}')
         if path == "/box/api/sofa/continue":                # Home's "Continue watching"
             return self.send(json.dumps(sofa_continue()))
         if path == "/box/api/sofa":                         # the chooser: servers added, found, free, others

@@ -63,10 +63,11 @@ on a real box) · [The newest card](https://github.com/krintoxi/sofa/releases/ta
    the one marked "(stable)" is the stable card ([Stable and testing](#stable-and-testing)).
 2. Install **Raspberry Pi Imager** (raspberrypi.com/software) on your computer and open it.
    Choose your Pi, then **Choose OS → Use custom** and pick the file, then your card.
-3. When it asks about **OS customisation**, you can press **Edit settings** to add your Wi-Fi
-   (**Configure wireless LAN**). Leave **Set username and password** unticked: a user made there stops the
-   box's own screen from starting (a fix is on the way). Or press **No**: a network cable needs nothing,
-   and the box's setup can join your Wi-Fi itself.
+3. The box needs no **OS customisation**: a network cable needs nothing, and the box's setup joins your
+   Wi-Fi itself. Imager 2 doesn't offer it for a card picked with **Use custom**. An older Imager (1.8 or
+   1.9) asks, and since Sofa Box OS 1.1.56 its settings are all fine: a user name and password (for SSH),
+   your Wi-Fi (the box joins it by itself), SSH, the time zone and the keyboard. The box still starts
+   into its own setup on the TV.
 4. Write it, put the card in the Pi, plug in HDMI (and the network cable), then power.
 5. The TV shows the Sofa Box boot screen, then the **setup** (see below). The first start takes a
    few minutes.
@@ -128,10 +129,10 @@ opens either way. If the TV still shows a plain `http://` address, wait a moment
 Sofa Box service first, and **Settings → Remotes and Bluetooth** shows how that's going.
 
 **The setup says it couldn't make its own Wi-Fi?** Plug a network cable from your router into the box:
-the code to scan shows within seconds. Or write the card again, and in Raspberry Pi Imager press
-**Edit settings**, tick **Configure wireless LAN**, type your Wi-Fi's name and password and pick your
-**Wireless LAN country**: the box then joins your Wi-Fi by itself. (Before Sofa Box OS 1.0.1 the setup
-showed a spinner for ever in this case.)
+the code to scan shows within seconds. Or plug in a USB keyboard, press **Start** and choose your Wi-Fi
+on the TV. (Raspberry Pi Imager 1.9 and older can put your Wi-Fi on the card too: **Edit settings →
+Configure wireless LAN**, with your **Wireless LAN country**. Imager 2 doesn't offer it for a card
+picked with **Use custom**. Before Sofa Box OS 1.0.1 the setup showed a spinner for ever in this case.)
 
 Later on, if the router is off for a while (a power cut, a restart), a box that knows your Wi-Fi waits
 for it to come back. Only after three minutes with no network does it make its own Wi-Fi again (handy

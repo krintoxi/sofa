@@ -64,6 +64,33 @@ GitHub builds the card and makes the release by itself.
   went: waiting for the page to be free, the page's own code for the key, or drawing the answer. It also says whether
   the browser draws with the Pi's graphics chip. The measure no longer disappears when Home loads again.
 
+## 1.1.56
+
+- **Raspberry Pi Imager's settings no longer stop the box.** A user name and password typed into Imager's OS
+  customisation (Imager 1.8 and 1.9 offer it for a card picked with Use custom; Imager 2 doesn't) left the TV on the
+  boot screen, or showing a login, instead of Sofa. Raspberry Pi OS makes that user with its own tools at the first
+  start, and they end by setting the box to start into a text console and putting a login on the TV's screen, which
+  stops Sofa there. Now the box puts both back as soon as they're done, at the first start and at every start after,
+  and Sofa comes up on the TV: the setup, as on a card written with no settings.
+  - Imager's other settings are kept: your Wi-Fi (the box joins it by itself, so the setup's first code is for your
+    home network), SSH, the time zone, the keyboard and the box's name on the network.
+  - Imager's name for the box rewrote the list of names Sofa Shield keeps out, and Shield was off without saying so.
+    The box keeps a copy and puts it back.
+  - The first start's own work from Imager's settings (fetching package lists) gets what the TV leaves of the
+    processor.
+  - Reset to how it came forgets the Wi-Fi Imager gave it too.
+  - `sofa-box doctor` says if the box starts into anything but the TV's screen, and the card's report lists Raspberry Pi
+    OS's first-start tools.
+- **Home says when the box is short of power, or hot.** The Pi keeps a record of both, and the box only said so in its
+  reports (and in a two-second message). Now Home has a calm note: "The box is short of power" (it can freeze or
+  restart: use its official power supply, plugged into the wall, with a short cable) or "The box got hot and slowed
+  itself down" (leave air around it). It shows once a start, until you leave Home, and never takes the remote's first
+  press. **Settings → Help** says it all along, or that power and heat have been fine since the box started.
+- **The right address under the setup's code.** Beside the code to scan, the TV said "or open <address> and type
+  <code>". With the secure phone remote on (the default), that address was the Sofa Box service's, which won't take a
+  typed code ("Away from home, scan the code on the TV"). Now it's the box's own address at home, and when the box
+  doesn't know that one, the TV just asks you to scan.
+
 ## 1.1.55
 
 - **Stable and testing.** A box now gets its updates from one of two channels (Settings → Software).

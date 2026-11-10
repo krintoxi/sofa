@@ -97,6 +97,7 @@
   function opening(app, text) {
     const el = $("#opening");
     clearTimeout(openingTimer);
+    if (app) powerGone();                         // (an app in front: Home's power note has been seen)
     if (!app) { el.classList.remove("on"); openingTimer = setTimeout(() => { el.hidden = true; }, 300); return; }
     if ((data.running || []).some(r => r.app === app.id)) return;
     el.style.setProperty("--c", app.color || "var(--a)");
@@ -206,6 +207,22 @@
       ${drives.map(d => `<button class="tile app wide input" style="--c:#2BB673" data-drive="${esc(d.root)}" data-dev="${esc(d.dev)}"><span class="ic">${icon("#i-usb")}</span>
         <b>${esc(d.label)}</b><small>${d.size ? size(d.size) + " · " : ""}Open in Files</small></button>`).join("")}</div>`;
   }
+  // The Pi short of power, or hot (the agent reads the Pi's own record): a calm note on Home, once a start. It stays while
+  // Home is on the TV and is gone once you leave Home (Settings → Help says it all along). Not a button: the remote's
+  // first press on Home still goes where it always does.
+  const powerShown = { note: null, done: false };
+  const POWER_ICON = { power: `<path d="M13.5 2.5 5 13.5h6l-1 8 8.5-11h-6z"/>`,
+    heat: `<path d="M10 4.5a2 2 0 0 1 4 0v9a4 4 0 1 1-4 0z"/><path d="M12 9v7"/>` };
+  function powerLine() {
+    if (!powerShown.done && !powerShown.note && data.power) {
+      powerShown.note = data.power;
+      api("/box/api/power/seen", {}).catch(() => {});
+    }
+    const p = powerShown.note;
+    return p ? `<div class="power-note ${esc(p.kind)}" role="status"><svg viewBox="0 0 24 24" aria-hidden="true">${POWER_ICON[p.kind] || POWER_ICON.power}</svg>
+      <p><b>${esc(p.title)}.</b> ${esc(p.text)}</p></div>` : "";
+  }
+  function powerGone() { if (powerShown.note) { powerShown.note = null; powerShown.done = true; } }
   // Home's top: the time and day, a hello, what to do next (resume, Sofa, Live TV), and the weather.
   function masthead(watch) {
     const s = sofa || {}, first = s.items && s.items[0], d = new Date(), [hm, ap] = clockParts(d);
@@ -220,7 +237,7 @@
         <div class="mast-date" id="mDate">${esc(d.toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" }))}</div>
         <div class="mast-clock" id="mClock">${esc(hm)}${ap ? "<small>" + ap + "</small>" : ""}</div>
         <h2 class="mast-hi" id="mHi">${greeting(d.getHours())}<span>${esc(who)}</span></h2>
-        <p class="mast-sub">${sub}</p>
+        <p class="mast-sub">${sub}</p>${powerLine()}
         ${first ? `<div class="bar"><i style="width:${first.pct}%"></i></div>` : ""}
         <div class="row-actions">${first ? `<button class="btn primary" data-sofa-hash="${esc(first.play || first.hash)}">${icon("#i-play")}Resume</button>
           <button class="btn" data-app="sofa">${icon("#i-sofa")}Open Sofa</button>` : `<button class="btn primary" data-app="sofa">${icon("#i-sofa")}Open Sofa</button>`}
@@ -707,7 +724,10 @@
       ${softwareCards(b, s, pick)}
       <section class="card"><h3>Reset to how it came</h3><p>Your apps, sign-ins, Wi-Fi, Bluetooth devices and the files in Downloads, Videos, Music and Pictures go,
         and it starts at the setup steps (for a new owner, or a fresh start).</p><div class="choices"><button class="btn danger" data-action="factory-reset">Reset to how it came</button></div></section>`;
+    const pw = b.power;                       // the Pi's own record of power and heat, since the box started
     return head("Help", "Something not working?") +
+      (pw ? `<section class="card power-help ${esc(pw.kind)}"><h3>Power and heat</h3><p>${pw.kind === "ok" ? "All fine since the box started."
+        : `<b>${esc(pw.title)}</b> (since it started). ${esc(pw.text)}`} <span class="small">(${esc(pw.bits)})</span></p></section>` : "") +
       `<section class="card"><p><b>Send a report</b> sends the Sofa Box team what the box checks and what it has logged since it started,
         so we can see what went wrong. It leaves out what the box plays, cuts web addresses short, and blanks passwords and codes. Send it before you restart the box: a restart clears the logs. (Your phone's remote has it too.)</p>
         <div class="choices"><button class="btn primary" data-action="send-report">Send a report</button></div><p class="small" id="reportNo">${lastReport ? "Last report: number <b>" + esc(lastReport) + "</b>." : ""}</p></section>
@@ -900,7 +920,9 @@
       <p class="small">The quickest way on: <b>plug a network cable</b> from your router into the box, and the code to scan shows here.
       Or plug in a USB keyboard and press <b>Start</b>, then choose your Wi-Fi.</p><p class="small">(${esc(r.problem)})</p>`;
     if (!r.url) return `<p class="looking small"><i class="spin"></i>No network yet: in a few seconds the box makes its own Wi-Fi, and a code to scan shows here.</p>`;
-    const address = esc(r.url.replace(/^http:\/\//, ""));
+    // where a phone types the code instead: the box's own address at home, never the relay's (which takes only the QR
+    // code from the internet); with only the relay's known, no typing line
+    const address = r.home_url ? esc(r.home_url.replace(/^http:\/\//, "")) : "";
     // without a cable or Wi-Fi: one code at a time, each gone once its step is done
     if (hs) return setupCodes(r, hs, n, address, waiting);
     const fresh = j && j.state === "joined" && now - j.at < 600;
@@ -912,8 +934,9 @@
     const open = r.home_at && now - r.home_at < 15;              // a remote open on the home Wi-Fi now
     return (fresh ? codeSteps(3) : "") + qrRow(r.pair_url, `
       <b>${fresh ? (n.from_phone && now - n.from_phone < 900 ? "Last step: scan this with your phone's camera to keep it as the remote"
-        : "Scan this to keep your phone as the remote") : "Scan with your phone's camera"}</b><small>${fresh && n.from_phone && now - n.from_phone < 900
-        ? "(if the Setup Assistant carried on by itself on your phone, there's nothing to scan)" : `or open <b>${address}</b> and type <b>${esc(r.code)}</b>`}</small>
+        : "Scan this to keep your phone as the remote") : "Scan with your phone's camera"}</b>${fresh && n.from_phone && now - n.from_phone < 900
+        ? "<small>(if the Setup Assistant carried on by itself on your phone, there's nothing to scan)</small>"
+        : address ? `<small>or open <b>${address}</b> and type <b>${esc(r.code)}</b></small>` : ""}
       ${open ? `<p class="okay small">✓ Your phone is the remote</p>` : waiting("Waiting for your phone to scan this…")}
       ${/^https:/.test(r.url) ? "" : `<p class="small">iPhone says it isn't secure? Settings → Apps → Safari → turn off <b>Not Secure Connection Warning</b>.</p>`}`);
   }
@@ -940,7 +963,7 @@
       ${waiting("Waiting for your phone to join…")}`);
     if (stage === "remote") return codeSteps(1) + qrRow(r.pair_url, `
       ${joined ? `<p class="okay">✓ Your phone is on the box's Wi-Fi</p>` : ""}
-      <b>Scan this: the Sofa Setup Assistant opens on your phone</b><small>${joined ? "(if a <b>Sofa Box</b> sheet opened by itself, carry on there instead) · " : ""}or open ${address} and type ${esc(r.code)}</small>
+      <b>Scan this: the Sofa Setup Assistant opens on your phone</b><small>${joined ? "(if a <b>Sofa Box</b> sheet opened by itself, carry on there instead)" : ""}${joined && address ? " · " : ""}${address ? `or open ${address} and type ${esc(r.code)}` : ""}</small>
       ${waiting("Waiting for the Setup Assistant to open on your phone…")}<button class="mini" data-codes="wifi">Show the Wi-Fi code again</button>`);
     return codeSteps(2) + `<p class="okay big">✓ The Setup Assistant is open on your phone</p>
       <p class="small">On your phone: pick your home Wi-Fi, type its password, <b>Join</b>.</p>
@@ -1426,6 +1449,7 @@
   TABS.credits = TABS["tv-tracking"] = "settings";               // (pages of Settings: Back goes there)
   function render(keep) {
     const name = (location.hash.replace(/^#\/?/, "").split(/[/?]/)[0]) || "";
+    if (name) powerGone();                        // (another page: Home's power note has been seen)
     const html = name === "store" ? viewStore() : name === "games" ? viewGames() : name === "files" ? viewFiles()
       : name === "browser" ? viewBrowser() : name === "settings" ? viewSettings() : name === "welcome" ? viewWelcome()
       : name === "credits" ? viewCredits() : name === "tv-tracking" ? viewTvTracking()
@@ -1462,7 +1486,8 @@
     if (document.hidden || $(".sheet-back")) return;
     const n = data.devices && data.devices.n;
     await loadApps();
-    if (data.devices.n !== n && (!location.hash || location.hash === "#/")) render(true);
+    const note = data.power && !powerShown.done && !powerShown.note;     // (the Pi's power or heat, just now: Home says so)
+    if ((data.devices.n !== n || note) && (!location.hash || location.hash === "#/") && !document.hidden) render(true);
   }, 5000);
 
   // Back on Home (the agent brings this tab forward): fresh lists of apps and what's open.

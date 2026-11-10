@@ -365,7 +365,7 @@ done
 # The processor speeds up as soon as something's pressed, and stays up while it's used (sofa-box tune).
 cat > /etc/systemd/system/sofa-box-tune.service <<EOF
 [Unit]
-Description=Sofa box: a quick processor for the TV, and Wi-Fi switched on
+Description=Sofa box: a quick processor for the TV, Wi-Fi switched on, and the TV's screen the box's
 Before=NetworkManager.service sofa-box-agent.service
 After=systemd-rfkill.service
 
@@ -398,9 +398,16 @@ WantedBy=sysinit.target
 EOF
 # cloud-init (Raspberry Pi Imager's settings, if any) does its work at the first start; after that it would only run
 # its five steps again at every start, in the browser's way on a small board. It switches itself off once it's done.
+# Imager's user name and password end with Raspberry Pi OS's cancel-rename, which takes the TV's screen from Sofa (a
+# text console, a login on tty1): `sofa-box own-screen` gives it back, at every start (tune) and once cloud-init is
+# done. Its last step (apt-get for Imager's "packages", Imager's keyboard) gets what the TV leaves of the processor.
 mkdir -p /etc/systemd/system/cloud-final.service.d
-printf '[Service]\nExecStartPost=-/bin/sh -c "mkdir -p /etc/cloud && touch /etc/cloud/cloud-init.disabled"\n' \
-  > /etc/systemd/system/cloud-final.service.d/sofa-box.conf
+cat > /etc/systemd/system/cloud-final.service.d/sofa-box.conf <<EOF
+[Service]
+ExecStartPre=-$SYSTEMCTL set-property --runtime cloud-init-main.service CPUWeight=10 IOWeight=10
+ExecStartPost=-/bin/sh -c "mkdir -p /etc/cloud && touch /etc/cloud/cloud-init.disabled"
+ExecStartPost=-$LIB/sofa-box own-screen
+EOF
 # The box's own Wi-Fi (at its setup) works like a hotel's: every name is the box, so a phone that joins opens its
 # sign-in sheet by itself, and the sheet opens the phone remote (sofa-box-agent.py, Captive).
 mkdir -p /etc/NetworkManager/dnsmasq-shared.d
