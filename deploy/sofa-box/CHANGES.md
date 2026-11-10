@@ -8,6 +8,33 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.58
+
+- **Credits and licences** (Settings → This box → About): every part on the card and every game the box can install,
+  with what it does, who makes it, its licence and where its source is. OK on one shows its source as a code to open
+  on your phone. The few parts that aren't free software say so: the Pi's start-up firmware, the Wi-Fi and Bluetooth
+  firmware, Widevine (for the DRM apps), and AssaultCube's and Sauerbraten's maps, sounds and pictures.
+  - It's drawn from one file, `home/credits.json`. The tests check it against every package install.sh puts on a box
+    and every game on the list, so nothing new comes in without its licence and source.
+- **Sofa Craft, powered by Luanti:** its tile and the credits say what it is (Luanti, with its Minetest Game).
+- **AssaultCube and Sauerbraten are never on a card.** Their maps, sounds and pictures are free to play but not free
+  software (not for commercial use), so a box installs them only when someone asks for them in Games. A test fails if
+  the card's build ever installs them, and the build itself stops if one is on a card. Games no longer calls every
+  game open source: those two say their data isn't free software.
+- **Your TV's own tracking** (Settings → Help): many smart TVs work out what's on their screen, this box's picture too,
+  and send it to their maker ("ACR"). Brand by brand (Samsung, LG, Vizio, Sony, TCL, Hisense, Roku TV, Google TV and
+  Fire TV sets): where to turn it off, and the advertising settings next to it, from each maker's own help pages, with
+  a code to open them on your phone. Menu names change between models and years, and the page says so.
+- **Only what the box can prove:**
+  - Sofa Shield keeps known ad and tracker sites out (not every ad: those from the same site as what you watch still
+    show).
+  - The secure phone remote: what you tap and type isn't kept (the service's log has only the time and address of
+    each request).
+  - Send a report leaves out what the box plays, cuts web addresses short, and blanks passwords and codes (it used to
+    say "no titles", but an app's own error messages go as the app wrote them).
+  - The guide and docs/privacy.md: the box keeps no usage statistics and tells no one what you watch but the Sofa you
+    play it from; Live TV on a new box starts with Classic Cinema and only the channel lists you add.
+
 ## 1.1.55
 
 - **Stable and testing.** A box now gets its updates from one of two channels (Settings → Software).
@@ -40,6 +67,7 @@ GitHub builds the card and makes the release by itself.
 - **Cards are published one at a time, and never backwards.** Merges close together used to build at once and
   race over the newest card's files, and the last to finish won, even when it was older. Now they queue, in order,
   and a card replaces the testing card only if it's at least as new.
+
 
 ## 1.1.54
 

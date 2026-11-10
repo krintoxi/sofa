@@ -2,7 +2,9 @@
 
 Your own TV box, in place of a Fire TV: a Raspberry Pi on the TV that starts on its own home screen,
 with Sofa, free Live TV, your streaming apps, a browser, an app store, games and a file manager. No
-ads, no account, and nothing watching what you watch; the TV itself never needs to be online.
+ads, no account and no usage statistics: the box tells no one what you watch but the Sofa you play it
+from, which keeps your place ([what the box sends, and where](../../docs/privacy.md#on-a-sofa-box)). The TV
+itself never needs to be online, and if yours is, **Settings → Help** shows how to turn off its own tracking.
 
 > **Sofa Box OS, Sofa App, Sofa Server: which is which?** **Sofa Box OS** is the system on the Pi (this
 > guide). It has the **Sofa App** built in, the part you watch with. Your own shows and movies live on a
@@ -26,7 +28,7 @@ on a real box) · [The newest card](https://github.com/krintoxi/sofa/releases/ta
   no browser around them. **Home** brings you back; they keep playing.
 - **USB drives and DVDs:** plug in a drive and its videos, music and pictures are in Files; put a
   DVD or music CD in a USB disc drive and play it from Home.
-- **Browser**, with **Sofa Shield** keeping ads and trackers out of the whole box. On any site, the
+- **Browser**, with **Sofa Shield** keeping known ad and tracker sites out of the whole box. On any site, the
   **Sofa bar** (Menu key, or the mouse at the top edge) has **Add to Home**: the site becomes an app.
 - **Games** that run well on the box, **Files** for downloads and USB drives, and **themes**: Street,
   Terminal, Pirate or Sofa, for the home screen and the boot screen.
@@ -170,7 +172,9 @@ There's nothing to install from an app store: **the box serves the remote itself
   - The phone still needs the TV's code: the QR code's long one (24 characters). Typing the four
     digits works at home only, so nobody can guess at them from the internet.
   - What passes through the service: your phone's taps, typing and the box's answers, on their way.
-    Nothing is kept. To reach the box the service only needs its random id.
+    None of it is kept: the service holds each one in memory until the box answers, and its log has
+    only the time, the address (like `/r/k3x9q2abcd/api/key`), and the size and status of the answer,
+    not what was in it. To reach the box the service only needs its random id.
   - No certificate or name per box, so no Let's Encrypt limits, and it works with routers that block
     names pointing at home addresses ("DNS rebinding protection").
   - **Settings → Remotes and Bluetooth** shows how it's doing, and **Switch off** turns it off (phones
@@ -317,8 +321,9 @@ site becomes an app on Home) and **Close**. Downloads go to **Files → Download
 
 <img src="../../docs/images/box-bar.jpg" alt="The Sofa bar over a page: Home, Back, Reload, the address, Add to Home, Close" width="70%">
 
-**Sofa Shield** (Settings) keeps ads and trackers out of every app and site on the box, with a list
-of known ad and tracking sites that brings itself up to date every week.
+**Sofa Shield** (Settings) keeps known ad and tracker sites out of every app and site on the box: a list
+of them (StevenBlack's hosts list) that brings itself up to date every week. It goes by the sites' names,
+so ads that come from the same site as what you watch still show.
 
 ### Files and games
 
@@ -332,14 +337,20 @@ song in the box's player, or shows a picture; **Menu** renames, moves or deletes
 - **Connect a controller** there (it shows how to put an Xbox, PlayStation, 8BitDo or other controller in
   pairing mode); a USB cable or a controller's own dongle works as soon as it's in. The box knows which
   kind it is and says so.
-- **Get more games**: free, open-source games the box installs when you press OK (a few minutes, from
-  Debian's archive), then plays **without the internet**: SuperTux (a platformer), Flare (a dark-fantasy
+- **Get more games**: free games the box installs when you press OK (a few minutes, from Raspberry Pi
+  OS's archive), then plays **without the internet**: SuperTux (a platformer), Flare (a dark-fantasy
   action RPG), Neverball, Battle for Wesnoth, OpenTTD, two first-person shooters (AssaultCube, and Cube 2:
   Sauerbraten, a 1 GB download), and SuperTuxKart on a Pi 4 or 5. Each says how much room it takes;
   **Remove a game** frees it. On a Pi 3 the shooters draw smaller and the TV scales them up.
-- **Sofa Craft** is on every box from the start: an endless world of blocks to explore, mine, build and
-  craft in, straight into your world with the controller. It's built on Luanti, the open-source block
-  game (with its Minetest Game).
+  - All of them are open source, except the two shooters' maps, sounds and pictures: free to play, but not
+    free software (not for commercial use). So those two are only ever installed on a box when someone
+    asks for them, never put on a card: the card's build stops if one is on it. AssaultCube's maps come
+    from its own releases on GitHub as it installs.
+  - Each game's licence and source: **Settings → This box → About → Credits and licences**.
+- **Sofa Craft, powered by Luanti,** is on every box from the start: an endless world of blocks to
+  explore, mine, build and craft in, straight into your world with the controller. It's Luanti, the
+  open-source block game, with its Minetest Game (their code LGPL, their pictures and sounds mostly
+  CC BY-SA 3.0).
 - **Every game works with the controller from the start**, the same on every controller (the buttons go by
   their place: an Xbox controller's A is a PlayStation controller's ✕). Games made for controllers read it
   themselves; for the others the box works the controller for them: the sticks walk, look or move the
@@ -483,11 +494,19 @@ song in the box's player, or shows a picture; **Menu** renames, moves or deletes
     to someone.
 - **Help → Send a report:** when something doesn't work (a black screen, a controller that won't
   show), it sends the box's checks and what it has logged since it started to the Sofa Box team, and
-  the TV shows the report's number: give it to whoever helps you. No titles, passwords or codes are in
-  it ([what's in it](../../docs/privacy.md#on-a-sofa-box)). A box that restarted by itself: send one
+  the TV shows the report's number: give it to whoever helps you. It leaves out what the box plays, cuts
+  web addresses short and blanks passwords and codes ([what's in it](../../docs/privacy.md#on-a-sofa-box)).
+  A box that restarted by itself: send one
   after; it says how the start before ended, and whether the Pi was short of power (a weak power supply
   is the usual reason). When the TV's Settings are out of reach, the phone remote has it too, under
   its buttons: **Something wrong? Send a report**. On a computer: `sudo sofa-box report` shows it.
+- **Help → Your TV's own tracking:** many smart TVs work out what's on their screen (the box's picture
+  too) and send it to their maker, "ACR". Sofa Box can't switch that off: it's in the TV's own settings.
+  This page says where, brand by brand (Samsung, LG, Vizio, Sony, TCL, Hisense, Roku TV, Google TV and
+  Fire TV sets), from each maker's own help pages, with a code to open them on your phone.
+- **This box → About → Credits and licences:** every part on the card and every game the box can
+  install: what it does, who makes it, its licence and where its source is (a code to open it on your
+  phone). The few parts that aren't free software say so.
 
 <img src="../../docs/images/box-themes.jpg" alt="The four themes: Street, Terminal, Pirate and Sofa" width="100%">
 
@@ -587,7 +606,8 @@ the box first:
   **16:9 Overscan** off (Menu → Picture → Screen Settings); other TVs call it "Just Scan",
   "Screen Fit" or "Full Pixel".
 - **Keep the TV off the internet.** With a Sofa box the TV needs no Wi-Fi or network cable, so it
-  can't report what's on its screen (many smart TVs do, "ACR") or show ads.
+  can't report what's on its screen (many smart TVs do, "ACR") or show ads. If yours stays online,
+  **Settings → Help → Your TV's own tracking** shows where its maker put the switch.
 - **Something not right?** Over SSH: **`sofa-box doctor`**. It checks the power supply, the
   services, the connection to Sofa, the TV, the video chip, sound and the remotes, and says what
   to do about anything wrong. `sofa-box logs` shows what the box has been saying.

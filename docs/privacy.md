@@ -33,8 +33,10 @@ home.
 
 ### On a Sofa Box
 
-The box itself has no account, no ads and no tracking. What it fetches from the internet, besides the
-apps and sites you open on it:
+The box itself has no account, no ads and no usage statistics: nothing on it counts what you do or
+reports it. What you watch goes only to the Sofa you play it from, which keeps your place (the apps you
+open see what you watch in them, as on any TV). What the box fetches from the internet, besides the apps
+and sites you open on it:
 
 | What | Talks to | Switch it off |
 |---|---|---|
@@ -43,9 +45,9 @@ apps and sites you open on it:
 | Sofa Shield's blocklist | GitHub (StevenBlack's list), once a week | Settings → Sofa Shield |
 | Update the box | GitHub, only when you press it | — |
 | App Store icons | each app's own site, once, the first time the store is opened | — |
-| Games from Get more games | Debian's archive (deb.debian.org), only when you install one; the games themselves play offline | Don't install them |
-| Live TV channel lists | iptv-org | Don't open Live TV |
-| The secure (https) phone remote | the Sofa Box service (boxcert.edgeventure.uk): the box keeps a connection open to it, with a random id; your phone's taps and typing pass through it to the box while you use the remote (nothing is kept) | Settings → Remotes and Bluetooth → Switch off |
+| Games from Get more games | Raspberry Pi OS's archives (Debian's and Raspberry Pi's), only when you install one; AssaultCube also gets its maps from its own releases on GitHub as it installs. Once on the box, the games play offline | Don't install them |
+| Live TV | the Sofa it opens: the rows for Live TV above (Sofa on the box starts with Classic Cinema, and only the channel lists you add) | Don't open Live TV |
+| The secure (https) phone remote | the Sofa Box service (boxcert.edgeventure.uk): the box keeps a connection open to it, with a random id; your phone's taps and typing pass through it to the box while you use the remote (they aren't kept: the service's log has the time and address of each request, not what was in it) | Settings → Remotes and Bluetooth → Switch off |
 
 | The weather on Home | MET Norway (api.met.no), every half hour while it's on: where the place is, to about a kilometre (the city of the box's time zone, or the town you picked) | Settings → Weather on Home → Off |
 | Finding a town for the weather | OpenStreetMap (nominatim.openstreetmap.org), only when you look one up in Settings: what you typed | — |
@@ -60,7 +62,8 @@ Bluetooth devices among them); where the player was in a video (not what it was)
 pages open on it and what their video players said; the box's own logs since it last started, and the
 end of the start before (with its warnings); and the Pi's record of its power.
 Before it goes, the box cuts every web address down to its site and first folder, and every file on a
-drive down to the drive, and blanks passwords and secrets: no titles, codes or passwords are in it. The
+drive down to the drive, and blanks passwords and secrets; the player's titles aren't in it at all. (An
+app's own error messages go as the app wrote them, with their addresses cut down.) The
 box keeps a copy (`~/.config/sofa-box/last-report.txt`); the service keeps the newest few hundred
 reports, under the number the TV shows you.
 

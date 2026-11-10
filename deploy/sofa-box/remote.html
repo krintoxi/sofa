@@ -515,7 +515,7 @@
     const m = $("reportMsg");
     if (!reportArmed) {
       reportArmed = true; $("reportBtn").textContent = "Send it";
-      m.textContent = "Sends the Sofa Box team what the box checks and has logged since it started (no titles, passwords or codes). Before restarting it: a restart clears the logs.";
+      m.textContent = "Sends the Sofa Box team what the box checks and has logged since it started (it leaves out what the box plays, and blanks passwords and codes). Before restarting it: a restart clears the logs.";
       return;
     }
     reportArmed = false; $("reportBtn").textContent = "Something wrong? Send a report";

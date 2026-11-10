@@ -142,6 +142,16 @@ echo "Built on: $(basename "${FINAL:-$SRC}"), SHA-256 ${SUM:-not checked} ($BUIL
 # cards of one commit can differ there, and this says how.
 chroot "$ROOT" dpkg-query -W -f='${db:Status-Abbrev} ${binary:Package} ${Version}\n' 2>/dev/null \
   | awk '$1 == "ii" { print "  " $2 " " $3 }' > "$WORK/packages.txt" || true
+# Games whose own data isn't free software ("free": false in deploy/sofa-box/home/credits.json) are only ever
+# installed on a box, when someone asks for one in Games: a card with one of them on it isn't made.
+NONFREE="$(chroot "$ROOT" python3 -c 'import json; print(" ".join(p for g in json.load(open("/usr/local/lib/sofa-box/home/credits.json"))["groups"] for x in g["parts"] if x.get("game") and x.get("free") is False for p in x["packages"]))')"
+[ -n "$NONFREE" ] || { echo "home/credits.json names no games whose data isn't free: is it on the card?"; exit 1; }
+for p in $NONFREE; do
+  if chroot "$ROOT" dpkg-query -W -f='${Status}' "$p" 2>/dev/null | grep -q " installed$"; then
+    echo "$p is on the card: its data isn't free software, so only a box installs it, when someone asks."; exit 1
+  fi
+done
+echo "Not on the card (their data isn't free; a box installs them when asked): $NONFREE" >> "$REPORT"
 cat "$REPORT"
 echo "Packages: $(wc -l < "$WORK/packages.txt" | tr -d ' '), each with its version in the card's report"
 rm -f "$ROOT/usr/sbin/policy-rc.d" "$ROOT/usr/bin/qemu-aarch64-static"

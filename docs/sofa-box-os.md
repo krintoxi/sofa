@@ -108,6 +108,12 @@ Private repos stay private: the box opens these at their addresses; nothing from
    files; the card builds it all (built on GitHub 2026-10-31, report below). Not yet tried on the Pi.
 12. ☐ **Preview:** `tools/sofa-box-preview.py` shows the home screen, store, files and games.
 13. ◐ **Tests and docs:** agent API tests (apps, store, files), README for the box.
+14. ☑ **Credits, licences and the TV's own tracking:** Settings → This box → About → Credits and licences
+   (every part on the card and every game it can install: licence and source, from `home/credits.json`) and
+   Settings → Help → Your TV's own tracking (each TV maker's own steps, from `home/tv-tracking.json`).
+   `tests/test_box_credits.py` checks the credits against install.sh and the games, and that games whose data
+   isn't free (AssaultCube, Sauerbraten) are never installed by the card's build, which also stops if one is
+   on a card.
 
 ## Where it stands (2026-10-31)
 

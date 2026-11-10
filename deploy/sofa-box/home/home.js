@@ -451,7 +451,7 @@
     return `<div class="view-in"><h1 class="page">Games</h1><p class="lede">Play on the TV with a controller. Once a game is on the box, it plays without the internet.</p>
       ${padsCard()}
       <h2 class="row-title">On the box</h2><div class="grid games">${have.map(nativeTile).join("")}${games.games.map(webGameTile).join("")}</div>
-      ${more.length ? `<h2 class="row-title">Get more games <small>free and open source</small></h2><div class="grid games">${more.map(g => getTile(g, job)).join("")}</div>` : ""}
+      ${more.length ? `<h2 class="row-title">Get more games <small>free: each one's licence is in Settings → This box → Credits</small></h2><div class="grid games">${more.map(g => getTile(g, job)).join("")}</div>` : ""}
       ${have.length ? `<h2 class="row-title">Remove a game</h2><div class="choices">${have.map(g => `<button class="mini" data-game-remove="${esc(g.id)}">${esc(g.name)} <small>about ${g.mb} MB</small></button>`).join("")}</div>` : ""}
       ${games.free_mb != null ? `<p class="small">${(games.free_mb / 1024).toFixed(1)} GB free on the box.</p>` : ""}</div>`;
   }
@@ -476,7 +476,7 @@
       <div class="grid">${quick.map(q => `<button class="tile" style="--c:${q[2]}" data-url="${esc(q[1])}"><span class="ic">${esc(q[0][0])}</span><b>${esc(q[0])}</b></button>`).join("")}
         ${web.map(a => appTile(a)).join("")}</div>
       <div class="hint-card">On any site, press <b>Menu</b> (or move the mouse to the top) for the Sofa bar: <b>Home</b>, <b>Back</b>,
-        the address, and <b>Add to Home</b> to make the site an app. Sofa Shield keeps ads and trackers out.</div></div>`;
+        the address, and <b>Add to Home</b> to make the site an app. Sofa Shield keeps known ad and tracker sites out.</div></div>`;
   }
   function go(text) {
     text = (text || "").trim(); if (!text) return;
@@ -658,8 +658,8 @@
         <span class="name">${esc(a.name)}</span><button class="mini" data-move="${esc(a.id)}" data-by="-1"${i ? "" : " disabled"}>←</button>
         <button class="mini" data-move="${esc(a.id)}" data-by="1"${i === data.apps.length - 1 ? " disabled" : ""}>→</button>
         <button class="mini" data-hide="${esc(a.id)}">${a.hidden ? "Show" : "Hide"}</button>${a.kind === "web" ? `<button class="mini" data-remove="${esc(a.id)}">Remove</button>` : ""}</li>`).join("")}</ul></div></section>`;
-    if (setTab === "shield") return head("Sofa Shield", "Keeps ads and trackers out of every app and the browser.") +
-      `<section class="card"><div class="toggle-row"><div><h3>${sh.on ? "On" : "Off"}</h3><p>${sh.on ? (sh.sites || 0).toLocaleString() + " sites kept out." : "Switch it on to keep ads and trackers out."}</p></div>
+    if (setTab === "shield") return head("Sofa Shield", "Keeps known ad and tracker sites out of every app and the browser. It goes by the sites' names, so ads from the same site as what you watch still show.") +
+      `<section class="card"><div class="toggle-row"><div><h3>${sh.on ? "On" : "Off"}</h3><p>${sh.on ? (sh.sites || 0).toLocaleString() + " sites kept out." : "Switch it on to keep known ad and tracker sites out."}</p></div>
         <button class="switch" role="switch" aria-checked="${!!sh.wanted}" data-shield="1" aria-label="Sofa Shield"></button></div></section>`;
     if (setTab === "box") return head("This box", "Its name, its clock, and what it is.") +
       `<section class="card"><h3>Its name</h3><p>On the boot screen, and to phones looking for it.</p>
@@ -669,6 +669,7 @@
       <section class="card"><h3>About</h3><dl class="facts"><dt>Model</dt><dd>${esc(b.model)}</dd><dt>Memory</dt><dd>${b.memory ? Math.round(b.memory / 1048576) + " MB" : "?"}</dd>
         <dt>Picture</dt><dd>${b.board && b.board.tv_height ? "TV at " + b.board.tv_height + "p · " : ""}videos up to ${b.max_height}p${b.max_height >= 2160 ? " (4K)" : ""}</dd>
         <dt>Temperature</dt><dd>${b.temperature != null ? b.temperature + " °C" : "?"}</dd><dt>Software</dt><dd>Sofa Box OS ${esc(b.version)}</dd></dl>
+        <p class="credits-line">Built on Raspberry Pi OS, Chromium, mpv, FFmpeg and more free software, with games like Luanti. <button class="mini" data-go="#/credits">Credits and licences</button></p>
         <div class="choices" style="margin-top:1rem"><button class="btn" data-action="restart">Restart Sofa Box</button><button class="btn" data-action="reboot">Restart the box</button>
         <button class="btn" data-go="#/welcome">Setup steps again</button></div></section>`;
     if (setTab === "software") return head("Software", `This is <b>Sofa Box OS ${esc(b.version)}</b>${softwareIs(b.software || {})}.`) +
@@ -681,8 +682,10 @@
         and it starts at the setup steps (for a new owner, or a fresh start).</p><div class="choices"><button class="btn danger" data-action="factory-reset">Reset to how it came</button></div></section>`;
     return head("Help", "Something not working?") +
       `<section class="card"><p><b>Send a report</b> sends the Sofa Box team what the box checks and what it has logged since it started,
-        so we can see what went wrong. No titles, passwords or codes are in it. Send it before you restart the box: a restart clears the logs. (Your phone's remote has it too.)</p>
-        <div class="choices"><button class="btn primary" data-action="send-report">Send a report</button></div><p class="small" id="reportNo">${lastReport ? "Last report: number <b>" + esc(lastReport) + "</b>." : ""}</p></section>`;
+        so we can see what went wrong. It leaves out what the box plays, cuts web addresses short, and blanks passwords and codes. Send it before you restart the box: a restart clears the logs. (Your phone's remote has it too.)</p>
+        <div class="choices"><button class="btn primary" data-action="send-report">Send a report</button></div><p class="small" id="reportNo">${lastReport ? "Last report: number <b>" + esc(lastReport) + "</b>." : ""}</p></section>
+      <section class="card"><h3>Your TV's own tracking</h3><p>Many smart TVs work out what's on their screen, this box's picture too, and send it to their maker. It's in the TV's own settings: here's where, brand by brand.</p>
+        <div class="choices"><button class="btn" data-go="#/tv-tracking">Turn off your TV's tracking</button></div></section>`;
   }
 
   // ---- Settings → Software: where updates come from (Stable, tried on a real box; or Testing, the newest), and the weekly
@@ -917,14 +920,14 @@
       const what = { ready: `on, through <b>${esc(sec.where || "the Sofa Box service")}</b>: phones open it from anywhere`,
         working: "connecting to the Sofa Box service…", error: "the Sofa Box service can't be reached now; the box keeps trying, and phones at home use plain http:// meanwhile",
         off: "off" }[sec.state] || "";
-      return `<p class="small"><b>Secure phone remote:</b> ${what}. A secure (https) address for the remote, for any phone, at home or away. Your phone's taps and typing pass through the Sofa Box service on their way to the box (nothing's kept), and it still needs the code on the TV.
+      return `<p class="small"><b>Secure phone remote:</b> ${what}. A secure (https) address for the remote, for any phone, at home or away. Your phone's taps and typing pass through the Sofa Box service on their way to the box (what you tap and type isn't kept), and it still needs the code on the TV.
         <button class="mini" data-secure="${sec.state === "off" ? 1 : 0}">${sec.state === "off" ? "Switch on" : "Switch off"}</button></p>`;
     }
     const what = { ready: `on, at <b>${esc(sec.name || "")}</b>`, working: "getting the box its name and certificate…",
       router: "on, but this router won't let the box's name point at it (\"DNS rebinding protection\"), so the remote stays plain http://",
       error: "the certificate service can't be reached now; the box tries again by itself, and the remote stays plain http:// meanwhile",
       off: "off" }[sec.state] || "";
-    return `<p class="small"><b>Secure phone remote:</b> ${what}. It's for phones whose browser only opens secure (https) pages. The box gets its own name and certificate from the Sofa Box certificate service, sending only a random id and its address on this network.
+    return `<p class="small"><b>Secure phone remote:</b> ${what}. It's for phones whose browser only opens secure (https) pages. The box gets its own name and certificate from the Sofa Box certificate service, sending only the random id it was given, its address on this network and the request for its certificate.
       <button class="mini" data-secure="${sec.state === "off" ? 1 : 0}">${sec.state === "off" ? "Switch on" : "Switch off"}</button></p>`;
   }
   let btLooking = 0;
@@ -1076,6 +1079,64 @@
     await api("/box/api/apps/arrange", { hidden: now }); await loadApps(); render(true);
   }
 
+  // ---------------------------------------------------------------- what the box is made of, and the TV's own tracking
+  // Two pages drawn from data files beside this one: Credits and licences (Settings → This box → About; credits.json,
+  // which the tests check against the games and the packages the box installs) and Your TV's own tracking (Settings →
+  // Help; tv-tracking.json, each TV maker's own steps). OK on a line shows the rest, with its page as a code to scan.
+  let credits = null, tvTrack = null;
+  async function pageJson(name) {
+    const r = await fetch("/box/home/" + name + ".json", { cache: "no-cache" });
+    if (!r.ok) throw new Error("That page didn't load. Try again in a moment.");
+    return r.json();
+  }
+  function viewCredits() {
+    if (!credits) {
+      pageJson("credits").then(c => { credits = c; if (location.hash.startsWith("#/credits")) render(true); }).catch(e => toast(e.message));
+      return `<h1 class="page">Credits and licences</h1><p class="lede">Loading…</p>`;
+    }
+    const tags = p => p.game || p.free === false ? `<span class="tags">${p.game ? `<i class="tag">${p.on_card === false ? "Get more games" : "On the box"}</i>` : ""}${
+      p.free === false ? `<i class="tag warn">${p.game ? "Its data isn't free software" : "Not open source"}</i>` : ""}</span>` : "";
+    return `<div class="view-in credits"><h1 class="page">Credits and licences</h1><p class="lede">${esc(credits.about)}</p>
+      ${credits.groups.map(g => `<h2 class="row-title">${esc(g.name)}</h2><div class="credit-list">${g.parts.map((p, i) => `<button class="credit" id="cr-${esc(g.id)}-${i}" data-credit="${esc(g.id)}/${i}">
+          <b>${esc(p.name)}${p.shown_as ? ` <em>${esc(p.shown_as)}</em>` : ""}</b><small>${esc(p.what)}</small><span class="lic">${esc(p.licence)}</span>${tags(p)}</button>`).join("")}</div>`).join("")}
+      <p class="small">${esc(credits.more)}</p></div>`;
+  }
+  function creditSheet(key) {
+    const [gid, i] = String(key).split("/"), g = credits && credits.groups.find(x => x.id === gid), p = g && g.parts[+i];
+    if (!p) return;
+    sheet(`<h3>${esc(p.name)}</h3>${p.shown_as ? `<p class="sheet-note">${esc(p.shown_as)}</p>` : ""}
+      <dl class="facts credit-facts"><dt>On the box</dt><dd>${esc(p.what)}</dd><dt>By</dt><dd>${esc(p.by)}</dd><dt>Licence</dt><dd>${esc(p.licence)}</dd>
+        ${p.note ? `<dt>Good to know</dt><dd>${esc(p.note)}</dd>` : ""}</dl>
+      ${qrRow(p.source, `<b>${p.free === false ? "Where it comes from" : "Its source code"}</b><small class="addr">${esc(p.source.replace(/^https?:\/\//, ""))}</small>
+        <small>Scan it with your phone's camera to open it there.</small>`)}
+      <div class="sheet-row"><button class="btn" data-sheet="close">Close</button></div>`, () => closeSheet());
+  }
+  function viewTvTracking() {
+    if (!tvTrack) {
+      pageJson("tv-tracking").then(t => { tvTrack = t; if (location.hash.startsWith("#/tv-tracking")) render(true); }).catch(e => toast(e.message));
+      return `<h1 class="page">Your TV's own tracking</h1><p class="lede">Loading…</p>`;
+    }
+    const t = tvTrack;
+    return `<div class="view-in tv-track"><h1 class="page">Your TV's own tracking</h1><p class="lede">${esc(t.about)}</p>
+      <div class="grid brands">${t.brands.map(b => `<button class="tile brand" id="tv-${esc(b.id)}" data-tv-brand="${esc(b.id)}"><b>${esc(b.name)}</b><small>${esc(b.kind)}</small></button>`).join("")}</div>
+      <p class="small caveat">${esc(t.caveat)}</p>
+      <section class="card"><h3>${esc(t.offline.title)}</h3><p>${esc(t.offline.text)}</p></section></div>`;
+  }
+  function tvSheet(id) {
+    const b = tvTrack && tvTrack.brands.find(x => x.id === id);
+    if (!b) return;
+    const page = i => { const s = b.sources[i], el = $("#tvPage"); if (!s || !el) return;
+      el.innerHTML = qrRow(s.url, `<b>${esc(s.title)}</b><small>Scan it with your phone's camera to read it there.</small>`);
+      $$(".sheet [data-sheet^='page:']").forEach(x => x.setAttribute("aria-pressed", x.dataset.sheet === "page:" + i)); };
+    sheet(`<h3>${esc(b.name)}</h3><p class="sheet-note">${esc(b.kind)}</p>
+      <ol class="tv-steps">${b.steps.map(s => `<li>${esc(s)}</li>`).join("")}</ol>
+      ${b.note ? `<p class="small">${esc(b.note)}</p>` : ""}<p class="small">${esc(tvTrack.caveat.split(". ")[0])}.</p>
+      <div id="tvPage" class="tv-page"></div>
+      ${b.sources.length > 1 ? `<div class="choices">${b.sources.map((s, i) => `<button class="choice" data-sheet="page:${i}">${esc(s.title)}</button>`).join("")}</div>` : ""}
+      <div class="sheet-row"><button class="btn" data-sheet="close">Close</button></div>`, a => { if (a.startsWith("page:")) page(+a.slice(5)); else closeSheet(); });
+    page(0);
+  }
+
   // ---------------------------------------------------------------- the remote, the keyboard, the mouse
   let cur = null;
   const focusables = () => {
@@ -1149,6 +1210,8 @@
     if (closeSheet()) return;
     if (cur && cur.closest("#setPane")) { focus($(".set-tab[aria-current='true']")); return; }
     if (location.hash.startsWith("#/files") && filesAt.path) { filesAt.path = filesAt.path.split("/").slice(0, -1).join("/"); loadFiles(); return; }
+    if (location.hash.startsWith("#/credits") || location.hash.startsWith("#/tv-tracking")) {      // (back to where it was opened)
+      location.hash = location.hash.startsWith("#/credits") ? "#/settings/box" : "#/settings/help"; return; }
     if (location.hash && location.hash !== "#/") { location.hash = "#/"; return; }
   }
   document.addEventListener("keydown", e => {
@@ -1197,6 +1260,8 @@
       else if (d.sofaHash) open({ id: "sofa", hash: d.sofaHash });
       else if (d.target) await api("/box/api/front", { target: d.target }).catch(() => open({ id: (data.running.find(r => r.target === d.target) || {}).app || "browser" }));
       else if (d.url) open({ url: d.url });
+      else if (d.credit) creditSheet(d.credit);
+      else if (d.tvBrand) tvSheet(d.tvBrand);
       else if (d.game) open({ url: location.origin + "/box/games/" + d.game + "/" });
       else if (d.play) { const g = (games.native || []).find(x => x.id === d.play) || { name: d.play };
         await api("/box/api/games", { action: "play", id: d.play });
@@ -1239,7 +1304,7 @@
         setTimeout(loadThisBox, 1500); }
       else if (d.wxReset) { boxInfo = Object.assign(boxInfo, await api("/box/api/settings", { weather_place: null })); loadWeather(); render(true); }
       else if (d.shield) { const on = t.getAttribute("aria-checked") !== "true"; t.setAttribute("aria-checked", on); boxInfo.shield = await api("/box/api/shield", { on });
-        toast(on ? "Sofa Shield is on: ads and trackers are kept out." : "Sofa Shield is off."); }
+        toast(on ? "Sofa Shield is on: known ad and tracker sites are kept out." : "Sofa Shield is off."); }
       else if (d.autoUpdate) { const on = t.getAttribute("aria-checked") !== "true";
         boxInfo = Object.assign(boxInfo, await api("/box/api/settings", { auto_update: on ? "weekly" : "off" })); refreshPane();
         toast(on ? "The box updates itself once a week, at night, to a new stable version." : "The box updates only when you press Update the box."); }
@@ -1325,10 +1390,12 @@
 
   // ---------------------------------------------------------------- the router
   const TABS = { "": "home", store: "store", games: "games", files: "files", browser: "browser", settings: "settings", welcome: "", sofa: "home", sleep: "" };
+  TABS.credits = TABS["tv-tracking"] = "settings";               // (pages of Settings: Back goes there)
   function render(keep) {
     const name = (location.hash.replace(/^#\/?/, "").split(/[/?]/)[0]) || "";
     const html = name === "store" ? viewStore() : name === "games" ? viewGames() : name === "files" ? viewFiles()
       : name === "browser" ? viewBrowser() : name === "settings" ? viewSettings() : name === "welcome" ? viewWelcome()
+      : name === "credits" ? viewCredits() : name === "tv-tracking" ? viewTvTracking()
       : name === "sofa" ? viewSofa() : name === "sleep" ? viewSleep() : viewHome();
     if (name !== "sleep") document.documentElement.classList.remove("asleep");
     const keepKey = keep && cur && document.contains(cur) ? keyOf(cur) : null;
@@ -1344,6 +1411,7 @@
     hint(name === "files" ? [["OK", "Open or play"], ["Menu", "Rename, move, delete"], ["Back", "Up a folder"]]
       : name === "sofa" ? [["OK", "Use this one"], ["Back", "Home screen"]]
       : name === "browser" ? [["OK", "Go"], ["Menu", "on a site: the Sofa bar"], ["Home", "Back here from any app"]]
+      : TABS[name] === "settings" && name !== "settings" ? [["OK", "More, with a code for your phone"], ["Back", "Settings"]]
       : name === "" ? [["OK", "Open"], ["Menu", "Move, hide or remove an app"], ["Home", "Back here from any app"], ["Type", "to search the web"]]
       : [["OK", "Choose"], ["Back", "Home screen"]]);
   }
