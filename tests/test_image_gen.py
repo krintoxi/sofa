@@ -129,7 +129,8 @@ class Layer(unittest.TestCase):
             self.assertEqual(os.path.getsize(os.path.join(d, name)), 0, name)
 
     def test_hooks_are_executable(self):
-        for hook in ("customize50-sofa-box", "late/customize90-report", "late/preimage90-sofa-box"):
+        for hook in ("customize50-sofa-box", "late/customize90-report", "late/preimage90-sofa-box",
+                     "postimage50-mbr-boot-code"):
             self.assertTrue(os.access(os.path.join(LAYER_D, "hooks", hook), os.X_OK), hook)
 
 
@@ -204,6 +205,30 @@ def fat16(files):
         img[slot:slot + 32] = short + bytes([0x20, case]) + bytes(13) + struct.pack("<HI", cluster, len(body))
         slot += 32
     return bytes(img)
+
+
+class DiskId(unittest.TestCase):
+    """parted (Raspberry Pi OS's first start) gives an MBR with no boot code a new disk id, and the card then can't
+    find its root: the post-image hook puts two bytes of boot code in, and touches nothing else."""
+
+    def test_boot_code_in_and_nothing_else_changed(self):
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp)
+        img = os.path.join(tmp, "card.img")
+        mbr = bytearray(512)
+        struct.pack_into("<I", mbr, 440, 0x549A4867)
+        mbr[446:462] = bytes([0x80, 0, 0, 0, 0x0C]) + bytes(3) + struct.pack("<II", 16384, 1048576)
+        mbr[510:512] = b"\x55\xaa"
+        with open(img, "wb") as f:
+            f.write(bytes(mbr) + bytes(4096))
+        env = dict(os.environ, IGconf_image_name="card", IGconf_image_suffix="img")
+        hook = os.path.join(LAYER_D, "hooks", "postimage50-mbr-boot-code")
+        for _ in range(2):                                      # a second run changes nothing
+            subprocess.run(["bash", hook, tmp], env=env, check=True, stdout=subprocess.PIPE)
+        with open(img, "rb") as f:
+            out = f.read()
+        self.assertEqual(out[:2], b"\xeb\xfe")
+        self.assertEqual(out[2:], bytes(mbr)[2:] + bytes(4096))
 
 
 class CardReader(unittest.TestCase):

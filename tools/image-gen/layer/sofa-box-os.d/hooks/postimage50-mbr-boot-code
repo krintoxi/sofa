@@ -1,0 +1,15 @@
+#!/bin/bash
+# Keep the card's disk id through its first start. Raspberry Pi OS's first start grows the root partition with
+# parted (raspberrypi-sys-mods' resize_early, in the initramfs), and parted treats an MBR whose boot-code area is
+# all zeros, as genimage leaves it, as never set up: it writes its own boot code AND a new random disk id. The
+# kernel command line still says root=PARTUUID=<the old id>, so the initramfs can't find the root and stops in its
+# shell (seen in QEMU, and with Debian Trixie's parted on this card's first sector; today's card, made by
+# parted, keeps its id). Two bytes of boot code (x86 "jump to itself": a Pi never runs it) make parted keep the id.
+set -eu
+for f in "${1}/${IGconf_image_name}"*."${IGconf_image_suffix}"; do
+  [ -f "$f" ] || continue
+  if [ "$(od -An -tx1 -N 2 "$f" | tr -d ' ')" = 0000 ]; then
+    printf '\353\376' | dd of="$f" bs=1 seek=0 count=2 conv=notrunc status=none
+    echo "sofa-box: boot code in the MBR of $(basename "$f") (so parted keeps the disk id at the first start)"
+  fi
+done
