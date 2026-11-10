@@ -22,7 +22,8 @@ A project by [EdgeVenture](https://edgeventure.uk). Source-available; see [Licen
 - **Sofa App:** what you watch with. A web page the server serves, on phones, laptops, a TV's browser; Sofa's own
   app on a Fire TV; a channel on a Roku. It holds no films: it plays yours from a Sofa Server, a friend's share link,
   or the public library someone opened.
-- **Sofa Box OS:** a whole TV box on a Raspberry Pi, in place of a Fire TV. Its own home screen, the Sofa App built
+- **Sofa Box OS:** a whole TV box on a Raspberry Pi (or, new and untested on real machines, an x86-64 PC or a
+  virtual machine), in place of a Fire TV. Its own home screen, the Sofa App built
   in, free Live TV, streaming apps full screen, a browser with ad blocking, games, USB drives and DVDs, and your phone,
   a Fire TV remote, a controller or the TV's own remote to work it. It doesn't need a Sofa Server.
 
@@ -57,12 +58,14 @@ says so: **[What Sofa can do today](docs/capabilities.md).** In short:
 
 ## Status
 
-Sofa 1.5.3 and Sofa Box OS 1.1.58, 2026-11-10. **The Sofa Server and the web app are solid** on a Mac or Linux
-computer, used daily on a 2011 iMac, with nearly 400 automated tests GitHub runs on every change (real ffmpeg, mpv,
+Sofa 1.5.4 and Sofa Box OS 1.1.60, 2026-11-10. **The Sofa Server and the web app are solid** on a Mac or Linux
+computer, used daily on a 2011 iMac, with over 400 automated tests GitHub runs on every change (real ffmpeg, mpv,
 Chrome and Let's Encrypt's test server). **The Sofa Box has run on one Raspberry Pi 3 Model B+**, the owner's, where
 the setup by iPhone and Fire TV remote, the phone remote, Sofa from the iMac, YouTube, an Xbox controller and the
 box's reports have been used for real; the newest card tried there is 1.1.49, so the one TV player, the update
-channels and the speed work of 1.1.53 to 1.1.58 are on the Pi for the first time when the owner tests the next card.
+channels, the speed work and the first-boot fixes of 1.1.53 to 1.1.60 are on the Pi for the first time when the owner
+tests the next card. **On a PC or a virtual machine** (new in 1.1.60) the x86-64 image has booted into the box's home
+screen under UEFI and BIOS on GitHub's own machines, and never yet on a real PC: [Other hardware](docs/hardware.md).
 **A Raspberry Pi 4 or 5 has never run it.** The DRM apps, USB drives, discs and HDMI-CEC are built and tested in
 software and have not been tried on a real box. **The Fire TV app and the Roku channel are built by GitHub and no
 run on a real device is on record; the Mac card writer has never written a real SD card.** No card is marked stable
