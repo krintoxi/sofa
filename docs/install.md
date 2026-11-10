@@ -75,6 +75,15 @@ systemctl --user restart sofa
 The log is `~/Sofa/data/sofa.log` (Mac) or `journalctl --user -u sofa` (Linux). It stays empty
 with **Keep no logs** on ([privacy.md](privacy.md)).
 
+**No systemd user session** (a container, a server you reach over SSH where `systemctl --user` says it can't
+connect to a bus): the installer still writes `~/.config/systemd/user/sofa.service`, then starts Sofa in the
+background for this session instead (log in `~/Sofa/data/sofa.log`). To make it start at boot, either give the
+user a session that stays (`sudo loginctl enable-linger $USER`, then log in again and run
+`systemctl --user enable --now sofa.service`), or install the unit system-wide (`sudo cp ~/.config/systemd/user/sofa.service
+/etc/systemd/system/sofa.service`, add `User=$USER` under `[Service]`, then `sudo systemctl enable --now sofa`).
+This was found by running the one-line install in a clean Debian 13 container on 2026-11-10: Sofa 1.5.4's installer
+stopped at the bus error, and the fix in this version carries on.
+
 Sofa needs no internet to run or to watch: once it's installed (with ffmpeg), every device at
 home can use it with the internet down. Only the install itself, ffmpeg and yt-dlp downloads,
 updates and lookups use the internet.

@@ -31,9 +31,15 @@ case "$(uname)" in
     UNIT="$HOME/.config/systemd/user/sofa.service"
     mkdir -p "$(dirname "$UNIT")"
     sed -e "s|__PYTHON__|$PY|" -e "s|__APP__|$APP|g" "$APP/deploy/linux/sofa.service" > "$UNIT"
-    systemctl --user daemon-reload
-    systemctl --user enable --now sofa.service
-    echo "Installed $UNIT. To keep Sofa running when you're logged out: sudo loginctl enable-linger $USER"
+    if systemctl --user daemon-reload 2>/dev/null && systemctl --user enable --now sofa.service 2>/dev/null; then
+      echo "Installed $UNIT. To keep Sofa running when you're logged out: sudo loginctl enable-linger $USER"
+    else
+      # No user systemd to talk to: a container, or a login without a session bus (no XDG_RUNTIME_DIR).
+      # Start Sofa in the background now, so the install still ends with a Sofa that answers.
+      echo "There's no user systemd session here, so Sofa isn't a service yet: starting it in the background instead."
+      echo "To have it start by itself at boot, see docs/install.md (\"No systemd user session\")."
+      (cd "$APP" && nohup "$PY" sofa.py serve >> "$APP/data/sofa.log" 2>&1 &)
+    fi
     ;;
   *) echo "Unsupported system; run 'python3 sofa.py serve' yourself."; exit 1 ;;
 esac
