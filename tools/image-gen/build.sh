@@ -57,6 +57,7 @@ REPORT="$OUT/$NAME-report.txt"
   echo "Sofa Box OS image-gen prototype: made with Raspberry Pi's rpi-image-gen ($COMMIT), for testing beside"
   echo "today's card. Not a release: the cards on the releases page are still made by tools/build-sofa-box-image.sh."
   cat "$WORK/image-$NAME/report-body.txt" "$WORK/image-$NAME/report-boot.txt"
+  echo "Built on: rpi-image-gen $COMMIT (Debian trixie and archive.raspberrypi.com as on $(date -u +%Y-%m-%d)), not a Raspberry Pi OS Lite image"
   echo "Space: $SPACE"
   cat "$WORK/image-$NAME/wifi-before.txt"
 } > "$REPORT"
@@ -77,5 +78,8 @@ if [ -n "$SBOM" ] && command -v grype >/dev/null; then
     echo "Known vulnerabilities: grype failed" >> "$REPORT"
   fi
 fi
+# Last, as on today's card: every package with its version (the card workflow and a test split the report here)
+PKGS="$WORK/image-$NAME/report-packages.txt"
+{ echo "== Packages on the card ($(wc -l < "$PKGS" | tr -d ' ')), with their versions (dpkg-query -W)"; cat "$PKGS"; } >> "$REPORT"
 cat "$REPORT"
 ls -lh "$OUT"

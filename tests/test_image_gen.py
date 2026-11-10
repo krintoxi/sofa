@@ -89,6 +89,9 @@ class Workflow(unittest.TestCase):
     def test_the_card_and_its_report_say_what_they_are(self):
         self.assertIn('NAME="sofa-box-os-$VER-imagegen"', read(GEN, "build.sh"))
         self.assertIn("image-gen prototype", read(GEN, "build.sh"))
+        # what the release channel reads from a card's report (stable-channel work, PR #36)
+        self.assertIn('echo "Built on: ', read(GEN, "build.sh"))
+        self.assertIn('echo "== Packages on the card (', read(GEN, "build.sh"))
         self.assertIn("image-gen prototype", read(LAYER_D, "hooks", "late", "preimage90-sofa-box"))
 
 
