@@ -353,5 +353,96 @@ class RemoteSpeed(unittest.TestCase):
         self.assertEqual(press.count("self.call("), 1)
 
 
+class WheresYourSofa(unittest.TestCase):
+    """After the setup, Home (not the chooser); Live TV never asks; found Sofas told apart and one each; the one last
+    opened marked; asking each time is a choice on the chooser itself."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.conf = tempfile.mkdtemp()
+        cls.agent = load_agent(cls.conf)
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.conf, ignore_errors=True)
+
+    def setUp(self):
+        a = self.agent
+        self.real = a.info, a.library_of
+        with a._lock:
+            a.found.clear()
+        self.infos = {}
+        a.info = lambda base: self.infos.get(base.rstrip("/"))
+        a.library_of = lambda base: {"movies": 30, "shows": 10} if "10.0.0.11" in base else None
+
+    def tearDown(self):
+        a = self.agent
+        a.info, a.library_of = self.real
+        with a._lock:
+            a.found.clear()
+
+    def test_computer_names(self):
+        a = self.agent
+        self.assertEqual(a.pretty_host("Marielyss-iMac.local."), "Marielyss iMac")
+        self.assertEqual(a.machine_of("Marielyss-iMac.local."), "iMac")
+        self.assertEqual(a.machine_of("icnet2s-MacBook-Neo.local"), "MacBook")
+        self.assertEqual(a.machine_of("DESKTOP-7Q2K1LM"), "Windows PC")
+        self.assertEqual(a.machine_of("diskstation"), "NAS")
+        self.assertIsNone(a.machine_of("living-room"))
+        self.assertIsNone(a.pretty_host(""))
+
+    def test_one_sofa_found_two_ways_is_one(self):
+        a = self.agent
+        self.infos = {"http://10.0.0.11:8090": {"sofa": True, "name": "Sofa", "id": "imac", "version": "1.5.0"},
+                      "http://192.168.64.1:8090": {"sofa": True, "name": "Sofa", "id": "imac"},                 # its other network
+                      "http://10.0.0.125:8771": {"sofa": True, "name": "Sofa"},                                  # too old to say its id
+                      "http://10.0.0.126:8771": {"sofa": True, "name": "Sofa"}}
+        a.add("http://192.168.64.1:8090")                                   # (SSDP first: no computer name)
+        a.add("http://10.0.0.11:8090", "Marielyss-iMac.local.")             # Bonjour: the same Sofa, with its name
+        a.add("http://10.0.0.125:8771", "icnet2s-MacBook-Neo.local.")
+        a.add("http://10.0.0.126:8771", "icnet2s-MacBook-Neo.local.")       # the same computer and port, another address
+        self.assertEqual(len(a.found), 2)
+        imac = next(v for v in a.found.values() if v.get("id") == "imac")
+        self.assertEqual((imac["host"], imac["machine"]), ("Marielyss iMac", "iMac"))   # learnt from the second way
+        listing = a.sofa_listing()
+        hosts = sorted(x["host"] for x in listing["found"])
+        self.assertEqual(hosts, ["Marielyss iMac", "icnet2s MacBook Neo"])
+
+    def test_what_it_holds_and_the_last_opened(self):
+        a = self.agent
+        self.infos = {"http://10.0.0.11:8090": {"sofa": True, "name": "Sofa", "id": "imac"}}
+        a.add("http://10.0.0.11:8090", "Marielyss-iMac.local.")
+        found = a.sofa_listing()["found"][0]
+        self.assertEqual(found["library"], {"movies": 30, "shows": 10})
+        entry = a.servers.add({"id": found["id"], "kind": "sofa", "name": "Sofa", "url": found["url"], "where": "home", "sofa_id": "imac"})
+        listing = a.sofa_listing()
+        added = next(x for x in listing["servers"] if x["id"] == entry["id"])
+        self.assertEqual((added["host"], added["library"]["movies"]), ("Marielyss iMac", 30))   # the added one, told apart too
+        self.assertEqual(listing["found"], [])
+        a.servers.opened(entry["id"])
+        self.assertEqual(a.sofa_listing()["last"], entry["id"])
+        self.assertIn("servers.opened(entry[\"id\"])", read(os.path.join(BOX, "sofa-box-agent.py")))
+
+    def test_live_tv_never_asks(self):
+        src = read(os.path.join(BOX, "sofa-box-agent.py"))
+        self.assertIn('sid = st["default"] or st.get("last") or ("box" if local_sofa.available() else None)', src)
+        js = read(os.path.join(BOX, "home", "home.js"))
+        self.assertIn("if (r.ask && body && body.live)", js)
+
+    def test_after_the_setup_home_and_not_sofa(self):
+        js = read(os.path.join(BOX, "home", "home.js"))
+        done = js[js.index("else if (d.done) {"):js.index("else if (d.server) {")]
+        self.assertIn('location.hash = "#/";', done)
+        self.assertIn("quietUntil = Date.now() + 2000;", done)               # an OK pressed again doesn't open Sofa
+        self.assertIn("if (cur && Date.now() >= quietUntil) cur.click();", js)
+
+    def test_asking_each_time_is_a_choice_on_the_chooser(self):
+        js = read(os.path.join(BOX, "home", "home.js"))
+        chooser = js[js.index("function viewSofa()"):js.index("async function pickServer")]
+        self.assertIn('data-ask="1"', chooser)
+        self.assertIn('data-ask="0"', chooser)
+        self.assertIn("id = st.default || st.last", js)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -331,24 +331,70 @@ def info(base):
         return None
 
 
-def add(base):
+MACHINES = ((r"imac", "iMac"), (r"macbook[-_ ]?air", "MacBook Air"), (r"macbook[-_ ]?pro", "MacBook Pro"), (r"macbook", "MacBook"),
+            (r"mac[-_ ]?mini", "Mac mini"), (r"mac[-_ ]?studio", "Mac Studio"), (r"raspberry|^pi\b|sofabox", "Raspberry Pi"),
+            (r"^(desktop|laptop)-[a-z0-9]+$", "Windows PC"), (r"synology|diskstation|nas\b|qnap|truenas|unraid", "NAS"),
+            (r"ubuntu|debian|fedora|linux", "Linux computer"))
+
+
+def machine_of(host):
+    """What kind of computer a name says it is ("Marielyss-iMac" -> iMac), or None."""
+    h = (host or "").lower()
+    return next((kind for pat, kind in MACHINES if re.search(pat, h)), None)
+
+
+def pretty_host(host):
+    """A computer's network name for people: "Marielyss-iMac.local." -> "Marielyss iMac"."""
+    h = re.sub(r"\.(local|lan|home)\.?$", "", str(host or "").strip().rstrip("."), flags=re.I)
+    return re.sub(r"[-_]+", " ", h).strip()[:40] or None
+
+
+def library_of(base):
+    """How much a Sofa holds (its health check says, at home, with no sign-in): {"movies", "shows"}, or None."""
+    try:
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with opener.open(base.rstrip("/") + "/healthz", timeout=3) as r:
+            lib = json.loads(r.read().decode("utf-8")).get("library") or {}
+        return {k: int(lib[k]) for k in ("movies", "shows") if isinstance(lib.get(k), int)} or None
+    except Exception:
+        return None
+
+
+def add(base, host=None):
+    """A Sofa found at `base` (by Bonjour, with its computer's name, or SSDP, or the one it had). The same Sofa reached
+    at another address (another network on that computer, or found both ways) is one entry: its id says so, or, for a
+    Sofa too old to say, the computer's name and port."""
     base = base.rstrip("/")
     with _lock:
         if base in found:
+            if host and not found[base].get("host"):
+                found[base]["host"] = pretty_host(host)
             return
     j = info(base)
-    if j:
-        with _lock:
-            if not (j.get("id") and any(v.get("id") == j["id"] for v in found.values())):
-                found[base] = {"name": j.get("name") or "Sofa", "id": j.get("id")}
+    if not j:
+        return
+    port = urllib.parse.urlsplit(base).port
+    entry = {"name": j.get("name") or "Sofa", "id": j.get("id"), "version": j.get("version"),
+             "host": pretty_host(host), "library": library_of(base), "port": port}
+    entry["machine"] = machine_of(host)
+    with _lock:
+        same = next((u for u, v in found.items() if (entry["id"] and v.get("id") == entry["id"]) or
+                     (entry["host"] and v.get("host") == entry["host"] and v.get("port") == port)), None)
+        if same:
+            for k in ("host", "machine", "library"):            # (what the other way didn't know)
+                if entry.get(k) and not found[same].get(k):
+                    found[same][k] = entry[k]
+            return
+        found[base] = entry
 
 
 def bonjour():
+    """Sofas announcing themselves at home: [(address, the computer's name)]."""
     try:
         out = subprocess.run(["avahi-browse", "-rtp", "_sofa._tcp"], capture_output=True, text=True, timeout=8).stdout
     except (OSError, subprocess.SubprocessError):
         return []
-    return ["http://%s:%s" % (p[7], p[8]) for p in (line.split(";") for line in out.splitlines())
+    return [("http://%s:%s" % (p[7], p[8]), p[6]) for p in (line.split(";") for line in out.splitlines())
             if len(p) > 8 and p[0] == "=" and p[2] == "IPv4"]
 
 
@@ -395,9 +441,9 @@ def look():
             with _lock:
                 if state["chosen"] is None and last.rstrip("/") in found:     # the Sofa it had: straight away
                     state["chosen"] = last.rstrip("/")
-        if not state["chosen"]:
-            for base in bonjour() + ssdp():
-                add(base)
+        if not state["chosen"] or time.time() < looking["until"]:   # (the chooser open: what's there, by name)
+            for base, host in bonjour() + [(b, None) for b in ssdp()]:
+                add(base, host)
         with _lock:
             if state["chosen"] is None:
                 if last and last.rstrip("/") in found:
@@ -1428,8 +1474,15 @@ def sofa_listing():
     added = {x["url"].rstrip("/") for x in st["servers"]}
     added_ids = {x.get("sofa_id") for x in st["servers"] if x.get("sofa_id")}
     with _lock:
-        home = [{"url": u, "name": v["name"], "kind": "sofa", "where": "home", "id": boxservers.server_id("sofa", u)}
+        home = [{"url": u, "name": v["name"], "kind": "sofa", "where": "home", "id": boxservers.server_id("sofa", u),
+                 "host": v.get("host"), "machine": v.get("machine"), "library": v.get("library")}
                 for u, v in sorted(found.items()) if u.rstrip("/") not in added and v.get("id") not in added_ids]
+        by_id = {v["id"]: v for v in found.values() if v.get("id")}
+        by_url = dict(found)
+    for x in st["servers"]:                                  # the ones added, with what was found about them
+        seen = by_id.get(x.get("sofa_id")) or by_url.get((x.get("url") or "").rstrip("/"))
+        if seen and x.get("where") == "home":
+            x.update({k: seen.get(k) for k in ("host", "machine", "library") if seen.get(k)})
     others = [o for o in others_found["list"] if o["url"].rstrip("/") not in added]
     feat = [f for f in boxservers.featured(CONF_DIR) if f["url"].rstrip("/") not in added]
     return dict(st, found=home, others=others, featured=feat, local=local_sofa.available())
@@ -1460,6 +1513,7 @@ def open_sofa(sid=None, hash_=""):
             if token:
                 browser.set_cookie("box.localhost", "sofa_session", token)
     url = server_page(entry, start=True, hash_=hash_)
+    servers.opened(entry["id"])
     app = "sofa" if entry["kind"] == "sofa" else "srv-" + entry["id"]
     if browser and browser.connected():
         existing = browser.tab_of(app)
@@ -3717,9 +3771,9 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(json.dumps(dict(sofa_listing(), ok=True)))
         if path == "/box/api/sofa/open":
             sid = data.get("id")
-            if data.get("live") and not sid:                 # Live TV: the Sofa it opens with, else Sofa on this box
-                st = servers.state()
-                sid = st["default"] if st["default"] and not st["ask"] else ("box" if local_sofa.available() else None)
+            if data.get("live") and not sid:                 # Live TV: never the chooser (it's the box's own, on Home):
+                st = servers.state()                         # the Sofa it opens with, else the last, else this box's Sofa
+                sid = st["default"] or st.get("last") or ("box" if local_sofa.available() else None)
             return self.send(json.dumps(open_sofa(sid, data.get("hash") or "")))
         if path == "/box/api/sofa/chooser":                 # from Sofa's menu: the box's server chooser, or its Settings
             to = "#/settings" if data.get("to") == "settings" else "#/sofa"

@@ -665,3 +665,10 @@ html.lite .rail { scroll-behavior: smooth; }
 html.lite .wxi.big .sun, html.lite .wx-card, html.lite #opening .op-ic { animation: none; }
 html.lite #opening .op-ic { box-shadow: none; }
 html.lite #opening { transition: none; }
+
+/* the Sofa chooser: which computer each one is, its address small; the one last opened marked; ask or go straight in */
+.srv small.addr { font-size: .7rem; opacity: .7; letter-spacing: .02em; }
+.srv .pill.last { background: transparent; color: var(--mist); border: 1px solid var(--line); }
+.ask-row { display: flex; align-items: center; gap: 1rem; margin-top: 1rem; padding: .8rem 1rem; border-radius: var(--r); background: var(--tile); }
+.ask-row > span { font-weight: 700; white-space: nowrap; }
+.ask-row .choices { margin: 0; }

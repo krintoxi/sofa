@@ -119,6 +119,7 @@
     try {
       const r = await api("/box/api/sofa/open", body || {});
       clearTimeout(slow);
+      if (r.ask && body && body.live) { opening(null); toast("Live TV isn't on this box yet: Settings → Software, Update the box."); return; }
       if (r.ask) { opening(null); location.hash = "#/sofa" + (body && body.hash ? "?then=" + encodeURIComponent(body.hash) : ""); return; }
       if (r.url) { opening(null); window.open(r.url, "_blank"); } else setTimeout(() => opening(null), 800);
     } catch (e) { clearTimeout(slow); opening(null); toast(e.message); }
@@ -297,17 +298,36 @@
     try { servers = await api(scan ? "/box/api/sofa/scan" : "/box/api/sofa", scan ? {} : undefined); } catch (e) { servers = { error: e.message }; }
     if (location.hash.startsWith("#/sofa") || location.hash.startsWith("#/settings")) render(true);
   }
-  const serverBtn = (x, extra) => `<button class="srv" data-server="${esc(x.id)}"${extra || ""}><span class="srv-ic k-${esc(x.kind)}">${x.where === "box" ? icon("#i-box") : x.kind === "sofa" ? icon("#i-sofa") : esc(KIND[x.kind][0])}</span>
-    <span><b>${esc(x.name)}</b><small>${esc(x.about || (KIND[x.kind] + " · " + (x.url || "").replace(/^https?:\/\//, "")))}</small></span>${servers && servers.default === x.id && !servers.ask ? `<i class="pill">Opens</i>` : ""}</button>`;
+  // A Sofa at home, told apart from another: its computer (the name it goes by at home, and what kind it is), what
+  // it holds, and its address in small type. (Two found Sofas used to show as "Sofa" and an address each.)
+  const plural = (n, one, many) => n + " " + (n === 1 ? one : many);
+  function serverWho(x) {
+    const lib = x.library || {}, holds = [lib.movies != null ? plural(lib.movies, "film", "films") : "", lib.shows != null ? plural(lib.shows, "show", "shows") : ""].filter(Boolean).join(" · ");
+    const title = x.host ? (x.name && x.name !== "Sofa" ? x.name + " · " + x.host : x.host) : x.name;
+    const kind = x.machine && !(x.host || "").toLowerCase().includes(x.machine.toLowerCase()) ? x.machine : "";
+    return { title, about: [kind, holds].filter(Boolean).join(" · "), where: (x.url || "").replace(/^https?:\/\//, "") };
+  }
+  const serverBtn = (x, extra) => {
+    const w = x.kind === "sofa" && x.where === "home" ? serverWho(x) : null;
+    const pills = (servers && servers.default === x.id && !servers.ask ? `<i class="pill">Opens</i>` : "")
+      + (servers && servers.last === x.id && !(servers.default === x.id && !servers.ask) ? `<i class="pill last">Last opened</i>` : "");
+    return `<button class="srv" data-server="${esc(x.id)}"${extra || ""}><span class="srv-ic k-${esc(x.kind)}">${x.where === "box" ? icon("#i-box") : x.kind === "sofa" ? icon("#i-sofa") : esc(KIND[x.kind][0])}</span>
+    <span><b>${esc(w ? w.title : x.name)}</b><small>${esc(w ? (w.about || "Sofa") : x.about || (KIND[x.kind] + " · " + (x.url || "").replace(/^https?:\/\//, "")))}</small>${w && w.where ? `<small class="addr">${esc(w.where)}</small>` : ""}</span>${pills}</button>`;
+  };
+  let sofaLookAgain = 0;
   function viewSofa() {
+    if (servers && !servers.error && Date.now() > sofaLookAgain) {     // (computers' names come in a few seconds later)
+      sofaLookAgain = Date.now() + 60000; setTimeout(() => { if (location.hash.startsWith("#/sofa")) loadServers(); }, 5000);
+    }
     if (!servers) { loadServers(true); return `<div class="chooser view-in"><h1 class="page">Where's your Sofa?</h1><p class="lede">Looking around your home…</p></div>`; }
     if (servers.error) return `<h1 class="page">Sofa</h1><p class="lede">${esc(servers.error)}</p>`;
     const added = servers.servers || [];
     const home = added.filter(x => x.kind === "sofa" && x.where === "home"), net = added.filter(x => x.kind === "sofa" && x.where === "internet");
     const other = added.filter(x => x.kind !== "sofa");
     const card = (cls, ic, title, about, body) => `<section class="choose-card ${cls}"><div class="cc-head"><span class="cc-ic">${icon(ic)}</span><div><h3>${title}</h3><p>${about}</p></div></div><div class="cc-body">${body}</div></section>`;
-    const foundBtn = x => `<button class="srv found" data-add-found="${esc(x.url)}" data-kind="${esc(x.kind)}"><span class="srv-ic k-${esc(x.kind)}">${x.kind === "sofa" ? icon("#i-sofa") : esc(KIND[x.kind][0])}</span>
-      <span><b>${esc(x.name)}</b><small>Found: ${esc(x.url.replace(/^https?:\/\//, ""))}</small></span><i class="pill new">New</i></button>`;
+    const foundBtn = x => { const w = x.kind === "sofa" ? serverWho(x) : null;
+      return `<button class="srv found" data-add-found="${esc(x.url)}" data-kind="${esc(x.kind)}"><span class="srv-ic k-${esc(x.kind)}">${x.kind === "sofa" ? icon("#i-sofa") : esc(KIND[x.kind][0])}</span>
+      <span><b>${esc(w ? w.title : x.name)}</b><small>${esc(w ? (w.about || "Found at home") : "Found")}</small><small class="addr">${esc(x.url.replace(/^https?:\/\//, ""))}</small></span><i class="pill new">New</i></button>`; };
     return `<div class="chooser view-in"><h1 class="page">Where's your Sofa?</h1>
       <p class="lede">Pick where Sofa plays from. Add as many as you like and switch any time: Sofa remembers you on each one.</p>
       <div class="choose-grid">
@@ -323,7 +343,9 @@
         ${card("c-other", "#i-server", "Other servers", "Jellyfin, Emby or Plex, if that's what you use.",
           other.map(x => serverBtn(x)).join("") + (servers.others || []).map(foundBtn).join("") +
           `<button class="mini" data-type-server="other">Type its address</button><button class="mini" data-scan="1">Look again</button>`)}
-      </div></div>`;
+      </div>
+      <div class="ask-row"><span>When Sofa opens</span><div class="choices"><button class="choice" data-ask="1" aria-pressed="${!!servers.ask}">Ask me each time</button>
+        <button class="choice" data-ask="0" aria-pressed="${!servers.ask}">Go straight to ${servers.default ? "the one it opens with" : "the one I pick"}</button></div></div></div>`;
   }
   async function pickServer(id) {
     const x = (servers.servers || []).find(s => s.id === id) || { id, name: "Sofa on this box" };
@@ -768,7 +790,7 @@
   // ---- the first start: how you'll work it, the internet, Bluetooth, the box itself, your apps; then Home.
   // A new box may have nothing to press with: the phone remote (a QR code), a Bluetooth remote held in
   // pairing mode (it pairs by itself) or a keyboard's dongle all work from the first screen.
-  let step = 0, savedStep = 0, picks = null, setup = null, setupTimer = 0, wifiPick = null;
+  let step = 0, savedStep = 0, picks = null, setup = null, setupTimer = 0, wifiPick = null, quietUntil = 0;
   const STEPS = ["Hello", "Internet", "Your box", "Apps"];       // (more Bluetooth devices: Settings, or Games, later)
   // The setup's apps: the few most people use, all on one screen (the App Store has the rest)
   const POPULAR = ["netflix", "youtube-tv", "prime-video", "disney-plus", "max", "hulu", "apple-tv", "spotify"];
@@ -1117,7 +1139,7 @@
     }
     if (k === "ArrowLeft" || k === "ArrowRight") { if (typing && field.value && field.dataset.typed) return; e.preventDefault(); move(k === "ArrowRight" ? 1 : -1, 0); }
     else if (k === "ArrowUp" || k === "ArrowDown") { e.preventDefault(); move(0, k === "ArrowDown" ? 1 : -1); }
-    else if (k === "Enter" && !typing) { e.preventDefault(); if (cur) cur.click(); }
+    else if (k === "Enter" && !typing) { e.preventDefault(); if (cur && Date.now() >= quietUntil) cur.click(); }
     else if (k === "Enter" && typing) { e.preventDefault();
       if (!field.dataset.typed && !field.closest(".sheet") && field.type !== "file") typeSheet(field); else submit(field); }
     else if ((k === "Escape" || k === "BrowserBack" || (k === "Backspace" && !typing))) { e.preventDefault(); back(); }
@@ -1228,6 +1250,7 @@
         for (const id of add) await api("/box/api/apps/install", { store_id: id }).catch(() => {});
         await api("/box/api/settings", { welcomed: true }); data.welcomed = true; storeData = null; await loadApps();
         document.documentElement.classList.remove("setup"); location.hash = "#/";
+        quietUntil = Date.now() + 2000;                       // (an OK pressed again while it was adding apps doesn't open Sofa)
         toast((add.length ? (add.length === 1 ? "Your app is on Home. " : add.length + " apps are on Home. ") : "All set. ")
           + "Speakers, headphones or more controllers: Settings → Remotes and Bluetooth, or Games.");
       }
@@ -1239,8 +1262,10 @@
       else if (d.typeServer) askText(d.typeServer === "internet" ? "Paste the link (a share link works)" : d.typeServer === "other" ? "Its address (Jellyfin, Emby or Plex)" : "Its address: 192.168.1.20",
         "", async v => { try { const x = await addServer({ url: v }); closeSheet(); if (x) await pickServer(x.id); } catch (ex) { toast(ex.message); } });
       else if (d.scan) { servers = null; render(true); await loadServers(true); }
-      else if (d.ask !== undefined) { const st = servers || {}; await api("/box/api/sofa/choose", { id: st.default, remember: d.ask === "0" && !!st.default });
-        if (d.ask === "0" && !st.default) toast("Pick the one Sofa opens with: Opens with this."); servers = null; await loadServers(); await loadApps(); }
+      else if (d.ask !== undefined) { const st = servers || {}, id = st.default || st.last;
+        await api("/box/api/sofa/choose", { id, remember: d.ask === "0" && !!id });
+        if (d.ask === "0") toast(id ? "Sofa goes straight in from now on. (Change it here, or in Settings → Sofa.)" : "Pick one: Sofa goes straight to it from then on.");
+        servers = null; await loadServers(); await loadApps(); }
       else if (d.default) { await api("/box/api/sofa/choose", { id: d.default, remember: true }); servers = null; await loadServers(); await loadApps(); toast("Sofa opens with that one now."); }
       else if (d.forgetServer) confirmSheet("Remove this server from the box?", async () => { closeSheet(); await api("/box/api/sofa/remove", { id: d.forgetServer }); servers = null; await loadServers(); await loadApps(); });
       else if (d.disc) { if (d.disc === "data") { location.hash = "#/files"; } else { await api("/box/api/disc/play", {}); } }

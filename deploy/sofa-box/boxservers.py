@@ -235,7 +235,16 @@ class Servers:
         default = data.get("default")
         if default and not any(s["id"] == default for s in servers):
             default = None
-        return {"servers": servers, "default": default, "ask": bool(data.get("ask", True)) or not default}
+        last = data.get("last") if any(s["id"] == data.get("last") for s in servers) else None
+        return {"servers": servers, "default": default, "ask": bool(data.get("ask", True)) or not default, "last": last}
+
+    def opened(self, sid):
+        """The one Sofa last opened from (the chooser marks it)."""
+        with self.lock:
+            data = self._load()
+            if data.get("last") != sid:
+                data["last"] = sid
+                self._save(data)
 
     def get(self, sid):
         return next((s for s in self.state()["servers"] if s["id"] == sid), None)

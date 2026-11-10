@@ -22,6 +22,14 @@ GitHub builds the card and makes the release by itself.
   itself. Each card now names it afresh. Its sign-in page is up before a phone can join, and the Wi-Fi has no IPv6.
   When a phone has joined, the TV shows the code to scan at once instead of waiting for a sheet that might not come.
 - **The setup opens by itself on a new box,** even when the box's helper is slow to answer at the first start.
+- **After the setup, Home.** Finishing landed on Home with Open Sofa in focus, so the OK pressed again while the apps
+  went on opened Sofa, and "Where's your Sofa?". OK rests for two seconds after Finish. "Where's your Sofa?" comes up
+  only when Sofa itself is opened; Live TV, on Home, never asks: it plays from the Sofa that opens, else the last one,
+  else Sofa on the box.
+- **"Where's your Sofa?" says which Sofa is which.** Each one found at home shows its computer's name and kind (from
+  what it announces on the network: "Marielyss iMac"), how many films and shows it has, and its address in small
+  type; the same Sofa found at two addresses is one entry, and the one Sofa last opened is marked. At its foot:
+  ask each time Sofa opens, or go straight in (also in Settings → Sofa).
 - **Typing the Wi-Fi password on the TV.** A bigger field you can read from the sofa, with the letters showing (Hide
   hides them) and how many there are; even rows of bigger keys; Join at the end of the keyboard's last row, a press
   or two from any key. Back closes it (at the setup, Back did nothing there).
