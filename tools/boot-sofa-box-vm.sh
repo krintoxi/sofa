@@ -49,7 +49,7 @@ install -m 755 "$HERE/sofa-box-vm-proof.sh" "$M/usr/local/lib/sofa-box/vm-proof.
 cat > "$M/etc/systemd/system/sofa-box-vm-proof.service" <<'EOF'
 [Unit]
 Description=Sofa box: the VM boot test (only on a test copy of the image)
-After=sofa-box-agent.service sofa-box.service multi-user.target
+After=sofa-box-agent.service sofa-box.service network-online.target
 
 [Service]
 Type=oneshot

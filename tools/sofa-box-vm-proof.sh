@@ -6,7 +6,7 @@ AGENT=http://127.0.0.1:8091
 SOFA=http://127.0.0.1:8095
 say() { echo "SOFA-BOX-PROOF $*"; }
 wait_for() {                 # wait_for NAME SECONDS COMMAND…: the command succeeds within the time, or not
-  name="$1" secs="$2"; shift 2
+  secs="$2"; shift 2                                 # ($1 names the check, for the reader)
   end=$(( $(date +%s) + secs ))
   while :; do
     if "$@" >/dev/null 2>&1; then return 0; fi
@@ -14,7 +14,7 @@ wait_for() {                 # wait_for NAME SECONDS COMMAND…: the command suc
     sleep 2
   done
 }
-say "start: $(. /etc/os-release; echo "$PRETTY_NAME"), kernel $(uname -r), $(awk '/MemTotal/ {printf "%d MB", $2/1024}' /proc/meminfo), first boot: $(systemd-detect-virt 2>/dev/null || echo ?)"
+say "start: $(. /etc/os-release; echo "$PRETTY_NAME"), kernel $(uname -r), $(awk '/MemTotal/ {printf "%d MB", $2/1024}' /proc/meminfo), virtualised: $(systemd-detect-virt 2>/dev/null || echo ?)"
 
 # 1. the box's helper (the home screen, apps, player, settings) on its port
 if wait_for agent 240 curl -fs -m 3 "$AGENT/box/state"; then
