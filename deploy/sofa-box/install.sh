@@ -437,7 +437,8 @@ fi
 
 if [ -n "$OTHER" ]; then
   say "Not a Raspberry Pi: what Debian has in place of the Pi's parts"
-  sh "$LIB/other-hardware.sh" ${IMAGE:+--image} || echo "   (some of it couldn't be set up; sofa-box doctor says what's there)"
+  SOFA_BOX_USER="$WHO" SOFA_BOX_HOME="$HOMEDIR" sh "$LIB/other-hardware.sh" ${IMAGE:+--image} \
+    || echo "   (some of it couldn't be set up; sofa-box doctor says what's there)"
 fi
 
 # tty1 is the TV's screen, and Sofa's: no login there. (systemd's own presets turn one on at a card's first start, and

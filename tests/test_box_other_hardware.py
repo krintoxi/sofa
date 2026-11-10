@@ -76,7 +76,7 @@ class TellingAPiFromTheRest(unittest.TestCase):
         install = read("deploy", "sofa-box", "install.sh")
         self.assertEqual(install.count('if [ -n "$OTHER" ]; then'), 1)
         block = install.split('if [ -n "$OTHER" ]; then', 1)[1].split("\nfi\n", 1)[0]
-        self.assertIn('sh "$LIB/other-hardware.sh" ${IMAGE:+--image}', block)
+        self.assertIn('SOFA_BOX_USER="$WHO" SOFA_BOX_HOME="$HOMEDIR" sh "$LIB/other-hardware.sh" ${IMAGE:+--image}', block)
         code = "\n".join(l for l in install.replace(block, "").splitlines() if not l.lstrip().startswith("#"))
         self.assertNotIn("other-hardware.sh", code)
         self.assertNotIn("apt-get", block)                                     # (the packages live in the sibling script)
@@ -105,6 +105,13 @@ class DebiansParts(unittest.TestCase):
         self.assertIn('for p in "$@"; do apt-get install', self.script)             # one at a time
         self.assertNotIn("libwidevinecdm0", self.script)
         self.assertNotIn("raspberrypi", self.script.lower().replace("not a raspberry pi", "").replace("raspberry pi", ""))
+
+    def test_chromiums_crash_folder(self):
+        """Debian 13's Chromium 156 dies at its start without ~/.config/chromium/Crash Reports (seen in the VM with strace):
+        the folder is made for the box's user, and only there."""
+        self.assertIn('"$HOMEDIR/.config/chromium/Crash Reports"', self.script)
+        self.assertIn("install -d -o \"$WHO\"", self.script)
+        self.assertNotIn("Crash Reports", read("deploy", "sofa-box", "sofa-box"))          # (the Pi's session as it was)
 
     def test_cec_only_through_an_adapter(self):
         self.assertIn("ConditionPathExistsGlob=/dev/cec*", self.script)

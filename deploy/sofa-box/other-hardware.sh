@@ -23,7 +23,16 @@ export DEBIAN_FRONTEND=noninteractive
 ARCH="$(dpkg --print-architecture 2>/dev/null || uname -m)"
 try() { for p in "$@"; do apt-get install -y --no-install-recommends "$p" >/dev/null 2>&1 || echo "   (no package $p here)"; done; }
 
+WHO="${SOFA_BOX_USER:-}"; HOMEDIR="${SOFA_BOX_HOME:-}"
+[ -n "$WHO" ] && [ -z "$HOMEDIR" ] && HOMEDIR="$(getent passwd "$WHO" | cut -d: -f6)"
 echo "   (not a Raspberry Pi: a PC, a virtual machine or another board; $ARCH)"
+# Debian 13's Chromium (156) dies at its start when the box's user has no ~/.config/chromium/Crash Reports yet: it
+# starts its crash handler with no database folder, the handler quits, and Chromium stops on a check with no
+# message (found with strace in the VM: access("…/Crash Reports") = ENOENT, the handler's exit, then SIGTRAP).
+# The folder, empty, is all it wants; crash reports are never sent anywhere (the browser's rules say so).
+if [ -n "$WHO" ] && [ -n "$HOMEDIR" ]; then
+  install -d -o "$WHO" -g "$(id -gn "$WHO")" "$HOMEDIR/.config/chromium/Crash Reports"
+fi
 echo "   Video decoding (VA-API) for mpv and Chromium"
 try vainfo libva-drm2 libva-wayland2 mesa-va-drivers                # AMD (and Intel through Mesa where it applies)
 case "$ARCH" in
