@@ -73,12 +73,13 @@ without one), and you don't need a remote: your phone works it.
 
 <img src="docs/images/box-home.jpg" alt="The Sofa Box home screen: the time and a hello, Open Sofa and Live TV, the weather, and a Watch row" width="100%">
 
-1. Download **`sofa-box-stable.img.xz`** from the [stable card](https://github.com/krintoxi/sofa/releases/tag/sofa-box-stable)
-   (under **Assets**): the newest version tried on a real box. (The [newest card](https://github.com/krintoxi/sofa/releases/tag/sofa-box),
-   `sofa-box.img.xz`, is the testing one: made again with every change, before anyone has tried it.)
-2. Write it to a microSD card with **Raspberry Pi Imager** (raspberrypi.com/software):
-   **Choose Device** → your Pi, **Choose OS → Use custom** → the file, then your card. When it asks
-   about settings, **No** is fine.
+1. Download the **[Sofa Box list](https://github.com/krintoxi/sofa/releases/download/sofa-box/sofa-box.rpi-imager-manifest)**
+   (`sofa-box.rpi-imager-manifest`) and double-click it: **Raspberry Pi Imager** 2.0 or newer
+   (raspberrypi.com/software) opens with Sofa Box OS in it.
+2. Choose your Pi, then the top **Sofa Box OS** (the stable version, tried on a real box, once one is
+   marked), then your microSD card, and write it. Imager checks the card against the one GitHub built.
+   (Or download **`sofa-box-stable.img.xz`** from the [stable card](https://github.com/krintoxi/sofa/releases/tag/sofa-box-stable)
+   and use **Choose OS → Use custom**.) [More](deploy/sofa-box/README.md#setting-it-up-the-ready-made-card-easiest)
 3. Put the card in the Pi, plug HDMI into the TV, then the power. The setup shows a **QR code**: scan
    it with your phone, and the phone is the remote. A Fire TV remote pairs too (hold **Home** for 10 seconds).
    - **No network cable?** The box makes its own Wi-Fi and shows **two** QR codes: scan the first to

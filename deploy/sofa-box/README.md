@@ -54,21 +54,29 @@ on a real box) · [The newest card](https://github.com/krintoxi/sofa/releases/ta
 
 ## Setting it up: the ready-made card (easiest)
 
-1. Download **`sofa-box-stable.img.xz`** from the
-   [stable card](https://github.com/krintoxi/sofa/releases/tag/sofa-box-stable), under **Assets**: the
-   newest version that has been tried on a real box. Or take **`sofa-box.img.xz`** from the
-   [newest card](https://github.com/krintoxi/sofa/releases/tag/sofa-box), the testing one: GitHub makes it
-   again every time the box changes, before anyone has tried it. Each version also has a release of its
-   own that stays, "Sofa Box OS 1.1.1" and so on ([every version](https://github.com/krintoxi/sofa/releases?q=box-os));
-   the one marked "(stable)" is the stable card ([Stable and testing](#stable-and-testing)).
-2. Install **Raspberry Pi Imager** (raspberrypi.com/software) on your computer and open it.
-   Choose your Pi, then **Choose OS → Use custom** and pick the file, then your card.
-3. The box needs no **OS customisation**: a network cable needs nothing, and the box's setup joins your
-   Wi-Fi itself. Imager 2 doesn't offer it for a card picked with **Use custom**. An older Imager (1.8 or
-   1.9) asks, and since Sofa Box OS 1.1.56 its settings are all fine: a user name and password (for SSH),
-   your Wi-Fi (the box joins it by itself), SSH, the time zone and the keyboard. The box still starts
-   into its own setup on the TV.
-4. Write it, put the card in the Pi, plug in HDMI (and the network cable), then power.
+1. Install **Raspberry Pi Imager** 2.0 or newer (raspberrypi.com/software) on your computer.
+2. Open the **Sofa Box list** in Imager. It puts Sofa Box OS in Imager by name, and Imager checks every
+   byte it writes against the card GitHub built. Either way works, on a Mac or on Windows:
+   - Download **[`sofa-box.rpi-imager-manifest`](https://github.com/krintoxi/sofa/releases/download/sofa-box/sofa-box.rpi-imager-manifest)**
+     (it's also under **Assets** on the [newest card](https://github.com/krintoxi/sofa/releases/tag/sofa-box))
+     and double-click it: Imager opens with the list. If something else opens it, right-click it, then
+     **Open With** → **Raspberry Pi Imager**.
+   - Or in Imager, press **App Options** (bottom left) → **Content Repository** → **Edit** → **Use custom
+     URL**, paste this address, then press **Apply & Restart**:
+     `https://github.com/krintoxi/sofa/releases/download/sofa-box/sofa-box.rpi-imager-manifest`
+
+   While the list is open, Imager's title bar says **Using data from …**. The next time Imager starts,
+   it shows Raspberry Pi's own list again.
+3. Choose your Pi (**Raspberry Pi 5**, **4** or **3**), then **Sofa Box OS**, then your microSD card, and
+   write it.
+   - The top one is the version to keep. Once a version is marked stable (tried on a real box,
+     [Stable and testing](#stable-and-testing)) it's that one, "**(stable)**"; until then, the newest.
+   - A newer version that hasn't been tried on a real box yet says **(testing)**, and so does a
+     **newest build (testing)**, which has every change since the last version number, for trying fixes
+     early. **Sofa Box OS: earlier versions** holds the five before.
+   - Imager doesn't offer its settings (user name, Wi-Fi, SSH) for this card. The box needs none: a
+     network cable needs nothing, and the box's setup joins your Wi-Fi itself.
+4. Put the card in the Pi, plug in HDMI (and the network cable), then power.
 5. The TV shows the Sofa Box boot screen, then the **setup** (see below). The first start takes a
    few minutes.
 6. **Open Sofa** from Home. The first time it asks where from (see below); after that it opens
@@ -77,6 +85,24 @@ on a real box) · [The newest card](https://github.com/krintoxi/sofa/releases/ta
    picture, then **Pair a TV**, and type the code (or scan the QR). Sofa on the box signs itself in.
 
 From then on the box starts on its home screen whenever it's switched on.
+
+**Without the list** (a card you've already downloaded, say, or an Imager older than 2.0):
+
+- Download **`sofa-box-stable.img.xz`** from the
+  [stable card](https://github.com/krintoxi/sofa/releases/tag/sofa-box-stable), under **Assets**: the
+  newest version that has been tried on a real box. Or take **`sofa-box.img.xz`** from the
+  [newest card](https://github.com/krintoxi/sofa/releases/tag/sofa-box), the testing one: GitHub makes it
+  again every time the box changes, before anyone has tried it. Each version also has a release of its
+  own that stays, "Sofa Box OS 1.1.1" and so on ([every version](https://github.com/krintoxi/sofa/releases?q=box-os));
+  the one marked "(stable)" is the stable card ([Stable and testing](#stable-and-testing)).
+- In Imager, choose your Pi, then **Choose OS → Use custom** and pick the file, then your card.
+- Imager 2 offers no **OS customisation** for a card picked this way. An older Imager (1.8 or 1.9) asks,
+  and since Sofa Box OS 1.1.56 its settings are all fine: a user name and password (for SSH), your Wi-Fi
+  (the box joins it by itself), SSH, the time zone and the keyboard. The box still starts into its own
+  setup on the TV.
+
+Why the list offers none of Imager's settings, and what it would take to offer them:
+[Raspberry Pi Imager and the card](../../docs/raspberry-pi-imager.md).
 
 ### The setup (the first start)
 
@@ -131,8 +157,9 @@ Sofa Box service first, and **Settings → Remotes and Bluetooth** shows how tha
 **The setup says it couldn't make its own Wi-Fi?** Plug a network cable from your router into the box:
 the code to scan shows within seconds. Or plug in a USB keyboard, press **Start** and choose your Wi-Fi
 on the TV. (Raspberry Pi Imager 1.9 and older can put your Wi-Fi on the card too: **Edit settings →
-Configure wireless LAN**, with your **Wireless LAN country**. Imager 2 doesn't offer it for a card
-picked with **Use custom**. Before Sofa Box OS 1.0.1 the setup showed a spinner for ever in this case.)
+Configure wireless LAN**, with your **Wireless LAN country**. Imager 2 doesn't offer it for this card,
+from the list or with **Use custom**. Before Sofa Box OS 1.0.1 the setup showed a spinner for ever in
+this case.)
 
 Later on, if the router is off for a while (a power cut, a restart), a box that knows your Wi-Fi waits
 for it to come back. Only after three minutes with no network does it make its own Wi-Fi again (handy
@@ -645,7 +672,8 @@ sudo tools/build-sofa-box-image.sh out --sofa http://192.168.1.20:8090
 
 `--sofa` builds your Sofa's address in (optional: the box finds Sofa by itself). On a computer that
 isn't Arm it needs `qemu-user-static`. The card has Raspberry Pi OS's own `pi` user for SSH (no
-password until Raspberry Pi Imager's settings give it a name and password) and `sofabox`, which runs
+password until Raspberry Pi Imager 1.8 or 1.9's settings give it a name and password: Imager 2 offers
+none for this card, see [Raspberry Pi Imager and the card](../../docs/raspberry-pi-imager.md)) and `sofabox`, which runs
 Sofa on the TV. Each build writes a report of what's on the card next to it, ending with every
 package on the card and its exact version.
 

@@ -1,0 +1,78 @@
+name: Sofa Box list for Raspberry Pi Imager
+
+# Sofa Box OS's own list for Raspberry Pi Imager 2.0 or newer, beside the newest card on the "sofa-box" release,
+# at an address that never changes:
+#   https://github.com/krintoxi/sofa/releases/download/sofa-box/sofa-box.rpi-imager-manifest
+# Double-clicked, or given to Imager under App Options → Content Repository, it shows Sofa Box OS by name for the
+# Pi 3, 4 and 5, and Imager checks every byte it writes against the card GitHub built. How owners use it:
+# deploy/sofa-box/README.md. Why it offers none of Imager's settings: docs/raspberry-pi-imager.md.
+#
+# - Made again after every card the card workflow (sofa-box-image.yml) builds on main or for a release made by
+#   hand, after the stable workflow (sofa-box-stable.yml) marks a version, when this workflow or its tool changes
+#   on main, every Monday, and by hand (Actions → this workflow → Run workflow). Always from the releases as they
+#   are, so a run that missed one is put right by the next.
+# - tools/sofa-box-imager-list.py lists the stable version on top (or the newest while none is marked), a newer
+#   version and the newest build marked "testing", and the five versions before. Imager needs each card's unpacked size and SHA-256:
+#   each card is unpacked once ever, and sofa-box.imager-cache.json beside the list keeps what came out.
+# - It never touches the cards, their checksums or the release notes: those stay the card workflow's.
+on:
+  workflow_run:                             # a new card, or another version marked stable (sofa-box-stable.yml)
+    workflows: ["Sofa box card", "Sofa box stable card"]
+    types: [completed]
+  push:                                     # the list's own tools changed on main (and so the merge that adds it)
+    branches: [main]
+    paths:
+      - "tools/sofa-box-imager-list.py"
+      - ".github/workflows/sofa-box-imager-list.yml"
+  schedule:
+    - cron: "41 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sofa-box-imager-list
+  cancel-in-progress: false
+
+jobs:
+  list:
+    # After a card built on main or for a release made by hand, whether or not that run finished well (it may
+    # have changed the newest card before it stopped). Not after a branch's test card: that is never published.
+    if: >-
+      github.event_name != 'workflow_run' ||
+      github.event.workflow_run.head_branch == 'main' ||
+      github.event.workflow_run.event == 'release'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Make the list
+        run: |
+          mkdir -p pub cur
+          # what's there now: the list (left alone if nothing changed) and the sums worked out before
+          gh release download sofa-box --repo "$GITHUB_REPOSITORY" -D cur \
+            -p sofa-box.rpi-imager-manifest -p sofa-box.imager-cache.json || echo "(no list there yet)"
+          if [ -f cur/sofa-box.imager-cache.json ]; then cp cur/sofa-box.imager-cache.json pub/; else echo '{}' > pub/sofa-box.imager-cache.json; fi
+          python3 tools/sofa-box-imager-list.py build --repo "$GITHUB_REPOSITORY" \
+            --cache pub/sofa-box.imager-cache.json --out pub/sofa-box.rpi-imager-manifest
+      - name: Check it against Raspberry Pi Imager's own schema (Imager 2.0.12)
+        run: |
+          curl -fsSL -o schema.json https://raw.githubusercontent.com/raspberrypi/rpi-imager/84b03d96cd4c390ebe475a4b5db5735e5535e9a6/doc/json-schema/os-list-schema.json
+          echo "c3e323aa297e9ef3f386f522abb4497db5eb9a1ca5f7f3c7a3b1f9a75862ac85  schema.json" | sha256sum -c -
+          uv run --no-project --with jsonschema==4.23.0 python tools/sofa-box-imager-list.py check \
+            pub/sofa-box.rpi-imager-manifest --schema schema.json
+      - name: Put it beside the newest card
+        run: |
+          if cmp -s pub/sofa-box.rpi-imager-manifest cur/sofa-box.rpi-imager-manifest \
+             && cmp -s pub/sofa-box.imager-cache.json cur/sofa-box.imager-cache.json; then
+            echo "The list hasn't changed."
+          else
+            gh release upload sofa-box --repo "$GITHUB_REPOSITORY" --clobber pub/sofa-box.rpi-imager-manifest pub/sofa-box.imager-cache.json
+          fi
+          { echo '### Sofa Box OS in Raspberry Pi Imager'
+            echo "https://github.com/$GITHUB_REPOSITORY/releases/download/sofa-box/sofa-box.rpi-imager-manifest"
+            echo '```json'; cat pub/sofa-box.rpi-imager-manifest; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
