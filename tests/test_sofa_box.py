@@ -376,18 +376,50 @@ class Agent(unittest.TestCase):
         self.assertTrue(fetched[0]["fetched"].startswith(self.sofa))             # straight to Sofa, not through the box
 
     def test_a_slow_start_says_so(self):
-        """Resuming a video Sofa converts first can take a while: mpv's screen says it's resuming, from where, and
-        that Sofa is getting it ready, and says nothing more once the picture moves (no blank black screen)."""
+        """Resuming a video Sofa converts first can take a while: the player screen (sofa-player.lua) shows its start
+        card from mpv's first moment (what it is and from where, written for it before mpv starts), and the card goes
+        once the picture moves. The page hears that too: its own start card, behind mpv, goes. Never mpv's own corner
+        text (it sat in the part of the picture a TV crops)."""
         n = json.loads(self.get("/box/native/events"))["n"]
         self.post("/box/native/play", {"item": "m:heat:1995", "url": self.base + "/media/m%3Aheat%3A1995/file?fake_delay=4",
-                                       "start": 0, "offset": 600, "duration": 7200, "title": "Heat"})
+                                       "start": 0, "offset": 600, "duration": 7200, "title": "Heat", "h24": True,
+                                       "markers": [{"kind": "intro", "start": 610, "end": 650}, "not a marker"]})
         self.wait_for(lambda st: st.get("t", 0) >= 601, 20)
         time.sleep(1.5)
-        said = [c["command"][1] for c in map(json.loads, read(self.log).splitlines()) if c.get("command", [""])[0] == "show-text"]
-        self.assertIn("Resuming Heat at 10:00…", said)
-        self.assertEqual(said[-1], "")                                            # cleared once it plays
+        log = [json.loads(line) for line in read(self.log).splitlines()]
+        args = [x for x in log if x.get("started")][-1]["args"]
+        with open(next(a for a in args if a.startswith("--script-opts=")).split("sofa_player-info=", 1)[1]) as f:
+            info = json.load(f)
+        self.assertEqual((info["title"], info["kind"], info["at"], info["offset"], info["h24"]), ("Heat", "resume", 600, 600, True))
+        self.assertEqual(info["markers"], [{"kind": "intro", "start": 610, "end": 650}])
+        info_file = next(a for a in args if a.startswith("--script-opts=")).split("sofa_player-info=", 1)[1]
+        osd = [json.loads(c["command"][3]) for c in log if c.get("command", [""])[:3] == ["script-message-to", "sofa_player", "sofa"]]
+        self.assertIn({"card": False}, osd)                                       # gone once it plays
+        self.assertFalse([c for c in log if c.get("command", [""])[0] == "show-text"])
+        news = json.loads(self.get("/box/native/events?since=%d" % n))["news"]
+        self.assertTrue(any((x.get("playing") or {}).get("item") == "m:heat:1995" for x in news))
         self.post("/box/native/key?k=back", {})
         self.ended("m:heat:1995", n)
+        self.assertFalse(os.path.exists(info_file))                              # (gone with its mpv: it names the title)
+
+    def test_back_on_the_player_screen(self):
+        """Back is the player screen's own key now (sofa-player.lua stops mpv at once, with 10): the box takes it as
+        Back, as before: the place saved, not the end of the video, not a player that failed (no "couldn't play")."""
+        n = json.loads(self.get("/box/native/events"))["n"]
+        self.post("/box/native/play", {"item": "m:heat:1995", "url": self.base + "/media/m%3Aheat%3A1995/file",
+                                       "start": 50, "offset": 0, "duration": 100, "title": "Heat"})
+        self.wait_for(lambda st: st.get("t", 0) >= 51)
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        s.connect(os.path.join(tempfile.gettempdir(), "sofa-mpv-%d.sock" % self.proc.pid))
+        s.sendall(b'{"command": ["quit", "10"]}\n')
+        s.recv(1000)
+        s.close()
+        done = self.ended("m:heat:1995", n)
+        self.assertFalse(done[0]["ended"])
+        self.assertFalse(done[0].get("failed"))
+        self.assertGreaterEqual(done[0]["t"], 50)
+        news = json.loads(self.get("/box/native/events?since=%d" % n))["news"]
+        self.assertFalse([x for x in news if "toast" in x])                       # (not "That video couldn't play")
 
     def test_a_player_that_cant_start_hands_back_to_the_page(self):
         n = json.loads(self.get("/box/native/events"))["n"]
@@ -2294,11 +2326,15 @@ class BoxNetwork(unittest.TestCase):
     def test_what_a_slow_start_says(self):
         p = self.agent.Player()
         p.payload = {"title": "The Expanse", "offset": 3725, "start": 0, "url": "http://sofa/media/hls/0123/index.m3u8"}
-        self.assertEqual(p.starting_text(1), "Resuming The Expanse at 1:02:05…")
-        self.assertIn("Sofa is getting it ready for the box from where you left off", p.starting_text(4))
-        self.assertIn("Back stops it", p.starting_text(30))
+        self.assertEqual(p.starting_note(1), "")                                 # (the card says Resuming, from 1:02:05)
+        self.assertIn("Sofa is getting it ready for the box from where you left off", p.starting_note(4))
+        self.assertIn("Back stops it", p.starting_note(30))
         p.payload = {"title": "A private title", "adult": True, "start": 0, "url": "http://sofa/media/x/file"}
-        self.assertEqual(p.starting_text(5), "Starting…")                       # no adult titles on the screen
+        self.assertEqual(p.starting_note(5), "")
+        with open(p.write_info(p.payload)) as f:                                 # no adult titles on the screen
+            info = json.load(f)
+        os.remove(p.info_path)
+        self.assertEqual((info["title"], info["sub"], info["kind"]), ("Playing", "", "start"))
 
     def test_the_first_start_says_so(self):
         """A new card's first start (slow, maybe with a restart): its boot screen says to wait, that start only."""
@@ -2504,8 +2540,8 @@ class LiveBanner(unittest.TestCase):
         p.payload = payload
         p.command = lambda *cmd: said.append(cmd)
         p.banner(at)
-        self.assertEqual((said[0][0], said[0][2]), ("show-text", 5000))
-        return said[0][1]
+        self.assertEqual(said[0][:3], ("script-message-to", "sofa_player", "sofa"))   # (the player screen draws it)
+        return json.loads(said[0][3])["banner"]
 
     def test_smoothness(self):
         """The box measures how quickly its pages answer the remote, says so in a report, and on a board with the full
@@ -2550,19 +2586,22 @@ class LiveBanner(unittest.TestCase):
         try:
             p.menu_toggle()
             self.assertIn(("enable-section", "sofa-menu", "exclusive"), said)
-            text = said[-1][1]
+            menu = lambda: json.loads(said[-1][3])["menu"]                     # (the player screen draws it)
+            text = json.dumps(menu(), ensure_ascii=False)
             for word in ("Options", "Subtitles", "Off", "Sound", "Speed", "Volume", "40%", "Close"):
                 self.assertIn(word, text)
+            self.assertEqual([r["label"] for r in menu()["rows"] if r["on"]], ["Subtitles"])
             p.menu_key("right")                                            # Subtitles: Off -> English
             self.assertIn(("set_property", "sid", 1), said)
             p.menu_key("right")
             self.assertIn(("set_property", "sid", 2), said)
-            self.assertIn("Signs (forced)", said[-1][1])
+            self.assertIn("Signs (forced)", said[-1][3])
             p.menu_key("down")                                             # Sound: English -> Spanish
             p.menu_key("ok")
             self.assertIn(("set_property", "aid", 2), said)
             p.menu_key("back")
             self.assertIn(("disable-section", "sofa-menu"), said)
+            self.assertEqual(json.loads(said[-1][3]), {"menu": False})
             self.assertIsNone(p.menu)
             p.menu_key("ok")                                               # (closed: nothing)
         finally:
@@ -2571,15 +2610,222 @@ class LiveBanner(unittest.TestCase):
     def test_the_banner(self):
         progs = [{"title": "Kids' WB {Feb 10, 2001}", "year": 2001, "ad": False}, {"title": "Ad", "ad": True},
                  {"title": "Fox Box", "year": 2002, "ad": False}]
-        text = self.banner({"live": True, "title": "00s Saturday Mornings", "number": 4, "programs": progs}, 0)
-        self.assertTrue(text.startswith("${osd-ass-cc/0}"))
-        self.assertIn("4  {\\c&HFFFFFF&}00s Saturday Mornings", text)
-        self.assertIn("Kids' WB (Feb 10, 2001) (2001)", text)             # (ASS's braces out of the title)
-        self.assertIn("Next: Fox Box (2002)", text)
-        text = self.banner({"live": True, "title": "00s Saturday Mornings", "number": 4, "programs": progs}, 1)
-        self.assertIn("Commercials, then Fox Box (2002)", text)
-        text = self.banner({"live": True, "title": "A free channel", "programs": []}, 0)
-        self.assertNotIn("Next", text)
+        b = self.banner({"live": True, "title": "00s Saturday Mornings", "number": 4, "programs": progs}, 0)
+        self.assertEqual((b["number"], b["name"]), ("4", "00s Saturday Mornings"))
+        self.assertEqual(b["now"], "Kids' WB {Feb 10, 2001} (2001)")      # (as it is: the screen keeps braces as text)
+        self.assertEqual(b["next"], "Fox Box (2002)")
+        b = self.banner({"live": True, "title": "00s Saturday Mornings", "number": 4, "programs": progs}, 1)
+        self.assertEqual(b["sub"], "Commercials, then Fox Box (2002)")
+        b = self.banner({"live": True, "title": "A free channel", "programs": []}, 0)
+        self.assertNotIn("next", b)
+
+
+class PlayerScreen(unittest.TestCase):
+    """The box's player screen: mpv draws the TV's own (deploy/sofa-box/sofa-player.lua) in place of its desktop controls,
+    which came up whenever the pointer moved and stayed while it sat on them (the box parks it in the corner, on the
+    bar); everything inside the TV's safe area; Sofa's converted video from its first segment."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.conf = tempfile.mkdtemp()
+        old = {k: os.environ.get(k) for k in ("SOFA_BOX_CONF", "SOFA_BOX_DEVTOOLS", "SOFA_BOX_CAPTIVE_PORT", "SOFA_BOX_MPV")}
+        os.environ.update(SOFA_BOX_CONF=cls.conf, SOFA_BOX_DEVTOOLS="0", SOFA_BOX_CAPTIVE_PORT="0",
+                          SOFA_BOX_MPV=os.path.join(HERE, "tools", "fake_mpv.py"))
+        try:
+            cls.agent = load("sofa-box-agent")
+        finally:
+            for k, v in old.items():
+                os.environ.pop(k) if v is None else os.environ.__setitem__(k, v)
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.conf, ignore_errors=True)
+
+    def args(self, payload):
+        from unittest import mock
+        p = self.agent.Player()
+        p.sock_path, p.base = os.path.join(self.conf, "x.sock"), "http://sofa"
+        with mock.patch.dict(os.environ, {"SOFA_BOX_MPV": os.path.join(HERE, "tools", "fake_mpv.py")}):
+            args = p._args(payload)
+        os.remove(p.info_path)
+        return args
+
+    def test_mpv_gets_the_tv_screen(self):
+        args = self.args({"url": "http://sofa/media/m%3Aheat%3A1995/file", "title": "Heat"})
+        for want in ("--osc=no", "--input-cursor=no", "--cursor-autohide=always", "--osd-bar=no", "--osd-on-seek=no",
+                     "--hr-seek=no", "--force-media-title=Heat"):
+            self.assertIn(want, args)
+        self.assertIn("--script=" + os.path.join(os.path.abspath(BOX), "sofa-player.lua"), args)
+        self.assertTrue(any(a.startswith("--osd-fonts-dir=") for a in args))     # (Sofa's typefaces)
+        self.assertFalse([a for a in args if "live_start_index" in a])
+        hls = self.args({"url": "http://sofa/media/hls/0123/index.m3u8", "title": "Heat", "offset": 600})
+        self.assertIn("--demuxer-lavf-o-append=live_start_index=0", hls)        # from its first segment, not near its end
+        live = self.args({"url": "http://sofa/live/abc/index.m3u8", "title": "News", "live": True})
+        self.assertFalse([a for a in live if "live_start_index" in a])          # (live TV: from now, as before)
+        private = self.args({"url": "http://sofa/media/x/file", "title": "A private title", "adult": True})
+        self.assertIn("--force-media-title=Sofa", private)
+        self.assertFalse([a for a in private if "private" in a])
+
+    def test_the_keys_reach_the_screen(self):
+        """Every key mpv-input.conf gives the player screen is one the screen has (a typo there is a dead button), and
+        the remote's OK, arrows and Back are the screen's (answered inside mpv, not by a curl to the agent)."""
+        with open(os.path.join(BOX, "mpv-input.conf"), encoding="utf-8") as f:
+            conf = f.read()
+        with open(os.path.join(BOX, "sofa-player.lua"), encoding="utf-8") as f:
+            lua = f.read()
+        used = set(re.findall(r"script-binding sofa_player/(\w+)", conf))
+        have = set(re.findall(r'mp\.add_key_binding\(nil, "(\w+)"', lua))
+        self.assertTrue(used)
+        self.assertEqual(sorted(used - have), [])
+        for key in ("ENTER", "ESC", "BS", "LEFT", "RIGHT", "UP", "DOWN", "PLAYPAUSE"):
+            self.assertRegex(conf, r"(?m)^%s\s+script-binding sofa_player/" % key)
+        live = self.agent.live_input_conf()                                      # Live TV: up and down change channel
+        with open(live, encoding="utf-8") as f:
+            self.assertRegex(f.read(), r"(?m)^UP\s+run .*k=chup")
+
+    def test_the_phone_works_the_same_player(self):
+        """The phone remote's keys during a video are the player screen's own, as the TV's remote presses them (OK skips
+        an intro or pauses, skips add up, up and down show where it is); with the options menu open, the menu's; on Live
+        TV, up and down change the channel. (Up and down used to go to the page behind the video.)"""
+        a, did = self.agent, []
+
+        class Proc:
+            def poll(self):
+                return None
+
+        class Player:
+            proc, payload, menu = Proc(), {"title": "Heat"}, None
+            command = lambda self, *c: did.append(c)
+            stop = lambda self, **k: did.append(("stop", k.get("reason")))
+            zap = lambda self, step: did.append(("zap", step))
+            menu_key = lambda self, k: did.append(("menu", k))
+            menu_toggle = lambda self: did.append(("menu-toggle",))
+        real, a.player = a.player, Player()
+        try:
+            phone = a.PhoneRemote()
+            for k in ("ok", "right", "left", "up", "play", "back", "menu"):
+                phone.key(k)
+            self.assertEqual(did, [("script-binding", "sofa_player/ok"), ("script-binding", "sofa_player/on30"),
+                                   ("script-binding", "sofa_player/back10"), ("script-binding", "sofa_player/show"),
+                                   ("script-binding", "sofa_player/toggle"), ("stop", "back"), ("menu-toggle",)])
+            del did[:]
+            a.player.payload = {"live": True}
+            phone.key("up")
+            phone.key("down")
+            self.assertEqual(did, [("zap", -1), ("zap", 1)])
+            del did[:]
+            a.player.menu = {"items": []}
+            phone.key("down")
+            phone.key("menu")
+            self.assertEqual(did, [("menu", "down"), ("menu", "back")])
+        finally:
+            a.player = real
+
+    @unittest.skipUnless(shutil.which("mpv") and media.tool("ffmpeg"), "needs mpv and ffmpeg")
+    def test_in_mpv_itself(self):
+        """The screen in mpv itself: the start card from the first moment, then the panel; OK pauses; three rights
+        quickly are one skip of 1:30 (the line moves at once); Skip intro, and OK skips it; a message; every word
+        inside the TV's safe area (5% in from the edges of 1920x1080); Back stops mpv with 10."""
+        d = tempfile.mkdtemp()
+        try:
+            video = os.path.join(d, "clock.mp4")
+            subprocess.run([media.tool("ffmpeg"), "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc=size=320x180:rate=25",
+                            "-t", "200", "-c:v", "libx264", "-preset", "ultrafast", "-g", "25", video], check=True)
+            info = os.path.join(d, "info.json")
+            with open(info, "w") as f:
+                json.dump({"title": "Clock", "sub": "2020", "kind": "resume", "at": 3, "offset": 0, "duration": 200,
+                           "markers": [{"kind": "intro", "start": 100, "end": 150}], "accent": "FF2E88"}, f)
+            seen = os.path.join(d, "seen.jsonl")
+            os.makedirs(os.path.join(d, "s"))
+            with open(os.path.join(d, "s", "sofa-player.lua"), "w") as f:    # (the same name: the same bindings)
+                f.write(SCREEN_SPY % {"seen": json.dumps(seen), "real": json.dumps(os.path.join(os.path.abspath(BOX), "sofa-player.lua"))})
+            sock = os.path.join(d, "mpv.sock")
+            proc = subprocess.Popen(["mpv", "--no-config", "--vo=null", "--ao=null", "--idle=no", "--input-ipc-server=" + sock,
+                                     "--input-conf=" + os.path.join(BOX, "mpv-input.conf"), "--osc=no", "--hr-seek=no",
+                                     "--script=" + os.path.join(d, "s", "sofa-player.lua"), "--script-opts=sofa_player-info=" + info,
+                                     "--start=3", "--pause", video], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+            try:
+                def mpv(*cmd):
+                    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                    s.settimeout(10)
+                    s.connect(sock)
+                    s.sendall((json.dumps({"command": list(cmd)}) + "\n").encode())
+                    buf = b""
+                    while b"\n" not in buf:
+                        buf += s.recv(65536)
+                    s.close()
+                    return json.loads(buf.split(b"\n")[0]).get("data")
+
+                def drawn():
+                    with open(seen, encoding="utf-8") as f:
+                        return [json.loads(line) for line in f]
+
+                def until(check, secs=15):
+                    end = time.time() + secs
+                    while time.time() < end:
+                        try:
+                            if check():
+                                return True
+                        except (OSError, ValueError):
+                            pass
+                        time.sleep(0.1)
+                    self.fail("never got there")
+
+                until(lambda: os.path.exists(seen) and drawn())
+                self.assertIn("RESUMING", drawn()[0])                            # (paused at its start: the card)
+                self.assertIn("Clock", drawn()[0])
+                mpv("set_property", "pause", False)
+                until(lambda: "RESUMING" not in drawn()[-1] and "2020" in drawn()[-1])   # moving: the panel
+                mpv("keypress", "ENTER")
+                until(lambda: mpv("get_property", "pause") is True)
+                mpv("keypress", "ENTER")
+                until(lambda: mpv("get_property", "pause") is False)
+                t0 = mpv("get_property", "time-pos")
+                for _ in range(3):
+                    mpv("keypress", "RIGHT")
+                until(lambda: any("+1:30" in x for x in drawn()), 3)             # the line moved at once
+                until(lambda: (mpv("get_property", "time-pos") or 0) >= t0 + 85)        # and the picture followed
+                mpv("seek", 110, "absolute")
+                until(lambda: "Skip intro" in drawn()[-1])
+                mpv("keypress", "ENTER")
+                until(lambda: (mpv("get_property", "time-pos") or 0) >= 149)
+                mpv("script-message-to", "sofa_player", "sofa", json.dumps({"toast": "Videos come as 720p from now on."}))
+                until(lambda: "Videos come as 720p" in drawn()[-1])
+                for data in drawn():
+                    for an, x, y in re.findall(r"\\an(\d)\\pos\(([-\d.]+),([-\d.]+)\)\\fn", data):
+                        self.assertTrue(96 <= float(x) <= 1824 and 54 <= float(y) <= 1026, (an, x, y, data[:300]))
+                mpv("keypress", "ESC")
+                self.assertEqual(proc.wait(10), 10)
+                self.assertNotIn(b"[sofa_player] Lua error", proc.stderr.read())
+            finally:
+                if proc.poll() is None:
+                    proc.kill()
+                proc.wait(10)
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
+
+# The player screen with a spy on what it draws: mpv loads this (named sofa-player.lua, so it's "sofa_player" with
+# its key bindings), and it runs the real one, writing each overlay it shows to a file, one JSON line each.
+SCREEN_SPY = """local real = mp.create_osd_overlay
+local seen = %(seen)s
+mp.create_osd_overlay = function(...)
+    local o = real(...)
+    local mt = getmetatable(o)        -- (on the overlays' shared methods: mpv sends every field of the overlay itself)
+    if not rawget(mt, "spied") then
+        local update = mt.update
+        mt.update = function(self)
+            local f = io.open(seen, "a")
+            f:write(require("mp.utils").format_json(self.data), "\\n")
+            f:close()
+            return update(self)
+        end
+        rawset(mt, "spied", true)
+    end
+    return o
+end
+dofile(%(real)s)
+"""
 
 
 class ThisBoxDefaults(unittest.TestCase):

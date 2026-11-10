@@ -1467,6 +1467,23 @@ html.box::-webkit-scrollbar, html.box body::-webkit-scrollbar { display: none; }
 .box .cast-btn { display: none; }
 .box #view, .box #foot { margin-left: 96px; }
 .box .hero { margin-top: 0; }
+/* The box's start card: from the press until the box's player (mpv) is on screen. The same card as the player's own
+   (deploy/sofa-box/sofa-player.lua, drawn at 1920x1080), at the same places, so nothing moves when mpv comes over it. */
+.box-card { position: fixed; inset: 0; z-index: 200; background: #000; color: #fff; font-family: "Instrument Sans", system-ui, sans-serif; }
+.box-card[hidden] { display: none; }
+.box-card > div { position: absolute; left: 8.333vw; line-height: 1.2; white-space: nowrap; }
+.box-card .bc-label { top: 40.19vh; font-size: 2.78vh; font-weight: 600; letter-spacing: .56vh; color: var(--amber); }
+.box-card .bc-title { top: 43.7vh; font: 700 8.52vh/1.2 "Bricolage Grotesque", "Instrument Sans", system-ui, sans-serif;
+  max-width: 83vw; overflow: hidden; text-overflow: ellipsis; }
+.box-card .bc-sub { top: 54.81vh; font-size: 3.7vh; color: #C4C4CE; }
+.box-card .bc-at { top: 62.31vh; font-size: 3.15vh; }
+.box-card .bc-at i { font-style: normal; color: var(--amber); }
+.box-card .bc-note { top: 67.78vh; font-size: 2.96vh; color: #C4C4CE; white-space: normal; max-width: 70vw; }
+.box-card.no-sub .bc-at { top: 56.94vh; }
+.box-card.no-sub .bc-note { top: 62.41vh; }
+.box-card.failed .bc-note { top: 62.31vh; font-size: 3.4vh; color: #fff; }
+.box-card.failed.no-sub .bc-note { top: 56.94vh; }
+.box-card .bc-hint { left: auto; right: 5vw; top: auto; bottom: 5vh; font-size: 2.59vh; color: #C4C4CE; }
 .chan-more { height: 1px; }
 
 /* Live TV's guide: the archive channels by the clock (app.js, drawGuide). Flat on purpose: a Pi 3 draws it. */

@@ -6,6 +6,19 @@ has its own numbers and list: [deploy/sofa-box/CHANGES.md](deploy/sofa-box/CHANG
 A change to Sofa's code (`sofa/`, `client/`, `sofa.py`) gets a new version: raise `__version__`, add a section
 here, then `python3 tools/sofa-version.py` (a test checks it was done).
 
+## 1.5.1 (2026-11-10)
+
+- **On a Sofa box, every video plays in the box's player, and the TV answers at once.**
+  - Pressing Play or Resume shows the box player's start card straight away (the title, where it resumes from),
+    in the same place as the player's own, so nothing else shows before the picture.
+  - When the box's player can't open a video, the card says why. The page's own player no longer stands in on a
+    box: it's a desktop player near the screen's edges, played by the browser instead of the box's player.
+  - Asking the box to play no longer freezes the page (it was a request that waited for mpv to start).
+  - `#/play/<id>` plays a title at once over its own page: the box's Home uses it for Resume, and Back from that
+    video goes back to the box's Home.
+- **Previews** (a few seconds of a title you stop on) have a switch in Look and feel. On a Raspberry Pi 3 box they
+  start off, like the trailers and the banner: each is a video the browser plays and draws into the page itself.
+
 ## 1.5.0 (2026-11-08)
 
 - **Retro TV's decades are off unless you turn them on.**

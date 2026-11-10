@@ -37,7 +37,8 @@ cage (one full-screen window)
      ├─ Sofa        http://127.0.0.1:8091/?tv=1           Sofa's TV pages (the box's player for video)
      ├─ apps        https://music.edgeventure.uk, YouTube (TV user agent), Pandora…  a tab each
      └─ browser     any site, with the Sofa bar (address, back, Add to Home)
- mpv               videos from Sofa and from Files, on top of everything
+ mpv               every video (Sofa's, Live TV, Files, discs), on top of everything, with the box's
+                   player screen (sofa-player.lua) in place of mpv's own controls
 sofa-box-agent.py (127.0.0.1:8091) + boxos.py: the home screen, apps.json, the store, icons, files,
   Sofa Shield, and the DevTools connection (a small WebSocket client, standard library only).
 ```
@@ -52,6 +53,11 @@ sofa-box-agent.py (127.0.0.1:8091) + boxos.py: the home screen, apps.json, the s
   Home, Back, Reload, the address (in the browser), Add to Home, Close.
 - **Home key:** in every tab (added script), on the remote (CEC Root Menu → Home), on controllers
   (Xbox/PS button), and over mpv (its key map). All go to `POST /box/api/home`.
+- **The player screen:** mpv draws the box's own (`sofa-player.lua`): the start card, a panel with the time line,
+  Skip intro, messages, Live TV's banner, the options menu, in Sofa's typefaces and 5% in from every edge (TVs crop
+  them). mpv runs with no OSC and no pointer (`--osc=no --input-cursor=no`): its desktop bar used to come up whenever
+  the pointer moved and stay, the pointer being parked on it. OK, the arrows and Back are answered inside mpv; Home,
+  Menu and the channel keys go to the agent. The agent sends the rest with `script-message-to sofa_player sofa <json>`.
 - **Memory:** at most 4 app tabs stay open; opening a fifth closes the one used longest ago that
   isn't playing sound.
 - **Ad blocking ("Sofa Shield"):** a hosts blocklist for the whole box, refreshed weekly through a

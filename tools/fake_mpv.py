@@ -31,7 +31,7 @@ def main(argv):
                 f.write(json.dumps(kw) + "\n")
     # "fake_delay=N" in the address: it takes N seconds to start (a video Sofa converts first), as mpv would
     delay = float((urllib.parse.parse_qs(urllib.parse.urlsplit(url or "").query).get("fake_delay") or ["0"])[0])
-    st = {"pos": float(opts.get("start") or 0), "at": time.time() + delay, "paused": False, "quit": False}
+    st = {"pos": float(opts.get("start") or 0), "at": time.time() + delay, "paused": False, "quit": False, "code": 0}
     duration = float(os.environ.get("FAKE_MPV_DURATION") or 0) or None
 
     def ready():
@@ -97,8 +97,9 @@ def main(argv):
                         st["paused"] = not st["paused"]
                     elif name == "seek":
                         set_pos(float(cmd[1]) if len(cmd) > 2 and cmd[2] == "absolute" else pos() + float(cmd[1]))
-                    elif name == "quit":
+                    elif name == "quit":                    # (with a code, as the player screen's Back: 10)
                         st["quit"] = True
+                        st["code"] = int(cmd[1]) if len(cmd) > 1 else 0
                     note(command=cmd)
                     try:
                         conn.sendall((json.dumps({"data": data, "request_id": msg.get("request_id"), "error": "success"}) + "\n").encode())
@@ -115,7 +116,7 @@ def main(argv):
         threading.Thread(target=answer, args=(conn,), daemon=True).start()
     srv.close()
     note(ended=pos())
-    return 0
+    return st["code"]
 
 
 if __name__ == "__main__":

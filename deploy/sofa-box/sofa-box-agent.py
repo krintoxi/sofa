@@ -78,8 +78,10 @@ state = {"chosen": None}
 
 
 def toast(text):
-    """A message on the TV."""
+    """A message on the TV: over the page, and on the player screen while a video plays (the page is behind it)."""
     player.tell(toast=text)
+    if playing():
+        player.osd(toast=text)
 
 
 # a sound or subtitle track's language, by its code (the player's options)
@@ -121,9 +123,8 @@ def box_volume(by):
     PhoneRemote.volume(by)
     level, muted = volume_now()
     text = "Sound off" if muted else ("Volume %d%%" % level if level is not None else "Volume")
-    if playing():
-        bar = "" if level is None or muted else "\n" + "━" * (level // 5) + "┄" * (20 - level // 5)
-        player.command("show-text", text + bar, 1600)
+    if playing():                                        # (the player screen's own card, in the TV's safe area)
+        player.osd(volume={"level": level, "muted": bool(muted)})
     elif browser and browser.connected():
         try:
             browser.hud(text, None if muted else level)
@@ -200,6 +201,46 @@ def mpv_knows(what, name):
         except (OSError, subprocess.SubprocessError):
             _mpv_help[what] = ""
     return bool(re.search(r"(?m)^\s*%s(\s|$)" % re.escape(name), _mpv_help[what]))
+
+
+def mpv_option(name):
+    """Whether this mpv takes --<name> (--osd-fonts-dir is new in mpv 0.37; an option it doesn't know stops it)."""
+    mpv = os.environ.get("SOFA_BOX_MPV", "mpv")
+    if mpv.endswith(".py"):
+        return True                                  # (the stand-in takes anything)
+    if "options" not in _mpv_help:
+        try:
+            _mpv_help["options"] = subprocess.run([mpv, "--list-options"], capture_output=True, text=True, timeout=10).stdout
+        except (OSError, subprocess.SubprocessError):
+            _mpv_help["options"] = ""
+    return ("--%s " % name) in _mpv_help["options"]
+
+
+def learn_mpv():
+    """What this mpv can do, asked once when the agent starts (in the background). Each question is mpv starting, about
+    a second on a Pi 3, and the first video of the day used to wait for three of them."""
+    mpv_knows("hwdec", "v4l2m2m-copy")
+    mpv_knows("profile", "fast")
+    mpv_option("osd-fonts-dir")
+
+
+def markers_of(p):
+    """A video's intros and recaps as the player screen takes them (in seconds into the whole video; nothing else)."""
+    out = []
+    for m in p.get("markers") or []:
+        try:
+            out.append({"kind": str(m.get("kind")), "start": float(m["start"]), "end": float(m["end"])})
+        except (AttributeError, KeyError, TypeError, ValueError):
+            continue
+    return out
+
+
+# The TV's player screen: drawn by mpv itself (sofa-player.lua), in Sofa's typefaces and the box's theme colour
+PLAYER_SCRIPT = os.path.join(HERE, "sofa-player.lua")
+FONT_DIRS = (os.path.join(HERE, "fonts"),                                        # on the box
+             os.path.join(HERE, "..", "..", "client", "vendor", "fonts"))         # in Sofa itself (a preview)
+THEME_ACCENT = {"street": "FF2E88", "terminal": "39FF88", "pirate": "E6B450", "sofa": "F4B740", "midnight": "F4B740",
+                "cinema": "E5484D", "ocean": "3CC8D8", "forest": "8BD46E", "grape": "C792FF", "oled": "F4B740"}
 
 
 # ---------------------------------------------------------------- settings
@@ -472,15 +513,32 @@ class Player:
         self.cond = threading.Condition()
         self.req = 0
         self.menu = None                        # the options menu, while it's open (Menu while a video plays)
+        self.plays, self.info_path = 0, None    # each play's file for the player screen (gone when its mpv stops)
 
     def _args(self, p):
         s, sock, base = settings(), self.sock_path, self.base
         mpv = os.environ.get("SOFA_BOX_MPV", "mpv")         # previews and tests can use a stand-in
+        title = "Sofa" if p.get("adult") else str(p.get("title") or "Sofa")
+        # The TV's own player screen (sofa-player.lua) instead of mpv's desktop controls, which came up whenever the
+        # pointer moved (the phone's touchpad, a stick) and then stayed: the box parks the pointer in the bottom right
+        # corner, right on mpv's control bar. No pointer at all now, and everything inside the TV's safe area.
         args = ([sys.executable] if mpv.endswith(".py") else []) + [mpv, "--input-ipc-server=" + sock, "--fs", "--force-window=immediate", "--idle=no", "--keep-open=no",
-                "--osd-level=1", "--osd-font-size=46", "--osd-bar-h=2.2", "--sub-font-size=46", "--term-osd=no",
-                "--title=" + ("Sofa" if p.get("adult") else p.get("title") or "Sofa"),
+                "--osc=no", "--input-cursor=no", "--cursor-autohide=always", "--osd-bar=no", "--osd-on-seek=no",
+                "--osd-level=1", "--osd-font=Instrument Sans", "--osd-font-size=36", "--osd-margin-x=64", "--osd-margin-y=36",
+                "--sub-font-size=46", "--sub-margin-y=40", "--term-osd=no",
+                "--script=" + PLAYER_SCRIPT, "--script-opts=sofa_player-info=" + self.write_info(p),
+                "--title=" + title, "--force-media-title=" + title,
                 "--input-conf=" + (live_input_conf() if p.get("live") else os.path.join(HERE, "mpv-input.conf")),
-                "--cache=yes", "--demuxer-max-bytes=120MiB", "--network-timeout=40"]
+                "--cache=yes", "--demuxer-max-bytes=120MiB", "--network-timeout=40",
+                "--hr-seek=no"]       # (resuming starts at the frame mpv can show at once: a Pi 3 decoded seconds to be exact)
+        fonts = next((d for d in FONT_DIRS if os.path.isdir(d)), None)
+        if fonts and mpv_option("osd-fonts-dir"):
+            args.append("--osd-fonts-dir=" + os.path.abspath(fonts))
+        if "/media/hls/" in str(p.get("url") or "") and not p.get("live"):
+            # Sofa's converted video is a playlist still being written. mpv (ffmpeg) took it for live TV and started
+            # three segments from its end, up to half a minute past the place it was asked to resume at, and counted
+            # from there (the place it saved then was wrong as well): from its first segment.
+            args.append("--demuxer-lavf-o-append=live_start_index=0")
         if not p.get("local") and self.from_sofa(p["url"]):   # from Sofa: as the signed-in TV (never to anyone else)
             args.append("--http-header-fields=" + self.sofa_headers())
         hw = s["hwdec"] if s["hwdec"] != "auto" else ("v4l2m2m-copy" if slow_board() and mpv_knows("hwdec", "v4l2m2m-copy")
@@ -501,6 +559,29 @@ class Player:
             return args + ["--{", "--start=%d" % int(p.get("start_at") or 0), rewrite(p["url"], base), "--}"] + \
                 [u for u in p.get("then") or [] if str(u).startswith("https://")]
         return args + [p["url"] if p.get("local") else rewrite(p["url"], base)]
+
+    def write_info(self, p):
+        """What the player screen shows from the moment mpv opens (sofa-player.lua reads it then): the title, where it
+        resumes, its intros, Live TV's channel. Never an adult title: the screen says "Playing"."""
+        private = bool(p.get("adult"))
+        offset, start = float(p.get("offset") or 0), float(p.get("start") or 0)
+        kind = ("live" if p.get("live") else "disc" if p.get("mpv") else "file" if p.get("local")
+                else "resume" if offset + start > 30 else "start")
+        info = {"title": "Playing" if private else str(p.get("title") or ""), "sub": "" if private else str(p.get("sub") or ""),
+                "kind": kind, "at": offset + start, "offset": offset, "duration": float(p.get("duration") or 0),
+                "markers": markers_of(p),
+                "live": bool(p.get("live")), "number": p.get("number"), "h24": bool(p.get("h24")),
+                "accent": THEME_ACCENT.get(settings().get("theme"), "FF2E88")}
+        self.plays += 1
+        path = self.info_path = os.path.join(tempfile.gettempdir(), "sofa-play-%d-%d.json" % (os.getpid(), self.plays))
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(info, f)
+        return path
+
+    def osd(self, **what):
+        """What the player screen (sofa-player.lua) shows that only the box knows: the start card's note (False: it
+        plays now), a message, the volume, Live TV's banner, the options menu (False closes it)."""
+        return self.command("script-message-to", "sofa_player", "sofa", json.dumps(what))
 
     def from_sofa(self, url):
         return rewrite(url, self.base).startswith((self.base or "http://\0").rstrip("/") + "/")
@@ -531,15 +612,16 @@ class Player:
                        "title": "Playing" if private else payload.get("title"), "sub": "" if private else payload.get("sub")}
         self.proc = subprocess.Popen(self._args(payload), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                                      stderr=subprocess.PIPE, env=display_env())
-        self.proc.sofa_err = []
+        self.proc.sofa_err, self.proc.sofa_info = [], self.info_path
         threading.Thread(target=self._drain, args=(self.proc,), daemon=True).start()
         threading.Thread(target=self._watch, args=(self.proc,), daemon=True).start()
 
     @staticmethod
     def _drain(proc):
         """mpv's messages, read as they come (a full pipe would stop mpv); the last few explain a failure."""
-        for line in proc.stderr:
-            proc.sofa_err = (proc.sofa_err + [line.decode("utf-8", "replace").rstrip()])[-8:]
+        for line in proc.stderr:              # (never the video's address: it names the title, which may be an adult one)
+            said = re.sub(r"\b[a-z][a-z0-9+.-]*://\S+", "the video", line.decode("utf-8", "replace").rstrip())
+            proc.sofa_err = (proc.sofa_err + [said])[-8:]
 
     def command(self, *cmd):
         """Send one command to mpv; returns its "data" (or None)."""
@@ -574,27 +656,23 @@ class Player:
         t = self.command("get_property", "time-pos")
         return None if t is None else float(t) + float((self.payload or {}).get("offset") or 0)
 
-    def starting_text(self, waited):
-        """What mpv's (black) screen says until the picture moves: resuming a converted video can take a while,
-        and a black screen with nothing on it looks like the box has hung."""
+    def starting_note(self, waited):
+        """The start card's second line while the picture hasn't moved (the card itself says what's starting, from
+        where): resuming a converted video can take a while, and a card that never changes looks like the box hung."""
         p = self.payload or {}
         if p.get("live"):
-            return "Tuning in to %s%s…\nUp and down change the channel. Back goes back." % (
-                "%s  " % p["number"] if p.get("number") else "", str(p.get("title") or "the channel"))
-        title = "" if p.get("adult") else str(p.get("title") or "")
-        at = int(float(p.get("offset") or 0) + float(p.get("start") or 0))
-        when = "%d:%02d:%02d" % (at // 3600, at // 60 % 60, at % 60) if at >= 3600 else "%d:%02d" % (at // 60, at % 60)
-        text = " ".join(("Resuming %s at %s" % (title, when) if at > 30 else "Starting %s" % title).split()) + "…"
-        if "/hls/" in str(p.get("url") or "") and waited >= 3:
-            text += "\nSofa is getting it ready for the box%s: a few seconds more." % (" from where you left off" if at > 30 else "")
+            return "Up and down change the channel. Back goes back."
+        at = float(p.get("offset") or 0) + float(p.get("start") or 0)
         if waited >= 25:
-            text += "\nStill waiting for Sofa. Back stops it."
-        return text
+            return "Still waiting for Sofa. Back stops it."
+        if "/hls/" in str(p.get("url") or "") and waited >= 3:
+            return "Sofa is getting it ready for the box%s: a few seconds more." % (" from where you left off" if at > 30 else "")
+        return ""
 
     def _watch(self, proc):
         """Every second: where it is, Skip Intro, saving the place; at the end: tell the page. Until the picture
-        moves, mpv's screen says it's starting (starting_text)."""
-        p, last_save, intro_shown = self.payload, 0, None
+        moves, the player screen's start card says it's starting (and starting_note, when it's slow)."""
+        p, last_save, noted = self.payload, 0, ""
         drops_checked = started = moving = False
         waited = 0
         while proc.poll() is None:
@@ -602,14 +680,17 @@ class Player:
             if not moving:
                 if self.command("get_property", "core-idle") is False:
                     moving = True
-                    if waited:
-                        self.command("show-text", "", 1)
+                    self.osd(card=False)
+                    self.tell(playing={"item": p.get("item")})     # (the page's start card, behind mpv, can go)
                     if p.get("live"):
                         p["banner_at"] = 0
                         self.banner(0)
                 else:
                     waited += 1
-                    self.command("show-text", self.starting_text(waited), 2500)
+                    note = self.starting_note(waited)
+                    if note != noted:
+                        noted = note
+                        self.osd(card=note)
             elif p.get("programs"):                             # an archive channel: its next programme began
                 at = self.command("get_property", "playlist-pos")
                 if isinstance(at, int) and at != p.get("banner_at", 0):
@@ -623,10 +704,6 @@ class Player:
             d = float(p.get("duration") or 0) or float(self.command("get_property", "duration") or 0) + float(p.get("offset") or 0)
             paused = bool(self.command("get_property", "pause"))
             self.status.update(t=int(t), d=int(d), paused=paused)
-            marker = self.marker(t)
-            if marker and intro_shown != marker["start"]:
-                intro_shown = marker["start"]
-                self.command("show-text", "OK: skip the %s" % ("recap" if marker.get("kind") == "recap" else "intro"), 6000)
             if d and time.time() - last_save > 10:
                 last_save = time.time()
                 save_progress(p.get("item"), t, d, False, self.cookie, self.base)
@@ -634,11 +711,17 @@ class Player:
                 drops_checked = True
                 self.check_drops()
         code = proc.wait()
+        try:
+            os.unlink(getattr(proc, "sofa_info", None) or "")   # (what was playing: not left behind in /tmp)
+        except OSError:
+            pass
         self.menu = None
         time.sleep(0.2)                         # the last of mpv's messages
         err = "\n".join(l for l in proc.sofa_err if l.strip())
         t, d = self.status.get("t") or 0, self.status.get("d") or 0
         reason = getattr(proc, "sofa_reason", None)
+        if reason is None and code == 10:       # Back, on the player screen (sofa-player.lua stops mpv with 10)
+            reason = "back"
         ended = reason == "next" or (reason is None and code == 0 and d and t > d - 60)
         watched = ended or (d and t > d * 0.95)
         if d:
@@ -675,7 +758,7 @@ class Player:
 
     def marker(self, t):
         for m in (self.payload or {}).get("markers") or []:
-            if m.get("kind") in ("intro", "recap") and m["start"] <= t < m["end"] - 1:
+            if isinstance(m, dict) and m.get("kind") in ("intro", "recap") and m.get("start", 0) <= t < m.get("end", 0) - 1:
                 return m
         return None
 
@@ -695,17 +778,15 @@ class Player:
         shows = [(i, x) for i, x in enumerate(progs) if not x.get("ad")]
         now = next((x for i, x in shows if i >= at), None) if at < len(progs) and not progs[at].get("ad") else None
         later = next((x for i, x in shows if i > at), None)
-        esc = lambda t: str(t or "").replace("\\", "/").replace("{", "(").replace("}", ")").replace("$", "$$").replace("\n", " ")
-        name = lambda x: esc(x.get("title")) + (" (%s)" % x["year"] if x.get("year") else "")
-        head = ("{\\c&H40B7F4&}%s  {\\c&HFFFFFF&}" % p["number"] if p.get("number") else "") + esc(p.get("title"))
-        lines = ["{\\fs40\\b1}" + head + "{\\b0}"]
+        name = lambda x: str(x.get("title") or "") + (" (%s)" % x["year"] if x.get("year") else "")
+        b = {"number": str(p["number"]) if p.get("number") else None, "name": str(p.get("title") or "")}
         if now:
-            lines.append("{\\fs52\\b1}" + name(now) + "{\\b0}")
+            b["now"] = name(now)
         elif progs:
-            lines.append("{\\fs40}Commercials" + (", then " + name(later) if later else ""))
+            b["sub"] = "Commercials" + (", then " + name(later) if later else "")
         if now and later:
-            lines.append("{\\fs32\\c&HCCCCCC&}Next: " + name(later))
-        self.command("show-text", "${osd-ass-cc/0}" + "\\N".join(lines), 5000)
+            b["next"] = name(later)
+        self.osd(banner=b)
 
     def zap(self, step):
         """Live TV: the next channel up or down (Sofa's channel list came with it), its name on the screen."""
@@ -721,7 +802,7 @@ class Player:
                 with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(req, timeout=15) as r:
                     on = json.loads(r.read())
             except (OSError, ValueError):
-                self.command("show-text", "%s isn't available just now" % (ch.get("name") or "That channel"), 2500)
+                self.osd(toast="%s isn't available just now" % (ch.get("name") or "That channel"))
                 return False
             self.command("set_property", "http-header-fields", "")      # (archive.org gets no Sofa cookie)
             self.command("loadfile", on["film"]["url"], "replace")
@@ -738,8 +819,8 @@ class Player:
         self.command("set_property", "http-header-fields", self.sofa_headers().split(","))
         self.command("loadfile", rewrite(ch["url"], self.base), "replace")
         p.update(title=ch.get("name"), number=ch.get("number"), programs=[])
-        self.command("show-text", "%s%s  ·  %s" % ("%s  " % ch["number"] if ch.get("number") else "", ch.get("name") or "",
-                                                  ch.get("group") or ""), 2500)
+        self.osd(banner={"number": str(ch["number"]) if ch.get("number") else None, "name": str(ch.get("name") or ""),
+                         "sub": str(ch.get("group") or "")})
         self.status.update(title=ch.get("name"), sub=ch.get("group") or "")
         return True
 
@@ -800,25 +881,15 @@ class Player:
     def menu_close(self):
         self.menu = None
         self.command("disable-section", "sofa-menu")
-        self.command("show-text", "", 1)
+        self.osd(menu=False)
 
     def menu_draw(self):
         m = self.menu
         if not m:
             return
-        esc = lambda t: str(t).replace("\\", "/").replace("{", "(").replace("}", ")").replace("$", "$$")
-        rows = []
-        for k, (label, opts, at, _what) in enumerate(m["items"]):
-            shown = opts[at][1] if opts else ""
-            on = k == m["at"]
-            value = ("‹ %s ›" % esc(shown)) if shown and on and len(opts) > 1 else esc(shown)
-            if label == "Volume" and on:
-                value = "‹ %s ›" % esc(shown)
-            rows.append(("{\\c&H8A2EFF&}▸ {\\c&HFFFFFF&}{\\b1}" if on else "    {\\c&HBBBBBB&}") + label +
-                        ("{\\b0}" if on else "") + ("    " + value if value else "") + "{\\c&HFFFFFF&}")
-        hint = "{\\fs26\\c&H999999&}Left and right change it · Back closes"
-        self.command("show-text", "${osd-ass-cc/0}{\\an4}{\\fs38}{\\b1}Options{\\b0}\\N\\N" + "\\N".join(rows) +
-                     "\\N\\N" + hint, 13000)
+        rows = [{"label": label, "value": str(opts[at][1]) if opts else "", "on": k == m["at"],
+                 "more": len(opts) > 1 or what == "volume"} for k, (label, opts, at, what) in enumerate(m["items"])]
+        self.osd(menu={"title": "Options", "rows": rows, "hint": "Left and right change it   ·   Back closes"})
 
     def menu_key(self, k):
         m = getattr(self, "menu", None)
@@ -1102,7 +1173,9 @@ def open_app(app_id=None, url=None, hash_=None):
     if browser and browser.connected():
         existing = browser.tab_of(app_id)
         if existing and hash_ and app_id != "browser":
-            browser.evaluate(existing, "location.hash = %s" % json.dumps(hash_))
+            # drawn at once, before the tab comes forward: Resume on Home shows the player's start card, not the page
+            # Sofa was on
+            browser.evaluate(existing, "location.hash = %s; window.sofaRouteNow && sofaRouteNow()" % json.dumps(hash_))
         return {"ok": True, "target": browser.open(app_id, target_url, ua)}
     return {"ok": True, "url": target_url}
 
@@ -1522,7 +1595,7 @@ def open_sofa(sid=None, hash_=""):
             if here.split(":")[0] != "%s.localhost" % entry["id"]:      # another server's Sofa: this one instead
                 browser.navigate(existing, url)
             elif hash_:
-                browser.evaluate(existing, "location.hash = %s" % json.dumps(hash_))
+                browser.evaluate(existing, "location.hash = %s; window.sofaRouteNow && sofaRouteNow()" % json.dumps(hash_))
             browser.activate(existing)
             return {"ok": True, "target": existing, "server": entry["id"]}
         return {"ok": True, "target": browser.open(app, url), "server": entry["id"]}
@@ -1558,16 +1631,26 @@ def sofa_continue():
         out["name"] = s.get("name") or entry["name"]
         if s.get("user"):
             lib, prog = get("/api/library"), get("/api/progress")
+            # Resume plays at once on a Sofa that knows #/play/ (1.5.1); an older one opens the title's page, as before
+            try:
+                plays = tuple(int(x) for x in str(get("/api/info").get("version") or "0").split(".")[:3]) >= (1, 5, 1)
+            except ValueError:
+                plays = False
             by = {}
             for sh in lib.get("shows") or []:
                 for se in sh.get("seasons") or []:
                     for ep in se.get("episodes") or []:
                         by[ep["id"]] = {"title": sh["name"], "sub": "S%s E%s · %s" % (ep.get("s"), ep.get("e"), ep.get("title") or ""),
                                         "art": ep.get("thumb") or sh.get("backdrop") or sh.get("poster"),
-                                        "backdrop": sh.get("backdrop") or ep.get("thumb"), "hash": "#/show/" + urllib.parse.quote(sh["id"], safe="")}
+                                        "backdrop": sh.get("backdrop") or ep.get("thumb"), "hash": "#/show/" + urllib.parse.quote(sh["id"], safe=""),
+                                        "play": "#/play/" + urllib.parse.quote(ep["id"], safe="")}
             for m in lib.get("movies") or []:
                 by[m["id"]] = {"title": m["title"], "sub": str(m.get("year") or ""), "art": m.get("backdrop") or m.get("poster"),
-                               "backdrop": m.get("backdrop") or m.get("poster"), "hash": "#/movie/" + urllib.parse.quote(m["id"], safe="")}
+                               "backdrop": m.get("backdrop") or m.get("poster"), "hash": "#/movie/" + urllib.parse.quote(m["id"], safe=""),
+                               "play": "#/play/" + urllib.parse.quote(m["id"], safe="")}
+            if not plays:
+                for x in by.values():
+                    x.pop("play", None)
             items = [dict(by[i], id=i, pct=round(100 * p["t"] / p["d"])) for i, p in
                      sorted(prog.items(), key=lambda x: -(x[1].get("at") or 0))
                      if i in by and not p.get("done") and p.get("d") and 30 < p["t"] < p["d"] - 30][:12]
@@ -2968,9 +3051,16 @@ class PhoneRemote:
             player.stop(save=True, reason="back")
             return go_home()
         if player.proc and player.proc.poll() is None:     # a video in the box's player: the remote works it
-            act = {"ok": player.ok, "back": lambda: player.stop(save=True, reason="back"), "play": lambda: player.control({"cmd": "toggle"}),
-                   "left": lambda: player.control({"cmd": "skip", "by": -10}), "rewind": lambda: player.control({"cmd": "skip", "by": -10}),
-                   "right": lambda: player.control({"cmd": "skip", "by": 30}), "forward": lambda: player.control({"cmd": "skip", "by": 30})}.get(name)
+            if player.menu and name in ("up", "down", "left", "right", "ok", "back", "menu"):     # (the options menu, open)
+                return player.menu_key({"menu": "back"}.get(name, name))
+            # the player screen's own keys, as the TV's remote and a controller press them (OK skips an intro or pauses,
+            # skips add up, up and down show where it is), so the phone works the same player the same way
+            screen = lambda b: lambda: player.command("script-binding", "sofa_player/" + b)
+            live = bool((player.payload or {}).get("live"))
+            act = {"ok": screen("ok"), "back": lambda: player.stop(save=True, reason="back"), "play": screen("toggle"),
+                   "left": screen("back10"), "rewind": screen("back10"), "right": screen("on30"), "forward": screen("on30"),
+                   "up": (lambda: player.zap(-1)) if live else screen("show"),
+                   "down": (lambda: player.zap(1)) if live else screen("show"), "menu": player.menu_toggle}.get(name)
             if act:
                 return act()
         code = self.KEYS.get(name)
@@ -3439,10 +3529,14 @@ def module(name):
 NATIVE_JS = r"""/* Sofa box: the TV pages get the box's own player (mpv), like Sofa's Fire TV app. */
 (function () {
   window.SofaBox = { version: "%(version)s", os: "%(os)s", slow: %(slow)s, theme: "%(theme)s" };
+  var CAPS = %(caps)s;                   // what the box's player plays (asked of the page once, as it starts: no waiting)
   var html = document.documentElement, onTop = false;
   if (window.SofaBox.slow) {             // a Pi 3: lighter effects, and the banner stays still unless asked
     html.classList.add("box-lite");
-    try { if (localStorage.getItem("sofa.bannerClips") === null) localStorage.setItem("sofa.bannerClips", "false"); } catch (e) {}
+    try {                                // (and no trailers: each is a video the browser plays itself, in the page)
+      if (localStorage.getItem("sofa.bannerClips") === null) localStorage.setItem("sofa.bannerClips", "false");
+      if (localStorage.getItem("sofa.trailers") === null) localStorage.setItem("sofa.trailers", "false");
+    } catch (e) {}
   }
   // While mpv plays on top, the page behind it acts hidden: no banner clips or trailers using the Pi's power.
   var realHidden = Object.getOwnPropertyDescriptor(Document.prototype, "hidden");
@@ -3461,13 +3555,26 @@ NATIVE_JS = r"""/* Sofa box: the TV pages get the box's own player (mpv), like S
     x.send(body === undefined ? null : body);
     return x.responseText;
   }
+  function send(m, body) {
+    return fetch("/box/native/" + m, { method: "POST", headers: { "X-Sofa-Box": "1" }, body: body })
+      .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r; });
+  }
   function post(path, body) {
     return fetch(path, { method: "POST", headers: { "Content-Type": "application/json", "X-Sofa-Box": "1" }, body: JSON.stringify(body || {}) });
   }
   window.SofaNative = {
     version: function () { return "1"; }, appVersion: function () { return "0"; },
-    caps: function () { return call("caps"); }, status: function () { return call("status"); },
-    play: function (json) { cover(true); call("play", json); }, control: function (json) { call("control", json); },
+    caps: function () { return JSON.stringify(CAPS); }, status: function () { return call("status"); },
+    // Play and control don't hold the page up (they were a synchronous request: the page froze while mpv started)
+    play: function (json) {
+      cover(true);
+      send("play", json).catch(function () {
+        cover(false);
+        var p = {}; try { p = JSON.parse(json); } catch (e) {}
+        if (window.sofaNativeDone) window.sofaNativeDone({ item: p.item, failed: true, error: "the box's player didn't answer" });
+      });
+    },
+    control: function (json) { send("control", json).catch(function () {}); },
     servers: function () { return call("servers"); },
     choose: function (id) { post("/box/api/sofa/open", { id: id }); },
     forget: function () { post("/box/api/sofa/chooser"); }
@@ -3477,6 +3584,7 @@ NATIVE_JS = r"""/* Sofa box: the TV pages get the box's own player (mpv), like S
     fetch("/box/native/events" + (since === null ? "" : "?since=" + since)).then(function (r) { return r.json(); }).then(function (e) {
       since = e.n;
       (e.news || []).forEach(function (n) {
+        if (n.playing && window.sofaNativePlaying) window.sofaNativePlaying(n.playing);
         if (n.done) { cover(false); if (window.sofaNativeDone) window.sofaNativeDone(n.done); }
         if (n.toast && window.SofaToast) window.SofaToast(n.toast);
         if (n.go) location.hash = n.go;
@@ -3489,7 +3597,7 @@ NATIVE_JS = r"""/* Sofa box: the TV pages get the box's own player (mpv), like S
 
 
 def native_js():
-    return NATIVE_JS % {"version": VERSION, "os": OS_VERSION, "slow": "true" if light() else "false",
+    return NATIVE_JS % {"version": VERSION, "os": OS_VERSION, "slow": "true" if light() else "false", "caps": json.dumps(caps()),
                         "theme": settings().get("theme") if settings().get("theme") in THEMES else "street"}
 
 
@@ -3619,7 +3727,8 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/box/native/control":
             player.control(json.loads(self.body() or b"{}"))
             return self.send('{"ok":true}')
-        if path == "/box/native/key":                     # mpv's own keys (OK, Back) come here
+        if path == "/box/native/key":                     # mpv's own keys (Home, Menu, the channel) come here
+            self.body()                                   # (read even if empty: on a kept-alive connection the next request follows)
             k = (qs.get("k") or [""])[0]
             if k == "ok":
                 player.ok()
@@ -4203,6 +4312,7 @@ def main():
     except Exception as exc:
         print("Moving the old Sofa setting: %s" % exc, file=sys.stderr)
     threading.Thread(target=look, daemon=True).start()
+    threading.Thread(target=learn_mpv, daemon=True, name="mpv").start()   # (what mpv can do, before the first video)
     threading.Thread(target=watch_devices, daemon=True, name="devices").start()
     pairing_helper.start()                       # (BlueZ's pairings answered: an Xbox controller pairs)
     threading.Thread(target=watch_power, daemon=True, name="power").start()

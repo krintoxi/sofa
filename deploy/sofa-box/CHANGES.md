@@ -7,6 +7,44 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.53
+
+- **One player for every video, made for the TV.** Sofa's films and episodes, Live TV, USB drives and discs all play
+  in the box's own player (mpv) with a screen of its own in Sofa's look: the title and where it resumes from, then a
+  panel with the time line, how long is left and when it ends, Skip intro, Live TV's channel banner, the options
+  menu, the volume. Everything sits inside the part of the picture every TV shows (5% in from each edge), at 720p
+  and 1080p alike.
+  - **The "ugly player" was most likely mpv's own desktop controls.** They came up whenever the pointer moved over the video
+    (the phone's touchpad, a stick, the box tidying the pointer away) and stayed, because the box parks the pointer
+    in the bottom right corner: right on mpv's control bar, which hugs the bottom edge a TV crops. mpv's own text
+    ("Resuming…", the volume, the banner) sat in the top left corner, also in the cropped part. Now mpv has no
+    pointer at all and draws only the box's screen.
+  - **The phone remote works the same player the same way.** Its OK, arrows and play/pause are the player screen's
+    keys, as on the TV's remote; up and down show where you are (on Live TV they change the channel: before, they
+    went to the page behind the video), and its keys work the options menu while it's open.
+  - **The other player was the page's.** When mpv couldn't start a video, Sofa played it in the page instead (and that
+    title in the page from then on): a desktop player whose buttons sit 20 pixels from the screen's edges, played
+    by the browser instead of the box's player. On the box it now says what went wrong, on the same card, instead.
+- **Resume starts where you left off.** A video Sofa converts for the box (HEVC on a Pi 3) started up to half a minute
+  late: mpv took Sofa's playlist, still being written, for live TV and began three segments from its end, ignoring
+  Sofa's "start at the beginning", and the place it then saved was off by as much. It starts at its first segment
+  now. Resuming any video also starts at once at the nearest frame mpv can show, instead of decoding seconds of video
+  first to be exact.
+- **No other screen before the picture.** The moment you press Play or Resume, the TV shows the player's start card
+  (the page draws it, mpv's own takes over in the same place); before, the page sat unchanged until mpv appeared.
+  **Resume on Home** plays straight away with Sofa 1.5.1 (it used to open the title's page and wait for a second
+  press), and Back from it goes back to Home.
+- **Quicker.** OK, the arrows and Back are answered inside the player (each used to start a program that asked the
+  box, which then asked mpv): pausing took 28 ms and takes 1.5 ms on a fast computer, more on a Pi. Skipping several
+  times quickly is one jump, not a queue of them. The first video after a start no longer waits for mpv to be asked
+  what it can do (done when the box starts). On a Pi 3, Sofa's pages no longer play trailers and previews in the
+  browser while you browse (Look and feel can turn them back on): in a scripted minute of browsing, the browser
+  played 10 videos and used 16.8 s of processor time before, none and 4.5 s now (on a fast computer, without its
+  video hardware). Starting a video no longer freezes the page while it asks the box.
+- mpv's messages lose any web address before they reach the screen, the box's log or a report (an address names the
+  title), and the player screen's file saying what's playing is deleted when it stops. The box answers a key's request properly when it comes with a body, so the next request on that
+  connection isn't lost.
+
 ## 1.1.52
 
 - **Sofa Craft with a controller.** The right stick turns the camera now. Sofa Craft (Luanti, an X program) hides the

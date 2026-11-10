@@ -195,7 +195,7 @@
         <h2 class="mast-hi" id="mHi">${greeting(d.getHours())}<span>${esc(who)}</span></h2>
         <p class="mast-sub">${sub}</p>
         ${first ? `<div class="bar"><i style="width:${first.pct}%"></i></div>` : ""}
-        <div class="row-actions">${first ? `<button class="btn primary" data-sofa-hash="${esc(first.hash)}">${icon("#i-play")}Resume</button>
+        <div class="row-actions">${first ? `<button class="btn primary" data-sofa-hash="${esc(first.play || first.hash)}">${icon("#i-play")}Resume</button>
           <button class="btn" data-app="sofa">${icon("#i-sofa")}Open Sofa</button>` : `<button class="btn primary" data-app="sofa">${icon("#i-sofa")}Open Sofa</button>`}
           <button class="btn" data-app="live">${icon("#i-live")}Live TV</button>${noApps ? `<button class="btn" data-go="#/store">${icon("#i-store")}Get your apps</button>` : ""}</div>
       </div>
@@ -248,7 +248,7 @@
       <h2 class="row-title">Watch</h2><div class="rail watch-row">${watch.map(a => appTile(a, true)).join("")}
         <button class="tile app wide add" data-go="#/store"><span class="ic">${icon("#i-plus")}</span><b>Add apps</b><small>Netflix, YouTube, Prime…</small></button></div>
       ${inputsRow()}
-      ${s.items && s.items.length > 1 ? `<h2 class="row-title">Continue watching <small>${esc(s.name || "Sofa")}</small></h2><div class="rail">${s.items.slice(1).map(it => `<button class="tile poster" data-sofa-hash="${esc(it.hash)}">
+      ${s.items && s.items.length > 1 ? `<h2 class="row-title">Continue watching <small>${esc(s.name || "Sofa")}</small></h2><div class="rail">${s.items.slice(1).map(it => `<button class="tile poster" data-sofa-hash="${esc(it.play || it.hash)}">
           <img decoding="async" src="${esc(artSrc(it.art, 480))}" alt="" loading="lazy" onerror="this.style.visibility='hidden'"><span class="bar"><i style="width:${it.pct}%"></i></span>
           <span class="meta"><b>${esc(it.title)}</b><small>${esc(it.sub)}</small></span></button>`).join("")}</div>` : ""}
       ${running.length ? `<h2 class="row-title">Open now <small>Home brings you back here; they keep playing</small></h2><div class="rail open-now">${running.map(r => {

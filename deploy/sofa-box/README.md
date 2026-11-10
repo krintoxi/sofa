@@ -521,6 +521,19 @@ A remote's or a keyboard-remote's own volume and mute keys set the box's volume 
 remote's. Generic USB controllers (buttons numbered 1 to 12) work too, with the usual layout of those. In a game
 from Games, the controller is the game's ([Files and games](#files-and-games)).
 
+### Watching
+
+Every video on the box (Sofa's films and episodes, Live TV, a USB drive, a disc) plays in the box's own player,
+full screen on the Pi's video chip, with one screen of its own in Sofa's look. It starts with the title and where
+it resumes from, from the moment you press Play (no other screen in between), then the picture. Any key shows
+where you are: the title, the time line, how long is left and when it ends; it goes after a few seconds, and stays
+while paused. **OK** pauses (or skips the intro when Skip intro shows), **left and right** go 10 seconds back and
+30 on (press again to go further: the line moves at once, the picture follows when you stop), **up and down** show
+where you are (on Live TV they change the channel), **Menu** has subtitles, sound, speed and volume, and **Back**
+stops, keeping your place. Everything stays inside the part of the picture every TV shows, even one set to crop
+the edges ("overscan"), at 720p and 1080p alike. **Resume** on Home starts the video straight away, and Back from
+it comes back to Home (with Sofa 1.5.1 or newer; an older Sofa opens the title's page first).
+
 ## Good to know
 
 **It adapts to the board and the TV by itself.** It checks which Pi it is (3, 4 or 5, or a Compute

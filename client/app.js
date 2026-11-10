@@ -160,6 +160,8 @@ function appearanceDialog() {
       <button class="switch" role="switch" aria-checked="${prefs.get("bannerClips", true) !== false}" data-banner-toggle="1" aria-label="Play the banner"></button></div>
     <div class="toggle"><div><b>Trailers</b><span>A show's or movie's page plays three minutes of it, from somewhere in the middle, behind the title.</span></div>
       <button class="switch" role="switch" aria-checked="${prefs.get("trailers", true) !== false}" data-trailer-toggle="1" aria-label="Trailers"></button></div>
+    <div class="toggle"><div><b>Previews</b><span>Stopping on a title plays a few seconds of it.${SLOW_BOX ? " Off by itself on this box, where they slow everything else down." : ""}</span></div>
+      <button class="switch" role="switch" aria-checked="${!!prefs.get("cardPreviews", !SLOW_BOX)}" data-preview-toggle="1" aria-label="Previews"></button></div>
     <div class="toggle"><div><b>Hide spoilers</b><span>Pictures and descriptions of episodes you haven't watched stay blurred until you point at them.</span></div>
       <button class="switch" role="switch" aria-checked="${!!prefs.get("noSpoilers", false)}" data-spoiler-toggle="1" aria-label="Hide spoilers"></button></div>
     <h3 class="dlg-sub">This device</h3>
@@ -178,13 +180,14 @@ function appearanceDialog() {
   const nameBox = $("[data-screen-name]", d);
   if (nameBox) nameBox.addEventListener("change", () => prefs.set("screenName", nameBox.value.trim()));
   d.addEventListener("click", e => {
-    const t = e.target.closest("[data-theme-pick],[data-sub-size],[data-tv-toggle],[data-banner-toggle],[data-trailer-toggle],[data-spoiler-toggle],[data-install-app],[data-accent-pick],[data-motion],[data-splash]"); if (!t) return;
+    const t = e.target.closest("[data-theme-pick],[data-sub-size],[data-tv-toggle],[data-banner-toggle],[data-trailer-toggle],[data-preview-toggle],[data-spoiler-toggle],[data-install-app],[data-accent-pick],[data-motion],[data-splash]"); if (!t) return;
     const pressOnly = (sel) => d.querySelectorAll(sel).forEach(b => b.setAttribute("aria-pressed", b === t));
     if (t.dataset.accentPick !== undefined) { saveLook("accent", t.dataset.accentPick || null); applyAccent(t.dataset.accentPick); pressOnly("[data-accent-pick]"); return; }
     if (t.dataset.motion) { saveLook("motion", t.dataset.motion); applyMotion(t.dataset.motion); pressOnly("[data-motion]"); return; }
     if (t.dataset.splash) { saveLook("splash", t.dataset.splash); applyLook(); pressOnly("[data-splash]"); return; }
     if (t.dataset.installApp && installPrompt) { installPrompt.prompt(); installPrompt.userChoice.finally(() => { installPrompt = null; t.remove(); }); return; }
     if (t.dataset.spoilerToggle) { const on = !prefs.get("noSpoilers", false); prefs.set("noSpoilers", on); t.setAttribute("aria-checked", on); applySpoilers(); return; }
+    if (t.dataset.previewToggle) { const on = !prefs.get("cardPreviews", !SLOW_BOX); prefs.set("cardPreviews", on); t.setAttribute("aria-checked", on); if (!on) stopPreview(); return; }
     if (t.dataset.trailerToggle) { const on = prefs.get("trailers", true) === false; prefs.set("trailers", on); t.setAttribute("aria-checked", on);
       if (!on) stopTrailer(); return; }
     if (t.dataset.bannerToggle) { const on = prefs.get("bannerClips", true) === false; prefs.set("bannerClips", on); t.setAttribute("aria-checked", on);
@@ -1664,6 +1667,7 @@ function stopPreview() {
 }
 function startPreview(card) {
   stopPreview();
+  if (!prefs.get("cardPreviews", !SLOW_BOX)) return;
   pvCard = card;
   pvTimer = setTimeout(() => {
     if (pvCard !== card || Player.isOpen() || !document.contains(card)) return;
@@ -2999,6 +3003,7 @@ function route(animate) {
   }
   const hash = decodeURIComponent(location.hash.replace(/^#\/?/, ""));
   const [name, ...rest] = hash.split("/");
+  if (name === "play") return playFromHash(rest.join("/"));
   let html, nav = "";
   if ((name === "shows" || name === "movies") && name !== filterPage) { pageFilter = ""; seenFilter = "all"; filterPage = name; }
   if (name === "show") { const arg = rest.join("/"); const cut = arg.lastIndexOf("|"); const sid = cut > 0 ? arg.slice(0, cut) : arg;
@@ -3046,6 +3051,16 @@ function route(animate) {
 }
 function rerender() { const y = scrollY; route(false); scrollTo(0, y); }
 window.addEventListener("hashchange", () => { route(); scrollTo(0, 0); });
+/* #/play/<id>: the box's Home pressed Resume (or a Continue watching tile). The title's own page goes underneath, and
+   the video starts at once (the box's start card first): Back from the video goes back to Home. */
+function playFromHash(id) {
+  const it = byId.get(id), owner = it && (it.show || it);
+  history.replaceState(null, "", !it ? "#/" : it.kind === "episode" ? "#/show/" + encodeURIComponent(owner.id) : "#/movie/" + encodeURIComponent(it.id));
+  if (it && window.SofaBox) BoxCard.show({ label: "STARTING", title: owner.name || it.title });   // (before the page draws)
+  route(false);
+  if (it) Player.open(it, null, { home: true });
+}
+window.sofaRouteNow = () => route();      // the box sets the address and draws it at once, before the tab comes forward
 
 /* ---------- interactions ---------- */
 document.addEventListener("click", e => {
@@ -3894,6 +3909,54 @@ const Screens = (function () {
   };
 })();
 
+/* ---------- the box's start card (a Sofa box) ----------
+   On a Sofa box a video plays in the box's own player (mpv, on the Pi's video chip), which comes up over this page a
+   moment after the press: Sofa says how it plays (converting it first, maybe) and mpv starts. Until it's there, this
+   page shows the very card the player starts with (deploy/sofa-box/sofa-player.lua), in the same place, so the TV goes
+   from the press to the card to the picture, with nothing between. If the box can't play it, the card says so: the
+   page's own player is no help on a box (the same file, played by the browser rather than the box's player). */
+const SLOW_BOX = !!(window.SofaBox && window.SofaBox.slow);        // a Pi 3: no video in the page while browsing
+const H24 = !/[ap]\.?\s?m/i.test(new Date(2020, 0, 1, 15).toLocaleTimeString([], { hour: "numeric" }));
+const BoxCard = (() => {
+  let el = null, shown = 0;              // (each card shown has its number: a start whose card went is called off)
+  function make() {
+    el = document.createElement("div");
+    el.className = "box-card"; el.hidden = true; el.setAttribute("role", "status");
+    el.innerHTML = `<div class="bc-label"></div><div class="bc-title"></div><div class="bc-sub"></div><div class="bc-at"></div>
+      <div class="bc-note"></div><div class="bc-hint"></div>`;
+    document.body.appendChild(el);
+  }
+  function show(o) {                     // {label, title, sub, at}
+    if (!el) make();
+    el.classList.remove("failed"); el.classList.toggle("no-sub", !o.sub);
+    $(".bc-label", el).textContent = o.label; $(".bc-title", el).textContent = o.title || "";
+    $(".bc-sub", el).textContent = o.sub || "";
+    $(".bc-at", el).innerHTML = (o.at ? "from " + esc(clock(o.at)) + "&ensp;&ensp;" : "") + "<i>•••</i>";
+    $(".bc-note", el).textContent = ""; $(".bc-hint", el).textContent = "Back stops it";
+    el.hidden = false;
+    return ++shown;
+  }
+  function fail(why) {
+    if (!el) make();
+    el.classList.add("failed"); el.hidden = false;
+    $(".bc-label", el).textContent = "THIS DIDN'T PLAY";
+    $(".bc-at", el).textContent = ""; $(".bc-note", el).textContent = why || "";
+    $(".bc-hint", el).textContent = "Back goes back";
+  }
+  const hide = () => { if (el) el.hidden = true; };
+  const on = () => !!el && !el.hidden;
+  const failed = () => on() && el.classList.contains("failed");
+  const still = n => !n || (on() && n === shown && !failed());     // that card is still up (Back hasn't taken it away)
+  // Back while it's up: a start that's taking too long stops; a failure goes away
+  document.addEventListener("keydown", e => {
+    if (!on() || !["Escape", "Backspace", "BrowserBack", "GoBack"].includes(e.key)) return;
+    e.preventDefault(); e.stopImmediatePropagation();
+    if (!failed() && NATIVE) NATIVE.control(JSON.stringify({ cmd: "stop" }));
+    hide();
+  }, true);
+  return { show, fail, hide, on, still };
+})();
+
 /* ---------- player ---------- */
 const Player = (function () {
   const el = $("#player"), video = $("video", el), canvas = $("canvas", el), ctx = canvas.getContext("2d");
@@ -3953,10 +4016,10 @@ const Player = (function () {
   }
   function requestClose() { if (pushed) history.back(); else close(); }   // Back, Escape and the ← button all end here
   let playQueue = null;
-  async function open(it, queue) {
+  async function open(it, queue, how) {
     if (!it) return;
     stopTrailer();
-    if (NATIVE && !nativeFailed.has(it.id) && it.kind !== "track") return nativeOpen(it, queue);
+    if (NATIVE && !nativeFailed.has(it.id) && it.kind !== "track") return nativeOpen(it, queue, how);
     playQueue = queue && queue.includes(it) ? queue : null;
     MusicPlayer.pause();
     enterHistory();
@@ -4703,6 +4766,7 @@ const Player = (function () {
     }
     // on a Sofa box: its own player, on the Pi's video chip; up and down change the channel there
     if (NATIVE && window.SofaBox && !nativeFailed.has("live:" + ch.id)) {
+      BoxCard.show({ label: "LIVE TV", title: ch.name, sub: [ch.number, onAir ? filmName(onAir.film) : ch.group || ""].filter(Boolean).join(" · ") });
       const all = list || [ch];
       const to = c => ({ id: c.id, name: c.name, group: c.group || "", archive: !!c.archive, number: c.number || null,
                          url: c.src || location.origin + (c.archive ? "/api/live/archive/" + c.id + "/now" : "/live/" + c.id + "/index.m3u8") });
@@ -4710,7 +4774,7 @@ const Player = (function () {
       NATIVE.play(JSON.stringify({ item: null, live: true, title: ch.name, sub: onAir ? filmName(onAir.film) : ch.group || "", at: Math.max(0, all.indexOf(ch)),
         number: ch.number || null, programs: onAir ? [onAir.film].concat(onAir.next).map(f => ({ title: f.title, year: f.year || null, ad: !!f.ad })) : [],
         url: onAir ? onAir.film.url : to(ch).url, start_at: onAir ? onAir.offset : 0, then: onAir ? onAir.next.map(f => f.url) : [],
-        channels: all.length <= 600 ? all.map(to) : [to(ch)], duration: 0, subtitles: [], markers: [] }));
+        channels: all.length <= 600 ? all.map(to) : [to(ch)], duration: 0, subtitles: [], markers: [], h24: H24 }));
       return;
     }
     MusicPlayer.pause();
@@ -4797,29 +4861,45 @@ const Player = (function () {
   /* Inside the Fire TV app: Android's own player plays it (the file as it is, mostly), and says where it
      stopped when it's closed (window.sofaNativeDone). */
   // a video the device's own player couldn't start plays here; the next one tries the device's player again
-  let nativeItem = null, nativeQueue = null;
+  let nativeItem = null, nativeQueue = null, nativeHome = false;
   const nativeFailed = new Set();
-  async function nativeOpen(it, queue) {
+  const nativeSub = it => it.kind === "episode" ? subtitleFor(it) : it.kind === "movie" ? String(it.year || "") : "";
+  async function nativeOpen(it, queue, how) {
+    const box = !!window.SofaBox, owner = it.show || it, adult = !!(it.adult || owner.adult), pr = prog(it.id);
+    const card = at => box && BoxCard.show({ label: at ? "RESUMING" : "STARTING", title: adult ? "Playing" : owner.name || it.title,
+                                             sub: adult ? "" : nativeSub(it), at });
+    let shown = card(pr && !pr.done && pr.t > 30 ? pr.t : 0);  // (at once: what follows takes a moment on a Pi)
+    const giveUp = e => { if (box) BoxCard.hide(); toast(e.message); };
     let p;
-    try { p = await api("/api/play/" + encodeURIComponent(it.id) + "?" + capsQuery(true)); } catch (e) { toast(e.message); return; }
+    try { p = await api("/api/play/" + encodeURIComponent(it.id) + "?" + capsQuery(true)); } catch (e) { giveUp(e); return; }
+    if (!BoxCard.still(shown)) return;                          // Back on the card meanwhile: it doesn't start
     let url = p.url;
-    const pr = prog(it.id), start = pr && !pr.done && pr.t > 30 && (!p.duration || pr.t < p.duration - 30) ? pr.t : 0;
+    const start = pr && !pr.done && pr.t > 30 && (!p.duration || pr.t < p.duration - 30) ? pr.t : 0;
+    if (!start && pr && pr.t > 30) shown = card(0);
     if (p.mode !== "direct") {        // converted from where they left off: the app adds `offset` to what it plays
       const h = prefs.get("quality", "") || p.max_height || "";
       try { url = (await api("/api/hls/" + encodeURIComponent(it.id) + "?mode=" + p.mode + "&t=" + start.toFixed(1) + (h ? "&h=" + h : "") + "&" + capsQuery(true))).url; }
-      catch (e) { toast(e.message); return; }
+      catch (e) { giveUp(e); return; }
+      if (!BoxCard.still(shown)) return;
     }
-    nativeItem = it; nativeQueue = queue && queue.includes(it) ? queue : null;
-    const owner = it.show || it;
+    nativeItem = it; nativeQueue = queue && queue.includes(it) ? queue : null; nativeHome = !!(how && how.home);
     const shift = p.mode === "direct" ? 0 : start;
     NATIVE.play(JSON.stringify({ item: it.id, url: location.origin + url, start: start - shift, offset: shift, duration: p.duration || 0,
-      title: owner.name || it.title, sub: it.kind === "episode" ? subtitleFor(it) : "", adult: !!(it.adult || owner.adult),
+      title: owner.name || it.title, sub: nativeSub(it), adult, h24: H24,
       subtitles: p.subtitles.map(t => ({ url: location.origin + t.url + (shift ? "?offset=" + shift.toFixed(2) : ""), lang: t.lang, label: t.label })),
       markers: p.markers || [] }));
   }
+  window.sofaNativePlaying = () => BoxCard.hide();        // the box's player shows the picture now
   window.sofaNativeDone = r => {
     const it = nativeItem; nativeItem = null;
-    if (!it) return;
+    if (!it) return;                   // (not the one this page started: its card stays as it is)
+    if (!(r && r.failed && window.SofaBox)) BoxCard.hide();
+    const home = nativeHome; nativeHome = false;
+    if (r && r.failed && window.SofaBox) {   // on a box: say so, on the card (the page's player would be the same file, slower)
+      BoxCard.fail((it.live ? "This channel isn't available on the box right now." : "The box's player couldn't open it.") +
+                   (r.error ? " It said: " + r.error : ""));
+      return;
+    }
     if (r && r.failed) {               // the device's own player couldn't start it: this page plays it instead
       nativeFailed.add(it.id);
       toast("The box's player couldn't start" + (it.live ? " this channel" : " this") + (r.error ? " (" + r.error + ")" : "") + ", so it plays here instead.");
@@ -4833,8 +4913,10 @@ const Player = (function () {
     }
     if (r && r.d) progress[it.id] = { t: r.done ? r.d : r.t, d: r.d, done: !!r.done, at: Date.now() };
     const next = nativeQueue ? nativeQueue[nativeQueue.indexOf(it) + 1] : nextAfter(it);
-    if (r && r.ended && next && opt("autoplay", true)) return open(next, nativeQueue);
+    if (r && r.ended && next && opt("autoplay", true)) return open(next, nativeQueue, { home });
     rerender();
+    if (home && !(r && r.ended))       // played from the box's Home (Resume) and stopped: back to Home
+      fetch("/box/api/home", { method: "POST", headers: { "X-Sofa-Box": "1" } }).catch(() => {});
   };
   const nativeStatus = () => nativeItem ? JSON.parse(NATIVE.status() || "{}") : null;
   // For the phone remote: what's playing, and doing what it asks.
