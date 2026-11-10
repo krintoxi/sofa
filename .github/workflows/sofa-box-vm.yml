@@ -1,0 +1,84 @@
+name: Sofa box VM
+
+# A Sofa box for an x86-64 PC or virtual machine: a disk image of plain Debian 13 (Trixie) with the box set up by the
+# same install.sh a card gets (tools/build-sofa-box-vm-image.sh), then booted here in QEMU, with UEFI and with BIOS, and
+# proven: the box's helper answers on its port, Sofa on the box answers /api/info, the TV's screen comes up, the phone
+# remote answers from outside (tools/boot-sofa-box-vm.sh, tools/sofa-box-vm-proof.sh). Its console logs and the image
+# are the run's artifacts, kept a week. It publishes no release and writes nothing to the repository (contents: read).
+# docs/hardware.md says how to use the image.
+on:
+  workflow_dispatch:
+  push:
+    branches: ["claude/other-hardware"]
+    paths:
+      - "deploy/sofa-box/**"
+      - "!deploy/sofa-box/README.md"
+      - "!deploy/sofa-box/STABLE"
+      - "sofa/**"
+      - "sofa.py"
+      - "tools/build-sofa-box-vm-image.sh"
+      - "tools/boot-sofa-box-vm.sh"
+      - "tools/sofa-box-vm-proof.sh"
+      - "tools/debian-archive-keyring.txt"
+      - ".github/workflows/sofa-box-vm.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sofa-box-vm-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  vm:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tools (mmdebstrap, QEMU with OVMF)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends mmdebstrap fdisk dosfstools e2fsprogs qemu-utils qemu-system-x86 ovmf xz-utils curl
+      - name: KVM for the boot test (GitHub's hosted runners have it; without it QEMU is slow, not stopped)
+        run: |
+          if [ -e /dev/kvm ]; then
+            echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+            sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
+            ls -l /dev/kvm
+          else
+            echo "::warning title=No KVM::/dev/kvm isn't there: the boot test runs on QEMU's own emulation (slower)."
+          fi
+      - name: Build the image
+        run: sudo tools/build-sofa-box-vm-image.sh out
+      - name: Boot it (UEFI) and prove it
+        run: sudo tools/boot-sofa-box-vm.sh out/*-x86_64.img out/boot --firmware uefi --timeout 1500
+      - name: Boot it (BIOS) and prove it
+        if: always()
+        run: sudo tools/boot-sofa-box-vm.sh out/*-x86_64.img out/boot --firmware bios --timeout 1500
+      - name: What's on it, and what the VM said
+        if: always()
+        run: |
+          R="$(ls out/*-report.txt 2>/dev/null | head -1)"
+          { echo '### What is on the image'; echo '```'; [ -n "$R" ] && sed '/^== Packages/,$d' "$R" || echo "(no report: the build stopped)"; echo '```'
+            for fw in uefi bios; do
+              L="out/boot/console-$fw.log"
+              echo "### The VM, booted with $fw"
+              if [ -f "$L" ]; then echo '```'; grep -a 'SOFA-BOX-PROOF' "$L" | cut -c 1-400 || echo "(no SOFA-BOX-PROOF lines)"; echo '```'
+              else echo "(no boot)"; fi
+            done
+            [ -n "$R" ] && { echo '<details><summary>Every package on it, with its version</summary>'; echo; echo '```'; sed -n '/^== Packages/,$p' "$R"; echo '```'; echo '</details>'; }
+          } >> "$GITHUB_STEP_SUMMARY"
+          sudo rm -f out/*-x86_64.img                     # (the raw 8 GB file; the packed copies are the artifact)
+      - name: Keep it (a week)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sofa-box-vm
+          path: |
+            out/*.xz
+            out/*.sha256
+            out/*-report.txt
+            out/boot/*.log
+          retention-days: 7
+          compression-level: 0
+          if-no-files-found: warn

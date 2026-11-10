@@ -713,7 +713,7 @@
       <section class="card"><h3>About</h3><dl class="facts"><dt>Model</dt><dd>${esc(b.model)}</dd><dt>Memory</dt><dd>${b.memory ? Math.round(b.memory / 1048576) + " MB" : "?"}</dd>
         <dt>Picture</dt><dd>${b.board && b.board.tv_height ? "TV at " + b.board.tv_height + "p · " : ""}videos up to ${b.max_height}p${b.max_height >= 2160 ? " (4K)" : ""}</dd>
         <dt>Temperature</dt><dd>${b.temperature != null ? b.temperature + " °C" : "?"}</dd><dt>Software</dt><dd>Sofa Box OS ${esc(b.version)}</dd></dl>
-        <p class="credits-line">Built on Raspberry Pi OS, Chromium, mpv, FFmpeg and more free software, with games like Luanti. <button class="mini" data-go="#/credits">Credits and licences</button></p>
+        <p class="credits-line">Built on ${esc(b.os || "Raspberry Pi OS")}, Chromium, mpv, FFmpeg and more free software, with games like Luanti. <button class="mini" data-go="#/credits">Credits and licences</button></p>
         <div class="choices" style="margin-top:1rem"><button class="btn" data-action="restart">Restart Sofa Box</button><button class="btn" data-action="reboot">Restart the box</button>
         <button class="btn" data-go="#/welcome">Setup steps again</button></div></section>`;
     if (setTab === "software") return head("Software", `This is <b>Sofa Box OS ${esc(b.version)}</b>${softwareIs(b.software || {})}.`) +

@@ -8,6 +8,29 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.60
+
+- **Sofa Box OS on other hardware** (docs/hardware.md): an old PC or laptop, a mini PC, a virtual machine, another board.
+  - `install.sh` tells a Raspberry Pi from the rest (its boot files, its apt archive, its name in the device tree, its
+    tools; `SOFA_BOX_HARDWARE=pi|other` by hand). A Pi gets exactly what it got: every new line is inside one block that
+    runs only elsewhere, and the card's build is untouched.
+  - **Plain Debian 13 (Trixie), x86-64 and arm64:** `other-hardware.sh` adds what Debian has in place of the Pi's parts.
+    VA-API decoding for mpv and Chromium (Intel and AMD graphics; `/etc/chromium.d/sofa-box`), Debian's firmware packages
+    for a laptop's Wi-Fi, graphics and sound where apt has them, and HDMI-CEC only through a Pulse-Eight USB adapter
+    (the CEC service waits for a `/dev/cec` instead of restarting for ever). No power or heat note without the Pi's
+    record; About says which system the box is built on.
+  - **`sudo sofa-box widevine`** (x86-64): Widevine for the DRM apps from Google Chrome's own package, into where Debian's
+    Chromium looks. A chosen step, never part of an image; `sofa-box doctor` says whether it's there, and what the graphics
+    chip decodes.
+  - **A virtual-machine image** (`tools/build-sofa-box-vm-image.sh`): Debian 13 from Debian's archive, GRUB for UEFI and
+    BIOS on one disk, the very same `install.sh --image` as a card; the root grows to the disk, SSH keys are made on each
+    machine. GitHub builds it and boots it in QEMU both ways (`.github/workflows/sofa-box-vm.yml`), proving the box's
+    helper, Sofa on the box, the TV's screen and the phone remote answer, with the console logs as the run's artifact.
+    Nothing is released. The same `.img.xz` written to a USB stick starts a real PC.
+  - The hardware guide also assesses other boards (Orange Pi 5 and 3B, ROCK 5 and ZERO 3, Libre Computer, Banana Pi,
+    Android TV boxes, NUC-class mini PCs, Macs under UTM) from the vendors' and distributions' documentation, with
+    sources and dates, and ends with the capabilities matrix by platform, claiming only what is proven.
+
 ## 1.1.59
 
 - **Licence.** Sofa, Sofa Box OS and the box's own games are now under the PolyForm Noncommercial License 1.0.0
@@ -15,6 +38,7 @@ GitHub builds the card and makes the release by itself.
   boxes or services built on them needs EdgeVenture's licence. Credits and licences (Settings → This box → About)
   says so for the three Sofa entries; every other part on the card keeps its own licence, as before. Cards before
   this one stay under the MIT licence they came with. The names and logos are trademarks (`TRADEMARKS.md`).
+
 
 ## 1.1.58
 

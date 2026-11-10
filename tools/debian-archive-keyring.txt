@@ -1,0 +1,5 @@
+# Debian's archive keyring, for building the Sofa box's x86-64 disk image (tools/build-sofa-box-vm-image.sh) on a computer
+# whose own keyring is too old to know Debian 13 (Trixie): GitHub's Ubuntu 24.04 runners are. One package from Debian's own
+# archive and its SHA-256; the build stops if the download isn't it. Only the two lines below are read.
+url=https://deb.debian.org/debian/pool/main/d/debian-archive-keyring/debian-archive-keyring_2025.1_all.deb
+sha256=9ea7778e443144ca490668737a8ab22dd3e748bb99e805e22ec055abeb3c7fac

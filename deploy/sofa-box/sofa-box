@@ -10,6 +10,7 @@
 #   sofa-box desktop           go back to the desktop instead of Sofa (sudo; undo: sofa-box appliance)
 #   sofa-box shield on|off|update   Sofa Shield: ads and trackers kept out of the whole box (sudo)
 #   sofa-box update            a newer Sofa Box OS from GitHub: stable, or testing (Settings → Software) (sudo)
+#   sofa-box widevine          on a PC (x86-64): Widevine for the DRM apps, from Google Chrome's own package (sudo)
 #   sofa-box tune              a quick processor for the TV (sudo; at every start)
 #   sofa-box factory-reset     back to how it came: apps, sign-ins, Wi-Fi, Bluetooth, files gone (sudo)
 #   sofa-box kiosk             the TV's screen (started by sofa-box.service; not by hand)
@@ -320,6 +321,17 @@ doctor() {
     else bad "mpv can't use the Pi's video decoder" "Raspberry Pi OS Bookworm has it; make sure dtoverlay=vc4-kms-v3d is in config.txt"; fi
     B="$(boot_dir)"
     grep -Eq '^[[:space:]]*hdmi_cvt[[:space:]=]+480 320' "$B/config.txt" && bad "the TV is set to 480×320 (LCD-show)" "run the installer again: it fixes that"
+  else                       # a PC, a virtual machine, another board (docs/hardware.md)
+    if ! ls /dev/dri/renderD* >/dev/null 2>&1; then note "no graphics chip for Linux to decode with (a VM, say): videos decode on the processor"
+    elif ! command -v vainfo >/dev/null; then note "vainfo isn't installed: can't tell what the graphics chip decodes (sudo apt install vainfo)"
+    else
+      V="$(vainfo --display drm 2>/dev/null | grep -oE 'VAProfile(H264|HEVC|VP9|AV1)[A-Za-z0-9_]*' | sed 's/VAProfile//' | sort -u | paste -sd, -)"
+      if [ -n "$V" ]; then ok "the graphics chip decodes (VA-API): $V"
+      else note "no VA-API decoder (Intel needs intel-media-va-driver or i965-va-driver, AMD mesa-va-drivers): videos decode on the processor"; fi
+    fi
+    W="$(find /usr/lib/chromium/WidevineCdm /home/*/.config/sofa-box/browser/WidevineCdm -name 'libwidevinecdm.so' 2>/dev/null | head -n 1)"
+    if [ -n "$W" ]; then ok "Widevine for the DRM apps ($W)"
+    else note "no Widevine: the DRM apps (Netflix, Disney+…) won't play (sudo sofa-box widevine, on x86-64)"; fi
   fi
   aplay -l 2>/dev/null | grep -qi hdmi && ok "sound to the TV over HDMI" || note "no HDMI sound device seen (is the TV on?)"
   echo "Remotes"
@@ -421,6 +433,39 @@ update() {                   # (root) the installer restarts what changed
   return "$R"
 }
 
+# (root) Widevine, the DRM module the streaming apps need, for a PC (x86-64): Debian's Chromium is built to load it but
+# doesn't carry it; Google Chrome's own package does, and Chromium loads the copy a Chrome puts in its profile folder
+# (WidevineCdm/<version>/, how Chromium's own updater lays it out). It's Google's, under Google's terms: this only runs
+# when asked. docs/hardware.md. (Not a Pi: Raspberry Pi OS's libwidevinecdm0 does it there. Not arm64: see the docs.)
+CHROME_DEB="${SOFA_BOX_CHROME_DEB:-https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb}"
+widevine() {
+  ARCH="$(dpkg --print-architecture 2>/dev/null || uname -m)"
+  [ "$ARCH" = amd64 ] || [ "$ARCH" = x86_64 ] || { echo "Widevine this way is for x86-64 PCs only (this is $ARCH): docs/hardware.md says what arm64 boards can do."; exit 1; }
+  WHO="$(systemctl show -p User --value sofa-box-agent 2>/dev/null)"
+  [ -n "$WHO" ] || WHO="${SUDO_USER:-}"
+  [ -n "$WHO" ] || { echo "The box's user isn't known."; exit 1; }
+  HOMEDIR="$(getent passwd "$WHO" | cut -d: -f6)"
+  T="$(mktemp -d)"
+  echo "Getting Google Chrome's package (about 100 MB; Widevine is Google's, under Google's terms: https://www.google.com/chrome/terms/)…"
+  if ! curl -fL --retry 3 -o "$T/chrome.deb" "$CHROME_DEB" || ! dpkg-deb -x "$T/chrome.deb" "$T/x" 2>/dev/null; then
+    rm -rf "$T"; echo "Couldn't get it. Is the box online?"; exit 1
+  fi
+  SRC="$(find "$T/x" -type d -name WidevineCdm | head -n 1)"
+  [ -n "$SRC" ] && [ -f "$SRC/manifest.json" ] && [ -f "$SRC/_platform_specific/linux_x64/libwidevinecdm.so" ] \
+    || { rm -rf "$T"; echo "That package has no Widevine in it (changed?)."; exit 1; }
+  VER="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "$SRC/manifest.json" 2>/dev/null || echo 0)"
+  for dest in "/usr/lib/chromium/WidevineCdm" "$HOMEDIR/.config/sofa-box/browser/WidevineCdm/$VER"; do
+    rm -rf "$dest" && mkdir -p "$dest" && cp -r "$SRC/." "$dest/"
+  done
+  # (where the box's user looks, as Chromium's updater would have left it)
+  printf '{"Path":"%s"}' "$HOMEDIR/.config/sofa-box/browser/WidevineCdm/$VER" > "$HOMEDIR/.config/sofa-box/browser/WidevineCdm/latest-component-updated-widevine-cdm"
+  chown -R "$WHO:" "$HOMEDIR/.config/sofa-box/browser/WidevineCdm"
+  rm -rf "$T"
+  echo "Widevine $VER is in place. Restarting the TV's screen so the browser picks it up…"
+  systemctl try-restart sofa-box 2>/dev/null || true
+  echo "Done. If a DRM app still refuses, chrome://components in the box's browser says whether Widevine loaded."
+}
+
 games() {                    # (root) a game from the box's list (games/games.json): its packages only, nothing else
   ACTION="${1:-}"; ID="${2:-}"
   PKGS="$(python3 - "$LIB/games/games.json" "$ID" <<'EOF'
@@ -468,6 +513,7 @@ case "${1:-}" in
   setup-boot) shift; setup_boot "$@" ;;
   shield) shift; shield "$@" ;;
   games) shift; games "$@" ;;
+  widevine) widevine ;;
   desktop)
     systemctl disable --now sofa-box
     for dm in lightdm gdm3 sddm; do systemctl list-unit-files "$dm.service" >/dev/null 2>&1 && systemctl enable "$dm" 2>/dev/null && { systemctl start "$dm"; break; }; done

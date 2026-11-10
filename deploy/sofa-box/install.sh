@@ -43,6 +43,21 @@ LIB=/usr/local/lib/sofa-box
 CONF="$HOMEDIR/.config/sofa-box"
 BOOT=""
 for d in /boot/firmware /boot; do [ -f "$d/config.txt" ] && { BOOT="$d"; break; }; done
+# A Raspberry Pi (its boot files, its own apt archive, or its name in the device tree), or not: a PC, a virtual machine
+# or another board gets what Debian has in place of the Pi's parts (other-hardware.sh, docs/hardware.md). A card being
+# built counts as a Pi even before its boot files are in place. SOFA_BOX_HARDWARE=pi|other says so by hand.
+is_pi() {
+  R="${SOFA_BOX_ROOT:-}"                                                   # (tests point this at a folder of their own)
+  [ -n "$BOOT" ] && return 0
+  grep -qs 'Raspberry Pi' "$R/proc/device-tree/model" && return 0
+  [ -f "$R/etc/apt/sources.list.d/raspi.list" ] && return 0
+  [ -f "$R/usr/lib/raspberrypi-sys-mods/firstboot" ] || [ -d "$R/usr/lib/userconf-pi" ] || [ -f "$R/usr/bin/vcgencmd" ]
+}
+case "${SOFA_BOX_HARDWARE:-}" in
+  pi) OTHER="" ;;
+  other) OTHER=1 ;;
+  *) if is_pi; then OTHER=""; else OTHER=1; fi ;;
+esac
 . /etc/os-release 2>/dev/null || true
 say() { printf '\n== %s\n' "$*"; }
 have_pkg() { apt-cache policy "$1" 2>/dev/null | grep -q 'Candidate: [0-9]'; }
@@ -418,6 +433,11 @@ if dpkg -s systemd-zram-generator >/dev/null 2>&1; then
   printf '[zram0]\nzram-size = ram / 2\ncompression-algorithm = zstd\n' > /etc/systemd/zram-generator.conf
 elif [ -f /etc/default/zramswap ]; then
   sed -i -E 's/^#?PERCENT=.*/PERCENT=50/' /etc/default/zramswap
+fi
+
+if [ -n "$OTHER" ]; then
+  say "Not a Raspberry Pi: what Debian has in place of the Pi's parts"
+  sh "$LIB/other-hardware.sh" ${IMAGE:+--image} || echo "   (some of it couldn't be set up; sofa-box doctor says what's there)"
 fi
 
 # tty1 is the TV's screen, and Sofa's: no login there. (systemd's own presets turn one on at a card's first start, and

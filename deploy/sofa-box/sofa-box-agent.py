@@ -302,6 +302,21 @@ def model():
         return ""
 
 
+def os_name():
+    """The system the box is built on, for About: "Raspberry Pi OS" on a Pi, else what /etc/os-release says
+    ("Debian GNU/Linux 13 (trixie)" on a PC or a VM, docs/hardware.md)."""
+    if board()["gen"]:
+        return "Raspberry Pi OS"
+    try:
+        with open(os.environ.get("SOFA_BOX_OS_RELEASE") or "/etc/os-release", encoding="utf-8") as f:
+            for line in f:
+                if line.startswith("PRETTY_NAME="):
+                    return line.split("=", 1)[1].strip().strip('"') or "Linux"
+    except OSError:
+        pass
+    return "Linux"
+
+
 _board = {}
 
 
@@ -3613,7 +3628,7 @@ def box_info():
             "weather_place": s.get("weather_place") or zone_place(current_timezone()), "weather_picked": bool(s.get("weather_place")),
             "choices": CHOICES, "learned_720": s["learned_720"], "learned_lite": bool(s.get("learned_lite")),
             "max_height": max_height(), "slow_board": slow_board(), "light": light(), "board": board(), "controllers": controllers,
-            "power": power["note"]}
+            "power": power["note"], "os": os_name()}
 
 
 def local_address():
