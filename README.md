@@ -9,7 +9,9 @@ with the internet down.
 
 A project by [EdgeVenture](https://edgeventure.uk). Source-available; see [License](#license).
 
-![Thirty seconds of Sofa: Home with a banner and rows of posters, a show's page, the player with its time line, and back to Home with the show to continue](docs/images/demo.gif)
+![Forty seconds of Sofa: a file dropped in the Inbox is filed and gets a poster; Home with a banner and rows of posters; a show's page; the player with its time line; Live TV's guide; the Sofa Box's home screen](docs/images/demo.gif)
+
+<sup>The same demo as an MP4: [docs/images/demo.mp4](docs/images/demo.mp4). The library in it is made-up titles drawn for the purpose.</sup>
 
 **Why not Jellyfin or Plex?** Both are bigger and have an app in every TV's store; Sofa is for a household that wants
 less to run, files that sort themselves, a TV that signs in from your phone, no account with anyone, and a Pi box.
