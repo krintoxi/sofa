@@ -77,8 +77,11 @@ final class DiskListTests: XCTestCase {
         try shell("/usr/sbin/diskutil", ["eraseDisk", "FAT32", "SOFATEST", "MBRFormat", ram.device])
         try DiskArbitrationOps.unmountEverything(on: ram.bsd)
         let blocker = try XCTUnwrap(MountBlocker(blocking: ram.bsd))
-        XCTAssertThrowsError(try shell("/usr/sbin/diskutil", ["mountDisk", ram.device]))
+        // What counts is that nothing mounts. Whether diskutil then reports an error differs by macOS version
+        // (27 does; 15 and 26 exit 0), so its exit status isn't checked.
+        _ = try? shell("/usr/sbin/diskutil", ["mountDisk", ram.device])
         XCTAssertTrue(DiskList.mounts(on: ram.bsd).isEmpty)
+        XCTAssertTrue(DiskList.snapshot().disk(ram.bsd)?.volumes.isEmpty ?? false)
         blocker.stop()
         try shell("/usr/sbin/diskutil", ["mountDisk", ram.device])
         XCTAssertFalse(DiskList.mounts(on: ram.bsd).isEmpty)
