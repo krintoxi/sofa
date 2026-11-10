@@ -1,7 +1,10 @@
 name: Sofa Box Imager
 
-# Builds Sofa Box Imager (imager/) and runs its tests on GitHub's Macs. Unsigned: no certificate or key is used here.
-# imager/README.md ("Signing") says what a signed, notarised build needs.
+# Builds Sofa Box Imager (imager/) and runs its tests on GitHub's Macs. On main (and when run by hand), the
+# macos-26 build is signed with the Developer ID certificate and notarised by Apple, so it opens on any Mac with
+# no warning: the sofa-box-imager-mac artifact. Pull requests and the other Macs build it unsigned.
+# The certificate and the notary key come from the repository's secrets into a keychain made for the run and
+# deleted after it; they never touch the repository. imager/README.md ("Signing") has the rest.
 
 on:
   push:
@@ -44,9 +47,51 @@ jobs:
             echo "::error title=Disk tests were skipped::hdiutil could not attach a RAM disk on this runner, so the write path was not tested."
             exit 1
           fi
-      - name: Build Sofa Box Imager.app (Apple silicon and Intel, unsigned)
+      - name: The signing keychain (main and hand-made runs on macos-26 only)
+        id: keys
+        if: >-
+          matrix.mac == 'macos-26' &&
+          (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch')
+        env:
+          P12: ${{ secrets.MACOS_DEVELOPER_ID_P12 }}
+          P12_PASSWORD: ${{ secrets.MACOS_DEVELOPER_ID_P12_PASSWORD }}
+          NOTARY_API_KEY: ${{ secrets.NOTARY_API_KEY }}
+        run: |
+          if [ -z "$P12" ] || [ -z "$P12_PASSWORD" ] || [ -z "$NOTARY_API_KEY" ]; then
+            echo "::warning title=Not signed::The signing secrets aren't set, so this build is unsigned."
+            exit 0
+          fi
+          KC="$RUNNER_TEMP/signing.keychain-db"
+          KC_PASSWORD="$(openssl rand -base64 24)"
+          echo "::add-mask::$KC_PASSWORD"
+          security create-keychain -p "$KC_PASSWORD" "$KC"
+          security set-keychain-settings -lut 3600 "$KC"
+          security unlock-keychain -p "$KC_PASSWORD" "$KC"
+          printf '%s' "$P12" | base64 --decode > "$RUNNER_TEMP/devid.p12"
+          security import "$RUNNER_TEMP/devid.p12" -k "$KC" -f pkcs12 -P "$P12_PASSWORD" -T /usr/bin/codesign
+          rm -f "$RUNNER_TEMP/devid.p12"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KC_PASSWORD" "$KC" >/dev/null
+          security list-keychains -d user -s "$KC" $(security list-keychains -d user | tr -d '"')
+          security find-identity -v -p codesigning "$KC"
+          umask 077
+          printf '%s\n' "$NOTARY_API_KEY" > "$RUNNER_TEMP/AuthKey.p8"
+          echo "keychain=$KC" >> "$GITHUB_OUTPUT"
+          echo "sign=yes" >> "$GITHUB_OUTPUT"
+      - name: Build Sofa Box Imager.app (Apple silicon and Intel; signed and notarised when the keychain is there)
         working-directory: imager
-        run: BUILD=${{ github.run_number }} scripts/build-app.sh
+        env:
+          BUILD: ${{ github.run_number }}
+          SIGN_IDENTITY: ${{ steps.keys.outputs.sign == 'yes' && 'Developer ID Application' || '' }}
+          TEAM_ID: L3R62A4K37
+          NOTARY_KEY: ${{ steps.keys.outputs.sign == 'yes' && format('{0}/AuthKey.p8', runner.temp) || '' }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER: ${{ secrets.NOTARY_ISSUER }}
+        run: scripts/build-app.sh
+      - name: Remove the signing keychain and the notary key
+        if: always() && steps.keys.outputs.keychain != ''
+        run: |
+          security delete-keychain "${{ steps.keys.outputs.keychain }}" || true
+          rm -f "$RUNNER_TEMP/AuthKey.p8"
       - name: The built app starts, reads a list and looks at this Mac's disks (it only reads)
         run: |
           "imager/build/Sofa Box Imager.app/Contents/MacOS/SofaBoxImager" \
@@ -54,6 +99,6 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: matrix.mac == 'macos-26'
         with:
-          name: sofa-box-imager-mac-unsigned
-          path: imager/build/*.zip
+          name: ${{ steps.keys.outputs.sign == 'yes' && 'sofa-box-imager-mac' || 'sofa-box-imager-mac-unsigned' }}
+          path: imager/build/Sofa-Box-Imager-*.zip
           if-no-files-found: error
