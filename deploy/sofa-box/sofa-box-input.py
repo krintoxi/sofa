@@ -28,6 +28,8 @@ box as they are; the ones the browser and mpv don't know are turned into ones th
 
 Needs python3-evdev and /dev/uinput (the installer lets the box's user use it).
 """
+import ctypes
+import ctypes.util
 import json
 import math
 import os
@@ -217,13 +219,93 @@ PLACES = {BTN_SOUTH: "south", BTN_EAST: "east", BTN_TL: "lb", BTN_TR: "rb", BTN_
           BTN_SELECT: "select", BTN_START: "start", BTN_THUMBL: "l3", BTN_THUMBR: "r3"}
 
 
+SPAN = 32767                                # the stick pointer's positions: 0 to SPAN across the screen
+
+
+class XCursor:
+    """Whether the pointer on the games' screen (XWayland) is hidden now: a game turning its camera with the mouse hides
+    it, and shows it in its menus. Asked of X itself (XFixes); None when it can't be told."""
+
+    class Image(ctypes.Structure):
+        _fields_ = [("x", ctypes.c_short), ("y", ctypes.c_short), ("width", ctypes.c_ushort), ("height", ctypes.c_ushort),
+                    ("xhot", ctypes.c_ushort), ("yhot", ctypes.c_ushort), ("serial", ctypes.c_ulong),
+                    ("pixels", ctypes.POINTER(ctypes.c_ulong)), ("atom", ctypes.c_ulong), ("name", ctypes.c_char_p)]
+
+    def __init__(self):
+        self.dpy, self.at, self.was, self.failed_at = None, 0.0, None, 0.0
+
+    @staticmethod
+    def display():
+        run_dir = os.environ.get("XDG_RUNTIME_DIR") or "/run/user/%d" % os.getuid()
+        try:
+            with open(os.path.join(run_dir, "sofa-box-display"), encoding="utf-8") as f:
+                for line in f:
+                    k, _, v = line.strip().partition("=")
+                    if k == "DISPLAY" and v:
+                        return v
+        except OSError:
+            pass
+        return os.environ.get("DISPLAY")
+
+    def _open(self):
+        x11, xf = ctypes.util.find_library("X11"), ctypes.util.find_library("Xfixes")
+        if not (x11 and xf):
+            return None
+        self.x, self.xf = ctypes.CDLL(x11), ctypes.CDLL(xf)
+        self.x.XOpenDisplay.restype = ctypes.c_void_p
+        self.x.XOpenDisplay.argtypes = [ctypes.c_char_p]
+        self.x.XFree.argtypes = [ctypes.c_void_p]
+        self.xf.XFixesQueryExtension.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_int), ctypes.POINTER(ctypes.c_int)]
+        self.xf.XFixesGetCursorImage.restype = ctypes.POINTER(XCursor.Image)
+        self.xf.XFixesGetCursorImage.argtypes = [ctypes.c_void_p]
+        name = self.display()
+        dpy = self.x.XOpenDisplay(name.encode() if name else None)
+        if not dpy:
+            return None
+        a, b = ctypes.c_int(), ctypes.c_int()
+        return dpy if self.xf.XFixesQueryExtension(dpy, ctypes.byref(a), ctypes.byref(b)) else None
+
+    def hidden(self, now=None):
+        now = time.time() if now is None else now
+        if now - self.at < 0.25:                         # (asked four times a second at most)
+            return self.was
+        self.at = now
+        try:
+            if self.dpy is None:
+                if now - self.failed_at < 5:
+                    return None
+                self.dpy = self._open()
+                if self.dpy is None:
+                    self.failed_at = now
+                    return None
+            img = self.xf.XFixesGetCursorImage(self.dpy)
+            if not img:
+                self.was = None
+                return None
+            im = img.contents
+            n = min(int(im.width) * int(im.height), 4096)
+            self.was = n == 0 or all((im.pixels[i] >> 24) & 0xFF == 0 for i in range(n))   # nothing to see: hidden
+            self.x.XFree(img)
+        except (OSError, AttributeError, ValueError):
+            self.dpy, self.was, self.failed_at = None, None, now
+        return self.was
+
+
 class GameMap:
     """A controller in a game that doesn't take controllers well itself: its buttons and sticks as the game's keys
     and a mouse, as the game's "controls" say (games/games.json), by the buttons' places, so a PlayStation
     controller's ✕ is an Xbox controller's A. Held is held (a key stays down while its button is)."""
 
-    def __init__(self, controls, name="", ranges=None):
+    def __init__(self, controls, name="", ranges=None, hidden=None):
         self.c, self.ranges = controls, ranges or {}
+        # "look": a stick that turns a game's camera (Luanti). Such a game hides the pointer and puts it back in the
+        # middle of the screen every frame, turning by how far it had gone; the box's screen (cage) can't do that for
+        # an X game (no pointer constraints), so the camera stopped at the edge of the TV. Instead the stick holds the
+        # pointer off the middle by how far it's pushed (an absolute pointer), and back to the middle in turn, so the
+        # game reads a turn each time whether its own putting-back works or not. In its menus (the pointer showing)
+        # the stick is an ordinary mouse.
+        self.hidden = hidden or (lambda: None)
+        self.look_at, self.flip, self.look_t = None, False, 0.0
         ps = is_playstation(name)
         self.places = dict(PLACES)
         self.places.update({BTN_NORTH: "north" if ps else "west", BTN_WEST: "west" if ps else "north"})
@@ -302,8 +384,29 @@ class GameMap:
 
     def moving(self):
         """A stick that's the mouse, pushed: the mouse moves by itself, so tick() wants calling often."""
-        return any(self.c.get(which) == "mouse" and math.hypot(self._level(ax), self._level(ay)) >= 0.15
-                   for which, (ax, ay) in (("left", (ABS_X, ABS_Y)), ("right", (ABS_RX, ABS_RY))))
+        return self.look_at is not None or any(self.c.get(which) in ("mouse", "look") and math.hypot(self._level(ax), self._level(ay)) >= 0.15
+                                               for which, (ax, ay) in (("left", (ABS_X, ABS_Y)), ("right", (ABS_RX, ABS_RY))))
+
+    def _look(self, x, y, mag, now=0.0):
+        """The stick pointer's place: off the middle by the push (up to speed/30 pixels of a 1920×1080 screen), and
+        the middle every other tick; the middle once more when the stick's let go."""
+        mid = SPAN // 2
+        if mag < 0.15:
+            if self.look_at is None:
+                return []
+            self.look_at = None
+            return [("abs", "ABS_X", mid), ("abs", "ABS_Y", mid)]
+        if now - self.look_t < 0.012:                       # (a move every 12 ms at most: one a frame or so)
+            return []
+        self.look_t = now
+        self.flip = not self.flip
+        if not self.flip:
+            at = (mid, mid)
+        else:
+            reach = ((min(mag, 1.0) - 0.15) / 0.85) ** 1.6 * self.speed / 30.0
+            at = (mid + int(x / mag * reach / 1920.0 * SPAN), mid + int(y / mag * reach / 1080.0 * SPAN))
+        self.look_at = at
+        return [("abs", "ABS_X", at[0]), ("abs", "ABS_Y", at[1])]
 
     def tick(self, now):
         """The mouse, moved by a stick that's its mouse: faster the further it's pushed."""
@@ -313,10 +416,17 @@ class GameMap:
         dt, self.last = (0.0 if self.last is None else min(0.1, now - self.last)), now
         out = []
         for which, (ax, ay) in (("left", (ABS_X, ABS_Y)), ("right", (ABS_RX, ABS_RY))):
-            if self.c.get(which) != "mouse":
+            kind = self.c.get(which)
+            if kind not in ("mouse", "look"):
                 continue
             x, y = self._level(ax), self._level(ay)
             mag = math.hypot(x, y)
+            if kind == "look":
+                if self.hidden():                           # playing: the camera turns
+                    out += self._look(x, y, mag, now)
+                    continue
+                if self.look_at is not None:                # into a menu: an ordinary mouse from here
+                    self.look_at = None
             if mag < 0.15:
                 continue
             step = ((min(mag, 1.0) - 0.15) / 0.85) ** 1.8 * self.speed * dt
@@ -465,6 +575,16 @@ def main():
         kb.write(ecodes.EV_KEY, code, 0)
         kb.syn()
 
+    stick = [None]                                          # an absolute pointer, for the "look" sticks
+    xcursor = XCursor()
+
+    def stick_pointer():
+        if stick[0] is None:
+            stick[0] = UInput({ecodes.EV_KEY: [ecodes.BTN_LEFT, ecodes.BTN_RIGHT],
+                               ecodes.EV_ABS: [(ecodes.ABS_X, (0, 0, SPAN, 0, 0, 0)), (ecodes.ABS_Y, (0, 0, SPAN, 0, 0, 0))],
+                               ecodes.EV_REL: [ecodes.REL_WHEEL]}, name="Sofa box stick pointer")
+        return stick[0]
+
     def pointer():
         if ptr[0] is None:
             ptr[0] = UInput({ecodes.EV_KEY: [ecodes.BTN_LEFT, ecodes.BTN_RIGHT, ecodes.BTN_MIDDLE],
@@ -480,6 +600,10 @@ def main():
             if kind == "key":
                 kb.write(ecodes.EV_KEY, code, value)
                 to.add(kb)
+            elif kind == "abs":
+                dev = stick_pointer()
+                dev.write(ecodes.EV_ABS, code, value)
+                to.add(dev)
             else:
                 dev = pointer()
                 dev.write(ecodes.EV_KEY if kind == "btn" else ecodes.EV_REL, code, value)
@@ -499,7 +623,7 @@ def main():
                 entry[0].grab()
             except OSError:
                 pass
-            entry[3] = GameMap(controls(), entry[0].name, entry[4])
+            entry[3] = GameMap(controls(), entry[0].name, entry[4], hidden=xcursor.hidden)
 
     def give_back(path):
         entry = pads[path]
@@ -531,8 +655,10 @@ def main():
                 game = g
                 home_down.clear()
                 if game:
-                    if controls() and any(v.get("left") == "mouse" or v.get("right") == "mouse" for v in [controls()]):
+                    if controls() and any(v.get("left") in ("mouse", "look") or v.get("right") in ("mouse", "look") for v in [controls()]):
                         pointer()
+                    if controls() and "look" in (controls().get("left"), controls().get("right")):
+                        stick_pointer()                     # (a new device takes a moment to be picked up)
                     for path in list(pads):
                         take(path)
                 print("Game: %s" % (game["id"] if game else "ended"), file=sys.stderr, flush=True)

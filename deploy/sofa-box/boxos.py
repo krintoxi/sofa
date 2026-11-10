@@ -15,6 +15,7 @@ import shutil
 import socket
 import struct
 import subprocess
+import sys
 import threading
 import time
 import urllib.parse
@@ -1213,12 +1214,57 @@ class Browser:
         if tab.get("session"):
             self.call("Page.navigate", {"url": url}, tab["session"])
 
+    HOME_ALIVE_JS = "!!(document.body && document.getElementById('view') && document.getElementById('view').childElementCount)"
+
     def home(self):
         target = self.tab_of("home")
         if target:
             self.activate(target)
+            threading.Thread(target=self.revive, args=(target,), daemon=True, name="home-check").start()
             return True
         return False
+
+    def alive(self, target, timeout=3):
+        """Does the tab's page answer, with something drawn? (A page that had been frozen, or let go of its memory,
+        while a game took the box sometimes came back as a white screen: its renderer gone, or never woken.)"""
+        tab = self.tabs.get(target) or {}
+        if not tab.get("session"):
+            return False
+        try:
+            return bool(self.call("Runtime.evaluate", {"expression": self.HOME_ALIVE_JS, "returnByValue": True}, tab["session"],
+                                  timeout=timeout).get("result", {}).get("value"))
+        except OSError:
+            return False
+
+    def revive(self, target, settle=1.2):
+        """Home just brought forward: if it shows nothing (a white screen), it loads again; if it doesn't answer at
+        all, a new Home takes its place. True: Home is there."""
+        time.sleep(settle)
+        if target not in self.tabs or getattr(self, "front", None) != target or self.alive(target):
+            return True
+        tab = self.tabs.get(target) or {}
+        url = tab.get("url") if "/box/home" in (tab.get("url") or "") else None
+        print("Home showed nothing: loading it again", file=sys.stderr, flush=True)
+        try:
+            if tab.get("session"):
+                self.call("Page.setWebLifecycleState", {"state": "active"}, tab["session"], timeout=3)
+                self.call("Page.reload", {}, tab["session"], timeout=5)
+                for _ in range(20):
+                    time.sleep(0.5)
+                    if self.alive(target, timeout=2):
+                        return True
+        except OSError:
+            pass
+        if not url:
+            return False
+        try:                                                   # a renderer that doesn't answer: a new Home
+            self.close(target)
+            new = self.call("Target.createTarget", {"url": url.split("#")[0] + "#/"})["targetId"]
+            self.tabs.setdefault(new, {"used": time.time(), "session": None, "audible": False}).update(app="home", url=url)
+            self.activate(new)
+            return True
+        except OSError:
+            return False
 
     def close(self, target):
         self.call("Target.closeTarget", {"targetId": target})

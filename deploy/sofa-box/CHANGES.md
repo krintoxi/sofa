@@ -7,6 +7,18 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.52
+
+- **Sofa Craft with a controller.** The right stick turns the camera now. Sofa Craft (Luanti, an X program) hides the
+  pointer and puts it back in the middle of the screen every frame, turning by how far it had gone; the box's
+  screen can't put an X program's pointer anywhere, so the camera stopped at the edge of the TV. The stick now holds
+  a pointer of its own off the middle by how far it's pushed, and back in the middle in turn: Sofa Craft reads a
+  turn each time. In its menus (the inventory, a chest: the pointer showing) the stick moves the pointer as before.
+  B sneaks (held) instead of opening the menu; Start opens the menu. Games says which button does what.
+- **Leaving a game or an app no longer ends on a white screen.** Home, brought back after a game (or from an app),
+  is checked a moment later: if it shows nothing it loads again, and if it doesn't answer at all a new Home takes
+  its place.
+
 ## 1.1.51
 
 - **The setup carries on after a restart.** On a Pi 3, joining the home Wi-Fi at the setup could restart the box,
