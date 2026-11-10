@@ -56,6 +56,6 @@ There's one of me, so there are about 400 tests, and GitHub runs them on every p
 
 ## What it isn't
 
-No Windows, no Docker image yet, no hardware transcoding on Linux, no app in any TV store, no tuner or DVR, no photos, no plugins. And it's source-available (PolyForm Noncommercial 1.0.0) rather than open source: free to use, read, change and share for noncommercial purposes, while I keep the right to sell boxes with it; versions before 1.5.4 are MIT. I wrote a comparison with Jellyfin, Plex, Emby and Kodi that tries hard to be fair: it ends with "pick Jellyfin if you need Windows, Docker or a store app", and I mean it.
+No native Windows server (Docker Desktop is the way in), a Docker image that is days old, no hardware transcoding on Linux, no app in any TV store, no tuner or DVR, no photos, no plugins. And it's source-available (PolyForm Noncommercial 1.0.0) rather than open source: free to use, read, change and share for noncommercial purposes, while I keep the right to sell boxes with it; versions before 1.5.4 are MIT. I wrote a comparison with Jellyfin, Plex, Emby and Kodi that tries hard to be fair: it ends with "pick Jellyfin if you need Windows, Docker or a store app", and I mean it.
 
 If you try it, the thing I most want to hear is what broke on your machine: https://github.com/krintoxi/sofa

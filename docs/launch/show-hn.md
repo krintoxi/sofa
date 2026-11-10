@@ -33,6 +33,6 @@ How it's built, the parts I think are interesting:
 
 The licence: PolyForm Noncommercial 1.0.0, not an OSI licence. Free to use, read, change and share for noncommercial purposes; I keep the right to sell boxes with it. Versions before 1.5.4 are MIT.
 
-What's untested, so nobody is surprised: Mac or Linux only (no Docker image yet, no Windows, no hardware transcoding on Linux); no app in any TV store (sideload, or the box); the box has run on one Pi 3 B+, mine; the Fire TV app and the Roku channel are built by CI and <STATE: run on a real device on DATE / not yet>; the DRM apps on the box <STATE>. The whole list, with what the evidence is for each line: docs/capabilities.md. A comparison with Jellyfin, Plex, Emby and Kodi that tries to be fair: docs/compare.md.
+What's untested, so nobody is surprised: Mac, Linux or Docker (the image has run on one Linux VM; no native Windows; no hardware transcoding on Linux); no app in any TV store (sideload, or the box); the box has run on one Pi 3 B+, mine; the Fire TV app and the Roku channel are built by CI and <STATE: run on a real device on DATE / not yet>; the DRM apps on the box <STATE>. The whole list, with what the evidence is for each line: docs/capabilities.md. A comparison with Jellyfin, Plex, Emby and Kodi that tries to be fair: docs/compare.md.
 
 https://github.com/krintoxi/sofa

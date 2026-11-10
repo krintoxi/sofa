@@ -34,7 +34,7 @@ What it does that I haven't seen done quite this way:
 
 There's also Sofa Box OS, a Raspberry Pi card that turns a Pi into a TV box with Sofa built in, the streaming apps, games and your phone as the remote. That part is beta: it has run on exactly one Pi 3 B+, mine.
 
-Honest limits: Mac or Linux only, no Docker image yet, no Windows, no hardware transcoding on Linux. No app in any TV store: on a TV you use its browser, sideload my Fire TV app or Roku channel (built by CI, never run on a real device by anyone who wrote it down), or use the Pi box. It's weeks old and made by one person, with about 400 automated tests doing the rest.
+Honest limits: Mac, Linux or Docker (the image is new and has run on one Linux VM so far), no native Windows, no hardware transcoding on Linux. No app in any TV store: on a TV you use its browser, sideload my Fire TV app or Roku channel (built by CI, never run on a real device by anyone who wrote it down), or use the Pi box. It's weeks old and made by one person, with about 400 automated tests doing the rest.
 
 The licence: PolyForm Noncommercial 1.0.0. Free to run, read, change and share at home; selling it, or boxes with it, needs a licence from me. That isn't open source by the OSI definition and I'm not going to pretend otherwise; I chose it so I can sell pre-built boxes without someone else selling "Sofa" boxes first. If that's a dealbreaker, fair enough, and Jellyfin is excellent.
 
