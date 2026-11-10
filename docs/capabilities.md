@@ -1,0 +1,182 @@
+# What Sofa can do today
+
+For a person deciding whether Sofa is for them. Written on 2026-11-10 against **Sofa 1.5.3** and **Sofa Box OS
+1.1.58**, from the code and the tests in this repository, not from plans. Three words come up a lot:
+
+- **Works:** we have seen it do this, on a computer or on the one Raspberry Pi we test on, or a test in `tests/` proves it.
+- **Beta:** it's built and it passes its tests, but nobody has watched it work where it's meant to work (a real TV, a
+  real Fire TV stick, a real SD card).
+- **Untested on hardware:** the code exists for it, and no real device has run it yet.
+
+The short version: **the Sofa server and its web app are solid on a Mac or Linux computer. The Sofa Box runs on one
+Raspberry Pi 3 B+ in the owner's living room and nowhere else yet. The Fire TV app, the Roku channel and the Mac card
+writer are built by GitHub and have not been run on a real device by anyone who wrote it down.** The table at the end
+says what was tested on which hardware, by whom, and when. Other boards, PCs and virtual machines are in
+[hardware.md](hardware.md).
+
+Sofa is source-available software from [EdgeVenture](https://edgeventure.uk), made by one person with a lot of help
+from automated tests. There is no company behind it and no support line: problems go to
+[GitHub issues](https://github.com/krintoxi/sofa/issues).
+
+## Sofa, the server
+
+A program on a computer that stays on (a Mac, or Linux). It keeps your shows, movies and music, serves the web app to
+every screen at home, converts what a device can't play, and holds everyone's accounts. Python's standard library
+and ffmpeg, nothing else to install. Windows isn't supported.
+
+| What | Status | Where it lives, and the evidence |
+|---|---|---|
+| **The library.** Drop files in an Inbox; Sofa names them, files them into `Shows/` and `Movies/`, reads `.nfo` files and posters that came along, and sends what it can't identify to Needs Review. Nothing is deleted. | Works | `sofa/organizer.py`, `sofa/naming.py`, `sofa/library.py`; `tests/test_inbox.py`, `test_naming.py`, `test_fileops.py`. Seen with a demo library while writing this page. |
+| **Artwork and details** from TVmaze (shows), the iTunes Store and Wikipedia (movies), or TMDB with your own key; a still from the video when nothing is found. | Works | `sofa/metadata.py`, `sofa/artwork.py`. Needs the internet for the lookups; works offline with stills. |
+| **Any file plays.** MP4 as it is; MKV repackaged; HEVC, 10-bit, old codecs and DTS converted as they play, and converted to MP4 in the background for next time. | Works | `sofa/media.py`, `sofa/optimize.py`; `tests/test_playback.py` runs real ffmpeg. Hardware encoding is checked on each Mac first (`sofa/machine.py`). |
+| **The player:** Skip Intro / Recap / Credits, Next episode, scrubbing pictures, subtitle and sound choice, Night mode, sleep timer, picture-in-picture, speed, subtitle timing. | Works | `client/app.js`; intros from chapters or by listening to neighbouring episodes (`sofa/intros.py`, needs ffmpeg's chromaprint). Night mode isn't offered on iPhone or iPad. |
+| **Trailers and previews** with sound, a banner that plays on Home. | Works | `sofa/previews.py`, `sofa/trickplay.py`. Off by default on a Sofa Box on a Pi 3 (Sofa 1.5.1): they're videos the browser draws itself. |
+| **Profiles, Kids profiles, PINs, guests.** Who's watching on the TV; Kids see family titles only; profiles that run the server or see Adult are locked with a PIN; guests on the home Wi-Fi watch by QR code. | Works | `sofa/auth.py`, `sofa/kids.py`; `tests/test_access.py` (PIN and password limits, Kids reach family titles only, a paired TV switches profile only with its PIN). |
+| **Sign in on the TV with your phone** (a code, or a QR code). | Works | `sofa/pairing.py`; `tests/test_server.py::test_pairing_gives_an_app_a_token`. This is how the TV apps and the box sign in. |
+| **Your phone is the remote** for any screen that has Sofa open: play there, pause, skip, scrub, next episode. Through the server only, at home. | Works | `/api/screen/*` in `sofa/web.py`; `tests/test_server.py::test_phone_remote`. |
+| **Music:** albums, artists, stations by genre and mood, likes, a queue. | Works | `sofa/music.py`, the Music page in `client/app.js`. Smaller than the video side: no lyrics, no playlists of your own. |
+| **Live TV** from M3U channel lists you add (the iptv-org community lists are one press each). A new Sofa comes with **no** lists. | Works | `sofa/live.py`; `tests/test_live.py`. Channels from the internet can never be steered into your home network (tests prove it). |
+| **Classic Cinema:** free classic films, film noir, westerns, silents, cartoons, classic TV and documentaries from a public film archive on the internet, played like channels on a clock, with a guide. | Works | `sofa/archive.py`; `tests/test_archive.py` (one playable film each, nothing unsuitable, on the clock, the guide). The films stream straight from the archive to the screen. |
+| **Retro TV's decades** (the 50s to 2009–2012: whole broadcasts as recorded, commercials and all). | Works, **off by default** | Since Sofa 1.5.0 they're switched off until an admin turns them on for their own household (Server → Live TV), and the public library's visitors never get them: nobody has cleared their rights (`tests/test_archive.py::test_the_decades_are_opt_in_and_never_for_visitors`). |
+| **The public library.** Share picked titles (or everything but Adult) with a link; visitors see only those, can only watch, from anywhere. Live TV lists and Classic Cinema are shared only when you say so. Visitors get an About page with your copyright contact. | Works | `sofa/sharing.py`; `tests/test_server.py::Sharing` (visitors at home and from the internet, a tunnel Sofa wasn't told about counts as the internet, the decades never reach visitors). |
+| **Away from home:** HTTPS with a free Let's Encrypt certificate for your own domain or a free DuckDNS name, the router asked over UPnP, **Check from outside**. Over the internet Sofa answers only over HTTPS and only signed in. | Works (Beta on real routers) | `sofa/tls.py`, `sofa/acme.py`, `sofa/ddns.py`, `sofa/upnp.py`, `sofa/outside.py`; `tests/test_https.py` gets a certificate from Let's Encrypt's own test server (Pebble) in CI. Real routers vary; the page says what to do when one won't. [remote-access.md](remote-access.md) |
+| **Other drives:** a flash drive or SSD joins the one library; move titles between drives. | Works | `sofa/places.py`; `tests/test_drives.py`. |
+| **Download for a trip:** a file as it is, or a 720p travel copy made in the background. | Works | `sofa/travel.py`. |
+| **Save from a link** (YouTube, Vimeo and the sites yt-dlp knows). | Works | `sofa/store.py` and the Downloads tab; needs yt-dlp, which Sofa offers to install. |
+| **TVs that list media servers** (Roku Media Player, VLC, many smart TVs) see Sofa over DLNA. | Works, plain | `sofa/dlna.py`. No sign-in, no Skip Intro, no Adult that way. |
+| **Updates:** Server → Updates → Update now. The new version is started once on the side before it replaces the old; a version that stops three times in its first minute and a half is undone by itself. | Works | `sofa/updater.py`, `tools/update.sh`; `tests/test_server.py::test_updates_bring_every_part_of_sofa`. [updating.md](updating.md) |
+| **Backups** of accounts, watch history and settings, nightly, three kept. | Works | `sofa/backup.py`; `python3 sofa.py backup` and `restore`. Your media isn't backed up by Sofa. |
+| **Privacy switches:** Keep no logs, Wipe all logs, Work offline. | Works | `tests/test_server.py::test_no_logs_and_wipe`. [privacy.md](privacy.md) |
+| **Power cuts.** Settings are written whole or not at all; a config file cut off half way is kept aside instead of stopping Sofa. | Works | `tests/test_durability.py`. |
+| Subtitle downloads, watch-together, photos, TV recording (HDHomeRun), a Docker image, Plex or Jellyfin history import | **Not built** | On the list in [HANDOFF.md](HANDOFF.md); nothing in the code yet. |
+
+**The Adult section** exists (its own front page, categories from your folders, a PIN, never shown to guests, TVs or
+visitors). It's documented in [adult.md](adult.md) and not on this page.
+
+## Sofa on TVs
+
+The Sofa app is a web page the server serves. On a TV it switches to TV mode (big focus ring, the whole menu on one
+screen, the remote works like Netflix's).
+
+| Screen | Status | What it is, and what we know |
+|---|---|---|
+| **Any TV with a browser** (Fire TV's Silk, a smart TV's browser) | **Beta** | TV mode in `client/app.js`, written for Silk on a Fire TV (the guide's screenshots are of it). Which real TV browsers it has run on isn't recorded in this repository; on the Sofa Box, which is a browser on a TV, it's used every day. |
+| **Fire TV app** (`android/`): Sofa's TV pages in a WebView, videos in Android's own player (ExoPlayer), so MKV, HEVC and Dolby sound play as they are. Installed from Silk in one press over ADB, kept and updated by your Sofa server. | **Beta** | GitHub builds it (`.github/workflows/android.yml`; the newest is build 17, 2026-11-08, Fire OS 5 and newer). The install over ADB is tested against a stand-in Fire TV (`tests/test_firetv_install.py`). **No run on a real Fire TV stick is recorded in this repository.** Its signing key is in the repository on purpose, so anyone can build an update that installs over it: install only from your own Sofa or this repository's releases. |
+| **Roku channel** (`roku/`): Continue watching, Shows, Movies, episodes by season, Roku's own player; HEVC on Rokus that decode it. Sideloaded (developer mode), served by your Sofa as `/roku.zip`. | **Beta** | Syntax-checked by GitHub on every change (`roku.yml`, brighterscript). The channel download and "a Sofa without it says so" are tested (`tests/test_server.py`). **No run on a real Roku is recorded.** Not in Roku's store. |
+| **Sofa Box OS** (a Raspberry Pi) | Works on a Pi 3 B+; see below | The Sofa app built in, with the box's own player. |
+| Apple TV, Android TV / Google TV, Samsung, LG, webOS, Tizen apps | **Not built** | A smart TV's browser is the way in today; Google TV is on the later list. |
+| Phones, tablets, laptops | Works | The web app, with bottom tabs on a phone and an install prompt (Add to Home Screen). AirPlay button in Safari. |
+
+## Sofa Box OS
+
+A whole TV box on a Raspberry Pi: its own home screen, Sofa built in, free Live TV, streaming apps in a kiosk
+browser, an app store, a browser with ad blocking, games, phone-as-remote. It's Raspberry Pi OS Lite (64-bit,
+Trixie) with one Chromium in `cage` and mpv for every video, steered by a Python agent
+([sofa-box-os.md](sofa-box-os.md) has the design). **It has only ever run on one Raspberry Pi 3 Model B+.** The Pi 4
+and Pi 5 are supported by the code (board detection, 4K, HEVC paths, more apps open) and have never been tried.
+
+| What | Status | Where it lives, and the evidence |
+|---|---|---|
+| **Boots to its own setup** on a fresh card: a QR code for the phone, a Fire TV remote that pairs by holding Home, or a keyboard. | Works on the Pi 3 B+ | Every setup fix in [the changelog](../deploy/sofa-box/CHANGES.md) from 1.0.1 to 1.1.51 came from the owner setting up a real box with an iPhone and a Fire TV remote. `tests/test_box_setup_remote.py`. |
+| **The box's own Wi-Fi** when there's no cable: the phone joins it, gives the box the home Wi-Fi, and the box joins that. On a Pi 3 the join can restart the box; since 1.1.51 the setup carries on after it. | Works on the Pi 3 B+, with that restart | 1.1.2 to 1.1.6, 1.1.12, 1.1.51 in the changelog; `tests/test_sofa_box.py::BoxNetwork`. |
+| **The phone remote:** a web page the box serves, nothing to install; pad, keyboard, touchpad, Wi-Fi. A secure (https) address through the Sofa Box service's relay works at home or away. | Works (iPhone) | `deploy/sofa-box/remote.html`, the relay in `deploy/box-certs/`; `tests/test_sofa_box.py::test_the_remote_through_the_relay`, `test_box_setup_remote.py::RemoteSpeed`. Tried on the owner's iPhone; **no Android phone has been tried**. |
+| **Home screen:** the time, a hello, Resume, Open Sofa, Live TV, the weather (MET Norway), rows of apps, Open now, type to search. | Works | `deploy/sofa-box/home/`; `tests/test_sofa_box.py::BoxOS`, `BoxBrowser` (a real headless Chromium), `test_box_speed.py`. The screenshot in the README is this page served on a Mac. On the Pi 3 the owner's reports measured key presses; 1.1.57 made them quicker, not yet measured on the Pi. |
+| **Sofa built in:** your Sofa at home (found on the network), a share link, **Sofa on the box itself** (no server: Live TV, USB drives), or Jellyfin, Emby and Plex as web apps with the Sofa bar. | Works (own Sofa, box's own Sofa); **Beta** (Jellyfin, Emby, Plex) | `deploy/sofa-box/boxservers.py`; `tests/test_sofa_box.py::test_each_server_at_its_own_address`, `test_a_share_link_through_the_box`, `ThisBoxDefaults`. Finding Jellyfin, Emby or Plex on a real network hasn't been tried. |
+| **One player for every video** (mpv on the Pi's video chip) with the box's own screen: start card, time line, Skip intro, options, volume, Live TV banner, everything inside the part of the picture every TV shows. Big skips in converted video since 1.1.54. | Works in tests with real mpv; on the Pi since 1.1.53 **Beta** | `deploy/sofa-box/sofa-player.lua`; `tests/test_sofa_box.py::PlayerScreen` (runs real mpv in CI). The owner's last Pi card before this player was 1.1.49. |
+| **What the Pi 3 plays as it is:** H.264 up to 1080p, AAC, AC-3, E-AC-3. HEVC and anything above 1080p is converted by the Sofa server. A Pi 4 or 5 is told it plays HEVC and 4K. | Works (Pi 3); **Untested** (Pi 4, 5) | `sofa-box-agent.py`: `slow_board()`, `caps()`, `max_height()`; `tests/test_playback.py::Capabilities`. |
+| **Free Live TV** with no server: Classic Cinema from the start; channel lists only when you add them. Up and down change the channel in the player. | Works | `ThisBoxDefaults::test_a_new_box_brings_no_channel_lists`; the player's Live TV path in `PlayerScreen`. |
+| **Streaming apps** (the App Store: Netflix, YouTube, Disney+, Prime Video, Max, Hulu, Spotify, Pluto TV and about fifty more) open full screen as tabs of the one Chromium; the Sofa bar on Menu; Home brings you back; music keeps playing behind. | Works (YouTube on the Pi 3); **Untested** (the rest) | `deploy/sofa-box/store.json`, `boxos.py`; `BoxBrowser::test_apps_as_tabs`. YouTube was watched on the Pi 3 (1.1.6: it's told to send H.264). |
+| **DRM apps** (Netflix, Disney+, Prime Video, Max, Spotify…): Widevine comes from Raspberry Pi OS's `libwidevinecdm0` where it exists. | On the card; **Untested on hardware** | `install.sh` line 57 installs it when apt has it, and the 1.1.58 card's build report lists `libwidevinecdm0 4.10.2662.3`, so it is on the card. **Nobody has opened any of these services on any Pi and written down what played.** Linux browsers generally get at most 1080p from such services, often less, and a service may refuse the box's browser. On a Pi 3 their picture is smaller. Don't buy a Pi for Netflix on the strength of this page. |
+| **Browser** with the Sofa bar (Home, Back, Reload, the address, Add to Home, Close); downloads go to Files. | Works | `BoxBrowser`. No list of open tabs inside the browser (Home's "Open now" does it). |
+| **Sofa Shield:** StevenBlack's hosts list for the whole box, refreshed weekly; a switch in Settings. It blocks by site name, so ads served from the same site as the video still show. | Works | `tests/test_sofa_box.py::SofaShield`; `sofa-box shield on|off|update`. |
+| **Games, the box's own** (thirteen page games: Gloamwell, Cinder Knight, Ironmaw, Tidewing, Micro Drifters, Neon Brawler, Shadow Heist, Rune Tactics, Void Drifter, Cosmic Cascade and three small ones), offline, with the controller from the start, two to four players in several. | Works in a browser; on the Pi 3 **Beta** | `deploy/sofa-box/games/`; `tests/test_box_games.py` and `BoxBrowser::test_*_plays` play each one in headless Chromium. The engines pick a lighter look on a Pi 3; the owner's Pi has not run a card with the games check (1.1.39 and later) yet. Each game's page says it sheds effects on a Pi 3; nobody has measured frames on the Pi. |
+| **Native games** installed on request from Raspberry Pi OS's archive: SuperTux, Flare, Neverball, Battle for Wesnoth, OpenTTD, AssaultCube, Sauerbraten; SuperTuxKart on a Pi 4 or 5. The box works the controller for games that don't read it. | **Untested on hardware** | `games.json`, `tests/test_box_games.py::Agent` (a fake apt). AssaultCube's and Sauerbraten's data isn't free software and is never on a card (a test and the build both check). |
+| **Sofa Craft, powered by Luanti** (Luanti with Minetest Game), on every card from 1.1.18; the right stick turns the camera since 1.1.52. | On the card; **Untested on hardware** | `tests/test_sofa_craft_controls.py`. It's an X program under XWayland; a Pi 3 shows less of the world. |
+| **Controllers:** Xbox, PlayStation, 8BitDo and generic USB pads, over Bluetooth or USB, as a remote everywhere and as the game's controller in games. | Works (an Xbox controller on the Pi 3) | `deploy/sofa-box/sofa-box-input.py`; `tests/test_sofa_box.py::Controllers`, `test_box_games.py::ThePads`. |
+| **Bluetooth remotes** (a Fire TV remote pairs by itself during the setup; others in pairing mode). | Works (Fire TV remote on the Pi 3) | `tests/test_box_bluetooth.py`; 1.1.9 in the changelog came from the Pi. |
+| **The TV's own remote over HDMI-CEC** (arrows, OK, Back, play, numbers, Home on Root Menu). | **Untested on hardware** | `deploy/sofa-box/sofa-box-cec.py` (cec-ctl); `tests/test_sofa_box.py::TvRemote` checks the key map only. The owner's TV remote is lost, so CEC has never been pressed on the Pi. |
+| **Keyboard and mouse** (a 2.4 GHz set's dongle): arrows, Enter, Esc, a pointer that hides. | Works | Plain USB input; the setup's "A keyboard" path. |
+| **USB drives** mount by themselves (udisks2), show on Home and in Files, and Sofa on the box sorts their shows and movies with links, touching nothing on the drive. | Works in tests; **Untested on hardware** | `tests/test_drives.py`, `sofa/places.py`, the agent's `Drives`. `docs/sofa-box-product.md` lists a real USB drive as still to try, and it still is. |
+| **DVD, Blu-ray and music CD** in a USB drive: a Disc tile, mpv plays `dvd://`, `bd://`, `cdda://`; DVD menus with the arrows. Copy-protected discs need software that isn't on the card. | **Untested on hardware** | `/box/api/disc/play` in the agent. No disc drive has been plugged into the Pi. |
+| **Settings on the TV:** themes (Street, Terminal, Pirate, Sofa) for Home and the boot screen, picture (Automatic, 1080p, 720p), sound (TV or AV receiver), Wi-Fi, Remotes and Bluetooth, Weather, time zone, Sofa Shield, Software, Reset to how it came, Send a report. | Works | `home.js` Settings; the boot screen is Plymouth (`sofa-box-art.py`), checked in real Plymouth under Xvfb. |
+| **Send a report:** the box's checks and logs go to the Sofa Box service; the TV shows a code. Titles left out, addresses cut short, passwords blanked. | Works on the Pi 3 | `tests/test_sofa_box.py::test_sending_a_report`; the owner's reports from 1.1.34 and 1.1.49 are what the speed work was measured against. |
+| **Home says when the Pi is short of power or hot** (1.1.56). | Works in tests; **Untested on hardware** | `tests/test_box_first_boot.py`. The flags themselves were seen in the owner's 1.1.34 report (the Pi had got hot). |
+| **Updates** from Settings → Software: **Stable** (the default) installs exactly the version named in `deploy/sofa-box/STABLE`; **Testing** takes main's newest. Weekly updates at night, Stable only, off until switched on. | Works in tests; **no stable version exists yet** | `tests/test_box_channel.py` (34 tests, a fake GitHub). `STABLE` says `none`, so a box on Stable is offered nothing until the owner marks a version after their own Pi test. Boxes before 1.1.55 take main's newest on their next update, then follow Stable. |
+| **Sofa on this box, from anywhere:** the box's own Sofa opened to the internet from the TV (DuckDNS or your domain, UPnP, Let's Encrypt, a check from outside). | Works in tests; **Untested on hardware** | `tests/test_outside.py::ThisBox`. |
+| **Credits and licences** (every package and game, its licence and source) and **Your TV's own tracking** (per brand, from the makers' own pages). | Works | `home/credits.json`, `home/tv-tracking.json`; `tests/test_box_credits.py` checks the credits against `install.sh` and the games list. |
+| **Raspberry Pi Imager's settings** (a user, Wi-Fi, SSH typed into Imager 1.8 or 1.9) no longer stop the TV screen (1.1.56). | Works in a container; **Untested on a Pi** | `tests/test_box_first_boot.py`; the fix was proved by booting the card's root file system in a Linux container on a Mac, both Imager formats. Imager 2 writes nothing for this card. |
+| **4K** (a Pi 4 or 5 on a 4K TV), **HEVC as it is**, up to six apps open on 8 GB | **Untested** | `max_height()` and `tier()` in the agent. No Pi 4 or 5 has run the box. |
+| Android apps, native (non-web) apps besides the games, a front panel on a small screen | **Not built** | "Not doing (for now)" in [sofa-box-os.md](sofa-box-os.md). |
+
+**Versions.** Sofa and Sofa Box OS count separately (Sofa 1.5.3 and Sofa Box OS 1.1.58 today). The box shows its
+version on its boot screen and in Settings; Sofa's is on Server → Updates. Each box version has its own release
+(`releases?q=box-os`) and [changelog section](../deploy/sofa-box/CHANGES.md).
+
+## Getting a card
+
+| Way | Status | Notes |
+|---|---|---|
+| **Download the card** (`sofa-box.img.xz`, the testing card; `sofa-box-stable.img.xz` once one is marked) and write it with Raspberry Pi Imager's **Use custom**, or balenaEtcher, or `dd`. | Works | This is how every card so far reached the owner's Pi 3 B+: written with Raspberry Pi Imager on a Mac, Imager's settings skipped. The stable release page says **no stable card yet** until the owner has tested one. |
+| **The Sofa Box list** for Raspberry Pi Imager 2 (`sofa-box.rpi-imager-manifest`, double-click it): Sofa Box OS by name, Imager checks every byte. | **Beta** | Built from the releases by `tools/sofa-box-imager-list.py` (20 tests) and checked against Imager's own schema in CI. Opening it in a real Imager on a Mac or Windows PC hasn't been done by us ([raspberry-pi-imager.md](raspberry-pi-imager.md)). |
+| **Sofa Box Imager for Mac** (`imager/`): pick the version and the card, it downloads, writes, reads back and ejects. | **Beta: it has never written a real SD card** | 83 Swift tests, a real 1.1.54 card written to a disk image and read back. Unsigned, so macOS asks you to allow it. Its own [README](../imager/README.md) lists the ten things only a real Mac with a real card can confirm. No Windows version. |
+| **One line on a Pi that already has Raspberry Pi OS** (`install.sh`). | Works on Raspberry Pi OS; **Beta** on other Debians | The ready-made card is built with this same script in a chroot. A desktop system is switched off so Sofa can have the screen. |
+| **A card built with Raspberry Pi's `rpi-image-gen`** (`tools/image-gen/`): half the size, no cloud-init. | **Prototype, not released** | Builds on GitHub by hand (`sofa-box-image-gen.yml`); fixed in a container; stalls in QEMU like every Pi card; never on a Pi. |
+
+## Privacy: what the code does
+
+Only what can be pointed to.
+
+- **No accounts with anyone.** Sofa's accounts live in your Sofa's own database (`sofa/auth.py`); the box has none at
+  all. Nothing phones home with who you are.
+- **No tracking of its own.** Neither Sofa nor the box counts what you do or sends it anywhere. There is no analytics
+  code in `sofa/`, `client/` or `deploy/sofa-box/`. The box's Chromium is told by policy not to sign in, sync, send
+  statistics, translate or save passwords (`/etc/chromium/policies/managed/sofa-box.json`, written by `install.sh`).
+  Its Safe Browsing list still updates, like any browser's, unless you turn it off there.
+- **What does use the internet** is listed, with the switch for each, in [privacy.md](privacy.md): lookups for
+  artwork, update checks, the channel lists and channels you choose, the weather on the box's Home, the secure phone
+  remote's relay, and Send a report. Work offline turns Sofa's share of it off.
+- **Live TV goes where it goes.** Its channels are on the internet. Away from home, and for every visitor, a channel
+  plays straight from where it's streamed, never through your Sofa (`tests/test_server.py::test_live_tv_away_from_home_comes_straight_from_the_channel`).
+- **Sofa Shield** blocks known ad and tracker sites by name, for the whole box, from StevenBlack's list. It isn't an
+  ad blocker inside pages: ads served by the same site as the video still show. It's off when you switch it off.
+- **The secure phone remote** passes your taps through the Sofa Box service (`boxcert.edgeventure.uk`, run by
+  EdgeVenture). The service's code is in `deploy/box-certs/`; its log holds the time, the address and the size of
+  each request, not what was in it, and nothing is kept. Settings → Remotes and Bluetooth switches it off.
+- **Send a report** sends only when you press it, and the box keeps a copy you can read
+  (`~/.config/sofa-box/last-report.txt`). Titles are left out, web addresses are cut to the site, passwords and codes
+  are blanked. An app's own error messages go as the app wrote them.
+- **Your TV's own tracking** (ACR) is the TV's, not the box's. The box can't switch it off; Settings → Help says
+  where each maker put the switch. A box needs the TV to have no network at all.
+- **What we can't promise:** what the streaming apps you open do, as on any TV; and anything about hardware we haven't
+  run.
+
+## Tested on
+
+"The owner" is one person with one Raspberry Pi 3 Model B+, an Xbox controller, an iPhone, a Fire TV remote, a
+Panasonic TV (its own remote lost) and a 2011 iMac that runs the Sofa server. GitHub's machines run the test suite on
+every push (Ubuntu, Python 3.9 and 3.12, with real ffmpeg, mpv, Chrome and Let's Encrypt's test server) and build
+every card, app and channel. A "container boot" is the card's root file system started with systemd inside a Linux
+container on a Mac: it proves the first start's services and files, not the TV, Wi-Fi, Bluetooth or video.
+
+| Platform | Last version tested | When | By whom | What passed, and what didn't |
+|---|---|---|---|---|
+| **Raspberry Pi 3 Model B+** (1 GB) | Sofa Box OS **1.1.49** (the newest card the owner has booted; 1.1.50 to 1.1.58 have not been on a Pi) | 2026-11-09/10 (1.1.49); a written pass of 1.1.38 began 2026-11-08 | the owner | Boots to the setup; setup by iPhone (QR code, the box's own Wi-Fi, joining the home Wi-Fi) and by Fire TV remote; the phone remote; Sofa from the iMac; YouTube; the Xbox controller; Send a report (reports from 1.1.34 and 1.1.49 are on file). Seen and fixed along the way: the setup's spinner (1.0.1), iPhone joining the hotspot (1.0.1, 1.0.2), apps in a small square (1.1.4), Bluetooth not showing (1.1.9), a restart while joining Wi-Fi (1.1.51). Measured: 17 of 31 presses on Home slower than 0.1 s on 1.1.34, and the Pi had got hot. Not yet on this Pi: the one TV player (1.1.53), the stable channel (1.1.55), the Imager-settings fix (1.1.56), the speed work (1.1.57), the games check, any DRM app, USB drives, discs, CEC. |
+| **Raspberry Pi 4** | never tried | — | nobody | The code detects it and would use HEVC, more apps and 4K. Nothing on this page about a Pi 4 has been seen. |
+| **Raspberry Pi 5** | never tried | — | nobody | As above. The Pi 5 has no H.264 decoder: 1080p H.264 would be decoded by its processor. |
+| **Raspberry Pi Zero 2 W, Compute Modules** | never tried | — | nobody | Detected as a small board by the code; nothing more. |
+| **Fire TV stick** (Sofa in Silk) | not recorded | — | not recorded | The guide and its screenshots were written for Silk; no dated run on a real stick is on record. |
+| **Fire TV stick** (the Sofa app) | build 17 (2026-11-08) built by GitHub | — | nobody recorded | The install over ADB passes against a stand-in Fire TV in the tests. No real stick is on record. Fire OS 8 (Vega) sticks can't sideload it at all. |
+| **Roku** | channel 1.1 (Sofa 1.4.3) built and syntax-checked by GitHub | — | nobody | No real Roku is on record. |
+| **iPhone as the box's remote** | Sofa Box OS 1.1.49 | 2026-11-10 | the owner | The setup assistant, the remote, the keyboard, Wi-Fi; Safari's "Not Secure Connection Warning" handled by the relay. |
+| **Android phone as the box's remote** | never tried | — | nobody | The page is plain HTML and should work; nobody has held one. |
+| **Mac, for the Sofa Box Imager** | 0.1.0 | 2026-11-10 | the tests, on one Mac (macOS 27, Apple silicon) and GitHub's Macs (macOS 15 and 26, Intel and Apple silicon) | 83 tests; a real card written to a disk image. **Never a real SD card.** |
+| **Mac, for the Sofa server** | Sofa 1.5.0 or later (the owner's 2011 iMac, macOS Ventura, the server the Pi plays from); 1.5.3 (this page's screenshots, macOS 27) | 2026-11-08; 2026-11-10 | the owner; the person writing this | Daily use on the iMac: the library, the web app, the box playing from it. The 2011 iMac converts HEVC slowly; Gentle mode is for it. |
+| **Linux, for the Sofa server** | Sofa 1.5.3 | every push | GitHub (Ubuntu, Python 3.9 and 3.12) | The full test suite, including real ffmpeg conversions, real mpv for the box's player and a real Let's Encrypt test server. **No one has recorded running Sofa as a daily server on Linux**; `deploy/linux/sofa.service` exists. |
+| **The box in a container** (its root file system under systemd, no TV) | Sofa Box OS 1.1.54 and the 1.1.56 card | 2026-11-10 | a session on the owner's Mac (Colima VM) | First start with and without Raspberry Pi Imager's settings: the 1.1.54 card lands on a text login with any Imager user; the 1.1.56 card reaches the TV's service both ways and keeps Sofa Shield. |
+| **The box in QEMU** | 1.1.54 | 2026-11-10 | a session on the owner's Mac | Stalls after local file systems on QEMU's Pi 3 model, both today's card and the `rpi-image-gen` one. Not a way to test the box. |
+| **PC or VM** (x86-64) | never | — | nobody | The installer is written for a Pi. [hardware.md](hardware.md) covers what a PC or VM would take. |
+| **Windows**, for anything | never | — | nobody | The server doesn't support Windows; the card writer is Mac only; Raspberry Pi Imager on Windows is the way to write a card. |
+
+If you run Sofa or a Sofa Box on something not in this table, a hardware report
+([new issue → Hardware report](https://github.com/krintoxi/sofa/issues/new/choose)) is the most useful thing you can
+send: the box's **Send a report** code, the board, the TV, and what did and didn't work.

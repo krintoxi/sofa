@@ -16,7 +16,7 @@ itself never needs to be online, and if yours is, **Settings → Help** shows ho
 on a real box) · [The newest card](https://github.com/krintoxi/sofa/releases/tag/sofa-box) (testing) ·
 [Every version](https://github.com/krintoxi/sofa/releases?q=box-os) · [What's new](CHANGES.md)
 
-<img src="../../docs/images/box-home.jpg" alt="The Sofa Box home screen: the time and a hello, Open Sofa and Live TV, the weather, and a Watch row with Sofa, Live TV and YouTube" width="100%">
+<img src="../../docs/images/box-home.jpg" alt="The Sofa Box home screen: the time and a hello, Open Sofa and Live TV, the weather, and a Watch row with Sofa, Live TV, Netflix and YouTube" width="100%">
 
 - **Sofa from anywhere:** your Sofa Server at home, a Sofa Server on the internet (a share link someone
   sent you), **Sofa on the box itself** (no other computer needed), or your Jellyfin, Emby or Plex server.
@@ -36,7 +36,8 @@ on a real box) · [The newest card](https://github.com/krintoxi/sofa/releases/ta
 ## What you need
 
 - A **Raspberry Pi 3 Model B+**, 4 or 5, and its power supply. A Pi 3 needs the proper 2.5 A
-  supply: a phone charger makes it slow down and stutter.
+  supply: a phone charger makes it slow down and stutter. Only the 3 B+ has run the box so far; the code knows
+  the 4 and the 5, and nobody has tried one yet ([what's been tested on what](../../docs/capabilities.md#tested-on)).
 - A **microSD card**, 8 GB or more (a 32 GB card is plenty).
 - An **HDMI cable** to the TV (micro-HDMI on a Pi 4/5), and if you can, a **network cable** to the
   router (better for video than Wi-Fi).
@@ -97,7 +98,7 @@ From then on the box starts on its home screen whenever it's switched on.
   the one marked "(stable)" is the stable card ([Stable and testing](#stable-and-testing)).
 - In Imager, choose your Pi, then **Choose OS → Use custom** and pick the file, then your card.
 - Imager 2 offers no **OS customisation** for a card picked this way. An older Imager (1.8 or 1.9) asks,
-  and since Sofa Box OS 1.1.56 its settings are all fine: a user name and password (for SSH), your Wi-Fi
+  and since Sofa Box OS 1.1.56 its settings are all fine (proved by starting the card in a container, not yet on a Pi): a user name and password (for SSH), your Wi-Fi
   (the box joins it by itself), SSH, the time zone and the keyboard. The box still starts into its own
   setup on the TV.
 
@@ -325,7 +326,7 @@ called, and nothing on the drive is moved, renamed or changed
 ([docs/storage.md](../../docs/storage.md#a-usb-drive-sorted-for-you-sofa-on-a-sofa-box)).
 
 A **DVD, Blu-ray or music CD** in a USB disc drive shows on Home too: OK plays it (DVD menus work with
-the arrows and OK). Store-bought DVDs and Blu-rays are usually copy-protected; the box doesn't come
+the arrows and OK). Discs and USB drives haven't been plugged into a real box yet: this is what the code does. Store-bought DVDs and Blu-rays are usually copy-protected; the box doesn't come
 with the extra software some of them need, so those may not play. A Pi 3 may need a powered USB hub
 for a disc drive.
 
@@ -338,8 +339,9 @@ the first time, as on any TV. **Any website** at the bottom puts any address on 
 its own icon (the box fetches it from the app's site the first time you open the store).
 
 Apps marked **DRM** (Netflix, Disney+, Prime Video, Max, Spotify…) use copy protection, which the box
-has (Widevine). On a Pi 3 their picture may be smaller than on a Fire TV, and a service can refuse
-to play in the box's browser; a Pi 4 or 5 does better.
+has (Widevine, on the card). On a Pi 3 their picture may be smaller than on a Fire TV, and a service can refuse
+to play in the box's browser; a Pi 4 or 5 should do better. Nobody has yet opened these apps on a box and written
+down what played: if you do, send a [hardware report](https://github.com/krintoxi/sofa/issues/new/choose).
 
 ### The browser and the Sofa bar
 
@@ -554,7 +556,7 @@ A 2.4 GHz keyboard-and-mouse set works as soon as its dongle is in. The arrows, 
 **Esc** or **Backspace** (Back) work everywhere; the pointer appears when the mouse moves and hides
 when it's still; right-click on an app is its **Menu**.
 
-**The TV's remote:** turn CEC on in the TV's settings. On a Panasonic (like the TC-60AS530U):
+**The TV's remote** (not yet tried on a real TV: the owner's TV remote is lost): turn CEC on in the TV's settings. On a Panasonic (like the TC-60AS530U):
 **Menu → Setup → VIERA Link Settings → VIERA Link: On**. Samsung calls it Anynet+, LG SimpLink,
 Sony Bravia Sync. Then, with the TV showing the box: arrows move, **OK** opens and plays (and
 skips an intro when Skip Intro shows), **Return/Back** goes back, ▶ ‖ plays and pauses, ◀◀ ▶▶
@@ -609,9 +611,11 @@ Module), how much memory it has, and the TV's picture:
 | Picture | 1080p | 4K when the TV is 4K |
 
 Settings → Picture and sound → **Performance** can say Light or Full instead of Automatic. If 1080p
-drops frames, the box asks for 720p by itself.
+drops frames, the box asks for 720p by itself. The Pi 4 and Pi 5 columns are what the code does; no Pi 4 or 5 has
+run the box yet.
 
-**Made for small boards.** The box runs well on a Raspberry Pi 3 B+ (1 GB). Whatever's on the TV gets
+**Made for small boards.** The box is made to run on a Raspberry Pi 3 B+ (1 GB), the one board it has run on; the
+owner's reports still showed slow presses on Home up to 1.1.49, which 1.1.57 works on. Whatever's on the TV gets
 the box first:
 
 - **Apps behind the one in front are frozen**, so they use no processor. Anything playing music keeps

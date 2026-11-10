@@ -40,10 +40,10 @@ and sites you open on it:
 
 | What | Talks to | Switch it off |
 |---|---|---|
-| Is a newer Sofa Box OS out? | GitHub, once a day (reads one small file) | — |
+| Is a newer Sofa Box OS out? | GitHub, once a day (reads two small files: the newest version and the stable one, and checks the stable version's release exists) | — |
 | Featured public Sofas | GitHub, once a day | — |
 | Sofa Shield's blocklist | GitHub (StevenBlack's list), once a week | Settings → Sofa Shield |
-| Update the box | GitHub, only when you press it | — |
+| Update the box | GitHub, when you press it, or once a week at night if **Update by itself every week** is on (off unless you switch it on) | Settings → Software |
 | App Store icons | each app's own site, once, the first time the store is opened | — |
 | Games from Get more games | Raspberry Pi OS's archives (Debian's and Raspberry Pi's), only when you install one; AssaultCube also gets its maps from its own releases on GitHub as it installs. Once on the box, the games play offline | Don't install them |
 | Live TV | the Sofa it opens: the rows for Live TV above (Sofa on the box starts with Classic Cinema, and only the channel lists you add) | Don't open Live TV |
@@ -53,8 +53,9 @@ and sites you open on it:
 | Finding a town for the weather | OpenStreetMap (nominatim.openstreetmap.org), only when you look one up in Settings: what you typed | — |
 | Send a report | the Sofa Box certificate service, only when you press it (Settings → Help, or "Something wrong?" on the phone remote) | Don't press it |
 
-The secure phone remote's name (random letters) is listed in the public certificate logs, as every
-certificate is. Its key stays on the box.
+With the older per-box certificate way (`"remote_link": "certificate"`), the box's name (random letters) is listed
+in the public certificate logs, as every certificate is; the relay, the default since 1.1.14, makes no name per box.
+Either way the box's key stays on the box.
 
 **What a report has in it**, for the Sofa Box team to find what went wrong: the box's version, board and
 settings; how its network, Wi-Fi, Bluetooth and phone remotes are doing (the names of your Wi-Fi and

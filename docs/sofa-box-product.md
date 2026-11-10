@@ -21,7 +21,8 @@ Nothing about one box is shared with another:
 
 - the box's Wi-Fi password and the phone codes are made on each box, at random;
 - Sofa on the box gets its own account, made by that box;
-- SSH is off on the card (Raspberry Pi Imager can switch it on for a box you keep yourself).
+- SSH is off on the card (Raspberry Pi Imager 1.8 or 1.9 can switch it on for a box you keep yourself; Imager 2
+  offers no settings for this card).
 
 ## Preparing a box to sell
 
@@ -38,9 +39,10 @@ Nothing about one box is shared with another:
 
 **Hardware:**
 
-- A **Pi 4 (2 GB or more) or a Pi 5** is the one to sell. It plays 1080p in the streaming apps,
-  and HEVC in Sofa.
-- A Pi 3 B+ works, but it's slow in the streaming apps and limited to H.264.
+- A **Pi 4 (2 GB or more) or a Pi 5** should be the one to sell: the code gives them HEVC as it is and 4K, and
+  their browsers are quicker. **Neither has run the box yet**, and nobody has measured what the streaming apps
+  play on any Pi ([tested on](capabilities.md#tested-on)). Test one before buying a batch.
+- A Pi 3 B+ is the one board the box has run on. It's slow in the streaming apps and limited to H.264.
 - Use the official power supply, a case with a fan or a heatsink, and a short HDMI cable.
 - A Bluetooth remote in the box makes the first minute easiest. Any "TV remote" style one works, a
   Fire TV one included.
@@ -57,8 +59,8 @@ has what each one sends):
 | App icons | each app's own website | the first time the App Store opens |
 | Sofa Shield's blocklist | raw.githubusercontent.com (StevenBlack/hosts) | once a week |
 | The time | the Debian time servers (NTP) | at start |
-| Is a newer version out? | raw.githubusercontent.com (this repo's `deploy/sofa-box/VERSION`) | once a day |
-| Updates | GitHub (this repo) | only when someone presses **Update the box** |
+| Is a newer version out? | raw.githubusercontent.com (this repo's `deploy/sofa-box/VERSION` and `STABLE`), and the stable version's release | once a day |
+| Updates | GitHub (this repo) | when someone presses **Update the box**, or once a week at night if **Update by itself every week** is switched on (Stable only) |
 | The Sofa it plays from | that Sofa (at home, a share link's, or Sofa on the box): what's playing and where | while something plays |
 | Live TV (Sofa on the box) | what Sofa's own Live TV uses: Classic Cinema from the start, and only the channel lists the owner adds | once it's been opened |
 | The weather on Home | api.met.no (MET Norway): the place, to about a kilometre | every half hour while it's on |
@@ -75,21 +77,19 @@ of dangerous sites up to date, like any browser. To switch that off too, add
 
 ## Still to do before selling
 
-- **Try it on real hardware:**
-  - the setup with a phone and with a Fire TV remote;
-  - the box's own Wi-Fi;
-  - USB drives and a DVD drive;
-  - the apps people will try first (Netflix, YouTube, Prime Video, Disney+). Note which ones play
-    well on the board you sell.
-- **Updates:** today they come only when someone presses **Update the box**. For boxes in other
-  people's homes, decide on automatic updates (a weekly check, perhaps) and on a release that's
-  been tested, rather than every change on `main`.
+- **Try it on real hardware** ([what has been, and on what](capabilities.md#tested-on)):
+  - done on the owner's Pi 3 B+: the setup with a phone and with a Fire TV remote, and the box's own Wi-Fi;
+  - still to do: a Pi 4 and a Pi 5 at all; USB drives and a DVD drive; the apps people will try first
+    (Netflix, YouTube, Prime Video, Disney+). Note which ones play well on the board you sell.
+- **Updates:** since 1.1.55 a box follows the **Stable** channel by default and can update itself weekly at
+  night. No version is marked stable yet (`deploy/sofa-box/STABLE`): mark one after it has passed on real hardware,
+  or boxes in other people's homes get no updates at all.
 - **Names and logos:** the App Store lists other companies' services by name, and the box fetches
   each one's own icon from its website, as a browser's "Add to Home Screen" does. Before selling,
   check what you may say about them on the box and in adverts. Never print their logos on the
   packaging.
-- **Support:** a way for buyers to get help, and `sofa-box doctor`'s report for it (over SSH, or a
-  "Send a report" button to add).
+- **Support:** a way for buyers to get help. **Send a report** (Settings → Help, since 1.1.7) and `sofa-box doctor`
+  exist; what's missing is who answers.
 - **Licences:** Settings → This box → About → **Credits and licences** lists every part on the card and
   every game the box can install, with its licence and where its source is. Before selling boxes:
   - The card carries GPL software (Linux, mpv, FFmpeg as Debian builds it, and more): check what the GPL

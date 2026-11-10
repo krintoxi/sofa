@@ -1,0 +1,85 @@
+name: Hardware report
+description: You ran Sofa or a Sofa Box on hardware we haven't, or tried something the capabilities page calls untested. Tell us what happened, good or bad.
+title: "[Hardware] "
+labels: ["hardware-report"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        [What Sofa can do today](https://github.com/krintoxi/sofa/blob/main/docs/capabilities.md) ends with a table of what
+        was tested on which hardware. Most rows say "never tried". A report from you fills one in, and that's worth more
+        than a feature. Working or not, both are useful.
+  - type: input
+    id: board
+    attributes:
+      label: Board or device
+      description: Model, revision and memory.
+      placeholder: "Raspberry Pi 5, 4 GB"
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Sofa Box OS version (and Sofa version, if a server was involved)
+      description: The box's boot screen or Settings → This box → About; Server → Updates for Sofa.
+      placeholder: "Sofa Box OS 1.1.58, Sofa 1.5.3"
+    validations:
+      required: true
+  - type: input
+    id: card
+    attributes:
+      label: How the card was written
+      placeholder: "Raspberry Pi Imager 2.0.12 on a Mac, from the Sofa Box list / Use custom / Sofa Box Imager / the one-line install"
+  - type: input
+    id: tv
+    attributes:
+      label: TV and connection
+      placeholder: "Samsung Q60 (2021), HDMI 2, 4K; TV's overscan off; Ethernet to the router"
+  - type: input
+    id: controls
+    attributes:
+      label: What you worked it with
+      placeholder: "iPhone 15 as the remote; a Fire TV remote; an Xbox controller over Bluetooth; the TV's remote over CEC"
+  - type: input
+    id: power
+    attributes:
+      label: Power supply
+      description: The official supply, or what. Home says when the Pi is short of power (since 1.1.56).
+      placeholder: "Official 27 W; no power warning"
+  - type: input
+    id: report-code
+    attributes:
+      label: Report code
+      description: Settings → Help → Send a report. It carries the board, the display, the decoders and the key timings, so you don't have to type them.
+      placeholder: "YZQRB5"
+  - type: checkboxes
+    id: tried
+    attributes:
+      label: What you tried (tick what you tried; say below how each went)
+      options:
+        - label: First start and the setup (by phone, remote or keyboard)
+        - label: The box's own Wi-Fi (no cable)
+        - label: Sofa from a Sofa server at home
+        - label: Sofa on the box itself, with a USB drive
+        - label: Live TV
+        - label: A streaming app without DRM (YouTube, Pluto TV)
+        - label: A DRM app (Netflix, Disney+, Prime Video, Max, Spotify)
+        - label: A USB drive in Files
+        - label: A DVD, Blu-ray or CD in a USB drive
+        - label: The TV's own remote over HDMI-CEC
+        - label: A game controller, and one of the box's games
+        - label: A native game from Get more games, or Sofa Craft
+        - label: Update the box (Stable or Testing)
+        - label: 4K on a 4K TV, or HEVC as it is (Pi 4 or 5)
+  - type: textarea
+    id: results
+    attributes:
+      label: How each went
+      description: One line per thing. "Netflix: signs in, plays, picture looks like 720p, no stutter" is perfect. Photos of the TV are welcome.
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else
+      description: Temperatures, the time the first start took, what surprised you.

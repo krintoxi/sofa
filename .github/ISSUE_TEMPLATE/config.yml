@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: What Sofa can do today
+    url: https://github.com/krintoxi/sofa/blob/main/docs/capabilities.md
+    about: What works, what's beta, what has never been tried on which hardware. Read it before reporting something as broken.
+  - name: The Sofa Box guide
+    url: https://github.com/krintoxi/sofa/blob/main/deploy/sofa-box/README.md
+    about: Setting up a box, the phone remote, remotes and controllers, what to do when something's wrong.

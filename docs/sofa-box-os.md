@@ -1,5 +1,8 @@
 # Sofa Box OS: the plan
 
+> This is the design and the plan as it was built (2026-10-31), kept for whoever works on the box. What the box
+> can do today, and what has been tried on real hardware: [capabilities.md](capabilities.md).
+
 The Sofa box grows from "a Pi that opens Sofa" into a small TV operating system that replaces a
 Fire TV: its own boot screen, a home screen of apps, a browser with ad blocking, an app store of web
 apps, games, a file manager and themes. It all runs on Raspberry Pi OS Lite (the box card) on a
@@ -106,7 +109,7 @@ Private repos stay private: the box opens these at their addresses; nothing from
 10. ☑ **Boot screen:** "Sofa Box" Plymouth theme in the chosen style (glitch logo, boot ticker).
 11. ☑ **Installer and card:** the DevTools port in the kiosk, Widevine, Sofa Shield's helper, the new
    files; the card builds it all (built on GitHub 2026-10-31, report below). Not yet tried on the Pi.
-12. ☐ **Preview:** `tools/sofa-box-preview.py` shows the home screen, store, files and games.
+12. ☑ **Preview:** `tools/sofa-box-preview.py` shows the home screen, store, files and games on a computer.
 13. ◐ **Tests and docs:** agent API tests (apps, store, files), README for the box.
 14. ☑ **Credits, licences and the TV's own tracking:** Settings → This box → About → Credits and licences
    (every part on the card and every game it can install: licence and source, from `home/credits.json`) and
@@ -132,7 +135,8 @@ Private repos stay private: the box opens these at their addresses; nothing from
   13 (trixie), Chromium 156, cage 0.3.1, mpv 0.40, Plymouth 24 with the label plugin; sofa-box,
   -agent, -input and -cec services enabled; boot screen "sofa" in both initramfs files; sudo for the
   settings works; all box files and fonts in /usr/local/lib/sofa-box; 2.5 GB used, 1.3 GB packed.
-  Not yet: started on the owner's Pi 3 B+ (the first real boot is the next check).
+  Since then: the box has run on the owner's Pi 3 B+ from 1.0.0 on (the setup fixes in CHANGES.md 1.0.1 to 1.1.51
+  came from it); 1.1.49 is the newest card tried there as of 2026-11-10.
 - Docs: deploy/sofa-box/README.md describes the home screen, store, browser and Sofa bar, Files,
   games, Settings and themes, with screenshots (docs/images/box-*.jpg).
 

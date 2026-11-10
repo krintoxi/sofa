@@ -1,5 +1,8 @@
 # Handoff
 
+> Written 2026-11-02 and not kept current since; the box's changelog (`deploy/sofa-box/CHANGES.md`) and
+> [capabilities.md](capabilities.md) say where things stand today.
+
 For whoever picks this up next (a person, or a new Claude conversation). Read this first, then the
 plan you're continuing. Updated 2026-11-02 (Sofa Box OS versions).
 

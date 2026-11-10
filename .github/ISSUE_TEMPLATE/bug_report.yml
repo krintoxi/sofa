@@ -1,0 +1,85 @@
+name: Something doesn't work
+description: Sofa or a Sofa Box did something wrong. Tell us the versions, the hardware and, from a box, the report code.
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks. The three things that get a bug fixed fastest are the **version**, the **hardware** and, from a Sofa Box,
+        the **report code** (Settings → Help → Send a report; the TV shows a code like `F66GAR`). Nothing in a report
+        names what you watched; passwords and codes are blanked ([what's in it](https://github.com/krintoxi/sofa/blob/main/docs/privacy.md#on-a-sofa-box)).
+  - type: dropdown
+    id: part
+    attributes:
+      label: Which part
+      options:
+        - Sofa Box OS (the Raspberry Pi TV box)
+        - Sofa server or the web app (on a Mac or Linux computer)
+        - The Fire TV app
+        - The Roku channel
+        - Sofa Box Imager (the Mac card writer) or the Raspberry Pi Imager list
+        - Not sure
+    validations:
+      required: true
+  - type: input
+    id: box-version
+    attributes:
+      label: Sofa Box OS version
+      description: On the box's boot screen, or Settings → This box → About. Leave empty if no box is involved.
+      placeholder: "1.1.58"
+  - type: input
+    id: sofa-version
+    attributes:
+      label: Sofa version
+      description: Server → Updates on the Sofa computer, or Server → About on a box's own Sofa.
+      placeholder: "1.5.3"
+  - type: input
+    id: report-code
+    attributes:
+      label: Report code (from a Sofa Box)
+      description: Settings → Help → Send a report, or "Something wrong? Send a report" on the phone remote. Send it before restarting the box.
+      placeholder: "F66GAR"
+  - type: input
+    id: hardware
+    attributes:
+      label: Hardware
+      description: The board or device, its memory, the TV, and what works it (phone, Fire TV remote, controller, CEC, keyboard).
+      placeholder: "Raspberry Pi 4, 2 GB; LG C1 TV over HDMI; iPhone as the remote"
+    validations:
+      required: true
+  - type: input
+    id: server
+    attributes:
+      label: The Sofa computer (if there is one)
+      description: What runs the Sofa server, and how the box or app reaches it.
+      placeholder: "2015 MacBook Pro, macOS Monterey, wired; the box on Wi-Fi"
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, what the screen showed. A photo of the TV helps.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: How to make it happen again
+      placeholder: |
+        1. …
+        2. …
+  - type: dropdown
+    id: channel
+    attributes:
+      label: Update channel (a box)
+      options:
+        - Stable
+        - Testing
+        - Don't know
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checked
+      options:
+        - label: It still happens after a restart.
+        - label: I looked at [what Sofa can do today](https://github.com/krintoxi/sofa/blob/main/docs/capabilities.md) and this isn't listed as untested on my hardware (if it is, a hardware report is the better template).

@@ -76,7 +76,7 @@ The intro and credits show as light marks on the seek bar, and the scrubbing pre
 ### Hover previews
 
 Point at a card with the mouse and a bigger card opens over it, playing a few seconds of the
-video (three short moments, silent), with **Play**, **More info** and ♥. With a TV remote, the
+video (three short moments, with sound unless you turned it off), with **Play**, **More info** and ♥. With a TV remote, the
 card you're on plays its preview in place. Sofa makes each clip the first time someone points
 at it (a second or two) and, in the background, for every movie and each show's first episode.
 About 300 KB each, in `~/Sofa/data/cache/previews`. Off with `"previews": false`.
@@ -84,8 +84,8 @@ About 300 KB each, in `~/Sofa/data/cache/previews`. Off with `"previews": false`
 ### Trailers
 
 Open a show or a movie (**More info**) and after a moment three minutes of it play behind the
-title, from somewhere in the middle (never the opening, never the end), silent until you press
-the speaker. A show's trailer comes from a random episode of its first season, so it gives
+title, from somewhere in the middle (never the opening, never the end), with sound unless you turned it
+off with the speaker button (a browser that won't allow sound plays it muted, with the button to turn it on). A show's trailer comes from a random episode of its first season, so it gives
 nothing away. Files your device plays as they are cost the Sofa computer nothing; others are
 repackaged as they play (cheap); a file that would need converting on a slow computer (Gentle
 mode) plays its short preview clip instead. Off per device under **Theme → Trailers**.

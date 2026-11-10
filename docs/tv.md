@@ -70,8 +70,8 @@ the TV both talk only to the Sofa computer, and nothing about it is kept.
 
 ### On a show's or movie's page
 
-After a moment a **trailer** plays behind the title (three minutes from the middle, silent;
-the speaker button turns the sound on). **Remove from Continue watching** takes it off Home until
+After a moment a **trailer** plays behind the title (three minutes from the middle, with sound
+unless you turned it off with the speaker button; a browser that won't allow sound plays it muted). **Remove from Continue watching** takes it off Home until
 you watch it again.
 
 ### Tips
