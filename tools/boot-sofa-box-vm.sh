@@ -79,22 +79,42 @@ if [ "$FW" = uefi ]; then
   FWARGS="-drive if=pflash,format=raw,readonly=on,file=$CODE -drive if=pflash,format=raw,file=$WORK/vars.fd"
 fi
 : > "$LOG"
+# The TV: a real display (a VNC server nobody looks at, on a free port), so the virtio screen has a connected output
+# for cage and Chromium to draw on (with no display at all, Chromium never came up), and QEMU's monitor, which
+# takes a screenshot of it (screendump) once the box is up: OUT_DIR/screen-<firmware>.png (or .ppm).
+VNC="$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]-5900); s.close()')"
+MON="$WORK/monitor.sock"
 # shellcheck disable=SC2086
-timeout --foreground -k 10 "$TIMEOUT" qemu-system-x86_64 -accel "$ACCEL" -cpu max -m 2048 -smp 2 -display none \
-  -serial "file:$LOG" -no-reboot $FWARGS \
+timeout --foreground -k 10 "$TIMEOUT" qemu-system-x86_64 -accel "$ACCEL" -cpu max -m 2048 -smp 2 \
+  -display "vnc=127.0.0.1:$VNC" -serial "file:$LOG" -no-reboot $FWARGS \
   -drive "file=$COPY,format=raw,if=virtio" \
   -device virtio-vga -device virtio-rng-pci \
   -netdev user,id=n0,hostfwd=tcp:127.0.0.1:18092-:8092 -device virtio-net-pci,netdev=n0 \
-  -monitor none &
+  -monitor "unix:$MON,server,nowait" &
 QEMU=$!
+screenshot() {               # the TV's picture now, through QEMU's monitor
+  python3 - "$MON" "$WORK/screen.ppm" <<'EOF' 2>/dev/null || return 1
+import socket, sys, time
+s = socket.socket(socket.AF_UNIX); s.settimeout(5); s.connect(sys.argv[1]); time.sleep(0.5)
+try: s.recv(4096)
+except OSError: pass
+s.sendall(("screendump %s\n" % sys.argv[2]).encode()); time.sleep(3); s.close()
+EOF
+  [ -s "$WORK/screen.ppm" ] || return 1
+  if command -v convert >/dev/null 2>&1 && convert "$WORK/screen.ppm" "$OUT/screen-$FW.png" 2>/dev/null; then :
+  else cp "$WORK/screen.ppm" "$OUT/screen-$FW.ppm"; fi
+}
 # From outside, like a phone on the home network: the phone remote on port 8092 (the only port a box opens to its network
-# at home; the helper's 8091 is for the box itself). Asked until it answers or the VM has gone.
-OUTSIDE=no
+# at home; the helper's 8091 is for the box itself). Asked until it answers or the VM has gone. The in-VM checks print
+# "SOFA-BOX-PROOF screen" once the TV's screen is up (or has given up): the screenshot is taken then.
+OUTSIDE=no SHOT=no
 while kill -0 "$QEMU" 2>/dev/null; do
-  if curl -fs -m 3 -o /dev/null http://127.0.0.1:18092/; then OUTSIDE=yes; break; fi
+  if [ "$OUTSIDE" = no ] && curl -fs -m 3 -o /dev/null http://127.0.0.1:18092/; then OUTSIDE=yes; fi
+  if [ "$SHOT" = no ] && grep -aq 'SOFA-BOX-PROOF screen' "$LOG"; then screenshot && SHOT=yes || SHOT=failed; fi
   sleep 3
 done
 wait "$QEMU" 2>/dev/null || true
+echo "Screenshot: $SHOT$(ls "$OUT"/screen-"$FW".* 2>/dev/null | sed 's/^/ /')"
 echo "== What the VM said (SOFA-BOX-PROOF and SOFA-BOX-LOG lines of $LOG)"
 grep -a -E 'SOFA-BOX-(PROOF|LOG)' "$LOG" | sed 's/^.*vm-proof.sh\[[0-9]*\]: //' || echo "(none: it never got that far)"
 echo "SOFA-BOX-PROOF outside: phone remote on 8092 from the host: $OUTSIDE" | tee -a "$LOG"

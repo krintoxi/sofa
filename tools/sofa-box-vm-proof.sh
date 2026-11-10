@@ -46,9 +46,11 @@ else
   say "sofa: fail nothing on $SOFA after 2 minutes ($(tail -n 3 /home/sofabox/.local/share/sofa-box/sofa/sofa.log 2>/dev/null | tr '\n' ' ' | head -c 300))"
 fi
 
-# 3. the TV's screen: cage with Chromium, which answers the helper on its DevTools port
-if wait_for screen 180 sh -c 'systemctl is-active --quiet sofa-box.service && pgrep -x cage >/dev/null && curl -fs -m 3 http://127.0.0.1:9222/json/version >/dev/null'; then
-  say "screen: ok sofa-box.service active, cage running, Chromium's DevTools port answers ($(curl -fs -m 3 http://127.0.0.1:9222/json/version | python3 -c 'import json,sys; print(json.load(sys.stdin).get("Browser"))' 2>/dev/null))"
+# 3. the TV's screen: cage with Chromium, which answers the helper on its DevTools port, with Home open
+for c in /sys/class/drm/card*-*; do [ -e "$c/status" ] && say "display $(basename "$c"): $(cat "$c/status"), $(head -n 1 "$c/modes" 2>/dev/null || echo "no modes")"; done
+if wait_for screen 240 sh -c 'systemctl is-active --quiet sofa-box.service && pgrep -x cage >/dev/null && curl -fs -m 3 http://127.0.0.1:9222/json/version >/dev/null'; then
+  sleep 20                                            # (Home's first draw)
+  say "screen: ok sofa-box.service active, cage running, Chromium's DevTools port answers ($(curl -fs -m 3 http://127.0.0.1:9222/json/version | python3 -c 'import json,sys; print(json.load(sys.stdin).get("Browser"))' 2>/dev/null)); pages: $(curl -fs -m 5 http://127.0.0.1:9222/json | python3 -c 'import json,sys; print("; ".join("%s <%s>" % (p.get("title"), p.get("url")) for p in json.load(sys.stdin)))' 2>/dev/null | head -c 300)"
 else
   say "screen: fail sofa-box.service $(systemctl is-active sofa-box.service), cage $(pgrep -x cage >/dev/null && echo running || echo not running), devtools $(curl -fs -m 3 -o /dev/null -w '%{http_code}' http://127.0.0.1:9222/json/version); $(journalctl -u sofa-box -n 8 --no-pager -o cat | tr '\n' ' ' | head -c 400)"
 fi
