@@ -6,6 +6,15 @@ has its own numbers and list: [deploy/sofa-box/CHANGES.md](deploy/sofa-box/CHANG
 A change to Sofa's code (`sofa/`, `client/`, `sofa.py`) gets a new version: raise `__version__`, add a section
 here, then `python3 tools/sofa-version.py` (a test checks it was done).
 
+## 1.5.3 (2026-11-10)
+
+- **Quicker on a Sofa box on a Raspberry Pi 3** (the box's light look). Each row of posters is a layer of its own the
+  graphics chip slides, instead of being drawn again for each step of its glide to the card in focus. The banner's
+  picture stands still: its slow zoom ran for as long as the home page was open, a new frame 60 times a second (the
+  banner still changes title). An episode's picture in focus grows at once.
+- A row's arrows (for a mouse or a touchpad) are checked only for the row that scrolled, and touched only when they
+  change: every row on the page was looked at, at each step of a row's glide (every device).
+
 ## 1.5.2 (2026-11-10)
 
 - **Big skips on a Sofa box.** In a video Sofa converts for the box (HEVC on a Raspberry Pi 3, say), a skip further

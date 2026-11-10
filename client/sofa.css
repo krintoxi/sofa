@@ -1647,3 +1647,13 @@ html.gaming, html.gaming body { overflow: hidden; }
 .about-body a { color: var(--amber); text-decoration: underline; }
 .list li .row-actions { display: flex; gap: 6px; align-items: center; flex: none; }
 .mini[data-live-public][aria-pressed="true"] { color: var(--amber-ink); background: var(--amber); border-color: transparent; }
+/* A Sofa box on a Raspberry Pi 3 (box-lite), what still cost it on every press and in between:
+   - a row gliding to the card in focus was drawn again for each step of the glide (the browser kept the row in the
+     page's own picture): now each row is a layer of its own the graphics chip slides, isolated so the cards in it
+     stay in that one layer (without it, the card in focus split the row into new layers on every press);
+   - the banner's slow zoom ran for ever (10 s on each title, a new title every 9 s): a new frame 60 times a second
+     for as long as Sofa's home was open. The banner still changes title; the picture stands still;
+   - an episode's picture in focus grows at once instead of over a fifth of a second (no layer made and dropped). */
+html.box-lite .rail { will-change: scroll-position; isolation: isolate; }
+html.box-lite .hero.carousel .slide.on .hero-bg { animation: none; }
+html.box-lite .ep-thumb { transition: none; }

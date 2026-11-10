@@ -426,6 +426,46 @@ def fetch_icon(url, folder, app_id, timeout=10):
     return None
 
 
+ICON_WIDTHS = (96, 192, 384)
+
+
+def small_icon(folder, name, width):
+    """An app's picture at about the size the TV draws it (Home asks ?w=192 on a 1080p TV). Sites' icons are kept as
+    they come, often 512 or 1024 pixels: a Pi 3 decodes up to fifty times the pixels its 150-pixel tile shows, every
+    time it draws them again. Made once with Pillow and kept beside it (.w<width>/); None (the picture as it is) when
+    it's that small already, an SVG, or anything Pillow can't read."""
+    if width not in ICON_WIDTHS:
+        return None
+    base = os.path.realpath(folder or "")
+    full = os.path.realpath(os.path.join(base, name))
+    if not full.startswith(base + os.sep) or not os.path.isfile(full) or full.lower().endswith(".svg"):
+        return None
+    small = os.path.join(base, ".w%d" % width, os.path.splitext(os.path.basename(full))[0] + ".png")
+    try:
+        if os.path.getmtime(small) >= os.path.getmtime(full):
+            return small
+    except OSError:
+        pass
+    try:
+        from PIL import Image
+        with Image.open(full) as im:
+            if im.width <= width:
+                return None
+            im = im.convert("RGBA")
+            im = im.resize((width, max(1, round(im.height * width / im.width))), getattr(Image, "Resampling", Image).LANCZOS)
+        os.makedirs(os.path.dirname(small), exist_ok=True)
+        tmp = "%s.%d.new" % (small, threading.get_ident())
+        try:
+            im.save(tmp, "PNG")
+            os.replace(tmp, small)
+        finally:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+        return small
+    except Exception:                                   # (no Pillow, or a picture it can't read: the original)
+        return None
+
+
 # ---------------------------------------------------------------- files (downloads, music, USB drives)
 
 KINDS = {"video": ("mp4", "mkv", "avi", "mov", "m4v", "webm", "ts", "wmv", "mpg", "mpeg"),
@@ -1013,6 +1053,7 @@ class Browser:
             self.call("Runtime.enable", {}, session)              # the page's messages come through only with it on
             try:                                                  # (how quickly it answers: every page, Home too)
                 self.call("Page.addScriptToEvaluateOnNewDocument", {"source": SMOOTH_PROBE}, session, timeout=3)
+                self.call("Page.enable", {}, session, timeout=3)     # (without it the probe is gone once the page reloads)
                 self.call("Runtime.evaluate", {"expression": SMOOTH_PROBE}, session, timeout=3)
             except OSError:
                 pass
@@ -1298,10 +1339,33 @@ class Browser:
                 continue
             if isinstance(v, dict):
                 name = tab.get("app") or "page"
-                if name in out:                                  # (two of one app: added up)
-                    v = {k: (max if k == "worst" else sum)((out[name].get(k, 0), v.get(k, 0))) for k in v}
+                if name in out:                                  # (two of one app: added up, page by page too)
+                    v = merge_smooth(out[name], v)
                 out[name] = v
         return out
+
+    def gpu(self):
+        """How the browser draws: on the graphics chip or by the processor (chrome://gpu's own words, short)."""
+        g = self.call("SystemInfo.getInfo", timeout=5).get("gpu") or {}
+        f, aux = g.get("featureStatus") or {}, g.get("auxAttributes") or {}
+        on = lambda k: "on" if str(f.get(k, "")).startswith("enabled") else (f.get(k) or "?")   # noqa: E731
+        return "compositing %s, raster %s, video decode %s (%s)" % (on("gpu_compositing"), on("rasterization"), on("video_decode"),
+                                                                    aux.get("glRenderer") or "renderer not said")
+
+
+def merge_smooth(a, b):
+    """Two pages' speed (two tabs of one app) as one."""
+    out = {k: (max if k == "worst" else sum)((a.get(k, 0), b.get(k, 0))) for k in set(a) | set(b) if k != "pages"}
+    pages = {}
+    for p in (a.get("pages") or {}, b.get("pages") or {}):
+        for name, v in p.items():
+            have = pages.setdefault(name, {})
+            for k, x in v.items():
+                have[k] = [i + j for i, j in zip(have.get(k) or [0] * len(x), x)] if isinstance(x, list) else \
+                    max(have.get(k, 0), x) if k == "worst" else have.get(k, 0) + x
+    if pages:
+        out["pages"] = pages
+    return out
 
     def hud(self, text, level=None):
         """A short message over whatever is in front (Home, Sofa, an app), like a TV's own: the volume. Drawn in the page
@@ -1320,16 +1384,38 @@ class Browser:
 # In every page the box opens, Home too: how quickly it answers the remote, measured by the browser itself (a key
 # press until the TV shows the answer; 0.1 s or more feels slow), and the tasks that held it up (50 ms or more). Read
 # by Browser.smoothness() (reports; the box choosing its light look by itself on a board too slow for the full one).
+# Page by page too (Home, its Settings, Sofa's pages: the part of the address after #/, never what's on it), with how
+# many presses answered within 0.05, 0.1 and 0.25 s, and where a slow one's time went: waiting for the page to be free,
+# the page's own code for the key, or drawing the answer (style, layout, painting, the graphics chip).
 SMOOTH_PROBE = r"""(function () {
   if (window.__sofaSmooth) return;
-  var s = { presses: 0, slow: 0, worst: 0, long: 0, long_ms: 0 };
-  addEventListener("keydown", function () { s.presses++; }, true);
+  var s = { presses: 0, slow: 0, worst: 0, long: 0, long_ms: 0, pages: {} }, recent = [];
+  function name() {
+    var h = String(location.hash).replace(/^#!?\/?/, "").split(/[\/?&=#]/)[0].toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 20);
+    return /^\/box\/home/.test(location.pathname) || window.SofaBox ? h || "home" : "page";
+  }
+  function of(p) { return s.pages[p] || (s.pages[p] = { presses: 0, slow: 0, worst: 0, hist: [0, 0, 0, 0, 0], wait: 0, code: 0, draw: 0 }); }
+  addEventListener("keydown", function (e) {
+    var p = name();
+    s.presses++; of(p).presses++;
+    recent.push([e.timeStamp, p]); if (recent.length > 40) recent.shift();
+  }, true);
   try {
     new PerformanceObserver(function (list) {
       list.getEntries().forEach(function (e) {
         if (e.name !== "keydown") return;
-        if (e.duration > s.worst) s.worst = Math.round(e.duration);
-        if (e.duration >= 100) s.slow++;
+        var d = e.duration, p = null;
+        for (var i = recent.length - 1; i >= 0 && !p; i--) if (Math.abs(recent[i][0] - e.startTime) < 1) p = recent[i][1];
+        var v = of(p || name());
+        if (d > s.worst) s.worst = Math.round(d);
+        if (d > v.worst) v.worst = Math.round(d);
+        if (d >= 50) v.hist[d < 100 ? 0 : d < 250 ? 1 : d < 500 ? 2 : d < 1000 ? 3 : 4]++;    // (0.05-0.1, -0.25, -0.5, -1 s, more)
+        if (d >= 100) {
+          s.slow++; v.slow++;
+          v.wait += Math.max(0, Math.round(e.processingStart - e.startTime));
+          v.code += Math.max(0, Math.round(e.processingEnd - e.processingStart));
+          v.draw += Math.max(0, Math.round(e.startTime + d - e.processingEnd));
+        }
       });
     }).observe({ type: "event", durationThreshold: 48 });          // (only presses it counted itself)
   } catch (e) {}

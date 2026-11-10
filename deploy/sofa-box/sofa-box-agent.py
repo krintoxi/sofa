@@ -1244,10 +1244,28 @@ def box_wake():
     return False
 
 
+PAGE_NAMES = {"home": "Home", "settings": "Settings", "store": "App Store", "games": "Games", "files": "Files", "browser": "Browser",
+              "sofa": "Where's your Sofa", "welcome": "the setup", "sleep": "asleep"}
+
+
 def smooth_lines(stats):
-    return ["  %s: %d presses, %d slower than 0.1 s (slowest %.2f s); %d long tasks (%.1f s in all)"
-            % (app, v.get("presses", 0), v.get("slow", 0), v.get("worst", 0) / 1000, v.get("long", 0), v.get("long_ms", 0) / 1000)
-            for app, v in sorted(stats.items())]
+    out = []
+    for app, v in sorted(stats.items() if isinstance(stats, dict) else []):
+        out.append("  %s: %d presses, %d slower than 0.1 s (slowest %.2f s); %d long tasks (%.1f s in all)"
+                   % (app, v.get("presses", 0), v.get("slow", 0), v.get("worst", 0) / 1000, v.get("long", 0), v.get("long_ms", 0) / 1000))
+        for page, p in sorted((v.get("pages") or {}).items(), key=lambda x: -x[1].get("presses", 0)):   # (each part of it)
+            n, h = p.get("presses", 0), (p.get("hist") or []) + [0] * 5
+            if not n:
+                continue
+            within = lambda k: max(0, n - sum(h[k:5]))     # noqa: E731  (the presses quicker than that bucket)
+            line = "    %s: %d presses: %d within 0.05 s, %d within 0.1 s, %d within 0.25 s; slowest %.2f s" % (
+                PAGE_NAMES.get(page, page) if app == "home" else "%s %s" % (app, page), n, within(0), within(1), within(2), p.get("worst", 0) / 1000)
+            t = p.get("wait", 0) + p.get("code", 0) + p.get("draw", 0)
+            if t:
+                line += "; the slow ones' time: waiting for the page %d%%, the key's own code %d%%, drawing %d%%" % tuple(
+                    round(100 * p.get(k, 0) / t) for k in ("wait", "code", "draw"))
+            out.append(line)
+    return out
 
 
 def too_slow(presses, slow):
@@ -3617,6 +3635,7 @@ def report_text():
         out += ["== How quickly the pages answer the remote (look: %s%s)" % ("light" if light() else "full",
                                                                          ", chosen by the box" if settings().get("learned_lite") else "")]
         out += smooth_lines(safely(browser.smoothness) or {}) or ["(no presses yet)"]
+        out.append("  the browser draws with the graphics chip: %s" % safely(browser.gpu))
     code, logs = run(["sudo", "-n", os.path.join(HERE, "sofa-box"), "report"], 90)
     if code != 0 and "== Sofa Box OS" not in logs:            # a box installed before reports: what it can see itself
         logs = run([os.path.join(HERE, "sofa-box"), "doctor"], 60)[1] + "\n\n" + run(["journalctl", "-b", "--no-pager", "-n", "400"], 30)[1]
@@ -3928,7 +3947,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(data)))
-        self.send_header("Cache-Control", "no-store")
+        if "Cache-Control" not in (headers or {}):              # (unless it's said: an app's icon at one address is kept)
+            self.send_header("Cache-Control", "no-store")
         for k, v in (headers or {}).items():
             self.send_header(k, v)
         self._headers_buffer.append(b"\r\n")              # the headers and the body in one write (one packet)
@@ -4111,7 +4131,7 @@ class Handler(BaseHTTPRequestHandler):
         return self.send('{"error":"not found"}', status=404)
 
     # ---- Sofa Box OS: the home screen, apps, the store, files, games
-    def static(self, base, rel):
+    def static(self, base, rel, headers=None):
         full = os.path.realpath(os.path.join(base, rel))
         if os.path.isdir(full):                             # a folder: its page
             full = os.path.join(full, "index.html")
@@ -4123,7 +4143,7 @@ class Handler(BaseHTTPRequestHandler):
                  ".woff2": "font/woff2", ".mp3": "audio/mpeg", ".ogg": "audio/ogg", ".wav": "audio/wav"}
         with open(full, "rb") as f:
             return self.send(f.read(), types.get(os.path.splitext(full)[1].lower(), "application/octet-stream"),
-                             headers={"Cache-Control": "no-cache"})
+                             headers=headers or {"Cache-Control": "no-store, no-cache"})
 
     def box_os(self, path, qs):
         data = json.loads(self.body() or b"{}") if self.command == "POST" else {}
@@ -4132,10 +4152,12 @@ class Handler(BaseHTTPRequestHandler):
             return self.static(os.path.join(HERE, "home"), "index.html")
         if path.startswith("/box/home/"):
             return self.static(os.path.join(HERE, "home"), path[len("/box/home/"):])
-        if path.startswith("/box/icons/"):
-            return self.static(apps.icons, path[len("/box/icons/"):])
-        if path.startswith("/box/store-icons/"):
-            return self.static(boxos.store_icons.folder, path[len("/box/store-icons/"):])
+        if path.startswith(("/box/icons/", "/box/store-icons/")):      # (?w=: at the size Home draws it; ?v=: kept)
+            folder, rel = (apps.icons, path[len("/box/icons/"):]) if path.startswith("/box/icons/") else \
+                (boxos.store_icons.folder, path[len("/box/store-icons/"):])
+            small = boxos.small_icon(folder, rel, int(arg("w")) if arg("w").isdigit() else 0) if arg("w") else None
+            keep = {"Cache-Control": "max-age=31536000"} if arg("v") else None
+            return self.static(os.path.dirname(small), os.path.basename(small), keep) if small else self.static(folder, rel, keep)
         if path.startswith("/box/fonts/"):                 # Sofa's typefaces (on the box, or in Sofa's folder)
             name = os.path.basename(path)
             for d in (os.path.join(HERE, "fonts"), os.path.join(HERE, "..", "..", "client", "vendor", "fonts")):

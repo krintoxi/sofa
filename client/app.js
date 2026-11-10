@@ -3298,15 +3298,18 @@ document.addEventListener("submit", e => {
     .then(() => { f.reset(); loadAdmin(); })
     .catch(ex => { err.textContent = ex.message; });
 });
-document.addEventListener("scroll", e => { if (e.target.classList && e.target.classList.contains("rail")) updateNudges(); }, true);
-function updateNudges() {
-  document.querySelectorAll(".rail").forEach(r => {
-    const w = r.parentElement;
-    $(".prev", w).disabled = r.scrollLeft < 8;
-    $(".next", w).disabled = r.scrollLeft + r.clientWidth > r.scrollWidth - 8;
+// (a row scrolling sends this for each step of its glide: only that row is looked at, and its arrows touched only when
+// they change; every row on the page, every step, was a Pi 3's press slower)
+document.addEventListener("scroll", e => { if (e.target.classList && e.target.classList.contains("rail")) updateNudges(e.target); }, true);
+function updateNudges(one) {
+  (one ? [one] : document.querySelectorAll(".rail")).forEach(r => {
+    const w = r.parentElement, prev = $(".prev", w), next = $(".next", w);
+    const atStart = r.scrollLeft < 8, atEnd = r.scrollLeft + r.clientWidth > r.scrollWidth - 8;
+    if (prev && prev.disabled !== atStart) prev.disabled = atStart;
+    if (next && next.disabled !== atEnd) next.disabled = atEnd;
   });
 }
-window.addEventListener("resize", updateNudges);
+window.addEventListener("resize", () => updateNudges());
 window.addEventListener("scroll", () => { $("#bar").classList.toggle("scrolled", scrollY > 24); }, { passive: true });
 document.addEventListener("error", e => {
   const img = e.target;

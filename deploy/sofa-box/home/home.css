@@ -66,6 +66,10 @@ button { cursor: pointer; }
   var(--a) 178deg 182deg, transparent 182deg 268deg, var(--a) 268deg 272deg, transparent 272deg);
   box-shadow: inset 0 0 0 2px var(--a), inset 0 0 0 1.4rem transparent, inset 0 0 0 calc(1.4rem + 1px) var(--a); }
 .lite .bg-a, .lite .bg-b { animation: none; }
+/* None of the background shows: the page's own background (body's) is drawn over it. So it isn't drawn at all: it was
+   a layer the size of the screen on every board, and on the full look two glows moving for ever (a new frame for the
+   graphics chip 60 times a second while Home sat still). The same pixels on the TV without it. */
+.bg { display: none; }
 
 /* ---- the opening (once a start) */
 #intro { position: fixed; inset: 0; z-index: 50; display: grid; place-content: center; justify-items: center; gap: 1.2rem;
@@ -661,10 +665,17 @@ html.lite[data-theme="street"] .tile.f, html.lite[data-theme="street"] .tile.app
 html.lite .btn.f, html.lite .btn:hover { box-shadow: 0 0 0 .18rem var(--fg); }
 html.lite .theme.f, html.lite .mini-app.f { box-shadow: 0 0 0 .18rem var(--a); }
 html.lite .w-mark svg, html.lite .spot-logo svg, html.lite .intro-mark svg { filter: none; }
-html.lite .rail { scroll-behavior: smooth; }
+html.lite .rail { scroll-behavior: smooth; will-change: scroll-position; isolation: isolate; }
 html.lite .wxi.big .sun, html.lite .wx-card, html.lite #opening .op-ic { animation: none; }
 html.lite #opening .op-ic { box-shadow: none; }
 html.lite #opening { transition: none; }
+/* No movement left on a press: an app's icon still lifts in the tile in focus, the tabs and switches still change,
+   a sheet still opens, at once instead of in a fifth of a second. (A transition on a press made the browser give each
+   moving part a layer of its own for the moment it moved and take it away after: twice a press, the tile left and
+   the tile reached, each time drawn again.) Asleep, the clock's card jumps to its new place once a minute, not
+   sliding for 3 s (a slide moved it by its position: the whole page laid out again 60 times a second). */
+html.lite .tile.app .ic, html.lite .tabs a, html.lite .switch, html.lite .switch::after, html.lite .sleep-card { transition: none; }
+html.lite .sheet-back, html.lite .sheet, html.lite .auto-next { animation: none; }
 
 /* the Sofa chooser: which computer each one is, its address small; the one last opened marked; ask or go straight in */
 .srv small.addr { font-size: .7rem; opacity: .7; letter-spacing: .02em; }

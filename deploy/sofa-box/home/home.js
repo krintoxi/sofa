@@ -25,8 +25,11 @@
   const icon = (id, cls) => `<svg${cls ? ` class="${cls}"` : ""}><use href="${id === "#mark" ? "#m-" + (document.documentElement.dataset.theme || "street") : id}"/></svg>`;
 
   // ---------------------------------------------------------------- the look
+  let themeNow = null;
   function applyTheme(name) {
     const t = THEMES.some(x => x[0] === name) ? name : (["midnight", "cinema", "ocean", "forest", "grape", "oled"].includes(name) ? "sofa" : "street");
+    if (t === themeNow) return;               // (asked every 5 s: only a change touches the page)
+    themeNow = t;
     document.documentElement.dataset.theme = t;
     $$("use[href^='#mark']").forEach(u => u.setAttribute("href", "#m-" + t));
     $$("svg use").forEach(u => { if (u.getAttribute("href") === "#mark") u.setAttribute("href", "#m-" + t); });
@@ -36,16 +39,17 @@
     const t = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }), m = t.match(/^(.*?)\s*([AaPp])\.?\s?[Mm]\.?$/);
     return m ? [m[1], m[2].toUpperCase() + "M"] : [t, ""];
   }
+  // (every 10 s, but the page is touched only when the minute changes: each change is drawn again, over the art)
+  const put = (el, text, html) => { if (el && el.textContent !== text) { if (html) el.innerHTML = html; else el.textContent = text; } };
   function tick() {
-    const d = new Date(), [hm, ap] = clockParts(d);
-    const sc = $("#sClock");
-    if (sc) sc.innerHTML = esc(hm) + (ap ? "<small>" + ap + "</small>" : "");
-    $("#clock").textContent = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const d = new Date(), [hm, ap] = clockParts(d), clock = esc(hm) + (ap ? "<small>" + ap + "</small>" : "");
+    put($("#sClock"), hm + ap, clock);
+    put($("#clock"), d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
     const big = $("#mClock");
     if (!big) return;
-    big.innerHTML = esc(hm) + (ap ? "<small>" + ap + "</small>" : "");
-    $("#mDate").textContent = d.toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" });
-    $("#mHi").firstChild.textContent = greeting(d.getHours());
+    put(big, hm + ap, clock);
+    put($("#mDate"), d.toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" }));
+    put($("#mHi").firstChild, greeting(d.getHours()));
   }
   setInterval(tick, 10000); tick();
 
@@ -136,25 +140,48 @@
   // first letter. Tiles carry the app's colour: a glow of it behind the icon, and the frame when focused.
   // Every app icon, as it loads: a small one sits in the middle of its tile; a light one (a white logo on clear,
   // which vanishes on the tile's white) gets the app's colour behind it.
+  // Which of those an icon is, worked out once per icon (its pixels read back from a 16-pixel copy), remembered for as
+  // long as the box is on, and not in the middle of a press: icons arriving while the rows scroll waited for it.
+  let looks = {};
+  try { looks = JSON.parse(sessionStorage.getItem("sofaIconLooks") || "{}"); } catch (e) { /* none yet */ }
+  const idle = f => (window.requestIdleCallback ? requestIdleCallback(f, { timeout: 1500 }) : setTimeout(f, 300));
+  function iconLook(img, box, look) {            // look: "m" (empty), or any of "t" (tiny) and "l" (light), or "-"
+    if (look === "m") {                           // nothing in it (some sites' icons are empty): the app's first letter
+      if (!img.isConnected) return;
+      const b = box.closest("button") && box.closest("button").querySelector("b");
+      box.classList.add("mono"); box.classList.remove("tiny");
+      img.replaceWith(document.createTextNode(((b && b.textContent) || "").replace(/^the\s+/i, "").charAt(0).toUpperCase()));
+      return;
+    }
+    if (look.includes("t")) box.classList.add("tiny");
+    if (look.includes("l")) box.classList.add("light");
+  }
   window.sofaIcon = img => {
-    const box = img.parentNode;
+    const box = img.parentNode, key = img.getAttribute("src");
     if (!box) return;
-    if (img.naturalWidth && img.naturalWidth < 64) box.classList.add("tiny");
-    try {
-      const c = document.createElement("canvas"), g = c.getContext("2d");
-      c.width = c.height = 16; g.drawImage(img, 0, 0, 16, 16);
-      const px = g.getImageData(0, 0, 16, 16).data;
-      let solid = 0, light = 0;
-      for (let i = 0; i < px.length; i += 4) if (px[i + 3] > 40) { solid++; if (px[i] + px[i + 1] + px[i + 2] > 690) light++; }
-      if (solid < 6) {                     // nothing in it (some sites' icons are empty): the app's first letter
-        const b = box.closest("button") && box.closest("button").querySelector("b");
-        box.classList.add("mono"); box.classList.remove("tiny");
-        img.replaceWith(document.createTextNode(((b && b.textContent) || "").replace(/^the\s+/i, "").charAt(0).toUpperCase()));
-      } else if (solid < 230 && light / solid > 0.7) box.classList.add("light");
-    } catch (e) { /* an icon from elsewhere: as it is */ }
+    if (looks[key]) return iconLook(img, box, looks[key]);
+    idle(() => {
+      let look = img.naturalWidth && img.naturalWidth < 64 ? "t" : "";
+      try {
+        const c = document.createElement("canvas"), g = c.getContext("2d", { willReadFrequently: true });   // (read here, not on the chip)
+        c.width = c.height = 16; g.drawImage(img, 0, 0, 16, 16);
+        const px = g.getImageData(0, 0, 16, 16).data;
+        let solid = 0, light = 0;
+        for (let i = 0; i < px.length; i += 4) if (px[i + 3] > 40) { solid++; if (px[i] + px[i + 1] + px[i + 2] > 690) light++; }
+        if (solid < 6) look = "m";
+        else if (solid < 230 && light / solid > 0.7) look += "l";
+      } catch (e) { /* an icon from elsewhere: as it is */ }
+      looks[key] = look || "-";
+      try { sessionStorage.setItem("sofaIconLooks", JSON.stringify(looks)); } catch (e) { /* full: worked out again next time */ }
+      iconLook(img, box, looks[key]);
+    });
   };
+  // The box's copies of the apps' icons at about the size the tiles draw them (it keeps each site's own, often 512 or
+  // 1024 pixels; a 4K TV gets twice the size)
+  const ICON_W = innerWidth > 2600 ? 384 : 192;
+  const iconSrc = u => /^\/box\/(store-)?icons\//.test(u || "") ? u + (u.includes("?") ? "&" : "?") + "w=" + ICON_W : u;
   function appIcon(a) {
-    if (a.icon_url) return `<img decoding="async" src="${esc(a.icon_url)}" alt="" loading="lazy" onload="sofaIcon(this)" onerror="this.parentNode.classList.add('mono');this.replaceWith(document.createTextNode('${esc((a.name || "?")[0])}'))">`;
+    if (a.icon_url) return `<img decoding="async" src="${esc(iconSrc(a.icon_url))}" alt="" loading="lazy" onload="sofaIcon(this)" onerror="this.parentNode.classList.add('mono');this.replaceWith(document.createTextNode('${esc((a.name || "?")[0])}'))">`;
     if (BUILTIN_ICON[a.id]) return icon(BUILTIN_ICON[a.id]);
     return esc((a.name || "?").replace(/^the\s+/i, "")[0].toUpperCase());
   }
@@ -265,7 +292,7 @@
   function viewStore() {
     if (!storeData) { api("/box/api/store").then(st => { storeData = st; render(true); setTimeout(refreshStoreIcons, 6000); }).catch(e => toast(e.message)); return `<h1 class="page">App Store</h1><p class="lede">Loading…</p>`; }
     const tile = e => `<button class="tile app${e.installed ? " have" : ""}" style="--c:${esc(e.color)}" data-store="${esc(e.id)}">
-        ${e.installed ? `<i class="badge">On Home</i>` : e.drm ? `<i class="badge warn" title="Uses DRM">DRM</i>` : ""}<span class="ic${e.icon_url ? "" : " mono"}">${e.icon_url ? `<img decoding="async" src="${esc(e.icon_url)}" alt="" loading="lazy" onload="sofaIcon(this)">` : esc(e.name.replace(/^the\s+/i, "")[0].toUpperCase())}</span><b>${esc(e.name)}</b></button>`;
+        ${e.installed ? `<i class="badge">On Home</i>` : e.drm ? `<i class="badge warn" title="Uses DRM">DRM</i>` : ""}<span class="ic${e.icon_url ? "" : " mono"}">${e.icon_url ? `<img decoding="async" src="${esc(iconSrc(e.icon_url))}" alt="" loading="lazy" onload="sofaIcon(this)">` : esc(e.name.replace(/^the\s+/i, "")[0].toUpperCase())}</span><b>${esc(e.name)}</b></button>`;
     return `<div class="view-in"><h1 class="page">App Store</h1>
       <p class="lede">Apps open full screen, with no browser around them. Press OK to put one on Home.</p>
       <div class="store-detail" id="storeDetail"></div>
@@ -286,7 +313,7 @@
     const box = $("#storeDetail"); if (!box || !storeData) return;
     const e = storeData.sections.flatMap(s => s.apps).find(x => x.id === id); if (!e) return;
     box.style.setProperty("--c", e.color);
-    box.innerHTML = `<span class="ic${e.icon_url ? "" : " mono"}">${e.icon_url ? `<img decoding="async" src="${esc(e.icon_url)}" alt="" onload="sofaIcon(this)">` : esc(e.name[0])}</span><div><h3>${esc(e.name)}</h3><p>${esc(e.about || "")}${e.drm ? ` <span class="warn">Uses DRM: on a Pi 3 the picture may be smaller, and some services may not play.</span>` : ""}</p>
+    box.innerHTML = `<span class="ic${e.icon_url ? "" : " mono"}">${e.icon_url ? `<img decoding="async" src="${esc(iconSrc(e.icon_url))}" alt="" onload="sofaIcon(this)">` : esc(e.name[0])}</span><div><h3>${esc(e.name)}</h3><p>${esc(e.about || "")}${e.drm ? ` <span class="warn">Uses DRM: on a Pi 3 the picture may be smaller, and some services may not play.</span>` : ""}</p>
       <p class="addr">${esc(e.url.replace(/^https?:\/\//, ""))}</p></div>
       <div>${e.installed ? `<button class="btn primary" data-app="${esc(e.id)}">Open</button> <button class="btn" data-remove="${esc(e.id)}">Remove</button>`
         : `<button class="btn primary" data-install="${esc(e.id)}">Add to Home</button>`}</div>`;
@@ -823,10 +850,15 @@
                  "Europe/Paris", "Europe/Berlin", "Europe/Rome", "Europe/Athens", "Europe/Moscow", "Africa/Lagos", "Africa/Johannesburg",
                  "Asia/Dubai", "Asia/Kolkata", "Asia/Shanghai", "Asia/Tokyo", "Australia/Sydney", "Pacific/Auckland", "UTC"];
   const BT_ICON = { remote: "📺", controller: "🎮", keyboard: "⌨", mouse: "🖱", audio: "🎧", other: "•" };
+  const qrMade = new Map();                     // (the same few codes, asked for every 2.5 s: made once each)
   function qr(text) {
     if (!window.qrcode || !text) return "";
-    const q = window.qrcode(0, "M"); q.addData(text); q.make();
-    return q.createSvgTag({ cellSize: 4, margin: 2, scalable: true });
+    if (!qrMade.has(text)) {
+      const q = window.qrcode(0, "M"); q.addData(text); q.make();
+      if (qrMade.size > 12) qrMade.clear();
+      qrMade.set(text, q.createSvgTag({ cellSize: 4, margin: 2, scalable: true }));
+    }
+    return qrMade.get(text);
   }
   let setupFails = 0;
   async function loadSetup(scan) {
@@ -839,8 +871,9 @@
     setupTimer = setTimeout(async () => {
       await loadSetup(location.hash.startsWith("#/welcome") && step === 0 || btLooking > Date.now());
       autoStep();
-      for (const [id, html] of [["phoneBox", phoneBox()], ["btList", btList()], ["netState", netState()]]) {
-        const el = $("#" + id); if (!el || el.dataset.html === html) continue;
+      for (const [id, part] of [["phoneBox", phoneBox], ["btList", btList], ["netState", netState]]) {
+        const el = $("#" + id); if (!el) continue;                 // (only what's on the screen is made)
+        const html = part(); if (el.dataset.html === html) continue;
         const had = cur && el.contains(cur) ? keyOf(cur) : null;
         el.innerHTML = html; el.dataset.html = html;
         if (had && $(had)) focus($(had));
@@ -1017,7 +1050,7 @@
     return `<div class="setup view-in">${top}<div class="setup-body"><h1>What do you watch?</h1>
       <p class="lede">Pick the ones you use: they go on Home, ready to sign in. Sofa and free Live TV are there already; the App Store has many more, any time.</p>
       <div class="pick-grid">${list.map(e => `<button class="tile app pick${picks.has(e.id) ? " on" : ""}" style="--c:${esc(e.color)}" data-pick="${esc(e.id)}" aria-pressed="${picks.has(e.id)}">
-        <i class="tick">${icon("#i-check")}</i><span class="ic${e.icon_url ? "" : " mono"}">${e.icon_url ? `<img decoding="async" src="${esc(e.icon_url)}" alt="" onload="sofaIcon(this)">` : esc(e.name.replace(/^the\s+/i, "")[0].toUpperCase())}</span><b>${esc(e.name)}</b></button>`).join("")}</div>
+        <i class="tick">${icon("#i-check")}</i><span class="ic${e.icon_url ? "" : " mono"}">${e.icon_url ? `<img decoding="async" src="${esc(iconSrc(e.icon_url))}" alt="" onload="sofaIcon(this)">` : esc(e.name.replace(/^the\s+/i, "")[0].toUpperCase())}</span><b>${esc(e.name)}</b></button>`).join("")}</div>
       </div>${nav(true, `data-done="1"`, (n => n ? "Add " + n + " and finish" : "Finish")([...picks].filter(id => !have.has(id)).length))}</div>`;
   }
 

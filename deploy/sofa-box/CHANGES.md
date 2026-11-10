@@ -35,6 +35,35 @@ GitHub builds the card and makes the release by itself.
   - The guide and docs/privacy.md: the box keeps no usage statistics and tells no one what you watch but the Sofa you
     play it from; Live TV on a new box starts with Classic Cinema and only the channel lists you add.
 
+## 1.1.57
+
+- **Home answers the remote quicker on a Raspberry Pi 3.** In a test browser set up like a Pi 3's (its light look),
+  the presses along Home's rows and down to the next now have the browser draw (raster) about a twelfth of what it
+  did, and work out styles about a fifth as often. Effect by effect:
+  - **The rows slide on the graphics chip.** A row gliding to the app in focus was drawn again for each step of the
+    glide. Now each row is a layer of its own that the graphics chip slides, and a press no longer splits the row
+    into new layers around the tile in focus (each drawn again from nothing, twice a press).
+  - **App icons at the size Home draws them.** The box keeps each site's own icon, often 512 or 1024 pixels across,
+    for a tile 150 pixels wide: the Pi decoded up to fifty times the pixels it showed, and again whenever it drew
+    them. The box now makes a copy at the tile's size once (192 pixels; 384 on a 4K TV), and the browser keeps it.
+  - **An icon's look is worked out once.** Whether an icon is white on clear (it gets the app's colour behind it)
+    was found by reading the whole picture back each time Home showed it, often in the middle of a press, as icons
+    arrived while a row scrolled. Now once per icon, when the box is quiet, and remembered.
+  - **Nothing moves on a press in the light look.** An app's icon still lifts in the tile in focus, the tabs and
+    switches still change, a sheet still opens: at once, instead of over a fifth of a second (each movement was a
+    layer made for the moment and dropped after).
+  - **The background that never showed isn't drawn** (every board, the same picture on the TV): the page's own
+    background is drawn over it. It was a layer the size of the screen for nothing, and on the full look two glows
+    moving for ever, a new frame 60 times a second while Home sat still.
+  - **The clock** redraws when the minute changes (every 10 s before), and Settings' parts that refresh every 2.5 s
+    are made only when they're on the screen, the phone's codes once.
+- **Sofa's pages on a Pi 3** (with Sofa 1.5.3): the rows of posters slide the same way, and the banner's slow zoom no
+  longer keeps the graphics chip busy for as long as Sofa's home is open.
+- **A report says how quickly each page answers**, page by page: Home, Settings, the App Store, Sofa's own pages. For
+  each, how many presses answered within 0.05, 0.1 and 0.25 s, the slowest, and for the slow ones where the time
+  went: waiting for the page to be free, the page's own code for the key, or drawing the answer. It also says whether
+  the browser draws with the Pi's graphics chip. The measure no longer disappears when Home loads again.
+
 ## 1.1.55
 
 - **Stable and testing.** A box now gets its updates from one of two channels (Settings → Software).
