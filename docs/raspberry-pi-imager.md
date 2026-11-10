@@ -29,8 +29,8 @@ It shows the following:
   every numbered one, which happens when the box changes on main without a new number.
 - **Sofa Box OS: earlier versions**: five more, newest first.
 
-Only "(testing)" entries come after the top one. Sofa Box Imager (`imager/`, on its own branch for now) takes
-the first entry without "(testing)" as the one to offer.
+Only "(testing)" entries come after the top one. Sofa Box Imager ([`imager/`](../imager/README.md)) takes the
+first entry without "(testing)" as the one to offer.
 
 Each entry carries the card's packed size, its unpacked size (`extract_size`) and its unpacked SHA-256
 (`extract_sha256`), plus the icon (`docs/images/sofa-box-os-icon.png`), the release date, and the release
@@ -230,8 +230,8 @@ The owner wants every Sofa product reachable without sending people to a third p
   - Our own app needs one path: pick the card, write Sofa Box OS (the stable version, or the newest while
     none is marked), check it, eject.
   - It can read this same list (the same JSON) for the card, its size and its SHA-256.
-  - Started: Sofa Box Imager for the Mac, in `imager/` on its own branch
-    ([krintoxi/sofa#39](https://github.com/krintoxi/sofa/pull/39), a draft).
+  - Started: Sofa Box Imager for the Mac, [`imager/`](../imager/README.md) (0.1.0, unsigned, not yet tried
+    with a real SD card).
   - Apache-2.0 lets us reuse parts of Imager's code with its licence and notice, where that's safer than
     writing them anew. Disk handling is the obvious case.
 

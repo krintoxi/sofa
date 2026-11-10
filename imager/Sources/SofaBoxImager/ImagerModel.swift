@@ -41,7 +41,7 @@ final class ImagerModel: ObservableObject {
     var isWriting: Bool { if case .running = phase { return true } else { return false } }
     var chosenDisk: DiskDescription? { offered.first { $0.bsdName == diskName } }
 
-    /// The list: ours on GitHub. For testing before it's published, `--list FILE-or-URL` or SOFA_BOX_IMAGER_LIST.
+    /// The list: ours on GitHub. For testing another one, `--list FILE-or-URL` or SOFA_BOX_IMAGER_LIST.
     nonisolated static func chosenListURL() -> URL {
         let args = CommandLine.arguments
         var given = ProcessInfo.processInfo.environment["SOFA_BOX_IMAGER_LIST"]

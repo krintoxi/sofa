@@ -153,7 +153,7 @@ private struct CardPicker: View {
                 if let c = model.card {
                     Text(details(c)).font(SofaFonts.text(13)).foregroundStyle(Color.mist)
                     if c.isTesting {
-                        Text("A testing build: for trying fixes early. The numbered version is the one to keep.")
+                        Text("Testing: not tried on a real box yet. The version at the top is the one to keep.")
                             .font(SofaFonts.text(13)).foregroundStyle(Color.amber)
                     }
                 }

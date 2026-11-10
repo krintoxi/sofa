@@ -12,8 +12,7 @@ ejects it. It sets nothing on the card (no user, no SSH, no Wi-Fi): the box sets
   card reader need a person at a Mac: [the list is below](#what-only-a-real-mac-with-a-real-sd-card-can-confirm).
 - It isn't signed with an Apple Developer ID, so macOS blocks a downloaded copy until its owner allows it
   (see [Signing](#signing)).
-- Its list of versions isn't published until [PR #35](https://github.com/krintoxi/sofa/pull/35) is merged.
-  Until then, give it a list file with `--list` (see [The list](#the-list)).
+- It reads the Sofa Box list on the `sofa-box` release, published since 2026-11-10 (see [The list](#the-list)).
 
 It's written from scratch in Swift and SwiftUI, not forked from Raspberry Pi's imager, and has no other
 dependencies: unpacking is macOS's own Compression framework, the password prompt is macOS's own `authopen`.
@@ -138,24 +137,25 @@ the check against the list's SHA-256 would fail if anything did.
 ## The list
 
 The app reads the same list Raspberry Pi's imager can open, built from the releases by
-`tools/sofa-box-imager-list.py` ([PR #35](https://github.com/krintoxi/sofa/pull/35)):
+`tools/sofa-box-imager-list.py` ([how it's made](../docs/raspberry-pi-imager.md#our-list)):
 
     https://github.com/krintoxi/sofa/releases/download/sofa-box/sofa-box.rpi-imager-manifest
 
-It shows the newest numbered version first, a "newest build (testing)" entry when the list has one, and the
-"earlier versions" group, each with its release date, download size and size on the card. It reads only what
+It offers the first entry that isn't marked "(testing)": the stable version once one is marked (tried on a real
+box), the newest until then. Beside it come the "(testing)" entries when the list has them (a newer version, the
+newest build), then the "earlier versions" group, each with its release date, download size and size on the
+card. It reads only what
 it needs (`name`, `url`, `extract_size`, `extract_sha256`, `image_download_size`, `release_date`, `devices`)
 and is strict about it: an entry without a usable size or SHA-256, with an address that isn't `https`, or
 for other boards is left out, never written unchecked. It ignores `init_format` because it never customises a
 card.
 
-**Until #35 is merged that address answers 404**, and the app says so. To try the app before then:
+If that address can't be reached, the app says so. To try it with another list, one built from a checkout of
+this repository say:
 
 ```
-git fetch origin claude/imager-list
-git show origin/claude/imager-list:tools/sofa-box-imager-list.py > /tmp/sofa-box-imager-list.py
-python3 /tmp/sofa-box-imager-list.py build --keep 0 --cache /tmp/imager-cache.json --out /tmp/sofa-box.rpi-imager-manifest
-open "build/Sofa Box Imager.app" --args --list /tmp/sofa-box.rpi-imager-manifest
+python3 tools/sofa-box-imager-list.py build --keep 0 --cache /tmp/imager-cache.json --out /tmp/sofa-box.rpi-imager-manifest
+open "imager/build/Sofa Box Imager.app" --args --list /tmp/sofa-box.rpi-imager-manifest
 ```
 
 (The build unpacks each listed card once to measure it, about two minutes a card. `--keep 0` lists only the
@@ -174,7 +174,7 @@ exactly the size they asked for, and only then touch it.
 | What | Tests | How |
 |---|---|---|
 | Which disks may be written | `ImagerKitTests/DiskPolicyTests` (22) | Made-up disks. This Mac's internal SSD, APFS container and a RAM disk are copied from what macOS really said; the card readers are written from Apple's documented values. Every combination of inside / removable / ejectable / card / image / APFS is checked against the rule. |
-| The list | `ImagerKitTests/CardListTests` (8) | A list made by PR #35's own `build()` and `check()`. 1.1.54's sizes and SHA-256 are the real card's; the other versions are invented. |
+| The list | `ImagerKitTests/CardListTests` (10) | A list made by `tools/sofa-box-imager-list.py`'s own `build()` and `check()` (1.1.54's sizes and SHA-256 are the real card's, the other versions invented); the list as it was first published on 2026-11-10; and one opening with a stable version, followed by two "(testing)" ones. |
 | Unpacking | `ImagerKitTests/XZDecoderTests` (8) | Files made by `xz -T0 -6` as the box's card is: one stream of 9 blocks, and two streams with zero padding between. Damage, a short file, bad padding and trailing junk are all caught. |
 | Writing and checking | `ImagerKitTests/CardWriterTests` (13) | A plain file as the disk. Only whole-sector writes at megabyte offsets; the first megabyte last; nothing past the card but the disk's last megabyte; a wrong download, a card that reads back wrong, Stop and a card that never answers each leave the first megabyte blank. |
 | Downloading | `ImagerKitTests/DownloadTests` (9) | A web server inside the test: a whole download, carrying on after a drop, a server that ignores or mangles the range, the wrong size, giving up, and download-to-checked-card in one go. |
@@ -257,14 +257,17 @@ xcrun stapler staple "build/Sofa Box Imager.app"        # then zip it again, or 
 Later. Writing a disk on Windows is different work (an elevated helper that locks and dismounts the volumes,
 then writes `\\.\PhysicalDriveN` in whole sectors) and needs a Windows code-signing certificate, or SmartScreen
 warns on every download. The fleet has no Windows PC, and a writer that has never written a real card
-shouldn't reach owners. Until one exists, Windows owners use the list in Raspberry Pi's own imager (PR #35).
+shouldn't reach owners. Until one exists, Windows owners use the list in Raspberry Pi's own imager
+([the guide](../deploy/sofa-box/README.md#setting-it-up-the-ready-made-card-easiest)).
 `ImagerKit` (the list, the policy's rules, the writer) has nothing Mac-only in it but the unpacker and the
 SHA-256, so a Windows app can share its design and its tests' cases.
 
 ## Not in this version
 
-- No settings for the card. On purpose, and it stays that way: a user made by any imaging tool stops the
-  box's TV screen starting (`docs/raspberry-pi-imager.md` in PR #35 says why).
+- No settings for the card. On purpose: the box sets itself up on the TV, and this app never makes a user.
+  (A user made by Raspberry Pi's imager stopped the TV screen before Sofa Box OS 1.1.56;
+  [docs/raspberry-pi-imager.md](../docs/raspberry-pi-imager.md) has the story, and what settings of our own
+  could look like: Wi-Fi and a name, in a file the box reads itself.)
 - The download isn't kept: writing a second card downloads it again.
 - No update check for the app itself, and no translations.
 - A card file chosen from disk (only through a list file, for testing).

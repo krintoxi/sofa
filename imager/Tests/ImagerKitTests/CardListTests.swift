@@ -2,7 +2,7 @@ import Foundation
 @testable import ImagerKit
 import XCTest
 
-/// The list, as `tools/sofa-box-imager-list.py` (PR #35) writes it. The fixture was made by that tool's own build() and
+/// The list, as `tools/sofa-box-imager-list.py` writes it. The fixture was made by that tool's own build() and
 /// check() from made-up releases; 1.1.54's sizes and SHA-256 are the real card's, the other versions are invented.
 final class CardListTests: XCTestCase {
     func testReadsTheListTheToolWrites() throws {
@@ -103,6 +103,42 @@ final class CardListTests: XCTestCase {
         let list = try CardListParser.parse(try JSONSerialization.data(withJSONObject: doc))
         XCTAssertEqual(list.newest?.name, "Sofa Box OS 1.1.55")
         XCTAssertEqual(list.others.map(\.isTesting), [true])
+    }
+
+    /// The list as it went up on the release on 2026-11-10, its first run (no version marked stable yet).
+    func testReadsThePublishedList() throws {
+        let list = try CardListParser.parse(Fixture.data("published-2026-11-10.rpi-imager-manifest"))
+        XCTAssertEqual(list.newest?.name, "Sofa Box OS 1.1.58")
+        XCTAssertEqual(list.newest?.url.absoluteString,
+                       "https://github.com/krintoxi/sofa/releases/download/box-os-v1.1.58/sofa-box-os-1.1.58.img.xz")
+        XCTAssertEqual(list.newest?.extractSize, 5_226_102_784)
+        XCTAssertEqual(list.others, [])
+        XCTAssertEqual(list.earlier.map(\.name), ["Sofa Box OS 1.1.54", "Sofa Box OS 1.1.49", "Sofa Box OS 1.1.48",
+                                                  "Sofa Box OS 1.1.47", "Sofa Box OS 1.1.46"])
+        XCTAssertEqual(list.earlier[0].extractSHA256, "8b1b6299541a101af1e03f761b150f1cc606a6f067cdca301a17ff927a913e5a")
+        XCTAssertEqual(list.skipped, [])
+    }
+
+    /// Once a version is marked stable the list opens with it, then a newer version and the newest build, both "(testing)".
+    func testTheStableVersionIsTheOneOffered() throws {
+        func entry(_ name: String, _ tag: String, _ file: String) -> [String: Any] {
+            ["name": name, "description": "x", "release_date": "2026-11-20",
+             "url": "https://github.com/krintoxi/sofa/releases/download/\(tag)/\(file)",
+             "extract_size": 1024, "image_download_size": 100, "extract_sha256": String(repeating: "ab", count: 32)]
+        }
+        let doc: [String: Any] = ["os_list": [
+            entry("Sofa Box OS 1.1.58 (stable)", "box-os-v1.1.58", "sofa-box-os-1.1.58.img.xz"),
+            entry("Sofa Box OS 1.1.60 (testing)", "box-os-v1.1.60", "sofa-box-os-1.1.60.img.xz"),
+            entry("Sofa Box OS 1.1.60, newest build (testing)", "sofa-box", "sofa-box.img.xz"),
+            ["name": "Sofa Box OS: earlier versions", "description": "1 earlier versions, newest first.",
+             "subitems": [entry("Sofa Box OS 1.1.54", "box-os-v1.1.54", "sofa-box-os-1.1.54.img.xz")]],
+        ]]
+        let list = try CardListParser.parse(try JSONSerialization.data(withJSONObject: doc))
+        XCTAssertEqual(list.newest?.name, "Sofa Box OS 1.1.58 (stable)")
+        XCTAssertEqual(list.newest?.isTesting, false)
+        XCTAssertEqual(list.others.map(\.name), ["Sofa Box OS 1.1.60 (testing)", "Sofa Box OS 1.1.60, newest build (testing)"])
+        XCTAssertEqual(list.others.map(\.isTesting), [true, true])
+        XCTAssertEqual(list.earlier.map(\.name), ["Sofa Box OS 1.1.54"])
     }
 
     func testTheDefaultAddressIsTheReleaseAsset() {

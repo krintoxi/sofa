@@ -23,7 +23,8 @@ public struct Card: Equatable, Identifiable, Hashable {
     /// YYYY-MM-DD, or "" when the list doesn't say.
     public let releaseDate: String
     public let website: URL?
-    /// The rolling card rebuilt from main ("newest build (testing)").
+    /// Not tried on a real box yet: a version newer than the stable one, or the rolling card rebuilt from main
+    /// ("newest build (testing)").
     public var isTesting: Bool { name.lowercased().contains("(testing)") }
     public var id: String { url.absoluteString + "#" + extractSHA256 }
 }
@@ -133,7 +134,8 @@ public enum CardListParser {
                 }
             }
         }
-        // The newest numbered version is the first entry that isn't a testing build.
+        // The version to offer is the first entry that isn't a testing one: the stable version once one is marked,
+        // the newest until then.
         let newestIndex = top.firstIndex { !$0.isTesting } ?? (top.isEmpty ? nil : 0)
         let newest = newestIndex.map { top[$0] }
         var others = top
