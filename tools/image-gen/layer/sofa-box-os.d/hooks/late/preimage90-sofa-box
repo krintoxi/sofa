@@ -1,0 +1,29 @@
+#!/bin/bash
+# The box's own settings for the Pi's config.txt and cmdline.txt: `sofa-box setup-boot`, as install.sh runs it on a
+# Raspberry Pi, here on the two files rpi-image-gen has just put together from its layers' fragments (they don't
+# exist yet when install.sh runs, so install.sh skips that step). Then the boot part of the card's report.
+set -eu
+ROOT="$1"
+B="$ROOT/boot/firmware"
+OUT="${IGconf_image_outputdir:?}"
+for f in config.txt cmdline.txt; do
+  [ -f "$B/$f" ] || { echo "sofa-box: no $f in $B" >&2; exit 1; }
+  rm -f "$B/$f.before-sofa-box"
+done
+SOFA_BOX_ROOT="$ROOT" sh "$ROOT/usr/local/lib/sofa-box/sofa-box" setup-boot "$B"
+
+VER="$(tr -d ' \n' < "$ROOT/usr/local/lib/sofa-box/VERSION")"
+cat > "$B/sofa-box.txt" <<EOF
+Sofa Box OS $VER card, an image-gen prototype (not a release), made $(date -u +%Y-%m-%d) with ${IGconf_sofabox_made_with:-rpi-image-gen}.
+Sofa: ${IGconf_sofabox_sofa:-found on the home network by itself}
+Check it over SSH: sofa-box doctor
+EOF
+
+mkdir -p "$OUT"
+{
+  echo "cmdline.txt: $(cat "$B/cmdline.txt")"
+  echo "config.txt changes: $(diff "$B/config.txt.before-sofa-box" "$B/config.txt" | grep '^[<>]' | tr '\n' ' ')"
+  echo "Boot partition: $(cd "$B" && ls | grep -v -e '\.dtb$' -e '^overlays$' | tr '\n' ' ')+ $(cd "$B" && ls | grep -c '\.dtb$') device trees, $(ls "$B/overlays" 2>/dev/null | wc -l | tr -d ' ') overlays"
+} > "$OUT/report-boot.txt"
+echo "== config.txt"; cat "$B/config.txt"
+cat "$OUT/report-boot.txt"

@@ -1,0 +1,40 @@
+# Sofa Box OS built with Raspberry Pi's rpi-image-gen (a prototype beside tools/build-sofa-box-image.sh).
+# One card for a Raspberry Pi 3 B+, 4 or 5. Built by tools/image-gen/build.sh, which fills in the card's name,
+# the version and where the repository is.
+
+device:
+  # Raspberry Pi 3: the v8 (64-bit, 4 KB page) kernel, the boot firmware for every board, Wi-Fi and Bluetooth
+  # firmware. The sofa-box-os layer adds the Pi 5's kernel, so the same card starts a Pi 3 B+, 4 or 5.
+  layer: rpi3
+  hostname: sofabox
+  # Raspberry Pi OS's own login user, as on today's card: uid 1000, no password (locked), so nobody can sign in
+  # until someone sets one. "passwd": sudo stays installed (the box's own sudo rules need it) and asks pi's password.
+  user1: pi
+  user1uid: 1000
+  user1sudo: passwd
+
+image:
+  # Raspberry Pi OS's layout: MBR, a FAT boot partition and an ext4 root, found by PARTUUID as Raspberry Pi OS's
+  # tools expect (its first start changes the disk id and grows the root partition).
+  layer: image-rpios
+  devid_scheme: partuuid
+  boot_part_size: 512M
+  root_part_size: 150%
+
+deploy:
+  compression: none
+
+layer:
+  - debian-trixie-arm64
+  - rpi-debian-trixie
+  - rpi-misc-utils
+  - rpi-essential-base
+  - rpi-misc-skel
+  - systemd-timesyncd
+  - network-manager
+  - wireless-regulatory
+  - openssh-server
+  - sofa-box-os
+
+sofabox:
+  repo: ${@SRCROOT}/../..

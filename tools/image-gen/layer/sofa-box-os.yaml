@@ -1,0 +1,68 @@
+# METABEGIN
+# X-Env-Layer-Name: sofa-box-os
+# X-Env-Layer-Category: app
+# X-Env-Layer-Desc: Sofa Box OS (prototype): the Sofa box set up by its own
+#  installer, deploy/sofa-box/install.sh --image, on Raspberry Pi OS's own
+#  packages, one card for a Raspberry Pi 3 B+, 4 or 5. No cloud-init, no
+#  userconf and no first-start user questions. The box's settings for
+#  config.txt and cmdline.txt come from the box itself (sofa-box setup-boot).
+# X-Env-Layer-Version: 0.1.0
+# X-Env-Layer-Requires: device-user-admin,network-manager,openssh-server,rpi-boot-firmware,rpi-linux-base
+#
+# X-Env-VarPrefix: sofabox
+#
+# X-Env-Var-repo:
+# X-Env-Var-repo-Desc: The Sofa repository (a checkout of krintoxi/sofa) the
+#  box's files and Sofa itself are copied from.
+# X-Env-Var-repo-Required: y
+# X-Env-Var-repo-Valid: dir
+# X-Env-Var-repo-Set: y
+#
+# X-Env-Var-sofa:
+# X-Env-Var-sofa-Desc: A Sofa computer's address built into the card, like
+#  tools/build-sofa-box-image.sh --sofa. Empty: the box finds Sofa at home by
+#  itself.
+# X-Env-Var-sofa-Required: n
+# X-Env-Var-sofa-Valid: string-or-empty
+# X-Env-Var-sofa-Set: y
+#
+# X-Env-Var-made_with:
+# X-Env-Var-made_with-Desc: What made the card, for its report and
+#  sofa-box.txt (the build script fills in rpi-image-gen's commit).
+# X-Env-Var-made_with-Required: n
+# X-Env-Var-made_with-Valid: string-or-empty
+# X-Env-Var-made_with-Set: y
+# METAEND
+---
+mmdebstrap:
+  packages:
+    # The Pi 5's own kernel. The device layer (rpi3, through rpi-generic64) brings the v8 kernel for the Pi 3 and 4.
+    # Added as a package, not as rpi-image-gen's rpi-linux-2712 layer: that layer makes the root filesystem's blocks
+    # 16 KB, which the Pi 3's and 4's kernel can't read.
+    - linux-image-rpi-2712
+    # Raspberry Pi OS's own first start: the card grows to fill the SD card (in the initramfs, with "resize" on the
+    # kernel command line), a new disk id, new SSH host keys, SSH switched on by an "ssh" file on the card, and its
+    # udev rules (the video group's /dev/vchiq for vcgencmd, and so on). Same package as on today's card.
+    - raspberrypi-sys-mods
+    # What Raspberry Pi OS Lite brings that the box uses (today's card has every one of these):
+    - avahi-daemon          # the box's name on the network, and finding Sofa at home (avahi-browse)
+    - libnss-mdns           # .local names
+    - polkitd               # the box's user may choose the Wi-Fi and open USB drives (install.sh writes the rules)
+    - wpasupplicant         # Wi-Fi for NetworkManager (only recommended by network-manager)
+    - wireless-tools        # iwgetid
+    - iproute2              # ip
+    - openssl               # the phone remote's certificate request
+    - tzdata                # the time zone from the setup screen
+    - dbus-user-session     # the box's user's own bus: PipeWire and WirePlumber, the sound
+    - alsa-utils
+    - kmod
+    - usbutils
+    - psmisc
+    - xz-utils
+    - dosfstools            # USB drives and discs (udisks2)
+    - exfatprogs
+    - ntfs-3g
+    - firmware-atheros      # USB Wi-Fi and Bluetooth adapters, as on Raspberry Pi OS Lite
+    - firmware-libertas
+    - firmware-mediatek
+    - firmware-realtek
