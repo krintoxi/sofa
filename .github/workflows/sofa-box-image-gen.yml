@@ -71,7 +71,20 @@ jobs:
           python3 -I tools/image-gen/inspect-card.py "$SOFA_BOX_IMAGE_GEN_WORK/image-$NAME/$NAME.img" > "out/$NAME-facts.json"
           sed -i "s/\"today.img\"/\"$FILE ($TAG)\"/" "out/$NAME-today-facts.json"
           sed -i "s/\"$NAME.img\"/\"$NAME.img (image-gen)\"/" "out/$NAME-facts.json"
+          # The same CVE scan of both cards, so the counts compare: grype on each card's root, mounted read-only.
+          scan() {
+            start="$(od -An -tu4 -j 470 -N 4 "$1" | tr -d ' ')"
+            sudo mkdir -p /mnt/card
+            sudo mount -o ro,loop,offset=$((start * 512)) "$1" /mnt/card
+            sudo grype dir:/mnt/card -o json > "$2" || true
+            sudo umount /mnt/card
+          }
+          scan "$RUNNER_TEMP/today/today.img" "$RUNNER_TEMP/today/today-cve.json"
+          scan "$SOFA_BOX_IMAGE_GEN_WORK/image-$NAME/$NAME.img" "$RUNNER_TEMP/today/imagegen-cve.json"
           { echo "# $NAME compared with $FILE ($TAG)"; echo
+            echo "Known vulnerabilities, both scanned the same way (grype $GRYPE_VERSION on each card's root, one database):"; echo
+            echo "- $FILE: $(python3 -I tools/image-gen/inspect-card.py --cve-summary "$RUNNER_TEMP/today/today-cve.json" 2>&1)"
+            echo "- $NAME: $(python3 -I tools/image-gen/inspect-card.py --cve-summary "$RUNNER_TEMP/today/imagegen-cve.json" 2>&1)"; echo
             python3 -I tools/image-gen/inspect-card.py --compare "out/$NAME-today-facts.json" "out/$NAME-facts.json"; } > "out/$NAME-comparison.md"
           rm -f "$RUNNER_TEMP/today/today.img"
       - name: What's on it

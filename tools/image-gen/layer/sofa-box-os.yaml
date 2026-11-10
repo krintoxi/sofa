@@ -66,3 +66,10 @@ mmdebstrap:
     - firmware-libertas
     - firmware-mediatek
     - firmware-realtek
+    - usb-modeswitch        # USB Wi-Fi adapters that first show up as a disc
+    - usb-modeswitch-data
+    - raspberrypi-net-mods  # NetworkManager: no random MAC address while scanning, for the Pi's own Wi-Fi
+    - alsa-ucm-conf         # the sound cards' profiles (PipeWire reads them)
+    - alsa-topology-conf
+    - busybox               # in the initramfs: the tools Raspberry Pi OS's first start uses (dd, od, cut, sed, findmnt)
+    - locales               # en_GB.UTF-8, as on Raspberry Pi OS (rpi-image-gen's locale layer chooses it)

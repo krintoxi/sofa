@@ -271,6 +271,8 @@ def inspect(img):
     os_release = fs.cat("/usr/lib/os-release") or fs.cat("/etc/os-release") or ""     # (/etc's is a symlink)
     facts["os"] = next((l.split("=", 1)[1].strip('"') for l in os_release.splitlines() if l.startswith("PRETTY_NAME=")), "?")
     facts["hostname"] = (fs.cat("/etc/hostname") or "").strip()
+    facts["language"] = next((l.split("=", 1)[1] for l in (fs.cat("/etc/locale.conf") or "").splitlines()
+                              if l.startswith("LANG=")), "")
     facts["machine_id"] = (fs.cat("/etc/machine-id") or "").strip()
     facts["fstab"] = [l for l in (fs.cat("/etc/fstab") or "").splitlines() if l.strip() and not l.startswith("#")]
     facts["first_start"] = {
@@ -311,6 +313,7 @@ def compare(a, b):
         ("Kernels", " ".join(a["kernels"]), " ".join(b["kernels"])),
         ("Starts into", str(a["default_target"]), str(b["default_target"])),
         ("Host name", a["hostname"], b["hostname"]),
+        ("Language (LANG)", a.get("language", "?"), b.get("language", "?")),
         ("machine-id (\"uninitialized\" = first start)", a["machine_id"], b["machine_id"]),
         ("Users", "; ".join("%s (uid %d, password %s)" % (u["name"], u["uid"], u["password"]) for u in a["users"]),
          "; ".join("%s (uid %d, password %s)" % (u["name"], u["uid"], u["password"]) for u in b["users"])),
@@ -365,8 +368,36 @@ def compare(a, b):
     return "\n".join(out) + "\n"
 
 
+def cve_summary(report):
+    """One line from a grype JSON report: CVEs counted once each (grype matches the same CVE once per binary
+    package, so a kernel's CVEs come up once for each of its eight packages), by severity, and by Debian's state."""
+    matches = report.get("matches", [])
+    worst = {}
+    order = ["Critical", "High", "Medium", "Low", "Negligible", "Unknown"]
+    for m in matches:
+        v = m["vulnerability"]
+        sev = v.get("severity", "Unknown")
+        if v["id"] not in worst or order.index(sev) < order.index(worst[v["id"]]):
+            worst[v["id"]] = sev
+    states = {}
+    for m in matches:
+        states.setdefault(m["vulnerability"].get("fix", {}).get("state", "unknown"), set()).add(m["vulnerability"]["id"])
+    by = {s: sum(1 for x in worst.values() if x == s) for s in order}
+    packages = {}                                   # by source package: linux, not each of its binary packages
+    for m in matches:
+        ups = m["artifact"].get("upstreams") or [{}]
+        packages.setdefault(ups[0].get("name") or m["artifact"]["name"], set()).add(m["vulnerability"]["id"])
+    top = sorted(packages.items(), key=lambda kv: -len(kv[1]))[:5]
+    return "%d CVEs (%d matches): %s; Debian's state: %s; most in: %s" % (
+        len(worst), len(matches), ", ".join("%s %d" % (s, by[s]) for s in order if by[s]),
+        ", ".join("%s %d" % (k, len(v)) for k, v in sorted(states.items())),
+        ", ".join("%s %d" % (k, len(v)) for k, v in top))
+
+
 def main(argv):
-    if len(argv) == 4 and argv[1] == "--compare":
+    if len(argv) == 3 and argv[1] == "--cve-summary":
+        print(cve_summary(json.load(open(argv[2]))))
+    elif len(argv) == 4 and argv[1] == "--compare":
         a, b = (json.load(open(p)) for p in argv[2:4])
         sys.stdout.write(compare(a, b))
     elif len(argv) == 2:

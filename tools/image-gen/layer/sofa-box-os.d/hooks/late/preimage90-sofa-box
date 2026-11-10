@@ -12,6 +12,13 @@ for f in config.txt cmdline.txt; do
 done
 SOFA_BOX_ROOT="$ROOT" sh "$ROOT/usr/local/lib/sofa-box/sofa-box" setup-boot "$B"
 
+# A first start, every time a card is written, as on Raspberry Pi OS: "uninitialized" makes systemd treat the boot as
+# the first (ConditionFirstBoot: the boot screen's first-start note, the root growing, new SSH keys) and give the
+# box a machine id of its own. The build leaves the file empty, which systemd does NOT count as a first start.
+mkdir -p "$ROOT/etc"
+echo uninitialized > "$ROOT/etc/machine-id"
+if [ -f "$ROOT/var/lib/dbus/machine-id" ] && [ ! -L "$ROOT/var/lib/dbus/machine-id" ]; then rm -f "$ROOT/var/lib/dbus/machine-id"; fi
+
 VER="$(tr -d ' \n' < "$ROOT/usr/local/lib/sofa-box/VERSION")"
 cat > "$B/sofa-box.txt" <<EOF
 Sofa Box OS $VER card, an image-gen prototype (not a release), made $(date -u +%Y-%m-%d) with ${IGconf_sofabox_made_with:-rpi-image-gen}.
@@ -21,6 +28,7 @@ EOF
 
 mkdir -p "$OUT"
 {
+  echo "machine-id: $(cat "$ROOT/etc/machine-id") (a first start)"
   echo "cmdline.txt: $(cat "$B/cmdline.txt")"
   echo "config.txt changes: $(diff "$B/config.txt.before-sofa-box" "$B/config.txt" | grep '^[<>]' | tr '\n' ' ')"
   echo "Boot partition: $(cd "$B" && ls | grep -v -e '\.dtb$' -e '^overlays$' | tr '\n' ' ')+ $(cd "$B" && ls | grep -c '\.dtb$') device trees, $(ls "$B/overlays" 2>/dev/null | wc -l | tr -d ' ') overlays"

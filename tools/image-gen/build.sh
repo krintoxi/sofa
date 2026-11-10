@@ -72,15 +72,7 @@ if [ -n "$SBOM" ] && command -v grype >/dev/null; then
   echo "== Known vulnerabilities (grype, from the SBOM)"
   if grype "sbom:$OUT/$NAME.sbom.spdx.json" -o json > "$OUT/$NAME-cve.json" &&
      grype "sbom:$OUT/$NAME.sbom.spdx.json" -o table > "$OUT/$NAME-cve.txt"; then
-    python3 -I - "$OUT/$NAME-cve.json" >> "$REPORT" <<'EOF'
-import collections, json, sys
-m = json.load(open(sys.argv[1])).get("matches", [])
-by = collections.Counter(x["vulnerability"].get("severity", "Unknown") for x in m)
-fixable = sum(1 for x in m if x["vulnerability"].get("fix", {}).get("state") == "fixed")
-order = ["Critical", "High", "Medium", "Low", "Negligible", "Unknown"]
-print("Known vulnerabilities (grype, from the SBOM): %d matches, %d with a fix released: %s" % (
-    len(m), fixable, ", ".join("%s %d" % (s, by[s]) for s in order if by[s])))
-EOF
+    echo "Known vulnerabilities (grype, from the SBOM): $(python3 -I "$HERE/inspect-card.py" --cve-summary "$OUT/$NAME-cve.json")" >> "$REPORT"
   else
     echo "Known vulnerabilities: grype failed" >> "$REPORT"
   fi

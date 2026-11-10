@@ -19,7 +19,9 @@ echo "Starts into: $(systemctl get-default)"
 echo "Boot screen: $(plymouth-set-default-theme 2>/dev/null)  initramfs: $(cd /boot/firmware && ls initramfs* 2>/dev/null | tr '\n' ' ')"
 echo "Users: $(getent passwd 1000 | cut -d: -f1) (uid 1000), sofabox ($(id -nG sofabox | tr ' ' ','))"
 echo "sudo for the settings: $(visudo -cf /etc/sudoers.d/sofa-box >/dev/null 2>&1 && echo ok || echo MISSING)"
-echo "First start: cloud-init $(dpkg-query -W -f='${Version}' cloud-init 2>/dev/null || echo 'not installed'), userconf-pi $(dpkg-query -W -f='${Version}' userconf-pi 2>/dev/null || echo 'not installed'), machine-id $(cat /etc/machine-id 2>/dev/null || echo missing)"
+installed() { dpkg-query -W -f='${db:Status-Abbrev} ${Version}\n' "$1" 2>/dev/null | awk '/^ii/ {print $2; f=1} END {if (!f) print "not installed"}'; }
+echo "First start: cloud-init $(installed cloud-init), userconf-pi $(installed userconf-pi), rpi-resize $(systemctl is-enabled rpi-resize 2>/dev/null)"
+echo "Language: $(grep -h '^LANG=' /etc/locale.conf /etc/default/locale 2>/dev/null | head -n 1)"
 echo "SSH: $(systemctl is-enabled ssh 2>/dev/null) (an empty file named ssh on the boot partition switches it on: sshswitch $(systemctl is-enabled sshswitch 2>/dev/null))"
 echo "Box files: $(ls /usr/local/lib/sofa-box /usr/local/lib/sofa-box/fonts | tr '\n' ' ')"
 EOF
