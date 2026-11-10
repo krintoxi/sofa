@@ -1,0 +1,31 @@
+#!/bin/bash
+# The Sofa box on the card: the box's own installer (deploy/sofa-box/install.sh --image), run in the card's root,
+# as tools/build-sofa-box-image.sh runs it on Raspberry Pi OS Lite. It runs before rpi-image-gen makes the
+# initramfs (a built-in hook after this one), so the boot screen is in it from the very first start.
+set -eu
+ROOT="$1"
+REPO="${IGconf_sofabox_repo:?the Sofa repository (sofabox.repo) is not set}"
+[ -f "$REPO/deploy/sofa-box/install.sh" ] || { echo "sofa-box: no deploy/sofa-box/install.sh in $REPO" >&2; exit 1; }
+
+# How the base left Wi-Fi, for the report (Raspberry Pi OS Lite leaves it off until a country is set).
+mkdir -p "${IGconf_image_outputdir:?}"
+WIFI="$(grep -h '^WirelessEnabled' "$ROOT/var/lib/NetworkManager/NetworkManager.state" 2>/dev/null || echo 'no NetworkManager state (on)')"
+for f in "$ROOT"/var/lib/systemd/rfkill/*:wlan; do
+  if [ -f "$f" ]; then WIFI="$WIFI, rfkill $(basename "$f")=$(cat "$f")"; fi
+done
+echo "Wi-Fi as the base left it: $WIFI" > "$IGconf_image_outputdir/wifi-before.txt"
+
+mkdir -p "$ROOT/tmp/sofa/deploy"
+cp -r "$REPO/deploy/sofa-box" "$ROOT/tmp/sofa/deploy/"
+cp -r "$REPO/client" "$REPO/sofa" "$REPO/sofa.py" "$REPO/LICENSE" "$ROOT/tmp/sofa/"   # Sofa itself too, for "This box"
+
+# SSH ends up off, as on Raspberry Pi OS (rpi-image-gen's openssh-server layer turns it on): an empty file named
+# ssh on the card's boot partition switches it on at the next start (sshswitch.service, from raspberrypi-sys-mods).
+chroot "$ROOT" /bin/sh -eu -c '
+  id -u sofabox >/dev/null 2>&1 || useradd -m -s /bin/bash sofabox
+  passwd -l sofabox >/dev/null
+  SOFA_BOX_USER=sofabox sh /tmp/sofa/deploy/sofa-box/install.sh --image ${1:+"$1"}
+  systemctl disable ssh.service >/dev/null 2>&1 || true
+  apt-get clean
+' sh "${IGconf_sofabox_sofa:-}"
+rm -rf "$ROOT/tmp/sofa"

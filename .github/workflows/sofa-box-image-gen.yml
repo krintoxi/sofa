@@ -1,0 +1,99 @@
+name: Sofa box card (image-gen prototype)
+
+# A prototype beside .github/workflows/sofa-box-image.yml: Sofa Box OS built with Raspberry Pi's rpi-image-gen
+# (tools/image-gen), from Raspberry Pi OS's own packages instead of a downloaded Raspberry Pi OS Lite image.
+# It never publishes anything (this workflow can only read the repository): the card, its report, the SBOM, the CVE
+# report and a comparison with today's card are kept for a week under the run's Artifacts.
+on:
+  workflow_dispatch:
+  push:
+    branches: [claude/image-gen]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sofa-box-image-gen-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  card:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 120
+    env:
+      # rpi-image-gen, pinned to a commit: v2.9.0 (2026-10-23). Move it on purpose, after reading what changed.
+      RPI_IMAGE_GEN_COMMIT: d2d5705bcb37284c4b08c0ce43c039b1f1004e25
+      # grype, for the CVE report: pinned, and checked against its release's checksums
+      GRYPE_VERSION: 0.121.0
+      # rpi-image-gen's work folder (the card's root, the image, caches): outside the folder that gets uploaded
+      SOFA_BOX_IMAGE_GEN_WORK: ${{ runner.temp }}/image-gen-work
+    steps:
+      - uses: actions/checkout@v4
+      - name: rpi-image-gen at the pinned commit, and what it needs
+        run: |
+          git init -q "$RUNNER_TEMP/rpi-image-gen"
+          cd "$RUNNER_TEMP/rpi-image-gen"
+          git fetch -q --depth 1 https://github.com/raspberrypi/rpi-image-gen.git "$RPI_IMAGE_GEN_COMMIT"
+          git checkout -q --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "$RPI_IMAGE_GEN_COMMIT"
+          sudo apt-get update -qq
+          sudo chmod o+x /home/runner        # as rpi-image-gen's own CI does: its user namespace reaches the checkout
+          sudo ./install_deps.sh
+      - name: grype
+        run: |
+          cd "$RUNNER_TEMP"
+          base="https://github.com/anchore/grype/releases/download/v$GRYPE_VERSION"
+          curl -fsSLO "$base/grype_${GRYPE_VERSION}_linux_arm64.tar.gz"
+          curl -fsSLO "$base/grype_${GRYPE_VERSION}_checksums.txt"
+          grep " grype_${GRYPE_VERSION}_linux_arm64.tar.gz\$" "grype_${GRYPE_VERSION}_checksums.txt" | sha256sum -c -
+          tar xzf "grype_${GRYPE_VERSION}_linux_arm64.tar.gz" grype
+          sudo install -m 755 grype /usr/local/bin/grype
+          grype version
+      - name: Build the card
+        run: tools/image-gen/build.sh --rpi-image-gen "$RUNNER_TEMP/rpi-image-gen" out
+      - name: Compare it with today's card
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VER="$(tr -d ' \n' < deploy/sofa-box/VERSION)"
+          NAME="sofa-box-os-$VER-imagegen"
+          # today's card for this version if it's released, else the newest card (both only read)
+          if gh release view "box-os-v$VER" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            TAG="box-os-v$VER" FILE="sofa-box-os-$VER.img.xz"
+          else
+            TAG=sofa-box FILE=sofa-box.img.xz
+          fi
+          mkdir -p "$RUNNER_TEMP/today"
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir "$RUNNER_TEMP/today" --pattern "$FILE" --pattern "$FILE.sha256"
+          (cd "$RUNNER_TEMP/today" && sha256sum -c "$FILE.sha256")
+          xz -T0 -dc "$RUNNER_TEMP/today/$FILE" > "$RUNNER_TEMP/today/today.img"
+          python3 -I tools/image-gen/inspect-card.py "$RUNNER_TEMP/today/today.img" > "out/$NAME-today-facts.json"
+          python3 -I tools/image-gen/inspect-card.py "$SOFA_BOX_IMAGE_GEN_WORK/image-$NAME/$NAME.img" > "out/$NAME-facts.json"
+          sed -i "s/\"today.img\"/\"$FILE ($TAG)\"/" "out/$NAME-today-facts.json"
+          sed -i "s/\"$NAME.img\"/\"$NAME.img (image-gen)\"/" "out/$NAME-facts.json"
+          { echo "# $NAME compared with $FILE ($TAG)"; echo
+            python3 -I tools/image-gen/inspect-card.py --compare "out/$NAME-today-facts.json" "out/$NAME-facts.json"; } > "out/$NAME-comparison.md"
+          rm -f "$RUNNER_TEMP/today/today.img"
+      - name: What's on it
+        if: always()
+        run: |
+          { echo '### What is on the image-gen card (a prototype, not a release)'; echo '```'; cat out/*-report.txt 2>/dev/null || echo "no report"; echo '```'
+            if [ -f out/*-comparison.md ]; then cat out/*-comparison.md; fi; } >> "$GITHUB_STEP_SUMMARY"
+      - name: Keep it (a week)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sofa-box-card-imagegen
+          path: |
+            out/*.img.xz
+            out/*.img.xz.sha256
+            out/*-report.txt
+            out/*.sbom.spdx.json
+            out/*-cve.txt
+            out/*-cve.json
+            out/*-packages.txt
+            out/*-facts.json
+            out/*-comparison.md
+          retention-days: 7
+          compression-level: 0
+          if-no-files-found: warn

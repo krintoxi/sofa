@@ -1,0 +1,28 @@
+#!/bin/bash
+# What's on the card, for its report: the same lines as tools/build-sofa-box-image.sh's, read once the box is set up
+# and rpi-image-gen has made the initramfs. tools/image-gen/build.sh puts the report together.
+set -eu
+ROOT="$1"
+OUT="${IGconf_image_outputdir:?}"
+mkdir -p "$OUT"
+cat > "$ROOT/tmp/sofa-box-report.sh" <<'EOF'
+echo "Sofa Box OS: $(cat /usr/local/lib/sofa-box/VERSION 2>/dev/null || echo missing)"
+echo "Base: $(. /etc/os-release; echo "$PRETTY_NAME"), with Raspberry Pi's own packages (archive.raspberrypi.com)"
+dpkg-query -W -f='${Package} ${Version}\n' cage chromium mpv plymouth plymouth-label python3 python3-pil python3-evdev \
+  pipewire-pulse network-manager dnsmasq-base rfkill iw systemd-zram-generator zram-tools udisks2 ffmpeg eject libdvdnav4 libbluray2 \
+  linux-image-rpi-v8 linux-image-rpi-2712 raspi-firmware firmware-brcm80211 bluez-firmware raspberrypi-sys-mods 2>/dev/null | sed 's/^/  /'
+echo "Packages: $(dpkg-query -W -f='${db:Status-Abbrev}\n' | grep -c '^ii')"
+echo "Wi-Fi at the first start: $(grep -h '^WirelessEnabled' /var/lib/NetworkManager/NetworkManager.state 2>/dev/null || echo 'no NetworkManager state (on)')$(for f in /var/lib/systemd/rfkill/*:wlan; do if [ -f "$f" ]; then printf ', rfkill %s=%s' "$(basename "$f")" "$(cat "$f")"; fi; done)"
+echo "Sofa on the box (This box): $(grep -o '__version__ = .*' /usr/local/lib/sofa-box/sofa-server/sofa/__init__.py 2>/dev/null || echo missing)"
+echo "Services: $(for s in sofa-box sofa-box-agent sofa-box-input sofa-box-cec sofa-box-tune; do printf '%s=%s ' $s "$(systemctl is-enabled $s 2>/dev/null)"; done)"
+echo "Starts into: $(systemctl get-default)"
+echo "Boot screen: $(plymouth-set-default-theme 2>/dev/null)  initramfs: $(cd /boot/firmware && ls initramfs* 2>/dev/null | tr '\n' ' ')"
+echo "Users: $(getent passwd 1000 | cut -d: -f1) (uid 1000), sofabox ($(id -nG sofabox | tr ' ' ','))"
+echo "sudo for the settings: $(visudo -cf /etc/sudoers.d/sofa-box >/dev/null 2>&1 && echo ok || echo MISSING)"
+echo "First start: cloud-init $(dpkg-query -W -f='${Version}' cloud-init 2>/dev/null || echo 'not installed'), userconf-pi $(dpkg-query -W -f='${Version}' userconf-pi 2>/dev/null || echo 'not installed'), machine-id $(cat /etc/machine-id 2>/dev/null || echo missing)"
+echo "SSH: $(systemctl is-enabled ssh 2>/dev/null) (an empty file named ssh on the boot partition switches it on: sshswitch $(systemctl is-enabled sshswitch 2>/dev/null))"
+echo "Box files: $(ls /usr/local/lib/sofa-box /usr/local/lib/sofa-box/fonts | tr '\n' ' ')"
+EOF
+chroot "$ROOT" /bin/sh /tmp/sofa-box-report.sh > "$OUT/report-body.txt" 2>&1 || true
+rm -f "$ROOT/tmp/sofa-box-report.sh"
+cat "$OUT/report-body.txt"
