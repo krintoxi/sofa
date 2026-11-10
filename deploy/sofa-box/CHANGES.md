@@ -17,6 +17,8 @@ GitHub builds the card and makes the release by itself.
   beam down a column. Best score, highest level, longest chain, puzzles solved, the day's board and wins against
   the computer are kept on the box (the old "HI" label is gone). It's on the box's 2D engine now, and holds 60
   frames a second at a Pi 3's pace.
+- **Void Drifter:** darts dive at you instead of circling for ever just out of reach (a fight could never end), and
+  missiles are quick enough to catch them.
 
 ## 1.1.49
 

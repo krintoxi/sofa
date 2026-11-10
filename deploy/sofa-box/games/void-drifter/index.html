@@ -45,7 +45,7 @@ const WEAPONS = {
   blaster: { name: "BLASTER", dmg: 6, rate: 7, spd: 360, life: 0.9, col: "#7af0ff", about: "STEADY BOLTS." },
   spread: { name: "SPREAD GUN", dmg: 4, rate: 5, spd: 320, life: 0.6, n: 3, arc: 0.28, col: "#ffd04a", about: "THREE AT ONCE, WIDENING WITH EACH LEVEL." },
   laser: { name: "LASER", dmg: 26, rate: 0, beam: 150, col: "#ff4af0", about: "A BEAM THAT BURNS WHILE IT'S HELD ON." },
-  missile: { name: "MISSILES", dmg: 14, rate: 2.2, spd: 200, life: 2.2, home: 1, col: "#ff8a3a", about: "THEY FIND THEIR OWN WAY." },
+  missile: { name: "MISSILES", dmg: 14, rate: 2.2, spd: 260, life: 2.2, home: 1, col: "#ff8a3a", about: "THEY FIND THEIR OWN WAY." },
   rail: { name: "RAILGUN", dmg: 30, rate: 1.4, spd: 900, life: 0.6, pierce: 1, col: "#e8f4ff", about: "SLOW, AND STRAIGHT THROUGH EVERYTHING." },
   flak: { name: "FLAK", dmg: 3, rate: 2.5, spd: 260, life: 0.35, n: 8, arc: 0.7, col: "#ffb070", about: "A CLOUD OF SHRAPNEL, CLOSE IN." }
 };
@@ -327,7 +327,9 @@ function stepFoe(f, dt) {
   else if (f.k === "dart") { f.a += U.wrap(to - f.a) * Math.min(1, dt * 1.6); tx = Math.cos(f.a); ty = Math.sin(f.a); }
   else if (f.k === "layer") { tx = Math.cos(f.t * 0.4); ty = Math.sin(f.t * 0.6); f.mineT = (f.mineT || 2) - dt; if (f.mineT <= 0) { f.mineT = 3; MINES.push({ x: f.x, y: f.y, t: 0, r: 5 }); } }
   if (f.x < 40 || f.x > AW - 40 || f.y < 40 || f.y > AH - 40) { const c = Math.atan2(AH / 2 - f.y, AW / 2 - f.x); tx += Math.cos(c) * 1.5; ty += Math.sin(c) * 1.5; }   // (back in from the edges)
-  if (F.speed) { f.vx += tx * F.speed * 3 * dt; f.vy += ty * F.speed * 3 * dt; const s = Math.hypot(f.vx, f.vy); if (s > F.speed) { f.vx *= F.speed / s; f.vy *= F.speed / s; } }
+  // (a dart slows when it's pointing away from its mark, so it turns in and dives rather than circling for ever)
+  const cap = f.k === "dart" ? F.speed * (0.4 + 0.6 * Math.max(0, Math.cos(U.wrap(to - f.a)))) : F.speed;
+  if (F.speed) { f.vx += tx * F.speed * 3 * dt; f.vy += ty * F.speed * 3 * dt; const s = Math.hypot(f.vx, f.vy); if (s > cap) { f.vx *= cap / s; f.vy *= cap / s; } }
   f.x += f.vx * dt; f.y += f.vy * dt; f.x = clamp(f.x, -30, AW + 30); f.y = clamp(f.y, -30, AH + 30);
   if (f.k !== "dart") f.a += U.wrap((f.k === "scout" ? Math.atan2(f.vy, f.vx) : to) - f.a) * Math.min(1, dt * 6);
   if (F.gun) { f.gunT -= dt; if (f.gunT <= 0 && d < 320) { f.gunT = F.gun * (0.8 + rnd() * 0.4) / (1 + SEC.z * 0.15); const n = f.k === "turret" ? 3 : 1; for (let k = 0; k < n; k++) eshoot(f.x, f.y, to + (k - (n - 1) / 2) * 0.18, 140 + SEC.z * 15, 8 + SEC.z * 2); play("eshot"); } }
@@ -381,7 +383,7 @@ function bossDown() {
 function stepWorld(dt) {
   for (let i = B.length - 1; i >= 0; i--) {
     const s = B[i]; s.life -= dt; if (s.life <= 0) { B.splice(i, 1); continue; }
-    if (s.home) { const t = nearestTarget(s.x, s.y, 240); if (t && t !== null && !RO.includes(t)) { const a = Math.atan2(s.vy, s.vx), want = angTo(s, t), sp = Math.hypot(s.vx, s.vy), na = a + clamp(U.wrap(want - a), -4 * dt, 4 * dt); s.vx = Math.cos(na) * sp; s.vy = Math.sin(na) * sp; } }
+    if (s.home) { const t = nearestTarget(s.x, s.y, 240); if (t && t !== null && !RO.includes(t)) { const a = Math.atan2(s.vy, s.vx), want = angTo(s, t), sp = Math.hypot(s.vx, s.vy), na = a + clamp(U.wrap(want - a), -5.5 * dt, 5.5 * dt); s.vx = Math.cos(na) * sp; s.vy = Math.sin(na) * sp; } }
     s.x += s.vx * dt; s.y += s.vy * dt;
     let gone = false;
     const hitQ = q => { if (gone || (s.hit && s.hit.includes(q))) return; if ((q.x - s.x) ** 2 + (q.y - s.y) ** 2 < (q.r + 2) ** 2) { damageThing(q, s.dmg); parts.emit(s.x, s.y, 2, { c: [3, 6], v: 40, life: 0.2, bright: 1 }); if (s.hit) s.hit.push(q); else gone = true; } };
