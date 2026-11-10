@@ -528,9 +528,12 @@ full screen on the Pi's video chip, with one screen of its own in Sofa's look. I
 it resumes from, from the moment you press Play (no other screen in between), then the picture. Any key shows
 where you are: the title, the time line, how long is left and when it ends; it goes after a few seconds, and stays
 while paused. **OK** pauses (or skips the intro when Skip intro shows), **left and right** go 10 seconds back and
-30 on (press again to go further: the line moves at once, the picture follows when you stop), **up and down** show
-where you are (on Live TV they change the channel), **Menu** has subtitles, sound, speed and volume, and **Back**
-stops, keeping your place. Everything stays inside the part of the picture every TV shows, even one set to crop
+30 on (press again to go further: the line moves at once, the picture follows when you stop), **Page Up and Page
+Down** 5 minutes, the **numbers** jump through it (5 = halfway), **up and down** show where you are (on Live TV they
+change the channel), **Menu** has subtitles, sound, speed and volume, and **Back** stops, keeping your place. A video
+Sofa converts for the box (HEVC on a Pi 3) is made as you watch, from where you started: skip further than Sofa has
+got, or back before where it started, and Sofa converts it from there (the line shows where it's going, and a note
+while Sofa gets it ready, a few seconds), with Sofa 1.5.2 or newer. Everything stays inside the part of the picture every TV shows, even one set to crop
 the edges ("overscan"), at 720p and 1080p alike. **Resume** on Home starts the video straight away, and Back from
 it comes back to Home (with Sofa 1.5.1 or newer; an older Sofa opens the title's page first).
 

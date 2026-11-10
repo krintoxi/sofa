@@ -7,6 +7,26 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.54
+
+- **Big skips work in videos Sofa converts for the box** (HEVC on a Pi 3, or anything else the box can't play as it
+  is). Such a video comes as a stream Sofa makes as you watch, from where you started, and the box's player could
+  only go as far as Sofa had got: Page Up's 5 minutes, several quick presses of right, the number keys, the phone
+  remote's line or Skip intro past that point, or going back before where it started, could stall or land somewhere
+  else. Now the box has Sofa convert it again from where you're going, as Sofa's own web player does, and it plays
+  on from there.
+  - The line goes there at once. While Sofa gets it ready (a few seconds), the picture holds still and a note in the
+    middle of the screen says so; play and pause meanwhile are for when it's there. If Sofa can't (busy converting
+    for someone else), the TV says so and the video goes on where it was.
+  - Skips into what Sofa has converted already go there at once, as before.
+  - Your place is saved from the new place on, the phone remote's line shows it all along, and subtitles keep time.
+  - The number keys go through the player screen now (1 is 10% in, 5 halfway, 0 the start), so they work in these
+    videos too.
+  - It takes Sofa 1.5.2 or newer (its page tells the box how it asked Sofa for the video); with an older Sofa, skips
+    work as before.
+- **No more waiting on mpv now and then.** Two questions to the box's player at the same moment (where it is, and a
+  key or the phone remote) could leave one of them waiting two seconds for an answer that had already come.
+
 ## 1.1.53
 
 - **One player for every video, made for the TV.** Sofa's films and episodes, Live TV, USB drives and discs all play

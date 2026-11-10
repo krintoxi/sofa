@@ -2,8 +2,8 @@
 """A stand-in for mpv: the Sofa box agent's previews and tests use it where mpv isn't installed.
 
 It shows nothing. It answers mpv's JSON control socket the way the agent uses it (the position moving
-on with the clock, pause, seek, quit), and it fetches the start of the video with the same headers
-mpv would, so a test can see the box asked Sofa properly. FAKE_MPV_LOG names a file for what it did.
+on with the clock, pause, seek, loadfile, quit), and it fetches the start of each video with the same
+headers mpv would, so a test can see the box asked Sofa properly. FAKE_MPV_LOG names a file for what it did.
 """
 import json
 import os
@@ -31,19 +31,23 @@ def main(argv):
                 f.write(json.dumps(kw) + "\n")
     # "fake_delay=N" in the address: it takes N seconds to start (a video Sofa converts first), as mpv would
     delay = float((urllib.parse.parse_qs(urllib.parse.urlsplit(url or "").query).get("fake_delay") or ["0"])[0])
-    st = {"pos": float(opts.get("start") or 0), "at": time.time() + delay, "paused": False, "quit": False, "code": 0}
+    st = {"pos": float(opts.get("start") or 0), "at": time.time() + delay, "paused": False, "quit": False, "code": 0,
+          "url": url, "loading": False, "props": {}}
     duration = float(os.environ.get("FAKE_MPV_DURATION") or 0) or None
 
     def ready():
-        return time.time() >= st["at"] or st["paused"]
+        return not st["loading"] and (time.time() >= st["at"] or st["paused"])
 
     def pos():
-        return st["pos"] if st["paused"] else st["pos"] + max(0.0, time.time() - st["at"])
+        return st["pos"] if st["paused"] or st["loading"] else st["pos"] + max(0.0, time.time() - st["at"])
 
     def set_pos(p):
         st["pos"], st["at"] = max(0.0, p), time.time()
 
-    if url and url.startswith("http"):
+    def fetch(url):
+        """The start of the video, as mpv asks for it (the headers it was given: Sofa's cookie)."""
+        if not (url and url.startswith("http")):
+            return True
         headers = {}
         for h in (opts.get("http-header-fields") or "").split(","):
             k, _, v = h.partition(":")
@@ -51,13 +55,30 @@ def main(argv):
                 headers[k.strip()] = v.strip().replace("%2C", ",")
         try:
             req = urllib.request.Request(url, headers=dict(headers, Range="bytes=0-1023"))
-            with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(req, timeout=20) as r:
+            with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(req, timeout=30) as r:
                 r.read(1024)
                 note(fetched=url, status=r.status, cookie="Cookie" in headers)
+            return True
         except Exception as exc:
             note(fetched=url, error=str(exc)[:200])
             print("Failed to open %s." % url, file=sys.stderr)
-            return 2
+            return False
+
+    def load(new):
+        """loadfile <url> replace: the new video from its start, once it opens (no position until then); one that
+        can't open ends mpv, as mpv does at the end of its list (3: some played, some couldn't)."""
+        st.update(url=new, pos=0.0, loading=True)
+
+        def opened():
+            if fetch(new):
+                st.update(loading=False, at=time.time())
+                note(loaded=new)
+            else:
+                st.update(quit=True, code=3)
+        threading.Thread(target=opened, daemon=True).start()
+
+    if not fetch(url):
+        return 2
     note(started=url, start=st["pos"], args=argv)
 
     path = opts.get("input-ipc-server")
@@ -87,16 +108,20 @@ def main(argv):
                     name = cmd[0] if cmd else ""
                     if name == "get_property":
                         data = {"time-pos": pos() if ready() else None, "duration": duration, "pause": st["paused"],
-                                "core-idle": st["paused"] or not ready(), "frame-drop-count": 0,
-                                "decoder-frame-drop-count": 0, "container-fps": 25.0}.get(cmd[1])
+                                "core-idle": st["paused"] or not ready(), "frame-drop-count": 0, "path": st["url"],
+                                "decoder-frame-drop-count": 0, "container-fps": 25.0}.get(cmd[1], st["props"].get(cmd[1]))
                     elif name == "set_property" and cmd[1] == "pause":
                         set_pos(pos())
                         st["paused"] = bool(cmd[2])
+                    elif name == "set_property" and len(cmd) > 2:
+                        st["props"][cmd[1]] = cmd[2]
+                    elif name == "loadfile" and len(cmd) > 1:
+                        load(cmd[1])
                     elif name == "cycle" and cmd[1:] == ["pause"]:
                         set_pos(pos())
                         st["paused"] = not st["paused"]
                     elif name == "seek":
-                        set_pos(float(cmd[1]) if len(cmd) > 2 and cmd[2] == "absolute" else pos() + float(cmd[1]))
+                        set_pos(float(cmd[1]) if len(cmd) > 2 and cmd[2].startswith("absolute") else pos() + float(cmd[1]))
                     elif name == "quit":                    # (with a code, as the player screen's Back: 10)
                         st["quit"] = True
                         st["code"] = int(cmd[1]) if len(cmd) > 1 else 0

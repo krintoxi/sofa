@@ -10,10 +10,17 @@ TV that crops the picture's edges, "overscan", still shows all of it), at 720p a
 
 Keys (mpv-input.conf): OK pauses or skips the intro, left and right skip back 10 s and on 30 s (pressed again
 quickly, they add up: the line moves at once and the picture follows once you stop), up and down show the panel,
-Back stops (exit code 10, so the box knows it was you). The box's agent (sofa-box-agent.py) sends what only it knows
+Back stops (exit code 10, so the box knows it was you), the numbers go 10%, 20%... in (the script message "percent").
+The box's agent (sofa-box-agent.py) sends what only it knows
 with `script-message-to sofa_player sofa <json>`: {"card": text} while starting (null: it plays), {"toast": text},
 {"banner": {...}} (Live TV), {"volume": {"level", "muted"}}, {"menu": {...}} (false closes it). What's playing comes in a file named by the script
 option `info` (--script-opts=sofa_player-info=<path>), written before mpv starts, so the start card is there at once.
+
+A video Sofa converts for the box comes as a stream Sofa makes from `offset` on as it plays, and mpv can only go where
+Sofa has converted it so far. A skip past what mpv has (or back before where it starts) goes to the agent (key "far",
+as mpv's own keys reach it), which has Sofa convert it again from there and loads that (info.far: it can). Meanwhile
+the line shows where it's going, with a note once the agent says Sofa is on it: {"far": {"at"}}, then {"far": {"at",
+"sid"}} and {"info": {"offset"}} as it loads the new one, and {"far": false} when it went there in what mpv had.
 ]]
 local mp = require "mp"
 local utils = require "mp.utils"
@@ -109,6 +116,7 @@ local state = {
     panel_until = 0,                    -- the panel shows until then (and while paused)
     paused = false, idle = true,
     target = nil, target_from = nil,    -- skipping: where to, from where (the whole video's seconds)
+    far = nil,                          -- skipping far in a converted video: {at, since, heard, sid} until it plays there
     toast = nil, toast_until = 0,
     banner = nil, banner_until = 0,
     volume = nil, volume_until = 0,
@@ -118,6 +126,7 @@ local state = {
 
 local offset = tonumber(info.offset) or 0        -- a converted video starts at `offset` into the whole video
 local function pos()
+    if state.far then return state.far.at end    -- (skipping far: where it's going, until it plays there)
     local t = mp.get_property_number("time-pos")
     return t and (t + offset) or nil
 end
@@ -140,7 +149,7 @@ local tick = mp.add_periodic_timer(1, function() draw() end)
 local shown = nil                       -- what the overlay has now (an update only when that changes)
 tick:kill()
 
-local function panel_on() return state.paused or mp.get_time() < state.panel_until or state.target ~= nil end
+local function panel_on() return state.paused or mp.get_time() < state.panel_until or state.target ~= nil or state.far ~= nil end
 local function show_panel(secs)
     state.panel_until = mp.get_time() + (secs or o.hide_after)
     draw()
@@ -176,7 +185,7 @@ local function bar_lines(t, d)
     local a, x0, x1, y = {}, L, R, 948
     local w = x1 - x0
     a[#a + 1] = box(x0, y, w, 10, 5, WHITE, "B0")                     -- the line
-    local cache = mp.get_property_number("demuxer-cache-time")
+    local cache = not state.far and mp.get_property_number("demuxer-cache-time")
     if cache and d > 0 then
         local c = math.min(1, (cache + offset) / d)
         a[#a + 1] = box(x0, y, math.max(10, w * c), 10, 5, WHITE, "90") -- what it has (converted: made so far)
@@ -223,7 +232,7 @@ local function panel_lines()
         local t, d = pos() or 0, duration()
         for _, l in ipairs(bar_lines(t, d)) do a[#a + 1] = l end
     end
-    if state.paused and not state.card then                            -- paused: a big pause sign, mid-screen
+    if state.paused and not state.card and not state.far then          -- paused: a big pause sign, mid-screen
         a[#a + 1] = box(W / 2 - 80, H / 2 - 80, 160, 160, 80, INK, "60")
         a[#a + 1] = box(W / 2 - 30, H / 2 - 38, 20, 76, 4, WHITE, "00")
         a[#a + 1] = box(W / 2 + 10, H / 2 - 38, 20, 76, 4, WHITE, "00")
@@ -239,6 +248,16 @@ local function skip_lines(m, raised)
              text(x + 42, y + h / 2, 4, 34, label, { bold = true, color = INK }),
              box(x + w - 84, y + 18, 58, 40, 20, ACCENT, "00"),
              text(x + w - 55, y + h / 2, 5, 24, "OK", { bold = true }) }
+end
+
+local function far_lines(f)             -- skipping far: Sofa converts it from there (mid-screen, where the pause sign goes)
+    local say = mp.get_time() - f.heard >= 20 and "Still waiting for Sofa. Back stops it." or
+                "Sofa is getting it ready for the box from here."
+    local w, h = 860, 156
+    local x, y = (W - w) / 2, (H - h) / 2 - 60
+    return { box(x, y, w, h, 28, INK, "30"),
+             text(W / 2, y + 56, 5, 44, clock(f.at), { bold = true }),
+             text(W / 2, y + 112, 5, 30, esc(say) .. "  {" .. col(ACCENT) .. "}•••", { color = MIST }) }
 end
 
 local function toast_lines(s)
@@ -309,6 +328,9 @@ function draw()
         if state.banner and now < state.banner_until and not panel then
             for _, l in ipairs(banner_lines(state.banner)) do a[#a + 1] = l end
         end
+        if state.far and state.far.heard and not state.menu then
+            for _, l in ipairs(far_lines(state.far)) do a[#a + 1] = l end
+        end
     end
     if state.volume and now < state.volume_until then
         for _, l in ipairs(volume_lines(state.volume)) do a[#a + 1] = l end
@@ -345,6 +367,38 @@ mp.observe_property("seeking", "bool", function(_, s)
     if s and not state.card and not state.target then show_panel() end    -- (the phone remote's skips show here too)
 end)
 
+-- what mpv has of a converted video: all of it back to where it starts (Sofa keeps it), on to as far as it has read
+local function have(to)
+    local s = to - offset
+    if s < -0.5 then return false end
+    for _, prop in ipairs({ "time-pos", "demuxer-cache-time" }) do
+        local x = mp.get_property_number(prop)
+        if x and s <= x then return true end
+    end
+    return false
+end
+
+-- going somewhere (the whole video's seconds): mpv seeks there itself, or, past what it has of a converted video (and
+-- while one far skip is still on its way), the box's agent has Sofa convert it from there (it says "far" back)
+local function go(to, exact)
+    if not (info.far and (state.far or not have(to))) then
+        mp.commandv("seek", tostring(math.max(0, to - offset)), exact and "absolute+exact" or "absolute+keyframes")
+        return
+    end
+    local asked = state.far or { since = mp.get_time() }
+    asked.at, asked.sid, state.far = to, nil, asked                    -- (a newer one: not the one loading now)
+    mp.commandv("run", "/usr/bin/curl", "-s", "-o", "/dev/null", "-X", "POST", "-H", "X-Sofa-Box: 1",
+                (info.agent or "http://127.0.0.1:8091") .. "/box/native/key?k=far&t=" .. string.format("%.1f", to) ..
+                (exact and "&exact=1" or ""))
+    mp.add_timeout(6, function()                                       -- no word from the box at all: as it was
+        if state.far == asked and not asked.heard then
+            state.far, state.toast, state.toast_until = nil, "The box didn't answer. Try that again.", mp.get_time() + 4.5
+            show_panel()
+        end
+    end)
+    show_panel()
+end
+
 -- skipping: each press moves the line at once; the picture follows when the presses stop (one seek, not ten)
 local scrub = nil
 local function skip(by)
@@ -356,15 +410,15 @@ local function skip(by)
     if not t then return end
     if not state.target then state.target, state.target_from = t, t end
     local d = duration()
-    local lo = offset                                                  -- (converted: it starts at offset)
-    local hi = d > 0 and math.max(lo, d - 3) or math.huge
+    local lo = info.far and 0 or offset                                -- (converted: it starts at offset, unless Sofa can
+    local hi = d > 0 and math.max(lo, d - 3) or math.huge              -- convert it again from further back)
     state.target = math.max(lo, math.min(hi, state.target + by))
     show_panel()
     if scrub then scrub:kill() end
     scrub = mp.add_timeout(o.scrub_wait, function()
         local to = state.target
         state.target, state.target_from, scrub = nil, nil, nil
-        if to then mp.commandv("seek", tostring(to - offset), "absolute+keyframes") end
+        if to then go(to) end
         show_panel()
     end)
 end
@@ -373,17 +427,29 @@ local function ok()
     if state.menu then return end
     local m = not info.live and marker(pos()) or nil
     if m and not state.card then
-        mp.commandv("seek", tostring(m["end"] - offset), "absolute+exact")
+        go(m["end"], true)
         state.skip_shown = nil
         show_panel(2)
         return
     end
-    if state.target then return end
+    if state.target or state.far then return end                       -- (skipping: it goes on as it was)
     mp.commandv("cycle", "pause")
 end
 
+-- the number keys: 1 is 10% in, 5 halfway, 0 the start (Live TV: as mpv does it, in the programme that's on)
+mp.register_script_message("percent", function(n)
+    n = tonumber(n) or 0
+    if info.live then mp.commandv("seek", tostring(n), "absolute-percent"); return end
+    local d = duration()
+    if state.card or d <= 0 then return end
+    if scrub then scrub:kill(); scrub = nil end
+    state.target, state.target_from = nil, nil
+    go(math.max(info.far and 0 or offset, math.min(d - 3, d * n / 100)))
+    show_panel()
+end)
+
 mp.add_key_binding(nil, "ok", ok)
-mp.add_key_binding(nil, "toggle", function() mp.commandv("cycle", "pause") end)
+mp.add_key_binding(nil, "toggle", function() if not state.far then mp.commandv("cycle", "pause") end end)
 mp.add_key_binding(nil, "back", function() mp.commandv("quit", "10") end)           -- 10: stopped by Back
 mp.add_key_binding(nil, "show", function() if not state.card then show_panel() end end)
 mp.add_key_binding(nil, "back10", function() skip(-10) end, { repeatable = true })
@@ -411,9 +477,29 @@ mp.register_script_message("sofa", function(json)
         info.sub = m.banner.now or m.banner.sub or info.sub
     end
     if m.menu ~= nil then state.menu = m.menu ~= false and m.menu or nil end
+    if m.far == false then                -- (it went there in what mpv had, or Sofa couldn't: the toast says)
+        if state.far then state.far = nil; show_panel() end
+    elseif type(m.far) == "table" then    -- Sofa is converting it from there; with `sid`: the agent loads that now
+        state.far = state.far or { since = mp.get_time() }
+        state.far.at = tonumber(m.far.at) or state.far.at
+        state.far.heard = state.far.heard or mp.get_time()
+        state.far.sid = m.far.sid and tostring(m.far.sid) or nil
+    end
     if m.info then for k, v in pairs(m.info) do info[k] = v end; offset = tonumber(info.offset) or 0 end
     draw()
 end)
 
-mp.register_event("end-file", function() tick:kill(); ov:remove() end)
+-- a far skip's new stream plays: where mpv is counts again (time-pos from 0, at the new offset)
+mp.register_event("playback-restart", function()
+    local f = state.far
+    if f and f.sid and (mp.get_property("path") or ""):find(f.sid, 1, true) then
+        state.far = nil
+        show_panel(3)
+    end
+end)
+
+mp.register_event("end-file", function()
+    if state.far then return end          -- (a far skip: the same video goes on in a moment, from there)
+    tick:kill(); ov:remove()
+end)
 draw()

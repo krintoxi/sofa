@@ -4873,19 +4873,21 @@ const Player = (function () {
     let p;
     try { p = await api("/api/play/" + encodeURIComponent(it.id) + "?" + capsQuery(true)); } catch (e) { giveUp(e); return; }
     if (!BoxCard.still(shown)) return;                          // Back on the card meanwhile: it doesn't start
-    let url = p.url;
+    let url = p.url, hls = "";
     const start = pr && !pr.done && pr.t > 30 && (!p.duration || pr.t < p.duration - 30) ? pr.t : 0;
     if (!start && pr && pr.t > 30) shown = card(0);
     if (p.mode !== "direct") {        // converted from where they left off: the app adds `offset` to what it plays
       const h = prefs.get("quality", "") || p.max_height || "";
-      try { url = (await api("/api/hls/" + encodeURIComponent(it.id) + "?mode=" + p.mode + "&t=" + start.toFixed(1) + (h ? "&h=" + h : "") + "&" + capsQuery(true))).url; }
+      // (the same request from another place, for a skip further than Sofa has converted: as load(at) does here)
+      hls = "/api/hls/" + encodeURIComponent(it.id) + "?mode=" + p.mode + (h ? "&h=" + h : "") + "&" + capsQuery(true);
+      try { url = (await api(hls + "&t=" + start.toFixed(1))).url; }
       catch (e) { giveUp(e); return; }
       if (!BoxCard.still(shown)) return;
     }
     nativeItem = it; nativeQueue = queue && queue.includes(it) ? queue : null; nativeHome = !!(how && how.home);
     const shift = p.mode === "direct" ? 0 : start;
     NATIVE.play(JSON.stringify({ item: it.id, url: location.origin + url, start: start - shift, offset: shift, duration: p.duration || 0,
-      title: owner.name || it.title, sub: nativeSub(it), adult, h24: H24,
+      hls: hls && location.origin + hls, title: owner.name || it.title, sub: nativeSub(it), adult, h24: H24,
       subtitles: p.subtitles.map(t => ({ url: location.origin + t.url + (shift ? "?offset=" + shift.toFixed(2) : ""), lang: t.lang, label: t.label })),
       markers: p.markers || [] }));
   }

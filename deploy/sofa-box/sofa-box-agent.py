@@ -33,6 +33,7 @@ import sys
 import tempfile
 import threading
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -514,6 +515,9 @@ class Player:
         self.req = 0
         self.menu = None                        # the options menu, while it's open (Menu while a video plays)
         self.plays, self.info_path = 0, None    # each play's file for the player screen (gone when its mpv stops)
+        # skipping far in a video Sofa converts (seek_to): one under way, the newest place asked for, Sofa's session
+        self.far, self.want, self.going, self.sid = None, None, False, None
+        self.far_lock = threading.Lock()
 
     def _args(self, p):
         s, sock, base = settings(), self.sock_path, self.base
@@ -570,6 +574,8 @@ class Player:
         info = {"title": "Playing" if private else str(p.get("title") or ""), "sub": "" if private else str(p.get("sub") or ""),
                 "kind": kind, "at": offset + start, "offset": offset, "duration": float(p.get("duration") or 0),
                 "markers": markers_of(p),
+                # far: skips past what Sofa has converted go to the agent, which has Sofa convert it again from there
+                "far": self.can_convert_again(p), "agent": "http://127.0.0.1:%d" % PORT,
                 "live": bool(p.get("live")), "number": p.get("number"), "h24": bool(p.get("h24")),
                 "accent": THEME_ACCENT.get(settings().get("theme"), "FF2E88")}
         self.plays += 1
@@ -606,6 +612,8 @@ class Player:
             os.unlink(self.sock_path)
         except OSError:
             pass
+        with self.far_lock:
+            self.far, self.want, self.sid = None, None, None
         private = bool(payload.get("adult"))            # no adult titles anywhere outside the Adult section
         self.status = {"item": payload.get("item"), "t": int(payload.get("offset") or 0) + int(payload.get("start") or 0),
                        "d": int(payload.get("duration") or 0), "paused": False,
@@ -628,11 +636,12 @@ class Player:
         if not self.sock_path or not self.proc or self.proc.poll() is not None:
             return None
         self.req += 1
+        rid = self.req                          # (its own: commands come from several threads at once)
         try:
             s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             s.settimeout(2)
             s.connect(self.sock_path)
-            s.sendall((json.dumps({"command": list(cmd), "request_id": self.req}) + "\n").encode())
+            s.sendall((json.dumps({"command": list(cmd), "request_id": rid}) + "\n").encode())
             buf = b""
             while True:
                 part = s.recv(65536)
@@ -644,7 +653,7 @@ class Player:
                         msg = json.loads(line)
                     except ValueError:
                         continue
-                    if msg.get("request_id") == self.req:
+                    if msg.get("request_id") == rid:
                         s.close()
                         return msg.get("data")
         except OSError:
@@ -652,9 +661,171 @@ class Player:
         return None
 
     def position(self):
-        """Seconds into the whole video (a converted stream starts at the payload's offset)."""
+        """Seconds into the whole video (a converted stream starts at the payload's offset). Skipping far: where to,
+        until mpv plays it (the place saved and the phone remote's line say so meanwhile)."""
+        far = self.far
+        if far and not self._far_settled():
+            return far["at"]
         t = self.command("get_property", "time-pos")
         return None if t is None else float(t) + float((self.payload or {}).get("offset") or 0)
+
+    # ---- skipping far in a video Sofa converts for the box. It comes as HLS that Sofa makes from `offset` on while it
+    # plays, and mpv can only go where Sofa has converted it so far. Further on (Page Up's 5 minutes, quick presses of
+    # right, the number keys, the phone remote's line, Skip intro) or back before where it starts, Sofa converts it
+    # again from there, as the page's own player does (load(at) in client/app.js), and mpv loads that. Every skip comes
+    # through seek_to; the player screen sends the ones past what mpv has (sofa-player.lua: key "far").
+
+    def can_convert_again(self, p=None):
+        """A video Sofa converts for the box, and the page said how it asked Sofa for it (`hls`, Sofa 1.5.2 and later)."""
+        p = (self.payload if p is None else p) or {}
+        hls = str(p.get("hls") or "")
+        return bool(not p.get("live") and not p.get("local") and "/media/hls/" in str(p.get("url") or "") and
+                    urllib.parse.urlsplit(hls).path.startswith("/api/hls/") and self.from_sofa(hls))
+
+    def seek_to(self, t, exact=False):
+        """To `t` seconds into the whole video. In a video Sofa converts, through _going: one at a time, the newest."""
+        p, proc = self.payload or {}, self.proc
+        off, d = float(p.get("offset") or 0), float(p.get("duration") or 0)
+        if not self.can_convert_again(p):
+            return self.command("seek", max(0.0, float(t) - off), "absolute+exact" if exact else "absolute")
+        t = max(0.0, min(float(t), d - 3) if d > 3 else float(t))
+        with self.far_lock:
+            self.want = (proc, t, exact)
+            far = self.far if self.far and self.far["proc"] is proc else None
+            if far:                                     # one under way: the new place shows at once
+                far["at"] = t
+                self.status["t"] = int(t)
+            busy, self.going = self.going, True
+        if far:
+            self.osd(far={"at": t})
+        if not busy:
+            threading.Thread(target=self._going, daemon=True).start()
+
+    def _going(self):
+        while True:
+            with self.far_lock:
+                want, self.want = self.want, None
+                if want is None:
+                    self.going = False
+                    return
+            proc, t, exact = want
+            if proc is self.proc and proc and proc.poll() is None:
+                try:
+                    self._go(proc, t, exact)
+                except Exception as exc:                # (never stuck: the next skip goes again)
+                    print("Skipping: %s" % re.sub(r"\b[a-z][a-z0-9+.-]*://\S+", "the video", str(exc)), file=sys.stderr, flush=True)
+
+    def _go(self, proc, t, exact):
+        p = self.payload
+        if not (self.far and not self._far_settled()) and self.have(t):
+            self.command("seek", max(0.0, t - float(p.get("offset") or 0)), "absolute+exact" if exact else "absolute")
+            self.osd(far=False)                         # converted already: mpv goes there itself
+            return
+        far = self.far                                  # (paused or not, as it goes on: the last skip's is in mpv now)
+        paused = far["paused"] if far and not far["sid"] else bool(self.command("get_property", "pause"))
+        if not far:
+            far = self.far = {"proc": proc, "at": t, "paused": paused, "sid": None}
+        far.update(at=t, paused=paused, sid=None)
+        self.command("set_property", "pause", True)     # (the picture holds still meanwhile: Sofa stops converting
+        self.status["t"] = int(t)                       # what mpv plays now, and mpv mustn't run out of it and stop)
+        self.osd(far={"at": t})
+        try:
+            url, sid = self.convert_again(t)
+        except (OSError, ValueError) as exc:
+            with self.far_lock:
+                if self.want is not None:               # (a newer skip goes on from here)
+                    return
+            if self.far is far:
+                self.far = None
+                self.command("set_property", "pause", far["paused"])
+                self.osd(far=False, toast="Sofa couldn't get that part ready: %s" % exc)
+            return
+        if proc is not self.proc or proc.poll() is not None:
+            return                                      # (stopped meanwhile: Sofa stops converting when nobody asks)
+        self.sid = sid                                  # (the next one replaces this one)
+        with self.far_lock:
+            if self.want is not None:                   # a newer skip came meanwhile: that one, not this
+                return
+        p.update(url=url, offset=t, start=0)
+        subs = self.subtitles_from(t)
+        if subs:                                        # (timed for the new start: Sofa shifts them)
+            self.command("set_property", "sub-files", subs)
+        far["sid"] = sid
+        self.osd(info={"offset": t, "at": t}, far={"at": t, "sid": sid})
+        self.command("loadfile", url, "replace")
+        self.command("set_property", "pause", far["paused"])
+
+    def _far_settled(self):
+        """A far skip is over once mpv plays what Sofa converted for it (where mpv is counts again from then on)."""
+        far = self.far
+        if not far or not far.get("sid") or self.want is not None:
+            return False
+        if far["sid"] in str(self.command("get_property", "path") or "") and self.command("get_property", "time-pos") is not None:
+            if self.far is far:
+                self.far = None
+                self.osd(far=False)                     # (the screen saw it start too: this is in case it didn't)
+            return True
+        return False
+
+    def have(self, t):
+        """Whether mpv can go to `t` (the whole video's seconds) in the converted video it plays: from where Sofa started
+        it (Sofa keeps all of it) to as far as Sofa has converted it so far."""
+        s = t - float((self.payload or {}).get("offset") or 0)
+        if s < -0.5:
+            return False                                # (before where it starts)
+        for prop in ("time-pos", "demuxer-cache-time"):  # back, or into what mpv has read already
+            x = self.command("get_property", prop)
+            if isinstance(x, (int, float)) and s <= x:
+                return True
+        made, whole = self.made()
+        return whole or s <= made - 2
+
+    def made(self):
+        """How much of the converted video Sofa has made so far (its playlist, in seconds), and whether that's all."""
+        try:
+            text = self.ask_sofa(self.payload["url"], timeout=10).decode("utf-8", "replace")
+        except (OSError, ValueError, KeyError):
+            return 0.0, False
+        return sum(float(x) for x in re.findall(r"#EXTINF:\s*([\d.]+)", text)), "#EXT-X-ENDLIST" in text
+
+    def convert_again(self, t):
+        """Sofa converts the video for the box again, from `t` on: as the page asked for it (`hls`: the mode, the
+        picture's size, what the box plays), and the conversion before it stops (replace). The new playlist's address."""
+        p = self.payload
+        old = self.sid or (re.search(r"/media/hls/([0-9a-f]+)/", str(p.get("url") or "")) or [None, None])[1]
+        try:
+            got = json.loads(self.ask_sofa(p["hls"] + "&t=%.1f" % t + ("&replace=" + old if old else ""), timeout=45))
+        except urllib.error.HTTPError as exc:          # Sofa said why (busy converting for others, say)
+            try:
+                why = json.loads(exc.read()).get("error")
+            except (OSError, ValueError, AttributeError):
+                why = None
+            raise ValueError(why or "Sofa said no (%d)" % exc.code)
+        except (OSError, ValueError):
+            raise ValueError("Sofa didn't answer")
+        path = str(got.get("url") or "") if isinstance(got, dict) else ""
+        if not re.match(r"^/media/hls/[0-9a-f]+/index\.m3u8$", path):
+            raise ValueError("Sofa didn't say where")
+        return self.base.rstrip("/") + path, path.split("/")[3]
+
+    def ask_sofa(self, url, timeout=20):
+        """A GET from Sofa as the signed-in TV, as the box's other calls to Sofa go (the page's cookie: to Sofa only)."""
+        url = rewrite(url, self.base)
+        if not self.from_sofa(url):
+            raise ValueError("not this Sofa")
+        req = urllib.request.Request(url, headers={"Cookie": self.cookie or "", "X-Sofa": "1"})
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({})) if url.startswith("http://") else urllib.request.build_opener()
+        with opener.open(req, timeout=timeout) as r:
+            return r.read(4 << 20)
+
+    def subtitles_from(self, t):
+        """The video's subtitles for a converted video that starts at `t` (Sofa shifts them with ?offset=)."""
+        out = []
+        for sub in (self.payload or {}).get("subtitles") or []:
+            u = urllib.parse.urlsplit(rewrite(str(sub.get("url") or ""), self.base))
+            q = [(k, v) for k, v in urllib.parse.parse_qsl(u.query, keep_blank_values=True) if k != "offset"]
+            out.append(urllib.parse.urlunsplit(u._replace(query=urllib.parse.urlencode(q + ([("offset", "%.2f" % t)] if t else [])))))
+        return out
 
     def starting_note(self, waited):
         """The start card's second line while the picture hasn't moved (the card itself says what's starting, from
@@ -700,17 +871,20 @@ class Player:
             t = self.position()
             if t is None:
                 continue
-            started = True
+            far = self.far                                      # (skipping far: where to, and paused or not after)
+            started = started or not far
             d = float(p.get("duration") or 0) or float(self.command("get_property", "duration") or 0) + float(p.get("offset") or 0)
-            paused = bool(self.command("get_property", "pause"))
+            paused = far["paused"] if far else bool(self.command("get_property", "pause"))
             self.status.update(t=int(t), d=int(d), paused=paused)
             if d and time.time() - last_save > 10:
                 last_save = time.time()
                 save_progress(p.get("item"), t, d, False, self.cookie, self.base)
-            if not drops_checked and t - float(p.get("start") or 0) - float(p.get("offset") or 0) > 90:
+            if not drops_checked and not far and t - float(p.get("start") or 0) - float(p.get("offset") or 0) > 90:
                 drops_checked = True
                 self.check_drops()
         code = proc.wait()
+        if self.far and self.far["proc"] is proc:
+            self.far = None
         try:
             os.unlink(getattr(proc, "sofa_info", None) or "")   # (what was playing: not left behind in /tmp)
         except OSError:
@@ -918,22 +1092,30 @@ class Player:
         t = self.position()
         m = self.marker(t) if t is not None else None
         if m:
-            self.command("seek", m["end"] - float((self.payload or {}).get("offset") or 0), "absolute")
+            self.seek_to(m["end"])
         else:
-            self.command("cycle", "pause")
+            self.control({"cmd": "toggle"})
 
     def control(self, c):
-        cmd, off = c.get("cmd"), float((self.payload or {}).get("offset") or 0)
-        if cmd == "toggle":
+        """The phone remote (through Sofa's page) and the page itself: pause, play, the line, skips, stop."""
+        cmd, far = c.get("cmd"), self.far
+        if cmd in ("toggle", "pause", "resume") and far and not far["sid"]:     # skipping far: how it goes on from there
+            far["paused"] = not far["paused"] if cmd == "toggle" else cmd == "pause"
+            self.status["paused"] = far["paused"]
+        elif cmd == "toggle":
             self.command("cycle", "pause")
         elif cmd == "pause":
             self.command("set_property", "pause", True)
         elif cmd == "resume":
             self.command("set_property", "pause", False)
         elif cmd == "seek":
-            self.command("seek", max(0.0, float(c.get("t") or 0) - off), "absolute")
+            self.seek_to(float(c.get("t") or 0))
         elif cmd == "skip":
-            self.command("seek", float(c.get("by") or 0), "relative")
+            t = self.position() if self.can_convert_again() else None
+            if t is None:
+                self.command("seek", float(c.get("by") or 0), "relative")
+            else:
+                self.seek_to(t + float(c.get("by") or 0))
         elif cmd in ("stop", "next"):
             self.stop(save=True, reason=cmd)
 
@@ -3741,6 +3923,13 @@ class Handler(BaseHTTPRequestHandler):
                 player.zap(-1 if k == "chup" else 1)
             elif k == "menu":                               # Menu: the video's options (again: closes them)
                 player.menu_toggle()
+            elif k == "far":                                # the player screen: a skip past what mpv has of a converted video
+                try:
+                    t = float((qs.get("t") or [""])[0])
+                except ValueError:
+                    t = -1.0
+                if 0 <= t < 1e6:
+                    player.seek_to(t, exact=(qs.get("exact") or [""])[0] == "1")
             elif k.startswith("menu-"):
                 player.menu_key(k[5:])
             return self.send('{"ok":true}')

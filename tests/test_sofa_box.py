@@ -3,6 +3,7 @@ through with the box's player added, playing, saving the place, telling the page
 settings, the boot screen, the remotes (HDMI-CEC, game controllers), and setting up a Raspberry Pi's
 boot files (including one LCD-show changed for a 3.5-inch screen)."""
 import importlib.util
+import io
 import json
 import os
 import re
@@ -421,6 +422,48 @@ class Agent(unittest.TestCase):
         news = json.loads(self.get("/box/native/events?since=%d" % n))["news"]
         self.assertFalse([x for x in news if "toast" in x])                       # (not "That video couldn't play")
 
+    @staticmethod
+    def long_clock():
+        """A two-minute video in the library, for Sofa to convert: its id and the page's request for it (`hls`)."""
+        path = os.path.join(LIBRARY, "Movies", "Long Clock (2021)", "Long Clock (2021).mp4")
+        if not os.path.exists(path):
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            subprocess.run([media.tool("ffmpeg"), "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc=size=160x90:rate=10",
+                            "-t", "120", "-c:v", "libx264", "-preset", "ultrafast", "-g", "10", path], check=True)
+            LIB.scan("tests")
+        return "m:long-clock:2021", "/api/hls/m%3Along-clock%3A2021?mode=remux"
+
+    @unittest.skipUnless(media.tool("ffmpeg"), "needs ffmpeg")
+    def test_skipping_far_in_a_converted_video(self):
+        """A video Sofa converts for the box, resumed at 1:00 (Sofa's stream starts there), and the phone remote's line
+        back to 0:20: the box asks Sofa (as the signed-in TV) to convert it again from 0:20, mpv loads that and opens it
+        with the TV's cookie, the conversion before stops, and the place counts (and is saved) from 0:20."""
+        item, ask = self.long_clock()
+        first = json.loads(self.get(ask + "&t=60.0"))                         # as the page asks, through the box
+        n = json.loads(self.get("/box/native/events"))["n"]
+        self.post("/box/native/play", {"item": item, "url": self.base + first["url"], "start": 0, "offset": 60,
+                                       "duration": 120, "title": "Long Clock", "hls": self.base + ask})
+        self.wait_for(lambda st: st.get("t", 0) >= 61, 20)
+        self.post("/box/native/control", {"cmd": "seek", "t": 20})
+        self.wait_for(lambda st: st.get("t") == 20, 10)                          # at once: where it's going
+        self.wait_for(lambda st: 21 <= st.get("t", 0) < 50 and not st.get("paused"), 30)    # then on from there
+        log = [json.loads(line) for line in read(self.log).splitlines()]
+        loaded = [x["command"][1] for x in log if x.get("command", [""])[0] == "loadfile"]
+        self.assertEqual(len(loaded), 1)
+        self.assertTrue(loaded[0].startswith(self.sofa + "/media/hls/"))         # straight to Sofa, a new conversion
+        self.assertNotIn(first["session"], loaded[0])
+        opened = [x for x in log if x.get("fetched") == loaded[0]]
+        self.assertTrue(opened[0]["cookie"])                                     # as the signed-in TV
+        self.assertIn(opened[0]["status"], (200, 206))
+        with self.assertRaises(urllib.error.HTTPError) as gone:                  # the conversion before: stopped
+            self.get(first["url"])
+        self.assertEqual(gone.exception.code, 404)
+        self.post("/box/native/key?k=back", {})
+        done = self.ended(item, n)
+        self.assertTrue(20 <= done[0]["t"] < 60, done)
+        saved = json.loads(self.get("/api/progress"))[item]
+        self.assertTrue(20 <= saved["t"] < 60, saved)
+
     def test_a_player_that_cant_start_hands_back_to_the_page(self):
         n = json.loads(self.get("/box/native/events"))["n"]
         self.post("/box/native/play", {"item": "m:gone:2001", "url": self.base + "/media/m%3Agone%3A2001/file",
@@ -653,6 +696,48 @@ class Agent(unittest.TestCase):
             self.wait_for(lambda s: s.get("t", 0) >= 15, 10, base)
             self.post("/box/native/key?k=back", {}, base)
             self.assertGreaterEqual(self.ended("m:clock:2020", n, base)[0]["t"], 15)
+        finally:
+            proc.terminate()
+            proc.wait(10)
+            shutil.rmtree(conf, ignore_errors=True)
+
+    @unittest.skipUnless(shutil.which("mpv") and media.tool("ffmpeg") and os.path.exists("/usr/bin/curl"), "needs mpv, ffmpeg and curl")
+    def test_real_mpv_skips_far(self):
+        """mpv itself, with its player screen, and Sofa converting: a video resumed at 1:00 (Sofa's stream starts there),
+        and 0 on the remote (the start). The screen asks the box (as mpv's own keys do), the box asks Sofa to convert it
+        from the start, mpv plays that, and the box counts from there."""
+        item, ask = self.long_clock()
+        conf = tempfile.mkdtemp()
+        with open(os.path.join(conf, "settings.json"), "w") as f:
+            json.dump({"server": self.sofa}, f)
+        port = free_port()
+        base = "http://127.0.0.1:%d" % port
+        proc = self.start_agent("mpv", conf, port)
+        try:
+            for _ in range(100):
+                try:
+                    if json.loads(self.get("/box/state", base)).get("chosen"):
+                        break
+                except (OSError, ValueError):
+                    pass
+                time.sleep(0.1)
+            first = json.loads(self.get(ask + "&t=60.0", base))
+            n = json.loads(self.get("/box/native/events", base))["n"]
+            self.post("/box/native/play", {"item": item, "url": base + first["url"], "start": 0, "offset": 60, "duration": 120,
+                                           "title": "Long Clock", "hls": base + ask}, base)
+            self.wait_for(lambda s: s.get("t", 0) >= 62, 30, base)
+            s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            s.connect(os.path.join(tempfile.gettempdir(), "sofa-mpv-%d.sock" % proc.pid))
+            s.sendall(b'{"command": ["keypress", "0"]}\n')
+            s.recv(1000)
+            s.close()
+            self.wait_for(lambda s: 0 <= s.get("t", 99) < 30 and not s.get("paused"), 30, base)
+            time.sleep(2)
+            st = self.wait_for(lambda s: 1 <= s.get("t", 0) < 30, 10, base)     # it plays on from there
+            self.post("/box/native/key?k=back", {}, base)
+            done = self.ended(item, n, base)
+            self.assertTrue(st["t"] <= done[0]["t"] < 40, (st, done))
+            self.assertFalse(done[0].get("failed"))
         finally:
             proc.terminate()
             proc.wait(10)
@@ -2677,8 +2762,12 @@ class PlayerScreen(unittest.TestCase):
         have = set(re.findall(r'mp\.add_key_binding\(nil, "(\w+)"', lua))
         self.assertTrue(used)
         self.assertEqual(sorted(used - have), [])
+        said = set(re.findall(r"script-message-to sofa_player (\w+)", conf))       # (the number keys: "percent N")
+        self.assertEqual(sorted(said - set(re.findall(r'mp\.register_script_message\("(\w+)"', lua))), [])
         for key in ("ENTER", "ESC", "BS", "LEFT", "RIGHT", "UP", "DOWN", "PLAYPAUSE"):
             self.assertRegex(conf, r"(?m)^%s\s+script-binding sofa_player/" % key)
+        for n in range(10):                                                     # through the screen: far ones too
+            self.assertRegex(conf, r"(?m)^%d\s+script-message-to sofa_player percent %d$" % (n, n * 10))
         live = self.agent.live_input_conf()                                      # Live TV: up and down change channel
         with open(live, encoding="utf-8") as f:
             self.assertRegex(f.read(), r"(?m)^UP\s+run .*k=chup")
@@ -2720,6 +2809,155 @@ class PlayerScreen(unittest.TestCase):
             self.assertEqual(did, [("menu", "down"), ("menu", "back")])
         finally:
             a.player = real
+
+    def converted(self, playlist=""):
+        """A Player playing a video Sofa converts for the box, from 600 s in, with stand-ins for mpv's socket and Sofa."""
+        p = self.agent.Player()
+        mpv = {"time-pos": 5.0, "demuxer-cache-time": 30.0, "pause": False, "path": "http://sofa/media/hls/aaaa/index.m3u8"}
+        said, asked, sofa = [], [], {"playlist": playlist, "sessions": iter(["bbbb", "cccc", "dddd"]), "wait": None}
+
+        def command(*cmd):
+            said.append(cmd)
+            if cmd[0] == "get_property":
+                return mpv.get(cmd[1])
+            if cmd[:2] == ("set_property", "pause"):
+                mpv["pause"] = cmd[2]
+            elif cmd[0] == "loadfile":                                   # (no position until the new one has opened)
+                mpv.update({"path": cmd[1], "time-pos": None})
+
+        def ask_sofa(url, timeout=20):
+            asked.append(url)
+            if url.endswith("/index.m3u8"):
+                return sofa["playlist"].encode()
+            if sofa["wait"]:
+                sofa["wait"].wait(10)
+            if isinstance(sofa.get("fail"), Exception):
+                raise sofa["fail"]
+            sid = next(sofa["sessions"])
+            return json.dumps({"url": "/media/hls/%s/index.m3u8" % sid, "session": sid}).encode()
+
+        class Proc:
+            def poll(self):
+                return None
+        p.proc, p.command, p.ask_sofa, p.base, p.cookie = Proc(), command, ask_sofa, "http://sofa", "sofa=tv"
+        p.payload = {"item": "m:heat:1995", "url": "http://sofa/media/hls/aaaa/index.m3u8", "offset": 600, "duration": 7200,
+                     "hls": "http://sofa/api/hls/m%3Aheat%3A1995?mode=transcode&h=720",
+                     "subtitles": [{"url": "http://sofa/media/m%3Aheat%3A1995/subs/0.vtt?offset=600.00", "lang": "en"}]}
+        p.status = {"item": "m:heat:1995", "t": 605}
+        return p, mpv, said, asked, sofa
+
+    @staticmethod
+    def screen(said):
+        """What the agent told the player screen (sofa-player.lua), in order."""
+        return [json.loads(c[3]) for c in said if c[:3] == ("script-message-to", "sofa_player", "sofa")]
+
+    def settle(self, p):
+        end = time.time() + 10
+        while p.going and time.time() < end:
+            time.sleep(0.02)
+        self.assertFalse(p.going)
+
+    def test_skipping_far_in_a_converted_video(self):
+        """A video Sofa converts for the box comes as a stream Sofa makes from `offset` on as it plays, and mpv can go only
+        where Sofa has converted it so far. A skip into what mpv has, or into what Sofa has made (its playlist), goes there
+        in mpv. Further on, or back before where it starts, Sofa converts it again from there (as the page asked for it,
+        the conversion before replaced), and mpv loads that, held still meanwhile so it can't run out of the old one and
+        stop; the screen, the place saved and the phone remote's line say where it's going, then count from there."""
+        p, mpv, said, asked, sofa = self.converted("#EXTM3U\n" + "#EXTINF:4.000000,\nseg.m4s\n" * 30)   # 2 minutes made
+        p._go(p.proc, 620, False)                                         # in what mpv has read: mpv goes there itself
+        self.assertIn(("seek", 20.0, "absolute"), said)
+        self.assertEqual(self.screen(said), [{"far": False}])
+        self.assertEqual(asked, [])
+        p._go(p.proc, 700, False)                                         # in what Sofa has made: mpv too
+        self.assertIn(("seek", 100.0, "absolute"), said)
+        self.assertEqual(asked, ["http://sofa/media/hls/aaaa/index.m3u8"])
+        del said[:], asked[:]
+        p._go(p.proc, 1500, False)                                        # further: Sofa converts it from there
+        self.assertEqual(asked, ["http://sofa/media/hls/aaaa/index.m3u8",
+                                 "http://sofa/api/hls/m%3Aheat%3A1995?mode=transcode&h=720&t=1500.0&replace=aaaa"])
+        held, load, back = (said.index(("set_property", "pause", True)), said.index(("loadfile", "http://sofa/media/hls/bbbb/index.m3u8", "replace")),
+                            said.index(("set_property", "pause", False)))
+        self.assertLess(held, load)
+        self.assertLess(load, back)                                       # (as it was: playing)
+        self.assertIn(("set_property", "sub-files", ["http://sofa/media/m%3Aheat%3A1995/subs/0.vtt?offset=1500.00"]), said)
+        self.assertEqual(self.screen(said), [{"far": {"at": 1500}},
+                                             {"info": {"offset": 1500, "at": 1500}, "far": {"at": 1500, "sid": "bbbb"}}])
+        self.assertEqual((p.payload["url"], p.payload["offset"]), ("http://sofa/media/hls/bbbb/index.m3u8", 1500))
+        self.assertEqual((p.position(), p.status["t"]), (1500, 1500))     # opening: where it's going
+        mpv["time-pos"] = 2.0
+        self.assertEqual(p.position(), 1502.0)                            # it plays: from there on
+        self.assertIsNone(p.far)
+        self.assertEqual(self.screen(said)[-1], {"far": False})
+        mpv.update({"time-pos": 2.0, "demuxer-cache-time": 30.0})
+        p._go(p.proc, 1000, False)                                        # back before where it starts now: again
+        self.assertTrue(asked[-1].endswith("&t=1000.0&replace=bbbb"))
+        self.assertEqual(p.payload["offset"], 1000)
+
+    def test_far_skips_one_at_a_time(self):
+        """Skips that come while Sofa is converting (more presses, the phone remote): the newest is where it goes, at once
+        on the screen and the phone, and only that one is loaded; play and pause meanwhile are for when it's there. Sofa
+        busy: it says so, and it plays on as it was. A page from an older Sofa (no `hls`): mpv seeks, as before."""
+        p, mpv, said, asked, sofa = self.converted()
+        sofa["wait"] = threading.Event()
+        p.control({"cmd": "seek", "t": 3000})                             # the phone remote's line
+        end = time.time() + 5
+        while not p.far and time.time() < end:
+            time.sleep(0.02)
+        self.assertEqual((p.position(), p.status["t"]), (3000, 3000))
+        p.control({"cmd": "toggle"})                                      # pause, for when it's there
+        self.assertFalse([c for c in said if c[0] == "cycle"])
+        p.control({"cmd": "skip", "by": 300})                             # and on 5 minutes more, while it waits
+        self.assertEqual((p.position(), p.status["t"], p.status["paused"]), (3300, 3300, True))
+        self.assertEqual(self.screen(said)[-1], {"far": {"at": 3300}})
+        sofa["wait"].set()
+        self.settle(p)
+        self.assertEqual([u.split("&t=")[1] for u in asked if "/api/hls/" in u], ["3000.0&replace=aaaa", "3300.0&replace=bbbb"])
+        self.assertEqual([c[1] for c in said if c[0] == "loadfile"], ["http://sofa/media/hls/cccc/index.m3u8"])
+        self.assertEqual([c for c in said if c[:2] == ("set_property", "pause")][-1], ("set_property", "pause", True))
+        mpv["time-pos"] = 0.5
+        self.assertEqual(p.position(), 3300.5)
+        # Sofa busy converting for others: it says why, and the video goes on where it was
+        p, mpv, said, asked, sofa = self.converted()
+        sofa["fail"] = urllib.error.HTTPError("http://sofa/api/hls/x", 503, "Busy", {}, io.BytesIO(
+            json.dumps({"error": "The server is busy converting other videos for other people."}).encode()))
+        p.seek_to(5000)
+        self.settle(p)
+        self.assertIsNone(p.far)
+        self.assertEqual([c for c in said if c[:2] == ("set_property", "pause")][-1], ("set_property", "pause", False))
+        self.assertEqual(self.screen(said)[-1], {"far": False, "toast": "Sofa couldn't get that part ready: The server is busy "
+                                                                       "converting other videos for other people."})
+        self.assertFalse([c for c in said if c[0] == "loadfile"])
+        self.assertEqual(p.position(), 605.0)
+        # a page from before Sofa 1.5.2 doesn't say how it asked for the conversion: mpv seeks, as before
+        p, mpv, said, asked, sofa = self.converted()
+        del p.payload["hls"]
+        p.seek_to(5000)
+        self.assertEqual(said, [("seek", 4400.0, "absolute")])
+        self.assertFalse(p.going or asked)
+
+    def test_the_screen_hears_it_can_skip_far(self):
+        """The player screen sends skips past what mpv has to the agent only for a video Sofa converts whose request the
+        page gave, on this Sofa (the TV's cookie never goes anywhere else)."""
+        from unittest import mock
+
+        def info(payload):
+            p = self.agent.Player()
+            p.sock_path, p.base = os.path.join(self.conf, "x.sock"), "http://sofa"
+            with mock.patch.dict(os.environ, {"SOFA_BOX_MPV": os.path.join(HERE, "tools", "fake_mpv.py")}):
+                p._args(payload)
+            with open(p.info_path) as f:
+                got = json.load(f)
+            os.remove(p.info_path)
+            return got
+        hls = {"url": "http://sofa/media/hls/0123/index.m3u8", "title": "Heat", "offset": 600,
+               "hls": "http://sofa/api/hls/m%3Aheat%3A1995?mode=transcode"}
+        got = info(hls)
+        self.assertTrue(got["far"])
+        self.assertEqual(got["agent"], "http://127.0.0.1:%d" % self.agent.PORT)
+        self.assertFalse(info(dict(hls, hls="http://elsewhere.example/api/hls/x?mode=remux"))["far"])
+        self.assertFalse(info(dict(hls, hls=None))["far"])                # (an older Sofa's page)
+        self.assertFalse(info({"url": "http://sofa/media/m%3Aheat%3A1995/file", "title": "Heat",
+                               "hls": "http://sofa/api/hls/m%3Aheat%3A1995?mode=remux"})["far"])   # as it is: mpv seeks
 
     @unittest.skipUnless(shutil.which("mpv") and media.tool("ffmpeg"), "needs mpv and ffmpeg")
     def test_in_mpv_itself(self):
@@ -2802,6 +3040,137 @@ class PlayerScreen(unittest.TestCase):
                     proc.kill()
                 proc.wait(10)
         finally:
+            shutil.rmtree(d, ignore_errors=True)
+
+    @unittest.skipUnless(shutil.which("mpv") and media.tool("ffmpeg") and os.path.exists("/usr/bin/curl"), "needs mpv, ffmpeg and curl")
+    def test_far_skips_in_mpv_itself(self):
+        """Skips in a video Sofa converts (a stream from 10:00 in, 40 s of it made so far), in mpv itself: one into what mpv
+        has goes there, with nothing asked of the box; Page Up's 5 minutes moves the line and asks the box's agent (as
+        mpv's own keys reach it), mpv staying where it is; the agent's word shows a note, then the new stream plays and the
+        screen counts from the new place. Back before where it starts and the number keys ask too; no word at all: a
+        message, and it stays where it was."""
+        d = tempfile.mkdtemp()
+        asked = []
+
+        class TheAgent(BaseHTTPRequestHandler):
+            def do_POST(self):
+                asked.append((self.path, self.headers.get("X-Sofa-Box")))
+                self.send_response(200)
+                self.send_header("Content-Length", "2")
+                self.end_headers()
+                self.wfile.write(b"{}")
+
+            def log_message(self, *args):
+                pass
+        agent = ThreadingHTTPServer(("127.0.0.1", 0), TheAgent)
+        threading.Thread(target=agent.serve_forever, daemon=True).start()
+        proc = None
+        try:
+            video = os.path.join(d, "clock.mp4")
+            subprocess.run([media.tool("ffmpeg"), "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc=size=160x90:rate=25",
+                            "-t", "120", "-c:v", "libx264", "-preset", "ultrafast", "-g", "25", video], check=True)
+            for sid, at in (("aaaa", 0), ("bbbb", 50)):              # Sofa's conversions, as they are mid-way: no end yet
+                os.makedirs(os.path.join(d, sid))
+                subprocess.run([media.tool("ffmpeg"), "-v", "error", "-y", "-ss", str(at), "-i", video, "-t", "40", "-c", "copy",
+                                "-f", "hls", "-hls_time", "4", "-hls_list_size", "0", "-hls_playlist_type", "event",
+                                "-hls_segment_type", "fmp4", "-hls_fmp4_init_filename", "init.mp4",
+                                "-hls_segment_filename", os.path.join(d, sid, "seg%05d.m4s"), os.path.join(d, sid, "index.m3u8")], check=True)
+                with open(os.path.join(d, sid, "index.m3u8")) as f:
+                    playlist = f.read().replace("#EXT-X-ENDLIST\n", "")
+                with open(os.path.join(d, sid, "index.m3u8"), "w") as f:
+                    f.write(playlist)
+            info = os.path.join(d, "info.json")
+            with open(info, "w") as f:
+                json.dump({"title": "Clock", "kind": "resume", "at": 600, "offset": 600, "duration": 7200, "far": True,
+                           "agent": "http://127.0.0.1:%d" % agent.server_address[1], "accent": "FF2E88"}, f)
+            seen = os.path.join(d, "seen.jsonl")
+            os.makedirs(os.path.join(d, "s"))
+            with open(os.path.join(d, "s", "sofa-player.lua"), "w") as f:
+                f.write(SCREEN_SPY % {"seen": json.dumps(seen), "real": json.dumps(os.path.join(os.path.abspath(BOX), "sofa-player.lua"))})
+            sock = os.path.join(d, "mpv.sock")
+            proc = subprocess.Popen(["mpv", "--no-config", "--vo=null", "--ao=null", "--idle=no", "--input-ipc-server=" + sock,
+                                     "--input-conf=" + os.path.join(BOX, "mpv-input.conf"), "--osc=no", "--hr-seek=no", "--cache=yes",
+                                     "--demuxer-lavf-o-append=live_start_index=0",
+                                     "--script=" + os.path.join(d, "s", "sofa-player.lua"), "--script-opts=sofa_player-info=" + info,
+                                     os.path.join(d, "aaaa", "index.m3u8")], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+
+            def mpv(*cmd):
+                s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                s.settimeout(10)
+                s.connect(sock)
+                s.sendall((json.dumps({"command": list(cmd)}) + "\n").encode())
+                buf = b""
+                while b"\n" not in buf:
+                    buf += s.recv(65536)
+                s.close()
+                return json.loads(buf.split(b"\n")[0]).get("data")
+
+            def drawn():
+                with open(seen, encoding="utf-8") as f:
+                    return [json.loads(line) for line in f]
+
+            def shown():                                             # the time on the panel's left, in seconds
+                m = re.findall(r"\\pos\(96,1026\)[^}]*\}([\d:]+)", drawn()[-1])
+                return sum(int(x) * 60 ** i for i, x in enumerate(reversed(m[-1].split(":")))) if m else None
+
+            def until(check, secs=15):
+                end = time.time() + secs
+                while time.time() < end:
+                    try:
+                        if check():
+                            return True
+                    except (OSError, ValueError):
+                        pass
+                    time.sleep(0.1)
+                self.fail("never got there: %s" % (drawn()[-1][-400:] if os.path.exists(seen) else "nothing drawn"))
+
+            until(lambda: os.path.exists(seen) and "RESUMING" not in drawn()[-1] and shown())     # playing: the panel
+            until(lambda: (mpv("get_property", "demuxer-cache-time") or 0) >= 36)                 # (mpv has read it all)
+            mpv("keypress", "RIGHT")                                         # +30 s: in what mpv has
+            until(lambda: (mpv("get_property", "time-pos") or 0) >= 28)
+            self.assertEqual(asked, [])
+            t0 = mpv("get_property", "time-pos")
+            mpv("keypress", "PGUP")                                          # +5 minutes: past it
+            until(lambda: asked, 5)
+            path, header = asked[-1]
+            self.assertEqual(header, "1")                                    # (a POST the box takes from mpv)
+            to = float(re.match(r"^/box/native/key\?k=far&t=([\d.]+)$", path).group(1))
+            self.assertTrue(600 + t0 + 295 <= to <= 600 + t0 + 310, (t0, to))
+            until(lambda: abs((shown() or 0) - to) <= 1, 3)                  # the line is there already...
+            self.assertLess(mpv("get_property", "time-pos"), t0 + 5)         # ...and the picture stays put
+            self.assertFalse(any("getting it ready" in x for x in drawn()))
+            mpv("script-message-to", "sofa_player", "sofa", json.dumps({"far": {"at": to}}))   # Sofa is on it
+            until(lambda: "Sofa is getting it ready for the box" in drawn()[-1])
+            mpv("script-message-to", "sofa_player", "sofa", json.dumps({"info": {"offset": to, "at": to}, "far": {"at": to, "sid": "bbbb"}}))
+            mpv("loadfile", os.path.join(d, "bbbb", "index.m3u8"), "replace")
+            until(lambda: "getting it ready" not in drawn()[-1] and (mpv("get_property", "time-pos") or 0) > 1)
+            until(lambda: int(to) <= (shown() or 0) <= int(to) + 10)         # counting from the new place
+            until(lambda: (mpv("get_property", "demuxer-cache-time") or 0) >= 20)
+            del asked[:]
+            mpv("keypress", "LEFT")                                          # back before where it starts now
+            until(lambda: asked, 5)
+            self.assertLess(float(re.search(r"t=([\d.]+)", asked[-1][0]).group(1)), to)
+            until(lambda: "The box didn't answer" in drawn()[-1], 10)       # (no word from the agent: as it was)
+            until(lambda: int(to) <= (shown() or 0) <= int(to) + 20)
+            del asked[:]
+            mpv("keypress", "5")                                             # halfway: 1:00:00
+            until(lambda: asked, 5)
+            self.assertEqual(asked[-1][0], "/box/native/key?k=far&t=3600.0")
+            until(lambda: shown() == 3600, 3)
+            mpv("script-message-to", "sofa_player", "sofa", json.dumps({"far": False}))     # (it had it after all)
+            until(lambda: int(to) <= (shown() or 0) <= int(to) + 20)
+            for data in drawn():
+                for an, x, y in re.findall(r"\\an(\d)\\pos\(([-\d.]+),([-\d.]+)\)\\fn", data):
+                    self.assertTrue(96 <= float(x) <= 1824 and 54 <= float(y) <= 1026, (an, x, y, data[:300]))
+            mpv("keypress", "ESC")
+            self.assertEqual(proc.wait(10), 10)
+            self.assertNotIn(b"[sofa_player] Lua error", proc.stderr.read())
+        finally:
+            if proc and proc.poll() is None:
+                proc.kill()
+            if proc:
+                proc.wait(10)
+            agent.shutdown()
             shutil.rmtree(d, ignore_errors=True)
 
 

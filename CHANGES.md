@@ -6,6 +6,13 @@ has its own numbers and list: [deploy/sofa-box/CHANGES.md](deploy/sofa-box/CHANG
 A change to Sofa's code (`sofa/`, `client/`, `sofa.py`) gets a new version: raise `__version__`, add a section
 here, then `python3 tools/sofa-version.py` (a test checks it was done).
 
+## 1.5.2 (2026-11-10)
+
+- **Big skips on a Sofa box.** In a video Sofa converts for the box (HEVC on a Raspberry Pi 3, say), a skip further
+  than Sofa has converted so far, or back before where it started, has Sofa convert it again from there, as Sofa's
+  own player does in the browser. The page tells the box how it asked Sofa for the video, so the box can ask the same
+  from another place (Sofa Box OS 1.1.54 and later).
+
 ## 1.5.1 (2026-11-10)
 
 - **On a Sofa box, every video plays in the box's player, and the TV answers at once.**
