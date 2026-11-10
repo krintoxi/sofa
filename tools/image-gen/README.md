@@ -15,15 +15,23 @@ real Pi should ever replace today's.
 - **No cloud-init, no userconf-pi, no first-start user questions.** Raspberry Pi Imager's OS customisation has
   nothing on this card to act on through cloud-init; see the pull request for what each Imager version does.
 - **The same box, set up the same way.** The box's own installer, `deploy/sofa-box/install.sh --image`, runs in the
-  card's root exactly as `build-sofa-box-image.sh` runs it ([`customize50-sofa-box`](layer/sofa-box-os.d/hooks/customize50-sofa-box)).
-  `config.txt` and `cmdline.txt` only exist once rpi-image-gen puts them together from its layers, so the box's
-  own `sofa-box setup-boot` runs on them then ([`late/preimage90-sofa-box`](layer/sofa-box-os.d/hooks/late/preimage90-sofa-box)).
+  card's root exactly as `build-sofa-box-image.sh` runs it ([`customize50-sofa-box`](layer/sofa-box-os.d/hooks/customize50-sofa-box)),
+  unchanged. rpi-image-gen builds in its own PID namespace, where `systemctl` doesn't see a chroot, so the installer
+  runs with `SYSTEMD_OFFLINE=1` (what `systemctl` does in a chroot anyway). `config.txt` and `cmdline.txt` only exist
+  once rpi-image-gen puts them together from its layers, so the box's own `sofa-box setup-boot` runs on them then
+  ([`late/preimage90-sofa-box`](layer/sofa-box-os.d/hooks/late/preimage90-sofa-box)).
+- **What Raspberry Pi OS Lite brings without being asked** had to be named: Avahi, polkit, wpa_supplicant,
+  `raspberrypi-net-mods`, `busybox` for the initramfs, the sound cards' profiles, `locales` and more (the list, with
+  why each, is in [`layer/sofa-box-os.yaml`](layer/sofa-box-os.yaml)). The comparison with today's card shows what's
+  still left out (compilers, cloud-init, cron, the camera apps, Raspberry Pi Connect…).
 - **One card for a Pi 3 B+, 4 or 5.** rpi-image-gen's `rpi3` device layer (the 64-bit `v8` kernel, the boot
   firmware for every board, Wi-Fi and Bluetooth firmware), plus the Pi 5's own kernel as a package, and
   `arm_64bit=1` as on Raspberry Pi OS. (rpi-image-gen's own Pi 5 kernel layer isn't used: it makes the root
   filesystem's blocks 16 KB, which a Pi 3 or 4 can't read.)
 - **Raspberry Pi OS's own first start**, from its `raspberrypi-sys-mods` package: the card grows to fill the SD card,
   gets a new disk id and new SSH host keys. SSH is off; an empty file named `ssh` on the boot partition turns it on.
+  As pi-gen does, `rpi-resize.service` is enabled and `/etc/machine-id` says `uninitialized` (left empty, systemd
+  wouldn't count the start as the first).
 - **Users:** `pi` (uid 1000, no password: nobody can sign in until one is set) and `sofabox`, which runs Sofa on the
   TV, as on today's card.
 

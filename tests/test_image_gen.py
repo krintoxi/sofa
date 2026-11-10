@@ -121,6 +121,13 @@ class Layer(unittest.TestCase):
         self.assertEqual(len(fragment.splitlines()), 1)        # rpi-image-gen takes one line per fragment
         self.assertIn("+resize", fragment.split())
 
+    def test_no_serial_console_uart(self):
+        # rpi-image-gen's fragments turn the UART on for the Pi 3 B+, 4, 5 and Zero 2 W; on a Pi 3, enable_uart=1 holds
+        # the GPU's core clock at its lowest. Empty fragments of the same names take them out, as on Raspberry Pi OS.
+        d = os.path.join(LAYER_D, "for", "rpi-boot-firmware", "config.txt.d")
+        for name in ("60-rpi-pi02", "61-rpi-pi3plus", "62-rpi-pi4", "63-rpi-pi5"):
+            self.assertEqual(os.path.getsize(os.path.join(d, name)), 0, name)
+
     def test_hooks_are_executable(self):
         for hook in ("customize50-sofa-box", "late/customize90-report", "late/preimage90-sofa-box"):
             self.assertTrue(os.access(os.path.join(LAYER_D, "hooks", hook), os.X_OK), hook)
