@@ -9,6 +9,13 @@ with the internet down.
 
 A project by [EdgeVenture](https://edgeventure.uk). Source-available; see [License](#license).
 
+![Thirty seconds of Sofa: Home with a banner and rows of posters, a show's page, the player with its time line, and back to Home with the show to continue](docs/images/demo.gif)
+
+**Why not Jellyfin or Plex?** Both are bigger and have an app in every TV's store; Sofa is for a household that wants
+less to run, files that sort themselves, a TV that signs in from your phone, no account with anyone, and a Pi box.
+The honest side-by-side: **[Sofa, Jellyfin or Plex?](docs/compare.md)** What's coming and what's missing:
+**[Roadmap and known limitations](docs/roadmap.md)**.
+
 | Sofa's Home on a laptop | The Sofa Box's home screen on the TV |
 |---|---|
 | ![Sofa's Home page: a big banner for a movie, a Continue watching row and rows of posters](docs/images/home.jpg) | ![The Sofa Box home screen: the time and a hello, Open Sofa and Live TV, the weather, and a Watch row with Sofa, Live TV, Netflix and YouTube](docs/images/box-home.jpg) |
@@ -71,6 +78,7 @@ software and have not been tried on a real box. **The Fire TV app and the Roku c
 run on a real device is on record; the Mac card writer has never written a real SD card.** No card is marked stable
 yet. The table of what was tested on which hardware, by whom and when: [Tested on](docs/capabilities.md#tested-on).
 Anything you run that isn't in that table is worth a [hardware report](https://github.com/krintoxi/sofa/issues/new/choose).
+What's next, in order, and what isn't built: [Roadmap and known limitations](docs/roadmap.md).
 
 ## Get it
 
@@ -480,7 +488,8 @@ sofa/                server: library, inbox, streaming, converter, intro finder,
 client/              web app (no build step)
 deploy/              install script, macOS LaunchAgent, Linux systemd unit, the Sofa box (Raspberry Pi)
 tools/               get-sofa.sh, update.sh, convert.py; the Sofa box's preview and card builder
-docs/                install, updating, folders, storage (drives), playback, TV, adult, privacy, remote access, api (for apps)
+docs/                install, updating, folders, storage (drives), playback, TV, adult, privacy, remote access, api (for apps),
+                     capabilities (what works, tested where), compare (vs Jellyfin and Plex), roadmap (what's next and missing)
 tests/               the tests
 android/             Sofa for Fire TV (Android app, built by GitHub)
 roku/                Sofa for Roku (channel; Sofa serves it as /roku.zip)
