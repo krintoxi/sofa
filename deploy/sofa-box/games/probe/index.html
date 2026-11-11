@@ -79,14 +79,14 @@
   function run() {
     if (running) return; running = true; bench = null; scene = null;
     probe = L3.probe(); show("Testing… (about two seconds)");
-    if (probe.webgl1 && !probe.software && !g3) { try { g3 = new L3.GL(glc); } catch (e) { g3 = null; show("WebGL is there but wouldn't start: " + e.message); } }
+    if (probe.webgl1 && !probe.software && !g3) { try { g3 = new L3.GL(glc, { antialias: probe.family === "desktop" || probe.family === "pi5" }); } catch (e) { g3 = null; show("WebGL is there but wouldn't start: " + e.message); } }
     glc.classList.toggle("hidden", !g3); flc.classList.add("hidden");
     L3.bench(probe.software ? null : g3, r => {
       bench = r; running = false;
       const pl = L3.plan(probe, bench);
       show(pl.mode === "gl" ? "Games here draw in 3D, from rung " + pl.rung + ". The scene above is drawn that way." :
         "Games here draw in 2D (" + (probe.software ? "the GPU is software, the 2D sea is quicker there" : pl.why) + "). The scene above is drawn that way.");
-      start(pl);
+      start(pl); said();
     }, (phase, load, holds) => { $("state").textContent = (phase < 0 ? "The screen's rate…" : phase === 0 ? "Draw calls: " + load : "Fill: " + load + " screens") + (holds ? " ✓" : " ✗"); });
   }
   // a small scene, as a game would draw it here: an islet, buoys, the sea and sky, the camera going round
@@ -108,10 +108,16 @@
     const marks = new L3.Mesh(512);
     for (let i = 0; i < 8; i++) L3.Kit.buoy(marks, Math.cos(i / 8 * U.TAU) * 52, Math.sin(i / 8 * U.TAU) * 52, 0xee5e3c, 0xf4efe4);
     const hills = []; const hr = U.rand(9); for (let i = 0; i < 20; i++) hills.push({ a: i / 20 * U.TAU, d: 900 + hr() * 300, r: 100 + hr() * 150, h: 40 + hr() * 100, seed: i });
-    if (mode === "gl") {
-      g3.light(Object.assign({ near: 120, far: 380 }, air));
+    if (mode === "gl") {                             // as the box's 3D games draw (Low3D's second way): light baked in, a painted sky, mirror images in the water
+      g3.light(Object.assign({ near: 160, far: 520, fogSun: 0xfff0d8 }, air));
       const sea = new L3.Mesh(8); sea.at(0, 0, 0); sea.tri(-3000, 0, -3000, 3000, 0, -3000, 3000, 0, 3000, 0xffffff, 0, -1, 0); sea.tri(-3000, 0, -3000, 3000, 0, 3000, -3000, 0, 3000, 0xffffff, 0, -1, 0);
-      scene = { isle: g3.upload(L3.Mesh.join([isle, marks])), sea: g3.upload(sea), hills: g3.upload(L3.Kit.hills(hills, 0xa0a8c0)), tex: g3.texture(pic, true) };
+      const world = L3.Mesh.join([isle, marks]).light(air), sl = Math.hypot(0.4, 0.6, 0.5);
+      const shore = document.createElement("canvas"); shore.width = shore.height = 64;
+      const sg = shore.getContext("2d"), rg = sg.createRadialGradient(32, 32, 7, 32, 32, 13); rg.addColorStop(0, "#fff"); rg.addColorStop(1, "#000"); sg.fillStyle = rg; sg.fillRect(0, 0, 64, 64);
+      const sky = L3.Kit.sky({ w: Math.min(probe.maxTex || 2048, 2048), h: 256, top: air.top, mid: 0x8ab4e0, horizon: air.horizon, haze: air.fog, seed: 4, ridges: [{ h: 0.05, col: 0xa0a8c0, seed: 2 }],
+        clouds: { n: 16, col: 0xffffff, lit: 0xffffff, lo: 0.06, hi: 0.6, len: 0.5 }, sun: { az: Math.atan2(0.4, 0.5), el: Math.asin(0.6 / sl), size: 0.07, col: 0xffffff, glow: 0xfff2dc, halo: 0.7 } });
+      scene = { isle: g3.upload(world), sea: g3.upload(sea), tex: g3.picture(pic, { alpha: shore, mip: true }), sky: g3.picture(sky, { round: true }), rip: g3.picture(null, L3.Kit.ripples(128, 5)) };
+      g3.warm(["still", "dome", "water"]);
     } else {
       flat.ground(pic, -128, -128, 256, 0x1f6c9a); flat.air({ top: air.top, horizon: air.horizon, fog: air.fog, hill: 0xb4bed0, hills: L3.Kit.skyline(hills, 720), near: 120, far: 380 });
       const light = { sun: [-0.45, 0.8, -0.4], sunCol: U.rgb01(air.sunCol), amb: U.rgb01(air.amb), ground: U.rgb01(air.ground) };
@@ -120,9 +126,11 @@
     }
     size(); gov.hold(1200);
   }
-  function size() {
-    const r = gov.cur, h = Math.min(r.h, Math.round($("view").clientHeight * (devicePixelRatio || 1))), w = Math.round(h * 16 / 9);
+  function size() {                                  // (the scene is a part of the page: the same share of it as a game's picture is of the screen)
+    const dev = Math.round($("view").clientHeight * (devicePixelRatio || 1)), full = Math.round(innerHeight * (devicePixelRatio || 1));
+    const s = L3.wholeSize(dev, Math.min(dev, gov.cur.h * dev / full)), h = s[0], w = Math.round(h * 16 / 9);
     if (mode === "gl") { glc.width = w; glc.height = h; } else flat.size(w, h);
+    (mode === "gl" ? glc : flc).style.imageRendering = s[1] > 1 ? "pixelated" : "auto";
   }
   let liveAt = 0;
   function frame(now) {
@@ -133,8 +141,9 @@
     L3.orbit(cam, 0, 0, 78, 14, now / 6000, 0, 0); cam.ty = 4; cam.fov = 0.8;
     if (mode === "gl") {
       L3.begin({ mode, g3 }, cam, 0.6, 2400);
-      g3.lit(scene.hills, null, 1, 1, 1, 0); g3.lit(scene.isle, null, 1, 1, 1, 0);
-      g3.sea(scene.sea, scene.tex, -128, -128, 256, now / 1000, 0); g3.sky(gov.cur.sun);
+      const R = gov.cur; g3.dome(scene.sky, 0); g3.seeUnder = R.mirror > 0;
+      if (R.mirror) { g3.mirror(true); if (R.mirror > 1) g3.dome(scene.sky, 0); g3.still(scene.isle); g3.mirror(false); }
+      g3.water(scene.sea, scene.tex, scene.rip, -128, -128, 256, now / 1000, { rich: R.look > 0 }); g3.still(scene.isle);
     } else {
       L3.begin({ mode, flat }, cam);
       flat.sprite(scene.isle, 0, 0, 0, 1 / 3);
@@ -200,7 +209,7 @@
     for (const x of GC.results) if (x.state === "waiting") x.state = "not run";
     gamesEnd();
   }
-  function gamesEnd() { GC.running = false; clear(); clearInterval(GC.ticker); badge(); table(); hint(); }
+  function gamesEnd() { GC.running = false; clear(); clearInterval(GC.ticker); badge(); table(); hint(); gamesSaid(); }
   function next() {
     clear();
     if (!GC.running) return;
@@ -281,6 +290,19 @@
     b.textContent = "Games check · " + (GC.i + 1) + " of " + GC.list.length + " · " + r.name + " · " +
       (r.state === "measuring" ? left + " s" : r.state === "starting" ? "settling" : "opening") + " · " + (SofaPad.connected() ? SofaPad.label("b") : "Back") + " stops";
   }
+  // On the box a page's console errors are kept for "Send a report" (and nothing else of the games reaches one), so
+  // what the checks found is said there, a line each: the only measure there is of a real box
+  function said() {
+    if (!info || !probe) return;
+    console.error("Graphics check: " + (board ? board + " | " : "") + L3.line(probe, bench, L3.plan(probe, bench)) + " | page " + probe.view + " at " + probe.dpr + "x");
+    try { const c = document.createElement("canvas"), gl = c.getContext("webgl"); if (gl) { console.error("Graphics check: WebGL extensions: " + (gl.getSupportedExtensions() || []).join(" ").replace(/WEBGL_|EXT_|OES_/g, m => m[0]).slice(0, 250)); const l = gl.getExtension("WEBGL_lose_context"); if (l) l.loseContext(); } } catch (e) { /* none */ }
+  }
+  function gamesSaid() {
+    if (!info) return;
+    for (const r of GC.results) if (r.state === "done") console.error("Games check: " + r.name + ": " + r.fps.toFixed(1) + " fps of " + (GC.hz || 60) + ", " + r.late + " of " + r.gaps + " late, worst " + Math.round(r.worst) + " ms, script " +
+      (r.script != null ? r.script.toFixed(1) : "?") + " ms" + (r.tier ? ", " + r.tier + (r.drawn ? ", " + r.drawn + " drawn" : "") : "") + (r.free ? ", " + MB(r.free) + " free" : "") + (r.errors ? ", " + r.errors + " errors" : "") + (r.demo ? "" : " (title screen)"));
+      else console.error("Games check: " + r.name + ": " + r.state);
+  }
   const MB = v => Math.round(v / 1048576) + " MB";
   const band = (v, good, fair, more) => (more ? v >= good : v <= good) ? "good" : (more ? v >= fair : v <= fair) ? "fair" : "poor";
   function table() {
@@ -312,7 +334,7 @@
     $("gnote").textContent = ran ? "Screen " + hz + " Hz. Frames a second and late frames are the browser's, timed in each game's own page; a game " +
       "drawing on a 30 fps rung still shows the screen's rate here, and says what it draws under \"It chose\". Script: the game's own work each frame. " +
       (GC.precise ? "JS: the page's script memory at most. " : GC.precise === false ? "JS memory isn't shown: this browser rounds it and refreshes it every 20 minutes, so it can't tell the games apart. " : "") +
-      (info ? "Free: the box's memory left while the game ran. " : "") + (slips.length ? "Errors: " + slips.join(" · ") : "") : "";
+      (info ? "Free: the box's memory left while the game ran. These numbers go with the next report you send (Settings, Help, Send a report). " : "") + (slips.length ? "Errors: " + slips.join(" · ") : "") : "";
   }
 
   // the controller (and a remote's or the phone's keys): ◀ ▶ and A on the graphics check, A and B in the games check

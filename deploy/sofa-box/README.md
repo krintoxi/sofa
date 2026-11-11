@@ -405,15 +405,17 @@ song in the box's player, or shows a picture; **Menu** renames, moves or deletes
   leave again (the keyboard is the first player's). It plays offline with its own music (quiet unless you turn it
   up), with the controller from the start (the hints show its buttons: A B X Y, or ✕ ○ □ △) or a keyboard, and it
   sheds effects to stay smooth on a Pi 3.
-- **Tidewing**, a race over open water in low-poly 3D: a skimmer through the gates of twelve courses against three
+- **Tidewing**, a race over open water in 3D: a skimmer through the lit gates of twelve courses against three
   rivals, carving to fill your boost, riding in another's slipstream and jumping the crests of the swell. Three cups
   (points for every place; a trophy opens the next cup and wins a new skimmer), time trials against the ghost of your
   best lap, four skimmers that handle differently, and two players on one screen with the rivals. The newer waters
   have weather (a gale with lightning, snow on the ice, ash off a volcano, water that glows) and land with height:
-  cliffs, a red-rock gorge, a volcano, a reef. It's built on the box's own game engine (Low3D, `games/low3d.js`), which
-  tunes each game to the box: 3D at a size it holds steady on a Pi 3, sharper on a Pi 4 or 5, and the same world
-  in 2D on a box without a real GPU. The graphics check (`127.0.0.1:8091/box/games/probe/` in the box's browser)
-  shows what it found.
+  cliffs, a red-rock gorge, a volcano, a reef. Each water has a sky of its own (a big barred sun at dawn and dusk, a
+  moon and stars, a gale's cloud), the sea mirrors the sky, the islands, the gates and the skimmers, and the race's
+  numbers are drawn in the picture itself. It's built on the box's own game engine (Low3D, `games/low3d.js`), which
+  tunes each game to the box: on a Pi 3 a 640×360 picture shown crisp, made to hold 60 frames a second (it gives up
+  pixels before frames), more lines on a Pi 4 or 5, and the same world in 2D on a box without a real GPU. The
+  graphics check (`127.0.0.1:8091/box/games/probe/` in the box's browser) shows what it found.
 - **Ironmaw**, an old-style shooter in a foundry under the ice, in two episodes: the Foundry (four levels and its
   Warden) and the Ice below it (cryo labs, a glacier mine, the drowned pumpworks, the reactor, and the Coldheart,
   whose core shields it until it opens). Seven weapons, among them the six-barrelled Nailstorm and the Frost lance
@@ -491,6 +493,8 @@ song in the box's player, or shows a picture; **Menu** renames, moves or deletes
   four minutes), then shows a table on the TV: frames a second, late frames, the slowest frame, the game's own
   work each frame, memory, and the quality the game chose. Games that can play by themselves are measured
   playing, the others on their title screen. A starts it, B stops it or goes back, and no game's saves are touched.
+  What it found goes with the next report you send (Settings, Help, Send a report), and so does a line from Tidewing or
+  Ironmaw after you've played one: how it ran.
 
 ### Settings and themes
 

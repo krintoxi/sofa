@@ -3,6 +3,7 @@ helper), opens over the home screen and ends with Home held; and the controller 
 controller the same in each game: keys and a mouse by the buttons' places)."""
 import importlib.util
 import json
+import re
 import os
 import shutil
 import stat
@@ -370,8 +371,11 @@ const pick = (p, b) => { const r = L.plan(p, b); return r.mode + " " + r.rung + 
 out.plans = {
   pi3: pick(box("pi3"), { draws: 32, fill: 2, cpu: 95 }), pi3slow: pick(box("pi3"), { draws: 4, fill: 0.25, cpu: 120 }),
   pi4: pick(box("pi4"), { draws: 128, fill: 4, cpu: 40 }), pi5: pick(box("pi5"), { draws: 256, fill: 8, cpu: 20 }),
-  software: pick(box("software"), { cpu: 30 }), none: pick(box("none"), { cpu: 150 }), desktop: pick(box("desktop"), { draws: 1024, fill: 64, cpu: 5 })
+  software: pick(box("software"), { cpu: 30 }), none: pick(box("none"), { cpu: 150 }), desktop: pick(box("desktop"), { draws: 1024, fill: 64, cpu: 5 }),
+  pi3strong: pick(box("pi3"), { draws: 1024, fill: 64, cpu: 60 })
 };
+out.ladder = L.LADDER.gl;
+out.sizes = [[1080, 360], [1080, 540], [1080, 270], [1080, 216], [720, 360], [720, 540], [2160, 360], [1080, 1080]].map(a => L.wholeSize(a[0], a[1]));
 // the governor: frames at 60 fps hold; late ones step it down; a busy game drops to a 30 fps rung at once
 const lad = L.LADDER.gl, g = new L.Governor(lad, 5, 8), steps = [];
 let t = 10000;
@@ -399,19 +403,123 @@ console.log(JSON.stringify(out));
         out = json.loads(r.stdout)
         self.assertEqual(out["family"], ["pi3", "pi4", "pi5", "pi4", "software", "software", "mobile", "desktop", "none"])
         p = out["plans"]
-        self.assertEqual(p["pi3"], "gl 1/3")                             # a Pi 3's GPU: small and steady
-        self.assertEqual(p["pi3slow"], "gl 0/3")
-        self.assertEqual(p["pi4"], "gl 3/5")
-        self.assertEqual(p["pi5"], "gl 5/6")
+        self.assertEqual(p["pi3"], "gl 4/5")                             # a Pi 3's GPU: the light look at 360 lines and 60 a second
+        self.assertEqual(p["pi3slow"], "gl 2/5")                         # slow in the test: the smallest picture, still at 60
+        self.assertEqual(p["pi3strong"], "gl 4/5")                       # a strong test never lifts a Pi off its own kind's rungs
+        self.assertEqual(p["pi4"], "gl 6/7")                             # the full look from a Pi 4
+        self.assertEqual(p["pi5"], "gl 7/8")
         self.assertTrue(p["software"].startswith("flat "))               # no real GPU: the 2D renderer
         self.assertTrue(p["none"].startswith("flat "))
-        self.assertTrue(p["desktop"].startswith("gl 6"))
+        self.assertTrue(p["desktop"].startswith("gl 8"))
+        lad = out["ladder"]                                              # pixels are given up before frames
+        self.assertEqual([r["fps"] for r in lad[2:]], [60] * (len(lad) - 2))
+        self.assertEqual([lad[0]["fps"], lad[1]["fps"]], [30, 30])
+        self.assertEqual(lad[1]["h"], lad[4]["h"])                       # when frames go, they go at the good picture first
+        self.assertEqual([r["h"] for r in lad[2:]], sorted(r["h"] for r in lad[2:]))
+        self.assertEqual([lad[4]["look"], lad[4]["mirror"] > 0, lad[6]["look"]], [0, True, 1])
+        self.assertEqual(out["sizes"], [[360, 3], [540, 2], [270, 4], [216, 5], [360, 2], [720, 1], [360, 6], [1080, 1]])
         steady, late, busy, busy_fps = out["gov"]
         self.assertEqual(steady, 6)                                      # room to spare: up a rung (no further: it stays a while)
+        self.assertEqual(busy, 1)                                        # (the good picture at 30, not the smallest)
         self.assertLess(late, steady)                                    # late frames: down
         self.assertEqual(busy_fps, 30)                                   # the game's own work fills a frame: 30 a second
         self.assertEqual(out["mesh"], [12, 12])
         self.assertEqual(out["path"], [4, 100, 100, 420])
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_the_bench_is_there(self):
+        """tools/games-bench.mjs, the measure of the page games: it parses, says what it is, and what it can't be."""
+        bench = os.path.join(os.path.dirname(os.path.dirname(BOX)), "tools", "games-bench.mjs")
+        r = subprocess.run(["node", "--check", bench], capture_output=True, text=True, timeout=60)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        said = subprocess.run(["node", bench, "--help"], capture_output=True, text=True, timeout=60)
+        self.assertEqual(said.returncode, 0, said.stderr)
+        for words in ("--box", "pi3", "What it cannot do: be a Pi", "Every number it prints is from this computer"):
+            self.assertIn(words, said.stdout)
+        with open(bench, encoding="utf-8") as f:
+            src = f.read()
+        for scene in ("tidewing", "ironmaw"):                            # the two the owner named, their heavy scenes
+            self.assertIn(scene + ": [", src)
+        self.assertIn("benchMain", src)                                  # (GLSL keeps names with two underscores for
+        self.assertNotIn("__main", src)                                  # itself: a counter named that way broke every shader)
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_the_second_way_to_draw(self):
+        """Made for a Pi 3's GPU: a still world's light is worked out once and kept in its colours (shadows too, and
+        what glows left alone), a chunk's glowing things go in with the rest, high ground behind its cliffs is big
+        triangles and nothing is built under the water, the sky's dome stops at the horizon, see-through things are
+        written without a call's worth of garbage, and what's written on the screen is a list of quads."""
+        script = """
+const noop = () => {};
+globalThis.window = globalThis; globalThis.addEventListener = noop; globalThis.location = { hash: "" };
+globalThis.document = { hidden: false, createElement: () => ({ getContext: () => null }) };
+globalThis.screen = { width: 1920, height: 1080 }; globalThis.innerWidth = 960; globalThis.innerHeight = 540;
+eval(require("fs").readFileSync(process.argv[1], "utf8"));
+const L = window.Low3D, out = {};
+const light = { sun: [0, 1, 0], sunCol: 0x808080, amb: 0x404040, ground: 0x202020 };
+const col = (m, i) => [m.u8[i * 20 + 16], m.u8[i * 20 + 17], m.u8[i * 20 + 18], m.i8[i * 20 + 15]];
+const m = new L.Mesh(); m.at(0, 0, 0);
+m.quad(-1, 0, 1, 1, 0, 1, 1, 0, -1, -1, 0, -1, 0xc86432, 0, -1, 0);      // facing up: the sky's light and the sun's
+m.quad(9, 0, 1, 11, 0, 1, 11, 0, -1, 9, 0, -1, 0xc86432, 10, -1, 0);     // the same, where the shade says no sun reaches
+m.glow = 127; m.quad(-1, 5, 1, 1, 5, 1, 1, 5, -1, -1, 5, -1, 0x39ff88, 0, 4, 0); m.glow = 0;   // its own light
+m.alpha = 254; m.quad(-1, 7, 1, 1, 7, 1, 1, 7, -1, -1, 7, -1, 0xff2e88, 0, 6, 0); m.alpha = 255;  // (the old way to say so)
+m.light(light, { shade: (x) => x > 5 ? 0 : 1 });
+out.lit = [col(m, 0), col(m, 6), col(m, 12), col(m, 18)];
+m.quad(-1, 9, 1, 1, 9, 1, 1, 9, -1, -1, 9, -1, 0x646464, 0, 8, 0); m.light(light);   // built after: lit by the next call, the rest not lit twice
+out.again = [col(m, 0), col(m, 24)];
+m.s[0] = 1.5; m.s[1] = 2.5; m.s[2] = -3.5; m.v(1, 2, 3, 200, 127);
+out.v = [m.f[(m.n - 1) * 5], m.f[(m.n - 1) * 5 + 1], m.f[(m.n - 1) * 5 + 2], m.u8[(m.n - 1) * 20 + 19], m.i8[(m.n - 1) * 20 + 15]];
+// a chunk: baked, its glowing things in with the rest
+const ch = new L.Chunks(64, 32);
+ch.mesh(0, 0).at(0, 0, 0).quad(-1, 0, 1, 1, 0, 1, 1, 0, -1, -1, 0, -1, 0xc86432, 0, -1, 0);
+ch.mesh(0, 0, "glow").at(0, 0, 0).quad(-1, 3, 1, 1, 3, 1, 1, 3, -1, -1, 3, -1, 0x39ff88, 0, 2, 0);
+const sent = []; ch.upload({ upload: mm => { sent.push(mm); return { n: mm.n, x: 0, y: 0, z: 0, r: 1 }; }, free() {} }, { light });
+out.chunk = [ch.baked, sent.length, sent[0].n, col(sent[0], 0), col(sent[0], 6)];
+// a tableland: 30 high behind a cliff, the sea round it
+const land = new L.Land(256, 32, -6).fill((x, z) => Math.max(Math.abs(x), Math.abs(z)) < 80 ? 30 + Math.sin(x * 0.3) : -6);
+const count = o => { const c = new L.Chunks(256, 128); land.mesh(c, () => 0x808080, 0, "base", o); let n = 0, low = 0; c.each(q => { n += q.base.n / 3; for (let i = 0; i < q.base.n; i += 3) if (Math.max(q.base.f[i * 5 + 1], q.base.f[i * 5 + 6], q.base.f[i * 5 + 11]) < -0.3) low++; }); return [n, low]; };
+const inner = land.inner({ above: 8, drop: 8 });
+out.land = [count(), count({ coarse: inner, under: 0.3 }), inner.reduce((a, b) => a + b, 0), inner[16 * 32 + 16], inner[16 * 32 + 7]];
+const dome = L.Kit.dome(); let lowest = 1e9, us = new Set(); for (let i = 0; i < dome.n; i++) { lowest = Math.min(lowest, dome.f[i * 5 + 1]); us.add(dome.u8[i * 20 + 16]); }
+out.dome = [dome.n, lowest >= -1e-6, us.has(0) && us.has(255), L.Kit.skyV(0), L.Kit.skyV(Math.PI / 2)];
+// a wake: never past the mesh's room, fading to nothing
+const tr = new L.Trail(22, 0.01); for (let i = 0; i < 30; i++) tr.step(0.02, i * 2, 0, 1);
+const wk = new L.Mesh(60); tr.wake(wk, 0.06, 0xffffff, 0.9, 0.2, 255, 127);
+const big = new L.Mesh(2000); tr.wake(big, 0.06, 0xffffff, 0.9, 0.2, 255, 127);
+out.wake = [wk.n <= 60, wk.cap, big.n > 200, big.u8[19] > big.u8[(big.n - 18) * 20 + 19], big.i8[15]];
+// what's written on the screen
+const ui = new L.UI(); ui.begin(640, 360);
+ui.rect(0, 0, 10, 10, 0xff2e88, 0.5); ui.hold();
+const x1 = ui.text("LAP 1/3", 10, 20, 2, 0xefe6d2);
+out.ui = [ui.n, x1 - 10 - 2, ui.width("LAP 1/3", 2), ui.q[16 + 12], ui.q[12]];
+ui.rewind(); out.ui.push(ui.n); ui.text("go", 0, 0, 1, 0x39ff88, 1, 0, 0x0b0d10); out.ui.push(ui.n);
+console.log(JSON.stringify(out));
+"""
+        r = subprocess.run(["node", "-e", script, os.path.join(self.GAMES, "low3d.js")], capture_output=True, text=True, timeout=60)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        out = json.loads(r.stdout)
+        sun, shade, glow, old = out["lit"]
+        self.assertEqual(sun, [150, 75, 37, 0])                          # 200 100 50 × (the sky's 0.25 + the sun's 0.5)
+        self.assertEqual(shade, [50, 25, 12, 0])                         # in shadow: the sky's light alone
+        self.assertEqual(glow, [0x39, 0xff, 0x88, 127])                  # what glows is left as it is
+        self.assertEqual(old, [0xff, 0x2e, 0x88, 127])
+        self.assertEqual(out["again"], [[150, 75, 37, 0], [75, 75, 75, 0]])
+        self.assertEqual(out["v"], [1.5, 2.5, -3.5, 200, 127])
+        baked, meshes, verts, base, lamp = out["chunk"]
+        self.assertEqual((baked, meshes, verts), (True, 1, 12))          # one mesh a chunk: its lamp went in with its ground
+        self.assertEqual((base, lamp), ([150, 75, 37, 0], [0x39, 0xff, 0x88, 127]))
+        (fine, _), (coarse, under), marked, middle, rim = out["land"]
+        self.assertLess(coarse, fine * 0.7)                              # the tableland's top: big triangles (its rim stays fine)
+        self.assertEqual(under, 0)                                       # nothing built under the water
+        self.assertGreater(marked, 100)
+        self.assertEqual((middle, rim), (1, 0))                          # (its middle, not the ground by its cliff)
+        self.assertEqual(out["dome"], [24 * 8 * 6, True, True, 1, 0])    # down to the horizon and no further
+        fits, cap, drew, fades, add = out["wake"]
+        self.assertEqual((fits, cap, drew, fades, add), (True, 60, True, True, 127))
+        quads, width, measured, colour, held_colour, rewound, shaded = out["ui"]
+        self.assertEqual((quads, rewound, shaded), (1 + 6, 1, 1 + 4))    # a quad a letter (none for the space); the held part stays; a shade doubles them
+        self.assertEqual(width, measured)
+        self.assertEqual((colour, held_colour), (0xefe6d2, 0xff2e88))
 
     @unittest.skipUnless(shutil.which("node"), "needs node")
     def test_land_with_height(self):

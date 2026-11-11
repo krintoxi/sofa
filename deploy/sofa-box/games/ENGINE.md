@@ -3,7 +3,8 @@
 `low3d.js` is the engine the box's own page games are built on. It has two ways to draw, for two kinds of game:
 
 - **3D** (`GL`, with a 2D fallback, `Flat`), for open worlds. Tidewing (`tidewing/`), a racer over the sea, is
-  drawn this way.
+  drawn this way: light baked into the world's colours, a painted sky, mirror images in the water, everything
+  written on the screen drawn in the canvas (see [What costs a Pi 3 time](#what-costs-a-pi-3-time)).
 - **Drawn by the processor** (`Ray`), for worlds on a grid: rooms, corridors, doors and floors at any height. It
   looks the same on every box, GPU or not, and the GPU only adds a glow. Ironmaw (`ironmaw/`), an old-style
   shooter, is drawn this way.
@@ -21,11 +22,13 @@ here and the game keeps only what is its own.
 
 ## What it promises every game
 
-- **Smooth on a Raspberry Pi 3 (1 GB), better on a Pi 4 or 5.** At its first start on a box, the engine looks at
-  the browser's GPU (`probe()`), runs a ~2 s test (`bench()`) and picks 3D or 2D and a quality rung (`plan()`).
-  The result is kept per box and browser. While the game plays, the `Governor` keeps the frame rate steady:
-  a rung down when frames run late, straight to a 30 fps rung when the game's own work fills the frame, a rung up
-  when there's been room for a while (never back to one that ran late).
+- **60 frames a second on a Raspberry Pi 3 (1 GB), a fuller look on a Pi 4 or 5.** At its first start on a box, the
+  engine looks at the browser's GPU (`probe()`), runs a ~2 s test (`bench()`) and picks 3D or 2D and a quality rung
+  (`plan()`). The result is kept per box and browser. While the game plays, the `Governor` keeps the frame rate
+  steady: a rung down when frames run late (a smaller picture: pixels are given up before frames), straight to a
+  30 fps rung when the game's own work fills the frame, a rung up when there's been room for a while (never back to
+  one that ran late). A Pi keeps to its own kind's rungs whatever the test says: the light look for a Pi 3, the
+  full one from a Pi 4.
 - **A 2D fallback.** With no WebGL, or a software one (SwiftShader, llvmpipe), the same world is drawn by `Flat`:
   a mode-7 ground from a picture of the world seen from above, a sky with far hills, and sprites `bake()`d once
   from the game's own meshes. It plays the same; it just looks flatter.
@@ -34,9 +37,11 @@ here and the game keeps only what is its own.
   the phone's keys still come through. Back on the game's top screen is left to the box (it leaves the game);
   Home is always the box's. Every controller is a player of its own, for games with more than one (see Several
   players).
-- **Cheap to draw.** WebGL 1, drawn at a small size and scaled up by the browser. Flat-shaded meshes are built in
-  code, with one draw call each. A world's still things are merged into chunks. Nothing new is made while a game
-  plays: matrices, particles, trails and dynamic meshes are made once and reused.
+- **Cheap to draw.** WebGL 1 and nothing more (a Pi 3 has no WebGL 2), drawn at the screen's size divided by a whole
+  number and shown crisp: every pixel of the picture a square of the screen's. Flat-shaded meshes are built in code;
+  a world's still things are merged into chunks with their light baked in. Nothing new is made while a game plays:
+  matrices, particles, trails and dynamic meshes are made once and reused, and the frame's own code makes no
+  garbage (see [No garbage](#no-garbage)).
 
 ## Which way to draw
 
@@ -46,25 +51,85 @@ here and the game keeps only what is its own.
   tower defence on a grid). A Pi 3 draws it at 320×180 whether or not Chromium gives it the GPU, and every pixel is
   under the game's control.
 
+## What costs a Pi 3 time
+
+A Pi 3's GPU (VC4: OpenGL ES 2.0, so WebGL 1; it sorts triangles into tiles, then draws tile by tile) is not what
+makes a page game slow there. Measured with `tools/games-bench.mjs` (below), Tidewing as Sofa Box OS 1.1.60 gave it
+to a Pi 3 filled 1.1 screens of a 320×180 picture a frame: 4 megapixels a second at 60, where the browser itself has
+to put 124 a second on a 1080p TV just to show the canvas. What cost the time, in the order it mattered:
+
+1. **Anything the page lays over the canvas.** The race's numbers were page elements over the canvas: a layer the
+   size of the screen (and the little map), laid over the game by the browser at the TV's full size every frame:
+   2.1 megapixels a frame, where the game's own picture was 0.06 (the box's own reports say "drawing" is 82 to 95%
+   of a slow moment on this Pi; a menu over the title was another such layer). Now everything written on a
+   game is drawn in its canvas (`UI`, one draw call), a menu's blocks are each a small layer of their own with no
+   panel behind them, the picture is dimmed behind a menu in the canvas (a 360-line quad, not a 1080-line one), and
+   a menu that covers the picture stops the game drawing at all (`draw()` returns false; the governor doesn't judge
+   those frames, or it would climb the ladder under a menu and find the top too much when play goes on).
+2. **A 30 fps rung.** The Pi 3's rungs were 30 fps by design. Every rung but the lowest two now holds 60; what's
+   given up first is pixels (360 lines, 270, 216), then frames at a good picture.
+3. **Garbage.** 0.5 to 1.2 MB of script memory a second in a race (1.9 with two players), so the collector stopped
+   the game 30 to 67 times a minute (2 to 6 ms each on a fast Mac; several times that on a Pi 3: the stutters). Now
+   0.14 to 0.32 MB a second and 7 to 22 times a minute. See [No garbage](#no-garbage).
+4. **The first use of a shader in the middle of a game** (a spray of dots, a weather effect): a pause while it's
+   made. `GL.warm([...])` makes a game's programs while it loads; a program is asked one question about how it
+   went, not three (each waits for the GPU's answer).
+5. **Vertices.** A VC4 works on each vertex twice (to sort it into tiles, then to draw it). A still world's light is
+   worked out once as it's built and kept in its colours (`Mesh.light`), so its shader only moves and fogs; high
+   ground behind its cliffs is big triangles (`Land.inner`, `Land.mesh`'s `coarse`), and nothing is built under
+   the water (`under`).
+
+Before and after, Tidewing's Stormwall race (rain, a swell, cliffs: its heaviest water), 1.1.60 as it gave a Pi 3
+(rung 1) against this engine as it gives one (rung 4). Measured on a Mac (Apple A18 Pro, Chrome 157 headless, its
+own GPU) standing in for a Pi 3; none of it is a Pi's, and the GPU's own time isn't in it at all:
+
+| | 1.1.60 | now |
+|---|---|---|
+| picture | 320×180, smoothed up | 640×360, each pixel 3 × 3 of the TV's |
+| frames a second | 30 (by design) | 60 |
+| between frames, ms: median / 95th / 99th / worst | 33.3 / 33.4 / 33.5 / 33.5 | 16.7 / 16.7 / 16.8 / 33.3 |
+| the game's work a frame at ×20, ms: median / 95th / 99th | 6.1 / 16.2 / 24.2 | 4 / 8 / 14 |
+| page layers over the picture, megapixels a frame | 2.14 | 0 |
+| garbage, KB a second · collector pauses a minute | 1238 · 45 | 315 · 22 |
+| draw calls · triangles a frame | 25 · 3.7k | 25 · 11.5k |
+| fragments a frame, in screens of its own picture (megapixels a second at 60) | 1.17 (4) | 2.62 (36) |
+
+The last two rows went up on purpose: the whole map is drawn, with its mirror image, at four times the pixels. The
+browser's own job of showing the canvas on a 1080p TV is 124 megapixels a second at 60, so the bet is that 36 more
+at a third of the lines costs a VC4 less than the 2.1-megapixel layer that's gone. Only the box can say (below).
+
+What the picture is made of now, cheapest first: the sky is one painted picture on a dome (`Kit.sky`, `GL.dome`);
+the water is one sheet with the world's picture on it, two nets of light drifting across each other, foam that
+comes in to the shore, and it's see-through at a glancing angle, so that what's drawn under it shows: the sky and
+the near world drawn again upside down (`GL.mirror`), mirror images as old consoles did their floors, with no second
+picture to draw into. Every see-through thing (shadows, wakes, flames, sparks, rain) goes into one mesh drawn with
+one call (`GL.fx`).
+
 ## The rungs (`LADDER`)
 
 | | rung 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |
 |---|---|---|---|---|---|---|---|---|---|
-| **3D** height drawn | 144 | 180 | 180 | 216 | 270 | 360 | 450 | 540 | 720 |
-| draw distance (m) | 150 | 170 | 190 | 220 | 260 | 320 | 380 | 440 | 500 |
+| **3D** lines drawn | 216 | 360 | 216 | 270 | 360 | 540 | 540 | 720 | 1080 |
 | frames a second | 30 | 30 | 60 | 60 | 60 | 60 | 60 | 60 | 60 |
-| extras | | | | sun glow | + waves | | | | |
+| look | light | light | light | light | light | light | full | full | full |
+| mirror images | | near | | near | + sky | + sky | + sky | + sky | + sky |
+| draw distance (m) | 420 | 560 | 420 | 480 | 560 | 640 | 760 | 900 | 1100 |
 | **2D** height drawn | 112 | 135 | 160 | 160 | 200 | 240 | | | |
 
 | **Ray** height drawn | 120 | 144 | 180 | 180 | 216 | 270 | 360 | | |
 | frames a second | 30 | 30 | 30 | 60 | 60 | 60 | 60 | | |
 | glow (WebGL) | | | | | yes | yes | yes | | |
 
-Where it starts: a Pi 3's GPU (VC4) on 3D rung 1 (up to 3); a Pi 4's (V3D 4.x) on 3; a Pi 5's (V3D 7.x) on 4;
-a desktop GPU from the test. Software or no WebGL means 2D, its rung picked from the test's script time.
+The 3D picture's height is the screen's own divided by a whole number, the nearest to the rung's (`wholeSize`):
+on a 1080p TV 360 lines is a third, each pixel shown as 3 × 3 of the screen's, crisp; on a 720p TV it's a half.
+Where it starts: a Pi 3's GPU (VC4) on 3D rung 4 (up to 5); a Pi 4's (V3D 4.x) on 6 (up to 7); a Pi 5's (V3D 7.x)
+on 7; a desktop GPU on 6 and up, from the test. For a Pi the test can only say "less" (it can't see what the browser
+spends putting the page together, which is most of a Pi 3's frame); the governor finds the rest while the game
+plays, and goes down through the pixels (3, 2) before the frames (1: 360 lines at 30, then 0). Software or no WebGL
+means 2D, its rung picked from the test's script time.
 A `Ray` game starts from the script time alone (`planRay`): the processor does its drawing. A Pi 3 is held to
 rung 3 at most (320×180). A game
-reads `E.rung` (`h`, `far`, `fps`, `waves`, `sun`, `detail`, `wakes`) and decides what each one means for it.
+reads `E.rung` (`h`, `far`, `fps`, `look`, `mirror`, `detail`, `wakes`) and decides what each one means for it.
 
 ## A new game, from the start
 
@@ -87,17 +152,18 @@ const E = L3.game({ id: "my-game", view: view, gl: gl, flat: flat, fps: fps, inp
   loading: { el: loading, bar: loadbar, text: loadtext },
   ready() { menu.show("title"); synth.start(); },
   prepare(E) {          // build what this mode needs: meshes on the GPU (E.g3), or sprites baked for E.flat
-  },
+  },                    // (and E.g3.warm([...]): the programs it will use, made now)
   update(dt) {          // the game's rules, 60 times a second
   },
-  draw(now) {           // each frame drawn
-    L3.begin(E, cam);   // GL: then g3.lit(…), g3.sea(…), g3.sky(…), g3.glow(…); 2D: flat.sprite(…), then flat.flush()
-  } });
+  draw(now) {           // each frame drawn (return false: nothing drawn, the last picture stays)
+    L3.begin(E, cam);   // GL: g3.dome(sky); g3.mirror(true) … the world again … g3.mirror(false); g3.water(…);
+  } });                 //     chunks.draw(…); g3.moved(…); g3.fx(…). 2D: flat.sprite(…), then flat.flush()
 E.start();
 </script>
 ```
 
-Copy Tidewing's `<style>` for the view, menus, HUD and loading screen. In the address, `#fps` shows the frame rate
+Copy Tidewing's `<style>` for the view, menus and loading screen (what's written on the game itself goes through
+`E.ui`, in the canvas). In the address, `#fps` shows the frame rate
 and rung, `#flat` or `#gl` forces a renderer, `#rung=N` holds a rung, and `#test` is for a game's own checks. For
 checks: `#slow=N` makes each frame's work take N times as long (a slower processor), and `#threads=N` holds a Ray
 game's helpers (0: the page draws it all). Chrome's own CPU slowdown isn't a fair stand-in for a Pi: slowed "10×" it
@@ -169,9 +235,23 @@ for a "This box" screen. `Governor(ladder, rung, top, onChange)` keeps the frame
   and round particles when given a point size.
 - `sea(handle, texture, x0, z0, size, time, waves)` draws a water or ground plane with a picture on it; with
   waves, the facets rise and fall and catch the light (Pi 4 and up).
-- `sky(sun)` draws only where nothing else was drawn. `light({sun, sunCol, amb, ground, fog, top, horizon, near,
-  far})` sets the lighting, and `texture(canvas, mip)` makes a texture.
+- `sky(sun)` draws only where nothing else was drawn. `light({sun, sunCol, amb, ground, fog, fogSun, top, horizon,
+  near, far})` sets the lighting (`fogSun`: the air's colour towards the sun), and `texture(canvas, mip)` makes a
+  texture.
 - `can("waves")` and `can("sun")` say what this GPU can do (each program is made the first time it's used).
+
+**3D, the second way** (made for a Pi 3; Tidewing's). A frame, in order:
+- `dome(tex, turn)`: the sky, a picture from `Kit.sky` on a dome round the eye (`picture(canvas, {round: true})`).
+- `mirror(true)`, then the dome, the near chunks and what moves again, then `mirror(false)`: their mirror images,
+  under the water (a rung's `mirror`: 0 none, 1 the world and what moves, 2 the sky too).
+- `water(sheet, tex, ripples, x0, z0, size, time, {glint, foam, see, seeMore, lines, foamK, grain, drift, rich})`:
+  `tex` the world's picture from above, its alpha how near the shore (`picture(canvas, {alpha: canvas, mip: true})`),
+  `ripples` from `picture(null, Kit.ripples(128))`. With `g3.seeUnder` set it's see-through at a glancing angle.
+- `still(handle)`: a mesh with its light baked in (`Mesh.light`), or `chunks.draw(…)` for a world of them.
+- `moved(handle, matrix, r, g, b, glow, rim)`: a thing that turns, lit as it turns, its edges catching the sky.
+- `fx(handle, mesh, points)`: every see-through thing at once, premultiplied: each vertex's alpha is how much of it,
+  its spare byte 127 for light added (flames, lamps) or 0 for paint laid over (shadows, foam, rain).
+- `shine(r, g, b)` brightens the whole frame (lightning); `warm(names)` makes programs while the game loads.
 
 **2D (`Flat`).** `size(w, h)`; `ground(canvas, x0, z0, size, outside)` (mip levels made, so far ground doesn't
 shimmer); `air({top, horizon, fog, hill, hills, near, far})`; `draw(camera…)`; `project(x, y, z, out)`;
@@ -183,18 +263,27 @@ shimmer); `air({top, horizon, fog, hill, hills, near, far})`; `draw(camera…)`;
 - `Mesh`: `at(x, y, z, yaw, sx, sy, sz, pitch, roll)` sets where the next part goes.
 - Parts: `tri`, `quad`, `both` (seen from both sides), `box`, `stack` (rings up an axis: cylinders, cones, rocks,
   hulls), `ico` and `disc`. A face is lit flat and faces away from the "outside" point you give.
+- `mesh.light(L, {shade(x, y, z), sky(x, y, z, ny)})` works its light out now and keeps it in its colours (the sun
+  where `shade` says it reaches: shadows; the sky's share from `sky`: darker at the foot of things). What's built
+  with `mesh.glow = 127` (or alpha 254) is its own light and stays. `mesh.s[0…2]` then `mesh.v(r, g, b, a, e)`
+  writes a vertex without garbage, for meshes built again every frame.
 - `Mesh.join(list)` merges meshes; each vertex is 20 bytes. `mesh.turn(yaw, pitch, roll, pivot…)` turns all
   that's built about a point. Build a body's parts separately, turn them, and join them: legs that walk, a body
   that leans, falls or lies down.
 - Faces made with `m.alpha = 254` glow. `bake()` draws them unlit, and `Palette.sprite` keeps them full-bright
   (eyes, fire, screens).
 - `Kit` has ready-made pieces: `palm`, `pine`, `rock`, `columns`, `hut`, `lighthouse`, `buoy`, `shadow`,
-  `hills` and `skyline` (far hills for 3D and 2D), and `blob` (a soft 2D spot).
+  `hills` and `skyline` (far hills for 3D and 2D), and `blob` (a soft 2D spot); `sky({top, mid, horizon, haze, sun,
+  clouds, stars, ridges})` paints a sky for the dome (a big low sun cut by bars, clouds lit on their sunward side,
+  far ridges, stars), `dome()` is its mesh, and `ripples(n)` the water's nets of light.
 - `Chunks(size, cell)` holds a world's still things: `mesh(x, z, "base" | "detail" | "glow")` to build into,
-  `upload(g3)`, then `draw(g3, x, z, far, detail)` each frame (culled, nearest first).
+  `upload(g3)`, then `draw(g3, x, z, far, detail)` each frame (culled, nearest first). `upload(g3, {light, shade,
+  sky})` bakes the world's light in and puts each chunk's glowing things in with the rest: one draw call a chunk.
 - `Land(size, n, base)` is ground with height: an n × n grid over the world, `fill((x, z) => height)`, then `at(x,
   z)` anywhere (to float on it, or bump into the shore) and `slope(x, z, out)`. `mesh(chunks, colour(h, steep),
-  water)` builds its triangles into chunks where it's near or above the water; for the 2D renderer, `paint(ctx, k,
+  water, layer, {coarse: land.inner({above, drop}), under})` builds its triangles into chunks where it's near or
+  above the water (with `coarse`, high ground with no drop near it as squares of two big triangles; `under`: how far
+  below the water still counts); for the 2D renderer, `paint(ctx, k,
   colour, sun, water, shallow, depth)` paints it into the ground's picture (shaded by its slopes, shallows round it)
   and `banks(colour, water)` gives the quads that stand its edge up from the water. Tidewing's cliffs, gorge and
   volcano are made this way.
@@ -202,8 +291,8 @@ shimmer); `air({top, horizon, fog, hill, hills, near, far})`; `draw(camera…)`;
 **Moving things.**
 - `Path(points, {closed, step})` is a smooth line to race, ride or patrol along. It has `at(s)`, `side(s, off)`,
   `near(x, z, hint)`, `delta(a, b)`, `curve` (how sharply it bends ahead) and `knots` (where the points fall).
-- `Trail` makes wakes, light trails and tyre marks: `step(dt, x, z, strength)`, then `ribbon(mesh, …)` for 3D or
-  `spots(flat, …)` for 2D.
+- `Trail` makes wakes, light trails and tyre marks: `step(dt, x, z, strength)`, then `ribbon(mesh, …)` or
+  `wake(mesh, …)` (two arms that spread, the churn between them) for 3D, or `spots(flat, …)` for 2D.
 - `Particles(n)` is a fixed pool: `emit`, `step`, `points(mesh)` for 3D, `sprites(flat)` for 2D.
 - Cameras: `camera()`; `chase(cam, thing, dt, dist, height, ahead)`; `orbit(cam, x, z, radius, height, angle)`;
   `begin(E, cam, near, far, rect)` draws a frame from a camera in whichever renderer the box has. Two players:
@@ -229,10 +318,21 @@ shimmer); `air({top, horizon, fog, hill, hills, near, far})`; `draw(camera…)`;
 and `SofaPad.rumble(strong, weak, ms)`. These follow whichever controller was used last; each player's own are
 `SofaPad.player(n)`'s (Several players, below).
 
+**What's written on the picture (`UI`, as `E.ui`).** A list of quads in the picture's own pixels, drawn after the
+game's `draw()` with one call (through the 2D context where there's no WebGL): `begin(w, h)`, then `rect`, `frame`,
+`line`, `disc`, `arrow`, `quad` and `text(s, x, y, k, colour, alpha, align, shade)` (the 5×7 pixel font Low2D
+writes with, each of its pixels `k` of the picture's, a whole number: crisp at any size), `end()`. `hold()` keeps
+what's in the list so far (a map's lines, a panel) and `rewind()` goes back to there, so only what changes is built
+again; build it when it changes (ten times a second is plenty), not every frame.
+
 **The rest.**
 - `game({...})` sets up the screen (16:9, as big as fits, `--u` a hundredth of its height for CSS), the tuning,
-  the loop (fixed 60 steps a second, drawing as the governor says), `#fps`, and the switch to 2D if the GPU goes
-  away. It returns `E`, with `mode`, `g3`, `flat`, `rung`, `gov`, `rows()`, `retest()` and `setPicture()`.
+  the loop (fixed 60 steps a second: a frame that comes a whole number of steps after the last takes exactly that
+  many, never none and then two; `E.alpha` says how far into the next step a frame is), `#fps`, and the switch to
+  2D if the GPU goes away. It returns `E`, with `mode`, `g3`, `flat`, `ui`, `rung`, `gov`, `rows()`, `retest()`,
+  `setPicture()`, `ran()`: how it ran, in one line, and `tell()`: says it to the console (on the box only, once in
+  five minutes at most; the engine also says it when the game is left), which is what "Send a report" keeps of a
+  page. Call `tell()` at the end of a race or a level.
 - `Input` and `Menu`: screens of `.item` elements. A screen can be a list, a `grid` of columns, a `row`, or
   `options` (◀ ▶ to change values).
 - `Synth`: `play(name)` plays effects, `play(name, pan, gain)` from a place (left -1 to right 1, and how loud), and
@@ -240,6 +340,24 @@ and `SofaPad.rumble(strong, weak, ms)`. These follow whichever controller was us
   writes a tune from a seed and plays it. `drone("saw" | "noise")` is a sound that goes on (an engine, the wind),
   changed with `set(pitch, brightness, volume)`.
 - `U` has small tools: `clamp`, `lerp`, `wrap`, `rand(seed)`, colors (`hex`, `shade`, `mix`), `time` and `ord`.
+
+## No garbage
+
+Script memory made while a game plays has to be cleared, and the collector stops the game to do it: a millisecond or
+two on a desktop, a dropped frame or several on a Pi 3. `tools/games-bench.mjs --alloc` names the functions that
+make it. What it found in Chrome 157 (V8), each measured in a loop of its own on this Mac:
+
+- `Math.hypot(a, b)` makes about 31 bytes a call; `Math.sqrt(a * a + b * b)` makes none.
+- `for (const x of list)` in a hot function made about 10 bytes a call, and a closure (`list.forEach(…)`,
+  `list.reduce(…)`, an arrow function made inside the frame) is an object each time: Tidewing's `stepRacer` went from
+  209 KB a second to 13 with loops by number and no closures.
+- An array or object literal (`[w, h]`, `{x, y}`) is an allocation: return into something made once.
+- A call into a big function (one V8 won't inline) with fractional numbers as arguments makes each number anew on
+  the heap: a mesh built again every frame through `put(x, y, z, …)` was 2.4 MB a second. Write the place into a
+  typed array (`m.s`) and call with whole numbers only (`m.v(r, g, b, a, e)`): stores into typed arrays make nothing.
+- Fields that hold fractions, typed arrays, `Math.sin`, `exp`, `atan2`, `sqrt`, `max`, `min`: none.
+- For its first 20 to 30 seconds a game makes several times more (V8 is still compiling its hot code, and what
+  isn't compiled yet makes every number anew): the harness waits 25 s before it measures.
 
 ## Several players
 
@@ -401,6 +519,20 @@ once outside the game, kept the boards that have a way to clear them, and the ga
 
 ## Checking a game
 
+- **`node tools/games-bench.mjs`** (from the repository; node and Chrome, nothing else) opens each scene of each
+  game in a Chrome of its own, WebGL 1 only, at the box's screen size (1920×1080, pages at ×2), three times: timed
+  as the stand-in box (the game's work made 20 times as long with `#slow=20`, about a Pi 3 B+ against a fast
+  desktop core: frames a second, the time between frames at the median, 95th and 99th percentile and the worst,
+  the work a frame, draw calls, triangles, vertices, uploads, 2D pixels filled); at the computer's own speed with
+  nothing counted (garbage a second, the collector's pauses, the layers lying over the game's picture and their
+  pixels; `--alloc` and `--profile` name the functions); and with every fragment shader's output swapped for a
+  counter (fragments shaded a frame, opaque and see-through). `--games`, `--scenes`, `--secs`, `--hash rung=4`,
+  `--shots DIR`, `--json FILE`, `--root OTHER/deploy/sofa-box` (another checkout: before and after), `--box
+  pi3|pi4|pc`. It cannot be a Pi: the GPU is the computer's own, so GPU time isn't measured, only what costs a VC4
+  time. Every number it prints is that computer's.
+- **On a real box** the measure is the games check (below), and what a game says when it's left: both now go to the
+  console as errors, which is what the box keeps of a page for "Send a report" (lines starting `Graphics check:`,
+  `Games check:` and `<game> ran:`).
 - In a browser: `python3 deploy/sofa-box/sofa-box-agent.py` with `SOFA_BOX_CONF=<tmp> SOFA_BOX_ICONS=0
   SOFA_BOX_UINPUT=0`, then `http://127.0.0.1:8091/box/games/<id>/#fps`.
 - On a box: the graphics check at `http://127.0.0.1:8091/box/games/probe/` (in the box's browser) shows the GPU,
@@ -414,5 +546,7 @@ once outside the game, kept the boards that have a way to clear them, and the ga
 
 ## Next, as games need it
 
-In `Ray`: sloped floors. In Low2D: a 3D backdrop drawn by `GL` behind the pixels on the rich look (a tower that
+In Low3D's second way: a full look that earns the name (the water bending what's under it is all `rich` adds so
+far; a second picture for the mirror images, ripples on them, detail textures on the land), and draws between
+steps (`E.alpha`) for screens that aren't 60 Hz. In `Ray`: sloped floors. In Low2D: a 3D backdrop drawn by `GL` behind the pixels on the rich look (a tower that
 turns as you climb), split screens for couch play, slopes. Each one comes with the game that first needs it.

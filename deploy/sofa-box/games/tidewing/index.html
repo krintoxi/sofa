@@ -1,95 +1,70 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Tidewing</title>
 <style>
-  html, body { margin: 0; height: 100%; overflow: hidden; background: #08121c; color: #eef6ff; font: 600 16px/1.25 system-ui, "Segoe UI", sans-serif; }
-  #view { position: absolute; overflow: hidden; background: #08121c; --u: 5.4px; }
+  /* Ink, bone, phosphor green and hot pink: the box's own colours. Nothing here lies over the race (its numbers are
+     drawn in the canvas), and a menu's blocks are each a layer of their own with nothing behind them: on a Pi 3 the
+     browser puts every pixel of the page that's over the canvas together again at the TV's size, every frame. */
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0d10; color: #efe6d2; font: 700 16px/1.25 ui-monospace, "DejaVu Sans Mono", "SFMono-Regular", Menlo, Consolas, monospace; }
+  #view { position: absolute; overflow: hidden; background: #0b0d10; --u: 5.4px; --ink: #0b0d10; --bone: #efe6d2; --green: #39ff88; --pink: #ff2e88; }
   #view canvas.world { position: absolute; left: 0; top: 0; width: 100%; height: 100%; display: block; }
-  #view.crisp canvas.world { image-rendering: pixelated; }
   .hidden { display: none !important; }
-  /* the race's own numbers: a set for each player's view (a whole screen, or half of it) */
-  #hud { position: absolute; inset: 0; pointer-events: none; text-shadow: 0 calc(var(--u) * .25) calc(var(--u) * .6) rgba(0, 10, 25, .55); }
-  .pv { position: absolute; left: 0; width: 100%; top: 0; height: 100%; overflow: hidden; --v: var(--u); }
-  .pv.half { --v: calc(var(--u) * .62); }
-  .pv .place { position: absolute; left: calc(var(--v) * 4); top: calc(var(--v) * 3); font-size: calc(var(--v) * 9); font-weight: 800; letter-spacing: -.02em; }
-  .pv .place small { font-size: .38em; font-weight: 700; opacity: .8; margin-left: .2em; }
-  .pv.trial .place { font-size: calc(var(--v) * 5.4); top: calc(var(--v) * 5.6); }
-  .pv .lap { position: absolute; left: calc(var(--v) * 4.4); top: calc(var(--v) * 13.5); font-size: calc(var(--v) * 3.2); white-space: nowrap; }
-  .pv .clock { position: absolute; left: calc(var(--v) * 4.4); top: calc(var(--v) * 17.5); font-size: calc(var(--v) * 3.2); font-variant-numeric: tabular-nums; opacity: .9; white-space: nowrap; }
-  .pv .who { position: absolute; left: calc(var(--v) * 4.4); bottom: calc(var(--v) * 3.6); font-size: calc(var(--v) * 3.2); font-weight: 800; }
-  .pv .boostbar { position: absolute; left: 50%; bottom: calc(var(--v) * 4); width: calc(var(--v) * 46); height: calc(var(--v) * 1.6); transform: translateX(-50%);
-    background: rgba(0, 20, 40, .45); border-radius: calc(var(--v) * 1); overflow: hidden; box-shadow: 0 0 0 calc(var(--v) * .3) rgba(255, 255, 255, .25); }
-  .pv .boostfill { height: 100%; width: 30%; background: linear-gradient(90deg, #4fd8ff, #b8f6ff); border-radius: inherit; }
-  .pv .boostfill.full { background: linear-gradient(90deg, #ffd24f, #fff4b8); }
-  .pv .boostlabel { position: absolute; left: 50%; bottom: calc(var(--v) * 6.4); transform: translateX(-50%); font-size: calc(var(--v) * 2.2); opacity: .85; white-space: nowrap; }
-  .pv .say { position: absolute; left: 0; right: 0; top: 34%; text-align: center; font-size: calc(var(--v) * 8); font-weight: 800; letter-spacing: .02em; }
-  .pv .say small { display: block; font-size: .36em; font-weight: 700; opacity: .9; margin-top: .3em; }
-  .pv .arrow { position: absolute; left: 50%; top: calc(var(--v) * 6); width: calc(var(--v) * 7); height: calc(var(--v) * 7); margin-left: calc(var(--v) * -3.5);
-    color: #ffd24f; filter: drop-shadow(0 0 calc(var(--v) * .6) rgba(0, 0, 0, .5)); }
-  #divider { position: absolute; left: 0; right: 0; top: 50%; height: calc(var(--u) * .5); margin-top: calc(var(--u) * -.25); background: #06101c; }
-  #minimap { position: absolute; right: calc(var(--u) * 3); top: calc(var(--u) * 3); width: calc(var(--u) * 24); height: calc(var(--u) * 24); border-radius: 50%; opacity: .92; }
-  #hud.split #minimap { top: calc(50% - var(--u) * 8); right: calc(var(--u) * 2); width: calc(var(--u) * 16); height: calc(var(--u) * 16); }
-  #flash { position: absolute; inset: 0; background: #eef4ff; opacity: 0; }
-  #fps { position: absolute; right: calc(var(--u) * 3); bottom: calc(var(--u) * 2); font: 600 calc(var(--u) * 2) ui-monospace, monospace; opacity: .8; text-align: right; white-space: pre; }
+  #fps { position: absolute; right: calc(var(--u) * 3); top: 46%; font: 600 calc(var(--u) * 2) ui-monospace, monospace; color: var(--green); text-align: right; white-space: pre; will-change: transform; }
   /* menus */
-  .screen { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: calc(var(--u) * 2);
-    background: linear-gradient(180deg, rgba(6, 16, 30, .25), rgba(6, 16, 30, .6)); }
-  .screen.solid { background: rgba(6, 14, 26, .86); }
-  h1.logo { margin: 0; font-size: calc(var(--u) * 13); font-weight: 900; letter-spacing: .08em; color: #fff;
-    text-shadow: 0 calc(var(--u) * .5) 0 #1a5f8a, 0 calc(var(--u) * 1.4) calc(var(--u) * 3) rgba(0, 20, 40, .6); }
-  .tag { margin: calc(var(--u) * -1) 0 calc(var(--u) * 1); font-size: calc(var(--u) * 2.8); opacity: .9; letter-spacing: .04em; text-align: center; max-width: calc(var(--u) * 150); }
-  h2 { margin: 0 0 calc(var(--u) * .5); font-size: calc(var(--u) * 5.2); font-weight: 800; }
-  .menu { display: flex; flex-direction: column; gap: calc(var(--u) * 1); min-width: calc(var(--u) * 44); }
-  .item { box-sizing: border-box; padding: calc(var(--u) * 1.2) calc(var(--u) * 3); border-radius: calc(var(--u) * 1.6); font-size: calc(var(--u) * 3.2);
-    background: rgba(10, 30, 50, .55); border: calc(var(--u) * .35) solid transparent; color: inherit; text-align: center; transition: transform .12s, background .12s; }
-  .item.on { background: rgba(255, 255, 255, .94); color: #0d2a40; border-color: #ffd24f; transform: scale(1.04); }
-  .item.row { display: flex; justify-content: space-between; gap: calc(var(--u) * 4); text-align: left; min-width: calc(var(--u) * 70); }
+  .screen { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: calc(var(--u) * 2); text-transform: uppercase; letter-spacing: .04em; }
+  .screen > * { will-change: transform; }
+  h1.logo { margin: 0; padding: 0 calc(var(--u) * 2); font-size: calc(var(--u) * 13); font-weight: 900; letter-spacing: .14em; color: var(--bone); line-height: 1;
+    text-shadow: calc(var(--u) * .7) calc(var(--u) * .7) 0 var(--pink); border-bottom: calc(var(--u) * .6) solid var(--green); }
+  .tag { margin: 0; padding: calc(var(--u) * .4) calc(var(--u) * 1.4); font-size: calc(var(--u) * 2.3); letter-spacing: .1em; text-align: center; max-width: calc(var(--u) * 150); background: rgba(11, 13, 16, .7); }
+  h2 { margin: 0 0 calc(var(--u) * .5); padding: 0 calc(var(--u) * 1.5); font-size: calc(var(--u) * 5); font-weight: 900; letter-spacing: .1em; border-left: calc(var(--u) * 1.2) solid var(--pink); }
+  .menu { display: flex; flex-direction: column; gap: calc(var(--u) * .9); min-width: calc(var(--u) * 46); }
+  .item { box-sizing: border-box; padding: calc(var(--u) * 1.1) calc(var(--u) * 3); font-size: calc(var(--u) * 2.9); background: rgba(11, 13, 16, .82);
+    border: calc(var(--u) * .3) solid rgba(239, 230, 210, .22); color: inherit; text-align: center; }
+  .item.on { background: var(--green); color: var(--ink); border-color: var(--bone); box-shadow: calc(var(--u) * .7) calc(var(--u) * .7) 0 var(--pink); }
+  .item.row { display: flex; justify-content: space-between; gap: calc(var(--u) * 4); text-align: left; min-width: calc(var(--u) * 78); }
   .item.row b { font-weight: 800; }
-  .hint { position: absolute; bottom: calc(var(--u) * 3); left: 0; right: 0; text-align: center; font-size: calc(var(--u) * 2.4); opacity: .85; }
-  .hint kbd { display: inline-block; min-width: 1.4em; padding: 0 .35em; border-radius: .4em; background: rgba(255, 255, 255, .9); color: #0d2a40; font: inherit; font-weight: 800; }
+  .hint { position: absolute; bottom: calc(var(--u) * 3); left: 50%; transform: translateX(-50%); margin: 0; padding: calc(var(--u) * .5) calc(var(--u) * 1.6); white-space: nowrap; font-size: calc(var(--u) * 2.1); background: rgba(11, 13, 16, .7); }
+  .hint kbd { display: inline-block; min-width: 1.4em; padding: 0 .4em; background: var(--bone); color: var(--ink); font: inherit; font-weight: 900; text-align: center; }
   .cards { display: grid; grid-template-columns: repeat(3, calc(var(--u) * 46)); gap: calc(var(--u) * 1.6); }
-  .cards.four { grid-template-columns: repeat(4, calc(var(--u) * 37)); gap: calc(var(--u) * 1.2); }
-  .card { padding: calc(var(--u) * 1.4) calc(var(--u) * 1.8); text-align: left; min-height: calc(var(--u) * 13); }
-  .card .nm { font-size: calc(var(--u) * 3); font-weight: 800; display: block; }
-  .card .info { font-size: calc(var(--u) * 2); opacity: .85; display: block; margin-top: calc(var(--u) * .5); }
-  .card .medal { float: right; font-size: calc(var(--u) * 3.4); }
-  .card.locked { opacity: .45; }
+  .cards.four { grid-template-columns: repeat(4, calc(var(--u) * 37)); gap: calc(var(--u) * 1.4); }
+  .card { padding: calc(var(--u) * 1.3) calc(var(--u) * 1.6); text-align: left; min-height: calc(var(--u) * 13.5); text-transform: none; letter-spacing: 0; }
+  .card .nm { font-size: calc(var(--u) * 2.5); font-weight: 900; display: block; text-transform: uppercase; letter-spacing: .05em; }
+  .card .info { font-size: calc(var(--u) * 1.8); opacity: .85; display: block; margin-top: calc(var(--u) * .5); font-weight: 600; }
+  .card .medal { float: right; font-size: calc(var(--u) * 1.9); font-weight: 900; padding: 0 .4em; background: var(--pink); color: var(--ink); }
+  .card .medal:empty { display: none; }
+  .card.locked { opacity: .5; }
+  .card.locked .medal { background: none; color: inherit; border: calc(var(--u) * .2) solid currentColor; }
   .cards:not(.four) .card { min-height: calc(var(--u) * 24); }
-  .swatch { display: inline-block; width: calc(var(--u) * 2.4); height: calc(var(--u) * 1.2); border-radius: .3em; margin-right: .5em; vertical-align: middle; }
-  table.box { border-collapse: collapse; font-size: calc(var(--u) * 2.3); max-width: calc(var(--u) * 150); }
+  .swatch { display: inline-block; width: calc(var(--u) * 2.4); height: calc(var(--u) * 1.2); margin-right: .5em; vertical-align: middle; }
+  table.box { border-collapse: collapse; font-size: calc(var(--u) * 2.1); max-width: calc(var(--u) * 156); text-transform: none; letter-spacing: 0; }
   table.box td { padding: calc(var(--u) * .35) calc(var(--u) * 1.6); vertical-align: top; }
-  table.box td:first-child { opacity: .75; white-space: nowrap; text-align: right; }
+  table.box td:first-child { color: var(--green); white-space: nowrap; text-align: right; text-transform: uppercase; }
   table.box td:last-child { font-weight: 700; word-break: break-word; }
-  table.stand { border-collapse: collapse; font-size: calc(var(--u) * 3); }
+  table.stand { border-collapse: collapse; font-size: calc(var(--u) * 2.8); }
   table.stand td, table.stand th { padding: calc(var(--u) * .5) calc(var(--u) * 2.4); text-align: left; }
-  table.stand th { font-size: .72em; opacity: .7; font-weight: 700; }
+  table.stand th { font-size: .72em; color: var(--green); font-weight: 700; }
   table.stand td.n { text-align: right; font-variant-numeric: tabular-nums; }
-  table.stand tr.you td { background: rgba(255, 255, 255, .1); }
-  .stats { display: flex; gap: calc(var(--u) * 5); }
+  table.stand tr.you td { background: rgba(255, 46, 136, .22); }
+  .stats { display: flex; gap: calc(var(--u) * 5); text-transform: none; letter-spacing: 0; }
   .statcard { width: calc(var(--u) * 56); }
   .statcard .pic { height: calc(var(--u) * 13); display: flex; justify-content: center; align-items: flex-end; }
-  .statcard .pic canvas { height: 100%; }
-  .statcard h3 { margin: calc(var(--u) * .6) 0 0; font-size: calc(var(--u) * 3.2); }
-  .statcard .about { opacity: .85; font-size: calc(var(--u) * 2.2); min-height: calc(var(--u) * 5.6); }
-  .sgrid { display: grid; grid-template-columns: auto 1fr; gap: calc(var(--u) * .5) calc(var(--u) * 1.6); font-size: calc(var(--u) * 2.3); align-items: center; }
-  .sgrid .bar { height: calc(var(--u) * 1.2); background: rgba(255, 255, 255, .14); border-radius: 1em; overflow: hidden; }
-  .sgrid .bar i { display: block; height: 100%; background: linear-gradient(90deg, #4fd8ff, #b8f6ff); border-radius: inherit; }
-  .results { font-size: calc(var(--u) * 3); text-align: center; line-height: 1.5; }
-  .results .big { font-size: calc(var(--u) * 9); font-weight: 900; display: block; }
+  .statcard .pic canvas { height: 100%; image-rendering: pixelated; }
+  .statcard h3 { margin: calc(var(--u) * .6) 0 0; font-size: calc(var(--u) * 3); text-transform: uppercase; letter-spacing: .08em; }
+  .statcard .about { opacity: .85; font-size: calc(var(--u) * 2); min-height: calc(var(--u) * 5.6); font-weight: 600; }
+  .sgrid { display: grid; grid-template-columns: auto 1fr; gap: calc(var(--u) * .5) calc(var(--u) * 1.6); font-size: calc(var(--u) * 2); align-items: center; text-transform: uppercase; }
+  .sgrid .bar { height: calc(var(--u) * 1.2); background: rgba(239, 230, 210, .16); overflow: hidden; }
+  .sgrid .bar i { display: block; height: 100%; background: var(--green); }
+  .results { font-size: calc(var(--u) * 2.8); text-align: center; line-height: 1.5; padding: calc(var(--u) * 1.5) calc(var(--u) * 4); background: rgba(11, 13, 16, .78); }
+  .results .big { font-size: calc(var(--u) * 9); font-weight: 900; display: block; text-shadow: calc(var(--u) * .5) calc(var(--u) * .5) 0 var(--pink); }
   .row-buttons { display: flex; gap: calc(var(--u) * 2); }
-  #loading { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: calc(var(--u) * 2); background: #08121c; }
-  #loading.see { background: rgba(8, 18, 28, .55); }
-  #loading .bar { width: calc(var(--u) * 50); height: calc(var(--u) * 1.2); background: rgba(255, 255, 255, .15); border-radius: 1em; overflow: hidden; }
-  #loading .bar i { display: block; height: 100%; width: 0; background: #4fd8ff; border-radius: inherit; transition: width .2s; }
-  #loading p { margin: 0; font-size: calc(var(--u) * 2.6); opacity: .85; }
+  #loading { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: calc(var(--u) * 3); background: #0b0d10; text-transform: uppercase; letter-spacing: .1em; }
+  #loading.see { background: none; }
+  #loading .bar { width: calc(var(--u) * 50); height: calc(var(--u) * 1.2); background: rgba(239, 230, 210, .15); overflow: hidden; }
+  #loading .bar i { display: block; height: 100%; width: 0; background: var(--green); }
+  #loading p { margin: 0; font-size: calc(var(--u) * 2.2); opacity: .85; }
 </style></head><body>
 <div id="view">
   <canvas id="gl" class="world hidden"></canvas>
   <canvas id="flat" class="world hidden"></canvas>
-  <div id="hud" class="hidden">
-    <div id="pvs"></div><div id="divider" class="hidden"></div>
-    <canvas id="minimap" width="128" height="128"></canvas>
-    <div id="flash"></div>
-  </div>
   <div id="title" class="screen hidden">
     <h1 class="logo">TIDEWING</h1><p class="tag">Skim the gates. Outfly the flock.</p>
     <div class="menu" id="titlemenu"></div>
@@ -101,7 +76,7 @@
   <div id="craft" class="screen solid hidden"><h2>Skimmer</h2><div class="menu" id="craftlist"></div><div class="stats" id="craftstats"></div><p class="tag" id="craftlocked"></p><p class="hint" id="craftHint"></p></div>
   <div id="options" class="screen solid hidden"><h2>Options</h2><div class="menu" id="optlist"></div><p class="hint" id="optionsHint"></p></div>
   <div id="box" class="screen solid hidden"><h2>This box</h2><table class="box" id="boxtable"></table>
-    <div class="row-buttons"><div class="item" data-do="retest">Test again</div><div class="item" data-do="back">Back</div></div><p class="hint" id="boxHint"></p></div>
+    <div class="row-buttons"><div class="item" data-do="retest">Test again</div><div class="item" data-do="check">Games check</div><div class="item" data-do="back">Back</div></div><p class="hint" id="boxHint"></p></div>
   <div id="pause" class="screen hidden"><h2>Paused</h2><div class="menu"><div class="item" data-do="resume">Carry on</div><div class="item" data-do="restart">Start again</div>
     <div class="item" data-do="options">Options</div><div class="item" data-do="quit" id="quitItem">Other waters</div></div><p class="hint" id="pauseHint"></p></div>
   <div id="results" class="screen hidden"><div class="results" id="resultText"></div>
@@ -132,57 +107,74 @@ const $ = id => document.getElementById(id), hex = U.hex, shade = U.shade, mix =
 
 // ---------------------------------------------------------------- what's kept on the box (the engine keeps its tuning apart)
 const SAVE = "tidewing";
-function fresh() { return { v: 1, best: {}, open: 1, cups: {}, trial: {}, ghost: {}, craft: ["wren", "wren"], opts: { picture: "auto", music: 6, sound: 8, camera: 0, throttle: 0, crisp: 0 } }; }
+function fresh() { return { v: 1, best: {}, open: 1, cups: {}, trial: {}, ghost: {}, craft: ["wren", "wren"], opts: { picture: "auto", music: 6, sound: 8, camera: 0, throttle: 0, pixels: 1 } }; }
 let save = fresh();
 try { const j = JSON.parse(localStorage.getItem(SAVE) || "null"); if (j && j.v === 1) save = Object.assign(fresh(), j, { opts: Object.assign(fresh().opts, j.opts || {}) }); } catch (e) { /* a fresh start */ }
 function store() { if (E.demo) return; try { localStorage.setItem(SAVE, JSON.stringify(save)); } catch (e) { /* full or blocked: the race still runs */ } }
 
 // ---------------------------------------------------------------- the waters
-// a theme: sky, light and the sea's colours; land (sand, low ground, cliffs, high ground); what's about (kinds of
-// island, how many); weather (rain, storm: lightning, snow, ash, plankton: the water glows), swell (how big the sea)
+// a theme: its sky (top, mid, horizon, haze, far ridges, clouds, stars, the sun or moon in it: big and low where it sets
+// or rises), its light (sun: towards it, sunCol, amb: the sky's, ground: what comes back up), the air (fog, and fogSun:
+// its colour towards the sun), the sea (deep, shallow, glint, foam; see: how much of what's under shows), the land
+// (sand, low ground, cliffs, high ground), what's about (kinds of island, how many), weather (rain, storm: lightning,
+// snow, ash, plankton: the water glows), swell (how big the sea). INK, BONE, GREEN and PINK are the box's own colours:
+// the gates' lights, what's written on the screen.
+const INK = 0x0b0d10, BONE = 0xefe6d2, GREEN = 0x39ff88, PINK = 0xff2e88;
 const THEMES = {
-  dawn: { top: 0x6a8acb, horizon: 0xf2cba8, fog: 0xe6c9b4, sun: [-0.55, 0.32, 0.78], sunCol: 0xffd9ae, amb: 0x8c92b4, ground: 0x5a4c54,
-    deep: 0x2d6b92, shallow: 0x62b9c0, sand: 0xe7d2a2, rock: [0x8a7d78, 0x9c8f88, 0xafa196], top2: 0xbdb1a4, grass: 0x7da862, leaf: 0x4f8a4c, trunk: 0x7a5a3e,
-    buoyA: 0xee5e3c, buoyB: 0xf4efe4, banner: 0xf4ac3c, hill: 0xa49cb8, near: 0.45, palms: 1, glow: 0, kinds: ["green", "rock", "green", "skerry"] },
-  noon: { top: 0x3b7dd4, horizon: 0xbfe1f6, fog: 0xc6e3f4, sun: [0.32, 0.9, 0.28], sunCol: 0xfff4de, amb: 0x90a8c2, ground: 0x585048,
-    deep: 0x1d6c9e, shallow: 0x46c3c7, sand: 0xf0dfae, rock: [0x4e4a56, 0x5c5764, 0x6c6674], top2: 0x7c7684, grass: 0x6aae56, leaf: 0x3e8e44, trunk: 0x6e5038,
-    buoyA: 0xf2c43c, buoyB: 0x2a3a4e, banner: 0xe8484e, hill: 0x8aaec8, near: 0.5, palms: 0, glow: 0, kinds: ["columns", "columns", "rock", "green"] },
-  kelp: { top: 0x5a8ec0, horizon: 0xd6e6d0, fog: 0xcfe0cc, sun: [0.5, 0.62, -0.6], sunCol: 0xfff0cc, amb: 0x88a8a0, ground: 0x4a5040,
-    deep: 0x226468, shallow: 0x54aa8c, sand: 0xdcd2a0, rock: [0x6e7262, 0x7e826e, 0x8e927c], top2: 0x9aa07e, grass: 0x88b25a, leaf: 0x4c8a3e, trunk: 0x6a5236,
-    buoyA: 0xf08a3a, buoyB: 0xf2f0dc, banner: 0x4ab4d8, hill: 0x92ae9e, near: 0.45, palms: 1, glow: 0 },
-  dusk: { top: 0x2a2858, horizon: 0xe2826a, fog: 0xa86c74, sun: [0.62, 0.1, 0.78], sunCol: 0xffa064, amb: 0x6c6294, ground: 0x40303e,
-    deep: 0x243e68, shallow: 0x3e7c8e, sand: 0xc8a888, rock: [0x5a4a5c, 0x6a586a, 0x7a6878], top2: 0x8a7684, grass: 0x5e7a52, leaf: 0x3a5a40, trunk: 0x4e3a32,
-    buoyA: 0xf6d06a, buoyB: 0x3a2e4a, banner: 0xff8a5a, hill: 0x6a4a6a, near: 0.4, palms: 0, lamps: 1, glow: 0 },
-  fog: { top: 0x9eaab4, horizon: 0xc4ccd0, fog: 0xbec8cc, sun: [-0.3, 0.7, 0.4], sunCol: 0xd8dcdc, amb: 0x98a4ac, ground: 0x5a6064,
-    deep: 0x37586a, shallow: 0x698c94, sand: 0xb4ae9c, rock: [0x5c6066, 0x6a6e74, 0x7a7e84], top2: 0x8a8e90, grass: 0x6a8a66, leaf: 0x46684c, trunk: 0x584a3e,
-    buoyA: 0xff6a3a, buoyB: 0xe8ece8, banner: 0xffb43a, hill: 0x9aa4aa, near: 0.2, far: 0.55, palms: 0, lamps: 1, glow: 0, kinds: ["skerry", "skerry", "rock", "rock"], isles: 46 },
-  night: { top: 0x070d24, horizon: 0x223058, fog: 0x18224a, sun: [-0.35, 0.55, 0.6], sunCol: 0x8ea0d8, amb: 0x3a4474, ground: 0x1a1a30,
-    deep: 0x0b2442, shallow: 0x1a5870, sand: 0x7a7a8a, rock: [0x3a3c50, 0x46485e, 0x52546a], top2: 0x5e6076, grass: 0x34504a, leaf: 0x22403a, trunk: 0x3a3030,
-    buoyA: 0x6ae0ff, buoyB: 0x24304a, banner: 0x9a7aff, hill: 0x202a52, near: 0.35, palms: 0, lamps: 1, glow: 1 },
-  storm: { top: 0x36424e, horizon: 0x74828c, fog: 0x66737c, sun: [0.3, 0.62, -0.5], sunCol: 0xb4c0c8, amb: 0x7a8894, ground: 0x383c42,
-    deep: 0x1c3646, shallow: 0x446e78, sand: 0x8e8a78, rock: [0x484c52, 0x565a60, 0x666a70], top2: 0x74806c, grass: 0x56704e, leaf: 0x3a5a40, trunk: 0x4e4236,
-    buoyA: 0xff6a2a, buoyB: 0xeef2f2, banner: 0xffc23a, hill: 0x505c66, near: 0.22, far: 0.8, palms: 0, lamps: 1, glow: 0,
-    land: { sand: 0x7e7a6a, low: 0x5a7450, cliff: 0x4c5056, high: 0x667a56 }, kinds: ["stack", "stack", "rock", "skerry"], isles: 24, rain: 1, storm: 1, swell: 2.4, wake: 0.38 },
-  lagoon: { top: 0x040a1c, horizon: 0x15304a, fog: 0x0d2136, sun: [0.4, 0.6, -0.5], sunCol: 0x7e9ad0, amb: 0x34507a, ground: 0x141a2a,
-    deep: 0x05283a, shallow: 0x0b6c70, sand: 0x6a7880, rock: [0x2e3446, 0x383e52, 0x444a5e], top2: 0x4e566a, grass: 0x264c44, leaf: 0x1c4a3c, trunk: 0x3a3030,
-    buoyA: 0xff7ad8, buoyB: 0x22304a, banner: 0x5af0d0, hill: 0x13233c, near: 0.35, palms: 1, lamps: 1, glow: 1,
-    land: { sand: 0x76808a, low: 0x2a5246, cliff: 0x384050, high: 0x2a5246 }, kinds: ["green", "green", "skerry"], isles: 16, plankton: 1 },
-  ice: { top: 0x88b0d8, horizon: 0xdceaf4, fog: 0xd4e2ec, sun: [-0.5, 0.33, 0.7], sunCol: 0xfff0dc, amb: 0x9cb4cc, ground: 0x5a6a7a,
-    deep: 0x1c5880, shallow: 0x58a6c2, sand: 0xe0ecf4, rock: [0xb4d0e4, 0xcce2f0, 0xe2f0fa], top2: 0xf6fbff, grass: 0xe8f2f8, leaf: 0x56767a, trunk: 0x4a4440,
-    buoyA: 0xe8343a, buoyB: 0xf4f6fa, banner: 0x2a6ad8, hill: 0xb6cadc, near: 0.4, palms: 0, glow: 0,
-    land: { sand: 0xd6e6f0, low: 0xeef6fc, cliff: 0x9ac2dc, high: 0xffffff }, kinds: ["floe", "floe", "floe", "berg"], isles: 40, snow: 1 },
-  gorge: { top: 0x5a96d6, horizon: 0xd8e4ec, fog: 0xc6d6e0, sun: [0.4, 0.85, 0.3], sunCol: 0xfff0d6, amb: 0x8aa0b4, ground: 0x5a4a3e,
-    deep: 0x286876, shallow: 0x56ae9e, sand: 0xc8b088, rock: [0xa0644a, 0xb4785a, 0xc48c6a], top2: 0xd0a07a, grass: 0x7a9a4e, leaf: 0x4e7a3e, trunk: 0x5a4030,
-    buoyA: 0xf4c43a, buoyB: 0x2a3a4e, banner: 0x3ac4e8, hill: 0xb88a6a, near: 0.5, palms: 0, glow: 0,
-    land: { sand: 0xc4a474, low: 0x8a9e56, cliff: 0xa4563a, cliff2: 0xb86a48, high: 0xb48c5a, hiAt: 24 }, kinds: [], isles: 0 },
-  ember: { top: 0x261828, horizon: 0xa4463a, fog: 0x683838, sun: [-0.6, 0.18, 0.7], sunCol: 0xff8a4a, amb: 0x6a4a5a, ground: 0x2a1a1a,
-    deep: 0x1c2838, shallow: 0x38484e, sand: 0x2a2626, rock: [0x2e2a2c, 0x3a3436, 0x48403e], top2: 0x5a4a44, grass: 0x4a4a3a, leaf: 0x3a4030, trunk: 0x2a2020,
-    buoyA: 0xffb43a, buoyB: 0x2a2026, banner: 0xff5a2a, hill: 0x4a2a30, near: 0.35, palms: 0, lamps: 1, glow: 0,
-    land: { sand: 0x2c2828, low: 0x3e3a36, cliff: 0x2e2a2c, high: 0x46403c }, kinds: ["rock", "rock", "skerry"], isles: 22, ash: 1, wake: 0.3 },
-  ruins: { top: 0x4a8ad0, horizon: 0xf6dcae, fog: 0xf0d8b4, sun: [0.7, 0.42, -0.5], sunCol: 0xffe2a8, amb: 0x9aa4bc, ground: 0x6a5a48,
-    deep: 0x1c76a0, shallow: 0x66d0c6, sand: 0xf2e2b8, rock: [0xd8c8a8, 0xe4d4b4, 0xeee0c4], top2: 0xf4ead4, grass: 0x8ab062, leaf: 0x5a8e4e, trunk: 0x7a5a3e,
-    buoyA: 0x3a8ae8, buoyB: 0xf8f4ea, banner: 0xd8483a, hill: 0xc4b49a, near: 0.5, palms: 1, glow: 0,
-    land: { sand: 0xf0dcb0, low: 0x9ab06a, cliff: 0xd8c4a0, high: 0xa8bc78 }, kinds: ["ruin", "ruin", "green", "skerry"], isles: 30 }
+  dawn: { top: 0x14122e, mid: 0x5a2f72, horizon: 0xff6f8f, haze: 0xffa98c, fog: 0xf79a8c, fogSun: 0xffc2a0, sun: [-0.55, 0.15, 0.78], sunCol: 0xffb48a, amb: 0x5a5a8e, ground: 0x3a2a46,
+    disc: { size: 0.24, col: 0xfff2d0, low: 0xff5f96, glow: 0xff5a9c, halo: 1.1, bars: 0xd0507c }, clouds: { n: 26, col: 0x4a356c, lit: 0xff9ab4, hi: 0.5, len: 0.7 }, ridges: [{ h: 0.07, col: 0x8a5a8c, seed: 3 }, { h: 0.045, col: 0x5c3f72, seed: 9 }],
+    deep: 0x16264a, shallow: 0x3aa9ac, glint: 0xffd2de, foam: 0xffe9e2, see: 0.1, sand: 0xd9a98c, rock: [0x4a4258, 0x5c5068, 0x70607a], top2: 0x8a7890, grass: 0x4f8064, leaf: 0x2f6a52, trunk: 0x5a4038,
+    buoyA: PINK, buoyB: INK, banner: BONE, lamp: GREEN, near: 0.5, palms: 1, lamps: 1, glow: 0, kinds: ["green", "rock", "green", "skerry"] },
+  noon: { top: 0x0c3272, mid: 0x2f7fd0, horizon: 0x9fd9f2, haze: 0xd4eef8, fog: 0xc0e4f4, fogSun: 0xf4fbff, sun: [0.32, 0.9, 0.28], sunCol: 0xfff2d8, amb: 0x7c9cc0, ground: 0x4a4c58,
+    disc: { size: 0.06, col: 0xffffff, glow: 0xfff6d8, halo: 0.6 }, clouds: { n: 20, col: 0xffffff, lit: 0xffffff, lo: 0.06, hi: 0.6, len: 0.5, a: "e8" }, ridges: [{ h: 0.035, col: 0x86b8dc, seed: 5 }],
+    deep: 0x0a4476, shallow: 0x2ad2c2, glint: 0xffffff, foam: 0xffffff, see: 0.12, sand: 0xf0dfae, rock: [0x25232e, 0x30303c, 0x3e3e4c], top2: 0x55566a, grass: 0x5aa850, leaf: 0x2f8a44, trunk: 0x5e4a36,
+    buoyA: PINK, buoyB: BONE, banner: INK, lamp: GREEN, near: 0.55, palms: 0, glow: 0, kinds: ["columns", "columns", "rock", "green"] },
+  kelp: { top: 0x21403c, mid: 0x4f7a68, horizon: 0xb4d2ae, haze: 0xcfe2c2, fog: 0xbcd6b4, fogSun: 0xe6f2d2, sun: [0.5, 0.52, -0.6], sunCol: 0xf2ecc4, amb: 0x6a9084, ground: 0x34443a,
+    disc: { size: 0.08, col: 0xf8f8e0, glow: 0xdff0c8, halo: 0.9 }, clouds: { n: 34, col: 0x86a894, lit: 0xdcecc8, hi: 0.8, len: 0.9 }, ridges: [{ h: 0.05, col: 0x7ea088, seed: 4 }, { h: 0.03, col: 0x567a66, seed: 12 }],
+    deep: 0x103632, shallow: 0x4aa474, glint: 0xe6ffd8, foam: 0xf0ffe8, see: 0.08, sand: 0xcfc692, rock: [0x4c5648, 0x5c6654, 0x6e7862], top2: 0x8a9670, grass: 0x7aa84e, leaf: 0x3f7c38, trunk: 0x5a4a30,
+    buoyA: PINK, buoyB: BONE, banner: INK, lamp: GREEN, near: 0.45, palms: 1, glow: 0 },
+  dusk: { top: 0x0c0822, mid: 0x471a5a, horizon: 0xff5436, haze: 0xff7e4e, fog: 0xd6563e, fogSun: 0xff9a52, sun: [0.62, 0.07, 0.78], sunCol: 0xff8a50, amb: 0x4c3c78, ground: 0x2a1c34,
+    disc: { size: 0.3, col: 0xffe28a, low: 0xff3a52, glow: 0xff5a2e, halo: 1.3, bars: 0x8a1c48 }, clouds: { n: 30, col: 0x2e1846, lit: 0xff6a4a, hi: 0.45, len: 0.9 }, ridges: [{ h: 0.06, col: 0x5a2444, seed: 6 }, { h: 0.035, col: 0x2e1638, seed: 2 }], stars: 120,
+    deep: 0x120a2c, shallow: 0x3a5a82, glint: 0xffb07a, foam: 0xffd6c2, see: 0.12, sand: 0xa88474, rock: [0x30263e, 0x3c304c, 0x4a3c5a], top2: 0x5e4c6a, grass: 0x445a4a, leaf: 0x2a4638, trunk: 0x3a2c2a,
+    buoyA: PINK, buoyB: INK, banner: BONE, lamp: GREEN, near: 0.45, palms: 0, lamps: 1, glow: 0 },
+  fog: { top: 0x7c858c, mid: 0xa3aaae, horizon: 0xc3c8c6, haze: 0xbfc5c2, fog: 0xbcc2c0, fogSun: 0xd8dcd6, sun: [-0.3, 0.7, 0.4], sunCol: 0xc8ccc8, amb: 0x8e989e, ground: 0x4c5458,
+    disc: { size: 0.07, col: 0xe8ebe6, glow: 0xdfe3de, halo: 1.2 }, clouds: { n: 40, col: 0x9aa2a6, lit: 0xcfd4d0, hi: 0.9, len: 1.1 },
+    deep: 0x253940, shallow: 0x5a7c80, glint: 0xe8ece6, foam: 0xeef2ec, see: 0.06, sand: 0xa8a493, rock: [0x30363a, 0x3c4246, 0x4a5054], top2: 0x646a68, grass: 0x566e58, leaf: 0x3a5440, trunk: 0x443c34,
+    buoyA: PINK, buoyB: INK, banner: BONE, lamp: GREEN, near: 0.12, far: 0.5, palms: 0, lamps: 1, glow: 0, kinds: ["skerry", "skerry", "rock", "rock"], isles: 46 },
+  night: { top: 0x02030a, mid: 0x08102a, horizon: 0x18264e, haze: 0x1a2a52, fog: 0x121c3e, fogSun: 0x2c3e70, sun: [-0.35, 0.42, 0.6], sunCol: 0x9fb2e6, amb: 0x2c3868, ground: 0x10142a,
+    disc: { size: 0.13, col: 0xf4f0dc, low: 0xd8d4c4, glow: 0x6a86d0, halo: 0.8 }, clouds: { n: 10, col: 0x141c3c, lit: 0x3a4a80, hi: 0.4, len: 0.8 }, ridges: [{ h: 0.05, col: 0x0c1430, seed: 8 }], stars: 520,
+    deep: 0x040c22, shallow: 0x14486a, glint: 0xf4f0dc, foam: 0xb8d8ff, see: 0.14, sand: 0x5c6274, rock: [0x1e2236, 0x282c44, 0x343852], top2: 0x444a66, grass: 0x24403e, leaf: 0x183430, trunk: 0x2a2424,
+    buoyA: PINK, buoyB: INK, banner: BONE, lamp: GREEN, near: 0.4, palms: 0, lamps: 1, glow: 1, wakeCol: 0x60e8ff },
+  storm: { top: 0x101418, mid: 0x242c32, horizon: 0x4c575c, haze: 0x566268, fog: 0x4a555b, fogSun: 0x6a777c, sun: [0.3, 0.62, -0.5], sunCol: 0x9aa8b0, amb: 0x5c6a74, ground: 0x24282c,
+    clouds: { n: 60, col: 0x1c2226, lit: 0x5a666c, hi: 1.2, len: 1.2, a: "f0" }, ridges: [{ h: 0.06, col: 0x343e44, seed: 7 }],
+    deep: 0x0e1a20, shallow: 0x3a5e66, glint: 0xcfe0e6, foam: 0xe6eef0, see: 0.05, sand: 0x6e6c60, rock: [0x282c30, 0x34383c, 0x42464a], top2: 0x565e54, grass: 0x44583e, leaf: 0x2c4432, trunk: 0x3a322a,
+    buoyA: PINK, buoyB: BONE, banner: INK, lamp: GREEN, near: 0.2, far: 0.7, palms: 0, lamps: 1, glow: 0,
+    land: { sand: 0x5e5c52, low: 0x485e42, cliff: 0x34383c, high: 0x52644a }, kinds: ["stack", "stack", "rock", "skerry"], isles: 24, rain: 1, storm: 1, swell: 2.4, wake: 0.5 },
+  lagoon: { top: 0x010409, mid: 0x04121c, horizon: 0x0c3038, haze: 0x0e3a3e, fog: 0x08262c, fogSun: 0x124a48, sun: [0.4, 0.5, -0.5], sunCol: 0x86b8c8, amb: 0x244a5c, ground: 0x0a141c,
+    disc: { size: 0.08, col: 0xe8fff0, low: 0xb8e8d0, glow: 0x2f9a80, halo: 0.7 }, clouds: { n: 8, col: 0x0a2228, lit: 0x1c5a54, hi: 0.3, len: 0.9 }, ridges: [{ h: 0.04, col: 0x06181c, seed: 11 }], stars: 640,
+    deep: 0x021a1e, shallow: 0x0a6e5c, glint: GREEN, foam: 0x8affc0, see: 0.16, sand: 0x4e6068, rock: [0x162430, 0x1e2e3a, 0x283a46], top2: 0x34505a, grass: 0x1c4a3e, leaf: 0x145040, trunk: 0x2a2424,
+    buoyA: PINK, buoyB: INK, banner: BONE, lamp: GREEN, near: 0.4, palms: 1, lamps: 1, glow: 1, wakeCol: GREEN,
+    land: { sand: 0x56666e, low: 0x1e4c40, cliff: 0x22303c, high: 0x1e4c40 }, kinds: ["green", "green", "skerry"], isles: 16, plankton: 1 },
+  ice: { top: 0x2c5a9c, mid: 0x7fb0dc, horizon: 0xe2f0fa, haze: 0xeef6fc, fog: 0xdcecf6, fogSun: 0xfff6e8, sun: [-0.5, 0.2, 0.7], sunCol: 0xffe9cc, amb: 0x86a6cc, ground: 0x4c6480,
+    disc: { size: 0.1, col: 0xffffff, low: 0xffe0b8, glow: 0xffe6c4, halo: 1.0 }, clouds: { n: 16, col: 0xd4e4f2, lit: 0xfff0dc, hi: 0.4, len: 0.8 }, ridges: [{ h: 0.07, col: 0xb4cce4, seed: 13 }, { h: 0.04, col: 0x8eb0d4, seed: 14 }],
+    deep: 0x0c3458, shallow: 0x58b0cc, glint: 0xffffff, foam: 0xffffff, see: 0.14, sand: 0xd4e6f2, rock: [0x8eb8d8, 0xb4d4ea, 0xd6eaf6], top2: 0xf6fbff, grass: 0xe6f2f8, leaf: 0x4c6c72, trunk: 0x3e3a38,
+    buoyA: PINK, buoyB: INK, banner: INK, lamp: GREEN, near: 0.45, palms: 0, glow: 0,
+    land: { sand: 0xcfe2ee, low: 0xeaf4fb, cliff: 0x7eaed0, high: 0xffffff }, kinds: ["floe", "floe", "floe", "berg"], isles: 40, snow: 1 },
+  gorge: { top: 0x1c4c98, mid: 0x4f90d0, horizon: 0xdce8ee, haze: 0xe8dcc8, fog: 0xd8cdb8, fogSun: 0xfff0d4, sun: [0.4, 0.7, 0.3], sunCol: 0xffe6c0, amb: 0x7890b0, ground: 0x5a3c2c,
+    disc: { size: 0.06, col: 0xffffff, glow: 0xfff0d0, halo: 0.6 }, clouds: { n: 12, col: 0xffffff, lit: 0xffffff, lo: 0.1, hi: 0.6, len: 0.4, a: "e0" },
+    deep: 0x124e58, shallow: 0x4cb49c, glint: 0xfff6e0, foam: 0xfffaf0, see: 0.1, sand: 0xc8a070, rock: [0x8e4a30, 0xa85e3e, 0xc0744e], top2: 0xd8946a, grass: 0x6e9244, leaf: 0x466e36, trunk: 0x503828,
+    buoyA: PINK, buoyB: BONE, banner: INK, lamp: GREEN, near: 0.5, palms: 0, glow: 0,
+    land: { sand: 0xc09a68, low: 0x7c9450, cliff: 0x9a4c30, cliff2: 0xb8623e, high: 0xb08450, hiAt: 24 }, kinds: [], isles: 0 },
+  ember: { top: 0x0c060c, mid: 0x321016, horizon: 0x8e2a14, haze: 0xd84a14, fog: 0x5a2018, fogSun: 0xe05a1c, sun: [-0.6, 0.12, 0.7], sunCol: 0xff7a3a, amb: 0x4a3446, ground: 0x2a1210,
+    disc: { size: 0.2, col: 0xffb04a, low: 0xe02a1a, glow: 0xff4a12, halo: 1.4, bars: 0x4a0c10 }, clouds: { n: 44, col: 0x160a0e, lit: 0x8a2a14, hi: 0.9, len: 1.1, a: "f0" }, ridges: [{ h: 0.05, col: 0x200c0e, seed: 15 }], stars: 60,
+    deep: 0x100a12, shallow: 0x3a2c30, glint: 0xff8a3a, foam: 0xffc49a, see: 0.12, sand: 0x241e1e, rock: [0x1c181a, 0x262022, 0x322a2a], top2: 0x443630, grass: 0x3a3a2e, leaf: 0x2c3024, trunk: 0x1e1616,
+    buoyA: PINK, buoyB: INK, banner: BONE, lamp: GREEN, near: 0.35, palms: 0, lamps: 1, glow: 0,
+    land: { sand: 0x221c1c, low: 0x2e2a28, cliff: 0x1e1a1c, high: 0x3a302c }, kinds: ["rock", "rock", "skerry"], isles: 22, ash: 1, wake: 0.4 },
+  ruins: { top: 0x123e84, mid: 0x3f8ccf, horizon: 0xf4dcc0, haze: 0xfbe6cc, fog: 0xecd6bc, fogSun: 0xfff2d6, sun: [0.7, 0.3, -0.5], sunCol: 0xffdcae, amb: 0x8496bc, ground: 0x5c4c44,
+    disc: { size: 0.12, col: 0xfffaf0, low: 0xffd0a0, glow: 0xffd8a8, halo: 1.0 }, clouds: { n: 18, col: 0xf4e0d4, lit: 0xfff0dc, hi: 0.5, len: 0.6 }, ridges: [{ h: 0.05, col: 0xb8a8a4, seed: 16 }, { h: 0.03, col: 0x8a8898, seed: 17 }],
+    deep: 0x10608e, shallow: 0x54dccc, glint: 0xffffff, foam: 0xffffff, see: 0.16, sand: 0xf0e0bc, rock: [0xcfc2a6, 0xe0d4b6, 0xefe6d2], top2: 0xf6efdc, grass: 0x7ca85c, leaf: 0x4f8848, trunk: 0x6e5038,
+    buoyA: PINK, buoyB: INK, banner: INK, lamp: GREEN, near: 0.5, palms: 1, glow: 0,
+    land: { sand: 0xecd8ae, low: 0x8ea866, cliff: 0xd2c0a0, high: 0x9cb274 }, kinds: ["ruin", "ruin", "green", "skerry"], isles: 30 }
 };
 // each course: its theme, control points (a gate on each), how wide the gates are, rocks on the line, weed beds, boost
 // pads, crests of the swell to jump and sparks (each at a share of the lap and a step to the left), its land (E4: the
@@ -266,7 +258,7 @@ const UNLOCK = { swift: "tide", gannet: "gale", albatross: "crown" };   // a tro
 const LAPS = 3, MAP = 1024, HALF = MAP / 2;
 const RIVALS = [{ name: "Petrel", col: 0xf2803a, trim: 0x3a2a24, skill: 1.0, craft: "gannet" }, { name: "Skua", col: 0x9a6ad6, trim: 0x2a2440, skill: 0.975, craft: "albatross" },
   { name: "Tern", col: 0x2fc0a6, trim: 0x1c3a36, skill: 0.95, craft: "swift" }];
-const PLAYERS = [{ name: "You", col: 0x3aa2f2, trim: 0xf4f6fa, skill: 0.97 }, { name: "Player 2", col: 0xf2c43c, trim: 0x2a2a34, skill: 0.97 }];
+const PLAYERS = [{ name: "You", col: 0x3aa2f2, trim: 0xf4f6fa, skill: 0.97 }, { name: "Player 2", col: PINK, trim: 0x2a2a34, skill: 0.97 }];
 const TMP = new Float32Array(5), SL = [0, 0];
 
 // ---------------------------------------------------------------- smooth noise for the land (the same from the same seed)
@@ -377,10 +369,64 @@ function landColour(T) {                            // the ground's colour by it
   return (h, steep) => h < 1.2 ? L.sand : steep > 0.5 ? (h > 16 && L.cliff2 ? L.cliff2 : L.cliff) : h > hi ? L.high : L.low;
 }
 
+// the world's heights on a grid (4 m a cell): the land's, and each island's own shape. For the shadows the sun casts
+// (worked out once, into the world's colours and onto the sea's picture) and for where the water is shallow.
+function heightsOf(W) {
+  const n = 256, N = n + 1, cell = MAP / n, h = new Float32Array(N * N).fill(-6);
+  if (W.land) for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) h[j * N + i] = W.land.at(-HALF + i * cell, -HALF + j * cell);
+  const top = (o, d) => {                             // an island's height d from its middle (as islandMesh builds it), sloping off under the water round it
+    const r = o.r, hh = o.h, k = d / r;
+    if (k >= 1) return -3.4 * Math.min(1, (d - r) / 11);
+    if (o.kind === "columns" || o.kind === "ruin") return k < 0.7 ? hh * 0.7 : 0.5;
+    if (o.kind === "floe") return 0.45;
+    if (o.kind === "green" || o.kind === "landmark") return k < 0.6 ? hh * 0.5 : k < 0.82 ? lerp(hh * 0.5, hh * 0.25, (k - 0.6) / 0.22) : lerp(hh * 0.25, 0.4, (k - 0.82) / 0.18);
+    return k < 0.25 ? hh : k < 0.6 ? lerp(hh, hh * 0.75, (k - 0.25) / 0.35) : k < 0.9 ? lerp(hh * 0.75, hh * 0.35, (k - 0.6) / 0.3) : lerp(hh * 0.35, 0, (k - 0.9) / 0.1);
+  };
+  for (const o of W.islands) {
+    const R = o.r + 12, i0 = Math.max(0, Math.floor((o.x - R + HALF) / cell)), i1 = Math.min(n, Math.ceil((o.x + R + HALF) / cell)), j0 = Math.max(0, Math.floor((o.z - R + HALF) / cell)), j1 = Math.min(n, Math.ceil((o.z + R + HALF) / cell));
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) { const t = top(o, Math.hypot(-HALF + i * cell - o.x, -HALF + j * cell - o.z)), k = j * N + i; if (t > h[k]) h[k] = t; }
+  }
+  let hi = 0; for (let k = 0; k < h.length; k++) if (h[k] > hi) hi = h[k];
+  const at = (x, z) => {
+    let fx = (x + HALF) / cell, fz = (z + HALF) / cell; fx = fx < 0 ? 0 : fx > n ? n : fx; fz = fz < 0 ? 0 : fz > n ? n : fz;
+    let i = fx | 0, j = fz | 0; if (i >= n) i = n - 1; if (j >= n) j = n - 1;
+    const tx = fx - i, tz = fz - j, k = j * N + i, a = h[k], b = h[k + 1], c = h[k + N], d = h[k + N + 1];
+    return a + (b - a) * tx + (c - a) * tz + (a - b - c + d) * tx * tz;
+  };
+  // how much of the sun reaches a point: a walk towards it over the heights (steps that lengthen), soft at the edge
+  const sun = W.T.sun, sl = Math.hypot(sun[0], sun[1], sun[2]), sx = sun[0] / sl, sy = Math.max(0.03, sun[1] / sl), sz = sun[2] / sl;
+  const shade = (x, y, z) => {
+    let k = 1;
+    for (let i = 1; i <= 14; i++) {
+      const t = 1.6 * i + 0.55 * i * i, py = y + sy * t; if (py > hi + 1) break;
+      const d = (py - at(x + sx * t, z + sz * t)) / (0.7 + t * 0.07);
+      if (d < 1) { const v = d <= -1 ? 0 : (d + 1) / 2; if (v < k) { k = v; if (k <= 0) return 0; } }
+    }
+    return k * k * (3 - 2 * k);
+  };
+  return { n, N, cell, h, at, shade, hi };
+}
+// the sea's picture, finished for the GPU: the shadows the land and the islands cast on the water, and (as its alpha)
+// how near the shore each bit of water is, for the foam that comes in and the shallows' colour
+function seaPictures(W, map) {
+  const H = W.H, n = 256, k = MAP / n, T = W.T;
+  const sh = document.createElement("canvas"); sh.width = sh.height = n; const sg = sh.getContext("2d"), sd = sg.createImageData(n, n), s8 = sd.data;
+  const al = document.createElement("canvas"); al.width = al.height = n; const ag = al.getContext("2d"), ad = ag.createImageData(n, n), a8 = ad.data;
+  const dark = U.shade(T.deep, 0.35), dr = (dark >> 16) & 255, dg = (dark >> 8) & 255, db = dark & 255;
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+    const x = -HALF + (i + 0.5) * k, z = -HALF + (j + 0.5) * k, o = (j * n + i) * 4, hh = H.at(x, z);
+    s8[o] = dr; s8[o + 1] = dg; s8[o + 2] = db; s8[o + 3] = hh > 0.3 ? 0 : (1 - H.shade(x, 0.1, z)) * 150;
+    const a = clamp((hh + 3.4) / 3.4, 0, 1); a8[o] = a8[o + 1] = a8[o + 2] = a * 255; a8[o + 3] = 255;
+  }
+  sg.putImageData(sd, 0, 0); ag.putImageData(ad, 0, 0);
+  const g = map.getContext("2d"); g.imageSmoothingEnabled = true; g.drawImage(sh, 0, 0, map.width, map.height);
+  return al;
+}
+
 // the course from above, painted once: the sea's picture in 3D, and the ground of the 2D sea
 function paintMap(W, size, ground) {
   const T = W.T, c = document.createElement("canvas"); c.width = c.height = size;
-  const g = c.getContext("2d"), k = size / MAP, P = v => (v + HALF) * k, rnd = U.rand(W.C.seed * 7 + 1);
+  const g = c.getContext("2d", { willReadFrequently: true }), k = size / MAP, P = v => (v + HALF) * k, rnd = U.rand(W.C.seed * 7 + 1);
   g.fillStyle = hex(T.deep); g.fillRect(0, 0, size, size);
   g.globalAlpha = 0.07;                              // the water's own grain
   for (let i = 0; i < 260; i++) { g.fillStyle = rnd() < 0.5 ? "#ffffff" : "#000814"; g.beginPath(); g.ellipse(rnd() * size, rnd() * size, (8 + rnd() * 40) * k, (2 + rnd() * 6) * k, rnd() * 0.5 - 0.25, 0, TAU); g.fill(); }
@@ -403,8 +449,8 @@ function paintMap(W, size, ground) {
     if (o.kind === "green" || o.kind === "rock" || o.kind === "landmark") { g.fillStyle = hex(T.sand); g.beginPath(); g.arc(P(o.x), P(o.z), o.r * 1.08 * k, 0, TAU); g.fill(); }
     g.fillStyle = hex(o.kind === "green" || o.kind === "landmark" ? T.grass : o.kind === "floe" || o.kind === "berg" ? T.top2 : T.rock[1]); g.beginPath(); g.arc(P(o.x), P(o.z), o.r * 0.86 * k, 0, TAU); g.fill();
   }
-  for (const p of W.pads) {                          // boost pads: arrows on the water
-    g.save(); g.translate(P(p.x), P(p.z)); g.rotate(-p.yaw); g.fillStyle = "#ffd84a";
+  if (ground) for (const p of W.pads) {              // boost pads: arrows on the water (2D; the GPU draws them as light)
+    g.save(); g.translate(P(p.x), P(p.z)); g.rotate(-p.yaw); g.fillStyle = hex(PINK);
     for (let i = -1; i <= 1; i++) { g.beginPath(); g.moveTo(-3 * k, (i * 3.4 - 1) * k); g.lineTo(0, (i * 3.4 + 1.6) * k); g.lineTo(3 * k, (i * 3.4 - 1) * k); g.lineTo(3 * k, (i * 3.4 - 2.4) * k); g.lineTo(0, (i * 3.4 + 0.2) * k); g.lineTo(-3 * k, (i * 3.4 - 2.4) * k); g.closePath(); g.fill(); }
     g.restore();
   }
@@ -492,28 +538,35 @@ function sightMesh(s, T, m, glow) {                 // the big things on the lan
     glow.at(s.x, s.rim - 1.4, s.z); glow.stack([[s.crater * 1.04, 0], [s.crater * 0.98, 1.8]], 14, 0xff7a3a, null);   // (the rim's fire, seen from far off)
   }
 }
-function gateMesh(gt, T, m, glow) {
-  const nx = -gt.tz, nz = gt.tx, w = gt.w, light = T.lamps ? 0xfff0b8 : 0;
-  L3.Kit.buoy(m, gt.x + nx * w, gt.z + nz * w, T.buoyA, T.buoyB, glow, light); L3.Kit.buoy(m, gt.x - nx * w, gt.z - nz * w, T.buoyA, T.buoyB, glow, light);
-  m.at(gt.x, 0, gt.z, Math.atan2(gt.tx, gt.tz));
-  m.box(0, 6.2, 0, w * 2, 0.35, 0.3, T.banner, shade(T.banner, 1.1));            // the banner beam, pennants under it
-  for (let i = 0; i < 6; i++) { const x = -w + (i + 0.5) * (w * 2 / 6); m.both(x - 0.6, 6.1, 0, x + 0.6, 6.1, 0, x, 4.9, 0, i & 1 ? T.buoyB : T.buoyA); }
+function gateMesh(gt, T, m, glow) {                  // two floats with a lit mast each, a thin beam between, lights along it (few triangles: there's a gate every bend)
+  const nx = -gt.tz, nz = gt.tx, w = gt.w, yaw = Math.atan2(gt.tx, gt.tz);
+  const strip = (mm, x, y, z, sx, sy, col) => { mm.both(x - sx, y - sy, z, x + sx, y - sy, z, x + sx, y + sy, z, col); mm.both(x - sx, y - sy, z, x + sx, y + sy, z, x - sx, y + sy, z, col); };
+  for (const sd of [1, -1]) {
+    const x = gt.x + nx * w * sd, z = gt.z + nz * w * sd;
+    m.at(x, 0, z, yaw); m.stack([[1.1, -0.6], [1.1, 0.5], [0.3, 1.5]], 6, [T.buoyB, T.buoyA], null);
+    m.stack([[0.2, 1.3], [0.2, 6.9]], 3, T.buoyB, null);
+    glow.at(x, 0, z, yaw); strip(glow, 0, 4.3, 0.22, 0.26, 2.3, T.lamp); strip(glow, 0, 4.3, -0.22, 0.26, 2.3, T.lamp); glow.stack([[0.4, 6.7], [0.4, 7.4]], 4, T.lamp, T.lamp);
+  }
+  m.at(gt.x, 6.5, gt.z, yaw, 1, 1, 1, 0, Math.PI / 2); m.stack([[0.14, -w], [0.14, w]], 3, T.buoyB, null);   // (the beam: a thin stack laid across)
+  glow.at(gt.x, 0, gt.z, yaw);
+  for (let i = 0; i < 7; i++) strip(glow, -w + (i + 0.5) * (w * 2 / 7), 6.2, 0, 0.45, 0.09, i === 3 ? T.buoyA : T.lamp);
 }
 function padMesh(p, glow) {
   glow.at(p.x, 0.08, p.z, p.yaw);
   for (let i = -1; i <= 1; i++) {
     const z = i * 3.4;
-    glow.quad(-3, 0, z - 1, -3, 0, z - 2.4, 0, 0, z + 0.2, 0, 0, z + 1.6, 0xffd84a, 0, -1, z);
-    glow.quad(0, 0, z + 1.6, 0, 0, z + 0.2, 3, 0, z - 2.4, 3, 0, z - 1, 0xffd84a, 0, -1, z);
+    glow.quad(-3, 0, z - 1, -3, 0, z - 2.4, 0, 0, z + 0.2, 0, 0, z + 1.6, PINK, 0, -1, z);
+    glow.quad(0, 0, z + 1.6, 0, 0, z + 0.2, 3, 0, z - 2.4, 3, 0, z - 1, PINK, 0, -1, z);
   }
 }
 const RAMP = { front: 4, back: 2.5, top: 1.1 };      // a crest of the swell: rises over 4 along the line, falls in 2.5
 function rampMesh(rp, T, m, glow) {                 // a long low wave across the line, foam along its top
-  const w = rp.w, F = RAMP.front, B = RAMP.back, H = RAMP.top, c1 = mix(T.shallow, 0xffffff, 0.18), c2 = mix(T.deep, T.shallow, 0.5);
+  const w = rp.w, F = RAMP.front, B = RAMP.back, H = RAMP.top, c1 = mix(T.deep, T.shallow, 0.6), c2 = mix(T.deep, T.shallow, 0.2);   // (the water's own colours: a wave, not a wall)
   m.at(rp.x, 0, rp.z, Math.atan2(rp.tx, rp.tz)); m.jit = 0;
   m.quad(-w, -0.4, -F, w, -0.4, -F, w, H, 0, -w, H, 0, c1, 0, -5, 0); m.quad(-w, H, 0, w, H, 0, w, -0.4, B, -w, -0.4, B, c2, 0, -5, 0);
   for (const sx of [-w, w]) m.tri(sx, -0.4, -F, sx, H, 0, sx, -0.4, B, c2, sx * 2, 0, 0);
-  (T.glow ? glow : m).at(rp.x, 0, rp.z, Math.atan2(rp.tx, rp.tz)).quad(-w, H + 0.06, -0.5, w, H + 0.06, -0.5, w, H + 0.06, 0.45, -w, H + 0.06, 0.45, T.glow ? 0x7af8ff : 0xf2fbff, 0, -5, 0);
+  (T.glow ? glow : m).at(rp.x, 0, rp.z, Math.atan2(rp.tx, rp.tz)).quad(-w, H + 0.06, -0.9, w, H + 0.06, -0.9, w, H + 0.06, 0.6, -w, H + 0.06, 0.6, T.glow ? T.wakeCol : T.foam, 0, -5, 0);
+  m.quad(-w, H * 0.55, -F * 0.45, w, H * 0.55, -F * 0.45, w, H + 0.05, -0.9, -w, H + 0.05, -0.9, mix(c1, T.foam, 0.45), 0, -5, 0);   // (foam streaked down its face)
 }
 function kelpMesh(kb, m) {
   const kr = U.rand(Math.round(kb.x * 13 + kb.z * 7));
@@ -583,7 +636,7 @@ const OPTS = [
   { k: "sound", name: "Sounds", vals: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10] },
   { k: "camera", name: "Camera", vals: [0, 1], names: { 0: "Close", 1: "Further back" } },
   { k: "throttle", name: "Throttle", vals: [0, 1], names: { 0: "Hold to go", 1: "Always on" } },
-  { k: "crisp", name: "Pixels", vals: [0, 1], names: { 0: "Smooth", 1: "Crisp" } }
+  { k: "pixels", name: "Pixels", vals: [1, 0], names: { 0: "Smoothed", 1: "Crisp" } }
 ];
 const picks = { p1: "wren", p2: "wren" };
 let pausedFrom = null;
@@ -609,6 +662,7 @@ const menu = new L3.Menu({
     else if (act === "box") menu.show("box");
     else if (act === "back") menu.back();
     else if (act === "retest") retest();
+    else if (act === "check") location.href = "../probe/#games&run";   // (every game played for 15 s and timed; what it finds goes with the box's next report)
     else if (act === "course") { const i = +el.dataset.i; if (i < save.open) startRace(i); else { $("coursesHint").textContent = "Finish in the top three on " + COURSES[i - 1].name + " first."; synth.play("miss"); } }
     else if (act === "cupgo") { const i = +el.dataset.i; if (cupOpen(i)) startCup(i); else { $("cupsHint").textContent = "Win a trophy in the " + CUPS[i - 1].name + " first."; synth.play("miss"); } }
     else if (act === "resume") resume();
@@ -645,76 +699,91 @@ function hints() {
 }
 // each player's sticks and buttons: steer, throttle (A, RT, stick up), carve or brake (B, LT), boost (X, RB). One
 // player takes any controller and the keyboard; with two, each their own controller (the keyboard is player 1's too)
+function heldBy(p, pad, b) { return pad ? pad.held(b) || (p.k === 0 && input.key(b)) : input.held(b); }
 function readControls(p) {
-  const c = p.ctl, solo = players.length === 1, pad = solo ? null : input.player(p.n);
-  const held = b => solo ? input.held(b) : pad.held(b) || (p.k === 0 && input.key(b)), st = solo ? input.stick() : pad.stick();
+  const c = p.ctl, solo = players.length === 1, pad = solo ? null : input.player(p.n), st = solo ? input.stick() : pad.stick();
   let steer = st.x;
-  if (held("left")) steer = -1; else if (held("right")) steer = 1;
+  if (heldBy(p, pad, "left")) steer = -1; else if (heldBy(p, pad, "right")) steer = 1;
   c.steer = clamp(steer, -1, 1);
-  c.throttle = held("a") || held("rt") || (p.k === 0 && input.key("up")) || st.y < -0.75 || save.opts.throttle ? 1 : 0;
-  c.carve = held("b") || held("lt") || (p.k === 0 && input.key("down"));
-  c.boost = held("x") || held("rb");
+  c.throttle = heldBy(p, pad, "a") || heldBy(p, pad, "rt") || (p.k === 0 && input.key("up")) || st.y < -0.75 || save.opts.throttle ? 1 : 0;
+  c.carve = heldBy(p, pad, "b") || heldBy(p, pad, "lt") || (p.k === 0 && input.key("down"));
+  c.boost = heldBy(p, pad, "x") || heldBy(p, pad, "rb");
 }
 
 // ---------------------------------------------------------------- the engine: the screen, tuning, the loop
 const E = L3.game({
   id: "tidewing", view: $("view"), gl: $("gl"), flat: $("flat"), fps: $("fps"), input,
   loading: { el: $("loading"), bar: $("loadbar"), text: $("loadtext") },
-  picture: () => save.opts.picture,
-  ready() { setCourse(0, true); state = "attract"; if (E.demo) window.SofaStats.demo = true; else menu.show("title"); hints(); synth.start(); volumes(); synth.song({ seed: COURSES[0].seed, root: 50 + COURSES[0].key, tempo: COURSES[0].tempo, calm: true }); crisp(); },
-  prepare, rung: applyRung, update, draw, paused: () => state === "paused"
+  picture: () => save.opts.picture, smooth: () => !save.opts.pixels,
+  ready() { setCourse(0, true); state = "attract"; if (E.demo) window.SofaStats.demo = true; else menu.show("title"); hints(); synth.start(); volumes(); synth.song({ seed: COURSES[0].seed, root: 50 + COURSES[0].key, tempo: COURSES[0].tempo, calm: true }); },
+  prepare, rung: applyRung, update, draw, paused: () => state === "paused", resized: () => { frozen = false; hudAt = 0; hudKey = null; }
 });
-function crisp() { $("view").classList.toggle("crisp", !!save.opts.crisp); }
 
 // ---------------------------------------------------------------- the world on the GPU, or baked for the 2D sea
-let G = null, F = null;
+let G = null, F = null, GW = null;
+const RIP = { g3: null, rich: false, tex: null };
 const SPRITES = new Map();
 function prepare() {
   if (!world) return;
-  freeGL(); F = null;
+  freeGL(); F = null; frozen = false; hudAt = 0;
   if (E.mode === "gl") prepareGL(world, world.T); else prepareFlat(world, world.T);
   applyRung(); drawMinimapBase();
 }
-function lightOf(T) { return { sun: T.sun, sunCol: T.sunCol, amb: T.amb, ground: T.ground, fog: T.fog, top: T.top, horizon: T.horizon }; }
+function lightOf(T) { return { sun: T.sun, sunCol: T.sunCol, amb: T.amb, ground: T.ground, fog: T.fog, fogSun: T.fogSun == null ? T.fog : T.fogSun, top: T.top, horizon: T.horizon }; }
+function skyOf(T, w, h) {                              // what Kit.sky paints for a theme: the sun or moon where the light comes from
+  const s = T.sun, l = Math.hypot(s[0], s[1], s[2]);
+  return { w, h: h || 256, top: T.top, mid: T.mid, horizon: T.horizon, haze: T.haze, seed: T.top & 0xffff, stars: T.stars, ridges: T.ridges, clouds: T.clouds,
+    sun: T.disc ? Object.assign({ az: Math.atan2(s[0], s[2]), el: Math.asin(s[1] / l) }, T.disc) : null };
+}
+// The world on the GPU, the second way (Low3D): its light and shadows baked into its colours, one picture for the sea,
+// one for the sky, ripples; one mesh for every see-through thing and one for dots (spray, snow, ash)
 function prepareGL(W, T) {
-  const g3 = E.g3;
-  G = { crafts: [], mat: new Float32Array(16) };
-  G.tex = g3.texture(paintMap(W, MAP, false), true);
-  G.world = new L3.Chunks(MAP, 128);
-  if (W.land) W.land.mesh(G.world, landColour(T), 0);
-  for (const o of W.islands) islandMesh(o, T, G.world.mesh(o.x, o.z), G.world.mesh(o.x, o.z, "detail"), G.world.mesh(o.x, o.z, "glow"));
-  for (const s of W.sights) sightMesh(s, T, G.world.mesh(s.x, s.z, "detail"), G.world.mesh(s.x, s.z, "glow"));
-  for (const gt of W.gates) gateMesh(gt, T, G.world.mesh(gt.x, gt.z), G.world.mesh(gt.x, gt.z, "glow"));
-  for (const p of W.pads) padMesh(p, G.world.mesh(p.x, p.z, "glow"));
-  for (const rp of W.ramps) rampMesh(rp, T, G.world.mesh(rp.x, rp.z), G.world.mesh(rp.x, rp.z, "glow"));
-  for (const k of W.kelp) kelpMesh(k, G.world.mesh(k.x, k.z, "detail"));
-  G.world.upload(g3);
-  G.hills = g3.upload(L3.Kit.hills(W.hills, T.hill));
-  G.seaFlat = seaMeshes(false).map(m => g3.upload(m));
-  G.seaWave = null;                                  // (made when a rung first wants waves: never on a Pi 3)
+  const g3 = E.g3, rich = E.rung.look > 0, key = W.C.id + "|" + rich;
+  // the water's world (its pictures, its chunks) is kept from one race on it to the next, and from the title's turn
+  // round it to the race: only another water, or another look, builds it again
+  if (!GW || GW.g3 !== g3 || GW.key !== key) {
+    freeWorld();
+    GW = { g3, key };
+    if (!W.H) W.H = heightsOf(W);
+    const map = paintMap(W, MAP, false), shore = seaPictures(W, map);
+    GW.tex = g3.picture(map, { alpha: shore, mip: true });
+    GW.sky = g3.picture(L3.Kit.sky(skyOf(T, Math.min(E.probe.maxTex || 2048, rich ? 4096 : 2048), rich ? 512 : 256)), { round: true });
+    const world = GW.world = new L3.Chunks(MAP, 256);
+    if (W.land) W.land.mesh(world, landColour(T), 0, "base", { coarse: W.land.inner({ above: 8, drop: 8 }), under: 0.3 });   // (high ground behind its cliffs: big triangles; nothing built under the water)
+    for (const o of W.islands) islandMesh(o, T, world.mesh(o.x, o.z), world.mesh(o.x, o.z, "detail"), world.mesh(o.x, o.z, "glow"));
+    for (const s of W.sights) sightMesh(s, T, world.mesh(s.x, s.z, "detail"), world.mesh(s.x, s.z, "glow"));
+    for (const gt of W.gates) gateMesh(gt, T, world.mesh(gt.x, gt.z), world.mesh(gt.x, gt.z, "glow"));
+    for (const p of W.pads) padMesh(p, world.mesh(p.x, p.z, "glow"));
+    for (const rp of W.ramps) rampMesh(rp, T, world.mesh(rp.x, rp.z), world.mesh(rp.x, rp.z, "glow"));
+    for (const k of W.kelp) kelpMesh(k, world.mesh(k.x, k.z, "detail"));
+    world.upload(g3, { light: lightOf(T), shade: W.H.shade, sky: (x, y, z) => 0.66 + 0.34 * clamp((y + 0.4) / 6, 0, 1) });
+  }
+  if (RIP.g3 !== g3 || RIP.rich !== rich) {          // (what every water shares, made once: the ripples, the sea's sheet, the meshes built again each frame)
+    RIP.g3 = g3; RIP.rich = rich; RIP.tex = g3.picture(null, L3.Kit.ripples(rich ? 256 : 128, 5));
+    const sea = new L3.Mesh(8), F = 4000, up = (ax, az, bx, bz, cx, cz) => sea.tri(ax, 0, az, bx, 0, bz, cx, 0, cz, 0xffffff, ax, -1, az);
+    sea.at(0, 0, 0); up(-F, -F, F, -F, F, F); up(-F, -F, F, F, -F, F); RIP.sea = g3.upload(sea);
+    RIP.fxM = new L3.Mesh(4096); RIP.fx = g3.upload(RIP.fxM, true);
+    RIP.dotM = new L3.Mesh(64 + WX.max + 2); RIP.dot = g3.upload(RIP.dotM, true);
+    g3.warm(["still", "move", "dome", "water", "fx", "fxDots", "ui"]); if (rich || E.gov.top > 5) g3.warm(["waterRich"]);   // (made now: the first use of a program is a pause)
+  }
+  G = { crafts: [], mat: new Float32Array(16), tex: GW.tex, sky: GW.sky, world: GW.world, rip: RIP.tex, sea: RIP.sea, fxM: RIP.fxM, fx: RIP.fx, dotM: RIP.dotM, dot: RIP.dot };
   for (const r of racers) G.crafts.push(g3.upload(craftMesh(r.def.col, r.def.trim, r.K.shape)));
   if (ghost) G.ghost = g3.upload(craftMesh(0xbfefff, 0xffffff, CRAFT_BY[ghost.c].shape));
-  G.flame = g3.upload(flameMesh());
-  G.shadow = g3.upload(L3.Kit.shadow(1.35, 2.5));
-  const gem = new L3.Mesh(32); gem.ico(0.7, 0x9ff4ff); G.gem = g3.upload(gem);
-  const nx = new L3.Mesh(64); nx.at(0, 0, 0);       // the next gate's light: chevrons over it
-  for (let k = 0; k < 2; k++) { const y = 8.4 + k * 1.6; nx.both(-1.6, y + 1.2, 0, 1.6, y + 1.2, 0, 0, y, 0, 0xffffff); }
-  G.next = g3.upload(nx);
-  G.wakeM = new L3.Mesh(22 * 6 * 5 + 6); G.wake = g3.upload(G.wakeM, true);
-  G.sprayM = new L3.Mesh(65); G.spray = g3.upload(G.sprayM, true);
-  G.wxM = new L3.Mesh(WX.max * 6 + 6); G.wx = g3.upload(G.wxM, true);
   g3.light(lightOf(T));
 }
-function freeGL() {
+function freeGL() {                                  // the racers' own meshes (the water's world stays: freeWorld)
   if (!G || !E.g3) { G = null; return; }
-  const g3 = E.g3; G.world.free();
-  for (const h of [G.hills, G.flame, G.shadow, G.gem, G.next, G.wake, G.spray, G.wx, G.ghost].concat(G.crafts, G.seaFlat, G.seaWave || [])) g3.free(h);
-  g3.gl.deleteTexture(G.tex); G = null;
+  for (const h of [G.ghost].concat(G.crafts)) E.g3.free(h);
+  G = null;
+}
+function freeWorld() {
+  if (GW && GW.g3 === E.g3 && E.g3) { GW.world.free(); for (const t of [GW.tex, GW.sky]) E.g3.gl.deleteTexture(t); }
+  GW = null;
 }
 function prepareFlat(W, T) {
   const flat = E.flat;
   flat.ground(paintMap(W, E.rung.h >= 160 ? 1024 : 512, true), -HALF, -HALF, MAP, T.deep);
-  flat.air({ top: T.top, horizon: T.horizon, fog: T.fog, hill: mix(T.hill, T.fog, 0.45), hills: L3.Kit.skyline(W.hills, 720) });
+  flat.air({ top: T.top, horizon: T.horizon, fog: T.fog, hill: mix(T.ridges ? T.ridges[0].col : T.fog, T.fog, 0.35), hills: L3.Kit.skyline(W.hills, 720) });
   const light = { sun: [-0.45, 0.8, -0.4], sunCol: U.rgb01(T.sunCol), amb: U.rgb01(T.amb), ground: U.rgb01(T.ground) };
   F = { islands: [], crafts: [], banks: [], sights: [] };
   for (const o of W.islands) {                       // each island baked once, from one side
@@ -761,16 +830,16 @@ function craftSprites(W, col, trim, K, ai, light) {   // a craft from 16 sides (
 function applyRung() {
   if (!world || !E.rung) return;
   const T = world.T, far = E.rung.far * (T.far || 1);
-  if (E.mode === "gl" && G && E.rung.waves && !G.seaWave && E.g3.can("waves")) G.seaWave = seaMeshes(true).map(m => E.g3.upload(m));
   if (E.mode === "gl" && E.g3) E.g3.light({ near: far * T.near, far });
-  if (E.mode === "flat" && E.flat) E.flat.air({ near: far * T.near, far });
+  if (E.mode === "flat" && E.flat) E.flat.air({ near: Math.min(far, 280) * T.near, far: Math.min(far, 280) });
+  hudAt = 0;
 }
 
 // ---------------------------------------------------------------- the race
 let state = "boot", raceT = 0, countT = 0, introT = 0, endT = 0;
 const camA = L3.camera();                         // (the title's camera: round the course)
 function newPlayer(k, n) {
-  return { k, n, racer: null, cam: L3.camera(), ctl: { steer: 0, throttle: 0, carve: false, boost: false }, sayT: 0, sayText: "", shake: 0, el: null, texts: {}, rec: [], recT: 0 };
+  return { k, n, racer: null, cam: L3.camera(), ctl: { steer: 0, throttle: 0, carve: false, boost: false }, sayT: 0, sayText: "", shake: 0, rec: [], recT: 0 };
 }
 // the racers: the three rivals and the players (one or two; none on the title, where a fourth rival takes the place;
 // a time trial: the player alone, and the ghost of their best lap)
@@ -812,7 +881,7 @@ function startRace(ci) {
   else if (mode === "cup") for (const p of players) say(p, CUPS[cup.i].name + "<small>race " + (cup.race + 1) + " of 4 · " + C.name + "</small>", 3);
 }
 function startCountdown() { state = "countdown"; countT = 0; for (const p of players) say(p, "3"); synth.play("beep"); }
-function say(p, text, secs) { if (!p) return; p.sayText = text; p.sayT = secs || 0; if (p.el) p.el.say.innerHTML = text; }
+function say(p, text, secs) { if (!p) return; p.sayText = text; p.sayT = secs || 0; hudAt = 0; }
 const gateU = r => { const N = world.gates.length; return Math.floor(r.passed / N) * world.len + world.gates[r.passed % N].s; };
 function lapOf(r) { const N = world.gates.length; return r.passed < 1 ? 1 : Math.min(LAPS, Math.floor((r.passed - 1) / N) + 1); }
 function along(r) {                                // where the racer is along the line; how far off it
@@ -845,17 +914,17 @@ function stepRacer(r, dt) {
   const W = world, P = W.P, p = r.p;
   r.px = r.x; r.pz = r.z;
   if (r.ai) stepAI(r, dt); else stepYou(r, dt);
-  if (r.jy <= 0) for (const kb of W.kelp) if ((r.x - kb.x) ** 2 + (r.z - kb.z) ** 2 < kb.r * kb.r) { const k = Math.exp(-1.6 * dt); r.vx *= k; r.vz *= k; r.weed = 1; }
-  for (const pd of W.pads) if ((r.x - pd.x) ** 2 + (r.z - pd.z) ** 2 < 16 && r.padT <= 0 && r.jy <= 0.3) {
+  if (r.jy <= 0) for (let q = 0; q < W.kelp.length; q++) { const kb = W.kelp[q]; if ((r.x - kb.x) * (r.x - kb.x) + (r.z - kb.z) * (r.z - kb.z) < kb.r * kb.r) { const k = Math.exp(-1.6 * dt); r.vx *= k; r.vz *= k; r.weed = 1; } }
+  for (let q = 0; q < W.pads.length; q++) { const pd = W.pads[q]; if (!((r.x - pd.x) * (r.x - pd.x) + (r.z - pd.z) * (r.z - pd.z) < 16 && r.padT <= 0 && r.jy <= 0.3)) continue;
     const fx = Math.sin(r.yaw), fz = Math.cos(r.yaw), sp = Math.max(r.vx * fx + r.vz * fz, 0), to = Math.max(sp, 50);
     r.vx += fx * (to - sp); r.vz += fz * (to - sp); r.padT = 1.0; if (r.ai) r.speed = Math.max(r.speed, 46);
     if (p) { synth.play("pad"); spray.emit(r.x, 0.3, r.z, 8, 6); }
   }
   if (r.padT > 0) r.padT -= dt;
-  if (p) for (const sp of W.sparks) if (!sp.got && (r.x - sp.x) ** 2 + (r.z - sp.z) ** 2 < 9 && r.jy < 2.5) { sp.got = true; r.boost = Math.min(1, r.boost + 0.12); synth.play("spark"); }
+  if (p) for (let q = 0; q < W.sparks.length; q++) { const sp = W.sparks[q]; if (!sp.got && (r.x - sp.x) * (r.x - sp.x) + (r.z - sp.z) * (r.z - sp.z) < 9 && r.jy < 2.5) { sp.got = true; r.boost = Math.min(1, r.boost + 0.12); synth.play("spark"); } }
   ramps(r, dt);
-  for (const o of W.islands) {                       // the rocks: pushed off, slowed, a thud
-    const dx = r.x - o.x, dz = r.z - o.z, rr = o.r + 1.4, d2 = dx * dx + dz * dz;
+  for (let q = 0; q < W.islands.length; q++) {       // the rocks: pushed off, slowed, a thud
+    const o = W.islands[q], dx = r.x - o.x, dz = r.z - o.z, rr = o.r + 1.4, d2 = dx * dx + dz * dz;
     if (d2 < rr * rr) {
       const d = Math.sqrt(d2) || 1, nx = dx / d, nz = dz / d, vn = r.vx * nx + r.vz * nz;
       r.x = o.x + nx * rr; r.z = o.z + nz * rr;
@@ -879,8 +948,8 @@ function stepRacer(r, dt) {
 }
 function shore(r, land) {                         // the land's edge: turned back and slowed, a thud (never left standing on it)
   let h = land.at(r.x, r.z); if (h <= -0.45) return;
-  land.slope(r.x, r.z, SL); let nx = -SL[0], nz = -SL[1], l = Math.hypot(nx, nz);
-  if (l < 1e-4) { nx = r.px - r.x; nz = r.pz - r.z; l = Math.hypot(nx, nz) || 1; }
+  land.slope(r.x, r.z, SL); let nx = -SL[0], nz = -SL[1], l = Math.sqrt(nx * nx + nz * nz);
+  if (l < 1e-4) { nx = r.px - r.x; nz = r.pz - r.z; l = Math.sqrt(nx * nx + nz * nz) || 1; }
   nx /= l; nz /= l;
   for (let k = 0; k < 12 && h > -0.45; k++) { r.x += nx * 0.35; r.z += nz * 0.35; h = land.at(r.x, r.z); }
   const vn = r.vx * nx + r.vz * nz;
@@ -889,8 +958,8 @@ function shore(r, land) {                         // the land's edge: turned bac
 }
 function ramps(r, dt) {                            // the swell's crests: ride up the front and leave it at speed; landing fills the boost
   let lift = 0;
-  for (const rp of world.ramps) {
-    const dx = r.x - rp.x, dz = r.z - rp.z, a = dx * rp.tx + dz * rp.tz;
+  for (let q = 0; q < world.ramps.length; q++) {
+    const rp = world.ramps[q], dx = r.x - rp.x, dz = r.z - rp.z, a = dx * rp.tx + dz * rp.tz;
     if (a < -RAMP.front - 1 || a > 1 || Math.abs(-dx * rp.tz + dz * rp.tx) > rp.w) continue;
     if (a <= 0) lift = Math.max(lift, (1 + a / RAMP.front) * RAMP.top);
     const a0 = (r.px - rp.x) * rp.tx + (r.pz - rp.z) * rp.tz, fwd = r.vx * rp.tx + r.vz * rp.tz;
@@ -912,8 +981,8 @@ function ramps(r, dt) {                            // the swell's crests: ride u
 }
 function slipstream(r) {                           // just behind another, in line, going its way: less drag, and the boost fills
   let best = 0;
-  for (const o of racers) {
-    if (o === r || o.jy > 0.5 || o.speed < 18) continue;
+  for (let q = 0; q < racers.length; q++) {
+    const o = racers[q]; if (o === r || o.jy > 0.5 || o.speed < 18) continue;
     const fx = Math.sin(o.yaw), fz = Math.cos(o.yaw), dx = o.x - r.x, dz = o.z - r.z, ahead = dx * fx + dz * fz, side = Math.abs(dx * fz - dz * fx);
     if (ahead > 2.5 && ahead < 18 && side < 2.4 && Math.sin(r.yaw) * fx + Math.cos(r.yaw) * fz > 0.85) best = Math.max(best, 1 - (ahead - 2.5) / 15.5 * 0.5);
   }
@@ -923,7 +992,7 @@ function stepYou(r, dt) {
   const K = r.K, c = r.p.ctl, go = state === "race" && !r.done, steer = go ? c.steer : 0, thr = go ? c.throttle : 0, airborne = r.jy > 0;
   const fx = Math.sin(r.yaw), fz = Math.cos(r.yaw);
   let fwd = r.vx * fx + r.vz * fz, lat = r.vx * fz - r.vz * fx;           // (lat: to the left)
-  const speed = Math.hypot(r.vx, r.vz);
+  const speed = Math.sqrt(r.vx * r.vx + r.vz * r.vz);
   r.draft += (slipstream(r) - r.draft) * (1 - Math.exp(-4 * dt));
   r.carve = go && c.carve && Math.abs(steer) > 0.3 && speed > 14 && !airborne ? 1 : 0;
   const braking = go && c.carve && !r.carve && !airborne;
@@ -943,7 +1012,7 @@ function stepYou(r, dt) {
   const nfx = Math.sin(r.yaw), nfz = Math.cos(r.yaw);
   r.vx = nfx * fwd + nfz * lat; r.vz = nfz * fwd - nfx * lat;
   r.x += r.vx * dt; r.z += r.vz * dt;
-  r.speed = Math.hypot(r.vx, r.vz); r.throttle = thr;
+  r.speed = Math.sqrt(r.vx * r.vx + r.vz * r.vz); r.throttle = thr;
   r.bank += (clamp(-r.yr * 0.22 - lat * 0.012, -0.5, 0.5) - r.bank) * (1 - Math.exp(-6 * dt));
   if (r.carve && Math.random() < 0.5) { const sd = Math.sign(steer); spray.emit(r.x - nfx * 1.5 + nfz * sd * 1.2, 0.3, r.z - nfz * 1.5 - nfx * sd * 1.2, 1, 3); }
 }
@@ -951,7 +1020,7 @@ function stepAI(r, dt) {
   const W = world, P = W.P, going = state === "race" || state === "attract";
   r.draft += (slipstream(r) - r.draft) * (1 - Math.exp(-4 * dt));
   let target = going ? 35.5 * r.pace * (1 - clamp(P.curve[(r.si + 6) % P.n] * 0.55, 0, 0.32)) * (1 + r.draft * 0.035) : 0;   // slower into bends
-  const lead = players.reduce((a, p) => p.racer.done ? a : Math.max(a, p.racer.u), -1e9);
+  let lead = -1e9; for (let k = 0; k < players.length; k++) { const q = players[k].racer; if (!q.done && q.u > lead) lead = q.u; }
   if (lead > -1e9 && state === "race") target *= 1 + clamp((lead - r.u) / 400, -0.08, 0.1);    // pulled a little towards the players
   if (r.weed) { target *= 0.6; r.weed = 0; }
   if (r.done) target = 24;
@@ -981,7 +1050,7 @@ function bumpRacers() {                            // craft against craft (the h
       const rv = (b.vx - a.vx) * nx + (b.vz - a.vz) * nz;
       if (rv < 0) {
         a.vx += rv * nx * ka; a.vz += rv * nz * ka; b.vx -= rv * nx * kb2; b.vz -= rv * nz * kb2;
-        if (a.ai) a.speed = Math.hypot(a.vx, a.vz); if (b.ai) b.speed = Math.hypot(b.vx, b.vz);
+        if (a.ai) a.speed = Math.sqrt(a.vx * a.vx + a.vz * a.vz); if (b.ai) b.speed = Math.sqrt(b.vx * b.vx + b.vz * b.vz);
         if ((a.p || b.p) && rv < -5) { synth.play("bump"); if (a.p) a.p.shake = 0.2; if (b.p) b.p.shake = 0.2; }
       }
     }
@@ -999,10 +1068,10 @@ function places() {                                // who's ahead (an insertion 
 function update(dt) {                              // 60 times a second
   if (state === "race" || state === "countdown" || state === "intro" || state === "done" || state === "attract") {
     if (state === "race" || state === "done" || state === "attract") raceT += dt;
-    for (const p of players) readControls(p);
+    for (let k = 0; k < players.length; k++) readControls(players[k]);
     for (let i = 0; i < racers.length; i++) stepRacer(racers[i], dt);
     bumpRacers(); places(); spray.step(dt, 14, 0);
-    for (const p of players) if (p.shake > 0) p.shake = Math.max(0, p.shake - dt);
+    for (let k = 0; k < players.length; k++) { const p = players[k]; if (p.shake > 0) p.shake = Math.max(0, p.shake - dt); }
     weather(dt);
   }
   if (state === "intro") { introT += dt; if (introT > 3.2) startCountdown(); }
@@ -1012,9 +1081,10 @@ function update(dt) {                              // 60 times a second
     if (countT >= 3) { state = "race"; raceT = 0; for (const p of players) say(p, "Go!", 0.8); synth.play("go"); for (const r of racers) r.lapT = 0; }
   }
   if (endT > 0 && state === "race") { endT -= dt; if (endT <= 0) allDone(); }
-  for (const p of players) if (p.sayT > 0) { p.sayT -= dt; if (p.sayT <= 0) say(p, ""); }
+  for (let k = 0; k < players.length; k++) { const p = players[k]; if (p.sayT > 0) { p.sayT -= dt; if (p.sayT <= 0) say(p, ""); } }
   if (engine && you) {
-    const r = players.reduce((a, p) => p.racer.speed > a.speed ? p.racer : a, you), k = clamp((state === "race" ? r.speed : 0) / 50, 0, 1.2), b = r.boosting;
+    let r = you; for (let k = 1; k < players.length; k++) if (players[k].racer.speed > r.speed) r = players[k].racer;
+    const k = clamp((state === "race" ? r.speed : 0) / 50, 0, 1.2), b = r.boosting;
     engine.set(48 + k * 70 + b * 18, 300 + k * 900 + r.throttle * 300 + b * 900, 0.05 + r.throttle * 0.05 + b * 0.04);
     hiss.set(0, 900 + k * 1400, k * 0.11 + b * 0.05);
   }
@@ -1039,7 +1109,7 @@ function allDone() {
     if (r.place <= 3 && course + 2 > save.open) save.open = Math.min(COURSES.length, course + 2);
   }
   if (mode === "cup") cupPoints();
-  store();
+  store(); E.tell();                                  // (how it ran, for the box's report)
   setTimeout(() => { if (mode === "cup") showStandings(); else showResults(); }, 2200);
 }
 
@@ -1064,7 +1134,7 @@ function showStandings() {
     if (place <= 3) {
       const had = save.cups[C.id]; save.cups[C.id] = Math.min(had || 9, place);
       const won = Object.keys(UNLOCK).find(id => UNLOCK[id] === C.id);
-      note = MEDAL[place] + " " + ["", "Gold", "Silver", "Bronze"][place] + " in the " + C.name + "." + (!had && won ? " A new skimmer: the " + CRAFT_BY[won].name + "." : "") + (!had && cup.i + 1 < CUPS.length ? " The " + CUPS[cup.i + 1].name + " is open." : "");
+      note = ["", "First", "Second", "Third"][place] + " place in the " + C.name + "." + (!had && won ? " A new skimmer: the " + CRAFT_BY[won].name + "." : "") + (!had && cup.i + 1 < CUPS.length ? " The " + CUPS[cup.i + 1].name + " is open." : "");
       synth.play("trophy");
     } else note = "Finish in the top three overall for a trophy.";
     store();
@@ -1074,7 +1144,7 @@ function showStandings() {
     `<tr class="${e.human ? "you" : ""}"><td class="n">${i + 1}</td><td style="color:${hex(e.col)}">${U.esc(e.name)}</td><td>${ord(e.place)}</td><td class="n">${e.pts}</td></tr>`).join("");
   $("standNote").textContent = note;
   $("standButtons").innerHTML = final ? `<div class="item" data-do="cupdone">Done</div>` : `<div class="item" data-do="cupnext">Next race</div>`;
-  engineOn(false); $("hud").classList.add("hidden"); menu.show("standings");
+  engineOn(false); menu.show("standings");
 }
 function toCups() { const c = cup; mode = "single"; toCourses(true); cup = null; menu.show("cups"); if (c) menu.focus(c.i); }
 
@@ -1143,23 +1213,7 @@ function rects() {
   if (players.length < 2 || state === "attract") return [[0, 0, w, h]];
   return [[0, 0, w, h >> 1], [0, h >> 1, w, h - (h >> 1)]];
 }
-function setupHUD() {
-  const box = $("pvs"); box.innerHTML = ""; const split = players.length > 1;
-  $("hud").classList.toggle("split", split); $("divider").classList.toggle("hidden", !split); $("hud").classList.remove("hidden");
-  players.forEach((p, k) => {
-    const el = document.createElement("div"); el.className = "pv" + (split ? " half" : "") + (mode === "trial" ? " trial" : "");
-    if (split) { el.style.top = k * 50 + "%"; el.style.height = "50%"; }
-    el.innerHTML = `<div class="place">1<small>st</small></div><div class="lap"></div><div class="clock"></div><div class="who"></div>` +
-      `<svg class="arrow hidden" viewBox="0 0 24 24"><path d="M12 2 22 20 12 15 2 20Z" fill="currentColor"/></svg>` +
-      `<div class="boostlabel"></div><div class="boostbar"><div class="boostfill"></div></div><div class="say"></div>`;
-    box.appendChild(el);
-    const q = s => el.querySelector(s);
-    p.el = { root: el, place: q(".place"), lap: q(".lap"), clock: q(".clock"), who: q(".who"), arrow: q(".arrow"), label: q(".boostlabel"), fill: q(".boostfill"), say: q(".say") };
-    p.texts = {};
-    if (split) { p.el.who.textContent = p.racer.def.name; p.el.who.style.color = hex(p.racer.def.col); }
-  });
-  $("minimap").classList.toggle("hidden", mode === "trial" && !world.land);
-}
+function setupHUD() { hudAt = 0; }                  // (what's written on the race is drawn in the picture: drawHUD)
 
 // ---------------------------------------------------------------- the camera
 function updateCam(p, cam, dt, now, split) {
@@ -1193,86 +1247,131 @@ function swellOf(r) {                               // how the sea lifts a racer
 }
 
 // ---------------------------------------------------------------- drawing
+const RECTS = [[0, 0, 0, 0], [0, 0, 0, 0]];
+let frozen = false, menuWas = null;
 function draw(now, dt) {
-  const R = rects(), fk = flashK();
-  if (E.mode === "gl" && G) {                       // lightning: the sky and the air light up a moment
-    const T = world.T;
-    if (fk > 0 || G.lit) { G.lit = fk > 0; E.g3.light({ fog: mix(T.fog, 0xeef4ff, fk * 0.55), top: mix(T.top, 0xdde8ff, fk * 0.7), horizon: mix(T.horizon, 0xffffff, fk * 0.6), amb: mix(T.amb, 0xffffff, fk * 0.5) }); }
+  if (menu.at !== menuWas) { menuWas = menu.at; frozen = false; hudAt = 0; }   // (another screen: dimmed for it, drawn once more)
+  // a menu that covers the picture: one dim frame behind it, then nothing drawn until it's gone (the browser has
+  // nothing to put together again, and the menu answers at once)
+  const solid = menu.at && menu.at !== "title" && menu.at !== "pause" && menu.at !== "results";
+  if (solid && frozen) return false;
+  frozen = solid;
+  const fk = flashK(), T = world.T;
+  if (E.mode === "gl" && G) {                       // lightning: the sky, the air and the water light up a moment
+    E.g3.shine(1 + fk * 0.9, 1 + fk * 0.95, 1 + fk * 1.1);
+    if (fk > 0 || G.lit) { G.lit = fk > 0; E.g3.light({ fog: mix(T.fog, 0xeef4ff, fk * 0.5), fogSun: mix(T.fogSun == null ? T.fog : T.fogSun, 0xffffff, fk * 0.5), amb: mix(T.amb, 0xffffff, fk * 0.5) }); }
   }
-  if (E.mode === "flat" && F) { const T = world.T; if (fk > 0 || F.lit) { F.lit = fk > 0; E.flat.air({ fog: mix(T.fog, 0xeef4ff, fk * 0.55), top: mix(T.top, 0xdde8ff, fk * 0.7), horizon: mix(T.horizon, 0xffffff, fk * 0.6) }); } }
-  const fo = (fk * 0.22).toFixed(3); if (fo !== draw.fo) { draw.fo = fo; $("flash").style.opacity = fo; }
-  if (!players.length || state === "attract") { updateCam(null, camA, dt, now, false); (E.mode === "gl" ? drawGL : drawFlat)(now, camA, null, null); return; }
-  players.forEach((p, k) => {
-    updateCam(p, p.cam, dt, now, R.length > 1);
-    (E.mode === "gl" ? drawGL : drawFlat)(now, p.cam, p, R.length > 1 ? R[k] : null);
-  });
-  drawHUD(now);
+  if (E.mode === "flat" && F) { if (fk > 0 || F.lit) { F.lit = fk > 0; E.flat.air({ fog: mix(T.fog, 0xeef4ff, fk * 0.55), top: mix(T.top, 0xdde8ff, fk * 0.7), horizon: mix(T.horizon, 0xffffff, fk * 0.6) }); } }
+  const one = !players.length || state === "attract", n = one ? 1 : players.length, [w, h] = E.size();
+  for (let k = 0; k < n; k++) {
+    const p = one ? null : players[k], cam = p ? p.cam : camA, R = RECTS[k];
+    R[0] = 0; R[1] = n > 1 ? k * (h >> 1) : 0; R[2] = w; R[3] = n > 1 ? (k ? h - (h >> 1) : h >> 1) : h;
+    updateCam(p, cam, dt, now, n > 1);
+    (E.mode === "gl" ? drawGL : drawFlat)(now, cam, p, n > 1 ? R : null);
+  }
+  drawHUD(now, w, h, n, solid);
 }
 function heightOf(r, i) { return 0.55 + Math.sin(raceT * 3 + i) * 0.06 + swellOf(r) + r.ry + r.jy; }
+// one view. The sky first; then, under the water, what shows in it (the sky again, the near world and the craft, all
+// upside down); the water over that, see-through at a glancing angle; then the world itself, the craft, and last
+// every see-through thing in one mesh and the dots in another.
 function drawGL(now, cam, p, rect) {
-  const g3 = E.g3, W = world, T = W.T, R = E.rung, far = R.far * (T.far || 1), M = G.mat;
+  const g3 = E.g3, W = world, T = W.T, R = E.rung, far = R.far * (T.far || 1), M = G.mat, turn = raceT * 0.0006;
   L3.begin(E, cam, 0.6, 2600, rect);
-  const L = g3.L, n0 = L.fog[0], f0 = L.fog[1];       // far hills, in their own haze
-  L.fog[0] = 500; L.fog[1] = T.near < 0.3 ? 1040 : 2600; g3.frame++;
-  g3.lit(G.hills, null, 1, 1, 1, 0);
-  L.fog[0] = n0; L.fog[1] = f0; g3.frame++;
+  g3.dome(G.sky, turn);
+  const mirror = rect ? Math.min(R.mirror, 1) : R.mirror;   // (two views: the near world's mirror images only, half as far: each view draws the world again)
+  g3.seeUnder = mirror > 0;
+  for (let i = 0; i < racers.length; i++) { const r = racers[i], dx = r.x - cam.x, dz = r.z - cam.z; r.y = heightOf(r, i); r.far = Math.sqrt(dx * dx + dz * dz); r.seen = r.far < far + 5 && g3.sees(r.x, 1, r.z, 4); }
+  if (mirror) {
+    g3.mirror(true);
+    if (mirror > 1) g3.dome(G.sky, turn);
+    G.world.draw(g3, cam.x, cam.z, Math.min(far, mirror > 1 ? 320 : rect ? 140 : 200), 0);
+    for (let i = 0; i < racers.length; i++) {
+      const r = racers[i]; if (!r.seen || r.far > 110) continue;
+      M4.model(M, r.x, r.y, r.z, r.yaw, -r.speed * 0.0015 + (r.carve ? 0.03 : 0) - r.vy * 0.02, r.bank, 1); g3.moved(G.crafts[i], M, 0.8, 0.8, 0.8, 0, 0);
+    }
+    g3.mirror(false);
+  }
+  g3.water(G.sea, G.tex, G.rip, -HALF, -HALF, MAP, raceT, T.water || (T.water = { glint: T.glint, foam: T.foam, see: T.see, seeMore: 0.66, lines: T.lines == null ? 0.16 : T.lines, foamK: 0.85, drift: T.swell || 1 }));
+  T.water.rich = R.look > 0;
   G.world.draw(g3, cam.x, cam.z, far, R.detail);
-  const wv = R.waves && G.seaWave;
   for (let i = 0; i < racers.length; i++) {
-    const r = racers[i]; if (Math.hypot(r.x - cam.x, r.z - cam.z) > far + 5 || !g3.sees(r.x, 1, r.z, 4)) continue;
-    r.y = heightOf(r, i);
+    const r = racers[i]; if (!r.seen) continue;
     M4.model(M, r.x, r.y, r.z, r.yaw, -r.speed * 0.0015 + (r.carve ? 0.03 : 0) - r.vy * 0.02, r.bank, 1);
-    g3.lit(G.crafts[i], M, 1, 1, 1, 0);
-  }
-  if (wv) { for (let i = 0; i < G.seaWave.length; i++) { const h = G.seaWave[i]; if (h.r > 1000 || (Math.hypot(h.x - cam.x, h.z - cam.z) - h.r < far && g3.sees(h.x, 0, h.z, h.r + 2))) g3.sea(h, G.tex, -HALF, -HALF, MAP, raceT, 0.5 * (T.swell || 1)); } }
-  else g3.sea(G.seaFlat[0], G.tex, -HALF, -HALF, MAP, raceT, 0);
-  for (const sp of W.sparks) {                       // sparks still to get, turning
-    if (sp.got || Math.hypot(sp.x - cam.x, sp.z - cam.z) > far * 0.8 || !g3.sees(sp.x, 1.6, sp.z, 1.2)) continue;
-    M4.model(M, sp.x, 1.6 + Math.sin(now / 300 + sp.s) * 0.25, sp.z, now / 400 + sp.s, 0, 0, 1); g3.lit(G.gem, M, 1, 1, 1, 0.65);
-  }
-  g3.sky(R.sun);
-  for (let i = 0; i < racers.length; i++) {          // see-through things: shadows, wakes, flames, the ghost, the next gate's light, spray, weather
-    const r = racers[i]; if (Math.hypot(r.x - cam.x, r.z - cam.z) > far * 0.7) continue;
-    const s = 1 / (1 + r.jy * 0.25);
-    M4.model(M, r.x, 0.05 + r.ry, r.z, r.yaw, 0, 0, s); g3.glow(G.shadow, M, 0, 0.02, 0.05, 0.3 * s, "mix");
-  }
-  const m = G.wakeM, wc = T.glow ? 0x60e8ff : 0xffffff; m.n = 0;
-  for (let k = racers.length - 1, used = 0; k >= 0 && used < R.wakes + (players.length > 1 ? 1 : 0); k--) { const r = racers[k]; if (Math.hypot(r.x - cam.x, r.z - cam.z) > 90) continue; used++; r.trail.ribbon(m, 0.06, wc, 0.6, 0.16, 200); }
-  if (m.n) { g3.update(G.wake, m); g3.glow(G.wake, null, 1, 1, 1, T.glow ? 0.9 : T.wake || 0.55, T.glow ? "add" : "mix"); }
-  for (let i = 0; i < racers.length; i++) {
-    const r = racers[i]; if ((!r.throttle && !r.boosting) || Math.hypot(r.x - cam.x, r.z - cam.z) > 70) continue;
-    const s = 0.5 + r.throttle * 0.3 + (r.boosting || r.padT > 0 ? 0.6 : 0) + Math.sin(now / 30 + i) * 0.08;
-    M4.model(M, r.x, r.y, r.z, r.yaw, -r.speed * 0.0015 - r.vy * 0.02, r.bank, 1);
-    const jx = M[4] * 0.5 - M[8] * 1.92 * r.K.shape.len + M[12], jy = M[5] * 0.5 - M[9] * 1.92 * r.K.shape.len + M[13], jz = M[6] * 0.5 - M[10] * 1.92 * r.K.shape.len + M[14];
-    M[8] *= s; M[9] *= s; M[10] *= s; M[12] = jx; M[13] = jy; M[14] = jz;   // (at the jet, longer with the throttle)
-    g3.glow(G.flame, M, r.boosting ? 0.7 : 1, r.boosting ? 0.95 : 0.7, r.boosting ? 1 : 0.35, 0.85, "add");
+    g3.moved(G.crafts[i], M, 1, 1, 1, 0, 0.5);
   }
   const gh = ghostAt();
   if (gh && G.ghost) { M4.model(M, gh.x, 0.6, gh.z, gh.yaw, 0, 0, 1); g3.glow(G.ghost, M, 0.75, 0.95, 1, 0.38, "mix"); }
-  if (p && !p.racer.done) {
-    const gt = W.gates[p.racer.passed % W.gates.length], pulse = 0.55 + 0.45 * Math.sin(now / 160);
-    M4.model(M, gt.x, Math.sin(now / 300) * 0.4, gt.z, Math.atan2(gt.tx, gt.tz) + now / 900, 0, 0, 1.3); g3.glow(G.next, M, 1, 0.85, 0.3, 0.55 + pulse * 0.4, "add");
-  }
-  spray.points(G.sprayM, 0xebf8ff);
-  if (G.sprayM.n) { g3.update(G.spray, G.sprayM); g3.glow(G.spray, null, 1, 1, 1, 0.8, "mix", 0.22); }
-  if (WX.kind) wxGL(cam);
+  const m = G.fxM; m.n = 0;
+  fxWorld(m, now, cam, p, far, R);
+  g3.fx(G.fx, m);
+  const d = G.dotM; d.n = 0;
+  spray.points(d, T.glow ? T.wakeCol : 0xf4f8ff);
+  if (d.n) g3.fx(G.dot, d, 0.2);
+  if (WX.kind && WX.kind !== "rain") { d.n = 0; wxDots(d, cam); if (d.n) g3.fx(G.dot, d, WX.kind === "snow" ? 0.12 : WX.kind === "ash" ? 0.1 : 0.16); }
 }
-function wxGL(cam) {                                // the weather's motes: rain as streaks, the rest as soft points
-  const g3 = E.g3, m = G.wxM, kind = WX.kind; m.n = 0;
-  if (kind === "rain") {
-    const rx = Math.cos(cam.yaw) * 0.03, rz = -Math.sin(cam.yaw) * 0.03;
-    motes(cam, (x, y, z) => {
-      if (m.n + 6 > m.cap) return;
-      const x2 = x - 0.25, y2 = y + 1.6, z2 = z - 0.08;
-      m.put(x + rx, y, z + rz, 0, 1, 0, 200, 214, 228, 120); m.put(x - rx, y, z - rz, 0, 1, 0, 200, 214, 228, 120); m.put(x2 - rx, y2, z2 - rz, 0, 1, 0, 200, 214, 228, 0);
-      m.put(x + rx, y, z + rz, 0, 1, 0, 200, 214, 228, 120); m.put(x2 - rx, y2, z2 - rz, 0, 1, 0, 200, 214, 228, 0); m.put(x2 + rx, y2, z2 + rz, 0, 1, 0, 200, 214, 228, 0);
-    });
-    if (m.n) { g3.update(G.wx, m); g3.glow(G.wx, null, 1, 1, 1, 0.75, "mix"); }
-    return;
+// every see-through thing in the world, into one mesh: shadows, wakes, the jets' flames, the sparks, the next gate's
+// mark, rain. Each vertex: its place into m.s, then m.v(r, g, b, alpha: how much of it, 127 for light added or 0 for
+// paint), whole numbers only: a call handed numbers with fractions makes garbage of each, a thousand times a frame.
+function fxWorld(m, now, cam, p, far, R) {
+  const W = world, T = W.T, fx = Math.sin(cam.yaw), fz = Math.cos(cam.yaw), rx = fz, rz = -fx, S = m.s;
+  for (let i = 0; i < racers.length; i++) {          // shadows: a soft dark oval on the water under each craft
+    const r = racers[i]; if (!r.seen || r.far > far * 0.6 || m.n + 24 > m.cap) continue;
+    const k = 1 / (1 + r.jy * 0.25), c = Math.cos(r.yaw), sn = Math.sin(r.yaw), y = 0.07 + r.ry, a0 = 150 * k | 0;
+    for (let q = 0; q < 8; q++) {
+      const a = q / 8 * TAU, b = (q + 1) / 8 * TAU, ax = Math.cos(a) * 1.7 * k, az = Math.sin(a) * 3 * k, bx = Math.cos(b) * 1.7 * k, bz = Math.sin(b) * 3 * k;
+      S[0] = r.x; S[1] = y; S[2] = r.z; m.v(4, 6, 10, a0, 0); S[0] = r.x + bx * c + bz * sn; S[2] = r.z - bx * sn + bz * c; m.v(4, 6, 10, 0, 0); S[0] = r.x + ax * c + az * sn; S[2] = r.z - ax * sn + az * c; m.v(4, 6, 10, 0, 0);
+    }
   }
-  const col = kind === "snow" ? [250, 252, 255] : kind === "ash" ? [255, 150, 70] : [110, 240, 255];
-  motes(cam, (x, y, z, i, k) => { if (m.n < m.cap) m.put(x, y, z, 0, 1, 0, col[0], col[1], col[2], kind === "ash" ? (120 + 135 * Math.abs(Math.sin(WX.t * 3 + i))) | 0 : kind === "plankton" ? (90 + 165 * Math.abs(Math.sin(WX.t * 1.3 + i * 0.7))) | 0 : 230); });
-  if (m.n) { g3.update(G.wx, m); g3.glow(G.wx, null, 1, 1, 1, 1, kind === "snow" ? "mix" : "add", kind === "snow" ? 0.12 : kind === "ash" ? 0.1 : 0.16); }
+  const wc = T.glow ? T.wakeCol : T.foam, add = T.glow ? 127 : 0;   // wakes: the nearest few
+  for (let k = racers.length - 1, used = 0; k >= 0 && used < R.wakes + (players.length > 1 ? 1 : 0); k--) { const r = racers[k]; if (r.far > 110) continue; used++; r.trail.wake(m, 0.06, wc, 0.9, 0.2, T.glow ? 210 : (T.wake || 0.6) * 330, add); }
+  for (let i = 0; i < racers.length; i++) {          // the jets: two crossed blades of light back from each, longer with the throttle
+    const r = racers[i]; if (!r.seen || (!r.throttle && !r.boosting) || r.far > 90 || m.n + 12 > m.cap) continue;
+    const hot = r.boosting || r.padT > 0, len = 0.8 + r.throttle * 0.5 + (hot ? 2.2 : 0) + Math.sin(now / 30 + i) * 0.14, c = Math.cos(r.yaw), sn = Math.sin(r.yaw), L = 1.92 * r.K.shape.len;
+    const jx = r.x - sn * L, jy = r.y + 0.5, jz = r.z - c * L, tx = jx - sn * len, tz = jz - c * len, w2 = hot ? 0.34 : 0.24, al = hot ? 230 : 170, cg = hot ? 46 : 170, cb = hot ? 136 : 90;
+    S[1] = jy;
+    S[0] = jx + c * w2; S[2] = jz - sn * w2; m.v(255, cg, cb, al, 127); S[0] = jx - c * w2; S[2] = jz + sn * w2; m.v(255, cg, cb, al, 127); S[0] = tx; S[2] = tz; m.v(255, cg, cb, 0, 127);
+    S[0] = jx - c * w2; S[2] = jz + sn * w2; m.v(255, cg, cb, al, 127); S[0] = jx + c * w2; S[2] = jz - sn * w2; m.v(255, cg, cb, al, 127); S[0] = tx; S[2] = tz; m.v(255, cg, cb, 0, 127);
+    S[0] = jx; S[2] = jz; S[1] = jy + w2; m.v(255, 236, 214, al, 127); S[1] = jy - w2; m.v(255, 236, 214, al, 127); S[0] = tx; S[1] = jy; S[2] = tz; m.v(255, cg, cb, 0, 127);
+    S[0] = jx; S[2] = jz; S[1] = jy - w2; m.v(255, 236, 214, al, 127); S[1] = jy + w2; m.v(255, 236, 214, al, 127); S[0] = tx; S[1] = jy; S[2] = tz; m.v(255, cg, cb, 0, 127);
+  }
+  const sparks = W.sparks, far2 = far * far * 0.5;
+  for (let i = 0; i < sparks.length; i++) {          // sparks still to get: a diamond of light, turning, facing the eye
+    const sp = sparks[i]; if (sp.got || m.n + 6 > m.cap) continue;
+    const dx = sp.x - cam.x, dz = sp.z - cam.z; if (dx * dx + dz * dz > far2 || dx * fx + dz * fz < 0) continue;
+    const y = 1.6 + Math.sin(now / 300 + sp.s) * 0.25, w2 = 0.2 + 0.5 * Math.abs(Math.cos(now / 400 + sp.s)), hx = rx * w2, hz = rz * w2;
+    S[0] = sp.x; S[1] = y + 1; S[2] = sp.z; m.v(57, 255, 136, 235, 127); S[0] = sp.x - hx; S[1] = y; S[2] = sp.z - hz; m.v(57, 255, 136, 150, 127); S[0] = sp.x + hx; S[2] = sp.z + hz; m.v(200, 255, 220, 235, 127);
+    S[0] = sp.x; S[1] = y - 1; S[2] = sp.z; m.v(57, 255, 136, 120, 127); S[0] = sp.x + hx; S[1] = y; S[2] = sp.z + hz; m.v(200, 255, 220, 235, 127); S[0] = sp.x - hx; S[2] = sp.z - hz; m.v(57, 255, 136, 150, 127);
+  }
+  if (p && !p.racer.done && m.n + 12 <= m.cap) {       // the next gate: two arrowheads of pink light over it, beating
+    const gt = W.gates[p.racer.passed % W.gates.length], pulse = 150 + 105 * Math.sin(now / 160), nx = -gt.tz * 1.9, nz = gt.tx * 1.9, bob = Math.sin(now / 300) * 0.4;
+    for (let k = 0; k < 2; k++) {
+      const y = 8.6 + k * 1.9 + bob, a = pulse * (k ? 0.7 : 1) | 0;
+      S[0] = gt.x - nx; S[1] = y + 1.3; S[2] = gt.z - nz; m.v(255, 46, 136, a, 127); S[0] = gt.x; S[1] = y; S[2] = gt.z; m.v(255, 150, 200, a, 127); S[0] = gt.x + nx; S[1] = y + 1.3; S[2] = gt.z + nz; m.v(255, 46, 136, a, 127);
+      S[0] = gt.x + nx; S[1] = y + 1.3; S[2] = gt.z + nz; m.v(255, 46, 136, a, 127); S[0] = gt.x; S[1] = y; S[2] = gt.z; m.v(255, 150, 200, a, 127); S[0] = gt.x - nx; S[1] = y + 1.3; S[2] = gt.z - nz; m.v(255, 46, 136, a, 127);
+    }
+  }
+  if (WX.kind === "rain") {                          // rain: thin streaks round the eye
+    const n = R.detail > 0.55 ? 200 : 120, b = WX.base, t = WX.t, B = 42, H = 18, ox = rx * 0.03, oz = rz * 0.03;
+    for (let i = 0; i < n && m.n + 6 <= m.cap; i++) {
+      const o = i * 4, sp = 0.75 + b[o + 3] * 0.5;
+      const x = cam.x + (((b[o] * B + 6 * t * sp) % B) + B) % B - B / 2, z = cam.z + (((b[o + 2] * B + 2 * t * sp) % B) + B) % B - B / 2, y = ((b[o + 1] * H - 42 * t * sp) % H + H) % H;
+      const x2 = x - 0.25, y2 = y + 1.6, z2 = z - 0.08;
+      S[0] = x + ox; S[1] = y; S[2] = z + oz; m.v(214, 226, 236, 110, 0); S[0] = x - ox; S[2] = z - oz; m.v(214, 226, 236, 110, 0); S[0] = x2 - ox; S[1] = y2; S[2] = z2 - oz; m.v(214, 226, 236, 0, 0);
+      S[0] = x + ox; S[1] = y; S[2] = z + oz; m.v(214, 226, 236, 110, 0); S[0] = x2 - ox; S[1] = y2; S[2] = z2 - oz; m.v(214, 226, 236, 0, 0); S[0] = x2 + ox; S[2] = z2 + oz; m.v(214, 226, 236, 0, 0);
+    }
+  }
+}
+function wxDots(m, cam) {                           // snow, ash, the water's glow: dots round the eye, each from its start and the time alone
+  const kind = WX.kind, B = kind === "plankton" ? 46 : kind === "ash" ? 60 : 42, n = kind === "snow" ? 160 : kind === "ash" ? 110 : 90, b = WX.base, t = WX.t, H = kind === "plankton" ? 0.3 : 18, S = m.s;
+  const vx = kind === "snow" ? 1.4 : kind === "ash" ? 1.2 : 0.3, vy = kind === "snow" ? -2.4 : kind === "ash" ? 1.6 : 0, vz = 0.6;
+  const r = kind === "snow" ? 250 : kind === "ash" ? 255 : 57, g = kind === "snow" ? 252 : kind === "ash" ? 150 : 255, bl = kind === "snow" ? 255 : kind === "ash" ? 70 : 136, add = kind === "snow" ? 0 : 127;
+  for (let i = 0; i < n && m.n < m.cap; i++) {
+    const o = i * 4, sp = 0.75 + b[o + 3] * 0.5;
+    S[0] = cam.x + (((b[o] * B + vx * t * sp) % B) + B) % B - B / 2; S[2] = cam.z + (((b[o + 2] * B + vz * t * sp + (kind === "snow" ? Math.sin(t + i) * 1.2 : 0)) % B) + B) % B - B / 2;
+    S[1] = kind === "plankton" ? 0.08 + b[o + 1] * H : ((b[o + 1] * H + vy * t * sp) % H + H) % H;
+    m.v(r, g, bl, kind === "ash" ? (120 + 135 * Math.abs(Math.sin(t * 3 + i))) | 0 : kind === "plankton" ? (90 + 165 * Math.abs(Math.sin(t * 1.3 + i * 0.7))) | 0 : 230, add);
+  }
 }
 const P4 = new Float32Array(4), Q4 = new Float32Array(4), POLY = new Float32Array(12);
 function drawFlat(now, cam, p, rect) {
@@ -1353,45 +1452,77 @@ function wxFlat(cam) {                              // the weather in 2D: streak
   ctx.restore();
 }
 
-// ---------------------------------------------------------------- the race's numbers on screen
-const mm = $("minimap"), mmx = mm.getContext("2d"), mmBase = document.createElement("canvas"); mmBase.width = mmBase.height = 128;
-function mmXY(x, z, o) { const b = world.bounds, s = 112 / Math.max(b[2] - b[0], b[3] - b[1]); o[0] = 64 + (x - (b[0] + b[2]) / 2) * s; o[1] = 64 + (z - (b[1] + b[3]) / 2) * s; return o; }
-function drawMinimapBase() {
-  const g = mmBase.getContext("2d"), P = world.P, T = world.T, p = [0, 0], b = world.bounds, s = 112 / Math.max(b[2] - b[0], b[3] - b[1]);
-  g.clearRect(0, 0, 128, 128); g.save(); g.beginPath(); g.arc(64, 64, 64, 0, TAU); g.clip();
-  g.fillStyle = "rgba(4,16,30,0.55)"; g.fillRect(0, 0, 128, 128);
-  if (world.land) {                                  // the land, cell by cell
-    const land = world.land, st = land.cell, cl = landColour(T);
-    g.fillStyle = hex(mix(cl(5, 0), 0x0a1a2a, 0.35));
-    for (let z = -HALF; z < HALF; z += st) for (let x = -HALF; x < HALF; x += st) if (land.at(x + st / 2, z + st / 2) > 0) { mmXY(x, z, p); g.fillRect(p[0], p[1], st * s + 0.6, st * s + 0.6); }
-  }
-  g.fillStyle = hex(mix(T.sand, T.rock[1], 0.4));
-  for (const o of world.islands) { mmXY(o.x, o.z, p); g.beginPath(); g.arc(p[0], p[1], Math.max(1, o.r * s), 0, TAU); g.fill(); }
-  g.strokeStyle = "rgba(255,255,255,0.85)"; g.lineWidth = 2.2; g.lineJoin = "round"; g.beginPath();
-  for (let i = 0; i <= P.n; i += 3) { mmXY(P.x[i % P.n], P.z[i % P.n], p); if (i) g.lineTo(p[0], p[1]); else g.moveTo(p[0], p[1]); }
-  g.closePath(); g.stroke(); g.restore();
-}
+// ---------------------------------------------------------------- the race's numbers, written in the picture itself
+// (Low3D's UI: one draw call. Nothing of the page lies over the race: on a Pi 3 the browser would put every pixel of
+// that together again at the TV's size, every frame.) Built again ten times a second, drawn every frame.
 const MMP = [0, 0];
-let hudAt = 0;
-function setText(p, k, t, html) { if (p.texts[k] !== t) { p.texts[k] = t; if (html) p.el[k].innerHTML = t; else p.el[k].textContent = t; } }
-function drawHUD(now) {
+let hudAt = 0, mini = null, hudKey = null;
+function mmXY(x, z, o) { const b = world.bounds, s = 1 / Math.max(b[2] - b[0], b[3] - b[1]); o[0] = 0.5 + (x - (b[0] + b[2]) / 2) * s * 0.86; o[1] = 0.5 + (z - (b[1] + b[3]) / 2) * s * 0.86; return o; }
+function drawMinimapBase() {                         // the course's line, as the little map draws it (0 to 1 each way)
+  const P = world.P, n = Math.ceil(P.n / 5); mini = new Float32Array(n * 2);
+  for (let i = 0; i < n; i++) { mmXY(P.x[(i * 5) % P.n], P.z[(i * 5) % P.n], MMP); mini[i * 2] = MMP[0]; mini[i * 2 + 1] = MMP[1]; }
+  hudAt = 0; hudKey = null;
+}
+function drawHUD(now, w, h, views, solid) {
   if (now - hudAt < 100) return; hudAt = now;      // ten times a second is plenty
-  mmx.clearRect(0, 0, 128, 128); mmx.drawImage(mmBase, 0, 0);
-  for (const p of players) { const gt = world.gates[p.racer.passed % world.gates.length]; mmXY(gt.x, gt.z, MMP); mmx.fillStyle = hex(p.k ? PLAYERS[1].col : 0xffd24f); mmx.fillRect(MMP[0] - 2.5, MMP[1] - 2.5, 5, 5); }
-  const gh = ghostAt(); if (gh) { mmXY(gh.x, gh.z, MMP); mmx.fillStyle = "rgba(190,240,255,0.8)"; mmx.beginPath(); mmx.arc(MMP[0], MMP[1], 3.2, 0, TAU); mmx.fill(); }
-  for (const r of racers) { mmXY(r.x, r.z, MMP); mmx.fillStyle = hex(r.def.col); mmx.beginPath(); mmx.arc(MMP[0], MMP[1], r.p ? 4.5 : 3.2, 0, TAU); mmx.fill(); if (r.p) { mmx.strokeStyle = "#fff"; mmx.lineWidth = 1.5; mmx.stroke(); } }
-  for (const p of players) {
-    const r = p.racer, gt = world.gates[r.passed % world.gates.length];
-    if (mode === "trial") setText(p, "place", ghost ? "Ghost " + (ghostAt() ? "out" : "waiting") : "Time trial", false);
-    else setText(p, "place", r.place + "<small>" + ord(r.place).slice(-2) + " of " + racers.length + "</small>", true);
-    setText(p, "lap", "Lap " + lapOf(r) + "/" + LAPS + (mode === "trial" && save.trial[COURSES[course].id] ? " · best " + time(save.trial[COURSES[course].id]) : ""), false);
-    setText(p, "clock", time(state === "race" || state === "done" ? (r.done ? r.time : mode === "trial" && r.passed ? raceT - r.lapT : raceT) : 0), false);
-    const bw = Math.round(r.boost * 100) + "%"; if (p.texts.bw !== bw) { p.texts.bw = bw; p.el.fill.style.width = bw; } p.el.fill.classList.toggle("full", r.boost > 0.99);
-    setText(p, "label", r.boosting ? "Boost!" : r.jy > 0 ? "In the air" : r.carve ? "Carving: your boost fills" : r.draft > 0.35 ? "In the slipstream" : label("x") + ": boost · " + label("b") + " in a turn: carve", false);
-    const a = wrap(Math.atan2(gt.x - r.x, gt.z - r.z) - p.cam.yaw), show = Math.abs(a) > 0.75 && state === "race" && !r.done;
-    p.el.arrow.classList.toggle("hidden", !show);                                   // the next gate, out of sight: its way
-    if (show) p.el.arrow.style.transform = "rotate(" + (-a * 180 / Math.PI).toFixed(0) + "deg)";
+  const ui = E.ui, S = Math.max(1, Math.round(h / 180)), M = 6 * S, racing = players.length && state !== "attract" && state !== "paused" && !menu.at;
+  const map = racing && mini && (mode !== "trial" || world.land || ghost), ms = (views > 1 ? 30 : 46) * S, mx = w - M - ms, my = views > 1 ? M >> 1 : M;
+  const key = racing ? w + "x" + h + (map ? "m" : "") + views + course : "";
+  if (key !== hudKey) {                              // what stays: the little map's panel and the course's line (held; the rest is built again each time)
+    hudKey = key; ui.begin(w, h);
+    if (map) {
+      ui.rect(mx, my, ms, ms, INK, 0.5); ui.frame(mx, my, ms, ms, Math.max(1, S >> 1), BONE, 0.3);
+      for (let i = 0, n = mini.length / 2; i < n; i++) { const j = (i + 1) % n; ui.line(mx + mini[i * 2] * ms, my + mini[i * 2 + 1] * ms, mx + mini[j * 2] * ms, my + mini[j * 2 + 1] * ms, Math.max(1, S * 0.75), BONE, 0.85); }
+    }
+    ui.hold();
   }
+  ui.rewind();
+  if (menu.at || state === "paused") ui.rect(0, 0, w, h, INK, solid ? 0.86 : menu.at === "title" ? 0.34 : 0.62);   // (behind a menu: the picture dimmed here, not by the page)
+  if (!racing) { ui.end(); return; }
+  for (let k = 0; k < players.length; k++) {
+    const p = players[k], r = p.racer, y0 = views > 1 ? k * (h >> 1) : 0, vh = views > 1 ? h >> 1 : h, gt = world.gates[r.passed % world.gates.length];
+    const big = views > 1 ? 3 * S : 4 * S, mid = views > 1 ? S : 2 * S;
+    let y = y0 + M;
+    if (mode === "trial") { ui.text(ghost ? "GHOST " + (ghostAt() ? "OUT" : "WAITING") : "TIME TRIAL", M, y, mid, PINK, 1, 0, INK); y += 7 * mid + 3 * S; }
+    else {
+      const x1 = ui.text(String(r.place), M, y, big, BONE, 1, 0, INK);
+      ui.text("/" + racers.length, x1 + 2 * S, y + 7 * big - 7 * mid, mid, BONE, 0.8, 0, INK);
+      ui.rect(M, y + 7 * big + 2 * S, x1 - M + 2 * S + ui.width("/" + racers.length, mid), S, PINK, 1); y += 7 * big + 6 * S;
+    }
+    const best = mode === "trial" && save.trial[COURSES[course].id];
+    ui.text("LAP " + lapOf(r) + "/" + LAPS, M, y, mid, GREEN, 1, 0, INK); y += 7 * mid + 2 * S;
+    ui.text(time(state === "race" || state === "done" ? (r.done ? r.time : mode === "trial" && r.passed ? raceT - r.lapT : raceT) : 0), M, y, mid, BONE, 1, 0, INK); y += 7 * mid + 2 * S;
+    if (best) ui.text("BEST " + time(best), M, y, S, BONE, 0.75, 0, INK);
+    if (views > 1) ui.text(r.def.name, M, y0 + vh - M - 7 * S, S, r.def.col, 1, 0, INK);
+    // the boost: twelve blocks, green as it fills, pink when it's full or burning
+    const seg = 12, sw = (views > 1 ? 6 : 8) * S, sh = (views > 1 ? 3 : 4) * S, bw = seg * (sw + S) - S, bx = (w - bw) >> 1, by = y0 + vh - M - sh, full = r.boost > 0.99;
+    ui.rect(bx - S, by - S, bw + 2 * S, sh + 2 * S, INK, 0.55);
+    for (let i = 0; i < seg; i++) { const on = r.boost * seg > i + 0.25; ui.rect(bx + i * (sw + S), by, sw, sh, on ? (full || r.boosting ? PINK : GREEN) : BONE, on ? 1 : 0.16); }
+    const lab = r.boosting ? "BOOST" : r.jy > 0 ? "AIR" : r.carve ? "CARVING: BOOST FILLS" : r.draft > 0.35 ? "SLIPSTREAM" : full ? label("x") + " BOOST" : label("b") + " IN A TURN: CARVE";
+    ui.text(lab, w / 2, by - 3 * S - 7 * S, S, r.boosting || full ? PINK : BONE, 0.9, 0.5, INK);
+    // how fast
+    const sp = String(Math.round(r.speed * 3.6)), sx = w - M;
+    ui.text("KM/H", sx, y0 + vh - M - 7 * S, S, BONE, 0.7, 1, INK);
+    ui.text(sp, sx, y0 + vh - M - 7 * S - 2 * S - 7 * (views > 1 ? 2 * S : 3 * S), views > 1 ? 2 * S : 3 * S, r.boosting ? PINK : BONE, 1, 1, INK);
+    // what it says (a first line, a smaller second)
+    if (p.sayText) {
+      const cut = p.sayText.indexOf("<small>"), a = cut < 0 ? p.sayText : p.sayText.slice(0, cut), b = cut < 0 ? "" : p.sayText.slice(cut + 7).replace("</small>", "");
+      const k1 = a.length > 12 ? 3 * S : views > 1 ? 4 * S : 5 * S, sy = y0 + Math.round(vh * 0.27);
+      if (a) ui.text(a, w / 2, sy, k1, a === "Go!" ? GREEN : BONE, 1, 0.5, PINK);
+      if (b) ui.text(b, w / 2, sy + 7 * k1 + 3 * S, mid, BONE, 0.95, 0.5, INK);
+    }
+    // the next gate, out of sight: which way
+    const a = wrap(Math.atan2(gt.x - r.x, gt.z - r.z) - p.cam.yaw);
+    if (Math.abs(a) > 0.75 && state === "race" && !r.done) ui.arrow(w / 2, y0 + M + 8 * S, 7 * S, -a, PINK, 1);
+  }
+  // the little map: the course's line, the next gates, everyone on it
+  if (map) {
+    for (const p of players) { const gt = world.gates[p.racer.passed % world.gates.length]; mmXY(gt.x, gt.z, MMP); ui.rect(mx + MMP[0] * ms - S * 1.5, my + MMP[1] * ms - S * 1.5, S * 3, S * 3, PINK, 1); }
+    const gh = ghostAt(); if (gh) { mmXY(gh.x, gh.z, MMP); ui.disc(mx + MMP[0] * ms, my + MMP[1] * ms, S * 1.5, 0xbfefff, 0.8); }
+    for (const r of racers) { mmXY(r.x, r.z, MMP); if (r.p) ui.disc(mx + MMP[0] * ms, my + MMP[1] * ms, S * 3, BONE, 1); ui.disc(mx + MMP[0] * ms, my + MMP[1] * ms, r.p ? S * 2 : S * 1.5, r.def.col, 1); }
+  }
+  if (views > 1) ui.rect(0, (h >> 1) - Math.max(1, S >> 1), w, Math.max(2, S), INK, 1);
+  ui.end();
 }
 
 // ---------------------------------------------------------------- the menus' content
@@ -1402,21 +1533,21 @@ function renderTitle() {
     `<div class="item" data-do="options">Options</div><div class="item" data-do="box">This box</div>`;
 }
 function toCourses(quiet) {
-  pausedFrom = null; engineOn(false); $("hud").classList.add("hidden"); $("flash").style.opacity = 0;
+  pausedFrom = null; engineOn(false);
   if (mode === "cup") mode = "single";
   load(course, true); state = "attract"; const C = COURSES[course]; synth.song({ seed: C.seed, root: 50 + C.key, tempo: C.tempo, calm: true });
   if (!quiet) menu.show("courses");
 }
 function pause() { if (menu.at) return; pausedFrom = state; state = "paused"; engineOn(false); menu.show("pause"); }
 function resume() { menu.hide(); state = pausedFrom || "race"; pausedFrom = null; engineOn(true); E.gov.hold(800); }
-const MEDAL = ["", "🥇", "🥈", "🥉"];
+const MEDAL = ["", "1st", "2nd", "3rd"];
 function renderCourses() {
   const trial = mode === "trial";
   $("coursesTitle").textContent = trial ? "Time trial: choose your water" : "Choose your water";
   $("cards").innerHTML = COURSES.map((c, i) => {
     const b = save.best[c.id], tb = save.trial[c.id], open = i < save.open, T = THEMES[c.theme];
     const line = trial ? (tb ? "Best lap " + time(tb) + " · a ghost waits" : open ? "No lap yet" : "") : b ? "Best " + time(b.time) + " · lap " + time(b.lap) : open ? "Not raced yet" : "";
-    return `<div class="item card${open ? "" : " locked"}" data-do="course" data-i="${i}"><span class="medal">${!trial && b && b.place <= 3 ? MEDAL[b.place] : open ? "" : "🔒"}</span>
+    return `<div class="item card${open ? "" : " locked"}" data-do="course" data-i="${i}"><span class="medal">${!trial && b && b.place <= 3 ? MEDAL[b.place] : open ? "" : "locked"}</span>
       <span class="nm">${c.name}</span><span class="info"><i class="swatch" style="background:linear-gradient(90deg,${hex(T.horizon)},${hex(T.deep)})"></i>${open ? c.about : "Finish in the top three on the one before."}</span>
       <span class="info">${line}</span></div>`;
   }).join("");
@@ -1425,9 +1556,9 @@ function renderCourses() {
 function renderCups() {
   $("cupcards").innerHTML = CUPS.map((c, i) => {
     const open = cupOpen(i), got = save.cups[c.id], won = Object.keys(UNLOCK).find(id => UNLOCK[id] === c.id);
-    return `<div class="item card${open ? "" : " locked"}" data-do="cupgo" data-i="${i}"><span class="medal">${got ? MEDAL[got] : open ? "" : "🔒"}</span>
+    return `<div class="item card${open ? "" : " locked"}" data-do="cupgo" data-i="${i}"><span class="medal">${got ? MEDAL[got] : open ? "" : "locked"}</span>
       <span class="nm">${c.name}</span><span class="info">${c.about}</span><span class="info">${c.courses.map(k => COURSES[k].name).join(" · ")}</span>
-      <span class="info">${open ? (got ? "Your best: " + ["", "gold", "silver", "bronze"][got] : "A trophy wins the " + CRAFT_BY[won].name) : "Win a trophy in the " + CUPS[i - 1].name + " first."}</span></div>`;
+      <span class="info">${open ? (got ? "Your best: " + ["", "first", "second", "third"][got] + " place" : "A trophy wins the " + CRAFT_BY[won].name) : "Win a trophy in the " + CUPS[i - 1].name + " first."}</span></div>`;
   }).join("");
   hints();
 }
@@ -1458,7 +1589,7 @@ function optionChanged(k) {
   store();
   if (k === "music" || k === "sound") volumes();
   if (k === "picture") { clearTimeout(optionChanged.t); optionChanged.t = setTimeout(() => E.setPicture(), 700); }   // (once the choice settles: it rebuilds the world)
-  if (k === "crisp") crisp();
+  if (k === "pixels") E.resize();
 }
 function renderBox() { $("boxtable").innerHTML = E.rows().map(r => `<tr><td>${r[0]}</td><td>${U.esc(r[1])}</td></tr>`).join(""); }
 function retest() { $("boxtable").innerHTML = "<tr><td>Test</td><td>running… (about two seconds)</td></tr>"; E.retest(renderBox); }
@@ -1474,11 +1605,11 @@ function showResults() {
     html = `<span class="big">${players.map(p => `<span style="color:${hex(p.racer.def.col)}">${ord(p.racer.place)}</span>`).join(" · ")}</span>${C.name}<br>` +
       players.map(p => `${p.racer.def.name}: ${p.racer.done ? time(p.racer.time) + " · best lap " + time(p.racer.bestLap) : "still out"}`).join("<br>") + `<br><small>${list}</small>`;
   } else {
-    html = `<span class="big">${MEDAL[you.place] || ""} ${ord(you.place)}</span>${C.name}<br>Time ${time(you.time)} · best lap ${time(you.bestLap)}${newBest ? " · a new best" : ""}<br><small>${list}</small>`;
+    html = `<span class="big">${ord(you.place)}</span>${C.name}<br>Time ${time(you.time)} · best lap ${time(you.bestLap)}${newBest ? " · a new best" : ""}<br><small>${list}</small>`;
   }
   $("resultText").innerHTML = html;
   $("resultButtons").innerHTML = (next ? `<div class="item" data-do="next">Next water</div>` : "") + `<div class="item" data-do="again">${mode === "trial" ? "Try again" : "Race again"}</div><div class="item" data-do="courses">Other waters</div>`;
-  engineOn(false); $("hud").classList.add("hidden"); menu.show("results");
+  engineOn(false); menu.show("results");
 }
 
 addEventListener("pointerdown", () => synth.start());
@@ -1486,7 +1617,7 @@ document.addEventListener("visibilitychange", () => { if (document.hidden && sta
 if (E.test) window.TW = { get state() { return state; }, get you() { return you; }, get racers() { return racers; }, get world() { return world; },
   get players() { return players; }, get mode() { return E.mode; }, get race() { return mode; }, set race(v) { mode = v; }, get two() { return two; }, set two(v) { two = v; },
   get cup() { return cup; }, get ghost() { return ghost; }, get gov() { return E.gov; }, get probe() { return E.probe; }, get bench() { return E.bench; }, get plan() { return E.plan; },
-  get screen() { return menu.at; }, get g3() { return E.g3; }, get raceT() { return raceT; }, E, startRace, startCup, menu, save: () => save, cam: camA, COURSES, CUPS, CRAFT, buildCourse, checkCourse,
+  get screen() { return menu.at; }, get g3() { return E.g3; }, get G() { return G; }, get views() { return players.length > 1 && state !== "attract" ? players.length : 1; }, get hud() { return E.ui.n; }, go() { if (state === "intro" || state === "countdown") { state = "race"; raceT = 0; for (const p of players) say(p, ""); for (const r of racers) r.lapT = 0; } }, get raceT() { return raceT; }, E, startRace, startCup, menu, save: () => save, cam: camA, COURSES, CUPS, CRAFT, buildCourse, checkCourse,
   packGhost, unpackGhost, ghostAt, finishNow() { if (state === "intro" || state === "countdown") state = "race"; places(); ORDER.forEach((r, k) => { if (!r.done) { r.done = true; r.time = raceT + 60 + k; if (r.bestLap === Infinity) r.bestLap = 40 + k; } }); allDone(); } };
 // for checks: a course's line clear of its land, and everything on it on the water ([] when it is)
 function checkCourse(ci) {

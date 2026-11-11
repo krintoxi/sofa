@@ -1358,8 +1358,9 @@ class BoxBrowser(unittest.TestCase):
         # two players: a view each, the three rivals too
         js("TW.race = 'single'; TW.two = true; TW.startRace(9); 1")
         self.assertTrue(until("TW.state === 'race'", 15))
-        two = json.loads(js("JSON.stringify({ players: TW.players.length, racers: TW.racers.length, views: document.querySelectorAll('#pvs .pv').length })"))
-        self.assertEqual(two, {"players": 2, "racers": 5, "views": 2})
+        two = json.loads(js("JSON.stringify({ players: TW.players.length, racers: TW.racers.length, views: TW.views, over: document.querySelectorAll('#view > :not(canvas):not(.hidden)').length })"))
+        self.assertEqual(two, {"players": 2, "racers": 5, "views": 2, "over": 0})   # (nothing of the page lies over the race: its numbers are in the picture)
+        self.assertGreater(js("TW.hud"), 20)
         time.sleep(1)
         js("TW.two = false; 1")
         self.assertEqual(js("errs.length"), 0)

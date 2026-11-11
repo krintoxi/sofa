@@ -79,8 +79,8 @@ const M4 = {
     o.fill(0); o[0] = f / aspect; o[5] = f; o[10] = (far + near) * nf; o[11] = -1; o[14] = 2 * far * near * nf; return o;
   },
   look(o, ex, ey, ez, tx, ty, tz, ux, uy, uz) {
-    let zx = ex - tx, zy = ey - ty, zz = ez - tz, l = 1 / (Math.hypot(zx, zy, zz) || 1); zx *= l; zy *= l; zz *= l;
-    let xx = uy * zz - uz * zy, xy = uz * zx - ux * zz, xz = ux * zy - uy * zx; l = 1 / (Math.hypot(xx, xy, xz) || 1); xx *= l; xy *= l; xz *= l;
+    let zx = ex - tx, zy = ey - ty, zz = ez - tz, l = 1 / (Math.sqrt(zx * zx + zy * zy + zz * zz) || 1); zx *= l; zy *= l; zz *= l;
+    let xx = uy * zz - uz * zy, xy = uz * zx - ux * zz, xz = ux * zy - uy * zx; l = 1 / (Math.sqrt(xx * xx + xy * xy + xz * xz) || 1); xx *= l; xy *= l; xz *= l;
     const yx = zy * xz - zz * xy, yy = zz * xx - zx * xz, yz = zx * xy - zy * xx;
     o[0] = xx; o[1] = yx; o[2] = zx; o[3] = 0; o[4] = xy; o[5] = yy; o[6] = zy; o[7] = 0; o[8] = xz; o[9] = yz; o[10] = zz; o[11] = 0;
     o[12] = -(xx * ex + xy * ey + xz * ez); o[13] = -(yx * ex + yy * ey + yz * ez); o[14] = -(zx * ex + zy * ey + zz * ez); o[15] = 1; return o;
@@ -107,7 +107,7 @@ const M4 = {
     for (let i = 0; i < 6; i++) {
       const r = i >> 1, s = i & 1 ? -1 : 1;
       let a = m[3] + s * m[r], b = m[7] + s * m[4 + r], c = m[11] + s * m[8 + r], d = m[15] + s * m[12 + r];
-      const l = 1 / (Math.hypot(a, b, c) || 1); o[i * 4] = a * l; o[i * 4 + 1] = b * l; o[i * 4 + 2] = c * l; o[i * 4 + 3] = d * l;
+      const l = 1 / (Math.sqrt(a * a + b * b + c * c) || 1); o[i * 4] = a * l; o[i * 4 + 1] = b * l; o[i * 4 + 2] = c * l; o[i * 4 + 3] = d * l;
     }
     return o;
   },
@@ -123,14 +123,15 @@ function Mesh(cap) {
   this.cap = cap || 1024; this.n = 0;
   this.buf = new ArrayBuffer(this.cap * 20); this.f = new Float32Array(this.buf); this.i8 = new Int8Array(this.buf); this.u8 = new Uint8Array(this.buf);
   this.t = [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0];   // where the next part goes: a 3×3 (turn and size) and a move
-  this.jit = 0; this.seed = 1; this.alpha = 255;
+  this.jit = 0; this.seed = 1; this.alpha = 255; this.glow = 0;   // (glow: what's built from now on is its own light, 0 to 127)
+  this.s = new Float32Array(3);                      // (the next vertex's place, for v())
 }
 Mesh.prototype = {
   room(k) {
     if (this.n + k <= this.cap) return;
     while (this.n + k > this.cap) this.cap *= 2;
     const b = new ArrayBuffer(this.cap * 20); new Uint8Array(b).set(this.u8);
-    this.buf = b; this.f = new Float32Array(b); this.i8 = new Int8Array(b); this.u8 = new Uint8Array(b);
+    this.buf = b; this.f = new Float32Array(b); this.i8 = new Int8Array(b); this.u8 = new Uint8Array(b); this.vw = null;
   },
   // parts from now on: sized (sx sy sz), turned (yaw about y, then pitch about x: π/2 lays what's built up y along +z,
   // then roll about z), moved to x y z
@@ -143,10 +144,22 @@ Mesh.prototype = {
     t[9] = x || 0; t[10] = y || 0; t[11] = z || 0; return this;
   },
   rnd() { let a = this.seed = (this.seed + 0x6D2B79F5) | 0; a = Math.imul(a ^ (a >>> 15), 1 | a); a = (a + Math.imul(a ^ (a >>> 7), 61 | a)) ^ a; return ((a ^ (a >>> 14)) >>> 0) / 4294967296; },
-  put(x, y, z, nx, ny, nz, r, g, b, a) {
+  // (e, the vertex's last spare byte, 0 to 127: in a world with its light baked in, how much it's its own light; among
+  // see-through things (GL.fx), how much it's light added rather than paint laid over)
+  put(x, y, z, nx, ny, nz, r, g, b, a, e) {
     const i = this.n++, f = i * 5, o = i * 20;
     this.f[f] = x; this.f[f + 1] = y; this.f[f + 2] = z;
-    this.i8[o + 12] = Math.round(nx * 127); this.i8[o + 13] = Math.round(ny * 127); this.i8[o + 14] = Math.round(nz * 127);
+    this.i8[o + 12] = Math.round(nx * 127); this.i8[o + 13] = Math.round(ny * 127); this.i8[o + 14] = Math.round(nz * 127); this.i8[o + 15] = e || 0;
+    this.u8[o + 16] = r; this.u8[o + 17] = g; this.u8[o + 18] = b; this.u8[o + 19] = a;
+  },
+  // The same without garbage, for meshes built again every frame. A call that's handed numbers with fractions has
+  // each of them made anew on the heap (V8 boxes them), unless it happens to be inlined: at 60 frames a second and a
+  // thousand vertices that is megabytes a second for the collector, and its pauses are the stutters on a Pi 3. So:
+  // the place into m.s (m.s[0] = x; m.s[1] = y; m.s[2] = z: stores into a typed array make nothing), then v() with
+  // whole numbers only.
+  v(r, g, b, a, e) {
+    const i = this.n++, f = i * 5, o = i * 20, s = this.s;
+    this.f[f] = s[0]; this.f[f + 1] = s[1]; this.f[f + 2] = s[2]; this.i8[o + 13] = 127; this.i8[o + 15] = e;
     this.u8[o + 16] = r; this.u8[o + 17] = g; this.u8[o + 18] = b; this.u8[o + 19] = a;
   },
   // a triangle (its corners in the part's own space), lit flat; with an "outside" point it faces away from that point
@@ -169,7 +182,8 @@ Mesh.prototype = {
     let r = (col >> 16) & 255, g = (col >> 8) & 255, b = col & 255;
     if (this.jit) { const k = 1 + (this.rnd() * 2 - 1) * this.jit; r = Math.min(255, r * k) | 0; g = Math.min(255, g * k) | 0; b = Math.min(255, b * k) | 0; }
     this.room(3);
-    this.put(Ax, Ay, Az, nx, ny, nz, r, g, b, this.alpha); this.put(Bx, By, Bz, nx, ny, nz, r, g, b, this.alpha); this.put(Cx, Cy, Cz, nx, ny, nz, r, g, b, this.alpha);
+    const e = this.glow || 0;
+    this.put(Ax, Ay, Az, nx, ny, nz, r, g, b, this.alpha, e); this.put(Bx, By, Bz, nx, ny, nz, r, g, b, this.alpha, e); this.put(Cx, Cy, Cz, nx, ny, nz, r, g, b, this.alpha, e);
     return this;
   },
   quad(ax, ay, az, bx, by, bz, cx, cy, cz, dx, dy, dz, col, ox, oy, oz) {
@@ -357,9 +371,148 @@ void main() {
   gl_FragColor = vec4(c, 1.0);
 }`;
 
+// ---- the second way to draw a world, made for a Pi 3's GPU (VC4) and better on the rest. What costs a VC4 time is
+// vertices worked on (twice each: once to sort them into tiles, once to draw), fragments with long shaders, draw calls
+// (each a trip through the browser's GPU process) and, most of all, every pixel the browser lays over the canvas at
+// the TV's full size. So: a still world's light is worked out once, as it's built, and kept in its colours
+// (Mesh.light): its shader only moves and fogs. The sky is one painted picture on a dome. The water is one sheet with
+// the world's picture, ripples and glints on it, see-through at a glancing angle so that what's drawn under it shows:
+// the world drawn again upside down (mirror images, as old consoles did floors). Every see-through thing goes into one
+// mesh (fx) and everything written on the screen into another (UI), each drawn with one call.
+const STILL_VS = `
+attribute vec3 aPos; attribute vec4 aNor; attribute vec4 aCol;
+uniform mat4 uVP; uniform vec3 uEye; uniform vec2 uAir; uniform vec3 uFogCol; uniform vec3 uFogSun; uniform vec3 uSun; uniform vec3 uShine; uniform float uFlip;
+varying vec3 vCol; varying vec4 vFog;
+void main() {
+  vec3 p = aPos;
+  p.y = mix(p.y, -max(p.y, 0.0), uFlip);             // (its mirror image: what's above the water, under it)
+  vec3 rel = p - uEye; float d = length(rel);
+  float s = max(dot(rel, uSun) / d, 0.0);
+  vFog = vec4(mix(uFogCol, uFogSun, s * s * s), clamp((d - uAir.x) * uAir.y, 0.0, 1.0));   // the air's colour that way, and how much of it
+  vCol = aCol.rgb * mix(uShine, vec3(1.0), aNor.w);
+  gl_Position = uVP * vec4(p, 1.0);
+}`;
+const STILL_FS = `
+precision mediump float;
+varying vec3 vCol; varying vec4 vFog;
+void main() { gl_FragColor = vec4(mix(vCol, vFog.rgb, vFog.a), 1.0); }`;
+// things that move (lit as they turn), with the same air as the still world and a mirror image of their own
+const MOVE_VS = `
+attribute vec3 aPos; attribute vec4 aNor; attribute vec4 aCol;
+uniform mat4 uVP; uniform mat4 uM; uniform vec3 uSun; uniform vec3 uSunCol; uniform vec3 uAmb; uniform vec3 uGround;
+uniform vec3 uEye; uniform vec2 uAir; uniform vec3 uFogCol; uniform vec3 uFogSun; uniform vec4 uTint; uniform float uFlip; uniform float uRim;
+varying vec3 vCol; varying vec4 vFog;
+void main() {
+  vec4 w = uM * vec4(aPos, 1.0);
+  vec3 n = normalize((uM * vec4(aNor.xyz, 0.0)).xyz);
+  vec3 rel = w.xyz - uEye; float d = length(rel);
+  float rim = 1.0 + dot(n, rel) / d; rim = clamp(rim, 0.0, 1.0); rim *= rim;   // its edge catches the sky's light
+  vec3 c = aCol.rgb * uTint.rgb;
+  vec3 lit = c * (mix(uGround, uAmb, 0.5 + 0.5 * n.y) + uSunCol * max(dot(n, uSun), 0.0)) + uAmb * (rim * uRim);
+  vCol = mix(lit, c, max(uTint.a, aNor.w));
+  w.y = mix(w.y, -w.y, uFlip);
+  rel = w.xyz - uEye; d = length(rel);
+  float s = max(dot(rel, uSun) / d, 0.0);
+  vFog = vec4(mix(uFogCol, uFogSun, s * s * s), clamp((d - uAir.x) * uAir.y, 0.0, 1.0));
+  gl_Position = uVP * w;
+}`;
+// the sky: a picture on a dome round the eye (its place on the picture in each vertex's colour: red across, green down)
+const DOME_VS = `
+attribute vec3 aPos; attribute vec4 aCol;
+uniform mat4 uSkyVP; uniform float uFlip; uniform float uTurn;
+varying vec2 vUV;
+void main() {
+  vec3 p = aPos; p.y = mix(p.y, -p.y, uFlip);
+  vUV = vec2(aCol.x + uTurn, aCol.y);
+  gl_Position = (uSkyVP * vec4(p, 1.0)).xyww;
+}`;
+const DOME_FS = `
+precision mediump float;
+uniform sampler2D uTex; uniform vec3 uShine; varying vec2 vUV;
+void main() { gl_FragColor = vec4(texture2D(uTex, vUV).rgb * uShine, 1.0); }`;
+// the water. Its colour from the world's picture (uTex: shallows, weed, shadows; its alpha: how near the shore), two
+// layers of ripples that drift across each other (uDet: red and green), glints where they cross, most towards the sun's
+// mirror image, foam that comes in to the shore in bands, and the air. Its alpha is how much of it hides what's under:
+// little at a glancing angle (the sky and the mirror images show), more looking down.
+// RICH (a Pi 4 and up): the ripples bend what's under and the glints are sharper.
+const WATER_VS = `
+attribute vec3 aPos;
+uniform mat4 uVP; uniform vec3 uEye; uniform vec4 uMap; uniform vec4 uDrift; uniform vec2 uGrain;
+varying vec2 vUV; varying vec3 vRel; varying vec4 vW;
+void main() {
+  vUV = (aPos.xz - uMap.xy) * uMap.zw;
+  vRel = aPos - uEye;
+  vW = vec4(aPos.xz * uGrain.x + uDrift.xy, aPos.zx * uGrain.y + uDrift.zw);
+  gl_Position = uVP * vec4(aPos, 1.0);
+}`;
+const WATER_FS = `
+#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
+precision mediump float;
+#endif
+uniform sampler2D uTex; uniform sampler2D uDet;
+uniform vec3 uFogCol; uniform vec3 uFogSun; uniform vec2 uAir; uniform vec3 uSun; uniform vec3 uGlint; uniform vec3 uFoam; uniform vec4 uK; uniform float uTime; uniform vec3 uShine;
+varying vec2 vUV; varying vec3 vRel; varying vec4 vW;
+void main() {
+  float d = length(vRel);
+  vec3 v = vRel / d;
+  vec3 r1 = texture2D(uDet, vW.xy).rgb; float r2 = texture2D(uDet, vW.zw).g;
+  float n = (r1.r + r2) * (0.35 + 1.3 * r1.b);                         // the nets of light: either one's lines, coming and going with the swells
+#ifdef RICH
+  vec4 m = texture2D(uTex, vUV + (n - 0.3) * 0.0016);
+#else
+  vec4 m = texture2D(uTex, vUV);
+#endif
+  float s = max(v.x * uSun.x - v.y * uSun.y + v.z * uSun.z, 0.0);     // towards the sun's mirror image
+  s *= s; s *= s; float s8 = s * s;
+  float g = n * (uK.z + s8 * 1.1 + s * 0.2) + r1.r * r2 * 0.6;         // brightest in the sun's path, and where two lines cross
+  float fo = clamp((fract(m.a * 2.5 - uTime * 0.35 + r1.b * 0.5) - 0.62) * 8.0, 0.0, 1.0) * m.a + clamp((m.a - 0.86) * 9.0, 0.0, 1.0);
+  vec3 c = m.rgb * uShine * (0.82 + 0.36 * r1.b) + uGlint * g;
+  c = mix(c, uFoam, min(fo * uK.w, 1.0));
+  float fr = 1.0 + v.y; fr *= fr;                                      // 0 looking down, 1 along the water
+  float f = clamp((d - uAir.x) * uAir.y, 0.0, 1.0);
+  float sf = max(dot(v, uSun), 0.0);
+  c = mix(c, mix(uFogCol, uFogSun, sf * sf * sf), f);
+  float a = 1.0 - (uK.x + uK.y * fr) * (1.0 - f * 0.6);
+  gl_FragColor = vec4(c, max(a, min(1.0, max(g * 0.8, fo * uK.w))));
+}`;
+// every see-through thing, in one mesh: each vertex's alpha is how much of it there is, its spare byte whether it's
+// light added (flames, lamps, sparks, glowing wakes) or paint laid over (shadows, foam, rain); it thins with the air
+const FX_VS = `
+attribute vec3 aPos; attribute vec4 aNor; attribute vec4 aCol;
+uniform mat4 uVP; uniform vec3 uEye; uniform vec2 uAir; uniform float uPoint;
+varying vec4 vCol;
+void main() {
+  float a = aCol.a * (1.0 - clamp((length(aPos - uEye) - uAir.x) * uAir.y, 0.0, 1.0));
+  vCol = vec4(aCol.rgb * a, a * (1.0 - aNor.w));
+  gl_Position = uVP * vec4(aPos, 1.0);
+  gl_PointSize = uPoint / max(gl_Position.w, 0.5);
+}`;
+const FX_FS = `
+precision mediump float;
+varying vec4 vCol;
+void main() {
+#ifdef DOTS
+  vec2 d = gl_PointCoord - 0.5; gl_FragColor = vCol * clamp(1.0 - dot(d, d) * 4.0, 0.0, 1.0);
+#else
+  gl_FragColor = vCol;
+#endif
+}`;
+// what's written on the screen: quads from one picture (letters, shapes), in the picture's own pixels
+const UI_VS = `
+attribute vec2 aXY; attribute vec2 aUV; attribute vec4 aCol;
+uniform vec4 uView;
+varying vec2 vUV; varying vec4 vCol;
+void main() { vUV = aUV; vCol = aCol; gl_Position = vec4(aXY.x * uView.x + uView.z, aXY.y * uView.y + uView.w, 0.0, 1.0); }`;
+const UI_FS = `
+precision mediump float;
+uniform sampler2D uTex; varying vec2 vUV; varying vec4 vCol;
+void main() { float a = texture2D(uTex, vUV).a * vCol.a; gl_FragColor = vec4(vCol.rgb * a, a); }`;
+
 function GL(canvas, opts) {
   opts = opts || {};
-  const gl = canvas.getContext("webgl", { antialias: false, alpha: false, depth: true, stencil: false, premultipliedAlpha: false,
+  const gl = canvas.getContext("webgl", { antialias: !!opts.antialias, alpha: false, depth: true, stencil: false, premultipliedAlpha: false,
     preserveDrawingBuffer: false, powerPreference: "high-performance" });
   if (!gl) throw new Error("no WebGL");
   this.gl = gl; this.canvas = canvas;
@@ -369,13 +522,17 @@ function GL(canvas, opts) {
   this.P = { lit: mk(LIT_VS, LIT_FS, ""), glow: mk(GLOW_VS, GLOW_FS, ""), sky: mk(SKY_VS, SKY_FS, "") };
   // the rest when first wanted (each takes a moment to make on a Pi 3): null when this GPU can't
   this.make = { sea: () => mk(SEA_VS, SEA_FS, ""), skySun: () => mk(SKY_VS, SKY_FS, "#define SUN\n"),
-    seaWave: () => this.derivatives ? mk(SEA_VS, SEA_FS, "#define WAVES\n") : null };
+    seaWave: () => this.derivatives ? mk(SEA_VS, SEA_FS, "#define WAVES\n") : null,
+    still: () => mk(STILL_VS, STILL_FS, ""), move: () => mk(MOVE_VS, STILL_FS, ""), dome: () => mk(DOME_VS, DOME_FS, ""),
+    water: () => mk(WATER_VS, WATER_FS, ""), waterRich: () => mk(WATER_VS, WATER_FS, "#define RICH\n"),
+    fx: () => mk(FX_VS, FX_FS, ""), fxDots: () => mk(FX_VS, FX_FS, "#define DOTS\n"), ui: () => mk(UI_VS, UI_FS, "") };
+  this.flip = 0; this.skyVP = new Float32Array(16); this.tint = new Float32Array([1, 1, 1]);
   this.vp = new Float32Array(16); this.view = new Float32Array(16); this.proj = new Float32Array(16); this.m = new Float32Array(16);
   this.planes = new Float32Array(24); this.eye = new Float32Array(3);
   this.frame = 0; this.cur = null; this.curBuf = null; this.calls = 0; this.tris = 0;
   this.L = { sun: new Float32Array([0.4, 0.8, 0.3]), sunCol: new Float32Array([1, 0.95, 0.85]), amb: new Float32Array([0.42, 0.47, 0.55]),
     ground: new Float32Array([0.25, 0.22, 0.2]), fogCol: new Float32Array([0.7, 0.8, 0.9]), fog: new Float32Array([60, 200]),
-    top: new Float32Array([0.25, 0.45, 0.8]), horizon: new Float32Array([0.7, 0.8, 0.9]) };
+    top: new Float32Array([0.25, 0.45, 0.8]), horizon: new Float32Array([0.7, 0.8, 0.9]), fogSun: new Float32Array([0.7, 0.8, 0.9]) };
   const q = new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]);
   this.quad = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, this.quad); gl.bufferData(gl.ARRAY_BUFFER, q, gl.STATIC_DRAW);
   gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LEQUAL); gl.enable(gl.CULL_FACE); gl.cullFace(gl.BACK);
@@ -387,18 +544,18 @@ GL.prototype = {
     return this.P[name];
   },
   can(what) { return what === "waves" ? !!this.prog("seaWave") : what === "sun" ? !!this.prog("skySun") : false; },
+  // the programs a game will use, made now, while it loads: the first use of one in the middle of a game is a pause
+  // (a Pi 3 takes a good while over a shader)
+  warm(names) { for (const n of names) this.prog(n); return this; },
   program(vs, fs) {
     const gl = this.gl;
-    const sh = (type, src) => {
-      const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
-      if (!gl.getShaderParameter(s, gl.COMPILE_STATUS) && !gl.isContextLost()) throw new Error(gl.getShaderInfoLog(s) || "shader");
-      return s;
-    };
-    const p = gl.createProgram();
-    gl.attachShader(p, sh(gl.VERTEX_SHADER, vs)); gl.attachShader(p, sh(gl.FRAGMENT_SHADER, fs));
-    gl.bindAttribLocation(p, 0, "aPos"); gl.bindAttribLocation(p, 0, "aXY"); gl.bindAttribLocation(p, 1, "aNor"); gl.bindAttribLocation(p, 2, "aCol");
+    const sh = (type, src) => { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s); return s; };
+    const p = gl.createProgram(), v = sh(gl.VERTEX_SHADER, vs), f = sh(gl.FRAGMENT_SHADER, fs);
+    gl.attachShader(p, v); gl.attachShader(p, f);
+    gl.bindAttribLocation(p, 0, "aPos"); gl.bindAttribLocation(p, 0, "aXY"); gl.bindAttribLocation(p, 1, "aNor"); gl.bindAttribLocation(p, 1, "aUV"); gl.bindAttribLocation(p, 2, "aCol");
     gl.linkProgram(p);
-    if (!gl.getProgramParameter(p, gl.LINK_STATUS) && !gl.isContextLost()) throw new Error(gl.getProgramInfoLog(p) || "link");
+    // (one question to the GPU, not three: each waits for its answer; the shaders' own complaints only when it failed)
+    if (!gl.getProgramParameter(p, gl.LINK_STATUS) && !gl.isContextLost()) throw new Error(gl.getShaderInfoLog(v) || gl.getShaderInfoLog(f) || gl.getProgramInfoLog(p) || "link");
     const u = {}, n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
     for (let i = 0; i < n; i++) { const a = gl.getActiveUniform(p, i); u[a.name] = gl.getUniformLocation(p, a.name); }
     const xy = gl.getAttribLocation(p, "aXY");
@@ -415,9 +572,12 @@ GL.prototype = {
     if (this.vao) { h.vao = this.vao.createVertexArrayOES(); this.vao.bindVertexArrayOES(h.vao); this.attribs(buf); this.vao.bindVertexArrayOES(null); }
     return h;
   },
-  update(h, mesh) {                                  // a dynamic mesh's verts, again (no new memory)
+  update(h, mesh) {                                  // a dynamic mesh's verts, again (no new memory: a view of its bytes is kept for each 256 vertices it may hold)
     const gl = this.gl; gl.bindBuffer(gl.ARRAY_BUFFER, h.buf); this.curBuf = null;
-    if (mesh.n) gl.bufferSubData(gl.ARRAY_BUFFER, 0, new Uint8Array(mesh.buf, 0, mesh.n * 20));
+    if (mesh.n) {
+      const k = (mesh.n + 255) >> 8, vw = mesh.vw || (mesh.vw = []);
+      gl.bufferSubData(gl.ARRAY_BUFFER, 0, vw[k] || (vw[k] = new Uint8Array(mesh.buf, 0, Math.min(mesh.cap, k << 8) * 20)));
+    }
     h.n = mesh.n;
   },
   free(h) { if (!h) return; this.gl.deleteBuffer(h.buf); if (h.vao && this.vao) this.vao.deleteVertexArrayOES(h.vao); },
@@ -425,7 +585,7 @@ GL.prototype = {
     const gl = this.gl;
     gl.bindBuffer(gl.ARRAY_BUFFER, buf);
     gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 20, 0);
-    gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 3, gl.BYTE, true, 20, 12);
+    gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 4, gl.BYTE, true, 20, 12);   // (the normal, and the vertex's spare byte)
     gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 4, gl.UNSIGNED_BYTE, true, 20, 16);
   },
   bind(h) {
@@ -460,7 +620,10 @@ GL.prototype = {
     M4.mul(this.vp, this.proj, this.view);
     M4.planes(this.planes, this.vp);
     this.eye[0] = ex; this.eye[1] = ey; this.eye[2] = ez; this.fov = fov; this.aspect = w / h;
-    this.frame++; this.cur = null; this.curBuf = null; this.calls = 0; this.tris = 0;
+    const sv = this.skyVP, v = this.view;              // the sky's: the same view, turned but never moved
+    for (let i = 0; i < 16; i++) sv[i] = v[i]; sv[12] = sv[13] = sv[14] = 0; M4.mul(sv, this.proj, sv);
+    if (this.flip) { this.flip = 0; gl.frontFace(gl.CCW); }
+    this.frame++; this.cur = null; this.curBuf = null; if (!rect || !rect[1]) { this.calls = 0; this.tris = 0; }
   },
   sees(x, y, z, r) { return M4.sees(this.planes, x, y, z, r); },
   use(P) {
@@ -472,6 +635,11 @@ GL.prototype = {
     if (u.uVP) gl.uniformMatrix4fv(u.uVP, false, this.vp);
     if (u.uEye) gl.uniform3fv(u.uEye, this.eye);
     if (u.uFog) gl.uniform2fv(u.uFog, L.fog);
+    if (u.uAir) gl.uniform2f(u.uAir, L.fog[0], 1 / Math.max(1, L.fog[1] - L.fog[0]));
+    if (u.uFogSun) gl.uniform3fv(u.uFogSun, L.fogSun);
+    if (u.uSkyVP) gl.uniformMatrix4fv(u.uSkyVP, false, this.skyVP);
+    if (u.uFlip) gl.uniform1f(u.uFlip, this.flip);
+    if (u.uShine) gl.uniform3fv(u.uShine, this.tint);
     if (u.uFogCol) gl.uniform3fv(u.uFogCol, L.fogCol);
     if (u.uSun) gl.uniform3fv(u.uSun, L.sun);
     if (u.uSunCol) gl.uniform3fv(u.uSunCol, L.sunCol);
@@ -527,10 +695,100 @@ GL.prototype = {
     gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 8, 0);
     gl.depthMask(false); gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4); gl.depthMask(true); this.calls++;
   },
+  // ---- the second way (see the shaders above)
+  // a picture with choices: o {mip, repeat, nearest, alpha: a second canvas whose red becomes the picture's alpha (any
+  // size: it's stretched to fit), data: [Uint8Array (r g b a), width, height] in place of a canvas}
+  picture(canvas, o) {
+    o = o || {};
+    const gl = this.gl, t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
+    if (o.data) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, o.data[1], o.data[2], 0, gl.RGBA, gl.UNSIGNED_BYTE, o.data[0]);
+    else if (o.alpha) {
+      const w = canvas.width, h = canvas.height, px = canvas.getContext("2d").getImageData(0, 0, w, h).data;
+      const c = document.createElement("canvas"); c.width = w; c.height = h;
+      const g = c.getContext("2d", { willReadFrequently: true }); g.imageSmoothingEnabled = true; g.drawImage(o.alpha, 0, 0, w, h);
+      const a = g.getImageData(0, 0, w, h).data;
+      for (let i = 0; i < px.length; i += 4) px[i + 3] = a[i];
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(px.buffer));
+    } else gl.texImage2D(gl.TEXTURE_2D, 0, o.rgba ? gl.RGBA : gl.RGB, o.rgba ? gl.RGBA : gl.RGB, gl.UNSIGNED_BYTE, canvas);
+    const wrap = o.repeat ? gl.REPEAT : gl.CLAMP_TO_EDGE;
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, o.repeat || o.round ? gl.REPEAT : gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, wrap);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, o.nearest ? gl.NEAREST : gl.LINEAR);
+    if (o.mip) { gl.generateMipmap(gl.TEXTURE_2D); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_NEAREST); }
+    else gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, o.nearest ? gl.NEAREST : gl.LINEAR);
+    return t;
+  },
+  // from now on (until off, or the next begin): mirror images, under the water. Draw the dome, the still world and the
+  // moving things again after it, then the water over them.
+  mirror(on) {
+    const gl = this.gl; this.flip = on ? 1 : 0; gl.frontFace(on ? gl.CW : gl.CCW);
+    this.frame++;                                    // (every program hears of it at its next use)
+  },
+  // the whole frame brighter or tinted (lightning, a flash): r g b times the still world, the sky and the water
+  shine(r, g, b) { const t = this.tint; if (t[0] !== r || t[1] !== g || t[2] !== b) { t[0] = r; t[1] = g; t[2] = b; this.frame++; } },
+  // a still mesh with its light baked in (Mesh.light, Chunks.upload with a light): moved by nothing, only fogged
+  still(h) {
+    if (!h || !h.n) return;
+    const gl = this.gl; this.use(this.prog("still"));
+    this.bind(h); gl.drawArrays(gl.TRIANGLES, 0, h.n); this.calls++; this.tris += h.n / 3;
+  },
+  // a thing that moves: m its place, tint r g b, glow 0 lit … 1 its own colours, rim: how much its edges catch the sky
+  moved(h, m, r, g, b, glow, rim) {
+    if (!h || !h.n) return;
+    const gl = this.gl, u = this.use(this.prog("move"));
+    gl.uniformMatrix4fv(u.uM, false, m || IDENT);
+    gl.uniform4f(u.uTint, r == null ? 1 : r, g == null ? 1 : g, b == null ? 1 : b, glow || 0);
+    gl.uniform1f(u.uRim, rim || 0);
+    this.bind(h); gl.drawArrays(gl.TRIANGLES, 0, h.n); this.calls++; this.tris += h.n / 3;
+  },
+  // the sky: a picture (Kit.sky paints one) on a dome round the eye, drawn first; turn: how far round it has drifted (0 to 1)
+  dome(tex, turn) {
+    const gl = this.gl, u = this.use(this.prog("dome"));
+    if (!this.domeH) this.domeH = this.upload(Kit.dome());
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, tex); gl.uniform1i(u.uTex, 0);
+    gl.uniform1f(u.uTurn, turn || 0);
+    gl.disable(gl.DEPTH_TEST); gl.disable(gl.CULL_FACE); gl.depthMask(false);
+    this.bind(this.domeH); gl.drawArrays(gl.TRIANGLES, 0, this.domeH.n); this.calls++; this.tris += this.domeH.n / 3;
+    gl.enable(gl.DEPTH_TEST); gl.enable(gl.CULL_FACE); gl.depthMask(true);
+  },
+  // the water: h its sheet, tex the world's picture (x0 z0 its corner, size its side), det the ripples (Kit.ripples), t
+  // the time; o {glint, foam: colours, see: how much shows through looking down, and more along the water (seeMore),
+  // lines: how bright the ripples' lines are away from the sun, foamK, grain: [fine, broad] ripples a world unit,
+  // drift: how fast they move, rich}
+  water(h, tex, det, x0, z0, size, t, o) {
+    if (!h || !h.n) return;
+    o = o || {};
+    const gl = this.gl, P = (o.rich && this.prog("waterRich")) || this.prog("water"), u = this.use(P), L = this.L;
+    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, det); gl.uniform1i(u.uDet, 1);
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, tex); gl.uniform1i(u.uTex, 0);
+    gl.uniform4f(u.uMap, x0, z0, 1 / size, 1 / size);
+    const g1 = o.grain ? o.grain[0] : 0.13, g2 = o.grain ? o.grain[1] : 0.061, dr = o.drift == null ? 1 : o.drift;
+    gl.uniform2f(u.uGrain, g1, g2);
+    gl.uniform4f(u.uDrift, (t * 0.06 * dr) % 1, (t * 0.021 * dr) % 1, (-t * 0.017 * dr) % 1, (t * 0.034 * dr) % 1);
+    gl.uniform1f(u.uTime, t % 1000);
+    const c3 = (loc, c, d) => { const v = c == null ? d : c; gl.uniform3f(loc, ((v >> 16) & 255) / 255, ((v >> 8) & 255) / 255, (v & 255) / 255); };
+    c3(u.uGlint, o.glint, 0xffffff); c3(u.uFoam, o.foam, 0xffffff);
+    gl.uniform4f(u.uK, this.seeUnder ? (o.see == null ? 0.1 : o.see) : 0, this.seeUnder ? (o.seeMore == null ? 0.62 : o.seeMore) : 0, o.lines == null ? 0.14 : o.lines, o.foamK == null ? 0.8 : o.foamK);
+    if (this.seeUnder) { gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); }
+    this.bind(h); gl.drawArrays(gl.TRIANGLES, 0, h.n); this.calls++; this.tris += h.n / 3;
+    if (this.seeUnder) gl.disable(gl.BLEND);
+  },
+  // every see-through thing at once: a dynamic mesh (handle h, sent again here), its vertices' alpha how much, their
+  // spare byte 127 for light added, 0 for paint; from, n: only part of it; points: a size, drawn as round-ish dots
+  fx(h, mesh, points, from, n) {
+    if (!h) return;
+    if (mesh) this.update(h, mesh);
+    if (!h.n) return;
+    const gl = this.gl, u = this.use(this.prog(points ? "fxDots" : "fx"));
+    gl.uniform1f(u.uPoint, points ? points * (this.vh || this.canvas.height) / 2 / Math.tan(this.fov / 2) : 1);
+    gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA); gl.depthMask(false);
+    this.bind(h); gl.drawArrays(points ? gl.POINTS : gl.TRIANGLES, from || 0, n == null ? h.n : n); this.calls++;
+    gl.disable(gl.BLEND); gl.depthMask(true);
+  },
   // light and air: hex colors ("#rrggbb" or 0xrrggbb) and the sun's direction (towards it)
   light(o) {
     const L = this.L, set = (a, c) => { if (c == null) return; const v = typeof c === "string" ? parseInt(c.slice(1), 16) : c; a[0] = (v >> 16 & 255) / 255; a[1] = (v >> 8 & 255) / 255; a[2] = (v & 255) / 255; };
     set(L.sunCol, o.sunCol); set(L.amb, o.amb); set(L.ground, o.ground); set(L.fogCol, o.fog); set(L.top, o.top); set(L.horizon, o.horizon);
+    if (o.fogSun != null) { set(L.fogSun, o.fogSun); this.ownFogSun = true; } else if (o.fog != null && !this.ownFogSun) set(L.fogSun, o.fog);   // (the air towards the sun: its own colour when given)
     if (o.sun) { const l = Math.hypot(o.sun[0], o.sun[1], o.sun[2]); L.sun[0] = o.sun[0] / l; L.sun[1] = o.sun[1] / l; L.sun[2] = o.sun[2] / l; }
     if (o.near != null) L.fog[0] = o.near;
     if (o.far != null) L.fog[1] = o.far;
@@ -749,19 +1007,22 @@ function bake(mesh, o) {
 }
 
 // ---------------------------------------------------------------- the quality rungs, and keeping the frame rate steady
-// gl: h the height drawn (the width follows the screen), far the draw distance, waves (the sea moves), sun (its glow in the
-// sky), detail (more small things, nearer than far), fps what to hold. flat: the same for the 2D renderer.
+// gl: h the height drawn (the width follows the screen; shown a whole number of times as big, crisp), far the draw
+// distance, fps what to hold, look (0 light: a Pi 3's; 1 full: a Pi 4's and up), mirror (0 none, 1 the near world and
+// what moves, 2 the sky too: what shows in the water), detail (more small things, nearer than far), wakes, and the
+// first way's waves and sun. Every rung holds 60 but the lowest two: pixels are given up before frames, and when even
+// the smallest picture runs late it's the frames at a good size (rung 1), then at the smallest. flat: the 2D renderer's.
 const LADDER = {
   gl: [
-    { h: 144, far: 150, fps: 30, waves: 0, sun: 0, detail: 0.35, wakes: 1 },
-    { h: 180, far: 170, fps: 30, waves: 0, sun: 0, detail: 0.5, wakes: 2 },
-    { h: 180, far: 190, fps: 60, waves: 0, sun: 0, detail: 0.55, wakes: 2 },
-    { h: 216, far: 220, fps: 60, waves: 0, sun: 1, detail: 0.65, wakes: 4 },
-    { h: 270, far: 260, fps: 60, waves: 1, sun: 1, detail: 0.75, wakes: 4 },
-    { h: 360, far: 320, fps: 60, waves: 1, sun: 1, detail: 0.9, wakes: 4 },
-    { h: 450, far: 380, fps: 60, waves: 1, sun: 1, detail: 1, wakes: 4 },
-    { h: 540, far: 440, fps: 60, waves: 1, sun: 1, detail: 1, wakes: 4 },
-    { h: 720, far: 500, fps: 60, waves: 1, sun: 1, detail: 1, wakes: 4 }
+    { h: 216, far: 420, fps: 30, look: 0, mirror: 0, waves: 0, sun: 0, detail: 0.4, wakes: 2 },
+    { h: 360, far: 560, fps: 30, look: 0, mirror: 1, waves: 0, sun: 0, detail: 0.6, wakes: 3 },
+    { h: 216, far: 420, fps: 60, look: 0, mirror: 0, waves: 0, sun: 0, detail: 0.4, wakes: 2 },
+    { h: 270, far: 480, fps: 60, look: 0, mirror: 1, waves: 0, sun: 0, detail: 0.5, wakes: 3 },
+    { h: 360, far: 560, fps: 60, look: 0, mirror: 2, waves: 0, sun: 1, detail: 0.6, wakes: 4 },
+    { h: 540, far: 640, fps: 60, look: 0, mirror: 2, waves: 0, sun: 1, detail: 0.75, wakes: 4 },
+    { h: 540, far: 760, fps: 60, look: 1, mirror: 2, waves: 1, sun: 1, detail: 0.9, wakes: 4 },
+    { h: 720, far: 900, fps: 60, look: 1, mirror: 2, waves: 1, sun: 1, detail: 1, wakes: 4 },
+    { h: 1080, far: 1100, fps: 60, look: 1, mirror: 2, waves: 1, sun: 1, detail: 1, wakes: 4 }
   ],
   flat: [
     { h: 112, far: 150, fps: 30, detail: 0.4 },
@@ -782,18 +1043,21 @@ function plan(p, b) {
   if (!p.webgl1) return { mode: "flat", rung: flatStart(), top: flatTop, why: "no WebGL in this browser" };
   if (p.software && !strong) return { mode: "flat", rung: flatStart(), top: flatTop, why: "WebGL here is software (" + (p.renderer || "no GPU") + ")" };
   let rung, top, why;
-  if (p.family === "pi3") { rung = 1; top = 3; why = "a Pi 3's GPU"; }
-  else if (p.family === "pi4") { rung = 3; top = 5; why = "a Pi 4's GPU"; }
-  else if (p.family === "pi5") { rung = 4; top = 6; why = "a Pi 5's GPU"; }
-  else if (p.software) { rung = 2; top = 4; why = "fast software WebGL"; }
-  else { rung = 4; top = glTop; why = p.family === "mobile" ? "a mobile GPU" : "a desktop GPU"; }
+  // A Pi keeps to its own kind's rungs whatever the test says (the test can't see what the browser spends putting the
+  // page together at the TV's size, which is most of a Pi 3's frame): the light look for a Pi 3, the full one from a
+  // Pi 4. The test can only say "less". The governor finds the rest while the game plays.
+  const pi = p.family === "pi3" || p.family === "pi4" || p.family === "pi5";
+  if (p.family === "pi3") { rung = 4; top = 5; why = "a Pi 3's GPU"; }
+  else if (p.family === "pi4") { rung = 6; top = 7; why = "a Pi 4's GPU"; }
+  else if (p.family === "pi5") { rung = 7; top = glTop; why = "a Pi 5's GPU"; }
+  else if (p.software) { rung = 3; top = 5; why = "fast software WebGL"; }
+  else { rung = 6; top = glTop; why = p.family === "mobile" ? "a mobile GPU" : "a desktop GPU"; }
   if (b.draws != null) {                             // the test says more than the name
     const d = b.draws, f = b.fill;
-    if (d < 8 || f < 0.5) { rung = 0; why += ", slow in the test"; }
-    else if (d < 24 || f < 1.5) { rung = Math.min(rung, 1); why += ", modest in the test"; }
-    else if (d >= 512 && f >= 16) { rung = Math.max(rung, 6); top = glTop; why += ", strong in the test"; }
-    else if (d >= 256 && f >= 8) { rung = Math.max(rung, 5); top = Math.max(top, 6); why += ", good in the test"; }
-    else if (d >= 96 && f >= 3) { rung = Math.max(rung, 3); top = Math.max(top, 4); }
+    if (d < 8 || f < 0.5) { rung = Math.min(rung, 2); why += ", slow in the test"; }
+    else if (d < 24 || f < 1.5) { rung = Math.min(rung, 3); why += ", modest in the test"; }
+    else if (!pi && d >= 512 && f >= 16) { rung = Math.max(rung, 8); top = glTop; why += ", strong in the test"; }
+    else if (!pi && d >= 256 && f >= 8) { rung = Math.max(rung, 7); top = glTop; why += ", good in the test"; }
   }
   return { mode: "gl", rung: Math.min(rung, top), top, why };
 }
@@ -870,6 +1134,7 @@ function Governor(ladder, rung, top, change) {
   this.last = 0; this.win = 0; this.n = 0; this.late = 0; this.workSum = 0; this.calm = 0; this.quiet = 0; this.wait = 0;
   this.fps = 0; this.shown = 0; this.frames = 0; this.fpsAt = 0; this.lock = false; this.log = [];
   this.workMs = 0;                                   // the game's work a frame drawn, smoothed (ms)
+  this.ran = { frames: 0, late: 0, worst: 0, secs: 0, work: 0, low: 1e9 };   // how it ran since it started (or since ran was read): for a report
 }
 Governor.prototype = {
   get cur() { return this.ladder[this.rung]; },
@@ -879,15 +1144,16 @@ Governor.prototype = {
     const gap = this.last ? now - this.last : iv;
     this.last = now;
     this.frames++;
-    if (now - this.fpsAt >= 1000) { this.fps = Math.round(this.frames * 1000 / (now - this.fpsAt)); this.frames = 0; this.fpsAt = now; }
+    if (now - this.fpsAt >= 1000) { this.fps = Math.round(this.frames * 1000 / (now - this.fpsAt)); this.frames = 0; if (this.fpsAt && now >= this.wait && this.fps < this.ran.low) this.ran.low = this.fps; this.fpsAt = now; }
     if (document.hidden || gap > 400) { this.reset(now); return true; }   // (back from elsewhere: not the game's doing)
+    if (now >= this.wait) { const R = this.ran; R.frames++; R.secs += gap / 1000; if (gap > 25) R.late++; if (gap > R.worst) R.worst = gap; }
     if (now < this.wait) return true;
     if (!this.win) this.win = now;
     this.n++; if (gap > iv * 1.5) this.late++;
     if (now - this.win >= 2000) this.judge(now, iv);
     return true;
   },
-  work(ms) { this.workSum += ms; this.workMs += (ms - this.workMs) * 0.05; },
+  work(ms) { this.workSum += ms; this.workMs += (ms - this.workMs) * 0.05; if (ms > this.ran.work) this.ran.work = ms; },
   miss(k) { if (performance.now() >= this.wait) this.late += k; },   // frames drawn late elsewhere (a Ray game's helpers, still busy)
   reset(now) { this.win = 0; this.n = 0; this.late = 0; this.workSum = 0; this.wait = now + 800; },
   hold(ms) { this.wait = performance.now() + (ms || 1500); this.win = 0; this.n = 0; this.late = 0; this.workSum = 0; },
@@ -971,6 +1237,28 @@ Mesh.prototype.turn = function (yaw, pitch, roll, ox, oy, oz) {
   }
   return this;
 };
+// Its light worked out now and kept in its colours, for a still world drawn with GL.still (nothing to work out a frame
+// but where each vertex is): L {sun: towards it, sunCol, amb, ground} as GL.light takes them; o {shade(x, y, z) → how
+// much of the sun reaches there (0 in shadow … 1), sky(x, y, z, ny) → how much of the sky's light (1: all of it; less
+// in a hollow or at the foot of something)}. Vertices that are their own light (glow, or alpha 254) are left as they are.
+Mesh.prototype.light = function (L, o) {
+  o = o || {};
+  const f = this.f, i8 = this.i8, u8 = this.u8, sun = L.sun, sl = Math.hypot(sun[0], sun[1], sun[2]) || 1, sx = sun[0] / sl, sy = sun[1] / sl, sz = sun[2] / sl;
+  const sc = hexRGB(L.sunCol), am = hexRGB(L.amb), gr = hexRGB(L.ground);
+  for (let i = this.lit || 0; i < this.n; i++) {
+    const q = i * 20;
+    if (u8[q + 19] === 254) { i8[q + 15] = 127; u8[q + 19] = 255; continue; }
+    if (i8[q + 15] > 0) continue;
+    const nx = i8[q + 12] / 127, ny = i8[q + 13] / 127, nz = i8[q + 14] / 127, x = f[i * 5], y = f[i * 5 + 1], z = f[i * 5 + 2];
+    let d = nx * sx + ny * sy + nz * sz; if (d < 0) d = 0;
+    if (d > 0 && o.shade) d *= o.shade(x + nx * 0.6, y + ny * 0.6 + 0.2, z + nz * 0.6);
+    const k = 0.5 + 0.5 * ny, a = o.sky ? o.sky(x, y, z, ny) : 1;
+    const r = u8[q + 16] * (((gr[0] + (am[0] - gr[0]) * k) * a + sc[0] * d) / 255), g = u8[q + 17] * (((gr[1] + (am[1] - gr[1]) * k) * a + sc[1] * d) / 255), b = u8[q + 18] * (((gr[2] + (am[2] - gr[2]) * k) * a + sc[2] * d) / 255);
+    u8[q + 16] = r > 255 ? 255 : r; u8[q + 17] = g > 255 ? 255 : g; u8[q + 18] = b > 255 ? 255 : b;
+  }
+  this.lit = this.n;                                 // (what's built after this is lit by the next call)
+  return this;
+};
 Mesh.join = function (list) {                      // several meshes as one
   const out = new Mesh(list.reduce((a, m) => a + m.n, 0) + 3);
   for (const m of list) { out.room(m.n); out.u8.set(new Uint8Array(m.buf, 0, m.n * 20), out.n * 20); out.n += m.n; }
@@ -1044,6 +1332,127 @@ const Kit = {
     }
     return out;
   },
+  // the sky's dome (GL.dome): rings from straight up down to just under the horizon; each vertex's colour says where
+  // on the sky's picture it is (red: round, green: down). More of the picture is given to the sky near the horizon.
+  dome() {
+    const m = new Mesh(24 * 8 * 6), N = 24, R = 100, V = [0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1], pt = [];
+    for (let k = 0; k < V.length; k++) {
+      const e = Math.PI / 2 * (1 - V[k]) * (1 - V[k]), ring = [];
+      for (let i = 0; i <= N; i++) { const a = i / N * TAU; ring.push([Math.sin(a) * Math.cos(e) * R, Math.sin(e) * R, Math.cos(a) * Math.cos(e) * R, Math.round(i / N * 255), Math.round(V[k] * 255)]); }
+      pt.push(ring);
+    }
+    const put = p => m.put(p[0], p[1], p[2], 0, -1, 0, p[3], p[4], 0, 255);
+    for (let k = 0; k + 1 < pt.length; k++) for (let i = 0; i < N; i++) {
+      const a = pt[k][i], b = pt[k][i + 1], c = pt[k + 1][i + 1], d = pt[k + 1][i];
+      put(a); put(d); put(c); put(a); put(c); put(b);
+    }
+    return m;
+  },
+  // where a height in the sky (radians up from the horizon) falls on the sky's picture, 0 its top … 1 the horizon
+  skyV(e) { return 1 - Math.sqrt(Math.max(0, e) / (Math.PI / 2)); },
+  // a sky painted once, for the dome: o {w, h (512 × 256), top, mid, horizon, haze (colours, top to bottom), sun: {az,
+  // el (radians), size (radians across), col, glow (colour of the light round it), halo: how wide that is, bars: a low
+  // sun cut by dark bars}, clouds: {n, col, lit (their sunward side), lo, hi (radians), len}, stars (how many), ridges:
+  // [{h (radians), col, rough, seed}] far mountains, nearest last, seed}
+  sky(o) {
+    const W = o.w || 512, H = o.h || 256, c = document.createElement("canvas"); c.width = W; c.height = H;
+    const g = c.getContext("2d"), rnd = U.rand(o.seed || 7), V = Kit.skyV, hex = U.hex;
+    const gr = g.createLinearGradient(0, 0, 0, H);
+    gr.addColorStop(0, hex(o.top)); gr.addColorStop(V(0.55), hex(U.mix(o.top, o.mid == null ? o.horizon : o.mid, 0.55)));
+    gr.addColorStop(V(0.2), hex(o.mid == null ? U.mix(o.top, o.horizon, 0.7) : o.mid)); gr.addColorStop(V(0.045), hex(o.horizon)); gr.addColorStop(1, hex(o.haze == null ? o.horizon : o.haze));
+    g.fillStyle = gr; g.fillRect(0, 0, W, H);
+    for (let i = 0; i < (o.stars || 0); i++) {         // stars: more of them high up
+      const e = 0.12 + rnd() * rnd() * 1.3, b = 0.35 + rnd() * 0.65;
+      g.fillStyle = "rgba(" + (215 + rnd() * 40 | 0) + "," + (225 + rnd() * 30 | 0) + ",255," + b.toFixed(2) + ")"; g.fillRect(rnd() * W | 0, V(e) * H | 0, rnd() < 0.12 ? 2 : 1, 1);
+    }
+    const S = o.sun;
+    const oval = (az, el, r, fill) => {                // a round thing in the sky, as the picture has to hold it; twice where it crosses the picture's edge
+      const x = ((az / TAU) % 1 + 1) % 1 * W, y0 = V(el + r) * H, y1 = V(el - r) * H, rx = r / TAU * W / Math.max(0.3, Math.cos(el)), ry = (y1 - y0) / 2;
+      for (const dx of [0, -W, W]) { if (x + dx + rx < 0 || x + dx - rx > W) continue; fill(x + dx, (y0 + y1) / 2, rx, Math.max(0.5, ry)); }
+    };
+    if (S) {
+      const halo = (r, col, a) => oval(S.az, S.el, r, (x, y, rx, ry) => {
+        g.save(); g.translate(x, y); g.scale(1, ry / rx);
+        const rg = g.createRadialGradient(0, 0, 0, 0, 0, rx); rg.addColorStop(0, col + a); rg.addColorStop(0.35, col + "55"); rg.addColorStop(1, col + "00");
+        g.fillStyle = rg; g.fillRect(-rx, -rx, rx * 2, rx * 2); g.restore();
+      });
+      halo((S.halo || 0.9), hex(S.glow == null ? S.col : S.glow), "aa");
+      halo((S.size || 0.1) * 2.2, hex(S.col), "ff");
+    }
+    const C = o.clouds;
+    if (C) for (let i = 0; i < C.n; i++) {             // clouds: long thin ones low down, each a few soft ovals, their sunward ends lit
+      const el = (C.lo || 0.03) + rnd() * rnd() * ((C.hi || 0.7) - (C.lo || 0.03)), az = rnd() * TAU, len = (C.len || 0.5) * (0.4 + rnd()) * (1.4 - el), th = 0.012 + rnd() * 0.03 + el * 0.05;
+      const near = S ? Math.max(0, Math.cos(az - S.az)) : 0, col = U.mix(C.col, C.lit == null ? C.col : C.lit, near * near * (0.5 + rnd() * 0.5));
+      for (let k = 0; k < 5; k++) {
+        const a2 = az + (k - 2) * len * 0.22 + (rnd() - 0.5) * len * 0.2, e2 = el + (rnd() - 0.5) * th, r = len * (0.2 + rnd() * 0.25);
+        const x = ((a2 / TAU) % 1 + 1) % 1 * W, y = V(e2) * H, rx = r / TAU * W, ry = Math.max(1, (V(e2 - th) - V(e2 + th)) * H * (0.5 + rnd() * 0.5));
+        for (const dx of [0, -W, W]) {
+          if (x + dx + rx < 0 || x + dx - rx > W) continue;
+          g.save(); g.translate(x + dx, y); g.scale(1, ry / rx);
+          const rg = g.createRadialGradient(0, 0, 0, 0, 0, rx); rg.addColorStop(0, hex(col) + (C.a || "d0")); rg.addColorStop(0.6, hex(col) + "70"); rg.addColorStop(1, hex(col) + "00");
+          g.fillStyle = rg; g.fillRect(-rx, -rx, rx * 2, rx * 2); g.restore();
+        }
+      }
+    }
+    if (S) {                                           // the sun (or moon) itself, over its light and the clouds behind it: row by row, so it's round on the dome
+      const r = (S.size || 0.1) / 2, c0 = hexRGB(S.col), c1 = hexRGB(S.low == null ? S.col : S.low), x0 = ((S.az / TAU) % 1 + 1) % 1 * W;
+      const bars = S.bars ? hex(S.bars === true ? o.horizon : S.bars) : null;
+      for (let y = Math.floor(V(S.el + r) * H); y < H; y++) {
+        const e = Math.PI / 2 * (1 - (y + 0.5) / H) * (1 - (y + 0.5) / H), de = e - S.el; if (Math.abs(de) >= r) { if (de < 0) break; continue; }
+        const hw = Math.sqrt(r * r - de * de) / Math.max(0.3, Math.cos(e)) / TAU * W, t = (r - de) / (2 * r);   // t: 0 its top … 1 its foot
+        const bar = bars && t > 0.4 && ((t - 0.4) * 9.5) % 1 < 0.2 + (t - 0.4) * 0.5;
+        g.fillStyle = bar ? bars : "rgb(" + (c0[0] + (c1[0] - c0[0]) * t | 0) + "," + (c0[1] + (c1[1] - c0[1]) * t | 0) + "," + (c0[2] + (c1[2] - c0[2]) * t | 0) + ")";
+        for (const dx of [0, -W, W]) if (x0 + dx + hw > 0 && x0 + dx - hw < W) g.fillRect(x0 + dx - hw, y, hw * 2, 1);
+      }
+    }
+    for (const r of o.ridges || []) {                  // far mountains: a line of heights round the horizon, the same at both edges
+      const rr = U.rand(r.seed || 3), P = 64, a1 = [], a2 = [], a3 = [];
+      for (let i = 0; i < P; i++) { a1.push(rr()); a2.push(rr()); a3.push(rr()); }
+      const at = (arr, t, n) => { const x = ((t % 1) + 1) % 1 * n, i = x | 0, fz = x - i, sm = fz * fz * (3 - 2 * fz); return arr[i % n] + (arr[(i + 1) % n] - arr[i % n]) * sm; };
+      g.fillStyle = hex(r.col); g.beginPath(); g.moveTo(0, H);
+      for (let x = 0; x <= W; x += 2) {
+        const t = x / W, hgt = r.h * (0.25 + 0.75 * (at(a1, t, 7) * 0.55 + at(a2, t, 19) * 0.3 + at(a3, t, 53) * 0.15 * (r.rough == null ? 1 : r.rough)));
+        g.lineTo(x, V(hgt) * H);
+      }
+      g.lineTo(W, H); g.closePath(); g.fill();
+    }
+    if (o.haze != null) { const hz = g.createLinearGradient(0, V(0.05) * H, 0, H); hz.addColorStop(0, hex(o.haze) + "00"); hz.addColorStop(1, hex(o.haze) + (o.hazeA || "e0")); g.fillStyle = hz; g.fillRect(0, V(0.05) * H, W, H); }
+    // a little grain, so the long fades show no bands: a small tile of light and dark specks laid over all of it (the
+    // browser's own fill: a loop over half a million pixels here is a tenth of a second on a Pi 3)
+    const t = document.createElement("canvas"); t.width = t.height = 64;
+    const tg = t.getContext("2d"), td = tg.createImageData(64, 64), tp = td.data;
+    for (let i = 0; i < tp.length; i += 4) { const v = rnd() < 0.5 ? 0 : 255; tp[i] = tp[i + 1] = tp[i + 2] = v; tp[i + 3] = rnd() * 9; }
+    tg.putImageData(td, 0, 0); g.fillStyle = g.createPattern(t, "repeat"); g.fillRect(0, 0, W, H);
+    return c;
+  },
+  // ripples for the water (GL.water's det): n × n and the same at every edge. Red and green: two nets of thin bright
+  // lines (the edges between cells scattered over the picture: light on a ruffled surface, as cartoons draw it), drawn
+  // over each other and drifting apart; blue: broad soft swells. Returns what GL.picture takes: {data: [bytes, n, n]…}
+  ripples(n, seed) {
+    n = n || 128; const rnd = U.rand(seed || 5), px = new Uint8Array(n * n * 4);
+    const cells = (C) => { const p = new Float32Array(C * C * 2); for (let i = 0; i < p.length; i++) p[i] = rnd(); return { C, p }; };
+    const net = (K, u, v, thin) => {                  // 1 on the line between the two nearest points, falling off either side
+      const C = K.C, x = u * C, y = v * C, ci = Math.floor(x), cj = Math.floor(y); let f1 = 9, f2 = 9;
+      for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
+        const i = ((ci + di) % C + C) % C, j = ((cj + dj) % C + C) % C, q = (j * C + i) * 2;
+        const d = Math.hypot(ci + di + K.p[q] - x, cj + dj + K.p[q + 1] - y);
+        if (d < f1) { f2 = f1; f1 = d; } else if (d < f2) f2 = d;
+      }
+      const e = 1 - (f2 - f1) / thin; return e <= 0 ? 0 : e * e;
+    };
+    const A = cells(7), B = cells(5), S1 = new Float32Array(16).map(() => rnd()), S2 = new Float32Array(64).map(() => rnd());
+    const soft = (a, k, x, y) => {
+      const fx = x * k, fy = y * k, i = fx | 0, j = fy | 0, tx = fx - i, ty = fy - j, sx = tx * tx * (3 - 2 * tx), sy = ty * ty * (3 - 2 * ty), i1 = (i + 1) % k, j1 = (j + 1) % k;
+      const p = a[j * k + i], q = a[j * k + i1], r = a[j1 * k + i], t = a[j1 * k + i1];
+      return p + (q - p) * sx + (r - p) * sy + (p - q - r + t) * sx * sy;
+    };
+    for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+      const u = x / n, v = y / n, o = (y * n + x) * 4;
+      px[o] = Math.min(255, net(A, u, v, 0.2) * 255) | 0; px[o + 1] = Math.min(255, net(B, v, u, 0.16) * 255) | 0;
+      px[o + 2] = (soft(S1, 4, u, v) * 0.65 + soft(S2, 8, u, v) * 0.35) * 255 | 0; px[o + 3] = 255;
+    }
+    return { data: [px, n, n], repeat: true, mip: true };
+  },
   blob(w, h, col) {                                  // a soft round spot (a 2D sprite): shadows, foam, glows
     const c = document.createElement("canvas"); c.width = w; c.height = h;
     const g = c.getContext("2d"), gr = g.createRadialGradient(w / 2, w / 2, 0, w / 2, w / 2, w / 2);
@@ -1094,7 +1503,7 @@ Path.prototype = {
     while (lo + 1 < hi) { const m = (lo + hi) >> 1; if (this.s[m] <= s) lo = m; else hi = m; }
     const i = lo, j = (i + 1) % this.n, t = (s - this.s[i]) / ((this.s[i + 1] - this.s[i]) || 1);
     out[0] = this.x[i] + (this.x[j] - this.x[i]) * t; out[1] = this.z[i] + (this.z[j] - this.z[i]) * t;
-    let tx = this.tx[i] + (this.tx[j] - this.tx[i]) * t, tz = this.tz[i] + (this.tz[j] - this.tz[i]) * t; const l = Math.hypot(tx, tz) || 1;
+    let tx = this.tx[i] + (this.tx[j] - this.tx[i]) * t, tz = this.tz[i] + (this.tz[j] - this.tz[i]) * t; const l = Math.sqrt(tx * tx + tz * tz) || 1;
     out[2] = tx / l; out[3] = tz / l; out[4] = i;
     return out;
   },
@@ -1131,10 +1540,16 @@ Chunks.prototype = {
     return c[layer || "base"];
   },
   each(fn) { for (const c of this.cells) if (c) fn(c); },
-  upload(g3) {
-    this.free(); this.g3 = g3;
+  // bake: {light, shade, sky} (Mesh.light's): the world's light worked out now and kept in its colours, its glowing
+  // things put in with the rest (one mesh a chunk, and its small things), drawn with GL.still
+  upload(g3, bake) {
+    this.free(); this.g3 = g3; this.baked = !!bake;
     for (const c of this.cells) {
       if (!c) continue;
+      if (bake) {
+        c.base.light(bake.light, bake); c.detail.light(bake.light, bake);
+        if (c.glow.n) { for (let i = 0; i < c.glow.n; i++) c.glow.i8[i * 20 + 15] = 127; c.base = Mesh.join([c.base, c.glow]); c.base.lit = c.base.n; c.glow = new Mesh(8); }
+      }
       const h = { base: c.base.n ? g3.upload(c.base) : null, detail: c.detail.n ? g3.upload(c.detail) : null, glow: c.glow.n ? g3.upload(c.glow) : null, d: 0 };
       const b = h.base || h.detail || h.glow; if (!b) continue;
       h.x = b.x; h.y = b.y; h.z = b.z; h.r = Math.max(b.r, (h.detail || b).r, (h.glow || b).r) + 4;
@@ -1145,10 +1560,11 @@ Chunks.prototype = {
   // the chunks in view and within far, nearest first (an insertion sort: the order hardly changes frame to frame)
   draw(g3, ex, ez, far, detailK) {
     const o = this.order; let k = 0;
-    for (let i = 0; i < this.list.length; i++) { const c = this.list[i]; c.d = Math.hypot(c.x - ex, c.z - ez) - c.r; if (c.d < far && g3.sees(c.x, c.y, c.z, c.r)) o[k++] = c; }
+    for (let i = 0; i < this.list.length; i++) { const c = this.list[i]; c.d = Math.sqrt((c.x - ex) * (c.x - ex) + (c.z - ez) * (c.z - ez)) - c.r; if (c.d < far && g3.sees(c.x, c.y, c.z, c.r)) o[k++] = c; }
     for (let i = 1; i < k; i++) { const e = o[i]; let j = i - 1; while (j >= 0 && o[j].d > e.d) { o[j + 1] = o[j]; j--; } o[j + 1] = e; }
     for (let i = 0; i < k; i++) {
       const c = o[i];
+      if (this.baked) { g3.still(c.base); if (c.detail && c.d < far * (detailK == null ? 1 : detailK)) g3.still(c.detail); continue; }
       g3.lit(c.base, null, 1, 1, 1, 0);
       if (c.detail && c.d < far * (detailK == null ? 1 : detailK)) g3.lit(c.detail, null, 1, 1, 1, 0);
       if (c.glow) g3.lit(c.glow, null, 1, 1, 1, 1);
@@ -1205,13 +1621,63 @@ Land.prototype = {
       else { tri(x0, a, z0, x1, b, z0, x0, d, z1); tri(x1, b, z0, x1, e, z1, x0, d, z1); }
     }
   },
-  // its triangles into chunks (Chunks: one mesh a chunk, layer "base" unless said), faceted like everything else
-  mesh(chunks, col, water, layer) {
-    this.each(col, water, 2, (ax, ay, az, bx, by, bz, cx, cy, cz, k) => {
+  // The cells of high ground with no drop near them: a plateau behind its cliffs, the top of a tableland. From low down
+  // (on the water, on a road below) nothing of them shows but a far rise now and then, yet they can be most of a land's
+  // triangles. o {above: only ground higher than this (6), drop: how much lower anything within `near` cells may be (4,
+  // 3)}. Returns a mark for each cell (n × n).
+  inner(o) {
+    o = o || {}; const n = this.n, N = this.N, h = this.h, above = o.above == null ? 6 : o.above, drop = o.drop == null ? 4 : o.drop, R = o.near || 3;
+    const v = new Uint8Array(N * N);
+    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+      const hh = h[j * N + i]; if (hh < above) continue;
+      let ok = 1;
+      for (let dj = -R; dj <= R && ok; dj++) for (let di = -R; di <= R; di++) { const x = i + di, z = j + dj; if (x < 0 || z < 0 || x > n || z > n) continue; if (h[z * N + x] < hh - drop) { ok = 0; break; } }
+      v[j * N + i] = ok;
+    }
+    const out = new Uint8Array(n * n);
+    for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) out[j * n + i] = v[j * N + i] & v[j * N + i + 1] & v[(j + 1) * N + i] & v[(j + 1) * N + i + 1];
+    return out;
+  },
+  // its triangles into chunks (Chunks: one mesh a chunk, layer "base" unless said), faceted like everything else.
+  // o {coarse: a mark for each cell (inner()): where a whole square of 8, 6, 4 or 3 cells a side is marked, the square
+  // is two big triangles with a skirt round them (to hide where they don't quite meet the finer ground) in place of
+  // 128, 72, 32 or 18;
+  // under: how far below the water a cell's highest corner may be and still be built (2; less where the water hides
+  // what's under it anyway, or shows it: a bed of shallows built as triangles is most of a map's)}
+  mesh(chunks, col, water, layer, o) {
+    const mark = o && o.coarse, n = this.n, N = this.N, h = this.h, c = this.cell, done = mark ? new Uint8Array(n * n) : null;
+    const tri = (ax, ay, az, bx, by, bz, cx, cy, cz, k) => {
       const m = chunks.mesh((ax + bx + cx) / 3, (az + bz + cz) / 3, layer), jit = m.jit;
       m.at(0, 0, 0); m.jit = this.jit;
       m.tri(ax, ay, az, bx, by, bz, cx, cy, cz, k, (ax + bx + cx) / 3, Math.min(ay, by, cy) - 10, (az + bz + cz) / 3);
       m.jit = jit;
+    };
+    if (mark) {
+      // the biggest squares of marked cells, wherever they fall (8, 6, 4, then 3 cells a side); a side shared whole with
+      // a square of the same size needs no skirt (the two meet along one straight edge)
+      const blk = new Int32Array(n * n).fill(-1), list = [];
+      for (const B of [8, 6, 4, 3]) for (let j = 0; j + B <= n; j++) for (let i = 0; i + B <= n; i++) {
+        let all = 1; for (let dj = 0; dj < B && all; dj++) for (let di = 0; di < B; di++) if (!mark[(j + dj) * n + i + di] || done[(j + dj) * n + i + di]) { all = 0; break; }
+        if (!all) continue;
+        for (let dj = 0; dj < B; dj++) for (let di = 0; di < B; di++) { done[(j + dj) * n + i + di] = 1; blk[(j + dj) * n + i + di] = list.length; }
+        list.push([i, j, B]);
+      }
+      const same = (i, j, B, ci, cj, along) => { if (ci < 0 || cj < 0 || ci >= n || cj >= n) return false; const q = blk[cj * n + ci]; if (q < 0) return false; const L = list[q]; return L[2] === B && (along ? L[0] === i : L[1] === j); };
+      for (const [i, j, B] of list) {
+        const x0 = -this.half + i * c, z0 = -this.half + j * c, x1 = x0 + B * c, z1 = z0 + B * c;
+        const a = h[j * N + i], b = h[j * N + i + B], d = h[(j + B) * N + i], e = h[(j + B) * N + i + B], k = col((a + b + d + e) / 4, 0, (x0 + x1) / 2, (z0 + z1) / 2), sk = B * 0.8;
+        tri(x0, a, z0, x1, b, z0, x1, e, z1, k); tri(x0, a, z0, x1, e, z1, x0, d, z1, k);
+        if (!same(i, j, B, i, j - 1, true)) { tri(x0, a, z0, x0, a - sk, z0, x1, b - sk, z0, k); tri(x0, a, z0, x1, b - sk, z0, x1, b, z0, k); }
+        if (!same(i, j, B, i + B, j, false)) { tri(x1, b, z0, x1, b - sk, z0, x1, e - sk, z1, k); tri(x1, b, z0, x1, e - sk, z1, x1, e, z1, k); }
+        if (!same(i, j, B, i, j + B, true)) { tri(x1, e, z1, x1, e - sk, z1, x0, d - sk, z1, k); tri(x1, e, z1, x0, d - sk, z1, x0, d, z1, k); }
+        if (!same(i, j, B, i - 1, j, false)) { tri(x0, d, z1, x0, d - sk, z1, x0, a - sk, z0, k); tri(x0, d, z1, x0, a - sk, z0, x0, a, z0, k); }
+      }
+    }
+    const under = o && o.under != null ? o.under : 2, lo = (water || 0) - under;
+    this.each(col, water, under, (ax, ay, az, bx, by, bz, cx, cy, cz, k) => {
+      if (o && o.under != null && ay < lo && by < lo && cy < lo) return;   // (a cell's other half, wholly under the water)
+      if (done) { const i = Math.min(n - 1, Math.floor(((ax + bx + cx) / 3 + this.half) / c)), j = Math.min(n - 1, Math.floor(((az + bz + cz) / 3 + this.half) / c)); if (done[j * n + i]) return; }
+      tri(ax, ay, az, bx, by, bz, cx, cy, cz, k);
     });
     return this;
   },
@@ -1291,17 +1757,38 @@ Trail.prototype = {
   },
   clear() { this.n = 0; },
   // into a mesh (a dynamic one, drawn with glow()): flat on the ground at y, widening w0 + i·dw, alpha from strength
-  ribbon(m, y, col, w0, dw, alpha) {
-    const p = this.p, r = (col >> 16) & 255, g = (col >> 8) & 255, b = col & 255;
+  ribbon(m, y, col, w0, dw, alpha, add) {            // (add: 127 when it's light, for GL.fx)
+    const p = this.p, r = (col >> 16) & 255, g = (col >> 8) & 255, b = col & 255, e = add || 0, S = m.s; S[1] = y;
     for (let i = 0; i + 1 < this.n; i++) {
       const ax = p[i * 3], az = p[i * 3 + 1], bx = p[i * 3 + 3], bz = p[i * 3 + 4];
-      let dx = bx - ax, dz = bz - az; const l = Math.hypot(dx, dz) || 1; dx /= l; dz /= l;
+      let dx = bx - ax, dz = bz - az; const l = Math.sqrt(dx * dx + dz * dz) || 1; dx /= l; dz /= l;
       const wa = w0 + i * dw, wb = w0 + (i + 1) * dw;
       const aa = U.clamp((1 - i / this.max) * p[i * 3 + 2] * alpha, 0, 255) | 0, ab = U.clamp((1 - (i + 1) / this.max) * p[i * 3 + 5] * alpha, 0, 255) | 0;
-      const ax1 = ax - dz * wa, az1 = az + dx * wa, ax2 = ax + dz * wa, az2 = az - dx * wa, bx1 = bx - dz * wb, bz1 = bz + dx * wb, bx2 = bx + dz * wb, bz2 = bz - dx * wb;
       if (m.n + 6 > m.cap) return;
-      m.put(ax1, y, az1, 0, 1, 0, r, g, b, aa); m.put(bx1, y, bz1, 0, 1, 0, r, g, b, ab); m.put(bx2, y, bz2, 0, 1, 0, r, g, b, ab);
-      m.put(ax1, y, az1, 0, 1, 0, r, g, b, aa); m.put(bx2, y, bz2, 0, 1, 0, r, g, b, ab); m.put(ax2, y, az2, 0, 1, 0, r, g, b, aa);
+      S[0] = ax - dz * wa; S[2] = az + dx * wa; m.v(r, g, b, aa, e); S[0] = bx - dz * wb; S[2] = bz + dx * wb; m.v(r, g, b, ab, e); S[0] = bx + dz * wb; S[2] = bz - dx * wb; m.v(r, g, b, ab, e);
+      S[0] = ax - dz * wa; S[2] = az + dx * wa; m.v(r, g, b, aa, e); S[0] = bx + dz * wb; S[2] = bz - dx * wb; m.v(r, g, b, ab, e); S[0] = ax + dz * wa; S[2] = az - dx * wa; m.v(r, g, b, aa, e);
+    }
+  },
+  // a wake on water, into a mesh for GL.fx: two arms that spread (bright at their outer edge, fading inwards) and the
+  // churned water between them just behind; w0 + i·dw each arm's distance out, alpha from strength, add: 127 for light
+  wake(m, y, col, w0, dw, alpha, add) {
+    const p = this.p, r = (col >> 16) & 255, g = (col >> 8) & 255, b = col & 255, e = add || 0, N = this.max, S = m.s; S[1] = y;
+    for (let i = 0; i + 1 < this.n; i++) {
+      if (m.n + 18 > m.cap) return;
+      const ax = p[i * 3], az = p[i * 3 + 1], bx = p[i * 3 + 3], bz = p[i * 3 + 4];
+      let dx = bx - ax, dz = bz - az; const l = Math.sqrt(dx * dx + dz * dz) || 1; dx /= l; dz /= l;
+      const wa = w0 + i * dw, wb = w0 + (i + 1) * dw, ia = wa * 0.45, ib = wb * 0.45, fa = 1 - i / N, fb = 1 - (i + 1) / N;
+      const aa = U.clamp(fa * fa * p[i * 3 + 2] * alpha, 0, 255) | 0, ab = U.clamp(fb * fb * p[i * 3 + 5] * alpha, 0, 255) | 0, ca = i < 7 ? aa * (1 - i / 7) * 0.55 | 0 : 0, cb = i < 6 ? ab * (1 - (i + 1) / 7) * 0.55 | 0 : 0;
+      for (let sd = -1; sd <= 1; sd += 2) {              // each arm: its outer edge, and in to nothing
+        const ox = -dz * sd, oz = dx * sd;
+        S[0] = ax + ox * wa; S[2] = az + oz * wa; m.v(r, g, b, aa, e); S[0] = bx + ox * wb; S[2] = bz + oz * wb; m.v(r, g, b, ab, e); S[0] = bx + ox * ib; S[2] = bz + oz * ib; m.v(r, g, b, 0, e);
+        S[0] = ax + ox * wa; S[2] = az + oz * wa; m.v(r, g, b, aa, e); S[0] = bx + ox * ib; S[2] = bz + oz * ib; m.v(r, g, b, 0, e); S[0] = ax + ox * ia; S[2] = az + oz * ia; m.v(r, g, b, 0, e);
+      }
+      if (ca) {                                          // the churn down the middle
+        const cw = 0.35 + i * 0.04;
+        S[0] = ax - dz * cw; S[2] = az + dx * cw; m.v(r, g, b, ca, e); S[0] = bx - dz * cw; S[2] = bz + dx * cw; m.v(r, g, b, cb, e); S[0] = bx + dz * cw; S[2] = bz - dx * cw; m.v(r, g, b, cb, e);
+        S[0] = ax - dz * cw; S[2] = az + dx * cw; m.v(r, g, b, ca, e); S[0] = bx + dz * cw; S[2] = bz - dx * cw; m.v(r, g, b, cb, e); S[0] = ax + dz * cw; S[2] = az - dx * cw; m.v(r, g, b, ca, e);
+      }
     }
   },
   spots(flat, sprite, y, s0, ds, alpha, stride) {    // in 2D: soft spots along it
@@ -1335,10 +1822,189 @@ Particles.prototype = {
   clear() { this.life.fill(0); },
   points(m, col) {                                   // into a dynamic mesh, drawn with glow(…, points)
     m.n = 0; const r = (col >> 16) & 255, g = (col >> 8) & 255, b = col & 255;
-    for (let i = 0; i < this.max; i++) if (this.life[i] > 0) m.put(this.x[i], this.y[i], this.z[i], 0, 1, 0, r, g, b, U.clamp(this.life[i] * 320, 0, 255) | 0);
+    const S = m.s;
+    for (let i = 0; i < this.max; i++) if (this.life[i] > 0 && m.n < m.cap) { S[0] = this.x[i]; S[1] = this.y[i]; S[2] = this.z[i]; m.v(r, g, b, U.clamp(this.life[i] * 320, 0, 255) | 0, 0); }
   },
   sprites(flat, sprite, scale) { for (let i = 0; i < this.max; i++) if (this.life[i] > 0) flat.sprite(sprite, this.x[i], this.y[i], this.z[i], scale, Math.min(1, this.life[i] * 1.6)); }
 };
+
+// ---------------------------------------------------------------- what's written on the picture: a game's numbers, bars and
+// maps, drawn in the game's own canvas. On a Pi 3 anything the page lays over the canvas (text, a bar, a see-through
+// panel) is put together again by the browser at the TV's full size every frame, and that costs more than the game's
+// whole picture; this costs one draw call. Letters are the 5×7 pixel font (Low2D's), in whole pixels, so they stay
+// crisp at any size. Build a list (begin … end) when what's shown changes; the engine draws the list every frame, in
+// either renderer.
+const GLYPHS = {
+  A: [14, 17, 17, 31, 17, 17, 17], B: [30, 17, 17, 30, 17, 17, 30], C: [14, 17, 16, 16, 16, 17, 14], D: [28, 18, 17, 17, 17, 18, 28],
+  E: [31, 16, 16, 30, 16, 16, 31], F: [31, 16, 16, 30, 16, 16, 16], G: [14, 17, 16, 23, 17, 17, 15], H: [17, 17, 17, 31, 17, 17, 17],
+  I: [14, 4, 4, 4, 4, 4, 14], J: [7, 2, 2, 2, 2, 18, 12], K: [17, 18, 20, 24, 20, 18, 17], L: [16, 16, 16, 16, 16, 16, 31],
+  M: [17, 27, 21, 21, 17, 17, 17], N: [17, 17, 25, 21, 19, 17, 17], O: [14, 17, 17, 17, 17, 17, 14], P: [30, 17, 17, 30, 16, 16, 16],
+  Q: [14, 17, 17, 17, 21, 18, 13], R: [30, 17, 17, 30, 20, 18, 17], S: [15, 16, 16, 14, 1, 1, 30], T: [31, 4, 4, 4, 4, 4, 4],
+  U: [17, 17, 17, 17, 17, 17, 14], V: [17, 17, 17, 17, 17, 10, 4], W: [17, 17, 17, 21, 21, 21, 10], X: [17, 17, 10, 4, 10, 17, 17],
+  Y: [17, 17, 10, 4, 4, 4, 4], Z: [31, 1, 2, 4, 8, 16, 31],
+  "0": [14, 17, 19, 21, 25, 17, 14], "1": [4, 12, 4, 4, 4, 4, 14], "2": [14, 17, 1, 2, 4, 8, 31], "3": [31, 2, 4, 2, 1, 17, 14],
+  "4": [2, 6, 10, 18, 31, 2, 2], "5": [31, 16, 30, 1, 1, 17, 14], "6": [6, 8, 16, 30, 17, 17, 14], "7": [31, 1, 2, 4, 8, 8, 8],
+  "8": [14, 17, 17, 14, 17, 17, 14], "9": [14, 17, 17, 15, 1, 2, 12],
+  ".": [0, 0, 0, 0, 0, 12, 12], ",": [0, 0, 0, 0, 12, 4, 8], ":": [0, 12, 12, 0, 12, 12, 0], ";": [0, 12, 12, 0, 12, 4, 8],
+  "!": [4, 4, 4, 4, 4, 0, 4], "?": [14, 17, 1, 2, 4, 0, 4], "-": [0, 0, 0, 14, 0, 0, 0], "+": [0, 4, 4, 31, 4, 4, 0],
+  "/": [1, 1, 2, 4, 8, 16, 16], "(": [2, 4, 8, 8, 8, 4, 2], ")": [8, 4, 2, 2, 2, 4, 8], "'": [4, 4, 8, 0, 0, 0, 0],
+  '"': [10, 10, 0, 0, 0, 0, 0], "%": [25, 25, 2, 4, 8, 19, 19], "=": [0, 0, 31, 0, 31, 0, 0], "<": [2, 4, 8, 16, 8, 4, 2],
+  ">": [8, 4, 2, 1, 2, 4, 8], "_": [0, 0, 0, 0, 0, 0, 31], "*": [0, 4, 21, 14, 21, 4, 0], "#": [10, 10, 31, 10, 31, 10, 10],
+  "&": [12, 18, 20, 8, 21, 18, 13], "[": [14, 8, 8, 8, 8, 8, 14], "]": [14, 2, 2, 2, 2, 2, 14],
+  "\x10": [0, 17, 10, 4, 10, 17, 0], "\x11": [0, 14, 17, 17, 17, 14, 0], "\x12": [0, 31, 17, 17, 17, 31, 0], "\x13": [0, 4, 4, 10, 10, 31, 0],   // ✕ ○ □ △
+  "\x14": [2, 6, 14, 30, 14, 6, 2], "\x15": [8, 12, 14, 15, 14, 12, 8], "\x16": [0, 10, 31, 31, 14, 4, 0], "\x17": [4, 4, 31, 14, 10, 17, 0],   // ◀ ▶ ♥ ★
+  "\x18": [0, 0, 0, 4, 0, 0, 0], "\x19": [4, 14, 31, 4, 4, 4, 0], "\x1a": [0, 4, 4, 4, 31, 14, 4],                                            // · ↑ ↓
+  "\x1b": [0, 14, 14, 14, 14, 14, 0], "\x1c": [0, 14, 10, 10, 10, 14, 0]                                                                       // pips, full and empty
+};
+const SPECIAL = { 0x2715: 16, 0x25cb: 17, 0x25a1: 18, 0x25b3: 19, 0x25c0: 20, 0x25b6: 21, 0x2665: 22, 0x2605: 23, 0xb7: 24, 0x2191: 25, 0x2193: 26, 0xd7: 16 };
+function Letters() {
+  this.GI = new Int16Array(256).fill(-1); this.rows = [];
+  for (const k in GLYPHS) { this.GI[k.charCodeAt(0)] = this.rows.length; this.rows.push(GLYPHS[k]); }
+  const n = this.rows.length; this.GX = new Uint8Array(n); this.GW = new Uint8Array(n);
+  for (let i = 0; i < n; i++) {
+    let lo = 5, hi = -1;
+    for (let y = 0; y < 7; y++) for (let b = 0; b < 5; b++) if ((this.rows[i][y] >> (4 - b)) & 1) { lo = Math.min(lo, b); hi = Math.max(hi, b); }
+    if (hi < 0) { this.GX[i] = 0; this.GW[i] = 3; } else { this.GX[i] = lo; this.GW[i] = hi - lo + 1; }
+  }
+}
+Letters.prototype = {
+  code(s, i) { let c = s.charCodeAt(i); if (c > 255) c = SPECIAL[c] || 63; if (c >= 97 && c <= 122) c -= 32; return c; },
+  width(s, k) {
+    k = k || 1; let w = 0;
+    for (let i = 0; i < s.length; i++) { const c = this.code(s, i), g = c === 32 ? -1 : this.GI[c]; w += (g < 0 ? 4 : this.GW[g] + 1) * k; }
+    return Math.max(0, w - k);
+  }
+};
+let LETTERS = null;
+const UI_COLS = 42, UI_W = 256, UI_H = 64;         // the picture the letters and shapes are cut from: 6 × 8 cells, then shapes
+function UI() {
+  if (!LETTERS) LETTERS = new Letters();
+  this.L = LETTERS; this.cap = 512; this.q = new Float32Array(this.cap * 16); this.n = 0; this.w = 320; this.h = 180;
+  this.mesh = null; this.handle = null; this.tex = null; this.dirty = false; this.g3 = null; this.tints = new Map(); this.atlas = null;
+}
+UI.prototype = {
+  sheet() {                                          // the letters and a few shapes, white: made once
+    if (this.atlas) return this.atlas;
+    const c = document.createElement("canvas"); c.width = UI_W; c.height = UI_H;
+    const g = c.getContext("2d"), L = this.L; g.fillStyle = "#fff";
+    for (let i = 0; i < L.rows.length; i++) for (let y = 0; y < 7; y++) for (let b = 0; b < 5; b++) if ((L.rows[i][y] >> (4 - b)) & 1) g.fillRect((i % UI_COLS) * 6 + b, ((i / UI_COLS) | 0) * 8 + y, 1, 1);
+    g.fillRect(0, 40, 8, 8);                           // a block (bars, lines)
+    g.beginPath(); g.arc(20, 48, 7.5, 0, TAU); g.fill();   // a disc, 16 across at 12 40
+    g.beginPath(); g.moveTo(32, 55); g.lineTo(40, 41); g.lineTo(48, 55); g.lineTo(40, 51); g.closePath(); g.fill();   // an arrowhead, 16 across at 32 40
+    return (this.atlas = c);
+  },
+  begin(w, h) { this.n = 0; this.base = 0; this.w = w; this.h = h; return this; },
+  // what's in the list so far stays (a map's lines, a panel): rewind() goes back to here, to build the rest again
+  hold() { this.base = this.n; return this; },
+  rewind() { this.n = this.base || 0; return this; },
+  room() { if (this.n < this.cap) return; this.cap *= 2; const q = new Float32Array(this.cap * 16); q.set(this.q); this.q = q; },
+  // any four corners (clockwise from the top left), cut from the sheet at u v (in its pixels), a colour and how solid
+  quad(x0, y0, x1, y1, x2, y2, x3, y3, u0, v0, u1, v1, col, a) {
+    this.room(); const q = this.q, o = this.n++ * 16;
+    q[o] = x0; q[o + 1] = y0; q[o + 2] = x1; q[o + 3] = y1; q[o + 4] = x2; q[o + 5] = y2; q[o + 6] = x3; q[o + 7] = y3;
+    q[o + 8] = u0; q[o + 9] = v0; q[o + 10] = u1; q[o + 11] = v1; q[o + 12] = col; q[o + 13] = a == null ? 1 : a; q[o + 14] = 0; q[o + 15] = 0;
+  },
+  rect(x, y, w, h, col, a) { this.quad(x, y, x + w, y, x + w, y + h, x, y + h, 2, 42, 6, 46, col, a); },
+  frame(x, y, w, h, t, col, a) { this.rect(x, y, w, t, col, a); this.rect(x, y + h - t, w, t, col, a); this.rect(x, y + t, t, h - t * 2, col, a); this.rect(x + w - t, y + t, t, h - t * 2, col, a); },
+  line(x0, y0, x1, y1, t, col, a) {                  // t thick
+    let dx = x1 - x0, dy = y1 - y0; const l = Math.sqrt(dx * dx + dy * dy) || 1; dx = dx / l * t / 2; dy = dy / l * t / 2;
+    this.quad(x0 - dy, y0 + dx, x1 - dy, y1 + dx, x1 + dy, y1 - dx, x0 + dy, y0 - dx, 2, 42, 6, 46, col, a);
+  },
+  disc(x, y, r, col, a) { this.quad(x - r, y - r, x + r, y - r, x + r, y + r, x - r, y + r, 12, 40, 28, 56, col, a); },
+  arrow(x, y, r, turn, col, a) {                     // an arrowhead pointing up, turned clockwise by turn
+    const c = Math.cos(turn), s = Math.sin(turn), P = (px, py, k) => k ? x + (px * c - py * s) * r : y + (px * s + py * c) * r;
+    this.quad(P(-1, -1, 1), P(-1, -1, 0), P(1, -1, 1), P(1, -1, 0), P(1, 1, 1), P(1, 1, 0), P(-1, 1, 1), P(-1, 1, 0), 32, 40, 48, 56, col, a);
+  },
+  width(s, k) { return this.L.width(String(s), k); },
+  // a line of text, its top left at x y, each of the font's pixels k of the picture's (a whole number); align: 0 from
+  // x, 0.5 centred on it, 1 ending at it; shade: a dark copy behind (a colour)
+  text(s, x, y, k, col, a, align, shade) {
+    s = String(s); k = Math.max(1, Math.round(k || 1)); const L = this.L;
+    x = Math.round(align ? x - L.width(s, k) * align : x); y = Math.round(y);
+    if (shade != null) this.text(s, x + Math.max(1, k >> 1), y + Math.max(1, k >> 1), k, shade, a);
+    const al = a == null ? 1 : a;
+    for (let i = 0; i < s.length; i++) {
+      const c = L.code(s, i);
+      if (c === 32) { x += 4 * k; continue; }
+      const gi = L.GI[c]; if (gi < 0) { x += 4 * k; continue; }
+      const u = (gi % UI_COLS) * 6 + L.GX[gi], v = ((gi / UI_COLS) | 0) * 8, w = L.GW[gi];
+      this.room(); const q = this.q, o = this.n++ * 16;   // (written here, not through quad(): a call would make each number anew)
+      q[o] = x; q[o + 1] = y; q[o + 2] = x + w * k; q[o + 3] = y; q[o + 4] = x + w * k; q[o + 5] = y + 7 * k; q[o + 6] = x; q[o + 7] = y + 7 * k;
+      q[o + 8] = u; q[o + 9] = v; q[o + 10] = u + w; q[o + 11] = v + 7; q[o + 12] = col; q[o + 13] = al; q[o + 14] = 0; q[o + 15] = 0;
+      x += (w + 1) * k;
+    }
+    return x;
+  },
+  end() { this.dirty = true; },
+  // drawn: with WebGL one call (the list is sent again only when it changed), else through a 2D context
+  show(g3, ctx) {
+    if (!this.n) return;
+    if (g3) {
+      const gl = g3.gl;
+      if (this.g3 !== g3) { this.g3 = g3; this.tex = g3.picture(this.sheet(), { rgba: true, nearest: true }); this.buf = gl.createBuffer(); this.dirty = true; this.sent = 0; }
+      const u = g3.use(g3.prog("ui"));
+      if (g3.vao) g3.vao.bindVertexArrayOES(null);
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.buf); g3.curBuf = null;
+      if (this.dirty) {
+        const need = this.n * 6 * 20;
+        if (!this.vb || this.vb.byteLength < need) { this.vb = new ArrayBuffer(this.cap * 6 * 20); this.vf = new Float32Array(this.vb); this.vu = new Uint8Array(this.vb); this.sent = 0; }
+        const f = this.vf, b8 = this.vu, q = this.q, ORD = UI.ORD;
+        for (let i = 0; i < this.n; i++) {
+          const o = i * 16, col = q[o + 12], a = Math.max(0, Math.min(255, q[o + 13] * 255)) | 0, r = (col >> 16) & 255, gg = (col >> 8) & 255, bb = col & 255;
+          for (let k = 0; k < 6; k++) {
+            const c = ORD[k], vi = (i * 6 + k) * 5, bi = (i * 6 + k) * 20;
+            f[vi] = q[o + c * 2]; f[vi + 1] = q[o + c * 2 + 1];
+            f[vi + 2] = (c === 0 || c === 3 ? q[o + 8] : q[o + 10]) / UI_W; f[vi + 3] = (c < 2 ? q[o + 9] : q[o + 11]) / UI_H;
+            b8[bi + 16] = r; b8[bi + 17] = gg; b8[bi + 18] = bb; b8[bi + 19] = a;
+          }
+        }
+        if (this.sent < need) { gl.bufferData(gl.ARRAY_BUFFER, this.vb.byteLength, gl.DYNAMIC_DRAW); this.sent = this.vb.byteLength; }
+        gl.bufferSubData(gl.ARRAY_BUFFER, 0, this.view && this.view.buffer === this.vb && this.view.length === need ? this.view : (this.view = new Uint8Array(this.vb, 0, need)));
+        this.dirty = false;
+      }
+      gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 20, 0);
+      gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 2, gl.FLOAT, false, 20, 8);
+      gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 4, gl.UNSIGNED_BYTE, true, 20, 16);
+      gl.viewport(0, 0, g3.canvas.width, g3.canvas.height); gl.disable(gl.SCISSOR_TEST);
+      gl.uniform4f(u.uView, 2 / this.w, -2 / this.h, -1, 1);
+      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.tex); gl.uniform1i(u.uTex, 0);
+      gl.disable(gl.DEPTH_TEST); gl.disable(gl.CULL_FACE); gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+      gl.drawArrays(gl.TRIANGLES, 0, this.n * 6); g3.calls++;
+      gl.disable(gl.BLEND); gl.enable(gl.DEPTH_TEST); gl.enable(gl.CULL_FACE);
+      return;
+    }
+    if (!ctx) return;
+    const q = this.q, sx = ctx.canvas.width / this.w, sy = ctx.canvas.height / this.h;
+    ctx.save(); ctx.setTransform(sx, 0, 0, sy, 0, 0); ctx.imageSmoothingEnabled = false;
+    for (let i = 0; i < this.n; i++) {
+      const o = i * 16, col = q[o + 12], a = q[o + 13];
+      ctx.globalAlpha = Math.max(0, Math.min(1, a));
+      const flat = q[o + 1] === q[o + 3] && q[o] === q[o + 6] && q[o + 2] === q[o + 4];
+      if (q[o + 9] >= 40 && q[o + 8] < 8) {              // a block: a rectangle, or any four corners
+        ctx.fillStyle = U.hex(col);
+        if (flat) ctx.fillRect(q[o], q[o + 1], q[o + 2] - q[o], q[o + 5] - q[o + 1]);
+        else { ctx.beginPath(); ctx.moveTo(q[o], q[o + 1]); ctx.lineTo(q[o + 2], q[o + 3]); ctx.lineTo(q[o + 4], q[o + 5]); ctx.lineTo(q[o + 6], q[o + 7]); ctx.closePath(); ctx.fill(); }
+      } else if (flat) ctx.drawImage(this.tinted(col), q[o + 8], q[o + 9], q[o + 10] - q[o + 8], q[o + 11] - q[o + 9], q[o], q[o + 1], q[o + 2] - q[o], q[o + 5] - q[o + 1]);
+      else {                                           // a turned shape (an arrow): the sheet's piece, turned with it
+        const w = Math.hypot(q[o + 2] - q[o], q[o + 3] - q[o + 1]), h = Math.hypot(q[o + 6] - q[o], q[o + 7] - q[o + 1]);
+        ctx.save(); ctx.translate(q[o], q[o + 1]); ctx.rotate(Math.atan2(q[o + 3] - q[o + 1], q[o + 2] - q[o]));
+        ctx.drawImage(this.tinted(col), q[o + 8], q[o + 9], q[o + 10] - q[o + 8], q[o + 11] - q[o + 9], 0, 0, w, h); ctx.restore();
+      }
+    }
+    ctx.restore();
+  },
+  tinted(col) {                                      // (2D) the sheet in a colour, kept
+    let c = this.tints.get(col);
+    if (!c) {
+      if (this.tints.size > 24) this.tints.clear();
+      c = document.createElement("canvas"); c.width = UI_W; c.height = UI_H;
+      const g = c.getContext("2d"); g.drawImage(this.sheet(), 0, 0); g.globalCompositeOperation = "source-in"; g.fillStyle = U.hex(col); g.fillRect(0, 0, UI_W, UI_H);
+      this.tints.set(col, c);
+    }
+    return c;
+  }
+};
+UI.ORD = [0, 1, 2, 0, 2, 3];
 
 // ---------------------------------------------------------------- cameras: a camera is {x y z, tx ty tz (looked at), yaw,
 // fov (up and down, radians), roll}; both renderers draw from it
@@ -1358,7 +2024,7 @@ function orbit(cam, cx, cz, radius, height, angle, tx, tz) {
 }
 // draw a frame of either renderer from a camera (GL: begin() with the same view the 2D one gets)
 function viewOf(cam) {
-  const dx = cam.tx - cam.x, dz = cam.tz - cam.z, hd = Math.hypot(dx, dz) || 1;
+  const dx = cam.tx - cam.x, dz = cam.tz - cam.z, hd = Math.sqrt(dx * dx + dz * dz) || 1;
   return { yaw: Math.atan2(dx, dz), pitch: Math.atan2(cam.y - cam.ty, hd) };
 }
 
@@ -1609,6 +2275,10 @@ Synth.prototype = {
 //   input, ready(E), prepare(E) (build what the mode needs: after a level loads, and when the mode changes),
 //   rung(E, r), update(dt) (60 times a second), draw(now, dt) (each frame drawn), paused(), missed() (frames drawn late
 //   elsewhere, as a Ray's helpers say) and helperWork() (their time a frame, ms) })
+// a height for the picture that goes into the screen's a whole number of times, the nearest to the one wanted: [height,
+// how many times] (1080 wanting 360: 360, 3; wanting 540 on a 720 screen: 720, 1)
+function wholeSize(dev, want) { const div = Math.max(1, Math.round(dev / Math.max(1, want))); return [Math.round(dev / div), div]; }
+const GLOPTS = p => ({ antialias: p.family === "desktop" || p.family === "pi5" });   // (smoothed edges where there's room: never a Pi 3 or 4)
 // kind: "ray" for a game drawn a pixel at a time (Ray): the CPU test alone picks its rung (LADDER.ray), E.screen is
 // its picture (E.screen.u32), shown through WebGL where the GPU is real (picture() "plain": never), resized(E) when
 // the picture's size changes.
@@ -1626,6 +2296,7 @@ function game(o) {
   // #demo: the game plays by itself (an attract mode that saves nothing and takes no controller), for the games
   // check (probe/), which reads window.SofaStats: whether it's ready and playing itself, the rung, the frame rate drawn
   E.demo = /demo/.test(H);
+  E.ui = new UI(); E.alpha = 0; E.div = 1;
   window.SofaStats = {
     get ready() { return E.ready; },
     get tier() { return E.ready && E.gov ? (E.mode === "gl" ? "3D" : E.mode === "ray" ? "ray" : "2D") + " rung " + E.gov.rung + " of " + (LADDER[E.mode].length - 1) : null; },
@@ -1643,13 +2314,25 @@ function game(o) {
     o.view.style.setProperty("--u", (h / 100) + "px"); E.vw = w; E.vh = h;
     E.resize();
   };
-  E.size = () => { const h = E.mode === "ray" ? E.rung.h : Math.min(E.rung.h, Math.round(E.vh * (devicePixelRatio || 1))); return [Math.round(h * E.aspect), h]; };
+  // the picture's size. 3D: the screen's own height divided by a whole number (the nearest to the rung's height), so
+  // every pixel of it is shown as a square of the screen's, crisp; when it's the screen's own size, smooth
+  const SZ = [0, 0];
+  E.size = () => {
+    const dev = Math.round(E.vh * (devicePixelRatio || 1));
+    let h = E.mode === "ray" ? E.rung.h : Math.min(E.rung.h, dev);
+    if (E.mode !== "ray" && o.crisp !== false) { const s = wholeSize(dev, h); h = s[0]; E.div = s[1]; }
+    SZ[0] = Math.round(h * E.aspect); SZ[1] = h; return SZ;
+  };
   E.resize = () => {
     if (!E.rung) return;
     const [w, h] = E.size();
     if (E.mode === "ray") { if (E.screen && E.screen.size(w, h, Math.min(E.rung.out || 1, (E.vh * (devicePixelRatio || 1)) / h)) && o.resized) o.resized(E); }
-    else if (E.mode === "gl" && E.g3) { if (o.gl.width !== w || o.gl.height !== h) { o.gl.width = w; o.gl.height = h; } }
-    else if (E.flat) E.flat.size(w, h);
+    else if (E.mode === "gl" && E.g3) {
+      if (o.gl.width !== w || o.gl.height !== h) { o.gl.width = w; o.gl.height = h; }
+      if (o.crisp !== false) o.gl.style.imageRendering = E.div > 1 && !(o.smooth && o.smooth()) ? "pixelated" : "auto";
+    }
+    else if (E.flat) { E.flat.size(w, h); if (o.crisp !== false) o.flat.style.imageRendering = E.div > 1 && !(o.smooth && o.smooth()) ? "pixelated" : "auto"; }
+    if (o.resized && E.mode !== "ray") o.resized(E);
   };
   E.ladder = () => LADDER[E.mode];
   E.choice = () => {
@@ -1668,7 +2351,7 @@ function game(o) {
     }
     const want = o.kind === "ray" ? "ray" : E.choice();
     if (want !== "ray") {
-      if (want === "gl" && !E.g3) { try { E.g3 = new GL(o.gl); } catch (e) { E.g3 = null; } }
+      if (want === "gl" && !E.g3) { try { E.g3 = new GL(o.gl, GLOPTS(E.probe)); } catch (e) { E.g3 = null; } }
       E.mode = want === "gl" && E.g3 ? "gl" : "flat";
       if (E.mode === "flat" && !E.flat) E.flat = new Flat(o.flat);
       o.gl.classList.toggle("hidden", E.mode !== "gl"); o.flat.classList.toggle("hidden", E.mode !== "flat");
@@ -1690,7 +2373,7 @@ function game(o) {
   E.setPicture = () => { E.keep({ key: E.probe.key, bench: E.bench }); E.renderer(false); };
   E.test3d = (done, step) => {                       // the ~2 s test (software GL is left out: the 2D sea is quicker there)
     let g = null;
-    if (E.probe.webgl1 && !E.probe.software && E.force !== "flat" && o.kind !== "ray") { try { g = E.g3 || new GL(o.gl); E.g3 = g; } catch (e) { g = null; } }
+    if (E.probe.webgl1 && !E.probe.software && E.force !== "flat" && o.kind !== "ray") { try { g = E.g3 || new GL(o.gl, GLOPTS(E.probe)); E.g3 = g; } catch (e) { g = null; } }
     o.gl.classList.toggle("hidden", !g);
     if (o.loading) o.loading.el.classList.add("see");
     bench(g, r => { E.bench = r; o.gl.classList.add("hidden"); if (o.loading) o.loading.el.classList.remove("see"); done(r); }, step);
@@ -1715,6 +2398,25 @@ function game(o) {
       ["In one line", line(E.probe, E.bench, E.plan)]
     ]);
   };
+  // How it ran, in one line. On the box a page's console errors are kept for "Send a report" (nothing else of a game
+  // reaches one), so a game that's left there says how it ran: the only measure there is of a real Pi.
+  E.ran = () => {
+    const R = E.gov.ran, [w, h] = E.size();
+    return (o.id || "game") + " ran: " + (E.mode === "gl" ? "3D" : E.mode === "ray" ? "ray" : "2D") + " rung " + E.gov.rung + " (top " + E.gov.top + ") " + w + "x" + h + ", " +
+      (R.secs ? Math.round(R.frames / R.secs) : 0) + " fps over " + Math.round(R.secs) + " s (wanted " + E.rung.fps + ", lowest second " + (R.low > 1e8 ? "-" : R.low) + "), " + R.late + " of " + R.frames + " frames late, worst " + Math.round(R.worst) +
+      " ms, work " + E.gov.workMs.toFixed(1) + " ms (most " + R.work.toFixed(0) + ")" + (E.mode === "gl" && E.g3 ? ", " + E.g3.calls + " draws " + Math.round(E.g3.tris) + " tris" : "") +
+      (E.gov.log.length ? "; " + E.gov.log.slice(-5).join(", ") : "") + "; " + (E.probe.renderer || "no WebGL").slice(0, 60);
+  };
+  // said when the game is left, and when the game calls tell() (at the end of a race or a level: a page that's closed
+  // may not get its last word out): once in five minutes at most, and what's counted starts again
+  let toldAt = -1e9;
+  E.tell = (last) => {
+    if (!E.ready || !E.gov || E.demo || E.gov.ran.secs < 20 || !/^\/box\//.test(location.pathname)) return;
+    if (!last && performance.now() - toldAt < 300000) return;
+    toldAt = performance.now(); console.error(E.ran());
+    E.gov.ran = { frames: 0, late: 0, worst: 0, secs: 0, work: 0, low: 1e9 };
+  };
+  addEventListener("pagehide", () => E.tell(true));
   E.lost = (err) => {                                // the GPU went away: carry on in 2D
     console.warn("WebGL failed; drawing in 2D", err);
     if (o.kind === "ray") { E.broken = true; E.plan = Object.assign({}, E.plan, { fx: false }); E.renderer(false); return; }
@@ -1731,9 +2433,19 @@ function game(o) {
     if (!E.gov.tick(now)) return;
     const t0 = performance.now();
     let dt = (now - last) / 1000; last = now; if (dt > 0.25) dt = 0.25;
+    // A frame that comes a whole number of steps after the last (as every frame does on a 60 Hz screen, give or take
+    // the clock's wobble) takes exactly that many: never none and then two, which shows as a judder at a steady 60.
+    const steps = dt / E.DT, whole = Math.round(steps);
+    if (whole >= 1 && Math.abs(steps - whole) < 0.2) { dt = whole * E.DT; acc = 0.0005; }
     if (!(o.paused && o.paused())) { acc += dt; let n = 0; while (acc >= E.DT && n < 6) { o.update(E.DT); acc -= E.DT; n++; } if (n === 6) acc = 0; }
-    if (E.mode === "gl") { try { o.draw(now, dt); } catch (e) { E.lost(e); } } else o.draw(now, dt);
+    E.alpha = acc / E.DT;                               // (how far into the next step: for a game that draws between steps)
+    // (a draw that returns false drew nothing: the last picture stays, and the governor isn't asked to judge frames
+    // with no work in them: it would climb to the top rung under a menu and find it too much when play goes on)
+    let drew = true;
+    if (E.mode === "gl") { try { drew = o.draw(now, dt) !== false; if (drew && E.ui.n) E.ui.show(E.g3); } catch (e) { E.lost(e); } }
+    else if ((drew = o.draw(now, dt) !== false) && E.ui.n && E.mode === "flat" && E.flat) E.ui.show(null, E.flat.ctx);
     if (E.mode === "ray" && E.screen) E.screen.present(E.rung.glow, E.vig);
+    if (!drew) E.gov.hold(400);
     if (E.slow > 1) { const until = performance.now() + (performance.now() - t0) * (E.slow - 1); while (performance.now() < until) { /* #slow: as a slower processor would */ } }
     if (o.missed) { const k = o.missed(); if (k) E.gov.miss(k); }
     E.gov.work(Math.max(performance.now() - t0, o.helperWork ? o.helperWork() : 0));
@@ -2496,5 +3208,5 @@ function planRay(p, b) {
 
 window.Low3D = { probe, family, NAMES, bench, plan, rows, line, LADDER, Governor, GL, Mesh, Flat, bake, M4, px, hexRGB,
   U, Kit, Path, Chunks, Land, Trail, Particles, camera, chase, orbit, viewOf, begin, Input, Menu, Synth, game,
-  Palette, Tex, RayMap, Ray, Marks, Screen, planRay, helpersFor, version: 3 };
+  Palette, Tex, RayMap, Ray, Marks, Screen, planRay, helpersFor, UI, Letters, GLYPHS, SPECIAL, wholeSize, version: 4 };
 })();

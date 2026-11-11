@@ -28,6 +28,42 @@ could walk around, and that was all: the camera wouldn't turn and nothing could 
   box. The tests use this controller's layout (before: both mouse buttons down with the stick at rest, no camera;
   after: the stick turns the camera, RT digs, LT places). Not tried on a Pi or with the real controller.
 
+## 1.1.64
+
+Tidewing, and the engine under the box's 3D games (Low3D). On a real Pi 3 B+, 1.1.60: "looks like shit and runs like
+shit". It was given a Pi 3 as a 320×180 picture smoothed up to the TV, at 30 frames a second by design, its sea one
+flat blurred texture. Every number below is from `tools/games-bench.mjs` on a Mac standing in for a Pi 3 (WebGL 1
+only, the box's screen size, the game's work made 20 times as long): none is a Pi's.
+
+- **Tidewing is drawn another way.** A sky painted for each water (a big barred sun at dawn and dusk, a moon and
+  stars, a gale's cloud, far ridges), a sea with nets of light drifting on it, glints towards the sun and foam coming
+  in to the shore, and mirror images in the water: the sky, the islands, the gates and the skimmers. Shadows fall
+  across the land and the sea (worked out once, as a water loads). The gates are lit masts, the next one marked in
+  pink; wakes are two arms of foam; the whole map is drawn, with no wall of fog 170 m off.
+- **On a Pi 3: 640×360 shown crisp (each pixel 3 × 3 of the TV's), made to hold 60 frames a second.** Every rung
+  of the engine's ladder but the lowest two holds 60 now; when frames run late it's pixels that are given up first
+  (360 lines, 270, 216), then frames at a good picture. A Pi 4 or 5 gets more lines.
+- **The race's numbers are drawn in the picture** (place, lap, time, the boost, the speed, the little map), in ink,
+  bone, green and pink, and the menus with them. Nothing of the page lies over the race any more: in 1.1.60 its
+  numbers were a layer the size of the screen that the browser put together again every frame at the TV's size
+  (2.1 megapixels a frame; the game's own picture was 0.06). A menu's blocks are each a small layer, the picture is
+  dimmed behind them in the canvas, and a menu that covers the picture stops the game drawing.
+- **Fewer stutters.** The frame's own code makes a third to a half of the garbage it did (0.14 to 0.32 MB of script
+  memory a second in a race, where it was 0.48 to 1.24), so the collector stops the game 7 to 22 times a minute
+  where it was 30 to 52, and every shader is made while a water loads, not at its first use in the middle of a race.
+  A frame that comes a whole number of steps after the last takes exactly that many (never none and then two).
+- **Low3D** (`games/low3d.js`, `games/ENGINE.md`): light baked into a still world's colours (`Mesh.light`), a sky
+  dome and painted skies (`Kit.sky`), water with mirror images (`GL.water`, `GL.mirror`), every see-through thing in
+  one mesh (`GL.fx`), what's written on a game in its canvas (`UI`, with the pixel font Low2D writes with), high
+  ground behind its cliffs as big triangles (`Land.inner`), a picture sized to the screen divided by a whole number.
+  `ENGINE.md` says what costs a Pi 3 time and what makes garbage, with the numbers.
+- **`tools/games-bench.mjs`**: every page game's scenes measured the same way each time (frame times at the median,
+  95th and 99th percentile and the worst, the work a frame, draw calls, triangles, fragments shaded, garbage and
+  the collector's pauses, the layers over the picture), for before and after.
+- **What the games check finds goes with a report.** The graphics check and its games check
+  (`127.0.0.1:8091/box/games/probe/` in the box's browser) say their results where "Send a report" picks them
+  up, and Tidewing and Ironmaw say how they ran when they're left: until now no report held a game's frame rate.
+- No medals: places are written out (first, second, third), player two is pink.
 ## 1.1.63
 
 The white screen after a game. On a real Raspberry Pi 3 B+ (1.1.60) the box had to be unplugged three times in an
