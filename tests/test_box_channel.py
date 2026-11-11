@@ -38,6 +38,12 @@ def read(path):
         return f.read()
 
 
+def stable_says(line):
+    """deploy/sofa-box/STABLE's notes, whatever version it marks now, then this line."""
+    notes = [n for n in read(os.path.join(BOX, "STABLE")).splitlines() if n.startswith("#")]
+    return "\n".join(notes + [line]) + "\n"
+
+
 def load(path, name, **env):
     old = {k: os.environ.get(k) for k in env}
     os.environ.update(env)
@@ -110,12 +116,11 @@ class Offered(unittest.TestCase):
         a, files = self.agent, {}
         real = a.fetch_text, dict(a._newest)
         a.fetch_text = lambda url: files.get(url)
-        stable_file = read(os.path.join(BOX, "STABLE"))
         try:
-            files.update({a.NEWEST_URL: "1.1.58\n", a.STABLE_URL: stable_file})
+            files.update({a.NEWEST_URL: "1.1.58\n", a.STABLE_URL: stable_says("none")})
             self.assertTrue(a.look_for_updates())
-            self.assertEqual((a._newest["version"], a._newest["stable"]), ("1.1.58", None))   # this PR marks nothing
-            files[a.STABLE_URL] = stable_file.replace("\nnone\n", "\n1.1.54\n")
+            self.assertEqual((a._newest["version"], a._newest["stable"]), ("1.1.58", None))   # none marked
+            files[a.STABLE_URL] = stable_says("1.1.54")
             files[a.RELEASE_URL % "1.1.54"] = "1.1.54\n"
             self.assertTrue(a.look_for_updates())
             self.assertEqual(a._newest["stable"], "1.1.54")
@@ -320,7 +325,7 @@ class UpdateCommand(unittest.TestCase):
         path = os.path.join(self.raw, "main", "deploy", "sofa-box", "STABLE")
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w") as f:
-            f.write(read(os.path.join(BOX, "STABLE")).replace("\nnone\n", "\n%s\n" % line))
+            f.write(stable_says(line))
 
     def channel(self, name):
         with open(self.settings, "w") as f:
@@ -782,13 +787,13 @@ class StableCard(unittest.TestCase):
 
     def mark(self, line):
         with open(self.stable_file, "w") as f:
-            f.write(read(os.path.join(BOX, "STABLE")).replace("\nnone\n", "\n%s\n" % line))
+            f.write(stable_says(line))
         return self.gh.run("mark-stable", self.stable_file)
 
     def test_the_file_in_the_repository(self):
-        """It names a version or none (this change marks nothing: that's the owner's), never one ahead of main."""
+        """It names a version or none (marking one is the owner's), never one ahead of main."""
         v = releases.stable_in(os.path.join(BOX, "STABLE"))
-        self.assertIsNone(v)
+        self.assertTrue(v is None or re.fullmatch(r"\d+\.\d+\.\d+", v), v)
         version = read(os.path.join(BOX, "VERSION")).strip()
         self.assertFalse(v and releases.newer(v, version))
         for bad in ("1.1", "latest", "1.1.54\n1.1.55"):
