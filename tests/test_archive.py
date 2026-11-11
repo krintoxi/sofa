@@ -87,9 +87,10 @@ class Archive(unittest.TestCase):
         archive.want(["ia-kids90"])
         self.assertEqual(archive._first, [])                                 # (Retro TV off: nothing fetched)
 
-    def test_the_decades_are_opt_in_and_never_for_visitors(self):
-        """Retro TV's decades are recordings of broadcasts whose rights nobody cleared: off until an admin turns them on,
-        and even then never for the public library's Visitors. Classic Cinema reaches Visitors only when shared."""
+    def test_the_decades_are_on_by_default_and_never_for_visitors(self):
+        """Retro TV's decades (recordings of broadcasts) come switched on; an admin can turn them off; on or off, never
+        for the public library's Visitors. Classic Cinema reaches Visitors only when shared."""
+        self.assertIs(config.DEFAULTS["retro_eras"], True)
         cinema = {c[0] for c in archive.CHANNELS if c[0] not in archive.RETRO}
         config.update({"retro_eras": False})
         self.assertEqual({c["id"] for c in archive.channels()}, cinema)
@@ -110,6 +111,38 @@ class Archive(unittest.TestCase):
         self.assertEqual({c["id"] for c in archive.channels(visitor=True)}, cinema)   # Classic Cinema, never the decades
         self.assertFalse(archive.available("ia-kids00", visitor=True))
         self.assertEqual({c["id"] for c in archive.guide(visitor=True)}, cinema)
+
+    def test_a_sofa_that_updates_gets_the_decades_back_once(self):
+        """From 1.5.0 to 1.5.5 the decades were off by default, and config.json keeps every setting: an "off" saved
+        then was that default, not a choice. The first start of 1.5.6 turns them on, once; an admin who then turns
+        them off keeps them off, and a new Sofa starts with them on."""
+        real = config.CONFIG_PATH, config.DATA_DIR, config._config
+        folder = tempfile.mkdtemp()
+        try:
+            config.DATA_DIR, config.CONFIG_PATH = folder, os.path.join(folder, "config.json")
+            config.load()                                                        # a new Sofa
+            self.assertTrue(config.get("retro_eras"))
+            with open(config.CONFIG_PATH, encoding="utf-8") as f:
+                self.assertEqual(json.load(f)["defaults_rev"], 1)
+            with open(config.CONFIG_PATH, "w", encoding="utf-8") as f:           # one set up before 1.5.6
+                json.dump({"name": "Living room", "retro_eras": False, "archive_channels": False}, f)
+            config.load()
+            self.assertTrue(config.get("retro_eras"))
+            self.assertFalse(config.get("archive_channels"))                     # (nothing else is touched)
+            self.assertEqual(config.get("name"), "Living room")
+            with open(config.CONFIG_PATH, encoding="utf-8") as f:
+                saved = json.load(f)
+            self.assertEqual((saved["retro_eras"], saved["defaults_rev"]), (True, 1))
+            config.update({"retro_eras": False})                                 # an admin turns them off: for good
+            config.load()
+            self.assertFalse(config.get("retro_eras"))
+            with open(config.CONFIG_PATH, "w", encoding="utf-8") as f:           # a number that isn't one: as none
+                json.dump({"retro_eras": False, "defaults_rev": "soon"}, f)
+            config.load()
+            self.assertTrue(config.get("retro_eras"))
+        finally:
+            config.CONFIG_PATH, config.DATA_DIR, config._config = real
+            shutil.rmtree(folder, ignore_errors=True)
 
     def test_lengths(self):
         for text, want in (("1:17:26", 4646), ("95 min", 5700), ("01:18:35", 4715), ("123.4", 123), ("?", None), ("", None)):

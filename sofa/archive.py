@@ -217,8 +217,8 @@ def on():
 
 
 def eras_on():
-    """Retro TV's decades: recordings of TV as it went out, its commercials in, that people uploaded. Nobody has cleared
-    their rights, so they're off unless an admin turns them on for their own household (retro_eras)."""
+    """Retro TV's decades: recordings of TV as it went out, its commercials in, that people uploaded to the same public
+    library. On unless an admin turns them off (retro_eras); never for the public library's Visitors (available())."""
     return bool(config.get("retro_eras"))
 
 

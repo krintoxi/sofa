@@ -2721,7 +2721,7 @@ function srvLive(d) {
     ${srvSwitch("live_headers", s.live_headers, "Channels that ask for a made-up browser name", "Some lists give a channel a browser name or a page to pretend to come from, to get past a site that wants its stream watched only on its own pages. Off: those channels are left out.")}</div>
     <div class="panel wide"><h2>Retro TV</h2>
     ${srvSwitch("archive_channels", s.archive_channels, "Classic Cinema", "Old films and classic TV on the clock, like a TV channel: noir, westerns, silent films, cartoons and more. They play straight from a public video library, not through Sofa.")}
-    ${srvSwitch("retro_eras", s.retro_eras, "The decades, as they aired", "Recordings people made of TV from the 50s to 2012, commercials and all: Saturday mornings, music TV, kids' channels. Nobody has cleared their rights, so they're off unless you turn them on for your own household. Visitors to a public library never get them.")}</div></div>`;
+    ${srvSwitch("retro_eras", s.retro_eras, "The decades, as they aired", "Recordings people made of TV from the 50s to 2012, commercials and all: Saturday mornings, music TV, kids' channels. They play straight from a public video library where people put them, not through Sofa, which keeps no copy and holds no rights to them. Visitors to a public library never get them.")}</div></div>`;
 }
 document.addEventListener("click", e => {
   const b = e.target.closest && e.target.closest("[data-live-public]");

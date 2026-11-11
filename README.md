@@ -53,7 +53,7 @@ says so: **[What Sofa can do today](docs/capabilities.md).** In short:
 - **The player:** Skip Intro, Next episode, scrubbing pictures, subtitles and sound, Night mode, a sleep timer; your
   phone as the remote for any screen. Music with albums, artists and stations.
 - **Live TV:** channel lists you add, Classic Cinema on a clock with a guide, and the decades of TV as recorded,
-  switched off unless you turn them on.
+  from the 50s to 2012 (a switch turns them off).
 - **Sharing:** a public library behind a link, visitors who see only what you picked; your own address on the
   internet with HTTPS and a free certificate. [Away from home](docs/remote-access.md)
 - **TVs:** TV mode in any TV browser, the Fire TV app, the Roku channel, and the Sofa Box.
@@ -459,7 +459,7 @@ link you trust and tick **Adult channels**. [docs/adult.md](docs/adult.md)
 | Library | folders, rescan, **missing details** (fix them in a click), **duplicates** (keep the best copy), new pictures, free up space, the Deleted folder, Skip Intro progress, Needs Review |
 | Converting | the convert-to-MP4 queue with progress; automatic converting on/off |
 | Downloads | save videos from links; install yt-dlp; use a browser's sign-in; the "Send to Sofa" bookmark |
-| Live TV | channel lists (and which ones the public library's visitors get), made-up browser names, Retro TV: Classic Cinema, and the decades as they aired (off unless turned on) |
+| Live TV | channel lists (and which ones the public library's visitors get), made-up browser names, Retro TV: Classic Cinema, and the decades as they aired (on unless turned off) |
 | People | accounts, Adult access, Kids profiles, guests |
 | Sharing | the **public library**: on/off, the share link (copy, QR code, make a new one), what visitors see it called, share everything, Live TV too, Classic Cinema too, games too, where copyright notices go, open to everyone, the shared titles |
 | Settings | **privacy** (keep no logs, wipe all logs, work offline), name, theme, TV sharing, TMDB key, ThePornDB token, backups |

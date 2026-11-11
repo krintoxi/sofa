@@ -308,8 +308,8 @@ box's own player: up and down change the channel.
   on 20 to 28.
 - **The decades:** 2009–2012, the 2000s, 90s, 80s, 70s, 60s and 50s, TV as it went out, most of it whole
   recorded broadcasts with their own commercials (Kids TV, Saturday Mornings, On Air, Music TV, Commercial
-  Breaks and more). Nobody has cleared their rights, so they're off until someone turns them on for their own
-  household, in the Sofa's Server → Live TV.
+  Breaks and more). They play straight from a public video library, not through the box or your Sofa; the
+  Sofa's Server → Live TV has a switch that turns them off.
 
 Each tab has a **guide**, as on a TV: up and down go through the channels, OK watches, a channel's number goes
 straight to it, and Flip picks one. While a channel plays, its banner says what's on and what's next.

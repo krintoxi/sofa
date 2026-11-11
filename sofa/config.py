@@ -79,7 +79,8 @@ DEFAULTS = {
     # Live TV channel lists (M3U). Each: {"name": ..., "url": ...}
     "live_playlists": [],
     "archive_channels": True,            # Live TV's Internet Archive channels (sofa/archive.py)
-    "retro_eras": False,                 # Retro TV's decades: recordings of TV as it aired (rights not cleared): opt-in, at home
+    "retro_eras": True,                  # Retro TV's decades: recordings of TV as it aired; an admin can turn them off; never for Visitors
+    "defaults_rev": 1,                   # which changes of a default this config.json has taken (load()): 1 = the decades on again
     "live_headers": False,               # channels that ask for a made-up browser name or referrer: hidden unless allowed
     # Where updates come from (the Update button on the Server page, and tools/update.sh).
     "update_repo": "krintoxi/sofa",
@@ -161,10 +162,26 @@ def load():
                 pass
         merged = copy.deepcopy(DEFAULTS)
         merged.update(data)
+        if data and _rev(data) < 1:
+            # A config.json from before 1.5.6. The decades were off by default from 1.5.0 to 1.5.5, and this file keeps
+            # every setting, so an "off" in it is that default, not something anyone chose: on again, this once.
+            merged["retro_eras"] = True
+            merged["defaults_rev"] = DEFAULTS["defaults_rev"]
+            try:
+                _write(merged)
+            except OSError:                      # (a disk that can't be written now: the next start does it)
+                pass
         _config = merged
         if not os.path.exists(CONFIG_PATH):
             _write(merged)
     return _config
+
+
+def _rev(data):
+    try:
+        return int(data.get("defaults_rev") or 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 def get(key):

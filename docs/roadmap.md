@@ -28,8 +28,8 @@ Read this before you install, so nothing surprises you.
 - **The Mac card writer** (`imager/`) has written a card to a disk image in its tests and never to a real SD card.
 - **The PC and virtual-machine image** (1.1.60) has booted on GitHub's machines under UEFI and BIOS, never on a real PC.
 - **Live TV** plays channel lists you add and Classic Cinema from a public film archive. There is no tuner support and
-  no recording. Retro TV's decades (recordings of TV as it aired) are switched off unless an admin turns them on,
-  because nobody has cleared their rights.
+  no recording. Retro TV's decades (recordings of TV as it aired, played straight from a public video library) are
+  on unless an admin turns them off, and never reach the public library's visitors.
 - **Not built:** subtitle downloads, watch-together, photos, TV recording, a caption editor, playlists in Music, lyrics,
   plugins, Plex or Jellyfin history import.
 - **The secure phone remote** for a box passes through EdgeVenture's relay (the code is in `deploy/box-certs/`); it
@@ -42,10 +42,10 @@ Read this before you install, so nothing surprises you.
 
 The last few weeks, from the changelogs:
 
-- **Sofa 1.5.x:** Retro TV's decades off unless turned on; away from home, Live TV plays straight from the channel and
-  never through your Sofa; every video on a box plays in the box's own player with its start card; big skips in
-  converted video; the Pi 3 quicker (rows as layers the graphics chip slides); the licence, `NOTICE`, `TRADEMARKS.md`,
-  `CONTRIBUTING.md`.
+- **Sofa 1.5.x:** Retro TV's decades off unless turned on (1.5.0), then on by default again (1.5.6); away from
+  home, Live TV plays straight from the channel and never through your Sofa; every video on a box plays in the
+  box's own player with its start card; big skips in converted video; the Pi 3 quicker (rows as layers the graphics
+  chip slides); the licence, `NOTICE`, `TRADEMARKS.md`, `CONTRIBUTING.md`.
 - **Sofa Box OS 1.1.5x and 1.1.60:** a stable and a testing update channel with weekly updates off by default; the
   first start survives Raspberry Pi Imager's settings; Home says when the Pi is short of power or hot; credits and
   licences for every part on the card, and where each TV brand hides its own tracking switch; Sofa Box OS by name in

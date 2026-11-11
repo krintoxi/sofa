@@ -127,8 +127,8 @@ The plan for the round that started 2026-11-02. Each part has a status: ☐ not 
         answers only at home, and a channel that can't play directly isn't listed away from home;
       - the public library gets only the channel lists an admin marks for visitors (Server → Live TV), and
         Classic Cinema only with **Classic Cinema too** (`share_cinema`);
-      - Retro TV's decades (recordings of broadcasts, rights not cleared) are off unless an admin turns them on,
-        for the household only, and never reach Visitors;
+      - Retro TV's decades (recordings of broadcasts) are for the household only and never reach Visitors; an
+        admin can turn them off (`retro_eras`);
       - channels that need a made-up browser name or referrer are hidden unless allowed (`live_headers`);
       - visitors get an **About** page: privacy, copyright and where notices go (`share_contact`);
       - a new Sofa Box adds no channel lists of its own.

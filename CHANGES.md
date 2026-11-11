@@ -6,6 +6,19 @@ has its own numbers and list: [deploy/sofa-box/CHANGES.md](deploy/sofa-box/CHANG
 A change to Sofa's code (`sofa/`, `client/`, `sofa.py`) gets a new version: raise `__version__`, add a section
 here, then `python3 tools/sofa-version.py` (a test checks it was done).
 
+## 1.5.6 (2026-11-11)
+
+- **Retro TV's decades are on by default again.**
+  - The 2009–2012, 2000s, 90s, 80s, 70s, 60s and 50s tabs (TV as it went out: Saturday mornings, music TV, kids'
+    channels, commercials and all) are back in Live TV without anyone having to find a switch. From 1.5.0 to 1.5.5
+    they were off unless turned on.
+  - A Sofa that updates gets them switched on once. An "off" saved by 1.5.0 to 1.5.5 was that version's default,
+    and Sofa can't tell it from a choice. Turn them off in **Server → Live TV → Retro TV** (The decades, as they
+    aired) and they stay off.
+  - Unchanged: the recordings play straight from a public video library to the screen and never through Sofa,
+    which keeps no copy; the public library's visitors never get them; **Work offline** turns them off with the
+    rest of Live TV's Retro TV.
+
 ## 1.5.5 (2026-11-10)
 
 - **Sofa in Docker.** A `Dockerfile` (Python 3.12 on Debian 13 with Debian's ffmpeg, a non-root user, nothing else)
