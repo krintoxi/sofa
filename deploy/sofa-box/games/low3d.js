@@ -2277,14 +2277,20 @@ Synth.prototype = {
 //   elsewhere, as a Ray's helpers say) and helperWork() (their time a frame, ms) })
 // a height for the picture that goes into the screen's a whole number of times, the nearest to the one wanted: [height,
 // how many times] (1080 wanting 360: 360, 3; wanting 540 on a 720 screen: 720, 1)
-// How many fixed steps a frame takes: [steps, what's carried]. Time is never dropped: what a frame is short of a whole
-// number of steps, or over it, is carried to the next (acc, in seconds; it may run a little under nought), so a game
-// runs at real time on any screen: 50, 60, 72, 75, 144 Hz. A frame that comes within a quarter of a step of a whole
-// number takes exactly that many, so on a 60 Hz screen it's one step every frame however the clock wobbles, never none
-// and then two (which shows as a judder at a steady 60). most: the most one frame may take; a longer pause isn't
-// caught up on.
+// How many fixed steps a frame takes: [steps, what's carried].
+// A frame whose own length is a whole number of steps, to within 1.5%, takes exactly that many and carries nothing: a
+// screen that is 60 Hz or nearly (59.94 on a TV, 59.79 on a 1366 × 768 panel, 60.02, 60.32) runs on its own beat, one
+// step a frame, at most 1.5% off real time, which nobody sees. (Carrying the difference instead is right to the
+// second, and takes two steps in one frame, or none, every few seconds: a skip you do see.)
+// Any other frame's time is carried, never dropped: what it is short of a whole number of steps, or over it, goes to
+// the next (acc, in seconds; it may run a little under nought), so a game runs at real time on a 50, 72, 75 or 144 Hz
+// screen. There a frame that comes within a quarter of a step of a whole number takes that many, so a clock that
+// wobbles gives no frame with none and then one with two.
+// most: the most one frame may take; a longer pause isn't caught up on.
 const STEPS = [0, 0];
 function wholeSteps(acc, dt, DT, most) {
+  const f = dt / DT, w = Math.round(f);
+  if (w >= 1 && w < most && Math.abs(f - w) < 0.015 * w) { STEPS[0] = w; STEPS[1] = acc; return STEPS; }   // on the screen's own beat
   acc += dt;
   const s = acc / DT, r = Math.round(s);
   let n = Math.abs(s - r) < 0.25 ? r : Math.floor(s);
@@ -2471,7 +2477,7 @@ function game(o) {
     if (!E.gov.tick(now)) return;
     const t0 = performance.now();
     let dt = (now - last) / 1000; last = now; if (dt > 0.25) dt = 0.25;
-    // (the steps this frame takes: see wholeSteps. At real time on any screen; one a frame on a 60 Hz one.)
+    // (the steps this frame takes: see wholeSteps. One a frame on a screen that's 60 Hz or nearly; real time on the rest.)
     if (!(o.paused && o.paused())) { const S = wholeSteps(acc, dt, E.DT, 6); acc = S[1]; for (let n = S[0]; n > 0; n--) o.update(E.DT); }
     E.alpha = acc > 0 ? acc / E.DT : 0;                 // (how far into the next step: for a game that draws between steps)
     // (a draw that returns false drew nothing: the last picture stays, and the governor isn't asked to judge frames

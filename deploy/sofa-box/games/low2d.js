@@ -226,8 +226,9 @@ function game(o) {
     if (!(o.paused && o.paused())) {
       if (G.stopT > 0) G.stopT -= dt;
       else {
-        // (Low3D's wholeSteps: real time on any screen, one step a frame on a 60 Hz one. This loop used to drop up to
-        // 2.5 ms a frame to land on a whole step, which ran a game fast or slow on a screen between 52 and 70 Hz.)
+        // (Low3D's wholeSteps: one step a frame on a screen that's 60 Hz or nearly, real time on the rest. This loop
+        // used to drop up to 2.5 ms a frame to land on a whole step, which ran a game fast or slow on a screen
+        // between 52 and 70 Hz.)
         const S = L3.wholeSteps(acc, dt, G.DT, 4); acc = S[1];
         for (let n = S[0]; n > 0; n--) { o.update(G.DT); G.time += G.DT; G.steps++; }
       }

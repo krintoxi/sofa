@@ -8,6 +8,24 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.69
+
+A skip every few seconds on a screen that is nearly, but not exactly, 60 Hz: put right.
+
+- **What 1.1.68 did there.** To run at real time on any screen it carried all of a frame's time from one frame to
+  the next. On a screen a little off 60 Hz that is right to the second, and every few seconds the carried time adds
+  up to a frame that takes two steps of the game (or none): at 59.94 Hz (a TV's NTSC modes) once every 17 seconds,
+  at 59.79 Hz (1366 × 768 panels) every 5, at 60.32 Hz every 3. The loop before 1.1.68 was even on those screens
+  (and a tenth of a percent slow, which nobody sees).
+- **Now** a frame whose own length is a whole number of steps, to within 1.5%, takes exactly that many: a screen
+  that's 60 Hz or nearly runs on its own beat, the same steps every frame, at most 1.5% off real time. Any other
+  frame's time is still carried, so 50, 65, 72, 75, 90, 100 and 144 Hz screens run at real time as in 1.1.68.
+  Tidewing, Ironmaw and the seven games on the 2D engine.
+- From arithmetic, not from a screen: ten minutes of frames at each rate, the page's clock rounded as the browser
+  hands it over. 59.79, 59.89, 59.94, 59.95, 60.02 and 60.32 Hz: the same steps every frame, 99.65 to 100.53% of
+  real time (1.1.68: 70 to 190 uneven frames in the ten minutes). The owner's box sets 1920 × 1080 at 60.000 Hz and
+  showed neither.
+
 ## 1.1.68
 
 Two defects in the games' engine that came in with 1.1.64 (and reached Ironmaw in 1.1.66), found by reading it.

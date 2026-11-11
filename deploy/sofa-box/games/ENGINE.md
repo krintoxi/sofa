@@ -379,7 +379,7 @@ again; build it when it changes (ten times a second is plenty), not every frame.
 
 **The rest.**
 - `game({...})` sets up the screen (16:9, as big as fits, `--u` a hundredth of its height for CSS), the tuning,
-  the loop (fixed 60 steps a second at real time on any screen, `wholeSteps`: time is carried, never dropped, and a frame that comes within a quarter of a step of a whole number of steps after the last takes exactly that
+  the loop (fixed 60 steps a second, `wholeSteps`: a frame whose own length is a whole number of steps to within 1.5% takes exactly that many, so a screen that's 60 Hz or nearly (59.94, 59.79, 60.32) runs on its own beat with the same steps every frame; any other frame's time is carried, never dropped, so a 50, 72, 75 or 144 Hz screen runs at real time, and there a frame that comes within a quarter of a step of a whole number of steps after the last takes exactly that
   many, never none and then two; `E.alpha` says how far into the next step a frame is), `#fps`, and the switch to
   2D if the GPU goes away. It returns `E`, with `mode`, `g3`, `flat`, `ui`, `rung`, `gov`, `rows()`, `retest()`,
   `setPicture()`, `ran()`: how it ran, in one line, and `tell()`: says it to the console (on the box only, once in

@@ -242,8 +242,9 @@ class TheLoopAndWhatIsKept(unittest.TestCase):
     @unittest.skipUnless(shutil.which("node"), "needs node")
     def test_a_game_runs_at_real_time_on_any_screen(self):
         """The loop's steps were rounded to the frame when a frame was within a fifth of a step of a whole number, and
-        what was left over was dropped: 83% of real time at 50 Hz, 120% at 72, 125% at 75. Time is carried now, never
-        dropped; a 60 Hz screen still gets one step every frame, however its clock wobbles."""
+        what was left over was dropped: 83% of real time at 50 Hz, 120% at 72, 125% at 75. Such a frame's time is
+        carried now, never dropped; a 60 Hz screen still gets one step every frame, however its clock wobbles. (A screen
+        that's nearly 60 Hz runs on its own beat, within 1.5% of real time: the next test.)"""
         out = pads_in_node(self, r"""
 const L = window.Low3D, DT = 1 / 60;
 const run = (hz, frames, wobble) => { let acc = 0, n = 0, t = 0, odd = 0; for (let i = 0; i < frames; i++) { const dt = 1 / hz + (wobble ? (i & 1 ? wobble : -wobble) : 0); t += dt; const S = L.wholeSteps(acc, dt, DT, 6); acc = S[1]; n += S[0]; if (S[0] !== 1) odd++; } return [Math.round(n * DT / t * 1000) / 10, odd]; };
@@ -275,6 +276,46 @@ for (const hz of [50, 60, 65, 72, 75]) {
 console.log(JSON.stringify(out)); })().catch(e => { console.error(e); process.exit(1); });""", "pad.js", "low3d.js", "low2d.js")
         for hz, n in steps.items():
             self.assertTrue(598 <= n <= 602, "%s Hz: %s steps in ten seconds" % (hz, n))
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_a_screen_thats_nearly_60_hz_gets_the_same_steps_every_frame(self):
+        """1.1.68 carried all of a frame's time, which is right to the second and, on a screen a little off 60 Hz (59.94
+        on a TV, 59.79 on a 1366 x 768 panel, 60.02, 60.32), takes two steps in one frame or none every few seconds: a
+        skip, where the loop before it was even. A frame whose own length is a whole number of steps to within 1.5%
+        takes exactly that many now, so such a screen runs on its own beat; the rest still run at real time. Ten
+        minutes at each rate, the page's clock rounded down to a tenth of a millisecond as the browser hands it over."""
+        out = pads_in_node(self, r"""
+const L = window.Low3D, DT = 1 / 60;
+const run = (hz, every) => {                                          // every: one frame in so many drawn (a 30 a second rung: 2)
+  let acc = 0, n = 0, last = 0; const seen = {}, total = Math.round(600 * hz / every);
+  for (let i = 1; i <= total; i++) { const at = Math.floor(i * every * 10000 / hz) / 10000, S = L.wholeSteps(acc, at - last, DT, 6); last = at; acc = S[1]; n += S[0]; seen[S[0]] = (seen[S[0]] || 0) + 1; }
+  return { pct: Math.round(n * DT / last * 10000) / 100, steps: Object.keys(seen).map(Number).sort() };
+};
+out.near = {}; for (const hz of [59.79, 59.89, 59.94, 59.95, 60, 60.02, 60.317]) out.near[hz] = [run(hz, 1), run(hz, 2)];
+out.far = {}; for (const hz of [50, 65, 72, 75, 144]) out.far[hz] = run(hz, 1); for (const hz of [90, 100]) out.far[hz] = run(hz, 2);
+out.dropped = Array.from(L.wholeSteps(0.004, 2 / 59.94, DT, 6));      // a frame missed on a 59.94 Hz screen: two steps, what was carried left alone
+out.pause = Array.from(L.wholeSteps(0, 0.25, DT, 6)); out.exactPause = Array.from(L.wholeSteps(0.003, 0.1, DT, 6));   // (six steps' worth, the most: not on the beat, and not caught up on)
+console.log(JSON.stringify(out));
+""", "pad.js", "low3d.js")
+        for hz, (each, other) in out["near"].items():
+            self.assertEqual(each["steps"], [1], "%s Hz: every frame one step" % hz)
+            self.assertEqual(other["steps"], [2], "%s Hz, every other frame drawn: two steps each" % hz)
+            self.assertTrue(98.5 <= each["pct"] <= 101.5 and each["pct"] == other["pct"], "%s Hz: %s%% of real time" % (hz, each["pct"]))
+        self.assertEqual(out["near"]["59.94"][0]["pct"], 99.9)            # (on its own beat: a tenth of a percent slow, as before 1.1.68)
+        for hz, r in out["far"].items():
+            self.assertTrue(99.8 <= r["pct"] <= 100.2, "%s Hz: %s%% of real time" % (hz, r["pct"]))
+        self.assertEqual(out["far"]["50"]["steps"], [1, 2])               # (50 Hz: one, one, one, one, two: as it must be)
+        self.assertEqual(out["dropped"], [2, 0.004])
+        self.assertEqual((out["pause"], out["exactPause"]), ([6, 0], [6, 0]))
+        # the 2D engine's own loop on a 59.94 Hz screen with that clock: a step every frame for a minute
+        even = pads_in_node(self, L2_JS + r"""(async () => {
+location.hash = "#tier=light&pace=60";
+let ups = 0; const G = L2.game({ id: "ntsc", canvas: canvas(), update() { ups++; }, draw() {} });
+G.start(); await wait(40); frames(8, 1000 / 60);
+let at = 0, odd = 0; for (let i = 1; i <= 3600; i++) { const t = Math.floor(i * 10000 / 59.94) / 10; ups = 0; frame(t - at); at = t; if (ups !== 1) odd++; }
+out.odd = odd;
+console.log(JSON.stringify(out)); })().catch(e => { console.error(e); process.exit(1); });""", "pad.js", "low3d.js", "low2d.js")
+        self.assertEqual(even["odd"], 0)
 
     @unittest.skipUnless(shutil.which("node"), "needs node")
     def test_a_rung_kept_on_another_ladder_is_not_used(self):
