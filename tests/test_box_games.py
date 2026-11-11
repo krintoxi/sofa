@@ -885,6 +885,10 @@ class TheEngine2D(unittest.TestCase):
     hit-stop, tiles to move through, the particles' pool, saves that #demo never writes, presses kept for the fixed
     steps, and the picture fitted to the TV at a whole-number scale."""
 
+    def read_game(self, gid):
+        with open(os.path.join(BOX, "games", gid, "index.html"), encoding="utf-8") as f:
+            return f.read()
+
     def node(self, script):
         return pads_in_node(self, L2_JS + "(async () => {" + script + "\nconsole.log(JSON.stringify(out)); })().catch(e => { console.error(e); process.exit(1); });",
                             "pad.js", "low3d.js", "low2d.js")
@@ -909,6 +913,46 @@ const slowed = L2.plan({ family: "desktop", webgl1: true, memory: 8, arch: "" },
         self.assertEqual(p["software"], "full60 up to rich60")             # (fast, but no GPU: full)
         self.assertEqual(p["small"], "light60 up to light60")              # a 1 GB ARM board, whatever its GPU says
         self.assertEqual(out["slowed"], "light60")
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_a_game_says_how_it_ran_for_the_report(self):
+        """On the box a page's console errors are what "Send a report" keeps of a page, so a game on Low2D says how it
+        ran there: every five minutes of play and when it's left, never off the box, never the demo, never for a few
+        seconds' play; and what's counted starts again each time."""
+        out = self.node(r"""
+const said = [], real = console.error; console.error = (...a) => { said.push(a.join(" ")); };
+location.hash = "#tier=light&pace=60"; location.pathname = "/box/games/tell/";
+const G = L2.game({ id: "tell", canvas: canvas(), update() {}, draw() {} });
+G.start(); await wait(40); frames(4, 1000 / 60);
+G.tell(); out.early = said.length;                                    // a few frames in: nothing worth saying yet
+frames(60 * 30, 1000 / 60); out.line = G.ran(); G.tell(); out.said = said.slice(); out.left = G.gov.ran.frames;
+frames(60 * 320, 1000 / 60); out.byItself = said.length;              // five minutes of play: said without being asked
+(on.pagehide || []).forEach(f => f()); out.leaving = said.length;     // and when the game is left
+location.pathname = "/games/tell/"; frames(60 * 30, 1000 / 60); G.tell(); out.offBox = said.length;
+location.pathname = "/box/games/demo/"; location.hash = "#demo";
+const D = L2.game({ id: "demo", canvas: canvas(), update() {}, draw() {} });
+D.start(); await wait(40); frames(60 * 30, 1000 / 60); D.tell(); out.demo = said.length;
+console.error = real;
+""")
+        self.assertEqual(out["early"], 0)
+        self.assertRegex(out["line"], r"^tell ran: 2D light rung 0 of 0 480x270, 60 fps over (2[89]|30) s \(wanted 60, lowest second 60\), 0 of \d+ frames late, worst 17 ms, work ")
+        self.assertEqual(out["said"], [out["line"]])
+        self.assertEqual(out["left"], 0)                                    # counted afresh
+        self.assertEqual(out["byItself"], 2)
+        self.assertEqual(out["leaving"], 3)
+        self.assertEqual((out["offBox"], out["demo"]), (3, 3))             # not off the box, and never the demo
+
+    def test_gloamwell_says_how_it_ran_too(self):
+        """Gloamwell has an engine of its own; it says the same line for the report: counted while a floor is played,
+        said every five minutes and when it's left, on the box only, never the demo."""
+        src = self.read_game("gloamwell")
+        self.assertIn("govern(dt); ranNote(dt);", src)
+        self.assertIn("if (mode !== M_PLAY || document.hidden || irisFn || !(dt > 0) || dt > 0.25) return;", src)
+        self.assertIn("if (RAN.secs >= 300) ranTell();", src)
+        self.assertIn('addEventListener("pagehide", ranTell);', src)
+        self.assertIn("if (DEMO || RAN.secs < 20 || !/^\\/box\\//.test(location.pathname)) return;", src)
+        self.assertIn('console.error(ranLine());', src)
+        self.assertIn('"gloamwell ran: FX "', src)
 
     @unittest.skipUnless(shutil.which("node"), "needs node")
     def test_the_governor_steps_before_a_stutter_and_never_below_30(self):

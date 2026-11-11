@@ -8,6 +8,27 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.67
+
+Every one of the box's own games says how it ran, for the next report.
+
+- **The 2D games and Gloamwell say how they ran.** Tidewing and Ironmaw already did (1.1.64, 1.1.66). Now every
+  game on the 2D engine (Cinder Knight, Cosmic Cascade, Micro Drifters, Neon Brawler, Rune Tactics, Shadow Heist,
+  Void Drifter) and Gloamwell, which has an engine of its own, write one line every five minutes of play and when
+  the game is left: the frames a second it held, the lowest second, how many frames ran late, the worst, and the
+  look it settled on. On the box only, never while a game plays itself. Settings, Help, Send a report takes them
+  along: it's the only measure there is of a real box.
+- **Nothing was made faster here, on purpose.** Measured as a stand-in Pi 3 (a Mac, the game's work made 20 times
+  as long: not a Pi's numbers), the seven games on the 2D engine hold 60 frames a second with nothing late, and
+  none lays anything of the page over its picture. Gloamwell read 20 a second there, but that was the stand-in, not
+  the game: its own slow-down waits for the browser to finish drawing each frame and counts that 20 times over too,
+  which the other games' doesn't. Its script is half a millisecond a frame on the Mac, and it fills 2.3 screens of
+  its picture a frame, less than half of what Cinder Knight does. Whether any of them is slow on a Pi 3 is for the
+  Pi to say, and now it will.
+- The measuring tool counts a 2D game's filled pixels where they land on its canvas (a picture of the whole map
+  drawn at an offset was counted whole: 7.4 screens a frame for Gloamwell where it fills 2.3), and takes the game's
+  own canvas for the size of its picture (it took one the engine makes aside to ask the GPU what it is).
+
 ## 1.1.66
 
 Ironmaw, and the engine's software renderer under it (Low3D's Ray). On a real Pi 3 B+, 1.1.60: "def need even more

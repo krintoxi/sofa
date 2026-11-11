@@ -523,7 +523,8 @@ the game's, so the tests can play every stage in node with the game's own physic
 - `game(o)` → `G`: `g` (the canvas's 2D context), `tier`, `gov`, `control(n)`, `input` (Low3D's), `synth`,
   `shake(k)`, `stop(ms)`, `fade(fn)`, `zoomOn(z, x, y)` and `tiltBy(a)` (the camera's moments: a boss walks in, a
   hard blow; off with screen shake), `rumble(s, w, ms, who)`, `label(b)` (a button as the player knows it: A or ✕,
-  or the key's name), `options(o)`, `rows()`.
+  or the key's name), `options(o)`, `rows()`, `ran()` (how it ran, in one line) and `tell()` (says that line for the
+  box's report: the engine does it every five minutes of play and when the game is left, so a game needn't).
 - `Control`: one player's controller and, for player 1 and "anyone", the keys: `x()`, `y()`, `held(b)`, and
   `take(b, ms)`: a press kept a moment, so a fixed step never misses one (and a jump pressed just before landing
   still jumps).
@@ -553,6 +554,35 @@ the game's, so the tests can play every stage in node with the game's own physic
 - `Store(id, fresh)`: what's kept on the box (`data`, `save()`), never written in `#demo`.
 
 ### Checking a 2D game
+
+Every game on Low2D says how it ran, as the 3D games do: `cinder-knight ran: 2D light rung 2 of 4 480x270, 60 fps
+over 212 s (wanted 60, lowest second 57), 3 of 12720 frames late, worst 41 ms, work 4.2 ms (most 19); …`. On the box
+a page's console errors are what "Send a report" keeps of a page, and that line is the only measure there is of a
+real Pi: every five minutes of play and when the game is left, never off the box, never the demo. Gloamwell, which
+has an engine of its own, says the same (`gloamwell ran: FX 1 480x270, …`).
+
+All of them as a stand-in Pi 3 (`tools/games-bench.mjs`, an Apple A18 Pro: **not a Pi's numbers**; each game playing
+itself for 10 s, its work made 20 times as long). None lays anything of the page over its picture.
+
+| | frames a second | late frames | work a frame at ×20, ms: median / 95th | its picture filled a frame, in screens (calls) |
+|---|---|---|---|---|
+| Cinder Knight | 60 | 0 of 602 | 4.1 / 8.1 | 5.26 (49) |
+| Cosmic Cascade | 59 | 1 of 591 | 2.2 / 6.2 | 3.45 (111) |
+| Micro Drifters | 60 | 1 of 601 | 2.2 / 6.2 | 2.03 (29) |
+| Neon Brawler | 59.3 | 2 of 595 | 4.1 / 6.2 | 3.9 (158) |
+| Rune Tactics | 60 | 0 of 600 | 4 / 8 | 1.59 (107) |
+| Shadow Heist | 58.1 | 3 of 581 | 4.1 / 10 | 3.38 (67) |
+| Void Drifter | 59.9 | 0 of 600 | 0.1 / 2.2 | 4 (4) |
+| Neon Dodge (no engine) | 59.9 | 0 of 602 | 0.3 / 0.8 | 2.22 (229) |
+| Sky Hop (no engine) | 60 | 0 of 601 | 0.2 / 0.6 | 1.56 (127) |
+| Gloamwell (its own) | 4 to 20 | nearly all | 38 to 80 / 132 to 1245 | 2.26 (124) |
+
+Gloamwell's row is not like the others, and it doesn't mean Gloamwell is slow. `#slow` in Low2D and Low3D waits out
+the script's time; Gloamwell's own `#slow` first makes the browser finish drawing the frame (it reads a pixel back)
+and waits that out 20 times over too. Drawing isn't the script's work, a Mac doesn't draw as a Pi does, and the
+figure swings from run to run. Without `#slow` its script is 0.5 ms a frame here (1 ms at the 95th), and it fills
+fewer screens of its picture than five of the games above it. What the stand-in can't price for any of them is the
+drawing itself (the last column): that is for the Pi's own line to say.
 
 `#fps` shows the frame rate, the look, the pace and the work a frame; `#tier=light|full|rich` and `#pace=60|30` hold
 them; `#slow=N`, `#demo` and `#test` work as in Low3D. Cinder Knight on this Mac's headless Chrome (A18 Pro, no GPU):

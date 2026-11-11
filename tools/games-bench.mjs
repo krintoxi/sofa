@@ -15,7 +15,7 @@
                 than 25 ms apart ("late")
      work       the page's own work each frame drawn: everything its requestAnimationFrame callbacks did (ms)
      draws      WebGL draw calls, triangles and vertices a frame; bytes of vertex data and pixels of texture sent a
-                frame; 2D canvas pixels filled a frame (drawImage, fillRect, putImageData; before any transform)
+                frame; 2D canvas pixels filled a frame (drawImage, fillRect, putImageData: what lands on the canvas, no transform reckoned)
      fill       WebGL fragments shaded a frame, opaque and see-through, in screens of the game's own picture (a second
                 run of the scene with every fragment shader's output swapped for a counter, added up and read back)
      memory     script memory made a second (what the garbage collector will have to clear) and its pauses (the page's
@@ -138,12 +138,19 @@ function hook(BOXJSON, MODE) {
   // ---- the 2D canvas: pixels filled (the picture's own, and canvases kept off screen)
   const C2 = window.CanvasRenderingContext2D && CanvasRenderingContext2D.prototype;
   if (C2 && B.mode === "time") {                        // (the counting itself makes a little garbage: only in the pass that times)
-    const area = (ctx, w, h) => { const a = Math.abs(w * h) || 0; if (ctx.canvas && ctx.canvas.isConnected) c.px2d += a; else c.off2d += a; c.calls2d++; };
+    // (what lands on the canvas: a picture of the whole map drawn at an offset fills one screen, not six. A transform
+    // isn't taken into account.)
+    const area = (ctx, x, y, w, h) => {
+      const cv = ctx.canvas, cw = cv ? cv.width : 0, ch = cv ? cv.height : 0;
+      const x0 = Math.max(0, Math.min(x, x + w)), x1 = Math.min(cw, Math.max(x, x + w)), y0 = Math.max(0, Math.min(y, y + h)), y1 = Math.min(ch, Math.max(y, y + h));
+      const a = x1 > x0 && y1 > y0 ? (x1 - x0) * (y1 - y0) : 0;
+      if (cv && cv.isConnected) c.px2d += a; else c.off2d += a; c.calls2d++;
+    };
     const wrap = (name, fn) => { const o = C2[name]; C2[name] = function () { fn(this, arguments); return o.apply(this, arguments); }; };
-    wrap("drawImage", (ctx, a) => { const s = a[0] || {}; if (a.length >= 9) area(ctx, a[7], a[8]); else if (a.length >= 5) area(ctx, a[3], a[4]); else area(ctx, s.width || s.videoWidth || 0, s.height || s.videoHeight || 0); });
-    wrap("fillRect", (ctx, a) => area(ctx, a[2], a[3]));
-    wrap("clearRect", (ctx, a) => area(ctx, a[2], a[3]));
-    wrap("putImageData", (ctx, a) => { const d = a[0] || {}; if (a.length >= 7) area(ctx, a[5], a[6]); else area(ctx, d.width || 0, d.height || 0); });
+    wrap("drawImage", (ctx, a) => { const s = a[0] || {}; if (a.length >= 9) area(ctx, a[5], a[6], a[7], a[8]); else if (a.length >= 5) area(ctx, a[1], a[2], a[3], a[4]); else area(ctx, a[1], a[2], s.width || s.videoWidth || 0, s.height || s.videoHeight || 0); });
+    wrap("fillRect", (ctx, a) => area(ctx, a[0], a[1], a[2], a[3]));
+    wrap("clearRect", (ctx, a) => area(ctx, a[0], a[1], a[2], a[3]));
+    wrap("putImageData", (ctx, a) => { const d = a[0] || {}; if (a.length >= 7) area(ctx, a[1] + a[3], a[2] + a[4], a[5], a[6]); else area(ctx, a[1], a[2], d.width || 0, d.height || 0); });
     for (const n of ["fill", "stroke", "fillText", "strokeRect"]) wrap(n, () => { c.calls2d++; });
   }
   // ---- WebGL: draw calls, triangles, vertices, uploads; the stand-in box's GPU; the fragment counter
@@ -345,7 +352,7 @@ async function measure(port, origin, game, scene) {
     if (CPU > 1) await c.send("Emulation.setCPUThrottlingRate", { rate: CPU });
     await evalJS(c, "window.__bench.start()"); await sleep(SECS * 1000); await evalJS(c, "window.__bench.stop()");
     if (CPU > 1) await c.send("Emulation.setCPUThrottlingRate", { rate: 1 });
-    const v = await evalJS(c, `(() => { const B = window.__bench, S = window.SofaStats || {}, cv = B.canvas || document.querySelector("canvas:not(.hidden)") || document.querySelector("canvas");
+    const v = await evalJS(c, `(() => { const B = window.__bench, S = window.SofaStats || {}, cv = (B.canvas && B.canvas.isConnected ? B.canvas : null) || document.querySelector("canvas:not(.hidden)") || document.querySelector("canvas") || B.canvas;   /* (the game's own, on the page: not a canvas made aside to ask the GPU what it is) */
       return { ticks: B.ticks, secs: (B.t1 - B.t0) / 1000, tier: S.tier || null, canvas: cv ? [cv.width, cv.height] : null, gl: !!(B.gl && B.ticks.some(t => t[2] > 0)),
         fpsText: (document.getElementById("fps") || {}).textContent || "" }; })()`);
     const drawn = v.ticks.filter(t => t[2] > 0 || t[7] > 0 || t[12] > 0);   // (a tick that drew something: WebGL draws, or 2D pixels or calls)

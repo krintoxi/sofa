@@ -4577,6 +4577,26 @@ function govern(dt) {
   else if (late < 0.02) { if (++govGood >= 8 && FXQ < 2 && govFail[FXQ + 1] < 2) { FXQ++; govGood = 0; saveOpts(); } }
   else govGood = 0;
 }
+// How it ran, in one line, for the box's report (a page's console errors are what "Send a report" keeps of a page: the
+// only measure there is of a real Pi). Counted while a floor is being played; said every five minutes of play and
+// when the game is left, on the box only, and then counted afresh.
+const RAN = { frames: 0, secs: 0, late: 0, worst: 0, low: 1e9, secN: 0, secT: 0 };
+function ranNote(dt) {
+  if (mode !== M_PLAY || document.hidden || irisFn || !(dt > 0) || dt > 0.25) return;
+  RAN.frames++; RAN.secs += dt; if (dt > baseDT * 1.6) RAN.late++; if (dt > RAN.worst) RAN.worst = dt;
+  RAN.secN++; RAN.secT += dt; if (RAN.secT >= 1) { const f = Math.round(RAN.secN / RAN.secT); if (f < RAN.low) RAN.low = f; RAN.secN = 0; RAN.secT = 0; }
+  if (RAN.secs >= 300) ranTell();
+}
+function ranLine() {
+  return "gloamwell ran: FX " + FXQ + " " + VW + "x" + VH + ", " + (RAN.secs ? Math.round(RAN.frames / RAN.secs) : 0) + " fps over " + Math.round(RAN.secs) + " s (the screen's own " + Math.round(1 / baseDT) +
+    ", lowest second " + (RAN.low > 1e8 ? "-" : RAN.low) + "), " + RAN.late + " of " + RAN.frames + " frames late, worst " + Math.round(RAN.worst * 1000) + " ms" + (PL[1] ? ", two players" : "") + ", floor " + depth;
+}
+function ranTell() {
+  if (DEMO || RAN.secs < 20 || !/^\/box\//.test(location.pathname)) return;
+  console.error(ranLine());
+  RAN.frames = RAN.late = RAN.secN = 0; RAN.secs = RAN.worst = RAN.secT = 0; RAN.low = 1e9;
+}
+addEventListener("pagehide", ranTell);
 // Between floors the dark closes in on you, and opens again on the new floor
 let irisK = 1, irisV = 0, irisFn = null;
 function irisTo(fn) { if (irisFn) return; irisFn = fn; irisV = -3.4; }
@@ -6202,7 +6222,7 @@ function menuUse() { if (PL[menuSeat]) use(menuSeat); else { use(0); useIn(menuS
 function frame(now) {
   requestAnimationFrame(frame);
   const t0 = DEMO || SLOW > 1 ? performance.now() : 0;
-  let dt = (now - last) / 1000; last = now; if (!(dt > 0)) dt = 0; govern(dt); if (dt > 0.05) dt = 0.05; frameDT = dt;
+  let dt = (now - last) / 1000; last = now; if (!(dt > 0)) dt = 0; govern(dt); ranNote(dt); if (dt > 0.05) dt = 0.05; frameDT = dt;
   if (SHOW_FPS) { fpsT += dt; fpsN++; if (fpsT >= 1) { fpsS = fpsN + " FPS" + DOT + "FX " + FXQ; fpsT = 0; fpsN = 0; } }
   readInput(now, dt); musicTick(); updXP(dt);
   const was = mode;
@@ -6290,7 +6310,7 @@ function init() {
   addEventListener("gamepadconnected", () => wakeAudio());
   requestAnimationFrame(t => { last = t; requestAnimationFrame(frame); });
   // #test in the address: a handle for the automated checks (nothing changes for a player)
-  if (/(^|[#&])test\b/.test(location.hash)) window.GW = { get P() { return P; }, get mode() { return mode; }, get depth() { return depth; }, MON, PJ, HZ, RG, DR, CLS, MT, BOSSES, SETS,
+  if (/(^|[#&])test\b/.test(location.hash)) window.GW = { get P() { return P; }, get mode() { return mode; }, get depth() { return depth; }, RAN, ranLine, MON, PJ, HZ, RG, DR, CLS, MT, BOSSES, SETS,
     goFloor, goTown, gainXP, genItem, genSetPiece, recalc, interact: k => { const it = INT.find(e => e.k === k); if (it) { P.x = it.x; P.y = it.y + 4; interact(it); } return !!it; },
     get bossM() { return bossM; }, heroOnScreen: () => { const r = cv.getBoundingClientRect(), k = r.width / VW; return [Math.round(r.left + (P.x - camX) * k), Math.round(r.top + (P.y - camY) * k)]; }, tileAt: (tx, ty) => solidAt(tx, ty), computeFOV: () => { computeFOV(); P.tx = -1; }, get INT() { return INT; }, setMode: m => { mode = m; dirty = true; }, M: { M_PLAY, M_GEAR, M_SHOP, M_SMITH, M_BOARD, M_STASH, M_SHRINE, M_OPTS, M_SLOTS, M_TITLE, M_DEAD },
     save, readSlot, questTick, newGame: c => { newGame(c, 0); mode = M_PLAY; dirty = true; }, genUnique, makeChampion, xpDrop, skillXP, UNIQ, get champM() { return champM; }, FX, XD, validItem, get OPT() { return OPT; }, spawnMon: (t, x, y, e) => spawnMon(t, x, y, e), get mus() { return mus.song; }, get AC() { return AC && AC.state; },

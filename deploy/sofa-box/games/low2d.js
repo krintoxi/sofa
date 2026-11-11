@@ -263,7 +263,25 @@ function game(o) {
     }
     if (G.slow > 1) { const until = performance.now() + (performance.now() - t0) * (G.slow - 1); while (performance.now() < until) { /* #slow: as a slower processor would */ } }
     G.gov.work(performance.now() - t0);
+    if (now - toldAt > 300000) { toldAt = now; G.tell(); }
   }
+  // How it ran, in one line. On the box a page's console errors are what "Send a report" keeps of a page, so a game
+  // says how it ran there: the only measure there is of a real Pi. Said every five minutes of play and when the game
+  // is left (a page that's closed may not get its last word out); what's counted starts again each time.
+  let toldAt = 0;
+  G.ran = () => {
+    const R = G.gov.ran;
+    return (o.id || "game") + " ran: 2D " + G.tier.name + " rung " + G.rung + " of " + (G.ladder.length - 1) + " " + W + "x" + HH + ", " +
+      (R.secs ? Math.round(R.frames / R.secs) : 0) + " fps over " + Math.round(R.secs) + " s (wanted " + G.tier.fps + ", lowest second " + (R.low > 1e8 ? "-" : R.low) + "), " +
+      R.late + " of " + R.frames + " frames late, worst " + Math.round(R.worst) + " ms, work " + G.gov.workMs.toFixed(1) + " ms (most " + R.work.toFixed(0) + ")" +
+      (G.gov.log.length ? "; " + G.gov.log.slice(-5).join(", ") : "") + "; " + ((G.probe && G.probe.renderer) || "no WebGL").slice(0, 60);
+  };
+  G.tell = () => {
+    if (!G.ready || !G.gov || G.demo || G.gov.ran.secs < 20 || !/^\/box\//.test(location.pathname)) return;
+    console.error(G.ran());
+    G.gov.ran = { frames: 0, late: 0, worst: 0, secs: 0, work: 0, low: 1e9 };
+  };
+  addEventListener("pagehide", () => G.tell());
   G.start = () => {
     G.fit(); addEventListener("resize", G.fit);
     G.probe = L3.probe();
@@ -271,7 +289,7 @@ function game(o) {
       G.governor();
       G.options(null);
       if (o.ready) o.ready(G);
-      G.ready = true; last = performance.now(); G.gov.hold(1500);
+      G.ready = true; last = performance.now(); toldAt = last; G.gov.hold(1500);
     };
     const box = load(BOX);
     if (box && box.key === G.probe.key && box.bench) { G.bench = box.bench; go(); }

@@ -497,8 +497,8 @@ song in the box's player, or shows a picture; **Menu** renames, moves or deletes
   four minutes), then shows a table on the TV: frames a second, late frames, the slowest frame, the game's own
   work each frame, memory, and the quality the game chose. Games that can play by themselves are measured
   playing, the others on their title screen. A starts it, B stops it or goes back, and no game's saves are touched.
-  What it found goes with the next report you send (Settings, Help, Send a report), and so does a line from Tidewing or
-  Ironmaw after you've played one: how it ran.
+  What it found goes with the next report you send (Settings, Help, Send a report), and so does a line from any of
+  the box's own games you've played (but the three smallest): how it ran.
 
 ### Settings and themes
 
