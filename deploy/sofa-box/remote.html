@@ -169,6 +169,10 @@
   .btn:active { transform: scale(.98); }
   .btn:disabled { opacity: .5; }
   .btn.ghost { background: var(--bg2); color: var(--fg); }
+  .stuck { margin: 0; text-align: center; color: var(--mist); font-size: 12px; }
+  .stuck b { color: var(--fg); }
+  .key.home.holding { animation: holding 4s linear both; }
+  @keyframes holding { to { box-shadow: 0 0 0 6px rgba(255,255,255,.55), 0 8px 24px rgba(255,46,136,.32); } }
   .report { display: block; margin: 6px auto 0; color: var(--mist); font-size: 13px; text-decoration: underline; text-underline-offset: 3px; }
   #reportMsg { text-align: center; }
   .msg { min-height: 20px; color: var(--a2); text-align: center; font-size: 14px; }
@@ -262,6 +266,7 @@
     </div>
     <button class="report" id="reportBtn">Something wrong? Send a report</button>
     <div class="msg" id="reportMsg"></div>
+    <p class="stuck">TV stuck on one colour? Hold <b>Home</b> for 4 seconds: its screen starts again.</p>
   </section>
 
   <section id="tab-type" class="type" hidden>
@@ -457,10 +462,19 @@
     if (b.dataset.k) key(b.dataset.k);
     else { buzz(); post("api/volume", { by: b.dataset.vol === "mute" ? "mute" : +b.dataset.vol }); }
   }
+  // Home held for 4 seconds: the TV's screen starts again (a screen stuck on one colour, a page that stopped drawing).
+  // It's the box's way out that needs nothing of the page on the TV; a controller's or a remote's Home does the same.
+  let holdHome = 0;
+  function homeHeld() {
+    $("reportMsg").textContent = "Starting the TV's screen again…";
+    post("api/screen", { restart: true }).then(r => r.json()).then(r => { $("reportMsg").textContent = r.message || "The TV's screen is starting again."; })
+      .catch(() => { $("reportMsg").textContent = "Can't reach the box."; });
+  }
   document.addEventListener("pointerdown", e => {
     const b = e.target.closest("[data-k],[data-vol]"); if (!b || e.button > 0) return;
     b.classList.add("down"); press(b);
-    const up = () => { b.classList.remove("down"); };
+    if (b.dataset.k === "home") { b.classList.add("holding"); clearTimeout(holdHome); holdHome = setTimeout(() => { b.classList.remove("holding"); buzz(); homeHeld(); }, 4000); }
+    const up = () => { b.classList.remove("down"); b.classList.remove("holding"); if (b.dataset.k === "home") clearTimeout(holdHome); };
     b.addEventListener("pointerup", up, { once: true }); b.addEventListener("pointercancel", up, { once: true }); b.addEventListener("pointerleave", up, { once: true });
   });
   document.addEventListener("click", e => {

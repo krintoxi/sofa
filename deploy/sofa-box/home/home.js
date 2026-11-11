@@ -507,8 +507,20 @@
     games = g;
     return changed;
   }
+  // A native game has the TV (the box's helper says so, and again when it's over): Home stops asking the box around
+  // meanwhile, so the game has the box to itself. (The helper used to freeze this page instead: the browser then had
+  // it down as hidden for good, and the TV was white after every game.) Any key ends the rest too, and so does a look
+  // every half minute at whether a game is still open, in case the helper's word never came.
+  let resting = false, restLooks = 0;
+  window.sofaBoxRest = on => { resting = !!on; restLooks = 0; };
+  document.addEventListener("keydown", () => { resting = false; }, true);
+  setInterval(async () => {
+    if (!resting || ++restLooks % 6) return;
+    const g = await api("/box/api/games").catch(() => null);
+    if (g && !g.playing) resting = false;
+  }, 5000);
   setInterval(async () => {                    // Games: a game on its way, controllers coming and going
-    if (document.hidden || $(".sheet-back") || location.hash !== "#/games") return;
+    if (resting || document.hidden || $(".sheet-back") || location.hash !== "#/games") return;
     if (await loadGames()) render(true);
   }, 3000);
 
@@ -729,7 +741,10 @@
     return head("Help", "Something not working?") +
       (pw ? `<section class="card power-help ${esc(pw.kind)}"><h3>Power and heat</h3><p>${pw.kind === "ok" ? "All fine since the box started."
         : `<b>${esc(pw.title)}</b> (since it started). ${esc(pw.text)}`} <span class="small">(${esc(pw.bits)})</span></p></section>` : "") +
-      `<section class="card"><p><b>Send a report</b> sends the Sofa Box team what the box checks and what it has logged since it started,
+      `<section class="card"><h3>If the TV ever stops answering</h3><p>A screen stuck on one colour, or on a picture that no longer moves:
+        <b>hold Home for 4 seconds</b> (the Xbox or PS button on a controller, Home on a remote or on your phone's remote; on a TV's own remote, keep it pressed, or press it five times).
+        The TV's screen starts again, on Home, in about half a minute. Nothing is lost, and there's no need to unplug the box.</p></section>
+      <section class="card"><p><b>Send a report</b> sends the Sofa Box team what the box checks and what it has logged since it started,
         so we can see what went wrong. It leaves out what the box plays, cuts web addresses short, and blanks passwords and codes. Send it before you restart the box: a restart clears the logs. (Your phone's remote has it too.)</p>
         <div class="choices"><button class="btn primary" data-action="send-report">Send a report</button></div><p class="small" id="reportNo">${lastReport ? "Last report: number <b>" + esc(lastReport) + "</b>." : ""}</p></section>
       <section class="card"><h3>Your TV's own tracking</h3><p>Many smart TVs work out what's on their screen, this box's picture too, and send it to their maker. It's in the TV's own settings: here's where, brand by brand.</p>
@@ -895,6 +910,7 @@
     clearTimeout(setupTimer);
     if (!location.hash.startsWith("#/welcome") && !location.hash.startsWith("#/settings") && location.hash !== "#/games") return;
     setupTimer = setTimeout(async () => {
+      if (resting) return setupLive();                             // (a game has the TV: nothing to keep fresh)
       await loadSetup(location.hash.startsWith("#/welcome") && step === 0 || btLooking > mono());
       autoStep();
       for (const [id, part] of [["phoneBox", phoneBox], ["btList", btList], ["netState", netState], ["setupPower", setupPower]]) {
@@ -1517,7 +1533,7 @@
   }
   window.addEventListener("hashchange", () => { closeSheet(); if (location.hash.startsWith("#/sofa")) servers = null; render(); });
   setInterval(async () => {                    // drives and discs come and go: Home shows them
-    if (document.hidden || $(".sheet-back")) return;
+    if (resting || document.hidden || $(".sheet-back")) return;
     const n = data.devices && data.devices.n;
     await loadApps();
     const note = data.power && !powerShown.done && !powerShown.note;     // (the Pi's power or heat, just now: Home says so)

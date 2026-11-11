@@ -46,6 +46,8 @@
      "licence": "MIT", "source": "https://github.com/cage-kiosk/cage", "packages": ["cage"]},
     {"name": "Xwayland", "what": "For games made for the X screen.", "by": "The X.Org Foundation",
      "licence": "MIT (X11)", "source": "https://gitlab.freedesktop.org/xorg/xserver", "packages": ["xwayland"]},
+    {"name": "grim", "what": "Takes a small picture of what the TV shows, on the box only: how it checks that Home is really back after a game.", "by": "Simon Ser and contributors",
+     "licence": "MIT", "source": "https://sr.ht/~emersion/grim/", "packages": ["grim"]},
     {"name": "X.Org's X server", "what": "The screen on older systems that have no cage.", "by": "The X.Org Foundation",
      "licence": "MIT (X11)", "source": "https://gitlab.freedesktop.org/xorg/xserver", "packages": ["xserver-xorg", "xinit", "x11-xserver-utils"], "on_card": false},
     {"name": "Noto Color Emoji", "what": "The emoji on Home and in the games.", "by": "Google",

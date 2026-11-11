@@ -1227,6 +1227,57 @@ def display_env_raw():
 
 
 browser = boxos.Browser(on_message=page_message, scale=screen_scale) if os.environ.get("SOFA_BOX_DEVTOOLS", "9222") != "0" else None
+
+
+def tv_picture():
+    """What the TV shows now, for the check that Home really came back (Browser.wrong). Not asked while something
+    that isn't Home has the TV (a video, a game) or the box sleeps: its screensaver may well be one colour."""
+    if asleep["on"] or playing() or games.playing:
+        return None
+    return boxos.screen_picture(display_env())
+
+
+if browser:
+    browser.screen = tv_picture
+
+
+def home_rests(on):
+    """Home told that a game has the TV (or gave it back): it stops asking the box around while it can't be seen."""
+    if browser and browser.connected():
+        t = browser.tab_of("home")
+        if t:
+            try:
+                browser.evaluate(t, "window.sofaBoxRest && sofaBoxRest(%s)" % ("true" if on else "false"))
+            except OSError:
+                pass
+
+
+RESCUES = os.path.join(CONF_DIR, "screen-restarts.log")    # each time the TV's screen was started again by hand
+
+
+def rescue(who):
+    """The TV's screen and this helper started again: the way out that never needs the page (Home held for 4 seconds
+    on a controller or a remote does it in the controller daemon; this is the phone's). Written down for the report."""
+    line = "%s the TV's screen started again (%s)" % (time.strftime("%Y-%m-%d %H:%M:%S"), who)
+    print(line, file=sys.stderr, flush=True)
+    try:
+        os.makedirs(CONF_DIR, exist_ok=True)
+        with open(RESCUES, "a", encoding="utf-8") as f:
+            f.write(line + "\n")
+    except OSError:
+        pass
+    cmd = shlex_split(os.environ.get("SOFA_BOX_RESCUE", "")) or ["sudo", "-n", "systemctl", "restart", "sofa-box", "sofa-box-agent"]
+    threading.Timer(0.8, lambda: run(cmd, 60)).start()      # (after the phone has its answer)
+    return {"ok": True, "message": "The TV's screen is starting again. Give it half a minute."}
+
+
+def rescues():
+    """The last few times the TV's screen was started again by hand (the controller daemon writes them too)."""
+    try:
+        with open(RESCUES, encoding="utf-8") as f:
+            return [line.strip() for line in f.read().splitlines()[-6:] if line.strip()]
+    except OSError:
+        return []
 # A Pi 3's video chip decodes H.264 only; VP9 and AV1 (what YouTube and others send by default) its processor has to
 # decode, and videos stutter. Its pages are told those two can't play, so the sites send H.264. (A Pi 5 has no H.264
 # decoder at all, so it's left to choose.)
@@ -2225,6 +2276,14 @@ class Games:
                 browser.rest(close_apps=light())
             except OSError:
                 pass
+        home_rests(True)
+        try:
+            return self._start(g, gid, exe)
+        except Exception:
+            home_rests(False)                               # (it didn't start: Home is the page again, at once)
+            raise
+
+    def _start(self, g, gid, exe):
         os.makedirs(GAME_DATA, exist_ok=True)
         args = [exe] + list(g.get("args") or []) + self._setup(g)
         env = display_env()
@@ -2250,6 +2309,10 @@ class Games:
         log = open(path, "wb")
         log.write(b"\n".join(kept + [("== %s, %s" % (time.strftime("%Y-%m-%d %H:%M:%S"), g["name"])).encode()]) + b"\n")
         log.flush()
+        try:
+            os.fsync(log.fileno())                          # (on the card now: a box unplugged a moment later still says
+        except OSError:                                     # which game it had opened; Flare's two starts never showed)
+            pass
         try:
             proc = subprocess.Popen(args, env=env, cwd=os.path.expanduser("~"), stdin=subprocess.DEVNULL, stdout=log,
                                     stderr=subprocess.STDOUT, start_new_session=True)
@@ -2277,11 +2340,14 @@ class Games:
             os.remove(GAME_FILE)
         except OSError:
             pass
-        if browser and browser.connected():                # Home back in front, running again
+        home_rests(False)
+        if browser and browser.connected():                # Home back in front, and looked at on the TV (Browser.revive)
             try:
-                browser.home()
-            except OSError:
-                pass
+                browser.home(look=True)
+            except OSError as exc:
+                print("Home after %s: %s" % (g["name"], exc), file=sys.stderr, flush=True)
+        print("Game: %s ended (%s)" % (g["name"], "Home held" if ending == "home" else ending or "by itself, code %s" % code),
+              file=sys.stderr, flush=True)
         if code and not ending and steady() - started < 20:
             toast("%s stopped as it started. OK on it tries again; Settings → Help → Send a report has what it said." % g["name"])
         if not ending:
@@ -3749,7 +3815,12 @@ def report_text():
            "mpv said: " + " | ".join(getattr(player.proc, "sofa_err", None) or ["(nothing)"]),
            "player stopped by itself: " + json.dumps(player.failures or "never, since the box started"),
            "Bluetooth pairings asked: " + json.dumps(pairing_helper.said or "none since the box started")]
+    out.append("the TV's screen started again by hand: " + ("; ".join(rescues()) or "never"))
     if browser:
+        out.append("Home after a game or an app: " + ("; ".join(browser.said) if browser.said else "came back each time"))
+        look = safely(tv_picture)
+        out.append("the TV now: " + ("%(colour)s over %(share)s of it%(what)s" % dict(look, what=", ONE FLAT COLOUR" if look["flat"] else "")
+                                     if isinstance(look, dict) else "not looked at (a video, a game, asleep, or no grim on this box)"))
         out.append("browser: %s, in front: %s" % ("connected" if browser.connected() else "not connected", browser.front_app()))
         out += ["  %s%s %s" % (t["app"], " (asleep)" if t["frozen"] else "", t["url"]) for t in safely(browser.running) or []]
         out += ["== The pages and their video players"] + (list(browser.notes) or ["(nothing)"])
@@ -4682,6 +4753,10 @@ class RemoteHandler(BaseHTTPRequestHandler):
                 return self.send(json.dumps(out))
             elif path == "/api/report":
                 return self.send(json.dumps(send_report()))
+            elif path == "/api/screen":                     # Home held on the phone: the TV's screen, again
+                if data.get("restart") is not True:
+                    raise ValueError("restart?")
+                return self.send(json.dumps(rescue("Home held on a phone")))
             else:
                 return self.send('{"error":"not found"}', status=404)
         except ValueError as exc:

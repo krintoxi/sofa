@@ -8,6 +8,35 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.63
+
+The white screen after a game. On a real Raspberry Pi 3 B+ (1.1.60) the box had to be unplugged three times in an
+hour: leaving Sofa Craft, opening Flare, leaving Neverball. The TV was white; the controller and the remote were
+connected and did nothing.
+
+- **The cause, found and removed.** When a game started, the box froze every page in its browser, Home too, in front
+  as it was. To freeze a page the browser first marks it hidden, and waking it afterwards doesn't mark it shown
+  again: only another page coming in front of it and going does. So after the game Home's scripts ran, the remote's
+  keys reached it, the box's own check said it was fine, and the browser drew nothing: white. Reproduced with the
+  card's own screen (cage 0.2.0) and Debian's Chromium 156 in a container, with the screen's own picture as the
+  witness; the same run without the freeze keeps Home's picture throughout. Home is no longer frozen, and neither
+  is whatever page is in front. Home stops its own asking around while a game is open instead, so the game still
+  has the box. A game that fails to start gives Home back at once (it left the pages resting).
+- **After a game, the box looks at the TV, not at the page.** It takes the screen's own picture (a tenth of the size,
+  kept nowhere) and asks the browser whether it's showing the page. If Home isn't there (one flat colour that isn't
+  the page's own, or a page the browser has down as hidden) it's brought back by steps, each looked at again:
+  another page in front and back, the page loaded again, a new Home, and last the whole browser again. What was
+  wrong and what was done is in the next report. The old check asked the page whether it had anything in it; a white
+  Home said yes.
+- **Home held for 4 seconds starts the TV's screen again**, from anything: the Xbox or PS button, Home on a remote
+  or on your phone's remote, or five presses of Home on a TV's own remote. It needs nothing of what's on the TV: the
+  controller daemon reads the buttons itself and asks systemd. In a game, Home held still leaves the game first.
+  Settings → Help and the phone's remote say so. No more unplugging.
+- A report says how each game ended, whether the TV's screen was started again by hand, and what the TV shows now.
+
+Proved in the container and in tests; **not on a Pi yet**. The picture of the screen needs `grim`, new on the card
+(and added by an update); without it the box goes by the browser's word alone.
+
 ## 1.1.62
 
 Moving around Home and Games on a Raspberry Pi 3 (the light look). On a real Pi 3 B+, 1.1.60: 16 of 39 presses on Home

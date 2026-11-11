@@ -888,6 +888,50 @@ class WebSocket:
 INJECT = open(os.path.join(HERE, "home", "inject.js"), encoding="utf-8").read() if os.path.exists(os.path.join(HERE, "home", "inject.js")) else ""
 
 
+def ppm_look(data, flat_share=0.985, near=24):
+    """A picture (binary PPM, "P6") in a few words: {"flat": is it one colour, "colour": "#rrggbb" its commonest,
+    "rgb", "share": how much of it is within `near` of that colour}. None if it isn't a picture."""
+    try:
+        if not data.startswith(b"P6"):
+            return None
+        fields, at = [], 2
+        while len(fields) < 3:                              # width, height, the largest value: numbers, between blanks
+            while data[at:at + 1].isspace():
+                at += 1
+            if data[at:at + 1] == b"#":
+                at = data.index(b"\n", at) + 1
+                continue
+            end = at
+            while not data[end:end + 1].isspace():
+                end += 1
+            fields.append(int(data[at:end]))
+            at = end
+        w, h, top = fields
+        px = data[at + 1:at + 1 + w * h * 3]
+        if top != 255 or w * h == 0 or len(px) < w * h * 3:
+            return None
+    except (ValueError, IndexError):
+        return None
+    counts = collections.Counter(px[i:i + 3] for i in range(0, len(px), 3))
+    rgb = tuple(counts.most_common(1)[0][0])
+    close = sum(n for c, n in counts.items() if abs(c[0] - rgb[0]) <= near and abs(c[1] - rgb[1]) <= near and abs(c[2] - rgb[2]) <= near)
+    share = close / (w * h)
+    return {"flat": share >= flat_share, "colour": "#%02x%02x%02x" % rgb, "rgb": rgb, "share": round(share, 4), "size": [w, h]}
+
+
+def screen_picture(env, timeout=8):
+    """What the TV shows right now, as the screen itself has it: cage's own picture of what it puts out (grim, at a
+    tenth of the size), whatever is in front: the browser, a game, a window nobody closed. None where it can't be told
+    (no grim, not cage's screen). It's the one look that doesn't take the browser's word for what it drew."""
+    if not env.get("WAYLAND_DISPLAY"):
+        return None
+    try:
+        p = subprocess.run(["grim", "-s", "0.1", "-t", "ppm", "-"], capture_output=True, env=env, timeout=timeout)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return ppm_look(p.stdout) if p.returncode == 0 else None
+
+
 class Browser:
     """The box's Chromium, over its DevTools port: tabs are apps."""
 
@@ -898,6 +942,8 @@ class Browser:
         self.tabs = {}               # target id -> {"app", "title", "url", "session", "used", "audible"}
         self.notes = collections.deque(maxlen=150)   # the pages' errors and their video players' messages, for a report
         self.lock = threading.Lock()
+        self.screen = None           # what the TV shows now (the agent's: screen_picture), for wrong()
+        self.said = collections.deque(maxlen=40)     # what went wrong on a way back to Home, and what was done
         self.ready = threading.Event()
         self._closed = threading.Event()
         threading.Thread(target=self._keep_connected, daemon=True, name="devtools").start()
@@ -1111,9 +1157,9 @@ class Browser:
         if tab.get("frozen") and tab.get("session"):     # back in front: running again before it shows
             try:
                 self.call("Page.setWebLifecycleState", {"state": "active"}, tab["session"])
-            except OSError:
-                pass
-            tab["frozen"] = False
+                tab["frozen"] = False
+            except OSError as exc:                       # (still frozen, and known to be: woken at the next try)
+                self.say("A page didn't wake (%s)" % exc)
         self.call("Target.activateTarget", {"targetId": target})
         self.front = target
         if target in self.tabs:
@@ -1137,8 +1183,14 @@ class Browser:
                 pass
 
     def rest(self, close_apps=False):
-        """A game takes the box: every page stops (frozen, Home too), the apps that aren't Sofa close on a small box,
-        and the browser lets go of the memory it can. Home wakes when it's brought back (activate)."""
+        """A game takes the box: the pages behind stop (frozen), the apps that aren't Sofa close on a small box, and the
+        browser lets go of the memory it can. Never the page in front, and never Home: Home stops its own asking
+        around while a game is open (the agent tells it), and stays a page the browser can show.
+
+        (Home was frozen too, in front as it was. To freeze a page the browser first marks it hidden, and waking it
+        doesn't mark it shown again: only another page coming in front and going does. So after a game Home's scripts
+        ran, the keys reached it, and the browser drew nothing: a white screen, on every way back to Home.)"""
+        front = getattr(self, "front", None)
         for t, tab in list(self.tabs.items()):
             if not tab.get("session"):
                 continue
@@ -1147,6 +1199,8 @@ class Browser:
                     self.close(t)
                 except OSError:
                     pass
+                continue
+            if t == front or tab.get("app") == "home":
                 continue
             if not tab.get("frozen"):
                 try:
@@ -1257,17 +1311,21 @@ class Browser:
 
     HOME_ALIVE_JS = "!!(document.body && document.getElementById('view') && document.getElementById('view').childElementCount)"
 
-    def home(self):
+    def home(self, look=None):
+        """Home in front, and checked a moment later (revive). `look`: take the screen's own picture too; by itself
+        only when Home wasn't in front already (back from an app), and the agent asks for it after a game. Home pressed
+        on Home costs no picture."""
         target = self.tab_of("home")
         if target:
+            was_front = getattr(self, "front", None) == target
             self.activate(target)
-            threading.Thread(target=self.revive, args=(target,), daemon=True, name="home-check").start()
+            threading.Thread(target=self.revive, args=(target, 1.2, (not was_front) if look is None else look), daemon=True,
+                             name="home-check").start()
             return True
         return False
 
     def alive(self, target, timeout=3):
-        """Does the tab's page answer, with something drawn? (A page that had been frozen, or let go of its memory,
-        while a game took the box sometimes came back as a white screen: its renderer gone, or never woken.)"""
+        """Does the tab's page answer, with something in it?"""
         tab = self.tabs.get(target) or {}
         if not tab.get("session"):
             return False
@@ -1277,35 +1335,135 @@ class Browser:
         except OSError:
             return False
 
-    def revive(self, target, settle=1.2):
-        """Home just brought forward: if it shows nothing (a white screen), it loads again; if it doesn't answer at
-        all, a new Home takes its place. True: Home is there."""
-        time.sleep(settle)
-        if target not in self.tabs or getattr(self, "front", None) != target or self.alive(target):
-            return True
+    LOOK_JS = "JSON.stringify([document.visibilityState, getComputedStyle(document.body || document.documentElement).backgroundColor])"
+
+    def wrong(self, target, look=True):
+        """What's wrong with the page that should be on the TV now, in a few words; None if it's there.
+
+        A page can answer, hold everything it should, take the remote's keys, and still not be drawn: the browser has
+        it down as hidden (see rest), or what reaches the TV is one flat colour. So three looks: the page has
+        something in it; the browser says it's showing it; and the TV's own picture (self.screen, the agent's: the
+        screen as cage has it) isn't one colour that isn't the page's own background."""
+        tab = self.tabs.get(target) or {}
+        if not self.alive(target):
+            return "its page has nothing in it"
+        background = None
+        try:
+            got = json.loads(self.call("Runtime.evaluate", {"expression": self.LOOK_JS, "returnByValue": True}, tab["session"],
+                                       timeout=3).get("result", {}).get("value") or "[]")
+            if got and got[0] == "hidden":
+                return "the browser has it down as hidden"
+            m = re.match(r"rgba?\((\d+),\s*(\d+),\s*(\d+)", got[1] if len(got) > 1 else "")
+            background = tuple(int(x) for x in m.groups()) if m else None
+        except (OSError, ValueError, TypeError):
+            pass
+        seen = None
+        try:
+            seen = self.screen() if look and self.screen else None
+        except Exception:
+            pass
+        if seen and seen.get("flat"):
+            rgb = seen["rgb"]
+            if background is None or max(abs(rgb[i] - background[i]) for i in range(3)) > 8:   # (a bare dark page is its own colour)
+                return "the TV shows one flat colour (%s)" % seen["colour"]
+        return None
+
+    def show(self, target):
+        """The page shown by the browser again: another page comes in front of it, then it does. (Nothing else marks a
+        page shown once the browser has it down as hidden while it's in front: not waking it, not bringing it to the
+        front, not loading it again.)"""
+        tab = self.tabs.get(target) or {}
+        if tab.get("session"):
+            try:
+                self.call("Page.setWebLifecycleState", {"state": "active"}, tab["session"], timeout=3)
+            except OSError:
+                pass
+            tab["frozen"] = False
+        blank = self.call("Target.createTarget", {"url": "about:blank"}, timeout=8)["targetId"]     # (in front)
+        self.tabs.setdefault(blank, {"used": time.time(), "session": None, "audible": False}).update(passing=True)
+        time.sleep(0.4)
+        try:
+            self.call("Target.activateTarget", {"targetId": target}, timeout=5)
+        finally:
+            try:
+                self.close(blank)
+            except OSError:
+                pass
+        self.front = target
+
+    def reload(self, target):
+        tab = self.tabs.get(target) or {}
+        self.call("Page.setWebLifecycleState", {"state": "active"}, tab["session"], timeout=3)
+        self.call("Page.reload", {}, tab["session"], timeout=5)
+        for _ in range(16):
+            time.sleep(0.5)
+            if self.alive(target, timeout=2):
+                return
+
+    def renew(self, target):
+        """A new Home in the old one's place (a page that never answers)."""
         tab = self.tabs.get(target) or {}
         url = tab.get("url") if "/box/home" in (tab.get("url") or "") else None
-        print("Home showed nothing: loading it again", file=sys.stderr, flush=True)
-        try:
-            if tab.get("session"):
-                self.call("Page.setWebLifecycleState", {"state": "active"}, tab["session"], timeout=3)
-                self.call("Page.reload", {}, tab["session"], timeout=5)
-                for _ in range(20):
-                    time.sleep(0.5)
-                    if self.alive(target, timeout=2):
-                        return True
-        except OSError:
-            pass
         if not url:
+            raise OSError("not Home")
+        self.close(target)
+        new = self.call("Target.createTarget", {"url": url.split("#")[0] + "#/"})["targetId"]
+        self.tabs.setdefault(new, {"used": time.time(), "session": None, "audible": False}).update(app="home", url=url)
+        self.activate(new)
+        return new
+
+    def restart(self):
+        """The whole browser, again: the TV's screen starts a new one by itself (sofa-box session), on Home. At most
+        once in two minutes, so a box whose screen stays wrong isn't kept starting browsers (hold Home for that)."""
+        if time.monotonic() - getattr(self, "restarted", -1e9) < 120:
             return False
-        try:                                                   # a renderer that doesn't answer: a new Home
-            self.close(target)
-            new = self.call("Target.createTarget", {"url": url.split("#")[0] + "#/"})["targetId"]
-            self.tabs.setdefault(new, {"used": time.time(), "session": None, "audible": False}).update(app="home", url=url)
-            self.activate(new)
-            return True
+        self.restarted = time.monotonic()
+        try:
+            self.call("Browser.close", timeout=5)
         except OSError:
-            return False
+            try:
+                subprocess.run(["pkill", "-KILL", "-f", "--", "--remote-debugging-port=%d" % self.port], capture_output=True, timeout=10)
+            except (OSError, subprocess.SubprocessError):
+                pass
+        return True
+
+    def revive(self, target, settle=1.2, look=True):
+        """Home just brought forward (after a game, from an app): is it really on the TV? If not, by steps, each one
+        looked at again: another page in front and back, the page loaded again, a new Home, and last the whole browser
+        again. What was wrong and what was done goes in the journal and the next report (self.said). True: it's there."""
+        time.sleep(settle)
+        if target not in self.tabs or getattr(self, "front", None) != target:
+            return True
+        why = self.wrong(target, look)
+        if not why:
+            return True
+        for what, step in (("another page in front of it and back", self.show), ("loading it again", self.reload),
+                           ("a new Home in its place", self.renew)):
+            self.say("Home didn't come back (%s): %s" % (why, what))
+            try:
+                got = step(target)
+                target = got or target
+            except OSError as exc:
+                self.say("  that didn't work (%s)" % exc)
+            time.sleep(1.5)
+            if target not in self.tabs or getattr(self, "front", None) != target:
+                return True                                 # (something else is in front by now: an app, a game)
+            why = self.wrong(target)                        # (the screen's picture too, from here on)
+            if not why:
+                self.say("Home is back on the TV")
+                return True
+        if self.restart():
+            self.say("Home still isn't on the TV (%s): the browser starts again" % why)
+        else:
+            self.say("Home still isn't on the TV (%s). Hold Home for 4 seconds to start the TV's screen again." % why)
+        return False
+
+    def say(self, text):
+        """A line for the journal and for the next report (what went wrong on the way back to Home)."""
+        if not hasattr(self, "said"):
+            self.said = collections.deque(maxlen=40)
+        self.said.append("%s %s" % (time.strftime("%H:%M:%S"), text))
+        print(text, file=sys.stderr, flush=True)
 
     def close(self, target):
         self.call("Target.closeTarget", {"targetId": target})
@@ -1313,7 +1471,8 @@ class Browser:
 
     def running(self):
         return [{"target": t, "app": tab.get("app"), "title": tab.get("title", ""), "url": tab.get("url", ""),
-                 "used": tab.get("used"), "frozen": bool(tab.get("frozen"))} for t, tab in self.tabs.items() if tab.get("app") not in ("home", None)]
+                 "used": tab.get("used"), "frozen": bool(tab.get("frozen"))} for t, tab in self.tabs.items()
+                if tab.get("app") not in ("home", None) and not tab.get("passing")]
 
     def _make_room(self):
         apps = sorted((tab["used"], t) for t, tab in self.tabs.items() if tab.get("app") not in ("home", None))

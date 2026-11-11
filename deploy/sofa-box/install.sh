@@ -80,6 +80,7 @@ fi
 apt-get install -y --no-install-recommends chromium 2>/dev/null || apt-get install -y --no-install-recommends chromium-browser
 apt-get install -y --no-install-recommends pipewire-pulse wireplumber 2>/dev/null || true           # sound to the TV
 apt-get install -y --no-install-recommends xwayland 2>/dev/null || true                           # games made for X, in cage
+apt-get install -y --no-install-recommends grim 2>/dev/null || true                               # the screen's own picture: is Home really on the TV after a game?
 apt-get install -y --no-install-recommends ir-keytable 2>/dev/null || true                        # the TV's remote over HDMI (CEC): its keys once
 apt-get install -y --no-install-recommends luanti luanti-game-minetest 2>/dev/null || true         # Sofa Craft (Games), there from the start
 apt-get install -y --no-install-recommends network-manager 2>/dev/null || true                    # Wi-Fi from the TV

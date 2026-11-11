@@ -98,56 +98,7 @@ class SofaCraftControls(unittest.TestCase):
         self.assertIsNone(x.hidden(100.1))                                        # (not asked again at once)
 
 
-class LeavingAGame(unittest.TestCase):
-    """Home (or the Xbox button held) from a game: Home came back as a white screen now and then, Sofa Craft most."""
-
-    def browser(self, answers):
-        b = boxos.Browser.__new__(boxos.Browser)
-        b.tabs = {"h": {"app": "home", "session": "s", "url": "http://127.0.0.1:8091/box/home#/games"}}
-        b.front, b.calls = "h", []
-
-        def call(method, params=None, session=None, timeout=10):
-            b.calls.append(method)
-            if method == "Runtime.evaluate":
-                a = answers.pop(0) if answers else True
-                if isinstance(a, Exception):
-                    raise a
-                return {"result": {"value": a}}
-            if method == "Target.createTarget":
-                return {"targetId": "new"}
-            return {}
-        b.call = call
-        b.activate = lambda t: (b.calls.append("activate:" + t), setattr(b, "front", t))
-        b.close = lambda t: (b.calls.append("close:" + t), b.tabs.pop(t, None))
-        return b
-
-    def test_home_that_shows_is_left_alone(self):
-        b = self.browser([True])
-        self.assertTrue(b.revive("h", settle=0))
-        self.assertEqual(b.calls, ["Runtime.evaluate"])
-
-    def test_a_white_home_loads_again(self):
-        real = boxos.time.sleep
-        boxos.time.sleep = lambda s: None
-        try:
-            b = self.browser([False, False, True])
-            self.assertTrue(b.revive("h", settle=0))
-            self.assertIn("Page.reload", b.calls)
-            self.assertIn("Page.setWebLifecycleState", b.calls)
-            self.assertNotIn("Target.createTarget", b.calls)
-            dead = self.browser([OSError("gone")] * 30)                           # never answers: a new Home
-            self.assertTrue(dead.revive("h", settle=0))
-            self.assertIn("close:h", dead.calls)
-            self.assertIn("Target.createTarget", dead.calls)
-            self.assertEqual(dead.tabs["new"]["app"], "home")
-            self.assertIn("activate:new", dead.calls)
-        finally:
-            boxos.time.sleep = real
-
-    def test_home_is_checked_each_time_it_comes_back(self):
-        src = open(os.path.join(BOX, "boxos.py"), encoding="utf-8").read()
-        home = src[src.index("    def home(self):"):src.index("    def alive(")]
-        self.assertIn("target=self.revive", home)
+# (Leaving a game: Home coming back as a white screen, and what the box does about it, is tests/test_box_white_screen.py.)
 
 
 if __name__ == "__main__":

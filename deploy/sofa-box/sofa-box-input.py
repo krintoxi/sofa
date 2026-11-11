@@ -35,6 +35,8 @@ import math
 import os
 import re
 import select
+import shlex
+import subprocess
 import sys
 import threading
 import time
@@ -47,6 +49,13 @@ VOL_AGAIN = 0.2                             # (the volume, held: a little slower
 # shows it on the TV
 VOLUME = {"VOLUP": 4, "VOLDOWN": -4, "MUTE": "mute"}
 HOLD_HOME = 0.8                            # seconds Home is held to leave a game
+# Home held longer, anywhere: the TV's screen starts again. It's the way out of a screen that stopped answering (one
+# flat colour after a game, a page that no longer draws) that needs nothing of what's on the TV: this daemon reads the
+# controllers and remotes itself, and asks systemd. Under 6 seconds, when an Xbox controller switches itself off.
+# A TV's own remote (HDMI-CEC) says "pressed" again and again while a button is held, never "held": five presses
+# of Home in three seconds count the same.
+RESCUE_HOLD, RESCUE_TAPS, RESCUE_WINDOW = 4.0, 5, 3.0
+RESCUES = os.path.join(os.environ.get("SOFA_BOX_CONF") or os.path.expanduser("~/.config/sofa-box"), "screen-restarts.log")
 GAME_FILE = os.environ.get("SOFA_BOX_GAME_FILE") or os.path.join(
     os.environ.get("XDG_RUNTIME_DIR") or "/run/user/%d" % os.getuid(), "sofa-box-game")
 WEB_GAME_FILE = GAME_FILE + ".web"          # one of the box's own games in front, in the browser (the agent says)
@@ -450,10 +459,71 @@ SCAN = 3.0                                  # seconds between looks for controll
 GAME_CHECK = 0.5                            # seconds between looks at which game is open
 
 
-def next_wait(now, game_at, last_scan, pads, game, home_down):
-    """How long the loop may sleep: until a held arrow repeats, a held Home leaves a game, or the next look at the
-    game and the controllers. Only a stick that's the mouse, pushed, needs it often (smooth). Idle, the box's
-    controllers wake it twice a second (it used to be 33 times, even with nothing held)."""
+class HomeKey:
+    """Home, held or pressed over and over, on any controller or remote: in a game, held for HOLD_HOME it leaves the
+    game; anywhere, held for RESCUE_HOLD (or RESCUE_TAPS presses within RESCUE_WINDOW) it starts the TV's screen again."""
+
+    def __init__(self):
+        self.down, self.left, self.taps, self.rescued = {}, set(), [], -1e9
+
+    def key(self, path, value, now):
+        """A Home key or button of the device at `path`: 1 down, 0 up (2, a keyboard's own repeat, says nothing new)."""
+        if value == 1:
+            self.down[path] = now
+            self.taps = [t for t in self.taps if now - t <= RESCUE_WINDOW] + [now]
+        elif value == 0:
+            self.down.pop(path, None)
+            self.left.discard(path)
+
+    def gone(self, path):
+        self.down.pop(path, None)
+        self.left.discard(path)
+
+    def clear(self):
+        """A game opened or ended: a Home still held leaves nothing more; held on, it still starts the screen again."""
+        self.left = set(self.down)
+
+    def due(self, now, game):
+        """What Home asks for now: "leave" (the game, once for each hold), "rescue" (the TV's screen again), or None."""
+        held = [t for t in self.down.values() if now - t >= RESCUE_HOLD]
+        taps = [t for t in self.taps if now - t <= RESCUE_WINDOW]
+        if held or len(taps) >= RESCUE_TAPS:
+            self.down.clear()
+            self.left.clear()
+            self.taps = []
+            if now - self.rescued < 30:                     # (it's starting already)
+                return None
+            self.rescued = now
+            return "rescue"
+        if game:
+            for path, t in self.down.items():
+                if now - t >= HOLD_HOME and path not in self.left:
+                    self.left.add(path)
+                    return "leave"
+        return None
+
+
+def rescue(why):
+    """The TV's screen (and the box's helper) started again by systemd; written down for the next report."""
+    line = "%s the TV's screen started again (%s)" % (time.strftime("%Y-%m-%d %H:%M:%S"), why)
+    print(line, file=sys.stderr, flush=True)
+    try:
+        os.makedirs(os.path.dirname(RESCUES), exist_ok=True)
+        with open(RESCUES, "a", encoding="utf-8") as f:
+            f.write(line + "\n")
+    except OSError:
+        pass
+    cmd = shlex.split(os.environ.get("SOFA_BOX_RESCUE", "")) or ["sudo", "-n", "systemctl", "restart", "sofa-box", "sofa-box-agent"]
+    try:
+        subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    except OSError as exc:
+        print("The TV's screen couldn't be started again: %s" % exc, file=sys.stderr, flush=True)
+
+
+def next_wait(now, game_at, last_scan, pads, game, home_down, home_left=()):
+    """How long the loop may sleep: until a held arrow repeats, a held Home leaves a game or starts the screen again,
+    or the next look at the game and the controllers. Only a stick that's the mouse, pushed, needs it often (smooth).
+    Idle, the box's controllers wake it twice a second (it used to be 33 times, even with nothing held)."""
     at = min(game_at + GAME_CHECK, last_scan + SCAN)
     for entry in pads.values():
         pad, gm = entry[1], entry[3]
@@ -464,8 +534,8 @@ def next_wait(now, game_at, last_scan, pads, game, home_down):
             due = pad.next_due()
             if due is not None:
                 at = min(at, due)
-    if game and home_down:
-        at = min(at, min(home_down.values()) + HOLD_HOME)
+    for path, t in home_down.items():
+        at = min(at, t + (HOLD_HOME if game and path not in home_left else RESCUE_HOLD))
     return max(0.0, at - now)
 
 
@@ -555,7 +625,7 @@ def main():
     pads, remotes, last_scan = {}, {}, 0                    # path -> [device, Pad, generic?, GameMap in a game]
     seen = Seen()
     names = {v: k for k, v in ecodes.ecodes.items() if k.startswith("KEY_")}
-    game, game_at, told, told_at, home_down = None, 0, None, 0, {}
+    game, game_at, told, told_at, hk = None, 0, None, 0, HomeKey()
 
     def send(name, value):
         if name == "HOME":
@@ -635,12 +705,6 @@ def main():
             except OSError:
                 pass
 
-    def home_held(path, value, now):
-        if value == 1:
-            home_down[path] = now
-        elif value == 0:
-            home_down.pop(path, None)
-
     while True:
         now = time.time()
         if now - game_at >= GAME_CHECK:                     # a game opened or ended (the agent says)
@@ -653,7 +717,7 @@ def main():
                 for path in list(pads):
                     give_back(path)
                 game = g
-                home_down.clear()
+                hk.clear()
                 if game:
                     if controls() and any(v.get("left") in ("mouse", "look") or v.get("right") in ("mouse", "look") for v in [controls()]):
                         pointer()
@@ -696,20 +760,22 @@ def main():
                 tell_pads(now_pads)
                 told, told_at = now_pads, now
         fds = [e[0].fd for e in pads.values()] + [d.fd for d, _ in remotes.values()]
-        wait = next_wait(time.time(), game_at, last_scan, pads, game, home_down)
+        wait = next_wait(time.time(), game_at, last_scan, pads, game, hk.down, hk.left)
         ready = select.select(fds, [], [], wait)[0] if fds else (time.sleep(wait) or [])
         now = time.time()
         for path, (dev, remote) in list(remotes.items()):
             if dev.fd in ready:
                 try:
                     for ev in dev.read():
-                        if game and ev.type == 1 and ev.code == KEY_HOMEPAGE:
-                            home_held(path, ev.value, now)  # in a game: held for a second
-                            continue
+                        if ev.type == 1 and ev.code == KEY_HOMEPAGE:
+                            hk.key(path, ev.value, now)     # held: leaves a game, then starts the screen again
+                            if game:
+                                continue
                         for name, value in remote.feed(ev.type, ev.code, ev.value):
                             send(name, value)
                 except OSError:                             # asleep, or out of range: found again when it's back
                     del remotes[path]
+                    hk.gone(path)
         for path, entry in list(pads.items()):
             dev, pad, generic, gm = entry[0], entry[1], entry[2], entry[3]
             if dev.fd in ready:
@@ -717,10 +783,11 @@ def main():
                     for ev in dev.read():
                         code = ev.code if not generic else GENERIC.get(ev.code, ev.code) if ev.type == 1 \
                             else GENERIC_AXES.get(ev.code, ev.code) if ev.type == 3 else ev.code
+                        home_button = ev.type == 1 and code == BTN_MODE
+                        if home_button:                     # held: leaves a game, then starts the screen again
+                            hk.key(path, ev.value, now)
                         if game:
-                            if ev.type == 1 and code == BTN_MODE:
-                                home_held(path, ev.value, now)
-                            elif gm:
+                            if gm and not home_button:
                                 emit(gm.feed(ev.type, code, ev.value))
                             continue                        # ("pad": the game reads it itself)
                         for k in pad.feed(ev.type, code, ev.value, now):
@@ -729,17 +796,19 @@ def main():
                     if gm:
                         emit(gm.release())
                     del pads[path]
-                    home_down.pop(path, None)
+                    hk.gone(path)
                     continue
             if gm:
                 emit(gm.tick(now))
             elif not game:
                 for k in pad.due(now):
                     press(k)
-        if game and any(now - t >= HOLD_HOME for t in home_down.values()):
-            home_down.clear()
+        asked = hk.due(now, bool(game))
+        if asked == "leave":
             print("Home held: leaving the game", file=sys.stderr, flush=True)
             home()
+        elif asked == "rescue":
+            rescue("Home held for %d seconds, or pressed %d times, on a controller or a remote" % (RESCUE_HOLD, RESCUE_TAPS))
 
 
 if __name__ == "__main__":
