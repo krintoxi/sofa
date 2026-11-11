@@ -742,7 +742,7 @@
       (pw ? `<section class="card power-help ${esc(pw.kind)}"><h3>Power and heat</h3><p>${pw.kind === "ok" ? "All fine since the box started."
         : `<b>${esc(pw.title)}</b> (since it started). ${esc(pw.text)}`} <span class="small">(${esc(pw.bits)})</span></p></section>` : "") +
       `<section class="card"><h3>If the TV ever stops answering</h3><p>A screen stuck on one colour, or on a picture that no longer moves:
-        <b>hold Home for 4 seconds</b> (the Xbox or PS button on a controller, Home on a remote or on your phone's remote; on a TV's own remote, keep it pressed, or press it five times).
+        <b>hold Home for 4 seconds</b> (the Xbox or PS button on a controller, Home on a remote or on your phone's remote). On a TV's own remote, press Home five times quickly instead.
         The TV's screen starts again, on Home, in about half a minute. Nothing is lost, and there's no need to unplug the box.</p></section>
       <section class="card"><p><b>Send a report</b> sends the Sofa Box team what the box checks and what it has logged since it started,
         so we can see what went wrong. It leaves out what the box plays, cuts web addresses short, and blanks passwords and codes. Send it before you restart the box: a restart clears the logs. (Your phone's remote has it too.)</p>

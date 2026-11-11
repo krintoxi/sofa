@@ -29,8 +29,9 @@ connected and did nothing.
   wrong and what was done is in the next report. The old check asked the page whether it had anything in it; a white
   Home said yes.
 - **Home held for 4 seconds starts the TV's screen again**, from anything: the Xbox or PS button, Home on a remote
-  or on your phone's remote, or five presses of Home on a TV's own remote. It needs nothing of what's on the TV: the
-  controller daemon reads the buttons itself and asks systemd. In a game, Home held still leaves the game first.
+  or on your phone's remote, or five quick presses of Home on a TV's own remote (which only ever says "pressed": the
+  daemon that reads the TV's remote counts them itself). It needs nothing of what's on the TV: the daemons read the
+  buttons themselves and ask systemd. In a game, Home held still leaves the game first.
   Settings → Help and the phone's remote say so. No more unplugging.
 - A report says how each game ended, whether the TV's screen was started again by hand, and what the TV shows now.
 

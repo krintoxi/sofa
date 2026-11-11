@@ -52,8 +52,9 @@ HOLD_HOME = 0.8                            # seconds Home is held to leave a gam
 # Home held longer, anywhere: the TV's screen starts again. It's the way out of a screen that stopped answering (one
 # flat colour after a game, a page that no longer draws) that needs nothing of what's on the TV: this daemon reads the
 # controllers and remotes itself, and asks systemd. Under 6 seconds, when an Xbox controller switches itself off.
-# A TV's own remote (HDMI-CEC) says "pressed" again and again while a button is held, never "held": five presses
-# of Home in three seconds count the same.
+# Five presses of Home in three seconds count the same, for a remote that says "pressed" and never "held". (A TV's
+# own remote, over HDMI-CEC, is one of those, but its keys don't come through here: sofa-box-cec.py types them on a
+# keyboard of its own, which this daemon leaves alone like the box's other keyboards. It counts Home itself.)
 RESCUE_HOLD, RESCUE_TAPS, RESCUE_WINDOW = 4.0, 5, 3.0
 RESCUES = os.path.join(os.environ.get("SOFA_BOX_CONF") or os.path.expanduser("~/.config/sofa-box"), "screen-restarts.log")
 GAME_FILE = os.environ.get("SOFA_BOX_GAME_FILE") or os.path.join(

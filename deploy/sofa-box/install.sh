@@ -276,6 +276,8 @@ Description=Sofa box: the TV's remote over HDMI-CEC
 After=sofa-box.service
 
 [Service]
+# (where the box's user keeps the box's files: Home pressed five times on the TV's remote is written down there)
+Environment=SOFA_BOX_CONF=$HOMEDIR/.config/sofa-box
 ExecStart=/usr/bin/python3 $LIB/sofa-box-cec.py
 Restart=always
 RestartSec=5

@@ -1379,7 +1379,9 @@ class Browser:
             except OSError:
                 pass
             tab["frozen"] = False
-        blank = self.call("Target.createTarget", {"url": "about:blank"}, timeout=8)["targetId"]     # (in front)
+        blank = self.call("Target.createTarget", {"url": "about:blank"}, timeout=8).get("targetId")     # (in front)
+        if not blank:
+            raise OSError("the browser made no new page")
         self.tabs.setdefault(blank, {"used": time.time(), "session": None, "audible": False}).update(passing=True)
         time.sleep(0.4)
         try:
@@ -1443,8 +1445,8 @@ class Browser:
             try:
                 got = step(target)
                 target = got or target
-            except OSError as exc:
-                self.say("  that didn't work (%s)" % exc)
+            except Exception as exc:                        # (whatever it was: the next step is still tried)
+                self.say("  that didn't work (%s)" % (exc or exc.__class__.__name__))
             time.sleep(1.5)
             if target not in self.tabs or getattr(self, "front", None) != target:
                 return True                                 # (something else is in front by now: an app, a game)

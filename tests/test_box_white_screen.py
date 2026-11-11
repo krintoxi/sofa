@@ -47,6 +47,7 @@ def load(name, **env):
 
 boxos = load("boxos")
 pads = load("sofa-box-input")
+cec = load("sofa-box-cec")
 
 WHITE = b"P6\n192 108\n255\n" + bytes([255, 255, 255]) * (192 * 108)
 HOME = b"P6\n192 108\n255\n" + bytes([13, 13, 16]) * (192 * 80) + bytes([255, 46, 136]) * (192 * 28)      # dark, with things on it
@@ -241,6 +242,35 @@ class HomeComesBackBySteps(unittest.TestCase):
         self.assertEqual([c[0] for c in b.calls].count("Browser.close"), 1)    # not a browser every few seconds
         self.assertIn("Hold Home for 4 seconds", b.said[-1])
 
+    def test_a_step_that_breaks_doesnt_end_the_way_back(self):
+        """A reply without what a step counted on (no new page's id) ended the check there, the later steps untried."""
+        state = {"reloaded": False}
+
+        def evaluate(expression, session):
+            return True if expression == boxos.Browser.HOME_ALIVE_JS else json.dumps(["visible" if state["reloaded"] else "hidden", "rgb(13, 13, 16)"])
+        b = browser(tabs(), evaluate=evaluate)
+        real = b.call
+
+        def call(method, params=None, session=None, timeout=10):
+            if method == "Target.createTarget":
+                b.calls.append((method, "", session))
+                return {}                                                      # (no targetId)
+            if method == "Page.reload":
+                state["reloaded"] = True
+            return real(method, params, session, timeout)
+        b.call = call
+        self.assertTrue(b.revive("h", settle=0))
+        said = " | ".join(b.said)
+        self.assertIn("that didn't work (the browser made no new page)", said)
+        self.assertIn("loading it again", said)
+        self.assertRegex(b.said[-1], r"Home is back on the TV$")
+        b = browser(tabs(), evaluate=lambda e, s: True if e == boxos.Browser.HOME_ALIVE_JS else json.dumps(["hidden", ""]))
+        b.show = lambda target: {}["gone"]                                     # (anything at all going wrong in a step)
+        b.reload = lambda target: 1 / 0
+        b.activate = lambda t: setattr(b, "front", t)
+        self.assertFalse(b.revive("h", settle=0))
+        self.assertIn("the browser starts again", b.said[-1])
+
     def test_a_browser_that_wont_close_is_stopped(self):
         b = browser(tabs(), fail=("Browser.close",))
         ran = []
@@ -299,8 +329,8 @@ class HomeHeldStartsTheScreenAgain(unittest.TestCase):
         self.assertIsNone(hk.due(102.0, False))
         self.assertEqual(hk.due(104.0, False), "rescue")                       # still white, still held
 
-    def test_a_tvs_own_remote_five_presses(self):
-        """Over HDMI-CEC a held button arrives as presses, again and again."""
+    def test_a_remote_that_only_says_pressed_five_presses(self):
+        """A remote this daemon reads whose Home never arrives as held (the TV's own remote is the CEC daemon's: below)."""
         hk = pads.HomeKey()
         for t in (300.0, 300.5, 301.0, 301.5):
             hk.key("cec", 1, t)
@@ -347,6 +377,80 @@ class HomeHeldStartsTheScreenAgain(unittest.TestCase):
         self.assertIn("if ev.type == 1 and ev.code == KEY_HOMEPAGE:\n                            hk.key(path, ev.value, now)", src)   # a remote, a game or not
         self.assertIn("if home_button:", src)                                                                       # a controller, a game or not
         self.assertLess(pads.RESCUE_HOLD, 6)                                   # (an Xbox controller switches itself off at 6)
+
+
+HOME_ON_THE_TVS_REMOTE = ("Received from TV to Playback Device 1 (0 to 4): USER_CONTROL_PRESSED (0x44):\n"
+                          "\tui-cmd: Root Menu (0x09)\n"
+                          "Received from TV to Playback Device 1 (0 to 4): USER_CONTROL_RELEASED (0x45)\n")
+UP_ON_THE_TVS_REMOTE = "Received from TV to Playback Device 1 (0 to 4): USER_CONTROL_PRESSED (0x44):\n\tui-cmd: Up (0x01)\n"
+
+
+class TheTvsOwnRemote(unittest.TestCase):
+    """Over HDMI-CEC a button is "pressed", never "held", and its keys never pass through the controller daemon: the
+    CEC daemon types them on a keyboard of its own ("Sofa box TV remote"), which the controller daemon leaves alone. So
+    Home is counted in the CEC daemon, on the path its keys really take: cec-ctl's lines, keys_from, run_keys."""
+
+    def keys(self, monitor, seconds_apart):
+        typed, asked, clock = [], [], {"t": 100.0}
+
+        def tick():
+            clock["t"] += seconds_apart
+            return clock["t"]
+        cec.run_keys(cec.keys_from(monitor.splitlines(True)), typed.append, cec.HomeTaps(), asked.append, tick)
+        return typed, asked
+
+    def test_five_presses_of_home_start_the_screen_again(self):
+        typed, asked = self.keys(HOME_ON_THE_TVS_REMOTE * 5, 0.4)
+        self.assertEqual(typed, ["KEY_HOMEPAGE"] * 5)                          # each is still Home, typed as before
+        self.assertEqual(asked, ["Home pressed 5 times on the TV's own remote"])
+        typed, asked = self.keys(HOME_ON_THE_TVS_REMOTE * 4, 0.4)
+        self.assertEqual(asked, [])
+        typed, asked = self.keys(HOME_ON_THE_TVS_REMOTE * 8, 1.0)              # Home now and then: just Home
+        self.assertEqual((len(typed), asked), (8, []))
+        typed, asked = self.keys((HOME_ON_THE_TVS_REMOTE + UP_ON_THE_TVS_REMOTE) * 5, 0.25)    # other keys between don't hide it
+        self.assertEqual(asked, ["Home pressed 5 times on the TV's own remote"])
+        typed, asked = self.keys(HOME_ON_THE_TVS_REMOTE * 12, 0.3)             # kept pressed: once, not three times
+        self.assertEqual(len(asked), 1)
+
+    def test_the_controller_daemon_never_sees_these_keys(self):
+        """Why it's counted here: the controller daemon refuses the box's own keyboards, this one among them."""
+        home, select, a = pads.KEY_HOMEPAGE, pads.KEY_SELECT, pads.KEY_A
+        self.assertFalse(pads.is_remote("Sofa box TV remote", [home, select]))
+        self.assertTrue(pads.is_remote("Amazon Fire TV Remote", [home, select]))
+        self.assertNotIn(a, [home, select])
+        src = read("sofa-box-cec.py")
+        self.assertIn('name="Sofa box TV remote"', src)
+        self.assertIn("run_keys(keys_from(lines()), press)", src)              # the daemon's own loop goes through the count
+
+    def test_it_asks_systemd_itself_and_the_users_report_has_it(self):
+        d = tempfile.mkdtemp()
+        conf = os.path.join(d, "conf")
+        os.makedirs(conf)
+        real = {k: os.environ.get(k) for k in ("SOFA_BOX_RESCUE", "SOFA_BOX_CONF")}
+        os.environ.update(SOFA_BOX_RESCUE="touch %s" % os.path.join(d, "asked"), SOFA_BOX_CONF=conf)
+        try:
+            cec.rescue("Home pressed 5 times on the TV's own remote")
+            for _ in range(50):
+                if os.path.exists(os.path.join(d, "asked")):
+                    break
+                time.sleep(0.1)
+            self.assertTrue(os.path.exists(os.path.join(d, "asked")))
+            log = os.path.join(conf, "screen-restarts.log")
+            with open(log, encoding="utf-8") as f:
+                self.assertRegex(f.read(), r"the TV's screen started again \(Home pressed 5 times on the TV's own remote\)\n$")
+            self.assertEqual(os.stat(log).st_uid, os.stat(conf).st_uid)        # (the box's user's own file, though root wrote it)
+            os.environ["SOFA_BOX_CONF"] = os.path.join(d, "nowhere")           # (no such folder: still restarted, just not noted)
+            cec.rescue("again")
+        finally:
+            for k, v in real.items():
+                os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
+            shutil.rmtree(d, ignore_errors=True)
+        src = read("sofa-box-cec.py")
+        self.assertIn('or ["systemctl", "restart", "sofa-box", "sofa-box-agent"]', src)      # it runs as root: no sudo
+        unit = read("install.sh").split("sofa-box-cec.service <<EOF")[1].split("EOF")[0]
+        self.assertIn("Environment=SOFA_BOX_CONF=$HOMEDIR/.config/sofa-box", unit)
+        self.assertNotIn("User=", unit)
+        self.assertIn("On a TV's own remote, press Home five times quickly instead.", read("home", "home.js"))
 
 
 class TheHelpersSide(unittest.TestCase):

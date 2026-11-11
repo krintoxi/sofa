@@ -9,7 +9,9 @@ cable while the Pi's input is showing. This turns them into key presses for the 
 Needs: cec-ctl (package v4l-utils), python3-evdev (for a virtual keyboard), root (for /dev/uinput).
 """
 import glob
+import os
 import re
+import shlex
 import subprocess
 import sys
 import time
@@ -30,6 +32,61 @@ PRESSED = re.compile(r"USER_CONTROL_PRESSED")
 UI_CMD = re.compile(r"ui-cmd:.*\((0x[0-9a-fA-F]+)\)")
 MENU_REQUEST = re.compile(r"Received from (\w[\w ]*?) to .*: MENU_REQUEST")
 POWER_REQUEST = re.compile(r"Received from (\w[\w ]*?) to .*: GIVE_DEVICE_POWER_STATUS")
+
+
+# Home pressed five times in three seconds starts the TV's screen again: the way out of a screen that stopped
+# answering, for someone with only the TV's own remote in hand. (A controller's or a Bluetooth remote's Home, held, does
+# it in sofa-box-input.py; that daemon never opens this one's keyboard, so the TV's remote is counted here.) Over
+# HDMI-CEC a button is "pressed", again and again on some TVs while it's held, never "held": so presses, not a hold.
+RESCUE_TAPS, RESCUE_WINDOW = 5, 3.0
+
+
+class HomeTaps:
+    def __init__(self):
+        self.at, self.rescued = [], -1e9
+
+    def press(self, now):
+        """Home was pressed: True when that makes RESCUE_TAPS within RESCUE_WINDOW (not again while it's starting)."""
+        self.at = [t for t in self.at if now - t <= RESCUE_WINDOW] + [now]
+        if len(self.at) < RESCUE_TAPS:
+            return False
+        self.at = []
+        if now - self.rescued < 30:
+            return False
+        self.rescued = now
+        return True
+
+
+def rescue(why):
+    """The TV's screen (and the box's helper) started again by systemd, and written down where a report reads it
+    (the box user's own folder: SOFA_BOX_CONF, set in this service; the file stays that user's)."""
+    line = "%s the TV's screen started again (%s)" % (time.strftime("%Y-%m-%d %H:%M:%S"), why)
+    print(line, file=sys.stderr, flush=True)
+    conf = os.environ.get("SOFA_BOX_CONF")
+    if conf and os.path.isdir(conf):
+        path = os.path.join(conf, "screen-restarts.log")
+        try:
+            with open(path, "a", encoding="utf-8") as f:
+                f.write(line + "\n")
+            owner = os.stat(conf)
+            if os.stat(path).st_uid != owner.st_uid:
+                os.chown(path, owner.st_uid, owner.st_gid)
+        except OSError:
+            pass
+    cmd = shlex.split(os.environ.get("SOFA_BOX_RESCUE", "")) or ["systemctl", "restart", "sofa-box", "sofa-box-agent"]
+    try:
+        subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    except OSError as exc:
+        print("The TV's screen couldn't be started again: %s" % exc, file=sys.stderr, flush=True)
+
+
+def run_keys(names, press, taps=None, rescue=rescue, clock=time.monotonic):
+    """Each key from the TV's remote typed on the box's keyboard (`press`), and Home counted on its way."""
+    taps = taps or HomeTaps()
+    for name in names:
+        press(name)
+        if name == "KEY_HOMEPAGE" and taps.press(clock()):
+            rescue("Home pressed %d times on the TV's own remote" % RESCUE_TAPS)
 
 
 def adapter():
@@ -104,11 +161,13 @@ def main():
                 subprocess.run(["cec-ctl", "-d", dev, "--to", "0", "--report-power-status", "pwr-state=on"], capture_output=True)
             yield line
 
-    for name in keys_from(lines()):
+    def press(name):
         key = ecodes.ecodes[name]
         ui.write(ecodes.EV_KEY, key, 1)
         ui.write(ecodes.EV_KEY, key, 0)
         ui.syn()
+
+    run_keys(keys_from(lines()), press)
     sys.exit("cec-ctl stopped")                 # systemd starts this again
 
 
