@@ -8,6 +8,26 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.65
+
+Sofa Craft with an Xbox controller over Bluetooth. On a real Raspberry Pi 3 B+ (1.1.60) the game loaded and you
+could walk around, and that was all: the camera wouldn't turn and nothing could be mined.
+
+- **The cause.** The box turns a controller into the keys and the mouse a game wants. An Xbox Wireless Controller
+  over Bluetooth is read by the kernel's plain HID driver, which puts its right stick on the axes Z and RZ and its
+  triggers on "gas" and "brake"; the same controller on a cable (and every controller the box had been tried with)
+  has its right stick on RX and RY and its triggers on Z and RZ. The box took Z and RZ for the triggers always. So
+  the right stick turned nothing, and a stick at rest, the middle of its range, was two triggers half pulled: dig and
+  place both went down at the first twitch and stayed down. Walking worked; nothing else could.
+- **A controller's own layout is read when it's found**, from what it says it has (never from where a stick is at
+  that moment: one may be held as it connects). No RX or RY, but Z and RZ, and triggers somewhere else (their own
+  axes, or buttons) or Z and RZ with nought in the middle of their range: that's a right stick, and it's read as
+  one, in a game and on Home (where it had been the volume). A controller laid out the usual way is read as it was.
+  The box's journal says which it found ("its right stick on Z and RZ").
+- The cause is from reading the kernel driver's mapping and the box's code, not from the owner's controller on the
+  box. The tests use this controller's layout (before: both mouse buttons down with the stick at rest, no camera;
+  after: the stick turns the camera, RT digs, LT places). Not tried on a Pi or with the real controller.
+
 ## 1.1.63
 
 The white screen after a game. On a real Raspberry Pi 3 B+ (1.1.60) the box had to be unplugged three times in an

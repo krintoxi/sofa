@@ -130,6 +130,20 @@ def pad_kind(name):
     return "generic"
 
 
+def stick_axes(keys, axes):
+    """A controller whose right stick isn't on ABS_RX and ABS_RY: {its axis: the usual one} ({}: laid out the usual way).
+    An Xbox controller over Bluetooth (the kernel's plain HID driver; so do 8BitDo's and Stadia's) has its right stick on
+    ABS_Z and ABS_RZ and its triggers on ABS_GAS and ABS_BRAKE; over a cable (xpad) the stick is ABS_RX and ABS_RY and
+    the triggers are ABS_Z and ABS_RZ. Read as triggers, a stick at rest (the middle of its range) is a trigger half
+    pulled: in a game both triggers stuck down, and no camera. Decided from what the controller says it has, never from
+    where a stick or a trigger is as it's found (one may be held as it connects). axes: {axis: (min, max)}."""
+    if ABS_RX in axes or ABS_RY in axes or ABS_Z not in axes or ABS_RZ not in axes:
+        return {}
+    elsewhere = ABS_GAS in axes or ABS_BRAKE in axes or (BTN_TL2 in keys and BTN_TR2 in keys)   # the triggers have their own
+    signed = all(axes[c][0] < 0 < axes[c][1] for c in (ABS_Z, ABS_RZ))    # (nought in the middle of its range: a stick's; a trigger's starts at nought)
+    return dict(GENERIC_AXES) if elsewhere or signed else {}
+
+
 def is_generic(keys, axes):
     """A controller without the gamepad buttons' codes: numbered buttons and a stick."""
     return BTN_SOUTH not in keys and any(288 <= k <= 299 for k in keys) and ABS_X in axes
@@ -623,7 +637,7 @@ def main():
     keys = set(range(ecodes.KEY_ESC, ecodes.KEY_MICMUTE + 1)) | {ecodes.ecodes[k] for k in set(KEYS) | set(PASS)}
     kb = UInput({ecodes.EV_KEY: sorted(keys)}, name="Sofa box controllers")
     ptr = [None]                                            # a mouse, for the games that want one (made when needed)
-    pads, remotes, last_scan = {}, {}, 0                    # path -> [device, Pad, generic?, GameMap in a game]
+    pads, remotes, last_scan = {}, {}, 0                    # path -> [device, Pad, generic?, GameMap in a game, its axes' ranges, axes moved]
     seen = Seen()
     names = {v: k for k, v in ecodes.ecodes.items() if k.startswith("KEY_")}
     game, game_at, told, told_at, hk = None, 0, None, 0, HomeKey()
@@ -746,11 +760,12 @@ def main():
                     continue
                 ranges = {code: (info.min, info.max) for code, info in caps.get(ecodes.EV_ABS, [])}
                 generic = is_generic(keys, ranges)
-                if generic:
-                    ranges = {GENERIC_AXES.get(c, c): r for c, r in ranges.items()}
+                moved = GENERIC_AXES if generic else stick_axes(keys, ranges)
+                ranges = {moved.get(c, c): r for c, r in ranges.items()}
                 if (BTN_SOUTH in keys or generic) and "Sofa box" not in dev.name:
-                    pads[path] = [dev, Pad(dev.name, ranges), generic, None, ranges]
-                    print("Controller: %s (%s)" % (dev.name, pad_kind(dev.name)), file=sys.stderr, flush=True)
+                    pads[path] = [dev, Pad(dev.name, ranges), generic, None, ranges, moved]
+                    print("Controller: %s (%s%s)" % (dev.name, pad_kind(dev.name), ", its right stick on Z and RZ" if moved and not generic else ""),
+                          file=sys.stderr, flush=True)
                     if game:
                         take(path)
                 else:
@@ -778,12 +793,11 @@ def main():
                     del remotes[path]
                     hk.gone(path)
         for path, entry in list(pads.items()):
-            dev, pad, generic, gm = entry[0], entry[1], entry[2], entry[3]
+            dev, pad, generic, gm, moved = entry[0], entry[1], entry[2], entry[3], entry[5]
             if dev.fd in ready:
                 try:
                     for ev in dev.read():
-                        code = ev.code if not generic else GENERIC.get(ev.code, ev.code) if ev.type == 1 \
-                            else GENERIC_AXES.get(ev.code, ev.code) if ev.type == 3 else ev.code
+                        code = moved.get(ev.code, ev.code) if ev.type == 3 else GENERIC.get(ev.code, ev.code) if generic and ev.type == 1 else ev.code
                         home_button = ev.type == 1 and code == BTN_MODE
                         if home_button:                     # held: leaves a game, then starts the screen again
                             hk.key(path, ev.value, now)

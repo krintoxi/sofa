@@ -70,6 +70,65 @@ class SofaCraftControls(unittest.TestCase):
         self.assertFalse(m.moving())
         self.assertEqual(m.tick(1.3), [])
 
+    # An Xbox Wireless Controller over Bluetooth, as the kernel's plain HID driver gives it (the owner's, 045E:0B13):
+    # the left stick on ABS_X and ABS_Y, the right stick on ABS_Z (2) and ABS_RZ (5), the triggers on ABS_GAS (9) and
+    # ABS_BRAKE (10); every stick 0 to 65535, resting at 32768
+    BT = {0: (0, 65535), 1: (0, 65535), 2: (0, 65535), 5: (0, 65535), 9: (0, 1023), 10: (0, 1023), 16: (-1, 1), 17: (-1, 1)}
+    KEYS = [304, 305, 307, 308, 310, 311, 314, 315, 316, 317, 318]
+
+    def test_which_axes_are_the_right_stick(self):
+        """From what a controller says it has, never from where its sticks are as it's found (one may be held)."""
+        self.assertEqual(pads.stick_axes(self.KEYS, self.BT), {2: 3, 5: 4})                      # over Bluetooth: Z and RZ, the triggers elsewhere
+        self.assertEqual(pads.stick_axes(self.KEYS, RANGES), {})                                 # over a cable (xpad: RX and RY, triggers on Z and RZ): as it was
+        plain = {0: (0, 255), 1: (0, 255), 2: (0, 255), 5: (0, 255)}
+        self.assertEqual(pads.stick_axes(self.KEYS + [312, 313], plain), {2: 3, 5: 4})           # triggers that are buttons
+        self.assertEqual(pads.stick_axes(self.KEYS, plain), {})                                  # nothing says which: as it was
+        signed = {0: (-32768, 32767), 1: (-32768, 32767), 2: (-32768, 32767), 5: (-32768, 32767)}
+        self.assertEqual(pads.stick_axes(self.KEYS, signed), {2: 3, 5: 4})                       # nought in the middle of Z and RZ: a stick's range
+        self.assertEqual(pads.stick_axes(self.KEYS, {0: (-32768, 32767), 1: (-32768, 32767), 2: (0, 1023), 5: (0, 1023)}), {})   # triggers alone
+        self.assertEqual(pads.stick_axes(self.KEYS, {0: (0, 255), 1: (0, 255), 2: (0, 255)}), {})   # (only one of the two)
+
+    def test_an_xbox_controller_over_bluetooth_turns_the_camera_and_digs(self):
+        """On a real Pi 3 (1.1.60) Sofa Craft walked but its camera didn't turn and nothing could be mined: the right
+        stick's axes were read as the triggers, and a stick at rest is a trigger half pulled, so dig and place were
+        held down from its first move and the stick turned nothing."""
+        moved = pads.stick_axes(self.KEYS, self.BT)
+        ranges = {moved.get(c, c): r for c, r in self.BT.items()}
+        m = pads.GameMap(CONTROLS["luanti"], "Xbox Wireless Controller", ranges, hidden=lambda: True)
+        feed = lambda code, value: m.feed(3, moved.get(code, code), value)                   # (as the daemon's loop does)
+        self.assertEqual(feed(2, 32768) + feed(5, 32768), [])                                 # at rest: nothing pressed
+        self.assertEqual(feed(2, 65535), [])                                                  # pushed right: no button
+        self.assertTrue(m.moving())
+        look = m.tick(1.0)
+        self.assertEqual([k for k, *_ in look], ["abs", "abs"])                              # the camera turns
+        self.assertGreater(look[0][2], MID)
+        feed(2, 32768)
+        self.assertEqual(feed(9, 1023), [("btn", "BTN_LEFT", 1)])                             # RT digs
+        self.assertEqual(feed(9, 0), [("btn", "BTN_LEFT", 0)])
+        self.assertEqual(feed(10, 1023), [("btn", "BTN_RIGHT", 1)])                           # LT places
+        self.assertEqual(feed(10, 0), [("btn", "BTN_RIGHT", 0)])
+        self.assertEqual(feed(0, 0), [("key", "KEY_A", 1)])                                   # the left stick still walks
+        # as it was: the same events, not moved, press both and turn nothing
+        was = pads.GameMap(CONTROLS["luanti"], "Xbox Wireless Controller", self.BT, hidden=lambda: True)
+        self.assertEqual(was.feed(3, 2, 32768) + was.feed(3, 5, 32768), [("btn", "BTN_RIGHT", 1), ("btn", "BTN_LEFT", 1)])
+        self.assertFalse(was.moving())
+
+    def test_on_home_its_right_stick_is_not_the_volume(self):
+        moved = pads.stick_axes(self.KEYS, self.BT)
+        pad = pads.Pad("Xbox Wireless Controller", {moved.get(c, c): r for c, r in self.BT.items()})
+        self.assertEqual(pad.feed(3, moved.get(2, 2), 65535, 10.0), [])                       # the right stick, pushed right
+        self.assertEqual(pad.feed(3, moved.get(5, 5), 65535, 10.1), [])
+        self.assertEqual(pad.feed(3, 9, 1023, 10.2), ["VOLUP"])                               # the triggers still are
+        was = pads.Pad("Xbox Wireless Controller", self.BT)
+        self.assertEqual(was.feed(3, 2, 65535, 10.0), ["VOLDOWN"])                            # (as it was)
+
+    def test_the_daemon_moves_the_axes_where_it_finds_the_controller(self):
+        src = open(os.path.join(BOX, "sofa-box-input.py"), encoding="utf-8").read()
+        self.assertIn("moved = GENERIC_AXES if generic else stick_axes(keys, ranges)", src)
+        self.assertNotIn("info.value", src[src.index("generic = is_generic(keys, ranges)"):src.index("pads[path] = [dev")])   # (not from a reading as it's found)
+        self.assertIn("ranges = {moved.get(c, c): r for c, r in ranges.items()}", src)
+        self.assertIn("code = moved.get(ev.code, ev.code) if ev.type == 3 else", src)
+
     def test_in_its_menus_the_stick_is_a_mouse(self):
         shown = [False]
         m = pads.GameMap(CONTROLS["luanti"], "Xbox Wireless Controller", RANGES, hidden=lambda: not shown[0])
