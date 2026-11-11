@@ -428,7 +428,11 @@ song in the box's player, or shows a picture; **Menu** renames, moves or deletes
   on a Pi 3). The left stick moves, the right
   stick turns, RT fires, LT aims, A opens doors. It's drawn
   by the processor, so it plays on a Pi 3 with or without a GPU, with helpers drawing strips of the picture on the
-  Pi's other cores (Options: Drawing), and sharper on a Pi 4 or 5.
+  Pi's other cores, and sharper on a Pi 4 or 5. Its numbers, messages and map are written on the game's own canvas
+  (640 × 360 on a Pi 3, whatever size the picture under them), and it gives up pixels before frames: a Pi 3 starts at
+  240 × 135 and 60 frames a second. Options, Picture and speed: a quality set (light on a slow box, full on the rest,
+  or your own), the picture's size and rate held or left to the box, the glow, light from shots, debris, marks,
+  steam and snow, dark corners, crisp or smooth pixels, and a frame rate counter.
 - **Cinder Knight**, a dark-fantasy platformer: the last ember of a cold world's hearth, in a knight's black iron,
   climbing to light it again. Four regions of four stages (the Sootwood, the Sunken Kilns, the Glasswater Deep and
   the Hearthspire), each ending in a boss whose bar shows once you're in its room: Old Charhorn, Brickmaw, the

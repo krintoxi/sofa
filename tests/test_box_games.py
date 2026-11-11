@@ -677,6 +677,85 @@ console.log(JSON.stringify(out));
         self.assertEqual(out["noWay"], -1)                               # the bars close the room in two
         self.assertTrue(out["helpers"])
 
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_a_software_picture_gives_up_pixels_before_frames(self):
+        """The software-drawn ladder: every rung but the lowest two holds 60 frames a second, and each asks more of the
+        processor than the one under it; a Pi 3 starts at 240 x 135 and is shown on 640 x 360; a player can hold the
+        picture's size, its rate, or both; far off, a texture goes over to smaller selves that don't crawl."""
+        script = """
+const noop = () => {};
+globalThis.window = globalThis; globalThis.addEventListener = noop; globalThis.location = { hash: "" };
+globalThis.document = { hidden: false, createElement: () => ({ getContext: () => null }) };
+eval(require("fs").readFileSync(process.argv[1], "utf8"));
+const L = window.Low3D, out = {}, lad = L.LADDER.ray;
+out.rates = lad.map(r => r.fps); out.work = lad.map(r => r.h * r.h * r.fps);
+out.glow = lad.map(r => r.glow);
+const box = (family, cores, soft) => ({ family, cores, webgl1: true, software: !!soft });
+const pl = (p, cpu) => { const r = L.planRay(p, { cpu }); return [lad[r.rung].h, lad[r.rung].fps, lad[r.top].h, r.show, r.fx, r.helpers]; };
+out.pi3 = pl(box("pi3", 4), 95); out.pi3fast = pl(box("pi3", 4), 20); out.pi3slow = pl(box("pi3", 4), 400);
+out.pi4 = pl(box("pi4", 4), 45); out.desk = pl(box("desktop", 8), 4); out.soft = pl(box("desktop", 8, true), 4);
+out.heldSize = L.heldRay(135, 0); out.heldRate = L.heldRay(0, 30).map(r => [r.h, r.fps]); out.heldBoth = L.heldRay(180, 60); out.heldNone = L.heldRay(0, 0);
+// smaller selves: a fine checker of two shades goes to one colour of the same ramp; a block a quarter light stays a light
+const ramps = []; for (let r = 0; r < 16; r++) ramps.push([40 + r * 12, 60 + r * 8, 80 + r * 5]);
+const pal = new L.Palette(ramps, [14, 15]); pal.maps(0, 0);
+const ray = new L.Ray(pal), W = 96, H = 54, buf = new Uint32Array(W * H); ray.size(W, H, buf);
+const checker = L.Tex.make((u, v) => 3 * 16 + ((u + v) & 1 ? 4 : 12));
+const lamps = L.Tex.make((u, v) => (u & 3) === 0 && (v & 3) === 0 ? 14 * 16 + 12 : (u & 3) < 2 && (v & 3) < 2 ? 14 * 16 + 12 : 2 * 16 + 5);
+const m = new L.RayMap(24, 5);
+for (let y = 0; y < 5; y++) for (let x = 0; x < 24; x++) { const i = y * 24 + x; if (x === 0 || y === 0 || x === 23 || y === 4) { m.solid[i] = 1; m.wtex[i] = 1; } else { m.ftex[i] = 2; m.ctex[i] = 3; m.ceil[i] = 1; m.light[i] = 31; } }
+ray.tex = [checker, checker, checker, lamps]; ray.dim = 0;
+const cam = { x: 1.5, y: 2.5, z: 0.5, a: 0, pitch: 0, fov: 1.6 };
+const colours = () => { const far = new Set(); for (let y = 29; y < 33; y++) for (let x = 30; x < 66; x++) far.add(buf[y * W + x]); return far.size; };
+ray.far = 0; ray.render(m, cam); ray.flush(); out.crawl = colours();
+ray.far = 1; ray.render(m, cam); ray.flush(); out.calm = colours();
+const sm = ray.core.smaller(checker);
+out.levels = sm.length; out.one = new Set(sm[1]).size; out.sameRamp = sm[1][0] >> 4; out.between = (sm[1][0] & 15) > 4 && (sm[1][0] & 15) < 12; out.sized = sm.every(a => a.length === 4096);
+const sl = ray.core.smaller(lamps); out.lampStays = pal.full[sl[2][0]] === 1; out.kept = checker.m === sm;
+console.log(JSON.stringify(out));
+"""
+        r = subprocess.run(["node", "-e", script, os.path.join(self.GAMES, "low3d.js")], capture_output=True, text=True, timeout=60)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        out = json.loads(r.stdout)
+        self.assertEqual(out["rates"][:2], [30, 30])
+        self.assertTrue(all(f == 60 for f in out["rates"][2:]), out["rates"])
+        self.assertEqual(out["work"], sorted(out["work"]))                # each rung more work than the last
+        self.assertEqual(len(set(out["work"])), len(out["work"]))
+        self.assertEqual(out["pi3"], [135, 60, 180, 360, True, 2])        # a Pi 3: 240 x 135 at 60, never over 320 x 180, on a 640 x 360 canvas
+        self.assertEqual(out["pi3fast"][:3], [135, 60, 180])              # (a quick test doesn't lift it)
+        self.assertEqual(out["pi3slow"][:2], [108, 60])                   # a slow one: the smallest picture, still at 60
+        self.assertEqual(out["pi4"][3], 540)
+        self.assertEqual((out["desk"][0], out["desk"][3]), (360, 1080))
+        self.assertEqual((out["soft"][3], out["soft"][4]), (360, False))  # no GPU: nothing more is asked of the processor than the picture
+        self.assertEqual([(r["h"], r["fps"]) for r in out["heldSize"]], [(135, 30), (135, 60)])
+        self.assertEqual(out["heldRate"][0], [108, 30]); self.assertEqual(out["heldRate"][-1], [360, 30])
+        self.assertTrue(all(f == 30 for _, f in out["heldRate"]))
+        self.assertEqual([(r["h"], r["fps"]) for r in out["heldBoth"]], [(180, 60)])
+        self.assertIsNone(out["heldNone"])
+        self.assertEqual((out["levels"], out["one"], out["sameRamp"]), (5, 1, 3))
+        self.assertTrue(out["between"] and out["sized"] and out["lampStays"] and out["kept"], out)
+        self.assertGreater(out["crawl"], out["calm"])                     # far off: fewer colours fighting for a pixel
+        self.assertLessEqual(out["calm"], 3)                              # (the floor, the ceiling, the wall at the end)
+
+    def test_ironmaw_writes_on_its_own_canvas(self):
+        """Nothing of Ironmaw's page lies over its picture (on a Pi 3 the browser puts such a layer together again at
+        the TV's size every frame): its numbers, messages, map and flashes are the engine's UI list. Its options hold
+        the picture's size and rate and turn the effects on and off, and a slow box starts on the light set."""
+        with open(os.path.join(self.GAMES, "ironmaw", "index.html"), encoding="utf-8") as f:
+            src = f.read()
+        page = src[:src.index("<script>")]
+        for gone in ('id="hud"', 'id="tint"', 'id="frost"', 'id="map"', 'id="msg"', 'id="center"', 'id="fps"', 'id="feed"', 'id="board"', "radial-gradient", "#ffd890"):
+            self.assertNotIn(gone, src, gone)
+        self.assertIn(".screen > * { will-change: transform; }", page)   # a menu's blocks: each a small layer of its own
+        self.assertNotIn("background", page[page.index(".screen {"):page.index(".screen > *")])
+        self.assertIn('id="picture"', page); self.assertIn('data-do="check"', page)
+        for k in ("quality", "lines", "rate", "glow", "lights", "debris", "marks", "weather", "vig", "crisp", "cores", "fps"):
+            self.assertRegex(src, r'\{ k: "%s", name: "' % k)
+        self.assertIn("tune: () => TUNE", src)
+        self.assertIn("const SETS = { light: {", src)
+        self.assertIn("ui.begin(W, H)", src); self.assertIn("ui.hold()", src); self.assertIn("ui.rewind()", src)
+        self.assertIn('if (still && frozen === still) return false;', src)   # under a menu the picture stands still: nothing drawn, nothing sent
+        self.assertIn("E.tell()", src)
+
     def test_ironmaws_levels_can_be_played_through(self):
         """Each level: one start, every key before its door, the exit (or a great one) reached, every enemy and item
         reached. Walls you see through (H bars, _ railings, G windows, Z fences) are walls to walk into."""

@@ -116,9 +116,12 @@ one call (`GL.fx`).
 | draw distance (m) | 420 | 560 | 420 | 480 | 560 | 640 | 760 | 900 | 1100 |
 | **2D** height drawn | 112 | 135 | 160 | 160 | 200 | 240 | | | |
 
-| **Ray** height drawn | 120 | 144 | 180 | 180 | 216 | 270 | 360 | | |
-| frames a second | 30 | 30 | 30 | 60 | 60 | 60 | 60 | | |
-| glow (WebGL) | | | | | yes | yes | yes | | |
+
+| | rung 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| **Ray** lines drawn | 108 | 135 | 108 | 120 | 135 | 150 | 180 | 216 | 270 | 360 |
+| frames a second | 30 | 30 | 60 | 60 | 60 | 60 | 60 | 60 | 60 | 60 |
+| glow (WebGL) | | | | | | | | yes | yes | yes |
 
 The 3D picture's height is the screen's own divided by a whole number, the nearest to the rung's (`wholeSize`):
 on a 1080p TV 360 lines is a third, each pixel shown as 3 × 3 of the screen's, crisp; on a 720p TV it's a half.
@@ -127,8 +130,9 @@ on 7; a desktop GPU on 6 and up, from the test. For a Pi the test can only say "
 spends putting the page together, which is most of a Pi 3's frame); the governor finds the rest while the game
 plays, and goes down through the pixels (3, 2) before the frames (1: 360 lines at 30, then 0). Software or no WebGL
 means 2D, its rung picked from the test's script time.
-A `Ray` game starts from the script time alone (`planRay`): the processor does its drawing. A Pi 3 is held to
-rung 3 at most (320×180). A game
+A `Ray` game starts from the script time alone (`planRay`): the processor does its drawing. Its ladder gives up
+pixels before frames too, in small steps (its picture needn't go into the screen a whole number of times: see "A game
+drawn by the processor"). A Pi 3 starts on rung 4 (240×135 at 60) and is held to rung 6 at most (320×180). A game
 reads `E.rung` (`h`, `far`, `fps`, `look`, `mirror`, `detail`, `wakes`) and decides what each one means for it.
 
 ## A new game, from the start
@@ -173,7 +177,52 @@ stretches a short frame's work about 3×, and it doesn't slow web workers at all
 
 `L3.game({ kind: "ray", ... })`: the engine sizes `E.screen` (a picture, `E.screen.u32`) to the rung and calls
 `resized(E)`. The game hands that buffer to a `Ray`, draws into it in `draw()`, and the engine shows it each frame.
-That's WebGL with a glow on a real GPU, or a 2D canvas otherwise (picture "plain": always the canvas).
+That's WebGL with a glow on a real GPU, or a 2D canvas otherwise.
+
+**The picture and the canvas are two sizes.** The picture (`E.screen.w` × `h`: the rung's) is what the processor
+draws; the canvas (`E.screen.cw` × `ch`) is what it's shown on, and it's the screen's height divided by a whole
+number, the nearest to `E.plan.show`: 360 lines on a Pi 3 (and wherever there's no GPU), 540 on a Pi 4, the screen's
+own up to 1080 elsewhere. So the browser shows the canvas crisp for nothing, the GPU is asked for one look at the
+picture for each of the canvas's pixels (a Pi 3: 0.23 megapixels a frame; the glow is a second shader, used only on
+the rungs that have it), and the picture can be any size: the shader shows each of its pixels as a crisp block with
+edges one canvas pixel soft, a whole number of times as big or not (`E.screen.crisp = false`: smooth all through).
+
+**What's written on the game is written on the canvas**, not on the picture and not by the page: `E.ui` (see "What's
+written on the picture"), built in the canvas's pixels (`E.ui.begin(E.screen.cw, E.screen.ch)`), drawn by the engine
+after the picture. So a 240×135 picture has numbers as sharp as a 640×360 one's, and nothing of the page lies over
+the game. A flash of colour over the view, frost at its edges, a menu's darkening are see-through blocks in the same
+list. `draw()` that returns `false` draws and shows nothing: under a menu, draw the picture once, darkened, and leave it.
+
+**What the player holds.** `tune()` (a game option) returns `{ lines, fps, glow }`: the picture's height, 30 or 60,
+and 0 for no glow; 0 or left out is "as the box finds". A size or a rate held makes a ladder of the player's own
+(`heldRay`): the size at 30 and at 60 (the governor may still give up the frames), or every size at the rate held.
+After changing it, `E.setPicture()`. `E.held` says a ladder is the player's; nothing is remembered from it.
+
+**Far off, a texture goes over to its smaller selves** (`ray.far`, 1; 0: never). Many of a texture's texels fall in
+one pixel of a small picture, and which one is drawn changes with every step: floors and ceilings crawl. A texture's
+smaller selves are itself in blocks of 2, 4, 8 and 16 texels of one colour (the palette's nearest to the block's own;
+a block that's a quarter light or more stays a light), kept at the texture's own size, so the drawing is the same and
+costs the same. They're picked once for each cell's floor, ceiling and wall, never for each pixel, and made the first
+time a texture is seen far off. Marked faces and see-through walls are drawn as they are.
+
+Ironmaw as a Pi 3 gets it, before and after this (the harness, an Apple A18 Pro standing in: **not a Pi's numbers**;
+10 s a scene, garbage after 25 s of play; the collector's pauses are the page's own thread's):
+
+| | 1.1.60 | now |
+|---|---|---|
+| picture | 320×180, on a 640×360 canvas | 240×135, on a 640×360 canvas |
+| frames a second | 30 (by design) | 60 |
+| between frames, ms: median / 95th / 99th / worst | 33.3 / 33.4 / 33.5 / 33.5 | 16.7 / 16.7 / 16.8 / 16.8 |
+| the game's work a frame at ×20, ms: median / 95th / 99th (a level) | 4.1 / 12.1 / 14.2 | 2.1 / 4.1 / 4.1 |
+| the same, the arena with 7 bots | 4.1 / 6.2 / 10 | 2.1 / 4.1 / 6.1 |
+| page layers over the picture, megapixels a frame | 2.07 | 0 |
+| looks at the picture for each pixel of the canvas | 5 | 1 |
+| made on the script's heap, KB a second (a frame): a level · the arena | 1095 (37) · 2064 (69) | 274 (5) · 952 (16) |
+| the page's collector, pauses a minute: a level · the arena | 37 · 82 | 22 · 67 |
+
+The governor's ladder is what a Pi will really run on: a fight that fills the page's own frame (the rules for
+thirty creatures awake at once) still drops it to 30 a second, as it should. Of five runs of the snow level, three
+held 60 with nothing late; two had late frames (11 of 579, 18 of 522).
 
 ```js
 const pal = new L3.Palette(RAMPS, [14, 15]);     // 16 colour ramps of 16 shades; ramps 14 and 15 glow (never darken)
@@ -310,8 +359,11 @@ shimmer); `air({top, horizon, fog, hill, hills, near, far})`; `draw(camera…)`;
   a split screen), and `dim` (light lost with distance), `minL` (the darkest it gets) and `maxD` (how far it looks);
   `threads(n)`, `prime(list)`, `takeMissed()`, `helperMs`.
 - `Marks(ray, map, max)`: `wall(i, face, x, y, z, stamp)`, `floor(x, y, stamp)`.
-- `Screen(canvas2d, canvasGL, useGL)` shows the picture (`size`, `present`); `planRay(probe, bench)` picks a
-  `Ray` game's starting rung.
+- `Ray` also: `dots(list, idx, size, full)` (a list of `{x, y, z}` specks at once: no number is handed over for each),
+  `far` (how soon textures go over to their smaller selves).
+- `Screen(canvas2d, canvasGL, useGL)` shows the picture: `size(w, h, cw, ch)`, `present(glow, vig)`, `show(ui)`;
+  `planRay(probe, bench)` picks a `Ray` game's starting rung, its canvas (`show`) and its helpers; `heldRay(lines,
+  fps)` is the ladder for a size or a rate held.
 
 **The controller (`pad.js`).** Beyond the buttons and the left stick: `SofaPad.stick2()` (the right stick),
 `SofaPad.trigger("rt")` (how far a trigger is pulled), `SofaPad.button("left")` (the D-pad itself, not the stick),
@@ -352,6 +404,9 @@ make it. What it found in Chrome 157 (V8), each measured in a loop of its own on
   `list.reduce(…)`, an arrow function made inside the frame) is an object each time: Tidewing's `stepRacer` went from
   209 KB a second to 13 with loops by number and no closures.
 - An array or object literal (`[w, h]`, `{x, y}`) is an allocation: return into something made once.
+- A regular expression written in a loop (`/[quy]/.test(c)`) is a new one each time round: compare the letters.
+- A message to a worker copies its typed arrays as it's sent, so the same ones can go again next frame; a `subarray`
+  is a new thing each time (540 a frame, copying a picture's strips row by row): copy a pixel at a time.
 - A call into a big function (one V8 won't inline) with fractional numbers as arguments makes each number anew on
   the heap: a mesh built again every frame through `put(x, y, z, …)` was 2.4 MB a second. Write the place into a
   typed array (`m.s`) and call with whole numbers only (`m.v(r, g, b, a, e)`): stores into typed arrays make nothing.
@@ -548,5 +603,7 @@ once outside the game, kept the boards that have a way to clear them, and the ga
 
 In Low3D's second way: a full look that earns the name (the water bending what's under it is all `rich` adds so
 far; a second picture for the mirror images, ripples on them, detail textures on the land), and draws between
-steps (`E.alpha`) for screens that aren't 60 Hz. In `Ray`: sloped floors. In Low2D: a 3D backdrop drawn by `GL` behind the pixels on the rich look (a tower that
+steps (`E.alpha`) for screens that aren't 60 Hz. In `Ray`: sloped floors; and its picture kept a column at a time
+(a wall's column is then written in order, and a helper's strip comes back as one copy: putting the strips into the
+picture a pixel at a time is the most the page itself spends on a frame now). In Low2D: a 3D backdrop drawn by `GL` behind the pixels on the rich look (a tower that
 turns as you climb), split screens for couch play, slopes. Each one comes with the game that first needs it.

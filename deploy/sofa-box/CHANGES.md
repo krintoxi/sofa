@@ -8,6 +8,53 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.66
+
+Ironmaw, and the engine's software renderer under it (Low3D's Ray). On a real Pi 3 B+, 1.1.60: "def need even more
+optimization, more settings options but also more optimization". Every number below is from `tools/games-bench.mjs`
+on a Mac standing in for a Pi 3 (WebGL 1 only, the box's screen size, the game's work made 20 times as long): none
+is a Pi's.
+
+- **Nothing of the page lies over the game any more.** Its health, armour, weapon, keys, messages, the words in the
+  middle, the map, the cross, a hit's mark, the arcs that say where harm came from, the flashes of colour, the frost
+  at the edges, the arena's score, feed and board, and each player's numbers on a split screen were all pieces of
+  the page over the canvas: 2.07 megapixels for the browser to lay over the game at 1080p, every frame. They're
+  written on the game's own canvas now, with one draw call, and laid out again only when one of them changes.
+- **The picture and its canvas are two sizes.** The canvas is 640 × 360 on a Pi 3 whatever the picture's size (540
+  lines on a Pi 4, the screen's own elsewhere), so the numbers stay sharp over a small picture, and the GPU is asked
+  for one look at the picture for each of the canvas's pixels (it was five, glow or not). Each pixel of the picture
+  is shown as a crisp block at any size, so the picture no longer has to go into the screen a whole number of times.
+- **Pixels are given up before frames.** Ten rungs: 192 × 108 and 240 × 135 at 30, then 192 × 108, 213 × 120, 240 ×
+  135, 267 × 150 and 320 × 180 at 60, then 384 × 216, 480 × 270 and 640 × 360 at 60 with the glow. A Pi 3 starts at
+  240 × 135 and 60 and may climb to 320 × 180 (before, every rung under a Pi 3's top one was 30 a second: 213 × 120,
+  256 × 144 and 320 × 180, with 320 × 180 at 60 only for a Pi whose test was quick).
+- **Far-off floors and ceilings don't crawl.** A texture goes over to smaller selves of itself with distance (blocks
+  of 2, 4, 8 and 16 texels of one colour from its own palette; lights stay lights), picked once a cell, at no cost a
+  pixel.
+- **Options, Picture and speed.** A quality set: Tuned to this box (the light set on a slow box, the full one on the
+  rest), Light, Full, or My own. The picture's size (192 × 108 to 640 × 360) and frames a second (30 or 60) held, or
+  left to the box. The glow, light from shots, sparks and debris, marks left on walls, steam and snow, dark
+  corners, crisp or smooth pixels, drawing on every core or one, and a frame rate counter (the rate, the picture's
+  size, the rung, the work a frame). Kept on the box; worked with a controller or the TV's remote like every menu.
+- **Less for the collector.** Made on the script's heap in a level: 1.1 to 1.2 megabytes a second at 30 frames
+  (37 to 41 KB a frame) before, 0.27 to 0.47 at 60 frames (5 to 8 KB a frame) now; in the arena with seven bots, 2.1
+  megabytes a second before and 0.95 now. More than half of the old figure was the helpers' strips copied a row at
+  a time (540 small things a frame): they're copied a pixel at a time now, the lists sent to the helpers go again
+  instead of being made anew, and the game's own frame makes no camera, no closures, no regular expressions, no
+  lists for an enemy's four ways and no search through the doors. The page's collector comes round 22 to 37 times
+  a minute in a level (it was 37 to 45), 67 in the arena (82).
+- Menus in the box's colours (ink, bone, green, pink), each block a small layer of its own with nothing behind it; the
+  picture under a menu is darkened in the canvas, and under every menu but the title it stands still (nothing is
+  drawn or sent to the screen). A **Games check** button on This box, and a level's or a match's end says how the
+  game ran for the next report.
+- Under a menu that draws nothing the governor no longer judges the frames (it climbed the ladder there, found the
+  top too much when play went on, and kept off it for good): Tidewing's menus too.
+- The harness tells the page's collector pauses from its workers' (each helper has a collector of its own) and sums
+  what the script made on its own heap (`--alloc`). Its memory line is the browser's own count, and for the old Ironmaw it read
+  7.2 megabytes a second in every scene: the picture's own size 30 times a second (the strips counted on their way
+  to and from the helpers, as far as could be told), not garbage. The sampler's sum is the figure to go by.
+- **Not proven on a Pi.** After a card is built: play a level, then Ironmaw, This box, Games check, then Settings,
+  Help, Send a report. The report's `ironmaw ran:` and `Games check:` lines say what the Pi held.
 ## 1.1.65
 
 Sofa Craft with an Xbox controller over Bluetooth. On a real Raspberry Pi 3 B+ (1.1.60) the game loaded and you

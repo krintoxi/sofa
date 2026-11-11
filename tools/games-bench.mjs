@@ -18,7 +18,8 @@
                 frame; 2D canvas pixels filled a frame (drawImage, fillRect, putImageData; before any transform)
      fill       WebGL fragments shaded a frame, opaque and see-through, in screens of the game's own picture (a second
                 run of the scene with every fragment shader's output swapped for a counter, added up and read back)
-     memory     script memory made a second (what the garbage collector will have to clear) and its pauses, once the
+     memory     script memory made a second (what the garbage collector will have to clear) and its pauses (the page's
+                own thread's; its workers' are counted apart: each has a collector of its own), once the
                 game has run a while (--warm N seconds, 25: until then the script engine itself makes garbage, still
                 compiling the game's code; Tidewing's rate falls for some 25 s on a fast Mac before it settles)
      layers     the page's composited layers: how many draw, and their pixels (what the browser puts together each frame
@@ -33,8 +34,10 @@
    --cpu N adds Chrome's own CPU throttling (Emulation.setCPUThrottlingRate), which slows the page's main thread only
    and is not linear for short frames; --slow N sets the engines' #slow.
 
-   --alloc adds where the script memory is made (the functions that make the most, from Chrome's sampling heap
-   profiler); --profile adds where the page's time goes (the functions with the most time of their own).
+   --alloc adds where the script memory is made (the functions that make the most, and the sum, from Chrome's sampling
+   heap profiler: things on the script's own heap. The memory line's figure is the browser's own count, which seems to take
+   in buffers on their way to and from a worker: a game that hands a picture to helpers 30 times a second on a 60 Hz
+   screen showed that picture's size every frame there, in every scene, where the sampler found a sixth of it); --profile adds where the page's time goes (the functions with the most time of their own).
 
    What it cannot do: be a Pi. The GPU here is this computer's (or SwiftShader with --gpu swiftshader), so GPU time is
    not measured at all: what's counted instead is what costs a VC4 time (draw calls, vertices, fragments, uploads,
@@ -307,7 +310,15 @@ async function enter(c, origin, game, scene, slow) {
   await sleep(scene.settle || 2000);
 }
 async function traceGC(c, run) {                         // the garbage collector's pauses while run() goes on
-  const ev = [], take = d => { if (d.method === "Tracing.dataCollected") for (const e of d.params.value) if (/GC|Scaveng|MarkCompact/i.test(e.name || "")) ev.push(e); };
+  // (the page's own thread is told from its workers' by the threads' names: a worker has a collector of its own, and
+  // its pauses stop that worker, not the page)
+  const ev = [], names = new Map(), take = d => {
+    if (d.method !== "Tracing.dataCollected") return;
+    for (const e of d.params.value) {
+      if (e.ph === "M" && e.name === "thread_name") names.set(e.pid + ":" + e.tid, (e.args && e.args.name) || "");
+      else if (/GC|Scaveng|MarkCompact/i.test(e.name || "")) ev.push(e);
+    }
+  };
   c.on(take);
   let traced = true;
   try { await c.send("Tracing.start", { transferMode: "ReportEvents", traceConfig: { recordMode: "recordAsMuchAsPossible", includedCategories: ["v8", "devtools.timeline", "disabled-by-default-v8.gc"], excludedCategories: ["*"] } }); } catch (e) { traced = false; }
@@ -318,9 +329,10 @@ async function traceGC(c, run) {                         // the garbage collecto
   const out = [], open = new Map();
   for (const e of ev.sort((a, b) => a.ts - b.ts)) {
     if (!/^(MinorGC|MajorGC)$/.test(e.name)) continue;
-    if (e.ph === "X") out.push({ name: e.name, ms: (e.dur || 0) / 1000 });
+    const worker = /worker/i.test(names.get(e.pid + ":" + e.tid) || "");
+    if (e.ph === "X") out.push({ name: e.name, ms: (e.dur || 0) / 1000, worker });
     else if (e.ph === "B") open.set(e.tid + e.name, e.ts);
-    else if (e.ph === "E" && open.has(e.tid + e.name)) { out.push({ name: e.name, ms: (e.ts - open.get(e.tid + e.name)) / 1000 }); open.delete(e.tid + e.name); }
+    else if (e.ph === "E" && open.has(e.tid + e.name)) { out.push({ name: e.name, ms: (e.ts - open.get(e.tid + e.name)) / 1000, worker }); open.delete(e.tid + e.name); }
   }
   return traced ? out : null;
 }
@@ -379,12 +391,15 @@ async function measure(port, origin, game, scene) {
       const walk = n => { const fr = n.callFrame, k = (fr.functionName || "(anonymous)") + " " + fr.url.split("/").slice(-2).join("/") + ":" + (fr.lineNumber + 1); if (n.selfSize) sites.set(k, (sites.get(k) || 0) + n.selfSize); (n.children || []).forEach(walk); };
       walk(hp.head);
       res.alloc = [...sites.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12).map(e => ({ fn: e[0], kb_s: Math.round(e[1] / 1024 / secs2) }));
+      res.alloc_kb_s = Math.round([...sites.values()].reduce((a, b) => a + b, 0) / 1024 / secs2);   // all of it: what the script made on its heap
     }
     f.off(onLayer); try { await f.send("LayerTree.disable"); } catch (e) { /* none */ }
     const v = await evalJS(f, "({ heap: window.__bench.ticks.map(t => t[9]), secs: (window.__bench.t1 - window.__bench.t0) / 1000, dpr: devicePixelRatio, vw: innerWidth, vh: innerHeight })");
     let made = 0; for (let i = 1; i < v.heap.length; i++) { const d = v.heap[i] - v.heap[i - 1]; if (d > 0) made += d; }
     res.heap_kb_s = Math.round(made / 1024 / v.secs);
-    res.gc = gcs ? { count: gcs.length, per_min: Math.round(gcs.length * 60 / v.secs), total_ms: r1(gcs.reduce((a, g) => a + g.ms, 0)), worst_ms: r1(gcs.reduce((a, g) => Math.max(a, g.ms), 0)), major: gcs.filter(g => g.name === "MajorGC").length } : null;
+    const sum = list => ({ count: list.length, per_min: Math.round(list.length * 60 / v.secs), total_ms: r1(list.reduce((a, g) => a + g.ms, 0)), worst_ms: r1(list.reduce((a, g) => Math.max(a, g.ms), 0)), major: list.filter(g => g.name === "MajorGC").length });
+    res.gc = gcs ? sum(gcs.filter(g => !g.worker)) : null;            // the page's own thread
+    res.gc_workers = gcs && gcs.some(g => g.worker) ? sum(gcs.filter(g => g.worker)) : null;   // its workers' (Low3D's helpers): each stops a helper, not the page
     if (layers) {
       // what lies over the game's picture: every layer that draws but the page's own ground and the first that fills the
       // screen (the canvas: the browser leaves out what an opaque layer hides)
@@ -424,11 +439,11 @@ function show(r) {
   if (r.canvas2d.px || r.canvas2d.offscreen_px) console.log(`      2D      ${r.canvas2d.screens} screens filled a frame (${r.canvas2d.px} px in ${r.canvas2d.calls} calls; ${r.canvas2d.offscreen_px} px more off screen)`);
   if (r.fill && !r.fill.error) console.log(`      fill    ${r.fill.total} screens of fragments a frame (${r.fill.opaque} opaque + ${r.fill.blended} see-through; worst frame ${r.fill.worst}, deepest pixel ${r.fill.deepest}): ${r.fill.mpx_s_at_60} Mpx/s at 60 fps`);
   if (r.fill && r.fill.error) console.log(`      fill    not measured: ${r.fill.error}`);
-  if (r.heap_kb_s != null) console.log(`      memory  ${r.heap_kb_s} KB/s of script memory made${r.gc ? `; the collector stopped it ${r.gc.per_min} times a minute, worst ${r.gc.worst_ms} ms${r.gc.major ? " (" + r.gc.major + " full)" : ""}` : ""}`);
+  if (r.heap_kb_s != null) console.log(`      memory  ${r.heap_kb_s} KB/s of script memory made${r.gc ? `; the collector stopped it ${r.gc.per_min} times a minute, worst ${r.gc.worst_ms} ms${r.gc.major ? " (" + r.gc.major + " full)" : ""}` : ""}${r.gc_workers ? `; its helpers' own ${r.gc_workers.per_min} times a minute, worst ${r.gc_workers.worst_ms} ms` : ""}`);
   if (r.layers) console.log(`      layers  ${r.layers.over} over the game's picture, ${r.layers.over_mpx} Mpx of them to lay over it each frame${r.layers.list ? " (" + r.layers.list + ")" : ""}`);
   if (r.mem_error) console.log("      memory  not measured: " + r.mem_error);
   if (r.profile) console.log("      time    (ms a second of its own, at this computer's speed) " + r.profile.map(p => p.fn + " " + p.ms_per_s).join("; "));
-  if (r.alloc) console.log("      made by (KB a second) " + r.alloc.map(p => p.fn + " " + p.kb_s).join("; "));
+  if (r.alloc) console.log("      made by (KB a second) " + (r.alloc_kb_s != null ? r.alloc_kb_s + " in all: " : "") + r.alloc.map(p => p.fn + " " + p.kb_s).join("; "));
   if (r.errors && r.errors.length) console.log("      errors  " + r.errors.join(" | "));
 }
 (async () => {

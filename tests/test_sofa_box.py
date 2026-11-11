@@ -1245,6 +1245,32 @@ class BoxBrowser(unittest.TestCase):
         time.sleep(1.5)
         self.assertGreater(js("IM.foes.filter(f => f.k === 'drone').length"), 0)
         self.assertEqual(js("errs.length"), 0)
+        # its numbers and messages are on its own canvas, and nothing of the page lies over the level
+        js("IM.say('A secret!'); IM.center('ALARM<small>The reactor knows its key is gone</small>', 3); 1")
+        time.sleep(0.4)
+        hud = json.loads(js("JSON.stringify({ over: document.querySelectorAll('#view > :not(canvas):not(.hidden)').length, quads: IM.ui.n, said: IM.msgs.map(m => m.t),"
+                            " middle: IM.centerL.map(l => l.t), canvas: [IM.E.screen.cw, IM.E.screen.ch], pic: [IM.E.screen.w, IM.E.screen.h] })"))
+        self.assertEqual(hud["over"], 0, hud)
+        self.assertGreater(hud["quads"], 60, hud)
+        self.assertEqual((hud["said"], hud["middle"]), (["A secret!"], ["ALARM", "The reactor knows its key is gone"]))
+        self.assertGreaterEqual(hud["canvas"][1], hud["pic"][1])          # the canvas is at least the picture's size (what's written on it stays readable)
+        # the picture's options: a size and a rate held, effects of your own, a set
+        js("IM.save().opts.lines = 108; IM.save().opts.rate = 30; IM.pictureChanged('lines'); 1")
+        time.sleep(1.2)
+        held = json.loads(js("JSON.stringify({ h: IM.E.screen.h, fps: IM.E.rung.fps, held: IM.E.held, ladder: IM.E.lad.length })"))
+        self.assertEqual(held, {"h": 108, "fps": 30, "held": True, "ladder": 1})
+        own = json.loads(js("(() => { const o = IM.save().opts; o.debris = 0; IM.pictureChanged('debris'); const a = [o.quality, IM.FX.bits, IM.FX.burst];"
+                            " o.quality = 'full'; IM.pictureChanged('quality'); a.push(o.debris, IM.FX.bits, IM.TUNE.glow); o.quality = 'light'; IM.pictureChanged('quality');"
+                            " a.push(o.debris, IM.FX.bits, IM.TUNE.glow); o.lines = 0; o.rate = 0; o.quality = 'auto'; IM.pictureChanged('lines'); return JSON.stringify(a); })()"))
+        self.assertEqual(own, ["own", 0, 0, 2, 80, 1, 1, 40, 0])
+        time.sleep(1.2)
+        self.assertFalse(js("IM.E.held"))
+        # under a menu that isn't the title, the picture stands still
+        js("window.dispatchEvent(new KeyboardEvent('keydown', { key: 'p' })); 1")
+        time.sleep(0.6)
+        self.assertEqual(json.loads(js("JSON.stringify([IM.state, IM.screen, IM.frozen])")), ["paused", "pause", "pause"])
+        js("IM.go(); 1")
+        self.assertEqual(js("errs.length"), 0)
         js("localStorage.removeItem('ironmaw'); location.hash = '#demo-test'; location.reload(); 1")
         time.sleep(1)
         end = time.time() + 30

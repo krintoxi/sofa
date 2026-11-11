@@ -1,154 +1,87 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Ironmaw</title>
 <style>
-  html, body { margin: 0; height: 100%; overflow: hidden; background: #050304; color: #f1ece6; font: 700 16px/1.2 system-ui, "Segoe UI", sans-serif; }
-  #view { position: absolute; overflow: hidden; background: #000; --u: 5.4px; }
+  /* Ink, bone, phosphor green and hot pink: the box's own colours. Nothing of the page lies over the game: its numbers,
+     its messages, its map and its flashes are drawn on the game's own canvas, and a menu's blocks are each a layer of
+     their own with nothing behind them (the picture under a menu is darkened in the canvas). On a Pi 3 the browser puts
+     every pixel of the page that's over the canvas together again at the TV's size, every frame. */
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0d10; color: #efe6d2; font: 700 16px/1.25 ui-monospace, "DejaVu Sans Mono", "SFMono-Regular", Menlo, Consolas, monospace; }
+  #view { position: absolute; overflow: hidden; background: #0b0d10; --u: 5.4px; --ink: #0b0d10; --bone: #efe6d2; --green: #39ff88; --pink: #ff2e88; }
   #view canvas.world { position: absolute; left: 0; top: 0; width: 100%; height: 100%; display: block; image-rendering: pixelated; }
   #view.smooth canvas.world { image-rendering: auto; }
   .hidden { display: none !important; }
-  #tint { position: absolute; inset: 0; pointer-events: none; opacity: 0; transition: opacity .25s; }
-  #frost { position: absolute; inset: 0; pointer-events: none; opacity: 0; transition: opacity .3s;
-    background: radial-gradient(ellipse at 50% 50%, rgba(160, 220, 255, 0) 45%, rgba(170, 225, 255, .35) 75%, rgba(220, 245, 255, .75) 100%); }
-  /* the HUD: health and armour, keys, the weapon and its ammo, the crosshair */
-  #hud { position: absolute; inset: 0; pointer-events: none; text-shadow: 0 calc(var(--u) * .2) calc(var(--u) * .5) rgba(0, 0, 0, .8); }
-  .stat { position: absolute; bottom: calc(var(--u) * 3); display: flex; align-items: flex-end; gap: calc(var(--u) * 3.5); }
-  #hpBox, #arBox { min-width: calc(var(--u) * 16); }
-  #vitals { left: calc(var(--u) * 3.5); }
-  #arms { right: calc(var(--u) * 3.5); flex-direction: column; align-items: flex-end; gap: calc(var(--u) * .6); }
-  .big { font-size: calc(var(--u) * 8); font-weight: 900; letter-spacing: -.02em; line-height: .9; font-variant-numeric: tabular-nums; }
-  .lbl { font-size: calc(var(--u) * 1.9); opacity: .8; text-transform: uppercase; letter-spacing: .12em; }
-  .meter { width: calc(var(--u) * 16); height: calc(var(--u) * .9); background: rgba(255, 255, 255, .14); border-radius: 1em; overflow: hidden; margin-top: calc(var(--u) * .6); }
-  .meter i { display: block; height: 100%; border-radius: inherit; background: #e8e2d8; transition: width .15s; }
-  #hpBox.low .big { color: #ff5a46; }
-  #hpBox.low .meter i { background: #ff5a46; }
-  #arBox .meter i { background: #6aa8ff; }
-  #ammo { color: #ffd890; }
-  #slots { display: flex; gap: calc(var(--u) * .6); font-size: calc(var(--u) * 2); }
-  #slots span { min-width: calc(var(--u) * 2.6); text-align: center; padding: calc(var(--u) * .15) 0; border-radius: .35em; opacity: .25; background: rgba(255, 255, 255, .12); }
-  #slots span.have { opacity: .75; }
-  #slots span.on { opacity: 1; background: #ffd890; color: #1a1008; text-shadow: none; }
-  #wname { font-size: calc(var(--u) * 2.4); opacity: .9; }
-  #keys { position: absolute; bottom: calc(var(--u) * 3.6); left: 50%; transform: translateX(-50%); display: flex; gap: calc(var(--u) * 1); }
-  #keys i { width: calc(var(--u) * 2.6); height: calc(var(--u) * 3.6); border-radius: .3em; box-shadow: 0 0 calc(var(--u) * 1) currentColor; background: currentColor; }
-  #cross { position: absolute; left: 50%; top: 50%; width: calc(var(--u) * 3); height: calc(var(--u) * 3); transform: translate(-50%, -50%); }
-  #cross::before, #cross::after { content: ""; position: absolute; background: rgba(255, 255, 255, .85); box-shadow: 0 0 2px #000; }
-  #cross::before { left: 50%; top: 15%; bottom: 15%; width: 2px; margin-left: -1px; clip-path: polygon(0 0, 100% 0, 100% 35%, 0 35%, 0 65%, 100% 65%, 100% 100%, 0 100%); }
-  #cross::after { top: 50%; left: 15%; right: 15%; height: 2px; margin-top: -1px; clip-path: polygon(0 0, 35% 0, 35% 100%, 0 100%, 0 0, 65% 0, 100% 0, 100% 100%, 65% 100%); }
-  #cross.on::before, #cross.on::after { background: #ffd890; }
-  #hit { position: absolute; left: 50%; top: 50%; width: calc(var(--u) * 4.4); height: calc(var(--u) * 4.4); transform: translate(-50%, -50%) rotate(45deg); opacity: 0; }
-  #hit::before, #hit::after { content: ""; position: absolute; background: #fff; }
-  #hit::before { left: 50%; top: 0; bottom: 0; width: 2px; margin-left: -1px; clip-path: polygon(0 0, 100% 0, 100% 30%, 0 30%, 0 70%, 100% 70%, 100% 100%, 0 100%); }
-  #hit::after { top: 50%; left: 0; right: 0; height: 2px; margin-top: -1px; clip-path: polygon(0 0, 30% 0, 30% 100%, 0 100%, 0 0, 70% 0, 100% 0, 100% 100%, 70% 100%); }
-  #hit.kill::before, #hit.kill::after { background: #ff5a46; }
-  .dmg { position: absolute; left: 50%; top: 50%; width: calc(var(--u) * 26); height: calc(var(--u) * 26); margin: calc(var(--u) * -13) 0 0 calc(var(--u) * -13); border-radius: 50%;
-    border: calc(var(--u) * 1.2) solid transparent; border-top-color: rgba(255, 50, 30, .85); opacity: 0; transition: opacity .5s; }
-  #msg { position: absolute; left: calc(var(--u) * 3.5); top: calc(var(--u) * 3); font-size: calc(var(--u) * 2.6); max-width: 60%; }
-  #msg div { margin-bottom: calc(var(--u) * .5); transition: opacity .4s; }
-  #center { position: absolute; left: 0; right: 0; top: 28%; text-align: center; font-size: calc(var(--u) * 4.6); font-weight: 900; letter-spacing: .04em; }
-  #center small { display: block; font-size: .5em; font-weight: 700; opacity: .85; margin-top: .3em; letter-spacing: 0; }
-  #map { position: absolute; inset: 6% 10%; width: 80%; height: 88%; opacity: .92; }
-  /* the arena: the score, the feed, the board, a split screen's views each with its own numbers */
-  #score { position: absolute; left: 0; right: 0; top: calc(var(--u) * 2.2); text-align: center; font-size: calc(var(--u) * 2.5); opacity: .92; }
-  #feed { position: absolute; right: calc(var(--u) * 3); top: calc(var(--u) * 8); font-size: calc(var(--u) * 2.2); text-align: right; max-width: 44%; }
-  #feed div { margin-bottom: calc(var(--u) * .4); background: rgba(10, 6, 4, .45); padding: calc(var(--u) * .2) calc(var(--u) * 1); border-radius: .3em; display: inline-block; clear: both; float: right; }
-  #board { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); background: rgba(8, 4, 3, .88); padding: calc(var(--u) * 2) calc(var(--u) * 4); border-radius: calc(var(--u) * 1); }
-  #board table, table.results { border-collapse: collapse; font-size: calc(var(--u) * 2.6); min-width: calc(var(--u) * 50); }
-  #board td, table.results td, table.results th { padding: calc(var(--u) * .4) calc(var(--u) * 1.6); text-align: right; }
-  #board td:first-child, table.results td:first-child { text-align: left; }
-  table.results th { font-size: .7em; opacity: .7; font-weight: 700; text-transform: uppercase; letter-spacing: .1em; }
-  table.results tr.me td { background: rgba(255, 216, 144, .14); }
-  table.results small { opacity: .6; font-size: .7em; }
-  #arena .item.row { min-width: calc(var(--u) * 80); }
-  .joins { font-size: calc(var(--u) * 2.3); opacity: .85; margin: 0; }
-  #hud.split > .stat, #hud.split > #keys, #hud.split > #cross, #hud.split > #hit, #hud.split > .dmg, #hud.split > #msg { display: none; }
-  #hud.split #score { top: 50%; transform: translateY(-50%); font-size: calc(var(--u) * 2); pointer-events: none; }
-  #hud.split #feed { top: auto; bottom: calc(var(--u) * 50 + var(--u) * 2); right: 50%; transform: translateX(50%); text-align: center; }
-  .phud { position: absolute; overflow: hidden; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .6); }
-  .phud .ptint { position: absolute; inset: 0; opacity: 0; transition: opacity .25s; }
-  .phud .pcross { position: absolute; left: 50%; top: 50%; width: calc(var(--u) * 2); height: calc(var(--u) * 2); margin: calc(var(--u) * -1) 0 0 calc(var(--u) * -1); border: 2px solid rgba(255, 255, 255, .7); border-radius: 50%; }
-  .phud .pcross.on { border-color: #ffd890; }
-  .phud .pmsg { position: absolute; left: 0; right: 0; top: 30%; text-align: center; font-size: calc(var(--u) * 3.6); font-weight: 900; }
-  .phud .pname { position: absolute; left: calc(var(--u) * 1.5); top: calc(var(--u) * 1.2); font-size: calc(var(--u) * 2); }
-  .phud .pstat { position: absolute; left: calc(var(--u) * 1.5); bottom: calc(var(--u) * 1.2); font-size: calc(var(--u) * 2); }
-  .phud .parm { position: absolute; right: calc(var(--u) * 1.5); bottom: calc(var(--u) * 1.2); font-size: calc(var(--u) * 2); text-align: right; }
-  .phud b { font-size: 1.8em; font-variant-numeric: tabular-nums; } .phud .pam { color: #ffd890; }
-  .phud span { opacity: .75; margin: 0 .5em 0 .25em; font-size: .85em; }
-  .phud.q b { font-size: 1.3em; } .phud.down { background: rgba(60, 0, 0, .25); }
-  #fps { position: absolute; right: calc(var(--u) * 3.5); top: calc(var(--u) * 2.5); font: 600 calc(var(--u) * 1.9) ui-monospace, monospace; opacity: .8; text-align: right; white-space: pre; }
   /* menus */
-  .screen { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: calc(var(--u) * 2);
-    background: radial-gradient(ellipse at 50% 40%, rgba(40, 12, 6, .35), rgba(4, 2, 2, .82)); }
-  .screen.solid { background: rgba(8, 4, 3, .9); }
-  h1.logo { margin: 0; font-size: calc(var(--u) * 14); font-weight: 900; letter-spacing: .14em; color: #f4e6d8;
-    text-shadow: 0 calc(var(--u) * .5) 0 #7a2410, 0 0 calc(var(--u) * 4) rgba(255, 110, 30, .55); }
-  .tag { margin: calc(var(--u) * -1) 0 calc(var(--u) * 2); font-size: calc(var(--u) * 2.6); opacity: .85; letter-spacing: .06em; max-width: 70%; text-align: center; }
-  h2 { margin: 0 0 calc(var(--u) * 1); font-size: calc(var(--u) * 5); font-weight: 900; letter-spacing: .06em; }
-  .menu { display: flex; flex-direction: column; gap: calc(var(--u) * 1.1); min-width: calc(var(--u) * 46); }
-  .item { box-sizing: border-box; padding: calc(var(--u) * 1.3) calc(var(--u) * 3); border-radius: calc(var(--u) * .8); font-size: calc(var(--u) * 3.2);
-    background: rgba(255, 255, 255, .06); border: calc(var(--u) * .3) solid rgba(255, 255, 255, .08); text-align: center; transition: transform .1s, background .1s; }
-  .item.on { background: #ffd890; color: #1a0e06; border-color: #fff4e0; transform: scale(1.04); }
-  .item.row { display: flex; justify-content: space-between; gap: calc(var(--u) * 4); text-align: left; min-width: calc(var(--u) * 74); font-size: calc(var(--u) * 2.8); }
-  .item small { display: block; font-size: .6em; font-weight: 600; opacity: .75; margin-top: .2em; }
-  .item.locked { opacity: .35; }
+  .screen { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: calc(var(--u) * 2); text-transform: uppercase; letter-spacing: .04em; }
+  .screen > * { will-change: transform; }
+  h1.logo { margin: 0; padding: 0 calc(var(--u) * 2); font-size: calc(var(--u) * 14); font-weight: 900; letter-spacing: .16em; color: var(--bone); line-height: 1;
+    text-shadow: calc(var(--u) * .7) calc(var(--u) * .7) 0 var(--pink); border-bottom: calc(var(--u) * .6) solid var(--green); }
+  .tag { margin: 0; padding: calc(var(--u) * .4) calc(var(--u) * 1.4); font-size: calc(var(--u) * 2.2); letter-spacing: .08em; max-width: calc(var(--u) * 130); text-align: center; background: rgba(11, 13, 16, .7); }
+  h2 { margin: 0 0 calc(var(--u) * .5); padding: 0 calc(var(--u) * 1.5); font-size: calc(var(--u) * 5); font-weight: 900; letter-spacing: .1em; border-left: calc(var(--u) * 1.2) solid var(--pink); }
+  .menu { display: flex; flex-direction: column; gap: calc(var(--u) * .9); min-width: calc(var(--u) * 46); }
+  .item { box-sizing: border-box; padding: calc(var(--u) * 1.1) calc(var(--u) * 3); font-size: calc(var(--u) * 2.9); background: rgba(11, 13, 16, .82);
+    border: calc(var(--u) * .3) solid rgba(239, 230, 210, .22); color: inherit; text-align: center; }
+  .item.on { background: var(--green); color: var(--ink); border-color: var(--bone); box-shadow: calc(var(--u) * .7) calc(var(--u) * .7) 0 var(--pink); }
+  .item.row { display: flex; justify-content: space-between; gap: calc(var(--u) * 4); text-align: left; min-width: calc(var(--u) * 78); font-size: calc(var(--u) * 2.6); }
+  .item.row b { font-weight: 800; }
+  .item small { display: block; font-size: .62em; font-weight: 600; opacity: .8; margin-top: .2em; text-transform: none; letter-spacing: 0; }
+  .item.locked { opacity: .4; }
+  /* the two lists of options: a good many rows, so each is slim */
+  #options .menu, #picture .menu { gap: calc(var(--u) * .55); }
+  #options .item, #picture .item { padding: calc(var(--u) * .55) calc(var(--u) * 2.4); font-size: calc(var(--u) * 2.3); border-width: calc(var(--u) * .25); min-width: calc(var(--u) * 92); }
+  #options h2, #picture h2 { font-size: calc(var(--u) * 4); }
+  .note { margin: 0; padding: calc(var(--u) * .3) calc(var(--u) * 1.4); font-size: calc(var(--u) * 1.9); max-width: calc(var(--u) * 140); text-align: center; text-transform: none; letter-spacing: 0; background: rgba(11, 13, 16, .7); color: var(--green); }
   #levelList { flex-direction: row; gap: calc(var(--u) * 3); min-width: 0; align-items: flex-start; }
-  #levelList .ep { display: flex; flex-direction: column; gap: calc(var(--u) * .9); width: calc(var(--u) * 58); }
-  #levelList .eph { font-size: calc(var(--u) * 2.2); letter-spacing: .16em; text-transform: uppercase; opacity: .7; text-align: center; margin-bottom: calc(var(--u) * .3); }
-  #levelList .item { font-size: calc(var(--u) * 2.5); padding: calc(var(--u) * .8) calc(var(--u) * 2); }
-  .hint { position: absolute; bottom: calc(var(--u) * 3.5); left: 0; right: 0; text-align: center; font-size: calc(var(--u) * 2.3); opacity: .85; }
-  kbd { display: inline-block; min-width: 1.4em; padding: 0 .35em; border-radius: .35em; background: rgba(255, 244, 224, .92); color: #1a0e06; font: inherit; font-weight: 900; text-align: center; }
-  table.box { border-collapse: collapse; font-size: calc(var(--u) * 2.2); max-width: calc(var(--u) * 150); font-weight: 600; }
+  #levelList .ep { display: flex; flex-direction: column; gap: calc(var(--u) * .9); width: calc(var(--u) * 62); }
+  #levelList .eph { font-size: calc(var(--u) * 2.2); letter-spacing: .16em; color: var(--green); text-align: center; margin-bottom: calc(var(--u) * .3); }
+  #levelList .item { font-size: calc(var(--u) * 2.4); padding: calc(var(--u) * .8) calc(var(--u) * 2); }
+  .hint { position: absolute; bottom: calc(var(--u) * 3); left: 50%; transform: translateX(-50%); margin: 0; padding: calc(var(--u) * .5) calc(var(--u) * 1.6); white-space: nowrap; font-size: calc(var(--u) * 2.1); background: rgba(11, 13, 16, .7); }
+  kbd { display: inline-block; min-width: 1.4em; padding: 0 .4em; background: var(--bone); color: var(--ink); font: inherit; font-weight: 900; text-align: center; }
+  table.box { border-collapse: collapse; font-size: calc(var(--u) * 2.1); max-width: calc(var(--u) * 156); text-transform: none; letter-spacing: 0; }
   table.box td { padding: calc(var(--u) * .35) calc(var(--u) * 1.6); vertical-align: top; }
-  table.box td:first-child { opacity: .7; white-space: nowrap; text-align: right; }
-  table.box td:last-child { font-weight: 800; word-break: break-word; }
-  .tally { font-size: calc(var(--u) * 3.2); display: grid; grid-template-columns: auto auto; gap: calc(var(--u) * .8) calc(var(--u) * 4); }
-  .tally b { text-align: right; color: #ffd890; font-variant-numeric: tabular-nums; }
+  table.box td:first-child { color: var(--green); white-space: nowrap; text-align: right; text-transform: uppercase; }
+  table.box td:last-child { font-weight: 700; word-break: break-word; }
+  table.results { border-collapse: collapse; font-size: calc(var(--u) * 2.6); min-width: calc(var(--u) * 60); background: rgba(11, 13, 16, .78); }
+  table.results td, table.results th { padding: calc(var(--u) * .5) calc(var(--u) * 1.8); text-align: right; }
+  table.results td:first-child { text-align: left; }
+  table.results th { font-size: .7em; color: var(--green); font-weight: 700; }
+  table.results tr.me td { background: rgba(255, 46, 136, .22); }
+  table.results small { opacity: .7; font-size: .7em; }
+  #arena .item.row { min-width: calc(var(--u) * 84); }
+  .joins { font-size: calc(var(--u) * 2.1); margin: 0; padding: calc(var(--u) * .3) calc(var(--u) * 1.4); background: rgba(11, 13, 16, .7); text-transform: none; letter-spacing: 0; }
+  .tally { font-size: calc(var(--u) * 3.2); display: grid; grid-template-columns: auto auto; gap: calc(var(--u) * .8) calc(var(--u) * 4); padding: calc(var(--u) * 1.5) calc(var(--u) * 4); background: rgba(11, 13, 16, .78); }
+  .tally b { text-align: right; color: var(--green); font-variant-numeric: tabular-nums; }
   .row-buttons { display: flex; gap: calc(var(--u) * 2); }
-  .controls { font-size: calc(var(--u) * 2.2); opacity: .8; text-align: center; line-height: 1.5; max-width: 80%; font-weight: 600; }
-  #loading { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: calc(var(--u) * 2); background: #050304; }
-  #loading .bar { width: calc(var(--u) * 50); height: calc(var(--u) * 1.1); background: rgba(255, 255, 255, .12); border-radius: 1em; overflow: hidden; }
-  #loading .bar i { display: block; height: 100%; width: 0; background: #ff8a3a; border-radius: inherit; transition: width .2s; }
-  #loading p { margin: 0; font-size: calc(var(--u) * 2.6); opacity: .85; }
+  .controls { font-size: calc(var(--u) * 2); text-align: center; line-height: 1.6; max-width: calc(var(--u) * 150); font-weight: 600; text-transform: none; letter-spacing: 0; padding: calc(var(--u) * .5) calc(var(--u) * 1.6); background: rgba(11, 13, 16, .7); }
+  #loading { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: calc(var(--u) * 3); background: #0b0d10; text-transform: uppercase; letter-spacing: .1em; }
+  #loading .bar { width: calc(var(--u) * 50); height: calc(var(--u) * 1.1); background: rgba(239, 230, 210, .16); overflow: hidden; }
+  #loading .bar i { display: block; height: 100%; width: 0; background: var(--green); transition: width .2s; }
+  #loading p { margin: 0; font-size: calc(var(--u) * 2.4); }
 </style></head><body>
 <div id="view">
   <canvas id="gl" class="world hidden"></canvas>
   <canvas id="flat" class="world hidden"></canvas>
-  <div id="tint"></div><div id="frost"></div>
-  <div id="hud" class="hidden">
-    <div id="cross"></div><div id="hit"></div>
-    <div class="dmg" id="dmg0"></div><div class="dmg" id="dmg1"></div><div class="dmg" id="dmg2"></div>
-    <div id="msg"></div><div id="center"></div>
-    <div id="score"></div><div id="feed"></div><div id="phuds"></div>
-    <div id="board" class="hidden"><h2>The board</h2><table id="boardTable"></table></div>
-    <div class="stat" id="vitals">
-      <div id="hpBox"><div class="lbl">Health</div><div class="big" id="hp">100</div><div class="meter"><i id="hpBar"></i></div></div>
-      <div id="arBox"><div class="lbl">Armour</div><div class="big" id="ar">0</div><div class="meter"><i id="arBar"></i></div></div>
-    </div>
-    <div id="keys"></div>
-    <div class="stat" id="arms"><div id="slots"></div><div id="wname">Rivet gun</div><div class="big" id="ammo">50</div></div>
-    <canvas id="map" class="hidden" width="640" height="440"></canvas>
-  </div>
   <div id="title" class="screen hidden">
     <h1 class="logo">IRONMAW</h1><p class="tag">The foundry under the ice went quiet. The furnaces are still burning. Below them, something keeps the ice cold.</p>
     <div class="menu"><div class="item" data-do="new">New game</div><div class="item" data-do="arena">Arena</div><div class="item" data-do="levels">Choose a level</div><div class="item" data-do="options">Options</div><div class="item" data-do="box">This box</div></div>
     <p class="hint" id="titleHint"></p>
   </div>
-  <div id="skill" class="screen solid hidden"><h2>How hard?</h2><div class="menu">
+  <div id="skill" class="screen hidden"><h2>How hard?</h2><div class="menu">
     <div class="item" data-do="skill" data-k="0">Apprentice<small>Fewer of them, and they hit softer</small></div>
     <div class="item" data-do="skill" data-k="1">Journeyman<small>As it was meant</small></div>
     <div class="item" data-do="skill" data-k="2">Ironclad<small>More of them, and they hit harder</small></div></div><p class="hint" id="skillHint"></p></div>
-  <div id="levels" class="screen solid hidden"><h2>Choose a level</h2><div class="menu" id="levelList"></div><p class="hint" id="levelsHint"></p></div>
-  <div id="options" class="screen solid hidden"><h2>Options</h2><div class="menu" id="optList"></div><p class="hint" id="optionsHint"></p></div>
-  <div id="box" class="screen solid hidden"><h2>This box</h2><table class="box" id="boxtable"></table>
-    <div class="row-buttons"><div class="item" data-do="retest">Test again</div><div class="item" data-do="back">Back</div></div><p class="hint" id="boxHint"></p></div>
-  <div id="arena" class="screen solid hidden"><h2>Arena</h2><p class="tag" id="arenaTag"></p><div class="menu" id="arenaList"></div>
+  <div id="levels" class="screen hidden"><h2>Choose a level</h2><div class="menu" id="levelList"></div><p class="hint" id="levelsHint"></p></div>
+  <div id="options" class="screen hidden"><h2>Options</h2><div class="menu" id="optList"></div><p class="hint" id="optionsHint"></p></div>
+  <div id="picture" class="screen hidden"><h2>Picture and speed</h2><div class="menu" id="picList"></div><p class="note" id="picNote"></p><p class="hint" id="pictureHint"></p></div>
+  <div id="box" class="screen hidden"><h2>This box</h2><table class="box" id="boxtable"></table>
+    <div class="row-buttons"><div class="item" data-do="retest">Test again</div><div class="item" data-do="check">Games check</div><div class="item" data-do="back">Back</div></div><p class="hint" id="boxHint"></p></div>
+  <div id="arena" class="screen hidden"><h2>Arena</h2><p class="tag" id="arenaTag"></p><div class="menu" id="arenaList"></div>
     <p class="joins" id="arenaPlayers"></p><p class="hint" id="arenaHint"></p></div>
-  <div id="arenaEnd" class="screen solid hidden"><h2 id="arenaEndTitle"></h2><table class="results" id="arenaTable"></table><p class="tag" id="arenaRec"></p>
+  <div id="arenaEnd" class="screen hidden"><h2 id="arenaEndTitle"></h2><table class="results" id="arenaTable"></table><p class="tag" id="arenaRec"></p>
     <div class="row-buttons"><div class="item" data-do="arenaAgain">Play again</div><div class="item" data-do="arena">Change the match</div><div class="item" data-do="title">Leave</div></div><p class="hint" id="arenaEndHint"></p></div>
   <div id="pause" class="screen hidden"><h2>Paused</h2><div class="menu"><div class="item" data-do="resume">Carry on</div><div class="item" data-do="restart">Start the level again</div>
     <div class="item" data-do="options">Options</div><div class="item" data-do="quit">Leave the level</div></div><div class="controls" id="controls"></div><p class="hint" id="pauseHint"></p></div>
-  <div id="tallyScr" class="screen solid hidden"><h2 id="tallyTitle"></h2><div class="tally" id="tally"></div><div class="row-buttons" id="tallyButtons"></div><p class="hint" id="tallyHint"></p></div>
+  <div id="tallyScr" class="screen hidden"><h2 id="tallyTitle"></h2><div class="tally" id="tally"></div><div class="row-buttons" id="tallyButtons"></div><p class="hint" id="tallyHint"></p></div>
   <div id="loading"><h1 class="logo">IRONMAW</h1><div class="bar"><i id="loadbar"></i></div><p id="loadtext">Getting ready…</p></div>
-  <div id="fps" class="hidden"></div>
 </div>
 <script src="../pad.js"></script>
 <script src="../low3d.js"></script>
@@ -161,6 +94,9 @@
    engine (Low3D's Ray, ../low3d.js) so a Raspberry Pi 3 plays it whether or not it has a GPU, with helpers drawing
    strips of the picture on the processor's other cores; light has colour (lava, ice, alarms), and walls and floors
    keep the marks left on them. On a Pi 4 or 5 it's drawn bigger and WebGL adds a glow round lights and fire.
+   Nothing of the page lies over the game: its numbers, messages, map and flashes are written on its own canvas
+   (Low3D's UI), which is 640 × 360 on a Pi 3 whatever size the picture under them is. Options → Picture and speed
+   holds the picture's size and rate and turns its effects on and off (a Pi 3 starts on the light set).
    Offline; records kept on the box. In the address: #fps, #rung=N, #test (window.IM, for checks), #demo (it plays
    itself), #slow=N and #threads=N (for checks: a slower processor, the helpers). */
 (function () {
@@ -169,7 +105,9 @@ const L3 = window.Low3D, U = L3.U, TAU = U.TAU, clamp = U.clamp, lerp = U.lerp, 
 
 // ---------------------------------------------------------------- what's kept on the box
 const SAVE = "ironmaw";
-function fresh() { return { v: 1, reached: 1, skill: 1, best: {}, opts: { turn: 6, look: 1, assist: 1, invert: 0, rumble: 1, bob: 1, shake: 1, music: 5, sound: 8, crisp: 1, picture: "auto", cores: "auto" } }; }
+function fresh() { return { v: 1, reached: 1, skill: 1, best: {}, opts: { turn: 6, look: 1, assist: 1, invert: 0, rumble: 1, bob: 1, shake: 1, music: 5, sound: 8, crisp: 1, cores: "auto",
+    // the picture: quality "auto" (the light set on a slow box, the full one on the rest), "light", "full", or "own" (what's set below)
+    quality: "auto", lines: 0, rate: 0, glow: 1, lights: 1, debris: 2, marks: 2, weather: 2, vig: 1, fps: 0 } }; }
 let save = fresh();
 try { const j = JSON.parse(localStorage.getItem(SAVE) || "null"); if (j && j.v === 1) save = Object.assign(fresh(), j, { opts: Object.assign(fresh().opts, j.opts || {}) }); } catch (e) { /* a fresh start */ }
 save.arena = Object.assign({ mode: 0, map: 0, bots: 4, skill: 1, limit: 1, time: 1, crews: 0 }, save.arena || {});   // (the arena's last settings)
@@ -275,8 +213,8 @@ function makeTextures() {
   TEX[T_CEILICE] = L3.Tex.make((u, v) => { const pu = u & 31, pv = v & 31; if (pu >= 10 && pu < 22 && pv >= 10 && pv < 22) return C(15, pu === 10 || pu === 21 || pv === 10 || pv === 21 ? 0.45 : 0.75); if (pu === 0 || pv === 0) return C(12, 0.2); return C(1, 0.32 + fb(N1, u, v, 8) * 0.12); });
   TEX[T_ICECEIL] = L3.Tex.make((u, v) => C(9, 0.18 + fb(N3, u, v, 4, 3) * 0.2));
   TEX[T_VENT] = L3.Tex.make((u, v) => { const cx = (u & 15) - 7.5, cy = (v & 15) - 7.5; return cx * cx + cy * cy < 20 ? C(12, 0.06) : C(1, 0.42 + fb(N1, u, v, 8) * 0.12); });
-  TEX[T_RING] = L3.Tex.make((u, v) => { const d = Math.hypot(u - 31.5, v - 31.5); return Math.abs(d - 26) < 2.2 || Math.abs(d - 18) < 1.2 ? C(14, 0.75) : (u & 15) === 0 || (v & 15) === 0 ? C(12, 0.3) : C(0, 0.42 + fb(N1, u, v, 8) * 0.12); });
-  TEX[T_PAD] = L3.Tex.make((u, v) => { const d = Math.hypot(u - 31.5, v - 31.5); return d < 20 ? (((u >> 2) + (v >> 2)) & 1 ? C(12, 0.12) : C(14, 0.45 + (20 - d) * 0.02)) : d < 24 ? C(7, 0.7) : C(1, 0.42 + fb(N1, u, v, 8) * 0.1); });
+  TEX[T_RING] = L3.Tex.make((u, v) => { const d = hyp(u - 31.5, v - 31.5); return Math.abs(d - 26) < 2.2 || Math.abs(d - 18) < 1.2 ? C(14, 0.75) : (u & 15) === 0 || (v & 15) === 0 ? C(12, 0.3) : C(0, 0.42 + fb(N1, u, v, 8) * 0.12); });
+  TEX[T_PAD] = L3.Tex.make((u, v) => { const d = hyp(u - 31.5, v - 31.5); return d < 20 ? (((u >> 2) + (v >> 2)) & 1 ? C(12, 0.12) : C(14, 0.45 + (20 - d) * 0.02)) : d < 24 ? C(7, 0.7) : C(1, 0.42 + fb(N1, u, v, 8) * 0.1); });
   TEX[T_REACTOR] = L3.Tex.make((u, v) => ((u & 15) === 0 || (v & 15) === 0) ? (((u + v) & 7) < 4 ? C(15, 0.5) : C(12, 0.2)) : C(12, 0.26 + fb(N1, u, v, 8) * 0.1));
   TEX[T_PUMP] = L3.Tex.make((u, v) => {
     const x = (u & 31) - 15.5, sh = Math.sqrt(Math.max(0, 1 - (x / 16) ** 2));
@@ -1132,14 +1070,14 @@ function volumes() { synth.volume(save.opts.music / 10, save.opts.sound / 10); }
 // a sound from where it happens: to the left or the right of you, quieter further off (loud: how far it carries)
 function snd(name, x, y, loud) {
   if (x == null) { synth.play(name); return; }
-  const L = ear(x, y), dx = x - L.x, dy = y - L.y, d = Math.hypot(dx, dy), k = loud || 1;
+  const L = ear(x, y), dx = x - L.x, dy = y - L.y, d = hyp(dx, dy), k = loud || 1;
   if (d < 0.6) { synth.play(name); return; }
   const g = clamp(k * 1.3 / (1 + d * d * 0.02 / k), 0, 1), rel = Math.atan2(dy, dx) - L.a;
   synth.play(name, Math.sin(rel) * Math.min(1, d / 2.5) * 0.85, g);
 }
 function ear(x, y) {                               // who hears it: you, or in the arena the player nearest to it
   if (!arena) return P;
-  let best = null, bd = 1e9; for (const F of fighters) if (F.human) { const d = Math.hypot(F.x - x, F.y - y); if (d < bd) { bd = d; best = F; } }
+  let best = null, bd = 1e9; for (const F of fighters) if (F.human) { const d = hyp(F.x - x, F.y - y); if (d < bd) { bd = d; best = F; } }
   return best || P;
 }
 // what's always there: a furnace's roar, the wind, the reactor's hum, water dripping
@@ -1162,16 +1100,39 @@ const mouse = { dx: 0, dy: 0, fire: false, aim: false };
 // ---------------------------------------------------------------- the engine
 const pic = { w: 0, h: 0 };
 const E = L3.game({
-  kind: "ray", id: "ironmaw", view: $("view"), gl: $("gl"), flat: $("flat"), fps: $("fps"), input,
+  kind: "ray", id: "ironmaw", view: $("view"), gl: $("gl"), flat: $("flat"), input,
   loading: { el: $("loading"), bar: $("loadbar"), text: $("loadtext") },
-  picture: () => save.opts.picture, ready, resized, update, draw, paused: () => state !== "play" && state !== "dead" && state !== "done",
+  picture: () => "auto", tune: () => TUNE, ready, resized, update, draw, paused: () => state !== "play" && state !== "dead" && state !== "done",
   missed: () => { let k = ray.takeMissed(); for (const v of views) if (v.ray !== ray) k += v.ray.takeMissed(); return k; },   // (a split screen's views too)
   helperWork: () => { let ms = ray.helperMs; for (const v of views) if (v.ray !== ray) ms = Math.max(ms, v.ray.helperMs); return ms; }
 });
 const ray = new L3.Ray(pal);
 function resized() {
-  ray.size(E.screen.w, E.screen.h, E.screen.u32); pic.w = E.screen.w; pic.h = E.screen.h; E.screen.crisp = !!save.opts.crisp; E.screen.filter(); $("view").classList.toggle("smooth", !save.opts.crisp);
+  ray.size(E.screen.w, E.screen.h, E.screen.u32); pic.w = E.screen.w; pic.h = E.screen.h; E.screen.crisp = !!save.opts.crisp; $("view").classList.toggle("smooth", !save.opts.crisp);
+  frozen = ""; hudVer++;
   if (arena && arena.split && fighters.length) setupViews();          // (a split screen's views follow the picture's size)
+}
+// ---------------------------------------------------------------- the picture's options (Options → Picture and speed)
+// What the player holds of the picture (the engine reads it: the size in lines, the rate, the glow; 0: as the box finds),
+// and how much of each effect there is (FX). Quality "auto" is the light set on a slow box (one that starts under 216
+// lines: a Pi 3) and the full set on the rest; "own" is whatever the rows below it say.
+const TUNE = { lines: 0, fps: 0, glow: 1 };
+const SETS = { light: { glow: 0, lights: 1, debris: 1, marks: 1, weather: 1, vig: 1 }, full: { glow: 1, lights: 1, debris: 2, marks: 2, weather: 2, vig: 1 } };
+const FX = { light: true, lights: true, bits: 40, burst: 10, boom: 6, puffs: 30, flakes: 50, marks: 64, specks: 1 };
+function slowBox() { return !E.plan || E.plan.rung < 7; }
+function tier() {
+  const e = save.opts, q = e.quality;
+  if (q !== "own") { const set = SETS[q === "auto" ? (slowBox() ? "light" : "full") : q] || SETS.full; for (const k in set) e[k] = set[k]; }   // (the rows show the set in use)
+  const d = e.debris, w = e.weather;
+  FX.light = slowBox();                             // (how many players and bots a match takes: the box's own speed, not the options)
+  FX.lights = !!e.lights; FX.bits = [0, 40, 80][d]; FX.burst = [0, 10, 18][d]; FX.boom = [0, 6, 12][d]; FX.specks = d ? 1 : 0;
+  FX.puffs = [0, 30, 70][w]; FX.flakes = [0, 50, 120][w]; FX.marks = [0, 64, 160][e.marks];
+  TUNE.lines = save.opts.lines; TUNE.fps = save.opts.rate; TUNE.glow = e.glow ? 1 : 0; E.vig = e.vig ? 0.35 : 0;
+}
+function newMarks(n) {                             // the marks left on walls and floors (none: nothing is stamped)
+  const mk = new L3.Marks(ray, lv.m, n || FX.marks || 4);
+  if (!n && !FX.marks) { mk.wall = () => {}; mk.floor = () => {}; }
+  return mk;
 }
 
 // ---------------------------------------------------------------- the game's state
@@ -1184,8 +1145,7 @@ let foes = [], items = [], shots = [], booms = [], decor = [], specks = [], bits
 let stats = { kills: 0, killsAll: 0, items: 0, itemsAll: 0, secrets: 0, secretsAll: 0 };
 let flowT = 0, flow = null, slimeT = 0, frameNo = 0;
 const R = Math.random, rr = (a) => a[0] + R() * (a[1] - a[0]);
-const FX = { light: true };                        // the light tier (a Pi 3): fewer bits, flakes, puffs and marks
-function tier() { FX.light = !E.rung || E.rung.h <= 180; }
+const hyp = (a, b) => Math.sqrt(a * a + b * b);     // (not Math.hypot: that makes a number on the heap each call, thousands a second here)
 
 function newFoe(k, x, y, hp) {
   const K = KINDS[k];
@@ -1198,7 +1158,7 @@ function startLevel(k, keep) {
   ray.tex = TEX; ray.sky = def.sky === "cold" ? SKIES.cold : SKIES.fire; ray.maxD = 34; ray.minL = 3;
   const outdoor = def.outdoor || def.snow, cold = def.sky === "cold";
   pal.maps(cold ? (outdoor ? 0x1a2636 : 0x05070c) : (outdoor ? 0x2a1410 : 0x050304), outdoor ? 0.55 : cold ? 0.12 : 0.0); ray.dim = outdoor ? 1.4 : cold ? 1.8 : 2.0;
-  marks = new L3.Marks(ray, lv.m, FX.light ? 64 : 160);
+  marks = newMarks();
   foes = []; items = []; shots = []; booms = []; decor = []; specks = []; bits = []; flakes = []; puffs = []; colds = []; lights = [];
   stats = { kills: 0, killsAll: 0, items: 0, itemsAll: 0, secrets: 0, secretsAll: lv.groups + lv.doors.filter(d => d.secret).length };
   alarm = 0;
@@ -1221,11 +1181,11 @@ function startLevel(k, keep) {
   if (!keep) { P.hp = 100; P.armor = 0; P.owned = [1, 1, 0, 0, 0, 0, 0]; P.ammo = { rivets: 50, shells: 0, cells: 0, slag: 0 }; P.weapon = 1; }
   P.keys = {}; P.z = lv.m.floor[lv.m.at(P.x, P.y)]; P.vx = P.vy = P.vz = 0; P.pitch = 0; P.hurt = 0; P.flash = 0; P.cool = 0; P.swap = 0; P.next = -1; P.quick = 0; P.onLift = null;
   P.land = 0; P.chill = 0; P.shake = 0; P.spin = 0; P.wet = lv.wet[lv.m.at(P.x, P.y)];
-  levelT = 0; deadT = 0; flowT = 0; mapOn = false; $("map").classList.add("hidden");
+  levelT = 0; deadT = 0; flowT = 0; mapOn = false; hudVer++;
   computeFlow();
-  state = "play"; $("hud").classList.remove("hidden"); menu.hide();
+  state = "play"; menu.hide();
   center((def.ep && k === ORDER.findIndex(o => o.ep === def.ep) ? "<small>" + EPISODES[def.ep] + "</small>" : "") + def.name + "<small>" + def.tag + "</small>", 3);
-  music(def.id); ambience(def.amb); E.gov.hold(ray.threaded ? 3000 : 1500); hud(true);   // (the helpers need a moment to get going)
+  music(def.id); ambience(def.amb); E.gov.hold(ray.threaded ? 3000 : 1500); msgs.length = 0; hudVer++;   // (the helpers need a moment to get going)
 }
 function primeHelpers(kinds) {                     // the level's textures and sprites to the helpers now, not when first seen
   if (!ray.threaded) return;
@@ -1241,33 +1201,218 @@ function startAngle(x, y) {                        // face the most open way
 }
 function computeFlow() { flow = lv.m.flow(P.x, P.y, 0.4, 0.55, lv.pass).slice(); }   // (a copy: other ways are worked out with the same buffer)
 
-// ---------------------------------------------------------------- messages and the HUD
-const msgs = [];
-function say(t) { msgs.push({ t, at: performance.now() }); if (msgs.length > 4) msgs.shift(); drawMsgs(); }
-function drawMsgs() { $("msg").innerHTML = msgs.map(m => `<div>${m.t}</div>`).join(""); }
-let centerT = 0;
-function center(html, secs) { $("center").innerHTML = html; centerT = secs || 2; }
-const hudCache = {};
-function setH(id, v, html) { if (hudCache[id] === v) return; hudCache[id] = v; if (html) $(id).innerHTML = v; else $(id).textContent = v; }
-function hud(force) {
-  if (force) for (const k in hudCache) delete hudCache[k];
-  if (!P.human || (arena && arena.split)) return;      // (a split screen's numbers are each view's own)
-  setH("hp", String(Math.max(0, Math.ceil(P.hp)))); $("hpBar").style.width = clamp(P.hp, 0, 100) + "%"; $("hpBox").classList.toggle("low", P.hp <= 25);
-  setH("ar", String(Math.ceil(P.armor))); $("arBar").style.width = clamp(P.armor / 2, 0, 100) + "%";
-  const w = WEAPONS[P.weapon];
-  setH("wname", w.name); setH("ammo", w.ammo ? String(P.ammo[w.ammo]) : "∞");
-  setH("slots", P.owned.map((o, i) => `<span class="${o ? "have" : ""}${i === P.weapon ? " on" : ""}">${i + 1}</span>`).join(""), true);
-  setH("keys", Object.keys(P.keys).map(k => `<i style="color:${KEYCOL[k]}"></i>`).join(""), true);
+// ---------------------------------------------------------------- messages and the HUD: written on the game's own canvas
+// (E.ui, in the canvas's pixels: 640 × 360 on a Pi 3 whatever the picture under it). What stands still (numbers, bars,
+// messages, the score, the map's cells) is laid out again only when one of them changes (hudVer); what moves (the
+// cross, a hit's mark, the arcs that say where harm came from, a flash of colour, frost at the edges) only when it does.
+const INK = 0x0b0d10, BONE = 0xefe6d2, GREEN = 0x39ff88, PINK = 0xff2e88, GREY = 0x9aa096, ICE = 0xc8ebff;
+const KEYHEX = { q: 0xd88848, u: 0x4a7ae8, y: 0xf0c84a };
+const ui = E.ui, msgs = [];
+let hudVer = 0, frozen = "", centerT = 0, centerL = [], fpsLine = "", fpsAt = 0, mapAt = 0, mapGeo = null;
+// words for the picture from words for a page: keys in brackets, no tags
+function plain(t) { return String(t).replace(/<kbd[^>]*>(.*?)<\/kbd>/g, "[$1]").replace(/<[^>]+>/g, "").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/∞/g, "-").replace(/…/g, "...").replace(/[‘’]/g, "'").trim(); }
+// a line with names in their colours (<b style="color:#rrggbb">…</b>): [[text, colour or -1], …]
+function runsOf(html) {
+  const out = [], re = /<b style="color:#([0-9a-f]{6})">(.*?)<\/b>/gi; let at = 0, m;
+  while ((m = re.exec(html))) { if (m.index > at) out.push([plain(html.slice(at, m.index)), -1]); out.push([plain(m[2]), parseInt(m[1], 16)]); at = m.index + m[0].length; }
+  if (at < html.length) out.push([plain(html.slice(at)), -1]);
+  return out;
 }
-let hitT = 0, crossOn = false, frostOn = -1;
-const dmgEls = [$("dmg0"), $("dmg1"), $("dmg2")]; let dmgI = 0;
-function damageFrom(x, y) {                         // a red arc towards where it came from
+function runsWidth(runs, k) { let w = 0; for (let i = 0; i < runs.length; i++) w += ui.width(runs[i][0], k) + (i ? 4 * k : 0); return w; }
+function runsDraw(runs, x, y, k, col, a) { for (let i = 0; i < runs.length; i++) { if (i) x += 3 * k; x = ui.text(runs[i][0], x, y, k, runs[i][1] < 0 ? col : runs[i][1], a, 0, INK); } }
+function say(t) { msgs.push({ t: plain(t), at: performance.now() }); if (msgs.length > 4) msgs.shift(); hudVer++; }
+// words in the middle: the first line big, what's inside <small> under (or over) it
+function center(html, secs) {
+  centerL = []; let big = true;
+  for (const part of String(html).split(/<\/?small>/)) { const t = plain(part); if (t) centerL.push({ t, big }); big = !big; }
+  centerT = secs || 2; hudVer++;
+}
+function hud() { if (P.human) hudVer++; }
+let hitT = 0, hitKill = false;
+const dmgs = [{ a: 0, t: 0 }, { a: 0, t: 0 }, { a: 0, t: 0 }]; let dmgI = 0;
+function damageFrom(x, y) {                         // an arc towards where it came from
   if (!P.human || (arena && arena.split)) return;
-  const el = dmgEls[dmgI++ % 3], a = Math.atan2(y - P.y, x - P.x) - P.a;
-  el.style.transform = "rotate(" + (wrap(a) * 180 / Math.PI).toFixed(0) + "deg)"; el.style.transition = "none"; el.style.opacity = 1;
-  requestAnimationFrame(() => { el.style.transition = "opacity .9s"; el.style.opacity = 0; });
+  const d = dmgs[dmgI++ % 3]; d.a = wrap(Math.atan2(y - P.y, x - P.x) - P.a); d.t = 0.9;
 }
-function tint(col, a) { if (!P.human) return; const t = P.hudEls ? P.hudEls.tint : $("tint"); t.style.transition = "none"; t.style.background = col; t.style.opacity = a; requestAnimationFrame(() => { t.style.transition = "opacity .35s"; t.style.opacity = 0; }); }
+function tint(col, a) { if (!P.human) return; P.tintC = col; P.tintA = a; P.tintT = 0.35; }   // a flash of colour over your view, fading
+// the biggest size of letters (from k down to 1) at which t is no wider than w
+function fitK(t, k, w) { while (k > 1 && ui.width(t, k) > w) k--; return k; }
+// t broken into lines no wider than w at size k (at a space)
+function wrapText(t, k, w) {
+  if (ui.width(t, k) <= w) return [t];
+  const out = []; let line = "";
+  for (const word of t.split(" ")) { const next = line ? line + " " + word : word; if (line && ui.width(next, k) > w) { out.push(line); line = word; } else line = next; }
+  if (line) out.push(line);
+  return out;
+}
+// one player's numbers in x y w h of the canvas (the whole of it, or a split screen's view); small: a quarter of the screen
+function hudNumbers(F, x, y, w, h, s, split) {
+  const k1 = Math.max(1, s - 1), k2 = s, k4 = split ? s + (h > 150 * s ? 1 : 0) : s * 2, m = Math.round(Math.min(w, h) * 0.045), W = WEAPONS[F.weapon];
+  const hp = Math.max(0, Math.ceil(F.hp)), ar = Math.ceil(F.armor), by = y + h - m, bw = 17 * k4, bar = Math.max(2, s);
+  // health and armour: a word, a number, a bar
+  let bx = x + m;
+  ui.text(split ? "HP" : "HEALTH", bx, by - bar - 2 * s - 7 * k4 - 2 * s - 7 * k1, k1, GREY, 1, 0, INK);
+  ui.text(hp, bx, by - bar - 2 * s - 7 * k4, k4, hp <= 25 ? PINK : BONE, 1, 0, INK);
+  ui.rect(bx, by - bar, bw, bar, BONE, 0.18); ui.rect(bx, by - bar, Math.round(bw * clamp(F.hp, 0, 100) / 100), bar, hp <= 25 ? PINK : BONE, 1);
+  bx += bw + 6 * s;
+  ui.text(split ? "AR" : "ARMOUR", bx, by - bar - 2 * s - 7 * k4 - 2 * s - 7 * k1, k1, GREY, 1, 0, INK);
+  ui.text(ar, bx, by - bar - 2 * s - 7 * k4, k4, ar ? GREEN : GREY, 1, 0, INK);
+  ui.rect(bx, by - bar, bw, bar, BONE, 0.18); ui.rect(bx, by - bar, Math.round(bw * clamp(F.armor / 2, 0, 100) / 100), bar, GREEN, 1);
+  // the weapon in hand: which of the seven, its name, what's left for it
+  const rx = x + w - m;
+  ui.text(W.ammo ? F.ammo[W.ammo] : "-", rx, by - 7 * k4, k4, BONE, 1, 1, INK);
+  ui.text(W.name, rx, by - 7 * k4 - 2 * s - 7 * k1, k1, GREEN, 1, 1, INK);
+  if (!split) {
+    const cw = 5 * k1 + 4, top = by - 7 * k4 - 2 * s - 7 * k1 - 3 * s - 7 * k1 - 2;
+    for (let i = 0; i < NW; i++) {
+      const cx = rx - (NW - i) * (cw + 1), on = i === F.weapon;
+      if (on) ui.rect(cx, top - 1, cw, 7 * k1 + 3, GREEN, 1);
+      ui.text(i + 1, cx + cw / 2, top + 1, k1, on ? INK : BONE, on || F.owned[i] ? 1 : 0.28, 0.5);
+    }
+    let n = 0; for (const k in F.keys) n++;         // the keys you hold, in the middle
+    let kx = x + (w - n * 5 * s) / 2;
+    for (const k in F.keys) { ui.rect(kx, by - 6 * s, 3 * s, 6 * s, INK, 1); ui.rect(kx + 1, by - 6 * s + 1, 3 * s - 2, 6 * s - 2, KEYHEX[k], 1); kx += 5 * s; }
+  }
+}
+// what stands still, laid out again when hudVer says so
+function hudStill(W, H) {
+  const s = Math.max(1, Math.round(H / 180)), k1 = Math.max(1, s - 1), k2 = s, m = Math.round(H * 0.045), A = arena;
+  let top = m;
+  if (save.opts.fps || E.showFps) { ui.text(fpsLine, W - m, top, k1, GREEN, 1, 1, INK); top += 7 * k1 + 2 * s; }
+  if (A && A.split) {
+    const fx = W / pic.w, fy = H / pic.h;
+    for (const v of views) {
+      const x = Math.round(v.x * fx), y = Math.round(v.y * fy), w = Math.round(v.w * fx), h = Math.round(v.h * fy), F = v.F;
+      if (!F.alive) ui.rect(x, y, w, h, 0x3c0000, 0.3);
+      ui.frame(x, y, w, h, 1, INK, 0.8);
+      hudNumbers(F, x, y, w, h, s, true);
+      ui.text(F.name, x + Math.round(h * 0.045), y + Math.round(h * 0.045), k1, A.teams ? CREWS[F.team].hex : pal.color(F.ramp * 16 + 11), 1, 0, INK);
+      if (v.msg) ui.text(v.msg, x + w / 2, y + Math.round(h * 0.3), fitK(v.msg, k2 + 1, w * 0.9), BONE, 1, 0.5, INK);
+    }
+  } else {
+    hudNumbers(P, 0, 0, W, H, s, false);
+    let y = m;                                      // what was just said, top left
+    for (const e of msgs) { ui.text(e.t, m, y, fitK(e.t, k2, W * 0.62), BONE, 1, 0, INK); y += 7 * k2 + 2 * s; }
+  }
+  if (A) {                                          // the score, what happened, the board
+    const k = fitK(A.line, k2, W * (A.split ? 0.5 : 0.6)), lw = ui.width(A.line, k), ly = A.split ? Math.round(H / 2 - 3.5 * k) : m;
+    ui.rect(Math.round(W / 2 - lw / 2) - 3 * s, ly - 2 * s, lw + 6 * s, 7 * k + 4 * s, INK, 0.6); ui.text(A.line, W / 2, ly, k, BONE, 1, 0.5);
+    let fy = A.split ? ly + 7 * k + 4 * s : Math.max(top, m + 7 * k2 + 5 * s);
+    for (const e of A.feed) {
+      const fw = runsWidth(e.runs, k1), x0 = A.split ? Math.round(W / 2 - fw / 2) : W - m - fw;
+      ui.rect(x0 - 2 * s, fy - s, fw + 4 * s, 7 * k1 + 2 * s, INK, 0.5); runsDraw(e.runs, x0, fy, k1, BONE, 1); fy += 7 * k1 + 3 * s;
+    }
+    if (A.board) {
+      const rows = ranked(), rh = 7 * k2 + 3 * s, bw = Math.min(W - 4 * m, 150 * k2), bh = (rows.length + 1) * rh + 6 * s + 7 * (k2 + 1), x0 = Math.round((W - bw) / 2), y0 = Math.round((H - bh) / 2);
+      ui.rect(x0, y0, bw, bh, INK, 0.9); ui.rect(x0, y0, 2 * s, bh, PINK, 1);
+      ui.text("THE BOARD", x0 + 6 * s, y0 + 3 * s, k2 + 1, BONE, 1);
+      ui.text("FRAGS", x0 + bw - 40 * k2, y0 + 3 * s + 7, k1, GREEN, 1, 1); ui.text("DOWN", x0 + bw - 6 * s, y0 + 3 * s + 7, k1, GREEN, 1, 1);
+      let ry = y0 + 6 * s + 7 * (k2 + 1) + 2 * s;
+      for (let i = 0; i < rows.length; i++) {
+        const F = rows[i];
+        if (F.human) ui.rect(x0 + 2 * s, ry - s, bw - 2 * s, rh - s, PINK, 0.22);
+        ui.text((i + 1) + ". " + F.name, x0 + 6 * s, ry, k2, A.teams ? CREWS[F.team].hex : pal.color(F.ramp * 16 + 11), 1);
+        ui.text(F.frags, x0 + bw - 40 * k2, ry, k2, BONE, 1, 1); ui.text(F.deaths, x0 + bw - 6 * s, ry, k2, BONE, 1, 1); ry += rh;
+      }
+    }
+  }
+  if (centerT > 0 && centerL.length && !(mapOn && !A)) {   // the words in the middle
+    let y = Math.round(H * 0.27);
+    for (const L of centerL) {
+      const kb = L.big ? fitK(L.t, s * 2 + 1, W * 0.92) : k2;
+      for (const t of L.big ? [L.t] : wrapText(L.t, kb, W * 0.9)) { ui.text(t, W / 2, y, kb, L.big ? BONE : GREEN, 1, 0.5, INK); y += 7 * kb + 3 * s; }
+      y += s;
+    }
+  }
+  if (mapOn && !A) mapStill(W, H, s);
+}
+// the map: where you've been, the walls you've seen (cells of one colour in a row are one block)
+const MAPCOL = [0, 0x8d9189, GREEN, 0x4c5a66, 0xc8a050, 0xd88848, 0x4a7ae8, 0xf0c84a, 0x7a2a1a, 0x2f4a6a, 0x23282e];
+function mapCell(i) {
+  const m = lv.m; if (!m.seen[i]) return 0;
+  if (m.solid[i]) return lv.exits.indexOf(i) >= 0 ? 2 : 1;
+  if (m.mask[i]) return 3;
+  const d = lv.doorAt[i]; if (d) return d;
+  return lv.hurt[i] ? 8 : lv.wet[i] ? 9 : 10;
+}
+function mapStill(W, H, s) {
+  const mw = lv.W, mh = lv.H, c = Math.max(1, Math.floor(Math.min(W * 0.86 / mw, H * 0.8 / mh))), ox = Math.round((W - mw * c) / 2), oy = Math.round((H - mh * c) / 2);
+  if (!lv.doorAt) { lv.doorAt = new Uint8Array(mw * mh); for (const d of lv.doors) lv.doorAt[d.i] = d.key === "q" ? 5 : d.key === "u" ? 6 : d.key === "y" ? 7 : 4; }
+  ui.rect(ox - 3 * s, oy - 3 * s, mw * c + 6 * s, mh * c + 6 * s, INK, 0.9); ui.frame(ox - 3 * s, oy - 3 * s, mw * c + 6 * s, mh * c + 6 * s, 1, GREEN, 0.5);
+  const g = c > 2 ? 1 : 0;
+  for (let y = 0; y < mh; y++) {
+    let x = 0;
+    while (x < mw) {
+      const k = mapCell(y * mw + x); let x1 = x + 1;
+      if (k === 1 || k === 10 || k === 9 || k === 8) while (x1 < mw && mapCell(y * mw + x1) === k) x1++;
+      if (k === 3) ui.rect(ox + x * c + (c >> 2), oy + y * c + (c >> 2), Math.max(1, c >> 1), Math.max(1, c >> 1), MAPCOL[3], 1);
+      else if (k === 1 || k === 2) ui.rect(ox + x * c, oy + y * c, (x1 - x) * c, c, MAPCOL[k], 1);
+      else if (k) ui.rect(ox + x * c, oy + y * c, (x1 - x) * c - g, c - g, MAPCOL[k], k >= 8 ? 0.8 : 1);
+      x = x1;
+    }
+  }
+  mapGeo = { ox, oy, c };
+}
+// what moves: the cross, a hit's mark, where harm came from, a flash, frost, your arrow on the map, a menu's dark
+const DK = new Float64Array(48), DN = new Float64Array(48); let dkN = -1, stillVer = -1, stillSize = 0;
+function drawHud(now) {
+  const W = E.screen.cw, H = E.screen.ch, on = state === "play" || state === "dead" || state === "done", A = arena, split = A && A.split;
+  const dark = menu.at ? (menu.at === "title" ? 1 : 2) : 0;
+  let n = 0;
+  DN[n++] = dark; DN[n++] = on ? 1 : 0;
+  if (on && !dark) {
+    if (split) for (const v of views) { const F = v.F; DN[n++] = F.alive ? 1 : 0; DN[n++] = F.tintT > 0 ? Math.round(F.tintA * F.tintT / 0.35 * 24) + F.tintC * 32 : 0; }
+    else {
+      DN[n++] = P.alive !== false && target(0.035) ? 1 : 0; DN[n++] = hitT > 0 ? (hitKill ? 2 : 1) : 0;
+      DN[n++] = P.tintT > 0 ? Math.round(P.tintA * P.tintT / 0.35 * 24) + P.tintC * 32 : 0;
+      DN[n++] = P.chill > 0 ? Math.round(Math.min(1, P.chill * 0.6) * 10) : 0;
+      for (const d of dmgs) DN[n++] = d.t > 0 ? Math.round(d.t / 0.9 * 12) + Math.round(d.a * 20) * 16 : 0;
+      if (mapOn && !A) { DN[n++] = Math.round(P.x * 8); DN[n++] = Math.round(P.y * 8); DN[n++] = Math.round(P.a * 16); }
+    }
+  }
+  const still = stillVer !== hudVer || stillSize !== W * 8192 + H;
+  let same = !still && n === dkN; if (same) for (let i = 0; i < n; i++) if (DN[i] !== DK[i]) { same = false; break; }
+  if (same) return;
+  for (let i = 0; i < n; i++) DK[i] = DN[i]; dkN = n;
+  if (still) { stillVer = hudVer; stillSize = W * 8192 + H; ui.begin(W, H); if (on) hudStill(W, H); ui.hold(); } else ui.rewind();
+  const s = Math.max(1, Math.round(H / 180));
+  if (dark) ui.rect(0, 0, W, H, INK, dark === 1 ? 0.5 : 0.84);
+  else if (on) {
+    if (split) {
+      const fx = W / pic.w, fy = H / pic.h; let j = 2;
+      for (const v of views) {
+        const x = Math.round(v.x * fx), y = Math.round(v.y * fy), w = Math.round(v.w * fx), h = Math.round(v.h * fy), F = v.F;
+        if (DN[j + 1]) ui.rect(x, y, w, h, F.tintC, F.tintA * F.tintT / 0.35);
+        if (F.alive) cross(x + w / 2, y + h / 2, s, BONE, 0.8);
+        j += 2;
+      }
+    } else {
+      if (P.tintT > 0) ui.rect(0, 0, W, H, P.tintC, P.tintA * P.tintT / 0.35);
+      if (DN[5]) { const f = DN[5] / 10, t = Math.round(H * 0.045); for (let k = 0; k < 3; k++) ui.frame(k * t, k * t, W - 2 * k * t, H - 2 * k * t, t, ICE, f * [0.6, 0.34, 0.14][k]); }   // frost, in from the edges
+      for (const d of dmgs) if (d.t > 0) {            // an arc of five strokes, towards what hurt you
+        const r = H * 0.34, al = Math.min(1, d.t / 0.5) * 0.85;
+        for (let k = -2; k < 2; k++) { const a0 = d.a + k * 0.11, a1 = a0 + 0.11; ui.line(W / 2 + Math.sin(a0) * r, H / 2 - Math.cos(a0) * r, W / 2 + Math.sin(a1) * r, H / 2 - Math.cos(a1) * r, 3 * s, PINK, al); }
+      }
+      if (state !== "dead") cross(W / 2, H / 2, s, DN[2] ? GREEN : BONE, 0.85);
+      if (hitT > 0) { const c = hitKill ? PINK : 0xffffff, a = 3 * s, b = 7 * s; for (let k = 0; k < 4; k++) { const dx = k & 1 ? 1 : -1, dy = k & 2 ? 1 : -1; ui.line(W / 2 + dx * a, H / 2 + dy * a, W / 2 + dx * b, H / 2 + dy * b, s, c, 1); } }
+      if (mapOn && !A && mapGeo) ui.arrow(mapGeo.ox + P.x * mapGeo.c, mapGeo.oy + P.y * mapGeo.c, Math.max(3, mapGeo.c * 0.9), P.a + Math.PI / 2, GREEN, 1);
+    }
+  }
+  ui.end();
+}
+function cross(x, y, s, col, a) {                   // four strokes round the middle
+  x = Math.round(x); y = Math.round(y); const g = 2 * s, l = 3 * s, t = Math.max(1, s);
+  ui.rect(x - g - l, y - (t >> 1), l, t, col, a); ui.rect(x + g, y - (t >> 1), l, t, col, a); ui.rect(x - (t >> 1), y - g - l, t, l, col, a); ui.rect(x - (t >> 1), y + g, t, l, col, a);
+}
+// a few times a second: what was said goes after a while, the rate's line and the map's cells are made again
+function hudTick(now) {
+  while (msgs.length && now - msgs[0].at > 3500) { msgs.shift(); hudVer++; }
+  if ((save.opts.fps || E.showFps) && now - fpsAt > 500) {
+    fpsAt = now; const t = E.gov.fps + " FPS  " + pic.w + "x" + pic.h + "  RUNG " + E.gov.rung + "  " + (E.workNow || 0).toFixed(1) + " MS";
+    if (t !== fpsLine) { fpsLine = t; hudVer++; }
+  }
+  if (mapOn && now - mapAt > 500) { mapAt = now; hudVer++; }
+}
 function rumble(s, w, ms) { if (!save.opts.rumble || !window.SofaPad || !P.human) return; if (arena && arena.split) input.player(P.human).rumble(s, w, ms); else SofaPad.rumble(s, w, ms); }
 function shake(k) { if (save.opts.shake && P.human) P.shake = Math.min(1, P.shake + k); }
 
@@ -1284,7 +1429,7 @@ function onButton(b, how, who) {
   if (state !== "play") return;
   if (how !== "press") return;
   if (b === "start" || b === "back") pause();
-  else if (b === "y" || b === "map" || (b === "down" && input.pad() && window.SofaPad.button("down"))) { mapOn = !mapOn; $("map").classList.toggle("hidden", !mapOn); }
+  else if (b === "y" || b === "map" || (b === "down" && input.pad() && window.SofaPad.button("down"))) { mapOn = !mapOn; mapAt = 0; hudVer++; }
   else if (b === "a" || b === "use" || b === "x") use();
   else if (b === "rb" || (b === "right" && input.pad() && window.SofaPad.button("right"))) cycle(1);
   else if (b === "lb" || (b === "left" && input.pad() && window.SofaPad.button("left"))) cycle(-1);
@@ -1321,11 +1466,11 @@ function hurtPlayer(n, fx, fy, kind, by, how) {
   const absorb = Math.min(P.armor, n / 3); P.armor -= absorb; n -= absorb;
   P.hp -= n; P.hurt = Math.min(1, P.hurt + n / 30);
   if (DEMO && !arena && P.hp < 20) P.hp = 60;        // (a demo never ends in a death)
-  if (kind === "frost") { P.chill = Math.max(P.chill, 1.8); tint("rgba(150,220,255,0.5)", 0.45); } else tint("rgba(200,20,10,0.6)", clamp(n / 25, 0.15, 0.6));
+  if (kind === "frost") { P.chill = Math.max(P.chill, 1.8); tint(0x96dcff, 0.22); } else tint(0xc8140a, clamp(n / 25, 0.15, 0.6) * 0.6);
   rumble(clamp(n / 20, 0.3, 1), 0.5, 160); if (P.human) synth.play("hurt"); shake(clamp(n / 45, 0.08, 0.5));
   if (fx != null) damageFrom(fx, fy);
   if (arena) { if (P.hp <= 0) fighterDown(P, by || null, how || kind || "boom"); hud(); return; }
-  if (P.hp <= 0) { P.hp = 0; state = "dead"; deadT = 0; center("You fell in the Ironmaw<small>" + kb("a") + " to try again</small>", 999); tint("rgba(120,0,0,0.8)", 0.8); }
+  if (P.hp <= 0) { P.hp = 0; state = "dead"; deadT = 0; center("You fell in the Ironmaw<small>" + kb("a") + " to try again</small>", 999); tint(0x780000, 0.64); }
   hud();
 }
 const FLOORSTEP = {};
@@ -1333,12 +1478,15 @@ FLOORSTEP[T_GRATE] = FLOORSTEP[T_VENT] = FLOORSTEP[T_LIFT] = "stepGrate"; FLOORS
 FLOORSTEP[T_SLIME] = FLOORSTEP[T_LAVA] = FLOORSTEP[T_WATER] = "stepWet";
 function controls(dt) {                           // what the one whose turn it is (P) wants: a bot's mind, the demo, or a player's sticks
   if (P.brain) return think(P, dt);
-  if (DEMO && !arena) { const a = pilot(dt); return { st: a.st, turn: a.turn, look: 0, fire: a.fire, aim: false, use: a.use, keys: false, human: false }; }
+  const C = CT;
+  if (DEMO && !arena) { const a = pilot(dt); C.st = a.st; C.turn = a.turn; C.look = 0; C.fire = a.fire; C.aim = false; C.use = a.use; C.keys = false; C.human = false; return C; }
   const kbd = !arena || P.human === 1, pad = arena && arena.split ? input.player(P.human) : input.pad() ? window.SofaPad : null;
-  const st = pad ? pad.stick() : { x: 0, y: 0 }, st2 = pad ? pad.stick2() : { x: 0, y: 0 };
-  return { st, turn: st2.x, look: st2.y, fire: (pad && pad.trigger("rt") > 0.35) || (kbd && (input.key("fire") || mouse.fire)),
-    aim: (pad && pad.trigger("lt") > 0.35) || (kbd && (input.key("aim") || mouse.aim)), use: false, keys: kbd, human: true };
+  const st = pad ? pad.stick() : STILL, st2 = pad ? pad.stick2() : STILL;
+  C.st = st; C.turn = st2.x; C.look = st2.y; C.fire = !!((pad && pad.trigger("rt") > 0.35) || (kbd && (input.key("fire") || mouse.fire)));
+  C.aim = !!((pad && pad.trigger("lt") > 0.35) || (kbd && (input.key("aim") || mouse.aim))); C.use = false; C.keys = kbd; C.human = true;
+  return C;
 }
+const STILL = { x: 0, y: 0 }, CT = { st: STILL, turn: 0, look: 0, fire: false, aim: false, use: false, keys: false, human: false };
 function stepPlayer(dt) {
   const m = lv.m, o = save.opts, ct = controls(dt), st = ct.st, kbd = ct.keys;
   // turning: the right stick (a curve: gentle near the middle, quick at the edge), the keyboard's arrows, a mouse
@@ -1365,16 +1513,16 @@ function stepPlayer(dt) {
   // moving: the left stick (as far as it's pushed), the keys; quick to start, quick to stop; water and cold slow you
   let mf = -st.y, ms = st.x;
   if (kbd) { if (input.key("fwd") || input.key("up")) mf = 1; else if (input.key("rev") || input.key("down")) mf = -1; if (input.key("strafeL")) ms = -1; else if (input.key("strafeR")) ms = 1; }
-  const len = Math.hypot(mf, ms); if (len > 1) { mf /= len; ms /= len; }
+  const len = hyp(mf, ms); if (len > 1) { mf /= len; ms /= len; }
   const ci0 = m.at(P.x, P.y), wading = lv.wet[ci0] && P.z < m.floor[ci0] + 0.05;
   const speed = 3.1 * (1 - P.aim * 0.3) * cold * (wading ? 0.62 : 1), c = Math.cos(P.a), s = Math.sin(P.a);
   const wx = (c * mf - s * ms) * speed, wy = (s * mf + c * ms) * speed, k = 1 - Math.exp(-(len > 0.05 ? 11 : 14) * dt);
   P.vx += (wx - P.vx) * k; P.vy += (wy - P.vy) * k;
   const bx0 = P.x, by0 = P.y;
   m.move(P, P.vx * dt, P.vy * dt, BODY.r, BODY.step, BODY.room);
-  for (const d of decor) if (d.solid && d.hp >= 0) { const dx = P.x - d.x, dy = P.y - d.y, dd = Math.hypot(dx, dy), rr2 = d.r + BODY.r; if (dd < rr2 && dd > 0) { P.x = d.x + dx / dd * rr2; P.y = d.y + dy / dd * rr2; } }
-  for (const f of foes) if (!f.dead && !f.K.fly) { const dx = P.x - f.x, dy = P.y - f.y, dd = Math.hypot(dx, dy), rr2 = f.K.r + BODY.r; if (dd < rr2 && dd > 0) { P.x = f.x + dx / dd * rr2; P.y = f.y + dy / dd * rr2; } }
-  if (arena) for (const F of fighters) if (F !== P && F.alive) { const dx = P.x - F.x, dy = P.y - F.y, dd = Math.hypot(dx, dy), rr2 = BODY.r * 2; if (dd < rr2 && dd > 0) { P.x = F.x + dx / dd * rr2; P.y = F.y + dy / dd * rr2; } }
+  for (let i = 0; i < decor.length; i++) { const d = decor[i]; if (d.solid && d.hp >= 0) { const dx = P.x - d.x, dy = P.y - d.y, dd = hyp(dx, dy), rr2 = d.r + BODY.r; if (dd < rr2 && dd > 0) { P.x = d.x + dx / dd * rr2; P.y = d.y + dy / dd * rr2; } } }
+  for (let i = 0; i < foes.length; i++) { const f = foes[i]; if (!f.dead && !f.K.fly) { const dx = P.x - f.x, dy = P.y - f.y, dd = hyp(dx, dy), rr2 = f.K.r + BODY.r; if (dd < rr2 && dd > 0) { P.x = f.x + dx / dd * rr2; P.y = f.y + dy / dd * rr2; } } }
+  if (arena) for (let i = 0; i < fighters.length; i++) { const F = fighters[i]; if (F !== P && F.alive) { const dx = P.x - F.x, dy = P.y - F.y, dd = hyp(dx, dy), rr2 = BODY.r * 2; if (dd < rr2 && dd > 0) { P.x = F.x + dx / dd * rr2; P.y = F.y + dy / dd * rr2; } } }
   if (!m.open(P.x, P.y, BODY.r, P.z, BODY.step, BODY.room)) { P.x = bx0; P.y = by0; }
   // standing: on the floor (steps up quickly, falls down; a hard landing dips the view)
   const fl = m.floorAt(P.x, P.y, BODY.r * 0.7);
@@ -1384,7 +1532,7 @@ function stepPlayer(dt) {
     if (P.z === fl) { if (P.vz < -2.2) { P.land = Math.min(1, -P.vz / 6); footstep(true); shake(P.land * 0.25); } P.vz = 0; }
   }
   P.land = Math.max(0, P.land - dt * 3);
-  const moving = Math.hypot(P.vx, P.vy) / 3.1;
+  const moving = hyp(P.vx, P.vy) / 3.1;
   P.bob += dt * 8.5 * moving; P.bobK += (moving - P.bobK) * (1 - Math.exp(-8 * dt));
   const ph = Math.floor(P.bob / Math.PI); if (ph !== P.step) { P.step = ph; if (moving > 0.2) footstep(false); }
   // the floor: hot ones hurt (every so often), water splashes, a secret's counted when found
@@ -1399,7 +1547,7 @@ function stepPlayer(dt) {
   m.seen[ci] = 1;
   if (P.chill > 0) P.chill = Math.max(0, P.chill - dt);
   // pick up what's here
-  for (const it of items) if (!it.got && Math.hypot(it.x - P.x, it.y - P.y) < 0.42 && Math.abs(it.z - P.z) < 0.4) take(it);
+  for (let i = 0; i < items.length; i++) { const it = items[i]; if (!it.got && Math.abs(it.x - P.x) < 0.42 && Math.abs(it.y - P.y) < 0.42 && hyp(it.x - P.x, it.y - P.y) < 0.42 && Math.abs(it.z - P.z) < 0.4) take(it); }
   // weapons: switching, winding up, firing
   if (P.swap > 0) { P.swap -= dt; if (P.swap <= 0.16 && P.next >= 0) { P.weapon = P.next; P.next = -1; hud(); } if (P.swap < 0) P.swap = 0; }
   P.cool -= dt; P.kick *= Math.exp(-14 * dt); P.flash = Math.max(0, P.flash - dt); P.fireAnim = Math.max(0, P.fireAnim - dt); P.hurt = Math.max(0, P.hurt - dt * 0.8);
@@ -1432,24 +1580,26 @@ function take(it) {
     if (lv.def.alarm === c && !alarm) { alarm = 1; center("ALARM<small>The reactor knows its key is gone</small>", 3); wakeAll(60); }
   }
   it.got = true; if (!it.drop) stats.items++;
-  if (arena) { it.back = RESPAWN[c] || 15; if (P.human) { if (!/[34567]/.test(c)) synth.play("item"); tint("rgba(255,220,140,0.35)", 0.35); hud(); } else snd("item", P.x, P.y, 0.5); return; }
+  if (arena) { it.back = RESPAWN[c] || 15; if (P.human) { if (!/[34567]/.test(c)) synth.play("item"); tint(BONE, 0.12); hud(); } else snd("item", P.x, P.y, 0.5); return; }
   if (!/[34567quy]/.test(c)) synth.play("item");
-  tint("rgba(255,220,140,0.35)", 0.35); say(t); hud();
+  tint(BONE, 0.12); say(t); hud();
 }
 
 // ---------------------------------------------------------------- shooting
 const HIT = { f: null, F: null, d: 0, wi: -1, wf: -1, decor: null };
 function target(cone) {                            // the enemy nearest the middle of the view, within cone, in sight
   let best = null, bd = cone;
-  for (const f of foes) {
+  for (let i = 0; i < foes.length; i++) {
+    const f = foes[i];
     if (f.dead) continue;
-    const dx = f.x - P.x, dy = f.y - P.y, dist = Math.hypot(dx, dy); if (dist > 22) continue;
+    const dx = f.x - P.x, dy = f.y - P.y, dist = hyp(dx, dy); if (dist > 22) continue;
     const off = Math.abs(wrap(Math.atan2(dy, dx) - P.a)) - Math.atan(f.K.r / dist);
     if (off < bd && lv.m.see(P.x, P.y, P.z + BODY.eye, f.x, f.y, f.z + f.K.h * 0.6)) { bd = off; best = f; }
   }
-  if (arena) for (const F of fighters) {
+  if (arena) for (let i = 0; i < fighters.length; i++) {
+    const F = fighters[i];
     if (F === P || !F.alive || ally(F, P)) continue;
-    const dx = F.x - P.x, dy = F.y - P.y, dist = Math.hypot(dx, dy); if (dist > 22) continue;
+    const dx = F.x - P.x, dy = F.y - P.y, dist = hyp(dx, dy); if (dist > 22) continue;
     const off = Math.abs(wrap(Math.atan2(dy, dx) - P.a)) - Math.atan(0.24 / dist);
     if (off < bd && lv.m.see(P.x, P.y, P.z + BODY.eye, F.x, F.y, F.z + 0.5)) { bd = off; best = F; }
   }
@@ -1504,7 +1654,7 @@ function fire() {
   if (w.beam) { lance(P.a, w); hud(); return; }
   if (w.proj) {
     const tg = target(0.2), a = P.a, sp = w.proj.speed;
-    const vz = tg ? clamp(((tg.z + (tg.K ? tg.K.h : 0.9) * 0.5) - (P.z + BODY.eye - 0.08)) / Math.max(0.5, Math.hypot(tg.x - P.x, tg.y - P.y)) * sp, -6, 6) : P.pitch * 12;
+    const vz = tg ? clamp(((tg.z + (tg.K ? tg.K.h : 0.9) * 0.5) - (P.z + BODY.eye - 0.08)) / Math.max(0.5, hyp(tg.x - P.x, tg.y - P.y)) * sp, -6, 6) : P.pitch * 12;
     shots.push({ x: P.x + Math.cos(a) * 0.3, y: P.y + Math.sin(a) * 0.3, z: P.z + BODY.eye - 0.08, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, vz, mine: true, dmg: w.proj.dmg, splash: w.proj.splash, radius: w.proj.radius, spr: "slag", life: 4, by: P });
     hud(); return;
   }
@@ -1523,7 +1673,7 @@ function fire() {
     }
     if (w.tracer) for (let k = 1; k < Math.min(h.d, 12); k += 0.9) specks.push({ x: P.x + Math.cos(a) * k, y: P.y + Math.sin(a) * k, z: P.z + BODY.eye - 0.06, vx: 0, vy: 0, vz: 0, life: 0.05, idx: 15 * 16 + 14, size: 0.035, full: 1 });
   }
-  if (any && P.human && !(arena && arena.split)) { hitT = 0.12; $("hit").classList.toggle("kill", kill); }
+  if (any && P.human && !(arena && arena.split)) { hitT = 0.12; hitKill = kill; }
   hud();
 }
 function lance(a, w) {                              // a beam of cold: everything in its way, to the wall
@@ -1545,16 +1695,17 @@ function lance(a, w) {                              // a beam of cold: everythin
   for (let k = 0.6; k < wall; k += 0.3) { specks.push({ x: P.x + c * k, y: P.y + s * k, z: ez - 0.08 + Math.sin(k * 3) * 0.02, vx: 0, vy: 0, vz: 0, life: 0.2, idx: 15 * 16 + 13, size: 0.05, full: 1 }); if ((k * 10 | 0) % 6 === 0) colds.push({ x: P.x + c * k, y: P.y + s * k, t: 0.25 }); }
   if (wi >= 0) marks.wall(wi, wf, P.x + c * wall, P.y + s * wall, ez, { r: 12, kind: "frost", ramp: 8 });
   shake(0.15);
-  if (hits && P.human && !(arena && arena.split)) { hitT = 0.15; $("hit").classList.toggle("kill", kill); }
+  if (hits && P.human && !(arena && arena.split)) { hitT = 0.15; hitKill = kill; }
 }
 // spent rivets and shells, flying out to the right and bouncing
 function casing(ramp) {
-  if (bits.length > (FX.light ? 40 : 80)) return;
+  if (bits.length >= FX.bits) return;
   const c = Math.cos(P.a), s = Math.sin(P.a), rx = -s, ry = c;
   bits.push({ x: P.x + c * 0.28 + rx * 0.16, y: P.y + s * 0.28 + ry * 0.16, z: P.z + BODY.eye - 0.14, vx: rx * (1.2 + R()) + c * 0.3, vy: ry * (1.2 + R()) + s * 0.3, vz: 1 + R() * 0.8,
     life: 1.4, idx: ramp * 16 + 10 + (R() * 3 | 0), size: 0.022, full: 0, b: 0, tink: 1 });
 }
 function speck(x, y, z, ramp, n, full) {
+  if (!FX.specks) return;
   for (let k = 0; k < n; k++) specks.push({ x, y, z, vx: (R() - 0.5) * 1.6, vy: (R() - 0.5) * 1.6, vz: 0.4 + R() * 1.4, life: 0.35 + R() * 0.3, idx: ramp * 16 + 8 + (R() * 6 | 0), size: 0.03 + R() * 0.02, full: full ? 1 : 0 });
 }
 function damage(f, n, fx, fy, kind) {              // true when it dies
@@ -1581,7 +1732,7 @@ function die(f, kind, n) {
   if (f.k === "coldheart") bossDown("The Coldheart breaks", "The cold goes out of the ice. Above you, the furnaces wake.");
 }
 function burst(f) {                                 // broken apart: glowing slag from flesh, metal and sparks from machines
-  const n = (FX.light ? 10 : 18) * (f.K.boss ? 3 : 1);
+  const n = FX.burst * (f.K.boss ? 3 : 1);
   for (let k = 0; k < n; k++) bits.push({ x: f.x, y: f.y, z: f.z + f.K.h * 0.5, vx: (R() - 0.5) * 4, vy: (R() - 0.5) * 4, vz: 1 + R() * 3, life: 1.2 + R() * 1.2,
     idx: (k & 1 ? 14 : f.K.flesh ? 13 : 1) * 16 + 8 + (R() * 6 | 0), size: 0.05 + R() * 0.04, full: k & 1 ? 1 : 0, b: 0 });
   if (f.K.flesh && !f.K.boss) f.gone = 1;            // nothing left to lie there
@@ -1593,24 +1744,24 @@ function explode(x, y, z, dmg, radius, owner) {
   if (arena) {                                         // (in a match: every fighter near it feels it, and is harmed in reach)
     const keep = P, by = owner && owner.name ? owner : null;
     for (const F of fighters) {
-      if (!F.alive) continue; P = F; const d = Math.hypot(F.x - x, F.y - y);
+      if (!F.alive) continue; P = F; const d = hyp(F.x - x, F.y - y);
       if (d < 6) rumble(clamp(1 - d / 6, 0.2, 1), 0.8, 300); shake(clamp(1 - d / 8, 0, 1) * 0.8);
       if (d < radius && lv.m.see(x, y, z + 0.2, F.x, F.y, F.z + 0.4)) hurtPlayer(dmg * (1 - d / radius) * (F === by ? 0.5 : 1), x, y, null, by, "slag");
     }
     P = keep;
   }
-  const pd = Math.hypot(P.x - x, P.y - y); if (!arena && pd < 6) rumble(clamp(1 - pd / 6, 0.2, 1), 0.8, 300);
+  const pd = hyp(P.x - x, P.y - y); if (!arena && pd < 6) rumble(clamp(1 - pd / 6, 0.2, 1), 0.8, 300);
   if (!arena) shake(clamp(1 - pd / 8, 0, 1) * 0.8);
-  for (const f of foes) { if (f.dead) continue; const d = Math.hypot(f.x - x, f.y - y); if (d < radius && lv.m.see(x, y, z + 0.2, f.x, f.y, f.z + 0.4)) damage(f, dmg * (1 - d / radius), x, y, "splash"); }
+  for (const f of foes) { if (f.dead) continue; const d = hyp(f.x - x, f.y - y); if (d < radius && lv.m.see(x, y, z + 0.2, f.x, f.y, f.z + 0.4)) damage(f, dmg * (1 - d / radius), x, y, "splash"); }
   if (!arena && pd < radius && lv.m.see(x, y, z + 0.2, P.x, P.y, P.z + 0.4)) hurtPlayer(dmg * (1 - pd / radius) * (owner === "player" ? 0.5 : 1), x, y);
-  for (const d of decor) if (d.c === "x" && d.hp > 0 && Math.hypot(d.x - x, d.y - y) < radius) { d.hp = 0; setTimeout(() => { if (d.hp === 0) { d.hp = -1; explode(d.x, d.y, 0.3, 80, 1.9, null); } }, 120); }
+  for (const d of decor) if (d.c === "x" && d.hp > 0 && hyp(d.x - x, d.y - y) < radius) { d.hp = 0; setTimeout(() => { if (d.hp === 0) { d.hp = -1; explode(d.x, d.y, 0.3, 80, 1.9, null); } }, 120); }
   marks.floor(x, y, { r: Math.min(44, radius * 22), kind: "scorch" });
-  for (let k = 0; k < (FX.light ? 6 : 12); k++) bits.push({ x, y, z: z + 0.2, vx: (R() - 0.5) * 5, vy: (R() - 0.5) * 5, vz: 1.5 + R() * 3, life: 0.8 + R() * 0.8, idx: 14 * 16 + 9 + (R() * 6 | 0), size: 0.04, full: 1, b: 0 });
+  for (let k = 0; k < FX.boom; k++) bits.push({ x, y, z: z + 0.2, vx: (R() - 0.5) * 5, vy: (R() - 0.5) * 5, vz: 1.5 + R() * 3, life: 0.8 + R() * 0.8, idx: 14 * 16 + 9 + (R() * 6 | 0), size: 0.04, full: 1, b: 0 });
   lightBurst(x, y, 12, 0.35);
 }
 let lights = [];
 function lightBurst(x, y, add, secs) { lights.push({ x, y, add, t: secs, max: secs }); }
-function wakeAll(radius) { for (const f of foes) if (!f.dead && f.st === "idle" && Math.hypot(f.x - P.x, f.y - P.y) < radius && (radius < 4 || lv.m.see(P.x, P.y, P.z + 0.5, f.x, f.y, f.z + 0.5) || Math.hypot(f.x - P.x, f.y - P.y) < radius * 0.5)) { f.st = "chase"; f.wake = 1; } }
+function wakeAll(radius) { for (const f of foes) if (!f.dead && f.st === "idle" && hyp(f.x - P.x, f.y - P.y) < radius && (radius < 4 || lv.m.see(P.x, P.y, P.z + 0.5, f.x, f.y, f.z + 0.5) || hyp(f.x - P.x, f.y - P.y) < radius * 0.5)) { f.st = "chase"; f.wake = 1; } }
 
 // ---------------------------------------------------------------- the enemies
 function flyOK(f, x, y) { const m = lv.m, i = m.at(x, y); return !m.solid[i] && !m.mask[i] && m.ceil[i] - m.floor[i] > 0.6 && m.ceil[i] > f.z + 0.15; }
@@ -1621,13 +1772,15 @@ function walk(f, dx, dy) {                          // a step: walkers on the fl
   if (flyOK(f, f.x, f.y + dy + Math.sign(dy) * f.K.r)) f.y += dy; else ok = false;
   return ok;
 }
+const OX4 = [1, -1, 0, 0], OY4 = [0, 0, 1, -1];       // the four ways from a cell
+function doorIn(i) { return (lv.doorMap || (lv.doorMap = new Map(lv.doors.map(d => [d.i, d])))).get(i); }   // the door in cell i, if there's one
 function stepFoe(f, dt) {
   const K = f.K, m = lv.m;
   if (f.frozen > 0) { f.frozen -= dt; dt *= 0.35; }    // in the lance's cold: everything slower
   f.anim += dt; f.t -= dt; f.cd -= dt; f.bob += dt * 3;
   if (f.dead) { f.t += dt * 2; return; }
   if (K.fly) { const goal = m.floorAt(f.x, f.y, 0.1) + K.fly + Math.sin(f.bob) * 0.08, top = m.ceil[m.at(f.x, f.y)] - K.h - 0.08; f.z += (Math.min(goal, top) - f.z) * Math.min(1, dt * 3); }
-  const dx = P.x - f.x, dy = P.y - f.y, dist = Math.hypot(dx, dy);
+  const dx = P.x - f.x, dy = P.y - f.y, dist = hyp(dx, dy);
   f.seenT = (f.seenT || 0) - dt;
   if (f.seenT <= 0) { f.seenT = 0.2; f.seen = dist < K.sight && m.see(f.x, f.y, f.z + K.h * 0.8, P.x, P.y, P.z + BODY.eye) ? 1 : 0; }
   const sees = f.seen;
@@ -1649,8 +1802,8 @@ function stepFoe(f, dt) {
   let tx = P.x, ty = P.y;
   if (!sees || dist > 4) {
     const i = m.at(f.x, f.y), cx = i % lv.W, cy = (i / lv.W) | 0; let bd = flow[i] >= 0 ? flow[i] : 1e9, bx = -1, by = -1;
-    for (const [ox, oy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const j = (cy + oy) * lv.W + cx + ox, v = flow[j]; if (v >= 0 && v < bd) { bd = v; bx = cx + ox; by = cy + oy; } }
-    if (bx >= 0) { tx = bx + 0.5; ty = by + 0.5; const dr = lv.doors.find(o => o.i === by * lv.W + bx); if (dr && dr.open < 0.6) { openDoor(dr, false); return; } }
+    for (let k = 0; k < 4; k++) { const ox = OX4[k], oy = OY4[k], j = (cy + oy) * lv.W + cx + ox, v = flow[j]; if (v >= 0 && v < bd) { bd = v; bx = cx + ox; by = cy + oy; } }
+    if (bx >= 0) { tx = bx + 0.5; ty = by + 0.5; const dr = doorIn(by * lv.W + bx); if (dr && dr.open < 0.6) { openDoor(dr, false); return; } }
   }
   const a = Math.atan2(ty - f.y, tx - f.x);
   f.a = K.shield && sees ? Math.atan2(dy, dx) : a;     // (a bulwark keeps its plate towards you)
@@ -1686,7 +1839,7 @@ function attack(f, dist, sees) {
   if (!sees) return;
   if (K.attack === "shot") {
     snd("eshot", f.x, f.y, 1.5); lightBurst(f.x, f.y, 6, 0.08);
-    for (let s = 0; s < K.shots; s++) { const miss = clamp(dist / 18, 0.15, 0.7) + Math.hypot(P.vx, P.vy) * 0.05; if (R() > miss) hurtPlayer(rr(K.dmg) * mult, f.x, f.y); }
+    for (let s = 0; s < K.shots; s++) { const miss = clamp(dist / 18, 0.15, 0.7) + hyp(P.vx, P.vy) * 0.05; if (R() > miss) hurtPlayer(rr(K.dmg) * mult, f.x, f.y); }
     return;
   }
   const z0 = f.z + K.h * (K.glowAt || 0.55);
@@ -1701,7 +1854,7 @@ function attack(f, dist, sees) {
   if (K.attack === "frost") { snd("frost", f.x, f.y, 3); const n = f.phase === 2 ? 4 : 3; for (let k = -n; k <= n; k++) fireBall(a + k * 0.11, 7.5, K.dmg.map(v => v * mult), "frost", { frost: 1 }); }
   if (K.attack === "bomb") {                          // a lob: it arcs, bounces, and goes off
     snd("lob", f.x, f.y);
-    const lead = Math.min(1, dist / 8), tx = P.x + P.vx * 0.5 * lead, ty = P.y + P.vy * 0.5 * lead, dd = Math.hypot(tx - f.x, ty - f.y), T = Math.max(0.5, dd / 6), b = Math.atan2(ty - f.y, tx - f.x);
+    const lead = Math.min(1, dist / 8), tx = P.x + P.vx * 0.5 * lead, ty = P.y + P.vy * 0.5 * lead, dd = hyp(tx - f.x, ty - f.y), T = Math.max(0.5, dd / 6), b = Math.atan2(ty - f.y, tx - f.x);
     shots.push({ x: f.x + Math.cos(b) * 0.3, y: f.y + Math.sin(b) * 0.3, z: z0 + 0.2, vx: Math.cos(b) * dd / T, vy: Math.sin(b) * dd / T, vz: ((P.z - z0) + 4.5 * T * T) / T, g: 9, mine: false,
       dmg: K.dmg.map(v => v * mult), splash: 1, radius: 1.9, spr: "bomb", life: 2.6, fuse: 9, bomb: 1 });
   }
@@ -1718,21 +1871,21 @@ function stepShots(dt) {
       const fl = m.floorAt(nx, ny, 0.05);
       if (nz < fl + 0.06) { nz = fl + 0.06; if (s.vz < -1) { s.vz = -s.vz * 0.42; snd("tick", nx, ny); } else s.vz = 0; s.vx *= 0.6; s.vy *= 0.6; if (s.fuse > 1) s.fuse = 0.9; }
       s.fuse -= dt; s.x = nx; s.y = ny; s.z = nz;
-      if (s.fuse <= 0 || s.life <= 0 || Math.hypot(P.x - s.x, P.y - s.y) < 0.4) { explode(s.x, s.y, s.z, rr(s.dmg), s.radius, "foe"); shots.splice(i, 1); }
+      if (s.fuse <= 0 || s.life <= 0 || hyp(P.x - s.x, P.y - s.y) < 0.4) { explode(s.x, s.y, s.z, rr(s.dmg), s.radius, "foe"); shots.splice(i, 1); }
       else if ((s.fuse * 8 | 0) !== (s.blink || 0)) { s.blink = s.fuse * 8 | 0; lightBurst(s.x, s.y, 3, 0.05); }
       continue;
     }
     let hit = s.life <= 0 || m.trace(s.x, s.y, s.z, nx, ny, nz) < 1;
-    if (!hit && s.mine) for (const f of foes) { if (!f.dead && Math.hypot(f.x - nx, f.y - ny) < f.K.r + 0.12 && nz > f.z - 0.1 && nz < f.z + f.K.h + 0.1) { hit = true; damage(f, rr(s.dmg), s.x, s.y); break; } }
+    if (!hit && s.mine) for (const f of foes) { if (!f.dead && hyp(f.x - nx, f.y - ny) < f.K.r + 0.12 && nz > f.z - 0.1 && nz < f.z + f.K.h + 0.1) { hit = true; damage(f, rr(s.dmg), s.x, s.y); break; } }
     if (!hit && arena) for (const F of fighters) {
       if (!F.alive || F === s.by || ally(s.by, F)) continue;
-      if (Math.hypot(F.x - nx, F.y - ny) < BODY.r + 0.12 && nz > F.z - 0.1 && nz < F.z + 0.8) {
+      if (hyp(F.x - nx, F.y - ny) < BODY.r + 0.12 && nz > F.z - 0.1 && nz < F.z + 0.8) {
         hit = true; if (!s.splash) { const keep = P; P = F; hurtPlayer(rr(s.dmg), s.x, s.y, s.frost ? "frost" : null, s.by || s.from || null, s.by ? "boom" : null); P = keep; }
         break;
       }
     }
-    if (!hit && !arena && !s.mine && Math.hypot(P.x - nx, P.y - ny) < BODY.r + 0.12 && nz > P.z - 0.1 && nz < P.z + 0.8) { hit = true; hurtPlayer(rr(s.dmg), s.x, s.y, s.frost ? "frost" : null); }
-    if (!hit && s.mine) for (const d of decor) if (d.c === "x" && d.hp > 0 && Math.hypot(d.x - nx, d.y - ny) < 0.22) { hit = true; hitDecor(d, 100); break; }
+    if (!hit && !arena && !s.mine && hyp(P.x - nx, P.y - ny) < BODY.r + 0.12 && nz > P.z - 0.1 && nz < P.z + 0.8) { hit = true; hurtPlayer(rr(s.dmg), s.x, s.y, s.frost ? "frost" : null); }
+    if (!hit && s.mine) for (const d of decor) if (d.c === "x" && d.hp > 0 && hyp(d.x - nx, d.y - ny) < 0.22) { hit = true; hitDecor(d, 100); break; }
     if (hit) {
       if (s.splash) explode(s.x, s.y, s.z, s.splash, s.radius, arena ? s.by || null : "player");
       else { speck(s.x, s.y, s.z, s.frost || s.spr === "zap" ? 15 : 14, 6, true); if (m.hitI >= 0) marks.wall(m.hitI, m.hitFace, s.x, s.y, s.z, s.frost ? { r: 8, kind: "frost", ramp: 8 } : { r: 5, kind: "scorch" }); }
@@ -1764,7 +1917,7 @@ function stepWorld(dt) {
     if (!v.on && v.t <= 0) { v.on = 1.4; v.t = 2.6 + R() * 3 * (frosty && alarm ? 0.5 : 1); snd("hiss", v.x, v.y, 0.8); }
     if (v.on > 0) {
       v.on -= dt;
-      if (puffs.length < (FX.light ? 30 : 70) && R() < dt * 18) puffs.push({ x: v.x + (R() - 0.5) * 0.5, y: v.y + (R() - 0.5) * 0.5, z: m.floor[v.i] + 0.05, vz: 0.9 + R() * 0.6, life: 1.4, max: 1.4, cold: frosty });
+      if (puffs.length < FX.puffs && R() < dt * 18) puffs.push({ x: v.x + (R() - 0.5) * 0.5, y: v.y + (R() - 0.5) * 0.5, z: m.floor[v.i] + 0.05, vz: 0.9 + R() * 0.6, life: 1.4, max: 1.4, cold: frosty });
       v.hurtT = (v.hurtT || 0) + dt;
       if (v.hurtT > 0.45) { v.hurtT = 0; const keep = P; for (const F of arena ? fighters : [P]) if ((!arena || F.alive) && m.at(F.x, F.y) === v.i && F.z < m.floor[v.i] + 0.3) { P = F; hurtPlayer(frosty ? 5 : 6, v.x, v.y, frosty ? "frost" : null, null, "steam"); } P = keep; }
     }
@@ -1778,13 +1931,13 @@ function stepWorld(dt) {
   }
   // snow, round you, where there's sky over you
   if (lv.def.snow) {
-    const want = FX.light ? 50 : 120;
+    const want = FX.flakes;
     for (let k = 0; flakes.length < want && k < 6; k++) {
       const x = P.x + (R() - 0.5) * 12, y = P.y + (R() - 0.5) * 12; if (!m.inside(x, y)) continue;
       const i = m.at(x, y); if (m.solid[i] || m.ctex[i] !== SKY) continue;
       flakes.push({ x, y, z: P.z + 1.4 + R() * 1.2, vz: -(0.5 + R() * 0.4), ph: R() * 6, i });
     }
-    for (let i = flakes.length - 1; i >= 0; i--) { const q = flakes[i]; q.z += q.vz * dt; q.ph += dt; q.x += Math.sin(q.ph) * 0.15 * dt; if (q.z < m.floor[q.i] || Math.hypot(q.x - P.x, q.y - P.y) > 8) flakes.splice(i, 1); }
+    for (let i = flakes.length - 1; i >= 0; i--) { const q = flakes[i]; q.z += q.vz * dt; q.ph += dt; q.x += Math.sin(q.ph) * 0.15 * dt; if (q.z < m.floor[q.i] || hyp(q.x - P.x, q.y - P.y) > 8) flakes.splice(i, 1); }
   }
   // bits and spent cases: flying, bouncing, lying a while
   for (let i = bits.length - 1; i >= 0; i--) {
@@ -1812,15 +1965,24 @@ function stepWorld(dt) {
   if (ambKind === "drip" && R() < dt * 0.6) snd("tick", P.x + (R() - 0.5) * 10, P.y + (R() - 0.5) * 10, 0.5);
 }
 function bodyIn(i) { const m = lv.m; if (m.at(P.x, P.y) === i) return true; if (arena) for (const F of fighters) if (F.alive && m.at(F.x, F.y) === i) return true; for (const f of foes) if (!f.dead && !f.K.fly && m.at(f.x, f.y) === i) return true; return false; }
+function addLight(x, y, v, r, t) {
+  const m = lv.m, W = lv.W, H = lv.H;
+  for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+    const cx = (x | 0) + dx, cy = (y | 0) + dy; if (cx < 0 || cy < 0 || cx >= W || cy >= H) continue;
+    const j = cy * W + cx, k = Math.abs(dx) + Math.abs(dy); m.dyn[j] = Math.min(31, m.dyn[j] + Math.max(0, v - k * 3)); if (t && k <= r - 1) m.dtint[j] = t;
+  }
+}
 function lighting() {                              // this frame's light on top of the level's: shots, flashes, explosions, and their colours
-  const m = lv.m, W = lv.W, H = lv.H; m.dyn.fill(0);
+  const m = lv.m; m.dyn.fill(0);
   m.dtint.fill(alarm && state !== "title" && (levelT % 0.9) < 0.45 ? TI.alarm : 0);
-  const add = (x, y, v, r, t) => { for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) { const cx = (x | 0) + dx, cy = (y | 0) + dy; if (cx < 0 || cy < 0 || cx >= W || cy >= H) continue; const j = cy * W + cx, k = Math.abs(dx) + Math.abs(dy); m.dyn[j] = Math.min(31, m.dyn[j] + Math.max(0, v - k * 3)); if (t && k <= r - 1) m.dtint[j] = t; } };
-  for (const F of arena ? fighters : [P]) if (F.flash > 0) add(F.x, F.y, 9, 2, WEAPONS[F.weapon].cold ? TI.cryo : TI.lamp);
-  if (arena && lv.ring.length && typeof arena.holder === "number") for (const i of lv.ring) m.dtint[i] = arena.holder === 0 ? TI.ember : TI.cryo;
-  for (const l of lights) add(l.x, l.y, l.add * clamp(l.t / l.max * 1.5, 0, 1), 2, l.add >= 10 ? TI.ember : 0);
-  for (const c of colds) add(c.x, c.y, 4, 1, TI.cryo);
-  for (const f of foes) if (!f.dead && (f.frozen > 0 || (f.k === "coldheart" && f.open > 0))) add(f.x, f.y, f.open > 0 ? 6 : 0, 1, TI.cryo);
+  if (FX.lights) {
+    if (arena) { for (let i = 0; i < fighters.length; i++) { const F = fighters[i]; if (F.flash > 0) addLight(F.x, F.y, 9, 2, WEAPONS[F.weapon].cold ? TI.cryo : TI.lamp); } }
+    else if (P.flash > 0) addLight(P.x, P.y, 9, 2, WEAPONS[P.weapon].cold ? TI.cryo : TI.lamp);
+    for (let i = 0; i < lights.length; i++) { const l = lights[i]; addLight(l.x, l.y, l.add * clamp(l.t / l.max * 1.5, 0, 1), 2, l.add >= 10 ? TI.ember : 0); }
+  }
+  if (arena && lv.ring.length && typeof arena.holder === "number") for (let i = 0; i < lv.ring.length; i++) m.dtint[lv.ring[i]] = arena.holder === 0 ? TI.ember : TI.cryo;
+  for (let i = 0; i < colds.length; i++) addLight(colds[i].x, colds[i].y, 4, 1, TI.cryo);
+  for (let i = 0; i < foes.length; i++) { const f = foes[i]; if (!f.dead && (f.frozen > 0 || (f.k === "coldheart" && f.open > 0))) addLight(f.x, f.y, f.open > 0 ? 6 : 0, 1, TI.cryo); }
 }
 function finishLevel() {
   if (state !== "play") return;
@@ -1837,22 +1999,22 @@ function bossDown(title, line) { alarm = 0; center(title + "<small>" + line + "<
 let demo = { goal: null, t: 0, flowT: 0, df: null, stuck: 0, lx: 0, ly: 0, use: 0 };
 function pilot(dt) {                                // which way to go, where to look, when to fire
   const out = { st: { x: 0, y: 0 }, turn: 0, fire: false, use: false };
-  const t = target(0.6) || foes.filter(f => !f.dead && f.seen && Math.hypot(f.x - P.x, f.y - P.y) < 14).sort((a, b) => Math.hypot(a.x - P.x, a.y - P.y) - Math.hypot(b.x - P.x, b.y - P.y))[0];
+  const t = target(0.6) || foes.filter(f => !f.dead && f.seen && hyp(f.x - P.x, f.y - P.y) < 14).sort((a, b) => hyp(a.x - P.x, a.y - P.y) - hyp(b.x - P.x, b.y - P.y))[0];
   demo.flowT -= dt;
   if (!t && demo.flowT <= 0) {                        // no one in sight: walk the flow towards the nearest one left (or an exit)
     demo.flowT = 0.6; const live = foes.filter(f => !f.dead && !f.K.fly);
-    const goal = live.sort((a, b) => Math.hypot(a.x - P.x, a.y - P.y) - Math.hypot(b.x - P.x, b.y - P.y))[0];
+    const goal = live.sort((a, b) => hyp(a.x - P.x, a.y - P.y) - hyp(b.x - P.x, b.y - P.y))[0];
     demo.df = goal ? lv.m.flow(goal.x, goal.y, 0.4, 0.55, lv.pass).slice() : null;
   }
   let want = P.a;
-  if (t) { want = Math.atan2(t.y - P.y, t.x - P.x); const off = Math.abs(wrap(want - P.a)); out.fire = off < 0.08; out.st.y = Math.hypot(t.x - P.x, t.y - P.y) > 5 ? -0.6 : 0.2; out.st.x = Math.sin(levelT * 0.8) * 0.5; }
+  if (t) { want = Math.atan2(t.y - P.y, t.x - P.x); const off = Math.abs(wrap(want - P.a)); out.fire = off < 0.08; out.st.y = hyp(t.x - P.x, t.y - P.y) > 5 ? -0.6 : 0.2; out.st.x = Math.sin(levelT * 0.8) * 0.5; }
   else if (demo.df) {
     const m = lv.m, i = m.at(P.x, P.y), cx = i % lv.W, cy = (i / lv.W) | 0; let bd = demo.df[i] >= 0 ? demo.df[i] : 1e9, bx = -1, by = -1;
-    for (const [ox, oy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const j = (cy + oy) * lv.W + cx + ox, v = demo.df[j]; if (v >= 0 && v < bd) { bd = v; bx = cx + ox; by = cy + oy; } }
+    for (let k = 0; k < 4; k++) { const ox = OX4[k], oy = OY4[k], j = (cy + oy) * lv.W + cx + ox, v = demo.df[j]; if (v >= 0 && v < bd) { bd = v; bx = cx + ox; by = cy + oy; } }
     if (bx >= 0) { want = Math.atan2(by + 0.5 - P.y, bx + 0.5 - P.x); out.st.y = -0.85; }
   }
   const d = wrap(want - P.a); out.turn = clamp(d * 2.4, -1, 1);
-  demo.stuck = Math.hypot(P.x - demo.lx, P.y - demo.ly) < 0.01 && Math.abs(out.st.y) > 0.3 ? demo.stuck + dt : 0; demo.lx = P.x; demo.ly = P.y;
+  demo.stuck = hyp(P.x - demo.lx, P.y - demo.ly) < 0.01 && Math.abs(out.st.y) > 0.3 ? demo.stuck + dt : 0; demo.lx = P.x; demo.ly = P.y;
   if (demo.stuck > 0.4) { out.use = true; out.st.x = 0.8; demo.stuck = 0; }
   if (P.weapon !== bestWeapon() && P.next < 0) pick(bestWeapon());
   demoT += dt; if (demoT > 75 && state === "play") demoNext();
@@ -1866,35 +2028,50 @@ function update(dt) {
   if (arena) {
     if (!arena.over) arenaUpdate(dt);
     curFoe = null; stepShots(dt); stepWorld(dt); P = arena.me;
-    if (centerT > 0) { centerT -= dt; if (centerT <= 0) $("center").innerHTML = ""; }
-    hitT = Math.max(0, hitT - dt); return;
+    for (const v of views) if (v.F.tintT > 0) v.F.tintT -= dt;
+    hudStep(dt); return;
   }
   if (state === "play") { levelT += dt; stepPlayer(dt); }
   if (state === "dead") { deadT += dt; P.z = Math.max(P.z - dt * 0.6, lv.m.floor[lv.m.at(P.x, P.y)] - 0.3); }
   flowT -= dt; if (flowT <= 0) { flowT = 0.4; computeFlow(); }
-  for (const f of foes) stepFoe(f, dt);
+  for (let i = 0; i < foes.length; i++) stepFoe(foes[i], dt);
   stepShots(dt); stepWorld(dt);
-  if (centerT > 0) { centerT -= dt; if (centerT <= 0) $("center").innerHTML = ""; }
-  hitT = Math.max(0, hitT - dt);
+  if (P.tintT > 0) P.tintT -= dt;
+  hudStep(dt);
 }
-const PRJ = new Float32Array(3);
+function hudStep(dt) {                             // the HUD's own clocks
+  if (centerT > 0) { centerT -= dt; if (centerT <= 0) hudVer++; }
+  hitT = Math.max(0, hitT - dt);
+  for (let i = 0; i < 3; i++) if (dmgs[i].t > 0) dmgs[i].t -= dt;
+}
+const PRJ = new Float32Array(3); let hudAt = 0;
 function draw(now) {
-  if (!lv) return;
+  if (!lv) return false;
+  // Under a menu that isn't the title the picture stands still: it's drawn once, darkened, and left (nothing is drawn
+  // and nothing is sent to the screen until the menu changes or goes).
+  const still = menu.at && menu.at !== "title" ? menu.at : "";
+  if (still && frozen === still) return false;
   if (state === "title") { P.a += 0.003; P.z = lv.m.floor[lv.m.at(P.x, P.y)]; P.pitch = 0; P.aim = 0; P.bobK = 0; P.shake = 0; P.land = 0; }
   lighting();
-  if (arena) { arenaDraw(now); return; }
-  drawView(ray, now, pic.w, pic.h, 1.62);
-  crossHair();
-  if (mapOn) drawMap();
-  if (now - (draw.hudAt || 0) > 120) { draw.hudAt = now; hudTick(now); }
+  if (arena) arenaDraw(now);
+  else {
+    drawView(ray, now, pic.w, pic.h, 1.62);
+    if (now - hudAt > 120) { hudAt = now; hudTick(now); }
+  }
+  drawHud(now);
+  frozen = still && (!ray.threaded || ray.drew > 0) ? still : "";
 }
 // the world from P's eyes into r (vw × vh): walls and floors, everything in it, and the weapon in hand
 function drawView(r, now, vw, vh, fov) {
   const bob = save.opts.bob ? Math.sin(P.bob) * 0.012 * P.bobK : 0, sh = P.shake * P.shake;
-  const cam = { x: P.x, y: P.y, z: P.z + BODY.eye + bob - P.land * 0.05, a: P.a + (sh ? (R() - 0.5) * 0.04 * sh : 0), pitch: P.pitch + (state === "dead" || (arena && !P.alive) ? -0.05 : 0) + (sh ? (R() - 0.5) * 0.04 * sh : 0), fov: fov - P.aim * 0.34 * fov / 1.62 };
+  // (nothing here is made anew each frame: the camera is the view's own, and the lists are walked by number)
+  const cam = r.eye || (r.eye = { x: 0, y: 0, z: 0, a: 0, pitch: 0, fov: 0 });
+  cam.x = P.x; cam.y = P.y; cam.z = P.z + BODY.eye + bob - P.land * 0.05; cam.a = P.a + (sh ? (R() - 0.5) * 0.04 * sh : 0);
+  cam.pitch = P.pitch + (state === "dead" || (arena && !P.alive) ? -0.05 : 0) + (sh ? (R() - 0.5) * 0.04 * sh : 0); cam.fov = fov - P.aim * 0.34 * fov / 1.62;
   r.render(lv.m, cam);
   const m = lv.m;
-  for (const f of foes) {                           // the enemies: which way they face from here, walking, hurting, falling
+  for (let n = 0; n < foes.length; n++) {            // the enemies: which way they face from here, walking, hurting, falling
+    const f = foes[n];
     if (f.gone) continue;
     const d2 = (f.x - P.x) ** 2 + (f.y - P.y) ** 2; if (d2 > 900) continue;
     const S = SPR[f.k], i = m.at(f.x, f.y), L = m.light[i] + m.dyn[i] + (f.K.boss ? 8 : 0);
@@ -1910,15 +2087,13 @@ function drawView(r, now, vw, vh, fov) {
       r.sprite(cold ? ITEMS.chargeCold : ITEMS.charge, f.x + Math.cos(f.a) * f.K.r, f.y + Math.sin(f.a) * f.K.r, f.z + f.K.h * f.K.glowAt - 0.1, 31, true, false, 0.3 + k * (f.K.boss ? 2.2 : 0.8));
     }
   }
-  for (const it of items) { if (it.got) continue; const i = m.at(it.x, it.y), key = /[quy]/.test(it.c); r.sprite(ITEMS[it.c], it.x, it.y, it.z + (key ? 0.08 + Math.sin(now / 300) * 0.04 : 0), m.light[i] + m.dyn[i] + (key ? 6 : 0), false); }
-  for (const d of decor) { if (d.hp < 0) continue; const i = m.at(d.x, d.y); r.sprite(ITEMS[d.c], d.x, d.y, m.floor[i], m.light[i] + m.dyn[i] + (d.c === "S" ? 4 : 0), false); }
-  for (const s of shots) r.sprite(ITEMS[s.spr], s.x, s.y, s.z - (s.bomb ? 0.08 : 0), 31, true, false, s.bomb && (s.blink & 1) ? 1.3 : 1);
-  for (const b of booms) r.sprite(ITEMS.boom[Math.min(3, (b.t * 8) | 0)], b.x, b.y, b.z + 0.3, 31, true, false, 1 + b.t * 1.5);
-  for (const q of puffs) { const k = 1 - q.life / q.max, i = m.at(q.x, q.y); r.sprite(ITEMS.steam[Math.min(2, (k * 3) | 0)], q.x, q.y, q.z, Math.min(31, m.light[i] + 6), false, false, 0.5 + k * 1.4); }
-  for (const s of specks) r.dot(s.x, s.y, s.z, s.idx, s.size, s.full);
-  for (const b of bits) r.dot(b.x, b.y, b.z, b.idx, b.size, b.full);
-  for (const q of flakes) r.dot(q.x, q.y, q.z, 15, 0.022, 0);
-  if (arena) for (const F of fighters) if (F !== P) fighterSprite(r, F, now);
+  for (let n = 0; n < items.length; n++) { const it = items[n]; if (it.got) continue; const i = m.at(it.x, it.y), key = it.c === "q" || it.c === "u" || it.c === "y"; r.sprite(ITEMS[it.c], it.x, it.y, it.z + (key ? 0.08 + Math.sin(now / 300) * 0.04 : 0), m.light[i] + m.dyn[i] + (key ? 6 : 0), false); }
+  for (let n = 0; n < decor.length; n++) { const d = decor[n]; if (d.hp < 0) continue; const i = m.at(d.x, d.y); r.sprite(ITEMS[d.c], d.x, d.y, m.floor[i], m.light[i] + m.dyn[i] + (d.c === "S" ? 4 : 0), false); }
+  for (let n = 0; n < shots.length; n++) { const s = shots[n]; r.sprite(ITEMS[s.spr], s.x, s.y, s.z - (s.bomb ? 0.08 : 0), 31, true, false, s.bomb && (s.blink & 1) ? 1.3 : 1); }
+  for (let n = 0; n < booms.length; n++) { const b = booms[n]; r.sprite(ITEMS.boom[Math.min(3, (b.t * 8) | 0)], b.x, b.y, b.z + 0.3, 31, true, false, 1 + b.t * 1.5); }
+  for (let n = 0; n < puffs.length; n++) { const q = puffs[n], k = 1 - q.life / q.max, i = m.at(q.x, q.y); r.sprite(ITEMS.steam[Math.min(2, (k * 3) | 0)], q.x, q.y, q.z, Math.min(31, m.light[i] + 6), false, false, 0.5 + k * 1.4); }
+  r.dots(specks); r.dots(bits); r.dots(flakes, 15, 0.022, 0);
+  if (arena) for (let n = 0; n < fighters.length; n++) if (fighters[n] !== P) fighterSprite(r, fighters[n], now);
   r.flush();
   // the weapon in hand: bobbing as you walk, kicking when it fires, dipping as you land, down and up when it changes
   if ((state === "play" || state === "done") && (!arena || P.alive)) {
@@ -1931,33 +2106,6 @@ function drawView(r, now, vw, vh, fov) {
     r.blit(P.fireAnim > 0 || (P.spin > 0 && ((now / 40) | 0) & 1) ? G.fire : G.idle, sx, sy, sc, L);
   }
 }
-function crossHair() {
-  const t = target(0.035); const on = !!t;
-  if (on !== crossOn) { crossOn = on; $("cross").classList.toggle("on", on); }
-  $("hit").style.opacity = hitT > 0 ? 1 : 0;
-  const fr = P.chill > 0 ? Math.round(Math.min(1, P.chill * 0.6) * 10) / 10 : 0;
-  if (fr !== frostOn) { frostOn = fr; $("frost").style.opacity = fr; }
-}
-function hudTick(now) {
-  let changed = false;
-  while (msgs.length && now - msgs[0].at > 3500) { msgs.shift(); changed = true; }
-  if (changed) drawMsgs();
-}
-const mc = $("map").getContext("2d");
-function drawMap() {                               // where you've been, the walls you've seen
-  const m = lv.m, W = lv.W, H = lv.H, cw = 640, ch = 440, s = Math.min(cw / W, ch / H), ox = (cw - W * s) / 2, oy = (ch - H * s) / 2;
-  mc.clearRect(0, 0, cw, ch); mc.fillStyle = "rgba(10,6,4,0.75)"; mc.fillRect(0, 0, cw, ch);
-  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-    const i = y * W + x; if (!m.seen[i]) continue;
-    if (m.solid[i]) { mc.fillStyle = lv.exits.indexOf(i) >= 0 ? "#ffd890" : "#8a7a6a"; mc.fillRect(ox + x * s, oy + y * s, s, s); }
-    else if (m.mask[i]) { mc.fillStyle = "#5a6a7a"; mc.fillRect(ox + x * s + s * 0.3, oy + y * s + s * 0.3, s * 0.4, s * 0.4); }
-    else { const d = lv.doors.find(o => o.i === i); mc.fillStyle = d ? (d.key ? KEYCOL[d.key] : "#c8a050") : lv.hurt[i] ? "#5a3a1a" : lv.wet[i] ? "rgba(90,140,200,0.35)" : "rgba(255,255,255,0.08)"; mc.fillRect(ox + x * s + 0.5, oy + y * s + 0.5, s - 1, s - 1); }
-  }
-  const px = ox + P.x * s, py = oy + P.y * s;
-  mc.fillStyle = "#ffd890"; mc.beginPath(); mc.moveTo(px + Math.cos(P.a) * s * 0.9, py + Math.sin(P.a) * s * 0.9);
-  mc.lineTo(px + Math.cos(P.a + 2.5) * s * 0.6, py + Math.sin(P.a + 2.5) * s * 0.6); mc.lineTo(px + Math.cos(P.a - 2.5) * s * 0.6, py + Math.sin(P.a - 2.5) * s * 0.6); mc.fill();
-}
-
 // ---------------------------------------------------------------- the arena: matches against bots, and friends on the sofa
 // Six arenas of our own, four ways to play (everyone for themselves, two crews, holding the ring, the last shift against
 // the foundry's waves), eight bots with their own names and habits at five skill levels, and up to four players on one
@@ -1997,7 +2145,7 @@ const SKILLS = [
   { name: "Forgemaster", react: 0.24, err: 0.04, turn: 4.6, lead: 0.9, strafe: 1, dodge: 0.7 },
   { name: "Ironmaw", react: 0.16, err: 0.025, turn: 5.4, lead: 1, strafe: 1, dodge: 0.9 }
 ];
-const CREWS = [{ name: "Ember", ramp: 6, col: "#ff9a4a" }, { name: "Frost", ramp: 9, col: "#7ab4ff" }];
+const CREWS = [{ name: "Ember", ramp: 6, col: "#ff9a4a", hex: 0xff9a4a }, { name: "Frost", ramp: 9, col: "#7ab4ff", hex: 0x7ab4ff }];
 const RESPAWN = { "+": 18, m: 30, a: 35, c: 14, e: 14, k: 14, r: 18, "3": 15, "4": 15, "5": 20, "6": 20, "7": 25 };
 const VERB = { cutter: "cuts down", rivet: "rivets", scatter: "scatters", arc: "arcs", slag: "melts", nail: "nails", lance: "freezes", boom: "blows up", frost: "freezes" };
 const STREAK = { 3: "Hot streak", 5: "White heat", 8: "Meltdown", 12: "Forged in fire" }, MULTI = { 2: "Two at once", 3: "Three at once", 4: "Four at once" };
@@ -2018,7 +2166,7 @@ function startArena(again) {
   ray.tex = TEX; ray.sky = A.sky === "cold" ? SKIES.cold : SKIES.fire; ray.maxD = 34; ray.minL = 3;
   const cold = A.sky === "cold";
   pal.maps(cold ? (A.outdoor ? 0x1a2636 : 0x05070c) : 0x050304, A.outdoor ? 0.55 : cold ? 0.12 : 0); ray.dim = A.outdoor ? 1.4 : cold ? 1.8 : 2.0;
-  marks = new L3.Marks(ray, lv.m, FX.light ? 64 : 160);
+  marks = newMarks();
   foes = []; items = []; shots = []; booms = []; decor = []; specks = []; bits = []; flakes = []; puffs = []; colds = []; lights = []; FLOWS.clear();
   stats = { kills: 0, killsAll: 0, items: 0, itemsAll: 0, secrets: 0, secretsAll: 0 }; alarm = 0;
   for (const t of lv.things) {
@@ -2039,18 +2187,18 @@ function startArena(again) {
   for (const F of fighters) F.rm = pal.remap([10], [M.teams ? CREWS[F.team].ramp : F.ramp]);
   bakeShapes(["fighter"].concat(M.coop ? ["husk", "gunner", "spitter", "drone", "sapper", "bulwark", "brute", "warden"] : []));
   arena = { A, M, c, t: 0, time: [300, 480, 720, 0][c.time], limit: M.limit[c.limit], scores: [0, 0], over: false, teams: !!M.teams,
-    feed: [], wave: 0, waveOn: false, waveT: 5, spawnQ: [], spawnT: 0, flowT: 0, holder: null, ringT: 0, board: false, split: false, me: fighters[0], hudAt: 0 };
+    feed: [], line: "", sum: -1, wave: 0, waveOn: false, waveT: 5, spawnQ: [], spawnT: 0, flowT: 0, holder: null, ringT: 0, board: false, split: false, me: fighters[0], hudAt: 0 };
   for (const F of fighters) respawn(F);
   P = fighters[0]; setupViews(); primeHelpers(["fighter"]);
-  levelT = 0; mapOn = false; $("map").classList.add("hidden");
-  state = "play"; menu.hide(); $("hud").classList.remove("hidden"); $("hud").classList.add("arena");
+  levelT = 0; mapOn = false; hudVer++;
+  state = "play"; menu.hide(); msgs.length = 0;
   center(A.name + "<small>" + M.name + ": " + M.tag + "</small>", 3); feedLine("The match begins: " + M.name + " in " + A.name);
   synth.song({ seed: 900 + c.map * 7 + c.mode, root: 45 + c.map, tempo: 132 + c.mode * 4, prog: [[9, 5, 0, 7], [2, 9, 5, 7], [9, 10, 5, 4], [9, 7, 5, 4]][c.mode] }); ambience(A.amb);
-  E.gov.hold(ray.threaded || views.length > 1 ? 3000 : 1500); hud(true);
+  E.gov.hold(ray.threaded || views.length > 1 ? 3000 : 1500); arenaHud(0); hudVer++;
 }
 function leaveArena() {
   for (const v of views) if (v.ray !== ray) v.ray.threads(0);
-  views = []; $("phuds").innerHTML = ""; $("hud").classList.remove("split", "arena"); $("feed").innerHTML = ""; $("score").textContent = ""; $("board").classList.add("hidden");
+  views = []; hudVer++;
   if (arena && arena.split) ray.threads(save.opts.cores === "one" ? 0 : E.plan.helpers || 0);
   arena = null; fighters = []; P = P1;
 }
@@ -2059,8 +2207,8 @@ function respawn(F) {
   let best = lv.spawns[0], bv = -1e9;
   for (const s of lv.spawns) {
     let near = 30, crowd = 0;
-    for (const o of fighters) { if (o === F || !o.alive) continue; const d = Math.hypot(o.x - s.x, o.y - s.y); if (d < 1.2) crowd = 1; if (!ally(o, F)) near = Math.min(near, d); }
-    for (const f of foes) if (!f.dead) near = Math.min(near, Math.hypot(f.x - s.x, f.y - s.y));
+    for (const o of fighters) { if (o === F || !o.alive) continue; const d = hyp(o.x - s.x, o.y - s.y); if (d < 1.2) crowd = 1; if (!ally(o, F)) near = Math.min(near, d); }
+    for (const f of foes) if (!f.dead) near = Math.min(near, hyp(f.x - s.x, f.y - s.y));
     let v = Math.min(near, 20) + R() * 4 - crowd * 50;
     if (arena.A.bases && arena.teams) v += (F.team === 0) === (s.x < lv.W / 2) ? 16 : 0;
     if (v > bv) { bv = v; best = s; }
@@ -2074,8 +2222,9 @@ function respawn(F) {
 // friends: two fighters on one side (a crew, or everyone on the last shift); a creature is never one
 function ally(a, b) { return !!(arena && a && b && typeof a.team === "number" && typeof b.team === "number" && (arena.M.coop || (arena.teams && a.team === b.team))); }
 function nameOf(F) { return `<b style="color:${arena.teams ? CREWS[F.team].col : "#" + pal.color(F.ramp * 16 + 11).toString(16).padStart(6, "0")}">${F.name}</b>`; }
-function feedLine(html) { arena.feed.push({ html, t: arena.t }); if (arena.feed.length > 5) arena.feed.shift(); $("feed").innerHTML = arena.feed.map(e => `<div>${e.html}</div>`).join(""); }
-function callout(F, text) { const v = views.find(w => w.F === F); if (v && v.el) { v.el.msg.textContent = text; v.msgT = 2; } else center(text, 1.6); synth.play("secret"); }
+function feedLine(html) { arena.feed.push({ runs: runsOf(html), t: arena.t }); if (arena.feed.length > 5) arena.feed.shift(); hudVer++; }
+function viewOf(F) { for (const v of views) if (v.F === F) return v; return null; }
+function callout(F, text) { const v = viewOf(F); if (v && arena.split) { v.msg = text; v.msgT = 2; hudVer++; } else center(text, 1.6); synth.play("secret"); }
 // a fighter down: a frag for whoever did it, a line in the feed, its weapon left on the floor; back in a moment (in the
 // last shift, at the end of the wave)
 function fighterDown(F, by, how) {
@@ -2092,7 +2241,7 @@ function fighterDown(F, by, how) {
   } else if (by === F) { F.frags = Math.max(0, F.frags - 1); line = nameOf(F) + (how === "slag" ? " caught their own blast" : " went down"); }
   else line = nameOf(F) + (how === "lava" ? " fell in the fire" : how === "steam" ? " was scalded" : by && by.K ? " was taken by a " + by.K.name.toLowerCase() : " went down");
   feedLine(line);
-  if (F.human) { const v = views.find(w => w.F === F); if (v && v.el) v.el.msg.textContent = A.M.coop ? "Down: back when the wave's over" : "Down"; }
+  if (F.human) { const v = viewOf(F); if (v && A.split) { v.msg = A.M.coop ? "Down: back when the wave's over" : "Down"; v.msgT = 1e9; hudVer++; } }
   checkWin();
 }
 function checkWin() {
@@ -2117,7 +2266,7 @@ function endMatch(lost) {
       top.map((F, k) => `<tr class="${F.human ? "me" : ""}"><td>${k + 1}. ${nameOf(F)}${F.brain ? ` <small>${SKILLS[F.brain.skill].name}</small>` : ""}</td><td>${F.frags}</td><td>${F.deaths}</td><td>${F.best}</td></tr>`).join("") +
       (A.teams ? `<tr><td colspan="4">${CREWS[0].name} ${A.scores[0]} · ${CREWS[1].name} ${A.scores[1]}</td></tr>` : "");
     $("arenaRec").textContent = (A.M.coop ? "Your best here: wave " : "Your best here: ") + rec.best + " · " + rec.wins + " won of " + rec.played;
-    $("hud").classList.add("hidden"); $("board").classList.add("hidden"); menu.show("arenaEnd");
+    A.board = false; if (E.tell) E.tell(); menu.show("arenaEnd");
   }, 1600);
 }
 // everything that happens in a match, a step at a time
@@ -2141,7 +2290,7 @@ function arenaUpdate(dt) {
   if (A.M.coop) shiftWaves(dt);
   if (A.time && A.t >= A.time && !A.over) endMatch(A.M.coop);
 }
-function nearestTo(f) { let best = null, bd = 1e9; for (const F of fighters) if (F.alive) { const d = Math.hypot(F.x - f.x, F.y - f.y); if (d < bd) { bd = d; best = F; } } return best; }
+function nearestTo(f) { let best = null, bd = 1e9; for (const F of fighters) if (F.alive) { const d = hyp(F.x - f.x, F.y - f.y); if (d < bd) { bd = d; best = F; } } return best; }
 // the ring: a point a second to the one crew alone in it
 function holdRing(dt) {
   const A = arena; A.ringT += dt; if (A.ringT < 1) return; A.ringT -= 1;
@@ -2165,7 +2314,7 @@ function shiftWaves(dt) {
   }
   if (A.spawnQ.length && (A.spawnT -= dt) <= 0) {
     A.spawnT = 0.7; const k = A.spawnQ.shift();
-    let best = lv.spawns[0], bv = -1; for (const s of lv.spawns) { let near = 99; for (const F of fighters) if (F.alive) near = Math.min(near, Math.hypot(F.x - s.x, F.y - s.y)); if (near > bv + R() * 4) { bv = near; best = s; } }
+    let best = lv.spawns[0], bv = -1; for (const s of lv.spawns) { let near = 99; for (const F of fighters) if (F.alive) near = Math.min(near, hyp(F.x - s.x, F.y - s.y)); if (near > bv + R() * 4) { bv = near; best = s; } }
     const f = newFoe(k, best.x, best.y, Math.round(KINDS[k].hp * (1 + A.wave * 0.04))); f.st = "chase"; foes.push(f); bakeShape(k);
   }
   if (!A.spawnQ.length && foes.every(f => f.dead)) {
@@ -2206,20 +2355,20 @@ function flowStep(F, B, g) {                       // which way to walk to get t
   const m = lv.m, W = lv.W, i = m.at(F.x, F.y);
   if (i === g) return Math.atan2(((g / W) | 0) + 0.5 - F.y, g % W + 0.5 - F.x);
   const d = flowAt(g), cx = i % W, cy = (i / W) | 0; let bd = d[i] >= 0 ? d[i] : 1e9, bi = -1;
-  for (const [ox, oy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const j = (cy + oy) * W + cx + ox, v = d[j]; if (v >= 0 && v < bd) { bd = v; bi = j; } }
+  for (let k = 0; k < 4; k++) { const j = (cy + OY4[k]) * W + cx + OX4[k], v = d[j]; if (v >= 0 && v < bd) { bd = v; bi = j; } }
   if (bi < 0) { B.goalUntil = 0; return null; }
   return Math.atan2(((bi / W) | 0) + 0.5 - F.y, bi % W + 0.5 - F.x);
 }
 function sense(F, B) {                             // who it can see: the nearest threat, keeping to the one it's on
   const m = lv.m, ez = F.z + BODY.eye; let best = null, bd = 1e9; B.sees = false;
-  const look = (T, z) => { const d = Math.hypot(T.x - F.x, T.y - F.y); if (d > 26 || !m.see(F.x, F.y, ez, T.x, T.y, z)) return; const v = d - (T === B.target ? 4 : 0) - (T.hp < 40 ? 2 : 0); if (v < bd) { bd = v; best = T; } };
+  const look = (T, z) => { const d = hyp(T.x - F.x, T.y - F.y); if (d > 26 || !m.see(F.x, F.y, ez, T.x, T.y, z)) return; const v = d - (T === B.target ? 4 : 0) - (T.hp < 40 ? 2 : 0); if (v < bd) { bd = v; best = T; } };
   for (const T of fighters) if (T !== F && T.alive && !ally(T, F)) look(T, T.z + 0.5);
   for (const f of foes) if (!f.dead) look(f, f.z + f.K.h * 0.6);
   if (best) { if (best !== B.target) { B.target = best; B.react = SKILLS[B.skill].react * (0.7 + R() * 0.6); B.track = 0; } B.sees = true; B.lastX = best.x; B.lastY = best.y; B.lastT = arena.t; }
   else if (B.target && (B.target.alive === false || B.target.dead || arena.t - (B.lastT || 0) > 6)) B.target = null;
 }
 function botWeapon(F, B, T) {                      // the right weapon for the range, and its own liking
-  const d = T ? Math.hypot(T.x - F.x, T.y - F.y) : 8, S = STYLES[B.style]; let best = 0, bv = -1e9;
+  const d = T ? hyp(T.x - F.x, T.y - F.y) : 8, S = STYLES[B.style]; let best = 0, bv = -1e9;
   for (let i = 0; i < NW; i++) {
     if (!F.owned[i] || !hasAmmo(i)) continue;
     let v = [1, 4, 6, 7, 6, 8, 7][i];
@@ -2238,7 +2387,7 @@ function botGoal(F, B) {                           // where to go: the ring, wha
   if (A.M.id === "hold" && lv.ring.length) { const v = 40 * S.hold + (A.holder !== F.team ? 25 : 0); if (v > best) { best = v; g = lv.ring[(R() * lv.ring.length) | 0]; } }
   for (const it of items) {
     if (it.got) continue;
-    const c = it.c, d = Math.hypot(it.x - F.x, it.y - F.y); let v = 0;
+    const c = it.c, d = hyp(it.x - F.x, it.y - F.y); let v = 0;
     if (c === "+" || c === "m") v = F.hp < 100 ? (100 - F.hp) * (c === "m" ? 0.9 : 0.45) : 0;
     else if (c === "a") v = F.armor < 60 ? 45 : 0;
     else if (/[34567]/.test(c)) { const wi = +c - 1; v = F.owned[wi] ? 6 : 38 + (S.fav.indexOf(wi) >= 0 ? 22 : 0); }
@@ -2261,7 +2410,7 @@ function think(F, dt) {
   let want = null, move = null;
   if (T && B.sees) {
     B.react -= dt; B.track = Math.min(1.5, B.track + dt);
-    const d = Math.hypot(T.x - F.x, T.y - F.y), w = WEAPONS[F.weapon], sp = w.proj ? w.proj.speed : 0, lead = sp ? (d / sp) * sk.lead : 0;
+    const d = hyp(T.x - F.x, T.y - F.y), w = WEAPONS[F.weapon], sp = w.proj ? w.proj.speed : 0, lead = sp ? (d / sp) * sk.lead : 0;
     B.wob += dt * (1.1 + R() * 0.4);
     const amp = sk.err * (1.6 - Math.min(1, B.track) * 0.6), px = T.x + (T.vx || 0) * lead, py = T.y + (T.vy || 0) * lead;
     want = Math.atan2(py - F.y, px - F.x) + Math.sin(B.wob * 2.1) * amp + Math.sin(B.wob * 3.7 + 1.3) * amp * 0.5;
@@ -2274,12 +2423,12 @@ function think(F, dt) {
   } else { B.track = 0; B.react = sk.react * (0.7 + R() * 0.6); }
   if (move == null && !(T && B.sees && S.hold > 0.8 && R() < 0.98)) { const g = botGoal(F, B); if (g >= 0) move = flowStep(F, B, g); }
   if (move != null) { const rel = wrap(move - F.a); out.st.y -= Math.cos(rel); out.st.x += Math.sin(rel); }
-  const len = Math.hypot(out.st.x, out.st.y); if (len > 1) { out.st.x /= len; out.st.y /= len; }
+  const len = hyp(out.st.x, out.st.y); if (len > 1) { out.st.x /= len; out.st.y /= len; }
   if (want == null) want = move != null ? move : F.a;
   out.turn = clamp(wrap(want - F.a) * 3.2, -1, 1) * Math.min(1.3, sk.turn / 4.1);
   if (sk.dodge && (B.dodgeT -= dt) <= 0) for (const s of shots) {     // a shot coming: step out of its way
     if (s.by === F || ally(s.by, F)) continue;
-    const dx = F.x - s.x, dy = F.y - s.y, d = Math.hypot(dx, dy), v = Math.hypot(s.vx, s.vy) || 1; if (d > 4) continue;
+    const dx = F.x - s.x, dy = F.y - s.y, d = hyp(dx, dy), v = hyp(s.vx, s.vy) || 1; if (d > 4) continue;
     const across = (dx * s.vy - dy * s.vx) / v; if ((dx * s.vx + dy * s.vy) / v > 0 && Math.abs(across) < 0.7 && R() < sk.dodge) { B.dodge = across > 0 ? 1 : -1; B.dodgeT = 0.5; break; }
   }
   if (B.dodgeT > 0.2 && B.dodge) out.st.x = B.dodge;
@@ -2291,7 +2440,7 @@ function think(F, dt) {
     out.st.x = 0; out.st.y = 0;
     if (dir != null) { const rel = wrap(dir - F.a); out.st.y = -Math.cos(rel); out.st.x = Math.sin(rel); }
   }
-  const moved = Math.hypot(F.x - B.px, F.y - B.py); B.px = F.x; B.py = F.y;
+  const moved = hyp(F.x - B.px, F.y - B.py); B.px = F.x; B.py = F.y;
   B.stuck = moved < 0.008 && len > 0.3 ? B.stuck + dt : 0;
   if (B.stuck > 0.5) { out.use = true; B.strafe = -B.strafe; B.stuck = 0; B.goalUntil = 0; }
   return out;
@@ -2301,23 +2450,16 @@ function think(F, dt) {
 function setupViews() {
   const hs = fighters.filter(F => F.human), n = hs.length, W = E.screen.w, H = E.screen.h;
   for (const v of views) if (v.ray !== ray) v.ray.threads(0);
-  views = []; $("phuds").innerHTML = "";
-  if (n <= 1) { views.push({ F: hs[0], ray, x: 0, y: 0, w: W, h: H, fov: 1.62 }); arena.split = false; $("hud").classList.remove("split"); return; }
-  arena.split = true; $("hud").classList.add("split"); ray.threads(0);
+  views = []; hudVer++;
+  if (n <= 1) { views.push({ F: hs[0], ray, x: 0, y: 0, w: W, h: H, fov: 1.62, msg: "", msgT: 0 }); arena.split = false; return; }
+  arena.split = true; ray.threads(0);
   const rects = n === 2 ? [[0, 0, W >> 1, H], [W >> 1, 0, W - (W >> 1), H]] : [[0, 0, W >> 1, H >> 1], [W >> 1, 0, W - (W >> 1), H >> 1], [0, H >> 1, W >> 1, H - (H >> 1)], [W >> 1, H >> 1, W - (W >> 1), H - (H >> 1)]];
   const workers = save.opts.cores === "one" ? 0 : E.threads != null ? Math.min(n, E.threads) : Math.max(E.plan.helpers || 0, Math.min(n, (navigator.hardwareConcurrency || 2) - 1));
   hs.forEach((F, k) => {
     const [x, y, w, h] = rects[k], r = new L3.Ray(pal);
     r.size(w, h, new Uint32Array(w * h)); r.tex = TEX; r.sky = ray.sky; r.dim = ray.dim; r.minL = ray.minL; r.maxD = ray.maxD; r.marks = marks; r.slow = E.slow;
     if (k < workers) r.threads(1);
-    const el = document.createElement("div"); el.className = "phud" + (n > 2 ? " q" : "");
-    Object.assign(el.style, { left: (x / W * 100) + "%", top: (y / H * 100) + "%", width: (w / W * 100) + "%", height: (h / H * 100) + "%" });
-    el.innerHTML = `<div class="ptint"></div><div class="pcross"></div><div class="pmsg"></div><div class="pname">${nameOf(F)}</div>` +
-      `<div class="pstat"><b class="php">100</b><span>HP</span> <b class="par">0</b><span>AR</span></div><div class="parm"><span class="pwn"></span> <b class="pam"></b></div>`;
-    $("phuds").appendChild(el);
-    const q = s => el.querySelector(s);
-    views.push({ F, ray: r, x, y, w, h, fov: n === 2 ? 1.05 : 1.62, el: { root: el, tint: q(".ptint"), cross: q(".pcross"), msg: q(".pmsg"), hp: q(".php"), ar: q(".par"), wn: q(".pwn"), am: q(".pam") }, msgT: 0, cache: {} });
-    F.hudEls = views[views.length - 1].el;
+    views.push({ F, ray: r, x, y, w, h, fov: n === 2 ? 1.05 : 1.62, msg: F.alive ? "" : "Down", msgT: F.alive ? 0 : 1e9 });
   });
   for (const v of views) if (v.ray.threaded) v.ray.prime(TEX.filter(Boolean).concat(SLIME, LAVA, WATER, [SKIES.fire, SKIES.cold]));
 }
@@ -2327,7 +2469,7 @@ function fighterSprite(r, F, now) {                // another fighter as you see
   if (!F.alive) { if (F.deadT > 4) return; spr = S.die[clamp((F.deadT * 3) | 0, 0, 2)]; }
   else {
     const rel = wrap(Math.atan2(P.y - F.y, P.x - F.x) - F.a), dir = ((Math.round(rel / (TAU / 8)) % 8) + 8) % 8;
-    spr = F.fireAnim > 0 ? S.attack[dir] : F.hurt > 0.5 ? S.pain[dir] : Math.hypot(F.vx, F.vy) > 0.4 ? S.walk[((F.bob / Math.PI * 2) | 0) & 3][dir] : S.walk[0][dir];
+    spr = F.fireAnim > 0 ? S.attack[dir] : F.hurt > 0.5 ? S.pain[dir] : hyp(F.vx, F.vy) > 0.4 ? S.walk[((F.bob / Math.PI * 2) | 0) & 3][dir] : S.walk[0][dir];
   }
   r.sprite(spr, F.x, F.y, F.z, F.guard > 0 && ((now / 90) | 0) & 1 ? 31 : L, false, false, 1, F.rm);
 }
@@ -2339,32 +2481,35 @@ function arenaDraw(now) {
     if (A.split) v.ray.paste(E.screen.u32, E.screen.w, v.x, v.y);
   }
   P = A.me;
-  if (!A.split) crossHair();
-  if (now - A.hudAt > 120) { A.hudAt = now; arenaHud(now); }
+  if (now - A.hudAt > 120) { A.hudAt = now; arenaHud(now); hudTick(now); }
 }
-function arenaHud(now) {                           // the numbers on screen: each player's, the score, the time, the feed
+function arenaHud(now) {                           // a few times a second: the score's line, the feed, and whether any player's numbers changed
   const A = arena;
-  if (A.split) for (const v of views) {
-    const F = v.F, e = v.el, c = v.cache, w = WEAPONS[F.weapon], set = (k, el, val) => { if (c[k] !== val) { c[k] = val; el.textContent = val; } };
-    set("hp", e.hp, String(Math.max(0, Math.ceil(F.hp)))); set("ar", e.ar, String(Math.ceil(F.armor))); set("wn", e.wn, w.name); set("am", e.am, w.ammo ? String(F.ammo[w.ammo]) : "∞");
-    if (v.msgT > 0) { v.msgT -= 0.12; if (v.msgT <= 0) e.msg.textContent = ""; }
-    if (F.alive && e.msg.textContent === "Down") e.msg.textContent = "";
-    e.root.classList.toggle("down", !F.alive);
+  if (A.split) {
+    let sum = 0;
+    for (const v of views) {
+      const F = v.F, w = WEAPONS[F.weapon];
+      sum = (sum * 31 + Math.ceil(F.hp) * 7 + Math.ceil(F.armor) * 1009 + F.weapon * 65537 + (w.ammo ? F.ammo[w.ammo] : 0) * 131 + (F.alive ? 3 : 0)) % 2147483647;
+      if (v.msgT > 0 && v.msgT < 1e8) { v.msgT -= 0.12; if (v.msgT <= 0) { v.msg = ""; hudVer++; } }
+      if (F.alive && v.msgT > 1e8) { v.msg = ""; v.msgT = 0; hudVer++; }
+    }
+    if (sum !== A.sum) { A.sum = sum; hudVer++; }
   }
   const left = A.time ? Math.max(0, Math.ceil(A.time - A.t)) : 0, clock = A.time ? " · " + ((left / 60) | 0) + ":" + String(left % 60).padStart(2, "0") : "";
   let line;
   if (A.M.coop) line = "Wave " + A.wave + " of " + A.limit + (A.waveOn ? " · " + (A.spawnQ.length + foes.filter(f => !f.dead).length) + " left" : " · a breath") + clock;
   else if (A.teams) line = CREWS[0].name + " " + A.scores[0] + " · " + CREWS[1].name + " " + A.scores[1] + " · to " + A.limit + (A.M.id === "hold" ? " · the ring: " + (A.holder === "both" ? "fought over" : typeof A.holder === "number" ? CREWS[A.holder].name : "empty") : "") + clock;
   else { const top = ranked(), me = A.me, k = top.indexOf(me) + 1; line = (A.split ? "" : "You " + me.frags + " · " + ord(k) + " of " + top.length + " · ") + "leading: " + top[0].name + " " + top[0].frags + " · to " + A.limit + clock; }
-  $("score").textContent = line;
-  const fresh = A.feed.filter(e => A.t - e.t < 6); if (fresh.length !== A.feed.length) { A.feed = fresh; $("feed").innerHTML = A.feed.map(e => `<div>${e.html}</div>`).join(""); }
-  if (A.board) $("boardTable").innerHTML = ranked().map((F, k) => `<tr><td>${k + 1}. ${nameOf(F)}</td><td>${F.frags}</td><td>${F.deaths}</td></tr>`).join("");
+  if (line !== A.line) { A.line = line; hudVer++; }
+  let gone = 0; for (const e of A.feed) if (A.t - e.t >= 6) gone++;
+  if (gone) { A.feed = A.feed.filter(e => A.t - e.t < 6); hudVer++; }
+  if (A.board) hudVer++;
 }
 function ord(k) { return k + (k % 10 === 1 && k !== 11 ? "st" : k % 10 === 2 && k !== 12 ? "nd" : k % 10 === 3 && k !== 13 ? "rd" : "th"); }
 // a player's buttons, in a match: the one whose controller it was (the keyboard is player 1's)
 function arenaButton(b, how, who) {
   const A = arena;
-  if (b === "y" || b === "map" || b === "select") { if (state === "play" && how !== "repeat") { A.board = how === "press"; $("board").classList.toggle("hidden", !A.board); arenaHud(performance.now()); } return state === "play"; }
+  if (b === "y" || b === "map" || b === "select") { if (state === "play" && how !== "repeat") { A.board = how === "press"; hudVer++; } return state === "play"; }
   if (!A.split || how !== "press" || state !== "play" || menu.at) return false;
   if (b === "start" || b === "back") return false;                // (the match's pause: anyone's)
   const F = fighters.find(o => o.human === (who || 1)); if (!F || !F.alive) return true;
@@ -2413,10 +2558,24 @@ const OPTS = [
   { k: "bob", name: "Head bob", vals: [0, 1], names: { 0: "Off", 1: "On" } },
   { k: "shake", name: "Screen shake", vals: [0, 1], names: { 0: "Off", 1: "On" } },
   { k: "music", name: "Music", vals: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10] },
-  { k: "sound", name: "Sounds", vals: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10] },
+  { k: "sound", name: "Sounds", vals: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10] }
+];
+// the picture and its speed: a set of effects (or your own), the picture's size and rate held or left to the box
+const OFFON = { 0: "Off", 1: "On" }, AMOUNT = { 0: "Off", 1: "Some", 2: "A lot" }, EFFECTS = ["glow", "lights", "debris", "marks", "weather", "vig"];
+const PICOPTS = [
+  { k: "quality", name: "Quality", vals: ["auto", "light", "full", "own"], names: { auto: "Tuned to this box", light: "Light", full: "Full", own: "My own" } },
+  { k: "lines", name: "Picture size", vals: [0, 108, 120, 135, 150, 180, 216, 270, 360],
+    names: { 0: "As the box holds", 108: "192 × 108", 120: "213 × 120", 135: "240 × 135", 150: "267 × 150", 180: "320 × 180", 216: "384 × 216", 270: "480 × 270", 360: "640 × 360" } },
+  { k: "rate", name: "Frames a second", vals: [0, 30, 60], names: { 0: "As the box holds", 30: "30", 60: "60" } },
+  { k: "glow", name: "Glow round light", vals: [0, 1], names: OFFON },
+  { k: "lights", name: "Light from shots", vals: [0, 1], names: OFFON },
+  { k: "debris", name: "Sparks and debris", vals: [0, 1, 2], names: AMOUNT },
+  { k: "marks", name: "Marks left on walls", vals: [0, 1, 2], names: AMOUNT },
+  { k: "weather", name: "Steam and snow", vals: [0, 1, 2], names: AMOUNT },
+  { k: "vig", name: "Dark corners", vals: [0, 1], names: OFFON },
   { k: "crisp", name: "Pixels", vals: [0, 1], names: { 0: "Smooth", 1: "Crisp" } },
-  { k: "picture", name: "Picture", vals: ["auto", "light", "rich", "plain"], names: { auto: "Tuned to this box", light: "Smoother", rich: "Sharper", plain: "No glow" } },
-  { k: "cores", name: "Drawing", vals: ["auto", "one"], names: { auto: "On every core", one: "On one core" } }
+  { k: "cores", name: "Drawing", vals: ["auto", "one"], names: { auto: "On every core", one: "On one core" } },
+  { k: "fps", name: "Frame rate counter", vals: [0, 1], names: OFFON }
 ];
 let pausedFrom = null;
 const menu = new L3.Menu({
@@ -2424,7 +2583,8 @@ const menu = new L3.Menu({
   screens: {
     title: {}, skill: { back: "title", enter: () => save.skill },
     levels: { back: "title", enter: renderLevels },
-    options: { options: OPTS, values: save.opts, back: () => menu.show(pausedFrom ? "pause" : "title"), changed: optionChanged },
+    options: { options: OPTS, values: save.opts, extra: '<div class="item" data-do="picture">Picture and speed</div>', back: () => menu.show(pausedFrom ? "pause" : "title"), changed: optionChanged },
+    picture: { options: PICOPTS, values: save.opts, list: $("picList"), back: "options", enter: picNote, changed: pictureChanged },
     box: { row: true, back: "title", enter: renderBox },
     pause: { back: () => resume(), enter: () => { $("controls").innerHTML = controlsText(); $("pause").querySelector('[data-do="restart"]').firstChild.textContent = arena ? "Start the match again" : "Start the level again"; } },
     tallyScr: { row: true, back: () => toTitle() },
@@ -2438,6 +2598,8 @@ const menu = new L3.Menu({
     else if (act === "levels") menu.show("levels");
     else if (act === "level") { const k = +el.dataset.k; if (k < save.reached) { skill = save.skill; startLevel(k, false); } else synth.play("locked"); }
     else if (act === "options") menu.show("options");
+    else if (act === "picture") menu.show("picture");
+    else if (act === "check") location.href = "../probe/#games&run";   // (every game here plays itself in turn: about four minutes; B stops it)
     else if (act === "box") menu.show("box");
     else if (act === "back") menu.back();
     else if (act === "retest") { $("boxtable").innerHTML = "<tr><td>Test</td><td>running…</td></tr>"; E.retest(renderBox); }
@@ -2459,7 +2621,7 @@ function hints() {
   $("titleHint").innerHTML = kb("a") + " choose &nbsp; " + (input.pad() ? kb("b") + " back to the box" : "↑ ↓ move");
   for (const id of ["skillHint", "levelsHint", "boxHint"]) $(id).innerHTML = kb("a") + " choose &nbsp; " + kb("b") + " back";
   $("arenaHint").innerHTML = "◀ ▶ change &nbsp; " + kb("a") + " start &nbsp; " + kb("b") + " back"; $("arenaEndHint").innerHTML = kb("a") + " choose";
-  $("optionsHint").innerHTML = "◀ ▶ change &nbsp; " + kb("b") + " back"; $("pauseHint").innerHTML = kb("a") + " choose &nbsp; " + kb("start") + " carry on"; $("tallyHint").innerHTML = kb("a") + " choose";
+  $("optionsHint").innerHTML = "◀ ▶ change &nbsp; " + kb("b") + " back"; $("pictureHint").innerHTML = "◀ ▶ change &nbsp; " + kb("b") + " back"; $("pauseHint").innerHTML = kb("a") + " choose &nbsp; " + kb("start") + " carry on"; $("tallyHint").innerHTML = kb("a") + " choose";
 }
 function renderLevels() {                         // two episodes, side by side
   const col = ep => `<div class="ep"><div class="eph">${EPISODES[ep]}</div>` + ORDER.map((o, k) => {
@@ -2476,25 +2638,36 @@ function renderBox() {
 function optionChanged(k) {
   store();
   if (k === "music" || k === "sound") volumes();
-  if (k === "crisp") resized();
-  if (k === "picture") { clearTimeout(optionChanged.t); optionChanged.t = setTimeout(() => E.setPicture(), 600); }
-  if (k === "cores") { ray.threads(save.opts.cores === "one" ? 0 : E.plan.helpers || 0); if (lv) primeHelpers(Object.keys(SPR)); E.gov.hold(2500); }
 }
-function pause() { if (menu.at) return; pausedFrom = state; state = "paused"; mapOn = false; $("map").classList.add("hidden"); menu.show("pause"); synth.stopSong(); ambience(null); }
+function pictureChanged(k) {
+  if (EFFECTS.indexOf(k) >= 0) save.opts.quality = "own";            // (a row of your own: the set is yours from here)
+  tier(); store(); frozen = ""; hudVer++;
+  if (k === "crisp") resized();
+  if (k === "lines" || k === "rate") { clearTimeout(pictureChanged.t); pictureChanged.t = setTimeout(() => { E.setPicture(); picNote(); }, 600); }
+  if (k === "cores") { ray.threads(save.opts.cores === "one" ? 0 : E.plan.helpers || 0); if (lv) primeHelpers(Object.keys(SPR)); E.gov.hold(2500); }
+  picNote();
+}
+function picNote() {                               // under the list: what the box is doing now, and what a row can't do here
+  const S = E.screen, R = E.rung;
+  $("picNote").textContent = "Now: " + pic.w + " × " + pic.h + " at " + R.fps + " a second, shown on " + S.cw + " × " + S.ch +
+    (slowBox() ? " · this box starts on the light set" : "") + (save.opts.glow && !(R.glow && S.gl) ? " · the glow needs 384 × 216 or more" + (S.gl ? "" : " and a GPU") : "") +
+    " · marks change with the next level";
+}
+function pause() { if (menu.at) return; pausedFrom = state; state = "paused"; mapOn = false; hudVer++; menu.show("pause"); synth.stopSong(); ambience(null); }
 function resume() { menu.hide(); state = pausedFrom || "play"; pausedFrom = null; E.gov.hold(800); if (arena) { ambience(arena.A.amb); return; } music(ORDER[level].id); ambience(ORDER[level].amb); }
-function toTitle() { if (arena) leaveArena(); pausedFrom = null; state = "title"; alarm = 0; ambience(null); $("hud").classList.add("hidden"); $("center").innerHTML = ""; menu.show("title"); synth.song({ seed: 999, root: 45, tempo: 90, calm: true, prog: [9, 5, 0, 7] }); attractView(); }
+function toTitle() { if (arena) leaveArena(); pausedFrom = null; state = "title"; alarm = 0; ambience(null); centerT = 0; hudVer++; menu.show("title"); synth.song({ seed: 999, root: 45, tempo: 90, calm: true, prog: [9, 5, 0, 7] }); attractView(); }
 function tally() {
   const def = ORDER[level], pct = (a, b) => b ? Math.round(a / b * 100) + "%" : "–";
   const last = level + 1 === ORDER.length, epEnd = !last && ORDER[level + 1].ep !== def.ep;
   $("tallyTitle").textContent = def.name + (last ? ": the Ironmaw is quiet" : epEnd ? ": " + EPISODES[def.ep] + " is done. Below it, the Ice" : ": done");
   $("tally").innerHTML = `<span>Kills</span><b>${pct(stats.kills, stats.killsAll)}</b><span>Items</span><b>${pct(stats.items, stats.itemsAll)}</b><span>Secrets</span><b>${pct(stats.secrets, stats.secretsAll)}</b><span>Time</span><b>${U.time(levelT)}</b><span>Par</span><b>${U.time(def.par)}</b>`;
   $("tallyButtons").innerHTML = (level + 1 < ORDER.length ? `<div class="item" data-do="next">Next: ${ORDER[level + 1].name}</div>` : `<div class="item" data-do="title">The end. Back to the start</div>`) + `<div class="item" data-do="again">Play it again</div>`;
-  $("hud").classList.add("hidden"); menu.show("tallyScr");
+  if (E.tell) E.tell(); menu.show("tallyScr");
 }
 function attractView() {                           // behind the title: a level you've reached, turning slowly
   const id = ORDER[Math.min(save.reached, ORDER.length) - 1 >= 4 && R() < 0.5 ? 4 : 0].id, def = ORDER.find(o => o.id === id);
   if (!lv || state === "title") {
-    lv = parseLevel(id); ray.tex = TEX; ray.sky = def.sky === "cold" ? SKIES.cold : SKIES.fire; pal.maps(def.sky === "cold" ? 0x05070c : 0x050304, 0); marks = new L3.Marks(ray, lv.m, 32);
+    lv = parseLevel(id); ray.tex = TEX; ray.sky = def.sky === "cold" ? SKIES.cold : SKIES.fire; pal.maps(def.sky === "cold" ? 0x05070c : 0x050304, 0); marks = newMarks(32);
     foes = []; items = []; decor = []; shots = []; booms = []; specks = []; bits = []; flakes = []; puffs = []; colds = []; lights = [];
     for (const t of lv.things) if (t.c === "@") { P.x = t.x; P.y = t.y; }
   }
@@ -2504,6 +2677,7 @@ function attractView() {                           // behind the title: a level 
 // ---------------------------------------------------------------- start: textures, models, then the title
 let SKIES = null;
 function ready() {
+  tier();
   ray.slow = E.slow; ray.threads(save.opts.cores === "one" ? 0 : E.plan.helpers || 0);   // (helpers draw strips of the picture on the other cores)
   $("loadtext").textContent = "Forging the textures…";
   SKIES = makeTextures();
@@ -2524,7 +2698,10 @@ document.addEventListener("visibilitychange", () => { if (document.hidden && sta
 if (E.test) window.IM = { get state() { return state; }, P, get foes() { return foes; }, get items() { return items; }, get lv() { return lv; }, get stats() { return stats; },
   get gov() { return E.gov; }, get screen() { return menu.at; }, E, menu, startLevel, finishLevel, save: () => save, ray, target, WEAPONS, KINDS, ORDER, LEVELS,
   get marks() { return marks; }, get alarm() { return alarm; }, get arena() { return arena; }, get fighters() { return fighters; }, get views() { return views; },
-  startArena, leaveArena, toTitle, joined, ARENA_LIST, MODES, SKILLS, think, setP: F => { P = F; }, get shots() { return shots; }, get bits() { return bits; }, newFoe, damage, explode, fire, pick, bakeShape, SPR, get FX() { return FX; } };
+  startArena, leaveArena, toTitle, joined, ARENA_LIST, MODES, SKILLS, think, setP: F => { P = F; }, get shots() { return shots; }, get bits() { return bits; }, newFoe, damage, explode, fire, pick, bakeShape, SPR, get FX() { return FX; },
+  ui, TUNE, get hudVer() { return hudVer; }, get frozen() { return frozen; }, get msgs() { return msgs; }, get centerL() { return centerT > 0 ? centerL : []; }, say, center, tier, pictureChanged,
+  go: () => { if (menu.at) resume(); } };
+tier();                                             // (what the player holds of the picture, before the engine picks a rung)
 E.start();
 })();
 </script></body></html>
