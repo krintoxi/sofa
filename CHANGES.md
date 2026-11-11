@@ -6,6 +6,43 @@ has its own numbers and list: [deploy/sofa-box/CHANGES.md](deploy/sofa-box/CHANG
 A change to Sofa's code (`sofa/`, `client/`, `sofa.py`) gets a new version: raise `__version__`, add a section
 here, then `python3 tools/sofa-version.py` (a test checks it was done).
 
+## 1.5.7 (2026-11-11)
+
+- **Live TV has one look: the bar of eras, then a guide.** Live now, your starred channels and what a search finds
+  are now a dial in the guide's own shape, the way Classic Cinema and the decades have looked all along: a row a
+  channel with its number and one bar, and the channel in view up top with its logo. The grid of logo cards is gone.
+  - The bar of eras is always there, with **Live now** as one of the eras, whether or not Classic Cinema and the
+    decades are switched on.
+  - Every channel has a number. Sofa's own lineup keeps 2 to 99; a channel list's channels start at 101. Type a
+    number on Live TV and it tunes there; a Sofa Box's player shows the number in its banner.
+  - On a TV the page no longer scrolls under the remote: the rows scroll and the channel in view stays in view.
+    Right from a row is its star (OK makes it a favorite); **Flip** tunes to one at random.
+  - Lighter on a Raspberry Pi 3: no picture in a row (the grid loaded sixty logos at a time), one logo at a time
+    for the channel in view, rows drawn as the remote comes near them.
+- **Channels that don't answer are left out.** Free channels come and go, and a list is full of ones that are gone.
+  - Sofa looks at each channel now and then, the way a viewer at home opens it: its playlist, one quality, and the
+    first bytes of the newest part. A few at a time, never two at once at the same site, one at a time on a slow
+    computer, and only while someone has opened Live TV here in the last week.
+  - A channel that misses two looks in a row is left out of everyone's list, and of the list TVs on the network get.
+    It's looked at again every few hours and is back by itself when it answers.
+  - Tune in to one that doesn't answer and it's out at once. When a channel starts and then won't play, the player
+    tells Sofa, which looks itself before believing it (and never on a Visitor's say-so).
+  - A favorite stays in your list, marked **Not answering right now**.
+  - An admin sees how many are left out, with **Show them anyway**, on Live TV; **Server → Live TV** has the switch
+    (**Leave out channels that don't answer**, on by default), how far the looking has got, and **Look now**.
+  - When the home's own internet drops (several sites in a row unreachable, nothing answering in between), nothing
+    is marked and what was marked on the way is taken back.
+  - What's remembered is in `data/live-health.json`: channel ids and verdicts, no names and no addresses. Nothing
+    about it is written to the activity log but one line with the count.
+  - Unchanged: a channel from the internet can't lead Sofa into the home network; away from home and for Visitors a
+    channel plays straight from where it's streamed or not at all; channels that ask for a made-up browser name
+    stay out, and aren't looked at, unless an admin allowed them.
+- For other apps: `/api/live` gives each channel a `number`, marks the ones shown though they don't answer with
+  `down`, and gives an admin `down` (how many) and `health`; `/api/live?down=1` (an admin) lists them anyway;
+  `POST /api/live/failed/<id>` asks Sofa to look at a channel next; the setting is `live_check`.
+- Tried in a browser on a Mac at a TV's size and a phone's, with a stand-in channel list. Not on a Raspberry Pi and
+  not against the public lists.
+
 ## 1.5.6 (2026-11-11)
 
 - **Retro TV's decades are on by default again.**

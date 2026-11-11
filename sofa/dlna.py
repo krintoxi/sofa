@@ -76,7 +76,7 @@ def tree():
     lib = LIBRARY.public()
     with _tree_lock:
         tunes = LIBRARY.music_public()
-        version = (lib["generated"], len(live.all_channels()), len(live.favorites_anyone()))
+        version = (lib["generated"], len(live.all_channels(with_down=False)), len(live.favorites_anyone()))
         if _tree["version"] == version:
             return _tree["objects"]
         objs = {}
@@ -136,7 +136,7 @@ def tree():
                 if parent not in objs:
                     container(parent, vroot, v["artist"])
                 item(parent, v["title"], {**v, "size": None, "runtime": None})
-        chans = live.all_channels()
+        chans = live.all_channels(with_down=False)      # (a TV's list: only the channels that answer)
         if chans:
             tv = container("live", "0", "Live TV")
             favs = live.favorites_anyone()

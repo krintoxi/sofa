@@ -22,6 +22,7 @@ The one exception is **Live TV**: its channels are on the internet, by nature.
 | Update checks | GitHub, twice a day | Work offline |
 | Save from a link | the site you paste, through yt-dlp | Don't use it, or Work offline |
 | Live TV channel lists and channels | iptv-org and the lists you add | Don't use it, or Work offline |
+| Looking at whether Live TV's channels still answer (a small request to each channel's own address, now and then, only while Live TV has been opened here in the last week) | the sites that stream the channels in your lists | Server → Live TV → Leave out channels that don't answer, or Work offline |
 | Live TV's Classic Cinema channels and the decades' channels (each has a switch) | archive.org: which films each channel shows (once a week), and the films themselves, straight to the screen that plays them | Server → Live TV → Classic Cinema and The decades, or Work offline |
 | Your own address (DuckDNS) | DuckDNS, every 10 minutes (your token and name); while a certificate is made, DuckDNS's DNS check record and Cloudflare's DNS resolver (to see it's there) | Server → Internet: no DuckDNS token |
 | A certificate from Let's Encrypt | Let's Encrypt, when you ask and a month before it ends: your address | Server → Internet → Encryption |

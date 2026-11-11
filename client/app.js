@@ -1873,25 +1873,28 @@ let liveData = null, liveGroup = prefs.get("liveGroup", "Favorites"), liveQuery 
 // Live TV by era: Live now (today's channel lists), 2009–2012, the 2000s, the 90s and older, Classic Cinema, and the
 // channels you starred. (A server without Sofa's own lineup sends no eras: then the lists' groups, as before.)
 let liveEra = prefs.get("liveEra", "");
-const eraMode = () => !!(liveData && liveData.eras && liveData.eras.length);
+const eraMode = () => !!liveData;
 function liveEras() {
   const has = id => id === "now" ? liveData.channels.some(c => !c.archive) : liveData.channels.some(c => c.era === id);
-  const out = (liveData.eras || []).filter(e => has(e.id));
+  const out = (liveData.eras && liveData.eras.length ? liveData.eras : [{ id: "now", name: "Live now" }]).filter(e => has(e.id));
   if (liveData.channels.some(c => c.fav)) out.push({ id: "fav", name: "Favorites" });
   return out;
 }
 const LIVE_PAGE = 60;                       // channels drawn at first; more as the end comes near
-let liveMore = null;
+let liveMore = null, liveAt = 0;
+function liveMoreNow() {                    // the next rows of the dial (the end is near, or the remote reached it)
+  const box = $("#dRows"), end = $("#chanMore");
+  if (!box || !end) return false;
+  const list = liveList(), have = box.querySelectorAll(".g-row").length;
+  end.insertAdjacentHTML("beforebegin", list.slice(have, have + LIVE_PAGE).map(dialRow).join(""));
+  if (have + LIVE_PAGE >= list.length) { if (liveMore) liveMore.disconnect(); end.remove(); }
+  return have < list.length;
+}
 function watchLiveMore() {
   if (liveMore) liveMore.disconnect();
-  const end = $("#chanMore"), box = $("#channels");
+  const end = $("#chanMore"), box = $("#dRows");
   if (!end || !box || !("IntersectionObserver" in window)) return;
-  liveMore = new IntersectionObserver(es => {
-    if (!es.some(e => e.isIntersecting)) return;
-    const list = liveList(), have = box.children.length;
-    box.insertAdjacentHTML("beforeend", list.slice(have, have + LIVE_PAGE).map(channelCard).join(""));
-    if (box.children.length >= list.length) { liveMore.disconnect(); end.remove(); }
-  }, { rootMargin: "900px 0px" });
+  liveMore = new IntersectionObserver(es => { if (es.some(e => e.isIntersecting)) liveMoreNow(); }, { root: box, rootMargin: "600px 0px" });
   liveMore.observe(end);
 }
 const noDirectKey = () => "liveNoDirect:" + location.host;
@@ -1901,7 +1904,10 @@ function noDirect(id) {
   if (liveData && liveData.channels) liveData.channels = liveData.channels.filter(c => c.id !== id);
 }
 async function loadLive() {
-  try { liveData = await api("/api/live"); } catch (e) { liveData = { error: e.message, channels: [], playlists: [] }; }
+  // (an admin who asked to see the channels that don't answer gets them too, marked)
+  try { liveData = await api("/api/live" + (session.user.admin && prefs.get("liveShowDown", false) ? "?down=1" : "")); }
+  catch (e) { liveData = { error: e.message, channels: [], playlists: [] }; }
+  liveAt = Date.now(); dialShown = null;
   if (liveData.away) {                     // (away from home: what didn't play straight from the channel here, before)
     const gone = new Set(prefs.get(noDirectKey(), []) || []);
     liveData.channels = liveData.channels.filter(c => c.archive || !gone.has(c.id));
@@ -1916,13 +1922,75 @@ function liveList() {
     return liveData.channels.filter(c => c.era === liveEra);
   }
   return liveData.channels.filter(c =>
-    (q ? c.name.toLowerCase().includes(q) : liveGroup === "All" ? true : liveGroup === "Favorites" ? c.fav : c.group === liveGroup));
+    (q ? c.name.toLowerCase().includes(q) || String(c.number || "") === q : liveGroup === "All" ? true : liveGroup === "Favorites" ? c.fav : c.group === liveGroup));
 }
-function channelCard(c) {
-  return `<div class="chan"><button class="card" data-live="${esc(c.id)}" style="display:block;width:100%">
-      <span class="logo">${c.logo ? `<img decoding="async" src="${esc(c.logo)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : `<span>${esc(c.name)}</span>`}</span>
-      <span class="t1">${c.number ? `<b class="ch-num">${c.number}</b> ` : ""}${esc(c.name)}</span><span class="t2">${c.now ? "Now: " + esc(c.now) : esc(c.group)}</span></button>
-    <button class="star" data-fav="${esc(c.id)}" aria-pressed="${c.fav}" aria-label="${c.fav ? "Remove from favorites" : "Add to favorites"}">★</button></div>`;
+/* The dial: today's channels (Live now), the starred ones and what a search finds, in the guide's own shape. A row a
+   channel with its number and one bar (it's on air: a channel list has no programmes), the channel in view up top
+   with its logo. Light on purpose: no picture in a row, one logo at a time, rows drawn as they come near. */
+const DIAL_COLOURS = ["#FF2E88", "#3DF07A", "#4CC2FF", "#B18CFF", "#FF6B4A", "#2ED3C6", "#E8FF3A", "#EDE6D6"];
+const dialColour = g => { let h = 0; for (const ch of String(g || "")) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return DIAL_COLOURS[h % DIAL_COLOURS.length]; };
+const dialMark = name => (String(name).match(/[A-Za-z0-9À-ÿ]+/g) || ["?"]).slice(0, 3).map(w => w[0]).join("").toUpperCase();
+let dialShown = null, dialPicTimer = 0, dialHover = null;
+function dialRow(c) {
+  const what = c.down ? "Not answering right now" : c.archive ? (c.now ? "Now: " + esc(c.now) : "On now") : "Live";
+  return `<div class="g-row${c.down ? " down" : ""}" style="--ch:${esc(c.color || dialColour(c.group))}"><div class="g-ch"><b>${c.number || ""}</b><span>${esc(c.name)}</span></div>
+    <div class="g-line"><button class="g-prog on" data-live="${esc(c.id)}"><span>${c.down ? "" : `<i class="live-dot"></i>`}<strong class="d-name">${esc(c.name)}</strong><small class="d-what">${what}</small><em>${esc(c.group)}</em></span></button>
+      <button class="star" data-fav="${esc(c.id)}" aria-pressed="${!!c.fav}" aria-label="${c.fav ? "Remove from favorites" : "Add to favorites"}">★</button></div></div>`;
+}
+function liveDial(list, groups) {
+  return `<div class="tv-guide live-dial" id="dial"><div class="g-now" id="dNow"></div>
+    <div class="g-times"><div class="g-ch"><button class="btn g-flip" data-dflip title="Tunes to a channel at random">Flip</button></div>
+      <div class="g-line d-groups">${groups ? `<div class="chips" role="group" aria-label="Channel groups">${["All"].concat(groups).map(g => `<button data-group="${esc(g)}" aria-pressed="${g === liveGroup}">${esc(g)}</button>`).join("")}</div>`
+        : `<div class="count d-count">${plural(list.length, "channel")}</div>`}</div></div>
+    <div class="g-rows" id="dRows">${list.slice(0, LIVE_PAGE).map(dialRow).join("")}${list.length > LIVE_PAGE ? `<div class="chan-more" id="chanMore" aria-hidden="true"></div>` : ""}</div></div>`;
+}
+function showDial(b) {                                  // the channel in view, up top
+  const panel = $("#dNow");
+  if (!panel || !liveData || !b) return;
+  const c = liveData.channels.find(x => x.id === (b.dataset.live || b.dataset.fav));
+  if (!c || (dialShown === c && panel.firstChild)) return;
+  dialShown = c;
+  panel.style.setProperty("--ch", c.color || dialColour(c.group));
+  panel.innerHTML = `<div class="g-pic d-pic" id="dPic">${c.logo ? "" : `<span class="d-mark">${esc(dialMark(c.name))}</span>`}</div>
+    <div class="g-info"><div class="g-chline"><b>${c.number || ""}</b><span>${esc(c.group)}</span>${c.down ? `<i class="g-aired">Off air</i>` : `<i class="g-aired d-on"><i class="live-dot"></i>Live</i>`}</div>
+      <h2>${esc(c.name)}</h2>
+      <p class="g-when">${c.down ? "It didn't answer the last time Sofa looked. It's back in the list by itself when it answers again."
+        : c.archive ? (c.now ? "Now: " + esc(c.now) : "On now.") : "On air now."}</p>
+      ${c.archive && c.next ? `<p class="g-next">Next: ${esc(c.next)}</p>` : ""}
+      ${c.archive && c.about ? `<p class="g-about">${esc(c.about)}</p>` : ""}
+      ${TV ? `<p class="g-keys"><b>OK</b> watch <b>▶</b> then OK: a favorite <b>0–9</b> a channel's number</p>` : ""}</div>`;
+  clearTimeout(dialPicTimer);
+  if (c.logo) dialPicTimer = setTimeout(() => {         // (not for every channel the remote passes on its way)
+    const pic = $("#dPic");
+    if (!pic || dialShown !== c) return;
+    const img = new Image();
+    img.alt = ""; img.decoding = "async"; img.referrerPolicy = "no-referrer";
+    img.onload = () => { if (pic.isConnected && dialShown === c) { pic.prepend(img); requestAnimationFrame(() => img.classList.add("in")); } };
+    img.onerror = () => { if (pic.isConnected && dialShown === c) pic.insertAdjacentHTML("afterbegin", `<span class="d-mark">${esc(dialMark(c.name))}</span>`); };
+    img.src = c.logo;
+  }, TV ? 300 : 120);
+  fitDial();
+}
+function fitDial() {                                    // the rows fill what's left of the screen: the page itself stays put,
+  const box = $("#dRows");                              // the channel in view stays in view
+  if (!box) return;
+  box.style.maxHeight = innerWidth <= 720 ? "" : Math.max(TV ? 162 : 232, innerHeight - (box.getBoundingClientRect().top + scrollY) - (TV ? 18 : 28)) + "px";
+}
+window.addEventListener("resize", fitDial);
+function watchDial() {
+  const first = $("#dRows [data-live]");
+  if (!first) { dialShown = null; return; }
+  const a = document.activeElement, mine = a && a.closest && a.closest("#dRows");
+  if (!mine && TV && (!a || a === document.body)) first.focus({ preventScroll: true });   // (the remote starts on the dial)
+  dialShown = null;
+  showDial(mine ? a : first);
+}
+function dialFlip() {
+  const pool = liveList().filter(c => !c.down);
+  if (!pool.length) return;
+  const c = pool[Math.floor(Math.random() * pool.length)], b = $(`#dRows [data-live="${CSS.escape(c.id)}"]`);
+  if (b) { b.focus({ preventScroll: true }); b.scrollIntoView({ block: "nearest" }); }
+  Player.openLive(c, liveList());
 }
 function viewLive() {
   setGlow("");
@@ -1930,47 +1998,33 @@ function viewLive() {
     <p class="count" style="max-width:60ch">Live TV channels come from the internet, and Sofa is set to work offline. Everything in your library plays as usual.
     ${session.user.admin ? `An admin can switch Work offline off under Server, Settings, Privacy.` : ""}</p></section>`;
   if (!liveData) { loadLive(); return `<section class="page"><div class="page-head"><h1>Live TV</h1></div><p class="count">Loading channels…</p></section>`; }
-  const eras = eraMode() ? liveEras() : [];
+  // One look for all of Live TV: the bar of eras (Live now is one of them, with the decades and Classic Cinema when
+  // they're on, and the starred channels), then an era's guide or the dial.
+  const eras = liveEras();
   if (eras.length && !eras.some(e => e.id === liveEra)) liveEra = (eras.find(e => e.id === "2000s") || eras[0]).id;
-  const tabs = eras.length ? `<div class="eras" role="tablist" aria-label="Eras">${eras.map(e => `<button role="tab" data-era="${esc(e.id)}"
-      aria-selected="${!liveQuery && e.id === liveEra}">${e.id === "now" ? `<i class="live-dot"></i>` : e.id === "fav" ? "★ " : ""}${esc(e.name)}</button>`).join("")}</div>` : "";
-  const head = eras.length ? `<div class="page-head live-head"><h1>Live TV</h1>${TV ? tabs : `<span class="count">${plural(liveData.channels.length, "channel")}</span>`}</div>${TV ? "" : tabs}`
-    : `<div class="page-head"><h1>Live TV</h1><span class="count">${plural(liveData.channels.length, "channel")}</span></div>
-    ${TV ? `<p class="count live-how">${isGuide() ? "Up and down go through the channels, OK watches one; while it plays, up and down change the channel. Flip picks one for you." : "OK plays a channel, and while it plays, up and down change it. The ★ on a channel adds it to Favorites."}</p>` : ""}`;
+  const tabs = `<div class="eras" role="tablist" aria-label="Eras">${eras.map(e => `<button role="tab" data-era="${esc(e.id)}"
+      aria-selected="${!liveQuery && e.id === liveEra}">${e.id === "now" ? `<i class="live-dot"></i>` : e.id === "fav" ? "★ " : ""}${esc(e.name)}</button>`).join("")}</div>`;
+  const head = `<div class="page-head live-head"><h1>Live TV</h1>${TV ? tabs : `<span class="count">${plural(liveData.channels.length, "channel")}</span>`}</div>${TV ? "" : tabs}`;
+  const gone = session.user.admin && liveData.down ? (prefs.get("liveShowDown", false)
+    ? `<p class="count live-gone">Showing ${plural(liveData.down, "channel")} that didn't answer the last time Sofa looked. <button class="link-btn" data-live-down="0">Leave them out</button></p>`
+    : `<p class="count live-gone">${plural(liveData.down, "channel")} that ${liveData.down === 1 ? "doesn't answer is" : "don't answer are"} left out. <button class="link-btn" data-live-down="1">Show them anyway</button></p>`) : "";
   if (!liveData.channels.length && visitorMode()) {
     return `<section class="page">${head}<p class="count" style="max-width:62ch">Nothing's on Live TV here yet. Come back later.</p></section>`;
   }
   if (!liveData.channels.length) {
-    return `<section class="page">${head}<p class="count" style="max-width:62ch">Free channels come from channel lists (M3U playlists), like the ones collected at github.com/iptv-org/iptv.
+    return `<section class="page"><div class="page-head"><h1>Live TV</h1></div>${gone}<p class="count" style="max-width:62ch">Free channels come from channel lists (M3U playlists), like the ones collected at github.com/iptv-org/iptv.
       ${session.user.admin ? "Add a list below, or any M3U link on the Server page." : "Ask whoever manages this server to add a channel list."}</p>
       ${session.user.admin ? `<div class="presets">${PRESETS.map(p => `<button class="btn" data-preset="${esc(p[1])}" data-name="${esc(p[0])}">Add ${esc(p[0])}</button>`).join("")}</div>` : ""}</section>`;
   }
-  if (eras.length) {
-    // an era: its guide. Live now: today's channels by their lists' groups, and a search (thousands of them)
-    const now = liveEra === "now", groups = now ? [...new Set(liveData.channels.filter(c => !c.archive).map(c => c.group))].sort((a, b) => a.localeCompare(b)) : [];
-    if (now && liveGroup !== "All" && !groups.includes(liveGroup)) liveGroup = "All";
-    const list = liveList(), searching = !TV || now || liveEra === "fav" || liveQuery;
-    return `<section class="page live-page">${head}
-      ${searching ? `<div class="live-tools"><input id="liveSearch" type="search" placeholder="${now ? "Find a channel" : "Find any channel"}" aria-label="Find a channel" value="${esc(liveQuery)}"></div>` : ""}
-      ${now && !liveQuery ? `<div class="chips" role="group" aria-label="Channel groups">${["All"].concat(groups).map(g => `<button data-group="${esc(g)}" aria-pressed="${g === liveGroup}">${esc(g)}</button>`).join("")}</div>` : ""}
-      ${isGuide() ? `<div class="tv-guide" id="guide"><p class="count">Loading the guide…</p></div>` : `
-      <div class="channels" id="channels">${list.slice(0, LIVE_PAGE).map(channelCard).join("")}</div>
-      ${list.length > LIVE_PAGE ? `<div class="chan-more" id="chanMore" aria-hidden="true"></div>` : ""}`}
-      ${!list.length ? `<p class="count">${liveQuery ? "No channel by that name." : "No channels here yet."}</p>` : ""}</section>`;
-  }
-  const first = ["Retro TV", "Classic Cinema"], rank = g => first.includes(g) ? first.indexOf(g) : first.length;
-  const groups = [...new Set(liveData.channels.map(c => c.group))].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
-  if (liveGroup !== "All" && liveGroup !== "Favorites" && !groups.includes(liveGroup)) liveGroup = "All";
-  if (liveGroup === "Favorites" && !liveData.channels.some(c => c.fav)) liveGroup = groups.includes("Retro TV") ? "Retro TV" : "All";
-  const list = liveList();
-  const chips = ["Favorites", "All"].concat(groups).map(g => `<button data-group="${esc(g)}" aria-pressed="${!liveQuery && g === liveGroup}">${esc(g)}</button>`).join("");
-  return `<section class="page">${head}
-    <div class="live-tools"><input id="liveSearch" type="search" placeholder="Find a channel" aria-label="Find a channel" value="${esc(liveQuery)}"></div>
-    <div class="chips" role="group" aria-label="Channel groups">${chips}</div>
-    ${isGuide() ? `<div class="tv-guide" id="guide"><p class="count">Loading the guide…</p></div>` : `
-    <div class="channels" id="channels">${list.slice(0, LIVE_PAGE).map(channelCard).join("")}</div>
-    ${list.length > LIVE_PAGE ? `<div class="chan-more" id="chanMore" aria-hidden="true"></div>` : ""}`}
-    ${!list.length ? `<p class="count">No channels here yet. Tap the star on a channel to add it to Favorites.</p>` : ""}</section>`;
+  // an era: its guide. Live now, the starred ones and a search: the dial (thousands of channels: by group, and a search)
+  const now = liveEra === "now", groups = now && !liveQuery ? [...new Set(liveData.channels.filter(c => !c.archive).map(c => c.group))].sort((a, b) => a.localeCompare(b)) : null;
+  if (groups && liveGroup !== "All" && !groups.includes(liveGroup)) liveGroup = "All";
+  const list = liveList(), searching = !TV || now || liveEra === "fav" || liveQuery;
+  return `<section class="page live-page">${head}
+    ${searching ? `<div class="live-tools"><input id="liveSearch" type="search" placeholder="${now ? "Find a channel" : "Find any channel"}" aria-label="Find a channel" value="${esc(liveQuery)}">${now || liveQuery ? gone : ""}</div>` : ""}
+    ${isGuide() ? `<div class="tv-guide" id="guide"><p class="count">Loading the guide…</p></div>`
+      : list.length ? liveDial(list, groups && groups.length > 1 ? groups : null)
+      : `<p class="count">${liveQuery ? "No channel by that name." : "No channels here yet."}</p>`}</section>`;
 }
 
 /* ---------- Live TV's guide: the archive channels (Retro TV, the film channels) by the clock, as on a TV. Light on
@@ -2132,15 +2186,17 @@ function dial(d) {                                      // a channel's number, t
   let box = $("#gDial");
   if (!box) { box = document.createElement("div"); box.id = "gDial"; box.className = "g-dial"; box.setAttribute("aria-live", "polite"); document.body.appendChild(box); }
   box.textContent = dialBuf; box.hidden = false;
-  if (!guideData) loadGuide();
+  if (!guideData && !liveData) loadGuide();
   clearTimeout(dialTimer);
   dialTimer = setTimeout(() => {
-    const n = +dialBuf, c = guideData && guideData.channels.find(x => x.number === n);
+    const n = +dialBuf, c = (liveData && liveData.channels.find(x => x.number === n)) || (guideData && guideData.channels.find(x => x.number === n));
     dialBuf = ""; box.hidden = true;
     if (!c) return toast("There's no channel " + n + ".");
-    const b = guideFind(c.id, Date.now() / 1000);
+    const b = guideFind(c.id, Date.now() / 1000) || $(`#dRows [data-live="${CSS.escape(c.id)}"]`);
     if (b) { b.focus({ preventScroll: true }); b.scrollIntoView({ block: "nearest" }); }
-    tuneArchive(c.id);
+    if (c.archive || !liveData) return tuneArchive(c.id);
+    const list = liveList();
+    Player.openLive(c, list.includes(c) ? list : liveData.channels.filter(x => !x.archive));
   }, 1100);
 }
 document.addEventListener("keydown", e => {
@@ -2149,13 +2205,15 @@ document.addEventListener("keydown", e => {
   if (/^[0-9]$/.test(e.key) && location.hash.startsWith("#/live") && !(a && (a.tagName === "INPUT" || a.tagName === "TEXTAREA"))) {
     e.preventDefault(); dial(e.key); return;
   }
-  if (!a || !a.classList || !a.classList.contains("g-prog")) return;
-  const row = a.closest(".g-row"), progs = [...row.querySelectorAll(".g-prog")], i = progs.indexOf(a);
+  if (!a || !a.classList || !(a.classList.contains("g-prog") || (a.classList.contains("star") && a.closest("#dRows")))) return;
+  const row = a.closest(".g-row"), progs = [...row.querySelectorAll(".g-prog, .star")], i = progs.indexOf(a);
   let to = null;
   if (e.key === "ArrowLeft") to = progs[i - 1];
   else if (e.key === "ArrowRight") to = progs[i + 1];
   else if (e.key === "ArrowUp" || e.key === "ArrowDown") {
-    const other = e.key === "ArrowUp" ? row.previousElementSibling : row.nextElementSibling;
+    let other = e.key === "ArrowUp" ? row.previousElementSibling : row.nextElementSibling;
+    if (other && other.id === "chanMore") other = liveMoreNow() ? row.nextElementSibling : null;   // (the dial's next rows)
+    if (other && other.id === "chanMore") other = null;
     if (other) {
       const p = guideProg(a), t = Math.max(Date.now() / 1000, p ? p.start : 0);
       const there = [...other.querySelectorAll(".g-prog")];
@@ -2169,17 +2227,24 @@ document.addEventListener("keydown", e => {
   to.focus({ preventScroll: true });
   to.scrollIntoView({ block: "nearest", inline: "nearest", behavior: TV ? "auto" : "smooth" });
 }, true);
-document.addEventListener("focusin", e => { const b = e.target.closest && e.target.closest("#gRows .g-prog"); if (b) showNow(b); });
+document.addEventListener("focusin", e => {
+  const b = e.target.closest && e.target.closest("#gRows .g-prog");
+  if (b) return showNow(b);
+  const d = e.target.closest && e.target.closest("#dRows [data-live], #dRows .star");
+  if (d) showDial(d);
+});
 document.addEventListener("pointerover", e => {
   if (TV) return;
   const b = e.target.closest && e.target.closest("#gRows .g-prog");
   if (b && b !== guideHover) { guideHover = b; showNow(b); }
+  const d = e.target.closest && e.target.closest("#dRows .g-row");
+  if (d && d !== dialHover) { dialHover = d; showDial(d.querySelector("[data-live]")); }
 });
 document.addEventListener("click", e => {
-  const t = e.target.closest && e.target.closest("#guide [data-gch], #guide [data-gflip]");
+  const t = e.target.closest && e.target.closest("#guide [data-gch], #guide [data-gflip], #dial [data-dflip]");
   if (!t) return;
   e.preventDefault();
-  if (t.dataset.gflip !== undefined) flip(); else tuneArchive(t.dataset.gch);
+  if (t.dataset.dflip !== undefined) dialFlip(); else if (t.dataset.gflip !== undefined) flip(); else tuneArchive(t.dataset.gch);
 });
 document.addEventListener("input", e => {
   if (e.target.id === "pageFilter") {
@@ -2372,9 +2437,10 @@ function loadAdmin() {
   const tab = adminTab;
   adminBusy = (async () => {
     try {
-      const [d, live, ...extra] = await Promise.all([api("/api/admin/status", undefined, 20000), api("/api/live", undefined, 20000).catch(() => ({}))]
+      const [d, live, ...extra] = await Promise.all([api("/api/admin/status", undefined, 20000), api("/api/live?for=server", undefined, 20000).catch(() => ({}))]
         .concat((ADMIN_EXTRA[tab] || []).map(x => api(x[1], undefined, 30000).then(r => x[2] ? x[2](r) : r))));
       d.live = live.playlists || (adminData && adminData.live) || [];
+      d.liveHealth = live.health || (adminData && adminData.liveHealth) || null;
       (ADMIN_EXTRA[tab] || []).forEach((x, i) => { d[x[0]] = extra[i]; });
       d.tab = tab;
       adminData = d; adminSlow = "";
@@ -2705,12 +2771,15 @@ function srvDownloads(d) {
   </div>`;
 }
 function srvLive(d) {
-  const s = d.settings || {};
+  const s = d.settings || {}, h = d.liveHealth;
+  const looked = !h || !h.on ? "" : h.cut_off ? "The internet didn't answer the last looks, so nothing was marked. Sofa tries again in a few minutes."
+    : h.waiting ? "Nobody has opened Live TV for a week, so Sofa isn't looking. It starts again when someone does."
+    : !h.total ? "" : `${h.checked} of ${plural(h.total, "channel")} looked at${h.checked < h.total ? " so far" : ""}; ${h.down === 1 ? "1 doesn't answer and is" : h.down + " don't answer and are"} left out.`;
   return `<div class="panels"><div class="panel wide"><h2>Live TV channel lists</h2><p class="hint">M3U playlists of free channels. Sofa re-downloads them twice a day. At home they play through Sofa; away from home, and for visitors, straight from where each channel is streamed, or not at all.</p>
     <ul class="list">${(d.live || []).map(p => `<li><span><b>${esc(p.name)}</b>${p.adult ? ` <span class="tag">Adult</span>` : ""}<br><span class="when">${p.error ? "Problem: " + esc(p.error) : plural(p.count || 0, "channel")}</span></span>
       <span class="row-actions">${p.adult ? "" : `<button class="mini" data-live-public="${esc(p.url)}" aria-pressed="${!!p.public}" title="The public library's visitors get this list's channels too (with Live TV shared, in Sharing)">${p.public ? "Visitors: on" : "Visitors: off"}</button>`}
       <button class="mini danger" data-live-remove="${esc(p.url)}">Remove</button></span></li>`).join("") || `<li class="empty-row">No channel lists yet.</li>`}</ul>
-    <p class="hint" style="margin-top:14px">Community lists from iptv-org: channels that are streamed openly on the internet, collected by volunteers. Sofa doesn't host or check them, and being reachable doesn't make a channel yours to pass on, so keep them for watching at home.</p>
+    <p class="hint" style="margin-top:14px">Community lists from iptv-org: channels that are streamed openly on the internet, collected by volunteers. Sofa doesn't host them or choose what's on them, and being reachable doesn't make a channel yours to pass on, so keep them for watching at home.</p>
     <div class="presets">${PRESETS.filter(p => !(d.live || []).some(x => x.url === p[1])).map(p => `<button class="mini" data-preset="${esc(p[1])}" data-name="${esc(p[0])}">+ ${esc(p[0])}</button>`).join("")}</div>
     <form class="inline-form" id="addList"><label class="field"><span>Name</span><input name="name" maxlength="60" placeholder="My channels"></label>
       <label class="field"><span>M3U link</span><input name="url" type="url" required placeholder="https://…/list.m3u"></label>
@@ -2718,6 +2787,8 @@ function srvLive(d) {
       <label class="check"><input type="checkbox" name="adult"> Adult channels (only people allowed to see Adult get them; never TVs or guests)</label>
       <div class="form-error" role="alert" style="grid-column:1/-1"></div></form>
     <p class="hint" style="margin-top:14px">About adult channels: the free iptv-org lists stopped carrying adult channels in January 2024, so there's no free list Sofa can suggest. If you have an M3U link from a service you trust, add it with the Adult box ticked.</p>
+    ${srvSwitch("live_check", s.live_check, "Leave out channels that don't answer", "Free channels come and go. Sofa looks at each one now and then, a few at a time, the way a viewer at home opens it, and only while Live TV is being used here. The ones that are gone stay out of everyone's list until they answer again; a favorite stays, with a mark. On Live TV, an admin can show them anyway.")}
+    ${looked ? `<p class="hint live-looked">${esc(looked)} <button class="mini" data-live-check="1">Look now</button></p>` : ""}
     ${srvSwitch("live_headers", s.live_headers, "Channels that ask for a made-up browser name", "Some lists give a channel a browser name or a page to pretend to come from, to get past a site that wants its stream watched only on its own pages. Off: those channels are left out.")}</div>
     <div class="panel wide"><h2>Retro TV</h2>
     ${srvSwitch("archive_channels", s.archive_channels, "Classic Cinema", "Old films and classic TV on the clock, like a TV channel: noir, westerns, silent films, cartoons and more. They play straight from a public video library, not through Sofa.")}
@@ -3038,6 +3109,7 @@ function route(animate) {
   watchGrids();
   watchLiveMore();
   watchGuide();
+  watchDial();
   updateNudges();
   startHero();
   if (trailer) keepTrailer(trailer); else if (animate !== false) startTrailer();
@@ -3052,7 +3124,11 @@ function route(animate) {
   }
 }
 function rerender() { const y = scrollY; route(false); scrollTo(0, y); }
-window.addEventListener("hashchange", () => { route(); scrollTo(0, 0); });
+window.addEventListener("hashchange", e => {
+  // (back on Live TV after a while elsewhere: its channels are asked for again; the ones that stopped answering are gone)
+  if (liveData && !liveData.error && location.hash.startsWith("#/live") && !String(e.oldURL || "").includes("#/live") && Date.now() - liveAt > 5 * 60000) liveData = null;
+  route(); scrollTo(0, 0);
+});
 /* #/play/<id>: the box's Home pressed Resume (or a Continue watching tile). The title's own page goes underneath, and
    the video starts at once (the box's start card first): Back from the video goes back to Home. */
 function playFromHash(id) {
@@ -3066,7 +3142,7 @@ window.sofaRouteNow = () => route();      // the box sets the address and draws 
 
 /* ---------- interactions ---------- */
 document.addEventListener("click", e => {
-  const t = e.target.closest("[data-slide],[data-intros-recheck],[data-manage],[data-machine-test],[data-drive-use],[data-place-remove],[data-new-pictures],[data-empty-deleted],[data-free-space],[data-retry-details],[data-adult-nav],[data-asort],[data-adult-play],[data-like],[data-download],[data-surprise],[data-pair-profile],[data-session-end],[data-forget],[data-seen],[data-wipe-logs],[data-trailer-sound],[data-trailer-replay],[data-redo-damaged],[data-add-link],[data-send-files],[data-dl-retry],[data-dl-cancel],[data-dl-clear],[data-dl-install],[data-enable-adult],[data-conv-retry],[data-conv-cancel],[data-conv-all],[data-conv-clear],[data-update],[data-user-adult],[data-user-kids],[data-dupes],[data-kids-title],[data-act-kind],[data-key-clear],[data-fix],[data-msort],[data-adult-tab],[data-play-start],[data-srv-tab],[data-mlike],[data-mplay],[data-mplay-one],[data-mplay-list],[data-mshuffle-list],[data-station],[data-mtab],[data-play-mv],[data-guest-clear],[data-play],[data-watched],[data-season],[data-sort],[data-nudge],[data-season-watched],[data-dismiss],[data-admin],[data-setting],[data-user-pass],[data-user-del],[data-live],[data-fav],[data-group],[data-era],[data-preset],[data-live-remove],[data-share-setting],[data-share-new],[data-copy],[data-share-title]");
+  const t = e.target.closest("[data-slide],[data-intros-recheck],[data-manage],[data-machine-test],[data-drive-use],[data-place-remove],[data-new-pictures],[data-empty-deleted],[data-free-space],[data-retry-details],[data-adult-nav],[data-asort],[data-adult-play],[data-like],[data-download],[data-surprise],[data-pair-profile],[data-session-end],[data-forget],[data-seen],[data-wipe-logs],[data-trailer-sound],[data-trailer-replay],[data-redo-damaged],[data-add-link],[data-send-files],[data-dl-retry],[data-dl-cancel],[data-dl-clear],[data-dl-install],[data-enable-adult],[data-conv-retry],[data-conv-cancel],[data-conv-all],[data-conv-clear],[data-update],[data-user-adult],[data-user-kids],[data-dupes],[data-kids-title],[data-act-kind],[data-key-clear],[data-fix],[data-msort],[data-adult-tab],[data-play-start],[data-srv-tab],[data-mlike],[data-mplay],[data-mplay-one],[data-mplay-list],[data-mshuffle-list],[data-station],[data-mtab],[data-play-mv],[data-guest-clear],[data-play],[data-watched],[data-season],[data-sort],[data-nudge],[data-season-watched],[data-dismiss],[data-admin],[data-setting],[data-user-pass],[data-user-del],[data-live],[data-fav],[data-group],[data-era],[data-preset],[data-live-remove],[data-live-down],[data-live-check],[data-share-setting],[data-share-new],[data-copy],[data-share-title]");
   if (!t) return;
   if (t.dataset.fix) { fixDialog(t.dataset.fix); return; }
   if (t.dataset.shareTitle) {                   // Share on a title's page (or Stop sharing in Server → Sharing)
@@ -3193,8 +3269,14 @@ document.addEventListener("click", e => {
   if (t.dataset.fav) {
     const c = liveData.channels.find(x => x.id === t.dataset.fav); c.fav = !c.fav;
     api("/api/live/favorite/" + c.id, { on: c.fav }).catch(() => {});
-    if (!(liveGroup === "Favorites" && !c.fav)) { t.setAttribute("aria-pressed", c.fav); return; }
-    rerender(); return;
+    t.setAttribute("aria-pressed", c.fav);              // (it stays in view where it is; the Favorites tab follows later)
+    t.setAttribute("aria-label", c.fav ? "Remove from favorites" : "Add to favorites");
+    return;
+  }
+  if (t.dataset.liveDown) { prefs.set("liveShowDown", t.dataset.liveDown === "1"); liveData = null; rerender(); return; }
+  if (t.dataset.liveCheck) {
+    adminAction(async () => { await api("/api/admin/live", { check: true }); toast("Sofa is looking at the channels now. It takes a while: a few at a time."); });
+    return;
   }
   if (t.dataset.group) { liveGroup = t.dataset.group; liveQuery = ""; prefs.set("liveGroup", liveGroup); rerender(); return; }
   if (t.dataset.era) {
@@ -3231,7 +3313,7 @@ document.addEventListener("click", e => {
   else if (t.dataset.admin === "scan") { t.disabled = true; t.textContent = "Checking…"; adminAction(async () => { await api("/api/admin/scan", {}); await reloadLibrary(); }); }
   else if (t.dataset.setting) {
     const on = t.getAttribute("aria-checked") !== "true";
-    if (/^(archive_channels|retro_eras|live_headers)$/.test(t.dataset.setting)) liveData = null;
+    if (/^(archive_channels|retro_eras|live_headers|live_check)$/.test(t.dataset.setting)) liveData = null;
     adminAction(() => api("/api/admin/settings", { [t.dataset.setting]: on }));
   }
   else if (t.dataset.shareSetting) {
@@ -4835,7 +4917,9 @@ const Player = (function () {
       else {
         hls = new window.Hls({ liveDurationInfinity: true });
         hls.on(window.Hls.Events.ERROR, (_, data) => {
-          if (data.fatal && !(liveFallback && liveFallback())) showError(ch.name + " isn't available right now", "Free channels come and go. Try another one, or try this one later.");
+          if (!data.fatal) return;
+          if (!ch.src) api("/api/live/failed/" + ch.id, {}).catch(() => {});      // (Sofa looks at it itself, next)
+          if (!(liveFallback && liveFallback())) showError(ch.name + " isn't available right now", "Free channels come and go. Try another one, or try this one later.");
         });
         hls.loadSource(src); hls.attachMedia(video);
       }
@@ -4902,6 +4986,10 @@ const Player = (function () {
     if (!it) return;                   // (not the one this page started: its card stays as it is)
     if (!(r && r.failed && window.SofaBox)) BoxCard.hide();
     const home = nativeHome; nativeHome = false;
+    if (r && r.failed && it.live) {    // a channel the box's player couldn't open: Sofa is told, and looks at it itself
+      const ch = (r.channel && (it.list || []).find(c => c.id === r.channel)) || it.channel;
+      if (ch && !ch.archive && !ch.src) api("/api/live/failed/" + ch.id, {}).catch(() => {});
+    }
     if (r && r.failed && window.SofaBox) {   // on a box: say so, on the card (the page's player would be the same file, slower)
       BoxCard.fail((it.live ? "This channel isn't available on the box right now." : "The box's player couldn't open it.") +
                    (r.error ? " It said: " + r.error : ""));

@@ -1580,6 +1580,45 @@ html.box::-webkit-scrollbar, html.box body::-webkit-scrollbar { display: none; }
   .g-prog { font-size: 13px; padding: 0 8px; }
 }
 .ch-num { color: var(--amber); margin-right: 4px; }
+/* The dial: Live now, the starred channels and a search in the guide's own shape. A row a channel: its number, its
+   name, one bar (it's on air). No picture in a row; the channel in view has its logo up top. */
+.live-dial .g-rows { max-height: max(232px, calc(100vh - 500px)); }      /* (fitted to the screen once drawn: fitDial) */
+.tv .live-dial .g-rows { max-height: max(162px, calc(100vh - 452px)); overflow-y: auto; }
+.live-dial .g-now { min-height: 0; grid-template-columns: minmax(150px, 20%) 1fr; }
+.tv .live-dial .g-now { grid-template-columns: minmax(130px, 15%) 1fr; padding: 12px; gap: 20px; margin-bottom: 10px; }
+.tv .live-dial .g-info h2 { margin: 4px 0 6px; }
+.tv .live-dial .g-keys { margin-top: 8px; }
+.tv .live-page .live-dial ~ *, .tv .live-page .live-tools { margin-bottom: 8px; }
+.live-dial .g-times { align-items: center; padding-bottom: 10px; }
+.live-dial .g-times .g-line { height: auto; min-width: 0; }
+.d-groups .chips { padding: 2px; margin: 0; }
+.d-count { padding-left: 4px; }
+.live-dial .g-prog { left: 0; right: 52px; }
+.live-dial .g-prog > span { display: flex; align-items: center; gap: 10px; }
+.live-dial .g-prog .live-dot { flex: none; }
+.live-dial .g-prog small { font-size: inherit; }
+.live-dial .g-prog em { margin-left: auto; padding-left: 12px; font-style: normal; font-size: 13px; color: var(--mist); overflow: hidden; text-overflow: ellipsis; }
+.live-dial .g-prog:focus em { color: inherit; opacity: .85; }
+.live-dial .g-prog:focus .live-dot { background: currentColor; box-shadow: none; }
+.d-name { display: none; font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
+.live-dial .star { top: 50%; right: 10px; margin-top: -16px; background: none; }
+.live-dial .g-row.down .g-prog { color: var(--mist); font-style: italic; background: rgba(var(--slate2-rgb), .5); }
+.live-dial .g-row.down .g-ch { opacity: .6; }
+.d-pic img { object-fit: contain; padding: 10%; }
+.d-mark { position: absolute; inset: 0; display: grid; place-items: center; padding-bottom: 6%; color: var(--ch);
+  font: 800 clamp(30px, 6vw, 76px)/1 var(--display); letter-spacing: .02em; }
+.g-aired.d-on { display: inline-flex; align-items: center; gap: 6px; }
+.live-gone { margin: 0; }
+.live-gone .link-btn { text-decoration: underline; text-underline-offset: 3px; }
+.tv .live-gone .link-btn:focus { outline: 4px solid var(--amber); outline-offset: 2px; color: var(--paper); }
+.live-looked { margin-top: 2px; }
+@media (max-width: 720px) {
+  .live-dial .g-rows { max-height: none; }
+  .live-dial .g-now { grid-template-columns: 112px 1fr; }
+  .d-name { display: inline; }
+  .live-dial .d-what { display: none; }
+  .live-dial .g-prog { right: 44px; }
+}
 
 /* ---------- Games and Sofa Box (off a box) ---------- */
 .nav a.nav-promo { color: var(--amber); box-shadow: inset 0 0 0 1px rgba(var(--accent-rgb), .45); margin-left: 6px; }

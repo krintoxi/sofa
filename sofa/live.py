@@ -7,6 +7,10 @@ use plain http. Only addresses that came from your playlists can be fetched
 through Sofa: every proxied link carries a signature made with a key stored on
 this server.
 
+Channels that don't answer are left out: Sofa looks at each one now and then (the way a viewer at home would
+open it, a few at a time, and only while Live TV is being used here), remembers the ones that are gone, and
+lists them again when they come back. An admin can see them anyway.
+
 Adult channels (from a list the admin marked "adult", or in a group like "XXX")
 are only listed for people allowed to see the Adult section, and never on TVs.
 Note: iptv-org stopped publishing adult channels in January 2024, so adult
@@ -17,6 +21,7 @@ import hashlib
 import hmac
 import http.client
 import ipaddress
+import json
 import os
 import re
 import secrets
@@ -32,6 +37,7 @@ from . import config, net, store
 
 CACHE = os.path.join(config.DATA_DIR, "cache", "live")
 REFRESH_EVERY = 12 * 3600
+FIRST_NUMBER = 101                  # the dial: a list's channels from here on (Sofa's own lineup has 2 to 99)
 AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
 ATTR = re.compile(r'([\w-]+)="([^"]*)"')
 ADULT_GROUP = re.compile(r"\b(xxx|adult|adults|18\+|erotic|porn|nsfw)\b", re.I)
@@ -366,11 +372,13 @@ def visible(chan):
     return bool(chan) and (bool(config.get("live_headers")) or not (h.get("ua") or h.get("referer")))
 
 
-def listing(user_id, adult=False, public_only=False, direct_only=False):
-    """Live TV's channels for one viewer. `public_only`: a Visitor of the public library, who gets only the lists an
+def listing(user_id, adult=False, public_only=False, direct_only=False, show_down=False):
+    """Live TV's channels for one viewer. The ones that don't answer are left out (`down` says how many), except a
+    viewer's own favourites, which stay with a mark, and for an admin who asked to see them anyway (`show_down`). `public_only`: a Visitor of the public library, who gets only the lists an
     admin marked for visitors. `direct_only`: away from home (and every Visitor), where a channel plays straight from
     where it's streamed or not at all: never through this Sofa, which would make the home's connection theirs (past a
     channel's own country limits) and its upload a public broadcaster. Each such channel carries its own address (src)."""
+    _load_health()
     favs = {r["channel"] for r in store.q("SELECT channel FROM live_favorites WHERE user_id = ?", user_id)}
     lists = [p for p in playlists() if adult or not p.get("adult")]
     public = {p["url"] for p in lists if p.get("public")}
@@ -378,17 +386,24 @@ def listing(user_id, adult=False, public_only=False, direct_only=False):
         chans = sorted((c for c in _channels.values() if (adult or not c.get("adult")) and visible(c)
                         and (not public_only or public.intersection(c.get("lists") or ()))),
                        key=lambda c: (c["group"].lower(), c["name"].lower()))
-    out = []
-    for c in chans:
+    out, gone, hide = [], 0, checking()
+    for n, c in enumerate(chans):
+        # its number on the dial: today's channels from 101, after Sofa's own lineup (2 to 99), in the list's order
         row = {"id": c["id"], "name": c["name"], "logo": c["logo"], "group": c["group"], "adult": c.get("adult", False),
-               "playlist": c["playlist"], "fav": c["id"] in favs}
+               "playlist": c["playlist"], "fav": c["id"] in favs, "number": FIRST_NUMBER + n}
         if direct_only:
             src = direct_url(c)
             if not src or c.get("geo"):                  # (marked for its own country only: it wouldn't play out here)
                 continue
             row["src"] = src
+        if hide and down(c["id"]):
+            gone += 1
+            if not (show_down or row["fav"]):
+                continue
+            row["down"] = True
         out.append(row)
-    return {"playlists": [] if public_only else
+    return {"down": gone,
+            "playlists": [] if public_only else
             [dict(_status.get(p["url"], {"name": p.get("name"), "url": p["url"], "count": 0, "adult": bool(p.get("adult"))}),
                   public=bool(p.get("public"))) for p in lists],
             "channels": out}
@@ -405,9 +420,13 @@ def direct_url(chan):
     return url
 
 
-def all_channels(adult=False):
+def all_channels(adult=False, with_down=True):
+    """Every channel that's shown at all; `with_down` False leaves out the ones that don't answer (a TV's list)."""
+    _load_health()
+    hide = not with_down and checking()
     with _lock:
-        return [c for c in _channels.values() if (adult or not c.get("adult")) and visible(c)]
+        return [c for c in _channels.values() if (adult or not c.get("adult")) and visible(c)
+                and not (hide and down(c["id"]))]
 
 
 def favorites_anyone():
@@ -456,7 +475,7 @@ def proxied(url, cid):
     return "/live/%s/p/%s" % (cid, pack(url))
 
 
-def open_upstream(url, chan):
+def open_upstream(url, chan, timeout=20):
     """A channel's stream, or a part of it, through Sofa. A channel from a list on the internet can't send Sofa to the
     home network or this computer: its playlist (or a redirect) naming a router's page, or a Sofa box's own controls,
     isn't fetched. A list at home (a TV tuner's) can."""
@@ -465,12 +484,291 @@ def open_upstream(url, chan):
         headers["User-Agent"] = chan["headers"]["ua"]
     if chan and chan.get("headers", {}).get("referer"):
         headers["Referer"] = chan["headers"]["referer"]
-    return fetch(url, headers, timeout=20, home_ok=bool(chan and chan.get("home")))
+    return fetch(url, headers, timeout=timeout, home_ok=bool(chan and chan.get("home")))
 
 
 def is_playlist(resp, url):
     ctype = (resp.headers.get("Content-Type") or "").lower()
     return "mpegurl" in ctype or urllib.parse.urlsplit(url).path.lower().endswith(".m3u8")
+
+
+# ---------------------------------------------------------------- channels that don't answer
+
+HEALTH = os.path.join(config.DATA_DIR, "live-health.json")
+CHECK_OK_EVERY = 24 * 3600          # a channel that answered: looked at again a day later
+CHECK_DOWN_EVERY = 6 * 3600         # one that's gone: sooner, so it's back in the list soon after it's back on air
+CHECK_AGAIN = 600                   # one that missed a single look: once more before it's called gone
+DOWN_AFTER = 2                      # looks in a row without an answer before a channel is left out
+CHECK_TIMEOUT = 8
+CHECK_PAUSE = 1.5                   # a worker's rest between two channels
+CHECK_WORKERS = 3                   # at once (never two at the same site: a site's channels go to one worker)
+CHECK_BATCH = 240                   # channels in one round, before the list is looked at afresh
+WANTED_FOR = 7 * 86400              # nobody opened Live TV for a week: no more looking until someone does
+ASK_EVERY = 60                      # a viewer's "this didn't play": looked at once a minute at most, per channel
+UNREACHED = ("it took too long", "it can't be reached")
+OFFLINE_AFTER = 4                   # sites in a row that couldn't be reached, nothing answering between: it's this
+                                    # home's connection that's off, not the channels, and nothing is marked
+
+_health = {}                        # channel id -> {"ok", "at", "fails", "why"}
+_health_lock = threading.Lock()
+_health_state = {"loaded": False, "dirty": False, "saved": 0.0, "wanted": 0.0, "asked": {}, "running": False}
+_first = []                         # channels to look at before the rest (a viewer just couldn't play them)
+_streak = {}                        # site -> (channel, what was known of it) that couldn't be reached since anything answered
+_check_wake = threading.Event()
+
+
+def checking():
+    """Is Sofa looking at channels and leaving out the ones that don't answer (an admin's switch, on by default)?"""
+    return bool(config.get("live_check")) and not config.get("offline")
+
+
+def _load_health():
+    if _health_state["loaded"]:
+        return
+    with _health_lock:
+        if _health_state["loaded"]:
+            return
+        try:
+            with open(HEALTH, encoding="utf-8") as f:
+                saved = json.load(f)
+            _health.update({k: v for k, v in (saved.get("channels") or {}).items() if isinstance(v, dict)})
+            _health_state["wanted"] = float(saved.get("wanted") or 0)
+        except (OSError, ValueError, TypeError, AttributeError):
+            pass
+        _health_state["loaded"] = True
+
+
+def _save_health(force=False):
+    """What's known, kept across restarts: written a minute apart at most, and whole (a cut-off write isn't the list)."""
+    with _health_lock:
+        if not _health_state["dirty"] or (not force and time.time() - _health_state["saved"] < 60):
+            return
+        data = {"wanted": int(_health_state["wanted"]), "channels": dict(_health)}
+        _health_state.update(dirty=False, saved=time.time())
+    try:
+        os.makedirs(config.DATA_DIR, exist_ok=True)
+        with open(HEALTH + ".tmp", "w", encoding="utf-8") as f:
+            json.dump(data, f, separators=(",", ":"))
+        os.replace(HEALTH + ".tmp", HEALTH)
+    except OSError:
+        pass
+
+
+def down(cid):
+    """Known not to answer: it missed DOWN_AFTER looks in a row, or a viewer's own try to watch it just failed."""
+    _load_health()
+    h = _health.get(cid)
+    return bool(h) and not h.get("ok") and h.get("fails", 0) >= DOWN_AFTER
+
+
+def mark(cid, ok, why="", at_once=False):
+    """Remember how a look at a channel went. `at_once`: it failed for someone watching, so it's gone now, not after
+    a second look."""
+    _load_health()
+    with _lock:
+        host = urllib.parse.urlsplit((_channels.get(cid) or {}).get("url") or "").hostname or cid
+    with _health_lock:
+        before = _health.get(cid)
+        if ok or why not in UNREACHED:
+            _streak.clear()                             # something answered (a "404" too): the connection is up
+        else:
+            if len(_streak) >= OFFLINE_AFTER:
+                return False
+            _streak.setdefault(host, (cid, before))
+            if len(_streak) >= OFFLINE_AFTER:           # ...and what was marked on the way here is taken back
+                for k, was in _streak.values():
+                    if was is None:
+                        _health.pop(k, None)
+                    else:
+                        _health[k] = was
+                _health_state["dirty"] = True
+                return False
+        h = before or {}
+        fails = 0 if ok else max(h.get("fails", 0) + 1, DOWN_AFTER if at_once else 1)
+        _health[cid] = {"ok": bool(ok), "at": int(time.time()), "fails": fails, "why": "" if ok else str(why)[:120]}
+        _health_state["dirty"] = True
+    return True
+
+
+def cut_off():
+    """Nothing on the internet has answered the last few looks: this home's connection looks off."""
+    return len(_streak) >= OFFLINE_AFTER
+
+
+def answered(cid):
+    """A part of the channel just reached a viewer through Sofa: it's on air, whatever the last look said."""
+    h = _health.get(cid)
+    if h is None or not h.get("ok") or time.time() - h.get("at", 0) > 3600:
+        mark(cid, True)
+
+
+def wanted():
+    """Someone opened Live TV: its channels are looked at from now on (and for a week after the last time)."""
+    _load_health()
+    now = time.time()
+    if now - _health_state["wanted"] > 3600:
+        with _health_lock:
+            _health_state.update(wanted=now, dirty=True)
+        _check_wake.set()
+    else:
+        _health_state["wanted"] = now
+
+
+def look_again(cid):
+    """A viewer couldn't play this channel. Sofa doesn't take their word for it: it looks itself, next, and leaves
+    the channel out at once if it doesn't answer. (Asked for the same channel again within a minute: nothing.)"""
+    now = time.time()
+    with _health_lock:
+        asked = _health_state["asked"]
+        if now - asked.get(cid, 0) < ASK_EVERY:
+            return False
+        for k in [k for k, t in asked.items() if now - t > 3600]:
+            del asked[k]
+        asked[cid] = now
+        if cid not in _first:
+            _first.append(cid)
+    _check_wake.set()
+    return True
+
+
+def why_not(exc):
+    if isinstance(exc, PermissionError):
+        return "it leads to the home network"
+    if isinstance(exc, urllib.error.HTTPError):
+        return "it answered %d" % exc.code
+    if isinstance(exc, (socket.timeout, TimeoutError)) or "timed out" in str(exc):
+        return "it took too long"
+    return "it can't be reached"
+
+
+def probe(chan, timeout=CHECK_TIMEOUT):
+    """Is this channel on air? Opened the way it is for a viewer at home (the same request, the same care about the
+    home network, nothing made up), and read only as far as it takes to know: an HLS channel down to its list of
+    parts and the first bytes of the newest part; any other feed, its first bytes. (True, "") or (False, why)."""
+    try:
+        url = chan["url"]
+        for _hop in range(3):                           # a list of qualities, then one quality's list of parts
+            with open_upstream(url, chan, timeout) as r:
+                final = r.geturl()
+                if not is_playlist(r, final):
+                    return (True, "") if r.read(188) else (False, "it sent nothing")
+                text = r.read(2 * 2**20).decode("utf-8", "replace")
+            lines = [ln.strip() for ln in text.splitlines() if ln.strip() and not ln.strip().startswith("#")]
+            if not lines:
+                return False, "its playlist is empty"
+            if "#EXT-X-STREAM-INF" in text:
+                url = urllib.parse.urljoin(final, lines[0])
+                continue
+            with open_upstream(urllib.parse.urljoin(final, lines[-1]), chan, timeout) as r:
+                return (True, "") if r.read(188) else (False, "its video is empty")
+        return False, "its playlists lead nowhere"
+    except Exception as exc:
+        return False, why_not(exc)
+
+
+def _due(now=None):
+    """The channels to look at now, in order: the ones a viewer just couldn't play, then people's favourites, then
+    the ones never looked at, then the longest ago."""
+    now = now or time.time()
+    favs = favorites_anyone()
+    with _health_lock:
+        first = list(_first)
+        del _first[:]
+    with _lock:
+        chans = [c for c in _channels.values() if visible(c)]
+    by_id = {c["id"]: c for c in chans}
+    out = [by_id[cid] for cid in first if cid in by_id]
+    if now - _health_state["wanted"] > WANTED_FOR:
+        return out, set(first)
+
+    def when(c):
+        h = _health.get(c["id"])
+        if not h:
+            return 0
+        every = CHECK_OK_EVERY if h.get("ok") else CHECK_AGAIN if h.get("fails", 0) < DOWN_AFTER else CHECK_DOWN_EVERY
+        return h.get("at", 0) + every
+
+    rest = sorted((c for c in chans if c["id"] not in first and when(c) <= now),
+                  key=lambda c: (c["id"] not in favs, when(c), c["id"]))
+    return out + rest[:CHECK_BATCH], set(first)
+
+
+def check_some(pause=None, workers=None):
+    """One round of looking: the channels that are due, a few at a time (one at a time, with longer rests, on a slow
+    computer: a Raspberry Pi that's playing a video shouldn't feel it). How many were looked at."""
+    _load_health()
+    if not checking():
+        return 0
+    if pause is None or workers is None:
+        from . import machine                           # (it reads this computer's speed: not at import)
+        slow_here = machine.gentle()
+        pause = (CHECK_PAUSE * 2 if slow_here else CHECK_PAUSE) if pause is None else pause
+        workers = (1 if slow_here else CHECK_WORKERS) if workers is None else workers
+    due, at_once = _due()
+    if not due:
+        return 0
+    lanes = [[] for _ in range(max(1, workers))]
+    for c in due:                                       # a site's channels all in one lane: one request to it at a time
+        host = urllib.parse.urlsplit(c["url"]).hostname or ""
+        lanes[int(hashlib.sha1(host.encode()).hexdigest(), 16) % len(lanes)].append(c)
+
+    def run(lane):
+        for i, c in enumerate(lane):
+            if not checking():
+                return
+            ok, why = probe(c)
+            mark(c["id"], ok, why, at_once=c["id"] in at_once)
+            _save_health()
+            if cut_off():                               # (the next round finds out if it's back)
+                return
+            if pause and i + 1 < len(lane):
+                time.sleep(pause)
+
+    _health_state["running"] = True
+    try:
+        threads = [threading.Thread(target=run, args=(lane,), daemon=True, name="live-check") for lane in lanes if lane]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+    finally:
+        _health_state["running"] = False
+    with _lock:
+        known = set(_channels)
+    with _health_lock:                                  # a channel no list has had for a month: forgotten
+        old = [k for k, h in _health.items() if k not in known and time.time() - h.get("at", 0) > 30 * 86400]
+        for k in old:
+            del _health[k]
+            _health_state["dirty"] = True
+    _save_health(force=True)
+    return len(due)
+
+
+def health(adult=True):
+    """For the Server page: how many channels there are, how many were looked at, how many don't answer."""
+    _load_health()
+    with _lock:
+        ids = [c["id"] for c in _channels.values() if visible(c) and (adult or not c.get("adult"))]
+    return {"on": checking(), "total": len(ids), "checked": sum(1 for i in ids if i in _health),
+            "down": sum(1 for i in ids if down(i)), "running": _health_state["running"],
+            "waiting": time.time() - _health_state["wanted"] > WANTED_FOR, "cut_off": cut_off()}
+
+
+def _check_loop():
+    time.sleep(20)                                      # (the lists are read first)
+    told = None
+    while True:
+        try:
+            n = check_some()
+            h = health()
+            if n and h["checked"] >= h["total"] and h["down"] != told:   # a whole pass done: one line, no names
+                told = h["down"]
+                store.log("live", "Live TV: %d of %d channels don't answer and are left out" % (h["down"], h["total"]))
+        except Exception as exc:
+            n = 0
+            store.log("error", "Live TV channel check: %s" % exc)
+        _check_wake.clear()
+        _check_wake.wait(20 if n and not cut_off() else 300)
 
 
 # ---------------------------------------------------------------- background refresh
@@ -486,3 +784,4 @@ def _loop():
 
 def start():
     threading.Thread(target=_loop, daemon=True, name="live-refresh").start()
+    threading.Thread(target=_check_loop, daemon=True, name="live-check-loop").start()

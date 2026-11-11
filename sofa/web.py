@@ -624,11 +624,20 @@ class Handler(BaseHTTPRequestHandler):
         url = chan["url"] if m.group(2) == "index.m3u8" else live.unpack(m.group(3))
         if not url:
             return self.send_body("Not found", status=404)
+        first = m.group(2) == "index.m3u8"
         try:
             resp = live.open_upstream(url, chan)
-        except Exception:
+        except Exception as exc:
+            # Someone tuned in and it didn't answer: left out of Live TV from now (until it answers a later look).
+            # A part that didn't come says less (one of several qualities, a moment's hiccup): Sofa looks itself, next.
+            if first:
+                live.mark(chan["id"], False, live.why_not(exc), at_once=True)
+            else:
+                live.look_again(chan["id"])
             return self.send_body("The channel didn't answer.", status=502)
         with resp:
+            if not first:
+                live.answered(chan["id"])
             if live.is_playlist(resp, resp.geturl()):
                 text = resp.read(4 * 2**20).decode("utf-8", "replace")
                 return self.send_body(live.rewrite_playlist(text, resp.geturl(), chan["id"]),
@@ -796,10 +805,18 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/live":
             visitor = bool(u.get("visitor"))
             away = visitor or self.network() == "internet"  # straight from the channel, or not at all (live_get)
-            out = live.listing(u["id"], adult=u.get("adult"), public_only=visitor, direct_only=away)
+            anyway = bool(u.get("admin")) and (qs.get("down") or [""])[0] == "1"   # an admin's "show them anyway"
+            out = live.listing(u["id"], adult=u.get("adult"), public_only=visitor, direct_only=away, show_down=anyway)
+            if not visitor and (qs.get("for") or [""])[0] != "server":
+                live.wanted()                           # (Live TV is in use in this home: its channels get looked at)
+            if u.get("admin"):
+                out["health"] = live.health(adult=bool(u.get("adult")))
+            else:
+                out.pop("down", None)                   # (how many are gone is the admin's to know)
             favs = {r["channel"] for r in store.q("SELECT channel FROM live_favorites WHERE user_id = ?", u["id"])}
             out["channels"] = [dict(c, fav=c["id"] in favs, playlist="archive.org") for c in archive.channels(visitor)] + out["channels"]
-            out["eras"] = archive.eras(visitor)          # Live TV's tabs
+            # Live TV's tabs: Live now is one of the eras, with or without Sofa's own lineup
+            out["eras"] = archive.eras(visitor) or [{"id": "now", "name": "Live now"}]
             out["away"] = away
             return self.json(out)
         if path == "/api/live/guide":                  # the archive channels' guide: what's on and next, by the clock
@@ -1273,6 +1290,15 @@ class Handler(BaseHTTPRequestHandler):
             return self.json({"ok": True})
         if path.startswith("/api/live") and u.get("kids"):
             return self.error(403, "Live TV isn't on for this profile.")
+        m = re.match(r"^/api/live/failed/([0-9a-f]{12})$", path)     # "this channel didn't play for me"
+        if m:
+            chan = live.channel(m.group(1))
+            if not live.visible(chan) or (chan.get("adult") and not u.get("adult")) or \
+                    (u.get("visitor") and not config.get("share_live")):
+                return self.error(404, "That channel isn't on.")
+            # Sofa looks itself (it isn't taken on trust), and not on a Visitor's say-so: the public library can't
+            # make this home's connection go anywhere.
+            return self.json({"ok": True, "looking": not u.get("visitor") and live.look_again(chan["id"])})
         m = re.match(r"^/api/live/favorite/([0-9a-f]{12}|ia-[a-z0-9]{1,40})$", path)   # a list's channel, or Retro TV's
         if m:
             if m.group(1).startswith("ia-") and m.group(1) not in archive.BY_ID:
@@ -1317,7 +1343,10 @@ class Handler(BaseHTTPRequestHandler):
             except ValueError as exc:
                 return self.error(400, str(exc))
             count = live.refresh(force=bool(data.get("refresh") or data.get("add")))
-            return self.json({"ok": True, "channels": count})
+            if data.get("check"):                       # "Look at the channels now"
+                live.wanted()
+                live._check_wake.set()
+            return self.json({"ok": True, "channels": count, "health": live.health()})
         if path == "/api/admin/backup":
             try:
                 made = backup.make("requested by %s" % u["name"])
@@ -1478,7 +1507,8 @@ class Handler(BaseHTTPRequestHandler):
                                             "guest_access", "auto_convert", "keep_originals", "tidy_library",
                                             "free_movie_lookup", "theme", "detect_intros", "trickplay", "previews",
                                             "ytdlp_cookies", "gentle", "quiet_hours", "offline", "no_logs", "keep_awake",
-                                            "signups", "archive_channels", "retro_eras", "live_headers") if k in data}
+                                            "signups", "archive_channels", "retro_eras", "live_headers",
+                                            "live_check") if k in data}
             if "gentle" in allowed and allowed["gentle"] not in (True, False, "auto"):
                 allowed.pop("gentle")
             if "quiet_hours" in allowed and not re.match(r"^([01]\d|2[0-3]):[0-5]\d-([01]\d|2[0-3]):[0-5]\d$", str(allowed["quiet_hours"])):
@@ -1489,7 +1519,7 @@ class Handler(BaseHTTPRequestHandler):
                 allowed["name"] = str(allowed["name"]).strip()[:40] or "Sofa"
             for k in ("dlna", "tvmaze", "guest_access", "auto_convert", "keep_originals", "tidy_library", "free_movie_lookup",
                       "detect_intros", "trickplay", "previews", "offline", "no_logs", "keep_awake", "signups",
-                      "archive_channels", "retro_eras", "live_headers"):
+                      "archive_channels", "retro_eras", "live_headers", "live_check"):
                 if k in allowed:
                     allowed[k] = bool(allowed[k])
             for k in ("tmdb_api_key", "theporndb_api_key"):
