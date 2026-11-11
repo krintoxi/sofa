@@ -631,6 +631,12 @@ html.lite .sleep-art.on { animation: none; }                          /* (a Pi 3
 .code-steps li.done em { background: #3DDC84; color: #04210F; }
 .okay { color: #3DDC84 !important; font-weight: 700; }
 p.okay.big { font-size: 1.2rem; margin: .4rem 0 .8rem; }
+.way p.join-failed, .way p.join-failed b { font-size: 1.05rem; margin: 0 0 .2rem; color: #FF6B6B; }   /* a home Wi-Fi that didn't take: why */
+/* the Pi short of power, at the setup: between Back and Next, out of the steps' way */
+.setup-power { flex: 1; min-width: 0; margin: 0 1.4rem; }
+.setup-power:empty { visibility: hidden; }
+.setup-power .power-note { margin: 0; max-width: 52rem; padding: .55rem .9rem; }
+.setup-power .power-note p { font-size: .85rem; line-height: 1.35; }
 .small { color: var(--mist); font-size: .85rem; }
 .bt-list { display: grid; gap: .45rem; margin-top: .4rem; max-width: 52rem; }
 .small-list .bt-row { padding: .45rem .6rem; }

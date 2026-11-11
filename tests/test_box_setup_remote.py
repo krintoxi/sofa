@@ -180,7 +180,7 @@ class SetupThroughARestart(unittest.TestCase):
 
         def nmcli(cmd, timeout=20):
             calls.append(cmd)
-            if "hotspot" in cmd:
+            if cmd[1:3] == ["connection", "up"]:              # (its one start: tests/test_box_handoff.py)
                 order.append("hotspot")
             if cmd[-1] == "device":
                 return 0, "wlan0:wifi"
@@ -190,8 +190,8 @@ class SetupThroughARestart(unittest.TestCase):
             net = a.Network()
             self.assertTrue(net.start_hotspot())
             self.assertEqual(order[:2], ["captive", "hotspot"])
-            self.assertIn(["nmcli", "connection", "modify", "sofa-box-setup", "802-11-wireless-security.pmf", "disable",
-                           "ipv6.method", "disabled"], calls)
+            made = next(c for c in calls if c[1:3] == ["connection", "add"])
+            self.assertEqual([made[made.index(k) + 1] for k in ("802-11-wireless-security.pmf", "ipv6.method")], ["disable", "disabled"])
         finally:
             a.captive.start, a.time.sleep = real_start, real_sleep
 
@@ -433,8 +433,8 @@ class WheresYourSofa(unittest.TestCase):
         js = read(os.path.join(BOX, "home", "home.js"))
         done = js[js.index("else if (d.done) {"):js.index("else if (d.server) {")]
         self.assertIn('location.hash = "#/";', done)
-        self.assertIn("quietUntil = Date.now() + 2000;", done)               # an OK pressed again doesn't open Sofa
-        self.assertIn("if (cur && Date.now() >= quietUntil) cur.click();", js)
+        self.assertIn("quietUntil = mono() + 2000;", done)                   # an OK pressed again doesn't open Sofa
+        self.assertIn("if (cur && mono() >= quietUntil) cur.click();", js)
 
     def test_asking_each_time_is_a_choice_on_the_chooser(self):
         js = read(os.path.join(BOX, "home", "home.js"))

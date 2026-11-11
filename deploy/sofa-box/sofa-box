@@ -278,7 +278,7 @@ doctor() {
       0x0) ok "power supply: steady" ;;
       "") ;;
       *) if [ $(( T & 0x10001 )) -ne 0 ]; then              # (bits 0 and 16: under-voltage, now or since it started)
-           bad "power: the Pi has been short of power ($T)" "use the official 2.5 A (Pi 3) power supply and a short cable"
+           bad "power: the Pi has been short of power ($T)" "use this Pi's official power supply (Pi 3: 2.5 A; Pi 4: 3 A USB-C; Pi 5: 27 W USB-C) and a short cable"
          elif [ $(( T & 0x80008 )) -ne 0 ]; then            # (bits 3 and 19: the soft temperature limit)
            bad "heat: the Pi got hot enough to slow itself down ($T)" "give it air: out of a closed cabinet, or a case with a heat sink or fan"
          else
@@ -376,7 +376,7 @@ report() {
       echo; echo "== Its warnings and errors"
       journalctl -b -1 --no-pager -o short-monotonic -p warning -n 40
     fi
-    command -v vcgencmd >/dev/null && { echo; echo "== Power (0x0: always enough since it started)"; vcgencmd get_throttled; }; } 2>&1 | cut -c 1-400
+    command -v vcgencmd >/dev/null && { echo; echo "== Power: the Pi's own record (throttled=0x0: enough all along; anything else is put in words in the report's first lines)"; vcgencmd get_throttled; }; } 2>&1 | cut -c 1-400
 }
 
 # Updates: which Sofa Box OS the box gets is its channel's (Settings → Software). Stable, the default: the version marked

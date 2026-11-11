@@ -61,7 +61,21 @@ def os_version():
 
 
 OS_VERSION = os_version()
-STARTED = time.time()
+_STEADY = (time.time(), time.monotonic())
+_monotonic = time.monotonic
+
+
+def steady():
+    """The time, for "how long ago was that": the clock's time when the agent started plus the seconds since, so it
+    never jumps. A new card's clock is weeks behind (it starts from the day its system was made) until the box is first
+    online; then it's set right in one step, in the middle of the setup: 36 days at once on a real Pi 3, seconds after
+    it joined the home Wi-Fi. Whatever compared a time kept from before with the time now took "just joined" for "a
+    month ago": the TV dropped the setup's last step for the plain code, and the remote's secure address was taken for
+    gone until the relay next answered. Times that are kept on the card or shown as dates use the clock's own."""
+    return _STEADY[0] + _monotonic() - _STEADY[1]
+
+
+STARTED = steady()
 DEFAULTS = {"server": None, "quality": "auto", "hwdec": "auto", "audio": "auto", "learned_720": False, "learned_lite": False,
             "performance": "auto",
             "channel": "stable", "auto_update": "off",          # Settings → Software (weekly updates off: the owner's choice)
@@ -465,8 +479,8 @@ def ssdp():
         s.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
         s.settimeout(1.0)
         s.sendto(msg, ("239.255.255.250", 1900))
-        end = time.time() + 3
-        while time.time() < end:
+        end = steady() + 3
+        while steady() < end:
             try:
                 data, _ = s.recvfrom(4096)
             except socket.timeout:
@@ -481,7 +495,14 @@ def ssdp():
     return hits
 
 
-looking = {"until": time.time() + 120}             # look often just after starting, and while the chooser is open
+looking = {"until": steady() + 120, "now": threading.Event()}   # look often just after starting, and while the chooser is open
+
+
+def look_soon(seconds=120):
+    """Look for Sofa now, and often for a while: the box has just joined a network (at the setup that's minutes after
+    it started, when it had gone down to a look a minute: Home could open without the Sofa that was there)."""
+    looking["until"] = max(looking["until"], steady() + seconds)
+    looking["now"].set()
 
 
 def playing():
@@ -500,7 +521,7 @@ def look():
             with _lock:
                 if state["chosen"] is None and last.rstrip("/") in found:     # the Sofa it had: straight away
                     state["chosen"] = last.rstrip("/")
-        if not state["chosen"] or time.time() < looking["until"]:   # (the chooser open: what's there, by name)
+        if not state["chosen"] or steady() < looking["until"]:   # (the chooser open: what's there, by name)
             for base, host in bonjour() + [(b, None) for b in ssdp()]:
                 add(base, host)
         with _lock:
@@ -511,7 +532,8 @@ def look():
                     state["chosen"] = next(iter(found))
         if state["chosen"] and state["chosen"] != last:
             save_settings(server=state["chosen"])
-        time.sleep(4 if time.time() < looking["until"] else 60)
+        looking["now"].wait(4 if steady() < looking["until"] else 60)
+        looking["now"].clear()
 
 
 def server():
@@ -893,8 +915,8 @@ class Player:
             d = float(p.get("duration") or 0) or float(self.command("get_property", "duration") or 0) + float(p.get("offset") or 0)
             paused = far["paused"] if far else bool(self.command("get_property", "pause"))
             self.status.update(t=int(t), d=int(d), paused=paused)
-            if d and time.time() - last_save > 10:
-                last_save = time.time()
+            if d and steady() - last_save > 10:
+                last_save = steady()
                 save_progress(p.get("item"), t, d, False, self.cookie, self.base)
             if not drops_checked and not far and t - float(p.get("start") or 0) - float(p.get("offset") or 0) > 90:
                 drops_checked = True
@@ -944,7 +966,7 @@ class Player:
     def tell(self, **what):
         with self.cond:
             self.seq += 1
-            self.news = [n for n in self.news if time.time() - n["at"] < 60] + [dict(what, n=self.seq, at=time.time())]
+            self.news = [n for n in self.news if steady() - n["at"] < 60] + [dict(what, n=self.seq, at=steady())]
             self.cond.notify_all()
 
     def marker(self, t):
@@ -1058,7 +1080,7 @@ class Player:
         bindings = "\n".join("%s %s" % (key, key_command("menu-" + k)) for key, k in self.MENU_KEYS.items())
         self.command("define-section", "sofa-menu", bindings, "force")
         self.command("enable-section", "sofa-menu", "exclusive")
-        self.menu = {"items": self.menu_items(), "at": 0, "used": time.time()}
+        self.menu = {"items": self.menu_items(), "at": 0, "used": steady()}
         self.menu_draw()
         threading.Thread(target=self._menu_idle, daemon=True).start()
 
@@ -1066,7 +1088,7 @@ class Player:
         while getattr(self, "menu", None):
             time.sleep(1)
             m = self.menu
-            if m and time.time() - m["used"] > 12:
+            if m and steady() - m["used"] > 12:
                 self.menu_close()
 
     def menu_close(self):
@@ -1086,7 +1108,7 @@ class Player:
         m = getattr(self, "menu", None)
         if not m:
             return
-        m["used"] = time.time()
+        m["used"] = steady()
         item = m["items"][m["at"]]
         if k == "back":
             return self.menu_close()
@@ -1247,7 +1269,7 @@ def box_sleep():
     player.stop(save=True, reason="sleep")
     if games.playing:
         games.stop("sleep")
-    asleep.update(on=True, at=time.time())
+    asleep.update(on=True, at=steady())
     home_page("#/sleep")
 
 
@@ -1369,6 +1391,23 @@ def power_note(out, board_model=""):
     return note
 
 
+def power_words(note):
+    """The Pi's record of power and heat in plain words, for a report's first lines (the number is further down, with
+    the checks): what happened, whether it's still happening, and what to do."""
+    if not note:
+        return "not read (not a Raspberry Pi, or the box has only just started)"
+    bits, said = int(note["bits"], 16), []
+    for now, since, what in ((0x1, 0x10000, "short of power (under-voltage)"), (0x4, 0x40000, "slowed down by the Pi itself (throttled)"),
+                             (0x2, 0x20000, "its processor's speed capped"), (0x8, 0x80000, "at its soft temperature limit")):
+        if bits & now:
+            said.append(what + " right now")
+        elif bits & since:
+            said.append(what + " since it started, not right now")
+    if not said:
+        return "enough all along, and never held back, since the box started"
+    return "%s (%s). %s. %s" % ("; ".join(said), note["bits"], note.get("title", ""), note.get("text", ""))
+
+
 def watch_power():
     """The Pi's own record of power and heat (vcgencmd get_throttled), read every minute. Home says so once a start: a
     calm note, until you leave Home (power_note); Settings → Help says it all along."""
@@ -1383,7 +1422,7 @@ def watch_power():
             power["note"] = note
             if note["kind"] != "ok" and note["kind"] != was:
                 print("Power: %s (%s)" % (note["title"], out.strip()), file=sys.stderr, flush=True)
-        time.sleep(60)
+        time.sleep(60 if settings()["welcomed"] else 15)    # (at the setup, sooner: its screens say so, see setup_state)
 
 
 def go_home():
@@ -1612,8 +1651,8 @@ class LocalSofa:
                 self.proc = subprocess.Popen(ionice + [sys.executable, os.path.join(code, "sofa.py"), "serve"], cwd=code, stdin=subprocess.DEVNULL,
                                              stdout=log, stderr=subprocess.STDOUT, env=dict(os.environ, SOFA_DATA=self.data),
                                              preexec_fn=lambda: os.nice(10))
-        end = time.time() + wait
-        while time.time() < end:
+        end = steady() + wait
+        while steady() < end:
             if self.answering():
                 return True
             if self.proc and self.proc.poll() is not None:
@@ -1712,8 +1751,8 @@ def thisbox_open(domain, token):
         thisbox_net.update(step=text)
 
     def wait(check, seconds):
-        end = time.time() + seconds
-        while time.time() < end:
+        end = steady() + seconds
+        while steady() < end:
             n = local_sofa.api("/api/admin/internet")
             if check(n):
                 return n
@@ -1856,7 +1895,7 @@ def sofa_continue():
     entry = servers.get(st["default"]) if st["default"] and not st["ask"] else None
     if not entry or entry["kind"] != "sofa":
         return {"found": False, "servers": len(st["servers"])}
-    if _continue["key"] == entry["id"] and time.time() - _continue["at"] < 20:
+    if _continue["key"] == entry["id"] and steady() - _continue["at"] < 20:
         return _continue["value"]
     host = "%s.localhost" % entry["id"]
     cookie = browser.cookies(host) if browser and browser.connected() else ""
@@ -1901,13 +1940,13 @@ def sofa_continue():
             out.update(signedIn=True, user=s["user"]["name"], items=items)
     except Exception:
         out["found"] = False
-    _continue.update(at=time.time(), key=entry["id"], value=out)
+    _continue.update(at=steady(), key=entry["id"], value=out)
     return out
 
 
 def scan_others():
-    if time.time() - others_found["at"] > 20:
-        others_found["at"] = time.time()
+    if steady() - others_found["at"] > 20:
+        others_found["at"] = steady()
         try:
             others_found["list"] = boxservers.find_others()
         except OSError:
@@ -1992,7 +2031,7 @@ class Games:
 
     def pads_now(self):
         """The controllers connected now (the controller daemon says, when they come and go)."""
-        return list(self.pads) if time.time() - self.pads_at < 90 else []
+        return list(self.pads) if steady() - self.pads_at < 90 else []
 
     def listing(self):
         native = []
@@ -2214,7 +2253,7 @@ class Games:
         finally:
             log.close()
         with self.lock:
-            self.proc, self.playing, self.started, self.ending = proc, gid, time.time(), None
+            self.proc, self.playing, self.started, self.ending = proc, gid, steady(), None
         print("Game: %s" % g["name"], file=sys.stderr, flush=True)
         threading.Thread(target=self._wait, args=(g, proc), daemon=True, name="game").start()
         return {"ok": True}
@@ -2237,7 +2276,7 @@ class Games:
                 browser.home()
             except OSError:
                 pass
-        if code and not ending and time.time() - started < 20:
+        if code and not ending and steady() - started < 20:
             toast("%s stopped as it started. OK on it tries again; Settings → Help → Send a report has what it said." % g["name"])
         if not ending:
             go("#/games")
@@ -2266,7 +2305,7 @@ class Games:
             kind = str(p.get("kind") or "generic")
             clean.append({"name": str(p.get("name") or "")[:60], "kind": kind if kind in PAD_KINDS else "generic"})
         new = {p["name"] for p in clean} - {p["name"] for p in self.pads_now()}
-        self.pads, self.pads_at = clean, time.time()
+        self.pads, self.pads_at = clean, steady()
         return new
 
 
@@ -2297,10 +2336,10 @@ def watch_devices():
     known, last, checked = set(), None, 0
     while True:
         now_plugged = plugged()
-        if now_plugged is not None and now_plugged == last and time.time() - checked < 60:
+        if now_plugged is not None and now_plugged == last and steady() - checked < 60:
             time.sleep(15 if playing() else 3)
             continue
-        last, checked = now_plugged, time.time()
+        last, checked = now_plugged, steady()
         try:
             dev = boxos.devices(mount=True)
             names = {d["dev"] for d in dev["drives"]} | ({dev["disc"]["dev"] + ":" + dev["disc"]["kind"]} if dev["disc"] else set())
@@ -2389,13 +2428,13 @@ class Bluetooth:
         and Bluetooth, through one aerial: discovery all through a Wi-Fi join (the setup's first screen looks every few
         seconds) slowed the join down and kept the chip at its busiest just as it switched from the box's own Wi-Fi to
         the home one, which is when a 1.1.49 box restarted by itself."""
-        self.paused_until = time.time() + seconds if seconds else 0
+        self.paused_until = steady() + seconds if seconds else 0
 
     def paused(self):
-        return time.time() < self.paused_until
+        return steady() < self.paused_until
 
     def want(self, seconds=30, autopair=False):
-        now = time.time()
+        now = steady()
         self.until = max(self.until, now + seconds)
         if autopair:
             self.autopair_until = max(self.autopair_until, now + seconds)
@@ -2406,13 +2445,13 @@ class Bluetooth:
 
     def accepting(self):
         """Pairings get a yes now: while looking for devices, or a minute after pairing one."""
-        return time.time() < max(self.until, self.pairing_until)
+        return steady() < max(self.until, self.pairing_until)
 
     def _loop(self):
         run(["bluetoothctl", "power", "on"], 10)
         run(["bluetoothctl", "pairable", "on"], 10)         # (only while looking: a controller asking to pair is let in)
         scan = None
-        while time.time() < self.until:
+        while steady() < self.until:
             if playing() or self.paused():                # not while a video plays, or while a Wi-Fi is being joined
                 if scan and scan.poll() is None:
                     scan.terminate()
@@ -2427,7 +2466,7 @@ class Bluetooth:
                 except OSError:
                     return
             self.devices = boxos.bt_devices()
-            if time.time() < self.autopair_until:
+            if steady() < self.autopair_until:
                 for d in self.devices:
                     if d["kind"] in ("remote", "controller", "keyboard", "mouse") and not d["paired"] and d["mac"] not in self.state:
                         self.pair(d["mac"])
@@ -2439,7 +2478,7 @@ class Bluetooth:
 
     def pair(self, mac):
         self.state[mac] = "pairing"
-        self.pairing_until = time.time() + 60
+        self.pairing_until = steady() + 60
 
         def go():
             ok, _ = boxos.bt_pair(mac)
@@ -2451,7 +2490,7 @@ class Bluetooth:
 
     def listing(self):
         shown = [dict(d, state=self.state.get(d["mac"])) for d in self.devices if d["kind"] != "other" or d["paired"]]
-        return {"scanning": time.time() < self.until, "autopair": time.time() < self.autopair_until,
+        return {"scanning": steady() < self.until, "autopair": steady() < self.autopair_until,
                 "devices": sorted(shown, key=lambda d: (not d["paired"], not d["connected"], -(d["rssi"] or -999)))}
 
 
@@ -2516,7 +2555,7 @@ class Network:
         self.radio_on()
         dev = self.wifi_device()
         if not dev:
-            self.problem, self.failed_at = "This box's Wi-Fi isn't working (NetworkManager doesn't see it).", time.time()
+            self.problem, self.failed_at = "This box's Wi-Fi isn't working (NetworkManager doesn't see it).", steady()
             return None
         time.sleep(1)                                        # Wi-Fi that was just switched on
         if not self.cached:
@@ -2524,21 +2563,42 @@ class Network:
         ssid, password = self.credentials(dev)
         run(["nmcli", "connection", "delete", self.CON], 10)  # one left from before
         captive.start()                                      # first: a phone that joins asks it straight away
-        code, out = run(["nmcli", "device", "wifi", "hotspot", "ifname", dev, "con-name", self.CON, "ssid", ssid, "password", password], 30)
+        code, out = self.bring_up(dev, ssid, password)
         if code == 0:
-            self.hotspot = {"ssid": ssid, "password": password, "address": "10.42.0.1", "at": time.time(),
+            self.hotspot = {"ssid": ssid, "password": password, "address": "10.42.0.1", "at": steady(),
                             "wifi_qr": "WIFI:T:WPA;S:%s;P:%s;;" % (ssid.replace(";", r"\;"), password)}
-            # the Pi's Wi-Fi chip can't do PMF as a hotspot: with it on, iPhones see the network but can't join. No
-            # IPv6 on it either: a phone that finds only IPv4 here asks the sign-in page (the box) at once.
-            if run(["nmcli", "connection", "modify", self.CON, "802-11-wireless-security.pmf", "disable", "ipv6.method", "disabled"], 10)[0] == 0:
-                run(["nmcli", "connection", "up", self.CON], 30)
             self.problem = None
             toast("No internet yet: the box made its own Wi-Fi, %s, for your phone." % ssid)
         else:
             captive.stop()
-            self.problem, self.failed_at = (out.splitlines() or ["the box couldn't make its own Wi-Fi"])[-1][:200], time.time()
+            self.problem, self.failed_at = (out.splitlines() or ["the box couldn't make its own Wi-Fi"])[-1][:200], steady()
             print("The box's own Wi-Fi: %s" % out[-300:], file=sys.stderr, flush=True)
         return self.hotspot
+
+    def bring_up(self, dev, ssid, password):
+        """The box's own Wi-Fi, made whole and then started, once. The Pi's Wi-Fi chip can't do PMF as a hotspot: with it
+        on, iPhones see the network but can't join. No IPv6 on it either: a phone that finds only IPv4 here asks the
+        sign-in page (the box) at once. (It was `nmcli device wifi hotspot`, which starts it NetworkManager's way, then
+        those two changes, then a second start for them to count: on a real Pi 3 the Wi-Fi went up, and three seconds
+        later down and up again with its address server, just as the TV showed the code to join it.) Where
+        NetworkManager won't take it whole, the old way."""
+        made = run(["nmcli", "connection", "add", "type", "wifi", "ifname", dev, "con-name", self.CON, "autoconnect", "no",
+                    "ssid", ssid, "802-11-wireless.mode", "ap", "802-11-wireless-security.key-mgmt", "wpa-psk",
+                    "802-11-wireless-security.proto", "rsn", "802-11-wireless-security.pairwise", "ccmp",
+                    "802-11-wireless-security.group", "ccmp", "802-11-wireless-security.pmf", "disable",
+                    "802-11-wireless-security.psk", password, "ipv4.method", "shared", "ipv6.method", "disabled"], 20)
+        if made[0] == 0:
+            up = run(["nmcli", "connection", "up", self.CON], 30)
+            if up[0] == 0:
+                return up
+            made = up
+        print("The box's own Wi-Fi, made in one go: %s. The old way." % made[1][-200:], file=sys.stderr, flush=True)
+        run(["nmcli", "connection", "delete", self.CON], 10)
+        code, out = run(["nmcli", "device", "wifi", "hotspot", "ifname", dev, "con-name", self.CON, "ssid", ssid, "password", password], 30)
+        if code == 0 and run(["nmcli", "connection", "modify", self.CON, "802-11-wireless-security.pmf", "disable",
+                              "ipv6.method", "disabled"], 10)[0] == 0:
+            run(["nmcli", "connection", "up", self.CON], 30)
+        return code, out
 
     def stop_hotspot(self):
         captive.stop()
@@ -2580,13 +2640,13 @@ class Network:
         """Just off its own Wi-Fi, the box's list of networks is empty (a hotspot can't look around): look until the one
         to join shows, or for `limit` seconds."""
         on = ["ifname", dev] if dev else []
-        end = time.time() + limit
+        end = steady() + limit
         while True:
             run(["nmcli", "device", "wifi", "rescan"] + on, 15)
             code, out = run(["nmcli", "-t", "-f", "SSID", "device", "wifi", "list"] + on, 15)
             if code == 0 and ssid in [line.replace("\\:", ":") for line in out.splitlines()]:
                 return True
-            if time.time() >= end:
+            if steady() >= end:
                 return False
             time.sleep(3)
 
@@ -2622,15 +2682,15 @@ class Network:
                 pass
             return None
         self.joining = {"ssid": str(kept["ssid"]), "state": "joined", "message": "Connected to %s." % kept["ssid"],
-                        "at": time.time(), "resumed": True}
-        self.from_phone = time.time() if kept.get("link") else 0
+                        "at": steady(), "resumed": True}
+        self.from_phone = steady() if kept.get("link") else 0
         return kept
 
     def join(self, ssid, password):
         """The home Wi-Fi. If it doesn't work out, the box's own Wi-Fi comes back with the same name and password, and
         `joining` says why (the TV shows it)."""
         ssid = str(ssid)
-        self.joining = {"ssid": ssid, "state": "joining", "message": "Joining %s…" % ssid, "at": time.time()}
+        self.joining = {"ssid": ssid, "state": "joining", "message": "Joining %s…" % ssid, "at": steady()}
         bluetooth.pause(150)                                # the Wi-Fi chip to itself while it joins (Bluetooth.pause)
         with self.lock:                                     # never while the watch is starting the box's own Wi-Fi
             had = bool(self.hotspot)
@@ -2648,6 +2708,7 @@ class Network:
         if code == 0:
             message = "Connected to %s." % ssid
             secure_remote.wake()                             # on a home network now: its https remote, straight away
+            look_soon()                                      # and the Sofa that's on it
         elif re.search(r"secrets|password|802-11-wireless-security|psk", out, re.I):
             message = "The password for %s isn't right." % ssid
         elif re.search(r"No network with SSID", out, re.I):
@@ -2656,7 +2717,7 @@ class Network:
             message = "It didn't join %s: %s" % (ssid, ((out.strip().splitlines() or ["no reason given"])[-1])[:160])
         if code != 0:
             print("Joining %s: %s" % (ssid, out[-300:]), file=sys.stderr, flush=True)
-        self.joining = {"ssid": ssid, "state": "joined" if code == 0 else "failed", "message": message, "at": time.time()}
+        self.joining = {"ssid": ssid, "state": "joined" if code == 0 else "failed", "message": message, "at": steady()}
         if code == 0:
             self.keep_joined(getattr(self, "pending_link", None))
         bluetooth.pause(20 if code == 0 else 0)             # (a moment more after joining: getting an address there)
@@ -2670,7 +2731,7 @@ class Network:
             return {"ok": False, "message": "Which Wi-Fi?"}
         if self.is_joining():
             return {"ok": False, "message": "The box is already joining %s. The TV shows how it goes." % self.joining["ssid"]}
-        self.joining = {"ssid": ssid, "state": "joining", "message": "Joining %s…" % ssid, "at": time.time()}
+        self.joining = {"ssid": ssid, "state": "joining", "message": "Joining %s…" % ssid, "at": steady()}
         threading.Timer(1.5, self.join, (ssid, password)).start()
         return {"ok": True, "pending": True, "message": "Joining %s… The TV shows how it goes." % ssid}
 
@@ -2705,7 +2766,7 @@ class Network:
 
     def is_joining(self):
         """A home Wi-Fi being joined right now (a join takes up to about 90 seconds: looking for it, then joining)."""
-        return bool(self.joining) and self.joining.get("state") == "joining" and time.time() - self.joining.get("at", 0) < 180
+        return bool(self.joining) and self.joining.get("state") == "joining" and steady() - self.joining.get("at", 0) < 180
 
     def tick(self, offline_since, now):
         """One look at the network (every 10 seconds); gives back since when the box has been offline."""
@@ -2740,10 +2801,10 @@ class Network:
     def watch(self):
         """No cable, no Wi-Fi for a while: the hotspot. A network again: the hotspot goes. A box that knows a Wi-Fi
         doesn't stay on its own for ever: after ten quiet minutes it looks for its Wi-Fi again."""
-        offline_since = time.time()
+        offline_since = steady()
         while True:
             try:
-                offline_since = self.tick(offline_since, time.time())
+                offline_since = self.tick(offline_since, steady())
             except Exception:
                 pass
             time.sleep(10)
@@ -2920,7 +2981,7 @@ class SecureRemote:
                 got = kept.post(self.SERVICE, "/v1/relay/poll", dict({"id": acct["id"], "secret": acct["secret"]},
                                                                             **({"wait": 0} if first else {})), 45)
                 first = False
-                self.relay_base, self.relay_at, backoff = got.get("base") or self.relay_base, time.time(), 2
+                self.relay_base, self.relay_at, backoff = got.get("base") or self.relay_base, steady(), 2
                 for req in got.get("requests") or []:
                     if not self._relay_input(acct, req):     # presses: here, in order; the rest on a thread each
                         threading.Thread(target=self._relay_one, args=(acct, req), daemon=True).start()
@@ -3101,7 +3162,7 @@ class SecureRemote:
 
     def url(self):
         if self.relaying():
-            return self.relay_base if self.relay_base and time.time() - self.relay_at < 60 else None
+            return self.relay_base if self.relay_base and steady() - self.relay_at < 60 else None
         acct = self.account()
         if self.server and self.resolves and acct.get("name") and acct.get("ip") == local_address():
             return "https://%s:%d" % (acct["name"], self.PORT)
@@ -3126,7 +3187,7 @@ class SecureRemote:
             self.event.wait(wait)
             self.event.clear()
             j = network.joining if network else None
-            soon = bool(j) and j.get("state") == "joined" and time.time() - j.get("at", 0) < 180   # (just joined one)
+            soon = bool(j) and j.get("state") == "joined" and steady() - j.get("at", 0) < 180   # (just joined one)
             try:
                 offline = self.step()
                 self.error, wait, fails = None, (5 if soon else 30) if offline else 600, 0
@@ -3236,7 +3297,7 @@ class PhoneRemote:
         if not on_own_wifi and not link:
             if not code or relayed:
                 return None
-            now = time.time()
+            now = steady()
             self.misses = [t for t in self.misses if now - t < self.MISS_WINDOW]
             if len(self.misses) >= self.MISSES:
                 return None                                # being guessed at: typing rests
@@ -3262,7 +3323,7 @@ class PhoneRemote:
 
     def resting(self):
         """Typed codes resting after too many wrong ones (pair)."""
-        return len([t for t in self.misses if time.time() - t < self.MISS_WINDOW]) >= self.MISSES
+        return len([t for t in self.misses if steady() - t < self.MISS_WINDOW]) >= self.MISSES
 
     def valid(self, token):
         return bool(token) and token in self._load()
@@ -3355,7 +3416,7 @@ class PhoneRemote:
         """Home is on the screen: the pointer to its corner, through the page, which hides it. At a start the screen's
         shell (cage) draws its own black arrow mid-screen as soon as anything can point, and nothing hid it until the
         pointer first moved (a controller's stick). Not while a phone is using it."""
-        if self._devices() is not None and self.mouse and time.time() - self.used > self.PARK_AFTER:
+        if self._devices() is not None and self.mouse and steady() - self.used > self.PARK_AFTER:
             self._park(nudge=True)
 
     @staticmethod
@@ -3369,7 +3430,7 @@ class PhoneRemote:
         if not self._devices() or not self.mouse:
             return
         e = self.ecodes
-        now = time.time()
+        now = steady()
         woke = self.parked or now - self.used > self.PARK_AFTER
         if woke:                                                        # back from the corner: from the middle
             self.at, self.parked = [0.5, 0.5], False
@@ -3396,7 +3457,7 @@ class PhoneRemote:
     def _parker(self):
         while True:
             time.sleep(1)
-            if not self.parked and time.time() - self.used > self.PARK_AFTER:
+            if not self.parked and steady() - self.used > self.PARK_AFTER:
                 self._park()
 
     @staticmethod
@@ -3461,6 +3522,8 @@ def setup_state():
                         "networks": network.cached, "problem": network.problem, "joining": network.joining,
                         "clients": safely(network.clients, 0), "phone_at": network.phone_at,
                         "from_phone": getattr(network, "from_phone", 0)}, "secure": safely(secure_remote.status, None),
+            "now": steady(),                               # the clock those times are on (steady): "how long ago" by it
+            "power": power["note"] if power["note"] and power["note"]["kind"] != "ok" else None,   # (the setup says so too)
             "welcomed": s["welcomed"], "setup_step": s.get("setup_step", 0), "name": s["boot_text"],
             "theme": s["theme"], "timezone": safely(current_timezone, "UTC"), "tz_set": bool(s.get("tz_set"))}
 
@@ -3668,6 +3731,7 @@ def report_text():
     s = settings()
     out = ["Sofa Box OS %s (for Sofa's pages: %s), %s" % (OS_VERSION, VERSION, time.strftime("%Y-%m-%d %H:%M:%S %Z")),
            "board: " + json.dumps(board()),
+           "power: " + str(safely(power_words, power["note"])),
            "settings: " + json.dumps({k: s.get(k) for k in list(CHOICES) + ["secure_remote", "shield", "welcomed"]}),
            "network: " + json.dumps({"wired": safely(network.wired), "address": local_address(), "own_wifi": bool(network.hotspot),
                                      "problem": network.problem, "joining": network.joining, "phones_on_own_wifi": safely(network.clients)}),
@@ -3699,7 +3763,7 @@ def send_report():
     Sofa Box certificate service, which keeps it for us to read. A box with an id there signs it with its secret."""
     if SecureRemote.SERVICE == "0":
         return {"ok": False, "message": "This box has no certificate service to send reports to."}
-    if time.time() - _report["at"] < 30:
+    if steady() - _report["at"] < 30:
         return {"ok": True, "report": _report.get("code"), "message": "Sent a moment ago: its number is %s." % _report.get("code")}
     if network.hotspot:
         return {"ok": False, "message": "The box needs the internet to send a report: give it your Wi-Fi first."}
@@ -3718,7 +3782,7 @@ def send_report():
         got = secure_remote.call("/v1/report", body, timeout=60)
     except (OSError, ValueError) as exc:
         return {"ok": False, "message": "The report couldn't be sent: %s. Try again in a minute." % exc}
-    _report.update(at=time.time(), code=got.get("report"))
+    _report.update(at=steady(), code=got.get("report"))
     return {"ok": True, "report": got.get("report"), "message": "Report sent. Its number is %s." % got.get("report")}
 
 
@@ -3778,14 +3842,14 @@ class BootScreen:
         self.at, self.thread, self.welcomed_at = 0, None, 0
 
     def want(self):
-        self.at = time.time()
+        self.at = steady()
         if not (self.thread and self.thread.is_alive()):
             self.thread = threading.Thread(target=self._run, daemon=True, name="boot-screen")
             self.thread.start()
 
     def welcomed(self):
         """The setup was just finished."""
-        self.welcomed_at = time.time()
+        self.welcomed_at = steady()
 
     @staticmethod
     def calm():
@@ -3797,7 +3861,7 @@ class BootScreen:
             return True
 
     def due(self, now=None):
-        now = now or time.time()
+        now = now or steady()
         if now - self.at < self.QUIET or not settings()["welcomed"] or playing():
             return False
         settled = max(self.at + self.QUIET, self.welcomed_at, STARTED) + self.SETTLE
@@ -4248,7 +4312,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/box/api/sofa/continue":                # Home's "Continue watching"
             return self.send(json.dumps(sofa_continue()))
         if path == "/box/api/sofa":                         # the chooser: servers added, found, free, others
-            looking["until"] = time.time() + 60
+            look_soon(60)                                    # (now, not at its next look in up to a minute)
             return self.send(json.dumps(sofa_listing()))
         if path == "/box/api/sofa/scan":                    # look again (Jellyfin, Emby, Plex too)
             scan_others()
@@ -4530,7 +4594,7 @@ class RemoteHandler(BaseHTTPRequestHandler):
         if not self.home_network():
             return self.send("Phones at home only.", "text/plain; charset=utf-8", 403)
         if on_own_wifi(self.client_address[0]):              # a phone on the box's own Wi-Fi: keep it on
-            network.used = time.time()
+            network.used = steady()
         path = urllib.parse.urlsplit(self.path).path
         relayed = self.headers.get("X-Sofa-Relay") == "1" and self.client_address[0] in ("127.0.0.1", "::1")   # (Relay below)
         m = re.match(r"^/r/(\d{4}|[0-9a-f]{24})$", path)
@@ -4576,14 +4640,16 @@ class RemoteHandler(BaseHTTPRequestHandler):
         try:
             if path == "/api/state":
                 if on_own_wifi(self.client_address[0]):     # the setup's TV: the remote is open on a phone
-                    network.phone_at = time.time()
+                    network.phone_at = steady()
                 else:
-                    phone.home_at = time.time()
+                    phone.home_at = steady()
                 p = player.status
                 return self.send(json.dumps({"paired": True, "name": settings().get("boot_text") or "Sofa Box",
                                              "playing": {k: p.get(k) for k in ("title", "sub", "t", "d", "paused")} if p else None,
                                              "front": browser.front_app() if browser and browser.connected() else None,
-                                             "hotspot": bool(network.hotspot), "joining": network.joining, "welcomed": settings()["welcomed"],
+                                             "hotspot": bool(network.hotspot), "welcomed": settings()["welcomed"],
+                                             "joining": network.joining and dict(network.joining, ago=round(
+                                                 steady() - network.joining.get("at", 0), 1)),    # (its clock isn't the box's)
                                              "asleep": asleep["on"]}))
             if path in INPUT_PATHS:
                 phone_input(path, data)
@@ -4605,7 +4671,7 @@ class RemoteHandler(BaseHTTPRequestHandler):
                     # (its own link, not the TV's: someone scanning the TV's code meanwhile mustn't use it up)
                     phone.handoff_link = os.urandom(12).hex()
                     out["next"] = secure_remote.handoff(phone.handoff_link)
-                    network.from_phone = time.time()
+                    network.from_phone = steady()
                     network.pending_link = phone.handoff_link       # kept on the card once the join works
                 return self.send(json.dumps(out))
             elif path == "/api/report":

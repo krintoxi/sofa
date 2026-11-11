@@ -22,6 +22,7 @@
   let toastTimer = 0;
   function toast(text, ms) { const t = $("#toast"); t.textContent = text; t.classList.add("on"); clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("on"), ms || 2800); }
   const untoast = () => { clearTimeout(toastTimer); $("#toast").classList.remove("on"); };
+  const mono = () => performance.now();          // milliseconds that never jump, for this page's own "how long since"
   const icon = (id, cls) => `<svg${cls ? ` class="${cls}"` : ""}><use href="${id === "#mark" ? "#m-" + (document.documentElement.dataset.theme || "street") : id}"/></svg>`;
 
   // ---------------------------------------------------------------- the look
@@ -360,8 +361,8 @@
   };
   let sofaLookAgain = 0;
   function viewSofa() {
-    if (servers && !servers.error && Date.now() > sofaLookAgain) {     // (computers' names come in a few seconds later)
-      sofaLookAgain = Date.now() + 60000; setTimeout(() => { if (location.hash.startsWith("#/sofa")) loadServers(); }, 5000);
+    if (servers && !servers.error && mono() > sofaLookAgain) {     // (computers' names come in a few seconds later)
+      sofaLookAgain = mono() + 60000; setTimeout(() => { if (location.hash.startsWith("#/sofa")) loadServers(); }, 5000);
     }
     if (!servers) { loadServers(true); return `<div class="chooser view-in"><h1 class="page">Where's your Sofa?</h1><p class="lede">Looking around your home…</p></div>`; }
     if (servers.error) return `<h1 class="page">Sofa</h1><p class="lede">${esc(servers.error)}</p>`;
@@ -629,7 +630,7 @@
     ["sofa", "Sofa", "#i-sofa"], ["picture", "Picture and sound", "#i-video"], ["home", "Home screen", "#i-house"],
     ["shield", "Sofa Shield", "#i-shield"], ["box", "This box", "#i-box"], ["software", "Software", "#i-settings"],
     ["help", "Help", "#i-file"]];
-  let setTab = "network", setTabTimer = 0, wifiNets = null, wifiAt = 0;
+  let setTab = "network", setTabTimer = 0, wifiNets = null, wifiAt = -1e9;
   function viewSettings() {
     if (!servers) loadServers();
     if (!setup) loadSetup().then(() => { if (location.hash.startsWith("#/settings")) refreshPane(); });
@@ -663,7 +664,7 @@
     const pick = (key, v, label) => `<button class="choice" data-set="${key}" data-value="${v}" aria-pressed="${String(s[key]) === v}">${label}</button>`;
     const head = (title, text) => `<h2 class="pane-title">${title}</h2>${text ? `<p class="lede">${text}</p>` : ""}`;
     if (setTab === "network") {
-      if (!wifiNets || Date.now() - wifiAt > 60000) scanWifi();
+      if (!wifiNets || mono() - wifiAt > 60000) scanWifi();
       return head("Wi-Fi and network", b.wired ? "Connected with a cable: the best for video." : b.wifi ? `Connected to <b>${esc(b.wifi)}</b>.` : "Not connected yet.") +
         `<section class="card"><div class="row-head"><h3>Wi-Fi networks</h3><button class="mini" data-wifi-rescan="1">Look again</button></div>
         <div id="wifi" class="wifi-list">${wifiRows(wifiNets, b.wifi)}</div></section>
@@ -756,7 +757,7 @@
   // ---- Wi-Fi: one list (Settings and the setup's Internet step), and joining from it: the password typed with the remote
   // on the TV's own keyboard, and how the joining goes, right there (the agent joins after answering; it takes a while).
   async function scanWifi() {
-    wifiAt = Date.now();
+    wifiAt = mono();
     try { const r = await api("/box/api/action/wifi-scan", {}); wifiNets = r.networks || []; } catch (e) { wifiNets = wifiNets || []; }
     const el = $("#wifi");
     if (el) { const had = cur && el.contains(cur) ? keyOf(cur) : null; el.innerHTML = wifiRows(wifiNets, (boxInfo || {}).wifi); if (had && $(had)) focus($(had)); }
@@ -785,8 +786,8 @@
       btn.disabled = true; msg.innerHTML = `<i class="spin"></i> Joining ${esc(ssid)}… up to a minute.`;
       let r;
       try { r = await api("/box/api/action/wifi-connect", { ssid, password: pw }); } catch (e) { r = { ok: false, message: e.message }; }
-      const end = Date.now() + 90000;
-      while (r.ok && r.pending && Date.now() < end) {          // how it goes: the agent's answer comes before the joining
+      const end = mono() + 90000;
+      while (r.ok && r.pending && mono() < end) {          // how it goes: the agent's answer comes before the joining
         await new Promise(res => setTimeout(res, 1500));
         const j = ((await loadSetup()) || {}).network ? setup.network.joining : null;
         if (j && j.ssid === ssid && j.state !== "joining") r = { ok: j.state === "joined", message: j.message };
@@ -880,18 +881,23 @@
     }
     return qrMade.get(text);
   }
-  let setupFails = 0;
+  let setupFails = 0, setupAt = 0;
   async function loadSetup(scan) {
-    try { setup = await api("/box/api/setup" + (scan ? "?scan=1" : "")); setupFails = 0; } catch (e) { setupFails++; /* the agent is restarting */ }
+    try { setup = await api("/box/api/setup" + (scan ? "?scan=1" : "")); setupFails = 0; setupAt = mono(); } catch (e) { setupFails++; /* the agent is restarting */ }
     return setup;
   }
+  // The time by the box's helper, in seconds, for "how long ago" against the times it sends (a join, a phone's last
+  // look): its own steady clock, carried on from its last answer. Never this page's Date.now(): a new card's clock is
+  // weeks behind until the box is first online, then set right in one step, seconds after it joins the home Wi-Fi.
+  // "Joined a moment ago" turned into "a month ago", and the setup's last step into the plain code, on a real Pi 3.
+  const boxNow = () => setup && setup.now ? setup.now + (mono() - setupAt) / 1000 : Date.now() / 1000;
   function setupLive() {                         // the parts that change by themselves, redrawn in place
     clearTimeout(setupTimer);
     if (!location.hash.startsWith("#/welcome") && !location.hash.startsWith("#/settings") && location.hash !== "#/games") return;
     setupTimer = setTimeout(async () => {
-      await loadSetup(location.hash.startsWith("#/welcome") && step === 0 || btLooking > Date.now());
+      await loadSetup(location.hash.startsWith("#/welcome") && step === 0 || btLooking > mono());
       autoStep();
-      for (const [id, part] of [["phoneBox", phoneBox], ["btList", btList], ["netState", netState]]) {
+      for (const [id, part] of [["phoneBox", phoneBox], ["btList", btList], ["netState", netState], ["setupPower", setupPower]]) {
         const el = $("#" + id); if (!el) continue;                 // (only what's on the screen is made)
         const html = part(); if (el.dataset.html === html) continue;
         const had = cur && el.contains(cur) ? keyOf(cur) : null;
@@ -906,14 +912,17 @@
     if (!r) return setupFails > 3 ? `<p class="small">The box's helper isn't answering yet. If this stays, restart the box (unplug it for a moment).</p>`
       : `<p class="small looking"><i class="spin"></i>Getting ready…</p>`;
     const hs = r.hotspot;
-    const n = (setup || {}).network || {}, sec = (setup || {}).secure || {}, now = Date.now() / 1000;
+    const n = (setup || {}).network || {}, sec = (setup || {}).secure || {}, now = boxNow();
     const j = n.joining && now - n.joining.at < 600 ? n.joining : null;
     const waiting = text => `<p class="small looking"><i class="spin"></i><span>${text}</span></p>`;
     // joining a home Wi-Fi: the codes for its own Wi-Fi are about to stop working, so none shows. (First: between its
     // own Wi-Fi and yours the box has no address for a moment, which isn't "no network yet, making its own".)
+    // From here to the last code the TV says one thing at a time: joining, then "the box is on your Wi-Fi" (what
+    // happened) with the last code as soon as it's ready (what to do next), then "your phone is the remote".
+    const onWifi = j && j.state === "joined" ? `<p class="okay on-wifi">✓ The box is on <b>${esc(j.ssid)}</b></p>` : "";
     if (j && j.state === "joining") return codeSteps(2) + waiting(`The box is joining <b>${esc(j.ssid)}</b>: looking for it, then connecting. Up to a minute.`);
     if (!r.url && j && j.state === "joined" && now - j.at < 120)
-      return codeSteps(3) + waiting(`Connected to <b>${esc(j.ssid)}</b>. Getting the box's address there… a few seconds.`);
+      return codeSteps(3) + onWifi + waiting("Getting the last code ready for your phone… a few seconds.");
     if (!r.url && j && j.state === "failed" && now - j.at < 120)
       return codeSteps(2) + `<p class="small"><b>${esc(j.message || "That didn't work.")}</b></p>` + waiting("The box's own Wi-Fi is coming back, so your phone can try again…");
     if (!r.url && r.problem) return `<p class="small"><b>The box couldn't make its own Wi-Fi for your phone.</b> It tries again by itself.</p>
@@ -924,20 +933,23 @@
     // code from the internet); with only the relay's known, no typing line
     const address = r.home_url ? esc(r.home_url.replace(/^http:\/\//, "")) : "";
     // without a cable or Wi-Fi: one code at a time, each gone once its step is done
-    if (hs) return setupCodes(r, hs, n, address, waiting);
+    if (hs) return setupCodes(r, hs, n, address, waiting, j);
     const fresh = j && j.state === "joined" && now - j.at < 600;
-    // just joined: the secure (https) code follows within seconds, so not the plain one first and then a swap
-    // ("error" too: just after joining, the box's DNS may not be ready, and it tries again in 30 seconds)
-    if (fresh && now - j.at < 300 && !/^https:/.test(r.url) && (sec.state === "working" || sec.state === "error"))
-      return codeSteps(3) + waiting(now - j.at < 45 ? "Connected. Getting the remote's secure address for your phone… a few seconds."
-        : "Connected. The remote's secure address is taking longer than usual: the box keeps trying. (Your Wi-Fi may still be getting the box online.)");
+    // just joined: the secure (https) code follows within seconds (the box asks every 5 seconds), so not the plain one
+    // first and then a swap under the phone's camera. A minute at most: with the Sofa Box service out of reach, the
+    // plain code is the way on (it was five minutes with no code at all).
+    if (fresh && now - j.at < 60 && !/^https:/.test(r.url) && (sec.state === "working" || sec.state === "error"))
+      return codeSteps(3) + onWifi + waiting("Getting the last code ready for your phone… a few seconds.");
     const open = r.home_at && now - r.home_at < 15;              // a remote open on the home Wi-Fi now
-    return (fresh ? codeSteps(3) : "") + qrRow(r.pair_url, `
-      <b>${fresh ? (n.from_phone && now - n.from_phone < 900 ? "Last step: scan this with your phone's camera to keep it as the remote"
-        : "Scan this to keep your phone as the remote") : "Scan with your phone's camera"}</b>${fresh && n.from_phone && now - n.from_phone < 900
-        ? "<small>(if the Setup Assistant carried on by itself on your phone, there's nothing to scan)</small>"
+    // the setup's first screen, and the phone is the remote: nothing left to scan (autoStep goes on from here)
+    if (open && data.welcomed === false && location.hash.startsWith("#/welcome") && step === 0)
+      return codeSteps(4) + `<p class="okay big">✓ Your phone is the remote, and the box is online.</p>`;
+    const mine = fresh && n.from_phone && now - n.from_phone < 900;   // the phone that gave the box its Wi-Fi
+    return (fresh ? codeSteps(3) : "") + qrRow(r.pair_url, `${fresh ? onWifi : ""}
+      <b>${mine ? "Last step: scan this with your phone's camera" : fresh ? "Scan this with your phone's camera to use it as the remote" : "Scan with your phone's camera"}</b>${mine
+        ? `<small>It keeps your phone as the remote.${/^https:/.test(r.url) ? " (Nothing to scan if the Setup Assistant carried on by itself on your phone.)" : ""}</small>`
         : address ? `<small>or open <b>${address}</b> and type <b>${esc(r.code)}</b></small>` : ""}
-      ${open ? `<p class="okay small">✓ Your phone is the remote</p>` : waiting("Waiting for your phone to scan this…")}
+      ${open ? `<p class="okay small">✓ Your phone is the remote</p>` : waiting(mine ? "Waiting for your phone…" : "Waiting for your phone to scan this…")}
       ${/^https:/.test(r.url) ? "" : `<p class="small">iPhone says it isn't secure? Settings → Apps → Safari → turn off <b>Not Secure Connection Warning</b>.</p>`}`);
   }
   // A code to scan with what to do beside it (not under it: the setup's first step fits on the TV)
@@ -950,23 +962,27 @@
   function codeSteps(at) {
     return `<ol class="code-steps">${CODE_STEPS.map((t, i) => `<li class="${i < at ? "done" : i === at ? "on" : ""}"><em>${i < at ? "✓" : i + 1}</em>${t}</li>`).join("")}</ol>`;
   }
-  function setupCodes(r, hs, n, address, waiting) {
-    const now = Date.now() / 1000, asked = codesShown && codesShown.until > Date.now() ? codesShown.which : null;
+  function setupCodes(r, hs, n, address, waiting, j) {
+    const now = boxNow(), asked = codesShown && codesShown.until > mono() ? codesShown.which : null;
     const remote = n.phone_at && now - n.phone_at < 15;      // a remote open on a phone on the box's Wi-Fi
     const joined = (n.clients || 0) > 0;                      // a phone (or something) on the box's Wi-Fi
     if (!joined) joinedAt = 0; else if (!joinedAt) joinedAt = now;
     const stage = asked || (remote ? "details" : joined ? "remote" : "wifi");
+    // a home Wi-Fi that didn't take (a wrong password, most often): the box's own Wi-Fi is back, and the TV keeps
+    // saying why, with what to do about it. (It said so only until its own Wi-Fi was back, a few seconds.)
+    const failed = j && j.state === "failed" && now - j.at < 300 ? `<p class="small bad join-failed"><b>✗ ${esc(j.message || "That didn't work.")}</b></p>` : "";
     // (the phone's sign-in sheet opens the Setup Assistant by itself on most phones, but not all: one that has been on
     // this Wi-Fi before may not, so its code shows at once rather than after a wait for a sheet that may never come)
-    if (stage === "wifi") return codeSteps(0) + qrRow(hs.wifi_qr, `
-      <b>Scan with your phone's camera: it connects your phone to the box</b><small>(the box's own Wi-Fi, ${esc(hs.ssid)} · password ${esc(hs.password)})</small>
+    if (stage === "wifi") return codeSteps(0) + qrRow(hs.wifi_qr, `${failed}
+      <b>${failed ? "The box's own Wi-Fi is back. Scan this to connect your phone to it again" : "Scan with your phone's camera: it connects your phone to the box"}</b><small>(the box's own Wi-Fi, ${esc(hs.ssid)} · password ${esc(hs.password)})</small>
       ${waiting("Waiting for your phone to join…")}`);
-    if (stage === "remote") return codeSteps(1) + qrRow(r.pair_url, `
+    if (stage === "remote") return codeSteps(1) + qrRow(r.pair_url, `${failed}
       ${joined ? `<p class="okay">✓ Your phone is on the box's Wi-Fi</p>` : ""}
       <b>Scan this: the Sofa Setup Assistant opens on your phone</b><small>${joined ? "(if a <b>Sofa Box</b> sheet opened by itself, carry on there instead)" : ""}${joined && address ? " · " : ""}${address ? `or open ${address} and type ${esc(r.code)}` : ""}</small>
       ${waiting("Waiting for the Setup Assistant to open on your phone…")}<button class="mini" data-codes="wifi">Show the Wi-Fi code again</button>`);
-    return codeSteps(2) + `<p class="okay big">✓ The Setup Assistant is open on your phone</p>
-      <p class="small">On your phone: pick your home Wi-Fi, type its password, <b>Join</b>.</p>
+    return codeSteps(2) + (failed ? failed + `<p class="small">On your phone: put the password right, then <b>Join</b>.</p>`
+      : `<p class="okay big">✓ The Setup Assistant is open on your phone</p>
+      <p class="small">On your phone: pick your home Wi-Fi, type its password, <b>Join</b>.</p>`) + `
       ${waiting("Waiting for your Wi-Fi details…")}<button class="mini" data-codes="remote">Show the remote's code again</button>`;
   }
   function secureLine() {                // the phone remote over https: through the relay (or the box's own certificate)
@@ -994,9 +1010,16 @@
       ${d.paired ? `<i class="pill">✓</i>` : ""}</button>`).join("");
     return (rows || (b.scanning ? "" : `<p class="small">Nothing found yet.</p>`)) + (b.scanning ? `<p class="small looking"><i class="spin"></i>Looking for devices in pairing mode…</p>` : "");
   }
+  // The Pi short of power, at the setup (Home says it once the setup is done): a weak supply shows in the first minutes,
+  // when the Wi-Fi chip starts sending, and the box can freeze or restart in the middle of the setup because of it.
+  function setupPower() {
+    const p = (setup || {}).power;
+    return p ? `<div class="power-note ${esc(p.kind)}" role="status"><svg viewBox="0 0 24 24" aria-hidden="true">${POWER_ICON[p.kind] || POWER_ICON.power}</svg>
+      <p><b>${esc(p.title)}.</b> ${esc(p.text)}</p></div>` : "";
+  }
   function netState() {
     const n = (setup || {}).network || {};
-    const j = n.joining && Date.now() / 1000 - n.joining.at < 600 ? n.joining : null;   // a home Wi-Fi it was just asked to join
+    const j = n.joining && boxNow() - n.joining.at < 600 ? n.joining : null;   // a home Wi-Fi it was just asked to join
     if (j && j.state === "joining") return `<p class="small looking"><i class="spin"></i><span>Joining <b>${esc(j.ssid)}</b>… It takes up to a minute.
       A phone on the box's own Wi-Fi goes back to yours now: when this says connected, scan the new code here.</span></p>`;
     const failed = j && j.state === "failed" ? `<p class="small"><b>${esc(j.message)}</b> ${n.hotspot ? `The box's own Wi-Fi (${esc(n.hotspot.ssid)}) is back:
@@ -1012,7 +1035,7 @@
   const notYet = {};
   function autoStep() {
     if (!location.hash.startsWith("#/welcome") || data.welcomed !== false || $(".sheet-back") || $(".auto-next")) return;
-    const n = (setup || {}).network || {}, r = (setup || {}).remote || {}, now = Date.now() / 1000;
+    const n = (setup || {}).network || {}, r = (setup || {}).remote || {}, now = boxNow();
     const online = !!(n.wired || n.wifi);
     // (a phone with the remote on the home network: the box is on it too)
     const done = step === 0 ? !r.hotspot && !!r.home_at && now - r.home_at < 15 : step === 1 ? online : false;
@@ -1020,7 +1043,8 @@
     if (!notYet[step]) return;
     notYet[step] = false;
     const from = step, body = $(".setup-body");
-    if (body) body.insertAdjacentHTML("beforeend", `<p class="okay big auto-next">✓ ${from === 0 ? "Your phone is the remote, and the box is online." : "Online."} Next: your box…</p>`);
+    if (body) body.insertAdjacentHTML("beforeend", from === 0 ? `<p class="lede auto-next">Next: your box…</p>`   // (its ✓ line is in the phone's box)
+      : `<p class="okay big auto-next">✓ Online. Next: your box…</p>`);
     setTimeout(() => { if (location.hash.startsWith("#/welcome") && step === from) { step = 2; render(); } }, 1800);   // (focus: Next)
   }
   function viewWelcome() {
@@ -1034,7 +1058,7 @@
     const top = `<div class="setup-top"><span class="setup-brand">${icon("#mark")}<b>Sofa</b><span>Box</span></span>${steps}</div>`;
     const online = !!(setup && setup.network && (setup.network.wired || setup.network.wifi));   // Start skips Internet then
     const nav = (back, next, label) => `<div class="setup-nav">${back ? `<button class="btn" data-step="${step === 2 && online ? 0 : step - 1}">Back</button>` : "<span></span>"}
-      <button class="btn primary big" ${next}>${label}</button></div>`;
+      <div class="setup-power" id="setupPower">${setupPower()}</div><button class="btn primary big" ${next}>${label}</button></div>`;
     if (step === 0) return `<div class="setup view-in">${top}<div class="setup-body hello">
         <div class="hello-head"><h1>Let's set up your Sofa Box.</h1><p>About two minutes. Use whatever's in your hand.</p></div>
         <div class="ways">
@@ -1278,7 +1302,7 @@
     }
     if (k === "ArrowLeft" || k === "ArrowRight") { if (typing && field.value && field.dataset.typed) return; e.preventDefault(); move(k === "ArrowRight" ? 1 : -1, 0); }
     else if (k === "ArrowUp" || k === "ArrowDown") { e.preventDefault(); move(0, k === "ArrowDown" ? 1 : -1); }
-    else if (k === "Enter" && !typing) { e.preventDefault(); if (cur && Date.now() >= quietUntil) cur.click(); }
+    else if (k === "Enter" && !typing) { e.preventDefault(); if (cur && mono() >= quietUntil) cur.click(); }
     else if (k === "Enter" && typing) { e.preventDefault();
       if (!field.dataset.typed && !field.closest(".sheet") && field.type !== "file") typeSheet(field); else submit(field); }
     else if ((k === "Escape" || k === "BrowserBack" || (k === "Backspace" && !typing))) { e.preventDefault(); back(); }
@@ -1371,17 +1395,17 @@
         step = +d.step; render(true);
         if (step === 1 && setup && !(setup.network.wired || setup.network.wifi) && !(setup.network.networks || []).length) {
           const r = await api("/box/api/action/wifi-scan", {}).catch(() => ({}));
-          setup.network.networks = wifiNets = r.networks || []; wifiAt = Date.now(); render(true);
+          setup.network.networks = wifiNets = r.networks || []; wifiAt = mono(); render(true);
         }
       }
       else if (d.wifiPick) joinWifi(d.wifiPick, d.secure === "1");
-      else if (d.codes) { codesShown = { which: d.codes, until: Date.now() + 60000 }; render(true); }
+      else if (d.codes) { codesShown = { which: d.codes, until: mono() + 60000 }; render(true); }
       else if (d.wifiRescan) { wifiNets = null; const el = $("#wifi"); if (el) el.innerHTML = wifiRows(null); await scanWifi();
         if (setup && setup.network) setup.network.networks = wifiNets; if (location.hash.startsWith("#/welcome")) render(true); }
       else if (d.bt) { const dev = ((setup || {}).bluetooth || { devices: [] }).devices.find(x => x.mac === d.bt);
         if (dev && dev.paired) toast(dev.name + " is paired already."); else { await api("/box/api/bt/pair", { mac: d.bt }); toast("Pairing…"); } }
       else if (d.btForget) confirmSheet("Forget this device?", async () => { closeSheet(); await api("/box/api/bt/forget", { mac: d.btForget }); await loadSetup(); render(true); })
-      else if (d.btLook) { btLooking = Date.now() + 30000; await loadSetup(true); render(true); toast("Looking for devices in pairing mode…"); }
+      else if (d.btLook) { btLooking = mono() + 30000; await loadSetup(true); render(true); toast("Looking for devices in pairing mode…"); }
       else if (d.tz) { const r = await api("/box/api/timezone", { tz: d.tz }); toast("Time zone: " + r.timezone.replace(/_/g, " ")); await loadSetup(); render(true); }
       else if (d.secure !== undefined) { await api("/box/api/settings", { secure_remote: d.secure === "1" }); await loadSetup(); render(true);
         toast(d.secure === "1" ? "Secure phone remote on: it takes a minute." : "Secure phone remote off: phones use http:// again."); }
@@ -1394,7 +1418,7 @@
         for (const id of add) await api("/box/api/apps/install", { store_id: id }).catch(() => {});
         await api("/box/api/settings", { welcomed: true }); data.welcomed = true; storeData = null; await loadApps();
         document.documentElement.classList.remove("setup"); location.hash = "#/";
-        quietUntil = Date.now() + 2000;                       // (an OK pressed again while it was adding apps doesn't open Sofa)
+        quietUntil = mono() + 2000;                       // (an OK pressed again while it was adding apps doesn't open Sofa)
         toast((add.length ? (add.length === 1 ? "Your app is on Home. " : add.length + " apps are on Home. ") : "All set. ")
           + "Speakers, headphones or more controllers: Settings → Remotes and Bluetooth, or Games.");
       }
@@ -1491,10 +1515,10 @@
   }, 5000);
 
   // Back on Home (the agent brings this tab forward): fresh lists of apps and what's open.
-  let lastRefresh = 0;
+  let lastRefresh = -1e9;
   document.addEventListener("visibilitychange", async () => {
-    if (document.hidden || Date.now() - lastRefresh < 1500) return;
-    lastRefresh = Date.now();
+    if (document.hidden || mono() - lastRefresh < 1500) return;
+    lastRefresh = mono();
     opening(null);
     await loadApps(); await loadSofa();
     if (!$(".sheet-back")) render(true);

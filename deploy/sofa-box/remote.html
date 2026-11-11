@@ -137,8 +137,28 @@
   .sig i { width: 3px; border-radius: 1px; background: var(--line2); }
   .sig i:nth-child(1) { height: 30%; } .sig i:nth-child(2) { height: 55%; } .sig i:nth-child(3) { height: 80%; } .sig i:nth-child(4) { height: 100%; }
   .sig.s1 i:nth-child(-n+1), .sig.s2 i:nth-child(-n+2), .sig.s3 i:nth-child(-n+3), .sig.s4 i { background: var(--fg); }
-  .join { display: grid; gap: 10px; margin-top: 12px; padding: 14px; border-radius: 18px; background: var(--bg2); box-shadow: inset 0 0 0 1px var(--a); }
-  .join b { font-size: 15px; }
+  /* A Wi-Fi's password: a sheet over the list, in the middle of what the phone shows with its keyboard up. (It was a
+     box under the list, at the bottom of the page: on an iPhone that's where the keyboard's bar and its password
+     suggestions sit, over the field.) */
+  .ask { position: fixed; inset: 0; z-index: 20; background: rgba(8, 8, 12, .74); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+    animation: ask-in .16s ease both; }
+  .ask-card { position: absolute; left: 16px; right: 16px; top: var(--ask-top, 14vh); max-width: 420px; margin: 0 auto; display: grid; gap: 12px;
+    padding: 18px 16px 16px; border-radius: 22px; background: var(--bg2); box-shadow: inset 0 0 0 1px var(--line2), 0 24px 70px rgba(0,0,0,.7);
+    animation: ask-pop .22s cubic-bezier(.2,.8,.2,1) both; }
+  .ask-card.placed { transition: top .18s ease; }
+  .ask-head { display: grid; grid-template-columns: 40px 1fr; gap: 12px; align-items: center; }
+  .ask-head > svg { width: 40px; height: 40px; padding: 9px; border-radius: 12px; color: var(--a); background: rgba(255,46,136,.12); }
+  .ask-head b { display: block; font-size: 18px; letter-spacing: -.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ask-head small { display: block; color: var(--mist); font-size: 13px; }
+  .ask-row { display: grid; grid-template-columns: 1fr 1.4fr; gap: 10px; }
+  .ask .msg { text-align: left; }
+  .ask-going { display: grid; gap: 10px; font-size: 15px; line-height: 1.45; color: var(--mist); }
+  .ask-going b { color: var(--fg); }
+  .ask-going p { margin: 0; }
+  .ask-going .lead { font-size: 17px; color: var(--fg); font-weight: 700; }
+  .field.masked { -webkit-text-security: disc; }
+  @keyframes ask-in { from { opacity: 0; } }
+  @keyframes ask-pop { from { opacity: 0; transform: translateY(10px) scale(.98); } }
   .pw { position: relative; }
   .pw .field { padding-right: 70px; }
   .pw button { position: absolute; right: 6px; top: 6px; bottom: 6px; padding: 0 12px; border-radius: 10px; color: var(--mist); font-size: 13px; font-weight: 600; background: var(--bg3); }
@@ -201,7 +221,6 @@
   <button class="power" id="power" aria-label="Put the box to sleep" title="Sleep"><svg><use href="#i-power"/></svg></button></header>
 <div class="wake" id="wake" hidden><div><svg><use href="#i-moon"/></svg><h2>The box is asleep</h2><p>Touch anywhere to wake it.</p></div></div>
 <div class="now" id="now"></div>
-<div class="now" id="moved"></div>
 
 <main>
   <section class="assistant" id="assistant" hidden>
@@ -258,15 +277,25 @@
   <section id="tab-wifi" hidden>
     <p class="lede" id="wifiLede">Wi-Fi for the box.</p>
     <div class="list" id="nets"><p>Looking…</p></div>
-    <div class="join" id="join" hidden>
-      <b id="joinName"></b>
-      <div class="pw"><input class="field" id="wpass" type="password" placeholder="Password" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="join">
-        <button id="wshow" type="button">Show</button></div>
-      <button class="btn" id="joinBtn">Join</button>
-    </div>
-    <div class="msg" id="wifiMsg"></div>
   </section>
 </main>
+
+<!-- A Wi-Fi's password (or, joining: what happens next), in the middle of the screen. The field is plain text on
+     purpose, with a name no phone takes for a sign-in: a password field brings up the phone's saved passwords and
+     its "strong password" over the keyboard, and what's typed shows, so a slip is seen before Join (Hide covers it). -->
+<div class="ask" id="ask" hidden role="dialog" aria-modal="true" aria-labelledby="askName">
+  <div class="ask-card" id="askCard">
+    <div class="ask-head"><svg><use href="#wifi"/></svg><div><b id="askName"></b><small id="askHint"></small></div></div>
+    <div id="askForm" style="display:contents">
+      <div class="pw" id="askPw"><input class="field" id="wkey" type="text" name="sofa-wifi-key" inputmode="text" placeholder="Type it here" aria-label="This Wi-Fi's key"
+          autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="go" maxlength="64" data-1p-ignore data-lpignore="true" data-form-type="other">
+        <button id="wshow" type="button">Hide</button></div>
+      <div class="msg" id="wifiMsg" role="status"></div>
+      <div class="ask-row"><button class="btn ghost" id="askCancel" type="button">Cancel</button><button class="btn" id="joinBtn" type="button">Join</button></div>
+    </div>
+    <div class="ask-going" id="askGoing" hidden></div>
+  </div>
+</div>
 
 <div class="tip" id="tip" hidden><img src="icon.png" alt=""><div><b>Keep the remote on your Home Screen</b><span id="tipText"></span></div><button id="tipX" aria-label="Close">✕</button></div>
 <nav class="tabs" id="tabs" hidden>
@@ -286,6 +315,8 @@
   const key = k => { buzz(); return post("api/key", { k }).then(r => { if (r.status === 401) showPairing(); }).catch(() => offline(true)); };
   let tab = "remote", wifiSsid = null, sentTz = false, ready = false;     // a new box takes its time zone from the phone
   let onItsWifi = false, joining = null;     // this phone is on the box's own Wi-Fi; the home Wi-Fi the box is going to
+  let asking = null, failedAt = 0;           // the password sheet: "form" | "going"; the failed join it last told of
+  const typed = { ssid: null, password: "" };  // the last password sent, to put right if it was wrong
   // At the setup: the remote's address through the Sofa Box service's relay, from the box before it left its own Wi-Fi.
   // Once the box is on the home Wi-Fi and the relay, its icon loads from there, and this page carries on, paired.
   let handoff = null, handoffTimer = 0;
@@ -318,17 +349,11 @@
   }
   function offline(on) {
     $("dot").classList.toggle("off", on); $("dotText").textContent = on ? "Can't reach the box" : "Connected";
-    // gone from the box's own Wi-Fi (most likely: it joined the home Wi-Fi): say what to do, not just "can't reach"
+    // gone from the box's own Wi-Fi (most likely: it joined the home Wi-Fi): say what happens next, in the middle of
+    // the screen, not just "can't reach"
     const lost = on && (onItsWifi || joining);
-    $("moved").classList.toggle("on", !!lost);
-    if (lost) $("moved").innerHTML = "<b>Last step.</b> " + (joining ? "The box is joining <b></b>, and your phone goes back to it too. " : "The box left its own Wi-Fi, most likely for your home Wi-Fi. ")
-      + (inSheet ? "This sheet closes by itself now. Then open your phone's <b>camera</b> and "
-         : handoff ? "<span class=\"spinner\"></span>This page carries on by itself as soon as the box is there (up to a minute). If it doesn't, "
-                 : "When the TV says it's connected, ")
-      + "<b>scan the code on the TV</b> to keep this phone as your remote. If the TV says it couldn't join, its own Wi-Fi is back: scan the first code on the TV again.";
-    if (lost) awaitBox();
+    if (lost) { if (asking !== "going") going(joining); awaitBox(); }
     if (lost) { $("asWifi").className = "done"; $("asWifi").querySelector("em").textContent = "✓"; $("asRemote").className = "on"; }
-    if (lost && joining) $("moved").querySelectorAll("b")[1].textContent = joining;
   }
 
   async function state() {
@@ -337,8 +362,24 @@
       if (r.status >= 500) return offline(true);         // (through the relay: the box is off, or not online)
       const s = await r.json();
       onItsWifi = !!s.hotspot;
-      if (s.joining && s.joining.state === "joining") joining = s.joining.ssid;      // (the TV may have started it)
+      const j = s.joining;
+      if (j && j.state === "joining") joining = j.ssid;      // (the TV may have started it)
       offline(false);
+      // The join didn't work (a wrong password, most often) and the box's own Wi-Fi is back, this phone on it again: say
+      // so here too, with the password to put right. (This page kept saying "the box is joining…".) Once for each try.
+      if (s.hotspot && j && j.state === "failed" && j.ago < 300 && failedAt !== j.at) {
+        failedAt = j.at; joining = null; handoff = null;
+        if (s.paired) { ask({ ssid: j.ssid, secure: true }, typed.ssid === j.ssid ? typed.password : ""); $("wifiMsg").textContent = j.message || "That didn't work."; }
+      } else if (s.hotspot && joining && !(j && j.state === "joining")) { joining = null; if (asking === "going") closeAsk(); }
+      else if (!s.hotspot && joining && j && j.ssid === joining && j.state !== "joining") {     // at home: how it went, here too
+        joining = null;
+        if (asking === "going") {
+          $("askHint").textContent = j.state === "joined" ? "Connected" : "Not connected";
+          $("askGoing").innerHTML = `<p class="lead"></p>` + CLOSE;
+          $("askGoing").querySelector("p").textContent = (j.state === "joined" ? "✓ " : "") + (j.message || "");
+          placeAsk();
+        }
+      }
       $("name").textContent = s.name || "Sofa Box";
       if (!s.paired) return showPairing();
       if (!ready) { ready = true; $("pairing").hidden = true; show(s.hotspot ? "wifi" : tab); }
@@ -471,7 +512,7 @@
     $("nets").innerHTML = `<p><span class="spinner"></span>Looking for Wi-Fi…</p>`;
     try {
       const r = await (await post("api/wifi")).json();
-      $("wifiLede").textContent = r.hotspot ? "Pick your home Wi-Fi and type its password. The box joins it, and your phone goes back to it too; then one last code on the TV keeps this phone as your remote." : "Wi-Fi for the box:";
+      $("wifiLede").textContent = r.hotspot ? "Pick your home Wi-Fi. The box joins it, and your phone goes back to it too; then one last code on the TV keeps this phone as your remote." : "Wi-Fi for the box:";
       $("nets").innerHTML = "";
       (r.networks || []).forEach(n => {
         const b = document.createElement("button"); b.className = "net";
@@ -479,33 +520,99 @@
         b.querySelector("span").textContent = n.ssid;
         b.querySelector("small").textContent = n.on ? "Connected" : n.secure ? "🔒" : "Open";
         b.addEventListener("click", () => {
-          wifiSsid = n.ssid; document.querySelectorAll(".net.sel").forEach(x => x.classList.remove("sel")); b.classList.add("sel");
-          $("join").hidden = false; $("joinName").textContent = n.secure ? "Password for " + n.ssid : n.ssid + " (open: no password)";
-          $("wpass").value = ""; $("wpass").placeholder = n.secure ? "Password" : "No password needed"; $("wpass").disabled = !n.secure;
-          $("wshow").hidden = !n.secure; $("wifiMsg").textContent = "";
-          if (n.secure) $("wpass").focus(); else $("joinBtn").focus();
-          setTimeout(() => $("join").scrollIntoView({ block: "nearest", behavior: "smooth" }), 250);
+          document.querySelectorAll(".net.sel").forEach(x => x.classList.remove("sel")); b.classList.add("sel");
+          ask(n, "");
         });
         $("nets").appendChild(b);
       });
       if (!(r.networks || []).length) $("nets").innerHTML = `<p>${r.message || "No networks found."}</p>`;
     } catch (e) { $("nets").innerHTML = `<p>Can't reach the box.</p>`; }
   }
-  $("wshow").addEventListener("click", () => { const f = $("wpass"); f.type = f.type === "password" ? "text" : "password"; $("wshow").textContent = f.type === "password" ? "Show" : "Hide"; f.focus(); });
-  $("wpass").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); $("joinBtn").click(); } });
+
+  // The password sheet. It sits in the middle of what the phone shows: with the keyboard up that's the part above it
+  // (visualViewport), so the field is never under the keyboard or behind its bar. Focused as it opens: the tap on the
+  // network is what lets the keyboard come up.
+  const vv = window.visualViewport;
+  function placeAsk() {
+    if ($("ask").hidden) return;
+    const card = $("askCard"), h = card.offsetHeight;
+    const top = vv ? vv.offsetTop + Math.max(12, (vv.height - h) / 2) : Math.max(12, (innerHeight - h) / 2);
+    card.style.setProperty("--ask-top", Math.round(top) + "px");
+    requestAnimationFrame(() => card.classList.add("placed"));     // (it moves smoothly from then on, not as it opens)
+  }
+  if (vv) { vv.addEventListener("resize", placeAsk); vv.addEventListener("scroll", placeAsk); }
+  window.addEventListener("resize", placeAsk);
+  const CLOSE = `<div class="ask-row"><span></span><button class="btn ghost" data-ask-close type="button">Close</button></div>`;
+  const canMask = !!(window.CSS && CSS.supports && CSS.supports("-webkit-text-security", "disc"));
+  function ask(n, password) {
+    wifiSsid = n.ssid; asking = "form";
+    $("askName").textContent = n.ssid;
+    $("askHint").textContent = n.secure ? "Type this Wi-Fi's password" : "An open network: no password";
+    $("askForm").style.display = "contents"; $("askGoing").hidden = true;
+    $("askPw").hidden = !n.secure; $("wkey").disabled = !n.secure; $("wkey").value = password || "";
+    $("wkey").classList.remove("masked"); $("wshow").textContent = "Hide"; $("wshow").hidden = !canMask;
+    $("wifiMsg").textContent = ""; $("joinBtn").disabled = false;
+    $("askCard").classList.remove("placed"); $("ask").hidden = false;
+    document.body.style.overflow = "hidden";
+    if (n.secure) $("wkey").focus({ preventScroll: true }); else $("joinBtn").focus({ preventScroll: true });
+    placeAsk(); setTimeout(placeAsk, 350);                         // (again once the keyboard is up)
+  }
+  function closeAsk() {
+    asking = null; $("ask").hidden = true; document.body.style.overflow = "";
+    try { $("wkey").blur(); } catch (e) {}
+    document.querySelectorAll(".net.sel").forEach(x => x.classList.remove("sel"));
+  }
+  // What happens next, once the box has been told to join: the same sheet, no field. On the box's own Wi-Fi the phone
+  // is about to lose the box (it leaves that Wi-Fi), so this is said before it goes, and stays.
+  function going(ssid) {
+    const first = asking !== "going";
+    asking = "going";
+    $("askName").textContent = ssid || "Sofa Box";
+    $("askHint").textContent = ssid ? "The box is joining it" : "Its own Wi-Fi is off";
+    $("askForm").style.display = "none";
+    const g = $("askGoing"); g.hidden = false;
+    g.innerHTML = (ssid ? `<p class="lead"><span class="spinner"></span>The box is joining <b></b>…</p>`
+                        : `<p class="lead">The box left its own Wi-Fi, most likely for yours.</p>`)
+      + (onItsWifi || !ssid
+        ? "<p>Your phone goes back to your own Wi-Fi now.</p>" + (inSheet
+          ? "<p><b>Last step:</b> this sheet closes by itself. Then open your phone's <b>camera</b> and scan the code on the TV: it keeps this phone as your remote.</p>"
+          : handoff ? "<p><b>Last step:</b> nothing to do. This page carries on by itself as soon as the box is there (up to a minute).</p><p>If it doesn't, scan the code on the TV with your camera.</p>"
+                    : "<p><b>Last step:</b> when the TV says it's connected, scan the code there with your camera: it keeps this phone as your remote.</p>")
+          + "<p>If the TV says it couldn't join, the box's own Wi-Fi comes back: join it again, and try the password once more here.</p>"
+        : "<p>The TV shows how it goes. If the box moves to another network, this remote may need the code on the TV again.</p>"
+          + CLOSE);
+    if (ssid) g.querySelector("b").textContent = ssid;
+    try { $("wkey").blur(); } catch (e) {}
+    $("ask").hidden = false; document.body.style.overflow = "hidden";
+    if (first) $("askCard").classList.remove("placed");
+    placeAsk(); setTimeout(placeAsk, 350);
+  }
+  // A Wi-Fi password is plain letters, numbers and signs (8 to 63 of them): what a phone's keyboard "tidies" as it's
+  // typed (curly quotes, a long dash for two short ones, … for three dots) is put back.
+  const plain = t => t.replace(/[\u2018\u2019\u201A\u2032]/g, "'").replace(/[\u201C\u201D\u201E\u2033]/g, '"').replace(/\u2014/g, "--")
+    .replace(/\u2013/g, "-").replace(/\u2026/g, "...").replace(/\u00A0/g, " ");
+  $("wkey").addEventListener("input", () => {
+    const f = $("wkey"), v = plain(f.value);
+    if (v !== f.value) { const at = (f.selectionStart || 0) + v.length - f.value.length; f.value = v; try { f.setSelectionRange(at, at); } catch (e) {} }
+    $("wifiMsg").textContent = "";
+  });
+  $("wshow").addEventListener("click", () => { const f = $("wkey"), on = f.classList.toggle("masked"); $("wshow").textContent = on ? "Show" : "Hide"; f.focus({ preventScroll: true }); });
+  $("wkey").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); $("joinBtn").click(); } });
+  $("askCancel").addEventListener("click", closeAsk);
+  $("askGoing").addEventListener("click", e => { if (e.target.closest("[data-ask-close]")) closeAsk(); });
+  $("ask").addEventListener("pointerdown", e => { if (e.target === $("ask") && asking === "form") closeAsk(); });   // (a tap beside it)
   $("joinBtn").addEventListener("click", async () => {
     if (!wifiSsid) return;
-    if (!$("wpass").disabled && $("wpass").value.length < 8) { $("wifiMsg").textContent = "A Wi-Fi password has at least 8 characters."; return; }
+    const password = $("wkey").disabled ? "" : $("wkey").value;
+    if (!$("wkey").disabled && password.length < 8) { $("wifiMsg").textContent = "A Wi-Fi password has at least 8 characters."; $("wkey").focus({ preventScroll: true }); return; }
     $("joinBtn").disabled = true; setTimeout(() => { $("joinBtn").disabled = false; }, 4000);
-    $("wifiMsg").textContent = "Joining " + wifiSsid + "…";
+    $("wifiMsg").textContent = "Telling the box…";
+    typed.ssid = wifiSsid; typed.password = password;
     try {
-      const r = await (await post("api/wifi/join", { ssid: wifiSsid, password: $("wpass").value })).json();
-      if (r.ok) { joining = wifiSsid; handoff = r.next || null; }
-      $("wifiMsg").textContent = r.ok ? "The box is joining " + wifiSsid + ". This phone goes back to your Wi-Fi now"
-        + (inSheet ? ". This sheet closes by itself: then scan the last code on the TV with your camera (it keeps this phone as the remote)."
-           : handoff ? ", and this page carries on by itself when the box is there." : ": then scan the new code on the TV.")
-        : (r.message || "That didn't work.");
-    } catch (e) { joining = wifiSsid; /* the box left this network: that's expected */ }
+      const r = await (await post("api/wifi/join", { ssid: wifiSsid, password })).json();
+      if (r.ok) { joining = wifiSsid; handoff = r.next || null; going(wifiSsid); }
+      else $("wifiMsg").textContent = r.message || "That didn't work.";
+    } catch (e) { joining = wifiSsid; going(wifiSsid); /* the box left this network: that's expected */ }
   });
 
   // Something wrong: the box's checks and logs to the Sofa Box team (a black screen can leave the TV's Settings out

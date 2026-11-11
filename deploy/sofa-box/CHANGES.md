@@ -8,6 +8,41 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.61
+
+The setup, from what a 1.1.60 card did on a real Raspberry Pi 3 B+ (2026-11-11: it set up and worked, "a bit buggy").
+
+- **The phone asks for the Wi-Fi's password in the middle of the screen.** Pick your Wi-Fi in the Setup Assistant and
+  a sheet opens over the list, in the middle of what the phone shows with its keyboard up, with the field ready to
+  type in. It was a box under the list, at the bottom of the page: on an iPhone that's where the keyboard's bar sits,
+  with "Passwords" on it. The field is plain text now and nothing about it says "password" to the phone, so no saved
+  passwords and no "Use Strong Password?" come up; what you type shows (Hide covers it), so a slip is seen before
+  Join. Curly quotes, long dashes and "…" that a phone's keyboard puts in are put back as typed.
+- **After Join, one path.** The same sheet says what happens next: the box is joining, your phone goes back to your
+  Wi-Fi, and either the page carries on by itself or one last code on the TV is scanned. A wrong password comes back
+  to the phone too, in the sheet, with what was typed there to put right (the page went on saying "the box is
+  joining"); the TV keeps saying why once the box's own Wi-Fi is back (it said so for a few seconds only).
+- **The TV doesn't lose its place when the box's clock is set right.** A new card's clock starts weeks behind (the
+  day its system was made) and is set right when the box is first online: seconds after it joins your Wi-Fi, in the
+  middle of the setup, 36 days at once on the Pi. The TV took "joined a moment ago" for "a month ago": the setup's
+  last step turned into the plain first code ("scan with your phone's camera, or open … and type …"), and the
+  remote's secure address was taken for gone, so the code on the TV could change under the phone's camera. The box
+  now keeps its "how long ago" on a clock that never jumps, on the TV's page too, and asks for the remote's secure
+  address every 5 seconds just after joining, as it was meant to.
+- **After the join the TV says what happened, then what to do, once:** "✓ The box is on <your Wi-Fi>", then "Last
+  step: scan this with your phone's camera", then "✓ Your phone is the remote, and the box is online" with all four
+  steps ticked. With the Sofa Box service out of reach, the plain code shows after a minute (it was five minutes with
+  no code at all).
+- **Sofa is looked for as soon as the box is on your Wi-Fi**, and every few seconds for two minutes. By then the
+  box had gone down to a look a minute, so Home could open after the setup without the Sofa that was there.
+- **The box's own Wi-Fi starts once.** It went up, and three seconds later down and up again with its address
+  server (NetworkManager's hotspot command, then two changes that needed a second start), just as the TV showed the
+  code to join it. It's made whole, then started; the TV shows its code only once it's up.
+- **Short of power: the setup says so**, between Back and Next, as soon as the Pi records it (looked at every 15
+  seconds until the setup is done). A weak supply shows in the first minutes, when the Wi-Fi starts sending; Home
+  said so only after the setup. A report's first lines now say it in words: what happened, whether it's still
+  happening, what to do.
+
 ## 1.1.60
 
 - **Sofa Box OS on other hardware** (docs/hardware.md): an old PC or laptop, a mini PC, a virtual machine, another board.

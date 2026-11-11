@@ -2220,7 +2220,8 @@ class BoxNetwork(unittest.TestCase):
             calls.append(cmd)
             if cmd[-1] == "device":                                                   # nmcli -t -f DEVICE,TYPE device
                 return 0, "wlan0:wifi\neth0:ethernet"
-            return answers["hotspot"] if "hotspot" in cmd else (0, "")
+            # (its one start, and the old way it falls back on: tests/test_box_handoff.py)
+            return answers["hotspot"] if "hotspot" in cmd or cmd[1:3] == ["connection", "up"] else (0, "")
         a.run = nmcli
         net, real_sleep = a.Network(), a.time.sleep
         a.time.sleep = lambda s: None
@@ -2235,8 +2236,8 @@ class BoxNetwork(unittest.TestCase):
             answers["hotspot"] = (0, "Device 'wlan0' successfully activated")
             net.tick(0, net.failed_at + 50)
             self.assertTrue(net.hotspot and net.problem is None)
-            self.assertIn(["nmcli", "connection", "modify", "sofa-box-setup", "802-11-wireless-security.pmf", "disable",
-                           "ipv6.method", "disabled"], calls)
+            made = [c for c in calls if c[1:3] == ["connection", "add"]][-1]
+            self.assertEqual([made[made.index(k) + 1] for k in ("802-11-wireless-security.pmf", "ipv6.method")], ["disable", "disabled"])
             self.assertIsNotNone(a.captive.server)                                    # its sign-in page, with it
             net.stop_hotspot()
             self.assertIsNone(a.captive.server)
