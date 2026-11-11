@@ -1302,6 +1302,12 @@ def smooth_lines(stats):
                 line += "; the slow ones' time: waiting for the page %d%%, the key's own code %d%%, drawing %d%%" % tuple(
                     round(100 * p.get(k, 0) / t) for k in ("wait", "code", "draw"))
             out.append(line)
+            # moving the focus and OK apart: an arrow that's slow is the page drawing too much; a slow OK is what it opens
+            kinds = ["%s: %d presses, %d slower than 0.1 s, slowest %s" % (
+                label, p[k], p.get(k + "_slow", 0), "%.2f s" % (p[k + "_worst"] / 1000) if p.get(k + "_worst") else "under 0.05 s")
+                for k, label in (("move", "moving"), ("ok", "OK")) if p.get(k)]
+            if kinds:
+                out.append("      " + "; ".join(kinds))
     return out
 
 

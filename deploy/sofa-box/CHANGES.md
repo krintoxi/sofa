@@ -8,6 +8,27 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.62
+
+Moving around Home and Games on a Raspberry Pi 3 (the light look). On a real Pi 3 B+, 1.1.60: 16 of 39 presses on Home
+took a tenth of a second or more to show, and nine tenths of that time was the browser drawing.
+
+- **Moving the focus no longer draws the row again.** The tile in focus used to grow, change its background and come
+  in front of its neighbours. Coming in front changes the order a row's tiles are painted in, and the browser then
+  drew every tile after it again: the whole visible row on every press, the whole width of the page on Games. In the
+  light look the tile now stays exactly as it is, and its ring is a small layer of its own, put over it. Counted in a
+  browser here (the pieces of the page drawn again before the press shows): Home, along a row, 16 a press before and
+  1 now (the ring); Home, to another row, 14 and 1; Games, along a row, 27 and 1. What a press costs now is what a
+  scroll newly brings onto the screen. The ring is the app's own colour, as before; the tile no longer grows.
+- **The full look (a Pi 4 or 5, a PC) is the same to the pixel.** Its rules are as they were.
+- **Settings: the list's highlight moves first**, and the pane beside it is drawn once the highlight has been shown.
+  On a slow board the two could land in one frame.
+- **A report tells moving from OK**: under each page, "moving: 31 presses, 9 slower than 0.1 s, slowest 0.24 s; OK: 6
+  presses, …". An arrow that's slow is the page drawing too much; a slow OK is whatever it opens.
+
+Not measured on a Pi yet: the counts above are from Chrome on a Mac, whose graphics chip is nothing like a Pi 3's.
+The next report from the Pi says what it's worth there.
+
 ## 1.1.61
 
 The setup, from what a 1.1.60 card did on a real Raspberry Pi 3 B+ (2026-11-11: it set up and worked, "a bit buggy").

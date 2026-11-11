@@ -103,6 +103,25 @@ class Page:
             time.sleep(0.1)
         raise AssertionError("no layer tree")
 
+    def drawn_again(self, fn, wait=0.6):
+        """What the browser drew again while `fn` ran and for a moment after: the layer of each piece (tile) of the page
+        it drew, from its own record (tracing). A piece drawn again is what costs on a Pi 3."""
+        self.call("Tracing.start", {"transferMode": "ReportEvents",
+                                    "traceConfig": {"includedCategories": ["devtools.timeline", "disabled-by-default-devtools.timeline", "cc"],
+                                                    "excludedCategories": ["*"]}})
+        fn()
+        time.sleep(wait)
+        self.n += 1
+        self.ws.send(json.dumps({"id": self.n, "method": "Tracing.end", "params": {}}))
+        events = []
+        while True:
+            m = json.loads(self.ws.recv())
+            if m.get("method") == "Tracing.dataCollected":
+                events += m["params"]["value"]
+            elif m.get("method") == "Tracing.tracingComplete":
+                break
+        return [e["args"]["tileData"].get("layerId") for e in events if e.get("name") == "RasterTask" and e.get("args", {}).get("tileData")]
+
     def close(self):
         self.ws.close()
 
@@ -140,6 +159,18 @@ class SpeedReport(unittest.TestCase):
             "  sofa: 9 presses, 0 slower than 0.1 s (slowest 0.04 s); 0 long tasks (0.0 s in all)",
             "    sofa show: 9 presses: 9 within 0.05 s, 9 within 0.1 s, 9 within 0.25 s; slowest 0.04 s"])
         self.assertEqual(self.agent.smooth_lines("(the browser went away)"), [])        # (a report is never lost to it)
+
+    def test_moving_and_ok_apart(self):
+        """An arrow that's slow is the page drawing too much; a slow OK is what it opens. The report says which."""
+        home = {"presses": 39, "slow": 16, "worst": 1820, "hist": [7, 11, 3, 1, 1], "wait": 70, "code": 40, "draw": 900,
+                "move": 31, "move_slow": 9, "move_worst": 240, "ok": 6, "ok_slow": 5, "ok_worst": 1820}
+        lines = self.agent.smooth_lines({"home": {"presses": 43, "slow": 16, "worst": 1820, "long": 27, "long_ms": 11900, "pages": {
+            "home": home, "games": {"presses": 4, "slow": 0, "worst": 0, "hist": [0] * 5, "move": 4, "move_slow": 0, "move_worst": 0}}}})
+        self.assertEqual(lines[2], "      moving: 31 presses, 9 slower than 0.1 s, slowest 0.24 s; OK: 6 presses, 5 slower than 0.1 s, slowest 1.82 s")
+        self.assertEqual(lines[4], "      moving: 4 presses, 0 slower than 0.1 s, slowest under 0.05 s")
+        merged = boxos.merge_smooth({"presses": 1, "worst": 5, "pages": {"home": {"presses": 1, "move": 1, "move_slow": 1, "move_worst": 120}}},
+                                    {"presses": 2, "worst": 9, "pages": {"home": {"presses": 2, "move": 2, "move_slow": 0, "move_worst": 80}}})
+        self.assertEqual(merged["pages"]["home"], {"presses": 3, "move": 3, "move_slow": 1, "move_worst": 120})   # (the slowest, not a sum)
 
     def test_two_tabs_of_one_app(self):
         a = {"presses": 3, "slow": 1, "worst": 300, "long": 1, "long_ms": 80,
@@ -260,6 +291,96 @@ class BoxPagesSpeed(unittest.TestCase):
             self.assertEqual(p.layers(), first, "a press on Home made or dropped a layer")
         self.assertIn("tile", p.value("document.activeElement.className"))
         self.assertEqual(p.value("getComputedStyle(document.querySelector('.bg')).display"), "none")
+
+    def test_moving_the_focus_draws_no_row_again(self):
+        """On a real Pi 3 B+ (1.1.60) a press on Home took 0.1 s or more 16 times in 39, nine tenths of it drawing. The
+        tile in focus came in front of its neighbours (z-index: 2): that changes the order the row is painted in, and
+        the browser then drew every tile after it again, the whole row on each press. In the light look the tile now
+        stays exactly as it is, and its ring is a layer of its own: nothing of the row or the page is drawn again."""
+        p = self.home()
+        p.press("ArrowDown", 40)                          # (into the Watch row, its first tile)
+        # The page has just opened: for a few seconds the browser still draws things of its own accord (the parts of its
+        # rows that are off the screen, icons as they arrive). So: to the next tile and back (the row doesn't scroll),
+        # until one pair of presses has a quiet page to itself. A row drawn again on every press never has one: that
+        # was 14 to 18 pieces a press here, and the ring alone is one.
+        pair = None
+        for _ in range(6):
+            if p.drawn_again(lambda: None, 0.5):
+                continue
+            pair = [len(p.drawn_again(lambda: p.press(key, code))) for key, code in (("ArrowRight", 39), ("ArrowLeft", 37))]
+            if max(pair) <= 2:
+                break
+        self.assertIsNotNone(pair, "the page never came to rest")
+        self.assertLessEqual(max(pair), 2, "the row was drawn again when the focus moved: %s pieces" % pair)
+        self.assertIn("tile", p.value("document.activeElement.className"))
+
+    def test_the_tile_in_focus_stays_as_it_is(self):
+        """The light look's tile in focus: the same transform, background, shadow and place in the painting order as
+        its neighbours, with a ring over it that is its own layer."""
+        p = self.home()
+        p.press("ArrowDown", 40)
+        look = ("(e => { const c = getComputedStyle(e); return [c.transform, c.backgroundImage, c.backgroundColor, c.boxShadow, c.zIndex].join(' | '); })"
+                "(document.querySelectorAll('.watch-row .tile')[%d])")
+        self.assertTrue(p.value("document.querySelectorAll('.watch-row .tile')[0].classList.contains('f')"))
+        first = p.value(look % 0)
+        p.press("ArrowRight", 39)
+        self.assertEqual(p.value(look % 0), first)                     # out of focus: just as it was in focus
+        self.assertIn("none", first.split(" | ")[0])
+        self.assertEqual(first.split(" | ")[-1], "auto")               # never in front of its neighbours
+        ring = p.value("(c => [c.content, c.willChange, c.borderTopStyle, c.pointerEvents].join('|'))"
+                       "(getComputedStyle(document.querySelector('.watch-row .tile.f'), '::after'))")
+        self.assertEqual(ring, '""|transform|solid|none')
+        self.assertEqual(p.value("getComputedStyle(document.querySelectorAll('.watch-row .tile')[0], '::after').content"), "none")
+        with open(os.path.join(BOX, "home", "home.css"), encoding="utf-8") as f:
+            css = f.read()
+        # the full look keeps its rules, exactly as strong as they were (:where adds nothing to a selector's weight)
+        self.assertIn(":where(html:not(.lite)) .tile.f, :where(html:not(.lite)) .tile:hover { transform: translateY(-.2rem) scale(1.08);", css)
+        self.assertNotRegex(css, r"(?m)^\.tile\.f\b")
+        self.assertNotRegex(css, r"html\.lite \.tile\.f[^:{]*\{[^}]*(transform|z-index)")
+
+    def test_settings_moves_its_highlight_before_it_draws_the_pane(self):
+        """Down the list in Settings: the highlight moves with the press; the pane beside it is drawn after that frame
+        (it was 110 ms later whatever the board was doing: on a slow one, in the same frame as the highlight)."""
+        p = self.home()
+        p.value("location.hash = '#/settings'")
+        for _ in range(50):
+            if p.value("!!document.querySelector('.set-tab.f') || !!document.querySelector('.set-tab')"):
+                break
+            time.sleep(0.1)
+        time.sleep(0.8)
+        p.press("ArrowDown", 40)                          # (from the top bar into the list, or down it)
+        was = p.value("document.querySelector('.set-tab[aria-current=true]').dataset.setTab")
+        # the order of things, as the page sees them: the press, a frame, then the pane
+        p.value("""(() => { window.__order = []; const pane = document.getElementById('setPane');
+            new MutationObserver(() => window.__order.push('pane')).observe(pane, { childList: true });
+            addEventListener('keydown', () => { window.__order.push('press'); requestAnimationFrame(() => window.__order.push('frame')); }, true); })(); 1""")
+        p.press("ArrowDown", 40)
+        tab = p.value("document.querySelector('.set-tab.f').dataset.setTab")
+        self.assertNotEqual(tab, was)
+        for _ in range(30):
+            if p.value("document.querySelector('.set-tab[aria-current=true]').dataset.setTab") == tab:
+                break
+            time.sleep(0.1)
+        self.assertEqual(p.value("document.querySelector('.set-tab[aria-current=true]').dataset.setTab"), tab)
+        self.assertEqual(p.value("window.__order.slice(0, 3).join(' ')"), "press frame pane")
+        with open(os.path.join(BOX, "home", "home.js"), encoding="utf-8") as f:
+            self.assertIn("setTabTimer = setTimeout(() => afterFrame(() => { if (cur === el) showTab(el.dataset.setTab); }), 110);", f.read())
+
+    def test_moving_and_ok_are_counted_apart(self):
+        p = self.home()
+        for _ in range(50):
+            if p.value("typeof window.__sofaSmooth") == "function":
+                break
+            time.sleep(0.1)
+        before = json.loads(p.value("__sofaSmooth()"))["pages"].get("home", {})
+        p.press("ArrowDown", 40)
+        p.press("ArrowRight", 39)
+        p.value("document.dispatchEvent(new KeyboardEvent('keydown', { key: 'F7', bubbles: true })); 1")   # (neither)
+        home = json.loads(p.value("__sofaSmooth()"))["pages"]["home"]
+        self.assertEqual(home["move"] - before.get("move", 0), 2)
+        self.assertEqual(home["presses"] - before.get("presses", 0), 3)
+        self.assertEqual(home["ok"], before.get("ok", 0))
+        self.assertIn("move_worst", home)
 
     def test_measured_page_by_page(self):
         """The box's measure is in Home from the start and stays when the page loads again (it was gone after a reload:

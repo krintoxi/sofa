@@ -1232,7 +1232,17 @@
     if (el.tagName === "INPUT") el.focus({ preventScroll: true }); else { if (document.activeElement && document.activeElement.tagName === "INPUT") document.activeElement.blur(); el.focus({ preventScroll: true }); }
     reveal(el, prev);
     if (el.dataset.store) storeDetail(el.dataset.store);
-    if (el.dataset.setTab) { clearTimeout(setTabTimer); setTabTimer = setTimeout(() => { if (cur === el) showTab(el.dataset.setTab); }, 110); }
+    // Settings: the list's highlight moves at once; the pane beside it follows once that has been drawn. (On a slow
+    // board both could land in one frame, the highlight waiting for a whole new pane to be laid out and drawn.)
+    if (el.dataset.setTab) { clearTimeout(setTabTimer); setTabTimer = setTimeout(() => afterFrame(() => { if (cur === el) showTab(el.dataset.setTab); }), 110); }
+  }
+  // After the frame that's on its way has been drawn: the next frame's start but one. (A page that isn't in front gets
+  // no frames: then after a moment, all the same.)
+  function afterFrame(fn) {
+    let done = false;
+    const go = () => { if (!done) { done = true; fn(); } };
+    requestAnimationFrame(() => requestAnimationFrame(go));
+    setTimeout(go, 300);
   }
   // Scrolling the way a TV's home screen does, smoothly (it's the compositor's work, light even on a Pi 3): a new row
   // comes up under the top bar with its title, the same place every time; along a row, the next tile peeks in;

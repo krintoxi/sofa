@@ -1362,7 +1362,7 @@ def merge_smooth(a, b):
             have = pages.setdefault(name, {})
             for k, x in v.items():
                 have[k] = [i + j for i, j in zip(have.get(k) or [0] * len(x), x)] if isinstance(x, list) else \
-                    max(have.get(k, 0), x) if k == "worst" else have.get(k, 0) + x
+                    max(have.get(k, 0), x) if k.endswith("worst") else have.get(k, 0) + x
     if pages:
         out["pages"] = pages
     return out
@@ -1394,19 +1394,24 @@ SMOOTH_PROBE = r"""(function () {
     var h = String(location.hash).replace(/^#!?\/?/, "").split(/[\/?&=#]/)[0].toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 20);
     return /^\/box\/home/.test(location.pathname) || window.SofaBox ? h || "home" : "page";
   }
-  function of(p) { return s.pages[p] || (s.pages[p] = { presses: 0, slow: 0, worst: 0, hist: [0, 0, 0, 0, 0], wait: 0, code: 0, draw: 0 }); }
+  function of(p) { return s.pages[p] || (s.pages[p] = { presses: 0, slow: 0, worst: 0, hist: [0, 0, 0, 0, 0], wait: 0, code: 0, draw: 0,
+    move: 0, move_slow: 0, move_worst: 0, ok: 0, ok_slow: 0, ok_worst: 0 }); }
+  // (moving the focus and OK apart: an arrow should cost next to nothing, OK opens or changes something)
+  function kind(e) { return /^Arrow/.test(e.key) ? "move" : e.key === "Enter" ? "ok" : ""; }
   addEventListener("keydown", function (e) {
-    var p = name();
+    var p = name(), k = kind(e);
     s.presses++; of(p).presses++;
-    recent.push([e.timeStamp, p]); if (recent.length > 40) recent.shift();
+    if (k) of(p)[k]++;
+    recent.push([e.timeStamp, p, k]); if (recent.length > 40) recent.shift();
   }, true);
   try {
     new PerformanceObserver(function (list) {
       list.getEntries().forEach(function (e) {
         if (e.name !== "keydown") return;
-        var d = e.duration, p = null;
-        for (var i = recent.length - 1; i >= 0 && !p; i--) if (Math.abs(recent[i][0] - e.startTime) < 1) p = recent[i][1];
+        var d = e.duration, p = null, k = "";
+        for (var i = recent.length - 1; i >= 0 && !p; i--) if (Math.abs(recent[i][0] - e.startTime) < 1) { p = recent[i][1]; k = recent[i][2]; }
         var v = of(p || name());
+        if (k) { if (d > v[k + "_worst"]) v[k + "_worst"] = Math.round(d); if (d >= 100) v[k + "_slow"]++; }
         if (d > s.worst) s.worst = Math.round(d);
         if (d > v.worst) v.worst = Math.round(d);
         if (d >= 50) v.hist[d < 100 ? 0 : d < 250 ? 1 : d < 500 ? 2 : d < 1000 ? 3 : 4]++;    // (0.05-0.1, -0.25, -0.5, -1 s, more)

@@ -177,10 +177,13 @@ h2.row-title small { margin-left: .6rem; font: 500 .85rem var(--text); color: va
 .tile .badge { position: absolute; top: .5rem; left: .5rem; font-size: .65rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase;
   padding: .15rem .45rem; border-radius: .4rem; background: var(--a); color: var(--a-ink); }
 .tile .badge.warn { background: #3a2a10; color: #ffcf7a; }
-.tile.f, .tile:hover { transform: translateY(-.2rem) scale(1.08); background: color-mix(in srgb, var(--c, var(--a)) 18%, var(--bg2));
+/* The tile in focus, in the full look: it lifts, lights up and comes in front of its neighbours. (Not in the light
+   look, html.lite, further down: there the tile itself isn't drawn again at all. :where() keeps these rules exactly as
+   strong as they were, so the full look is the same to the pixel.) */
+:where(html:not(.lite)) .tile.f, :where(html:not(.lite)) .tile:hover { transform: translateY(-.2rem) scale(1.08); background: color-mix(in srgb, var(--c, var(--a)) 18%, var(--bg2));
   box-shadow: 0 0 0 .18rem var(--a), 0 1rem 2.4rem var(--glow); z-index: 2; }
-[data-theme="street"] .tile.f { box-shadow: .35rem .35rem 0 var(--a2), 0 0 0 .18rem var(--a); }
-[data-theme="terminal"] .tile.f { box-shadow: 0 0 0 .14rem var(--a), 0 0 1.6rem var(--glow); }
+:where(html:not(.lite))[data-theme="street"] .tile.f { box-shadow: .35rem .35rem 0 var(--a2), 0 0 0 .18rem var(--a); }
+:where(html:not(.lite))[data-theme="terminal"] .tile.f { box-shadow: 0 0 0 .14rem var(--a), 0 0 1.6rem var(--glow); }
 .tile.off { opacity: .45; }
 .poster { flex: 0 0 13rem; height: auto; align-content: start; padding: 0; overflow: hidden; }
 .poster img { width: 100%; aspect-ratio: 16/9; object-fit: cover; display: block; }
@@ -371,15 +374,15 @@ html.lite .kb-key.f { transform: none; }
   pointer-events: none; background: linear-gradient(160deg, rgba(255,255,255,.26), rgba(255,255,255,.05) 40%, transparent 58%);
   box-shadow: inset 0 0 0 1px rgba(255,255,255,.16), inset 0 -.7rem 1.4rem rgba(0,0,0,.14); }
 .tile.app .ic { transition: transform .22s cubic-bezier(.2,.8,.2,1); }
-.tile.app.f .ic { transform: translateY(-.18rem) scale(1.05); }
+:where(html:not(.lite)) .tile.app.f .ic { transform: translateY(-.18rem) scale(1.05); }
 .tile.app.own .ic svg { width: 2.4rem; height: 2.4rem; filter: drop-shadow(0 .1rem .3rem rgba(0,0,0,.3)); }
 .tile.app .ic.emoji { font-size: 2.3rem; background: color-mix(in srgb, var(--c) 30%, var(--bg)); }
 .tile.app .ic.plus { background: var(--tile); color: var(--a); box-shadow: inset 0 0 0 2px var(--line); }
 .tile.app .ic.plus svg, .tile.app.add .ic svg { width: 1.8rem; height: 1.8rem; }
 .tile.app.have { opacity: .78; }
-.tile.app.f, .tile.app:hover { background: radial-gradient(120% 90% at 50% 0%, color-mix(in srgb, var(--c, var(--a)) 50%, transparent) 0%, transparent 75%), var(--bg2);
+:where(html:not(.lite)) .tile.app.f, :where(html:not(.lite)) .tile.app:hover { background: radial-gradient(120% 90% at 50% 0%, color-mix(in srgb, var(--c, var(--a)) 50%, transparent) 0%, transparent 75%), var(--bg2);
   box-shadow: 0 0 0 .18rem var(--c, var(--a)), 0 1rem 2.6rem color-mix(in srgb, var(--c, var(--a)) 45%, transparent); }
-[data-theme="street"] .tile.app.f { box-shadow: .35rem .35rem 0 var(--a2), 0 0 0 .18rem var(--c, var(--a)); }
+:where(html:not(.lite))[data-theme="street"] .tile.app.f { box-shadow: .35rem .35rem 0 var(--a2), 0 0 0 .18rem var(--c, var(--a)); }
 /* the Watch row: wide cards */
 .tile.app.wide { flex: 0 0 15.5rem; grid-template-columns: auto 1fr; justify-items: start; text-align: left; column-gap: 1rem; row-gap: .15rem;
   padding: 1rem 1.2rem; align-content: center;
@@ -677,8 +680,15 @@ html.lite[data-theme="terminal"] body { text-shadow: none; }
 html.lite .view-in > *, html.lite .w-mark svg, html.lite .intro-word, html.lite .intro-word b, html.lite .intro-word span { animation: none; }
 html.lite .tile, html.lite .tile.app, html.lite .btn, html.lite .theme, html.lite .mini-app, html.lite .srv, html.lite .bt-row, html.lite .wifi-row { transition: none; }
 html.lite .tile.app .ic, html.lite .mini-app, html.lite .store-detail .ic, html.lite .sheet { box-shadow: none; }
-html.lite .tile.f, html.lite .tile:hover, html.lite .tile.app.f, html.lite .tile.app:hover { box-shadow: 0 0 0 .2rem var(--c, var(--a)); transform: scale(1.05); }
-html.lite[data-theme="street"] .tile.f, html.lite[data-theme="street"] .tile.app.f { box-shadow: 0 0 0 .2rem var(--c, var(--a)); }
+/* The tile in focus, in the light look: a ring that is a layer of its own, over a tile that stays exactly as it was.
+   Nothing of the row or the page is drawn again when the focus moves: the old ring goes, a new one is put down. (The
+   tile used to grow, change its background and come in front of its neighbours, z-index: 2. Coming in front changed
+   the order the row's tiles are painted in, and the browser then drew every tile after it again: the whole row on
+   each press, on the board that can least afford it.) */
+html.lite .tile.f::after, html.lite .tile:hover::after { content: ""; position: absolute; inset: calc(-.2rem - 1px); border-radius: calc(var(--r) + .2rem);
+  border: .2rem solid var(--c, var(--a)); will-change: transform; pointer-events: none; }
+html.lite .poster { overflow: visible; }                 /* (its ring is outside it; the picture keeps its round corners) */
+html.lite .poster img { border-radius: calc(var(--r) - 1px) calc(var(--r) - 1px) 0 0; }
 html.lite .btn.f, html.lite .btn:hover { box-shadow: 0 0 0 .18rem var(--fg); }
 html.lite .theme.f, html.lite .mini-app.f { box-shadow: 0 0 0 .18rem var(--a); }
 html.lite .w-mark svg, html.lite .spot-logo svg, html.lite .intro-mark svg { filter: none; }
