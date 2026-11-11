@@ -2277,6 +2277,24 @@ Synth.prototype = {
 //   elsewhere, as a Ray's helpers say) and helperWork() (their time a frame, ms) })
 // a height for the picture that goes into the screen's a whole number of times, the nearest to the one wanted: [height,
 // how many times] (1080 wanting 360: 360, 3; wanting 540 on a 720 screen: 720, 1)
+// How many fixed steps a frame takes: [steps, what's carried]. Time is never dropped: what a frame is short of a whole
+// number of steps, or over it, is carried to the next (acc, in seconds; it may run a little under nought), so a game
+// runs at real time on any screen: 50, 60, 72, 75, 144 Hz. A frame that comes within a quarter of a step of a whole
+// number takes exactly that many, so on a 60 Hz screen it's one step every frame however the clock wobbles, never none
+// and then two (which shows as a judder at a steady 60). most: the most one frame may take; a longer pause isn't
+// caught up on.
+const STEPS = [0, 0];
+function wholeSteps(acc, dt, DT, most) {
+  acc += dt;
+  const s = acc / DT, r = Math.round(s);
+  let n = Math.abs(s - r) < 0.25 ? r : Math.floor(s);
+  if (n < 0) n = 0;
+  if (n >= most) { n = most; acc = 0; } else acc -= n * DT;
+  STEPS[0] = n; STEPS[1] = acc; return STEPS;
+}
+// A ladder as one line (each rung's size and rate). A rung kept for a box is a number on the ladder as it was then, and
+// means nothing on another: what's kept carries this, and is used only on the ladder it was kept on.
+function ladderSig(lad) { let s = ""; for (let i = 0; i < lad.length; i++) s += (i ? " " : "") + lad[i].h + "@" + lad[i].fps; return s; }
 function wholeSize(dev, want) { const div = Math.max(1, Math.round(dev / Math.max(1, want))); return [Math.round(dev / div), div]; }
 const GLOPTS = p => ({ antialias: p.family === "desktop" || p.family === "pi5" });   // (smoothed edges where there's room: never a Pi 3 or 4)
 // kind: "ray" for a game drawn a pixel at a time (Ray): the CPU test alone picks its rung (LADDER.ray), E.screen is
@@ -2370,7 +2388,8 @@ function game(o) {
     E.held = !!own;
     const lad = own || LADDER[E.mode], p = o.picture ? o.picture() : "auto";
     let start = E.mode === E.plan.mode ? E.plan.rung : E.mode === "gl" ? 1 : 2, top = E.mode === E.plan.mode ? E.plan.top : lad.length - 1;
-    if (tune && tune.key === E.probe.key && tune.mode === E.mode && tune.rung != null && p === "auto" && !own) { start = tune.rung; top = Math.min(top, tune.top); }
+    // (where this game's governor settled on this box: a rung kept on another ladder, an older version's, is not this one's)
+    if (tune && tune.key === E.probe.key && tune.mode === E.mode && tune.lad === ladderSig(LADDER[E.mode]) && tune.rung != null && p === "auto" && !own) { start = tune.rung; top = Math.min(top, tune.top); }
     if (own) {                                       // the size it would have started on (or the one held), at the best rate held
       const want = T.lines || LADDER.ray[U.clamp(start, 0, LADDER.ray.length - 1)].h, most = T.lines || LADDER.ray[U.clamp(top, 0, LADDER.ray.length - 1)].h;
       start = top = 0;
@@ -2387,7 +2406,7 @@ function game(o) {
     if (!first && o.prepare) o.prepare(E);
     if (o.rung) o.rung(E, E.rung);
   };
-  E.remember = () => { if ((o.picture ? o.picture() : "auto") === "auto" && E.forceRung == null && !E.held) E.keep({ key: E.probe.key, bench: E.bench, mode: E.mode, rung: E.gov.rung, top: E.gov.top }); };
+  E.remember = () => { if ((o.picture ? o.picture() : "auto") === "auto" && E.forceRung == null && !E.held) E.keep({ key: E.probe.key, bench: E.bench, mode: E.mode, rung: E.gov.rung, top: E.gov.top, lad: ladderSig(LADDER[E.mode]) }); };
   E.setPicture = () => { E.keep({ key: E.probe.key, bench: E.bench }); E.renderer(false); };
   E.test3d = (done, step) => {                       // the ~2 s test (software GL is left out: the 2D sea is quicker there)
     let g = null;
@@ -2452,12 +2471,9 @@ function game(o) {
     if (!E.gov.tick(now)) return;
     const t0 = performance.now();
     let dt = (now - last) / 1000; last = now; if (dt > 0.25) dt = 0.25;
-    // A frame that comes a whole number of steps after the last (as every frame does on a 60 Hz screen, give or take
-    // the clock's wobble) takes exactly that many: never none and then two, which shows as a judder at a steady 60.
-    const steps = dt / E.DT, whole = Math.round(steps);
-    if (whole >= 1 && Math.abs(steps - whole) < 0.2) { dt = whole * E.DT; acc = 0.0005; }
-    if (!(o.paused && o.paused())) { acc += dt; let n = 0; while (acc >= E.DT && n < 6) { o.update(E.DT); acc -= E.DT; n++; } if (n === 6) acc = 0; }
-    E.alpha = acc / E.DT;                               // (how far into the next step: for a game that draws between steps)
+    // (the steps this frame takes: see wholeSteps. At real time on any screen; one a frame on a 60 Hz one.)
+    if (!(o.paused && o.paused())) { const S = wholeSteps(acc, dt, E.DT, 6); acc = S[1]; for (let n = S[0]; n > 0; n--) o.update(E.DT); }
+    E.alpha = acc > 0 ? acc / E.DT : 0;                 // (how far into the next step: for a game that draws between steps)
     // (a draw that returns false drew nothing: the last picture stays, and the governor isn't asked to judge frames
     // with no work in them: it would climb to the top rung under a menu and find it too much when play goes on)
     let drew = true;
@@ -3363,5 +3379,5 @@ function planRay(p, b) {
 
 window.Low3D = { probe, family, NAMES, bench, plan, rows, line, LADDER, Governor, GL, Mesh, Flat, bake, M4, px, hexRGB,
   U, Kit, Path, Chunks, Land, Trail, Particles, camera, chase, orbit, viewOf, begin, Input, Menu, Synth, game,
-  Palette, Tex, RayMap, Ray, Marks, Screen, planRay, heldRay, helpersFor, UI, Letters, GLYPHS, SPECIAL, wholeSize, version: 4 };
+  Palette, Tex, RayMap, Ray, Marks, Screen, planRay, heldRay, helpersFor, wholeSteps, ladderSig, UI, Letters, GLYPHS, SPECIAL, wholeSize, version: 4 };
 })();

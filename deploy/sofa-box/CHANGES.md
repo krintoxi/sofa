@@ -8,6 +8,23 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.68
+
+Two defects in the games' engine that came in with 1.1.64 (and reached Ironmaw in 1.1.66), found by reading it.
+
+- **A game ran slow or fast on a screen that isn't 60 Hz.** The loop rounded a frame to a whole number of steps when
+  it was within a fifth of a step, and dropped what was left over: Tidewing and Ironmaw ran at 83% of real time on
+  a 50 Hz screen, 120% at 72 Hz and 125% at 75 Hz (60, 59.94, 90, 120 and 144 Hz were right). Time is carried now,
+  never dropped, so a game runs at real time on any screen; a 60 Hz screen still gets exactly one step every frame
+  however its clock wobbles. The 2D engine's loop had a milder form of the same (wrong between 52 and 70 Hz, 50 Hz
+  right) and uses the same steps now.
+- **A rung kept for a box was read back on a ladder it wasn't kept on.** A game keeps the rung its governor settled
+  on and how high it may go. 1.1.64 and 1.1.66 changed both ladders, so a box that had played Tidewing before came
+  back on the old numbers: a Pi 3 at 640 × 360 and 30 a second, never over 480 × 270 at 60, where it should start at
+  640 × 360 and 60. What's kept says which ladder it's on now and is used on no other; the box's test result is
+  still used. A freshly written card has nothing kept and wasn't affected.
+- Both are pinned by tests: the speed at 50, 59.94, 60, 72, 75, 90, 100, 120 and 144 Hz, and an older version's
+  kept rung on a Pi 3 for both ladders.
 ## 1.1.67
 
 Every one of the box's own games says how it ran, for the next report.

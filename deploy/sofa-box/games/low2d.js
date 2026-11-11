@@ -148,7 +148,9 @@ function game(o) {
   let tune = load(KEY);
   G.look = () => G.force || G.opts.fx || "auto";
   G.pace = () => G.forcePace || G.opts.pace || "auto";
-  G.remember = () => { if (G.demo || G.force || G.forcePace) return; tune = { key: G.probe.key, ladder: G.look() + "/" + G.pace(), rung: G.gov.rung, top: G.gov.top }; keep(KEY, tune); };
+  // (a rung kept for a box is a number on the ladder as it was: sig says which, and it's used on no other)
+  const sig = () => G.ladder.map(t => t.name + t.fps).join(" ");
+  G.remember = () => { if (G.demo || G.force || G.forcePace) return; tune = { key: G.probe.key, ladder: G.look() + "/" + G.pace(), sig: sig(), rung: G.gov.rung, top: G.gov.top }; keep(KEY, tune); };
   G.setTier = (r, why) => {
     G.rung = r; G.tier = G.ladder[r];
     if (o.tier) o.tier(G, G.tier);
@@ -158,7 +160,7 @@ function game(o) {
     const look = G.look(), pace = G.pace();
     G.ladder = ladder(look, pace); G.plan = plan(G.probe, G.bench, G.slow, G.ladder);
     let start = G.plan.rung, top = G.plan.top;
-    if (tune && tune.key === G.probe.key && tune.ladder === look + "/" + pace && tune.rung != null) { start = clamp(tune.rung, 0, G.ladder.length - 1); top = clamp(tune.top, start, G.ladder.length - 1); }
+    if (tune && tune.key === G.probe.key && tune.ladder === look + "/" + pace && tune.sig === sig() && tune.rung != null) { start = clamp(tune.rung, 0, G.ladder.length - 1); top = clamp(tune.top, start, G.ladder.length - 1); }
     G.gov = new Governor(G.ladder, start, top, (r, why) => G.setTier(r, why));
     if (G.ladder.length === 1) G.gov.lock = true;
     G.setTier(start, null);
@@ -224,12 +226,10 @@ function game(o) {
     if (!(o.paused && o.paused())) {
       if (G.stopT > 0) G.stopT -= dt;
       else {
-        acc += dt;
-        const k = Math.round(acc / G.DT);
-        if (k >= 1 && Math.abs(acc - k * G.DT) < 0.0025) acc = k * G.DT;   // (a whole number of steps: take them all)
-        let n = 0;
-        while (acc >= G.DT - 1e-6 && n < 4) { o.update(G.DT); G.time += G.DT; G.steps++; acc -= G.DT; n++; }
-        if (n === 4) acc = 0;
+        // (Low3D's wholeSteps: real time on any screen, one step a frame on a 60 Hz one. This loop used to drop up to
+        // 2.5 ms a frame to land on a whole step, which ran a game fast or slow on a screen between 52 and 70 Hz.)
+        const S = L3.wholeSteps(acc, dt, G.DT, 4); acc = S[1];
+        for (let n = S[0]; n > 0; n--) { o.update(G.DT); G.time += G.DT; G.steps++; }
       }
     }
     if (G.trauma > 0) {

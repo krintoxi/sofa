@@ -234,6 +234,92 @@ console.log(JSON.stringify(out));
                                       "left press 0", "left 2"])
 
 
+class TheLoopAndWhatIsKept(unittest.TestCase):
+    """Two things found reading 1.1.64's engine, after it was merged: a game ran slow or fast on a screen that isn't
+    60 Hz, and a rung kept for a box under an older version's ladder was read back on the new one."""
+    GAMES = os.path.join(BOX, "games")
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_a_game_runs_at_real_time_on_any_screen(self):
+        """The loop's steps were rounded to the frame when a frame was within a fifth of a step of a whole number, and
+        what was left over was dropped: 83% of real time at 50 Hz, 120% at 72, 125% at 75. Time is carried now, never
+        dropped; a 60 Hz screen still gets one step every frame, however its clock wobbles."""
+        out = pads_in_node(self, r"""
+const L = window.Low3D, DT = 1 / 60;
+const run = (hz, frames, wobble) => { let acc = 0, n = 0, t = 0, odd = 0; for (let i = 0; i < frames; i++) { const dt = 1 / hz + (wobble ? (i & 1 ? wobble : -wobble) : 0); t += dt; const S = L.wholeSteps(acc, dt, DT, 6); acc = S[1]; n += S[0]; if (S[0] !== 1) odd++; } return [Math.round(n * DT / t * 1000) / 10, odd]; };
+out.speed = {}; for (const hz of [50, 59.94, 60, 72, 75, 90, 100, 120, 144]) out.speed[hz] = run(hz, 600)[0];
+out.steady = run(60, 600, 0.002)[1];                                  // 60 Hz, each frame 2 ms early or late: one step every frame
+out.pause = Array.from(L.wholeSteps(0, 0.25, DT, 6));                 // a long pause isn't caught up on
+out.carried = L.wholeSteps(0, 0.02, DT, 6)[1] > 0;                    // (50 Hz: a fifth of a step over, kept for the next frame)
+console.log(JSON.stringify(out));
+""", "pad.js", "low3d.js")
+        for hz, pct in out["speed"].items():
+            self.assertTrue(99.5 <= pct <= 100.5, "%s Hz: %s%% of real time" % (hz, pct))
+        self.assertEqual(out["steady"], 0)
+        self.assertEqual(out["pause"], [6, 0])
+        self.assertTrue(out["carried"])
+        with open(os.path.join(self.GAMES, "low3d.js"), encoding="utf-8") as f:
+            l3 = f.read()
+        with open(os.path.join(self.GAMES, "low2d.js"), encoding="utf-8") as f:
+            l2 = f.read()
+        self.assertIn("const S = wholeSteps(acc, dt, E.DT, 6); acc = S[1];", l3)   # the 3D engine's loop uses it,
+        self.assertNotIn("acc = 0.0005", l3)                              # (and no longer drops what's left over)
+        self.assertIn("const S = L3.wholeSteps(acc, dt, G.DT, 4); acc = S[1];", l2)   # and the 2D engine's
+        # the 2D engine's own loop, frame by frame, on screens of 50, 60, 65, 72 and 75 Hz: ten seconds is 600 steps
+        steps = pads_in_node(self, L2_JS + r"""(async () => {
+location.hash = "#tier=light&pace=60";
+for (const hz of [50, 60, 65, 72, 75]) {
+  let ups = 0; const G = L2.game({ id: "hz" + hz, canvas: canvas(), update() { ups++; }, draw() {} });
+  G.start(); await wait(40); frames(8, 1000 / hz); ups = 0; frames(hz * 10, 1000 / hz); out[hz] = ups;
+}
+console.log(JSON.stringify(out)); })().catch(e => { console.error(e); process.exit(1); });""", "pad.js", "low3d.js", "low2d.js")
+        for hz, n in steps.items():
+            self.assertTrue(598 <= n <= 602, "%s Hz: %s steps in ten seconds" % (hz, n))
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_a_rung_kept_on_another_ladder_is_not_used(self):
+        """What a game keeps for a box ("<id>:tune": the rung its governor settled on, and how high it may go) is a
+        number on the ladder as it was. 1.1.64 and 1.1.66 changed both ladders, so a box that had played before came
+        back on the wrong rung with the wrong top (a Pi 3 with rung 1, top 3 kept: 360 lines at 30, never over 270 at
+        60). What's kept says which ladder now, and is used on no other; the box's test result is still used."""
+        out = pads_in_node(self, r"""
+const store = {}; def("localStorage", { getItem: k => k in store ? store[k] : null, setItem: (k, v) => { store[k] = String(v); }, removeItem: k => { delete store[k]; } });
+def("ImageData", class { constructor(w, h) { this.data = new Uint8ClampedArray(w * h * 4); } });
+def("devicePixelRatio", 2); def("innerWidth", 960); def("innerHeight", 540);
+const gl = new Proxy({}, { get: (t, k) => typeof k === "string" && /^[A-Z][A-Z0-9_]+$/.test(k) ? 1 : () => 1 });   // (a GPU that says yes to everything)
+const cv = () => ({ classList: { toggle() {}, add() {}, remove() {} }, addEventListener() {}, style: {}, width: 0, height: 0,
+  getContext: kind => kind === "webgl" ? gl : { putImageData() {}, drawImage() {} } });
+document.createElement = () => cv();
+const view = { style: { setProperty() {} } }, L = window.Low3D;
+const pi3 = { key: "pi3|VC4|156|4|1", family: "pi3", cores: 4, webgl1: true, software: false, renderer: "VC4 V3D 2.1" }, bench = { cpu: 95, draws: 32, fill: 2, hz: 60, ms: 2000 };
+const open = (id, kind) => {                                         // a game opened on that box, as start() leaves it before the first frame
+  const E = L.game({ id, kind, view, gl: cv(), flat: cv(), update() {}, draw() {}, resized() {} });
+  E.probe = pi3; E.bench = bench; E.plan = kind === "ray" ? L.planRay(pi3, bench) : L.plan(pi3, bench); E.renderer(true);
+  return E;
+};
+const at = E => [E.mode, E.gov.rung, E.gov.top];
+out.fresh = [at(open("a", null)), at(open("b", "ray"))];              // nothing kept: where a Pi 3 starts
+// kept by 1.1.63 and before (main's ladders then: a Pi 3 on 3D rung 1 of at most 3; drawn by the processor, rung 2 of at most 3)
+store["tw:tune"] = JSON.stringify({ key: pi3.key, bench, mode: "gl", rung: 1, top: 3 });
+store["im:tune"] = JSON.stringify({ key: pi3.key, bench, mode: "ray", rung: 2, top: 3 });
+out.old = [at(open("tw", null)), at(open("im", "ray"))];
+// kept by this version, on these ladders: used
+const E = open("new", null); E.gov.set(3, "late 20%"); out.kept = JSON.parse(store["new:tune"]);
+out.again = at(open("new", null));
+out.sig = [L.ladderSig(L.LADDER.gl).split(" ").length, L.ladderSig(L.LADDER.ray).split(" ")[4]];
+console.log(JSON.stringify(out));
+""", "pad.js", "low3d.js")
+        self.assertEqual(out["fresh"], [["gl", 4, 5], ["ray", 4, 6]])
+        self.assertEqual(out["old"], out["fresh"])                        # an older version's rungs: not these ladders'
+        self.assertEqual((out["kept"]["rung"], out["kept"]["mode"]), (3, "gl"))
+        self.assertIn("360@60", out["kept"]["lad"])                       # what's kept says which ladder it's on
+        self.assertEqual(out["again"], ["gl", 3, 5])                      # and on that ladder it's used
+        self.assertEqual(out["sig"], [9, "135@60"])
+        with open(os.path.join(self.GAMES, "low2d.js"), encoding="utf-8") as f:
+            l2 = f.read()
+        self.assertIn('tune.ladder === look + "/" + pace && tune.sig === sig() && tune.rung != null', l2)   # the 2D engine's too
+
+
 class TheGamesCheck(unittest.TestCase):
     """The graphics check's games check (probe/): each game opened with #demo in a frame of its page and timed; a game
     says what it chose, and whether it's playing itself, in window.SofaStats (Low3D games get it from the engine)."""
