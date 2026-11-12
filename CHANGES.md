@@ -13,7 +13,8 @@ here, then `python3 tools/sofa-version.py` (a test checks it was done).
   channel with its number and one bar, and the channel in view up top with its logo. The grid of logo cards is gone.
   - The bar of eras is always there, with **Live now** as one of the eras, whether or not Classic Cinema and the
     decades are switched on.
-  - Every channel has a number. Sofa's own lineup keeps 2 to 99; a channel list's channels start at 101. Type a
+  - Every channel has a number. Sofa's own lineup keeps 2 to 99; a channel list's channels start at 101, by group
+    and name, and a number is the same channel for everyone (a profile that can't see a channel sees a gap). Type a
     number on Live TV and it tunes there; a Sofa Box's player shows the number in its banner.
   - On a TV the page no longer scrolls under the remote: the rows scroll and the channel in view stays in view.
     Right from a row is its star (OK makes it a favorite); **Flip** tunes to one at random.

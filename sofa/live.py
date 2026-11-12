@@ -354,6 +354,10 @@ def refresh(force=False):
                 kept["lists"].append(url)               # (the same stream in two lists: one channel, in both)
         _status[url] = {"name": name, "url": url, "count": len(found), "error": error, "adult": bool(pl.get("adult")),
                         "updated": int(os.path.getmtime(path)) if os.path.exists(path) else None}
+    # each channel's number on the dial: today's channels from 101, after Sofa's own lineup (2 to 99), by group and
+    # name, counted over every channel so a number is the same channel for everyone (an adult profile, a Visitor)
+    for n, c in enumerate(sorted(channels.values(), key=lambda c: (c["group"].lower(), c["name"].lower(), c["id"]))):
+        c["number"] = FIRST_NUMBER + n
     with _lock:
         _channels.clear()
         _channels.update(channels)
@@ -387,10 +391,9 @@ def listing(user_id, adult=False, public_only=False, direct_only=False, show_dow
                         and (not public_only or public.intersection(c.get("lists") or ()))),
                        key=lambda c: (c["group"].lower(), c["name"].lower()))
     out, gone, hide = [], 0, checking()
-    for n, c in enumerate(chans):
-        # its number on the dial: today's channels from 101, after Sofa's own lineup (2 to 99), in the list's order
+    for c in chans:
         row = {"id": c["id"], "name": c["name"], "logo": c["logo"], "group": c["group"], "adult": c.get("adult", False),
-               "playlist": c["playlist"], "fav": c["id"] in favs, "number": FIRST_NUMBER + n}
+               "playlist": c["playlist"], "fav": c["id"] in favs, "number": c.get("number")}
         if direct_only:
             src = direct_url(c)
             if not src or c.get("geo"):                  # (marked for its own country only: it wouldn't play out here)

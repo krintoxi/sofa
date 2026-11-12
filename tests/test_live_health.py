@@ -275,6 +275,28 @@ class ChannelsThatDontAnswer(unittest.TestCase):
         self.assertFalse(any("Gone" in (a.get("message") or "") for a in store.recent_activity(50)))
         self.assertFalse(os.path.exists(live.HEALTH + ".tmp"))
 
+    def test_a_number_is_the_same_channel_for_everyone(self):
+        """A channel's number on the dial doesn't depend on who looks: an adult channel between two others leaves a gap
+        for a profile that can't see it, not a shift."""
+        mine = live._channels
+        cid = "a" * 12
+        mine[cid] = {"id": cid, "name": "Gold", "group": "News", "url": Air.base + "/good/index.m3u8", "headers": {},
+                     "home": True, "adult": True, "playlist": "Tuner", "logo": None, "lists": [Air.base + "/list.m3u"]}
+        try:
+            for n, c in enumerate(sorted(mine.values(), key=lambda c: (c["group"].lower(), c["name"].lower(), c["id"]))):
+                c["number"] = live.FIRST_NUMBER + n
+            uid = store.q1("SELECT id FROM users WHERE name = 'air-viewer'")["id"]
+            plain = {c["name"]: c["number"] for c in live.listing(uid)["channels"]}
+            grown = {c["name"]: c["number"] for c in live.listing(uid, adult=True)["channels"]}
+            self.assertNotIn("Gold", plain)
+            self.assertEqual({k: grown[k] for k in plain}, plain)
+            self.assertEqual(len(set(grown.values())), len(grown))
+        finally:
+            mine.pop(cid, None)
+        live.refresh()                                                            # the lists read again: numbered afresh
+        self.assertEqual(sorted(c["number"] for c in live.listing(0)["channels"]),
+                         list(range(live.FIRST_NUMBER, live.FIRST_NUMBER + len(CHANNELS))))   # (as read: 101 on, no gaps)
+
     def test_a_tv_on_the_network_gets_only_the_ones_that_answer(self):
         self.names(self.viewer)
         live.CHECK_AGAIN = 0
