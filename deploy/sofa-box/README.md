@@ -172,9 +172,13 @@ if you've moved house), and after ten quiet minutes on it, it looks for your Wi-
 
 There's nothing to install from an app store: **the box serves the remote itself**.
 
-- **Connect a phone:** scan the QR code on the TV with the phone's camera (Settings → Remotes and
-  Bluetooth shows it any time). Scanning works at home or away. Typing the four numbers instead works
-  only on the home Wi-Fi, while the TV shows a plain `http://` address.
+- **Connect a phone:** scan the QR code on the TV with the phone's camera. **Menu** on Home shows it any time
+  (so does Settings → Remotes and Bluetooth), and a phone that opens the remote without being connected brings it up
+  on the TV by itself. Scanning works at home or away. Instead of scanning, type the **four numbers** under it (at
+  home) or the **eight letters** (anywhere).
+- **It stays connected:** each phone has its own link, which its page keeps in its address. A bookmark or a Home
+  Screen icon of the remote keeps that link, and it signs the phone in on whichever of the box's addresses opens it
+  (at home, the secure one, or from anywhere).
 - **Keep it like an app:**
   - **iPhone:** in Safari, tap **Share** (the square with the arrow), then **Add to Home Screen**.
     It gets the box's skull icon, and opens full screen like any app.
@@ -287,7 +291,9 @@ Pi 3. Videos open in mpv in a window if mpv is installed (on a Mac: `brew instal
 
 Everything starts here. **Home** comes back to it from anywhere: the remote's Home (on many TV
 remotes it's the Home or Menu button, sent over HDMI), a controller's Xbox/PS button, **F1** or the
-Windows key on a keyboard, or **Home** on the Sofa bar.
+Windows key on a keyboard, or **Home** on the Sofa bar. The box itself brings Home forward (since 1.1.81), so a site
+that keeps its keys, a dialog, the player or a game can't hold on to it: a video stops with its place kept, a game
+ends.
 
 - **Spotlight** (since 1.1.73): the picture behind Home is whatever the remote is on: what you were watching in
   Sofa, a game playing, an app's own icon on its colour. Its name and a line about it sit over the picture, with
@@ -312,7 +318,8 @@ Windows key on a keyboard, or **Home** on the Sofa bar.
 - **Watch:** Sofa, Live TV and your streaming apps, as big cards. **Plugged in:** USB drives and a disc,
   when there's one. **Continue watching** from the Sofa it opens with.
 - **Your apps:** everything else. OK opens one. **Menu** on an app moves it, hides it or removes it.
-- **Open now:** what's still open; OK goes back to it, ✕ closes it. What's playing music carries on. The rest
+- **Open now:** what's still open; OK goes back to it, **Menu** offers Back to it or Close it (a mouse has ✕). What's
+  playing music carries on, until a video starts: then it pauses, and the mini player has it. The rest
   close by themselves after half a minute out of sight on a Pi 3 (five minutes on a bigger box).
 - **Typing** anything on Home searches the web.
 
@@ -381,9 +388,11 @@ down what played: if you do, send a [hardware report](https://github.com/krintox
 
 ### The browser and the Sofa bar
 
-**Browser** on Home: type an address or a search. On any site, press **Menu** (or move the mouse to
-the top edge) for the Sofa bar: **Home**, **Back**, **Reload**, the address, **Add to Home** (the
-site becomes an app on Home) and **Close**. Downloads go to **Files → Downloads**.
+**Browser** on Home: type an address or a search, or pick from **Recent**, **Most visited** and a few to try, each
+with its site's own icon. The box remembers the browser's sites on the box only; **Clear recent sites** forgets them.
+On any site, press **Menu** (or move the mouse to the top edge) for the Sofa bar: **Home**, **Back**, **Reload**,
+**smaller** and **bigger**, the address, whether **Sofa Shield** is on, **Add to Home** (the site becomes an app on
+Home) and **Close**. Downloads go to **Files → Downloads**.
 
 <img src="../../docs/images/box-bar.jpg" alt="The Sofa bar over a page: Home, Back, Reload, the address, Add to Home, Close" width="70%">
 

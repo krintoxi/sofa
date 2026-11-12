@@ -651,6 +651,7 @@ class Player:
 
     def play(self, payload, cookie, base=None):
         asleep["on"] = False                                 # (something plays: the box is awake)
+        quiet_music()                                        # (music behind Home pauses: not both at once)
         self.stop(save=True, reason="replaced")
         self.payload, self.cookie, self.base = payload, cookie, base or server()
         self.sock_path = os.path.join(tempfile.gettempdir(), "sofa-mpv-%d.sock" % os.getpid())
@@ -1240,17 +1241,129 @@ class Player:
 
 player = Player()
 apps = boxos.Apps(CONF_DIR)
+
+
+class SiteHistory:
+    """The sites opened in the box's browser, for its start page: the ones from lately, and the most visited. Kept on
+    the box (browser-sites.json), never in a report; Clear on the Browser page forgets them."""
+    MOST, SAME_VISIT = 80, 1800
+
+    def __init__(self, path):
+        self.path, self.lock, self.sites, self.dirty = path, threading.Lock(), None, False
+
+    def _load(self):
+        if self.sites is None:
+            try:
+                with open(self.path, encoding="utf-8") as f:
+                    self.sites = json.load(f).get("sites") or {}
+            except (OSError, ValueError):
+                self.sites = {}
+        return self.sites
+
+    @staticmethod
+    def host(url):
+        parts = urllib.parse.urlsplit(str(url or ""))
+        if parts.scheme not in ("http", "https") or not parts.hostname:
+            return None
+        h = parts.hostname.lower()
+        if h in ("localhost", "127.0.0.1") or h.endswith(".localhost"):     # (the box's own pages, Sofa's tabs)
+            return None
+        return h[4:] if h.startswith("www.") else h
+
+    def visit(self, url, title="", icon="", now=None):
+        h, now = self.host(url), now or time.time()
+        if not h:
+            return False
+        with self.lock:
+            sites = self._load()
+            s = sites.setdefault(h, {"n": 0, "last": 0})
+            if now - s["last"] > self.SAME_VISIT:              # (one visit, however many pages of the site)
+                s["n"] += 1
+            s.update(url=urllib.parse.urlsplit(url)._replace(fragment="").geturl()[:500], title=str(title or "").strip()[:80] or h, last=now)
+            if icon and str(icon).startswith(("https://", "http://")):
+                s["icon"] = str(icon)[:500]
+            for gone in sorted(sites, key=lambda k: sites[k]["last"])[:max(0, len(sites) - self.MOST)]:
+                del sites[gone]
+            self.dirty = True
+        threading.Timer(5, self.save).start()                   # (one write for a burst of pages: the card is spared)
+        return True
+
+    def save(self):
+        with self.lock:
+            if not self.dirty:
+                return
+            self.dirty = False
+            tmp = self.path + ".tmp"
+            try:
+                os.makedirs(os.path.dirname(self.path), exist_ok=True)
+                with open(tmp, "w", encoding="utf-8") as f:
+                    json.dump({"sites": self.sites or {}}, f)
+                os.replace(tmp, self.path)
+            except OSError:                                     # (a full card: kept in memory, written next time)
+                self.dirty = True
+
+    def forget(self):
+        with self.lock:
+            self.sites, self.dirty = {}, True
+        self.save()
+
+    def lists(self):
+        with self.lock:
+            sites = dict(self._load())
+        out = lambda h: dict(sites[h], host=h, id="site-" + boxos.slug(h))    # noqa: E731
+        recent = [out(h) for h in sorted(sites, key=lambda k: -sites[k]["last"])[:10]]
+        top = [out(h) for h in sorted(sites, key=lambda k: (-sites[k]["n"], -sites[k]["last"])) if sites[h]["n"] >= 2][:10]
+        return recent, top
+
+
+history = SiteHistory(os.path.join(CONF_DIR, "browser-sites.json"))
+# The Browser page's picks, the first time and beside your own: no app already on Home twice (1.1.73 had YouTube twice)
+BROWSER_PICKS = [("DuckDuckGo", "https://duckduckgo.com/", "#DE5833"), ("Wikipedia", "https://www.wikipedia.org/", "#BBBBBB"),
+                 ("YouTube", "https://www.youtube.com/", "#FF3B30"), ("Reddit", "https://www.reddit.com/", "#FF4500"),
+                 ("Google News", "https://news.google.com/", "#4285F4"), ("Windy", "https://www.windy.com/", "#9D4EDD")]
+
+
+def site_icon(entry):
+    """A site's own icon, fetched once and kept (the Store's way): its address for the page, or None for now."""
+    name = boxos.store_icons.file(entry["id"])
+    if not name:
+        if os.environ.get("SOFA_BOX_ICONS") != "0":
+            boxos.store_icons.want([{"id": entry["id"], "url": entry["url"], "icon": entry.get("icon")}])
+        return None
+    try:
+        v = int(os.path.getmtime(os.path.join(boxos.store_icons.folder, name)))
+    except OSError:
+        v = 0
+    return "/box/store-icons/%s?v=%d" % (name, v)
+
+
+def browser_start():
+    """The Browser page: your sites from lately and the most visited, picks, and whether Sofa Shield is on."""
+    recent, top = history.lists()
+    on_home = {SiteHistory.host(a.get("url")) for a in apps.listing() if a.get("kind") == "web"}
+    seen = {s["host"] for s in recent + top} | on_home
+    picks = [{"id": "site-" + boxos.slug(SiteHistory.host(u)), "title": t, "url": u, "host": SiteHistory.host(u), "color": c}
+             for t, u, c in BROWSER_PICKS if SiteHistory.host(u) not in seen]
+    for s in recent + top + picks:
+        s["icon_url"] = site_icon(s)
+        s.pop("icon", None)
+    return {"recent": recent, "top": top, "picks": picks, "shield": bool(settings().get("shield", True))}
 boxos.store_icons.folder = os.path.join(CONF_DIR, "store-icons")
 
 
 def page_message(msg, target, tab):
     """What a page's Sofa bar asks (through the browser): Home, Close, Add to Home."""
     a = msg.get("a")
-    if a == "home":
-        browser.home()
+    if a == "visit":                                       # a page opened in the browser: its start page remembers it
+        if tab.get("app") == "browser":
+            history.visit(msg.get("url"), msg.get("title"), msg.get("icon"))
+    elif a == "video":                                     # a page started a video you can hear: the music pauses
+        quiet_music(target)
+    elif a == "home":
+        go_home()
     elif a == "close" and target:
         browser.close(target)
-        browser.home()
+        go_home()
     elif a == "add" and msg.get("url"):
         try:
             entry = boxos.site_entry(msg["url"], msg.get("title"))
@@ -1355,6 +1468,8 @@ H264_ONLY = r"""(() => {
 })();"""
 if browser and slow_board():
     browser.page_script = H264_ONLY
+if browser:
+    browser.bar_vars = lambda: {"shield": bool(settings().get("shield", True))}
 
 
 # ---------------------------------------------------------------- asleep (the phone remote's power button)
@@ -1665,13 +1780,74 @@ def watch_power():
         time.sleep(60 if settings()["welcomed"] else 15)    # (at the setup, sooner: its screens say so, see setup_state)
 
 
+music_paused = []                    # [(time, app)]: music paused for a video (the report says so)
+
+
+def quiet_music(but=None):
+    """A video starts (the box's player, or a page's): the music behind it pauses (Browser.quiet_music). In the
+    background, so the video never waits for it; the thread, for the tests."""
+    if not (browser and browser.connected()):
+        return None
+
+    def run():
+        try:
+            app = browser.quiet_music(but)
+        except Exception:                                    # (the browser restarting: nothing to pause)
+            app = None
+        if app:
+            music_paused.append((time.time(), app))
+            del music_paused[:-10]
+    t = threading.Thread(target=run, daemon=True, name="quiet-music")
+    t.start()
+    return t
+
+
+def show_phone_code(relayed=False):
+    """The phone remote's way in, on the TV by itself: a phone without a sign-in is waiting (PhoneRemote.wanted), or
+    Menu on Home asked. Over a video, a line on the player screen (the code to type: no picture there); otherwise Home
+    comes forward with the code to scan and the codes to type, until the phone is in or it's put away."""
+    st = phone.status()
+    if playing():
+        player.osd(toast="Phone remote: type %s on your phone%s" % (
+            st["word"], "" if relayed or not st.get("home_url") else (", or %s at %s" % (st["code"], st["home_url"].replace("http://", "")))))
+        return "player"
+    if browser and browser.connected():
+        t = browser.tab_of("home")
+        if t:
+            browser.home()
+            browser.evaluate(t, "window.sofaPhoneWaiting && sofaPhoneWaiting()")
+            return "home"
+    return None
+
+
+def phone_paired(name):
+    """A phone has its sign-in: the TV's code sheet goes (Home says who's in)."""
+    if browser and browser.connected():
+        t = browser.tab_of("home")
+        if t:
+            try:
+                browser.evaluate(t, "window.sofaPhonePaired && sofaPhonePaired(%s)" % json.dumps(name))
+            except OSError:
+                pass
+
+
 def go_home():
-    """The Home key, from anywhere: the box's home screen in front (a game that's open ends; asleep, it wakes)."""
+    """The Home key, from anywhere: the box's home screen in front, at its first page with nothing open over it. A video
+    stops (its place kept), a game that's open ends, asleep it wakes. The TV's remote, a controller, the phone and a
+    page's Sofa bar all come here, so Home works whatever is in front: a site that keeps its keys, a page with a
+    dialog open, the player, a game."""
     if box_wake():
         return True
+    player.stop(save=True, reason="back")
     if games.playing:
         games.stop("home")
     if browser and browser.connected():
+        t = browser.tab_of("home")
+        if t:
+            try:
+                browser.evaluate(t, "window.sofaHomeKey && sofaHomeKey()")
+            except OSError:
+                pass
         return browser.home()
     go("#/")
     return False
@@ -2130,9 +2306,11 @@ _continue = {"at": 0, "key": None, "value": None}
 
 def sofa_continue():
     """What you were watching in the Sofa the box opens with, for Home (asked with that Sofa's own sign-in
-    on the box, read from the browser)."""
+    on the box, read from the browser). With "Ask each time" (or none picked yet), the Sofa last opened: back on Home
+    from Sofa, Home shows what you were just watching (1.1.73 said "Open it to pick where it plays from")."""
     st = servers.state()
-    entry = servers.get(st["default"]) if st["default"] and not st["ask"] else None
+    sid = st["default"] if st["default"] and not st["ask"] else st.get("last")
+    entry = servers.get(sid) if sid else None
     if not entry or entry["kind"] != "sofa":
         return {"found": False, "servers": len(st["servers"])}
     if _continue["key"] == entry["id"] and steady() - _continue["at"] < 20:
@@ -3478,7 +3656,15 @@ def local_mac(dev):
 class PhoneRemote:
     """The phone remote: a page on the home network (http://<box>:8092) that works the box like its remote,
     a keyboard and a touchpad. A phone gets in with the code on the TV (in the QR code there), and keeps a
-    sign-in of its own."""
+    sign-in of its own.
+
+    The same remote has three addresses (the home network's, the secure one at home, the relay from anywhere), and a
+    sign-in (a cookie) belongs to one of them; an iPhone's Home Screen icon keeps cookies of its own too. So each phone
+    also has its own link (`?k=` and its key): its page carries it, a bookmark or a Home Screen icon keeps it, and it
+    signs the phone in on whichever address opens it. A phone without a sign-in is never left at a code it can't see:
+    the TV shows the way in by itself (show_phone_code), and the eight-letter code works from anywhere (four numbers
+    could be guessed at from the internet; eight letters can't, with typing resting after ten wrong ones)."""
+    WORD = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"                # (no 0/O, 1/I/L: read off a TV across a room)
     PORT = int(os.environ.get("SOFA_BOX_REMOTE_PORT", "8092"))
     KEYS = {"up": "KEY_UP", "down": "KEY_DOWN", "left": "KEY_LEFT", "right": "KEY_RIGHT", "ok": "KEY_ENTER", "back": "KEY_ESC",
             "menu": "KEY_F2", "play": "KEY_PLAYPAUSE", "rewind": "KEY_REWIND", "forward": "KEY_FASTFORWARD",
@@ -3493,11 +3679,17 @@ class PhoneRemote:
         self.code, self.kb, self.mouse, self.tried = self._new_code(), None, None, False
         self.at, self.parked, self.used, self.parker = [1.0, 1.0], True, 0.0, None     # the touchpad's pointer
         self.link = os.urandom(12).hex()                   # the QR code's: long enough for the internet (the relay)
-        self.misses = []                                   # when wrong four-digit codes were typed (MISSES)
+        self.word = self._new_word()                       # eight letters to type, from anywhere (the relay too)
+        self.misses, self.misses_away = [], []             # when wrong codes were typed, at home and through the relay
+        self.asked_at = 0                                  # when a phone without a sign-in last brought the TV's code up
 
     @staticmethod
     def _new_code():
         return "%04d" % (int.from_bytes(os.urandom(2), "big") % 10000)
+
+    @classmethod
+    def _new_word(cls):
+        return "".join(cls.WORD[b % len(cls.WORD)] for b in os.urandom(8))
 
     def _load(self):
         """The phones with a sign-in. Kept in memory while the file is unchanged: every press checks it, and reading it
@@ -3535,7 +3727,7 @@ class PhoneRemote:
     def status(self):
         u = self.url()
         return {"url": u, "pair_url": u + "/r/" + self.link if u else None,      # (the long link: it works while typing rests)
-                "home_url": self.home_url(u), "code": self.code, "phones": len(self._load()),
+                "home_url": self.home_url(u), "code": self.code, "word": self.word[:4] + "-" + self.word[4:], "phones": len(self._load()),
                 "home_at": getattr(self, "home_at", 0),     # a remote last open on the home network
                 "hotspot": network.hotspot, "wired": network.wired(), "problem": None if u else network.problem}
 
@@ -3543,42 +3735,68 @@ class PhoneRemote:
 
     def pair(self, code, name, on_own_wifi=False, relayed=False):
         """A phone with the code on the TV (each code works once); or one on the box's own Wi-Fi, whose password is on
-        the TV too (its sign-in sheet pairs it, see Captive). Through the relay (from anywhere), only the QR code's
-        long link: four digits could be guessed at from the internet. At home too, they could be worked through (10,000
-        of them, a minute's work for a laptop on the Wi-Fi): after MISSES wrong ones in MISS_WINDOW, typed codes stop
-        working for a while and the code changes; the QR code (its long link) works all along."""
+        the TV too (its sign-in sheet pairs it, see Captive). The four numbers only at home: from the internet (the
+        relay) they could be guessed at, so there the QR code's long link or the eight letters. Either could be worked
+        through by something trying them all: after MISSES wrong ones in MISS_WINDOW, typing rests for a while (at home
+        and through the relay apart: the internet can't stop typing at home) and the codes change; the QR code (its
+        long link) works all along."""
         handoff = getattr(self, "handoff_link", None)
         link = str(code) == self.link or (bool(handoff) and str(code) == handoff)
         if not on_own_wifi and not link:
-            if not code or relayed:
-                return None
+            misses = self.misses_away if relayed else self.misses
             now = steady()
-            self.misses = [t for t in self.misses if now - t < self.MISS_WINDOW]
-            if len(self.misses) >= self.MISSES:
-                return None                                # being guessed at: typing rests
-            if str(code) != self.code:
-                self.misses.append(now)
-                if len(self.misses) >= self.MISSES:
-                    self.code = self._new_code()           # (whatever was learnt from the guesses is no use)
-                    print("Phone remote: %d wrong codes typed; typing rests for %d minutes" % (self.MISSES, self.MISS_WINDOW // 60),
-                          file=sys.stderr, flush=True)
+            misses[:] = [t for t in misses if now - t < self.MISS_WINDOW]
+            if not code or len(misses) >= self.MISSES:
+                return None                                # (nothing typed, or typing resting)
+            typed = re.sub(r"[\s-]", "", str(code)).upper()
+            if typed != self.word and (relayed or str(code) != self.code):
+                misses.append(now)
+                if len(misses) >= self.MISSES:
+                    self.code, self.word = self._new_code(), self._new_word()   # (whatever was learnt is no use)
+                    print("Phone remote: %d wrong codes typed%s; typing rests for %d minutes" % (
+                        self.MISSES, " through the relay" if relayed else "", self.MISS_WINDOW // 60), file=sys.stderr, flush=True)
                 return None
         token = os.urandom(24).hex()
         phones = self._load()
-        phones[token] = {"name": str(name or "Phone")[:40], "at": int(time.time())}
+        phones[token] = {"name": str(name or "Phone")[:40], "at": int(time.time()), "key": os.urandom(24).hex()}
         write_durably(self.path, json.dumps(phones), 0o600)
         if not on_own_wifi and handoff and str(code) == handoff:
             self.handoff_link = None                       # the setup's phone carried on: its own link, used once
             network.pending_link = None
             network.keep_joined()
         elif not on_own_wifi:
-            self.code, self.link = self._new_code(), os.urandom(12).hex()   # each code works once
+            self.code, self.word, self.link = self._new_code(), self._new_word(), os.urandom(12).hex()   # each works once
         toast("%s is a remote now." % phones[token]["name"])
+        phone_paired(phones[token]["name"])
         return token
 
-    def resting(self):
+    def key_for(self, token):
+        """The phone's own link's key (made for a phone from before there were keys)."""
+        phones = self._load()
+        if token not in phones:
+            return None
+        if not phones[token].get("key"):
+            phones[token]["key"] = os.urandom(24).hex()
+            write_durably(self.path, json.dumps(phones), 0o600)
+        return phones[token]["key"]
+
+    def by_key(self, key):
+        """The sign-in its own link opens (on any of the remote's addresses), or None."""
+        if not re.match(r"^[0-9a-f]{48}$", str(key or "")):
+            return None
+        return next((t for t, p in self._load().items() if p.get("key") == key), None)
+
+    def wanted(self, relayed=False):
+        """A phone without a sign-in opened the remote: the TV shows the way in (at most once a minute)."""
+        if steady() - self.asked_at < 60:
+            return False
+        self.asked_at = steady()
+        threading.Thread(target=show_phone_code, args=(relayed,), daemon=True, name="phone-code").start()
+        return True
+
+    def resting(self, relayed=False):
         """Typed codes resting after too many wrong ones (pair)."""
-        return len([t for t in self.misses if steady() - t < self.MISS_WINDOW]) >= self.MISSES
+        return len([t for t in (self.misses_away if relayed else self.misses) if steady() - t < self.MISS_WINDOW]) >= self.MISSES
 
     def valid(self, token):
         return bool(token) and token in self._load()
@@ -4024,6 +4242,8 @@ def report_text():
            "mpv said: " + " | ".join(getattr(player.proc, "sofa_err", None) or ["(nothing)"]),
            "player stopped by itself: " + json.dumps(player.failures or "never, since the box started"),
            "videos played (newest last): " + (" | ".join(Player.ran_line(r) for r in list(player.ran)) or "none since the box started"),
+           "music paused for a video: " + ("; ".join("%s %s" % (time.strftime("%H:%M:%S", time.gmtime(t)), app) for t, app in music_paused)
+                                           or "none since the box started"),
            "Bluetooth pairings asked: " + json.dumps(pairing_helper.said or "none since the box started")]
     out.append("the TV's screen started again by hand: " + ("; ".join(rescues()) or "never"))
     if browser:
@@ -4402,7 +4622,7 @@ class Handler(BaseHTTPRequestHandler):
                            "/box/api/info", "/box/api/settings", "/box/api/thisbox/internet", "/box/api/weather",
                            "/box/api/weather/places", "/box/api/apps", "/box/api/sofa", "/box/api/sofa/continue",
                            "/box/api/setup", "/box/api/timezone", "/box/api/devices", "/box/api/store", "/box/api/files",
-                           "/box/api/files/list", "/box/api/games", "/box/api/shield"))
+                           "/box/api/files/list", "/box/api/games", "/box/api/shield", "/box/api/browser"))
     READ_ONLY_UNDER = ("/box/home", "/box/icons/", "/box/store-icons/", "/box/games/", "/box/fonts/")
 
     @classmethod
@@ -4425,6 +4645,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.box(path, urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query), entry)
         if entry:
             return self.proxy(entry)
+        if path == "/favicon.ico":       # (the browser asks the box's own pages for one; Sofa has none: its 404 was in the report)
+            return self.send(b"", "image/x-icon", status=204, headers={"Cache-Control": "max-age=86400"})
         if not server() or "choose=1" in self.path:
             if "choose=1" in self.path:
                 with _lock:
@@ -4768,6 +4990,11 @@ class Handler(BaseHTTPRequestHandler):
                 kind = next(p["kind"] for p in games.pads if p["name"] == name)
                 toast("%s connected: ready for games." % ("Your %s controller" % PAD_KINDS[kind] if kind != "generic" else name or "A controller"))
             return self.send('{"ok":true}')
+        if path == "/box/api/browser":                     # the Browser page's start
+            return self.send(json.dumps(browser_start()))
+        if path == "/box/api/browser/forget":
+            history.forget()
+            return self.send(json.dumps({"ok": True}))
         if path == "/box/api/shield":
             if self.command == "POST":
                 on = bool(data.get("on"))
@@ -4902,6 +5129,8 @@ class RemoteHandler(BaseHTTPRequestHandler):
         relayed = self.headers.get("X-Sofa-Relay") == "1" and self.client_address[0] in ("127.0.0.1", "::1")   # (Relay below)
         m = re.match(r"^/r/(\d{4}|[0-9a-f]{24})$", path)
         if m:                                               # the QR code on the TV
+            if phone.valid(self.token()):                   # (signed in already: the remote, and the TV's code kept for another)
+                return self.send("", status=302, headers={"Location": "/"})
             token = phone.pair(m.group(1), (self.headers.get("User-Agent") or "").split("(")[-1].split(";")[0].strip() or "Phone",
                                relayed=relayed)
             return self.send("", status=302, headers=dict({"Location": "/" if token else "/?again=1"},
@@ -4914,14 +5143,21 @@ class RemoteHandler(BaseHTTPRequestHandler):
             return self.send("", status=302, headers={"Location": "/?sheet=1", "Set-Cookie": self.cookie(token)})
         if path in ("/", "/index.html"):
             with open(os.path.join(HERE, "remote.html"), encoding="utf-8") as f:
-                return self.send(f.read(), "text/html; charset=utf-8")
+                page = f.read()
+            # the phone's own link (?k=): its sign-in on this address too, if it hasn't one here yet
+            key = (urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).get("k") or [""])[0]
+            token = phone.by_key(key) if key and not phone.valid(self.token()) else None
+            return self.send(page, "text/html; charset=utf-8", headers=dict({"Referrer-Policy": "no-referrer"},
+                                                                            **({"Set-Cookie": self.cookie(token)} if token else {})))
         if path in ("/icon.png", "/icon-512.png"):          # the remote's Home Screen icon
             buf = __import__("io").BytesIO()
             module("sofa-box-art").app_icon(settings(), 512 if "512" in path else 180).save(buf, "PNG")
             return self.send(buf.getvalue(), "image/png", headers={"Cache-Control": "max-age=86400"})
         if path == "/manifest.json":                         # Android: "Add to Home screen" as an app
             name = settings().get("boot_text") or "Sofa Box"
-            return self.send(json.dumps({"name": name + " remote", "short_name": "Sofa Box", "start_url": "./", "display": "standalone",
+            key = phone.key_for(self.token()) if phone.valid(self.token()) else None    # (the icon opens with its own sign-in)
+            return self.send(json.dumps({"name": name + " remote", "short_name": "Sofa Box", "start_url": "./?k=" + key if key else "./",
+                                         "display": "standalone",
                                          "background_color": "#0D0D10", "theme_color": "#0D0D10",       # (relative: the relay too)
                                          "icons": [{"src": "icon.png", "sizes": "180x180", "type": "image/png"},
                                                    {"src": "icon-512.png", "sizes": "512x512", "type": "image/png"}]}),
@@ -4930,16 +5166,20 @@ class RemoteHandler(BaseHTTPRequestHandler):
             return self.send('{"error":"missing X-Sofa-Remote"}', status=400)
         data = json.loads(self.body() or b"{}") if self.command == "POST" else {}
         if path == "/api/pair":
-            if relayed:
-                return self.send('{"error":"Away from home, scan the code on the TV: typing it works at home only."}', status=403)
-            token = phone.pair(str(data.get("code") or "").strip(), data.get("name"))
+            token = phone.pair(str(data.get("code") or "").strip(), data.get("name"), relayed=relayed)
             if not token:
+                resting = phone.resting(relayed)
                 return self.send(json.dumps({"error": "Too many wrong codes were typed. Scan the code on the TV instead (typing "
-                                                      "works again in a few minutes)." if phone.resting() else
-                                             "That code isn't the one on the TV."}), status=429 if phone.resting() else 403)
+                                                      "works again in a few minutes)." if resting else
+                                             "Away from home, type the eight letters on the TV (the four numbers work at home)."
+                                             if relayed and re.match(r"^\d{4}$", str(data.get("code") or "").strip()) else
+                                             "That code isn't the one on the TV."}), status=429 if resting else 403)
             return self.send('{"ok":true}', headers={"Set-Cookie": self.cookie(token)})
         if not phone.valid(self.token()):
-            return self.send(json.dumps({"paired": False, "name": settings().get("boot_text") or "Sofa Box"}), status=401)
+            if path == "/api/state":                       # waiting, with no way in: the TV shows it by itself
+                phone.wanted(relayed)
+            return self.send(json.dumps({"paired": False, "name": settings().get("boot_text") or "Sofa Box",
+                                         "typing": "word" if relayed else "code"}), status=401)
         try:
             if path == "/api/state":
                 if on_own_wifi(self.client_address[0]):     # the setup's TV: the remote is open on a phone
@@ -4949,6 +5189,7 @@ class RemoteHandler(BaseHTTPRequestHandler):
                 p = player.status
                 m = now_playing()
                 return self.send(json.dumps({"paired": True, "name": settings().get("boot_text") or "Sofa Box",
+                                             "key": phone.key_for(self.token()),        # (its own link: ?k=, see PhoneRemote)
                                              "music": m and {k: m.get(k) for k in ("title", "artist", "name", "playing", "can", "front")},
                                              "playing": {k: p.get(k) for k in ("title", "sub", "t", "d", "paused")} if p else None,
                                              "front": browser.front_app() if browser and browser.connected() else None,

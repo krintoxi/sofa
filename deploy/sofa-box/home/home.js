@@ -45,7 +45,7 @@
   function tick() {
     const d = new Date(), [hm, ap] = clockParts(d), clock = esc(hm) + (ap ? "<small>" + ap + "</small>" : "");
     put($("#sClock"), hm + ap, clock);
-    put($("#clock"), d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
+    put($("#clock"), hm + ap, clock);                // (one way of writing the time on every page: "5:49 AM")
     put($("#sptClock"), hm + ap, clock);
     const big = $("#mClock");
     if (!big) return;
@@ -341,6 +341,26 @@
                       live: "Free channels, Classic Cinema and the decades, on the clock.", sofa: "Your shows and films." };
   const backW = () => data.slow ? 960 : 1600;
   const sptRow = (id, title, inner, cls) => `<section class="spt-row" data-row="${id}"><h2 class="row-title">${title}</h2><div class="rail spt-track${cls ? " " + cls : ""}">${inner}</div></section>`;
+  // An open app's name: an app on the box goes by its own (Sofa's tab is titled by its address until its page names
+  // itself: 1.1.73 showed "sofa-2eebdd.lo…"); a site in the browser by its title, or its address's name.
+  function runName(r, a) {
+    if (a && a.id !== "browser" && data.apps.some(x => x.id === a.id)) return a.name;
+    const t = String(r.title || "").trim(), url = String(r.url || "");
+    if (t && !url.replace(/^\w+:\/\//, "").startsWith(t.replace(/\/$/, "")) && !/^\w+:\/\//.test(t)) return t;
+    try { return new URL(url).hostname.replace(/^www\./, "") || t || r.app; } catch (e) { return t || r.app || "App"; }
+  }
+  // Menu on an app in Open now: back to it, or close it (the remote's way to the X a mouse has)
+  function openNowMenu(target) {
+    const r = (data.running || []).find(x => x.target === target);
+    if (!r) return;
+    const a = data.apps.find(x => x.id === r.app) || { id: r.app, name: r.title || r.app }, name = runName(r, a);
+    sheet(`<h3>${esc(name)}</h3><button class="btn primary" data-sheet="front">Back to it</button>
+      <button class="btn danger" data-sheet="quit">Close it</button><button class="btn" data-sheet="close">Cancel</button>`, async act => {
+      closeSheet();
+      if (act === "front") await api("/box/api/front", { target }).catch(() => open({ id: r.app || "browser" }));
+      else if (act === "quit") { await api("/box/api/close", { target }).catch(() => {}); toast(name + " is closed."); await loadApps(); render(true); }
+    });
+  }
   function sptApp(a, extra) {
     const running = (data.running || []).some(r => r.app === a.id);
     return `<button class="tile app spt-app${a.kind === "builtin" ? " own" : ""}" style="--c:${esc(a.color || "")}" ${extra || `data-app="${esc(a.id)}"`}>
@@ -356,7 +376,7 @@
       items.map(it => sptArt(`data-sofa-hash="${esc(it.play || it.hash)}" data-cw="${esc(it.id)}"`, artSrc(it.art, 480), it.title, it.pct)).join("")));
     if (running.length) rows.push(sptRow("open", "Open now <small>what's playing carries on; the rest close by themselves after a moment</small>", running.map(r => {
       const a = data.apps.find(x => x.id === r.app) || { id: r.app, name: r.title || r.app, color: "var(--a)" };
-      return sptApp(Object.assign({}, a, { name: r.title || a.name }), `data-target="${esc(r.target)}"`).replace("</button>", `<span class="x" data-close="${esc(r.target)}" title="Close">${icon("#i-close")}</span></button>`);
+      return sptApp(Object.assign({}, a, { name: runName(r, a) }), `data-target="${esc(r.target)}"`).replace("</button>", `<span class="x" data-close="${esc(r.target)}" title="Close">${icon("#i-close")}</span></button>`);
     }).join("")));
     const plugged = inputsRow();
     if (plugged) rows.push(`<section class="spt-row" data-row="plugged">${plugged}</section>`);
@@ -392,7 +412,7 @@
     const run = d.target ? (data.running || []).find(r => r.target === d.target) : null;
     const id = d.app || (run && run.app);
     if (!id) return null;
-    const a = data.apps.find(x => x.id === id) || { id, name: (run && run.title) || id };
+    const a = data.apps.find(x => x.id === id) || { id, name: run ? runName(run, null) : id };
     const now = data.now && !data.now.front && data.now.app === id ? data.now : null;
     if (id === "sofa") {
       const it = items[0];
@@ -481,7 +501,7 @@
       ${running.length ? `<h2 class="row-title">Open now <small>what's playing carries on; the rest close by themselves after a moment</small></h2><div class="rail open-now">${running.map(r => {
           const a = data.apps.find(x => x.id === r.app) || { id: r.app, name: r.title || r.app, color: "var(--a)" };
           return `<button class="tile app" style="--c:${esc(a.color || "")}" data-target="${esc(r.target)}"><span class="ic${icCls(a)}">${appIcon(a)}</span>
-            <b>${esc(r.title || a.name)}</b><small>${esc(a.name || "")}</small><span class="x" data-close="${esc(r.target)}" title="Close">${icon("#i-close")}</span></button>`; }).join("")}</div>` : ""}
+            <b>${esc(runName(r, a))}</b><small>${esc(a.name || "")}</small><span class="x" data-close="${esc(r.target)}" title="Close">${icon("#i-close")}</span></button>`; }).join("")}</div>` : ""}
       <h2 class="row-title">Your apps <small>${rest.length}</small></h2><div class="rail">${rest.map(a => appTile(a)).join("")}
         <button class="tile app" data-go="#/store"><span class="ic plus">${icon("#i-plus")}</span><b>Get more</b></button></div>
       ${games && games.games.length ? `<h2 class="row-title">Games</h2><div class="rail">${(games.native || []).filter(g => g.installed).map(g => `<button class="tile app" style="--c:${esc(g.color)}" data-play="${esc(g.id)}"><span class="ic emoji">${gameIc(g)}</span><b>${esc(g.name)}</b></button>`).join("")}${games.games.map(g => `<button class="tile app" style="--c:${esc(g.color)}" data-game="${esc(g.id)}"><span class="ic emoji">${esc(g.emoji || g.name[0])}</span><b>${esc(g.name)}</b></button>`).join("")}
@@ -742,16 +762,36 @@
     if (await loadGames()) render(true);
   }, 3000);
 
+  // The Browser's start, as a TV's browser has it: search or an address, the sites from lately and the most visited
+  // (the box remembers the browser's own; Clear forgets them), picks, the sites on Home, each with its own icon in the
+  // style picked. On a site, Menu opens the Sofa bar: Home, Back, Reload, smaller and bigger, the address, Add to Home.
+  let browserStart = null, browserAt = 0;
+  function loadBrowserStart() {
+    browserAt = mono();
+    api("/box/api/browser").then(b => { browserStart = b; if (location.hash.startsWith("#/browser")) render(true); }).catch(() => {});
+  }
+  const SITE_COLOURS = ["#FF2E88", "#2BB673", "#4C8DFF", "#9D4EDD", "#FF8A3D", "#00A7B5", "#E5484D"];
+  const siteColour = host => SITE_COLOURS[[...String(host)].reduce((n, c) => (n * 31 + c.charCodeAt(0)) >>> 0, 7) % SITE_COLOURS.length];
+  function siteTile(s) {
+    const a = { id: s.id, name: s.title, icon_url: s.icon_url, color: s.color || siteColour(s.host) };
+    return `<button class="tile app site" style="--c:${esc(a.color)}" data-url="${esc(s.url)}"><span class="ic${icCls(a)}">${appIcon(a)}</span><b>${esc(s.title)}</b><small>${esc(s.host)}</small></button>`;
+  }
   function viewBrowser() {
-    const web = data.apps.filter(a => a.kind === "web" && !a.hidden).slice(0, 10);
-    const quick = [["DuckDuckGo", "https://duckduckgo.com", "#DE5833"], ["Wikipedia", "https://en.wikipedia.org", "#BBBBBB"],
-                   ["YouTube", "https://www.youtube.com", "#FF3B30"], ["Reddit", "https://www.reddit.com", "#FF4500"]];
-    return `<div class="browser-start view-in"><h1 class="page">Browser</h1>
-      <input class="field big" id="address" aria-label="Search, or type an address" placeholder="Search, or type an address" spellcheck="false" autocomplete="off">
-      <div class="grid">${quick.map(q => `<button class="tile" style="--c:${q[2]}" data-url="${esc(q[1])}"><span class="ic">${esc(q[0][0])}</span><b>${esc(q[0])}</b></button>`).join("")}
-        ${web.map(a => appTile(a)).join("")}</div>
-      <div class="hint-card">On any site, press <b>Menu</b> (or move the mouse to the top) for the Sofa bar: <b>Home</b>, <b>Back</b>,
-        the address, and <b>Add to Home</b> to make the site an app. Sofa Shield keeps known ad and tracker sites out.</div></div>`;
+    if (!browserStart || mono() - browserAt > 20000) loadBrowserStart();
+    const b = browserStart || { recent: [], top: [], picks: [], shield: true };
+    const web = data.apps.filter(a => a.kind === "web" && !a.hidden).slice(0, 12);
+    const row = (title, sites, small) => sites.length ? `<h2 class="row-title">${title}${small ? ` <small>${small}</small>` : ""}</h2><div class="rail">${sites.map(siteTile).join("")}</div>` : "";
+    const recentHosts = new Set(b.recent.map(x => x.host));
+    return `<div class="browser-start view-in">
+      <div class="bs-top"><h1 class="page">Browser</h1><span class="bs-shield${b.shield ? "" : " off"}">${icon("#i-shield")}<b>Sofa Shield ${b.shield ? "on" : "off"}</b></span></div>
+      <div class="bs-search"><svg class="bs-glass" viewBox="0 0 24 24" aria-hidden="true"><path d="M10.5 17a6.5 6.5 0 1 0 0-13 6.5 6.5 0 0 0 0 13zM20 20l-4.8-4.8"/></svg>
+        <input class="field big" id="address" aria-label="Search, or type an address" placeholder="Search, or type an address" spellcheck="false" autocomplete="off"></div>
+      <div class="bs-rows">${row("Recent", b.recent)}${row("Most visited", b.top.filter(x => !recentHosts.has(x.host)))}
+        ${row(b.recent.length ? "More to try" : "Start here", b.picks)}
+        ${web.length ? `<h2 class="row-title">On Home <small>sites you added</small></h2><div class="rail">${web.map(a => appTile(a)).join("")}</div>` : ""}</div>
+      <div class="hint-card">On any site, press <b>Menu</b> for the Sofa bar: <b>Home</b>, <b>Back</b>, <b>Reload</b>, <b>smaller</b> and <b>bigger</b>,
+        the address, and <b>Add to Home</b> to make the site an app. Sofa Shield keeps known ad and tracker sites out.
+        ${b.recent.length ? `<button class="mini" data-browser-forget="1">Clear recent sites</button>` : ""}</div></div>`;
   }
   function go(text) {
     text = (text || "").trim(); if (!text) return;
@@ -1189,7 +1229,7 @@
     return (fresh ? codeSteps(3) : "") + qrRow(r.pair_url, `${fresh ? onWifi : ""}
       <b>${mine ? "Last step: scan this with your phone's camera" : fresh ? "Scan this with your phone's camera to use it as the remote" : "Scan with your phone's camera"}</b>${mine
         ? `<small>It keeps your phone as the remote.${/^https:/.test(r.url) ? " (Nothing to scan if the Setup Assistant carried on by itself on your phone.)" : ""}</small>`
-        : address ? `<small>or open <b>${address}</b> and type <b>${esc(r.code)}</b></small>` : ""}
+        : address ? `<small>or open <b>${address}</b> and type <b>${esc(r.code)}</b>${r.word && !fresh ? `; away from home, type <b>${esc(r.word)}</b>` : ""}</small>` : ""}
       ${open ? `<p class="okay small">✓ Your phone is the remote</p>` : waiting(mine ? "Waiting for your phone…" : "Waiting for your phone to scan this…")}
       ${/^https:/.test(r.url) ? "" : `<p class="small">iPhone says it isn't secure? Settings → Apps → Safari → turn off <b>Not Secure Connection Warning</b>.</p>`}`);
   }
@@ -1460,6 +1500,26 @@
 
   // ---------------------------------------------------------------- the remote, the keyboard, the mouse
   let cur = null;
+  // The phone remote's way in, as a sheet over Home: a phone without a sign-in is waiting (the agent brings Home
+  // forward and calls sofaPhoneWaiting), or Menu on Home. The code to scan, the four numbers for home and the eight
+  // letters for anywhere; it goes when the phone is in (sofaPhonePaired) or with Back.
+  let phoneSheetOn = false;
+  async function phoneSheet() {
+    const st = await loadSetup(), r = st && st.remote;
+    if (!r || !r.pair_url) return toast("The box isn't on a network yet: the phone remote needs one.");
+    const home = r.home_url ? esc(r.home_url.replace(/^https?:\/\//, "")) : "";
+    sheet(`<h3>Your phone as the remote</h3><div class="qr-row phone-qr"><span class="qr big">${qr(r.pair_url)}</span><div class="qr-text">
+        <p><b>Scan this with your phone's camera.</b></p>
+        ${home ? `<small>At home: open <b>${home}</b> and type <b class="code">${esc(r.code)}</b></small>` : ""}
+        ${r.word ? `<small>Anywhere: type <b class="code">${esc(r.word)}</b> on the remote's page</small>` : ""}</div></div>
+      <button class="btn primary" data-sheet="close">Done</button>`, () => closeSheet());
+    phoneSheetOn = true;
+  }
+  window.sofaPhoneWaiting = () => phoneSheet();
+  window.sofaPhonePaired = name => { if (phoneSheetOn && $(".phone-qr")) closeSheet(); phoneSheetOn = false; toast((name || "Your phone") + " is a remote now."); };
+  // Home, pressed anywhere (the agent calls this when the remote's Home brings Home forward): no sheet left open, and
+  // Home's own first page
+  window.sofaHomeKey = () => { closeSheet(); if (location.hash !== "#/") location.hash = "#/"; };
   const focusables = () => {
     const sheetEl = $(".sheet");
     if (sheetEl) return $$("button:not([disabled]), input", sheetEl);
@@ -1563,8 +1623,10 @@
     else if (k === "Enter" && typing) { e.preventDefault();
       if (!field.dataset.typed && !field.closest(".sheet") && field.type !== "file") typeSheet(field); else submit(field); }
     else if ((k === "Escape" || k === "BrowserBack" || (k === "Backspace" && !typing))) { e.preventDefault(); back(); }
-    else if (k === "BrowserHome" || k === "F1") { e.preventDefault(); closeSheet(); location.hash = "#/"; }
+    else if (k === "BrowserHome" || k === "F1" || k === "HomePage") { e.preventDefault(); sofaHomeKey(); }
+    else if ((k === "ContextMenu" || k === "F2") && cur && cur.dataset.target) { e.preventDefault(); openNowMenu(cur.dataset.target); }
     else if ((k === "ContextMenu" || k === "F2") && cur && cur.dataset.app) { e.preventDefault(); appMenu(cur.dataset.app); }
+    else if ((k === "ContextMenu" || k === "F2") && !$(".sheet-back") && (location.hash === "" || location.hash === "#/")) { e.preventDefault(); phoneSheet(); }
     else if (!typing && k.length === 1 && /\S/.test(k) && !e.ctrlKey && !e.metaKey && !e.altKey && (location.hash === "" || location.hash === "#/")) {
       e.preventDefault(); location.hash = "#/browser"; setTimeout(() => { const a = $("#address"); if (a) { a.value = k; focus(a); } }, 60);   // type to search
     }
@@ -1606,6 +1668,7 @@
       else if (d.sofaHash) open({ id: "sofa", hash: d.sofaHash });
       else if (d.target) await api("/box/api/front", { target: d.target }).catch(() => open({ id: (data.running.find(r => r.target === d.target) || {}).app || "browser" }));
       else if (d.url) open({ url: d.url });
+      else if (d.browserForget) { await api("/box/api/browser/forget", {}); browserStart = null; toast("Recent sites cleared."); loadBrowserStart(); }
       else if (d.credit) creditSheet(d.credit);
       else if (d.tvBrand) tvSheet(d.tvBrand);
       else if (d.game) { notePlayed(d.game); open({ url: location.origin + "/box/games/" + d.game + "/" }); }
@@ -1770,11 +1833,11 @@
       : name === "sofa" ? [["OK", "Use this one"], ["Back", "Home screen"]]
       : name === "browser" ? [["OK", "Go"], ["Menu", "on a site: the Sofa bar"], ["Home", "Back here from any app"]]
       : TABS[name] === "settings" && name !== "settings" ? [["OK", "More, with a code for your phone"], ["Back", "Settings"]]
-      : name === "" ? [["OK", "Open"], ["Menu", "Move, hide or remove an app"], ["Home", "Back here from any app"], ["Type", "to search the web"]]
+      : name === "" ? [["OK", "Open"], ["Menu", "Options, or the phone remote's code"], ["Home", "Back here from any app"], ["Type", "to search the web"]]
       : [["OK", "Choose"], ["Back", "Home screen"]]);
   }
   function keyOf(el) {
-    for (const a of ["music", "cw", "app", "store", "game", "play", "gameGet", "gameRemove", "file", "root", "set", "themePick", "move", "hide", "action", "target", "go", "url", "server", "pick", "addFound", "drive", "disc", "default", "forgetServer", "ask", "bt", "wifiPick", "tz", "step", "btLook", "setTab", "wifiRescan", "kb"]) {
+    for (const a of ["music", "cw", "app", "store", "game", "play", "gameGet", "gameRemove", "file", "root", "set", "themePick", "move", "hide", "action", "target", "go", "url", "server", "pick", "addFound", "drive", "disc", "default", "forgetServer", "ask", "bt", "wifiPick", "tz", "step", "btLook", "setTab", "wifiRescan", "kb", "browserForget"]) {
       if (el.dataset[a] !== undefined) {
         const attr = "data-" + a.replace(/[A-Z]/g, c => "-" + c.toLowerCase());
         return `[${attr}="${CSS.escape(el.dataset[a])}"]` + (el.dataset.by ? `[data-by="${el.dataset.by}"]` : "") + (el.dataset.value ? `[data-value="${el.dataset.value}"]` : "");

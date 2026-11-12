@@ -109,7 +109,8 @@ button { cursor: pointer; }
 .tabs a[aria-current="page"] { color: var(--fg); background: var(--tile); }
 .tabs a.f { color: var(--a-ink); background: var(--a); }
 .status { margin-left: auto; display: flex; align-items: center; gap: 1rem; color: var(--mist); font-weight: 600; }
-.clock { font: 700 1.3rem/1 var(--display); color: var(--fg); letter-spacing: -.01em; }
+.clock { font: 700 1.3rem/1 var(--display); color: var(--fg); letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
+.clock small { font-size: .65rem; margin-left: .2rem; color: var(--mist); letter-spacing: 0; }
 .shield { display: flex; align-items: center; gap: .3rem; font-size: .85rem; }
 .shield svg { width: 1.1rem; height: 1.1rem; color: var(--a); }
 
@@ -222,9 +223,24 @@ h2.row-title small { margin-left: .6rem; font: 500 .85rem var(--text); color: va
 .field.f, .field:focus { box-shadow: 0 0 0 .18rem var(--a); }
 
 /* browser start page */
-.browser-start { display: grid; justify-items: center; gap: 1.4rem; padding-top: 2rem; }
-.browser-start .big { width: min(46rem, 100%); font-size: 1.3rem; padding: 1.1rem 1.6rem; }
-.browser-start .grid { width: min(58rem, 100%); }
+/* The Browser's start: the search on top, the shield beside the title, then rows of sites like Home's */
+.browser-start { display: grid; gap: 1.1rem; padding-top: .6rem; }
+.bs-top { display: flex; align-items: center; gap: 1rem; }
+.bs-top .page { margin: 0; }
+.bs-shield { display: inline-flex; align-items: center; gap: .4rem; padding: .35rem .8rem; border-radius: 99rem; font-size: .8rem; color: #9BF5B9;
+  background: color-mix(in srgb, #3DF07A 14%, transparent); border: 1px solid color-mix(in srgb, #3DF07A 40%, transparent); }
+.bs-shield svg { width: 1rem; height: 1rem; }
+.bs-shield.off { color: var(--mist); background: var(--tile); border-color: var(--line); }
+.bs-search { position: relative; width: min(46rem, 100%); }
+.bs-search .bs-glass { position: absolute; left: 1.2rem; top: 50%; width: 1.4rem; height: 1.4rem; transform: translateY(-50%); fill: none; stroke: var(--mist);
+  stroke-width: 2.2; stroke-linecap: round; pointer-events: none; }
+.browser-start .big { width: 100%; font-size: 1.25rem; padding: 1rem 1.4rem 1rem 3.4rem; }
+.bs-rows .row-title { margin-top: .4rem; }
+.tile.app.site { height: auto; padding-bottom: .8rem; }
+.tile.app.site b { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 1.3; }
+.tile.app.site small { display: block; max-width: 100%; font-size: .68rem; color: var(--mist); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.browser-start .hint-card { max-width: 58rem; }
+.browser-start .hint-card .mini { margin-left: .6rem; }
 .hint-card { max-width: 46rem; padding: .9rem 1.2rem; border-radius: var(--r); background: var(--tile); border: 1px dashed var(--line); color: var(--mist); font-size: .9rem; }
 .hint-card b { color: var(--fg); }
 
@@ -363,8 +379,13 @@ html.lite .kb-key.f { transform: none; }
 #toast { position: fixed; left: 50%; bottom: 2.4rem; z-index: 60; transform: translateX(-50%) translateY(1rem); padding: .8rem 1.4rem; border-radius: 99rem;
   background: var(--fg); color: var(--bg); font-weight: 700; opacity: 0; transition: opacity .3s, transform .3s; pointer-events: none; }
 #toast.on { opacity: 1; transform: translateX(-50%); }
-.hint { position: fixed; left: 0; right: 0; bottom: 0; z-index: 5; padding: 1.4rem 2.4rem .6rem; display: flex; gap: 1.6rem; font-size: .78rem; color: var(--mist);
-  background: linear-gradient(0deg, var(--bg) 55%, transparent); pointer-events: none; }
+/* The keys' hints: a footer on a floor of its own (1.1.73 drew them over the last row: the owner's photos of Home and
+   Games). The rows end above it (Spotlight's) or scroll clear of it (#view's room at the bottom). */
+:root { --hint-h: 2.4rem; }
+.hint { position: fixed; left: 0; right: 0; bottom: 0; z-index: 5; height: var(--hint-h); padding: 0 2.4rem; display: flex; align-items: center; gap: 1.6rem;
+  font-size: .78rem; color: var(--mist); background: var(--bg); pointer-events: none; }
+.hint::before { content: ""; position: absolute; left: 0; right: 0; bottom: 100%; height: 1.2rem; background: linear-gradient(0deg, var(--bg), transparent); }
+.hint:empty { display: none; }
 .hint kbd { font: 700 .72rem var(--text); padding: .1rem .45rem; border-radius: .35rem; border: 1px solid var(--line); color: var(--fg); margin-right: .3rem; }
 .lite .tile, .lite .btn, .lite .theme { transition: none; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
@@ -793,7 +814,7 @@ html.spt-on .top { background: none; }
 .spt-bar i { display: block; height: 100%; background: var(--a); }
 .spt-ok { margin: .85rem 0 0; font-size: .75rem; font-weight: 600; color: var(--mist); }
 .spt-ok kbd { font: 700 .66rem var(--text); padding: .12rem .42rem; border-radius: .3rem; background: var(--fg); color: var(--bg); margin-right: .45rem; }
-.spt-rows { position: absolute; left: 0; right: 0; top: 17rem; bottom: 0; overflow: hidden; padding: 0 2.4rem; }
+.spt-rows { position: absolute; left: 0; right: 0; top: 17rem; bottom: var(--hint-h); overflow: hidden; padding: 0 2.4rem; }
 .spt-rows::after { content: ""; display: block; height: 12rem; }      /* (room for the last row to come up to its line) */
 .spt-row { padding-top: .2rem; }
 .spt-row .row-title { margin: 0 0 .35rem; }
@@ -817,16 +838,28 @@ html:not(.lite) .spt .tile.app.spt-app.f .ic, html:not(.lite) .spt .tile.spt-art
 html.lite .spt-pic { transition: none; }
 html.lite .spt .tile.spt-art { overflow: visible; }
 /* the top bar's right end: the weather, the time, and the music an app plays (the mini player) */
-.top-extra { margin-left: auto; display: flex; align-items: center; gap: 1.1rem; }
+/* The top bar never runs past the screen's edge (the owner's photo, 1.1.73: the music's pill cut off on the right). What
+   gives way: while music plays its pill takes the weather's place, the tabs sit closer, and the track's name shrinks
+   (down to nothing: the cover and the buttons stay). */
+.top-extra { margin-left: auto; display: flex; align-items: center; gap: 1.1rem; flex: 0 1 auto; min-width: 0; padding: .35rem;
+  margin-right: -.35rem; overflow: hidden; }
+.top > .brand, .top > .tabs, .top > .status { flex: none; }
+.top-extra > .spt-wx, .top-extra > .spt-clock { flex: none; }
+html.spt-on .top .status .clock { display: none; }    /* (Spotlight's own clock is in the bar: not a hidden one taking room) */
+html.spt-on .top { gap: 1.1rem; }
+html.spt-on .tabs a { padding: .4rem .55rem; }
+.top-extra:has(.spt-np) .spt-wx { display: none; }     /* (music playing: its pill where the weather was) */
+html.spt-on .top:has(.spt-np) .brand > b, html.spt-on .top:has(.spt-np) .brand > span { display: none; }   /* (the skull alone: room for the track's name) */
 .top-extra:empty { display: none; }
 .spt-wx { display: flex; align-items: center; gap: .3rem; font-weight: 700; font-size: .95rem; color: var(--mist); }
 .spt-wx .wxi { width: 1.7rem; height: 1.7rem; }
 .spt-clock { font: 800 1.4rem/1 var(--display); letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
 .spt-clock small { font-size: .7rem; margin-left: .2rem; color: var(--mist); letter-spacing: 0; }
 .spt-np { display: flex; align-items: center; gap: .45rem; padding: .25rem .3rem .25rem .25rem; border-radius: 99rem; max-width: 19rem;
+  flex: 0 1 auto; min-width: 0;
   background: color-mix(in srgb, var(--bg2) 88%, transparent); box-shadow: inset 0 0 0 1px var(--line); }
 .spt-np img { width: 1.9rem; height: 1.9rem; border-radius: 50%; object-fit: cover; flex: none; }
-.spt-np-t { display: grid; min-width: 0; padding-right: .2rem; }
+.spt-np-t { display: grid; min-width: 0; padding-right: .2rem; flex: 0 1 auto; overflow: hidden; }
 .spt-np-t b { font-size: .78rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .spt-np-t small { font-size: .64rem; color: var(--mist); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .spt-np .np-k { width: 1.9rem; height: 1.9rem; padding: 0; border-radius: 50%; display: grid; place-items: center; border: 0; background: none; color: var(--fg); flex: none; }
@@ -937,3 +970,6 @@ html:not(.lite)[data-page="games"] .spt-layer.on img { animation: gp-drift 18s e
 html[data-page="games"] .top .clock { visibility: hidden; }
 .gp .spt-rows { bottom: 2.9rem; }
 html:not(.lite) .gp .spt-rows { -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 2.4rem), transparent); mask-image: linear-gradient(to bottom, #000 calc(100% - 2.4rem), transparent); }
+/* the phone remote's code, over Home (a phone waiting, or Menu): big enough to read across a room */
+.phone-qr .qr.big { width: min(12rem, 36vh); height: min(12rem, 36vh); }
+.phone-qr .code { font: 800 1.15rem/1 var(--display); letter-spacing: .08em; color: var(--fg); }

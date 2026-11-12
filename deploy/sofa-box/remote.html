@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="referrer" content="no-referrer">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -195,6 +196,7 @@
   .pair h1 { margin: 0; font-size: 28px; letter-spacing: -.02em; }
   .pair p { margin: 0; color: var(--mist); }
   .pair .code { font: 700 40px/1 ui-monospace, "SF Mono", monospace; letter-spacing: .3em; text-align: center; padding: 14px; }
+  .pair .code.word { font-size: 26px; letter-spacing: .12em; text-transform: uppercase; }
 
   .tip { position: fixed; left: 12px; right: 12px; bottom: calc(var(--safe-b) + 76px); z-index: 5; padding: 14px 16px; border-radius: 18px;
     background: #22222b; box-shadow: 0 16px 40px rgba(0,0,0,.6), inset 0 0 0 1px var(--line); display: grid; grid-template-columns: 44px 1fr auto; gap: 12px; align-items: center; }
@@ -250,7 +252,7 @@
   <section id="pairing" class="pair" hidden>
     <svg><use href="#skull"/></svg>
     <h1>Connect to your Sofa Box</h1>
-    <p>Type the four numbers on the TV.</p>
+    <p id="pairHow">The TV shows a code now. Scan it with your phone's camera, or type the four numbers under it.</p>
     <input class="field code" id="code" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="one-time-code" placeholder="····">
     <button class="btn" id="pairBtn">Connect</button>
     <div class="msg" id="pairMsg"></div>
@@ -364,10 +366,27 @@
     if (name === "type") setTimeout(() => $("typing").focus(), 50);
     if (name === "wifi") loadWifi();
   }
-  function showPairing() {
+  // Not signed in here (another of the box's addresses, or a Home Screen icon with cookies of its own): the TV brings
+  // its code up by itself. At home: scan it, or type the four numbers. Away (through the relay): scan it, or type the
+  // eight letters (four numbers could be guessed at from the internet).
+  function showPairing(typing) {
     ready = false; $("pairing").hidden = false; $("tabs").hidden = true;
     ["remote", "type", "touch", "wifi"].forEach(t => { $("tab-" + t).hidden = true; });
-    if (/again=1/.test(location.search)) $("pairMsg").textContent = "That code has changed. Type the one on the TV now.";
+    const away = typing === "word", c = $("code");
+    $("pairHow").textContent = "The TV shows a code now. Scan it with your phone's camera, or type the " + (away ? "eight letters" : "four numbers") + " under it.";
+    if (away && c.maxLength !== 9) {
+      c.setAttribute("inputmode", "text"); c.removeAttribute("pattern"); c.maxLength = 9; c.placeholder = "····-····";
+      c.setAttribute("autocapitalize", "characters"); c.setAttribute("autocorrect", "off"); c.classList.add("word");
+    }
+    if (/again=1/.test(location.search)) $("pairMsg").textContent = "That code has changed. Use the one on the TV now.";
+  }
+  // Signed in: this page's address carries the phone's own link, so a bookmark or a Home Screen icon of it signs in by
+  // itself, on whichever of the box's addresses it opens
+  function keepLink(key) {
+    const q = new URLSearchParams(location.search);
+    if (!key || q.get("k") === key) return;
+    q.set("k", key); q.delete("again");
+    try { history.replaceState(null, "", "?" + q.toString()); } catch (e) {}
   }
   function offline(on) {
     $("dot").classList.toggle("off", on); $("dotText").textContent = on ? "Can't reach the box" : "Connected";
@@ -403,7 +422,8 @@
         }
       }
       $("name").textContent = s.name || "Sofa Box";
-      if (!s.paired) return showPairing();
+      if (!s.paired) return showPairing(s.typing);
+      keepLink(s.key);
       if (!ready) { ready = true; $("pairing").hidden = true; show(s.hotspot ? "wifi" : tab); }
       $("tabs").hidden = !!s.hotspot;        // on the box's own Wi-Fi, this page is only for giving the box your Wi-Fi
       $("assistant").hidden = !s.hotspot;    // (and it's the Setup Assistant)
@@ -459,7 +479,10 @@
     const r = await post("api/pair", { code: $("code").value.trim(), name: /iPhone/.test(navigator.userAgent) ? "iPhone" : /iPad/.test(navigator.userAgent) ? "iPad" : /Android/.test(navigator.userAgent) ? "Android phone" : "Phone" });
     if (r.ok) { $("pairMsg").textContent = ""; state(); } else $("pairMsg").textContent = (await r.json()).error || "That didn't work.";
   });
-  $("code").addEventListener("input", () => { if ($("code").value.length === 4) $("pairBtn").click(); });
+  $("code").addEventListener("input", () => {
+    const v = $("code").value.replace(/[\s-]/g, "");
+    if ($("code").classList.contains("word") ? v.length === 8 : v.length === 4) $("pairBtn").click();
+  });
 
   // the pad: tap the middle for OK, an edge for that arrow; swipe anywhere; hold an edge to repeat
   const pad = $("pad");

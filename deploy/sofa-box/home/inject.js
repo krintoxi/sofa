@@ -1,7 +1,8 @@
 /* Sofa Box: added to every app and web page the box opens (Sofa's TV pages too), in a script world of
    its own so sites can't see or break it. The Home key, Back, the pointer hiding when it's still, and
-   the Sofa bar (mouse to the top edge, or the Menu key): Home, Back, Reload, the address, Add to Home,
-   Close. It talks to the box's agent through window.__sofaBox (a DevTools binding). */
+   the Sofa bar (mouse to the top edge, or the Menu key): Home, Back, Reload, smaller and bigger, the address,
+   whether Sofa Shield is on, Add to Home, Close. It talks to the box's agent through window.__sofaBox (a DevTools
+   binding); what it shows of the box comes as window.__sofaBoxVars. */
 (function () {
   if (window.__sofaBoxBar) return;
   window.__sofaBoxBar = true;
@@ -56,8 +57,22 @@
   var ICONS = {
     home: "M3 11.5 12 4l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z",
     back: "M15 5l-7 7 7 7", reload: "M20 12a8 8 0 1 1-2.3-5.6M20 4v5h-5",
-    add: "M12 5v14M5 12h14", close: "M6 6l12 12M18 6 6 18"
+    add: "M12 5v14M5 12h14", close: "M6 6l12 12M18 6 6 18",
+    zoomout: "M10.5 17a6.5 6.5 0 1 0 0-13 6.5 6.5 0 0 0 0 13zM20 20l-4.8-4.8M7.5 10.5h6",
+    zoomin: "M10.5 17a6.5 6.5 0 1 0 0-13 6.5 6.5 0 0 0 0 13zM20 20l-4.8-4.8M7.5 10.5h6M10.5 7.5v6",
+    shield: "M12 3l7 3v6c0 4.4-3 7.6-7 9-4-1.4-7-4.6-7-9V6z"
   };
+  var vars = window.__sofaBoxVars || {};
+  // smaller and bigger, as a TV's browser has it: the page's own zoom, for as long as the tab is open
+  var ZOOMS = [0.67, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2], zoomAt = 3;
+  try { zoomAt = Math.max(0, ZOOMS.indexOf(+sessionStorage.getItem("__sofaBoxZoom") || 1)); } catch (e) {}
+  function zoomTo(i) {
+    zoomAt = Math.max(0, Math.min(ZOOMS.length - 1, i));
+    document.documentElement.style.zoom = ZOOMS[zoomAt] === 1 ? "" : String(ZOOMS[zoomAt]);
+    try { sessionStorage.setItem("__sofaBoxZoom", String(ZOOMS[zoomAt])); } catch (e) {}
+    if (root) toast("Size " + Math.round(ZOOMS[zoomAt] * 100) + "%");
+  }
+  if (zoomAt !== 3) document.addEventListener("DOMContentLoaded", function () { zoomTo(zoomAt); });
   function svg(name) {
     return '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="' + ICONS[name] + '"/></svg>';
   }
@@ -76,6 +91,8 @@
       'button:hover, button.f { background: rgba(255,255,255,.14); }' +
       'button.f { box-shadow: 0 0 0 2px var(--a, #F4B740); }' +
       'button.add { width: auto; padding: 0 14px; gap: 6px; display: flex; background: var(--a, #F4B740); color: #1A1300; }' +
+      'button.shield { width: auto; padding: 0 12px; gap: 6px; display: flex; color: #9BF5B9; font: 600 13px system-ui, sans-serif; }' +
+      'button.shield.off { color: #9A9AA6; }' +
       'input { all: unset; flex: 1; min-width: 0; height: 44px; padding: 0 14px; border-radius: 12px; background: rgba(255,255,255,.08);' +
       ' color: #EDEFF6; font: 500 15px system-ui, sans-serif; }' +
       'input:focus, input.f { box-shadow: 0 0 0 2px var(--a, #F4B740); }' +
@@ -86,7 +103,11 @@
       '<button data-a="home" title="Home">' + svg("home") + '</button>' +
       '<button data-a="back" title="Back">' + svg("back") + '</button>' +
       '<button data-a="reload" title="Reload">' + svg("reload") + '</button>' +
+      '<button data-a="smaller" title="Smaller">' + svg("zoomout") + '</button>' +
+      '<button data-a="bigger" title="Bigger">' + svg("zoomin") + '</button>' +
       '<input data-a="addr" spellcheck="false" aria-label="Address">' +
+      '<button data-a="shield" class="shield' + (vars.shield === false ? ' off' : '') + '" title="Sofa Shield">' + svg("shield") +
+        '<span>' + (vars.shield === false ? 'Shield off' : 'Shield on') + '</span></button>' +
       '<button data-a="add" class="add" title="Add to Home">' + svg("add") + '<span>Add to Home</span></button>' +
       '<button data-a="close" title="Close">' + svg("close") + '</button></div><div class="toast"></div>';
     bar = root.querySelector(".bar"); addr = root.querySelector("input");
@@ -119,6 +140,8 @@
     else if (a === "back") { show(false); if (history.length > 1) history.back(); else send({ a: "home" }); }
     else if (a === "reload") { show(false); location.reload(); }
     else if (a === "addr") { addr.focus(); addr.select(); }
+    else if (a === "smaller" || a === "bigger") { zoomTo(zoomAt + (a === "bigger" ? 1 : -1)); schedule(8000); }
+    else if (a === "shield") { toast(vars.shield === false ? "Sofa Shield is off: Settings, Sofa Shield" : "Sofa Shield keeps known ad and tracker sites out"); schedule(4000); }
     else if (a === "add") {
       var icon = document.querySelector('link[rel~="apple-touch-icon"], link[rel="manifest"], link[rel~="icon"]');
       send({ a: "add", url: location.href, title: document.title, icon: icon ? icon.href : "" });
@@ -144,6 +167,12 @@
       schedule(withKeys ? 8000 : 3500);
     } else { clearTimeout(hideTimer); if (root && root.activeElement) root.activeElement.blur(); }
   }
+
+  // ---- a video you can hear starts here: the box pauses the music another app plays (not both at once)
+  document.addEventListener("play", function (e) {
+    var v = e.target;
+    if (v && v.tagName === "VIDEO" && !v.muted && v.volume > 0) send({ a: "video" });
+  }, true);
 
   // ---- keys: Home everywhere, Menu for the bar, Back when the site doesn't use it
   var superAlone = false;
@@ -187,6 +216,14 @@
   }, true);
 
   document.addEventListener("visibilitychange", function () { if (document.hidden && open) show(false); });   // gone behind Home
+  // ---- this page, for the Browser's start page (the box keeps only the browser's own sites)
+  function visit() {
+    var icon = document.querySelector('link[rel~="apple-touch-icon"], link[rel~="icon"]');
+    send({ a: "visit", url: location.href, title: document.title, icon: icon ? icon.href : "" });
+  }
+  if (window === window.top) {
+    if (document.readyState === "complete") setTimeout(visit, 800); else window.addEventListener("load", function () { setTimeout(visit, 800); });
+  }
   function start() { addStyle(); still = setTimeout(function () { pointer(false); }, 3000); }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start); else start();
 })();

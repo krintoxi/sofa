@@ -4,7 +4,9 @@ LG SimpLink, Sony Bravia Sync).
 
 The Pi tells the TV it's a player called "Sofa"; the TV then sends the remote's buttons down the HDMI
 cable while the Pi's input is showing. This turns them into key presses for the browser: arrows, OK
-(Enter), Back/Return (the browser's Back), play/pause, rewind/fast-forward, numbers, channel up/down.
+(Enter), Back/Return (the browser's Back), play/pause, rewind/fast-forward, numbers, channel up/down. Home goes to the
+box's agent instead (`home`), so it brings Home forward whatever is in front; typed as a key only if the agent doesn't
+answer.
 
 Needs: cec-ctl (package v4l-utils), python3-evdev (for a virtual keyboard), root (for /dev/uinput).
 """
@@ -15,6 +17,9 @@ import shlex
 import subprocess
 import sys
 import time
+import urllib.request
+
+AGENT = "http://127.0.0.1:%s" % os.environ.get("SOFA_BOX_PORT", "8091")
 
 # CEC "user control" codes -> Linux key names. https://www.cec-o-matic.com (User Control Codes)
 KEYS = {
@@ -87,6 +92,17 @@ def run_keys(names, press, taps=None, rescue=rescue, clock=time.monotonic):
         press(name)
         if name == "KEY_HOMEPAGE" and taps.press(clock()):
             rescue("Home pressed %d times on the TV's own remote" % RESCUE_TAPS)
+
+
+def home(open_=None):
+    """Home, through the agent: True once it has it. (A key typed into the page in front could be kept by a site, a
+    dialog or the player; the agent brings Home forward itself.)"""
+    req = urllib.request.Request(AGENT + "/box/api/home", data=b"{}", headers={"Content-Type": "application/json", "X-Sofa-Box": "1"})
+    try:
+        (open_ or urllib.request.build_opener(urllib.request.ProxyHandler({})).open)(req, timeout=3).close()
+        return True
+    except Exception:
+        return False
 
 
 def adapter():
@@ -162,6 +178,8 @@ def main():
             yield line
 
     def press(name):
+        if name == "KEY_HOMEPAGE" and home():
+            return
         key = ecodes.ecodes[name]
         ui.write(ecodes.EV_KEY, key, 1)
         ui.write(ecodes.EV_KEY, key, 0)

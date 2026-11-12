@@ -1219,6 +1219,7 @@ class Browser:
     def __init__(self, port=DEVTOOLS_PORT, on_message=None, scale=None):
         self.port, self.on_message, self.scale = port, on_message, scale or (lambda: 1.0)
         self.page_script = ""        # run in every app's own pages before theirs (the agent's H264_ONLY on a Pi 3)
+        self.bar_vars = None         # what the Sofa bar shows of the box (the agent's: Sofa Shield on or off), a function
         self.ws, self.next_id, self.waiting = None, 0, {}
         self.tabs = {}               # target id -> {"app", "title", "url", "session", "used", "audible"}
         self.notes = collections.deque(maxlen=150)   # the pages' errors and their video players' messages, for a report
@@ -1406,10 +1407,15 @@ class Browser:
             if self.page_script and tab.get("app") != "home":
                 self.call("Page.addScriptToEvaluateOnNewDocument", {"source": self.page_script}, session)
             if INJECT and tab.get("app") != "home":
-                self.call("Page.addScriptToEvaluateOnNewDocument", {"source": INJECT, "worldName": "sofabox"}, session)
+                try:
+                    told = json.dumps(self.bar_vars() if self.bar_vars else {})
+                except Exception:
+                    told = "{}"
+                bar = "window.__sofaBoxVars = %s;\n%s" % (told, INJECT)
+                self.call("Page.addScriptToEvaluateOnNewDocument", {"source": bar, "worldName": "sofabox"}, session)
                 self.call("Page.enable", {}, session)
                 ctx = self.call("Page.createIsolatedWorld", {"frameId": target, "worldName": "sofabox"}, session)
-                self.call("Runtime.evaluate", {"expression": INJECT, "contextId": ctx["executionContextId"]}, session)
+                self.call("Runtime.evaluate", {"expression": bar, "contextId": ctx["executionContextId"]}, session)
             self.call("Runtime.runIfWaitingForDebugger", {}, session)
         except OSError:
             pass
@@ -1531,6 +1537,18 @@ class Browser:
             if best.get("art") and not str(best["art"]).startswith(("https://", "http://", "data:image/")):
                 best["art"] = None
         return best
+
+    def quiet_music(self, but=None):
+        """A video is starting: the music an app plays pauses, so the two don't play at once. Not in the page the video
+        is in (`but`: an app's own preview). It isn't played again by itself when the video ends (music back after a
+        two-hour film would surprise): the mini player keeps it, paused, a press away. The app paused, or None."""
+        now = self.now_playing()
+        if not now or not now.get("playing") or now.get("target") == but:
+            return None
+        try:
+            return now.get("app") if self.music(now["target"], "pause") else None
+        except (OSError, ValueError):
+            return None
 
     def music(self, target, act):
         """A button of the mini player, pressed in the app that plays: its own if it gave the browser one."""
@@ -1969,6 +1987,19 @@ class Browser:
                 pass
             self.tabs.pop(t, None)
 
+    def hud(self, text, level=None):
+        """A short message over whatever is in front (Home, Sofa, an app), like a TV's own: the volume. Drawn in the page
+        by the box (no page's code needed), gone after a moment."""
+        session = self._front_session()
+        if session:
+            self.call("Runtime.evaluate", {"expression": HUD_JS % (json.dumps(text), json.dumps(level))}, session, timeout=3)
+
+    def evaluate(self, target, expression):
+        tab = self.tabs.get(target) or {}
+        if tab.get("session"):
+            return self.call("Runtime.evaluate", {"expression": expression}, tab["session"])
+        return None
+
 
 def merge_smooth(a, b):
     """Two pages' speed (two tabs of one app) as one."""
@@ -1983,19 +2014,6 @@ def merge_smooth(a, b):
     if pages:
         out["pages"] = pages
     return out
-
-    def hud(self, text, level=None):
-        """A short message over whatever is in front (Home, Sofa, an app), like a TV's own: the volume. Drawn in the page
-        by the box (no page's code needed), gone after a moment."""
-        session = self._front_session()
-        if session:
-            self.call("Runtime.evaluate", {"expression": HUD_JS % (json.dumps(text), json.dumps(level))}, session, timeout=3)
-
-    def evaluate(self, target, expression):
-        tab = self.tabs.get(target) or {}
-        if tab.get("session"):
-            return self.call("Runtime.evaluate", {"expression": expression}, tab["session"])
-        return None
 
 
 # In every page the box opens, Home too: how quickly it answers the remote, measured by the browser itself (a key

@@ -8,6 +8,52 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.81
+
+What the owner found trying 1.1.73 on a Pi 3 B+ (report KWMMM3): "It seems stable, it works, setup is smoother than
+ever, but there are issues ... WE ARE ALMOST THERE".
+
+- **The volume card, Home at a page, Resume and the box chooser work again.** Since 1.1.57 two of the box's ways of
+  talking to the browser, the card over a page (`hud`) and running something in a page (`evaluate`), weren't the
+  browser's at all: a function written between them closed it early. So the remote's volume card, the "♪ track"
+  notice, a game's rest on Home, Home at its screensaver, Resume and deep links into Sofa, and Sofa's menu's way to
+  the box chooser all failed (the report: "'Browser' object has no attribute 'hud'"). A test now checks that
+  everything the box asks of the browser is there.
+- **Home is Home, whatever is in front.** The TV's own remote typed Home into the page in front, and a site that keeps
+  its keys, a page with a dialog open, the player or a game could swallow it. Now the TV's remote, a controller, the
+  phone and the Sofa bar all ask the box itself: a video stops (its place kept), a game ends, and Home comes forward
+  at its first page with nothing left open over it. If the box's agent doesn't answer, the key is typed as before.
+- **A video pauses the music.** Starting a video (in Sofa, Live TV, Files, or a site) pauses the music an app plays
+  behind it, so the two never play at once. It isn't played again by itself when the video ends (music back after a
+  two-hour film would surprise): the mini player keeps it, paused, one press away. The report says when it happened.
+- **The mini player stays on the screen.** With music playing, its pill went past the TV's right edge. Now it takes
+  the weather's place, the tabs sit closer, and on Spotlight the brand is its skull alone, so the track's name, the
+  cover and the buttons fit inside the TV's safe area.
+- **The key hints have a floor of their own** at the bottom, and the rows end above it: no more hints over the Open now
+  and Games rows (Home and the Games page).
+- **Open now:** **Menu** on an open app offers **Back to it** and **Close it** (the ✕ was for a mouse only). And an app
+  goes by its own name: Sofa's tab was "sofa-2eebdd.lo…", its address.
+- **What you were watching shows on Home after Sofa** with "Ask each time" (or none picked yet): Home asks the Sofa
+  last opened. It said "Open it to pick where it plays from".
+- **The Browser's start page**, made for a TV: search or an address up top with Sofa Shield's state beside it; then
+  **Recent**, **Most visited** (the box remembers the browser's own sites, on the box only, and **Clear recent sites**
+  forgets them), picks (not the ones already on Home: YouTube was there twice), and the sites on Home. Each with its
+  site's own icon in the icon style picked, not a letter. The Sofa bar gets **smaller** and **bigger** and shows
+  whether Sofa Shield is on.
+- **The phone remote never leaves you at a code you can't see.** The owner: "when exiting the remote on your phone,
+  and coming back to it, it asks for a code, thats nowhere to be seen on the tv". A sign-in belongs to one of the
+  remote's three addresses (at home, the secure one, from anywhere), and an iPhone's Home Screen icon keeps sign-ins
+  of its own, so coming back another way asked again; from anywhere, its box for four numbers could never work.
+  Now each phone has its own link (`?k=`), kept in its page's address, so a bookmark or a Home Screen icon signs it
+  in wherever it opens; scanning the TV's code again when signed in just opens the remote. A phone that isn't signed
+  in brings the code up on the TV by itself (over a video, as a line on the player), and its page says to scan it,
+  or type the four numbers at home or the **eight letters** from anywhere (eight letters can't be guessed at, with
+  typing resting after ten wrong ones, at home and from the internet apart). **Menu** on Home shows the code any time.
+- **One way of writing the time** on every page ("5:49 AM"; it was "05:53 AM" off Home).
+- **No 404 in the report** from the browser asking the box's pages for an icon (Sofa has none, so it was passed on).
+- Not on a Pi yet. Tried in Chrome on a Mac (Home, Spotlight's light and full looks, the Browser page, the Store), with
+  the speed tests: a press on a Pi 3's light look still draws only the ring.
+
 ## 1.1.80
 
 Video on a Pi 3: what a report says about it, and decoding straight to the screen to try.
