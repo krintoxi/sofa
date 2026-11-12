@@ -113,7 +113,7 @@ class SpreadOverTheCores(At):
     def test_workers_by_cores_memory_and_whos_watching(self):
         self.at(X86, cpus=16)
         with mock.patch.object(hardware, "available", return_value=8 * 2**30):
-            with mock.patch.object(os, "getloadavg", return_value=(30.0, 30.0, 30.0)):
+            with mock.patch.object(os, "getloadavg", return_value=(30.0, 30.0, 30.0), create=True):   # (Windows has none)
                 self.assertEqual(hardware.workers(), 4)                    # never more than four (its own load: still four)
             self.assertEqual(hardware.threads_each(4), 4)
             with mock.patch.object(media, "busy", return_value=True):
