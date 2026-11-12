@@ -27,6 +27,10 @@ here, then `python3 tools/sofa-version.py` (a test checks it was done).
   - Bonjour through Windows' own DNS-SD service (no Apple Bonjour needed), staying awake through Windows itself, the
     drive letters under Server → Storage, the CPU and memory from Windows, how busy the computer is (Windows has no
     load average), and the addresses phones use.
+  - Video converted for iPhones, iPads and Safari (HLS) had its first part written to the wrong folder on Windows
+    (ffmpeg looks for "/" in the playlist's path), so it wouldn't have played: ffmpeg is given those paths with "/".
+  - A file that's open somewhere (Sofa reading it that moment, an antivirus, Explorer still copying it) is replaced or
+    renamed once it's closed, waiting up to a second, instead of failing at once as Windows otherwise does.
   - After an update the app starts the new version (a Windows process can't replace itself). Sofa's port is its own:
     a second Sofa can't quietly share it. Text is UTF-8, as on a Mac.
 - **Everywhere:** SSDP keeps answering after a reply nobody took (Windows reports those as an error on the next read,

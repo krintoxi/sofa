@@ -408,10 +408,13 @@ def stream_command(item, mode, start, info, fmt="mp4", out="pipe:1", audio_index
     elif fmt == "mpegts":
         cmd += ["-f", "mpegts", out]
     else:   # hls: `out` is the session folder. fMP4 segments, so HEVC works on Apple devices too.
+        # (with forward slashes on Windows: ffmpeg finds the playlist's folder by its last "/", and given C:\...\index.m3u8
+        # it wrote init.mp4 into the folder Sofa runs in, where no player could have it)
+        out = out.replace(os.sep, "/")
         cmd += ["-f", "hls", "-hls_time", "4", "-hls_list_size", "0", "-hls_playlist_type", "event",
                 "-hls_segment_type", "fmp4", "-hls_fmp4_init_filename", "init.mp4",
-                "-hls_flags", "independent_segments", "-hls_segment_filename", os.path.join(out, "seg%05d.m4s"),
-                os.path.join(out, "index.m3u8")]
+                "-hls_flags", "independent_segments", "-hls_segment_filename", out + "/seg%05d.m4s",
+                out + "/index.m3u8"]
     return cmd
 
 

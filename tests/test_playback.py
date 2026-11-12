@@ -158,6 +158,7 @@ class ConvertingForReal(unittest.TestCase):
             text = f.read()
         parts = [line for line in text.splitlines() if line and not line.startswith("#")] + re.findall(r'URI="([^"]+)"', text)
         self.assertTrue(parts and all(media.HLS_FILE.fullmatch(p) for p in parts), text)   # by name: players ask Sofa
+        self.assertEqual([p for p in parts if not os.path.isfile(os.path.join(folder, p))], [])   # all of them there
         a = (media.probe(playlist) or {}).get("audio") or [{}]
         said = "" if a[0] else subprocess.run([media.tool("ffprobe"), "-v", "error", "-show_streams", playlist],
                                              capture_output=True, text=True).stderr[-1500:]
