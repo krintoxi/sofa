@@ -334,7 +334,7 @@
   const isSpot = () => data.home_layout !== "classic";
   // the box's own web games, photographed playing themselves (deploy/sofa-box/home/art/games)
   const GAME_ART = new Set(["neon-dodge", "pair-up", "sky-hop", "gloamwell", "cinder-knight", "shadow-heist", "rune-tactics",
-                            "micro-drifters", "neon-brawler", "void-drifter", "cosmic-cascade", "tidewing", "ironmaw"]);
+                            "micro-drifters", "neon-brawler", "void-drifter", "cosmic-cascade", "tidewing", "ironmaw", "wyrd"]);
   const SPT_ABOUT = { browser: "The web on the TV. Search, or type an address.", store: "Streaming, music, kids, news, and EdgeVenture's own.",
                       games: "The box's own games, and the ones you add. Plug in a controller and press A.",
                       files: "USB drives, discs, and what you've downloaded.", settings: "Wi-Fi, picture and sound, remotes and controllers.",

@@ -52,7 +52,7 @@ The last few weeks, from the changelogs:
   first start survives Raspberry Pi Imager's settings; Home says when the Pi is short of power or hot; credits and
   licences for every part on the card, and where each TV brand hides its own tracking switch; Sofa Box OS by name in
   Raspberry Pi Imager through the box's own list; the Mac card writer (beta); the x86-64 PC and VM image; the
-  `rpi-image-gen` prototype; thirteen games of its own on two engines, with several controllers.
+  `rpi-image-gen` prototype; fourteen games of its own on two engines, with several controllers.
 - **The record:** [capabilities.md](capabilities.md) with its tested-on table, [hardware.md](hardware.md), the issue
   templates, this page and [compare.md](compare.md).
 - **Sofa 1.5.5: Sofa in Docker.** A `Dockerfile` and a `compose.yml` on the computer's own network, the image

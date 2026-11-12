@@ -11,7 +11,8 @@
   {"id": "void-drifter", "name": "Void Drifter", "emoji": "🚀", "color": "#7AD8F0", "players": 2, "added": "2026-11-07", "about": "A space run for one or two: a sector map of choices, six weapons, eight modules, four bosses, ships to unlock."},
   {"id": "cosmic-cascade", "name": "Cosmic Cascade", "emoji": "🌠", "color": "#3CC8D8", "players": 2, "added": "2026-11-07", "about": "Falling gems for one or two: endless, sixty puzzle boards, versus with stones sent across, and a board of the day."},
   {"id": "tidewing", "name": "Tidewing", "emoji": "🌊", "color": "#2E9BD6", "players": 2, "added": "2026-11-07", "about": "Race a skimmer over open water: twelve courses in three cups, time trials and two players on one screen, in low-poly 3D tuned to your box."},
-  {"id": "ironmaw", "name": "Ironmaw", "emoji": "🔥", "color": "#C2461E", "players": 4, "added": "2026-11-08", "about": "A fast old-style shooter in a foundry under the ice: nine levels, seven weapons, and an arena against bots, alone or on a split screen."}
+  {"id": "ironmaw", "name": "Ironmaw", "emoji": "🔥", "color": "#C2461E", "players": 4, "added": "2026-11-08", "about": "A fast old-style shooter in a foundry under the ice: nine levels, seven weapons, and an arena against bots, alone or on a split screen."},
+  {"id": "wyrd", "name": "WYRD", "emoji": "🧵", "color": "#B06CFF", "players": 1, "added": "2026-11-12", "about": "Go down the Maw in 3D: six strata and their powers, weapons that give you your moves, loot with names of its own, ore and herbs for the smith and the herbalist, and an endless descent after."}
 ],
 "native": [
   {"id": "luanti", "name": "Sofa Craft", "icon": "icons/sofa-craft.svg", "emoji": "⛏️", "color": "#5DA130", "players": 1, "added": "2026-11-03", "mb": 60, "pi": 3,

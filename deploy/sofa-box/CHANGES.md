@@ -8,6 +8,24 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.82
+
+- **WYRD, a new game of the box's own.** An action-RPG down the Maw, in 3D on Low3D. Hearthrim sits on the lip of the
+  Maw; below it lie six strata, two wild floors and a lair each, and a power in every lair: the Warden, the Drowned
+  Wyrm, the Bone Tyrant, the Devourer, the Rust Colossus and the Sovereign of Ash. Past the Sovereign the Endless
+  Descent goes on as far as you can. The weapon you hold gives you your moves (a blade, an axe, a bow or a staff, two
+  skills each), a roll gets you out of the way of what the powers mark on the ground first, and draughts heal. Pieces
+  come in five kinds of rare, with powers and names of their own; ore and herbs from the floors become gear at the
+  smith's and draughts at the herbalist's, and the Loom reweaves a piece's powers. Three delvers are kept on the box.
+  A controller first, or the keyboard; `#demo` plays a floor by itself for the games check.
+- **How it's drawn.** Its floors are land with height, built as they're reached, their light baked in; its people and
+  the risen dead are bodies built in code, each pose baked into one mesh (one draw call a body); its props, weapons and
+  creatures are WYRD's own models. Measured with `tools/games-bench.mjs` standing in for a Pi 3 (on a Mac, not a Pi):
+  60 frames a second with none late in 600, 26 draw calls and 11k triangles a frame, the game's own work 6 ms a frame at
+  the median (made 20 times as long), nothing laid over the picture. It hasn't been tried on a real Pi yet.
+- **`tools/low3d-models.py`** turns models made elsewhere (glTF, in flat colours) into data for a Low3D page, with fewer
+  triangles where asked, with Python alone: no Blender. See ENGINE.md, "Models made elsewhere".
+
 ## 1.1.81
 
 What the owner found trying 1.1.73 on a Pi 3 B+ (report KWMMM3): "It seems stable, it works, setup is smoother than

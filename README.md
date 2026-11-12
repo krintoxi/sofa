@@ -59,7 +59,7 @@ says so: **[What Sofa can do today](docs/capabilities.md).** In short:
 - **TVs:** TV mode in any TV browser, the Fire TV app, the Roku channel, and the Sofa Box.
   [Sofa on TVs](docs/capabilities.md#sofa-on-tvs)
 - **The Sofa Box:** setup by phone with no remote at all, Sofa and free Live TV with no server, an app store with
-  the streaming apps (DRM included), a browser with Sofa Shield, thirteen games of its own and more to install,
+  the streaming apps (DRM included), a browser with Sofa Shield, fourteen games of its own and more to install,
   controllers, Bluetooth remotes, HDMI-CEC, USB drives and discs, a stable and a testing update channel.
   [Sofa Box OS](docs/capabilities.md#sofa-box-os) · [The guide](deploy/sofa-box/README.md)
 - **Privacy:** no accounts with anyone, no tracking of its own, and a plain list of everything that touches the

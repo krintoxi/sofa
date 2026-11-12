@@ -1437,6 +1437,34 @@ class TheCinderKnight(unittest.TestCase):
         self.assertEqual(len(kinds), 8, kinds)                                 # eight kinds of foe
 
 
+class TheWyrd(unittest.TestCase):
+    """WYRD (games/wyrd): every model it names is packed in the page, every foe and power it sends down is one it has,
+    and the tool that packs the models is there and compiles."""
+
+    def test_its_models_and_its_people(self):
+        with open(os.path.join(BOX, "games", "wyrd", "index.html"), encoding="utf-8") as f:
+            page = f.read()
+        block = re.search(r"<script>\s*// models packed for Low3D[^\n]*\nconst MODELS = (\{.*?\});\s*</script>", page, re.S)
+        self.assertTrue(block, "the packed models")
+        models = json.loads(block.group(1))
+        for name, m in models.items():
+            self.assertEqual(len(m["c"]) > 0 and len(m["box"]), 6, name)
+        named = set(re.findall(r'\bmodel: "([a-z]+)"', page)) | set(re.findall(r'putModel\([^,]+, "([a-z]+)"', page))
+        for props in re.findall(r"props: \[([^\]]*)\]", page):
+            named |= set(re.findall(r'"([a-z]+)"', props))
+        for name in named:
+            self.assertIn(name, models, name)
+        foes = set(re.findall(r"^  ([a-z]+): \{ name: ", page, re.M))
+        for kinds in re.findall(r'foes: \[([^\]]*)\], elite: "([a-z]+)"', page):
+            for k in re.findall(r'"([a-z]+)"', kinds[0]) + [kinds[1]]:
+                self.assertIn(k, foes, k)
+        for boss in re.findall(r'boss: "([a-z]+)"', page):
+            self.assertIn(boss + ": { name:", page.replace("  ", " "), boss)
+        tool = os.path.join(os.path.dirname(os.path.dirname(BOX)), "tools", "low3d-models.py")
+        r = subprocess.run(["python3", "-m", "py_compile", tool], capture_output=True, text=True, timeout=60)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+
 class Agent(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

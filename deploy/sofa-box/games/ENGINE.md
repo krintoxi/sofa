@@ -4,7 +4,9 @@
 
 - **3D** (`GL`, with a 2D fallback, `Flat`), for open worlds. Tidewing (`tidewing/`), a racer over the sea, is
   drawn this way: light baked into the world's colours, a painted sky, mirror images in the water, everything
-  written on the screen drawn in the canvas (see [What costs a Pi 3 time](#what-costs-a-pi-3-time)).
+  written on the screen drawn in the canvas (see [What costs a Pi 3 time](#what-costs-a-pi-3-time)). WYRD
+  (`wyrd/`), an action-RPG seen from above, is drawn this way too: floors of land with height in chunks, and bodies
+  baked a pose at a time (see [Bodies, a pose at a time](#bodies-a-pose-at-a-time)).
 - **Drawn by the processor** (`Ray`), for worlds on a grid: rooms, corridors, doors and floors at any height. It
   looks the same on every box, GPU or not, and the GPU only adds a glow. Ironmaw (`ironmaw/`), an old-style
   shooter, is drawn this way.
@@ -365,6 +367,17 @@ shimmer); `air({top, horizon, fog, hill, hills, near, far})`; `draw(camera…)`;
   colour, sun, water, shallow, depth)` paints it into the ground's picture (shaded by its slopes, shallows round it)
   and `banks(colour, water)` gives the quads that stand its edge up from the water. Tidewing's cliffs, gorge and
   volcano are made this way.
+
+**Models made elsewhere.** `tools/low3d-models.py` (Python alone: no Blender) turns models in glTF, in flat colours,
+into data for a page: each model's colours, its box, and its vertices and triangles as bytes, with fewer triangles where
+asked (edges collapsed where that changes the shape least: quadric error, the edges between colours and open edges
+held). WYRD's props, weapons and creatures come in this way; the page puts them into meshes with `Mesh.tri`, so they
+light, bake and join like anything built in code.
+
+<a id="bodies-a-pose-at-a-time"></a>**Bodies, a pose at a time.** Low3D has no skinning: a body is parts on a skeleton
+(15 joints in WYRD), each pose's joints worked out once and every part built where its joint puts it, the whole pose
+baked into one mesh. A walk is four meshes, a swing three; the frame picks the mesh for the moment and draws it with
+`moved()`: one draw call a body, with no work a frame but its matrix.
 
 **Moving things.**
 - `Path(points, {closed, step})` is a smooth line to race, ride or patrol along. It has `at(s)`, `side(s, off)`,
