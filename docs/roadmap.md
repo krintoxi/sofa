@@ -10,7 +10,7 @@ of work, not a promise, and there are no dates. What has shipped is in [CHANGES.
 Read this before you install, so nothing surprises you.
 
 - **The server runs on a Mac, on Linux, on Windows, or in Docker.** No NAS packages (the Docker image is how a NAS
-  runs it). Python and ffmpeg are all it needs; the Windows installer brings both. Sofa for Windows (1.5.8) has run on
+  runs it). Python and ffmpeg are all it needs; the Windows installer brings both. Sofa for Windows (1.5.9) has run on
   GitHub's Windows machines, installer included, and not yet on a real PC; it runs while you're signed in, not as a
   Windows service, and it isn't signed yet. The one-line install
   is used daily on Macs; on Linux the test suite runs on every push, and the install was run in a clean Debian 13

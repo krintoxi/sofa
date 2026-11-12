@@ -1,7 +1,7 @@
 ; Sofa for Windows: the installer (Inno Setup 6). Built on GitHub's Windows machines by .github/workflows/windows.yml:
 ;
 ;     python tools\windows-build.py                         (build\windows\Sofa: Sofa's code, vendor\python, vendor\ffmpeg)
-;     iscc /DAppVersion=1.5.8 deploy\windows\sofa.iss       (build\windows\sofa-1.5.8-windows-x64-setup.exe)
+;     iscc /DAppVersion=1.5.9 deploy\windows\sofa.iss       (build\windows\sofa-1.5.9-windows-x64-setup.exe)
 ;
 ; Sofa is installed for the person installing it, with no administrator needed, in %LOCALAPPDATA%\Programs\Sofa:
 ; Sofa updates its own code in place (Server -> Updates, sofa/updater.py), so its folder has to be theirs. Two things

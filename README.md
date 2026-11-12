@@ -80,7 +80,7 @@ software and have not been tried on a real box. **The Fire TV app and the Roku c
 run on a real device is on record; the Mac card writer has never written a real SD card.** No card is marked stable
 yet. The table of what was tested on which hardware, by whom and when: [Tested on](docs/capabilities.md#tested-on).
 Anything you run that isn't in that table is worth a [hardware report](https://github.com/krintoxi/sofa/issues/new/choose).
-**Sofa for Windows** (new in Sofa 1.5.8): the installer and the server have run on GitHub's Windows machines on every
+**Sofa for Windows** (new in Sofa 1.5.9): the installer and the server have run on GitHub's Windows machines on every
 change, installed, started, quit and uninstalled there, and not yet on a real Windows PC.
 What's next, in order, and what isn't built: [Roadmap and known limitations](docs/roadmap.md).
 

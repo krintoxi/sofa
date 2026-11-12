@@ -77,12 +77,14 @@ jobs:
           "/c/Program Files (x86)/Inno Setup 6/ISCC.exe" /? | head -n 2 || true
 
       - name: Build the installer
+        shell: pwsh
         run: |
-          "/c/Program Files (x86)/Inno Setup 6/ISCC.exe" /Q "/DAppVersion=$SOFA_VERSION" deploy/windows/sofa.iss
-          cd build/windows
-          ls -la sofa-*-setup.exe
-          sha256sum "sofa-$SOFA_VERSION-windows-x64-setup.exe" > "sofa-$SOFA_VERSION-windows-x64-setup.exe.sha256"
-          cat "sofa-$SOFA_VERSION-windows-x64-setup.exe.sha256"
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /Q "/DAppVersion=$env:SOFA_VERSION" deploy\windows\sofa.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC ended with $LASTEXITCODE" }
+          $exe = "build\windows\sofa-$env:SOFA_VERSION-windows-x64-setup.exe"
+          $hash = (Get-FileHash $exe -Algorithm SHA256).Hash.ToLower()
+          "$hash  sofa-$env:SOFA_VERSION-windows-x64-setup.exe" | Set-Content -NoNewline "$exe.sha256"
+          "{0:N1} MB, SHA-256 {1}" -f ((Get-Item $exe).Length / 1MB), $hash
 
       - name: Install it, start Sofa, open it, quit, uninstall
         shell: pwsh

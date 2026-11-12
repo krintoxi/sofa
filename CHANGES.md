@@ -6,7 +6,7 @@ has its own numbers and list: [deploy/sofa-box/CHANGES.md](deploy/sofa-box/CHANG
 A change to Sofa's code (`sofa/`, `client/`, `sofa.py`) gets a new version: raise `__version__`, add a section
 here, then `python3 tools/sofa-version.py` (a test checks it was done).
 
-## 1.5.8 (2026-11-12)
+## 1.5.9 (2026-11-12)
 
 - **Sofa for Windows.** An installer for Windows 10 (1809) and 11, 64-bit, that brings its own Python and ffmpeg
   ([docs/install.md, "On Windows"](docs/install.md#on-windows); how it's made: [deploy/windows](deploy/windows/README.md)).
@@ -18,7 +18,7 @@ here, then `python3 tools/sofa-version.py` (a test checks it was done).
     if it stops, and stops cleanly on Quit, signing out and shutting down, with every ffmpeg it started.
   - Uninstall it from Settings → Apps: it asks before deleting Sofa's own data and never touches your library.
   - GitHub builds it from every change and runs it once (installed, started, asked for its page, quit, uninstalled)
-    before keeping it. On main each version gets a release (`sofa-v1.5.8`), and `sofa-for-windows` always has the
+    before keeping it. On main each version gets a release (`sofa-v1.5.9`), and `sofa-for-windows` always has the
     newest. It isn't signed yet, so SmartScreen asks: More info, Run anyway.
 - **The server itself on Windows**, with one code base (what only Windows needs is in `sofa/windows.py`):
   - ffmpeg is found as `ffmpeg.exe`: Sofa's own, winget's, Chocolatey's, Scoop's, or on PATH.

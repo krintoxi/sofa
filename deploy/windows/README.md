@@ -36,7 +36,7 @@ GitHub builds it on `windows-latest` from every change to Sofa (`.github/workflo
    with the newest as `sofa-windows-x64-setup.exe`.
 
 On a Windows PC of your own (Python 3.9 or newer, Inno Setup 6): `python tools\windows-build.py`, then
-`"C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DAppVersion=1.5.8 deploy\windows\sofa.iss`.
+`"C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DAppVersion=1.5.9 deploy\windows\sofa.iss`.
 
 To move to a newer Python or ffmpeg: the version, address and SHA-256 in `tools/windows-deps.py`, together.
 
@@ -93,7 +93,7 @@ To sign:
 2. Sign with the Windows SDK's `signtool`. Inno Setup signs the installer and the uninstaller itself:
 
    ```
-   iscc /DSign /DAppVersion=1.5.8 "/Ssofa=signtool.exe sign /fd sha256 /tr http://timestamp.digicert.com /td sha256 /f sofa.pfx /p PASSWORD $f" deploy\windows\sofa.iss
+   iscc /DSign /DAppVersion=1.5.9 "/Ssofa=signtool.exe sign /fd sha256 /tr http://timestamp.digicert.com /td sha256 /f sofa.pfx /p PASSWORD $f" deploy\windows\sofa.iss
    ```
 
    (with a token or a cloud HSM, its own `signtool` arguments instead of `/f` and `/p`).

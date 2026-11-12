@@ -50,7 +50,7 @@ Windows 10 (version 1809 or newer) or Windows 11, 64-bit.
 
 1. Download **[sofa-windows-x64-setup.exe](https://github.com/krintoxi/sofa/releases/download/sofa-for-windows/sofa-windows-x64-setup.exe)**
    (the newest; every version has its own under [Releases](https://github.com/krintoxi/sofa/releases), named
-   "Sofa 1.5.8" and so on) and open it.
+   "Sofa 1.5.9" and so on) and open it.
 2. **Windows protected your PC?** The installer isn't signed yet, so SmartScreen doesn't know it: **More info**, then
    **Run anyway**. (Its SHA-256 is next to it on the release page.)
 3. The installer asks four things:
