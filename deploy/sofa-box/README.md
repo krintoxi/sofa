@@ -649,6 +649,12 @@ the box first:
   Never Home or Sofa, and never one that's playing something you can hear. A report says which were closed and
   the memory that came back (`apps closed behind Home`).
 - On 1 GB, two apps stay open besides Home; opening a third closes the oldest one that isn't playing.
+- **Short of memory** (under a tenth of it free), the apps out of sight behind Home close at once instead (since
+  1.1.78), and a report says when it happened and who held the memory.
+- **Sized to the board** (since 1.1.78): the video player reads ahead by the box's memory (48 MB on 1 GB; 120 MB on
+  every box before), its decoding threads are the cores the board has, the browser doesn't make the address bar's
+  pop-ups (pages of their own in a newer Chromium, even with no address bar), and the box's agent and its Sofa give
+  back the memory they free. A report's `== Memory and processor` says what the memory and the processor are doing.
 - **The screen, the remotes and the video player come first** for the processor and the card. The
   box's own background jobs (finding servers, USB drives, Bluetooth) slow down or wait while a video
   plays. Sofa on the box runs at the lowest priority.

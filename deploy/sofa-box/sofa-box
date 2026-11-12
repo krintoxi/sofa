@@ -128,6 +128,10 @@ session() {
     LOW="--enable-low-end-device-mode --renderer-process-limit=2 --disk-cache-dir=$RUN/sofa-box-cache --disk-cache-size=33554432"
   fi
   LOW="$LOW --disable-background-networking --disable-component-update"
+  # The address bar's pop-ups are pages of their own in a newer Chromium, made at its start and kept in memory even in
+  # kiosk mode, where there's no address bar: a page's process, 34 MB of a 1 GB box (measured). The box's bar is its
+  # own (inject.js). A Chromium without them ignores the names.
+  NO_POPUPS="WebUIOmniboxPopup,WebUIOmniboxAimPopup,WebUIOmniboxFullPopup,PreloadTopChromeWebUI"
   # The home screen comes from the agent: wait for it (a Pi 3 starting up takes a moment), so the TV never
   # shows the browser's "can't reach this page".
   for _ in $(seq 1 60); do curl -fs -o /dev/null -m 2 "$AGENT/box/state" && break; sleep 0.5; done
@@ -136,7 +140,7 @@ session() {
     sed -i 's/"exited_cleanly":false/"exited_cleanly":true/; s/"exit_type":"[^"]*"/"exit_type":"Normal"/' \
       "$PROFILE/Default/Preferences" 2>/dev/null || true
     "$BROWSER" --kiosk --noerrdialogs --disable-infobars --no-first-run --disable-session-crashed-bubble \
-      --disable-features=Translate,MediaRouter,HardwareMediaKeyHandling --password-store=basic --enable-spatial-navigation \
+      --disable-features=Translate,MediaRouter,HardwareMediaKeyHandling,$NO_POPUPS --password-store=basic --enable-spatial-navigation \
       --autoplay-policy=no-user-gesture-required --check-for-update-interval=31536000 --overscroll-history-navigation=0 \
       --disable-pinch --disk-cache-size=67108864 $LOW $PLATFORM \
       --remote-debugging-port=9222 --remote-debugging-address=127.0.0.1 \

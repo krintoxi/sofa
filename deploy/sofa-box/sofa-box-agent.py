@@ -338,15 +338,17 @@ _board = {}
 
 
 def board():
-    """What the box is: the Raspberry Pi's generation (0 for any other computer), its memory, the TV's picture.
-    Everything that adapts to the hardware asks this."""
+    """What the box is: the Raspberry Pi's generation (0 for any other computer), its memory, its processor's cores and
+    what it is, the chips that decode video, a VM's name, the TV's picture. Everything that adapts to the hardware asks
+    this."""
     if not _board:
         m = model()
         g = re.search(r"Raspberry Pi (?:Compute Module )?(\d)|Raspberry Pi (Zero 2)|Raspberry Pi (Zero)", m)
         gen = int(g.group(1)) if g and g.group(1) else 3 if g and g.group(2) else 1 if g else 0
         if not m and os.environ.get("SOFA_BOX_SLOW") == "1":
             gen = 3                                        # a preview acting like a Pi 3
-        _board.update(model=m or "this computer", gen=gen, memory_mb=boxos.memory_mb(), cores=os.cpu_count() or 1)
+        _board.update(model=m or "this computer", gen=gen, memory_mb=boxos.memory_mb(), cores=boxos.cores(),
+                      cpu=boxos.processor(), video=boxos.video_chips(), vm=boxos.virtual())
     tv = 0
     for c in sorted(__import__("glob").glob("/sys/class/drm/card*-HDMI-A-*")):
         try:
@@ -576,7 +578,7 @@ class Player:
                 "--script=" + PLAYER_SCRIPT, "--script-opts=sofa_player-info=" + self.write_info(p),
                 "--title=" + title, "--force-media-title=" + title,
                 "--input-conf=" + (live_input_conf() if p.get("live") else os.path.join(HERE, "mpv-input.conf")),
-                "--cache=yes", "--demuxer-max-bytes=120MiB", "--network-timeout=40",
+                "--cache=yes"] + boxos.mpv_cache(board()["memory_mb"]) + ["--network-timeout=40",   # (read-ahead by memory)
                 "--hr-seek=no"]       # (resuming starts at the frame mpv can show at once: a Pi 3 decoded seconds to be exact)
         fonts = next((d for d in FONT_DIRS if os.path.isdir(d)), None)
         if fonts and mpv_option("osd-fonts-dir"):
@@ -592,7 +594,8 @@ class Player:
                                                       else "auto-safe")
         args.append("--hwdec=" + hw)
         if slow_board():
-            args += (["--profile=fast"] if mpv_knows("profile", "fast") else []) + ["--vd-lavc-threads=4", "--video-sync=audio"]
+            args += (["--profile=fast"] if mpv_knows("profile", "fast") else []) + \
+                ["--vd-lavc-threads=%d" % max(1, board()["cores"]), "--video-sync=audio"]     # (a Pi 1 or Zero has one)
         if s["audio"] == "passthrough":
             args.append("--audio-spdif=ac3,eac3,dts")
         if p.get("start"):
@@ -1502,16 +1505,53 @@ def music(act, target=None):
     return {"ok": True, "done": done}
 
 
+def low_memory_mb():
+    """Below this much free memory the box is short of it: a tenth of its memory, 100 MB at least (SOFA_BOX_LOW_MB)."""
+    try:
+        return float(os.environ["SOFA_BOX_LOW_MB"])
+    except (KeyError, ValueError):
+        return max(100, board()["memory_mb"] // 10)
+
+
+LOW_MEMORY = collections.deque(maxlen=12)                  # when memory ran low, and what was done (a report says)
+_low = {"said": -1e9}
+
+
+def memory_check(now=None):
+    """Short of memory: the apps out of sight behind Home close now, not after their half minute (never Home, Sofa, the
+    page in front or one that plays). Said once a minute at most: the free memory, who holds it, what was closed."""
+    now = now or time.time()
+    free = boxos.available_mb()
+    if free is None or free >= low_memory_mb():
+        return None
+    closed = browser.tidy(0, now=now) if browser and browser.connected() else []      # (out of sight at all: closed)
+    if not closed and steady() - _low["said"] < 60:
+        return None
+    _low["said"] = steady()
+    users = ", ".join("%s %d MB" % (g, mb) for g, mb, _n in boxos.memory_users()[:4])
+    line = "%s %d MB free%s%s" % (time.strftime("%H:%M:%S"), free, "; closed " + ", ".join(c["app"] for c in closed) if closed else "",
+                                  " (%s)" % users if users else "")
+    LOW_MEMORY.append(line)
+    print("Memory low: " + line, flush=True)
+    return line
+
+
 def watch_apps():
     """Back on Home, the apps behind it give the box back: closed once they've been out of sight for a while, unless
-    they're playing something you can hear (boxos.Browser.tidy). Each one closed is a line in the journal and in a
-    report, with the memory that came back."""
+    they're playing something you can hear (boxos.Browser.tidy), and at once when the box is short of memory
+    (memory_check). Each one closed is a line in the journal and in a report, with the memory that came back. And
+    what the agent itself freed goes back to the box (boxos.give_back)."""
     while True:
         time.sleep(5)
         try:
             now_line()
         except Exception:
             pass
+        boxos.give_back()
+        try:
+            memory_check()
+        except Exception as exc:
+            print("Looking at the memory: %r" % exc, flush=True)
         try:
             grace = leave_after()
             if not grace or not (browser and browser.connected()):
@@ -3928,6 +3968,29 @@ def scrub(text):
     return REPORT_SECRET.sub(r"\1\2•••", REPORT_PATH.sub(r"\1…", text))
 
 
+def memory_lines():
+    """A report's "Memory and processor": the box's memory now, who holds it, the times it ran low; the processor, its
+    load, what decodes video, and how the player is set for this box."""
+    b, free, swap, psi = board(), boxos.available_mb(), boxos.swap_used_mb(), boxos.pressure()
+    try:
+        load = " ".join("%.2f" % x for x in os.getloadavg())
+    except (OSError, AttributeError):
+        load = "?"
+    cache = [a.split("=", 1)[1].replace("MiB", " MB") for a in boxos.mpv_cache(b["memory_mb"])]
+    return ["== Memory and processor",
+            "  memory: %d MB, %s MB free now; compressed (zram) in use: %s MB%s" % (
+                b["memory_mb"], free if free is not None else "?", swap if swap is not None else "?",
+                "; waited for memory %.1f%% of the last 10 s, %.1f%% of the last minute" % psi if psi else ""),
+            "  who holds it: " + (", ".join("%s %d MB%s" % (g, mb, " (%d)" % n if n > 1 else "") for g, mb, n in boxos.memory_users())
+                                  or "(can't be read here)"),
+            "  memory ran low (under %d MB free): %s" % (low_memory_mb(), "; ".join(LOW_MEMORY) or "never since the box started"),
+            "  processor: %s, %d core%s, load %s%s" % (b.get("cpu") or "?", b["cores"], "" if b["cores"] == 1 else "s", load,
+                                                     ", " + b["vm"] if b.get("vm") else ""),
+            "  video decoding: %s; the player reads %s ahead and keeps %s behind%s" % (
+                ", ".join(b.get("video") or []) or "the processor only", cache[0], cache[1],
+                ", %d threads" % max(1, b["cores"]) if slow_board() else "")]
+
+
 def report_text():
     """What Send a report sends: the box and how it's doing, the pages' errors and their video players' messages
     (Browser.notes), mpv's last words, then the checks and the logs since it started (sofa-box report). No titles:
@@ -3970,6 +4033,8 @@ def report_text():
                                                                          ", chosen by the box" if settings().get("learned_lite") else "")]
         out += smooth_lines(safely(browser.smoothness) or {}) or ["(no presses yet)"]
         out.append("  the browser draws with the graphics chip: %s" % safely(browser.gpu))
+    lines = safely(memory_lines)
+    out += lines if isinstance(lines, list) else ["== Memory and processor", "  (%s)" % lines]
     code, logs = run(["sudo", "-n", os.path.join(HERE, "sofa-box"), "report"], 90)
     if code != 0 and "== Sofa Box OS" not in logs:            # a box installed before reports: what it can see itself
         logs = run([os.path.join(HERE, "sofa-box"), "doctor"], 60)[1] + "\n\n" + run(["journalctl", "-b", "--no-pager", "-n", "400"], 30)[1]
