@@ -2571,7 +2571,7 @@ function machinePanel(m) {
   const speeds = Object.entries(m.speeds || {}).map(([k, v]) => `<div class="stat"><b>${v && !bad.includes(k) ? Math.round(v) : "—"}</b><span>${esc(ENC_NAMES[k] || k)}${bad.includes(k) ? ": makes damaged pictures on this computer (lines across), not used" : v ? " frames/s" : ": doesn't work here"}${m.best === k ? " · in use" : ""}</span></div>`).join("");
   const gs = m.gentle_setting === true ? "on" : m.gentle_setting === false ? "off" : "auto";
   return `<div class="panel wide"><h2>This computer</h2>
-    <p class="hint">${esc(m.cpu)} · ${m.cores} cores${m.memory ? " · " + bytes(m.memory) + " memory" : ""} · ${esc(m.system)}${m.modern_cpu === false ? " · an older processor" : ""}</p>
+    <p class="hint">${m.board ? esc(m.board) + " · " : ""}${esc(m.cpu)} · ${m.cores} cores${m.cpu_count && m.cpu_count !== m.cores ? " (of " + m.cpu_count + ")" : ""}${m.memory ? " · " + bytes(m.memory) + " memory" : ""} · ${esc(m.system)}${m.modern_cpu === false ? " · an older processor" : ""}${m.video && m.video.length ? " · video: " + esc(m.video.join(", ")) : ""}</p>
     ${speeds ? `<p class="hint">Converting 1080p video (tested ${esc(ago(m.measured))}); Sofa uses the faster way:</p><div class="stats">${speeds}</div>`
       : `<p class="hint">Sofa tests how fast this computer converts video a minute after starting.</p>`}
     ${bad.includes("h264_videotoolbox") ? `<div class="warn-box"><b>Apple's video converter draws lines across the picture on this Mac</b>

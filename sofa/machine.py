@@ -28,39 +28,16 @@ _lock = threading.Lock()
 _result = {}
 
 
-def _sysctl(name):
-    try:
-        return subprocess.run(["sysctl", "-n", name], capture_output=True, text=True, timeout=5).stdout.strip()
-    except (OSError, subprocess.SubprocessError):
-        return ""
-
-
 def describe():
-    """CPU model, cores, memory and whether the CPU is from before ~2013 (no AVX2)."""
-    cpu, avx2 = platform.processor() or "", None
-    if platform.system() == "Darwin":
-        cpu = _sysctl("machdep.cpu.brand_string") or cpu
-        if platform.machine() == "arm64":
-            avx2 = True                                   # Apple silicon: modern
-        else:
-            flags = (_sysctl("machdep.cpu.leaf7_features") + " " + _sysctl("machdep.cpu.features")).upper()
-            avx2 = "AVX2" in flags
-        mem = int(_sysctl("hw.memsize") or 0)
-    else:
-        try:
-            with open("/proc/cpuinfo") as f:
-                text = f.read()
-            m = re.search(r"model name\s*:\s*(.+)", text)
-            cpu = m.group(1).strip() if m else cpu
-            avx2 = " avx2" in text
-        except OSError:
-            pass
-        try:
-            mem = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES")
-        except (ValueError, OSError, AttributeError):
-            mem = 0
-    return {"cpu": re.sub(r"\s+", " ", cpu or "unknown"), "cores": os.cpu_count() or 1, "memory": mem,
-            "modern_cpu": avx2, "system": "%s %s" % (platform.system(), platform.mac_ver()[0] or platform.release())}
+    """CPU model, the cores Sofa may use, memory, and whether the CPU can convert video quickly (hardware.py: on
+    Intel and AMD, AVX2, from about 2013; on ARM, a Cortex-A76 or newer, Apple's, a server's: a Pi 3's or a Pi 4's
+    cores are too slow, a Pi 5's aren't). ARM was all "old" here before (only AVX2 was looked for), so gentle mode
+    was on for a Pi 5, an ARM server and Docker on a Mac with Apple silicon."""
+    from . import hardware
+    d = hardware.describe()
+    return {"cpu": d["cpu"], "cores": d["cores"], "memory": d["memory"],
+            "modern_cpu": None if d["slow_cores"] is None else not d["slow_cores"],
+            "system": "%s %s" % (platform.system(), platform.mac_ver()[0] or platform.release())}
 
 
 def _time_encoder(name):
@@ -266,7 +243,10 @@ def live_height(kind, top):
 
 
 def status():
+    from . import hardware
     d = dict(describe_cached())
+    hw = hardware.describe()
+    d.update(board=hw["pi"] or hw["virtual"], video=hw["video"], cpu_count=hw["cpu_count"])
     d.update(speeds=_result.get("speeds") or {}, best=_result.get("best"), measured=_result.get("at"), damaged=_result.get("damaged") or [],
              gentle=gentle(), gentle_setting=config.get("gentle"), quiet_hours=config.get("quiet_hours") or "01:00-07:00",
              quiet_now=quiet_now(), max_live_height=max_live_height())
