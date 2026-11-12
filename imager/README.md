@@ -60,8 +60,9 @@ Two read-only checks from Terminal, which open no window and never open a disk:
 
 GitHub builds and tests it on every change to this folder (`.github/workflows/imager.yml`) on three of its
 Macs: Apple silicon on macOS 26 and macOS 15, and an Intel Mac. The unsigned app is kept with each run as
-the `sofa-box-imager-mac-unsigned` artifact. That workflow is new with this folder: its first runs are on
-the pull request that adds it.
+the `sofa-box-imager-mac-unsigned` artifact, and each build on main replaces the zip on the
+[`sofa-box-imager` release](https://github.com/krintoxi/sofa/releases/tag/sofa-box-imager) (a pre-release, so it
+never becomes the repository's latest), the one fixed place to download the newest app.
 
 ## Which disks it may write
 

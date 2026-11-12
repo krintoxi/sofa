@@ -13,10 +13,16 @@ on:
 permissions:
   contents: read
 
+# Each build on main replaces the zip on one release, "sofa-box-imager", so there is always one fixed place to
+# download the newest Mac app (edgeventure.uk/downloads links to it). A pre-release, so it never becomes the
+# repository's "latest" release. Pull requests and other branches only keep the artifact, as before.
+
 jobs:
   mac:
     name: ${{ matrix.mac }}
     runs-on: ${{ matrix.mac }}
+    permissions:
+      contents: write   # only the publish step below uses it, and only on main
     strategy:
       fail-fast: false
       matrix:
@@ -57,3 +63,32 @@ jobs:
           name: sofa-box-imager-mac-unsigned
           path: imager/build/*.zip
           if-no-files-found: error
+      - name: Publish it on the "sofa-box-imager" release (main only)
+        if: matrix.mac == 'macos-26' && github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD: ${{ github.run_number }}
+        run: |
+          set -e
+          ZIP="$(ls imager/build/*.zip)"
+          NAME="$(basename "$ZIP")"
+          VERSION="$(tr -d ' \n' < imager/VERSION)"
+          cat > notes.md <<NOTES
+          <!-- sofa-box-imager version=$VERSION build=$BUILD commit=$GITHUB_SHA -->
+          **Sofa Box Imager $VERSION** for Mac (build $BUILD, from ${GITHUB_SHA::7} on main): EdgeVenture's own app that writes a Sofa Box OS card. macOS 13 or newer, Apple silicon and Intel.
+
+          - **It has not written a real SD card yet.** Everything up to the hardware is tested on GitHub's Macs; the card reader and the password prompt need a person. If you try it, tell us how it went: https://github.com/krintoxi/sofa/issues/new/choose
+          - **It isn't signed**, so macOS stops it the first time: open it, then System Settings → Privacy & Security → Open Anyway.
+          - Raspberry Pi's own Imager works too, with our list: https://github.com/krintoxi/sofa/releases/download/sofa-box/sofa-box.rpi-imager-manifest
+
+          Download **$NAME** below, unzip it and move the app to Applications. The guide: https://github.com/krintoxi/sofa/blob/main/imager/README.md
+          NOTES
+          if ! gh release view sofa-box-imager >/dev/null 2>&1; then
+            gh release create sofa-box-imager --prerelease --title "Sofa Box Imager $VERSION for Mac (unsigned)" --notes-file notes.md --target "$GITHUB_SHA"
+          fi
+          gh release upload sofa-box-imager "$ZIP" --clobber
+          # Only the newest zip stays on the release.
+          gh release view sofa-box-imager --json assets --jq '.assets[].name' | while read -r old; do
+            [ "$old" = "$NAME" ] || gh release delete-asset sofa-box-imager "$old" -y
+          done
+          gh release edit sofa-box-imager --prerelease --title "Sofa Box Imager $VERSION for Mac (unsigned, build $BUILD)" --notes-file notes.md
