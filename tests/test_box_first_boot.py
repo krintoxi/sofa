@@ -408,15 +408,15 @@ class HomeScreen(unittest.TestCase):
         self.fail("never: %s (%r)" % (expression, value))
 
     def test_1_power_note_on_home_once_a_start(self):
-        note = self.until("(document.querySelector('#view .mast .power-note') || {}).textContent")
+        note = self.until("(document.querySelector('#view .mast .power-note, #view .spt-detail .power-note') || {}).textContent")   # (Classic, or Spotlight)
         self.assertIn("The box is short of power.", note)
         self.assertIn("Plug it into the wall", note)
         self.assertFalse(self.page("!!(document.activeElement && document.activeElement.closest('.power-note'))"))   # not in the way
-        self.assertTrue(self.page("!!document.activeElement.closest('.mast .row-actions')"))       # first press: as ever
+        self.assertTrue(self.page("!!document.activeElement.closest('.mast .row-actions, .spt .spt-track')"))   # first press: as ever
         self.page("location.hash = '#/store'")
         self.until("document.documentElement.dataset.page === 'store'")
         self.page("location.hash = '#/'")
-        self.until("document.documentElement.dataset.page === 'home' && !!document.querySelector('#view .mast')")
+        self.until("document.documentElement.dataset.page === 'home' && !!document.querySelector('#view .mast, #view .spt')")
         time.sleep(6)                                                             # (Home looks again every 5 seconds)
         self.assertFalse(self.page("!!document.querySelector('.power-note')"))     # seen: not again this start
         with self.opener.open(self.base + "/box/api/apps", timeout=20) as r:

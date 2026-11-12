@@ -273,7 +273,7 @@ class BoxPagesSpeed(unittest.TestCase):
         p = self.page
         p.call("Page.navigate", {"url": self.base + "/box/home?t=%d#/" % time.time()})
         for _ in range(100):
-            if p.value("!!document.querySelector('.watch-row .tile') && document.documentElement.classList.contains('lite')"):
+            if p.value("!!document.querySelector('#view .spt-track .tile') && document.documentElement.classList.contains('lite')"):
                 break
             time.sleep(0.1)
         time.sleep(1.5)                                   # (the opening, then the page as it stays)
@@ -284,7 +284,7 @@ class BoxPagesSpeed(unittest.TestCase):
         ones around the tile in front (it was, on every press, each drawn again), and nothing is drawn for a background
         that never shows (the page's own background is over it)."""
         p = self.home()
-        p.press("ArrowDown", 40)                          # (into the Watch row)
+        p.press("ArrowDown", 40)                          # (into Spotlight's second row: the games here)
         first = p.layers()
         for key, code in (("ArrowRight", 39), ("ArrowRight", 39), ("ArrowRight", 39), ("ArrowLeft", 37)):
             p.press(key, code)
@@ -298,7 +298,7 @@ class BoxPagesSpeed(unittest.TestCase):
         the browser then drew every tile after it again, the whole row on each press. In the light look the tile now
         stays exactly as it is, and its ring is a layer of its own: nothing of the row or the page is drawn again."""
         p = self.home()
-        p.press("ArrowDown", 40)                          # (into the Watch row, its first tile)
+        p.press("ArrowDown", 40)                          # (into Spotlight's second row, its first tile)
         # The page has just opened: for a few seconds the browser still draws things of its own accord (the parts of its
         # rows that are off the screen, icons as they arrive). So: to the next tile and back (the row doesn't scroll),
         # until one pair of presses has a quiet page to itself. A row drawn again on every press never has one: that
@@ -319,18 +319,19 @@ class BoxPagesSpeed(unittest.TestCase):
         its neighbours, with a ring over it that is its own layer."""
         p = self.home()
         p.press("ArrowDown", 40)
+        p.value("window.__row = document.querySelector('#view .tile.f').closest('.rail'); 1")      # (the row the remote is in)
         look = ("(e => { const c = getComputedStyle(e); return [c.transform, c.backgroundImage, c.backgroundColor, c.boxShadow, c.zIndex].join(' | '); })"
-                "(document.querySelectorAll('.watch-row .tile')[%d])")
-        self.assertTrue(p.value("document.querySelectorAll('.watch-row .tile')[0].classList.contains('f')"))
+                "(window.__row.querySelectorAll('.tile')[%d])")
+        self.assertTrue(p.value("window.__row.querySelectorAll('.tile')[0].classList.contains('f')"))
         first = p.value(look % 0)
         p.press("ArrowRight", 39)
         self.assertEqual(p.value(look % 0), first)                     # out of focus: just as it was in focus
         self.assertIn("none", first.split(" | ")[0])
         self.assertEqual(first.split(" | ")[-1], "auto")               # never in front of its neighbours
         ring = p.value("(c => [c.content, c.willChange, c.borderTopStyle, c.pointerEvents].join('|'))"
-                       "(getComputedStyle(document.querySelector('.watch-row .tile.f'), '::after'))")
+                       "(getComputedStyle(window.__row.querySelector('.tile.f'), '::after'))")
         self.assertEqual(ring, '""|transform|solid|none')
-        self.assertEqual(p.value("getComputedStyle(document.querySelectorAll('.watch-row .tile')[0], '::after').content"), "none")
+        self.assertEqual(p.value("getComputedStyle(window.__row.querySelectorAll('.tile')[0], '::after').content"), "none")
         with open(os.path.join(BOX, "home", "home.css"), encoding="utf-8") as f:
             css = f.read()
         # the full look keeps its rules, exactly as strong as they were (:where adds nothing to a selector's weight)

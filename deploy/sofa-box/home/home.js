@@ -46,6 +46,7 @@
     const d = new Date(), [hm, ap] = clockParts(d), clock = esc(hm) + (ap ? "<small>" + ap + "</small>" : "");
     put($("#sClock"), hm + ap, clock);
     put($("#clock"), d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
+    put($("#sptClock"), hm + ap, clock);
     const big = $("#mClock");
     if (!big) return;
     put(big, hm + ap, clock);
@@ -103,7 +104,7 @@
     if ((data.running || []).some(r => r.app === app.id)) return;
     el.style.setProperty("--c", app.color || "var(--a)");
     const ic = $(".op-ic", el);
-    ic.className = "op-ic" + (!app.icon_url && !BUILTIN_ICON[app.id] ? " mono" : "");
+    ic.className = "op-ic" + icCls(app);
     ic.innerHTML = appIcon(app);
     $("b", el).textContent = text || "Opening " + app.name + "…";
     el.hidden = false; void el.offsetWidth; el.classList.add("on");
@@ -182,16 +183,30 @@
   // 1024 pixels; a 4K TV gets twice the size)
   const ICON_W = innerWidth > 2600 ? 384 : 192;
   const iconSrc = u => /^\/box\/(store-)?icons\//.test(u || "") ? u + (u.includes("?") ? "&" : "?") + "w=" + ICON_W : u;
+  // The box's own apps and EdgeVenture's have icons made for the box, in five styles to pick from (Settings → Home
+  // screen → Icons), or the apps' own. tools/box-icons draws them and bakes them to pictures: a Pi only shows a picture,
+  // none of the gloss or glow is drawn here. (Other companies' apps keep their own icons, fetched from their sites.)
+  const OWN_ICONS = new Set(["sofa", "live", "browser", "store", "games", "files", "settings", "edge-music", "lj-showroom", "lj-manager",
+    "lj-fragrances", "edgeventure", "gold-toilet"]);
+  const ICON_STYLES = [["glossy", "Glossy"], ["drawn", "Drawn"], ["sticker", "Sticker"], ["phosphor", "Phosphor"], ["pixel", "Pixel"], ["original", "The apps' own"]];
+  const iconStyle = () => ICON_STYLES.some(t => t[0] === data.icon_style) ? data.icon_style : "glossy";
+  const ownPic = (id, big, style) => `/box/home/art/icons/${style || iconStyle()}/${big || ICON_W > 192 ? 512 : 192}/${id}.webp`;
+  const drawnIcon = (id, big) => `<img class="drawn-ic" decoding="async" src="${ownPic(id, big)}" alt="">`;
+  const isDrawn = a => !!(a && OWN_ICONS.has(a.id) && iconStyle() !== "original");
+  // Other companies' apps fit the style too, their logos untouched: each app's own icon (or its first letter) sits in
+  // that style's housing, a picture behind it and one on it (tools/box-icons/frames.js), drawn once like any picture.
+  const isFramed = a => !!(a && iconStyle() !== "original" && !OWN_ICONS.has(a.id) && !a.emoji && !a.game && !a.input);
+  const icCls = a => isDrawn(a) ? " drawn" : (isFramed(a) ? " framed" : "") + (!a.icon_url && !BUILTIN_ICON[a.id] ? " mono" : "");
   function appIcon(a) {
+    if (isDrawn(a)) return drawnIcon(a.id);
     if (a.icon_url) return `<img decoding="async" src="${esc(iconSrc(a.icon_url))}" alt="" loading="lazy" onload="sofaIcon(this)" onerror="this.parentNode.classList.add('mono');this.replaceWith(document.createTextNode('${esc((a.name || "?")[0])}'))">`;
     if (BUILTIN_ICON[a.id]) return icon(BUILTIN_ICON[a.id]);
     return esc((a.name || "?").replace(/^the\s+/i, "")[0].toUpperCase());
   }
   function appTile(a, wide) {
     const running = (data.running || []).some(r => r.app === a.id);
-    const mono = !a.icon_url && !BUILTIN_ICON[a.id];
     return `<button class="tile app${wide ? " wide" : ""}${a.hidden ? " off" : ""}${a.kind === "builtin" ? " own" : ""}" style="--c:${esc(a.color || "")}" data-app="${esc(a.id)}">
-      ${running ? `<i class="dot" title="Open"></i>` : ""}<span class="ic${mono ? " mono" : ""}">${appIcon(a)}</span><b>${esc(a.name)}</b>${wide && a.about ? `<small>${esc(a.about)}</small>` : ""}</button>`;
+      ${running ? `<i class="dot" title="Open"></i>` : ""}<span class="ic${icCls(a)}">${appIcon(a)}</span><b>${esc(a.name)}</b>${wide && a.about ? `<small>${esc(a.about)}</small>` : ""}</button>`;
   }
   function hint(parts) {
     $("#hint").innerHTML = parts.map(p => `<span><kbd>${esc(p[0])}</kbd>${esc(p[1])}</span>`).join("");
@@ -281,6 +296,8 @@
     try { weather = await api("/box/api/weather"); } catch (e) { return; }
     const el = $("#wx");
     if (el) el.innerHTML = weatherCard();
+    const sw = $("#sptWx");
+    if (sw && weather && weather.ok) sw.innerHTML = wxIcon(weather.symbol) + "<b>" + weather.temp + "°</b>";
   }
   setInterval(() => { if (!document.hidden) loadWeather(); }, 15 * 60000);
   // ---------------------------------------------------------------- the mini player: music an app plays behind Home
@@ -306,7 +323,147 @@
         <button class="btn" data-music="open">Open ${esc(n.name)}</button></span></section>`;
   }
 
+
+  // ---------------------------------------------------------------- Spotlight: Home as a TV's own home screen
+  // The picture behind Home is whatever the remote is on: the show you were watching, a game playing, an app's own
+  // colour and icon. Its name and a line about it sit over the picture, rows of things below: the apps, Continue
+  // watching, what's open, what's plugged in, the games. (Classic, the Home before it, is a choice in Settings.)
+  // On a Pi 3 (the light look) the picture and its words change once the remote has rested, not on every press: a
+  // press itself draws only the ring around the tile it reaches, as before, and the picture is drawn once you stop.
+  const spot = { shelf: null, timer: 0, layer: 0, bgKey: "" };
+  const isSpot = () => data.home_layout !== "classic";
+  // the box's own web games, photographed playing themselves (deploy/sofa-box/home/art/games)
+  const GAME_ART = new Set(["neon-dodge", "pair-up", "sky-hop", "gloamwell", "cinder-knight", "shadow-heist", "rune-tactics",
+                            "micro-drifters", "neon-brawler", "void-drifter", "cosmic-cascade", "tidewing", "ironmaw"]);
+  const SPT_ABOUT = { browser: "The web on the TV. Search, or type an address.", store: "Streaming, music, kids, news, and EdgeVenture's own.",
+                      games: "The box's own games, and the ones you add. Plug in a controller and press A.",
+                      files: "USB drives, discs, and what you've downloaded.", settings: "Wi-Fi, picture and sound, remotes and controllers.",
+                      live: "Free channels, Classic Cinema and the decades, on the clock.", sofa: "Your shows and films." };
+  const backW = () => data.slow ? 960 : 1600;
+  const sptRow = (id, title, inner, cls) => `<section class="spt-row" data-row="${id}"><h2 class="row-title">${title}</h2><div class="rail spt-track${cls ? " " + cls : ""}">${inner}</div></section>`;
+  function sptApp(a, extra) {
+    const running = (data.running || []).some(r => r.app === a.id);
+    return `<button class="tile app spt-app${a.kind === "builtin" ? " own" : ""}" style="--c:${esc(a.color || "")}" ${extra || `data-app="${esc(a.id)}"`}>
+      ${running ? `<i class="dot" title="Open"></i>` : ""}<span class="ic${icCls(a)}">${appIcon(a)}</span><b>${esc(a.name)}</b></button>`;
+  }
+  const sptArt = (attrs, src, title, pct) => `<button class="tile spt-art" ${attrs}><span class="spt-pic">${src ? `<img decoding="async" loading="lazy" src="${esc(src)}" alt="" onerror="this.remove()">` : ""}${pct != null ? `<span class="bar"><i style="width:${pct}%"></i></span>` : ""}</span><b>${esc(title)}</b></button>`;
+  function viewSpotlight() {
+    const apps = data.apps.filter(a => !a.hidden), s = sofa || {}, items = s.items || [];
+    const running = (data.running || []).filter(r => r.app !== "home");
+    const rows = [sptRow("apps", "Apps", apps.map(a => sptApp(a)).join("") +
+      `<button class="tile app spt-app" data-go="#/store"><span class="ic plus">${icon("#i-plus")}</span><b>Get more</b></button>`)];
+    if (items.length) rows.push(sptRow("continue", `Continue watching <small>${esc(s.name || "Sofa")}</small>`,
+      items.map(it => sptArt(`data-sofa-hash="${esc(it.play || it.hash)}" data-cw="${esc(it.id)}"`, artSrc(it.art, 480), it.title, it.pct)).join("")));
+    if (running.length) rows.push(sptRow("open", "Open now <small>what's playing carries on; the rest close by themselves after a moment</small>", running.map(r => {
+      const a = data.apps.find(x => x.id === r.app) || { id: r.app, name: r.title || r.app, color: "var(--a)" };
+      return sptApp(Object.assign({}, a, { name: r.title || a.name }), `data-target="${esc(r.target)}"`).replace("</button>", `<span class="x" data-close="${esc(r.target)}" title="Close">${icon("#i-close")}</span></button>`);
+    }).join("")));
+    const plugged = inputsRow();
+    if (plugged) rows.push(`<section class="spt-row" data-row="plugged">${plugged}</section>`);
+    if (games && games.games.length) rows.push(sptRow("games", "Games", (games.native || []).filter(g => g.installed).map(g => `<button class="tile app spt-app" style="--c:${esc(g.color)}" data-play="${esc(g.id)}"><span class="ic emoji">${gameIc(g)}</span><b>${esc(g.name)}</b></button>`).join("")
+      + games.games.map(g => GAME_ART.has(g.id) ? sptArt(`data-game="${esc(g.id)}"`, "/box/home/art/games/" + g.id + ".jpg", g.name)
+        : `<button class="tile app spt-app" style="--c:${esc(g.color)}" data-game="${esc(g.id)}"><span class="ic emoji">${esc(g.emoji || g.name[0])}</span><b>${esc(g.name)}</b></button>`).join("")
+      + `<button class="tile app spt-app" data-go="#/games"><span class="ic plus">${icon("#i-plus")}</span><b>More games</b></button>`));
+    return `<div class="spt view-in"><div class="spt-detail">${powerLine()}<div class="spt-text" id="sptText">${sptText(spot.shelf)}</div></div>
+      <div class="spt-rows" id="sptRows">${rows.join("")}</div></div>`;
+  }
+  // What the remote is on: the picture behind Home and the words over it
+  function shelfOf(el) {
+    const d = el.dataset, s = sofa || {}, items = s.items || [];
+    const field = (key, a, kicker, title, meta, ok) => ({ key, c: (a && a.color) || "var(--a)", app: a, kicker, title, meta, ok });
+    if (d.cw) {
+      const it = items.find(x => x.id === d.cw);
+      if (it) return { key: "cw:" + it.id, art: artSrc(it.backdrop || it.art, backW()), kicker: "Continue watching", title: it.title, meta: it.sub, pct: it.pct, ok: "Resume" };
+    }
+    if (d.game && games) {
+      const g = games.games.find(x => x.id === d.game);
+      if (g) return GAME_ART.has(g.id) ? { key: "game:" + g.id, art: "/box/home/art/games/" + g.id + ".jpg", kicker: "Game", title: g.name, meta: g.about || "", ok: "Play" }
+        : field("game:" + g.id, { name: g.name, color: g.color, emoji: g.emoji || g.name[0] }, "Game", g.name, g.about || "", "Play");
+    }
+    if (d.play && games) {
+      const g = (games.native || []).find(x => x.id === d.play);
+      if (g) return field("native:" + g.id, { name: g.name, color: g.color, game: g }, "Game", g.name, g.about || "Plays full screen. Home ends it.", "Play");
+    }
+    if (d.drive || d.disc) return field("in:" + (d.drive || d.disc), { name: "", color: d.disc ? "#7C5CFF" : "#2BB673", input: d.disc ? "#i-disc" : "#i-usb" },
+      "Plugged in", (el.querySelector("b") || {}).textContent || "", (el.querySelector("small") || {}).textContent || "", d.disc && d.disc !== "data" ? "Play" : "Open in Files");
+    if (d.go === "#/store") return field("go:store", data.apps.find(a => a.id === "store"), "Store", "Get more apps", SPT_ABOUT.store, "Open the Store");
+    if (d.go === "#/games") return field("go:games", data.apps.find(a => a.id === "games"), "Games", "More games", "Download more for the box: Sofa Craft, SuperTuxKart, and others.", "Open Games");
+    const run = d.target ? (data.running || []).find(r => r.target === d.target) : null;
+    const id = d.app || (run && run.app);
+    if (!id) return null;
+    const a = data.apps.find(x => x.id === id) || { id, name: (run && run.title) || id };
+    const now = data.now && !data.now.front && data.now.app === id ? data.now : null;
+    if (id === "sofa") {
+      const it = items[0];
+      if (it) return { key: "app:sofa:" + it.id, art: artSrc(it.backdrop || it.art, backW()), kicker: s.name || "Sofa", title: it.title, meta: "Pick up where you left off: " + it.sub, pct: it.pct, ok: "Open Sofa" };
+      return field("app:sofa", a, "Sofa", "Sofa", s.found && s.signedIn ? "Pick something to watch." : s.found ? "Open it, and sign in with your phone." : "Open it to pick where it plays from, or watch free Live TV.", "Open");
+    }
+    if (now) return { key: "app:" + id + ":" + now.title, art: now.art || null, c: a.color || "var(--a)", app: a, kicker: (now.playing ? "Playing in " : "Paused in ") + a.name,
+                      title: now.title || a.name, meta: now.artist || "", ok: "Open " + a.name };
+    return field("app:" + id, a, a.kind === "builtin" ? "On the box" : a.category === "ours" ? "From EdgeVenture" : "App", a.name,
+      run ? "Open now. Home brings you back to where you were." : SPT_ABOUT[id] || "Opens full screen. Home brings you back here.", run ? "Back to it" : id === "live" ? "Watch" : "Open");
+  }
+  function sptText(sh) {
+    if (!sh) return "";
+    return `<div class="spt-kicker">${esc(sh.kicker)}</div><h1 class="spt-title">${esc(sh.title)}</h1>${sh.meta ? `<p class="spt-meta">${esc(sh.meta)}</p>` : ""}
+      ${sh.pct != null ? `<div class="spt-bar"><i style="width:${Math.max(2, sh.pct)}%"></i></div>` : ""}<p class="spt-ok"><kbd>OK</kbd>${esc(sh.ok)}</p>`;
+  }
+  function sptBig(a) {                             // an app's own icon, big, on its colour: the picture for an app
+    if (!a) return "";
+    if (a.input) return icon(a.input);
+    if (a.game) return gameIc(a.game);
+    if (a.emoji) return esc(a.emoji);
+    if (isDrawn(a)) return drawnIcon(a.id, true);
+    if (a.icon_url) return `<img decoding="async" src="${esc(iconSrc(a.icon_url))}" alt="">`;
+    if (BUILTIN_ICON[a.id]) return icon(BUILTIN_ICON[a.id]);
+    return esc((a.name || "?").replace(/^the\s+/i, "")[0].toUpperCase());
+  }
+  function sptBackdrop(sh) {
+    const bg = $("#sptBg");
+    if (!bg) return;
+    const key = sh ? sh.key + "|" + (sh.art || "") : "";
+    if (key === spot.bgKey) return;
+    spot.bgKey = key;
+    const layers = $$(".spt-layer", bg), next = layers[(spot.layer + 1) % 2], prev = layers[spot.layer % 2];
+    const field = () => `<div class="spt-field" style="--c:${esc((sh && sh.c) || "var(--a)")}"><span class="spt-big${sh && sh.app ? icCls(sh.app) : ""}">${sptBig(sh && sh.app)}</span></div>`;
+    next.innerHTML = !sh ? "" : sh.art ? `<img decoding="async" src="${esc(sh.art)}" alt="">` : field();
+    const done = () => {
+      if (spot.bgKey !== key) return;
+      next.classList.add("on"); prev.classList.remove("on"); spot.layer++;
+      setTimeout(() => { if (spot.bgKey === key) prev.innerHTML = ""; }, data.slow ? 0 : 600);   // (the picture behind goes: its memory too)
+    };
+    const img = $("img", next);
+    if (img && !img.complete) { img.onload = done; img.onerror = () => { if (spot.bgKey === key) { next.innerHTML = field(); done(); } }; } else done();
+  }
+  function sptShelf(el, now) {
+    if (!el || !el.closest(".spt, .top-extra")) return;
+    const sh = el.closest(".top-extra") ? null : shelfOf(el);
+    if (!sh) return;
+    clearTimeout(spot.timer);
+    const apply = () => {
+      spot.shelf = sh;
+      const t = $("#sptText");
+      if (t && t.dataset.key !== sh.key + "|" + sh.meta) { t.innerHTML = sptText(sh); t.dataset.key = sh.key + "|" + sh.meta; }
+      sptBackdrop(sh);
+    };
+    // (a Pi 3: 1.2 s after the last press. The picture is a full screen to draw, about 40 pieces; drawn while the remote
+    // is still moving, the next press would wait for it. A Pi 4 or 5 draws it at once.)
+    if (now) apply(); else spot.timer = setTimeout(apply, data.slow ? 1200 : 180);
+  }
+  function sptTop() {                                  // the top bar's right end: the weather, the time, the music
+    const n = data.now, d = new Date(), [hm, ap] = clockParts(d), w = weather && weather.ok ? weather : null;
+    const can = (n && n.can) || [];
+    return `${w ? `<span class="spt-wx" id="sptWx">${wxIcon(w.symbol)}<b>${w.temp}°</b></span>` : `<span class="spt-wx" id="sptWx"></span>`}
+      <span class="spt-clock" id="sptClock">${esc(hm)}${ap ? "<small>" + ap + "</small>" : ""}</span>
+      ${npSig(n) ? `<span class="spt-np" id="np" style="--c:${esc(n.color || "")}">${n.art ? `<img decoding="async" src="${esc(n.art)}" alt="" referrerpolicy="no-referrer" onerror="this.remove()">` : ""}
+        <span class="spt-np-t"><b>${esc(n.title || n.name)}</b><small>${n.playing ? esc(n.artist || "Playing in " + n.name) : "Paused in " + esc(n.name)}</small></span>
+        ${can.includes("previoustrack") ? `<button class="np-k" data-music="previoustrack" aria-label="Previous track">${NP_SVG.previoustrack}</button>` : ""}
+        <button class="np-k play" data-music="toggle" aria-label="${n.playing ? "Pause" : "Play"}">${n.playing ? NP_SVG.pause : NP_SVG.play}</button>
+        ${can.includes("nexttrack") ? `<button class="np-k" data-music="nexttrack" aria-label="Next track">${NP_SVG.nexttrack}</button>` : ""}</span>` : ""}`;
+  }
+
   function viewHome() {
+    if (isSpot()) return viewSpotlight();
     const apps = data.apps.filter(a => !a.hidden);
     const watch = apps.filter(a => WATCH.has(a.category)).map(a => Object.assign({ about: ABOUT[a.id] }, a));
     const rest = apps.filter(a => !WATCH.has(a.category));
@@ -321,7 +478,7 @@
           <span class="meta"><b>${esc(it.title)}</b><small>${esc(it.sub)}</small></span></button>`).join("")}</div>` : ""}
       ${running.length ? `<h2 class="row-title">Open now <small>what's playing carries on; the rest close by themselves after a moment</small></h2><div class="rail open-now">${running.map(r => {
           const a = data.apps.find(x => x.id === r.app) || { id: r.app, name: r.title || r.app, color: "var(--a)" };
-          return `<button class="tile app" style="--c:${esc(a.color || "")}" data-target="${esc(r.target)}"><span class="ic${!a.icon_url && !BUILTIN_ICON[a.id] ? " mono" : ""}">${appIcon(a)}</span>
+          return `<button class="tile app" style="--c:${esc(a.color || "")}" data-target="${esc(r.target)}"><span class="ic${icCls(a)}">${appIcon(a)}</span>
             <b>${esc(r.title || a.name)}</b><small>${esc(a.name || "")}</small><span class="x" data-close="${esc(r.target)}" title="Close">${icon("#i-close")}</span></button>`; }).join("")}</div>` : ""}
       <h2 class="row-title">Your apps <small>${rest.length}</small></h2><div class="rail">${rest.map(a => appTile(a)).join("")}
         <button class="tile app" data-go="#/store"><span class="ic plus">${icon("#i-plus")}</span><b>Get more</b></button></div>
@@ -333,7 +490,7 @@
   function viewStore() {
     if (!storeData) { api("/box/api/store").then(st => { storeData = st; render(true); setTimeout(refreshStoreIcons, 6000); }).catch(e => toast(e.message)); return `<h1 class="page">App Store</h1><p class="lede">Loading…</p>`; }
     const tile = e => `<button class="tile app${e.installed ? " have" : ""}" style="--c:${esc(e.color)}" data-store="${esc(e.id)}">
-        ${e.installed ? `<i class="badge">On Home</i>` : e.drm ? `<i class="badge warn" title="Uses DRM">DRM</i>` : ""}<span class="ic${e.icon_url ? "" : " mono"}">${e.icon_url ? `<img decoding="async" src="${esc(iconSrc(e.icon_url))}" alt="" loading="lazy" onload="sofaIcon(this)">` : esc(e.name.replace(/^the\s+/i, "")[0].toUpperCase())}</span><b>${esc(e.name)}</b></button>`;
+        ${e.installed ? `<i class="badge">On Home</i>` : e.drm ? `<i class="badge warn" title="Uses DRM">DRM</i>` : ""}<span class="ic${icCls(e)}">${appIcon(e)}</span><b>${esc(e.name)}</b></button>`;
     return `<div class="view-in"><h1 class="page">App Store</h1>
       <p class="lede">Apps open full screen, with no browser around them. Press OK to put one on Home.</p>
       <div class="store-detail" id="storeDetail"></div>
@@ -354,7 +511,7 @@
     const box = $("#storeDetail"); if (!box || !storeData) return;
     const e = storeData.sections.flatMap(s => s.apps).find(x => x.id === id); if (!e) return;
     box.style.setProperty("--c", e.color);
-    box.innerHTML = `<span class="ic${e.icon_url ? "" : " mono"}">${e.icon_url ? `<img decoding="async" src="${esc(iconSrc(e.icon_url))}" alt="" onload="sofaIcon(this)">` : esc(e.name[0])}</span><div><h3>${esc(e.name)}</h3><p>${esc(e.about || "")}${e.drm ? ` <span class="warn">Uses DRM: on a Pi 3 the picture may be smaller, and some services may not play.</span>` : ""}</p>
+    box.innerHTML = `<span class="ic${icCls(e)}">${appIcon(e)}</span><div><h3>${esc(e.name)}</h3><p>${esc(e.about || "")}${e.drm ? ` <span class="warn">Uses DRM: on a Pi 3 the picture may be smaller, and some services may not play.</span>` : ""}</p>
       <p class="addr">${esc(e.url.replace(/^https?:\/\//, ""))}</p></div>
       <div>${e.installed ? `<button class="btn primary" data-app="${esc(e.id)}">Open</button> <button class="btn" data-remove="${esc(e.id)}">Remove</button>`
         : `<button class="btn primary" data-install="${esc(e.id)}">Add to Home</button>`}</div>`;
@@ -727,7 +884,12 @@
       <section class="card"><h3>Performance: ${b.light ? "light" : "full"}</h3><p>${s.performance === "auto" ? (b.learned_lite ? "The box chose it: the full look answered the remote slowly here. " : "Chosen for this board. ") : ""}The light look leaves out the effects that are slow to draw, and keeps fewer apps open. Automatic measures how quickly the box answers and picks the light look when it needs to.</p>
         <div class="choices">${pick("performance", "auto", "Automatic")}${pick("performance", "light", "Light")}${pick("performance", "full", "Full")}</div></section>`;
     if (setTab === "home") return head("Home screen", "Its look, the weather, and which apps it shows.") +
-      `<section class="card"><h3>Look</h3><div class="themes">${THEMES.map(t => `<button class="theme" data-theme-pick="${t[0]}" aria-pressed="${th === t[0]}" style="--sw-bg:${t[2]};--sw-a:${t[3]};--sw-a2:${t[4]}"><i></i><b>${t[1]}</b></button>`).join("")}</div></section>
+      `<section class="card"><h3>Layout</h3><p>Spotlight: the picture behind Home is whatever the remote is on, with its name over it, and rows below. Classic: the clock, the weather and rows of tiles.</p>
+        <div class="choices">${pick("home_layout", "spotlight", "Spotlight")}${pick("home_layout", "classic", "Classic")}</div></section>
+      <section class="card"><h3>Look</h3><div class="themes">${THEMES.map(t => `<button class="theme" data-theme-pick="${t[0]}" aria-pressed="${th === t[0]}" style="--sw-bg:${t[2]};--sw-a:${t[3]};--sw-a2:${t[4]}"><i></i><b>${t[1]}</b></button>`).join("")}</div></section>
+      <section class="card"><h3>Icons</h3><p>How the apps look on Home. The box's own and EdgeVenture's are made in each style; other apps keep their own logo, set in the same style.</p>
+        <div class="iconsets">${ICON_STYLES.map(([v, label]) => `<button class="iconset" data-set="icon_style" data-value="${v}" aria-pressed="${iconStyle() === v}"><i>${["sofa", "live", "games"].map(id =>
+          v === "original" ? `<span class="ic-o">${icon(BUILTIN_ICON[id])}</span>` : `<img decoding="async" src="${ownPic(id, false, v)}" alt="">`).join("")}</i><b>${label}</b></button>`).join("")}</div></section>
       <section class="card"><h3>Weather</h3><p>${s.weather === "off" ? "Off: Home shows no weather." : b.weather_place
           ? `For <b>${esc(b.weather_place.name)}</b>${b.weather_picked ? "" : " (the city of the box's time zone)"}, from MET Norway, every half hour.` : "Pick a town or city for it."}</p>
         <div class="choices">${pick("weather", "on", "On")}${pick("weather", "off", "Off")}<span class="gap"></span>${pick("weather_units", "auto", "°C or °F: automatic")}${pick("weather_units", "c", "°C")}${pick("weather_units", "f", "°F")}</div>
@@ -1136,7 +1298,7 @@
     return `<div class="setup view-in">${top}<div class="setup-body"><h1>What do you watch?</h1>
       <p class="lede">Pick the ones you use: they go on Home, ready to sign in. Sofa and free Live TV are there already; the App Store has many more, any time.</p>
       <div class="pick-grid">${list.map(e => `<button class="tile app pick${picks.has(e.id) ? " on" : ""}" style="--c:${esc(e.color)}" data-pick="${esc(e.id)}" aria-pressed="${picks.has(e.id)}">
-        <i class="tick">${icon("#i-check")}</i><span class="ic${e.icon_url ? "" : " mono"}">${e.icon_url ? `<img decoding="async" src="${esc(iconSrc(e.icon_url))}" alt="" onload="sofaIcon(this)">` : esc(e.name.replace(/^the\s+/i, "")[0].toUpperCase())}</span><b>${esc(e.name)}</b></button>`).join("")}</div>
+        <i class="tick">${icon("#i-check")}</i><span class="ic${icCls(e)}">${appIcon(e)}</span><b>${esc(e.name)}</b></button>`).join("")}</div>
       </div>${nav(true, `data-done="1"`, (n => n ? "Add " + n + " and finish" : "Finish")([...picks].filter(id => !have.has(id)).length))}</div>`;
   }
 
@@ -1261,7 +1423,7 @@
   const focusables = () => {
     const sheetEl = $(".sheet");
     if (sheetEl) return $$("button:not([disabled]), input", sheetEl);
-    return $$(".tabs a").concat($$("#view button:not([disabled]), #view input, #view a[href]"));
+    return $$(".tabs a, .top-extra button").concat($$("#view button:not([disabled]), #view input, #view a[href]"));
   };
   function focus(el) {
     if (!el) return;
@@ -1270,6 +1432,7 @@
     cur = el; el.classList.add("f");
     if (el.tagName === "INPUT") el.focus({ preventScroll: true }); else { if (document.activeElement && document.activeElement.tagName === "INPUT") document.activeElement.blur(); el.focus({ preventScroll: true }); }
     reveal(el, prev);
+    sptShelf(el);
     if (el.dataset.store) storeDetail(el.dataset.store);
     // Settings: the list's highlight moves at once; the pane beside it follows once that has been drawn. (On a slow
     // board both could land in one frame, the highlight waiting for a whole new pane to be laid out and drawn.)
@@ -1295,6 +1458,11 @@
       const r = rail.getBoundingClientRect(), b = el.getBoundingClientRect(), pad = Math.min(r.width * .12, 9 * rem);
       const dx = b.left < r.left + pad ? b.left - r.left - pad : b.right > r.right - pad ? b.right - r.right + pad : 0;
       if (Math.abs(dx) > 1) rail.scrollBy(Object.assign({ left: dx }, how));
+    }
+    if (el.closest(".spt")) {                                                            // Spotlight: the row in focus on its line
+      const rows = $("#sptRows"), row = el.closest(".spt-row");
+      if (rows && row && Math.abs(rows.scrollTop - row.offsetTop) > 1) rows.scrollTo(Object.assign({ top: row.offsetTop }, how));
+      return;
     }
     if (!el.closest("#view")) return;
     if (el.closest(".set-nav")) { if (scrollY > 0) window.scrollTo(Object.assign({ top: 0 }, how)); return; }    // (it stays put: sticky)
@@ -1362,7 +1530,7 @@
     }
   });
   document.addEventListener("input", e => { if (e.target.tagName === "INPUT") e.target.dataset.typed = "1"; });
-  document.addEventListener("mouseover", e => { const t = e.target.closest("button, .tabs a, input"); if (t && t !== cur && !t.closest(".sheet-back") === !$(".sheet-back")) { if (cur) cur.classList.remove("f"); cur = t; t.classList.add("f"); if (t.dataset.store) storeDetail(t.dataset.store); } });
+  document.addEventListener("mouseover", e => { const t = e.target.closest("button, .tabs a, input"); if (t && t !== cur && !t.closest(".sheet-back") === !$(".sheet-back")) { if (cur) cur.classList.remove("f"); cur = t; t.classList.add("f"); if (t.dataset.store) storeDetail(t.dataset.store); sptShelf(t); } });
   document.addEventListener("contextmenu", e => { const t = e.target.closest("[data-app]"); if (t) { e.preventDefault(); appMenu(t.dataset.app); } });
   function submit(input) {
     if (input.classList.contains("kb-target")) { const ok = $(".sheet [data-sheet='join'], .sheet [data-sheet='ok']"); if (ok) ok.click(); }
@@ -1425,6 +1593,7 @@
       else if (d.saveName) { await api("/box/api/settings", { boot_text: $("#boxName").value }); api("/box/api/action/apply-boot", {}).catch(() => {}); toast("Saved: the boot screen shows it from the next start."); }
       else if (d.set) { boxInfo = Object.assign(boxInfo, await api("/box/api/settings", { [d.set]: d.value })); boxInfo.shield = await api("/box/api/shield");
         if (d.set === "performance") { await loadApps(); toast("The browser takes it fully from the box's next start."); }
+        if (d.set === "home_layout" || d.set === "icon_style") await loadApps();
         if (d.set.startsWith("weather")) loadWeather();
         refreshPane(); }
       else if (d.wxFind) { const q = ($("#wxPlace") || {}).value || ""; $("#wxFound").innerHTML = `<p class="small">Looking…</p>`;
@@ -1543,10 +1712,20 @@
     if (keep) $$(".view-in", view).forEach(v => v.classList.remove("view-in"));
     $$(".tabs a").forEach(a => a.setAttribute("aria-current", TABS[name] === a.dataset.tab ? "page" : "false"));
     document.documentElement.dataset.page = name || "home";
+    const spotOn = !!$(".spt", view);
+    document.documentElement.classList.toggle("spt-on", spotOn);
+    if (document.documentElement.dataset.icons !== iconStyle()) document.documentElement.dataset.icons = iconStyle();
+    $("#topExtra").innerHTML = spotOn ? sptTop() : "";
+    if (!spotOn && spot.bgKey) { spot.bgKey = ""; $$("#sptBg .spt-layer").forEach(l => { l.innerHTML = ""; l.classList.remove("on"); }); }
     const again = keepKey && $(keepKey);
     focus(again || $(name === "browser" ? "#address" : name === "store" ? "[data-store]" : name === "sofa" ? "#view .srv, #view .mini"
       : name === "welcome" ? "#view .btn.primary, #view .tile" : name === "settings" ? ".set-tab[aria-current='true']"
       : "#view .mast .btn, #view .tile, #view button, #view input") || $(".tabs a"));
+    if (spotOn && cur) {                         // (drawn again: the rows where they were, the words and picture at once)
+      const rows = $("#sptRows"), row = cur.closest(".spt-row");
+      if (rows && row) rows.scrollTop = row.offsetTop;
+      sptShelf(cur, true);
+    }
     hint(name === "files" ? [["OK", "Open or play"], ["Menu", "Rename, move, delete"], ["Back", "Up a folder"]]
       : name === "sofa" ? [["OK", "Use this one"], ["Back", "Home screen"]]
       : name === "browser" ? [["OK", "Go"], ["Menu", "on a site: the Sofa bar"], ["Home", "Back here from any app"]]
@@ -1555,7 +1734,7 @@
       : [["OK", "Choose"], ["Back", "Home screen"]]);
   }
   function keyOf(el) {
-    for (const a of ["music", "app", "store", "game", "play", "gameGet", "gameRemove", "file", "root", "set", "themePick", "move", "hide", "action", "target", "go", "url", "server", "pick", "addFound", "drive", "disc", "default", "forgetServer", "ask", "bt", "wifiPick", "tz", "step", "btLook", "setTab", "wifiRescan", "kb"]) {
+    for (const a of ["music", "cw", "app", "store", "game", "play", "gameGet", "gameRemove", "file", "root", "set", "themePick", "move", "hide", "action", "target", "go", "url", "server", "pick", "addFound", "drive", "disc", "default", "forgetServer", "ask", "bt", "wifiPick", "tz", "step", "btLook", "setTab", "wifiRescan", "kb"]) {
       if (el.dataset[a] !== undefined) {
         const attr = "data-" + a.replace(/[A-Z]/g, c => "-" + c.toLowerCase());
         return `[${attr}="${CSS.escape(el.dataset[a])}"]` + (el.dataset.by ? `[data-by="${el.dataset.by}"]` : "") + (el.dataset.value ? `[data-value="${el.dataset.value}"]` : "");

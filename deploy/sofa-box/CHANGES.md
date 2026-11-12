@@ -8,6 +8,41 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.73
+
+Home is Spotlight: the TV's own kind of home screen, picked by the owner from a live mock-up of three.
+
+- **The picture behind Home is whatever the remote is on.** The show you were watching (Sofa's own picture of it), a
+  game playing (each of the box's thirteen web games, photographed playing itself), or an app's own icon, big, on its
+  colour. Its name and a line about it sit over the picture: what to resume and where you were, what a game is, what
+  an app does. The rows below: Apps, Continue watching, Open now, Plugged in, Games.
+- **The page itself never scrolls.** The row the remote is in comes up to its line under the words, and moves sideways
+  in its own row, as Classic's rows did.
+- **The top bar's right end:** the weather, the time, and the music an app is playing (the mini player of 1.1.70: its
+  cover, the track, previous, play or pause, next).
+- **The box's own apps and EdgeVenture's have new icons, in five styles** (Settings → Home screen → Icons, each shown
+  with three of its icons): **Glossy**, the default, real-looking objects with shine and depth in the spirit of an old
+  Mac's desktop (a pink leather sofa, a CRT with a sunset on its screen, a glass globe, gears, a vinyl record, a cut
+  gem, a perfume bottle, a porcelain toilet); **Drawn**, an ink tile with bone lines and a mark or two in phosphor green
+  and hot pink; **Sticker**, die-cut street stickers; **Phosphor**, the lines lit like a green screen; **Pixel**, 16 by
+  16. Or **the apps' own**, as before. For Sofa, Live TV, Browser, Store, Games, Files, Settings, Edge Music, the LJ
+  apps, EdgeVenture and Glossy Gold Toilet, in Spotlight and Classic both.
+- **Every other app fits the style too, its logo untouched.** Netflix, YouTube and the rest keep the icon from their
+  own site, set in the style's housing: a glass tile with gloss and a shadow (Glossy), an ink tile with a bone outline
+  (Drawn), a die-cut bone sticker (Sticker), a green screen with scan lines (Phosphor), a pixel frame (Pixel). An app
+  with no icon gets its first letter on its colour, in the same housing. On Home, in the Store, and in the picture
+  behind Spotlight; the apps' own (the sixth choice) shows them as before. Each logo is the company's own: nothing of
+  theirs is redrawn.
+- The icons are pictures, drawn and baked on a computer (`tools/box-icons/`, `build.py`): a Pi shows a 192-pixel picture
+  per tile and a 512 one behind Home, and draws none of the gloss, glow or shadow (1.5 MB for all of them, with the
+  housings). A press on a Pi 3 still draws only the ring.
+- **On a Pi 3 (the light look)** a press still draws only the ring around the tile it reaches (two pieces at most, as
+  1.1.62 made it). The words and the picture are drawn 1.2 seconds after the remote rests, once: about 37 pieces, in the
+  layers that were there already. Moving along a row never waits for a picture. A Pi 4 or 5 draws them at once (0.18 s)
+  and fades one picture over the other; the picture behind lets go of its memory once the new one is up.
+- **Classic is a choice:** Settings → Home screen → Layout. It is the Home before this one, with the new icons.
+- Not on a Pi yet. Tried in Chrome on a Mac in both looks with a stand-in Sofa.
+
 ## 1.1.72
 
 Frames as even as they can be on the screen there is. The owner found 40 frames a second on a 40 Hz screen looks very

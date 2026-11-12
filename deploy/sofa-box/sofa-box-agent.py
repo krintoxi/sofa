@@ -80,12 +80,15 @@ DEFAULTS = {"server": None, "quality": "auto", "hwdec": "auto", "audio": "auto",
             "performance": "auto",
             "channel": "stable", "auto_update": "off",          # Settings → Software (weekly updates off: the owner's choice)
             "mpv_args": [], "theme": "street", "boot_text": "", "shield": True, "welcomed": False, "secure_remote": True, "boot_sound": "on",
-            "weather": "on", "weather_units": "auto", "weather_place": None}
+            "weather": "on", "weather_units": "auto", "weather_place": None,
+            "home_layout": "spotlight",                         # Home: the picture follows the remote (Spotlight), or Classic
+            "icon_style": "glossy"}                             # the box's own icons: Glossy, Drawn, Sticker, Phosphor, Pixel, or the apps' own
 THEMES = ("street", "terminal", "pirate", "sofa", "midnight", "cinema", "ocean", "forest", "grape", "oled")
 CHOICES = {"quality": ("auto", "720", "1080"), "audio": ("auto", "passthrough"), "performance": ("auto", "light", "full"),
            "channel": ("stable", "testing"), "auto_update": ("off", "weekly"),
            "hwdec": ("auto", "no", "v4l2m2m-copy", "drm", "auto-safe"), "theme": THEMES, "boot_sound": ("on", "off"),
-           "weather": ("on", "off"), "weather_units": ("auto", "c", "f")}
+           "weather": ("on", "off"), "weather_units": ("auto", "c", "f"),
+           "home_layout": ("spotlight", "classic"), "icon_style": ("glossy", "drawn", "sticker", "phosphor", "pixel", "original")}
 HOP = {"connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailers", "transfer-encoding",
        "upgrade", "content-length", "host", "accept-encoding"}
 
@@ -3893,7 +3896,7 @@ def box_info():
     return {"version": OS_VERSION, "newest": newest_version(), "model": model() or "this computer", "memory": mem, "memory_free": free, "temperature": temp,
             "wifi": ssid or None, "address": local_address(), "server": server(), "server_name": (found.get(server()) or {}).get("name"),
             "settings": {k: s[k] for k in ("quality", "hwdec", "audio", "theme", "boot_text", "performance", "boot_sound", "weather", "weather_units",
-                                           "channel", "auto_update")}, "software": software(),
+                                           "channel", "auto_update", "home_layout", "icon_style")}, "software": software(),
             "weather_place": s.get("weather_place") or zone_place(current_timezone()), "weather_picked": bool(s.get("weather_place")),
             "choices": CHOICES, "learned_720": s["learned_720"], "learned_lite": bool(s.get("learned_lite")),
             "max_height": max_height(), "slow_board": slow_board(), "light": light(), "board": board(), "controllers": controllers,
@@ -4516,6 +4519,7 @@ class Handler(BaseHTTPRequestHandler):
                                          "devtools": bool(browser and browser.connected()), "sofa": server(),
                                          "sofa_name": (found.get(server()) or {}).get("name"), "theme": s["theme"],
                                          "name": s["boot_text"], "welcomed": s["welcomed"], "setup_step": s.get("setup_step", 0),
+                                         "home_layout": s.get("home_layout") or "spotlight", "icon_style": s.get("icon_style") or "glossy",
                                          "slow": light(), "boot_sound": s["boot_sound"],
                                          "default_server": {k: default[k] for k in ("id", "name", "kind", "where")} if default else None,
                                          "ask": st["ask"], "servers": len(st["servers"]),

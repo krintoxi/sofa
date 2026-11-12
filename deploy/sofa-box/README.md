@@ -268,10 +268,20 @@ Everything starts here. **Home** comes back to it from anywhere: the remote's Ho
 remotes it's the Home or Menu button, sent over HDMI), a controller's Xbox/PS button, **F1** or the
 Windows key on a keyboard, or **Home** on the Sofa bar.
 
-- **The top:** the time and the day, a hello, and what to do next: **Resume** what you were watching
-  in Sofa (its picture behind), **Open Sofa** and **Live TV**. Beside it, **the weather**: now, the
-  next 24 hours' high and low, and the next few hours, for the city of the box's time zone until you
-  pick a town in **Settings → Weather on Home** (also °C or °F, or Off).
+- **Spotlight** (since 1.1.73): the picture behind Home is whatever the remote is on: what you were watching in
+  Sofa, a game playing, an app's own icon on its colour. Its name and a line about it sit over the picture, with
+  **OK** saying what it does (Resume, Play, Open). Rows below: **Apps**, **Continue watching**, **Open now**,
+  **Plugged in**, **Games**. The top bar has the weather, the time, and the music an app plays (its buttons too).
+  On a Pi 3 the picture and words follow once the remote rests, so a press is never slowed by a picture.
+- **Icons** (Settings → Home screen → Icons): the box's own apps and EdgeVenture's in **Glossy** (the default: shiny,
+  real-looking objects), **Drawn**, **Sticker**, **Phosphor** or **Pixel**, or the apps' own. Other companies' apps keep
+  their own logo, set in the same style: a glossy glass tile, a sticker, a green screen. They are pictures made on a
+  computer by `tools/box-icons/build.py` (node and Chrome), so a Pi only shows them; change a drawing there, run it
+  (`build.py glossy` redoes one style), and commit the pictures with it.
+- **Classic** (Settings → Home screen → Layout): the time and the day, a hello, and what to do next: **Resume**,
+  **Open Sofa** and **Live TV**. Beside it, **the weather**: now, the next 24 hours' high and low, and the next few
+  hours, for the city of the box's time zone until you pick a town in **Settings → Weather on Home** (also °C or °F,
+  or Off).
 - **Opening an app** shows its icon while it loads, and the TV switches to it once it's ready
   (not to a blank page). One that's open already comes straight back.
 - **Watch:** Sofa, Live TV and your streaming apps, as big cards. **Plugged in:** USB drives and a disc,

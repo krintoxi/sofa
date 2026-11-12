@@ -754,3 +754,141 @@ html.lite .sheet-back, html.lite .sheet, html.lite .auto-next { animation: none;
 .sheet:has(.tv-steps) .qr-row .qr.big, .sheet:has(.credit-facts) .qr-row .qr.big { width: 7.5rem; height: 7.5rem; }
 .sheet .qr-text small.addr { overflow-wrap: anywhere; }
 html.lite .credit, html.lite .tile.brand { transition: none; }
+
+/* ---- Spotlight: Home as a TV's own home screen. The picture behind is whatever the remote is on, with its name and a
+   line about it over it, and rows below. The page itself never scrolls: the rows move in their own box, sideways in
+   their own rows (the compositor's work, light even on a Pi 3). The picture is two layers, one fading over the other;
+   in the light look one simply takes the other's place, once the remote has rested (home.js: sptShelf). */
+.spt-bg { position: fixed; inset: 0; z-index: 0; display: none; pointer-events: none; }
+html.spt-on .spt-bg { display: block; }
+.spt-layer { position: absolute; inset: 0; opacity: 0; transition: opacity .45s ease; will-change: opacity; }
+.spt-layer.on { opacity: 1; }
+.spt-layer img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.spt-layer:not(:empty)::after { content: ""; position: absolute; inset: 0; background:
+  linear-gradient(90deg, var(--bg) 0%, color-mix(in srgb, var(--bg) 84%, transparent) 30%, color-mix(in srgb, var(--bg) 22%, transparent) 62%, transparent 100%),
+  linear-gradient(0deg, var(--bg) 0%, color-mix(in srgb, var(--bg) 93%, transparent) 46%, transparent 74%),
+  linear-gradient(180deg, color-mix(in srgb, var(--bg) 72%, transparent) 0%, transparent 20%); }
+.spt-field { position: absolute; inset: 0; background: radial-gradient(circle at 74% 34%, color-mix(in srgb, var(--c) 58%, transparent) 0%, transparent 48%), var(--bg); }
+.spt-big { position: absolute; right: 9%; top: 12%; width: 12.5rem; height: 12.5rem; border-radius: 2.8rem; overflow: hidden; display: grid; place-items: center;
+  background: var(--c, var(--a)); color: #fff; font: 800 6rem/1 var(--display); box-shadow: 0 1.4rem 4rem rgba(0,0,0,.45); }
+.spt-big:has(img) { background: #fff; }
+.spt-big img { width: 100%; height: 100%; object-fit: cover; }
+.spt-big img.game-ic { width: 70%; height: 70%; object-fit: contain; }
+.spt-big svg { width: 6.4rem; height: 6.4rem; }
+html.lite .spt-layer { transition: none; }
+html.lite .spt-big { box-shadow: none; }
+
+html.spt-on body { overflow: hidden; }
+html.spt-on .top { background: none; }
+.spt { position: fixed; inset: 0; z-index: 1; pointer-events: none; }
+.spt > * { pointer-events: auto; }
+.spt-detail { position: absolute; left: 2.4rem; top: 4.4rem; width: 31rem; }
+.spt-detail .power-note { margin: 0 0 .9rem; }
+.spt-kicker { font-weight: 700; font-size: .8rem; color: var(--a); }
+.spt-title { margin: .4rem 0 .5rem; font: 800 3rem/.95 var(--display); letter-spacing: -.035em; text-wrap: balance;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.spt-meta { margin: 0; font-size: .95rem; line-height: 1.35; color: color-mix(in srgb, var(--fg) 88%, transparent); max-width: 28rem;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.spt-bar { margin-top: .75rem; width: 14rem; height: .22rem; border-radius: .2rem; background: rgba(255,255,255,.2); overflow: hidden; }
+.spt-bar i { display: block; height: 100%; background: var(--a); }
+.spt-ok { margin: .85rem 0 0; font-size: .75rem; font-weight: 600; color: var(--mist); }
+.spt-ok kbd { font: 700 .66rem var(--text); padding: .12rem .42rem; border-radius: .3rem; background: var(--fg); color: var(--bg); margin-right: .45rem; }
+.spt-rows { position: absolute; left: 0; right: 0; top: 17rem; bottom: 0; overflow: hidden; padding: 0 2.4rem; }
+.spt-rows::after { content: ""; display: block; height: 12rem; }      /* (room for the last row to come up to its line) */
+.spt-row { padding-top: .2rem; }
+.spt-row .row-title { margin: 0 0 .35rem; }
+.spt-track { padding: .5rem .3rem 1.1rem; }
+.spt .tile.app.spt-app { flex: 0 0 6.6rem; height: 7.4rem; padding: .35rem 0 0; gap: .5rem; align-content: start; background: none; box-shadow: none; }
+.spt .tile.app.spt-app .ic { width: 4.6rem; height: 4.6rem; border-radius: 1.15rem; }
+.spt .tile.spt-app b, .spt .tile.spt-art b { font-size: .8rem; font-weight: 600; color: var(--mist); }
+html:not(.lite) .spt .tile.f b { color: var(--fg); }   /* (the light look: the ring alone; a name changing colour draws its row again) */
+.spt .tile.spt-art { flex: 0 0 12rem; height: auto; padding: 0; gap: .5rem; align-content: start; justify-items: stretch; background: none; box-shadow: none; }
+.spt .tile.spt-art b { text-align: left; }
+.spt-pic { position: relative; display: block; aspect-ratio: 16 / 9; border-radius: var(--r); overflow: hidden; background: var(--bg2); transition: transform .2s ease, box-shadow .2s ease; }
+.spt-pic img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.spt-pic .bar { position: absolute; left: 0; right: 0; bottom: 0; height: .22rem; background: rgba(0,0,0,.45); }
+.spt-pic .bar i { display: block; height: 100%; background: var(--a); }
+/* the tile in focus, the full look: the icon or picture lifts with a ring; the tile itself stays as it is */
+html:not(.lite) .spt .tile.app.spt-app.f, html:not(.lite) .spt .tile.app.spt-app:hover,
+html:not(.lite) .spt .tile.spt-art.f, html:not(.lite) .spt .tile.spt-art:hover { background: none; transform: none; box-shadow: none; }
+html:not(.lite) .spt .tile.app.spt-app.f .ic, html:not(.lite) .spt .tile.spt-art.f .spt-pic {
+  transform: translateY(-.2rem) scale(1.06); box-shadow: 0 0 0 .16rem var(--bg), 0 0 0 .34rem var(--fg), 0 .8rem 1.8rem rgba(0,0,0,.5); }
+/* the light look: the ring that is a layer of its own (as on Classic), the tile and its picture unchanged */
+html.lite .spt-pic { transition: none; }
+html.lite .spt .tile.spt-art { overflow: visible; }
+/* the top bar's right end: the weather, the time, and the music an app plays (the mini player) */
+.top-extra { margin-left: auto; display: flex; align-items: center; gap: 1.1rem; }
+.top-extra:empty { display: none; }
+.spt-wx { display: flex; align-items: center; gap: .3rem; font-weight: 700; font-size: .95rem; color: var(--mist); }
+.spt-wx .wxi { width: 1.7rem; height: 1.7rem; }
+.spt-clock { font: 800 1.4rem/1 var(--display); letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.spt-clock small { font-size: .7rem; margin-left: .2rem; color: var(--mist); letter-spacing: 0; }
+.spt-np { display: flex; align-items: center; gap: .45rem; padding: .25rem .3rem .25rem .25rem; border-radius: 99rem; max-width: 19rem;
+  background: color-mix(in srgb, var(--bg2) 88%, transparent); box-shadow: inset 0 0 0 1px var(--line); }
+.spt-np img { width: 1.9rem; height: 1.9rem; border-radius: 50%; object-fit: cover; flex: none; }
+.spt-np-t { display: grid; min-width: 0; padding-right: .2rem; }
+.spt-np-t b { font-size: .78rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.spt-np-t small { font-size: .64rem; color: var(--mist); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.spt-np .np-k { width: 1.9rem; height: 1.9rem; padding: 0; border-radius: 50%; display: grid; place-items: center; border: 0; background: none; color: var(--fg); flex: none; }
+.spt-np .np-k svg { width: .85rem; height: .85rem; }
+.spt-np .np-k.play { background: var(--fg); color: var(--bg); }
+.spt-np .np-k.f, .spt-np .np-k:hover { box-shadow: 0 0 0 .14rem var(--bg), 0 0 0 .3rem var(--a); }
+
+/* ---- the box's own icons (its apps and EdgeVenture's): pictures, in the style picked; nothing drawn behind them */
+.ic.drawn, .tile.app .ic.drawn, .tile.app.own .ic.drawn, #opening .op-ic.drawn { background: none !important; box-shadow: none !important; overflow: visible; border-radius: 0; }
+.ic.drawn::after { display: none; }
+.ic.drawn img.drawn-ic, .tile.app .ic.drawn img.drawn-ic { width: 100%; height: 100%; object-fit: contain; }
+.spt-big.drawn { background: none; border-radius: 0; overflow: visible; box-shadow: 0 1.4rem 4rem rgba(0,0,0,.5); }
+.spt-big.drawn img.drawn-ic { width: 100%; height: 100%; object-fit: contain; }
+html[data-icons="glossy"] .spt-big.drawn, html[data-icons="sticker"] .spt-big.drawn { box-shadow: none; }   /* (objects, not tiles: their shadow is in the picture) */
+html.lite .spt-big.drawn { box-shadow: none; }
+/* Settings → Home screen → Icons: each style, with three of its icons */
+.iconsets { display: grid; grid-template-columns: repeat(3, 1fr); gap: .8rem; }
+.iconset { display: grid; gap: .5rem; padding: .6rem; border-radius: var(--r); border: 1px solid var(--line); background: var(--tile); text-align: left; }
+.iconset i { display: flex; justify-content: center; align-items: center; gap: .35rem; height: 4.2rem; border-radius: calc(var(--r) * .7); background: #0E0E12; }
+.iconset i img, .iconset i .ic-o { width: 3.1rem; height: 3.1rem; }
+.iconset i .ic-o { display: grid; place-items: center; border-radius: .8rem; background: var(--a); color: #fff; }
+.iconset i .ic-o svg { width: 1.7rem; height: 1.7rem; }
+.iconset b { font-size: .9rem; }
+.iconset[aria-pressed="true"] { border-color: var(--a); }
+.iconset.f { box-shadow: 0 0 0 .18rem var(--a); }
+/* ---- other companies' apps, in the style picked: their own logo, untouched, in that style's housing. The housing is
+   two pictures (tools/box-icons/frames.js): one behind (the tile, its edge, its shadow) and one on top (gloss, scan
+   lines, an outline). --pad and --rad are frames.js's SCREEN: where the logo sits and how round it is. Drawn once, like
+   any picture: a press still draws only the ring. */
+html[data-icons="glossy"] .framed { --pad: 12%; --rad: 22%; --under: url(/box/home/art/icons/glossy/192/frame-under.webp); --over: url(/box/home/art/icons/glossy/192/frame-over.webp); }
+html[data-icons="drawn"] .framed { --pad: 20%; --rad: 16%; --under: url(/box/home/art/icons/drawn/192/frame-under.webp); --over: url(/box/home/art/icons/drawn/192/frame-over.webp); }
+html[data-icons="sticker"] .framed { --pad: 15%; --rad: 18%; --under: url(/box/home/art/icons/sticker/192/frame-under.webp); --over: url(/box/home/art/icons/sticker/192/frame-over.webp); }
+html[data-icons="phosphor"] .framed { --pad: 19%; --rad: 12%; --under: url(/box/home/art/icons/phosphor/192/frame-under.webp); --over: url(/box/home/art/icons/phosphor/192/frame-over.webp); }
+html[data-icons="pixel"] .framed { --pad: 22%; --rad: 0; --under: url(/box/home/art/icons/pixel/192/frame-under.webp); --over: url(/box/home/art/icons/pixel/192/frame-over.webp); }
+html[data-icons="glossy"] .spt-big.framed { --under: url(/box/home/art/icons/glossy/512/frame-under.webp); --over: url(/box/home/art/icons/glossy/512/frame-over.webp); }
+html[data-icons="drawn"] .spt-big.framed { --under: url(/box/home/art/icons/drawn/512/frame-under.webp); --over: url(/box/home/art/icons/drawn/512/frame-over.webp); }
+html[data-icons="sticker"] .spt-big.framed { --under: url(/box/home/art/icons/sticker/512/frame-under.webp); --over: url(/box/home/art/icons/sticker/512/frame-over.webp); }
+html[data-icons="phosphor"] .spt-big.framed { --under: url(/box/home/art/icons/phosphor/512/frame-under.webp); --over: url(/box/home/art/icons/phosphor/512/frame-over.webp); }
+html[data-icons="pixel"] .spt-big.framed { --under: url(/box/home/art/icons/pixel/512/frame-under.webp); --over: url(/box/home/art/icons/pixel/512/frame-over.webp); }
+.ic.framed { position: relative; }                       /* (the big one behind Home keeps its own place) */
+.ic.framed, .tile .ic.framed, .tile.app .ic.framed, #opening .op-ic.framed, .store-detail .ic.framed, .spt-big.framed {
+  isolation: isolate; overflow: visible !important; border-radius: 0 !important; box-shadow: none !important;
+  background: var(--under) center / 100% 100% no-repeat !important; }
+.ic.framed img, .tile .ic.framed img, .tile.app .ic.framed img, .spt-big.framed img, .ic.framed.light img {
+  position: absolute; left: var(--pad); top: var(--pad); width: calc(100% - 2 * var(--pad)) !important; height: calc(100% - 2 * var(--pad)) !important;
+  border-radius: var(--rad); object-fit: cover !important; background: transparent !important; }
+.ic.framed.tiny img { padding: calc((100% - 2 * var(--pad)) * .2); object-fit: contain !important; }
+.ic.framed::after, .tile.app .ic.framed::after, #opening .op-ic.framed::after, .store-detail .ic.framed::after, .spt-big.framed::after {
+  content: ""; position: absolute; inset: 0; z-index: 1; border-radius: 0; box-shadow: none; pointer-events: none;
+  background: var(--over) center / 100% 100% no-repeat; }
+/* the screen behind a logo: white (as the housing has it), the app's colour behind a white logo on clear, and behind a
+   first letter */
+.ic.framed.light::before, .ic.framed.mono::before, .spt-big.framed.mono::before {
+  content: ""; position: absolute; z-index: -1; left: var(--pad); top: var(--pad); right: var(--pad); bottom: var(--pad); border-radius: var(--rad);
+  background: linear-gradient(150deg, color-mix(in srgb, var(--c, var(--a)) 82%, #fff) 0%, var(--c, var(--a)) 45%, color-mix(in srgb, var(--c, var(--a)) 70%, #000) 100%); }
+.tile.app .ic.framed.mono, .tile .ic.framed.mono { font-size: 1.7rem; }
+.spt-big.framed.mono { font-size: 5rem; }
+html[data-icons="phosphor"] .framed.mono { color: #3DF07A; text-shadow: 0 0 .5rem rgba(61,240,122,.7); }
+html[data-icons="phosphor"] .framed.mono::before { background: #06100a; }
+html[data-icons="pixel"] .framed.mono { font-family: ui-monospace, Menlo, monospace; font-weight: 800; text-shadow: none; }
+html[data-icons="sticker"] .framed.mono { color: #0E0E12; text-shadow: none; }
+html[data-icons="sticker"] .framed.mono::before { background: var(--c, var(--a)); }
+html[data-icons="sticker"] .tile:nth-child(odd) .ic.framed { rotate: -4deg; }
+html[data-icons="sticker"] .tile:nth-child(even) .ic.framed { rotate: 3deg; }
+html[data-icons="sticker"] .spt-big.framed { rotate: -3deg; }
