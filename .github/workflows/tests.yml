@@ -42,3 +42,41 @@ jobs:
       - name: Check the JavaScript (the web app, the box's home screen and games)
         run: |
           for f in client/app.js deploy/sofa-box/home/*.js deploy/sofa-box/games/*.js; do node --check "$f" || exit 1; done
+  windows:
+    # Sofa on Windows (deploy/windows): the same tests on GitHub's Windows Server machines, with the ffmpeg the
+    # Windows installer carries (tools/windows-deps.py). Python runs in UTF-8 mode, as the installed Sofa does.
+    # What can't run on Windows is skipped with its reason (tests/__init__.py, WINDOWS_SKIPS).
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.9", "3.12"]
+    defaults:
+      run:
+        shell: bash
+    env:
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+      - uses: actions/cache@v4
+        with:
+          path: build/windows/downloads
+          key: windows-deps-${{ hashFiles('tools/windows-deps.py') }}
+      - name: ffmpeg, as the installer carries it
+        run: uv run --no-project --python 3.12 python tools/windows-deps.py --ffmpeg
+      - name: Run the tests
+        run: |
+          set -o pipefail
+          uv run --no-project --python ${{ matrix.python }} python -W ignore -m unittest discover -s tests -t . -v 2>&1 | tee test-output.txt
+      - name: Say which tests failed (readable without the logs)
+        if: failure()
+        run: |
+          python - <<'PYEOF'
+          import re
+          text = open("test-output.txt", encoding="utf-8", errors="replace").read()
+          for block in re.findall(r"^(?:FAIL|ERROR): .*?(?=^=====|^-----\nRan |\Z)", text, re.M | re.S)[:40]:
+              lines = block.strip().splitlines()
+              msg = "%0A".join(l.replace("%", "%25") for l in lines[:30])
+              print("::error title=" + lines[0][:120].replace(":", " ") + "::" + msg)
+          PYEOF

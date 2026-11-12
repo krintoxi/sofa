@@ -4,3 +4,5 @@ vendor/src/
 __pycache__/
 *.pyc
 .DS_Store
+vendor/python/
+build/
