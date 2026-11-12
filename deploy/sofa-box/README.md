@@ -277,7 +277,8 @@ Windows key on a keyboard, or **Home** on the Sofa bar.
 - **Watch:** Sofa, Live TV and your streaming apps, as big cards. **Plugged in:** USB drives and a disc,
   when there's one. **Continue watching** from the Sofa it opens with.
 - **Your apps:** everything else. OK opens one. **Menu** on an app moves it, hides it or removes it.
-- **Open now:** what's still open (music keeps playing); OK goes back to it, ✕ closes it.
+- **Open now:** what's still open; OK goes back to it, ✕ closes it. What's playing music carries on. The rest
+  close by themselves after half a minute out of sight on a Pi 3 (five minutes on a bigger box).
 - **Typing** anything on Home searches the web.
 
 ### Opening Sofa: where from
@@ -628,6 +629,11 @@ the box first:
 
 - **Apps behind the one in front are frozen**, so they use no processor. Anything playing music keeps
   playing. Sofa stays awake to hear your phone's **Play on**.
+- **An app left behind gives the box back** (since 1.1.70). Frozen, it still held its memory and its share of the
+  graphics chip, because its process was still there. After half a minute out of sight on a small box (the light
+  look), five minutes on a bigger one, it's closed and its process ends. Opened again sooner, it's as you left it.
+  Never Home or Sofa, and never one that's playing something you can hear. A report says which were closed and
+  the memory that came back (`apps closed behind Home`).
 - On 1 GB, two apps stay open besides Home; opening a third closes the oldest one that isn't playing.
 - **The screen, the remotes and the video player come first** for the processor and the card. The
   box's own background jobs (finding servers, USB drives, Bluetooth) slow down or wait while a video

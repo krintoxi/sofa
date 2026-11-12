@@ -283,20 +283,43 @@
     if (el) el.innerHTML = weatherCard();
   }
   setInterval(() => { if (!document.hidden) loadWeather(); }, 15 * 60000);
+  // ---------------------------------------------------------------- the mini player: music an app plays behind Home
+  // (Edge Music, or any music app that tells the browser what it plays). The box reads it from the app and presses the
+  // app's own buttons for it; the app keeps playing behind Home, the browser, Sofa and the games.
+  const NP_SVG = {
+    previoustrack: '<svg viewBox="0 0 24 24"><path d="M6 5h2v14H6zM20 5v14L9 12z" fill="currentColor"/></svg>',
+    nexttrack: '<svg viewBox="0 0 24 24"><path d="M16 5h2v14h-2zM4 5v14l11-7z" fill="currentColor"/></svg>',
+    pause: '<svg viewBox="0 0 24 24"><path d="M7 5h4v14H7zM13 5h4v14h-4z" fill="currentColor"/></svg>',
+    play: '<svg viewBox="0 0 24 24"><path d="M7 4.5v15l12-7.5z" fill="currentColor"/></svg>'
+  };
+  const npSig = n => n && !n.front && (n.title || n.playing) ? [n.target, n.title, n.artist, !!n.playing, (n.can || []).join()].join("|") : "";
+  function nowPlayer() {
+    const n = data.now;
+    if (!npSig(n)) return "";
+    const can = n.can || [];
+    return `<section class="np" id="np" style="--c:${esc(n.color || "")}" aria-label="Now playing">
+      <span class="np-art">${n.art ? `<img decoding="async" src="${esc(n.art)}" alt="" referrerpolicy="no-referrer" onerror="this.remove()">` : ""}<i>${NP_SVG.play}</i></span>
+      <span class="np-what"><small>${n.playing ? "Playing in" : "Paused in"} ${esc(n.name)}</small><b>${esc(n.title || n.name)}</b>${n.artist ? `<em>${esc(n.artist)}</em>` : ""}</span>
+      <span class="np-keys">${can.includes("previoustrack") ? `<button class="btn np-k" data-music="previoustrack" aria-label="Previous track">${NP_SVG.previoustrack}</button>` : ""}
+        <button class="btn primary np-k" data-music="toggle" aria-label="${n.playing ? "Pause" : "Play"}">${n.playing ? NP_SVG.pause : NP_SVG.play}</button>
+        ${can.includes("nexttrack") ? `<button class="btn np-k" data-music="nexttrack" aria-label="Next track">${NP_SVG.nexttrack}</button>` : ""}
+        <button class="btn" data-music="open">Open ${esc(n.name)}</button></span></section>`;
+  }
+
   function viewHome() {
     const apps = data.apps.filter(a => !a.hidden);
     const watch = apps.filter(a => WATCH.has(a.category)).map(a => Object.assign({ about: ABOUT[a.id] }, a));
     const rest = apps.filter(a => !WATCH.has(a.category));
     const s = sofa || {};
     const running = (data.running || []).filter(r => r.app !== "home");
-    return `<div class="home view-in">${masthead(watch)}
+    return `<div class="home view-in">${masthead(watch)}${nowPlayer()}
       <h2 class="row-title">Watch</h2><div class="rail watch-row">${watch.map(a => appTile(a, true)).join("")}
         <button class="tile app wide add" data-go="#/store"><span class="ic">${icon("#i-plus")}</span><b>Add apps</b><small>Netflix, YouTube, Prime…</small></button></div>
       ${inputsRow()}
       ${s.items && s.items.length > 1 ? `<h2 class="row-title">Continue watching <small>${esc(s.name || "Sofa")}</small></h2><div class="rail">${s.items.slice(1).map(it => `<button class="tile poster" data-sofa-hash="${esc(it.play || it.hash)}">
           <img decoding="async" src="${esc(artSrc(it.art, 480))}" alt="" loading="lazy" onerror="this.style.visibility='hidden'"><span class="bar"><i style="width:${it.pct}%"></i></span>
           <span class="meta"><b>${esc(it.title)}</b><small>${esc(it.sub)}</small></span></button>`).join("")}</div>` : ""}
-      ${running.length ? `<h2 class="row-title">Open now <small>Home brings you back here; they keep playing</small></h2><div class="rail open-now">${running.map(r => {
+      ${running.length ? `<h2 class="row-title">Open now <small>what's playing carries on; the rest close by themselves after a moment</small></h2><div class="rail open-now">${running.map(r => {
           const a = data.apps.find(x => x.id === r.app) || { id: r.app, name: r.title || r.app, color: "var(--a)" };
           return `<button class="tile app" style="--c:${esc(a.color || "")}" data-target="${esc(r.target)}"><span class="ic${!a.icon_url && !BUILTIN_ICON[a.id] ? " mono" : ""}">${appIcon(a)}</span>
             <b>${esc(r.title || a.name)}</b><small>${esc(a.name || "")}</small><span class="x" data-close="${esc(r.target)}" title="Close">${icon("#i-close")}</span></button>`; }).join("")}</div>` : ""}
@@ -1356,6 +1379,15 @@
     const t = e.target.closest("button, a"); if (!t) return;
     if (t.dataset.kb !== undefined) { e.preventDefault(); return kbPress(t.dataset.kb); }
     if (t.dataset.sheet && sheetHandler) { e.preventDefault(); return sheetHandler(t.dataset.sheet); }
+    if (t.dataset.music && data.now) {
+      e.preventDefault();
+      const act = t.dataset.music === "toggle" ? (data.now.playing ? "pause" : "play") : t.dataset.music;
+      try { await api("/box/api/music", { act, target: data.now.target }); }
+      catch (err) { toast(err.message || "That app isn't playing any more."); }
+      if (act === "open") return;
+      await new Promise(r => setTimeout(r, 450));          // (the app's own player takes a moment)
+      await loadApps(); npShown = npSig(data.now); return render(true);
+    }
     const closeBtn = e.target.closest("[data-close]");
     if (closeBtn) { e.preventDefault(); e.stopPropagation(); await api("/box/api/close", { target: closeBtn.dataset.close }).catch(() => {}); await loadApps(); return render(true); }
     const d = t.dataset;
@@ -1523,7 +1555,7 @@
       : [["OK", "Choose"], ["Back", "Home screen"]]);
   }
   function keyOf(el) {
-    for (const a of ["app", "store", "game", "play", "gameGet", "gameRemove", "file", "root", "set", "themePick", "move", "hide", "action", "target", "go", "url", "server", "pick", "addFound", "drive", "disc", "default", "forgetServer", "ask", "bt", "wifiPick", "tz", "step", "btLook", "setTab", "wifiRescan", "kb"]) {
+    for (const a of ["music", "app", "store", "game", "play", "gameGet", "gameRemove", "file", "root", "set", "themePick", "move", "hide", "action", "target", "go", "url", "server", "pick", "addFound", "drive", "disc", "default", "forgetServer", "ask", "bt", "wifiPick", "tz", "step", "btLook", "setTab", "wifiRescan", "kb"]) {
       if (el.dataset[a] !== undefined) {
         const attr = "data-" + a.replace(/[A-Z]/g, c => "-" + c.toLowerCase());
         return `[${attr}="${CSS.escape(el.dataset[a])}"]` + (el.dataset.by ? `[data-by="${el.dataset.by}"]` : "") + (el.dataset.value ? `[data-value="${el.dataset.value}"]` : "");
@@ -1532,12 +1564,15 @@
     return el.id ? "#" + el.id : null;
   }
   window.addEventListener("hashchange", () => { closeSheet(); if (location.hash.startsWith("#/sofa")) servers = null; render(); });
-  setInterval(async () => {                    // drives and discs come and go: Home shows them
+  let npShown = "";
+  setInterval(async () => {                    // drives and discs come and go, and the music behind Home: Home shows them
     if (resting || document.hidden || $(".sheet-back")) return;
     const n = data.devices && data.devices.n;
     await loadApps();
     const note = data.power && !powerShown.done && !powerShown.note;     // (the Pi's power or heat, just now: Home says so)
-    if ((data.devices.n !== n || note) && (!location.hash || location.hash === "#/") && !document.hidden) render(true);
+    const np = npSig(data.now), npNew = np !== npShown;
+    npShown = np;
+    if ((data.devices.n !== n || note || npNew) && (!location.hash || location.hash === "#/") && !document.hidden) render(true);
   }, 5000);
 
   // Back on Home (the agent brings this tab forward): fresh lists of apps and what's open.

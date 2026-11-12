@@ -8,6 +8,62 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.70
+
+Back on Home, the apps behind it give the box back.
+
+- **What was there.** An app left behind Home was put to sleep after a second and a half: no scripts, no timers,
+  no drawing, so no processor. That part worked. But asleep it kept its memory and its share of the graphics chip,
+  because its process was still running, until the owner closed it from **Open now** or opened a third app. On a
+  Pi 3 with 905 MB that is most of what a game or the next app needs.
+- **Now** an app that has been out of sight for a while is closed, and its process ends: half a minute on a small
+  box (the light look: a Pi 3, or 1 GB), five minutes on a bigger one. Opened again sooner, it's as it was left, so
+  a wrong press of Home costs nothing.
+- **Never** Home, Sofa (it listens for a phone's Play on) or the page in front, and never an app that's playing
+  something you can hear: music carries on behind Home as before. One that stops playing goes after its time too.
+- **In a report**: `apps closed behind Home`, with each app, how long it had been out of sight and the memory free
+  before and after (the kernel's own figure). The journal gets the same line as it happens.
+- **Open now** on Home says so: what's playing carries on; the rest close by themselves after a moment.
+- Measured in Chrome on a Mac with a stand-in app holding about 150 MB (not a Pi: see the pull request for the
+  table). Asleep: the app's process still there with all its memory, no processor. Closed: the process gone.
+- **A game closed behind Home still says how it ran.** The box's games write a line for the next report as their page
+  goes (`tidewing ran: …`). A page closed while asleep is woken first, so it does, and what a page says as it goes
+  keeps its app's name in the report (it was down as "?").
+- `SOFA_BOX_LEAVE_AFTER` sets the time in seconds (0 leaves apps open), for tests.
+
+The mini player: music from an app, while you do anything else on the box.
+
+- **On Home**, under the clock: what the app behind it is playing (the cover, the track, the artist), and its own
+  buttons: previous, play or pause, next, and Open. OK on one presses it in the app.
+- **On the phone remote**, at the top: the same, with previous, play or pause and next. While a game has the TV,
+  the phone is the mini player.
+- **Over anything else** (the browser, Sofa, an app, the box's own games in the browser): a new track is said for a
+  moment at the top right, the way a TV shows its volume. Not over a video.
+- **For any music app that tells the browser what it plays** (the Media Session most web players fill in for a
+  phone's lock screen): Edge Music, if it does, and the rest. The box reads what the page says and presses the
+  buttons the page gave the browser; a page without its own pause is paused by the box. No app's own code was
+  needed or copied.
+- Edge Music's own site didn't answer while this was made (its tunnel was down), so it wasn't tried with it: tried
+  with a stand-in music page in Chrome.
+
+Music carries on, and a report says how sound and video went.
+
+- **Music from a music app kept playing only if the app used a player on its page.** The box asked a page for its
+  `<audio>` and `<video>` and found none in an app that plays through a player made in script (`new Audio()`) or
+  through Web Audio: a second and a half after Home, the app was put to sleep, music and all. Now every player is
+  noted as it starts and every Web Audio source while it sounds, so those apps count as playing: not put to sleep,
+  not closed behind Home. Web Audio counts only on a page that says what it plays, so a game left behind Home (its
+  sound is Web Audio too) still sleeps and closes, and a muted preview that played isn't taken for music.
+- **Music carries on under a game.** A game started closed the apps behind it on a small box and put the rest to
+  sleep. An app that's playing something you can hear is left as it is now, on a small box too.
+- **How each app's sound went**, in a report (`== Sound in the apps`): players started, how many times the sound
+  stopped to wait for more to arrive (and the longest wait), stalls, errors. A track that "stutters every so often"
+  shows there as waits (the network, or the music's server, couldn't keep up) or doesn't (then it's the box).
+- **How each video played**, in a report (`videos played`): a file, a video Sofa converts, or a channel; seconds
+  until the picture moved; the codec, size and frame rate; whether the video chip or the processor decoded it; the
+  bit rate; frames dropped; and how many times and how long it waited for more to arrive. No titles. For a show that
+  "keeps lagging and stuttering, also takes longer to initially play", a report sent while it plays now says which.
+
 ## 1.1.69
 
 A skip every few seconds on a screen that is nearly, but not exactly, 60 Hz: put right.

@@ -192,6 +192,20 @@ h2.row-title small { margin-left: .6rem; font: 500 .85rem var(--text); color: va
 .poster .bar { height: .22rem; background: rgba(255,255,255,.15); }
 .poster .bar i { display: block; height: 100%; background: var(--a); }
 .open-now .tile { flex-basis: 12rem; }
+/* the mini player: the music an app plays behind Home */
+.np { display: flex; align-items: center; gap: 1.2rem; margin: 0 0 1.6rem; padding: .9rem 1.2rem .9rem .9rem; border-radius: var(--r);
+  background: var(--tile); border: 1px solid var(--line); border-left: .3rem solid var(--c, var(--a)); }
+.np-art { position: relative; flex: none; width: 4.4rem; height: 4.4rem; border-radius: calc(var(--r) * .6); overflow: hidden;
+  display: grid; place-items: center; background: #000; color: var(--c, var(--a)); }
+.np-art img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.np-art i svg { width: 1.8rem; height: 1.8rem; }
+.np-what { flex: 1; min-width: 0; display: grid; gap: .15rem; }
+.np-what small { color: var(--dim, rgba(255,255,255,.6)); font-size: .85rem; text-transform: uppercase; letter-spacing: .06em; }
+.np-what b { font-size: 1.35rem; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.np-what em { font-style: normal; color: var(--dim, rgba(255,255,255,.7)); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.np-keys { flex: none; display: flex; align-items: center; gap: .6rem; }
+.np-k { padding: .7rem; }
+.np-k svg { width: 1.4rem; height: 1.4rem; }
 .tile .x { position: absolute; top: .4rem; right: .4rem; width: 1.6rem; height: 1.6rem; display: grid; place-items: center; border-radius: 50%;
   background: rgba(0,0,0,.4); border: 0; padding: 0; }
 .tile .x svg { width: .9rem; height: .9rem; }

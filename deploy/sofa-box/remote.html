@@ -50,6 +50,18 @@
     font-size: 14px; color: var(--mist); display: none; }
   .now.on { display: block; }
   .now b { color: var(--fg); }
+  /* the mini player: the music an app on the box plays (Edge Music, or any app that says what it plays) */
+  .music { display: flex; align-items: center; gap: 8px; margin: 6px 0 0; padding: 8px 8px 8px 14px; border-radius: 14px;
+    background: var(--bg2); box-shadow: inset 0 0 0 1px var(--line); }
+  .music[hidden] { display: none; }
+  .music-what { flex: 1; min-width: 0; display: grid; }
+  .music-what small { color: var(--mist); font-size: 12px; }
+  .music-what b { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 15px; }
+  .music button { flex: none; width: 44px; height: 44px; border-radius: 50%; border: 0; display: grid; place-items: center;
+    background: rgba(255,255,255,.08); color: var(--fg); }
+  .music button.on { background: var(--a); color: #fff; }
+  .music button[hidden] { display: none; }
+  .music svg { width: 20px; height: 20px; }
   .spinner { display: inline-block; width: 12px; height: 12px; margin-right: 6px; vertical-align: -1px; border-radius: 50%;
     border: 2px solid var(--line2); border-top-color: var(--a); animation: spin 1s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
@@ -225,6 +237,10 @@
   <button class="power" id="power" aria-label="Put the box to sleep" title="Sleep"><svg><use href="#i-power"/></svg></button></header>
 <div class="wake" id="wake" hidden><div><svg><use href="#i-moon"/></svg><h2>The box is asleep</h2><p>Touch anywhere to wake it.</p></div></div>
 <div class="now" id="now"></div>
+<div class="music" id="music" hidden><span class="music-what"><small id="musicIn"></small><b id="musicTitle"></b></span>
+  <button data-music="previoustrack" id="musicPrev" aria-label="Previous track"><svg viewBox="0 0 24 24"><path d="M6 5h2v14H6zM20 5v14L9 12z" fill="currentColor"/></svg></button>
+  <button data-music="toggle" id="musicToggle" class="on" aria-label="Pause"><svg viewBox="0 0 24 24"><path id="musicIcon" d="M7 5h4v14H7zM13 5h4v14h-4z" fill="currentColor"/></svg></button>
+  <button data-music="nexttrack" id="musicNext" aria-label="Next track"><svg viewBox="0 0 24 24"><path d="M16 5h2v14h-2zM4 5v14l11-7z" fill="currentColor"/></svg></button></div>
 
 <main>
   <section class="assistant" id="assistant" hidden>
@@ -317,6 +333,7 @@
   const post = (path, body) => fetch(path, { method: "POST", credentials: "same-origin",
     headers: { "Content-Type": "application/json", "X-Sofa-Remote": "1" }, body: JSON.stringify(body || {}) });
   const buzz = () => { try { navigator.vibrate && navigator.vibrate(8); } catch (e) {} };
+  let music = null;                        // what an app on the box plays (the mini player), from the last state
   const key = k => { buzz(); return post("api/key", { k }).then(r => { if (r.status === 401) showPairing(); }).catch(() => offline(true)); };
   let tab = "remote", wifiSsid = null, sentTz = false, ready = false;     // a new box takes its time zone from the phone
   let onItsWifi = false, joining = null;     // this phone is on the box's own Wi-Fi; the home Wi-Fi the box is going to
@@ -397,12 +414,33 @@
       $("wake").hidden = !s.asleep;
       $("power").classList.toggle("asleep", !!s.asleep);
       $("power").setAttribute("aria-label", s.asleep ? "Wake the box" : "Put the box to sleep");
+      music = s.music || null;
+      const m = music && (music.title || music.playing) ? music : null;
+      $("music").hidden = !m;
+      if (m) {
+        $("musicIn").textContent = (m.playing ? "Playing in " : "Paused in ") + (m.name || "an app");
+        $("musicTitle").textContent = (m.title || m.name || "") + (m.artist ? " · " + m.artist : "");
+        $("musicPrev").hidden = !(m.can || []).includes("previoustrack");
+        $("musicNext").hidden = !(m.can || []).includes("nexttrack");
+        $("musicToggle").setAttribute("aria-label", m.playing ? "Pause" : "Play");
+        $("musicIcon").setAttribute("d", m.playing ? "M7 5h4v14H7zM13 5h4v14h-4z" : "M7 4.5v15l12-7.5z");
+      }
       const p = s.playing;
       $("now").classList.toggle("on", !!(p && p.title));
       if (p && p.title) $("now").innerHTML = (p.paused ? "Paused: " : "Playing: ") + "<b></b>";
       if (p && p.title) $("now").querySelector("b").textContent = p.title + (p.sub ? " · " + p.sub : "");
     } catch (e) { offline(true); }
   }
+
+  // the mini player's buttons: pressed in the app that plays, on the box
+  $("music").addEventListener("click", async e => {
+    const b = e.target.closest("[data-music]");
+    if (!b || !music) return;
+    buzz();
+    const act = b.dataset.music === "toggle" ? (music.playing ? "pause" : "play") : b.dataset.music;
+    try { await post("api/music", { act }); } catch (err) {}
+    setTimeout(state, 450);
+  });
 
   // the power button: the box rests or wakes; asleep, a touch anywhere wakes it
   $("power").addEventListener("click", async () => {

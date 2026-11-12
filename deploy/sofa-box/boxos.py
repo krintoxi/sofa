@@ -31,6 +31,15 @@ def memory_mb():
         return 4096
 
 
+def available_mb():
+    """The memory that's there for something new, in MB (the kernel's own figure); None where it can't be read."""
+    try:
+        with open("/proc/meminfo") as f:
+            return int(re.search(r"MemAvailable:\s+(\d+)", f.read()).group(1)) // 1024
+    except (OSError, AttributeError):
+        return None
+
+
 # Apps open at once (besides Home): older ones that aren't playing close. By memory: 1 GB (a Pi 3) two,
 # 2 GB three, 4 GB four, 8 GB six.
 MAX_APP_TABS = int(os.environ.get("SOFA_BOX_MAX_TABS") or
@@ -45,7 +54,100 @@ MEDIA_PROPS = ("kVideoCodecName", "kVideoDecoderName", "kIsPlatformVideoDecoder"
                "kResolution", "kFramerate", "kRendererName")
 DRAWN_JS = ("location.href !== 'about:blank' && document.readyState !== 'loading' && !!document.body "
             "&& document.body.childElementCount > 0")
-PLAYING_JS = "Array.from(document.querySelectorAll('video,audio')).some(m => !m.paused && !m.muted && m.volume > 0)"
+# Is the page playing something you can hear? Its <video> and <audio>, and what SOUND_PROBE saw start: a player made
+# in script and never put on the page (new Audio()), and sound made with Web Audio. And how its sound went, for a report.
+PLAYING_JS = ("(window.__sofaSound ? window.__sofaSound.playing() : false) || "
+              "Array.from(document.querySelectorAll('video,audio')).some(m => !m.paused && !m.ended && !m.muted && m.volume > 0)")
+HEARD_JS = "JSON.stringify({playing: !!(%s), sound: window.__sofaSound ? window.__sofaSound.stats() : null})" % PLAYING_JS
+NOW_JS = "JSON.stringify(window.__sofaSound && window.__sofaSound.now ? window.__sofaSound.now() : null)"
+ACT_JS = "!!(window.__sofaSound && window.__sofaSound.act && window.__sofaSound.act(%s))"
+MUSIC_ACTS = ("play", "pause", "nexttrack", "previoustrack")
+# In every app's page, before its own scripts. A music app often plays through a player that is not on the page, or
+# through Web Audio (counted only on a page that says what it plays, so a game still sleeps behind Home): the box
+# asked the page for its <audio> elements, found none, and put the app to sleep a second
+# and a half after Home was pressed, music and all. Here every player is noted as it starts, and every Web Audio
+# source while it sounds. It also counts each time sound stopped to wait for more to arrive (the network, or a
+# server that's slow to send): what a stutter is, nearly always. And for the box's mini player: what the page says it's
+# playing (the browser's Media Session: title, artist, cover) and the buttons it gives the browser's own controls
+# (play, pause, next, previous), which the box can then press for it. No page's own code is needed.
+SOUND_PROBE = r"""(function () {
+  if (window.__sofaSound) return;
+  var players = new Set(), sources = new Set(), contexts = new Set(), waitFrom = new WeakMap(), handlers = {}, last = null;
+  var heard = { waits: 0, longest: 0, stalls: 0, errors: 0, started: 0 };
+  function watch(m) {
+    last = m;
+    if (players.has(m)) return;
+    players.add(m);
+    m.addEventListener("waiting", function () { if (!m.seeking && m.currentTime > 0.5) { heard.waits++; waitFrom.set(m, performance.now()); } });
+    m.addEventListener("playing", function () {
+      var t = waitFrom.get(m);
+      if (t) { heard.longest = Math.max(heard.longest, Math.round(performance.now() - t)); waitFrom.delete(m); }
+    });
+    m.addEventListener("stalled", function () { heard.stalls++; });
+    m.addEventListener("error", function () { heard.errors++; });
+  }
+  try {
+    var play = HTMLMediaElement.prototype.play;
+    HTMLMediaElement.prototype.play = function () { try { watch(this); heard.started++; } catch (e) {} return play.apply(this, arguments); };
+  } catch (e) {}
+  try {
+    var S = window.AudioScheduledSourceNode;
+    if (S) {
+      var start = S.prototype.start;
+      S.prototype.start = function () {
+        var n = this;
+        try { sources.add(n); contexts.add(n.context); heard.started++; n.addEventListener("ended", function () { sources.delete(n); }); } catch (e) {}
+        return start.apply(n, arguments);
+      };
+    }
+  } catch (e) {}
+  try {
+    var MS = window.MediaSession;
+    if (MS && MS.prototype.setActionHandler) {
+      var set = MS.prototype.setActionHandler;
+      MS.prototype.setActionHandler = function (name, fn) { try { handlers[name] = fn || null; } catch (e) {} return set.apply(this, arguments); };
+    }
+  } catch (e) {}
+  var audible = function (m) { return !m.paused && !m.ended && !m.muted && m.volume > 0; };
+  window.__sofaSound = {
+    playing: function () {
+      var on = false;
+      players.forEach(function (m) { if (audible(m)) on = true; });
+      // Web Audio counts as music only on a page that says what it plays: a game makes its sound with Web Audio too,
+      // and a game left behind Home should sleep like any other page.
+      if (!on && navigator.mediaSession && navigator.mediaSession.metadata)
+        sources.forEach(function (n) { try { if (n.context && n.context.state === "running") on = true; } catch (e) {} });
+      return on;
+    },
+    stats: function () { return { waits: heard.waits, longest: heard.longest, stalls: heard.stalls, errors: heard.errors, started: heard.started }; },
+    now: function () {
+      var ms = navigator.mediaSession, md = ms && ms.metadata, art = null;
+      try { if (md && md.artwork && md.artwork.length) art = md.artwork[md.artwork.length - 1].src; } catch (e) {}
+      var can = Object.keys(handlers).filter(function (k) { return handlers[k]; });
+      return { started: heard.started, said: !!md, playing: this.playing(), title: (md && md.title) || "", artist: (md && md.artist) || "",
+               album: (md && md.album) || "", art: art, can: can,
+               t: last && isFinite(last.currentTime) ? Math.round(last.currentTime) : null,
+               d: last && isFinite(last.duration) ? Math.round(last.duration) : null };
+    },
+    act: function (name) {
+      var h = handlers[name];
+      if (h) { try { h({ action: name }); return true; } catch (e) { return false; } }
+      if (name === "pause") {                      // (a page with no buttons of its own: its players, as they are)
+        var did = false;
+        players.forEach(function (m) { if (audible(m)) { m.pause(); did = true; } });
+        contexts.forEach(function (c) { try { if (c.state === "running") { c.suspend(); did = true; } } catch (e) {} });
+        return did;
+      }
+      if (name === "play") {
+        var any = false;
+        contexts.forEach(function (c) { try { if (c.state === "suspended") { c.resume(); any = true; } } catch (e) {} });
+        if (last && last.paused) { last.play(); any = true; }
+        return any;
+      }
+      return false;
+    }
+  };
+})();"""
 _opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 _web = urllib.request.build_opener()  # sites on the internet (the system's proxy settings apply)
 UA = "Mozilla/5.0 (X11; Linux aarch64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36 SofaBox/1"
@@ -944,6 +1046,9 @@ class Browser:
         self.lock = threading.Lock()
         self.screen = None           # what the TV shows now (the agent's: screen_picture), for wrong()
         self.said = collections.deque(maxlen=40)     # what went wrong on a way back to Home, and what was done
+        self.gave_back = collections.deque(maxlen=12)   # the apps closed behind Home, and the memory that came back
+        self.sounds = {}             # app -> how its sound went the last time it was asked (kept after it's closed)
+        self.gone = collections.OrderedDict()   # session -> app, of pages closed: their last words keep their name
         self.ready = threading.Event()
         self._closed = threading.Event()
         threading.Thread(target=self._keep_connected, daemon=True, name="devtools").start()
@@ -1044,7 +1149,7 @@ class Browser:
         if m in ("Target.targetCreated", "Target.targetInfoChanged") and p["targetInfo"]["type"] == "page":
             self._track(p["targetInfo"])
         elif m == "Target.targetDestroyed":
-            self.tabs.pop(p.get("targetId"), None)
+            self._remember_gone(self.tabs.pop(p.get("targetId"), None) or {})
         elif m in NOTED:
             self._note(m, p, msg.get("sessionId"))
         elif m.startswith("Runtime.") and m != "Runtime.bindingCalled":
@@ -1083,7 +1188,8 @@ class Browser:
             events = [e for e in p.get("events", []) if not ROUTINE.search(str(e.get("value", "")))]
             text = ", ".join(str(e.get("value", "")) for e in events)
         if text:
-            app = next((tab.get("app") for tab in self.tabs.values() if tab.get("session") == session), None) or "?"
+            app = next((tab.get("app") for tab in self.tabs.values() if tab.get("session") == session), None) or \
+                (getattr(self, "gone", None) or {}).get(session) or "?"
             line = "%s %s: %s" % (app, m.split(".", 1)[1], " ".join(text.split())[:300])
             if self.notes and self.notes[-1].split(" ", 1)[1].split(" (×")[0] == line:     # the same again: counted
                 n = self.notes[-1].rsplit(" (×", 1)
@@ -1112,7 +1218,13 @@ class Browser:
             if tab.get("ua"):
                 self.call("Network.setUserAgentOverride", {"userAgent": tab["ua"]}, session)
             self.size_page(target, session, tab)
-            if self.page_script and tab.get("app") != "home":  # in the page's own world, before its scripts run
+            if tab.get("app") != "home":                       # in the page's own world, before its scripts run
+                try:
+                    self.call("Page.addScriptToEvaluateOnNewDocument", {"source": SOUND_PROBE}, session, timeout=3)
+                    self.call("Runtime.evaluate", {"expression": SOUND_PROBE}, session, timeout=3)
+                except OSError:
+                    pass
+            if self.page_script and tab.get("app") != "home":
                 self.call("Page.addScriptToEvaluateOnNewDocument", {"source": self.page_script}, session)
             if INJECT and tab.get("app") != "home":
                 self.call("Page.addScriptToEvaluateOnNewDocument", {"source": INJECT, "worldName": "sofabox"}, session)
@@ -1160,10 +1272,14 @@ class Browser:
                 tab["frozen"] = False
             except OSError as exc:                       # (still frozen, and known to be: woken at the next try)
                 self.say("A page didn't wake (%s)" % exc)
+        behind = getattr(self, "front", None)
         self.call("Target.activateTarget", {"targetId": target})
         self.front = target
+        if behind and behind != target and behind in self.tabs:
+            self.tabs[behind]["left"] = time.time()      # out of sight from now (tidy counts from here)
         if target in self.tabs:
             self.tabs[target]["used"] = time.time()
+            self.tabs[target].pop("left", None)
         threading.Thread(target=self.settle, args=(target,), daemon=True).start()
 
     def settle(self, front):
@@ -1174,17 +1290,124 @@ class Browser:
             if t == front or tab.get("frozen") or not tab.get("session") or tab.get("app") in KEEP_AWAKE:
                 continue
             try:
-                playing = (self.call("Runtime.evaluate", {"expression": PLAYING_JS, "returnByValue": True}, tab["session"], timeout=3)
-                           .get("result", {}).get("value"))
+                playing = self.heard(tab)
                 if not playing and getattr(self, "front", None) != t:
                     self.call("Page.setWebLifecycleState", {"state": "frozen"}, tab["session"], timeout=3)
                     tab["frozen"] = True
             except OSError:
                 pass
 
+    def heard(self, tab, timeout=3):
+        """Is this page playing something you can hear? And what it says of how its sound went is kept for a report."""
+        got = self.call("Runtime.evaluate", {"expression": HEARD_JS, "returnByValue": True}, tab["session"], timeout=timeout)
+        try:
+            said = json.loads(got.get("result", {}).get("value") or "{}")
+        except (TypeError, ValueError):
+            said = {}
+        if said.get("sound") and tab.get("app"):
+            sounds = getattr(self, "sounds", None)
+            if sounds is not None:
+                sounds[tab["app"]] = dict(said["sound"], at=time.strftime("%H:%M:%S"))
+        return bool(said.get("playing"))
+
+    def sound_lines(self):
+        """For a report: each app's sound since its page loaded. A wait is sound that stopped until more arrived."""
+        for tab in list(self.tabs.values()):               # (the ones awake are asked now; asleep ones keep what they said)
+            if tab.get("session") and not tab.get("frozen") and tab.get("app") not in ("home", None):
+                try:
+                    self.heard(tab, timeout=2)
+                except OSError:
+                    pass
+        out = []
+        for app, h in sorted(self.sounds.items()):
+            if not h.get("started"):
+                continue
+            out.append("  %s: started %d, stopped to wait for more %d time%s%s, stalled %d, errors %d (asked at %s)" % (
+                app, h["started"], h.get("waits", 0), "" if h.get("waits") == 1 else "s",
+                " (the longest %.1f s)" % (h["longest"] / 1000) if h.get("longest") else "", h.get("stalls", 0),
+                h.get("errors", 0), h.get("at", "?")))
+        return out
+
+    def now_playing(self):
+        """The box's mini player: the app that's playing something you can hear (or played something last and is
+        paused), what it says it's playing, and the buttons it has. None when nothing has played."""
+        best = None
+        for t, tab in list(self.tabs.items()):
+            if tab.get("app") in ("home", None) or tab.get("frozen") or not tab.get("session") or tab.get("passing"):
+                continue
+            try:
+                got = json.loads(self.call("Runtime.evaluate", {"expression": NOW_JS, "returnByValue": True}, tab["session"],
+                                           timeout=2).get("result", {}).get("value") or "null")
+            except (OSError, ValueError, TypeError):
+                continue
+            if not isinstance(got, dict) or not got.get("started") or not (got.get("playing") or got.get("said")):
+                continue                                 # (a muted preview played and stopped: not music)
+            got.update(target=t, app=tab.get("app"), front=t == getattr(self, "front", None),
+                       title=str(got.get("title") or tab.get("title") or "")[:200], used=tab.get("used") or 0)
+            rank = (bool(got.get("playing")), got["used"])
+            if best is None or rank > (bool(best.get("playing")), best["used"]):
+                best = got
+        if best:
+            best.pop("used", None)
+            if best.get("art") and not str(best["art"]).startswith(("https://", "http://", "data:image/")):
+                best["art"] = None
+        return best
+
+    def music(self, target, act):
+        """A button of the mini player, pressed in the app that plays: its own if it gave the browser one."""
+        if act not in MUSIC_ACTS:
+            raise ValueError("That isn't a button of the mini player.")
+        tab = self.tabs.get(target) or {}
+        if not tab.get("session"):
+            raise ValueError("That app isn't open any more.")
+        got = self.call("Runtime.evaluate", {"expression": ACT_JS % json.dumps(act), "returnByValue": True,
+                                             "userGesture": True}, tab["session"], timeout=3)
+        return bool(got.get("result", {}).get("value"))
+
+    def tidy(self, grace, now=None, wait=2.0):
+        """The apps left behind give the box back. Asleep, an app costs no processor, but it still holds its memory
+        and its share of the graphics chip: its process is still there. So an app that has been out of sight for
+        `grace` seconds is closed, and its process ends. Never the page in front, Home or Sofa, and never one that's
+        playing something you can hear (music carries on behind Home). Opened again within `grace`, it's as it was
+        left. What was closed: [{"app", "left" (seconds out of sight), "before", "after" (MB of memory free)}]."""
+        now = now or time.time()
+        front = getattr(self, "front", None)
+        closed = []
+        for t, tab in list(self.tabs.items()):
+            if t == front or tab.get("app") in ("home", None) + KEEP_AWAKE or tab.get("passing") or not tab.get("session"):
+                continue
+            if not tab.get("left"):                      # (a window an app opened itself: counted from when it's seen)
+                tab["left"] = now
+                continue
+            if now - tab["left"] < grace:
+                continue
+            if not tab.get("frozen"):                    # awake behind the page in front: it was playing. Is it still?
+                try:
+                    if self.heard(tab):
+                        continue
+                except OSError:
+                    pass
+            before = available_mb()
+            try:
+                self.close(t)
+            except OSError:
+                continue
+            closed.append({"app": tab.get("app"), "left": int(now - tab["left"]), "before": before, "after": None})
+        if closed:
+            if wait:
+                time.sleep(wait)                         # (the process is gone a moment after its page)
+            after = available_mb()
+            for c in closed:
+                c["after"] = after
+                self.gave_back.append("%s %s, %d s out of sight%s" % (
+                    time.strftime("%H:%M:%S"), c["app"], c["left"],
+                    "" if after is None or c["before"] is None else ", memory free %d to %d MB" % (c["before"], after)))
+        return closed
+
     def rest(self, close_apps=False):
         """A game takes the box: the pages behind stop (frozen), the apps that aren't Sofa close on a small box, and the
-        browser lets go of the memory it can. Never the page in front, and never Home: Home stops its own asking
+        browser lets go of the memory it can. Never the page in front, never an app that's playing something you can
+        hear (music carries on under a game), and never Home: Home stops its own asking
         around while a game is open (the agent tells it), and stays a page the browser can show.
 
         (Home was frozen too, in front as it was. To freeze a page the browser first marks it hidden, and waking it
@@ -1194,6 +1417,12 @@ class Browser:
         for t, tab in list(self.tabs.items()):
             if not tab.get("session"):
                 continue
+            if t != front and tab.get("app") not in ("home", None) and not tab.get("frozen"):
+                try:                                     # music carries on under a game: the app that's playing it stays
+                    if self.heard(tab):                  # as it is, on a small box too
+                        continue
+                except OSError:
+                    pass
             if close_apps and tab.get("app") not in ("home", None) + KEEP_AWAKE:
                 try:
                     self.close(t)
@@ -1468,8 +1697,26 @@ class Browser:
         print(text, file=sys.stderr, flush=True)
 
     def close(self, target):
+        """A page closed. Asleep, it's woken first, so it says its last (a game says how it ran as its page goes, for a
+        report); and what it says then keeps its app's name."""
+        tab = self.tabs.get(target) or {}
+        if tab.get("session"):
+            self._remember_gone(tab)
+            if tab.get("frozen"):
+                try:
+                    self.call("Page.setWebLifecycleState", {"state": "active"}, tab["session"], timeout=3)
+                except OSError:
+                    pass
         self.call("Target.closeTarget", {"targetId": target})
         self.tabs.pop(target, None)
+
+    def _remember_gone(self, tab):
+        gone = getattr(self, "gone", None)
+        if gone is None or not tab.get("session") or tab.get("app") in (None, "home"):
+            return
+        gone[tab["session"]] = tab["app"]
+        while len(gone) > 30:
+            gone.popitem(last=False)
 
     def running(self):
         return [{"target": t, "app": tab.get("app"), "title": tab.get("title", ""), "url": tab.get("url", ""),

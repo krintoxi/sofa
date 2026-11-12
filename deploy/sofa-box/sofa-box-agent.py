@@ -550,6 +550,7 @@ class Player:
         self.status = {}
         self.news, self.seq = [], 0             # what the page hears about, numbered (every page gets all of it)
         self.failures = []                      # the last few times it stopped by itself, and why (Send a report)
+        self.ran = collections.deque(maxlen=6)  # how the last few videos played (Send a report): no titles
         self.cond = threading.Condition()
         self.req = 0
         self.menu = None                        # the options menu, while it's open (Menu while a video plays)
@@ -885,11 +886,26 @@ class Player:
         p, last_save, noted = self.payload, 0, ""
         drops_checked = started = moving = False
         waited = 0
+        run = {"at": time.strftime("%H:%M:%S"), "waits": 0, "waited": 0, "played": 0, "started_after": None,
+               "kind": "live" if p.get("live") else "converted" if "/hls/" in str(p.get("url") or "") else "file"}
+        self.ran.append(run)
+        cache_wait = False
         while proc.poll() is None:
             time.sleep(1)
+            if moving:
+                run["played"] += 1
+                if run["played"] % 5 == 1:
+                    self.sample(run)
+                now_waiting = self.command("get_property", "paused-for-cache") is True
+                if now_waiting:
+                    run["waited"] += 1
+                    if not cache_wait:
+                        run["waits"] += 1
+                cache_wait = now_waiting
             if not moving:
                 if self.command("get_property", "core-idle") is False:
                     moving = True
+                    run["started_after"] = waited + 1
                     self.osd(card=False)
                     self.tell(playing={"item": p.get("item")})     # (the page's start card, behind mpv, can go)
                     if p.get("live"):
@@ -974,6 +990,37 @@ class Player:
             if isinstance(m, dict) and m.get("kind") in ("intro", "recap") and m.get("start", 0) <= t < m.get("end", 0) - 1:
                 return m
         return None
+
+    PLAY_PROPS = ("video-codec", "hwdec-current", "width", "height", "container-fps", "video-bitrate", "audio-codec-name",
+                  "frame-drop-count", "decoder-frame-drop-count")
+
+    def sample(self, run):
+        """What mpv says now about the video in it (for `ran`): what it is, how it's decoded, frames dropped."""
+        for prop in self.PLAY_PROPS:
+            v = self.command("get_property", prop)
+            if v is not None:
+                run[prop] = v
+
+    @staticmethod
+    def ran_line(run):
+        """One video, for a report: when, what kind, how long until the picture moved, what it is, how it was decoded,
+        and what went wrong while it played: frames dropped (the box couldn't keep up decoding or drawing) or waits
+        for more to arrive (the network, or Sofa converting it, couldn't keep up)."""
+        w, h = run.get("width"), run.get("height")
+        hw = run.get("hwdec-current")
+        rate = run.get("video-bitrate")
+        parts = ["%s %s" % (run.get("at", "?"), run.get("kind", "?")),
+                 "picture after %s s" % run["started_after"] if run.get("started_after") is not None else "the picture never moved",
+                 "%s%s%s" % (run.get("video-codec") or "video ?", " %sx%s" % (w, h) if w and h else "",
+                             " %.3g fps" % run["container-fps"] if run.get("container-fps") else ""),
+                 "decoded by %s" % ("the processor" if hw in (None, "", "no") else "the video chip (%s)" % hw),
+                 "%.1f Mbit/s" % (rate / 1e6) if rate else "bit rate ?",
+                 "audio %s" % (run.get("audio-codec-name") or "?"),
+                 "dropped %d frames (%d by the decoder)" % ((run.get("frame-drop-count") or 0) + (run.get("decoder-frame-drop-count") or 0),
+                                                            run.get("decoder-frame-drop-count") or 0),
+                 "waited for more %d time%s (%d s in all)" % (run.get("waits", 0), "" if run.get("waits") == 1 else "s", run.get("waited", 0)),
+                 "played %d s" % run.get("played", 0)]
+        return ", ".join(parts)
 
     def check_drops(self):
         """1080p the box can't keep up with: ask Sofa for 720p from now on (the setting can say otherwise)."""
@@ -1385,6 +1432,93 @@ def watch_web_game():
                     os.remove(path)
             except OSError:
                 web = None                                  # (tried again next time)
+
+
+def leave_after():
+    """How long an app stays open out of sight before it's closed, in seconds: half a minute on a small box (the light
+    look: a Pi 3, or 1 GB), five minutes on a bigger one. (SOFA_BOX_LEAVE_AFTER sets it; 0 leaves apps open.)"""
+    asked = os.environ.get("SOFA_BOX_LEAVE_AFTER")
+    if asked not in (None, ""):
+        try:
+            return max(0.0, float(asked))
+        except ValueError:
+            pass
+    return 30.0 if light() else 300.0
+
+
+_now = {"at": -1e9, "value": None, "said": None}
+
+
+def now_line():
+    """A new track in an app behind what's in front (a web page, Sofa, a game in the browser): a moment's word over
+    it, as a TV's own banner (the mini player's pop-up). Not over a video, and not when the box rests."""
+    if not (browser and browser.connected()) or asleep["on"] or playing():
+        return
+    v = now_playing()
+    title = v and v.get("playing") and not v.get("front") and v.get("title")
+    if not title:
+        return
+    said = (v.get("app"), title, v.get("artist"))
+    if said != _now["said"]:
+        first = _now["said"] is None or _now["said"][0] != said[0]
+        _now["said"] = said
+        if not first or browser.front_app() != "home":     # (Home shows it itself)
+            browser.hud("\u266a " + title + (" \u00b7 " + v["artist"] if v.get("artist") else ""))
+_now_lock = threading.Lock()
+
+
+def now_playing(fresh=False):
+    """The mini player's: what the app that plays music says it's playing (boxos.Browser.now_playing), looked at
+    once every two seconds at most, however many ask (Home, phones)."""
+    if not (browser and browser.connected()):
+        return None
+    with _now_lock:
+        if fresh or steady() - _now["at"] > 2:
+            try:
+                _now["value"] = browser.now_playing()
+            except Exception:                               # (a page that went away while it was asked)
+                _now["value"] = None
+            _now["at"] = steady()
+        v = _now["value"]
+    if not v:
+        return None
+    a = apps.get(v.get("app")) or {}
+    return dict(v, name=a.get("name") or v.get("app") or "", color=a.get("color") or "")
+
+
+def music(act, target=None):
+    """A button of the mini player: play, pause, next, previous in the app that plays, or open it."""
+    v = now_playing(fresh=True)
+    if not v or (target and v.get("target") != target):
+        raise ValueError("Nothing's playing in an app now.")
+    if act == "open":
+        browser.activate(v["target"])
+        return {"ok": True}
+    done = browser.music(v["target"], act)
+    _now["at"] = -1e9                                        # (the next look is a fresh one)
+    return {"ok": True, "done": done}
+
+
+def watch_apps():
+    """Back on Home, the apps behind it give the box back: closed once they've been out of sight for a while, unless
+    they're playing something you can hear (boxos.Browser.tidy). Each one closed is a line in the journal and in a
+    report, with the memory that came back."""
+    while True:
+        time.sleep(5)
+        try:
+            now_line()
+        except Exception:
+            pass
+        try:
+            grace = leave_after()
+            if not grace or not (browser and browser.connected()):
+                continue
+            for c in browser.tidy(grace):
+                print("Closed behind Home: %s (%d s out of sight)%s" % (
+                    c["app"], c["left"], "" if c["after"] is None or c["before"] is None
+                    else "; memory free %d to %d MB" % (c["before"], c["after"])), flush=True)
+        except Exception as exc:                            # (the next look tries again)
+            print("Closing apps behind Home: %r" % exc, flush=True)
 
 
 def watch_smoothness():
@@ -3814,6 +3948,7 @@ def report_text():
            "player: " + json.dumps({k: v for k, v in player.status.items() if k not in ("title", "sub")}),
            "mpv said: " + " | ".join(getattr(player.proc, "sofa_err", None) or ["(nothing)"]),
            "player stopped by itself: " + json.dumps(player.failures or "never, since the box started"),
+           "videos played (newest last): " + (" | ".join(Player.ran_line(r) for r in list(player.ran)) or "none since the box started"),
            "Bluetooth pairings asked: " + json.dumps(pairing_helper.said or "none since the box started")]
     out.append("the TV's screen started again by hand: " + ("; ".join(rescues()) or "never"))
     if browser:
@@ -3821,8 +3956,12 @@ def report_text():
         look = safely(tv_picture)
         out.append("the TV now: " + ("%(colour)s over %(share)s of it%(what)s" % dict(look, what=", ONE FLAT COLOUR" if look["flat"] else "")
                                      if isinstance(look, dict) else "not looked at (a video, a game, asleep, or no grim on this box)"))
+        out.append("apps closed behind Home (after %d s out of sight): %s" % (
+            leave_after(), "; ".join(browser.gave_back) if browser.gave_back else "none since the box started"))
         out.append("browser: %s, in front: %s" % ("connected" if browser.connected() else "not connected", browser.front_app()))
         out += ["  %s%s %s" % (t["app"], " (asleep)" if t["frozen"] else "", t["url"]) for t in safely(browser.running) or []]
+        out += ["== Sound in the apps (a wait is sound that stopped until more arrived: the network, or its server)"]
+        out += safely(browser.sound_lines) or ["(no app has played anything)"]
         out += ["== The pages and their video players"] + (list(browser.notes) or ["(nothing)"])
         out += ["== How quickly the pages answer the remote (look: %s%s)" % ("light" if light() else "full",
                                                                          ", chosen by the box" if settings().get("learned_lite") else "")]
@@ -4373,6 +4512,7 @@ class Handler(BaseHTTPRequestHandler):
             s, st = settings(), servers.state()
             default = servers.get(st["default"]) if st["default"] else None
             return self.send(json.dumps({"apps": apps.listing(), "running": browser.running() if browser and browser.connected() else [],
+                                         "now": now_playing(),
                                          "devtools": bool(browser and browser.connected()), "sofa": server(),
                                          "sofa_name": (found.get(server()) or {}).get("name"), "theme": s["theme"],
                                          "name": s["boot_text"], "welcomed": s["welcomed"], "setup_step": s.get("setup_step", 0),
@@ -4502,6 +4642,8 @@ class Handler(BaseHTTPRequestHandler):
                 browser.activate(str(data["target"]))
                 return self.send('{"ok":true}')
             raise ValueError("That isn't open any more.")
+        if path == "/box/api/music":                       # the mini player's buttons
+            return self.send(json.dumps(music(str(data.get("act") or ""), data.get("target"))))
         if path == "/box/api/close":
             if browser and browser.connected() and data.get("target"):
                 browser.close(str(data["target"]))
@@ -4721,7 +4863,9 @@ class RemoteHandler(BaseHTTPRequestHandler):
                 else:
                     phone.home_at = steady()
                 p = player.status
+                m = now_playing()
                 return self.send(json.dumps({"paired": True, "name": settings().get("boot_text") or "Sofa Box",
+                                             "music": m and {k: m.get(k) for k in ("title", "artist", "name", "playing", "can", "front")},
                                              "playing": {k: p.get(k) for k in ("title", "sub", "t", "d", "paused")} if p else None,
                                              "front": browser.front_app() if browser and browser.connected() else None,
                                              "hotspot": bool(network.hotspot), "welcomed": settings()["welcomed"],
@@ -4753,6 +4897,8 @@ class RemoteHandler(BaseHTTPRequestHandler):
                 return self.send(json.dumps(out))
             elif path == "/api/report":
                 return self.send(json.dumps(send_report()))
+            elif path == "/api/music":                      # the mini player, on the phone
+                return self.send(json.dumps(music(str(data.get("act") or ""))))
             elif path == "/api/screen":                     # Home held on the phone: the TV's screen, again
                 if data.get("restart") is not True:
                     raise ValueError("restart?")
@@ -4857,6 +5003,7 @@ def main():
     pairing_helper.start()                       # (BlueZ's pairings answered: an Xbox controller pairs)
     threading.Thread(target=watch_power, daemon=True, name="power").start()
     threading.Thread(target=watch_smoothness, daemon=True, name="smoothness").start()
+    threading.Thread(target=watch_apps, daemon=True, name="apps").start()
     threading.Thread(target=watch_web_game, daemon=True, name="web-game").start()
     if os.environ.get("SOFA_BOX_NEWEST") != "0":
         threading.Thread(target=weekly_update.watch, daemon=True, name="weekly-update").start()   # (if it's switched on)
