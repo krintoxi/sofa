@@ -8,6 +8,61 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.74
+
+Memory and the processor first: the box fits itself to the board it's on, and gives back what it doesn't use.
+
+- **A film over Home leaves 347 MB free on a 1 GB box, not 147.** Measured on a stand-in for a Pi 3 (a Linux VM with
+  four cores and 1 GB, Debian 13's Chromium 156 under cage, the box's own flags, the real agent and This box's Sofa
+  playing a 15.5 Mbit/s 1080p film from it). Not on a Pi yet. The same steps on 1.1.73 and on 1.1.74, free memory
+  (MemAvailable) in MB:
+
+  | | 1.1.73 | 1.1.74 |
+  |---|---|---|
+  | Home | 466 | 501 |
+  | Sofa open | 311 | 376 |
+  | and an app | 261 | 310 |
+  | and a second app | 215 | 327 |
+  | back on Home | 260 | 353 |
+  | half a minute later (the apps closed, since 1.1.70) | 336 | 468 |
+  | a film playing over Home | **147** | **347** |
+
+  The kernel's cache is in that figure and runs differ by 20 to 30 MB. The processes themselves, during the film:
+  mpv 265 MB to 166, the agent 74 to 44, This box's Sofa 41 to 29 (Sofa 1.5.8), the browser's pages one process
+  fewer. (The same steps on 1.1.70, before 1.1.72 and 1.1.73: 148 to 236 MB during the film.)
+- **The player reads ahead by the box's memory.** mpv read 120 MB ahead (and kept its own 50 MB behind) on every box:
+  that film held mpv at 265 to 284 MB on the 1 GB stand-in. Now 1 GB: 48 MB ahead and 16 behind (25 s of such a
+  film, a minute of most): **165 MB**. 2 GB: 96 + 32; 4 GB: mpv's own 150 + 50; more: 256 + 64. Its decoding threads on a
+  Pi 3 or older are the cores it has (four was written in: a Pi Zero or a Pi 1 has one).
+- **One page fewer in the browser.** A newer Chromium makes the address bar's pop-ups as pages of their own at its
+  start (`chrome://omnibox-popup`), even in kiosk mode, where there is no address bar: one renderer, **34 MB** on the
+  stand-in (measured at Home on its own; one renderer fewer at every step above). They're switched off on every box
+  (`WebUIOmniboxPopup`, `WebUIOmniboxAimPopup`, `WebUIOmniboxFullPopup`, `PreloadTopChromeWebUI`); the box's own bar
+  is its own. A Chromium without them ignores the names.
+- **The agent gives back what it frees.** After a visit to Sofa (its pictures come through the agent, a thread each)
+  the agent sat on 78 MB, of which Python used 8 (tracemalloc): glibc keeps freed memory for later. Fewer of its
+  arenas (`MALLOC_ARENA_MAX=2`) made it 73; handing it back (`malloc_trim`) every five seconds, **37**. That's in
+  (in the steps above: 77 to 45). This box's Sofa does the same (Sofa 1.5.8): 40 MB to 28 on the stand-in.
+- **It holds up over an evening.** Eight rounds of Sofa, two apps and back to Home, on the stand-in: on 1.1.73 the
+  agent grew every round, 75 MB to 128 (about 7 MB a round: hundreds over a day of use), and five times the browser
+  didn't answer the agent in time ("the browser didn't answer Target.createTarget": an app didn't open). On 1.1.74
+  the agent stays at 43 to 47 MB, This box's Sofa at 25 to 29 (Sofa 1.5.8), and nothing failed. What a request
+  leaves in a reference cycle waited for Python's cycle collector, which ran seldom; it runs once a minute before
+  the trim now. Free memory after each round: 306 to 340 MB on 1.1.73, 376 to 444 on 1.1.74.
+- **Short of memory, the apps behind Home close at once.** Below a tenth of the box's memory free (100 MB at least),
+  an app out of sight behind Home closes now, not after its half minute; never Home, Sofa, the page in front or one
+  that plays. Said once a minute at most, in the journal and a report: the free memory, who holds it, what closed.
+- **A report says what the memory and the processor are doing** (`== Memory and processor`): the memory and what's
+  free, the compressed memory (zram) in use, how often anything waited for memory lately (Linux's PSI); who holds it
+  (the browser's pages, its graphics, the browser, the player, the agent, Sofa on this box, the screen; each group's
+  fair share, PSS); the times it ran low and what was closed; the processor by name ("4 x Cortex-A53" on a Pi 3,
+  "4 x Cortex-A76" on a Pi 5), its cores and load, a VM's name; what decodes video (the Pi's `bcm2835-codec-decode`,
+  `rpi-hevc-dec`; a PC's VA-API by maker); and how the player is set for this box. The `board:` line has the same.
+- Looked at and left alone: Chromium's memory-pressure signal through DevTools (`Memory.simulatePressureNotification`,
+  every page) freed nothing on the stand-in (+8 MB, noise), and Chromium used under 5% of a core while a film played
+  over Home, so Home isn't put to rest for films.
+- `SOFA_BOX_LOW_MB` sets the low mark (for tests); `SOFA_BOX_PROC` points the hardware's files at a stand-in tree.
+
 ## 1.1.73
 
 Home is Spotlight: the TV's own kind of home screen, picked by the owner from a live mock-up of three.

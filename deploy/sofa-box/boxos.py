@@ -23,21 +23,182 @@ import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DEVTOOLS_PORT = int(os.environ.get("SOFA_BOX_DEVTOOLS", "9222"))
-def memory_mb():
+ROOT = os.environ.get("SOFA_BOX_PROC", "")          # (tests: a folder laid out like /proc, /sys and /dev)
+
+
+def _read(path):
     try:
-        with open("/proc/meminfo") as f:
-            return int(re.search(r"MemTotal:\s+(\d+)", f.read()).group(1)) // 1024
-    except (OSError, AttributeError):
-        return 4096
+        with open(ROOT + path, encoding="utf-8", errors="replace") as f:
+            return f.read()
+    except OSError:
+        return ""
+
+
+def memory_mb():
+    m = re.search(r"MemTotal:\s+(\d+)", _read("/proc/meminfo"))
+    return int(m.group(1)) // 1024 if m else 4096
 
 
 def available_mb():
     """The memory that's there for something new, in MB (the kernel's own figure); None where it can't be read."""
+    m = re.search(r"MemAvailable:\s+(\d+)", _read("/proc/meminfo"))
+    return int(m.group(1)) // 1024 if m else None
+
+
+# ---------------------------------------------------------------- the hardware, and its memory
+
+def cores():
+    """The processor's cores the box may use (a CPU set counts)."""
+    n = os.cpu_count() or 1
     try:
-        with open("/proc/meminfo") as f:
-            return int(re.search(r"MemAvailable:\s+(\d+)", f.read()).group(1)) // 1024
-    except (OSError, AttributeError):
-        return None
+        n = min(n, len(os.sched_getaffinity(0)))
+    except (AttributeError, OSError):
+        pass
+    return max(1, n)
+
+
+ARM_CORES = {0xb76: "ARM1176", 0xc07: "Cortex-A7", 0xd03: "Cortex-A53", 0xd04: "Cortex-A35", 0xd05: "Cortex-A55",
+             0xd07: "Cortex-A57", 0xd08: "Cortex-A72", 0xd09: "Cortex-A73", 0xd0b: "Cortex-A76", 0xd0c: "Neoverse-N1",
+             0xd0d: "Cortex-A77", 0xd40: "Neoverse-V1", 0xd41: "Cortex-A78", 0xd46: "Cortex-A510", 0xd47: "Cortex-A710",
+             0xd4f: "Neoverse-V2", 0xd80: "Cortex-A520", 0xd81: "Cortex-A720"}
+
+
+def processor():
+    """The processor by name: "Intel(R) N100", "4 x Cortex-A53" (a Pi 3), "4 x Cortex-A76" (a Pi 5)."""
+    text = _read("/proc/cpuinfo")
+    m = re.search(r"model name\s*:\s*(.+)", text)
+    if m and re.search(r"^flags\s*:", text, re.M):
+        return " ".join(m.group(1).split())
+    kinds, maker = {}, None
+    for line in text.splitlines():
+        k, _, v = line.partition(":")
+        try:
+            if k.strip() == "CPU implementer":
+                maker = int(v, 16)
+            elif k.strip() == "CPU part":
+                part = int(v, 16)
+                name = (ARM_CORES.get(part) if maker == 0x41 else "Apple silicon" if maker == 0x61 else None) or "ARM 0x%03x" % part
+                kinds[name] = kinds.get(name, 0) + 1
+        except ValueError:
+            continue
+    if kinds:
+        return " + ".join("%d x %s" % (n, k) for k, n in kinds.items())
+    return " ".join(m.group(1).split()) if m else "unknown"
+
+
+GPU_VENDORS = {"0x8086": "Intel", "0x1002": "AMD", "0x10de": "NVIDIA", "0x1af4": "virtual"}
+
+
+def video_chips():
+    """What decodes video besides the processor: the Pi's codecs (V4L2: bcm2835-codec-decode on a Pi 3 and 4,
+    rpi-hevc-dec on a Pi 4 and 5), a PC's graphics (VA-API, by maker). Empty in a VM, or with no driver."""
+    out = []
+    try:
+        nodes = sorted(n for n in os.listdir(ROOT + "/dev/dri") if n.startswith("renderD"))
+    except OSError:
+        nodes = []
+    for n in nodes:
+        vendor = _read("/sys/class/drm/%s/device/vendor" % n).strip()
+        out.append("VA-API: %s (%s)" % (GPU_VENDORS.get(vendor, vendor or "graphics"), n))
+    try:
+        v4l = sorted(os.listdir(ROOT + "/sys/class/video4linux"), key=lambda x: int(re.sub(r"\D", "", x) or 0))
+    except OSError:
+        v4l = []
+    for n in v4l:
+        name = _read("/sys/class/video4linux/%s/name" % n).strip()
+        if re.search(r"codec|hevc|h264|dec", name, re.I) and "isp" not in name.lower() and "enc" not in name.lower():
+            out.append("%s (%s)" % (name, n))
+    return out
+
+
+def virtual():
+    """"a VM (QEMU)" and the like, or None on a computer of its own (docs/hardware.md: the box runs in VMs too)."""
+    vendor = (_read("/sys/class/dmi/id/sys_vendor") + " " + _read("/sys/class/dmi/id/product_name")).strip()
+    for pat, name in ((r"QEMU|KVM", "QEMU"), (r"VMware", "VMware"), (r"VirtualBox|innotek", "VirtualBox"),
+                      (r"Hyper-V|Microsoft Corporation Virtual", "Hyper-V"), (r"Xen", "Xen"), (r"Parallels", "Parallels"),
+                      (r"Apple Virtualization", "Apple Virtualization")):
+        if re.search(pat, vendor):
+            return "a VM (%s)" % name
+    if re.search(r"^flags\s*:.*\bhypervisor\b", _read("/proc/cpuinfo"), re.M):
+        return "a VM"
+    return None
+
+
+def pressure():
+    """How often anything on the box waited for memory: the share of the last 10 s and 60 s (Linux's PSI), or None."""
+    m = re.search(r"some avg10=([\d.]+) avg60=([\d.]+)", _read("/proc/pressure/memory"))
+    return (float(m.group(1)), float(m.group(2))) if m else None
+
+
+def swap_used_mb():
+    """The compressed memory (zram) in use, in MB: what the kernel moved out of the way."""
+    t = _read("/proc/meminfo")
+    total, free = re.search(r"SwapTotal:\s+(\d+)", t), re.search(r"SwapFree:\s+(\d+)", t)
+    return (int(total.group(1)) - int(free.group(1))) // 1024 if total and free else None
+
+
+MEMORY_GROUPS = ((r"--type=renderer", "the browser's pages"), (r"--type=gpu-process", "the browser's graphics"),
+                 (r"chrom(e|ium)", "the browser"), (r"\bmpv\b", "the player (mpv)"), (r"sofa-box-agent", "the box's agent"),
+                 (r"sofa\.py", "Sofa on this box"), (r"\bcage\b", "the screen (cage)"), (r"Xwayland", "the screen (cage)"),
+                 (r"sofa-box-(input|cec)", "the remotes"), (r"pipewire|wireplumber", "sound"), (r"\b(games|wine|retroarch)\b", "a game"))
+
+
+def memory_users():
+    """Who holds the box's memory: [(group, MB, processes)], biggest first. PSS (each shared page's share), of the
+    processes this user may look at (the box's own: the browser, the player, the agent, Sofa)."""
+    groups = {}
+    try:
+        pids = [p for p in os.listdir(ROOT + "/proc") if p.isdigit()]
+    except OSError:
+        pids = []
+    for pid in pids:
+        cmd = _read("/proc/%s/cmdline" % pid).replace("\0", " ").strip()
+        m = re.search(r"^Pss:\s+(\d+)", _read("/proc/%s/smaps_rollup" % pid), re.M) if cmd else None
+        if not m:
+            continue
+        name = next((g for pat, g in MEMORY_GROUPS if re.search(pat, cmd)), "other")
+        n = groups.setdefault(name, [0, 0])
+        n[0] += int(m.group(1))
+        n[1] += 1
+    return sorted(((g, v[0] // 1024, v[1]) for g, v in groups.items()), key=lambda x: -x[1])
+
+
+_libc = {"collected": 0.0}
+
+
+def give_back(collect_every=60.0):
+    """Memory this program freed, given back to the box. Python and the C library keep freed memory for later, and with
+    a thread for each page and request the agent sat on 78 MB after a visit to Sofa, of which it used 8: with this
+    every few seconds, 37 (the 1 GB stand-in). glibc's malloc_trim; nothing where there's none. And once a minute
+    Python's cycle collector first: what a request leaves in a cycle (a connection, its error and its frames) waited for
+    it, and the agent grew a few MB with every visit to Sofa and two apps (75 to 106 MB in eight, on 1.1.70)."""
+    now = time.monotonic()
+    if collect_every is not None and now - _libc["collected"] >= collect_every:
+        import gc
+        gc.collect()
+        _libc["collected"] = now
+    if "fn" not in _libc:
+        try:
+            import ctypes
+            _libc["fn"] = ctypes.CDLL(None).malloc_trim if sys.platform.startswith("linux") else None
+            if _libc["fn"]:
+                _libc["fn"].argtypes, _libc["fn"].restype = [ctypes.c_size_t], ctypes.c_int
+        except (OSError, AttributeError, ImportError):
+            _libc["fn"] = None
+    try:
+        return bool(_libc["fn"] and _libc["fn"](0))
+    except OSError:
+        return False
+
+
+def mpv_cache(memory=None):
+    """mpv's read-ahead (and what it keeps behind, for skipping back) by the box's memory. 1.1.70 read 120 MB ahead on
+    every box, plus mpv's own 50 MB behind: a 15.5 Mbit/s film held mpv at 284 MB on a 1 GB box, 165 MB with 32 + 16
+    (measured). 1 GB: 48 MB ahead (25 s of such a film, a minute of most), 16 behind; 2 GB: 96 + 32; 4 GB: mpv's own
+    150 + 50; more: 256 + 64."""
+    mb = memory or memory_mb()
+    ahead, behind = (48, 16) if mb <= 1100 else (96, 32) if mb <= 2200 else (150, 50) if mb <= 4500 else (256, 64)
+    return ["--demuxer-max-bytes=%dMiB" % ahead, "--demuxer-max-back-bytes=%dMiB" % behind]
 
 
 # Apps open at once (besides Home): older ones that aren't playing close. By memory: 1 GB (a Pi 3) two,
