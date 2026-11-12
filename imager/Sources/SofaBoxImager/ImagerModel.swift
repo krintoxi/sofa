@@ -22,6 +22,8 @@ final class ImagerModel: ObservableObject {
     nonisolated static let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.1.0"
 
     @Published var list: ListState = .loading
+    /// For a Raspberry Pi (an SD card) or a PC (a USB stick): the list is read again for it.
+    @Published var target: CardTarget = ImagerModel.chosenTarget() { didSet { if target != oldValue { readList() } } }
     @Published var card: Card? { didSet { refreshDisks() } }
     @Published var offered: [DiskDescription] = []
     @Published var refused: [(DiskDescription, [DiskRefusal])] = []
@@ -37,6 +39,8 @@ final class ImagerModel: ObservableObject {
     let live: Bool
     private var watcher: DiskWatcher?
     private var job: WriteJob?
+    /// The list as it came, read again for the other target without fetching it again.
+    private var listData: Data?
 
     var isWriting: Bool { if case .running = phase { return true } else { return false } }
     var chosenDisk: DiskDescription? { offered.first { $0.bsdName == diskName } }
@@ -49,6 +53,13 @@ final class ImagerModel: ObservableObject {
         guard let g = given, !g.isEmpty else { return CardListSource.defaultURL }
         let url = g.contains("://") ? URL(string: g) : URL(fileURLWithPath: (g as NSString).expandingTildeInPath)
         return url ?? CardListSource.defaultURL
+    }
+
+    /// `--for pc` (or `--for pi`) on the command line: what the window opens on. A Raspberry Pi otherwise.
+    nonisolated static func chosenTarget() -> CardTarget {
+        let args = CommandLine.arguments
+        if let i = args.firstIndex(of: "--for"), i + 1 < args.count, let t = CardTarget.named(args[i + 1]) { return t }
+        return .raspberryPi
     }
 
     /// The list's bytes: a file on this Mac, or over HTTPS.
@@ -76,19 +87,37 @@ final class ImagerModel: ObservableObject {
         let local = listIsLocal
         Task {
             do {
-                let data = try await Self.fetchList(url)
-                let parsed = try CardListParser.parse(data, allowLocalFiles: local)
-                for s in parsed.skipped { NSLog("Sofa Box Imager: left out of the list: %@", s) }
-                list = .loaded(parsed)
-                if card == nil || !parsed.all.contains(where: { $0 == card }) { card = parsed.newest ?? parsed.all.first }
-            } catch let e as CardListError {
-                list = .failed(e.description)
+                listData = try await Self.fetchList(url)
+                readList()
             } catch let e as DownloadError {
                 list = .failed("Couldn't get the list of Sofa Box OS versions: \(e.description)")
             } catch {
                 list = .failed("Couldn't get the list of Sofa Box OS versions: \(error.localizedDescription)")
             }
         }
+    }
+
+    /// The list read for the target chosen: its entries, and the version offered.
+    func readList() {
+        guard let data = listData else { return }
+        do {
+            let parsed = try CardListParser.parse(data, for: target, allowLocalFiles: listIsLocal)
+            for s in parsed.skipped { NSLog("Sofa Box Imager: left out of the list: %@", s) }
+            list = .loaded(parsed)
+            if card == nil || !parsed.all.contains(where: { $0 == card }) { card = parsed.newest ?? parsed.all.first }
+        } catch let e as CardListError {
+            list = .failed(e.description)
+            card = nil
+        } catch {
+            list = .failed("Couldn't read the list of Sofa Box OS versions: \(error.localizedDescription)")
+            card = nil
+        }
+    }
+
+    /// For the tests that draw the window: a list given as it would come, read for the target chosen.
+    func use(listData data: Data) {
+        listData = data
+        readList()
     }
 
     func refreshDisks() {
@@ -122,14 +151,15 @@ final class ImagerModel: ObservableObject {
         confirming = false
         guard let card, let disk = chosenDisk, !isWriting else { return }
         let ua = "SofaBoxImager/\(Self.version)"
-        let job = WriteJob(card: card, disk: disk) {
+        let job = WriteJob(card: card, disk: disk,
+                           opener: AuthOpener(prompt: "Sofa Box Imager needs your password to write the \(target.word).")) {
             if card.url.isFileURL { return try FileSource(url: card.url) as PackedSource }
             return HTTPSource(url: card.url, expectedSize: card.downloadSize, userAgent: ua)
         }
         self.job = job
         jobTitle = "Writing \(card.name) to “\(disk.displayName)” (\(ByteSize.text(disk.sizeBytes)))"
-        phase = .running("Checking the card…", nil)
-        let reporter = StageReporter { [weak self] text, fraction in
+        phase = .running("Checking the \(target.word)…", nil)
+        let reporter = StageReporter(word: target.word) { [weak self] text, fraction in
             // A late update never turns a finished write back into a running one.
             guard let self, self.isWriting else { return }
             self.phase = .running(text, fraction)
@@ -170,20 +200,25 @@ final class ImagerModel: ObservableObject {
 /// Turns the job's stages into words, at most ten times a second, on the main queue.
 final class StageReporter: @unchecked Sendable {     // used from the job's one thread
     private let publish: @MainActor (String, Double?) -> Void
+    /// "card" or "stick" (CardTarget.word), in the words shown.
+    private let word: String
     private var last = Date.distantPast
     private var lastPhase: WriteProgress.Phase?
     private var speedFrom: (Date, Int64)?
 
-    init(_ publish: @escaping @MainActor (String, Double?) -> Void) { self.publish = publish }
+    init(word: String = "card", _ publish: @escaping @MainActor (String, Double?) -> Void) {
+        self.word = word
+        self.publish = publish
+    }
 
     func report(_ stage: WriteJob.Stage) {
         let text: String
         var fraction: Double? = nil
         switch stage {
-        case .checking: text = "Checking the card…"
-        case .unmounting: text = "Unmounting the card's volumes…"
+        case .checking: text = "Checking the \(word)…"
+        case .unmounting: text = "Unmounting the \(word)'s volumes…"
         case .waitingForPassword: text = "Waiting for your password…"
-        case .ejecting: text = "Ejecting the card…"
+        case .ejecting: text = "Ejecting the \(word)…"
         case .done: text = "Done."
         case .writing(let p):
             let now = Date()
@@ -200,7 +235,7 @@ final class StageReporter: @unchecked Sendable {     // used from the job's one 
             switch p.phase {
             case .writing: text = "Downloading and writing… \(pct)%\(speed)"
             case .finishing: text = "Finishing the write…"
-            case .verifying: text = "Checking every byte on the card… \(pct)%\(speed)"
+            case .verifying: text = "Checking every byte on the \(word)… \(pct)%\(speed)"
             }
         }
         last = Date()

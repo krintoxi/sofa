@@ -213,6 +213,27 @@ There's nothing to install from an app store: **the box serves the remote itself
   - How the service works, and how to run it: [deploy/box-certs](../box-certs/README.md).
 <br clear="right">
 
+## A PC instead of a Pi: a USB stick
+
+The same Sofa Box OS runs on a PC or laptop with an Intel or AMD processor (x86-64), from a USB stick, with nothing
+installed on the PC. It's built beside every card and published on the same releases (since 1.1.79):
+**[`sofa-box-pc.img.xz`](https://github.com/krintoxi/sofa/releases/download/sofa-box/sofa-box-pc.img.xz)** on the
+[newest card's page](https://github.com/krintoxi/sofa/releases/tag/sofa-box), and `sofa-box-os-X.Y.Z-pc.img.xz` on each
+version's own.
+
+1. Write it to a USB stick of **8 GB or more**: with Sofa Box Imager on a Mac (**For a PC**), with Raspberry Pi Imager
+   and the Sofa Box list above (device **A PC, from a USB stick**), with balenaEtcher, or on Windows with Rufus in DD
+   mode. Everything on the stick is erased.
+2. Plug the PC into the TV and put the stick in. Start the PC from the stick: as it starts, press its start menu key
+   (often **F12**, **F11**, **F10**, **F8** or **Esc**; the PC's maker says which). Newer PCs and older ones both start
+   it, with Secure Boot on or off.
+3. The box sets itself up on the TV as a Pi does. It runs from the stick and keeps its settings there; its first
+   start makes it the whole stick.
+
+Not tried on a real PC yet: GitHub starts each one in a virtual PC three ways (newer, older, Secure Boot on) before
+it's published. What a given PC decodes in hardware, and the rest of what's different from a Pi:
+[docs/hardware.md](../../docs/hardware.md). Like the card, it has no login (no password, SSH off).
+
 ## Setting it up on the card you already have
 
 The installer works on Raspberry Pi OS (Lite or with a desktop) and on other Debian or Ubuntu

@@ -42,7 +42,7 @@ private struct Header: View {
                     Text("Sofa").font(SofaFonts.display(30, .extraBold)).tracking(-0.9).foregroundStyle(Color.amber)
                     Text("Box Imager").font(SofaFonts.display(30, .bold)).tracking(-0.9)
                 }
-                Text("Writes Sofa Box OS to an SD card for a Raspberry Pi 3 B+, 4 or 5.")
+                Text("Writes Sofa Box OS to an SD card for a Raspberry Pi 3 B+, 4 or 5, or to a USB stick for a PC.")
                     .font(SofaFonts.text(13.5))
                     .foregroundStyle(Color.mist)
             }
@@ -61,11 +61,12 @@ private struct ChooseView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
+            TargetSwitch()
             Step(number: 1, title: "Sofa Box OS") { CardPicker() }
-            Step(number: 2, title: "The card to erase") { DiskPicker() }
+            Step(number: 2, title: "The \(model.target.word) to erase") { DiskPicker() }
             Spacer(minLength: 0)
             HStack(alignment: .center) {
-                Text("Nothing is set on the card: the box sets itself up on the TV.")
+                Text("Nothing is set on the \(model.target.word): the box sets itself up on the TV.")
                     .font(SofaFonts.text(13))
                     .foregroundStyle(Color.mist)
                 Spacer()
@@ -73,6 +74,34 @@ private struct ChooseView: View {
                     .buttonStyle(SofaButtonStyle(kind: .primary))
                     .keyboardShortcut(.defaultAction)
                     .disabled(model.card == nil || model.chosenDisk == nil)
+            }
+        }
+    }
+}
+
+/// For a Raspberry Pi (an SD card) or for a PC (a USB stick it starts from): the list's entries and the words follow it.
+private struct TargetSwitch: View {
+    @EnvironmentObject var model: ImagerModel
+
+    var body: some View {
+        HStack(spacing: 8) {
+            ForEach(CardTarget.allCases) { t in
+                let on = model.target == t
+                Button { model.target = t } label: {
+                    HStack(spacing: 7) {
+                        Image(systemName: t.symbol).font(.system(size: 13, weight: .semibold))
+                        Text(t.choice).font(SofaFonts.text(14, .semibold))
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .foregroundStyle(on ? Color.amberInk : Color.soft)
+                    .background(Capsule().fill(on ? Color.amber : Color.slate2))
+                    .overlay(Capsule().stroke(on ? Color.clear : Color.line))
+                    .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .disabled(model.isWriting)
+                .accessibilityAddTraits(on ? .isSelected : [])
             }
         }
     }
@@ -153,7 +182,9 @@ private struct CardPicker: View {
                 if let c = model.card {
                     Text(details(c)).font(SofaFonts.text(13)).foregroundStyle(Color.mist)
                     if c.isTesting {
-                        Text("Testing: not tried on a real box yet. The version at the top is the one to keep.")
+                        Text(model.target == .pc
+                             ? "Testing: not tried on a real PC yet. Started on GitHub in virtual PCs, newer and older."
+                             : "Testing: not tried on a real box yet. The version at the top is the one to keep.")
                             .font(SofaFonts.text(13)).foregroundStyle(Color.amber)
                     }
                 }
@@ -168,7 +199,7 @@ private struct CardPicker: View {
         var parts: [String] = []
         if let d = Self.day(c.releaseDate) { parts.append("Released \(d)") }
         parts.append("\(ByteSize.text(c.downloadSize)) download")
-        parts.append("\(ByteSize.text(c.extractSize)) on the card")
+        parts.append("\(ByteSize.text(c.extractSize)) on the \(model.target.word)")
         return parts.joined(separator: " · ")
     }
 
@@ -195,8 +226,10 @@ private struct DiskPicker: View {
             if model.offered.isEmpty {
                 Panel {
                     HStack(spacing: 12) {
-                        Image(systemName: "sdcard").font(.system(size: 22)).foregroundStyle(Color.mist)
-                        Text("Put the SD card in: a USB card reader, or the Mac's own SD slot. It shows here by itself.")
+                        Image(systemName: model.target.symbol).font(.system(size: 22)).foregroundStyle(Color.mist)
+                        Text(model.target == .pc
+                             ? "Put the USB stick in (8 GB or more). It shows here by itself."
+                             : "Put the SD card in: a USB card reader, or the Mac's own SD slot. It shows here by itself.")
                             .foregroundStyle(Color.soft)
                             .fixedSize(horizontal: false, vertical: true)
                         Spacer(minLength: 0)
@@ -206,7 +239,9 @@ private struct DiskPicker: View {
             } else {
                 VStack(spacing: 8) {
                     ForEach(model.offered, id: \.bsdName) { d in
-                        DiskRow(disk: d, chosen: d.bsdName == model.diskName) { model.diskName = d.bsdName }
+                        DiskRow(disk: d, chosen: d.bsdName == model.diskName, symbol: model.target.symbol + ".fill") {
+                            model.diskName = d.bsdName
+                        }
                     }
                 }
             }
@@ -246,6 +281,7 @@ private struct DiskPicker: View {
 private struct DiskRow: View {
     let disk: DiskDescription
     let chosen: Bool
+    var symbol = "sdcard.fill"
     let choose: () -> Void
     @State private var hover = false
 
@@ -253,7 +289,7 @@ private struct DiskRow: View {
         Button(action: choose) {
             Panel(ring: chosen ? .amber : (hover ? Color.paper.opacity(0.25) : nil)) {
                 HStack(spacing: 12) {
-                    Image(systemName: "sdcard.fill")
+                    Image(systemName: symbol)
                         .font(.system(size: 20))
                         .foregroundStyle(chosen ? Color.amber : Color.mist)
                         .frame(width: 28)
@@ -306,7 +342,7 @@ struct ConfirmView: View {
                 }
                 Panel {
                     Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 7) {
-                        row("Card", d.displayName)
+                        row(model.target == .pc ? "Stick" : "Card", d.displayName)
                         if !d.displayModel.isEmpty && d.displayModel != d.displayName { row("In", d.displayModel) }
                         if let how = d.protocolName, !how.isEmpty { row("Connected by", how) }
                         row("Size", ByteSize.text(d.sizeBytes))
@@ -317,10 +353,10 @@ struct ConfirmView: View {
                     .padding(14)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                Text("Everything on this card will be erased. This can't be undone. macOS will ask for your password next.")
+                Text("Everything on this \(model.target.word) will be erased. This can't be undone. macOS will ask for your password next.")
                     .foregroundStyle(Color.soft)
                     .fixedSize(horizontal: false, vertical: true)
-                SofaCheck(isOn: $sure, label: "This is the card I want to erase")
+                SofaCheck(isOn: $sure, label: "This is the \(model.target.word) I want to erase")
                 HStack(spacing: 10) {
                     Spacer()
                     Button("Cancel") { model.confirming = false }
@@ -331,7 +367,7 @@ struct ConfirmView: View {
                         .disabled(!sure)
                 }
             } else {
-                Text("The card isn't there any more.")
+                Text("The \(model.target.word) isn't there any more.")
                 HStack { Spacer(); Button("OK") { model.confirming = false }.buttonStyle(SofaButtonStyle()) }
             }
         }
@@ -362,7 +398,7 @@ private struct RunningView: View {
         VStack(alignment: .leading, spacing: 16) {
             Panel {
                 VStack(alignment: .leading, spacing: 14) {
-                    Text(model.jobTitle.isEmpty ? "Writing the card" : model.jobTitle)
+                    Text(model.jobTitle.isEmpty ? "Writing the \(model.target.word)" : model.jobTitle)
                         .font(SofaFonts.display(19, .bold)).tracking(-0.3)
                         .fixedSize(horizontal: false, vertical: true)
                     SofaProgress(fraction: fraction)
@@ -371,7 +407,7 @@ private struct RunningView: View {
                 .padding(18)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            Text("Leave the card in until Sofa Box Imager says it's done.").foregroundStyle(Color.mist)
+            Text("Leave the \(model.target.word) in until Sofa Box Imager says it's done.").foregroundStyle(Color.mist)
             Spacer(minLength: 0)
             HStack {
                 Spacer()
@@ -391,7 +427,7 @@ private struct DoneView: View {
             Panel {
                 VStack(alignment: .leading, spacing: 12) {
                     SofaPill(text: "Checked and ejected")
-                    Text("The card is ready").font(SofaFonts.display(26, .extraBold)).tracking(-0.6)
+                    Text("The \(model.target.word) is ready").font(SofaFonts.display(26, .extraBold)).tracking(-0.6)
                     Text("\(card) is on “\(disk)”, and every byte was read back and checked.")
                         .foregroundStyle(Color.soft)
                         .fixedSize(horizontal: false, vertical: true)
@@ -399,13 +435,15 @@ private struct DoneView: View {
                 .padding(18)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            Text("Take the card out and put it in the Pi. Plug the Pi into the TV, then into its power. The box sets itself up on the TV.")
+            Text(model.target == .pc
+                 ? "Take the stick out and put it in the PC, plugged into the TV. Start the PC from the stick: as it starts, press its start menu key (often F12, F11, F10, F8 or Esc; on a Mac with an Intel chip, hold Option). Sofa Box OS runs from the stick and sets itself up on the TV."
+                 : "Take the card out and put it in the Pi. Plug the Pi into the TV, then into its power. The box sets itself up on the TV.")
                 .foregroundStyle(Color.soft)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
             HStack {
                 Spacer()
-                Button("Write Another Card") { model.reset() }
+                Button(model.target == .pc ? "Write Another Stick" : "Write Another Card") { model.reset() }
                     .buttonStyle(SofaButtonStyle(kind: .primary))
                     .keyboardShortcut(.defaultAction)
             }
@@ -422,7 +460,7 @@ private struct FailedView: View {
             Panel {
                 VStack(alignment: .leading, spacing: 12) {
                     SofaPill(text: "Not written", color: .alert)
-                    Text("The card wasn't written").font(SofaFonts.display(26, .extraBold)).tracking(-0.6)
+                    Text("The \(model.target.word) wasn't written").font(SofaFonts.display(26, .extraBold)).tracking(-0.6)
                     Text(text).foregroundStyle(Color.soft)
                         .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
                 }

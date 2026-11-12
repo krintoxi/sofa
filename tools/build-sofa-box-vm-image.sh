@@ -4,7 +4,7 @@
 # and with BIOS (GRUB both ways, on one GPT disk), so the one image serves UTM, VirtualBox, VMware, Proxmox and QEMU,
 # and written to a USB stick it starts a real PC. docs/hardware.md says how to use it and what is proven.
 #
-#   sudo tools/build-sofa-box-vm-image.sh [OUT_DIR] [--sofa http://192.168.1.20:8090] [--size 8G]
+#   sudo tools/build-sofa-box-vm-image.sh [OUT_DIR] [--sofa http://192.168.1.20:8090] [--size 8G] [--password WORD]
 #
 # On Linux, x86-64, as root, with: mmdebstrap, Debian's archive keyring (tools/debian-archive-keyring.txt pins the
 # package that holds it, and it's fetched when the host hasn't got Trixie's key), sfdisk, losetup, mkfs.vfat, mkfs.ext4,
@@ -13,15 +13,18 @@
 # Writes OUT_DIR/sofa-box-os-VERSION-x86_64.img (raw, for the boot test and USB sticks; also .img.xz),
 # sofa-box-os-VERSION-x86_64.qcow2.xz (for virtual machines), their .sha256, and a report like the card's.
 #
-# On the image: the login user "sofa" (uid 1000, sudo; password "sofabox", to be changed at the first login: Ctrl+Alt+F2
-# gives a console, SSH is on) and "sofabox", which runs Sofa on the TV. The root partition grows to the disk at the
-# first start (systemd-repart and x-systemd.growfs).
+# On the image: the user "sofa" (uid 1000, sudo) and "sofabox", which runs Sofa on the TV. As on the Pi card, "sofa"
+# has no password and SSH is off: a copy written to a USB stick for someone's PC has no login anyone could know.
+# --password WORD (a test build of your own, for a VM): "sofa" gets that password, to be changed at the first login
+# (Ctrl+Alt+F2 gives a console), and SSH is on. The root partition grows to the disk at the first start
+# (systemd-repart and x-systemd.growfs): a 4 GB image written to a 32 GB stick has the 32 GB.
 set -eu
-OUT=out SOFA="" SIZE=8G
+OUT=out SOFA="" SIZE=8G PASSWORD=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --sofa) SOFA="${2%/}"; shift ;;
     --size) SIZE="$2"; shift ;;
+    --password) PASSWORD="$2"; shift ;;
     -*) echo "Unknown option: $1"; exit 1 ;;
     *) OUT="$1" ;;
   esac
@@ -94,7 +97,9 @@ mount "${LOOP}p3" "$ROOT"
 
 echo "== Debian 13 (Trixie) from $MIRROR"
 # What Debian itself needs to start on a PC or in a VM (the Sofa box's own packages come from install.sh, as on a card)
-INCLUDE="linux-image-amd64,grub-efi-amd64,grub-pc-bin,initramfs-tools,systemd-sysv,systemd-repart,dbus,zstd,ca-certificates,\
+# (shim-signed and grub-efi-amd64-signed: Microsoft-signed shim and Debian-signed GRUB, so a PC with Secure Boot on,
+# as most sold with Windows are, starts the stick as it is; Debian's kernel is signed already)
+INCLUDE="linux-image-amd64,grub-efi-amd64,grub-efi-amd64-signed,shim-signed,grub-pc-bin,initramfs-tools,systemd-sysv,systemd-repart,dbus,zstd,ca-certificates,\
 systemd-timesyncd,sudo,openssh-server,pciutils,usbutils,dosfstools,e2fsprogs,wireless-regdb,qemu-guest-agent,intel-microcode,amd64-microcode,\
 firmware-linux-free,firmware-misc-nonfree,firmware-iwlwifi,firmware-realtek,firmware-atheros,firmware-brcm80211,\
 firmware-amd-graphics,firmware-intel-graphics,firmware-sof-signed,firmware-intel-sound"
@@ -144,13 +149,19 @@ echo "== The Sofa box (install.sh --image, as on a card)"
 chroot "$ROOT" /bin/sh -eu -c "
   getent passwd 1000 >/dev/null || useradd -m -u 1000 -s /bin/bash sofa
   for g in sudo video audio input netdev render plugdev; do getent group \$g >/dev/null && usermod -aG \$g sofa || true; done
-  echo 'sofa:sofabox' | chpasswd
-  passwd -e sofa >/dev/null                                        # a password of its own at the first login
+  if [ -n '$PASSWORD' ]; then                                      # (a test build: a login, changed at the first one)
+    echo 'sofa:$PASSWORD' | chpasswd
+    passwd -e sofa >/dev/null
+  else
+    usermod -p '!' sofa                                          # no password: no login anyone could know
+  fi
   id -u sofabox >/dev/null 2>&1 || useradd -m -s /bin/bash sofabox
   passwd -l sofabox >/dev/null
   SOFA_BOX_USER=sofabox sh /tmp/sofa/deploy/sofa-box/install.sh --image $SOFA
-  systemctl enable systemd-repart.service ssh.service qemu-guest-agent.service >/dev/null 2>&1 || true
-  grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=sofabox --removable --no-nvram >/dev/null
+  systemctl enable systemd-repart.service qemu-guest-agent.service >/dev/null 2>&1 || true
+  if [ -n '$PASSWORD' ]; then systemctl enable ssh.service >/dev/null 2>&1 || true
+  else systemctl disable ssh.service ssh.socket >/dev/null 2>&1 || true; fi
+  grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=sofabox --removable --no-nvram --uefi-secure-boot >/dev/null
   grub-install --target=i386-pc '$LOOP' >/dev/null
   update-grub 2>/dev/null
   update-initramfs -u -k all >/dev/null 2>&1 || true              # the boot screen from the very start
@@ -182,7 +193,7 @@ chroot "$ROOT" /bin/sh -c '
   echo "Sofa Box OS: $(cat /usr/local/lib/sofa-box/VERSION 2>/dev/null || echo missing) for x86-64 PCs and virtual machines"
   echo "System: $(. /etc/os-release; echo "$PRETTY_NAME"), kernel $(ls /boot/vmlinuz-* | sed "s|.*/vmlinuz-||" | tr "\n" " ")"
   dpkg-query -W -f="\${Package} \${Version}\n" cage chromium mpv ffmpeg plymouth python3 pipewire-pulse network-manager \
-    vainfo mesa-va-drivers intel-media-va-driver i965-va-driver inputattach grub-efi-amd64 grub-pc-bin systemd-repart luanti \
+    vainfo mesa-va-drivers intel-media-va-driver i965-va-driver inputattach grub-efi-amd64 grub-efi-amd64-signed shim-signed grub-pc-bin systemd-repart luanti \
     2>/dev/null | sed "s/^/  /"
   echo "Sofa on the box (This box): $(cat /usr/local/lib/sofa-box/sofa-server/sofa/__init__.py 2>/dev/null | grep -o "__version__ = .*" || echo missing)"
   echo "Services: $(for s in sofa-box sofa-box-agent sofa-box-input sofa-box-cec sofa-box-tune systemd-repart ssh; do printf "%s=%s " $s "$(systemctl is-enabled $s 2>/dev/null)"; done)"
@@ -191,7 +202,8 @@ chroot "$ROOT" /bin/sh -c '
   echo "Kernel command line: $(sed -n "s/^GRUB_CMDLINE_LINUX_DEFAULT=//p" /etc/default/grub)"
   echo "Chromium flags (/etc/chromium.d/sofa-box): $(grep -o -- "--[a-z-]*=[A-Za-z,]*" /etc/chromium.d/sofa-box | tr "\n" " ")"
   echo "HDMI-CEC: $(systemctl show -p ConditionPathExistsGlob --value sofa-box-cec 2>/dev/null; grep -c . /etc/udev/rules.d/61-sofa-box-cec.rules) udev lines"
-  echo "Users: sofa (uid 1000, password to change at the first login), sofabox ($(id -nG sofabox | tr " " ","))"
+  case "$(passwd -S sofa | awk "{print \$2}")" in L|NP) LOGIN="no password, as on the Pi card" ;; *) LOGIN="a password to change at the first login" ;; esac
+  echo "Users: sofa (uid 1000, $LOGIN; SSH $(systemctl is-enabled ssh 2>/dev/null)), sofabox ($(id -nG sofabox | tr " " ","))"
   echo "Box files: $(ls /usr/local/lib/sofa-box | tr "\n" " ")"
   echo "Space: $(df -h / | tail -n 1 | awk "{print \$3\" used, \"\$4\" free\"}")"
 ' > "$REPORT" 2>&1 || true
@@ -211,7 +223,8 @@ echo "Packages: $(wc -l < "$WORK/packages.txt" | tr -d ' '), each with its versi
 cat > "$ROOT/boot/efi/sofa-box.txt" <<EOF
 Sofa Box OS $VER for x86-64 PCs and virtual machines, made $(date -u +%Y-%m-%d) from Debian 13 (Trixie).
 Sofa: ${SOFA:-found on the home network by itself}
-Login: sofa / sofabox (change it at the first login; Ctrl+Alt+F2 or SSH).  Check it: sofa-box doctor
+$([ -n "$PASSWORD" ] && echo "Login: sofa, with the password it was built with (change it at the first login; Ctrl+Alt+F2 or SSH)." || echo "No login: like the Pi card, nobody can sign in to it (no password, SSH off). The box sets itself up on the TV.")
+Written to a USB stick (Sofa Box Imager, Raspberry Pi Imager, balenaEtcher or dd), it starts a PC from the stick and runs from it.
 EOF
 sync
 

@@ -14,6 +14,11 @@ name: Sofa box card
 #   None is ever marked "latest": that stays the Fire TV app's, which Sofa downloads from there.
 # - Publishing a release by hand whose tag starts with "box-v" or "box-os-v" builds the card and attaches it.
 # - Changes on other branches build it as a check, kept for a week under the run's Artifacts.
+# - Beside every card, the same Sofa Box OS for a PC (x86-64): sofa-box-pc.img.xz on "sofa-box", sofa-box-os-X.Y.Z-pc.img.xz
+#   on its version's release (job "pc", tools/build-sofa-box-vm-image.sh). Written to a USB stick of 8 GB or more, it
+#   starts a PC from the stick and runs from it. It's built on GitHub's x86-64 computers and started in QEMU on a
+#   16 GB stick, with UEFI (a newer PC), with BIOS (an older one) and with Secure Boot on, and put on a release only
+#   when all three proofs pass and this run's card is the one there (so the two never come from different commits).
 on:
   workflow_dispatch:
   release:
@@ -27,6 +32,10 @@ on:
       - "tools/build-sofa-box-image.sh"
       - "tools/sofa-box-base-image.txt"
       - "tools/sofa-box-releases.py"
+      - "tools/build-sofa-box-vm-image.sh"
+      - "tools/boot-sofa-box-vm.sh"
+      - "tools/sofa-box-vm-proof.sh"
+      - "tools/debian-archive-keyring.txt"
       - ".github/workflows/sofa-box-image.yml"
 
 permissions:
@@ -159,4 +168,126 @@ jobs:
               how "sofa-box-os-$VER.img.xz" "sofa-box-os-$VER-report.txt"; } > pub/version.md
             gh release create "box-os-v$VER" pub/version/* --target "$GITHUB_SHA" --latest=false \
               --title "Sofa Box OS $VER" --notes-file pub/version.md
+          fi
+
+  pc:
+    # The same Sofa Box OS for a PC (x86-64), for a USB stick: after the card, so it's put beside the card that's there.
+    needs: card
+    if: github.event_name != 'release' || startsWith(github.event.release.tag_name, 'box-v') || startsWith(github.event.release.tag_name, 'box-os-v')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tools (mmdebstrap, QEMU with OVMF)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends mmdebstrap fdisk dosfstools e2fsprogs qemu-utils qemu-system-x86 ovmf xz-utils curl imagemagick
+      - name: KVM for the boot test
+        run: |
+          if [ -e /dev/kvm ]; then
+            echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+            sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
+          else
+            echo "::warning title=No KVM::/dev/kvm isn't there: the boot test runs on QEMU's own emulation (slower)."
+          fi
+      # 4 GB: it fits any stick of 8 GB or more, and is written in half the time of 8; the root grows to fill the stick
+      # at its first start (proven below on a 16 GB one). No login on it (as on the card).
+      - name: Build it
+        run: sudo tools/build-sofa-box-vm-image.sh out --size 4G
+      - name: Start it from a 16 GB stick on a newer PC (UEFI), and prove it
+        run: sudo tools/boot-sofa-box-vm.sh out/*-x86_64.img out/boot --firmware uefi --disk 16G --timeout 1500
+      - name: And on an older PC (BIOS)
+        run: sudo tools/boot-sofa-box-vm.sh out/*-x86_64.img out/boot --firmware bios --timeout 1500
+      - name: And with Secure Boot on (most PCs sold with Windows)
+        run: sudo tools/boot-sofa-box-vm.sh out/*-x86_64.img out/boot --firmware uefi-secure --timeout 1500
+      - name: What's on it, and what the PCs said
+        if: always()
+        run: |
+          R="$(ls out/*-report.txt 2>/dev/null | head -1)"
+          { echo '### Sofa Box OS for a PC: what is on it'; echo '```'; [ -n "$R" ] && sed '/^== Packages/,$d' "$R" || echo "(no report: the build stopped)"; echo '```'
+            for fw in uefi bios uefi-secure; do
+              L="out/boot/console-$fw.log"
+              echo "### Started with $fw"
+              if [ -f "$L" ]; then echo '```'; grep -a 'SOFA-BOX-PROOF' "$L" | cut -c 1-400 || echo "(no SOFA-BOX-PROOF lines)"; echo '```'
+              else echo "(not started)"; fi
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+          sudo rm -f out/*-x86_64.img out/*.qcow2.xz              # (the raw file, and the VM copy: the stick's .img.xz is the one)
+      - name: Keep it (a week)
+        if: always() && github.event_name != 'release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: sofa-box-pc
+          path: |
+            out/*.img.xz
+            out/*.sha256
+            out/*-report.txt
+            out/boot/
+          retention-days: 7
+          compression-level: 0
+      - name: Put it on the release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          VER="$(tr -d ' \n' < deploy/sofa-box/VERSION)"
+          mkdir -p pub
+          cp out/*-x86_64.img.xz "pub/sofa-box-os-$VER-pc.img.xz"
+          cp out/*-x86_64-report.txt "pub/sofa-box-os-$VER-pc-report.txt"
+          (cd pub && sha256sum "sofa-box-os-$VER-pc.img.xz" > "sofa-box-os-$VER-pc.img.xz.sha256")
+          gh release upload "$TAG" pub/* --clobber
+      - name: Publish it (main)
+        if: github.event_name != 'release' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VER="$(tr -d ' \n' < deploy/sofa-box/VERSION)"
+          R="repos/$GITHUB_REPOSITORY/releases"
+          mkdir -p pub/newest pub/version
+          cp out/*-x86_64.img.xz pub/newest/sofa-box-pc.img.xz
+          cp out/*-x86_64-report.txt pub/newest/sofa-box-pc-report.txt
+          (cd pub/newest && sha256sum sofa-box-pc.img.xz > sofa-box-pc.img.xz.sha256)
+          cp pub/newest/sofa-box-pc.img.xz "pub/version/sofa-box-os-$VER-pc.img.xz"
+          cp pub/newest/sofa-box-pc-report.txt "pub/version/sofa-box-os-$VER-pc-report.txt"
+          (cd pub/version && sha256sum "sofa-box-os-$VER-pc.img.xz" > "sofa-box-os-$VER-pc.img.xz.sha256")
+          pc_note() {
+            cat <<EOF
+
+          **For a PC (x86-64)**: **$1** is the same Sofa Box OS for a PC. Write it to a USB stick of 8 GB or more (Sofa Box Imager: For a PC; Raspberry Pi Imager: Choose Device → A PC; balenaEtcher; or dd), put the stick in the PC and start it from the stick (its start menu: F12, F11, F10, F8 or Esc as it starts; on a Mac with an Intel chip, hold Option). It runs from the stick and keeps its settings there; the stick's first start makes it the whole stick. Started on GitHub in QEMU, newer and older PCs; not tried on a real PC yet. What's on it: $2.
+          EOF
+          }
+          # 1. the testing release: only when the card there is this run's (its notes name this commit), so the card
+          #    and the PC image always come from the same commit
+          BODY="$(gh api "$R/tags/sofa-box" --jq .body 2>/dev/null || true)"
+          if printf '%s' "$BODY" | grep -q "sofa-box-card version=$VER commit=$GITHUB_SHA"; then
+            assets() { gh api "$R/tags/sofa-box" --jq '.assets[] | "\(.id) \(.name)"'; }
+            assets | while read -r id name; do
+              case "$name" in next-sofa-box-pc*) gh api -X DELETE "$R/assets/$id" ;; esac      # left from a run that stopped
+            done
+            mkdir -p pub/next
+            for f in pub/newest/*; do cp "$f" "pub/next/next-$(basename "$f")"; done
+            gh release upload sofa-box pub/next/*
+            assets > pub/assets.txt
+            for f in sofa-box-pc.img.xz sofa-box-pc.img.xz.sha256 sofa-box-pc-report.txt; do
+              old="$(awk -v n="$f" '$2 == n { print $1 }' pub/assets.txt)"
+              new="$(awk -v n="next-$f" '$2 == n { print $1 }' pub/assets.txt)"
+              [ -n "$new" ] || continue
+              [ -z "$old" ] || gh api -X DELETE "$R/assets/$old"
+              gh api -X PATCH "$R/assets/$new" -f name="$f" >/dev/null
+            done
+            { printf '%s\n' "$BODY"; pc_note sofa-box-pc.img.xz sofa-box-pc-report.txt; } > pub/newest.md
+            gh release edit sofa-box --notes-file pub/newest.md
+          else
+            echo "::notice title=The PC image stays::The testing card on sofa-box isn't this run's ($GITHUB_SHA), so its PC image stays as it is."
+          fi
+          # 2. this version's own release: once, if this run made it (its commit is this one) and it has no PC image yet
+          TARGET="$(gh api "$R/tags/box-os-v$VER" --jq .target_commitish 2>/dev/null || true)"
+          HAS="$(gh api "$R/tags/box-os-v$VER" --jq "[.assets[] | select(.name == \"sofa-box-os-$VER-pc.img.xz\")] | length" 2>/dev/null || echo 0)"
+          if [ "$TARGET" = "$GITHUB_SHA" ] && [ "$HAS" = 0 ]; then
+            gh release upload "box-os-v$VER" pub/version/*
+            { gh api "$R/tags/box-os-v$VER" --jq .body; pc_note "sofa-box-os-$VER-pc.img.xz" "sofa-box-os-$VER-pc-report.txt"; } > pub/version.md
+            gh release edit "box-os-v$VER" --notes-file pub/version.md
+          else
+            echo "Sofa Box OS $VER's own release isn't this run's, or has its PC image already: left as it is."
           fi

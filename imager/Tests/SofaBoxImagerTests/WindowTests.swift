@@ -35,6 +35,11 @@ final class WindowTests: XCTestCase {
         protocolName: "USB", vendor: "Samsung", model: "PSSD T7", mediaName: "Samsung PSSD T7 Media",
         ioClassChain: ["IOMedia", "IOBlockStorageDriver", "IOSCSIPeripheralDeviceType00"])
 
+    static let stick = DiskDescription(
+        bsdName: "disk7", sizeBytes: 32_015_679_488, isInternal: false, isRemovable: true, isEjectable: true,
+        protocolName: "USB", vendor: "SanDisk", model: "Ultra", mediaName: "SanDisk Ultra Media",
+        ioClassChain: ["IOMedia", "IOBlockStorageDriver", "IOSCSIPeripheralDeviceType00"])
+
     private func model(_ phase: ImagerModel.Phase = .choosing) -> ImagerModel {
         let m = ImagerModel(live: false)
         m.list = .loaded(Self.list)
@@ -103,6 +108,41 @@ final class WindowTests: XCTestCase {
         XCTAssertNil(said[0].1)
     }
 
+    func testProgressInWordsForAStick() async {
+        var said: [String] = []
+        let r = StageReporter(word: CardTarget.pc.word) { text, _ in said.append(text) }
+        r.report(.checking)
+        r.report(.unmounting)
+        r.report(.writing(WriteProgress(phase: .verifying, done: 1000, total: 1000)))
+        r.report(.ejecting)
+        try? await Task.sleep(nanoseconds: 200_000_000)
+        XCTAssertEqual(said, ["Checking the stick…", "Unmounting the stick's volumes…", "Checking every byte on the stick… 100%",
+                              "Ejecting the stick…"])
+    }
+
+    /// For a PC: the same list read again for a PC's images, the version offered is a PC's, and a stick is asked for.
+    func testForAPC() throws {
+        let m = ImagerModel(live: false)
+        let entry: (String, String, [String]) -> [String: Any] = { name, file, devices in
+            ["name": name, "description": "x", "url": "https://github.com/krintoxi/sofa/releases/download/x/\(file)",
+             "extract_size": 4_294_967_296, "image_download_size": 1_500_000_000,
+             "extract_sha256": String(repeating: "cd", count: 32), "release_date": "2026-11-12", "devices": devices]
+        }
+        let doc: [String: Any] = ["os_list": [entry("Sofa Box OS 1.1.74", "sofa-box-os-1.1.74.img.xz", ["pi4-64bit"]),
+                                              entry("Sofa Box OS 1.1.74 for a PC (testing)", "sofa-box-os-1.1.74-pc.img.xz",
+                                                    ["sofa-box-pc-x86_64"])]]
+        m.use(listData: try JSONSerialization.data(withJSONObject: doc))
+        XCTAssertEqual(m.card?.name, "Sofa Box OS 1.1.74")
+        m.target = .pc
+        XCTAssertEqual(m.card?.name, "Sofa Box OS 1.1.74 for a PC (testing)")
+        m.target = .raspberryPi
+        XCTAssertEqual(m.card?.name, "Sofa Box OS 1.1.74")
+        m.use(listData: try JSONSerialization.data(withJSONObject: ["os_list": [doc["os_list"].map { ($0 as! [Any])[0] }!]]))
+        m.target = .pc
+        XCTAssertEqual(m.list, .failed("The list has no Sofa Box OS for a PC yet."))
+        XCTAssertNil(m.card)
+    }
+
     /// The app never names what it must not: it isn't Raspberry Pi's Imager, and it sets nothing on the card.
     func testTheAppsOwnWords() throws {
         let sources = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
@@ -157,6 +197,21 @@ final class WindowTests: XCTestCase {
             empty.offered = []
             empty.diskName = nil
             try draw(ContentView().environmentObject(empty), size, look, out.appendingPathComponent("6-no-card.png"))
+            // for a PC: a USB stick
+            let pc = model()
+            pc.target = .pc
+            let pcCard = Card(name: "Sofa Box OS 1.1.74 for a PC (testing)", summary: "",
+                              url: URL(string: "https://github.com/krintoxi/sofa/releases/download/box-os-v1.1.74/sofa-box-os-1.1.74-pc.img.xz")!,
+                              downloadSize: 1_500_000_000, extractSize: 4_294_967_296,
+                              extractSHA256: String(repeating: "cd", count: 32), releaseDate: "2026-11-12", website: nil)
+            pc.list = .loaded(CardList(newest: pcCard, others: [], earlierTitle: "", earlier: [], skipped: []))
+            pc.card = pcCard
+            pc.offered = [Self.stick]
+            pc.diskName = "disk7"
+            try draw(ContentView().environmentObject(pc), size, look, out.appendingPathComponent("7-pc-choose.png"))
+            let pcDone = model(.done(card: "Sofa Box OS 1.1.74 for a PC (testing)", disk: "SanDisk Ultra"))
+            pcDone.target = .pc
+            try draw(ContentView().environmentObject(pcDone), size, look, out.appendingPathComponent("8-pc-done.png"))
         }
     }
 

@@ -4,16 +4,22 @@
 # from outside, and the console log says so. GitHub runs it on every image it builds (.github/workflows/sofa-box-vm.yml);
 # it runs on any Linux with QEMU (with KVM it takes a few minutes; without, longer).
 #
-#   sudo tools/boot-sofa-box-vm.sh IMAGE.img OUT_DIR [--firmware uefi|bios] [--timeout SECONDS]
+#   sudo tools/boot-sofa-box-vm.sh IMAGE.img OUT_DIR [--firmware uefi|uefi-secure|bios] [--timeout SECONDS] [--disk 16G]
+#
+# uefi-secure: OVMF with Secure Boot on and Microsoft's keys enrolled, as on most PCs sold with Windows (q35, SMM).
+#
+# --disk: the copy is made that big first, like the image written to a bigger USB stick, and the checks include that
+# the box's root has grown to fill it at the first start.
 #
 # It never touches the image: it boots a copy, with two changes a test needs: the kernel's console on the serial port
 # (so the log is a file) and a small service that runs the checks inside the VM, prints "SOFA-BOX-PROOF …" lines and
 # switches the VM off. Exit 0 when every check passed; the console log is OUT_DIR/console-<firmware>.log.
 set -eu
-IMG="" OUT="" FW=uefi TIMEOUT=900
+IMG="" OUT="" FW=uefi TIMEOUT=900 DISK=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --firmware) FW="$2"; shift ;;
+    --disk) DISK="$2"; shift ;;
     --timeout) TIMEOUT="$2"; shift ;;
     -*) echo "Unknown option: $1"; exit 1 ;;
     *) if [ -z "$IMG" ]; then IMG="$1"; else OUT="$1"; fi ;;
@@ -38,10 +44,15 @@ case "$IMG" in
   *.xz) xz -dc "$IMG" > "$COPY" ;;
   *) cp --sparse=always "$IMG" "$COPY" ;;
 esac
+if [ -n "$DISK" ]; then                      # a bigger "stick" than the image: the end of it is empty, as on a real one
+  truncate -s "$DISK" "$COPY"
+fi
 LOOP="$(losetup -fP --show "$COPY")"
 mkdir -p "$WORK/m"
 mount "${LOOP}p3" "$WORK/m"
 M="$WORK/m"
+[ -n "$DISK" ] && stat -c %s "$COPY" > "$M/etc/sofa-box-vm-disk-bytes"   # (the checks compare the root with it)
+[ "$FW" = uefi-secure ] && echo on > "$M/etc/sofa-box-vm-secure-boot"     # (and check Secure Boot really was on)
 # the kernel and systemd talk on the serial port (the log), and the boot screen stays out of the way
 sed -i -E 's/\b(quiet|splash)\b ?//g; s/(console=tty3)/\1 console=ttyS0,115200n8 systemd.show_status=1 plymouth.enable=0/' "$M/boot/grub/grub.cfg"
 grep -q 'console=ttyS0' "$M/boot/grub/grub.cfg" || { echo "Couldn't put the console on the serial port (grub.cfg changed?)."; exit 1; }
@@ -71,7 +82,13 @@ echo "== QEMU ($FW$([ -w /dev/kvm ] && echo ', KVM' || echo ', no KVM: slow'))"
 ACCEL="tcg,thread=multi"
 [ -w /dev/kvm ] && ACCEL=kvm
 FWARGS=""
-if [ "$FW" = uefi ]; then
+if [ "$FW" = uefi-secure ]; then
+  CODE="$(ls /usr/share/OVMF/OVMF_CODE_4M.secboot.fd /usr/share/OVMF/OVMF_CODE.secboot.fd 2>/dev/null | head -n 1 || true)"
+  VARS="$(ls /usr/share/OVMF/OVMF_VARS_4M.ms.fd /usr/share/OVMF/OVMF_VARS.ms.fd 2>/dev/null | head -n 1 || true)"
+  [ -n "$CODE" ] && [ -n "$VARS" ] || { echo "No Secure Boot OVMF with Microsoft's keys (apt install ovmf)."; exit 1; }
+  cp "$VARS" "$WORK/vars.fd"
+  FWARGS="-machine q35,smm=on -global driver=cfi.pflash01,property=secure,value=on -drive if=pflash,format=raw,unit=0,readonly=on,file=$CODE -drive if=pflash,format=raw,unit=1,file=$WORK/vars.fd"
+elif [ "$FW" = uefi ]; then
   CODE="$(ls /usr/share/OVMF/OVMF_CODE_4M.fd /usr/share/OVMF/OVMF_CODE.fd /usr/share/edk2/x64/OVMF_CODE.4m.fd 2>/dev/null | head -n 1 || true)"
   VARS="$(ls /usr/share/OVMF/OVMF_VARS_4M.fd /usr/share/OVMF/OVMF_VARS.fd /usr/share/edk2/x64/OVMF_VARS.4m.fd 2>/dev/null | head -n 1 || true)"
   [ -n "$CODE" ] && [ -n "$VARS" ] || { echo "No OVMF firmware (apt install ovmf)."; exit 1; }

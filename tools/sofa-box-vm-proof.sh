@@ -15,6 +15,17 @@ wait_for() {                 # wait_for NAME SECONDS COMMAND…: the command suc
   done
 }
 say "start: $(. /etc/os-release; echo "$PRETTY_NAME"), kernel $(uname -r), $(awk '/MemTotal/ {printf "%d MB", $2/1024}' /proc/meminfo), virtualised: $(systemd-detect-virt 2>/dev/null || echo ?)"
+# how it was started: UEFI or BIOS, and with Secure Boot on or not (the firmware's own SecureBoot variable: its last byte)
+if [ -d /sys/firmware/efi ]; then
+  SB="$(od -An -t u1 /sys/firmware/efi/efivars/SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c 2>/dev/null | awk '{print $NF}')"
+  say "firmware: UEFI, Secure Boot $([ "$SB" = 1 ] && echo on || echo off)"
+  if [ -f /etc/sofa-box-vm-secure-boot ]; then
+    [ "$SB" = 1 ] && say "secure boot: ok started by shim, GRUB and the kernel, each checked by the firmware" \
+      || say "secure boot: fail the firmware says Secure Boot is off"
+  fi
+else
+  say "firmware: BIOS"
+fi
 
 # 1. the box's helper (the home screen, apps, player, settings) on its port
 if wait_for agent 240 curl -fs -m 3 "$AGENT/box/state"; then
@@ -68,6 +79,16 @@ done
 say "cec: $(systemctl is-active sofa-box-cec) (a VM has no HDMI-CEC: the service waits for a /dev/cec; condition: $(systemctl show -p ConditionResult --value sofa-box-cec))"
 say "phone remote: $(curl -fs -m 3 -o /dev/null -w '%{http_code}' http://127.0.0.1:8092/) on 8092"
 say "disk: $(df -h / | awk 'NR==2 {print $2" root, "$4" free"}'), partition grown: $(systemctl is-active systemd-repart 2>/dev/null || echo ?)"
+# written to a bigger stick than the image (boot-sofa-box-vm.sh --disk): the root has the whole of it, less the boot parts
+if [ -f /etc/sofa-box-vm-disk-bytes ]; then
+  WANT="$(cat /etc/sofa-box-vm-disk-bytes)"
+  HAVE="$(df -B1 --output=size / | tail -n 1 | tr -d ' ')"
+  if [ "$HAVE" -ge $(( WANT - 700 * 1024 * 1024 )) ]; then
+    say "grown: ok the root is $((HAVE / 1048576)) MB of a $((WANT / 1048576)) MB disk"
+  else
+    say "grown: fail the root is $((HAVE / 1048576)) MB of a $((WANT / 1048576)) MB disk ($(journalctl -b -u systemd-repart -u systemd-growfs-root -n 6 --no-pager -o cat | tr '\n' ' ' | head -c 300))"
+  fi
+fi
 say "decoder: $(ls /dev/dri 2>/dev/null | tr '\n' ' '); vainfo: $(vainfo --display drm 2>&1 | grep -c VAProfile) profiles (a VM has no VA-API decoder: expected 0)"
 say "doctor: $(/usr/local/lib/sofa-box/sofa-box doctor 2>&1 | sed 's/\x1b\[[0-9;]*m//g' | grep -E '✓|✗' | tr '\n' ';' | head -c 900)"
 say "done"

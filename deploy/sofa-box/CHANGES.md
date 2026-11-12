@@ -8,6 +8,26 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.79
+
+Sofa Box OS for a PC, on a USB stick.
+
+- **Built and published beside every card.** The same box on Debian 13 for an x86-64 PC or laptop, as a 4 GB disk
+  image: `sofa-box-pc.img.xz` beside the newest card, and `sofa-box-os-X.Y.Z-pc.img.xz` on each version's own release
+  (from this version on). Written to a USB stick of 8 GB or more, it starts the PC from the stick and runs from it,
+  keeping its settings there; its first start makes it the whole stick.
+- **It starts most PCs as they come.** GRUB for newer PCs (UEFI) and older ones (BIOS), and now Debian's signed boot
+  chain (the Microsoft-signed shim, Debian's signed GRUB and kernel), so a PC with Secure Boot on, as most sold with
+  Windows are, starts it without a trip into its settings.
+- **Proven before it's published, three ways.** GitHub starts each one in QEMU on a 16 GB stick with UEFI (and checks
+  the root grew to fill it), with BIOS, and with Secure Boot on and Microsoft's keys enrolled. Nothing is published
+  unless all three pass, and only beside the card from the same commit. Not tried on a real PC yet.
+- **No login on it.** As on the Pi card, its user has no password and SSH is off: the image goes on people's USB
+  sticks, so it has no login anyone could know. (It had one, `sofa`/`sofabox`, while it was only a test image for
+  virtual machines; a test build can still have one: `tools/build-sofa-box-vm-image.sh --password`.)
+- **Listed for Raspberry Pi Imager and Sofa Box Imager** under a device of its own, "A PC, from a USB stick", marked
+  testing. Sofa Box Imager 0.2.0 writes it (**For a PC**).
+
 ## 1.1.78
 
 Memory and the processor first: the box fits itself to the board it's on, and gives back what it doesn't use.

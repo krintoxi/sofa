@@ -8,6 +8,7 @@ enum Report {
         var needs: Int64 = 1
         var status: Int32 = 0
         let url = ImagerModel.chosenListURL()
+        let target = ImagerModel.chosenTarget()           // --for pc: the PC's versions, and what a stick must hold
         // The list, fetched and waited for (this is a command line tool here, with nothing else to do meanwhile).
         final class Answer: @unchecked Sendable {
             var list: CardList?
@@ -17,7 +18,8 @@ enum Report {
         let done = DispatchSemaphore(value: 0)
         Task.detached {
             do {
-                answer.list = try CardListParser.parse(try await ImagerModel.fetchList(url), allowLocalFiles: url.isFileURL)
+                answer.list = try CardListParser.parse(try await ImagerModel.fetchList(url), for: target,
+                                                       allowLocalFiles: url.isFileURL)
             } catch {
                 answer.failure = plainWords(error)
             }
@@ -29,11 +31,11 @@ enum Report {
         if let list {
             needs = (list.newest ?? list.all.first)?.extractSize ?? 1
             if versions {
-                print("Sofa Box OS versions, from \(url.absoluteString):")
+                print("Sofa Box OS versions \(target == .pc ? "for a PC" : "for a Raspberry Pi"), from \(url.absoluteString):")
                 for c in list.all {
                     let mark = c == list.newest ? "newest " : (list.earlier.contains(c) ? "earlier" : "       ")
                     print("  \(mark)  \(c.name)  \(c.releaseDate)  \(ByteSize.text(c.downloadSize)) download, "
-                          + "\(ByteSize.text(c.extractSize)) on the card  \(c.url.absoluteString)")
+                          + "\(ByteSize.text(c.extractSize)) on the \(target.word)  \(c.url.absoluteString)")
                 }
                 for s in list.skipped { print("  left out: \(s)") }
             }
@@ -44,7 +46,7 @@ enum Report {
         if disks {
             let snap = DiskList.snapshot()
             let (offered, refused) = snap.sorted(needs: needs)
-            print("Disks (a card must hold \(ByteSize.text(needs))):")
+            print("Disks (a \(target.word) must hold \(ByteSize.text(needs))):")
             for d in offered {
                 print("  OFFERED  /dev/\(d.bsdName)  \(d.displayName)  \(ByteSize.text(d.sizeBytes))  \(d.protocolName ?? "?")")
             }
@@ -52,7 +54,7 @@ enum Report {
                 print("  refused  /dev/\(d.bsdName)  \(d.displayName)  \(ByteSize.text(d.sizeBytes))  \(d.protocolName ?? "?")")
                 for w in why { print("             \(w.text)") }
             }
-            if offered.isEmpty { print("  No card to write: put an SD card in.") }
+            if offered.isEmpty { print("  No \(target.word) to write: put \(target == .pc ? "a USB stick" : "an SD card") in.") }
         }
         return status
     }

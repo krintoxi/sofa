@@ -53,6 +53,18 @@ DEVICES = [
 ]
 BOARD_TAGS = [t for d in DEVICES for t in d["tags"]]
 DESCRIPTION = "Your own TV box: Sofa, free Live TV, your streaming apps and games. Raspberry Pi OS Lite (64-bit) underneath."
+# The same Sofa Box OS for a PC (x86-64), on a USB stick (the card workflow's job "pc"): listed under a device of its
+# own, so Imager offers it only for that, and Sofa Box Imager only under "For a PC". Listed only once a release has one.
+PC_DEVICE = {"name": "A PC, from a USB stick",
+             "description": "A PC or laptop with an Intel or AMD processor (x86-64): Sofa Box OS starts from a USB stick "
+                            "of 8 GB or more and runs from it",
+             "tags": ["sofa-box-pc-x86_64"]}
+PC_TAGS = list(PC_DEVICE["tags"])
+PC_VERSION_CARD = "sofa-box-os-%s-pc.img.xz"
+PC_ROLLING_CARD = "sofa-box-pc.img.xz"
+PC_DESCRIPTION = ("Sofa Box OS for a PC: written to a USB stick, it starts the PC from the stick and runs from it, "
+                  "settings and all. Debian 13 underneath. Not tried on a real PC yet: started on GitHub in QEMU, on "
+                  "newer (UEFI) and older (BIOS) PCs.")
 # What Imager may do to the card. "none": nothing (no user, no Wi-Fi, no SSH from Imager's settings).
 INIT_FORMAT = "none"
 INIT_FORMATS = ("", "none", "systemd", "cloudinit", "cloudinit-rpi", "rpi-preseed")   # Imager 2.0.12's own
@@ -169,9 +181,9 @@ def _version_key(v):
     return tuple(int(x) for x in v.split("."))
 
 
-def cards(releases):
+def cards(releases, version_card="sofa-box-os-%s.img.xz", rolling_card=ROLLING_CARD):
     """(numbered, rolling): the numbered cards newest first, and the newest card (or None). Each is a dict
-    with version, tag, asset, page and day."""
+    with version, tag, asset, page and day. The Pi's cards, or with PC_VERSION_CARD and PC_ROLLING_CARD, a PC's."""
     numbered, rolling = [], None
     for rel in releases:
         if rel.get("draft"):
@@ -180,12 +192,12 @@ def cards(releases):
         m = VERSION_TAG.match(tag)
         if m:
             ver = "%s.%s.%s" % m.groups()
-            a = _asset(rel, "sofa-box-os-%s.img.xz" % ver)
+            a = _asset(rel, version_card % ver)
             if a:
                 numbered.append({"version": ver, "tag": tag, "asset": a, "page": rel.get("html_url") or "",
                                  "day": _day(rel.get("published_at") or a.get("updated_at"))})
         elif tag == ROLLING_TAG:
-            a = _asset(rel, ROLLING_CARD)
+            a = _asset(rel, rolling_card)
             if a:
                 m = re.search(r"Sofa Box OS (\d+\.\d+\.\d+)", rel.get("name") or "")
                 rolling = {"version": m.group(1) if m else "", "tag": tag, "asset": a,
@@ -229,7 +241,7 @@ def _sums(card, cache, measure_fn, log):
     return cache[got["image_sha256"]]
 
 
-def _entry(name, description, card, sums):
+def _entry(name, description, card, sums, devices=None, architecture="armv8"):
     return {
         "name": name,
         "description": description,
@@ -240,8 +252,8 @@ def _entry(name, description, card, sums):
         "image_download_size": sums["image_download_size"],
         "release_date": card["day"],
         "init_format": INIT_FORMAT,
-        "devices": list(BOARD_TAGS),
-        "architecture": "armv8",
+        "devices": list(devices or BOARD_TAGS),
+        "architecture": architecture,
         "website": card["page"] or GUIDE,
     }
 
@@ -286,7 +298,37 @@ def build(releases, cache, measure_fn=None, keep=KEEP, log=lambda s: None):
                         "description": "%d earlier versions, newest first." % len(earlier),
                         "icon": ICON, "website": "https://github.com/krintoxi/sofa/releases?q=box-os",
                         "subitems": earlier})
-    return {"imager": {"devices": [dict(d, matching_type="exclusive") for d in DEVICES]}, "os_list": os_list}
+    pc = pc_entries(releases, cache, measure_fn, keep, log)
+    devices = DEVICES + ([PC_DEVICE] if pc else [])
+    return {"imager": {"devices": [dict(d, matching_type="exclusive") for d in devices]}, "os_list": os_list + pc}
+
+
+def pc_entries(releases, cache, measure_fn, keep=KEEP, log=lambda s: None):
+    """A PC's Sofa Box OS (USB sticks), from the same releases: the newest version's, the newest build when it differs,
+    and the versions before, in a group. All "(testing)": none has been tried on a real PC yet (the stable mark is
+    the Pi card's, tried on a real Pi). Empty while no release has one."""
+    numbered, rolling = cards(releases, PC_VERSION_CARD, PC_ROLLING_CARD)
+    out = []
+
+    def entry(name, desc, c):
+        return _entry(name, desc, c, _sums(c, cache, measure_fn, log), PC_TAGS, "x86_64")
+    if numbered:
+        out.append(entry("Sofa Box OS %s for a PC (testing)" % numbered[0]["version"], PC_DESCRIPTION, numbered[0]))
+    digests = {_digest(c["asset"]) for c in numbered} - {""}
+    if rolling and (not digests or _digest(rolling["asset"]) not in digests):
+        ver = rolling["version"] or (numbered[0]["version"] if numbered else "")
+        out.append(entry("Sofa Box OS %s for a PC, newest build (testing)" % ver if ver else
+                         "Sofa Box OS for a PC, newest build (testing)",
+                         "Built %s from every change since the last version number, for trying fixes early." % rolling["day"],
+                         rolling))
+    earlier = [entry("Sofa Box OS %s for a PC (testing)" % c["version"],
+                     "An earlier version, to go back to if a newer one misbehaves.", c) for c in numbered[1:keep + 1]]
+    if earlier:
+        out.append({"name": "Sofa Box OS for a PC: earlier versions",
+                    "description": "%d earlier versions, newest first." % len(earlier),
+                    "icon": ICON, "website": "https://github.com/krintoxi/sofa/releases?q=box-os",
+                    "subitems": earlier})
+    return out
 
 
 # ---------------------------------------------------------------------------------------------- checking

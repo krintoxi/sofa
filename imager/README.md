@@ -1,10 +1,11 @@
 # Sofa Box Imager
 
-EdgeVenture's own app for writing a Sofa Box OS card, for a Raspberry Pi 3 B+, 4 or 5. It does one thing:
-pick the version, pick the SD card, confirm, and it downloads the card, writes it, reads every byte back and
-ejects it. It sets nothing on the card (no user, no SSH, no Wi-Fi): the box sets itself up on the TV.
+EdgeVenture's own app for writing Sofa Box OS: to an SD card for a Raspberry Pi 3 B+, 4 or 5, or to a USB stick
+for a PC (since 0.2.0, [below](#for-a-pc-a-usb-stick)). It does one thing: pick the version, pick the card or
+stick, confirm, and it downloads it, writes it, reads every byte back and ejects it. It sets nothing on it (no
+user, no SSH, no Wi-Fi): the box sets itself up on the TV.
 
-**Where it stands (version 0.1.0, 2026-11-10):**
+**Where it stands (version 0.2.0, 2026-11-12):**
 
 - macOS only, 13 or newer, Apple silicon and Intel. Windows comes later (see [Windows](#windows)).
 - **It has never written a real SD card.** Everything up to the hardware is tested, including a real
@@ -13,6 +14,9 @@ ejects it. It sets nothing on the card (no user, no SSH, no Wi-Fi): the box sets
 - It isn't signed with an Apple Developer ID, so macOS blocks a downloaded copy until its owner allows it
   (see [Signing](#signing)).
 - It reads the Sofa Box list on the `sofa-box` release, published since 2026-11-10 (see [The list](#the-list)).
+- **For a PC**, it writes a USB stick of 8 GB or more, once the list has a PC's Sofa Box OS (the card workflow
+  builds one beside every card from the change that brought 0.2.0). Like the SD card, it has never written a
+  real stick, and no real PC has started from one yet.
 
 It's written from scratch in Swift and SwiftUI, not forked from Raspberry Pi's imager, and has no other
 dependencies: unpacking is macOS's own Compression framework, the password prompt is macOS's own `authopen`.
@@ -135,6 +139,24 @@ half-written: it has no partition table.
 The card that ends up on the SD card is, byte for byte, the one GitHub built: the app can't change it, and
 the check against the list's SHA-256 would fail if anything did.
 
+## For a PC: a USB stick
+
+The switch at the top of the window, **For a Raspberry Pi** or **For a PC**, picks which of the list's entries are
+offered (by their `devices` tags: Raspberry Pi OS Lite's own for the Pi, `sofa-box-pc-x86_64` for a PC) and the
+words the window uses ("card" or "stick"). `--for pc` opens the window on a PC, and makes `--versions` and
+`--disks` answer for a PC.
+
+The PC's Sofa Box OS is the same box on Debian 13 for x86-64 (`tools/build-sofa-box-vm-image.sh`), built by
+GitHub beside every card (`.github/workflows/sofa-box-image.yml`, job `pc`) as a 4 GB disk image with GRUB for
+newer PCs (UEFI) and older ones (BIOS). GitHub starts it in QEMU both ways before it's published, on a 16 GB "stick":
+its root grows to fill the stick at the first start. Written to a stick, it starts the PC from the stick (its start
+menu key as it starts: often F12, F11, F10, F8 or Esc) and runs from it, keeping its settings there. Like the card,
+it has no login: no password, SSH off.
+
+The write is the same as a card's, in every step: the same disk policy (a USB stick is removable and external,
+like a card reader), the same download, unpacking, first megabyte held back, read-back against the list's
+SHA-256, and eject.
+
 ## The list
 
 The app reads the same list Raspberry Pi's imager can open, built from the releases by
@@ -168,21 +190,21 @@ from anywhere the list says, because it's checked against the list's SHA-256.
 
 ## What's tested, and where
 
-`swift test` runs 83 tests; three more run only when asked. None writes a disk it didn't attach itself: the
+`swift test` runs 88 tests; three more run only when asked. None writes a disk it didn't attach itself: the
 tests that write attach a RAM disk, check with DiskArbitration that the device they got is a disk image of
 exactly the size they asked for, and only then touch it.
 
 | What | Tests | How |
 |---|---|---|
 | Which disks may be written | `ImagerKitTests/DiskPolicyTests` (22) | Made-up disks. This Mac's internal SSD, APFS container and a RAM disk are copied from what macOS really said; the card readers are written from Apple's documented values. Every combination of inside / removable / ejectable / card / image / APFS is checked against the rule. |
-| The list | `ImagerKitTests/CardListTests` (10) | A list made by `tools/sofa-box-imager-list.py`'s own `build()` and `check()` (1.1.54's sizes and SHA-256 are the real card's, the other versions invented); the list as it was first published on 2026-11-10; and one opening with a stable version, followed by two "(testing)" ones. |
+| The list | `ImagerKitTests/CardListTests` (11) | A list made by `tools/sofa-box-imager-list.py`'s own `build()` and `check()` (1.1.54's sizes and SHA-256 are the real card's, the other versions invented); the list as it was first published on 2026-11-10; and one opening with a stable version, followed by two "(testing)" ones; one with a PC's images, read for a Pi and for a PC. |
 | Unpacking | `ImagerKitTests/XZDecoderTests` (8) | Files made by `xz -T0 -6` as the box's card is: one stream of 9 blocks, and two streams with zero padding between. Damage, a short file, bad padding and trailing junk are all caught. |
 | Writing and checking | `ImagerKitTests/CardWriterTests` (13) | A plain file as the disk. Only whole-sector writes at megabyte offsets; the first megabyte last; nothing past the card but the disk's last megabyte; a wrong download, a card that reads back wrong, Stop and a card that never answers each leave the first megabyte blank. |
 | Downloading | `ImagerKitTests/DownloadTests` (9) | A web server inside the test: a whole download, carrying on after a drop, a server that ignores or mangles the range, the wrong size, giving up, and download-to-checked-card in one go. |
 | Finding disks | `ImagerMacTests/DiskListTests` (7) | The Mac running the tests: its startup disk is found and refused; a RAM disk is seen as a disk image and refused; the volumes on a disk are found, unmounted, and refused a mount while a write is on; `authopen` with no one to type a password opens nothing. |
 | The whole write | `ImagerMacTests/WriteJobTests` (5) | The app's own `WriteJob` on a RAM disk with a volume on it: unmount, open the raw device, write, read back, eject. Two things differ from the app: the RAM disk is opened directly (it belongs to the user, so no password), and the policy is told to accept that one RAM disk. Also: a disk that changed since it was confirmed, a disk that turns out to be another once open, and the real policy refusing the RAM disk before anything is unmounted. |
 | The password hand-over | `ImagerMacTests/AuthOpenTests` (6) | A stand-in for `authopen` (`Tests/FakeAuthOpen`) that takes its arguments and sends back an open file as `authopen` does: the 32-byte authorization arrives whole, the file opens for reading and writing, a helper that fails after opening isn't trusted, and the helper inherits nothing of the app's but its three standard streams. |
-| The app | `SofaBoxImagerTests/WindowTests` (5 + 1) | What's chosen is what's written; progress in words; the colours match Sofa's style sheet and its fonts load; the app's own words never include Raspberry Pi's imager's name, and nothing in it writes a user, SSH or Wi-Fi setting. `SOFA_IMAGER_SNAPSHOTS=<folder>` draws every screen to a PNG, with the Mac set to light and to dark. |
+| The app | `SofaBoxImagerTests/WindowTests` (7 + 1) | What's chosen is what's written; progress in words ("card" or "stick"); For a PC, the list read again for a PC's images; the colours match Sofa's style sheet and its fonts load; the app's own words never include Raspberry Pi's imager's name, and nothing in it writes a user, SSH or Wi-Fi setting. `SOFA_IMAGER_SNAPSHOTS=<folder>` draws every screen to a PNG, with the Mac set to light and to dark. |
 | A real card | `ImagerMacTests/RealCardTests` (2, when asked) | `SOFA_IMAGER_REAL_LIST=<list> swift test --filter RealCardTests`. Downloads the newest card from GitHub and writes it to a disk image through the raw device with `WriteJob` (about 1.4 GB down, 6 GB of disk for a few minutes), and checks that a download dropped on purpose carries on through GitHub's redirect. |
 
 **Run here on 2026-11-10** (a Mac on macOS 27.2, Apple silicon, Xcode 27.2):
@@ -269,6 +291,7 @@ SHA-256, so a Windows app can share its design and its tests' cases.
   (A user made by Raspberry Pi's imager stopped the TV screen before Sofa Box OS 1.1.56;
   [docs/raspberry-pi-imager.md](../docs/raspberry-pi-imager.md) has the story, and what settings of our own
   could look like: Wi-Fi and a name, in a file the box reads itself.)
+- A DVD for a PC, and installing from the stick onto a PC's own drive: the next steps.
 - The download isn't kept: writing a second card downloads it again.
 - No update check for the app itself, and no translations.
 - A card file chosen from disk (only through a list file, for testing).

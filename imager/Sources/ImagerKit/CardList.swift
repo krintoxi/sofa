@@ -9,6 +9,39 @@ public enum CardListSource {
     public static let largestList = 1 << 20
 }
 
+/// What the Sofa Box OS is for: a Raspberry Pi (an SD card, as always) or a PC (a USB stick it starts from and runs
+/// from). The list says which entries are for which by their `devices` tags; the words the window uses come from here.
+public enum CardTarget: String, CaseIterable, Identifiable, Sendable {
+    case raspberryPi
+    case pc
+
+    public var id: String { rawValue }
+    /// The list's device tags for it (Raspberry Pi OS Lite 64-bit's own for the Pi; ours for a PC).
+    public var tags: Set<String> {
+        switch self {
+        case .raspberryPi: return ["pi5-64bit", "pi4-64bit", "pi3-64bit"]
+        case .pc: return ["sofa-box-pc-x86_64"]
+        }
+    }
+    /// "For a Raspberry Pi" / "For a PC", on the switch at the top of the window.
+    public var choice: String { self == .raspberryPi ? "For a Raspberry Pi" : "For a PC" }
+    /// What's written: "SD card" / "USB stick"; and the one word for it in sentences: "card" / "stick".
+    public var medium: String { self == .raspberryPi ? "SD card" : "USB stick" }
+    public var word: String { self == .raspberryPi ? "card" : "stick" }
+    /// The machine it goes in: "Pi" / "PC".
+    public var machine: String { self == .raspberryPi ? "Pi" : "PC" }
+    /// The SF Symbol drawn for it.
+    public var symbol: String { self == .raspberryPi ? "sdcard" : "externaldrive" }
+    /// `--for pi` / `--for pc` on the command line.
+    public static func named(_ text: String) -> CardTarget? {
+        switch text.lowercased() {
+        case "pi", "raspberrypi", "raspberry-pi", "sd": return .raspberryPi
+        case "pc", "usb", "x86_64", "x86-64": return .pc
+        default: return nil
+        }
+    }
+}
+
 /// One card Sofa Box Imager can write: a Sofa Box OS version.
 public struct Card: Equatable, Identifiable, Hashable {
     public let name: String
@@ -45,12 +78,14 @@ public struct CardList: Equatable {
 public enum CardListError: Error, Equatable, CustomStringConvertible {
     case notJSON
     case noCards
+    case noneFor(CardTarget)
     case tooBig
 
     public var description: String {
         switch self {
         case .notJSON: return "The list of cards isn't a list Sofa Box Imager can read."
         case .noCards: return "The list of cards has no Sofa Box OS card in it."
+        case .noneFor(let t): return "The list has no Sofa Box OS for a \(t.machine) yet."
         case .tooBig: return "The list of cards is far bigger than it should be."
         }
     }
@@ -60,7 +95,7 @@ public enum CardListError: Error, Equatable, CustomStringConvertible {
 /// odd size or SHA-256 is left out rather than written unchecked.
 public enum CardListParser {
     /// The boards a Sofa Box card is for (Raspberry Pi OS Lite 64-bit's own tags). An entry for other boards is left out.
-    public static let boardTags: Set<String> = ["pi5-64bit", "pi4-64bit", "pi3-64bit"]
+    public static let boardTags: Set<String> = CardTarget.raspberryPi.tags
 
     private struct RawList: Decodable {
         let os_list: [RawEntry]
@@ -103,7 +138,9 @@ public enum CardListParser {
 
     /// - Parameter allowLocalFiles: a list the owner opened from a file on this Mac (for testing) may point at
     ///   `file://` cards; a list from the network must point at `https://`.
-    public static func parse(_ data: Data, allowLocalFiles: Bool = false) throws -> CardList {
+    /// - Parameter target: the entries for a Raspberry Pi (the default: an entry that names no devices counts as one, as
+    ///   lists before the PC's did) or for a PC (only an entry that names a PC's tag).
+    public static func parse(_ data: Data, for target: CardTarget = .raspberryPi, allowLocalFiles: Bool = false) throws -> CardList {
         guard data.count <= CardListSource.largestList else { throw CardListError.tooBig }
         let raw: RawList
         do {
@@ -118,17 +155,18 @@ public enum CardListParser {
         for entry in raw.os_list {
             if let subs = entry.subitems {
                 // One level of groups, as the list builder writes ("Sofa Box OS: earlier versions").
-                if earlierTitle.isEmpty { earlierTitle = entry.name ?? "Earlier versions" }
+                var found = false
                 for sub in subs {
-                    switch card(sub, allowLocalFiles: allowLocalFiles) {
-                    case .success(let c): earlier.append(c)
+                    switch card(sub, for: target, allowLocalFiles: allowLocalFiles) {
+                    case .success(let c): earlier.append(c); found = true
                     case .failure(let why): skipped.append(why.text)
                     }
                 }
+                if found, earlierTitle.isEmpty { earlierTitle = entry.name ?? "Earlier versions" }
             } else if entry.subitems_url != nil {
                 skipped.append("\(entry.name ?? "?"): a group in another list (not followed)")
             } else {
-                switch card(entry, allowLocalFiles: allowLocalFiles) {
+                switch card(entry, for: target, allowLocalFiles: allowLocalFiles) {
                 case .success(let c): top.append(c)
                 case .failure(let why): skipped.append(why.text)
                 }
@@ -140,7 +178,9 @@ public enum CardListParser {
         let newest = newestIndex.map { top[$0] }
         var others = top
         if let i = newestIndex { others.remove(at: i) }
-        guard newest != nil || !earlier.isEmpty else { throw CardListError.noCards }
+        guard newest != nil || !earlier.isEmpty else {
+            throw target == .raspberryPi ? CardListError.noCards : CardListError.noneFor(target)
+        }
         return CardList(newest: newest, others: others,
                         earlierTitle: earlierTitle.isEmpty ? "Earlier versions" : earlierTitle,
                         earlier: earlier, skipped: skipped)
@@ -148,7 +188,7 @@ public enum CardListParser {
 
     private struct Skip: Error { let text: String }
 
-    private static func card(_ e: RawEntry, allowLocalFiles: Bool) -> Result<Card, Skip> {
+    private static func card(_ e: RawEntry, for target: CardTarget, allowLocalFiles: Bool) -> Result<Card, Skip> {
         let name = (e.name ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         func skip(_ why: String) -> Result<Card, Skip> { .failure(Skip(text: "\(name.isEmpty ? "?" : name): \(why)")) }
         guard !name.isEmpty else { return skip("no name") }
@@ -168,8 +208,12 @@ public enum CardListParser {
               sha.allSatisfy({ ("0"..."9").contains($0) || ("a"..."f").contains($0) }) else {
             return skip("no SHA-256 to check the card against")
         }
-        if let devices = e.devices, !devices.isEmpty, boardTags.isDisjoint(with: devices) {
-            return skip("not for a Raspberry Pi 3, 4 or 5")
+        let devices = e.devices ?? []
+        switch target {
+        case .raspberryPi:
+            if !devices.isEmpty, target.tags.isDisjoint(with: devices) { return skip("not for a Raspberry Pi 3, 4 or 5") }
+        case .pc:
+            if target.tags.isDisjoint(with: devices) { return skip("not for a PC") }
         }
         let date = e.release_date ?? ""
         let day = date.range(of: #"^\d{4}-\d{2}-\d{2}$"#, options: .regularExpression) != nil ? date : ""

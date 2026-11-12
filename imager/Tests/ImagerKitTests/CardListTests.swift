@@ -43,6 +43,51 @@ final class CardListTests: XCTestCase {
         }
     }
 
+    /// A list with the Pi's cards and a PC's images (tools/sofa-box-imager-list.py's pc_entries): each target reads only
+    /// its own, the Pi's as before; an entry that names no devices is a Pi's, as in lists from before the PC's.
+    func testAPiOrAPC() throws {
+        func entry(_ name: String, _ file: String, _ devices: [String]?) -> [String: Any] {
+            var e: [String: Any] = ["name": name, "description": "x",
+                                    "url": "https://github.com/krintoxi/sofa/releases/download/x/\(file)",
+                                    "extract_size": 4_294_967_296, "image_download_size": 1_500_000_000,
+                                    "extract_sha256": String(repeating: "cd", count: 32), "release_date": "2026-11-12",
+                                    "init_format": "none"]
+            if let devices { e["devices"] = devices }
+            return e
+        }
+        let pi = ["pi5-64bit", "pi4-64bit", "pi3-64bit"], pc = ["sofa-box-pc-x86_64"]
+        let doc: [String: Any] = ["os_list": [
+            entry("Sofa Box OS 1.1.74", "sofa-box-os-1.1.74.img.xz", pi),
+            ["name": "Sofa Box OS: earlier versions", "description": "1", "subitems": [entry("Sofa Box OS 1.1.73", "sofa-box-os-1.1.73.img.xz", pi)]],
+            entry("Sofa Box OS 1.1.74 for a PC (testing)", "sofa-box-os-1.1.74-pc.img.xz", pc),
+            ["name": "Sofa Box OS for a PC: earlier versions", "description": "1",
+             "subitems": [entry("Sofa Box OS 1.1.73 for a PC (testing)", "sofa-box-os-1.1.73-pc.img.xz", pc)]],
+            entry("An old entry", "sofa-box-os-1.1.40.img.xz", nil),
+        ]]
+        let data = try JSONSerialization.data(withJSONObject: doc)
+        let forPi = try CardListParser.parse(data)
+        XCTAssertEqual(forPi.newest?.name, "Sofa Box OS 1.1.74")
+        XCTAssertEqual(forPi.others.map(\.name), ["An old entry"])
+        XCTAssertEqual(forPi.earlierTitle, "Sofa Box OS: earlier versions")
+        XCTAssertEqual(forPi.earlier.map(\.name), ["Sofa Box OS 1.1.73"])
+        let forPC = try CardListParser.parse(data, for: .pc)
+        XCTAssertEqual(forPC.newest?.name, "Sofa Box OS 1.1.74 for a PC (testing)")   // (all testing: the first is offered)
+        XCTAssertEqual(forPC.newest?.url.lastPathComponent, "sofa-box-os-1.1.74-pc.img.xz")
+        XCTAssertEqual(forPC.others, [])
+        XCTAssertEqual(forPC.earlierTitle, "Sofa Box OS for a PC: earlier versions")
+        XCTAssertEqual(forPC.earlier.map(\.name), ["Sofa Box OS 1.1.73 for a PC (testing)"])
+        XCTAssertTrue(forPC.skipped.contains("An old entry: not for a PC"))
+        // a list from before the PC's: nothing for a PC, said so
+        XCTAssertThrowsError(try CardListParser.parse(Fixture.data("sofa-box.rpi-imager-manifest"), for: .pc)) { e in
+            XCTAssertEqual(e as? CardListError, .noneFor(.pc))
+            XCTAssertEqual((e as? CardListError)?.description, "The list has no Sofa Box OS for a PC yet.")
+        }
+        XCTAssertEqual(CardTarget.named("pc"), .pc)
+        XCTAssertEqual(CardTarget.named("pi"), .raspberryPi)
+        XCTAssertNil(CardTarget.named("toaster"))
+        XCTAssertEqual(CardTarget.pc.word, "stick")
+    }
+
     func testAGoodEntry() throws {
         let c = try XCTUnwrap(try one([:]).newest)
         XCTAssertEqual(c.extractSize, 5_226_102_784)

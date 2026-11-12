@@ -117,6 +117,45 @@ class List(unittest.TestCase):
         self.assertEqual([d["name"] for d in devs], ["Raspberry Pi 5", "Raspberry Pi 4", "Raspberry Pi 3"])
         self.assertTrue(all(d["matching_type"] == "exclusive" and d["description"] for d in devs))
 
+    def test_a_pc_from_a_usb_stick_has_a_device_and_entries_of_its_own(self):
+        """The same Sofa Box OS for a PC (sofa-box-os-X-pc.img.xz beside the card): under a device of its own, so
+        Imager offers it only for a PC; marked testing (never tried on a real PC); the Pi's entries as they were."""
+        def with_pc(rel, ver, raw):
+            rel["assets"].append(self.c.card("sofa-box-os-%s-pc.img.xz" % ver, raw))
+            return rel
+        pc_new, pc_old = b"PC 1.1.74\n" + bytes(2 << 20), b"PC 1.1.73\n" + bytes(2 << 20)
+        rolling = self.c.rolling("1.1.74", self.newest)
+        rolling["assets"].append(self.c.card("sofa-box-pc.img.xz", pc_new))
+        rels = [with_pc(self.c.version("1.1.74", self.newest), "1.1.74", pc_new),
+                with_pc(self.c.version("1.1.73", b"seventy-three" * 99), "1.1.73", pc_old),
+                self.c.version("1.1.72", b"seventy-two" * 99), rolling]
+        doc = imager.build(rels, {}, keep=3, measure_fn=self.c.measure)
+        self.assertEqual(imager.check(doc), [])
+        names = [e["name"] for e in doc["os_list"]]
+        self.assertEqual(names, ["Sofa Box OS 1.1.74", "Sofa Box OS: earlier versions",
+                                 "Sofa Box OS 1.1.74 for a PC (testing)", "Sofa Box OS for a PC: earlier versions"])
+        pc = doc["os_list"][2]
+        self.assertTrue(pc["url"].endswith("/sofa-box-os-1.1.74-pc.img.xz"))
+        self.assertEqual((pc["devices"], pc["architecture"], pc["init_format"]), (["sofa-box-pc-x86_64"], "x86_64", "none"))
+        self.assertEqual((pc["extract_size"], pc["extract_sha256"]), (len(pc_new), sha(pc_new)))
+        self.assertIn("Not tried on a real PC yet", pc["description"])
+        self.assertEqual([x["name"] for x in doc["os_list"][3]["subitems"]], ["Sofa Box OS 1.1.73 for a PC (testing)"])
+        self.assertEqual(doc["os_list"][0]["devices"], ["pi5-64bit", "pi4-64bit", "pi3-64bit"])     # (the Pi's, as before)
+        self.assertEqual([x["name"] for x in doc["os_list"][1]["subitems"]], ["Sofa Box OS 1.1.73", "Sofa Box OS 1.1.72"])
+        devs = doc["imager"]["devices"]
+        self.assertEqual([d["name"] for d in devs][-1], "A PC, from a USB stick")
+        self.assertEqual(devs[-1]["tags"], ["sofa-box-pc-x86_64"])
+        # (the newest PC build is 1.1.74's own file: listed once; a different one is listed as the newest build)
+        rolling["assets"][-1] = self.c.card("sofa-box-pc.img.xz", pc_new + b" and a fix")
+        doc = imager.build(rels, {}, keep=3, measure_fn=self.c.measure)
+        self.assertIn("Sofa Box OS 1.1.74 for a PC, newest build (testing)", [e["name"] for e in doc["os_list"]])
+        self.assertEqual(imager.check(doc), [])
+
+    def test_no_pc_device_until_a_release_has_a_pc_image(self):
+        doc = imager.build([self.c.version("1.1.73", self.newest)], {}, measure_fn=self.c.measure)
+        self.assertEqual([d["name"] for d in doc["imager"]["devices"]], ["Raspberry Pi 5", "Raspberry Pi 4", "Raspberry Pi 3"])
+        self.assertEqual(imager.check(doc), [])                    # (a device with nothing listed for it is refused)
+
     def test_the_newest_build_is_listed_only_when_it_differs(self):
         rels = [self.c.version("1.1.54", self.newest), self.c.rolling("1.1.54", self.newest + b" and a fix", "2026-11-12")]
         doc = imager.build(rels, {}, measure_fn=self.c.measure)

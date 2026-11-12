@@ -30,7 +30,7 @@ Read in `deploy/sofa-box/install.sh`, `sofa-box`, `sofa-box-agent.py`, `boxos.py
 | The Wi-Fi hotspot at setup (`nmcli device wifi hotspot`), with PMF disabled because the Pi's chip can't do it as an access point, and Wi-Fi switched on at every start because Raspberry Pi OS keeps it rfkilled until a country is set | `sofa-box-agent.py` `Network.start_hotspot`, `sofa-box wifi-on`/`tune` | Any Wi-Fi card NetworkManager can put in AP mode works the same way; a PC with no Wi-Fi (or a VM) gets `"This box's Wi-Fi isn't working"` in the setup and the hotspot watch gives up quietly (`Network.watch`). The rfkill and `WirelessEnabled` fixes are no-ops where nothing is blocked. |
 | HDMI-CEC comes from the Pi's own HDMI (`/dev/cec0`, the `vc4` driver, `cec-ctl` from `v4l-utils`, `ir-keytable` to quiet the kernel's own keymap); the service restarts every 5 s until it finds an adapter | `sofa-box-cec.py` `adapter()`, `install.sh` (`sofa-box-cec.service`), `sofa-box tv-on`/`doctor` | PC graphics cards expose no CEC to Linux. A Pulse-Eight USB-CEC adapter does, through the kernel's `pulse8-cec` driver once `inputattach --pulse8-cec` binds its serial port: `other-hardware.sh` adds a udev rule and a template unit for that, and a drop-in `ConditionPathExistsGlob=/dev/cec*` so the service waits instead of looping. Some Intel NUCs have CEC headers served by third-party adapters, not by the kernel. |
 | Bluetooth through the Pi's combined Wi-Fi/Bluetooth chip, one aerial: discovery paused around a Wi-Fi join (`Bluetooth.pause`) | `sofa-box-agent.py` `Bluetooth`, `PairingHelper`; `sofa-box pair-controller` | Any BlueZ adapter works the same (`bluetoothctl`); a PC without one gets "no Bluetooth tools here" paths that already exist. The pause is harmless on separate chips. |
-| The `pi` user (uid 1000) for SSH, and `sofabox` running the TV; `SOFA_BOX_USER` picks the latter | `build-sofa-box-image.sh`, `install.sh` (`WHO`) | The VM image makes `sofa` (uid 1000, sudo, password to change at the first login) and `sofabox`; on an existing Debian the person who runs `sudo sh install.sh` is the box's user, as on a Pi set up by hand. |
+| The `pi` user (uid 1000) for SSH, and `sofabox` running the TV; `SOFA_BOX_USER` picks the latter | `build-sofa-box-image.sh`, `install.sh` (`WHO`) | The PC image makes `sofa` (uid 1000, sudo, no password, as on the card; `--password` gives a test build one) and `sofabox`; on an existing Debian the person who runs `sudo sh install.sh` is the box's user, as on a Pi set up by hand. |
 | zram sized to half the memory, swappiness 100, the dirty ratios of a slow SD card | `install.sh` "Tuning the system" | The same settings do no harm on an SSD; nothing is changed. |
 | The home page reads Pi-only state through the agent, never directly: `data.power` (Home's note, Help's card), `board.gen` ("Needs a Raspberry Pi N" on a game that needs one), "Built on Raspberry Pi OS" in About | `home.js` `powerLine`, `gameLine`, the About card | `power` is `null` on a non-Pi (no note); a game's `fits` is true for `gen 0`; About now says what `/etc/os-release` says (`box_info()["os"]`, e.g. "Debian GNU/Linux 13 (trixie)"). No other Pi-only endpoint exists in `home.js` or `inject.js`. |
 | The user agent claims `Linux aarch64` | `boxos.py` `UA` | Left as it is: it is the TV-site user agent sites see, not a hardware fact, and changing it would change what the DRM and TV sites serve on the Pi. |
@@ -166,8 +166,10 @@ software except the firmware and microcode, which are "not free software" like t
 4. GRUB: `grub-install --target=x86_64-efi --removable --no-nvram` (so any UEFI finds `EFI/BOOT/BOOTX64.EFI` with no
    NVRAM entry: VMs, USB sticks) and `grub-install --target=i386-pc` into the same disk; the Pi's quiet-boot words in
    `GRUB_CMDLINE_LINUX_DEFAULT`; Plymouth with the box's theme; `update-initramfs`.
-5. Users: `sofa` (uid 1000, sudo, password `sofabox` that must be changed at the first login) and `sofabox`, locked, which
-   runs the TV. SSH is on, with host keys made on each machine at its first start (never shared by copies of the image).
+5. Users: `sofa` (uid 1000, sudo) and `sofabox`, locked, which runs the TV. As on the Pi card, `sofa` has no password
+   and SSH is off: the image goes on people's USB sticks, so it has no login anyone could know. A test build of your
+   own can have one: `--password WORD` gives `sofa` that password (to be changed at the first login) and switches SSH
+   on. SSH's host keys are made on each machine at its first start (never shared by copies of the image).
    `/etc/machine-id` is empty, so the first start is a first start (the boot screen says so).
 6. The games whose data isn't free software are checked to be absent, as on a card; the package list goes in the report.
 
@@ -239,11 +241,17 @@ host passes an adapter through, no DRM apps unless `sofa-box widevine` is run in
 
 ### A USB stick, a real PC
 
-**The same image boots a real PC.** The `.img.xz` is a whole disk with GRUB for BIOS and for UEFI (removable path), so
-written as-is to a USB stick it starts an x86-64 PC either way, and the root grows to the stick at the first start.
-Write it with balenaEtcher or Raspberry Pi Imager ("Use custom" takes any `.img.xz`), or `dd`; on Windows Rufus in
-**DD mode**. Secure Boot must be off (Debian's shim isn't on the image). The stick is slow: a USB 3 SSD in a case is a
-better "stick", or install Debian 13 on the PC's own disk and run `install.sh` on it (§2), which is the better path for
+**The same image boots a real PC, and it's published for that.** The card workflow builds it beside every card (job
+`pc` in `.github/workflows/sofa-box-image.yml`, 4 GB, `--size 4G`) and puts it on the same releases:
+`sofa-box-pc.img.xz` on `sofa-box` (the newest) and `sofa-box-os-X.Y.Z-pc.img.xz` on each version's own. Before that,
+GitHub starts it in QEMU on a 16 GB stick with UEFI (and checks the root grew to fill it), with BIOS, and with Secure
+Boot on and Microsoft's keys enrolled (OVMF's `secboot` code and `ms` variables), and nothing is published unless all
+three pass. It's a whole disk with GRUB for BIOS and for UEFI (removable path), with Debian's signed boot chain (the
+Microsoft-signed `shim`, Debian's signed GRUB and kernel), so it starts most PCs as they come, Secure Boot on or off,
+and the root grows to the stick at the first start. Write it with Sofa Box Imager (**For a PC**), Raspberry Pi Imager
+(our list's device **A PC, from a USB stick**, or "Use custom"), balenaEtcher or `dd`; on Windows Rufus in **DD
+mode**. Kernel lockdown is on under Secure Boot (Debian's); nothing the box does needs what it closes. The stick is
+slow: a USB 3 SSD in a case is a better "stick", or install Debian 13 on the PC's own disk and run `install.sh` on it (§2), which is the better path for
 a PC that will live under the TV. Nothing different is needed for a USB stick; what is **untested** is the firmware and
 the decoding on any given laptop, which only that laptop can tell (`sofa-box doctor`).
 
