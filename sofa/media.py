@@ -426,10 +426,19 @@ def _env(item):
     return {k: v for k, v in os.environ.items() if k.lower() not in ("no_proxy", "http_proxy", "https_proxy")}
 
 
+def max_transcodes():
+    """Conversions for watching at once: the setting, but one on a computer with 2 GB or less or two cores (one 1080p
+    conversion holds about 400 MB on a Pi-sized machine: two don't fit in 1 GB, and the box plays its own video too)."""
+    from . import hardware
+    d = hardware.describe()
+    asked = max(1, int(config.get("max_transcodes") or 1))
+    return 1 if (d["memory"] or 0) <= 2200 * 2**20 or d["cores"] <= 2 else asked
+
+
 def _slot(mode):
     global _transcode_slots
     if _transcode_slots is None:
-        _transcode_slots = threading.BoundedSemaphore(max(1, int(config.get("max_transcodes"))))
+        _transcode_slots = threading.BoundedSemaphore(max_transcodes())
     slot = _transcode_slots if mode == "transcode" else None
     if slot and not slot.acquire(timeout=10):
         raise RuntimeError("busy")
@@ -551,7 +560,9 @@ def busy():
 
 
 def overloaded():
-    """The computer is working hard already (an old Mac converting a film for someone, say)."""
+    """The computer is working hard already (an old Mac converting a film for someone, say). Counted against the
+    cores Sofa may use (a container's limit too: hardware.cores)."""
+    from . import hardware
     try:
         load = os.getloadavg()[0]
     except (OSError, AttributeError):          # Windows has no load average: how busy the CPU was this last minute
@@ -559,7 +570,7 @@ def overloaded():
         load = windows.load()
         if load is None:
             return False
-    return load > max(1.5, (os.cpu_count() or 2) * 0.8)
+    return load > max(1.5, hardware.cores() * 0.8)
 
 
 def should_wait():
@@ -817,10 +828,13 @@ def _grab(cmd_tail, path, dest, max_width):
     exe = tool("ffmpeg")
     if not exe:
         return False
+    from . import hardware
     still = dest + ".still.png"
+    # behind whoever watches (nice), and the cores shared out between the pictures taken at once (hardware.workers)
+    cmd, kw = gently([exe, "-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-threads", str(hardware.threads_each())]
+                     + cmd_tail(path) + [still])
     try:
-        subprocess.run([exe, "-hide_banner", "-loglevel", "error", "-nostdin", "-y"] + cmd_tail(path) + [still],
-                       capture_output=True, timeout=60, check=True)        # quiet: file names stay out of the log
+        subprocess.run(cmd, capture_output=True, timeout=60, check=True, **kw)   # quiet: no file names in the log
         return os.path.exists(still) and save_image(still, dest, max_width)
     except (OSError, subprocess.SubprocessError):
         return False

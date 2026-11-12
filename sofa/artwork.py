@@ -10,11 +10,19 @@ import os
 import threading
 import time
 
-from . import config, media, music, places
+from . import config, hardware, media, music, places
 
 WIDTHS = (240, 360, 480, 720, 1280)
 CACHE = os.path.join(config.DATA_DIR, "cache", "thumbs")
-_slots = threading.BoundedSemaphore(2)          # the iMac is old: two resizes at a time at most
+_slots = threading.BoundedSemaphore(2)          # resizes at a time: two, or what the background has (hardware.workers)
+_slots_n = [2]
+
+
+def _slots_for(n):
+    """At least `n` resizes at a time (a computer with the cores for more of them than two)."""
+    global _slots
+    if n > _slots_n[0]:
+        _slots, _slots_n[0] = threading.BoundedSemaphore(n), n
 _warming = threading.Lock()
 
 
@@ -49,7 +57,8 @@ def resized(full, width, wait=True):
     dest = os.path.join(CACHE, key + ext)
     if os.path.exists(dest):
         return dest
-    if not _slots.acquire(blocking=wait, timeout=20 if wait else -1):
+    slots = _slots                               # (the one taken is the one given back, if it's made bigger meanwhile)
+    if not slots.acquire(blocking=wait, timeout=20 if wait else -1):
         return full
     try:
         if os.path.exists(dest):
@@ -57,7 +66,7 @@ def resized(full, width, wait=True):
         os.makedirs(CACHE, exist_ok=True)
         return dest if media.save_image(full, dest, width, "png" if ext == ".png" else "jpeg") else full
     finally:
-        _slots.release()
+        slots.release()
 
 
 def warm(library):
@@ -78,13 +87,17 @@ def warm(library):
         for a in tunes["albums"] + tunes["artists"]:
             jobs.append((a.get("art"), 360))
         jobs += [(v.get("thumb"), 480) for v in tunes["videos"]]
-        seen = set()
+        seen, todo = set(), []
         for url, width in jobs:
             full = file_for(url)
             if not full or (full, width) in seen:
                 continue
             seen.add((full, width))
-            resized(full, width)
-            time.sleep(0.05)
+            todo.append((full, width))
+        # spread over the cores this computer can spare (hardware.workers, asked again every few), each with its pause
+        n = hardware.workers()
+        _slots_for(n)
+        for i in range(0, len(todo), 8 * n):
+            hardware.each(lambda job: (resized(*job), time.sleep(0.05)), todo[i:i + 8 * n], most=hardware.workers())
     finally:
         _warming.release()

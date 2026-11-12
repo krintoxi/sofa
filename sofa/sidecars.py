@@ -16,6 +16,7 @@ import threading
 import xml.etree.ElementTree as ET
 
 MAX_BYTES = 4 * 2**20
+MAX_KEPT = 20000                  # videos whose details are kept read (a dict keeps the order they came in)
 _cache = {}
 _lock = threading.Lock()
 
@@ -109,6 +110,8 @@ def read(video):
         except OSError:
             pass
     sig = tuple(sig)
+    if not sig:                                        # nothing next to it (most videos): nothing to keep either
+        return {}
     with _lock:
         hit = _cache.get(video)
         if hit and hit[0] == sig:
@@ -126,7 +129,10 @@ def read(video):
     if merged.get("year") and not 1900 < merged["year"] < 2100:
         merged.pop("year")
     with _lock:
+        _cache.pop(video, None)
         _cache[video] = (sig, merged)
+        while len(_cache) > MAX_KEPT:                  # (the ones read longest ago go first)
+            _cache.pop(next(iter(_cache)))
     return dict(merged)
 
 

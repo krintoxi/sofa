@@ -106,6 +106,8 @@ class Library:
         self._first_changed = False
         self._eps_meta = {}      # show id -> its episode list from TVmaze, during a scan (for the episode guide)
         self._redo = {}         # "all" or a show/movie id -> when an admin asked for new pictures
+        self._ls, self._ls_owner = None, None   # during a scan: folder -> its files, each folder read once
+        self._count_lock = threading.Lock()     # (the allowances below are counted from several threads at once)
 
     # ------------------------------------------------------------ public views
 
@@ -218,6 +220,7 @@ class Library:
         self.scanning, self.quick = True, quick
         metadata.saved_only(quick)
         started = time.time()
+        self._ls, self._ls_owner = {}, threading.get_ident()
         try:
             signature = self.current_signature()
             self._downloads = self._stills_made = self._gentle_grabs = 0
@@ -285,6 +288,7 @@ class Library:
                           {"reason": reason, "seconds": self.last_scan_seconds})
             return True
         finally:
+            self._ls = None
             metadata.saved_only(False)
             self.scanning = self.quick = False
             self._scan_lock.release()
@@ -406,26 +410,51 @@ class Library:
             version = ""
         return "/art/%s/%s%s" % (key, os.path.relpath(path, places.folder_for(key) or config.path(key)).replace(os.sep, "/"), version)
 
-    @staticmethod
-    def find_art(directory, kind):
+    def _files(self, directory):
+        """The files in a folder, read once a scan (a season's folder was read again for every episode in it, and
+        its pictures looked for one by one: on a drive that's a seek each). None outside a scan, and in any thread
+        but the scan's own: those look at the folder itself."""
+        ls = self._ls
+        if ls is None or self._ls_owner != threading.get_ident():
+            return None
+        got = ls.get(directory)
+        if got is None:
+            try:
+                with os.scandir(directory) as it:
+                    got = frozenset(e.name for e in it if e.is_file())
+            except OSError:
+                got = frozenset()
+            ls[directory] = got
+        return got
+
+    def _wrote(self, path):
+        """A picture Sofa just saved: its folder is read again the next time it's asked about."""
+        ls = self._ls
+        if ls is not None:
+            ls.pop(os.path.dirname(path), None)
+
+    def find_art(self, directory, kind):
+        names = self._files(directory)
         for name in ART[kind]:
             p = os.path.join(directory, name)
-            if os.path.isfile(p):
+            if (name in names) if names is not None else os.path.isfile(p):
                 return p
         return None
 
-    @staticmethod
-    def sidecars(directory, stem):
+    def sidecars(self, directory, stem):
         thumb, subs = None, []
-        for cand in (os.path.join(directory, "metadata", stem + ".jpg"), os.path.join(directory, stem + ".jpg"),
-                     os.path.join(directory, stem + "-thumb.jpg")):
-            if os.path.isfile(cand):
-                thumb = cand
+        for folder, name in (("metadata", stem + ".jpg"), ("", stem + ".jpg"), ("", stem + "-thumb.jpg")):
+            where = os.path.join(directory, folder) if folder else directory
+            names = self._files(where)
+            if (name in names) if names is not None else os.path.isfile(os.path.join(where, name)):
+                thumb = os.path.join(where, name)
                 break
-        try:
-            names = os.listdir(directory)
-        except OSError:
-            names = []
+        names = self._files(directory)
+        if names is None:
+            try:
+                names = os.listdir(directory)
+            except OSError:
+                names = []
         for n in sorted(names):
             base, ext = os.path.splitext(n)
             if ext.lower() in naming.SUB_EXT and (base == stem or base.startswith(stem + ".")):
@@ -470,11 +499,16 @@ class Library:
         if self.quick:
             return False
         if episode:
-            self._stills_made += 1
             from . import machine
-            return self._stills_made <= (EPISODE_STILLS_PER_SCAN if machine.heavy_ok() else 15)
-        self._downloads += 1
-        return self._downloads <= ART_DOWNLOADS_PER_SCAN
+            with self._count_lock:
+                self._stills_made += 1
+                made = self._stills_made
+            # (the same allowance however many cores take them: with more, the read is done sooner, and the reads after
+            # it take the rest; 120 a core made a read with four of them take longer than one with one)
+            return made <= (EPISODE_STILLS_PER_SCAN if machine.heavy_ok() else 15)
+        with self._count_lock:
+            self._downloads += 1
+            return self._downloads <= ART_DOWNLOADS_PER_SCAN
 
     def _ready(self, dest):
         """Can artwork be saved at `dest`? (Not on a read-only drive, or in a folder Sofa may not write to.)"""
@@ -494,6 +528,7 @@ class Library:
         if self.quick or not url or url in self._art_failed or not self._ready(dest) or not self._budget(episode):
             return False
         if metadata.download(url, dest):
+            self._wrote(dest)
             return True
         self._art_failed.add(url)
         return False
@@ -508,12 +543,14 @@ class Library:
             return False
         from . import machine
         if not machine.heavy_ok():                 # gentle mode, daytime: a few now, the rest in the quiet hours
-            self._gentle_grabs += 1
-            if self._gentle_grabs > 25:
-                return False
+            with self._count_lock:
+                self._gentle_grabs += 1
+                if self._gentle_grabs > 25:
+                    return False
         info = media.probe(video, cached_only=True) or media.probe(video) or {}
         at = max(12.0, (info.get("duration") or 0) * where)
         if media.extract_frame(video, dest, at):
+            self._wrote(dest)
             return True
         self._art_failed.add(video)
         return False
@@ -733,12 +770,13 @@ class Library:
             poster = os.path.join(show_dir, "folder.jpg")
         if not backdrop and self._fetch_art(info.get("backdrop_url"), os.path.join(show_dir, "backdrop.jpg")):
             backdrop = os.path.join(show_dir, "backdrop.jpg")
+        cover = None       # the show's cover decided from its first episode: with the episodes' pictures, after the loop
         if episodes and (adult or not show_meta):
-            poster = self._video_still(episodes[0][1], poster, os.path.join(show_dir, "folder.jpg"), 0.5 if adult else 0.15,
-                                       show_id, auto=True)
+            cover = (episodes[0][1], poster, os.path.join(show_dir, "folder.jpg"), 0.5 if adult else 0.15, show_id, True, False)
 
         seasons = {}
         seen = set()
+        stills = []        # episodes whose picture is taken from the video: several at once, after this loop
         for ep, path in sorted(episodes, key=lambda x: (x[0]["s"], x[0]["e"], x[1])):
             item_id = "%se:%s:%d:%d" % (prefix, slug, ep["s"], ep["e"])
             n = 2
@@ -758,13 +796,21 @@ class Library:
             if not adult and not item["thumb_path"] and self._fetch_art(meta.get("thumb_url"), dest, episode=True):
                 item["thumb_path"] = dest
             else:
-                item["thumb_path"] = self._video_still(path, item["thumb_path"], dest, 0.5 if adult else 0.3, show_id,
-                                                       auto=adult or not show_meta, episode=not adult)
+                stills.append((item, (path, item["thumb_path"], dest, 0.5 if adult else 0.3, show_id,
+                                      adult or not show_meta, not adult)))
             item.update(show_id=show_id, show_name=name, s=ep["s"], e=ep["e"], e2=ep.get("e2"), adult=adult,
                         title=meta.get("title") or _tidy_title(ep.get("title")), summary=meta.get("summary"),
                         aired=meta.get("aired") or meta.get("date"), runtime=meta.get("runtime"))
             items[item_id] = item
             seasons.setdefault(ep["s"], []).append(item)
+        if stills or cover:
+            from . import hardware
+            jobs = ([(None, cover)] if cover else []) + stills
+            got = hardware.each(lambda s: self._video_still(*s[1][:5], auto=s[1][5], episode=s[1][6]), jobs)
+            if cover:
+                poster = got.pop(0)
+            for (item, _args), thumb in zip(stills, got):
+                item["thumb_path"] = thumb
         extra_items = []
         for path in extras:
             title = naming.clean(os.path.splitext(os.path.basename(path))[0]) or "Extra"
@@ -786,7 +832,9 @@ class Library:
             return out
 
         self._dirs[show_id] = show_dir
-        added = max([i["added"] for i in items.values() if i.get("show_id") == show_id] or [0])
+        # (the show's own items: every item read so far was looked at for each show, and that grew as the square of
+        # the library: a third of a quick read of 22,000 files)
+        added = max([i["added"] for eps in seasons.values() for i in eps] + [i["added"] for i in extra_items] or [0])
         show = {"id": show_id, "name": name, "added": added, "adult": adult, "folder": folder, "place": art_key.partition("~")[2],
                 "poster_still": self._is_still(poster),
                 "poster": self.art_url(art_key, poster), "backdrop": self.art_url(art_key, backdrop),
@@ -861,6 +909,7 @@ class Library:
     def _scan_movies(self, root, items, art_key, prefix="", adult=False, skip=(), only=None, files=None):
         """`only`/`files`: look at just these top-level folders and these loose files (the Adult root)."""
         movies = []
+        later = []         # movies whose picture is decided from the video (it's read: ffprobe): several at once, at the end
         if not os.path.isdir(root):
             return movies
 
@@ -924,31 +973,43 @@ class Library:
             dest = (os.path.join(directory, "folder.jpg") if directory else
                     os.path.join(os.path.dirname(path), "metadata", os.path.splitext(os.path.basename(path))[0] + ".jpg"))
             current = poster or item["thumb_path"]
+
+            def finish(art, slot=None):
+                cover = poster
+                if art and directory:
+                    cover = art
+                elif art:
+                    item["thumb_path"] = art
+                shown = meta.get("canonical") or title
+                item.update(title=shown, year=year or meta.get("year") or (int(meta["date"][:4]) if meta.get("date") else None),
+                            collection=collection or meta.get("collection"),
+                            summary=meta.get("summary"), rating=meta.get("rating"), adult=adult,
+                            **{k: meta.get(k) for k in ("genres", "runtime", "tagline", "certificate", "studio",
+                                                        "performers", "date", "source")})
+                items[item_id] = item
+                self._dirs[item_id] = directory
+                out = {k: v for k, v in item.items() if k not in PRIVATE}
+                out.update(place=art_key.partition("~")[2], poster_still=self._is_still(cover or item["thumb_path"]),
+                           poster=self.art_url(art_key, cover or item["thumb_path"]),
+                           backdrop=self.art_url(art_key, backdrop),
+                           logo=self.art_url(art_key, self.find_art(directory, "logo") if directory else None),
+                           file=os.path.basename(path), subs=len(item["subs"]))
+                if slot is None:
+                    movies.append(out)
+                else:
+                    movies[slot] = out
+
             if not current and meta.get("poster_url") and self._fetch_art(meta["poster_url"], dest):
-                art = dest
+                finish(dest)
             elif current and (side or meta.get("poster_url")):
-                art = current                       # it came with the video, or from a service: keep it
+                finish(current)                     # it came with the video, or from a service: keep it
             else:
-                art = self._video_still(path, current, dest, 0.5 if adult else 0.15, item_id, auto=True)
-            if art and directory:
-                poster = art
-            elif art:
-                item["thumb_path"] = art
-            shown = meta.get("canonical") or title
-            item.update(title=shown, year=year or meta.get("year") or (int(meta["date"][:4]) if meta.get("date") else None),
-                        collection=collection or meta.get("collection"),
-                        summary=meta.get("summary"), rating=meta.get("rating"), adult=adult,
-                        **{k: meta.get(k) for k in ("genres", "runtime", "tagline", "certificate", "studio",
-                                                    "performers", "date", "source")})
-            items[item_id] = item
-            self._dirs[item_id] = directory
-            out = {k: v for k, v in item.items() if k not in PRIVATE}
-            out.update(place=art_key.partition("~")[2], poster_still=self._is_still(poster or item["thumb_path"]),
-                       poster=self.art_url(art_key, poster or item["thumb_path"]),
-                       backdrop=self.art_url(art_key, backdrop),
-                       logo=self.art_url(art_key, self.find_art(directory, "logo") if directory else None),
-                       file=os.path.basename(path), subs=len(item["subs"]))
-            movies.append(out)
+                # Decided from the video at the end of this folder, several at once (hardware.each): whether the
+                # cover is a picture Sofa took (the video is read for its size), or a new one. Its id is taken now, so
+                # another movie of the same name gets the same id as before.
+                items[item_id] = item
+                movies.append(None)
+                later.append((finish, len(movies) - 1, path, (path, current, dest, 0.5 if adult else 0.15, item_id)))
 
         def loose(videos, collection):
             for key, files in self.movie_groups(videos).items():
@@ -1006,6 +1067,22 @@ class Library:
                         add(max(vids, key=_size), naming.strip_part(title), year, p, collection)
 
         visit(root, None)
+        if later:
+            from . import hardware
+
+            def still(job):
+                try:
+                    return self._video_still(*job[3], auto=True)
+                except Exception as exc:              # one unreadable file doesn't stop the rest
+                    self._problem(job[2], exc, adult)
+                    return job[3][1]
+            for (finish, slot, path, args), art in zip(later, hardware.each(still, later)):
+                try:
+                    finish(art, slot)
+                except Exception as exc:
+                    self._problem(path, exc, adult)
+                    items.pop(args[4], None)
+        movies = [m for m in movies if m is not None]
         movies.sort(key=lambda m: ((m.get("collection") or m["title"]).lower(), m.get("year") or 0))
         return movies
 

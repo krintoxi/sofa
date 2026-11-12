@@ -99,6 +99,23 @@ def build(admin_name, include_private=False):
     add("Python %s at %s" % (sys.version.split()[0], sys.executable))
     mac = platform.mac_ver()[0]
     add("System: %s%s, %s, %d CPUs" % (platform.platform(), (" (macOS %s)" % mac) if mac else "", platform.machine(), os.cpu_count() or 0))
+    try:
+        from . import archive, hardware, machine, sidecars
+        add("This computer: %s" % hardware.summary())
+        n = hardware.workers()
+        add("Background work: %d at a time, ffmpeg with %d thread%s each; conversions for watching at once: %d (set: %s); "
+            "gentle mode: %s" % (n, hardware.threads_each(n), "" if hardware.threads_each(n) == 1 else "s", media.max_transcodes(),
+                                 config.get("max_transcodes"), "on" if machine.gentle() else "off"))
+        with LIBRARY.lock:
+            library = (LIBRARY.items, LIBRARY.shows, LIBRARY.movies, LIBRARY.adult, LIBRARY.music)
+        with live._lock:
+            channels = dict(live._channels)
+        for line in hardware.memory_lines([("the library", library), ("Live TV's channels", channels),
+                                           ("Live TV's checks", live._health), ("the archive's channels", archive._mem),
+                                           ("saved details of files", sidecars._cache)]):
+            add(line)
+    except Exception as exc:
+        add("This computer: (%s)" % exc)
     add("Folders: app %s, data %s" % (config.APP_DIR, config.DATA_DIR))
 
     section("Tools")

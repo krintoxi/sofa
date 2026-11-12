@@ -117,7 +117,20 @@ to convert again, from the originals it kept, any MP4 it made with it before.
 **Gentle mode** turns on by itself on a slow computer (or set it on or off there): video converted
 while someone watches is 720p at most, and converting files, making previews ahead of time and
 finding intros wait for the **quiet hours** (1:00 to 7:00, changeable). Whatever someone is
-watching is still done straight away.
+watching is still done straight away. A slow computer is one with two cores or fewer, one whose
+1080p test conversion makes under 75 frames a second, or one with an older processor: an Intel or AMD
+without AVX2 (before about 2013), or an ARM core before the Cortex-A76 (a Pi 3's or a Pi 4's; a Pi 5's
+isn't, nor Apple's, nor an ARM server's).
+
+### Using the cores, sized to the memory
+
+Background work (reading files' details ahead of time, taking pictures from videos, resizing
+artwork) runs on half the cores Sofa may use, four at most, so whoever watches has the rest; one at a
+time on a small board (a Pi 3, or 1 GB), while someone watches something Sofa converts, or when the
+computer is busy already. A container's limits count (Docker's `--cpus` and `-m`). On a computer with
+2 GB or less, or two cores, one video is converted for watching at a time whatever the setting: one
+1080p conversion takes about 400 MB. A report (Server → Activity → Download a report) says what Sofa
+found: `This computer`, `Background work`, `Memory` and `In Sofa's memory`.
 
 ### Sound, subtitles, and two people at once
 

@@ -8,6 +8,55 @@ here, then `python3 tools/sofa-version.py` (a test checks it was done).
 
 ## 1.5.10 (2026-11-12)
 
+- **Sofa knows the computer it's on, and uses its cores.** It used to count every core of the computer it was in and
+  call every ARM processor an older one. Now (`sofa/hardware.py`), read once at the start:
+  - the cores Sofa may use: a container's limit (Docker's `--cpus`) and a CPU set count, not only the computer's;
+  - its memory, a container's limit (`-m`) counted too, and what's free now;
+  - the processor by name on ARM as well ("4 x Cortex-A53" on a Pi 3, "4 x Cortex-A76" on a Pi 5, "4 x Apple
+    silicon" in Docker on a Mac), and whether its cores can convert video quickly;
+  - a Raspberry Pi's model, a virtual machine's or a container's name, and the chips that decode and encode video
+    (VideoToolbox, VA-API by maker, the Pi's V4L2 codecs). The Server page's **This computer** panel shows them.
+- **Gentle mode is for slow processors again, not for ARM.** Only Intel's AVX2 was looked for, so a Pi 5, an ARM
+  server and Docker on a Mac with Apple silicon were "an older processor" and in gentle mode all day (15 pictures a
+  library read instead of 120, the heavy work only at night). Now an ARM core before the Cortex-A76 counts as slow
+  (a Pi 3's and a Pi 4's: gentle, as before); a Pi 5's, a server's and Apple's don't. Intel and AMD: AVX2, as before.
+- **Background work is spread over the cores** (reading files' details, the pictures taken from videos, a movie's
+  or show's own cover checked against its video, artwork resized for the screens): half the cores, four at most, so
+  whoever watches has the rest; **one at a time on a small board** (a Pi 3, or 1 GB: it plays the video itself, and
+  four busy cores brown out a weak supply), and one while Sofa converts something for someone; never more than its
+  free memory takes. Each ffmpeg gets its share of the cores and runs behind whoever watches (`nice`).
+  - Measured on a stand-in for a Pi 4 or 5, not a Pi (a Linux VM on this Mac with four of its cores and 4 GB): 300
+    shows of 10 episodes, 800 movies with covers of their own, offline, gentle mode off, one full read from nothing
+    (120 pictures taken from episodes each time). 1.5.7: 96 to 135 s (three runs: the Mac was busy with other
+    work), one core busy. 1.5.8: 65 and 75 s with the two it chose, 1.8 cores busy; 52 s made to use four, 2.8
+    cores; 84 s made to use one. Most of a first read was covers checked one at a time against their videos
+    (ffprobe each: 100 of 135 s); they're checked several at once now, the ids still given in order.
+  - The pictures themselves, 24 from a video: 5.8 s one at a time, 2.9 s two at once, 2.2 s four at once.
+  - On a 1 GB stand-in (one at a time, as on a Pi 3) the same read takes what it took: 80 s on both.
+- **A library read is lighter.** Each show looked at every item read so far to find when it was added: that grew as
+  the square of the library, a third of a quick read of 22,000 files. And every episode's folder was read again for
+  it (a season of 20 episodes: 20 times), its pictures looked for one by one: on a drive, a seek each. Now each
+  folder is read once a read. The quick read of 22,000 files on this Mac: 18.1 million function calls to 7.8
+  million, 25,000 folder listings to 3,000; 9.7 to 11.2 s before and 4.0 to 6.1 s after, back to back (the Mac was
+  busy with other work, so the times are rough, the counts aren't).
+- **Memory goes back.** What Sofa frees goes back to the system (Python and the C library keep it for later;
+  `malloc_trim` on Linux), after each library read and every half minute, after Python's cycle collector every other
+  minute (what a request leaves in a reference cycle waited for it). Sofa on a Sofa Box, on a 1 GB stand-in: 28 MB
+  instead of 40; over ten rounds of an evening (Sofa, two apps, Home), 28 to 31 MB, where 1.5.7 grew 31 to 38 in eight.
+  - Live TV's channels share what thousands of them have in common (their list's name, their group, no headers of
+    their own): 10,000 channels held 10.4 MB, now 8.9.
+  - The details read from the files next to a video (`.nfo`, `.info.json`) aren't kept for a video with none (most of
+    them), and at most 20,000 are.
+  - **One conversion for watching at a time on a computer with 2 GB or less, or two cores**, whatever the setting:
+    one 1080p conversion held up to 402 MB on a four-core stand-in, so two can't fit in 1 GB.
+- **A report says it** (Server → Activity → Download a report): `This computer` (cores, of how many, memory, the
+  processor, a Pi's model, a VM or container, video chips), `Background work` (how many at a time, ffmpeg's threads,
+  conversions at once against the setting, gentle mode), `Memory` (free of how much, Sofa's own now and the most it
+  has had, how often anything waited for memory lately on Linux) and `In Sofa's memory` (the library, Live TV's
+  channels and checks, the archive's channels, the files' details, by size).
+- `SOFA_WORKERS` sets how many at a time (for measuring).
+- On Windows (1.5.9), the processor, its AVX2 and the memory come from Windows itself, and a still taken from a video
+  runs below normal priority there as everywhere else.
 - The report hint (Server → Activity) says to send it to whoever helps you.
 
 ## 1.5.9 (2026-11-12)

@@ -28,6 +28,7 @@ import secrets
 import select
 import socket
 import socketserver
+import sys
 import threading
 import time
 import urllib.parse
@@ -89,8 +90,14 @@ def playlists():
     return config.get("live_playlists") or []
 
 
+NO_HEADERS = {}                       # (shared by every channel that names none: read, never changed)
+
+
 def parse_m3u(text, source, adult=False):
-    channels = []
+    """A list's channels. What thousands of channels have in common (their list's name, their group) is kept once:
+    a 10,000-channel list held 10.5 MB, the same text over and over."""
+    channels, intern = [], sys.intern
+    source = intern(source)
     info, opts = None, {}
     for raw in text.splitlines():
         line = raw.strip()
@@ -98,7 +105,7 @@ def parse_m3u(text, source, adult=False):
             attrs = dict(ATTR.findall(line))
             name = line.rsplit(",", 1)[-1].strip() if "," in line else attrs.get("tvg-name", "Channel")
             info = {"name": name or attrs.get("tvg-name") or "Channel", "logo": attrs.get("tvg-logo") or None,
-                    "group": (attrs.get("group-title") or "Other").split(";")[0].strip() or "Other",
+                    "group": intern((attrs.get("group-title") or "Other").split(";")[0].strip() or "Other"),
                     "tvg": attrs.get("tvg-id") or None, "geo": bool(GEO.search(line))}
             opts = {}
         elif line.startswith("#EXTVLCOPT:"):
@@ -110,7 +117,7 @@ def parse_m3u(text, source, adult=False):
         elif line and not line.startswith("#") and info:
             if line.startswith(("http://", "https://")):
                 cid = hashlib.sha1(line.encode()).hexdigest()[:12]
-                channels.append(dict(info, id=cid, url=line, playlist=source, headers=opts,
+                channels.append(dict(info, id=cid, url=line, playlist=source, headers=opts or NO_HEADERS,
                                      adult=adult or bool(ADULT_GROUP.search(info["group"]))))
             info, opts = None, {}
     return channels
@@ -349,9 +356,8 @@ def refresh(force=False):
         for c in found:
             c["home"] = home
             kept = channels.setdefault(c["id"], c)
-            kept.setdefault("lists", [])
-            if url not in kept["lists"]:
-                kept["lists"].append(url)               # (the same stream in two lists: one channel, in both)
+            if url not in kept.get("lists", ()):
+                kept["lists"] = kept.get("lists", ()) + (sys.intern(url),)   # (the same stream in two lists: one channel, in both)
         _status[url] = {"name": name, "url": url, "count": len(found), "error": error, "adult": bool(pl.get("adult")),
                         "updated": int(os.path.getmtime(path)) if os.path.exists(path) else None}
     # each channel's number on the dial: today's channels from 101, after Sofa's own lineup (2 to 99), by group and

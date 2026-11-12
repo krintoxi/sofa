@@ -4,7 +4,7 @@ import os
 import threading
 import time
 
-from . import archive, artwork, backup, fetch, fileops, intros, live, machine, media, optimize, organizer, places, previews, store, travel, trickplay, updater
+from . import archive, artwork, backup, fetch, fileops, hardware, intros, live, machine, media, optimize, organizer, places, previews, store, travel, trickplay, updater
 from .library import LIBRARY
 
 INTERVAL = 20
@@ -56,6 +56,7 @@ def _watch():
 
 
 def _after_scan():
+    hardware.give_back(collect=True)          # the library before this read, and what reading it took: back
     _warm()
     threading.Thread(target=lambda: time.sleep(90) or optimize.auto_enqueue(LIBRARY), daemon=True,
                      name="convert-check").start()
@@ -72,9 +73,13 @@ def _prober():
             time.sleep(300)
             continue
         todo = [i["path"] for i in list(LIBRARY.items.values()) if media.probe(i["path"], cached_only=True) is None]
-        for path in todo[:20]:
-            media.probe(path)
-            time.sleep(0.5)
+        # several at once on a computer with the cores for it (hardware.workers: one on a small board, or while
+        # someone watches what Sofa converts), each with its half second's pause, as one at a time had
+        n = hardware.workers(heavy=False)
+        try:
+            hardware.each(lambda path: (media.probe(path), time.sleep(0.5)), todo[:20 * n], most=n)
+        except Exception as exc:                  # (one odd file mustn't end the reading ahead)
+            print("Reading file details: %r" % exc, flush=True)
         time.sleep(5 if todo else 120)
 
 
@@ -91,6 +96,7 @@ def start():
         store.decode_saved_ids()
     except Exception as exc:
         store.log("error", "Fixing saved watch positions: %s" % exc)
+    hardware.start()
     media.start()
     live.start()
     backup.start()
