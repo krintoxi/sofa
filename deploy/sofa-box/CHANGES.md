@@ -8,6 +8,35 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.80
+
+Video on a Pi 3: what a report says about it, and decoding straight to the screen to try.
+
+- **What the Pi 3 report KWMMM3 (1.1.73) showed.** The video was an HEVC 10-bit 1080p file, which a Pi 3 can't decode, so
+  the Sofa on the iMac converted it to H.264 as it played: 15 s to the picture and three waits are the old iMac
+  converting 10-bit HEVC at 1080p (Sofa's overnight conversion to MP4 would do it ahead of time). On the box the video
+  chip decoded every frame, and 234 were dropped after it, on the way to the screen. While it played the kernel refused
+  the decoder and the graphics chip their own memory (CMA, 256 MB set aside: 40 MB free, but in pieces too small),
+  six times for the graphics chip, once for mpv's decoder and twice for the browser's (whose decoder then failed
+  Edge Music's video), and the browser drew everything by the processor.
+- **A report now says why.**
+  - Each video: how mpv put the picture on the screen (its video output and context: "drawn by gpu (wayland)"; a
+    software one such as wlshm can't keep up with 1080p on a Pi 3) and how many frames came late on the screen.
+  - Memory and processor: the CMA the graphics chip and the decoder have, and what's free of it now.
+  - The checks: how many times since the start the kernel refused them that memory (the two lines above, from its own
+    log), as something to look at when it happened.
+  - The browser: its graphics driver and version as it sees them, how often its graphics process crashed, and
+    chrome://gpu's own "Problems Detected", read in a page of its own out of sight and closed at once: the reason it
+    draws by the processor (a blocklist entry, a graphics process that wouldn't start or kept crashing).
+- **Settings → Picture and sound → Decoding**, on a Pi: **Straight to the screen** (mpv's `v4l2m2m`) instead of
+  Automatic (`v4l2m2m-copy` on a Pi 3, as before). The copy takes every decoded picture (3 MB at 1080p) out of the video
+  chip's memory and back to the graphics chip's, 24 times a second, on a Pi 3 that was already at its temperature limit;
+  straight to the screen hands the decoder's picture to the graphics chip as it is. Not the default: only a real Pi can
+  show it plays (if a video shows no picture, set it back), and the next report will say how it went.
+- Not changed: the browser's drawing. Whether its graphics chip can be used on a Pi 3 waits for chrome://gpu's reasons in
+  the next report: turning it on while the chip's memory runs out would make that worse, and the white screen after a
+  game (1.1.63) was about how the browser shows a page.
+
 ## 1.1.79
 
 Sofa Box OS for a PC, on a USB stick.

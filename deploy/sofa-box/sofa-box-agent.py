@@ -86,7 +86,7 @@ DEFAULTS = {"server": None, "quality": "auto", "hwdec": "auto", "audio": "auto",
 THEMES = ("street", "terminal", "pirate", "sofa", "midnight", "cinema", "ocean", "forest", "grape", "oled")
 CHOICES = {"quality": ("auto", "720", "1080"), "audio": ("auto", "passthrough"), "performance": ("auto", "light", "full"),
            "channel": ("stable", "testing"), "auto_update": ("off", "weekly"),
-           "hwdec": ("auto", "no", "v4l2m2m-copy", "drm", "auto-safe"), "theme": THEMES, "boot_sound": ("on", "off"),
+           "hwdec": ("auto", "no", "v4l2m2m-copy", "v4l2m2m", "drm", "auto-safe"), "theme": THEMES, "boot_sound": ("on", "off"),
            "weather": ("on", "off"), "weather_units": ("auto", "c", "f"),
            "home_layout": ("spotlight", "classic"), "icon_style": ("glossy", "drawn", "sticker", "phosphor", "pixel", "original")}
 HOP = {"connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailers", "transfer-encoding",
@@ -998,7 +998,7 @@ class Player:
         return None
 
     PLAY_PROPS = ("video-codec", "hwdec-current", "width", "height", "container-fps", "video-bitrate", "audio-codec-name",
-                  "frame-drop-count", "decoder-frame-drop-count")
+                  "frame-drop-count", "decoder-frame-drop-count", "current-vo", "current-gpu-context", "vo-delayed-frame-count")
 
     def sample(self, run):
         """What mpv says now about the video in it (for `ran`): what it is, how it's decoded, frames dropped."""
@@ -1020,13 +1020,19 @@ class Player:
                  "%s%s%s" % (run.get("video-codec") or "video ?", " %sx%s" % (w, h) if w and h else "",
                              " %.3g fps" % run["container-fps"] if run.get("container-fps") else ""),
                  "decoded by %s" % ("the processor" if hw in (None, "", "no") else "the video chip (%s)" % hw),
+                 # (how mpv puts the picture on the screen: "gpu" or "gpu-next" with the graphics chip; "wlshm", "sdl" or the
+                 # like by the processor, which can't keep up with 1080p on a Pi 3. Left out when mpv didn't say.)
+                 "drawn by %s%s" % (run["current-vo"], " (%s)" % run["current-gpu-context"] if run.get("current-gpu-context") else "")
+                 if run.get("current-vo") else None,
                  "%.1f Mbit/s" % (rate / 1e6) if rate else "bit rate ?",
                  "audio %s" % (run.get("audio-codec-name") or "?"),
-                 "dropped %d frames (%d by the decoder)" % ((run.get("frame-drop-count") or 0) + (run.get("decoder-frame-drop-count") or 0),
-                                                            run.get("decoder-frame-drop-count") or 0),
+                 "dropped %d frames (%d by the decoder)%s" % ((run.get("frame-drop-count") or 0) + (run.get("decoder-frame-drop-count") or 0),
+                                                              run.get("decoder-frame-drop-count") or 0,
+                                                              ", %d late on the screen" % run["vo-delayed-frame-count"]
+                                                              if run.get("vo-delayed-frame-count") else ""),
                  "waited for more %d time%s (%d s in all)" % (run.get("waits", 0), "" if run.get("waits") == 1 else "s", run.get("waited", 0)),
                  "played %d s" % run.get("played", 0)]
-        return ", ".join(parts)
+        return ", ".join(p for p in parts if p)
 
     def check_drops(self):
         """1080p the box can't keep up with: ask Sofa for 720p from now on (the setting can say otherwise)."""
@@ -3981,6 +3987,9 @@ def memory_lines():
             "  memory: %d MB, %s MB free now; compressed (zram) in use: %s MB%s" % (
                 b["memory_mb"], free if free is not None else "?", swap if swap is not None else "?",
                 "; waited for memory %.1f%% of the last 10 s, %.1f%% of the last minute" % psi if psi else ""),
+            "  the graphics chip's and the video decoder's own memory (CMA): %s" % (
+                "%d MB, %d MB free now (the kernel's refusals of it are counted in the checks below)" % boxos.cma_mb()
+                if boxos.cma_mb() else "none set aside here"),
             "  who holds it: " + (", ".join("%s %d MB%s" % (g, mb, " (%d)" % n if n > 1 else "") for g, mb, n in boxos.memory_users())
                                   or "(can't be read here)"),
             "  memory ran low (under %d MB free): %s" % (low_memory_mb(), "; ".join(LOW_MEMORY) or "never since the box started"),
@@ -4033,6 +4042,12 @@ def report_text():
                                                                          ", chosen by the box" if settings().get("learned_lite") else "")]
         out += smooth_lines(safely(browser.smoothness) or {}) or ["(no presses yet)"]
         out.append("  the browser draws with the graphics chip: %s" % safely(browser.gpu))
+        problems = safely(browser.gpu_problems)
+        if isinstance(problems, dict):
+            for head, lines in problems.items():
+                out.append("  chrome://gpu, %s: %s" % (head, " | ".join(lines) or "none"))
+        else:
+            out.append("  chrome://gpu: %s" % (problems or "it didn't say"))
     lines = safely(memory_lines)
     out += lines if isinstance(lines, list) else ["== Memory and processor", "  (%s)" % lines]
     code, logs = run(["sudo", "-n", os.path.join(HERE, "sofa-box"), "report"], 90)

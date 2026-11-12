@@ -323,6 +323,17 @@ doctor() {
   if grep -Eqs 'Raspberry Pi' /proc/device-tree/model; then
     if mpv --hwdec=help 2>/dev/null | grep -q v4l2m2m && [ -e /dev/video10 ]; then ok "the Pi's video decoder (H.264) for mpv"
     else bad "mpv can't use the Pi's video decoder" "Raspberry Pi OS Bookworm has it; make sure dtoverlay=vc4-kms-v3d is in config.txt"; fi
+    # The graphics chip and the video decoder have memory of their own (CMA: one piece, set aside at the start). When the
+    # kernel can't find them room there, the decoder's buffers and the screen's are refused: videos stutter, and the
+    # browser draws by the processor. Counted from the kernel's own log since this start.
+    if grep -q '^CmaTotal' /proc/meminfo; then
+      CMA="$(awk '/^CmaTotal/ {t=$2} /^CmaFree/ {f=$2} END {printf "%d MB, %d MB free", t/1024, f/1024}' /proc/meminfo)"
+      N="$(journalctl -k -b --no-pager 2>/dev/null | grep -c -E 'cma_alloc: .*alloc failed|Failed to allocate from GEM DMA helper')"
+      if [ "${N:-0}" -gt 0 ]; then
+        bad "the video decoder and the graphics chip were refused their own memory $N times since the start (CMA: $CMA)" \
+            "videos stutter and the browser draws by the processor when it happens: fewer apps open behind Home helps"
+      else ok "the video decoder's and the graphics chip's own memory (CMA): $CMA"; fi
+    fi
     B="$(boot_dir)"
     grep -Eq '^[[:space:]]*hdmi_cvt[[:space:]=]+480 320' "$B/config.txt" && bad "the TV is set to 480×320 (LCD-show)" "run the installer again: it fixes that"
   else                       # a PC, a virtual machine, another board (docs/hardware.md)

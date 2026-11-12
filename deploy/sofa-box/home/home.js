@@ -917,6 +917,8 @@
       ${thisBoxCard()}`;
     if (setTab === "picture") return head("Picture and sound", (b.learned_720 && s.quality === "auto" ? "Videos come as 720p: 1080p dropped frames here. " : "") + "Sofa sends what the box plays smoothly.") +
       `<section class="card"><h3>Picture</h3><div class="choices">${pick("quality", "auto", "Automatic")}${pick("quality", "1080", "1080p")}${pick("quality", "720", "720p")}</div></section>
+      ${b.board && b.board.gen ? `<section class="card"><h3>Decoding</h3><p>How the Pi's video chip hands each picture to the screen. Straight to the screen skips copying every picture through memory, which slows a Pi 3 at 1080p. If a video shows no picture, set it back to Automatic.</p>
+        <div class="choices">${pick("hwdec", "auto", "Automatic")}${pick("hwdec", "v4l2m2m", "Straight to the screen")}</div></section>` : ""}
       <section class="card"><h3>Sound</h3><div class="choices">${pick("audio", "auto", "TV or soundbar")}${pick("audio", "passthrough", "AV receiver (surround)")}</div>
         <div class="choices" style="margin-top:.6rem">${pick("boot_sound", "on", "Sound at start: on")}${pick("boot_sound", "off", "Off")}</div></section>
       <section class="card"><h3>Performance: ${b.light ? "light" : "full"}</h3><p>${s.performance === "auto" ? (b.learned_lite ? "The box chose it: the full look answered the remote slowly here. " : "Chosen for this board. ") : ""}The light look leaves out the effects that are slow to draw, and keeps fewer apps open. Automatic measures how quickly the box answers and picks the light look when it needs to.</p>

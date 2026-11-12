@@ -655,8 +655,10 @@ Module), how much memory it has, and the TV's picture:
 | Picture | 1080p | 4K when the TV is 4K |
 
 Settings → Picture and sound → **Performance** can say Light or Full instead of Automatic. If 1080p
-drops frames, the box asks for 720p by itself. The Pi 4 and Pi 5 columns are what the code does; no Pi 4 or 5 has
-run the box yet.
+drops frames, the box asks for 720p by itself. On a Pi, **Decoding** can say **Straight to the screen** instead of
+Automatic (since 1.1.80): the video chip's pictures go to the screen without a copy of each one through memory, which
+slows a Pi 3 at 1080p. If a video then shows no picture, set it back. The Pi 4 and Pi 5 columns are what the code does;
+no Pi 4 or 5 has run the box yet.
 
 **Made for small boards.** The box is made to run on a Raspberry Pi 3 B+ (1 GB), the one board it has run on; the
 owner's reports still showed slow presses on Home up to 1.1.49, which 1.1.57 works on. Whatever's on the TV gets

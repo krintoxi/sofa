@@ -130,6 +130,15 @@ def pressure():
     return (float(m.group(1)), float(m.group(2))) if m else None
 
 
+def cma_mb():
+    """The memory set aside for the graphics chip and the video decoder (CMA): (total, free) in MB, or None. On a Pi
+    they can only use this (it's one piece, as the chip needs), and a Pi 3's runs short: the decoder's buffers and the
+    screen's are refused, and the browser draws by the processor."""
+    t = _read("/proc/meminfo")
+    total, free = re.search(r"CmaTotal:\s+(\d+)", t), re.search(r"CmaFree:\s+(\d+)", t)
+    return (int(total.group(1)) // 1024, int(free.group(1)) // 1024) if total and free and int(total.group(1)) else None
+
+
 def swap_used_mb():
     """The compressed memory (zram) in use, in MB: what the kernel moved out of the way."""
     t = _read("/proc/meminfo")
@@ -213,6 +222,15 @@ NOTED = ("Runtime.exceptionThrown", "Runtime.consoleAPICalled", "Log.entryAdded"
          "Media.playerMessagesLogged", "Media.playerPropertiesChanged", "Media.playerEventsAdded")
 MEDIA_PROPS = ("kVideoCodecName", "kVideoDecoderName", "kIsPlatformVideoDecoder", "kAudioCodecName", "kAudioDecoderName",
                "kResolution", "kFramerate", "kRendererName")
+# chrome://gpu's "Problems Detected" (and "… for Hardware GPU"), from its page's own shadow DOM: each heading's lines.
+GPU_PAGE_JS = r"""(() => { const v = document.querySelector('info-view'), root = v && v.shadowRoot; if (!root) return null;
+  const lines = h => { const el = h.nextElementSibling;
+    return el ? el.innerText.split('\n').map(s => s.trim()).filter(s => s && !/^=+$/.test(s)).slice(0, 16) : []; };
+  const out = {}; let ready = false;
+  root.querySelectorAll('h3').forEach(h => { const t = h.textContent.trim().split('\n')[0].trim();
+    if (/^Graphics Feature Status$/i.test(t) && lines(h).length) ready = true;      // (the page fills its lists after a moment)
+    if (/^Problems Detected/i.test(t)) out[t] = lines(h); });
+  return ready ? JSON.stringify(out) : null; })()"""
 DRAWN_JS = ("location.href !== 'about:blank' && document.readyState !== 'loading' && !!document.body "
             "&& document.body.childElementCount > 0")
 # Is the page playing something you can hear? Its <video> and <audio>, and what SOUND_PROBE saw start: a player made
@@ -1914,12 +1932,42 @@ class Browser:
         return out
 
     def gpu(self):
-        """How the browser draws: on the graphics chip or by the processor (chrome://gpu's own words, short)."""
+        """How the browser draws: on the graphics chip or by the processor (chrome://gpu's own words, short), with the
+        chip's driver as the browser sees it and how often its graphics process has crashed (after a few crashes the
+        browser gives up on the chip and draws by the processor)."""
         g = self.call("SystemInfo.getInfo", timeout=5).get("gpu") or {}
         f, aux = g.get("featureStatus") or {}, g.get("auxAttributes") or {}
         on = lambda k: "on" if str(f.get(k, "")).startswith("enabled") else (f.get(k) or "?")   # noqa: E731
-        return "compositing %s, raster %s, video decode %s (%s)" % (on("gpu_compositing"), on("rasterization"), on("video_decode"),
-                                                                    aux.get("glRenderer") or "renderer not said")
+        driver = "; ".join(x for x in (aux.get("glRenderer"), aux.get("glVersion")) if x) or "renderer not said"
+        crashed = aux.get("processCrashCount")
+        return "compositing %s, raster %s, video decode %s (%s%s)" % (
+            on("gpu_compositing"), on("rasterization"), on("video_decode"), driver,
+            "; its graphics process crashed %s time%s" % (crashed, "" if crashed == 1 else "s") if crashed else "")
+
+    def gpu_problems(self, wait=8.0):
+        """chrome://gpu's "Problems Detected": why the browser draws by the processor where it does (a blocklist entry, a
+        graphics process that wouldn't start or kept crashing). Read in a page of its own, out of sight behind the one in
+        front, and closed at once. {heading: [lines]}, or None when the page didn't say."""
+        t = self.call("Target.createTarget", {"url": "chrome://gpu", "background": True})["targetId"]
+        tab = self.tabs.setdefault(t, {"app": None, "used": time.time(), "session": None, "audible": False})
+        tab.update(app="gpu-check", passing=True)             # (never an app: not tidied, not rested, not reported)
+        try:
+            end = time.time() + wait
+            while time.time() < end:
+                session = (self.tabs.get(t) or {}).get("session")
+                if session:
+                    got = self.call("Runtime.evaluate", {"expression": GPU_PAGE_JS, "returnByValue": True}, session,
+                                    timeout=3).get("result", {}).get("value")
+                    if got:
+                        return json.loads(got)
+                time.sleep(0.3)
+            return None
+        finally:
+            try:
+                self.call("Target.closeTarget", {"targetId": t}, timeout=3)
+            except OSError:
+                pass
+            self.tabs.pop(t, None)
 
 
 def merge_smooth(a, b):
