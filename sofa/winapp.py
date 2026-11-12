@@ -718,7 +718,7 @@ def main(argv=None):
     args = ap.parse_args(argv)
     if args.set_library is not None:
         if set_library(args.set_library):
-            log("the library is in %s" % args.set_library)
+            log("the library is in %s" % os.path.abspath(os.path.expanduser(args.set_library)))
         return 0
     if not windows.ON:
         print("This is Sofa's app for Windows. On a Mac or Linux, see docs/install.md.")

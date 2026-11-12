@@ -112,8 +112,9 @@ jobs:
 
           "-- the installed Python finds Sofa and its ffmpeg (chromaprint for Skip Intro too)"
           & "$py\python.exe" -X utf8 -c "from sofa import media; print(media.tool('ffmpeg')); print(media.ffmpeg_version())"
-          & (Join-Path $app "vendor\ffmpeg\bin\ffmpeg.exe") -hide_banner -muxers | Select-String chromaprint
-          if ($LASTEXITCODE -ne 0) { throw "this ffmpeg has no chromaprint" }
+          $chroma = & (Join-Path $app "vendor\ffmpeg\bin\ffmpeg.exe") -hide_banner -muxers | Select-String chromaprint
+          if (-not $chroma) { throw "this ffmpeg has no chromaprint" }
+          $chroma
 
           "-- started as the Start menu starts it"
           Start-Process "$py\pythonw.exe" -ArgumentList "`"$tray`"", "--background" -WorkingDirectory $app

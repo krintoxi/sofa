@@ -29,7 +29,7 @@ GitHub builds it on `windows-latest` from every change to Sofa (`.github/workflo
    Intro, the GPU encoders) into `vendor\ffmpeg`, without `ffplay`.
 2. Sofa's whole test suite with that Python.
 3. `iscc /DAppVersion=<version> deploy\windows\sofa.iss` → `build\windows\sofa-<version>-windows-x64-setup.exe`
-   (about 75 MB; 270 MB once installed, 230 of them ffmpeg).
+   (88 MB; 274 MB once installed, 230 of them ffmpeg).
 4. The installer is run there: installed with no questions, Sofa started as the Start menu starts it, its page
    asked for, its library where it was told, Quit, uninstalled, and what each step left looked at.
 5. On `main`: a release `sofa-v<version>` with the installer and its SHA-256, and the release `sofa-for-windows`
