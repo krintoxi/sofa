@@ -21,10 +21,17 @@ A skip every few seconds on a screen that is nearly, but not exactly, 60 Hz: put
   that's 60 Hz or nearly runs on its own beat, the same steps every frame, at most 1.5% off real time. Any other
   frame's time is still carried, so 50, 65, 72, 75, 90, 100 and 144 Hz screens run at real time as in 1.1.68.
   Tidewing, Ironmaw and the seven games on the 2D engine.
+- **A clock that wobbles.** What frames off the beat leave carried, a frame on it lets go of a twentieth of a step
+  at a time. Left alone it wandered until a frame took two steps or none, on a 60.000 Hz screen too, once the time
+  the browser hands a frame was off by a tenth of a millisecond (found reading this change before it went in: 63
+  uneven frames in ten minutes there, 1,460 at half a millisecond, where 1.1.68 had none). Dropping it all at once
+  would have run a 75 or 90 Hz screen slow after every hitch that happened to land on the beat.
 - From arithmetic, not from a screen: ten minutes of frames at each rate, the page's clock rounded as the browser
   hands it over. 59.79, 59.89, 59.94, 59.95, 60.02 and 60.32 Hz: the same steps every frame, 99.65 to 100.53% of
-  real time (1.1.68: 70 to 190 uneven frames in the ten minutes). The owner's box sets 1920 × 1080 at 60.000 Hz and
-  showed neither.
+  real time (1.1.68: 70 to 190 uneven frames in the ten minutes). At 60.000 Hz with each frame's time off by up to
+  half a millisecond (a normal spread), late only, or in whole milliseconds with every other frame drawn: the same
+  steps every frame, as 1.1.68. At 59.94 Hz off by half a millisecond: none uneven (1.1.68: 1,232). The owner's box
+  sets 1920 × 1080 at 60.000 Hz.
 
 ## 1.1.68
 

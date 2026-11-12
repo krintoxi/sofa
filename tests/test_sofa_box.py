@@ -1429,10 +1429,12 @@ class BoxBrowser(unittest.TestCase):
         self.assertTrue(until("NB.mode === 'play'", 10))
         # a chain: jab, jab, cross, then the finisher launches
         js("""(() => { const p = NB.P[0]; p.x = 200; p.y = 220; p.face = 1; window.f1 = NB.spawn('punk', 222, 220); f1.inside = true; f1.cd = 99; f1.hp = 60; window.acts = [];
-               let n = 0; const iv = setInterval(() => { if (p.act === 'attack' && p.t > 0.08) p.queued = true; if (p.act === 'idle' && n < 4) { n++; NB.attack(p); } acts.push(f1.act); }, 30);
+               let n = 0; window.topCombo = 0; const iv = setInterval(() => { if (p.act === 'attack' && p.t > 0.08) p.queued = true; if (p.act === 'idle' && n < 4) { n++; NB.attack(p); } acts.push(f1.act); topCombo = Math.max(topCombo, p.combo); }, 30);
                setTimeout(() => clearInterval(iv), 2000); return 1; })()""")
         time.sleep(2.3)
-        chain = json.loads(js("JSON.stringify({ hp: f1.hp, acts: [...new Set(acts)], combo: NB.P[0].combo })"))
+        # (the most the combo reached during the chain: read at the end, its 1.4 s window had about a quarter of a second
+        # left, and on a busy machine it could run out first)
+        chain = json.loads(js("JSON.stringify({ hp: f1.hp, acts: [...new Set(acts)], combo: Math.max(topCombo, NB.P[0].combo) })"))
         self.assertLessEqual(chain["hp"], 60 - 6 - 6 - 9 - 15 + 1)
         self.assertIn("fall", chain["acts"])
         self.assertGreaterEqual(chain["combo"], 4)
@@ -1934,7 +1936,9 @@ class BoxBrowser(unittest.TestCase):
         self.assertEqual(json.loads(js("JSON.stringify({ down: GW.PL[1].dead, mode: GW.mode })")), {"down": True, "mode": 3})
         js("(() => { const A = GW.PL[0], B = GW.PL[1]; A.x = B.x + 8; A.y = B.y; return 1; })()")
         js("__btn(0, 0, true); 1")
-        time.sleep(1.7)
+        end = time.time() + 10                                      # (1.2 s of the game's own time with A held: longer by the clock
+        while time.time() < end and js("GW.PL[1].dead"):            # on a machine whose frames are slow, each counted as 50 ms at most)
+            time.sleep(0.2)
         js("__btn(0, 0, false); 1")
         self.assertEqual(js("GW.PL[1].dead"), False)
         js("GW.goFloorOmen(6, -1); 1")

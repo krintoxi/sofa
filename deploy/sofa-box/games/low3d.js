@@ -2281,7 +2281,10 @@ Synth.prototype = {
 // A frame whose own length is a whole number of steps, to within 1.5%, takes exactly that many and carries nothing: a
 // screen that is 60 Hz or nearly (59.94 on a TV, 59.79 on a 1366 × 768 panel, 60.02, 60.32) runs on its own beat, one
 // step a frame, at most 1.5% off real time, which nobody sees. (Carrying the difference instead is right to the
-// second, and takes two steps in one frame, or none, every few seconds: a skip you do see.)
+// second, and takes two steps in one frame, or none, every few seconds: a skip you do see.) What such a frame finds
+// carried from frames that weren't on the beat (a clock that wobbles a tenth of a millisecond puts one out now and
+// then) it lets go a twentieth of a step at a time: left alone, that would wander until a frame took two steps or
+// none; dropped all at once, a 75 or 90 Hz screen would run slow after every hitch that happened to land on the beat.
 // Any other frame's time is carried, never dropped: what it is short of a whole number of steps, or over it, goes to
 // the next (acc, in seconds; it may run a little under nought), so a game runs at real time on a 50, 72, 75 or 144 Hz
 // screen. There a frame that comes within a quarter of a step of a whole number takes that many, so a clock that
@@ -2290,7 +2293,10 @@ Synth.prototype = {
 const STEPS = [0, 0];
 function wholeSteps(acc, dt, DT, most) {
   const f = dt / DT, w = Math.round(f);
-  if (w >= 1 && w < most && Math.abs(f - w) < 0.015 * w) { STEPS[0] = w; STEPS[1] = acc; return STEPS; }   // on the screen's own beat
+  if (w >= 1 && w < most && Math.abs(f - w) < 0.015 * w) {            // on the screen's own beat
+    const ease = 0.05 * DT;
+    STEPS[0] = w; STEPS[1] = acc > ease ? acc - ease : acc < -ease ? acc + ease : 0; return STEPS;
+  }
   acc += dt;
   const s = acc / DT, r = Math.round(s);
   let n = Math.abs(s - r) < 0.25 ? r : Math.floor(s);

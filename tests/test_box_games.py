@@ -283,7 +283,10 @@ console.log(JSON.stringify(out)); })().catch(e => { console.error(e); process.ex
         on a TV, 59.79 on a 1366 x 768 panel, 60.02, 60.32), takes two steps in one frame or none every few seconds: a
         skip, where the loop before it was even. A frame whose own length is a whole number of steps to within 1.5%
         takes exactly that many now, so such a screen runs on its own beat; the rest still run at real time. Ten
-        minutes at each rate, the page's clock rounded down to a tenth of a millisecond as the browser hands it over."""
+        minutes at each rate, the page's clock rounded down to a tenth of a millisecond as the browser hands it over.
+        And a clock that wobbles: a frame on the beat lets go, a little at a time, of what the frames off it left
+        carried (left alone it wandered until a frame took two steps or none: on a 60.000 Hz screen too, with the
+        frame's time off by a tenth of a millisecond, where 1.1.68 was even)."""
         out = pads_in_node(self, r"""
 const L = window.Low3D, DT = 1 / 60;
 const run = (hz, every) => {                                          // every: one frame in so many drawn (a 30 a second rung: 2)
@@ -293,7 +296,22 @@ const run = (hz, every) => {                                          // every: 
 };
 out.near = {}; for (const hz of [59.79, 59.89, 59.94, 59.95, 60, 60.02, 60.317]) out.near[hz] = [run(hz, 1), run(hz, 2)];
 out.far = {}; for (const hz of [50, 65, 72, 75, 144]) out.far[hz] = run(hz, 1); for (const hz of [90, 100]) out.far[hz] = run(hz, 2);
-out.dropped = Array.from(L.wholeSteps(0.004, 2 / 59.94, DT, 6));      // a frame missed on a 59.94 Hz screen: two steps, what was carried left alone
+out.dropped = Array.from(L.wholeSteps(0.004, 2 / 59.94, DT, 6));      // a frame missed on a 59.94 Hz screen: two steps, and a twentieth of a step of what was carried let go
+out.let = [L.wholeSteps(0.0005, DT, DT, 6)[1], L.wholeSteps(-0.0005, DT, DT, 6)[1], L.wholeSteps(-0.004, DT, DT, 6)[1]];
+// clocks that wobble (the same numbers every run): steps a frame over ten minutes, after the first two seconds
+let seed = 1; const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; }, norm = () => Math.sqrt(-2 * Math.log(rnd() || 1e-9)) * Math.cos(6.283185307 * rnd());
+const wobble = (hz, every, tick, err, s) => {
+  seed = s; let acc = 0, n = 0, uneven = 0, last = 0; const usual = Math.round(every * 60 / hz), total = Math.round(600 * hz / every);
+  for (let i = 1; i <= total; i++) { const at = Math.floor((i * every / hz + err()) / tick + 1e-9) * tick, S = L.wholeSteps(acc, Math.max(0, at - last), DT, 6); last = at; acc = S[1]; n += S[0]; if (i > 120 && S[0] !== usual) uneven++; }
+  return [uneven, Math.round(n * DT / last * 10000) / 100];
+};
+const off = sd => () => norm() * sd / 1000, late = mean => () => -Math.log(rnd() || 1e-9) * mean / 1000;
+out.wobble = {};
+for (const sd of [0.05, 0.1, 0.2, 0.5]) out.wobble["60 Hz, off by " + sd + " ms"] = [1, 2, 3].map(s => wobble(60, 1, 0.0001, off(sd), s * 7919));
+out.wobble["60 Hz, late by 0.5 ms"] = [1, 2, 3].map(s => wobble(60, 1, 0.0001, late(0.5), s * 7919));
+out.wobble["60 Hz, a clock in whole milliseconds, every other frame"] = [wobble(60, 2, 0.001, () => 0, 1)];
+out.wobble["59.94 Hz, off by 0.5 ms"] = [1, 2, 3].map(s => wobble(59.94, 1, 0.0001, off(0.5), s * 7919));
+out.wobble["120 Hz, every other frame, off by 0.5 ms"] = [1, 2, 3].map(s => wobble(120, 2, 0.0001, off(0.5), s * 7919));
 out.pause = Array.from(L.wholeSteps(0, 0.25, DT, 6)); out.exactPause = Array.from(L.wholeSteps(0.003, 0.1, DT, 6));   // (six steps' worth, the most: not on the beat, and not caught up on)
 console.log(JSON.stringify(out));
 """, "pad.js", "low3d.js")
@@ -305,7 +323,14 @@ console.log(JSON.stringify(out));
         for hz, r in out["far"].items():
             self.assertTrue(99.8 <= r["pct"] <= 100.2, "%s Hz: %s%% of real time" % (hz, r["pct"]))
         self.assertEqual(out["far"]["50"]["steps"], [1, 2])               # (50 Hz: one, one, one, one, two: as it must be)
-        self.assertEqual(out["dropped"], [2, 0.004])
+        self.assertEqual(out["dropped"][0], 2)
+        self.assertAlmostEqual(out["dropped"][1], 0.004 - 1 / 60 / 20, places=9)
+        self.assertEqual(out["let"][:2], [0, 0])                          # (under a twentieth of a step: gone)
+        self.assertAlmostEqual(out["let"][2], -0.004 + 1 / 60 / 20, places=9)
+        for name, runs in out["wobble"].items():
+            for uneven, pct in runs:
+                self.assertEqual(uneven, 0, "%s: %s uneven frames in ten minutes" % (name, uneven))
+                self.assertTrue(99.85 <= pct <= 100.15, "%s: %s%% of real time" % (name, pct))
         self.assertEqual((out["pause"], out["exactPause"]), ([6, 0], [6, 0]))
         # the 2D engine's own loop on a 59.94 Hz screen with that clock: a step every frame for a minute
         even = pads_in_node(self, L2_JS + r"""(async () => {
