@@ -855,7 +855,7 @@ class BoxOS(unittest.TestCase):
                      "/box/fonts/instrument-sans-latin-wght-normal.woff2"):
             with self.opener.open(self.base + path, timeout=20) as r:
                 self.assertEqual(r.status, 200, path)
-        self.assertEqual(len(self.get("/box/api/games")["games"]), 13)
+        self.assertEqual(len(self.get("/box/api/games")["games"]), 14)
         self.assertIn("memory_free", self.get("/box/api/info"))                 # (the games check, in probe/, shows it)
         with self.assertRaises(urllib.error.HTTPError):
             self.opener.open(self.base + "/box/home/../sofa-box-agent.py", timeout=20)
