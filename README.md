@@ -103,7 +103,7 @@ own version numbers, counted separately: "Sofa 1.1.0" and "Sofa Box OS 1.1.0" ar
 |---|---|---|---|
 | Its version | **Server page → Updates** | the same as its Sofa Server (it comes from it); the Fire TV app also has a build number | **Settings → About this box**, and on the box's boot screen |
 | Updating it | **Server page → Update now** | by itself, with its Sofa Server; the Fire TV app shows **Update the app**; a Roku takes the newer channel the same way you added it | **Settings → Software → Update the box** (Stable, the default, or Testing) |
-| Downloads | [one line in Terminal](#step-1-install-the-sofa-server) | nothing (phones), or from the Sofa Server (TV apps) | [the stable card](https://github.com/krintoxi/sofa/releases/tag/sofa-box-stable) (none yet) or [the newest](https://github.com/krintoxi/sofa/releases/tag/sofa-box) (testing) |
+| Downloads | [one line in Terminal](#step-1-install-the-sofa-server), or [the Windows installer](docs/install.md#on-windows) | nothing (phones), or from the Sofa Server (TV apps) | [the stable card](https://github.com/krintoxi/sofa/releases/tag/sofa-box-stable) (none yet) or [the newest](https://github.com/krintoxi/sofa/releases/tag/sofa-box) (testing) |
 
 ## Sofa Box OS: your own TV box
 
