@@ -11,6 +11,16 @@ Third-party parts bundled in this repository keep their own licences:
   client/vendor/fonts/                Bricolage Grotesque and Instrument Sans, SIL Open Font License 1.1
                                       (LICENSE-*.txt next to them)
 
+Sofa for Windows (deploy/windows) carries two programs that aren't Sofa's, each under its own licence, in its own
+folder of the installed Sofa:
+
+  vendor/python                       Python 3.14, the Python Software Foundation's embeddable build,
+                                      PSF License (vendor/python/LICENSE.txt)
+  vendor/ffmpeg                       ffmpeg 9.0.2, Gyan Doshi's Windows build, GNU GPL version 3
+                                      (vendor/ffmpeg/LICENSE.txt; where its source is: SOURCE.txt)
+
+Sofa runs ffmpeg as a separate program. tools/windows-deps.py names the exact downloads and their SHA-256.
+
 A Sofa Box card is built from Raspberry Pi OS and other free software (Chromium, mpv, FFmpeg, Luanti and
 more), each under its own licence. Every part on a card, with its licence and source, is listed in
 deploy/sofa-box/home/credits.json and shown on the box under Settings -> This box -> About -> Credits

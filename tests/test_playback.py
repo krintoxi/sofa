@@ -1,4 +1,5 @@
 """How video is played on a device: what it can decode, and how big a picture to convert to."""
+import re
 import unittest
 
 import tests
@@ -152,7 +153,13 @@ class ConvertingForReal(unittest.TestCase):
         os.makedirs(folder, exist_ok=True)
         cmd = media.stream_command(self.item, "remux", 0, self.info, "hls", out=folder, caps={"ac3": True})
         subprocess.run([cmd[0], "-y"] + cmd[1:], check=True, capture_output=True)
-        a = (media.probe(os.path.join(folder, "index.m3u8")) or {}).get("audio") or [{}]
+        playlist = os.path.join(folder, "index.m3u8")
+        with open(playlist, encoding="utf-8") as f:
+            text = f.read()
+        parts = [line for line in text.splitlines() if line and not line.startswith("#")] + re.findall(r'URI="([^"]+)"', text)
+        self.assertTrue(parts and all(media.HLS_FILE.fullmatch(p) for p in parts), text)   # by name: players ask Sofa
+        # (ffprobe reads a playlist's parts relative to it: given D:\...\index.m3u8 on Windows it finds none)
+        a = (media.probe(playlist.replace(os.sep, "/")) or {}).get("audio") or [{}]
         self.assertEqual((a[0].get("codec"), a[0].get("channels")), ("eac3", 6))      # 5.1 for a TV that takes Dolby
         out = os.path.join(tests.ROOT, "real", "stereo.mp4")
         a = (self.run_ffmpeg(out, caps={}).get("audio") or [{}])[0]

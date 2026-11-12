@@ -9,8 +9,10 @@ of work, not a promise, and there are no dates. What has shipped is in [CHANGES.
 
 Read this before you install, so nothing surprises you.
 
-- **The server runs on a Mac, on Linux, or in Docker.** No native Windows server (Docker Desktop is the way in) and
-  no NAS packages (the Docker image is how a NAS runs it). Python and ffmpeg are all it needs. The one-line install
+- **The server runs on a Mac, on Linux, on Windows, or in Docker.** No NAS packages (the Docker image is how a NAS
+  runs it). Python and ffmpeg are all it needs; the Windows installer brings both. Sofa for Windows (1.5.8) has run on
+  GitHub's Windows machines, installer included, and not yet on a real PC; it runs while you're signed in, not as a
+  Windows service, and it isn't signed yet. The one-line install
   is used daily on Macs; on Linux the test suite runs on every push, and the install was run in a clean Debian 13
   system with systemd for the record (Sofa 1.5.5, the tested-on table in [capabilities.md](capabilities.md#tested-on));
   the Docker image has run on one Linux virtual machine (arm64) and nowhere else yet. Nobody has written down
@@ -92,7 +94,6 @@ In order. Each one ends with a line in the tested-on table.
 
 ## Not planned
 
-- A native Windows server (Docker is the route).
 - Accounts with EdgeVenture, a cloud, ads, telemetry, or "premium" features. Playback stays free.
 - Android apps on the Sofa Box, or a front panel for a small screen.
 

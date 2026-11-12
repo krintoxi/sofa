@@ -80,6 +80,8 @@ software and have not been tried on a real box. **The Fire TV app and the Roku c
 run on a real device is on record; the Mac card writer has never written a real SD card.** No card is marked stable
 yet. The table of what was tested on which hardware, by whom and when: [Tested on](docs/capabilities.md#tested-on).
 Anything you run that isn't in that table is worth a [hardware report](https://github.com/krintoxi/sofa/issues/new/choose).
+**Sofa for Windows** (new in Sofa 1.5.8): the installer and the server have run on GitHub's Windows machines on every
+change, installed, started, quit and uninstalled there, and not yet on a real Windows PC.
 What's next, in order, and what isn't built: [Roadmap and known limitations](docs/roadmap.md).
 
 ## Get it
@@ -87,6 +89,7 @@ What's next, in order, and what isn't built: [Roadmap and known limitations](doc
 | | |
 |---|---|
 | **Sofa Server** (Mac or Linux) | one line in Terminal: [Set it up in 4 steps](#set-it-up-in-4-steps) |
+| **Sofa Server for Windows** (10 or 11, 64-bit) | [sofa-windows-x64-setup.exe](https://github.com/krintoxi/sofa/releases/download/sofa-for-windows/sofa-windows-x64-setup.exe), an installer with its own Python and ffmpeg: [On Windows](docs/install.md#on-windows) |
 | **Sofa Box OS, the stable card** | [releases/tag/sofa-box-stable](https://github.com/krintoxi/sofa/releases/tag/sofa-box-stable): **no stable card yet** as of 2026-11-10; the owner marks a version stable after testing it on the Pi, and the page changes by itself |
 | **Sofa Box OS, the testing card** | [releases/tag/sofa-box](https://github.com/krintoxi/sofa/releases/tag/sofa-box): `sofa-box.img.xz`, the newest, built by GitHub from `main`, before anyone has tried it |
 | **The Sofa Box list for Raspberry Pi Imager** | [`sofa-box.rpi-imager-manifest`](https://github.com/krintoxi/sofa/releases/download/sofa-box/sofa-box.rpi-imager-manifest): double-click it and Imager 2 opens with Sofa Box OS in it (beta: see [Getting a card](docs/capabilities.md#getting-a-card)) |
@@ -140,8 +143,8 @@ from **Settings → Software**.
 For your own shows and movies (the **Sofa Server** and the **Sofa App**):
 
 - **A computer that stays on**, for the Sofa Server: a Mac (an old one is fine: Sofa runs on a 2011
-  iMac), a Linux computer, or anything that runs Docker (a NAS, a Windows PC with Docker Desktop; see
-  [In Docker](docs/install.md#in-docker)).
+  iMac), a Windows 10 or 11 PC ([On Windows](docs/install.md#on-windows)), a Linux computer, or anything that runs
+  Docker (a NAS; see [In Docker](docs/install.md#in-docker)).
 - **Your shows and movies** as files (from your own discs, downloads, a camera...).
 - **Something to watch on**, with the Sofa App: a TV with a Fire TV stick, a Roku or a Raspberry Pi
   with Sofa Box OS; or any phone, tablet or laptop.
@@ -164,6 +167,10 @@ Steps 1 to 3 set up the **Sofa Server**; step 4 is the **Sofa App** on your scre
 3. Wait for **All done** (a minute or two; longer if it installs ffmpeg, the tool that lets every
    kind of video play). Then close Terminal. Sofa keeps running in the background, and starts again
    by itself when the computer restarts.
+
+**On Windows:** download [sofa-windows-x64-setup.exe](https://github.com/krintoxi/sofa/releases/download/sofa-for-windows/sofa-windows-x64-setup.exe)
+and open it. It asks where your library goes and whether TVs and phones may reach Sofa through Windows Firewall, then
+Sofa waits by the clock and opens in your browser. What it asks, and why: [On Windows](docs/install.md#on-windows).
 
 **Docker instead?** On a computer or NAS that runs Docker, `docker compose up -d` in a folder with Sofa's
 [compose.yml](compose.yml) does the same (the library in `./media`, Sofa's data in `./data`, on the computer's own

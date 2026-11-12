@@ -88,9 +88,12 @@ def home_addresses():
             or re.match(r"172\.(1[6-9]|2\d|3[01])\.", ip)]
 
 
+_direct = urllib.request.build_opener(urllib.request.ProxyHandler({}))      # (never through a proxy Windows has set)
+
+
 def answering(timeout=2):
     try:
-        with urllib.request.urlopen("http://127.0.0.1:%d/healthz" % port(), timeout=timeout) as r:
+        with _direct.open("http://127.0.0.1:%d/healthz" % port(), timeout=timeout) as r:
             return r.status == 200
     except Exception:
         return False
@@ -100,12 +103,30 @@ def log(message):
     """A line of the app's own in data\\sofa.log, stamped like the server's (none with Keep no logs on)."""
     if settings().get("no_logs"):
         return
+    line = (time.strftime("[%Y-%m-%d %H:%M:%S] ") + "Sofa app: " + message + "\n").encode("utf-8")
     try:
         os.makedirs(DATA, exist_ok=True)
-        with open(LOG, "a", encoding="utf-8") as f:
-            f.write(time.strftime("[%Y-%m-%d %H:%M:%S] ") + "Sofa app: " + message + "\n")
+        fd = open_append(LOG)
+        try:
+            os.write(fd, line)
+        finally:
+            os.close(fd)
     except OSError:
         pass
+
+
+def open_append(path):
+    """A file descriptor that only ever adds at the end, whoever else writes: the server (its output) and this app
+    share data\\sofa.log. (Python's "a" on Windows moves to the end and then writes, so two writers overwrite each
+    other's lines; a handle with append access alone is what O_APPEND is on a Mac or Linux.)"""
+    if not windows.ON:
+        return os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o644)
+    import msvcrt
+    handle = _k32.CreateFileW(path, FILE_APPEND_DATA | SYNCHRONIZE, FILE_SHARE_ALL, None, OPEN_ALWAYS,
+                              FILE_ATTRIBUTE_NORMAL, None)
+    if not handle or handle == INVALID_HANDLE:
+        raise ctypes.WinError(ctypes.get_last_error())
+    return msvcrt.open_osfhandle(handle, os.O_WRONLY)
 
 
 # ---------------------------------------------------------------- first run: where the library lives
@@ -213,7 +234,12 @@ if windows.ON:
     _k32.OpenProcess.restype = wintypes.HANDLE
     _k32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
     _k32.WaitForSingleObject.restype = wintypes.DWORD
+    _k32.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, ctypes.c_void_p, wintypes.DWORD,
+                                 wintypes.DWORD, wintypes.HANDLE]
+    _k32.CreateFileW.restype = wintypes.HANDLE
+    INVALID_HANDLE = ctypes.c_void_p(-1).value
 
+FILE_APPEND_DATA, SYNCHRONIZE, FILE_SHARE_ALL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL = 0x0004, 0x00100000, 0x7, 4, 0x80
 JobObjectExtendedLimitInformation = 9
 JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000
 ERROR_ALREADY_EXISTS = 183
@@ -239,11 +265,14 @@ class Server:
         env = dict(os.environ, PYTHONUTF8="1", PYTHONUNBUFFERED="1")
         env[windows.SUPERVISED_ENV] = "1"
         env[windows.STOP_EVENT_ENV] = self._event_name
-        with open(self.log_path, "ab") as out:
+        out = open_append(self.log_path)
+        try:
             # CREATE_NO_WINDOW: a console nobody sees, which every ffmpeg the server starts shares (no windows flash
             # up). The server is in the job before its first ffmpeg: Python takes a good part of a second to start.
             self.proc = subprocess.Popen(self.command, cwd=self.cwd, env=env, stdin=subprocess.DEVNULL, stdout=out,
                                          stderr=subprocess.STDOUT, creationflags=windows.CREATE_NO_WINDOW)
+        finally:
+            os.close(out)
         if not _k32.AssignProcessToJobObject(self._job, int(self.proc._handle)):
             log("couldn't put the server in a job object (error %d); its ffmpegs may outlive it" % ctypes.get_last_error())
         return self.proc.pid

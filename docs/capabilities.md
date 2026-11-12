@@ -22,7 +22,8 @@ from automated tests. There is no company behind it and no support line: problem
 
 A program on a computer that stays on (a Mac, or Linux). It keeps your shows, movies and music, serves the web app to
 every screen at home, converts what a device can't play, and holds everyone's accounts. Python's standard library
-and ffmpeg, nothing else to install; or the Docker image (Sofa 1.5.5). Windows only through Docker Desktop.
+and ffmpeg, nothing else to install; or the Docker image (Sofa 1.5.5); or on Windows, an installer that brings both
+(Sofa 1.5.8, run on GitHub's Windows machines and not yet on a real PC).
 
 | What | Status | Where it lives, and the evidence |
 |---|---|---|
@@ -50,6 +51,7 @@ and ffmpeg, nothing else to install; or the Docker image (Sofa 1.5.5). Windows o
 | **Privacy switches:** Keep no logs, Wipe all logs, Work offline. | Works | `tests/test_server.py::test_no_logs_and_wipe`. [privacy.md](privacy.md) |
 | **Power cuts.** Settings are written whole or not at all; a config file cut off half way is kept aside instead of stopping Sofa. | Works | `tests/test_durability.py`. |
 | **In Docker:** `ghcr.io/krintoxi/sofa` (Python 3.12 on Debian 13 with Debian's ffmpeg, a non-root user), `compose.yml` on the computer's own network, `./data` and `./media`; the first start points the library at `/media`; Updates says to pull a new image. | Works (one Linux VM, arm64; the amd64 image untried) | `Dockerfile`, `compose.yml`, `deploy/docker/entrypoint.sh`, `.github/workflows/docker-image.yml`; `tests/test_docker.py`. The tested-on table has the one run. No Bonjour inside the container (SSDP works); no hardware encoding. |
+| **On Windows** (10 1809 or 11, 64-bit): an installer with its own Python and ffmpeg that installs for one person without an administrator, asks where the library goes and explains the one firewall rule it adds; Sofa by the clock (click to open; Restart, Stop, Start with Windows, the log, Quit), started again when it stops, stopped cleanly with every ffmpeg; an uninstaller that asks before deleting Sofa's data. | **Beta: never on a real PC** | `deploy/windows`, `sofa/windows.py`, `sofa/winapp.py`; `tests/test_windows.py`. On GitHub's Windows Server machines on every change: the whole test suite (Python 3.9, 3.12 and the installer's 3.14), and the installer installed silently, Sofa started as the Start menu starts it, asked for its page, quit and uninstalled. [What a real PC still has to show](../deploy/windows/README.md#what-has-been-tested-and-how). |
 | Subtitle downloads, watch-together, photos, TV recording (HDHomeRun), Plex or Jellyfin history import | **Not built** | On the list in [HANDOFF.md](HANDOFF.md); nothing in the code yet. |
 
 **The Adult section** exists (its own front page, categories from your folders, a PIN, never shown to guests, TVs or

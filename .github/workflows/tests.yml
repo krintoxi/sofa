@@ -65,6 +65,16 @@ jobs:
         with:
           path: build/windows/downloads
           key: windows-deps-${{ hashFiles('tools/windows-deps.py') }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          cache: false
+      - name: Let's Encrypt's test server (Pebble), as on Linux
+        run: |
+          go install github.com/letsencrypt/pebble/v2/cmd/pebble@v2.6.0
+          echo "PEBBLE=$(go env GOPATH)\\bin\\pebble.exe" >> "$GITHUB_ENV"
+          echo "PEBBLE_DIR=$(go env GOMODCACHE)\\github.com\\letsencrypt\\pebble\\v2@v2.6.0" >> "$GITHUB_ENV"
+          printf '\r\n127.0.0.1 sofa.test\r\n' >> /c/Windows/System32/drivers/etc/hosts
       - name: ffmpeg, as the installer carries it (vendor/ffmpeg, where Sofa looks first; on PATH for the tests that ask PATH)
         run: |
           uv run --no-project --python 3.12 python tools/windows-deps.py --ffmpeg
