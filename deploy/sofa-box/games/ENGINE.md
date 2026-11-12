@@ -20,7 +20,8 @@ second file on top of it, **Low2D** (`low2d.js`): see [Low2D: the 2D engine](#lo
 box's other small page games move onto it as each is made better.
 
 The engine grows with each game. When a game needs something another game could use, the general part goes
-here and the game keeps only what is its own.
+here and the game keeps only what is its own. The maker (`maker/`) is the first page of a game maker on these engines: see
+[The maker](#the-maker).
 
 ## What it promises every game
 
@@ -374,10 +375,56 @@ asked (edges collapsed where that changes the shape least: quadric error, the ed
 held). WYRD's props, weapons and creatures come in this way; the page puts them into meshes with `Mesh.tri`, so they
 light, bake and join like anything built in code.
 
-<a id="bodies-a-pose-at-a-time"></a>**Bodies, a pose at a time.** Low3D has no skinning: a body is parts on a skeleton
-(15 joints in WYRD), each pose's joints worked out once and every part built where its joint puts it, the whole pose
-baked into one mesh. A walk is four meshes, a swing three; the frame picks the mesh for the moment and draws it with
-`moved()`: one draw call a body, with no work a frame but its matrix.
+<a id="bodies-a-pose-at-a-time"></a>**Bodies, a pose at a time (`Rig`).** Low3D has no skinning: a body is parts on a
+skeleton, each pose's joints worked out once and every part built where its joint puts it, the whole pose baked into one
+mesh. A walk is four meshes, a swing three; the frame picks the mesh for the moment and draws it with `moved()`: one
+draw call a body, with no work a frame but its matrix. WYRD's people, the risen dead and the powers are made this way.
+
+```js
+const rig = new L3.Rig();                 // Rig.HUMAN: hips, chest, head, each arm in three, each leg in three (15)
+const POSES = { walk0: { y: -0.03, chest: [0.12, 0, 0.12], legR: [0.55, 0, 0], armL: [0.55, 0.1, 0] /* … */ } };
+function build(m, look, pose) {           // one pose's body into m, standing on y = 0 and facing +z
+  rig.pose(POSES[pose], 1, look.bulk);    // each joint: [swing forward, roll out, turn]; y lowers the hips, lean tips the body
+  rig.at(m, "chest"); m.box(0, 0, 0, 0.36, 0.5, 0.22, look.cloth);              // a part where its joint is
+  rig.attach(m, "handR", 0, -0.09, 0, 0, Math.PI / 2, 0, 1); /* the sword */    // a thing held: placed in the hand's frame
+  m.at(0, 0, 0);
+}
+```
+
+- `new Rig(joints)`: `[name, parent, x, y, z, kind]` each, the parent's number (-1 for the root). A joint of kind
+  `"spine"` stands up from its parent and leans forward as it swings; `"arm"` and `"leg"` are set out from the middle by a
+  broad body (`bulk`, and its square root for legs); the rest hang down and rise as they swing forward. A name ending in
+  R is the right side, its roll and turn mirrored, so a pose reads the same on both sides.
+- `pose(P, size, bulk)` works the joints out; `at(m, j)` builds what comes next in `m` where joint `j` is (its name or
+  number); `attach(m, j, x, y, z, yaw, pitch, roll, size)` places a thing in that joint's frame; `where(j, out)` is the
+  joint's place (for a hit, a spark from a hand, the maker's marker).
+- `mirror(P)` is the same pose the other way round (WYRD's `walk2` is `walk0` mirrored), and `Rig.clips(poses)` groups
+  poses by name: `walk0` … `walk3` is the clip `walk`.
+
+The maths is WYRD's, moved into the engine unchanged: its 25 poses of 21 looks, at two sizes, bake to the same bytes as
+they did before (1,050 meshes compared).
+
+<a id="the-maker"></a>**The maker** (`maker/`, not on Home). The first page of our game maker, for a computer with a
+mouse: from a checkout, `python3 -m http.server -d deploy/sofa-box/games 8770` and then
+`http://127.0.0.1:8770/maker/`; on a box, `http://127.0.0.1:8091/box/games/maker/` in its own browser (the box serves
+its pages to itself only, so a computer on its network can't open it there yet). It reads a game's own page and what's
+marked there for it, draws the game's bodies as the game bakes them, and turns their poses joint by joint (mirror,
+revert, clips played at a rate, all the bodies in a line-up, the picture a Pi 3 draws, the draw calls and triangles
+against a Pi 3's frame). What's changed is copied out as the game writes it, a pose or the whole block; nothing is
+written back to the page yet. A game marks the parts the maker reads, in this order, each using only `L3` and the
+blocks before it:
+
+```js
+/* maker: models */ const MODELS = { … }; /* maker: end */          // models packed by tools/low3d-models.py
+/* maker: poses */ const POSES = { … }; /* maker: end */            // each pose on a line of its own: name: { … },
+/* maker: bodies rig=RIG build=buildBody looks=FOLK,STYLES */
+const RIG = new L3.Rig(); …  function buildBody(mesh, look, pose, size) { … }
+/* maker: end */
+```
+
+`rig`, `build` and `looks` name what's in the bodies block: the rig, the function that builds one pose of a body, and
+the tables of looks to show (each look a body's colours and parts, as `build` takes them). The page is
+`maker/index.html#<game>` (`#wyrd` first).
 
 **Moving things.**
 - `Path(points, {closed, step})` is a smooth line to race, ride or patrol along. It has `at(s)`, `side(s, off)`,
@@ -679,3 +726,5 @@ steps (`E.alpha`) for screens that aren't 60 Hz. In `Ray`: sloped floors; and it
 (a wall's column is then written in order, and a helper's strip comes back as one copy: putting the strips into the
 picture a pixel at a time is the most the page itself spends on a frame now). In Low2D: a 3D backdrop drawn by `GL` behind the pixels on the rich look (a tower that
 turns as you climb), split screens for couch play, slopes. Each one comes with the game that first needs it.
+In the maker: changes written back into the game's page, the kit of meshes built in code, and the same scene shown as a
+Pi 3, a Pi 4, a desktop and a box with no GPU draw it, side by side.

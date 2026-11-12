@@ -8,7 +8,8 @@
 
    Hardware:  probe(), bench(), plan(), LADDER, Governor, rows() and line() (what was found, to show)
    Drawing:   GL (lit and glowing meshes, a sea, a sky), Flat (the 2D renderer), Mesh (building meshes), bake() (mesh to
-              sprite), Kit (trees, rocks, buildings, buoys, shadows, far hills), Chunks (a world's still things), M4
+              sprite), Kit (trees, rocks, buildings, buoys, shadows, far hills), Chunks (a world's still things), M4,
+              Rig (bodies: a skeleton and poses as numbers, each pose baked into one mesh)
    Moving:    Path (smooth lines to race or ride along), Trail (wakes, light trails), Particles, camera(), chase(), orbit()
    The rest:  game() (the screen, tuning, the loop), begin() (a frame in either renderer), Input (controller first, the
               box's echo keys handled), Menu (screens worked with a controller), Synth (effects, a music sequencer,
@@ -1273,6 +1274,94 @@ Mesh.prototype.light = function (L, o) {
 Mesh.join = function (list) {                      // several meshes as one
   const out = new Mesh(list.reduce((a, m) => a + m.n, 0) + 3);
   for (const m of list) { out.room(m.n); out.u8.set(new Uint8Array(m.buf, 0, m.n * 20), out.n * 20); out.n += m.n; }
+  return out;
+};
+
+// ---------------------------------------------------------------- bodies: a skeleton, poses as numbers, a pose at a time
+// No skinning: a body is parts on a skeleton. A pose's joints are worked out once (pose()), each part is built where its
+// joint puts it (at(), or attach() for a thing held or worn), and the whole pose goes into one mesh: one draw call a body
+// and nothing to work out a frame but its matrix. A transform here is 12 numbers, as a Mesh keeps its own (m.t): the
+// three axes (columns, sized), then where.
+// joints: [name, parent (its number; -1 the root), x, y, z (where in the parent), kind]. kind "spine": it stands up from
+// its parent, and swinging it forward leans it forward; "arm" and "leg": set out from the middle by a broad body (bulk,
+// and its square root for legs); anything else hangs down, and swinging it forward raises it. A name ending in R is the
+// right side: its roll and turn are the left's mirrored, so one pose's numbers read the same on both sides.
+function rot12(o, yaw, pitch, roll, sx, sy, sz) {
+  const cy = Math.cos(yaw), sy_ = Math.sin(yaw), cp = Math.cos(pitch), sp = Math.sin(pitch), cr = Math.cos(roll), sr = Math.sin(roll);
+  sy = sy == null ? sx : sy; sz = sz == null ? sx : sz;
+  o[0] = (cy * cr + sy_ * sp * sr) * sx; o[1] = cp * sr * sx; o[2] = (-sy_ * cr + cy * sp * sr) * sx;
+  o[3] = (-cy * sr + sy_ * sp * cr) * sy; o[4] = cp * cr * sy; o[5] = (sy_ * sr + cy * sp * cr) * sy;
+  o[6] = sy_ * cp * sz; o[7] = -sp * sz; o[8] = cy * cp * sz; o[9] = o[10] = o[11] = 0; return o;
+}
+const T12_TMP = new Float32Array(12);
+function mul12(o, a, b) {                            // o = a, then b's frame inside it
+  const r = T12_TMP;
+  for (let j = 0; j < 3; j++) for (let i = 0; i < 3; i++) r[j * 3 + i] = a[i] * b[j * 3] + a[3 + i] * b[j * 3 + 1] + a[6 + i] * b[j * 3 + 2];
+  for (let i = 0; i < 3; i++) r[9 + i] = a[i] * b[9] + a[3 + i] * b[10] + a[6 + i] * b[11] + a[9 + i];
+  for (let i = 0; i < 12; i++) o[i] = r[i];
+  return o;
+}
+function Rig(joints) {
+  this.joints = joints || Rig.HUMAN; this.n = this.joints.length; this.index = {};
+  this.W = []; for (let i = 0; i < this.n; i++) { this.index[this.joints[i][0]] = i; this.W.push(new Float32Array(12)); }
+  this.L = new Float32Array(12); this.P = new Float32Array(12);
+}
+// a person's: hips, chest and head; each arm in three (upper, fore, hand) and each leg (thigh, shin, foot). About 1.9 tall
+Rig.HUMAN = [
+  ["hips", -1, 0, 0.95, 0], ["chest", 0, 0, 0.1, 0, "spine"], ["head", 1, 0, 0.52, 0, "spine"],
+  ["armR", 1, -0.21, 0.44, 0, "arm"], ["foreR", 3, 0, -0.3, 0], ["handR", 4, 0, -0.27, 0],
+  ["armL", 1, 0.21, 0.44, 0, "arm"], ["foreL", 6, 0, -0.3, 0], ["handL", 7, 0, -0.27, 0],
+  ["legR", 0, -0.1, -0.03, 0, "leg"], ["shinR", 9, 0, -0.44, 0], ["footR", 10, 0, -0.43, 0],
+  ["legL", 0, 0.1, -0.03, 0, "leg"], ["shinL", 12, 0, -0.44, 0], ["footL", 13, 0, -0.43, 0]
+];
+Rig.prototype = {
+  // a pose's joints: P {joint: [swing forward, roll out, turn], …, y: the root lower by this, lean: the whole body tipped
+  // forward}; joints not named stay as built. s: the body's size; bulk: how broad (1 as built)
+  pose(P, s, bulk) {
+    const J = this.joints, W = this.W, L = this.L; s = s || 1; bulk = bulk || 1;
+    for (let i = 0; i < this.n; i++) {
+      const j = J[i], name = j[0], parent = j[1], kind = j[5], a = P[name] || null;
+      if (parent < 0) {
+        rot12(W[i], 0, P.lean || 0, 0, s); W[i][9] = j[2] * s; W[i][10] = (j[3] + (P.y || 0)) * s; W[i][11] = j[4] * s;
+        if (P.lean) W[i][10] -= Math.abs(Math.sin(P.lean)) * 0.1 * s;
+        continue;
+      }
+      const side = name.endsWith("R") ? -1 : 1, up = kind === "spine", wide = kind === "arm" ? bulk : kind === "leg" ? Math.sqrt(bulk) : 1;
+      rot12(L, a ? a[2] * (up ? 1 : side) : 0, a ? (up ? a[0] : -a[0]) : 0, a ? a[1] * side : 0, 1);
+      L[9] = j[2] * wide; L[10] = j[3]; L[11] = j[4];
+      mul12(W[i], W[parent], L);
+    }
+    return this;
+  },
+  joint(j) { return typeof j === "number" ? j : this.index[j]; },
+  // what's built next in m goes where joint j is, turned and sized with it (m.at(0, 0, 0) after, for the rest)
+  at(m, j) { const w = this.W[this.joint(j)], t = m.t; for (let i = 0; i < 12; i++) t[i] = w[i]; return m; },
+  // a thing held or worn: x y z in joint j's frame, turned (yaw, pitch, roll) and sized (s) there
+  attach(m, j, x, y, z, yaw, pitch, roll, s) {
+    const L = this.L; rot12(L, yaw || 0, pitch || 0, roll || 0, s == null ? 1 : s); L[9] = x || 0; L[10] = y || 0; L[11] = z || 0;
+    mul12(this.P, this.W[this.joint(j)], L); const t = m.t; for (let i = 0; i < 12; i++) t[i] = this.P[i];
+    return m;
+  },
+  // where joint j is in this pose (in the body's own space, standing on y = 0): out [x, y, z]
+  where(j, out) { const w = this.W[this.joint(j)]; out[0] = w[9]; out[1] = w[10]; out[2] = w[11]; return out; },
+  // the same pose the other way round: left and right swapped, the spine's roll and turn the other way
+  mirror(P) {
+    const out = {};
+    for (const k in P) {
+      const v = P[k];
+      if (!Array.isArray(v)) { out[k] = v; continue; }
+      const o = k.endsWith("R") ? k.slice(0, -1) + "L" : k.endsWith("L") ? k.slice(0, -1) + "R" : k;
+      const i = this.index[k], spine = i == null || this.joints[i][1] < 0 || this.joints[i][5] === "spine";
+      out[o] = spine && o === k ? [v[0], v[1] ? -v[1] : 0, v[2] ? -v[2] : 0] : v.slice();
+    }
+    return out;
+  }
+};
+// the clips in a set of poses, by name: walk0 … walk3 is "walk", in that order; a pose with no number is a clip of one
+Rig.clips = function (poses) {
+  const out = {};
+  for (const name of Object.keys(poses)) { const m = /^(.*?)(\d+)$/.exec(name), c = m ? m[1] : name; (out[c] || (out[c] = [])).push(name); }
+  for (const c in out) out[c].sort((a, b) => (+(/\d+$/.exec(a) || [0])[0]) - (+(/\d+$/.exec(b) || [0])[0]));
   return out;
 };
 
@@ -3418,7 +3507,7 @@ function planRay(p, b) {
     why: "the processor draws it (script " + cpu + " ms" + (help ? ", " + help + " helpers on other cores" : "") + ")" + (fx ? "; the GPU adds the glow" : "") };
 }
 
-window.Low3D = { probe, family, NAMES, bench, plan, rows, line, LADDER, Governor, GL, Mesh, Flat, bake, M4, px, hexRGB,
+window.Low3D = { probe, family, NAMES, bench, plan, rows, line, LADDER, Governor, GL, Mesh, Flat, bake, M4, px, hexRGB, Rig,
   U, Kit, Path, Chunks, Land, Trail, Particles, camera, chase, orbit, viewOf, begin, Input, Menu, Synth, game,
   Palette, Tex, RayMap, Ray, Marks, Screen, planRay, heldRay, helpersFor, wholeSteps, ladderSig, fortyOn, withForty, UI, Letters, GLYPHS, SPECIAL, wholeSize, version: 4 };
 })();

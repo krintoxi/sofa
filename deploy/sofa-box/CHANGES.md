@@ -8,6 +8,25 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.83
+
+- **The maker's first page: poses.** A page for a computer with a mouse, at `games/maker/` (not on Home): it reads a
+  game's own page, draws its bodies as the game bakes them, and turns their poses joint by joint. Mirror a pose, put it
+  back as it was, play a clip at the rate you pick, see every body in a line-up, look at it as a Pi 3 draws it (360
+  lines), and watch the draw calls and triangles against a Pi 3's frame. What you change is copied out as the game
+  writes it, one pose or the whole block; nothing is written back into the page yet. It's the first part of our own
+  game maker on Low3D and Low2D.
+- **Bodies in the engine (`Rig`).** Low3D now has the skeleton WYRD's bodies were built on: 15 joints, poses as
+  numbers (swing, roll and turn for each joint), the other side's pose (`mirror`), clips by name, and things held or
+  worn placed in a joint's frame. A game's look stays its own; the maths is the engine's. WYRD moves onto it unchanged:
+  its 25 poses for 21 looks, at two sizes, bake to the same bytes as before (1,050 meshes compared).
+- **What a game marks for the maker.** WYRD marks its packed models, its poses and its bodies in its page
+  (`/* maker: poses */` … `/* maker: end */`), each block using only the engine and the blocks before it, so the maker
+  reads them straight from the game. Hearthrim's six townsfolk got a table of their own looks for it. How it works is in
+  `games/ENGINE.md` ("Bodies, a pose at a time" and "The maker").
+- **Measured** with `tools/games-bench.mjs` standing in for a Pi 3 (on a Mac, not a Pi), WYRD playing itself before
+  and after: 60 frames a second with none late, both times.
+
 ## 1.1.82
 
 - **WYRD, a new game of the box's own.** An action-RPG down the Maw, in 3D on Low3D. Hearthrim sits on the lip of the

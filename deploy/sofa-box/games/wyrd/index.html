@@ -97,6 +97,7 @@
 <script src="../pad.js"></script>
 <script src="../low3d.js"></script>
 <script>
+/* maker: models */
 // models packed for Low3D by tools/low3d-models.py: name, colours, box, data (see that file)
 const MODELS = {
 "spider":{"c":[[90,76,101,0],[199,151,255,127],[255,104,90,127],[220,211,202,0],[138,90,123,0]],"box":[-0.9614,0.0,-0.7034,1.9227,0.9781,1.4069],"d":"2ABUAXddE4CLAJWLB5ldH4C8AojZE5W8CXlGKJJGMHY3SI03T3I3baiLHKTKIobwKIn/SJvwP6/KPq9sPqBGVLWbObqbXrNsXqDwabPKXnL/T43/bZtGfYk3dbWbg69sf6/Kf6Rsm6iroZLwjZnZnpWrtohdqoZGlZV7s3+LvXfZqn+8unb/dXnwlWqLtmZdnmq8s21GjWTwfVvKm1eLoVDKf0qbg19GaVBsf0xsXkzKXkWbXl/wVFBsPmRGP1DKPkqbOWbZH1erHFtsIm3wMGqrB2p7CXlfp4B/l5hzqJJfsHajnJKXnndRvYxRxIa3p4FP0aCXsJm3v4jEvaGj1KV/yJlf0aB/4ZK34X7H0YZf6omj9JJ/83m36n9/+Wdz6G1f4W2X83PExGa30V+X4WZfv1p/yF6jvG23sF9/sG1/noDlV4LtT33tX4D0V3Wg8W+n83Ca94qh8Y+n95Ca83F68HRI/3dz6I568ItI/4hz6GZ8xTrv1z7y32qAzDvr5md50zfn3mN1zDrs2QAF9zvt4wYB+2V4oDjqp2l9rDzvsjfnsDvrqAEFsjfwrQIEuj3rsAYAtGl9ezzvdWqBhDjqgGV4hjfndz3rdwIEbTfweQEFdTvrfwYAcml8VTvrQT7ySGqBXjrvUGR5YDfnSWN0Vz3qRwYBKzjwRgAFLzrsTZl8xcXv18jn3px1zMTr5ph508Hy35WAzMjv3P8F98Lq4PkB+5p4oMfqp8jnsJZ9rMPvssTrqP4FsvkAtMLrsP0EusjwrZZ9e8Pvdcjnd5x1gcfqgJd+hsLrd/0EbfkAcsTrf/4FdcjweZZ8VcboQ5x1W8frTpd/YMHySMLqR/kBK8XsTf8FL8fwRgAAAQACAAAAAAIAAwAABAAFAAYAAAcAAAADAAAHAAMACAAAAQAEAAYAAAEABgACAAAJAAcACAAACQAIAAoAAAsACQAKAAADAAIADAAABgAFAA0AAAIABgANAAACAA0ADAAADgAPABAAAAUADgAQAAAFABAADQAADQAQABEAAAMADAASAAAIAAMAEgAACAASABMAAAwADQARAAAMABEAFAAACgAIABMAAAwAFAASAAASABQAFQAAEgAVABYAABEAEAAXAAARABcAGAAADwAZABoAABMAEgAWAAAUABEAGAAAFAAYABUAABAADwAaAAAQABoAFwAACgATABsAAAoAGwAcAAAWABUAHQAAFgAdAB4AABgAFwAfAAALAAoAHAAAEwAWAB4AABMAHgAbAAAVABgAHwAAFQAfAB0AABsAHgAgAAAdAB8AIQAAFwAaACIAAB4AHQAhAAAeACEAIAAAHwAXACIAAB8AIgAjAAAfACMAIQAAIQAjACQAABsAIAAlAAAbACUAJgAAHAAbACYAACAAIQAkAAAgACQAJwAAIAAnACUAACUAJwAoAAAkACMAKQAAJAApACoAABoAGQArAAAkACoAKAAAIgAaACsAACIAKwAsAAAnACQAKAAAIwAiACwAACMALAApAAAlACgALQAAJQAtAC4AACoAKQAvAAAmACUALgAAJgAuADAAACgAKgAvAAAoAC8ALQAAHAAmADAAABwAMAALAAApACwAMQAAKQAxADIAAC4ALQAzAAAvACkAMgAALQAvADIAAC0AMgAzAAAsACsAMQAAMwAyADQAADMANAA1AAALADAANgAAMwA1ADcAADIAMQA0AAAuADMANwAAMAAuADcAADAANwA2AAA2ADcAOAAANQA0ADkAADUAOQA6AAAxACsAGQAAMQAZADsAADcANQA6AAA3ADoAOAAANAAxADsAADQAOwA5AAA2ADgAPAAANgA8AD0AADoAOQA+AAA6AD4APwAACwA2AD0AAAsAPQAJAAA4ADoAPwAAOAA/ADwAADkAOwA+AAA+AEAAQQAAPQA8AEIAAD8APgBBAAA7ABkAQwAAPAA/AEEAADwAQQBCAAA+ADsAQwAAPgBDAEAAAEIAQQBEAABCAEQARQAAQgBFAAAAAEEAQABEAAA9AEIAAAAAPQAAAAcAAAkAPQAHAABDABkADwAAQwAPAA4AAEUARAABAABAAEMADgAAQAAOAAUAAAAARQABAABEAEAABQAARAAFAAQAAEQABAABAABGAEcASAAARgBIAEkAAEcASgBLAABMAEYASQAATABJAE0AAEcASwBIAABKAE4ASwAATwBMAE0AAEgASwBQAABLAE4AUQAASwBRAFAAAE4AUgBRAABQAFEAUwAASQBIAFQAAEkAVABVAABQAFMAVAAATQBJAFUAAEgAUABUAABVAFQAVgAAVABTAFYAAFEAUgBXAABTAFEAVwAAUgBYAFcAAE0AVQBZAABNAFkATwAAUwBXAFoAAFUAVgBbAABVAFsAWQAAVgBTAFoAAFYAWgBbAABaAFcAXAAAWQBbAF0AAFsAWgBdAABXAFgAXAAAWQBdAF4AAFkAXgBfAABdAFoAYAAATwBZAF8AAF0AYABeAABaAFwAYAAAXABYAGEAAFwAYQBiAABeAGAAYwAAYABcAGIAAGAAYgBjAABfAGQATAAAXgBjAGUAAGMAYgBmAABPAF8ATAAAXwBeAGUAAF8AZQBkAABjAGYAZQAAZgBiAGcAAGQAZQBoAABlAGYAaAAAYgBhAGcAAGQAaABpAABkAGkARgAAaABmAEoAAGgASgBpAABMAGQARgAAZgBnAEoAAGkASgBHAABnAGEAUgAAZwBSAE4AAEoAZwBOAABhAFgAUgAARgBpAEcAAGoAawBsAAFrAG0AbAABagBsAGsAAWwAbQBrAAFuAG8AcAACcABvAG4AAnEAcgBzAAJzAHIAcQACdAB1AHYAA3YAdQB0AAN3AHgAeQADeQB4AHcAA3oAewB8AAR6AHwAfQAEfQB8AH4ABH0AfgB/AAR/AH4AgAAEfwCAAIEABIAAfgB8AAR7AIAAfAAEgQCAAHsABIEAewB6AASBAHoAfQAEfQB/AIEABIIAgwCEAASEAIMAhQAEhACFAIIABIIAhQCDAASGAIcAiAAEiACHAIkABIgAiQCKAASIAIoAhgAEhwCKAIkABIYAigCHAASLAIwAjQAEjQCMAI4ABI0AjgCPAASPAI4AkAAEjACQAI4ABI8AkACLAASLAJAAjAAEjQCPAIsABJEAkgCTAASTAJIAlAAEkwCUAJUABJIAlgCUAASVAJQAlgAElQCWAJEABJEAlgCSAASRAJMAlQAElwCYAJkABJkAmACaAASZAJoAmwAEmwCaAJwABJgAnACaAASbAJwAlwAElwCcAJgABJkAmwCXAASdAJ4AnwAEnQCfAKAABKAAnwChAASgAKEAogAEogChAKMABKMAoQCfAASeAKMAnwAEogCjAKQABKQAowCeAASkAJ4AnQAEnQCgAKIABJ0AogCkAASlAKYApwAEpwCmAKgABKcAqACpAASpAKgApgAEqQCmAKUABKcAqQClAASqAKsArAAEqgCsAK0ABK0ArACuAAStAK4ArwAErwCuALAABK8AsACxAASwAK4ArAAEqwCwAKwABLEAsACrAASxAKsAqgAEsQCqAK0ABK0ArwCxAASyALMAtAAEtACzALUABLQAtQCyAASyALUAswAEtgC3ALgABLYAuAC5AAS5ALgAugAEtwC6ALgABLkAugC2AAS2ALoAtwAEuwC8AL0ABLsAvQC+AAS+AL0AvwAEvgC/AMAABLwAvwC9AATAAL8AvAAEwAC8ALsABLsAvgDAAATBAMIAwwAEwQDDAMQABMQAwwDFAATEAMUAxgAExQDDAMIABMYAxQDCAATGAMIAwQAExADGAMEABMcAyADJAATHAMkAygAEygDJAMsABMoAywDMAATIAMsAyQAEzADLAMgABMwAyADHAATHAMoAzAAEzQDOAM8ABM8AzgDQAATPANAA0QAE0QDQANIABM4A0gDQAATRANIAzQAEzQDSAM4ABM8A0QDNAATTANQA1QAE1QDUANYABNUA1gDXAATXANYA1AAE1wDUANMABNMA1QDXAAQ="},
@@ -181,6 +182,7 @@ const MODELS = {
 "forsaken":{"c":[[90,76,93,0],[104,85,104,0],[123,111,123,0]],"box":[-0.465,0.0,-0.4025,0.93,1.0,0.805],"d":"9gCkAfRxdfOQde2Phu9yht+Ai9KKgNN0gNGKbtJ0bt2AYuuPZe1yZeiuduOrhs6vjMqfgcmfb9SkY+GrZtXHd9HDiL2xgryxcLnBZc/DZ7vaebjVibHJjqq/g6m/cbfVaZzme5vgi4vTkZTHhZPHc5bSZ5rga3vpfXzjjX3JhnzJdG7SanvjbVrjgF3dkFbKlGbFiGXFdlzdbz3VgkHQklG7iVC7dz+8bUDQcSXAgyu8kzezlkCsij+seCm8cxSlhBujlCaRlzSZizOZeSedbxmjdAyHhROGlS6EjC2EeiF4bxKGdA1ohRVplShgly9ujC5uehNpdBhLhB9OlDdZizZZeTJKbh1OcysxgzE2kzw/lkRHikNHeC82ckUegUkkkV4rlFc6iVY6d1wra0gkcWQSf2YZj20xh2wxdWUZboUPfYYWjYUkkYQvhoMvdIMkaIQWbKYVeqQbi6wujpszhJozcqouZqMbasMjeMAoibA9g689cb8oaNw4d9c8h9JQjMFMgcBMb9BQY9U8Z+xTdedWhs1fgcxfb+VWZp0shZ1ZhZxZdpwsdqdZdacsdahZg6gsg1Mug1Ndg1VddVUudWBdd2Aud19dhV8uhdmNd/+UgNuGgNmNiNiUgK6yb9vngLqqgK6ykKO7gH7GcXz/gIrHgH7GjnLGgEe4dCfagE++gEe4i0CygCaJdwCOgCeQgCaJiCWCgEFYbwM1gDljgEFYkEhNgGc2cVMAgFs5gGc2jnIygJ8ydLIHgJYvgJ8yi6k1gNBUd/JDgM1NgNBUiNRagFLUdGOveE3RexxudUByeB1qe91PdLhjeN9Ue4AJAIAvAOAvQOAJQOAvv+AJv4Av/4AJ/yAvvyAJvyAvQCAJQIAtJIA9JMY9U8YtU8Y9scYtsYA94IAt4Do9sTotsTo9UzotU70ZZsQnZb0rUrUcUs8jRsgURtYfWs8RWisUVCsgTzEcQDIQRkAfSEETTTojVjsXXAAAAQACAAAAAAIAAwAAAwACAAQAAAQABQAGAAAGAAUABwAABgAHAAgAAAgABwAJAAAJAAoACwAACwAKAAEAAAsAAQAAAAABAAwADQAAAQANAAIAAAIADQAOAAACAA4ABAAABAAOAA8AAAQADwAFAAAFAA8AEAAABQAQAAcAAAcAEAARAAAHABEACQAACQARABIAAAkAEgAKAAAKABIADAAACgAMAAEAAAwAEwAUAAAMABQADQAADQAUAA4AAA4AFQAPAAAPABUAFgAADwAWABAAABAAFgAXAAAQABcAEQAAEQAXABgAABEAGAASAAASABgAEwAAEgATAAwAABMAGQAaAAATABoAFAAAFAAaABsAABQAGwAOAAAOABsAHAAADgAcABUAABUAHAAdAAAVAB0AFgAAFgAdABcAABcAHgAYAAAYAB4AGQAAGAAZABMAABkAHwAgAAAZACAAGgAAGgAgACEAABoAIQAbAAAbACEAIgAAGwAiABwAABwAIgAjAAAcACMAHQAAHQAjACQAAB0AJAAXAAAXACQAJQAAFwAlAB4AAB4AJQAfAAAeAB8AGQAAHwAmACcAAB8AJwAgAAAgACcAIQAAIQAoACIAACIAKAApAAAiACkAIwAAIwApACoAACMAKgAkAAAkACoAKwAAJAArACUAACUAKwAmAAAlACYAHwAAJgAsAC0AACYALQAnAAAnAC0ALgAAJwAuACEAACEALgAvAAAhAC8AKAAAKAAvADAAACgAMAApAAApADAAKgAAKgAxACsAACsAMQAsAAArACwAJgAALAAyADMAACwAMwAtAAAtADMALgAALgA0AC8AAC8ANAA1AAAvADUAMAAAMAA1ADYAADAANgAqAAAqADYANwAAKgA3ADEAADEANwAyAAAxADIALAAAMgA4ADkAADIAOQAzAAAzADkAOgAAMwA6AC4AAC4AOgA7AAAuADsANAAANAA7ADwAADQAPAA1AAA1ADwANgAANgA9ADcAADcAPQA4AAA3ADgAMgAAOAA+AD8AADgAPwA5AAA5AD8AQAAAOQBAADoAADoAQABBAAA6AEEAOwAAOwBBAEIAADsAQgA8AAA8AEIAQwAAPABDADYAADYAQwBEAAA2AEQAPQAAPQBEAD4AAD0APgA4AAA+AEUARgAAPgBGAD8AAD8ARgBAAABAAEcAQQAAQQBHAEgAAEEASABCAABCAEgASQAAQgBJAEMAAEMASQBKAABDAEoARAAARABKAEUAAEQARQA+AABFAEsATAAARQBMAEYAAEYATABNAABGAE0AQAAAQABNAE4AAEAATgBHAABHAE4ATwAARwBPAEgAAEgATwBJAABJAFAASgAASgBQAEsAAEoASwBFAABLAFEAUgAASwBSAEwAAEwAUgBNAABN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"},
 "plummet":{"c":[[43,34,37,0],[131,123,123,0],[143,133,128,0],[255,148,111,127]],"box":[-0.5,0.0,-0.4884,1.0,0.6155,0.9767],"d":"6ACEAYAAZoCkDoUAZ5ikEYoAaa+kGY4Aa8SkJpIAb9WkOJQAc+KkTZYAeOqkZZcAfu2kfpYAg+qklpQAiOKkrpIAjNWkw44AkMSk1YoAkq+k4oUAlJik6oAAlYCk7XsAlGik6nYAklGk4nIAkDyk1W4AjCukw2wAiB6krmoAgxaklmkAfhOkfmoAeBakZWwAcx6kTW4AbyukOHIAazykJnYAaVGkGXsAZ2ikEYABXoAJXokBX4kJX5IBZJIJZJkBa5kJa50BdJ0JdJ8Bfp8Jfp0Bh50Jh5kBkJkJkJIBl5IJl4kBnIkJnIABnYAJnXYBnHYJnG4Bl24Jl2cBkGcJkGMBh2MJh2EBfmEJfmMBdGMJdGcBa2cJa24BZG4JZHYBX3YJX+7Haej0bOvIWuT2Xf/NZfn7aPvPVvX8WdC+LdHfNsXFJMXmLNzGIdzmKdDNF9HtIFvJF2L2EU3RHFT9FlTGB1vyAEfNDE36BS3JPCroMiPPRyDuPiC+Mx3dKRbEPhPjNBbDcRLbcBXDgRHcgAW8cAHUcAS8gADUfyDUqhr+tCnPtyP5wRLKsgz0vRvFvxXvyoHE7Ybb7I+77JTT64LF/4fc/pG8/pbU/bvN4L/20sjE2MvtysbW7cn/39LN5db22ObCq+Lkp+zAnOfimPbKsfLrrfzIovfpnpbQNZjbMIXTMIfeK5uwGJ27E4qyE4y9D1S2wFjBvWKvyma6x0fU20re2FTN5VjY4sajWMamWMSjVsSmVuyjQ+ymQ+ujQOumQIOjLYOmLYCjLYCmLYSjAISmAIGjAIGmAD2jUj2mUjyjVTymVRijOximOxajPRamPTqjozqmozujpjumphSjuBSmuBWjuxWmu32jzn2mzn+jzn+mznyj+3ym+36j+36m+8OjqcOmqcSjpsSmpuijwOimwOmjvummvgAAAQADAAAAAAMAAgAAAgADAAUAAAIABQAEAAAEAAUABwAABAAHAAYAAAYABwAJAAAGAAkACAAACAAJAAsAAAgACwAKAAAKAAsADQAACgANAAwAAAwADQAPAAAMAA8ADgAADgAPABEAAA4AEQAQAAAQABEAEwAAEAATABIAABIAEwAVAAASABUAFAAAFAAVABcAABQAFwAWAAAWABcAGQAAFgAZABgAABgAGQAbAAAYABsAGgAAGgAbAB0AABoAHQAcAAAcAB0AHwAAHAAfAB4AAB4AHwAhAAAeACEAIAAAIAAhACMAACAAIwAiAAAiACMAJQAAIgAlACQAACQAJQAnAAAkACcAJgAAJgAnACkAACYAKQAoAAAoACkAKwAAKAArACoAACoAKwAtAAAqAC0ALAAALAAtAC8AACwALwAuAAAuAC8AMQAALgAxADAAADAAMQAzAAAwADMAMgAAMgAzADUAADIANQA0AAAFAAMAAQAAAQA3ADUAADUAMwAxAAAxAC8ALQAALQArACkAACkAJwAlAAAlACMAIQAAIQAfAB0AAB0AGwAZAAAZABcAFQAAFQATABEAABEADwANAAANAAsACQAACQAHAAUAAAUAAQA1AAA1ADEALQAALQApACUAACUAIQAdAAAdABkAFQAAFQARAA0AAA0ACQAFAAAFADUALQAALQAlAB0AAB0AFQANAAANAAUALQAALQAdAA0AADQANQA3AAA0ADcANgAANgA3AAEAADYAAQAAAAA2AAAAAgAAAgAEAAYAAAYACAAKAAAKAAwADgAADgAQABIAABIAFAAWAAAWABgAGgAAGgAcAB4AAB4AIAAiAAAiACQAJgAAJgAoACoAACoALAAuAAAuADAAMgAAMgA0ADYAADYAAgAGAAAGAAoADgAADgASABYAABYAGgAeAAAeACIAJgAAJgAqAC4AAC4AMgA2AAA2AAYADgAADgAWAB4AAB4AJgAuAAAuADYADgAADgAeAC4AADgAOQA7AAA4ADsAOgAAOgA7AD0AADoAPQA8AAA8AD0APwAAPAA/AD4AAD4APwBBAAA+AEEAQAAAQABBAEMAAEAAQwBCAABCAEMARQAAQgBFAEQAAEQARQBHAABEAEcARgAARgBHAEkAAEYASQBIAABIAEkASwAASABLAEoAAEoASwBNAABKAE0ATAAATABNAE8AAEwATwBOAABOAE8AUQAATgBRAFAAAFAAUQBTAABQAFMAUgAAUgBTAFUAAFIAVQBUAABUAFUAVwAAVABXAFYAAFYAVwBZAABWAFkAWAAAWABZAFsAAFgAWwBaAABaAFsAXQAAWgBdAFwAAD0AOwA5AAA5AF8AXQAAXQBbAFkAAFkAVwBVAABVAFMAUQAAUQBPAE0AAE0ASwBJAABJAEcARQAARQBDAEEAAEEAPwA9AAA9ADkAXQAAXQBZAFUAAFUAUQBNAABNAEkARQAARQBBAD0AAD0AXQBVAABVAE0ARQAAVQBFAD0AAFwAXQBfAABcAF8AXgAAXgBfADkAAF4AOQA4AABeADgAOgAAOgA8AD4AAD4AQABCAABCAEQARgAARgBIAEoAAEoATABOAABOAFAAUgAAUgBUAFYAAFYAWABaAABaAFwAXgAAXgA6AD4AAD4AQgBGAABGAEoATgAATgBSAFYAAFYAWgBeAABeAD4ARgAARgBOAFYAAEYAVgBeAABgAGEAYwABYABjAGIAAWIAYwBnAAFiAGcAZgABZgBnAGUAAWYAZQBkAAFkAGUAYQABZABhAGAAAWIAZgBkAAFiAGQAYAABZwBjAGEAAWcAYQBlAAFoAGkAawABaABrAGoAAWoAawBvAAFqAG8AbgABbgBvAG0AAW4AbQBsAAFsAG0AaQABbABpAGgAAWoAbgBsAAFqAGwAaAABbwBrAGkAAW8AaQBtAAFwAHEAcwABcABzAHIAAXIAcwB3AAFyAHcAdgABdgB3AHUAAXYAdQB0AAF0AHUAcQABdABxAHAAAXIAdgB0AAFyAHQAcAABdwBzAHEAAXcAcQB1AAF4AHkAewABeAB7AHoAAXoAewB/AAF6AH8AfgABfgB/AH0AAX4AfQB8AAF8AH0AeQABfAB5AHgAAXoAfgB8AAF6AHwAeAABfwB7AHkAAX8AeQB9AAGAAIEAgwABgACDAIIAAYIAgwCHAAGCAIcAhgABhgCHAIUAAYYAhQCEAAGEAIUAgQABhACBAIAAAYIAhgCEAAGCAIQAgAABhwCDAIEAAYcAgQCFAAGIAIkAiwABiACLAIoAAYoAiwCPAAGKAI8AjgABjgCPAI0AAY4AjQCMAAGMAI0AiQABjACJAIgAAYoAjgCMAAGKAIwAiAABjwCLAIkAAY8AiQCNAAGQAJEAkwABkACTAJIAAZIAkwCXAAGSAJcAlgABlgCXAJUAAZYAlQCUAAGUAJUAkQABlACRAJAAAZIAlgCUAAGSAJQAkAABlwCTAJEAAZcAkQCVAAGYAJkAmwABmACbAJoAAZoAmwCfAAGaAJ8AngABngCfAJ0AAZ4AnQCcAAGcAJ0AmQABnACZAJgAAZoAngCcAAGaAJwAmAABnwCbAJkAAZ8AmQCdAAGgAKEAowABoACjAKIAAaIAowCnAAGiAKcApgABpgCnAKUAAaYApQCkAAGkAKUAoQABpAChAKAAAaIApgCkAAGiAKQAoAABpwCjAKEAAacAoQClAAGoAKkAqwACqACrAKoAAqoAqwCvAAKqAK8ArgACrgCvAK0AAq4ArQCsAAKsAK0AqQACrACpAKgAAqoArgCsAAKqAKwAqAACrwCrAKkAAq8AqQCtAAKwALEAswACsACzALIAArIAswC3AAKyALcAtgACtgC3ALUAArYAtQC0AAK0ALUAsQACtACxALAAArIAtgC0AAKyALQAsAACtwCzALEAArcAsQC1AAK4ALkAuwADuAC7ALoAA7oAuwC/AAO6AL8AvgADvgC/AL0AA74AvQC8AAO8AL0AuQADvAC5ALgAA7oAvgC8AAO6ALwAuAADvwC7ALkAA78AuQC9AAPAAMEAwwADwADDAMIAA8IAwwDHAAPCAMcAxgADxgDHAMUAA8YAxQDEAAPEAMUAwQADxADBAMAAA8IAxgDEAAPCAMQAwAADxwDDAMEAA8cAwQDFAAPIAMkAywADyADLAMoAA8oAywDPAAPKAM8AzgADzgDPAM0AA84AzQDMAAPMAM0AyQADzADJAMgAA8oAzgDMAAPKAMwAyAADzwDLAMkAA88AyQDNAAPQANEA0wAD0ADTANIAA9IA0wDXAAPSANcA1gAD1gDXANUAA9YA1QDUAAPUANUA0QAD1ADRANAAA9IA1gDUAAPSANQA0AAD1wDTANEAA9cA0QDVAAPYANkA2wAD2ADbANoAA9oA2wDfAAPaAN8A3gAD3gDfAN0AA94A3QDcAAPcAN0A2QAD3ADZANgAA9oA3gDcAAPaANwA2AAD3wDbANkAA98A2QDdAAPgAOEA4wAD4ADjAOIAA+IA4wDnAAPiAOcA5gAD5gDnAOUAA+YA5QDkAAPkAOUA4QAD5ADhAOAAA+IA5gDkAAPiAOQA4AAD5wDjAOEAA+cA4QDlAAM="}
 };
+/* maker: end */
 </script>
 <script>
 /* WYRD: an action-RPG down the Maw, for Sofa Box OS, on Low3D, the box's game engine (../low3d.js). Hearthrim is a
@@ -407,62 +409,11 @@ function itemLines(it) {
   return out;
 }
 
-// ---------------------------------------------------------------- WYRD's own models: unpacked once, put into meshes
-const MDL = {};
-function model(name) {
-  let g = MDL[name]; if (g) return g;
-  const def = MODELS[name]; if (!def) return null;
-  const s = atob(def.d), b = new Uint8Array(s.length);
-  for (let i = 0; i < s.length; i++) b[i] = s.charCodeAt(i);
-  const dv = new DataView(b.buffer), nv = dv.getUint16(0, true), nt = dv.getUint16(2, true), bx = def.box;
-  const P = new Float32Array(nv * 3);
-  for (let i = 0; i < nv; i++) for (let k = 0; k < 3; k++) P[i * 3 + k] = bx[k] + b[4 + i * 3 + k] / 255 * bx[3 + k];
-  const T = new Uint16Array(nt * 3), C = new Uint8Array(nt), o = 4 + nv * 3;
-  for (let t = 0; t < nt; t++) { const q = o + t * 7; T[t * 3] = dv.getUint16(q, true); T[t * 3 + 1] = dv.getUint16(q + 2, true); T[t * 3 + 2] = dv.getUint16(q + 4, true); C[t] = b[q + 6]; }
-  g = MDL[name] = { P, T, C, cols: def.c.map(c => [(c[0] << 16) | (c[1] << 8) | c[2], c[3]]), x0: bx[0], y0: bx[1], z0: bx[2], w: bx[3], h: bx[4], d: bx[5] };
-  return g;
-}
-// into m, through its transform as it stands (m.at, or setT); tint(colour) → colour, or null
-function emitModel(m, name, tint) {
-  const g = model(name); if (!g) return;
-  const P = g.P, T = g.T, g0 = m.glow;
-  for (let t = 0, n = T.length / 3; t < n; t++) {
-    const a = T[t * 3] * 3, b = T[t * 3 + 1] * 3, c = T[t * 3 + 2] * 3, cc = g.cols[g.C[t]];
-    m.glow = cc[1]; m.tri(P[a], P[a + 1], P[a + 2], P[b], P[b + 1], P[b + 2], P[c], P[c + 1], P[c + 2], tint ? tint(cc[0], cc[1]) : cc[0]);
-  }
-  m.glow = g0;
-}
-function putModel(m, name, x, y, z, yaw, s, tint) { m.at(x, y, z, yaw || 0, s || 1); emitModel(m, name, tint); }
-const tintTo = (to, k) => (c, glow) => glow ? c : mix(c, to, k);   // (lit parts keep their colour)
-
-// ---------------------------------------------------------------- bodies: a skeleton of 15 joints, parts built on each, a
-// pose (each joint's swing forward, roll out, turn), baked into one mesh a pose: one draw a body, every frame
-// A transform is 12 numbers as Mesh keeps its own: the three axes (columns), then where.
-function T12() { return new Float32Array(12); }
-function rot12(o, yaw, pitch, roll, sx, sy, sz) {
-  const cy = Math.cos(yaw), sy_ = Math.sin(yaw), cp = Math.cos(pitch), sp = Math.sin(pitch), cr = Math.cos(roll), sr = Math.sin(roll);
-  sy = sy == null ? sx : sy; sz = sz == null ? sx : sz;
-  o[0] = (cy * cr + sy_ * sp * sr) * sx; o[1] = cp * sr * sx; o[2] = (-sy_ * cr + cy * sp * sr) * sx;
-  o[3] = (-cy * sr + sy_ * sp * cr) * sy; o[4] = cp * cr * sy; o[5] = (sy_ * sr + cy * sp * cr) * sy;
-  o[6] = sy_ * cp * sz; o[7] = -sp * sz; o[8] = cy * cp * sz; o[9] = o[10] = o[11] = 0; return o;
-}
-const TMP12 = T12();
-function mul12(o, a, b) {                            // o = a then b's frame inside it
-  const r = TMP12;
-  for (let j = 0; j < 3; j++) for (let i = 0; i < 3; i++) r[j * 3 + i] = a[i] * b[j * 3] + a[3 + i] * b[j * 3 + 1] + a[6 + i] * b[j * 3 + 2];
-  for (let i = 0; i < 3; i++) r[9 + i] = a[i] * b[9] + a[3 + i] * b[10] + a[6 + i] * b[11] + a[9 + i];
-  for (let i = 0; i < 12; i++) o[i] = r[i];
-  return o;
-}
-function setT(m, t) { for (let i = 0; i < 12; i++) m.t[i] = t[i]; }
-const JOINTS = [   // name, parent, where in the parent
-  ["hips", -1, 0, 0.95, 0], ["chest", 0, 0, 0.1, 0], ["head", 1, 0, 0.52, 0],
-  ["armR", 1, -0.21, 0.44, 0], ["foreR", 3, 0, -0.3, 0], ["handR", 4, 0, -0.27, 0],
-  ["armL", 1, 0.21, 0.44, 0], ["foreL", 6, 0, -0.3, 0], ["handL", 7, 0, -0.27, 0],
-  ["legR", 0, -0.1, -0.03, 0], ["shinR", 9, 0, -0.44, 0], ["footR", 10, 0, -0.43, 0],
-  ["legL", 0, 0.1, -0.03, 0], ["shinL", 12, 0, -0.44, 0], ["footL", 13, 0, -0.43, 0]
-];
-const JI = {}; JOINTS.forEach((j, i) => JI[j[0]] = i);
+// ---------------------------------------------------------------- bodies: Low3D's Rig (15 joints), parts built on each,
+// a pose (each joint's swing forward, roll out, turn) baked into one mesh a pose: one draw a body, every frame.
+// The poses and the bodies are marked for the maker (../maker/), which reads them from this page: what's between the
+// marks uses only L3, MODELS and the blocks before it.
+/* maker: poses */
 // poses: joint: [swing forward, roll (outward on the left, so the right's is negated for it), turn]; hips also y (how far
 // down) and lean. Walking, swinging, drawing a bow, casting, rolling away, being hit, falling.
 const POSES = {
@@ -496,12 +447,14 @@ const POSES = {
   mine1: { y: -0.2, chest: [0.8, 0, 0], armR: [1.1, 0.05, 0], foreR: [0.4, 0, 0], armL: [1.0, 0.1, 0], foreL: [0.5, 0, 0], legR: [0.6, 0, 0], shinR: [-0.6, 0, 0], legL: [-0.2, 0, 0], shinL: [-0.5, 0, 0] },
   cheer: { chest: [-0.15, 0, 0], head: [-0.25, 0, 0], armR: [3.0, 0.3, 0], foreR: [0.2, 0, 0], armL: [3.0, 0.3, 0], foreL: [0.2, 0, 0] }
 };
+/* maker: end */
 const WALK = ["walk0", "walk1", "walk2", "walk3"];
 const ATTACK = { blade: ["swing0", "swing1", "swing2"], axe: ["chop0", "chop1", "chop2"], bow: ["draw0", "draw1", "draw1"], staff: ["cast0", "cast1", "cast1"] };
+/* maker: bodies rig=RIG build=buildBody looks=FOLK,STYLES */
+const RIG = new L3.Rig(L3.Rig.HUMAN), EDGE = 0xff2e88;   // (EDGE: the lit edges of the Sovereign's wings)
 // what a body is made of: colours, how broad, its head, and what it holds. A delver's from their look and gear; the
 // risen dead's, the knights', the golems' and the powers' from here.
 const SKIN = [0xe8b896, 0xc89070, 0x9a6a4a, 0x6a4632], HAIR = [0x2a1c14, 0x6a3a1c, 0xd8c08a, 0xb8b0a8], CLOTH = [0x4a5a8a, 0x7a2e3a, 0x2e6a4a, 0x6a4a2e, 0x4a3a6a, 0x3a3a3e];
-const TIERCOL = [0x8a6a4a, 0x8a9098, 0xd0d8e0, 0x3a62d8, 0x7ad8e8, 0x3a2a2e];   // (what armour of each tier is made of)
 const STYLES = {
   skeleton: { skin: 0xd8d0b8, cloth: 0x4a4038, legs: 0xd8d0b8, boots: 0xc8c0a8, gloves: 0xd8d0b8, head: "skull", thin: 0.55, eyes: 0xffa04a, weapon: "sword" },
   wraith: { skin: 0x8aa8c8, cloth: 0x3a4a6a, legs: 0x2a3448, boots: 0x2a3448, gloves: 0x8aa8c8, head: "hood", thin: 0.8, eyes: 0x8af0ff, weapon: "dagger", glow: 0.25 },
@@ -514,35 +467,46 @@ const STYLES = {
   colossus: { skin: 0x9a5a34, cloth: 0x7a4428, legs: 0x6a3a22, boots: 0x4a2a18, gloves: 0x9a5a34, head: "block", bulk: 2.1, eyes: 0xff7a2a, weapon: null, pads: 0x5a3a26 },
   sovereign: { skin: 0x2a2226, cloth: 0x4a1a22, legs: 0x2a2226, boots: 0x1a1416, gloves: 0x2a2226, head: "helm", bulk: 1.2, eyes: 0xff2e88, weapon: "mourning", crown: true, wings: true, pads: 0x3a2a2e }
 };
-function delverStyle(d) {
-  const L = d.look, g = d.gear, t = s => g[s] ? TIERCOL[g[s].tier] : null;
-  return { skin: SKIN[L.skin], hair: HAIR[L.hair], cloth: g.chest ? mix(CLOTH[L.cloth], t("chest"), 0.55) : CLOTH[L.cloth], legs: mix(CLOTH[L.cloth], 0x2a2420, 0.6),
-    boots: t("boots") || 0x4a3426, gloves: t("gloves") || SKIN[L.skin], head: g.helm ? "helmet" : "hair", helmCol: t("helm"), bulk: [0.92, 1.0, 1.12][L.build],
-    pads: g.chest && g.chest.tier >= 2 ? t("chest") : null, weapon: g.weapon ? weaponModel(g.weapon) : null, kind: g.weapon ? g.weapon.kind : "blade",
-    shine: g.weapon && g.weapon.r >= 3 ? RARITY[g.weapon.r].col : 0 };
-}
-function weaponModel(it) { return KINDS[it.kind].models[clamp(it.tier, 0, 5)]; }
+const FOLK = {                                       // Hearthrim's: the smith, the herbalist, the weaver, three about the square
+  smith: { skin: SKIN[1], hair: HAIR[0], cloth: 0x5a3a26, legs: 0x3a2a20, boots: 0x2a1c14, gloves: 0x3a2a20, head: "hair", bulk: 1.2, weapon: "mace" },
+  herbalist: { skin: SKIN[0], hair: HAIR[2], cloth: 0x2e6a4a, legs: 0x2a4a3a, boots: 0x3a2a20, gloves: SKIN[0], head: "hair", bulk: 0.95, weapon: "wand" },
+  weaver: { skin: SKIN[2], hair: HAIR[3], cloth: 0x4a3a6a, legs: 0x3a2e52, boots: 0x2a2030, gloves: SKIN[2], head: "hood", bulk: 0.95, weapon: "staff" },
+  folk1: { skin: SKIN[3], hair: HAIR[1], cloth: CLOTH[3], legs: 0x3a3028, boots: 0x2a2018, gloves: SKIN[3], head: "hair", bulk: 1.0 },
+  folk2: { skin: SKIN[0], hair: HAIR[0], cloth: CLOTH[1], legs: 0x3a2a2a, boots: 0x2a1c1c, gloves: SKIN[0], head: "hair", bulk: 0.9 },
+  folk3: { skin: SKIN[1], hair: HAIR[2], cloth: CLOTH[2], legs: 0x2a3a30, boots: 0x1e2a22, gloves: SKIN[1], head: "hood", bulk: 1.05 }
+};
 const WSIZE = { sword: 0.95, edge: 0.95, vanguard: 1.0, valor: 1.0, mourning: 1.1, greatsword: 1.35, dagger: 0.5, axe: 0.8, cleaver: 0.8, mace: 0.8, cleft: 0.75, halberd: 1.8, bow: 1.3, staff: 1.75, wand: 0.6 };
+// ---------------------------------------------------------------- WYRD's own models: unpacked once, put into meshes
+const MDL = {};
+function model(name) {
+  let g = MDL[name]; if (g) return g;
+  const def = MODELS[name]; if (!def) return null;
+  const s = atob(def.d), b = new Uint8Array(s.length);
+  for (let i = 0; i < s.length; i++) b[i] = s.charCodeAt(i);
+  const dv = new DataView(b.buffer), nv = dv.getUint16(0, true), nt = dv.getUint16(2, true), bx = def.box;
+  const P = new Float32Array(nv * 3);
+  for (let i = 0; i < nv; i++) for (let k = 0; k < 3; k++) P[i * 3 + k] = bx[k] + b[4 + i * 3 + k] / 255 * bx[3 + k];
+  const T = new Uint16Array(nt * 3), C = new Uint8Array(nt), o = 4 + nv * 3;
+  for (let t = 0; t < nt; t++) { const q = o + t * 7; T[t * 3] = dv.getUint16(q, true); T[t * 3 + 1] = dv.getUint16(q + 2, true); T[t * 3 + 2] = dv.getUint16(q + 4, true); C[t] = b[q + 6]; }
+  g = MDL[name] = { P, T, C, cols: def.c.map(c => [(c[0] << 16) | (c[1] << 8) | c[2], c[3]]), x0: bx[0], y0: bx[1], z0: bx[2], w: bx[3], h: bx[4], d: bx[5] };
+  return g;
+}
+// into m, through its transform as it stands (m.at, or setT); tint(colour) → colour, or null
+function emitModel(m, name, tint) {
+  const g = model(name); if (!g) return;
+  const P = g.P, T = g.T, g0 = m.glow;
+  for (let t = 0, n = T.length / 3; t < n; t++) {
+    const a = T[t * 3] * 3, b = T[t * 3 + 1] * 3, c = T[t * 3 + 2] * 3, cc = g.cols[g.C[t]];
+    m.glow = cc[1]; m.tri(P[a], P[a + 1], P[a + 2], P[b], P[b + 1], P[b + 2], P[c], P[c + 1], P[c + 2], tint ? tint(cc[0], cc[1]) : cc[0]);
+  }
+  m.glow = g0;
+}
 // one pose's body into m (at the hips' place on the ground, facing +z)
-const JW = []; for (let i = 0; i < JOINTS.length; i++) JW.push(T12());
-const PART = T12(), LOC = T12();
 function buildBody(m, st, poseName, scale) {
   let P = POSES[poseName] || POSES.idle0; const bulk = st.bulk || 1, thin = st.thin || 1, S = scale || 1;
   if (st.weapon === "bow" && /^(idle|walk)/.test(poseName)) P = Object.assign({}, P, { foreL: [1.35, 0, 0], armL: [0.2, 0.1, 0] });   // (a bow held ready, upright)
-  for (let i = 0; i < JOINTS.length; i++) {
-    const [name, parent, ox, oy, oz] = JOINTS[i], a = P[name] || null;
-    const side = name.endsWith("R") ? -1 : 1, wide = name.startsWith("arm") ? bulk : name.startsWith("leg") ? Math.sqrt(bulk) : 1;
-    if (parent < 0) {
-      rot12(JW[i], 0, P.lean || 0, 0, S); JW[i][9] = 0; JW[i][10] = (oy + (P.y || 0)) * S; JW[i][11] = 0;
-      if (P.lean) { JW[i][10] -= Math.abs(Math.sin(P.lean)) * 0.1 * S; }
-    } else {
-      const up = name === "chest" || name === "head";
-      rot12(LOC, a ? a[2] * (up ? 1 : side) : 0, a ? (up ? a[0] : -a[0]) : 0, a ? a[1] * side : 0, 1);
-      LOC[9] = ox * wide; LOC[10] = oy; LOC[11] = oz;
-      mul12(JW[i], JW[parent], LOC);
-    }
-  }
-  const part = (j, fn) => { setT(m, JW[j]); fn(); };
+  RIG.pose(P, S, bulk);
+  const part = (j, fn) => { RIG.at(m, j); fn(); };
   const cloth = st.cloth, skin = st.skin, glow0 = m.glow;
   if (st.glow) m.glow = Math.round(st.glow * 127);
   // hips and the trunk
@@ -583,23 +547,35 @@ function buildBody(m, st, poseName, scale) {
   const w = st.weapon;
   if (w && MODELS[w]) {
     const sz = (WSIZE[w] || 1) * (st.bulk ? Math.max(1, st.bulk * 0.9) : 1);
-    if (w === "bow") { rot12(LOC, 0, PI / 2, 0, sz); LOC[9] = 0; LOC[10] = -0.08; LOC[11] = 0.02; mul12(PART, JW[8], LOC); }
-    else if (w === "staff" || w === "wand" || w === "halberd") { rot12(LOC, 0, 0, 0, sz); LOC[9] = 0; LOC[10] = -0.09 - sz * 0.42; LOC[11] = 0.07; mul12(PART, JW[5], LOC); }
-    else { rot12(LOC, 0, PI / 2, 0, sz); LOC[9] = 0; LOC[10] = -0.09; LOC[11] = -0.1 * sz; mul12(PART, JW[5], LOC); }
-    setT(m, PART); emitModel(m, w, st.shine ? (c, g) => g ? st.shine : c : null);
+    if (w === "bow") RIG.attach(m, 8, 0, -0.08, 0.02, 0, Math.PI / 2, 0, sz);
+    else if (w === "staff" || w === "wand" || w === "halberd") RIG.attach(m, 5, 0, -0.09 - sz * 0.42, 0.07, 0, 0, 0, sz);
+    else RIG.attach(m, 5, 0, -0.09, -0.1 * sz, 0, Math.PI / 2, 0, sz);
+    emitModel(m, w, st.shine ? (c, g) => g ? st.shine : c : null);
   }
-  if (st.shield && MODELS[st.shield]) { rot12(LOC, PI / 2, 0, 0, 0.75); LOC[9] = 0.1; LOC[10] = -0.12; LOC[11] = 0; mul12(PART, JW[7], LOC); setT(m, PART); emitModel(m, st.shield); }
-  if (st.crown && MODELS.crown) { rot12(LOC, 0, 0, 0, 0.27); LOC[10] = 0.38; mul12(PART, JW[2], LOC); setT(m, PART); emitModel(m, "crown"); }
+  if (st.shield && MODELS[st.shield]) { RIG.attach(m, 7, 0.1, -0.12, 0, Math.PI / 2, 0, 0, 0.75); emitModel(m, st.shield); }
+  if (st.crown && MODELS.crown) { RIG.attach(m, 2, 0, 0.38, 0, 0, 0, 0, 0.27); emitModel(m, "crown"); }
   if (st.wings) {                                     // wings of ash: feathers fanned up and out from the shoulders, their edges alight
-    setT(m, JW[1]);
+    RIG.at(m, 1);
     for (const sd of [-1, 1]) for (let k = 0; k < 5; k++) {
       const a = 0.35 + k * 0.28, L = 1.25 - k * 0.12, x = Math.cos(a) * L * sd, y = 0.42 + Math.sin(a) * L, x2 = Math.cos(a + 0.22) * L * 0.8 * sd, y2 = 0.42 + Math.sin(a + 0.22) * L * 0.8;
       m.both(0.08 * sd, 0.42, -0.14, x, y, -0.32, x2, y2, -0.3, k & 1 ? 0x1e1618 : 0x2a2024);
-      const g0 = m.glow; m.glow = 127; m.both(x, y, -0.32, x * 0.93, y - 0.06, -0.31, x2, y2, -0.3, PINK); m.glow = g0;
+      const g0 = m.glow; m.glow = 127; m.both(x, y, -0.32, x * 0.93, y - 0.06, -0.31, x2, y2, -0.3, EDGE); m.glow = g0;
     }
   }
   m.at(0, 0, 0);
 }
+/* maker: end */
+const TIERCOL = [0x8a6a4a, 0x8a9098, 0xd0d8e0, 0x3a62d8, 0x7ad8e8, 0x3a2a2e];   // (what armour of each tier is made of)
+function delverStyle(d) {
+  const L = d.look, g = d.gear, t = s => g[s] ? TIERCOL[g[s].tier] : null;
+  return { skin: SKIN[L.skin], hair: HAIR[L.hair], cloth: g.chest ? mix(CLOTH[L.cloth], t("chest"), 0.55) : CLOTH[L.cloth], legs: mix(CLOTH[L.cloth], 0x2a2420, 0.6),
+    boots: t("boots") || 0x4a3426, gloves: t("gloves") || SKIN[L.skin], head: g.helm ? "helmet" : "hair", helmCol: t("helm"), bulk: [0.92, 1.0, 1.12][L.build],
+    pads: g.chest && g.chest.tier >= 2 ? t("chest") : null, weapon: g.weapon ? weaponModel(g.weapon) : null, kind: g.weapon ? g.weapon.kind : "blade",
+    shine: g.weapon && g.weapon.r >= 3 ? RARITY[g.weapon.r].col : 0 };
+}
+function weaponModel(it) { return KINDS[it.kind].models[clamp(it.tier, 0, 5)]; }
+function putModel(m, name, x, y, z, yaw, s, tint) { m.at(x, y, z, yaw || 0, s || 1); emitModel(m, name, tint); }
+const tintTo = (to, k) => (c, glow) => glow ? c : mix(c, to, k);   // (lit parts keep their colour)
 
 // ---------------------------------------------------------------- the floors, made as they're reached (each from its own
 // seed, so a floor is the same every time a delver comes back to it)
@@ -766,12 +742,12 @@ function buildTown(w, r, place, prop, node) {
   for (let k = 0; k < 20; k++) { const a = r() * TAU, x = w.maw.x + Math.cos(a) * (w.maw.r + 1.5), z = w.maw.z + Math.sin(a) * (w.maw.r + 1.5); if (z > w.maw.z + w.maw.r - 1 && Math.abs(x) < 4) continue; w.deco.push({ kind: "crag", x, z, s: 1 + r() * 1.4, seed: (r() * 1e6) | 0, wall: true }); }
   // the townsfolk: the smith, the herbalist and the weaver at their places, three more about the square
   w.folk = [
-    { who: "smith", x: -12.6, z: -6.2, home: [-12.6, -6.2], style: { skin: SKIN[1], hair: HAIR[0], cloth: 0x5a3a26, legs: 0x3a2a20, boots: 0x2a1c14, gloves: 0x3a2a20, head: "hair", bulk: 1.2, weapon: "mace" } },
-    { who: "herbalist", x: 13.4, z: -6.4, home: [13.4, -6.4], style: { skin: SKIN[0], hair: HAIR[2], cloth: 0x2e6a4a, legs: 0x2a4a3a, boots: 0x3a2a20, gloves: SKIN[0], head: "hair", bulk: 0.95, weapon: "wand" } },
-    { who: "weaver", x: -10.4, z: 12.2, home: [-10.4, 12.2], style: { skin: SKIN[2], hair: HAIR[3], cloth: 0x4a3a6a, legs: 0x3a2e52, boots: 0x2a2030, gloves: SKIN[2], head: "hood", bulk: 0.95, weapon: "staff" } },
-    { who: "folk", x: -5, z: 5, home: [-5, 5], wander: true, style: { skin: SKIN[3], hair: HAIR[1], cloth: CLOTH[3], legs: 0x3a3028, boots: 0x2a2018, gloves: SKIN[3], head: "hair", bulk: 1.0 } },
-    { who: "folk", x: 7, z: 4, home: [7, 4], wander: true, style: { skin: SKIN[0], hair: HAIR[0], cloth: CLOTH[1], legs: 0x3a2a2a, boots: 0x2a1c1c, gloves: SKIN[0], head: "hair", bulk: 0.9 } },
-    { who: "folk", x: 2, z: -8, home: [2, -8], wander: true, style: { skin: SKIN[1], hair: HAIR[2], cloth: CLOTH[2], legs: 0x2a3a30, boots: 0x1e2a22, gloves: SKIN[1], head: "hood", bulk: 1.05 } }
+    { who: "smith", x: -12.6, z: -6.2, home: [-12.6, -6.2], style: FOLK.smith },
+    { who: "herbalist", x: 13.4, z: -6.4, home: [13.4, -6.4], style: FOLK.herbalist },
+    { who: "weaver", x: -10.4, z: 12.2, home: [-10.4, 12.2], style: FOLK.weaver },
+    { who: "folk", x: -5, z: 5, home: [-5, 5], wander: true, style: FOLK.folk1 },
+    { who: "folk", x: 7, z: 4, home: [7, 4], wander: true, style: FOLK.folk2 },
+    { who: "folk", x: 2, z: -8, home: [2, -8], wander: true, style: FOLK.folk3 }
   ];
 }
 

@@ -1,0 +1,368 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Maker: poses</title>
+<style>
+  :root { --ink: #050706; --panel: #0b0f0c; --line: #1c2a21; --bone: #e9ede8; --dim: #8a968e; --green: #39ff88; --pink: #ff2e88;
+    --mono: ui-monospace, "SF Mono", Menlo, "DejaVu Sans Mono", Consolas, monospace; color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--ink); color: var(--bone); font: 12px/1.4 var(--mono); }
+  button, select, input, textarea { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  :focus-visible { outline: 2px solid var(--pink); outline-offset: 1px; }
+  .app { display: grid; grid-template-rows: auto minmax(0, 1fr); height: 100%; }
+  header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--panel); }
+  header b { color: var(--green); font-weight: 500; letter-spacing: .08em; }
+  header b i { color: var(--pink); font-style: normal; }
+  header select { background: var(--ink); border: 1px solid var(--line); padding: 3px 6px; }
+  header .hint { color: var(--dim); }
+  .msg { padding: 6px 12px; color: var(--dim); }
+  .msg.bad { color: var(--pink); }
+  .main { display: grid; grid-template-columns: 190px minmax(0, 1fr) 270px; min-height: 0; }
+  .col { padding: 12px; background: var(--panel); min-width: 0; overflow: auto; }
+  .left { border-right: 1px solid var(--line); }
+  .right { border-left: 1px solid var(--line); }
+  .h { color: var(--green); text-transform: uppercase; letter-spacing: .12em; font-size: 10px; margin: 12px 0 6px; }
+  .h:first-child { margin-top: 0; }
+  .h::before { content: "> "; color: var(--pink); }
+  .list { display: flex; flex-direction: column; gap: 2px; }
+  .item { text-align: left; background: none; border: 0; padding: 5px 6px; color: var(--dim); }
+  .item:hover { color: var(--bone); background: #111a14; }
+  .item.on { color: var(--ink); background: var(--green); }
+  .stage { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+  canvas { flex: 1; width: 100%; min-height: 0; display: block; image-rendering: pixelated; image-rendering: crisp-edges; cursor: grab; background: var(--ink); touch-action: pan-y; }
+  .hud { position: absolute; top: 8px; left: 10px; right: 10px; color: var(--green); font-size: 11px; pointer-events: none; text-shadow: 0 1px 0 #000; }
+  .bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 10px; border-top: 1px solid var(--line); background: var(--panel); }
+  .chips { display: flex; flex-wrap: wrap; gap: 4px; }
+  .chip, .btn { background: none; border: 1px solid var(--line); padding: 3px 7px; color: var(--dim); }
+  .chip:hover, .btn:hover { color: var(--bone); border-color: var(--dim); }
+  .chip.on { color: var(--ink); background: var(--green); border-color: var(--green); }
+  .chip.edited::after { content: " •"; color: var(--pink); }
+  .chip.on.edited::after { color: var(--ink); }
+  .btn { color: var(--bone); }
+  .btn.on { border-color: var(--pink); color: var(--pink); }
+  .rate { display: flex; align-items: center; gap: 6px; color: var(--dim); margin-left: auto; }
+  .rate input { width: 80px; accent-color: var(--green); }
+  .joints .chip { padding: 2px 5px; font-size: 11px; }
+  .jname { margin: 10px 0 4px; color: var(--pink); }
+  .row { display: grid; grid-template-columns: 44px 1fr 44px; align-items: center; gap: 6px; margin: 2px 0; color: var(--dim); }
+  .row input { width: 100%; accent-color: var(--pink); }
+  .num { text-align: right; color: var(--bone); }
+  .btns { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 6px; }
+  textarea { width: 100%; background: #070a08; color: var(--green); border: 1px solid var(--line); font-size: 10.5px; padding: 6px; resize: vertical; }
+  .stat { display: flex; flex-direction: column; margin: 4px 0; }
+  .stat span { color: var(--dim); font-size: 10px; }
+  .meter { display: grid; grid-template-columns: 40px 1fr; gap: 2px 8px; align-items: center; margin: 6px 0; color: var(--dim); }
+  .meter i { display: block; height: 8px; background: #121a15; border: 1px solid var(--line); }
+  .meter em { display: block; height: 100%; width: 0; background: var(--green); }
+  .meter b { grid-column: 2; font-weight: 500; font-size: 11px; }
+  .note { color: var(--dim); font-size: 11px; margin-top: 10px; }
+  @media (max-width: 900px) {
+    html, body { height: auto; }
+    .app { height: auto; }
+    .main { grid-template-columns: 1fr; }
+    .left { border-right: 0; border-bottom: 1px solid var(--line); }
+    .left .list { flex-direction: row; flex-wrap: wrap; }
+    .right { border-left: 0; border-top: 1px solid var(--line); }
+    canvas { height: 320px; flex: none; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <b>maker <i>/</i> poses</b>
+    <label>game <select id="game"></select></label>
+    <span class="hint">Reads the game's own page. Nothing is saved: copy the poses into the page between its maker marks.</span>
+  </header>
+  <div class="main">
+    <div class="col left">
+      <div id="looks"></div>
+    </div>
+    <div class="stage">
+      <div id="msg" class="msg" hidden></div>
+      <canvas id="gl"></canvas>
+      <div id="hud" class="hud"></div>
+      <div class="bar">
+        <button id="play" class="btn">pause</button>
+        <div id="clips" class="chips"></div>
+      </div>
+      <div class="bar">
+        <div id="frames" class="chips"></div>
+        <label class="rate"><input id="rate" type="range" min="2" max="12" step="1" value="6"><span id="rate-n">6 a second</span></label>
+        <button id="line" class="btn">line-up</button>
+        <button id="pix" class="btn on">pi 3 picture</button>
+      </div>
+    </div>
+    <div class="col right">
+      <div class="h">joint</div>
+      <div id="joints" class="chips joints"></div>
+      <div id="jname" class="jname"></div>
+      <div id="sliders"></div>
+      <div class="btns"><button id="mirror" class="btn">mirror</button><button id="revert" class="btn">revert</button><button id="copy" class="btn">copy pose</button><button id="copyall" class="btn">copy all</button></div>
+      <textarea id="out" rows="5" readonly spellcheck="false"></textarea>
+      <div class="h">baked</div>
+      <div class="stat"><span>this pose</span><b id="s-pose"></b></div>
+      <div class="stat"><span>this body, every pose</span><b id="s-body"></b></div>
+      <div class="h">a pi 3 frame</div>
+      <div class="meter"><span>draws</span><i><em id="m-draw"></em></i><b id="m-draw-n"></b></div>
+      <div class="meter"><span>tris</span><i><em id="m-tri"></em></i><b id="m-tri-n"></b></div>
+      <p class="note">A Pi 3's frame holds about 30 draw calls and 15,000 triangles at 60 a second. Each body here is one draw call, its pose baked into one mesh.</p>
+    </div>
+  </div>
+</div>
+<script src="../low3d.js"></script>
+<script>
+/* The maker's first page: the poses of a game's bodies, on Low3D's Rig. It reads the game's own page (../<game>/index.html)
+   and what's marked there for the maker:
+
+     /* maker: models * /  … const MODELS = {…}; …  /* maker: end * /     (models packed by tools/low3d-models.py)
+     /* maker: poses * /   … const POSES = {…}; …   /* maker: end * /     (poses as numbers: joint: [swing, roll, turn])
+     /* maker: bodies rig=RIG build=buildBody looks=FOLK,STYLES * / … /* maker: end * /
+
+   The bodies block makes the rig, the looks and build(mesh, look, pose, size), using only L3 and the blocks before it.
+   Here a body is baked a pose at a time as the game bakes it, and the poses can be turned joint by joint, mirrored and
+   played as clips; what's changed is copied out as the game writes it. Writing it back into the page comes later. */
+(function () {
+"use strict";
+const L3 = window.Low3D, $ = id => document.getElementById(id);
+const say = (t, bad) => { const e = $("msg"); e.textContent = t || ""; e.className = bad ? "msg bad" : "msg"; e.hidden = !t; };
+const cv = $("gl");
+let g3 = null;
+try { g3 = new L3.GL(cv, { antialias: false }); } catch (e) { say("This browser gives the page no WebGL, so the bodies can't be drawn here.", true); }
+
+// ---------------------------------------------------------------- reading a game's page
+const MARK = /\/\* maker: ([a-z]+)((?: [a-z]+=[A-Za-z_$][\w$]*(?:,[A-Za-z_$][\w$]*)*)*) \*\/([\s\S]*?)\/\* maker: end \*\//g;
+const NAME = /^[A-Za-z_$][\w$]*$/;
+function blocks(page) {
+  const out = {}; let m; MARK.lastIndex = 0;
+  while ((m = MARK.exec(page))) {
+    const attrs = {};
+    for (const kv of m[2].trim().split(/\s+/)) { const i = kv.indexOf("="); if (i > 0) attrs[kv.slice(0, i)] = kv.slice(i + 1); }
+    out[m[1]] = { text: m[3], attrs };
+  }
+  return out;
+}
+function evaluate(b) {
+  const a = b.bodies.attrs, looks = (a.looks || "").split(",").filter(Boolean), names = [a.build].concat(looks, a.rig ? [a.rig] : []);
+  for (const n of names) if (!n || !NAME.test(n)) throw new Error("the bodies mark needs build=… and looks=… (names in the block)");
+  const src = (b.models ? b.models.text : "const MODELS = {};") + "\n" + b.poses.text + "\n" + b.bodies.text +
+    "\nreturn { poses: POSES, build: " + a.build + ", rig: " + (a.rig || "null") + ", looks: { " + looks.map(n => JSON.stringify(n) + ": " + n).join(", ") + " } };";
+  return new Function("L3", src)(L3);
+}
+
+// ---------------------------------------------------------------- the game open
+let G = null;                                          // {id, poses, orig, build, rig, looks: [{id, group, st}], clips, text}
+let look = null, pose = "", clip = "", ci = 0, joint = "", lineup = false, pixels = true, playing = true, rate = 6;
+let clipT = 0, yaw = 0.6, drag = null, idleT = 0, markAt = null;
+const edited = new Set(), baked = new Map();           // look id → {pose → {h, tris}}
+async function open(id) {
+  say("Reading " + id + "…"); freeAll(); G = null; edited.clear();
+  try {
+    const r = await fetch("../" + encodeURIComponent(id) + "/index.html");
+    if (!r.ok) throw new Error("no page (" + r.status + ")");
+    const b = blocks(await r.text());
+    if (!b.poses || !b.bodies) { say(id + " has no bodies marked for the maker yet (a poses block and a bodies block)."); draw(); return; }
+    const e = evaluate(b), list = [];
+    for (const group of Object.keys(e.looks)) for (const k of Object.keys(e.looks[group])) list.push({ id: group + "." + k, name: k, group, st: e.looks[group][k] });
+    G = { id, poses: e.poses, orig: JSON.parse(JSON.stringify(e.poses)), build: e.build, rig: e.rig || new L3.Rig(), looks: list, clips: L3.Rig.clips(e.poses), text: b.poses.text };
+    G.arc = arc(list.length);
+    look = list[0]; clip = G.clips.walk ? "walk" : Object.keys(G.clips)[0]; ci = 0; pose = G.clips[clip][0];
+    joint = G.rig.index.armR != null ? "armR" : G.rig.joints[Math.min(1, G.rig.n - 1)][0];
+    say(""); sync();
+  } catch (err) { say("Couldn't read " + id + ": " + err.message, true); }
+}
+
+// every pose of a body, baked as the game bakes it: one mesh each, made when first shown and again when changed
+function slot(lk, p) {
+  let set = baked.get(lk.id); if (!set) baked.set(lk.id, set = {});
+  let s = set[p];
+  if (!s) { const m = new L3.Mesh(2048); G.build(m, lk.st, p, 1); s = set[p] = { h: g3 ? g3.upload(m) : null, tris: m.n / 3 }; }
+  return s;
+}
+function rebake(p) { for (const set of baked.values()) if (set[p]) { if (g3) g3.free(set[p].h); delete set[p]; } markAt = null; }
+function freeAll() { if (g3) for (const set of baked.values()) for (const p in set) g3.free(set[p].h); baked.clear(); }
+// the line-up: an arc, all facing the middle
+function arc(n) {
+  const out = [], R = 6.2, half = Math.max(1, Math.ceil((n - 1) / 2));
+  for (let k = 0; k < n; k++) {
+    const side = k === 0 ? 0 : (k % 2 ? -1 : 1) * Math.ceil(k / 2), a = side * 1.25 / half, x = Math.sin(a) * R, z = 3.4 - Math.cos(a) * R;
+    out.push({ x, z, yaw: Math.atan2(-x, 6 - z) });
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------- the panels
+function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+function sync() { lists(); sliders(); stats(); }
+function lists() {
+  const L = $("looks"); L.textContent = "";
+  $("clips").textContent = ""; $("frames").textContent = ""; $("joints").textContent = "";
+  if (!G) return;
+  let group = "", list = null;
+  for (const lk of G.looks) {
+    if (lk.group !== group) { group = lk.group; L.appendChild(el("div", "h", group.toLowerCase())); list = L.appendChild(el("div", "list")); }
+    const it = el("button", "item" + (lk === look ? " on" : ""), lk.name);
+    it.onclick = () => { look = lk; markAt = null; sync(); };
+    list.appendChild(it);
+  }
+  for (const c of Object.keys(G.clips)) {
+    const it = el("button", "chip" + (c === clip ? " on" : "") + (G.clips[c].some(p => edited.has(p)) ? " edited" : ""), c);
+    it.onclick = () => { clip = c; ci = 0; pose = G.clips[c][0]; clipT = 0; markAt = null; sync(); };
+    $("clips").appendChild(it);
+  }
+  G.clips[clip].forEach((p, i) => {
+    const it = el("button", "chip" + (p === pose ? " on" : "") + (edited.has(p) ? " edited" : ""), p);
+    it.onclick = () => { playing = false; ci = i; pose = p; markAt = null; sync(); };
+    $("frames").appendChild(it);
+  });
+  for (const j of G.rig.joints) {
+    const it = el("button", "chip" + (j[0] === joint ? " on" : ""), j[0]);
+    it.onclick = () => { joint = j[0]; markAt = null; lists(); sliders(); };
+    $("joints").appendChild(it);
+  }
+  $("play").textContent = playing ? "pause" : "play";
+  $("line").classList.toggle("on", lineup); $("pix").classList.toggle("on", pixels);
+}
+// a joint's numbers: swing forward, roll out, turn; the root's: how far down, and the lean
+const isRoot = j => G.rig.joints[G.rig.index[j]][1] < 0;
+function val(p, j, k) { const P = G.poses[p]; if (isRoot(j)) return k === 0 ? (P.y || 0) : (P.lean || 0); return P[j] ? P[j][k] : 0; }
+function setVal(p, j, k, v) {
+  const P = G.poses[p];
+  if (isRoot(j)) { if (k === 0) P.y = v; else P.lean = v; }
+  else { if (!P[j]) P[j] = [0, 0, 0]; P[j][k] = v; }
+  edited.add(p); rebake(p); stats();
+}
+function sliders() {
+  const box = $("sliders"); box.textContent = ""; $("jname").textContent = "";
+  if (!G) return;
+  const axes = isRoot(joint) ? [["down", 0, -1, 0.2], ["lean", 1, -1.6, 1.6]] : [["swing", 0, -3.2, 3.2], ["roll", 1, -3.2, 3.2], ["turn", 2, -3.2, 3.2]];
+  for (const [name, k, lo, hi] of axes) {
+    const row = el("label", "row"), out = el("span", "num", val(pose, joint, k).toFixed(2)), r = el("input");
+    r.type = "range"; r.min = lo; r.max = hi; r.step = 0.01; r.value = val(pose, joint, k);
+    r.oninput = () => { playing = false; $("play").textContent = "play"; setVal(pose, joint, k, +r.value); out.textContent = (+r.value).toFixed(2); markEdited(); };
+    row.appendChild(el("span", null, name)); row.appendChild(r); row.appendChild(out); box.appendChild(row);
+  }
+  $("jname").textContent = pose + " · " + joint + (edited.has(pose) ? " · changed" : "");
+}
+function markEdited() {
+  for (const c of $("frames").children) c.classList.toggle("edited", edited.has(c.textContent));
+  $("jname").textContent = pose + " · " + joint + " · changed";
+}
+
+// what's copied out: a pose as the game writes it, or the whole poses block with the changed lines put in
+const num = v => { const r = Math.round(v * 1000) / 1000; return String(r === 0 ? 0 : r); };
+function poseText(P) { return "{ " + Object.keys(P).map(k => k + ": " + (Array.isArray(P[k]) ? "[" + P[k].map(num).join(", ") + "]" : num(P[k]))).join(", ") + " }"; }
+function blockText() {
+  let t = G.text;
+  for (const p of edited) t = t.replace(new RegExp("^([ \\t]*)" + p + ": \\{.*\\}(,?)[ \\t]*$", "m"), (all, ind, comma) => ind + p + ": " + poseText(G.poses[p]) + comma);
+  return "/* maker: poses */" + t + "/* maker: end */";
+}
+function copy(text, btn, label) {
+  const t = $("out"); t.value = text; t.select();
+  try { navigator.clipboard.writeText(text).catch(() => {}); } catch (e) { /* the text is selected */ }
+  btn.textContent = "copied"; setTimeout(() => { btn.textContent = label; }, 1200);
+}
+
+const fmt = n => Math.round(n).toLocaleString("en-US");
+const kb = b => b >= 1048576 ? (b / 1048576).toFixed(2) + " MB" : (b / 1024).toFixed(1) + " KB";
+function stats() {
+  if (!G) { $("s-pose").textContent = $("s-body").textContent = ""; $("out").value = ""; return; }
+  const cur = slot(look, pose); let all = 0, n = 0;
+  for (const p of Object.keys(G.poses)) { all += slot(look, p).tris; n++; }
+  $("s-pose").textContent = fmt(cur.tris) + " triangles · " + kb(cur.tris * 60);
+  $("s-body").textContent = n + " poses · " + fmt(all) + " triangles · " + kb(all * 60) + " on the GPU";
+  $("out").value = pose + ": " + poseText(G.poses[pose]) + ",";
+}
+
+// ---------------------------------------------------------------- drawing
+const ground = g3 && (() => {
+  const m = new L3.Mesh(4096); m.at(0, 0, 0); m.disc(14, 48, -0.002, 0x101612); m.glow = 127;
+  for (let i = -6; i <= 6; i++) { m.box(i, -0.001, 0, 0.012, 0.004, 12, i ? 0x0f3a24 : 0x1f7a4a); m.box(0, -0.001, i, 12, 0.004, 0.012, i ? 0x0f3a24 : 0x1f7a4a); }
+  return g3.upload(m);
+})();
+const marker = g3 && (() => { const m = new L3.Mesh(64); m.glow = 127; m.at(0, 0, 0); m.ico(0.07, 0xff2e88); return g3.upload(m); })();
+if (g3) g3.light({ sun: [-0.4, 0.85, 0.35], sunCol: 0xefe6d2, amb: 0x46525e, ground: 0x1a1612, fog: 0x050706, top: 0x0b1a12, horizon: 0x0f2a1c, near: 12, far: 40 });
+const M = new Float32Array(16), scratch = new L3.Mesh(2048), at = [0, 0, 0];
+let last = 0, fpsN = 0, fpsT = 0, fps = 0, hudT = -1e9, draws = 0, tris = 0;
+function size() {
+  const r = cv.getBoundingClientRect(), dpr = Math.min(2, window.devicePixelRatio || 1);
+  const h = pixels ? 360 : Math.max(16, Math.round(r.height * dpr)), w = Math.max(16, Math.round(h * r.width / Math.max(1, r.height)));
+  if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+}
+function draw() {
+  if (!g3) return;
+  size();
+  // the camera fits what's shown: one body (an arm or a staff raised: 2.8 m) or the line-up's arc (7 m each side)
+  const one = !lineup || !G, aspect = cv.width / Math.max(1, cv.height), fov = one ? 0.72 : 0.8, k = Math.tan(fov / 2);
+  const cy = one ? 1.2 : 1.4, dist = one ? Math.max(1.75 / k, 1.6 / (k * aspect)) : Math.max(11.5, 7.4 / (k * aspect) + 3);
+  const ex = Math.sin(yaw) * dist, ez = Math.cos(yaw) * dist, ey = cy + dist * (one ? 0.16 : 0.26);
+  g3.begin(ex, ey, ez, 0, cy, 0, fov, 0.1, 80);
+  g3.lit(ground, null, 1, 1, 1, 0);
+  if (G && lineup) {
+    for (let i = 0; i < G.looks.length; i++) { const a = G.arc[i]; L3.M4.model(M, a.x, 0, a.z, a.yaw, 0, 0, 1); g3.moved(slot(G.looks[i], pose).h, M, 1, 1, 1, 0, 0.35); }
+  } else if (G) {
+    L3.M4.model(M, 0, 0, 0, 0, 0, 0, 1); g3.moved(slot(look, pose).h, M, 1, 1, 1, 0, 0.35);
+    if (!markAt) { scratch.n = 0; scratch.at(0, 0, 0); G.build(scratch, look.st, pose, 1); markAt = G.rig.where(joint, [0, 0, 0]); }
+    L3.M4.model(M, markAt[0], markAt[1], markAt[2], 0, 0, 0, 1);
+    g3.gl.disable(g3.gl.DEPTH_TEST); g3.moved(marker, M, 1, 1, 1, 1, 0); g3.gl.enable(g3.gl.DEPTH_TEST);
+  }
+  draws = g3.calls; tris = Math.round(g3.tris);
+}
+function hud() {
+  $("m-draw").style.width = Math.min(100, draws / 30 * 100).toFixed(1) + "%"; $("m-tri").style.width = Math.min(100, tris / 15000 * 100).toFixed(1) + "%";
+  $("m-draw-n").textContent = draws + " of ~30"; $("m-tri-n").textContent = fmt(tris) + " of ~15,000";
+  $("hud").textContent = G ? (lineup ? G.looks.length + " bodies" : look.name) + " · " + pose + " · " + draws + " draws · " + fmt(tris) + " tris · " + cv.height + " lines · " + fps + " fps" : "";
+}
+function frame(now) {
+  requestAnimationFrame(frame);
+  const dt = Math.min(0.1, (now - last) / 1000 || 0); last = now;
+  fpsN++; fpsT += dt; if (fpsT >= 1) { fps = Math.round(fpsN / fpsT); fpsN = 0; fpsT = 0; }
+  if (G && playing) {
+    clipT += dt * rate;
+    if (clipT >= 1) {
+      clipT -= Math.floor(clipT); const c = G.clips[clip]; ci = (ci + 1) % c.length; pose = c[ci]; markAt = null;
+      for (const f of $("frames").children) f.classList.toggle("on", f.textContent === pose);
+      sliders(); stats();
+    }
+  }
+  if (!drag) { idleT += dt; if (idleT > 2) { if (lineup) yaw += (0.45 * Math.sin(now / 5000) - yaw) * Math.min(1, dt); else yaw += dt * 0.25; } }
+  draw();
+  if (now - hudT > 150) { hud(); hudT = now; }
+}
+
+// ---------------------------------------------------------------- input
+cv.addEventListener("pointerdown", e => { drag = { x: e.clientX, yaw }; cv.setPointerCapture(e.pointerId); idleT = 0; });
+cv.addEventListener("pointermove", e => { if (drag) { yaw = drag.yaw - (e.clientX - drag.x) * 0.01; idleT = 0; } });
+cv.addEventListener("pointerup", () => { drag = null; });
+$("play").onclick = () => { playing = !playing; lists(); };
+$("line").onclick = () => { lineup = !lineup; lists(); };
+$("pix").onclick = () => { pixels = !pixels; lists(); };
+$("rate").oninput = e => { rate = +e.target.value; $("rate-n").textContent = rate + " a second"; };
+$("mirror").onclick = () => { if (!G) return; G.poses[pose] = G.rig.mirror(G.poses[pose]); edited.add(pose); rebake(pose); sync(); };
+$("revert").onclick = () => { if (!G) return; G.poses[pose] = JSON.parse(JSON.stringify(G.orig[pose])); edited.delete(pose); rebake(pose); sync(); };
+$("copy").onclick = () => { if (G) copy(pose + ": " + poseText(G.poses[pose]) + ",", $("copy"), "copy pose"); };
+$("copyall").onclick = () => { if (G) copy(blockText(), $("copyall"), "copy all"); };
+$("game").onchange = e => { location.hash = e.target.value; open(e.target.value); };
+
+// the games on the box's list, the one in the address (#wyrd) or WYRD first
+fetch("../games.json").then(r => r.json()).then(list => {
+  const want = location.hash.slice(1) || "wyrd", sel = $("game");
+  for (const g of list.games) { const o = el("option", null, g.name); o.value = g.id; sel.appendChild(o); }
+  sel.value = list.games.some(g => g.id === want) ? want : list.games[0].id;
+  open(sel.value);
+}).catch(() => say("Couldn't read the list of games (../games.json).", true));
+window.Maker = { get G() { return G; }, open, blocks, blockText, set(o) {
+  if (o.look) look = G.looks.find(l => l.id === o.look || l.name === o.look) || look;
+  if (o.clip) { clip = o.clip; ci = 0; pose = G.clips[clip][0]; }
+  if (o.pose) pose = o.pose; if (o.joint) joint = o.joint; if (o.lineup != null) lineup = o.lineup;
+  if (o.playing != null) playing = o.playing; if (o.pixels != null) pixels = o.pixels; if (o.yaw != null) { yaw = o.yaw; idleT = -1e9; }
+  markAt = null; sync(); draw(); hud();
+} };
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

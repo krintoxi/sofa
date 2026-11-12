@@ -592,11 +592,11 @@ class TheEngine(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which("node"), "needs node")
     def test_the_pages_parse(self):
-        """Every page game's own script, the engine, pad.js and the graphics check: no syntax slips."""
+        """Every page game's own script, the engine, pad.js, the graphics check and the maker: no syntax slips."""
         import re
         tmp = tempfile.mkdtemp()
         try:
-            pages = [os.path.join(g["id"], "index.html") for g in CATALOG["games"]] + [os.path.join("probe", "index.html")]
+            pages = [os.path.join(g["id"], "index.html") for g in CATALOG["games"]] + [os.path.join("probe", "index.html"), os.path.join("maker", "index.html")]
             files = [os.path.join(self.GAMES, "low3d.js"), os.path.join(self.GAMES, "low2d.js"), os.path.join(self.GAMES, "pad.js")]
             for page in pages:
                 for i, body in enumerate(re.findall(r"<script>(.*?)</script>", self.read(page), re.S)):
@@ -1444,7 +1444,7 @@ class TheWyrd(unittest.TestCase):
     def test_its_models_and_its_people(self):
         with open(os.path.join(BOX, "games", "wyrd", "index.html"), encoding="utf-8") as f:
             page = f.read()
-        block = re.search(r"<script>\s*// models packed for Low3D[^\n]*\nconst MODELS = (\{.*?\});\s*</script>", page, re.S)
+        block = re.search(r"<script>\s*/\* maker: models \*/\s*// models packed for Low3D[^\n]*\nconst MODELS = (\{.*?\});\s*/\* maker: end \*/\s*</script>", page, re.S)
         self.assertTrue(block, "the packed models")
         models = json.loads(block.group(1))
         for name, m in models.items():
@@ -1463,6 +1463,121 @@ class TheWyrd(unittest.TestCase):
         tool = os.path.join(os.path.dirname(os.path.dirname(BOX)), "tools", "low3d-models.py")
         r = subprocess.run(["python3", "-m", "py_compile", tool], capture_output=True, text=True, timeout=60)
         self.assertEqual(r.returncode, 0, r.stderr)
+
+
+MAKER_MARK = re.compile(r"/\* maker: ([a-z]+)((?: [a-z]+=[A-Za-z_$][\w$]*(?:,[A-Za-z_$][\w$]*)*)*) \*/(.*?)/\* maker: end \*/", re.S)
+RIG_JS = """
+const noop = () => {};
+globalThis.window = globalThis; globalThis.addEventListener = noop; globalThis.location = { hash: "" };
+globalThis.document = { hidden: false, createElement: () => ({ getContext: () => null }) };
+globalThis.screen = { width: 1920, height: 1080 }; globalThis.innerWidth = 960; globalThis.innerHeight = 540;
+eval(require("fs").readFileSync(process.argv[1], "utf8"));
+const L3 = window.Low3D, B = JSON.parse(require("fs").readFileSync(process.argv[2], "utf8")), out = {};
+const r3 = a => a.map(v => Math.round(v * 1000) / 1000);
+"""
+
+
+class TheRig(unittest.TestCase):
+    """Low3D's Rig (bodies a pose at a time): where a pose puts each joint, the other side's pose, clips by name, things
+    held where a joint is; and the blocks WYRD marks for the maker, which make its bodies on their own."""
+
+    def blocks(self, gid):
+        with open(os.path.join(BOX, "games", gid, "index.html"), encoding="utf-8") as f:
+            page = f.read()
+        out = {}
+        for kind, attrs, text in MAKER_MARK.findall(page):
+            out[kind] = {"text": text, "attrs": dict(kv.split("=", 1) for kv in attrs.split())}
+        return out
+
+    def node(self, script, blocks=None):
+        tmp = tempfile.mkdtemp()
+        try:
+            path = os.path.join(tmp, "blocks.json")
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(blocks or {}, f)
+            r = subprocess.run(["node", "-e", RIG_JS + script + "\nconsole.log(JSON.stringify(out));", os.path.join(BOX, "games", "low3d.js"), path],
+                               capture_output=True, text=True, timeout=60)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return json.loads(r.stdout)
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_where_a_pose_puts_the_joints(self):
+        out = self.node(r"""
+const rig = new L3.Rig(), at = [0, 0, 0], w = j => r3(rig.where(j, at).slice());
+rig.pose({}); out.rest = { head: w("head"), handR: w("handR"), handL: w("handL"), footL: w("footL") };
+rig.pose({}, 2); out.tall = w("head");
+rig.pose({}, 1, 4); out.broad = { handR: w("handR"), footR: w("footR") };
+rig.pose({ armR: [Math.PI / 2, 0, 0] }); out.armUp = w("handR");
+rig.pose({ chest: [0.5, 0, 0] }); out.leanChest = w("head");
+rig.pose({ y: -0.2 }); out.low = w("hips");
+const m = new L3.Mesh(); rig.pose({}); rig.at(m, "head"); out.at = r3(Array.from(m.t.slice(9)));
+rig.attach(m, "handR", 0, -0.1, 0.05, 0, 0, 0, 2); out.held = r3(Array.from(m.t.slice(9))); out.heldScale = r3([m.t[0], m.t[4], m.t[8]]);
+out.joints = [rig.n, rig.joint("footL"), rig.joint(3)];
+out.clips = L3.Rig.clips({ a10: {}, a2: {}, a0: {}, roar: {}, b1: {} });
+""")
+        self.assertEqual(out["joints"], [15, 14, 3])
+        self.assertEqual(out["rest"]["head"], [0, 1.57, 0])                   # hips 0.95, chest 0.1 up, head 0.52 up
+        self.assertEqual(out["rest"]["handR"], [-0.21, 0.92, 0])              # the right hand on the body's own right (-x)
+        self.assertEqual(out["rest"]["handL"], [0.21, 0.92, 0])
+        self.assertEqual(out["rest"]["footL"], [0.1, 0.05, 0])
+        self.assertEqual(out["tall"], [0, 3.14, 0])                           # a body twice the size
+        self.assertEqual(out["broad"]["handR"], [-0.84, 0.92, 0])             # broad: arms set out by bulk,
+        self.assertEqual(out["broad"]["footR"], [-0.2, 0.05, 0])              # legs by its square root
+        hx, hy, hz = out["armUp"]                                              # swung forward: the arm points ahead (+z)
+        self.assertAlmostEqual(hy, 1.49, places=2)
+        self.assertAlmostEqual(hz, 0.57, places=2)
+        self.assertGreater(out["leanChest"][2], 0.2)                           # the spine swung forward leans the head ahead
+        self.assertEqual(out["low"], [0, 0.75, 0])
+        self.assertEqual(out["at"], [0, 1.57, 0])
+        self.assertEqual(out["held"], [-0.21, 0.82, 0.05])                    # held in the hand's frame
+        self.assertEqual(out["heldScale"], [2, 2, 2])
+        self.assertEqual(out["clips"], {"a": ["a0", "a2", "a10"], "roar": ["roar"], "b": ["b1"]})
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_wyrds_bodies_from_its_marked_blocks(self):
+        """What WYRD marks for the maker runs on its own (only Low3D and the blocks before it): its walk is one step and
+        its mirror, every look bakes every pose, and the rig is Low3D's."""
+        b = self.blocks("wyrd")
+        self.assertEqual(sorted(b), ["bodies", "models", "poses"])
+        self.assertEqual(b["bodies"]["attrs"], {"rig": "RIG", "build": "buildBody", "looks": "FOLK,STYLES"})
+        out = self.node(r"""
+const a = B.bodies.attrs, f = new Function("L3", B.models.text + B.poses.text + B.bodies.text +
+  "\nreturn { POSES, build: " + a.build + ", rig: " + a.rig + ", looks: [" + a.looks + "] };"), G = f(L3), P = G.POSES, rig = G.rig;
+const eq = (x, y) => JSON.stringify(x) === JSON.stringify(y);
+out.rig = rig instanceof L3.Rig && rig.n;
+out.mirror = [eq(rig.mirror(P.walk0), P.walk2), eq(rig.mirror(P.walk1), P.walk3), eq(rig.mirror(P.walk2), P.walk0)];
+out.twice = Object.keys(P).filter(k => !eq(rig.mirror(rig.mirror(P[k])), P[k]));
+out.clips = L3.Rig.clips(P);
+let looks = 0, built = 0, empty = [];
+for (const group of G.looks) for (const k of Object.keys(group)) { looks++;
+  for (const p of Object.keys(P)) { const m = new L3.Mesh(2048); G.build(m, group[k], p, 1); built++; if (m.n < 300) empty.push(k + "/" + p); } }
+out.looks = looks; out.built = built; out.empty = empty; out.poses = Object.keys(P).length;
+""", b)
+        self.assertEqual(out["rig"], 15)
+        self.assertEqual(out["mirror"], [True, True, True])                   # walk2 is walk0 the other way round
+        self.assertEqual(out["twice"], [])                                     # mirrored twice: the pose it was
+        self.assertEqual(out["clips"]["walk"], ["walk0", "walk1", "walk2", "walk3"])
+        self.assertEqual(out["clips"]["swing"], ["swing0", "swing1", "swing2"])
+        self.assertEqual(out["poses"], 25)
+        self.assertEqual(out["looks"], 16)                                     # six of Hearthrim's folk, ten of the deep's
+        self.assertEqual(out["built"], 16 * 25)
+        self.assertEqual(out["empty"], [])
+
+    def test_the_maker_is_offline_and_not_on_home(self):
+        """The maker's page (games/maker/): for a computer with a mouse, not a game on Home; it reads the games' own
+        pages beside it and nothing from anywhere else."""
+        with open(os.path.join(BOX, "games", "maker", "index.html"), encoding="utf-8") as f:
+            page = f.read()
+        self.assertNotIn("maker", [g["id"] for g in CATALOG["games"]])
+        self.assertIn('src="../low3d.js"', page)
+        self.assertNotRegex(page, r"""(src|href|url)\s*[=(]\s*["']?(https?:)?//""")
+        for online in ("XMLHttpRequest", "WebSocket", "@import", "<link"):
+            self.assertNotIn(online, page)
+        self.assertEqual(sorted(re.findall(r'fetch\("([^"]+)"', page)), ["../", "../games.json"])     # the list, and a game's page beside it
+        self.assertIn('fetch("../" + encodeURIComponent(id) + "/index.html")', page)
+        self.assertIn(MAKER_MARK.pattern.replace("(.*?)", "([\\s\\S]*?)").replace("/", "\\/"), page)   # the same marks the tests read
 
 
 class Agent(unittest.TestCase):
