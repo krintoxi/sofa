@@ -1208,6 +1208,21 @@ class BoxBrowser(unittest.TestCase):
         kept = json.loads(js("(() => { const it = GW.genUnique(9, 6); GW.P.pack.push(it); GW.save(); const back = JSON.parse(JSON.stringify(it));"
                              " return JSON.stringify({ ok: GW.validItem(back), r: back.r, n: back.n, in: JSON.stringify(GW.readSlot(0).pack).indexOf('HEARTSEEKER BAND') >= 0 }); })()"))
         self.assertEqual(kept, {"ok": True, "r": 5, "n": "HEARTSEEKER BAND", "in": True})
+        # when its fewest extras still run late it goes to a steady 30 (every other refresh), not 60 with gaps; back to
+        # 60 when a frame's work is light for eight seconds, and not while it's heavy
+        pace = json.loads(js("""(() => { const out = {}; GW.pace(false, 3);
+            for (let i = 0; i < 120; i++) GW.govern(1 / 60); out.calm = [GW.half, GW.FXQ];
+            const seen = []; for (let i = 0; i < 300 && !GW.half; i++) { GW.govern(0.034); const k = GW.FXQ + "/" + GW.half; if (seen[seen.length - 1] !== k) seen.push(k); }
+            out.down = seen.concat([GW.FXQ + "/" + GW.half]);
+            for (let i = 0; i < 120; i++) GW.govern(1 / 30); out.steady = GW.half;
+            GW.pace(true, 12); for (let i = 0; i < 600; i++) GW.govern(1 / 30); out.heavy = GW.half;
+            GW.pace(true, 3); let k = 0; for (; k < 600 && GW.half; k++) GW.govern(1 / 30); out.back = [GW.half, Math.round(k / 30)];
+            return JSON.stringify(out); })()"""))
+        self.assertEqual(pace["calm"], [False, 2])
+        self.assertEqual(pace["down"][:4], ["2/false", "1/false", "0/false", "0/true"])   # the extras first, then the frames
+        self.assertTrue(pace["steady"] and pace["heavy"])                  # (a steady 30 isn't late; heavy work stays at 30)
+        self.assertEqual(pace["back"][0], False)
+        self.assertTrue(8 <= pace["back"][1] <= 10, pace)
 
     def test_ironmaw_plays(self):
         """Ironmaw in the box's browser: each of its nine levels starts and plays a moment with every weapon fired and

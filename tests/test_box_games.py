@@ -386,6 +386,112 @@ console.log(JSON.stringify(out));
         self.assertIn('tune.ladder === look + "/" + pace && tune.sig === sig() && tune.rung != null', l2)   # the 2D engine's too
 
 
+class EvenFrames(unittest.TestCase):
+    """Frames that stay on the screen the same time look smooth: one refresh each at 60 a second on a 60 Hz screen, two
+    at 30, three at 40 on a 120 Hz one. The governor draws a frame when the whole number of refreshes nearest the
+    rung's interval has passed, learning the refresh from every one; a rung at 40 is offered only where 40 is even."""
+    GAMES = os.path.join(BOX, "games")
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_frames_are_the_same_number_of_refreshes_apart(self):
+        """A minute at each screen rate and each rung's rate, the refresh times off by up to 0.3 ms and rounded down
+        to a tenth of a millisecond as a browser hands them over; the governor told the screen is 60 Hz whatever it
+        is, so it has to learn. (1.1.70 drew when the interval less 4 ms had passed: 144 Hz at 40 and every rate at
+        240 Hz went three refreshes, four, three.)"""
+        out = pads_in_node(self, r"""
+const L = window.Low3D;
+let seed = 7; const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+out.per = {};
+for (const hz of [50, 59.94, 60, 75, 120, 144, 240]) for (const fps of [60, 40, 30]) {
+  const g = new L.Governor([{ fps }], 0, 0); g.lock = true;
+  const per = {}; let last = -1;
+  for (let i = 0; i < hz * 60; i++) {
+    const t = Math.floor((1000 + i * 1000 / hz + (rnd() - 0.5) * 0.6) * 10) / 10;
+    if (g.tick(t)) { if (last >= 0 && i > hz * 2) per[i - last] = (per[i - last] || 0) + 1; last = i; }
+  }
+  out.per[hz + "@" + fps] = Object.keys(per).map(Number);
+}
+// a governor too busy for its rate, on a 120 Hz screen: 60, then 40, then 30 (a frame's work keeps the next refreshes waiting)
+const lad = L.withForty(L.LADDER.gl, 120), g = new L.Governor(lad, 3, lad.length - 1), ref = 1000 / 120; g.ref = ref;
+let t = 1000; const busy = r => lad[g.rung].fps === 60 ? 26 : 40;
+for (let n = 0; n < 4000 && g.rung > 1; n++) { if (g.tick(t)) { const w = busy(); g.work(w); t += Math.max(1, Math.ceil(w / ref)) * ref; } else t += ref; }
+out.path = g.log.map(l => l.match(/(\d)→(\d)/).slice(1).join(">")); out.fps = lad.map(r => r.fps);
+console.log(JSON.stringify(out));
+""", "pad.js", "low3d.js")
+        want = {"50@60": 1, "50@40": 2, "50@30": 2, "59.94@60": 1, "59.94@30": 2, "60@60": 1, "60@30": 2, "75@60": 1, "75@40": 2, "75@30": 3,
+                "120@60": 2, "120@40": 3, "120@30": 4, "144@60": 2, "144@40": 4, "144@30": 5, "240@60": 4, "240@40": 6, "240@30": 8}
+        for k, n in want.items():
+            self.assertEqual(out["per"][k], [n], "%s Hz: every frame %d refreshes apart" % (k, n))
+        self.assertEqual(out["fps"][:4], [30, 30, 40, 60])
+        self.assertEqual(out["path"], ["3>2", "2>1"])                     # too busy at 60: 40; too busy at 40: 30
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_a_rung_at_40_only_where_it_is_even(self):
+        """On a 60 Hz screen 40 a second can't be even (one refresh, then two), so no ladder there has it, and what a box
+        kept for its rungs stays good; on a screen that's a multiple of 40 each ladder gets one, between its 30s and
+        60s, and a box starts on the same picture as before."""
+        out = pads_in_node(self, r"""
+const L = window.Low3D;
+out.on = {}; for (const hz of [50, 60, 72, 75, 80, 90, 100, 119, 120, 144, 160, 165, 240]) out.on[hz] = L.fortyOn(hz);
+const at = (lad, hz) => { const l = L.withForty(lad, hz); return l === lad ? null : [l.forty, l[l.forty].h, l[l.forty].fps, l[l.forty - 1].fps, l[l.forty + 1].fps]; };
+out.gl = [at(L.LADDER.gl, 60), at(L.LADDER.gl, 120)]; out.ray = at(L.LADDER.ray, 240); out.flat = at(L.LADDER.flat, 120);
+out.held = [at(L.heldRay(0, 30), 120), at(L.heldRay(0, 60), 120), at(L.heldRay(135, 0), 120)];
+out.same = L.withForty(L.LADDER.gl, 60) === L.LADDER.gl;
+const store = {}; def("localStorage", { getItem: k => k in store ? store[k] : null, setItem: (k, v) => { store[k] = String(v); }, removeItem: k => { delete store[k]; } });
+def("ImageData", class { constructor(w, h) { this.data = new Uint8ClampedArray(w * h * 4); } });
+def("devicePixelRatio", 2); def("innerWidth", 960); def("innerHeight", 540);
+const gl = new Proxy({}, { get: (t, k) => typeof k === "string" && /^[A-Z][A-Z0-9_]+$/.test(k) ? 1 : () => 1 });
+const cv = () => ({ classList: { toggle() {}, add() {}, remove() {} }, addEventListener() {}, style: {}, width: 0, height: 0, getContext: kind => kind === "webgl" ? gl : { putImageData() {}, drawImage() {} } });
+document.createElement = () => cv();
+const view = { style: { setProperty() {} } };
+const pc = { key: "pc|GPU|157|8|8", family: "desktop", cores: 8, webgl1: true, software: false, renderer: "a desktop GPU" };
+const open = (id, kind, hz) => { const bench = { cpu: 4, draws: 512, fill: 16, hz, ms: 2000 }, E = L.game({ id, kind, view, gl: cv(), flat: cv(), update() {}, draw() {}, resized() {} });
+  E.probe = pc; E.bench = bench; E.plan = kind === "ray" ? L.planRay(pc, bench) : L.plan(pc, bench); E.renderer(true); return E; };
+const a = open("a", null, 60), b = open("b", null, 120), c = open("c", "ray", 120);
+out.start = [[a.rung.h, a.rung.fps, a.lad.length], [b.rung.h, b.rung.fps, b.lad.length], [c.rung.h, c.rung.fps, c.lad.some(r => r.fps === 40)]];
+out.ref = [Math.round(a.gov.ref * 100) / 100, Math.round(b.gov.ref * 100) / 100];
+console.log(JSON.stringify(out));
+""", "pad.js", "low3d.js")
+        on = [int(hz) for hz, yes in out["on"].items() if yes]
+        self.assertEqual(sorted(on), [80, 119, 120, 160, 240])
+        self.assertIsNone(out["gl"][0])
+        self.assertTrue(out["same"])                                      # (the very ladder: its line, and what boxes kept, unchanged)
+        self.assertEqual(out["gl"][1], [2, 360, 40, 30, 60])             # the best 30's picture, at 40, between the 30s and the 60s
+        self.assertEqual(out["ray"], [2, 135, 40, 30, 60])
+        self.assertEqual(out["flat"], [3, 160, 40, 30, 60])
+        self.assertEqual(out["held"][:2], [None, None])                   # a rate held: no 40
+        self.assertEqual(out["held"][2], [1, 135, 40, 30, 60])            # a size held: at 30, 40 and 60
+        a, b, c = out["start"]
+        self.assertEqual((a[2] + 1, b[2]), (b[2], b[2]))                  # one rung more at 120 Hz,
+        self.assertEqual(a[:2], b[:2])                                    # the same picture to start
+        self.assertTrue(c[2])
+        self.assertEqual(out["ref"], [16.67, 8.33])
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_the_2d_engine_too(self):
+        out = pads_in_node(self, L2_JS + r"""(async () => {
+const L3 = window.Low3D, names = l => l.map(name);
+out.at60 = names(L3.withForty(L2.ladder("auto", "auto"), 60)); out.at120 = names(L3.withForty(L2.ladder("auto", "auto"), 120));
+out.held = [names(L3.withForty(L2.ladder("auto", "60"), 120)), names(L3.withForty(L2.ladder("light", "auto"), 120))];
+console.log(JSON.stringify(out)); })().catch(e => { console.error(e); process.exit(1); });""", "pad.js", "low3d.js", "low2d.js")
+        self.assertEqual(out["at60"], ["light30", "full30", "light60", "full60", "rich60"])
+        self.assertEqual(out["at120"], ["light30", "full30", "full40", "light60", "full60", "rich60"])
+        self.assertEqual(out["held"], [["light60", "full60", "rich60"], ["light30", "light40", "light60"]])
+        with open(os.path.join(self.GAMES, "low2d.js"), encoding="utf-8") as f:
+            l2 = f.read()
+        self.assertIn("G.ladder = L3.withForty(ladder(look, pace), G.bench && G.bench.hz);", l2)
+
+    def test_gloamwell_goes_to_a_steady_30_not_60_with_gaps(self):
+        """Gloamwell has its own loop: when its fewest extras still run late it draws every other refresh, and its
+        stand-in (#slow) waits out its script only, as the engines' do."""
+        with open(os.path.join(self.GAMES, "gloamwell", "index.html"), encoding="utf-8") as f:
+            src = f.read()
+        self.assertIn("if (half && last && (now - last) / 1000 < baseDT * 1.5) return;", src)
+        self.assertIn("else if (!half) { half = true; paceFail++; paceGood = 0; }", src)
+        self.assertIn("if (workAvg < baseDT * 1000 * 0.45 && paceFail < 2)", src)
+        self.assertNotIn("getImageData(0, 0, 1, 1); const until", src)   # (the stand-in no longer waits out the browser's drawing)
+
+
 class TheGamesCheck(unittest.TestCase):
     """The graphics check's games check (probe/): each game opened with #demo in a frame of its page and timed; a game
     says what it chose, and whether it's playing itself, in window.SofaStats (Low3D games get it from the engine)."""

@@ -12,7 +12,9 @@
      (Three passes a scene: timed as the stand-in box; then at this computer's own speed with nothing counted, for
      memory, layers and profiles; then, with WebGL, with every fragment counted.)
      frames     frames drawn a second; the time between frames drawn (median, 95th, 99th percentile, worst); frames more
-                than 25 ms apart ("late")
+                than 25 ms apart ("late": at a steady 30 a second, every one)
+     steady     how many frames were the same number of the screen's refreshes apart (the most usual number): a steady
+                30 is two refreshes every frame, which looks smoother than 60 with frames missing
      work       the page's own work each frame drawn: everything its requestAnimationFrame callbacks did (ms)
      draws      WebGL draw calls, triangles and vertices a frame; bytes of vertex data and pixels of texture sent a
                 frame; 2D canvas pixels filled a frame (drawImage, fillRect, putImageData: what lands on the canvas, no transform reckoned)
@@ -364,6 +366,13 @@ async function measure(port, origin, game, scene) {
       tier: v.tier, picture: v.canvas ? v.canvas.join("x") : "", renderer: v.gl ? "WebGL" : "2D canvas", fps: r1(drawn.length / v.secs), refresh: r1(v.ticks.length / v.secs),
       gap_ms: { p50: r1(q(gs, 0.5)), p95: r1(q(gs, 0.95)), p99: r1(q(gs, 0.99)), worst: r1(gs[gs.length - 1] || 0) }, late: gaps.filter(g => g > 25).length, frames: drawn.length,
       work_ms: { p50: r2(q(ws, 0.5)), p95: r2(q(ws, 0.95)), p99: r2(q(ws, 0.99)), worst: r2(ws[ws.length - 1] || 0) },
+      even: (() => {                                     // refreshes per frame drawn: how many are the usual number apart
+        const tg = []; for (let i = 1; i < v.ticks.length; i++) tg.push(v.ticks[i][0] - v.ticks[i - 1][0]);
+        tg.sort((a, b) => a - b); const rf = q(tg, 0.5) || 1000 / 60, per = {};
+        for (const g of gaps) { const k = Math.max(1, Math.round(g / rf)); per[k] = (per[k] || 0) + 1; }
+        let usual = 1, same = 0; for (const k in per) if (per[k] > same) { same = per[k]; usual = +k; }
+        return { refreshes: usual, same, of: gaps.length, refresh_ms: r1(rf) };
+      })(),
       draws: { avg: r1(avg(2)), max: max(2) }, tris: Math.round(avg(3)), verts: { avg: Math.round(avg(4)), max: max(4) }, points: Math.round(avg(10)), uniforms: Math.round(avg(11)), programs: r1(avg(14)),
       upload: { vertex_bytes: Math.round(avg(5)), texture_px: Math.round(avg(6)) },
       canvas2d: { screens: r2(avg(7) / px), px: Math.round(avg(7)), offscreen_px: Math.round(avg(8)), calls: Math.round(avg(12)) },
@@ -441,6 +450,7 @@ function show(r) {
   if (r.error) { console.log(`  ${pad(r.scene, 40)} FAILED: ${r.error}${r.errors && r.errors.length ? "\n      " + r.errors.join("\n      ") : ""}`); return; }
   console.log(`  ${r.scene}  [${r.tier || r.renderer}, ${r.picture}]`);
   console.log(`      frames  ${pad(r.fps + " fps", 9)} between frames ${r.gap_ms.p50} / ${r.gap_ms.p95} / ${r.gap_ms.p99} / ${r.gap_ms.worst} ms (median / 95th / 99th / worst), ${r.late} of ${r.frames} late`);
+  if (r.even) console.log(`      steady  ${r.even.same} of ${r.even.of} frames ${r.even.refreshes} refresh${r.even.refreshes > 1 ? "es" : ""} apart (a refresh: ${r.even.refresh_ms} ms)`);
   console.log(`      work    ${r.work_ms.p50} / ${r.work_ms.p95} / ${r.work_ms.p99} / ${r.work_ms.worst} ms a frame`);
   if (r.renderer === "WebGL") console.log(`      draws   ${r.draws.avg} a frame (most ${r.draws.max}), ${r.tris} triangles, ${r.verts.avg} vertices (most ${r.verts.max}), ${r.points} points, ${r.uniforms} uniform calls; sent ${r.upload.vertex_bytes} B of vertices, ${r.upload.texture_px} px of texture a frame`);
   if (r.canvas2d.px || r.canvas2d.offscreen_px) console.log(`      2D      ${r.canvas2d.screens} screens filled a frame (${r.canvas2d.px} px in ${r.canvas2d.calls} calls; ${r.canvas2d.offscreen_px} px more off screen)`);

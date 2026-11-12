@@ -4562,20 +4562,30 @@ function camUpdate(MWp, MHp) {
 // (a third late, and it doesn't wait for the second's end; one slow moment alone doesn't do it); eight good seconds
 // and it tries a step up again, but never to a level that ran late twice. It remembers where it settled. Options
 // can hold it at full or light.
+// When the fewest extras still run late, every other refresh (half): 30 a second, each frame the same two refreshes
+// on a 60 Hz screen, which looks steadier than 60 with frames missing. Back to 60 when a frame's own work is under
+// 45% of a refresh for eight good seconds, but not after 60 ran late there twice. (Held at full or light in Options,
+// the extras stay as held, and the frames still go to 30 if they must.)
 let FXQ = 2, govT = 0, govN = 0, govLate = 0, govGood = 0, govWarn = 0, baseDT = 1 / 60, pSkip = 0;
+let half = false, paceGood = 0, paceFail = 0, workAvg = 0;
 const govFail = [0, 0, 0];
 function govern(dt) {
-  if (OPT.fx === 1) { FXQ = 2; return; } if (OPT.fx === 2) { FXQ = 0; return; }
+  if (OPT.fx === 1) FXQ = 2; else if (OPT.fx === 2) FXQ = 0;
   if (mode !== M_PLAY || document.hidden || irisFn || !(dt > 0) || dt > 0.25) return;
-  if (dt < baseDT) baseDT = Math.max(1 / 250, dt); else baseDT += (dt - baseDT) * 0.0004;     // (the screen's own pace)
-  govN++; if (dt > baseDT * 1.6) govLate++; govT += dt;
-  const quick = govT >= 0.5 && govLate > govN * 0.33 && FXQ > 0;
+  const want = half ? baseDT * 2 : baseDT;          // (the frame's interval: one refresh, or two at 30)
+  govN++; if (dt > want + baseDT * 0.6) govLate++; govT += dt;
+  const auto = OPT.fx === 0, quick = govT >= 0.5 && govLate > govN * 0.33 && ((auto && FXQ > 0) || !half);
   if (govT < 1 && !quick) return;
   const late = govLate / govN; govT = 0; govN = 0; govLate = 0;
   const warn = late > 0.06; govWarn = warn ? govWarn + 1 : 0;
-  if (FXQ > 0 && (quick || late > 0.12 || govWarn >= 2)) { govFail[FXQ]++; FXQ--; govGood = 0; govWarn = 0; saveOpts(); }
-  else if (late < 0.02) { if (++govGood >= 8 && FXQ < 2 && govFail[FXQ + 1] < 2) { FXQ++; govGood = 0; saveOpts(); } }
-  else govGood = 0;
+  if (quick || late > 0.12 || govWarn >= 2) {
+    if (auto && FXQ > 0) { govFail[FXQ]++; FXQ--; saveOpts(); }
+    else if (!half) { half = true; paceFail++; paceGood = 0; }
+    govGood = 0; govWarn = 0;
+  } else if (late < 0.02) {
+    if (half) { if (workAvg < baseDT * 1000 * 0.45 && paceFail < 2) { if (++paceGood >= 8) { half = false; paceGood = 0; govGood = 0; } } else paceGood = 0; }
+    else if (auto && ++govGood >= 8 && FXQ < 2 && govFail[FXQ + 1] < 2) { FXQ++; govGood = 0; saveOpts(); }
+  } else { govGood = 0; paceGood = 0; }
 }
 // How it ran, in one line, for the box's report (a page's console errors are what "Send a report" keeps of a page: the
 // only measure there is of a real Pi). Counted while a floor is being played; said every five minutes of play and
@@ -4583,12 +4593,12 @@ function govern(dt) {
 const RAN = { frames: 0, secs: 0, late: 0, worst: 0, low: 1e9, secN: 0, secT: 0 };
 function ranNote(dt) {
   if (mode !== M_PLAY || document.hidden || irisFn || !(dt > 0) || dt > 0.25) return;
-  RAN.frames++; RAN.secs += dt; if (dt > baseDT * 1.6) RAN.late++; if (dt > RAN.worst) RAN.worst = dt;
+  RAN.frames++; RAN.secs += dt; if (dt > (half ? 2.6 : 1.6) * baseDT) RAN.late++; if (dt > RAN.worst) RAN.worst = dt;   // (late: a refresh or more after its time)
   RAN.secN++; RAN.secT += dt; if (RAN.secT >= 1) { const f = Math.round(RAN.secN / RAN.secT); if (f < RAN.low) RAN.low = f; RAN.secN = 0; RAN.secT = 0; }
   if (RAN.secs >= 300) ranTell();
 }
 function ranLine() {
-  return "gloamwell ran: FX " + FXQ + " " + VW + "x" + VH + ", " + (RAN.secs ? Math.round(RAN.frames / RAN.secs) : 0) + " fps over " + Math.round(RAN.secs) + " s (the screen's own " + Math.round(1 / baseDT) +
+  return "gloamwell ran: FX " + FXQ + (half ? " at 30" : "") + " " + VW + "x" + VH + ", " + (RAN.secs ? Math.round(RAN.frames / RAN.secs) : 0) + " fps over " + Math.round(RAN.secs) + " s (the screen's own " + Math.round(1 / baseDT) +
     ", lowest second " + (RAN.low > 1e8 ? "-" : RAN.low) + "), " + RAN.late + " of " + RAN.frames + " frames late, worst " + Math.round(RAN.worst * 1000) + " ms" + (PL[1] ? ", two players" : "") + ", floor " + depth;
 }
 function ranTell() {
@@ -5389,7 +5399,7 @@ function updOpts() {
     case 2: OPT.shake = !OPT.shake; if (OPT.shake) shake(0.3, 3); sfx(SND_MENU); break;
     case 3: OPT.rumble = !OPT.rumble; if (OPT.rumble) rumble(0.5, 200); sfx(SND_MENU); break;
     case 4: OPT.minimap = !OPT.minimap; sfx(SND_MENU); break;
-    case 5: OPT.fx = (OPT.fx + (dir > 0 ? 1 : 2)) % 3; FXQ = OPT.fx === 2 ? 0 : 2; govFail.fill(0); sfx(SND_MENU); break;
+    case 5: OPT.fx = (OPT.fx + (dir > 0 ? 1 : 2)) % 3; FXQ = OPT.fx === 2 ? 0 : 2; govFail.fill(0); half = false; paceFail = 0; sfx(SND_MENU); break;   // (and 60 a second tried again)
   }
   saveOpts();
 }
@@ -6094,9 +6104,11 @@ function drawHunt() {
 // keeps nothing (no saves, no settings) and no controller or key does anything. window.SofaStats says it's the demo,
 // with the effects level (tier), the frames a second and the work a frame.
 const DEMO = /(^|[#&])demo\b/.test(location.hash);
-// #slow=N, for checks: each frame (its script and its drawing, which the canvas is made to finish first) is waited
-// out to N times as long, as on a processor N times slower. Chrome's own CPU slowdown stretches short frames only a
-// few times over (about 3x when it says 10x), so this is the nearer stand-in for a Pi 3 (N about 15 to 20 here).
+// #slow=N, for checks: each frame's script is waited out to N times as long, as on a processor N times slower (as in
+// Low2D and Low3D). Chrome's own CPU slowdown stretches short frames only a few times over (about 3x when it says 10x),
+// so this is the nearer stand-in for a Pi 3 (N about 15 to 20 here). (It used to make the canvas finish drawing
+// first, reading a pixel back, and wait that out N times too: the drawing is the browser's, on the GPU's own thread
+// in the box's Chromium, and the readback alone made it read 4 to 20 frames a second here, where the others read 60.)
 const SLOW = /(^|[#&])slow=(\d+)/.test(location.hash) ? Math.max(1, +location.hash.match(/(^|[#&])slow=(\d+)/)[2]) : 1;
 let demoT = 0, demoN = 0, demoWork = 0, demoS = 0;
 function demoStart() {
@@ -6123,7 +6135,7 @@ function demoInput(dt) {
 }
 function demoStats(dt, work) {
   demoN++; demoWork += work; demoS += dt;
-  if (demoS >= 1) { const S = window.SofaStats; S.tier = "FX " + FXQ; S.fps = Math.round(demoN / demoS); S.workMs = +(demoWork / demoN).toFixed(2); demoN = 0; demoWork = 0; demoS = 0; }
+  if (demoS >= 1) { const S = window.SofaStats; S.tier = "FX " + FXQ + (half ? " at 30" : ""); S.fps = Math.round(demoN / demoS); S.workMs = +(demoWork / demoN).toFixed(2); demoN = 0; demoWork = 0; demoS = 0; }
 }
 
 // ---------------------------------------------------------------- the loop
@@ -6219,11 +6231,15 @@ function revive(D, R) {
   toast((R.name || CLS[R.cls].name) + " BRINGS " + (D.name || CLS[D.cls].name) + " BACK", C_GOLD); D.tx = -1;
 }
 function menuUse() { if (PL[menuSeat]) use(menuSeat); else { use(0); useIn(menuSeat); } }
+let prevRaf = 0;
 function frame(now) {
   requestAnimationFrame(frame);
-  const t0 = DEMO || SLOW > 1 ? performance.now() : 0;
+  if (prevRaf) { const g = (now - prevRaf) / 1000; if (g > baseDT * 0.2 && g < baseDT * 1.6) baseDT += (g - baseDT) * 0.05; }   // (the screen's own beat, from every refresh)
+  prevRaf = now;
+  if (half && last && (now - last) / 1000 < baseDT * 1.5) return;   // (at 30: every other refresh)
+  const t0 = performance.now();
   let dt = (now - last) / 1000; last = now; if (!(dt > 0)) dt = 0; govern(dt); ranNote(dt); if (dt > 0.05) dt = 0.05; frameDT = dt;
-  if (SHOW_FPS) { fpsT += dt; fpsN++; if (fpsT >= 1) { fpsS = fpsN + " FPS" + DOT + "FX " + FXQ; fpsT = 0; fpsN = 0; } }
+  if (SHOW_FPS) { fpsT += dt; fpsN++; if (fpsT >= 1) { fpsS = fpsN + " FPS" + DOT + "FX " + FXQ + (half ? DOT + "AT 30" : ""); fpsT = 0; fpsN = 0; } }
   readInput(now, dt); musicTick(); updXP(dt);
   const was = mode;
   if (mode === M_PLAY) use(0); else menuUse();          // (a menu answers to whoever opened it)
@@ -6254,7 +6270,8 @@ function frame(now) {
   }
   if (mode === M_SMITH && xpN > 0) drawXPDrops();
   dirty = false;
-  if (SLOW > 1) { ctx0.getImageData(0, 0, 1, 1); const until = performance.now() + (performance.now() - t0) * (SLOW - 1); while (performance.now() < until) { /* #slow: as a slower processor would */ } }
+  if (SLOW > 1) { const until = performance.now() + (performance.now() - t0) * (SLOW - 1); while (performance.now() < until) { /* #slow: as a slower processor would */ } }
+  const work = performance.now() - t0; workAvg += (work - workAvg) * 0.05;   // (a frame's own work, ms: for going back to 60)
   if (DEMO) demoStats(frameDT, performance.now() - t0);
 }
 function init() {
@@ -6310,7 +6327,8 @@ function init() {
   addEventListener("gamepadconnected", () => wakeAudio());
   requestAnimationFrame(t => { last = t; requestAnimationFrame(frame); });
   // #test in the address: a handle for the automated checks (nothing changes for a player)
-  if (/(^|[#&])test\b/.test(location.hash)) window.GW = { get P() { return P; }, get mode() { return mode; }, get depth() { return depth; }, RAN, ranLine, MON, PJ, HZ, RG, DR, CLS, MT, BOSSES, SETS,
+  if (/(^|[#&])test\b/.test(location.hash)) window.GW = { get P() { return P; }, get mode() { return mode; }, get depth() { return depth; }, RAN, ranLine,
+    govern, get half() { return half; }, get FXQ() { return FXQ; }, pace: (h, work) => { half = h; paceFail = 0; paceGood = 0; govT = govN = govLate = 0; if (work != null) workAvg = work; }, MON, PJ, HZ, RG, DR, CLS, MT, BOSSES, SETS,
     goFloor, goTown, gainXP, genItem, genSetPiece, recalc, interact: k => { const it = INT.find(e => e.k === k); if (it) { P.x = it.x; P.y = it.y + 4; interact(it); } return !!it; },
     get bossM() { return bossM; }, heroOnScreen: () => { const r = cv.getBoundingClientRect(), k = r.width / VW; return [Math.round(r.left + (P.x - camX) * k), Math.round(r.top + (P.y - camY) * k)]; }, tileAt: (tx, ty) => solidAt(tx, ty), computeFOV: () => { computeFOV(); P.tx = -1; }, get INT() { return INT; }, setMode: m => { mode = m; dirty = true; }, M: { M_PLAY, M_GEAR, M_SHOP, M_SMITH, M_BOARD, M_STASH, M_SHRINE, M_OPTS, M_SLOTS, M_TITLE, M_DEAD },
     save, readSlot, questTick, newGame: c => { newGame(c, 0); mode = M_PLAY; dirty = true; }, genUnique, makeChampion, xpDrop, skillXP, UNIQ, get champM() { return champM; }, FX, XD, validItem, get OPT() { return OPT; }, spawnMon: (t, x, y, e) => spawnMon(t, x, y, e), get mus() { return mus.song; }, get AC() { return AC && AC.state; },

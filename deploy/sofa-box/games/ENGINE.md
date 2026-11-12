@@ -135,6 +135,35 @@ pixels before frames too, in small steps (its picture needn't go into the screen
 drawn by the processor"). A Pi 3 starts on rung 4 (240×135 at 60) and is held to rung 6 at most (320×180). A game
 reads `E.rung` (`h`, `far`, `fps`, `look`, `mirror`, `detail`, `wakes`) and decides what each one means for it.
 
+**Even frames.** A frame that stays on the screen the same time as the last looks smooth; one that stays one refresh
+and then two looks worse than a steady 30. So the governor draws a rung's frames the same number of the screen's
+refreshes apart, every one: the fewest refreshes that cover the rung's interval less a little slack (4 ms, or 45% of
+a refresh on a fast screen), held once chosen, with the refresh learned from every one (`gov.ref`, seeded from the
+test's `b.hz`). On a 60 Hz screen that's one refresh at 60 a second and two at 30; on a 120 Hz screen two, three
+and four. Counted refreshes per frame drawn, a minute at each rate with the refresh times off by up to 0.3 ms:
+
+| screen | 60 a second | 40 | 30 |
+|---|---|---|---|
+| 50 Hz | every refresh | (no 40 rung) | every 2 |
+| 59.94, 60 Hz | every refresh | (no 40 rung) | every 2 |
+| 75 Hz | every refresh | (no 40 rung) | every 3 |
+| 120 Hz | every 2 | every 3 | every 4 |
+| 144 Hz | every 2 | (no 40 rung) | every 5 |
+| 240 Hz | every 4 | every 6 | every 8 |
+
+(1.1.70 drew when the interval less a fixed 4 ms had passed: the same counts up to 120 Hz, but 144 Hz at 40 and every
+rate at 240 Hz went three refreshes, four, three.)
+
+**A rung at 40, only where it's even.** 40 a second is three refreshes of a 120 Hz screen (or six of 240), even;
+on a 60 Hz screen it can't be. `withForty(lad, hz)` puts a rung at 40 (the best 30's picture, at 40) between a
+ladder's 30s and 60s when the screen is a multiple of 40 (`fortyOn`: 80, 120, 160, 240 Hz), and the game's start is
+the same picture as without it. A governor too busy for 60 goes to it first, then to 30. A ladder with a rate held
+gets none. On every other screen the ladder is the very one it was, so what a box kept for its rungs stays good; on
+a 40-capable screen the ladder's line (`ladderSig`) changes, and what was kept there is dropped once.
+
+The game's own line for the report (`ran()`) counts a frame late when it came a refresh or more after its time: a
+steady 30 isn't late (it counted every frame of a 30 as late before, anything over 25 ms).
+
 ## A new game, from the start
 
 ```html

@@ -158,10 +158,11 @@ function game(o) {
   };
   G.governor = () => {                                // the ladder from Options (or #tier, #pace), where to start, how high
     const look = G.look(), pace = G.pace();
-    G.ladder = ladder(look, pace); G.plan = plan(G.probe, G.bench, G.slow, G.ladder);
+    G.ladder = L3.withForty(ladder(look, pace), G.bench && G.bench.hz); G.plan = plan(G.probe, G.bench, G.slow, G.ladder);   // (a rung at 40 where the screen shows 40 evenly: see Low3D's withForty)
     let start = G.plan.rung, top = G.plan.top;
     if (tune && tune.key === G.probe.key && tune.ladder === look + "/" + pace && tune.sig === sig() && tune.rung != null) { start = clamp(tune.rung, 0, G.ladder.length - 1); top = clamp(tune.top, start, G.ladder.length - 1); }
     G.gov = new Governor(G.ladder, start, top, (r, why) => G.setTier(r, why));
+    if (G.bench && G.bench.hz) G.gov.ref = 1000 / G.bench.hz;
     if (G.ladder.length === 1) G.gov.lock = true;
     G.setTier(start, null);
     G.gov.hold(1500);

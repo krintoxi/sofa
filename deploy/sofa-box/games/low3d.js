@@ -1134,19 +1134,30 @@ function Governor(ladder, rung, top, change) {
   this.last = 0; this.win = 0; this.n = 0; this.late = 0; this.workSum = 0; this.calm = 0; this.quiet = 0; this.wait = 0;
   this.fps = 0; this.shown = 0; this.frames = 0; this.fpsAt = 0; this.lock = false; this.log = [];
   this.workMs = 0;                                   // the game's work a frame drawn, smoothed (ms)
+  this.ref = 1000 / 60; this.prev = 0; this.per = 1; this.perFps = 0;   // the screen's own refresh (ms), learned from every one, and refreshes a frame (see tick)
   this.ran = { frames: 0, late: 0, worst: 0, secs: 0, work: 0, low: 1e9 };   // how it ran since it started (or since ran was read): for a report
 }
 Governor.prototype = {
   get cur() { return this.ladder[this.rung]; },
+  // Called on every refresh of the screen. A frame is drawn every so many refreshes: the fewest that cover the rung's
+  // interval, less a little slack (as it always was: 4 ms, or 45% of a refresh on a fast screen), held once chosen
+  // until the screen's beat clearly changes. So a rung's frames are the same number of refreshes apart, every one: 60
+  // a second on a 60 Hz screen one refresh each, 30 two, on a 120 Hz screen 40 three. The refresh is learned from
+  // every one. (The slack was a fixed 4 ms with nothing held: a refresh a little late could tip a frame into the
+  // refresh before on a fast screen, so 240 Hz went three refreshes, four, three.)
   tick(now) {
-    const iv = 1000 / this.ladder[this.rung].fps;
-    if (this.last && now - this.last < iv - 4) return false;
+    if (this.prev) { const g = now - this.prev; if (g > this.ref * 0.2 && g < this.ref * 1.6) this.ref += (g - this.ref) * 0.05; }
+    this.prev = now;
+    const iv = 1000 / this.ladder[this.rung].fps, x = (iv - Math.min(4, this.ref * 0.45)) / this.ref;
+    if (this.perFps !== iv) { this.per = Math.max(1, Math.ceil(x)); this.perFps = iv; }
+    else if (x > this.per + 0.08 || x < this.per - 1.08) this.per = Math.max(1, Math.ceil(x));
+    if (this.last && now - this.last < (this.per - 0.5) * this.ref) return false;
     const gap = this.last ? now - this.last : iv;
     this.last = now;
     this.frames++;
     if (now - this.fpsAt >= 1000) { this.fps = Math.round(this.frames * 1000 / (now - this.fpsAt)); this.frames = 0; if (this.fpsAt && now >= this.wait && this.fps < this.ran.low) this.ran.low = this.fps; this.fpsAt = now; }
     if (document.hidden || gap > 400) { this.reset(now); return true; }   // (back from elsewhere: not the game's doing)
-    if (now >= this.wait) { const R = this.ran; R.frames++; R.secs += gap / 1000; if (gap > 25) R.late++; if (gap > R.worst) R.worst = gap; }
+    if (now >= this.wait) { const R = this.ran; R.frames++; R.secs += gap / 1000; if (gap > iv + this.ref / 2) R.late++; if (gap > R.worst) R.worst = gap; }   // (late: a refresh or more after its time; a steady 30 isn't late)
     if (now < this.wait) return true;
     if (!this.win) this.win = now;
     this.n++; if (gap > iv * 1.5) this.late++;
@@ -2304,9 +2315,22 @@ function wholeSteps(acc, dt, DT, most) {
   if (n >= most) { n = most; acc = 0; } else acc -= n * DT;
   STEPS[0] = n; STEPS[1] = acc; return STEPS;
 }
+// 40 frames a second is even only where the screen's rate is a multiple of 40 (80, 120, 160, 240 Hz: each frame
+// stays the same number of refreshes, three on a 120 Hz screen); on a 60 Hz one its frames would stay one refresh and
+// then two, which looks worse than a steady 30. So a ladder gets a rung at 40, between its 30s and its 60s (the best
+// 30's picture, at 40), only on such a screen: hz is the screen's rate, as the test measured it.
+function fortyOn(hz) { const k = (hz || 0) / 40; return k >= 1.95 && Math.abs(k - Math.round(k)) * 40 < 1.2; }
+function withForty(lad, hz) {
+  if (!fortyOn(hz)) return lad;
+  let at = -1, has60 = false;
+  for (let i = 0; i < lad.length; i++) { if (lad[i].fps === 40) return lad; if (lad[i].fps === 30) at = i; if (lad[i].fps === 60) has60 = true; }
+  if (at < 0 || !has60) return lad;                  // (a rate held: no 30 or no 60 to go between)
+  const out = lad.slice(); out.splice(at + 1, 0, Object.assign({}, lad[at], { fps: 40 })); out.forty = at + 1;
+  return out;
+}
 // A ladder as one line (each rung's size and rate). A rung kept for a box is a number on the ladder as it was then, and
 // means nothing on another: what's kept carries this, and is used only on the ladder it was kept on.
-function ladderSig(lad) { let s = ""; for (let i = 0; i < lad.length; i++) s += (i ? " " : "") + lad[i].h + "@" + lad[i].fps; return s; }
+function ladderSig(lad) { let s = ""; for (let i = 0; i < lad.length; i++) s += (i ? " " : "") + (lad[i].h || lad[i].name) + "@" + lad[i].fps; return s; }
 function wholeSize(dev, want) { const div = Math.max(1, Math.round(dev / Math.max(1, want))); return [Math.round(dev / div), div]; }
 const GLOPTS = p => ({ antialias: p.family === "desktop" || p.family === "pi5" });   // (smoothed edges where there's room: never a Pi 3 or 4)
 // kind: "ray" for a game drawn a pixel at a time (Ray): the CPU test alone picks its rung (LADDER.ray), E.screen is
@@ -2398,27 +2422,32 @@ function game(o) {
     // or left out for what the box finds by itself. A size or a rate held makes a ladder of its own (heldRay).
     const T = o.kind === "ray" && o.tune ? o.tune() : null, own = T && E.forceRung == null ? heldRay(T.lines || 0, T.fps || 0) : null;
     E.held = !!own;
-    const lad = own || LADDER[E.mode], p = o.picture ? o.picture() : "auto";
-    let start = E.mode === E.plan.mode ? E.plan.rung : E.mode === "gl" ? 1 : 2, top = E.mode === E.plan.mode ? E.plan.top : lad.length - 1;
-    // (where this game's governor settled on this box: a rung kept on another ladder, an older version's, is not this one's)
-    if (tune && tune.key === E.probe.key && tune.mode === E.mode && tune.lad === ladderSig(LADDER[E.mode]) && tune.rung != null && p === "auto" && !own) { start = tune.rung; top = Math.min(top, tune.top); }
+    // (the ladder in use: with a rung at 40 where this screen shows 40 evenly; the plan's rungs are the plain ladder's)
+    const base = own || LADDER[E.mode], lad = withForty(base, E.bench && E.bench.hz), p = o.picture ? o.picture() : "auto";
+    let start = E.mode === E.plan.mode ? E.plan.rung : E.mode === "gl" ? 1 : 2, top = E.mode === E.plan.mode ? E.plan.top : base.length - 1;
     if (own) {                                       // the size it would have started on (or the one held), at the best rate held
       const want = T.lines || LADDER.ray[U.clamp(start, 0, LADDER.ray.length - 1)].h, most = T.lines || LADDER.ray[U.clamp(top, 0, LADDER.ray.length - 1)].h;
       start = top = 0;
-      for (let i = 0; i < own.length; i++) { if (own[i].h <= want) start = i; if (own[i].h <= most) top = i; }
+      for (let i = 0; i < lad.length; i++) { if (lad[i].h <= want) start = i; if (lad[i].h <= most) top = i; }
+    } else {
+      if (p === "light") { start = Math.min(start, E.mode === "ray" ? 2 : 1); top = Math.min(top, E.mode === "ray" ? 4 : 2); }
+      if (p === "rich") { start = Math.max(start, E.mode === "ray" ? 6 : 4); top = base.length - 1; }
+      if (lad.forty != null) { if (start >= lad.forty) start++; if (top >= lad.forty) top++; }
+      // (where this game's governor settled on this box: a rung kept on another ladder, an older version's or another
+      // screen's, is not this one's)
+      if (tune && tune.key === E.probe.key && tune.mode === E.mode && tune.lad === ladderSig(lad) && tune.rung != null && p === "auto") { start = tune.rung; top = Math.min(top, tune.top); }
     }
-    if (p === "light") { start = Math.min(start, E.mode === "ray" ? 2 : 1); top = Math.min(top, E.mode === "ray" ? 4 : 2); }
-    if (p === "rich") { start = Math.max(start, E.mode === "ray" ? 6 : 4); top = lad.length - 1; }
     if (E.forceRung != null) start = top = E.forceRung;
     start = U.clamp(start, 0, lad.length - 1); top = U.clamp(Math.max(top, start), 0, lad.length - 1);
     E.lad = lad;
     E.gov = new Governor(lad, start, top, (r, why) => { E.rung = lad[r]; E.resize(); if (o.rung) o.rung(E, E.rung); E.remember(); });
+    if (E.bench && E.bench.hz) E.gov.ref = 1000 / E.bench.hz;   // (the screen's refresh as the test found it, until the governor learns it)
     if (E.forceRung != null) E.gov.lock = true;
     E.rung = lad[start]; E.resize();
     if (!first && o.prepare) o.prepare(E);
     if (o.rung) o.rung(E, E.rung);
   };
-  E.remember = () => { if ((o.picture ? o.picture() : "auto") === "auto" && E.forceRung == null && !E.held) E.keep({ key: E.probe.key, bench: E.bench, mode: E.mode, rung: E.gov.rung, top: E.gov.top, lad: ladderSig(LADDER[E.mode]) }); };
+  E.remember = () => { if ((o.picture ? o.picture() : "auto") === "auto" && E.forceRung == null && !E.held) E.keep({ key: E.probe.key, bench: E.bench, mode: E.mode, rung: E.gov.rung, top: E.gov.top, lad: ladderSig(E.lad) }); };
   E.setPicture = () => { E.keep({ key: E.probe.key, bench: E.bench }); E.renderer(false); };
   E.test3d = (done, step) => {                       // the ~2 s test (software GL is left out: the 2D sea is quicker there)
     let g = null;
@@ -3391,5 +3420,5 @@ function planRay(p, b) {
 
 window.Low3D = { probe, family, NAMES, bench, plan, rows, line, LADDER, Governor, GL, Mesh, Flat, bake, M4, px, hexRGB,
   U, Kit, Path, Chunks, Land, Trail, Particles, camera, chase, orbit, viewOf, begin, Input, Menu, Synth, game,
-  Palette, Tex, RayMap, Ray, Marks, Screen, planRay, heldRay, helpersFor, wholeSteps, ladderSig, UI, Letters, GLYPHS, SPECIAL, wholeSize, version: 4 };
+  Palette, Tex, RayMap, Ray, Marks, Screen, planRay, heldRay, helpersFor, wholeSteps, ladderSig, fortyOn, withForty, UI, Letters, GLYPHS, SPECIAL, wholeSize, version: 4 };
 })();

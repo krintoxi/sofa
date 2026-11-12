@@ -8,6 +8,32 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.72
+
+Frames as even as they can be on the screen there is. The owner found 40 frames a second on a 40 Hz screen looks very
+smooth: it does because every frame stays on the screen the same time. That is what this is about.
+
+- **Every rung's frames are the same number of the screen's refreshes apart.** The engine's governor learns the
+  screen's refresh from every one and draws a frame every so many refreshes, held once chosen. On a 60 Hz TV, as the
+  box has, nothing changes: one refresh a frame at 60, two at 30, as before. On a 144 or 240 Hz screen (a PC) the
+  fixed 4 ms it allowed used to tip frames into the refresh before: three refreshes, four, three. Counted by
+  arithmetic, not on a screen: every rate from 50 to 240 Hz even now.
+- **A rung at 40 a second, only on a screen that shows 40 evenly** (a multiple of 40: 80, 120, 160, 240 Hz), between
+  the 30s and the 60s: a box too busy for 60 there goes to 40 before 30. Never on a 60 Hz screen, where 40 would be
+  one refresh, then two. On such a screen what a game kept for its rungs is dropped once, as a new ladder's is (the
+  box's own screen is 60 Hz: nothing kept there is dropped). Tidewing, Ironmaw and the seven games on the 2D engine.
+- **Gloamwell goes to a steady 30 when 60 runs late**, instead of 60 with frames missing: once its fewest extras
+  still run late, every other refresh, two refreshes each frame on a 60 Hz TV. Back to 60 when a frame's own work is
+  under 45% of a refresh for eight seconds, not after 60 ran late there twice. Its report line says "at 30".
+- **Gloamwell's stand-in measure is the engines' now.** Its `#slow` made the browser finish drawing each frame (a
+  pixel read back) and waited that out twenty times too: it read 13 to 20 frames a second as a stand-in Pi 3, where
+  the others read 60. Measured the engines' way, it holds 60 there (59 a second, 3 late frames of 590).
+- **"Late" means late.** A game's line for the report counted every frame of a steady 30 as late (anything over
+  25 ms); now a frame is late when it comes a refresh or more after its time. The measuring tool also says how many
+  frames were the same number of refreshes apart.
+- Nothing here has been seen on a real Pi or a 120 Hz screen: the counts are arithmetic and a Mac standing in for a
+  Pi 3.
+
 ## 1.1.70
 
 Back on Home, the apps behind it give the box back.
