@@ -273,6 +273,10 @@ Windows key on a keyboard, or **Home** on the Sofa bar.
   **OK** saying what it does (Resume, Play, Open). Rows below: **Apps**, **Continue watching**, **Open now**,
   **Plugged in**, **Games**. The top bar has the weather, the time, and the music an app plays (its buttons too).
   On a Pi 3 the picture and words follow once the remote rests, so a press is never slowed by a picture.
+- **Games** (since 1.1.77) is a store in the same way: behind it, the game the remote is on, playing itself, with
+  who plays and with what; rows of big pictures: **Continue** (what was played last on this box), **New on the box**,
+  **Two or more players**, **The box's own**, the free games from Debian on the box and to get, **Controllers** (pair one
+  there), and **Remove a game**.
 - **Icons** (Settings → Home screen → Icons): the box's own apps and EdgeVenture's in **Glossy** (the default: shiny,
   real-looking objects), **Drawn**, **Sticker**, **Phosphor** or **Pixel**, or the apps' own. Other companies' apps keep
   their own logo, set in the same style: a glossy glass tile, a sticker, a green screen. They are pictures made on a

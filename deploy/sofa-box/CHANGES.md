@@ -8,6 +8,31 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.77
+
+The Games page, as a store. Tried on the Pi 3 B+ with 1.1.73, it looked outdated: a wide grey bar across the top
+with a line half hidden behind the header, flat grey cards with a small icon and two lines of text, and the hints
+drawn over them. Home's own Games row, with real pictures of the games, already looked better.
+
+- **The game the remote is on is behind the page**: its photograph playing itself, big, with its name, a line about
+  it, and who plays and with what ("1 or 2 players", "Controller or keys", "Plays on the box, no internet needed"),
+  in Spotlight's way. On a Pi 4, a Pi 5 or a PC the picture drifts slowly; on a Pi 3 it stands still and changes once
+  the remote rests, so a press draws only the ring, as on Home.
+- **Rows like a console's store**: Continue (what was played last on this box, newest first), New on the box, Two or
+  more players, The box's own, the games from Debian on the box, Get it free (with each one's size, or the Pi it
+  needs), Controllers (look for one and pair it in the same row; the how-to for Xbox, PlayStation and 8BitDo over the
+  picture), and Remove a game (with the space free).
+- **Big pictures, small files.** A row's pictures are copies at a tile's size on the TV (640 × 360, 8 to 41 KB each,
+  in `home/art/games/small/`), loaded by the browser as they near the screen; the full 1280 × 720 photograph is only
+  the one behind the page. The games from Debian, which have no photograph, get a poster: their icon on their colour,
+  their name in the theme's own type.
+- One clock in the top bar, and the rows end above the hints at the bottom, so nothing is drawn under them.
+- `games.json` says for each game how many can play together and when it came to the box (`players`, `added`), and
+  the box passes both on for the games from Debian too.
+- From a Mac's headless Chrome, not the box: on a Pi 3's look a press on the page drew no row again (the same test as
+  Home's), and the browser fetched the 13 small pictures (about 260 KB) in the first second, since every game is in
+  one of the top rows. How it feels on a Pi 3 is still to be tried.
+
 ## 1.1.73
 
 Home is Spotlight: the TV's own kind of home screen, picked by the owner from a live mock-up of three.

@@ -369,6 +369,7 @@
   }
   // What the remote is on: the picture behind Home and the words over it
   function shelfOf(el) {
+    if (el.closest(".gp")) return gameShelf(el);                 // (the Games page's own: see viewGames)
     const d = el.dataset, s = sofa || {}, items = s.items || [];
     const field = (key, a, kicker, title, meta, ok) => ({ key, c: (a && a.color) || "var(--a)", app: a, kicker, title, meta, ok });
     if (d.cw) {
@@ -406,6 +407,7 @@
   function sptText(sh) {
     if (!sh) return "";
     return `<div class="spt-kicker">${esc(sh.kicker)}</div><h1 class="spt-title">${esc(sh.title)}</h1>${sh.meta ? `<p class="spt-meta">${esc(sh.meta)}</p>` : ""}
+      ${sh.chips && sh.chips.length ? `<p class="spt-chips">${sh.chips.map(c => `<span>${esc(c)}</span>`).join("")}</p>` : ""}
       ${sh.pct != null ? `<div class="spt-bar"><i style="width:${Math.max(2, sh.pct)}%"></i></div>` : ""}<p class="spt-ok"><kbd>OK</kbd>${esc(sh.ok)}</p>`;
   }
   function sptBig(a) {                             // an app's own icon, big, on its colour: the picture for an app
@@ -634,51 +636,87 @@
   // that run on the box itself (installed from the list when asked, played offline with a controller)
   const PAD_NAMES = { xbox: "Xbox controller", playstation: "PlayStation controller", nintendo: "Nintendo controller", "8bitdo": "8BitDo controller", generic: "Controller" };
   const PAD_HOME = { xbox: "the Xbox button", playstation: "the PS button" };
-  function webGameTile(g) {
-    return `<button class="tile game" style="--c:${esc(g.color)}" data-game="${esc(g.id)}"><span class="ic">${esc(g.emoji || g.name[0])}</span>
-      <b>${esc(g.name)}</b><small>${esc(g.about)}</small></button>`;
-  }
   // a game's own picture (games/icons/), or its emoji
   function gameIc(g) { return g.icon ? `<img decoding="async" class="game-ic" src="/box/games/${esc(g.icon)}" alt="">` : esc(g.emoji || g.name[0]); }
-  function nativeTile(g) {
-    return `<button class="tile game" style="--c:${esc(g.color)}" data-play="${esc(g.id)}"><span class="ic">${gameIc(g)}</span>
-      <b>${esc(g.name)}</b><small>${esc(g.about)}</small>${g.playing ? `<span class="meta">Playing now</span>` : ""}</button>`;
+  // The Games page is a store, in Spotlight's way: behind it, the game the remote is on (its photograph, playing itself,
+  // or for a game from Debian its icon on its colour) with its name, a line about it, who plays and with what; rows
+  // below. Continue (what was played last on this box), New, Two or more players, the box's own, from Debian, more to
+  // get, controllers. A row's pictures are small copies (art/games/small: 640 × 360, a tile's size on the TV), each
+  // loaded when it comes near the screen; the big one is only the one behind. On a Pi 3 the picture behind changes once
+  // the remote rests, as on Home, and stands still; elsewhere it drifts a little.
+  const RECENT = "sofa:games:recent";
+  function recentGames() { try { const r = JSON.parse(localStorage.getItem(RECENT) || "[]"); return Array.isArray(r) ? r : []; } catch (e) { return []; } }
+  function notePlayed(id) {
+    try { const r = recentGames().filter(x => x && x.id !== id); r.unshift({ id }); localStorage.setItem(RECENT, JSON.stringify(r.slice(0, 8))); } catch (e) { /* not kept */ }   // (newest first: the order is all it needs)
   }
-  function getTile(g, job) {
-    const busy = job && job.id === g.id;
-    const meta = busy ? `<i class="spin"></i>${job.action === "install" ? "Getting it: a few minutes" : "Removing it…"}`
-      : !g.fits ? `Needs a Raspberry Pi ${g.pi} or 5` : `Free · about ${g.mb >= 1000 ? (g.mb / 1000).toFixed(1) + " GB" : g.mb + " MB"}${g.mouse ? " · the stick is its mouse" : ""}`;
-    return `<button class="tile game get${g.fits ? "" : " off"}" style="--c:${esc(g.color)}" data-game-get="${esc(g.id)}"${g.fits ? "" : " disabled"}>
-      <span class="ic">${gameIc(g)}</span><b>${esc(g.name)}</b><small>${esc(g.about)}</small>
-      ${g.note ? `<small class="note">${esc(g.note)}</small>` : ""}<span class="meta">${meta}</span></button>`;
+  const whoPlays = n => n >= 4 ? "1 to 4 players" : n >= 2 ? "1 or 2 players" : "1 player";
+  const GP_ROWS = { continue: "Continue", new: "New on the box", two: "Two or more players", own: "The box's own", debian: "From Debian, on the box",
+                    get: "Get it, free", pads: "Controllers", remove: "Remove a game" };
+  function gpPoster(g) {                             // a game with no photograph: its icon on its colour, its name
+    const w = Math.max(...g.name.split(" ").map(x => x.length)), size = w > 10 ? " xlong" : w > 7 || g.name.length > 14 ? " long" : "";   // (a long word can't wrap)
+    return `<span class="gp-poster${size}" style="--c:${esc(g.color || "")}"><span class="gp-poster-ic">${gameIc(g)}</span><span class="gp-poster-name">${esc(g.name)}</span></span>`;
   }
-  function padsCard() {
-    const pads = games.pads || [];
-    if (pads.length) {
-      const home = PAD_HOME[pads[0].kind] || "Home";
-      return `<div class="pads">${pads.map(p => `<span class="pad-chip"><b><i class="pad-ic">🎮</i>${esc(PAD_NAMES[p.kind] || "Controller")}</b><small>${esc(p.name)}</small></span>`).join("")}
-        <p class="small">Ready: every game here works with it from the start. To come back from a game, hold <b>${esc(home)}</b> for a second.</p></div>`;
-    }
-    return `<section class="card pads-card"><h3>Connect a controller</h3>
-      <p class="small">Put it in pairing mode, then <b>Look for controllers</b>: it pairs by itself, and the box knows which kind it is.</p>
-      <ul class="pair-how"><li><b>Xbox:</b> hold the small pair button on top until the Xbox button flashes fast.</li>
-        <li><b>PlayStation:</b> hold Create (or Share) and the PS button until the light flashes.</li>
-        <li><b>8BitDo and others:</b> hold the pair button, or Start with X or Y (its manual says).</li></ul>
-      <p class="small">A USB cable, or a controller with its own USB dongle, works as soon as it's plugged in.</p>
-      <div class="choices"><button class="btn" data-bt-look="1">Look for controllers</button></div>
-      <div id="btList" class="bt-list small-list">${btList()}</div></section>`;
+  function gpTile(g, attrs, line, off) {
+    const pic = GAME_ART.has(g.id) ? `<img decoding="async" loading="lazy" src="/box/home/art/games/small/${esc(g.id)}.jpg" alt="" onerror="this.remove()">` : gpPoster(g);
+    return `<button class="tile spt-art gp-tile${off ? " off" : ""}" ${attrs}${off ? " disabled" : ""}><span class="spt-pic">${pic}${g.playing ? `<i class="gp-on">Playing now</i>` : ""}</span>
+      <b>${esc(g.name)}</b><small>${esc(line)}</small></button>`;
   }
   function viewGames() {
-    if (!games) return `<h1 class="page">Games</h1><p class="lede">Loading…</p>`;
+    if (!games) return `<div class="spt gp view-in"><div class="spt-detail"><div class="spt-text" id="sptText"><div class="spt-kicker">Games</div>
+      <h1 class="spt-title">Games</h1><p class="spt-meta">Getting the list…</p></div></div><div class="spt-rows" id="sptRows"></div></div>`;
     setupLive();
     const job = games.job && games.job.state === "working" ? games.job : null;
     const native = games.native || [], have = native.filter(g => g.installed), more = native.filter(g => !g.installed);
-    return `<div class="view-in"><h1 class="page">Games</h1><p class="lede">Play on the TV with a controller. Once a game is on the box, it plays without the internet.</p>
-      ${padsCard()}
-      <h2 class="row-title">On the box</h2><div class="grid games">${have.map(nativeTile).join("")}${games.games.map(webGameTile).join("")}</div>
-      ${more.length ? `<h2 class="row-title">Get more games <small>free: each one's licence is in Settings → This box → Credits</small></h2><div class="grid games">${more.map(g => getTile(g, job)).join("")}</div>` : ""}
-      ${have.length ? `<h2 class="row-title">Remove a game</h2><div class="choices">${have.map(g => `<button class="mini" data-game-remove="${esc(g.id)}">${esc(g.name)} <small>about ${g.mb} MB</small></button>`).join("")}</div>` : ""}
-      ${games.free_mb != null ? `<p class="small">${(games.free_mb / 1024).toFixed(1)} GB free on the box.</p>` : ""}</div>`;
+    const all = have.concat(games.games), act = g => native.includes(g) ? `data-play="${esc(g.id)}"` : `data-game="${esc(g.id)}"`;
+    const tile = g => gpTile(g, act(g), whoPlays(g.players || 1));
+    const row = (id, inner, small) => inner ? sptRow(id, GP_ROWS[id] + (small ? ` <small>${small}</small>` : ""), inner) : "";
+    const recent = recentGames().map(r => r && all.find(g => g.id === r.id)).filter(Boolean).slice(0, 6);
+    const fresh = all.slice().sort((x, y) => String(y.added || "").localeCompare(String(x.added || ""))).slice(0, 5);
+    const pads = games.pads || [];
+    const getLine = g => job && job.id === g.id ? (job.action === "install" ? "Getting it: a few minutes" : "Removing it…")
+      : !g.fits ? `Needs a Raspberry Pi ${g.pi} or 5` : `Free · about ${g.mb >= 1000 ? (g.mb / 1000).toFixed(1) + " GB" : g.mb + " MB"}`;
+    const rows = [
+      row("continue", recent.map(tile).join("")),
+      row("new", fresh.map(tile).join("")),
+      row("two", all.filter(g => (g.players || 1) >= 2).map(tile).join(""), "on one screen, a controller each"),
+      row("own", games.games.map(tile).join(""), "made for the box, played with a controller or the keys"),
+      row("debian", have.map(tile).join("")),
+      row("get", more.map(g => gpTile(g, `data-game-get="${esc(g.id)}"`, getLine(g), !g.fits)).join(""), "each one's licence is in Settings → This box → Credits"),
+      sptRow("pads", GP_ROWS.pads + (pads.length ? ` <small>${pads.map(p => esc(PAD_NAMES[p.kind] || "Controller")).join(" · ")}: ready</small>` : " <small>none yet</small>"),
+        `<button class="tile app spt-app gp-pad" data-bt-look="1"><span class="ic plus">${icon("#i-games")}</span><b>${pads.length ? "Another one" : "Connect one"}</b></button>
+        <div id="btList" class="bt-list gp-bt">${btList()}</div>`),
+      row("remove", have.map(g => `<button class="tile app spt-app gp-remove" data-game-remove="${esc(g.id)}"><span class="ic" style="--c:${esc(g.color)}">${gameIc(g)}</span><b>${esc(g.name)}</b></button>`).join(""),
+        games.free_mb != null ? `${(games.free_mb / 1024).toFixed(1)} GB free on the box` : "")
+    ];
+    return `<div class="spt gp view-in"><div class="spt-detail"><div class="spt-text" id="sptText">${sptText(spot.shelf)}</div></div>
+      <div class="spt-rows" id="sptRows">${rows.join("")}</div></div>`;
+  }
+  // what the remote is on, on the Games page: the picture behind and the words over it
+  function gameShelf(el) {
+    const d = el.dataset, rowId = (el.closest(".spt-row") || { dataset: {} }).dataset.row, kicker = GP_ROWS[rowId] || "Games";
+    const native = (games && games.native) || [], pads = (games && games.pads) || [];
+    const sh = (key, g, more) => Object.assign({ key, c: (g && g.color) || "var(--a)", kicker, title: g ? g.name : "", meta: (g && g.about) || "" }, more);
+    if (d.game && games) {
+      const g = games.games.find(x => x.id === d.game); if (!g) return null;
+      return sh("gp:" + g.id, g, { art: GAME_ART.has(g.id) ? "/box/home/art/games/" + g.id + ".jpg" : null, app: { name: g.name, color: g.color, emoji: g.emoji || g.name[0] },
+        chips: [whoPlays(g.players || 1), "Controller or keys", "Plays on the box, no internet needed"], ok: "Play" });
+    }
+    const n = native.find(x => x.id === (d.play || d.gameGet || d.gameRemove));
+    if (n && d.play) return sh("gp:" + n.id, n, { app: { name: n.name, color: n.color, game: n },
+      chips: [whoPlays(n.players || 1), n.mouse ? "The stick is its mouse" : "Controller", n.playing ? "Playing now" : "On the box"], ok: n.playing ? "Back to it" : "Play" });
+    if (n && d.gameGet) return sh("gp-get:" + n.id, n, { app: { name: n.name, color: n.color, game: n }, meta: n.about + (n.note ? " " + n.note : ""),
+      chips: [whoPlays(n.players || 1), n.fits ? `Free · about ${n.mb >= 1000 ? (n.mb / 1000).toFixed(1) + " GB" : n.mb + " MB"}` : `Needs a Raspberry Pi ${n.pi} or 5`],
+      ok: n.fits ? "Get it: a few minutes, then it plays offline" : "Not on this box" });
+    if (n && d.gameRemove) return sh("gp-rm:" + n.id, n, { app: { name: n.name, color: n.color, game: n }, title: "Remove " + n.name,
+      meta: `Frees about ${n.mb} MB. You can get it again any time, from the row above.`, ok: "Remove (press twice)" });
+    if (d.btLook) return sh("gp-pads", null, { app: { name: "", color: "var(--a)", input: "#i-games" }, title: pads.length ? "Another controller" : "Connect a controller",
+      meta: pads.length ? `Ready: every game here works with it. To come back from a game, hold ${PAD_HOME[pads[0].kind] || "Home"} for a second. Another one: put it in pairing mode, then OK.`
+        : "Put it in pairing mode, then OK here: the box finds it and knows which kind it is. A cable works as soon as it's in.",
+      chips: ["Xbox: hold the pair button on top", "PlayStation: Create and the PS button", "8BitDo: the pair button"],
+      ok: "Look for controllers" });
+    if (d.bt) return sh("gp-bt:" + d.bt, null, { app: { name: "", color: "var(--a)", input: "#i-games" }, title: (el.querySelector("b") || {}).textContent || "Controller",
+      meta: (el.querySelector("small") || {}).textContent || "", ok: "Pair" });
+    return null;
   }
   async function loadGames() {
     const g = await api("/box/api/games").catch(() => null);
@@ -1568,8 +1606,8 @@
       else if (d.url) open({ url: d.url });
       else if (d.credit) creditSheet(d.credit);
       else if (d.tvBrand) tvSheet(d.tvBrand);
-      else if (d.game) open({ url: location.origin + "/box/games/" + d.game + "/" });
-      else if (d.play) { const g = (games.native || []).find(x => x.id === d.play) || { name: d.play };
+      else if (d.game) { notePlayed(d.game); open({ url: location.origin + "/box/games/" + d.game + "/" }); }
+      else if (d.play) { const g = (games.native || []).find(x => x.id === d.play) || { name: d.play }; notePlayed(d.play);
         await api("/box/api/games", { action: "play", id: d.play });
         toast("Starting " + g.name + "… To come back, hold Home for a second."); }
       else if (d.gameGet) { const g = games.native.find(x => x.id === d.gameGet);

@@ -892,3 +892,48 @@ html[data-icons="sticker"] .framed.mono::before { background: var(--c, var(--a))
 html[data-icons="sticker"] .tile:nth-child(odd) .ic.framed { rotate: -4deg; }
 html[data-icons="sticker"] .tile:nth-child(even) .ic.framed { rotate: 3deg; }
 html[data-icons="sticker"] .spt-big.framed { rotate: -3deg; }
+
+/* ---- Games: a store, in Spotlight's way (home.js viewGames). Behind, the game the remote is on; over it, its name, a
+   line, who plays and with what; rows of big pictures below. The small copies are a tile's size on the TV. */
+.gp .spt-detail { width: 36rem; }
+.gp .spt-meta { max-width: 33rem; }
+.spt-chips { display: flex; flex-wrap: wrap; gap: .4rem; margin: .7rem 0 0; }
+.spt-chips span { padding: .2rem .6rem; border-radius: 99rem; font-size: .7rem; font-weight: 700; color: var(--fg);
+  background: color-mix(in srgb, var(--bg) 62%, transparent); box-shadow: inset 0 0 0 1px var(--line); }
+.spt-chips span:first-child { background: var(--a); color: var(--a-ink); box-shadow: none; }
+.gp .tile.spt-art { flex: 0 0 13.2rem; }
+.gp .tile.spt-art small { font-size: .66rem; font-weight: 600; color: var(--mist); margin-top: -.35rem; text-align: left; }
+.gp .tile.spt-art.off { opacity: .45; }
+.gp-on { position: absolute; left: .45rem; top: .45rem; padding: .1rem .45rem; border-radius: .35rem; font: 700 .6rem var(--text); font-style: normal;
+  background: var(--a); color: var(--a-ink); }
+/* a game with no photograph: a poster of its icon on its colour, its name in the display face */
+.gp-poster { position: absolute; inset: 0; display: flex; align-items: center; gap: .8rem; padding: 0 1rem; overflow: hidden;
+  background: radial-gradient(circle at 18% 50%, color-mix(in srgb, var(--c) 70%, transparent) 0%, transparent 62%),
+              linear-gradient(135deg, color-mix(in srgb, var(--c) 40%, var(--bg)) 0%, var(--bg) 78%); }
+.gp-poster::after { content: ""; position: absolute; inset: 0; opacity: .14;
+  background: repeating-linear-gradient(-45deg, var(--fg) 0 .12rem, transparent .12rem .7rem); }
+.gp-poster-ic { flex: none; width: 3.8rem; height: 3.8rem; border-radius: 1.05rem; display: grid; place-items: center; overflow: hidden; z-index: 1;
+  background: #fff; font-size: 2.4rem; box-shadow: 0 .5rem 1.2rem rgba(0,0,0,.45); }
+.gp-poster-ic img.game-ic { width: 80%; height: 80%; object-fit: contain; }
+.gp-poster-name { z-index: 1; min-width: 0; font: 800 1.3rem/1.02 var(--display); letter-spacing: -.02em; color: #fff; text-shadow: 0 .15rem .5rem rgba(0,0,0,.5);
+  text-transform: var(--word-transform, none); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.gp-poster.long .gp-poster-name { font-size: .95rem; }
+.gp-poster.xlong .gp-poster-name { font-size: .78rem; }
+[data-theme="street"] .gp-poster-name { color: transparent; -webkit-text-stroke: .05rem #fff; text-shadow: .12rem .12rem 0 var(--a); }
+[data-theme="terminal"] .gp-poster::after { background: repeating-linear-gradient(0deg, var(--fg) 0 1px, transparent 1px 4px); }
+/* controllers: the one to pair with, and what the box found, in the same row */
+.gp .tile.app.gp-pad .ic { background: var(--a); color: var(--a-ink); }
+.gp .tile.app.gp-pad .ic svg { width: 2.2rem; height: 2.2rem; }
+.gp-bt { display: flex; gap: .6rem; align-items: center; }
+.gp-bt .bt-row { flex: 0 0 auto; }
+.gp-bt p.small { margin: 0 .4rem; }
+.gp .tile.app.gp-remove .ic { background: var(--c, var(--tile)); font-size: 2rem; }
+.gp .tile.app.gp-remove .ic img.game-ic { width: 72%; height: 72%; object-fit: contain; }
+/* the picture behind comes alive: it drifts, slowly (not on a Pi 3: a screen-sized layer moving is a frame's work) */
+@keyframes gp-drift { from { transform: scale(1.02) translate(0, 0); } to { transform: scale(1.09) translate(-1.6%, -1.2%); } }
+html:not(.lite)[data-page="games"] .spt-layer.on img { animation: gp-drift 18s ease-in-out infinite alternate; will-change: transform; }
+/* (Spotlight's own clock is in the top bar's right end: the page's other one goes, as on Home; and the rows end above
+   the hints at the bottom, so nothing is drawn under them) */
+html[data-page="games"] .top .clock { visibility: hidden; }
+.gp .spt-rows { bottom: 2.9rem; }
+html:not(.lite) .gp .spt-rows { -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 2.4rem), transparent); mask-image: linear-gradient(to bottom, #000 calc(100% - 2.4rem), transparent); }
