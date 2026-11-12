@@ -1,7 +1,6 @@
 # Sofa anywhere: public libraries, other servers, and a box that works on its own
 
 The plan for the round that started 2026-11-02. Each part has a status: ☐ not started, ◐ under way, ☑ done.
-[HANDOFF.md](HANDOFF.md) says where things stand overall.
 
 ## What the owner asked for
 
@@ -164,7 +163,7 @@ The plan for the round that started 2026-11-02. Each part has a status: ☐ not 
   - USB drives mounting through udisks;
   - a USB DVD drive;
   - Jellyfin/Emby/Plex discovery on a real network;
-  - store icons (the cloud session couldn't reach those sites; on the box it can).
+  - store icons (the build machine couldn't reach those sites; the box can).
 - **For the owner:**
   - Put a free public Sofa in `deploy/sofa-box/servers.json` (name, url, about) when there is one;
     every box picks it up from GitHub within a day.

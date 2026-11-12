@@ -9,7 +9,7 @@ apps, games, a file manager and themes. It all runs on Raspberry Pi OS Lite (the
 Raspberry Pi 3 Model B+ (1 GB), and on any Debian-based small computer.
 
 Status of each part: ☐ not started, ◐ in progress, ☑ done (and tested). Keep this file current; it is
-what the next person (or the next conversation) works from. See also [HANDOFF.md](HANDOFF.md).
+what the next person works from.
 
 ## What it should feel like
 

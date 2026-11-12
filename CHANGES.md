@@ -6,6 +6,10 @@ has its own numbers and list: [deploy/sofa-box/CHANGES.md](deploy/sofa-box/CHANG
 A change to Sofa's code (`sofa/`, `client/`, `sofa.py`) gets a new version: raise `__version__`, add a section
 here, then `python3 tools/sofa-version.py` (a test checks it was done).
 
+## 1.5.10 (2026-11-12)
+
+- The report hint (Server → Activity) says to send it to whoever helps you.
+
 ## 1.5.9 (2026-11-12)
 
 - **Sofa for Windows.** An installer for Windows 10 (1809) and 11, 64-bit, that brings its own Python and ffmpeg

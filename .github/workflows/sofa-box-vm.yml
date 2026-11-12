@@ -9,7 +9,7 @@ name: Sofa box VM
 on:
   workflow_dispatch:
   push:
-    branches: ["claude/other-hardware"]
+    branches: ["other-hardware"]
     paths:
       - "deploy/sofa-box/**"
       - "!deploy/sofa-box/README.md"

@@ -399,9 +399,9 @@ class UpdateCommand(unittest.TestCase):
 
     def test_a_branch_from_ssh(self):
         """SOFA_BOX_BRANCH=<branch>: that branch's newest, whatever the channel (even an older version)."""
-        self.release("refs/heads/claude/try-this", "1.1.50")
+        self.release("refs/heads/try-this", "1.1.50")
         self.stable("1.1.56")
-        code, out, installed = self.update(SOFA_BOX_BRANCH="claude/try-this")
+        code, out, installed = self.update(SOFA_BOX_BRANCH="try-this")
         self.assertEqual((code, installed), (0, ["1.1.50"]), out)
 
     def test_from_the_tv_its_own_service_and_no_branch(self):

@@ -175,7 +175,7 @@ Nothing from a Pi: no `config.txt`, no `vcgencmd`, no Raspberry Pi archive.
 
 ### Built and booted on GitHub
 
-`.github/workflows/sofa-box-vm.yml` (`ubuntu-24.04`, `permissions: contents: read`, on pushes to `claude/other-hardware`
+`.github/workflows/sofa-box-vm.yml` (`ubuntu-24.04`, `permissions: contents: read`, on pushes to `other-hardware`
 and by hand) installs `mmdebstrap`, QEMU and OVMF, opens `/dev/kvm` with the udev rule GitHub documents for its hosted
 runners ([GitHub changelog, 2024-04-02](https://github.blog/changelog/2024-04-02-github-actions-hardware-accelerated-android-virtualization-now-available/);
 GitHub calls nested virtualization unsupported but it works there), builds the image, then runs

@@ -38,7 +38,7 @@ real Pi should ever replace today's.
 ## Building it
 
 GitHub builds it on its Arm computers ([the workflow](../../.github/workflows/sofa-box-image-gen.yml)), by hand
-or on every push to the `claude/image-gen` branch, and keeps it for a week under the run's **Artifacts**
+or on every push to the `image-gen` branch, and keeps it for a week under the run's **Artifacts**
 (`sofa-box-card-imagegen`):
 
 - `sofa-box-os-VERSION-imagegen.img.xz` and its `.sha256`: the card;

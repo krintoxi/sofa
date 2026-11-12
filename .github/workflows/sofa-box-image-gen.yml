@@ -7,7 +7,7 @@ name: Sofa box card (image-gen prototype)
 on:
   workflow_dispatch:
   push:
-    branches: [claude/image-gen]
+    branches: [image-gen]
 
 permissions:
   contents: read

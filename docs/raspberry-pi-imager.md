@@ -166,7 +166,7 @@ been tried yet with a format the list itself would offer.
    target. `cloudinit` or `cloudinit-rpi` are the formats 1.1.56's fix comes closest to (Imager 1.x's
    cloud-init route), but they're untried with Imager 2's own `user-data`. The box switches cloud-init off
    after its first start (`install.sh`), so settings changed later in Imager would never apply.
-3. **`rpi-preseed` later, only on the rpi-image-gen card (`claude/image-gen`), and only with four things:**
+3. **`rpi-preseed` later, only on the rpi-image-gen card (`image-gen`), and only with four things:**
    - That card ships no cloud-init, which suits rpi-preseed: its package `Conflicts: cloud-init`, so on
      today's card installing it would remove cloud-init.
    - **The box owns the user step.** rpi-preseed reads the helper's path from the environment

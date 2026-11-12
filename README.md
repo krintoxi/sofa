@@ -288,7 +288,7 @@ account**. The sign-in page gets **Create an account**; they pick a name and pas
 each one in (or not) under **Server → People**. Home tells you when someone's waiting.
 
 **Something's not right.** **Server → Activity → Download a report** makes one text file that
-explains what Sofa sees (no passwords). Send it to whoever helps you, or give it to Claude.
+explains what Sofa sees (no passwords). Send it to whoever helps you.
 
 <img src="docs/images/phone.jpg" alt="Sofa on a phone: the Home page" width="260"> <img src="docs/images/server.jpg" alt="The Server page: library counts, how to watch, Sofa's TV apps, who's watching" width="62%">
 

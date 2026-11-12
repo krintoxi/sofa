@@ -73,7 +73,7 @@ class Workflow(unittest.TestCase):
         wf = read(WORKFLOW)
         self.assertIn("permissions:\n  contents: read\n", wf)
         self.assertNotRegex(wf, r"contents: write|gh release (create|upload|edit|delete)|releases/assets|git push")
-        self.assertRegex(wf, r"on:\n  workflow_dispatch:\n  push:\n    branches: \[claude/image-gen\]\n\n")
+        self.assertRegex(wf, r"on:\n  workflow_dispatch:\n  push:\n    branches: \[image-gen\]\n\n")
         self.assertIn("retention-days: 7", wf)
 
     def test_rpi_image_gen_is_pinned_to_a_commit_not_copied(self):

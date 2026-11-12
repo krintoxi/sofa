@@ -3033,7 +3033,7 @@ function srvActivity(d) {
     download: "Downloads" };
   const list = d.activity.filter(a => activityKind === "all" || a.kind === activityKind);
   const report = `<div class="panel wide report-panel"><h2>Need help? Download a report</h2>
-    <p class="hint">One text file with everything needed to see what Sofa is doing: version and tools, settings (no passwords, PINs or keys), folders and free space, what's in the Inbox and Needs Review, the queues, playback problems, this activity log with its details, and the server log. Send it to whoever helps you (you can give it straight to Claude).</p>
+    <p class="hint">One text file with everything needed to see what Sofa is doing: version and tools, settings (no passwords, PINs or keys), folders and free space, what's in the Inbox and Needs Review, the queues, playback problems, this activity log with its details, and the server log. Send it to whoever helps you.</p>
     <div class="actions"><a class="btn primary" id="reportLink" href="/api/admin/report" download>Download a report</a>
       ${session.user.adult ? `<label class="check"><input type="checkbox" id="reportAdult"> Include Adult details (file names, links)</label>` : ""}</div></div>`;
   const pv = d.privacy || {};

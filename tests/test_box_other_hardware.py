@@ -320,7 +320,7 @@ class TheImageAndItsBoot(unittest.TestCase):
         self.assertIn("runs-on: ubuntu-24.04", wf)
         self.assertIn("permissions:\n  contents: read", wf)
         self.assertIn("workflow_dispatch:", wf)
-        self.assertIn('branches: ["claude/other-hardware"]', wf)
+        self.assertIn('branches: ["other-hardware"]', wf)
         self.assertIn("sudo tools/build-sofa-box-vm-image.sh out", wf)
         self.assertIn("--firmware uefi", wf)
         self.assertIn("--firmware bios", wf)
