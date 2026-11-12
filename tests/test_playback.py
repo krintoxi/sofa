@@ -158,9 +158,10 @@ class ConvertingForReal(unittest.TestCase):
             text = f.read()
         parts = [line for line in text.splitlines() if line and not line.startswith("#")] + re.findall(r'URI="([^"]+)"', text)
         self.assertTrue(parts and all(media.HLS_FILE.fullmatch(p) for p in parts), text)   # by name: players ask Sofa
-        # (ffprobe reads a playlist's parts relative to it: given D:\...\index.m3u8 on Windows it finds none)
-        a = (media.probe(playlist.replace(os.sep, "/")) or {}).get("audio") or [{}]
-        self.assertEqual((a[0].get("codec"), a[0].get("channels")), ("eac3", 6))      # 5.1 for a TV that takes Dolby
+        a = (media.probe(playlist) or {}).get("audio") or [{}]
+        said = "" if a[0] else subprocess.run([media.tool("ffprobe"), "-v", "error", "-show_streams", playlist],
+                                             capture_output=True, text=True).stderr[-1500:]
+        self.assertEqual((a[0].get("codec"), a[0].get("channels")), ("eac3", 6), said)   # 5.1 for a TV that takes Dolby
         out = os.path.join(tests.ROOT, "real", "stereo.mp4")
         a = (self.run_ffmpeg(out, caps={}).get("audio") or [{}])[0]
         self.assertEqual((a.get("codec"), a.get("channels")), ("aac", 2))              # stereo for everyone else
