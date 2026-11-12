@@ -150,8 +150,16 @@ def _drive_folders():
         return [os.path.expanduser(x) for x in setting]
     if platform.system() == "Darwin":
         return ["/Volumes"]
+    if os.name == "nt":
+        return []                                 # drive letters, not folders (_mounted)
     user = os.environ.get("USER") or ""
     return ["/media/" + user, "/run/media/" + user, "/media", "/mnt"]
+
+
+def _within(path, folder):
+    """Is `path` the folder itself or inside it? (A drive's root, E:\\ on Windows, ends in a separator already.)"""
+    path, folder = os.path.abspath(path), os.path.abspath(folder)
+    return path == folder or path.startswith(os.path.join(folder, ""))
 
 
 def _writable(path):
@@ -164,39 +172,48 @@ def _writable(path):
         return False
 
 
-def drives():
-    """Drives Sofa can see, with what it knows about each."""
-    types, seen, out = _mount_types(), set(), []
+def _mounted():
+    """[(name, path, filesystem)] for every drive plugged in: the folders in /Volumes (a Mac) or /media and /mnt
+    (Linux), or the drive letters with a disk in them but the one Windows runs from (sofa/windows.py)."""
+    from . import windows
+    if windows.ON and not config.get("drive_folders"):
+        return [(d["name"], d["path"], d["fs"]) for d in windows.drives() or []]
+    types, out = _mount_types(), []
     for folder in _drive_folders():
         try:
             names = sorted(os.listdir(folder))
         except OSError:
             continue
-        for name in names:
-            path = os.path.join(folder, name)
-            if name.startswith(".") or not os.path.isdir(path) or os.path.realpath(path) == "/" or path in seen \
-                    or path in _drive_folders():          # /media/<you> holds drives; it isn't one
-                continue
-            seen.add(path)
-            d = {"name": name, "path": path, "fs": types.get(path, ""), "problem": None}
-            try:
-                du = shutil.disk_usage(path)
-                d.update(total=du.total, free=du.free)
-                os.listdir(path)
-            except PermissionError:
-                d["problem"] = "no-permission"
-            except OSError as exc:
-                d["problem"] = exc.strerror or str(exc)
-            if not d["problem"]:
-                d["writable"] = _writable(path)
-                if not d["writable"]:
-                    d["problem"] = "read-only"
-            d["fat32"] = d["fs"] in ("msdos", "vfat", "fat32", "fat")
-            lib = os.path.join(path, DEFAULT_FOLDER)
-            d["existing"] = lib if os.path.isfile(os.path.join(lib, MARKER)) else None
-            d["in_use"] = any(os.path.abspath(p.get("drive") or p["path"]).startswith(os.path.abspath(path) + os.sep) or
-                              os.path.abspath(p.get("drive") or p["path"]) == os.path.abspath(path) for p in extra())
-            out.append(d)
+        out += [(name, os.path.join(folder, name), types.get(os.path.join(folder, name), "")) for name in names]
+    return out
+
+
+def drives():
+    """Drives Sofa can see, with what it knows about each."""
+    seen, out = set(), []
+    for name, path, fs in _mounted():
+        if name.startswith(".") or not os.path.isdir(path) or os.path.realpath(path) == "/" or path in seen \
+                or path in _drive_folders():          # /media/<you> holds drives; it isn't one
+            continue
+        seen.add(path)
+        d = {"name": name, "path": path, "fs": fs, "problem": None}
+        try:
+            du = shutil.disk_usage(path)
+            d.update(total=du.total, free=du.free)
+            os.listdir(path)
+        except PermissionError:
+            d["problem"] = "no-permission"
+        except OSError as exc:
+            d["problem"] = exc.strerror or str(exc)
+        if not d["problem"]:
+            d["writable"] = _writable(path)
+            if not d["writable"]:
+                d["problem"] = "read-only"
+        d["fat32"] = d["fs"] in ("msdos", "vfat", "fat32", "fat")
+        lib = os.path.join(path, DEFAULT_FOLDER)
+        d["existing"] = lib if os.path.isfile(os.path.join(lib, MARKER)) else None
+        d["in_use"] = any(_within(p.get("drive") or p["path"], path) for p in extra())
+        out.append(d)
     return out
 
 
@@ -281,25 +298,20 @@ def auto_drives():
     have = [os.path.abspath(p.get("drive") or p["path"]) for p in extra()]
     ignored = set(config.get("drives_ignored") or [])
     added = []
-    for folder in _drive_folders():
-        try:
-            names = sorted(os.listdir(folder))
-        except OSError:
+    for name, path, _fs in _mounted():
+        path = os.path.abspath(path)
+        if name.startswith(".") or path in ignored or path in _drive_folders() or not _is_drive(path):
             continue
-        for name in names:
-            path = os.path.abspath(os.path.join(folder, name))
-            if name.startswith(".") or path in ignored or path in _drive_folders() or not _is_drive(path):
-                continue
-            if any(h == path or h.startswith(path + os.sep) for h in have):
-                continue
-            lib = os.path.join(path, DEFAULT_FOLDER)
-            try:
-                pid = add(lib) if os.path.isfile(os.path.join(lib, MARKER)) else add_drive(path, name)
-            except ValueError:
-                pid = None
-            if pid:
-                added.append(pid)
-                have.append(path)
+        if any(_within(h, path) for h in have):
+            continue
+        lib = os.path.join(path, DEFAULT_FOLDER)
+        try:
+            pid = add(lib) if os.path.isfile(os.path.join(lib, MARKER)) else add_drive(path, name)
+        except ValueError:
+            pid = None
+        if pid:
+            added.append(pid)
+            have.append(path)
     return added
 
 
@@ -334,6 +346,9 @@ def permission_help():
         return ("macOS isn't letting Sofa open this drive. Open System Settings → Privacy & Security → "
                 "Full Disk Access, press +, press Command-Shift-G and paste %s, add it and switch it on. "
                 "Then restart Sofa (Server → Updates has the command) and try again." % sys.executable)
+    if os.name == "nt":
+        return ("Windows isn't letting Sofa open this drive. In File Explorer, right-click the drive → Properties → "
+                "Security, and give your own account Modify; or pick a folder on the drive you made yourself.")
     return "Sofa isn't allowed to open this drive. Check its permissions (the user running Sofa needs to read and write it)."
 
 

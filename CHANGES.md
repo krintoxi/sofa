@@ -6,6 +6,36 @@ has its own numbers and list: [deploy/sofa-box/CHANGES.md](deploy/sofa-box/CHANG
 A change to Sofa's code (`sofa/`, `client/`, `sofa.py`) gets a new version: raise `__version__`, add a section
 here, then `python3 tools/sofa-version.py` (a test checks it was done).
 
+## 1.5.8 (2026-11-12)
+
+- **Sofa for Windows.** An installer for Windows 10 (1809) and 11, 64-bit, that brings its own Python and ffmpeg
+  ([docs/install.md, "On Windows"](docs/install.md#on-windows); how it's made: [deploy/windows](deploy/windows/README.md)).
+  - It installs for you alone (no administrator needed) and asks where your library goes. Before Windows asks for
+    permission, a page says what the one firewall rule is for: Sofa's own Python may take connections from TVs and
+    phones on private networks, never public ones.
+  - Sofa waits by the clock. Click its icon to open it; its menu has the address for phones and TVs, Restart, Stop,
+    Start with Windows, the log and the Inbox folder. It starts when you sign in (unless that's unticked), starts again
+    if it stops, and stops cleanly on Quit, signing out and shutting down, with every ffmpeg it started.
+  - Uninstall it from Settings → Apps: it asks before deleting Sofa's own data and never touches your library.
+  - GitHub builds it from every change and runs it once (installed, started, asked for its page, quit, uninstalled)
+    before keeping it. On main each version gets a release (`sofa-v1.5.8`), and `sofa-for-windows` always has the
+    newest. It isn't signed yet, so SmartScreen asks: More info, Run anyway.
+- **The server itself on Windows**, with one code base (what only Windows needs is in `sofa/windows.py`):
+  - ffmpeg is found as `ffmpeg.exe`: Sofa's own, winget's, Chocolatey's, Scoop's, or on PATH.
+  - Pictures were made with `nice`, which Windows doesn't have: they weren't saved. Background work now runs below
+    normal priority there instead.
+  - Bonjour through Windows' own DNS-SD service (no Apple Bonjour needed), staying awake through Windows itself, the
+    drive letters under Server → Storage, the CPU and memory from Windows, how busy the computer is (Windows has no
+    load average), and the addresses phones use.
+  - After an update the app starts the new version (a Windows process can't replace itself). Sofa's port is its own:
+    a second Sofa can't quietly share it. Text is UTF-8, as on a Mac.
+- **Everywhere:** SSDP keeps answering after a reply nobody took (Windows reports those as an error on the next read,
+  which stopped the listener).
+- Sofa's tests run on GitHub's Windows machines too (Python 3.9 and 3.12, and the installer's 3.14); the box's tests
+  are skipped there, with the reason. `tests/test_windows.py` covers the app, the job object, the clean stop and
+  Windows' own APIs.
+- Not on a real Windows PC yet: GitHub's Windows Server machines are the only ones that have run it.
+
 ## 1.5.7 (2026-11-11)
 
 - **Live TV has one look: the bar of eras, then a guide.** Live now, your starred channels and what a search finds

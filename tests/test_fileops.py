@@ -14,7 +14,8 @@ from sofa import config, fileops, organizer, store
 def other_drive(real=os.rename):
     """os.rename that fails across "drives" the way it does between two disks (EXDEV)."""
     def rename(src, dest):
-        if "/drive-b/" in dest and "/drive-b/" not in src:
+        b = os.sep + "drive-b" + os.sep
+        if b in dest and b not in src:
             raise OSError(errno.EXDEV, "Invalid cross-device link")
         return real(src, dest)
     return rename

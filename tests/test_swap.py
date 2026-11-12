@@ -25,7 +25,7 @@ def tree(path):
         for f in files:
             p = os.path.join(d, f)
             with open(p, encoding="utf-8") as fh:
-                out[os.path.relpath(p, path)] = fh.read()
+                out[os.path.relpath(p, path).replace(os.sep, "/")] = fh.read()
     return out
 
 

@@ -21,7 +21,6 @@ their place.
 """
 import os
 import re
-import shutil
 import sqlite3
 import subprocess
 import threading
@@ -298,8 +297,8 @@ def convert(path, item_id=None, source=None):
     cmd, how = build_command(src, part, info)
     with _lock:
         _current.update(path=path, progress=0.0, how=how)
-    proc = subprocess.Popen((["nice", "-n", "10"] if shutil.which("nice") else []) + cmd,
-                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    run, extra = media.gently(cmd)
+    proc = subprocess.Popen(run, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, **extra)
     with _lock:
         _current["proc"] = proc
     total = info.get("duration") or 0

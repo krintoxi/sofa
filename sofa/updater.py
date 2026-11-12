@@ -386,14 +386,20 @@ def start_update():
 
 
 def restart():
-    """Start this same process again with the new code (launchd/systemd see the same process carry on)."""
+    """Start this same process again with the new code (launchd/systemd see the same process carry on). Windows
+    can't replace a process in place: there the Sofa app that started this one starts the next (sofa/windows.py)."""
+    args = [os.path.join(config.APP_DIR, "sofa.py")] + sys.argv[1:]
     try:
-        from . import discovery
+        from . import awake, discovery
         discovery.stop()                      # the new process announces itself again
+        awake.stop()
         sys.stdout.flush()
         sys.stderr.flush()
     finally:
-        os.execv(sys.executable, [sys.executable, os.path.join(config.APP_DIR, "sofa.py")] + sys.argv[1:])
+        if os.name == "nt":
+            from . import windows
+            windows.start_again(args)
+        os.execv(sys.executable, [sys.executable] + args)
 
 
 def _loop():

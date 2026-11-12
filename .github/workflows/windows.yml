@@ -1,0 +1,182 @@
+name: Windows
+
+# Sofa for Windows: the installer (deploy/windows/sofa.iss), built on GitHub's Windows machines from every change to
+# Sofa. Before it's kept, Sofa's whole test suite runs with the Python the installer carries, and the installer itself
+# is run there the way a person would: installed without questions, Sofa started as the Start menu starts it, asked
+# for its page, quit, uninstalled, with a look at what each step left.
+#
+# On main, each Sofa version gets a GitHub release, sofa-v<version>, with the installer and its SHA-256, and the
+# release sofa-for-windows always has the newest as sofa-windows-x64-setup.exe (the address docs/install.md gives). Neither
+# is marked "latest": the latest release is the one the Fire TV app is downloaded from. Elsewhere the installer is kept
+# with the run (Actions → the run → Artifacts). Not signed yet: deploy/windows/README.md says how a certificate is added.
+on:
+  push:
+    paths:
+      - "sofa/**"
+      - "client/**"
+      - "deploy/**"
+      - "roku/**"
+      - "integrations/**"
+      - "sofa.py"
+      - "LICENSE"
+      - "NOTICE"
+      - "tools/windows-*.py"
+      - ".github/workflows/windows.yml"
+  pull_request:
+    paths:
+      - "sofa/**"
+      - "deploy/windows/**"
+      - "sofa.py"
+      - "tools/windows-*.py"
+      - ".github/workflows/windows.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  installer:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Files exactly as they are in the repository (git on Windows would turn LF into CRLF)
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/cache@v4
+        with:
+          path: build/windows/downloads
+          key: windows-deps-${{ hashFiles('tools/windows-deps.py') }}
+      - name: Sofa's version
+        run: echo "SOFA_VERSION=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' sofa/__init__.py)" >> "$GITHUB_ENV"
+
+      - name: Put Sofa for Windows together (build/windows/Sofa)
+        run: python tools/windows-build.py
+
+      - name: Sofa's tests, with the Python the installer carries
+        run: |
+          set -o pipefail
+          PATH="$PWD/build/windows/Sofa/vendor/ffmpeg/bin:$PATH" build/windows/Sofa/vendor/python/python.exe -X utf8 -W ignore \
+            -m unittest discover -s tests -t . 2>&1 | tail -n 60
+
+      - name: Inno Setup
+        run: |
+          if [ ! -x "/c/Program Files (x86)/Inno Setup 6/ISCC.exe" ]; then choco install innosetup -y --no-progress; fi
+          "/c/Program Files (x86)/Inno Setup 6/ISCC.exe" /? | head -n 2 || true
+
+      - name: Build the installer
+        run: |
+          "/c/Program Files (x86)/Inno Setup 6/ISCC.exe" /Q "/DAppVersion=$SOFA_VERSION" deploy/windows/sofa.iss
+          cd build/windows
+          ls -la sofa-*-setup.exe
+          sha256sum "sofa-$SOFA_VERSION-windows-x64-setup.exe" > "sofa-$SOFA_VERSION-windows-x64-setup.exe.sha256"
+          cat "sofa-$SOFA_VERSION-windows-x64-setup.exe.sha256"
+
+      - name: Install it, start Sofa, open it, quit, uninstall
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $setup = (Resolve-Path "build/windows/sofa-$env:SOFA_VERSION-windows-x64-setup.exe").Path
+          $media = Join-Path $env:RUNNER_TEMP "My Media"
+          $app = Join-Path $env:LOCALAPPDATA "Programs\Sofa"
+          $py = Join-Path $app "vendor\python"
+          $tray = Join-Path $app "deploy\windows\sofa-tray.pyw"
+          function Answers { try { (Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8090/healthz -TimeoutSec 3).StatusCode -eq 200 } catch { $false } }
+
+          "-- installing, as an IT person would (no questions)"
+          $p = Start-Process $setup -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/LIBRARY=`"$media`"", "/LOG=`"$env:RUNNER_TEMP\install.log`"" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { Get-Content "$env:RUNNER_TEMP\install.log" -Tail 60; throw "setup ended with $($p.ExitCode)" }
+          foreach ($f in "sofa.py", "sofa\winapp.py", "vendor\python\pythonw.exe", "vendor\ffmpeg\bin\ffmpeg.exe", "vendor\ffmpeg\bin\ffprobe.exe", "vendor\ffmpeg\LICENSE.txt", "unins000.exe", "data\installed-commit") {
+            if (-not (Test-Path (Join-Path $app $f))) { throw "missing after install: $f" }
+          }
+          $run = (Get-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run").Sofa
+          "Start with Windows: $run"
+          if ($run -notlike "*sofa-tray.pyw*--background*") { throw "no Start with Windows" }
+          if (-not (Test-Path (Join-Path ([Environment]::GetFolderPath("Programs")) "Sofa.lnk"))) { throw "no Start menu entry" }
+          netsh advfirewall firewall show rule name=Sofa verbose
+          if ($LASTEXITCODE -ne 0) { throw "no firewall rule" }
+
+          "-- the installed Python finds Sofa and its ffmpeg (chromaprint for Skip Intro too)"
+          & "$py\python.exe" -X utf8 -c "from sofa import media; print(media.tool('ffmpeg')); print(media.ffmpeg_version())"
+          & (Join-Path $app "vendor\ffmpeg\bin\ffmpeg.exe") -hide_banner -muxers | Select-String chromaprint
+          if ($LASTEXITCODE -ne 0) { throw "this ffmpeg has no chromaprint" }
+
+          "-- started as the Start menu starts it"
+          Start-Process "$py\pythonw.exe" -ArgumentList "`"$tray`"", "--background" -WorkingDirectory $app
+          $ok = $false
+          for ($i = 0; $i -lt 60 -and -not $ok; $i++) { Start-Sleep 2; $ok = Answers }
+          if (-not $ok) { Get-Content (Join-Path $app "data\sofa.log") -Tail 80; throw "Sofa didn't answer on 8090" }
+          (Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8090/api/info).Content
+          $conf = Get-Content (Join-Path $app "data\config.json") -Raw | ConvertFrom-Json
+          if ($conf.inbox -ne (Join-Path $media "Inbox")) { throw "the library isn't where the installer was told: $($conf.inbox)" }
+          if (-not (Test-Path (Join-Path $media "Inbox"))) { throw "no Inbox folder" }
+          & "$py\python.exe" "$tray" --status
+          if ($LASTEXITCODE -ne 0) { throw "--status says it isn't running" }
+
+          "-- quit, as the menu's Quit does"
+          & "$py\python.exe" "$tray" --quit
+          if ($LASTEXITCODE -ne 0) { throw "--quit didn't finish" }
+          Start-Sleep 2
+          if (Answers) { throw "still answering after Quit" }
+          Get-Content (Join-Path $app "data\sofa.log") -Tail 25
+
+          "-- uninstalling (no questions: data\ is kept)"
+          Start-Process (Join-Path $app "unins000.exe") -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART" -Wait
+          # (the uninstaller carries on from a copy of itself in TEMP; its own file goes last)
+          for ($i = 0; $i -lt 120 -and (Test-Path (Join-Path $app "unins000.exe")); $i++) { Start-Sleep 1 }
+          Start-Sleep 3
+          foreach ($f in "sofa.py", "sofa", "vendor", "deploy") { if (Test-Path (Join-Path $app $f)) { throw "left after uninstall: $f" } }
+          if (-not (Test-Path (Join-Path $app "data\config.json"))) { throw "data\ went with it" }
+          if ((Get-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run").Sofa) { throw "Start with Windows left behind" }
+          netsh advfirewall firewall show rule name=Sofa | Out-Null
+          if ($LASTEXITCODE -eq 0) { throw "the firewall rule was left behind" }
+          if (-not (Test-Path (Join-Path $media "Inbox"))) { throw "the library was touched" }
+          "Installed, ran, quit and uninstalled cleanly."
+          exit 0
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sofa-${{ env.SOFA_VERSION }}-windows
+          path: |
+            build/windows/sofa-*-windows-x64-setup.exe
+            build/windows/sofa-*-windows-x64-setup.exe.sha256
+          if-no-files-found: ignore
+
+      - name: A release for this version (main only)
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="sofa-v$SOFA_VERSION"
+          cd build/windows
+          FILES="sofa-$SOFA_VERSION-windows-x64-setup.exe sofa-$SOFA_VERSION-windows-x64-setup.exe.sha256"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" $FILES --clobber
+          else
+            printf '%s\n' "Sofa $SOFA_VERSION." "" \
+              "**Windows 10 (1809) or 11, 64-bit:** sofa-$SOFA_VERSION-windows-x64-setup.exe. It brings its own Python and ffmpeg and installs for you alone (no administrator needed); see docs/install.md, \"On Windows\". The installer isn't signed yet, so Windows SmartScreen says it doesn't know it: More info, then Run anyway." \
+              "" "**Mac, Linux, Docker:** docs/install.md." "" "What's new: CHANGES.md." > notes.md
+            gh release create "$TAG" $FILES --target "$GITHUB_SHA" --latest=false --title "Sofa $SOFA_VERSION" --notes-file notes.md
+          fi
+          # The newest one under a name that never changes (what docs/install.md links to), like the box's testing card.
+          cp "sofa-$SOFA_VERSION-windows-x64-setup.exe" sofa-windows-x64-setup.exe
+          sha256sum sofa-windows-x64-setup.exe > sofa-windows-x64-setup.exe.sha256
+          printf '%s\n' "The newest Sofa for Windows: Sofa $SOFA_VERSION, built by GitHub from main. Download sofa-windows-x64-setup.exe and open it; docs/install.md, \"On Windows\", says what it asks and why." \
+            "" "Every version, each with its own installer: the releases named \"Sofa <version>\" (tags sofa-v...)." > rolling.md
+          if gh release view sofa-for-windows >/dev/null 2>&1; then
+            gh release upload sofa-for-windows sofa-windows-x64-setup.exe sofa-windows-x64-setup.exe.sha256 --clobber
+            gh release edit sofa-for-windows --title "Sofa for Windows: the newest installer (Sofa $SOFA_VERSION)" --notes-file rolling.md
+          else
+            gh release create sofa-for-windows sofa-windows-x64-setup.exe sofa-windows-x64-setup.exe.sha256 --target "$GITHUB_SHA" \
+              --latest=false --title "Sofa for Windows: the newest installer (Sofa $SOFA_VERSION)" --notes-file rolling.md
+          fi

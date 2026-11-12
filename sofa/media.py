@@ -34,15 +34,32 @@ _encoders = None
 
 def tool(name):
     setting = config.get("ffmpeg")
+    exe = name + ".exe" if os.name == "nt" else name
     candidates = []
     if setting and setting != "auto":
-        candidates.append(os.path.join(os.path.expanduser(setting), name))
-    candidates += [os.path.join(config.APP_DIR, "vendor", "ffmpeg", "bin", name),
-                   "/opt/homebrew/bin/" + name, "/usr/local/bin/" + name, shutil.which(name) or ""]
+        candidates.append(os.path.join(os.path.expanduser(setting), exe))
+    candidates.append(os.path.join(config.APP_DIR, "vendor", "ffmpeg", "bin", exe))
+    if os.name == "nt":                     # winget, Chocolatey and Scoop (when PATH was changed after Sofa started)
+        local = os.environ.get("LOCALAPPDATA") or ""
+        candidates += [os.path.join(local, "Microsoft", "WinGet", "Links", exe) if local else "",
+                       os.path.join(os.environ.get("ProgramData") or "C:\\ProgramData", "chocolatey", "bin", exe),
+                       os.path.join(os.path.expanduser("~"), "scoop", "shims", exe)]
+    else:
+        candidates += ["/opt/homebrew/bin/" + name, "/usr/local/bin/" + name]
+    candidates.append(shutil.which(name) or "")
     for c in candidates:
-        if c and os.access(c, os.X_OK):
+        if c and os.path.isfile(c) and os.access(c, os.X_OK):
             return c
     return None
+
+
+def gently(cmd):
+    """(command, Popen arguments) for work that should give way to everything else: `nice -n 10` on a Mac or
+    Linux, below-normal priority on Windows (which has no `nice`)."""
+    from . import windows
+    if windows.ON:
+        return cmd, windows.lower_priority()
+    return (["nice", "-n", "10"] + cmd if shutil.which("nice") else cmd), {}
 
 
 def ffmpeg_version():
@@ -533,9 +550,13 @@ def busy():
 def overloaded():
     """The computer is working hard already (an old Mac converting a film for someone, say)."""
     try:
-        return os.getloadavg()[0] > max(1.5, (os.cpu_count() or 2) * 0.8)
-    except (OSError, AttributeError):
-        return False
+        load = os.getloadavg()[0]
+    except (OSError, AttributeError):          # Windows has no load average: how busy the CPU was this last minute
+        from . import windows
+        load = windows.load()
+        if load is None:
+            return False
+    return load > max(1.5, (os.cpu_count() or 2) * 0.8)
 
 
 def should_wait():
@@ -767,7 +788,8 @@ def save_image(src, dest, max_width, fmt="jpeg"):
             cmd = [SIPS, "-s", "format", fmt] + (["-s", "formatOptions", "80"] if fmt == "jpeg" else [])
             if width > max_width:
                 cmd += ["--resampleWidth", str(max_width)]
-            subprocess.run(["nice", "-n", "10"] + cmd + [src, "--out", tmp], capture_output=True, timeout=60, check=True)
+            run, extra = gently(cmd + [src, "--out", tmp])
+            subprocess.run(run, capture_output=True, timeout=60, check=True, **extra)
         else:
             exe = tool("ffmpeg")
             if not exe:
@@ -775,7 +797,8 @@ def save_image(src, dest, max_width, fmt="jpeg"):
             cmd = [exe, "-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-i", src,
                    "-vf", "scale='min(%d,iw)':-2" % max_width]
             cmd += ["-compression_level", "9"] if fmt == "png" else ["-q:v", "4"]
-            subprocess.run(["nice", "-n", "10"] + cmd + [tmp], capture_output=True, timeout=60, check=True)
+            run, extra = gently(cmd + [tmp])
+            subprocess.run(run, capture_output=True, timeout=60, check=True, **extra)
         if not os.path.getsize(tmp):
             raise OSError("empty image")
         os.replace(tmp, dest)

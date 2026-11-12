@@ -20,7 +20,7 @@ import subprocess
 import threading
 import time
 
-from . import config, media, store
+from . import config, media, store, windows
 
 CACHE = os.path.join(config.DATA_DIR, "cache", "machine.json")
 TEST_SECONDS, TEST_FPS = 4, 30
@@ -46,6 +46,9 @@ def describe():
             flags = (_sysctl("machdep.cpu.leaf7_features") + " " + _sysctl("machdep.cpu.features")).upper()
             avx2 = "AVX2" in flags
         mem = int(_sysctl("hw.memsize") or 0)
+    elif windows.ON:
+        w = windows.describe()
+        cpu, avx2, mem = w["cpu"] or cpu, w["modern_cpu"], w["memory"]
     else:
         try:
             with open("/proc/cpuinfo") as f:

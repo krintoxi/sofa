@@ -57,14 +57,18 @@ jobs:
     env:
       PYTHONUTF8: "1"
     steps:
+      - name: Files exactly as they are in the repository (git on Windows would turn LF into CRLF)
+        run: git config --global core.autocrlf false
       - uses: actions/checkout@v5
       - uses: astral-sh/setup-uv@v6
       - uses: actions/cache@v4
         with:
           path: build/windows/downloads
           key: windows-deps-${{ hashFiles('tools/windows-deps.py') }}
-      - name: ffmpeg, as the installer carries it
-        run: uv run --no-project --python 3.12 python tools/windows-deps.py --ffmpeg
+      - name: ffmpeg, as the installer carries it (vendor/ffmpeg, where Sofa looks first; on PATH for the tests that ask PATH)
+        run: |
+          uv run --no-project --python 3.12 python tools/windows-deps.py --ffmpeg
+          echo "$GITHUB_WORKSPACE\\vendor\\ffmpeg\\bin" >> "$GITHUB_PATH"
       - name: Run the tests
         run: |
           set -o pipefail

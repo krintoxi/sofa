@@ -9,6 +9,7 @@ import os
 import platform
 import re
 import shutil
+import socket
 import ssl
 import sys
 import time
@@ -1752,7 +1753,7 @@ class Server(ThreadingHTTPServer):
     """One thread per connection, with limits: so many at once in all and from one address (more get "busy, try again"
     at once instead of a thread each), and a connection that sends nothing for a while is closed (Handler.timeout)."""
     daemon_threads = True
-    allow_reuse_address = True
+    allow_reuse_address = os.name != "nt"          # on Windows it would let a second Sofa answer on the same port
     max_connections = 256
     max_per_address = 48
 
@@ -1760,6 +1761,11 @@ class Server(ThreadingHTTPServer):
         self._slots = threading.BoundedSemaphore(self.max_connections)
         self._per, self._per_lock = {}, threading.Lock()
         super().__init__(*args, **kwargs)
+
+    def server_bind(self):
+        if os.name == "nt":                         # the port is Sofa's alone, or Sofa says it's taken
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
 
     def process_request(self, request, client_address):
         ip = client_address[0] if isinstance(client_address, tuple) else ""

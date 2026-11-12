@@ -1,8 +1,9 @@
 """Keeping the Sofa computer awake while Sofa runs: a Mac that falls asleep takes Sofa off every TV.
 
 macOS: `caffeinate -i -s -w <Sofa's process>`, so the computer doesn't sleep by itself while Sofa runs
-(the screen still turns off). Linux: `systemd-inhibit` holds off sleep the same way. It ends by itself
-when Sofa stops. Server → Settings → Keep this computer awake turns it off.
+(the screen still turns off). Linux: `systemd-inhibit` holds off sleep the same way. Windows: Sofa asks Windows
+itself (SetThreadExecutionState, sofa/windows.py), no helper. It ends by itself when Sofa stops. Server → Settings →
+Keep this computer awake turns it off.
 
 Sofa restarts itself in place after an update (same process), so the helper it started before is
 remembered in data/cache/awake.pid and reused instead of starting another.
@@ -11,7 +12,7 @@ import os
 import shutil
 import subprocess
 
-from . import config
+from . import config, windows
 
 PID_FILE = os.path.join(config.DATA_DIR, "cache", "awake.pid")
 _proc = None
@@ -42,12 +43,15 @@ def status():
     """"on", "off" (the setting), or "unavailable" (no way to do it here)."""
     if not config.get("keep_awake"):
         return "off"
-    return "on" if _command() else "unavailable"
+    return "on" if windows.ON or _command() else "unavailable"
 
 
 def apply():
     """Start or stop keeping awake, to match the setting."""
     global _proc
+    if windows.ON:
+        windows.keep_awake(config.get("keep_awake"))
+        return
     if not config.get("keep_awake") or not _command():
         stop()
         return
@@ -64,6 +68,9 @@ def apply():
 
 def stop():
     global _proc
+    if windows.ON:
+        windows.keep_awake(False)
+        return
     pid = _proc.pid if _proc else None
     if pid is None and _running_for_us():
         with open(PID_FILE, encoding="utf-8") as f:

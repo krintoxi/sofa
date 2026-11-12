@@ -108,14 +108,34 @@ def watch_update():
             os.remove(mark)
         except OSError:
             pass
-    os.execv(sys.executable, [sys.executable, os.path.join(APP, "sofa.py")] + sys.argv[1:])
+    again = [os.path.join(APP, "sofa.py")] + sys.argv[1:]
+    if os.name == "nt":                  # no execv in place on Windows (sofa/windows.py says how instead)
+        sys.path.insert(0, APP)
+        from sofa import windows
+        windows.start_again(again)
+    os.execv(sys.executable, [sys.executable] + again)
 
 
+def utf8_on_windows():
+    """Windows: Sofa runs in Python's UTF-8 mode, so text is UTF-8 the way it is on a Mac or Linux (names of shows,
+    the log's arrows, files written without naming an encoding), not the PC's old code page. A Python started
+    without it starts Sofa again with it."""
+    if os.name != "nt" or sys.flags.utf8_mode or os.environ.get("SOFA_NO_UTF8_RESTART"):
+        return
+    env = dict(os.environ, PYTHONUTF8="1", SOFA_NO_UTF8_RESTART="1")
+    try:
+        sys.exit(subprocess.call([sys.executable, "-X", "utf8", os.path.abspath(__file__)] + sys.argv[1:], env=env))
+    except KeyboardInterrupt:
+        sys.exit(130)
+
+
+if __name__ == "__main__":
+    utf8_on_windows()
 if __name__ == "__main__" and sys.argv[1:2] == ["serve"]:
     finish_swap()
     watch_update()
 
-from sofa import __version__, apps, auth, awake, ddns, tls, upnp, backup, config, discovery, dlna, organizer, store, updater, watcher, web  # noqa: E402
+from sofa import __version__, apps, auth, awake, ddns, tls, upnp, backup, config, discovery, dlna, organizer, store, updater, watcher, web, windows  # noqa: E402
 from sofa.library import LIBRARY  # noqa: E402
 
 
@@ -159,6 +179,19 @@ def thread_crashed(args):
         pass
 
 
+def stop_cleanly():
+    """What SIGTERM does on a Mac or Linux, for Windows: Sofa says goodbye on the network and stops."""
+    print("Sofa is stopping (asked by the Sofa app).", flush=True)
+    for part in (discovery.stop, awake.stop, lambda: dlna.notify("ssdp:byebye")):
+        try:
+            part()
+        except Exception:
+            pass
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(0)
+
+
 def ask_password():
     while True:
         a = getpass.getpass("Password (8+ characters): ")
@@ -183,6 +216,8 @@ def main(argv):
         Stamped.quiet = staticmethod(store.no_logs)
         sys.stdout, sys.stderr = Stamped(sys.stdout), Stamped(sys.stderr)
         threading.excepthook = thread_crashed
+        if windows.watch_stop_event(stop_cleanly):        # Windows: the Sofa app asks for a clean stop this way
+            print("Run by the Sofa app in the notification area.", flush=True)
         print("Python %s at %s" % (sys.version.split()[0], sys.executable), flush=True)
         # Answer straight away; the library is read in the background (a big one takes a while).
         print("Sofa %s is starting." % __version__, flush=True)

@@ -40,7 +40,11 @@ _running = False
 
 
 def _ipv4s():
-    """Every IPv4 address of this machine: ifconfig (macOS, older Linux), `ip` (newer Linux), or a socket guess."""
+    """Every IPv4 address of this machine: ifconfig (macOS, older Linux), `ip` (newer Linux), Windows' own answer
+    (sofa/windows.py), or a socket guess."""
+    from . import windows
+    if windows.ON:
+        return windows.ipv4s() or []
     for cmd in (["/sbin/ifconfig"], ["ifconfig"], ["ip", "-4", "-o", "addr", "show"], ["/sbin/ip", "-4", "-o", "addr", "show"]):
         try:
             out = subprocess.run(cmd, capture_output=True, text=True, timeout=5).stdout
@@ -381,7 +385,11 @@ def _listener():
         except OSError:
             pass
     while True:
-        data, peer = sock.recvfrom(4096)
+        try:
+            data, peer = sock.recvfrom(4096)
+        except OSError:          # Windows: an ICMP "port unreachable" for an earlier reply surfaces here (WSAECONNRESET)
+            time.sleep(0.05)
+            continue
         text = data.decode("utf-8", "replace")
         if not text.startswith("M-SEARCH"):
             continue
@@ -391,7 +399,7 @@ def _listener():
             reply = ("HTTP/1.1 200 OK\r\nCACHE-CONTROL: max-age=1800\r\nEXT:\r\nLOCATION: http://%s:%d/api/info\r\n"
                      "SERVER: Sofa/1.0\r\nST: %s\r\nUSN: %s::%s\r\nContent-Length: 0\r\n\r\n"
                      % (here, config.get("port"), SOFA_ST, UDN, SOFA_ST))
-            sock.sendto(reply.encode(), peer)
+            _send(sock, reply, peer)
         if not config.get("dlna"):
             continue
         targets = TYPES if st == "ssdp:all" else [st] if st in TYPES else []
@@ -400,7 +408,14 @@ def _listener():
                      "LOCATION: http://%s:%d/dlna/device.xml\r\nSERVER: Sofa/1.0 UPnP/1.0 DLNADOC/1.50\r\n"
                      "ST: %s\r\nUSN: %s\r\nContent-Length: 0\r\n\r\n"
                      % (email.utils.formatdate(usegmt=True), here, config.get("port"), nt, _usn(nt)))
-            sock.sendto(reply.encode(), peer)
+            _send(sock, reply, peer)
+
+
+def _send(sock, text, peer):
+    try:
+        sock.sendto(text.encode(), peer)
+    except OSError:              # a searcher that went away, a network that just changed: the next search is answered
+        pass
 
 
 def notify(kind="ssdp:alive"):
