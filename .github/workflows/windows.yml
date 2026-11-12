@@ -5,7 +5,8 @@ name: Windows
 # is run there the way a person would: installed without questions, Sofa started as the Start menu starts it, asked
 # for its page, quit, uninstalled, with a look at what each step left.
 #
-# On main, each Sofa version gets a GitHub release, sofa-v<version>, with the installer and its SHA-256, and the
+# On main, each Sofa version gets a GitHub release, sofa-v<version>, with the installer and its SHA-256 (made once, from
+# the first commit with that version, and not replaced after), and the
 # release sofa-for-windows always has the newest as sofa-windows-x64-setup.exe (the address docs/install.md gives). Neither
 # is marked "latest": the latest release is the one the Fire TV app is downloaded from. Elsewhere the installer is kept
 # with the run (Actions → the run → Artifacts). Not signed yet: deploy/windows/README.md says how a certificate is added.
@@ -21,6 +22,7 @@ on:
       - "LICENSE"
       - "NOTICE"
       - "tools/windows-*.py"
+      - "tests/**"
       - ".github/workflows/windows.yml"
   pull_request:
     paths:
@@ -28,6 +30,7 @@ on:
       - "deploy/windows/**"
       - "sofa.py"
       - "tools/windows-*.py"
+      - "tests/**"
       - ".github/workflows/windows.yml"
   workflow_dispatch:
 
@@ -161,7 +164,7 @@ jobs:
           cd build/windows
           FILES="sofa-$SOFA_VERSION-windows-x64-setup.exe sofa-$SOFA_VERSION-windows-x64-setup.exe.sha256"
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" $FILES --clobber
+            echo "$TAG has its installer already (built from the commit that first had Sofa $SOFA_VERSION); left as it is."
           else
             printf '%s\n' "Sofa $SOFA_VERSION." "" \
               "**Windows 10 (1809) or 11, 64-bit:** sofa-$SOFA_VERSION-windows-x64-setup.exe. It brings its own Python and ffmpeg and installs for you alone (no administrator needed); see docs/install.md, \"On Windows\". The installer isn't signed yet, so Windows SmartScreen says it doesn't know it: More info, then Run anyway." \
