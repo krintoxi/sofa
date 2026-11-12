@@ -10,6 +10,7 @@ function here does nothing and answers None (or False), so the callers keep one 
     drives()            the drive letters with a disk in them (/Volumes, /media)
     Announcer           Bonjour, by Windows' own DNS-SD service (dns-sd, avahi-publish); Windows 10 1809 or newer
     watch_stop_event()  the Sofa app in the notification area asks the server to stop cleanly (SIGTERM)
+    retry_file_moves()  a file that's open somewhere is replaced once it's closed, not refused at once
     restart_code        what the server exits with to be started again at once (os.execv in place)
 """
 import os
@@ -65,6 +66,30 @@ if ON:
 
     _k32.GlobalMemoryStatusEx.argtypes = [ctypes.POINTER(_MEMORYSTATUSEX)]
     _k32.GlobalMemoryStatusEx.restype = wintypes.BOOL
+
+
+def retry_file_moves(tries=10, wait=0.1):
+    """Windows: a file someone has open (Sofa reading it that moment, an antivirus looking at it, Explorer still copying
+    it) can't be replaced or renamed until it's closed, where a Mac or Linux would just do it. From here on os.replace
+    and os.rename try again for up to a second before they give up (sofa.py calls this once, as Sofa starts)."""
+    if not ON or getattr(os.replace, "sofa_patient", False):
+        return False
+
+    def patient(move):
+        def again(src, dst, *args, **kwargs):
+            for n in range(tries):
+                try:
+                    return move(src, dst, *args, **kwargs)
+                except PermissionError as exc:          # 5: access denied, 32: in use by another process
+                    if n == tries - 1 or getattr(exc, "winerror", None) not in (5, 32):
+                        raise
+                    time.sleep(wait)
+        again.sofa_patient = True
+        again.__wrapped__ = move
+        return again
+
+    os.replace, os.rename = patient(os.replace), patient(os.rename)
+    return True
 
 
 def lower_priority():

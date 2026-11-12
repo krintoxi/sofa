@@ -335,6 +335,24 @@ class WindowsItself(unittest.TestCase):
         finally:
             a.stop()
 
+    def test_a_file_being_read_is_replaced_once_its_closed(self):
+        import threading
+        folder = tempfile.mkdtemp(prefix="sofa-replace-")
+        target, new = os.path.join(folder, "live-health.json"), os.path.join(folder, "live-health.json.tmp")
+        for path, text in ((target, "old"), (new, "new")):
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(text)
+        real = os.replace
+        reader = open(target, encoding="utf-8")                  # someone reading it, for a moment
+        threading.Timer(0.5, reader.close).start()
+        try:
+            self.assertTrue(windows.retry_file_moves())
+            os.replace(new, target)                               # waits for the reader, then replaces
+        finally:
+            os.replace, os.rename = real, getattr(os.rename, "__wrapped__", os.rename)
+        with open(target, encoding="utf-8") as f:
+            self.assertEqual(f.read(), "new")
+
     def test_the_port_is_sofas_alone(self):
         from sofa import web
         first = web.Server(("127.0.0.1", 0), web.Handler)

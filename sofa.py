@@ -138,6 +138,8 @@ if __name__ == "__main__" and sys.argv[1:2] == ["serve"]:
 from sofa import __version__, apps, auth, awake, ddns, tls, upnp, backup, config, discovery, dlna, organizer, store, updater, watcher, web, windows  # noqa: E402
 from sofa.library import LIBRARY  # noqa: E402
 
+windows.retry_file_moves()          # (Windows only: see sofa/windows.py)
+
 
 class Stamped:
     """Every line Sofa writes to its log (data/sofa.log in the background) starts with the date and time.
