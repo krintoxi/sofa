@@ -15,6 +15,10 @@ plays MKV, HEVC and Dolby sound as they are, so videos start straight away and t
 hardly converts anything. It's under **Your Apps & Channels** after that, and offers **Update** by
 itself when there's a newer one. More: [android/README.md](../android/README.md).
 
+The app goes on sticks that run **Fire OS** (5 and newer). The Fire TV Stick 4K Select and the 2026
+sticks run Amazon's Vega OS instead, which takes apps only from Amazon's store: the Sofa app can't
+be installed on those.
+
 Sofa notices it's on a TV and switches to **TV mode**: bigger buttons, a clear yellow
 highlight that follows the remote, and the player fills the screen. (Any other device can
 switch TV mode on under **Theme**.) The whole menu fits on the TV's screen, with **Search** (🔍)

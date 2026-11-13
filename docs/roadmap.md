@@ -22,7 +22,8 @@ Read this before you install, so nothing surprises you.
   transcoded at all, and the background conversion to MP4 makes the second play free.
 - **No app in any TV store.** On a TV you use its browser, sideload Sofa's own Fire TV app or Roku channel, or use a
   Sofa Box. There is no Android TV, Google TV, Apple TV, Samsung or LG app. The Fire TV app and the Roku channel are
-  built by GitHub and **no run on a real device is on record**. Fire OS 8 (Vega) sticks can't sideload anything.
+  built by GitHub and **no run on a real device is on record**. Sticks that run Vega OS instead of Fire OS can't
+  sideload anything.
 - **The Sofa Box has run on one Raspberry Pi 3 Model B+**, the owner's. A Pi 4 or 5 has never run it; the DRM apps
   (Netflix, Disney+…), USB drives, discs and HDMI-CEC are built and tested in software and have not been tried on a real
   box; the newest card tried on the Pi is 1.1.73 (2026-11-12), and what it showed led to 1.1.80 and 1.1.81, so 1.1.74 to
@@ -75,8 +76,8 @@ In order. Each one ends with a line in the tested-on table.
    [hardware report](https://github.com/krintoxi/sofa/issues/new/choose) is the most useful thing you can send.
 3. **The DRM apps on a real box:** Netflix, Disney+, Prime Video, Max, Spotify opened on a Pi, with what played, at what
    size, written down.
-4. **The Fire TV app and the Roku channel on real devices**, with the Fire OS 7/8 check published where people install
-   from, and a move from the public signing key in the repository to a private one (a one-time reinstall).
+4. **The Fire TV app and the Roku channel on real devices**, with the Fire OS or Vega OS check published where people
+   install from, and a move from the public signing key in the repository to a private one (a one-time reinstall).
 5. **The Mac card writer's first real SD card**, and **a real PC** for the x86-64 image.
 6. **The Pi 3 under 100 ms a key press**, measured on the Pi from its own reports (1.1.57 did the work).
 7. **Raspberry Pi Imager's own OS list**, once a stable card exists.
@@ -94,7 +95,7 @@ In order. Each one ends with a line in the tested-on table.
   while a native game runs.
 - The phone remote's relay encrypted end to end, and moved to its own machine.
 - **Subtitle downloads**, **watch-together**, a **caption editor**, and the Roku channel brought level with the Fire TV app.
-- Roku store certification; a Fire OS 8 (Vega) app if Amazon's web-view route allows a server of your own.
+- Roku store certification; a Vega OS app if Amazon's web-view route allows a server of your own.
 - **Plex and Jellyfin history import** (what you've watched, where you were).
 - **HDHomeRun** recording.
 - A native **Apple TV** app (tvOS has no web view, so it has to be native).

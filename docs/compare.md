@@ -43,7 +43,7 @@ the box.
 | **Accounts and ads** | No account; no ads of its own; nothing counts what you watch; a hosts-file blocker for the whole box | An Amazon account; a home screen with ads and sponsored rows | An account; no ads of its own |
 | **Streaming apps** | Netflix, YouTube, Disney+, Prime Video and about fifty more as full-screen web apps in one browser; Widevine from Raspberry Pi OS. **YouTube seen on the Pi 3; the DRM apps have never been opened on any Pi** ([status](capabilities.md#sofa-box-os)); 1080p at most on Linux browsers, less on a Pi 3 | Every app in Amazon's store, in 4K with HDR on the 4K models | Not an app platform |
 | **Your own files** | Sofa, built in: from your server, a share link, or Sofa on the box itself (USB drives); Jellyfin, Emby and Plex as web apps | Through each server's app | Through Channels' own library |
-| **Sideloading** | Not needed: it's a browser | Fire OS 7 and 8 only; the new Vega sticks can't [⁷](#sources) | — |
+| **Sideloading** | Not needed: it's a browser | On sticks that run Fire OS; the new Vega OS sticks can't [⁷](#sources) | — |
 | **Remote** | Your phone (nothing to install), a Fire TV remote, a controller, the TV's own remote over HDMI-CEC (CEC untested) | Its remote | Apps |
 | **Tested** | One Pi 3 B+, one iPhone, one Xbox controller ([tested on](capabilities.md#tested-on)) | Millions | — |
 
@@ -88,5 +88,5 @@ and one tester on one Raspberry Pi.
    2026-11-10): QSV, NVENC, AMF, VAAPI, VideoToolbox, RKMPP; Jellyfin has no paid tier.
 6. Channels, "Subscription" (getchannels.com/docs/getting-started/quick-start-guide/subscription, read 2026-11-10):
    "$8/month or $80/year".
-7. Amazon's Vega OS (Fire OS 8) runs no Android packages; see Amazon's developer documentation for Vega, and the note
-   in [tv.md](tv.md).
+7. Amazon's Vega OS (on the Fire TV Stick 4K Select and the 2026 sticks) is not Fire OS and runs no Android packages;
+   see Amazon's developer documentation for Vega, and the note in [tv.md](tv.md).
