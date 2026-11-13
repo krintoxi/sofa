@@ -15,7 +15,7 @@ Sofa is made by one person. This is where to ask things, show your setup and sug
 
 Before asking: [what works today](https://github.com/krintoxi/sofa/blob/main/docs/capabilities.md), [the roadmap and known limitations](https://github.com/krintoxi/sofa/blob/main/docs/roadmap.md), [Sofa, Jellyfin or Plex?](https://github.com/krintoxi/sofa/blob/main/docs/compare.md).
 
-**Testers wanted**, in this order: a Raspberry Pi 4 or 5 with the box card; a Fire TV stick with the Sofa app (Fire OS 7 or 8 only); a Roku with the channel; Linux as a daily server; an Android phone as the box's remote. If you have one, the hardware report template takes five minutes and your name goes in the tested-on table.
+**Testers wanted**, in this order: a Raspberry Pi 4 or 5 with the box card; a Fire TV stick with the Sofa app (Fire OS 5 or newer; the new Vega OS sticks can't install it); a Roku with the channel; Linux as a daily server; an Android phone as the box's remote. If you have one, the hardware report template takes five minutes and your name goes in the tested-on table.
 
 **"Does it run on X?"** Ask in Q&A with the board or device named in the title, so the next person finds the answer.
 
