@@ -42,7 +42,7 @@ private struct Header: View {
                     Text("Sofa").font(SofaFonts.display(30, .extraBold)).tracking(-0.9).foregroundStyle(Color.amber)
                     Text("Box Imager").font(SofaFonts.display(30, .bold)).tracking(-0.9)
                 }
-                Text("Writes Sofa Box OS to an SD card for a Raspberry Pi 3 B+, 4 or 5, or to a USB stick for a PC.")
+                Text("Writes Sofa Box OS to an SD card for a Raspberry Pi 3 B+, 4 or 5, or for a PC to a USB stick or a DVD.")
                     .font(SofaFonts.text(13.5))
                     .foregroundStyle(Color.mist)
             }
@@ -63,23 +63,28 @@ private struct ChooseView: View {
         VStack(alignment: .leading, spacing: 22) {
             TargetSwitch()
             Step(number: 1, title: "Sofa Box OS") { CardPicker() }
-            Step(number: 2, title: "The \(model.target.word) to erase") { DiskPicker() }
+            if model.target.burns {
+                Step(number: 2, title: "The DVD burner") { BurnerPicker() }
+            } else {
+                Step(number: 2, title: "The \(model.target.word) to erase") { DiskPicker() }
+            }
             Spacer(minLength: 0)
             HStack(alignment: .center) {
                 Text("Nothing is set on the \(model.target.word): the box sets itself up on the TV.")
                     .font(SofaFonts.text(13))
                     .foregroundStyle(Color.mist)
                 Spacer()
-                Button("Write…") { model.askToWrite() }
+                Button(model.target.burns ? "Burn…" : "Write…") { model.askToWrite() }
                     .buttonStyle(SofaButtonStyle(kind: .primary))
                     .keyboardShortcut(.defaultAction)
-                    .disabled(model.card == nil || model.chosenDisk == nil)
+                    .disabled(!model.canGo)
             }
         }
     }
 }
 
-/// For a Raspberry Pi (an SD card) or for a PC (a USB stick it starts from): the list's entries and the words follow it.
+/// For a Raspberry Pi (an SD card), for a PC (a USB stick it starts from), or on a DVD (a disc a PC starts from): the
+/// list's entries and the words follow it.
 private struct TargetSwitch: View {
     @EnvironmentObject var model: ImagerModel
 
@@ -182,7 +187,7 @@ private struct CardPicker: View {
                 if let c = model.card {
                     Text(details(c)).font(SofaFonts.text(13)).foregroundStyle(Color.mist)
                     if c.isTesting {
-                        Text(model.target == .pc
+                        Text(model.target != .raspberryPi
                              ? "Testing: not tried on a real PC yet. Started on GitHub in virtual PCs, newer and older."
                              : "Testing: not tried on a real box yet. The version at the top is the one to keep.")
                             .font(SofaFonts.text(13)).foregroundStyle(Color.amber)
@@ -278,6 +283,59 @@ private struct DiskPicker: View {
     }
 }
 
+/// On a DVD: the Mac's burners, each with the disc in it. Only one with a blank DVD big enough can be chosen.
+private struct BurnerPicker: View {
+    @EnvironmentObject var model: ImagerModel
+
+    var body: some View {
+        let needs = model.card?.extractSize ?? 1
+        VStack(alignment: .leading, spacing: 10) {
+            if model.burners.isEmpty {
+                Panel {
+                    HStack(spacing: 12) {
+                        Image(systemName: "opticaldiscdrive").font(.system(size: 22)).foregroundStyle(Color.mist)
+                        Text("Plug in a DVD burner (Apple's USB SuperDrive, or any USB DVD writer) and put a blank DVD-R or DVD+R in. It shows here by itself.")
+                            .foregroundStyle(Color.soft)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(16)
+                }
+            } else {
+                VStack(spacing: 8) {
+                    ForEach(model.burners) { b in
+                        let ready = b.refusal(needs: needs) == nil
+                        Button { if ready { model.burnerID = b.id } } label: {
+                            Panel(ring: b.id == model.burnerID && ready ? .amber : nil) {
+                                HStack(spacing: 12) {
+                                    Image(systemName: "opticaldiscdrive.fill")
+                                        .font(.system(size: 20))
+                                        .foregroundStyle(b.id == model.burnerID && ready ? Color.amber : Color.mist)
+                                        .frame(width: 28)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(b.name).font(SofaFonts.text(15, .semibold))
+                                        Text(b.subtitle(needs: needs)).font(SofaFonts.text(12)).foregroundStyle(Color.mist)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                    }
+                                    Spacer()
+                                }
+                                .padding(12)
+                            }
+                            .opacity(ready ? 1 : 0.6)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(!ready)
+                    }
+                }
+            }
+            Text("Only a blank DVD is burned: Sofa Box Imager never erases a disc.")
+                .font(SofaFonts.text(12))
+                .foregroundStyle(Color.mist)
+        }
+    }
+}
+
 private struct DiskRow: View {
     let disk: DiskDescription
     let chosen: Bool
@@ -333,7 +391,9 @@ struct ConfirmView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            if let d = model.chosenDisk, let c = model.card {
+            if model.target.burns {
+                burnBody
+            } else if let d = model.chosenDisk, let c = model.card {
                 HStack(alignment: .top, spacing: 12) {
                     Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 22)).foregroundStyle(Color.alert)
                     Text("Erase “\(d.displayName)” and write \(c.name)?")
@@ -379,6 +439,42 @@ struct ConfirmView: View {
         .preferredColorScheme(.dark)
     }
 
+    /// On a DVD: nothing is erased (only a blank disc is offered), so no password and no second box to tick.
+    @ViewBuilder private var burnBody: some View {
+        if let b = model.chosenBurner, let c = model.card {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: "opticaldiscdrive.fill").font(.system(size: 22)).foregroundStyle(Color.amber)
+                Text("Burn \(c.name) to the DVD in “\(b.name)”?")
+                    .font(SofaFonts.display(20, .bold)).tracking(-0.3)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Panel {
+                Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 7) {
+                    row("Burner", b.name)
+                    row("Disc", b.subtitle(needs: c.extractSize))
+                    row("Download", ByteSize.text(c.downloadSize))
+                }
+                .padding(14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            Text("Sofa Box Imager downloads it, checks it against the list, burns it, and reads the disc back to check it. A DVD-R or DVD+R is burned once.")
+                .foregroundStyle(Color.soft)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 10) {
+                Spacer()
+                Button("Cancel") { model.confirming = false }
+                    .buttonStyle(SofaButtonStyle())
+                    .keyboardShortcut(.cancelAction)
+                Button("Burn") { model.write() }
+                    .buttonStyle(SofaButtonStyle(kind: .primary))
+                    .keyboardShortcut(.defaultAction)
+            }
+        } else {
+            Text("The DVD burner or its disc isn't there any more.")
+            HStack { Spacer(); Button("OK") { model.confirming = false }.buttonStyle(SofaButtonStyle()) }
+        }
+    }
+
     private func row(_ name: String, _ value: String) -> some View {
         GridRow {
             Text(name).foregroundStyle(Color.mist)
@@ -398,7 +494,7 @@ private struct RunningView: View {
         VStack(alignment: .leading, spacing: 16) {
             Panel {
                 VStack(alignment: .leading, spacing: 14) {
-                    Text(model.jobTitle.isEmpty ? "Writing the \(model.target.word)" : model.jobTitle)
+                    Text(model.jobTitle.isEmpty ? (model.target.burns ? "Burning the DVD" : "Writing the \(model.target.word)") : model.jobTitle)
                         .font(SofaFonts.display(19, .bold)).tracking(-0.3)
                         .fixedSize(horizontal: false, vertical: true)
                     SofaProgress(fraction: fraction)
@@ -426,16 +522,20 @@ private struct DoneView: View {
         VStack(alignment: .leading, spacing: 16) {
             Panel {
                 VStack(alignment: .leading, spacing: 12) {
-                    SofaPill(text: "Checked and ejected")
-                    Text("The \(model.target.word) is ready").font(SofaFonts.display(26, .extraBold)).tracking(-0.6)
-                    Text("\(card) is on “\(disk)”, and every byte was read back and checked.")
+                    SofaPill(text: model.target.burns ? "Burned, checked and ejected" : "Checked and ejected")
+                    Text(model.target.burns ? "The DVD is ready" : "The \(model.target.word) is ready")
+                        .font(SofaFonts.display(26, .extraBold)).tracking(-0.6)
+                    Text(model.target.burns ? "\(card) is on the DVD from “\(disk)”, and the disc was read back and checked."
+                         : "\(card) is on “\(disk)”, and every byte was read back and checked.")
                         .foregroundStyle(Color.soft)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .padding(18)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            Text(model.target == .pc
+            Text(model.target == .dvd
+                 ? "Put the DVD in the PC, plugged into the TV, and start the PC from the disc: as it starts, press its start menu key (often F12, F11, F10, F8 or Esc). Sofa Box OS runs from the disc and sets itself up on the TV; what's set up is kept until the PC restarts. To keep it: Settings → This box → Install on this computer."
+                 : model.target == .pc
                  ? "Take the stick out and put it in the PC, plugged into the TV. Start the PC from the stick: as it starts, press its start menu key (often F12, F11, F10, F8 or Esc; on a Mac with an Intel chip, hold Option). Sofa Box OS runs from the stick and sets itself up on the TV."
                  : "Take the card out and put it in the Pi. Plug the Pi into the TV, then into its power. The box sets itself up on the TV.")
                 .foregroundStyle(Color.soft)
@@ -443,7 +543,7 @@ private struct DoneView: View {
             Spacer(minLength: 0)
             HStack {
                 Spacer()
-                Button(model.target == .pc ? "Write Another Stick" : "Write Another Card") { model.reset() }
+                Button(model.target == .dvd ? "Burn Another DVD" : model.target == .pc ? "Write Another Stick" : "Write Another Card") { model.reset() }
                     .buttonStyle(SofaButtonStyle(kind: .primary))
                     .keyboardShortcut(.defaultAction)
             }
@@ -459,8 +559,9 @@ private struct FailedView: View {
         VStack(alignment: .leading, spacing: 16) {
             Panel {
                 VStack(alignment: .leading, spacing: 12) {
-                    SofaPill(text: "Not written", color: .alert)
-                    Text("The \(model.target.word) wasn't written").font(SofaFonts.display(26, .extraBold)).tracking(-0.6)
+                    SofaPill(text: model.target.burns ? "Not burned" : "Not written", color: .alert)
+                    Text(model.target.burns ? "The DVD wasn't burned" : "The \(model.target.word) wasn't written")
+                        .font(SofaFonts.display(26, .extraBold)).tracking(-0.6)
                     Text(text).foregroundStyle(Color.soft)
                         .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
                 }

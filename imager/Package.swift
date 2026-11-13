@@ -13,10 +13,11 @@ let package = Package(
         .target(name: "CAuthOpen"),
         // Pure Swift, no disks: the list, which disks may be written (DiskPolicy), the xz decoder, the write-and-verify engine.
         .target(name: "ImagerKit"),
-        // macOS: DiskArbitration and IOKit (finding, unmounting and ejecting disks), authopen, keeping the Mac awake.
+        // macOS: DiskArbitration and IOKit (finding, unmounting and ejecting disks), authopen, keeping the Mac awake;
+        // DiscRecording (the DVD burners) and hdiutil (burning).
         .target(name: "ImagerMac", dependencies: ["ImagerKit", "CAuthOpen"],
                 linkerSettings: [.linkedFramework("DiskArbitration"), .linkedFramework("IOKit"),
-                                 .linkedFramework("Security")]),
+                                 .linkedFramework("Security"), .linkedFramework("DiscRecording")]),
         .executableTarget(name: "SofaBoxImager", dependencies: ["ImagerKit", "ImagerMac"]),
         .testTarget(name: "ImagerKitTests", dependencies: ["ImagerKit"], resources: [.copy("Fixtures")]),
         .testTarget(name: "SofaBoxImagerTests", dependencies: ["SofaBoxImager", "ImagerKit", "ImagerMac"]),

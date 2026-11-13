@@ -1,11 +1,12 @@
 # Sofa Box Imager
 
-EdgeVenture's own app for writing Sofa Box OS: to an SD card for a Raspberry Pi 3 B+, 4 or 5, or to a USB stick
-for a PC (since 0.2.0, [below](#for-a-pc-a-usb-stick)). It does one thing: pick the version, pick the card or
-stick, confirm, and it downloads it, writes it, reads every byte back and ejects it. It sets nothing on it (no
-user, no SSH, no Wi-Fi): the box sets itself up on the TV.
+EdgeVenture's own app for writing Sofa Box OS: to an SD card for a Raspberry Pi 3 B+, 4 or 5, to a USB stick
+for a PC (since 0.2.0, [below](#for-a-pc-a-usb-stick)), or burned to a DVD for a PC (since 0.3.0,
+[below](#on-a-dvd)). It does one thing: pick the version, pick the card, stick or burner, confirm, and it downloads
+it, writes or burns it, reads it back to check it and ejects it. It sets nothing on it (no user, no SSH, no Wi-Fi):
+the box sets itself up on the TV.
 
-**Where it stands (version 0.2.0, 2026-11-12):**
+**Where it stands (version 0.3.0, 2026-11-13):**
 
 - macOS only, 13 or newer, Apple silicon and Intel. Windows comes later (see [Windows](#windows)).
 - **It has never written a real SD card.** Everything up to the hardware is tested, including a real
@@ -17,6 +18,8 @@ user, no SSH, no Wi-Fi): the box sets itself up on the TV.
 - **For a PC**, it writes a USB stick of 8 GB or more, once the list has a PC's Sofa Box OS (the card workflow
   builds one beside every card from the change that brought 0.2.0). Like the SD card, it has never written a
   real stick, and no real PC has started from one yet.
+- **On a DVD**, it burns a blank DVD-R or DVD+R in a DVD burner on the Mac, once the list has a PC's DVD. It has
+  never burned a real disc: there's no DVD burner here (see [On a DVD](#on-a-dvd)).
 
 It's written from scratch in Swift and SwiftUI, not forked from Raspberry Pi's imager, and has no other
 dependencies: unpacking is macOS's own Compression framework, the password prompt is macOS's own `authopen`.
@@ -157,6 +160,26 @@ The write is the same as a card's, in every step: the same disk policy (a USB st
 like a card reader), the same download, unpacking, first megabyte held back, read-back against the list's
 SHA-256, and eject.
 
+## On a DVD
+
+**On a DVD**, the third choice at the top, offers the list's live DVDs for a PC (entries tagged `sofa-box-pc-dvd`,
+whose file is the disc's `.iso`; no device in the list has that tag, so Raspberry Pi Imager never offers them) and,
+instead of disks, the Mac's DVD burners, each with the disc in it (macOS's own DiscRecording, which Finder burns
+with). Only a burner with a **blank** DVD big enough can be chosen; Sofa Box Imager never erases a disc (a DVD-RW with
+something on it is erased in Finder or Disk Utility first).
+
+A burn: the burner looked at again; the `.iso` downloaded to `~/Library/Caches/SofaBoxImager` and checked against
+the list's size and SHA-256 (one already there and right isn't downloaded again; older ones are removed); then
+macOS's own `hdiutil burn` on that drive only, with the file as it is (`-noaddpmap -nooptimizeimage`: the disc's
+own partition map stays, so the same file works on a USB stick), reading the disc back to check it
+(`-verifyburn`) and ejecting it. No password: nothing is erased. Its progress comes from `-puppetstrings`.
+
+The disc is the PC's Sofa Box OS as a live DVD (`tools/build-sofa-box-dvd.sh`, from the same image as the stick,
+the same system on it). A PC started from it runs Sofa Box OS from the disc, keeping what's set up until it
+restarts; Settings → This box → Install on this computer puts it on the PC's own drive. GitHub starts it as a disc
+in QEMU with Secure Boot on and on an older PC, and installs from it onto a blank drive, before it's published.
+`--for dvd` opens the window on a DVD and makes `--versions` and `--disks` answer for one (`--disks`: the burners).
+
 ## The list
 
 The app reads the same list Raspberry Pi's imager can open, built from the releases by
@@ -190,21 +213,22 @@ from anywhere the list says, because it's checked against the list's SHA-256.
 
 ## What's tested, and where
 
-`swift test` runs 88 tests; three more run only when asked. None writes a disk it didn't attach itself: the
+`swift test` runs 97 tests; three more run only when asked. None writes a disk it didn't attach itself: the
 tests that write attach a RAM disk, check with DiskArbitration that the device they got is a disk image of
 exactly the size they asked for, and only then touch it.
 
 | What | Tests | How |
 |---|---|---|
 | Which disks may be written | `ImagerKitTests/DiskPolicyTests` (22) | Made-up disks. This Mac's internal SSD, APFS container and a RAM disk are copied from what macOS really said; the card readers are written from Apple's documented values. Every combination of inside / removable / ejectable / card / image / APFS is checked against the rule. |
-| The list | `ImagerKitTests/CardListTests` (11) | A list made by `tools/sofa-box-imager-list.py`'s own `build()` and `check()` (1.1.54's sizes and SHA-256 are the real card's, the other versions invented); the list as it was first published on 2026-11-10; and one opening with a stable version, followed by two "(testing)" ones; one with a PC's images, read for a Pi and for a PC. |
+| On a DVD | `ImagerKitTests/BurningTests` (2), `ImagerMacTests/BurnTests` (4) | Which burner and disc can take it (no disc, a CD, a disc that isn't blank, too small); hdiutil's progress lines; DiscRecording's own dictionaries for a drive, with and without a disc; the whole `BurnJob` with a stand-in for hdiutil: downloaded, checked, burned with exactly `burn FILE -device PATH -noaddpmap -nooptimizeimage -verifyburn -eject -puppetstrings`, a second burn not downloading again; a download that isn't the list's is never burned; no burner, no disc, and a failed burn each say so. |
+| The list | `ImagerKitTests/CardListTests` (12) | A list made by `tools/sofa-box-imager-list.py`'s own `build()` and `check()` (1.1.54's sizes and SHA-256 are the real card's, the other versions invented); the list as it was first published on 2026-11-10; and one opening with a stable version, followed by two "(testing)" ones; one with a PC's images, read for a Pi and for a PC; one with a DVD's `.iso`, read for a DVD only. |
 | Unpacking | `ImagerKitTests/XZDecoderTests` (8) | Files made by `xz -T0 -6` as the box's card is: one stream of 9 blocks, and two streams with zero padding between. Damage, a short file, bad padding and trailing junk are all caught. |
 | Writing and checking | `ImagerKitTests/CardWriterTests` (13) | A plain file as the disk. Only whole-sector writes at megabyte offsets; the first megabyte last; nothing past the card but the disk's last megabyte; a wrong download, a card that reads back wrong, Stop and a card that never answers each leave the first megabyte blank. |
 | Downloading | `ImagerKitTests/DownloadTests` (9) | A web server inside the test: a whole download, carrying on after a drop, a server that ignores or mangles the range, the wrong size, giving up, and download-to-checked-card in one go. |
 | Finding disks | `ImagerMacTests/DiskListTests` (7) | The Mac running the tests: its startup disk is found and refused; a RAM disk is seen as a disk image and refused; the volumes on a disk are found, unmounted, and refused a mount while a write is on; `authopen` with no one to type a password opens nothing. |
 | The whole write | `ImagerMacTests/WriteJobTests` (5) | The app's own `WriteJob` on a RAM disk with a volume on it: unmount, open the raw device, write, read back, eject. Two things differ from the app: the RAM disk is opened directly (it belongs to the user, so no password), and the policy is told to accept that one RAM disk. Also: a disk that changed since it was confirmed, a disk that turns out to be another once open, and the real policy refusing the RAM disk before anything is unmounted. |
 | The password hand-over | `ImagerMacTests/AuthOpenTests` (6) | A stand-in for `authopen` (`Tests/FakeAuthOpen`) that takes its arguments and sends back an open file as `authopen` does: the 32-byte authorization arrives whole, the file opens for reading and writing, a helper that fails after opening isn't trusted, and the helper inherits nothing of the app's but its three standard streams. |
-| The app | `SofaBoxImagerTests/WindowTests` (7 + 1) | What's chosen is what's written; progress in words ("card" or "stick"); For a PC, the list read again for a PC's images; the colours match Sofa's style sheet and its fonts load; the app's own words never include Raspberry Pi's imager's name, and nothing in it writes a user, SSH or Wi-Fi setting. `SOFA_IMAGER_SNAPSHOTS=<folder>` draws every screen to a PNG, with the Mac set to light and to dark. |
+| The app | `SofaBoxImagerTests/WindowTests` (9 + 1) | What's chosen is what's written; progress in words ("card", "stick", and a DVD's stages); For a PC, the list read again for a PC's images; On a DVD, a burner with a blank DVD is what's chosen and nothing else is; the colours match Sofa's style sheet and its fonts load; the app's own words never include Raspberry Pi's imager's name, and nothing in it writes a user, SSH or Wi-Fi setting. `SOFA_IMAGER_SNAPSHOTS=<folder>` draws every screen to a PNG, with the Mac set to light and to dark. |
 | A real card | `ImagerMacTests/RealCardTests` (2, when asked) | `SOFA_IMAGER_REAL_LIST=<list> swift test --filter RealCardTests`. Downloads the newest card from GitHub and writes it to a disk image through the raw device with `WriteJob` (about 1.4 GB down, 6 GB of disk for a few minutes), and checks that a download dropped on purpose carries on through GitHub's redirect. |
 
 **Run here on 2026-11-10** (a Mac on macOS 27.2, Apple silicon, Xcode 27.2):
@@ -245,6 +269,18 @@ the owner's hardware, which is the only kind this app writes.
    Escape, Tab), and VoiceOver.
 10. **Another Mac and an older macOS.** The app is built for macOS 13 and later and has run on 27.2, plus
    whatever GitHub's Macs run. How Gatekeeper treats the unsigned zip after a download is untested.
+
+### What only a real DVD burner can confirm
+
+Not done: there's no DVD burner here. With Apple's USB SuperDrive or any USB DVD writer on a Mac, and a blank DVD-R:
+
+1. **The burner and the disc are offered**: `--for dvd --disks` lists it as OFFERED with "Blank DVD-R in it".
+   DiscRecording's dictionaries are read by the keys Apple documents; their values from a real drive aren't seen yet.
+2. **`hdiutil burn -device` takes DiscRecording's path** for the drive (both are IOKit's; `hdiutil burn -list` shows
+   the paths it accepts), and its `-puppetstrings` lines are as the tests say.
+3. **The burn and the read-back** finish, and the disc ejects. How long it takes.
+4. **The disc starts a real PC**, newer and older, with Secure Boot on: GitHub's QEMU has started it as a disc.
+5. A DVD+R, and a disc pulled or the burn stopped half way.
 
 ## Signing
 
@@ -291,7 +327,7 @@ SHA-256, so a Windows app can share its design and its tests' cases.
   (A user made by Raspberry Pi's imager stopped the TV screen before Sofa Box OS 1.1.56;
   [docs/raspberry-pi-imager.md](../docs/raspberry-pi-imager.md) has the story, and what settings of our own
   could look like: Wi-Fi and a name, in a file the box reads itself.)
-- A DVD for a PC, and installing from the stick onto a PC's own drive: the next steps.
+- Erasing a rewritable disc (DVD-RW, DVD+RW) before burning: Finder or Disk Utility does that.
 - The download isn't kept: writing a second card downloads it again.
 - No update check for the app itself, and no translations.
 - A card file chosen from disk (only through a list file, for testing).

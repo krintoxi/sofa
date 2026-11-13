@@ -26,6 +26,9 @@ final class ImagerModel: ObservableObject {
     @Published var target: CardTarget = ImagerModel.chosenTarget() { didSet { if target != oldValue { readList() } } }
     @Published var card: Card? { didSet { refreshDisks() } }
     @Published var offered: [DiskDescription] = []
+    /// On a DVD: the Mac's burners, and the one chosen.
+    @Published var burners: [Burner] = []
+    @Published var burnerID: String?
     @Published var refused: [(DiskDescription, [DiskRefusal])] = []
     @Published var diskName: String?
     @Published var phase: Phase = .choosing
@@ -39,11 +42,19 @@ final class ImagerModel: ObservableObject {
     let live: Bool
     private var watcher: DiskWatcher?
     private var job: WriteJob?
+    private var burnJob: BurnJob?
+    private var burnerTimer: Timer?
     /// The list as it came, read again for the other target without fetching it again.
     private var listData: Data?
 
     var isWriting: Bool { if case .running = phase { return true } else { return false } }
     var chosenDisk: DiskDescription? { offered.first { $0.bsdName == diskName } }
+    /// The burner chosen, while it has a blank DVD big enough in it.
+    var chosenBurner: Burner? {
+        burners.first { $0.id == burnerID && $0.refusal(needs: card?.extractSize ?? 1) == nil }
+    }
+    /// A version and somewhere to put it.
+    var canGo: Bool { card != nil && (target.burns ? chosenBurner != nil : chosenDisk != nil) }
 
     /// The list: ours on GitHub. For testing another one, `--list FILE-or-URL` or SOFA_BOX_IMAGER_LIST.
     nonisolated static func chosenListURL() -> URL {
@@ -78,6 +89,13 @@ final class ImagerModel: ObservableObject {
         listIsLocal = listURL.isFileURL
         guard live else { return }
         watcher = DiskWatcher { [weak self] in self?.refreshDisks() }
+        // A disc going in or out of a burner: looked for every few seconds while On a DVD is chosen
+        burnerTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, self.target.burns, self.phase == .choosing else { return }
+                self.refreshBurners()
+            }
+        }
         loadList()
     }
 
@@ -122,6 +140,7 @@ final class ImagerModel: ObservableObject {
 
     func refreshDisks() {
         guard live else { return }
+        if target.burns { return refreshBurners() }
         // Before the list is in, any card shows (nothing can be written without a version anyway).
         let needs = card?.extractSize ?? 1
         Task.detached(priority: .userInitiated) {
@@ -142,12 +161,24 @@ final class ImagerModel: ObservableObject {
         why.contains(.notPhysical) && !why.contains(.diskImage)
     }
 
+    /// The burners and their discs (DiscRecording), and the one to offer: the only one that can burn, when there is one.
+    func refreshBurners() {
+        guard live else { return }
+        let found = BurnerList.snapshot()
+        let needs = card?.extractSize ?? 1
+        if found != burners { burners = found }
+        if let id = burnerID, !found.contains(where: { $0.id == id && $0.refusal(needs: needs) == nil }) { burnerID = nil }
+        let ready = found.filter { $0.refusal(needs: needs) == nil }
+        if burnerID == nil, ready.count == 1 { burnerID = ready[0].id }
+    }
+
     func askToWrite() {
-        guard card != nil, chosenDisk != nil, !isWriting else { return }
+        guard canGo, !isWriting else { return }
         confirming = true
     }
 
     func write() {
+        if target.burns { return burn() }
         confirming = false
         guard let card, let disk = chosenDisk, !isWriting else { return }
         let ua = "SofaBoxImager/\(Self.version)"
@@ -186,8 +217,46 @@ final class ImagerModel: ObservableObject {
         }
     }
 
+    /// On a DVD: download, check, burn, and check the disc (BurnJob, with macOS's hdiutil). No password: nothing is erased.
+    func burn() {
+        confirming = false
+        guard let card, let burner = chosenBurner, !isWriting else { return }
+        let ua = "SofaBoxImager/\(Self.version)"
+        let job = BurnJob(card: card, burner: burner) {
+            if card.url.isFileURL { return try FileSource(url: card.url) as PackedSource }
+            return HTTPSource(url: card.url, expectedSize: card.downloadSize, userAgent: ua)
+        }
+        burnJob = job
+        jobTitle = "Burning \(card.name) to the DVD in “\(burner.name)”"
+        phase = .running("Checking the burner and the disc…", nil)
+        let reporter = BurnReporter { [weak self] text, fraction in
+            guard let self, self.isWriting else { return }
+            self.phase = .running(text, fraction)
+        }
+        let cardName = card.name
+        let burnerName = burner.name
+        Thread.detachNewThread {
+            do {
+                try job.run { reporter.report($0) }
+                Task { @MainActor in
+                    self.phase = .done(card: cardName, disk: burnerName)
+                    self.burnJob = nil
+                    self.refreshDisks()
+                }
+            } catch {
+                let text = plainWords(error)
+                Task { @MainActor in
+                    self.phase = .failed(text)
+                    self.burnJob = nil
+                    self.refreshDisks()
+                }
+            }
+        }
+    }
+
     func cancel() {
         job?.cancel()
+        burnJob?.cancel()
         if case .running = phase { phase = .running("Stopping…", nil) }
     }
 
@@ -239,6 +308,60 @@ final class StageReporter: @unchecked Sendable {     // used from the job's one 
             }
         }
         last = Date()
+        let f = fraction
+        let publish = self.publish
+        Task { @MainActor in publish(text, f) }
+    }
+}
+
+/// A DVD's stages in words, at most ten times a second, on the main queue.
+final class BurnReporter: @unchecked Sendable {     // used from the job's one thread
+    private let publish: @MainActor (String, Double?) -> Void
+    private var last = Date.distantPast
+    private var lastKind = ""
+    private var speedFrom: (Date, Int64)?
+
+    init(_ publish: @escaping @MainActor (String, Double?) -> Void) {
+        self.publish = publish
+    }
+
+    func report(_ stage: BurnJob.Stage) {
+        let text: String
+        var fraction: Double? = nil
+        let now = Date()
+        let kind: String
+        switch stage {
+        case .downloading: kind = "downloading"
+        case .burning: kind = "burning"
+        case .verifying: kind = "verifying"
+        default: kind = "\(stage)"
+        }
+        // a new stage is always said; the same one at most ten times a second
+        let soon = kind == lastKind && now.timeIntervalSince(last) < 0.1
+        switch stage {
+        case .checking: text = "Checking the burner and the disc…"
+        case .checkingDownload: text = "Checking the download…"
+        case .done: text = "Done."
+        case .downloading(let done, let total):
+            guard !soon || done == total else { return }
+            if speedFrom == nil { speedFrom = (now, done) }
+            fraction = total > 0 ? Double(done) / Double(total) : nil
+            var speed = ""
+            if let (t0, b0) = speedFrom, now.timeIntervalSince(t0) > 2 {
+                speed = " · \(ByteSize.text(Int64(Double(done - b0) / now.timeIntervalSince(t0))))/s"
+            }
+            text = "Downloading… \(Int((fraction ?? 0) * 100))%\(speed)"
+        case .burning(let f):
+            guard !soon else { return }
+            fraction = f
+            text = f.map { "Burning… \(Int($0 * 100))%" } ?? "Burning…"
+        case .verifying(let f):
+            guard !soon || f == nil else { return }
+            fraction = f
+            text = f.map { "Checking the disc… \(Int($0 * 100))%" } ?? "Checking the disc…"
+        }
+        last = now
+        lastKind = kind
         let f = fraction
         let publish = self.publish
         Task { @MainActor in publish(text, f) }

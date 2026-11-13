@@ -14,29 +14,59 @@ public enum CardListSource {
 public enum CardTarget: String, CaseIterable, Identifiable, Sendable {
     case raspberryPi
     case pc
+    /// A PC, from a DVD it starts from: the live DVD's file (`.iso`), burned rather than written.
+    case dvd
 
     public var id: String { rawValue }
-    /// The list's device tags for it (Raspberry Pi OS Lite 64-bit's own for the Pi; ours for a PC).
+    /// The list's device tags for it (Raspberry Pi OS Lite 64-bit's own for the Pi; ours for a PC and its DVD).
     public var tags: Set<String> {
         switch self {
         case .raspberryPi: return ["pi5-64bit", "pi4-64bit", "pi3-64bit"]
         case .pc: return ["sofa-box-pc-x86_64"]
+        case .dvd: return ["sofa-box-pc-dvd"]
         }
     }
-    /// "For a Raspberry Pi" / "For a PC", on the switch at the top of the window.
-    public var choice: String { self == .raspberryPi ? "For a Raspberry Pi" : "For a PC" }
-    /// What's written: "SD card" / "USB stick"; and the one word for it in sentences: "card" / "stick".
-    public var medium: String { self == .raspberryPi ? "SD card" : "USB stick" }
-    public var word: String { self == .raspberryPi ? "card" : "stick" }
+    /// "For a Raspberry Pi" / "For a PC" / "On a DVD", on the switch at the top of the window.
+    public var choice: String {
+        switch self {
+        case .raspberryPi: return "For a Raspberry Pi"
+        case .pc: return "For a PC"
+        case .dvd: return "On a DVD"
+        }
+    }
+    /// What's written: "SD card" / "USB stick" / "DVD"; and the one word for it in sentences: "card" / "stick" / "disc".
+    public var medium: String {
+        switch self {
+        case .raspberryPi: return "SD card"
+        case .pc: return "USB stick"
+        case .dvd: return "DVD"
+        }
+    }
+    public var word: String {
+        switch self {
+        case .raspberryPi: return "card"
+        case .pc: return "stick"
+        case .dvd: return "disc"
+        }
+    }
     /// The machine it goes in: "Pi" / "PC".
     public var machine: String { self == .raspberryPi ? "Pi" : "PC" }
     /// The SF Symbol drawn for it.
-    public var symbol: String { self == .raspberryPi ? "sdcard" : "externaldrive" }
-    /// `--for pi` / `--for pc` on the command line.
+    public var symbol: String {
+        switch self {
+        case .raspberryPi: return "sdcard"
+        case .pc: return "externaldrive"
+        case .dvd: return "opticaldiscdrive"
+        }
+    }
+    /// Burned onto a disc (the `.iso` as it is), not written to a disk.
+    public var burns: Bool { self == .dvd }
+    /// `--for pi` / `--for pc` / `--for dvd` on the command line.
     public static func named(_ text: String) -> CardTarget? {
         switch text.lowercased() {
         case "pi", "raspberrypi", "raspberry-pi", "sd": return .raspberryPi
         case "pc", "usb", "x86_64", "x86-64": return .pc
+        case "dvd", "disc", "iso": return .dvd
         default: return nil
         }
     }
@@ -85,7 +115,8 @@ public enum CardListError: Error, Equatable, CustomStringConvertible {
         switch self {
         case .notJSON: return "The list of cards isn't a list Sofa Box Imager can read."
         case .noCards: return "The list of cards has no Sofa Box OS card in it."
-        case .noneFor(let t): return "The list has no Sofa Box OS for a \(t.machine) yet."
+        case .noneFor(let t):
+            return t == .dvd ? "The list has no Sofa Box OS DVD yet." : "The list has no Sofa Box OS for a \(t.machine) yet."
         case .tooBig: return "The list of cards is far bigger than it should be."
         }
     }
@@ -139,7 +170,7 @@ public enum CardListParser {
     /// - Parameter allowLocalFiles: a list the owner opened from a file on this Mac (for testing) may point at
     ///   `file://` cards; a list from the network must point at `https://`.
     /// - Parameter target: the entries for a Raspberry Pi (the default: an entry that names no devices counts as one, as
-    ///   lists before the PC's did) or for a PC (only an entry that names a PC's tag).
+    ///   lists before the PC's did), for a PC (only an entry that names a PC's tag), or its DVD (only the DVD's).
     public static func parse(_ data: Data, for target: CardTarget = .raspberryPi, allowLocalFiles: Bool = false) throws -> CardList {
         guard data.count <= CardListSource.largestList else { throw CardListError.tooBig }
         let raw: RawList
@@ -197,11 +228,17 @@ public enum CardListParser {
         guard scheme == "https" || (allowLocalFiles && scheme == "file") else {
             return skip("the card's address isn't https")
         }
-        guard url.path.lowercased().hasSuffix(".img.xz") else { return skip("not an .img.xz card") }
+        // A card or a stick: a packed image (.img.xz). A DVD: the disc's own file (.iso), downloaded as it is.
+        if target.burns {
+            guard url.path.lowercased().hasSuffix(".iso") else { return skip("not a disc's .iso") }
+        } else {
+            guard url.path.lowercased().hasSuffix(".img.xz") else { return skip("not an .img.xz card") }
+        }
         guard let extract = e.extract_size, extract > 0, extract % 512 == 0 else {
             return skip("no unpacked size, or not whole 512-byte sectors")
         }
-        guard let download = e.image_download_size, download > 0, download < extract else {
+        guard let download = e.image_download_size, download > 0,
+              target.burns ? download == extract : download < extract else {
             return skip("no download size")
         }
         guard let sha = e.extract_sha256, sha.count == 64,
@@ -214,6 +251,8 @@ public enum CardListParser {
             if !devices.isEmpty, target.tags.isDisjoint(with: devices) { return skip("not for a Raspberry Pi 3, 4 or 5") }
         case .pc:
             if target.tags.isDisjoint(with: devices) { return skip("not for a PC") }
+        case .dvd:
+            if target.tags.isDisjoint(with: devices) { return skip("not a DVD") }
         }
         let date = e.release_date ?? ""
         let day = date.range(of: #"^\d{4}-\d{2}-\d{2}$"#, options: .regularExpression) != nil ? date : ""

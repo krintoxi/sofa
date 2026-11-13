@@ -131,6 +131,7 @@ public func plainWords(_ error: Error) -> String {
     case let e as DiskOpError: return e.description
     case let e as JobError: return e.description
     case let e as CardListError: return e.description
+    case let e as BurnError: return e.description
     default: return error.localizedDescription
     }
 }

@@ -65,6 +65,15 @@ PC_ROLLING_CARD = "sofa-box-pc.img.xz"
 PC_DESCRIPTION = ("Sofa Box OS for a PC: written to a USB stick, it starts the PC from the stick and runs from it, "
                   "settings and all. Debian 13 underneath. Not tried on a real PC yet: started on GitHub in QEMU, on "
                   "newer (UEFI) and older (BIOS) PCs.")
+# The same Sofa Box OS for a PC on a DVD (the job "pc" makes the live DVD too): its .iso as it is, under a tag no
+# device in this list has. Raspberry Pi Imager never offers it (it writes, it doesn't burn: the stick's image is the
+# one for a stick); Sofa Box Imager's "On a DVD" picks it by this tag and burns it. Listed once a release has one.
+DVD_TAGS = ["sofa-box-pc-dvd"]
+DVD_VERSION_CARD = "sofa-box-os-%s-pc-dvd.iso"
+DVD_ROLLING_CARD = "sofa-box-pc-dvd.iso"
+DVD_DESCRIPTION = ("Sofa Box OS for a PC on a DVD: burned to a blank DVD-R or DVD+R, it starts the PC from the disc and "
+                   "runs from it, keeping what's set up until the PC restarts; Install on this computer puts it on the "
+                   "PC's own drive. Not tried on a real PC yet: started on GitHub in QEMU, on newer and older PCs.")
 # What Imager may do to the card. "none": nothing (no user, no Wi-Fi, no SSH from Imager's settings).
 INIT_FORMAT = "none"
 INIT_FORMATS = ("", "none", "systemd", "cloudinit", "cloudinit-rpi", "rpi-preseed")   # Imager 2.0.12's own
@@ -258,7 +267,7 @@ def _entry(name, description, card, sums, devices=None, architecture="armv8"):
     }
 
 
-def build(releases, cache, measure_fn=None, keep=KEEP, log=lambda s: None):
+def build(releases, cache, measure_fn=None, keep=KEEP, log=lambda s: None, measure_raw_fn=None):
     """The list, from GitHub's releases. CACHE (a dict) gains what had to be unpacked."""
     measure_fn = measure_fn or measure
     numbered, rolling = cards(releases)
@@ -300,7 +309,8 @@ def build(releases, cache, measure_fn=None, keep=KEEP, log=lambda s: None):
                         "subitems": earlier})
     pc = pc_entries(releases, cache, measure_fn, keep, log)
     devices = DEVICES + ([PC_DEVICE] if pc else [])
-    return {"imager": {"devices": [dict(d, matching_type="exclusive") for d in devices]}, "os_list": os_list + pc}
+    dvd = dvd_entries(releases, cache, keep, log, measure_raw_fn)
+    return {"imager": {"devices": [dict(d, matching_type="exclusive") for d in devices]}, "os_list": os_list + pc + dvd}
 
 
 def pc_entries(releases, cache, measure_fn, keep=KEEP, log=lambda s: None):
@@ -331,6 +341,66 @@ def pc_entries(releases, cache, measure_fn, keep=KEEP, log=lambda s: None):
     return out
 
 
+def measure_raw(src, expect_sha256=None):
+    """A file that isn't packed (the DVD's .iso): its size and SHA-256, as it streams in."""
+    h, size = hashlib.sha256(), 0
+    with _open(src) as f:
+        while True:
+            chunk = f.read(CHUNK)
+            if not chunk:
+                break
+            h.update(chunk)
+            size += len(chunk)
+    got = h.hexdigest()
+    if expect_sha256 and got != expect_sha256:
+        raise ListError("%s: SHA-256 %s, GitHub says %s" % (src, got, expect_sha256))
+    return {"image_download_size": size, "image_sha256": got, "extract_size": size, "extract_sha256": got}
+
+
+def _raw_sums(card, cache, measure_fn, log):
+    """The DVD's .iso is downloaded and burned as it is: its size and SHA-256 are GitHub's own (the asset's digest),
+    or read once when GitHub doesn't give one."""
+    a = card["asset"]
+    key = _digest(a)
+    if key and a.get("size"):
+        return {"image_download_size": a["size"], "extract_size": a["size"], "extract_sha256": key}
+    hit = cache.get(key) if key else None
+    if hit and hit.get("image_download_size") == a.get("size"):
+        return hit
+    log("reading %s (%s bytes) once, for its SHA-256" % (a["name"], a.get("size")))
+    got = measure_fn(a["browser_download_url"], key or None)
+    cache[got["image_sha256"]] = {k: got[k] for k in ("image_download_size", "extract_size", "extract_sha256")}
+    return cache[got["image_sha256"]]
+
+
+def dvd_entries(releases, cache, keep=KEEP, log=lambda s: None, measure_fn=None):
+    """A PC's Sofa Box OS on a DVD (the live DVD's .iso), from the same releases and in the same order as a PC's
+    sticks: all "(testing)", under the DVD's tag only. Empty while no release has one."""
+    measure_fn = measure_fn or measure_raw
+    numbered, rolling = cards(releases, DVD_VERSION_CARD, DVD_ROLLING_CARD)
+    out = []
+
+    def entry(name, desc, c):
+        return _entry(name, desc, c, _raw_sums(c, cache, measure_fn, log), DVD_TAGS, "x86_64")
+    if numbered:
+        out.append(entry("Sofa Box OS %s for a PC (testing)" % numbered[0]["version"], DVD_DESCRIPTION, numbered[0]))
+    digests = {_digest(c["asset"]) for c in numbered} - {""}
+    if rolling and (not digests or _digest(rolling["asset"]) not in digests):
+        ver = rolling["version"] or (numbered[0]["version"] if numbered else "")
+        out.append(entry("Sofa Box OS %s for a PC, newest build (testing)" % ver if ver else
+                         "Sofa Box OS for a PC, newest build (testing)",
+                         "Built %s from every change since the last version number, for trying fixes early." % rolling["day"],
+                         rolling))
+    earlier = [entry("Sofa Box OS %s for a PC (testing)" % c["version"],
+                     "An earlier version, to go back to if a newer one misbehaves.", c) for c in numbered[1:keep + 1]]
+    if earlier:
+        out.append({"name": "Sofa Box OS for a PC on a DVD: earlier versions",
+                    "description": "%d earlier versions, newest first." % len(earlier),
+                    "icon": ICON, "website": "https://github.com/krintoxi/sofa/releases?q=box-os",
+                    "subitems": earlier})
+    return out
+
+
 # ---------------------------------------------------------------------------------------------- checking
 def check(doc, schema=None):
     """Problems with a list (empty when it's right): Imager's required fields and types, our own rules (only
@@ -351,15 +421,18 @@ def check(doc, schema=None):
     used = set()
 
     def leaf(e, where):
+        dvd = DVD_TAGS[0] in (e.get("devices") or [])          # (the live DVD's .iso: as it is, for Sofa Box Imager)
         for k in REQUIRED:
             if k not in e:
                 bad.append("%s: no %s" % (where, k))
         for k in ("extract_size", "image_download_size"):
             if not isinstance(e.get(k), int) or isinstance(e.get(k), bool) or e.get(k, 0) <= 0:
                 bad.append("%s: %s must be a whole number of bytes" % (where, k))
-        if isinstance(e.get("extract_size"), int) and isinstance(e.get("image_download_size"), int) \
-                and e["extract_size"] <= e["image_download_size"]:
-            bad.append("%s: extract_size must be the unpacked size (bigger than the download)" % where)
+        if isinstance(e.get("extract_size"), int) and isinstance(e.get("image_download_size"), int):
+            if dvd and e["extract_size"] != e["image_download_size"]:
+                bad.append("%s: a DVD's .iso is burned as it's downloaded: extract_size is its size" % where)
+            elif not dvd and e["extract_size"] <= e["image_download_size"]:
+                bad.append("%s: extract_size must be the unpacked size (bigger than the download)" % where)
         if not re.match(r"^[0-9a-f]{64}$", str(e.get("extract_sha256", ""))):
             bad.append("%s: extract_sha256 must be 64 lowercase hex digits" % where)
         if not re.match(r"^\d{4}-\d{2}-\d{2}$", str(e.get("release_date", ""))):
@@ -367,7 +440,9 @@ def check(doc, schema=None):
         for k in ("url", "icon"):
             if not str(e.get(k, "")).startswith("https://"):
                 bad.append("%s: %s must be https" % (where, k))
-        if not str(e.get("url", "")).endswith(".img.xz"):
+        if dvd and not str(e.get("url", "")).endswith(".iso"):
+            bad.append("%s: url must be a DVD's .iso" % where)
+        elif not dvd and not str(e.get("url", "")).endswith(".img.xz"):
             bad.append("%s: url must be an .img.xz card" % where)
         if e.get("init_format", "") not in INIT_FORMATS:
             bad.append("%s: init_format %r isn't one Imager knows (it drops the entry)" % (where, e.get("init_format")))
@@ -379,8 +454,10 @@ def check(doc, schema=None):
             bad.append("%s: devices must list the boards" % where)
         else:
             for t in devs:
-                if t not in tags:
+                if t not in tags and not dvd:
                     bad.append("%s: device %r isn't in imager.devices" % (where, t))
+                if t in DVD_TAGS and (len(devs) > 1 or t in tags):   # (the DVD's tag alone, and never a device Imager shows)
+                    bad.append("%s: the DVD's tag goes alone, on no device" % where)
             used.update(devs)
 
     for i, e in enumerate(doc["os_list"]):

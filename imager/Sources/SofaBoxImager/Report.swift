@@ -31,7 +31,7 @@ enum Report {
         if let list {
             needs = (list.newest ?? list.all.first)?.extractSize ?? 1
             if versions {
-                print("Sofa Box OS versions \(target == .pc ? "for a PC" : "for a Raspberry Pi"), from \(url.absoluteString):")
+                print("Sofa Box OS versions \(target == .dvd ? "on a DVD" : target == .pc ? "for a PC" : "for a Raspberry Pi"), from \(url.absoluteString):")
                 for c in list.all {
                     let mark = c == list.newest ? "newest " : (list.earlier.contains(c) ? "earlier" : "       ")
                     print("  \(mark)  \(c.name)  \(c.releaseDate)  \(ByteSize.text(c.downloadSize)) download, "
@@ -43,7 +43,14 @@ enum Report {
             print("Couldn't get the list of versions from \(url.absoluteString): \(failure)")
             status = 1
         }
-        if disks {
+        if disks, target.burns {
+            print("DVD burners (a blank DVD must hold \(ByteSize.text(needs))):")
+            let burners = BurnerList.snapshot()
+            for b in burners {
+                print("  \(b.refusal(needs: needs) == nil ? "OFFERED" : "refused")  \(b.name)  \(b.subtitle(needs: needs))  \(b.id)")
+            }
+            if burners.isEmpty { print("  No DVD burner: plug one in and put a blank DVD in.") }
+        } else if disks {
             let snap = DiskList.snapshot()
             let (offered, refused) = snap.sorted(needs: needs)
             print("Disks (a \(target.word) must hold \(ByteSize.text(needs))):")
@@ -54,7 +61,7 @@ enum Report {
                 print("  refused  /dev/\(d.bsdName)  \(d.displayName)  \(ByteSize.text(d.sizeBytes))  \(d.protocolName ?? "?")")
                 for w in why { print("             \(w.text)") }
             }
-            if offered.isEmpty { print("  No \(target.word) to write: put \(target == .pc ? "a USB stick" : "an SD card") in.") }
+            if offered.isEmpty { print("  No \(target.word) to write: put \(target == .raspberryPi ? "an SD card" : "a USB stick") in.") }
         }
         return status
     }

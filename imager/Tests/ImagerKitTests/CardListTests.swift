@@ -88,6 +88,40 @@ final class CardListTests: XCTestCase {
         XCTAssertEqual(CardTarget.pc.word, "stick")
     }
 
+    /// On a DVD: the disc's own file (.iso, downloaded as it is), only under the DVD's tag; never for a Pi or a stick.
+    func testADVD() throws {
+        func entry(_ name: String, _ file: String, _ devices: [String], download: Int64 = 1_500_000_000) -> [String: Any] {
+            ["name": name, "description": "x", "url": "https://github.com/krintoxi/sofa/releases/download/x/\(file)",
+             "extract_size": 1_500_000_256, "image_download_size": download,
+             "extract_sha256": String(repeating: "ef", count: 32), "release_date": "2026-11-13", "devices": devices]
+        }
+        let pc = ["sofa-box-pc-x86_64"], dvd = ["sofa-box-pc-dvd"]
+        let doc: [String: Any] = ["os_list": [
+            entry("Sofa Box OS 1.1.85", "sofa-box-os-1.1.85.img.xz", ["pi4-64bit"], download: 1_400_000_000),
+            entry("Sofa Box OS 1.1.85 for a PC (testing)", "sofa-box-os-1.1.85-pc.img.xz", pc, download: 1_400_000_000),
+            entry("Sofa Box OS 1.1.85 on a DVD (testing)", "sofa-box-os-1.1.85-pc-dvd.iso", dvd, download: 1_500_000_256),
+            entry("A packed DVD", "sofa-box-os-1.1.84-pc-dvd.img.xz", dvd, download: 1_400_000_000),
+            entry("A DVD that's bigger to download", "sofa-box-os-1.1.83-pc-dvd.iso", dvd, download: 1_600_000_000),
+        ]]
+        let data = try JSONSerialization.data(withJSONObject: doc)
+        let forDVD = try CardListParser.parse(data, for: .dvd)
+        XCTAssertEqual(forDVD.all.map(\.name), ["Sofa Box OS 1.1.85 on a DVD (testing)"])
+        XCTAssertEqual(forDVD.newest?.downloadSize, forDVD.newest?.extractSize)
+        XCTAssertTrue(forDVD.skipped.contains("A packed DVD: not a disc's .iso"))
+        XCTAssertTrue(forDVD.skipped.contains("A DVD that's bigger to download: no download size"))
+        XCTAssertTrue(forDVD.skipped.contains("Sofa Box OS 1.1.85 for a PC (testing): not a disc's .iso"))
+        XCTAssertEqual(try CardListParser.parse(data, for: .pc).all.map(\.name), ["Sofa Box OS 1.1.85 for a PC (testing)"])
+        XCTAssertEqual(try CardListParser.parse(data).all.map(\.name), ["Sofa Box OS 1.1.85"])
+        XCTAssertThrowsError(try CardListParser.parse(Fixture.data("sofa-box.rpi-imager-manifest"), for: .dvd)) { e in
+            XCTAssertEqual((e as? CardListError)?.description, "The list has no Sofa Box OS DVD yet.")
+        }
+        XCTAssertEqual(CardTarget.named("dvd"), .dvd)
+        XCTAssertEqual(CardTarget.dvd.word, "disc")
+        XCTAssertEqual(CardTarget.dvd.choice, "On a DVD")
+        XCTAssertTrue(CardTarget.dvd.burns)
+        XCTAssertFalse(CardTarget.pc.burns)
+    }
+
     func testAGoodEntry() throws {
         let c = try XCTUnwrap(try one([:]).newest)
         XCTAssertEqual(c.extractSize, 5_226_102_784)

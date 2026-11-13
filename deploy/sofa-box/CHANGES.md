@@ -8,6 +8,31 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.85
+
+**Sofa Box OS for a PC on a DVD**, and **Sofa Box Imager 0.3.0** burns it.
+
+- **A live DVD beside every PC image**: `sofa-box-pc-dvd.iso` on the newest card's release, and
+  `sofa-box-os-X.Y.Z-pc-dvd.iso` on each version's own. It's the same system as the USB stick, file for file (the
+  image's root as it is, in a squashfs), started by Debian's live-boot, which puts it together in memory over the
+  disc. A PC starts it from its DVD drive, newer PCs and older ones, **with Secure Boot on or off** (the
+  Microsoft-signed shim and Debian's signed GRUB for a disc, as the stick has). It runs from the disc and keeps
+  what's set up until the PC restarts.
+- **Install on this computer works from the DVD too** (Settings → This box): it says it runs from the DVD and
+  forgets what's set up when the PC restarts, and installing keeps all of it, on the PC's own drive. The DVD drive
+  is never offered as a drive to install on, nor a stick the disc's file was written to.
+- **Proven on GitHub before it's published**: the DVD started as a disc in QEMU with Secure Boot on and on an older
+  PC (Home, Sofa, the TV's screen and the phone remote each checked, and that it runs from the disc), then installed
+  from onto a blank drive, which starts the PC by itself. Not tried on a real PC or a real disc yet.
+- **Sofa Box Imager 0.3.0: On a DVD.** A third choice beside For a Raspberry Pi and For a PC. It lists the Mac's DVD
+  burners with the disc in each, offers only one with a blank DVD big enough, downloads the disc's file, checks it
+  against the list, and burns it with macOS's own `hdiutil burn`, which reads the disc back to check it and ejects
+  it. No password: nothing is erased (it never erases a disc). It has never burned a real DVD: there's no burner here.
+- The list for the Imager carries the DVDs under a tag of their own, which Raspberry Pi Imager never offers (it
+  writes, it doesn't burn: the stick's image is the one for a stick).
+- The PC image's EFI partition is mounted "nofail": a box starts without it, as the DVD does, and if it's ever
+  damaged.
+
 ## 1.1.84
 
 **Install on this computer.** A PC started from the Sofa Box OS USB stick puts it on one of its own drives, and starts

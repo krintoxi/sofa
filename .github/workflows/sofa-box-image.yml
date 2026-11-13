@@ -19,6 +19,9 @@ name: Sofa box card
 #   starts a PC from the stick and runs from it. It's built on GitHub's x86-64 computers and started in QEMU on a
 #   16 GB stick, with UEFI (a newer PC), with BIOS (an older one) and with Secure Boot on, and put on a release only
 #   when all three proofs pass and this run's card is the one there (so the two never come from different commits).
+#   Installed from the stick onto a blank drive, which then starts the PC; and the same system as a live DVD
+#   (sofa-box-pc-dvd.iso, sofa-box-os-X.Y.Z-pc-dvd.iso; tools/build-sofa-box-dvd.sh), started as a disc with Secure
+#   Boot on and on an older PC, and installed from too, before any of it is published.
 on:
   workflow_dispatch:
   release:
@@ -35,6 +38,7 @@ on:
       - "tools/build-sofa-box-vm-image.sh"
       - "tools/boot-sofa-box-vm.sh"
       - "tools/sofa-box-vm-proof.sh"
+      - "tools/build-sofa-box-dvd.sh"
       - "tools/debian-archive-keyring.txt"
       - ".github/workflows/sofa-box-image.yml"
 

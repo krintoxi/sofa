@@ -92,7 +92,8 @@ class TheList(unittest.TestCase):
         self.assertIn('PC_ROLLING_CARD = "sofa-box-pc.img.xz"', tool)
         swift = read("imager", "Sources", "ImagerKit", "CardList.swift")
         self.assertIn('case .pc: return ["sofa-box-pc-x86_64"]', swift)          # (the app's tag is the list's)
-        self.assertRegex(read("imager", "VERSION"), r"^0\.2\.0\s*$")
+        ver = tuple(int(x) for x in read("imager", "VERSION").strip().split("."))
+        self.assertGreaterEqual(ver, (0, 2, 0))                                  # (For a PC since 0.2.0)
 
 
 if __name__ == "__main__":

@@ -272,6 +272,21 @@ Files leaves the drive alone while it's written. GitHub proves it on every PC im
 beside a blank 16 GB drive, installed through `/box/api/install` as the TV does it, then the PC started from that drive
 alone with Secure Boot on and with BIOS, each with the usual checks and that the root is the drive's and fills it.
 
+**A live DVD** (since 1.1.85): `tools/build-sofa-box-dvd.sh` makes it from the PC image in the same job, the
+image's root as it is in a squashfs (`/live/filesystem.squashfs`, zstd), the image's signed kernel, and a start of its
+own with Debian's live-boot (`/live/initrd.img`, made in a throwaway overlay, so the system on the disc has no
+live-boot and a drive installed from it is the same as one installed from the stick). live-boot finds the disc,
+puts the system together in memory (overlayfs over the squashfs) and leaves `/etc/fstab` alone (`nofstab`); the
+image's parts for a disk are switched off for that start (`systemd.mask=boot-efi.mount`, `systemd-repart`,
+`systemd-growfs-root`; the EFI partition is `nofail` anyway). It starts by UEFI (the El Torito EFI image holds shim
+and Debian's signed GRUB for a disc, `gcdx64.efi.signed`, which finds the disc by `/.disk/info`: Secure Boot on or off)
+and by BIOS (GRUB's El Torito image), and it's a hybrid (GRUB's MBR, the EFI image as a partition), so the same file
+written to a USB stick starts too. GitHub starts it as a disc (QEMU's IDE CD drive) with Secure Boot on and with
+BIOS, then installs from it onto a blank drive and starts that drive; the test's own files go on a copy of the disc
+as a layer of their own (`/live/zz-proof.squashfs`, which live-boot puts over the system). Install on this computer
+from the DVD copies the system put together in memory (the disc's `filesystem.size` is what it copies); the DVD
+drive, and a stick holding the disc's file, are never offered. Sofa Box Imager burns it with `hdiutil burn`.
+
 A mini PC (NUC-class, the Beelink/Minisforum kind) is a PC: start it from the stick, then Install on this computer.
 Debian's own installer and `install.sh` (§2) still work too. Intel's or AMD's VA-API covers them (table above).
 

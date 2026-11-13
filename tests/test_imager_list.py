@@ -151,6 +151,47 @@ class List(unittest.TestCase):
         self.assertIn("Sofa Box OS 1.1.74 for a PC, newest build (testing)", [e["name"] for e in doc["os_list"]])
         self.assertEqual(imager.check(doc), [])
 
+    def test_a_dvd_for_sofa_box_imager_only(self):
+        """The live DVD (sofa-box-os-X-pc-dvd.iso beside the PC's image): its .iso as it is (size and SHA-256 are
+        GitHub's own), under the DVD's tag only, which no device has: Raspberry Pi Imager never offers it."""
+        def iso(name, raw):
+            path = os.path.join(self.c.dir, name)
+            with open(path, "wb") as f:
+                f.write(raw)
+            url = "https://github.com/krintoxi/sofa/releases/download/test/" + name
+            self.c.paths[url] = path
+            return {"name": name, "size": len(raw), "state": "uploaded", "browser_download_url": url,
+                    "digest": "sha256:" + sha(raw), "updated_at": "2026-11-13T07:38:01Z"}
+        new, old = b"DVD 1.1.85\n" + bytes(2048 * 50), b"DVD 1.1.84\n" + bytes(2048 * 40)
+        v85, v84 = self.c.version("1.1.85", self.newest), self.c.version("1.1.84", b"eighty-four" * 99)
+        v85["assets"].append(iso("sofa-box-os-1.1.85-pc-dvd.iso", new))
+        v84["assets"].append(iso("sofa-box-os-1.1.84-pc-dvd.iso", old))
+        doc = imager.build([v85, v84], {}, keep=3, measure_fn=self.c.measure)
+        self.assertEqual(imager.check(doc), [])
+        dvd = [e for e in doc["os_list"] if e.get("devices") == ["sofa-box-pc-dvd"]]
+        self.assertEqual([e["name"] for e in dvd], ["Sofa Box OS 1.1.85 for a PC (testing)"])
+        self.assertTrue(dvd[0]["url"].endswith("/sofa-box-os-1.1.85-pc-dvd.iso"))
+        self.assertEqual((dvd[0]["extract_size"], dvd[0]["image_download_size"], dvd[0]["extract_sha256"]),
+                         (len(new), len(new), sha(new)))
+        group = doc["os_list"][-1]
+        self.assertEqual(group["name"], "Sofa Box OS for a PC on a DVD: earlier versions")
+        self.assertEqual([x["name"] for x in group["subitems"]], ["Sofa Box OS 1.1.84 for a PC (testing)"])
+        self.assertNotIn("sofa-box-pc-dvd", [t for d in doc["imager"]["devices"] for t in d["tags"]])
+        # an .iso without GitHub's digest is read once for it
+        del v85["assets"][-1]["digest"]
+        raw = lambda url, expect=None: imager.measure_raw(self.c.paths[url], expect)    # noqa: E731
+        self.assertEqual(imager.build([v85], {}, measure_fn=self.c.measure, measure_raw_fn=raw)["os_list"][-1]["extract_sha256"],
+                         sha(new))
+        # the tool's own checks: as it is, an .iso, and the DVD's tag alone
+        bad = json.loads(json.dumps(doc))
+        e = [x for x in bad["os_list"] if x.get("devices") == ["sofa-box-pc-dvd"]][0]
+        e["image_download_size"] -= 1
+        e["devices"] = ["sofa-box-pc-dvd", "sofa-box-pc-x86_64"]
+        e["url"] = e["url"][:-4] + ".img.xz"
+        said = "\n".join(imager.check(bad))
+        self.assertIn("burned as it's downloaded", said)
+        self.assertIn("the DVD's tag goes alone", said)
+
     def test_no_pc_device_until_a_release_has_a_pc_image(self):
         doc = imager.build([self.c.version("1.1.73", self.newest)], {}, measure_fn=self.c.measure)
         self.assertEqual([d["name"] for d in doc["imager"]["devices"]], ["Raspberry Pi 5", "Raspberry Pi 4", "Raspberry Pi 3"])

@@ -239,9 +239,16 @@ version's own.
    works as usual meanwhile. Then take the stick out and restart the PC: it starts from its own drive, quicker, with
    Secure Boot on or off. By hand: `sudo sofa-box install-to-disk /dev/nvme0n1 --yes` (`lsblk` lists the drives).
 
+**On a DVD instead** (since 1.1.85): the same system as a live DVD,
+**[`sofa-box-pc-dvd.iso`](https://github.com/krintoxi/sofa/releases/download/sofa-box/sofa-box-pc-dvd.iso)** beside
+the stick's image (and `sofa-box-os-X.Y.Z-pc-dvd.iso` on each version's own release). Burn it to a blank DVD-R or
+DVD+R with Sofa Box Imager on a Mac (**On a DVD**) or any disc burner, put it in the PC and start the PC from the
+disc. It runs from the DVD, keeping what's set up until the PC restarts; Install on this computer (step 4) works
+from it too.
+
 Not tried on a real PC yet: GitHub starts each one in a virtual PC three ways (newer, older, Secure Boot on), and
-installs it from the stick onto a blank drive and starts the PC from that drive (Secure Boot on, then an older PC),
-before it's published. What a given PC decodes in hardware, and the rest of what's different from a Pi:
+installs it from the stick onto a blank drive and starts the PC from that drive (Secure Boot on, then an older PC);
+the DVD is started as a disc with Secure Boot on and on an older PC, and installed from too, before it's published. What a given PC decodes in hardware, and the rest of what's different from a Pi:
 [docs/hardware.md](../../docs/hardware.md). Like the card, it has no login (no password, SSH off).
 
 ## Setting it up on the card you already have

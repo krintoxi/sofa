@@ -143,6 +143,72 @@ final class WindowTests: XCTestCase {
         XCTAssertNil(m.card)
     }
 
+    static let dvdCard = Card(name: "Sofa Box OS 1.1.85 for a PC (testing)", summary: "",
+                              url: URL(string: "https://github.com/krintoxi/sofa/releases/download/box-os-v1.1.85/sofa-box-os-1.1.85-pc-dvd.iso")!,
+                              downloadSize: 1_512_634_368, extractSize: 1_512_634_368,
+                              extractSHA256: String(repeating: "ef", count: 32), releaseDate: "2026-11-13", website: nil)
+    static let superDrive = Burner(id: "IOService:/a/IODVDServices", name: "Apple SuperDrive", writesDVD: true,
+                                   disc: .init(type: "DVD-R", isDVD: true, isBlank: true, freeBytes: 4_700_372_992))
+    static let oldDrive = Burner(id: "IOService:/b/IODVDServices", name: "HL-DT-ST DVDRW GX40N", writesDVD: true, disc: nil)
+
+    private func dvdModel(_ phase: ImagerModel.Phase = .choosing) -> ImagerModel {
+        let m = model(phase)
+        m.target = .dvd
+        m.list = .loaded(CardList(newest: Self.dvdCard, others: [], earlierTitle: "", earlier: [], skipped: []))
+        m.card = Self.dvdCard
+        m.burners = [Self.superDrive, Self.oldDrive]
+        m.burnerID = Self.superDrive.id
+        return m
+    }
+
+    /// On a DVD: the list read for the DVD's file, a burner with a blank DVD is what's chosen, and nothing else is.
+    func testOnADVD() throws {
+        let m = ImagerModel(live: false)
+        let entry: (String, String, [String], Int64) -> [String: Any] = { name, file, devices, download in
+            ["name": name, "description": "x", "url": "https://github.com/krintoxi/sofa/releases/download/x/\(file)",
+             "extract_size": 1_512_634_368, "image_download_size": download,
+             "extract_sha256": String(repeating: "ef", count: 32), "release_date": "2026-11-13", "devices": devices]
+        }
+        m.use(listData: try JSONSerialization.data(withJSONObject: ["os_list": [
+            entry("Sofa Box OS 1.1.85 for a PC (testing)", "sofa-box-os-1.1.85-pc.img.xz", ["sofa-box-pc-x86_64"], 1_400_000_000),
+            entry("Sofa Box OS 1.1.85 for a PC, on a DVD (testing)", "sofa-box-os-1.1.85-pc-dvd.iso", ["sofa-box-pc-dvd"], 1_512_634_368)]]))
+        m.target = .dvd
+        XCTAssertEqual(m.card?.name, "Sofa Box OS 1.1.85 for a PC, on a DVD (testing)")
+        m.burners = [Self.oldDrive]
+        m.burnerID = Self.oldDrive.id                         // no disc in it: never the one chosen
+        XCTAssertNil(m.chosenBurner)
+        XCTAssertFalse(m.canGo)
+        m.askToWrite()
+        XCTAssertFalse(m.confirming)
+        m.burners = [Self.superDrive, Self.oldDrive]
+        m.burnerID = Self.superDrive.id
+        XCTAssertEqual(m.chosenBurner, Self.superDrive)
+        XCTAssertTrue(m.canGo)
+        m.askToWrite()
+        XCTAssertTrue(m.confirming)
+        m.target = .pc                                        // a stick needs a disk, not a burner
+        XCTAssertFalse(m.canGo)
+    }
+
+    func testProgressInWordsForADVD() async {
+        var said: [(String, Double?)] = []
+        let r = BurnReporter { text, fraction in said.append((text, fraction)) }
+        r.report(.checking)
+        r.report(.downloading(done: 500, total: 1000))
+        try? await Task.sleep(nanoseconds: 150_000_000)
+        r.report(.checkingDownload)
+        r.report(.burning(0.3))
+        try? await Task.sleep(nanoseconds: 150_000_000)
+        r.report(.verifying(nil))
+        try? await Task.sleep(nanoseconds: 150_000_000)
+        r.report(.verifying(0.8))
+        r.report(.done)
+        try? await Task.sleep(nanoseconds: 200_000_000)
+        XCTAssertEqual(said.map(\.0), ["Checking the burner and the disc…", "Downloading… 50%", "Checking the download…",
+                                       "Burning… 30%", "Checking the disc…", "Checking the disc… 80%", "Done."])
+        XCTAssertEqual(said[1].1, 0.5)
+    }
+
     /// The app never names what it must not: it isn't Raspberry Pi's Imager, and it sets nothing on the card.
     func testTheAppsOwnWords() throws {
         let sources = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
@@ -212,6 +278,18 @@ final class WindowTests: XCTestCase {
             let pcDone = model(.done(card: "Sofa Box OS 1.1.74 for a PC (testing)", disk: "SanDisk Ultra"))
             pcDone.target = .pc
             try draw(ContentView().environmentObject(pcDone), size, look, out.appendingPathComponent("8-pc-done.png"))
+            // on a DVD: a burner with a blank DVD, one without a disc
+            try draw(ContentView().environmentObject(dvdModel()), size, look, out.appendingPathComponent("9-dvd-choose.png"))
+            try draw(ConfirmView().environmentObject(dvdModel()), CGSize(width: 480, height: 330), look,
+                     out.appendingPathComponent("10-dvd-confirm.png"))
+            try draw(ContentView().environmentObject(dvdModel(.running("Burning… 37%", 0.37))), size, look,
+                     out.appendingPathComponent("11-dvd-burning.png"))
+            try draw(ContentView().environmentObject(dvdModel(.done(card: "Sofa Box OS 1.1.85 for a PC (testing)", disk: "Apple SuperDrive"))),
+                     size, look, out.appendingPathComponent("12-dvd-done.png"))
+            let none = dvdModel()
+            none.burners = []
+            none.burnerID = nil
+            try draw(ContentView().environmentObject(none), size, look, out.appendingPathComponent("13-dvd-no-burner.png"))
         }
     }
 
