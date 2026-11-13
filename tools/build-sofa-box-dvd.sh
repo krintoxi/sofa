@@ -14,7 +14,8 @@
 #   made beside the system in a throwaway layer (the system on the disc doesn't get live-boot: a drive it's installed
 #   on is the same as one installed from the stick). live-boot finds the disc, puts the system together in memory
 #   (overlayfs over the squashfs), and leaves /etc/fstab alone (nofstab); the image's parts for a disk (its EFI
-#   partition, growing the root to the disk) are switched off for that start (systemd.mask=);
+#   partition, growing the root to the disk, remounting the root by the disk's fstab line: the root in memory is
+#   writable already) are switched off for that start (systemd.mask=);
 # - UEFI: the Microsoft-signed shim and Debian's signed GRUB for a disc (gcdx64.efi.signed, which finds the disc by
 #   /.disk/info), in the El Torito EFI image: it starts with Secure Boot on, as the stick does;
 # - BIOS: GRUB's El Torito image for a PC BIOS; and an MBR for GRUB, so the same file written to a USB stick starts too.
@@ -92,7 +93,7 @@ umount "$WORK/efi"
 echo "Sofa Box OS $VER for a PC (x86-64), a live DVD, made $(date -u +%Y-%m-%d)" > "$ISO/.disk/info"
 # The start: the image's own kernel line (its quiet boot screen), and the live system's parts
 CMDLINE="$(sed -n 's/^GRUB_CMDLINE_LINUX_DEFAULT="\(.*\)"$/\1/p' "$ROOT/etc/default/grub")"
-LIVEARGS="boot=live nofstab systemd.mask=boot-efi.mount systemd.mask=systemd-repart.service systemd.mask=systemd-growfs-root.service"
+LIVEARGS="boot=live nofstab systemd.mask=boot-efi.mount systemd.mask=systemd-repart.service systemd.mask=systemd-growfs-root.service systemd.mask=systemd-remount-fs.service"
 cat > "$ISO/boot/grub/grub.cfg" <<EOF
 # Sofa Box OS $VER, a live DVD. Esc as it starts shows this menu.
 set default=0

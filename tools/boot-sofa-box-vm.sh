@@ -72,7 +72,9 @@ if [ -n "$DVD" ]; then                       # the disc: the test's files in a l
   cp "$WORK/sq/etc/default/grub" "$M/etc/default/grub"
   cp "$WORK/iso/boot/grub/grub.cfg" "$WORK/grub.cfg"
   umount "$WORK/sq"
-  umount "$WORK/iso"
+  # (the squashfs's loop device lets go of the disc a moment after: "target is busy" otherwise)
+  for i in 1 2 3 4 5; do umount "$WORK/iso" 2>/dev/null && break; sleep 2; done
+  ! mountpoint -q "$WORK/iso" || umount -l "$WORK/iso"
   echo yes > "$M/etc/sofa-box-vm-dvd"                                      # (and check it runs from the disc)
   GRUBCFG="$WORK/grub.cfg"
 else

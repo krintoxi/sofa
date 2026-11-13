@@ -278,7 +278,7 @@ own with Debian's live-boot (`/live/initrd.img`, made in a throwaway overlay, so
 live-boot and a drive installed from it is the same as one installed from the stick). live-boot finds the disc,
 puts the system together in memory (overlayfs over the squashfs) and leaves `/etc/fstab` alone (`nofstab`); the
 image's parts for a disk are switched off for that start (`systemd.mask=boot-efi.mount`, `systemd-repart`,
-`systemd-growfs-root`; the EFI partition is `nofail` anyway). It starts by UEFI (the El Torito EFI image holds shim
+`systemd-growfs-root`, `systemd-remount-fs`; the EFI partition is `nofail` anyway). It starts by UEFI (the El Torito EFI image holds shim
 and Debian's signed GRUB for a disc, `gcdx64.efi.signed`, which finds the disc by `/.disk/info`: Secure Boot on or off)
 and by BIOS (GRUB's El Torito image), and it's a hybrid (GRUB's MBR, the EFI image as a partition), so the same file
 written to a USB stick starts too. GitHub starts it as a disc (QEMU's IDE CD drive) with Secure Boot on and with

@@ -112,7 +112,7 @@ class TheDisc(unittest.TestCase):
         self.assertIn('[ "$SIZE" -lt 4700000000 ]', sh)
         live = sh[sh.index("LIVEARGS="):].split("\n", 1)[0]
         for arg in ("boot=live", "nofstab", "systemd.mask=boot-efi.mount", "systemd.mask=systemd-repart.service",
-                    "systemd.mask=systemd-growfs-root.service"):
+                    "systemd.mask=systemd-growfs-root.service", "systemd.mask=systemd-remount-fs.service"):
             self.assertIn(arg, live)
         # the stick's EFI partition "nofail": the disc has none, and a damaged one never stops the box
         self.assertIn("/boot/efi  vfat  umask=0077,nofail", read("tools", "build-sofa-box-vm-image.sh"))
