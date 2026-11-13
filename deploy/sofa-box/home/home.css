@@ -328,6 +328,8 @@ html.lite .kb-key.f { transform: none; }
 .tb-checks { list-style: none; margin: .6rem 0 .8rem; padding: 0; display: grid; gap: .3rem; font-size: .9rem; }
 .tb-checks:empty { display: none; }
 .tb-checks .okay { color: #3DDC84; } .tb-checks .bad, .small.bad { color: #FF6B6B; }
+.inst-bar { height: .4rem; border-radius: 1rem; background: rgba(255,255,255,.15); margin: 0 0 .6rem; overflow: hidden; }
+.inst-bar i { display: block; height: 100%; background: var(--a); transition: width .6s; }
 #thisBoxCard .add-site { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; margin: .4rem 0 .6rem; }
 .choice small { color: var(--mist); font-weight: 500; }
 .choice { padding: .55rem 1rem; border-radius: 99rem; border: 1px solid var(--line); background: var(--tile); font-weight: 700; }

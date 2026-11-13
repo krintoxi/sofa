@@ -100,7 +100,7 @@ echo "== Debian 13 (Trixie) from $MIRROR"
 # (shim-signed and grub-efi-amd64-signed: Microsoft-signed shim and Debian-signed GRUB, so a PC with Secure Boot on,
 # as most sold with Windows are, starts the stick as it is; Debian's kernel is signed already)
 INCLUDE="linux-image-amd64,grub-efi-amd64,grub-efi-amd64-signed,shim-signed,grub-pc-bin,initramfs-tools,systemd-sysv,systemd-repart,dbus,zstd,ca-certificates,\
-systemd-timesyncd,sudo,openssh-server,pciutils,usbutils,dosfstools,e2fsprogs,wireless-regdb,qemu-guest-agent,intel-microcode,amd64-microcode,\
+systemd-timesyncd,sudo,openssh-server,pciutils,usbutils,dosfstools,e2fsprogs,efibootmgr,wireless-regdb,qemu-guest-agent,intel-microcode,amd64-microcode,\
 firmware-linux-free,firmware-misc-nonfree,firmware-iwlwifi,firmware-realtek,firmware-atheros,firmware-brcm80211,\
 firmware-amd-graphics,firmware-intel-graphics,firmware-sof-signed,firmware-intel-sound"
 mmdebstrap --arch=amd64 --variant=important --mode=root --keyring="$KEYRING" --include="$INCLUDE" \

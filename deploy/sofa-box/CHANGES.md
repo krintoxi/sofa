@@ -8,6 +8,32 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.84
+
+**Install on this computer.** A PC started from the Sofa Box OS USB stick puts it on one of its own drives, and starts
+from that drive after, without the stick.
+
+- **Settings → This box → Install on this computer**, shown only on a PC running from a USB stick. It lists the PC's
+  own drives, biggest first, each with what's on it now (by label: "SYSTEM, Windows, Recovery"), and the ones it can't
+  go on with why (read-only, in use, too small). Never the stick itself, a disc drive or the box's own compressed
+  memory.
+- **The drive is said twice by name** before anything happens ("Erase WD Blue SN580 (512 GB)?", then "Sure? Nothing on
+  it can be got back after this.", which starts on No), and the box goes ahead only for that drive exactly as it was
+  listed (its path, serial and size). The installer checks it all again: a whole drive, not the stick, nothing on it
+  in use, big enough.
+- **Everything on the stick goes with it**: settings, apps, sign-ins, Wi-Fi, files. It takes a few minutes; the TV
+  works as usual meanwhile and shows how far it's got. Then: take the stick out and restart the PC. The stick still
+  starts on its own afterwards, and Settings on it says which drive it went on.
+- **It starts like the stick does**: by UEFI with Secure Boot's signed chain (shim, Debian's GRUB and kernel) or by
+  BIOS, and it's added to the PC's own start list where the PC takes one (`efibootmgr` is on the PC image now).
+- By hand: `sudo sofa-box install-to-disk /dev/nvme0n1 --yes`.
+- Files no longer shows the stick's own boot partition as a drive, and leaves the drive being installed on alone.
+
+**Proven on GitHub** before every PC image is published: the image started as a USB stick beside a blank 16 GB drive,
+installed through the box's own `/box/api/install` as the TV does it, then the PC started from that drive alone with
+Secure Boot on and with BIOS, each with the usual checks (Home, Sofa, the TV's screen, the phone remote) and that the
+root is the drive's and fills it. Not tried on a real PC yet.
+
 ## 1.1.83
 
 - **The maker's first page: poses.** A page for a computer with a mouse, at `games/maker/` (not on Home): it reads a

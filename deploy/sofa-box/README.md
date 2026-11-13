@@ -233,9 +233,15 @@ version's own.
    it, with Secure Boot on or off.
 3. The box sets itself up on the TV as a Pi does. It runs from the stick and keeps its settings there; its first
    start makes it the whole stick.
+4. To keep it on that PC (since 1.1.84): **Settings → This box → Install on this computer**. Pick one of the PC's own
+   drives; the TV names it twice before anything happens, because **that drive is erased** (Windows too, if it's
+   there). Everything on the stick goes with it: settings, apps, sign-ins, Wi-Fi. It takes a few minutes, and the TV
+   works as usual meanwhile. Then take the stick out and restart the PC: it starts from its own drive, quicker, with
+   Secure Boot on or off. By hand: `sudo sofa-box install-to-disk /dev/nvme0n1 --yes` (`lsblk` lists the drives).
 
-Not tried on a real PC yet: GitHub starts each one in a virtual PC three ways (newer, older, Secure Boot on) before
-it's published. What a given PC decodes in hardware, and the rest of what's different from a Pi:
+Not tried on a real PC yet: GitHub starts each one in a virtual PC three ways (newer, older, Secure Boot on), and
+installs it from the stick onto a blank drive and starts the PC from that drive (Secure Boot on, then an older PC),
+before it's published. What a given PC decodes in hardware, and the rest of what's different from a Pi:
 [docs/hardware.md](../../docs/hardware.md). Like the card, it has no login (no password, SSH off).
 
 ## Setting it up on the card you already have

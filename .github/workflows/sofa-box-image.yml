@@ -200,12 +200,16 @@ jobs:
         run: sudo tools/boot-sofa-box-vm.sh out/*-x86_64.img out/boot --firmware bios --timeout 1500
       - name: And with Secure Boot on (most PCs sold with Windows)
         run: sudo tools/boot-sofa-box-vm.sh out/*-x86_64.img out/boot --firmware uefi-secure --timeout 1500
+      # Install on this computer: from the stick (USB) onto a blank 16 GB drive the way Settings → This box does it on
+      # the TV, then the PC started from that drive alone, with Secure Boot and with BIOS
+      - name: Install it from the stick onto the PC's own drive, then start the PC from the drive
+        run: sudo tools/boot-sofa-box-vm.sh out/*-x86_64.img out/boot --firmware uefi --install-onto 16G --timeout 1500
       - name: What's on it, and what the PCs said
         if: always()
         run: |
           R="$(ls out/*-report.txt 2>/dev/null | head -1)"
           { echo '### Sofa Box OS for a PC: what is on it'; echo '```'; [ -n "$R" ] && sed '/^== Packages/,$d' "$R" || echo "(no report: the build stopped)"; echo '```'
-            for fw in uefi bios uefi-secure; do
+            for fw in uefi bios uefi-secure install-uefi installed-uefi-secure installed-bios; do
               L="out/boot/console-$fw.log"
               echo "### Started with $fw"
               if [ -f "$L" ]; then echo '```'; grep -a 'SOFA-BOX-PROOF' "$L" | cut -c 1-400 || echo "(no SOFA-BOX-PROOF lines)"; echo '```'

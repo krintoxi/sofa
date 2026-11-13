@@ -27,6 +27,70 @@ else
   say "firmware: BIOS"
 fi
 
+# 0. Install on this computer (boot-sofa-box-vm.sh --install-onto): this start is from the USB stick, with a blank drive
+#    beside it. The agent is asked for its drives and the install started the way Settings does it on the TV (the two
+#    yeses are the TV's part), followed to the end; then off, and the host starts the PC from the drive alone.
+if [ -f /etc/sofa-box-vm-install-to ]; then
+  TO="$(cat /etc/sofa-box-vm-install-to)"
+  rm -f /etc/sofa-box-vm-install-to                  # (not copied with the rest: the drive starts as a box, not a test)
+  say "install: from $(findmnt -no SOURCE /) ($(lsblk -dno TRAN "/dev/$(lsblk -no PKNAME "$(findmnt -no SOURCE /)" | head -n 1)" 2>/dev/null)) onto $TO"
+  if wait_for agent 240 curl -fs -m 3 "$AGENT/box/state"; then
+    curl -fs -m 30 "$AGENT/box/api/install" > /tmp/drives 2>/dev/null
+    if python3 - "$TO" > /tmp/pick 2>/tmp/why <<'EOF'
+import json, sys
+d = json.load(open("/tmp/drives"))
+assert d["from_stick"], "the agent doesn't see a PC running from a stick: %r" % {k: d.get(k) for k in ("pc", "from_stick")}
+x = [v for v in d["drives"] if v["disk"] == sys.argv[1]]
+assert x, "%s isn't in the list: %r" % (sys.argv[1], d["drives"])
+assert not x[0]["why_not"], x[0]["why_not"]
+print(json.dumps({"disk": x[0]["disk"], "serial": x[0]["serial"], "size": x[0]["size"]}))
+EOF
+    then
+      say "install list: ok runs from the stick; offered: $(python3 -c 'import json; print("; ".join("%s %s %d GB %s" % (v["disk"], v["model"], v["size"] // 10**9, v["why_not"] or "ok") for v in json.load(open("/tmp/drives"))["drives"]))')"
+      R="$(curl -fs -m 30 -X POST -H 'X-Sofa-Box: 1' -H 'Content-Type: application/json' -d "$(cat /tmp/pick)" "$AGENT/box/api/install")"
+      echo "SOFA-BOX-LOG install asked: $R"
+      END=$(( $(date +%s) + 1500 )) STATE="" LAST=""
+      while [ "$(date +%s)" -lt "$END" ]; do
+        STATE="$(python3 -c 'import json; print(json.load(open("/run/sofa-box-install.json"))["state"])' 2>/dev/null)"
+        NOW="$(python3 -c 'import json; d=json.load(open("/run/sofa-box-install.json")); print(d["step"], d["percent"], d["message"])' 2>/dev/null)"
+        [ "$NOW" != "$LAST" ] && [ -n "$NOW" ] && case "$NOW" in copy*) ;; *) echo "SOFA-BOX-LOG install: $NOW" ;; esac
+        LAST="$NOW"
+        [ "$STATE" = done ] || [ "$STATE" = failed ] && break
+        sleep 5
+      done
+      MSG="$(python3 -c 'import json; print(json.load(open("/run/sofa-box-install.json"))["message"])' 2>/dev/null)"
+      journalctl -b -u sofa-box-install-to-disk --no-pager -o cat 2>/dev/null | grep -v '^$' | grep -v ': Copying: ' | tail -n 40 | cut -c1-300 \
+        | sed 's/^/SOFA-BOX-LOG installer: /'
+      if [ "$STATE" = done ]; then
+        say "install: ok $MSG"
+        AFTER="$(curl -fs -m 30 "$AGENT/box/api/install" | python3 -c 'import json,sys; d=json.load(sys.stdin); print([v["disk"] for v in d["drives"] if v["installed"]])' 2>/dev/null)"
+        echo "$AFTER" | grep -q "$TO" && say "install remembered: ok the stick knows it's on $TO now" \
+          || say "install remembered: fail the agent's list after: $AFTER"
+      else
+        say "install: fail ${STATE:-never started}: $MSG"
+      fi
+    else
+      say "install list: fail $(head -c 600 /tmp/why | tr '\n' ' ')"
+    fi
+  else
+    say "agent: fail nothing on $AGENT after 4 minutes ($(systemctl is-active sofa-box-agent))"
+  fi
+  say "done"
+  sleep 2
+  systemctl poweroff
+  exit 0
+fi
+# A start from the drive it was installed on (boot-sofa-box-vm.sh, after the install): the root is that drive's
+if [ -f /etc/sofa-box-vm-installed ]; then
+  WANT="$(cat /etc/sofa-box-vm-installed)" HAVE="/dev/$(lsblk -no PKNAME "$(findmnt -no SOURCE /)" | head -n 1)"
+  if [ "$HAVE" = "$WANT" ] && [ -s /etc/sofa-box-installed ]; then
+    say "installed: ok the root is on $HAVE: $(cat /etc/sofa-box-installed)"
+  else
+    say "installed: fail the root is on $HAVE (not $WANT), /etc/sofa-box-installed: $(cat /etc/sofa-box-installed 2>/dev/null || echo missing)"
+  fi
+  say "start list: $(efibootmgr 2>/dev/null | grep -E '^Boot(Current|Order)|sofabox' | tr '\n' ';' || echo "no UEFI start list (BIOS)")"
+fi
+
 # 1. the box's helper (the home screen, apps, player, settings) on its port
 if wait_for agent 240 curl -fs -m 3 "$AGENT/box/state"; then
   say "agent: ok $AGENT/box/state answers"

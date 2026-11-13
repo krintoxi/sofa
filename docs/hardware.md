@@ -251,12 +251,29 @@ Microsoft-signed `shim`, Debian's signed GRUB and kernel), so it starts most PCs
 and the root grows to the stick at the first start. Write it with Sofa Box Imager (**For a PC**), Raspberry Pi Imager
 (our list's device **A PC, from a USB stick**, or "Use custom"), balenaEtcher or `dd`; on Windows Rufus in **DD
 mode**. Kernel lockdown is on under Secure Boot (Debian's); nothing the box does needs what it closes. The stick is
-slow: a USB 3 SSD in a case is a better "stick", or install Debian 13 on the PC's own disk and run `install.sh` on it (§2), which is the better path for
-a PC that will live under the TV. Nothing different is needed for a USB stick; what is **untested** is the firmware and
-the decoding on any given laptop, which only that laptop can tell (`sofa-box doctor`).
+slow: a USB 3 SSD in a case is a better "stick", and a PC that will live under the TV is better off with it on its own
+drive. Nothing different is needed for a USB stick; what is **untested** is the firmware and the decoding on any given
+laptop, which only that laptop can tell (`sofa-box doctor`).
 
-A mini PC (NUC-class, the Beelink/Minisforum kind) is a PC: the image on its internal disk through a USB stick and
-`dd`, or Debian's installer and `install.sh`. Intel's or AMD's VA-API covers them (table above).
+**Installed from the stick onto the PC's own drive** (since 1.1.84): Settings → This box → **Install on this
+computer**, shown only on a PC running from a USB stick (`boxos.install_disks()`: the root's disk is on USB or
+removable; x86-64; no device tree). The TV lists the PC's other whole drives (never the stick; not a disc drive,
+zram or a loop file), biggest first, each with what's on it by label or filesystem, and why not where it can't go
+(read-only, in use, under 7.5 GB or what's on the stick and 2 GB). A drive is said twice by name before anything
+happens; the agent starts `sofa-box install-to-disk DEV --yes` (sudo, as its own service) only for a drive exactly as
+it was listed (path, serial, size). The installer checks it all again, then, in a mount namespace of its own: the
+stick's layout (GPT: a 1 MiB BIOS part, a 256 MiB EFI system partition, the root to the end), new filesystems (new
+UUIDs: the stick still starts on its own), a copy of the running root from a read-only private bind of `/` (the root's
+own files only, nothing mounted on it), the stick's EFI files, `fstab` with the new UUIDs, then in a chroot GRUB for
+UEFI by the removable path with Secure Boot's shim, an entry in the PC's own start list where the firmware takes one
+(`efibootmgr`), GRUB for BIOS, and `update-grub`. It writes `/etc/sofa-box-installed` on the drive (About shows it)
+and `/etc/sofa-box-installed-onto` on the stick (Settings then says it's done). Progress: `/run/sofa-box-install.json`;
+Files leaves the drive alone while it's written. GitHub proves it on every PC image: the image as a USB stick (xHCI)
+beside a blank 16 GB drive, installed through `/box/api/install` as the TV does it, then the PC started from that drive
+alone with Secure Boot on and with BIOS, each with the usual checks and that the root is the drive's and fills it.
+
+A mini PC (NUC-class, the Beelink/Minisforum kind) is a PC: start it from the stick, then Install on this computer.
+Debian's own installer and `install.sh` (§2) still work too. Intel's or AMD's VA-API covers them (table above).
 
 ## 4. Other boards
 

@@ -4137,6 +4137,29 @@ def update_box():
             % ("Sofa Box OS " + (v or main) if v or main else "the newest Sofa Box OS")}
 
 
+def start_install(info, data):
+    """Settings → This box → Install on this computer, after two yeses on the TV: the drive picked there (the same
+    drive: its path, serial and size as it was listed), then `sofa-box install-to-disk` as its own service. It takes a
+    few minutes; /box/api/install says how it's going."""
+    st = info.get("status") or {}
+    if st.get("state") == "running":
+        return {"ok": False, "message": "It's being installed already."}
+    if not info.get("from_stick"):
+        return {"ok": False, "message": "Only a PC started from the Sofa Box OS USB stick installs it on a drive."}
+    d = next((x for x in info["drives"] if x["disk"] == data.get("disk")), None)
+    if not d or d["serial"] != (data.get("serial") or "") or d["size"] != data.get("size"):
+        return {"ok": False, "message": "That drive isn't there as it was. Look at the list again."}
+    if d["why_not"]:
+        return {"ok": False, "message": d["why_not"]}
+
+    def go():
+        code, out = run(["sudo", "-n", os.path.join(HERE, "sofa-box"), "install-to-disk", d["disk"], "--yes"], 60)
+        if code != 0:
+            print("Install on this computer didn't start: %s" % out.replace("\n", " | ")[-400:], file=sys.stderr, flush=True)
+    threading.Thread(target=go, daemon=True).start()
+    return {"ok": True, "started": int(time.time()), "message": "Installing on %s." % d["model"]}
+
+
 def box_info():
     s = settings()
     temp = None
@@ -4164,7 +4187,8 @@ def box_info():
             "weather_place": s.get("weather_place") or zone_place(current_timezone()), "weather_picked": bool(s.get("weather_place")),
             "choices": CHOICES, "learned_720": s["learned_720"], "learned_lite": bool(s.get("learned_lite")),
             "max_height": max_height(), "slow_board": slow_board(), "light": light(), "board": board(), "controllers": controllers,
-            "power": power["note"], "os": os_name()}
+            "power": power["note"], "os": os_name(),
+            "from_stick": not board()["gen"] and boxos.from_stick(), "installed": boxos.installed_note()}
 
 
 def local_address():
@@ -4622,7 +4646,8 @@ class Handler(BaseHTTPRequestHandler):
                            "/box/api/info", "/box/api/settings", "/box/api/thisbox/internet", "/box/api/weather",
                            "/box/api/weather/places", "/box/api/apps", "/box/api/sofa", "/box/api/sofa/continue",
                            "/box/api/setup", "/box/api/timezone", "/box/api/devices", "/box/api/store", "/box/api/files",
-                           "/box/api/files/list", "/box/api/games", "/box/api/shield", "/box/api/browser"))
+                           "/box/api/files/list", "/box/api/games", "/box/api/shield", "/box/api/browser",
+                           "/box/api/install"))
     READ_ONLY_UNDER = ("/box/home", "/box/icons/", "/box/store-icons/", "/box/games/", "/box/fonts/")
 
     @classmethod
@@ -4995,6 +5020,9 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/box/api/browser/forget":
             history.forget()
             return self.send(json.dumps({"ok": True}))
+        if path == "/box/api/install":                  # Install on this computer: the drives and how it's going; POST starts it
+            info = boxos.install_disks()
+            return self.send(json.dumps(start_install(info, data) if self.command == "POST" else info))
         if path == "/box/api/shield":
             if self.command == "POST":
                 on = bool(data.get("on"))

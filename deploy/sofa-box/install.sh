@@ -167,10 +167,11 @@ udevadm control --reload 2>/dev/null || true
 echo "options bluetooth disable_ertm=1" > /etc/modprobe.d/sofa-box-controllers.conf      # older Xbox controller firmware
 SYSTEMCTL="$(command -v systemctl)"
 cat > /etc/sudoers.d/sofa-box <<EOF
-# The Sofa box's settings on the TV can restart it and change its boot screen; Games installs the games on its list.
+# The Sofa box's settings on the TV can restart it and change its boot screen; Games installs the games on its list;
+# a PC started from the USB stick installs itself on its own drive (install-to-disk checks the drive itself).
 $WHO ALL=(root) NOPASSWD: $SYSTEMCTL restart sofa-box sofa-box-agent, $SYSTEMCTL reboot, $LIB/sofa-box apply-boot *, $LIB/sofa-box shield *, \
   $LIB/sofa-box timezone *, $LIB/sofa-box update, $LIB/sofa-box factory-reset, $LIB/sofa-box report, \
-  $LIB/sofa-box games *
+  $LIB/sofa-box games *, $LIB/sofa-box install-to-disk *
 EOF
 chmod 440 /etc/sudoers.d/sofa-box
 visudo -cf /etc/sudoers.d/sofa-box >/dev/null || { rm -f /etc/sudoers.d/sofa-box; echo "   (couldn't set up sudo for the box's settings)"; }

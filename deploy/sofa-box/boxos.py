@@ -898,8 +898,10 @@ def _disc_kind(dev):
 
 def devices(mount=False):
     """USB drives (mounted by udisks as they're plugged in when `mount`) and a disc in a USB DVD drive."""
-    drives, disc = [], None
+    drives, disc, busy = [], None, installing()
     for d in _lsblk():
+        if busy and (d.get("path") or "/dev/" + d["name"]).startswith(busy):
+            continue                                    # (being installed on: never opened while it's written)
         hot = d.get("parent_hotplug") in (True, "1", 1) or d.get("parent_tran") == "usb" or d.get("rm") in (True, "1", 1)
         if d.get("type") == "rom":
             kind = _disc_kind(d.get("path") or "/dev/" + d["name"])
@@ -919,7 +921,7 @@ def devices(mount=False):
             code, out = run(["udisksctl", "mount", "--no-user-interaction", "-b", dev], 30)
             m = re.search(r" at (/\S+)", out)
             mp = m.group(1).rstrip(".") if code == 0 and m else None
-        if mp and mp not in ("/", "/boot", "/boot/firmware"):
+        if mp and mp not in ("/", "/boot", "/boot/firmware", "/boot/efi"):     # (/boot/efi: a PC's stick's own)
             drives.append({"dev": d.get("path") or "/dev/" + d["name"], "label": d.get("label") or os.path.basename(mp),
                            "mount": mp, "size": int(d.get("size") or 0), "root": "drive-" + slug(os.path.basename(mp))})
     return {"drives": drives, "disc": disc}
@@ -938,6 +940,118 @@ def eject(dev):
     parent = re.sub(r"(p?\d+)$", "", dev) if re.search(r"\d$", dev) else dev
     run(["udisksctl", "power-off", "--no-user-interaction", "-b", parent], 20)
     return {"ok": True, "message": "You can take the drive out now."}
+
+
+# ---------------------------------------------------------------- Install on this computer (a PC started from the stick)
+
+INSTALL_STATUS = "/run/sofa-box-install.json"     # how it's going (sofa-box install-to-disk writes it)
+INSTALLED_ONTO = "/etc/sofa-box-installed-onto"   # on the stick: the drive it went on last
+INSTALLED = "/etc/sofa-box-installed"             # on a drive it went on: when, and from what
+INSTALL_DISK = re.compile(r"^/dev/(sd[a-z]+|vd[a-z]+|xvd[a-z]+|hd[a-z]+|nvme\d+n\d+|mmcblk\d+)$")
+INSTALL_MIN = 7500000000                          # (the installer's own floor: an "8 GB" drive)
+FS_WORDS = {"ntfs": "Windows (NTFS)", "vfat": "FAT", "exfat": "exFAT", "ext4": "Linux", "ext3": "Linux", "ext2": "Linux",
+            "btrfs": "Linux (Btrfs)", "xfs": "Linux (XFS)", "apfs": "macOS", "hfsplus": "macOS", "swap": "Linux swap",
+            "LVM2_member": "LVM", "crypto_LUKS": "encrypted", "linux_raid_member": "RAID"}
+
+
+def _yes(v):
+    return v in (True, 1, "1", "true")
+
+
+def _tree(d):
+    yield d
+    for c in d.get("children") or []:
+        yield from _tree(c)
+
+
+def size_words(n):
+    return "%.1f TB" % (n / 1e12) if n >= 1e12 else "%d GB" % round(n / 1e9)
+
+
+def install_status():
+    """The installer's progress ({"state": "running"|"done"|"failed", "step", "percent", "disk", "message", "at"}), or
+    None. One that says running but hasn't moved in ten minutes stopped without a word (the power, a kill)."""
+    try:
+        with open(ROOT + INSTALL_STATUS, encoding="utf-8") as f:
+            st = json.load(f)
+    except (OSError, ValueError):
+        return None
+    if st.get("state") == "running" and time.time() - float(st.get("at") or 0) > 600:
+        st = dict(st, state="failed", message="It stopped without finishing. The stick is as it was: try again.")
+    return st
+
+
+def installing():
+    """The drive being installed on now, or None (Files leaves it alone)."""
+    st = install_status()
+    return st.get("disk") if st and st.get("state") == "running" else None
+
+
+def _lsblk_disks():
+    code, out = run(["lsblk", "-J", "-b", "-o", "NAME,PATH,SIZE,TYPE,RM,RO,TRAN,MODEL,SERIAL,FSTYPE,LABEL,MOUNTPOINT"], 10)
+    try:
+        return (json.loads(out).get("blockdevices") or []) if code == 0 else []
+    except ValueError:
+        return []
+
+
+def _is_pc(machine=None):
+    return (machine or os.uname().machine) in ("x86_64", "amd64", "AMD64") and not os.path.exists(ROOT + "/proc/device-tree/model")
+
+
+def install_disks(top=None, machine=None, used=None):
+    """Install on this computer (Settings → This box): whether the box is a PC running from a USB stick, and the drives
+    Sofa Box OS could go on, biggest first, each with what's on it and, when it can't go there, why not. The installer
+    (sofa-box install-to-disk) checks all of it again for itself."""
+    top = _lsblk_disks() if top is None else top
+    pc = _is_pc(machine)
+    root = next((d for d in top if any(x.get("mountpoint") == "/" for x in _tree(d))), None)
+    stick = bool(root) and (root.get("tran") == "usb" or _yes(root.get("rm")))
+    if used is None:
+        try:
+            used = shutil.disk_usage("/").used
+        except OSError:
+            used = 0
+    need = max(INSTALL_MIN, used + 2000000000)
+    try:
+        with open(ROOT + INSTALLED_ONTO, encoding="utf-8") as f:
+            onto = json.load(f)
+    except (OSError, ValueError):
+        onto = {}
+    drives = []
+    for d in top:
+        path = d.get("path") or "/dev/" + str(d.get("name"))
+        if d is root or d.get("type") != "disk" or not INSTALL_DISK.match(path):
+            continue                                  # (the stick itself; a disc drive, zram, a loop file: never offered)
+        size, serial, parts = int(d.get("size") or 0), (d.get("serial") or "").strip(), list(_tree(d))
+        busy = sorted({x["mountpoint"] for x in parts if x.get("mountpoint") and not x["mountpoint"].startswith(("/media/", "/run/media/"))})
+        has = []
+        for x in parts:
+            word = (x.get("label") or "").strip() or FS_WORDS.get(x.get("fstype") or "", x.get("fstype"))
+            if word and word not in has:
+                has.append(word)
+        why = ("It can't be written to." if _yes(d.get("ro")) else "In use (%s)." % ", ".join(busy) if busy else
+               "Too small: %s, and it needs %s." % (size_words(size), size_words(need)) if size < need else None)
+        drives.append({"disk": path, "model": (d.get("model") or "").strip() or "A drive", "size": size, "serial": serial,
+                       "usb": d.get("tran") == "usb", "has": has[:4], "more": max(0, len(has) - 4), "why_not": why,
+                       "installed": onto.get("disk") == path and (onto.get("serial") or "") == serial})
+    drives.sort(key=lambda x: (x["why_not"] is not None, x["usb"], -x["size"]))
+    return {"pc": pc, "from_stick": pc and stick, "drives": drives, "need": need, "status": install_status()}
+
+
+_stick = {}
+
+
+def from_stick():
+    """Whether the box is a PC running from a USB stick (asked once: where the root is doesn't change)."""
+    if "v" not in _stick:
+        _stick["v"] = _is_pc() and install_disks()["from_stick"]
+    return _stick["v"]
+
+
+def installed_note():
+    """On a drive Sofa Box OS was installed on from the stick: when, and from what (About says so)."""
+    return _read(INSTALLED).strip() or None
 
 
 def disc_payload(disc):

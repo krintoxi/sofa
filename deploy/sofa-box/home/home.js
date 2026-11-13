@@ -893,6 +893,69 @@
       <div class="choices">${open ? `<button class="btn" data-tb="check">Check from outside</button><button class="btn danger" data-tb="close">Make it home only</button>`
         : `<button class="btn primary" data-tb="open"${pr.busy ? " disabled" : ""}>Open it to the internet</button>`}</div></section>`;
   }
+  // Install on this computer: a PC started from the Sofa Box OS USB stick puts it on one of its own drives (erased), with
+  // everything on the stick, and starts from that drive after. The drive is picked here and said twice before anything
+  // happens; the agent checks it's the same drive, and the installer (sofa-box install-to-disk) checks it all again.
+  let inst = null, instTimer = 0, instStarted = 0, instAsked = 0;
+  const driveSize = n => n >= 1e12 ? (n / 1e12).toFixed(1) + " TB" : Math.round(n / 1e9) + " GB";
+  const driveName = d => `${d.model} (${driveSize(d.size)}${d.usb ? ", USB" : ""})`;
+  const driveHas = d => d.has && d.has.length ? "On it now: " + d.has.join(", ") + (d.more ? ` and ${d.more} more` : "") : "Nothing on it that the box can see";
+  async function loadInstall() {
+    try { inst = await api("/box/api/install"); } catch (e) { inst = { error: e.message }; }
+    const card = $("#installCard");
+    if (card) { const had = cur && card.contains(cur) ? keyOf(cur) : null; card.outerHTML = installCard(); if (had && $(had)) focus($(had)); }
+    clearTimeout(instTimer);
+    const st = inst.status || {};
+    if (st.state === "running" || instWaiting()) instTimer = setTimeout(loadInstall, 2000);
+  }
+  function instWaiting() {                     // (started, and the installer hasn't said so yet: half a minute at most)
+    const st = (inst && inst.status) || {};
+    return instStarted && !(st.at >= instStarted) && mono() - instAsked < 30000;
+  }
+  function installCard() {
+    const head = `<section class="card" id="installCard"><h3>Install on this computer</h3>`;
+    if (!inst) { setTimeout(loadInstall, 0); return head + `<p class="small">Loading…</p></section>`; }
+    if (inst.error) return head + `<p class="small bad">${esc(inst.error)}</p></section>`;
+    const st = inst.status || {}, fresh = !instStarted || st.at >= instStarted, done = (inst.drives || []).find(d => d.installed);
+    if (st.state === "running" || instWaiting()) {
+      const pct = st.state === "running" ? Math.max(1, Math.min(100, +st.percent || 0)) : 1;
+      return head + `<p>Installing. Leave the stick in and the PC on: it takes a few minutes, and the TV works as usual meanwhile.</p>
+        <div class="bar inst-bar"><i style="width:${pct}%"></i></div><p class="small">${esc(st.state === "running" ? st.message : "Starting…")}</p></section>`;
+    }
+    if (st.state === "done" && fresh || done && st.state !== "failed")
+      return head + `<p class="okay">✓ ${esc(st.state === "done" ? st.message : "Sofa Box OS is on " + driveName(done) + ".")}</p>
+        <p>Take the stick out, then restart the PC: it starts from its own drive, with everything as it is now.</p>
+        <div class="choices"><button class="btn primary" data-action="reboot">Restart the PC</button><button class="btn" data-inst="pick">Another drive</button></div></section>`;
+    return head + `${st.state === "failed" && fresh ? `<p class="small bad">${esc(st.message)}</p>` : ""}
+      <p>Sofa Box OS runs from the USB stick now. Put on one of this PC's own drives, it starts without the stick, and quicker.
+        Everything on the stick goes with it: settings, apps, sign-ins and Wi-Fi.</p>
+      <p class="small">The drive you pick is erased: whatever is on it now goes (Windows too).</p>
+      <div class="choices"><button class="btn" data-inst="pick">Choose a drive</button></div></section>`;
+  }
+  function instPick() {
+    const ds = (inst && inst.drives) || [], ok = ds.filter(d => !d.why_not), no = ds.filter(d => d.why_not);
+    sheet(`<h3>Which drive?</h3><p class="sheet-note">The one you pick is erased.</p>
+      ${ok.map(d => `<button class="btn" data-sheet="d${ds.indexOf(d)}">${esc(driveName(d))}</button><p class="sheet-note small">${esc(driveHas(d))}</p>`).join("")
+        || `<p class="sheet-note">No drive on this PC that it can go on${ds.length ? "" : " (only the stick)"}.</p>`}
+      ${no.map(d => `<p class="sheet-note small">${esc(driveName(d))}: ${esc(d.why_not)}</p>`).join("")}
+      <button class="btn" data-sheet="close">Cancel</button>`, a => { if (a[0] === "d" && ds[+a.slice(1)]) instSure(ds[+a.slice(1)], 1); else closeSheet(); });
+  }
+  function instSure(d, n) {                    // twice, naming the drive; the second starts on No
+    sheet(n === 1 ? `<h3>Erase ${esc(driveName(d))}?</h3><p class="sheet-note">${esc(driveHas(d))}. All of it goes, and Sofa Box OS goes on it.</p>
+        <button class="btn danger" data-sheet="yes">Erase it and install</button><button class="btn" data-sheet="close">No</button>`
+      : `<h3>Sure? Nothing on ${esc(driveName(d))} can be got back after this.</h3>
+        <button class="btn" data-sheet="close">No, keep it</button><button class="btn danger" data-sheet="yes">Yes, erase ${esc(d.model)}</button>`,
+      async a => {
+        if (a !== "yes") return closeSheet();
+        if (n === 1) return instSure(d, 2);
+        closeSheet();
+        try {
+          const r = await api("/box/api/install", { disk: d.disk, serial: d.serial, size: d.size });
+          if (r.ok) { instStarted = r.started; instAsked = mono(); } else toast(r.message || "That didn't work.", 8000);
+        } catch (e) { toast(e.message); }
+        loadInstall();
+      });
+  }
   // Settings, as on a TV: what there is to set down the left, the one you're on beside it. Only that one is drawn, so
   // the page stays small and every press quick on a Pi 3 (all of it on one page was 13 cards and 5,000 pixels tall).
   // Moving along the list shows each; OK or Right goes into it; Back comes out to the list.
@@ -983,14 +1046,15 @@
     if (setTab === "shield") return head("Sofa Shield", "Keeps known ad and tracker sites out of every app and the browser. It goes by the sites' names, so ads from the same site as what you watch still show.") +
       `<section class="card"><div class="toggle-row"><div><h3>${sh.on ? "On" : "Off"}</h3><p>${sh.on ? (sh.sites || 0).toLocaleString() + " sites kept out." : "Switch it on to keep known ad and tracker sites out."}</p></div>
         <button class="switch" role="switch" aria-checked="${!!sh.wanted}" data-shield="1" aria-label="Sofa Shield"></button></div></section>`;
-    if (setTab === "box") return head("This box", "Its name, its clock, and what it is.") +
+    if (setTab === "box") return head("This box", "Its name, its clock, and what it is.") + (b.from_stick ? installCard() : "") +
       `<section class="card"><h3>Its name</h3><p>On the boot screen, and to phones looking for it.</p>
         <div class="add-site"><input class="field" id="boxName" aria-label="The box's name" maxlength="30" value="${esc(s.boot_text || "")}" placeholder="Living room"><button class="btn" data-save-name="1">Save</button></div></section>
       <section class="card"><h3>Time zone: ${esc(((setup || {}).timezone || "UTC").replace(/_/g, " "))}</h3>
         <div class="choices zones">${ZONES.map(z => `<button class="choice" data-tz="${z}" aria-pressed="${z === (setup || {}).timezone}">${esc(z.split("/").pop().replace(/_/g, " "))}</button>`).join("")}</div></section>
       <section class="card"><h3>About</h3><dl class="facts"><dt>Model</dt><dd>${esc(b.model)}</dd><dt>Memory</dt><dd>${b.memory ? Math.round(b.memory / 1048576) + " MB" : "?"}</dd>
         <dt>Picture</dt><dd>${b.board && b.board.tv_height ? "TV at " + b.board.tv_height + "p · " : ""}videos up to ${b.max_height}p${b.max_height >= 2160 ? " (4K)" : ""}</dd>
-        <dt>Temperature</dt><dd>${b.temperature != null ? b.temperature + " °C" : "?"}</dd><dt>Software</dt><dd>Sofa Box OS ${esc(b.version)}</dd></dl>
+        <dt>Temperature</dt><dd>${b.temperature != null ? b.temperature + " °C" : "?"}</dd><dt>Software</dt><dd>Sofa Box OS ${esc(b.version)}</dd>
+        ${b.from_stick ? `<dt>Runs from</dt><dd>a USB stick</dd>` : b.installed ? `<dt>Installed</dt><dd>${esc(b.installed)}</dd>` : ""}</dl>
         <p class="credits-line">Built on ${esc(b.os || "Raspberry Pi OS")}, Chromium, mpv, FFmpeg and more free software, with games like Luanti. <button class="mini" data-go="#/credits">Credits and licences</button></p>
         <div class="choices" style="margin-top:1rem"><button class="btn" data-action="restart">Restart Sofa Box</button><button class="btn" data-action="reboot">Restart the box</button>
         <button class="btn" data-go="#/welcome">Setup steps again</button></div></section>`;
@@ -1705,6 +1769,7 @@
           : `<p class="small">${esc(r.message || "Nothing by that name. Try the nearest town or city.")}</p>`; focus($("#wxFound button")); }
       else if (d.wxPick) { const p = wxFound[+d.wxPick]; boxInfo = Object.assign(boxInfo, await api("/box/api/settings", { weather_place: p }));
         toast("The weather is for " + p.name + " now."); loadWeather(); render(true); }
+      else if (d.inst) { inst = await api("/box/api/install"); instPick(); }
       else if (d.tb) {
         const body = { action: d.tb };
         if (d.tb === "open") { body.domain = ($("#tbDomain") || {}).value || ""; body.token = ($("#tbToken") || {}).value || ""; }
@@ -1837,7 +1902,7 @@
       : [["OK", "Choose"], ["Back", "Home screen"]]);
   }
   function keyOf(el) {
-    for (const a of ["music", "cw", "app", "store", "game", "play", "gameGet", "gameRemove", "file", "root", "set", "themePick", "move", "hide", "action", "target", "go", "url", "server", "pick", "addFound", "drive", "disc", "default", "forgetServer", "ask", "bt", "wifiPick", "tz", "step", "btLook", "setTab", "wifiRescan", "kb", "browserForget"]) {
+    for (const a of ["music", "cw", "app", "store", "game", "play", "gameGet", "gameRemove", "file", "root", "set", "themePick", "move", "hide", "action", "target", "go", "url", "server", "pick", "addFound", "drive", "disc", "default", "forgetServer", "ask", "bt", "wifiPick", "tz", "step", "btLook", "setTab", "wifiRescan", "kb", "browserForget", "inst"]) {
       if (el.dataset[a] !== undefined) {
         const attr = "data-" + a.replace(/[A-Z]/g, c => "-" + c.toLowerCase());
         return `[${attr}="${CSS.escape(el.dataset[a])}"]` + (el.dataset.by ? `[data-by="${el.dataset.by}"]` : "") + (el.dataset.value ? `[data-value="${el.dataset.value}"]` : "");

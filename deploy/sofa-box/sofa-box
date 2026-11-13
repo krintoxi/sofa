@@ -11,6 +11,7 @@
 #   sofa-box shield on|off|update   Sofa Shield: ads and trackers kept out of the whole box (sudo)
 #   sofa-box update            a newer Sofa Box OS from GitHub: stable, or testing (Settings → Software) (sudo)
 #   sofa-box widevine          on a PC (x86-64): Widevine for the DRM apps, from Google Chrome's own package (sudo)
+#   sofa-box install-to-disk /dev/X --yes   a PC started from the USB stick: onto its own drive, erasing it (sudo)
 #   sofa-box tune              a quick processor for the TV (sudo; at every start)
 #   sofa-box factory-reset     back to how it came: apps, sign-ins, Wi-Fi, Bluetooth, files gone (sudo)
 #   sofa-box kiosk             the TV's screen (started by sofa-box.service; not by hand)
@@ -62,7 +63,7 @@ own_screen() {
 on_its_own() {
   [ -z "$SOFA_BOX_ON_ITS_OWN" ] && grep -q 'sofa-box-agent' /proc/self/cgroup 2>/dev/null && command -v systemd-run >/dev/null || return 0
   exec systemd-run --quiet --collect --unit="sofa-box-$1" --setenv=SOFA_BOX_ON_ITS_OWN=1 \
-    --setenv=SUDO_USER="${SUDO_USER:-}" --setenv=SOFA_BOX_BRANCH="${SOFA_BOX_BRANCH:-}" "$0" "$1"
+    --setenv=SUDO_USER="${SUDO_USER:-}" --setenv=SOFA_BOX_BRANCH="${SOFA_BOX_BRANCH:-}" "$0" "$@"
 }
 
 # The boot screen's rebuild, started from the TV: a minute of the whole processor on a Pi 3 (update-initramfs packs
@@ -504,6 +505,146 @@ EOF
   esac
 }
 
+# Install on this computer (root): a PC started from the USB stick gets Sofa Box OS on one of its own drives, and
+# everything on the stick comes with it (its settings, apps, sign-ins, Wi-Fi), so it starts without the stick. The
+# drive is erased. Settings → This box asks for it on the TV (naming the drive, twice); by hand:
+#   sudo sofa-box install-to-disk /dev/nvme0n1 --yes
+# How it's going: /run/sofa-box-install.json ({"state": "running"|"done"|"failed", "step", "percent", "message"}).
+# The drive gets the stick's layout (GPT: GRUB's BIOS part, the EFI system partition, the root), filesystems of its
+# own (new UUIDs, so the stick still starts on its own), a copy of the running root made from a read-only bind of it
+# (only the root's own files: nothing mounted on it), and GRUB for UEFI (Secure Boot's shim) and BIOS.
+INSTALL_STATUS=/run/sofa-box-install.json
+INSTALL_DIR=/run/sofa-box-install
+install_say() {              # install_say STATE STEP PERCENT MESSAGE: the status file the TV reads, and the log
+  printf '{"state": "%s", "step": "%s", "percent": %s, "disk": "%s", "message": "%s", "at": %s}\n' "$1" "$2" "$3" "$DISK" \
+    "$(printf '%s' "$4" | tr -d '\000-\037' | sed 's/["\\]/\\&/g')" "$(date +%s)" > "$INSTALL_STATUS.new"
+  mv -f "$INSTALL_STATUS.new" "$INSTALL_STATUS"
+  echo "Install on this computer: $4"
+}
+install_fail() { install_say failed "$STEP" 0 "$1"; exit 1; }
+install_end() {              # (on the way out, however it went: nothing of it left mounted)
+  CODE=$?
+  set +e
+  [ -n "$T" ] && umount -R "$T" 2>/dev/null
+  [ -n "$F" ] && umount "$F" 2>/dev/null
+  if [ "$CODE" != 0 ] && ! grep -q '"state": "failed"' "$INSTALL_STATUS" 2>/dev/null; then
+    install_say failed "$STEP" 0 "It stopped while $(install_doing "$STEP"). The stick is as it was; $DISK isn't ready to start from."
+  fi
+}
+install_doing() { case "$1" in partition) echo "making the drive's partitions" ;; copy) echo "copying" ;; boot) echo "making the drive start the PC" ;; *) echo "checking the drive" ;; esac; }
+part_of() { case "$1" in *[0-9]) echo "${1}p$2" ;; *) echo "$1$2" ;; esac; }    # (nvme0n1p2, mmcblk0p2; sda2)
+gb() { awk -v b="$1" 'BEGIN { printf "%.0f GB", b / 1e9 }'; }
+root_disk() { P="$(findmnt -no SOURCE /)"; K="$(lsblk -no PKNAME "$P" 2>/dev/null | head -n 1)"; [ -n "$K" ] && echo "/dev/$K"; }
+install_to_disk() {
+  DISK="${1:-}" STEP=check T="" F=""
+  case "$DISK" in *[!a-z0-9/]*) DISK="" ;; esac           # (one line, a path: nothing else gets past)
+  echo "$DISK" | grep -Eq '^/dev/(sd[a-z]+|vd[a-z]+|xvd[a-z]+|hd[a-z]+|nvme[0-9]+n[0-9]+|mmcblk[0-9]+)$' \
+    || { echo "Which drive? Like: sofa-box install-to-disk /dev/sda --yes (lsblk lists them)"; exit 2; }
+  [ "${2:-}" = --yes ] || { echo "Everything on $DISK is erased. To go ahead: sofa-box install-to-disk $DISK --yes"; exit 2; }
+  [ "$(id -u)" = 0 ] || { echo "As root: sudo sofa-box install-to-disk $DISK --yes"; exit 1; }
+  if [ -z "${SOFA_BOX_OWN_MOUNTS:-}" ]; then   # its mounts in a namespace of its own: never seen by the box, gone with it
+    exec env SOFA_BOX_OWN_MOUNTS=1 unshare -m --propagation slave "$0" install-to-disk "$DISK" --yes
+  fi
+  trap install_end EXIT
+  trap 'exit 1' INT TERM
+  install_say running check 0 "Checking $DISK"
+  [ "$(uname -m)" = x86_64 ] && [ ! -e /proc/device-tree/model ] || install_fail "Only on a PC (x86-64). A Pi's card is written by Sofa Box Imager."
+  [ -b "$DISK" ] || install_fail "$DISK isn't a drive on this PC."
+  [ "$(lsblk -dno TYPE "$DISK")" = disk ] || install_fail "$DISK isn't a whole drive."
+  [ "$DISK" != "$(root_disk)" ] || install_fail "$DISK is the stick Sofa Box OS is running from."
+  [ "$(lsblk -dno RO "$DISK" | tr -d ' ')" = 0 ] || install_fail "$DISK can't be written to (it's read-only)."
+  for p in $(lsblk -lnpo NAME "$DISK"); do    # nothing on it in use; a USB drive the box opened in Files is closed
+    for at in $(findmnt -rno TARGET -S "$p" 2>/dev/null); do
+      case "$at" in
+        /media/*|/run/media/*) umount "$p" 2>/dev/null || install_fail "$p is open ($at): close what uses it first." ;;
+        *) install_fail "$p is in use ($at)." ;;
+      esac
+    done
+    ! swapon --show=NAME --noheadings 2>/dev/null | grep -qx "$p" || install_fail "$p is in use (swap)."
+    [ -z "$(ls "/sys/class/block/$(basename "$p")/holders" 2>/dev/null)" ] || install_fail "$p is in use (RAID or LVM)."
+  done
+  SIZE="$(blockdev --getsize64 "$DISK")"
+  USED="$(df -B1 --output=used / | tail -n 1 | tr -d ' ')"
+  NEED=$(( USED + 2000000000 ))
+  [ "$NEED" -ge 7500000000 ] || NEED=7500000000
+  [ "$SIZE" -ge "$NEED" ] || install_fail "$DISK is $(gb "$SIZE"): Sofa Box OS and what's on the stick need $(gb "$NEED") at least."
+  MODEL="$(lsblk -dno MODEL "$DISK" | sed 's/ *$//')"
+  MODEL="${MODEL:-the drive} ($(gb "$SIZE"), $DISK)"
+
+  STEP=partition
+  install_say running partition 2 "Erasing $MODEL and making its partitions"
+  for p in $(lsblk -lnpo NAME "$DISK" | tail -n +2); do wipefs -aq "$p" 2>/dev/null || true; done
+  wipefs -aq "$DISK"
+  sfdisk -q --wipe always --wipe-partitions always "$DISK" <<EOF
+label: gpt
+size=1MiB, type=21686148-6449-6E6F-744E-656564454649, name=bios
+size=256MiB, type=C12A7328-F81F-11D2-BA4B-00A0C93EC93B, name=esp
+type=4F68BCE3-E8CD-4DB1-96E7-FBCAF984B709, name=root
+EOF
+  ESP="$(part_of "$DISK" 2)" ROOTP="$(part_of "$DISK" 3)"
+  udevadm settle 2>/dev/null || true
+  for i in 1 2 3 4 5 6 7 8 9 10; do [ -b "$ROOTP" ] && break; partx -u "$DISK" 2>/dev/null || true; sleep 1; done
+  [ -b "$ROOTP" ] || install_fail "$DISK's new partitions didn't show up."
+  mkfs.vfat -F 32 -n SOFABOOT "$ESP" >/dev/null
+  mkfs.ext4 -q -F -L sofabox "$ROOTP"
+
+  STEP=copy
+  T="$INSTALL_DIR/to" F="$INSTALL_DIR/from"
+  mkdir -p "$T" "$F"
+  mount --bind / "$F"                         # the root alone: what's mounted on it (/proc, /run, the stick's EFI
+  mount --make-private "$F"                   # partition, a USB drive opened now) isn't in it
+  mount -o remount,bind,ro "$F"
+  mount "$ROOTP" "$T"
+  BASE="$(df -B1 --output=used "$T" | tail -n 1 | tr -d ' ')"
+  install_say running copy 5 "Copying Sofa Box OS and everything on the stick"
+  cp -a "$F/." "$T/" 2> "$INSTALL_DIR/copy-errors" &
+  CP=$!
+  while kill -0 "$CP" 2>/dev/null; do
+    NOW=$(( $(df -B1 --output=used "$T" | tail -n 1 | tr -d ' ') - BASE ))
+    PCT=$(( 5 + 85 * NOW / (USED + 1) ))
+    [ "$PCT" -le 90 ] || PCT=90
+    install_say running copy "$PCT" "Copying: $(( NOW / 1000000 )) of $(( USED / 1000000 )) MB"
+    sleep 3
+  done
+  if ! wait "$CP"; then                       # (a file that changed or went while it was copied: said, not fatal)
+    echo "Install on this computer: $(grep -c . "$INSTALL_DIR/copy-errors") files couldn't be copied as they were: $(head -c 600 "$INSTALL_DIR/copy-errors" | tr '\n' ';')"
+  fi
+  for f in usr/local/lib/sofa-box/VERSION usr/local/lib/sofa-box/sofa-box etc/fstab etc/default/grub usr/sbin/grub-install; do
+    [ -e "$T/$f" ] || install_fail "The copy has no /$f."
+  done
+  ls "$T"/boot/vmlinuz-* >/dev/null 2>&1 || install_fail "The copy has no kernel."
+  mount "$ESP" "$T/boot/efi"
+  cp -r /boot/efi/. "$T/boot/efi/"
+  ROOT_UUID="$(blkid -s UUID -o value "$ROOTP")" ESP_UUID="$(blkid -s UUID -o value "$ESP")"
+  awk -v r="UUID=$ROOT_UUID" -v e="UUID=$ESP_UUID" '$1 !~ /^#/ && $2 == "/" { $1 = r } $1 !~ /^#/ && $2 == "/boot/efi" { $1 = e } { print }' \
+    /etc/fstab > "$T/etc/fstab"
+  grep -q "^UUID=$ROOT_UUID / " "$T/etc/fstab" && grep -q "^UUID=$ESP_UUID /boot/efi " "$T/etc/fstab" \
+    || install_fail "The drive's /etc/fstab couldn't be written (the stick's has no / or /boot/efi line)."
+
+  STEP=boot
+  install_say running boot 92 "Making $MODEL start the PC"
+  for m in dev dev/pts proc sys run; do mount --bind "/$m" "$T/$m"; done
+  [ -d /sys/firmware/efi/efivars ] && mount -t efivarfs efivarfs "$T/sys/firmware/efi/efivars" 2>/dev/null || true
+  chroot "$T" grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=sofabox --removable --no-nvram --uefi-secure-boot
+  chroot "$T" grub-install --target=i386-pc "$DISK"
+  START="its drive's own start file"
+  if [ -d /sys/firmware/efi ] && chroot "$T" sh -c 'command -v efibootmgr' >/dev/null 2>&1; then   # and the PC's own start list
+    chroot "$T" grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=sofabox --uefi-secure-boot 2>&1 \
+      && START="the PC's start list (Sofa Box OS) and the drive's own start file" || START="its drive's own start file (the PC's start list said no)"
+  fi
+  chroot "$T" update-grub 2>/dev/null
+  grep -q "root=UUID=$ROOT_UUID" "$T/boot/grub/grub.cfg" || install_fail "GRUB's list on the drive doesn't start the drive's root."
+  grep -q "$ROOT_UUID" "$T/boot/efi/EFI/BOOT/grub.cfg" || install_fail "The drive's EFI start file doesn't point at its root."
+  printf 'Sofa Box OS %s, installed from a USB stick on %s onto %s; it starts by %s.\n' "$(cat "$LIB/VERSION" 2>/dev/null)" \
+    "$(date -u '+%Y-%m-%d %H:%M UTC')" "$MODEL" "$START" > "$T/etc/sofa-box-installed"
+  sync
+  umount -R "$T" && T=""
+  umount "$F" && F=""
+  printf '{"disk": "%s", "serial": "%s", "model": "%s", "at": %s}\n' "$DISK" "$(lsblk -dno SERIAL "$DISK" | sed 's/ *$//')" \
+    "$(echo "$MODEL" | sed 's/["\\]//g')" "$(date +%s)" > /etc/sofa-box-installed-onto  # (the stick remembers: Settings says so)
+  install_say done done 100 "Sofa Box OS is on $MODEL."
+}
+
 case "${1:-}" in
   kiosk) kiosk ;;
   before-screen) before_screen ;;
@@ -561,6 +702,9 @@ case "${1:-}" in
   update)                    # (root) a newer box from GitHub, for its channel (update(), above)
     on_its_own update
     update ;;
+  install-to-disk)           # (root) a PC started from the USB stick: Sofa Box OS onto its own drive (install_to_disk, above)
+    on_its_own install-to-disk "${2:-}" "${3:-}"
+    install_to_disk "${2:-}" "${3:-}" ;;
   factory-reset)             # (root) everything of the owner's goes; the box starts at its setup screen
     on_its_own factory-reset
     WHO="$(systemctl show -p User --value sofa-box-agent 2>/dev/null)"
@@ -576,5 +720,5 @@ case "${1:-}" in
     bluetoothctl devices Paired 2>/dev/null | awk '{print $2}' | while read -r mac; do bluetoothctl remove "$mac" >/dev/null 2>&1 || true; done
     echo "Back to how it came. Starting again…"
     systemctl reboot ;;
-  *) sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+  *) sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
 esac
