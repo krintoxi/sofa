@@ -718,7 +718,7 @@ function buildMantle(m, look, c, poseName, f) {
   m.glow = g0; m.at(0, 0, 0);
 }
 // the mastery weapon, in the same look: built up +y from its grip (as the models are), where the hand holds it
-function buildRelic(m, look, kind, c, f) {
+function buildRelic(m, look, kind, c, f, fang) {
   const g0 = m.glow, hi = L3.U.mix(c, 0xffffff, 0.45), dk = L3.U.mix(c, 0x0b0d10, 0.72);
   const flat = (pts, col, th) => {                    // a flat blade from its outline (x, y pairs up one side and down the other), th thick
     for (const z of [th, -th]) for (let i = 1; i + 1 < pts.length; i++) m.tri(pts[0][0], pts[0][1], z, pts[i][0], pts[i][1], z, pts[i + 1][0], pts[i + 1][1], z, col, 0, 0.8, -z * 9);
@@ -750,6 +750,13 @@ function buildRelic(m, look, kind, c, f) {
     for (let k = 0; k < 4; k++) { const a = k * Math.PI / 2 + Math.PI / 4; m.box(Math.cos(a) * 0.12, 2.24, Math.sin(a) * 0.12, 0.035, 0.05, 0.035, hi); }
     m.box(0, 0.5, 0.03, 0.016, 1.1, 0.006, c); m.box(0, 0.5, -0.03, 0.016, 1.1, 0.006, c); for (let k = 0; k < 3; k++) m.box(0, 0.62 + k * 0.3, 0, 0.075, 0.035, 0.075, k === (f ? 0 : 1) ? hi : c);
     tip = 2.02; grip = 0.9;
+  } else if (look === "signal" && fang) {
+    // a fang: a blade of ink that curves to its point, its inner edge alight, a line of light down its flat
+    m.glow = g0; m.box(0, 0, 0, 0.055, 0.24, 0.055, 0x23262e); m.box(0.02, 0.24, 0, 0.26, 0.05, 0.09, MINK); m.box(0.17, 0.2, 0, 0.05, 0.14, 0.09, MINK);
+    const A = [[-0.08, 0.29], [-0.11, 0.6], [-0.1, 0.9], [-0.03, 1.16], [0.1, 1.36], [0.3, 1.5]], B = [[0.1, 0.29], [0.09, 0.6], [0.11, 0.86], [0.16, 1.08], [0.24, 1.28], [0.3, 1.5]];
+    for (let k = 0; k < 5; k++) { flat([A[k], B[k], B[k + 1], A[k + 1]], MINK, 0.022); m.glow = 127; flat([B[k], [B[k][0] + 0.035, B[k][1]], [B[k + 1][0] + (k < 4 ? 0.035 : 0), B[k + 1][1]], B[k + 1]], k === (f ? 1 : 3) ? hi : c, 0.025); m.glow = g0; }
+    m.glow = 127; for (let k = 0; k < 3; k++) m.box(-0.06 + k * 0.02, 0.5 + k * 0.24, 0, 0.022, 0.16, 0.05, c); m.box(0.02, 0.255, 0, 0.12, 0.02, 0.11, c);
+    tip = 1.5; tipX = 0.3;
   } else if (look === "signal") {
     m.glow = g0; m.box(0, 0, 0, 0.055, 0.24, 0.055, 0x23262e); m.box(0, 0.24, 0, 0.36, 0.05, 0.08, MINK); m.box(-0.2, 0.2, 0, 0.05, 0.13, 0.08, MINK);
     flat([[-0.075, 0.29], [0.1, 0.29], [0.1, 1.28], [-0.075, 1.56]], MINK, 0.022);
@@ -822,7 +829,7 @@ function buildBody(m, st, poseName, scale, flut) {
   if (st.relic) {                                     // (held as its kind is: a bow in the left hand, a staff upright)
     const sz = st.relic.size || 1, k = st.relic.look === "signal" ? st.relic.kind : "blade";
     if (k === "bow") RIG.attach(m, 8, 0, -0.08, 0.02, 0, Math.PI / 2, 0, sz); else if (k === "staff") RIG.attach(m, 5, 0, -0.09 - 0.86 * sz, 0.07, 0, 0, 0, sz); else RIG.attach(m, 5, 0, -0.09, -0.1 * sz, 0, Math.PI / 2, 0, sz);
-    buildRelic(m, st.relic.look, k, st.relic.col, flut ? 1 : 0);
+    buildRelic(m, st.relic.look, k, st.relic.col, flut ? 1 : 0, st.relic.fang);
   }
   if (st.mantle) buildMantle(m, st.mantle.look, st.mantle.col, poseName, flut ? 1 : 0);
   if (w && MODELS[w]) {
@@ -853,7 +860,7 @@ function delverStyle(d) {
     pads: g.chest && g.chest.tier >= 2 ? t("chest") : null, weapon: g.weapon ? weaponModel(g.weapon) : null, kind: SHOW && SHOW.kind ? SHOW.kind : g.weapon ? g.weapon.kind : "blade",
     shine: g.weapon && g.weapon.r >= 3 ? RARITY[g.weapon.r].col : 0,
     mantle: SHOW && SHOW.look ? { look: SHOW.look, col: SHOW.col } : g.mantle && g.mantle.m ? { look: MLOOK, col: WR.SKILL[g.mantle.m].col } : null,
-    relic: SHOW && SHOW.look ? { look: SHOW.look, kind: SHOW.kind || "blade", col: SHOW.col, size: 1 } : g.weapon && g.weapon.m ? { look: MLOOK, kind: g.weapon.kind, col: WR.SKILL[g.weapon.m].col, size: 1 } : null };
+    relic: SHOW && SHOW.look ? { look: SHOW.look, kind: SHOW.kind || "blade", col: SHOW.col, size: 1, fang: !!SHOW.fang } : g.weapon && g.weapon.m ? { look: MLOOK, kind: g.weapon.kind, col: WR.SKILL[g.weapon.m].col, size: 1, fang: g.weapon.m === "summon" } : null };
 }
 const MLOOK = "signal";                              // (the look of the mastery gear: see buildMantle)
 let SHOW = null;                                     // (#test: a close look at the delver, for pictures of the mastery gear)
@@ -1083,7 +1090,7 @@ function buildFeatures(w, r, prop, node) {
   const feat = (kind, x, z, o, rad) => { const nd = node(kind, x, z, o); w.feats.push(nd); if (rad) w.blocks.add(x, z, rad); return nd; };
   const lamp = (x, z) => { w.deco.push({ kind: "lamp", x, z }); w.blocks.add(x, z, 0.3); };
   w.roads = [];
-  feat("well", 9, 21, { id: 0, reg: 0, label: "The well" }, 1.3); feat("portal", -9, 21, { id: 0, reg: 0, label: "The riftgate" }, 0);
+  feat("well", 9, 21, { id: 0, reg: 0, label: WELLS[0] + ": drink, or go down" }, 1.3); feat("portal", -9, 21, { id: 0, reg: 0, label: "The riftgate" }, 0);
   for (let k = 1; k <= 5; k++) {
     const ac = -PI + (k - 0.5) * TAU / 5 + SECT0;
     // somewhere in region k near that far out and that way round, on ground that's dry and not too steep
@@ -1092,10 +1099,10 @@ function buildFeatures(w, r, prop, node) {
       return [Math.cos(ac + da) * rad, Math.sin(ac + da) * rad]; };
     const camp = find(235, 0);
     feat("portal", camp[0], camp[1], { id: k, reg: k, label: "The riftgate" }, 0);
-    feat("well", camp[0] + 9, camp[1] + 4, { id: k * 2 - 1, reg: k, label: "The well" }, 1.3);
+    feat("well", camp[0] + 9, camp[1] + 4, { id: k * 2 - 1, reg: k, label: WELLS[k * 2 - 1] + ": drink, or go down" }, 1.3);
     lamp(camp[0] - 5, camp[1] + 5); lamp(camp[0] + 4, camp[1] - 5);
     w.roads.push([camp[0], camp[1], camp[0] * camp[0] + camp[1] * camp[1]]);
-    const far = find(325, 0.3); feat("well", far[0], far[1], { id: k * 2, reg: k, label: "The well" }, 1.3); lamp(far[0] + 3, far[1] + 2);
+    const far = find(325, 0.3); feat("well", far[0], far[1], { id: k * 2, reg: k, label: WELLS[k * 2] + ": drink, or go down" }, 1.3); lamp(far[0] + 3, far[1] + 2);
     if (k === 3) { feat("furnace", camp[0] - 8, camp[1] + 3, { label: "A field furnace: smelt ore into bars" }, 1.3); prop("hearth", camp[0] - 8, camp[1] + 3, 0.6, 0.75); }
     if (k === 2 || k === 5) { feat("kin", camp[0] - 8, camp[1] - 3, { label: "A kinstone: bind and call your creatures" }, 0.8); prop("oathstone", camp[0] - 8, camp[1] - 3, 0.3, 2.0); }
     if (k === 2) { const p = find(310, -0.32); feat("hollow", p[0], p[1], { label: "The Thornhollow: go in" }, 3.6); lamp(p[0] - 5, p[1] + 5); lamp(p[0] + 5, p[1] + 5); w.hollow = p; }
@@ -1640,6 +1647,7 @@ function burnLog(f, t) {
 }
 function nearFire(r) { let best = null, bd = r * r; for (const nd of W.nodes) if (nd.kind === "fire" && nd.on) { const d = dist2(H.x, H.z, nd.x, nd.z); if (d < bd) { best = nd; bd = d; } } return best; }
 function lightFire() {
+  if (H.gather && H.gather.job !== "light") H.gather = null;   // (from the rock or the tree: the fire first)
   if (!canAct()) return;
   const f = nearFire(3); if (f) { feedFire(f); return; }
   const t = bestLog();
@@ -2072,7 +2080,7 @@ let STREAM = null;
 // The fuller look: on the engine's upper rungs (a Pi 4 and up, a computer) the open world grows thicker and is seen
 // further; from 720 lines up, what's lit spreads as light (GL.bloom). A Pi 3's rungs get none of it and pay nothing for it.
 const rich = () => E.mode === "gl" && !!E.rung && E.rung.look === 1;
-const BLOOM = { from: 0.66, to: 0.98, power: 0.7, size: 0.25, wide: 0.55 };
+const BLOOM = { from: 0.62, to: 0.96, pure: [0.3, 0.56], power: 0.8, size: 0.25, wide: 0.55 };
 const TPL = new Map(), NOGPU = { upload: () => null, free() {} };
 function tpl(key, fn) { let t = TPL.get(key); if (!t) { t = { m: new L3.Mesh(128), g: new L3.Mesh(32) }; fn(t.m, t.g); TPL.set(key, t); } return t; }
 const regWorld = reg => ({ st: { wall: REGIONS[reg].wall, ground: REGIONS[reg].ground, glow: [0xffd28a, 0x9fffc8, 0x6ae8ff, 0xffa04a, 0xff7a2a, 0xc07cff][reg] }, h: () => 0 });
@@ -2471,7 +2479,7 @@ function masteryFx(m, t, an, mantle, relic) {
     col3(relic.col);
     const gx = AW[12], gy = AW[13], gz = AW[14], tx = AW[15], ty = AW[16], tz = AW[17], dx = tx - gx, dy = ty - gy, dz = tz - gz;
     const vx = cam.x - (gx + tx) / 2, vy = cam.y - (gy + ty) / 2, vz = cam.z - (gz + tz) / 2;
-    let px = dy * vz - dz * vy, py = dz * vx - dx * vz, pz = dx * vy - dy * vx; const l = Math.sqrt(px * px + py * py + pz * pz) || 1, w = 0.13 / l; px *= w; py *= w; pz *= w;
+    let px = dy * vz - dz * vy, py = dz * vx - dx * vz, pz = dx * vy - dy * vx; const l = Math.sqrt(px * px + py * py + pz * pz) || 1, w = (relic.kind === "bow" ? 0.04 : 0.13) / l; px *= w; py *= w; pz *= w;   // (a bow's is its string's)
     const a = 30 + (Math.sin(t * 3.1) * 14 | 0);
     fxQuad(m, gx - px, gy - py, gz - pz, gx + px, gy + py, gz + pz, tx + px * 0.5 + dx * 0.06, ty + py * 0.5 + dy * 0.06, tz + pz * 0.5 + dz * 0.06, tx - px * 0.5 + dx * 0.06, ty - py * 0.5 + dy * 0.06, tz - pz * 0.5 + dz * 0.06, cR, cG, cB, a, 127);
     if (relic.look === "pyre") for (let k = 0; k < 4; k++) {         // tongues of fire up off the blade
@@ -2518,10 +2526,12 @@ function dotsWorld(m, t) {
 
 // ---------------------------------------------------------------- 2D (no real GPU): the ground painted from above, sprites
 let F2 = null;
-// (2D) the open world's ground is painted a window at a time: 240 m round the delver, painted again when they near its edge
+// (2D) the open world's ground is painted a window at a time: 180 m round the delver (the air closes in at 60), painted
+// again when they're 40 m from its middle. Three pixels a metre: a third of the painting a floor's six would be, and
+// it's the one piece of work here that can't be spread over frames.
 function groundWindow() {
-  const flat = E.flat, w = W, st = w.st, size = 240, k = 4, cx = Math.round(H.x / 30) * 30, cz = Math.round(H.z / 30) * 30;
-  const sub = F2.sub || (F2.sub = new L3.Land(size, 96, 0)); sub.fill((x, z) => w.land.at(x + cx, z + cz));
+  const flat = E.flat, w = W, st = w.st, size = 180, k = 3, cx = Math.round(H.x / 30) * 30, cz = Math.round(H.z / 30) * 30;
+  const sub = F2.sub || (F2.sub = new L3.Land(size, 72, 0)); sub.fill((x, z) => w.land.at(x + cx, z + cz));
   const cv = F2.cv || (F2.cv = document.createElement("canvas")); cv.width = cv.height = size * k; const g = cv.getContext("2d");
   g.fillStyle = hex(REGIONS[w.region(H.x, H.z)].ground[1]); g.fillRect(0, 0, size * k, size * k);
   const col = overColour(w, { glow: 0 });
@@ -2560,7 +2570,7 @@ function drawFlat(now) {
   const dir = yaw => (((Math.round(-(yaw - PI) / TAU * 8) % 8) + 8) % 8);
   for (const p of F2.props) if (near(p.x, p.z)) flat.sprite(p.s, p.x, p.y, p.z, p.k / p.s.ppu);
   if (W.over && STREAM) {                             // the open world: what stands in the chunks that are open
-    if (Math.abs(H.x - F2.win[0]) > 70 || Math.abs(H.z - F2.win[1]) > 70) groundWindow();
+    if (Math.abs(H.x - F2.win[0]) > 40 || Math.abs(H.z - F2.win[1]) > 40) groundWindow();
     for (const c of STREAM.list) { const d = c.data; if (!d || c.x1 < cam.tx - 26 || c.x0 > cam.tx + 26 || c.z1 < cam.tz - 22 || c.z0 > cam.tz + 22) continue;
       for (const q of d.deco) { if (q.kind === "tuft" || !near(q.x, q.z)) continue; const own = q.kind === "house" || q.kind === "lamp" || q.wall, reg = W.region(q.x, q.z), v = q.seed % 3 || 0;
         const sprite = F2.sp("d:" + q.kind + (own ? (q.seed || 0) + ":" + (q.yaw || 0) : reg + ":" + v), m => { const gm = new L3.Mesh(64); decoMesh(own ? Object.assign({}, W, { h: () => 0 }) : regWorld(reg), Object.assign({}, q, { x: 0, z: 0, s: own ? q.s : 1, seed: own ? q.seed : v + 3 }), m, gm); m.add(gm, true); });
@@ -2627,12 +2637,12 @@ function drawHUD(now) {
   for (const n of G.nums) { if (!project(n.x, n.y + n.t * 1.6, n.z, w, h, PRJ)) continue; ui.text(n.v, PRJ[0], PRJ[1], S1, n.col, clamp(1.6 - n.t * 1.6, 0, 1), 0.5, INK); }
   hudWords();
   // the skill being learned: its level and how far through it, bottom middle, for a few seconds after each gain
-  if (G.trackT > 0 && G.track) { const k = G.track, sk = WR.SKILL[k], L = lv(k), tw = 120 * S1, tx = Math.max(Math.round(w / 2 - tw / 2), 240 * S1), ty = h - M - 8 * S1, a = clamp(G.trackT, 0, 1);
+  if (G.trackT > 0 && G.track) { const k = G.track, sk = WR.SKILL[k], L = lv(k), tw = 120 * S1, tx = window.SofaPad && window.SofaPad.touch && window.SofaPad.touch.on ? Math.round(w / 2 - tw / 2) : Math.max(Math.round(w / 2 - tw / 2), 240 * S1), ty = h - M - 8 * S1, a = clamp(G.trackT, 0, 1);
     ui.rect(tx - 3 * S1, ty - 12 * S1, tw + 6 * S1, 20 * S1, INK, 0.72 * a);
     ui.text(HS.trkN, tx, ty - 10 * S1, S1, sk.col, a, 0); ui.text(HS.trkS, tx + tw, ty - 10 * S1, S1, BONE, a, 1);
     ui.rect(tx, ty, tw, 4 * S1, 0x2a2e36, a); ui.rect(tx, ty, Math.round(tw * WR.into(D.sk[k])), 4 * S1, sk.col, a); }
   // life, focus, xp: bottom left; the skills beside them
-  const bw = 80 * S1, x0 = M, y0 = h - M - 25 * S1;
+  const thumbs = !!(window.SofaPad && window.SofaPad.touch && window.SofaPad.touch.on), bw = 80 * S1, x0 = M, y0 = thumbs ? M + 9 * S2 + 22 * S1 : h - M - 25 * S1;
   ui.text(HS.name, x0, y0 - 10 * S1, S1, BONE, 1, 0, INK);
   bar(ui, x0, y0, bw, 9 * S1, H.hp / S.hpMax, H.hurtT > 0 ? BONE : RED); ui.text(HS.hpS, x0 + 2 * S1, y0 + S1, S1, BONE, 1, 0, INK);
   bar(ui, x0, y0 + 11 * S1, bw, 4 * S1, H.focus / 100, GREEN);
@@ -2685,11 +2695,11 @@ function drawHUD(now) {
   if (E.mode !== "gl" && hidden() && project(H.x, H.y + 1.1, H.z, w, h, PRJ)) { ui.disc(PRJ[0], PRJ[1], 5 * S1, GREEN, 0.3); ui.arrow(PRJ[0], PRJ[1] - 10 * S1, 3 * S1, PI, GREEN, 0.9); }   // (2D: a mark where they stand behind a tree)
   if (H.gather) { const p = H.gather.t / H.gather.dur; if (project(H.x, H.y + 2.4, H.z, w, h, PRJ)) bar(ui, PRJ[0] - 14 * S1, PRJ[1], 28 * S1, 3 * S1, p, GREEN); }
   // toasts, bottom right; what's said, centred high
-  let ty = h - M - 9 * S1;
+  let ty = thumbs ? Math.round(h * 0.4) : h - M - 9 * S1;
   for (let i = G.toasts.length - 1; i >= 0; i--) { const tt = G.toasts[i]; ui.text(tt.text, w - M, ty, S1, tt.col, clamp(tt.t, 0, 1), 1, INK); ty -= 9 * S1; }
   if (G.sayT > 0 && !POPS.busy) ui.text(G.say, w / 2, Math.round(h * 0.22), S2, BONE, clamp(G.sayT, 0, 1), 0.5, INK);
   // the buffs
-  let bx = x0; const by = y0 - 20 * S1;
+  let bx = x0; const by = thumbs ? y0 + 24 * S1 : y0 - 20 * S1;
   for (const k in H.buff) if (H.buff[k] > 0) { const c = k === "cry" ? 0xffd28a : GREEN; ui.text((k === "cry" ? "WARCRY" : k.toUpperCase()) + " " + Math.ceil(H.buff[k]), bx, by, S1, c, 1, 0, INK); bx += ui.width(k.toUpperCase() + " 00 ", S1) + 4 * S1; }
   if (E.demo) ui.text("WYRD \x18 PLAYING ITSELF", w / 2, M + 12 * S2, S1, GREEN, 0.8, 0.5, INK);
   if (G.fest && G.fest.t < 0.3) ui.rect(0, 0, w, h, G.fest.cols[0], (0.3 - G.fest.t) * 1.3);       // (the moment lands with a flash of the skill's colour)
@@ -2912,7 +2922,7 @@ function play(i, fresh) {
   slotNo = i; save.last = i; D = ensure(save.slots[i]); store();
   for (const s of save.slots) if (s) for (const it of s.bag.concat(s.stash, Object.values(s.gear))) if (it && it.id >= itemId) itemId = it.id + 1;
   H = null; recalc(); H = hero(); menu.hide(); state = "play";
-  enterWorld("town", 0);
+  enterWorld("town", 0, fresh ? null : wakePlace());   // (a delver comes back by the well they last drank at)
   if (fresh) { say("Hearthrim. The Maw waits to the north", 4); toast("The smith, the herbalist and the Loom are in the square", BONE); }
 }
 function toTitle() { state = "title"; D = GHOST; recalc(); H = hero(); enterWorld("town", 0); H.x = 0; H.z = 6; menu.show("title"); }
@@ -2956,16 +2966,12 @@ function renderBox() {
 }
 
 // ---- the bag: what's carried, what's worn, and the chosen piece set against what it would replace
-function slotHtml(it, i, worn) {
-  if (!it) return `<div class="slot empty${worn ? "" : " item"}"${worn ? "" : ` data-do="wear" data-i="${i}"`}><span class="k">${worn ? esc(SLOTNAME[worn]) : ""}</span></div>`;
-  const better = !worn && itemScore(it) > itemScore(D.gear[it.k]);
-  return `<div class="slot${worn ? "" : " item"}"${worn ? "" : ` data-do="wear" data-i="${i}"`} style="color:${hex(itemCol(it))}"><span class="k">${esc(SLOTNAME[it.k])}${it.k === "weapon" ? " · " + esc(KINDS[it.kind].name) : ""}</span>${esc(it.n)}${better ? '<span class="up">▲</span>' : ""}</div>`;
-}
+// (the grid and what's worn are the engine's Slots: it makes a Menu screen's elements, so the arrows, A, a remote's keys and a tap all work it)
+const BAG = new L3.Slots({ grid: $("baggrid"), worn: $("worn"), size: 30, act: "wear", items: () => D.bag, places: WORN.map(k => [k, SLOTNAME[k]]), wearing: k => D.gear[k],
+  show: (it, worn) => ({ title: it.n, kind: SLOTNAME[it.k] + (it.k === "weapon" ? " \u00b7 " + KINDS[it.kind].name : ""), col: itemCol(it), mark: !worn && itemScore(it) > itemScore(D.gear[it.k]) ? "\u25b2" : "" }) });
 function renderBag() {
   $("bagTitle").textContent = "The bag · " + D.bag.length + "/30";
-  const cells = []; for (let i = 0; i < 30; i++) cells.push(slotHtml(D.bag[i] || null, i, null));
-  $("baggrid").innerHTML = cells.join("");
-  $("worn").innerHTML = WORN.map(k => slotHtml(D.gear[k], -1, k).replace('class="slot', 'class="slot worn-' + k)).join("");
+  BAG.render();
   const ores = D.ore.map((n, i) => n ? n + " " + ORES[i] : "").filter(Boolean).join(", ") || "none", herbs = D.herbs.map((n, i) => n ? n + " " + HERBS[i] : "").filter(Boolean).join(", ") || "none";
   $("herostats").innerHTML = [["Level", D.level], ["Life", S.hpMax], ["Damage", Math.round(S.dmg)], ["Armour", S.armour], ["Critical", S.crit.toFixed(1) + "%"], ["Coin", D.coin], ["Thread", D.thread], ["Draughts", D.draughts + "/" + maxDraughts()], ["Pack", packCount() + "/" + packMax()], ["Ore", ores],
     ["Bars", D.bars.map((n, i) => n ? n + " " + ORES[i] : "").filter(Boolean).join(", ") || "none"], ["Logs", D.logs.map((n, i) => n ? n + " " + WR.TREES[i] : "").filter(Boolean).join(", ") || "none"], ["Embers", D.embers], ["Herbs", herbs]]

@@ -507,11 +507,12 @@ attribute vec2 aXY; varying vec2 vUV;
 void main() { vUV = aXY * 0.5 + 0.5; gl_Position = vec4(aXY, 0.0, 1.0); }`;
 const BRIGHT_FS = `
 precision mediump float;
-uniform sampler2D uTex; uniform vec2 uPx; uniform vec2 uCut; varying vec2 vUV;
+uniform sampler2D uTex; uniform vec2 uPx; uniform vec2 uCut; uniform vec2 uPure; varying vec2 vUV;
 void main() {
   vec3 c = (texture2D(uTex, vUV + uPx * vec2(-1.0, -1.0)).rgb + texture2D(uTex, vUV + uPx * vec2(1.0, -1.0)).rgb + texture2D(uTex, vUV + uPx * vec2(-1.0, 1.0)).rgb + texture2D(uTex, vUV + uPx * vec2(1.0, 1.0)).rgb) * 0.25;
   float v = max(c.r, max(c.g, c.b));                 // (how bright by its strongest colour: a pure pink or green glows as a white would)
-  gl_FragColor = vec4(c * smoothstep(uCut.x, uCut.y, v), 1.0);
+  float pure = (v - min(c.r, min(c.g, c.b))) / max(v, 0.001);   // (and how pure a colour: skin and pale stone in the sun are bright, but they aren't lights)
+  gl_FragColor = vec4(c * smoothstep(uCut.x, uCut.y, v) * smoothstep(uPure.x, uPure.y, pure), 1.0);
 }`;
 const BLUR_FS = `
 precision mediump float;
@@ -817,7 +818,8 @@ GL.prototype = {
   // What's bright in the picture drawn so far, spread as light over it: lamps, fires, what's lit by itself. Call it after
   // the world and its see-through things, before what's written on the picture (the engine draws that after the game's
   // draw(), so it stays crisp). o {from, to: how bright a thing must be to begin to glow, and to glow fully (0.62, 0.95: by
-  // its strongest colour), power: how much is added (0.8), size: the spread's own picture as a share of the canvas (0.25),
+  // its strongest colour), pure: [from, to] how pure a colour it must be too (none: any; [0.3, 0.55] leaves skin and pale
+  // stone in the sun alone), power: how much is added (0.8), size: the spread's own picture as a share of the canvas (0.25),
   // wide: a second, broader spread at this share of the power (0: none)}. Four draw calls, three small pictures and a copy
   // of the canvas: for a GPU with room to spare (a game asks for it on its upper rungs only). False when this GPU can't.
   bloom(o) {
@@ -841,7 +843,7 @@ GL.prototype = {
     gl.bindTexture(gl.TEXTURE_2D, B.full); gl.copyTexImage2D(gl.TEXTURE_2D, 0, gl.RGB, 0, 0, W, H, 0);
     const pass = (P, to, from, px, py) => { gl.bindFramebuffer(gl.FRAMEBUFFER, to); gl.useProgram(P.p); this.cur = P; gl.bindTexture(gl.TEXTURE_2D, from); gl.uniform1i(P.u.uTex, 0); if (P.u.uPx) gl.uniform2f(P.u.uPx, px, py); gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4); this.calls++; };
     gl.viewport(0, 0, w, h);
-    gl.useProgram(P1.p); gl.uniform2f(P1.u.uCut, o.from == null ? 0.62 : o.from, o.to == null ? 0.95 : o.to);
+    gl.useProgram(P1.p); gl.uniform2f(P1.u.uCut, o.from == null ? 0.62 : o.from, o.to == null ? 0.95 : o.to); gl.uniform2f(P1.u.uPure, o.pure ? o.pure[0] : -1, o.pure ? o.pure[1] : 0);
     pass(P1, B.a.fbo, B.full, 1 / W, 1 / H); pass(P2, B.b.fbo, B.a.tex, 1 / w, 0); pass(P2, B.a.fbo, B.b.tex, 0, 1 / h);
     gl.viewport(0, 0, W, H); gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE);
     gl.useProgram(P3.p); gl.uniform1f(P3.u.uPower, o.power == null ? 0.8 : o.power); pass(P3, null, B.a.tex, 0, 0);
@@ -2552,6 +2554,30 @@ Menu.prototype = {
   }
 };
 
+// ---------------------------------------------------------------- what's carried and what's worn (Slots): slots in a
+// grid, the places a thing is worn beside them. It makes the elements of a Menu screen (each slot of the grid an .item),
+// so the arrows, A and B, a remote's keys and a tap all work it as they work any menu; the game says what a slot shows,
+// and its Menu's choose() what choosing one does.
+// o: { grid, worn: the two elements; size: slots in the grid; act: a slot's data-do ("slot"); items(): what's carried, in
+//   order; places: [[key, label], …] and wearing(key): what's worn there; show(item, worn) → { title, kind, col, mark } }
+// A slot is <div class="slot item" data-do data-i>, an empty one also "empty"; what's worn is "slot worn-<key>".
+function Slots(o) { this.o = o; }
+Slots.prototype = {
+  cell(it, i, place) {
+    const o = this.o, tag = place == null ? ` item" data-do="${o.act || "slot"}" data-i="${i}` : ` worn-${U.esc(place[0])}`;
+    if (!it) return `<div class="slot empty${tag}"><span class="k">${place ? U.esc(place[1]) : ""}</span></div>`;
+    const s = o.show(it, !!place);
+    return `<div class="slot${tag}"${s.col != null ? ` style="color:${U.hex(s.col)}"` : ""}><span class="k">${U.esc(s.kind || "")}</span>${U.esc(s.title)}${s.mark ? `<span class="up">${U.esc(s.mark)}</span>` : ""}</div>`;
+  },
+  render() {
+    const o = this.o, items = o.items(), cells = [];
+    for (let i = 0; i < o.size; i++) cells.push(this.cell(items[i] || null, i, null));
+    o.grid.innerHTML = cells.join("");
+    if (o.worn) o.worn.innerHTML = o.places.map(p => this.cell(o.wearing(p[0]), -1, p)).join("");
+    return this;
+  }
+};
+
 // ---------------------------------------------------------------- sound, made as it plays (WebAudio): notes and noise,
 // named effects (define your own), a music sequencer that writes a tune from a seed, and drones (engines, wind)
 function Synth() { this.ac = null; this.fx = Object.assign({}, FX); this.seq = null; this.vol = { music: 0.6, sound: 0.8 }; this.cur = null; this.routes = []; }
@@ -3812,5 +3838,5 @@ function planRay(p, b) {
 
 window.Low3D = { probe, family, NAMES, bench, plan, rows, line, LADDER, Governor, GL, Mesh, Flat, bake, M4, px, hexRGB, Rig,
   U, Kit, Path, Chunks, Land, Trail, Particles, camera, chase, orbit, viewOf, begin, Input, Menu, Synth, game,
-  Palette, Tex, RayMap, Ray, Marks, Screen, planRay, heldRay, helpersFor, wholeSteps, ladderSig, fortyOn, withForty, UI, Letters, GLYPHS, SPECIAL, wholeSize, Confetti, Banners, Stream, version: 5 };
+  Palette, Tex, RayMap, Ray, Marks, Screen, planRay, heldRay, helpersFor, wholeSteps, ladderSig, fortyOn, withForty, UI, Letters, GLYPHS, SPECIAL, wholeSize, Confetti, Banners, Stream, Slots, version: 5 };
 })();

@@ -333,9 +333,10 @@ for a "This box" screen. `Governor(ladder, rung, top, onChange)` keeps the frame
 - `fx(handle, mesh, points)`: every see-through thing at once, premultiplied: each vertex's alpha is how much of it,
   its spare byte 127 for light added (flames, lamps) or 0 for paint laid over (shadows, foam, rain).
 - `shine(r, g, b)` brightens the whole frame (lightning); `warm(names)` makes programs while the game loads.
-- `bloom({from, to, power, size, wide})`: what's bright in the picture drawn so far, spread as light over it (lamps,
-  fires, what's lit by itself). The picture is copied, what's bright in it (by its strongest colour, so a pure pink
-  glows as a white would) kept at a quarter of the size, blurred across and down, and added back: four draw calls, three
+- `bloom({from, to, pure, power, size, wide})`: what's bright in the picture drawn so far, spread as light over it
+  (lamps, fires, what's lit by itself). The picture is copied, what's bright in it (by its strongest colour, so a pure
+  pink glows as a white would; with `pure`, only colours that pure, so skin and pale stone in the sun don't) kept at a
+  quarter of the size, blurred across and down, and added back: four draw calls, three
   small pictures and a copy of the canvas. It's for a GPU with room to spare: a game calls it on its upper rungs only
   (WYRD: the full look from 720 lines up), after its see-through things and before what's written on the picture, which
   the engine draws after `draw()` and so stays crisp. On a Pi 3's rungs it's never called and costs nothing.
@@ -531,6 +532,10 @@ call for what's written on it, and a frame of either makes no garbage.
   page. Call `tell()` at the end of a race or a level.
 - `Input` and `Menu`: screens of `.item` elements. A screen can be a list, a `grid` of columns, a `row`, or
   `options` (◀ ▶ to change values).
+- `Slots({grid, worn, size, act, items, places, wearing, show})`: what's carried and what's worn, as the elements of a
+  `Menu` screen: a grid of slots (each an `.item`, so the arrows, A and B, a remote's keys and a tap all work it as they
+  work any menu), and the places a thing is worn beside it. The game says what a slot shows (`show(item)` → title, kind,
+  colour, a mark) and its menu's `choose()` what choosing one does; `render()` after anything changes. WYRD's bag.
 - `Synth`: `play(name)` plays effects, `play(name, pan, gain)` from a place (left -1 to right 1, and how loud), and
   `define(name, fn)` adds your own. `song({seed, root, tempo, calm})`
   writes a tune from a seed and plays it. `drone("saw" | "noise")` is a sound that goes on (an engine, the wind),
