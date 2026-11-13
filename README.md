@@ -67,15 +67,17 @@ says so: **[What Sofa can do today](docs/capabilities.md).** In short:
 
 ## Status
 
-Sofa 1.5.10 and Sofa Box OS 1.1.83, 2026-11-12. **The Sofa Server and the web app are solid** on a Mac or Linux
+Sofa 1.5.10 and Sofa Box OS 1.1.84, 2026-11-12. **The Sofa Server and the web app are solid** on a Mac or Linux
 computer, used daily on a 2011 iMac, with over 400 automated tests GitHub runs on every change (real ffmpeg, mpv,
 Chrome and Let's Encrypt's test server). **The Sofa Box has run on one Raspberry Pi 3 Model B+**, the owner's, where
 the setup by iPhone and Fire TV remote, the phone remote, Sofa from the iMac, YouTube, an Xbox controller and the
 box's reports have been used for real; the newest card tried there is 1.1.73 (2026-11-12), and what the owner found
-on it led to 1.1.80 and 1.1.81, so 1.1.74 to 1.1.83 are on the Pi for the first time when the owner tests the next
+on it led to 1.1.80 and 1.1.81, so 1.1.74 to 1.1.84 are on the Pi for the first time when the owner tests the next
 card. **On a PC, from a USB stick** (since 1.1.79): the PC version is published beside every card, once GitHub has
-started it in QEMU three ways (UEFI, BIOS, and Secure Boot on); it has not started a real PC yet:
-[Other hardware](docs/hardware.md). **A Raspberry Pi 4 or 5 has never run it.** The DRM apps, USB drives, discs and
+started it in QEMU three ways (UEFI, BIOS, and Secure Boot on). Since 1.1.84 it can also put itself on the PC's own
+drive (Settings → This box → **Install on this computer**), and GitHub proves that too before every PC image: from
+the stick onto a blank drive, then started from that drive alone with Secure Boot on and with BIOS. Neither has run on
+a real PC yet: [Other hardware](docs/hardware.md). **A Raspberry Pi 4 or 5 has never run it.** The DRM apps, USB drives, discs and
 HDMI-CEC are built and tested in software and have not been tried on a real box. **The Fire TV app and the Roku
 channel are built by GitHub and no run on a real device is on record.** Sofa Box Imager 0.2.0, the Mac app for
 writing a card, writes the PC's USB stick too; **it has never written a real card or stick.** No card is marked
