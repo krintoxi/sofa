@@ -512,7 +512,8 @@ EOF
 # How it's going: /run/sofa-box-install.json ({"state": "running"|"done"|"failed", "step", "percent", "message"}).
 # The drive gets the stick's layout (GPT: GRUB's BIOS part, the EFI system partition, the root), filesystems of its
 # own (new UUIDs, so the stick still starts on its own), a copy of the running root made from a read-only bind of it
-# (only the root's own files: nothing mounted on it), and GRUB for UEFI (Secure Boot's shim) and BIOS.
+# (only the root's own files: nothing mounted on it), and GRUB for UEFI (Secure Boot's shim) and BIOS. From the live
+# DVD the same: its root is the image's, put together in memory over the disc (live-boot's overlay), and that's copied.
 INSTALL_STATUS=/run/sofa-box-install.json
 INSTALL_DIR=/run/sofa-box-install
 install_say() {              # install_say STATE STEP PERCENT MESSAGE: the status file the TV reads, and the log
@@ -528,13 +529,20 @@ install_end() {              # (on the way out, however it went: nothing of it l
   [ -n "$T" ] && umount -R "$T" 2>/dev/null
   [ -n "$F" ] && umount "$F" 2>/dev/null
   if [ "$CODE" != 0 ] && ! grep -q '"state": "failed"' "$INSTALL_STATUS" 2>/dev/null; then
-    install_say failed "$STEP" 0 "It stopped while $(install_doing "$STEP"). The stick is as it was; $DISK isn't ready to start from."
+    install_say failed "$STEP" 0 "It stopped while $(install_doing "$STEP"). The ${FROMW:-USB stick} is as it was; $DISK isn't ready to start from."
   fi
 }
 install_doing() { case "$1" in partition) echo "making the drive's partitions" ;; copy) echo "copying" ;; boot) echo "making the drive start the PC" ;; *) echo "checking the drive" ;; esac; }
 part_of() { case "$1" in *[0-9]) echo "${1}p$2" ;; *) echo "$1$2" ;; esac; }    # (nvme0n1p2, mmcblk0p2; sda2)
 gb() { awk -v b="$1" 'BEGIN { printf "%.0f GB", b / 1e9 }'; }
-root_disk() { P="$(findmnt -no SOURCE /)"; K="$(lsblk -no PKNAME "$P" 2>/dev/null | head -n 1)"; [ -n "$K" ] && echo "/dev/$K"; }
+root_disk() {                # the disk it runs from: its root's, or the disc's files' when it's live (a stick or the DVD)
+  for at in / /run/live/medium; do
+    P="$(findmnt -no SOURCE "$at" 2>/dev/null || true)"
+    K="$(lsblk -no PKNAME "$P" 2>/dev/null | head -n 1 || true)"
+    [ -z "$K" ] || echo "/dev/$K"
+    [ -z "$P" ] || [ "$(lsblk -dno TYPE "$P" 2>/dev/null || true)" != disk ] || echo "$P"   # (the disc's file on a whole stick)
+  done
+}
 install_to_disk() {
   DISK="${1:-}" STEP=check T="" F=""
   case "$DISK" in *[!a-z0-9/]*) DISK="" ;; esac           # (one line, a path: nothing else gets past)
@@ -551,7 +559,11 @@ install_to_disk() {
   [ "$(uname -m)" = x86_64 ] && [ ! -e /proc/device-tree/model ] || install_fail "Only on a PC (x86-64). A Pi's card is written by Sofa Box Imager."
   [ -b "$DISK" ] || install_fail "$DISK isn't a drive on this PC."
   [ "$(lsblk -dno TYPE "$DISK")" = disk ] || install_fail "$DISK isn't a whole drive."
-  [ "$DISK" != "$(root_disk)" ] || install_fail "$DISK is the stick Sofa Box OS is running from."
+  FROMW="USB stick"                            # (what it runs from, in what it says)
+  if grep -qw boot=live /proc/cmdline && [ "$(lsblk -dno TYPE "$(findmnt -no SOURCE /run/live/medium 2>/dev/null)" 2>/dev/null)" = rom ]; then
+    FROMW=DVD
+  fi
+  ! root_disk | grep -qx "$DISK" || install_fail "$DISK is the $FROMW Sofa Box OS is running from."
   [ "$(lsblk -dno RO "$DISK" | tr -d ' ')" = 0 ] || install_fail "$DISK can't be written to (it's read-only)."
   for p in $(lsblk -lnpo NAME "$DISK"); do    # nothing on it in use; a USB drive the box opened in Files is closed
     for at in $(findmnt -rno TARGET -S "$p" 2>/dev/null); do
@@ -564,10 +576,10 @@ install_to_disk() {
     [ -z "$(ls "/sys/class/block/$(basename "$p")/holders" 2>/dev/null)" ] || install_fail "$p is in use (RAID or LVM)."
   done
   SIZE="$(blockdev --getsize64 "$DISK")"
-  USED="$(df -B1 --output=used / | tail -n 1 | tr -d ' ')"
+  USED="$(cat /run/live/medium/live/filesystem.size 2>/dev/null || df -B1 --output=used / | tail -n 1 | tr -d ' ')"   # (live: the disc's system)
   NEED=$(( USED + 2000000000 ))
   [ "$NEED" -ge 7500000000 ] || NEED=7500000000
-  [ "$SIZE" -ge "$NEED" ] || install_fail "$DISK is $(gb "$SIZE"): Sofa Box OS and what's on the stick need $(gb "$NEED") at least."
+  [ "$SIZE" -ge "$NEED" ] || install_fail "$DISK is $(gb "$SIZE"): Sofa Box OS and what's on the $FROMW need $(gb "$NEED") at least."
   MODEL="$(lsblk -dno MODEL "$DISK" | sed 's/ *$//')"
   MODEL="${MODEL:-the drive} ($(gb "$SIZE"), $DISK)"
 
@@ -596,7 +608,7 @@ EOF
   mount -o remount,bind,ro "$F"
   mount "$ROOTP" "$T"
   BASE="$(df -B1 --output=used "$T" | tail -n 1 | tr -d ' ')"
-  install_say running copy 5 "Copying Sofa Box OS and everything on the stick"
+  install_say running copy 5 "Copying Sofa Box OS and everything on the $FROMW"
   cp -a "$F/." "$T/" 2> "$INSTALL_DIR/copy-errors" &
   CP=$!
   while kill -0 "$CP" 2>/dev/null; do
@@ -630,12 +642,12 @@ EOF
   START="its drive's own start file"
   if [ -d /sys/firmware/efi ] && chroot "$T" sh -c 'command -v efibootmgr' >/dev/null 2>&1; then   # and the PC's own start list
     chroot "$T" grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=sofabox --uefi-secure-boot 2>&1 \
-      && START="the PC's start list (Sofa Box OS) and the drive's own start file" || START="its drive's own start file (the PC's start list said no)"
+      && START="the PC's start list (as sofabox) and the drive's own start file" || START="its drive's own start file (the PC's start list said no)"
   fi
   chroot "$T" update-grub 2>/dev/null
   grep -q "root=UUID=$ROOT_UUID" "$T/boot/grub/grub.cfg" || install_fail "GRUB's list on the drive doesn't start the drive's root."
   grep -q "$ROOT_UUID" "$T/boot/efi/EFI/BOOT/grub.cfg" || install_fail "The drive's EFI start file doesn't point at its root."
-  printf 'Sofa Box OS %s, installed from a USB stick on %s onto %s; it starts by %s.\n' "$(cat "$LIB/VERSION" 2>/dev/null)" \
+  printf 'Sofa Box OS %s, installed from a %s on %s onto %s; it starts by %s.\n' "$(cat "$LIB/VERSION" 2>/dev/null)" "$FROMW" \
     "$(date -u '+%Y-%m-%d %H:%M UTC')" "$MODEL" "$START" > "$T/etc/sofa-box-installed"
   sync
   umount -R "$T" && T=""

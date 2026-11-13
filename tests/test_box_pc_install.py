@@ -214,7 +214,7 @@ class TheInstaller(unittest.TestCase):
         fn = box[box.index("install_to_disk() {"):]
         fn = fn[:fn.index("\n}\n")]
         checks = ['[ "$(uname -m)" = x86_64 ] && [ ! -e /proc/device-tree/model ]', '[ -b "$DISK" ]',
-                  '[ "$(lsblk -dno TYPE "$DISK")" = disk ]', '[ "$DISK" != "$(root_disk)" ]', 'lsblk -dno RO "$DISK"',
+                  '[ "$(lsblk -dno TYPE "$DISK")" = disk ]', '! root_disk | grep -qx "$DISK"', 'lsblk -dno RO "$DISK"',
                   "findmnt -rno TARGET -S", "swapon --show=NAME", "/holders", '[ "$SIZE" -ge "$NEED" ]']
         partition = fn.index("STEP=partition")
         for c in checks:
@@ -258,7 +258,7 @@ class ProvenOnGitHub(unittest.TestCase):
         self.assertIn("installed-uefi-secure installed-bios", pc)
         boot = read("tools", "boot-sofa-box-vm.sh")
         self.assertIn('THEN="uefi-secure bios"', boot)
-        self.assertIn("usb-storage,bus=xhci.0,drive=stick,bootindex=1", boot)
+        self.assertIn("usb-storage,bus=xhci.0,drive=media,bootindex=1", boot)
         self.assertIn("grep -aq 'SOFA-BOX-PROOF install: ok'", boot)
         proof = read("tools", "sofa-box-vm-proof.sh")
         self.assertIn('"$AGENT/box/api/install"', proof)            # the way the TV does it

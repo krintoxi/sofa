@@ -117,9 +117,10 @@ printf '#!/bin/sh\nexit 101\n' > "$ROOT/usr/sbin/policy-rc.d"           # nothin
 chmod 755 "$ROOT/usr/sbin/policy-rc.d"
 
 echo "== The computer's own files: fstab, hostname, users, the root that grows"
+# (the EFI partition "nofail": the box starts without it, from the DVD, which has none, or if it's ever damaged)
 cat > "$ROOT/etc/fstab" <<EOF
 UUID=$ROOT_UUID  /         ext4  defaults,noatime,x-systemd.growfs  0  1
-UUID=$ESP_UUID  /boot/efi  vfat  umask=0077                        0  2
+UUID=$ESP_UUID  /boot/efi  vfat  umask=0077,nofail                 0  2
 EOF
 mkdir -p "$ROOT/etc/repart.d"
 cat > "$ROOT/etc/repart.d/50-root.conf" <<'EOF'

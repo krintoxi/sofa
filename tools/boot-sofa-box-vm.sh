@@ -6,6 +6,7 @@
 #
 #   sudo tools/boot-sofa-box-vm.sh IMAGE.img OUT_DIR [--firmware uefi|uefi-secure|bios] [--timeout SECONDS] [--disk 16G]
 #   sudo tools/boot-sofa-box-vm.sh IMAGE.img OUT_DIR --firmware uefi --install-onto 16G [--then "uefi-secure bios"]
+#   sudo tools/boot-sofa-box-vm.sh DISC.iso OUT_DIR [--firmware …] [--install-onto 16G --then uefi]
 #
 # uefi-secure: OVMF with Secure Boot on and Microsoft's keys enrolled, as on most PCs sold with Windows (q35, SMM).
 #
@@ -17,6 +18,11 @@
 # does on the TV (/box/api/install), then switch off. Then the PC starts from its drive alone, once for each
 # firmware in --then (Secure Boot, then BIOS, unless it says otherwise), with the usual checks, and that the root is
 # the drive's and fills it. Logs: console-install-<firmware>.log, console-installed-<firmware>.log.
+#
+# DISC.iso: the live DVD (tools/build-sofa-box-dvd.sh), started as a disc in the PC's DVD drive. The test's changes go
+# on a copy of the disc as a small layer of their own (/live/zz-proof.squashfs, which live-boot puts over the system)
+# and in its GRUB menu; the checks add that it runs from the disc. With --install-onto, the install is from the disc.
+# Logs: console-dvd-<firmware>.log, console-install-dvd-<firmware>.log, console-installed-dvd-<firmware>.log.
 #
 # It never touches the image: it boots a copy, with two changes a test needs: the kernel's console on the serial port
 # (so the log is a file) and a small service that runs the checks inside the VM, prints "SOFA-BOX-PROOF …" lines and
@@ -45,27 +51,48 @@ WORK="$(mktemp -d)"
 COPY="$WORK/test.img"
 LOG="$OUT/console-$FW.log"
 LOOP=""
-cleanup() { set +e; mountpoint -q "$WORK/m" && umount "$WORK/m"; [ -n "$LOOP" ] && losetup -d "$LOOP"; rm -rf "$WORK"; }
+cleanup() {
+  set +e
+  for d in "$WORK/m" "$WORK/sq" "$WORK/iso"; do mountpoint -q "$d" && umount "$d"; done
+  [ -n "$LOOP" ] && losetup -d "$LOOP"
+  rm -rf "$WORK"
+}
 trap cleanup EXIT INT TERM
 
 echo "== A copy of $(basename "$IMG"), with the test's service in it ($FW)"
-case "$IMG" in
-  *.xz) xz -dc "$IMG" > "$COPY" ;;
-  *) cp --sparse=always "$IMG" "$COPY" ;;
-esac
-if [ -n "$DISK" ]; then                      # a bigger "stick" than the image: the end of it is empty, as on a real one
-  truncate -s "$DISK" "$COPY"
-fi
-LOOP="$(losetup -fP --show "$COPY")"
+DVD="" KIND=""
+case "$IMG" in *.iso) DVD=yes KIND="dvd-" ;; esac
 mkdir -p "$WORK/m"
-mount "${LOOP}p3" "$WORK/m"
 M="$WORK/m"
+if [ -n "$DVD" ]; then                       # the disc: the test's files in a layer of their own, and its GRUB menu
+  for t in xorriso mksquashfs; do command -v "$t" >/dev/null || { echo "Needs $t (apt install xorriso squashfs-tools)."; exit 1; }; done
+  mkdir -p "$WORK/iso" "$WORK/sq" "$M/etc/default" "$M/usr/local/lib/sofa-box" "$M/etc/systemd/system"
+  mount -o loop,ro "$IMG" "$WORK/iso"
+  mount -o loop,ro "$WORK/iso/live/filesystem.squashfs" "$WORK/sq"
+  cp "$WORK/sq/etc/default/grub" "$M/etc/default/grub"
+  cp "$WORK/iso/boot/grub/grub.cfg" "$WORK/grub.cfg"
+  umount "$WORK/sq"
+  umount "$WORK/iso"
+  echo yes > "$M/etc/sofa-box-vm-dvd"                                      # (and check it runs from the disc)
+  GRUBCFG="$WORK/grub.cfg"
+else
+  case "$IMG" in
+    *.xz) xz -dc "$IMG" > "$COPY" ;;
+    *) cp --sparse=always "$IMG" "$COPY" ;;
+  esac
+  if [ -n "$DISK" ]; then                    # a bigger "stick" than the image: the end of it is empty, as on a real one
+    truncate -s "$DISK" "$COPY"
+  fi
+  LOOP="$(losetup -fP --show "$COPY")"
+  mount "${LOOP}p3" "$M"
+  GRUBCFG="$M/boot/grub/grub.cfg"
+fi
 [ -n "$DISK" ] && stat -c %s "$COPY" > "$M/etc/sofa-box-vm-disk-bytes"   # (the checks compare the root with it)
 [ "$FW" = uefi-secure ] && echo on > "$M/etc/sofa-box-vm-secure-boot"     # (and check Secure Boot really was on)
 [ -n "$ONTO" ] && echo /dev/vda > "$M/etc/sofa-box-vm-install-to"         # (install on the blank drive, then off)
 # the kernel and systemd talk on the serial port (the log), and the boot screen stays out of the way (in GRUB's
 # settings too, so the drive it's installed on, whose list is made again, does the same)
-for f in "$M/boot/grub/grub.cfg" "$M/etc/default/grub"; do
+for f in "$GRUBCFG" "$M/etc/default/grub"; do
   sed -i -E 's/\b(quiet|splash)\b ?//g; s/(console=tty3)/\1 console=ttyS0,115200n8 systemd.show_status=1 plymouth.enable=0/' "$f"
   grep -q 'console=ttyS0' "$f" || { echo "Couldn't put the console on the serial port ($f changed?)."; exit 1; }
 done
@@ -87,9 +114,25 @@ WantedBy=multi-user.target
 EOF
 mkdir -p "$M/etc/systemd/system/multi-user.target.wants"
 ln -sf /etc/systemd/system/sofa-box-vm-proof.service "$M/etc/systemd/system/multi-user.target.wants/sofa-box-vm-proof.service"
-umount "$M"
-losetup -d "$LOOP"
-LOOP=""
+if [ -n "$DVD" ]; then
+  COPY="$WORK/test.iso"
+  mksquashfs "$M" "$WORK/proof.squashfs" -noappend -quiet -no-progress -all-root
+  xorriso -indev "$IMG" -outdev "$COPY" -boot_image any replay \
+    -map "$WORK/proof.squashfs" /live/zz-proof.squashfs -map "$GRUBCFG" /boot/grub/grub.cfg 2>&1 | tail -n 3
+  [ -s "$COPY" ] || { echo "Couldn't make the test's copy of the disc."; exit 1; }
+  rm -rf "$M"
+  mkdir -p "$M"
+else
+  umount "$M"
+  losetup -d "$LOOP"
+  LOOP=""
+fi
+# The copy as the PC sees it: a disc in its DVD drive, or the stick (a disk; on USB when it's installed from)
+if [ -n "$DVD" ]; then
+  set -- -drive "if=none,id=media,media=cdrom,readonly=on,format=raw,file=$COPY" -device ide-cd,drive=media,bootindex=1
+else
+  set -- -drive "if=none,id=media,format=raw,file=$COPY" -device usb-storage,bus=xhci.0,drive=media,bootindex=1
+fi
 
 ACCEL="tcg,thread=multi"
 [ -w /dev/kvm ] && ACCEL=kvm
@@ -168,7 +211,7 @@ EOF
 mark_drive() {               # mark_drive FIRMWARE: what the checks on the installed drive expect of its next start
   LOOP="$(losetup -fP --show "$TARGET")"
   mount "${LOOP}p3" "$M"
-  rm -f "$M/etc/sofa-box-vm-install-to" "$M/etc/sofa-box-vm-secure-boot"
+  rm -f "$M/etc/sofa-box-vm-install-to" "$M/etc/sofa-box-vm-secure-boot" "$M/etc/sofa-box-vm-dvd"
   [ "$1" = uefi-secure ] && echo on > "$M/etc/sofa-box-vm-secure-boot"
   stat -c %s "$TARGET" > "$M/etc/sofa-box-vm-disk-bytes"            # (its root fills the drive)
   echo /dev/vda > "$M/etc/sofa-box-vm-installed"                    # (and is the drive's, installed from the stick)
@@ -178,21 +221,25 @@ mark_drive() {               # mark_drive FIRMWARE: what the checks on the insta
 }
 
 if [ -z "$ONTO" ]; then
-  boot "$FW" "$FW" yes -drive "file=$COPY,format=raw,if=virtio"
-  echo "Proven ($FW): the box started, its helper and Sofa answer, the TV's screen is up, the phone remote answers from outside."
+  if [ -n "$DVD" ]; then
+    boot "dvd-$FW" "$FW" yes "$@"
+    echo "Proven (dvd-$FW): the box started from the disc, its helper and Sofa answer, the TV's screen is up, the phone remote answers from outside."
+  else
+    boot "$FW" "$FW" yes -drive "file=$COPY,format=raw,if=virtio"
+    echo "Proven ($FW): the box started, its helper and Sofa answer, the TV's screen is up, the phone remote answers from outside."
+  fi
   exit 0
 fi
-# Install on this computer: the stick (USB, started first) and a blank drive; then the drive alone
+# Install on this computer: the stick (USB) or the disc, started first, and a blank drive; then the drive alone
 TARGET="$WORK/drive.img"
 truncate -s "$ONTO" "$TARGET"
-boot "install-$FW" "$FW" no -device qemu-xhci,id=xhci \
-  -drive "if=none,id=stick,format=raw,file=$COPY" -device usb-storage,bus=xhci.0,drive=stick,bootindex=1 \
+boot "install-$KIND$FW" "$FW" no -device qemu-xhci,id=xhci "$@" \
   -drive "if=none,id=drive,format=raw,file=$TARGET" -device virtio-blk-pci,drive=drive,bootindex=2
 grep -aq 'SOFA-BOX-PROOF install: ok' "$LOG" || { echo "Not installed: no 'install: ok' in $LOG."; exit 1; }
 RC=0
 for fw in $THEN; do
   mark_drive "$fw"
-  boot "installed-$fw" "$fw" yes -drive "file=$TARGET,format=raw,if=virtio" || RC=1
+  boot "installed-$KIND$fw" "$fw" yes -drive "file=$TARGET,format=raw,if=virtio" || RC=1
 done
-[ "$RC" = 0 ] && echo "Proven: installed from the stick onto a blank $ONTO drive, which then started the PC by itself ($THEN)."
+[ "$RC" = 0 ] && echo "Proven: installed from the $([ -n "$DVD" ] && echo disc || echo stick) onto a blank $ONTO drive, which then started the PC by itself ($THEN)."
 exit "$RC"

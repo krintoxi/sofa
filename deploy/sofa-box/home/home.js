@@ -917,18 +917,21 @@
     if (!inst) { setTimeout(loadInstall, 0); return head + `<p class="small">Loading…</p></section>`; }
     if (inst.error) return head + `<p class="small bad">${esc(inst.error)}</p></section>`;
     const st = inst.status || {}, fresh = !instStarted || st.at >= instStarted, done = (inst.drives || []).find(d => d.installed);
+    const dvd = inst.medium === "DVD", it = dvd ? "disc" : "stick";
     if (st.state === "running" || instWaiting()) {
       const pct = st.state === "running" ? Math.max(1, Math.min(100, +st.percent || 0)) : 1;
-      return head + `<p>Installing. Leave the stick in and the PC on: it takes a few minutes, and the TV works as usual meanwhile.</p>
+      return head + `<p>Installing. Leave the ${it} in and the PC on: it takes a few minutes, and the TV works as usual meanwhile.</p>
         <div class="bar inst-bar"><i style="width:${pct}%"></i></div><p class="small">${esc(st.state === "running" ? st.message : "Starting…")}</p></section>`;
     }
     if (st.state === "done" && fresh || done && st.state !== "failed")
       return head + `<p class="okay">✓ ${esc(st.state === "done" ? st.message : "Sofa Box OS is on " + driveName(done) + ".")}</p>
-        <p>Take the stick out, then restart the PC: it starts from its own drive, with everything as it is now.</p>
+        <p>Take the ${it} out, then restart the PC: it starts from its own drive, with everything as it is now.</p>
         <div class="choices"><button class="btn primary" data-action="reboot">Restart the PC</button><button class="btn" data-inst="pick">Another drive</button></div></section>`;
     return head + `${st.state === "failed" && fresh ? `<p class="small bad">${esc(st.message)}</p>` : ""}
-      <p>Sofa Box OS runs from the USB stick now. Put on one of this PC's own drives, it starts without the stick, and quicker.
-        Everything on the stick goes with it: settings, apps, sign-ins and Wi-Fi.</p>
+      ${dvd ? `<p>Sofa Box OS runs from the DVD now, and forgets what's set up here when the PC restarts. Put on one of this PC's own
+        drives, it starts without the disc, quicker, and keeps everything: what's set up now goes with it.</p>`
+      : `<p>Sofa Box OS runs from the USB stick now. Put on one of this PC's own drives, it starts without the stick, and quicker.
+        Everything on the stick goes with it: settings, apps, sign-ins and Wi-Fi.</p>`}
       <p class="small">The drive you pick is erased: whatever is on it now goes (Windows too).</p>
       <div class="choices"><button class="btn" data-inst="pick">Choose a drive</button></div></section>`;
   }
@@ -1054,7 +1057,8 @@
       <section class="card"><h3>About</h3><dl class="facts"><dt>Model</dt><dd>${esc(b.model)}</dd><dt>Memory</dt><dd>${b.memory ? Math.round(b.memory / 1048576) + " MB" : "?"}</dd>
         <dt>Picture</dt><dd>${b.board && b.board.tv_height ? "TV at " + b.board.tv_height + "p · " : ""}videos up to ${b.max_height}p${b.max_height >= 2160 ? " (4K)" : ""}</dd>
         <dt>Temperature</dt><dd>${b.temperature != null ? b.temperature + " °C" : "?"}</dd><dt>Software</dt><dd>Sofa Box OS ${esc(b.version)}</dd>
-        ${b.from_stick ? `<dt>Runs from</dt><dd>a USB stick</dd>` : b.installed ? `<dt>Installed</dt><dd>${esc(b.installed)}</dd>` : ""}</dl>
+        ${b.from_stick ? `<dt>Runs from</dt><dd>${b.from_stick === "DVD" ? "a DVD (what's set up is forgotten when it restarts)" : "a USB stick"}</dd>`
+          : b.installed ? `<dt>Installed</dt><dd>${esc(b.installed)}</dd>` : ""}</dl>
         <p class="credits-line">Built on ${esc(b.os || "Raspberry Pi OS")}, Chromium, mpv, FFmpeg and more free software, with games like Luanti. <button class="mini" data-go="#/credits">Credits and licences</button></p>
         <div class="choices" style="margin-top:1rem"><button class="btn" data-action="restart">Restart Sofa Box</button><button class="btn" data-action="reboot">Restart the box</button>
         <button class="btn" data-go="#/welcome">Setup steps again</button></div></section>`;

@@ -181,7 +181,8 @@ jobs:
       - name: Tools (mmdebstrap, QEMU with OVMF)
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq --no-install-recommends mmdebstrap fdisk dosfstools e2fsprogs qemu-utils qemu-system-x86 ovmf xz-utils curl imagemagick
+          sudo apt-get install -y -qq --no-install-recommends mmdebstrap fdisk dosfstools e2fsprogs qemu-utils qemu-system-x86 ovmf xz-utils curl imagemagick \
+            squashfs-tools xorriso
       - name: KVM for the boot test
         run: |
           if [ -e /dev/kvm ]; then
@@ -204,12 +205,24 @@ jobs:
       # the TV, then the PC started from that drive alone, with Secure Boot and with BIOS
       - name: Install it from the stick onto the PC's own drive, then start the PC from the drive
         run: sudo tools/boot-sofa-box-vm.sh out/*-x86_64.img out/boot --firmware uefi --install-onto 16G --timeout 1500
+      # The live DVD, made from the same image (the same system on the disc): started as a disc with Secure Boot on and
+      # on an older PC, and installed from onto a blank drive, which then starts the PC by itself
+      - name: Make the live DVD from it
+        run: sudo tools/build-sofa-box-dvd.sh out/*-x86_64.img out
+      - name: Start the DVD with Secure Boot on, and prove it
+        run: sudo tools/boot-sofa-box-vm.sh out/*-x86_64-dvd.iso out/boot --firmware uefi-secure --timeout 1500
+      - name: And the DVD on an older PC (BIOS)
+        run: sudo tools/boot-sofa-box-vm.sh out/*-x86_64-dvd.iso out/boot --firmware bios --timeout 1500
+      - name: Install from the DVD onto the PC's own drive, then start the PC from the drive
+        run: sudo tools/boot-sofa-box-vm.sh out/*-x86_64-dvd.iso out/boot --firmware uefi --install-onto 16G --then uefi --timeout 1500
       - name: What's on it, and what the PCs said
         if: always()
         run: |
-          R="$(ls out/*-report.txt 2>/dev/null | head -1)"
+          R="$(ls out/*-x86_64-report.txt 2>/dev/null | head -1)"
           { echo '### Sofa Box OS for a PC: what is on it'; echo '```'; [ -n "$R" ] && sed '/^== Packages/,$d' "$R" || echo "(no report: the build stopped)"; echo '```'
-            for fw in uefi bios uefi-secure install-uefi installed-uefi-secure installed-bios; do
+            D="$(ls out/*-dvd-report.txt 2>/dev/null | head -1)"
+            echo '### The live DVD'; echo '```'; [ -n "$D" ] && cat "$D" || echo "(not made)"; echo '```'
+            for fw in uefi bios uefi-secure install-uefi installed-uefi-secure installed-bios dvd-uefi-secure dvd-bios install-dvd-uefi installed-dvd-uefi; do
               L="out/boot/console-$fw.log"
               echo "### Started with $fw"
               if [ -f "$L" ]; then echo '```'; grep -a 'SOFA-BOX-PROOF' "$L" | cut -c 1-400 || echo "(no SOFA-BOX-PROOF lines)"; echo '```'
@@ -224,6 +237,7 @@ jobs:
           name: sofa-box-pc
           path: |
             out/*.img.xz
+            out/*.iso
             out/*.sha256
             out/*-report.txt
             out/boot/
@@ -239,7 +253,10 @@ jobs:
           mkdir -p pub
           cp out/*-x86_64.img.xz "pub/sofa-box-os-$VER-pc.img.xz"
           cp out/*-x86_64-report.txt "pub/sofa-box-os-$VER-pc-report.txt"
-          (cd pub && sha256sum "sofa-box-os-$VER-pc.img.xz" > "sofa-box-os-$VER-pc.img.xz.sha256")
+          cp out/*-x86_64-dvd.iso "pub/sofa-box-os-$VER-pc-dvd.iso"
+          cp out/*-x86_64-dvd-report.txt "pub/sofa-box-os-$VER-pc-dvd-report.txt"
+          (cd pub && sha256sum "sofa-box-os-$VER-pc.img.xz" > "sofa-box-os-$VER-pc.img.xz.sha256"
+           sha256sum "sofa-box-os-$VER-pc-dvd.iso" > "sofa-box-os-$VER-pc-dvd.iso.sha256")
           gh release upload "$TAG" pub/* --clobber
       - name: Publish it (main)
         if: github.event_name != 'release' && github.ref == 'refs/heads/main'
@@ -252,13 +269,21 @@ jobs:
           cp out/*-x86_64.img.xz pub/newest/sofa-box-pc.img.xz
           cp out/*-x86_64-report.txt pub/newest/sofa-box-pc-report.txt
           (cd pub/newest && sha256sum sofa-box-pc.img.xz > sofa-box-pc.img.xz.sha256)
+          cp out/*-x86_64-dvd.iso pub/newest/sofa-box-pc-dvd.iso
+          cp out/*-x86_64-dvd-report.txt pub/newest/sofa-box-pc-dvd-report.txt
+          (cd pub/newest && sha256sum sofa-box-pc-dvd.iso > sofa-box-pc-dvd.iso.sha256)
           cp pub/newest/sofa-box-pc.img.xz "pub/version/sofa-box-os-$VER-pc.img.xz"
           cp pub/newest/sofa-box-pc-report.txt "pub/version/sofa-box-os-$VER-pc-report.txt"
-          (cd pub/version && sha256sum "sofa-box-os-$VER-pc.img.xz" > "sofa-box-os-$VER-pc.img.xz.sha256")
+          cp pub/newest/sofa-box-pc-dvd.iso "pub/version/sofa-box-os-$VER-pc-dvd.iso"
+          cp pub/newest/sofa-box-pc-dvd-report.txt "pub/version/sofa-box-os-$VER-pc-dvd-report.txt"
+          (cd pub/version && sha256sum "sofa-box-os-$VER-pc.img.xz" > "sofa-box-os-$VER-pc.img.xz.sha256"
+           sha256sum "sofa-box-os-$VER-pc-dvd.iso" > "sofa-box-os-$VER-pc-dvd.iso.sha256")
           pc_note() {
             cat <<EOF
 
-          **For a PC (x86-64)**: **$1** is the same Sofa Box OS for a PC. Write it to a USB stick of 8 GB or more (Sofa Box Imager: For a PC; Raspberry Pi Imager: Choose Device → A PC; balenaEtcher; or dd), put the stick in the PC and start it from the stick (its start menu: F12, F11, F10, F8 or Esc as it starts; on a Mac with an Intel chip, hold Option). It runs from the stick and keeps its settings there; the stick's first start makes it the whole stick. Started on GitHub in QEMU, newer and older PCs; not tried on a real PC yet. What's on it: $2.
+          **For a PC (x86-64)**: **$1** is the same Sofa Box OS for a PC. Write it to a USB stick of 8 GB or more (Sofa Box Imager: For a PC; Raspberry Pi Imager: Choose Device → A PC; balenaEtcher; or dd), put the stick in the PC and start it from the stick (its start menu: F12, F11, F10, F8 or Esc as it starts; on a Mac with an Intel chip, hold Option). It runs from the stick and keeps its settings there; the stick's first start makes it the whole stick. Settings → This box → Install on this computer puts it on the PC's own drive.
+
+          **On a DVD**: **$3** is the same system as a live DVD (Sofa Box Imager: On a DVD burns it; or any disc burner). Start the PC from the disc: it runs from the DVD, keeping what's set up until the PC restarts, and installs on the PC's own drive from there too. Started on GitHub in QEMU, newer and older PCs, Secure Boot on, and installed from both onto a blank drive; not tried on a real PC yet. What's on them: $2 (and the DVD's own report beside it).
           EOF
           }
           # 1. the testing release: only when the card there is this run's (its notes name this commit), so the card
@@ -273,14 +298,15 @@ jobs:
             for f in pub/newest/*; do cp "$f" "pub/next/next-$(basename "$f")"; done
             gh release upload sofa-box pub/next/*
             assets > pub/assets.txt
-            for f in sofa-box-pc.img.xz sofa-box-pc.img.xz.sha256 sofa-box-pc-report.txt; do
+            for f in sofa-box-pc.img.xz sofa-box-pc.img.xz.sha256 sofa-box-pc-report.txt \
+                     sofa-box-pc-dvd.iso sofa-box-pc-dvd.iso.sha256 sofa-box-pc-dvd-report.txt; do
               old="$(awk -v n="$f" '$2 == n { print $1 }' pub/assets.txt)"
               new="$(awk -v n="next-$f" '$2 == n { print $1 }' pub/assets.txt)"
               [ -n "$new" ] || continue
               [ -z "$old" ] || gh api -X DELETE "$R/assets/$old"
               gh api -X PATCH "$R/assets/$new" -f name="$f" >/dev/null
             done
-            { printf '%s\n' "$BODY"; pc_note sofa-box-pc.img.xz sofa-box-pc-report.txt; } > pub/newest.md
+            { printf '%s\n' "$BODY"; pc_note sofa-box-pc.img.xz sofa-box-pc-report.txt sofa-box-pc-dvd.iso; } > pub/newest.md
             gh release edit sofa-box --notes-file pub/newest.md
           else
             echo "::notice title=The PC image stays::The testing card on sofa-box isn't this run's ($GITHUB_SHA), so its PC image stays as it is."
@@ -290,7 +316,7 @@ jobs:
           HAS="$(gh api "$R/tags/box-os-v$VER" --jq "[.assets[] | select(.name == \"sofa-box-os-$VER-pc.img.xz\")] | length" 2>/dev/null || echo 0)"
           if [ "$TARGET" = "$GITHUB_SHA" ] && [ "$HAS" = 0 ]; then
             gh release upload "box-os-v$VER" pub/version/*
-            { gh api "$R/tags/box-os-v$VER" --jq .body; pc_note "sofa-box-os-$VER-pc.img.xz" "sofa-box-os-$VER-pc-report.txt"; } > pub/version.md
+            { gh api "$R/tags/box-os-v$VER" --jq .body; pc_note "sofa-box-os-$VER-pc.img.xz" "sofa-box-os-$VER-pc-report.txt" "sofa-box-os-$VER-pc-dvd.iso"; } > pub/version.md
             gh release edit "box-os-v$VER" --notes-file pub/version.md
           else
             echo "Sofa Box OS $VER's own release isn't this run's, or has its PC image already: left as it is."

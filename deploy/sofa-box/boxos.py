@@ -999,18 +999,25 @@ def _is_pc(machine=None):
     return (machine or os.uname().machine) in ("x86_64", "amd64", "AMD64") and not os.path.exists(ROOT + "/proc/device-tree/model")
 
 
+def _live():
+    """Started from the live DVD (or that disc's file written to a USB stick): live-boot's boot=live."""
+    return "boot=live" in _read("/proc/cmdline").split()
+
+
 def install_disks(top=None, machine=None, used=None):
-    """Install on this computer (Settings → This box): whether the box is a PC running from a USB stick, and the drives
-    Sofa Box OS could go on, biggest first, each with what's on it and, when it can't go there, why not. The installer
-    (sofa-box install-to-disk) checks all of it again for itself."""
+    """Install on this computer (Settings → This box): whether the box is a PC running from a USB stick or the live DVD,
+    and the drives Sofa Box OS could go on, biggest first, each with what's on it and, when it can't go there, why not.
+    The installer (sofa-box install-to-disk) checks all of it again for itself."""
     top = _lsblk_disks() if top is None else top
-    pc = _is_pc(machine)
-    root = next((d for d in top if any(x.get("mountpoint") == "/" for x in _tree(d))), None)
-    stick = bool(root) and (root.get("tran") == "usb" or _yes(root.get("rm")))
-    if used is None:
+    pc, live = _is_pc(machine), _live()
+    # what it runs from: the disk with its root, or with the disc's files when it's live (the DVD drive, or a stick)
+    root = next((d for d in top if any(x.get("mountpoint") in ("/", "/run/live/medium") for x in _tree(d))), None)
+    stick = bool(root) and (root.get("tran") == "usb" or _yes(root.get("rm"))) or live
+    medium = "DVD" if live and (not root or root.get("type") == "rom") else "USB stick"
+    if used is None:                                  # (live: the system's size on the disc, not what's in memory)
         try:
-            used = shutil.disk_usage("/").used
-        except OSError:
+            used = int(_read("/run/live/medium/live/filesystem.size").strip() or 0) or shutil.disk_usage("/").used
+        except (OSError, ValueError):
             used = 0
     need = max(INSTALL_MIN, used + 2000000000)
     try:
@@ -1036,16 +1043,19 @@ def install_disks(top=None, machine=None, used=None):
                        "usb": d.get("tran") == "usb", "has": has[:4], "more": max(0, len(has) - 4), "why_not": why,
                        "installed": onto.get("disk") == path and (onto.get("serial") or "") == serial})
     drives.sort(key=lambda x: (x["why_not"] is not None, x["usb"], -x["size"]))
-    return {"pc": pc, "from_stick": pc and stick, "drives": drives, "need": need, "status": install_status()}
+    return {"pc": pc, "from_stick": pc and stick, "live": live, "medium": medium, "drives": drives, "need": need,
+            "status": install_status()}
 
 
 _stick = {}
 
 
 def from_stick():
-    """Whether the box is a PC running from a USB stick (asked once: where the root is doesn't change)."""
+    """What a PC runs from when it isn't installed: "USB stick", "DVD", or None (installed, or not a PC). Asked once:
+    where the root is doesn't change."""
     if "v" not in _stick:
-        _stick["v"] = _is_pc() and install_disks()["from_stick"]
+        d = install_disks() if _is_pc() else {}
+        _stick["v"] = d["medium"] if d.get("from_stick") else None
     return _stick["v"]
 
 

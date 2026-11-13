@@ -27,6 +27,17 @@ else
   say "firmware: BIOS"
 fi
 
+# Started from the live DVD (boot-sofa-box-vm.sh DISC.iso): the system runs from the disc in the PC's DVD drive, put
+# together in memory over it (live-boot's overlay), with the image's own root on the disc as it is
+if [ -f /etc/sofa-box-vm-dvd ]; then
+  MED="$(findmnt -no SOURCE /run/live/medium 2>/dev/null)"
+  if [ -n "$MED" ] && [ "$(lsblk -dno TYPE "$MED" 2>/dev/null)" = rom ] && [ "$(findmnt -no FSTYPE /)" = overlay ]; then
+    say "dvd: ok running from the disc ($MED, $(findmnt -no FSTYPE /run/live/medium) $(blkid -s LABEL -o value "$MED" 2>/dev/null)), the system in memory over it; $(ls /run/live/rootfs 2>/dev/null | tr '\n' ' ')"
+  else
+    say "dvd: fail the root is $(findmnt -no SOURCE,FSTYPE / | tr '\n' ' '), the medium ${MED:-not mounted} ($(lsblk -dno TYPE "$MED" 2>/dev/null))"
+  fi
+  say "units that failed: $(systemctl --failed --no-legend --plain 2>/dev/null | awk '{print $1}' | tr '\n' ' ')"
+fi
 # 0. Install on this computer (boot-sofa-box-vm.sh --install-onto): this start is from the USB stick, with a blank drive
 #    beside it. The agent is asked for its drives and the install started the way Settings does it on the TV (the two
 #    yeses are the TV's part), followed to the end; then off, and the host starts the PC from the drive alone.
