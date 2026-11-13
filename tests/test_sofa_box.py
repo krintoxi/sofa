@@ -1449,11 +1449,13 @@ class BoxBrowser(unittest.TestCase):
         self.assertEqual(o["open"], 25)                                    # five chunks by five: the neighbourhood
         self.assertEqual(o["stations"], ["smith", "furnace", "kin", "well", "portal", "maw", "stash"])
         # the trades: a tree felled a swing at a time, a fire lit and fed, a rock mined, its ore smelted at the furnace
-        o = run("""const D = WY.D; let t = WY.near("tree"); WY.goto(t.x + 1.4, t.z + 0.6); WY.interact(t); WY.sim(20);
+        o = run("""const D = WY.D; let t = WY.near("tree"); WY.goto(t.x + 1.4, t.z + 0.6); WY.interact(t);
+            const work = () => { for (let i = 0; i < 120 && !t.spent; i++) WY.sim(0.5); };   // (a swing may miss: until it has given all it holds)
+            work();
             const felled = { logs: D.logs[0], xp: D.sk.wood, spent: t.spent, on: t.on };
             WY.lightFire(); WY.sim(2.5); const f = WY.near("fire"); const lit = { fire: !!f, embers: D.embers, xp: D.sk.fire };
             WY.interact(f); WY.sim(8); const fed = { logs: D.logs[0], embers: D.embers, burn: f.burn > 30 };
-            t = WY.near("ore"); WY.goto(t.x + 1.5, t.z); WY.interact(t); WY.sim(15); const mined = { ore: D.ore[t.ore], xp: D.sk.mine, tier: t.ore };
+            t = WY.near("ore"); WY.goto(t.x + 1.5, t.z); WY.interact(t); work(); const mined = { ore: D.ore[t.ore], xp: D.sk.mine, tier: t.ore };
             const fu = WY.near("furnace"); WY.goto(fu.x + 2, fu.z + 1); WY.openShop("furnace"); const list = WY.SHOP().map(x => x.label); WY.shopDo(0); WY.sim(6);
             const smelted = { bars: D.bars[t.ore], ore: D.ore[t.ore], xp: D.sk.smith, menu: WY.menu.at };
             WY.openShop("smith"); const anvil = WY.SHOP().map(x => x.label); WY.menu.back();
@@ -1528,6 +1530,13 @@ class BoxBrowser(unittest.TestCase):
         self.assertEqual((o["under"], o["grew"]), (2, -2))                 # two under the best find, before and after a better one
         self.assertTrue(o["fest"] and o["same"] and o["xp"])
         self.assertEqual((o["kind"], o["mastered"]), ("axe", ["mine"]))
+        # every skill's emblem: on the Skills screen, five and no two alike; on the mantle worn; in its slot of the bag
+        o = run("""WY.sim(12); WY.menu.show("skills"); WY.sim(0.1); const rows = [...document.querySelectorAll("#skilllist .item svg.emblem")].map(e => e.querySelector("path").getAttribute("d"));
+            const about = !!document.querySelector("#skillabout svg.emblem"); WY.menu.back(); WY.menu.show("bag");
+            const worn = !!document.querySelector("#worn .worn-mantle svg.emblem"); WY.menu.back();
+            return JSON.stringify({ rows: rows.length, unique: new Set(rows).size, about, worn, body: WY.heroBody(false).style.mantle });""")
+        self.assertEqual((o["rows"], o["unique"], o["about"], o["worn"]), (5, 5, True, True))
+        self.assertEqual((o["body"]["look"], o["body"]["mark"]), ("signal", "mine"))
         self.assertEqual(js("JSON.stringify(window.errs)"), "[]")
 
     def test_neon_brawler_plays(self):

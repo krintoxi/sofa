@@ -62,6 +62,10 @@ making spread over frames), `Mesh.stamp` (a thing built once and set down many t
 `Land.part`, `Confetti` and `Banners` (both in the game's own writing, one call), and `GL.bloom`. All in
 `games/ENGINE.md`. The game's rules (the curve, what a level opens, the creatures, the mastery weapon) are a script of
 their own in its page, and the box's checks play them without a browser.
+- WYRD: every skill has an emblem of its own (a pick and its stone, an anvil and its spark, a pine with the cut in
+  it, a flame, a clawed print). It is on the back of that skill's mastery mantle, beside the skill on the HUD and
+  each level gained, on the level-75 banner, on the Skills screen and in the bag.
+- Where lights are given a glow (strong hardware), only lights glow now: bare skin in the sun did too.
 
 ## 1.1.85
 

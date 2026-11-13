@@ -1772,6 +1772,73 @@ out.looks = looks; out.built = built; out.empty = empty; out.poses = Object.keys
         self.assertEqual(out["built"], 17 * 26)
         self.assertEqual(out["empty"], [])
 
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_every_skill_has_an_emblem_of_its_own_on_its_mantle(self):
+        """WYRD's five skills each have an emblem (Low3D's Emblem: one shape for a mesh, the HUD and a menu), no two
+        alike, every piece inside the square and none bent inwards. A mantle built for a skill carries that emblem in
+        every look; the HUD, a banner and a slot of the bag draw the same pieces."""
+        b = self.blocks("wyrd")
+        out = self.node(r"""
+const a = B.bodies.attrs, f = new Function("L3", B.models.text + B.poses.text + B.bodies.text +
+  "\nreturn { EMBLEMS, build: " + a.build + ", looks: [" + a.looks + "] };"), G = f(L3), E = G.EMBLEMS;
+const all = e => Array.from(e.a).concat(Array.from(e.b));
+out.keys = Object.keys(E); out.kind = out.keys.every(k => E[k] instanceof L3.Emblem);
+out.unique = new Set(out.keys.map(k => all(E[k]).map(v => Math.round(v * 100)).join(","))).size;
+out.inside = out.keys.every(k => all(E[k]).every(v => v >= -1.001 && v <= 1.001));
+out.fills = out.keys.map(k => { let x0 = 9, x1 = -9, y0 = 9, y1 = -9; const q = all(E[k]); for (let i = 0; i < q.length; i += 2) { x0 = Math.min(x0, q[i]); x1 = Math.max(x1, q[i]); y0 = Math.min(y0, q[i + 1]); y1 = Math.max(y1, q[i + 1]); } return Math.min(x1 - x0, y1 - y0) > 1.3; });
+const three = (q, o) => q[o + 6] === q[o + 4] && q[o + 7] === q[o + 5];
+const oneWay = q => { for (let o = 0; o < q.length; o += 8) { const n = three(q, o) ? 3 : 4; let pos = 0, neg = 0;
+  for (let i = 0; i < n; i++) { const A = o + i * 2, Bb = o + ((i + 1) % n) * 2, C = o + ((i + 2) % n) * 2, z = (q[Bb] - q[A]) * (q[C + 1] - q[Bb + 1]) - (q[Bb + 1] - q[A + 1]) * (q[C] - q[Bb]); if (z > 1e-6) pos++; else if (z < -1e-6) neg++; }
+  if (pos && neg) return false; } return true; };
+out.oneWay = out.keys.every(k => oneWay(E[k].a) && oneWay(E[k].b));
+const pieces = e => (e.a.length + e.b.length) / 8, tris = e => { let n = 0; for (const q of [e.a, e.b]) for (let o = 0; o < q.length; o += 8) n += three(q, o) ? 1 : 2; return n; };
+// on the mantle: so many more triangles with it than without, in each look (a shard's is read from both sides)
+const base = G.looks[0][Object.keys(G.looks[0])[0]];
+const count = (look, mark, pose) => { const m = new L3.Mesh(4096); G.build(m, Object.assign({}, base, { mantle: { look, col: 0x39ff88, mark } }), pose, 1); return m.n / 3; };
+out.sewn = ["signal", "shard", "pyre"].map(look => out.keys.map(k => (count(look, k, "idle0") - count(look, null, "idle0")) / tris(E[k])));
+out.running = out.keys.map(k => (count("signal", k, "walk1") - count("signal", null, "walk1")) / tris(E[k]));
+// on the HUD: a piece a quad, round the point it's drawn at; in a banner; as a picture in a slot of the bag
+const ui = new L3.UI(); ui.begin(320, 180);
+out.hud = out.keys.map(k => { const n0 = ui.n; E[k].draw(ui, 100, 60, 10, 0xff0000, 1); let ok = true; for (let i = n0; i < ui.n; i++) for (let j = 0; j < 8; j += 2) { const x = ui.q[i * 16 + j], y = ui.q[i * 16 + j + 1]; if (x < 89.9 || x > 110.1 || y < 49.9 || y > 70.1) ok = false; } return ok && ui.n - n0 === pieces(E[k]); });
+const lines = em => { const bn = new L3.Banners(); bn.push({ title: "Mining 75", text: "mastered", col: 0x4ae8ff, emblem: em }); bn.step(1); ui.begin(960, 540); bn.draw(ui, 960, 540, 2); return ui.n; };
+out.banner = lines(E.mine) - lines(null) === pieces(E.mine);
+const svg = E.fire.svg(0xff2e88); out.svg = [svg.startsWith('<svg class="emblem"'), (svg.match(/<path /g) || []).length, svg.includes("#ff2e88"), !/NaN|undefined/.test(svg)];
+const slot = new L3.Slots({ show: () => ({ title: "A mantle", kind: "mantle", col: 0xb06cff, emblem: E.summon }) }).cell({}, 0, null);
+out.slot = slot.includes('<svg class="emblem"') && slot.includes("#b06cff");
+""", b)
+        self.assertEqual(out["keys"], ["mine", "smith", "wood", "fire", "summon"])
+        self.assertTrue(out["kind"] and out["inside"] and out["oneWay"])
+        self.assertEqual(out["unique"], 5)                                     # no two alike
+        self.assertEqual(out["fills"], [True] * 5)                             # each fills its square: it reads small
+        self.assertEqual(out["sewn"], [[1] * 5, [2] * 5, [1] * 5])             # signal, shard (both sides), pyre
+        self.assertEqual(out["running"], [1] * 5)
+        self.assertEqual(out["hud"], [True] * 5)
+        self.assertTrue(out["banner"] and out["slot"])
+        self.assertEqual(out["svg"], [True, 2, True, True])
+        with open(os.path.join(BOX, "games", "wyrd", "index.html"), encoding="utf-8") as f:
+            page = f.read()
+        self.assertIn("mark: g.mantle.m", page)                               # the mantle worn is built with its skill's emblem
+        self.assertIn("emblem: EMBLEMS[k]", page)                             # …and the level-75 banner shows it
+        self.assertIn("${EMBLEMS[k].svg(sk.col)}<b>", page)                   # …and each line of the Skills screen
+
+    def test_only_lights_glow(self):
+        """Where a game asks for a glow round its lights (GL.bloom), what's merely lit is held under where the glow
+        begins (GL.hold): sunlit skin, pale stone and leaves stay out of it. WYRD asks for both together."""
+        with open(os.path.join(BOX, "games", "low3d.js"), encoding="utf-8") as f:
+            js = f.read()
+        self.assertIn("vCol = mix(min(lit, vec3(uCap)), c, max(uTint.a, aNor.w));", js)             # things that move
+        self.assertIn("vCol = mix(min(aCol.rgb * uShine, vec3(uCap)), aCol.rgb, aNor.w);", js)      # the still world
+        self.assertIn("if (u.uCap) gl.uniform1f(u.uCap, this.held || 8);", js)                      # not held unless asked: as it was
+        self.assertRegex(js, r"\n  hold\(k\) \{")
+        with open(os.path.join(BOX, "games", "wyrd", "index.html"), encoding="utf-8") as f:
+            page = f.read()
+        m = re.search(r"const BLOOM = \{ hold: ([\d.]+), from: ([\d.]+), to: ([\d.]+),", page)
+        self.assertTrue(m)
+        hold, start, full = (float(x) for x in m.groups())
+        self.assertLessEqual(hold, start)
+        self.assertLess(start, full)
+        self.assertLess(page.index("g3.hold(glowOn ? BLOOM.hold : 0);"), page.index("if (glowOn) g3.bloom(BLOOM);"))
+
     def test_the_maker_is_offline_and_not_on_home(self):
         """The maker's page (games/maker/): for a computer with a mouse, not a game on Home; it reads the games' own
         pages beside it and nothing from anywhere else."""

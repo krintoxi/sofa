@@ -382,7 +382,7 @@ void main() {
 // mesh (fx) and everything written on the screen into another (UI), each drawn with one call.
 const STILL_VS = `
 attribute vec3 aPos; attribute vec4 aNor; attribute vec4 aCol;
-uniform mat4 uVP; uniform vec3 uEye; uniform vec2 uAir; uniform vec3 uFogCol; uniform vec3 uFogSun; uniform vec3 uSun; uniform vec3 uShine; uniform float uFlip;
+uniform mat4 uVP; uniform vec3 uEye; uniform vec2 uAir; uniform vec3 uFogCol; uniform vec3 uFogSun; uniform vec3 uSun; uniform vec3 uShine; uniform float uFlip; uniform float uCap;
 varying vec3 vCol; varying vec4 vFog;
 void main() {
   vec3 p = aPos;
@@ -390,7 +390,7 @@ void main() {
   vec3 rel = p - uEye; float d = length(rel);
   float s = max(dot(rel, uSun) / d, 0.0);
   vFog = vec4(mix(uFogCol, uFogSun, s * s * s), clamp((d - uAir.x) * uAir.y, 0.0, 1.0));   // the air's colour that way, and how much of it
-  vCol = aCol.rgb * mix(uShine, vec3(1.0), aNor.w);
+  vCol = mix(min(aCol.rgb * uShine, vec3(uCap)), aCol.rgb, aNor.w);   // (what's lit, held under uCap: see GL.hold; what's a light of its own, as it is)
   gl_Position = uVP * vec4(p, 1.0);
 }`;
 const STILL_FS = `
@@ -401,7 +401,7 @@ void main() { gl_FragColor = vec4(mix(vCol, vFog.rgb, vFog.a), 1.0); }`;
 const MOVE_VS = `
 attribute vec3 aPos; attribute vec4 aNor; attribute vec4 aCol;
 uniform mat4 uVP; uniform mat4 uM; uniform vec3 uSun; uniform vec3 uSunCol; uniform vec3 uAmb; uniform vec3 uGround;
-uniform vec3 uEye; uniform vec2 uAir; uniform vec3 uFogCol; uniform vec3 uFogSun; uniform vec4 uTint; uniform float uFlip; uniform float uRim;
+uniform vec3 uEye; uniform vec2 uAir; uniform vec3 uFogCol; uniform vec3 uFogSun; uniform vec4 uTint; uniform float uFlip; uniform float uRim; uniform float uCap;
 varying vec3 vCol; varying vec4 vFog;
 void main() {
   vec4 w = uM * vec4(aPos, 1.0);
@@ -410,7 +410,7 @@ void main() {
   float rim = 1.0 + dot(n, rel) / d; rim = clamp(rim, 0.0, 1.0); rim *= rim;   // its edge catches the sky's light
   vec3 c = aCol.rgb * uTint.rgb;
   vec3 lit = c * (mix(uGround, uAmb, 0.5 + 0.5 * n.y) + uSunCol * max(dot(n, uSun), 0.0)) + uAmb * (rim * uRim);
-  vCol = mix(lit, c, max(uTint.a, aNor.w));
+  vCol = mix(min(lit, vec3(uCap)), c, max(uTint.a, aNor.w));
   w.y = mix(w.y, -w.y, uFlip);
   rel = w.xyz - uEye; d = length(rel);
   float s = max(dot(rel, uSun) / d, 0.0);
@@ -668,6 +668,7 @@ GL.prototype = {
     if (u.uSkyVP) gl.uniformMatrix4fv(u.uSkyVP, false, this.skyVP);
     if (u.uFlip) gl.uniform1f(u.uFlip, this.flip);
     if (u.uShine) gl.uniform3fv(u.uShine, this.tint);
+    if (u.uCap) gl.uniform1f(u.uCap, this.held || 8);
     if (u.uFogCol) gl.uniform3fv(u.uFogCol, L.fogCol);
     if (u.uSun) gl.uniform3fv(u.uSun, L.sun);
     if (u.uSunCol) gl.uniform3fv(u.uSunCol, L.sunCol);
@@ -772,6 +773,10 @@ GL.prototype = {
   // from now on (until off): what's drawn is seen through whatever is in front of it (someone behind a tree, drawn
   // again in one colour so they're not lost)
   through(on) { const gl = this.gl; if (on) gl.disable(gl.DEPTH_TEST); else gl.enable(gl.DEPTH_TEST); },
+  // from now on (until hold(0)): what's lit is held under k of full brightness, and what's a light of its own is left
+  // as it is. With a glow pass that starts at k (bloom's `from`), only the lights glow: never skin, pale stone or
+  // leaves that happen to be in full sun. A game that asks for bloom asks for this in the same breath.
+  hold(k) { const c = k > 0 ? k : 8; if (c !== this.held) { this.held = c; this.frame++; } },
   dome(tex, turn) {
     const gl = this.gl, u = this.use(this.prog("dome"));
     if (!this.domeH) this.domeH = this.upload(Kit.dome());
@@ -818,8 +823,8 @@ GL.prototype = {
   // What's bright in the picture drawn so far, spread as light over it: lamps, fires, what's lit by itself. Call it after
   // the world and its see-through things, before what's written on the picture (the engine draws that after the game's
   // draw(), so it stays crisp). o {from, to: how bright a thing must be to begin to glow, and to glow fully (0.62, 0.95: by
-  // its strongest colour), pure: [from, to] how pure a colour it must be too (none: any; [0.3, 0.55] leaves skin and pale
-  // stone in the sun alone), power: how much is added (0.8), size: the spread's own picture as a share of the canvas (0.25),
+  // its strongest colour; with hold(k) before the world is drawn, from k up is only the lights), pure: [from, to] how
+  // pure a colour it must be too (none: any; [0.3, 0.55] leaves a pale sky alone), power: how much is added (0.8), size: the spread's own picture as a share of the canvas (0.25),
   // wide: a second, broader spread at this share of the power (0: none)}. Four draw calls, three small pictures and a copy
   // of the canvas: for a GPU with room to spare (a game asks for it on its upper rungs only). False when this GPU can't.
   bloom(o) {
@@ -2376,13 +2381,14 @@ Confetti.prototype = {
   }
 };
 // Banners: lines that come in one after another and stack down from the top of the picture, stay a while, and go. Each
-// {title (large, in its colour), text (under it), col, hold: seconds it stays (7)}. push(o) adds one after those already
+// {title (large, in its colour), text (under it), col, hold: seconds it stays (7), emblem: an Emblem drawn at its left
+// in that colour}. push(o) adds one after those already
 // on their way (a third of a second apart, or `gap`); step(dt); draw(ui, w, h, k, top): k is the text's size (font pixels
 // to picture pixels, a whole number), top where the stack starts (a share of the height, 0.1). on(i, o): called as each
 // comes in (for its sound). What it writes is big and dark-backed on purpose: it has to read from a sofa.
 function Banners(o) { this.list = []; this.gap = (o && o.gap) || 0.34; this.on = (o && o.on) || null; this.wait = 0; this.count = 0; }
 Banners.prototype = {
-  push(o) { this.list.push({ title: String(o.title || "").toUpperCase(), text: String(o.text || "").toUpperCase(), col: o.col == null ? 0xefe6d2 : o.col, hold: o.hold || 7, t: -this.wait, said: false, n: this.count++ }); this.wait += this.gap; return this; },
+  push(o) { this.list.push({ title: String(o.title || "").toUpperCase(), text: String(o.text || "").toUpperCase(), col: o.col == null ? 0xefe6d2 : o.col, hold: o.hold || 7, t: -this.wait, said: false, n: this.count++, em: o.emblem || null }); this.wait += this.gap; return this; },
   get busy() { return this.list.length > 0; },
   clear() { this.list.length = 0; this.wait = 0; },
   step(dt) {
@@ -2397,17 +2403,63 @@ Banners.prototype = {
     let y = Math.round(h * (top == null ? 0.1 : top));
     for (let i = 0; i < this.list.length; i++) {
       const b = this.list[i]; if (b.t < 0) continue;
-      const kt = k * 2, tw = b.title ? ui.width(b.title, kt) : 0, xw = b.text ? ui.width(b.text, k) : 0, pad = 5 * k, bw = Math.max(tw, xw) + pad * 2 + 3 * k;
-      const bh = (b.title ? 7 * kt + 3 * k : 0) + (b.text ? 7 * k + 3 * k : 0) + 3 * k;
-      const inK = b.t < 0.22 ? b.t / 0.22 : 1, outK = b.t > b.hold ? Math.max(0, 1 - (b.t - b.hold) / 0.4) : 1, a = outK * (0.25 + 0.75 * inK);
+      const kt = k * 2, tw = b.title ? ui.width(b.title, kt) : 0, xw = b.text ? ui.width(b.text, k) : 0, pad = 5 * k;
+      const bh = (b.title ? 7 * kt + 3 * k : 0) + (b.text ? 7 * k + 3 * k : 0) + 3 * k, er = b.em ? Math.round((bh - 6 * k) / 2) : 0, ex = er ? er * 2 + pad : 0;
+      const bw = Math.max(tw, xw) + pad * 2 + 3 * k + ex, inK = b.t < 0.22 ? b.t / 0.22 : 1, outK = b.t > b.hold ? Math.max(0, 1 - (b.t - b.hold) / 0.4) : 1, a = outK * (0.25 + 0.75 * inK);
       const x = Math.round((w - bw) / 2 + (1 - inK) * (1 - inK) * w * 0.3 - (1 - outK) * w * 0.12);
       ui.rect(x, y, bw, bh, 0x0b0d10, 0.9 * a); ui.rect(x, y, 3 * k, bh, b.col, a); ui.rect(x + 3 * k, y + bh - k, bw - 3 * k, k, b.col, 0.5 * a);
       let ty = y + 3 * k;
-      if (b.title) { ui.text(b.title, x + 3 * k + pad, ty, kt, b.col, a); ty += 7 * kt + 3 * k; }
-      if (b.text) ui.text(b.text, x + 3 * k + pad, ty, k, 0xefe6d2, a);
+      if (b.em) b.em.draw(ui, x + 3 * k + pad + er, y + bh / 2, er, b.col, a);
+      if (b.title) { ui.text(b.title, x + 3 * k + pad + ex, ty, kt, b.col, a); ty += 7 * kt + 3 * k; }
+      if (b.text) ui.text(b.text, x + 3 * k + pad + ex, ty, k, 0xefe6d2, a);
       if (b.t < 0.3) ui.rect(x, y, bw, bh, 0xffffff, (1 - b.t / 0.3) * 0.55);       // (it lands with a flash)
       y += Math.round((bh + 2 * k) * Math.min(1, inK * 1.4));
     }
+  }
+};
+
+// Emblem: one flat mark (a skill's, a clan's, a rank's) kept as pieces on a square from -1 to 1 (x right, y up), so the
+// same shape goes on a body's cloth, on the HUD and in a menu, and is sharp at any size. new Emblem(parts, hot): each
+// part its corners in order round it, three or four of them ([x0, y0, x1, y1, x2, y2] or with x3, y3), none bent
+// inwards; `hot`: parts drawn over those in a second colour (the heart of a flame, a spark).
+//   draw(ui, x, y, r, col, a, hi): on the HUD, centred on x y, r from there to an edge (hi: the second colour)
+//   onto(mesh, place, col, hi, ox, oy, oz): on a mesh. place(x, y, out, hot) says where each point lies (so it follows
+//     a cloth, a shield, a wall; hot is 1 for the parts over the others, to lift them clear), and it faces away from
+//     o. It is lit as the mesh's glow says.
+//   svg(col, hi): the same as an <svg class="emblem"> (text, for a menu's innerHTML: give it a size with CSS)
+function Emblem(parts, hot) {
+  const pack = list => { const n = list ? list.length : 0, q = new Float32Array(n * 8); for (let i = 0; i < n; i++) for (let k = 0; k < 8; k++) q[i * 8 + k] = list[i][k < list[i].length ? k : k - 2]; return q; };
+  this.a = pack(parts); this.b = pack(hot); this.p = new Float32Array(12); this.t = [0, 0, 0];
+}
+Emblem.prototype = {
+  draw(ui, x, y, r, col, a, hi) {
+    const al = a == null ? 1 : a;
+    for (let pass = 0; pass < 2; pass++) {
+      const q = pass ? this.b : this.a, c = pass ? (hi == null ? U.mix(col, 0xffffff, 0.6) : hi) : col;
+      for (let o = 0; o < q.length; o += 8) {          // (written straight into the list, as text() does)
+        ui.room(); const u = ui.q, i = ui.n++ * 16;
+        u[i] = x + q[o] * r; u[i + 1] = y - q[o + 1] * r; u[i + 2] = x + q[o + 2] * r; u[i + 3] = y - q[o + 3] * r; u[i + 4] = x + q[o + 4] * r; u[i + 5] = y - q[o + 5] * r; u[i + 6] = x + q[o + 6] * r; u[i + 7] = y - q[o + 7] * r;
+        u[i + 8] = 2; u[i + 9] = 42; u[i + 10] = 6; u[i + 11] = 46; u[i + 12] = c; u[i + 13] = al; u[i + 14] = 0; u[i + 15] = 0;
+      }
+    }
+    return this;
+  },
+  onto(m, place, col, hi, ox, oy, oz) {
+    const p = this.p, t = this.t;
+    for (let pass = 0; pass < 2; pass++) {
+      const q = pass ? this.b : this.a, c = pass ? (hi == null ? U.mix(col, 0xffffff, 0.6) : hi) : col;
+      for (let o = 0; o < q.length; o += 8) {
+        for (let k = 0; k < 4; k++) { place(q[o + k * 2], q[o + k * 2 + 1], t, pass); p[k * 3] = t[0]; p[k * 3 + 1] = t[1]; p[k * 3 + 2] = t[2]; }
+        m.tri(p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7], p[8], c, ox, oy, oz);
+        if (q[o + 6] !== q[o + 4] || q[o + 7] !== q[o + 5]) m.tri(p[0], p[1], p[2], p[6], p[7], p[8], p[9], p[10], p[11], c, ox, oy, oz);
+      }
+    }
+    return this;
+  },
+  svg(col, hi) {
+    const n = v => Math.round(v * 1000) / 1000;
+    const path = q => { let d = ""; for (let o = 0; o < q.length; o += 8) { d += "M" + n(q[o]) + " " + n(-q[o + 1]); for (let k = 1; k < 4; k++) d += "L" + n(q[o + k * 2]) + " " + n(-q[o + k * 2 + 1]); d += "Z"; } return d; };
+    return `<svg class="emblem" viewBox="-1 -1 2 2" aria-hidden="true"><path fill="${U.hex(col)}" d="${path(this.a)}"/>` + (this.b.length ? `<path fill="${U.hex(hi == null ? U.mix(col, 0xffffff, 0.6) : hi)}" d="${path(this.b)}"/>` : "") + "</svg>";
   }
 };
 
@@ -2559,7 +2611,8 @@ Menu.prototype = {
 // so the arrows, A and B, a remote's keys and a tap all work it as they work any menu; the game says what a slot shows,
 // and its Menu's choose() what choosing one does.
 // o: { grid, worn: the two elements; size: slots in the grid; act: a slot's data-do ("slot"); items(): what's carried, in
-//   order; places: [[key, label], …] and wearing(key): what's worn there; show(item, worn) → { title, kind, col, mark } }
+//   order; places: [[key, label], …] and wearing(key): what's worn there; show(item, worn) → { title, kind, col, mark,
+//   emblem: an Emblem drawn in the slot, in col } }
 // A slot is <div class="slot item" data-do data-i>, an empty one also "empty"; what's worn is "slot worn-<key>".
 function Slots(o) { this.o = o; }
 Slots.prototype = {
@@ -2567,7 +2620,7 @@ Slots.prototype = {
     const o = this.o, tag = place == null ? ` item" data-do="${o.act || "slot"}" data-i="${i}` : ` worn-${U.esc(place[0])}`;
     if (!it) return `<div class="slot empty${tag}"><span class="k">${place ? U.esc(place[1]) : ""}</span></div>`;
     const s = o.show(it, !!place);
-    return `<div class="slot${tag}"${s.col != null ? ` style="color:${U.hex(s.col)}"` : ""}><span class="k">${U.esc(s.kind || "")}</span>${U.esc(s.title)}${s.mark ? `<span class="up">${U.esc(s.mark)}</span>` : ""}</div>`;
+    return `<div class="slot${tag}"${s.col != null ? ` style="color:${U.hex(s.col)}"` : ""}><span class="k">${U.esc(s.kind || "")}</span>${U.esc(s.title)}${s.mark ? `<span class="up">${U.esc(s.mark)}</span>` : ""}${s.emblem ? s.emblem.svg(s.col == null ? 0xefe6d2 : s.col) : ""}</div>`;
   },
   render() {
     const o = this.o, items = o.items(), cells = [];
@@ -3838,5 +3891,5 @@ function planRay(p, b) {
 
 window.Low3D = { probe, family, NAMES, bench, plan, rows, line, LADDER, Governor, GL, Mesh, Flat, bake, M4, px, hexRGB, Rig,
   U, Kit, Path, Chunks, Land, Trail, Particles, camera, chase, orbit, viewOf, begin, Input, Menu, Synth, game,
-  Palette, Tex, RayMap, Ray, Marks, Screen, planRay, heldRay, helpersFor, wholeSteps, ladderSig, fortyOn, withForty, UI, Letters, GLYPHS, SPECIAL, wholeSize, Confetti, Banners, Stream, Slots, version: 5 };
+  Palette, Tex, RayMap, Ray, Marks, Screen, planRay, heldRay, helpersFor, wholeSteps, ladderSig, fortyOn, withForty, UI, Letters, GLYPHS, SPECIAL, wholeSize, Confetti, Banners, Emblem, Stream, Slots, version: 5 };
 })();

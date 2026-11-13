@@ -340,6 +340,9 @@ for a "This box" screen. `Governor(ladder, rung, top, onChange)` keeps the frame
   small pictures and a copy of the canvas. It's for a GPU with room to spare: a game calls it on its upper rungs only
   (WYRD: the full look from 720 lines up), after its see-through things and before what's written on the picture, which
   the engine draws after `draw()` and so stays crisp. On a Pi 3's rungs it's never called and costs nothing.
+- `hold(k)`: from now on what's lit is held under `k` of full brightness, and what's a light of its own is left as
+  it is. Ask for it with `bloom` (its `from` at `k` or above) and only the lights glow: never skin, pale stone or
+  leaves in full sun. `hold(0)`: not held (as it is when nobody asks).
 
 **2D (`Flat`).** `size(w, h)`; `ground(canvas, x0, z0, size, outside)` (mip levels made, so far ground doesn't
 shimmer); `air({top, horizon, fog, hill, hills, near, far})`; `draw(camera…)`; `project(x, y, z, out)`;
@@ -521,6 +524,10 @@ call for what's written on it, and a frame of either makes no garbage.
   text, col, hold})`, `step(dt)`, `draw(ui, w, h, k, top)`, `busy`; `on(i, banner)` as each lands (its sound). Big and
   dark-backed on purpose: it has to read from a sofa. WYRD's level-75 moment is these two, a fanfare, and lights in its
   one mesh of see-through things: no draw call more than a quiet frame.
+- `new Emblem(parts, hot)`: one flat mark (a skill's, a clan's) kept as three- and four-cornered pieces on a square
+  from -1 to 1, so the same shape goes on a body's cloth (`onto(mesh, place, col, hi, ox, oy, oz)`), on the HUD
+  (`draw(ui, x, y, r, col, a)`) and in a menu (`svg(col)`), sharp at any size. A banner takes one (`emblem`), and so
+  does a slot of `Slots` (`show()` → `emblem`).
 
 **The rest.**
 - `game({...})` sets up the screen (16:9, as big as fits, `--u` a hundredth of its height for CSS), the tuning,
