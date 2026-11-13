@@ -1464,6 +1464,109 @@ class TheWyrd(unittest.TestCase):
         r = subprocess.run(["python3", "-m", "py_compile", tool], capture_output=True, text=True, timeout=60)
         self.assertEqual(r.returncode, 0, r.stderr)
 
+    def rules(self, script):
+        """WYRD's skilling rules are a script of their own in its page: run them in node, with `R` the rules."""
+        with open(os.path.join(BOX, "games", "wyrd", "index.html"), encoding="utf-8") as f:
+            page = f.read()
+        block = re.search(r"<script>\n(/\* WYRD's skilling rules.*?)</script>", page, re.S)
+        self.assertTrue(block, "the rules, in a script of their own")
+        r = subprocess.run(["node", "-e", "const module = { exports: {} };\n" + block.group(1) + "\nconst R = module.exports, out = {};\n" + script + "\nconsole.log(JSON.stringify(out));"],
+                           capture_output=True, text=True, timeout=60)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return json.loads(r.stdout), page
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_five_skills_to_75_in_hours(self):
+        """The curve: 75 is the top, each level costs more than the last, the six kinds of ore and tree open on the way,
+        and a skill takes hours at a steady pace, not days: the gathering ones about three, the ones that use up what
+        was gathered less."""
+        out, page = self.rules(r"""
+out.skills = R.SKILLS; out.max = R.MAX; out.total = R.TOTAL[R.MAX];
+out.rising = R.TOTAL.every((v, i) => i < 2 || v > R.TOTAL[i - 1]) && Array.from({ length: 73 }, (_, i) => R.need(i + 2) > R.need(i + 1)).every(Boolean);
+out.levels = [R.levelOf(0), R.levelOf(R.TOTAL[2] - 1), R.levelOf(R.TOTAL[2]), R.levelOf(R.TOTAL[75] - 1), R.levelOf(R.TOTAL[75]), R.levelOf(9e9)];
+out.into = [R.into(0), R.into(R.TOTAL[40]), R.into(R.TOTAL[75])];
+out.tiers = R.TIER_LVL; out.tierFor = [1, 11, 12, 37, 38, 64, 65, 75].map(R.tierFor);
+out.hours = {}; for (const k of ["mine", "wood"]) out.hours[k] = R.hours(k) / 3600;
+out.hours.smith = R.hours("smith", { walk: 0.1 }) / 3600; out.hours.fire = R.hours("fire", { walk: 0.1 }) / 3600;
+out.slow = R.hours("mine", { tool: () => 0, walk: 0.5 }) / 3600;                // never a better pick, and half the time spent walking
+// a delver who mines every level's best rock, a swing at a time, by the rules' own chances
+let seed = 7; const rnd = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
+let xp = 0, t = 0, ore = [0, 0, 0, 0, 0, 0];
+while (R.levelOf(xp) < R.MAX) { const L = R.levelOf(xp), tier = R.tierFor(L); t += R.swing(tier); if (rnd() < R.chance(L, tier)) { xp += R.GATHER_XP[tier]; ore[tier]++; } }
+out.played = t / 3600; out.ore = ore;
+// all of it smelted and forged: does Smithing keep up (each kind of ore worked needs its level)?
+let sx = 0, short = [];
+for (let tier = 0; tier < 6; tier++) { if (R.levelOf(sx) < R.TIER_LVL[tier]) short.push(tier); sx += ore[tier] * (R.SMELT_XP[tier] + R.FORGE_XP[tier]); }
+out.smithShort = short; out.smithAfter = R.levelOf(sx);
+out.chance = [R.chance(1, 0), R.chance(12, 1), R.chance(75, 5), R.chance(75, 0), R.chance(1, 5)];
+out.swing = [R.swing(0), R.swing(5)];
+""")
+        self.assertEqual(out["skills"], ["mine", "smith", "wood", "fire", "summon"])
+        self.assertEqual(out["max"], 75)
+        self.assertTrue(250000 < out["total"] < 350000, out["total"])
+        self.assertTrue(out["rising"])
+        self.assertEqual(out["levels"], [1, 1, 2, 74, 75, 75])
+        self.assertEqual(out["into"], [0, 0, 1])
+        self.assertEqual(out["tiers"], [1, 12, 24, 38, 52, 65])
+        self.assertEqual(out["tierFor"], [0, 0, 1, 2, 3, 4, 5, 5])
+        for k in ("mine", "wood"):
+            self.assertTrue(2 < out["hours"][k] < 4, (k, out["hours"][k]))
+        self.assertTrue(0.75 < out["hours"]["smith"] < 2.5, out["hours"])
+        self.assertTrue(0.5 < out["hours"]["fire"] < 2, out["hours"])
+        self.assertLess(out["slow"], 8)                                    # the slowest way is still an evening or two
+        self.assertTrue(1.5 < out["played"] < 3.5, out["played"])         # (no walking in this one)
+        self.assertEqual(out["smithShort"], [])                            # Smithing keeps up with what's mined
+        self.assertEqual(out["smithAfter"], 75)
+        self.assertEqual(out["chance"][0], 0.55)
+        self.assertTrue(out["chance"][0] == out["chance"][1] < out["chance"][2] < out["chance"][3] == 0.95 and out["chance"][4] == 0)
+        self.assertLess(out["swing"][1], out["swing"][0])
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_creatures_and_mastery(self):
+        """Summoning's creatures open in order and binding them all, with a pet's share of the other skills, reaches
+        75; every one is a model the page has. Mastery gives a mantle and a weapon for each skill, and the weapon keeps
+        two under the best that has dropped, growing when a better one does. The names are the game's own."""
+        out, page = self.rules(r"""
+out.kin = R.KIN.map(c => [c.id, c.kind, c.lvl, c.model]);
+out.bonds = R.KIN.reduce((a, c) => a + c.bond, 0); out.kinship = R.KINSHIP * 4 * R.TOTAL[R.MAX]; out.total = R.TOTAL[R.MAX];
+// bound in order as soon as each may be, with nothing else learned: how far does each bond carry?
+let xp = 0, stuck = []; for (const c of R.KIN) { if (R.levelOf(xp + R.KINSHIP * 4 * R.TOTAL[c.lvl]) < c.lvl) stuck.push(c.id); xp += c.bond; }
+out.stuck = stuck;
+out.saddles = R.KIN.filter(c => c.kind === "mount").map(c => [c.saddle.tier, c.saddle.smith >= R.TIER_LVL[c.saddle.tier], c.speed > 1]);
+out.pets = R.KIN.filter(c => c.kind === "pet").map(c => [c.found, c.help, c[c.help] || 0]);
+out.mastery = R.SKILLS.map(k => [k, R.MASTERY[k].mantle, R.MASTERY[k].weapon, R.MASTERY[k].kind, !!R.MASTERY[k].perk]);
+const a = R.masteryWeapon("mine", { p: 30, lvl: 14, tier: 3 }), b = R.masteryWeapon("mine", { p: 58, lvl: 25, tier: 5 });
+out.under = [30 - a.p, 58 - b.p, a.lvl, b.lvl, a.kind, a.powers.length];
+out.better = [R.betterDrop(null, { p: 1, lvl: 1 }), R.betterDrop({ p: 30, lvl: 14 }, { p: 31, lvl: 10 }), R.betterDrop({ p: 30, lvl: 14 }, { p: 30, lvl: 14 }), R.betterDrop({ p: 30, lvl: 14 }, { p: 12, lvl: 40 })];
+out.fire = R.FIRE.map(f => f.lvl); out.can = [R.fireCan(14, "Torch"), R.fireCan(15, "Torch"), R.fireCan(75, "Long burning")];
+""")
+        self.assertEqual(len(out["kin"]), 8)
+        self.assertEqual([c[2] for c in out["kin"]], sorted(c[2] for c in out["kin"]))
+        self.assertEqual(out["kin"][0][2], 1)                              # the first may be bound at once
+        self.assertEqual({c[1] for c in out["kin"]}, {"pet", "mount"})
+        models = json.loads(re.search(r"\nconst MODELS = (\{.*?\});\s*/\* maker: end \*/", page, re.S).group(1))
+        for c in out["kin"]:
+            self.assertIn(c[3], models, c)
+        self.assertGreaterEqual(out["bonds"] + out["kinship"], out["total"] * 0.95)    # binding them all, and a pet's share, is the road to 75
+        self.assertLess(out["bonds"], out["total"])                        # …and binding alone is not: the other skills feed it
+        self.assertEqual(out["stuck"], [])
+        for tier, level_ok, faster in out["saddles"]:
+            self.assertTrue(level_ok and faster)
+        self.assertEqual(sorted({p[1] for p in out["pets"]}), ["carry", "gather", "learn", "light", "quick"])   # carry, gather, speed and more
+        self.assertEqual([m[0] for m in out["mastery"]], ["mine", "smith", "wood", "fire", "summon"])
+        self.assertEqual(len({m[1] for m in out["mastery"]} | {m[2] for m in out["mastery"]}), 10)             # ten names, all different
+        self.assertEqual({m[3] for m in out["mastery"]}, {"blade", "axe", "bow", "staff"})
+        self.assertTrue(all(m[4] for m in out["mastery"]))
+        self.assertEqual(out["under"], [2, 2, 14, 25, "axe", 3])
+        self.assertEqual(out["better"], [True, True, False, False])
+        self.assertEqual(out["fire"], sorted(out["fire"]))
+        self.assertEqual(out["can"], [False, True, True])
+        # an homage, never a copy: none of that game's own words, and never "skillcape"
+        script = "".join(re.findall(r"<script>(.*?)</script>", page, re.S)[1:])
+        for word in ("runescape", "osrs", "jagex", "gielinor", "skillcape", "skill cape", "max cape", "lumbridge", "varrock", "falador", "mithril", "adamant", "runite",
+                     "rune pickaxe", "tinderbox", "bank chest", "grand exchange", "total level", "magic logs", "yew logs", "willow"):
+            self.assertNotIn(word, script.lower(), word)
+
 
 MAKER_MARK = re.compile(r"/\* maker: ([a-z]+)((?: [a-z]+=[A-Za-z_$][\w$]*(?:,[A-Za-z_$][\w$]*)*)*) \*/(.*?)/\* maker: end \*/", re.S)
 RIG_JS = """
@@ -1560,9 +1663,9 @@ out.looks = looks; out.built = built; out.empty = empty; out.poses = Object.keys
         self.assertEqual(out["twice"], [])                                     # mirrored twice: the pose it was
         self.assertEqual(out["clips"]["walk"], ["walk0", "walk1", "walk2", "walk3"])
         self.assertEqual(out["clips"]["swing"], ["swing0", "swing1", "swing2"])
-        self.assertEqual(out["poses"], 25)
+        self.assertEqual(out["poses"], 26)
         self.assertEqual(out["looks"], 16)                                     # six of Hearthrim's folk, ten of the deep's
-        self.assertEqual(out["built"], 16 * 25)
+        self.assertEqual(out["built"], 16 * 26)
         self.assertEqual(out["empty"], [])
 
     def test_the_maker_is_offline_and_not_on_home(self):

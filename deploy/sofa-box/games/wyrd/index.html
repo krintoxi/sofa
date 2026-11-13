@@ -55,6 +55,12 @@
   .row-buttons { display: flex; gap: calc(var(--u) * 2); }
   #shoplist, #waylist { max-height: calc(var(--u) * 58); overflow: hidden; min-width: calc(var(--u) * 110); }
   #shop .item, #way .item { padding: calc(var(--u) * .7) calc(var(--u) * 2.2); font-size: calc(var(--u) * 2.2); }
+  /* the skills: a row each, how far through its level as a bar */
+  #skills .item { padding: calc(var(--u) * .9) calc(var(--u) * 2.2); font-size: calc(var(--u) * 2.4); min-width: calc(var(--u) * 132); align-items: center; }
+  #skills .dot { display: inline-block; width: calc(var(--u) * 1.6); height: calc(var(--u) * 1.6); margin-right: calc(var(--u) * 1.4); }
+  #skills .xp { display: block; width: calc(var(--u) * 56); height: calc(var(--u) * 1.6); background: rgba(239, 230, 210, .16); }
+  #skills .xp i { display: block; height: 100%; }
+  #skills .item.on .xp { background: rgba(11, 13, 16, .3); }
   #create { align-items: flex-start; padding-left: calc(var(--u) * 9); }
   #create .menu { min-width: calc(var(--u) * 72); }
   #create .tag { text-align: left; max-width: calc(var(--u) * 72); }
@@ -83,6 +89,8 @@
     <div class="menu" id="shoplist"></div><p class="tag" id="shopHave"></p><p class="hint" id="shopHint"></p></div>
   <div id="way" class="screen solid hidden"><h2>The waystone</h2><p class="tag plain" id="wayAbout"></p>
     <div class="menu" id="waylist"></div><p class="hint" id="wayHint"></p></div>
+  <div id="skills" class="screen solid hidden"><h2>Skills</h2>
+    <div class="menu" id="skilllist"></div><div class="about" id="skillabout"></div><p class="hint" id="skillsHint"></p></div>
   <div id="options" class="screen solid hidden"><h2>Options</h2><div class="menu" id="optlist"></div><p class="hint" id="optionsHint"></p></div>
   <div id="box" class="screen solid hidden"><h2>This box</h2><table class="box" id="boxtable"></table>
     <div class="row-buttons"><div class="item" data-do="retest">Test again</div><div class="item" data-do="check">Games check</div><div class="item" data-do="back">Back</div></div><p class="hint" id="boxHint"></p></div>
@@ -185,6 +193,100 @@ const MODELS = {
 /* maker: end */
 </script>
 <script>
+/* WYRD's skilling rules, on their own: numbers and plain functions, no drawing and no page. The game below reads them,
+   and the box's checks play them in node (tests/test_box_games.py), so what a level costs and what it opens is said in
+   one place. Five skills, each to 75: Mining and Woodcutting gather; Smithing and Firemaking use up what they gathered;
+   Summoning grows with the creatures bound to you. */
+(function (root) {
+"use strict";
+const MAX = 75;
+const SKILLS = ["mine", "smith", "wood", "fire", "summon"];
+const SKILL = {
+  mine: { name: "Mining", col: 0x4ae8ff, about: "Ore from the rock. Better ore opens as you learn, and a better pick is quicker." },
+  smith: { name: "Smithing", col: 0xff4a3a, about: "Ore into bars at a furnace, bars into gear, picks, hatchets and saddles at the anvil." },
+  wood: { name: "Woodcutting", col: 0x39ff88, about: "Logs from the trees. Better wood opens as you learn, and a better hatchet is quicker." },
+  fire: { name: "Firemaking", col: 0xff2e88, about: "Logs into fires. A fire mends you, leaves embers for the furnace, and does more as you learn." },
+  summon: { name: "Summoning", col: 0xb06cff, about: "Creatures bound to you at a kinstone: some carry, some gather, some you ride." }
+};
+// from level L to L + 1. The whole road to 75 is TOTAL[75], just under 300,000.
+const need = L => Math.round(40 + 12 * L + 1.9 * L * L);
+const TOTAL = [0, 0]; for (let L = 1; L < MAX; L++) TOTAL[L + 1] = TOTAL[L] + need(L);   // (TOTAL[L]: where level L starts)
+function levelOf(xp) { let L = 1; while (L < MAX && TOTAL[L + 1] <= xp) L++; return L; }
+const into = xp => { const L = levelOf(xp); return L >= MAX ? 1 : (xp - TOTAL[L]) / need(L); };   // how far through its level, 0 to 1
+// six kinds of ore and of tree, each opened by a level; what one of them is worth
+const TIER_LVL = [1, 12, 24, 38, 52, 65];
+const ORES = ["copper", "iron", "silver", "cobalt", "starsteel", "ashsteel"];
+const TREES = ["fir", "birch", "rowan", "blackthorn", "ironbark", "wyrdwood"];
+const GATHER_XP = [10, 18, 30, 46, 68, 96];
+const SMELT_XP = GATHER_XP.map(x => Math.round(x * 0.6)), FORGE_XP = GATHER_XP.map(x => Math.round(x * 0.6)), BURN_XP = GATHER_XP.map(x => Math.round(x * 1.15));
+const tierFor = L => { let t = 0; for (let i = 0; i < 6; i++) if (L >= TIER_LVL[i]) t = i; return t; };
+// a swing at a rock or a tree: how long it takes with a tool of that tier, and how likely it is to come away with one
+const swing = tool => 1.2 * (1 - 0.07 * Math.min(5, tool || 0));
+const chance = (level, tier) => Math.max(0, Math.min(0.95, 0.55 + (level - TIER_LVL[tier]) * 0.01));
+const NODE = { ore: { holds: 4, back: 30 }, tree: { holds: 5, back: 40 } };   // what a rock or a tree gives before it's spent, and how long till it's back (s)
+const PACK = 40;                                     // ore, bars and logs carried before a trip home
+const EMBER_BARS = 5;                                // bars one ember fires the furnace for (silver and better need the heat)
+const HEAT_TIER = 2;
+// what a fire does, by level
+const FIRE = [
+  { lvl: 1, name: "Warmth", about: "A fire mends you while you stand by it, and leaves an ember for every log." },
+  { lvl: 15, name: "Torch", about: "You carry a brand from your fires: you see farther in caves." },
+  { lvl: 30, name: "Braziers", about: "Cold braziers take your flame: the Hollow's inner doors open to it." },
+  { lvl: 45, name: "Hearthglow", about: "A fire you've stood by leaves you warm: a tenth more from every skill for ten minutes." },
+  { lvl: 60, name: "Long burning", about: "Your fires burn twice as long." }
+];
+const fireCan = (level, name) => FIRE.some(f => f.name === name && level >= f.lvl);
+// what the anvil makes beyond gear: a pick and a hatchet of each metal (three bars and a log for the haft)
+const TOOL = { bars: 3, logs: 1 };
+// the creatures: pets are found while skilling (their trade says which skill finds them) once Summoning is high enough,
+// mounts answer a saddle made at the anvil. bond: what binding one is worth to Summoning. One pet walks with you and
+// gives its help; a mount is ridden.
+const KIN = [
+  { id: "glowbat", name: "Glowbat", kind: "pet", lvl: 1, bond: 500, found: "mine", model: "bat", size: 0.6, fly: 1.5, help: "light", about: "Lights the dark, and coin and finds come to you from twice as far." },
+  { id: "packgrub", name: "Pack Grub", kind: "pet", lvl: 8, bond: 2800, found: "wood", model: "grub", size: 0.8, help: "carry", carry: 20, about: "Carries for you: twenty more in the pack." },
+  { id: "strider", name: "Moss Strider", kind: "mount", lvl: 18, bond: 7200, saddle: { tier: 1, bars: 6, logs: 4, smith: 14 }, model: "salamander", size: 1.5, tint: 0x6ac86a, speed: 1.4, about: "Ridden: two fifths faster on the road." },
+  { id: "sporeling", name: "Forager", kind: "pet", lvl: 28, bond: 17500, found: "wood", model: "shroom", size: 0.7, help: "gather", gather: 0.2, about: "Gathers beside you: one swing in five brings a second ore or log." },
+  { id: "ironback", name: "Ironback", kind: "mount", lvl: 40, bond: 24500, saddle: { tier: 3, bars: 8, logs: 6, smith: 40 }, model: "beetle", size: 1.5, speed: 1.6, carry: 20, about: "Ridden: three fifths faster, and it carries twenty more." },
+  { id: "tinker", name: "Tinker Drone", kind: "pet", lvl: 50, bond: 44000, found: "smith", model: "drone", size: 0.7, fly: 1.6, help: "quick", quick: 0.25, about: "Works beside you: every swing a quarter quicker." },
+  { id: "stalker", name: "Dusk Stalker", kind: "mount", lvl: 62, bond: 52000, saddle: { tier: 4, bars: 10, logs: 8, smith: 56 }, model: "spider", size: 1.9, tint: 0x8a6ad8, speed: 1.9, about: "Ridden: nearly twice as fast." },
+  { id: "wyrdlight", name: "Wyrdlight", kind: "pet", lvl: 72, bond: 18500, found: "fire", model: "orb", size: 0.6, fly: 1.6, help: "learn", learn: 0.1, about: "A spark that never went out: a tenth more from every skill." }
+];
+const KINSHIP = 0.12;                                // of every other skill's xp, to Summoning, while a pet walks with you
+const FIND = [60, 160];                              // a pet shows itself after this many tries at its trade (rolled once for each)
+// mastery: what reaching 75 gives, by itself and never for coin
+const MASTERY = {
+  mine: { mantle: "Veinwarden's Mantle", weapon: "Lodebreaker", kind: "axe", perk: "One swing in six at a rock brings a second ore." },
+  smith: { mantle: "Anvilborn Mantle", weapon: "Forgeheart", kind: "blade", perk: "One bar in six isn't used up at the anvil." },
+  wood: { mantle: "Heartwood Mantle", weapon: "Thornsong", kind: "bow", perk: "One swing in six at a tree brings a second log." },
+  fire: { mantle: "Emberwake Mantle", weapon: "Cindercrown", kind: "staff", perk: "Every log on a fire leaves two embers." },
+  summon: { mantle: "Kinbinder's Mantle", weapon: "Wyrdfang", kind: "blade", perk: "Your pet's help counts half as much again." }
+};
+// the mastery weapon keeps two points of damage under the best weapon that has dropped for this delver, with three
+// powers of its own at nine tenths of a legendary's for that drop's level; a new best drop and it grows with it
+const UNDER = 2, MASTER_POWERS = { blade: ["might", "keen", "leech"], axe: ["might", "haste", "keen"], bow: ["haste", "keen", "focus"], staff: ["might", "focus", "keen"] };
+function masteryWeapon(skill, best) {
+  const M = MASTERY[skill];
+  return { p: Math.max(3, Math.round(best.p) - UNDER), lvl: best.lvl, tier: best.tier, kind: M.kind, powers: MASTER_POWERS[M.kind], k: 0.9 * 1.48 };
+}
+const betterDrop = (best, it) => !best || it.p > best.p || (it.p === best.p && it.lvl > best.lvl);
+// How long a skill takes at a steady pace: its xp level by level, at what its best rock or tree gives (for the
+// tests, and the figures in CHANGES). o: { tool(level) → the tool's tier, walk: the part of the time spent going from one
+// to the next (0.25), more: xp multiplier (1) }. Returns seconds.
+function hours(skill, o) {
+  o = o || {}; let t = 0;
+  for (let L = 1; L < MAX; L++) {
+    const tier = tierFor(L), tool = o.tool ? o.tool(L) : tier;
+    const per = skill === "mine" || skill === "wood" ? GATHER_XP[tier] * chance(L, tier) / swing(tool) : skill === "smith" ? (SMELT_XP[tier] + FORGE_XP[tier]) / 1.1 : BURN_XP[tier] / 0.7;
+    t += need(L) / (per * (o.more || 1)) * (1 + (o.walk == null ? 0.25 : o.walk));
+  }
+  return t;
+}
+const R = { MAX, SKILLS, SKILL, need, TOTAL, levelOf, into, TIER_LVL, ORES, TREES, GATHER_XP, SMELT_XP, FORGE_XP, BURN_XP, tierFor, swing, chance, NODE, PACK, EMBER_BARS, HEAT_TIER,
+  FIRE, fireCan, TOOL, KIN, KINSHIP, FIND, MASTERY, UNDER, MASTER_POWERS, masteryWeapon, betterDrop, hours };
+if (typeof module !== "undefined" && module.exports) module.exports = R; else root.WyrdRules = R;
+})(typeof window !== "undefined" ? window : globalThis);
+</script>
+<script>
 /* WYRD: an action-RPG down the Maw, for Sofa Box OS, on Low3D, the box's game engine (../low3d.js). Hearthrim is a
    hamlet on the lip of the Maw, a chasm that swallowed an old kingdom. Six strata lie below it, each a world of its
    own: two wild floors and a lair, and a power in every lair. At the bottom sits the Sovereign of Ash. You are a
@@ -250,6 +352,8 @@ const STRATA = [
 ];
 const ORES = ["copper", "iron", "silver", "cobalt", "starsteel", "ashsteel"], ORECOL = [0xd08a50, 0xa8b0bc, 0xe0e8f0, 0x4a7aff, 0x8af0ff, 0xff5a4a];
 const HERBS = ["mosscap", "tidekelp", "bonelily", "sporebulb", "emberroot", "ashbloom"], HERBCOL = [0x7af07a, 0x4ad8c0, 0xf0ead8, 0xc07cff, 0xff8a3a, 0xff4a8a];
+// the six trees: what their logs are called is the rules' (WyrdRules.TREES); here, their leaves, their trunks and how they grow
+const TREECOL = [0x2e5a3a, 0xa8c84a, 0x4a8a3a, 0x4a2a5a, 0x6a8aa0, 0xff7ad8], TRUNKCOL = [0x4a3426, 0xe0dccc, 0x5a3a2a, 0x1e1620, 0x7a8088, 0xe8dcf0];
 const TOWN = { id: "town", name: "Hearthrim", ground: [0x3d5a34, 0x4a6a3a, 0x5c7c44], wall: [0x4a4a52, 0x5c5a62, 0x6e6a70], fog: 0x2a2440, sunCol: 0xffb48a, amb: 0x7a7aa0, low: 0x2a2030, sun: [-0.6, 0.35, 0.7],
   glow: 0xffd28a, motes: 0xffe2b0, song: { seed: 5, root: 52, tempo: 72, calm: true } };
 // the floor's place in the descent: 0..17 the story (stratum = floor / 3, the third of each its lair); 18 on, the Endless
@@ -305,7 +409,8 @@ const KIND_LIST = ["blade", "axe", "bow", "staff"];
 // ---------------------------------------------------------------- what's found: seven places to wear it, five kinds of
 // rare, powers (affixes) and the names they give a piece. All of it the game's own.
 const SLOTS = ["weapon", "helm", "chest", "gloves", "boots", "ring", "charm"];
-const SLOTNAME = { weapon: "Weapon", helm: "Helm", chest: "Chest", gloves: "Gloves", boots: "Boots", ring: "Ring", charm: "Charm" };
+const SLOTNAME = { weapon: "Weapon", helm: "Helm", chest: "Chest", gloves: "Gloves", boots: "Boots", ring: "Ring", charm: "Charm", mantle: "Mantle" };
+const WORN = SLOTS.concat("mantle");                  // (a mantle is worn too, but it's never found or forged: mastery gives it)
 const RARITY = [{ name: "Common", col: 0xb8b0a0, n: 0 }, { name: "Fine", col: GREEN, n: 1 }, { name: "Rare", col: BLUE, n: 2 }, { name: "Epic", col: VIOLET, n: 3 }, { name: "Legendary", col: PINK, n: 4 }];
 // powers: what it does, per level of the piece (v * lvl^0.6), how it's written
 const AFFIX = {
@@ -445,7 +550,8 @@ const POSES = {
   fall1: { y: -0.78, lean: -1.52, chest: [-0.05, 0, 0], head: [-0.15, 0, 0.4], armR: [0.4, 1.3, 0], foreR: [0.3, 0, 0], armL: [0.2, 1.0, 0], foreL: [0.4, 0, 0], legR: [0.1, 0.15, 0], legL: [0.05, 0.05, 0] },
   mine0: { y: -0.08, chest: [0.25, 0, 0.1], armR: [2.6, 0.1, 0], foreR: [0.7, 0, 0], armL: [2.3, 0.2, 0], foreL: [0.8, 0, 0], legR: [0.3, 0, 0], legL: [-0.2, 0, 0] },
   mine1: { y: -0.2, chest: [0.8, 0, 0], armR: [1.1, 0.05, 0], foreR: [0.4, 0, 0], armL: [1.0, 0.1, 0], foreL: [0.5, 0, 0], legR: [0.6, 0, 0], shinR: [-0.6, 0, 0], legL: [-0.2, 0, 0], shinL: [-0.5, 0, 0] },
-  cheer: { chest: [-0.15, 0, 0], head: [-0.25, 0, 0], armR: [3.0, 0.3, 0], foreR: [0.2, 0, 0], armL: [3.0, 0.3, 0], foreL: [0.2, 0, 0] }
+  cheer: { chest: [-0.15, 0, 0], head: [-0.25, 0, 0], armR: [3.0, 0.3, 0], foreR: [0.2, 0, 0], armL: [3.0, 0.3, 0], foreL: [0.2, 0, 0] },
+  ride: { y: -0.12, chest: [0.12, 0, 0], legR: [1.0, 0.55, 0], shinR: [-1.15, 0, 0], legL: [1.0, 0.55, 0], shinL: [-1.15, 0, 0], armR: [0.7, 0.12, 0], foreR: [0.55, 0, 0], armL: [0.7, 0.12, 0], foreL: [0.55, 0, 0] }
 };
 /* maker: end */
 const WALK = ["walk0", "walk1", "walk2", "walk3"];
@@ -501,8 +607,136 @@ function emitModel(m, name, tint) {
   }
   m.glow = g0;
 }
+// ---- mastery: a mantle for the shoulders and a weapon, both built here (no model: they're the game's own shapes).
+// A mantle is built on the chest's joint, so it leans, rolls and falls with the body; how far it streams out behind
+// comes with the pose, and f (0 or 1) is one of two moments of its sway. What's lit is its own light (glow 127).
+const MSTREAM = { walk0: 0.6, walk1: 0.5, walk2: 0.6, walk3: 0.5, roll: 1, spin: 0.9, swing1: 0.5, swing2: 0.6, chop1: 0.45, chop2: 0.4, cast1: 0.35, draw1: 0.2, hit: 0.3, fall0: 0.7, fall1: 0.05, roar: 0.3, cheer: 0.25 };
+const MANCHOR = new Float32Array(18), MTMP = [0, 0, 0];   // (where the last one built ends: hem left, middle, right; its top; the weapon's grip and tip)
+function manchor(m, i, x, y, z) { const t = m.t; MANCHOR[i * 3] = t[0] * x + t[3] * y + t[6] * z + t[9]; MANCHOR[i * 3 + 1] = t[1] * x + t[4] * y + t[7] * z + t[10]; MANCHOR[i * 3 + 2] = t[2] * x + t[5] * y + t[8] * z + t[11]; }
+// a hanging cloth: (cols + 1) by (rows + 1) points from fn(u across, v down, out), its outside (towards -z) and its lining
+// each a colour (or a colour for each row), rows lit from `lit` down
+function cloth(m, cols, rows, fn, outer, inner, lit) {
+  const P = [], g0 = m.glow, C = (c, j) => typeof c === "function" ? c(j) : c;
+  for (let j = 0; j <= rows; j++) for (let i = 0; i <= cols; i++) { const q = [0, 0, 0]; fn(i / cols, j / rows, q, i, j); P.push(q); }
+  for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++) {
+    const a = P[j * (cols + 1) + i], b = P[j * (cols + 1) + i + 1], c = P[(j + 1) * (cols + 1) + i + 1], d = P[(j + 1) * (cols + 1) + i];
+    const mx = (a[0] + c[0]) / 2, my = (a[1] + c[1]) / 2, mz = (a[2] + c[2]) / 2;
+    m.glow = lit != null && j >= lit ? (typeof lit === "number" && j === lit && rows - lit > 1 ? 70 : 127) : g0;
+    m.quad(a[0], a[1], a[2], b[0], b[1], b[2], c[0], c[1], c[2], d[0], d[1], d[2], C(outer, j), mx, my, mz + 4);
+    if (inner != null) m.quad(a[0], a[1], a[2], b[0], b[1], b[2], c[0], c[1], c[2], d[0], d[1], d[2], C(inner, j), mx, my, mz - 4);
+  }
+  m.glow = g0;
+}
+// a shard: from b along d (a unit vector) for L, widest (w across, wz thick) at k of the way, its faces in two colours
+function shard(m, bx, by, bz, dx, dy, dz, L, w, wz, k, cA, cB) {
+  let px = dy * 1 - dz * 0, py = dz * 0 - dx * 1, pz = 0; let l = Math.sqrt(px * px + py * py);
+  if (l < 0.05) { px = 1; py = 0; l = 1; } px /= l; py /= l;
+  const qx = dy * pz - dz * py, qy = dz * px - dx * pz, qz = dx * py - dy * px;
+  const cx = bx + dx * L * k, cy = by + dy * L * k, cz = bz + dz * L * k, tx = bx + dx * L, ty = by + dy * L, tz = bz + dz * L;
+  const R = [[px * w, py * w, pz * w], [qx * wz, qy * wz, qz * wz], [-px * w, -py * w, -pz * w], [-qx * wz, -qy * wz, -qz * wz]];
+  for (let i = 0; i < 4; i++) { const a = R[i], b = R[(i + 1) % 4], col = i & 1 ? cA : cB;
+    m.tri(bx, by, bz, cx + a[0], cy + a[1], cz + a[2], cx + b[0], cy + b[1], cz + b[2], col, cx, cy, cz);
+    m.tri(cx + a[0], cy + a[1], cz + a[2], cx + b[0], cy + b[1], cz + b[2], tx, ty, tz, col, cx, cy, cz); }
+}
+const MINK = 0x14161c, MDARK = 0x1c1519, MBONE = 0xefe6d2;
+function buildMantle(m, look, c, poseName, f) {
+  const s = MSTREAM[poseName] == null ? 0.12 : MSTREAM[poseName], g0 = m.glow, hi = L3.U.mix(c, 0xffffff, 0.45);
+  RIG.at(m, 1);
+  const back = v => -0.17 - (0.1 + 0.55 * s) * Math.pow(v, 1.4), drop = (len, v) => 0.44 - len * v * (1 - 0.25 * s * v);
+  const wave = (u, v, ph, k) => Math.sin(ph + u * 2.2 + v * 3.1 + f * Math.PI) * (k || 0.07) * v * v;
+  if (look === "signal") {
+    // three hard pennants, ink outside and pink inside, a lit line down each and their points alight; a tall collar,
+    // higher on one side, and a slab on the left shoulder
+    const lining = 0x7a1846;
+    const pen = (x0, x1, len, ph, bias) => {
+      const xc = (x0 + x1) / 2, hw = (x1 - x0) / 2;
+      cloth(m, 2, 4, (u, v, q) => { const w = v >= 1 ? 0 : hw * (1 + 0.5 * v); q[0] = xc * (1 + 0.45 * v) + (v >= 1 ? bias * hw * 1.2 : (u * 2 - 1) * w); q[1] = drop(len, v); q[2] = back(v) - wave(xc, v, ph); }, j => j === 3 ? c : MINK, lining, 3);
+      m.glow = 127;                                   // the line of light down it, with one jog
+      cloth(m, 1, 3, (u, v, q) => { const vv = v * 0.74, jog = vv > 0.4 ? hw * 0.42 : 0; q[0] = xc * (1 + 0.45 * vv) + jog + (u - 0.5) * 0.04; q[1] = drop(len, vv); q[2] = back(vv) - wave(xc, vv, ph) - 0.012; }, c, null, 0);
+      return [xc * 1.45 + bias * hw * 1.2, drop(len, 1), back(1) - wave(xc, 1, ph)];
+    };
+    const L = pen(-0.47, -0.19, 1.02, 0.6, -1), C = pen(-0.2, 0.2, 1.42, 0, 0), Rr = pen(0.19, 0.47, 1.1, 1.9, 1);
+    manchor(m, 0, L[0], L[1], L[2]); manchor(m, 1, C[0], C[1], C[2]); manchor(m, 2, Rr[0], Rr[1], Rr[2]); manchor(m, 3, 0, 0.5, -0.2);
+    for (let i = 0; i < 6; i++) {                     // the collar: round the back of the neck
+      const a0 = Math.PI * (1.08 + i * 0.14), a1 = Math.PI * (1.08 + (i + 1) * 0.14), h0 = 0.3 + 0.2 * Math.cos(a0), h1 = 0.3 + 0.2 * Math.cos(a1);
+      const x0 = Math.cos(a0), z0 = Math.sin(a0), x1 = Math.cos(a1), z1 = Math.sin(a1), r0 = 0.24, r1 = 0.34;
+      m.glow = g0; m.quad(x0 * r0, 0.4, z0 * r0, x1 * r0, 0.4, z1 * r0, x1 * r1, 0.4 + h1, z1 * r1, x0 * r1, 0.4 + h0, z0 * r1, MINK, 0, 0.6, 0);
+      m.quad(x0 * r0, 0.4, z0 * r0, x1 * r0, 0.4, z1 * r0, x1 * r1, 0.4 + h1, z1 * r1, x0 * r1, 0.4 + h0, z0 * r1, lining, x0 * 2, 0.6, z0 * 2);
+      m.glow = 127; m.quad(x0 * r1, 0.4 + h0, z0 * r1, x1 * r1, 0.4 + h1, z1 * r1, x1 * (r1 + 0.02), 0.44 + h1, z1 * (r1 + 0.02), x0 * (r1 + 0.02), 0.44 + h0, z0 * (r1 + 0.02), c, 0, 0.6, 0);
+    }
+    m.glow = g0; RIG.attach(m, 1, 0.33, 0.4, -0.02, 0, 0, -0.3, 1); m.box(0, 0, 0, 0.3, 0.07, 0.36, MINK, 0x23262e); m.box(0.02, 0.07, 0, 0.2, 0.05, 0.24, 0x23262e);
+    m.glow = 127; m.box(0.02, 0.12, 0, 0.1, 0.012, 0.16, c); m.box(0.16, 0.0, 0, 0.012, 0.07, 0.3, c);
+  } else if (look === "shard") {
+    // no cloth: blades of crystal fanned from the shoulders, hanging apart in the air, a ring of them behind the head
+    const bob = i => ((i + f) & 1 ? 0.045 : -0.02), dk = L3.U.mix(c, 0x0b0d10, 0.72);
+    m.glow = 127;
+    for (let i = -3; i <= 3; i++) {
+      const th = i * 0.3, tb = 0.28 + 0.55 * s + Math.abs(i) * 0.05, L = 1.5 - Math.abs(i) * 0.19;
+      const dx = Math.sin(th) * Math.cos(tb), dy = -Math.cos(th) * Math.cos(tb), dz = -Math.sin(tb), o = bob(i + 3);
+      const bx = i * 0.085 + dx * (0.06 + o), by = 0.47 - Math.abs(i) * 0.035 + dy * (0.06 + o), bz = -0.2 + dz * (0.06 + o);
+      shard(m, bx, by, bz, dx, dy, dz, L, 0.085, 0.03, 0.2, i & 1 ? c : hi, dk);
+      if (i === -3) manchor(m, 0, bx + dx * L, by + dy * L, bz + dz * L); if (i === 0) manchor(m, 1, bx + dx * L, by + dy * L, bz + dz * L); if (i === 3) manchor(m, 2, bx + dx * L, by + dy * L, bz + dz * L);
+    }
+    for (const sd of [-1, 1]) {                       // two a side, rising past the head
+      shard(m, sd * 0.27, 0.42, -0.1, sd * 0.5, 0.82, -0.28, 0.82 + bob(sd + 1), 0.09, 0.035, 0.25, hi, dk);
+      shard(m, sd * 0.36, 0.38, -0.08, sd * 0.82, 0.5, -0.28, 0.52 - bob(sd + 1), 0.07, 0.03, 0.25, c, dk);
+    }
+    for (let i = 0; i < 6; i++) { const a = i / 6 * (Math.PI * 2) + f * 0.52; shard(m, Math.cos(a) * 0.3, 0.8 + Math.sin(a) * 0.3, -0.2, Math.cos(a), Math.sin(a), 0, 0.2, 0.045, 0.02, 0.3, hi, c); }
+    manchor(m, 3, 0, 0.8, -0.2);
+    m.glow = g0; m.stack([[0.25, 0.36], [0.29, 0.43], [0.22, 0.5]], 6, MINK, MINK);   // (a dark yoke they hang from)
+  } else {
+    // "pyre": fur and horn on both shoulders, and a heavy cloak split up the middle, torn at the hem and alight there
+    const rowCol = j => j < 2 ? MDARK : j === 2 ? L3.U.mix(MDARK, c, 0.3) : j === 3 ? L3.U.mix(c, MDARK, 0.35) : hi;
+    for (const sd of [-1, 1]) {
+      cloth(m, 2, 5, (u, v, q, i, j) => { const gap = Math.max(0, v - 0.45) * 0.24, zig = j === 5 ? ((i + f + (sd > 0 ? 1 : 0)) & 1 ? 0.13 : -0.04) : 0;
+        q[0] = sd * (0.015 + gap + u * (0.33 + 0.34 * v)); q[1] = drop(1.36, v) - zig; q[2] = back(v) - wave(sd * u, v, sd, 0.085) - (u * 0.06) * (1 - v); }, rowCol, j => j < 3 ? 0x2a1c22 : L3.U.mix(c, MDARK, 0.5), 3);
+      manchor(m, sd < 0 ? 0 : 2, sd * 0.72, drop(1.36, 1), back(1));
+      m.glow = g0; m.seed = 77 + sd;
+      RIG.attach(m, 1, sd * 0.27, 0.36, -0.02, 0, 0, sd * -0.25, 1);
+      m.stack([[0.2, 0], [0.25, 0.08], [0.17, 0.2], [0, 0.27]], 6, [0x241c20, 0x2e2428, 0x3a2e32], null, 0.2);
+      RIG.at(m, 1);
+      shard(m, sd * 0.3, 0.52, -0.04, sd * 0.62, 0.74, -0.24, 0.5, 0.055, 0.045, 0.2, MBONE, 0xcfc4ae);
+      shard(m, sd * 0.4, 0.46, 0.02, sd * 0.9, 0.4, -0.1, 0.32, 0.045, 0.04, 0.2, MBONE, 0xcfc4ae);
+    }
+    manchor(m, 1, 0, drop(1.36, 1), back(1)); manchor(m, 3, 0, 0.5, -0.2);
+    m.glow = g0; m.seed = 5; m.stack([[0.2, 0.4], [0.26, 0.46], [0.18, 0.54]], 6, [0x2e2428, 0x3a2e32], 0x2e2428, 0.15);
+  }
+  m.glow = g0; m.at(0, 0, 0);
+}
+// the mastery weapon, in the same look: built up +y from its grip (as the models are), where the hand holds it
+function buildRelic(m, look, kind, c, f) {
+  const g0 = m.glow, hi = L3.U.mix(c, 0xffffff, 0.45), dk = L3.U.mix(c, 0x0b0d10, 0.72);
+  const flat = (pts, col, th) => {                    // a flat blade from its outline (x, y pairs up one side and down the other), th thick
+    for (const z of [th, -th]) for (let i = 1; i + 1 < pts.length; i++) m.tri(pts[0][0], pts[0][1], z, pts[i][0], pts[i][1], z, pts[i + 1][0], pts[i + 1][1], z, col, 0, 0.8, -z * 9);
+  };
+  let tip = 1.5;
+  if (look === "signal") {
+    m.glow = g0; m.box(0, 0, 0, 0.055, 0.24, 0.055, 0x23262e); m.box(0, 0.24, 0, 0.36, 0.05, 0.08, MINK); m.box(-0.2, 0.2, 0, 0.05, 0.13, 0.08, MINK);
+    flat([[-0.075, 0.29], [0.1, 0.29], [0.1, 1.28], [-0.075, 1.56]], MINK, 0.022);
+    m.glow = 127; flat([[0.1, 0.29], [0.135, 0.29], [0.135, 1.24], [0.1, 1.28]], c, 0.024);          // its edge, alight
+    flat([[0.1, 1.28], [0.135, 1.24], [-0.075, 1.6], [-0.075, 1.56]], hi, 0.024);
+    for (let k = 0; k < 4; k++) m.box(-0.085, 0.42 + k * 0.2, 0, 0.03, 0.09, 0.06, k === (f ? 1 : 2) ? hi : c);   // teeth down its back
+    m.box(0, 0.255, 0, 0.14, 0.02, 0.1, c); m.box(0, 0.52, 0.024, 0.018, 0.6, 0.006, c); m.box(0, 0.52, -0.024, 0.018, 0.6, 0.006, c);
+    tip = 1.58;
+  } else if (look === "shard") {
+    m.glow = g0; m.box(0, 0, 0, 0.05, 0.26, 0.05, 0x1a1c24); m.box(0, 0.24, 0, 0.2, 0.04, 0.1, 0x23262e);
+    m.glow = 127; shard(m, 0, 0.2, 0, 0, 1, 0, 1.42, 0.14, 0.06, 0.24, c, hi);
+    shard(m, 0, 0.02, 0, 0, -1, 0, 0.16, 0.05, 0.05, 0.4, hi, c);
+    const o = f ? 0.05 : 0; shard(m, 0.2, 0.62 + o, 0, 0.1, 1, 0, 0.36, 0.045, 0.03, 0.3, hi, dk); shard(m, -0.19, 0.95 - o, 0, -0.1, 1, 0, 0.27, 0.04, 0.03, 0.3, c, dk); shard(m, 0.17, 1.2 + o * 0.6, 0, 0.05, 1, 0, 0.2, 0.03, 0.025, 0.3, hi, dk);
+    tip = 1.62;
+  } else {
+    m.glow = g0; m.box(0, 0, 0, 0.055, 0.25, 0.055, 0x3a1218); 
+    const P = [[-0.085, 0.3]], n = 6; for (let j = 0; j <= n; j++) { const y = 0.3 + j / n * 1.02; P.push([0.085 + (j & 1 ? 0.045 : -0.005) - j * 0.006, y]); } P.push([0, 1.56]); for (let j = n; j >= 1; j--) { const y = 0.3 + j / n * 1.02; P.push([-(0.085 + (j & 1 ? -0.005 : 0.045) - j * 0.006), y]); }
+    flat([[0, 0.3]].concat(P.slice(1)), 0x2a262c, 0.024);
+    m.glow = 127; flat([[-0.03, 0.32], [0.03, 0.32], [0.012, 1.34], [-0.012, 1.34]], c, 0.03); m.box(0, 0.26, 0, 0.1, 0.05, 0.09, hi);
+    m.glow = g0; shard(m, 0.04, 0.27, 0, 0.9, 0.42, 0, 0.3, 0.05, 0.045, 0.25, MBONE, 0xcfc4ae); shard(m, -0.04, 0.27, 0, -0.9, 0.42, 0, 0.3, 0.05, 0.045, 0.25, MBONE, 0xcfc4ae);
+    tip = 1.56;
+  }
+  manchor(m, 4, 0, 0.26, 0); manchor(m, 5, 0, tip, 0);
+  m.glow = g0;
+}
 // one pose's body into m (at the hips' place on the ground, facing +z)
-function buildBody(m, st, poseName, scale) {
+function buildBody(m, st, poseName, scale, flut) {
   let P = POSES[poseName] || POSES.idle0; const bulk = st.bulk || 1, thin = st.thin || 1, S = scale || 1;
   if (st.weapon === "bow" && /^(idle|walk)/.test(poseName)) P = Object.assign({}, P, { foreL: [1.35, 0, 0], armL: [0.2, 0.1, 0] });   // (a bow held ready, upright)
   RIG.pose(P, S, bulk);
@@ -544,7 +778,9 @@ function buildBody(m, st, poseName, scale) {
   part(11, () => m.box(0, -0.07, 0.05, 0.13 * Math.sqrt(bulk), 0.08, 0.24, st.boots)); part(14, () => m.box(0, -0.07, 0.05, 0.13 * Math.sqrt(bulk), 0.08, 0.24, st.boots));
   m.glow = glow0;
   // what's held: a weapon in the right hand (a bow in the left), a shield on the left arm
-  const w = st.weapon;
+  const w = st.relic ? null : st.weapon;
+  if (st.relic) { const sz = st.relic.size || 1; RIG.attach(m, 5, 0, -0.09, -0.1 * sz, 0, Math.PI / 2, 0, sz); buildRelic(m, st.relic.look, st.relic.kind, st.relic.col, flut ? 1 : 0); }
+  if (st.mantle) buildMantle(m, st.mantle.look, st.mantle.col, poseName, flut ? 1 : 0);
   if (w && MODELS[w]) {
     const sz = (WSIZE[w] || 1) * (st.bulk ? Math.max(1, st.bulk * 0.9) : 1);
     if (w === "bow") RIG.attach(m, 8, 0, -0.08, 0.02, 0, Math.PI / 2, 0, sz);
@@ -571,8 +807,10 @@ function delverStyle(d) {
   return { skin: SKIN[L.skin], hair: HAIR[L.hair], cloth: g.chest ? mix(CLOTH[L.cloth], t("chest"), 0.55) : CLOTH[L.cloth], legs: mix(CLOTH[L.cloth], 0x2a2420, 0.6),
     boots: t("boots") || 0x4a3426, gloves: t("gloves") || SKIN[L.skin], head: g.helm ? "helmet" : "hair", helmCol: t("helm"), bulk: [0.92, 1.0, 1.12][L.build],
     pads: g.chest && g.chest.tier >= 2 ? t("chest") : null, weapon: g.weapon ? weaponModel(g.weapon) : null, kind: g.weapon ? g.weapon.kind : "blade",
-    shine: g.weapon && g.weapon.r >= 3 ? RARITY[g.weapon.r].col : 0 };
+    shine: g.weapon && g.weapon.r >= 3 ? RARITY[g.weapon.r].col : 0,
+    mantle: SHOW && SHOW.look ? { look: SHOW.look, col: SHOW.col } : null, relic: SHOW && SHOW.look ? { look: SHOW.look, kind: "blade", col: SHOW.col, size: 1 } : null };
 }
+let SHOW = null;                                     // (#test: a close look at the delver, for pictures of the mastery gear)
 function weaponModel(it) { return KINDS[it.kind].models[clamp(it.tier, 0, 5)]; }
 function putModel(m, name, x, y, z, yaw, s, tint) { m.at(x, y, z, yaw || 0, s || 1); emitModel(m, name, tint); }
 const tintTo = (to, k) => (c, glow) => glow ? c : mix(c, to, k);   // (lit parts keep their colour)
@@ -738,7 +976,10 @@ function buildTown(w, r, place, prop, node) {
   for (const [x, z, a] of houses) { w.deco.push({ kind: "house", x, z, yaw: a, s: 1 + r() * 0.3, seed: (r() * 1e6) | 0 }); w.blocks.add(x, z, 3.6); }
   for (const [x, z] of [[-6, -3], [6, -3], [-6, 13], [6, 13], [-3, -14], [10, -14], [-18, 3], [18, 3]]) { w.deco.push({ kind: "lamp", x, z }); w.blocks.add(x, z, 0.3); w.lamps.push([x, w.h(x, z) + 2.4, z]); }
   for (let k = 0; k < 120; k++) { const p = place(0.3, 6); if (p) w.deco.push({ kind: "tuft", x: p[0], z: p[1], s: 0.6 + r() * 0.6, seed: (r() * 1e6) | 0 }); }
-  for (let k = 0; k < 16; k++) { const p = place(1.2, 20); if (p && Math.hypot(p[0], p[1]) > 9) { w.deco.push({ kind: "tree", x: p[0], z: p[1], s: 0.8 + r() * 0.5, seed: (r() * 1e6) | 0 }); w.blocks.add(p[0], p[1], 0.7); } }
+  for (let k = 0; k < 18; k++) { const p = place(1.2, 20); if (p && Math.hypot(p[0], p[1]) > 9) { const t = k % 5 === 4 ? 1 : 0; node("tree", p[0], p[1], { tree: t, left: WR.NODE.tree.holds, back: WR.NODE.tree.back, s: 0.8 + r() * 0.4, seed: (r() * 1e6) | 0 }); w.blocks.add(p[0], p[1], 0.55); } }
+  for (let k = 0; k < 8; k++) { const a = 0.5 + k * 0.72, x = Math.cos(a) * 33, z = Math.sin(a) * 33 + 4, p = place(1.2, 30, [x, z, 4]); if (p) { node("ore", p[0], p[1], { ore: k % 4 === 3 ? 1 : 0, left: WR.NODE.ore.holds, back: WR.NODE.ore.back }); w.blocks.add(p[0], p[1], 0.8); } }
+  station("furnace", -19, -1.5, "The furnace: smelt ore into bars", "hearth", 0.75, 0.9, 1.3);
+  station("kin", 17, 2.5, "The kinstone: bind and call your creatures", "oathstone", 2.0, -0.4, 0.8);
   for (let k = 0; k < 20; k++) { const a = r() * TAU, x = w.maw.x + Math.cos(a) * (w.maw.r + 1.5), z = w.maw.z + Math.sin(a) * (w.maw.r + 1.5); if (z > w.maw.z + w.maw.r - 1 && Math.abs(x) < 4) continue; w.deco.push({ kind: "crag", x, z, s: 1 + r() * 1.4, seed: (r() * 1e6) | 0, wall: true }); }
   // the townsfolk: the smith, the herbalist and the weaver at their places, three more about the square
   w.folk = [
@@ -787,11 +1028,36 @@ function decoMesh(w, d, m, glowM) {
       glowM.at(d.x, y, d.z, d.yaw, d.s); glowM.box(-1.4, 1.2, 2.13, 0.8, 0.7, 0.04, 0xffc870); glowM.box(1.4, 1.2, 2.13, 0.8, 0.7, 0.04, 0xffc870); break; }
   }
 }
+// a tree of each kind, where it stands; spent: its stump
+function treeMesh(m, glowM, x, y, z, tier, s, seed, spent) {
+  const trunk = TRUNKCOL[tier], leaf = TREECOL[tier], lf2 = U.shade(leaf, 1.14), lf0 = U.shade(leaf, 0.84); m.seed = seed;
+  if (spent) { m.at(x, y, z, seed % 6, s); m.stack([[0.34, 0], [0.27, 0.42]], 6, trunk, mix(trunk, 0xd8c8a0, 0.55)); return; }
+  switch (tier) {
+    case 0: m.at(x, y, z, seed % 6, s); m.stack([[0.26, 0], [0.2, 2.7]], 5, trunk, null);
+      m.stack([[1.55, 2.5], [0, 5.2]], 7, lf0); m.stack([[1.2, 4.0], [0, 6.4]], 7, leaf); m.stack([[0.8, 5.4], [0, 7.3]], 7, lf2); break;
+    case 1: m.at(x, y, z, seed % 6, s); m.stack([[0.19, 0], [0.15, 3.1]], 5, trunk, null); m.box(0, 0.7, 0, 0.36, 0.09, 0.36, 0x2a2a2e); m.box(0, 1.8, 0, 0.32, 0.07, 0.32, 0x2a2a2e);
+      m.stack([[0, 2.6], [1.15, 3.3], [1.3, 4.2], [0.85, 5.2], [0, 5.7]], 7, [lf0, leaf, lf2, lf2], null, 0.12); break;
+    case 2: m.at(x, y, z, seed % 6, s); m.stack([[0.26, 0], [0.2, 2.8]], 5, trunk, null);
+      m.stack([[0, 2.5], [1.5, 3.2], [1.65, 4.0], [0.95, 4.8], [0, 5.1]], 7, [lf0, leaf, lf2, lf2], null, 0.14);
+      glowM.at(x, y, z, seed % 6, s); for (let k = 0; k < 6; k++) { const a = k * 1.05 + seed; glowM.box(Math.cos(a) * 1.3, 3.3 + (k % 3) * 0.45, Math.sin(a) * 1.3, 0.2, 0.2, 0.2, 0xff4a5a); } break;
+    case 3: m.at(x, y, z, seed % 6, s, s, s, 0, 0.14); m.stack([[0.3, 0], [0.2, 1.5]], 5, trunk, null); m.at(x + 0.2 * s, y + 1.4 * s, z, seed % 6, s, s, s, 0, -0.3); m.stack([[0.2, 0], [0.12, 1.5]], 5, trunk, null);
+      m.at(x, y, z, seed % 6, s); for (let k = 0; k < 3; k++) { const a = k * 2.1 + seed; m.at(x + Math.cos(a) * 0.8 * s, y + (2.7 + k * 0.5) * s, z + Math.sin(a) * 0.8 * s, a, s); m.stack([[0, 0], [1.1, 0.35], [0.9, 0.8], [0, 1.1]], 6, [lf0, leaf, lf2], null, 0.2);
+        for (let q = 0; q < 3; q++) { const b = q * 2.1 + k; m.box(Math.cos(b) * 1.1, 0.4, Math.sin(b) * 1.1, 0.06, 0.5, 0.06, 0xc8b8d8); } } break;
+    case 4: m.at(x, y, z, seed % 6, s * 1.15); m.stack([[0.5, 0], [0.4, 1.8], [0.36, 3.7]], 6, [trunk, U.shade(trunk, 0.85)], null); m.box(0, 1.2, 0, 0.95, 0.12, 0.95, 0x3a4048);
+      m.stack([[0, 3.3], [1.9, 4.0], [2.1, 5.0], [1.3, 6.2], [0, 7.0]], 8, [lf0, leaf, lf2, lf2], null, 0.1); break;
+    default: m.at(x, y, z, seed % 6, s * 1.1); m.stack([[0.34, 0], [0.24, 2.4], [0.14, 3.6]], 5, trunk, null);
+      for (let k = 0; k < 3; k++) { const a = k * 2.1 + seed; m.at(x, y + 2.3 * s, z, a, s * 1.1, s * 1.1, s * 1.1, 0.9); m.stack([[0.11, 0], [0.05, 1.5]], 4, trunk, null); }
+      m.at(x, y, z, seed % 6, s * 1.1); m.stack([[0, 2.9], [1.7, 3.6], [1.9, 4.5], [1.0, 5.5], [0, 6.0]], 7, [0x4a2a6a, 0x5a3280, 0x6a3a92, 0x7a44a4], null, 0.16);
+      glowM.at(x, y, z, seed % 6, s * 1.1); for (let k = 0; k < 9; k++) { const a = k * 0.7 + seed, r = 1.2 + (k % 3) * 0.35; glowM.at(x + Math.cos(a) * r * s, y + (3.3 + (k % 4) * 0.6) * s, z + Math.sin(a) * r * s, a, s); glowM.ico(0.2, k & 1 ? leaf : 0xb06cff); }
+  }
+}
 // a node's look: ore in its rock, a herb, the waystone, the stair's gate…
 function nodeMesh(w, nd, m, glowM) {
   const st = w.st, y = nd.y;
   switch (nd.kind) {
+    case "tree": treeMesh(m, glowM, nd.x, y, nd.z, nd.tree, nd.s || 1, nd.seed || 1, !nd.on); break;
     case "ore": { m.seed = (nd.x * 977) | 0; L3.Kit.rock(m, nd.x, nd.z, 0.9, 0.9, [st.wall[0], st.wall[1], st.wall[2]], st.wall[2], 0.25);
+      if (!nd.on) break;
       glowM.at(nd.x, y, nd.z, nd.x, 1); for (let k = 0; k < 4; k++) { const a = k * 1.6; glowM.at(nd.x + Math.cos(a) * 0.45, y + 0.35 + k * 0.12, nd.z + Math.sin(a) * 0.45, a, 0.7); glowM.ico(0.16, ORECOL[nd.ore]); } break; }
     case "herb": { m.at(nd.x, y, nd.z, nd.x, 1); for (let k = 0; k < 7; k++) { const a = k / 7 * TAU; m.both(0, 0, 0, Math.cos(a) * 0.45, 0.35, Math.sin(a) * 0.45, Math.cos(a + 0.35) * 0.3, 0.55, Math.sin(a + 0.35) * 0.3, 0x2e5a2e); }
       glowM.at(nd.x, y, nd.z, 0, 1); for (let k = 0; k < 3; k++) { const a = k * 2.1; glowM.box(Math.cos(a) * 0.18, 0.55, Math.sin(a) * 0.18, 0.1, 0.12, 0.1, HERBCOL[nd.herb]); } break; }
@@ -809,13 +1075,34 @@ function newDelver(name, look, kind) {
     kills: 0, falls: 0, time: 0, ended: false, endless: 0, seed: (Math.random() * 1e9) | 0, made: Date.now() };
   const w = makeItem("weapon", 0, 1, 0, kind); w.n = BASES[kind][0]; d.gear.weapon = w;
   d.gear.chest = nameItem(makeItem("chest", 0, 1, 0));
+  return ensure(d);
+}
+// what a delver has had since the skills came (one made before them gets it all as they wake): each skill's xp, bars,
+// logs and embers beside the ore, what's kept in the stash, the pick and the hatchet, the creatures bound and found,
+// the best weapon that has dropped (the mastery weapons follow it), and the skills mastered
+const WR = window.WyrdRules, SIX = () => [0, 0, 0, 0, 0, 0];
+function ensure(d) {
+  d.sk = Object.assign({ mine: 0, smith: 0, wood: 0, fire: 0, summon: 0 }, d.sk || {});
+  d.bars = d.bars || SIX(); d.logs = d.logs || SIX(); d.embers = d.embers || 0; d.heat = d.heat || 0; d.glow = d.glow || 0;
+  d.store = d.store || { ore: SIX(), bars: SIX(), logs: SIX() };
+  d.tools = d.tools || { pick: 0, axe: 0 };
+  d.kin = d.kin || { have: [], found: [], pet: null, ride: null, seek: {}, at: {} };
+  d.mastered = d.mastered || []; d.best = d.best || null;
+  if (!("mantle" in d.gear)) d.gear.mantle = null;
   return d;
 }
+const lv = k => WR.levelOf(D.sk[k]);
+const kinOf = id => { for (let i = 0; i < WR.KIN.length; i++) if (WR.KIN[i].id === id) return WR.KIN[i]; return null; };
+const mastered = k => D.mastered.indexOf(k) >= 0 && D.gear.mantle && D.gear.mantle.m === k;   // (its mantle worn: its perk counts)
+// the pet walking with you, if its help is of this kind: how much (0: none). Summoning's mantle makes it half as much again
+function petHelp(kind) { const p = D.kin.pet && kinOf(D.kin.pet); if (!p || p.help !== kind) return 0; return (p[kind] || 1) * (mastered("summon") ? 1.5 : 1); }
+function packCount() { let n = 0; for (let i = 0; i < 6; i++) n += D.ore[i] + D.bars[i] + D.logs[i]; return n; }
+function packMax() { const p = D.kin.pet && kinOf(D.kin.pet), r = D.kin.ride && kinOf(D.kin.ride); return WR.PACK + (p && p.carry ? Math.round(p.carry * (mastered("summon") ? 1.5 : 1)) : 0) + (r && r.carry ? r.carry : 0); }
 let S = null;
 function recalc() {
   const s = { might: 0, vigor: 0, guard: 0, haste: 0, keen: 0, leech: 0, focus: 0, fortune: 0, swift: 0, delve: 0 };
   let armour = 0;
-  for (const k of SLOTS) { const it = D.gear[k]; if (!it) continue; for (const [a, v] of it.a) s[a] += v; if (k !== "weapon") armour += power(it); }
+  for (const k of WORN) { const it = D.gear[k]; if (!it) continue; for (const [a, v] of it.a) s[a] += v; if (k !== "weapon") armour += power(it); }
   const wpn = D.gear.weapon, L = D.level;
   s.kind = wpn ? wpn.kind : "blade";
   s.armour = Math.round(armour + s.guard);
@@ -853,6 +1140,7 @@ function enterWorld(kind, fi) {
   if (!H) H = hero();
   H.x = W.start.x; H.z = W.start.z; H.yaw = W.start.yaw; H.act = null; H.dead = false; H.inv = 1.2; H.gather = null; H.target = null; H.vx = H.vz = 0;
   H.y = W.h(H.x, H.z);
+  G.pet = { x: H.x - 1.2, z: H.z + 1.2, yaw: 0, t: 0, mv: 0 }; H.ride = false;
   for (const s of W.spawns) spawnFoe(s.foe, s.x, s.z, W.lvl + (s.elite ? 1 : 0), s.elite, false);
   if (W.boss) { G.boss = spawnFoe(W.boss.key, W.boss.x, W.boss.z, W.lvl + 1, false, true); G.boss.st = "sleep"; G.boss.yaw = 0; }
   if (kind !== "town") { D.floor = fi; D.deepest = Math.max(D.deepest, fi); if (fi >= 18) D.endless = Math.max(D.endless || 0, fi - 17); }
@@ -896,7 +1184,14 @@ function nearNode() {                                // what A would work, in re
   return best;
 }
 function canAct() { return !H.dead && (!H.act || H.act === "walk") && !H.gather; }
+function toggleRide() {
+  const c = D.kin.ride && kinOf(D.kin.ride);
+  if (!c) { toast("No mount yet: Summoning 18, and a saddle from the anvil", PINK); sfx("no"); return; }
+  if (!canAct() && !H.ride) return;
+  H.ride = !H.ride; H.gather = null; sfx(H.ride ? "mount" : "roll"); burst(H.x, H.y + 0.6, H.z, 10, WR.SKILL.summon.col, 3);
+}
 function startAttack() {
+  H.ride = false;
   const K = KINDS[S.kind], haste = 1 + (stat("haste") + (H.buff.haste > 0 ? 25 : 0)) / 100;
   const ranged = S.kind === "bow" || S.kind === "staff";
   let t = nearestFoe(H.x, H.z, ranged ? 15 : 4.2, H.yaw, ranged ? 1.0 : 1.6) || nearestFoe(H.x, H.z, ranged ? 9 : 3.2);
@@ -948,6 +1243,7 @@ function shoot(x, z, yaw, o) {                       // something flying: an arr
 function skill(which) {
   const K = KINDS[S.kind], sk = K[which], cd = which === "x" ? H.cdX : H.cdY;
   if (!canAct() || cd > 0) { if (cd > 0) sfx("no"); return; }
+  H.ride = false;
   if (H.focus < sk.cost) { toast("Not enough focus", PINK); sfx("no"); return; }
   H.focus -= sk.cost; if (which === "x") H.cdX = sk.cd; else H.cdY = sk.cd;
   const t = nearestFoe(H.x, H.z, 12, H.yaw, 1.2) || nearestFoe(H.x, H.z, 8);
@@ -973,7 +1269,7 @@ function dodge() {
   if (H.act && H.act !== "walk" && H.at < H.dur * 0.35) { /* a roll cancels the start of a swing */ }
   else if (H.act && H.act !== "walk") return;
   const mv = moveInput(); if (mv[0] || mv[1]) H.yaw = Math.atan2(mv[0], mv[1]);
-  H.act = "roll"; H.at = 0; H.dur = 0.4; H.inv = 0.42; H.cdB = 0.55; H.gather = null; sfx("roll");
+  H.act = "roll"; H.at = 0; H.dur = 0.4; H.inv = 0.42; H.cdB = 0.55; H.gather = null; H.ride = false; sfx("roll");
 }
 function drink() {
   if (H.dead || H.cdD > 0) return;
@@ -988,6 +1284,7 @@ function heroHurt(dmg, from) {
   num(H.x, H.y + 2, H.z, d, RED); sfx("hurt");
   if (input && input.player) { try { const p = window.SofaPad; if (p && p.rumble) p.rumble(0.5, 0.3, 120); } catch (e) { /* no rumble */ } }
   if (H.gather) H.gather = null;
+  H.ride = false;
   if (H.hp <= 0) heroFalls();
 }
 function heroFalls() {
@@ -1009,12 +1306,15 @@ function updateHero(dt) {
   if (H.dead) { H.at += dt; return; }
   const mv = moveInput();
   let speed = 0;
-  if (H.gather) {                                     // mining or picking: still, a moment
-    H.gather.t += dt;
+  if (H.gather) {                                     // at work: still, a swing at a time, till it's spent or the pack is full
+    const g = H.gather; g.t += dt;
     if (mv[0] || mv[1]) H.gather = null;
-    else if (H.gather.t >= H.gather.dur) { finishGather(H.gather.nd); H.gather = null; }
+    else {
+      if (!g.hit && g.t >= g.dur * 0.55) { g.hit = true; if (g.snd) sfx(g.snd); }
+      if (g.t >= g.dur) { if (workDone(g)) { g.t = 0; g.hit = false; if (g.again) g.dur = g.again(); } else if (H.gather === g) H.gather = null; }
+    }
   } else if (!H.act || H.act === "walk") {
-    if (mv[0] || mv[1]) { const want = Math.atan2(mv[0], mv[1]); H.yaw += wrap(want - H.yaw) * Math.min(1, dt * 14); speed = s.speed * Math.min(1, Math.sqrt(mv[0] * mv[0] + mv[1] * mv[1]) * 1.25); H.act = "walk"; }
+    if (mv[0] || mv[1]) { const want = Math.atan2(mv[0], mv[1]); H.yaw += wrap(want - H.yaw) * Math.min(1, dt * 14); speed = s.speed * Math.min(1, Math.sqrt(mv[0] * mv[0] + mv[1] * mv[1]) * 1.25) * (H.ride ? kinOf(D.kin.ride).speed : 1); H.act = "walk"; }
     else H.act = null;
     if (speed) { H.x += Math.sin(H.yaw) * speed * dt; H.z += Math.cos(H.yaw) * speed * dt; H.walkT += dt * speed / 1.9; }
   } else {
@@ -1066,8 +1366,10 @@ function updateHero(dt) {
 // ---------------------------------------------------------------- gathering, chests, shrines, urns, the stations
 function interact(nd) {
   switch (nd.kind) {
-    case "ore": H.gather = { nd, t: 0, dur: 1.1 }; H.yaw = Math.atan2(nd.x - H.x, nd.z - H.z); sfx("mine"); break;
-    case "herb": H.gather = { nd, t: 0, dur: 0.7 }; H.yaw = Math.atan2(nd.x - H.x, nd.z - H.z); sfx("herb"); break;
+    case "ore": case "tree": gatherStart(nd); break;
+    case "herb": H.gather = { job: "herb", nd, t: 0, dur: 0.7 }; H.yaw = Math.atan2(nd.x - H.x, nd.z - H.z); sfx("herb"); break;
+    case "fire": feedFire(nd); break;
+    case "furnace": case "kin": openShop(nd.kind); break;
     case "chest": nd.on = false; sfx("chest"); { const n = 2 + (R() < 0.4 ? 1 : 0); for (let k = 0; k < n; k++) dropLoot(nd.x, nd.z, W.lvl + 1, k === 0 ? 1 : 0, true); dropCoin(nd.x, nd.z, 8 + W.lvl * 4); } openChestMesh(nd); break;
     case "shrine": nd.on = false; H.buff[nd.boon] = 60; sfx("boon"); toast(({ might: "Might: +30% damage", haste: "Haste: +25% attack speed", guard: "Guard: +40 armour", focus: "Focus flows faster" })[nd.boon] + " for a minute", GREEN);
       G.rings.push({ x: nd.x, z: nd.z, r: 0.5, grow: 10, life: 0.6, col: W.st.glow }); break;
@@ -1078,12 +1380,88 @@ function interact(nd) {
     case "smith": case "herbalist": case "loom": case "stash": openShop(nd.kind); break;
   }
 }
-function finishGather(nd) {
-  const more = 1 + stat("delve") / 100;
-  if (nd.kind === "ore") { const n = Math.max(1, Math.round((1 + R() * 2) * more)); D.ore[nd.ore] += n; toast("+" + n + " " + ORES[nd.ore], ORECOL[nd.ore]); sfx("ore"); }
-  else { const n = Math.max(1, Math.round((1 + R()) * more)); D.herbs[nd.herb] += n; toast("+" + n + " " + HERBS[nd.herb], HERBCOL[nd.herb]); sfx("herb"); }
-  burst(nd.x, nd.y + 0.6, nd.z, 10, nd.kind === "ore" ? ORECOL[nd.ore] : HERBCOL[nd.herb], 3);
-  nd.left--; if (nd.left <= 0) { nd.on = false; nodeGone(nd); }
+// a rock or a tree: is the skill high enough, is there room, then a swing at a time (see workDone)
+const swingTime = k => WR.swing(k === "mine" ? D.tools.pick : D.tools.axe) * (1 - Math.min(0.5, petHelp("quick")));
+function gatherStart(nd) {
+  const ore = nd.kind === "ore", k = ore ? "mine" : "wood", tier = ore ? nd.ore : nd.tree, need = WR.TIER_LVL[tier];
+  if (lv(k) < need) { toast(WR.SKILL[k].name + " " + need + " is needed for " + (ore ? ORES[tier] : WR.TREES[tier]), PINK); sfx("no"); return; }
+  if (packCount() >= packMax()) { toast("Your pack is full: store it in Hearthrim, or smelt and burn it", PINK); sfx("no"); return; }
+  if (H.ride) H.ride = false;
+  H.gather = { job: ore ? "ore" : "tree", nd, k, tier, t: 0, dur: swingTime(k), snd: ore ? "mine" : "chop", again: () => swingTime(k) };
+  H.yaw = Math.atan2(nd.x - H.x, nd.z - H.z);
+}
+// a swing lands: true to go on with the next one
+function workDone(g) {
+  const nd = g.nd;
+  if (g.job === "herb") {
+    const n = Math.max(1, Math.round((1 + R()) * (1 + stat("delve") / 100))); D.herbs[nd.herb] += n; toast("+" + n + " " + HERBS[nd.herb], HERBCOL[nd.herb]); sfx("herb");
+    burst(nd.x, nd.y + 0.6, nd.z, 10, HERBCOL[nd.herb], 3); nd.left--; if (nd.left <= 0) { nd.on = false; nodeGone(nd); }
+    return false;
+  }
+  if (g.job === "ore" || g.job === "tree") {
+    const ore = g.job === "ore", tier = g.tier, col = ore ? ORECOL[tier] : TREECOL[tier], room = packMax() - packCount();
+    if (!nd.on) return false;
+    burst(nd.x, nd.y + (ore ? 0.7 : 1.2), nd.z, 5, ore ? 0xc8c0b0 : TRUNKCOL[tier], 3);
+    if (R() < WR.chance(lv(g.k), tier)) {
+      let n = 1; if (R() < petHelp("gather")) n++; if (mastered(g.k) && R() < 1 / 6) n++; if (R() * 100 < stat("delve")) n++;
+      n = Math.min(n, room);
+      (ore ? D.ore : D.logs)[tier] += n; sfx(ore ? "ore" : "log");
+      drop(nd.x, nd.y + 2.6, nd.z, "+" + n + " " + (ore ? ORES[tier] : WR.TREES[tier]), mix(col, 0xffffff, ore ? 0.25 : 0.55)); gainSkill(g.k, WR.GATHER_XP[tier] * n, nd.x, nd.y + 2.1, nd.z);
+      burst(nd.x, nd.y + 0.8, nd.z, 8, col, 3); seek(g.k);
+      nd.left--;
+      if (nd.left <= 0) { nd.on = false; if (nd.back) { nd.spent = true; nd.backT = nd.back; } nodeGone(nd); if (!ore) sfx("fell"); return false; }
+      if (room - n <= 0) { toast("Your pack is full", PINK); return false; }
+    }
+    return true;
+  }
+  if (g.job === "light") {                            // a fire where the delver knelt
+    const t = g.tier; if (D.logs[t] <= 0) return false;
+    const f = { kind: "fire", x: g.x, z: g.z, y: W.h(g.x, g.z), on: true, dyn: true, tier: t, burn: 0, label: "Feed the fire" };
+    W.nodes.push(f); burnLog(f, t);
+    return false;
+  }
+  if (g.job === "feed") { const t = bestLog(); if (t < 0 || !nd.on) return false; burnLog(nd, t); return bestLog() >= 0; }
+  if (g.job === "smelt") return smeltOne(g);
+  return false;
+}
+// ---- fires: a log is lit where you stand, more are fed to it; it mends who stands by it and leaves embers
+function bestLog() { const L = lv("fire"); for (let t = 5; t >= 0; t--) if (D.logs[t] > 0 && L >= WR.TIER_LVL[t]) return t; return -1; }
+function burnLog(f, t) {
+  D.logs[t]--; D.embers += mastered("fire") ? 2 : 1;
+  f.burn = Math.min(150, f.burn + (24 + t * 4) * (WR.fireCan(lv("fire"), "Long burning") ? 2 : 1)); f.tier = Math.max(f.tier, t); f.flare = 0.5;
+  sfx("kindle"); burst(f.x, f.y + 0.5, f.z, 12, 0xffb04a, 4);
+  gainSkill("fire", WR.BURN_XP[t], f.x, f.y + 1.9, f.z); seek("fire");
+}
+function nearFire(r) { let best = null, bd = r * r; for (const nd of W.nodes) if (nd.kind === "fire" && nd.on) { const d = dist2(H.x, H.z, nd.x, nd.z); if (d < bd) { best = nd; bd = d; } } return best; }
+function lightFire() {
+  if (!canAct()) return;
+  const f = nearFire(3); if (f) { feedFire(f); return; }
+  const t = bestLog();
+  if (t < 0) { const any = D.logs.findIndex(n => n > 0); toast(any < 0 ? "No logs to burn: fell a tree first" : "Firemaking " + WR.TIER_LVL[any] + " is needed to burn " + WR.TREES[any], PINK); sfx("no"); return; }
+  let x = 0, z = 0, ok = false;                       // in front of the delver, or the nearest clear ground round them
+  for (let k = 0; k < 8 && !ok; k++) { const a = H.yaw + (k & 1 ? -1 : 1) * ((k + 1) >> 1) * 0.785; x = H.x + Math.sin(a) * 1.15; z = H.z + Math.cos(a) * 1.15; ok = W.inside(x, z, 0.05) && W.blocks.free(x, z, 0.45); if (ok) H.yaw = a; }
+  if (!ok) { toast("No room for a fire here", PINK); sfx("no"); return; }
+  if (H.ride) H.ride = false;
+  H.gather = { job: "light", t: 0, dur: 1.1, tier: t, x, z, snd: "strike" };
+}
+function feedFire(f) {
+  if (bestLog() < 0) { toast(D.logs.some(n => n > 0) ? "These logs are beyond your Firemaking yet" : "No logs to feed it", PINK); sfx("no"); return; }
+  H.gather = { job: "feed", nd: f, t: 0, dur: 0.7 }; H.yaw = Math.atan2(f.x - H.x, f.z - H.z);
+}
+// the rocks and trees that come back, the fires that burn down, the warmth of a fire
+let nodeT = 0;
+function updateNodes(dt) {
+  if (D.glow > 0) D.glow -= dt;
+  nodeT += dt; if (nodeT < 0.25) return; const d = nodeT; nodeT = 0;
+  for (let i = W.nodes.length - 1; i >= 0; i--) {
+    const nd = W.nodes[i];
+    if (nd.spent) { nd.backT -= d; if (nd.backT <= 0) { nd.spent = false; nd.on = true; nd.left = WR.NODE[nd.kind].holds; nodeGone(nd); } }
+    else if (nd.kind === "fire") {
+      nd.burn -= d; if (nd.flare > 0) nd.flare -= d;
+      if (nd.burn <= 0) { nd.on = false; W.nodes.splice(i, 1); burst(nd.x, nd.y + 0.3, nd.z, 8, 0x8a8a8a, 2); continue; }
+      if (!H.dead && dist2(H.x, H.z, nd.x, nd.z) < 16) { H.hp = Math.min(S.hpMax, H.hp + S.hpMax * 0.06 * d); if (WR.fireCan(lv("fire"), "Hearthglow")) { if (D.glow <= 0) toast("Hearthglow: a tenth more from every skill", WR.SKILL.fire.col); D.glow = 600; } }
+    }
+  }
 }
 function breakUrn(nd) {
   nd.on = false; nodeGone(nd); sfx("smash"); burst(nd.x, nd.y + 0.5, nd.z, 14, 0xc8b090, 4);
@@ -1094,7 +1472,7 @@ function breakUrn(nd) {
 // ---------------------------------------------------------------- what falls: coin, thread, draughts, pieces
 function dropCoin(x, z, n) { const v = Math.max(1, Math.round(n * (1 + stat("fortune") / 100) * (0.7 + R() * 0.6))); G.drops.push({ kind: "coin", n: v, x: x + rr(-0.6, 0.6), z: z + rr(-0.6, 0.6), y: 0, t: 0 }); }
 function dropLoot(x, z, lvl, luck, big) {
-  const slot = pick(SLOTS), r = rollRarity(lvl, luck), it = makeItem(slot, tierOf(lvl), lvl, r);
+  const slot = pick(SLOTS), r = rollRarity(lvl, luck), it = makeItem(slot, tierOf(lvl), lvl, r); noteBest(it);
   G.drops.push({ kind: "item", item: it, x: x + rr(-1, 1), z: z + rr(-1, 1), y: 0, t: 0 });
   if (r >= 3) sfx(r === 4 ? "legend" : "rare");
 }
@@ -1131,6 +1509,44 @@ function gainXp(n) {
     toast("Level " + D.level + "!", GREEN); sfx("level"); burst(H.x, H.y + 1, H.z, 30, GREEN, 6); G.rings.push({ x: H.x, z: H.z, r: 0.4, grow: 9, life: 0.6, col: GREEN });
   }
 }
+// ---------------------------------------------------------------- the skills: xp won, levels, and what a level opens
+function gainSkill(k, xp, x, y, z) {
+  const top = WR.TOTAL[WR.MAX]; if (!(xp > 0) || D.sk[k] >= top) return 0;
+  const before = lv(k), n = Math.max(1, Math.round(xp * (1 + (D.glow > 0 ? 0.1 : 0) + petHelp("learn"))));
+  D.sk[k] = Math.min(top, D.sk[k] + n);
+  G.track = k; G.trackT = 5;
+  if (x != null) drop(x, y, z, "+" + n + " XP", WR.SKILL[k].col);
+  const after = lv(k);
+  if (after > before) levelUp(k, before, after);
+  if (k !== "summon" && D.kin.pet) gainSkill("summon", n * WR.KINSHIP);
+  return n;
+}
+function drop(x, y, z, text, col) { G.nums.push({ x, y, z, v: text, col, t: 0, slow: 1 }); if (G.nums.length > 30) G.nums.shift(); }   // (xp and what was gathered: always shown)
+function levelUp(k, from, to) {
+  const S_ = WR.SKILL[k];
+  toast(S_.name + " " + to + "!", S_.col); sfx("skillup"); burst(H.x, H.y + 1, H.z, 26, S_.col, 6); G.rings.push({ x: H.x, z: H.z, r: 0.4, grow: 9, life: 0.6, col: S_.col });
+  for (let t = 1; t < 6; t++) if (WR.TIER_LVL[t] > from && WR.TIER_LVL[t] <= to) {
+    if (k === "mine") toast("You can mine " + ORES[t] + " now", ORECOL[t]); else if (k === "wood") toast("You can fell " + WR.TREES[t] + " now", TREECOL[t]);
+    else if (k === "smith") toast("You can work " + ORES[t] + " now", ORECOL[t]); else if (k === "fire") toast("You can burn " + WR.TREES[t] + " now", TREECOL[t]);
+  }
+  if (k === "fire") for (const f of WR.FIRE) if (f.lvl > from && f.lvl <= to) toast(f.name + ": " + f.about, S_.col);
+  if (k === "summon") for (const c of WR.KIN) if (c.lvl > from && c.lvl <= to) toast(c.kind === "mount" ? "A " + c.name + " would answer a saddle now" : "A " + c.name + " might take to you now", S_.col);
+  if (to >= WR.MAX) master(k);
+  store();
+}
+// a pet shows itself after so many tries at its trade, once Summoning is high enough for it (one at a time, the lowest first)
+function seek(trade) {
+  const K = D.kin;
+  for (const c of WR.KIN) {
+    if (c.kind !== "pet" || c.found !== trade || K.have.indexOf(c.id) >= 0 || K.found.indexOf(c.id) >= 0) continue;
+    if (lv("summon") < c.lvl) return;
+    K.seek[c.id] = (K.seek[c.id] || 0) + 1;
+    if (!K.at[c.id]) K.at[c.id] = WR.FIND[0] + ri(WR.FIND[1] - WR.FIND[0]);
+    if (K.seek[c.id] >= K.at[c.id]) { K.found.push(c.id); toast("A " + c.name + " has taken to you: bind it at a kinstone", WR.SKILL.summon.col); say("A " + c.name + " follows you", 4); sfx("rare"); burst(H.x, H.y + 1, H.z, 20, WR.SKILL.summon.col, 5); store(); }
+    return;
+  }
+}
+function master(k) { if (D.mastered.indexOf(k) < 0) D.mastered.push(k); }
 function pickUp(dt) {
   for (let i = G.drops.length - 1; i >= 0; i--) {
     const d = G.drops[i]; d.t += dt;
@@ -1405,10 +1821,10 @@ function buildNodeCells() {
     if (c.h) { g3.free(c.h); c.h = null; }
     const m = new L3.Mesh(1024), gm = new L3.Mesh(256);
     for (const nd of w.nodes) {
-      if (nd.cell !== i || !nd.on || nd.hidden) continue;
+      if (nd.cell !== i || nd.hidden || !nd.on && !nd.spent || nd.dyn) continue;
       if (nd.kind === "urn") putModel(m, nd.model, nd.x, nd.y, nd.z, nd.yaw, nd.model === "urn" ? 1.0 : 0.9);
       else if (nd.kind === "gate") putModel(m, w.kind === "lair" ? "riftband" : "waygate", nd.x, nd.y, nd.z, 0, w.kind === "lair" ? 3.4 : 3.0);
-      else if (w.kind !== "town") nodeMesh(w, nd, m, gm);
+      else if (w.kind !== "town" || nd.kind === "tree" || nd.kind === "ore") nodeMesh(w, nd, m, gm);
     }
     if (!m.n && !gm.n) continue;
     m.light({ sun: st.sun, sunCol: st.sunCol, amb: st.amb, ground: st.low }, { shade: w.shade, sky: w.sky });
@@ -1426,20 +1842,22 @@ function bodyOf(key, style, poses) {
   if (b && b.g3 && b.g3 === E.g3) for (const p in b.h) E.g3.free(b.h[p]);
   b = { g3: E.g3, mode: E.mode, h: {}, spr: {}, style };
   for (const p of poses) {
-    const m = new L3.Mesh(2048); buildBody(m, style, p, 1);
+    const m = new L3.Mesh(2048); buildBody(m, style, p, 1, 0);
+    if (style.mantle || style.relic) { (b.an || (b.an = {}))[p] = MANCHOR.slice(); if (E.mode === "gl") { const m2 = new L3.Mesh(2048); buildBody(m2, style, p, 1, 1); b.h[p + "~"] = E.g3.upload(m2); } }
     if (E.mode === "gl") b.h[p] = E.g3.upload(m);
     else if (p === "idle0" || p === "walk0" || p === "walk2" || /0$|1$/.test(p) && FLATPOSE.has(p)) b.spr[p] = bake8(m);
   }
   BODIES.set(key, b);
   return b;
 }
-const FLATPOSE = new Set(["idle0", "walk0", "walk2", "swing1", "chop1", "draw0", "cast1", "spin", "roll", "hit", "fall1", "mine1", "cheer", "roar"]);
-const HERO_POSES = ["idle0", "idle1", "walk0", "walk1", "walk2", "walk3", "swing0", "swing1", "swing2", "chop0", "chop1", "chop2", "draw0", "draw1", "cast0", "cast1", "spin", "roar", "roll", "hit", "fall0", "fall1", "mine0", "mine1", "cheer"];
+const FLATPOSE = new Set(["idle0", "walk0", "walk2", "swing1", "chop1", "draw0", "cast1", "spin", "roll", "hit", "fall1", "mine1", "cheer", "roar", "ride"]);
+const HERO_POSES = ["idle0", "idle1", "walk0", "walk1", "walk2", "walk3", "swing0", "swing1", "swing2", "chop0", "chop1", "chop2", "draw0", "draw1", "cast0", "cast1", "spin", "roar", "roll", "hit", "fall0", "fall1", "mine0", "mine1", "cheer", "ride"];
 const FOE_POSES = ["idle0", "idle1", "walk0", "walk1", "walk2", "walk3", "swing0", "swing1", "chop0", "chop1", "cast0", "cast1", "hit", "fall0", "fall1", "roar", "spin"];
 let heroKey = "";
 function heroBody(force) {
   const st = delverStyle(D), key = "hero:" + JSON.stringify(st);
   if (!force && key === heroKey && BODIES.get(key)) return BODIES.get(key);
+  const old = BODIES.get(heroKey); if (old && heroKey !== key) { if (old.g3 && old.g3 === E.g3) for (const p in old.h) E.g3.free(old.h[p]); BODIES.delete(heroKey); }
   heroKey = key; return bodyOf(key, st, HERO_POSES);
 }
 function bodyFor(f) {
@@ -1457,13 +1875,26 @@ function modelBody(name, tint) {
   BODIES.set(key, b);
   return b;
 }
+// a fire's logs and its ring of stones (the flames are among the see-through things)
+function fireLogs() {
+  let b = BODIES.get("fire");
+  if (b && b.g3 === E.g3 && b.mode === E.mode) return b;
+  const m = new L3.Mesh(512);
+  for (let k = 0; k < 3; k++) { m.at(0, 0.1, 0, k * 2.09, 1, 1, 1, 0.5); m.stack([[0.09, -0.5], [0.08, 0.45]], 5, k ? 0x4a3426 : 0x3a281c, 0x2a1c14); }
+  m.seed = 9; for (let k = 0; k < 7; k++) { const a = k / 7 * TAU; m.at(Math.cos(a) * 0.62, -0.05, Math.sin(a) * 0.62, a, 1); m.stack([[0.15, 0], [0.12, 0.16], [0, 0.22]], 5, 0x5a585e, null, 0.25); }
+  b = { g3: E.g3, mode: E.mode, h: {}, spr: {}, model: true };
+  if (E.mode === "gl") b.h.idle0 = E.g3.upload(m); else b.spr.idle0 = bake8(m);
+  BODIES.set("fire", b); return b;
+}
+const FLAMECOL = [0xff9a3a, 0xffb84a, 0xff6a4a, 0xb06cff, 0x6ad8ff, 0xff2e88];   // (what each wood burns like)
 function bake8(m) { const out = []; for (let i = 0; i < 8; i++) out.push(L3.bake(m, { yaw: i / 8 * TAU, pitch: 0.75, ppu: 22, light: FLATLIGHT })); return out; }
 const FLATLIGHT = { sun: [-0.45, 0.8, 0.4], sunCol: [1, 0.95, 0.85], amb: [0.45, 0.48, 0.55], ground: [0.25, 0.22, 0.2] };
 
 // which pose a body shows now
 function heroPose() {
+  if (SHOW && SHOW.pose) return SHOW.pose;
   if (H.dead) return H.at < 0.35 ? "fall0" : "fall1";
-  if (H.gather) return (H.gather.t * 3.2) % 1 < 0.5 ? "mine0" : "mine1";
+  if (H.gather) { const g = H.gather, hi = g.t < g.dur * 0.5; return g.job === "tree" ? (hi ? "chop0" : "chop1") : g.job === "ore" || g.job === "smelt" ? (hi ? "mine0" : "mine1") : "mine1"; }
   const a = H.act, p = H.dur ? H.at / H.dur : 0;
   if (a === "atk") { const set = ATTACK[S.kind]; return set[p < 0.4 ? 0 : p < 0.75 ? 1 : 2]; }
   if (a === "roll") return "roll";
@@ -1474,8 +1905,9 @@ function heroPose() {
   if (a === "Volley" || a === "Snare") return p < 0.5 ? "draw0" : "draw1";
   if (a === "Frost Ring" || a === "Blink") return p < 0.4 ? "cast0" : "cast1";
   if (H.hurtT > 0) return "hit";
-  if (a === "walk") return WALK[Math.floor(H.walkT * 2) % 4];
   if (G.cheerT > 0) return "cheer";
+  if (H.ride) return "ride";
+  if (a === "walk") return WALK[Math.floor(H.walkT * 2) % 4];
   return (G.t * 0.8) % 2 < 1 ? "idle0" : "idle1";
 }
 function foePose(f) {
@@ -1509,6 +1941,8 @@ function updateCam(dt) {
   const k = 1 - Math.exp(-8 * (dt || 0.016));
   cam.tx += (tx - cam.tx) * k; cam.tz += (tz - cam.tz) * k; cam.ty += (ty - cam.ty) * k;
   if (Math.abs(cam.tx - tx) > 12 || Math.abs(cam.tz - tz) > 12) { cam.tx = tx; cam.tz = tz; cam.ty = ty; }
+  if (SHOW && !SHOW.game) { const d = SHOW.dist || 4, a = SHOW.az || 0, e = SHOW.el == null ? 0.25 : SHOW.el; cam.tx = H.x + (SHOW.ox || 0); cam.ty = H.y + (SHOW.h == null ? 1.05 : SHOW.h); cam.tz = H.z;
+    cam.x = cam.tx + Math.sin(a) * Math.cos(e) * d; cam.y = cam.ty + Math.sin(e) * d; cam.z = cam.tz + Math.cos(a) * Math.cos(e) * d; cam.fov = SHOW.fov || 0.5; cam.roll = 0; return; }
   const far = save.opts.aim ? 1 : 1;
   cam.x = cam.tx + (Math.random() - 0.5) * j; cam.y = cam.ty + 13 * far + (Math.random() - 0.5) * j; cam.z = cam.tz + 10.5 * far; cam.fov = 0.66; cam.roll = 0; cam.yaw = PI;
 }
@@ -1545,7 +1979,14 @@ function drawGL(now) {
   // the delver
   const hb = heroBody(false), hp = heroPose();
   const blink = H.inv > 0 && H.act !== "roll" && H.act !== "Lunge" && H.act !== "Blink" && (t * 20) % 2 < 1;
-  if (!blink && !pendingWorld) g3.moved(hb.h[hp] || hb.h.idle0, matOf(MAT, H.x, H.y, H.z, H.yaw, 1), H.hurtT > 0 ? 2 : 1, H.hurtT > 0 ? 0.8 : 1, H.hurtT > 0 ? 0.8 : 1, 0, 0.45);
+  const sway = hb.an && ((t * 5) & 1) ? "~" : "";
+  let rideY = 0;
+  if (H.ride && D.kin.ride) { const c = kinOf(D.kin.ride), b = modelBody(c.model, c.tint), g = model(c.model); rideY = (g.y0 + g.h) * c.size * 0.72 - 0.75;
+    if (!pendingWorld) g3.moved(b.h.idle0, matOf(MAT, H.x, H.y, H.z, H.yaw, c.size, 1 + (H.act === "walk" ? Math.sin(t * 14) * 0.05 : 0)), 1, 1, 1, 0, 0.5); }
+  if (D.kin.pet && G.pet && !pendingWorld) { const c = kinOf(D.kin.pet), b = modelBody(c.model, c.tint), q = G.pet, py = w.h(q.x, q.z) + (c.fly ? c.fly + Math.sin(t * 3) * 0.15 : 0);
+    if (g3.sees(q.x, py + 0.5, q.z, 1.5)) g3.moved(b.h.idle0, matOf(MAT, q.x, py, q.z, q.yaw, c.size, 1 + (q.mv ? Math.sin(t * 13) * 0.07 : Math.sin(t * 2) * 0.03)), 1, 1, 1, 0.06, 0.6); }
+  for (let i = 0; i < w.nodes.length; i++) { const nd = w.nodes[i]; if (nd.kind === "fire" && nd.on && g3.sees(nd.x, nd.y + 0.5, nd.z, 1.5)) g3.moved(fireLogs().h.idle0, matOf(MAT, nd.x, nd.y, nd.z, nd.x * 3, 1), 1, 1, 1, 0, 0.2); }
+  if (!blink && !pendingWorld) g3.moved(hb.h[hp + sway] || hb.h[hp] || hb.h.idle0, matOf(MAT, H.x, H.y + rideY, H.z, H.yaw, 1), H.hurtT > 0 ? 2 : 1, H.hurtT > 0 ? 0.8 : 1, H.hurtT > 0 ? 0.8 : 1, 0, 0.45);
   // everything see-through, in one mesh
   const m = GPU.fxM; m.n = 0;
   fxWorld(m, t);
@@ -1630,11 +2071,65 @@ function fxWorld(m, t) {
     else fxQuad(m, ex.x - W2, y + 0.2, ex.z, ex.x + W2, y + 0.2, ex.z, ex.x + W2, y + Hh, ex.z, ex.x - W2, y + Hh, ex.z, rC, gC, bC, a, 127); }
   // what A would work: a soft ring
   const nd = !H.dead && nearNode(); if (nd) fxRing(m, nd.x, gy(nd.x, nd.z) + 0.04, nd.z, 1.1, 1.25, 57, 255, 136, 150 + (Math.sin(t * 6) * 60 | 0), 127, 18);
+  { const hb = BODIES.get(heroKey), st = hb && hb.style; if (hb && hb.an && !pendingWorld) masteryFx(m, t, hb.an[heroPose()] || hb.an.idle0, st.mantle, st.relic); }
+  // fires: tongues of flame, and their light on the ground
+  for (let i = 0; i < w.nodes.length; i++) { const nd = w.nodes[i]; if (nd.kind !== "fire" || !nd.on) continue;
+    col3(FLAMECOL[nd.tier]); const k = Math.min(1, nd.burn / 12) * (1 + (nd.flare > 0 ? nd.flare : 0)), fy = nd.y + 0.12;
+    fxDisc(m, nd.x, gy(nd.x, nd.z), nd.z, 2.6 + Math.sin(t * 9 + i) * 0.2, cR, cG, cB, 26 * k | 0, 127, 10);
+    for (let q = 0; q < 4; q++) { const ph = (t * (1.6 + q * 0.23) + q * 0.31 + i) % 1, a = q * 1.7 + t * 0.6, bx = nd.x + Math.cos(a) * 0.16, bz = nd.z + Math.sin(a) * 0.16, hh = (0.75 + 0.35 * Math.sin(t * 7 + q)) * k * (1 - ph * 0.5), wv = 0.2 * k;
+      fxQuad(m, bx - wv, fy, bz, bx + wv, fy, bz, bx + Math.sin(t * 11 + q) * 0.07, fy + hh, bz, bx + Math.sin(t * 11 + q) * 0.07, fy + hh, bz, cR, cG, cB, 200 - ph * 110 | 0, 127);
+      fxQuad(m, bx, fy, bz - wv, bx, fy, bz + wv, bx, fy + hh * 0.8, bz + Math.cos(t * 10 + q) * 0.07, bx, fy + hh * 0.8, bz + Math.cos(t * 10 + q) * 0.07, 255, 240, 210, 150 - ph * 90 | 0, 127); } }
   // the healing light
   if (H.heal > 0) fxRing(m, H.x, H.y + 0.1, H.z, 0.7, 0.9, 138, 255, 184, 200, 127, 14);
 }
+// what the mastery gear adds each frame: the weapon's own light along it, and its look's small things (see dotsMastery)
+const AW = new Float32Array(18);
+function anchorsWorld(an) {
+  const c = Math.cos(H.yaw), s = Math.sin(H.yaw);
+  for (let i = 0; i < 6; i++) { const x = an[i * 3], y = an[i * 3 + 1], z = an[i * 3 + 2]; AW[i * 3] = H.x + x * c + z * s; AW[i * 3 + 1] = H.y + y; AW[i * 3 + 2] = H.z - x * s + z * c; }
+}
+function masteryFx(m, t, an, mantle, relic) {
+  anchorsWorld(an);
+  if (relic) {
+    col3(relic.col);
+    const gx = AW[12], gy = AW[13], gz = AW[14], tx = AW[15], ty = AW[16], tz = AW[17], dx = tx - gx, dy = ty - gy, dz = tz - gz;
+    const vx = cam.x - (gx + tx) / 2, vy = cam.y - (gy + ty) / 2, vz = cam.z - (gz + tz) / 2;
+    let px = dy * vz - dz * vy, py = dz * vx - dx * vz, pz = dx * vy - dy * vx; const l = Math.sqrt(px * px + py * py + pz * pz) || 1, w = 0.13 / l; px *= w; py *= w; pz *= w;
+    const a = 30 + (Math.sin(t * 3.1) * 14 | 0);
+    fxQuad(m, gx - px, gy - py, gz - pz, gx + px, gy + py, gz + pz, tx + px * 0.5 + dx * 0.06, ty + py * 0.5 + dy * 0.06, tz + pz * 0.5 + dz * 0.06, tx - px * 0.5 + dx * 0.06, ty - py * 0.5 + dy * 0.06, tz - pz * 0.5 + dz * 0.06, cR, cG, cB, a, 127);
+    if (relic.look === "pyre") for (let k = 0; k < 4; k++) {         // tongues of fire up off the blade
+      const u = 0.25 + k * 0.2, ph = (t * 1.7 + k * 0.37) % 1, bx = gx + dx * u, by = gy + dy * u, bz = gz + dz * u, hgt = 0.34 * (1 - ph) + 0.08, sw = Math.sin(t * 9 + k) * 0.05;
+      fxQuad(m, bx - px * 0.7, by, bz - pz * 0.7, bx + px * 0.7, by, bz + pz * 0.7, bx + sw, by + hgt + ph * 0.25, bz, bx + sw, by + hgt + ph * 0.25, bz, cR, cG, cB, (1 - ph) * 170 | 0, 127); }
+    if (relic.look === "signal") { const u = (t * 0.9) % 1, bx = gx + dx * u, by = gy + dy * u, bz = gz + dz * u;   // a line of light that runs up it
+      fxQuad(m, bx - px * 1.1, by - py * 1.1, bz - pz * 1.1, bx + px * 1.1, by + py * 1.1, bz + pz * 1.1, bx + px * 1.1 + dx * 0.05, by + py * 1.1 + dy * 0.05, bz + pz * 1.1 + dz * 0.05, bx - px * 1.1 + dx * 0.05, by - py * 1.1 + dy * 0.05, bz - pz * 1.1 + dz * 0.05, 255, 255, 255, 150, 127); }
+  }
+}
+// its dots: a signal's packets down the lines of light, a shard's glints and the motes that circle it, a pyre's embers
+function dotsMastery(m, t, an, mantle, relic) {
+  const S_ = m.s; anchorsWorld(an);
+  const look = (mantle || relic).look; col3((mantle || relic).col);
+  if (mantle && look === "signal") for (let i = 0; i < 3; i++) for (let k = 0; k < 2; k++) { const u = (t * 0.8 + i * 0.31 + k * 0.5) % 1, o = i * 3;
+    S_[0] = AW[9] + (AW[o] - AW[9]) * u; S_[1] = AW[10] + (AW[o + 1] - AW[10]) * u; S_[2] = AW[11] + (AW[o + 2] - AW[11]) * u; m.v(255, 255, 255, 255, 127); }
+  if (mantle && look === "shard") {
+    for (let i = 0; i < 3; i++) { const a = Math.sin(t * 6 + i * 2.1); if (a < 0.3) continue; S_[0] = AW[i * 3]; S_[1] = AW[i * 3 + 1]; S_[2] = AW[i * 3 + 2]; m.v(255, 255, 255, a * 255 | 0, 127); }
+    for (let k = 0; k < 4; k++) { const a = t * 2.2 + k * 1.57; S_[0] = AW[9] + Math.cos(a) * 0.55 * Math.cos(H.yaw); S_[1] = AW[10] + Math.sin(a) * 0.5; S_[2] = AW[11] - Math.cos(a) * 0.55 * Math.sin(H.yaw); m.v(cR, cG, cB, 230, 127); }
+  }
+  if (mantle && look === "pyre") for (let k = 0; k < 12; k++) {
+    const u = (k * 0.618) % 1, ph = (t * 0.7 + k * 0.37) % 1, o = u < 0.5 ? 0 : 3, v = u < 0.5 ? u * 2 : u * 2 - 1;
+    S_[0] = AW[o] + (AW[o + 3] - AW[o]) * v + Math.sin(t * 3 + k) * 0.08; S_[1] = AW[o + 1] + (AW[o + 4] - AW[o + 1]) * v + ph * 1.1; S_[2] = AW[o + 2] + (AW[o + 5] - AW[o + 2]) * v + Math.cos(t * 2.3 + k) * 0.08;
+    m.v(cR, cG, cB, (1 - ph) * 255 | 0, 127); }
+  if (relic) {
+    const gx = AW[12], gy = AW[13], gz = AW[14], dx = AW[15] - gx, dy = AW[16] - gy, dz = AW[17] - gz;
+    if (look === "shard") for (let k = 0; k < 3; k++) { const a = t * 3.4 + k * 2.09, u = 0.55 + 0.3 * Math.sin(t * 1.3 + k); S_[0] = gx + dx * u + Math.cos(a) * 0.22; S_[1] = gy + dy * u + Math.sin(a) * 0.22; S_[2] = gz + dz * u + Math.sin(a * 0.7) * 0.15; m.v(255, 255, 255, 220, 127); }
+    else if (look === "pyre") for (let k = 0; k < 5; k++) { const ph = (t * 1.1 + k * 0.23) % 1, u = 0.3 + ((k * 0.37) % 0.7); S_[0] = gx + dx * u + Math.sin(t * 5 + k) * 0.05; S_[1] = gy + dy * u + ph * 0.7; S_[2] = gz + dz * u; m.v(cR, cG, cB, (1 - ph) * 255 | 0, 127); }
+    else { const u = (t * 0.9) % 1; S_[0] = gx + dx * u; S_[1] = gy + dy * u; S_[2] = gz + dz * u; m.v(255, 255, 255, 255, 127); }
+  }
+}
 function dotsWorld(m, t) {
   const S_ = m.s;
+  for (let i = 0; i < W.nodes.length; i++) { const nd = W.nodes[i]; if (nd.kind !== "fire" || !nd.on) continue; const c = FLAMECOL[nd.tier];      // sparks up off a fire
+    for (let q = 0; q < 5 && m.n < m.cap; q++) { const ph = (t * 0.9 + q * 0.21 + i * 0.4) % 1; S_[0] = nd.x + Math.sin(q * 2.3 + t) * 0.3 * ph; S_[1] = nd.y + 0.5 + ph * 2.2; S_[2] = nd.z + Math.cos(q * 1.9 + t) * 0.3 * ph; m.v((c >> 16) & 255, (c >> 8) & 255, c & 255, (1 - ph) * 255 | 0, 127); } }
+  { const hb = BODIES.get(heroKey), st = hb && hb.style; if (hb && hb.an && !pendingWorld) dotsMastery(m, t, hb.an[heroPose()] || hb.an.idle0, st.mantle, st.relic); }
   for (let i = 0; i < PN && m.n < m.cap; i++) if (PL[i] > 0) { const c = PC[i]; S_[0] = PX[i]; S_[1] = PY[i]; S_[2] = PZ[i]; m.v((c >> 16) & 255, (c >> 8) & 255, c & 255, clamp(PL[i] * 400, 0, 255) | 0, 127); }
   const mc = W.st.motes, r = (mc >> 16) & 255, g = (mc >> 8) & 255, b = mc & 255, A = 30;
   for (let i = 0; i < MN && m.n < m.cap; i++) {
@@ -1657,7 +2152,8 @@ function prepareFlat() {
   const sp = (key, fn) => { if (!F2.sprites.has(key)) { const m = new L3.Mesh(1024); fn(m); F2.sprites.set(key, L3.bake(m, { pitch: 0.75, ppu: 22, light: FLATLIGHT })); } return F2.sprites.get(key); };
   for (const p of w.props) F2.props.push({ s: sp("p:" + p.name + p.tint, m => putModel(m, p.name, 0, 0, 0, 0, 1, p.tint ? tintTo(p.tint, 0.6) : null)), x: p.x, z: p.z, y: p.y, k: p.s });
   for (const d of w.deco) { if (d.kind === "tuft") continue; const key = "d:" + d.kind + (d.kind === "crag" ? (d.seed % 3) : ""); F2.props.push({ s: sp(key, m => { const gm = new L3.Mesh(64); decoMesh(Object.assign({}, w, { h: () => 0 }), Object.assign({}, d, { x: 0, z: 0, s: 1 }), m, gm); for (let i = 0; i < gm.n; i++) { } m.room(gm.n); m.u8.set(new Uint8Array(gm.buf, 0, gm.n * 20), m.n * 20); m.n += gm.n; }), x: d.x, z: d.z, y: w.h(d.x, d.z), k: d.s }); }
-  F2.node = kind => sp("n:" + kind, m => { const gm = new L3.Mesh(64); nodeMesh(Object.assign({}, w, { kind: "wild" }), { kind, x: 0, z: 0, y: 0, ore: floorStratum(w.fi), herb: floorStratum(w.fi), model: kind === "urn" ? "urn" : null }, m, gm); m.room(gm.n); m.u8.set(new Uint8Array(gm.buf, 0, gm.n * 20), m.n * 20); m.n += gm.n; });
+  F2.node = (kind, nd) => sp("n:" + kind + (nd && nd.tree != null ? "t" + nd.tree : "") + (nd && nd.ore != null ? "o" + nd.ore : "") + (nd && !nd.on ? "x" : ""), m => { const gm = new L3.Mesh(64);
+    nodeMesh(Object.assign({}, w, { kind: "wild" }), { kind, x: 0, z: 0, y: 0, on: !nd || nd.on, tree: nd ? nd.tree : 0, s: nd ? nd.s : 1, seed: nd ? nd.seed : 1, ore: nd && nd.ore != null ? nd.ore : floorStratum(w.fi), herb: floorStratum(w.fi), model: kind === "urn" ? "urn" : null }, m, gm); m.room(gm.n); m.u8.set(new Uint8Array(gm.buf, 0, gm.n * 20), m.n * 20); m.n += gm.n; });
   F2.gate = sp("gate", m => putModel(m, w.kind === "lair" ? "riftband" : "waygate", 0, 0, 0, 0, 3));
   F2.urn = sp("urn", m => putModel(m, "urn", 0, 0, 0, 0, 1));
   F2.blob = L3.Kit.blob(32, 32, "rgba(255,255,255,0.9)"); F2.shadow = L3.Kit.blob(48, 24, "rgba(0,0,0,0.5)");
@@ -1669,9 +2165,14 @@ function drawFlat(now) {
   const flat = E.flat, t = G.t;
   L3.begin(E, cam, 0, 0);
   const near = (x, z) => Math.abs(x - cam.tx) < 26 && Math.abs(z - cam.tz) < 22;
-  for (const p of F2.props) if (near(p.x, p.z)) flat.sprite(p.s, p.x, p.y, p.z, p.k / p.s.ppu);
-  for (const nd of W.nodes) { if (!nd.on || nd.hidden || W.kind === "town" || !near(nd.x, nd.z)) continue; const s = nd.kind === "gate" ? F2.gate : nd.kind === "urn" ? F2.urn : F2.node(nd.kind); flat.sprite(s, nd.x, nd.y, nd.z, 1 / s.ppu); }
   const dir = yaw => (((Math.round(-(yaw - PI) / TAU * 8) % 8) + 8) % 8);
+  for (const p of F2.props) if (near(p.x, p.z)) flat.sprite(p.s, p.x, p.y, p.z, p.k / p.s.ppu);
+  for (const nd of W.nodes) { if (nd.hidden || !nd.on && !nd.spent || !near(nd.x, nd.z)) continue; const worked = nd.kind === "tree" || nd.kind === "ore";
+    if (nd.kind === "fire") { flat.sprite(fireLogs().spr.idle0[0], nd.x, nd.y, nd.z, 1 / 22); flat.sprite(F2.blob, nd.x, nd.y + 0.5 + Math.sin(t * 9) * 0.05, nd.z, 0.03, 0.9); continue; }
+    if (W.kind === "town" && !worked) continue;
+    const s = nd.kind === "gate" ? F2.gate : nd.kind === "urn" ? F2.urn : F2.node(nd.kind, nd); flat.sprite(s, nd.x, nd.y, nd.z, 1 / s.ppu); }
+  if (D.kin.pet && G.pet) { const c = kinOf(D.kin.pet), b = modelBody(c.model, c.tint), q = G.pet; flat.sprite(b.spr.idle0[dir(q.yaw)], q.x, W.h(q.x, q.z) + (c.fly || 0), q.z, c.size / 22); }
+  if (H.ride && D.kin.ride) { const c = kinOf(D.kin.ride), b = modelBody(c.model, c.tint); flat.sprite(b.spr.idle0[dir(H.yaw)], H.x, H.y, H.z, c.size / 22); }
   const body = (b, pose, x, y, z, yaw, s) => { const set = b.spr[pose] || b.spr.idle0; if (!set) return; flat.sprite(F2.shadow, x, y, z, 0.03 * s, 0.6); flat.sprite(set[dir(yaw)], x, y, z, s / 22); };
   if (W.folk) for (const p of W.folk) { const b = BODIES.get("folk:" + p.who + p.x); if (b) body(b, p.mv ? "walk0" : "idle0", p.x, W.h(p.x, p.z), p.z, p.yaw || 0, 1); }
   for (const f of G.foes) { if (f.st === "dead" && f.dieT > 1.5 || !near(f.x, f.z)) continue; const b = f.bodyRef || (f.bodyRef = bodyFor(f)); const pose = b.model ? "idle0" : flatPose(foePose(f)); body(b, pose, f.x, f.y + (f.fly || 0), f.z, f.yaw, f.size); }
@@ -1704,11 +2205,17 @@ function bar(ui, x, y, w, h, k, col, back) { ui.rect(x, y, w, h, back == null ? 
 function drawHUD(now) {
   const ui = E.ui, [w, h] = E.size(), S1 = Math.max(1, Math.round(h / 250)), S2 = S1 + Math.max(1, S1 >> 1), M = 5 * S1, t = G.t;
   ui.begin(w, h);
+  if (SHOW && !SHOW.hud) { ui.end(); return; }
   if (menu.at) { if (menu.at !== "create") ui.rect(0, 0, w, h, INK, menu.at === "title" ? 0.3 : menu.at === "pause" || menu.at === "fallen" ? 0.6 : 0.86); ui.end(); return; }
   if (fadeT > 0 || fadeIn > 0) ui.rect(0, 0, w, h, INK, fadeT > 0 ? 1 - fadeT / 0.35 : fadeIn / 0.5);
   if (E.demo && !H) { ui.end(); return; }
   // floating numbers
   for (const n of G.nums) { if (!project(n.x, n.y + n.t * 1.6, n.z, w, h, PRJ)) continue; ui.text(n.v, PRJ[0], PRJ[1], S1, n.col, clamp(1.6 - n.t * 1.6, 0, 1), 0.5, INK); }
+  // the skill being learned: its level and how far through it, bottom middle, for a few seconds after each gain
+  if (G.trackT > 0 && G.track) { const k = G.track, sk = WR.SKILL[k], L = lv(k), tw = 120 * S1, tx = Math.max(Math.round(w / 2 - tw / 2), 205 * S1), ty = h - M - 8 * S1, a = clamp(G.trackT, 0, 1);
+    ui.rect(tx - 3 * S1, ty - 12 * S1, tw + 6 * S1, 20 * S1, INK, 0.72 * a);
+    ui.text(sk.name.toUpperCase() + " " + L, tx, ty - 10 * S1, S1, sk.col, a, 0); ui.text(L >= WR.MAX ? "MASTERED" : (D.sk[k] - WR.TOTAL[L]) + " / " + WR.need(L), tx + tw, ty - 10 * S1, S1, BONE, a, 1);
+    ui.rect(tx, ty, tw, 4 * S1, 0x2a2e36, a); ui.rect(tx, ty, Math.round(tw * WR.into(D.sk[k])), 4 * S1, sk.col, a); }
   // life, focus, xp: bottom left; the skills beside them
   const bw = 80 * S1, x0 = M, y0 = h - M - 25 * S1;
   ui.text(D.name.toUpperCase() + "  LV " + D.level, x0, y0 - 10 * S1, S1, BONE, 1, 0, INK);
@@ -1735,16 +2242,20 @@ function drawHUD(now) {
   const sc = mw / (W.kind === "town" ? 84 : Math.max(W.rx, W.rz) * 2.2), mmx = x => mx + mw / 2 + (x - H.x) * sc, mmy = z => my + mw / 2 + (z - H.z) * sc;
   const inMap = (x, y) => x > mx + S1 && x < mx + mw - S1 && y > my + S1 && y < my + mw - S1;
   for (const nd of W.nodes) { if (!nd.on || nd.hidden) continue; const px = mmx(nd.x), py = mmy(nd.z); if (!inMap(px, py)) continue;
-    const c = nd.kind === "gate" ? (nd.sealed ? 0x7a5a9a : PINK) : nd.kind === "ore" ? ORECOL[nd.ore] : nd.kind === "herb" ? HERBCOL[nd.herb] : nd.kind === "chest" ? COIN : nd.kind === "urn" ? null : BONE;
+    const c = nd.kind === "gate" ? (nd.sealed ? 0x7a5a9a : PINK) : nd.kind === "tree" ? TREECOL[nd.tree] : nd.kind === "fire" ? FLAMECOL[nd.tier] : nd.kind === "ore" ? ORECOL[nd.ore] : nd.kind === "herb" ? HERBCOL[nd.herb] : nd.kind === "chest" ? COIN : nd.kind === "urn" ? null : BONE;
     if (c != null) ui.rect(px - S1, py - S1, 2 * S1 + (nd.kind === "gate" ? S1 : 0), 2 * S1 + (nd.kind === "gate" ? S1 : 0), c, 1); }
   for (const f of G.foes) { if (f.st === "dead" || f.st === "sleep" && !f.boss) continue; const px = mmx(f.x), py = mmy(f.z); if (!inMap(px, py)) continue; ui.rect(px - S1, py - S1, (f.elite || f.boss ? 3 : 2) * S1, (f.elite || f.boss ? 3 : 2) * S1, f.elite || f.boss ? PINK : RED, 1); }
   ui.rect(mx + mw / 2 - S1, my + mw / 2 - S1, 2 * S1, 2 * S1, GREEN, 1);
+  { const pc = packCount(), pm = packMax(); ui.text("PACK " + pc + "/" + pm, w - M, my + mw + 3 * S1, S1, pc >= pm ? PINK : BONE, pc ? 1 : 0.55, 1, INK);
+    if (D.glow > 0) ui.text("HEARTHGLOW", w - M, my + mw + 12 * S1, S1, WR.SKILL.fire.col, 1, 1, INK); }
   // the power's life, top centre
   if (G.boss && G.boss.st !== "sleep") { const b = G.boss, bw2 = Math.round(w * 0.42); ui.text(b.def.name.toUpperCase(), w / 2, M + 2 * S1, S2, PINK, 1, 0.5, INK); bar(ui, (w - bw2) / 2, M + 4 * S1 + 8 * S2, bw2, 5 * S1, b.hp / b.hpMax, PINK); }
   // what A does here
   const nd = !H.dead && !H.act && nearNode();
-  if (nd && !(nd.kind === "urn")) { const label = nd.kind === "gate" && nd.sealed ? "SEALED" : nd.label.toUpperCase(); const tw = ui.width(label, S1) + ui.width(keyLabel("a"), S1) + 6 * S1;
+  if (nd && !(nd.kind === "urn")) { const label = nodeLabel(nd); const tw = ui.width(label, S1) + ui.width(keyLabel("a"), S1) + 6 * S1;
     if (project(nd.x, nd.y + 2.4, nd.z, w, h, PRJ)) { ui.rect(PRJ[0] - tw / 2 - 2 * S1, PRJ[1] - 2 * S1, tw + 4 * S1, 11 * S1, INK, 0.8); ui.text(keyLabel("a"), PRJ[0] - tw / 2, PRJ[1], S1, GREEN, 1); ui.text(label, PRJ[0] - tw / 2 + ui.width(keyLabel("a"), S1) + 6 * S1, PRJ[1], S1, BONE, 1); } }
+  for (let i = 0; i < W.nodes.length; i++) { const nd = W.nodes[i]; if (nd.kind !== "tree" || !nd.on) continue; const dz = nd.z - H.z, dx = Math.abs(nd.x - H.x), sz = nd.s || 1;   // behind a tree's crown: a mark where they stand
+    if (dz > 0.4 && dz < 7.5 * sz && dx < 1.9 * sz - dz * 0.12 && project(H.x, H.y + 1.1, H.z, w, h, PRJ)) { ui.disc(PRJ[0], PRJ[1], 5 * S1, GREEN, 0.3); ui.arrow(PRJ[0], PRJ[1] - 10 * S1, 3 * S1, PI, GREEN, 0.9); break; } }
   if (H.gather) { const p = H.gather.t / H.gather.dur; if (project(H.x, H.y + 2.4, H.z, w, h, PRJ)) bar(ui, PRJ[0] - 14 * S1, PRJ[1], 28 * S1, 3 * S1, p, GREEN); }
   // toasts, bottom right; what's said, centred high
   let ty = h - M - 9 * S1;
@@ -1756,7 +2267,13 @@ function drawHUD(now) {
   if (E.demo) ui.text("WYRD \x18 PLAYING ITSELF", w / 2, M + 12 * S2, S1, GREEN, 0.8, 0.5, INK);
   ui.end();
 }
-function keyLabel(b) { const l = input.pad() ? window.SofaPad.label(b) : ({ a: "J", b: "SPC", x: "K", y: "L", rb: "Q", start: "ESC", select: "I" })[b] || b; return String(l).toUpperCase(); }
+function nodeLabel(nd) {
+  if (nd.kind === "gate" && nd.sealed) return "SEALED";
+  if (nd.kind === "tree") return (lv("wood") < WR.TIER_LVL[nd.tree] ? "WOODCUTTING " + WR.TIER_LVL[nd.tree] + ": " : "FELL ") + WR.TREES[nd.tree].toUpperCase();
+  if (nd.kind === "ore") return (lv("mine") < WR.TIER_LVL[nd.ore] ? "MINING " + WR.TIER_LVL[nd.ore] + ": " : "MINE ") + ORES[nd.ore].toUpperCase();
+  return nd.label.toUpperCase();
+}
+function keyLabel(b) { const l = input.pad() ? window.SofaPad.label(b) : ({ a: "J", b: "SPC", x: "K", y: "L", rb: "Q", lb: "F", lt: "R", start: "ESC", select: "I" })[b] || b; return String(l).toUpperCase(); }
 
 // ---------------------------------------------------------------- sound: the box's synth, our own effects and a tune a stratum
 const synth = new L3.Synth();
@@ -1796,6 +2313,14 @@ const synth = new L3.Synth();
   d("drink", (s, t) => { for (let k = 0; k < 3; k++) s.note(t + k * 0.08, 520 + k * 90, 0.08, "sine", 0.06); });
   d("fall", (s, t) => [392, 330, 262, 196].forEach((f, i) => s.note(t + i * 0.2, f, 0.5, "triangle", 0.1)));
   d("roll", (s, t) => s.noise(t, 0.2, 0.12, 700, 0.6));
+  d("chop", (s, t) => { s.noise(t, 0.07, 0.3, 900, 0.8); s.note(t, 180, 0.06, "square", 0.07, null, 0.005, 700); });
+  d("log", (s, t) => { s.note(t, 392, 0.1, "triangle", 0.08); s.note(t + 0.06, 523, 0.14, "triangle", 0.07); });
+  d("fell", (s, t) => { s.noise(t, 0.5, 0.3, 300, 0.7); s.note(t + 0.1, 80, 0.3, "sine", 0.15, null, 0.005, 300); });
+  d("strike", (s, t) => { for (let k = 0; k < 2; k++) s.noise(t + k * 0.16, 0.04, 0.25, 5200, 0.5); });
+  d("kindle", (s, t) => { s.noise(t, 0.5, 0.2, 1100, 0.4); s.note(t, 262, 0.25, "sine", 0.06, null, 0.01, 1600); });
+  d("smelt", (s, t) => { s.noise(t, 0.3, 0.14, 500, 0.5); s.note(t + 0.05, 330, 0.14, "triangle", 0.06); });
+  d("mount", (s, t) => { s.noise(t, 0.15, 0.2, 500, 0.6); s.note(t + 0.05, 220, 0.2, "triangle", 0.08, null, 0.01, 900); });
+  d("skillup", (s, t) => [523, 659, 784, 1047].forEach((f, i) => { s.note(t + i * 0.08, f, 0.35, "triangle", 0.11); s.note(t + i * 0.08, f / 2, 0.3, "square", 0.03, null, 0.005, 1400); }));
 })();
 function sfx(n) { if (synth.ac && !E.demo) try { synth.play(n); } catch (e) { /* a sound that failed is never worth a frame */ } }
 function music(boss) {
@@ -1807,7 +2332,7 @@ function volumes() { synth.volume(save.opts.music / 10, save.opts.sound / 10); }
 
 // ---------------------------------------------------------------- the controller and the keys
 const KEYS = { ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right", w: "up", s: "down", a: "left", d: "right", W: "up", S: "down", A: "left", D: "right",
-  Enter: "a", j: "a", J: "a", e: "a", E: "a", " ": "b", k: "x", K: "x", l: "y", L: "y", q: "rb", Q: "rb", i: "select", I: "select", Tab: "select",
+  Enter: "a", j: "a", J: "a", e: "a", E: "a", " ": "b", k: "x", K: "x", l: "y", L: "y", q: "rb", Q: "rb", f: "lb", F: "lb", r: "lt", R: "lt", i: "select", I: "select", Tab: "select",
   Escape: "back", Backspace: "back", BrowserBack: "back", GoBack: "back", p: "start", P: "start" };
 const input = new L3.Input({ keys: KEYS, on: onButton, top: () => menu.top(), connected: hints });
 const kb = b => "<kbd>" + esc(keyLabel(b)) + "</kbd>";
@@ -1829,7 +2354,9 @@ function onButton(b, how) {
   if (b === "a") { if (how !== "press") return; const nd = nearNode(); if (nd && nd.kind !== "urn" && !nearestFoe(H.x, H.z, 3.2) && canAct()) interact(nd); else if (canAct()) startAttack(); }
   else if (b === "x" || b === "y") skill(b);
   else if (b === "b") dodge();
-  else if (b === "rb" || b === "lb" || b === "rt" || b === "lt") drink();
+  else if (b === "rb" || b === "rt") drink();
+  else if (b === "lb") lightFire();
+  else if (b === "lt") toggleRide();
   else if (b === "start" || b === "back") openPause();
   else if (b === "select") openBag();
 }
@@ -1839,6 +2366,7 @@ function hints() {
   $("createHint").innerHTML = "◀ ▶ change &nbsp; " + kb("a") + " on Begin &nbsp; " + kb("b") + " back";
   $("bagHint").innerHTML = kb("a") + " wear it &nbsp; " + kb("x") + " salvage &nbsp; " + kb("b") + " back";
   $("shopHint").innerHTML = $("wayHint").innerHTML = kb("a") + " choose &nbsp; " + kb("b") + " back";
+  $("skillsHint").innerHTML = "↑ ↓ look &nbsp; " + kb("b") + " back";
   $("optionsHint").innerHTML = "◀ ▶ change &nbsp; " + kb("b") + " back"; $("boxHint").innerHTML = kb("a") + " choose &nbsp; " + kb("b") + " back";
   $("pauseHint").innerHTML = kb("a") + " choose &nbsp; " + kb("start") + " carry on";
   $("fallenHint").innerHTML = $("endHint").innerHTML = kb("a") + " go on";
@@ -1870,6 +2398,7 @@ const menu = new L3.Menu({
     bag: { grid: 6, back: () => closeMenu(), enter: renderBag },
     shop: { back: () => closeMenu(), enter: renderShop },
     way: { back: () => closeMenu(), enter: renderWay },
+    skills: { back: () => menu.show("pause"), enter: renderSkills },
     options: { options: OPTS, values: save.opts, back: () => menu.show(pausedFrom ? "pause" : "title"), changed: optionChanged },
     box: { row: true, back: "title", enter: renderBox },
     pause: { back: () => closeMenu(), enter: renderPause },
@@ -1888,6 +2417,10 @@ const menu = new L3.Menu({
     else if (act === "begin") begin();
     else if (act === "resume") closeMenu();
     else if (act === "bag") menu.show("bag");
+    else if (act === "skills") menu.show("skills");
+    else if (act === "kin") { shopKind = "kin"; menu.show("shop"); }
+    else if (act === "fire") { closeMenu(); lightFire(); }
+    else if (act === "ride") { closeMenu(); toggleRide(); }
     else if (act === "home") { closeMenu(); toWorld("town", 0); }
     else if (act === "quit") { store(); closeMenu(); toTitle(); }
     else if (act === "wear") wearFocused();
@@ -1932,7 +2465,7 @@ function begin() {
   play(slotNo, true);
 }
 function play(i, fresh) {
-  slotNo = i; save.last = i; D = save.slots[i]; store();
+  slotNo = i; save.last = i; D = ensure(save.slots[i]); store();
   for (const s of save.slots) if (s) for (const it of s.bag.concat(s.stash, Object.values(s.gear))) if (it && it.id >= itemId) itemId = it.id + 1;
   H = null; recalc(); H = hero(); menu.hide(); state = "play";
   enterWorld("town", 0);
@@ -1940,12 +2473,38 @@ function play(i, fresh) {
 }
 function toTitle() { state = "title"; D = GHOST; recalc(); H = hero(); enterWorld("town", 0); H.x = 0; H.z = 6; menu.show("title"); }
 function renderPause() {
-  const items = ['<div class="item" data-do="resume">Carry on</div>', '<div class="item" data-do="bag">The bag</div>'];
+  const items = ['<div class="item" data-do="resume">Carry on</div>', '<div class="item" data-do="bag">The bag</div>', '<div class="item" data-do="skills">Skills</div>', '<div class="item" data-do="kin">Your creatures</div>'];
+  if (D.logs.some(n => n > 0)) items.push('<div class="item" data-do="fire">' + (nearFire(3) ? "Feed the fire" : "Light a fire") + '</div>');
+  if (D.kin.ride) items.push('<div class="item" data-do="ride">' + (H.ride ? "Dismount" : "Ride the " + esc(kinOf(D.kin.ride).name)) + '</div>');
   if (W && W.kind !== "town") items.push('<div class="item" data-do="home">Back to Hearthrim</div>');
   items.push('<div class="item" data-do="options">Options</div>', '<div class="item" data-do="quit">Leave to the title</div>');
   $("pausemenu").innerHTML = items.join(""); return 0;
 }
 function openPause() { if (H.dead) return; state = "menu"; menu.show("pause"); }
+// ---- the skills: each one's level and how far through it; the one chosen, set out below
+function renderSkills() {
+  $("skilllist").innerHTML = WR.SKILLS.map((k, i) => { const sk = WR.SKILL[k], L = lv(k);
+    return `<div class="item row" data-do="skill" data-i="${i}"><span><i class="dot" style="background:${hex(sk.col)}"></i><b>${esc(sk.name)}</b> &nbsp;${L}${L >= WR.MAX ? " ★" : " / " + WR.MAX}</span><span class="xp"><i style="width:${Math.round(WR.into(D.sk[k]) * 100)}%;background:${hex(sk.col)}"></i></span></div>`; }).join("");
+  const i = Math.min(menu.i || 0, WR.SKILLS.length - 1); skillI = -1; return i;
+}
+let skillI = -1;
+function skillAbout() {
+  skillI = menu.i; const k = WR.SKILLS[menu.i], sk = WR.SKILL[k]; if (!sk) return;
+  const L = lv(k), M_ = WR.MASTERY[k], lines = [esc(sk.about)];
+  lines.push(L >= WR.MAX ? `<span class="better">Mastered: ${D.sk[k].toLocaleString("en")} xp.</span>` : `Level ${L}: ${(WR.TOTAL[L + 1] - D.sk[k]).toLocaleString("en")} xp to level ${L + 1} (${D.sk[k].toLocaleString("en")} of ${WR.TOTAL[WR.MAX].toLocaleString("en")} to mastery).`);
+  const nt = WR.TIER_LVL.findIndex(n => n > L), names = k === "mine" || k === "smith" ? ORES : WR.TREES;
+  if (k === "mine" || k === "wood" || k === "smith" || k === "fire") {
+    lines.push((k === "mine" ? "Mines " : k === "wood" ? "Fells " : k === "smith" ? "Works " : "Burns ") + names.slice(0, nt < 0 ? 6 : nt).join(", ") + (nt < 0 ? "." : `. Next: <b>${names[nt]}</b> at level ${WR.TIER_LVL[nt]}.`));
+    if (k === "mine") lines.push("Your pick: " + ORES[D.tools.pick] + "."); if (k === "wood") lines.push("Your hatchet: " + ORES[D.tools.axe] + ".");
+    if (k === "fire") { const f = WR.FIRE.find(x => x.lvl > L); lines.push(WR.FIRE.filter(x => x.lvl <= L).map(x => x.name).join(", ") + (f ? `. Next: <b>${esc(f.name)}</b> at level ${f.lvl}: ${esc(f.about)}` : ".")); lines.push(D.embers + " embers." + (D.glow > 0 ? " Hearthglow is on you." : "")); }
+  } else {
+    const have = D.kin.have.map(id => kinOf(id).name), c = WR.KIN.find(x => D.kin.have.indexOf(x.id) < 0);
+    lines.push((have.length ? "Bound: " + have.join(", ") + "." : "Nothing bound yet.") + (c ? ` Next: <b>${esc(c.name)}</b> at level ${c.lvl} (${c.kind === "mount" ? "a saddle from the anvil" : "found while " + ({ mine: "mining", wood: "woodcutting", smith: "smithing", fire: "firemaking" })[c.found]}).` : ""));
+    lines.push("A pet walking with you sends an eighth of what your other skills learn to this one.");
+  }
+  lines.push(D.mastered.indexOf(k) >= 0 ? `<span class="better">Yours: the ${esc(M_.mantle)} and ${esc(M_.weapon)}.</span> ${esc(M_.perk)}` : `At ${WR.MAX}: the <b>${esc(M_.mantle)}</b> and <b>${esc(M_.weapon)}</b> come to you, never for coin. ${esc(M_.weapon)} keeps two under the best weapon you've found, and grows when you find a better.`);
+  $("skillabout").innerHTML = `<b class="nm" style="color:${hex(sk.col)}">${esc(sk.name)}</b><br>` + lines.join("<br>");
+}
 function openBag() { state = "menu"; bagMode = "bag"; menu.show("bag"); }
 function renderBox() {
   $("boxtable").innerHTML = E.rows().map(r => `<tr><td>${esc(r[0])}</td><td>${esc(r[1])}</td></tr>`).join("");
@@ -1962,9 +2521,10 @@ function renderBag() {
   $("bagTitle").textContent = "The bag · " + D.bag.length + "/30";
   const cells = []; for (let i = 0; i < 30; i++) cells.push(slotHtml(D.bag[i] || null, i, null));
   $("baggrid").innerHTML = cells.join("");
-  $("worn").innerHTML = SLOTS.map(k => slotHtml(D.gear[k], -1, k).replace('class="slot', 'class="slot worn-' + k)).join("");
+  $("worn").innerHTML = WORN.map(k => slotHtml(D.gear[k], -1, k).replace('class="slot', 'class="slot worn-' + k)).join("");
   const ores = D.ore.map((n, i) => n ? n + " " + ORES[i] : "").filter(Boolean).join(", ") || "none", herbs = D.herbs.map((n, i) => n ? n + " " + HERBS[i] : "").filter(Boolean).join(", ") || "none";
-  $("herostats").innerHTML = [["Level", D.level], ["Life", S.hpMax], ["Damage", Math.round(S.dmg)], ["Armour", S.armour], ["Critical", S.crit.toFixed(1) + "%"], ["Coin", D.coin], ["Thread", D.thread], ["Draughts", D.draughts + "/" + maxDraughts()], ["Ore", ores], ["Herbs", herbs]]
+  $("herostats").innerHTML = [["Level", D.level], ["Life", S.hpMax], ["Damage", Math.round(S.dmg)], ["Armour", S.armour], ["Critical", S.crit.toFixed(1) + "%"], ["Coin", D.coin], ["Thread", D.thread], ["Draughts", D.draughts + "/" + maxDraughts()], ["Pack", packCount() + "/" + packMax()], ["Ore", ores],
+    ["Bars", D.bars.map((n, i) => n ? n + " " + ORES[i] : "").filter(Boolean).join(", ") || "none"], ["Logs", D.logs.map((n, i) => n ? n + " " + WR.TREES[i] : "").filter(Boolean).join(", ") || "none"], ["Embers", D.embers], ["Herbs", herbs]]
     .map(r => `<span>${r[0]}</span><b>${esc(String(r[1]))}</b>`).join("");
   bagAbout(); return Math.min(menu.i || 0, 29);
 }
@@ -1991,54 +2551,110 @@ function salvageFocused() {
 
 // ---- the stations in Hearthrim
 function openShop(kind) { shopKind = kind; state = "menu"; menu.show("shop"); }
+const inTown = () => !!W && W.kind === "town";
+const matHave = (kind, t) => D[kind][t] + (inTown() ? D.store[kind][t] : 0);   // (ore, bars or logs of a tier: the pack's, and in Hearthrim the stash's)
+function matTake(kind, t, n) { const k = Math.min(n, D[kind][t]); D[kind][t] -= k; if (k < n) D.store[kind][t] = Math.max(0, D.store[kind][t] - (n - k)); }
+function matGive(kind, t, n) { const room = Math.max(0, packMax() - packCount()), k = Math.min(n, room); D[kind][t] += k; if (k < n) D.store[kind][t] += n - k; }   // (what won't fit goes to the stash)
 function cost(o) {                                   // can it be paid? (and how it reads)
   const parts = [], ok = [];
+  if (o.need) { const have = lv(o.need[0]) >= o.need[1]; if (!have) { parts.push(WR.SKILL[o.need[0]].name + " " + o.need[1]); ok.push(false); } }
+  if (o.bars) { parts.push(o.bars[1] + " " + ORES[o.bars[0]] + " bar" + (o.bars[1] > 1 ? "s" : "")); ok.push(matHave("bars", o.bars[0]) >= o.bars[1]); }
+  if (o.logs) { parts.push(o.logs[1] + " " + WR.TREES[o.logs[0]] + " log" + (o.logs[1] > 1 ? "s" : "")); ok.push(matHave("logs", o.logs[0]) >= o.logs[1]); }
   if (o.coin) { parts.push(o.coin + " coin"); ok.push(D.coin >= o.coin); }
   if (o.thread) { parts.push(o.thread + " thread"); ok.push(D.thread >= o.thread); }
   if (o.ore) { parts.push(o.ore[1] + " " + ORES[o.ore[0]]); ok.push(D.ore[o.ore[0]] >= o.ore[1]); }
   if (o.herbs) { parts.push(o.herbs + " herbs"); ok.push(D.herbs.reduce((a, b) => a + b, 0) >= o.herbs); }
   return { text: parts.join(", "), ok: ok.every(Boolean) };
 }
-function pay(o) { if (o.coin) D.coin -= o.coin; if (o.thread) D.thread -= o.thread; if (o.ore) D.ore[o.ore[0]] -= o.ore[1]; if (o.herbs) { let n = o.herbs; for (let i = 0; i < 6 && n > 0; i++) { const k = Math.min(n, D.herbs[i]); D.herbs[i] -= k; n -= k; } } }
+function pay(o) { if (o.bars) matTake("bars", o.bars[0], o.bars[1]); if (o.logs) matTake("logs", o.logs[0], o.logs[1]); if (o.coin) D.coin -= o.coin; if (o.thread) D.thread -= o.thread; if (o.ore) D.ore[o.ore[0]] -= o.ore[1]; if (o.herbs) { let n = o.herbs; for (let i = 0; i < 6 && n > 0; i++) { const k = Math.min(n, D.herbs[i]); D.herbs[i] -= k; n -= k; } } }
 let SHOP = [];
 function renderShop() {
   const T = { smith: ["The smith", "Ore from the floors becomes new gear here, and what you wear can be tempered: each step adds a tenth to its power."],
     herbalist: ["The herbalist", "Two herbs of any kind and a little coin make a draught: half your life back, in a moment."],
     loom: ["The Loom", "Wyrd thread from the deep reweaves a piece: its powers rolled again, or one more power woven in."],
-    stash: ["Your stash", "What's kept here stays in Hearthrim. Choose a piece to move it between the bag and the stash."] }[shopKind];
+    stash: ["Your stash", "What's kept here stays in Hearthrim. Ore, bars and logs put by here are still to hand at the furnace and the anvil."],
+    furnace: ["The furnace", "Ore into bars, one for one. Silver and better want the heat of an ember: every log you burn leaves one, and one fires five bars."],
+    kin: ["The kinstone", "Creatures that take to you are bound here, and a saddle calls a mount. One pet walks with you and gives its help; your mount comes when you call."] }[shopKind];
   $("shopTitle").textContent = T[0]; $("shopAbout").textContent = T[1];
   SHOP = [];
   if (shopKind === "smith") {
-    let best = -1; for (let i = 5; i >= 0; i--) if (D.ore[i] >= 4) { best = i; break; }
-    for (const k of SLOTS) { const t = best < 0 ? 0 : best; SHOP.push({ label: "Forge " + (k === "weapon" ? "a " + KINDS[S.kind].name.toLowerCase() : SLOTNAME[k].toLowerCase()) + " of " + ORES[t], pay: { ore: [t, k === "weapon" || k === "chest" ? 6 : 4], coin: 20 + t * 35 }, act: () => forge(k, t) }); }
-    for (const k of SLOTS) { const it = D.gear[k]; if (!it || it.up >= 5) continue; SHOP.push({ label: "Temper " + it.n + " to +" + (it.up + 1), pay: { ore: [it.tier, 2 + it.up * 2], coin: 15 + it.tier * 20 + it.up * 25 }, act: () => { it.up++; recalc(); toast(it.n + " is now +" + it.up, GREEN); } }); }
+    // the best metal the delver can work and has three bars of (else the best they can work)
+    const top = WR.tierFor(lv("smith")); let best = top; for (let i = top; i >= 0; i--) if (matHave("bars", i) >= 3) { best = i; break; }
+    const smithXp = (t, n) => { gainSkill("smith", WR.FORGE_XP[t] * n, H.x, H.y + 2.4, H.z); seek("smith"); if (mastered("smith") && R() < n / 6) { matGive("bars", t, 1); toast("A bar spared", WR.SKILL.smith.col); } };
+    for (const k of SLOTS) { const t = best, n = k === "weapon" || k === "chest" ? 5 : 3; SHOP.push({ label: "Forge " + (k === "weapon" ? "a " + KINDS[S.kind].name.toLowerCase() : SLOTNAME[k].toLowerCase()) + " of " + ORES[t], pay: { bars: [t, n], coin: 20 + t * 35 }, act: () => { forge(k, t); smithXp(t, n); } }); }
+    for (const [tool, name, what] of [["pick", "pick", "quicker at the rock"], ["axe", "hatchet", "quicker at the tree"]]) { const t = D.tools[tool] + 1; if (t > 5) continue;
+      SHOP.push({ label: "Make " + (/^[aeiou]/.test(ORES[t]) ? "an " : "a ") + ORES[t] + " " + name + " (" + what + ")", pay: { need: ["smith", WR.TIER_LVL[t]], bars: [t, WR.TOOL.bars], logs: [t - 1, WR.TOOL.logs] }, act: () => { D.tools[tool] = t; smithXp(t, WR.TOOL.bars); toast("A " + ORES[t] + " " + name, ORECOL[t]); } }); }
+    for (const c of WR.KIN) { if (c.kind !== "mount" || D.kin.have.indexOf(c.id) >= 0 || D.kin.found.indexOf(c.id) >= 0 || lv("summon") < c.lvl) continue;
+      SHOP.push({ label: "Make a saddle for a " + c.name, pay: { need: ["smith", c.saddle.smith], bars: [c.saddle.tier, c.saddle.bars], logs: [c.saddle.tier - 1, c.saddle.logs] }, act: () => { D.kin.found.push(c.id); smithXp(c.saddle.tier, c.saddle.bars); toast("Take the saddle to the kinstone", WR.SKILL.summon.col); } }); }
+    for (const k of SLOTS) { const it = D.gear[k]; if (!it || it.up >= 5 || it.m) continue; SHOP.push({ label: "Temper " + it.n + " to +" + (it.up + 1), pay: { bars: [it.tier, 1 + it.up], coin: 15 + it.tier * 20 + it.up * 25 }, act: () => { it.up++; recalc(); smithXp(it.tier, it.up); toast(it.n + " is now +" + it.up, GREEN); } }); }
     const junk = D.bag.filter(it => it.r <= 1); if (junk.length) SHOP.push({ label: "Salvage the " + junk.length + " common and fine pieces in the bag", pay: {}, act: () => { for (const it of junk) { const v = salvageValue(it); D.ore[it.tier] += v.ore; D.coin += v.coin; } D.bag = D.bag.filter(it => it.r > 1); toast("Salvaged " + junk.length + " pieces", GREEN); } });
   } else if (shopKind === "herbalist") {
     const room = maxDraughts() - D.draughts;
     SHOP.push({ label: room > 0 ? "Brew a draught (" + D.draughts + "/" + maxDraughts() + ")" : "Your belt is full (" + D.draughts + "/" + maxDraughts() + ")", pay: room > 0 ? { herbs: 2, coin: 8 } : { coin: 1e9 }, act: () => { D.draughts++; } });
     if (room > 1) SHOP.push({ label: "Brew until the belt is full", pay: { herbs: 2 * room, coin: 8 * room }, act: () => { D.draughts = maxDraughts(); } });
   } else if (shopKind === "loom") {
-    for (const k of SLOTS) { const it = D.gear[k]; if (!it) continue;
+    for (const k of SLOTS) { const it = D.gear[k]; if (!it || it.m) continue;
       if (it.a.length && it.r < 4) SHOP.push({ label: "Reweave " + it.n, pay: { thread: 2 + it.r, coin: 10 + it.tier * 15 }, act: () => { reweave(it); toast(it.n, RARITY[it.r].col); } });
       if (it.r < 3) SHOP.push({ label: "Weave a power into " + it.n + " (to " + RARITY[it.r + 1].name + ")", pay: { thread: 4 + it.r * 4, coin: 25 + it.tier * 30 }, act: () => { strengthen(it); toast(it.n + " is " + RARITY[it.r].name, RARITY[it.r].col); } }); }
     if (!SHOP.length) SHOP.push({ label: "Nothing worn the Loom can work", pay: { coin: 1e9 }, act: () => {} });
+  } else if (shopKind === "furnace") {
+    const nd = W.nodes.find(n => n.kind === "furnace") || { x: H.x, y: H.y, z: H.z };
+    for (let t = 0; t < 6; t++) { const n = matHave("ore", t); if (!n) continue;
+      SHOP.push({ label: "Smelt " + n + " " + ORES[t] + " ore into bars", col: ORECOL[t], close: true, pay: { need: ["smith", WR.TIER_LVL[t]] }, act: () => { H.gather = { job: "smelt", nd, tier: t, left: n, t: 0, dur: 0.55, snd: "smelt" }; H.yaw = Math.atan2(nd.x - H.x, nd.z - H.z); } }); }
+    if (!SHOP.length) SHOP.push({ label: "No ore to smelt: the rocks round Hearthrim hold copper", pay: { coin: 1e9 }, act: () => {} });
+  } else if (shopKind === "kin") {
+    const K = D.kin, here = !!nearNodeOf("kin");
+    for (const id of K.found) { const c = kinOf(id); SHOP.push({ label: "Bind the " + c.name + (here ? "" : " (at a kinstone)"), col: WR.SKILL.summon.col, pay: here ? { need: ["summon", c.lvl] } : { coin: 1e9 }, act: () => bind(c) }); }
+    for (const id of K.have) { const c = kinOf(id), on = c.kind === "pet" ? K.pet === id : K.ride === id;
+      SHOP.push({ label: (c.kind === "pet" ? (on ? "With you: " : "Walk with the ") : (on ? "Your mount: " : "Ride the ")) + c.name + " · " + c.about, pay: {}, col: on ? GREEN : null, act: () => { if (c.kind === "pet") K.pet = on ? null : id; else { K.ride = on ? null : id; H.ride = false; } G.pet.x = H.x; G.pet.z = H.z; } }); }
+    const next = WR.KIN.find(c => K.have.indexOf(c.id) < 0 && K.found.indexOf(c.id) < 0);
+    if (next) SHOP.push({ label: "Next: a " + next.name + ", at Summoning " + next.lvl + (next.kind === "mount" ? ": a saddle from the anvil calls it" : ": it shows itself while you're " + ({ mine: "mining", wood: "woodcutting", smith: "smithing", fire: "firemaking" })[next.found]), pay: { coin: 1e9 }, act: () => {} });
   } else if (shopKind === "stash") {
+    const carried = packCount(), kinds = [["ore", ORES, " ore", ORECOL], ["bars", ORES, " bars", ORECOL], ["logs", WR.TREES, " logs", TREECOL]];
+    if (carried) SHOP.push({ label: "Put by all the ore, bars and logs you carry (" + carried + ")", pay: {}, col: GREEN, act: () => { for (const [k] of kinds) for (let t = 0; t < 6; t++) { D.store[k][t] += D[k][t]; D[k][t] = 0; } } });
+    for (const [k, names, word, cols] of kinds) for (let t = 0; t < 6; t++) { const n = D.store[k][t]; if (!n) continue;
+      SHOP.push({ label: "Take out " + n + " " + names[t] + word, pay: {}, col: cols[t], act: () => { const q = Math.min(D.store[k][t], Math.max(0, packMax() - packCount())); if (!q) { toast("Your pack is full", PINK); return; } D.store[k][t] -= q; D[k][t] += q; } }); }
     D.stash.forEach((it, i) => SHOP.push({ label: "To the bag: " + it.n, pay: {}, col: RARITY[it.r].col, act: () => { if (D.bag.length >= 30) { toast("The bag is full", PINK); return; } D.bag.push(D.stash.splice(i, 1)[0]); } }));
     D.bag.forEach((it, i) => SHOP.push({ label: "To the stash: " + it.n, pay: {}, col: RARITY[it.r].col, act: () => { if (D.stash.length >= 40) { toast("The stash is full", PINK); return; } D.stash.push(D.bag.splice(i, 1)[0]); } }));
     if (!SHOP.length) SHOP.push({ label: "Nothing to move", pay: { coin: 1e9 }, act: () => {} });
   }
   $("shoplist").innerHTML = SHOP.map((o, i) => { const c = cost(o.pay); return `<div class="item row${c.ok ? "" : " off"}" data-do="do" data-i="${i}"${o.col ? ` style="color:${hex(o.col)}"` : ""}><span>${esc(o.label)}</span><span class="cost">${esc(c.ok || o.pay.coin < 1e9 ? c.text : "")}</span></div>`; }).join("");
-  $("shopHave").textContent = D.coin + " coin · " + D.thread + " thread · " + D.ore.map((n, i) => n ? n + " " + ORES[i] : "").filter(Boolean).join(", ") + (D.herbs.some(Boolean) ? " · " + D.herbs.reduce((a, b) => a + b, 0) + " herbs" : "");
+  const mats = (kind, names, word) => { const out = []; for (let t = 0; t < 6; t++) { const n = matHave(kind, t); if (n) out.push(n + " " + names[t] + word); } return out; };
+  $("shopHave").textContent = shopKind === "kin" ? "Summoning " + lv("summon") + " · " + D.kin.have.length + " of " + WR.KIN.length + " bound"
+    : [D.coin + " coin", D.thread + " thread"].concat(mats("ore", ORES, " ore"), mats("bars", ORES, " bars"), mats("logs", WR.TREES, " logs"), D.embers ? [D.embers + " embers"] : [], D.herbs.some(Boolean) ? [D.herbs.reduce((a, b) => a + b, 0) + " herbs"] : []).join(" · ");
   return clamp(menu.i || 0, 0, SHOP.length - 1);
 }
 function shopDo(el) {
   const o = SHOP[+el.dataset.i]; if (!o) return;
   const c = cost(o.pay); if (!c.ok) { sfx("no"); return; }
   pay(o.pay); o.act(); sfx("ok"); store();
+  if (o.close) { closeMenu(); return; }
   const i = menu.i; menu.show("shop", true); menu.focus(i);
 }
+// a bar from the furnace: its ore, the heat silver and better want, and what it teaches
+function smeltOne(g) {
+  const t = g.tier, nd = g.nd;
+  if (g.left <= 0 || matHave("ore", t) <= 0) return false;
+  if (t >= WR.HEAT_TIER) { if (D.heat <= 0) { if (D.embers <= 0) { toast("The furnace is cold: " + ORES[t] + " wants an ember from a fire", PINK); sfx("no"); return false; } D.embers--; D.heat = WR.EMBER_BARS; } D.heat--; }
+  matTake("ore", t, 1); matGive("bars", t, 1); g.left--;
+  drop(nd.x, nd.y + 3.0, nd.z, "+1 " + ORES[t] + " bar", ORECOL[t]); gainSkill("smith", WR.SMELT_XP[t], nd.x, nd.y + 2.5, nd.z); seek("smith");
+  burst(nd.x, nd.y + 1.2, nd.z, 6, 0xff8a3a, 3);
+  if (g.left <= 0 || matHave("ore", t) <= 0) { store(); return false; }
+  return true;
+}
+function nearNodeOf(kind) { for (const nd of W.nodes) if (nd.kind === kind && dist2(H.x, H.z, nd.x, nd.z) < 16) return nd; return null; }
+// a creature bound: it's yours for good, and Summoning grows by what it's worth
+function bind(c) {
+  const K = D.kin; K.found = K.found.filter(id => id !== c.id); if (K.have.indexOf(c.id) < 0) K.have.push(c.id);
+  if (c.kind === "pet") { K.pet = c.id; G.pet.x = H.x; G.pet.z = H.z; } else K.ride = c.id;
+  toast("The " + c.name + " is bound to you", WR.SKILL.summon.col); sfx("legend"); burst(H.x, H.y + 1.2, H.z, 40, WR.SKILL.summon.col, 7); G.rings.push({ x: H.x, z: H.z, r: 0.5, grow: 12, life: 0.7, col: WR.SKILL.summon.col });
+  gainSkill("summon", c.bond, H.x, H.y + 2.4, H.z);
+}
+// the best weapon that has dropped or been forged for this delver: the mastery weapons keep just under it
+function noteBest(it) { if (it.k !== "weapon" || it.m) return; if (WR.betterDrop(D.best, it)) { D.best = { p: it.p, lvl: it.lvl, tier: it.tier }; rescale(true); } }
+function rescale(tell) {}
 function forge(k, t) {
-  const r = Math.min(3, rollRarity(D.level, 0) + 1), it = makeItem(k, t, Math.max(D.level, t * 4 + 2), r, k === "weapon" ? S.kind : null);
+  const r = Math.min(3, rollRarity(D.level, 0) + 1), it = makeItem(k, t, Math.max(D.level, t * 4 + 2), r, k === "weapon" ? S.kind : null); noteBest(it);
   if (D.bag.length >= 30) { D.stash.push(it); toast("The bag was full: " + it.n + " went to the stash", RARITY[it.r].col); }
   else { D.bag.push(it); toast("Forged: " + it.n, RARITY[it.r].col); }
 }
@@ -2075,6 +2691,15 @@ function startEnding() { D.ended = true; store(); endPage = 0; state = "menu"; s
 function showEndPage() { $("endTitle").textContent = ENDING[endPage][0]; $("endText").textContent = ENDING[endPage][1]; }
 function endingNext() { endPage++; if (endPage >= ENDING.length) { closeMenu(); toWorld("town", 0); return; } showEndPage(); }
 
+// the pet: keeps a little behind and to one side, catches up when left behind
+function updatePet(dt) {
+  const p = G.pet; if (!p || !D.kin.pet) return;
+  const tx = H.x - Math.sin(H.yaw) * 1.5 + Math.cos(H.yaw) * 1.1, tz = H.z - Math.cos(H.yaw) * 1.5 - Math.sin(H.yaw) * 1.1, dx = tx - p.x, dz = tz - p.z, d = Math.sqrt(dx * dx + dz * dz);
+  p.t += dt; p.mv = 0;
+  if (d > 30) { p.x = tx; p.z = tz; return; }
+  if (d > 0.5) { const v = Math.min(d * 3, S.speed * 2.2) * dt; p.x += dx / d * v; p.z += dz / d * v; p.yaw = Math.atan2(dx, dz); p.mv = 1; }
+  else p.yaw += wrap(H.yaw - p.yaw) * Math.min(1, dt * 4);
+}
 // ---------------------------------------------------------------- Hearthrim's people about their day
 function updateFolk(dt) {
   if (!W || !W.folk) return;
@@ -2116,16 +2741,18 @@ function update(dt) {
   G.t += dt;
   stepSparks(dt); updateFolk(dt);
   for (let i = G.toasts.length - 1; i >= 0; i--) { G.toasts[i].t -= dt; if (G.toasts[i].t <= 0) G.toasts.splice(i, 1); }
-  for (let i = G.nums.length - 1; i >= 0; i--) { G.nums[i].t += dt; if (G.nums[i].t > 1) G.nums.splice(i, 1); }
+  for (let i = G.nums.length - 1; i >= 0; i--) { const n = G.nums[i]; n.t += n.slow ? dt * 0.6 : dt; if (n.t > 1) G.nums.splice(i, 1); }
   G.sayT = Math.max(0, G.sayT - dt); G.shake = Math.max(0, G.shake - dt);
   if (menu.at === "bag" && menu.i !== bagI) bagAbout();
+  if (menu.at === "skills" && menu.i !== skillI) skillAbout();
+  if (G.trackT > 0) G.trackT -= dt;
   if (menu.at && (menu.at !== focusAt || menu.i !== focusI)) { focusAt = menu.at; focusI = menu.i; const it = menu.items()[menu.i]; if (it && it.scrollIntoView) it.scrollIntoView({ block: "nearest" }); }
   if (state !== "play" && !E.demo) { if (state === "title" && H) { H.act = null; } return; }
   updateWorldChange(dt);
   if (pendingWorld) return;
   if (E.demo || AI.on) aiThink(dt);
   D.time += dt;
-  updateHero(dt); updateFoes(dt); updateShots(dt); updateTele(dt); pickUp(dt); updateFallen(dt);
+  updateHero(dt); updateNodes(dt); updatePet(dt); updateFoes(dt); updateShots(dt); updateTele(dt); pickUp(dt); updateFallen(dt);
   if (G.endT > 0) { G.endT -= dt; if (G.endT <= 0) startEnding(); }
   if (G.boss && H.dead) { G.boss.st = G.boss.st === "dead" ? "dead" : "idle"; }
   saveT += dt; if (saveT > 45) { saveT = 0; store(); }
@@ -2150,7 +2777,10 @@ const E = L3.game({
 if (E.test) window.WY = { get G() { return G; }, get H() { return H; }, get D() { return D; }, get W() { return W; }, get S() { return S; }, E, menu,
   sim: (sec) => { for (let i = 0, n = Math.round(sec * 60); i < n; i++) update(1 / 60); return { t: G.t, fi: W.fi, kind: W.kind, hp: Math.round(H.hp), dead: H.dead, lvl: D.level }; },
   go: fi => descend(fi), town: () => toWorld("town", 0), play, makeItem, give: it => D.bag.push(it), level: n => { D.level = n; recalc(); H.hp = S.hpMax; },
-  killAll: () => { for (const f of G.foes) if (f.st !== "dead" && !f.boss) { f.hp = 0; killFoe(f); } }, boss: () => G.boss, startEnding, recalc, heroBody, interact, nearNode, skill, startAttack, dodge, AI };
+  killAll: () => { for (const f of G.foes) if (f.st !== "dead" && !f.boss) { f.hp = 0; killFoe(f); } }, boss: () => G.boss, startEnding, recalc, heroBody, interact, nearNode, skill, startAttack, dodge, AI,
+  begin: () => { slotNo = 0; begin(); return D.name; }, goto: (x, z) => { H.x = x; H.z = z; H.y = W.h(x, z); }, near: kind => { let b = null, bd = 1e9; for (const nd of W.nodes) if (nd.kind === kind && nd.on) { const d = dist2(H.x, H.z, nd.x, nd.z); if (d < bd) { b = nd; bd = d; } } return b; },
+  gainSkill, lightFire, toggleRide, bind, kinOf, lv, WR, packCount, packMax, openShop, shopDo: i => shopDo({ dataset: { i } }), SHOP: () => SHOP, master,
+  show: o => { SHOW = o; H.inv = 0; if (o && o.yaw != null) H.yaw = o.yaw; if (o && o.walk) H.act = "walk"; heroBody(false); return heroKey.length; } };
 E.start();
 })();
 </script>

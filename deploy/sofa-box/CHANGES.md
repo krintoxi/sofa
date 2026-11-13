@@ -8,6 +8,31 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.86
+
+**WYRD learns five skills.** Mining, Smithing, Woodcutting, Firemaking and Summoning, each to level 75.
+
+- **Gather, then make.** Rocks give ore and trees give logs, a swing at a time, for as long as you stand there: six
+  kinds of each, opening at levels 1, 12, 24, 38, 52 and 65. A furnace turns ore into bars; the anvil turns bars into
+  gear, a better pick and hatchet (each one quicker), and saddles. Logs become fires where you stand: a fire mends you,
+  leaves embers the furnace needs for silver and better, and does more as you learn (a torch for caves at 15, the
+  Hollow's braziers at 30, a tenth more from every skill at 45, fires that burn twice as long at 60).
+- **Summoning grows with what's bound to you.** Five pets show themselves while you're at their trade and three mounts
+  answer a saddle; each is bound at a kinstone. One pet walks with you and helps (lights the dark, carries twenty more,
+  brings a second ore or log, makes every swing quicker, or teaches a tenth more), and a mount is ridden: up to nearly
+  twice as fast.
+- **How long it takes.** One curve for all five, just under 300,000 xp to 75. At a steady pace, with the pick or
+  hatchet your Smithing can make: Mining and Woodcutting about three hours each, Smithing about an hour and a half,
+  Firemaking about an hour, and Summoning comes with the rest.
+- **On the screen.** What you gathered and the xp for it rise from where you got them; the skill you're learning
+  shows its level and how far through it you are; the pack says how full it is (40, more with a carrier). **Skills**
+  in the pause menu sets out all five. A controller: LB lights or feeds a fire, LT calls your mount; from a remote,
+  both are in the pause menu.
+- Hearthrim has trees to fell, copper and iron in the rocks round it, a furnace by the smith and a kinstone. The Maw's
+  ore is mined the same way now, and wants the Mining level for it.
+- The rules (the curve, what a level opens, the creatures) are a script of their own in the game's page, and the box's
+  checks play them without a browser.
+
 ## 1.1.85
 
 **Sofa Box OS for a PC on a DVD**, and **Sofa Box Imager 0.3.0** burns it.
