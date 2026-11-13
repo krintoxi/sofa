@@ -1,15 +1,16 @@
 # Where Sofa fits: Jellyfin, Plex, Emby, Kodi, and the box against a Fire TV
 
-For a person choosing a home media server, or a TV box. Written on 2026-11-10 against **Sofa 1.5.4** and **Sofa Box
-OS 1.1.60**. Sofa's column comes from this repository's code and tests ([capabilities.md](capabilities.md) has the
+For a person choosing a home media server, or a TV box. Written on 2026-11-10; Sofa's column was brought up to
+**Sofa 1.5.10** and **Sofa Box OS 1.1.84** on 2026-11-13, and the others are as read on the dates under
+[Sources](#sources). Sofa's column comes from this repository's code and tests ([capabilities.md](capabilities.md) has the
 evidence for each line); the others from their own pages, cited with the date they were read. Things change: if a
 line is out of date, [open an issue](https://github.com/krintoxi/sofa/issues/new/choose) and it gets fixed.
 
 **The short version.** Jellyfin, Plex and Emby are mature servers with an app in every TV's store, and Kodi is a
 player you build a setup around. Sofa is a server made for a household rather than a homelab: drop files in a folder
 and they come out named with posters, the TV signs in by approving it on your phone, your phone is the remote, there
-are no accounts with anyone, and it comes with its own TV box for a Raspberry Pi. It runs on a Mac or a Linux computer
-with Python and ffmpeg and nothing else, or in Docker. It is also weeks old, made by one person, source-available rather than open
+are no accounts with anyone, and it comes with its own TV box for a Raspberry Pi. It runs on a Mac, a Windows PC or a Linux computer, or in Docker,
+and needs Python and ffmpeg and nothing else (the Windows installer brings both). It is also weeks old, made by one person, source-available rather than open
 source, without hardware transcoding on Linux, without an Android TV or Apple TV app, and untested on a Pi 4 or 5.
 **Sofa does not do everything Jellyfin does, and doesn't try to.** Pick it for less to run, a household's habits, and
 the box.
@@ -30,7 +31,7 @@ the box.
 | **Phone as the remote** | Built in: with Sofa open on any screen, your phone plays there, pauses, skips, scrubs; the TV signs in by a code you approve on the phone | Through its apps (cast to a signed-in client) | Plex apps' "Play on" | Through its apps | Kore, the official remote app |
 | **A whole TV box OS** | **Sofa Box OS** on a Raspberry Pi (run on one Pi 3 B+ so far): its own home screen, Sofa built in, the streaming apps, games, phone remote | None of its own | None of its own | None of its own | **LibreELEC**: Kodi as the OS on a Pi or PC; no streaming apps with DRM |
 | **Privacy and accounts** | No account with anyone; no analytics or telemetry; a **Work offline** switch; [every internet use listed with its switch](privacy.md) | No account, no telemetry | A plex.tv account for the server and every watcher; ad-supported content in the same apps | An Emby account for Premiere and Emby Connect; optional otherwise | None |
-| **Setup** | One line in Terminal, then the first account in the browser; the Inbox does the rest | Install, a wizard, libraries by folder; Docker for most | Install, a plex.tv account, claim the server | Install, a wizard | Install Kodi, add sources, set scrapers; LibreELEC: write a card |
+| **Setup** | One line in Terminal (an installer on Windows, `docker compose up -d` in Docker), then the first account in the browser; the Inbox does the rest | Install, a wizard, libraries by folder; Docker for most | Install, a plex.tv account, claim the server | Install, a wizard | Install Kodi, add sources, set scrapers; LibreELEC: write a card |
 | **Behind it** | One person, since October 2026; over 400 automated tests | A large volunteer project since 2018 | A company since 2010 | A small company | A foundation and volunteers since 2003 |
 
 ## The box, against what it replaces
@@ -48,7 +49,7 @@ the box.
 
 ## Pick Sofa if
 
-- you want the server on a Mac or a Linux computer with nothing to install but ffmpeg;
+- you want the server on a Mac, a Windows PC or a Linux computer with nothing to install but ffmpeg;
 - your files arrive messy and you'd rather not name and sort them by hand;
 - the people watching are a household: profiles, Kids, PINs, a TV that signs in from your phone;
 - you want no account with anyone, and an off switch for everything that uses the internet;

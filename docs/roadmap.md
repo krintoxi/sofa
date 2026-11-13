@@ -1,6 +1,6 @@
 # Roadmap, and what Sofa doesn't do yet
 
-Written on 2026-11-10, at **Sofa 1.5.4** and **Sofa Box OS 1.1.60**. Sofa is made by one person; this is the order
+Written on 2026-11-10; brought up to **Sofa 1.5.10** and **Sofa Box OS 1.1.84** on 2026-11-13. Sofa is made by one person; this is the order
 of work, not a promise, and there are no dates. What has shipped is in [CHANGES.md](../CHANGES.md) and
 [the box's changelog](../deploy/sofa-box/CHANGES.md); what works today, with the evidence for each line, is in
 [capabilities.md](capabilities.md).
@@ -25,10 +25,11 @@ Read this before you install, so nothing surprises you.
   built by GitHub and **no run on a real device is on record**. Fire OS 8 (Vega) sticks can't sideload anything.
 - **The Sofa Box has run on one Raspberry Pi 3 Model B+**, the owner's. A Pi 4 or 5 has never run it; the DRM apps
   (Netflix, Disney+…), USB drives, discs and HDMI-CEC are built and tested in software and have not been tried on a real
-  box; the newest card the Pi has booted is 1.1.49, so the one TV player, the update channels and the first-boot fixes of
-  1.1.53 to 1.1.60 meet a Pi for the first time at the next test. **No card is marked stable yet.**
+  box; the newest card tried on the Pi is 1.1.73 (2026-11-12), and what it showed led to 1.1.80 and 1.1.81, so 1.1.74 to
+  1.1.84 meet a Pi for the first time at the next test. **No card is marked stable yet.**
 - **The Mac card writer** (`imager/`) has written a card to a disk image in its tests and never to a real SD card.
-- **The PC and virtual-machine image** (1.1.60) has booted on GitHub's machines under UEFI and BIOS, never on a real PC.
+- **Sofa Box OS on a PC** (from a USB stick since 1.1.79; since 1.1.84 it can put itself on the PC's own drive) has
+  started on GitHub's machines under UEFI, BIOS and Secure Boot, and never on a real PC.
 - **Live TV** plays channel lists you add and Classic Cinema from a public film archive. There is no tuner support and
   no recording. Retro TV's decades (recordings of TV as it aired, played straight from a public video library) are
   on unless an admin turns them off, and never reach the public library's visitors.
@@ -55,6 +56,12 @@ The last few weeks, from the changelogs:
   `rpi-image-gen` prototype; fourteen games of its own on two engines, with several controllers.
 - **The record:** [capabilities.md](capabilities.md) with its tested-on table, [hardware.md](hardware.md), the issue
   templates, this page and [compare.md](compare.md).
+- **Sofa 1.5.9 and 1.5.10:** Sofa for Windows, an installer with its own Python and ffmpeg, built and run on GitHub's
+  Windows machines on every change; Sofa reads the computer it's on, spreads its background work over the cores and
+  gives memory back.
+- **Sofa Box OS 1.1.61 to 1.1.84:** the box on a PC from a USB stick, and installed on the PC's own drive; what the
+  Pi 3 showed with 1.1.73, fixed in 1.1.80 and 1.1.81; the player reading ahead by memory; WYRD, a 3D action game on the
+  box's own engine.
 - **Sofa 1.5.5: Sofa in Docker.** A `Dockerfile` and a `compose.yml` on the computer's own network, the image
   published as `ghcr.io/krintoxi/sofa` by GitHub; in a container, Updates says to pull the new image.
 
@@ -100,7 +107,8 @@ In order. Each one ends with a line in the tested-on table.
 ## How to help
 
 - Run it and say what happened: [a bug report or a hardware report](https://github.com/krintoxi/sofa/issues/new/choose),
-  with the box's **Send a report** code if it's a box. Testers for a Pi 4, a Pi 5, a Fire TV stick, a Roku, an Android
-  phone as the box's remote, and Linux as a daily server are the ones most needed.
-- Fixes and improvements are welcome under [CONTRIBUTING.md](../CONTRIBUTING.md); open an issue first for anything
-  bigger than a fix.
+  with the box's **Send a report** code if it's a box. Testers for a Pi 4, a Pi 5, a Fire TV stick, a Roku, a Windows
+  PC, an Android phone as the box's remote, and Linux or Docker as a daily server are the ones most needed.
+- Questions and ideas go in [Discussions](https://github.com/krintoxi/sofa/discussions).
+- Fixes and improvements are welcome under [CONTRIBUTING.md](../CONTRIBUTING.md), which says where to start; open an
+  issue first for anything bigger than a fix.

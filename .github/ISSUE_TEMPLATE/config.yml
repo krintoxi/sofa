@@ -1,5 +1,14 @@
 blank_issues_enabled: true
 contact_links:
+  - name: A question, or help setting it up
+    url: https://github.com/krintoxi/sofa/discussions/categories/q-a
+    about: Ask in Discussions. Someone else has probably wondered the same, and the answer stays findable.
+  - name: An idea
+    url: https://github.com/krintoxi/sofa/discussions/categories/ideas
+    about: What you'd want Sofa or the Sofa Box to do. The roadmap says what's planned and what isn't.
+  - name: A security problem
+    url: https://github.com/krintoxi/sofa/security/policy
+    about: Please report it privately, not in a public issue. SECURITY.md says how.
   - name: What Sofa can do today
     url: https://github.com/krintoxi/sofa/blob/main/docs/capabilities.md
     about: What works, what's beta, what has never been tried on which hardware. Read it before reporting something as broken.

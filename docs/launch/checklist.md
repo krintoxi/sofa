@@ -4,8 +4,8 @@
 (`deploy/sofa-box/STABLE` names a version). Until then, nothing goes out. The one allowed exception: **the Sofa Server
 can launch first, with the box called beta in every post**, once the owner has decided to do that in so many words.
 
-**Who posts:** the owner, from their own accounts. The files in this folder are drafts. No session, script or
-workflow in this repository posts anything anywhere.
+**Who posts:** the owner, from their own accounts. The files in this folder are drafts. No script or workflow
+in this repository posts anything anywhere.
 
 **r/opensource is out.** Its rules expect an OSI-approved licence; Sofa's PolyForm Noncommercial 1.0.0 isn't one.
 Every post says "source-available" in its first lines.
@@ -26,7 +26,7 @@ Every post says "source-available" in its first lines.
 1. **Day 1, the repository.** The merged README (GIF, "Why not Jellyfin or Plex?", Status), topics and description
    (done 2026-11-10), the social preview uploaded, Discussions pinned.
 2. **Day 2, the demo.** `docs/images/demo.gif` and `demo.mp4` are in the repository; if a longer narrated video is
-   wanted, record it from the same rig (the session notes say how) and host it where the owner likes.
+   wanted, record it the same way and host it where the owner likes.
 3. **Day 3, r/selfhosted.** A comment in the current **New Project Megathread** ([reddit-selfhosted.md](reddit-selfhosted.md)):
    "all new projects can only be posted here", "Standalone new project posts will be removed" (the megathread's
    own text, read 2026-05-16 snapshot; the repository is a new project there until late January 2027). Answer

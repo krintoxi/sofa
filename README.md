@@ -1,17 +1,56 @@
 # Sofa
 
-**Your own streaming service, at home, and your own TV box.** Put your shows, movies and music in one
-folder on a computer that stays on, and watch them on every TV, phone and laptop in the house, with
-posters, "Continue watching", Skip Intro and a proper player. Then, if you like, turn a Raspberry Pi
-into the TV box that plays it all: Sofa, free Live TV, your streaming apps and games, with your phone
-as the remote. No subscriptions, no accounts with anyone, no ads, no tracking of its own. It works
-with the internet down.
+[![Tests](https://github.com/krintoxi/sofa/actions/workflows/tests.yml/badge.svg)](https://github.com/krintoxi/sofa/actions/workflows/tests.yml)
+[![Sofa's version](https://img.shields.io/badge/dynamic/regex?url=https%3A%2F%2Fraw.githubusercontent.com%2Fkrintoxi%2Fsofa%2Fmain%2Fsofa%2F__init__.py&search=__version__%20%3D%20%22(%5B%5E%22%5D%2B)%22&replace=%241&label=Sofa&color=2ea043)](CHANGES.md)
+[![Sofa Box OS's version](https://img.shields.io/badge/dynamic/regex?url=https%3A%2F%2Fraw.githubusercontent.com%2Fkrintoxi%2Fsofa%2Fmain%2Fdeploy%2Fsofa-box%2FVERSION&search=(%5B0-9.%5D%2B)&replace=%241&label=Sofa%20Box%20OS&color=2ea043)](deploy/sofa-box/CHANGES.md)
+[![Licence: PolyForm Noncommercial, source-available](https://img.shields.io/badge/licence-PolyForm%20Noncommercial-555)](#license)
+[![Questions and ideas: Discussions](https://img.shields.io/badge/ask-Discussions-555)](https://github.com/krintoxi/sofa/discussions)
 
-A project by [EdgeVenture](https://edgeventure.uk). Source-available; see [License](#license).
+**Your own streaming service at home, and your own TV box.** Put your shows, movies and music in one folder on a
+computer that stays on, and watch them on every TV, phone and laptop in the house, with posters, "Continue watching",
+Skip Intro and a proper player. New files name and file themselves, the TV signs in from your phone, and there is no
+account with anyone. Then, if you like, turn a Raspberry Pi into the TV box that plays it all: Sofa, your streaming
+apps and games, with your phone as the remote. No subscriptions, no ads in Sofa's screens, nothing collected about
+what you watch. It works with the internet down.
+
+A project by [EdgeVenture](https://edgeventure.uk). Source-available and free at home; see [License](#license).
 
 ![Forty seconds of Sofa: a file dropped in the Inbox is filed and gets a poster; Home with a banner and rows of posters; a show's page; the player with its time line; Live TV's guide; the Sofa Box's home screen](docs/images/demo.gif)
 
 <sup>The same demo as an MP4: [docs/images/demo.mp4](docs/images/demo.mp4). The library in it is made-up titles drawn for the purpose.</sup>
+
+## Try it
+
+A couple of minutes, and nothing to sign up for. When it says it's done, open `http://localhost:8090` (or that
+computer's address from any device at home) and make the first account.
+
+**Mac or Linux** (Python 3 is all it needs to start; ffmpeg lets every kind of video play, and the script says how
+to get it):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/krintoxi/sofa/main/tools/get-sofa.sh | sh
+```
+
+**Docker** (a Linux computer or a NAS; amd64 and arm64):
+
+```sh
+mkdir sofa && cd sofa && curl -fsSLO https://raw.githubusercontent.com/krintoxi/sofa/main/compose.yml && docker compose up -d
+```
+
+**Windows 10 or 11:** [sofa-windows-x64-setup.exe](https://github.com/krintoxi/sofa/releases/download/sofa-for-windows/sofa-windows-x64-setup.exe),
+an installer with its own Python and ffmpeg. It isn't signed yet, so SmartScreen asks first.
+
+**A Raspberry Pi as the TV box:** [Sofa Box OS](#sofa-box-os-your-own-tv-box), a card you write with Raspberry Pi
+Imager (beta).
+
+The same, a step at a time: [Set it up in 4 steps](#set-it-up-in-4-steps). What each install does and asks:
+[docs/install.md](docs/install.md). Stuck, or it broke? [Ask in Discussions](https://github.com/krintoxi/sofa/discussions/categories/q-a)
+or [open an issue](https://github.com/krintoxi/sofa/issues/new/choose).
+
+**If Sofa earns a place in your house,** a star helps the next household find it. What helps more is a
+[hardware report](https://github.com/krintoxi/sofa/issues/new/choose) from a machine we don't have: a Raspberry Pi 4
+or 5, a Fire TV stick, a Roku, a Windows PC. Each one goes into [Tested on](docs/capabilities.md#tested-on) with your
+name on it. Where to start with the code: [CONTRIBUTING.md](CONTRIBUTING.md).
 
 **Why not Jellyfin or Plex?** Both are bigger and have an app in every TV's store; Sofa is for a household that wants
 less to run, files that sort themselves, a TV that signs in from your phone, no account with anyone, and a Pi box.
@@ -26,7 +65,7 @@ The honest side-by-side: **[Sofa, Jellyfin or Plex?](docs/compare.md)** What's c
 
 ## What it is
 
-- **Sofa Server:** a program on a Mac or Linux computer that keeps your library, finds artwork, converts what a
+- **Sofa Server:** a program on a Mac, a Windows PC or a Linux computer (or in Docker) that keeps your library, finds artwork, converts what a
   device can't play, and holds everyone's profiles. Python and ffmpeg, nothing else.
 - **Sofa App:** what you watch with. A web page the server serves, on phones, laptops, a TV's browser; Sofa's own
   app on a Fire TV; a channel on a Roku. It holds no films: it plays yours from a Sofa Server, a friend's share link,

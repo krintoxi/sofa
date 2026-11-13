@@ -3,6 +3,36 @@
 Bug reports, fixes and improvements are welcome, for Sofa, Sofa Box OS, the TV apps and Sofa Box Imager.
 Open an issue first for anything bigger than a fix, so nobody builds the same thing twice.
 
+## Where to start
+
+- **Run it on something we haven't.** A Raspberry Pi 4 or 5, a Fire TV stick, a Roku, a Windows PC, Linux or Docker
+  as a daily server: the [hardware report](https://github.com/krintoxi/sofa/issues/new/choose) takes five minutes,
+  needs no code, and puts your name in [Tested on](docs/capabilities.md#tested-on). It is the most useful thing
+  anyone can send.
+- **Give the Inbox a file name it gets wrong.** `sofa/naming.py` works out what a file is from its name, and
+  `tests/test_naming.py` is a table of names with the answer beside each. A new row there with a name from your own
+  folder (and the fix, if you have one) is a good first change.
+- **Pick up an issue** marked [good first issue](https://github.com/krintoxi/sofa/labels/good%20first%20issue) or
+  [help wanted](https://github.com/krintoxi/sofa/labels/help%20wanted).
+- **Fix what's wrong in the docs.** If a step in the README or `docs/` didn't match what happened on your machine,
+  that's a bug.
+- **Ask or suggest** in [Discussions](https://github.com/krintoxi/sofa/discussions): Q&A for questions, Ideas for
+  what you'd want next. [The roadmap](docs/roadmap.md) says what's planned and what isn't.
+
+## Running it from the source
+
+Python 3.9 or newer and ffmpeg; nothing to install with pip, and no build step for the web app.
+
+```sh
+git clone https://github.com/krintoxi/sofa && cd sofa
+python3 sofa.py serve                             # then open http://localhost:8090
+python3 -m unittest discover -s tests -t .        # the tests: a throwaway library and data folder, never yours
+python3 -m unittest tests.test_naming -v          # one file of them
+```
+
+`sofa/` is the server, `client/` the web app, `deploy/sofa-box/` Sofa Box OS, `android/` and `roku/` the TV apps;
+the README's [layout](README.md#layout-of-this-repository) has the rest.
+
 ## Before you send a change
 
 - Run the tests from the repository root: `python3 -m unittest discover -s tests -t . -v` (Python 3.9 and
