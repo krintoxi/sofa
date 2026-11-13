@@ -466,6 +466,17 @@ writes with, each of its pixels `k` of the picture's, a whole number: crisp at a
 what's in the list so far (a map's lines, a panel) and `rewind()` goes back to there, so only what changes is built
 again; build it when it changes (ten times a second is plenty), not every frame.
 
+**A moment worth marking (`Confetti`, `Banners`).** Both write into `E.ui`, so they are part of the picture's one
+call for what's written on it, and a frame of either makes no garbage.
+- `new Confetti(n)`: n pieces of paper at most, in the picture's own pixels. `burst(x, y, count, power, colours, size,
+  spread)` throws them up from a point in a fan, `rain(w, count, colours, size)` lets them fall from above the picture;
+  `step(dt, gravity)` (it returns how many are still in the air), then `draw(ui)`. A piece turns as it falls and
+  tumbles, its other side a darker shade.
+- `new Banners({gap, on})`: lines that come in one after another, stack down from the top, stay and go. `push({title,
+  text, col, hold})`, `step(dt)`, `draw(ui, w, h, k, top)`, `busy`; `on(i, banner)` as each lands (its sound). Big and
+  dark-backed on purpose: it has to read from a sofa. WYRD's level-75 moment is these two, a fanfare, and lights in its
+  one mesh of see-through things: no draw call more than a quiet frame.
+
 **The rest.**
 - `game({...})` sets up the screen (16:9, as big as fits, `--u` a hundredth of its height for CSS), the tuning,
   the loop (fixed 60 steps a second, `wholeSteps`: a frame whose own length is a whole number of steps to within 1.5% takes exactly that many, so a screen that's 60 Hz or nearly (59.94, 59.79, 60.32) runs on its own beat with the same steps every frame (what frames off the beat left carried, it lets go of a twentieth of a step at a time, so a clock that wobbles doesn't build it up into a skip); any other frame's time is carried, never dropped, so a 50, 72, 75 or 144 Hz screen runs at real time, and there a frame that comes within a quarter of a step of a whole number of steps after the last takes exactly that

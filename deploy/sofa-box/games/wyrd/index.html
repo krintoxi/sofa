@@ -510,6 +510,7 @@ function itemLines(it) {
   if (it.k === "weapon") out.push(power(it) + " damage · " + KINDS[it.kind].name.toLowerCase());
   else if (it.p) out.push(power(it) + " armour");
   for (const [a, v] of it.a) out.push(AFFIX[a].f(v));
+  if (it.m) out.push(it.k === "weapon" ? "keeps two under your best find, and grows with it" : WR.MASTERY[it.m].perk);
   if (it.up) out.push("tempered +" + it.up);
   return out;
 }
@@ -808,8 +809,10 @@ function delverStyle(d) {
     boots: t("boots") || 0x4a3426, gloves: t("gloves") || SKIN[L.skin], head: g.helm ? "helmet" : "hair", helmCol: t("helm"), bulk: [0.92, 1.0, 1.12][L.build],
     pads: g.chest && g.chest.tier >= 2 ? t("chest") : null, weapon: g.weapon ? weaponModel(g.weapon) : null, kind: g.weapon ? g.weapon.kind : "blade",
     shine: g.weapon && g.weapon.r >= 3 ? RARITY[g.weapon.r].col : 0,
-    mantle: SHOW && SHOW.look ? { look: SHOW.look, col: SHOW.col } : null, relic: SHOW && SHOW.look ? { look: SHOW.look, kind: "blade", col: SHOW.col, size: 1 } : null };
+    mantle: SHOW && SHOW.look ? { look: SHOW.look, col: SHOW.col } : g.mantle && g.mantle.m ? { look: MLOOK, col: WR.SKILL[g.mantle.m].col } : null,
+    relic: SHOW && SHOW.look ? { look: SHOW.look, kind: "blade", col: SHOW.col, size: 1 } : g.weapon && g.weapon.m ? { look: MLOOK, kind: g.weapon.kind, col: WR.SKILL[g.weapon.m].col, size: 1 } : null };
 }
+const MLOOK = "signal";                              // (the look of the mastery gear: see buildMantle)
 let SHOW = null;                                     // (#test: a close look at the delver, for pictures of the mastery gear)
 function weaponModel(it) { return KINDS[it.kind].models[clamp(it.tier, 0, 5)]; }
 function putModel(m, name, x, y, z, yaw, s, tint) { m.at(x, y, z, yaw || 0, s || 1); emitModel(m, name, tint); }
@@ -1089,6 +1092,7 @@ function ensure(d) {
   d.kin = d.kin || { have: [], found: [], pet: null, ride: null, seek: {}, at: {} };
   d.mastered = d.mastered || []; d.best = d.best || null;
   if (!("mantle" in d.gear)) d.gear.mantle = null;
+  if (!d.best) for (const it of d.bag.concat(d.stash, [d.gear.weapon])) if (it && it.k === "weapon" && !it.m && WR.betterDrop(d.best, it)) d.best = { p: it.p, lvl: it.lvl, tier: it.tier };
   return d;
 }
 const lv = k => WR.levelOf(D.sk[k]);
@@ -1529,7 +1533,7 @@ function levelUp(k, from, to) {
     if (k === "mine") toast("You can mine " + ORES[t] + " now", ORECOL[t]); else if (k === "wood") toast("You can fell " + WR.TREES[t] + " now", TREECOL[t]);
     else if (k === "smith") toast("You can work " + ORES[t] + " now", ORECOL[t]); else if (k === "fire") toast("You can burn " + WR.TREES[t] + " now", TREECOL[t]);
   }
-  if (k === "fire") for (const f of WR.FIRE) if (f.lvl > from && f.lvl <= to) toast(f.name + ": " + f.about, S_.col);
+  if (k === "fire") for (const f of WR.FIRE) if (f.lvl > from && f.lvl <= to && f.lvl > 1) toast("Your fires: " + f.name + " (see Skills)", S_.col);
   if (k === "summon") for (const c of WR.KIN) if (c.lvl > from && c.lvl <= to) toast(c.kind === "mount" ? "A " + c.name + " would answer a saddle now" : "A " + c.name + " might take to you now", S_.col);
   if (to >= WR.MAX) master(k);
   store();
@@ -1546,7 +1550,65 @@ function seek(trade) {
     return;
   }
 }
-function master(k) { if (D.mastered.indexOf(k) < 0) D.mastered.push(k); }
+// ---------------------------------------------------------------- mastery: at 75 a mantle and a weapon come by themselves
+// (never bought), and the moment is marked. What they're worth is worked out from the best weapon that has dropped,
+// with no chance in it, and again whenever a better one drops.
+const MANTLE_POWERS = { mine: ["delve", "vigor"], smith: ["guard", "vigor"], wood: ["delve", "swift"], fire: ["might", "vigor"], summon: ["fortune", "swift"] };
+const fixedAffix = (a, lvl, k) => Math.max(1, Math.round(AFFIX[a].v * Math.pow(Math.max(1, lvl), 0.62) * k * 10) / 10);
+function masteryStats(it) {
+  const best = D.best || { p: 7, lvl: 1, tier: 0 };
+  if (it.k === "weapon") { const w = WR.masteryWeapon(it.m, best); it.p = w.p; it.lvl = w.lvl; it.tier = w.tier; it.kind = w.kind; it.a = w.powers.map(a => [a, fixedAffix(a, w.lvl, w.k)]); }
+  else { it.lvl = best.lvl; it.tier = best.tier; it.p = Math.round([2, 5, 8, 12, 16, 21][best.tier] * (1 + Math.max(0, best.lvl - 25) * 0.04)); it.a = MANTLE_POWERS[it.m].map(a => [a, fixedAffix(a, best.lvl, 0.9 * 1.48)]); }
+  return it;
+}
+function masteryItem(k, slot) { const M_ = WR.MASTERY[k]; return masteryStats({ id: itemId++, k: slot, kind: slot === "weapon" ? M_.kind : null, m: k, n: slot === "weapon" ? M_.weapon : M_.mantle, tier: 0, lvl: 1, r: 4, up: 0, p: 0, a: [] }); }
+function eachItem(fn) { for (const it of D.bag) fn(it); for (const it of D.stash) fn(it); for (const k of WORN) if (D.gear[k]) fn(D.gear[k]); }
+function rescale(tell) {
+  let grew = null;
+  eachItem(it => { if (!it.m) return; const was = it.p; masteryStats(it); if (it.k === "weapon" && it.p > was) grew = it; });
+  if (!grew) return;
+  recalc(); heroBody(false);
+  if (tell) { toast(grew.n + " grows with your find: " + grew.p + " damage", WR.SKILL[grew.m].col); sfx("rare"); if (D.gear.weapon && D.gear.weapon.m) { burst(H.x, H.y + 1.3, H.z, 22, WR.SKILL[D.gear.weapon.m].col, 5); G.rings.push({ x: H.x, z: H.z, r: 0.4, grow: 8, life: 0.5, col: WR.SKILL[D.gear.weapon.m].col }); } }
+}
+function master(k) {
+  if (D.mastered.indexOf(k) >= 0) return;
+  D.mastered.push(k);
+  const mantle = masteryItem(k, "mantle"), weapon = masteryItem(k, "weapon");
+  for (const it of [mantle, weapon]) { if (D.bag.length < 30) D.bag.push(it); else D.stash.push(it); }
+  celebrate(k, mantle, weapon);
+  store();
+}
+// the moment: paper in the air, lines that stack up on the screen, a fanfare, lights round the delver. All of it is in
+// the game's own writing and its one mesh of see-through things: no new draw call, nothing of the page over the picture.
+const FEST = new L3.Confetti(280), POPS = new L3.Banners({ on: i => sfx(i ? "pop" : "master") });
+function celebrate(k, mantle, weapon) {
+  const sk = WR.SKILL[k], M_ = WR.MASTERY[k], all = D.mastered.length >= WR.SKILLS.length;
+  G.fest = { k, t: 0, n: 0, cols: [sk.col, BONE, PINK, GREEN, mix(sk.col, 0xffffff, 0.5)] }; G.cheerT = 3.4; G.shake = Math.max(G.shake, 0.35); H.gather = null;
+  POPS.push({ title: sk.name + " " + WR.MAX, text: "Mastered: there's nothing left in it to learn", col: sk.col, hold: 9.5 });
+  POPS.push({ title: M_.mantle, text: "In your " + (D.bag.indexOf(mantle) >= 0 ? "bag" : "stash") + ". " + M_.perk, col: BONE, hold: 9.5 });
+  POPS.push({ title: M_.weapon, text: "In your " + (D.bag.indexOf(weapon) >= 0 ? "bag" : "stash") + ": " + weapon.p + " damage, and it grows with your best find", col: PINK, hold: 9.5 });
+  if (all) POPS.push({ title: "All five mastered", text: "Every skill at " + WR.MAX + ". Hearthrim will talk of it for years", col: GREEN, hold: 11 });
+  try { const p = window.SofaPad; if (p && p.rumble) p.rumble(0.8, 0.5, 500); } catch (e) { /* no rumble */ }
+}
+function updateFest(dt) {
+  POPS.step(dt);
+  const sz = E.size(), w = sz[0], h = sz[1], k = Math.max(1, Math.round(h / 250));
+  FEST.step(dt, h * 1.5);
+  const f = G.fest; if (!f) return;
+  f.t += dt;
+  const light = E.rung && E.rung.look === "light", n = light ? 46 : 70;
+  // three throws from the foot of the picture, then two falls from above; lights about the delver the while
+  if (f.n === 0) { FEST.burst(w * 0.12, h, n, h * 1.9, f.cols, 7 * k, 0.5); FEST.burst(w * 0.88, h, n, h * 1.9, f.cols, 7 * k, 0.5); f.n = 1; }
+  else if (f.n === 1 && f.t > 0.35) { FEST.burst(w * 0.5, h, n, h * 2.1, f.cols, 7 * k, 0.75); f.n = 2; }
+  else if (f.n === 2 && f.t > 1.3) { FEST.rain(w, n, f.cols, 7 * k); f.n = 3; }
+  else if (f.n === 3 && f.t > 2.6) { FEST.rain(w, n, f.cols, 7 * k); f.n = 4; }
+  f.sparkT = (f.sparkT || 0) - dt;
+  if (f.t < 4 && f.sparkT <= 0) { f.sparkT = 0.28; const a = Math.random() * TAU, d = 1.5 + Math.random() * 3.5, x = H.x + Math.cos(a) * d, z = H.z + Math.sin(a) * d;
+    burst(x, W.h(x, z) + 2.5 + Math.random() * 2, z, 18, f.cols[(Math.random() * f.cols.length) | 0], 6);
+    if (((f.t / 0.28) | 0) % 3 === 0) G.rings.push({ x: H.x, z: H.z, r: 0.4, grow: 11, life: 0.8, col: f.cols[0] }); }
+  if (f.t > 6) G.fest = null;
+}
+const itemCol = it => it.m ? WR.SKILL[it.m].col : RARITY[it.r].col;
 function pickUp(dt) {
   for (let i = G.drops.length - 1; i >= 0; i--) {
     const d = G.drops[i]; d.t += dt;
@@ -2212,7 +2274,7 @@ function drawHUD(now) {
   // floating numbers
   for (const n of G.nums) { if (!project(n.x, n.y + n.t * 1.6, n.z, w, h, PRJ)) continue; ui.text(n.v, PRJ[0], PRJ[1], S1, n.col, clamp(1.6 - n.t * 1.6, 0, 1), 0.5, INK); }
   // the skill being learned: its level and how far through it, bottom middle, for a few seconds after each gain
-  if (G.trackT > 0 && G.track) { const k = G.track, sk = WR.SKILL[k], L = lv(k), tw = 120 * S1, tx = Math.max(Math.round(w / 2 - tw / 2), 205 * S1), ty = h - M - 8 * S1, a = clamp(G.trackT, 0, 1);
+  if (G.trackT > 0 && G.track) { const k = G.track, sk = WR.SKILL[k], L = lv(k), tw = 120 * S1, tx = Math.max(Math.round(w / 2 - tw / 2), 240 * S1), ty = h - M - 8 * S1, a = clamp(G.trackT, 0, 1);
     ui.rect(tx - 3 * S1, ty - 12 * S1, tw + 6 * S1, 20 * S1, INK, 0.72 * a);
     ui.text(sk.name.toUpperCase() + " " + L, tx, ty - 10 * S1, S1, sk.col, a, 0); ui.text(L >= WR.MAX ? "MASTERED" : (D.sk[k] - WR.TOTAL[L]) + " / " + WR.need(L), tx + tw, ty - 10 * S1, S1, BONE, a, 1);
     ui.rect(tx, ty, tw, 4 * S1, 0x2a2e36, a); ui.rect(tx, ty, Math.round(tw * WR.into(D.sk[k])), 4 * S1, sk.col, a); }
@@ -2222,7 +2284,7 @@ function drawHUD(now) {
   bar(ui, x0, y0, bw, 9 * S1, H.hp / S.hpMax, H.hurtT > 0 ? BONE : RED); ui.text(Math.ceil(H.hp) + "/" + S.hpMax, x0 + 2 * S1, y0 + S1, S1, BONE, 1, 0, INK);
   bar(ui, x0, y0 + 11 * S1, bw, 4 * S1, H.focus / 100, GREEN);
   bar(ui, x0, y0 + 17 * S1, bw, 2 * S1, D.level >= 50 ? 1 : D.xp / xpNeed(D.level), 0x8a7aff);
-  const K = KINDS[S.kind], sx = x0 + bw + 6 * S1, sw = 38 * S1;
+  const K = KINDS[S.kind], sx = x0 + bw + 6 * S1, sw = Math.max(38 * S1, Math.max(ui.width(K.x.name, S1), ui.width(K.y.name, S1)) + 6 * S1);
   const skillBox = (x, label, key, name, cd, maxCd, cost) => {
     const ok = cd <= 0 && H.focus >= cost;
     ui.rect(x, y0, sw, 19 * S1, INK, 0.75); ui.frame(x, y0, sw, 19 * S1, S1, ok ? GREEN : 0x4a4a52, 1);
@@ -2260,11 +2322,13 @@ function drawHUD(now) {
   // toasts, bottom right; what's said, centred high
   let ty = h - M - 9 * S1;
   for (let i = G.toasts.length - 1; i >= 0; i--) { const tt = G.toasts[i]; ui.text(String(tt.text).toUpperCase(), w - M, ty, S1, tt.col, clamp(tt.t, 0, 1), 1, INK); ty -= 9 * S1; }
-  if (G.sayT > 0) ui.text(G.say.toUpperCase(), w / 2, Math.round(h * 0.22), S2, BONE, clamp(G.sayT, 0, 1), 0.5, INK);
+  if (G.sayT > 0 && !POPS.busy) ui.text(G.say.toUpperCase(), w / 2, Math.round(h * 0.22), S2, BONE, clamp(G.sayT, 0, 1), 0.5, INK);
   // the buffs
   let bx = x0; const by = y0 - 20 * S1;
   for (const k in H.buff) if (H.buff[k] > 0) { const c = k === "cry" ? 0xffd28a : GREEN; ui.text((k === "cry" ? "WARCRY" : k.toUpperCase()) + " " + Math.ceil(H.buff[k]), bx, by, S1, c, 1, 0, INK); bx += ui.width(k.toUpperCase() + " 00 ", S1) + 4 * S1; }
   if (E.demo) ui.text("WYRD \x18 PLAYING ITSELF", w / 2, M + 12 * S2, S1, GREEN, 0.8, 0.5, INK);
+  if (G.fest && G.fest.t < 0.3) ui.rect(0, 0, w, h, G.fest.cols[0], (0.3 - G.fest.t) * 1.3);       // (the moment lands with a flash of the skill's colour)
+  FEST.draw(ui); if (POPS.busy) POPS.draw(ui, w, h, S1, 0.09);
   ui.end();
 }
 function nodeLabel(nd) {
@@ -2320,6 +2384,12 @@ const synth = new L3.Synth();
   d("kindle", (s, t) => { s.noise(t, 0.5, 0.2, 1100, 0.4); s.note(t, 262, 0.25, "sine", 0.06, null, 0.01, 1600); });
   d("smelt", (s, t) => { s.noise(t, 0.3, 0.14, 500, 0.5); s.note(t + 0.05, 330, 0.14, "triangle", 0.06); });
   d("mount", (s, t) => { s.noise(t, 0.15, 0.2, 500, 0.6); s.note(t + 0.05, 220, 0.2, "triangle", 0.08, null, 0.01, 900); });
+  d("pop", (s, t) => { s.note(t, 880, 0.12, "square", 0.05, null, 0.004, 3000); s.note(t + 0.05, 1320, 0.18, "triangle", 0.07); });
+  d("master", (s, t) => {                              // a fanfare that climbs, a chord held over it, and a shimmer after
+    [392, 523, 659, 784, 1047, 1319].forEach((f, i) => { s.note(t + i * 0.11, f, 0.5, "triangle", 0.13); s.note(t + i * 0.11, f / 2, 0.4, "square", 0.035, null, 0.005, 1800); });
+    [523, 659, 784, 1047].forEach(f => s.note(t + 0.75, f, 1.8, "triangle", 0.09, null, 0.02)); s.note(t + 0.75, 131, 1.8, "sawtooth", 0.07, null, 0.02, 500);
+    s.noise(t + 0.7, 1.4, 0.16, 6000, 0.5); for (let i = 0; i < 10; i++) s.note(t + 1.0 + i * 0.13, 1568 + (i % 4) * 262, 0.2, "sine", 0.05);
+  });
   d("skillup", (s, t) => [523, 659, 784, 1047].forEach((f, i) => { s.note(t + i * 0.08, f, 0.35, "triangle", 0.11); s.note(t + i * 0.08, f / 2, 0.3, "square", 0.03, null, 0.005, 1400); }));
 })();
 function sfx(n) { if (synth.ac && !E.demo) try { synth.play(n); } catch (e) { /* a sound that failed is never worth a frame */ } }
@@ -2515,7 +2585,7 @@ function renderBox() {
 function slotHtml(it, i, worn) {
   if (!it) return `<div class="slot empty${worn ? "" : " item"}"${worn ? "" : ` data-do="wear" data-i="${i}"`}><span class="k">${worn ? esc(SLOTNAME[worn]) : ""}</span></div>`;
   const better = !worn && itemScore(it) > itemScore(D.gear[it.k]);
-  return `<div class="slot${worn ? "" : " item"}"${worn ? "" : ` data-do="wear" data-i="${i}"`} style="color:${hex(RARITY[it.r].col)}"><span class="k">${esc(SLOTNAME[it.k])}${it.k === "weapon" ? " · " + esc(KINDS[it.kind].name) : ""}</span>${esc(it.n)}${better ? '<span class="up">▲</span>' : ""}</div>`;
+  return `<div class="slot${worn ? "" : " item"}"${worn ? "" : ` data-do="wear" data-i="${i}"`} style="color:${hex(itemCol(it))}"><span class="k">${esc(SLOTNAME[it.k])}${it.k === "weapon" ? " · " + esc(KINDS[it.kind].name) : ""}</span>${esc(it.n)}${better ? '<span class="up">▲</span>' : ""}</div>`;
 }
 function renderBag() {
   $("bagTitle").textContent = "The bag · " + D.bag.length + "/30";
@@ -2533,7 +2603,7 @@ function bagAbout() {
   bagI = menu.i; const it = D.bag[menu.i], el = $("bagabout");
   if (!it) { el.innerHTML = "Pieces you find go here. Choose one to wear it; " + kb("x") + " salvages it into ore and coin."; return; }
   const cur = D.gear[it.k], diff = Math.round(itemScore(it) - itemScore(cur));
-  el.innerHTML = `<b class="nm" style="color:${hex(RARITY[it.r].col)}">${esc(it.n)}</b> · ${RARITY[it.r].name} ${esc(SLOTNAME[it.k].toLowerCase())}, level ${it.lvl}<br>${itemLines(it).map(esc).join(" · ")}<br>` +
+  el.innerHTML = `<b class="nm" style="color:${hex(itemCol(it))}">${esc(it.n)}</b> · ${it.m ? "Mastery" : RARITY[it.r].name} ${esc(SLOTNAME[it.k].toLowerCase())}, level ${it.lvl}<br>${itemLines(it).map(esc).join(" · ")}<br>` +
     (cur ? `Instead of <b>${esc(cur.n)}</b>: ${itemLines(cur).map(esc).join(" · ")} · <span class="${diff >= 0 ? "better" : "worse"}">${diff >= 0 ? "▲ better" : "▼ weaker"} overall</span>` : '<span class="better">Nothing worn there: ▲</span>');
 }
 function wearFocused() {
@@ -2544,6 +2614,7 @@ function wearFocused() {
 function salvageValue(it) { return { ore: 1 + it.r + (it.up >> 1), coin: Math.round((4 + it.lvl * 2) * (1 + it.r * 0.8)) }; }
 function salvageFocused() {
   const i = menu.i, it = D.bag[i]; if (!it) return;
+  if (it.m) { sfx("no"); $("bagabout").innerHTML += '<br><span class="worse">Mastery is kept: it can\'t be salvaged.</span>'; return; }
   const v = salvageValue(it); D.ore[it.tier] += v.ore; D.coin += v.coin; D.bag.splice(i, 1);
   sfx("smash"); store(); renderBag(); menu.focus(i);
   $("bagabout").innerHTML += `<br><span class="better">Salvaged: +${v.ore} ${ORES[it.tier]}, +${v.coin} coin</span>`;
@@ -2614,8 +2685,8 @@ function renderShop() {
     if (carried) SHOP.push({ label: "Put by all the ore, bars and logs you carry (" + carried + ")", pay: {}, col: GREEN, act: () => { for (const [k] of kinds) for (let t = 0; t < 6; t++) { D.store[k][t] += D[k][t]; D[k][t] = 0; } } });
     for (const [k, names, word, cols] of kinds) for (let t = 0; t < 6; t++) { const n = D.store[k][t]; if (!n) continue;
       SHOP.push({ label: "Take out " + n + " " + names[t] + word, pay: {}, col: cols[t], act: () => { const q = Math.min(D.store[k][t], Math.max(0, packMax() - packCount())); if (!q) { toast("Your pack is full", PINK); return; } D.store[k][t] -= q; D[k][t] += q; } }); }
-    D.stash.forEach((it, i) => SHOP.push({ label: "To the bag: " + it.n, pay: {}, col: RARITY[it.r].col, act: () => { if (D.bag.length >= 30) { toast("The bag is full", PINK); return; } D.bag.push(D.stash.splice(i, 1)[0]); } }));
-    D.bag.forEach((it, i) => SHOP.push({ label: "To the stash: " + it.n, pay: {}, col: RARITY[it.r].col, act: () => { if (D.stash.length >= 40) { toast("The stash is full", PINK); return; } D.stash.push(D.bag.splice(i, 1)[0]); } }));
+    D.stash.forEach((it, i) => SHOP.push({ label: "To the bag: " + it.n, pay: {}, col: itemCol(it), act: () => { if (D.bag.length >= 30) { toast("The bag is full", PINK); return; } D.bag.push(D.stash.splice(i, 1)[0]); } }));
+    D.bag.forEach((it, i) => SHOP.push({ label: "To the stash: " + it.n, pay: {}, col: itemCol(it), act: () => { if (D.stash.length >= 40) { toast("The stash is full", PINK); return; } D.stash.push(D.bag.splice(i, 1)[0]); } }));
     if (!SHOP.length) SHOP.push({ label: "Nothing to move", pay: { coin: 1e9 }, act: () => {} });
   }
   $("shoplist").innerHTML = SHOP.map((o, i) => { const c = cost(o.pay); return `<div class="item row${c.ok ? "" : " off"}" data-do="do" data-i="${i}"${o.col ? ` style="color:${hex(o.col)}"` : ""}><span>${esc(o.label)}</span><span class="cost">${esc(c.ok || o.pay.coin < 1e9 ? c.text : "")}</span></div>`; }).join("");
@@ -2652,7 +2723,6 @@ function bind(c) {
 }
 // the best weapon that has dropped or been forged for this delver: the mastery weapons keep just under it
 function noteBest(it) { if (it.k !== "weapon" || it.m) return; if (WR.betterDrop(D.best, it)) { D.best = { p: it.p, lvl: it.lvl, tier: it.tier }; rescale(true); } }
-function rescale(tell) {}
 function forge(k, t) {
   const r = Math.min(3, rollRarity(D.level, 0) + 1), it = makeItem(k, t, Math.max(D.level, t * 4 + 2), r, k === "weapon" ? S.kind : null); noteBest(it);
   if (D.bag.length >= 30) { D.stash.push(it); toast("The bag was full: " + it.n + " went to the stash", RARITY[it.r].col); }
@@ -2746,6 +2816,8 @@ function update(dt) {
   if (menu.at === "bag" && menu.i !== bagI) bagAbout();
   if (menu.at === "skills" && menu.i !== skillI) skillAbout();
   if (G.trackT > 0) G.trackT -= dt;
+  if (G.cheerT > 0) G.cheerT -= dt;
+  updateFest(dt);
   if (menu.at && (menu.at !== focusAt || menu.i !== focusI)) { focusAt = menu.at; focusI = menu.i; const it = menu.items()[menu.i]; if (it && it.scrollIntoView) it.scrollIntoView({ block: "nearest" }); }
   if (state !== "play" && !E.demo) { if (state === "title" && H) { H.act = null; } return; }
   updateWorldChange(dt);
@@ -2778,7 +2850,7 @@ if (E.test) window.WY = { get G() { return G; }, get H() { return H; }, get D() 
   sim: (sec) => { for (let i = 0, n = Math.round(sec * 60); i < n; i++) update(1 / 60); return { t: G.t, fi: W.fi, kind: W.kind, hp: Math.round(H.hp), dead: H.dead, lvl: D.level }; },
   go: fi => descend(fi), town: () => toWorld("town", 0), play, makeItem, give: it => D.bag.push(it), level: n => { D.level = n; recalc(); H.hp = S.hpMax; },
   killAll: () => { for (const f of G.foes) if (f.st !== "dead" && !f.boss) { f.hp = 0; killFoe(f); } }, boss: () => G.boss, startEnding, recalc, heroBody, interact, nearNode, skill, startAttack, dodge, AI,
-  begin: () => { slotNo = 0; begin(); return D.name; }, goto: (x, z) => { H.x = x; H.z = z; H.y = W.h(x, z); }, near: kind => { let b = null, bd = 1e9; for (const nd of W.nodes) if (nd.kind === kind && nd.on) { const d = dist2(H.x, H.z, nd.x, nd.z); if (d < bd) { b = nd; bd = d; } } return b; },
+  begin: () => { slotNo = 0; begin(); return D.name; }, celebrate: k => celebrate(k, masteryItem(k, "mantle"), masteryItem(k, "weapon")), noteBest, makeDrop: (p, lvl, tier) => { const it = makeItem("weapon", tier, lvl, 2, "blade"); it.p = p; noteBest(it); return it; }, goto: (x, z) => { H.x = x; H.z = z; H.y = W.h(x, z); }, near: kind => { let b = null, bd = 1e9; for (const nd of W.nodes) if (nd.kind === kind && nd.on) { const d = dist2(H.x, H.z, nd.x, nd.z); if (d < bd) { b = nd; bd = d; } } return b; },
   gainSkill, lightFire, toggleRide, bind, kinOf, lv, WR, packCount, packMax, openShop, shopDo: i => shopDo({ dataset: { i } }), SHOP: () => SHOP, master,
   show: o => { SHOW = o; H.inv = 0; if (o && o.yaw != null) H.yaw = o.yaw; if (o && o.walk) H.act = "walk"; heroBody(false); return heroKey.length; } };
 E.start();

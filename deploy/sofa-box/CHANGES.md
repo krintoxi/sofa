@@ -28,6 +28,16 @@ GitHub builds the card and makes the release by itself.
   shows its level and how far through it you are; the pack says how full it is (40, more with a carrier). **Skills**
   in the pause menu sets out all five. A controller: LB lights or feeds a fire, LT calls your mount; from a remote,
   both are in the pause menu.
+- **Level 75 is a moment.** The screen flashes the skill's colour, paper flies up from the foot of the picture and
+  falls from the top, three lines stack up in letters you can read from the sofa, a fanfare plays, lights go off round
+  you and you cheer. It's drawn in the game's own writing and its one mesh of see-through things, so it costs no draw
+  call more than a quiet frame.
+- **Mastery is given, never bought.** At 75 a mantle and a weapon are in your bag by themselves: Veinwarden's Mantle
+  and Lodebreaker (Mining), the Anvilborn Mantle and Forgeheart (Smithing), the Heartwood Mantle and Thornsong
+  (Woodcutting), the Emberwake Mantle and Cindercrown (Firemaking), Kinbinder's Mantle and Wyrdfang (Summoning). Each
+  mantle has a perk for its skill while it's worn. The weapon keeps two points of damage under the best weapon that has
+  ever dropped for you (or come off the anvil), with three powers of its own, and grows the moment a better one does.
+  Neither can be salvaged.
 - Hearthrim has trees to fell, copper and iron in the rocks round it, a furnace by the smith and a kinstone. The Maw's
   ore is mined the same way now, and wants the Mining level for it.
 - The rules (the curve, what a level opens, the creatures) are a script of their own in the game's page, and the box's

@@ -2106,6 +2106,94 @@ UI.prototype = {
 };
 UI.ORD = [0, 1, 2, 0, 2, 3];
 
+// ---------------------------------------------------------------- a moment worth marking: paper thrown in the air, and
+// lines that stack up on the picture. Both go into the game's own writing (UI), so they are part of its one draw call and
+// nothing of the page lies over the picture; both are a fixed pool, and a frame of either makes no garbage.
+// Confetti(n): n pieces at most. Everything is in the picture's own pixels (so sizes and speeds are scaled by the game,
+// with its text's size): burst(x, y, count, power, cols, size, spread) throws count pieces up from x y in a fan (spread
+// radians either side of straight up, π: all round), rain(w, count, cols, size) lets them fall from above the picture
+// all along its width; step(dt, gravity) moves them and returns how many are still in the air; draw(ui) writes them.
+// A piece turns as it falls, and tumbles: its other side is a darker shade.
+function Confetti(n) {
+  this.max = n || 160; const F = () => new Float32Array(this.max);
+  this.x = F(); this.y = F(); this.vx = F(); this.vy = F(); this.a = F(); this.va = F(); this.f = F(); this.vf = F(); this.life = F(); this.sz = F();
+  this.col = new Uint32Array(this.max); this.dark = new Uint32Array(this.max); this.next = 0; this.live = 0;
+}
+Confetti.prototype = {
+  one(x, y, vx, vy, col, size, life) {
+    const i = this.next++ % this.max;
+    this.x[i] = x; this.y[i] = y; this.vx[i] = vx; this.vy[i] = vy; this.a[i] = Math.random() * TAU; this.va[i] = (Math.random() * 2 - 1) * 7;
+    this.f[i] = Math.random() * TAU; this.vf[i] = 5 + Math.random() * 9; this.life[i] = life; this.sz[i] = size * (0.7 + Math.random() * 0.6);
+    this.col[i] = col; this.dark[i] = U.shade(col, 0.62);
+  },
+  burst(x, y, count, power, cols, size, spread) {
+    const sp = spread == null ? 0.9 : spread;
+    for (let k = 0; k < count; k++) { const a = (Math.random() * 2 - 1) * sp, p = power * (0.35 + Math.random() * 0.75); this.one(x, y, Math.sin(a) * p, -Math.cos(a) * p, cols[(Math.random() * cols.length) | 0], size || 6, 2.2 + Math.random() * 1.6); }
+    this.live = this.max;
+  },
+  rain(w, count, cols, size) {
+    for (let k = 0; k < count; k++) this.one(Math.random() * w, -(size || 6) * (1 + Math.random() * 30), (Math.random() * 2 - 1) * w * 0.04, w * (0.05 + Math.random() * 0.1), cols[(Math.random() * cols.length) | 0], size || 6, 3.5 + Math.random() * 2.5);
+    this.live = this.max;
+  },
+  step(dt, gravity) {
+    if (!this.live) return 0;
+    const g = gravity == null ? 600 : gravity, drag = Math.exp(-1.6 * dt); let n = 0;
+    for (let i = 0; i < this.max; i++) {
+      if (this.life[i] <= 0) continue;
+      this.life[i] -= dt; this.vy[i] = (this.vy[i] + g * dt) * drag; this.vx[i] = this.vx[i] * drag + Math.sin(this.f[i]) * g * 0.02 * dt;
+      this.x[i] += this.vx[i] * dt; this.y[i] += this.vy[i] * dt; this.a[i] += this.va[i] * dt; this.f[i] += this.vf[i] * dt; n++;
+    }
+    return (this.live = n);
+  },
+  clear() { this.life.fill(0); this.live = 0; },
+  draw(ui) {
+    if (!this.live) return;
+    for (let i = 0; i < this.max; i++) {
+      const life = this.life[i]; if (life <= 0) continue;
+      const flip = Math.cos(this.f[i]), L = this.sz[i] * 0.5, Wd = this.sz[i] * (0.08 + 0.3 * Math.abs(flip)), c = Math.cos(this.a[i]), s = Math.sin(this.a[i]), x = this.x[i], y = this.y[i];
+      const ax = c * L, ay = s * L, bx = -s * Wd, by = c * Wd;
+      ui.room(); const q = ui.q, o = ui.n++ * 16;        // (written here: a call with fractions would make each of them anew)
+      q[o] = x - ax - bx; q[o + 1] = y - ay - by; q[o + 2] = x + ax - bx; q[o + 3] = y + ay - by; q[o + 4] = x + ax + bx; q[o + 5] = y + ay + by; q[o + 6] = x - ax + bx; q[o + 7] = y - ay + by;
+      q[o + 8] = 2; q[o + 9] = 42; q[o + 10] = 6; q[o + 11] = 46; q[o + 12] = flip < 0 ? this.dark[i] : this.col[i]; q[o + 13] = life < 0.5 ? life * 2 : 1; q[o + 14] = 0; q[o + 15] = 0;
+    }
+  }
+};
+// Banners: lines that come in one after another and stack down from the top of the picture, stay a while, and go. Each
+// {title (large, in its colour), text (under it), col, hold: seconds it stays (7)}. push(o) adds one after those already
+// on their way (a third of a second apart, or `gap`); step(dt); draw(ui, w, h, k, top): k is the text's size (font pixels
+// to picture pixels, a whole number), top where the stack starts (a share of the height, 0.1). on(i, o): called as each
+// comes in (for its sound). What it writes is big and dark-backed on purpose: it has to read from a sofa.
+function Banners(o) { this.list = []; this.gap = (o && o.gap) || 0.34; this.on = (o && o.on) || null; this.wait = 0; this.count = 0; }
+Banners.prototype = {
+  push(o) { this.list.push({ title: String(o.title || "").toUpperCase(), text: String(o.text || "").toUpperCase(), col: o.col == null ? 0xefe6d2 : o.col, hold: o.hold || 7, t: -this.wait, said: false, n: this.count++ }); this.wait += this.gap; return this; },
+  get busy() { return this.list.length > 0; },
+  clear() { this.list.length = 0; this.wait = 0; },
+  step(dt) {
+    if (this.wait > 0) this.wait = Math.max(0, this.wait - dt);
+    for (let i = this.list.length - 1; i >= 0; i--) {
+      const b = this.list[i]; b.t += dt;
+      if (b.t >= 0 && !b.said) { b.said = true; if (this.on) this.on(b.n, b); }
+      if (b.t > b.hold + 0.4) this.list.splice(i, 1);
+    }
+  },
+  draw(ui, w, h, k, top) {
+    let y = Math.round(h * (top == null ? 0.1 : top));
+    for (let i = 0; i < this.list.length; i++) {
+      const b = this.list[i]; if (b.t < 0) continue;
+      const kt = k * 2, tw = b.title ? ui.width(b.title, kt) : 0, xw = b.text ? ui.width(b.text, k) : 0, pad = 5 * k, bw = Math.max(tw, xw) + pad * 2 + 3 * k;
+      const bh = (b.title ? 7 * kt + 3 * k : 0) + (b.text ? 7 * k + 3 * k : 0) + 3 * k;
+      const inK = b.t < 0.22 ? b.t / 0.22 : 1, outK = b.t > b.hold ? Math.max(0, 1 - (b.t - b.hold) / 0.4) : 1, a = outK * (0.25 + 0.75 * inK);
+      const x = Math.round((w - bw) / 2 + (1 - inK) * (1 - inK) * w * 0.3 - (1 - outK) * w * 0.12);
+      ui.rect(x, y, bw, bh, 0x0b0d10, 0.9 * a); ui.rect(x, y, 3 * k, bh, b.col, a); ui.rect(x + 3 * k, y + bh - k, bw - 3 * k, k, b.col, 0.5 * a);
+      let ty = y + 3 * k;
+      if (b.title) { ui.text(b.title, x + 3 * k + pad, ty, kt, b.col, a); ty += 7 * kt + 3 * k; }
+      if (b.text) ui.text(b.text, x + 3 * k + pad, ty, k, 0xefe6d2, a);
+      if (b.t < 0.3) ui.rect(x, y, bw, bh, 0xffffff, (1 - b.t / 0.3) * 0.55);       // (it lands with a flash)
+      y += Math.round((bh + 2 * k) * Math.min(1, inK * 1.4));
+    }
+  }
+};
+
 // ---------------------------------------------------------------- cameras: a camera is {x y z, tx ty tz (looked at), yaw,
 // fov (up and down, radians), roll}; both renderers draw from it
 function camera() { return { x: 0, y: 8, z: -20, tx: 0, ty: 0, tz: 0, yaw: 0, fov: 0.78, roll: 0 }; }
@@ -3509,5 +3597,5 @@ function planRay(p, b) {
 
 window.Low3D = { probe, family, NAMES, bench, plan, rows, line, LADDER, Governor, GL, Mesh, Flat, bake, M4, px, hexRGB, Rig,
   U, Kit, Path, Chunks, Land, Trail, Particles, camera, chase, orbit, viewOf, begin, Input, Menu, Synth, game,
-  Palette, Tex, RayMap, Ray, Marks, Screen, planRay, heldRay, helpersFor, wholeSteps, ladderSig, fortyOn, withForty, UI, Letters, GLYPHS, SPECIAL, wholeSize, version: 4 };
+  Palette, Tex, RayMap, Ray, Marks, Screen, planRay, heldRay, helpersFor, wholeSteps, ladderSig, fortyOn, withForty, UI, Letters, GLYPHS, SPECIAL, wholeSize, Confetti, Banners, version: 5 };
 })();
