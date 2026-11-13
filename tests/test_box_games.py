@@ -1580,6 +1580,110 @@ const r3 = a => a.map(v => Math.round(v * 1000) / 1000);
 """
 
 
+class TheBigWorld(unittest.TestCase):
+    """Low3D's parts for a world too big to hold at once, and for a moment worth marking: Stream (chunks made as the eye
+    nears and given back as it leaves), Mesh.stamp (a thing made once, set down many times), Land.part (one part of the
+    land into a mesh), Confetti and Banners (both in the game's own writing)."""
+
+    def node(self, script):
+        r = subprocess.run(["node", "-e", RIG_JS.replace(", B = JSON.parse(require(\"fs\").readFileSync(process.argv[2], \"utf8\"))", "") + script + "\nconsole.log(JSON.stringify(out));",
+                            os.path.join(BOX, "games", "low3d.js")], capture_output=True, text=True, timeout=60)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return json.loads(r.stdout)
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_a_world_held_a_neighbourhood_at_a_time(self):
+        """Walking 400 m across a streamed world: what's held never grows past the neighbourhood, no frame carries more
+        than one step of a chunk's making, every chunk opened is closed again, and nothing is made outside the world."""
+        out = self.node(r"""
+let held = 0, uploads = 0; const g3 = { upload(m) { held++; uploads++; const b = m.bounds(); return { n: m.n, x: b[0], y: b[1], z: b[2], r: b[3] }; }, free(h) { if (h) held--; }, sees: () => true, still() {} };
+const land = new L3.Land(600, 240, 0).fill((x, z) => Math.sin(x * 0.05) * 2 + Math.cos(z * 0.07));
+const tree = new L3.Mesh(64); L3.Kit.pine(tree, 0, 0, 0, 1, 0x4a3426, 0x2e5a3a);
+let opened = 0, closed = 0, outside = 0, lit = 0;
+const st = new L3.Stream({ cell: 30, near: 2, open(c) { opened++; if (Math.abs(c.ix) > 10) outside++; c.data = { trees: [[c.x0 + 5, c.z0 + 5], [c.x0 + 20, c.z0 + 12]] }; }, close(c) { closed++; },
+  has: (ix, iz) => Math.abs(ix) <= 10 && Math.abs(iz) <= 10,
+  build(c, base, glow, step) { if (step === 0) { land.part(base, land.cellOf(c.x0), land.cellOf(c.z0), land.cellOf(c.x1), land.cellOf(c.z1), () => 0x446644); return false; }
+    for (const t of c.data.trees) base.stamp(tree, t[0], land.at(t[0], t[1]), t[1], 1.3, 1.2); glow.at(c.x0 + 3, 1, c.z0 + 3); glow.box(0, 0, 0, 1, 1, 1, 0xff00ff); return true; },
+  light: { sun: [0.3, 0.8, 0.2], sunCol: 0xffffff, amb: 0x556677, ground: 0x222222 }, sky() { lit++; return 1; }, verts: 300 });
+st.fill(g3, 0, 0);
+out.filled = [st.list.length, held, opened]; out.tris = st.base.n / 3; out.ready = !st.pending(0, 0);
+let maxHeld = 0, maxSteps = 0, x = 0, behind = 0;
+for (let i = 0; i < 4000; i++) { x += 0.1; const s0 = st.steps; st.update(g3, x, 0); maxSteps = Math.max(maxSteps, st.steps - s0); maxHeld = Math.max(maxHeld, held); if (!st.at(x, 0) || st.at(x, 0).state !== 4) behind++; }
+out.walk = { maxHeld, maxSteps, behind, outside, open: opened - closed, list: st.list.length };
+const c = st.at(100, 0), was = c && c.h; st.fill(g3, 100, 0); const u0 = uploads; st.remake(100, 0); const old = st.at(100, 0).h; st.update(g3, 100, 0); out.kept = st.at(100, 0).h === old;   // (its old mesh is drawn while the new one is made)
+for (let i = 0; i < 30; i++) st.update(g3, 100, 0); out.remade = [uploads - u0, st.at(100, 0).h !== old];
+st.unload(); out.unloaded = [held, st.list.length > 0]; st.fill(g3, 100, 0); out.back = held;
+st.free(); out.freed = [st.list.length, held, opened - closed];
+""")
+        self.assertEqual(out["filled"], [25, 25, 25])                      # five by five round the eye
+        self.assertTrue(out["ready"])
+        self.assertGreater(out["tris"], 250)
+        w = out["walk"]
+        self.assertLessEqual(w["maxHeld"], 36)                              # never more than the neighbourhood and its margin
+        self.assertEqual(w["maxSteps"], 1)                                  # one step of one chunk's making a frame
+        self.assertEqual(w["behind"], 0)                                    # the ground under the walker was always there
+        self.assertEqual(w["outside"], 0)
+        self.assertLessEqual(w["open"], 49)
+        self.assertTrue(out["kept"])
+        self.assertEqual(out["remade"], [1, True])
+        self.assertEqual(out["unloaded"], [0, True])
+        self.assertEqual(out["back"], 25)
+        self.assertEqual(out["freed"], [0, 0, 0])
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_a_thing_made_once_and_stamped(self):
+        """A stamp is the thing as building it there would have made it (place, turn, size, the way its faces look),
+        with what lights itself left alone by a shade; and a mesh emptied keeps its memory."""
+        out = self.node(r"""
+const a = new L3.Mesh(8); a.tri(1, 2, 0, 0, 2, 1, 0, 3, 0, 0xff8040); a.glow = 127; a.tri(0, 0, 0, 1, 0, 0, 0, 1, 0, 0x204060);
+const b = new L3.Mesh(8); b.stamp(a, 10, 0, 10, Math.PI / 2, 2, 2, 0.5);
+const m = new L3.Mesh(8); m.at(10, 0, 10, Math.PI / 2, 2); m.tri(1, 2, 0, 0, 2, 1, 0, 3, 0, 0xff8040);
+out.same = [0, 1, 2, 5, 6, 7, 10, 11, 12].every(i => Math.abs(m.f[i] - b.f[i]) < 1e-4) && [12, 13, 14].every(i => Math.abs(m.i8[i] - b.i8[i]) <= 1);
+out.shaded = [b.u8[16], b.u8[17], b.u8[18]]; out.lit = [b.u8[3 * 20 + 16], b.u8[3 * 20 + 17], b.u8[3 * 20 + 18], b.i8[3 * 20 + 15]];
+out.n = b.n; const cap = b.cap; b.reset(); out.reset = [b.n, b.cap === cap, b.lit];
+const c = new L3.Mesh(8); c.add(a, true); out.added = [c.n, c.i8[15], c.i8[3 * 20 + 15]];
+const land = new L3.Land(40, 16, 0).fill((x, z) => x * 0.1); const p = new L3.Mesh(64); land.part(p, 4, 4, 8, 6, (h, steep) => steep > 0.5 ? 0xff0000 : 0x00ff00);
+let x0 = 1e9, x1 = -1e9, z0 = 1e9, z1 = -1e9, up = true; for (let i = 0; i < p.n; i++) { x0 = Math.min(x0, p.f[i * 5]); x1 = Math.max(x1, p.f[i * 5]); z0 = Math.min(z0, p.f[i * 5 + 2]); z1 = Math.max(z1, p.f[i * 5 + 2]); if (p.i8[i * 20 + 13] <= 0) up = false; }
+out.part = [p.n / 3, x0, x1, z0, z1, up, land.cellOf(-10), land.cellOf(0)];
+""")
+        self.assertTrue(out["same"])
+        self.assertEqual(out["shaded"], [127, 64, 32])                      # half as bright
+        self.assertEqual(out["lit"], [0x20, 0x40, 0x60, 127])               # its own light: as it was
+        self.assertEqual(out["n"], 6)
+        self.assertEqual(out["reset"], [0, True, 0])
+        self.assertEqual(out["added"], [6, 127, 127])
+        self.assertEqual(out["part"], [16, -10, 0, -10, -5, True, 4, 8])    # 4 × 2 cells, two triangles each, facing up
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_paper_in_the_air_and_lines_that_stack(self):
+        """Confetti: a fixed pool, thrown and let fall, all of it landed in a few seconds, written as turned blocks into
+        the game's own writing. Banners: they come in one after another, each said once, stack down the picture and go."""
+        out = self.node(r"""
+const ui = new L3.UI(); ui.begin(640, 360);
+const c = new L3.Confetti(120); c.burst(320, 360, 80, 700, [0xff0000, 0x00ff00], 7, 0.6); c.rain(640, 80, [0x0000ff], 7);
+out.pool = [c.max, c.x.length]; let n = c.step(1 / 60, 540), peak = n, steps = 1; c.draw(ui); out.drawn = ui.n; out.block = [ui.q[8], ui.q[9], ui.q[10], ui.q[11]];
+while (n && steps < 2000) { n = c.step(1 / 60, 540); peak = Math.max(peak, n); steps++; }
+out.peak = peak; out.seconds = steps / 60; ui.begin(640, 360); c.draw(ui); out.after = ui.n;
+const said = [], b = new L3.Banners({ on: (i, o) => said.push(i + ":" + o.title) });
+b.push({ title: "Mining 75", text: "mastered", col: 0x4ae8ff, hold: 2 }).push({ title: "A mantle", text: "in your bag", hold: 2 }).push({ title: "A weapon", hold: 2 });
+out.busy = b.busy; const seen = []; for (let i = 0; i < 60 * 4; i++) { b.step(1 / 60); if (i === 5 || i === 30 || i === 60) { ui.begin(640, 360); b.draw(ui, 640, 360, 1, 0.1); seen.push(ui.n > 0 ? b.list.filter(x => x.t >= 0).length : 0); } }
+out.said = said.slice(); out.seen = seen; out.done = b.busy;
+ui.begin(640, 360); b.push({ title: "wide enough to read", text: "x" }); b.step(0.5); b.draw(ui, 640, 360, 2, 0.1); let w = 0; for (let i = 0; i < ui.n; i++) w = Math.max(w, ui.q[i * 16 + 2] - ui.q[i * 16]); out.wide = w; out.upper = b.list[0].title;
+""")
+        self.assertEqual(out["pool"], [120, 120])
+        self.assertEqual(out["peak"], 120)                                  # never more than the pool
+        self.assertEqual(out["drawn"], 120)
+        self.assertEqual(out["block"], [2, 42, 6, 46])                      # the sheet's block: a turned rectangle each
+        self.assertTrue(2 < out["seconds"] < 8, out["seconds"])
+        self.assertEqual(out["after"], 0)
+        self.assertTrue(out["busy"])
+        self.assertEqual(out["said"], ["0:MINING 75", "1:A MANTLE", "2:A WEAPON"])
+        self.assertEqual(out["seen"], [1, 2, 3])                            # one, then two, then all three stacked
+        self.assertFalse(out["done"])
+        self.assertGreater(out["wide"], 200)
+        self.assertEqual(out["upper"], "WIDE ENOUGH TO READ")
+
+
 class TheRig(unittest.TestCase):
     """Low3D's Rig (bodies a pose at a time): where a pose puts each joint, the other side's pose, clips by name, things
     held where a joint is; and the blocks WYRD marks for the maker, which make its bodies on their own."""
@@ -1664,8 +1768,8 @@ out.looks = looks; out.built = built; out.empty = empty; out.poses = Object.keys
         self.assertEqual(out["clips"]["walk"], ["walk0", "walk1", "walk2", "walk3"])
         self.assertEqual(out["clips"]["swing"], ["swing0", "swing1", "swing2"])
         self.assertEqual(out["poses"], 26)
-        self.assertEqual(out["looks"], 16)                                     # six of Hearthrim's folk, ten of the deep's
-        self.assertEqual(out["built"], 16 * 26)
+        self.assertEqual(out["looks"], 17)                                     # six of Hearthrim's folk, ten of the deep's, the Thorn King
+        self.assertEqual(out["built"], 17 * 26)
         self.assertEqual(out["empty"], [])
 
     def test_the_maker_is_offline_and_not_on_home(self):

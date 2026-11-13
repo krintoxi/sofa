@@ -87,7 +87,7 @@
     <div class="about" id="bagabout"></div><p class="hint" id="bagHint"></p></div>
   <div id="shop" class="screen solid hidden"><h2 id="shopTitle"></h2><p class="tag plain" id="shopAbout"></p>
     <div class="menu" id="shoplist"></div><p class="tag" id="shopHave"></p><p class="hint" id="shopHint"></p></div>
-  <div id="way" class="screen solid hidden"><h2>The waystone</h2><p class="tag plain" id="wayAbout"></p>
+  <div id="way" class="screen solid hidden"><h2 id="wayTitle">The waystone</h2><p class="tag plain" id="wayAbout"></p>
     <div class="menu" id="waylist"></div><p class="hint" id="wayHint"></p></div>
   <div id="skills" class="screen solid hidden"><h2>Skills</h2>
     <div class="menu" id="skilllist"></div><div class="about" id="skillabout"></div><p class="hint" id="skillsHint"></p></div>
@@ -350,6 +350,11 @@ const STRATA = [
     glow: 0xff3a3a, ore: "ashsteel", herb: "ashbloom", foes: ["ashknight", "imp", "ashworm"], elite: "ashknight", motes: 0xff6a4a, song: { seed: 67, root: 40, tempo: 100 },
     props: ["forsaken", "oathstone", "sealward", "plummet"], deco: "spikes" }
 ];
+// the Thornhollow, a barrow in the Fenmoor: two halls and the hall of its king, who was buried with what he took
+const HOLLOW_ST = { id: "hollow", name: "The Thornhollow", floors: ["The Outer Hall", "The Hall of Roots"], lair: "The King's Hall", boss: "thornking",
+  ground: [0x221c26, 0x2c2430, 0x382e3a], wall: [0x1c1820, 0x28222c, 0x362e38], fog: 0x0e0a14, sunCol: 0xd8a8c8, amb: 0x4a3a5a, low: 0x140e1a, sun: [0.2, 0.9, 0.3],
+  glow: 0xff2e88, ore: "silver", herb: "bonelily", foes: ["skeleton", "wraith", "spider"], elite: "wraith", motes: 0xff8ab8, song: { seed: 83, root: 42, tempo: 78 },
+  props: ["stele", "urn", "statue", "obelisk"], deco: "bones" };
 const ORES = ["copper", "iron", "silver", "cobalt", "starsteel", "ashsteel"], ORECOL = [0xd08a50, 0xa8b0bc, 0xe0e8f0, 0x4a7aff, 0x8af0ff, 0xff5a4a];
 const HERBS = ["mosscap", "tidekelp", "bonelily", "sporebulb", "emberroot", "ashbloom"], HERBCOL = [0x7af07a, 0x4ad8c0, 0xf0ead8, 0xc07cff, 0xff8a3a, 0xff4a8a];
 // the six trees: what their logs are called is the rules' (WyrdRules.TREES); here, their leaves, their trunks and how they grow
@@ -392,7 +397,8 @@ const BOSSES = {
   tyrant: { name: "The Bone Tyrant", rig: "tyrant", size: 2.0, hp: 1150, dmg: 21, spd: 2.8, moves: ["cleave", "rain", "cleave", "summon"], adds: "skeleton" },
   devourer: { name: "The Devourer", model: "beetle", size: 4.2, hp: 1500, dmg: 25, spd: 3.6, moves: ["charge", "spores", "charge", "summon"], adds: "grub" },
   colossus: { name: "The Rust Colossus", rig: "colossus", size: 2.5, hp: 2050, dmg: 30, spd: 2.2, moves: ["slam", "quake", "vents", "slam"], adds: "drone" },
-  sovereign: { name: "The Sovereign of Ash", rig: "sovereign", size: 1.9, hp: 2800, dmg: 34, spd: 3.4, moves: ["charge", "nova", "rain", "cleave", "summon"], adds: "imp" }
+  sovereign: { name: "The Sovereign of Ash", rig: "sovereign", size: 1.9, hp: 2800, dmg: 34, spd: 3.4, moves: ["charge", "nova", "rain", "cleave", "summon"], adds: "imp" },
+  thornking: { name: "The Thorn King", rig: "thornking", size: 1.9, hp: 760, dmg: 15, spd: 2.9, moves: ["cleave", "charge", "summon", "cleave", "rain"], adds: "skeleton" }
 };
 const lvlHp = L => 1 + 0.3 * (L - 1) + 0.012 * (L - 1) * (L - 1), lvlDmg = L => 1 + 0.17 * (L - 1) + 0.005 * (L - 1) * (L - 1);
 
@@ -572,6 +578,7 @@ const STYLES = {
   warden: { skin: 0x7a8a7a, cloth: 0x4a5a4e, legs: 0x5a6a5c, boots: 0x3a4a3e, gloves: 0x7a8a7a, head: "helm", bulk: 1.35, eyes: 0x7af0b0, weapon: "mace", shield: "rampart", pads: 0x5a6a5c },
   tyrant: { skin: 0xe0d8c0, cloth: 0x5a2a2a, legs: 0xe0d8c0, boots: 0xd0c8b0, gloves: 0xe0d8c0, head: "skull", thin: 0.75, eyes: 0xff6a3a, weapon: "greatsword", crown: true },
   colossus: { skin: 0x9a5a34, cloth: 0x7a4428, legs: 0x6a3a22, boots: 0x4a2a18, gloves: 0x9a5a34, head: "block", bulk: 2.1, eyes: 0xff7a2a, weapon: null, pads: 0x5a3a26 },
+  thornking: { skin: 0xc8c0a8, cloth: 0x2a3a2a, legs: 0xc8c0a8, boots: 0xb8b098, gloves: 0xc8c0a8, head: "skull", thin: 0.8, eyes: 0xff2e88, weapon: "halberd", crown: true, pads: 0x1e2a1e },
   sovereign: { skin: 0x2a2226, cloth: 0x4a1a22, legs: 0x2a2226, boots: 0x1a1416, gloves: 0x2a2226, head: "helm", bulk: 1.2, eyes: 0xff2e88, weapon: "mourning", crown: true, wings: true, pads: 0x3a2a2e }
 };
 const FOLK = {                                       // Hearthrim's: the smith, the herbalist, the weaver, three about the square
@@ -829,19 +836,25 @@ function vnoise(seed) {                              // smooth value noise, abou
 const fbm = (n, x, z) => n(x, z) + 0.5 * n(x * 2.03 + 17, z * 2.03 - 9) + 0.25 * n(x * 4.1 - 31, z * 4.1 + 5);
 
 // what's in the way: circles (props, rocks, people), found by a coarse grid; and the floor's own edge
-function Blocks(size) { this.half = size / 2; this.c = 4; this.n = Math.ceil(size / this.c); this.cells = []; for (let i = 0; i < this.n * this.n; i++) this.cells.push([]); this.list = []; }
+function Blocks(size) { this.half = size / 2; this.c = 4; this.n = Math.ceil(size / this.c); this.cells = new Array(this.n * this.n); this.list = []; }   // (a cell's list is made when something first stands in it)
 Blocks.prototype = {
   add(x, z, r, o) {
     const b = { x, z, r, o: o || null }; this.list.push(b);
     const c = this.c, n = this.n, i0 = clamp(Math.floor((x - r + this.half) / c), 0, n - 1), i1 = clamp(Math.floor((x + r + this.half) / c), 0, n - 1);
     const j0 = clamp(Math.floor((z - r + this.half) / c), 0, n - 1), j1 = clamp(Math.floor((z + r + this.half) / c), 0, n - 1);
-    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) this.cells[j * n + i].push(b);
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) (this.cells[j * n + i] || (this.cells[j * n + i] = [])).push(b);
     return b;
+  },
+  remove(b) {                                        // (a chunk of the open world going: what stood in it)
+    const c = this.c, n = this.n, i0 = clamp(Math.floor((b.x - b.r + this.half) / c), 0, n - 1), i1 = clamp(Math.floor((b.x + b.r + this.half) / c), 0, n - 1);
+    const j0 = clamp(Math.floor((b.z - b.r + this.half) / c), 0, n - 1), j1 = clamp(Math.floor((b.z + b.r + this.half) / c), 0, n - 1);
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) { const cell = this.cells[j * n + i], k = cell ? cell.indexOf(b) : -1; if (k >= 0) cell.splice(k, 1); }
+    const k = this.list.indexOf(b); if (k >= 0) this.list.splice(k, 1);
   },
   // push a body of radius r out of whatever it's in; out: [x, z]
   push(x, z, r, out) {
     const n = this.n, i = clamp(Math.floor((x + this.half) / this.c), 0, n - 1), j = clamp(Math.floor((z + this.half) / this.c), 0, n - 1), cell = this.cells[j * n + i];
-    for (let k = 0; k < cell.length; k++) {
+    for (let k = 0; cell && k < cell.length; k++) {
       const b = cell[k]; if (b.off) continue;
       const dx = x - b.x, dz = z - b.z, d2 = dx * dx + dz * dz, rr2 = (b.r + r) * (b.r + r);
       if (d2 < rr2) { const d = Math.sqrt(d2) || 0.001, s = (b.r + r - d) / d; x += dx * s; z += dz * s; }
@@ -854,42 +867,31 @@ Blocks.prototype = {
   }
 };
 
-let W = null;                                        // the floor (or Hearthrim) where the delver is
-function makeWorld(kind, fi, seed) {
-  const st = kind === "town" ? TOWN : STRATA[floorStratum(fi)], r = rng(seed), noise = vnoise(seed + 3), rough = vnoise(seed + 11);
-  const size = kind === "lair" ? 76 : kind === "town" ? 100 : 116, n = kind === "lair" ? 38 : kind === "town" ? 50 : 58;
-  const w = { kind, fi, st, seed, size, lvl: kind === "town" ? 1 : floorLevel(fi), land: new L3.Land(size, n, 0), blocks: new Blocks(size),
+let W = null;                                        // the floor, or the open world, where the delver is
+let OVER = null;                                     // (the open world, kept while a delver is below: made once a delver)
+function makeWorld(kind, fi, seed, place) {
+  if (kind === "town") { if (!OVER || OVER.seed !== seed) OVER = makeOver(seed); return OVER; }
+  const cave = !!place && place.type === "cave", tier = place ? place.tier : floorStratum(fi);
+  const st = place ? place.st : STRATA[floorStratum(fi)], r = rng(seed), noise = vnoise(seed + 3), rough = vnoise(seed + 11);
+  const size = kind === "lair" ? 76 : 116, n = kind === "lair" ? 38 : 58;
+  const w = { kind, fi, st, seed, size, place: place || null, dark: cave, lvl: place ? place.lvl : floorLevel(fi), land: new L3.Land(size, n, 0), blocks: new Blocks(size),
     props: [], deco: [], nodes: [], spawns: [], lamps: [], start: { x: 0, z: 0, yaw: PI }, exit: null, boss: null, sealed: true, a: 0, b: 0, rx: 30, rz: 44 };
   const rp = () => r(), rrp = (a, b) => a + r() * (b - a);
   w.a = r() * TAU; w.b = r() * TAU;
   if (kind === "lair") { w.rx = 24; w.rz = 24; }
-  if (kind === "town") { w.rx = 40; w.rz = 40; }
   // the floor's edge: an oval that wanders; edge(x, z) > 1 past it
   w.edge = (x, z) => { const ex = x / w.rx, ez = z / w.rz, d = Math.sqrt(ex * ex + ez * ez), t = Math.atan2(ez, ex);
     return d / (1 + 0.1 * Math.sin(3 * t + w.a) + 0.07 * Math.sin(5 * t + w.b) + (kind === "lair" ? -0.05 : 0)); };
   w.inside = (x, z, m) => w.edge(x, z) < 1 - (m || 0.03);
-  if (kind === "town") {
-    // Hearthrim: a green shelf, hills round it, and to the north the Maw: a pit with no bottom anyone has seen
-    w.maw = { x: 0, z: -33, r: 13 };
-    w.land.fill((x, z) => {
-      const e = w.edge(x, z), dm = Math.hypot(x - w.maw.x, z - w.maw.z);
-      let h = 0.4 * fbm(noise, x * 0.05, z * 0.05);
-      if (e > 0.92) h += (e - 0.92) * 60 + 2 * fbm(rough, x * 0.1, z * 0.1);
-      if (dm < w.maw.r + 3) h = dm < w.maw.r ? -60 : h - (w.maw.r + 3 - dm) * 0.9;
-      return h;
-    });
-    w.inside = (x, z, m) => w.edge(x, z) < 0.92 - (m || 0.02) && Math.hypot(x - w.maw.x, z - w.maw.z) > w.maw.r + 2.2;
-  } else {
-    w.land.fill((x, z) => {
-      const e = w.edge(x, z);
-      let h = 0.45 * fbm(noise, x * 0.06, z * 0.06);
-      if (e > 0.86) { const t = (e - 0.86) * w.rx; h += t * t * 0.09 + t * 0.5 + 1.6 * Math.max(0, fbm(rough, x * 0.12, z * 0.12)) * Math.min(1, t / 3); }
-      return Math.min(h, 16 + 2 * rough(x * 0.2, z * 0.2));
-    });
-  }
+  w.land.fill((x, z) => {
+    const e = w.edge(x, z);
+    let h = 0.45 * fbm(noise, x * 0.06, z * 0.06);
+    if (e > 0.86) { const t = (e - 0.86) * w.rx; h += t * t * 0.09 + t * 0.5 + 1.6 * Math.max(0, fbm(rough, x * 0.12, z * 0.12)) * Math.min(1, t / 3); }
+    return Math.min(h, 16 + 2 * rough(x * 0.2, z * 0.2));
+  });
   w.h = (x, z) => w.land.at(x, z);
   const free = (x, z, rad) => w.inside(x, z, 0.08) && w.blocks.free(x, z, rad);
-  const place = (rad, tries, near) => {               // somewhere free (near: [x, z, spread])
+  const spot = (rad, tries, near) => {                // somewhere free (near: [x, z, spread])
     for (let t = 0; t < (tries || 40); t++) {
       const x = near ? near[0] + (r() * 2 - 1) * near[2] : (r() * 2 - 1) * w.rx * 0.95, z = near ? near[1] + (r() * 2 - 1) * near[2] : (r() * 2 - 1) * w.rz * 0.95;
       if (free(x, z, rad) && (!w.keep || w.keep.every(k => dist2(x, z, k[0], k[1]) > k[2] * k[2]))) return [x, z];
@@ -898,11 +900,11 @@ function makeWorld(kind, fi, seed) {
   };
   const prop = (name, x, z, yaw, s, block, tint) => { w.props.push({ name, x, z, y: w.h(x, z), yaw, s, tint: tint || 0 }); if (block) w.blocks.add(x, z, block); };
   const node = (kind2, x, z, o) => { const nd = Object.assign({ kind: kind2, x, z, y: w.h(x, z), on: true }, o || {}); w.nodes.push(nd); return nd; };
-  if (kind === "town") { buildTown(w, r, place, prop, node); return finishWorld(w); }
   // ---- a floor of the Maw
   const zs = kind === "lair" ? w.rz * 0.78 : w.rz * 0.84;
   w.start = { x: 0, z: zs - 2, yaw: PI };
-  node("waystone", 3.2, zs, { label: "Waystone to Hearthrim" }); w.blocks.add(3.2, zs, 0.7);
+  if (place) node("rope", 3.2, zs, { label: cave ? "Up the rope" : "Out of the Thornhollow" }); else node("waystone", 3.2, zs, { label: "Waystone to Hearthrim" });
+  w.blocks.add(3.2, zs, 0.7);
   w.keep = [[0, zs - 2, 9]];
   if (kind === "lair") {
     const B = BOSSES[st.boss];
@@ -912,29 +914,33 @@ function makeWorld(kind, fi, seed) {
     w.exit = node("gate", 0, -16, { label: "Down the stair", sealed: true, hidden: true });
     w.keep.push([0, -3, 9]);
   } else {
-    w.exit = node("gate", 0, -w.rz * 0.84, { label: "Down the stair", sealed: true });
+    w.exit = node("gate", 0, -w.rz * 0.84, { label: cave ? "Deeper under the well" : "Down the stair", sealed: !cave, hidden: cave && place.depth >= 3, fire: place && !cave && place.depth === 2 ? 30 : 0 });
     w.blocks.add(0, -w.rz * 0.84 - 1.2, 1.2);
     w.keep.push([0, -w.rz * 0.84, 6]);
     // outcrops: rock that breaks the floor into places
-    for (let k = 0; k < 9; k++) { const p = place(3.4, 60); if (!p) continue; const rad = rrp(1.4, 3.0); w.deco.push({ kind: "crag", x: p[0], z: p[1], s: rad, seed: (r() * 1e6) | 0 }); w.blocks.add(p[0], p[1], rad * 0.85); }
+    for (let k = 0; k < 9; k++) { const p = spot(3.4, 60); if (!p) continue; const rad = rrp(1.4, 3.0); w.deco.push({ kind: "crag", x: p[0], z: p[1], s: rad, seed: (r() * 1e6) | 0 }); w.blocks.add(p[0], p[1], rad * 0.85); }
     // the stratum's own props, standing about
-    for (let k = 0; k < 12; k++) { const p = place(1.4, 40); if (!p) continue; const nm = st.props[k % st.props.length]; prop(nm, p[0], p[1], r() * TAU, nm === "crystal" ? rrp(1.4, 2.4) : rrp(1.3, 2.0), 0.7, nm === "crystal" ? st.glow : 0); }
+    for (let k = 0; k < 12; k++) { const p = spot(1.4, 40); if (!p) continue; const nm = st.props[k % st.props.length]; prop(nm, p[0], p[1], r() * TAU, nm === "crystal" ? rrp(1.4, 2.4) : rrp(1.3, 2.0), 0.7, nm === "crystal" ? st.glow : 0); }
     // ore in the walls, herbs in the open, a chest or two, a shrine, things to break
-    for (let k = 0; k < 6; k++) { const a = r() * TAU, x = Math.cos(a) * w.rx * 0.8, z = Math.sin(a) * w.rz * 0.8, p = place(1.2, 30, [x, z, 6]); if (p) { node("ore", p[0], p[1], { ore: floorStratum(fi), left: 3, label: "Mine " + ORES[floorStratum(fi)] }); w.blocks.add(p[0], p[1], 0.8); } }
-    for (let k = 0; k < 6; k++) { const p = place(1.0, 40); if (p) node("herb", p[0], p[1], { herb: floorStratum(fi), left: 2, label: "Pick " + HERBS[floorStratum(fi)] }); }
-    for (let k = 0; k < 1 + (r() < 0.6 ? 1 : 0); k++) { const p = place(1.4, 40); if (p) { node("chest", p[0], p[1], { label: "Open the chest", yaw: r() * TAU }); w.blocks.add(p[0], p[1], 0.8); } }
-    { const p = place(1.6, 40); if (p) { node("shrine", p[0], p[1], { label: "Touch the shrine", boon: pick(["might", "haste", "guard", "focus"]) }); w.blocks.add(p[0], p[1], 0.9); } }
-    for (let k = 0; k < 7; k++) { const p = place(0.8, 30); if (p) node("urn", p[0], p[1], { model: r() < 0.5 ? "urn" : "cask", hp: 1, yaw: r() * TAU }); }
+    // (a cave is for its ore: more of it, some of the next kind down deeper, and it comes back; the Maw's is what the floor holds)
+    for (let k = 0, n = cave ? 11 : 6; k < n; k++) { const a = r() * TAU, e = cave ? 0.35 + r() * 0.5 : 0.8, x = Math.cos(a) * w.rx * e, z = Math.sin(a) * w.rz * e, p = spot(1.2, 30, [x, z, 6]); if (!p) continue;
+      const t = place && place.depth >= 2 && r() < 0.3 ? Math.min(5, tier + 1) : tier; node("ore", p[0], p[1], place ? { ore: t, left: WR.NODE.ore.holds, back: WR.NODE.ore.back } : { ore: t, left: 3 }); w.blocks.add(p[0], p[1], 0.8); }
+    for (let k = 0; k < 6; k++) { const p = spot(1.0, 40); if (p) node("herb", p[0], p[1], { herb: tier, left: 2, label: "Pick " + HERBS[tier] }); }
+    if (place && !cave) for (let k = 0; k < 7; k++) { const p = spot(1.3, 40); if (p) { node("tree", p[0], p[1], { tree: 2 + (k % 3 === 0 ? 1 : 0), left: WR.NODE.tree.holds, back: WR.NODE.tree.back, s: 0.75 + r() * 0.3, seed: (r() * 1e6) | 0 }); w.blocks.add(p[0], p[1], 0.5); } }
+    if (cave && place.depth >= 3) { const z = -w.rz * 0.78; node("ore", 0, z, { ore: Math.min(5, tier + 1), left: 14, back: 180, vein: true }); w.blocks.add(0, z, 0.9); const p = spot(1.4, 40, [0, z + 5, 4]); if (p) { node("chest", p[0], p[1], { label: "Open the chest", yaw: r() * TAU }); w.blocks.add(p[0], p[1], 0.8); } }
+    for (let k = 0; k < 1 + (r() < 0.6 ? 1 : 0); k++) { const p = spot(1.4, 40); if (p) { node("chest", p[0], p[1], { label: "Open the chest", yaw: r() * TAU }); w.blocks.add(p[0], p[1], 0.8); } }
+    { const p = spot(1.6, 40); if (p) { node("shrine", p[0], p[1], { label: "Touch the shrine", boon: pick(["might", "haste", "guard", "focus"]) }); w.blocks.add(p[0], p[1], 0.9); } }
+    for (let k = 0; k < 7; k++) { const p = spot(0.8, 30); if (p) node("urn", p[0], p[1], { model: r() < 0.5 ? "urn" : "cask", hp: 1, yaw: r() * TAU }); }
     // the foes: packs about the floor, the elite's near the stair (it holds the seal)
     const packs = 7, pool = st.foes;
     for (let k = 0; k < packs; k++) {
-      const c = place(3, 60); if (!c) continue;
+      const c = spot(3, 60); if (!c) continue;
       const kindF = pool[k % pool.length], count = 2 + ((r() * 3) | 0) + (fi > 5 ? 1 : 0);
-      for (let q = 0; q < count; q++) { const p = place(0.8, 20, [c[0], c[1], 3.5]); if (p) w.spawns.push({ foe: kindF, x: p[0], z: p[1] }); }
+      for (let q = 0; q < count; q++) { const p = spot(0.8, 20, [c[0], c[1], 3.5]); if (p) w.spawns.push({ foe: kindF, x: p[0], z: p[1] }); }
     }
-    { const ex = w.exit; const c = place(2, 60, [ex.x, ex.z + 9, 6]) || [ex.x, ex.z + 8];
+    if (!cave) { const ex = w.exit; const c = spot(2, 60, [ex.x, ex.z + 9, 6]) || [ex.x, ex.z + 8];
       w.spawns.push({ foe: st.elite, x: c[0], z: c[1], elite: true });
-      for (let q = 0; q < 2; q++) { const p = place(0.8, 20, [c[0], c[1], 3]); if (p) w.spawns.push({ foe: pick(pool), x: p[0], z: p[1] }); } }
+      for (let q = 0; q < 2; q++) { const p = spot(0.8, 20, [c[0], c[1], 3]); if (p) w.spawns.push({ foe: pick(pool), x: p[0], z: p[1] }); } }
   }
   // the walls' dressing: rocks round the edge, crystals that light themselves, the stratum's own small things
   for (let k = 0; k < (kind === "lair" ? 26 : 46); k++) {
@@ -945,7 +951,7 @@ function makeWorld(kind, fi, seed) {
     const a = r() * TAU, e = 0.9 + r() * 0.08, x = Math.cos(a) * w.rx * e, z = Math.sin(a) * w.rz * e;
     prop("crystal", x, z, r() * TAU, rrp(1.6, 3.2), 0, st.glow); if (k % 3 === 0) w.lamps.push([x, w.h(x, z) + 1.5, z]);
   }
-  for (let k = 0; k < (kind === "lair" ? 30 : 90); k++) { const p = place(0.4, 10); if (p) w.deco.push({ kind: st.deco, x: p[0], z: p[1], s: rrp(0.7, 1.4), seed: (r() * 1e6) | 0 }); }
+  for (let k = 0; k < (kind === "lair" ? 30 : 90); k++) { const p = spot(0.4, 10); if (p) w.deco.push({ kind: st.deco, x: p[0], z: p[1], s: rrp(0.7, 1.4), seed: (r() * 1e6) | 0 }); }
   return finishWorld(w);
 }
 function finishWorld(w) {
@@ -957,6 +963,130 @@ function finishWorld(w) {
   };
   w.sky = (x, y, z, ny) => { const e = w.edge(x, z); return clamp(1.05 - Math.max(0, e - 0.75) * 1.6, 0.45, 1) * (0.75 + 0.25 * Math.max(0, ny)); };
   return w;
+}
+
+// ---------------------------------------------------------------- the open world: the Rimlands, the country round the
+// Maw's rim, 780 m across, Hearthrim in the middle of it and five wilder regions round that, each with its own
+// ground, its own tree and its own ore. Its heights are worked out once (a number every 2.5 m: 0.4 MB); everything that
+// stands on it is made a 30 m chunk at a time as the delver comes near, from that chunk's own seed, and let go as they
+// leave (Low3D's Stream), so what's held is the neighbourhood, never the world. What changes (a tree felled, a rock
+// mined out) is remembered by when it comes back.
+const OW = { size: 780, n: 312, chunk: 30, near: 2 }, SECT0 = 0.628;   // (SECT0: the regions turned a tenth of the way round, so that the Maw lies between two)
+// ground low to high, rock, the kind of small growth, how rough the land, trees and rocks a chunk, foes and their level
+const REGIONS = [
+  { id: "mead", name: "Hearthmead", tier: 0, lvl: 1, ground: [0x3d5a34, 0x4a6a3a, 0x5c7c44], wall: [0x4a4a52, 0x5c5a62, 0x6e6a70], deco: "tuft", amp: 0.45, trees: 7, rocks: 2, foes: ["spider", "bat"], pack: 0.07, motes: 0xffe2b0 },
+  { id: "briar", name: "Briarholt", tier: 1, lvl: 4, ground: [0x2c4a2e, 0x375a33, 0x456a3a], wall: [0x3e3a34, 0x504a40, 0x625a4c], deco: "fern", amp: 1.1, trees: 15, rocks: 2, foes: ["mosskin", "spider", "bat"], pack: 0.16, motes: 0x9fffc8 },
+  { id: "fen", name: "Fenmoor", tier: 2, lvl: 8, ground: [0x2e4640, 0x3a564c, 0x4a6658], wall: [0x2e3a3c, 0x3c4c4e, 0x4c5e60], deco: "coral", amp: 0.35, trees: 8, rocks: 3, foes: ["eel", "jelly", "drowned"], pack: 0.18, motes: 0x8ff0ff, pool: 0x1e4658 },
+  { id: "crag", name: "Cragfell", tier: 3, lvl: 13, ground: [0x4c483e, 0x5c5648, 0x6c6452], wall: [0x4c4a50, 0x5e5c62, 0x727076], deco: "bones", amp: 3.0, trees: 4, rocks: 8, foes: ["skeleton", "eye", "golem"], pack: 0.2, motes: 0xffc89a, crags: 2 },
+  { id: "cinder", name: "Cinderreach", tier: 4, lvl: 18, ground: [0x3a2a26, 0x4a322a, 0x5a3c2e], wall: [0x2e2220, 0x3e2c28, 0x503a32], deco: "spikes", amp: 2.0, trees: 6, rocks: 6, foes: ["salamander", "drone", "imp"], pack: 0.22, motes: 0xffa060, crags: 1, lava: 0xff5a2a },
+  { id: "wyrd", name: "The Greywyrd", tier: 5, lvl: 23, ground: [0x3a3646, 0x464254, 0x545064], wall: [0x2a2630, 0x383440, 0x484452], deco: "caps", amp: 1.3, trees: 10, rocks: 5, foes: ["wraith", "ashknight", "orb"], pack: 0.24, motes: 0xd8a0ff }
+];
+function makeOver(seed) {
+  const t0 = performance.now(), st = TOWN, r = rng(seed), noise = vnoise(seed + 3), rough = vnoise(seed + 11), warp = vnoise(seed + 29), size = OW.size, half = size / 2;
+  const land = new L3.Land(size, OW.n, 0), N = land.N;
+  const w = { kind: "town", over: true, fi: 0, st, seed, size, lvl: 1, land, blocks: new Blocks(size), props: [], deco: [], nodes: [], spawns: [], lamps: [], start: { x: 0, z: 8, yaw: PI }, exit: null, boss: null, sealed: true,
+    a: 0, b: 0, rx: 40, rz: 40, maw: { x: 0, z: -33, r: 13 }, fixed: new Map(), feats: [], spent: new Map(), clock: 0, reg: new Uint8Array(N * N), fires: [] };
+  // which region a place is in: Hearthmead in the middle, the rest round it, their borders wandering
+  w.regAt = (x, z) => { const d = Math.sqrt(x * x + z * z) + 24 * warp(x * 0.011, z * 0.011); if (d < 120) return 0;
+    const a = Math.atan2(z, x) - SECT0 + 0.3 * warp(x * 0.006 + 40, z * 0.006 - 17); return 1 + Math.floor((((a + PI) / TAU * 5) % 5 + 5) % 5); };
+  for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) w.reg[j * N + i] = w.regAt(-half + i * land.cell, -half + j * land.cell);
+  w.region = (x, z) => w.reg[clamp(Math.round((z + half) / land.cell), 0, N - 1) * N + clamp(Math.round((x + half) / land.cell), 0, N - 1)];
+  w.edge = (x, z) => Math.max(Math.abs(x), Math.abs(z)) / half + 0.03 * rough(x * 0.02, z * 0.02);
+  const amp = (i, j) => { let a = 0; for (let q = 0; q < 5; q++) { const ii = clamp(i + [0, 6, -6, 0, 0][q], 0, N - 1), jj = clamp(j + [0, 0, 0, 6, -6][q], 0, N - 1); a += REGIONS[w.reg[jj * N + ii]].amp; } return a / 5; };
+  let vi = 0;
+  land.fill((x, z) => {
+    const i = vi % N, j = (vi / N) | 0, reg = w.reg[vi]; vi++;
+    const e = w.edge(x, z), dm = Math.hypot(x - w.maw.x, z - w.maw.z), dt = Math.sqrt(x * x + z * z);
+    let a = amp(i, j); if (dt < 62) a = lerp(0.4, a, clamp((dt - 42) / 20, 0, 1));
+    let h = a * 0.9 * fbm(noise, x * 0.028, z * 0.028) + 0.28 * Math.min(1, a) * fbm(rough, x * 0.09, z * 0.09);
+    if (REGIONS[reg].pool && h < -0.22) h = -0.22;         // (the fen's pools lie flat)
+    if (e > 0.9) { const t = (e - 0.9) * 10; h += t * t * 26 + t * 5 + 2 * Math.max(0, fbm(rough, x * 0.1, z * 0.1)) * Math.min(1, t * 3); }
+    if (dm < w.maw.r + 3) h = dm < w.maw.r ? -60 : h - (w.maw.r + 3 - dm) * 0.9;
+    return h;
+  });
+  w.h = (x, z) => land.at(x, z);
+  w.inside = (x, z, m) => w.edge(x, z) < 0.9 - (m ? 0.012 : 0.004) && Math.hypot(x - w.maw.x, z - w.maw.z) > w.maw.r + 2.2;
+  const free = (x, z, rad) => w.inside(x, z, 0.08) && w.blocks.free(x, z, rad);
+  const place = (rad, tries, near) => {               // somewhere free in Hearthrim (near: [x, z, spread])
+    for (let t = 0; t < (tries || 40); t++) {
+      const x = near ? near[0] + (r() * 2 - 1) * near[2] : (r() * 2 - 1) * w.rx * 0.95, z = near ? near[1] + (r() * 2 - 1) * near[2] : (r() * 2 - 1) * w.rz * 0.95;
+      if (free(x, z, rad) && (!w.keep || w.keep.every(k => dist2(x, z, k[0], k[1]) > k[2] * k[2]))) return [x, z];
+    }
+    return null;
+  };
+  const prop = (name, x, z, yaw, s, block, tint) => { w.props.push({ name, x, z, y: w.h(x, z), yaw, s, tint: tint || 0 }); if (block) w.blocks.add(x, z, block); };
+  const node = (kind2, x, z, o) => { const nd = Object.assign({ kind: kind2, x, z, y: w.h(x, z), on: true, fixed: true }, o || {}); w.nodes.push(nd); return nd; };
+  buildTown(w, r, place, prop, node);
+  buildFeatures(w, r, prop, node);
+  // what was set down by hand (Hearthrim, the wells, the gates) goes into its chunks; from here on w.nodes is what's open
+  const key = (x, z) => (Math.floor(z / OW.chunk) + 2048) * 4096 + Math.floor(x / OW.chunk) + 2048;
+  const fix = (x, z) => { const k = key(x, z); let f = w.fixed.get(k); if (!f) w.fixed.set(k, f = { props: [], deco: [], nodes: [] }); return f; };
+  for (const p of w.props) fix(p.x, p.z).props.push(p); for (const d of w.deco) fix(d.x, d.z).deco.push(d); for (const nd of w.nodes) fix(nd.x, nd.z).nodes.push(nd);
+  w.props = []; w.deco = []; w.nodes = [];
+  // the light's way to each place (shadows baked into a chunk as it's made): fewer looks along it than a floor's, further apart
+  const sun = st.sun, sl = Math.hypot(sun[0], sun[1], sun[2]), sx = sun[0] / sl, sy = sun[1] / sl, sz = sun[2] / sl;
+  w.shade = (x, y, z) => { for (let k = 1; k <= 5; k++) { const d = k * 3; if (land.at(x + sx * d, z + sz * d) > y + sy * d + 0.2) return 0.3; } return 1; };
+  w.sky = (x, y, z, ny) => 0.78 + 0.22 * Math.max(0, ny);
+  w.madeMs = performance.now() - t0;
+  return w;
+}
+const WELLS = ["Hearthrim's Well", "Thornwater", "the Sunk Stair", "Reedmouth", "the Drowned Eye", "Stonethroat", "the Cold Shaft", "Ashwell", "the Glass Throat", "Palewater", "the Last Well"];
+function buildFeatures(w, r, prop, node) {
+  const feat = (kind, x, z, o, rad) => { const nd = node(kind, x, z, o); w.feats.push(nd); if (rad) w.blocks.add(x, z, rad); return nd; };
+  const lamp = (x, z) => { w.deco.push({ kind: "lamp", x, z }); w.blocks.add(x, z, 0.3); };
+  w.roads = [];
+  feat("well", 9, 21, { id: 0, reg: 0, label: "The well" }, 1.3); feat("portal", -9, 21, { id: 0, reg: 0, label: "The riftgate" }, 0);
+  for (let k = 1; k <= 5; k++) {
+    const ac = -PI + (k - 0.5) * TAU / 5 + SECT0;
+    // somewhere in region k near that far out and that way round, on ground that's dry and not too steep
+    const find = (rad, da) => { for (let t = 0; t < 60; t++) { const a = ac + da + (t ? (r() - 0.5) * 0.3 : 0), d = rad + (t ? (r() - 0.5) * 60 : 0), x = Math.cos(a) * d, z = Math.sin(a) * d;
+      if (w.regAt(x, z) === k && w.inside(x, z, 1) && w.land.at(x, z) > -0.15 && Math.abs(w.land.at(x + 4, z) - w.land.at(x - 4, z)) + Math.abs(w.land.at(x, z + 4) - w.land.at(x, z - 4)) < 1.6 && w.feats.every(q => dist2(x, z, q.x, q.z) > 400)) return [x, z]; }
+      return [Math.cos(ac + da) * rad, Math.sin(ac + da) * rad]; };
+    const camp = find(235, 0);
+    feat("portal", camp[0], camp[1], { id: k, reg: k, label: "The riftgate" }, 0);
+    feat("well", camp[0] + 9, camp[1] + 4, { id: k * 2 - 1, reg: k, label: "The well" }, 1.3);
+    lamp(camp[0] - 5, camp[1] + 5); lamp(camp[0] + 4, camp[1] - 5);
+    w.roads.push([camp[0], camp[1], camp[0] * camp[0] + camp[1] * camp[1]]);
+    const far = find(325, 0.3); feat("well", far[0], far[1], { id: k * 2, reg: k, label: "The well" }, 1.3); lamp(far[0] + 3, far[1] + 2);
+    if (k === 3) { feat("furnace", camp[0] - 8, camp[1] + 3, { label: "A field furnace: smelt ore into bars" }, 1.3); prop("hearth", camp[0] - 8, camp[1] + 3, 0.6, 0.75); }
+    if (k === 2 || k === 5) { feat("kin", camp[0] - 8, camp[1] - 3, { label: "A kinstone: bind and call your creatures" }, 0.8); prop("oathstone", camp[0] - 8, camp[1] - 3, 0.3, 2.0); }
+    if (k === 2) { const p = find(310, -0.32); feat("hollow", p[0], p[1], { label: "The Thornhollow: go in" }, 3.6); lamp(p[0] - 5, p[1] + 5); lamp(p[0] + 5, p[1] + 5); w.hollow = p; }
+  }
+}
+// a chunk of it comes into being: Hearthrim's own things if they're here, then what grows and stands and prowls in this
+// region, from the chunk's own seed (so it's the same chunk every time)
+function openChunk(c) {
+  const w = OVER, d = c.data = { nodes: [], deco: [], props: [], blocks: [], key: (c.iz + 2048) * 4096 + c.ix + 2048 }, f = w.fixed.get(d.key);
+  const mx = (c.x0 + c.x1) / 2, mz = (c.z0 + c.z1) / 2, dc = Math.sqrt(mx * mx + mz * mz);
+  if (f) { for (const p of f.props) d.props.push(p); for (const q of f.deco) d.deco.push(q); for (const nd of f.nodes) { d.nodes.push(nd); w.nodes.push(nd); } }
+  const r = rng((w.seed ^ Math.imul(c.ix + 311, 73856093) ^ Math.imul(c.iz + 733, 19349663)) | 0), R_ = REGIONS[w.region(mx, mz)];
+  const spot = rad => { for (let t = 0; t < 6; t++) { const x = c.x0 + 1 + r() * (OW.chunk - 2), z = c.z0 + 1 + r() * (OW.chunk - 2); if (w.inside(x, z, 1) && x * x + z * z > 46 * 46 && w.blocks.free(x, z, rad) && w.feats.every(q => dist2(x, z, q.x, q.z) > 49)) return [x, z]; } return null; };
+  const block = (x, z, rad) => d.blocks.push(w.blocks.add(x, z, rad));
+  let id = d.key * 64;
+  const grow = (kind, o) => { const nd = Object.assign({ kind, y: w.h(o.x, o.z), on: true, id: id++, ck: d.key }, o), back = w.spent.get(nd.id);
+    if (back != null) { if (back > w.clock) { nd.on = false; nd.spent = true; nd.backT = back - w.clock; } else w.spent.delete(nd.id); }
+    d.nodes.push(nd); w.nodes.push(nd); return nd; };
+  const wild = dc > 52;
+  if (wild) {
+    for (let k = 0, n = Math.round(R_.trees * (0.6 + r() * 0.8)); k < n; k++) { const p = spot(1.3); if (!p) { id++; continue; } const reg = REGIONS[w.region(p[0], p[1])], t = reg.tier > 0 && r() < 0.28 ? reg.tier - 1 : reg.tier;
+      grow("tree", { x: p[0], z: p[1], tree: t, left: WR.NODE.tree.holds, back: WR.NODE.tree.back, s: 0.8 + r() * 0.45, seed: (r() * 1e6) | 0 }); block(p[0], p[1], 0.5); }
+    for (let k = 0, n = Math.round(R_.rocks * (0.5 + r())); k < n; k++) { const p = spot(1.5); if (!p) { id++; continue; } const reg = REGIONS[w.region(p[0], p[1])], t = reg.tier > 0 && r() < 0.28 ? reg.tier - 1 : reg.tier;
+      grow("ore", { x: p[0], z: p[1], ore: t, left: WR.NODE.ore.holds, back: WR.NODE.ore.back, reg: reg.tier }); block(p[0], p[1], 0.8); }
+    for (let k = 0; k < (R_.crags || 0); k++) { const p = spot(3.2); if (!p) continue; const rad = 1.4 + r() * 1.6; d.deco.push({ kind: "crag", x: p[0], z: p[1], s: rad, seed: (r() * 1e6) | 0 }); block(p[0], p[1], rad * 0.85); }
+    if (r() < 0.45) { const p = spot(0.8); if (p) grow("herb", { x: p[0], z: p[1], herb: R_.tier, left: 2, back: 90, label: "Pick " + HERBS[R_.tier] }); else id++; } else id++;
+    if (r() < 0.035) { const p = spot(1.4); if (p) { grow("chest", { x: p[0], z: p[1], label: "Open the chest", yaw: r() * TAU, back: 900, lvl: R_.lvl }); block(p[0], p[1], 0.8); } else id++; } else id++;
+    if (r() < R_.pack && dc > 95) { const p = spot(2.5); if (p) { const kind = R_.foes[(r() * R_.foes.length) | 0], n = 2 + ((r() * 2) | 0);
+      for (let q = 0; q < n; q++) { const fo = spawnFoe(kind, p[0] + (r() * 2 - 1) * 2.5, p[1] + (r() * 2 - 1) * 2.5, R_.lvl + ((r() * 3) | 0), false, false); fo.ck = d.key; } } }
+  }
+  for (let k = 0, n = wild ? 9 : 5; k < n; k++) { const x = c.x0 + r() * OW.chunk, z = c.z0 + r() * OW.chunk; if (w.inside(x, z, 1)) d.deco.push({ kind: wild ? REGIONS[w.region(x, z)].deco : "tuft", x, z, s: 0.7 + r() * 0.7, seed: (r() * 1e6) | 0 }); }
+}
+function closeChunk(c) {
+  const w = OVER, d = c.data; if (!d) return;
+  for (const b of d.blocks) w.blocks.remove(b);
+  for (const nd of d.nodes) if (nd.spent && nd.id != null) w.spent.set(nd.id, w.clock + nd.backT);
+  let k = 0; for (let i = 0; i < w.nodes.length; i++) { const nd = w.nodes[i]; if (nd.ck === d.key || nd.fixed && d.nodes.indexOf(nd) >= 0) continue; w.nodes[k++] = nd; } w.nodes.length = k;
+  if (G && W === w) { k = 0; for (let i = 0; i < G.foes.length; i++) { const fo = G.foes[i]; if (fo.ck === d.key) { if (H.target === fo) H.target = null; continue; } G.foes[k++] = fo; } G.foes.length = k; }
+  c.data = null;
 }
 
 // Hearthrim: the smith, the herbalist, the Loom, the stash, the waystone, the stair down, houses and lamps
@@ -978,7 +1108,7 @@ function buildTown(w, r, place, prop, node) {
   const houses = [[-26, -6, 0.5], [-24, 14, 1.0], [-8, 24, 0.1], [9, 25, -0.2], [25, 14, -1.0], [27, -7, -0.4], [-30, 4, 1.4], [31, 3, -1.5]];
   for (const [x, z, a] of houses) { w.deco.push({ kind: "house", x, z, yaw: a, s: 1 + r() * 0.3, seed: (r() * 1e6) | 0 }); w.blocks.add(x, z, 3.6); }
   for (const [x, z] of [[-6, -3], [6, -3], [-6, 13], [6, 13], [-3, -14], [10, -14], [-18, 3], [18, 3]]) { w.deco.push({ kind: "lamp", x, z }); w.blocks.add(x, z, 0.3); w.lamps.push([x, w.h(x, z) + 2.4, z]); }
-  for (let k = 0; k < 120; k++) { const p = place(0.3, 6); if (p) w.deco.push({ kind: "tuft", x: p[0], z: p[1], s: 0.6 + r() * 0.6, seed: (r() * 1e6) | 0 }); }
+  for (let k = 0; k < 60; k++) { const p = place(0.3, 6); if (p) w.deco.push({ kind: "tuft", x: p[0], z: p[1], s: 0.6 + r() * 0.6, seed: (r() * 1e6) | 0 }); }
   for (let k = 0; k < 18; k++) { const p = place(1.2, 20); if (p && Math.hypot(p[0], p[1]) > 9) { const t = k % 5 === 4 ? 1 : 0; node("tree", p[0], p[1], { tree: t, left: WR.NODE.tree.holds, back: WR.NODE.tree.back, s: 0.8 + r() * 0.4, seed: (r() * 1e6) | 0 }); w.blocks.add(p[0], p[1], 0.55); } }
   for (let k = 0; k < 8; k++) { const a = 0.5 + k * 0.72, x = Math.cos(a) * 33, z = Math.sin(a) * 33 + 4, p = place(1.2, 30, [x, z, 4]); if (p) { node("ore", p[0], p[1], { ore: k % 4 === 3 ? 1 : 0, left: WR.NODE.ore.holds, back: WR.NODE.ore.back }); w.blocks.add(p[0], p[1], 0.8); } }
   station("furnace", -19, -1.5, "The furnace: smelt ore into bars", "hearth", 0.75, 0.9, 1.3);
@@ -1091,6 +1221,7 @@ function ensure(d) {
   d.tools = d.tools || { pick: 0, axe: 0 };
   d.kin = d.kin || { have: [], found: [], pet: null, ride: null, seek: {}, at: {} };
   d.mastered = d.mastered || []; d.best = d.best || null;
+  d.well = d.well || 0; d.wells = d.wells || {}; d.gates = d.gates || [0]; d.hollow = d.hollow || 0;
   if (!("mantle" in d.gear)) d.gear.mantle = null;
   if (!d.best) for (const it of d.bag.concat(d.stash, [d.gear.weapon])) if (it && it.k === "weapon" && !it.m && WR.betterDrop(d.best, it)) d.best = { p: it.p, lvl: it.lvl, tier: it.tier };
   return d;
@@ -1136,23 +1267,37 @@ function spawnFoe(key, x, z, lvl, elite, boss) {
   G.foes.push(f);
   return f;
 }
-function enterWorld(kind, fi) {
-  const seed = kind === "town" ? 77 : (D.seed + fi * 7919) | 0;
-  W = makeWorld(kind, fi, seed);
+function enterWorld(kind, fi, place) {
+  if (STREAM && W && W.over) STREAM.free();
+  const under = kind !== "town" && place ? place : null;
+  const seed = kind === "town" ? 77 : under ? (D.seed + under.seed * 7919 + 13) | 0 : (D.seed + fi * 7919) | 0;
+  W = makeWorld(kind, fi, seed, under);
   R = rng((Date.now() ^ (fi * 131)) | 0);
   G = { foes: [], shots: [], drops: [], tele: [], nums: [], traps: [], rings: [], t: 0, boss: null, shake: 0, say: "", sayT: 0, toasts: [], openT: 0, done: false, endT: 0, hud: 0 };
   if (!H) H = hero();
-  H.x = W.start.x; H.z = W.start.z; H.yaw = W.start.yaw; H.act = null; H.dead = false; H.inv = 1.2; H.gather = null; H.target = null; H.vx = H.vz = 0;
+  H.x = W.start.x; H.z = W.start.z; H.yaw = W.start.yaw; H.ox = H.oz = null; H.act = null;
+  if (kind === "town" && place && W.inside(place.x, place.z)) { H.x = place.x; H.z = place.z; } H.dead = false; H.inv = 1.2; H.gather = null; H.target = null; H.vx = H.vz = 0;
   H.y = W.h(H.x, H.z);
   G.pet = { x: H.x - 1.2, z: H.z + 1.2, yaw: 0, t: 0, mv: 0 }; H.ride = false;
   for (const s of W.spawns) spawnFoe(s.foe, s.x, s.z, W.lvl + (s.elite ? 1 : 0), s.elite, false);
   if (W.boss) { G.boss = spawnFoe(W.boss.key, W.boss.x, W.boss.z, W.lvl + 1, false, true); G.boss.st = "sleep"; G.boss.yaw = 0; }
-  if (kind !== "town") { D.floor = fi; D.deepest = Math.max(D.deepest, fi); if (fi >= 18) D.endless = Math.max(D.endless || 0, fi - 17); }
+  if (under) { if (under.type === "cave") D.wells[under.well] = Math.max(D.wells[under.well] || 0, under.depth); }
+  else if (kind !== "town") { D.floor = fi; D.deepest = Math.max(D.deepest, fi); if (fi >= 18) D.endless = Math.max(D.endless || 0, fi - 17); }
   store();
   if (E.ready) { prepare(); E.gov.hold(1500); }
-  music();
-  if (kind === "town") say("Hearthrim", 3);
+  titles(); music();
+  if (kind === "town") say(G.title, 3);
+  else if (under) say(under.type === "cave" ? "Under " + under.name + " \x18 depth " + under.depth : under.name + " \x18 " + (under.depth === 3 ? HOLLOW_ST.lair : HOLLOW_ST.floors[under.depth - 1]), 4);
   else say(floorName(fi) + " \x18 " + (fi < 18 ? STRATA[floorStratum(fi)].name : "the Endless Descent, depth " + (fi - 17)), 4);
+}
+// where the delver is, as it's written at the top of the screen (looked at twice a second: a region's name as it's entered)
+function titles() {
+  if (W.over) {
+    const reg = W.region(H.x, H.z), town = inTown(), was = G.reg;
+    G.reg = reg; G.title = town ? "HEARTHRIM" : REGIONS[reg].name.toUpperCase(); G.sub = town ? "ABOVE THE MAW" : "THE RIMLANDS \x18 LEVEL " + REGIONS[reg].lvl + " COUNTRY";
+    if (was != null && was !== reg) { say(REGIONS[reg].name, 3); music(); }
+  } else if (W.place) { const p = W.place; G.title = p.name.toUpperCase(); G.sub = (p.type === "cave" ? "UNDER THE WELL \x18 DEPTH " + p.depth + " OF 3" : p.depth === 3 ? "THE KING'S HALL" : "HALL " + p.depth + " OF 2") + " \x18 LEVEL " + W.lvl; }
+  else { G.title = floorName(W.fi).toUpperCase(); G.sub = W.fi < 18 ? "FLOOR " + (W.fi + 1) + " OF 18 \x18 LEVEL " + W.lvl : "ENDLESS \x18 DEPTH " + (W.fi - 17); }
 }
 function say(text, t) { G.say = text; G.sayT = t || 3; }
 function toast(text, col) { G.toasts.push({ text, col: col || BONE, t: 3.2 }); if (G.toasts.length > 4) G.toasts.shift(); }
@@ -1306,7 +1451,7 @@ function updateHero(dt) {
   for (const k in H.buff) H.buff[k] = Math.max(0, H.buff[k] - dt);
   if (H.heal > 0) { const h = Math.min(H.heal, S.hpMax * 1.2 * dt); H.heal -= h; H.hp = Math.min(S.hpMax, H.hp + h); }
   H.focus = Math.min(100, H.focus + (s.regen + (H.buff.focus > 0 ? 10 : 0)) * dt);
-  if (W.kind === "town") { H.hp = Math.min(S.hpMax, H.hp + S.hpMax * 0.2 * dt); H.focus = Math.min(100, H.focus + 20 * dt); }
+  if (W.kind === "town" && H.x * H.x + H.z * H.z < 3600) { H.hp = Math.min(S.hpMax, H.hp + S.hpMax * 0.2 * dt); H.focus = Math.min(100, H.focus + 20 * dt); }
   if (H.dead) { H.at += dt; return; }
   const mv = moveInput();
   let speed = 0;
@@ -1353,7 +1498,9 @@ function updateHero(dt) {
   W.blocks.push(H.x, H.z, H.r, OUT); H.x = OUT[0]; H.z = OUT[1];
   for (let i = 0; i < G.foes.length; i++) { const f = G.foes[i]; if (f.st === "dead" || f.st === "sleep") continue; const dx = H.x - f.x, dz = H.z - f.z, rr = H.r + f.r * 0.9, d2 = dx * dx + dz * dz;
     if (d2 < rr * rr && d2 > 1e-6) { const d = Math.sqrt(d2), k = (rr - d) / d * 0.6; H.x += dx * k; H.z += dz * k; } }
-  if (!W.inside(H.x, H.z)) { for (let k = 0; k < 20 && !W.inside(H.x, H.z); k++) { H.x *= 0.97; H.z = W.kind === "town" && H.z < -20 ? H.z * 0.97 + 0.4 : H.z * 0.97; } }
+  if (W.inside(H.x, H.z)) { H.ox = H.x; H.oz = H.z; }
+  else if (H.ox != null && W.inside(H.ox, H.oz)) { if (W.inside(H.x, H.oz)) H.oz = H.z = H.oz; else if (W.inside(H.ox, H.z)) H.x = H.ox; else { H.x = H.ox; H.z = H.oz; } }   // (along the edge, if one way is still open)
+  else for (let k = 0; k < 20 && !W.inside(H.x, H.z); k++) { H.x *= 0.97; H.z *= 0.97; }
   H.y = W.h(H.x, H.z);
   // the traps (Snare): a foe that steps in is held, and hurt
   for (let i = G.traps.length - 1; i >= 0; i--) {
@@ -1377,9 +1524,14 @@ function interact(nd) {
     case "chest": nd.on = false; sfx("chest"); { const n = 2 + (R() < 0.4 ? 1 : 0); for (let k = 0; k < n; k++) dropLoot(nd.x, nd.z, W.lvl + 1, k === 0 ? 1 : 0, true); dropCoin(nd.x, nd.z, 8 + W.lvl * 4); } openChestMesh(nd); break;
     case "shrine": nd.on = false; H.buff[nd.boon] = 60; sfx("boon"); toast(({ might: "Might: +30% damage", haste: "Haste: +25% attack speed", guard: "Guard: +40 armour", focus: "Focus flows faster" })[nd.boon] + " for a minute", GREEN);
       G.rings.push({ x: nd.x, z: nd.z, r: 0.5, grow: 10, life: 0.6, col: W.st.glow }); break;
-    case "waystone": if (W.kind === "town") openWay(); else { sfx("way"); toWorld("town", 0); } break;
+    case "waystone": if (W.kind === "town") openWay(nd); else { sfx("way"); toWorld("town", 0); } break;
     case "gate": if (nd.sealed) { toast(W.kind === "lair" ? "The stair opens when the power here falls" : "Sealed. Its keeper walks this floor: an elite, marked on your map", PINK); sfx("no"); }
-      else { sfx("way"); descend(W.fi + 1); } break;
+      else if (nd.fire && lv("fire") < nd.fire) { toast("Its braziers are cold: Firemaking " + nd.fire + " would light them", PINK); sfx("no"); }
+      else { sfx("way"); goDeeper(); } break;
+    case "rope": sfx("way"); leavePlace(); break;
+    case "well": openWay(nd); break;
+    case "portal": if (D.gates.indexOf(nd.id) < 0) { D.gates.push(nd.id); toast("The riftgate knows you now", PINK); sfx("unseal"); G.rings.push({ x: nd.x, z: nd.z, r: 0.5, grow: 9, life: 0.6, col: PINK }); store(); } openWay(nd); break;
+    case "hollow": sfx("way"); toWorld("wild", 0, hollowPlace(1)); break;
     case "maw": sfx("way"); descend(D.floor); break;
     case "smith": case "herbalist": case "loom": case "stash": openShop(nd.kind); break;
   }
@@ -1487,14 +1639,16 @@ function killFoe(f) {
   sfx(f.boss ? "bossdie" : "die");
   burst(f.x, f.y + 0.8, f.z, f.boss ? 40 : 16, f.boss ? PINK : W.st.glow, f.boss ? 9 : 4);
   if (f.boss) {
-    G.boss = null; G.shake = 0.6; D.cleared[floorStratum(W.fi)] = 1;
+    G.boss = null; G.shake = 0.6; if (!W.place) D.cleared[floorStratum(W.fi)] = 1;
+    if (W.place) { if (!D.hollow) { const it = makeItem("weapon", tierOf(W.lvl + 1), W.lvl + 1, 4, S.kind); noteBest(it); G.drops.push({ kind: "item", item: it, x: f.x - 1, z: f.z + 1, y: 0, t: 0 }); sfx("legend"); } D.hollow++; }
     for (let k = 0; k < 3; k++) dropLoot(f.x, f.z, W.lvl + 2, k === 0 ? 2 : 1, true);
     dropCoin(f.x, f.z, 60 + W.lvl * 20); dropCoin(f.x, f.z, 60 + W.lvl * 20);
     G.drops.push({ kind: "thread", n: 6 + (W.fi >> 1), x: f.x + 1, z: f.z, y: 0, t: 0 });
     for (const g of G.foes) if (g !== f && g.st !== "dead") { g.hp = 0; killFoe(g); }
     W.exit.hidden = false; W.exit.sealed = false; exitShown();
     toast(f.def.name + " falls", PINK);
-    if (W.fi === 17 && !D.ended) { G.endT = 4.5; }
+    if (W.place) say("The Thorn King falls: the way out stands open", 4);
+    else if (W.fi === 17 && !D.ended) { G.endT = 4.5; }
     else say("The stair down lies open", 4);
     store();
     return;
@@ -1806,11 +1960,22 @@ function updateTele(dt) {
 
 // ---------------------------------------------------------------- down, up, home
 function descend(fi) { if (G) G.leaving = true; toWorld(floorLair(fi) ? "lair" : "wild", fi); }
+// the places under the open world: a well's cave (three depths, its region's ore and its stratum's look), the Thornhollow
+const wellOf = id => OVER.feats.find(q => q.kind === "well" && q.id === id);
+function cavePlace(well, depth) { const f = wellOf(well), R_ = REGIONS[f.reg]; return { type: "cave", well, depth, tier: R_.tier, st: STRATA[R_.tier], lvl: R_.lvl + depth * 2 - 1, seed: 1000 + well * 10 + depth, name: WELLS[well] }; }
+function hollowPlace(depth) { return { type: "hollow", depth, tier: 2, st: HOLLOW_ST, lvl: 9 + depth * 2, seed: 2000 + depth, name: "The Thornhollow" }; }
+function goDeeper() {
+  const p = W.place; if (!p) { descend(W.fi + 1); return; }
+  if (p.type === "cave") toWorld("wild", 0, cavePlace(p.well, p.depth + 1));
+  else if (p.depth >= 3) leavePlace(); else toWorld(p.depth === 2 ? "lair" : "wild", 0, hollowPlace(p.depth + 1));
+}
+function leavePlace() { const p = W.place, f = p && p.type === "cave" ? wellOf(p.well) : null; toWorld("town", 0, f ? { x: f.x + 1.6, z: f.z + 2.2 } : OVER.hollow ? { x: OVER.hollow[0], z: OVER.hollow[1] + 4.5 } : null); }
+const wakePlace = () => { const f = OVER && wellOf(D.well || 0); return f ? { x: f.x + 1.6, z: f.z + 2.2 } : null; };
 let pendingWorld = null;
-function toWorld(kind, fi) { pendingWorld = [kind, fi]; fadeT = 0.35; }
+function toWorld(kind, fi, place) { pendingWorld = [kind, fi, place || null]; fadeT = 0.35; }
 let fadeT = 0, fadeIn = 0;
 function updateWorldChange(dt) {
-  if (pendingWorld) { fadeT -= dt; if (fadeT <= 0) { const [k, f] = pendingWorld; pendingWorld = null; enterWorld(k, f); fadeIn = 0.5; } }
+  if (pendingWorld) { fadeT -= dt; if (fadeT <= 0) { const [k, f, pl] = pendingWorld; pendingWorld = null; enterWorld(k, f, pl); fadeIn = 0.5; } }
   else if (fadeIn > 0) fadeIn = Math.max(0, fadeIn - dt);
 }
 
@@ -1846,24 +2011,101 @@ function prepare() {
 }
 function freeGPU() {
   if (GPU && GPU.g3 && GPU.g3 === E.g3) {
-    GPU.chunks.free(); for (const c of GPU.nodeCells) if (c.h) E.g3.free(c.h);
+    if (GPU.chunks) GPU.chunks.free(); for (const c of GPU.nodeCells) if (c.h) E.g3.free(c.h);
     if (GPU.sky) E.g3.gl.deleteTexture(GPU.sky);
   }
   GPU = null;
 }
+// The open world's chunks. A kind of thing is built once, about its own middle (tpl), and stamped wherever one stands
+// (Mesh.stamp): a chunk's making is its ground's triangles, then copies. What a chunk holds is one mesh, one call.
+let STREAM = null;
+const TPL = new Map(), NOGPU = { upload: () => null, free() {} };
+function tpl(key, fn) { let t = TPL.get(key); if (!t) { t = { m: new L3.Mesh(128), g: new L3.Mesh(32) }; fn(t.m, t.g); TPL.set(key, t); } return t; }
+const regWorld = reg => ({ st: { wall: REGIONS[reg].wall, ground: REGIONS[reg].ground, glow: [0xffd28a, 0x9fffc8, 0x6ae8ff, 0xffa04a, 0xff7a2a, 0xc07cff][reg] }, h: () => 0 });
+function stampThing(base, glow, t, x, y, z, yaw, s, shade) { base.stamp(t.m, x, y, z, yaw, s, s, shade); if (t.g.n) glow.stamp(t.g, x, y, z, yaw, s); }
+function stampNode(w, nd, base, glow) {
+  if (nd.hidden || !nd.on && !nd.spent || nd.dyn) return;
+  const v = nd.seed == null ? 0 : nd.seed % 3;
+  if (nd.kind === "tree") stampThing(base, glow, tpl("t" + nd.tree + (nd.on ? "o" : "x") + v, (m, g) => treeMesh(m, g, 0, 0, 0, nd.tree, 1, v + 1, !nd.on)), nd.x, nd.y, nd.z, (nd.seed % 628) / 100, nd.s || 1, 0.9 + (nd.seed % 20) / 100);
+  else if (nd.kind === "ore") { const reg = nd.reg || 0; stampThing(base, glow, tpl("o" + nd.ore + (nd.on ? "o" : "x") + reg, (m, g) => nodeMesh(regWorld(reg), { kind: "ore", x: 0, z: 0, y: 0, ore: nd.ore, on: nd.on }, m, g)), nd.x, nd.y, nd.z, (nd.x * 7 + nd.z * 3) % 6.28, 1, 1); }
+  else if (nd.kind === "herb") stampThing(base, glow, tpl("h" + nd.herb, (m, g) => nodeMesh(regWorld(0), { kind: "herb", x: 0, z: 0, y: 0, herb: nd.herb }, m, g)), nd.x, nd.y, nd.z, nd.x % 6.28, 1, 1);
+  else if (nd.kind === "chest") stampThing(base, glow, tpl("chest", (m, g) => putModel(m, "chest", 0, 0, 0, 0, 1)), nd.x, nd.y, nd.z, nd.yaw || 0, 1, 1);
+  else featureMesh(w, nd, base, glow);
+}
+function featureMesh(w, nd, m, g) {
+  const x = nd.x, y = nd.y, z = nd.z;
+  if (nd.kind === "well") {                           // a ring of stone, two posts, a little roof, a lantern the colour of deep water
+    m.seed = 31 + nd.id; m.at(x, y, z, nd.id, 1); m.stack([[1.2, -0.3], [1.2, 0.8], [0.92, 0.8], [0.92, 0.3]], 8, [0x6a6860, 0x55534e, 0x3a3a3e], null, 0.04);
+    for (const sd of [-1, 1]) m.box(sd * 1.05, 0.6, 0, 0.16, 2.1, 0.16, 0x4a3426);
+    m.box(0, 2.55, 0, 2.5, 0.12, 0.2, 0x4a3426); m.box(0, 1.5, 0, 0.05, 1.05, 0.05, 0xb8a888); m.box(0, 1.2, 0, 0.3, 0.3, 0.3, 0x5a4634);
+    m.quad(-1.4, 2.6, 0.9, 1.4, 2.6, 0.9, 1.4, 3.3, 0, -1.4, 3.3, 0, 0x5a2e2a, 0, 0, 0); m.quad(1.4, 2.6, -0.9, -1.4, 2.6, -0.9, -1.4, 3.3, 0, 1.4, 3.3, 0, 0x5a2e2a, 0, 0, 0);
+    m.quad(-1.4, 2.6, 0.9, 1.4, 2.6, 0.9, 1.4, 3.3, 0, -1.4, 3.3, 0, 0x3a1e1c, 0, 6, 0); m.quad(1.4, 2.6, -0.9, -1.4, 2.6, -0.9, -1.4, 3.3, 0, 1.4, 3.3, 0, 0x3a1e1c, 0, 6, 0);
+    g.at(x, y, z, nd.id, 1); g.disc(0.9, 8, 0.32, 0x1e6a8a); g.box(1.05, 2.0, 0.16, 0.2, 0.26, 0.2, 0x6ae8ff);
+  } else if (nd.kind === "portal") {                  // two leaning stones of ink with lines of light up them, a ring of small stones
+    m.seed = 11 + nd.id;
+    for (const sd of [-1, 1]) { m.at(x + sd * 1.25, y, z, 0, 1, 1, 1, 0, sd * 0.16); m.stack([[0.42, -0.4], [0.36, 1.6], [0.26, 3.2], [0.1, 4.0]], 4, [0x23262e, 0x1a1c22, 0x14161c], 0x14161c, 0.05, PI / 4);
+      g.at(x + sd * 1.25, y, z, 0, 1, 1, 1, 0, sd * 0.16); g.box(-sd * 0.25, 0.4, 0.3, 0.06, 2.9, 0.04, PINK); g.box(-sd * 0.25, 0.4, -0.3, 0.06, 2.9, 0.04, PINK); }
+    for (let k = 0; k < 8; k++) { const a = k / 8 * TAU + 0.4; m.at(x + Math.cos(a) * 2.3, y, z + Math.sin(a) * 2.3, a, 1); m.stack([[0.24, -0.2], [0.2, 0.25], [0, 0.4]], 5, 0x4a4a52, null, 0.25); }
+  } else if (nd.kind === "hollow") {                  // a barrow: a mound of dark stone, a black door in it between two tusks, thorns over it
+    m.seed = 97; L3.Kit.rock(m, x, z - 2.6, 5.2, 4.4, [0x2a2630, 0x383440, 0x2e3a2c], 0x38462f, 0.2);
+    m.at(x, y, z, 0, 1); m.box(0, -0.3, 0.4, 2.4, 3.3, 1.5, 0x1c1a22, 0x2a2630); m.box(0, 0, 1.17, 1.5, 2.5, 0.06, 0x05060a);
+    for (const sd of [-1, 1]) { m.at(x + sd * 1.25, y, z + 1.3, 0, 1, 1, 1, 0, sd * -0.2); m.stack([[0.26, -0.2], [0.2, 1.6], [0.08, 3.0], [0, 3.5]], 5, [0xd8ccb0, 0xe8dcc0, 0xefe6d2], null); }
+    for (let k = 0; k < 7; k++) { const a = -0.9 + k * 0.3; m.at(x + Math.sin(a) * 2.6, y + 2.6 + Math.cos(a) * 1.2, z + 0.4, a, 1, 1, 1, 0.5, -a); m.stack([[0.09, 0], [0, 1.1]], 4, 0x1e1620, null); }
+    g.at(x, y, z, 0, 1); g.box(0, 2.7, 1.2, 0.5, 0.12, 0.05, PINK); g.box(-1.9, 0, 1.9, 0.3, 0.5, 0.3, 0xff7a2a); g.box(1.9, 0, 1.9, 0.3, 0.5, 0.3, 0xff7a2a);
+    m.at(x - 1.9, y, z + 1.9, 0, 1); m.stack([[0.3, -0.2], [0.2, 0.3], [0.34, 0.5]], 6, 0x3a3a40, null); m.at(x + 1.9, y, z + 1.9, 0, 1); m.stack([[0.3, -0.2], [0.2, 0.3], [0.34, 0.5]], 6, 0x3a3a40, null);
+  }
+  m.at(0, 0, 0); g.at(0, 0, 0);
+}
+function buildChunk(c, base, glow, step) {
+  const w = OVER, d = c.data; if (E.mode !== "gl" || !d) return true;
+  if (step === 0) { const L = w.land; L.part(base, L.cellOf(c.x0 + 0.01), L.cellOf(c.z0 + 0.01), L.cellOf(c.x1 - 0.01) + 1, L.cellOf(c.z1 - 0.01) + 1, overColour(w, base)); base.glow = 0; return false; }
+  for (const q of d.deco) {
+    if (q.kind === "house" || q.kind === "lamp" || q.wall || q.fixed) { decoMesh(w, q, base, glow); continue; }
+    const reg = w.region(q.x, q.z), v = q.seed % 3;
+    stampThing(base, glow, tpl("d" + q.kind + reg + v, (m, g) => decoMesh(regWorld(reg), { kind: q.kind, x: 0, z: 0, s: 1, seed: v + 3 }, m, g)), q.x, w.h(q.x, q.z), q.z, (q.seed % 628) / 100, q.s, 1);
+  }
+  for (const p of d.props) { const lit = p.name === "crystal"; stampThing(lit ? glow : base, glow, tpl("p" + p.name + p.tint, (m, g) => putModel(m, p.name, 0, 0, 0, 0, 1, p.tint ? tintTo(p.tint, lit ? 0.75 : 0.5) : null)), p.x, p.y, p.z, p.yaw || 0, p.s || 1, 1); }
+  for (const nd of d.nodes) stampNode(w, nd, base, glow);
+  base.at(0, 0, 0); glow.at(0, 0, 0);
+  return true;
+}
+// the ground's colour: its region's (the borders ragged), rock where it's steep or high, the fen's pools, the Cinderreach's
+// cracks alight, Hearthrim's square, and the roads out to each region's gate
+function overColour(w, base) {
+  const n = vnoise(w.seed + 21), n2 = vnoise(w.seed + 37), roads = w.roads || [];
+  return (h, steep, x, z) => {
+    const v = n(x * 0.15, z * 0.15), R_ = REGIONS[w.region(x + v * 5, z + n2(x * 0.11, z * 0.11) * 5)];
+    base.glow = 0;
+    if (steep > 0.5 || h > 9) { const i = h > 14 ? 2 : h > 7 ? 1 : 0; return U.shade(R_.wall[i], 0.92 + v * 0.12); }
+    if (R_.pool && h < -0.2) { base.glow = 30; return U.shade(R_.pool, 0.9 + v * 0.2); }
+    if (R_.lava && Math.abs(n2(x * 0.05, z * 0.05)) < 0.035) { base.glow = 127; return R_.lava; }
+    if (x * x + (z - 4) * (z - 4) < 150) return [0x55524c, 0x5e5a54, 0x66625a][v > 0.25 ? 2 : v > -0.2 ? 1 : 0];
+    for (let i = 0; i < roads.length; i++) { const q = roads[i], t = clamp((x * q[0] + z * q[1]) / q[2], 0, 1), dx = x - q[0] * t, dz = z - q[1] * t; if (dx * dx + dz * dz < 4.4 + v * 2) return mix(R_.ground[1], 0x8a7a5c, 0.45); }
+    return R_.ground[v > 0.25 ? 2 : v > -0.2 ? 1 : 0];
+  };
+}
+function prepareOver(g3) {
+  const w = W, st = w.st, gl = E.mode === "gl";
+  if (!STREAM) STREAM = new L3.Stream({ cell: OW.chunk, near: OW.near, open: openChunk, close: closeChunk, build: buildChunk, verts: 900,
+    has: (ix, iz) => ix >= -13 && ix <= 12 && iz >= -13 && iz <= 12 });
+  const o = STREAM.o; o.light = gl ? { sun: st.sun, sunCol: st.sunCol, amb: st.amb, ground: st.low } : null; o.shade = w.shade; o.sky = w.sky;
+  STREAM.unload(); STREAM.fill(gl ? g3 : NOGPU, H.x, H.z);
+}
 function prepareGL() {
-  const g3 = E.g3, w = W, st = w.st, chunks = new L3.Chunks(w.size, 24);
-  w.land.mesh(chunks, landColour(w), -1000, "base", { under: 2000 });
-  for (const d of w.deco) decoMesh(w, d, chunks.mesh(d.x, d.z, d.kind === "crag" || d.kind === "house" || d.kind === "tree" ? "base" : "detail"), chunks.mesh(d.x, d.z, "glow"));
-  for (const p of w.props) { const glow = p.name === "crystal"; putModel(chunks.mesh(p.x, p.z, glow ? "glow" : "base"), p.name, p.x, p.y, p.z, p.yaw, p.s, p.tint ? tintTo(p.tint, glow ? 0.75 : 0.5) : null); }
-  chunks.upload(g3, { light: { sun: st.sun, sunCol: st.sunCol, amb: st.amb, ground: st.low }, shade: w.shade, sky: w.sky });
+  const g3 = E.g3, w = W, st = w.st, chunks = w.over ? null : new L3.Chunks(w.size, 24);
+  if (chunks) {
+    w.land.mesh(chunks, landColour(w), -1000, "base", { under: 2000 });
+    for (const d of w.deco) decoMesh(w, d, chunks.mesh(d.x, d.z, d.kind === "crag" || d.kind === "house" || d.kind === "tree" ? "base" : "detail"), chunks.mesh(d.x, d.z, "glow"));
+    for (const p of w.props) { const glow = p.name === "crystal"; putModel(chunks.mesh(p.x, p.z, glow ? "glow" : "base"), p.name, p.x, p.y, p.z, p.yaw, p.s, p.tint ? tintTo(p.tint, glow ? 0.75 : 0.5) : null); }
+    chunks.upload(g3, { light: { sun: st.sun, sunCol: st.sunCol, amb: st.amb, ground: st.low }, shade: w.shade, sky: w.sky });
+  } else prepareOver(g3);
   GPU = { g3, chunks, nodeCells: [], fxM: new L3.Mesh(12000), dotM: new L3.Mesh(PN + MN + 64), sky: null };
   GPU.fx = g3.upload(GPU.fxM, true); GPU.dot = g3.upload(GPU.dotM, true);
-  // the nodes (ore, herbs, chests, urns, the gates): in a few meshes by place, built again when one changes
-  const cell = 32, nc = Math.ceil(w.size / cell);
+  // a floor's nodes (ore, herbs, chests, urns, the gates): in a few meshes by place, built again when one changes
+  const cell = 32, nc = chunks ? Math.ceil(w.size / cell) : 0;
   for (let i = 0; i < nc * nc; i++) GPU.nodeCells.push({ h: null, dirty: true });
   GPU.cellOf = nd => clamp(Math.floor((nd.z + w.size / 2) / cell), 0, nc - 1) * nc + clamp(Math.floor((nd.x + w.size / 2) / cell), 0, nc - 1);
-  for (const nd of w.nodes) nd.cell = GPU.cellOf(nd);
+  if (chunks) for (const nd of w.nodes) nd.cell = GPU.cellOf(nd);
   buildNodeCells();
   if (w.kind === "town") GPU.sky = g3.picture(L3.Kit.sky({ w: Math.min(E.probe.maxTex || 2048, 2048), h: 256, top: 0x14122e, mid: 0x4a2f6a, horizon: 0xff7a7a, haze: 0xffa98c, seed: 9,
     sun: { az: Math.atan2(st.sun[0], st.sun[2]), el: 0.12, size: 0.2, col: 0xfff0c8, low: 0xff6a7a, glow: 0xff7a5a, halo: 1.0, bars: 0xc0507a }, clouds: { n: 22, col: 0x3a2a5a, lit: 0xff9ab0, hi: 0.5, len: 0.7 }, stars: 80,
@@ -1886,6 +2128,7 @@ function buildNodeCells() {
       if (nd.cell !== i || nd.hidden || !nd.on && !nd.spent || nd.dyn) continue;
       if (nd.kind === "urn") putModel(m, nd.model, nd.x, nd.y, nd.z, nd.yaw, nd.model === "urn" ? 1.0 : 0.9);
       else if (nd.kind === "gate") putModel(m, w.kind === "lair" ? "riftband" : "waygate", nd.x, nd.y, nd.z, 0, w.kind === "lair" ? 3.4 : 3.0);
+      else if (nd.kind === "rope") { m.at(nd.x, nd.y, nd.z, 0, 1); m.box(0, 0, 0, 0.07, 14, 0.07, 0xb8a888); m.stack([[0.32, 0], [0.3, 0.14], [0.2, 0.2]], 7, 0xa89878, 0x8a7a5c); gm.at(nd.x, nd.y, nd.z, 0, 1); gm.box(0.25, 1.5, 0, 0.16, 0.22, 0.16, 0x6ae8ff); }
       else if (w.kind !== "town" || nd.kind === "tree" || nd.kind === "ore") nodeMesh(w, nd, m, gm);
     }
     if (!m.n && !gm.n) continue;
@@ -1894,7 +2137,7 @@ function buildNodeCells() {
     const all = L3.Mesh.join([m, gm]); c.h = g3.upload(all);
   }
 }
-function nodeGone(nd) { if (GPU && GPU.nodeCells.length) { GPU.nodeCells[nd.cell].dirty = true; buildNodeCells(); } else if (F2) F2.dirty = true; }
+function nodeGone(nd) { if (W.over) { if (STREAM) STREAM.remake(nd.x, nd.z); } else if (GPU && GPU.nodeCells.length && nd.cell != null) { GPU.nodeCells[nd.cell].dirty = true; buildNodeCells(); } if (F2) F2.dirty = true; }
 function openChestMesh(nd) { nodeGone(nd); }
 function exitShown() { if (W.exit) nodeGone(W.exit); }
 // a body: its poses baked (GL) or drawn from eight sides (2D)
@@ -2013,7 +2256,7 @@ function drawGL(now) {
   const g3 = E.g3, w = W, R_ = E.rung, far = w.kind === "town" ? 70 : 52, t = G.t;
   L3.begin(E, cam, 0.5, far + 30);
   if (GPU.sky) g3.dome(GPU.sky, t * 0.0004);
-  GPU.chunks.draw(g3, cam.tx, cam.tz, far, R_.detail == null ? 1 : Math.max(0.55, R_.detail));
+  if (GPU.chunks) GPU.chunks.draw(g3, cam.tx, cam.tz, far, R_.detail == null ? 1 : Math.max(0.55, R_.detail)); else if (STREAM) STREAM.draw(g3, cam.tx, cam.tz, far);
   for (const c of GPU.nodeCells) if (c.h && g3.sees(c.h.x, c.h.y, c.h.z, c.h.r + 2)) g3.still(c.h);
   // the townsfolk
   if (w.folk) for (const p of w.folk) { const b = BODIES.get("folk:" + p.who + p.x); if (!b) continue; const pose = p.mv ? WALK[Math.floor(p.walkT * 2) % 4] : p.work ? ((t * 1.6) % 1 < 0.5 ? "mine0" : "mine1") : (t * 0.7 + p.x) % 2 < 1 ? "idle0" : "idle1";
@@ -2193,7 +2436,7 @@ function dotsWorld(m, t) {
     for (let q = 0; q < 5 && m.n < m.cap; q++) { const ph = (t * 0.9 + q * 0.21 + i * 0.4) % 1; S_[0] = nd.x + Math.sin(q * 2.3 + t) * 0.3 * ph; S_[1] = nd.y + 0.5 + ph * 2.2; S_[2] = nd.z + Math.cos(q * 1.9 + t) * 0.3 * ph; m.v((c >> 16) & 255, (c >> 8) & 255, c & 255, (1 - ph) * 255 | 0, 127); } }
   { const hb = BODIES.get(heroKey), st = hb && hb.style; if (hb && hb.an && !pendingWorld) dotsMastery(m, t, hb.an[heroPose()] || hb.an.idle0, st.mantle, st.relic); }
   for (let i = 0; i < PN && m.n < m.cap; i++) if (PL[i] > 0) { const c = PC[i]; S_[0] = PX[i]; S_[1] = PY[i]; S_[2] = PZ[i]; m.v((c >> 16) & 255, (c >> 8) & 255, c & 255, clamp(PL[i] * 400, 0, 255) | 0, 127); }
-  const mc = W.st.motes, r = (mc >> 16) & 255, g = (mc >> 8) & 255, b = mc & 255, A = 30;
+  const mc = W.over ? REGIONS[G.reg || 0].motes : W.st.motes, r = (mc >> 16) & 255, g = (mc >> 8) & 255, b = mc & 255, A = 30;
   for (let i = 0; i < MN && m.n < m.cap; i++) {
     const x = cam.tx + ((((MX[i] * A * 2 + Math.sin(t * 0.3 + i) * 2 + t * 0.4) % (A * 2)) + A * 2) % (A * 2)) - A, z = cam.tz + ((((MZ[i] * A * 2 + Math.cos(t * 0.27 + i) * 2) % (A * 2)) + A * 2) % (A * 2)) - A;
     S_[0] = x; S_[2] = z; S_[1] = W.h(x, z) + 0.5 + ((MY[i] * 6 + t * (0.2 + MS[i] * 0.4)) % 6);
@@ -2203,19 +2446,34 @@ function dotsWorld(m, t) {
 
 // ---------------------------------------------------------------- 2D (no real GPU): the ground painted from above, sprites
 let F2 = null;
+// (2D) the open world's ground is painted a window at a time: 240 m round the delver, painted again when they near its edge
+function groundWindow() {
+  const flat = E.flat, w = W, st = w.st, size = 240, k = 4, cx = Math.round(H.x / 30) * 30, cz = Math.round(H.z / 30) * 30;
+  const sub = F2.sub || (F2.sub = new L3.Land(size, 96, 0)); sub.fill((x, z) => w.land.at(x + cx, z + cz));
+  const cv = F2.cv || (F2.cv = document.createElement("canvas")); cv.width = cv.height = size * k; const g = cv.getContext("2d");
+  g.fillStyle = hex(REGIONS[w.region(H.x, H.z)].ground[1]); g.fillRect(0, 0, size * k, size * k);
+  const col = overColour(w, { glow: 0 });
+  sub.paint(g, k, (h, steep, x, z) => col(h, steep, x + cx, z + cz), st.sun, -1000, st.fog, 1);
+  flat.ground(cv, cx - size / 2, cz - size / 2, size, st.fog);
+  F2.win = [cx, cz];
+}
 function prepareFlat() {
   const flat = E.flat, w = W, st = w.st, k = Math.min(6, Math.floor(1024 / w.size)), size = w.size * k;
-  const cv = document.createElement("canvas"); cv.width = cv.height = size; const g = cv.getContext("2d");
-  g.fillStyle = hex(st.ground[1]); g.fillRect(0, 0, size, size);
-  w.land.paint(g, k, landColour(w), st.sun, -1000, st.fog, 1);
-  flat.ground(cv, -w.size / 2, -w.size / 2, w.size, st.fog);
+  F2 = { sprites: new Map(), props: [], dirty: true, win: null, sub: null, cv: null };
+  if (w.over) { prepareOver(null); groundWindow(); }
+  else {
+    const cv = document.createElement("canvas"); cv.width = cv.height = size; const g = cv.getContext("2d");
+    g.fillStyle = hex(st.ground[1]); g.fillRect(0, 0, size, size);
+    w.land.paint(g, k, landColour(w), st.sun, -1000, st.fog, 1);
+    flat.ground(cv, -w.size / 2, -w.size / 2, w.size, st.fog);
+  }
   flat.air({ top: st.fog, horizon: st.fog, fog: st.fog, hill: st.fog, hills: null, near: 30, far: 70 });
-  F2 = { sprites: new Map(), props: [], dirty: true };
-  const sp = (key, fn) => { if (!F2.sprites.has(key)) { const m = new L3.Mesh(1024); fn(m); F2.sprites.set(key, L3.bake(m, { pitch: 0.75, ppu: 22, light: FLATLIGHT })); } return F2.sprites.get(key); };
+  const sp = F2.sp = (key, fn) => { if (!F2.sprites.has(key)) { const m = new L3.Mesh(1024); fn(m); F2.sprites.set(key, L3.bake(m, { pitch: 0.75, ppu: 22, light: FLATLIGHT })); } return F2.sprites.get(key); };
   for (const p of w.props) F2.props.push({ s: sp("p:" + p.name + p.tint, m => putModel(m, p.name, 0, 0, 0, 0, 1, p.tint ? tintTo(p.tint, 0.6) : null)), x: p.x, z: p.z, y: p.y, k: p.s });
   for (const d of w.deco) { if (d.kind === "tuft") continue; const key = "d:" + d.kind + (d.kind === "crag" ? (d.seed % 3) : ""); F2.props.push({ s: sp(key, m => { const gm = new L3.Mesh(64); decoMesh(Object.assign({}, w, { h: () => 0 }), Object.assign({}, d, { x: 0, z: 0, s: 1 }), m, gm); for (let i = 0; i < gm.n; i++) { } m.room(gm.n); m.u8.set(new Uint8Array(gm.buf, 0, gm.n * 20), m.n * 20); m.n += gm.n; }), x: d.x, z: d.z, y: w.h(d.x, d.z), k: d.s }); }
-  F2.node = (kind, nd) => sp("n:" + kind + (nd && nd.tree != null ? "t" + nd.tree : "") + (nd && nd.ore != null ? "o" + nd.ore : "") + (nd && !nd.on ? "x" : ""), m => { const gm = new L3.Mesh(64);
-    nodeMesh(Object.assign({}, w, { kind: "wild" }), { kind, x: 0, z: 0, y: 0, on: !nd || nd.on, tree: nd ? nd.tree : 0, s: nd ? nd.s : 1, seed: nd ? nd.seed : 1, ore: nd && nd.ore != null ? nd.ore : floorStratum(w.fi), herb: floorStratum(w.fi), model: kind === "urn" ? "urn" : null }, m, gm); m.room(gm.n); m.u8.set(new Uint8Array(gm.buf, 0, gm.n * 20), m.n * 20); m.n += gm.n; });
+  F2.node = (kind, nd) => sp("n:" + kind + (kind === "well" ? nd.id : "") + (nd && nd.tree != null ? "t" + nd.tree : "") + (nd && nd.ore != null ? "o" + nd.ore : "") + (nd && !nd.on ? "x" : ""), m => { const gm = new L3.Mesh(64);
+    if (kind === "well" || kind === "portal" || kind === "hollow") featureMesh(w, { kind, x: 0, z: 0, y: 0, id: nd.id || 0 }, m, gm);
+    else nodeMesh(Object.assign({}, w, { kind: "wild" }), { kind, x: 0, z: 0, y: 0, on: !nd || nd.on, tree: nd ? nd.tree : 0, s: nd ? nd.s : 1, seed: nd ? nd.seed : 1, ore: nd && nd.ore != null ? nd.ore : floorStratum(w.fi), herb: floorStratum(w.fi), model: kind === "urn" ? "urn" : null }, m, gm); m.room(gm.n); m.u8.set(new Uint8Array(gm.buf, 0, gm.n * 20), m.n * 20); m.n += gm.n; });
   F2.gate = sp("gate", m => putModel(m, w.kind === "lair" ? "riftband" : "waygate", 0, 0, 0, 0, 3));
   F2.urn = sp("urn", m => putModel(m, "urn", 0, 0, 0, 0, 1));
   F2.blob = L3.Kit.blob(32, 32, "rgba(255,255,255,0.9)"); F2.shadow = L3.Kit.blob(48, 24, "rgba(0,0,0,0.5)");
@@ -2229,9 +2487,17 @@ function drawFlat(now) {
   const near = (x, z) => Math.abs(x - cam.tx) < 26 && Math.abs(z - cam.tz) < 22;
   const dir = yaw => (((Math.round(-(yaw - PI) / TAU * 8) % 8) + 8) % 8);
   for (const p of F2.props) if (near(p.x, p.z)) flat.sprite(p.s, p.x, p.y, p.z, p.k / p.s.ppu);
+  if (W.over && STREAM) {                             // the open world: what stands in the chunks that are open
+    if (Math.abs(H.x - F2.win[0]) > 70 || Math.abs(H.z - F2.win[1]) > 70) groundWindow();
+    for (const c of STREAM.list) { const d = c.data; if (!d || c.x1 < cam.tx - 26 || c.x0 > cam.tx + 26 || c.z1 < cam.tz - 22 || c.z0 > cam.tz + 22) continue;
+      for (const q of d.deco) { if (q.kind === "tuft" || !near(q.x, q.z)) continue; const own = q.kind === "house" || q.kind === "lamp" || q.wall, reg = W.region(q.x, q.z), v = q.seed % 3 || 0;
+        const sprite = F2.sp("d:" + q.kind + (own ? (q.seed || 0) + ":" + (q.yaw || 0) : reg + ":" + v), m => { const gm = new L3.Mesh(64); decoMesh(own ? Object.assign({}, W, { h: () => 0 }) : regWorld(reg), Object.assign({}, q, { x: 0, z: 0, s: own ? q.s : 1, seed: own ? q.seed : v + 3 }), m, gm); m.add(gm, true); });
+        flat.sprite(sprite, q.x, W.h(q.x, q.z), q.z, (own ? 1 : q.s) / sprite.ppu); }
+      for (const p of d.props) { if (!near(p.x, p.z)) continue; const sprite = F2.sp("p:" + p.name + p.tint, m => putModel(m, p.name, 0, 0, 0, 0, 1, p.tint ? tintTo(p.tint, 0.6) : null)); flat.sprite(sprite, p.x, p.y, p.z, p.s / sprite.ppu); } }
+  }
   for (const nd of W.nodes) { if (nd.hidden || !nd.on && !nd.spent || !near(nd.x, nd.z)) continue; const worked = nd.kind === "tree" || nd.kind === "ore";
     if (nd.kind === "fire") { flat.sprite(fireLogs().spr.idle0[0], nd.x, nd.y, nd.z, 1 / 22); flat.sprite(F2.blob, nd.x, nd.y + 0.5 + Math.sin(t * 9) * 0.05, nd.z, 0.03, 0.9); continue; }
-    if (W.kind === "town" && !worked) continue;
+    if (W.kind === "town" && !worked && nd.kind !== "herb" && nd.kind !== "chest" && nd.kind !== "well" && nd.kind !== "portal" && nd.kind !== "hollow") continue;
     const s = nd.kind === "gate" ? F2.gate : nd.kind === "urn" ? F2.urn : F2.node(nd.kind, nd); flat.sprite(s, nd.x, nd.y, nd.z, 1 / s.ppu); }
   if (D.kin.pet && G.pet) { const c = kinOf(D.kin.pet), b = modelBody(c.model, c.tint), q = G.pet; flat.sprite(b.spr.idle0[dir(q.yaw)], q.x, W.h(q.x, q.z) + (c.fly || 0), q.z, c.size / 22); }
   if (H.ride && D.kin.ride) { const c = kinOf(D.kin.ride), b = modelBody(c.model, c.tint); flat.sprite(b.spr.idle0[dir(H.yaw)], H.x, H.y, H.z, c.size / 22); }
@@ -2250,7 +2516,9 @@ function drawFlat(now) {
 function flatPose(p) { if (FLATPOSE.has(p)) return p; if (/^walk[13]/.test(p)) return "walk0"; if (/^idle/.test(p)) return "idle0"; if (/^swing/.test(p)) return "swing1"; if (/^chop/.test(p)) return "chop1"; if (/^draw/.test(p)) return "draw0"; if (/^cast/.test(p)) return "cast1"; if (/^fall/.test(p)) return "fall1"; if (/^mine/.test(p)) return "mine1"; return "idle0"; }
 function applyRung() {
   if (!W || !E.rung) return;
-  if (E.mode === "gl" && E.g3) E.g3.light({ near: W.kind === "town" ? 30 : 17, far: W.kind === "town" ? 70 : 36 });
+  // (the air thickens with distance from the eye, which stands 17 m off: a cave's dark is how soon past the delver it closes in)
+  const see = W.dark ? ((WR.fireCan(lv("fire"), "Torch") ? 0.5 : 0) + (petHelp("light") ? 0.5 : 0)) : 1;
+  if (E.mode === "gl" && E.g3) E.g3.light({ near: W.kind === "town" ? 30 : 15.5 + 1.5 * see, far: W.kind === "town" ? 70 : 27 + 9 * see });
   if (E.mode === "flat" && E.flat) E.flat.air({ near: 24, far: 60 });
   hudKey = "";
 }
@@ -2296,18 +2564,24 @@ function drawHUD(now) {
   ui.rect(dx, y0, 24 * S1, 19 * S1, INK, 0.75); ui.frame(dx, y0, 24 * S1, 19 * S1, S1, D.draughts ? 0x8affb8 : 0x4a4a52, 1);
   ui.text(keyLabel("rb"), dx + 3 * S1, y0 + 2 * S1, S1, BONE, 1, 0, INK); ui.text("♥" + D.draughts, dx + 12 * S1, y0 + 10 * S1, S1, 0x8affb8, 1, 0.5, INK);
   // top left: where; top right: coin, thread and the little map
-  ui.text(W.kind === "town" ? "HEARTHRIM" : floorName(W.fi).toUpperCase(), M, M, S2, BONE, 1, 0, INK);
-  ui.text(W.kind === "town" ? "ABOVE THE MAW" : (W.fi < 18 ? "FLOOR " + (W.fi + 1) + " OF 18 \x18 LEVEL " + W.lvl : "ENDLESS \x18 DEPTH " + (W.fi - 17)), M, M + 9 * S2, S1, GREEN, 0.9, 0, INK);
+  ui.text(G.title, M, M, S2, BONE, 1, 0, INK);
+  ui.text(G.sub, M, M + 9 * S2, S1, GREEN, 0.9, 0, INK);
   const mw = 44 * S1, mx = w - M - mw, my = M + 10 * S1;
   ui.text(D.coin + " COIN", w - M, M, S1, COIN, 1, 1, INK); ui.text(D.thread + " THREAD", w - M - ui.width(D.coin + " COIN", S1) - 6 * S1, M, S1, VIOLET, 1, 1, INK);
   ui.rect(mx, my, mw, mw, INK, 0.55); ui.frame(mx, my, mw, mw, S1, BONE, 0.25);
   const sc = mw / (W.kind === "town" ? 84 : Math.max(W.rx, W.rz) * 2.2), mmx = x => mx + mw / 2 + (x - H.x) * sc, mmy = z => my + mw / 2 + (z - H.z) * sc;
   const inMap = (x, y) => x > mx + S1 && x < mx + mw - S1 && y > my + S1 && y < my + mw - S1;
   for (const nd of W.nodes) { if (!nd.on || nd.hidden) continue; const px = mmx(nd.x), py = mmy(nd.z); if (!inMap(px, py)) continue;
-    const c = nd.kind === "gate" ? (nd.sealed ? 0x7a5a9a : PINK) : nd.kind === "tree" ? TREECOL[nd.tree] : nd.kind === "fire" ? FLAMECOL[nd.tier] : nd.kind === "ore" ? ORECOL[nd.ore] : nd.kind === "herb" ? HERBCOL[nd.herb] : nd.kind === "chest" ? COIN : nd.kind === "urn" ? null : BONE;
+    if (nd.kind === "tree" && W.over && !nd.fixed) continue;
+    const c = nd.kind === "gate" ? (nd.sealed ? 0x7a5a9a : PINK) : nd.kind === "well" ? 0x6ae8ff : nd.kind === "portal" || nd.kind === "hollow" ? PINK : nd.kind === "tree" ? TREECOL[nd.tree] : nd.kind === "fire" ? FLAMECOL[nd.tier] : nd.kind === "ore" ? ORECOL[nd.ore] : nd.kind === "herb" ? HERBCOL[nd.herb] : nd.kind === "chest" ? COIN : nd.kind === "urn" ? null : BONE;
     if (c != null) ui.rect(px - S1, py - S1, 2 * S1 + (nd.kind === "gate" ? S1 : 0), 2 * S1 + (nd.kind === "gate" ? S1 : 0), c, 1); }
   for (const f of G.foes) { if (f.st === "dead" || f.st === "sleep" && !f.boss) continue; const px = mmx(f.x), py = mmy(f.z); if (!inMap(px, py)) continue; ui.rect(px - S1, py - S1, (f.elite || f.boss ? 3 : 2) * S1, (f.elite || f.boss ? 3 : 2) * S1, f.elite || f.boss ? PINK : RED, 1); }
   ui.rect(mx + mw / 2 - S1, my + mw / 2 - S1, 2 * S1, 2 * S1, GREEN, 1);
+  if (W.over) {                                       // on its edge: Hearthrim (bone), the nearest well (blue) and gate (pink), when they're off the map
+    let bw = null, bp = null, dw = 1e9, dp = 1e9;
+    for (let i = 0; i < W.feats.length; i++) { const q = W.feats[i], d = dist2(H.x, H.z, q.x, q.z); if (q.kind === "well" && d < dw) { dw = d; bw = q; } else if (q.kind === "portal" && d < dp) { dp = d; bp = q; } }
+    edgeMark(ui, 0, 4, mx, my, mw, sc, S1, BONE); if (bw) edgeMark(ui, bw.x, bw.z, mx, my, mw, sc, S1, 0x6ae8ff); if (bp) edgeMark(ui, bp.x, bp.z, mx, my, mw, sc, S1, PINK);
+  }
   { const pc = packCount(), pm = packMax(); ui.text("PACK " + pc + "/" + pm, w - M, my + mw + 3 * S1, S1, pc >= pm ? PINK : BONE, pc ? 1 : 0.55, 1, INK);
     if (D.glow > 0) ui.text("HEARTHGLOW", w - M, my + mw + 12 * S1, S1, WR.SKILL.fire.col, 1, 1, INK); }
   // the power's life, top centre
@@ -2330,6 +2604,10 @@ function drawHUD(now) {
   if (G.fest && G.fest.t < 0.3) ui.rect(0, 0, w, h, G.fest.cols[0], (0.3 - G.fest.t) * 1.3);       // (the moment lands with a flash of the skill's colour)
   FEST.draw(ui); if (POPS.busy) POPS.draw(ui, w, h, S1, 0.09);
   ui.end();
+}
+function edgeMark(ui, x, z, mx, my, mw, sc, S1, col) {
+  const dx = (x - H.x) * sc, dz = (z - H.z) * sc, hw = mw / 2 - S1; if (Math.abs(dx) < hw && Math.abs(dz) < hw) return;
+  const k = hw / Math.max(Math.abs(dx), Math.abs(dz)); ui.arrow(mx + mw / 2 + dx * k, my + mw / 2 + dz * k, 3 * S1, Math.atan2(dx, -dz), col, 1);
 }
 function nodeLabel(nd) {
   if (nd.kind === "gate" && nd.sealed) return "SEALED";
@@ -2395,7 +2673,7 @@ const synth = new L3.Synth();
 function sfx(n) { if (synth.ac && !E.demo) try { synth.play(n); } catch (e) { /* a sound that failed is never worth a frame */ } }
 function music(boss) {
   if (!synth.ac) return;
-  const st = W ? W.st : TOWN, sg = st.song;
+  const st = W ? W.st : TOWN, reg = W && W.over && G ? G.reg || 0 : 0, sg = reg ? { seed: 5 + reg * 9, root: 52 - reg, tempo: 72 + reg * 3, calm: reg < 2 } : st.song;
   synth.song({ seed: sg.seed + (boss ? 101 : 0) + (W && W.fi >= 18 ? W.fi : 0), root: sg.root + (boss ? -2 : 0), tempo: sg.tempo + (boss ? 26 : 0), calm: !!sg.calm && !boss });
 }
 function volumes() { synth.volume(save.opts.music / 10, save.opts.sound / 10); }
@@ -2495,8 +2773,8 @@ const menu = new L3.Menu({
     else if (act === "quit") { store(); closeMenu(); toTitle(); }
     else if (act === "wear") wearFocused();
     else if (act === "do") shopDo(el);
-    else if (act === "go") { const fi = +el.dataset.fi; closeMenu(); if (fi < 0) toWorld("town", 0); else descend(fi); }
-    else if (act === "rise") { closeMenu(); G.fallen = null; H.dead = false; H.act = null; recalc(); H.hp = S.hpMax; H.focus = 60; toWorld("town", 0); }
+    else if (act === "way") { const o = WAYS[+el.dataset.i]; if (o && o.act) { closeMenu(); o.act(); } else sfx("no"); }
+    else if (act === "rise") { closeMenu(); G.fallen = null; H.dead = false; H.act = null; recalc(); H.hp = S.hpMax; H.focus = 60; toWorld("town", 0, wakePlace()); }
     else if (act === "endnext") endingNext();
   }
 });
@@ -2622,7 +2900,7 @@ function salvageFocused() {
 
 // ---- the stations in Hearthrim
 function openShop(kind) { shopKind = kind; state = "menu"; menu.show("shop"); }
-const inTown = () => !!W && W.kind === "town";
+const inTown = () => !!W && W.kind === "town" && H.x * H.x + H.z * H.z < 3600;   // (Hearthrim: within sixty paces of its square)
 const matHave = (kind, t) => D[kind][t] + (inTown() ? D.store[kind][t] : 0);   // (ore, bars or logs of a tier: the pack's, and in Hearthrim the stash's)
 function matTake(kind, t, n) { const k = Math.min(n, D[kind][t]); D[kind][t] -= k; if (k < n) D.store[kind][t] = Math.max(0, D.store[kind][t] - (n - k)); }
 function matGive(kind, t, n) { const room = Math.max(0, packMax() - packCount()), k = Math.min(n, room); D[kind][t] += k; if (k < n) D.store[kind][t] += n - k; }   // (what won't fit goes to the stash)
@@ -2677,7 +2955,7 @@ function renderShop() {
     const K = D.kin, here = !!nearNodeOf("kin");
     for (const id of K.found) { const c = kinOf(id); SHOP.push({ label: "Bind the " + c.name + (here ? "" : " (at a kinstone)"), col: WR.SKILL.summon.col, pay: here ? { need: ["summon", c.lvl] } : { coin: 1e9 }, act: () => bind(c) }); }
     for (const id of K.have) { const c = kinOf(id), on = c.kind === "pet" ? K.pet === id : K.ride === id;
-      SHOP.push({ label: (c.kind === "pet" ? (on ? "With you: " : "Walk with the ") : (on ? "Your mount: " : "Ride the ")) + c.name + " · " + c.about, pay: {}, col: on ? GREEN : null, act: () => { if (c.kind === "pet") K.pet = on ? null : id; else { K.ride = on ? null : id; H.ride = false; } G.pet.x = H.x; G.pet.z = H.z; } }); }
+      SHOP.push({ label: (c.kind === "pet" ? (on ? "With you: " : "Walk with the ") : (on ? "Your mount: " : "Ride the ")) + c.name + " · " + c.about, pay: {}, col: on ? GREEN : null, act: () => { if (c.kind === "pet") K.pet = on ? null : id; else { K.ride = on ? null : id; H.ride = false; } G.pet.x = H.x; G.pet.z = H.z; applyRung(); } }); }
     const next = WR.KIN.find(c => K.have.indexOf(c.id) < 0 && K.found.indexOf(c.id) < 0);
     if (next) SHOP.push({ label: "Next: a " + next.name + ", at Summoning " + next.lvl + (next.kind === "mount" ? ": a saddle from the anvil calls it" : ": it shows itself while you're " + ({ mine: "mining", wood: "woodcutting", smith: "smithing", fire: "firemaking" })[next.found]), pay: { coin: 1e9 }, act: () => {} });
   } else if (shopKind === "stash") {
@@ -2730,14 +3008,30 @@ function forge(k, t) {
 }
 function reweave(it) { const n = it.a.length, pool = AFFIX_FOR[it.k].slice(); it.a = []; for (let i = 0; i < n && pool.length; i++) { const a = pool.splice(ri(pool.length), 1)[0]; it.a.push([a, affixVal(a, it.lvl, 1 + it.r * 0.12)]); } nameItem(it); recalc(); }
 function strengthen(it) { it.r++; const pool = AFFIX_FOR[it.k].filter(a => !it.a.some(x => x[0] === a)); if (pool.length) { const a = pick(pool); it.a.push([a, affixVal(a, it.lvl, 1 + it.r * 0.12)]); } nameItem(it); recalc(); }
-function openWay() { state = "menu"; menu.show("way"); }
+let wayNode = null, WAYS = [];
+function openWay(nd) { wayNode = nd; state = "menu"; menu.show("way"); }
 function renderWay() {
-  const items = [];
-  $("wayAbout").textContent = "It knows every place you have been. Where should it carry you?";
-  if (D.floor !== null) items.push({ fi: D.floor, label: "Back where you were: floor " + (D.floor + 1) + ", " + floorName(D.floor) });
-  for (let s = 0; s < 6; s++) { const fi = s * 3; if (D.deepest >= fi && fi !== D.floor) items.push({ fi, label: STRATA[s].name + ": floor " + (fi + 1) }); }
-  if (D.ended) items.push({ fi: Math.max(18, D.deepest), label: "The Endless Descent: depth " + (Math.max(18, D.deepest) - 17) });
-  $("waylist").innerHTML = items.map(o => `<div class="item" data-do="go" data-fi="${o.fi}">${esc(o.label)}</div>`).join("");
+  const nd = wayNode, kind = nd ? nd.kind : "waystone"; WAYS = [];
+  const add = (label, act, col) => WAYS.push({ label, act, col });
+  if (kind === "well") {
+    $("wayTitle").textContent = WELLS[nd.id];
+    $("wayAbout").textContent = "Clean water: it mends you, and you'll wake here if you fall. A rope goes down under it into the dark, where the ore is thick.";
+    add(D.well === nd.id ? "Drink (you wake here)" : "Drink, and wake here from now on", () => { D.well = nd.id; H.hp = S.hpMax; H.focus = 100; H.heal = 0; sfx("drink"); burst(nd.x, nd.y + 1.4, nd.z, 18, 0x6ae8ff, 4); G.rings.push({ x: nd.x, z: nd.z, r: 0.5, grow: 8, life: 0.5, col: 0x6ae8ff }); toast("The water mends you. You'll wake by " + WELLS[nd.id], 0x6ae8ff); store(); }, 0x6ae8ff);
+    const R_ = REGIONS[nd.reg], deep = Math.min(3, (D.wells[nd.id] || 0) + 1);
+    for (let d = 1; d <= deep; d++) add("Down the rope: depth " + d + " of 3 \u00b7 level " + (R_.lvl + d * 2 - 1) + " \u00b7 " + ORES[R_.tier] + (d >= 2 && R_.tier < 5 ? " and " + ORES[R_.tier + 1] : ""), () => { sfx("way"); toWorld("wild", 0, cavePlace(nd.id, d)); });
+  } else if (kind === "portal") {
+    $("wayTitle").textContent = "The riftgate";
+    $("wayAbout").textContent = "It answers every other gate you have touched. Where should it set you down?";
+    for (const id of D.gates) { if (id === nd.id) continue; const f = OVER.feats.find(q => q.kind === "portal" && q.id === id); if (f) add(id ? REGIONS[f.reg].name + ": its gate" : "Hearthrim", () => { sfx("way"); toWorld("town", 0, { x: f.x, z: f.z + 2.6 }); }, PINK); }
+    if (!WAYS.length) add("No other gate knows you yet: there's one in every region, at the end of its road", null);
+  } else {
+    $("wayTitle").textContent = "The waystone";
+    $("wayAbout").textContent = "It knows every floor of the Maw you have reached. Where should it carry you?";
+    if (D.floor !== null) add("Back where you were: floor " + (D.floor + 1) + ", " + floorName(D.floor), () => descend(D.floor));
+    for (let k = 0; k < 6; k++) { const fi = k * 3; if (D.deepest >= fi && fi !== D.floor) add(STRATA[k].name + ": floor " + (fi + 1), () => descend(fi)); }
+    if (D.ended) add("The Endless Descent: depth " + (Math.max(18, D.deepest) - 17), () => descend(Math.max(18, D.deepest)));
+  }
+  $("waylist").innerHTML = WAYS.map((o, i) => `<div class="item${o.act ? "" : " off"}" data-do="way" data-i="${i}"${o.col ? ` style="color:${hex(o.col)}"` : ""}>${esc(o.label)}</div>`).join("");
   return 0;
 }
 
@@ -2746,7 +3040,7 @@ function updateFallen(dt) {
   if (!G.fallen) return;
   G.fallen.t += dt;
   if (G.fallen.t > 1.8 && menu.at !== "fallen") {
-    $("fallenText").textContent = "The thread pulls taut, and you wake by the fountain in Hearthrim. " + (G.fallen.lost ? G.fallen.lost + " coin stayed below." : "") + " Your gear is with you; the floor will be as it was.";
+    $("fallenText").textContent = "The thread pulls taut, and you wake by " + WELLS[D.well || 0] + (D.well ? "" : ", in Hearthrim") + ". " + (G.fallen.lost ? G.fallen.lost + " coin stayed where you fell." : "") + " Your gear is with you.";
     state = "menu"; menu.show("fallen");
   }
 }
@@ -2817,6 +3111,7 @@ function update(dt) {
   if (menu.at === "skills" && menu.i !== skillI) skillAbout();
   if (G.trackT > 0) G.trackT -= dt;
   if (G.cheerT > 0) G.cheerT -= dt;
+  G.titleT = (G.titleT || 0) - dt; if (G.titleT <= 0) { G.titleT = 0.5; titles(); }
   updateFest(dt);
   if (menu.at && (menu.at !== focusAt || menu.i !== focusI)) { focusAt = menu.at; focusI = menu.i; const it = menu.items()[menu.i]; if (it && it.scrollIntoView) it.scrollIntoView({ block: "nearest" }); }
   if (state !== "play" && !E.demo) { if (state === "title" && H) { H.act = null; } return; }
@@ -2824,7 +3119,8 @@ function update(dt) {
   if (pendingWorld) return;
   if (E.demo || AI.on) aiThink(dt);
   D.time += dt;
-  updateHero(dt); updateNodes(dt); updatePet(dt); updateFoes(dt); updateShots(dt); updateTele(dt); pickUp(dt); updateFallen(dt);
+  updateHero(dt); updateNodes(dt); updatePet(dt); updateFoes(dt);
+  if (W.over && STREAM) { W.clock += dt; STREAM.update(E.mode === "gl" && E.g3 ? E.g3 : NOGPU, H.x, H.z); } updateShots(dt); updateTele(dt); pickUp(dt); updateFallen(dt);
   if (G.endT > 0) { G.endT -= dt; if (G.endT <= 0) startEnding(); }
   if (G.boss && H.dead) { G.boss.st = G.boss.st === "dead" ? "dead" : "idle"; }
   saveT += dt; if (saveT > 45) { saveT = 0; store(); }
@@ -2850,7 +3146,7 @@ if (E.test) window.WY = { get G() { return G; }, get H() { return H; }, get D() 
   sim: (sec) => { for (let i = 0, n = Math.round(sec * 60); i < n; i++) update(1 / 60); return { t: G.t, fi: W.fi, kind: W.kind, hp: Math.round(H.hp), dead: H.dead, lvl: D.level }; },
   go: fi => descend(fi), town: () => toWorld("town", 0), play, makeItem, give: it => D.bag.push(it), level: n => { D.level = n; recalc(); H.hp = S.hpMax; },
   killAll: () => { for (const f of G.foes) if (f.st !== "dead" && !f.boss) { f.hp = 0; killFoe(f); } }, boss: () => G.boss, startEnding, recalc, heroBody, interact, nearNode, skill, startAttack, dodge, AI,
-  begin: () => { slotNo = 0; begin(); return D.name; }, celebrate: k => celebrate(k, masteryItem(k, "mantle"), masteryItem(k, "weapon")), noteBest, makeDrop: (p, lvl, tier) => { const it = makeItem("weapon", tier, lvl, 2, "blade"); it.p = p; noteBest(it); return it; }, goto: (x, z) => { H.x = x; H.z = z; H.y = W.h(x, z); }, near: kind => { let b = null, bd = 1e9; for (const nd of W.nodes) if (nd.kind === kind && nd.on) { const d = dist2(H.x, H.z, nd.x, nd.z); if (d < bd) { b = nd; bd = d; } } return b; },
+  begin: () => { slotNo = 0; begin(); return D.name; }, kill: f => { f.hp = 0; killFoe(f); }, toWorld, cavePlace, hollowPlace, stream: () => STREAM, over: () => OVER, celebrate: k => celebrate(k, masteryItem(k, "mantle"), masteryItem(k, "weapon")), noteBest, makeDrop: (p, lvl, tier) => { const it = makeItem("weapon", tier, lvl, 2, "blade"); it.p = p; noteBest(it); return it; }, goto: (x, z) => { H.x = x; H.z = z; H.y = W.h(x, z); }, near: kind => { let b = null, bd = 1e9; for (const nd of W.nodes) if (nd.kind === kind && nd.on) { const d = dist2(H.x, H.z, nd.x, nd.z); if (d < bd) { b = nd; bd = d; } } return b; },
   gainSkill, lightFire, toggleRide, bind, kinOf, lv, WR, packCount, packMax, openShop, shopDo: i => shopDo({ dataset: { i } }), SHOP: () => SHOP, master,
   show: o => { SHOW = o; H.inv = 0; if (o && o.yaw != null) H.yaw = o.yaw; if (o && o.walk) H.act = "walk"; heroBody(false); return heroKey.length; } };
 E.start();

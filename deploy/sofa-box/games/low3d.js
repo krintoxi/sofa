@@ -132,7 +132,7 @@ Mesh.prototype = {
     if (this.n + k <= this.cap) return;
     while (this.n + k > this.cap) this.cap *= 2;
     const b = new ArrayBuffer(this.cap * 20); new Uint8Array(b).set(this.u8);
-    this.buf = b; this.f = new Float32Array(b); this.i8 = new Int8Array(b); this.u8 = new Uint8Array(b); this.vw = null;
+    this.buf = b; this.f = new Float32Array(b); this.i8 = new Int8Array(b); this.u8 = new Uint8Array(b); this.vw = null; this.vw0 = null;
   },
   // parts from now on: sized (sx sy sz), turned (yaw about y, then pitch about x: π/2 lays what's built up y along +z,
   // then roll about z), moved to x y z
@@ -1271,6 +1271,34 @@ Mesh.prototype.light = function (L, o) {
   this.lit = this.n;                                 // (what's built after this is lit by the next call)
   return this;
 };
+// A thing made once, set down many times: src's triangles (built about its own middle, standing on y = 0) copied into
+// this mesh at x y z, turned by yaw, sized s (sy: up and down, if different), its colours times shade (1: as they are).
+// It's the engine's way to have many trees and rocks: no vertex is worked out again and nothing is built twice, and
+// what's stamped into a chunk is still drawn with the chunk's one call (a Pi 3's GPU has no instanced drawing; where
+// there is one, a draw call for each kind of thing would still cost it more than this does).
+Mesh.prototype.stamp = function (src, x, y, z, yaw, s, sy, shade) {
+  const n = src.n; if (!n) return this;
+  this.room(n);
+  const c = Math.cos(yaw || 0), sn = Math.sin(yaw || 0), k = s == null ? 1 : s, ky = sy == null ? k : sy, sh = shade == null ? 1 : shade;
+  const f = this.f, sf = src.f, i8 = this.i8, s8 = src.i8, u8 = this.u8, su = src.u8, base = this.n;
+  for (let i = 0; i < n; i++) {
+    const a = i * 5, b = (base + i) * 5, o = i * 20, q = (base + i) * 20, px = sf[a], pz = sf[a + 2], nx = s8[o + 12], nz = s8[o + 14];
+    f[b] = x + (px * c + pz * sn) * k; f[b + 1] = y + sf[a + 1] * ky; f[b + 2] = z + (pz * c - px * sn) * k;
+    i8[q + 12] = Math.round(nx * c + nz * sn); i8[q + 13] = s8[o + 13]; i8[q + 14] = Math.round(nz * c - nx * sn); i8[q + 15] = s8[o + 15];
+    if (sh === 1 || s8[o + 15] > 0) { u8[q + 16] = su[o + 16]; u8[q + 17] = su[o + 17]; u8[q + 18] = su[o + 18]; }
+    else { const r = su[o + 16] * sh, g = su[o + 17] * sh, bl = su[o + 18] * sh; u8[q + 16] = r > 255 ? 255 : r; u8[q + 17] = g > 255 ? 255 : g; u8[q + 18] = bl > 255 ? 255 : bl; }
+    u8[q + 19] = su[o + 19];
+  }
+  this.n += n; return this;
+};
+Mesh.prototype.reset = function () { this.n = 0; this.lit = 0; this.glow = 0; this.alpha = 255; this.jit = 0; return this.at(0, 0, 0); };   // (empty again, its memory kept: to build the next thing in)
+// another mesh's vertices added as they are (glowing: each its own light from now on)
+Mesh.prototype.add = function (src, glowing) {
+  const n = src.n; if (!n) return this;
+  this.room(n); this.u8.set(src.vw0 && src.vw0.length === n * 20 ? src.vw0 : (src.vw0 = new Uint8Array(src.buf, 0, n * 20)), this.n * 20);
+  if (glowing) for (let i = this.n; i < this.n + n; i++) this.i8[i * 20 + 15] = 127;
+  this.n += n; return this;
+};
 Mesh.join = function (list) {                      // several meshes as one
   const out = new Mesh(list.reduce((a, m) => a + m.n, 0) + 3);
   for (const m of list) { out.room(m.n); out.u8.set(new Uint8Array(m.buf, 0, m.n * 20), out.n * 20); out.n += m.n; }
@@ -1674,6 +1702,109 @@ Chunks.prototype = {
   free() { if (this.g3) for (const c of this.list) { this.g3.free(c.base); this.g3.free(c.detail); this.g3.free(c.glow); } this.list.length = 0; this.order.length = 0; }
 };
 
+// ---------------------------------------------------------------- a world too big to hold at once (Stream): its still
+// things in square chunks that are made as the eye comes near and given back as it leaves, so the memory used is the
+// neighbourhood's, never the world's. A chunk is one mesh with its light baked in (GL.still: one call), built in the two
+// meshes the stream keeps for all of them, a step a frame, so that no frame carries a whole chunk's making.
+// o: { cell: a chunk's side; near: chunks kept each way from the eye's (2: a 5 × 5 block); keep: how many more before
+//   one is given back (1);
+//   open(c): a chunk comes into being (c.ix, c.iz, c.x0, c.z0, c.x1, c.z1; c.data is the game's to fill: what stands
+//     there, what's in the way), close(c): it goes;
+//   build(c, base, glow, step) → true when its meshes are built (step 0, 1, …: a part at a time; glow: what lights itself);
+//   light, shade, sky: Mesh.light's (the sun and the sky's share), verts: vertices lit a frame (1600) }
+// update(g3, x, z): each frame, one step of whatever is being made (the nearest chunk missing, or one that changed);
+// fill(g3, x, z): everything near made now (as a world is entered, behind its fade); draw(g3, x, z, far): what's in
+// view, nearest first, returns how many; remake(x, z): the chunk there is built again (a tree felled, a rock mined),
+// its old mesh drawn until the new one is ready; at(x, z): the chunk there, if it's open; free(): all of it given back.
+function Stream(o) {
+  this.o = o; this.cell = o.cell || 32; this.near = o.near == null ? 2 : o.near; this.keep = o.keep == null ? 1 : o.keep;
+  this.map = new Map(); this.list = []; this.order = []; this.job = null; this.base = new Mesh(4096); this.glow = new Mesh(512);
+  this.g3 = null; this.cx = 1e9; this.cz = 1e9; this.made = 0; this.steps = 0; this.dirty = [];
+}
+Stream.prototype = {
+  key(ix, iz) { return (iz + 2048) * 4096 + ix + 2048; },
+  at(x, z) { return this.map.get(this.key(Math.floor(x / this.cell), Math.floor(z / this.cell))) || null; },
+  chunk(ix, iz, blank) {
+    const c = { ix, iz, x0: ix * this.cell, z0: iz * this.cell, x1: (ix + 1) * this.cell, z1: (iz + 1) * this.cell, h: null, state: 0, step: 0, d: 0, x: 0, y: 0, z: 0, r: 0, data: null, again: false };
+    this.map.set(this.key(ix, iz), c); this.list.push(c);
+    if (blank) { c.state = 4; c.blank = true; } else if (this.o.open) this.o.open(c);
+    return c;
+  },
+  // one step of the chunk being made: its building (the game's, a part a call), its light (some vertices a call), then
+  // onto the GPU. True when that chunk is done.
+  work(g3, c, all) {
+    const o = this.o, base = this.base, glow = this.glow;
+    if (c.state === 0) { base.reset(); glow.reset(); c.state = 1; c.step = 0; }
+    do {
+      if (c.state === 1) { if (o.build(c, base, glow, c.step++)) c.state = 2; }
+      else if (c.state === 2) {
+        if (o.light) { const n = base.n, upto = all ? n : Math.min(n, (base.lit || 0) + (o.verts || 1600)); base.n = upto; base.light(o.light, o); base.n = n; if (upto < n) continue; }
+        base.add(glow, true); c.state = 3;
+      } else {
+        const old = c.h; c.h = base.n ? g3.upload(base) : null; if (old) g3.free(old);
+        if (c.h) { c.x = c.h.x; c.y = c.h.y; c.z = c.h.z; c.r = c.h.r + 2; }
+        c.state = 4; this.made++; this.steps++;
+        return true;
+      }
+      this.steps++;
+    } while (all);
+    return false;
+  },
+  next(ix, iz) {                                     // what to make next: a chunk that changed, else the nearest one missing
+    while (this.dirty.length) { const c = this.dirty.shift(); if (this.map.get(this.key(c.ix, c.iz)) === c) { c.again = false; c.state = 0; return c; } }
+    const n = this.near;
+    for (;;) {
+      let best = null, bd = 1e9, bx = 0, bz = 0;
+      for (let dz = -n; dz <= n; dz++) for (let dx = -n; dx <= n; dx++) {
+        const c = this.map.get(this.key(ix + dx, iz + dz)); if (c && c.state === 4) continue;
+        const d = dx * dx + dz * dz; if (d < bd) { bd = d; best = c || null; bx = ix + dx; bz = iz + dz; }
+      }
+      if (bd > 1e8) return null;
+      if (best) return best;
+      if (this.o.has && !this.o.has(bx, bz)) { this.chunk(bx, bz, true); continue; }   // (outside the world: nothing to make there)
+      return this.chunk(bx, bz);
+    }
+  },
+  update(g3, x, z) {
+    this.g3 = g3;
+    const ix = Math.floor(x / this.cell), iz = Math.floor(z / this.cell);
+    if (!this.job) { if (ix !== this.cx || iz !== this.cz || this.dirty.length || this.more) { this.job = this.next(ix, iz); this.more = !!this.job; } }
+    if (this.job && this.work(g3, this.job, false)) this.job = null;
+    if (ix !== this.cx || iz !== this.cz) {            // moved on a chunk: what's far behind is given back
+      this.cx = ix; this.cz = iz; this.more = true;
+      const far = this.near + this.keep;
+      for (let i = this.list.length - 1; i >= 0; i--) { const c = this.list[i]; if (Math.abs(c.ix - ix) > far || Math.abs(c.iz - iz) > far) this.drop(i); }
+    }
+  },
+  drop(i) {
+    const c = this.list[i]; if (this.job === c) this.job = null;
+    if (c.h && this.g3) this.g3.free(c.h); c.h = null;
+    if (this.o.close && !c.blank) this.o.close(c);
+    this.map.delete(this.key(c.ix, c.iz)); this.list[i] = this.list[this.list.length - 1]; this.list.pop();
+  },
+  fill(g3, x, z) {
+    this.g3 = g3; const ix = Math.floor(x / this.cell), iz = Math.floor(z / this.cell);
+    if (this.job) { this.work(g3, this.job, true); this.job = null; }
+    for (let c = this.next(ix, iz), n = 0; n < 400; c = this.next(ix, iz), n++) { if (c) this.work(g3, c, true); else if (!this.pending(ix, iz)) break; }
+    this.cx = ix; this.cz = iz; this.more = false;
+    const far = this.near + this.keep;
+    for (let i = this.list.length - 1; i >= 0; i--) { const c = this.list[i]; if (Math.abs(c.ix - ix) > far || Math.abs(c.iz - iz) > far) this.drop(i); }
+  },
+  pending(ix, iz) { const n = this.near; for (let dz = -n; dz <= n; dz++) for (let dx = -n; dx <= n; dx++) { const c = this.map.get(this.key(ix + dx, iz + dz)); if (!c || c.state !== 4) return true; } return this.dirty.length > 0; },
+  remake(x, z) { const c = this.at(x, z); if (c && !c.again && !c.blank) { c.again = true; this.dirty.push(c); } },
+  draw(g3, ex, ez, far) {
+    const o = this.order; let k = 0;
+    for (let i = 0; i < this.list.length; i++) { const c = this.list[i]; if (!c.h) continue; c.d = Math.sqrt((c.x - ex) * (c.x - ex) + (c.z - ez) * (c.z - ez)) - c.r; if (c.d < far && g3.sees(c.x, c.y, c.z, c.r)) o[k++] = c; }
+    for (let i = 1; i < k; i++) { const e = o[i]; let j = i - 1; while (j >= 0 && o[j].d > e.d) { o[j + 1] = o[j]; j--; } o[j + 1] = e; }
+    for (let i = 0; i < k; i++) g3.still(o[i].h);
+    return k;
+  },
+  // the GPU's side given back (the picture is being made anew: another renderer, a lost context): the chunks stay open
+  // and are built again as update() or fill() comes to them
+  unload() { for (const c of this.list) { if (c.h && this.g3) this.g3.free(c.h); c.h = null; c.state = 0; } this.job = null; this.dirty.length = 0; this.cx = 1e9; this.more = true; },
+  free() { for (let i = this.list.length - 1; i >= 0; i--) this.drop(i); this.job = null; this.dirty.length = 0; this.cx = 1e9; }
+};
+
 // ---------------------------------------------------------------- land: ground with height over a square world (coasts,
 // islands, hills, a gorge's walls), a height at each corner of an n × n grid. The GPU draws it as chunks of flat-lit
 // triangles where it's near or above the water; the 2D renderer has it painted into the ground's picture, shaded by
@@ -1721,6 +1852,25 @@ Land.prototype = {
       else { tri(x0, a, z0, x1, b, z0, x0, d, z1); tri(x1, b, z0, x1, e, z1, x0, d, z1); }
     }
   },
+  // The triangles of the cells i0 … i1 - 1 across and j0 … j1 - 1 down, into one mesh (a chunk of a world too big to
+  // build whole: see Stream), coloured by col(height, steepness, x, z) as each() does. cellOf(x) is the cell a place is in.
+  part(m, i0, j0, i1, j1, col) {
+    const N = this.N, h = this.h, c = this.cell, jit = m.jit; m.at(0, 0, 0); m.jit = this.jit;
+    i0 = Math.max(0, i0); j0 = Math.max(0, j0); i1 = Math.min(this.n, i1); j1 = Math.min(this.n, j1);
+    for (let j = j0; j < j1; j++) for (let i = i0; i < i1; i++) {
+      const k = j * N + i, a = h[k], b = h[k + 1], d = h[k + N], e = h[k + N + 1], x0 = -this.half + i * c, z0 = -this.half + j * c, x1 = x0 + c, z1 = z0 + c;
+      if (Math.abs(a - e) <= Math.abs(b - d)) { this.tri1(m, x0, a, z0, x1, b, z0, x1, e, z1, col); this.tri1(m, x0, a, z0, x1, e, z1, x0, d, z1, col); }
+      else { this.tri1(m, x0, a, z0, x1, b, z0, x0, d, z1, col); this.tri1(m, x1, b, z0, x1, e, z1, x0, d, z1, col); }
+    }
+    m.jit = jit; return m;
+  },
+  tri1(m, ax, ay, az, bx, by, bz, cx, cy, cz, col) {
+    const ux = bx - ax, uy = by - ay, uz = bz - az, vx = cx - ax, vy = cy - ay, vz = cz - az;
+    let ny = uz * vx - ux * vz; const nx = uy * vz - uz * vy, nz = ux * vy - uy * vx, l = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1; ny = Math.abs(ny) / l;
+    const mx = (ax + bx + cx) / 3, mz = (az + bz + cz) / 3;
+    m.tri(ax, ay, az, bx, by, bz, cx, cy, cz, col((ay + by + cy) / 3, 1 - ny, mx, mz), mx, Math.min(ay, by, cy) - 10, mz);
+  },
+  cellOf(x) { return Math.floor((x + this.half) / this.cell); },
   // The cells of high ground with no drop near them: a plateau behind its cliffs, the top of a tableland. From low down
   // (on the water, on a road below) nothing of them shows but a far rise now and then, yet they can be most of a land's
   // triangles. o {above: only ground higher than this (6), drop: how much lower anything within `near` cells may be (4,
@@ -3597,5 +3747,5 @@ function planRay(p, b) {
 
 window.Low3D = { probe, family, NAMES, bench, plan, rows, line, LADDER, Governor, GL, Mesh, Flat, bake, M4, px, hexRGB, Rig,
   U, Kit, Path, Chunks, Land, Trail, Particles, camera, chase, orbit, viewOf, begin, Input, Menu, Synth, game,
-  Palette, Tex, RayMap, Ray, Marks, Screen, planRay, heldRay, helpersFor, wholeSteps, ladderSig, fortyOn, withForty, UI, Letters, GLYPHS, SPECIAL, wholeSize, Confetti, Banners, version: 5 };
+  Palette, Tex, RayMap, Ray, Marks, Screen, planRay, heldRay, helpersFor, wholeSteps, ladderSig, fortyOn, withForty, UI, Letters, GLYPHS, SPECIAL, wholeSize, Confetti, Banners, Stream, version: 5 };
 })();
