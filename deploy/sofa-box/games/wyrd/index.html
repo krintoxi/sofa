@@ -364,7 +364,7 @@ const HOLLOW_ST = { id: "hollow", name: "The Thornhollow", floors: ["The Outer H
 const ORES = ["copper", "iron", "silver", "cobalt", "starsteel", "ashsteel"], ORECOL = [0xd08a50, 0xa8b0bc, 0xe0e8f0, 0x4a7aff, 0x8af0ff, 0xff5a4a];
 const HERBS = ["mosscap", "tidekelp", "bonelily", "sporebulb", "emberroot", "ashbloom"], HERBCOL = [0x7af07a, 0x4ad8c0, 0xf0ead8, 0xc07cff, 0xff8a3a, 0xff4a8a];
 // the six trees: what their logs are called is the rules' (WyrdRules.TREES); here, their leaves, their trunks and how they grow
-const TREECOL = [0x2e5a3a, 0xa8c84a, 0x4a8a3a, 0x4a2a5a, 0x6a8aa0, 0xff7ad8], TRUNKCOL = [0x4a3426, 0xe0dccc, 0x5a3a2a, 0x1e1620, 0x7a8088, 0xe8dcf0];
+const TREECOL = [0x2e5a3a, 0x8fae46, 0x4a8a3a, 0x4a2a5a, 0x6a8aa0, 0xff7ad8], TRUNKCOL = [0x4a3426, 0xe0dccc, 0x5a3a2a, 0x1e1620, 0x7a8088, 0xe8dcf0];
 const TOWN = { id: "town", name: "Hearthrim", ground: [0x3d5a34, 0x4a6a3a, 0x5c7c44], wall: [0x4a4a52, 0x5c5a62, 0x6e6a70], fog: 0x2a2440, sunCol: 0xffb48a, amb: 0x7a7aa0, low: 0x2a2030, sun: [-0.6, 0.35, 0.7],
   glow: 0xffd28a, motes: 0xffe2b0, song: { seed: 5, root: 52, tempo: 72, calm: true } };
 // the floor's place in the descent: 0..17 the story (stratum = floor / 3, the third of each its lair); 18 on, the Endless
@@ -2080,7 +2080,7 @@ let STREAM = null;
 // The fuller look: on the engine's upper rungs (a Pi 4 and up, a computer) the open world grows thicker and is seen
 // further; from 720 lines up, what's lit spreads as light (GL.bloom). A Pi 3's rungs get none of it and pay nothing for it.
 const rich = () => E.mode === "gl" && !!E.rung && E.rung.look === 1;
-const BLOOM = { from: 0.62, to: 0.96, pure: [0.3, 0.56], power: 0.8, size: 0.25, wide: 0.55 };
+const BLOOM = { from: 0.76, to: 1.0, pure: [0.3, 0.56], power: 0.85, size: 0.25, wide: 0.55 };   // (only what's all but full bright: a lamp, a lit line, never leaves in the sun)
 const TPL = new Map(), NOGPU = { upload: () => null, free() {} };
 function tpl(key, fn) { let t = TPL.get(key); if (!t) { t = { m: new L3.Mesh(128), g: new L3.Mesh(32) }; fn(t.m, t.g); TPL.set(key, t); } return t; }
 const regWorld = reg => ({ st: { wall: REGIONS[reg].wall, ground: REGIONS[reg].ground, glow: [0xffd28a, 0x9fffc8, 0x6ae8ff, 0xffa04a, 0xff7a2a, 0xc07cff][reg] }, h: () => 0 });
