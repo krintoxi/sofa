@@ -93,7 +93,7 @@ What's next, in order, and what isn't built: [Roadmap and known limitations](doc
 |---|---|
 | **Sofa Server** (Mac or Linux) | one line in Terminal: [Set it up in 4 steps](#set-it-up-in-4-steps) |
 | **Sofa Server for Windows** (10 or 11, 64-bit) | [sofa-windows-x64-setup.exe](https://github.com/krintoxi/sofa/releases/download/sofa-for-windows/sofa-windows-x64-setup.exe), an installer with its own Python and ffmpeg: [On Windows](docs/install.md#on-windows) |
-| **Sofa Box OS, the stable card** | [releases/tag/sofa-box-stable](https://github.com/krintoxi/sofa/releases/tag/sofa-box-stable): **no stable card yet** as of 2026-11-10; the owner marks a version stable after testing it on the Pi, and the page changes by itself |
+| **Sofa Box OS, the stable card** | [releases/tag/sofa-box-stable](https://github.com/krintoxi/sofa/releases/tag/sofa-box-stable): **no stable card yet** as of 2026-11-12; the owner marks a version stable after testing it on the Pi, and the page changes by itself |
 | **Sofa Box OS, the testing card** | [releases/tag/sofa-box](https://github.com/krintoxi/sofa/releases/tag/sofa-box): `sofa-box.img.xz`, the newest, built by GitHub from `main`, before anyone has tried it |
 | **The Sofa Box list for Raspberry Pi Imager** | [`sofa-box.rpi-imager-manifest`](https://github.com/krintoxi/sofa/releases/download/sofa-box/sofa-box.rpi-imager-manifest): double-click it and Imager 2 opens with Sofa Box OS in it (beta: see [Getting a card](docs/capabilities.md#getting-a-card)) |
 | **Every box version** | [releases?q=box-os](https://github.com/krintoxi/sofa/releases?q=box-os) · [What's new](deploy/sofa-box/CHANGES.md) |
