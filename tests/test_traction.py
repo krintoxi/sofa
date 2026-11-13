@@ -71,5 +71,57 @@ class Report(unittest.TestCase):
             self.assertIn("**Stars** 41", out.getvalue())
 
 
+class History(unittest.TestCase):
+    def test_days_are_kept_past_github_s_fourteen(self):
+        h = traction.record({}, CANNED, "krintoxi/sofa", "2026-11-10")
+        self.assertEqual(h["days"]["2026-11-01"], {"views": 500, "visitors": 200})
+        self.assertEqual(h["days"]["2026-11-08"], {"clones": 10, "cloners": 5})
+        snap = h["snapshots"][-1]
+        self.assertEqual((snap["date"], snap["stars"], snap["forks"], snap["watching"]), ("2026-11-10", 41, 3, 5))
+        self.assertEqual((snap["views_14d"], snap["visitors_14d"], snap["clones_14d"], snap["cloners_14d"]), (900, 300, 30, 20))
+        self.assertEqual((snap["issues_from_outside_7d"], snap["pulls_from_outside_7d"]), (1, 1))
+        self.assertEqual(snap["referrers"][0], ["news.ycombinator.com", 120])
+        self.assertEqual(snap["downloads"], {"sofa-box.img.xz": 14, "sofa-box-stable.img.xz": 3})
+        # Two weeks on, GitHub has forgotten those days; the history hasn't, and a day seen twice keeps the later number.
+        later = dict(CANNED, repo=dict(CANNED["repo"], stargazers_count=60), views={"count": 80, "uniques": 30, "views": [
+            {"timestamp": "2026-11-10T00:00:00Z", "count": 70, "uniques": 22},
+            {"timestamp": "2026-11-24T00:00:00Z", "count": 10, "uniques": 8}]}, clones={"count": 0, "uniques": 0, "clones": []})
+        traction.record(h, later, "krintoxi/sofa", "2026-11-24")
+        self.assertEqual(h["days"]["2026-11-01"]["views"], 500)
+        self.assertEqual(h["days"]["2026-11-10"], {"views": 70, "visitors": 22})
+        self.assertEqual([x["date"] for x in h["snapshots"]], ["2026-11-10", "2026-11-24"])
+        traction.record(h, later, "krintoxi/sofa", "2026-11-24")                    # the same day again: one line, not two
+        self.assertEqual(len(h["snapshots"]), 2)
+
+    def test_the_trend_is_a_week_a_line(self):
+        h = traction.record({}, CANNED, "krintoxi/sofa", "2026-11-10")
+        md = traction.trend(h)
+        self.assertIn("## krintoxi/sofa: week by week", md)
+        self.assertIn("| 2026-10-26 | 500 | 0 |  |  |  |  |  |", md)           # 11-01 is a Sunday, so the week of 10-26; nothing recorded that week
+        self.assertIn("| 2026-11-02 | 100 | 30 |  |  |  |  |  |", md)          # views on 11-04; clones on Monday 11-02 and Sunday 11-08
+        self.assertIn("| 2026-11-09 | 300 | 0 | 41 | 3 | 5 | 300 | 1, 1 |", md)
+        self.assertIn("news.ycombinator.com (120)", md)
+        self.assertIn("sofa-box.img.xz 14", md)
+        self.assertIn("week by week", traction.trend({}))
+
+    def test_main_records_and_shows_the_trend(self):
+        import contextlib, io
+        with tempfile.TemporaryDirectory() as d:
+            saved, hist = os.path.join(d, "week.json"), os.path.join(d, "history.json")
+            with open(saved, "w") as f:
+                json.dump(CANNED, f)
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(traction.main(["--json", saved, "--today", "2026-11-10", "--record", hist]), 0)
+                self.assertEqual(traction.main(["--json", saved, "--today", "2026-11-11", "--record", hist]), 0)
+            with open(hist) as f:
+                h = json.load(f)
+            self.assertEqual([x["date"] for x in h["snapshots"]], ["2026-11-10", "2026-11-11"])
+            self.assertFalse(os.path.exists(hist + ".tmp"))
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                self.assertEqual(traction.main(["--trend", hist]), 0)
+            self.assertIn("| 2026-11-09 | 300 | 0 | 41 |", out.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main()
