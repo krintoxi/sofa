@@ -51,8 +51,7 @@ final class BurnTests: XCTestCase {
     }
 
     func disc(size: Int = 3 << 20, sha: String? = nil) throws -> Disc {
-        var bytes = Data(count: size)
-        bytes.withUnsafeMutableBytes { p in for i in 0..<size { p[i] = UInt8(truncatingIfNeeded: i &* 31 &+ 7) } }
+        let bytes = Data((0..<size).map { UInt8(truncatingIfNeeded: $0 &* 31 &+ 7) })
         let file = dir.appendingPathComponent("sofa-box-os-9.9.9-pc-dvd.iso")
         try bytes.write(to: file)
         let real = SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
