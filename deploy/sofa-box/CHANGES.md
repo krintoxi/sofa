@@ -10,38 +10,58 @@ GitHub builds the card and makes the release by itself.
 
 ## 1.1.86
 
-**WYRD learns five skills.** Mining, Smithing, Woodcutting, Firemaking and Summoning, each to level 75.
+**WYRD is a skilling game in an open world now.** The descent down the Maw is all still there; round it there is a
+country to work in, five skills to learn, and something given at the top of each.
 
-- **Gather, then make.** Rocks give ore and trees give logs, a swing at a time, for as long as you stand there: six
-  kinds of each, opening at levels 1, 12, 24, 38, 52 and 65. A furnace turns ore into bars; the anvil turns bars into
-  gear, a better pick and hatchet (each one quicker), and saddles. Logs become fires where you stand: a fire mends you,
-  leaves embers the furnace needs for silver and better, and does more as you learn (a torch for caves at 15, the
-  Hollow's braziers at 30, a tenth more from every skill at 45, fires that burn twice as long at 60).
-- **Summoning grows with what's bound to you.** Five pets show themselves while you're at their trade and three mounts
-  answer a saddle; each is bound at a kinstone. One pet walks with you and helps (lights the dark, carries twenty more,
-  brings a second ore or log, makes every swing quicker, or teaches a tenth more), and a mount is ridden: up to nearly
-  twice as fast.
-- **How long it takes.** One curve for all five, just under 300,000 xp to 75. At a steady pace, with the pick or
-  hatchet your Smithing can make: Mining and Woodcutting about three hours each, Smithing about an hour and a half,
-  Firemaking about an hour, and Summoning comes with the rest.
-- **On the screen.** What you gathered and the xp for it rise from where you got them; the skill you're learning
-  shows its level and how far through it you are; the pack says how full it is (40, more with a carrier). **Skills**
-  in the pause menu sets out all five. A controller: LB lights or feeds a fire, LT calls your mount; from a remote,
-  both are in the pause menu.
+- **The Rimlands.** Hearthrim stands in the middle of a country 780 m across, and five wilder regions lie round it,
+  each with its own ground, tree, ore and creatures: the Briarholt, the Fenmoor, Cragfell, the Cinderreach and the
+  Greywyrd, harder the further round. A road runs from Hearthrim's square to each region's camp. The box holds only
+  what's near: the land is made a 30 m piece at a time as you come to it and let go behind you.
+- **Wells, as in Gloamwell.** Eleven of them across the country, each with a name. Drink and you're mended, and it's
+  where you wake if you fall. A rope goes down under every well into a cave three depths deep, any depth you've reached
+  before open to you again: its region's ore thick in the walls, the next kind mixed in from the second depth, and a
+  great vein of it at the bottom. A cave is dark; a torch (Firemaking 15) and a Glowbat each show more of it.
+- **Riftgates.** One in Hearthrim and one in every region's camp. Touch a gate and it knows you; from any gate you can
+  step to any other you've touched.
+- **The Thornhollow.** A barrow in the Fenmoor: two halls with silver and cobalt in the rock and rowan and blackthorn
+  roots to fell, an inner door whose braziers want Firemaking 30, and the Thorn King's hall behind it. The first time
+  he falls he leaves a weapon with a name; every time, the best pieces in that country.
+- **Five skills, each to level 75.** Mining and Woodcutting gather, a swing at a time for as long as you stand there:
+  six kinds of ore and of tree, opening at levels 1, 12, 24, 38, 52 and 65. Smithing turns ore into bars at a furnace
+  and bars into gear, a better pick and hatchet (each one quicker) and saddles at the anvil. Firemaking turns logs into
+  fires where you stand: a fire mends you, leaves the embers a furnace needs for silver and better, and does more as
+  you learn. Summoning grows with the creatures bound to you at a kinstone: five pets that show themselves while you're
+  at their trade, and three mounts that answer a saddle. One pet walks with you and helps (it lights the dark, carries
+  twenty more, brings a second ore or log, makes every swing quicker, or teaches a tenth more); a mount is ridden, up to
+  nearly twice as fast.
+- **How long it takes.** One curve for all five, just under 300,000 xp to 75. Mining and Woodcutting are about three
+  hours each at a steady pace (a pilot felling in the real country, walking tree to tree with the hatchet its level
+  allows, took 2 h 52 min of the game's time), Smithing about an hour and a half on the ore mined on the way,
+  Firemaking about an hour on the logs, and Summoning comes with the rest.
 - **Level 75 is a moment.** The screen flashes the skill's colour, paper flies up from the foot of the picture and
   falls from the top, three lines stack up in letters you can read from the sofa, a fanfare plays, lights go off round
-  you and you cheer. It's drawn in the game's own writing and its one mesh of see-through things, so it costs no draw
-  call more than a quiet frame.
+  you and you cheer.
 - **Mastery is given, never bought.** At 75 a mantle and a weapon are in your bag by themselves: Veinwarden's Mantle
   and Lodebreaker (Mining), the Anvilborn Mantle and Forgeheart (Smithing), the Heartwood Mantle and Thornsong
   (Woodcutting), the Emberwake Mantle and Cindercrown (Firemaking), Kinbinder's Mantle and Wyrdfang (Summoning). Each
   mantle has a perk for its skill while it's worn. The weapon keeps two points of damage under the best weapon that has
   ever dropped for you (or come off the anvil), with three powers of its own, and grows the moment a better one does.
-  Neither can be salvaged.
-- Hearthrim has trees to fell, copper and iron in the rocks round it, a furnace by the smith and a kinstone. The Maw's
-  ore is mined the same way now, and wants the Mining level for it.
-- The rules (the curve, what a level opens, the creatures) are a script of their own in the game's page, and the box's
-  checks play them without a browser.
+  Both are worn on the delver as they are: the mantle sways, light runs down its lines, and the weapon is lit along its
+  edge. Neither can be salvaged.
+- **On the screen.** What you gathered and the xp for it rise from where you got them; the skill you're learning shows
+  its level and how far through it you are; the pack says how full it is (40, more with a carrier); the little map
+  points home, to the nearest well and to the nearest gate. **Skills** and **Your creatures** are in the pause menu. A
+  controller: LB lights or feeds a fire, LT calls your mount; from a remote, both are in the pause menu.
+- **A fuller look where the box has room.** On the engine's upper rungs (a Pi 4 and up, a computer) the country grows
+  thicker and is seen further, and from 720 lines up what's lit spreads as light over the picture: lamps, fires, the
+  cracks of the Cinderreach, the mastery gear. A Pi 3 gets none of it and pays nothing for it. **Glow** in Options
+  turns it off.
+
+**In the engine (Low3D).** `Stream` (a world's still things in chunks that come and go with the eye, each one mesh, its
+making spread over frames), `Mesh.stamp` (a thing built once and set down many times: the engine's instancing),
+`Land.part`, `Confetti` and `Banners` (both in the game's own writing, one call), and `GL.bloom`. All in
+`games/ENGINE.md`. The game's rules (the curve, what a level opens, the creatures, the mastery weapon) are a script of
+their own in its page, and the box's checks play them without a browser.
 
 ## 1.1.85
 

@@ -1414,6 +1414,122 @@ class BoxBrowser(unittest.TestCase):
         self.assertTrue(any(abs(a - b) > 1 for a, b in zip(x0, demo["x"])))   # they race by themselves
         self.assertIsNone(demo["kept"])                                  # and nothing is kept
 
+    def test_wyrd_skills_and_its_open_world(self):
+        """WYRD in the box's browser: a new delver stands in the open world with only the neighbourhood made; a tree is
+        felled, a fire lit and fed, a rock mined and its ore smelted; walking out, chunks come and go and what's held
+        stays the neighbourhood's; a well mends and its rope goes down to a cave and back; a riftgate carries across
+        the country; the Thornhollow's inner door wants Firemaking and its king leaves a weapon; and level 75 gives a
+        mantle and a weapon that grows with a better find."""
+        self.post("/box/api/open", {"url": self.base + "/box/games/wyrd/#test"})
+        js = lambda e: self.page_value("/box/games/wyrd", e)
+
+        def until(expr, secs=40):
+            end = time.time() + secs
+            while time.time() < end:
+                try:
+                    if js(expr):
+                        return True
+                except (StopIteration, OSError, KeyError):
+                    pass
+                time.sleep(0.3)
+            return False
+        self.assertTrue(until("typeof WY === 'object' && !!WY.W && !!WY.G && WY.menu.at === 'title'"))
+        js("window.errs = []; addEventListener('error', e => errs.push(String(e.message))); 1")
+        run = lambda body: json.loads(js("(() => { " + body + " })()"))
+        # the open world: Hearthrim in the middle of it, eleven wells, six gates, a barrow, and only what's near made
+        o = run("""WY.begin(); WY.level(45); WY.AI.god = true; WY.sim(0.5); const w = WY.W, st = WY.stream(), kinds = {};
+            for (const q of w.feats) kinds[q.kind] = (kinds[q.kind] || 0) + 1;
+            const regs = new Set(); for (let i = 0; i < w.reg.length; i += 97) regs.add(w.reg[i]);
+            return JSON.stringify({ over: !!w.over, size: w.size, title: WY.G.title, kinds, regs: [...regs].sort(), open: st.list.filter(c => !c.blank).length,
+              nodes: w.nodes.length, stations: ["smith", "furnace", "kin", "well", "portal", "maw", "stash"].filter(k => !!WY.near(k)) });""")
+        self.assertTrue(o["over"])
+        self.assertEqual((o["size"], o["title"]), (780, "HEARTHRIM"))
+        self.assertEqual((o["kinds"]["well"], o["kinds"]["portal"], o["kinds"]["hollow"]), (11, 6, 1))
+        self.assertEqual(o["regs"], [0, 1, 2, 3, 4, 5])
+        self.assertEqual(o["open"], 25)                                    # five chunks by five: the neighbourhood
+        self.assertEqual(o["stations"], ["smith", "furnace", "kin", "well", "portal", "maw", "stash"])
+        # the trades: a tree felled a swing at a time, a fire lit and fed, a rock mined, its ore smelted at the furnace
+        o = run("""const D = WY.D; let t = WY.near("tree"); WY.goto(t.x + 1.4, t.z + 0.6); WY.interact(t); WY.sim(20);
+            const felled = { logs: D.logs[0], xp: D.sk.wood, spent: t.spent, on: t.on };
+            WY.lightFire(); WY.sim(2.5); const f = WY.near("fire"); const lit = { fire: !!f, embers: D.embers, xp: D.sk.fire };
+            WY.interact(f); WY.sim(8); const fed = { logs: D.logs[0], embers: D.embers, burn: f.burn > 30 };
+            t = WY.near("ore"); WY.goto(t.x + 1.5, t.z); WY.interact(t); WY.sim(15); const mined = { ore: D.ore[t.ore], xp: D.sk.mine, tier: t.ore };
+            const fu = WY.near("furnace"); WY.goto(fu.x + 2, fu.z + 1); WY.openShop("furnace"); const list = WY.SHOP().map(x => x.label); WY.shopDo(0); WY.sim(6);
+            const smelted = { bars: D.bars[t.ore], ore: D.ore[t.ore], xp: D.sk.smith, menu: WY.menu.at };
+            WY.openShop("smith"); const anvil = WY.SHOP().map(x => x.label); WY.menu.back();
+            WY.sim(45); return JSON.stringify({ felled, lit, fed, mined, list, smelted, anvil, back: WY.W.nodes.filter(n => n.spent).length, pack: [WY.packCount(), WY.packMax()] });""")
+        self.assertEqual((o["felled"]["logs"], o["felled"]["xp"], o["felled"]["spent"], o["felled"]["on"]), (5, 50, True, False))
+        self.assertEqual(o["lit"], {"fire": True, "embers": 1, "xp": 12})
+        self.assertEqual((o["fed"]["logs"], o["fed"]["embers"], o["fed"]["burn"]), (0, 5, True))
+        self.assertEqual((o["mined"]["ore"], o["mined"]["xp"]), (4, 40 if o["mined"]["tier"] == 0 else 72))
+        self.assertTrue(o["list"][0].startswith("Smelt 4 "))
+        self.assertEqual((o["smelted"]["bars"], o["smelted"]["ore"], o["smelted"]["menu"]), (4, 0, None))
+        self.assertGreater(o["smelted"]["xp"], 0)
+        self.assertTrue(any("pick" in x for x in o["anvil"]) and any("hatchet" in x for x in o["anvil"]) and any(x.startswith("Forge") for x in o["anvil"]))
+        self.assertEqual(o["back"], 0)                                     # the tree and the rock have come back
+        self.assertEqual(o["pack"], [4, 40])
+        # walking out of Hearthrim for a minute: the country changes, and what's held stays the neighbourhood's
+        o = run("""const st = WY.stream(); WY.goto(-30, -75); WY.AI.on = true; WY.AI.walk = [-0.45, -0.89]; let most = 0, nodes = 0; const seen = new Set();
+            for (let i = 0; i < 60; i++) { WY.sim(1); most = Math.max(most, st.list.length); nodes = Math.max(nodes, WY.W.nodes.length); seen.add(WY.G.title); }
+            WY.AI.walk = null; WY.AI.on = false; const here = st.at(WY.H.x, WY.H.z);
+            return JSON.stringify({ most, nodes, seen: [...seen], far: Math.round(Math.hypot(WY.H.x, WY.H.z)), here: !!here && here.state === 4, spent: WY.W.spent.size >= 0 });""")
+        self.assertLessEqual(o["most"], 49)
+        self.assertLess(o["nodes"], 1200)
+        self.assertGreater(o["far"], 200)
+        self.assertGreater(len(o["seen"]), 1)                              # out of Hearthrim into another region
+        self.assertTrue(o["here"])
+        # a well: it mends, it's where a delver wakes, and its rope goes down to a cave and back
+        o = run("""const w = WY.W.feats.find(q => q.kind === "well" && q.id === 3); WY.goto(w.x + 1.6, w.z + 2); WY.sim(1); WY.H.hp = 20; WY.interact(w);
+            const list = WY.menu.items().map(e => e.textContent); WY.menu.o.choose(WY.menu.items()[0], "way"); WY.sim(0.3); const drank = [WY.H.hp === WY.S.hpMax, WY.D.well];
+            WY.interact(w); WY.menu.o.choose(WY.menu.items()[1], "way"); WY.sim(1.5); const p = WY.W.place, ore = WY.W.nodes.filter(n => n.kind === "ore");
+            const cave = { type: p && p.type, depth: p && p.depth, dark: WY.W.dark, title: WY.G.title, ore: ore.length, back: ore.every(n => n.back > 0), rope: !!WY.near("rope"), foes: WY.G.foes.length > 0 };
+            const r = WY.near("rope"); WY.goto(r.x + 1, r.z - 1); WY.interact(r); WY.sim(1.5);
+            return JSON.stringify({ list, drank, cave, up: [WY.W.kind, Math.round(Math.hypot(WY.H.x - w.x, WY.H.z - w.z)) < 5], wells: WY.D.wells });""")
+        self.assertEqual(len(o["list"]), 2)
+        self.assertTrue(o["list"][0].startswith("Drink") and "depth 1 of 3" in o["list"][1])
+        self.assertEqual(o["drank"], [True, 3])
+        self.assertEqual((o["cave"]["type"], o["cave"]["depth"], o["cave"]["dark"], o["cave"]["rope"], o["cave"]["foes"]), ("cave", 1, True, True, True))
+        self.assertGreaterEqual(o["cave"]["ore"], 8)
+        self.assertTrue(o["cave"]["back"])
+        self.assertEqual(o["up"], ["town", True])
+        self.assertEqual(o["wells"], {"3": 1})
+        # a riftgate: it has to know you first; then any gate touched is a step away
+        o = run("""const g = WY.W.feats.filter(q => q.kind === "portal"), a = g.find(q => q.id === 2), b = g.find(q => q.id === 4); WY.goto(a.x, a.z + 2.4); WY.sim(1); const before = WY.D.gates.slice();
+            WY.interact(a); const alone = WY.menu.items().map(e => e.textContent); WY.menu.hide(); WY.D.gates.push(4); WY.interact(a);
+            const list = WY.menu.items().map(e => e.textContent); WY.menu.o.choose(WY.menu.items()[list.findIndex(x => x.startsWith("Cinderreach"))], "way"); WY.sim(1.5);
+            return JSON.stringify({ before, gates: WY.D.gates, alone, list, at: Math.round(Math.hypot(WY.H.x - b.x, WY.H.z - b.z)) < 5, title: WY.G.title });""")
+        self.assertEqual((o["before"], o["gates"]), ([0], [0, 2, 4]))
+        self.assertEqual(o["alone"], ["Hearthrim"])
+        self.assertEqual(o["list"], ["Hearthrim", "Cinderreach: its gate"])
+        self.assertEqual((o["at"], o["title"]), (True, "CINDERREACH"))
+        # the Thornhollow: two halls, an inner door that wants Firemaking 30, and its king
+        o = run("""const out = {}, h = WY.W.feats.find(q => q.kind === "hollow"); WY.toWorld("town", 0, { x: h.x, z: h.z + 5 }); WY.sim(1.5); WY.interact(h); WY.sim(1.5);
+            out.hall1 = [WY.G.title, WY.W.kind, WY.W.nodes.filter(n => n.kind === "tree").length > 3, WY.W.exit.sealed];
+            WY.killAll(); WY.sim(0.5); let g = WY.W.exit; out.open = !g.sealed; WY.goto(g.x, g.z + 2); WY.interact(g); WY.sim(1.5); out.hall2 = WY.W.place.depth;
+            WY.killAll(); WY.sim(0.5); g = WY.W.exit; WY.goto(g.x, g.z + 2); WY.D.sk.fire = 0; WY.interact(g); WY.sim(1.5); out.cold = WY.W.place.depth;
+            WY.D.sk.fire = WY.WR.TOTAL[30]; WY.interact(g); WY.sim(1.5); out.hall3 = [WY.W.place.depth, WY.W.kind, WY.G.boss && WY.G.boss.def.name];
+            const best = WY.D.best && WY.D.best.p; WY.kill(WY.G.boss); WY.sim(1); out.king = [WY.D.hollow, WY.G.drops.filter(d => d.kind === "item" && d.item.k === "weapon" && d.item.r === 4).length > 0, WY.D.best.p > (best || 0)];
+            g = WY.W.exit; WY.goto(g.x, g.z + 2); WY.interact(g); WY.sim(1.5); out.outside = [WY.W.kind, WY.G.title];
+            return JSON.stringify(out);""")
+        self.assertEqual(o["hall1"], ["THE THORNHOLLOW", "wild", True, True])
+        self.assertTrue(o["open"])
+        self.assertEqual((o["hall2"], o["cold"]), (2, 2))                  # its braziers are cold: the door stays shut
+        self.assertEqual(o["hall3"], [3, "lair", "The Thorn King"])
+        self.assertEqual(o["king"], [1, True, True])
+        self.assertEqual(o["outside"], ["town", "FENMOOR"])
+        # level 75: a mantle and a weapon in the bag, never bought, the moment marked; a better find and the weapon grows
+        o = run("""const D = WY.D, bag0 = D.bag.length; WY.gainSkill("mine", 3e5, WY.H.x, 2, WY.H.z); WY.sim(0.6);
+            const got = D.bag.slice(bag0).map(i => [i.n, i.k, i.kind, i.m]), w = D.bag.find(i => i.m === "mine" && i.k === "weapon"), best = D.best.p, p0 = w.p;
+            const fest = !!WY.G.fest; D.gear.mantle = D.bag.find(i => i.m === "mine" && i.k === "mantle"); D.gear.weapon = w; D.bag = D.bag.filter(i => !i.m); WY.recalc(); WY.heroBody(false);
+            WY.makeDrop(best + 20, 30, 5); WY.sim(8); const again = D.mastered.length; WY.gainSkill("mine", 100); WY.sim(0.2);
+            return JSON.stringify({ lv: WY.lv("mine"), got, under: best - p0, grew: w.p - (best + 20), fest, kind: WY.S.kind, mastered: D.mastered, same: D.mastered.length === again, xp: D.sk.mine === WY.WR.TOTAL[75] });""")
+        self.assertEqual(o["lv"], 75)
+        self.assertEqual(o["got"], [["Veinwarden's Mantle", "mantle", None, "mine"], ["Lodebreaker", "weapon", "axe", "mine"]])
+        self.assertEqual((o["under"], o["grew"]), (2, -2))                 # two under the best find, before and after a better one
+        self.assertTrue(o["fest"] and o["same"] and o["xp"])
+        self.assertEqual((o["kind"], o["mastered"]), ("axe", ["mine"]))
+        self.assertEqual(js("JSON.stringify(window.errs)"), "[]")
+
     def test_neon_brawler_plays(self):
         """Neon Brawler in the box's browser: five stages, three fighters, eight kinds of foe, four bosses; a chain of
         blows ends in a launch, a grabbed foe is thrown, a riot's shield turns a jab but not a jump kick, a full meter's

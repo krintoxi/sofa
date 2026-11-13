@@ -89,6 +89,17 @@ const SCENES = {
       enter: `Object.assign(IM.save().opts, { mode: 0, map: 0, bots: 7 }); if (IM.save().arena) Object.assign(IM.save().arena, { mode: 0, map: 0, bots: 7 }); IM.startArena();` }
   ]
 };
+// WYRD: a delver strong enough to stand anywhere, the pilot walking or at a trade (#test)
+const wy = (enter, settle) => ({ hash: "test", settle: settle || 3000, until: `WY.G && WY.W && !WY.menu.at && WY.G.t > 0.5`,
+  enter: `WY.begin(); WY.level(45); WY.AI.on = true; WY.AI.god = true; ` + enter });
+SCENES.wyrd = [
+  { name: "it plays itself (#demo): a floor of the Maw", hash: "demo", settle: 5000 },
+  Object.assign({ name: "the open world: out of Hearthrim into the Briarholt (chunks made and given back)" }, wy(`WY.goto(-30, -75); WY.AI.walk = [-0.45, -0.89];`)),
+  Object.assign({ name: "the open world: riding through the Greywyrd's trees" }, wy(`WY.D.kin.have = ["stalker"]; WY.D.kin.ride = "stalker"; WY.goto(-250, 40); WY.toggleRide(); WY.AI.walk = [-0.2, -0.98];`)),
+  Object.assign({ name: "at a trade: felling in the Briarholt, a fire burning, a pet beside" }, wy(`WY.D.kin.have = ["sporeling"]; WY.D.kin.pet = "sporeling"; WY.goto(-85, -235); WY.D.logs[0] = 6; WY.lightFire(); WY.sim(3); WY.AI.job = "wood";`)),
+  Object.assign({ name: "level 75: the moment (again every 7 s)" }, wy(`WY.goto(-85, -235); WY.AI.job = "wood"; WY.celebrate("wood"); setInterval(() => WY.celebrate(["mine", "smith", "wood", "fire", "summon"][(Math.random() * 5) | 0]), 7000);`, 600)),
+  Object.assign({ name: "under a well: a cave, the pilot fighting through it" }, wy(`WY.toWorld("wild", 0, WY.cavePlace(3, 2));`, 3500))
+];
 const sceneList = g => (SCENES[g] || [{ name: "it plays itself (#demo)", hash: "demo", settle: 5000 }]).filter(s => !ONLY || ONLY.some(o => s.name.toLowerCase().includes(o.toLowerCase())));
 
 // ---------------------------------------------------------------- the box it stands in for

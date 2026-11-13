@@ -266,8 +266,8 @@ Mesh.prototype = {
     }
     const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, cz = (z0 + z1) / 2;
     let r = 0;
-    for (let i = 0; i < this.n; i++) r = Math.max(r, Math.hypot(this.f[i * 5] - cx, this.f[i * 5 + 1] - cy, this.f[i * 5 + 2] - cz));
-    return [cx, cy, cz, r];
+    for (let i = 0; i < this.n; i++) { const dx = this.f[i * 5] - cx, dy = this.f[i * 5 + 1] - cy, dz = this.f[i * 5 + 2] - cz, d = dx * dx + dy * dy + dz * dz; if (d > r) r = d; }   // (no Math.hypot: it makes memory each call, and a streamed world's chunks are measured as they come)
+    return [cx, cy, cz, Math.sqrt(r)];
   }
 };
 
@@ -500,6 +500,31 @@ void main() {
   gl_FragColor = vCol;
 #endif
 }`;
+// what's bright in the picture, spread as light over it (GL.bloom: for GPUs with room to spare, never a Pi 3's): the
+// picture so far is copied, what's bright in it kept at a quarter of the size, blurred across and down, and added back
+const BLOOM_VS = `
+attribute vec2 aXY; varying vec2 vUV;
+void main() { vUV = aXY * 0.5 + 0.5; gl_Position = vec4(aXY, 0.0, 1.0); }`;
+const BRIGHT_FS = `
+precision mediump float;
+uniform sampler2D uTex; uniform vec2 uPx; uniform vec2 uCut; varying vec2 vUV;
+void main() {
+  vec3 c = (texture2D(uTex, vUV + uPx * vec2(-1.0, -1.0)).rgb + texture2D(uTex, vUV + uPx * vec2(1.0, -1.0)).rgb + texture2D(uTex, vUV + uPx * vec2(-1.0, 1.0)).rgb + texture2D(uTex, vUV + uPx * vec2(1.0, 1.0)).rgb) * 0.25;
+  float v = max(c.r, max(c.g, c.b));                 // (how bright by its strongest colour: a pure pink or green glows as a white would)
+  gl_FragColor = vec4(c * smoothstep(uCut.x, uCut.y, v), 1.0);
+}`;
+const BLUR_FS = `
+precision mediump float;
+uniform sampler2D uTex; uniform vec2 uPx; varying vec2 vUV;
+void main() {
+  vec3 c = texture2D(uTex, vUV).rgb * 0.227 + (texture2D(uTex, vUV + uPx * 1.385).rgb + texture2D(uTex, vUV - uPx * 1.385).rgb) * 0.316
+    + (texture2D(uTex, vUV + uPx * 3.231).rgb + texture2D(uTex, vUV - uPx * 3.231).rgb) * 0.070;
+  gl_FragColor = vec4(c, 1.0);
+}`;
+const GLOWADD_FS = `
+precision mediump float;
+uniform sampler2D uTex; uniform float uPower; varying vec2 vUV;
+void main() { gl_FragColor = vec4(texture2D(uTex, vUV).rgb * uPower, 1.0); }`;
 // what's written on the screen: quads from one picture (letters, shapes), in the picture's own pixels
 const UI_VS = `
 attribute vec2 aXY; attribute vec2 aUV; attribute vec4 aCol;
@@ -526,7 +551,8 @@ function GL(canvas, opts) {
     seaWave: () => this.derivatives ? mk(SEA_VS, SEA_FS, "#define WAVES\n") : null,
     still: () => mk(STILL_VS, STILL_FS, ""), move: () => mk(MOVE_VS, STILL_FS, ""), dome: () => mk(DOME_VS, DOME_FS, ""),
     water: () => mk(WATER_VS, WATER_FS, ""), waterRich: () => mk(WATER_VS, WATER_FS, "#define RICH\n"),
-    fx: () => mk(FX_VS, FX_FS, ""), fxDots: () => mk(FX_VS, FX_FS, "#define DOTS\n"), ui: () => mk(UI_VS, UI_FS, "") };
+    fx: () => mk(FX_VS, FX_FS, ""), fxDots: () => mk(FX_VS, FX_FS, "#define DOTS\n"), ui: () => mk(UI_VS, UI_FS, ""),
+    bright: () => mk(BLOOM_VS, BRIGHT_FS, ""), blur: () => mk(BLOOM_VS, BLUR_FS, ""), glowAdd: () => mk(BLOOM_VS, GLOWADD_FS, "") };
   this.flip = 0; this.skyVP = new Float32Array(16); this.tint = new Float32Array([1, 1, 1]);
   this.vp = new Float32Array(16); this.view = new Float32Array(16); this.proj = new Float32Array(16); this.m = new Float32Array(16);
   this.planes = new Float32Array(24); this.eye = new Float32Array(3);
@@ -742,6 +768,9 @@ GL.prototype = {
     this.bind(h); gl.drawArrays(gl.TRIANGLES, 0, h.n); this.calls++; this.tris += h.n / 3;
   },
   // the sky: a picture (Kit.sky paints one) on a dome round the eye, drawn first; turn: how far round it has drifted (0 to 1)
+  // from now on (until off): what's drawn is seen through whatever is in front of it (someone behind a tree, drawn
+  // again in one colour so they're not lost)
+  through(on) { const gl = this.gl; if (on) gl.disable(gl.DEPTH_TEST); else gl.enable(gl.DEPTH_TEST); },
   dome(tex, turn) {
     const gl = this.gl, u = this.use(this.prog("dome"));
     if (!this.domeH) this.domeH = this.upload(Kit.dome());
@@ -784,6 +813,42 @@ GL.prototype = {
     gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA); gl.depthMask(false);
     this.bind(h); gl.drawArrays(points ? gl.POINTS : gl.TRIANGLES, from || 0, n == null ? h.n : n); this.calls++;
     gl.disable(gl.BLEND); gl.depthMask(true);
+  },
+  // What's bright in the picture drawn so far, spread as light over it: lamps, fires, what's lit by itself. Call it after
+  // the world and its see-through things, before what's written on the picture (the engine draws that after the game's
+  // draw(), so it stays crisp). o {from, to: how bright a thing must be to begin to glow, and to glow fully (0.62, 0.95: by
+  // its strongest colour), power: how much is added (0.8), size: the spread's own picture as a share of the canvas (0.25),
+  // wide: a second, broader spread at this share of the power (0: none)}. Four draw calls, three small pictures and a copy
+  // of the canvas: for a GPU with room to spare (a game asks for it on its upper rungs only). False when this GPU can't.
+  bloom(o) {
+    o = o || {};
+    const gl = this.gl, W = this.canvas.width, H = this.canvas.height, k = o.size || 0.25, w = Math.max(8, Math.round(W * k)), h = Math.max(8, Math.round(H * k));
+    const P1 = this.prog("bright"), P2 = this.prog("blur"), P3 = this.prog("glowAdd"); if (!P1 || !P2 || !P3) return false;
+    let B = this.bl;
+    if (!B || B.W !== W || B.H !== H || B.w !== w || B.h !== h) {
+      if (B) { gl.deleteTexture(B.full); for (const t of [B.a, B.b]) { gl.deleteTexture(t.tex); gl.deleteFramebuffer(t.fbo); } }
+      const tex = () => { const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR); return t; };
+      const small = () => { const t = tex(); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null); const f = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, f);
+        gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t, 0); return { tex: t, fbo: f }; };
+      B = this.bl = { W, H, w, h, full: tex(), a: small(), b: small(), ok: true };
+      B.ok = gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE; gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    }
+    if (!B.ok) return false;
+    if (this.vao) this.vao.bindVertexArrayOES(null); this.curBuf = null;
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.quad); gl.disableVertexAttribArray(1); gl.disableVertexAttribArray(2); gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 8, 0);
+    gl.disable(gl.DEPTH_TEST); gl.disable(gl.CULL_FACE); gl.disable(gl.BLEND); gl.disable(gl.SCISSOR_TEST); gl.depthMask(false); gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, B.full); gl.copyTexImage2D(gl.TEXTURE_2D, 0, gl.RGB, 0, 0, W, H, 0);
+    const pass = (P, to, from, px, py) => { gl.bindFramebuffer(gl.FRAMEBUFFER, to); gl.useProgram(P.p); this.cur = P; gl.bindTexture(gl.TEXTURE_2D, from); gl.uniform1i(P.u.uTex, 0); if (P.u.uPx) gl.uniform2f(P.u.uPx, px, py); gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4); this.calls++; };
+    gl.viewport(0, 0, w, h);
+    gl.useProgram(P1.p); gl.uniform2f(P1.u.uCut, o.from == null ? 0.62 : o.from, o.to == null ? 0.95 : o.to);
+    pass(P1, B.a.fbo, B.full, 1 / W, 1 / H); pass(P2, B.b.fbo, B.a.tex, 1 / w, 0); pass(P2, B.a.fbo, B.b.tex, 0, 1 / h);
+    gl.viewport(0, 0, W, H); gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE);
+    gl.useProgram(P3.p); gl.uniform1f(P3.u.uPower, o.power == null ? 0.8 : o.power); pass(P3, null, B.a.tex, 0, 0);
+    if (o.wide) { gl.disable(gl.BLEND); gl.viewport(0, 0, w, h); pass(P2, B.b.fbo, B.a.tex, 2.2 / w, 0); pass(P2, B.a.fbo, B.b.tex, 0, 2.2 / h);
+      gl.viewport(0, 0, W, H); gl.enable(gl.BLEND); gl.useProgram(P3.p); gl.uniform1f(P3.u.uPower, (o.power == null ? 0.8 : o.power) * o.wide); pass(P3, null, B.a.tex, 0, 0); }
+    gl.disable(gl.BLEND); gl.enable(gl.DEPTH_TEST); gl.enable(gl.CULL_FACE); gl.depthMask(true);
+    return true;
   },
   // light and air: hex colors ("#rrggbb" or 0xrrggbb) and the sun's direction (towards it)
   light(o) {

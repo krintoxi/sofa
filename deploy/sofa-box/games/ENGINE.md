@@ -333,6 +333,12 @@ for a "This box" screen. `Governor(ladder, rung, top, onChange)` keeps the frame
 - `fx(handle, mesh, points)`: every see-through thing at once, premultiplied: each vertex's alpha is how much of it,
   its spare byte 127 for light added (flames, lamps) or 0 for paint laid over (shadows, foam, rain).
 - `shine(r, g, b)` brightens the whole frame (lightning); `warm(names)` makes programs while the game loads.
+- `bloom({from, to, power, size, wide})`: what's bright in the picture drawn so far, spread as light over it (lamps,
+  fires, what's lit by itself). The picture is copied, what's bright in it (by its strongest colour, so a pure pink
+  glows as a white would) kept at a quarter of the size, blurred across and down, and added back: four draw calls, three
+  small pictures and a copy of the canvas. It's for a GPU with room to spare: a game calls it on its upper rungs only
+  (WYRD: the full look from 720 lines up), after its see-through things and before what's written on the picture, which
+  the engine draws after `draw()` and so stays crisp. On a Pi 3's rungs it's never called and costs nothing.
 
 **2D (`Flat`).** `size(w, h)`; `ground(canvas, x0, z0, size, outside)` (mip levels made, so far ground doesn't
 shimmer); `air({top, horizon, fog, hill, hills, near, far})`; `draw(camera…)`; `project(x, y, z, out)`;
@@ -368,6 +374,44 @@ shimmer); `air({top, horizon, fog, hill, hills, near, far})`; `draw(camera…)`;
   colour, sun, water, shallow, depth)` paints it into the ground's picture (shaded by its slopes, shallows round it)
   and `banks(colour, water)` gives the quads that stand its edge up from the water. Tidewing's cliffs, gorge and
   volcano are made this way.
+
+<a id="a-world-too-big-to-hold"></a>**A world too big to hold at once (`Stream`, `Mesh.stamp`, `Land.part`).** `Chunks` builds
+a whole world as a game loads; `Stream` makes a world's still things a chunk at a time as the eye comes near and gives
+them back as it leaves, so the memory used is the neighbourhood's, never the world's. WYRD's open world (780 m across,
+676 chunks of 30 m) holds 25 of them: about 2 MB on the GPU in its thickest forest, where the whole would be 55.
+
+```js
+const stream = new L3.Stream({ cell: 30, near: 2,          // chunks 30 m a side; two each way from the eye's: a 5 × 5 block
+  has: (ix, iz) => inTheWorld(ix, iz),                      // (none are made outside it)
+  open(c) { c.data = whatStandsIn(c); },                    // a chunk comes into being: the game's own things for it
+  close(c) { forget(c.data); },                             // …and goes
+  build(c, base, glow, step) {                              // its meshes, a part a call (a step a frame): true when done
+    if (step === 0) { land.part(base, land.cellOf(c.x0), land.cellOf(c.z0), land.cellOf(c.x1), land.cellOf(c.z1), colour); return false; }
+    for (const t of c.data.trees) base.stamp(TREE, t.x, t.y, t.z, t.yaw, t.size, t.size, t.shade);
+    return true; },
+  light: { sun, sunCol, amb, ground }, shade, verts: 900 }); // Mesh.light's; verts: how many vertices are lit a frame
+stream.fill(g3, x, z);          // everything near, now (as a world is entered, behind its fade)
+stream.update(g3, x, z);        // every step of the game: one step of whatever is being made, and what's far behind given back
+stream.draw(g3, x, z, far);     // what's in view, nearest first: one call a chunk
+stream.remake(x, z);            // the chunk there is built again (a tree felled): its old mesh is drawn until the new one is ready
+```
+
+- A chunk is **one mesh with its light baked in**, built in the two meshes the stream keeps for all of them (`base`, and
+  `glow` for what lights itself), so making one allocates nothing but the GPU's copy. Its making is spread over frames:
+  the game's `build` a step a call, then its light some vertices a frame, then the upload. No frame carries a whole chunk.
+- **`Mesh.stamp(src, x, y, z, yaw, size, sizeY, shade)`** is the engine's instancing: a thing built once about its own
+  middle is copied into a mesh wherever one stands, turned and sized, with no vertex worked out twice. What's stamped
+  into a chunk is drawn with the chunk's one call. (A Pi 3's GPU has no instanced drawing, and where there is one a
+  draw call for each kind of thing would still cost more than a chunk's one.) `Mesh.reset()` empties a mesh and keeps
+  its memory; `Mesh.add(src, glowing)` appends another's vertices as they are.
+- **`Land.part(mesh, i0, j0, i1, j1, colour)`** builds one part of a land's ground into a mesh (`cellOf(x)` is the cell a
+  place is in). The heights of a big world are cheap to keep whole (a number every 2.5 m of WYRD's is 0.4 MB); it's the
+  triangles that are made a chunk at a time.
+- `unload()` gives the GPU's side back and keeps the chunks open (the picture is being made anew: another renderer, a
+  lost context); `free()` closes them all. With nothing to draw into (`Flat`, or a check that only steps the game) give
+  it a stand-in `{ upload: () => null, free() {} }` and a `build` that returns true: the chunks still open and close.
+- Walking 400 m across a world in the tests (`TheBigWorld`): never more than 36 chunks held, one step of making a frame,
+  the ground under the walker always there, every chunk opened closed again.
 
 **Models made elsewhere.** `tools/low3d-models.py` (Python alone: no Blender) turns models in glTF, in flat colours,
 into data for a page: each model's colours, its box, and its vertices and triangles as bytes, with fewer triangles where
