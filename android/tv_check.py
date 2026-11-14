@@ -218,10 +218,16 @@ def steps(phone, me):
         seen.append(page.focused())
     if len(set(seen)) < 2 or seen[-1] != seen[0]:
         raise SystemExit("the arrows didn't move the highlight down and back on the start page: %r" % seen)
-    for _ in range(4):                                   # to the address field
+    found = page.js("[...document.querySelectorAll('#list button small')].map(e => e.textContent)") or []
+    if found:
+        say("   It found Sofa on the network by itself: %s." % ", ".join(found))
+    for _ in range(len(found) + 4):                      # to the address field, below what was found
         if page.js("document.activeElement && document.activeElement.id") == "addr":
             break
-        key("DPAD_UP")
+        key("DPAD_DOWN")
+    else:
+        shot("failed")
+        raise SystemExit("the arrows never reached the address field: the highlight is on %r" % page.focused())
     key("DPAD_CENTER", pause=1.5)                        # OK opens it for typing (the TV's keyboard comes up)
     adb("shell", "input", "text", FROM_THE_TV)
     time.sleep(1)
