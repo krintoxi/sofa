@@ -333,6 +333,14 @@ for a "This box" screen. `Governor(ladder, rung, top, onChange)` keeps the frame
 - `fx(handle, mesh, points)`: every see-through thing at once, premultiplied: each vertex's alpha is how much of it,
   its spare byte 127 for light added (flames, lamps) or 0 for paint laid over (shadows, foam, rain).
 - `shine(r, g, b)` brightens the whole frame (lightning); `warm(names)` makes programs while the game loads.
+- `wind(t, reach, gusts)`: from now on the still world's grass and crowns move (`reach`: how far the lightest thing
+  is pushed, in metres; 0 stops it). Only what was built to give way moves: `mesh.sway(y0, y1, k)` marks a mesh's
+  vertices by their height (none at `y0`, most at `y1`), before it's stamped into the world; `mesh.facing(nx, ny, nz)`
+  lights every face as if it faced one way, so a blade isn't bright on one side and black on the other. It's a second
+  shader, used only while there's wind; the first is as cheap as it was. For the upper rungs.
+- `grade({gain, curve, colour, warm, cool, edge})`: the picture so far, graded: brighter or darker, an S through its
+  tones, richer or paler, its lights one way and its darks the other, darker towards the corners. One copy of the
+  picture and one pass over it: for the upper rungs, after `bloom` and before anything is written on the screen.
 - `bloom({from, to, pure, power, size, wide})`: what's bright in the picture drawn so far, spread as light over it
   (lamps, fires, what's lit by itself). The picture is copied, what's bright in it (by its strongest colour, so a pure
   pink glows as a white would; with `pure`, only colours that pure, so skin and pale stone in the sun don't) kept at a

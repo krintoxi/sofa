@@ -369,7 +369,7 @@ const ORES = ["copper", "iron", "silver", "cobalt", "starsteel", "ashsteel"], OR
 const HERBS = ["mosscap", "tidekelp", "bonelily", "sporebulb", "emberroot", "ashbloom"], HERBCOL = [0x7af07a, 0x4ad8c0, 0xf0ead8, 0xc07cff, 0xff8a3a, 0xff4a8a];
 // the six trees: what their logs are called is the rules' (WyrdRules.TREES); here, their leaves, their trunks and how they grow
 const TREECOL = [0x2e5a3a, 0x8fae46, 0x4a8a3a, 0x4a2a5a, 0x6a8aa0, 0xff7ad8], TRUNKCOL = [0x4a3426, 0xe0dccc, 0x5a3a2a, 0x1e1620, 0x7a8088, 0xe8dcf0];
-const TOWN = { id: "town", name: "Hearthrim", ground: [0x3d5a34, 0x4a6a3a, 0x5c7c44], wall: [0x4a4a52, 0x5c5a62, 0x6e6a70], fog: 0x2a2440, sunCol: 0xffb48a, amb: 0x7a7aa0, low: 0x2a2030, sun: [-0.6, 0.35, 0.7],
+const TOWN = { id: "town", name: "Hearthrim", ground: [0x3d5a34, 0x4a6a3a, 0x5c7c44], wall: [0x4a4a52, 0x5c5a62, 0x6e6a70], fog: 0x2a2440, sunCol: 0xffc296, amb: 0x60669a, low: 0x241c30, sun: [-0.6, 0.56, 0.7],
   glow: 0xffd28a, motes: 0xffe2b0, song: { seed: 5, root: 52, tempo: 72, calm: true } };
 // the floor's place in the descent: 0..17 the story (stratum = floor / 3, the third of each its lair); 18 on, the Endless
 // Descent round the strata again, deeper each time
@@ -1170,6 +1170,11 @@ function openChunk(c) {
     const kind = wild ? REGIONS[w.region(x, z)].deco : "tuft", pick = seed % 10, paved = x * x + (z - 4) * (z - 4) < 170;
     if (paved && pick > 2) continue;
     d.deco.push({ kind: full && kind === "tuft" && !paved ? (pick < 5 ? "tuft" : pick < 8 ? "bloom" : "stone") : kind, x, z, s: sz, seed }); }
+  // and on the fuller look the meadow is grass: clumps of it, as many as the rung can carry (it moves with the wind)
+  if (rich() && (!wild || R_.deco === "tuft")) for (let k = 0, n = E.rung.h >= 1080 ? 240 : E.rung.h >= 720 ? 130 : 50; k < n; k++) {
+    const x = c.x0 + r() * OW.chunk, z = c.z0 + r() * OW.chunk, sz = 0.75 + r() * 0.7, seed = (r() * 1e6) | 0;
+    if (!w.inside(x, z, 1) || x * x + (z - 4) * (z - 4) < 170 || wild && REGIONS[w.region(x, z)].deco !== "tuft" || !w.blocks.free(x, z, 0.2)) continue;
+    d.deco.push({ kind: "grass", x, z, s: sz, seed }); }
 }
 function closeChunk(c) {
   const w = OVER, d = c.data; if (!d) return;
@@ -1263,6 +1268,9 @@ function decoMesh(w, d, m, glowM) {
     case "crate": L3.Kit.crate(m, d.x, y, d.z, d.yaw, d.s); break;
     case "woodpile": L3.Kit.woodpile(m, d.x, y, d.z, d.yaw, d.s); break;
     case "bench": L3.Kit.bench(m, d.x, y, d.z, d.yaw, d.s); break;
+    case "grass": { m.at(d.x, y, d.z, d.seed % 6, d.s); const G_ = [0x4f8a3c, 0x5c9a44, 0x6aa84c, 0x478236];   // a clump of blades
+      for (let k = 0; k < 5; k++) { const a = k * 1.3 + d.seed, r = 0.05 + (k % 3) * 0.09, px = Math.cos(a) * r, pz = Math.sin(a) * r, hh = 0.34 + ((k * 7 + d.seed) % 5) * 0.06;
+        m.both(px - 0.035, 0, pz, px + Math.cos(a) * 0.12, hh, pz + Math.sin(a) * 0.12, px + 0.035, 0, pz + 0.02, G_[(k + d.seed) % 4]); } break; }
     case "bloom": { m.at(d.x, y, d.z, d.seed % 6, d.s); const c = [0xd84a6a, 0xe8e0d0, 0xb07ae0, 0xe8d27a][d.seed % 4];   // a few flowers: a stem, and a head seen from above
       for (let k = 0; k < 4; k++) { const a = k * 1.7 + d.seed, r = 0.1 + (k % 3) * 0.11, px = Math.cos(a) * r, pz = Math.sin(a) * r, hh = 0.2 + (k % 2) * 0.12;
         m.both(px, 0, pz, px + 0.02, hh, pz, px + 0.07, 0, pz + 0.05, 0x3e6a34); m.quad(px - 0.07, hh, pz - 0.07, px + 0.07, hh, pz - 0.07, px + 0.07, hh, pz + 0.07, px - 0.07, hh, pz + 0.07, k & 1 ? U.shade(c, 0.86) : c, px, hh - 1, pz); } break; }
@@ -2137,15 +2145,18 @@ let STREAM = null;
 // The fuller look: on the engine's upper rungs (a Pi 4 and up, a computer) the open world grows thicker and is seen
 // further; from 720 lines up, what's lit spreads as light (GL.bloom). A Pi 3's rungs get none of it and pay nothing for it.
 const rich = () => E.mode === "gl" && !!E.rung && E.rung.look === 1;
+// the fuller look's picture, graded: the open country richer and warmer in its lights, cooler in its shade; underground harder
+const GRADE = { over: { gain: 1.1, curve: 0.42, colour: 1.22, warm: [1.07, 1.0, 0.93], cool: [0.9, 0.96, 1.1], edge: 0.5 }, under: { gain: 1.05, curve: 0.35, colour: 1.1, warm: [1.04, 1.0, 0.96], cool: [0.94, 0.97, 1.06], edge: 0.6 } };
 const BLOOM = { hold: 0.9, from: 0.9, to: 0.985, pure: [0.3, 0.56], power: 0.85, size: 0.25, wide: 0.55 };   // (only what's a light of its own: a lamp, a lit line. What's lit is held under `hold`, so skin and leaves in the sun never glow)
 const TPL = new Map(), NOGPU = { upload: () => null, free() {} };
+const GIVES = { tuft: 0.45, bloom: 0.34, grass: 0.6, fern: 0.75 };   // what gives way to the wind, and the height at which it gives most (Mesh.sway)
 function tpl(key, fn) { let t = TPL.get(key); if (!t) { t = { m: new L3.Mesh(128), g: new L3.Mesh(32) }; fn(t.m, t.g); TPL.set(key, t); } return t; }
 const regWorld = reg => ({ st: { wall: REGIONS[reg].wall, ground: REGIONS[reg].ground, glow: [0xffd28a, 0x9fffc8, 0x6ae8ff, 0xffa04a, 0xff7a2a, 0xc07cff][reg] }, h: () => 0 });
 function stampThing(base, glow, t, x, y, z, yaw, s, shade) { base.stamp(t.m, x, y, z, yaw, s, s, shade); if (t.g.n) glow.stamp(t.g, x, y, z, yaw, s); }
 function stampNode(w, nd, base, glow) {
   if (nd.hidden || !nd.on && (!nd.spent || nd.kind === "chest" || nd.kind === "herb") || nd.dyn) return;
   const v = nd.seed % 3;
-  if (nd.kind === "tree") stampThing(base, glow, tpl("t" + nd.tree + (nd.on ? "o" : "x") + v, (m, g) => treeMesh(m, g, 0, 0, 0, nd.tree, 1, v + 1, !nd.on)), nd.x, nd.y, nd.z, (nd.seed % 628) / 100, nd.s || 1, 0.9 + (nd.seed % 20) / 100);
+  if (nd.kind === "tree") stampThing(base, glow, tpl("t" + nd.tree + (nd.on ? "o" : "x") + v, (m, g) => { treeMesh(m, g, 0, 0, 0, nd.tree, 1, v + 1, !nd.on); if (nd.on) m.sway(1.4, 7, 0.55); }), nd.x, nd.y, nd.z, (nd.seed % 628) / 100, nd.s || 1, 0.9 + (nd.seed % 20) / 100);
   else if (nd.kind === "ore") { const reg = nd.reg || 0; stampThing(base, glow, tpl("o" + nd.ore + (nd.on ? "o" : "x") + reg, (m, g) => nodeMesh(regWorld(reg), { kind: "ore", x: 0, z: 0, y: 0, ore: nd.ore, on: nd.on }, m, g)), nd.x, nd.y, nd.z, (nd.x * 7 + nd.z * 3) % 6.28, 1, 1); }
   else if (nd.kind === "herb") stampThing(base, glow, tpl("h" + nd.herb, (m, g) => nodeMesh(regWorld(0), { kind: "herb", x: 0, z: 0, y: 0, herb: nd.herb }, m, g)), nd.x, nd.y, nd.z, nd.x % 6.28, 1, 1);
   else if (nd.kind === "chest") stampThing(base, glow, tpl("chest", (m, g) => putModel(m, "chest", 0, 0, 0, 0, 1)), nd.x, nd.y, nd.z, nd.yaw || 0, 1, 1);
@@ -2181,7 +2192,7 @@ function buildChunk(c, base, glow, step) {
   for (const q of d.deco) {
     if (q.kind === "house" || q.kind === "lamp" || q.wall || q.fixed) { decoMesh(w, q, base, glow); continue; }
     const reg = w.region(q.x, q.z), v = q.seed % 3;
-    stampThing(base, glow, tpl("d" + q.kind + reg + v, (m, g) => decoMesh(regWorld(reg), { kind: q.kind, x: 0, z: 0, s: 1, seed: v + 3 }, m, g)), q.x, w.h(q.x, q.z), q.z, (q.seed % 628) / 100, q.s, 1);
+    stampThing(base, glow, tpl("d" + q.kind + reg + v, (m, g) => { decoMesh(regWorld(reg), { kind: q.kind, x: 0, z: 0, s: 1, seed: v + 3 }, m, g); if (GIVES[q.kind]) m.sway(0.04, GIVES[q.kind], 1).facing(0.25, 1, 0.3); }), q.x, w.h(q.x, q.z), q.z, (q.seed % 628) / 100, q.s, 1);
   }
   for (const p of d.props) { const lit = p.name === "crystal"; stampThing(lit ? glow : base, glow, tpl("p" + p.name + p.tint, (m, g) => putModel(m, p.name, 0, 0, 0, 0, 1, p.tint ? tintTo(p.tint, lit ? 0.75 : 0.5) : null)), p.x, p.y, p.z, p.yaw || 0, p.s || 1, 1); }
   for (const nd of d.nodes) stampNode(w, nd, base, glow);
@@ -2445,7 +2456,7 @@ function hidden() {
 function matOf(M, x, y, z, yaw, s, sy) { M4.model(M, x, y, z, yaw, 0, 0, s); if (sy && sy !== 1) { M[4] *= sy; M[5] *= sy; M[6] *= sy; } return M; }
 function drawGL(now) {
   const g3 = E.g3, w = W, R_ = E.rung, far = w.kind === "town" ? (rich() ? 86 : 60) : 52, t = G.t, glowOn = save.opts.glow && R_.look === 1 && R_.h >= 720;
-  g3.hold(glowOn ? BLOOM.hold : 0);
+  g3.hold(glowOn ? BLOOM.hold : 0); g3.wind(t, rich() && w.over ? 0.09 : 0);
   L3.begin(E, cam, 0.5, far + 30);
   if (GPU.sky) g3.dome(GPU.sky, t * 0.0004);
   if (GPU.chunks) GPU.chunks.draw(g3, cam.tx, cam.tz, far, R_.detail == null ? 1 : Math.max(0.55, R_.detail)); else if (STREAM) STREAM.draw(g3, cam.tx, cam.tz, far);
@@ -2492,6 +2503,7 @@ function drawGL(now) {
   const d = GPU.dotM; d.n = 0; dotsWorld(d, t);
   if (d.n) g3.fx(GPU.dot, d, 0.11);
   if (glowOn) g3.bloom(BLOOM);
+  if (rich() && save.opts.glow) g3.grade(w.over ? GRADE.over : GRADE.under);
 }
 // ---- the see-through things: shadows, warnings, rings, swings, what flies, what lies on the ground, the gate's light
 const SX = new Float32Array(3);
@@ -2522,6 +2534,10 @@ let cR = 0, cG = 0, cB = 0;                          // (a colour taken apart, w
 const col3 = c => { cR = (c >> 16) & 255; cG = (c >> 8) & 255; cB = c & 255; };
 function fxWorld(m, t) {
   const w = W, gy = (x, z) => w.h(x, z) + 0.06;
+  // smoke from Hearthrim's chimneys: a few grey puffs that rise, drift with the wind, grow and thin
+  if (w.houses) for (let i = 0; i < w.houses.length; i++) { const q = w.houses[i], sm = q.smoke; if (!sm || Math.abs(sm[0] - cam.tx) > 34 || Math.abs(sm[2] - cam.tz) > 30) continue;
+    for (let k = 0, n = rich() ? 5 : 3; k < n; k++) { const p = (t * 0.22 + k / n + i * 0.37) % 1, a = (1 - p) * Math.min(1, p * 7);
+      fxDisc(m, sm[0] + p * 1.5 + Math.sin(t * 0.9 + k) * 0.12, sm[1] + p * 3.4, sm[2] - p * 0.5, 0.28 + p * 0.75, 196, 196, 204, (a * 120) | 0, 0, 7); } }
   // shadows
   fxDisc(m, H.x, gy(H.x, H.z), H.z, 0.55, 0, 0, 0, 120, 0, 8);
   for (let i = 0; i < G.foes.length; i++) { const f = G.foes[i]; if (!f.seen || f.st === "dead" && f.dieT > 2) continue; fxDisc(m, f.x, gy(f.x, f.z), f.z, f.r * 1.3 * (f.boss && f.def.model ? 1.4 : 1), 0, 0, 0, f.fly ? 70 : 115, 0, 8); }

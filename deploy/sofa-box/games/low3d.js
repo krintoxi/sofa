@@ -383,9 +383,17 @@ void main() {
 const STILL_VS = `
 attribute vec3 aPos; attribute vec4 aNor; attribute vec4 aCol;
 uniform mat4 uVP; uniform vec3 uEye; uniform vec2 uAir; uniform vec3 uFogCol; uniform vec3 uFogSun; uniform vec3 uSun; uniform vec3 uShine; uniform float uFlip; uniform float uCap;
+#ifdef WIND
+uniform vec3 uWind;                                  // time, how far a thing that gives way is pushed (metres), how fast the gusts come
+#endif
 varying vec3 vCol; varying vec4 vFog;
 void main() {
   vec3 p = aPos;
+#ifdef WIND
+  float give = (1.0 - aCol.a) * uWind.y;             // (a vertex's alpha: 1 stands still, less gives way: Mesh.sway)
+  p.x += give * sin(uWind.x * uWind.z + aPos.x * 0.35 + aPos.z * 0.27);
+  p.z += give * 0.6 * sin(uWind.x * uWind.z * 0.77 + aPos.x * 0.21 - aPos.z * 0.4);
+#endif
   p.y = mix(p.y, -max(p.y, 0.0), uFlip);             // (its mirror image: what's above the water, under it)
   vec3 rel = p - uEye; float d = length(rel);
   float s = max(dot(rel, uSun) / d, 0.0);
@@ -522,6 +530,18 @@ void main() {
     + (texture2D(uTex, vUV + uPx * 3.231).rgb + texture2D(uTex, vUV - uPx * 3.231).rgb) * 0.070;
   gl_FragColor = vec4(c, 1.0);
 }`;
+const GRADE_FS = `
+precision mediump float;
+uniform sampler2D uTex; uniform vec4 uGrade; uniform vec3 uWarm; uniform vec3 uCool; varying vec2 vUV;
+void main() {
+  vec3 c = texture2D(uTex, vUV).rgb * uGrade.x;
+  float l = dot(c, vec3(0.299, 0.587, 0.114));
+  c = mix(vec3(l), c, uGrade.z);                                       // richer, or paler
+  c = clamp(c, 0.0, 1.0); c = mix(c, c * c * (3.0 - 2.0 * c), uGrade.y);   // an S: the darks darker, the lights lighter
+  c *= mix(uCool, uWarm, smoothstep(0.12, 0.7, l));                    // the darks one way, the lights the other
+  vec2 d = vUV - 0.5; c *= 1.0 - uGrade.w * dot(d, d) * 2.0;           // darker towards the corners
+  gl_FragColor = vec4(c, 1.0);
+}`;
 const GLOWADD_FS = `
 precision mediump float;
 uniform sampler2D uTex; uniform float uPower; varying vec2 vUV;
@@ -550,10 +570,10 @@ function GL(canvas, opts) {
   // the rest when first wanted (each takes a moment to make on a Pi 3): null when this GPU can't
   this.make = { sea: () => mk(SEA_VS, SEA_FS, ""), skySun: () => mk(SKY_VS, SKY_FS, "#define SUN\n"),
     seaWave: () => this.derivatives ? mk(SEA_VS, SEA_FS, "#define WAVES\n") : null,
-    still: () => mk(STILL_VS, STILL_FS, ""), move: () => mk(MOVE_VS, STILL_FS, ""), dome: () => mk(DOME_VS, DOME_FS, ""),
+    still: () => mk(STILL_VS, STILL_FS, ""), stillWind: () => mk(STILL_VS, STILL_FS, "#define WIND\n"), move: () => mk(MOVE_VS, STILL_FS, ""), dome: () => mk(DOME_VS, DOME_FS, ""),
     water: () => mk(WATER_VS, WATER_FS, ""), waterRich: () => mk(WATER_VS, WATER_FS, "#define RICH\n"),
     fx: () => mk(FX_VS, FX_FS, ""), fxDots: () => mk(FX_VS, FX_FS, "#define DOTS\n"), ui: () => mk(UI_VS, UI_FS, ""),
-    bright: () => mk(BLOOM_VS, BRIGHT_FS, ""), blur: () => mk(BLOOM_VS, BLUR_FS, ""), glowAdd: () => mk(BLOOM_VS, GLOWADD_FS, "") };
+    bright: () => mk(BLOOM_VS, BRIGHT_FS, ""), blur: () => mk(BLOOM_VS, BLUR_FS, ""), glowAdd: () => mk(BLOOM_VS, GLOWADD_FS, ""), grade: () => mk(BLOOM_VS, GRADE_FS, "") };
   this.flip = 0; this.skyVP = new Float32Array(16); this.tint = new Float32Array([1, 1, 1]);
   this.vp = new Float32Array(16); this.view = new Float32Array(16); this.proj = new Float32Array(16); this.m = new Float32Array(16);
   this.planes = new Float32Array(24); this.eye = new Float32Array(3);
@@ -669,6 +689,7 @@ GL.prototype = {
     if (u.uFlip) gl.uniform1f(u.uFlip, this.flip);
     if (u.uShine) gl.uniform3fv(u.uShine, this.tint);
     if (u.uCap) gl.uniform1f(u.uCap, this.held || 8);
+    if (u.uWind) gl.uniform3f(u.uWind, this.windT || 0, this.windy || 0, this.windG || 1.6);
     if (u.uFogCol) gl.uniform3fv(u.uFogCol, L.fogCol);
     if (u.uSun) gl.uniform3fv(u.uSun, L.sun);
     if (u.uSunCol) gl.uniform3fv(u.uSunCol, L.sunCol);
@@ -757,7 +778,7 @@ GL.prototype = {
   // a still mesh with its light baked in (Mesh.light, Chunks.upload with a light): moved by nothing, only fogged
   still(h) {
     if (!h || !h.n) return;
-    const gl = this.gl; this.use(this.prog("still"));
+    const gl = this.gl; this.use(this.windy && this.prog("stillWind") || this.prog("still"));
     this.bind(h); gl.drawArrays(gl.TRIANGLES, 0, h.n); this.calls++; this.tris += h.n / 3;
   },
   // a thing that moves: m its place, tint r g b, glow 0 lit … 1 its own colours, rim: how much its edges catch the sky
@@ -777,6 +798,36 @@ GL.prototype = {
   // as it is. With a glow pass that starts at k (bloom's `from`), only the lights glow: never skin, pale stone or
   // leaves that happen to be in full sun. A game that asks for bloom asks for this in the same breath.
   hold(k) { const c = k > 0 ? k : 8; if (c !== this.held) { this.held = c; this.frame++; } },
+  // from now on (until wind(0)): the still world's grass and crowns move. t: the time (seconds); reach: how far the
+  // lightest thing is pushed (metres; 0.12 is a breeze); gusts: how fast they come (1.6). Only what was built to give
+  // way moves (Mesh.sway); everything else is drawn by the same shader as before. For the upper rungs: it's one more
+  // sum for every vertex, and a Pi 3 works on each vertex twice.
+  wind(t, reach, gusts) { this.windT = t || 0; this.windy = reach > 0 ? reach : 0; this.windG = gusts || 1.6; },
+  // The whole picture so far, graded: o {gain (1: as it is), curve (0 to 1: how much of an S, darks darker and lights
+  // lighter), colour (1: as it is; more is richer), warm and cool ([r, g, b] the lights and the darks are multiplied
+  // by), edge (how much darker the corners: 0 none)}. One copy of the picture and one pass over it: for the upper
+  // rungs, after bloom() and before anything written on the screen.
+  grade(o) {
+    o = o || {};
+    const gl = this.gl, W = this.canvas.width, H = this.canvas.height, P = this.prog("grade"); if (!P) return false;
+    let G = this.gr;
+    if (!G || G.W !== W || G.H !== H) {
+      if (G) gl.deleteTexture(G.tex);
+      const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+      G = this.gr = { W, H, tex: t };
+    }
+    if (this.vao) this.vao.bindVertexArrayOES(null); this.curBuf = null;
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.quad); gl.disableVertexAttribArray(1); gl.disableVertexAttribArray(2); gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 8, 0);
+    gl.disable(gl.DEPTH_TEST); gl.disable(gl.CULL_FACE); gl.disable(gl.BLEND); gl.disable(gl.SCISSOR_TEST); gl.depthMask(false); gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, G.tex); gl.copyTexImage2D(gl.TEXTURE_2D, 0, gl.RGB, 0, 0, W, H, 0);
+    gl.viewport(0, 0, W, H); gl.useProgram(P.p); this.cur = P; gl.uniform1i(P.u.uTex, 0);
+    gl.uniform4f(P.u.uGrade, o.gain == null ? 1 : o.gain, o.curve || 0, o.colour == null ? 1 : o.colour, o.edge || 0);
+    const wm = o.warm || [1, 1, 1], cl = o.cool || [1, 1, 1]; gl.uniform3f(P.u.uWarm, wm[0], wm[1], wm[2]); gl.uniform3f(P.u.uCool, cl[0], cl[1], cl[2]);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4); this.calls++;
+    gl.enable(gl.DEPTH_TEST); gl.enable(gl.CULL_FACE); gl.depthMask(true);
+    return true;
+  },
   dome(tex, turn) {
     const gl = this.gl, u = this.use(this.prog("dome"));
     if (!this.domeH) this.domeH = this.upload(Kit.dome());
@@ -1362,6 +1413,21 @@ Mesh.prototype.stamp = function (src, x, y, z, yaw, s, sy, shade) {
     u8[q + 19] = su[o + 19];
   }
   this.n += n; return this;
+};
+// Which of this mesh's vertices give way to the wind (GL.wind), by their height: none at y0 and below, most at y1 and
+// above (k of full, 0 to 1). It's kept in each vertex's alpha, which a still mesh doesn't otherwise use; for a thing
+// built about its own middle (a tuft, a crown), before it's stamped into the world.
+Mesh.prototype.sway = function (y0, y1, k) {
+  const f = this.f, u8 = this.u8, span = Math.max(1e-6, y1 - y0);
+  for (let v = 0; v < this.n; v++) { const t = Math.max(0, Math.min(1, (f[v * 5 + 1] - y0) / span)); const a = 255 - Math.round(t * (k == null ? 1 : k) * 255); u8[v * 20 + 19] = a === 254 ? 253 : a; }   // (254 is taken: it marks a vertex that's its own light)
+  return this;
+};
+// Every face of this mesh lit as if it faced one way (up, by default): for grass and leaves, whose blades face every
+// way and would be lit bright and black by turns. Before its light is worked out.
+Mesh.prototype.facing = function (nx, ny, nz) {
+  const i8 = this.i8, l = Math.hypot(nx || 0, ny == null ? 1 : ny, nz || 0) || 1, x = Math.round((nx || 0) / l * 127), y = Math.round((ny == null ? 1 : ny) / l * 127), z = Math.round((nz || 0) / l * 127);
+  for (let v = 0; v < this.n; v++) { i8[v * 20 + 12] = x; i8[v * 20 + 13] = y; i8[v * 20 + 14] = z; }
+  return this;
 };
 Mesh.prototype.reset = function () { this.n = 0; this.lit = 0; this.glow = 0; this.alpha = 255; this.jit = 0; return this.at(0, 0, 0); };   // (empty again, its memory kept: to build the next thing in)
 // another mesh's vertices added as they are (glowing: each its own light from now on)

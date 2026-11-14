@@ -1740,13 +1740,41 @@ out.yard = [k("barrel"), k("crate"), k("woodpile"), k("bench")];
         self.assertEqual(out["turned"], [-1.5, 12.4, -2.7])
         self.assertTrue(all(10 < n < 120 for n in out["yard"]), out["yard"])
 
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_what_gives_way_to_the_wind(self):
+        """Mesh.sway marks, by height, which vertices the wind moves (in their alpha: 255 stands still), never with the
+        value that means "its own light"; a stamp carries the mark and the light's working leaves it; Mesh.facing lights
+        a blade the same on both its sides; and the still world has a second shader that moves what's marked, the first
+        left as cheap as it was."""
+        out = self.node(r"""
+const m = new L3.Mesh(16); m.both(0, 0, 0, 0.1, 0.5, 0, 0.05, 1, 0.02, 0x40a040); m.sway(0.1, 0.9, 1);
+const al = []; for (let v = 0; v < m.n; v++) al.push([Math.round(m.f[v * 5 + 1] * 100) / 100, m.u8[v * 20 + 19]]);
+out.alpha = al.slice(0, 3);
+const q = new L3.Mesh(16); q.both(0, 0, 0, 0.1, 0.5, 0, 0.05, 1, 0.02, 0x40a040); q.sway(0, 255, 1); out.never = Array.from({ length: q.n }, (_, v) => q.u8[v * 20 + 19]).includes(254);
+const w = new L3.Mesh(16); w.stamp(m, 5, 0, 5, 1, 2, 2, 0.8); out.stamped = [w.u8[19], w.u8[39], w.u8[59]];
+w.light({ sun: [0.3, 0.8, 0.2], sunCol: 0xffffff, amb: 0x556677, ground: 0x222222 }); out.lit = [w.u8[19], w.u8[39], w.u8[59]];
+const a = new L3.Mesh(16); a.both(0, 0, 0, 0.1, 0.5, 0, 0.05, 1, 0.02, 0x40a040); a.facing(0, 1, 0); a.light({ sun: [0.3, 0.8, 0.2], sunCol: 0xffffff, amb: 0x556677, ground: 0x222222 });
+out.sides = [a.u8[16] === a.u8[3 * 20 + 16], a.u8[17] === a.u8[3 * 20 + 17], a.i8[13]];
+const src = require("fs").readFileSync(process.argv[1], "utf8");
+out.shader = ["#ifdef WIND", "uniform vec3 uWind", 'stillWind: () => mk(STILL_VS, STILL_FS, "#define WIND\\n")', "const GRADE_FS", "  grade(o) {", "  wind(t, reach, gusts) {"].map(x => src.includes(x));
+out.plain = /still: \(\) => mk\(STILL_VS, STILL_FS, ""\)/.test(src);
+""")
+        self.assertEqual(out["alpha"], [[0, 255], [0.5, 127], [1, 0]])      # its foot stands, its tip gives most
+        self.assertFalse(out["never"])
+        self.assertEqual(out["stamped"], [255, 127, 0])
+        self.assertEqual(out["lit"], [255, 127, 0])
+        self.assertEqual(out["sides"], [True, True, 127])
+        self.assertTrue(all(out["shader"]), out["shader"])
+        self.assertTrue(out["plain"])
+
     def test_wyrd_builds_its_village_from_the_kit(self):
         """WYRD's page: Hearthrim's houses are the engine's, shadows are thrown as each chunk is made and laid on the ground
         as it's drawn, and the square is paved."""
         with open(os.path.join(BOX, "games", "wyrd", "index.html"), encoding="utf-8") as f:
             page = f.read()
         for part in ("L3.Kit.house(m, glowM,", "function castShadows(w, d, base, c)", "L3.Kit.cast(base, P, dx, dz, w.on,", "w.on = (x, z) => land.on(x, z)",
-                     "function pave(w, c, base, gc)", 'put("woodpile"', "w.cast = ["):
+                     "function pave(w, c, base, gc)", 'put("woodpile"', "w.cast = [", "g3.wind(t, rich() && w.over ?", "g3.grade(w.over ? GRADE.over : GRADE.under)",
+                     'd.deco.push({ kind: "grass"', "sm[1] + p * 3.4"):
             self.assertIn(part, page)
         self.assertNotIn("w.h, col", page)                                 # (what's laid goes on the ground as drawn, not the smooth one)
 
