@@ -32,7 +32,7 @@ Updating: the same steps install a newer version over the old one, keeping the s
 ## Android TV and Google TV
 
 The same app, built for the TVs, sticks and boxes that run Android TV or Google TV (Android 5.1 and newer, ARM or
-x86). **A draft: GitHub builds
+x86). **New: GitHub builds
 it and works it on an Android TV emulator with the remote's keys on every change. It has never been on a real TV,
 and it isn't in Google Play.**
 

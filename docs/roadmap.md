@@ -24,7 +24,7 @@ Read this before you install, so nothing surprises you.
   x264 on the processor, as before ([what ran where](capabilities.md#the-graphics-chips-encoders)). Files a device
   plays as they are aren't transcoded at all, and the background conversion to MP4 makes the second play free.
 - **No app in any TV store.** On a TV you use its browser, sideload Sofa's own Fire TV app or Roku channel, or use a
-  Sofa Box. An Android TV and Google TV build of the app is in a draft: GitHub works it on an Android TV emulator, and no
+  Sofa Box. An Android TV and Google TV build of the app is new: GitHub works it on an Android TV emulator, and no
   real TV has run it ([android/README.md](../android/README.md#android-tv-and-google-tv)). There is no Apple TV,
   Samsung or LG app. The Fire TV app and the Roku channel are
   built by GitHub and **no run on a real device is on record**. Sticks that run Vega OS instead of Fire OS can't
