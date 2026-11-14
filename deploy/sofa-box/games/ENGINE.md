@@ -337,7 +337,10 @@ for a "This box" screen. `Governor(ladder, rung, top, onChange)` keeps the frame
   is pushed, in metres; 0 stops it). Only what was built to give way moves: `mesh.sway(y0, y1, k)` marks a mesh's
   vertices by their height (none at `y0`, most at `y1`), before it's stamped into the world; `mesh.facing(nx, ny, nz)`
   lights every face as if it faced one way, so a blade isn't bright on one side and black on the other. It's a second
-  shader, used only while there's wind; the first is as cheap as it was. For the upper rungs.
+  shader, used only while there's wind; the first is as cheap as it was. For the upper rungs. A still mesh's vertex
+  alpha says what each vertex is: 255 stands still, 254 is its own light (until `mesh.light`), 253 is kept for later,
+  252 (`Mesh.LAID`) is a shadow laid on the ground by `Kit.cast` and stands still, 251 and less give way. A renderer
+  of ours that throws the shadows of what moves reads 252 as ground already in shadow.
 - `grade({gain, curve, colour, warm, cool, edge})`: the picture so far, graded: brighter or darker, an S through its
   tones, richer or paler, its lights one way and its darks the other, darker towards the corners. One copy of the
   picture and one pass over it: for the upper rungs, after `bloom` and before anything is written on the screen.
@@ -386,7 +389,7 @@ shimmer); `air({top, horizon, fog, hill, hills, near, far})`; `draw(camera…)`;
   third of the triangles): a pool of lamplight, light
   spilled from a window, a flagstone. `Kit.cast(mesh, [x, z, height, …], dx, dz, ground, colour, lift, fan)` is the shadow
   a thing throws, laid the same way: give it the points that stick out (a foot, the eaves, a ridge) and how far a
-  metre of height throws. Nothing in them is see-through, so a Pi draws them as it draws the ground, and they're
+  metre of height throws; its vertices are marked `Mesh.LAID`. Nothing in them is see-through, so a Pi draws them as it draws the ground, and they're
   made once, as the world is. Give them `land.on` for the ground (below), not `land.at`.
 - `Chunks(size, cell)` holds a world's still things: `mesh(x, z, "base" | "detail" | "glow")` to build into,
   `upload(g3)`, then `draw(g3, x, z, far, detail)` each frame (culled, nearest first). `upload(g3, {light, shade,

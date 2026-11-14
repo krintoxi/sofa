@@ -32,7 +32,8 @@ things people build, and what lies on the ground.
 - **Low3D** (the engine, for every game): `Kit.house`, `Kit.barrel`, `crate`, `woodpile` and `bench`; `Kit.lay` (a flat
   shape laid on the ground and lit with it) and `Kit.cast` (the shadow a thing throws, laid the same way); `Land.on`
   (the ground's height as it's drawn, where `at` is smooth between the corners); `GL.wind` with `Mesh.sway` and
-  `Mesh.facing`; `GL.grade`.
+  `Mesh.facing`; `GL.grade`. A cast shadow is marked in its vertices (`Mesh.LAID`), so a renderer that throws the
+  shadows of what moves can leave ground that's already in shadow as it is.
 
 ## 1.1.87
 
