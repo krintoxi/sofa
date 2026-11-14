@@ -1705,11 +1705,15 @@ out.lay = [m.n / 3, up, onIt, Math.round(area * 100) / 100];
 const s = new L3.Mesh(64); L3.Kit.cast(s, [0, 0, 0, 0.1, 0, 0, 0.1, 0.1, 0, 0, 0.1, 0, 0, 0, 2, 0.1, 0, 2, 0.1, 0.1, 2, 0, 0.1, 2], 1.5, 0, flat, () => 0, 0.05);
 let x0 = 9, x1 = -9, z1 = -9; for (let v = 0; v < s.n; v++) { x0 = Math.min(x0, s.f[v * 5]); x1 = Math.max(x1, s.f[v * 5]); z1 = Math.max(z1, s.f[v * 5 + 2]); }
 out.cast = r3([x0, x1, z1]); out.none = L3.Kit.lay(new L3.Mesh(8), [0, 0, 1, 1], flat, () => 0).n;
+const marks = q => [...new Set(Array.from({ length: q.n }, (_, v) => q.u8[v * 20 + 19]))];
+s.light({ sun: [0.3, 0.8, 0.2], sunCol: 0xffffff, amb: 0x556677, ground: 0x222222 });
+out.marks = [marks(m), marks(s), s.alpha, L3.Mesh.LAID];
 """)
         self.assertEqual(out["on"], [512, True, True])                      # 16 by 16 cells, two triangles each; `at` is off them
         self.assertEqual(out["lay"], [12, True, True, 16])                  # the hull is the square: the two points inside it add nothing
         self.assertEqual(out["cast"], [0, 3.1, 0.1])                         # from its foot to where two metres are thrown
         self.assertEqual(out["none"], 0)                                     # two points are no shape
+        self.assertEqual(out["marks"], [[255], [252], 255, 252])             # a cast shadow is marked laid, through the light's working; the mesh goes on as it was
 
     @unittest.skipUnless(shutil.which("node"), "needs node")
     def test_a_house_with_a_frame(self):
@@ -1750,13 +1754,13 @@ out.yard = [k("barrel"), k("crate"), k("woodpile"), k("bench")];
 const m = new L3.Mesh(16); m.both(0, 0, 0, 0.1, 0.5, 0, 0.05, 1, 0.02, 0x40a040); m.sway(0.1, 0.9, 1);
 const al = []; for (let v = 0; v < m.n; v++) al.push([Math.round(m.f[v * 5 + 1] * 100) / 100, m.u8[v * 20 + 19]]);
 out.alpha = al.slice(0, 3);
-const q = new L3.Mesh(16); q.both(0, 0, 0, 0.1, 0.5, 0, 0.05, 1, 0.02, 0x40a040); q.sway(0, 255, 1); out.never = Array.from({ length: q.n }, (_, v) => q.u8[v * 20 + 19]).includes(254);
+const q = new L3.Mesh(16); q.both(0, 0, 0, 0.1, 0.5, 0, 0.05, 1, 0.02, 0x40a040); q.sway(0, 255, 1); out.never = Array.from({ length: q.n }, (_, v) => q.u8[v * 20 + 19]).some(a => a >= 252 && a <= 254);
 const w = new L3.Mesh(16); w.stamp(m, 5, 0, 5, 1, 2, 2, 0.8); out.stamped = [w.u8[19], w.u8[39], w.u8[59]];
 w.light({ sun: [0.3, 0.8, 0.2], sunCol: 0xffffff, amb: 0x556677, ground: 0x222222 }); out.lit = [w.u8[19], w.u8[39], w.u8[59]];
 const a = new L3.Mesh(16); a.both(0, 0, 0, 0.1, 0.5, 0, 0.05, 1, 0.02, 0x40a040); a.facing(0, 1, 0); a.light({ sun: [0.3, 0.8, 0.2], sunCol: 0xffffff, amb: 0x556677, ground: 0x222222 });
 out.sides = [a.u8[16] === a.u8[3 * 20 + 16], a.u8[17] === a.u8[3 * 20 + 17], a.i8[13]];
 const src = require("fs").readFileSync(process.argv[1], "utf8");
-out.shader = ["#ifdef WIND", "uniform vec3 uWind", 'stillWind: () => mk(STILL_VS, STILL_FS, "#define WIND\\n")', "const GRADE_FS", "  grade(o) {", "  wind(t, reach, gusts) {"].map(x => src.includes(x));
+out.shader = ["#ifdef WIND", "uniform vec3 uWind", "step(aCol.a, 0.986)",'stillWind: () => mk(STILL_VS, STILL_FS, "#define WIND\\n")', "const GRADE_FS", "  grade(o) {", "  wind(t, reach, gusts) {"].map(x => src.includes(x));
 out.plain = /still: \(\) => mk\(STILL_VS, STILL_FS, ""\)/.test(src);
 """)
         self.assertEqual(out["alpha"], [[0, 255], [0.5, 127], [1, 0]])      # its foot stands, its tip gives most

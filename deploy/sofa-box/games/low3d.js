@@ -390,7 +390,7 @@ varying vec3 vCol; varying vec4 vFog;
 void main() {
   vec3 p = aPos;
 #ifdef WIND
-  float give = (1.0 - aCol.a) * uWind.y;             // (a vertex's alpha: 1 stands still, less gives way: Mesh.sway)
+  float give = (1.0 - aCol.a) * step(aCol.a, 0.986) * uWind.y;   // (a vertex's alpha: 252/255 and over stand still, less gives way: Mesh.sway, Mesh.LAID)
   p.x += give * sin(uWind.x * uWind.z + aPos.x * 0.35 + aPos.z * 0.27);
   p.z += give * 0.6 * sin(uWind.x * uWind.z * 0.77 + aPos.x * 0.21 - aPos.z * 0.4);
 #endif
@@ -1419,9 +1419,13 @@ Mesh.prototype.stamp = function (src, x, y, z, yaw, s, sy, shade) {
 // built about its own middle (a tuft, a crown), before it's stamped into the world.
 Mesh.prototype.sway = function (y0, y1, k) {
   const f = this.f, u8 = this.u8, span = Math.max(1e-6, y1 - y0);
-  for (let v = 0; v < this.n; v++) { const t = Math.max(0, Math.min(1, (f[v * 5 + 1] - y0) / span)); const a = 255 - Math.round(t * (k == null ? 1 : k) * 255); u8[v * 20 + 19] = a === 254 ? 253 : a; }   // (254 is taken: it marks a vertex that's its own light)
+  for (let v = 0; v < this.n; v++) { const t = Math.max(0, Math.min(1, (f[v * 5 + 1] - y0) / span)); const a = 255 - Math.round(t * (k == null ? 1 : k) * 255); u8[v * 20 + 19] = a > 251 && a < 255 ? 251 : a; }   // (252 to 254 are taken: see Mesh.LAID)
   return this;
 };
+// A still mesh's vertex alpha, all it means: 255 stands still; 254 is its own light (Mesh.light turns it into glow);
+// 253 is kept for later; 252 (Mesh.LAID) is a shadow laid on the ground (Kit.cast), and stands still; 251 and less
+// give way to the wind, the less the more (Mesh.sway). The wind's shader moves nothing at 252 and over.
+Mesh.LAID = 252;
 // Every face of this mesh lit as if it faced one way (up, by default): for grass and leaves, whose blades face every
 // way and would be lit bright and black by turns. Before its light is worked out.
 Mesh.prototype.facing = function (nx, ny, nz) {
@@ -1668,10 +1672,13 @@ const Kit = {
     return m;
   },
   // The shadow a thing throws, laid on the ground (`lay`). pts: the thing's outline in the world, [x, z, height, …]
-  // (its foot, its eaves, its top: any points that stick out); (dx, dz): how far a metre of height throws.
+  // (its foot, its eaves, its top: any points that stick out); (dx, dz): how far a metre of height throws. Its vertices
+  // carry Mesh.LAID in their alpha, so a renderer that throws the shadows of what moves knows this ground is in shadow
+  // already (one shadow over another is no darker).
   cast(m, pts, dx, dz, ground, col, lift, fan) {
     const P = []; for (let i = 0; i + 2 < pts.length; i += 3) P.push(pts[i] + dx * pts[i + 2], pts[i + 1] + dz * pts[i + 2]);
-    return Kit.lay(m, P, ground, col, lift, fan);
+    const a = m.alpha; m.alpha = Mesh.LAID; Kit.lay(m, P, ground, col, lift, fan); m.alpha = a;
+    return m;
   },
   // Small things for a yard: a barrel, a crate, a pile of logs with their ends showing, a bench. Each stands at x y z,
   // turned by yaw, s times its size; the pile and the bench are long across x and are seen from +z.
