@@ -278,16 +278,56 @@ class WithATuner(unittest.TestCase):
         chans = self.on()
         now = int(time.time())
         config.update({"dvr_pad_before": 0, "dvr_pad_after": 0})
-        self.box.pace = True                                                          # as a real tuner: as fast as it plays
-        a = dvr.record(chans["5.1"]["id"], now, now + 25, "A")
-        b = dvr.record(chans["2.1"]["id"], now, now + 25, "B")
-        dvr.tick()
-        self.assertEqual([dvr.get(x["id"])["state"] for x in (a, b)], ["recording", "recording"])
-        self.assertEqual(tuners.free("%08X" % DEVICE), 0)
+        a, b = self.both_tuners_taken(chans, now)
         store.ex("UPDATE recordings SET stop = ? WHERE id = ?", now - 1, a["id"])     # A is now only in its extra minutes
         c = dvr.record(chans["11.3"]["id"], now, now + 25, "C")
         dvr.tick()
-        self.assertEqual(dvr.get(c["id"])["state"], "recording")                      # A gave its tuner up
+        self.assertEqual(dvr.get(c["id"])["state"], "recording", dvr.get(c["id"])["why"])   # A gave its tuner up
+
+    def both_tuners_taken(self, chans, now, seconds=60):
+        """A and B recording, the stand-in sending both (as a real tuner: as fast as they play)."""
+        self.box.pace = True
+        a = dvr.record(chans["5.1"]["id"], now, now + seconds, "A")
+        b = dvr.record(chans["2.1"]["id"], now, now + seconds, "B")
+        dvr.tick()
+        self.assertEqual([dvr.get(x["id"])["state"] for x in (a, b)], ["recording", "recording"])
+        self.assertEqual(tuners.free("%08X" % DEVICE), 0)
+        end = time.time() + 20
+        while self.box.open < 2 and time.time() < end:
+            time.sleep(0.1)
+        self.assertEqual(self.box.open, 2, "the stand-in isn't sending both")
+        return a, b
+
+    def test_one_that_has_just_ended_gives_its_tuner_back_first(self):
+        chans = self.on()
+        now = int(time.time())
+        config.update({"dvr_pad_before": 0, "dvr_pad_after": 0})
+        a, b = self.both_tuners_taken(chans, now)
+        store.ex("UPDATE recordings SET stop = ? WHERE id = ?", now - 1, a["id"])     # A's programme is over,
+        dvr._procs[a["id"]]["proc"].kill()                                            # and its copy has ended
+        dvr._procs[a["id"]]["proc"].wait()
+        c = dvr.record(chans["11.3"]["id"], now, now + 60, "C")                       # C begins as A ends
+        dvr.tick()
+        done = dvr.get(a["id"])
+        if done["inbox"]:
+            self.addCleanup(os.remove, os.path.join(config.path("inbox"), done["inbox"]))
+        self.assertNotEqual(done["state"], "recording")
+        self.assertEqual(dvr.get(c["id"])["state"], "recording", dvr.get(c["id"])["why"])
+
+    def test_one_that_broke_off_on_a_full_box_keeps_its_tuner(self):
+        chans = self.on()
+        now = int(time.time())
+        config.update({"dvr_pad_before": 0, "dvr_pad_after": 0})
+        a, b = self.both_tuners_taken(chans, now)
+        old = dvr._procs[b["id"]]["proc"]
+        old.kill()                                                                    # B's stream breaks off
+        old.wait()
+        dvr.tick()
+        r = dvr.get(b["id"])
+        self.assertEqual(r["state"], "recording", r["why"])                           # opened again, on its own tuner
+        self.assertEqual(dvr._procs[b["id"]]["restarts"], 1)
+        self.assertIsNot(dvr._procs[b["id"]]["proc"], old)
+        self.assertEqual(dvr.get(a["id"])["state"], "recording")
 
     def test_keep_the_last_two(self):
         self.on()

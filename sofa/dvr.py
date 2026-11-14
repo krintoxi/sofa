@@ -312,7 +312,7 @@ def _begin(r, now):
         return _fail(r, "The channel isn't there any more.")
     if not media.tool("ffmpeg"):
         return _fail(r, "Recording needs ffmpeg on this computer.")
-    if r["tuner"] and tuners.free(r["tuner"]) <= 0:
+    if r["tuner"] and r["state"] != "recording" and tuners.free(r["tuner"]) <= 0:   # (opened again: it has its tuner)
         freed = _end_padding(r["tuner"], now)       # one only recording its extra minutes gives its tuner up
         if not freed:
             if now < r["start"]:
@@ -412,10 +412,12 @@ def _finish(r, p):
 
 
 def tick(now=None):
-    """Once every few seconds: plan the series, give out tuners, begin what's due, follow what's running."""
+    """Once every few seconds: plan the series, follow what's running, give out tuners, begin what's due. What's
+    running is followed first, so a recording that has just ended gives its tuner back before the next one asks."""
     _table()
     now = int(now or time.time())
     expand(now=now)
+    _follow(now)
     plan(now)
     for r in [dict(x) for x in store.q("SELECT * FROM recordings WHERE state = 'scheduled' ORDER BY start")]:
         a, _b = _window(r)
@@ -423,6 +425,11 @@ def tick(now=None):
             _fail(r, "Sofa wasn't running when it was on.")
         elif a <= now:
             _begin(r, now)
+    keep_last()
+
+
+def _follow(now):
+    """The copies running: one that broke off is opened again (on the tuner it had), one that's done is finished."""
     with _lock:
         running = list(_procs.items())
     for rid, p in running:
@@ -442,7 +449,6 @@ def tick(now=None):
         with _lock:
             _procs.pop(rid, None)
         _finish(r, p)
-    keep_last()
 
 
 def keep_last():
