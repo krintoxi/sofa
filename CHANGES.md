@@ -19,9 +19,10 @@ here, then `python3 tools/sofa-version.py` (a test checks it was done).
 - **Recording** (`sofa/dvr.py`): now, a programme, a slot, or a series (new episodes only, keep the last N, no
   repeats of an episode already recorded). Padding (1 and 3 minutes) that gives way instead of clashing; conflicts
   across a box's tuners, said with what they clash with; a stream that breaks off is opened again on the tuner it
-  had and the parts joined; a recording that has just ended gives its tuner back before the next one begins. The file (the channel's own stream, copied) goes into the Inbox under a name it reads, and the Inbox files
-  it. Channels at home only (a tuner's, a list on the home network): never a list from the internet, never the Retro
-  TV decades or Classic Cinema. **A recording is never shown to the public library's Visitors**, even when its show
+  had and the parts joined; a recording that has just ended gives its tuner back before the next one begins. The
+  file (the channel's own stream, copied) goes into the Inbox under a name it reads, and the Inbox files it.
+  Channels at home only (a tuner's, a list on the home network): never a list from the internet, never the Retro TV
+  decades or Classic Cinema. **A recording is never shown to the public library's Visitors**, even when its show
   is shared.
 - The API is in `docs/tuners-and-recording.md`. **No screens yet, and no real tuner has run any of it**: it's tested
   against a stand-in tuner (`tests/stand_in_tuner.py`) with real ffmpeg recordings.
