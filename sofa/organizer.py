@@ -636,6 +636,7 @@ def _move(src, dest, message, private=False, why=None):
     stem_dest = os.path.splitext(dest)[0]
     fileops.move(src, dest)
     _filed_now.append((src, dest))
+    _tell_dvr(src, dest)
     for f in os.listdir(os.path.dirname(src)):     # subtitles and thumbnails that share the name
         p = os.path.join(os.path.dirname(src), f)
         base, ext = os.path.splitext(p)
@@ -658,6 +659,15 @@ def _move(src, dest, message, private=False, why=None):
     return True
 
 
+def _tell_dvr(src, dest):
+    """A recording the Inbox filed: where it went (sofa/dvr.py keeps it from Visitors, and keeps a series' last N)."""
+    try:
+        from . import dvr
+        dvr.filed(src, dest)
+    except Exception as exc:
+        store.log("error", "Noting a recording's place: %s" % exc)
+
+
 def _to_review(path, why, sub="From Inbox", private=False):
     if _link_tree():                                       # link mode: still shown, as a movie named after the file
         name = naming.safe_filename(naming.clean(os.path.splitext(os.path.basename(path))[0]) or "Untitled")
@@ -672,6 +682,7 @@ def _to_review(path, why, sub="From Inbox", private=False):
         dest = os.path.join(dest_dir, "%s (%d)%s" % (base, n, ext))
         n += 1
     fileops.move(path, dest)
+    _tell_dvr(path, dest)
     if private:
         store.log_private("review", "A private file needs a look (in Needs Review/XXX/%s)" % sub, {"file": path, "now_in": dest, "why": why})
     else:

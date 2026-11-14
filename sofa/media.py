@@ -444,7 +444,7 @@ def stream_command(item, mode, start, info, fmt="mp4", out="pipe:1", audio_index
     if mode == "remux":
         cmd += ["-map", v_in, "-c:v", "copy"] + (["-tag:v", "hvc1"] if video.get("codec") == "hevc" else [])
     else:
-        filters = (["yadif"] if video.get("interlaced") else []) + ["scale=-2:'min(ih,%d)'" % top] + plan["last"]
+        filters = (["yadif"] if video.get("interlaced") or item.get("interlaced") else []) + ["scale=-2:'min(ih,%d)'" % top] + plan["last"]
         if sub:     # subtitles drawn on, from the bottom up (a cropped film keeps them in the picture)
             graph = "[0:%d][0:%d]overlay=x=(main_w-overlay_w)/2:y=main_h-overlay_h:eof_action=pass,%s[v]" % (
                 video["index"], sub["index"], ",".join(filters))

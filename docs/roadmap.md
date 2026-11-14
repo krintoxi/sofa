@@ -36,10 +36,11 @@ Read this before you install, so nothing surprises you.
 - **The Mac card writer** (`imager/`) has written a card to a disk image in its tests and never to a real SD card.
 - **Sofa Box OS on a PC** (from a USB stick since 1.1.79; since 1.1.84 it can put itself on the PC's own drive) has
   started on GitHub's machines under UEFI, BIOS and Secure Boot, and never on a real PC.
-- **Live TV** plays channel lists you add and Classic Cinema from a public film archive. There is no tuner support and
-  no recording. Retro TV's decades (recordings of TV as it aired, played straight from a public video library) are
+- **Live TV** plays channel lists you add and Classic Cinema from a public film archive. Tuners at home (HDHomeRun),
+  an XMLTV guide and recording are in a draft (Sofa 1.5.13, [tuners-and-recording.md](tuners-and-recording.md)): no
+  screens yet, and no real tuner has run it. Retro TV's decades (recordings of TV as it aired, played straight from a public video library) are
   on unless an admin turns them off, and never reach the public library's visitors.
-- **Not built:** subtitle downloads, watch-together, photos, TV recording, a caption editor, playlists in Music, lyrics,
+- **Not built:** subtitle downloads, watch-together, photos, a caption editor, playlists in Music, lyrics,
   plugins, Plex or Jellyfin history import.
 - **The secure phone remote** for a box passes through EdgeVenture's relay (the code is in `deploy/box-certs/`); it
   can be switched off, and the plain http remote works at home without it.
@@ -103,7 +104,7 @@ In order. Each one ends with a line in the tested-on table.
 - **Subtitle downloads**, **watch-together**, a **caption editor**, and the Roku channel brought level with the Fire TV app.
 - Roku store certification; a Vega OS app if Amazon's web-view route allows a server of your own.
 - **Plex and Jellyfin history import** (what you've watched, where you were).
-- **HDHomeRun** recording.
+- **Tuners and recording on a real HDHomeRun**, and their screens in Live TV (the server side is in 1.5.13).
 - A native **Apple TV** app (tvOS has no web view, so it has to be native).
 
 ## Not planned

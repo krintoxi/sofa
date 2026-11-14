@@ -25,6 +25,7 @@ import struct
 import threading
 import time
 import urllib.parse
+import urllib.request
 import zlib
 
 from . import config, store
@@ -42,8 +43,11 @@ LINEUP_EVERY = 6 * 3600
 # ---------------------------------------------------------------- the discovery packet
 
 def packet(kind, tags):
-    """type, length, then tag-length-value triples, then the Ethernet CRC of all of it, little-endian."""
-    body = b"".join(bytes([tag, len(value)]) + value for tag, value in tags)
+    """type, length, then tag-length-value triples, then the Ethernet CRC of all of it, little-endian. A length of
+    128 or more takes two bytes: the low seven bits with the top bit set, then the rest."""
+    def size(n):
+        return bytes([n]) if n < 128 else bytes([0x80 | (n & 0x7F), n >> 7])
+    body = b"".join(bytes([tag]) + size(len(value)) + value for tag, value in tags)
     frame = struct.pack(">HH", kind, len(body)) + body
     return frame + struct.pack("<I", zlib.crc32(frame) & 0xFFFFFFFF)
 
@@ -121,10 +125,12 @@ def discover(timeout=1.5, to=None, port=None):
 
 
 def _json(url, timeout=6):
-    from . import live
+    """A tuner's answer. Only ever an address at home, asked directly: no proxy, and offline mode (which is about the
+    internet) doesn't stop it."""
     if not _home(url):
         raise ValueError("A tuner is on the home network; that address isn't.")
-    with live.fetch(url, timeout=timeout) as r:
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    with opener.open(urllib.request.Request(url, headers={"User-Agent": "Sofa"}), timeout=timeout) as r:
         return json.loads(r.read(4 * 2**20).decode("utf-8", "replace"))
 
 

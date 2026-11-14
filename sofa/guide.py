@@ -125,7 +125,7 @@ def _read(source):
     from . import live
     where = source.get("url") or source.get("path") or ""
     if where.startswith(("http://", "https://")):
-        with live.fetch(where, timeout=60) as r:
+        with live.fetch(where, timeout=60) as r:          # (on the internet: not in offline mode; at home: always)
             data = r.read(MAX_BYTES + 1)
     else:
         with open(os.path.expanduser(where), "rb") as f:

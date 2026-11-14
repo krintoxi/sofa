@@ -130,6 +130,8 @@ def fetch(url, headers=None, timeout=15, home_ok=True):
     h = {"User-Agent": AGENT}
     h.update(headers or {})
     req = urllib.request.Request(url, headers=h)
+    if home_ok and at_home(url):                # (a tuner at home: no proxy, and offline mode is about the internet)
+        return urllib.request.build_opener(urllib.request.ProxyHandler({})).open(req, timeout=timeout)
     if home_ok:
         return net.urlopen(req, timeout=timeout)
     if at_home(url):
@@ -362,8 +364,17 @@ def refresh(force=False):
                         "updated": int(os.path.getmtime(path)) if os.path.exists(path) else None}
     # each channel's number on the dial: today's channels from 101, after Sofa's own lineup (2 to 99), by group and
     # name, counted over every channel so a number is the same channel for everyone (an adult profile, a Visitor)
+    n = -1
     for n, c in enumerate(sorted(channels.values(), key=lambda c: (c["group"].lower(), c["name"].lower(), c["id"]))):
         c["number"] = FIRST_NUMBER + n
+    # then the tuners' channels (sofa/tuners.py), in their own order ("2.1", "5.1", "5.2"), after the lists' so adding
+    # a tuner moves no channel a household already knows by its number. A tuner's channel is in no list (so never a
+    # Visitor's) and at home (so never played away from home through this Sofa).
+    from . import tuners
+    for m, c in enumerate(t for t in tuners.channels(force) if t["id"] not in channels):
+        c["number"] = FIRST_NUMBER + n + 1 + m
+        c["lists"] = ()
+        channels[c["id"]] = c
     with _lock:
         _channels.clear()
         _channels.update(channels)
@@ -400,6 +411,10 @@ def listing(user_id, adult=False, public_only=False, direct_only=False, show_dow
     for c in chans:
         row = {"id": c["id"], "name": c["name"], "logo": c["logo"], "group": c["group"], "adult": c.get("adult", False),
                "playlist": c["playlist"], "fav": c["id"] in favs, "number": c.get("number")}
+        if c.get("tuner"):
+            row.update(tuner=True, guide_number=c.get("guide_number"), recordable=True)
+        elif c.get("home"):
+            row["recordable"] = True
         if direct_only:
             src = direct_url(c)
             if not src or c.get("geo"):                  # (marked for its own country only: it wouldn't play out here)
@@ -683,8 +698,8 @@ def _due(now=None):
     with _health_lock:
         first = list(_first)
         del _first[:]
-    with _lock:
-        chans = [c for c in _channels.values() if visible(c)]
+    with _lock:                                         # (a tuner's channel isn't looked at: a look would take a tuner)
+        chans = [c for c in _channels.values() if visible(c) and not c.get("tuner")]
     by_id = {c["id"]: c for c in chans}
     out = [by_id[cid] for cid in first if cid in by_id]
     if now - _health_state["wanted"] > WANTED_FOR:

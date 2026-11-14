@@ -97,6 +97,9 @@ def item_shared(item, library):
     """A playable item (an episode, a movie, an extra): part of something shared?"""
     if not item or item.get("adult") or item.get("kind") not in ("episode", "movie", "extra"):
         return False
+    from . import dvr
+    if dvr.is_recording(item.get("path")):          # a recording off the household's own tuner is the household's alone
+        return False
     owner = library.find(item["id"] if item["kind"] == "movie" else item.get("show_id"))
     return entry_shared(owner)
 

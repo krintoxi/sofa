@@ -20,10 +20,10 @@ from urllib.parse import parse_qs, quote, unquote, urlsplit
 
 import threading
 
-from . import (archive, __version__, acme, apps, artwork, auth, awake, backup, config, ddns, dlna, fetch, housekeeping, intros, live, media, metadata, music,
+from . import (archive, __version__, acme, apps, artwork, auth, awake, backup, config, ddns, dlna, dvr, fetch, guide, housekeeping, intros, live, media, metadata, music,
                outside,
                kids, machine, net, optimize, organizer, places, previews, report, screens, store, tls, trickplay, updater, upnp,
-               discovery, pairing, sharing, slow, travel, uploads)
+               discovery, pairing, sharing, slow, travel, tuners, uploads)
 from .library import LIBRARY
 
 CLIENT_DIR = os.path.join(config.APP_DIR, "client")
@@ -648,10 +648,13 @@ class Handler(BaseHTTPRequestHandler):
                 resp.close()
                 if not media.tool("ffmpeg"):
                     return self.send_body("This channel needs ffmpeg on the server.", status=503)
+                # A tuner's channel in MPEG-2 (most over-the-air TV) is interlaced, and no browser plays it: converted
+                # as it plays, the lines woven back into whole pictures. Anything else is repackaged as it is.
+                convert = bool(chan.get("tuner")) and tuners.needs_converting(chan)
                 try:
                     sid = media.hls_start({"id": "live:" + chan["id"], "path": chan["url"], "title": chan["name"],
-                                           "input_opts": live.ffmpeg_input(chan)}, "remux", 0, u["name"],
-                                          owner=self.owner())
+                                           "input_opts": live.ffmpeg_input(chan), "interlaced": convert},
+                                          "transcode" if convert else "remux", 0, u["name"], owner=self.owner())
                 except (RuntimeError, OSError):
                     return self.send_body("The server is busy. Try again in a moment.", status=503)
                 self.send_response(302)
@@ -820,6 +823,18 @@ class Handler(BaseHTTPRequestHandler):
             out["eras"] = archive.eras(visitor) or [{"id": "now", "name": "Live now"}]
             out["away"] = away
             return self.json(out)
+        if path == "/api/live/tuner-guide":            # the household's guide (XMLTV) for its own channels: never a Visitor's
+            if u.get("visitor"):
+                return self.error(404, "Not found.")
+            ids = [x for x in (qs.get("channel") or [""])[0].split(",") if x][:60]
+            start = int((qs.get("from") or [time.time()])[0])
+            return self.json({"at": int(time.time()), "guide": {c: guide.on(c, start, start + 6 * 3600) for c in ids}})
+        if path == "/api/dvr":                         # the household's recordings: never a Visitor's, nor a Kids profile's
+            if u.get("visitor") or u.get("kids"):
+                return self.error(404, "Not found.")
+            return self.json(dvr.listing())
+        if path == "/api/admin/tuners":
+            return self.json({"tuners": tuners.status(), "guide": guide.status()})
         if path == "/api/live/guide":                  # the archive channels' guide: what's on and next, by the clock
             chans = archive.guide(visitor=bool(u.get("visitor")))
             era, grp = (qs.get("era") or [""])[0], (qs.get("group") or [""])[0]
@@ -1329,6 +1344,54 @@ class Handler(BaseHTTPRequestHandler):
             auth.clear_guest()
             store.log("account", "%s cleared the guest history" % u["name"])
             return self.json({"ok": True})
+        if path == "/api/dvr":                         # record: now, a programme, a slot, a series; cancel; stop a series
+            if u.get("visitor") or u.get("kids") or u.get("guest") or self.network() == "internet":
+                return self.error(403, "Recording is for the household, from home.")
+            try:
+                if data.get("now"):
+                    return self.json({"ok": True, "recording": dvr.record_now(str(data["now"]), u)})
+                if data.get("programme"):
+                    p = data["programme"]
+                    return self.json({"ok": True, "recording": dvr.record_programme(str(p.get("channel") or ""), int(p.get("start") or 0), u)})
+                if data.get("slot"):
+                    p = data["slot"]
+                    return self.json({"ok": True, "recording": dvr.record(str(p.get("channel") or ""), int(p.get("start") or 0),
+                                                                           int(p.get("stop") or 0), str(p.get("title") or "")[:200] or None, u)})
+                if data.get("series"):
+                    p = data["series"]
+                    return self.json({"ok": True, "rule": dvr.add_rule(str(p.get("title") or ""), p.get("channel") or None,
+                                                                       bool(p.get("new_only")), int(p.get("keep") or 0), u)})
+                if data.get("cancel"):
+                    return self.json({"ok": True, "recording": dvr.cancel(int(data["cancel"]))})
+                if data.get("stop_series"):
+                    dvr.remove_rule(int(data["stop_series"]))
+                    return self.json({"ok": True})
+            except (ValueError, TypeError) as exc:
+                return self.error(400, str(exc))
+            return self.error(400, "Say what to record.")
+        if path == "/api/admin/tuners":                # tuners at home, and the guide's sources
+            try:
+                if data.get("find"):
+                    tuners.find()
+                if data.get("add"):
+                    tuners.add(str(data["add"]))
+                if isinstance(data.get("switch"), dict):
+                    tuners.switch(str(data["switch"].get("id") or ""), bool(data["switch"].get("on")))
+                if data.get("remove"):
+                    tuners.remove(str(data["remove"]))
+                if data.get("guide_add"):
+                    where = str(data["guide_add"]).strip()
+                    key = "url" if where.startswith(("http://", "https://")) else "path"
+                    if key == "path" and not os.path.isfile(os.path.expanduser(where)):
+                        raise ValueError("No file at that path on this computer.")
+                    config.update({"guide_sources": [s for s in guide.sources() if (s.get("url") or s.get("path")) != where] + [{key: where}]})
+                if data.get("guide_remove"):
+                    config.update({"guide_sources": [s for s in guide.sources() if (s.get("url") or s.get("path")) != data["guide_remove"]]})
+            except (ValueError, OSError) as exc:
+                return self.error(400, str(exc))
+            live.refresh(force=True)
+            threading.Thread(target=guide.refresh, kwargs={"force": True}, daemon=True).start()
+            return self.json({"ok": True, "tuners": tuners.status(), "guide": guide.status()})
         if path == "/api/admin/live":
             try:
                 if data.get("add"):
@@ -1834,6 +1897,15 @@ def slim_library(u):
         chosen = sharing.shared_ids()
         shows = [s for s in shows if sharing.entry_shared(s, chosen)]
         movies = [m for m in movies if sharing.entry_shared(m, chosen)]
+        recorded = dvr.recorded_paths()
+        if recorded:                               # recordings off the household's own tuner: never a Visitor's
+            def mine(i):
+                item = LIBRARY.item(i["id"]) or {}
+                return os.path.abspath(item.get("path") or "") in recorded
+            movies = [m for m in movies if not mine(m)]
+            shows = [s for s in (dict(s, seasons=[dict(se, episodes=[e for e in se["episodes"] if not mine(e)]) for se in s["seasons"]])
+                                 for s in shows) if any(se["episodes"] for se in s["seasons"])]
+            shows = [dict(s, seasons=[se for se in s["seasons"] if se["episodes"]]) for s in shows]
     if u.get("kids"):                              # a Kids profile: family titles only
         shows = [s for s in shows if kids.allowed(s, picked)]
         movies = [m for m in movies if kids.allowed(m, picked)]

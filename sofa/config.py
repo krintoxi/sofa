@@ -83,6 +83,13 @@ DEFAULTS = {
     "defaults_rev": 1,                   # which changes of a default this config.json has taken (load()): 1 = the decades on again
     "live_headers": False,               # channels that ask for a made-up browser name or referrer: hidden unless allowed
     "live_check": True,                  # look at the channels now and then, and leave out the ones that don't answer
+    # Tuners at home (sofa/tuners.py): [{"id", "name", "base", "lineup", "tuners", "on"}]. Found ones are listed off.
+    "tuners": [],
+    # The guide (sofa/guide.py): XMLTV sources, each {"url": ...} or {"path": ...}.
+    "guide_sources": [],
+    # Recording (sofa/dvr.py): minutes recorded before a programme's start and after its end.
+    "dvr_pad_before": 1,
+    "dvr_pad_after": 3,
     # Where updates come from (the Update button on the Server page, and tools/update.sh).
     "update_repo": "krintoxi/sofa",
     "update_branch": "main",
