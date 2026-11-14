@@ -1088,7 +1088,7 @@ function makeOver(seed) {
     if (dm < w.maw.r + 3) h = dm < w.maw.r ? -60 : h - (w.maw.r + 3 - dm) * 0.9;
     return h;
   });
-  w.h = (x, z) => land.at(x, z);
+  w.h = (x, z) => land.at(x, z); w.on = (x, z) => land.on(x, z);   // (on: the ground as it's drawn, for what's laid on it)
   w.inside = (x, z, m) => w.edge(x, z) < 0.9 - (m ? 0.012 : 0.004) && Math.hypot(x - w.maw.x, z - w.maw.z) > w.maw.r + 2.2;
   const free = (x, z, rad) => w.inside(x, z, 0.08) && w.blocks.free(x, z, rad);
   const place = (rad, tries, near) => {               // somewhere free in Hearthrim (near: [x, z, spread])
@@ -1111,6 +1111,7 @@ function makeOver(seed) {
   const sun = st.sun, sl = Math.hypot(sun[0], sun[1], sun[2]), sx = sun[0] / sl, sy = sun[1] / sl, sz = sun[2] / sl;
   w.shade = (x, y, z) => { for (let k = 1; k <= 5; k++) { const d = k * 3; if (land.at(x + sx * d, z + sz * d) > y + sy * d + 0.2) return 0.3; } return 1; };
   w.sky = (x, y, z, ny) => 0.78 + 0.22 * Math.max(0, ny);
+  { const sh = Math.hypot(sun[0], sun[2]) || 1, k = Math.min(1.15, sh / Math.max(0.05, sun[1])); w.cast = [-sun[0] / sh * k, -sun[2] / sh * k]; }   // (how far a metre of height throws its shadow: along the sun, but a low sun's is kept short, or dusk would lay every house across the square)
   w.madeMs = performance.now() - t0;
   return w;
 }
@@ -1163,7 +1164,12 @@ function openChunk(c) {
     if (r() < R_.pack && dc > 95) { const p = spot(2.5); if (p) { const kind = R_.foes[(r() * R_.foes.length) | 0], n = 2 + ((r() * 2) | 0);
       for (let q = 0; q < n; q++) { const fo = spawnFoe(kind, p[0] + (r() * 2 - 1) * 2.5, p[1] + (r() * 2 - 1) * 2.5, R_.lvl + ((r() * 3) | 0), false, false); fo.ck = d.key; } } }
   }
-  for (let k = 0, n = (wild ? 6 : 5) * (rich() ? 4 : 1); k < n; k++) { const x = c.x0 + r() * OW.chunk, z = c.z0 + r() * OW.chunk; if (w.inside(x, z, 1)) d.deco.push({ kind: wild ? REGIONS[w.region(x, z)].deco : "tuft", x, z, s: 0.7 + r() * 0.7, seed: (r() * 1e6) | 0 }); }
+  // what grows on the ground: the region's own; on the fuller look more of it, and grass comes with flowers and stones (not on the square's paving)
+  for (let k = 0, full = rich(), n = (wild ? 6 : 5) * (full ? (wild ? 4 : 8) : 1); k < n; k++) {
+    const x = c.x0 + r() * OW.chunk, z = c.z0 + r() * OW.chunk, sz = 0.7 + r() * 0.7, seed = (r() * 1e6) | 0; if (!w.inside(x, z, 1)) continue;
+    const kind = wild ? REGIONS[w.region(x, z)].deco : "tuft", pick = seed % 10, paved = x * x + (z - 4) * (z - 4) < 170;
+    if (paved && pick > 2) continue;
+    d.deco.push({ kind: full && kind === "tuft" && !paved ? (pick < 5 ? "tuft" : pick < 8 ? "bloom" : "stone") : kind, x, z, s: sz, seed }); }
 }
 function closeChunk(c) {
   const w = OVER, d = c.data; if (!d) return;
@@ -1209,10 +1215,27 @@ function buildTown(w, r, place, prop, node) {
     { who: "folk", x: 7, z: 4, home: [7, 4], wander: true, style: FOLK.folk2 },
     { who: "folk", x: 2, z: -8, home: [2, -8], wander: true, style: FOLK.folk3 }
   ];
+  // a yard for each house: logs piled against a wall, a barrel or two, a crate, a bench under a window: by its seed, and
+  // only where no tree or rock already stands (nothing here is left to chance, so nothing set down before it has moved)
+  for (const d of w.houses) {
+    const c = Math.cos(d.yaw), sn = Math.sin(d.yaw), s = d.s, v = d.seed % 4, da = d.seed % 3 - 1;
+    const put = (kind, lx, lz, turn, size, rad) => { const x = d.x + (lx * c + lz * sn) * s, z = d.z + (-lx * sn + lz * c) * s;
+      for (const nd of w.nodes) if (dist2(x, z, nd.x, nd.z) < 3.2) return;
+      w.deco.push({ kind, x, z, yaw: d.yaw + turn, s: size, seed: d.seed, fixed: true }); w.blocks.add(x, z, rad); };
+    const side = v & 1 ? 1 : -1, wx = da === 0 ? 1.72 : da < 0 ? 1.08 : -1.08;
+    if (v !== 3) put("woodpile", side * 2.95, -0.3, side * PI / 2, 1, 0.9);
+    put("barrel", -side * 3.0, 1.5, 0, 1, 0.5); if (v > 0) put("barrel", -side * 3.05, 0.62, 0, 0.82, 0.45);
+    if (v !== 1) put("crate", -side * 3.1, -0.5, 0.3, 1, 0.55); if (v === 3) put("crate", side * 3.05, 1.3, -0.2, 0.85, 0.5);
+    if (v >= 2) put("bench", wx, 2.62, 0, 1, 0.7);
+  }
 }
 
 // ---------------------------------------------------------------- what's built for each kind of small thing, in code
 function crag(m, x, y, z, s, seed, cols, top) { m.seed = seed; L3.Kit.rock(m, x, z, s, s * (1.1 + (seed % 7) / 7), cols, top, 0.22); }
+// Hearthrim's houses, three kinds: red tile over cream, slate over grey, brown over buff
+const HOUSES = [{ plaster: 0xb8a88c, timber: 0x3a2a20, roof: [0x6e342c, 0x5a2a26], shutter: 0x2f5a52, door: 0x5a3a26 },
+  { plaster: 0x9c988c, timber: 0x2c2622, roof: [0x40425a, 0x34364c], shutter: 0x7a2e3a, door: 0x3e3a44 },
+  { plaster: 0xaa9a7a, timber: 0x402e22, roof: [0x5e4832, 0x4e3a28], shutter: 0x3a5a34, door: 0x6a4a2c }];
 function decoMesh(w, d, m, glowM) {
   const st = w.st, y = w.h(d.x, d.z);
   switch (d.kind) {
@@ -1236,15 +1259,19 @@ function decoMesh(w, d, m, glowM) {
     case "tuft": { m.at(d.x, y, d.z, d.seed % 6, d.s); for (let k = 0; k < 4; k++) { const a = k / 4 * TAU + d.seed; m.both(0, 0, 0, Math.cos(a) * 0.25, 0.45, Math.sin(a) * 0.25, Math.cos(a + 0.5) * 0.15, 0.3, Math.sin(a + 0.5) * 0.15, k & 1 ? 0x4a7a3a : 0x5a8a44); }
       if (d.seed % 6 === 0) { glowM.at(d.x, y, d.z, 0, 1); glowM.box(0.1, 0.35, 0, 0.06, 0.06, 0.06, [0xff8ab0, 0xf0f0a0, 0xa0c8ff][d.seed % 3]); } break; }
     case "tree": { m.seed = d.seed; L3.Kit.pine(m, d.x, y, d.z, d.s, 0x4a3426, 0x2e5a3a); break; }
+    case "barrel": L3.Kit.barrel(m, d.x, y, d.z, d.s); break;
+    case "crate": L3.Kit.crate(m, d.x, y, d.z, d.yaw, d.s); break;
+    case "woodpile": L3.Kit.woodpile(m, d.x, y, d.z, d.yaw, d.s); break;
+    case "bench": L3.Kit.bench(m, d.x, y, d.z, d.yaw, d.s); break;
+    case "bloom": { m.at(d.x, y, d.z, d.seed % 6, d.s); const c = [0xd84a6a, 0xe8e0d0, 0xb07ae0, 0xe8d27a][d.seed % 4];   // a few flowers: a stem, and a head seen from above
+      for (let k = 0; k < 4; k++) { const a = k * 1.7 + d.seed, r = 0.1 + (k % 3) * 0.11, px = Math.cos(a) * r, pz = Math.sin(a) * r, hh = 0.2 + (k % 2) * 0.12;
+        m.both(px, 0, pz, px + 0.02, hh, pz, px + 0.07, 0, pz + 0.05, 0x3e6a34); m.quad(px - 0.07, hh, pz - 0.07, px + 0.07, hh, pz - 0.07, px + 0.07, hh, pz + 0.07, px - 0.07, hh, pz + 0.07, k & 1 ? U.shade(c, 0.86) : c, px, hh - 1, pz); } break; }
+    case "stone": { m.seed = d.seed; for (let k = 0; k < 2 + d.seed % 2; k++) { const a = k * 2.3 + d.seed;                  // two or three stones in the grass
+        m.at(d.x + Math.cos(a) * 0.3 * k * d.s, y - 0.04, d.z + Math.sin(a) * 0.3 * k * d.s, a, d.s * (0.55 + 0.3 * ((d.seed >> k) % 3))); m.stack([[0.3, 0], [0.2, 0.2]], 5, 0x6e6a64, 0x8a867c, 0.2); } break; }
     case "lamp": { m.at(d.x, y, d.z, 0, 1); m.stack([[0.07, 0], [0.06, 2.3]], 5, 0x2a2420, null); m.box(0, 2.3, 0, 0.3, 0.06, 0.3, 0x2a2420);
       glowM.at(d.x, y, d.z, 0, 1); glowM.box(0, 2.1, 0, 0.18, 0.22, 0.18, 0xffd28a); break; }
-    case "house": {
-      m.at(d.x, y, d.z, d.yaw, d.s); const wall = [0x8a7a68, 0x7a6a5a, 0x9a8a72][d.seed % 3], roof = [0x5a2e2a, 0x3a3a4a, 0x4a3a2a][d.seed % 3];
-      m.box(0, -0.5, 0, 5, 3.6, 4.2, wall); m.box(0, 3.1, 0, 5.2, 0.15, 4.4, 0x4a3a2e);
-      m.quad(-2.8, 3.1, 2.4, 2.8, 3.1, 2.4, 2.8, 5.2, 0, -2.8, 5.2, 0, roof, 0, 0, 0); m.quad(2.8, 3.1, -2.4, -2.8, 3.1, -2.4, -2.8, 5.2, 0, 2.8, 5.2, 0, roof, 0, 0, 0);
-      m.tri(2.5, 3.1, 2.2, 2.5, 3.1, -2.2, 2.5, 5.0, 0, wall, 0, 4, 0); m.tri(-2.5, 3.1, -2.2, -2.5, 3.1, 2.2, -2.5, 5.0, 0, wall, 0, 4, 0);
-      m.box(0, 0, 2.12, 0.9, 1.9, 0.08, 0x3a2a1e); m.box(1.6, 3.6, 0.8, 0.4, 1.2, 0.4, 0x5a4a40);
-      glowM.at(d.x, y, d.z, d.yaw, d.s); glowM.box(-1.4, 1.2, 2.13, 0.8, 0.7, 0.04, 0xffc870); glowM.box(1.4, 1.2, 2.13, 0.8, 0.7, 0.04, 0xffc870); break; }
+    case "house": {                                   // (Low3D's Kit.house: three kinds by its seed, fewer parts on the light look)
+      const v = d.seed % 3; d.smoke = L3.Kit.house(m, glowM, d.x, y, d.z, d.yaw, d.s, Object.assign({ seed: d.seed, detail: rich() ? 2 : 1 }, HOUSES[v])); break; }
   }
 }
 // a tree of each kind, where it stands; spent: its stump
@@ -2158,11 +2185,61 @@ function buildChunk(c, base, glow, step) {
   }
   for (const p of d.props) { const lit = p.name === "crystal"; stampThing(lit ? glow : base, glow, tpl("p" + p.name + p.tint, (m, g) => putModel(m, p.name, 0, 0, 0, 0, 1, p.tint ? tintTo(p.tint, lit ? 0.75 : 0.5) : null)), p.x, p.y, p.z, p.yaw || 0, p.s || 1, 1); }
   for (const nd of d.nodes) stampNode(w, nd, base, glow);
-  if (rich()) for (const nd of d.nodes) {             // (the fuller look: the ground darker under what stands on it)
-    if (nd.kind !== "tree" && nd.kind !== "ore" || nd.hidden) continue; const r = nd.kind === "tree" ? (nd.on ? 1.7 : 0.7) * nd.s : 1.5, col = U.shade(REGIONS[w.region(nd.x, nd.z)].ground[0], 0.62);
-    base.at(nd.x, nd.y + 0.04, nd.z, nd.x, r, 0.5, r); base.disc(1, 7, 0, col); }
+  castShadows(w, d, base, c);
   base.at(0, 0, 0); glow.at(0, 0, 0);
   return true;
+}
+// The square's flagstones: rings of them round the fount, each a flat piece just over the ground and no two the same
+// grey, warmer where a lamp stands over them; the square's edge ragged. Fewer and bigger on the light look.
+function pave(w, c, base, gc) {
+  const cx = 0, cz = 1, step = rich() ? 1.15 : 1.9, lift = 0.05; base.at(0, 0, 0);     // (round the fount, as far as the square goes)
+  for (let rr = 2.9; rr < 15.6; rr += step) {
+    const n = Math.round(TAU * rr / (step * 1.3)), off = (rr * 7.3) % 1;
+    for (let i = 0; i < n; i++) {
+      const a0 = (i + off + 0.035) / n * TAU, a1 = (i + off + 0.965) / n * TAU, am = (a0 + a1) / 2, rm = rr + step / 2, mx = cx + Math.cos(am) * rm, mz = cz + Math.sin(am) * rm;
+      if (mx < c.x0 || mx >= c.x1 || mz < c.z0 || mz >= c.z1) continue;
+      const hsh = Math.abs(Math.sin(i * 12.9898 + rr * 78.233) * 43758.5453) % 1, out = mx * mx + (mz - 4) * (mz - 4); if (out > 150 || out > 110 && hsh < 0.3) continue;
+      let lit = 0; for (const l of w.lamps) lit = Math.max(lit, 0.3 - 0.075 * Math.hypot(mx - l[0], mz - l[2]));
+      const r0 = rr + 0.04, r1 = rr + step - 0.05, g = mix(U.shade([0x7a766c, 0x6e6a62, 0x86817a][(hsh * 97 | 0) % 3], 0.94 + hsh * 0.12), 0xffc27a, Math.max(0, lit));
+      const ax = cx + Math.cos(a0) * r0, az = cz + Math.sin(a0) * r0, bx = cx + Math.cos(a1) * r0, bz = cz + Math.sin(a1) * r0, ex = cx + Math.cos(a1) * r1, ez = cz + Math.sin(a1) * r1, fx = cx + Math.cos(a0) * r1, fz = cz + Math.sin(a0) * r1;
+      base.quad(ax, w.on(ax, az) + lift, az, bx, w.on(bx, bz) + lift, bz, ex, w.on(ex, ez) + lift, ez, fx, w.on(fx, fz) + lift, fz, g, mx, -50, mz);
+    }
+  }
+}
+// What stands throws a shadow: laid on the ground as the chunk is made, in the ground's own colour, darker (Kit.cast).
+// Houses, the well, the gates and the lamps on every rung; trees and rocks on the fuller look.
+const CROWN = [[1.55, 2.5, 0.55, 4.6, 7.3], [1.3, 3.3, 0.8, 5.0, 5.7], [1.65, 3.2, 0.8, 4.6, 5.1], [1.9, 2.9, 0.8, 3.9, 4.3], [2.3, 4.8, 0.8, 6.6, 8.0], [2.0, 4.2, 0.8, 5.6, 6.6]];   // a tree's crown by kind: radius, from, narrowing to, at, tip
+function castShadows(w, d, base, c) {
+  const gc = w.gcol || (w.gcol = overColour(w, {})), col = (x, z) => U.shade(gc(w.h(x, z), 0, x, z), 0.58), dx = w.cast[0], dz = w.cast[1], P = [];
+  const ring = (x, z, r, h, n, a0) => { for (let i = 0; i < n; i++) { const a = (a0 || 0) + i / n * TAU; P.push(x + Math.cos(a) * r, z + Math.sin(a) * r, h); } };
+  const lay = fan => { L3.Kit.cast(base, P, dx, dz, w.on, col, 0.09, fan); P.length = 0; };   // (fan: a small shadow, in a third of the triangles)
+  for (const q of d.deco) {
+    if (q.kind === "house") { const c = Math.cos(q.yaw), sn = Math.sin(q.yaw), s = q.s, at = (lx, lz, h) => P.push(q.x + (lx * c + lz * sn) * s, q.z + (-lx * sn + lz * c) * s, h * s);
+      for (const sx of [-1, 1]) { for (const sz of [-1, 1]) { at(sx * 2.6, sz * 2.2, 0); at(sx * 2.8, sz * 2.4, 3.1); } at(sx * 2.8, 0, 5.2); } at(1.6, 0.8, 5.3); lay(); }
+    else if (q.kind === "lamp") { ring(q.x, q.z, 0.09, 0, 4); ring(q.x, q.z, 0.09, 2.3, 4); ring(q.x, q.z, 0.2, 2.4, 4); lay(1); }
+    else if (q.kind === "barrel") { ring(q.x, q.z, 0.43 * q.s, 0, 6); ring(q.x, q.z, 0.36 * q.s, 0.92 * q.s, 6); lay(1); }
+    else if (q.kind === "crate") { ring(q.x, q.z, 0.56 * q.s, 0, 4, q.yaw + PI / 4); ring(q.x, q.z, 0.56 * q.s, 0.7 * q.s, 4, q.yaw + PI / 4); lay(1); }
+    else if (q.kind === "woodpile") { const c = Math.cos(q.yaw), sn = Math.sin(q.yaw); for (const sx of [-0.85, 0.85]) for (const sz of [-0.3, 0.3]) for (const h of [0, 1.05]) P.push(q.x + sx * c + sz * sn, q.z - sx * sn + sz * c, h); lay(1); }
+  }
+  for (const p of d.props) { const k = p.s || 1; if (p.name === "crystal" || p.name === "fount") continue; ring(p.x, p.z, 0.42 * k, 0, 6); ring(p.x, p.z, 0.36 * k, 0.75 * k, 6); lay(1); }
+  // light on the ground, laid the same way: a pool under each lamp, and what a house's windows spill before it
+  const warm = (x, z, k) => mix(gc(w.h(x, z), 0, x, z), 0xffc27a, k);
+  for (const q of d.deco) {
+    if (q.kind === "lamp" && q.x * q.x + (q.z - 4) * (q.z - 4) > 160) { for (let i = 0; i < 9; i++) P.push(q.x + Math.cos(i / 9 * TAU) * 2.5, q.z + Math.sin(i / 9 * TAU) * 2.5); L3.Kit.lay(base, P, w.on, (x, z) => warm(x, z, Math.max(0.08, 0.3 - 0.085 * Math.hypot(x - q.x, z - q.z))), 0.07); P.length = 0; }
+    else if (q.kind === "house") { const c = Math.cos(q.yaw), sn = Math.sin(q.yaw), s = q.s, da = q.seed % 3 - 1, at = (lx, lz) => P.push(q.x + (lx * c + lz * sn) * s, q.z + (-lx * sn + lz * c) * s);
+      for (const wx of da === 0 ? [-1.72, 1.72] : da < 0 ? [0.42, 1.74] : [-1.74, -0.42]) { at(wx - 0.45, 2.5); at(wx + 0.45, 2.5); at(wx + 1.0, 4.9); at(wx - 1.0, 4.9); L3.Kit.lay(base, P, w.on, (x, z) => warm(x, z, 0.17), 0.07, 1); P.length = 0; } }
+  }
+  if (c.x0 < 13 && c.x1 > -13 && c.z0 < 17 && c.z1 > -9) pave(w, c, base, gc);
+  for (const nd of d.nodes) {
+    if (nd.hidden || nd.dyn) continue;
+    if (nd.kind === "well") { ring(nd.x, nd.z, 1.2, 0, 8); ring(nd.x, nd.z, 1.2, 0.8, 8); const c = Math.cos(nd.id), sn = Math.sin(nd.id);
+      for (const sx of [-1, 1]) { for (const sz of [-1, 1]) P.push(nd.x + sx * 1.4 * c + sz * 0.9 * sn, nd.z - sx * 1.4 * sn + sz * 0.9 * c, 2.6); P.push(nd.x + sx * 1.4 * c, nd.z - sx * 1.4 * sn, 3.3); } lay(); }
+    else if (nd.kind === "portal") for (const sd of [-1, 1]) { ring(nd.x + sd * 1.25, nd.z, 0.42, 0, 4, PI / 4); ring(nd.x + sd * 0.9, nd.z, 0.26, 3.2, 4, PI / 4); P.push(nd.x + sd * 0.7, nd.z, 4); lay(); }
+    else if (rich() && nd.kind === "tree") { const s = nd.s || 1, k = CROWN[nd.tree] || CROWN[0], f = (nd.tree === 4 ? 1.15 : nd.tree === 5 ? 1.1 : 1) * s;
+      if (!nd.on) { ring(nd.x, nd.z, 0.4 * s, 0, 5); ring(nd.x, nd.z, 0.34 * s, 0.42 * s, 5); lay(1); continue; }
+      ring(nd.x, nd.z, 0.24 * f, 0, 4); ring(nd.x, nd.z, k[0] * f, k[1] * f, 7, nd.seed % 6); ring(nd.x, nd.z, k[0] * k[2] * f, k[3] * f, 5, nd.seed % 6); P.push(nd.x, nd.z, k[4] * f); lay(); }
+    else if (rich() && nd.kind === "ore") { ring(nd.x, nd.z, 1.25, 0, 7, nd.x); ring(nd.x, nd.z, 0.9, 1.0, 5, nd.x); lay(1); }
+  }
 }
 // the ground's colour: its region's (the borders ragged), rock where it's steep or high, the fen's pools, the Cinderreach's
 // cracks alight, Hearthrim's square, and the roads out to each region's gate

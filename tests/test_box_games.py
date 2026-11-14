@@ -1683,6 +1683,73 @@ ui.begin(640, 360); b.push({ title: "wide enough to read", text: "x" }); b.step(
         self.assertGreater(out["wide"], 200)
         self.assertEqual(out["upper"], "WIDE ENOUGH TO READ")
 
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_what_is_laid_on_the_ground(self):
+        """The ground as it's drawn (Land.on) is each cell's own two triangles, where `at` is smooth between the corners
+        and lies off them; a shape laid on it (Kit.lay) faces up, sits its lift over the ground at every corner and
+        covers the hull of its points; a shadow (Kit.cast) reaches as far as the thing's height throws it."""
+        out = self.node(r"""
+const land = new L3.Land(40, 16, 0).fill((x, z) => Math.sin(x * 0.7) * 1.5 + Math.cos(z * 0.9 + x * 0.3));
+const g = new L3.Mesh(64); land.part(g, 0, 0, 16, 16, () => 0x446644);
+let worst = 0, apart = 0;
+for (let t = 0; t < g.n; t += 3) { const x = (g.f[t * 5] + g.f[t * 5 + 5] + g.f[t * 5 + 10]) / 3, y = (g.f[t * 5 + 1] + g.f[t * 5 + 6] + g.f[t * 5 + 11]) / 3, z = (g.f[t * 5 + 2] + g.f[t * 5 + 7] + g.f[t * 5 + 12]) / 3;
+  worst = Math.max(worst, Math.abs(land.on(x, z) - y)); apart = Math.max(apart, Math.abs(land.at(x, z) - y)); }
+out.on = [g.n / 3, worst < 1e-4, apart > 0.02];
+const flat = () => 2, m = new L3.Mesh(64);
+L3.Kit.lay(m, [0, 0, 4, 0, 4, 4, 0, 4, 2, 2, 1, 3], flat, () => 0x202020, 0.05);
+let up = true, onIt = true, area = 0;
+for (let t = 0; t < m.n; t += 3) { const p = k => [m.f[(t + k) * 5], m.f[(t + k) * 5 + 1], m.f[(t + k) * 5 + 2]], a = p(0), b = p(1), c = p(2);
+  if (m.i8[t * 20 + 13] <= 100) up = false; for (const q of [a, b, c]) if (Math.abs(q[1] - 2.05) > 1e-5) onIt = false;
+  area += Math.abs((b[2] - a[2]) * (c[0] - a[0]) - (b[0] - a[0]) * (c[2] - a[2])) / 2; }
+out.lay = [m.n / 3, up, onIt, Math.round(area * 100) / 100];
+const s = new L3.Mesh(64); L3.Kit.cast(s, [0, 0, 0, 0.1, 0, 0, 0.1, 0.1, 0, 0, 0.1, 0, 0, 0, 2, 0.1, 0, 2, 0.1, 0.1, 2, 0, 0.1, 2], 1.5, 0, flat, () => 0, 0.05);
+let x0 = 9, x1 = -9, z1 = -9; for (let v = 0; v < s.n; v++) { x0 = Math.min(x0, s.f[v * 5]); x1 = Math.max(x1, s.f[v * 5]); z1 = Math.max(z1, s.f[v * 5 + 2]); }
+out.cast = r3([x0, x1, z1]); out.none = L3.Kit.lay(new L3.Mesh(8), [0, 0, 1, 1], flat, () => 0).n;
+""")
+        self.assertEqual(out["on"], [512, True, True])                      # 16 by 16 cells, two triangles each; `at` is off them
+        self.assertEqual(out["lay"], [12, True, True, 16])                  # the hull is the square: the two points inside it add nothing
+        self.assertEqual(out["cast"], [0, 3.1, 0.1])                         # from its foot to where two metres are thrown
+        self.assertEqual(out["none"], 0)                                     # two points are no shape
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_a_house_with_a_frame(self):
+        """Kit.house: more of it with each step of detail and never more than a Pi can spare, its windows lit into the
+        glow mesh, what's worked on it facing south (its north wall plain), its size as it says, and its chimney's end
+        where the house was put, turned and sized."""
+        out = self.node(r"""
+const make = d => { const m = new L3.Mesh(256), g = new L3.Mesh(64), top = L3.Kit.house(m, g, 10, 1, 20, 0, 1, { seed: 4, detail: d }); return [m.n / 3, g.n / 3, r3(top)]; };
+out.h = [make(0), make(1), make(2)];
+const m = new L3.Mesh(256), g = new L3.Mesh(64); L3.Kit.house(m, g, 0, 0, 0, 0, 1, { seed: 4, detail: 2 });
+let north = 0, south = 0, hi = 0, wide = 0, deep = 0;
+for (let t = 0; t < m.n; t += 3) { const y = (m.f[t * 5 + 1] + m.f[t * 5 + 6] + m.f[t * 5 + 11]) / 3, z = (m.f[t * 5 + 2] + m.f[t * 5 + 7] + m.f[t * 5 + 12]) / 3; if (y > 0.6 && y < 3.05) { if (z < -2.05 && z > -2.25) north++; if (z > 2.05 && z < 2.4) south++; } }   // (what's on each long wall)
+for (let v = 0; v < m.n; v++) { hi = Math.max(hi, m.f[v * 5 + 1]); wide = Math.max(wide, Math.abs(m.f[v * 5])); deep = Math.max(deep, Math.abs(m.f[v * 5 + 2])); }
+out.faces = [north, south]; out.size = r3([hi, wide, deep]);
+out.turned = r3(L3.Kit.house(new L3.Mesh(256), null, 0, 0, 0, Math.PI / 2, 2, { seed: 4, detail: 0 }));
+const k = n => { const q = new L3.Mesh(64); L3.Kit[n](q, 0, 0, 0, 0, 1); return q.n / 3; };
+out.yard = [k("barrel"), k("crate"), k("woodpile"), k("bench")];
+""")
+        t0, t1, t2 = (h[0] for h in out["h"])
+        self.assertTrue(100 < t0 < t1 < t2, out["h"])
+        self.assertLessEqual(t1, 300)                                       # the house a Pi 3 is given
+        self.assertLessEqual(t2, 420)
+        self.assertEqual([h[1] for h in out["h"]], [4, 8, 20])              # two windows; two more in its sides; a lantern by the door
+        self.assertEqual(out["h"][2][2], [11.35, 7.2, 19.25])               # the chimney's end: where smoke starts
+        self.assertEqual(out["faces"][0], 2)                               # the north wall: the wall, and nothing on it
+        self.assertGreater(out["faces"][1], 60)                            # the south wall: beams, the door, windows, shutters
+        self.assertEqual(out["size"], [6.17, 2.86, 2.86])
+        self.assertEqual(out["turned"], [-1.5, 12.4, -2.7])
+        self.assertTrue(all(10 < n < 120 for n in out["yard"]), out["yard"])
+
+    def test_wyrd_builds_its_village_from_the_kit(self):
+        """WYRD's page: Hearthrim's houses are the engine's, shadows are thrown as each chunk is made and laid on the ground
+        as it's drawn, and the square is paved."""
+        with open(os.path.join(BOX, "games", "wyrd", "index.html"), encoding="utf-8") as f:
+            page = f.read()
+        for part in ("L3.Kit.house(m, glowM,", "function castShadows(w, d, base, c)", "L3.Kit.cast(base, P, dx, dz, w.on,", "w.on = (x, z) => land.on(x, z)",
+                     "function pave(w, c, base, gc)", 'put("woodpile"', "w.cast = ["):
+            self.assertIn(part, page)
+        self.assertNotIn("w.h, col", page)                                 # (what's laid goes on the ground as drawn, not the smooth one)
+
 
 class TheRig(unittest.TestCase):
     """Low3D's Rig (bodies a pose at a time): where a pose puts each joint, the other side's pose, clips by name, things
