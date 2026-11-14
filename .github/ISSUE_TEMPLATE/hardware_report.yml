@@ -12,9 +12,9 @@ body:
   - type: input
     id: board
     attributes:
-      label: Board or device
-      description: Model, revision and memory.
-      placeholder: "Raspberry Pi 5, 4 GB"
+      label: Hardware
+      description: What it is, not what it's sold as. A Raspberry Pi's board, revision and memory; for anything else the processor, its cores, memory, graphics and system (the box's Settings → This box → About, and Server → Overview → This computer, show them).
+      placeholder: "Raspberry Pi 5, 4 GB; or: Intel N100, 4 cores, 8 GB, Intel UHD Graphics, Debian 13"
     validations:
       required: true
   - type: input
@@ -34,12 +34,12 @@ body:
     id: tv
     attributes:
       label: TV and connection
-      placeholder: "Samsung Q60 (2021), HDMI 2, 4K; TV's overscan off; Ethernet to the router"
+      placeholder: "4K60 TV with HDR10, HDMI 2; TV's overscan off; Ethernet to the router"
   - type: input
     id: controls
     attributes:
       label: What you worked it with
-      placeholder: "iPhone 15 as the remote; a Fire TV remote; an Xbox controller over Bluetooth; the TV's remote over CEC"
+      placeholder: "A phone (iOS 18 Safari) as the remote; a Fire TV remote; an Xbox controller over Bluetooth; the TV's remote over CEC"
   - type: input
     id: power
     attributes:

@@ -348,7 +348,7 @@ class TheHardwareGuide(unittest.TestCase):
 
     def test_the_boards_table(self):
         part = self.doc.split("## 4.", 1)[1].split("## 5.", 1)[0]
-        for b in ("Orange Pi 5", "Orange Pi 3B", "ROCK 5", "ZERO 3", "Libre Computer", "Banana Pi", "Android TV box", "NUC", "Apple Silicon"):
+        for b in ("Orange Pi 5", "Orange Pi 3B", "ROCK 5", "ZERO 3", "Libre Computer", "Banana Pi", "Android TV box", "x86-64 mini PCs", "Apple Silicon"):
             self.assertIn(b, part, b)
         self.assertIn("| Board", part)
         self.assertRegex(part, r"20\d\d-\d\d-\d\d")                                  # dated

@@ -49,7 +49,7 @@ or [open an issue](https://github.com/krintoxi/sofa/issues/new/choose).
 
 **If Sofa earns a place in your house,** a star helps the next household find it. What helps more is a
 [hardware report](https://github.com/krintoxi/sofa/issues/new/choose) from a machine we don't have: a Raspberry Pi 4
-or 5, a Fire TV stick, a Roku, a Windows PC. Each one goes into [Tested on](docs/capabilities.md#tested-on) with your
+or 5, a Fire TV stick, a Roku, a Windows PC. Each one goes into [Tested hardware](docs/capabilities.md#tested-on) with your
 name on it. Where to start with the code: [CONTRIBUTING.md](CONTRIBUTING.md).
 
 **Why not Jellyfin or Plex?** Both are bigger and have an app in every TV's store; Sofa is for a household that wants
@@ -107,9 +107,9 @@ says so: **[What Sofa can do today](docs/capabilities.md).** In short:
 ## Status
 
 Sofa 1.5.10 and Sofa Box OS 1.1.84, 2026-11-12. **The Sofa Server and the web app are solid** on a Mac or Linux
-computer, used daily on a 2011 iMac, with over 400 automated tests GitHub runs on every change (real ffmpeg, mpv,
+computer, used daily on a four-core Intel Core i5 without AVX2 (16 GB of memory, macOS 13), with over 400 automated tests GitHub runs on every change (real ffmpeg, mpv,
 Chrome and Let's Encrypt's test server). **The Sofa Box has run on one Raspberry Pi 3 Model B+**, the owner's, where
-the setup by iPhone and Fire TV remote, the phone remote, Sofa from the iMac, YouTube, an Xbox controller and the
+the setup by iPhone and Fire TV remote, the phone remote, Sofa from the home server, YouTube, an Xbox controller and the
 box's reports have been used for real; the newest card tried there is 1.1.73 (2026-11-12), and what the owner found
 on it led to 1.1.80 and 1.1.81, so 1.1.74 to 1.1.84 are on the Pi for the first time when the owner tests the next
 card. **On a PC, from a USB stick** (since 1.1.79): the PC version is published beside every card, once GitHub has
@@ -121,7 +121,7 @@ HDMI-CEC are built and tested in software and have not been tried on a real box.
 channel are built by GitHub and no run on a real device is on record.** Sofa Box Imager 0.2.0, the Mac app for
 writing a card, writes the PC's USB stick too; **it has never written a real card or stick.** No card is marked
 stable yet. The table of what was tested on which hardware, by whom and when:
-[Tested on](docs/capabilities.md#tested-on). Anything you run that isn't in that table is worth a
+[Tested hardware](docs/capabilities.md#tested-on). Anything you run that isn't in that table is worth a
 [hardware report](https://github.com/krintoxi/sofa/issues/new/choose).
 **Sofa for Windows** (since Sofa 1.5.9): the installer and the server have run on GitHub's Windows machines on every
 change, installed, started, quit and uninstalled there, and not yet on a real Windows PC. The installer isn't signed
@@ -186,9 +186,12 @@ from **Settings → Software**.
 
 For your own shows and movies (the **Sofa Server** and the **Sofa App**):
 
-- **A computer that stays on**, for the Sofa Server: a Mac (an old one is fine: Sofa runs on a 2011
-  iMac), a Windows 10 or 11 PC ([On Windows](docs/install.md#on-windows)), a Linux computer, or anything that runs
-  Docker (a NAS; see [In Docker](docs/install.md#in-docker)).
+- **A computer that stays on**, for the Sofa Server: a Mac, a Windows 10 or 11 PC
+  ([On Windows](docs/install.md#on-windows)), a Linux computer, or anything that runs Docker (a NAS; see
+  [In Docker](docs/install.md#in-docker)). The processor can be x86-64, with or without AVX2, 64-bit ARM or Apple
+  silicon, and it needn't be new: Sofa runs daily on four Intel cores without AVX2 (16 GB, macOS 13), and inside a
+  Sofa Box on a Raspberry Pi 3's four Cortex-A53 cores and 1 GB. What has run on which hardware:
+  [Tested hardware](docs/capabilities.md#tested-on).
 - **Your shows and movies** as files (from your own discs, downloads, a camera...).
 - **Something to watch on**, with the Sofa App: a TV with a Fire TV stick, a Roku or a Raspberry Pi
   with Sofa Box OS; or any phone, tablet or laptop.
@@ -454,7 +457,7 @@ deleted. More: [docs/folder-structure.md](docs/folder-structure.md).
   picture; Sofa checks, and never uses it there). On a slow computer, **Gentle mode** keeps video
   converted while you watch at 720p and saves heavy background work for the quiet hours (1-7 am).
   Server → Overview → This computer. If a video converts slower than it plays (a 1080p HEVC 10-bit
-  episode on a 2011 iMac, say), the player waits once for a few seconds of video instead of stopping
+  episode on four x86-64 cores without AVX2, say), the player waits once for a few seconds of video instead of stopping
   every few seconds, then makes the picture a little smaller; Sofa remembers, and starts the next
   one like it at that size. Server → Overview → Watching now shows how fast it's converting.
 - **Make it yours.** Press **Theme** at the top (on a TV: behind your profile picture): Street (the

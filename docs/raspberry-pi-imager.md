@@ -249,7 +249,7 @@ What it takes:
   owner's accounts to open. Without them, macOS sends people to Privacy & Security → Open Anyway, and
   Windows shows SmartScreen.
 - **Testing on real machines:**
-  - The Macs exist: Neo, the iMac with its SD writer, and the M4. Start with macOS.
+  - The Macs exist: two with Apple silicon, and an Intel one with an SD card slot. Start with macOS.
   - There's no Windows PC in the fleet. A Windows writer that has never written a real card shouldn't
     reach owners, so Windows waits for one, and the list in Raspberry Pi Imager covers Windows until then.
 

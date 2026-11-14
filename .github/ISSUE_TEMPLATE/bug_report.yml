@@ -44,16 +44,16 @@ body:
     id: hardware
     attributes:
       label: Hardware
-      description: The board or device, its memory, the TV, and what works it (phone, Fire TV remote, controller, CEC, keyboard).
-      placeholder: "Raspberry Pi 4, 2 GB; LG C1 TV over HDMI; iPhone as the remote"
+      description: The hardware, not the model name. A Raspberry Pi's board and memory; for anything else the processor, its cores, memory and graphics. Then the TV, and what works it (phone, Fire TV remote, controller, CEC, keyboard).
+      placeholder: "Raspberry Pi 4, 2 GB; a 4K60 TV over HDMI; a phone (iOS Safari) as the remote"
     validations:
       required: true
   - type: input
     id: server
     attributes:
       label: The Sofa computer (if there is one)
-      description: What runs the Sofa server, and how the box or app reaches it.
-      placeholder: "2015 MacBook Pro, macOS Monterey, wired; the box on Wi-Fi"
+      description: What runs the Sofa server (processor, cores, memory, graphics, system; Server → Overview → This computer shows them), and how the box or app reaches it.
+      placeholder: "Intel Core i5, 4 cores, 8 GB, macOS 12, wired; the box on Wi-Fi"
   - type: textarea
     id: what
     attributes:

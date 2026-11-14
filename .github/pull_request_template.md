@@ -3,7 +3,8 @@
 
 ## Tested on
 
-<!-- What you ran it on (a Mac, Debian 13, a Pi 3 B+, a Fire TV...), and what you didn't. -->
+<!-- The hardware you ran it on, by what it is: processor (x86-64 with or without AVX2, a Cortex core, Apple silicon),
+     cores, memory, graphics or encoder, and the system; a Raspberry Pi by its board. And what you didn't run. -->
 
 
 ## Before it's merged

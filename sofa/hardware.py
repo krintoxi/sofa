@@ -1,4 +1,4 @@
-"""What this computer is, so Sofa uses it well, whatever it is: a Raspberry Pi with 1 GB, a 2011 iMac, a PC with
+"""What this computer is, so Sofa uses it well, whatever it is: a Raspberry Pi with 1 GB, four x86-64 cores without AVX2, a PC with
 sixteen cores, a container with two of them.
 
 - The processor's cores Sofa may use: not only how many the computer has, but a container's limit (Docker's

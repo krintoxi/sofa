@@ -1,4 +1,4 @@
-"""What this computer can do, so Sofa fits it: a 2011 iMac and a new Mac mini get different settings.
+"""What this computer can do, so Sofa fits it: four x86-64 cores without AVX2 and ten Apple silicon cores get different settings.
 
 Once (and again when ffmpeg changes), Sofa times a short 1080p conversion with each H.264 encoder
 this ffmpeg has (Apple's VideoToolbox, x264) and uses the faster one. Old Macs running a newer macOS

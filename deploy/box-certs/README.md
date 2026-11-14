@@ -37,7 +37,7 @@ box. The Cloudflare token stays on the Mac that runs this service; boxes never s
  Sofa Box ──(once a day: its id, its home address, a certificate request)──▶ boxcert.edgeventure.uk
                                                                               (Cloudflare tunnel)
                                                                                      │
-                                                                  this service on the iMac (127.0.0.1:8470)
+                                                                  this service on the Mac  (127.0.0.1:8470)
                                                                      │                         │
                                                        Cloudflare DNS (edgeventure.uk)    Let's Encrypt
 ```
@@ -47,16 +47,16 @@ At its setup, the box isn't online yet, so it can't use any of this. There it us
 
 ## What it needs
 
-- A Mac (or Linux computer) that's always on: here, the iMac that runs Cubaintel.com.
+- A Mac (or Linux computer) that's always on: here, the Mac that runs Cubaintel.com.
 - Python 3.8 or newer and the `openssl` command. A Mac with Apple's Command Line Tools has both
   (`xcode-select --install`). Nothing else to install.
-- The `edgeventure.uk` zone in Cloudflare, and the Cloudflare tunnel already on that iMac.
+- The `edgeventure.uk` zone in Cloudflare, and the Cloudflare tunnel already on that Mac.
 
 ## Setting it up
 
-### 1. Get this folder onto the iMac
+### 1. Get this folder onto that Mac
 
-From a copy of the Sofa repository on the iMac (`git clone https://github.com/krintoxi/sofa`, or
+From a copy of the Sofa repository on that Mac (`git clone https://github.com/krintoxi/sofa`, or
 `git pull` in one you have), the files are in `deploy/box-certs/`.
 
 ### 2. A Cloudflare token that can only change edgeventure.uk's DNS
@@ -66,7 +66,7 @@ From a copy of the Sofa repository on the iMac (`git clone https://github.com/kr
 2. Next to **Edit zone DNS**, press **Use template**.
 3. Under **Zone Resources**, choose **Include → Specific zone → edgeventure.uk**. Leave the rest.
 4. **Continue to summary** → **Create Token**, and copy the token (Cloudflare shows it once).
-5. On the iMac, in Terminal, save it in a file only you can read:
+5. On that Mac, in Terminal, save it in a file only you can read:
 
    ```sh
    mkdir -p ~/.config/sofa-box-certs && chmod 700 ~/.config/sofa-box-certs
@@ -103,15 +103,15 @@ python3 ~/Library/Application\ Support/SofaBoxCerts/sofa-box-certs.py try
 
 ### 4. Its public address in the Cloudflare tunnel
 
-The boxes reach it at `https://boxcert.edgeventure.uk`. That's a public hostname on the tunnel the iMac
+The boxes reach it at `https://boxcert.edgeventure.uk`. That's a public hostname on the tunnel that Mac
 already runs.
 
 - **A tunnel managed in the dashboard:** go to **Zero Trust** → **Networks** → **Tunnels**, open the
-  iMac's tunnel, then **Public Hostname** → **Add a public hostname**:
+  Mac's tunnel, then **Public Hostname** → **Add a public hostname**:
   - Subdomain `boxcert`, Domain `edgeventure.uk`.
   - Service type **HTTP**, URL `localhost:8470`.
   - Save.
-- **A tunnel with a `config.yml` on the iMac:** add the rule above the last (catch-all) one, then
+- **A tunnel with a `config.yml` on that Mac:** add the rule above the last (catch-all) one, then
   restart `cloudflared`:
 
   ```yaml

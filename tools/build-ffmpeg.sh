@@ -1,6 +1,6 @@
 #!/bin/bash
 # Builds a lean ffmpeg into vendor/ffmpeg for Macs Homebrew no longer supports (macOS 12 and older).
-# Uses macOS's own VideoToolbox/AudioToolbox encoders, no external libraries. About 30 minutes on a 2011 iMac.
+# Uses macOS's own VideoToolbox/AudioToolbox encoders, no external libraries. About 30 minutes on a four-core Intel Core i5 without AVX2.
 set -euo pipefail
 APP="$(cd "$(dirname "$0")/.." && pwd)"
 PREFIX="$APP/vendor/ffmpeg"

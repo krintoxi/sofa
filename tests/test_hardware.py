@@ -87,7 +87,7 @@ class WhatTheComputerIs(At):
         self.assertEqual((hardware.describe()["cpu"], hardware.describe()["slow_cores"]),
                          ("Intel(R) Core(TM) i5-8500 CPU @ 3.00GHz", False))
         self.at(dict(X86, **{"proc/cpuinfo": X86["proc/cpuinfo"].replace(" avx2", "")}))
-        self.assertTrue(hardware.describe()["slow_cores"])                # (a 2011 iMac's)
+        self.assertTrue(hardware.describe()["slow_cores"])                # (x86-64 before AVX2: Sandy Bridge, say)
         self.at({"proc/cpuinfo": arm("0x000", maker="0x61")})              # Docker on a Mac with Apple silicon
         self.assertEqual(hardware.describe()["cpu"], "4 x Apple silicon")
         self.assertFalse(hardware.describe()["slow_cores"])

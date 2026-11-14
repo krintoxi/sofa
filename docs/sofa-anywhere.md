@@ -132,7 +132,7 @@ The plan for the round that started 2026-11-02. Each part has a status: ☐ not 
       - visitors get an **About** page: privacy, copyright and where notices go (`share_contact`);
       - a new Sofa Box adds no channel lists of its own.
     - ☐ The owner's, before launch:
-      - where it runs: a separate free-only Sofa, not the iMac's, on a Cloudflare account apart from boxcert's;
+      - where it runs: a separate free-only Sofa, not the household's own, on a Cloudflare account apart from boxcert's;
       - a DMCA agent (copyright.gov, $6, renewed every 3 years) and the contact in Sharing;
       - which channels are on its public list (owner-published free streams only), with a lawyer's view;
       - an outside look at its security.

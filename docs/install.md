@@ -2,7 +2,7 @@
 
 ## The quick way
 
-On Windows, there's an installer: [On Windows](#on-windows). On the computer that will hold your media (a Mac mini is
+On Windows, there's an installer: [On Windows](#on-windows). On the computer that will hold your media (a small, quiet one that can stay on is
 ideal), open **Terminal** and paste:
 
 ```sh

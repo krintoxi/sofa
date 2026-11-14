@@ -7,13 +7,17 @@ Open an issue first for anything bigger than a fix, so nobody builds the same th
 
 - **Run it on something we haven't.** A Raspberry Pi 4 or 5, a Fire TV stick, a Roku, a Windows PC, Linux or Docker
   as a daily server: the [hardware report](https://github.com/krintoxi/sofa/issues/new/choose) takes five minutes,
-  needs no code, and puts your name in [Tested on](docs/capabilities.md#tested-on). It is the most useful thing
+  needs no code, and puts your name in [Tested hardware](docs/capabilities.md#tested-on). It is the most useful thing
   anyone can send.
 - **Give the Inbox a file name it gets wrong.** `sofa/naming.py` works out what a file is from its name, and
   `tests/test_naming.py` is a table of names with the answer beside each. A new row there with a name from your own
   folder (and the fix, if you have one) is a good first change.
 - **Pick up an issue** marked [good first issue](https://github.com/krintoxi/sofa/labels/good%20first%20issue) or
   [help wanted](https://github.com/krintoxi/sofa/labels/help%20wanted).
+- **Name hardware by what it is.** In reports, docs, comments and tests: the processor's family and what it can do
+  (x86-64 with or without AVX2, a Cortex-A53, Apple silicon), cores, memory, graphics or encoder, and the system. A
+  Raspberry Pi keeps its board's name with the chip beside it. Not a computer's model and year: two machines with the
+  same parts behave the same (`tests/test_hardware_wording.py` checks the docs and the code for it).
 - **Fix what's wrong in the docs.** If a step in the README or `docs/` didn't match what happened on your machine,
   that's a bug.
 - **Ask or suggest** in [Discussions](https://github.com/krintoxi/sofa/discussions): Q&A for questions, Ideas for

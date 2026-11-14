@@ -622,7 +622,7 @@ A 2.4 GHz keyboard-and-mouse set works as soon as its dongle is in. The arrows, 
 **Esc** or **Backspace** (Back) work everywhere; the pointer appears when the mouse moves and hides
 when it's still; right-click on an app is its **Menu**.
 
-**The TV's remote** (not yet tried on a real TV: the owner's TV remote is lost): turn CEC on in the TV's settings. On a Panasonic (like the TC-60AS530U):
+**The TV's remote** (not yet tried on a real TV: the owner's TV remote is lost): turn CEC on in the TV's settings. On a Panasonic:
 **Menu → Setup → VIERA Link Settings → VIERA Link: On**. Samsung calls it Anynet+, LG SimpLink,
 Sony Bravia Sync. Then, with the TV showing the box: arrows move, **OK** opens and plays (and
 skips an intro when Skip Intro shows), **Return/Back** goes back, ▶ ‖ plays and pauses, ◀◀ ▶▶

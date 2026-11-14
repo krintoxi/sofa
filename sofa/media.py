@@ -791,8 +791,8 @@ SIPS = "/usr/bin/sips"
 def save_image(src, dest, max_width, fmt="jpeg"):
     """Write `src` (any image) to `dest` as JPEG or PNG, at most `max_width` px wide. True on success.
 
-    On macOS this uses the system's own `sips`. Some ffmpeg builds (the one compiled for the
-    2011 iMac among them) produce striped, purple JPEGs when they scale and encode in one step.
+    On macOS this uses the system's own `sips`. Some ffmpeg builds (one compiled on an x86-64 processor
+    without AVX2 among them) produce striped, purple JPEGs when they scale and encode in one step.
     """
     tmp = dest + ".part." + ("png" if fmt == "png" else "jpg")
     try:

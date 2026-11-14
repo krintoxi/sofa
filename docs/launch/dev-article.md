@@ -14,7 +14,7 @@ once at the end. **Who posts:** the owner, from their own account.
 
 ## One process, no framework
 
-Sofa is `http.server` with a thread pool, SQLite through `sqlite3`, and a web app in one `app.js` with no build step. That sounds like a toy. It has held up: a 7,500-file library goes to the browser as about 100 KB gzipped, long pages draw as you scroll, and a 2011 iMac serves four screens at once. The win isn't speed. It's that `curl -fsSL …/get-sofa.sh | sh` is the whole install on a Mac or a Linux box (Windows gets an installer that brings its own Python and ffmpeg, and Docker a `compose.yml`), and an update is a swap of one folder that rolls back by itself if the new version falls over three times in its first minute.
+Sofa is `http.server` with a thread pool, SQLite through `sqlite3`, and a web app in one `app.js` with no build step. That sounds like a toy. It has held up: a 7,500-file library goes to the browser as about 100 KB gzipped, long pages draw as you scroll, and a four-core Intel Core i5 without AVX2 serves four screens at once. The win isn't speed. It's that `curl -fsSL …/get-sofa.sh | sh` is the whole install on a Mac or a Linux box (Windows gets an installer that brings its own Python and ffmpeg, and Docker a `compose.yml`), and an update is a swap of one folder that rolls back by itself if the new version falls over three times in its first minute.
 
 ## The Inbox
 
@@ -22,7 +22,7 @@ The feature people use most is a folder. Drop `the.sopranos.s01e01.1080p.bluray.
 
 ## Adapting formats as they play
 
-MP4 with H.264 and AAC plays everywhere, so that's the target. An MKV with the same streams inside is repackaged on the fly (`-c copy`, milliseconds). HEVC, 10-bit, DTS and the old codecs are transcoded as they play, and a background job converts them to MP4 so the next play is instant. The part that had to be right was deciding *how* to encode: on a Mac, Sofa times `h264_videotoolbox` against `libx264` on first run, because some older Macs' hardware encoder draws lines across the picture, and it never uses it there. On Linux it's x264 in software for now; hardware transcoding there is on the list, not in the code. If a file converts slower than it plays (a 1080p HEVC episode on that 2011 iMac), the player waits once for a few seconds of buffer instead of stalling every few seconds, then drops the picture a size, and remembers that for the next file like it.
+MP4 with H.264 and AAC plays everywhere, so that's the target. An MKV with the same streams inside is repackaged on the fly (`-c copy`, milliseconds). HEVC, 10-bit, DTS and the old codecs are transcoded as they play, and a background job converts them to MP4 so the next play is instant. The part that had to be right was deciding *how* to encode: on a Mac, Sofa times `h264_videotoolbox` against `libx264` on first run, because some older Macs' hardware encoder draws lines across the picture, and it never uses it there. On Linux it's x264 in software for now; hardware transcoding there is on the list, not in the code. If a file converts slower than it plays (a 1080p HEVC episode on those four cores without AVX2), the player waits once for a few seconds of buffer instead of stalling every few seconds, then drops the picture a size, and remembers that for the next file like it.
 
 ## Skip Intro without a cloud
 
