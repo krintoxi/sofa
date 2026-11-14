@@ -367,11 +367,26 @@ shimmer); `air({top, horizon, fog, hill, hills, near, far})`; `draw(camera…)`;
   `hills` and `skyline` (far hills for 3D and 2D), and `blob` (a soft 2D spot); `sky({top, mid, horizon, haze, sun,
   clouds, stars, ridges})` paints a sky for the dome (a big low sun cut by bars, clouds lit on their sunward side,
   far ridges, stars), `dome()` is its mesh, and `ripples(n)` the water's nets of light.
+- **A village, and what lies on the ground.** `Kit.house(mesh, glow, x, y, z, yaw, s, {seed, detail, doorAt, plaster,
+  timber, stone, roof: [two shades], door, shutter, light})` is a house with a timber frame, made to be seen from above
+  and from the south: a stone foot, plastered walls with their beams, a door with its step, shuttered windows that are
+  lit (into `glow`), shingles in bands with eaves and a ridge, gables with their boards, a chimney (it returns where
+  the chimney ends, for smoke). `detail` 0 has no beams (about 160 triangles), 1 is the house (about 260), 2 adds flower
+  boxes and a lantern (about 400); its north wall is left plain. `Kit.barrel`, `crate`, `woodpile` and `bench` are for its
+  yard. `Kit.lay(mesh, [x, z, …], ground, colour, lift, fan)` lays a flat shape just over the ground and lights it with the
+  rest (the hull of the points, in two rings so that it follows ground that isn't flat; `fan` for a small one, in a
+  third of the triangles): a pool of lamplight, light
+  spilled from a window, a flagstone. `Kit.cast(mesh, [x, z, height, …], dx, dz, ground, colour, lift, fan)` is the shadow
+  a thing throws, laid the same way: give it the points that stick out (a foot, the eaves, a ridge) and how far a
+  metre of height throws. Nothing in them is see-through, so a Pi draws them as it draws the ground, and they're
+  made once, as the world is. Give them `land.on` for the ground (below), not `land.at`.
 - `Chunks(size, cell)` holds a world's still things: `mesh(x, z, "base" | "detail" | "glow")` to build into,
   `upload(g3)`, then `draw(g3, x, z, far, detail)` each frame (culled, nearest first). `upload(g3, {light, shade,
   sky})` bakes the world's light in and puts each chunk's glowing things in with the rest: one draw call a chunk.
 - `Land(size, n, base)` is ground with height: an n × n grid over the world, `fill((x, z) => height)`, then `at(x,
-  z)` anywhere (to float on it, or bump into the shore) and `slope(x, z, out)`. `mesh(chunks, colour(h, steep),
+  z)` anywhere (to float on it, or bump into the shore) and `slope(x, z, out)`. `on(x, z)` is the height as the ground
+  is drawn (each cell's own two triangles; `at` is smooth between the corners and can lie a hand over or under
+  them): for what's laid on the ground. `mesh(chunks, colour(h, steep),
   water, layer, {coarse: land.inner({above, drop}), under})` builds its triangles into chunks where it's near or
   above the water (with `coarse`, high ground with no drop near it as squares of two big triangles; `under`: how far
   below the water still counts); for the 2D renderer, `paint(ctx, k,

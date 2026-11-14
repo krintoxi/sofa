@@ -1464,6 +1464,17 @@ class BoxBrowser(unittest.TestCase):
         self.assertEqual(o["arrive"], [True, False])
         self.assertEqual(o["back"], [True, True])                          # close behind the nearest house's back wall: seen through it
         self.assertEqual(o["front"], [True, False])
+        # every house has its yard, and what's in a yard is in the way (a delver set down on a barrel is pushed off it); shadows
+        # are thrown along the sun, a low sun's kept short, and laid on the ground as it's drawn
+        o = run("""const kinds = {}; let barrel = null; for (const f of WY.over().fixed.values()) for (const q of f.deco) { kinds[q.kind] = (kinds[q.kind] || 0) + 1; if (q.kind === "barrel" && !barrel) barrel = q; }
+            const x0 = WY.H.x, z0 = WY.H.z; WY.goto(barrel.x, barrel.z); WY.sim(0.4); const off = Math.hypot(WY.H.x - barrel.x, WY.H.z - barrel.z); WY.goto(x0, z0); WY.sim(0.3);
+            return JSON.stringify({ kinds, off, cast: WY.W.cast, on: Math.abs(WY.W.on(3, 7) - WY.W.h(3, 7)) < 0.5 });""")
+        self.assertEqual(o["kinds"]["house"], 8)
+        self.assertGreaterEqual(o["kinds"].get("barrel", 0), 8)
+        self.assertGreaterEqual(o["kinds"].get("woodpile", 0) + o["kinds"].get("crate", 0) + o["kinds"].get("bench", 0), 8)
+        self.assertGreater(o["off"], 0.4)
+        self.assertTrue(0.5 < (o["cast"][0] ** 2 + o["cast"][1] ** 2) ** 0.5 <= 1.16 and o["cast"][0] > 0 > o["cast"][1], o["cast"])   # away from the eye, to the north-east
+        self.assertTrue(o["on"])
         # the trades: a tree felled a swing at a time, a fire lit and fed, a rock mined, its ore smelted at the furnace
         o = run("""const D = WY.D; let t = WY.near("tree"); WY.goto(t.x + 1.4, t.z + 0.6); WY.interact(t);
             const work = () => { for (let i = 0; i < 120 && !t.spent; i++) WY.sim(0.5); };   // (a swing may miss: until it has given all it holds)

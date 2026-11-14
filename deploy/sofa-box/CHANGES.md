@@ -8,6 +8,26 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.88
+
+**Hearthrim looks like a place.** The first pass of a wider one over how WYRD and the engine draw: shadow, the
+things people build, and what lies on the ground.
+
+- **Shadows.** What stands throws one: houses, the well, the riftgates, lamps, and what's in a yard on every box;
+  trees and rocks too on the fuller look (a Pi 4 and up). They're laid on the ground as each piece of the country is
+  made, in the ground's own colour, darker: nothing see-through, nothing worked out again each frame.
+- **Houses.** Hearthrim's eight are built anew: a stone foot, plastered walls with their timber frame, a door of
+  planks with a stone step, shuttered windows that are lit, shingles in bands, gables with their boards, a chimney;
+  three kinds (red tile, slate, brown). On the fuller look flower boxes under the windows and a lantern by the door.
+  Each has a yard: logs piled against a wall, barrels, a crate, a bench. You walk round them, not through.
+- **The square** is paved: rings of flagstones round the fount, no two the same grey, warmer under the lamps.
+- **Light on the ground.** A pool of it under each lamp outside the square, and what a house's windows spill before
+  its door.
+- **In the grass**, on the fuller look: more grows round Hearthrim, and with the grass come flowers and stones.
+- **Low3D** (the engine, for every game): `Kit.house`, `Kit.barrel`, `crate`, `woodpile` and `bench`; `Kit.lay` (a flat
+  shape laid on the ground and lit with it) and `Kit.cast` (the shadow a thing throws, laid the same way); `Land.on`
+  (the ground's height as it's drawn, where `at` is smooth between the corners).
+
 ## 1.1.87
 
 **WYRD: Hearthrim's well and its riftgate stand in the open.** In 1.1.86 both stood close behind a house of the

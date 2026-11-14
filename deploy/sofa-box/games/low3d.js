@@ -1497,6 +1497,72 @@ const Kit = {
     m.tri(2.5, 3, 2.0, 2.5, 3, -2.0, 2.5, 5, 0, shadeK(wall, 0.85), 0, 3, 0); m.tri(-2.5, 3, 2.0, -2.5, 3, -2.0, -2.5, 5, 0, shadeK(wall, 0.85), 0, 3, 0);
     if (lamps) { lamps.at(x, y, z, yaw); lamps.box(0.8, 1.2, 2.02, 1, 0.9, 0.05, light || 0xffd890); }
   },
+  // A house with a timber frame, for a village seen from above and from the south: a stone foot, plastered walls with
+  // their beams, a door with its step, shuttered windows that are lit (into `glow`), a roof of shingles in bands with
+  // eaves and a ridge, gables with their boards, a chimney. Its back wall (north, -z) is left plain: that eye never
+  // sees it. o: { seed, detail (0 the fewest triangles: no beams; 1; 2 with flower boxes and a lantern), doorAt (-1, 0,
+  // 1), plaster, timber, stone, roof: [two shades], door, shutter, light }. 5 by 4.2 m, its eaves at 3.1 and its ridge
+  // at 5.2, times s. Returns where its chimney ends, in the world: [x, y, z] (for smoke).
+  house(m, glow, x, y, z, yaw, s, o) {
+    o = o || {};
+    const hw = 2.5, hd = 2.1, y0 = 0.55, y1 = 3.1, yr = 5.2, det = o.detail == null ? 2 : o.detail, seed = o.seed || 0, e = 0.035, t = 0.17, zf = hd;
+    const pl = o.plaster || 0xb8a88c, tb = o.timber || 0x3a2a20, st = o.stone || 0x6a6860, rf = o.roof || [0x6a332c, 0x582a26], dr = o.door || 0x5a3a26, sh = o.shutter || 0x2f5a52, li = o.light || 0xffc870;
+    const da = o.doorAt == null ? seed % 3 - 1 : o.doorAt, dxp = da * 1.15, wins = da === 0 ? [-1.72, 1.72] : da < 0 ? [0.42, 1.74] : [-1.74, -0.42], dark = 0x1c1410;
+    m.at(x, y, z, yaw, s); m.seed = 77 + seed; if (glow) glow.at(x, y, z, yaw, s);
+    // a rectangle on the front wall (out: how far in front of it), one on a side wall, and a slanted beam on the front
+    const F = (x0, ya, x1, yb, col, out) => m.quad(x0, ya, zf + out, x1, ya, zf + out, x1, yb, zf + out, x0, yb, zf + out, col, 0, 1.5, 0);
+    const Sd = (sd, z0, ya, z1, yb, col, out) => m.quad(sd * (hw + out), ya, z0, sd * (hw + out), ya, z1, sd * (hw + out), yb, z1, sd * (hw + out), yb, z0, col, 0, 1.5, 0);
+    const brace = (xa, ya, xb, yb) => m.quad(xa, ya, zf + e, xa + t, ya, zf + e, xb + t, yb, zf + e, xb, yb, zf + e, tb, 0, 1.5, 0);
+    // the foot and the walls
+    m.jit = 0.07; m.box(0, -0.6, 0, hw * 2 + 0.2, y0 + 0.6, hd * 2 + 0.2, st, shadeK(st, 1.12));
+    if (det) for (let k = 0; k < 6; k++) { const xa = -hw + k * 0.84 + (k & 1) * 0.1; F(xa, k & 1 ? 0.02 : 0.1, xa + 0.62, k & 1 ? 0.3 : 0.48, shadeK(st, k % 3 ? 0.84 : 1.16), 0.1 + e); }
+    m.jit = 0; F(-hw, y0, hw, y1, pl, 0); Sd(-1, -hd, y0, hd, y1, pl, 0); Sd(1, -hd, y0, hd, y1, pl, 0); m.quad(-hw, y0, -hd, hw, y0, -hd, hw, y1, -hd, -hw, y1, -hd, shadeK(pl, 0.9), 0, 1.5, 0);   // (four walls, and nothing under the roof to show through it)
+    if (det) {                                          // the frame: sills, plates, posts, a rail under the windows, braces at the corners
+      F(-hw, y0, hw, y0 + t, tb, e); F(-hw, y1 - t, hw, y1, tb, e); F(-hw, y0, -hw + t, y1, tb, e); F(hw - t, y0, hw, y1, tb, e);
+      F(-hw, 1.14, dxp - 0.62, 1.14 + t * 0.8, tb, e); F(dxp + 0.62, 1.14, hw, 1.14 + t * 0.8, tb, e);
+      F(dxp - 0.62 - t, y0, dxp - 0.62, y1, tb, e); F(dxp + 0.62, y0, dxp + 0.62 + t, y1, tb, e);
+      if (da >= 0) brace(-hw + t, y0 + t, -hw + t + 0.62, 1.14); if (da <= 0) brace(hw - 2 * t, y0 + t, hw - 2 * t - 0.62, 1.14);
+      for (const sd of [-1, 1]) {
+        Sd(sd, -hd, y0, hd, y0 + t, tb, e); Sd(sd, -hd, y1 - t, hd, y1, tb, e); Sd(sd, hd - t, y0, hd, y1, tb, e); Sd(sd, -hd, y0, -hd + t, y1, tb, e); Sd(sd, -hd, 1.75, hd, 1.75 + t * 0.8, tb, e);
+        Sd(sd, -0.5, 1.98, 0.5, 2.82, tb, e * 2);
+        if (glow) glow.quad(sd * (hw + e * 3), 2.08, -0.36, sd * (hw + e * 3), 2.08, 0.36, sd * (hw + e * 3), 2.72, 0.36, sd * (hw + e * 3), 2.72, -0.36, li, 0, 1.5, 0);
+        Sd(sd, -0.03, 2.08, 0.03, 2.72, tb, e * 4);
+      }
+    }
+    // the door: its opening, three planks, a lintel, a handle, and a step of stone
+    F(dxp - 0.52, y0, dxp + 0.52, 2.5, dark, e);
+    for (let k = 0; k < 3; k++) F(dxp - 0.46 + k * 0.31, y0 + 0.02, dxp - 0.46 + k * 0.31 + 0.29, 2.43, shadeK(dr, k === 1 ? 1.12 : 0.94), e * 2);
+    F(dxp - 0.62 - (det ? t : 0), 2.5, dxp + 0.62 + (det ? t : 0), 2.5 + t, tb, e * 2); m.box(dxp + 0.3, 1.46, zf + 0.08, 0.07, 0.07, 0.06, 0xb8b0a0);
+    m.box(dxp, -0.4, zf + 0.46, 1.5, 0.66, 0.6, shadeK(st, 1.08), shadeK(st, 1.22));
+    for (const wx of wins) {                            // a window: its frame, its light, its bars, a sill, shutters, flowers
+      F(wx - 0.5, 1.3, wx + 0.5, 2.36, tb, e * 2);
+      if (glow) glow.quad(wx - 0.38, 1.42, zf + e * 3, wx + 0.38, 1.42, zf + e * 3, wx + 0.38, 2.24, zf + e * 3, wx - 0.38, 2.24, zf + e * 3, li, 0, 1.5, 0);
+      else F(wx - 0.38, 1.42, wx + 0.38, 2.24, li, e * 3);
+      F(wx - 0.03, 1.42, wx + 0.03, 2.24, tb, e * 4); F(wx - 0.38, 1.8, wx + 0.38, 1.86, tb, e * 4);
+      m.box(wx, 1.2, zf + 0.09, 1.12, 0.09, 0.18, shadeK(pl, 1.12));
+      if (det) { F(wx - 0.84, 1.3, wx - 0.52, 2.36, sh, e * 3); F(wx + 0.52, 1.3, wx + 0.84, 2.36, sh, e * 3); F(wx - 0.8, 1.8, wx - 0.56, 1.86, shadeK(sh, 0.7), e * 4); F(wx + 0.56, 1.8, wx + 0.8, 1.86, shadeK(sh, 0.7), e * 4); }
+      if (det > 1) { m.box(wx, 0.98, zf + 0.16, 0.92, 0.2, 0.22, 0x4a3426); for (let k = 0; k < 4; k++) m.box(wx - 0.33 + k * 0.22, 1.16, zf + 0.16, 0.13, 0.13, 0.13, [0xd84a6a, 0xe8e0d0, 0xd86a9a, 0x7ad06a][(k + seed) % 4]); }
+    }
+    if (det > 1) { m.box(dxp + (da > 0 ? -0.95 : 0.95), 2.02, zf + 0.14, 0.05, 0.05, 0.28, tb); if (glow) glow.box(dxp + (da > 0 ? -0.95 : 0.95), 1.8, zf + 0.24, 0.15, 0.22, 0.15, li); }
+    // the roof: shingles in bands up each slope, each band's foot lifted over the one below; a ridge; the gables, their boards
+    const gx = hw + 0.3, ze = hd + 0.38, ye = y1 - 0.1, n = det ? 4 : 2;
+    m.jit = 0.055;
+    for (const sd of [1, -1]) for (let k = 0; k < n; k++) {
+      const a = k / n, b = Math.min(1, (k + 1) / n + 0.07), za = sd * ze * (1 - a), zb = sd * ze * (1 - b), ya = ye + (yr - ye) * a + 0.08, yb = ye + (yr - ye) * b, c = rf[k & 1];   // (each band runs on a little under the next, so nothing shows between them)
+      m.quad(-gx, ya, za, 0, ya, za, 0, yb, zb, -gx, yb, zb, c, 0, 1.5, 0); m.quad(0, ya, za, gx, ya, za, gx, yb, zb, 0, yb, zb, c, 0, 1.5, 0);
+    }
+    m.jit = 0; m.box(0, yr - 0.03, 0, gx * 2 + 0.12, 0.15, 0.32, shadeK(rf[1], 0.78));
+    for (const sd of [-1, 1]) {
+      m.tri(sd * hw, y1, hd, sd * hw, y1, -hd, sd * hw, yr - 0.08, 0, shadeK(pl, 0.9), 0, 3, 0);
+      if (det) { for (const sz of [-1, 1]) m.quad(sd * gx, ye + 0.08, sz * ze, sd * gx, yr + 0.08, 0, sd * gx, yr - 0.16, 0, sd * gx, ye - 0.16, sz * ze, tb, 0, 3, 0);
+        Sd(sd, -0.09, y1, 0.09, yr - 0.3, tb, e); Sd(sd, -1.1, 3.72, 1.1, 3.72 + t * 0.8, tb, e); }
+    }
+    // the chimney, up the back slope: stone, a cap, its dark mouth
+    const cxm = da > 0 ? -1.35 : 1.35, czm = -0.75, top = yr + 0.8;
+    m.jit = 0.07; m.box(cxm, 3.4, czm, 0.62, top - 3.4, 0.62, st); m.jit = 0; m.box(cxm, top, czm, 0.82, 0.13, 0.82, shadeK(st, 0.8)); m.box(cxm, top + 0.13, czm, 0.42, 0.04, 0.42, 0x16120f);
+    const c = Math.cos(yaw || 0), sn = Math.sin(yaw || 0);
+    return [x + (cxm * c + czm * sn) * s, y + (top + 0.2) * s, z + (-cxm * sn + czm * c) * s];
+  },
   lighthouse(m, x, y, z, lamps) {
     m.at(x, y, z); m.stack([[2.6, 0], [2.2, 6], [1.9, 12], [1.7, 16]], 8, [0xf2efe8, 0xd84a3e, 0xf2efe8], 0x3a3a44);
     m.at(x, y + 16, z); m.stack([[1.5, 0], [1.5, 1.6]], 8, 0xffe9a8, null); m.stack([[1.9, 1.6], [0, 3.2]], 8, 0x3a3a44);
@@ -1510,6 +1576,58 @@ const Kit = {
   },
   shadow(sx, sz) {                                   // a flat oval to draw dark and see-through under something
     const m = new Mesh(64); m.at(0, 0, 0, 0, sx || 1, 1, sz || sx || 1); m.disc(1, 12, 0.05, 0x000000); return m;
+  },
+  // A flat shape laid just over the ground and lit with it: a shadow, a pool of lamplight, light spilled from a window.
+  // Nothing see-through and nothing to blend, so a Pi draws it as it draws the ground, and it's made once, as the
+  // world is. pts: its outline in the world, [x, z, x, z, …] (the hull of them is laid); ground(x, z): the ground's
+  // height there; col(x, z): its colour there (the ground's own, darker or warmer); lift: how far over the ground
+  // (0.05). In two rings round its middle, so that it follows ground that isn't flat; `fan`: one ring, a third of the
+  // triangles, for a small shape (a lamp's shadow, a barrel's).
+  lay(m, pts, ground, col, lift, fan) {
+    const P = [], H = [], cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+    for (let i = 0; i + 1 < pts.length; i += 2) P.push([pts[i], pts[i + 1]]);
+    P.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+    for (const p of P) { while (H.length >= 2 && cross(H[H.length - 2], H[H.length - 1], p) <= 0) H.pop(); H.push(p); }
+    for (let i = P.length - 2, lo = H.length + 1; i >= 0; i--) { const p = P[i]; while (H.length >= lo && cross(H[H.length - 2], H[H.length - 1], p) <= 0) H.pop(); H.push(p); }
+    H.pop(); if (H.length < 3) return m;
+    let cx = 0, cz = 0; for (const p of H) { cx += p[0]; cz += p[1]; } cx /= H.length; cz /= H.length;
+    lift = lift || 0.05; m.at(0, 0, 0);
+    const y = (x, z) => ground(x, z) + lift, cy = y(cx, cz);
+    for (let i = 0; i < H.length; i++) {
+      const a = H[i], b = H[(i + 1) % H.length], ax = (a[0] + cx) / 2, az = (a[1] + cz) / 2, bx = (b[0] + cx) / 2, bz = (b[1] + cz) / 2;
+      if (fan) { m.tri(cx, cy, cz, a[0], y(a[0], a[1]), a[1], b[0], y(b[0], b[1]), b[1], col((cx + a[0] + b[0]) / 3, (cz + a[1] + b[1]) / 3), cx, cy - 9, cz); continue; }
+      m.tri(cx, cy, cz, ax, y(ax, az), az, bx, y(bx, bz), bz, col((cx + ax + bx) / 3, (cz + az + bz) / 3), cx, cy - 9, cz);
+      m.quad(ax, y(ax, az), az, a[0], y(a[0], a[1]), a[1], b[0], y(b[0], b[1]), b[1], bx, y(bx, bz), bz, col((ax + a[0] + b[0] + bx) / 4, (az + a[1] + b[1] + bz) / 4), cx, cy - 9, cz);
+    }
+    return m;
+  },
+  // The shadow a thing throws, laid on the ground (`lay`). pts: the thing's outline in the world, [x, z, height, …]
+  // (its foot, its eaves, its top: any points that stick out); (dx, dz): how far a metre of height throws.
+  cast(m, pts, dx, dz, ground, col, lift, fan) {
+    const P = []; for (let i = 0; i + 2 < pts.length; i += 3) P.push(pts[i] + dx * pts[i + 2], pts[i + 1] + dz * pts[i + 2]);
+    return Kit.lay(m, P, ground, col, lift, fan);
+  },
+  // Small things for a yard: a barrel, a crate, a pile of logs with their ends showing, a bench. Each stands at x y z,
+  // turned by yaw, s times its size; the pile and the bench are long across x and are seen from +z.
+  barrel(m, x, y, z, s, wood, hoop) {
+    wood = wood || 0x6a4a2e; hoop = hoop || 0x2a2622; m.at(x, y, z, 0.4, s || 1);
+    m.stack([[0.34, 0], [0.43, 0.3], [0.43, 0.62], [0.34, 0.92]], 7, [shadeK(wood, 0.9), wood, shadeK(wood, 1.08)], shadeK(wood, 0.62));
+    m.stack([[0.445, 0.2], [0.445, 0.27]], 7, hoop, null); m.stack([[0.445, 0.65], [0.445, 0.72]], 7, hoop, null);
+  },
+  crate(m, x, y, z, yaw, s, wood) {
+    wood = wood || 0x7a5a36; const k = shadeK(wood, 0.66); m.at(x, y, z, yaw, s || 1); m.box(0, 0, 0, 0.8, 0.7, 0.8, wood, shadeK(wood, 1.12));
+    for (const sd of [-1, 1]) { m.quad(sd * 0.3, 0.02, 0.405, sd * 0.4, 0.02, 0.405, sd * 0.4, 0.68, 0.405, sd * 0.3, 0.68, 0.405, k, 0, 0.3, 0); m.quad(0.405, 0.02, sd * 0.3, 0.405, 0.02, sd * 0.4, 0.405, 0.68, sd * 0.4, 0.405, 0.68, sd * 0.3, k, 0, 0.3, 0); }
+    m.quad(-0.4, 0.705, 0.08, 0.4, 0.705, 0.08, 0.4, 0.705, -0.08, -0.4, 0.705, -0.08, k, 0, 0, 0);
+  },
+  woodpile(m, x, y, z, yaw, s, bark, cut) {
+    bark = bark || 0x4a3426; cut = cut || 0xc8a878; m.at(x, y, z, yaw, s || 1); m.box(0, 0, 0, 1.7, 0.86, 0.6, bark, shadeK(bark, 1.15));
+    for (let j = 0; j < 3; j++) for (let i = 0; i < 6 - (j & 1); i++) { const cx = -0.7 + i * 0.28 + (j & 1) * 0.14, cy = 0.15 + j * 0.27, r = 0.105;
+      m.quad(cx - r, cy - r, 0.305, cx + r, cy - r, 0.305, cx + r, cy + r, 0.305, cx - r, cy + r, 0.305, (i + j) % 3 ? cut : shadeK(cut, 0.84), 0, 0.4, 0); }
+    for (let i = 0; i < 4; i++) { m.at(x, y, z, yaw, s || 1); m.box(-0.55 + i * 0.36, 0.86, 0, 0.26, 0.2, 0.62, shadeK(bark, i & 1 ? 1.1 : 0.92)); }
+  },
+  bench(m, x, y, z, yaw, s, wood) {
+    wood = wood || 0x6a4a2e; m.at(x, y, z, yaw, s || 1); m.box(0, 0.42, 0, 1.5, 0.08, 0.42, wood, shadeK(wood, 1.15));
+    for (const sd of [-1, 1]) m.box(sd * 0.6, 0, 0, 0.1, 0.42, 0.36, shadeK(wood, 0.8));
   },
   hills(list, color) {                               // far hills or mountains round the world: [{a (angle), d, r, h, seed}]
     const m = new Mesh(4096);
@@ -1943,6 +2061,15 @@ Land.prototype = {
     m.tri(ax, ay, az, bx, by, bz, cx, cy, cz, col((ay + by + cy) / 3, 1 - ny, mx, mz), mx, Math.min(ay, by, cy) - 10, mz);
   },
   cellOf(x) { return Math.floor((x + this.half) / this.cell); },
+  // The ground's height at x z as it's drawn: on the cell's own two triangles. (`at` is smooth between the corners and
+  // can lie a hand over or under them.) For what's laid on the ground: a shadow, a flagstone, a pool of light.
+  on(x, z) {
+    const c = this.cell, n = this.n, N = this.N, h = this.h, fx = (x + this.half) / c, fz = (z + this.half) / c;
+    const i = Math.max(0, Math.min(n - 1, Math.floor(fx))), j = Math.max(0, Math.min(n - 1, Math.floor(fz))), u = Math.max(0, Math.min(1, fx - i)), v = Math.max(0, Math.min(1, fz - j));
+    const k = j * N + i, a = h[k], b = h[k + 1], d = h[k + N], e = h[k + N + 1];
+    if (Math.abs(a - e) <= Math.abs(b - d)) return u >= v ? a + (b - a) * u + (e - b) * v : a + (e - d) * u + (d - a) * v;
+    return u + v <= 1 ? a + (b - a) * u + (d - a) * v : e + (d - e) * (1 - u) + (b - e) * (1 - v);
+  },
   // The cells of high ground with no drop near them: a plateau behind its cliffs, the top of a tableland. From low down
   // (on the water, on a road below) nothing of them shows but a far rise now and then, yet they can be most of a land's
   // triangles. o {above: only ground higher than this (6), drop: how much lower anything within `near` cells may be (4,
