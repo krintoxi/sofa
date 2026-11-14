@@ -136,7 +136,7 @@ if __name__ == "__main__" and sys.argv[1:2] == ["serve"]:
     finish_swap()
     watch_update()
 
-from sofa import __version__, apps, auth, awake, ddns, tls, upnp, backup, config, discovery, dlna, organizer, store, updater, watcher, web, windows  # noqa: E402
+from sofa import __version__, apps, auth, awake, ddns, tls, upnp, backup, children, config, discovery, dlna, dvr, organizer, store, updater, watcher, web, windows  # noqa: E402
 from sofa.library import LIBRARY  # noqa: E402
 
 windows.retry_file_moves()          # (Windows only: see sofa/windows.py)
@@ -224,6 +224,12 @@ def main(argv):
         print("Python %s at %s" % (sys.version.split()[0], sys.executable), flush=True)
         # Answer straight away; the library is read in the background (a big one takes a while).
         print("Sofa %s is starting." % __version__, flush=True)
+        try:            # started again in place (Restart, an update): what the start before left running is ended
+            left = children.end_leftovers(keep=dvr.kept_running())
+            if left:
+                print("Ended %d program%s the last start left running." % (left, "" if left == 1 else "s"), flush=True)
+        except Exception as exc:
+            print("Ending what the last start left running didn't work: %r" % (exc,), flush=True)
         for part in (dlna.start, discovery.start, watcher.start, apps.start, awake.start, tls.start, ddns.start, upnp.start):
             try:
                 part()

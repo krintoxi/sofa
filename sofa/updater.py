@@ -389,17 +389,29 @@ def restart():
     """Start this same process again with the new code (launchd/systemd see the same process carry on). Windows
     can't replace a process in place: there the Sofa app that started this one starts the next (sofa/windows.py)."""
     args = [os.path.join(config.APP_DIR, "sofa.py")] + sys.argv[1:]
+    from . import dvr
     try:
-        from . import awake, discovery
+        from . import awake, discovery, media
         discovery.stop()                      # the new process announces itself again
         awake.stop()
+        # What's being recorded goes on in the next start (sofa/dvr.py: take_over). On a Mac or Linux the next start
+        # ends whatever else this one left running (sofa/children.py); on Windows what's being watched stops here.
+        for part in (dvr.hand_over, media.stop_all) if os.name == "nt" else (dvr.hand_over,):
+            try:
+                part()
+            except Exception as exc:
+                print("Before starting again, %s didn't work: %r" % (part.__name__, exc), flush=True)
         sys.stdout.flush()
         sys.stderr.flush()
     finally:
         if os.name == "nt":
             from . import windows
             windows.start_again(args)
-        os.execv(sys.executable, [sys.executable] + args)
+        try:
+            os.execv(sys.executable, [sys.executable] + args)
+        except OSError:
+            dvr.stay()                        # it didn't start again: this one carries on
+            raise
 
 
 def _loop():

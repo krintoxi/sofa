@@ -46,6 +46,10 @@ shown to the public library's Visitors, even when the show it belongs to is shar
   reads (`Night Court S03E07 Tonight.ts`, `The News Hour 2026-11-13.ts`, `Casablanca (1942).ts`) and is filed like
   anything else, with its artwork and details. Background conversion to MP4, if it's on, converts it like any other
   file.
+- **Sofa starting again** (Restart, an update) doesn't stop a recording. On a Mac or Linux the copy keeps running and
+  the new start takes it over: nothing is missed. On Windows, Sofa starts again as another process, so the recording
+  goes on in a new part as soon as Sofa is back, and says how many seconds that missed. Only a full stop marks a
+  recording failed (its parts are kept).
 
 ## The screens
 

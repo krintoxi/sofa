@@ -329,6 +329,117 @@ class WithATuner(unittest.TestCase):
         self.assertIsNot(dvr._procs[b["id"]]["proc"], old)
         self.assertEqual(dvr.get(a["id"])["state"], "recording")
 
+    # ---------------------------------------------------------------- Sofa starting again
+
+    def wait_open(self, n, seconds=20):
+        end = time.time() + seconds
+        while self.box.open < n and time.time() < end:
+            time.sleep(0.1)
+        self.assertEqual(self.box.open, n, "the stand-in isn't sending")
+
+    def started_again(self, meanwhile=None, away=None):
+        """What happens around updater.restart's os.execv: the recordings handed over, all this process knew of them
+        forgotten (the new code knows nothing), and the new start taking them over. `away`: the next start is another
+        process (Windows), that many seconds later, and the copies ended with the old one."""
+        with dvr._lock:
+            held = [p["proc"] for p in dvr._procs.values()]
+        self.addCleanup(self.end, held)
+        self.assertEqual(dvr.hand_over(), len(held))
+        if meanwhile:
+            meanwhile()
+        if away is not None:
+            self.end(held)
+            with open(dvr._handover_file(), encoding="utf-8") as f:
+                h = json.load(f)
+            h.update(pid=-1, at=h["at"] - away)
+            with open(dvr._handover_file(), "w", encoding="utf-8") as f:
+                json.dump(h, f)
+        with dvr._lock:
+            dvr._procs.clear()
+        dvr._state.pop("leaving", None)
+        return dvr.take_over()
+
+    @staticmethod
+    def end(procs):
+        for proc in procs:
+            if proc.poll() is None:
+                proc.kill()
+            proc.wait()
+
+    def filed(self, r):
+        whole = os.path.join(config.path("inbox"), r["inbox"])
+        self.addCleanup(lambda: os.path.exists(whole) and os.remove(whole))
+        return whole
+
+    @unittest.skipIf(os.name == "nt", "Windows starts Sofa again as another process: the next test is its way")
+    def test_started_again_in_place_the_copy_goes_on(self):
+        """Restart or an update on a Mac or Linux: the same process with new code. The recording's copy keeps running,
+        the new start follows it, and nothing is missed. One that falls due meanwhile waits for the new start."""
+        chans = self.on()
+        now = int(time.time())
+        config.update({"dvr_pad_before": 0, "dvr_pad_after": 0})
+        self.box.pace = True
+        r = dvr.record(chans["5.1"]["id"], now, now + 12, "Through a restart")
+        dvr.tick()
+        self.wait_open(1)
+        copy = dvr._procs[r["id"]]["proc"]
+        due = dvr.record(chans["2.1"]["id"], now, now + 30, "Due meanwhile")
+
+        def meanwhile():
+            dvr.tick()
+            self.assertEqual(dvr.get(due["id"])["state"], "scheduled")                # not begun by the one leaving
+        self.assertEqual(self.started_again(meanwhile), 1)
+        p = dvr._procs[r["id"]]
+        self.assertEqual((p["proc"].pid, p["proc"].poll(), len(p["parts"])), (copy.pid, None, 1))    # the same copy, going on
+        dvr.tick()
+        self.assertEqual(dvr.get(due["id"])["state"], "recording")                    # the new start begins it
+        dvr.cancel(due["id"])
+        done = self.run_until(r["id"], ("done", "failed"), seconds=40)
+        self.assertEqual((done["state"], done["why"]), ("done", None))                 # nothing missed, nothing broke off
+        self.assertGreater(media.probe(self.filed(done))["duration"], 10)
+        other = self.run_until(due["id"], ("done", "failed"))
+        if other["inbox"]:
+            self.filed(other)
+
+    def test_started_again_as_another_process_it_carries_on_in_a_new_part(self):
+        """Windows starts Sofa again as another process, and the old copy ends with the old one: the new start opens
+        the channel again into a new part as soon as it's back, and says what that missed."""
+        chans = self.on()
+        now = int(time.time())
+        config.update({"dvr_pad_before": 0, "dvr_pad_after": 0})
+        self.box.pace = True
+        r = dvr.record(chans["5.1"]["id"], now, now + 60, "Cut by a restart")
+        dvr.tick()
+        self.wait_open(1)
+        time.sleep(2)
+        self.assertEqual(self.started_again(away=5), 1)
+        dvr.tick()
+        p = dvr._procs[r["id"]]
+        self.assertEqual((len(p["parts"]), p["restarts"], p["proc"].poll()), (2, 0, None))   # a new part, not a break
+        self.wait_open(1)
+        time.sleep(3)
+        dvr.cancel(r["id"])
+        done = self.run_until(r["id"], ("done", "failed"), seconds=40)
+        self.assertEqual(done["state"], "done", done["why"])
+        self.assertRegex(done["why"], r"^Sofa started again while it was recording, which missed about [56] seconds\.$")
+        self.assertGreater(media.probe(self.filed(done))["duration"], 4)                # both parts, one after the other
+        self.assertEqual([f for f in os.listdir(dvr.folder()) if f.startswith("%d" % r["id"])], [])   # its parts are gone
+
+    def test_a_full_stop_or_a_hand_over_long_ago_fails_as_before(self):
+        chans = self.on()
+        now = int(time.time())
+        a = dvr.record(chans["5.1"]["id"], now - 60, now + 600, "Stopped")
+        b = dvr.record(chans["2.1"]["id"], now - 60, now + 600, "Long ago")
+        store.ex("UPDATE recordings SET state = 'recording' WHERE id IN (?, ?)", a["id"], b["id"])
+        with open(dvr._handover_file(), "w", encoding="utf-8") as f:
+            json.dump({"pid": os.getpid(), "at": now - dvr.HANDOVER_FOR - 60,
+                       "recordings": {str(b["id"]): {"pid": None, "parts": [], "restarts": 0}}}, f)
+        self.assertEqual(dvr.kept_running(), set())
+        self.assertEqual(dvr.take_over(), 0)
+        self.assertEqual([(dvr.get(x["id"])["state"], dvr.get(x["id"])["why"]) for x in (a, b)],
+                         [("failed", "Sofa stopped while it was recording.")] * 2)
+        self.assertFalse(os.path.exists(dvr._handover_file()))
+
     def test_keep_the_last_two(self):
         self.on()
         rule = dvr.add_rule("Daily", keep=2)

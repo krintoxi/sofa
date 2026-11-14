@@ -906,6 +906,18 @@ def hls_stop_owner(owner):
         hls_stop(sid)
 
 
+def stop_all():
+    """Everything being watched stops (Sofa is about to start again: updater.restart)."""
+    with _hls_lock:
+        sids = list(_hls)
+    for sid in sids:
+        hls_stop(sid)
+    with _streams_lock:
+        stops = list(_owners.values())
+    for stop in stops:
+        stop()
+
+
 def _hls_reaper():
     while True:
         time.sleep(30)

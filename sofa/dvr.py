@@ -25,10 +25,17 @@ into the Inbox under a name the Inbox reads like any other ("Night Court S03E07 
 2026-11-13.ts", "Casablanca (1942).ts"), and the Inbox files it with its artwork and details as it files everything
 (sofa/organizer.py tells this module where it went: filed()). Keep-last-N then puts older episodes of a series in
 Deleted, where they stay until someone empties it.
+
+Sofa starting again (Restart, an update) doesn't stop a recording. On a Mac or Linux it starts again in the same
+process, so the copy keeps running and the new start takes it over (hand_over, take_over): nothing is missed. Where it
+can't (Windows starts a new process), the recording carries on in a new part as soon as Sofa is back, and says how
+many seconds that missed. Only a full stop, Sofa not running at all, makes one fail.
 """
+import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 import threading
 import time
@@ -38,6 +45,7 @@ from . import config, fileops, guide, naming, store, tuners
 TICK = 15
 EXPAND_EVERY = 600
 RESTARTS = 3                     # a stream that breaks off is opened again this many times
+HANDOVER_FOR = 600               # a hand-over older than this (Sofa didn't start again soon after) isn't taken
 _lock = threading.Lock()
 _procs = {}                      # recording id -> {"proc", "part", "parts", "restarts"}
 _state = {"expanded": 0}
@@ -307,6 +315,8 @@ def _command(url, seconds, out):
 def _begin(r, now):
     """Open the channel and start copying it, to the end of the window."""
     from . import media
+    if _state.get("leaving"):
+        return None
     chan = _channel(r["channel"])
     if recordable(chan):
         return _fail(r, "The channel isn't there any more.")
@@ -403,9 +413,14 @@ def _finish(r, p):
         n += 1
     size = os.path.getsize(joined)
     fileops.move(joined, dest)
+    notes = []
+    if p["restarts"]:
+        notes.append("The stream broke off and was opened again %d time%s." % (p["restarts"], "" if p["restarts"] == 1 else "s"))
+    if p.get("cuts"):
+        missed = max(1, int(round(p.get("missed", 0))))
+        notes.append("Sofa started again while it was recording, which missed about %d second%s." % (missed, "" if missed == 1 else "s"))
     store.ex("UPDATE recordings SET state = 'done', inbox = ?, size = ?, why = ? WHERE id = ?", os.path.basename(dest), size,
-             ("The stream broke off and was opened again %d time%s." % (p["restarts"], "" if p["restarts"] == 1 else "s"))
-             if p["restarts"] else None, r["id"])
+             " ".join(notes) or None, r["id"])
     store.log("live", "Recorded %s (%.1f GB): in the Inbox to be filed" % (r["title"], size / 1e9))
     _changed()
     return True
@@ -414,6 +429,8 @@ def _finish(r, p):
 def tick(now=None):
     """Once every few seconds: plan the series, follow what's running, give out tuners, begin what's due. What's
     running is followed first, so a recording that has just ended gives its tuner back before the next one asks."""
+    if _state.get("leaving"):
+        return                                       # (Sofa is about to start again: hand_over)
     _table()
     now = int(now or time.time())
     expand(now=now)
@@ -441,6 +458,12 @@ def _follow(now):
                 _procs.pop(rid, None)
             continue
         left = _window(r)[1] - now
+        cut = p.pop("cut", None)                     # (when Sofa starting again cut it off)
+        if cut is not None and left > 20:
+            p["cuts"], p["missed"] = p.get("cuts", 0) + 1, p.get("missed", 0) + max(0, now - cut)
+            store.log("live", "Sofa started again; the recording of %s goes on" % r["title"])
+            _begin(r, now)
+            continue
         if left > 20 and not p.get("stopping") and p["restarts"] < RESTARTS and not _whole(p):
             p["restarts"] += 1                       # the stream broke off: once more, into the next part
             store.log("live", "The recording of %s broke off; opening the channel again" % r["title"])
@@ -525,9 +548,186 @@ def _loop():
         time.sleep(TICK)
 
 
-def start():
+# ---------------------------------------------------------------- Sofa starting again
+
+def _handover_file():
+    return os.path.join(config.DATA_DIR, "recording-handover.json")
+
+
+def hand_over():
+    """Sofa is about to start again (updater.restart): what's being recorded is written down for the next start to
+    take over. On a Mac or Linux the copies keep running (the same process carries on with new code); on Windows the
+    next start is another process, so they stop here and carry on in a new part. How many there were."""
+    _state["leaving"] = True                         # nothing more begins here (tick)
+    with _lock:
+        running = list(_procs.items())
+    cut = set()
+    if os.name == "nt":
+        for rid, p in running:
+            if p["proc"].poll() is None:
+                cut.add(rid)
+                p["proc"].terminate()
+                try:
+                    p["proc"].wait(5)
+                except subprocess.TimeoutExpired:
+                    pass
+    out = {str(rid): {"pid": getattr(p["proc"], "pid", None), "parts": p["parts"], "restarts": p["restarts"],
+                      "asked": p.get("asked"), "stopping": bool(p.get("stopping")), "cuts": p.get("cuts", 0), "missed": p.get("missed", 0),
+                      "cut": rid in cut, "ended": rid not in cut and p["proc"].poll() is not None}
+           for rid, p in running}
+    path = _handover_file()
+    try:
+        if not out:
+            if os.path.exists(path):
+                os.remove(path)
+            return 0
+        with open(path + ".tmp", "w", encoding="utf-8") as f:
+            json.dump({"pid": os.getpid(), "at": int(time.time()), "recordings": out}, f)
+        os.replace(path + ".tmp", path)
+    except OSError:
+        return 0
+    return len(out)
+
+
+def stay():
+    """Sofa didn't start again after all (hand_over was for nothing): this one goes on recording."""
+    _state.pop("leaving", None)
+    try:
+        os.remove(_handover_file())
+    except OSError:
+        pass
+
+
+def _handed_over():
+    try:
+        with open(_handover_file(), encoding="utf-8") as f:
+            h = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(h, dict) or not isinstance(h.get("recordings"), dict) or abs(time.time() - int(h.get("at") or 0)) > HANDOVER_FOR:
+        return {}
+    return h
+
+
+def kept_running():
+    """The copies an earlier Sofa in this same process handed over still running: not leftovers to end
+    (sofa/children.py), but recordings to take over."""
+    h = _handed_over()
+    if h.get("pid") != os.getpid():
+        return set()
+    return {int(x["pid"]) for x in h["recordings"].values() if x.get("pid") and not x.get("cut") and not x.get("ended")}
+
+
+class _Kept:
+    """A copy an earlier Sofa in this same process started: still this process's child, so it's followed and
+    stopped as the ones started here are (the part of subprocess.Popen used here)."""
+
+    def __init__(self, pid):
+        self.pid, self.returncode = pid, None
+
+    def poll(self):
+        if self.returncode is None:
+            try:
+                pid, status = os.waitpid(self.pid, os.WNOHANG)
+            except ChildProcessError:
+                self.returncode = 0                       # (waited for elsewhere: ended)
+            else:
+                if pid:
+                    self.returncode = -os.WTERMSIG(status) if os.WIFSIGNALED(status) else os.WEXITSTATUS(status)
+        return self.returncode
+
+    def wait(self, timeout=None):
+        end = None if timeout is None else time.time() + timeout
+        while self.poll() is None:
+            if end is not None and time.time() > end:
+                raise subprocess.TimeoutExpired("ffmpeg", timeout)
+            time.sleep(0.05)
+        return self.returncode
+
+    def terminate(self):
+        self._send(signal.SIGTERM)
+
+    def kill(self):
+        self._send(signal.SIGKILL)
+
+    def _send(self, sig):
+        if self.poll() is None:
+            try:
+                os.kill(self.pid, sig)
+            except OSError:
+                pass
+
+
+class _Ended:
+    """In place of a copy that was running before Sofa started again and isn't now."""
+    pid, returncode = None, -15
+
+    def poll(self):
+        return self.returncode
+
+    def wait(self, timeout=None):
+        return self.returncode
+
+    def terminate(self):
+        pass
+
+    kill = terminate
+
+
+def _adopt(pid):
+    """The copy `pid` if it's still this process's own and running, else None."""
+    if os.name == "nt" or not pid:
+        return None
+    try:
+        if os.waitpid(pid, os.WNOHANG)[0]:
+            return None                                   # it has just ended
+    except OSError:
+        return None                                       # not this process's (another process started it)
+    return _Kept(pid)
+
+
+def take_over():
+    """As Sofa starts: the recordings an earlier start handed over carry on; any other one marked as recording was
+    cut off by Sofa stopping (its parts are kept), so it's marked failed and nobody waits for it. How many go on."""
     _table()
-    # what was recording when Sofa stopped: its parts are kept; it's marked so nobody waits for it
-    for r in store.q("SELECT id, title FROM recordings WHERE state = 'recording'"):
-        store.ex("UPDATE recordings SET state = 'failed', why = ? WHERE id = ?", "Sofa stopped while it was recording.", r["id"])
+    h = _handed_over()
+    try:
+        os.remove(_handover_file())
+    except OSError:
+        pass
+    same = h.get("pid") == os.getpid()
+    taken = 0
+    for rid, x in (h.get("recordings") or {}).items():
+        try:
+            rid = int(rid)
+        except ValueError:
+            continue
+        r = get(rid)
+        if not r or r["state"] != "recording":
+            continue
+        p = {"parts": [str(part) for part in x.get("parts") or []], "restarts": int(x.get("restarts") or 0),
+             "asked": int(x.get("asked") or 0), "cuts": int(x.get("cuts") or 0), "missed": int(x.get("missed") or 0)}
+        if x.get("stopping"):
+            p["stopping"] = True
+        kept = _adopt(int(x["pid"])) if same and x.get("pid") and not x.get("cut") and not x.get("ended") else None
+        if kept:
+            p["proc"] = kept                              # still copying: followed from here on, nothing missed
+            store.log("live", "Sofa started again; still recording %s" % r["title"])
+        else:
+            p["proc"] = _Ended()
+            if not x.get("ended") and not x.get("stopping"):
+                p["cut"] = int(h["at"])                   # cut off by the restart: opened again (not a break)
+        with _lock:
+            _procs[rid] = p
+        taken += 1
+    for r in store.q("SELECT id FROM recordings WHERE state = 'recording'"):
+        with _lock:
+            ours = r["id"] in _procs
+        if not ours:
+            store.ex("UPDATE recordings SET state = 'failed', why = ? WHERE id = ?", "Sofa stopped while it was recording.", r["id"])
+    return taken
+
+
+def start():
+    take_over()
     threading.Thread(target=_loop, daemon=True, name="dvr").start()
