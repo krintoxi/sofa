@@ -23,10 +23,16 @@ things people build, and what lies on the ground.
 - **The square** is paved: rings of flagstones round the fount, no two the same grey, warmer under the lamps.
 - **Light on the ground.** A pool of it under each lamp outside the square, and what a house's windows spill before
   its door.
-- **In the grass**, on the fuller look: more grows round Hearthrim, and with the grass come flowers and stones.
+- **A meadow, and wind in it** (the fuller look). Round Hearthrim the ground is grass now, clumps of it, as many as
+  the box's rung can carry, with flowers and stones among them; the grass, the flowers and the trees' crowns move
+  with the wind.
+- **Smoke** rises from Hearthrim's chimneys and drifts off with the wind.
+- **The picture is graded** on the fuller look: richer, its lights warmer and its shade cooler, darker towards the
+  corners. And the open country's sun stands a little higher and stronger on every box, the shade under it cooler.
 - **Low3D** (the engine, for every game): `Kit.house`, `Kit.barrel`, `crate`, `woodpile` and `bench`; `Kit.lay` (a flat
   shape laid on the ground and lit with it) and `Kit.cast` (the shadow a thing throws, laid the same way); `Land.on`
-  (the ground's height as it's drawn, where `at` is smooth between the corners).
+  (the ground's height as it's drawn, where `at` is smooth between the corners); `GL.wind` with `Mesh.sway` and
+  `Mesh.facing`; `GL.grade`.
 
 ## 1.1.87
 
