@@ -6,6 +6,28 @@ has its own numbers and list: [deploy/sofa-box/CHANGES.md](deploy/sofa-box/CHANG
 A change to Sofa's code (`sofa/`, `client/`, `sofa.py`) gets a new version: raise `__version__`, add a section
 here, then `python3 tools/sofa-version.py` (a test checks it was done).
 
+## 1.5.13 (2026-11-14, a draft)
+
+- **Tuners at home** (`sofa/tuners.py`): an HDHomeRun, or anything that answers as one, found on the network
+  (SiliconDust's discovery packet) or by its address. Listed off until an admin turns it on; then its channels are in
+  Live TV by their own numbers, after the lists' (so no channel a household knows moves). Copy-protected channels are
+  left out; MPEG-2 channels (most over-the-air TV) are converted as they play, deinterlaced. A tuner's channel is at
+  home: never a Visitor's, never played away from home through Sofa, never looked at by the channel checker. Works
+  with offline mode on.
+- **The guide** (`sofa/guide.py`): XMLTV from an address or a file, read every six hours, two weeks kept, matched to
+  channels by id, tuner number or name. A file that declares its own entities is refused.
+- **Recording** (`sofa/dvr.py`): now, a programme, a slot, or a series (new episodes only, keep the last N, no
+  repeats of an episode already recorded). Padding (1 and 3 minutes) that gives way instead of clashing; conflicts
+  across a box's tuners, said with what they clash with; a stream that breaks off is opened again and the parts
+  joined. The file (the channel's own stream, copied) goes into the Inbox under a name it reads, and the Inbox files
+  it. Channels at home only (a tuner's, a list on the home network): never a list from the internet, never the Retro
+  TV decades or Classic Cinema. **A recording is never shown to the public library's Visitors**, even when its show
+  is shared.
+- The API is in `docs/tuners-and-recording.md`. **No screens yet, and no real tuner has run any of it**: it's tested
+  against a stand-in tuner (`tests/stand_in_tuner.py`) with real ffmpeg recordings.
+- Live TV's channel lists kept on the home network are now fetched directly (no proxy) and in offline mode too:
+  offline is about the internet.
+
 ## 1.5.12 (2026-11-13)
 
 - **The graphics chip converts video on Linux and Windows too.** Beside Apple's VideoToolbox on a Mac: NVIDIA's
