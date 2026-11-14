@@ -6,6 +6,46 @@ has its own numbers and list: [deploy/sofa-box/CHANGES.md](deploy/sofa-box/CHANG
 A change to Sofa's code (`sofa/`, `client/`, `sofa.py`) gets a new version: raise `__version__`, add a section
 here, then `python3 tools/sofa-version.py` (a test checks it was done).
 
+## 1.5.12 (2026-11-13)
+
+- **The graphics chip converts video on Linux and Windows too.** Beside Apple's VideoToolbox on a Mac: NVIDIA's
+  **NVENC**, Intel's **Quick Sync** and **VA-API** (Intel's and AMD's graphics) on Linux; NVENC, Quick Sync and AMD's
+  **AMF** on Windows (`sofa/encoders.py`). Nothing to set up, and nothing is guessed from a name:
+  - **What's there:** what this ffmpeg was built with; the render nodes in `/dev/dri`, by maker, and whether Sofa's
+    user may open them; NVIDIA's driver (`nvidia-smi`); Windows' display adapters, by maker.
+  - **A one-second conversion** with each encoder that could be here. Drivers and ffmpeg versions don't agree on an
+    encoder's options, so each is asked in up to three ways and the first that works is kept. Then the timing and
+    the check of its pictures Sofa already did for VideoToolbox.
+  - **The choice, for every conversion:** a chip's encoder that passed and converts well faster than video plays (75
+    frames a second of 1080p) is used, the fastest of them; it leaves the processor to everything else. Otherwise
+    the fastest way, the processor included.
+  - **When a chip's encoder stops on a video,** Sofa carries on with the processor. A stream being watched goes on
+    from where it was, in the same playlist, so the player keeps playing; a stream that hadn't begun, and a file
+    being converted for good, start again. The encoder rests for ten minutes, and after three failures in a row
+    isn't used until the next test. A video that fails with the processor too isn't held against the chip.
+  - **One switch:** Server → Overview → This computer → **Convert with the graphics chip**. It appears once a chip's
+    encoder has passed here. The panel lists each encoder tried, its speed or why it doesn't work, and the one in use.
+  - **HEVC is decoded by the chip as well** only where this computer's own measurement shows that to be faster. On
+    an A18 Pro it's slower (255 frames a second against the processor's 350), so it stays on the processor there.
+  - `python3 sofa.py encoders` runs the test now and prints what it found.
+- **In Docker:** give the container the chip (`devices: /dev/dri` for Intel's and AMD's, `gpus: all` for NVIDIA:
+  both are in `compose.yml` behind a `#`), and its start puts Sofa's user in the group that owns the render node by
+  itself. The amd64 image carries Debian's VA-API drivers for both makers (it grows by Mesa's size; the arm64 image
+  is as it was). `docs/install.md`, "The graphics chip in Docker".
+- **What changes on a Mac:** where VideoToolbox passes its test and converts at two and a half times the speed
+  video plays, it is used even when x264 measures faster. On Apple silicon that's a change: an A18 Pro and an M4
+  both measured x264 the faster of the two (110 to 190 and 343 frames a second against VideoToolbox's 90 to 101),
+  and used it. Server → Overview → This computer → **Convert with the graphics chip**, off, brings x264 back. A Mac
+  whose chip has no working encoder, or draws lines across the picture, converts exactly as before.
+- **What has run where** (`docs/capabilities.md`, "The graphics chip's encoders"): VideoToolbox on two Apple chips.
+  **NVENC, Quick Sync, VA-API and AMF have not run on a real chip:** we have no NVIDIA card and no Intel or AMD
+  graphics under Linux or Windows. Their detection, choice, commands and every failure are tested with a stand-in
+  ffmpeg that behaves as a driver might and converts for real with x264 (`tests/stand_in_ffmpeg.py`); a render node
+  that can't convert has been tried for real in the Docker image on a Linux VM; the switch in the middle of a
+  stream has played through in Chrome. An encoder is only ever used after its own test passes on that computer, so
+  an untested one can fail its test and leave x264 in charge; it can't break playing.
+- A restart shows the last test's result on the Server page at once, not a minute later.
+
 ## 1.5.11 (2026-11-13)
 
 - **Hardware by what it is, not by what it's sold as.** The README, the docs, the issue and pull request templates,
