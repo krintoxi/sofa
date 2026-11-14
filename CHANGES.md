@@ -6,6 +6,20 @@ has its own numbers and list: [deploy/sofa-box/CHANGES.md](deploy/sofa-box/CHANG
 A change to Sofa's code (`sofa/`, `client/`, `sofa.py`) gets a new version: raise `__version__`, add a section
 here, then `python3 tools/sofa-version.py` (a test checks it was done).
 
+## 1.5.15 (2026-11-14)
+
+- **A recording goes on through Restart and updates.** Before, a restart called a recording failed while its copy
+  went on writing a part nobody would file, holding its tuner to the end of the programme. Now on a Mac or Linux,
+  where Sofa starts again in the same process, the new start takes the copy over and nothing is missed. On Windows,
+  where it starts again as another process, the recording carries on in a new part as soon as Sofa is back, and
+  says how many seconds that missed. Only a full stop, Sofa not running at all, still marks one failed.
+- **Nothing else outlives a restart** (`sofa/children.py`). On a Mac or Linux the new start first ends whatever the
+  one before left running: what someone was watching, a conversion, a download. Some of those used to stop on their
+  own a moment later, when what they wrote to was gone; now it's the same every time.
+- Tested on a Mac with Sofa in a process of its own, the stand-in tuner and real ffmpeg: Restart pressed while one
+  channel is watched and another recorded (`tests/test_restart_in_place.py`). On Windows the tests cover only the
+  new part (GitHub's machines run them); no Windows PC has run it.
+
 ## 1.5.14 (2026-11-14)
 
 - **Live TV → Antenna:** the tuners' channels on the clock, by their own numbers (2.1, 5.1, 11.3), from the guide.
