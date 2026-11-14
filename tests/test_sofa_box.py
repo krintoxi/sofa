@@ -1448,6 +1448,22 @@ class BoxBrowser(unittest.TestCase):
         self.assertEqual(o["regs"], [0, 1, 2, 3, 4, 5])
         self.assertEqual(o["open"], 25)                                    # five chunks by five: the neighbourhood
         self.assertEqual(o["stations"], ["smith", "furnace", "kin", "well", "portal", "maw", "stash"])
+        # Hearthrim's well and its riftgate stand in the open: the eye looks from the south, so no house stands close to the south of
+        # them; a delver wakes by the well (and steps out of the gate) unpushed and in plain sight; and one who does walk behind a
+        # house is drawn through it, as behind a tree
+        o = run("""const w = WY.W.feats.find(q => q.kind === "well" && q.id === 0), g = WY.W.feats.find(q => q.kind === "portal" && q.id === 0), hs = WY.W.houses;
+            const behind = q => hs.filter(h => Math.abs(h.x - q.x) < 2.8 * h.s + 1.3 && h.z - q.z > 0 && h.z - q.z < 4.9 * h.s + 1.3).length;
+            const at = (x, z) => { WY.goto(x, z); WY.sim(0.3); return [Math.hypot(WY.H.x - x, WY.H.z - z) < 0.2, WY.hidden()]; }, x0 = WY.H.x, z0 = WY.H.z;
+            const h = hs.reduce((a, q) => Math.hypot(q.x - w.x, q.z - w.z) < Math.hypot(a.x - w.x, a.z - w.z) ? q : a);
+            const o = { houses: hs.length, well: behind(w), gate: behind(g), wake: at(w.x + 1.6, w.z + 2.2), arrive: at(g.x, g.z + 2.6),
+              back: at(h.x + 1.5, h.z - 3.9), front: at(h.x, h.z + 4.5) };
+            WY.goto(x0, z0); WY.sim(0.3); return JSON.stringify(o);""")                 # (and back to where they stood, for the trades)
+        self.assertEqual(o["houses"], 8)
+        self.assertEqual((o["well"], o["gate"]), (0, 0))
+        self.assertEqual(o["wake"], [True, False])                         # (the game's own wake place: 1.6 east and 2.2 south of the well)
+        self.assertEqual(o["arrive"], [True, False])
+        self.assertEqual(o["back"], [True, True])                          # close behind the nearest house's back wall: seen through it
+        self.assertEqual(o["front"], [True, False])
         # the trades: a tree felled a swing at a time, a fire lit and fed, a rock mined, its ore smelted at the furnace
         o = run("""const D = WY.D; let t = WY.near("tree"); WY.goto(t.x + 1.4, t.z + 0.6); WY.interact(t);
             const work = () => { for (let i = 0; i < 120 && !t.spent; i++) WY.sim(0.5); };   // (a swing may miss: until it has given all it holds)

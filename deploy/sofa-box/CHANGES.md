@@ -8,6 +8,19 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.87
+
+**WYRD: Hearthrim's well and its riftgate stand in the open.** In 1.1.86 both stood close behind a house of the
+square, and the eye looks from the south: the well couldn't be seen at all, the gate only by its tips, and a delver
+who came back to the game, or woke after a fall, woke behind that house's roof.
+
+- **The well and the riftgate** are six metres further into the square (the well by the stash, the gate by the Loom),
+  with nothing between them and the eye. A delver wakes beside the well, and one who steps out of the gate stands in
+  front of it, both in plain sight. Nothing else in Hearthrim moved.
+- **Behind a house** a delver is drawn through it in the box's green, as they already were behind a tree's crown. The
+  eight houses of the square are tall enough to lose a delver behind; now none does.
+- Saves are as they were: a delver's well is kept by its number, not by where it stands.
+
 ## 1.1.86
 
 **WYRD is a skilling game in an open world now.** The descent down the Maw is all still there; round it there is a
