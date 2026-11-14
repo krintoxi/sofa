@@ -416,13 +416,13 @@ MACHINES = ((r"imac", "iMac"), (r"macbook[-_ ]?air", "MacBook Air"), (r"macbook[
 
 
 def machine_of(host):
-    """What kind of computer a name says it is ("Marielyss-iMac" -> iMac), or None."""
+    """What kind of computer a name says it is ("Living-Room-iMac" -> iMac), or None."""
     h = (host or "").lower()
     return next((kind for pat, kind in MACHINES if re.search(pat, h)), None)
 
 
 def pretty_host(host):
-    """A computer's network name for people: "Marielyss-iMac.local." -> "Marielyss iMac"."""
+    """A computer's network name for people: "Living-Room-iMac.local." -> "Living Room iMac"."""
     h = re.sub(r"\.(local|lan|home)\.?$", "", str(host or "").strip().rstrip("."), flags=re.I)
     return re.sub(r"[-_]+", " ", h).strip()[:40] or None
 

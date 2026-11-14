@@ -952,7 +952,7 @@ The setup, from what a 1.1.60 card did on a real Raspberry Pi 3 B+ (2026-11-11: 
   only when Sofa itself is opened; Live TV, on Home, never asks: it plays from the Sofa that opens, else the last one,
   else Sofa on the box.
 - **"Where's your Sofa?" says which Sofa is which.** Each one found at home shows its computer's name and kind (from
-  what it announces on the network: "Marielyss iMac"), how many films and shows it has, and its address in small
+  what it announces on the network: "Living Room iMac"), how many films and shows it has, and its address in small
   type; the same Sofa found at two addresses is one entry, and the one Sofa last opened is marked. At its foot:
   ask each time Sofa opens, or go straight in (also in Settings → Sofa).
 - **Typing the Wi-Fi password on the TV.** A bigger field you can read from the sofa, with the letters showing (Hide

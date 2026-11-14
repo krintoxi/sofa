@@ -383,9 +383,9 @@ class WheresYourSofa(unittest.TestCase):
 
     def test_computer_names(self):
         a = self.agent
-        self.assertEqual(a.pretty_host("Marielyss-iMac.local."), "Marielyss iMac")
-        self.assertEqual(a.machine_of("Marielyss-iMac.local."), "iMac")
-        self.assertEqual(a.machine_of("icnet2s-MacBook-Neo.local"), "MacBook")
+        self.assertEqual(a.pretty_host("Living-Room-iMac.local."), "Living Room iMac")
+        self.assertEqual(a.machine_of("Living-Room-iMac.local."), "iMac")
+        self.assertEqual(a.machine_of("Office-MacBook.local"), "MacBook")
         self.assertEqual(a.machine_of("DESKTOP-7Q2K1LM"), "Windows PC")
         self.assertEqual(a.machine_of("diskstation"), "NAS")
         self.assertIsNone(a.machine_of("living-room"))
@@ -398,26 +398,26 @@ class WheresYourSofa(unittest.TestCase):
                       "http://10.0.0.125:8771": {"sofa": True, "name": "Sofa"},                                  # too old to say its id
                       "http://10.0.0.126:8771": {"sofa": True, "name": "Sofa"}}
         a.add("http://192.168.64.1:8090")                                   # (SSDP first: no computer name)
-        a.add("http://10.0.0.11:8090", "Marielyss-iMac.local.")             # Bonjour: the same Sofa, with its name
-        a.add("http://10.0.0.125:8771", "icnet2s-MacBook-Neo.local.")
-        a.add("http://10.0.0.126:8771", "icnet2s-MacBook-Neo.local.")       # the same computer and port, another address
+        a.add("http://10.0.0.11:8090", "Living-Room-iMac.local.")             # Bonjour: the same Sofa, with its name
+        a.add("http://10.0.0.125:8771", "Office-MacBook.local.")
+        a.add("http://10.0.0.126:8771", "Office-MacBook.local.")       # the same computer and port, another address
         self.assertEqual(len(a.found), 2)
         imac = next(v for v in a.found.values() if v.get("id") == "imac")
-        self.assertEqual((imac["host"], imac["machine"]), ("Marielyss iMac", "iMac"))   # learnt from the second way
+        self.assertEqual((imac["host"], imac["machine"]), ("Living Room iMac", "iMac"))   # learnt from the second way
         listing = a.sofa_listing()
         hosts = sorted(x["host"] for x in listing["found"])
-        self.assertEqual(hosts, ["Marielyss iMac", "icnet2s MacBook Neo"])
+        self.assertEqual(hosts, ["Living Room iMac", "Office MacBook"])
 
     def test_what_it_holds_and_the_last_opened(self):
         a = self.agent
         self.infos = {"http://10.0.0.11:8090": {"sofa": True, "name": "Sofa", "id": "imac"}}
-        a.add("http://10.0.0.11:8090", "Marielyss-iMac.local.")
+        a.add("http://10.0.0.11:8090", "Living-Room-iMac.local.")
         found = a.sofa_listing()["found"][0]
         self.assertEqual(found["library"], {"movies": 30, "shows": 10})
         entry = a.servers.add({"id": found["id"], "kind": "sofa", "name": "Sofa", "url": found["url"], "where": "home", "sofa_id": "imac"})
         listing = a.sofa_listing()
         added = next(x for x in listing["servers"] if x["id"] == entry["id"])
-        self.assertEqual((added["host"], added["library"]["movies"]), ("Marielyss iMac", 30))   # the added one, told apart too
+        self.assertEqual((added["host"], added["library"]["movies"]), ("Living Room iMac", 30))   # the added one, told apart too
         self.assertEqual(listing["found"], [])
         a.servers.opened(entry["id"])
         self.assertEqual(a.sofa_listing()["last"], entry["id"])

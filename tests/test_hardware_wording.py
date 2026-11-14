@@ -2,7 +2,7 @@
 never by a computer's model and year: the README, the docs, the web app's text, comments and tests.
 
 Left alone: the changelogs (history stays as it was written), the box's games, and the names a computer gives
-itself on the network (the box shows "Marielyss iMac" for a Sofa it found, because that is what the household
+itself on the network (the box shows "Living Room iMac" for a Sofa it found, because that is what the household
 calls it)."""
 import os
 import re
