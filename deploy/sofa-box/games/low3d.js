@@ -79,6 +79,9 @@ const M4 = {
     const f = 1 / Math.tan(fovy / 2), nf = 1 / (near - far);
     o.fill(0); o[0] = f / aspect; o[5] = f; o[10] = (far + near) * nf; o[11] = -1; o[14] = 2 * far * near * nf; return o;
   },
+  ortho(o, l, r, b, t, n, f) {                       // a box seen square on (the sun's view, for shadows)
+    o.fill(0); o[0] = 2 / (r - l); o[5] = 2 / (t - b); o[10] = -2 / (f - n); o[12] = -(r + l) / (r - l); o[13] = -(t + b) / (t - b); o[14] = -(f + n) / (f - n); o[15] = 1; return o;
+  },
   look(o, ex, ey, ez, tx, ty, tz, ux, uy, uz) {
     let zx = ex - tx, zy = ey - ty, zz = ez - tz, l = 1 / (Math.sqrt(zx * zx + zy * zy + zz * zz) || 1); zx *= l; zy *= l; zz *= l;
     let xx = uy * zz - uz * zy, xy = uz * zx - ux * zz, xz = ux * zy - uy * zx; l = 1 / (Math.sqrt(xx * xx + xy * xy + xz * xz) || 1); xx *= l; xy *= l; xz *= l;
@@ -383,9 +386,25 @@ void main() {
 const STILL_VS = `
 attribute vec3 aPos; attribute vec4 aNor; attribute vec4 aCol;
 uniform mat4 uVP; uniform vec3 uEye; uniform vec2 uAir; uniform vec3 uFogCol; uniform vec3 uFogSun; uniform vec3 uSun; uniform vec3 uShine; uniform float uFlip; uniform float uCap;
+#ifdef WIND
+uniform vec3 uWind;                                  // time, how far a thing that gives way is pushed (metres), how fast the gusts come
+#endif
+#ifdef SHADE
+uniform mat4 uLVP;                                   // the sun's view of the movers (GL.shadows)
+varying vec3 vLS; varying float vOff;
+#endif
 varying vec3 vCol; varying vec4 vFog;
 void main() {
   vec3 p = aPos;
+#ifdef WIND
+  float give = (1.0 - aCol.a) * step(aCol.a, 0.986) * uWind.y;   // (a vertex's alpha: 252/255 and over stand still, less gives way: Mesh.sway, Mesh.LAID)
+  p.x += give * sin(uWind.x * uWind.z + aPos.x * 0.35 + aPos.z * 0.27);
+  p.z += give * 0.6 * sin(uWind.x * uWind.z * 0.77 + aPos.x * 0.21 - aPos.z * 0.4);
+#endif
+#ifdef SHADE
+  vLS = (uLVP * vec4(p, 1.0)).xyz * 0.5 + 0.5;
+  vOff = max(step(0.986, aCol.a) * step(aCol.a, 0.99), step(0.5, aNor.w));   // (a laid shadow, Mesh.LAID, is in shadow already; a light of its own isn't darkened)
+#endif
   p.y = mix(p.y, -max(p.y, 0.0), uFlip);             // (its mirror image: what's above the water, under it)
   vec3 rel = p - uEye; float d = length(rel);
   float s = max(dot(rel, uSun) / d, 0.0);
@@ -396,7 +415,38 @@ void main() {
 const STILL_FS = `
 precision mediump float;
 varying vec3 vCol; varying vec4 vFog;
-void main() { gl_FragColor = vec4(mix(vCol, vFog.rgb, vFog.a), 1.0); }`;
+#ifdef SHADE
+#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#endif
+uniform sampler2D uShadeTex; uniform vec4 uShadeK;  // how dark (0.58), a pixel of the picture (1 / its side), the bias, how much (the sun's height fades it)
+varying vec3 vLS; varying float vOff;
+float sunOn(vec2 uv) { vec4 c = texture2D(uShadeTex, uv); return step(vLS.z - uShadeK.z, dot(c.rg, vec2(1.0, 1.0 / 255.0))); }
+#endif
+void main() {
+  vec3 c = vCol;
+#ifdef SHADE
+  vec2 e = min(vLS.xy, 1.0 - vLS.xy);
+  if (vOff < 0.5 && min(e.x, e.y) > 0.0) {
+    float t = uShadeK.y; vec2 q = vLS.xy / t - 0.5, f = fract(q), b = (floor(q) + 0.5) * t;   // (four looks, blended by where between them: a soft edge, not steps)
+    float s = mix(mix(sunOn(b), sunOn(b + vec2(t, 0.0)), f.x), mix(sunOn(b + vec2(0.0, t)), sunOn(b + vec2(t, t)), f.x), f.y);
+    c *= mix(1.0, uShadeK.x, (1.0 - s) * uShadeK.w * clamp(min(e.x, e.y) * 14.0, 0.0, 1.0));   // (fading out at the picture's edge)
+  }
+#endif
+  gl_FragColor = vec4(mix(c, vFog.rgb, vFog.a), 1.0);
+}`;
+// the movers seen from the sun: how far each pixel of them is, kept in two bytes (GL.shadows)
+const CAST_VS = `
+attribute vec3 aPos;
+uniform mat4 uLVP; uniform mat4 uM;
+void main() { gl_Position = uLVP * (uM * vec4(aPos, 1.0)); }`;
+const CAST_FS = `
+#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
+precision mediump float;
+#endif
+void main() { vec2 e = fract(vec2(1.0, 255.0) * gl_FragCoord.z); e.x -= e.y / 255.0; gl_FragColor = vec4(e, 0.0, 1.0); }`;
 // things that move (lit as they turn), with the same air as the still world and a mirror image of their own
 const MOVE_VS = `
 attribute vec3 aPos; attribute vec4 aNor; attribute vec4 aCol;
@@ -522,6 +572,18 @@ void main() {
     + (texture2D(uTex, vUV + uPx * 3.231).rgb + texture2D(uTex, vUV - uPx * 3.231).rgb) * 0.070;
   gl_FragColor = vec4(c, 1.0);
 }`;
+const GRADE_FS = `
+precision mediump float;
+uniform sampler2D uTex; uniform vec4 uGrade; uniform vec3 uWarm; uniform vec3 uCool; varying vec2 vUV;
+void main() {
+  vec3 c = texture2D(uTex, vUV).rgb * uGrade.x;
+  float l = dot(c, vec3(0.299, 0.587, 0.114));
+  c = mix(vec3(l), c, uGrade.z);                                       // richer, or paler
+  c = clamp(c, 0.0, 1.0); c = mix(c, c * c * (3.0 - 2.0 * c), uGrade.y);   // an S: the darks darker, the lights lighter
+  c *= mix(uCool, uWarm, smoothstep(0.12, 0.7, l));                    // the darks one way, the lights the other
+  vec2 d = vUV - 0.5; c *= 1.0 - uGrade.w * dot(d, d) * 2.0;           // darker towards the corners
+  gl_FragColor = vec4(c, 1.0);
+}`;
 const GLOWADD_FS = `
 precision mediump float;
 uniform sampler2D uTex; uniform float uPower; varying vec2 vUV;
@@ -550,10 +612,11 @@ function GL(canvas, opts) {
   // the rest when first wanted (each takes a moment to make on a Pi 3): null when this GPU can't
   this.make = { sea: () => mk(SEA_VS, SEA_FS, ""), skySun: () => mk(SKY_VS, SKY_FS, "#define SUN\n"),
     seaWave: () => this.derivatives ? mk(SEA_VS, SEA_FS, "#define WAVES\n") : null,
-    still: () => mk(STILL_VS, STILL_FS, ""), move: () => mk(MOVE_VS, STILL_FS, ""), dome: () => mk(DOME_VS, DOME_FS, ""),
+    still: () => mk(STILL_VS, STILL_FS, ""), stillWind: () => mk(STILL_VS, STILL_FS, "#define WIND\n"),
+    stillShade: () => mk(STILL_VS, STILL_FS, "#define SHADE\n"), stillWindShade: () => mk(STILL_VS, STILL_FS, "#define WIND\n#define SHADE\n"), cast: () => mk(CAST_VS, CAST_FS, ""), move: () => mk(MOVE_VS, STILL_FS, ""), dome: () => mk(DOME_VS, DOME_FS, ""),
     water: () => mk(WATER_VS, WATER_FS, ""), waterRich: () => mk(WATER_VS, WATER_FS, "#define RICH\n"),
     fx: () => mk(FX_VS, FX_FS, ""), fxDots: () => mk(FX_VS, FX_FS, "#define DOTS\n"), ui: () => mk(UI_VS, UI_FS, ""),
-    bright: () => mk(BLOOM_VS, BRIGHT_FS, ""), blur: () => mk(BLOOM_VS, BLUR_FS, ""), glowAdd: () => mk(BLOOM_VS, GLOWADD_FS, "") };
+    bright: () => mk(BLOOM_VS, BRIGHT_FS, ""), blur: () => mk(BLOOM_VS, BLUR_FS, ""), glowAdd: () => mk(BLOOM_VS, GLOWADD_FS, ""), grade: () => mk(BLOOM_VS, GRADE_FS, "") };
   this.flip = 0; this.skyVP = new Float32Array(16); this.tint = new Float32Array([1, 1, 1]);
   this.vp = new Float32Array(16); this.view = new Float32Array(16); this.proj = new Float32Array(16); this.m = new Float32Array(16);
   this.planes = new Float32Array(24); this.eye = new Float32Array(3);
@@ -669,6 +732,8 @@ GL.prototype = {
     if (u.uFlip) gl.uniform1f(u.uFlip, this.flip);
     if (u.uShine) gl.uniform3fv(u.uShine, this.tint);
     if (u.uCap) gl.uniform1f(u.uCap, this.held || 8);
+    if (u.uWind) gl.uniform3f(u.uWind, this.windT || 0, this.windy || 0, this.windG || 1.6);
+    if (u.uLVP) { const S = this.sh; gl.uniformMatrix4fv(u.uLVP, false, S.lvp); gl.uniform4f(u.uShadeK, S.dark, 1 / S.size, S.bias, S.k); gl.uniform1i(u.uShadeTex, 2); }
     if (u.uFogCol) gl.uniform3fv(u.uFogCol, L.fogCol);
     if (u.uSun) gl.uniform3fv(u.uSun, L.sun);
     if (u.uSunCol) gl.uniform3fv(u.uSunCol, L.sunCol);
@@ -757,7 +822,8 @@ GL.prototype = {
   // a still mesh with its light baked in (Mesh.light, Chunks.upload with a light): moved by nothing, only fogged
   still(h) {
     if (!h || !h.n) return;
-    const gl = this.gl; this.use(this.prog("still"));
+    const gl = this.gl, sh = this.sh && this.sh.on;
+    this.use(sh && (this.windy ? this.prog("stillWindShade") : this.prog("stillShade")) || this.windy && this.prog("stillWind") || this.prog("still"));
     this.bind(h); gl.drawArrays(gl.TRIANGLES, 0, h.n); this.calls++; this.tris += h.n / 3;
   },
   // a thing that moves: m its place, tint r g b, glow 0 lit … 1 its own colours, rim: how much its edges catch the sky
@@ -777,6 +843,85 @@ GL.prototype = {
   // as it is. With a glow pass that starts at k (bloom's `from`), only the lights glow: never skin, pale stone or
   // leaves that happen to be in full sun. A game that asks for bloom asks for this in the same breath.
   hold(k) { const c = k > 0 ? k : 8; if (c !== this.held) { this.held = c; this.frame++; } },
+  // Shadows of what moves, thrown on the still world by the sun (for the upper rungs; the still world's own are laid on
+  // the ground as it's built: Kit.cast). Each frame, before begin(): shadows(o) starts a picture of the movers seen from
+  // the sun, caster(h, m) puts one in it (a mesh and its place, as moved() takes them), shadowsDone() ends it, and the
+  // still world drawn after darkens where they stand between it and the sun: never what's laid in shadow already
+  // (Mesh.LAID) or a light of its own, and never the movers themselves. o {sun: towards it (the world's), cap: how far a
+  // metre of height may throw (1.15: a low sun's shadows kept short, as Kit.cast's are), x, y, z: the middle of what's
+  // covered, reach: how far it covers each way (metres), size: the picture's side in pixels (1024), dark: how dark
+  // (0.58, Kit.cast's)}. The shadows fade as the sun goes down (its height from 0.1 to 0). shadows(null): none from now
+  // on. False when this GPU can't.
+  shadows(o) {
+    const gl = this.gl;
+    if (!o) { if (this.sh) this.sh.on = false; this.frame++; return false; }
+    const P = this.prog("cast"); if (!P) return false;
+    const size = o.size || 1024; let S = this.sh;
+    if (!S || S.size !== size) {
+      if (S) { gl.deleteTexture(S.tex); gl.deleteFramebuffer(S.fbo); gl.deleteRenderbuffer(S.rb); }
+      const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, size, size, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+      for (const [k, v] of [[gl.TEXTURE_MIN_FILTER, gl.NEAREST], [gl.TEXTURE_MAG_FILTER, gl.NEAREST], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D, k, v);
+      const f = gl.createFramebuffer(), rb = gl.createRenderbuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, f);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t, 0);
+      gl.bindRenderbuffer(gl.RENDERBUFFER, rb); gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT16, size, size); gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, rb);
+      const ok = gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE; gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      S = this.sh = { size, tex: t, fbo: f, rb, ok, on: false, lvp: new Float32Array(16), v: new Float32Array(16), p: new Float32Array(16), dark: 0.58, bias: 0, k: 1 };
+    }
+    if (!S.ok) return false;
+    // the sun's way, raised where it's low (the same way round), so no metre of height throws further than cap
+    const sun = o.sun || this.L.sun, cap = o.cap || 1.15, hl = Math.hypot(sun[0], sun[2]) || 1e-6, sl = Math.hypot(sun[0], sun[1], sun[2]) || 1;
+    let dx = sun[0], dy = sun[1], dz = sun[2]; if (hl / Math.max(1e-6, dy) > cap) { dy = hl / cap; } const dl = Math.hypot(dx, dy, dz); dx /= dl; dy /= dl; dz /= dl;
+    const R = o.reach || 24, D = 80, tx = o.x || 0, ty = o.y || 0, tz = o.z || 0, px = 2 * R / size;
+    const cx = Math.round(tx / px) * px, cz = Math.round(tz / px) * px;   // (whole pixels: the shadows don't crawl as the middle moves)
+    M4.look(S.v, cx + dx * D, ty + dy * D, cz + dz * D, cx, ty, cz, 0, 1, 0); M4.ortho(S.p, -R, R, -R, R, D - 40, D + 40); M4.mul(S.lvp, S.p, S.v);
+    S.dark = o.dark == null ? 0.58 : o.dark; S.bias = 0.06 / 80; S.k = Math.max(0, Math.min(1, sun[1] / sl / 0.1)); S.on = false; S.n = 0;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, S.fbo); gl.viewport(0, 0, size, size); gl.disable(gl.SCISSOR_TEST);
+    gl.clearColor(1, 1, 1, 1); gl.depthMask(true); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT); gl.disable(gl.CULL_FACE);
+    gl.useProgram(P.p); this.cur = P; gl.uniformMatrix4fv(P.u.uLVP, false, S.lvp);
+    return true;
+  },
+  caster(h, m) {
+    const S = this.sh; if (!h || !h.n || !S || this.cur !== this.P.cast) return;
+    const gl = this.gl; gl.uniformMatrix4fv(this.P.cast.u.uM, false, m || IDENT);
+    this.bind(h); gl.drawArrays(gl.TRIANGLES, 0, h.n); S.n++;
+  },
+  shadowsDone() {
+    const gl = this.gl, S = this.sh; if (!S) return;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.enable(gl.CULL_FACE); this.cur = null;
+    gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+    gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, S.tex); gl.activeTexture(gl.TEXTURE0);
+    S.on = S.n > 0 && S.k > 0; this.frame++;
+  },
+  // from now on (until wind(0)): the still world's grass and crowns move. t: the time (seconds); reach: how far the
+  // lightest thing is pushed (metres; 0.12 is a breeze); gusts: how fast they come (1.6). Only what was built to give
+  // way moves (Mesh.sway); everything else is drawn by the same shader as before. For the upper rungs: it's one more
+  // sum for every vertex, and a Pi 3 works on each vertex twice.
+  wind(t, reach, gusts) { this.windT = t || 0; this.windy = reach > 0 ? reach : 0; this.windG = gusts || 1.6; },
+  // The whole picture so far, graded: o {gain (1: as it is), curve (0 to 1: how much of an S, darks darker and lights
+  // lighter), colour (1: as it is; more is richer), warm and cool ([r, g, b] the lights and the darks are multiplied
+  // by), edge (how much darker the corners: 0 none)}. One copy of the picture and one pass over it: for the upper
+  // rungs, after bloom() and before anything written on the screen.
+  grade(o) {
+    o = o || {};
+    const gl = this.gl, W = this.canvas.width, H = this.canvas.height, P = this.prog("grade"); if (!P) return false;
+    let G = this.gr;
+    if (!G || G.W !== W || G.H !== H) {
+      if (G) gl.deleteTexture(G.tex);
+      const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+      G = this.gr = { W, H, tex: t };
+    }
+    if (this.vao) this.vao.bindVertexArrayOES(null); this.curBuf = null;
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.quad); gl.disableVertexAttribArray(1); gl.disableVertexAttribArray(2); gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 8, 0);
+    gl.disable(gl.DEPTH_TEST); gl.disable(gl.CULL_FACE); gl.disable(gl.BLEND); gl.disable(gl.SCISSOR_TEST); gl.depthMask(false); gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, G.tex); gl.copyTexImage2D(gl.TEXTURE_2D, 0, gl.RGB, 0, 0, W, H, 0);
+    gl.viewport(0, 0, W, H); gl.useProgram(P.p); this.cur = P; gl.uniform1i(P.u.uTex, 0);
+    gl.uniform4f(P.u.uGrade, o.gain == null ? 1 : o.gain, o.curve || 0, o.colour == null ? 1 : o.colour, o.edge || 0);
+    const wm = o.warm || [1, 1, 1], cl = o.cool || [1, 1, 1]; gl.uniform3f(P.u.uWarm, wm[0], wm[1], wm[2]); gl.uniform3f(P.u.uCool, cl[0], cl[1], cl[2]);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4); this.calls++;
+    gl.enable(gl.DEPTH_TEST); gl.enable(gl.CULL_FACE); gl.depthMask(true);
+    return true;
+  },
   dome(tex, turn) {
     const gl = this.gl, u = this.use(this.prog("dome"));
     if (!this.domeH) this.domeH = this.upload(Kit.dome());
@@ -1363,6 +1508,25 @@ Mesh.prototype.stamp = function (src, x, y, z, yaw, s, sy, shade) {
   }
   this.n += n; return this;
 };
+// Which of this mesh's vertices give way to the wind (GL.wind), by their height: none at y0 and below, most at y1 and
+// above (k of full, 0 to 1). It's kept in each vertex's alpha, which a still mesh doesn't otherwise use; for a thing
+// built about its own middle (a tuft, a crown), before it's stamped into the world.
+Mesh.prototype.sway = function (y0, y1, k) {
+  const f = this.f, u8 = this.u8, span = Math.max(1e-6, y1 - y0);
+  for (let v = 0; v < this.n; v++) { const t = Math.max(0, Math.min(1, (f[v * 5 + 1] - y0) / span)); const a = 255 - Math.round(t * (k == null ? 1 : k) * 255); u8[v * 20 + 19] = a > 251 && a < 255 ? 251 : a; }   // (252 to 254 are taken: see Mesh.LAID)
+  return this;
+};
+// A still mesh's vertex alpha, all it means: 255 stands still; 254 is its own light (Mesh.light turns it into glow);
+// 253 is kept for later; 252 (Mesh.LAID) is a shadow laid on the ground (Kit.cast), and stands still; 251 and less
+// give way to the wind, the less the more (Mesh.sway). The wind's shader moves nothing at 252 and over.
+Mesh.LAID = 252;
+// Every face of this mesh lit as if it faced one way (up, by default): for grass and leaves, whose blades face every
+// way and would be lit bright and black by turns. Before its light is worked out.
+Mesh.prototype.facing = function (nx, ny, nz) {
+  const i8 = this.i8, l = Math.hypot(nx || 0, ny == null ? 1 : ny, nz || 0) || 1, x = Math.round((nx || 0) / l * 127), y = Math.round((ny == null ? 1 : ny) / l * 127), z = Math.round((nz || 0) / l * 127);
+  for (let v = 0; v < this.n; v++) { i8[v * 20 + 12] = x; i8[v * 20 + 13] = y; i8[v * 20 + 14] = z; }
+  return this;
+};
 Mesh.prototype.reset = function () { this.n = 0; this.lit = 0; this.glow = 0; this.alpha = 255; this.jit = 0; return this.at(0, 0, 0); };   // (empty again, its memory kept: to build the next thing in)
 // another mesh's vertices added as they are (glowing: each its own light from now on)
 Mesh.prototype.add = function (src, glowing) {
@@ -1497,6 +1661,100 @@ const Kit = {
     m.tri(2.5, 3, 2.0, 2.5, 3, -2.0, 2.5, 5, 0, shadeK(wall, 0.85), 0, 3, 0); m.tri(-2.5, 3, 2.0, -2.5, 3, -2.0, -2.5, 5, 0, shadeK(wall, 0.85), 0, 3, 0);
     if (lamps) { lamps.at(x, y, z, yaw); lamps.box(0.8, 1.2, 2.02, 1, 0.9, 0.05, light || 0xffd890); }
   },
+  // A house with a timber frame, for a village seen from above and from the south: a stone foot, plastered walls with
+  // their beams, a door with its step, shuttered windows that are lit (into `glow`), a roof of shingles in bands with
+  // eaves and a ridge, gables with their boards, a chimney. Its back wall (north, -z) is left plain: that eye never
+  // sees it. o: { seed, detail (0 the fewest triangles: no beams; 1; 2 with flower boxes and a lantern), doorAt (-1, 0,
+  // 1), plaster, timber, stone, roof: [two shades], door, shutter, light, walls ("frame": plaster in a timber frame;
+  // "logs": logs laid one on another, their ends crossing at the corners; "stone": courses of dressed stone, quoins at
+  // the corners; "planks": boards standing side by side, bound with straps), stilts (how high it stands on posts over
+  // wet ground, with a deck before the door and steps down) }. 5 by 4.2 m, its eaves at 3.1 and its ridge at 5.2, times
+  // s. Returns where its chimney ends, in the world: [x, y, z] (for smoke).
+  house(m, glow, x, y, z, yaw, s, o) {
+    o = o || {};
+    const hw = 2.5, hd = 2.1, y0 = 0.55, y1 = 3.1, yr = 5.2, det = o.detail == null ? 2 : o.detail, seed = o.seed || 0, e = 0.035, t = 0.17, zf = hd;
+    const pl = o.plaster || 0xb8a88c, tb = o.timber || 0x3a2a20, st = o.stone || 0x6a6860, rf = o.roof || [0x6a332c, 0x582a26], dr = o.door || 0x5a3a26, sh = o.shutter || 0x2f5a52, li = o.light || 0xffc870;
+    const da = o.doorAt == null ? seed % 3 - 1 : o.doorAt, dxp = da * 1.15, wins = da === 0 ? [-1.72, 1.72] : da < 0 ? [0.42, 1.74] : [-1.74, -0.42], dark = 0x1c1410;
+    const walls = o.walls || "frame", lift = o.stilts || 0, hsh = k => Math.abs(Math.sin(k * 12.9898 + seed * 0.37) * 43758.5453) % 1;
+    if (lift) {                                        // on posts: a deck before the door, steps down to the ground
+      m.at(x, y, z, yaw, s); m.seed = 71 + seed;
+      for (const px of [-hw + 0.25, 0, hw - 0.25]) for (const pz of [-hd + 0.25, hd - 0.25]) m.box(px, -0.6, pz, 0.26, lift + 0.6, 0.26, shadeK(tb, 0.9), tb);
+      for (const px of [-hw + 0.3, hw - 0.3]) m.box(px, -0.6, hd + 1.05, 0.2, lift + 0.6, 0.2, shadeK(tb, 0.9), tb);
+      m.box(0, lift - 0.14, 0.55, hw * 2 + 0.5, 0.14, hd * 2 + 1.1, shadeK(st, 0.92), st);
+      const n = Math.max(2, Math.ceil(lift / 0.3)), z0 = hd + 1.1;
+      for (let k = 0; k < n; k++) m.box(dxp, lift - (k + 1) * lift / n - 0.07, z0 + k * 0.3 + 0.15, 1.0, 0.08, 0.3, shadeK(st, k & 1 ? 0.95 : 1.05), shadeK(st, 1.12));
+    }
+    m.at(x, y + lift * s, z, yaw, s); m.seed = 77 + seed; if (glow) glow.at(x, y + lift * s, z, yaw, s);
+    // a rectangle on the front wall (out: how far in front of it), one on a side wall, and a slanted beam on the front
+    const F = (x0, ya, x1, yb, col, out) => m.quad(x0, ya, zf + out, x1, ya, zf + out, x1, yb, zf + out, x0, yb, zf + out, col, 0, 1.5, 0);
+    const Sd = (sd, z0, ya, z1, yb, col, out) => m.quad(sd * (hw + out), ya, z0, sd * (hw + out), ya, z1, sd * (hw + out), yb, z1, sd * (hw + out), yb, z0, col, 0, 1.5, 0);
+    const brace = (xa, ya, xb, yb) => m.quad(xa, ya, zf + e, xa + t, ya, zf + e, xb + t, yb, zf + e, xb, yb, zf + e, tb, 0, 1.5, 0);
+    // the foot and the walls
+    m.jit = 0.07; m.box(0, -0.6, 0, hw * 2 + 0.2, y0 + 0.6, hd * 2 + 0.2, st, shadeK(st, 1.12));
+    if (det) for (let k = 0; k < 6; k++) { const xa = -hw + k * 0.84 + (k & 1) * 0.1; F(xa, k & 1 ? 0.02 : 0.1, xa + 0.62, k & 1 ? 0.3 : 0.48, shadeK(st, k % 3 ? 0.84 : 1.16), 0.1 + e); }
+    m.jit = 0; F(-hw, y0, hw, y1, pl, 0); Sd(-1, -hd, y0, hd, y1, pl, 0); Sd(1, -hd, y0, hd, y1, pl, 0); m.quad(-hw, y0, -hd, hw, y0, -hd, hw, y1, -hd, -hw, y1, -hd, shadeK(pl, 0.9), 0, 1.5, 0);   // (four walls, and nothing under the roof to show through it)
+    if (det && walls === "logs") {                       // logs, one on another, a little out from the wall; their ends cross at the corners
+      const n = 8, hh = (y1 - y0) / n;
+      for (let k = 0; k < n; k++) { const ya = y0 + k * hh, yb = ya + hh - 0.04, c = shadeK(tb, k & 1 ? 1.08 : 0.92);
+        F(-hw - 0.14, ya, hw + 0.14, yb, c, e * 0.5); for (const sd of [-1, 1]) Sd(sd, -hd, ya, hd + 0.14, yb, c, e * 0.5);
+        for (const sd of [-1, 1]) F(sd * (hw + 0.07) - 0.11, ya + 0.01, sd * (hw + 0.07) + 0.11, yb - 0.01, shadeK(tb, 1.3), 0.15); }   // (each log's end, at the front corners)
+    } else if (det && walls === "stone") {               // courses of dressed stone, some proud of the rest; quoins at the corners
+      for (let k = 0; k < 7; k++) { const ya = y0 + 0.04 + k * 0.36, off = k & 1 ? 0.42 : 0;
+        for (let i = 0; i < 7; i++) { const xa = -hw - 0.42 + off + i * 0.84, h_ = hsh(k * 7 + i); if (h_ > (det > 1 ? 0.42 : 0.3)) continue;
+          F(Math.max(-hw, xa + 0.04), ya, Math.min(hw, xa + 0.8), ya + 0.32, shadeK(pl, 0.86 + h_ * 0.3), e * 0.5); }
+        for (const sd of [-1, 1]) { if (hsh(k * 3 + sd) < 0.55) Sd(sd, -hd + off + 0.3, ya, -hd + off + 1.1, ya + 0.32, shadeK(pl, 0.9 + hsh(k + sd) * 0.2), e * 0.5);
+          F(sd > 0 ? hw - (k & 1 ? 0.5 : 0.3) : -hw, ya, sd > 0 ? hw : -hw + (k & 1 ? 0.5 : 0.3), ya + 0.32, shadeK(st, 1.1), e); } }
+    } else if (det && walls === "planks") {              // boards side by side, gaps dark between them, two straps of iron across
+      for (let i = 0; i < 10; i++) { const xa = -hw + i * 0.5; F(xa + 0.025, y0, xa + 0.475, y1, shadeK(pl, 0.88 + hsh(i) * 0.24), e * 0.5); }
+      for (const sd of [-1, 1]) for (let i = 0; i < 8; i++) { const za = -hd + i * 0.525; Sd(sd, za + 0.025, y0, za + 0.5, y1, shadeK(pl, 0.88 + hsh(i + 20 * sd) * 0.24), e * 0.5); }
+      F(-hw, 0.95, hw, 1.05, shadeK(tb, 0.8), e); F(-hw, y1 - 0.3, hw, y1 - 0.2, shadeK(tb, 0.8), e);
+      F(-hw, y0, -hw + t, y1, tb, e); F(hw - t, y0, hw, y1, tb, e);
+    } else if (det) {                                   // the frame: sills, plates, posts, a rail under the windows, braces at the corners
+      F(-hw, y0, hw, y0 + t, tb, e); F(-hw, y1 - t, hw, y1, tb, e); F(-hw, y0, -hw + t, y1, tb, e); F(hw - t, y0, hw, y1, tb, e);
+      F(-hw, 1.14, dxp - 0.62, 1.14 + t * 0.8, tb, e); F(dxp + 0.62, 1.14, hw, 1.14 + t * 0.8, tb, e);
+      F(dxp - 0.62 - t, y0, dxp - 0.62, y1, tb, e); F(dxp + 0.62, y0, dxp + 0.62 + t, y1, tb, e);
+      if (da >= 0) brace(-hw + t, y0 + t, -hw + t + 0.62, 1.14); if (da <= 0) brace(hw - 2 * t, y0 + t, hw - 2 * t - 0.62, 1.14);
+      for (const sd of [-1, 1]) {
+        Sd(sd, -hd, y0, hd, y0 + t, tb, e); Sd(sd, -hd, y1 - t, hd, y1, tb, e); Sd(sd, hd - t, y0, hd, y1, tb, e); Sd(sd, -hd, y0, -hd + t, y1, tb, e); Sd(sd, -hd, 1.75, hd, 1.75 + t * 0.8, tb, e);
+        Sd(sd, -0.5, 1.98, 0.5, 2.82, tb, e * 2);
+        if (glow) glow.quad(sd * (hw + e * 3), 2.08, -0.36, sd * (hw + e * 3), 2.08, 0.36, sd * (hw + e * 3), 2.72, 0.36, sd * (hw + e * 3), 2.72, -0.36, li, 0, 1.5, 0);
+        Sd(sd, -0.03, 2.08, 0.03, 2.72, tb, e * 4);
+      }
+    }
+    // the door: its opening, three planks, a lintel, a handle, and a step of stone
+    F(dxp - 0.52, y0, dxp + 0.52, 2.5, dark, e);
+    for (let k = 0; k < 3; k++) F(dxp - 0.46 + k * 0.31, y0 + 0.02, dxp - 0.46 + k * 0.31 + 0.29, 2.43, shadeK(dr, k === 1 ? 1.12 : 0.94), e * 2);
+    F(dxp - 0.62 - (det ? t : 0), 2.5, dxp + 0.62 + (det ? t : 0), 2.5 + t, tb, e * 2); m.box(dxp + 0.3, 1.46, zf + 0.08, 0.07, 0.07, 0.06, 0xb8b0a0);
+    m.box(dxp, -0.4, zf + 0.46, 1.5, 0.66, 0.6, shadeK(st, 1.08), shadeK(st, 1.22));
+    for (const wx of wins) {                            // a window: its frame, its light, its bars, a sill, shutters, flowers
+      F(wx - 0.5, 1.3, wx + 0.5, 2.36, tb, e * 2);
+      if (glow) glow.quad(wx - 0.38, 1.42, zf + e * 3, wx + 0.38, 1.42, zf + e * 3, wx + 0.38, 2.24, zf + e * 3, wx - 0.38, 2.24, zf + e * 3, li, 0, 1.5, 0);
+      else F(wx - 0.38, 1.42, wx + 0.38, 2.24, li, e * 3);
+      F(wx - 0.03, 1.42, wx + 0.03, 2.24, tb, e * 4); F(wx - 0.38, 1.8, wx + 0.38, 1.86, tb, e * 4);
+      m.box(wx, 1.2, zf + 0.09, 1.12, 0.09, 0.18, shadeK(pl, 1.12));
+      if (det) { F(wx - 0.84, 1.3, wx - 0.52, 2.36, sh, e * 3); F(wx + 0.52, 1.3, wx + 0.84, 2.36, sh, e * 3); F(wx - 0.8, 1.8, wx - 0.56, 1.86, shadeK(sh, 0.7), e * 4); F(wx + 0.56, 1.8, wx + 0.8, 1.86, shadeK(sh, 0.7), e * 4); }
+      if (det > 1) { m.box(wx, 0.98, zf + 0.16, 0.92, 0.2, 0.22, 0x4a3426); for (let k = 0; k < 4; k++) m.box(wx - 0.33 + k * 0.22, 1.16, zf + 0.16, 0.13, 0.13, 0.13, [0xd84a6a, 0xe8e0d0, 0xd86a9a, 0x7ad06a][(k + seed) % 4]); }
+    }
+    if (det > 1) { m.box(dxp + (da > 0 ? -0.95 : 0.95), 2.02, zf + 0.14, 0.05, 0.05, 0.28, tb); if (glow) glow.box(dxp + (da > 0 ? -0.95 : 0.95), 1.8, zf + 0.24, 0.15, 0.22, 0.15, li); }
+    // the roof: shingles in bands up each slope, each band's foot lifted over the one below; a ridge; the gables, their boards
+    const gx = hw + 0.3, ze = hd + 0.38, ye = y1 - 0.1, n = det ? 4 : 2;
+    m.jit = 0.055;
+    for (const sd of [1, -1]) for (let k = 0; k < n; k++) {
+      const a = k / n, b = Math.min(1, (k + 1) / n + 0.07), za = sd * ze * (1 - a), zb = sd * ze * (1 - b), ya = ye + (yr - ye) * a + 0.08, yb = ye + (yr - ye) * b, c = rf[k & 1];   // (each band runs on a little under the next, so nothing shows between them)
+      m.quad(-gx, ya, za, 0, ya, za, 0, yb, zb, -gx, yb, zb, c, 0, 1.5, 0); m.quad(0, ya, za, gx, ya, za, gx, yb, zb, 0, yb, zb, c, 0, 1.5, 0);
+    }
+    m.jit = 0; m.box(0, yr - 0.03, 0, gx * 2 + 0.12, 0.15, 0.32, shadeK(rf[1], 0.78));
+    for (const sd of [-1, 1]) {
+      m.tri(sd * hw, y1, hd, sd * hw, y1, -hd, sd * hw, yr - 0.08, 0, shadeK(pl, 0.9), 0, 3, 0);
+      if (det) { for (const sz of [-1, 1]) m.quad(sd * gx, ye + 0.08, sz * ze, sd * gx, yr + 0.08, 0, sd * gx, yr - 0.16, 0, sd * gx, ye - 0.16, sz * ze, tb, 0, 3, 0);
+        Sd(sd, -0.09, y1, 0.09, yr - 0.3, tb, e); Sd(sd, -1.1, 3.72, 1.1, 3.72 + t * 0.8, tb, e); }
+    }
+    // the chimney, up the back slope: stone, a cap, its dark mouth
+    const cxm = da > 0 ? -1.35 : 1.35, czm = -0.75, top = yr + 0.8;
+    m.jit = 0.07; m.box(cxm, 3.4, czm, 0.62, top - 3.4, 0.62, st); m.jit = 0; m.box(cxm, top, czm, 0.82, 0.13, 0.82, shadeK(st, 0.8)); m.box(cxm, top + 0.13, czm, 0.42, 0.04, 0.42, 0x16120f);
+    const c = Math.cos(yaw || 0), sn = Math.sin(yaw || 0);
+    return [x + (cxm * c + czm * sn) * s, y + (top + 0.2 + lift) * s, z + (-cxm * sn + czm * c) * s];
+  },
   lighthouse(m, x, y, z, lamps) {
     m.at(x, y, z); m.stack([[2.6, 0], [2.2, 6], [1.9, 12], [1.7, 16]], 8, [0xf2efe8, 0xd84a3e, 0xf2efe8], 0x3a3a44);
     m.at(x, y + 16, z); m.stack([[1.5, 0], [1.5, 1.6]], 8, 0xffe9a8, null); m.stack([[1.9, 1.6], [0, 3.2]], 8, 0x3a3a44);
@@ -1510,6 +1768,61 @@ const Kit = {
   },
   shadow(sx, sz) {                                   // a flat oval to draw dark and see-through under something
     const m = new Mesh(64); m.at(0, 0, 0, 0, sx || 1, 1, sz || sx || 1); m.disc(1, 12, 0.05, 0x000000); return m;
+  },
+  // A flat shape laid just over the ground and lit with it: a shadow, a pool of lamplight, light spilled from a window.
+  // Nothing see-through and nothing to blend, so a Pi draws it as it draws the ground, and it's made once, as the
+  // world is. pts: its outline in the world, [x, z, x, z, …] (the hull of them is laid); ground(x, z): the ground's
+  // height there; col(x, z): its colour there (the ground's own, darker or warmer); lift: how far over the ground
+  // (0.05). In two rings round its middle, so that it follows ground that isn't flat; `fan`: one ring, a third of the
+  // triangles, for a small shape (a lamp's shadow, a barrel's).
+  lay(m, pts, ground, col, lift, fan) {
+    const P = [], H = [], cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+    for (let i = 0; i + 1 < pts.length; i += 2) P.push([pts[i], pts[i + 1]]);
+    P.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+    for (const p of P) { while (H.length >= 2 && cross(H[H.length - 2], H[H.length - 1], p) <= 0) H.pop(); H.push(p); }
+    for (let i = P.length - 2, lo = H.length + 1; i >= 0; i--) { const p = P[i]; while (H.length >= lo && cross(H[H.length - 2], H[H.length - 1], p) <= 0) H.pop(); H.push(p); }
+    H.pop(); if (H.length < 3) return m;
+    let cx = 0, cz = 0; for (const p of H) { cx += p[0]; cz += p[1]; } cx /= H.length; cz /= H.length;
+    lift = lift || 0.05; m.at(0, 0, 0);
+    const y = (x, z) => ground(x, z) + lift, cy = y(cx, cz);
+    for (let i = 0; i < H.length; i++) {
+      const a = H[i], b = H[(i + 1) % H.length], ax = (a[0] + cx) / 2, az = (a[1] + cz) / 2, bx = (b[0] + cx) / 2, bz = (b[1] + cz) / 2;
+      if (fan) { m.tri(cx, cy, cz, a[0], y(a[0], a[1]), a[1], b[0], y(b[0], b[1]), b[1], col((cx + a[0] + b[0]) / 3, (cz + a[1] + b[1]) / 3), cx, cy - 9, cz); continue; }
+      m.tri(cx, cy, cz, ax, y(ax, az), az, bx, y(bx, bz), bz, col((cx + ax + bx) / 3, (cz + az + bz) / 3), cx, cy - 9, cz);
+      m.quad(ax, y(ax, az), az, a[0], y(a[0], a[1]), a[1], b[0], y(b[0], b[1]), b[1], bx, y(bx, bz), bz, col((ax + a[0] + b[0] + bx) / 4, (az + a[1] + b[1] + bz) / 4), cx, cy - 9, cz);
+    }
+    return m;
+  },
+  // The shadow a thing throws, laid on the ground (`lay`). pts: the thing's outline in the world, [x, z, height, …]
+  // (its foot, its eaves, its top: any points that stick out); (dx, dz): how far a metre of height throws. Its vertices
+  // carry Mesh.LAID in their alpha, so a renderer that throws the shadows of what moves knows this ground is in shadow
+  // already (one shadow over another is no darker).
+  cast(m, pts, dx, dz, ground, col, lift, fan) {
+    const P = []; for (let i = 0; i + 2 < pts.length; i += 3) P.push(pts[i] + dx * pts[i + 2], pts[i + 1] + dz * pts[i + 2]);
+    const a = m.alpha; m.alpha = Mesh.LAID; Kit.lay(m, P, ground, col, lift, fan); m.alpha = a;
+    return m;
+  },
+  // Small things for a yard: a barrel, a crate, a pile of logs with their ends showing, a bench. Each stands at x y z,
+  // turned by yaw, s times its size; the pile and the bench are long across x and are seen from +z.
+  barrel(m, x, y, z, s, wood, hoop) {
+    wood = wood || 0x6a4a2e; hoop = hoop || 0x2a2622; m.at(x, y, z, 0.4, s || 1);
+    m.stack([[0.34, 0], [0.43, 0.3], [0.43, 0.62], [0.34, 0.92]], 7, [shadeK(wood, 0.9), wood, shadeK(wood, 1.08)], shadeK(wood, 0.62));
+    m.stack([[0.445, 0.2], [0.445, 0.27]], 7, hoop, null); m.stack([[0.445, 0.65], [0.445, 0.72]], 7, hoop, null);
+  },
+  crate(m, x, y, z, yaw, s, wood) {
+    wood = wood || 0x7a5a36; const k = shadeK(wood, 0.66); m.at(x, y, z, yaw, s || 1); m.box(0, 0, 0, 0.8, 0.7, 0.8, wood, shadeK(wood, 1.12));
+    for (const sd of [-1, 1]) { m.quad(sd * 0.3, 0.02, 0.405, sd * 0.4, 0.02, 0.405, sd * 0.4, 0.68, 0.405, sd * 0.3, 0.68, 0.405, k, 0, 0.3, 0); m.quad(0.405, 0.02, sd * 0.3, 0.405, 0.02, sd * 0.4, 0.405, 0.68, sd * 0.4, 0.405, 0.68, sd * 0.3, k, 0, 0.3, 0); }
+    m.quad(-0.4, 0.705, 0.08, 0.4, 0.705, 0.08, 0.4, 0.705, -0.08, -0.4, 0.705, -0.08, k, 0, 0, 0);
+  },
+  woodpile(m, x, y, z, yaw, s, bark, cut) {
+    bark = bark || 0x4a3426; cut = cut || 0xc8a878; m.at(x, y, z, yaw, s || 1); m.box(0, 0, 0, 1.7, 0.86, 0.6, bark, shadeK(bark, 1.15));
+    for (let j = 0; j < 3; j++) for (let i = 0; i < 6 - (j & 1); i++) { const cx = -0.7 + i * 0.28 + (j & 1) * 0.14, cy = 0.15 + j * 0.27, r = 0.105;
+      m.quad(cx - r, cy - r, 0.305, cx + r, cy - r, 0.305, cx + r, cy + r, 0.305, cx - r, cy + r, 0.305, (i + j) % 3 ? cut : shadeK(cut, 0.84), 0, 0.4, 0); }
+    for (let i = 0; i < 4; i++) { m.at(x, y, z, yaw, s || 1); m.box(-0.55 + i * 0.36, 0.86, 0, 0.26, 0.2, 0.62, shadeK(bark, i & 1 ? 1.1 : 0.92)); }
+  },
+  bench(m, x, y, z, yaw, s, wood) {
+    wood = wood || 0x6a4a2e; m.at(x, y, z, yaw, s || 1); m.box(0, 0.42, 0, 1.5, 0.08, 0.42, wood, shadeK(wood, 1.15));
+    for (const sd of [-1, 1]) m.box(sd * 0.6, 0, 0, 0.1, 0.42, 0.36, shadeK(wood, 0.8));
   },
   hills(list, color) {                               // far hills or mountains round the world: [{a (angle), d, r, h, seed}]
     const m = new Mesh(4096);
@@ -1943,6 +2256,15 @@ Land.prototype = {
     m.tri(ax, ay, az, bx, by, bz, cx, cy, cz, col((ay + by + cy) / 3, 1 - ny, mx, mz), mx, Math.min(ay, by, cy) - 10, mz);
   },
   cellOf(x) { return Math.floor((x + this.half) / this.cell); },
+  // The ground's height at x z as it's drawn: on the cell's own two triangles. (`at` is smooth between the corners and
+  // can lie a hand over or under them.) For what's laid on the ground: a shadow, a flagstone, a pool of light.
+  on(x, z) {
+    const c = this.cell, n = this.n, N = this.N, h = this.h, fx = (x + this.half) / c, fz = (z + this.half) / c;
+    const i = Math.max(0, Math.min(n - 1, Math.floor(fx))), j = Math.max(0, Math.min(n - 1, Math.floor(fz))), u = Math.max(0, Math.min(1, fx - i)), v = Math.max(0, Math.min(1, fz - j));
+    const k = j * N + i, a = h[k], b = h[k + 1], d = h[k + N], e = h[k + N + 1];
+    if (Math.abs(a - e) <= Math.abs(b - d)) return u >= v ? a + (b - a) * u + (e - b) * v : a + (e - d) * u + (d - a) * v;
+    return u + v <= 1 ? a + (b - a) * u + (d - a) * v : e + (d - e) * (1 - u) + (b - e) * (1 - v);
+  },
   // The cells of high ground with no drop near them: a plateau behind its cliffs, the top of a tableland. From low down
   // (on the water, on a road below) nothing of them shows but a far rise now and then, yet they can be most of a land's
   // triangles. o {above: only ground higher than this (6), drop: how much lower anything within `near` cells may be (4,

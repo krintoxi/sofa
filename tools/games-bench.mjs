@@ -94,6 +94,7 @@ const wy = (enter, settle) => ({ hash: "test", settle: settle || 3000, until: `W
   enter: `WY.begin(); WY.level(45); WY.AI.on = true; WY.AI.god = true; ` + enter });
 SCENES.wyrd = [
   { name: "it plays itself (#demo): a floor of the Maw", hash: "demo", settle: 5000 },
+  Object.assign({ name: "the open world: across Hearthrim, its houses and its square" }, wy(`WY.goto(-24, 30); WY.AI.walk = [0.62, -0.78];`)),
   Object.assign({ name: "the open world: out of Hearthrim into the Briarholt (chunks made and given back)" }, wy(`WY.goto(-30, -75); WY.AI.walk = [-0.45, -0.89];`)),
   Object.assign({ name: "the open world: riding through the Greywyrd's trees" }, wy(`WY.D.kin.have = ["stalker"]; WY.D.kin.ride = "stalker"; WY.goto(-250, 40); WY.toggleRide(); WY.AI.walk = [-0.2, -0.98];`)),
   Object.assign({ name: "at a trade: felling in the Briarholt, a fire burning, a pet beside" }, wy(`WY.D.kin.have = ["sporeling"]; WY.D.kin.pet = "sporeling"; WY.goto(-85, -235); WY.D.logs[0] = 6; WY.lightFire(); WY.sim(3); WY.AI.job = "wood";`)),

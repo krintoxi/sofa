@@ -1683,6 +1683,141 @@ ui.begin(640, 360); b.push({ title: "wide enough to read", text: "x" }); b.step(
         self.assertGreater(out["wide"], 200)
         self.assertEqual(out["upper"], "WIDE ENOUGH TO READ")
 
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_what_is_laid_on_the_ground(self):
+        """The ground as it's drawn (Land.on) is each cell's own two triangles, where `at` is smooth between the corners
+        and lies off them; a shape laid on it (Kit.lay) faces up, sits its lift over the ground at every corner and
+        covers the hull of its points; a shadow (Kit.cast) reaches as far as the thing's height throws it."""
+        out = self.node(r"""
+const land = new L3.Land(40, 16, 0).fill((x, z) => Math.sin(x * 0.7) * 1.5 + Math.cos(z * 0.9 + x * 0.3));
+const g = new L3.Mesh(64); land.part(g, 0, 0, 16, 16, () => 0x446644);
+let worst = 0, apart = 0;
+for (let t = 0; t < g.n; t += 3) { const x = (g.f[t * 5] + g.f[t * 5 + 5] + g.f[t * 5 + 10]) / 3, y = (g.f[t * 5 + 1] + g.f[t * 5 + 6] + g.f[t * 5 + 11]) / 3, z = (g.f[t * 5 + 2] + g.f[t * 5 + 7] + g.f[t * 5 + 12]) / 3;
+  worst = Math.max(worst, Math.abs(land.on(x, z) - y)); apart = Math.max(apart, Math.abs(land.at(x, z) - y)); }
+out.on = [g.n / 3, worst < 1e-4, apart > 0.02];
+const flat = () => 2, m = new L3.Mesh(64);
+L3.Kit.lay(m, [0, 0, 4, 0, 4, 4, 0, 4, 2, 2, 1, 3], flat, () => 0x202020, 0.05);
+let up = true, onIt = true, area = 0;
+for (let t = 0; t < m.n; t += 3) { const p = k => [m.f[(t + k) * 5], m.f[(t + k) * 5 + 1], m.f[(t + k) * 5 + 2]], a = p(0), b = p(1), c = p(2);
+  if (m.i8[t * 20 + 13] <= 100) up = false; for (const q of [a, b, c]) if (Math.abs(q[1] - 2.05) > 1e-5) onIt = false;
+  area += Math.abs((b[2] - a[2]) * (c[0] - a[0]) - (b[0] - a[0]) * (c[2] - a[2])) / 2; }
+out.lay = [m.n / 3, up, onIt, Math.round(area * 100) / 100];
+const s = new L3.Mesh(64); L3.Kit.cast(s, [0, 0, 0, 0.1, 0, 0, 0.1, 0.1, 0, 0, 0.1, 0, 0, 0, 2, 0.1, 0, 2, 0.1, 0.1, 2, 0, 0.1, 2], 1.5, 0, flat, () => 0, 0.05);
+let x0 = 9, x1 = -9, z1 = -9; for (let v = 0; v < s.n; v++) { x0 = Math.min(x0, s.f[v * 5]); x1 = Math.max(x1, s.f[v * 5]); z1 = Math.max(z1, s.f[v * 5 + 2]); }
+out.cast = r3([x0, x1, z1]); out.none = L3.Kit.lay(new L3.Mesh(8), [0, 0, 1, 1], flat, () => 0).n;
+const marks = q => [...new Set(Array.from({ length: q.n }, (_, v) => q.u8[v * 20 + 19]))];
+s.light({ sun: [0.3, 0.8, 0.2], sunCol: 0xffffff, amb: 0x556677, ground: 0x222222 });
+out.marks = [marks(m), marks(s), s.alpha, L3.Mesh.LAID];
+""")
+        self.assertEqual(out["on"], [512, True, True])                      # 16 by 16 cells, two triangles each; `at` is off them
+        self.assertEqual(out["lay"], [12, True, True, 16])                  # the hull is the square: the two points inside it add nothing
+        self.assertEqual(out["cast"], [0, 3.1, 0.1])                         # from its foot to where two metres are thrown
+        self.assertEqual(out["none"], 0)                                     # two points are no shape
+        self.assertEqual(out["marks"], [[255], [252], 255, 252])             # a cast shadow is marked laid, through the light's working; the mesh goes on as it was
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_a_house_with_a_frame(self):
+        """Kit.house: more of it with each step of detail and never more than a Pi can spare, its windows lit into the
+        glow mesh, what's worked on it facing south (its north wall plain), its size as it says, and its chimney's end
+        where the house was put, turned and sized."""
+        out = self.node(r"""
+const make = d => { const m = new L3.Mesh(256), g = new L3.Mesh(64), top = L3.Kit.house(m, g, 10, 1, 20, 0, 1, { seed: 4, detail: d }); return [m.n / 3, g.n / 3, r3(top)]; };
+out.h = [make(0), make(1), make(2)];
+const m = new L3.Mesh(256), g = new L3.Mesh(64); L3.Kit.house(m, g, 0, 0, 0, 0, 1, { seed: 4, detail: 2 });
+let north = 0, south = 0, hi = 0, wide = 0, deep = 0;
+for (let t = 0; t < m.n; t += 3) { const y = (m.f[t * 5 + 1] + m.f[t * 5 + 6] + m.f[t * 5 + 11]) / 3, z = (m.f[t * 5 + 2] + m.f[t * 5 + 7] + m.f[t * 5 + 12]) / 3; if (y > 0.6 && y < 3.05) { if (z < -2.05 && z > -2.25) north++; if (z > 2.05 && z < 2.4) south++; } }   // (what's on each long wall)
+for (let v = 0; v < m.n; v++) { hi = Math.max(hi, m.f[v * 5 + 1]); wide = Math.max(wide, Math.abs(m.f[v * 5])); deep = Math.max(deep, Math.abs(m.f[v * 5 + 2])); }
+out.faces = [north, south]; out.size = r3([hi, wide, deep]);
+out.turned = r3(L3.Kit.house(new L3.Mesh(256), null, 0, 0, 0, Math.PI / 2, 2, { seed: 4, detail: 0 }));
+const k = n => { const q = new L3.Mesh(64); L3.Kit[n](q, 0, 0, 0, 0, 1); return q.n / 3; };
+out.yard = [k("barrel"), k("crate"), k("woodpile"), k("bench")];
+""")
+        t0, t1, t2 = (h[0] for h in out["h"])
+        self.assertTrue(100 < t0 < t1 < t2, out["h"])
+        self.assertLessEqual(t1, 300)                                       # the house a Pi 3 is given
+        self.assertLessEqual(t2, 420)
+        self.assertEqual([h[1] for h in out["h"]], [4, 8, 20])              # two windows; two more in its sides; a lantern by the door
+        self.assertEqual(out["h"][2][2], [11.35, 7.2, 19.25])               # the chimney's end: where smoke starts
+        self.assertEqual(out["faces"][0], 2)                               # the north wall: the wall, and nothing on it
+        self.assertGreater(out["faces"][1], 60)                            # the south wall: beams, the door, windows, shutters
+        self.assertEqual(out["size"], [6.17, 2.86, 2.86])
+        self.assertEqual(out["turned"], [-1.5, 12.4, -2.7])
+        self.assertTrue(all(10 < n < 120 for n in out["yard"]), out["yard"])
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_houses_built_other_ways(self):
+        """Kit.house's walls of logs, of stone and of planks, each within what a Pi can spare and more than the plainest
+        house; a house on stilts stands as high again as they are, its posts in the ground and its chimney's end raised."""
+        out = self.node(r"""
+const make = (o, d) => { const m = new L3.Mesh(256), g = new L3.Mesh(64), top = L3.Kit.house(m, g, 0, 0, 0, 0, 1, Object.assign({ seed: 4, detail: d }, o)); let lo = 9, hi = -9; for (let v = 0; v < m.n; v++) { lo = Math.min(lo, m.f[v * 5 + 1]); hi = Math.max(hi, m.f[v * 5 + 1]); } return [m.n / 3, r3(top), r3([lo, hi])]; };
+out.plain = make({}, 0)[0];
+out.walls = ["logs", "stone", "planks"].map(k => [make({ walls: k }, 1)[0], make({ walls: k }, 2)[0]]);
+out.flat = make({}, 2); out.up = make({ stilts: 1.5, walls: "planks" }, 2);
+""")
+        for d1, d2 in out["walls"]:
+            self.assertTrue(out["plain"] < d1 <= d2 <= 440, out["walls"])
+            self.assertLessEqual(d1, 320)                                   # the house a Pi 3 is given
+        self.assertAlmostEqual(out["up"][1][1] - out["flat"][1][1], 1.5, places=2)   # the chimney's end, raised with it
+        self.assertLess(out["up"][2][0], 0)                                # the posts go into the ground
+        self.assertAlmostEqual(out["up"][2][1] - out["flat"][2][1], 1.5, places=2)
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_shadows_of_what_moves(self):
+        """GL.shadows: the sun's view is a box seen square on (M4.ortho takes its corners to the picture's); the movers are
+        kept in a picture of their own, and the still world has a shader that reads it, with and without the wind, that
+        never darkens a laid shadow (Mesh.LAID) or a light of its own, and that's only used while there are shadows."""
+        out = self.node(r"""
+const o = new Float32Array(16); L3.M4.ortho(o, -2, 2, -3, 3, 10, 50);
+const at = (x, y, z) => [o[0] * x + o[4] * y + o[8] * z + o[12], o[1] * x + o[5] * y + o[9] * z + o[13], o[2] * x + o[6] * y + o[10] * z + o[14]];
+out.corners = [r3(at(-2, -3, -10)), r3(at(2, 3, -50))];
+const src = require("fs").readFileSync(process.argv[1], "utf8");
+out.parts = ["const CAST_VS", "const CAST_FS", 'stillShade: () => mk(STILL_VS, STILL_FS, "#define SHADE\\n")', 'stillWindShade: () => mk(STILL_VS, STILL_FS, "#define WIND\\n#define SHADE\\n")',
+  "step(0.986, aCol.a) * step(aCol.a, 0.99)", "step(0.5, aNor.w)", "  shadows(o) {", "  caster(h, m) {", "  shadowsDone() {", "  ortho(o, l, r, b, t, n, f) {"].map(x => src.includes(x));
+out.only = /sh && \(this\.windy \? this\.prog\("stillWindShade"\) : this\.prog\("stillShade"\)\)/.test(src);
+""")
+        self.assertEqual(out["corners"], [[-1, -1, -1], [1, 1, 1]])
+        self.assertTrue(all(out["parts"]), out["parts"])
+        self.assertTrue(out["only"])
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_what_gives_way_to_the_wind(self):
+        """Mesh.sway marks, by height, which vertices the wind moves (in their alpha: 255 stands still), never with the
+        value that means "its own light"; a stamp carries the mark and the light's working leaves it; Mesh.facing lights
+        a blade the same on both its sides; and the still world has a second shader that moves what's marked, the first
+        left as cheap as it was."""
+        out = self.node(r"""
+const m = new L3.Mesh(16); m.both(0, 0, 0, 0.1, 0.5, 0, 0.05, 1, 0.02, 0x40a040); m.sway(0.1, 0.9, 1);
+const al = []; for (let v = 0; v < m.n; v++) al.push([Math.round(m.f[v * 5 + 1] * 100) / 100, m.u8[v * 20 + 19]]);
+out.alpha = al.slice(0, 3);
+const q = new L3.Mesh(16); q.both(0, 0, 0, 0.1, 0.5, 0, 0.05, 1, 0.02, 0x40a040); q.sway(0, 255, 1); out.never = Array.from({ length: q.n }, (_, v) => q.u8[v * 20 + 19]).some(a => a >= 252 && a <= 254);
+const w = new L3.Mesh(16); w.stamp(m, 5, 0, 5, 1, 2, 2, 0.8); out.stamped = [w.u8[19], w.u8[39], w.u8[59]];
+w.light({ sun: [0.3, 0.8, 0.2], sunCol: 0xffffff, amb: 0x556677, ground: 0x222222 }); out.lit = [w.u8[19], w.u8[39], w.u8[59]];
+const a = new L3.Mesh(16); a.both(0, 0, 0, 0.1, 0.5, 0, 0.05, 1, 0.02, 0x40a040); a.facing(0, 1, 0); a.light({ sun: [0.3, 0.8, 0.2], sunCol: 0xffffff, amb: 0x556677, ground: 0x222222 });
+out.sides = [a.u8[16] === a.u8[3 * 20 + 16], a.u8[17] === a.u8[3 * 20 + 17], a.i8[13]];
+const src = require("fs").readFileSync(process.argv[1], "utf8");
+out.shader = ["#ifdef WIND", "uniform vec3 uWind", "step(aCol.a, 0.986)",'stillWind: () => mk(STILL_VS, STILL_FS, "#define WIND\\n")', "const GRADE_FS", "  grade(o) {", "  wind(t, reach, gusts) {"].map(x => src.includes(x));
+out.plain = /still: \(\) => mk\(STILL_VS, STILL_FS, ""\)/.test(src);
+""")
+        self.assertEqual(out["alpha"], [[0, 255], [0.5, 127], [1, 0]])      # its foot stands, its tip gives most
+        self.assertFalse(out["never"])
+        self.assertEqual(out["stamped"], [255, 127, 0])
+        self.assertEqual(out["lit"], [255, 127, 0])
+        self.assertEqual(out["sides"], [True, True, 127])
+        self.assertTrue(all(out["shader"]), out["shader"])
+        self.assertTrue(out["plain"])
+
+    def test_wyrd_builds_its_village_from_the_kit(self):
+        """WYRD's page: Hearthrim's houses are the engine's, shadows are thrown as each chunk is made and laid on the ground
+        as it's drawn, and the square is paved."""
+        with open(os.path.join(BOX, "games", "wyrd", "index.html"), encoding="utf-8") as f:
+            page = f.read()
+        for part in ("L3.Kit.house(m, glowM,", "function castShadows(w, d, base, c)", "L3.Kit.cast(base, P, dx, dz, w.on,", "w.on = (x, z) => land.on(x, z)",
+                     "function pave(w, c, base, gc)", 'put("woodpile"', "w.cast = [", "g3.wind(t, rich() && w.over ?", "g3.grade(w.over ? AIRNOW.grade : GRADE.under)", "function patches(w, c, base, gc)", "function lava(w, c, glow)", "function yard(w, d)",
+                     "d.land ? LANDS[d.land].house : HOUSES[v]", "movers(g3, t, true, CAST); g3.shadowsDone();", "g3.shadows(null)", "const LANDS = [",
+                     'd.deco.push({ kind: "grass"', "sm[1] + p * 3.4"):
+            self.assertIn(part, page)
+        self.assertNotIn("w.h, col", page)                                 # (what's laid goes on the ground as drawn, not the smooth one)
+
 
 class TheRig(unittest.TestCase):
     """Low3D's Rig (bodies a pose at a time): where a pose puts each joint, the other side's pose, clips by name, things

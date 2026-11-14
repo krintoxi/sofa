@@ -8,6 +8,50 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.88
+
+**Hearthrim looks like a place, and so does each region round it.** A pass over how WYRD and the engine draw: shadow,
+the things people build, what lies on the ground, the air.
+
+- **Shadows.** What stands throws one: houses, the well, the riftgates, lamps, and what's in a yard on every box;
+  trees and rocks too on the fuller look (a Pi 4 and up). They're laid on the ground as each piece of the country is
+  made, in the ground's own colour, darker: nothing see-through, nothing worked out again each frame.
+- **Houses.** Hearthrim's eight are built anew: a stone foot, plastered walls with their timber frame, a door of
+  planks with a stone step, shuttered windows that are lit, shingles in bands, gables with their boards, a chimney;
+  three kinds (red tile, slate, brown). On the fuller look flower boxes under the windows and a lantern by the door.
+  Each has a yard: logs piled against a wall, barrels, a crate, a bench. You walk round them, not through.
+- **The square** is paved: rings of flagstones round the fount, no two the same grey, warmer under the lamps.
+- **Light on the ground.** A pool of it under each lamp outside the square, and what a house's windows spill before
+  its door.
+- **A meadow, and wind in it** (the fuller look). Round Hearthrim the ground is grass now, clumps of it, as many as
+  the box's rung can carry, with flowers and stones among them; the grass, the flowers and the trees' crowns move
+  with the wind.
+- **Smoke** rises from Hearthrim's chimneys and drifts off with the wind.
+- **The picture is graded** on the fuller look: richer, its lights warmer and its shade cooler, darker towards the
+  corners. And the open country's sun stands a little higher and stronger on every box, the shade under it cooler.
+- **The five regions** have their own things now. Each camp has houses built its region's way: log cabins with moss
+  on the roof in Briarholt, plank houses on stilts with thatch in Fenmoor, stone with slate in Cragfell, charred
+  boards under rusted iron in the Cinderreach, pale stone in the Greywyrd; each with its yard, and a hut by each far
+  well. The ground has its own: brambles with berries and toadstools, reeds with their heads and lily pads on the
+  pools, scree and cairns, embers in the ash, crystals; and here and there a fallen log, a dead tree, a stump burnt
+  black, standing stones, a spire of crystal, a cave's old stones. Patches of moss, leaf litter, gravel, mud or ash
+  break up the ground, and the Cinderreach's lava lies in rounded pools along its crack. On the fuller look each
+  region's grass is its own colour.
+- **Each region has its own air**: the fog's colour and how far it carries (the fen is misty), and on the fuller look
+  how the picture is graded, blended as you cross from one into the next.
+- **Shadows of what moves** (the fuller look): the delver, the townsfolk, the foes, what you ride and your pet throw
+  real shadows on the ground and on everything that stands still, along the sun, as the shadows laid on the ground do.
+  Where one crosses a laid shadow, it's no darker. The spot under each is softer now.
+- **The delver and the townsfolk** have more to them: a buckle and a pouch, a collar, a fringe of hair, boots turned
+  down at the top; the delver carries a pack with a bedroll, the smith wears an apron, the herbalist a satchel, the
+  weaver a shawl.
+- **Low3D** (the engine, for every game): `Kit.house`, `Kit.barrel`, `crate`, `woodpile` and `bench`; `Kit.lay` (a flat
+  shape laid on the ground and lit with it) and `Kit.cast` (the shadow a thing throws, laid the same way); `Land.on`
+  (the ground's height as it's drawn, where `at` is smooth between the corners); `GL.wind` with `Mesh.sway` and
+  `Mesh.facing`; `GL.grade`; `GL.shadows`, `caster` and `shadowsDone` (the shadows of what moves), `M4.ortho`;
+  `Kit.house` walls of logs, stone or planks, and on stilts. A cast shadow is marked in its vertices (`Mesh.LAID`), so a renderer that throws the
+  shadows of what moves can leave ground that's already in shadow as it is.
+
 ## 1.1.87
 
 **WYRD: Hearthrim's well and its riftgate stand in the open.** In 1.1.86 both stood close behind a house of the

@@ -333,6 +333,27 @@ for a "This box" screen. `Governor(ladder, rung, top, onChange)` keeps the frame
 - `fx(handle, mesh, points)`: every see-through thing at once, premultiplied: each vertex's alpha is how much of it,
   its spare byte 127 for light added (flames, lamps) or 0 for paint laid over (shadows, foam, rain).
 - `shine(r, g, b)` brightens the whole frame (lightning); `warm(names)` makes programs while the game loads.
+- `wind(t, reach, gusts)`: from now on the still world's grass and crowns move (`reach`: how far the lightest thing
+  is pushed, in metres; 0 stops it). Only what was built to give way moves: `mesh.sway(y0, y1, k)` marks a mesh's
+  vertices by their height (none at `y0`, most at `y1`), before it's stamped into the world; `mesh.facing(nx, ny, nz)`
+  lights every face as if it faced one way, so a blade isn't bright on one side and black on the other. It's a second
+  shader, used only while there's wind; the first is as cheap as it was. For the upper rungs. A still mesh's vertex
+  alpha says what each vertex is: 255 stands still, 254 is its own light (until `mesh.light`), 253 is kept for later,
+  252 (`Mesh.LAID`) is a shadow laid on the ground by `Kit.cast` and stands still, 251 and less give way. A renderer
+  of ours that throws the shadows of what moves reads 252 as ground already in shadow.
+- `shadows(o)`, `caster(h, m)`, `shadowsDone()`: the shadows of what moves, thrown on the still world by the sun (the
+  still world's own are laid on the ground as it's built, with `Kit.cast`). Each frame, after `begin()` and before the
+  still world: `shadows({sun, cap, x, y, z, reach, size, dark})` starts a picture of the movers seen from the sun,
+  `caster(h, m)` puts one in (a mesh and its place, as `moved()` takes them; every one near enough, in view or not),
+  `shadowsDone()` ends it. The still world drawn after it darkens where they stand between it and the sun, by `dark`
+  (0.58, `Kit.cast`'s); never what's laid in shadow already (`Mesh.LAID`), a light of its own, or the movers
+  themselves. `cap` (1.15) raises a low sun, the same way round, so a metre of height throws no further than a laid
+  shadow does; the shadows fade as the sun goes down. `reach`: how far it covers each way from x z (metres); `size`:
+  the picture's side (1024; 512 for less). Four looks into the picture for each pixel of the still world, blended, so
+  the edge is soft. `shadows(null)`: none from now on. For the upper rungs; false when the GPU can't.
+- `grade({gain, curve, colour, warm, cool, edge})`: the picture so far, graded: brighter or darker, an S through its
+  tones, richer or paler, its lights one way and its darks the other, darker towards the corners. One copy of the
+  picture and one pass over it: for the upper rungs, after `bloom` and before anything is written on the screen.
 - `bloom({from, to, pure, power, size, wide})`: what's bright in the picture drawn so far, spread as light over it
   (lamps, fires, what's lit by itself). The picture is copied, what's bright in it (by its strongest colour, so a pure
   pink glows as a white would; with `pure`, only colours that pure, so skin and pale stone in the sun don't) kept at a
@@ -367,11 +388,29 @@ shimmer); `air({top, horizon, fog, hill, hills, near, far})`; `draw(camera…)`;
   `hills` and `skyline` (far hills for 3D and 2D), and `blob` (a soft 2D spot); `sky({top, mid, horizon, haze, sun,
   clouds, stars, ridges})` paints a sky for the dome (a big low sun cut by bars, clouds lit on their sunward side,
   far ridges, stars), `dome()` is its mesh, and `ripples(n)` the water's nets of light.
+- **A village, and what lies on the ground.** `Kit.house(mesh, glow, x, y, z, yaw, s, {seed, detail, doorAt, plaster,
+  timber, stone, roof: [two shades], door, shutter, light})` is a house with a timber frame, made to be seen from above
+  and from the south: a stone foot, plastered walls with their beams, a door with its step, shuttered windows that are
+  lit (into `glow`), shingles in bands with eaves and a ridge, gables with their boards, a chimney (it returns where
+  the chimney ends, for smoke). `detail` 0 has no beams (about 160 triangles), 1 is the house (about 260), 2 adds flower
+  boxes and a lantern (about 400); its north wall is left plain. `walls` builds it other ways: `"logs"` (logs laid one
+  on another, their ends at the front corners), `"stone"` (courses of dressed stone, quoins at the corners) or
+  `"planks"` (boards side by side, two straps across), each under 440 triangles; `stilts` stands it that high on posts
+  over wet ground, with a deck before the door and steps down. `Kit.barrel`, `crate`, `woodpile` and `bench` are for its
+  yard. `Kit.lay(mesh, [x, z, …], ground, colour, lift, fan)` lays a flat shape just over the ground and lights it with the
+  rest (the hull of the points, in two rings so that it follows ground that isn't flat; `fan` for a small one, in a
+  third of the triangles): a pool of lamplight, light
+  spilled from a window, a flagstone. `Kit.cast(mesh, [x, z, height, …], dx, dz, ground, colour, lift, fan)` is the shadow
+  a thing throws, laid the same way: give it the points that stick out (a foot, the eaves, a ridge) and how far a
+  metre of height throws; its vertices are marked `Mesh.LAID`. Nothing in them is see-through, so a Pi draws them as it draws the ground, and they're
+  made once, as the world is. Give them `land.on` for the ground (below), not `land.at`.
 - `Chunks(size, cell)` holds a world's still things: `mesh(x, z, "base" | "detail" | "glow")` to build into,
   `upload(g3)`, then `draw(g3, x, z, far, detail)` each frame (culled, nearest first). `upload(g3, {light, shade,
   sky})` bakes the world's light in and puts each chunk's glowing things in with the rest: one draw call a chunk.
 - `Land(size, n, base)` is ground with height: an n × n grid over the world, `fill((x, z) => height)`, then `at(x,
-  z)` anywhere (to float on it, or bump into the shore) and `slope(x, z, out)`. `mesh(chunks, colour(h, steep),
+  z)` anywhere (to float on it, or bump into the shore) and `slope(x, z, out)`. `on(x, z)` is the height as the ground
+  is drawn (each cell's own two triangles; `at` is smooth between the corners and can lie a hand over or under
+  them): for what's laid on the ground. `mesh(chunks, colour(h, steep),
   water, layer, {coarse: land.inner({above, drop}), under})` builds its triangles into chunks where it's near or
   above the water (with `coarse`, high ground with no drop near it as squares of two big triangles; `under`: how far
   below the water still counts); for the 2D renderer, `paint(ctx, k,
