@@ -1,6 +1,6 @@
 # Tuners, the guide, and recording
 
-**A draft (Sofa 1.5.13).** The server side is built and tested against a stand-in tuner; the web app has no screens
+**New in Sofa 1.5.13.** The server side is built and tested against a stand-in tuner; the web app has no screens
 for it yet (it's driven through the API below), and **no real tuner has run it**.
 
 ## Tuners at home

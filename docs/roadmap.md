@@ -37,7 +37,7 @@ Read this before you install, so nothing surprises you.
 - **Sofa Box OS on a PC** (from a USB stick since 1.1.79; since 1.1.84 it can put itself on the PC's own drive) has
   started on GitHub's machines under UEFI, BIOS and Secure Boot, and never on a real PC.
 - **Live TV** plays channel lists you add and Classic Cinema from a public film archive. Tuners at home (HDHomeRun),
-  an XMLTV guide and recording are in a draft (Sofa 1.5.13, [tuners-and-recording.md](tuners-and-recording.md)): no
+  an XMLTV guide and recording are new in Sofa 1.5.13 ([tuners-and-recording.md](tuners-and-recording.md)): no
   screens yet, and no real tuner has run it. Retro TV's decades (recordings of TV as it aired, played straight from a public video library) are
   on unless an admin turns them off, and never reach the public library's visitors.
 - **Not built:** subtitle downloads, watch-together, photos, a caption editor, playlists in Music, lyrics,

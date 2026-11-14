@@ -6,7 +6,7 @@ has its own numbers and list: [deploy/sofa-box/CHANGES.md](deploy/sofa-box/CHANG
 A change to Sofa's code (`sofa/`, `client/`, `sofa.py`) gets a new version: raise `__version__`, add a section
 here, then `python3 tools/sofa-version.py` (a test checks it was done).
 
-## 1.5.13 (2026-11-14, a draft)
+## 1.5.13 (2026-11-14)
 
 - **Tuners at home** (`sofa/tuners.py`): an HDHomeRun, or anything that answers as one, found on the network
   (SiliconDust's discovery packet) or by its address. Listed off until an admin turns it on; then its channels are in
