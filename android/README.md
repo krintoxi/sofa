@@ -50,6 +50,12 @@ and Dolby sound. What's its own:
   `SOFA_TV_KEY_PASSWORD`); GitHub's workflow takes the same from the repository's secrets
   (`SOFA_TV_KEYSTORE_BASE64` and the three others). With none set, the bundle is built unsigned.
 
+![The Google TV build's start page: a Sofa found on the network, the address field, Connect](../docs/images/google-tv-start.png)
+![The TV's code to approve on a phone](../docs/images/google-tv-sign-in.png)
+![Home in TV mode, signed in by the phone](../docs/images/google-tv-home.png)
+
+*From GitHub's Android TV 14 emulator (x86, 1080p), worked with the remote's keys by `android/tv_check.py`.*
+
 ### Trying it
 
 The workflow keeps two files with each run (the `sofa-googletv` artifact): `sofa-googletv-debug.apk`, signed with a
