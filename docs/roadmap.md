@@ -37,8 +37,9 @@ Read this before you install, so nothing surprises you.
 - **Sofa Box OS on a PC** (from a USB stick since 1.1.79; since 1.1.84 it can put itself on the PC's own drive) has
   started on GitHub's machines under UEFI, BIOS and Secure Boot, and never on a real PC.
 - **Live TV** plays channel lists you add and Classic Cinema from a public film archive. Tuners at home (HDHomeRun),
-  an XMLTV guide and recording are new in Sofa 1.5.13 ([tuners-and-recording.md](tuners-and-recording.md)): no
-  screens yet, and no real tuner has run it. Retro TV's decades (recordings of TV as it aired, played straight from a public video library) are
+  an XMLTV guide and recording are new in Sofa 1.5.13, with screens since 1.5.14 (Live TV → Antenna and Recordings,
+  REC in the player; [tuners-and-recording.md](tuners-and-recording.md)): no real tuner has run them, and the Sofa
+  Box's own player has no REC yet. Retro TV's decades (recordings of TV as it aired, played straight from a public video library) are
   on unless an admin turns them off, and never reach the public library's visitors.
 - **Not built:** subtitle downloads, watch-together, photos, a caption editor, playlists in Music, lyrics,
   plugins, Plex or Jellyfin history import.
@@ -104,7 +105,8 @@ In order. Each one ends with a line in the tested-on table.
 - **Subtitle downloads**, **watch-together**, a **caption editor**, and the Roku channel brought level with the Fire TV app.
 - Roku store certification; a Vega OS app if Amazon's web-view route allows a server of your own.
 - **Plex and Jellyfin history import** (what you've watched, where you were).
-- **Tuners and recording on a real HDHomeRun**, and their screens in Live TV (the server side is in 1.5.13).
+- **Tuners and recording on a real HDHomeRun** (built against a stand-in in 1.5.13 and 1.5.14), and REC in the Sofa
+  Box's own player.
 - A native **Apple TV** app (tvOS has no web view, so it has to be native).
 
 ## Not planned

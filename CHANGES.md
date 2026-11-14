@@ -6,6 +6,24 @@ has its own numbers and list: [deploy/sofa-box/CHANGES.md](deploy/sofa-box/CHANG
 A change to Sofa's code (`sofa/`, `client/`, `sofa.py`) gets a new version: raise `__version__`, add a section
 here, then `python3 tools/sofa-version.py` (a test checks it was done).
 
+## 1.5.14 (2026-11-14)
+
+- **Live TV → Antenna:** the tuners' channels on the clock, by their own numbers (2.1, 5.1, 11.3), from the guide.
+  OK on what's on now watches it; OK on a later programme records it: that one, or the series (new episodes only,
+  the last few kept), a film just the once. ◀ ▶ past a row's ends go two hours back and on, a week ahead at most;
+  digits go to a channel by its own number. Set to record: a red dot; a series' next one: a red ring.
+- **Live TV → Recordings:** recording now (Stop), clashes and what they clash with, coming up, the series, and what's
+  recorded (being filed, in the library, or why not). Not for Visitors, Kids profiles or guests.
+- **REC in the player** on a channel at home: from now to the end of the programme (an hour without a guide);
+  again, it stops, and what's recorded is filed. The R key too. Not yet in the Sofa Box's own player.
+- **Server → Live TV → Tuners at home:** look on the network or give an address, switch a tuner on or off, remove
+  it; the guide's sources and what they matched; the minutes before and after each recording (0–15, 0–30).
+- The player calls a tuner's channel by its own number, and when one doesn't come in it says the tuners may all be
+  in use or the signal gone, not that free channels come and go.
+- Offline, Live TV keeps the channels at home (a tuner's, a list on the home network) instead of saying it needs
+  the internet.
+- Tested in a browser against the stand-in tuner (`tests/test_tuner_screens.py`). **No real tuner or TV has run it.**
+
 ## 1.5.13 (2026-11-14)
 
 - **Tuners at home** (`sofa/tuners.py`): an HDHomeRun, or anything that answers as one, found on the network

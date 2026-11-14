@@ -1877,7 +1877,10 @@ const eraMode = () => !!liveData;
 function liveEras() {
   const has = id => id === "now" ? liveData.channels.some(c => !c.archive) : liveData.channels.some(c => c.era === id);
   const out = (liveData.eras && liveData.eras.length ? liveData.eras : [{ id: "now", name: "Live now" }]).filter(e => has(e.id));
+  if (liveData.channels.some(c => c.tuner)) out.splice(out[0] && out[0].id === "now" ? 1 : 0, 0, { id: "antenna", name: "Antenna" });
   if (liveData.channels.some(c => c.fav)) out.push({ id: "fav", name: "Favorites" });
+  // (Recordings: with a tuner at home, or once something's been recorded; REC works on any channel at home)
+  if (dvrSees() && (liveData.channels.some(c => c.tuner) || (dvrData && (dvrData.recordings.length || dvrData.rules.length)))) out.push({ id: "rec", name: "Recordings" });
   return out;
 }
 const LIVE_PAGE = 60;                       // channels drawn at first; more as the end comes near
@@ -1908,6 +1911,10 @@ async function loadLive() {
   try { liveData = await api("/api/live" + (session.user.admin && prefs.get("liveShowDown", false) ? "?down=1" : "")); }
   catch (e) { liveData = { error: e.message, channels: [], playlists: [] }; }
   liveAt = Date.now(); dialShown = null;
+  if (session.offline && liveData.channels) liveData.channels = liveData.channels.filter(c => c.recordable);   // (only home's, offline)
+  if (dvrSees() && !liveData.error) loadDvr().then(d => {
+    if (d && (d.recordings.length || d.rules.length) && !liveData.channels.some(c => c.tuner) && location.hash.startsWith("#/live") && !Player.isOpen()) rerender();
+  });
   if (liveData.away) {                     // (away from home: what didn't play straight from the channel here, before)
     const gone = new Set(prefs.get(noDirectKey(), []) || []);
     liveData.channels = liveData.channels.filter(c => c.archive || !gone.has(c.id));
@@ -1918,6 +1925,8 @@ function liveList() {
   const q = liveQuery.trim().toLowerCase();
   if (eraMode() && !q) {
     if (liveEra === "fav") return liveData.channels.filter(c => c.fav);
+    if (liveEra === "antenna") return liveData.channels.filter(c => c.tuner).sort(byTunerNumber);
+    if (liveEra === "rec") return [];
     if (liveEra === "now") return liveData.channels.filter(c => !c.archive && (liveGroup === "All" || c.group === liveGroup));
     return liveData.channels.filter(c => c.era === liveEra);
   }
@@ -1994,16 +2003,17 @@ function dialFlip() {
 }
 function viewLive() {
   setGlow("");
-  if (session.offline) return `<section class="page"><div class="page-head"><h1>Live TV</h1></div>
+  // (offline is about the internet: a tuner at home, and channel lists on the home network, still play)
+  if (session.offline && liveData && !liveData.channels.some(c => c.recordable)) return `<section class="page"><div class="page-head"><h1>Live TV</h1></div>
     <p class="count" style="max-width:60ch">Live TV channels come from the internet, and Sofa is set to work offline. Everything in your library plays as usual.
-    ${session.user.admin ? `An admin can switch Work offline off under Server, Settings, Privacy.` : ""}</p></section>`;
+    ${session.user.admin ? `An admin can switch Work offline off under Server, Settings, Privacy. A tuner at home works offline: add one under Server, Live TV.` : ""}</p></section>`;
   if (!liveData) { loadLive(); return `<section class="page"><div class="page-head"><h1>Live TV</h1></div><p class="count">Loading channels…</p></section>`; }
   // One look for all of Live TV: the bar of eras (Live now is one of them, with the decades and Classic Cinema when
   // they're on, and the starred channels), then an era's guide or the dial.
   const eras = liveEras();
   if (eras.length && !eras.some(e => e.id === liveEra)) liveEra = (eras.find(e => e.id === "2000s") || eras[0]).id;
   const tabs = `<div class="eras" role="tablist" aria-label="Eras">${eras.map(e => `<button role="tab" data-era="${esc(e.id)}"
-      aria-selected="${!liveQuery && e.id === liveEra}">${e.id === "now" ? `<i class="live-dot"></i>` : e.id === "fav" ? "★ " : ""}${esc(e.name)}</button>`).join("")}</div>`;
+      aria-selected="${!liveQuery && e.id === liveEra}">${e.id === "now" ? `<i class="live-dot"></i>` : e.id === "fav" ? "★ " : e.id === "rec" ? `<i class="rec-dot${dvrBusy() ? " on" : ""}"></i>` : ""}${esc(e.name)}</button>`).join("")}</div>`;
   const head = `<div class="page-head live-head"><h1>Live TV</h1>${TV ? tabs : `<span class="count">${plural(liveData.channels.length, "channel")}</span>`}</div>${TV ? "" : tabs}`;
   const gone = session.user.admin && liveData.down ? (prefs.get("liveShowDown", false)
     ? `<p class="count live-gone">Showing ${plural(liveData.down, "channel")} that didn't answer the last time Sofa looked. <button class="link-btn" data-live-down="0">Leave them out</button></p>`
@@ -2019,7 +2029,8 @@ function viewLive() {
   // an era: its guide. Live now, the starred ones and a search: the dial (thousands of channels: by group, and a search)
   const now = liveEra === "now", groups = now && !liveQuery ? [...new Set(liveData.channels.filter(c => !c.archive).map(c => c.group))].sort((a, b) => a.localeCompare(b)) : null;
   if (groups && liveGroup !== "All" && !groups.includes(liveGroup)) liveGroup = "All";
-  const list = liveList(), searching = !TV || now || liveEra === "fav" || liveQuery;
+  const list = liveList(), searching = liveEra !== "rec" && (!TV || now || liveEra === "fav") || liveQuery;
+  if (liveEra === "rec" && !liveQuery) return `<section class="page live-page">${head}${viewRecordings()}</section>`;
   return `<section class="page live-page">${head}
     ${searching ? `<div class="live-tools"><input id="liveSearch" type="search" placeholder="${now ? "Find a channel" : "Find any channel"}" aria-label="Find a channel" value="${esc(liveQuery)}">${now || liveQuery ? gone : ""}</div>` : ""}
     ${isGuide() ? `<div class="tv-guide" id="guide"><p class="count">Loading the guide…</p></div>`
@@ -2032,22 +2043,24 @@ function viewLive() {
    computer), redrawn only when a programme ends or the half hour turns. Up and down go through the channels at the
    same time of day, left and right through a channel's programmes; OK watches; digits go straight to a channel. ---- */
 let guideData = null, guideAt = 0, guideTimer = 0, guideT0 = 0, guidePicTimer = 0, guidePeekTimer = 0, guidePeek = null;
-let guideSoon = 0, guideTries = 0;
+let guideSoon = 0, guideTries = 0, guideOffset = 0;
 let guideShown = null, guideHover = null, dialBuf = "", dialTimer = 0;
 const GUIDE_SPAN = 2 * 3600;
-const isGuide = () => !liveQuery && (eraMode() ? !!liveEra && liveEra !== "now" && liveEra !== "fav"
+const isGuide = () => !liveQuery && (eraMode() ? !!liveEra && liveEra !== "now" && liveEra !== "fav" && liveEra !== "rec"
   : liveGroup === "Retro TV" || liveGroup === "Classic Cinema");
 const hhmm = t => new Date(t * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 const mins = s => { const m = Math.max(1, Math.round(s / 60)); return m >= 60 ? Math.floor(m / 60) + " h" + (m % 60 ? " " + (m % 60) + " min" : "") : m + " min"; };
 async function loadGuide() {
+  if (liveEra === "antenna" && eraMode()) return loadAntenna();
   // (the era in view: its channels not ready yet are fetched first, and asked for again soon until they are)
   const q = eraMode() ? (liveEra && liveEra !== "now" && liveEra !== "fav" ? "?era=" + encodeURIComponent(liveEra) : "")
     : (liveGroup ? "?group=" + encodeURIComponent(liveGroup) : "");
-  try { guideData = await api("/api/live/guide" + q); } catch (e) { guideData = guideData || { error: e.message, channels: [] }; }
+  try { guideData = Object.assign(await api("/api/live/guide" + q), { kind: "archive" }); }
+  catch (e) { guideData = guideData && guideData.kind === "archive" ? guideData : { kind: "archive", error: e.message, channels: [] }; }
   guideAt = Date.now();
   drawGuide();
   clearTimeout(guideSoon);
-  if (!guideData.error && guideChannels().some(c => !(c.programs || []).length)) {
+  if (!guideData.error && guideWaiting()) {
     guideTries++;
     guideSoon = setTimeout(() => { if ($("#guide") && !Player.isOpen() && !document.hidden) loadGuide(); },
       guideTries < 12 ? 6000 : 60000);
@@ -2055,11 +2068,15 @@ async function loadGuide() {
 }
 function watchGuide() {
   if (!$("#guide")) { clearInterval(guideTimer); stopPeek(); return; }
-  const age = Date.now() - guideAt, waiting = guideData && guideChannels().some(c => !(c.programs || []).length);
-  if (guideData) drawGuide();
-  if (!guideData || age > 10 * 60000 || (waiting && age > 2000)) loadGuide();   // (an era not ready yet: asked for first)
+  const mine = guideData && guideData.kind === guideKind(), age = Date.now() - guideAt, waiting = mine && guideWaiting();
+  if (mine) drawGuide();
+  if (!mine || age > 10 * 60000 || (waiting && age > 2000)) loadGuide();   // (an era not ready yet: asked for first)
 }
-const guideChannels = () => guideData ? guideData.channels.filter(c => eraMode() ? c.era === liveEra : c.group === liveGroup) : [];
+const guideKind = () => liveEra === "antenna" && eraMode() ? "antenna" : "archive";
+const guideChannels = () => !guideData ? [] : guideData.kind === "antenna" ? guideData.channels
+  : guideData.channels.filter(c => eraMode() ? c.era === liveEra : c.group === liveGroup);
+const guideWaiting = () => !!guideData && guideData.kind !== "antenna" && guideChannels().some(c => !(c.programs || []).length);
+const guideStart = now => Math.floor(now / 1800) * 1800 + (guideData && guideData.kind === "antenna" ? guideOffset : 0);
 function guideProg(b) {
   const c = b && guideData && guideData.channels.find(x => x.id === b.dataset.gch);
   return c ? (c.programs || [])[+b.dataset.gi] : null;
@@ -2069,12 +2086,15 @@ function guideFind(id, t) {
   return row.find(b => { const p = guideProg(b); return p && p.start <= t && t < p.end; }) || row[0] || null;
 }
 function guideRows(now) {
-  const t0 = guideT0 = Math.floor(now / 1800) * 1800, t1 = t0 + GUIDE_SPAN, at = t => (Math.min(t1, Math.max(t0, t)) - t0) / GUIDE_SPAN * 100;
+  const t0 = guideT0 = guideStart(now), t1 = t0 + GUIDE_SPAN, at = t => (Math.min(t1, Math.max(t0, t)) - t0) / GUIDE_SPAN * 100;
+  const antenna = guideData.kind === "antenna";
   return guideChannels().map(c => {
     const cells = (c.programs || []).map((p, i) => [p, i]).filter(([p]) => p.end > t0 && p.start < t1).map(([p, i]) => {
       const on = p.start <= now && now < p.end, l = at(p.start), w = at(p.end) - l;
-      return `<button class="g-prog${on ? " on" : ""}" data-gch="${esc(c.id)}" data-gi="${i}" style="left:${l.toFixed(2)}%;width:${w.toFixed(2)}%${on ? ";--p:" + ((now - p.start) / (p.end - p.start) * 100).toFixed(1) + "%" : ""}"><span>${esc(p.title)}</span></button>`;
-    }).join("") || `<button class="g-prog on wait" data-gch="${esc(c.id)}" data-gi="-1" style="left:0;width:100%"><span>Getting this channel ready…</span></button>`;
+      const mark = antenna ? recMark(c.id, p) : "";
+      return `<button class="g-prog${on ? " on" : ""}${mark}" data-gch="${esc(c.id)}" data-gi="${i}" style="left:${l.toFixed(2)}%;width:${w.toFixed(2)}%${on ? ";--p:" + ((now - p.start) / (p.end - p.start) * 100).toFixed(1) + "%" : ""}"><span>${esc(p.title)}</span></button>`;
+    }).join("") || (antenna ? `<button class="g-prog on air${recMark(c.id, { start: now, end: now + 1 })}" data-gch="${esc(c.id)}" data-gi="-1" style="left:0;width:100%"><span>${esc(c.name)}: on air</span></button>`
+      : `<button class="g-prog on wait" data-gch="${esc(c.id)}" data-gi="-1" style="left:0;width:100%"><span>Getting this channel ready…</span></button>`);
     return `<div class="g-row" style="--ch:${esc(c.color || "")}"><div class="g-ch"><b>${c.number}</b><span>${esc(c.name)}</span></div><div class="g-line">${cells}</div></div>`;
   }).join("");
 }
@@ -2084,10 +2104,12 @@ function drawGuide() {
   if (!guideChannels().length) { box.innerHTML = `<p class="count">${guideData.error ? "The guide didn't load: " + esc(guideData.error) : "No channels here yet."}</p>`; return; }
   const now = Date.now() / 1000, a = document.activeElement;
   const had = a && box.contains(a) && a.dataset.gch ? { id: a.dataset.gch, t: Math.max(now, (guideProg(a) || {}).start || now) } : null;
-  const t0 = Math.floor(now / 1800) * 1800;
+  const t0 = guideStart(now), antenna = guideData.kind === "antenna";
+  box.classList.toggle("antenna", antenna);
   box.innerHTML = `<div class="g-now" id="gNow"></div>
-    <div class="g-times"><div class="g-ch"><button class="btn g-flip" data-gflip title="Tunes to a channel at random">Flip</button></div>
-      <div class="g-line">${[0, 1, 2, 3].map(k => `<span style="left:${k * 25}%">${hhmm(t0 + k * 1800)}</span>`).join("")}<i class="g-mark" style="left:${((now - t0) / GUIDE_SPAN * 100).toFixed(2)}%"></i></div></div>
+    <div class="g-times"><div class="g-ch">${antenna ? `<button class="btn g-flip g-shift" data-gshift="-1" aria-label="Earlier"${guideOffset ? "" : " disabled"}>◀</button><span class="g-day">${esc(dayWord(t0) || "Today")}</span><button class="btn g-flip g-shift" data-gshift="1" aria-label="Later">▶</button>`
+      : `<button class="btn g-flip" data-gflip title="Tunes to a channel at random">Flip</button>`}</div>
+      <div class="g-line">${[0, 1, 2, 3].map(k => `<span style="left:${k * 25}%">${hhmm(t0 + k * 1800)}</span>`).join("")}${now >= t0 && now < t0 + GUIDE_SPAN ? `<i class="g-mark" style="left:${((now - t0) / GUIDE_SPAN * 100).toFixed(2)}%"></i>` : ""}</div></div>
     <div class="g-rows" id="gRows">${guideRows(now)}</div>`;
   let target = had ? guideFind(had.id, had.t) : null;
   if (!target && TV && (!a || a === document.body)) target = $("#gRows .g-prog.on");     // (the remote starts in the guide)
@@ -2103,6 +2125,7 @@ function showNow(b) {
   const now = Date.now() / 1000, progs = c.programs || [], p = progs[+b.dataset.gi] || null;
   if (guideShown && guideShown.c === c && guideShown.p === p) return;
   guideShown = { c, p };
+  if (guideData.kind === "antenna") return showAntenna(panel, c, p);
   const on = p && p.start <= now && now < p.end, after = p ? progs[progs.indexOf(p) + 1] : null;
   panel.style.setProperty("--ch", c.color || "");
   panel.innerHTML = `<div class="g-pic" id="gPic"><span class="g-num">${c.number}</span></div>
@@ -2153,9 +2176,9 @@ function guideTick() {
   if (!box) { clearInterval(guideTimer); stopPeek(); return; }
   if (Player.isOpen() || document.hidden) return;
   const now = Date.now() / 1000;
-  const waiting = guideChannels().some(c => !(c.programs || []).length);
+  const waiting = guideWaiting();
   if (Date.now() - guideAt > (waiting ? 60000 : 10 * 60000)) return loadGuide();
-  if (Math.floor(now / 1800) * 1800 !== guideT0 || [...box.querySelectorAll("#gRows .g-prog.on")].some(b => { const p = guideProg(b); return p && p.end <= now; })) {
+  if (guideStart(now) !== guideT0 || [...box.querySelectorAll("#gRows .g-prog.on")].some(b => { const p = guideProg(b); return p && p.end <= now; })) {
     guideShown = null; return drawGuide();
   }
   box.querySelectorAll("#gRows .g-prog.on").forEach(b => { const p = guideProg(b); if (p) b.style.setProperty("--p", ((now - p.start) / (p.end - p.start) * 100).toFixed(1) + "%"); });
@@ -2181,6 +2204,176 @@ function flip() {
   if (b) { b.focus({ preventScroll: true }); b.scrollIntoView({ block: "nearest" }); }
   tuneArchive(c.id);
 }
+/* ---------- Antenna: the household's own tuners (sofa/tuners.py) on the clock, from the guide it was given (XMLTV,
+   sofa/guide.py), in the archive guide's own shape and as light. OK on a programme that's on watches it; OK on a later
+   one records it (sofa/dvr.py): that one, or the series. ◀ ▶ past a row's ends go two hours back and on, a week
+   ahead at most. Recordings: what's recording, what clashes, what's coming, the series, what's recorded. Recording
+   is the household's: never a Visitor's, a Kids profile's or a guest's, and only from home. ---------------------- */
+let dvrData = null, dvrAt = 0, dvrLoading = null;
+const dvrSees = () => !!(session && session.user && !session.user.guest && !session.user.kids && !visitorMode());
+const dvrMay = () => dvrSees() && !(liveData && liveData.away);
+const DVR_ON = new Set(["scheduled", "conflict", "recording"]);
+const dvrBusy = () => !!(dvrData && dvrData.recordings.some(r => r.state === "recording"));
+function loadDvr() {
+  if (!dvrSees()) return Promise.resolve(null);
+  if (dvrLoading) return dvrLoading;
+  return dvrLoading = api("/api/dvr").then(d => { dvrData = d; dvrAt = Date.now(); return d; })
+    .catch(e => { dvrData = dvrData || { recordings: [], rules: [], pad: {}, error: e.message }; return dvrData; })
+    .finally(() => { dvrLoading = null; });
+}
+// a programme's recording (one asked for on that channel that covers it), and the series it's in
+const recOf = (cid, p) => dvrData && dvrData.recordings.find(r => r.channel === cid && DVR_ON.has(r.state) && r.start < p.end && r.stop > p.start);
+const ruleOf = (cid, title) => dvrData && title && dvrData.rules.find(r => r.title.toLowerCase() === title.toLowerCase() && (!r.channel || r.channel === cid));
+function recMark(cid, p) {
+  const r = recOf(cid, p);
+  return r ? (r.state === "recording" ? " rec now" : r.state === "conflict" ? " rec clash" : " rec") : ruleOf(cid, p.title) ? " series" : "";
+}
+const tunerNumber = c => String(c.guide_number || "").split(/[.-]/).map(x => x.padStart(5, "0")).join(".");
+const byTunerNumber = (a, b) => tunerNumber(a).localeCompare(tunerNumber(b));   // (2.1, 5.1, 11.3: as the tuner numbers them)
+const dayWord = t => {                                 // "" today, "Tomorrow", then "Sat 21"
+  const d = new Date(t * 1000), today = new Date(), days = Math.round((new Date(d).setHours(0, 0, 0, 0) - new Date(today).setHours(0, 0, 0, 0)) / 864e5);
+  return days === 0 ? "" : days === 1 ? "Tomorrow" : days === -1 ? "Yesterday" : d.toLocaleDateString([], { weekday: "short", day: "numeric" });
+};
+const whenText = (a, b) => (dayWord(a) ? dayWord(a) + " " : "") + hhmm(a) + " to " + hhmm(b);
+const epText = p => [p.episode ? (p.season ? "S" + p.season + " " : "") + "E" + p.episode : "", p.sub || ""].filter(Boolean).join(" · ");
+async function loadAntenna() {
+  const chans = liveData ? liveData.channels.filter(c => c.tuner).sort(byTunerNumber) : [], ids = chans.map(c => c.id), got = {};
+  const from = guideStart(Date.now() / 1000), asks = [];
+  for (let i = 0; i < ids.length; i += 60) {
+    asks.push(api("/api/live/tuner-guide?channel=" + ids.slice(i, i + 60).join(",") + "&from=" + from).then(r => Object.assign(got, r.guide)));
+  }
+  let error = "";
+  try { await Promise.all(asks.concat([loadDvr()])); } catch (e) { error = e.message; }
+  guideData = { kind: "antenna", error, channels: chans.map(c => ({ id: c.id, name: c.name, number: c.guide_number || c.number || "",
+    color: dialColour(c.group), programs: (got[c.id] || []).map(p => ({ start: p.start, end: p.stop, title: p.title, sub: p.sub, about: p.about,
+      season: p.season, episode: p.episode, year: p.year, movie: !!p.movie, fresh: !!p.fresh })) })) };
+  guideAt = Date.now(); guideShown = null;
+  drawGuide();
+}
+function shiftGuide(step) {
+  const was = guideOffset;
+  guideOffset = Math.max(0, Math.min(7 * 86400, guideOffset + step * GUIDE_SPAN));
+  if (guideOffset !== was) loadAntenna();
+}
+function showAntenna(panel, c, p) {
+  const now = Date.now() / 1000, progs = c.programs || [], on = !p || (p.start <= now && now < p.end);
+  const after = p ? progs[progs.indexOf(p) + 1] : null, r = p ? recOf(c.id, p) : recOf(c.id, { start: now, end: now + 1 });
+  const rule = p && ruleOf(c.id, p.title);
+  const tags = p ? [p.fresh ? "New" : "", p.movie ? "Film" : ""].filter(Boolean) : [];
+  const recTag = r ? (r.state === "recording" ? `<i class="g-aired g-rec on"><i class="rec-dot on"></i>Recording</i>`
+    : r.state === "conflict" ? `<i class="g-aired g-rec clash">Clash</i>` : `<i class="g-aired g-rec"><i class="rec-dot"></i>Set to record</i>`)
+    : rule ? `<i class="g-aired g-rec">Series</i>` : "";
+  panel.style.setProperty("--ch", c.color || "");
+  panel.innerHTML = `<div class="g-pic d-pic"><span class="d-mark">${esc(dialMark(c.name))}</span><span class="g-num">${esc(c.number)}</span></div>
+    <div class="g-info"><div class="g-chline"><b>${esc(c.number)}</b><span>${esc(c.name)}</span>${tags.map(x => `<i class="g-aired">${x}</i>`).join("")}${recTag}</div>
+      <h2>${p ? esc(p.title) + (p.movie && p.year ? ` <small>${p.year}</small>` : "") : esc(c.name)}</h2>
+      ${p && epText(p) ? `<p class="g-sub">${esc(epText(p))}</p>` : ""}
+      ${!p ? `<p class="g-when">On air now.${progs.length ? "" : " The guide has nothing for this channel" + (session.user.admin ? ": add a guide under Server, Live TV." : ".")}</p>`
+        : on ? `<div class="g-bar"><i style="width:${((now - p.start) / (p.end - p.start) * 100).toFixed(1)}%"></i></div><p class="g-when">${mins(p.end - now)} left, until ${hhmm(p.end)}</p>`
+        : `<p class="g-when">${esc(whenText(p.start, p.end))} (${mins(p.end - p.start)})</p>`}
+      ${on && after ? `<p class="g-next">Next, at ${hhmm(after.start)}: ${esc(after.title)}</p>` : ""}
+      ${p && p.about ? `<p class="g-about">${esc(p.about)}</p>` : ""}
+      ${TV ? `<p class="g-keys"><b>OK</b> ${on ? "watch" : dvrMay() ? "record" : "details"} <b>◀ ▶</b> earlier, later <b>0–9</b> a channel's number</p>`
+        : `<div class="g-acts">${on ? `<button class="btn primary small" data-gwatch="${esc(c.id)}">${icon("i-play")}Watch</button>` : ""}${p && dvrMay()
+          ? `<button class="btn small" data-grec="${esc(c.id)}" data-gi="${progs.indexOf(p)}"><i class="rec-dot${r && r.state === "recording" ? " on" : ""}"></i>${r || rule ? "Recording" : on ? "Record the rest" : "Record"}…</button>` : ""}</div>`}</div>`;
+}
+function antennaPick(b) {                              // OK or a click: on now, watch; later, record
+  const c = guideData.channels.find(x => x.id === b.dataset.gch), p = c && (c.programs || [])[+b.dataset.gi];
+  if (!c) return;
+  const now = Date.now() / 1000;
+  if (!p || (p.start <= now && now < p.end) || !dvrMay()) {
+    if (p && p.start > now) return toast(p.title + " is on " + whenText(p.start, p.end) + ".");
+    return watchTuner(c.id);
+  }
+  recordDialog(c, p);
+}
+function watchTuner(id) {
+  const list = (liveData ? liveData.channels : []).filter(c => c.tuner), ch = list.find(c => c.id === id);
+  if (ch) Player.openLive(ch, list);
+}
+function recordDialog(c, p) {
+  const now = Date.now() / 1000, on = p.start <= now && now < p.end, r = recOf(c.id, p), rule = ruleOf(c.id, p.title);
+  const state = !r ? "" : r.state === "recording" ? "Recording now. What's recorded is filed when it ends."
+    : r.state === "conflict" ? r.why || "Every tuner is taken then." : "Set to record. It goes to the Inbox and is filed by itself.";
+  openDialog(`<div class="rec-dialog"><p class="rec-kicker"><b>${esc(c.number)}</b>${esc(c.name)}<span>${esc(whenText(p.start, p.end))}</span></p>
+    <h2>${esc(p.title)}${p.movie && p.year ? ` <small>${p.year}</small>` : ""}</h2>
+    ${epText(p) ? `<p class="rec-sub">${esc(epText(p))}${p.fresh ? ` <i class="g-aired">New</i>` : ""}</p>` : ""}
+    ${state ? `<p class="rec-state${r.state === "conflict" ? " clash" : ""}">${r.state !== "conflict" ? `<i class="rec-dot${r.state === "recording" ? " on" : ""}"></i>` : ""}${esc(state)}</p>` : ""}
+    ${rule ? `<p class="rec-state">Every ${rule.new_only ? "new " : ""}showing of ${esc(rule.title)} is recorded${rule.channel ? "" : ", on any channel"}${rule.keep ? `, the last ${rule.keep} kept` : ""}.</p>` : ""}
+    <div class="actions rec-actions">
+      ${r ? `<button class="btn" data-rec-cancel="${r.id}">${r.state === "recording" ? "Stop recording" : "Don't record it"}</button>`
+        : `<button class="btn primary" data-rec-one="${esc(c.id)}" data-start="${p.start}"><i class="rec-dot"></i>${on ? "Record the rest of it" : "Record it"}</button>`}
+      ${rule ? `<button class="btn" data-rec-stop-series="${rule.id}">Stop recording the series</button>`
+        : p.movie ? "" : `<button class="btn${r ? " primary" : ""}" data-rec-series="${esc(c.id)}" data-title="${esc(p.title)}">Record the series</button>`}
+      ${on ? `<button class="btn" data-gwatch="${esc(c.id)}">Watch it</button>` : ""}
+      <button class="btn ghost" data-dismiss="1">Close</button></div>
+    ${rule || p.movie ? "" : `<div class="rec-opts"><label class="check"><input type="checkbox" id="recNew"${p.fresh ? " checked" : ""}> The series: new episodes only</label>
+      <label class="rec-keep"><span>Keep</span><select id="recKeep" class="mini-select">${[[0, "every one"], [2, "the last 2"], [5, "the last 5"], [10, "the last 10"]].map(o => `<option value="${o[0]}">${o[1]}</option>`).join("")}</select></label></div>`}
+  </div>`);
+}
+async function dvrDo(body, said) {
+  try { const r = await api("/api/dvr", body); if (said) toast(said(r)); }
+  catch (e) { closeDialog(); return alertBox(e.message); }
+  closeDialog();
+  await loadDvr();
+  if (!location.hash.startsWith("#/live")) return;
+  if (liveEra === "antenna" && $("#guide")) { guideShown = null; drawGuide(); } else rerender();
+}
+document.addEventListener("click", e => {
+  const t = e.target.closest && e.target.closest("[data-gwatch], [data-grec], [data-rec-one], [data-rec-series], [data-rec-cancel], [data-rec-stop-series]");
+  if (!t) return;
+  e.preventDefault();
+  if (t.dataset.gwatch) { closeDialog(); return watchTuner(t.dataset.gwatch); }
+  if (t.dataset.grec) {
+    const c = guideData && guideData.channels.find(x => x.id === t.dataset.grec), p = c && c.programs[+t.dataset.gi];
+    return p && recordDialog(c, p);
+  }
+  if (t.dataset.recOne) return dvrDo({ programme: { channel: t.dataset.recOne, start: +t.dataset.start } },
+    r => (r.recording.state === "conflict" ? "It clashes: " + r.recording.why : "Set to record: " + r.recording.title + ", " + whenText(r.recording.start, r.recording.stop) + "."));
+  if (t.dataset.recSeries) {
+    const fresh = $("#recNew"), keep = $("#recKeep");
+    return dvrDo({ series: { title: t.dataset.title, channel: t.dataset.recSeries, new_only: !!(fresh && fresh.checked), keep: keep ? +keep.value : 0 } },
+      r => "Recording " + (r.rule.new_only ? "new showings" : "every showing") + " of " + r.rule.title + ".");
+  }
+  if (t.dataset.recCancel) {
+    const r = dvrData && dvrData.recordings.find(x => x.id === +t.dataset.recCancel);
+    return dvrDo({ cancel: +t.dataset.recCancel }, () => r && r.state === "recording" ? "Stopped. What's recorded is filed." : "It won't be recorded.");
+  }
+  if (t.dataset.recStopSeries) return dvrDo({ stop_series: +t.dataset.recStopSeries }, () => "The series isn't recorded any more. What's set already stays; cancel it under Recordings.");
+});
+/* Live TV → Recordings */
+const REC_STATE = { recording: "Recording", conflict: "Clash", scheduled: "Set", done: "Filing", filed: "In your library", failed: "Didn't record" };
+function recRow(r) {
+  const now = Date.now() / 1000, live = r.state === "recording", act = DVR_ON.has(r.state) && dvrMay();
+  const what = [epText(r), r.channel_name].filter(Boolean).join(" · ");
+  const why = r.state === "conflict" || r.state === "failed" ? r.why : r.state === "done" ? "In the Inbox: it's filed in a minute." : r.state === "filed" && r.size ? bytes(r.size) : "";
+  return `<li class="rec-row s-${esc(r.state)}"${act ? "" : ` tabindex="0"`}><div class="rec-when"><b>${hhmm(r.start)}</b><span>${esc(dayWord(r.start) || "Today")}</span></div>
+    <div class="rec-what"><b>${esc(r.title)}</b>${what ? `<span>${esc(what)}</span>` : ""}${why ? `<span class="rec-why">${esc(why)}</span>` : ""}
+      ${live ? `<div class="g-bar"><i style="width:${Math.max(2, Math.min(100, (now - r.start) / Math.max(1, r.stop - r.start) * 100)).toFixed(1)}%"></i></div>` : ""}</div>
+    <span class="rec-tag">${live ? `<i class="rec-dot on"></i>` : ""}${REC_STATE[r.state] || esc(r.state)}</span>
+    ${act ? `<button class="btn small" data-rec-cancel="${r.id}">${live ? "Stop" : "Don't record"}</button>` : ""}</li>`;
+}
+function viewRecordings() {
+  if (!dvrData || Date.now() - dvrAt > 20000) loadDvr().then(() => { if (location.hash.startsWith("#/live") && liveEra === "rec" && !Player.isOpen() && !document.querySelector(".dialog-scrim")) rerender(); });
+  if (!dvrData) return `<p class="count">Loading recordings…</p>`;
+  if (dvrData.error) return `<p class="count">The recordings didn't load: ${esc(dvrData.error)}</p>`;
+  const rs = dvrData.recordings, pad = dvrData.pad || {};
+  const groups = [["Recording now", rs.filter(r => r.state === "recording")], ["Clashes", rs.filter(r => r.state === "conflict")],
+    ["Coming up", rs.filter(r => r.state === "scheduled").sort((a, b) => a.start - b.start)],
+    ["Recorded", rs.filter(r => r.state === "done" || r.state === "filed" || r.state === "failed")]].filter(g => g[1].length);
+  const rules = dvrData.rules.map(u => `<li class="rec-row s-series"><div class="rec-when"><b>All</b><span>${u.new_only ? "New only" : "Every one"}</span></div>
+    <div class="rec-what"><b>${esc(u.title)}</b><span>${esc([u.channel ? ((liveData.channels.find(c => c.id === u.channel) || {}).name || "One channel") : "Any channel",
+      u.keep ? "keeps the last " + u.keep : "keeps every one"].join(" · "))}</span></div><span class="rec-tag">Series</span>
+    ${dvrMay() ? `<button class="btn small" data-rec-stop-series="${u.id}">Stop the series</button>` : ""}</li>`).join("");
+  const none = !groups.length && !rules;
+  return `<div class="recs">
+    ${none ? `<div class="rec-empty"><i class="rec-dot"></i><div><b>Nothing recorded yet.</b><p>${liveData.channels.some(c => c.tuner)
+      ? "Pick a later programme in Antenna's guide, or press REC while you watch a channel at home." : "Press REC while you watch a channel at home."}
+      Recordings go to the Inbox and are filed with the rest of your library: shows under Shows, films under Movies.</p></div></div>` : ""}
+    ${groups.map(g => `<section class="rec-group"><h2>${g[0]}<span>${g[1].length}</span></h2><ul class="rec-list">${g[1].map(recRow).join("")}</ul></section>`).join("")}
+    ${rules ? `<section class="rec-group"><h2>Series<span>${dvrData.rules.length}</span></h2><ul class="rec-list">${rules}</ul></section>` : ""}
+    ${none ? "" : `<p class="count rec-pad">Each recording starts ${plural(Math.round((pad.before || 0) / 60), "minute")} early and runs ${plural(Math.round((pad.after || 0) / 60), "minute")} over; the extra minutes give way, so they never make two clash. Recordings are the household's: never a visitor's.</p>`}</div>`;
+}
 function dial(d) {                                      // a channel's number, typed: straight to it
   dialBuf = (dialBuf + d).slice(-3);
   let box = $("#gDial");
@@ -2189,7 +2382,9 @@ function dial(d) {                                      // a channel's number, t
   if (!guideData && !liveData) loadGuide();
   clearTimeout(dialTimer);
   dialTimer = setTimeout(() => {
-    const n = +dialBuf, c = (liveData && liveData.channels.find(x => x.number === n)) || (guideData && guideData.channels.find(x => x.number === n));
+    const n = +dialBuf, ant = liveEra === "antenna" && liveData && liveData.channels.filter(x => x.tuner)
+      .find(x => String(x.guide_number) === String(n) || String(x.guide_number).split(/[.-]/)[0] === String(n));
+    const c = ant || (liveData && liveData.channels.find(x => x.number === n)) || (guideData && guideData.kind !== "antenna" && guideData.channels.find(x => x.number === n));
     dialBuf = ""; box.hidden = true;
     if (!c) return toast("There's no channel " + n + ".");
     const b = guideFind(c.id, Date.now() / 1000) || $(`#dRows [data-live="${CSS.escape(c.id)}"]`);
@@ -2220,6 +2415,9 @@ document.addEventListener("keydown", e => {
       to = there.find(b => { const q = guideProg(b); return q && q.start <= t && t < q.end; }) || there[0];
     }
   } else return;
+  if (!to && guideData && guideData.kind === "antenna" && a.closest("#gRows") && (e.key === "ArrowRight" || guideOffset)) {
+    e.preventDefault(); e.stopPropagation(); shiftGuide(e.key === "ArrowRight" ? 1 : -1); return;     // Antenna: two hours on (or back)
+  }
   if (!to && e.key === "ArrowRight") { e.preventDefault(); e.stopPropagation(); return; }   // the row's end: stay (not up to the eras)
   if (!to) return;                                      // (at an edge: the remote's usual move, to the chips or the rail)
   e.preventDefault(); e.stopPropagation();
@@ -2242,9 +2440,11 @@ document.addEventListener("pointerover", e => {
 });
 document.addEventListener("click", e => {
   const t = e.target.closest && e.target.closest("#guide [data-gch], #guide [data-gflip], #dial [data-dflip]");
+  if (!t && e.target.closest && e.target.closest("#guide [data-gshift]")) { shiftGuide(+e.target.closest("[data-gshift]").dataset.gshift); return; }
   if (!t) return;
   e.preventDefault();
-  if (t.dataset.dflip !== undefined) dialFlip(); else if (t.dataset.gflip !== undefined) flip(); else tuneArchive(t.dataset.gch);
+  if (t.dataset.dflip !== undefined) dialFlip(); else if (t.dataset.gflip !== undefined) flip();
+  else if (guideData && guideData.kind === "antenna") antennaPick(t); else tuneArchive(t.dataset.gch);
 });
 document.addEventListener("input", e => {
   if (e.target.id === "pageFilter") {
@@ -2430,7 +2630,8 @@ const SRV_TABS = [["overview", "Overview"], ["library", "Library"], ["storage", 
 const ADMIN_EXTRA = {
   library: [["missing", "/api/admin/missing", r => r.items], ["intros", "/api/admin/intros"], ["duplicates", "/api/admin/duplicates", r => r.groups]],
   convert: [["convert", "/api/admin/convert"]], downloads: [["downloads", "/api/admin/downloads"]], storage: [["storage", "/api/admin/storage"]],
-  people: [["sessions", "/api/admin/sessions", r => r.sessions]], internet: [["internet", "/api/admin/internet"]], sharing: [["sharing", "/api/admin/sharing"]]
+  people: [["sessions", "/api/admin/sessions", r => r.sessions]], internet: [["internet", "/api/admin/internet"]], sharing: [["sharing", "/api/admin/sharing"]],
+  live: [["tuners", "/api/admin/tuners"]]
 };
 function loadAdmin() {
   if (adminBusy) { adminAgain = true; return adminBusy; }
@@ -2788,12 +2989,61 @@ function srvDownloads(d) {
       <div class="actions"><a class="btn" href="${esc(mark(false))}" onclick="return false">Send to Sofa</a>${session.user.adult ? `<a class="btn" href="${esc(mark(true))}" onclick="return false">Send to Sofa (Adult)</a>` : ""}</div></div>
   </div>`;
 }
+/* Tuners at home (sofa/tuners.py), the guide's sources (sofa/guide.py) and recording's extra minutes (sofa/dvr.py) */
+const PAD_BEFORE = [0, 1, 2, 5], PAD_AFTER = [0, 1, 3, 5, 10, 15, 30];
+function tunersPanel(t, s) {
+  if (!t) return `<div class="panel wide tuners-panel"><h2>Tuners at home</h2><p class="hint">Loading…</p></div>`;
+  const rows = t.tuners.map(x => `<li class="tuner-row${x.on ? " on" : ""}"><span><b>${esc(x.name)}</b>${x.model ? ` <span class="tag soft">${esc(x.model)}</span>` : ""}<br>
+      <span class="when">${esc([plural(x.tuners || 1, "tuner"), String(x.base || "").replace(/^https?:\/\//, ""),
+        x.on ? plural(x.channels, "channel") + " in Live TV, " + x.free + " free now" : "off: its channels aren't in Live TV",
+        x.seen ? "" : "not seen on the network lately"].filter(Boolean).join(" · "))}</span></span>
+    <span class="row-actions"><button class="mini" data-tuner-switch="${esc(x.id)}" aria-pressed="${!!x.on}" title="Its channels in Live TV, and recording from it">${x.on ? "On" : "Off"}</button>
+      <button class="mini danger" data-tuner-remove="${esc(x.id)}">Remove</button></span></li>`).join("")
+    || `<li class="empty-row">No tuner yet. Sofa looks on your network for one, or give its address.</li>`;
+  const g = t.guide || {}, srcs = (g.sources || []).map(x => `<li><span><b class="src">${esc(x.where || "")}</b><br><span class="when">${x.error ? "Problem: " + esc(x.error)
+      : x.at ? esc(`${x.channels} of ${plural(x.of, "channel")} matched · ${plural(x.programmes, "programme")} · read ${ago(x.at)}`) : "Being read…"}</span></span>
+    <span class="row-actions"><button class="mini danger" data-guide-remove="${esc(x.where || "")}">Remove</button></span></li>`).join("")
+    || `<li class="empty-row">No guide yet. Antenna shows each channel as on air, and REC records what's on.</li>`;
+  const sel = (key, opts, v) => `<select class="mini-select" data-setting-select="${key}" aria-label="${key === "dvr_pad_before" ? "Minutes before" : "Minutes after"}">${opts.map(n => `<option value="${n}"${+v === n ? " selected" : ""}>${n} min</option>`).join("")}</select>`;
+  return `<div class="panel wide tuners-panel"><h2>Tuners at home</h2><p class="hint">A network tuner (an HDHomeRun, or one that answers like it) brings the channels from your antenna or cable into Live TV, under Antenna, and Sofa can record them. They stay at home: never a visitor's, never played away from home.</p>
+    <ul class="list">${rows}</ul>
+    <div class="actions"><button class="btn" data-tuner-find="1">${icon("i-search")}Look on the network</button></div>
+    <form class="inline-form tuner-form" id="addTuner"><label class="field"><span>Or its address</span><input name="addr" required placeholder="192.168.1.50" autocomplete="off"></label>
+      <button class="btn" type="submit">Add</button><div class="form-error" role="alert" style="grid-column:1/-1"></div></form>
+    <h2 class="sub-h">The guide</h2><p class="hint">What's on, for Antenna and for recording a programme or a series: an XMLTV address or a file on this computer (XMLTV is how TV guides come, from a guide service or a program that makes one). Sofa reads it every six hours and keeps two weeks. Channels are matched by number and name.</p>
+    <ul class="list">${srcs}</ul>
+    <form class="inline-form tuner-form" id="addGuide"><label class="field"><span>XMLTV address or file</span><input name="where" required placeholder="https://…/guide.xml or ~/guide.xml" autocomplete="off"></label>
+      <button class="btn" type="submit">Add</button><div class="form-error" role="alert" style="grid-column:1/-1"></div></form>
+    <div class="toggle"><div><b>A little more before and after</b><span>Programmes rarely start and end on the minute. The extra minutes give way: they never make two recordings clash.</span></div>
+      <div class="pad-sel"><label>Before ${sel("dvr_pad_before", PAD_BEFORE, s.dvr_pad_before)}</label><label>After ${sel("dvr_pad_after", PAD_AFTER, s.dvr_pad_after)}</label></div></div></div>`;
+}
+document.addEventListener("click", e => {
+  const b = e.target.closest && e.target.closest("[data-tuner-find], [data-tuner-switch], [data-tuner-remove], [data-guide-remove]");
+  if (!b) return;
+  if (b.dataset.tunerFind) {
+    b.disabled = true; b.lastChild.textContent = "Looking…";
+    return adminAction(async () => {
+      const r = await api("/api/admin/tuners", { find: true }), n = r.tuners.length;
+      toast(n ? plural(n, "tuner") + " on this Sofa. Switch one on to bring its channels into Live TV." : "No tuner answered. Give its address instead.");
+    });
+  }
+  if (b.dataset.tunerSwitch) {
+    const on = b.getAttribute("aria-pressed") !== "true";
+    return adminAction(async () => { await api("/api/admin/tuners", { switch: { id: b.dataset.tunerSwitch, on } }); liveData = null; guideData = null;
+      toast(on ? "Its channels are in Live TV, under Antenna." : "Its channels are out of Live TV."); });
+  }
+  if (b.dataset.tunerRemove) {
+    if (!confirm("Remove this tuner from Sofa? Recordings already made stay in the library.")) return;
+    return adminAction(async () => { await api("/api/admin/tuners", { remove: b.dataset.tunerRemove }); liveData = null; guideData = null; });
+  }
+  if (b.dataset.guideRemove !== undefined) return adminAction(async () => { await api("/api/admin/tuners", { guide_remove: b.dataset.guideRemove }); guideData = null; });
+});
 function srvLive(d) {
   const s = d.settings || {}, h = d.liveHealth;
   const looked = !h || !h.on ? "" : h.cut_off ? "The internet didn't answer the last looks, so nothing was marked. Sofa tries again in a few minutes."
     : h.waiting ? "Nobody has opened Live TV for a week, so Sofa isn't looking. It starts again when someone does."
     : !h.total ? "" : `${h.checked} of ${plural(h.total, "channel")} looked at${h.checked < h.total ? " so far" : ""}; ${h.down === 1 ? "1 doesn't answer and is" : h.down + " don't answer and are"} left out.`;
-  return `<div class="panels"><div class="panel wide"><h2>Live TV channel lists</h2><p class="hint">M3U playlists of free channels. Sofa re-downloads them twice a day. At home they play through Sofa; away from home, and for visitors, straight from where each channel is streamed, or not at all.</p>
+  return `<div class="panels">${tunersPanel(d.tuners, s)}<div class="panel wide"><h2>Live TV channel lists</h2><p class="hint">M3U playlists of free channels. Sofa re-downloads them twice a day. At home they play through Sofa; away from home, and for visitors, straight from where each channel is streamed, or not at all.</p>
     <ul class="list">${(d.live || []).map(p => `<li><span><b>${esc(p.name)}</b>${p.adult ? ` <span class="tag">Adult</span>` : ""}<br><span class="when">${p.error ? "Problem: " + esc(p.error) : plural(p.count || 0, "channel")}</span></span>
       <span class="row-actions">${p.adult ? "" : `<button class="mini" data-live-public="${esc(p.url)}" aria-pressed="${!!p.public}" title="The public library's visitors get this list's channels too (with Live TV shared, in Sharing)">${p.public ? "Visitors: on" : "Visitors: off"}</button>`}
       <button class="mini danger" data-live-remove="${esc(p.url)}">Remove</button></span></li>`).join("") || `<li class="empty-row">No channel lists yet.</li>`}</ul>
@@ -3298,7 +3548,7 @@ document.addEventListener("click", e => {
   }
   if (t.dataset.group) { liveGroup = t.dataset.group; liveQuery = ""; prefs.set("liveGroup", liveGroup); rerender(); return; }
   if (t.dataset.era) {
-    liveEra = t.dataset.era; liveQuery = ""; prefs.set("liveEra", liveEra); guideShown = null; guideTries = 0; stopPeek(); rerender();
+    liveEra = t.dataset.era; liveQuery = ""; prefs.set("liveEra", liveEra); guideShown = null; guideTries = 0; guideOffset = 0; stopPeek(); rerender();
     const tab = $(`[data-era="${CSS.escape(liveEra)}"]`); if (tab && TV && !isGuide()) tab.focus({ preventScroll: true });
     return;
   }
@@ -3356,7 +3606,7 @@ document.addEventListener("change", e => {
   if (e.target.dataset.newTo !== undefined) { adminAction(async () => { await api("/api/admin/storage", { new_to: e.target.dataset.newTo }); toast("New things go there now."); }); return; }
   if (e.target.id === "reportAdult") { $("#reportLink").href = "/api/admin/report" + (e.target.checked ? "?adult=1" : ""); return; }
   const sel = e.target.closest("[data-setting-select]"); if (!sel) return;
-  const v = sel.dataset.settingSelect === "max_transcodes" ? +sel.value : sel.dataset.settingSelect === "gentle" ? (sel.value === "auto" ? "auto" : sel.value === "on") : sel.value;
+  const v = ["max_transcodes", "dvr_pad_before", "dvr_pad_after"].includes(sel.dataset.settingSelect) ? +sel.value : sel.dataset.settingSelect === "gentle" ? (sel.value === "auto" ? "auto" : sel.value === "on") : sel.value;
   adminAction(async () => { await api("/api/admin/settings", { [sel.dataset.settingSelect]: v }); if (sel.dataset.settingSelect === "theme") { session.theme = v; applyLook(); } });
 });
 document.addEventListener("submit", e => {
@@ -3382,6 +3632,15 @@ document.addEventListener("submit", e => {
     const key = e.target.dataset.keyForm || "name", v = e.target.v.value.trim();
     if (!v) return;
     adminAction(async () => { await api("/api/admin/settings", { [key]: v }); toast(key === "name" ? "Saved." : "Saved. Sofa is looking things up again."); if (key === "name") boot(); });
+    return;
+  }
+  if (e.target.id === "addTuner" || e.target.id === "addGuide") {
+    e.preventDefault();
+    const f = e.target, err = $(".form-error", f), tuner = f.id === "addTuner";
+    err.textContent = tuner ? "Asking it…" : "Adding it…";
+    api("/api/admin/tuners", tuner ? { add: f.addr.value.trim() } : { guide_add: f.where.value.trim() })
+      .then(() => { f.reset(); err.textContent = ""; liveData = null; guideData = null; toast(tuner ? "Added. Switch it on to bring its channels into Live TV." : "Added. Sofa is reading it now."); loadAdmin(); })
+      .catch(ex => { err.textContent = ex.message; });
     return;
   }
   if (e.target.id === "addList") {
@@ -4067,7 +4326,7 @@ const Player = (function () {
   const el = $("#player"), video = $("video", el), canvas = $("canvas", el), ctx = canvas.getContext("2d");
   const scrub = $(".scrub", el), fill = $(".fill", el), buf = $(".buf", el), knob = $(".knob", el), hoverTime = $(".hover-time", el);
   const timeEl = $(".p-time", el), modeEl = $(".p-mode", el), chip = $(".p-chip", el), nextCard = $(".p-next", el), errorBox = $(".p-error", el);
-  const flash = $(".p-flash", el), toggleBtn = $('[data-act="toggle"]', el), volume = $(".vol input", el);
+  const flash = $(".p-flash", el), toggleBtn = $('[data-act="toggle"]', el), volume = $(".vol input", el), recBtn = $('[data-act="rec"]', el);
   const ccBtn = $('[data-act="cc"]', el), ccMenu = $(".cc-menu", el);
   const spinner = $(".p-spinner", el), pauseInfo = $(".p-pause-info", el), epsPanel = $(".p-eps", el), helpBox = $(".p-help", el);
   const seekHint = $(".p-seekhint", el), endsEl = $(".p-ends", el), epsBtn = $('[data-act="eps"]', el), pipBtn = $('[data-act="pip"]', el);
@@ -4142,6 +4401,7 @@ const Player = (function () {
     trick = null; markers = []; skipShown = null; skipBtn.hidden = optsBox.hidden = stillBox.hidden = true;
     loadTrick(it);
     pipBtn.hidden = TV || !document.pictureInPictureEnabled;
+    recBtn.hidden = true; liveCh = null;
     showSpinner("Loading…");
     $('[data-act="next"]', el).hidden = !next;
     el.hidden = false;
@@ -4768,6 +5028,7 @@ const Player = (function () {
     else if (a === "cc") { if (ccMenu.hidden) ccMenuOpen(); else ccMenu.hidden = true; }
     else if (a === "eps") { if (epsPanel.hidden) epsOpen(); else epsPanel.hidden = true; }
     else if (a === "pip") togglePip();
+    else if (a === "rec") recPress();
     else if (a === "help") helpToggle();
     else if (a === "retry") { const it = item; errorBox.hidden = true; hlsSession = null; video.removeAttribute("src"); open(it); }
     else if (a === "convert") {
@@ -4799,7 +5060,7 @@ const Player = (function () {
     const map = {
       " ": toggle, k: toggle, Enter: toggle, MediaPlayPause: toggle,
       ArrowLeft: () => seekBy(-10), j: () => seekBy(-10), ArrowRight: () => seekBy(10), l: () => seekBy(30),
-      p: togglePip, e: () => { if (!epsBtn.hidden) { if (epsPanel.hidden) epsOpen(); else epsPanel.hidden = true; } }, "?": helpToggle,
+      p: togglePip, r: recPress, MediaRecord: recPress, e: () => { if (!epsBtn.hidden) { if (epsPanel.hidden) epsOpen(); else epsPanel.hidden = true; } }, "?": helpToggle,
       "<": () => speedBy(-1), ">": () => speedBy(1), ",": () => speedBy(-1), ".": () => speedBy(1),
       MediaRewind: () => seekBy(-10), MediaFastForward: () => seekBy(30),
       ArrowUp: () => { video.volume = Math.min(1, video.volume + 0.1); volume.value = video.volume; },
@@ -4856,6 +5117,39 @@ const Player = (function () {
     flashSeek(video.playbackRate + "×", "mid");
   }
   let hls = null, liveList_ = null, liveIdx = 0, archiveTuned = 0, archiveNext = null, liveTuned = 0, liveFallback = null;
+  // REC: what's on the channel at home, from now to the end of its programme (an hour without a guide); again, it stops
+  let liveCh = null, recArmed = 0;
+  const recNow = () => liveCh && dvrData && dvrData.recordings.find(r => r.channel === liveCh.id && (r.state === "recording" ||
+    (r.state === "scheduled" && r.start <= Date.now() / 1000 + 60)));
+  function recShow() {
+    if (recBtn.hidden || !liveCh) return;
+    if (!dvrData && !dvrLoading) { loadDvr().then(recShow); return; }
+    const r = recNow();
+    recBtn.setAttribute("aria-pressed", !!r);
+    recBtn.setAttribute("aria-label", r ? "Recording: press to stop" : "Record");
+    recBtn.title = r ? "Recording " + r.title + " until " + hhmm(r.stop) + ". Press to stop (R)" : "Record what's on (R)";
+  }
+  async function recPress() {
+    const ch = liveCh;
+    if (!ch || recBtn.hidden) return;
+    const r = recNow();
+    try {
+      if (r) {
+        if (TV ? Date.now() - recArmed > 4000 : !confirm("Stop recording " + r.title + "? What's recorded so far is kept and filed.")) {
+          if (TV) { recArmed = Date.now(); toast("Press REC again to stop recording."); }
+          return;
+        }
+        recArmed = 0;
+        await api("/api/dvr", { cancel: r.id });
+        toast("Stopped. What's recorded is filed.");
+      } else {
+        const x = (await api("/api/dvr", { now: ch.id })).recording;
+        toast(x.state === "conflict" ? "It can't record now: " + x.why : "Recording " + x.title + " until " + hhmm(x.stop) + ".");
+      }
+    } catch (e) { toast(e.message); }
+    await loadDvr();                                    // (and Live TV's Recordings tab is there on the way back)
+    if (liveCh === ch) recShow();
+  }
   const filmName = f => f.title + (f.year ? " (" + f.year + ")" : "");
   function loadHlsJs() {
     if (window.Hls) return Promise.resolve();
@@ -4890,8 +5184,10 @@ const Player = (function () {
     el.classList.add("is-live");
     errorBox.hidden = chip.hidden = nextCard.hidden = ccMenu.hidden = epsPanel.hidden = helpBox.hidden = pauseInfo.hidden = true;
     ccBtn.hidden = epsBtn.hidden = true; pipBtn.hidden = TV || !document.pictureInPictureEnabled;
+    liveCh = ch; recBtn.hidden = !(ch.recordable && dvrMay()); recShow();
     showSpinner("Tuning in…");
-    $(".p-show", el).innerHTML = (ch.number ? `<b class="p-num">${ch.number}</b>` : "") + esc(ch.name) + '<span class="live-badge">LIVE</span>';
+    const shown = ch.guide_number || ch.number;         // (a tuner's channel by its own number: 5.1)
+    $(".p-show", el).innerHTML = (shown ? `<b class="p-num">${esc(shown)}</b>` : "") + esc(ch.name) + '<span class="live-badge">LIVE</span>';
     archiveNext = null;
     $(".p-title", el).textContent = ch.group + (liveList_.length > 1 ? "  (Page Up / Page Down changes channel)" : "");
     $('[data-act="next"]', el).hidden = liveList_.length < 2;
@@ -4937,7 +5233,9 @@ const Player = (function () {
         hls.on(window.Hls.Events.ERROR, (_, data) => {
           if (!data.fatal) return;
           if (!ch.src) api("/api/live/failed/" + ch.id, {}).catch(() => {});      // (Sofa looks at it itself, next)
-          if (!(liveFallback && liveFallback())) showError(ch.name + " isn't available right now", "Free channels come and go. Try another one, or try this one later.");
+          if (liveFallback && liveFallback()) return;
+          if (ch.tuner) showError(ch.name + " didn't come in", "Every tuner may be in use (someone watching, or a recording), or the antenna lost the signal. Try again in a moment.");
+          else showError(ch.name + " isn't available right now", "Free channels come and go. Try another one, or try this one later.");
         });
         hls.loadSource(src); hls.attachMedia(video);
       }
