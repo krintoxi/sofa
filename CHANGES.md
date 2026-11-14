@@ -6,6 +6,20 @@ has its own numbers and list: [deploy/sofa-box/CHANGES.md](deploy/sofa-box/CHANG
 A change to Sofa's code (`sofa/`, `client/`, `sofa.py`) gets a new version: raise `__version__`, add a section
 here, then `python3 tools/sofa-version.py` (a test checks it was done).
 
+## 1.5.11 (2026-11-13)
+
+- **Hardware by what it is, not by what it's sold as.** The README, the docs, the issue and pull request templates,
+  comments and tests name a computer by its parts: the processor's family and what it can do (x86-64 with or without
+  AVX2, a Cortex-A53, Apple silicon), cores, memory, graphics or video encoder, and the system. Never a model and a
+  year: two machines with the same parts behave the same. A Raspberry Pi keeps its board's name, with the chip beside
+  it.
+  - `docs/capabilities.md`'s table is **Tested hardware** now (the old links to "Tested on" still land on it), with
+    the hardware in its first column and what ran on it in the second.
+  - The hardware report asks for the processor, cores, memory, graphics and system of anything that isn't a Pi.
+  - `tests/test_hardware_wording.py` fails when a model and year comes back. Changelog entries before this one stay
+    as they were written.
+  - Nothing Sofa does has changed: in `sofa/`, only comments.
+
 ## 1.5.10 (2026-11-12)
 
 - **Sofa knows the computer it's on, and uses its cores.** It used to count every core of the computer it was in and
