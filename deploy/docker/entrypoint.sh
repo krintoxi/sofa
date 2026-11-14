@@ -10,6 +10,11 @@
 # Sofa runs as the user PUID:PGID (1000:1000 unless compose.yml is told otherwise), never as root: the container
 # starts as root only to hand /data and /media to that user when Docker created them, and drops to it at once.
 #
+# The graphics chip: a render node passed in (`--device /dev/dri`, compose.yml's `devices:`) belongs to a group of
+# the computer's whose number differs from one system to the next (render, video). Sofa's user joins the groups
+# that own the nodes it was given, so nobody has to look a number up; never root's group. Nothing passed in: no
+# groups at all, as before.
+#
 # Then Sofa itself, with whatever arguments the container was given ("serve" by default): `docker compose run
 # --rm sofa status`, `... backup`, `... inbox` work the same as `python3 sofa.py ...`.
 set -e
@@ -25,6 +30,16 @@ if [ "$(id -u)" = "0" ]; then
     mkdir -p "$d"
     [ "$(stat -c %u "$d")" = "$PUID" ] || chown "$PUID:$PGID" "$d" || echo "Couldn't make $d belong to $PUID:$PGID; Sofa may not be able to write there."
   done
+  groups=""
+  for node in /dev/dri/renderD* /dev/dri/card*; do
+    [ -e "$node" ] || continue
+    gid="$(stat -c %g "$node")"
+    [ "$gid" = "0" ] && continue
+    case ",$groups," in *",$gid,"*) ;; *) groups="${groups:+$groups,}$gid" ;; esac
+  done
+  if [ -n "$groups" ]; then
+    exec setpriv --reuid="$PUID" --regid="$PGID" --groups="$groups" --inh-caps=-all "$0" "$@"
+  fi
   exec setpriv --reuid="$PUID" --regid="$PGID" --clear-groups --inh-caps=-all "$0" "$@"
 fi
 if [ ! -f "$DATA/config.json" ]; then

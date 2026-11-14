@@ -2564,20 +2564,38 @@ function appsPanel(base, a) {
       <div><b>Raspberry Pi</b><code>curl -fsSL https://raw.githubusercontent.com/krintoxi/sofa/main/deploy/sofa-box/install.sh | sudo sh -s ${esc(base)}</code><span>Makes a Pi on the TV a Sofa Box: a home screen with Sofa, Live TV and your streaming apps, and its own player. Run this on the Pi (it comes from GitHub; the address at the end makes this Sofa its first), or write the ready-made card, <a href="https://github.com/krintoxi/sofa/releases/tag/sofa-box" target="_blank" rel="noopener">Sofa Box OS</a> (Raspberry Pi Imager, Use custom). The TV's remote, a keyboard, your phone or a game controller work it.</span></div>
     </div></div>`;
 }
-const ENC_NAMES = { h264_videotoolbox: "Apple VideoToolbox", libx264: "x264" };
+const ENC_NAMES = { h264_videotoolbox: "Apple VideoToolbox", h264_nvenc: "NVIDIA NVENC", h264_qsv: "Intel Quick Sync", h264_vaapi: "VA-API", h264_amf: "AMD AMF", libx264: "x264" };
+/* This computer: its processor and graphics, every encoder Sofa tried with what came of it, the one in use, and
+   the switch for the graphics chip (shown once a chip's encoder works here, or after it was switched off). */
 function machinePanel(m) {
   if (!m) return "";
-  const bad = m.damaged || [];
-  const speeds = Object.entries(m.speeds || {}).map(([k, v]) => `<div class="stat"><b>${v && !bad.includes(k) ? Math.round(v) : "—"}</b><span>${esc(ENC_NAMES[k] || k)}${bad.includes(k) ? ": makes damaged pictures on this computer (lines across), not used" : v ? " frames/s" : ": doesn't work here"}${m.best === k ? " · in use" : ""}</span></div>`).join("");
+  const bad = m.damaged || [], names = Object.assign({}, ENC_NAMES, m.names || {}), why = m.why || {}, rest = m.resting || {};
+  const chips = (m.hardware || []).filter(k => (m.speeds || {})[k] && !bad.includes(k));
+  const speeds = Object.entries(m.speeds || {}).map(([k, v]) => {
+    const said = bad.includes(k) ? ": makes damaged pictures on this computer (lines across), not used"
+      : !v ? ": doesn't work here"
+      : rest[k] ? " frames/s · stopped on a video, " + (rest[k].until_test ? "not used until the next test" : "resting for ten minutes")
+      : " frames/s";
+    return `<div class="stat"${why[k] ? ` title="${esc(why[k])}"` : ""}><b>${v && !bad.includes(k) ? Math.round(v) : "—"}</b><span>${esc(names[k] || k)}${said}${m.using === k ? " · in use" : ""}</span></div>`;
+  }).join("");
+  const chipSwitch = chips.length || m.hardware_encoding === false
+    ? srvSwitch("hardware_encoding", m.hardware_encoding !== false, "Convert with the graphics chip",
+        (chips.length ? esc(chips.map(k => names[k] || k).join(", ")) + " passed Sofa's test on this computer" : "No graphics chip's encoder has passed Sofa's test here")
+        + ". It converts video without tying up the processor, and Sofa goes back to the processor by itself if it ever stops. Off: the processor only."
+        + (m.decode ? " HEVC is decoded there too: it measured faster here." : ""))
+    : "";
+  const closed = (m.closed || []).length ? `<div class="warn-box"><b>This computer's graphics aren't open to Sofa</b>
+      <p>${esc(m.closed.join(", "))} is there, but Sofa's user may not use it, so video is converted by the processor. Add that user to the group that owns it (usually <code>render</code>); in Docker, pass the device and the group (docs/install.md, "The graphics chip in Docker"). Then press <b>Test the speed again</b>.</p></div>` : "";
   const gs = m.gentle_setting === true ? "on" : m.gentle_setting === false ? "off" : "auto";
   return `<div class="panel wide"><h2>This computer</h2>
     <p class="hint">${m.board ? esc(m.board) + " · " : ""}${esc(m.cpu)} · ${m.cores} cores${m.cpu_count && m.cpu_count !== m.cores ? " (of " + m.cpu_count + ")" : ""}${m.memory ? " · " + bytes(m.memory) + " memory" : ""} · ${esc(m.system)}${m.modern_cpu === false ? " · an older processor" : ""}${m.video && m.video.length ? " · video: " + esc(m.video.join(", ")) : ""}</p>
-    ${speeds ? `<p class="hint">Converting 1080p video (tested ${esc(ago(m.measured))}); Sofa uses the faster way:</p><div class="stats">${speeds}</div>`
+    ${speeds ? `<p class="hint">Converting 1080p video (tested ${esc(ago(m.measured))}). Sofa uses a graphics chip's encoder when it passes its test and converts well faster than video plays, and the fastest way otherwise:</p><div class="stats">${speeds}</div>`
       : `<p class="hint">Sofa tests how fast this computer converts video a minute after starting.</p>`}
     ${bad.includes("h264_videotoolbox") ? `<div class="warn-box"><b>Apple's video converter draws lines across the picture on this Mac</b>
       <p>That happens on older Macs running a newer macOS. Sofa doesn't use it any more: previews are made again, and video converted while you watch is fine.
       Videos Sofa converted to MP4 before may have those lines too. Sofa kept their originals, so it can convert them again properly (in the background; they show under Converting).</p>
       <button class="btn" data-redo-damaged="1">Convert them again</button></div>` : ""}
+    ${closed}${chipSwitch}
     <div class="toggle"><div><b>Gentle mode ${m.gentle ? "is on" : "is off"}</b><span>For older computers: video converted while you watch is 720p at most, and converting files, making previews ahead of time and finding intros wait for the quiet hours (${esc(m.quiet_hours)}). What someone is watching is still done straight away.</span></div>
       <select data-setting-select="gentle" aria-label="Gentle mode">${[["auto", "Automatic" + (gs === "auto" ? (m.gentle ? " (on)" : " (off)") : "")], ["on", "On"], ["off", "Off"]].map(o =>
         `<option value="${o[0]}"${gs === o[0] ? " selected" : ""}>${o[1]}</option>`).join("")}</select></div>
@@ -2732,7 +2750,7 @@ function srvConvert(d) {
     <div class="panel">${srvSwitch("auto_convert", d.settings.auto_convert, "Convert new files automatically", "Anything new that needs it is converted a minute or two after it arrives.")}
       ${srvSwitch("keep_originals", d.settings.keep_originals, "Keep the originals", "Moves each original to <code>" + esc(d.library.folders.originals) + "</code> instead of deleting it. Turn off to save space once you trust the results.")}</div>
     <div class="panel"><h2>Live conversion</h2><p class="hint">For files that haven't been converted yet.</p>
-      <div class="toggle"><div><b>At the same time</b><span>How many people can watch converted video at once. ${c.hardware ? "A Mac with Apple silicon handles 3 or 4 easily." : "Each one uses a processor core."}</span></div>
+      <div class="toggle"><div><b>At the same time</b><span>How many people can watch converted video at once. ${c.hardware ? "A graphics chip's encoder handles 3 or 4 easily." : "Each one uses a processor core."}</span></div>
         <select class="mini-select" data-setting-select="max_transcodes">${[1, 2, 3, 4, 6].map(n => `<option value="${n}"${+d.settings.max_transcodes === n ? " selected" : ""}>${n}</option>`).join("")}</select></div></div>
     <div class="panel wide"><h2>Queue</h2><ul class="list">${rows || `<li class="empty-row">Nothing queued.</li>`}</ul></div>
   </div>`;

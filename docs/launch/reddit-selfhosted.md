@@ -36,7 +36,7 @@ There's also Sofa Box OS: a Raspberry Pi card (or a USB stick for a PC) that mak
 
 Install: one line on a Mac or Linux, `docker compose up -d` (amd64 and arm64, host networking), or an installer on Windows.
 
-Honest limits: no hardware transcoding on Linux yet (x264 in software; Macs use VideoToolbox). No app in any TV store: on a TV you use its browser, sideload the Fire TV app or the Roku channel (both built by CI, and nobody has written down a run on a real device yet), or use the Pi box. Docker has run on one Linux VM and the Windows installer only on GitHub's Windows machines. The repo is a month old with one maintainer, and about 600 automated tests run on every push.
+Honest limits: hardware transcoding on Linux and Windows (NVENC, Quick Sync, VA-API, AMF) is in the code and tested against a stand-in, and has run on no real NVIDIA, Intel or AMD chip yet; it falls back to x264 when an encoder fails its own test. Macs use VideoToolbox. No app in any TV store: on a TV you use its browser, sideload the Fire TV app or the Roku channel (both built by CI, and nobody has written down a run on a real device yet), or use the Pi box. Docker has run on one Linux VM and the Windows installer only on GitHub's Windows machines. The repo is a month old with one maintainer, and about 600 automated tests run on every push.
 
 The licence: PolyForm Noncommercial 1.0.0. Free to run, read, change and share at home; selling it, or boxes with it, needs a licence from me. That isn't open source by the OSI definition and I'm not going to pretend otherwise; I chose it so I can sell pre-built boxes without someone else selling "Sofa" boxes first. If that's a dealbreaker, fair enough, and Jellyfin is excellent.
 

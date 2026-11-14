@@ -107,10 +107,44 @@ downloaded too, for a player like VLC.
 
 ### Old computers: Gentle mode and the encoder check
 
-A minute after starting (and again whenever ffmpeg changes), Sofa times a short 1080p conversion
-with each way this computer has (Apple's VideoToolbox and x264) and uses the faster one that
-**works properly**: it also compares the result with the original, because on some older Macs
-running a newer macOS (OpenCore) VideoToolbox makes video with purple or green lines across it.
+A minute after starting (and again whenever ffmpeg or the graphics change), Sofa finds what this
+computer can convert video with and tests it:
+
+1. **What's there.** What this ffmpeg was built with; the graphics the system shows (the render
+   nodes in `/dev/dri` and whether Sofa's user may open them, NVIDIA's driver, Windows' display
+   adapters). The encoders this gives: Apple's VideoToolbox on a Mac; NVIDIA's NVENC, Intel's Quick
+   Sync and VA-API (Intel's and AMD's graphics) on Linux; NVENC, Quick Sync and AMD's AMF on Windows.
+2. **A one-second conversion** with each. Drivers and ffmpeg versions don't agree on an encoder's
+   options, so each is asked in up to three ways; the first that works is kept.
+3. **A timing** of the ones that passed, and of x264 on the processor: a short 1080p conversion.
+4. **A look at the pictures**: the result compared with the original.
+
+A graphics chip's encoder that passes all of it and converts well faster than video plays (75
+frames a second of 1080p or more) is used, the fastest if there are two: it leaves the processor to
+everything else. Otherwise Sofa uses whichever is fastest, the processor included. **Server →
+Overview → This computer** shows each one with its speed and which is in use, and has the switch
+**Convert with the graphics chip** (it appears once a chip's encoder has passed). `python3 sofa.py
+encoders` runs the test now and prints what it found.
+
+![This computer on the Server page: Apple VideoToolbox in use, x264 beside it, and the switch](images/this-computer-graphics-chip.png)
+
+*An Apple A18 Pro (6 cores, 8 GB): VideoToolbox passed and is in use; x264 measured faster and stands by.*
+
+If a chip's encoder stops on a video (a driver's limit on conversions at once, a graphics reset),
+Sofa carries on with the processor: a stream being watched continues from where it was, a file
+being converted for good is started again. The encoder rests for ten minutes; after three failures
+in a row it isn't used again until the next test. A video that fails with the processor too wasn't
+the chip's fault, and isn't counted against it. HEVC is decoded by the chip as well only where this
+computer's own measurement shows that to be faster.
+
+What has run on real chips and what only in the tests:
+[Tested hardware](capabilities.md#the-graphics-chips-encoders). In Docker the container must be
+given the chip: [The graphics chip in Docker](install.md#the-graphics-chip-in-docker). On Linux
+itself, the chip's own driver has to be installed (`intel-media-va-driver` or `mesa-va-drivers` on
+Debian and Ubuntu; NVIDIA's driver for NVENC) and Sofa's user be in the `render` group.
+
+The check of the pictures matters most on some older Macs running a newer macOS (OpenCore), where
+VideoToolbox makes video with purple or green lines across it.
 There Sofa never uses it, previews are made again, and **Server → Overview → This computer** offers
 to convert again, from the originals it kept, any MP4 it made with it before.
 

@@ -87,7 +87,8 @@ The whole list, each thing marked **Works**, **Beta** or **Untested on hardware*
 says so: **[What Sofa can do today](docs/capabilities.md).** In short:
 
 - **The library:** drop files in an Inbox and they're named, filed and given posters; MKV, HEVC, AVI and the rest play
-  everywhere because Sofa adapts them as they play and converts them in the background. Profiles, Kids profiles,
+  everywhere because Sofa adapts them as they play and converts them in the background, with the graphics chip
+  when the computer has one that passes Sofa's own test, and the processor otherwise. Profiles, Kids profiles,
   PINs, guests by QR code. [Sofa, the server](docs/capabilities.md#sofa-the-server)
 - **The player:** Skip Intro, Next episode, scrubbing pictures, subtitles and sound, Night mode, a sleep timer; your
   phone as the remote for any screen. Music with albums, artists and stations.
@@ -452,9 +453,17 @@ deleted. More: [docs/folder-structure.md](docs/folder-structure.md).
 - **Subtitles your way.** Out of sync? **Options → Subtitle timing** moves them half a second at a
   time. On a dark box or outlined, four sizes. **Hide spoilers** (under Theme) blurs pictures and
   descriptions of episodes you haven't watched.
-- **Made for old Macs too.** Sofa times this computer's video conversion and uses the faster way
-  that works properly (on some older Macs Apple's hardware converter draws lines across the
-  picture; Sofa checks, and never uses it there). On a slow computer, **Gentle mode** keeps video
+- **The graphics chip, when it's up to it.** Sofa finds what this computer can convert video with
+  (Apple's VideoToolbox on a Mac; NVIDIA's NVENC, Intel's Quick Sync, VA-API on Intel's and AMD's
+  graphics on Linux; NVENC, Quick Sync and AMD's AMF on Windows), tries each for a second, times it
+  and checks its pictures. A chip that passes and converts well faster than video plays is used, and
+  the processor is left to everything else; if it ever stops on a video, Sofa carries on with the
+  processor by itself. Nothing to set up; one switch turns it off (Server → Overview → This
+  computer). It has run on Apple's chips only: NVIDIA's, Intel's and AMD's encoders are written and tested against a stand-in, and have not run on that hardware
+  ([Tested hardware](docs/capabilities.md#the-graphics-chips-encoders)). In Docker the container has to be
+  given the chip: [The graphics chip in Docker](docs/install.md#the-graphics-chip-in-docker).
+- **Made for old Macs too.** On some older Macs Apple's hardware converter draws lines across the
+  picture; Sofa checks, and never uses it there. On a slow computer, **Gentle mode** keeps video
   converted while you watch at 720p and saves heavy background work for the quiet hours (1-7 am).
   Server → Overview → This computer. If a video converts slower than it plays (a 1080p HEVC 10-bit
   episode on four x86-64 cores without AVX2, say), the player waits once for a few seconds of video instead of stopping

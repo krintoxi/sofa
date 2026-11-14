@@ -95,6 +95,9 @@ DEFAULTS = {
     "uploads_at_once": 3,
     # How many live conversions may run at once (each one uses a CPU core or the video encoder).
     "max_transcodes": 2,
+    # Convert video with the graphics chip's encoder when this computer has one that passes Sofa's own test
+    # (Apple VideoToolbox, NVIDIA NVENC, Intel Quick Sync, VA-API, AMD AMF: sofa/encoders.py). Off: the processor only.
+    "hardware_encoding": True,
     # Convert MKV, AVI and other files that need live conversion into MP4, once, in the background.
     "auto_convert": True,
     "keep_originals": True,

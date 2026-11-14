@@ -70,7 +70,7 @@ class HardwareByWhatItIs(unittest.TestCase):
             page = f.read()
         self.assertIn("## Tested hardware", page)
         self.assertIn('<a id="tested-on"></a>', page)                 # the links made before the table was renamed
-        table = page.split("## Tested hardware", 1)[1]
+        table = page.split("## Tested hardware", 1)[1].split("\n### ", 1)[0]       # (the tables under it have their own shape)
         self.assertIn("| Hardware | Running | Last version tested | When | By whom |", table)
         for spec in ("BCM2837B0, 4 x Cortex-A53, 1 GB", "x86-64 without AVX2", "Apple silicon", "arm64, virtual", "x86-64, virtual"):
             self.assertIn(spec, table)
@@ -78,6 +78,10 @@ class HardwareByWhatItIs(unittest.TestCase):
         self.assertGreaterEqual(len(rows), 15)
         for row in rows:                                              # every row: six cells, the hardware first
             self.assertEqual(len(re.findall(r"(?<!\\)\|", row)), 7, row[:80])
+        chips = page.split("### The graphics chip's encoders", 1)[1].split("\n**A chip that stops", 1)[0]
+        self.assertIn("| Encoder | On a real chip | In the tests |", chips)
+        for name in ("Apple VideoToolbox", "NVIDIA NVENC", "Intel Quick Sync", "VA-API", "AMD AMF", "x264"):
+            self.assertIn("| **%s**" % name, chips)                    # each encoder says where it has really run
 
 
 if __name__ == "__main__":

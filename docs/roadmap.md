@@ -17,9 +17,12 @@ Read this before you install, so nothing surprises you.
   system with systemd for the record (Sofa 1.5.5, the tested-on table in [capabilities.md](capabilities.md#tested-on));
   the Docker image has run on one Linux virtual machine (arm64) and nowhere else yet. Nobody has written down
   running Sofa as a daily server on Linux or in Docker.
-- **No hardware transcoding on Linux.** Sofa encodes with Apple's VideoToolbox on Macs and with x264 in software
-  everywhere else; there is no VAAPI, Quick Sync or NVENC path yet. Files a device plays as they are aren't
-  transcoded at all, and the background conversion to MP4 makes the second play free.
+- **Hardware transcoding on Linux and Windows is new, and unproven on hardware.** Since Sofa 1.5.12 the graphics
+  chip converts video where it passes Sofa's own test: NVIDIA's NVENC, Intel's Quick Sync, VA-API and AMD's AMF,
+  beside Apple's VideoToolbox. Only VideoToolbox has run on a real chip: we have no NVIDIA card and no Intel or AMD
+  graphics under Linux or Windows. An encoder that fails its one-second test is never used, so the worst case is
+  x264 on the processor, as before ([what ran where](capabilities.md#the-graphics-chips-encoders)). Files a device
+  plays as they are aren't transcoded at all, and the background conversion to MP4 makes the second play free.
 - **No app in any TV store.** On a TV you use its browser, sideload Sofa's own Fire TV app or Roku channel, or use a
   Sofa Box. There is no Android TV, Google TV, Apple TV, Samsung or LG app. The Fire TV app and the Roku channel are
   built by GitHub and **no run on a real device is on record**. Sticks that run Vega OS instead of Fire OS can't
@@ -87,7 +90,8 @@ In order. Each one ends with a line in the tested-on table.
 
 - **Linux and Docker written up as a daily server** (the image exists since Sofa 1.5.5; a week of real use on a
   Linux box or a NAS, with what went wrong, is what's missing).
-- **Hardware transcoding on Linux** (VAAPI and Quick Sync first), measured on a real machine.
+- **The graphics chip's encoders on real chips:** NVENC on an NVIDIA card (a rented one does), Quick Sync and VA-API
+  on Intel's graphics, VA-API and AMF on AMD's, each with what it measured written into the tested-hardware table.
 - A **Google TV** build, tested on a cheap Google TV box, with the package registered before Google's 2027 developer
   verification.
 - **Google's arm64 Chrome** on the Pi 4 and Pi 5 for the DRM apps where Raspberry Pi OS's Chromium falls short.

@@ -142,12 +142,38 @@ What's different from an install on the computer itself:
   the computer's own power settings decide.
 - **Another drive:** add it to `volumes` under `/mnt`, for example `- /mnt/bigdisk:/mnt/bigdisk`, and Server →
   Storage sees it (`drive_folders` is `/mnt` in the container; `/media` is the library, not a drive).
-- **Hardware encoding:** none in the container (x264 in software), the same as Sofa on Linux today.
+- **The graphics chip** converts video in the container too, once the container is given it:
+  [The graphics chip in Docker](#the-graphics-chip-in-docker). Without it, Sofa converts with the processor.
 - The other commands work through compose: `docker compose run --rm sofa status`, `... backup`, `... inbox`.
   The log: `docker compose logs -f sofa`.
 
 Without compose: `docker run -d --name sofa --init --network host -v ./data:/data -v ./media:/media
 ghcr.io/krintoxi/sofa`. To build the image yourself: `docker build -t sofa .` in a clone.
+
+### The graphics chip in Docker
+
+A container sees no graphics chip until it's given one. Give it, and Sofa does the rest: it tries the chip's
+encoder for a second, times it, checks its pictures, and uses it only if all three pass. Server → Overview → **This
+computer** shows what it found and has the switch.
+
+- **Intel's or AMD's graphics** (VA-API, and Intel's Quick Sync): pass the render node. In `compose.yml`, take the
+  `#` off the `devices:` lines; with `docker run`, add `--device /dev/dri`. The node belongs to a group of the
+  computer's (`render`, usually) whose number differs from one system to the next: the container's start reads it
+  off the node and puts Sofa's user in that group, so there is no number to look up. The amd64 image carries
+  Debian's drivers for both makers. If the computer has no `/dev/dri`, its kernel has no driver for the chip.
+- **NVIDIA:** install [NVIDIA's container toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)
+  on the computer (`sudo nvidia-ctk runtime configure --runtime=docker`, then restart Docker). In `compose.yml`,
+  take the `#` off `gpus: all`; with `docker run`, add `--gpus all`. The image already asks the toolkit for the
+  video libraries (`NVIDIA_DRIVER_CAPABILITIES=compute,video,utility`). An older Docker Compose that doesn't know
+  `gpus:` takes `runtime: nvidia` and `NVIDIA_VISIBLE_DEVICES: all` under `environment:` instead.
+- Then `docker compose up -d` again, and **Test the speed again** on the Server page (Sofa also tests by itself
+  when it starts and finds the graphics changed).
+- **"This computer's graphics aren't open to Sofa"** on the Server page means the node is there but Sofa's user
+  may not use it: a container started as another user (`--user`), or a node owned by root alone. Start the
+  container as root (the default: it drops to Sofa's user itself), or add the group by hand with `group_add:`.
+
+What has run where: [Tested hardware](capabilities.md#tested-on). On a NAS, the same lines go in its Docker or
+Container Manager screen as a device and, for NVIDIA, a runtime.
 
 ## Where things are
 

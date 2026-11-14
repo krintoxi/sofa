@@ -25,6 +25,16 @@ services:
     environment:
       PUID: ${PUID:-1000}
       PGID: ${PGID:-1000}
+    # The graphics chip, for converting video. Sofa tries what it's given and uses it only if it works; Server →
+    # Overview → This computer shows what it found. Without it Sofa converts with the processor, as before.
+    #
+    # Intel's or AMD's graphics (VA-API, Quick Sync): take the "#" off these two lines. Sofa's user joins the group
+    # that owns the render node by itself.
+    # devices:
+    #   - /dev/dri:/dev/dri
+    #
+    # NVIDIA: install NVIDIA's container toolkit on this computer first (nvidia-ctk), then take the "#" off this line.
+    # gpus: all
     init: true                      # tidies ffmpeg's finished processes and passes signals on
     volumes:
       - ./data:/data                # Sofa's data/ folder: keep it (back it up: Server → Backups does, nightly)

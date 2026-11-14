@@ -7,8 +7,9 @@ one file at a time, giving way whenever someone is watching something that needs
 live conversion.
 
 * H.264 (8-bit) and HEVC video are copied as they are (fast, no quality loss).
-  Anything else (XviD, MPEG-2, VC-1, 10-bit H.264) is re-encoded with the Mac's
-  hardware encoder, or x264 elsewhere.
+  Anything else (XviD, MPEG-2, VC-1, 10-bit H.264) is re-encoded with the graphics
+  chip's encoder where this computer has one that works (sofa/encoders.py), or x264.
+  A file the chip's encoder gives up on is converted again by the processor.
 * The first sound track becomes AAC stereo so every device can play it; Dolby
   Digital tracks are kept alongside for Apple TVs and receivers.
 * Text subtitles stay inside the MP4. Picture subtitles (Blu-ray PGS) can't, and
@@ -26,7 +27,7 @@ import subprocess
 import threading
 import time
 
-from . import config, fileops, machine, media, naming, places, store
+from . import config, encoders, fileops, machine, media, naming, places, store
 
 VIDEO_KINDS = ("episode", "movie", "extra", "musicvideo")
 COPY_AUDIO = ("aac", "mp3", "ac3", "eac3")
@@ -220,24 +221,27 @@ def status(library=None):
 
 # ---------------------------------------------------------------- converting one file
 
-def build_command(src, dst, info):
-    """The ffmpeg command, and a short description ("copy HEVC, AAC stereo + Dolby Digital")."""
+def build_command(src, dst, info, software=False):
+    """The ffmpeg command, and a short description ("copy HEVC, AAC stereo + Dolby Digital"). `software`: with the
+    processor's encoder, whatever this computer usually converts with."""
     video = info.get("video")
     if not video:
         raise ValueError("there's no video in this file")
-    cmd = [media.tool("ffmpeg"), "-hide_banner", "-loglevel", "error", "-nostdin", "-y"]
+    copy = media.video_playable(video, {"hevc": True})
+    plan = None if copy else media.encoder_plan(video.get("height"), live=False, software=software, video=video)
+    cmd = [media.tool("ffmpeg"), "-hide_banner", "-loglevel", "error", "-nostdin", "-y"] + (plan["before"] if plan else [])
     if os.path.splitext(src)[1].lower()[1:] in media.LOOSE_TIMESTAMPS:
         cmd += ["-fflags", "+genpts"]
-    cmd += ["-i", src, "-map", "0:%d" % video["index"]]
+    cmd += (plan["decode"] if plan else []) + ["-i", src, "-map", "0:%d" % video["index"]]
     how = []
-    if media.video_playable(video, {"hevc": True}):
+    if copy:
         cmd += ["-c:v", "copy"] + (["-tag:v", "hvc1"] if video["codec"] == "hevc" else [])
         how.append("copy " + media.describe_video(video))
     else:
-        filters = (["yadif"] if video.get("interlaced") else []) + ["format=yuv420p"]
-        enc = media.h264_args(video.get("height"), live=False)
-        cmd += enc + ["-vf", ",".join(filters), "-profile:v", "high"]
-        how.append("%s to H.264%s" % (media.describe_video(video), " (hardware)" if "h264_videotoolbox" in enc else ""))
+        filters = (["yadif"] if video.get("interlaced") else []) + plan["last"]
+        cmd += plan["codec"] + ["-vf", ",".join(filters), "-profile:v", "high"]
+        how.append("%s to H.264%s" % (media.describe_video(video),
+                                     " (%s)" % encoders.SHORT.get(plan["name"], "hardware") if plan["hardware"] else ""))
 
     audio = info.get("audio") or []
     first = media.default_audio(info)
@@ -294,21 +298,35 @@ def convert(path, item_id=None, source=None):
     stem = os.path.splitext(path)[0]
     dest = stem + ".mp4"
     part = stem + ".mp4.sofa-part"
-    cmd, how = build_command(src, part, info)
-    with _lock:
-        _current.update(path=path, progress=0.0, how=how)
-    run, extra = media.gently(cmd)
-    proc = subprocess.Popen(run, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, **extra)
-    with _lock:
-        _current["proc"] = proc
     total = info.get("duration") or 0
-    for line in proc.stdout:
-        m = re.match(r"out_time_(?:us|ms)=(\d+)", line.strip())
-        if m and total:
-            with _lock:
-                _current["progress"] = min(0.999, int(m.group(1)) / 1e6 / total)
-    err = proc.stderr.read()
-    code = proc.wait()
+    used = blamed = None
+    for software in (False, True):
+        cmd, how = build_command(src, part, info, software=software)
+        used = next((e for e in encoders.HARDWARE if e in cmd), None)
+        with _lock:
+            _current.update(path=path, progress=0.0, how=how)
+        run, extra = media.gently(cmd)
+        proc = subprocess.Popen(run, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, **extra)
+        with _lock:
+            _current["proc"] = proc
+        for line in proc.stdout:
+            m = re.match(r"out_time_(?:us|ms)=(\d+)", line.strip())
+            if m and total:
+                with _lock:
+                    _current["progress"] = min(0.999, int(m.group(1)) / 1e6 / total)
+        err = proc.stderr.read()
+        code = proc.wait()
+        if code == 0 or not encoders.fallback(used) or _current.get("cancelled"):
+            break
+        # the graphics chip's encoder gave up on this file: once more, from the start, with the processor
+        blamed = used
+        encoders.failed(used, (err.strip().splitlines() or [""])[-1])
+        if os.path.exists(part):
+            os.remove(part)
+    if used and code == 0:
+        encoders.worked(used)
+    elif blamed and not used and code != 0 and not _current.get("cancelled"):
+        encoders.forgiven(blamed)                  # the processor couldn't either: the file, not the chip
     try:
         if _current.get("cancelled"):
             raise InterruptedError("cancelled")

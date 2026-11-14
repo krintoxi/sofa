@@ -7,7 +7,8 @@ sixteen cores, a container with two of them.
 - The processor by name, on ARM as well ("4 x Cortex-A53": a Pi 3; "4 x Cortex-A76": a Pi 5), and whether its cores
   are of the kind that can convert video quickly (gentle mode is for the ones that can't).
 - A Raspberry Pi's model, and whether this is a virtual machine or a container.
-- The chips that decode and encode video (Apple's VideoToolbox, VA-API on a PC's graphics, the Pi's V4L2 codecs).
+- The chips that decode and encode video (Apple's VideoToolbox, VA-API on a PC's graphics, NVIDIA's, the Pi's V4L2
+  codecs, Windows' display adapters). Which of them converts video is found by trying (sofa/encoders.py).
 
 Read once (the parts that change, like free memory, each time they're asked). Background work sizes itself by
 workers() and threads_each(): spread over the cores, never all of them, and back to one at a time while someone
@@ -280,17 +281,28 @@ def virtual():
 
 def video_chips():
     """The chips this computer has for video, by what they're called: ["VideoToolbox"], ["VA-API: Intel (renderD128)"],
-    ["V4L2: bcm2835-codec-decode", ...]. Empty when everything is on the processor (a VM, most containers)."""
+    ["NVIDIA: GeForce RTX 3060 (driver 550.120)"], ["V4L2: bcm2835-codec-decode", ...], on Windows the display adapters
+    by name. Empty when everything is on the processor (a VM, most containers). What's listed is what's there: whether
+    it converts video is for the one-second test to say (sofa/encoders.py)."""
     if sys.platform == "darwin" and not ROOT:
         return ["VideoToolbox"]
+    from . import encoders, windows
+    if windows.ON and not ROOT:
+        return [a["name"] for a in windows.gpus() if a.get("maker")]
     out = []
+    nvidia = encoders._nvidia()
     try:
         nodes = sorted(n for n in os.listdir(ROOT + "/dev/dri") if n.startswith("renderD"))
     except OSError:
         nodes = []
     for n in nodes:
         vendor = _read("/sys/class/drm/%s/device/vendor" % n).strip()
+        if GPU_VENDORS.get(vendor) == "NVIDIA" and nvidia:
+            continue                               # (the card's own line, below, says more)
         out.append("VA-API: %s (%s)" % (GPU_VENDORS.get(vendor, vendor or "graphics"), n))
+    if nvidia:
+        card = nvidia["name"][7:] if nvidia["name"].startswith("NVIDIA ") else nvidia["name"]
+        out.append("NVIDIA: %s%s" % (card, " (driver %s)" % nvidia["driver"] if nvidia.get("driver") else ""))
     try:
         v4l = sorted(os.listdir(ROOT + "/sys/class/video4linux"), key=lambda x: int(re.sub(r"\D", "", x) or 0))
     except OSError:

@@ -7,6 +7,7 @@
     python3 sofa.py adduser NAME       add a viewer (--admin for an admin)
     python3 sofa.py passwd NAME        change someone's password
     python3 sofa.py status             show what the server sees
+    python3 sofa.py encoders           test this computer's video conversion now: the graphics chip, the processor
     python3 sofa.py backup             back up accounts, watch history and settings now
     python3 sofa.py restore FILE       restore a backup (stop the server first)
     python3 sofa.py selftest           start the parts of Sofa once, without serving (updates use it)
@@ -289,6 +290,9 @@ def main(argv):
     elif cmd == "status":
         LIBRARY.scan("status check")
         print(json.dumps(web.admin_status(), indent=2, default=str))
+    elif cmd == "encoders":
+        from sofa import machine
+        print("\n".join(machine.report(test=True)))
     else:
         print("Unknown command %r.\n%s" % (cmd, __doc__))
         return 2

@@ -2,7 +2,8 @@
 
 direct     the file as-is, with seeking (most MP4s)
 remux      same video, new container (MKV/AVI with H.264 -> MP4). Costs almost nothing.
-transcode  new video (XviD, MPEG-2, HEVC on devices without it). Uses the Mac's encoder.
+transcode  new video (XviD, MPEG-2, HEVC on devices without it). Uses the graphics chip's encoder where this
+           computer has one that works (sofa/encoders.py), the processor's otherwise.
 
 Remux and transcode streams start at ?t=<seconds>; the player asks for a new
 stream when you skip, so seeking still works.
@@ -88,30 +89,59 @@ def encoders():
     return _encoders
 
 
-def h264_args(height, live=True):
-    """Encoder settings for H.264: the Mac's hardware encoder, or x264 elsewhere (Linux, old builds)."""
-    from . import machine                         # measured: on an old Mac, x264 is often faster than VideoToolbox
+def encoder_plan(height, live=True, encoder=None, software=False, video=None):
+    """How one conversion to H.264 is asked of ffmpeg: {"name", "hardware", "before" (ffmpeg's options ahead of the
+    inputs: the device), "decode" (input options: decoding on the chip, when this computer's test says it helps),
+    "last" (how the filter chain ends: the picture in the form the encoder takes), "codec" (`-c:v` and its options)}.
+
+    The encoder is the one this computer's test chose (encoders.pick), unless `encoder` names one or `software` asks
+    for the processor: a job done again after the chip gave up."""
+    from . import encoders, machine                # measured: on an old Mac, x264 is often faster than VideoToolbox
     height = height or 720
-    rate = "14M" if height > 1080 else "6M" if height > 720 else "3500k" if height > 480 else "2M"
-    enc = encoders()
-    best = machine.best_encoder()
-    if best != "h264_videotoolbox" and "libx264" in enc:
-        enc = {"libx264"}             # VideoToolbox only once it's checked: on some old Macs it makes damaged pictures
-    if "h264_videotoolbox" in enc or not enc:
-        args = ["-c:v", "h264_videotoolbox", "-allow_sw", "1"]
-        if live:
-            return args + ["-realtime", "1", "-b:v", rate, "-maxrate", "16M", "-bufsize", "24M"]
-        return args + ["-q:v", "62"]
-    if "libx264" in enc:
+    name = encoder if encoder is not None else encoders.pick(software)
+    if software and name in encoders.HARDWARE:
+        name = encoders.pick(True)
+    plan = {"name": name, "hardware": name in encoders.HARDWARE, "before": [], "decode": [], "last": ["format=yuv420p"]}
+    if name in encoders.HARDWARE:
+        how = machine.how(name)
+        plan.update(before=encoders.before_input(name, how), last=encoders.last_filters(name),
+                    codec=encoders.codec(name, height, live, how))
+        if (video or {}).get("codec") == "hevc" and machine.decodes(name):
+            plan["decode"] = encoders.decode_before_input(name, how)
+    elif name == "libx264":
         if live:   # no "zerolatency": it turns off x264's frame threads, and a few frames of delay don't matter in 4 s segments
-            return ["-c:v", "libx264", "-preset", "superfast" if machine.gentle() else "veryfast", "-crf", "21",
-                    "-maxrate", "16M", "-bufsize", "24M"]
-        return ["-c:v", "libx264", "-preset", "veryfast" if machine.gentle() else "medium", "-crf", "20"]
-    return ["-c:v", "mpeg4", "-q:v", "3"]     # last resort: something every ffmpeg has
+            plan["codec"] = ["-c:v", "libx264", "-preset", "superfast" if machine.gentle() else "veryfast", "-crf", "21",
+                             "-maxrate", "16M", "-bufsize", "24M"]
+        else:
+            plan["codec"] = ["-c:v", "libx264", "-preset", "veryfast" if machine.gentle() else "medium", "-crf", "20"]
+    else:
+        plan.update(name="mpeg4", codec=["-c:v", "mpeg4", "-q:v", "3"])     # last resort: something every ffmpeg has
+    return plan
+
+
+def h264_args(height, live=True):
+    """Encoder settings for H.264 where only `-c:v ...` can be given (a clip for the road, a preview): the chip's
+    encoder when it takes pictures straight from memory, or x264. VA-API needs its own filters and device, so it
+    isn't offered here."""
+    plan = encoder_plan(height, live)
+    if plan["before"] or plan["name"] == "h264_vaapi":
+        plan = encoder_plan(height, live, software=True)
+    return plan["codec"]
 
 
 def hardware_encoder():
-    return "h264_videotoolbox" in encoders()
+    """True when conversions starting now go to a graphics chip's encoder."""
+    from . import encoders
+    return encoders.pick() in encoders.HARDWARE
+
+
+def encoder_label():
+    """For the Server page: "NVIDIA NVENC (the graphics chip)", "x264 (the processor)", or None without an encoder."""
+    from . import encoders
+    name = encoders.pick()
+    if name in encoders.HARDWARE:
+        return "%s (the graphics chip)" % encoders.name(name)
+    return "x264 (the processor)" if name == "libx264" else None
 
 
 def note_error(item_id, message):
@@ -368,38 +398,60 @@ def audio_args(audio, fmt, caps=None):
     return ["-c:a", "aac", "-b:a", "192k", "-ac", "2"] + smooth
 
 
+def converts(mode, info, burn=None):
+    """True when playing this way makes new video (so an encoder is needed): a transcode, or a remux that has to
+    draw picture subtitles on."""
+    if mode in ("audio", "direct"):
+        return False
+    video = (info or {}).get("video") or {}
+    drawn = video.get("index") is not None and any(x["index"] == burn and x.get("codec") in IMAGE_SUBS
+                                                   for x in (info or {}).get("subs") or [])
+    return mode != "remux" or drawn
+
+
 def stream_command(item, mode, start, info, fmt="mp4", out="pipe:1", audio_index=None, max_height=None, caps=None,
-                   burn=None, others=0):
+                   burn=None, others=0, encoder=None, software=False, part=0):
     """The ffmpeg command for playing `item` from `start` seconds. `burn`: a picture-based subtitle track
-    (Blu-ray PGS, DVD) to draw onto the video, since no player shows those from a converted stream."""
+    (Blu-ray PGS, DVD) to draw onto the video, since no player shows those from a converted stream.
+
+    `encoder`: the H.264 encoder to convert with (the one chosen for this job; None: chosen here). `software`: the
+    processor, whatever was chosen (the job done again after a graphics chip's encoder gave up). `part`: an HLS
+    stream that carries on after such a failure writes its second part beside the first under other names
+    (index1.m3u8, init1.mp4, alt00000.m4s), with the encoder's parameters repeated at every key frame: players
+    built on ffmpeg (the box's among them) keep the first part's start and would otherwise show nothing after it."""
     exe = tool("ffmpeg")
-    cmd = [exe, "-hide_banner", "-loglevel", "error", "-nostdin"] + list(item.get("input_opts") or [])
+    video = (info or {}).get("video") or {}
+    sub = next((x for x in (info or {}).get("subs") or [] if x["index"] == burn and x.get("codec") in IMAGE_SUBS), None)
+    if sub and video.get("index") is not None and mode != "audio":
+        mode = "transcode"                             # drawing subtitles on means converting
+    plan = None
+    if converts(mode, info, burn):
+        top = live_size(video, max_height, others)[0]
+        plan = encoder_plan(top, True, encoder, software, video)
+    cmd = [exe, "-hide_banner", "-loglevel", "error", "-nostdin"] + (plan["before"] if plan else []) + list(item.get("input_opts") or [])
     if item.get("ext") in LOOSE_TIMESTAMPS:
         cmd += ["-fflags", "+genpts+discardcorrupt"]   # AVI and MPEG often lack timestamps ffmpeg needs for MP4
+    if plan:
+        cmd += plan["decode"]
     if start > 0:
         cmd += ["-ss", "%.3f" % start]
     if mode == "audio":   # music in a format the browser can't play: AAC in fragmented MP4
         return cmd + ["-i", item["path"], "-map", "0:a:0", "-vn", "-sn", "-dn", "-c:a", "aac", "-b:a", "256k",
                       "-movflags", "frag_keyframe+empty_moov+default_base_moof", "-f", "mp4", out]
-    video = (info or {}).get("video") or {}
     audio = default_audio(info, audio_index)
-    sub = next((x for x in (info or {}).get("subs") or [] if x["index"] == burn and x.get("codec") in IMAGE_SUBS), None)
-    if sub and video.get("index") is not None:
-        mode = "transcode"
     v_in = "0:%d" % video["index"] if video.get("index") is not None else "0:v:0?"
     cmd += ["-i", item["path"]]
     if mode == "remux":
         cmd += ["-map", v_in, "-c:v", "copy"] + (["-tag:v", "hvc1"] if video.get("codec") == "hevc" else [])
     else:
-        top = live_size(video, max_height, others)[0]
-        filters = (["yadif"] if video.get("interlaced") else []) + ["scale=-2:'min(ih,%d)'" % top, "format=yuv420p"]
+        filters = (["yadif"] if video.get("interlaced") else []) + ["scale=-2:'min(ih,%d)'" % top] + plan["last"]
         if sub:     # subtitles drawn on, from the bottom up (a cropped film keeps them in the picture)
             graph = "[0:%d][0:%d]overlay=x=(main_w-overlay_w)/2:y=main_h-overlay_h:eof_action=pass,%s[v]" % (
                 video["index"], sub["index"], ",".join(filters))
             cmd += ["-filter_complex", graph, "-map", "[v]"]
         else:
             cmd += ["-map", v_in, "-vf", ",".join(filters)]
-        cmd += h264_args(top) + ["-g", "48"]
+        cmd += plan["codec"] + ["-g", "48"] + (["-bsf:v", "dump_extra=freq=keyframe"] if part else [])
     cmd += ["-map", "0:%d" % audio["index"] if audio else "0:a:0?", "-sn", "-dn"]
     cmd += audio_args(audio, fmt, caps)
     cmd += ["-max_muxing_queue_size", "4096", "-avoid_negative_ts", "make_zero"]
@@ -411,10 +463,11 @@ def stream_command(item, mode, start, info, fmt="mp4", out="pipe:1", audio_index
         # (with forward slashes on Windows: ffmpeg finds the playlist's folder by its last "/", and given C:\...\index.m3u8
         # it wrote init.mp4 into the folder Sofa runs in, where no player could have it)
         out = out.replace(os.sep, "/")
+        index, init, seg = ("index%d.m3u8" % part, "init%d.mp4" % part, "alt%05d.m4s") if part else ("index.m3u8", "init.mp4", "seg%05d.m4s")
         cmd += ["-f", "hls", "-hls_time", "4", "-hls_list_size", "0", "-hls_playlist_type", "event",
-                "-hls_segment_type", "fmp4", "-hls_fmp4_init_filename", "init.mp4",
-                "-hls_flags", "independent_segments", "-hls_segment_filename", out + "/seg%05d.m4s",
-                out + "/index.m3u8"]
+                "-hls_segment_type", "fmp4", "-hls_fmp4_init_filename", init,
+                "-hls_flags", "independent_segments", "-hls_segment_filename", out + "/" + seg,
+                out + "/" + index]
     return cmd
 
 
@@ -464,7 +517,8 @@ def _release(owner, stop):
 
 def _collect_stderr(proc, item):
     """Keep the last lines ffmpeg printed; record them if it failed on its own (not because we stopped it)."""
-    tail = collections.deque(maxlen=8)
+    from . import encoders
+    tail = proc.sofa_tail = collections.deque(maxlen=8)
 
     def read():
         for raw in iter(proc.stderr.readline, b""):
@@ -473,6 +527,8 @@ def _collect_stderr(proc, item):
                 tail.append(line)
         proc.stderr.close()
         code = proc.wait()
+        if getattr(proc, "sofa_fallback", False):
+            return                    # a graphics chip's encoder that stopped: the job goes on with the processor
         if code not in (0, -9, -15, 255) and tail and not getattr(proc, "sofa_stopped", False):
             msg = " / ".join(tail)
             note_error(item["id"], msg)
@@ -484,6 +540,12 @@ def _collect_stderr(proc, item):
     threading.Thread(target=read, daemon=True, name="ffmpeg-stderr").start()
 
 
+def _last_words(proc):
+    """ffmpeg's last line, for the log (what a graphics chip's encoder said as it stopped)."""
+    tail = list(getattr(proc, "sofa_tail", None) or [])
+    return tail[-1][:200] if tail else ""
+
+
 def _stop_proc(proc):
     proc.sofa_stopped = True
     try:
@@ -492,18 +554,37 @@ def _stop_proc(proc):
         pass
 
 
+def _failed_alone(proc, code):
+    """True when ffmpeg stopped by itself with an error (not because Sofa stopped it, and not at the video's end)."""
+    return code != 0 and not getattr(proc, "sofa_stopped", False)
+
+
 def run_stream(item, mode, start, info, out, who, fmt="mp4", owner=None, audio_index=None, max_height=None, caps=None,
                burn=None):
-    """Pipe ffmpeg's output to `out` until done, the viewer leaves, or they start something else."""
+    """Pipe ffmpeg's output to `out` until done, the viewer leaves, or they start something else.
+
+    Converted with a graphics chip's encoder that stops by itself: if nothing has been sent yet (it didn't start: a
+    driver's limit, a device gone), the same stream is made again with the processor, and the viewer never knows. If
+    some was already sent, the stream ends there (a file in one piece can't change encoder half-way); the encoder
+    rests, so the player's next request, from where it was, is converted with the processor."""
+    from . import encoders
     holder = {}
     stop = lambda: holder.get("proc") and _stop_proc(holder["proc"])   # noqa: E731
     _claim(owner, stop)
     slot = _slot(mode)
     key = "%s-%s" % (id(out), time.time())
-    try:
+    others = _converting()
+
+    def begin(software):
+        name = encoder_plan(None, True, software=software)["name"] if converts(mode, info, burn) else None
         proc = subprocess.Popen(stream_command(item, mode, start, info, fmt, audio_index=audio_index, max_height=max_height,
-                                               caps=caps, burn=burn, others=_converting()), stdout=subprocess.PIPE,
+                                               caps=caps, burn=burn, others=others, encoder=name), stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE, bufsize=0, env=_env(item))
+        proc.sofa_encoder = name
+        proc.sofa_fallback = bool(not software and encoders.fallback(name))      # (the processor is there to go on with)
+        return proc
+    try:
+        proc = begin(False)
     except OSError:
         if slot:
             slot.release()
@@ -512,14 +593,33 @@ def run_stream(item, mode, start, info, out, who, fmt="mp4", owner=None, audio_i
     holder["proc"] = proc
     _collect_stderr(proc, item)
     with _streams_lock:
-        _streams[key] = {**_shown(item), "mode": mode, "who": who,
+        _streams[key] = {**_shown(item), "mode": mode, "who": who, "encoder": proc.sofa_encoder,
                          "started": int(time.time())}
+    sent, blamed = 0, None
     try:
         while True:
             chunk = proc.stdout.read(256 * 1024)
             if not chunk:
+                code = proc.wait()
+                if proc.sofa_fallback and _failed_alone(proc, code):
+                    blamed = proc.sofa_encoder
+                    encoders.failed(blamed, _last_words(proc))
+                    if not sent:                        # nothing reached the viewer: the same stream, by the processor
+                        proc = begin(True)
+                        holder["proc"] = proc
+                        _collect_stderr(proc, item)
+                        with _streams_lock:
+                            if key in _streams:
+                                _streams[key]["encoder"] = proc.sofa_encoder
+                        continue
+                    note_error(item["id"], _last_words(proc))
+                elif blamed and not sent and _failed_alone(proc, code):
+                    encoders.forgiven(blamed)           # the processor couldn't either: the file, not the chip
+                elif proc.sofa_encoder in encoders.HARDWARE and code == 0:
+                    encoders.worked(proc.sofa_encoder)
                 break
             out.write(chunk)
+            sent += len(chunk)
     except (BrokenPipeError, ConnectionResetError, OSError):
         pass
     finally:
@@ -583,7 +683,7 @@ def should_wait():
 _hls = {}
 _hls_lock = threading.Lock()
 HLS_IDLE = 90
-HLS_FILE = re.compile(r"(index\.m3u8|init\.mp4|seg\d{5}\.(?:ts|m4s))")
+HLS_FILE = re.compile(r"(index\.m3u8|init1?\.mp4|(?:seg|alt)\d{5}\.(?:ts|m4s))")
 
 
 def hls_dir():
@@ -598,6 +698,7 @@ def _converting():
 
 def hls_start(item, mode, start, who, replace=None, owner=None, audio_index=None, max_height=None, caps=None, burn=None):
     """Start segmenting from `start` seconds. Returns a session id."""
+    from . import encoders
     if replace:
         hls_stop(replace)
     info = probe(item["path"]) if not item["path"].startswith(("http://", "https://")) else None
@@ -611,23 +712,123 @@ def hls_start(item, mode, start, who, replace=None, owner=None, audio_index=None
         mode = "transcode"                           # drawing subtitles on means converting
     others = _converting()
     height, kind = live_size((info or {}).get("video"), max_height, others) if mode == "transcode" else (None, None)
+    name = encoder_plan(height, True)["name"] if mode == "transcode" else None
+    job = {"item": item, "mode": mode, "start": start, "info": info, "audio_index": audio_index, "height": height,
+           "caps": caps, "burn": burn}
     try:
         proc = subprocess.Popen(stream_command(item, mode, start, info, "hls", folder, audio_index=audio_index, max_height=height,
-                                               caps=caps, burn=burn),
+                                               caps=caps, burn=burn, encoder=name),
                                 stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, env=_env(item))
     except OSError:
         if slot:
             slot.release()
         _release(owner, stop)
         raise
+    proc.sofa_encoder = name
+    chip = proc.sofa_fallback = bool(encoders.fallback(name))     # a chip's encoder, and the processor's to go on with
     _collect_stderr(proc, item)
     with _hls_lock:
         _hls[sid] = {"proc": proc, "dir": folder, "seen": time.time(), "slot": slot, "owner": owner, "stop": stop,
-                     "started": time.time(), "kind": kind if not others else None, "height": height}   # shared: not learned from
+                     "started": time.time(), "kind": kind if not others else None, "height": height,   # shared: not learned from
+                     "encoder": name, "chip": chip, "job": job, "joined": None}
     with _streams_lock:
-        _streams["hls-" + sid] = {**_shown(item), "mode": mode, "who": who, "height": height,
+        _streams["hls-" + sid] = {**_shown(item), "mode": mode, "who": who, "height": height, "encoder": name,
                                   "started": int(time.time())}
+    if chip:
+        threading.Thread(target=_carry_on, args=(sid, proc), daemon=True, name="hls-encoder").start()
     return sid
+
+
+def _made(playlist):
+    """(seconds of video, the playlist's text) a playlist lists so far. A segment is listed once it's whole."""
+    try:
+        with open(playlist, encoding="utf-8") as f:
+            text = f.read()
+    except OSError:
+        return 0.0, ""
+    return sum(float(x) for x in re.findall(r"#EXTINF:([\d.]+)", text)), text
+
+
+def _carry_on(sid, proc):
+    """A session converted by a graphics chip's encoder: when that ffmpeg stops by itself, the same session goes on
+    with the processor. Nothing made yet (it didn't start): from the beginning, same names. Some made already: a
+    second part from where the first stopped, joined to it in the playlist (_join), so the player sees one stream.
+
+    The join is the one HLS has for it: a discontinuity, then the second part's own start (EXT-X-MAP), as an advert
+    break is joined to a film. Browsers, Apple's players and ExoPlayer take it in their stride. Players built on
+    ffmpeg (the box's mpv) keep reading by the first start: with the parameters repeated in the second part they
+    play on, after passing over its first four seconds of picture (the sound doesn't stop)."""
+    from . import encoders
+    code = proc.wait()
+    with _hls_lock:
+        s = _hls.get(sid)
+        if not s or s["proc"] is not proc:
+            return
+        if not _failed_alone(proc, code):
+            s["chip"] = False                       # it ended as it should, or Sofa stopped it: nothing to carry on
+            if code == 0:
+                encoders.worked(s["encoder"])
+            return
+        job, folder = s["job"], s["dir"]
+    encoders.failed(proc.sofa_encoder, _last_words(proc))
+    made, text = _made(os.path.join(folder, "index.m3u8"))
+    try:
+        if made <= 0:                               # nothing a player could have: start over in the same place
+            for n in os.listdir(folder):
+                os.remove(os.path.join(folder, n))
+            part, head = 0, None
+        else:
+            part, head = 1, text.replace("#EXT-X-ENDLIST", "").rstrip("\n") + "\n"
+        cmd = stream_command(job["item"], job["mode"], job["start"] + made, job["info"], "hls", folder,
+                             audio_index=job["audio_index"], max_height=job["height"], caps=job["caps"], burn=job["burn"],
+                             software=True, part=part)
+        new = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, env=_env(job["item"]))
+    except OSError:
+        with _hls_lock:
+            if _hls.get(sid) is s:
+                s["chip"] = False
+        return
+    new.sofa_encoder = encoder_plan(job["height"], True, software=True)["name"]
+    _collect_stderr(new, job["item"])
+
+    def too(blamed=proc.sofa_encoder):                  # the processor couldn't either: the file, not the chip
+        if _failed_alone(new, new.wait()):
+            encoders.forgiven(blamed)
+    threading.Thread(target=too, daemon=True, name="hls-encoder").start()
+    with _hls_lock:
+        if _hls.get(sid) is not s:                  # stopped meanwhile
+            _stop_proc(new)
+            return
+        s.update(proc=new, encoder=new.sofa_encoder, chip=False, kind=None, joined=head)    # (a mixed session: not learned from)
+    with _streams_lock:
+        if "hls-" + sid in _streams:
+            _streams["hls-" + sid]["encoder"] = new.sofa_encoder
+
+
+JOIN_SKIP = ("#EXTM3U", "#EXT-X-VERSION", "#EXT-X-TARGETDURATION", "#EXT-X-MEDIA-SEQUENCE", "#EXT-X-PLAYLIST-TYPE",
+             "#EXT-X-MAP", "#EXT-X-INDEPENDENT-SEGMENTS", "#EXT-X-DISCONTINUITY-SEQUENCE")
+
+
+def _join(s):
+    """Write the session's playlist from its two parts: what the first encoder made, then a discontinuity, the second
+    part's own start (`init1.mp4`: another encoder's video needs its own) and its segments as they come."""
+    if not s.get("joined"):
+        return
+    _, tail = _made(os.path.join(s["dir"], "index1.m3u8"))
+    lines = [l for l in tail.split("\n") if l.strip() and not l.startswith(JOIN_SKIP)]
+    text = s["joined"]
+    longest = [int(x) for x in re.findall(r"#EXT-X-TARGETDURATION:(\d+)", s["joined"] + tail)]
+    if longest:
+        text = re.sub(r"#EXT-X-TARGETDURATION:\d+", "#EXT-X-TARGETDURATION:%d" % max(longest), text, count=1)
+    if lines:
+        text += "#EXT-X-DISCONTINUITY\n#EXT-X-MAP:URI=\"init1.mp4\"\n" + "\n".join(lines) + "\n"
+    tmp = os.path.join(s["dir"], "index.m3u8.join")
+    try:
+        with open(tmp, "w", encoding="utf-8", newline="\n") as f:
+            f.write(text)
+        os.replace(tmp, os.path.join(s["dir"], "index.m3u8"))
+    except OSError:
+        pass
 
 
 def _speed(s):
@@ -658,10 +859,11 @@ def hls_file(sid, name):
     path = os.path.join(s["dir"], name)
     deadline = time.time() + 25
     while time.time() < deadline:
+        _join(s)
         if os.path.exists(path) and (name.endswith(".m3u8") or _segment_done(s, name)):
             return path
-        if s["proc"].poll() is not None and not os.path.exists(path):
-            return None
+        if s["proc"].poll() is not None and not os.path.exists(path) and not s.get("chip"):
+            return None                 # (a chip's encoder that just stopped: the processor is about to take over)
         time.sleep(0.2)
     return None
 
@@ -681,10 +883,12 @@ def hls_stop(sid):
     if not s:
         return
     if s.get("height"):                       # remember how well this went, for the next one like it
-        from . import machine
+        from . import encoders, machine
         speed = _speed(s)
         if speed and s.get("kind"):
             machine.note_live_speed(s["kind"], s["height"], speed)
+        if s.get("chip") and s["proc"].poll() is None and time.time() - s["started"] > 20:
+            encoders.worked(s["encoder"])     # a graphics chip's encoder that ran until the viewer left: it works
     _stop_proc(s["proc"])
     s["proc"].wait()
     if s["slot"]:

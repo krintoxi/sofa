@@ -32,6 +32,16 @@ class TheImage(unittest.TestCase):
         self.assertNotIn("USER root", docker)
         entry = read(os.path.join("deploy", "docker", "entrypoint.sh"))
         self.assertIn('exec setpriv --reuid="$PUID" --regid="$PGID"', entry)   # Sofa itself never runs as root
+        # The graphics chip: the render nodes' own groups are joined (never root's), and nothing else changes.
+        self.assertIn('for node in /dev/dri/renderD* /dev/dri/card*; do', entry)
+        self.assertIn('[ "$gid" = "0" ] && continue', entry)
+        self.assertIn('--groups="$groups"', entry)
+        self.assertIn('--clear-groups', entry)                                 # no device passed in: no groups, as before
+        self.assertIn("NVIDIA_DRIVER_CAPABILITIES=compute,video,utility", docker)
+        self.assertIn("intel-media-va-driver mesa-va-drivers", docker)
+        self.assertRegex(compose, r"(?m)^    # devices:\n    #   - /dev/dri:/dev/dri$")     # there, behind a "#": off until wanted
+        self.assertRegex(compose, r"(?m)^    # gpus: all$")
+        self.assertNotRegex(compose, r"(?m)^    (devices|gpus):")
         self.assertIn("PUID: ${PUID:-1000}", compose)
         self.assertRegex(docker, r"HEALTHCHECK .*\n.*/api/info")
         self.assertIn('ENTRYPOINT ["/opt/sofa/deploy/docker/entrypoint.sh"]', docker)

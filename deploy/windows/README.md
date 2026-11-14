@@ -124,7 +124,9 @@ Microsoft Defender. GitHub's machines are Windows Server with no one signed in a
 - 64-bit Windows 10 (1809) or 11 only; no ARM64 build.
 - Task Manager lists Sofa as Python (it is Python: `pythonw.exe` for the app, `python.exe` for the server).
 - Sofa runs while you're signed in (start with Windows), like Plex's Windows app; not as a Windows service.
-- Video is converted with x264, as on Linux; the GPU encoders in this ffmpeg (NVIDIA, Intel, AMD) aren't used yet.
+- The graphics chip converts video when it passes Sofa's own test (NVIDIA's NVENC, Intel's Quick Sync, AMD's AMF:
+  this ffmpeg has all three), and x264 on the processor otherwise. None of the three has run on a real chip yet:
+  GitHub's Windows machines have none. Server → Overview → This computer shows what was found.
 - A USB drive "as it is" (sorted with links, `auto_drives`, what a Sofa Box does) needs Windows' Developer Mode for
   symbolic links. The usual way, a library folder on the drive (Server → Storage), doesn't.
 - Mapped network drives aren't listed under Storage; a folder on one can still be added by its path.

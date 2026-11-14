@@ -14,6 +14,7 @@ function here does nothing and answers None (or False), so the callers keep one 
     restart_code        what the server exits with to be started again at once (os.execv in place)
 """
 import os
+import re
 import socket
 import sys
 import threading
@@ -151,6 +152,60 @@ def describe():
     mem.dwLength = ctypes.sizeof(_MEMORYSTATUSEX)
     total = mem.ullTotalPhys if _k32.GlobalMemoryStatusEx(ctypes.byref(mem)) else 0
     return {"cpu": cpu, "memory": int(total), "modern_cpu": bool(_k32.IsProcessorFeaturePresent(PF_AVX2_INSTRUCTIONS_AVAILABLE))}
+
+
+DISPLAY_CLASS = r"SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}"
+PCI_MAKERS = {"10de": "NVIDIA", "8086": "Intel", "1002": "AMD", "1022": "AMD"}
+
+
+def gpu_maker(device_id, provider="", name=""):
+    """Who made a graphics adapter: from its PCI id ("pci\\ven_10de&dev_2504": NVIDIA), else from what the driver's
+    provider or the adapter's name says. None for the ones that convert nothing (Microsoft's basic and remote
+    displays, a virtual machine's)."""
+    m = re.search(r"ven_([0-9a-f]{4})", (device_id or "").lower())
+    if m and m.group(1) in PCI_MAKERS:
+        return PCI_MAKERS[m.group(1)]
+    text = ("%s %s" % (provider or "", name or "")).lower()
+    for word, maker in (("nvidia", "NVIDIA"), ("intel", "Intel"), ("advanced micro", "AMD"), ("amd", "AMD"), ("radeon", "AMD")):
+        if word in text:
+            return maker
+    return None
+
+
+def gpus():
+    """The graphics adapters Windows has drivers for: [{"name", "maker", "driver"}], from the registry's display class
+    (what Device Manager lists under Display adapters). [] off Windows."""
+    if not ON:
+        return []
+    out = []
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, DISPLAY_CLASS) as top:
+            n = 0
+            while True:
+                try:
+                    sub = winreg.EnumKey(top, n)
+                except OSError:
+                    break
+                n += 1
+                if not re.fullmatch(r"\d{4}", sub):
+                    continue
+                try:
+                    with winreg.OpenKey(top, sub) as k:
+                        def value(key):
+                            try:
+                                return str(winreg.QueryValueEx(k, key)[0]).strip()
+                            except OSError:
+                                return ""
+                        desc = value("DriverDesc")
+                        if desc:
+                            out.append({"name": desc, "driver": value("DriverVersion"),
+                                        "maker": gpu_maker(value("MatchingDeviceId"), value("ProviderName"), desc)})
+                except OSError:
+                    continue
+    except OSError:
+        pass
+    return out
 
 
 _times = []                 # (when, idle, all) snapshots of GetSystemTimes, a few seconds apart, the last minute

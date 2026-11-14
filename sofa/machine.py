@@ -1,10 +1,13 @@
 """What this computer can do, so Sofa fits it: four x86-64 cores without AVX2 and ten Apple silicon cores get different settings.
 
-Once (and again when ffmpeg changes), Sofa times a short 1080p conversion with each H.264 encoder
-this ffmpeg has (Apple's VideoToolbox, x264) and uses the faster one. Old Macs running a newer macOS
-often have no working hardware encoder, and x264 is then the better choice. It also checks that the
-pictures come out right: on old Macs with patched graphics (OpenCore), VideoToolbox can make video
-with purple or green lines across it, and is then never used.
+Once (and again when ffmpeg or the graphics change), Sofa finds the H.264 encoders that work here and times a short
+1080p conversion with each: the graphics chip's (Apple's VideoToolbox, NVIDIA's NVENC, Intel's Quick Sync, VA-API on
+Intel's and AMD's graphics, AMD's AMF: sofa/encoders.py) and the processor's (x264). A chip's encoder is only timed
+after a one-second conversion with it has worked, and is used when it makes whole pictures and converts comfortably
+faster than video plays; otherwise the fastest one is, the processor included. Old Macs running a newer macOS often
+have no working hardware encoder, and x264 is then the better choice. It also checks that the pictures come out
+right: on old Macs with patched graphics (OpenCore), VideoToolbox can make video with purple or green lines across
+it, and is then never used.
 
 Gentle mode (automatic on slow computers, or set under Server → Settings):
 - video converted while someone watches is 720p at most,
@@ -20,7 +23,7 @@ import subprocess
 import threading
 import time
 
-from . import config, media, store, windows
+from . import config, encoders, media, store, windows
 
 CACHE = os.path.join(config.DATA_DIR, "cache", "machine.json")
 TEST_SECONDS, TEST_FPS = 4, 30
@@ -40,13 +43,17 @@ def describe():
             "system": "%s %s" % (platform.system(), platform.mac_ver()[0] or platform.release())}
 
 
-def _time_encoder(name):
+def _time_encoder(name, how=None):
     """Frames per second for a 1080p test conversion with this encoder, or None if it doesn't work here."""
     exe = media.tool("ffmpeg")
-    args = {"h264_videotoolbox": ["-c:v", "h264_videotoolbox", "-realtime", "1", "-b:v", "6M"],
-            "libx264": ["-c:v", "libx264", "-preset", "veryfast", "-tune", "zerolatency", "-crf", "21"]}[name]
-    cmd = [exe, "-hide_banner", "-loglevel", "error", "-nostdin", "-f", "lavfi", "-i",
-           "testsrc2=size=1920x1080:rate=%d" % TEST_FPS, "-t", str(TEST_SECONDS), "-vf", "format=yuv420p"] + args + ["-f", "null", "-"]
+    if name == "h264_videotoolbox":          # (without -allow_sw: a Mac with no hardware encoder must fail here)
+        args = ["-vf", "format=yuv420p", "-c:v", "h264_videotoolbox", "-realtime", "1", "-b:v", "6M"]
+    elif name == "libx264":
+        args = ["-vf", "format=yuv420p", "-c:v", "libx264", "-preset", "veryfast", "-tune", "zerolatency", "-crf", "21"]
+    else:
+        args = ["-vf", ",".join(encoders.last_filters(name))] + encoders.codec(name, 1080, True, how)
+    cmd = ([exe, "-hide_banner", "-loglevel", "error", "-nostdin"] + encoders.before_input(name, how)
+           + ["-f", "lavfi", "-i", "testsrc2=size=1920x1080:rate=%d" % TEST_FPS, "-t", str(TEST_SECONDS)] + args + ["-f", "null", "-"])
     started = time.time()
     try:
         r = subprocess.run(cmd, capture_output=True, timeout=120)
@@ -57,17 +64,21 @@ def _time_encoder(name):
     return round(TEST_SECONDS * TEST_FPS / max(0.01, time.time() - started), 1)
 
 
-def _damaged(name):
+def _damaged(name, how=None):
     """True when this encoder's pictures don't match what went in (lines, smears): it's then not used."""
     exe = media.tool("ffmpeg")
-    args = {"h264_videotoolbox": ["-c:v", "h264_videotoolbox", "-allow_sw", "1", "-b:v", "8M"],
-            "libx264": ["-c:v", "libx264", "-preset", "veryfast", "-crf", "21"]}[name]
+    if name == "h264_videotoolbox":
+        args = ["-vf", "format=yuv420p", "-c:v", "h264_videotoolbox", "-allow_sw", "1", "-b:v", "8M"]
+    elif name == "libx264":
+        args = ["-vf", "format=yuv420p", "-c:v", "libx264", "-preset", "veryfast", "-crf", "21"]
+    else:                                   # (a 1080p picture's bit rate for a 720p one: what's lost is the encoder's fault)
+        args = ["-vf", ",".join(encoders.last_filters(name))] + encoders.codec(name, 1080, True, how)
     source = "testsrc2=size=1280x720:rate=25"
     os.makedirs(os.path.dirname(CACHE), exist_ok=True)
     tmp = os.path.join(os.path.dirname(CACHE), "encoder-check-%s.mp4" % name)
     try:
-        subprocess.run([exe, "-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-f", "lavfi", "-i", source, "-t", "2",
-                        "-vf", "format=yuv420p"] + args + [tmp], capture_output=True, timeout=120, check=True)
+        subprocess.run([exe, "-hide_banner", "-loglevel", "error", "-nostdin", "-y"] + encoders.before_input(name, how)
+                       + ["-f", "lavfi", "-i", source, "-t", "2"] + args + [tmp], capture_output=True, timeout=120, check=True)
         r = subprocess.run([exe, "-hide_banner", "-nostdin", "-i", tmp, "-f", "lavfi", "-i", source, "-lavfi",
                             "[0:v]format=yuv420p,settb=1/25,setpts=N[a];[1:v]format=yuv420p,settb=1/25,setpts=N[b];"
                             "[a][b]psnr=shortest=1", "-f", "null", "-"],
@@ -85,15 +96,27 @@ def _damaged(name):
 
 
 def _key():
+    """What the remembered test belongs to: this ffmpeg, and these graphics (a card added, a driver updated or a
+    device passed to the container: tested again)."""
     exe = media.tool("ffmpeg") or ""
     try:
-        return "2|%s|%d" % (exe, os.path.getmtime(exe))
+        return "3|%s|%d|%s" % (exe, os.path.getmtime(exe), encoders.signature())
     except OSError:
-        return "2|" + exe
+        return "3|%s|%s" % (exe, encoders.signature())
+
+
+def _said(speeds, tried, damaged):
+    out = []
+    for k in list(speeds) + [k for k in tried if k not in speeds]:
+        v = speeds.get(k)
+        out.append("%s %s" % (encoders.name(k), "makes damaged pictures here" if k in damaged else ("%s frames/s" % v) if v
+                              else "doesn't work here"))
+    return ", ".join(out) or "no H.264 encoder"
 
 
 def measure(force=False):
-    """Time the encoders (once per ffmpeg) and remember which is faster."""
+    """Find the encoders that work (a one-second try each), time them (once per ffmpeg and set of graphics) and
+    remember which to use."""
     with _lock:
         if not force:
             try:
@@ -106,28 +129,38 @@ def measure(force=False):
                 pass
         if not media.tool("ffmpeg"):
             return {}
+        encoders.found(force=True)
+        encoders.forget_failures()
         enc = media.encoders()
-        speeds = {name: _time_encoder(name) for name in ("h264_videotoolbox", "libx264") if name in enc}
-        damaged = [name for name, v in speeds.items() if v and _damaged(name)]
-        working = {k: v for k, v in speeds.items() if v and k not in damaged}
-        best = max(working, key=working.get) if working else None
+        tried = {}                          # hardware encoder -> how it was asked, or why it doesn't work here
+        for name, device in encoders.candidates():
+            if tried.get(name, {}).get("ok"):
+                continue                    # (a second render node: the first that works is the one)
+            tried[name] = encoders.probe(name, device)
+        how = {k: {x: v[x] for x in ("live", "file", "device") if x in v} for k, v in tried.items() if v.get("ok")}
+        speeds = {name: _time_encoder(name, how.get(name)) for name in list(how) + [encoders.SOFTWARE]
+                  if name in enc and (name in how or name == encoders.SOFTWARE)}
+        for name in tried:
+            speeds.setdefault(name, None)
+        damaged = [name for name, v in speeds.items() if v and _damaged(name, how.get(name))]
+        best = encoders.choose(speeds, damaged)
+        decode = bool(best in encoders.HARDWARE and encoders.decode_helps(best, how.get(best), os.path.dirname(CACHE)))
         _result.clear()
-        _result.update(key=_key(), at=int(time.time()), speeds=speeds, best=best, damaged=damaged)
+        _result.update(key=_key(), at=int(time.time()), speeds=speeds, best=best, damaged=damaged, how=how, decode=decode,
+                       why={k: v.get("why") or "" for k, v in tried.items() if not v.get("ok")})
         try:
             os.makedirs(os.path.dirname(CACHE), exist_ok=True)
             with open(CACHE, "w", encoding="utf-8") as f:
                 json.dump(_result, f)
         except OSError:
             pass
-        store.log("settings", "Tested this computer's video conversion: %s. Using %s." % (
-            ", ".join("%s %s" % ({"h264_videotoolbox": "Apple VideoToolbox", "libx264": "x264"}[k],
-                                 "makes damaged pictures here" if k in damaged else ("%s frames/s" % v) if v else "doesn't work")
-                      for k, v in speeds.items()) or "no H.264 encoder", {"h264_videotoolbox": "VideoToolbox", "libx264": "x264"}.get(best, "the fallback")))
+        store.log("settings", "Tested this computer's video conversion: %s. Using %s%s." % (
+            _said(speeds, tried, damaged), encoders.name(best) if best else "the fallback",
+            ", and the graphics chip to decode HEVC" if decode else ""))
         return dict(_result)
 
 
-def best_encoder():
-    """The H.264 encoder to use, once measured (None until then: media falls back to its usual choice)."""
+def _remembered():
     if not _result:
         try:
             with open(CACHE, encoding="utf-8") as f:
@@ -136,7 +169,23 @@ def best_encoder():
                 _result.update(saved)
         except (OSError, ValueError):
             pass
-    return _result.get("best")
+    return _result
+
+
+def best_encoder():
+    """The H.264 encoder the test chose, once measured (None until then: media falls back to its usual choice)."""
+    return _remembered().get("best")
+
+
+def how(name):
+    """The way an encoder was asked when it passed its test here: {"live": n, "file": n, "device": ...}."""
+    return (_remembered().get("how") or {}).get(name) or {}
+
+
+def decodes(name):
+    """True when the graphics chip `name` is on decodes HEVC faster than the processor here (measured)."""
+    r = _remembered()
+    return bool(r.get("decode")) and r.get("best") == name
 
 
 def gentle():
@@ -210,7 +259,7 @@ def live_kind(video):
     h = (video or {}).get("height") or 720
     size = min((2160, 1080, 720, 480, 360), key=lambda b: abs(b - h))
     return "%s%s-%d|%s%s" % ((video or {}).get("codec") or "?", "10" if media.ten_bit(video) else "", size,
-                             best_encoder() or "x264", "|gentle" if gentle() else "")
+                             encoders.pick() or "x264", "|gentle" if gentle() else "")
 
 
 def note_live_speed(kind, height, speed):
@@ -247,12 +296,54 @@ def status():
     d = dict(describe_cached())
     hw = hardware.describe()
     d.update(board=hw["pi"] or hw["virtual"], video=hw["video"], cpu_count=hw["cpu_count"])
+    _remembered()                                 # (what the last test found, before this start's own has run)
     d.update(speeds=_result.get("speeds") or {}, best=_result.get("best"), measured=_result.get("at"), damaged=_result.get("damaged") or [],
              gentle=gentle(), gentle_setting=config.get("gentle"), quiet_hours=config.get("quiet_hours") or "01:00-07:00",
              quiet_now=quiet_now(), max_live_height=max_live_height())
+    # the graphics chip: what was found, each encoder that was tried and what came of it, the one in use now, the switch
+    fails = encoders.failures()
+    d.update(closed=encoders.closed_nodes(), why=_result.get("why") or {},
+             names=dict(encoders.NAMES), hardware=[k for k in (_result.get("speeds") or {}) if k in encoders.HARDWARE],
+             hardware_encoding=encoders.allowed(), using=encoders.pick(), decode=bool(_result.get("decode")),
+             resting={k: {"count": v["count"], "why": v.get("why") or "", "until_test": v["count"] >= encoders.GIVE_UP}
+                      for k, v in fails.items() if encoders.resting(k)})
     with _live_lock:
         d["live"] = {k: dict(v) for k, v in _live_table()["kinds"].items()}
     return d
+
+
+def report(test=False):
+    """What Sofa converts video with here, in lines for people (`python3 sofa.py encoders`, which tests first)."""
+    from . import hardware
+    if test:
+        measure(force=True)
+    r = _remembered()
+    lines = ["This computer: " + hardware.summary()]
+    f = encoders.found()
+    for n in f["nodes"]:
+        lines.append("Graphics: %s, %s%s" % (n["node"], n["maker"], "" if n["open"] else
+                                             " (not open to this user: add it to the group that owns the node)"))
+    if f["nvidia"]:
+        lines.append("Graphics: %s%s" % (f["nvidia"]["name"], ", driver " + f["nvidia"]["driver"] if f["nvidia"].get("driver") else ""))
+    for a in f["adapters"]:
+        lines.append("Graphics: %s" % a.get("name"))
+    if not media.tool("ffmpeg"):
+        return lines + ["No ffmpeg: nothing is converted."]
+    lines.append("ffmpeg %s, with: %s" % (media.ffmpeg_version(), ", ".join(
+        encoders.name(e) for e in list(encoders.HARDWARE) + [encoders.SOFTWARE] if e in media.encoders()) or "no H.264 encoder"))
+    why, damaged = r.get("why") or {}, r.get("damaged") or []
+    for k, v in (r.get("speeds") or {}).items():
+        lines.append("  %-20s %s" % (encoders.name(k), "makes damaged pictures here: not used" if k in damaged
+                                     else "%s frames a second of 1080p" % v if v
+                                     else "doesn't work here" + (" (%s)" % why[k] if why.get(k) else "")))
+    using = encoders.pick()
+    lines.append("Converting with: %s%s" % (
+        "%s (the graphics chip)" % encoders.name(using) if using in encoders.HARDWARE and (r.get("speeds") or {}).get(using)
+        else "x264 (the processor)" if using == encoders.SOFTWARE else encoders.name(using) if using else "nothing: no H.264 encoder",
+        "" if encoders.allowed() else " (the graphics chip is switched off in Settings)"))
+    if r.get("decode"):
+        lines.append("HEVC is decoded by the graphics chip too: it measured faster here.")
+    return lines
 
 
 def start():

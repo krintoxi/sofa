@@ -1509,7 +1509,7 @@ class Handler(BaseHTTPRequestHandler):
                                             "free_movie_lookup", "theme", "detect_intros", "trickplay", "previews",
                                             "ytdlp_cookies", "gentle", "quiet_hours", "offline", "no_logs", "keep_awake",
                                             "signups", "archive_channels", "retro_eras", "live_headers",
-                                            "live_check") if k in data}
+                                            "live_check", "hardware_encoding") if k in data}
             if "gentle" in allowed and allowed["gentle"] not in (True, False, "auto"):
                 allowed.pop("gentle")
             if "quiet_hours" in allowed and not re.match(r"^([01]\d|2[0-3]):[0-5]\d-([01]\d|2[0-3]):[0-5]\d$", str(allowed["quiet_hours"])):
@@ -1520,7 +1520,7 @@ class Handler(BaseHTTPRequestHandler):
                 allowed["name"] = str(allowed["name"]).strip()[:40] or "Sofa"
             for k in ("dlna", "tvmaze", "guest_access", "auto_convert", "keep_originals", "tidy_library", "free_movie_lookup",
                       "detect_intros", "trickplay", "previews", "offline", "no_logs", "keep_awake", "signups",
-                      "archive_channels", "retro_eras", "live_headers", "live_check"):
+                      "archive_channels", "retro_eras", "live_headers", "live_check", "hardware_encoding"):
                 if k in allowed:
                     allowed[k] = bool(allowed[k])
             for k in ("tmdb_api_key", "theporndb_api_key"):
@@ -1732,8 +1732,7 @@ def _admin_status():
         "machine": machine.status(),
         "convert": optimize.status(),
         "update": updater.status(),
-        "encoder": "Apple hardware (VideoToolbox)" if media.hardware_encoder() else
-                   ("x264 (software)" if "libx264" in media.encoders() else None),
+        "encoder": media.encoder_label(),
         "streams": media.active_streams(),
         "apps": apps.status(),
         "awake": awake.status(),
