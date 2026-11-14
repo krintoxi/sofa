@@ -5,7 +5,7 @@
   points off the home network.
 - A channel's address streams a real MPEG-TS clip (made with ffmpeg), as fast as it's read. It has as many tuners
   as it says: one more stream at once is refused with 503, as the box refuses it. `drop_after` bytes, once: the
-  stream breaks off, as a weak signal makes it.
+  stream breaks off, as a weak signal makes it. `pace`: as fast as it plays, as a real tuner sends it.
 
 It proves Sofa's side of the conversation. No real tuner has heard it yet.
 """
@@ -15,6 +15,7 @@ import socket
 import struct
 import subprocess
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from sofa import tuners
@@ -24,7 +25,8 @@ DEVICE = 0x1050A1B2
 
 class Tuner:
     def __init__(self, folder, ffmpeg, count=2, seconds=30):
-        self.count, self.open, self.drop_after, self.lock = count, 0, None, threading.Lock()
+        self.count, self.open, self.drop_after, self.pace, self.lock = count, 0, None, False, threading.Lock()
+        self.seconds = seconds
         self.clip = os.path.join(folder, "channel.ts")
         if not os.path.exists(self.clip):
             subprocess.run([ffmpeg, "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=25", "-f", "lavfi",
@@ -69,7 +71,8 @@ class Tuner:
                         self.send_response(200)
                         self.send_header("Content-Type", "video/mp2t")
                         self.end_headers()
-                        sent = 0
+                        sent, began = 0, time.time()
+                        rate = os.path.getsize(me.clip) / me.seconds
                         with open(me.clip, "rb") as f:
                             while True:
                                 chunk = f.read(188 * 64)
@@ -77,6 +80,8 @@ class Tuner:
                                     break
                                 self.wfile.write(chunk)
                                 sent += len(chunk)
+                                if me.pace and sent > rate * (time.time() - began + 1):
+                                    time.sleep(min(1.0, sent / rate - (time.time() - began) - 1))
                                 if cut and sent >= cut:
                                     self.close_connection = True
                                     break

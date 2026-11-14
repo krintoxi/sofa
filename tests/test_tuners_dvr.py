@@ -57,6 +57,7 @@ class WithATuner(unittest.TestCase):
             store.ex("DELETE FROM %s" % t)
         dvr._changed()
         self.box.drop_after = None
+        self.box.pace = False
 
     def tearDown(self):
         with dvr._lock:
@@ -277,6 +278,7 @@ class WithATuner(unittest.TestCase):
         chans = self.on()
         now = int(time.time())
         config.update({"dvr_pad_before": 0, "dvr_pad_after": 0})
+        self.box.pace = True                                                          # as a real tuner: as fast as it plays
         a = dvr.record(chans["5.1"]["id"], now, now + 25, "A")
         b = dvr.record(chans["2.1"]["id"], now, now + 25, "B")
         dvr.tick()
