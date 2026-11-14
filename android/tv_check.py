@@ -60,6 +60,11 @@ def key(name, pause=0.8):
     time.sleep(pause)
 
 
+class TakenAway(Exception):
+    """Android ended the app for its own reasons (a system service it leans on died: the emulator's Google services
+    restarting after boot, say), not because the app crashed. The steps start again."""
+
+
 def gone():
     """Why the app isn't there any more: Android's own record of what stopped it, for the log."""
     crash = adb("logcat", "-d", "-b", "crash", "-t", "60", check=False).strip()
@@ -80,7 +85,10 @@ class Page:
         found = adb("shell", "pidof", PKG, check=False).strip().split()
         if not found:
             shot("failed")
-            raise SystemExit("The app isn't running any more.\n" + gone())
+            why = gone()
+            if re.search(r"Killing \d+:%s\S* .*(depends on provider|dying proc)" % re.escape(PKG), why):
+                raise TakenAway(why)
+            raise SystemExit("The app isn't running any more.\n" + why)
         pid = found[0]
         adb("forward", "tcp:%d" % PORT, "localabstract:webview_devtools_remote_" + pid)
         deadline = time.time() + 30
@@ -165,6 +173,36 @@ def main(apk):
         adb("shell", "getprop", "ro.product.model").strip(), adb("shell", "getprop", "ro.build.version.release").strip(),
         (re.search(r"versionName=(\S+)", dump) or [None, "?"])[1]))
 
+    settle()
+    for attempt in range(1, 4):
+        try:
+            steps(phone, me)
+            say("All six steps passed%s." % ("" if attempt == 1 else " (on try %d: Android ended the app before, for a system service of its own)" % attempt))
+            return 0
+        except TakenAway as why:
+            say("   Android ended the app for a service of its own, not a crash of the app's:\n" + str(why)[:1500])
+            if attempt == 3:
+                raise SystemExit("Android ended the app three times; see above.")
+            adb("shell", "pm", "clear", PKG, check=False)      # (from the start page again: no Sofa remembered)
+            settle()
+    return 1
+
+
+def settle(most=150):
+    """Wait for the TV's own services to finish starting (the emulator's Google services restart once or twice after
+    boot, and take every app using their font provider down with them): until their process has stayed the same for
+    thirty seconds."""
+    last, since, deadline = None, time.time(), time.time() + most
+    while time.time() < deadline:
+        now = adb("shell", "pidof", "com.google.android.gms.persistent", check=False).strip()
+        if now != last:
+            last, since = now, time.time()
+        elif now and time.time() - since >= 30:
+            return
+        time.sleep(3)
+
+
+def steps(phone, me):
     # 2. Opened from that entry.
     adb("shell", "am", "start", "-W", "-a", "android.intent.action.MAIN", "-c", "android.intent.category.LEANBACK_LAUNCHER", "-n", ACTIVITY)
     time.sleep(4)
@@ -238,8 +276,6 @@ def main(apk):
             break
     else:
         say("   (Back didn't leave the app in six presses: noted, not a failure of the build.)")
-    say("All six steps passed.")
-    return 0
 
 
 if __name__ == "__main__":

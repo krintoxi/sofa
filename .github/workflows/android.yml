@@ -138,6 +138,8 @@ jobs:
           target: android-tv
           arch: x86
           profile: tv_1080p
+          cores: 4
+          ram-size: 4096M
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
           script: python3 android/tv_check.py sofa-googletv-debug.apk
