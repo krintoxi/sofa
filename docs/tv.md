@@ -19,6 +19,16 @@ The app goes on sticks that run **Fire OS** (5 and newer). The Fire TV Stick 4K 
 sticks run Amazon's Vega OS instead, which takes apps only from Amazon's store: the Sofa app can't
 be installed on those.
 
+## Android TV and Google TV
+
+The same app has a build for TVs, sticks and boxes that run **Android TV or Google TV**. It's new: GitHub builds it
+and works it on an Android TV emulator, and no real TV has run it yet. It isn't in Google Play; it goes on over
+ADB (`adb install -r sofa-googletv-debug.apk`, from the run's `sofa-googletv` files), finds Sofa by itself, and
+signs in with a code you approve on your phone. How, and what Google's rules ask of it:
+[android/README.md](../android/README.md#android-tv-and-google-tv). On those TVs today, the TV's own browser works too.
+
+## TV mode
+
 Sofa notices it's on a TV and switches to **TV mode**: bigger buttons, a clear yellow
 highlight that follows the remote, and the player fills the screen. (Any other device can
 switch TV mode on under **Theme**.) The whole menu fits on the TV's screen, with **Search** (🔍)

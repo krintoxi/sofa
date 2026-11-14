@@ -19,7 +19,7 @@
   small { color: #6F7385; }
 </style></head>
 <body><main>
-  <h1><b>Sofa</b> for Fire TV</h1>
+  <h1><b>Sofa</b> for <span id="device">TV</span></h1>
   <p class="problem" id="problem"></p>
   <p id="looking"><span class="spin"></span>Looking for Sofa on your network…</p>
   <div class="list" id="list"></div>
@@ -28,11 +28,14 @@
   <p><small>Project by EdgeVenture.uk</small></p>
 </main>
 <script>
+  let device = "TV";
+  try { device = SofaNative.device(); } catch (e) {}
+  document.getElementById("device").textContent = device;
   const problem = decodeURIComponent(location.hash.slice(1) || "");
   document.getElementById("problem").textContent = problem;
   const list = document.getElementById("list"), seen = new Set();
   function choose(url) { document.getElementById("problem").textContent = "Connecting…"; SofaNative.choose(url); }
-  window.chooseFailed = () => { document.getElementById("problem").textContent = "No Sofa answered there. Check the address on the Server page, and that this Fire TV is on the same Wi-Fi."; };
+  window.chooseFailed = () => { document.getElementById("problem").textContent = "No Sofa answered there. Check the address on the Server page, and that this " + device + " is on the same network."; };
   function refresh() {
     let found = [];
     try { found = JSON.parse(SofaNative.servers()); } catch (e) {}

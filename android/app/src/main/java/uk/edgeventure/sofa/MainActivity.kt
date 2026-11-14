@@ -18,9 +18,10 @@ import org.json.JSONObject
 import kotlin.concurrent.thread
 
 /**
- * Sofa for Fire TV: Sofa's own TV pages in a full-screen web view (so it looks and works like Sofa,
- * remote and all), with videos handed to Android's own player (PlayerActivity), which plays MKV,
- * HEVC and Dolby sound as they are: the Sofa computer hardly ever has to convert anything.
+ * Sofa for Fire TV, and for Android TV and Google TV (one app, two builds: app/build.gradle.kts): Sofa's own TV
+ * pages in a full-screen web view (so it looks and works like Sofa, remote and all), with videos handed to
+ * Android's own player (PlayerActivity), which plays MKV, HEVC and Dolby sound as they are: the Sofa computer
+ * hardly ever has to convert anything.
  *
  * The first time, it finds Sofa on the network by itself (Discovery) or takes a typed address.
  */
@@ -40,8 +41,11 @@ class MainActivity : Activity() {
             mediaPlaybackRequiresUserGesture = false
             loadWithOverviewMode = true
             useWideViewPort = true
-            userAgentString = "$userAgentString SofaApp/1 (FireTV)"
+            userAgentString = "$userAgentString SofaApp/1 (${BuildConfig.DEVICE})"
         }
+        // A debug build's pages can be looked at from a computer (chrome://inspect, and the emulator check GitHub
+        // runs: android/tv_check.py). Never a release.
+        if (BuildConfig.DEBUG) WebView.setWebContentsDebuggingEnabled(true)
         CookieManager.getInstance().setAcceptCookie(true)
         web.webChromeClient = WebChromeClient()
         web.webViewClient = object : WebViewClient() {
@@ -158,6 +162,10 @@ class MainActivity : Activity() {
             @Suppress("DEPRECATION")
             return (if (Build.VERSION.SDK_INT >= 28) info.longVersionCode else info.versionCode.toLong()).toString()
         }
+
+        /** What this build is for, in words for the start page: "Fire TV", "Google TV". */
+        @JavascriptInterface
+        fun device(): String = BuildConfig.DEVICE_NAME
 
         @JavascriptInterface
         fun caps(): String = Codecs.caps().toString()

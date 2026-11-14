@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android TV and Google TV: this build is for TVs and says so, which is what puts it on a TV's home screen and in
+     Google Play for TVs (and nowhere else). The launcher entry, the banner and "no touch screen needed" are the
+     main manifest's, shared with the Fire TV build. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <uses-feature
+        android:name="android.software.leanback"
+        android:required="true"
+        tools:replace="android:required" />
+</manifest>
