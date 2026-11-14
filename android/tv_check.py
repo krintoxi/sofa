@@ -229,6 +229,9 @@ def steps(phone, me):
         shot("failed")
         raise SystemExit("the arrows never reached the address field: the highlight is on %r" % page.focused())
     key("DPAD_CENTER", pause=1.5)                        # OK opens it for typing (the TV's keyboard comes up)
+    if page.js("document.getElementById('addr').readOnly") is not False:
+        shot("failed")
+        raise SystemExit("OK on the address field didn't open it for typing")
     adb("shell", "input", "text", FROM_THE_TV)
     time.sleep(1)
     typed = page.js("document.getElementById('addr').value")

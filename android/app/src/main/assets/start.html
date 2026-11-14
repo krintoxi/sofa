@@ -57,12 +57,20 @@
   // On a TV the address field stays shut until OK is pressed on it: focused and open, it brings up the TV's keyboard,
   // which keeps the remote's arrows for itself, and the highlight could never leave the field. Shut again on leaving.
   const addr = document.getElementById("addr");
-  const open = () => { if (addr.readOnly) { addr.readOnly = false; addr.blur(); addr.focus(); } };
+  let opening = false;                 // (the blur that reopening needs mustn't shut it again)
+  const open = () => {
+    if (!addr.readOnly) return;
+    opening = true;
+    addr.readOnly = false;
+    addr.blur();                       // focused again, now writable, the TV brings its keyboard up
+    addr.focus();
+    opening = false;
+  };
   addr.addEventListener("click", open);
   addr.addEventListener("keydown", e => {
     if (e.key === "Enter") { if (addr.readOnly) { open(); e.preventDefault(); } else choose(addr.value); }
   });
-  addr.addEventListener("blur", () => { addr.readOnly = true; });
+  addr.addEventListener("blur", () => { if (!opening) addr.readOnly = true; });
   // The remote's arrows: up and down through everything you can pick.
   document.addEventListener("keydown", e => {
     if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
