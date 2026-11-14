@@ -1451,14 +1451,16 @@ class BoxBrowser(unittest.TestCase):
         # Hearthrim's well and its riftgate stand in the open: the eye looks from the south, so no house stands close to the south of
         # them; a delver wakes by the well (and steps out of the gate) unpushed and in plain sight; and one who does walk behind a
         # house is drawn through it, as behind a tree
-        o = run("""const w = WY.W.feats.find(q => q.kind === "well" && q.id === 0), g = WY.W.feats.find(q => q.kind === "portal" && q.id === 0), hs = WY.W.houses;
+        o = run("""const w = WY.W.feats.find(q => q.kind === "well" && q.id === 0), g = WY.W.feats.find(q => q.kind === "portal" && q.id === 0), hs = WY.W.houses.filter(h => !h.land);
             const behind = q => hs.filter(h => Math.abs(h.x - q.x) < 2.8 * h.s + 1.3 && h.z - q.z > 0 && h.z - q.z < 4.9 * h.s + 1.3).length;
             const at = (x, z) => { WY.goto(x, z); WY.sim(0.3); return [Math.hypot(WY.H.x - x, WY.H.z - z) < 0.2, WY.hidden()]; }, x0 = WY.H.x, z0 = WY.H.z;
             const h = hs.reduce((a, q) => Math.hypot(q.x - w.x, q.z - w.z) < Math.hypot(a.x - w.x, a.z - w.z) ? q : a);
-            const o = { houses: hs.length, well: behind(w), gate: behind(g), wake: at(w.x + 1.6, w.z + 2.2), arrive: at(g.x, g.z + 2.6),
+            const camps = [1, 2, 3, 4, 5].map(k => WY.W.houses.filter(h => h.land === k).length);
+            const o = { houses: hs.length, camps, well: behind(w), gate: behind(g), wake: at(w.x + 1.6, w.z + 2.2), arrive: at(g.x, g.z + 2.6),
               back: at(h.x + 1.5, h.z - 3.9), front: at(h.x, h.z + 4.5) };
             WY.goto(x0, z0); WY.sim(0.3); return JSON.stringify(o);""")                 # (and back to where they stood, for the trades)
         self.assertEqual(o["houses"], 8)
+        self.assertTrue(all(n >= 2 for n in o["camps"]), o["camps"])        # each region's camp has its own houses, built its way
         self.assertEqual((o["well"], o["gate"]), (0, 0))
         self.assertEqual(o["wake"], [True, False])                         # (the game's own wake place: 1.6 east and 2.2 south of the well)
         self.assertEqual(o["arrive"], [True, False])
@@ -1469,7 +1471,7 @@ class BoxBrowser(unittest.TestCase):
         o = run("""const kinds = {}; let barrel = null; for (const f of WY.over().fixed.values()) for (const q of f.deco) { kinds[q.kind] = (kinds[q.kind] || 0) + 1; if (q.kind === "barrel" && !barrel) barrel = q; }
             const x0 = WY.H.x, z0 = WY.H.z; WY.goto(barrel.x, barrel.z); WY.sim(0.4); const off = Math.hypot(WY.H.x - barrel.x, WY.H.z - barrel.z); WY.goto(x0, z0); WY.sim(0.3);
             return JSON.stringify({ kinds, off, cast: WY.W.cast, on: Math.abs(WY.W.on(3, 7) - WY.W.h(3, 7)) < 0.5 });""")
-        self.assertEqual(o["kinds"]["house"], 8)
+        self.assertGreaterEqual(o["kinds"]["house"], 18)                    # Hearthrim's eight, and the camps'
         self.assertGreaterEqual(o["kinds"].get("barrel", 0), 8)
         self.assertGreaterEqual(o["kinds"].get("woodpile", 0) + o["kinds"].get("crate", 0) + o["kinds"].get("bench", 0), 8)
         self.assertGreater(o["off"], 0.4)

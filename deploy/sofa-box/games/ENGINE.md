@@ -341,6 +341,16 @@ for a "This box" screen. `Governor(ladder, rung, top, onChange)` keeps the frame
   alpha says what each vertex is: 255 stands still, 254 is its own light (until `mesh.light`), 253 is kept for later,
   252 (`Mesh.LAID`) is a shadow laid on the ground by `Kit.cast` and stands still, 251 and less give way. A renderer
   of ours that throws the shadows of what moves reads 252 as ground already in shadow.
+- `shadows(o)`, `caster(h, m)`, `shadowsDone()`: the shadows of what moves, thrown on the still world by the sun (the
+  still world's own are laid on the ground as it's built, with `Kit.cast`). Each frame, after `begin()` and before the
+  still world: `shadows({sun, cap, x, y, z, reach, size, dark})` starts a picture of the movers seen from the sun,
+  `caster(h, m)` puts one in (a mesh and its place, as `moved()` takes them; every one near enough, in view or not),
+  `shadowsDone()` ends it. The still world drawn after it darkens where they stand between it and the sun, by `dark`
+  (0.58, `Kit.cast`'s); never what's laid in shadow already (`Mesh.LAID`), a light of its own, or the movers
+  themselves. `cap` (1.15) raises a low sun, the same way round, so a metre of height throws no further than a laid
+  shadow does; the shadows fade as the sun goes down. `reach`: how far it covers each way from x z (metres); `size`:
+  the picture's side (1024; 512 for less). Four looks into the picture for each pixel of the still world, blended, so
+  the edge is soft. `shadows(null)`: none from now on. For the upper rungs; false when the GPU can't.
 - `grade({gain, curve, colour, warm, cool, edge})`: the picture so far, graded: brighter or darker, an S through its
   tones, richer or paler, its lights one way and its darks the other, darker towards the corners. One copy of the
   picture and one pass over it: for the upper rungs, after `bloom` and before anything is written on the screen.
@@ -383,7 +393,10 @@ shimmer); `air({top, horizon, fog, hill, hills, near, far})`; `draw(camera…)`;
   and from the south: a stone foot, plastered walls with their beams, a door with its step, shuttered windows that are
   lit (into `glow`), shingles in bands with eaves and a ridge, gables with their boards, a chimney (it returns where
   the chimney ends, for smoke). `detail` 0 has no beams (about 160 triangles), 1 is the house (about 260), 2 adds flower
-  boxes and a lantern (about 400); its north wall is left plain. `Kit.barrel`, `crate`, `woodpile` and `bench` are for its
+  boxes and a lantern (about 400); its north wall is left plain. `walls` builds it other ways: `"logs"` (logs laid one
+  on another, their ends at the front corners), `"stone"` (courses of dressed stone, quoins at the corners) or
+  `"planks"` (boards side by side, two straps across), each under 440 triangles; `stilts` stands it that high on posts
+  over wet ground, with a deck before the door and steps down. `Kit.barrel`, `crate`, `woodpile` and `bench` are for its
   yard. `Kit.lay(mesh, [x, z, …], ground, colour, lift, fan)` lays a flat shape just over the ground and lights it with the
   rest (the hull of the points, in two rings so that it follows ground that isn't flat; `fan` for a small one, in a
   third of the triangles): a pool of lamplight, light

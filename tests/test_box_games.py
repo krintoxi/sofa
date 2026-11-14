@@ -1745,6 +1745,41 @@ out.yard = [k("barrel"), k("crate"), k("woodpile"), k("bench")];
         self.assertTrue(all(10 < n < 120 for n in out["yard"]), out["yard"])
 
     @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_houses_built_other_ways(self):
+        """Kit.house's walls of logs, of stone and of planks, each within what a Pi can spare and more than the plainest
+        house; a house on stilts stands as high again as they are, its posts in the ground and its chimney's end raised."""
+        out = self.node(r"""
+const make = (o, d) => { const m = new L3.Mesh(256), g = new L3.Mesh(64), top = L3.Kit.house(m, g, 0, 0, 0, 0, 1, Object.assign({ seed: 4, detail: d }, o)); let lo = 9, hi = -9; for (let v = 0; v < m.n; v++) { lo = Math.min(lo, m.f[v * 5 + 1]); hi = Math.max(hi, m.f[v * 5 + 1]); } return [m.n / 3, r3(top), r3([lo, hi])]; };
+out.plain = make({}, 0)[0];
+out.walls = ["logs", "stone", "planks"].map(k => [make({ walls: k }, 1)[0], make({ walls: k }, 2)[0]]);
+out.flat = make({}, 2); out.up = make({ stilts: 1.5, walls: "planks" }, 2);
+""")
+        for d1, d2 in out["walls"]:
+            self.assertTrue(out["plain"] < d1 <= d2 <= 440, out["walls"])
+            self.assertLessEqual(d1, 320)                                   # the house a Pi 3 is given
+        self.assertAlmostEqual(out["up"][1][1] - out["flat"][1][1], 1.5, places=2)   # the chimney's end, raised with it
+        self.assertLess(out["up"][2][0], 0)                                # the posts go into the ground
+        self.assertAlmostEqual(out["up"][2][1] - out["flat"][2][1], 1.5, places=2)
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_shadows_of_what_moves(self):
+        """GL.shadows: the sun's view is a box seen square on (M4.ortho takes its corners to the picture's); the movers are
+        kept in a picture of their own, and the still world has a shader that reads it, with and without the wind, that
+        never darkens a laid shadow (Mesh.LAID) or a light of its own, and that's only used while there are shadows."""
+        out = self.node(r"""
+const o = new Float32Array(16); L3.M4.ortho(o, -2, 2, -3, 3, 10, 50);
+const at = (x, y, z) => [o[0] * x + o[4] * y + o[8] * z + o[12], o[1] * x + o[5] * y + o[9] * z + o[13], o[2] * x + o[6] * y + o[10] * z + o[14]];
+out.corners = [r3(at(-2, -3, -10)), r3(at(2, 3, -50))];
+const src = require("fs").readFileSync(process.argv[1], "utf8");
+out.parts = ["const CAST_VS", "const CAST_FS", 'stillShade: () => mk(STILL_VS, STILL_FS, "#define SHADE\\n")', 'stillWindShade: () => mk(STILL_VS, STILL_FS, "#define WIND\\n#define SHADE\\n")',
+  "step(0.986, aCol.a) * step(aCol.a, 0.99)", "step(0.5, aNor.w)", "  shadows(o) {", "  caster(h, m) {", "  shadowsDone() {", "  ortho(o, l, r, b, t, n, f) {"].map(x => src.includes(x));
+out.only = /sh && \(this\.windy \? this\.prog\("stillWindShade"\) : this\.prog\("stillShade"\)\)/.test(src);
+""")
+        self.assertEqual(out["corners"], [[-1, -1, -1], [1, 1, 1]])
+        self.assertTrue(all(out["parts"]), out["parts"])
+        self.assertTrue(out["only"])
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
     def test_what_gives_way_to_the_wind(self):
         """Mesh.sway marks, by height, which vertices the wind moves (in their alpha: 255 stands still), never with the
         value that means "its own light"; a stamp carries the mark and the light's working leaves it; Mesh.facing lights
@@ -1777,7 +1812,8 @@ out.plain = /still: \(\) => mk\(STILL_VS, STILL_FS, ""\)/.test(src);
         with open(os.path.join(BOX, "games", "wyrd", "index.html"), encoding="utf-8") as f:
             page = f.read()
         for part in ("L3.Kit.house(m, glowM,", "function castShadows(w, d, base, c)", "L3.Kit.cast(base, P, dx, dz, w.on,", "w.on = (x, z) => land.on(x, z)",
-                     "function pave(w, c, base, gc)", 'put("woodpile"', "w.cast = [", "g3.wind(t, rich() && w.over ?", "g3.grade(w.over ? GRADE.over : GRADE.under)",
+                     "function pave(w, c, base, gc)", 'put("woodpile"', "w.cast = [", "g3.wind(t, rich() && w.over ?", "g3.grade(w.over ? AIRNOW.grade : GRADE.under)", "function patches(w, c, base, gc)", "function lava(w, c, glow)", "function yard(w, d)",
+                     "d.land ? LANDS[d.land].house : HOUSES[v]", "movers(g3, t, true, CAST); g3.shadowsDone();", "g3.shadows(null)", "const LANDS = [",
                      'd.deco.push({ kind: "grass"', "sm[1] + p * 3.4"):
             self.assertIn(part, page)
         self.assertNotIn("w.h, col", page)                                 # (what's laid goes on the ground as drawn, not the smooth one)
