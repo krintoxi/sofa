@@ -79,6 +79,9 @@ const M4 = {
     const f = 1 / Math.tan(fovy / 2), nf = 1 / (near - far);
     o.fill(0); o[0] = f / aspect; o[5] = f; o[10] = (far + near) * nf; o[11] = -1; o[14] = 2 * far * near * nf; return o;
   },
+  ortho(o, l, r, b, t, n, f) {                       // a box seen square on (the sun's view, for shadows)
+    o.fill(0); o[0] = 2 / (r - l); o[5] = 2 / (t - b); o[10] = -2 / (f - n); o[12] = -(r + l) / (r - l); o[13] = -(t + b) / (t - b); o[14] = -(f + n) / (f - n); o[15] = 1; return o;
+  },
   look(o, ex, ey, ez, tx, ty, tz, ux, uy, uz) {
     let zx = ex - tx, zy = ey - ty, zz = ez - tz, l = 1 / (Math.sqrt(zx * zx + zy * zy + zz * zz) || 1); zx *= l; zy *= l; zz *= l;
     let xx = uy * zz - uz * zy, xy = uz * zx - ux * zz, xz = ux * zy - uy * zx; l = 1 / (Math.sqrt(xx * xx + xy * xy + xz * xz) || 1); xx *= l; xy *= l; xz *= l;
@@ -386,6 +389,10 @@ uniform mat4 uVP; uniform vec3 uEye; uniform vec2 uAir; uniform vec3 uFogCol; un
 #ifdef WIND
 uniform vec3 uWind;                                  // time, how far a thing that gives way is pushed (metres), how fast the gusts come
 #endif
+#ifdef SHADE
+uniform mat4 uLVP;                                   // the sun's view of the movers (GL.shadows)
+varying vec3 vLS; varying float vOff;
+#endif
 varying vec3 vCol; varying vec4 vFog;
 void main() {
   vec3 p = aPos;
@@ -393,6 +400,10 @@ void main() {
   float give = (1.0 - aCol.a) * step(aCol.a, 0.986) * uWind.y;   // (a vertex's alpha: 252/255 and over stand still, less gives way: Mesh.sway, Mesh.LAID)
   p.x += give * sin(uWind.x * uWind.z + aPos.x * 0.35 + aPos.z * 0.27);
   p.z += give * 0.6 * sin(uWind.x * uWind.z * 0.77 + aPos.x * 0.21 - aPos.z * 0.4);
+#endif
+#ifdef SHADE
+  vLS = (uLVP * vec4(p, 1.0)).xyz * 0.5 + 0.5;
+  vOff = max(step(0.986, aCol.a) * step(aCol.a, 0.99), step(0.5, aNor.w));   // (a laid shadow, Mesh.LAID, is in shadow already; a light of its own isn't darkened)
 #endif
   p.y = mix(p.y, -max(p.y, 0.0), uFlip);             // (its mirror image: what's above the water, under it)
   vec3 rel = p - uEye; float d = length(rel);
@@ -404,7 +415,38 @@ void main() {
 const STILL_FS = `
 precision mediump float;
 varying vec3 vCol; varying vec4 vFog;
-void main() { gl_FragColor = vec4(mix(vCol, vFog.rgb, vFog.a), 1.0); }`;
+#ifdef SHADE
+#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#endif
+uniform sampler2D uShadeTex; uniform vec4 uShadeK;  // how dark (0.58), a pixel of the picture (1 / its side), the bias, how much (the sun's height fades it)
+varying vec3 vLS; varying float vOff;
+float sunOn(vec2 uv) { vec4 c = texture2D(uShadeTex, uv); return step(vLS.z - uShadeK.z, dot(c.rg, vec2(1.0, 1.0 / 255.0))); }
+#endif
+void main() {
+  vec3 c = vCol;
+#ifdef SHADE
+  vec2 e = min(vLS.xy, 1.0 - vLS.xy);
+  if (vOff < 0.5 && min(e.x, e.y) > 0.0) {
+    float t = uShadeK.y; vec2 q = vLS.xy / t - 0.5, f = fract(q), b = (floor(q) + 0.5) * t;   // (four looks, blended by where between them: a soft edge, not steps)
+    float s = mix(mix(sunOn(b), sunOn(b + vec2(t, 0.0)), f.x), mix(sunOn(b + vec2(0.0, t)), sunOn(b + vec2(t, t)), f.x), f.y);
+    c *= mix(1.0, uShadeK.x, (1.0 - s) * uShadeK.w * clamp(min(e.x, e.y) * 14.0, 0.0, 1.0));   // (fading out at the picture's edge)
+  }
+#endif
+  gl_FragColor = vec4(mix(c, vFog.rgb, vFog.a), 1.0);
+}`;
+// the movers seen from the sun: how far each pixel of them is, kept in two bytes (GL.shadows)
+const CAST_VS = `
+attribute vec3 aPos;
+uniform mat4 uLVP; uniform mat4 uM;
+void main() { gl_Position = uLVP * (uM * vec4(aPos, 1.0)); }`;
+const CAST_FS = `
+#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
+precision mediump float;
+#endif
+void main() { vec2 e = fract(vec2(1.0, 255.0) * gl_FragCoord.z); e.x -= e.y / 255.0; gl_FragColor = vec4(e, 0.0, 1.0); }`;
 // things that move (lit as they turn), with the same air as the still world and a mirror image of their own
 const MOVE_VS = `
 attribute vec3 aPos; attribute vec4 aNor; attribute vec4 aCol;
@@ -570,7 +612,8 @@ function GL(canvas, opts) {
   // the rest when first wanted (each takes a moment to make on a Pi 3): null when this GPU can't
   this.make = { sea: () => mk(SEA_VS, SEA_FS, ""), skySun: () => mk(SKY_VS, SKY_FS, "#define SUN\n"),
     seaWave: () => this.derivatives ? mk(SEA_VS, SEA_FS, "#define WAVES\n") : null,
-    still: () => mk(STILL_VS, STILL_FS, ""), stillWind: () => mk(STILL_VS, STILL_FS, "#define WIND\n"), move: () => mk(MOVE_VS, STILL_FS, ""), dome: () => mk(DOME_VS, DOME_FS, ""),
+    still: () => mk(STILL_VS, STILL_FS, ""), stillWind: () => mk(STILL_VS, STILL_FS, "#define WIND\n"),
+    stillShade: () => mk(STILL_VS, STILL_FS, "#define SHADE\n"), stillWindShade: () => mk(STILL_VS, STILL_FS, "#define WIND\n#define SHADE\n"), cast: () => mk(CAST_VS, CAST_FS, ""), move: () => mk(MOVE_VS, STILL_FS, ""), dome: () => mk(DOME_VS, DOME_FS, ""),
     water: () => mk(WATER_VS, WATER_FS, ""), waterRich: () => mk(WATER_VS, WATER_FS, "#define RICH\n"),
     fx: () => mk(FX_VS, FX_FS, ""), fxDots: () => mk(FX_VS, FX_FS, "#define DOTS\n"), ui: () => mk(UI_VS, UI_FS, ""),
     bright: () => mk(BLOOM_VS, BRIGHT_FS, ""), blur: () => mk(BLOOM_VS, BLUR_FS, ""), glowAdd: () => mk(BLOOM_VS, GLOWADD_FS, ""), grade: () => mk(BLOOM_VS, GRADE_FS, "") };
@@ -690,6 +733,7 @@ GL.prototype = {
     if (u.uShine) gl.uniform3fv(u.uShine, this.tint);
     if (u.uCap) gl.uniform1f(u.uCap, this.held || 8);
     if (u.uWind) gl.uniform3f(u.uWind, this.windT || 0, this.windy || 0, this.windG || 1.6);
+    if (u.uLVP) { const S = this.sh; gl.uniformMatrix4fv(u.uLVP, false, S.lvp); gl.uniform4f(u.uShadeK, S.dark, 1 / S.size, S.bias, S.k); gl.uniform1i(u.uShadeTex, 2); }
     if (u.uFogCol) gl.uniform3fv(u.uFogCol, L.fogCol);
     if (u.uSun) gl.uniform3fv(u.uSun, L.sun);
     if (u.uSunCol) gl.uniform3fv(u.uSunCol, L.sunCol);
@@ -778,7 +822,8 @@ GL.prototype = {
   // a still mesh with its light baked in (Mesh.light, Chunks.upload with a light): moved by nothing, only fogged
   still(h) {
     if (!h || !h.n) return;
-    const gl = this.gl; this.use(this.windy && this.prog("stillWind") || this.prog("still"));
+    const gl = this.gl, sh = this.sh && this.sh.on;
+    this.use(sh && (this.windy ? this.prog("stillWindShade") : this.prog("stillShade")) || this.windy && this.prog("stillWind") || this.prog("still"));
     this.bind(h); gl.drawArrays(gl.TRIANGLES, 0, h.n); this.calls++; this.tris += h.n / 3;
   },
   // a thing that moves: m its place, tint r g b, glow 0 lit … 1 its own colours, rim: how much its edges catch the sky
@@ -798,6 +843,55 @@ GL.prototype = {
   // as it is. With a glow pass that starts at k (bloom's `from`), only the lights glow: never skin, pale stone or
   // leaves that happen to be in full sun. A game that asks for bloom asks for this in the same breath.
   hold(k) { const c = k > 0 ? k : 8; if (c !== this.held) { this.held = c; this.frame++; } },
+  // Shadows of what moves, thrown on the still world by the sun (for the upper rungs; the still world's own are laid on
+  // the ground as it's built: Kit.cast). Each frame, before begin(): shadows(o) starts a picture of the movers seen from
+  // the sun, caster(h, m) puts one in it (a mesh and its place, as moved() takes them), shadowsDone() ends it, and the
+  // still world drawn after darkens where they stand between it and the sun: never what's laid in shadow already
+  // (Mesh.LAID) or a light of its own, and never the movers themselves. o {sun: towards it (the world's), cap: how far a
+  // metre of height may throw (1.15: a low sun's shadows kept short, as Kit.cast's are), x, y, z: the middle of what's
+  // covered, reach: how far it covers each way (metres), size: the picture's side in pixels (1024), dark: how dark
+  // (0.58, Kit.cast's)}. The shadows fade as the sun goes down (its height from 0.1 to 0). shadows(null): none from now
+  // on. False when this GPU can't.
+  shadows(o) {
+    const gl = this.gl;
+    if (!o) { if (this.sh) this.sh.on = false; this.frame++; return false; }
+    const P = this.prog("cast"); if (!P) return false;
+    const size = o.size || 1024; let S = this.sh;
+    if (!S || S.size !== size) {
+      if (S) { gl.deleteTexture(S.tex); gl.deleteFramebuffer(S.fbo); gl.deleteRenderbuffer(S.rb); }
+      const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, size, size, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+      for (const [k, v] of [[gl.TEXTURE_MIN_FILTER, gl.NEAREST], [gl.TEXTURE_MAG_FILTER, gl.NEAREST], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D, k, v);
+      const f = gl.createFramebuffer(), rb = gl.createRenderbuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, f);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t, 0);
+      gl.bindRenderbuffer(gl.RENDERBUFFER, rb); gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT16, size, size); gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, rb);
+      const ok = gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE; gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      S = this.sh = { size, tex: t, fbo: f, rb, ok, on: false, lvp: new Float32Array(16), v: new Float32Array(16), p: new Float32Array(16), dark: 0.58, bias: 0, k: 1 };
+    }
+    if (!S.ok) return false;
+    // the sun's way, raised where it's low (the same way round), so no metre of height throws further than cap
+    const sun = o.sun || this.L.sun, cap = o.cap || 1.15, hl = Math.hypot(sun[0], sun[2]) || 1e-6, sl = Math.hypot(sun[0], sun[1], sun[2]) || 1;
+    let dx = sun[0], dy = sun[1], dz = sun[2]; if (hl / Math.max(1e-6, dy) > cap) { dy = hl / cap; } const dl = Math.hypot(dx, dy, dz); dx /= dl; dy /= dl; dz /= dl;
+    const R = o.reach || 24, D = 80, tx = o.x || 0, ty = o.y || 0, tz = o.z || 0, px = 2 * R / size;
+    const cx = Math.round(tx / px) * px, cz = Math.round(tz / px) * px;   // (whole pixels: the shadows don't crawl as the middle moves)
+    M4.look(S.v, cx + dx * D, ty + dy * D, cz + dz * D, cx, ty, cz, 0, 1, 0); M4.ortho(S.p, -R, R, -R, R, D - 40, D + 40); M4.mul(S.lvp, S.p, S.v);
+    S.dark = o.dark == null ? 0.58 : o.dark; S.bias = 0.06 / 80; S.k = Math.max(0, Math.min(1, sun[1] / sl / 0.1)); S.on = false; S.n = 0;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, S.fbo); gl.viewport(0, 0, size, size); gl.disable(gl.SCISSOR_TEST);
+    gl.clearColor(1, 1, 1, 1); gl.depthMask(true); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT); gl.disable(gl.CULL_FACE);
+    gl.useProgram(P.p); this.cur = P; gl.uniformMatrix4fv(P.u.uLVP, false, S.lvp);
+    return true;
+  },
+  caster(h, m) {
+    const S = this.sh; if (!h || !h.n || !S || this.cur !== this.P.cast) return;
+    const gl = this.gl; gl.uniformMatrix4fv(this.P.cast.u.uM, false, m || IDENT);
+    this.bind(h); gl.drawArrays(gl.TRIANGLES, 0, h.n); S.n++;
+  },
+  shadowsDone() {
+    const gl = this.gl, S = this.sh; if (!S) return;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.enable(gl.CULL_FACE); this.cur = null;
+    gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+    gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, S.tex); gl.activeTexture(gl.TEXTURE0);
+    S.on = S.n > 0 && S.k > 0; this.frame++;
+  },
   // from now on (until wind(0)): the still world's grass and crowns move. t: the time (seconds); reach: how far the
   // lightest thing is pushed (metres; 0.12 is a breeze); gusts: how fast they come (1.6). Only what was built to give
   // way moves (Mesh.sway); everything else is drawn by the same shader as before. For the upper rungs: it's one more
@@ -1571,14 +1665,26 @@ const Kit = {
   // their beams, a door with its step, shuttered windows that are lit (into `glow`), a roof of shingles in bands with
   // eaves and a ridge, gables with their boards, a chimney. Its back wall (north, -z) is left plain: that eye never
   // sees it. o: { seed, detail (0 the fewest triangles: no beams; 1; 2 with flower boxes and a lantern), doorAt (-1, 0,
-  // 1), plaster, timber, stone, roof: [two shades], door, shutter, light }. 5 by 4.2 m, its eaves at 3.1 and its ridge
-  // at 5.2, times s. Returns where its chimney ends, in the world: [x, y, z] (for smoke).
+  // 1), plaster, timber, stone, roof: [two shades], door, shutter, light, walls ("frame": plaster in a timber frame;
+  // "logs": logs laid one on another, their ends crossing at the corners; "stone": courses of dressed stone, quoins at
+  // the corners; "planks": boards standing side by side, bound with straps), stilts (how high it stands on posts over
+  // wet ground, with a deck before the door and steps down) }. 5 by 4.2 m, its eaves at 3.1 and its ridge at 5.2, times
+  // s. Returns where its chimney ends, in the world: [x, y, z] (for smoke).
   house(m, glow, x, y, z, yaw, s, o) {
     o = o || {};
     const hw = 2.5, hd = 2.1, y0 = 0.55, y1 = 3.1, yr = 5.2, det = o.detail == null ? 2 : o.detail, seed = o.seed || 0, e = 0.035, t = 0.17, zf = hd;
     const pl = o.plaster || 0xb8a88c, tb = o.timber || 0x3a2a20, st = o.stone || 0x6a6860, rf = o.roof || [0x6a332c, 0x582a26], dr = o.door || 0x5a3a26, sh = o.shutter || 0x2f5a52, li = o.light || 0xffc870;
     const da = o.doorAt == null ? seed % 3 - 1 : o.doorAt, dxp = da * 1.15, wins = da === 0 ? [-1.72, 1.72] : da < 0 ? [0.42, 1.74] : [-1.74, -0.42], dark = 0x1c1410;
-    m.at(x, y, z, yaw, s); m.seed = 77 + seed; if (glow) glow.at(x, y, z, yaw, s);
+    const walls = o.walls || "frame", lift = o.stilts || 0, hsh = k => Math.abs(Math.sin(k * 12.9898 + seed * 0.37) * 43758.5453) % 1;
+    if (lift) {                                        // on posts: a deck before the door, steps down to the ground
+      m.at(x, y, z, yaw, s); m.seed = 71 + seed;
+      for (const px of [-hw + 0.25, 0, hw - 0.25]) for (const pz of [-hd + 0.25, hd - 0.25]) m.box(px, -0.6, pz, 0.26, lift + 0.6, 0.26, shadeK(tb, 0.9), tb);
+      for (const px of [-hw + 0.3, hw - 0.3]) m.box(px, -0.6, hd + 1.05, 0.2, lift + 0.6, 0.2, shadeK(tb, 0.9), tb);
+      m.box(0, lift - 0.14, 0.55, hw * 2 + 0.5, 0.14, hd * 2 + 1.1, shadeK(st, 0.92), st);
+      const n = Math.max(2, Math.ceil(lift / 0.3)), z0 = hd + 1.1;
+      for (let k = 0; k < n; k++) m.box(dxp, lift - (k + 1) * lift / n - 0.07, z0 + k * 0.3 + 0.15, 1.0, 0.08, 0.3, shadeK(st, k & 1 ? 0.95 : 1.05), shadeK(st, 1.12));
+    }
+    m.at(x, y + lift * s, z, yaw, s); m.seed = 77 + seed; if (glow) glow.at(x, y + lift * s, z, yaw, s);
     // a rectangle on the front wall (out: how far in front of it), one on a side wall, and a slanted beam on the front
     const F = (x0, ya, x1, yb, col, out) => m.quad(x0, ya, zf + out, x1, ya, zf + out, x1, yb, zf + out, x0, yb, zf + out, col, 0, 1.5, 0);
     const Sd = (sd, z0, ya, z1, yb, col, out) => m.quad(sd * (hw + out), ya, z0, sd * (hw + out), ya, z1, sd * (hw + out), yb, z1, sd * (hw + out), yb, z0, col, 0, 1.5, 0);
@@ -1587,7 +1693,23 @@ const Kit = {
     m.jit = 0.07; m.box(0, -0.6, 0, hw * 2 + 0.2, y0 + 0.6, hd * 2 + 0.2, st, shadeK(st, 1.12));
     if (det) for (let k = 0; k < 6; k++) { const xa = -hw + k * 0.84 + (k & 1) * 0.1; F(xa, k & 1 ? 0.02 : 0.1, xa + 0.62, k & 1 ? 0.3 : 0.48, shadeK(st, k % 3 ? 0.84 : 1.16), 0.1 + e); }
     m.jit = 0; F(-hw, y0, hw, y1, pl, 0); Sd(-1, -hd, y0, hd, y1, pl, 0); Sd(1, -hd, y0, hd, y1, pl, 0); m.quad(-hw, y0, -hd, hw, y0, -hd, hw, y1, -hd, -hw, y1, -hd, shadeK(pl, 0.9), 0, 1.5, 0);   // (four walls, and nothing under the roof to show through it)
-    if (det) {                                          // the frame: sills, plates, posts, a rail under the windows, braces at the corners
+    if (det && walls === "logs") {                       // logs, one on another, a little out from the wall; their ends cross at the corners
+      const n = 8, hh = (y1 - y0) / n;
+      for (let k = 0; k < n; k++) { const ya = y0 + k * hh, yb = ya + hh - 0.04, c = shadeK(tb, k & 1 ? 1.08 : 0.92);
+        F(-hw - 0.14, ya, hw + 0.14, yb, c, e * 0.5); for (const sd of [-1, 1]) Sd(sd, -hd, ya, hd + 0.14, yb, c, e * 0.5);
+        for (const sd of [-1, 1]) F(sd * (hw + 0.07) - 0.11, ya + 0.01, sd * (hw + 0.07) + 0.11, yb - 0.01, shadeK(tb, 1.3), 0.15); }   // (each log's end, at the front corners)
+    } else if (det && walls === "stone") {               // courses of dressed stone, some proud of the rest; quoins at the corners
+      for (let k = 0; k < 7; k++) { const ya = y0 + 0.04 + k * 0.36, off = k & 1 ? 0.42 : 0;
+        for (let i = 0; i < 7; i++) { const xa = -hw - 0.42 + off + i * 0.84, h_ = hsh(k * 7 + i); if (h_ > (det > 1 ? 0.42 : 0.3)) continue;
+          F(Math.max(-hw, xa + 0.04), ya, Math.min(hw, xa + 0.8), ya + 0.32, shadeK(pl, 0.86 + h_ * 0.3), e * 0.5); }
+        for (const sd of [-1, 1]) { if (hsh(k * 3 + sd) < 0.55) Sd(sd, -hd + off + 0.3, ya, -hd + off + 1.1, ya + 0.32, shadeK(pl, 0.9 + hsh(k + sd) * 0.2), e * 0.5);
+          F(sd > 0 ? hw - (k & 1 ? 0.5 : 0.3) : -hw, ya, sd > 0 ? hw : -hw + (k & 1 ? 0.5 : 0.3), ya + 0.32, shadeK(st, 1.1), e); } }
+    } else if (det && walls === "planks") {              // boards side by side, gaps dark between them, two straps of iron across
+      for (let i = 0; i < 10; i++) { const xa = -hw + i * 0.5; F(xa + 0.025, y0, xa + 0.475, y1, shadeK(pl, 0.88 + hsh(i) * 0.24), e * 0.5); }
+      for (const sd of [-1, 1]) for (let i = 0; i < 8; i++) { const za = -hd + i * 0.525; Sd(sd, za + 0.025, y0, za + 0.5, y1, shadeK(pl, 0.88 + hsh(i + 20 * sd) * 0.24), e * 0.5); }
+      F(-hw, 0.95, hw, 1.05, shadeK(tb, 0.8), e); F(-hw, y1 - 0.3, hw, y1 - 0.2, shadeK(tb, 0.8), e);
+      F(-hw, y0, -hw + t, y1, tb, e); F(hw - t, y0, hw, y1, tb, e);
+    } else if (det) {                                   // the frame: sills, plates, posts, a rail under the windows, braces at the corners
       F(-hw, y0, hw, y0 + t, tb, e); F(-hw, y1 - t, hw, y1, tb, e); F(-hw, y0, -hw + t, y1, tb, e); F(hw - t, y0, hw, y1, tb, e);
       F(-hw, 1.14, dxp - 0.62, 1.14 + t * 0.8, tb, e); F(dxp + 0.62, 1.14, hw, 1.14 + t * 0.8, tb, e);
       F(dxp - 0.62 - t, y0, dxp - 0.62, y1, tb, e); F(dxp + 0.62, y0, dxp + 0.62 + t, y1, tb, e);
@@ -1631,7 +1753,7 @@ const Kit = {
     const cxm = da > 0 ? -1.35 : 1.35, czm = -0.75, top = yr + 0.8;
     m.jit = 0.07; m.box(cxm, 3.4, czm, 0.62, top - 3.4, 0.62, st); m.jit = 0; m.box(cxm, top, czm, 0.82, 0.13, 0.82, shadeK(st, 0.8)); m.box(cxm, top + 0.13, czm, 0.42, 0.04, 0.42, 0x16120f);
     const c = Math.cos(yaw || 0), sn = Math.sin(yaw || 0);
-    return [x + (cxm * c + czm * sn) * s, y + (top + 0.2) * s, z + (-cxm * sn + czm * c) * s];
+    return [x + (cxm * c + czm * sn) * s, y + (top + 0.2 + lift) * s, z + (-cxm * sn + czm * c) * s];
   },
   lighthouse(m, x, y, z, lamps) {
     m.at(x, y, z); m.stack([[2.6, 0], [2.2, 6], [1.9, 12], [1.7, 16]], 8, [0xf2efe8, 0xd84a3e, 0xf2efe8], 0x3a3a44);

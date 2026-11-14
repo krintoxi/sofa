@@ -592,12 +592,12 @@ const STYLES = {
   sovereign: { skin: 0x2a2226, cloth: 0x4a1a22, legs: 0x2a2226, boots: 0x1a1416, gloves: 0x2a2226, head: "helm", bulk: 1.2, eyes: 0xff2e88, weapon: "mourning", crown: true, wings: true, pads: 0x3a2a2e }
 };
 const FOLK = {                                       // Hearthrim's: the smith, the herbalist, the weaver, three about the square
-  smith: { skin: SKIN[1], hair: HAIR[0], cloth: 0x5a3a26, legs: 0x3a2a20, boots: 0x2a1c14, gloves: 0x3a2a20, head: "hair", bulk: 1.2, weapon: "mace" },
-  herbalist: { skin: SKIN[0], hair: HAIR[2], cloth: 0x2e6a4a, legs: 0x2a4a3a, boots: 0x3a2a20, gloves: SKIN[0], head: "hair", bulk: 0.95, weapon: "wand" },
-  weaver: { skin: SKIN[2], hair: HAIR[3], cloth: 0x4a3a6a, legs: 0x3a2e52, boots: 0x2a2030, gloves: SKIN[2], head: "hood", bulk: 0.95, weapon: "staff" },
-  folk1: { skin: SKIN[3], hair: HAIR[1], cloth: CLOTH[3], legs: 0x3a3028, boots: 0x2a2018, gloves: SKIN[3], head: "hair", bulk: 1.0 },
-  folk2: { skin: SKIN[0], hair: HAIR[0], cloth: CLOTH[1], legs: 0x3a2a2a, boots: 0x2a1c1c, gloves: SKIN[0], head: "hair", bulk: 0.9 },
-  folk3: { skin: SKIN[1], hair: HAIR[2], cloth: CLOTH[2], legs: 0x2a3a30, boots: 0x1e2a22, gloves: SKIN[1], head: "hood", bulk: 1.05 }
+  smith: { skin: SKIN[1], hair: HAIR[0], cloth: 0x5a3a26, legs: 0x3a2a20, boots: 0x2a1c14, gloves: 0x3a2a20, head: "hair", bulk: 1.2, weapon: "mace", kit: "apron" },
+  herbalist: { skin: SKIN[0], hair: HAIR[2], cloth: 0x2e6a4a, legs: 0x2a4a3a, boots: 0x3a2a20, gloves: SKIN[0], head: "hair", bulk: 0.95, weapon: "wand", kit: "satchel" },
+  weaver: { skin: SKIN[2], hair: HAIR[3], cloth: 0x4a3a6a, legs: 0x3a2e52, boots: 0x2a2030, gloves: SKIN[2], head: "hood", bulk: 0.95, weapon: "staff", kit: "shawl" },
+  folk1: { skin: SKIN[3], hair: HAIR[1], cloth: CLOTH[3], legs: 0x3a3028, boots: 0x2a2018, gloves: SKIN[3], head: "hair", bulk: 1.0, kit: "satchel" },
+  folk2: { skin: SKIN[0], hair: HAIR[0], cloth: CLOTH[1], legs: 0x3a2a2a, boots: 0x2a1c1c, gloves: SKIN[0], head: "hair", bulk: 0.9, kit: "shawl" },
+  folk3: { skin: SKIN[1], hair: HAIR[2], cloth: CLOTH[2], legs: 0x2a3a30, boots: 0x1e2a22, gloves: SKIN[1], head: "hood", bulk: 1.05, kit: "plain" }
 };
 const WSIZE = { sword: 0.95, edge: 0.95, vanguard: 1.0, valor: 1.0, mourning: 1.1, greatsword: 1.35, dagger: 0.5, axe: 0.8, cleaver: 0.8, mace: 0.8, cleft: 0.75, halberd: 1.8, bow: 1.3, staff: 1.75, wand: 0.6 };
 // ---------------------------------------------------------------- WYRD's own models: unpacked once, put into meshes
@@ -817,15 +817,23 @@ function buildBody(m, st, poseName, scale, flut) {
   if ((st.relic ? st.relic.kind === "bow" && st.relic.look === "signal" : st.weapon === "bow") && /^(idle|walk)/.test(poseName)) P = Object.assign({}, P, { foreL: [1.35, 0, 0], armL: [0.2, 0.1, 0] });   // (a bow held ready, upright)
   RIG.pose(P, S, bulk);
   const part = (j, fn) => { RIG.at(m, j); fn(); };
-  const cloth = st.cloth, skin = st.skin, glow0 = m.glow;
+  const cloth = st.cloth, skin = st.skin, glow0 = m.glow, shd = (c, k) => { const f = v => Math.min(255, Math.round(v * k)); return (f(c >> 16 & 255) << 16) | (f(c >> 8 & 255) << 8) | f(c & 255); };
   if (st.glow) m.glow = Math.round(st.glow * 127);
   // hips and the trunk
-  part(0, () => { m.box(0, -0.12, 0, 0.34 * bulk, 0.22, 0.21 * Math.sqrt(bulk), st.legs); m.box(0, 0.06, 0, 0.36 * bulk, 0.07, 0.23 * Math.sqrt(bulk), 0x3a2a1e); });
+  part(0, () => { m.box(0, -0.12, 0, 0.34 * bulk, 0.22, 0.21 * Math.sqrt(bulk), st.legs); m.box(0, 0.06, 0, 0.36 * bulk, 0.07, 0.23 * Math.sqrt(bulk), 0x3a2a1e);
+    if (st.kit) { const zb = 0.115 * Math.sqrt(bulk);   // (the delver and the townsfolk: a buckle, a pouch at the hip; the smith's apron)
+      m.box(0, 0.055, zb, 0.07, 0.08, 0.025, 0xa8a8b0); m.box(0.19 * bulk, -0.07, 0.03, 0.07, 0.11, 0.11, 0x5a3a24, 0x6a4a2e);
+      if (st.kit === "apron") m.box(0, -0.2, zb + 0.01, 0.3 * bulk, 0.3, 0.025, 0x4a3a2a); if (st.kit === "satchel") m.box(-0.2 * bulk, -0.1, 0, 0.08, 0.17, 0.18, 0x6a5038, 0x7a5c40); } });
   part(1, () => {
     const w = bulk * (st.thin ? 0.85 : 1);
     if (st.head === "skull") { m.box(0, 0, 0, 0.08, 0.46, 0.08, skin); for (let k = 0; k < 4; k++) m.box(0, 0.1 + k * 0.09, 0.0, 0.3 * w, 0.03, 0.18, skin); }
     else { m.stack([[0.15 * w, 0], [0.19 * w, 0.2], [0.22 * w, 0.4], [0.13 * w, 0.5]], 6, cloth, cloth); }
     if (st.pads) { m.box(-0.22 * w, 0.4, 0, 0.17 * w, 0.1, 0.22, st.pads); m.box(0.22 * w, 0.4, 0, 0.17 * w, 0.1, 0.22, st.pads); }
+    if (st.kit) { m.box(0, 0.45, 0, 0.22 * w, 0.05, 0.17, shd(cloth, 0.72));   // a collar; the delver's pack with a bedroll over it and its straps
+      if (st.kit === "pack") { m.box(0, 0.1, -0.2 * w, 0.27 * w, 0.3, 0.13, 0x5a4030, 0x6a4a36); m.box(0, 0.4, -0.21 * w, 0.4 * w, 0.11, 0.13, 0x6a5e4c, 0x7a6e5a);
+        for (const sx of [-0.08, 0.08]) m.box(sx * w, 0.18, 0.165 * w, 0.035, 0.28, 0.02, 0x3a2a1e); }
+      else if (st.kit === "apron") m.box(0, 0.06, 0.175 * w, 0.24 * w, 0.32, 0.025, 0x4a3a2a);
+      else if (st.kit === "shawl") m.stack([[0.2 * w, 0.34], [0.25 * w, 0.4], [0.13 * w, 0.49]], 7, 0x8a5a7a, 0x9a6a8a); }
   });
   part(2, () => {
     m.box(0, -0.04, 0, 0.09, 0.08, 0.09, skin);
@@ -839,7 +847,8 @@ function buildBody(m, st, poseName, scale, flut) {
     else {
       m.stack([[0.1, 0.0], [0.135, 0.08], [0.14, 0.2], [0.11, 0.29], [0, 0.32]], 7, skin, skin);
       if (h === "helmet") { m.stack([[0.16, 0.13], [0.165, 0.24], [0.12, 0.33], [0, 0.37]], 7, st.helmCol, st.helmCol); m.box(0, 0.06, -0.02, 0.3, 0.06, 0.24, st.helmCol); }
-      else if (h === "hair") { m.stack([[0.145, 0.16], [0.15, 0.26], [0.1, 0.33], [0, 0.345]], 7, st.hair, st.hair); m.box(0, 0.08, -0.08, 0.27, 0.2, 0.08, st.hair); }
+      else if (h === "hair") { m.stack([[0.145, 0.16], [0.15, 0.26], [0.1, 0.33], [0, 0.345]], 7, st.hair, st.hair); m.box(0, 0.08, -0.08, 0.27, 0.2, 0.08, st.hair);
+        if (st.kit) { m.box(-0.04, 0.22, 0.11, 0.17, 0.06, 0.05, st.hair); m.box(-0.12, 0.12, 0.06, 0.05, 0.13, 0.08, st.hair); } }
     }
     if (st.eyes) { const g0 = m.glow; m.glow = 127; m.box(-0.05, 0.15, 0.12, 0.04, 0.03, 0.03, st.eyes); m.box(0.05, 0.15, 0.12, 0.04, 0.03, 0.03, st.eyes); m.glow = g0; }
     else if (h !== "hood") { m.box(-0.05, 0.15, 0.125, 0.03, 0.03, 0.02, 0x1a1414); m.box(0.05, 0.15, 0.125, 0.03, 0.03, 0.02, 0x1a1414); }
@@ -852,6 +861,7 @@ function buildBody(m, st, poseName, scale, flut) {
   limb(9, 0.44, 0.14 * Math.sqrt(bulk), st.legs); limb(12, 0.44, 0.14 * Math.sqrt(bulk), st.legs);
   limb(10, 0.43, 0.12 * Math.sqrt(bulk), st.boots); limb(13, 0.43, 0.12 * Math.sqrt(bulk), st.boots);
   part(11, () => m.box(0, -0.07, 0.05, 0.13 * Math.sqrt(bulk), 0.08, 0.24, st.boots)); part(14, () => m.box(0, -0.07, 0.05, 0.13 * Math.sqrt(bulk), 0.08, 0.24, st.boots));
+  if (st.kit) for (const j of [10, 13]) part(j, () => m.box(0, -0.1, 0, 0.14 * Math.sqrt(bulk), 0.07, 0.14 * Math.sqrt(bulk), shd(st.boots, 1.35)));   // (boots turned down at the top)
   m.glow = glow0;
   // what's held: a weapon in the right hand (a bow in the left), a shield on the left arm
   const w = st.relic ? null : st.weapon;
@@ -886,7 +896,7 @@ function delverStyle(d) {
   const L = d.look, g = d.gear, t = s => g[s] ? TIERCOL[g[s].tier] : null;
   return { skin: SKIN[L.skin], hair: HAIR[L.hair], cloth: g.chest ? mix(CLOTH[L.cloth], t("chest"), 0.55) : CLOTH[L.cloth], legs: mix(CLOTH[L.cloth], 0x2a2420, 0.6),
     boots: t("boots") || 0x4a3426, gloves: t("gloves") || SKIN[L.skin], head: g.helm ? "helmet" : "hair", helmCol: t("helm"), bulk: [0.92, 1.0, 1.12][L.build],
-    pads: g.chest && g.chest.tier >= 2 ? t("chest") : null, weapon: g.weapon ? weaponModel(g.weapon) : null, kind: SHOW && SHOW.kind ? SHOW.kind : g.weapon ? g.weapon.kind : "blade",
+    pads: g.chest && g.chest.tier >= 2 ? t("chest") : null, kit: "pack", weapon: g.weapon ? weaponModel(g.weapon) : null, kind: SHOW && SHOW.kind ? SHOW.kind : g.weapon ? g.weapon.kind : "blade",
     shine: g.weapon && g.weapon.r >= 3 ? RARITY[g.weapon.r].col : 0,
     mantle: SHOW && SHOW.look ? { look: SHOW.look, col: SHOW.col, mark: SHOW.mark || null } : g.mantle && g.mantle.m ? { look: MLOOK, col: WR.SKILL[g.mantle.m].col, mark: g.mantle.m } : null,
     relic: SHOW && SHOW.look ? { look: SHOW.look, kind: SHOW.kind || "blade", col: SHOW.col, size: 1, fang: !!SHOW.fang } : g.weapon && g.weapon.m ? { look: MLOOK, kind: g.weapon.kind, col: WR.SKILL[g.weapon.m].col, size: 1, fang: g.weapon.m === "summon" } : null };
@@ -1062,9 +1072,31 @@ const REGIONS = [
   { id: "briar", name: "Briarholt", tier: 1, lvl: 4, ground: [0x2c4a2e, 0x375a33, 0x456a3a], wall: [0x3e3a34, 0x504a40, 0x625a4c], deco: "fern", amp: 1.1, trees: 13, rocks: 2, foes: ["mosskin", "spider", "bat"], pack: 0.16, motes: 0x9fffc8 },
   { id: "fen", name: "Fenmoor", tier: 2, lvl: 8, ground: [0x2e4640, 0x3a564c, 0x4a6658], wall: [0x2e3a3c, 0x3c4c4e, 0x4c5e60], deco: "coral", amp: 0.35, trees: 8, rocks: 3, foes: ["eel", "jelly", "drowned"], pack: 0.18, motes: 0x8ff0ff, pool: 0x1e4658 },
   { id: "crag", name: "Cragfell", tier: 3, lvl: 13, ground: [0x4c483e, 0x5c5648, 0x6c6452], wall: [0x4c4a50, 0x5e5c62, 0x727076], deco: "bones", amp: 3.0, trees: 4, rocks: 8, foes: ["skeleton", "eye", "golem"], pack: 0.2, motes: 0xffc89a, crags: 2 },
-  { id: "cinder", name: "Cinderreach", tier: 4, lvl: 18, ground: [0x3a2a26, 0x4a322a, 0x5a3c2e], wall: [0x2e2220, 0x3e2c28, 0x503a32], deco: "spikes", amp: 2.0, trees: 6, rocks: 6, foes: ["salamander", "drone", "imp"], pack: 0.22, motes: 0xffa060, crags: 1, lava: 0xff5a2a },
+  { id: "cinder", name: "Cinderreach", tier: 4, lvl: 18, ground: [0x3a2a26, 0x4a322a, 0x5a3c2e], wall: [0x2e2220, 0x3e2c28, 0x503a32], deco: "spikes", amp: 2.0, trees: 6, rocks: 6, foes: ["salamander", "drone", "imp"], pack: 0.22, motes: 0xffa060, crags: 1, lava: 0xd8401c },
   { id: "wyrd", name: "The Greywyrd", tier: 5, lvl: 23, ground: [0x3a3646, 0x464254, 0x545064], wall: [0x2a2630, 0x383440, 0x484452], deco: "caps", amp: 1.3, trees: 8, rocks: 4, foes: ["wraith", "ashknight", "orb"], pack: 0.24, motes: 0xd8a0ff }
 ];
+// Each region's own (Hearthmead is Hearthrim's): how its camps are built (Kit.house), the colour of its grass, what grows
+// on its ground (by a seed's last digit), what stands in it here and there (blocking: a kind of ours, or a cave's prop),
+// and its air: the fog's colour, how far it carries, and how the picture is graded there. The air is blended as you go.
+const LANDS = [
+  { grass: 1, grassCol: [0x4f8a3c, 0x5c9a44, 0x6aa84c, 0x478236], cover: ["tuft", "tuft", "tuft", "tuft", "tuft", "bloom", "bloom", "bloom", "stone", "stone"], marks: ["log", "stones"],
+    air: { fog: 0x2a2440, far: 1, warm: [1.07, 1.0, 0.93], cool: [0.9, 0.96, 1.1], colour: 1.22 } },
+  { grass: 0.75, grassCol: [0x2e6a34, 0x3a7a3a, 0x285e2e, 0x447e3c], cover: ["fern", "fern", "fern", "fern", "bramble", "bramble", "bramble", "toad", "fern", "toad"], marks: ["log", "log", "shrine", "menhir"],
+    house: { walls: "logs", plaster: 0x4a3220, timber: 0x6a4a2e, stone: 0x5a5650, roof: [0x3e5a2e, 0x324c28], door: 0x4a3020, shutter: 0x6a3a2a, light: 0xffc870 },
+    air: { fog: 0x18281f, far: 0.92, warm: [1.06, 1.03, 0.9], cool: [0.84, 1.0, 0.96], colour: 1.2 } },
+  { grass: 0.55, grassCol: [0x5a7a5a, 0x4e7062, 0x6a8a62, 0x45685a], cover: ["reeds", "reeds", "reeds", "coral", "reeds", "reeds", "coral", "reeds", "stone", "reeds"], marks: ["snag", "snag", "snag", "urn"],
+    house: { walls: "planks", stilts: 1.5, plaster: 0x6e6e5c, timber: 0x3a3428, stone: 0x5e5038, roof: [0x9a8a5a, 0x857848], door: 0x4a4030, shutter: 0x3a5a52, light: 0xffd890 },
+    air: { fog: 0x22404a, far: 0.72, warm: [1.0, 1.04, 1.0], cool: [0.84, 0.98, 1.12], colour: 1.12 } },
+  { grass: 0.45, grassCol: [0x9a8a5a, 0xa8966a, 0x8a7a4e, 0xb0a070], cover: ["scree", "scree", "scree", "bones", "scree", "bones", "stone", "scree", "bones", "stone"], marks: ["cairn", "cairn", "menhir", "stele", "obelisk"],
+    house: { walls: "stone", plaster: 0x8a847a, timber: 0x3a3028, stone: 0x5e5a54, roof: [0x4a4c56, 0x3e4048], door: 0x4a3a2a, shutter: 0x5a2e2a, light: 0xffc070 },
+    air: { fog: 0x3a2e30, far: 1.05, warm: [1.09, 1.0, 0.88], cool: [0.94, 0.94, 1.04], colour: 1.14 } },
+  { grass: 0.22, grassCol: [0x6a5a50, 0x5a4c44, 0x7a6658, 0x4e4038], cover: ["spikes", "spikes", "embers", "scree", "spikes", "embers", "scree", "spikes", "embers", "scree"], marks: ["char", "char", "char", "brazier", "anvil"],
+    house: { walls: "planks", plaster: 0x3e2c26, timber: 0x241a16, stone: 0x2e2624, roof: [0x7a3a22, 0x6a321e], door: 0x2a1e1a, shutter: 0x4a2a1e, light: 0xff8a3a },
+    air: { fog: 0x3a1814, far: 0.86, warm: [1.12, 0.98, 0.86], cool: [0.98, 0.86, 0.9], colour: 1.18 } },
+  { grass: 0.6, grassCol: [0x7a6a9a, 0x6a5a8a, 0x8a78a8, 0x5e4e7e], cover: ["caps", "caps", "crystal", "caps", "crystal", "caps", "stone", "caps", "crystal", "caps"], marks: ["spire", "spire", "archway", "monolith", "oracle"],
+    house: { walls: "stone", plaster: 0xb0a8c0, timber: 0x2a2434, stone: 0x4a4658, roof: [0x4a2e6a, 0x3e2658], door: 0x2e2840, shutter: 0x3a5a7a, light: 0xc79cff },
+    air: { fog: 0x261a3e, far: 0.95, warm: [1.03, 0.96, 1.08], cool: [0.88, 0.86, 1.16], colour: 1.24 } }];
+const MARKS = { log: 1.4, stones: 1.3, snag: 0.5, cairn: 0.7, char: 0.5, spire: 0.9 };   // ours, and how much room each takes; the rest are a cave's props
 function makeOver(seed) {
   const t0 = performance.now(), st = TOWN, r = rng(seed), noise = vnoise(seed + 3), rough = vnoise(seed + 11), warp = vnoise(seed + 29), size = OW.size, half = size / 2;
   const land = new L3.Land(size, OW.n, 0), N = land.N;
@@ -1133,6 +1165,13 @@ function buildFeatures(w, r, prop, node) {
     lamp(camp[0] - 5, camp[1] + 5); lamp(camp[0] + 4, camp[1] - 5);
     w.roads.push([camp[0], camp[1], camp[0] * camp[0] + camp[1] * camp[1]]);
     const far = find(325, 0.3); feat("well", far[0], far[1], { id: k * 2, reg: k, label: WELLS[k * 2] + ": drink, or go down" }, 1.3); lamp(far[0] + 3, far[1] + 2);
+    // the camp's houses, built the region's way, north of the gate and facing it; and a hut by the far well
+    for (const [ox, oz, a, near] of [[-9, -9, 0.35, camp], [9, -10, -0.3, camp], [-7, -7, 0.2, far]]) {
+      for (let t = 0; t < 14; t++) { const x = near[0] + ox + (t ? (r() - 0.5) * 6 : 0), z = near[1] + oz + (t ? (r() - 0.5) * 5 : 0), h0 = w.land.at(x, z);
+        if (!w.inside(x, z, 1) || !w.blocks.free(x, z, 3.8) || w.feats.some(q => dist2(x, z, q.x, q.z) < 30) || h0 < -0.15 && !LANDS[k].house.stilts) continue;
+        if (Math.max(...[[3, 0], [-3, 0], [0, 3], [0, -3]].map(([u, v]) => Math.abs(w.land.at(x + u, z + v) - h0))) > 0.9) continue;
+        const d = { kind: "house", x, z, yaw: a + (r() - 0.5) * 0.3, s: 0.92 + r() * 0.16, seed: (r() * 1e6) | 0, land: k }; w.deco.push(d); w.houses.push(d); w.blocks.add(x, z, 3.6); yard(w, d); break; }
+    }
     if (k === 3) { feat("furnace", camp[0] - 8, camp[1] + 3, { label: "A field furnace: smelt ore into bars" }, 1.3); prop("hearth", camp[0] - 8, camp[1] + 3, 0.6, 0.75); }
     if (k === 2 || k === 5) { feat("kin", camp[0] - 8, camp[1] - 3, { label: "A kinstone: bind and call your creatures" }, 0.8); prop("oathstone", camp[0] - 8, camp[1] - 3, 0.3, 2.0); }
     if (k === 2) { const p = find(310, -0.32); feat("hollow", p[0], p[1], { label: "The Thornhollow: go in" }, 3.6); lamp(p[0] - 5, p[1] + 5); lamp(p[0] + 5, p[1] + 5); w.hollow = p; }
@@ -1163,17 +1202,27 @@ function openChunk(c) {
     if (r() < 0.035) { const p = spot(1.4); if (p) { grow("chest", { x: p[0], z: p[1], label: "Open the chest", yaw: r() * TAU, back: 900, lvl: R_.lvl }); block(p[0], p[1], 0.8); } else id++; } else id++;
     if (r() < R_.pack && dc > 95) { const p = spot(2.5); if (p) { const kind = R_.foes[(r() * R_.foes.length) | 0], n = 2 + ((r() * 2) | 0);
       for (let q = 0; q < n; q++) { const fo = spawnFoe(kind, p[0] + (r() * 2 - 1) * 2.5, p[1] + (r() * 2 - 1) * 2.5, R_.lvl + ((r() * 3) | 0), false, false); fo.ck = d.key; } } }
+    // what stands in it here and there: a fallen log, a dead tree, a cairn, a stump burnt black, crystals, a cave's old stones
+    for (let k = 0, n = rich() ? 3 : 1; k < n; k++) { if (r() > 0.7) continue; const p = spot(1.6); if (!p) continue; const reg = w.region(p[0], p[1]), L = LANDS[reg], kind = L.marks[(r() * L.marks.length) | 0], yaw = r() * TAU, sz = 0.85 + r() * 0.35, seed = (r() * 1e6) | 0;
+      if (reg === 2 && w.h(p[0], p[1]) < -0.15) continue;
+      if (kind in MARKS) { d.deco.push({ kind, x: p[0], z: p[1], yaw, s: sz, seed, mark: true }); block(p[0], p[1], MARKS[kind] * sz); }
+      else { d.props.push({ name: kind, x: p[0], z: p[1], y: w.h(p[0], p[1]), yaw, s: sz * 1.1, tint: 0 }); block(p[0], p[1], 0.9 * sz); } }
   }
-  // what grows on the ground: the region's own; on the fuller look more of it, and grass comes with flowers and stones (not on the square's paving)
+  // what grows on the ground: the region's own, by the seed's last digit (on the light look the region's first kind only);
+  // on the fuller look more of it. Not on Hearthrim's paving; on the fen's pools, lily pads
+  const flat = (x, z) => { const h0 = w.h(x, z); return h0 < 9 && Math.abs(w.h(x + 1, z) - w.h(x - 1, z)) + Math.abs(w.h(x, z + 1) - w.h(x, z - 1)) < 1.0; };
   for (let k = 0, full = rich(), n = (wild ? 6 : 5) * (full ? (wild ? 4 : 8) : 1); k < n; k++) {
     const x = c.x0 + r() * OW.chunk, z = c.z0 + r() * OW.chunk, sz = 0.7 + r() * 0.7, seed = (r() * 1e6) | 0; if (!w.inside(x, z, 1)) continue;
-    const kind = wild ? REGIONS[w.region(x, z)].deco : "tuft", pick = seed % 10, paved = x * x + (z - 4) * (z - 4) < 170;
+    const reg = wild ? w.region(x, z) : 0, pick = seed % 10, paved = x * x + (z - 4) * (z - 4) < 170;
     if (paved && pick > 2) continue;
-    d.deco.push({ kind: full && kind === "tuft" && !paved ? (pick < 5 ? "tuft" : pick < 8 ? "bloom" : "stone") : kind, x, z, s: sz, seed }); }
-  // and on the fuller look the meadow is grass: clumps of it, as many as the rung can carry (it moves with the wind)
-  if (rich() && (!wild || R_.deco === "tuft")) for (let k = 0, n = E.rung.h >= 1080 ? 240 : E.rung.h >= 720 ? 130 : 50; k < n; k++) {
-    const x = c.x0 + r() * OW.chunk, z = c.z0 + r() * OW.chunk, sz = 0.75 + r() * 0.7, seed = (r() * 1e6) | 0;
-    if (!w.inside(x, z, 1) || x * x + (z - 4) * (z - 4) < 170 || wild && REGIONS[w.region(x, z)].deco !== "tuft" || !w.blocks.free(x, z, 0.2)) continue;
+    let kind = full && !paved ? LANDS[reg].cover[pick] : wild ? REGIONS[reg].deco : "tuft";
+    if (reg === 2 && w.h(x, z) < -0.18) kind = "pads"; else if (kind !== "tuft" && kind !== REGIONS[reg].deco && !flat(x, z)) continue;
+    d.deco.push({ kind, x, z, s: sz, seed }); }
+  // and on the fuller look the ground is grass, each region's own colour and as much of it as the region has: clumps of
+  // it, as many as the rung can carry (it moves with the wind). Not on the paving, the pools, rock, or anything standing
+  if (rich()) for (let k = 0, n = E.rung.h >= 1080 ? 240 : E.rung.h >= 720 ? 130 : 50; k < n; k++) {
+    const x = c.x0 + r() * OW.chunk, z = c.z0 + r() * OW.chunk, sz = 0.75 + r() * 0.7, seed = (r() * 1e6) | 0, reg = wild ? w.region(x, z) : 0;
+    if (!w.inside(x, z, 1) || x * x + (z - 4) * (z - 4) < 170 || wild && (r() > LANDS[reg].grass || REGIONS[reg].pool && w.h(x, z) < -0.16 || !flat(x, z)) || !w.blocks.free(x, z, 0.2)) continue;
     d.deco.push({ kind: "grass", x, z, s: sz, seed }); }
 }
 function closeChunk(c) {
@@ -1220,19 +1269,22 @@ function buildTown(w, r, place, prop, node) {
     { who: "folk", x: 7, z: 4, home: [7, 4], wander: true, style: FOLK.folk2 },
     { who: "folk", x: 2, z: -8, home: [2, -8], wander: true, style: FOLK.folk3 }
   ];
-  // a yard for each house: logs piled against a wall, a barrel or two, a crate, a bench under a window: by its seed, and
-  // only where no tree or rock already stands (nothing here is left to chance, so nothing set down before it has moved)
-  for (const d of w.houses) {
-    const c = Math.cos(d.yaw), sn = Math.sin(d.yaw), s = d.s, v = d.seed % 4, da = d.seed % 3 - 1;
-    const put = (kind, lx, lz, turn, size, rad) => { const x = d.x + (lx * c + lz * sn) * s, z = d.z + (-lx * sn + lz * c) * s;
-      for (const nd of w.nodes) if (dist2(x, z, nd.x, nd.z) < 3.2) return;
-      w.deco.push({ kind, x, z, yaw: d.yaw + turn, s: size, seed: d.seed, fixed: true }); w.blocks.add(x, z, rad); };
-    const side = v & 1 ? 1 : -1, wx = da === 0 ? 1.72 : da < 0 ? 1.08 : -1.08;
-    if (v !== 3) put("woodpile", side * 2.95, -0.3, side * PI / 2, 1, 0.9);
-    put("barrel", -side * 3.0, 1.5, 0, 1, 0.5); if (v > 0) put("barrel", -side * 3.05, 0.62, 0, 0.82, 0.45);
-    if (v !== 1) put("crate", -side * 3.1, -0.5, 0.3, 1, 0.55); if (v === 3) put("crate", side * 3.05, 1.3, -0.2, 0.85, 0.5);
-    if (v >= 2) put("bench", wx, 2.62, 0, 1, 0.7);
-  }
+  for (const d of w.houses) yard(w, d);
+}
+// a yard for a house: logs piled against a wall, a barrel or two, a crate, a bench under a window: by its seed, and only
+// where nothing already stands (nothing here is left to chance, so nothing set down before it has moved). A house on
+// stilts keeps its yard under the deck's edge, on the ground.
+function yard(w, d) {
+  const c = Math.cos(d.yaw), sn = Math.sin(d.yaw), s = d.s, v = d.seed % 4, da = d.seed % 3 - 1, up = d.land && LANDS[d.land].house.stilts;
+  const put = (kind, lx, lz, turn, size, rad) => { const x = d.x + (lx * c + lz * sn) * s, z = d.z + (-lx * sn + lz * c) * s;
+    for (const nd of w.nodes) if (dist2(x, z, nd.x, nd.z) < 3.2) return;
+    if (d.land && !w.blocks.free(x, z, rad)) return;
+    w.deco.push({ kind, x, z, yaw: d.yaw + turn, s: size, seed: d.seed, fixed: true }); w.blocks.add(x, z, rad); };
+  const side = v & 1 ? 1 : -1, wx = da === 0 ? 1.72 : da < 0 ? 1.08 : -1.08;
+  if (v !== 3) put("woodpile", side * 2.95, -0.3, side * PI / 2, 1, 0.9);
+  put("barrel", -side * 3.0, 1.5, 0, 1, 0.5); if (v > 0) put("barrel", -side * 3.05, 0.62, 0, 0.82, 0.45);
+  if (v !== 1) put("crate", -side * 3.1, -0.5, 0.3, 1, 0.55); if (v === 3) put("crate", side * 3.05, 1.3, -0.2, 0.85, 0.5);
+  if (v >= 2 && !up) put("bench", wx, 2.62, 0, 1, 0.7);
 }
 
 // ---------------------------------------------------------------- what's built for each kind of small thing, in code
@@ -1268,7 +1320,7 @@ function decoMesh(w, d, m, glowM) {
     case "crate": L3.Kit.crate(m, d.x, y, d.z, d.yaw, d.s); break;
     case "woodpile": L3.Kit.woodpile(m, d.x, y, d.z, d.yaw, d.s); break;
     case "bench": L3.Kit.bench(m, d.x, y, d.z, d.yaw, d.s); break;
-    case "grass": { m.at(d.x, y, d.z, d.seed % 6, d.s); const G_ = [0x4f8a3c, 0x5c9a44, 0x6aa84c, 0x478236];   // a clump of blades
+    case "grass": { m.at(d.x, y, d.z, d.seed % 6, d.s); const G_ = LANDS[w.reg || 0].grassCol;   // a clump of blades, the region's colour
       for (let k = 0; k < 5; k++) { const a = k * 1.3 + d.seed, r = 0.05 + (k % 3) * 0.09, px = Math.cos(a) * r, pz = Math.sin(a) * r, hh = 0.34 + ((k * 7 + d.seed) % 5) * 0.06;
         m.both(px - 0.035, 0, pz, px + Math.cos(a) * 0.12, hh, pz + Math.sin(a) * 0.12, px + 0.035, 0, pz + 0.02, G_[(k + d.seed) % 4]); } break; }
     case "bloom": { m.at(d.x, y, d.z, d.seed % 6, d.s); const c = [0xd84a6a, 0xe8e0d0, 0xb07ae0, 0xe8d27a][d.seed % 4];   // a few flowers: a stem, and a head seen from above
@@ -1279,7 +1331,41 @@ function decoMesh(w, d, m, glowM) {
     case "lamp": { m.at(d.x, y, d.z, 0, 1); m.stack([[0.07, 0], [0.06, 2.3]], 5, 0x2a2420, null); m.box(0, 2.3, 0, 0.3, 0.06, 0.3, 0x2a2420);
       glowM.at(d.x, y, d.z, 0, 1); glowM.box(0, 2.1, 0, 0.18, 0.22, 0.18, 0xffd28a); break; }
     case "house": {                                   // (Low3D's Kit.house: three kinds by its seed, fewer parts on the light look)
-      const v = d.seed % 3; d.smoke = L3.Kit.house(m, glowM, d.x, y, d.z, d.yaw, d.s, Object.assign({ seed: d.seed, detail: rich() ? 2 : 1 }, HOUSES[v])); break; }
+      const v = d.seed % 3; d.smoke = L3.Kit.house(m, glowM, d.x, y, d.z, d.yaw, d.s, Object.assign({ seed: d.seed, detail: rich() ? 2 : 1 }, d.land ? LANDS[d.land].house : HOUSES[v])); break; }
+    // the regions' own ground: reeds with their heads, a bramble with berries, toadstools, lily pads, scree, embers in
+    // the ash, crystals; and what stands here and there: a fallen log with moss on it, a dead tree, a cairn, a stump
+    // burnt black, standing stones, a spire of crystal
+    case "reeds": { m.at(d.x, y, d.z, d.seed % 6, d.s); for (let k = 0; k < 8; k++) { const a = k * 2.4 + d.seed, r = 0.06 + (k % 4) * 0.08, px = Math.cos(a) * r, pz = Math.sin(a) * r, hh = 1.0 + ((k * 5 + d.seed) % 6) * 0.13, tx = px + Math.cos(a) * 0.1, tz = pz + Math.sin(a) * 0.1;
+        m.both(px - 0.03, 0, pz, tx, hh, tz, px + 0.03, 0, pz + 0.015, [0x5a7a4a, 0x6a8a52, 0x4e6a42][k % 3]);
+        if (k % 3 === 0) m.box(px + (tx - px) * 0.7, hh * 0.62, pz + (tz - pz) * 0.7, 0.07, 0.26, 0.07, 0x5a3a22); } break; }
+    case "bramble": { m.at(d.x, y, d.z, d.seed % 6, d.s); m.stack([[0.52, 0], [0.5, 0.36], [0, 0.64]], 6, [0x2a4a26, 0x3a6430], null, 0.12);
+      for (let k = 0; k < 6; k++) { const a = k * 1.05 + d.seed; m.both(Math.cos(a) * 0.3, 0.3, Math.sin(a) * 0.3, Math.cos(a) * 0.85, 0.52, Math.sin(a) * 0.85, Math.cos(a + 0.25) * 0.35, 0.46, Math.sin(a + 0.25) * 0.35, 0x3a2a26); }
+      for (let k = 0; k < 3; k++) { const a = k * 2.1 + d.seed; m.box(Math.cos(a) * 0.42, 0.42 + (k % 2) * 0.12, Math.sin(a) * 0.42, 0.09, 0.09, 0.09, k & 1 ? 0xb02a3a : 0x6a1a42); } break; }
+    case "toad": for (let k = 0; k < 3; k++) { const a = k * 2.1 + d.seed, sc = d.s * (0.6 + k * 0.25); m.at(d.x + Math.cos(a) * 0.24 * d.s, y, d.z + Math.sin(a) * 0.24 * d.s, a, sc);
+        m.stack([[0.07, 0], [0.06, 0.32]], 4, 0xe8dcc8, null); m.stack([[0.27, 0.3], [0.19, 0.43], [0, 0.47]], 5, [0xb0302a, 0xc8402e], null);
+        m.box(0.08, 0.42, 0.04, 0.07, 0.03, 0.07, 0xf0e8d8); } break;
+    case "pads": { for (let k = 0; k < 3; k++) { const a = k * 2.3 + d.seed; m.at(d.x + Math.cos(a) * 0.45 * d.s, y + 0.03, d.z + Math.sin(a) * 0.45 * d.s, a, d.s * (0.6 + k * 0.2)); m.disc(0.32, 7, 0, k & 1 ? 0x3a6a3a : 0x2e5a34); }
+      if (d.seed % 2) { glowM.at(d.x, y + 0.05, d.z, 0, d.s); glowM.box(0, 0, 0, 0.13, 0.09, 0.13, 0xf0d8e8); } break; }
+    case "scree": { m.seed = d.seed; const sc = w.st.wall; for (let k = 0; k < 5; k++) { const a = k * 1.9 + d.seed, rr = 0.15 + (k % 3) * 0.28;
+        m.at(d.x + Math.cos(a) * rr * d.s, y - 0.03, d.z + Math.sin(a) * rr * d.s, a, d.s * (0.3 + 0.12 * ((d.seed >> k) % 3))); m.stack([[0.3, 0], [0.22, 0.14]], 5, sc[k % 3], U.shade(sc[2], 1.1), 0.25); } break; }
+    case "embers": { m.seed = d.seed; for (let k = 0; k < 4; k++) { const a = k * 1.7 + d.seed, rr = 0.1 + (k % 2) * 0.3; m.at(d.x + Math.cos(a) * rr * d.s, y - 0.02, d.z + Math.sin(a) * rr * d.s, a, d.s * 0.32); m.stack([[0.3, 0], [0.24, 0.13]], 5, 0x1e1614, 0x2a1e1a, 0.2); }
+      glowM.at(d.x, y + 0.02, d.z, d.seed, d.s); for (let k = 0; k < 3; k++) { const a = k * 2.1 + d.seed; glowM.box(Math.cos(a) * 0.25, 0, Math.sin(a) * 0.25, 0.09, 0.05, 0.09, k & 1 ? 0xff6a2a : 0xffa04a); } break; }
+    case "crystal": case "spire": { const big = d.kind === "spire" ? 1.9 : 1;
+      for (let k = 0; k < 5; k++) { const a = k * 1.26 + d.seed, lean = 0.22 + (k % 3) * 0.12, hh = (0.45 + ((k * 3 + d.seed) % 4) * 0.2) * big, ox = d.x + Math.cos(a) * 0.17 * d.s * big, oz = d.z + Math.sin(a) * 0.17 * d.s * big;
+        m.at(ox, y - 0.05, oz, a, d.s * big * 0.85, d.s * big, d.s * big * 0.85, lean, 0); m.stack([[0.12, 0], [0.12, hh * 0.72], [0, hh]], 5, [0x4a2e7a, 0x6a42a0], null);
+        glowM.at(ox, y - 0.05, oz, a, d.s * big * 0.85, d.s * big, d.s * big * 0.85, lean, 0); glowM.stack([[0.075, hh * 0.5], [0.06, hh * 0.78], [0, hh * 1.01]], 5, k & 1 ? 0xc79cff : 0xe0b8ff, null); } break; }
+    case "log": { const bark = [0x4a3426, 0x3e2c20, 0x553c2a]; m.seed = d.seed; m.at(d.x, y + 0.3, d.z, d.seed % 6, d.s, d.s, d.s, PI / 2);
+      m.stack([[0.3, -1.4], [0.33, -0.5], [0.3, 0.6], [0.27, 1.4]], 7, bark, 0xb89a6a, 0.04);
+      m.at(d.x, y, d.z, d.seed % 6, d.s); m.box(0.02, 0.56, -0.2, 0.34, 0.08, 1.9, 0x4a7a34, 0x5a8a3c); m.box(0.24, 0.3, 0.5, 0.1, 0.1, 0.6, 0x3e2c20);
+      m.at(d.x, y, d.z, d.seed % 6 + 1.4, d.s * 0.7); m.stack([[0.06, 0], [0.05, 0.3]], 5, 0xe8dcc8, null); m.stack([[0.05, 0.27], [0.22, 0.3], [0, 0.4]], 6, 0xc0382c, null); break; }
+    case "snag": { m.seed = d.seed; m.at(d.x, y, d.z, d.seed % 6, d.s); m.stack([[0.32, -0.2], [0.24, 2.4], [0.12, 4.0], [0, 4.5]], 6, [0x5e584e, 0x6a645a, 0x787266], null, 0.06);
+      for (let k = 0; k < 3; k++) { const a = k * 2.3 + d.seed; m.at(d.x, y + (2.0 + k * 0.6) * d.s, d.z, a, d.s, d.s, d.s, 0.95); m.stack([[0.09, 0], [0.05, 0.9], [0, 1.5]], 4, 0x787266, null); } break; }
+    case "cairn": { m.seed = d.seed; const sc = w.st.wall; for (let k = 0; k < 5; k++) { m.at(d.x, y + k * 0.27 * d.s, d.z, k * 1.3 + d.seed, d.s * (1 - k * 0.15)); m.stack([[0.44, 0], [0.38, 0.27], [0.22, 0.31]], 6, sc[(k + 1) % 3], U.shade(sc[2], 1.12), 0.12); } break; }
+    case "char": { m.seed = d.seed; m.at(d.x, y, d.z, d.seed % 6, d.s); m.stack([[0.42, -0.2], [0.3, 1.5], [0.2, 2.4], [0, 2.8]], 6, [0x1a1412, 0x241c18, 0x16100e], null, 0.08);
+      for (let k = 0; k < 2; k++) { const a = k * 3.1 + d.seed; m.at(d.x, y + (1.5 + k * 0.5) * d.s, d.z, a, d.s, d.s, d.s, 1.0); m.stack([[0.1, 0], [0, 1.0]], 4, 0x1a1412, null); }
+      glowM.at(d.x, y, d.z, d.seed % 6, d.s); for (let k = 0; k < 3; k++) { const a = k * 2.1 + d.seed; glowM.box(Math.cos(a) * 0.36, 0.1 + k * 0.35, Math.sin(a) * 0.36, 0.05, 0.3, 0.05, 0xff6a2a); } break; }
+    case "stones": { m.seed = d.seed; for (let k = 0; k < 3; k++) { const a = k * 2.1 + d.seed; m.at(d.x + Math.cos(a) * 1.0 * d.s, y, d.z + Math.sin(a) * 1.0 * d.s, a, d.s * (0.8 + (k % 2) * 0.3));
+        m.stack([[0.34, -0.2], [0.3, 1.0], [0.18, 1.55], [0, 1.68]], 5, [0x5c5a56, 0x6e6a64, 0x7c786e], null, 0.1, PI / 5); } break; }
   }
 }
 // a tree of each kind, where it stands; spent: its stump
@@ -2147,11 +2233,26 @@ let STREAM = null;
 const rich = () => E.mode === "gl" && !!E.rung && E.rung.look === 1;
 // the fuller look's picture, graded: the open country richer and warmer in its lights, cooler in its shade; underground harder
 const GRADE = { over: { gain: 1.1, curve: 0.42, colour: 1.22, warm: [1.07, 1.0, 0.93], cool: [0.9, 0.96, 1.1], edge: 0.5 }, under: { gain: 1.05, curve: 0.35, colour: 1.1, warm: [1.04, 1.0, 0.96], cool: [0.94, 0.97, 1.06], edge: 0.6 } };
+// the air where you are in the open country: each region's (LANDS[].air), blended over the ground round the eye (25
+// looks, 11 m apart), worked out again when the eye has moved a metre and a half: the fog's colour and reach on every
+// box, and on the fuller look how the picture is graded
+const AIRNOW = { at: [1e9, 1e9], fog: 0x2a2440, far: 1, grade: { gain: 1.1, curve: 0.42, colour: 1.22, warm: [1.07, 1.0, 0.93], cool: [0.9, 0.96, 1.1], edge: 0.5 } };
+function airAt(w, x, z) {
+  const A = AIRNOW; if (Math.abs(x - A.at[0]) + Math.abs(z - A.at[1]) < 1.5) return false;
+  A.at[0] = x; A.at[1] = z;
+  let r = 0, g = 0, b = 0, far = 0, col = 0, n = 0; const wm = A.grade.warm, cl = A.grade.cool; wm.fill(0); cl.fill(0);
+  for (let i = -2; i <= 2; i++) for (let j = -2; j <= 2; j++) {
+    const a = LANDS[w.region(x + i * 11, z + j * 11)].air, c = a.fog; r += c >> 16 & 255; g += c >> 8 & 255; b += c & 255; far += a.far; col += a.colour; n++;
+    for (let k = 0; k < 3; k++) { wm[k] += a.warm[k]; cl[k] += a.cool[k]; } }
+  for (let k = 0; k < 3; k++) { wm[k] /= n; cl[k] /= n; }
+  A.fog = (Math.round(r / n) << 16) | (Math.round(g / n) << 8) | Math.round(b / n); A.far = far / n; A.grade.colour = col / n;
+  return true;
+}
 const BLOOM = { hold: 0.9, from: 0.9, to: 0.985, pure: [0.3, 0.56], power: 0.85, size: 0.25, wide: 0.55 };   // (only what's a light of its own: a lamp, a lit line. What's lit is held under `hold`, so skin and leaves in the sun never glow)
 const TPL = new Map(), NOGPU = { upload: () => null, free() {} };
-const GIVES = { tuft: 0.45, bloom: 0.34, grass: 0.6, fern: 0.75 };   // what gives way to the wind, and the height at which it gives most (Mesh.sway)
+const GIVES = { tuft: 0.45, bloom: 0.34, grass: 0.6, fern: 0.75, reeds: 1.7, bramble: 0.8 };   // what gives way to the wind, and the height at which it gives most (Mesh.sway)
 function tpl(key, fn) { let t = TPL.get(key); if (!t) { t = { m: new L3.Mesh(128), g: new L3.Mesh(32) }; fn(t.m, t.g); TPL.set(key, t); } return t; }
-const regWorld = reg => ({ st: { wall: REGIONS[reg].wall, ground: REGIONS[reg].ground, glow: [0xffd28a, 0x9fffc8, 0x6ae8ff, 0xffa04a, 0xff7a2a, 0xc07cff][reg] }, h: () => 0 });
+const regWorld = reg => ({ reg, st: { wall: REGIONS[reg].wall, ground: REGIONS[reg].ground, glow: [0xffd28a, 0x9fffc8, 0x6ae8ff, 0xffa04a, 0xff7a2a, 0xc07cff][reg] }, h: () => 0 });
 function stampThing(base, glow, t, x, y, z, yaw, s, shade) { base.stamp(t.m, x, y, z, yaw, s, s, shade); if (t.g.n) glow.stamp(t.g, x, y, z, yaw, s); }
 function stampNode(w, nd, base, glow) {
   if (nd.hidden || !nd.on && (!nd.spent || nd.kind === "chest" || nd.kind === "herb") || nd.dyn) return;
@@ -2196,9 +2297,38 @@ function buildChunk(c, base, glow, step) {
   }
   for (const p of d.props) { const lit = p.name === "crystal"; stampThing(lit ? glow : base, glow, tpl("p" + p.name + p.tint, (m, g) => putModel(m, p.name, 0, 0, 0, 0, 1, p.tint ? tintTo(p.tint, lit ? 0.75 : 0.5) : null)), p.x, p.y, p.z, p.yaw || 0, p.s || 1, 1); }
   for (const nd of d.nodes) stampNode(w, nd, base, glow);
+  patches(w, c, base, w.gcol || (w.gcol = overColour(w, {}))); lava(w, c, glow);
   castShadows(w, d, base, c);
   base.at(0, 0, 0); glow.at(0, 0, 0);
   return true;
+}
+// The Cinderreach's lava: where its crack runs (a line through the ground's noise), a pool of it laid over the dark
+// crust at each corner of the ground's cells, rounded and overlapping into a river; hotter down its middle. In the glow
+// mesh: a light of its own.
+const CRUST = 0x2a1612;
+function lava(w, c, glow) {
+  const L = w.land, n2 = w.n2 || (w.n2 = vnoise(w.seed + 37)), r = rng((w.seed ^ Math.imul(c.ix + 5, 73856093) ^ Math.imul(c.iz + 9, 19349663)) | 0), P = [];
+  const i0 = Math.ceil((c.x0 + L.half) / L.cell), i1 = Math.floor((c.x1 + L.half) / L.cell), j0 = Math.ceil((c.z0 + L.half) / L.cell), j1 = Math.floor((c.z1 + L.half) / L.cell);
+  for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+    const x = -L.half + i * L.cell, z = -L.half + j * L.cell, R_ = REGIONS[w.region(x, z)], v = Math.abs(n2(x * 0.05, z * 0.05)); if (!R_.lava || v >= 0.035) continue;
+    const rad = 1.5 + r() * 0.5, hot = v < 0.014;
+    for (let k = 0; k < 7; k++) { const a = k / 7 * TAU + r() * 0.6, rr = rad * (0.7 + r() * 0.4); P.push(x + Math.cos(a) * rr, z + Math.sin(a) * rr); }
+    L3.Kit.lay(glow, P, w.on, () => hot ? 0xff7a2a : R_.lava, hot ? 0.045 : 0.04, !rich()); P.length = 0;
+  }
+}
+// The ground's own marks: patches of moss, leaf litter, gravel, mud or ash, each a flat shape laid just over it (Kit.lay,
+// under the stones and the shadows) in the region's colours, from the chunk's own seed; more on the fuller look. Not on
+// the square, the fen's pools, the lava, or steep ground.
+const PATCH = [[0x7a9a4c, 0x6a5a3e, 0x4a7a36], [0x1e2c18, 0x5a4428, 0x3e6a2c], [0x4a6a52, 0x22302e, 0x5a7a52], [0x8a8070, 0x4e463a, 0x9a9282], [0x1c1614, 0x6a5e56, 0x502a1e], [0x5a4e74, 0x2a2238, 0x6a5e84]];
+function patches(w, c, base, gc) {
+  const r = rng((w.seed ^ Math.imul(c.ix + 97, 2654435761) ^ Math.imul(c.iz + 13, 40503)) | 0), n = rich() ? 20 : 6, P = [];
+  for (let k = 0; k < n; k++) {
+    const x = c.x0 + r() * OW.chunk, z = c.z0 + r() * OW.chunk, reg = w.region(x, z), rad = 0.9 + r() * 2.0, tint = PATCH[reg][(r() * 3) | 0], k2 = 0.5 + r() * 0.35, h0 = w.h(x, z);
+    if (x * x + (z - 4) * (z - 4) < 200 || !w.inside(x, z, 1) || REGIONS[reg].pool && h0 < -0.1 || gc(h0, 0, x, z) === CRUST) continue;
+    if (Math.abs(w.h(x + 2, z) - w.h(x - 2, z)) + Math.abs(w.h(x, z + 2) - w.h(x, z - 2)) > 1.6) continue;
+    for (let i = 0; i < 7; i++) { const a = i / 7 * TAU + r() * 0.5, rr = rad * (0.6 + r() * 0.5); P.push(x + Math.cos(a) * rr, z + Math.sin(a) * rr * (0.7 + r() * 0.3)); }
+    L3.Kit.lay(base, P, w.on, (px, pz) => mix(gc(w.h(px, pz), 0, px, pz), tint, k2), 0.03); P.length = 0;
+  }
 }
 // The square's flagstones: rings of them round the fount, each a flat piece just over the ground and no two the same
 // grey, warmer where a lamp stands over them; the square's edge ragged. Fewer and bigger on the light look.
@@ -2220,19 +2350,27 @@ function pave(w, c, base, gc) {
 // What stands throws a shadow: laid on the ground as the chunk is made, in the ground's own colour, darker (Kit.cast).
 // Houses, the well, the gates and the lamps on every rung; trees and rocks on the fuller look.
 const CROWN = [[1.55, 2.5, 0.55, 4.6, 7.3], [1.3, 3.3, 0.8, 5.0, 5.7], [1.65, 3.2, 0.8, 4.6, 5.1], [1.9, 2.9, 0.8, 3.9, 4.3], [2.3, 4.8, 0.8, 6.6, 8.0], [2.0, 4.2, 0.8, 5.6, 6.6]];   // a tree's crown by kind: radius, from, narrowing to, at, tip
+const PROPH = { menhir: [0.5, 2.6], stele: [0.5, 2.0], obelisk: [0.55, 3.6], shrine: [0.8, 1.8], urn: [0.4, 0.9], brazier: [0.45, 1.1], anvil: [0.5, 0.8], archway: [0.6, 3.2], monolith: [0.7, 3.4], oracle: [0.6, 2.2] };   // a cave's prop where it stands in the open: how wide at its foot, how tall (for its shadow)
 function castShadows(w, d, base, c) {
   const gc = w.gcol || (w.gcol = overColour(w, {})), col = (x, z) => U.shade(gc(w.h(x, z), 0, x, z), 0.58), dx = w.cast[0], dz = w.cast[1], P = [];
   const ring = (x, z, r, h, n, a0) => { for (let i = 0; i < n; i++) { const a = (a0 || 0) + i / n * TAU; P.push(x + Math.cos(a) * r, z + Math.sin(a) * r, h); } };
   const lay = fan => { L3.Kit.cast(base, P, dx, dz, w.on, col, 0.09, fan); P.length = 0; };   // (fan: a small shadow, in a third of the triangles)
   for (const q of d.deco) {
-    if (q.kind === "house") { const c = Math.cos(q.yaw), sn = Math.sin(q.yaw), s = q.s, at = (lx, lz, h) => P.push(q.x + (lx * c + lz * sn) * s, q.z + (-lx * sn + lz * c) * s, h * s);
+    if (q.kind === "house") { const c = Math.cos(q.yaw), sn = Math.sin(q.yaw), s = q.s, up = q.land && LANDS[q.land].house.stilts || 0, at = (lx, lz, h) => P.push(q.x + (lx * c + lz * sn) * s, q.z + (-lx * sn + lz * c) * s, (h && h + up) * s);
       for (const sx of [-1, 1]) { for (const sz of [-1, 1]) { at(sx * 2.6, sz * 2.2, 0); at(sx * 2.8, sz * 2.4, 3.1); } at(sx * 2.8, 0, 5.2); } at(1.6, 0.8, 5.3); lay(); }
     else if (q.kind === "lamp") { ring(q.x, q.z, 0.09, 0, 4); ring(q.x, q.z, 0.09, 2.3, 4); ring(q.x, q.z, 0.2, 2.4, 4); lay(1); }
     else if (q.kind === "barrel") { ring(q.x, q.z, 0.43 * q.s, 0, 6); ring(q.x, q.z, 0.36 * q.s, 0.92 * q.s, 6); lay(1); }
     else if (q.kind === "crate") { ring(q.x, q.z, 0.56 * q.s, 0, 4, q.yaw + PI / 4); ring(q.x, q.z, 0.56 * q.s, 0.7 * q.s, 4, q.yaw + PI / 4); lay(1); }
     else if (q.kind === "woodpile") { const c = Math.cos(q.yaw), sn = Math.sin(q.yaw); for (const sx of [-0.85, 0.85]) for (const sz of [-0.3, 0.3]) for (const h of [0, 1.05]) P.push(q.x + sx * c + sz * sn, q.z - sx * sn + sz * c, h); lay(1); }
+    else if (q.mark) { const s = q.s, ts = q.seed % 3 + 3, a = (q.seed % 628) / 100, ya = a + ts % 6;   // (as it was stamped: its template's seed and turn, then turned by its own seed)
+      if (q.kind === "log") { const ux = Math.sin(ya), uz = Math.cos(ya); for (const t of [-1.4, 1.4]) for (const sd of [-0.32, 0.32]) for (const h of [0, 0.62]) P.push(q.x + (ux * t + uz * sd) * s, q.z + (uz * t - ux * sd) * s, h * s); lay(); }
+      else if (q.kind === "snag") { ring(q.x, q.z, 0.3 * s, 0, 4); ring(q.x, q.z, 1.0 * s, 3.0 * s, 3, a); P.push(q.x, q.z, 4.5 * s); lay(1); }
+      else if (q.kind === "cairn") { ring(q.x, q.z, 0.44 * s, 0, 5); ring(q.x, q.z, 0.2 * s, 1.35 * s, 4); lay(1); }
+      else if (q.kind === "char") { ring(q.x, q.z, 0.42 * s, 0, 5); P.push(q.x, q.z, 2.8 * s); lay(1); }
+      else if (q.kind === "spire") { ring(q.x, q.z, 0.5 * s, 0, 5); ring(q.x, q.z, 0.3 * s, 1.3 * s, 4, a); lay(1); }
+      else if (q.kind === "stones") for (let k = 0; k < 3; k++) { const b = k * 2.1 + ts, sk = s * (0.8 + (k % 2) * 0.3), x = q.x + Math.cos(b - a) * s, z = q.z + Math.sin(b - a) * s; ring(x, z, 0.32 * sk, 0, 5); P.push(x, z, 1.68 * sk); lay(1); } }
   }
-  for (const p of d.props) { const k = p.s || 1; if (p.name === "crystal" || p.name === "fount") continue; ring(p.x, p.z, 0.42 * k, 0, 6); ring(p.x, p.z, 0.36 * k, 0.75 * k, 6); lay(1); }
+  for (const p of d.props) { const k = p.s || 1, t = PROPH[p.name] || [0.42, 0.75]; if (p.name === "crystal" || p.name === "fount") continue; ring(p.x, p.z, t[0] * k, 0, 6); ring(p.x, p.z, t[0] * 0.8 * k, t[1] * k, 6); lay(1); }
   // light on the ground, laid the same way: a pool under each lamp, and what a house's windows spill before it
   const warm = (x, z, k) => mix(gc(w.h(x, z), 0, x, z), 0xffc27a, k);
   for (const q of d.deco) {
@@ -2261,7 +2399,7 @@ function overColour(w, base) {
     base.glow = 0;
     if (steep > 0.5 || h > 9) { const i = h > 14 ? 2 : h > 7 ? 1 : 0; return U.shade(R_.wall[i], 0.92 + v * 0.12); }
     if (R_.pool && h < -0.2) { base.glow = 30; return U.shade(R_.pool, 0.9 + v * 0.2); }
-    if (R_.lava && Math.abs(n2(x * 0.05, z * 0.05)) < 0.035) { base.glow = 127; return R_.lava; }
+    if (R_.lava && Math.abs(n2(x * 0.05, z * 0.05)) < 0.035) return CRUST;   // (the lava itself is laid over it: lava())
     if (x * x + (z - 4) * (z - 4) < 150) return [0x55524c, 0x5e5a54, 0x66625a][v > 0.25 ? 2 : v > -0.2 ? 1 : 0];
     for (let i = 0; i < roads.length; i++) { const q = roads[i], t = clamp((x * q[0] + z * q[1]) / q[2], 0, 1), dx = x - q[0] * t, dz = z - q[1] * t; if (dx * dx + dz * dz < 4.4 + v * 2) return mix(R_.ground[1], 0x8a7a5c, 0.45); }
     return R_.ground[v > 0.25 ? 2 : v > -0.2 ? 1 : 0];
@@ -2293,7 +2431,7 @@ function prepareGL() {
   if (w.kind === "town") GPU.sky = g3.picture(L3.Kit.sky({ w: Math.min(E.probe.maxTex || 2048, 2048), h: 256, top: 0x14122e, mid: 0x4a2f6a, horizon: 0xff7a7a, haze: 0xffa98c, seed: 9,
     sun: { az: Math.atan2(st.sun[0], st.sun[2]), el: 0.12, size: 0.2, col: 0xfff0c8, low: 0xff6a7a, glow: 0xff7a5a, halo: 1.0, bars: 0xc0507a }, clouds: { n: 22, col: 0x3a2a5a, lit: 0xff9ab0, hi: 0.5, len: 0.7 }, stars: 80,
     ridges: [{ h: 0.06, col: 0x4a3a5a, seed: 4 }, { h: 0.04, col: 0x2e2440, seed: 8 }] }), { round: true });
-  g3.light(lightOf(w));
+  g3.light(lightOf(w)); AIRNOW.at[0] = 1e9;
   g3.warm(["still", "move", "fx", "fxDots", "ui", "dome"]);
   if (rich()) g3.warm(["bright", "blur", "glowAdd"]);
   // the bodies this floor needs, each pose baked once (kept from floor to floor)
@@ -2447,8 +2585,8 @@ function hidden() {
   const nodes = W.nodes, hx = H.x, hz = H.z, hs = W.houses;
   if (hs) for (let i = 0; i < hs.length; i++) {       // (along the eye's line from the delver's chest, up and to the south: is any of it inside the house?)
     const q = hs[i], dx = hx - q.x, dz = q.z - hz; if (dz < -3.5 || dz > 9.5 || dx > 4.5 || dx < -4.5) continue;
-    const c = Math.cos(q.yaw), sn = Math.sin(q.yaw), k = 1 / q.s;
-    for (let t = 0.4; t < 9.6; t += 0.4) { const pz = t - dz, lx = (dx * c - pz * sn) * k, lz = (dx * sn + pz * c) * k; if (lx > -2.8 && lx < 2.8 && lz > -2.4 && lz < 2.4 && (1 + t * 1.24) * k < 5.2 - 0.875 * Math.abs(lz)) return true; }
+    const c = Math.cos(q.yaw), sn = Math.sin(q.yaw), k = 1 / q.s, up = q.land && LANDS[q.land].house.stilts || 0;   // (on stilts: as much taller, and seen under)
+    for (let t = 0.4; t < 9.6; t += 0.4) { const pz = t - dz, lx = (dx * c - pz * sn) * k, lz = (dx * sn + pz * c) * k, ht = (1 + t * 1.24) * k; if (lx > -2.8 && lx < 2.8 && lz > -2.4 && lz < 2.4 && ht < 5.2 + up - 0.875 * Math.abs(lz) && ht > up * 0.6) return true; }
   }
   for (let i = 0; i < nodes.length; i++) { const nd = nodes[i]; if (nd.kind !== "tree" || !nd.on) continue; const dz = nd.z - hz; if (dz < 0.4 || dz > 8) continue; const sz = nd.s, dx = nd.x - hx; if (dz < 7.5 * sz && dx < 1.9 * sz - dz * 0.12 && -dx < 1.9 * sz - dz * 0.12) return true; }
   return false;
@@ -2457,20 +2595,41 @@ function matOf(M, x, y, z, yaw, s, sy) { M4.model(M, x, y, z, yaw, 0, 0, s); if 
 function drawGL(now) {
   const g3 = E.g3, w = W, R_ = E.rung, far = w.kind === "town" ? (rich() ? 86 : 60) : 52, t = G.t, glowOn = save.opts.glow && R_.look === 1 && R_.h >= 720;
   g3.hold(glowOn ? BLOOM.hold : 0); g3.wind(t, rich() && w.over ? 0.09 : 0);
+  if (w.over && airAt(w, cam.tx, cam.tz)) g3.light({ fog: AIRNOW.fog, fogSun: AIRNOW.fog, near: (rich() ? 38 : 28) * AIRNOW.far, far: (rich() ? 86 : 60) * AIRNOW.far });
   L3.begin(E, cam, 0.5, far + 30);
+  // the shadows of what moves, on the fuller look in the open country: the sun's picture of them first (the still world's own are laid on the ground)
+  if (rich() && w.over && g3.shadows({ sun: w.st.sun, x: cam.tx, y: w.h(cam.tx, cam.tz), z: cam.tz, reach: 22, size: R_.h >= 1080 ? 1024 : 512 })) { movers(g3, t, true, CAST); g3.shadowsDone(); }
+  else g3.shadows(null);
   if (GPU.sky) g3.dome(GPU.sky, t * 0.0004);
   if (GPU.chunks) GPU.chunks.draw(g3, cam.tx, cam.tz, far, R_.detail == null ? 1 : Math.max(0.55, R_.detail)); else if (STREAM) STREAM.draw(g3, cam.tx, cam.tz, far);
   for (const c of GPU.nodeCells) if (c.h && g3.sees(c.h.x, c.h.y, c.h.z, c.h.r + 2)) g3.still(c.h);
+  movers(g3, t, false, DRAW);
+  // everything see-through, in one mesh
+  const m = GPU.fxM; m.n = 0;
+  fxWorld(m, t);
+  g3.fx(GPU.fx, m);
+  const d = GPU.dotM; d.n = 0; dotsWorld(d, t);
+  if (d.n) g3.fx(GPU.dot, d, 0.11);
+  if (glowOn) g3.bloom(BLOOM);
+  if (rich() && save.opts.glow) g3.grade(w.over ? AIRNOW.grade : GRADE.under);
+}
+// Everything that moves, each as a mesh and its place, to fn(h, M, r, g, b, glow, rim, through): the townsfolk, the foes,
+// what you ride, your pet, fires, the delver. cast: for the sun's picture of them (GL.shadows): every one near the eye,
+// in view or not, and nothing else changed by it
+const DRAW = (h, M, r, g, b, glow, rim, thr) => { const g3 = E.g3; if (thr) { g3.through(true); g3.moved(h, M, r, g, b, glow, rim); g3.through(false); } else g3.moved(h, M, r, g, b, glow, rim); };
+const CAST = (h, M) => E.g3.caster(h, M);
+function movers(g3, t, cast, fn) {
+  const w = W, near = (x, y, z, r) => cast ? Math.abs(x - cam.tx) < 28 && Math.abs(z - cam.tz) < 28 : g3.sees(x, y, z, r);
   // the townsfolk
   if (w.folk) for (const p of w.folk) { const b = BODIES.get("folk:" + p.who + p.x); if (!b) continue; const pose = p.mv ? WALK[Math.floor(p.walkT * 2) % 4] : p.work ? ((t * 1.6) % 1 < 0.5 ? "mine0" : "mine1") : (t * 0.7 + p.x) % 2 < 1 ? "idle0" : "idle1";
-    if (!g3.sees(p.x, 1, p.z, 1.5)) continue; g3.moved(b.h[pose] || b.h.idle0, matOf(MAT, p.x, w.h(p.x, p.z), p.z, p.yaw || 0, 1), 1, 1, 1, 0, 0.35); }
+    if (!near(p.x, 1, p.z, 1.5)) continue; fn(b.h[pose] || b.h.idle0, matOf(MAT, p.x, w.h(p.x, p.z), p.z, p.yaw || 0, 1), 1, 1, 1, 0, 0.35); }
   // the foes and the powers
   for (let i = 0; i < G.foes.length; i++) {
     const f = G.foes[i];
     if (f.st === "dead" && f.dieT > 3.2) continue;
     const fy = f.y + (f.fly ? f.fly + Math.sin(t * 3 + i) * 0.15 : 0) - (f.sink ? f.sink * 3 * f.size : 0) - (f.st === "dead" && f.dieT > 2 ? (f.dieT - 2) * 0.8 : 0);
-    if (!g3.sees(f.x, fy + f.size, f.z, f.size * 2)) { f.seen = false; continue; }
-    f.seen = true;
+    if (!near(f.x, fy + f.size, f.z, f.size * 2)) { if (!cast) f.seen = false; continue; }
+    if (!cast) f.seen = true;
     const b = f.bodyRef || (f.bodyRef = bodyFor(f, true)), def = f.def;
     let h, s = f.size, sy = 1, yaw = f.yaw;
     if (b.model) {
@@ -2482,7 +2641,7 @@ function drawGL(now) {
       if (def.model && f.boss) s = f.size;
     } else { const pose = foePose(f); h = b.h[pose] || b.h.idle0; }
     const fl = f.flash > 0 ? 2.4 : 1, cold = f.slow > 0 ? 0.75 : 1;
-    g3.moved(h, matOf(MAT, f.x, fy, f.z, yaw, s, sy), fl * cold, fl * cold, fl, f.elite || f.boss ? 0.04 : 0, f.elite ? 0.9 : 0.35);
+    fn(h, matOf(MAT, f.x, fy, f.z, yaw, s, sy), fl * cold, fl * cold, fl, f.elite || f.boss ? 0.04 : 0, f.elite ? 0.9 : 0.35);
   }
   // the delver
   const hb = heroBody(false), hp = heroPose();
@@ -2490,20 +2649,12 @@ function drawGL(now) {
   const sway = hb.an && ((t * 5) & 1) ? "~" : "";
   let rideY = 0;
   if (H.ride && D.kin.ride) { const c = kinOf(D.kin.ride), b = modelBody(c.model, c.tint), g = model(c.model); rideY = (g.y0 + g.h) * c.size * 0.72 - 0.75;
-    if (!pendingWorld) g3.moved(b.h.idle0, matOf(MAT, H.x, H.y, H.z, H.yaw, c.size, 1 + (H.act === "walk" ? Math.sin(t * 14) * 0.05 : 0)), 1, 1, 1, 0, 0.5); }
+    if (!pendingWorld) fn(b.h.idle0, matOf(MAT, H.x, H.y, H.z, H.yaw, c.size, 1 + (H.act === "walk" ? Math.sin(t * 14) * 0.05 : 0)), 1, 1, 1, 0, 0.5); }
   if (D.kin.pet && G.pet && !pendingWorld) { const c = kinOf(D.kin.pet), b = modelBody(c.model, c.tint), q = G.pet, py = w.h(q.x, q.z) + (c.fly ? c.fly + Math.sin(t * 3) * 0.15 : 0);
-    if (g3.sees(q.x, py + 0.5, q.z, 1.5)) g3.moved(b.h.idle0, matOf(MAT, q.x, py, q.z, q.yaw, c.size, 1 + (q.mv ? Math.sin(t * 13) * 0.07 : Math.sin(t * 2) * 0.03)), 1, 1, 1, 0.06, 0.6); }
-  for (let i = 0; i < w.nodes.length; i++) { const nd = w.nodes[i]; if (nd.kind === "fire" && nd.on && g3.sees(nd.x, nd.y + 0.5, nd.z, 1.5)) g3.moved(fireLogs().h.idle0, matOf(MAT, nd.x, nd.y, nd.z, nd.x * 3, 1), 1, 1, 1, 0, 0.2); }
-  if (!blink && !pendingWorld && hidden()) { g3.through(true); g3.moved(hb.h[hp + sway] || hb.h[hp] || hb.h.idle0, matOf(MAT, H.x, H.y + rideY, H.z, H.yaw, 1), 0.35, 1.5, 0.8, 0.85, 0); g3.through(false); }   // (seen through what's in front, in the box's green)
-  else if (!blink && !pendingWorld) g3.moved(hb.h[hp + sway] || hb.h[hp] || hb.h.idle0, matOf(MAT, H.x, H.y + rideY, H.z, H.yaw, 1), H.hurtT > 0 ? 2 : 1, H.hurtT > 0 ? 0.8 : 1, H.hurtT > 0 ? 0.8 : 1, 0, 0.45);
-  // everything see-through, in one mesh
-  const m = GPU.fxM; m.n = 0;
-  fxWorld(m, t);
-  g3.fx(GPU.fx, m);
-  const d = GPU.dotM; d.n = 0; dotsWorld(d, t);
-  if (d.n) g3.fx(GPU.dot, d, 0.11);
-  if (glowOn) g3.bloom(BLOOM);
-  if (rich() && save.opts.glow) g3.grade(w.over ? GRADE.over : GRADE.under);
+    if (near(q.x, py + 0.5, q.z, 1.5)) fn(b.h.idle0, matOf(MAT, q.x, py, q.z, q.yaw, c.size, 1 + (q.mv ? Math.sin(t * 13) * 0.07 : Math.sin(t * 2) * 0.03)), 1, 1, 1, 0.06, 0.6); }
+  for (let i = 0; i < w.nodes.length; i++) { const nd = w.nodes[i]; if (nd.kind === "fire" && nd.on && near(nd.x, nd.y + 0.5, nd.z, 1.5)) fn(fireLogs().h.idle0, matOf(MAT, nd.x, nd.y, nd.z, nd.x * 3, 1), 1, 1, 1, 0, 0.2); }
+  if (!blink && !pendingWorld && !cast && hidden()) fn(hb.h[hp + sway] || hb.h[hp] || hb.h.idle0, matOf(MAT, H.x, H.y + rideY, H.z, H.yaw, 1), 0.35, 1.5, 0.8, 0.85, 0, true);   // (seen through what's in front, in the box's green)
+  else if (!blink && !pendingWorld) fn(hb.h[hp + sway] || hb.h[hp] || hb.h.idle0, matOf(MAT, H.x, H.y + rideY, H.z, H.yaw, 1), H.hurtT > 0 ? 2 : 1, H.hurtT > 0 ? 0.8 : 1, H.hurtT > 0 ? 0.8 : 1, 0, 0.45);
 }
 // ---- the see-through things: shadows, warnings, rings, swings, what flies, what lies on the ground, the gate's light
 const SX = new Float32Array(3);
@@ -2538,9 +2689,10 @@ function fxWorld(m, t) {
   if (w.houses) for (let i = 0; i < w.houses.length; i++) { const q = w.houses[i], sm = q.smoke; if (!sm || Math.abs(sm[0] - cam.tx) > 34 || Math.abs(sm[2] - cam.tz) > 30) continue;
     for (let k = 0, n = rich() ? 5 : 3; k < n; k++) { const p = (t * 0.22 + k / n + i * 0.37) % 1, a = (1 - p) * Math.min(1, p * 7);
       fxDisc(m, sm[0] + p * 1.5 + Math.sin(t * 0.9 + k) * 0.12, sm[1] + p * 3.4, sm[2] - p * 0.5, 0.28 + p * 0.75, 196, 196, 204, (a * 120) | 0, 0, 7); } }
-  // shadows
-  fxDisc(m, H.x, gy(H.x, H.z), H.z, 0.55, 0, 0, 0, 120, 0, 8);
-  for (let i = 0; i < G.foes.length; i++) { const f = G.foes[i]; if (!f.seen || f.st === "dead" && f.dieT > 2) continue; fxDisc(m, f.x, gy(f.x, f.z), f.z, f.r * 1.3 * (f.boss && f.def.model ? 1.4 : 1), 0, 0, 0, f.fly ? 70 : 115, 0, 8); }
+  // shadows: a dark spot under each; where the sun throws real ones (GL.shadows), only a soft one where they touch the ground
+  const sun = E.g3 && E.g3.sh && E.g3.sh.on, ka = sun ? 0.5 : 1, kr = sun ? 0.75 : 1;
+  fxDisc(m, H.x, gy(H.x, H.z), H.z, 0.55 * kr, 0, 0, 0, 120 * ka | 0, 0, 8);
+  for (let i = 0; i < G.foes.length; i++) { const f = G.foes[i]; if (!f.seen || f.st === "dead" && f.dieT > 2) continue; fxDisc(m, f.x, gy(f.x, f.z), f.z, f.r * 1.3 * (f.boss && f.def.model ? 1.4 : 1) * kr, 0, 0, 0, (f.fly ? 70 : 115) * (f.fly && sun ? 0.3 : ka) | 0, 0, 8); }
   // the target: a ring under it; the elite: a pink one always
   for (let i = 0; i < G.foes.length; i++) { const f = G.foes[i]; if (!f.seen || f.st === "dead" || f.st === "sleep") continue;
     if (f.elite) fxRing(m, f.x, gy(f.x, f.z), f.z, f.r * 1.5, f.r * 1.5 + 0.12, 255, 46, 136, 200, 127, 18);
@@ -2732,7 +2884,7 @@ function applyRung() {
   const see = W.dark ? ((WR.fireCan(lv("fire"), "Torch") ? 0.5 : 0) + (petHelp("light") ? 0.5 : 0)) : 1;
   if (E.mode === "gl" && E.g3) E.g3.light({ near: W.kind === "town" ? (rich() ? 38 : 28) : 15.5 + 1.5 * see, far: W.kind === "town" ? (rich() ? 86 : 60) : 27 + 9 * see });
   if (E.mode === "flat" && E.flat) E.flat.air({ near: 24, far: 60 });
-  hudKey = "";
+  AIRNOW.at[0] = 1e9; hudKey = "";
 }
 
 // ---------------------------------------------------------------- the numbers on the screen, drawn in the picture itself
