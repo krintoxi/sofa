@@ -60,11 +60,28 @@ def key(name, pause=0.8):
     time.sleep(pause)
 
 
+def gone():
+    """Why the app isn't there any more: Android's own record of what stopped it, for the log."""
+    crash = adb("logcat", "-d", "-b", "crash", "-t", "60", check=False).strip()
+    lines = [l for l in adb("logcat", "-d", "-t", "1500", check=False).splitlines()
+             if re.search(r"uk\.edgeventure\.sofa|FATAL|AndroidRuntime|chromium.*(crash|kill|gone)|RenderProcessGone|lowmemorykiller|am_(crash|kill|proc_died)|Process .* has died|Force stopping", l, re.I)]
+    top = [l.strip() for l in adb("shell", "dumpsys", "activity", "activities", check=False).splitlines() if "ResumedActivity" in l]
+    return "In front now: %s\nAndroid's crash log:\n%s\nWhat the log says of the app:\n%s" % (
+        "; ".join(top) or "?", crash[-3000:] or "(empty)", "\n".join(lines[-40:]) or "(nothing)")
+
+
 class Page:
     """The app's web view, over DevTools (a debug build opens it; `adb forward` brings it here)."""
 
     def __init__(self):
-        pid = adb("shell", "pidof", PKG).strip().split()[0]
+        self.attach()
+
+    def attach(self):
+        found = adb("shell", "pidof", PKG, check=False).strip().split()
+        if not found:
+            shot("failed")
+            raise SystemExit("The app isn't running any more.\n" + gone())
+        pid = found[0]
         adb("forward", "tcp:%d" % PORT, "localabstract:webview_devtools_remote_" + pid)
         deadline = time.time() + 30
         while True:
@@ -79,14 +96,21 @@ class Page:
         self.ws = WebSocket(tab["webSocketDebuggerUrl"].replace("localhost", "127.0.0.1"))
         self.n = 0
 
-    def js(self, expression):
-        self.n += 1
-        self.ws.send(json.dumps({"id": self.n, "method": "Runtime.evaluate",
-                                 "params": {"expression": expression, "returnByValue": True, "awaitPromise": True}}))
-        while True:
-            m = json.loads(self.ws.recv())
-            if m.get("id") == self.n:
-                return (m.get("result") or {}).get("result", {}).get("value")
+    def js(self, expression, again=True):
+        try:
+            self.n += 1
+            self.ws.send(json.dumps({"id": self.n, "method": "Runtime.evaluate",
+                                     "params": {"expression": expression, "returnByValue": True, "awaitPromise": True}}))
+            while True:
+                m = json.loads(self.ws.recv())
+                if m.get("id") == self.n:
+                    return (m.get("result") or {}).get("result", {}).get("value")
+        except OSError:
+            if not again:
+                raise
+            time.sleep(1)
+            self.attach()                           # the page's process was replaced (or the app is gone: attach says so)
+            return self.js(expression, again=False)
 
     def text(self):
         return self.js("document.body ? document.body.innerText : ''") or ""
@@ -107,7 +131,11 @@ class Page:
                 return got
             time.sleep(1)
         shot("failed")
-        raise SystemExit("%s never showed. On the screen: %r" % (said, self.text()[:400]))
+        try:
+            on_screen = self.text()[:400]
+        except OSError:
+            on_screen = "(the page doesn't answer)"
+        raise SystemExit("%s never showed. On the screen: %r\n%s" % (said, on_screen, gone()))
 
 
 def sofa(path, data=None, cookie=None):
@@ -146,13 +174,12 @@ def main(apk):
     say("2. It opens on its start page: %r, the highlight on %r." % (page.text().split("\n")[0], page.focused()))
 
     # 3. The remote: down and up move the highlight; the address typed with the remote's keyboard arrives.
-    seen = [page.focused()]
-    key("DPAD_DOWN")
-    seen.append(page.focused())
-    key("DPAD_UP")
-    seen.append(page.focused())
-    if len(set(seen)) < 2:
-        raise SystemExit("the arrows didn't move the highlight on the start page: %r" % seen)
+    seen = []
+    for k in ("DPAD_DOWN", "DPAD_DOWN", "DPAD_UP"):
+        key(k)
+        seen.append(page.focused())
+    if len(set(seen)) < 2 or seen[-1] != seen[0]:
+        raise SystemExit("the arrows didn't move the highlight down and back on the start page: %r" % seen)
     adb("shell", "input", "text", FROM_THE_TV)
     time.sleep(1)
     typed = page.js("document.getElementById('addr').value")
