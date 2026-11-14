@@ -212,20 +212,32 @@ def steps(phone, me):
     say("2. It opens on its start page: %r, the highlight on %r." % (page.text().split("\n")[0], page.focused()))
 
     # 3. The remote: down and up move the highlight; the address typed with the remote's keyboard arrives.
-    seen = []
-    for k in ("DPAD_DOWN", "DPAD_DOWN", "DPAD_UP"):
+    seen = [page.focused()]
+    for k in ("DPAD_DOWN", "DPAD_UP"):
         key(k)
         seen.append(page.focused())
     if len(set(seen)) < 2 or seen[-1] != seen[0]:
         raise SystemExit("the arrows didn't move the highlight down and back on the start page: %r" % seen)
+    for _ in range(4):                                   # to the address field
+        if page.js("document.activeElement && document.activeElement.id") == "addr":
+            break
+        key("DPAD_UP")
+    key("DPAD_CENTER", pause=1.5)                        # OK opens it for typing (the TV's keyboard comes up)
     adb("shell", "input", "text", FROM_THE_TV)
     time.sleep(1)
     typed = page.js("document.getElementById('addr').value")
     if typed != FROM_THE_TV:
         raise SystemExit("typed %r, the page has %r" % (FROM_THE_TV, typed))
     shot("2-address")
-    say("3. The arrows move the highlight (%s), and the typed address arrived." % " -> ".join(repr(s) for s in seen))
-    key("ENTER", pause=3)
+    if "mInputShown=true" in adb("shell", "dumpsys", "input_method", check=False):
+        key("BACK", pause=1)                             # the keyboard away, as a person closes it
+    key("DPAD_DOWN")
+    if page.focused() != "Connect":
+        shot("failed")
+        raise SystemExit("from the typed address, down didn't reach Connect: the highlight is on %r" % page.focused())
+    say("3. The arrows move the highlight (%s); OK opens the address for typing, it arrives, and down reaches Connect."
+        % " -> ".join(repr(s) for s in seen))
+    key("DPAD_CENTER", pause=3)
 
     # 4. Sofa's own pages, in TV mode, asking who's watching.
     page.wait(lambda: page.js("location.href").startswith("http://" + FROM_THE_TV), said="Sofa")

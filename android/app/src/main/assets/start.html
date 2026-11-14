@@ -24,7 +24,7 @@
   <p id="looking"><span class="spin"></span>Looking for Sofa on your network…</p>
   <div class="list" id="list"></div>
   <p>Or type the Sofa computer's address (the Server page shows it):</p>
-  <div class="row"><input id="addr" placeholder="192.168.1.20" inputmode="url" autocomplete="off"><button class="connect" id="go">Connect</button></div>
+  <div class="row"><input id="addr" placeholder="192.168.1.20" inputmode="url" autocomplete="off" readonly aria-label="The Sofa computer's address (OK to type)"><button class="connect" id="go">Connect</button></div>
   <p><small>Project by EdgeVenture.uk</small></p>
 </main>
 <script>
@@ -54,10 +54,19 @@
   }
   setInterval(refresh, 1000); refresh();
   document.getElementById("go").onclick = () => choose(document.getElementById("addr").value);
-  document.getElementById("addr").addEventListener("keydown", e => { if (e.key === "Enter") choose(e.target.value); });
+  // On a TV the address field stays shut until OK is pressed on it: focused and open, it brings up the TV's keyboard,
+  // which keeps the remote's arrows for itself, and the highlight could never leave the field. Shut again on leaving.
+  const addr = document.getElementById("addr");
+  const open = () => { if (addr.readOnly) { addr.readOnly = false; addr.blur(); addr.focus(); } };
+  addr.addEventListener("click", open);
+  addr.addEventListener("keydown", e => {
+    if (e.key === "Enter") { if (addr.readOnly) { open(); e.preventDefault(); } else choose(addr.value); }
+  });
+  addr.addEventListener("blur", () => { addr.readOnly = true; });
   // The remote's arrows: up and down through everything you can pick.
   document.addEventListener("keydown", e => {
     if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+    if (document.activeElement === addr && !addr.readOnly) addr.readOnly = true;   // (typed, keyboard closed: on to Connect)
     const all = [...document.querySelectorAll("button, input")];
     const i = all.indexOf(document.activeElement);
     const next = all[Math.max(0, Math.min(all.length - 1, i + (e.key === "ArrowDown" ? 1 : -1)))];
