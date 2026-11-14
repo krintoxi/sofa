@@ -562,7 +562,8 @@ class WithAStandInForTheChip(Clean):
         self.assertNotIn("DISCONTINUITY", text)
         seconds, frames, said = self.played(sid, text)
         self.assertAlmostEqual(seconds, 24, delta=1.5)
-        self.assertEqual((frames, said), (24 * 24, ""))                   # every picture of the 24 seconds
+        self.assertEqual(said, "")
+        self.assertAlmostEqual(frames, 24 * 24, delta=2)                  # every picture of the 24 seconds (one ffmpeg counts a frame more than another)
         self.assertEqual(media._streams["hls-" + sid]["encoder"], "h264_nvenc")
         asked = [c for c in self.calls() if "h264_nvenc" in c and "-hls_time" in c]
         self.assertEqual(len(asked), 1)
@@ -580,7 +581,8 @@ class WithAStandInForTheChip(Clean):
         self.assertNotIn("init1.mp4", text)
         seconds, frames, said = self.played(sid, text)
         self.assertAlmostEqual(seconds, 20, delta=1.5)
-        self.assertEqual((frames, said), (20 * 24, ""))
+        self.assertEqual(said, "")
+        self.assertAlmostEqual(frames, 20 * 24, delta=2)
         self.assertEqual(media._streams["hls-" + sid]["encoder"], "libx264")
         self.assertTrue(encoders.resting("h264_nvenc"))
         self.assertEqual(encoders.pick(), "libx264")                     # and the next one doesn't try the chip
@@ -614,8 +616,10 @@ class WithAStandInForTheChip(Clean):
         # Each part is whole, read as a player that follows the playlist reads it: its own start, then its segments.
         folder = media._hls[sid]["dir"]
         part = lambda init, lines: [os.path.join(folder, init)] + [os.path.join(folder, l) for l in lines.split("\n") if l.endswith(".m4s")]   # noqa: E731
-        self.assertEqual(self.frames(*part("init.mp4", first)), (round(made * 24), ""))
-        self.assertEqual(self.frames(*part("init1.mp4", second)), (round((24 - made) * 24), ""))
+        for init, lines, whole in (("init.mp4", first, made * 24), ("init1.mp4", second, (24 - made) * 24)):
+            got, complaints = self.frames(*part(init, lines))
+            self.assertEqual(complaints, "")
+            self.assertAlmostEqual(got, whole, delta=2)
         # ffmpeg's own reader (what the box's mpv is built on) keeps the first start: it plays on without a complaint,
         # after passing over the second part's first segment of picture.
         self.assertEqual(said, "")
