@@ -1879,7 +1879,8 @@ function liveEras() {
   const out = (liveData.eras && liveData.eras.length ? liveData.eras : [{ id: "now", name: "Live now" }]).filter(e => has(e.id));
   if (liveData.channels.some(c => c.tuner)) out.splice(out[0] && out[0].id === "now" ? 1 : 0, 0, { id: "antenna", name: "Antenna" });
   if (liveData.channels.some(c => c.fav)) out.push({ id: "fav", name: "Favorites" });
-  if (dvrSees() && (liveData.channels.some(c => c.recordable) || (dvrData && dvrData.recordings.length))) out.push({ id: "rec", name: "Recordings" });
+  // (Recordings: with a tuner at home, or once something's been recorded; REC works on any channel at home)
+  if (dvrSees() && (liveData.channels.some(c => c.tuner) || (dvrData && (dvrData.recordings.length || dvrData.rules.length)))) out.push({ id: "rec", name: "Recordings" });
   return out;
 }
 const LIVE_PAGE = 60;                       // channels drawn at first; more as the end comes near
@@ -1912,7 +1913,7 @@ async function loadLive() {
   liveAt = Date.now(); dialShown = null;
   if (session.offline && liveData.channels) liveData.channels = liveData.channels.filter(c => c.recordable);   // (only home's, offline)
   if (dvrSees() && !liveData.error) loadDvr().then(d => {
-    if (d && d.recordings.length && !liveData.channels.some(c => c.recordable) && location.hash.startsWith("#/live") && !Player.isOpen()) rerender();
+    if (d && (d.recordings.length || d.rules.length) && !liveData.channels.some(c => c.tuner) && location.hash.startsWith("#/live") && !Player.isOpen()) rerender();
   });
   if (liveData.away) {                     // (away from home: what didn't play straight from the channel here, before)
     const gone = new Set(prefs.get(noDirectKey(), []) || []);
@@ -5146,7 +5147,7 @@ const Player = (function () {
         toast(x.state === "conflict" ? "It can't record now: " + x.why : "Recording " + x.title + " until " + hhmm(x.stop) + ".");
       }
     } catch (e) { toast(e.message); }
-    await loadDvr();
+    await loadDvr();                                    // (and Live TV's Recordings tab is there on the way back)
     if (liveCh === ch) recShow();
   }
   const filmName = f => f.title + (f.year ? " (" + f.year + ")" : "");
