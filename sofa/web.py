@@ -1572,7 +1572,7 @@ class Handler(BaseHTTPRequestHandler):
                                             "free_movie_lookup", "theme", "detect_intros", "trickplay", "previews",
                                             "ytdlp_cookies", "gentle", "quiet_hours", "offline", "no_logs", "keep_awake",
                                             "signups", "archive_channels", "retro_eras", "live_headers",
-                                            "live_check", "hardware_encoding") if k in data}
+                                            "live_check", "hardware_encoding", "dvr_pad_before", "dvr_pad_after") if k in data}
             if "gentle" in allowed and allowed["gentle"] not in (True, False, "auto"):
                 allowed.pop("gentle")
             if "quiet_hours" in allowed and not re.match(r"^([01]\d|2[0-3]):[0-5]\d-([01]\d|2[0-3]):[0-5]\d$", str(allowed["quiet_hours"])):
@@ -1591,6 +1591,9 @@ class Handler(BaseHTTPRequestHandler):
                     allowed[k] = re.sub(r"[^\w.\-|]", "", str(allowed[k]))[:400]
             if "max_transcodes" in allowed:
                 allowed["max_transcodes"] = max(1, min(8, int(allowed["max_transcodes"] or 1)))
+            for k, most in (("dvr_pad_before", 15), ("dvr_pad_after", 30)):   # (recording's extra minutes)
+                if k in allowed:
+                    allowed[k] = max(0, min(most, int(allowed[k] or 0)))
             if "theme" in allowed and allowed["theme"] not in THEMES:
                 allowed.pop("theme")
             if any(k in allowed for k in ("tmdb_api_key", "theporndb_api_key", "free_movie_lookup")):

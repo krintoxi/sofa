@@ -1,4 +1,4 @@
-"""Sofa 1.5.13 (draft): tuners at home, the guide, and recording (sofa/tuners.py, sofa/guide.py, sofa/dvr.py).
+"""Sofa 1.5.13: tuners at home, the guide, and recording (sofa/tuners.py, sofa/guide.py, sofa/dvr.py).
 
 A stand-in tuner (tests/stand_in_tuner.py) answers as an HDHomeRun does: discovery over UDP, its channel list, a
 channel's stream as real MPEG-TS, a limit of two streams at once. The recordings are real: ffmpeg copies the stream,
@@ -402,6 +402,16 @@ class TheServerPage(unittest.TestCase):
         self.assertEqual(got["recording"]["state"], "cancelled")
         self.assertEqual(self.admin.call("/api/dvr", {"now": "000000000000"})[0], 400)     # not a channel at home
         self.assertEqual(self.admin.call("/api/admin/tuners", {"guide_add": "/no/such/guide.xml"})[0], 400)
+
+    def test_the_minutes_before_and_after_stay_in_bounds(self):
+        before = {k: config.get(k) for k in ("dvr_pad_before", "dvr_pad_after")}
+        self.addCleanup(config.update, before)
+        status, got = self.admin.call("/api/admin/settings", {"dvr_pad_before": 2, "dvr_pad_after": 99})
+        self.assertEqual(status, 200, got)
+        self.assertEqual((got["settings"]["dvr_pad_before"], got["settings"]["dvr_pad_after"]), (2, 30))
+        self.assertEqual(dvr.pads(), (120, 1800))
+        self.assertEqual(self.admin.call("/api/admin/settings", {"dvr_pad_before": -5})[1]["settings"]["dvr_pad_before"], 0)
+        self.assertEqual(self.kid.call("/api/admin/settings", {"dvr_pad_after": 5})[0], 403)
 
 
 if __name__ == "__main__":
