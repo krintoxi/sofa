@@ -24,7 +24,9 @@ Read this before you install, so nothing surprises you.
   x264 on the processor, as before ([what ran where](capabilities.md#the-graphics-chips-encoders)). Files a device
   plays as they are aren't transcoded at all, and the background conversion to MP4 makes the second play free.
 - **No app in any TV store.** On a TV you use its browser, sideload Sofa's own Fire TV app or Roku channel, or use a
-  Sofa Box. There is no Android TV, Google TV, Apple TV, Samsung or LG app. The Fire TV app and the Roku channel are
+  Sofa Box. An Android TV and Google TV build of the app is in a draft: GitHub works it on an Android TV emulator, and no
+  real TV has run it ([android/README.md](../android/README.md#android-tv-and-google-tv)). There is no Apple TV,
+  Samsung or LG app. The Fire TV app and the Roku channel are
   built by GitHub and **no run on a real device is on record**. Sticks that run Vega OS instead of Fire OS can't
   sideload anything.
 - **The Sofa Box has run on one Raspberry Pi 3 Model B+**, the owner's. A Pi 4 or 5 has never run it; the DRM apps
@@ -92,8 +94,8 @@ In order. Each one ends with a line in the tested-on table.
   Linux box or a NAS, with what went wrong, is what's missing).
 - **The graphics chip's encoders on real chips:** NVENC on an NVIDIA card (a rented one does), Quick Sync and VA-API
   on Intel's graphics, VA-API and AMF on AMD's, each with what it measured written into the tested-hardware table.
-- A **Google TV** build, tested on a cheap Google TV box, with the package registered before Google's 2027 developer
-  verification.
+- The **Google TV** build on a real, low-cost Google TV device (GitHub already works it on an Android TV emulator),
+  and its package registered before Google's developer verification reaches every country in 2027.
 - **Google's arm64 Chrome** on the Pi 4 and Pi 5 for the DRM apps where Raspberry Pi OS's Chromium falls short.
 - **Games:** your phone as a controller, a light and a full tier per game, freeing the home screen's graphics memory
   while a native game runs.
