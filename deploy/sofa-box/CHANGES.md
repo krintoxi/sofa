@@ -55,6 +55,10 @@ the things people build, what lies on the ground, the air.
   follows the turn, and the map shows which way the eye looks. Underground nothing past the dark is drawn, so the
   Maw costs a Pi 3's rung no more low than high. The 2D look keeps the old eye. Low3D: `Follow`, a camera above and
   behind one on foot that the player moves.
+- **The delver moves through its poses** (the 3D look) instead of jumping between them: the walk through its four steps,
+  the breath between its two, and each swing, cast and roll eased in from what showed. A delver in a mantle or with a
+  relic keeps a pose at a time, as do the townsfolk and the foes. On a Pi 3's stand-in the same work a frame, and
+  about 41 KB more sent. Low3D: `Rig.bind` (a body built once and moved), `Rig.mix` (a pose between two), `Skin`.
 - **The delver and the townsfolk** have more to them: a buckle and a pouch, a collar, a fringe of hair, boots turned
   down at the top; the delver carries a pack with a bedroll, the smith wears an apron, the herbalist a satchel, the
   weaver a shawl.
