@@ -8,6 +8,7 @@ import os
 import shutil
 import stat
 import subprocess
+import sys
 import tempfile
 import time
 import unittest
@@ -88,8 +89,9 @@ class TheList(unittest.TestCase):
             self.assertNotRegex(html, r"""(src|href|url)\s*[=(]\s*["']?(https?:)?//""", g["id"])
         with open(os.path.join(BOX, "games", "gloamwell", "index.html"), encoding="utf-8") as f:
             html = f.read()
-        for online in ("fetch(", "XMLHttpRequest", "WebSocket", "<link", "@import", "<script src"):
+        for online in ("fetch(", "XMLHttpRequest", "WebSocket", "<link", "@import"):
             self.assertNotIn(online, html)                             # Gloamwell plays offline
+        self.assertEqual(re.findall(r"<script src=\"([^\"]+)\"", html), ["../pad.js"])   # (only pad.js, for a touch screen)
         self.assertIn("navigator.getGamepads", html)                   # with a controller,
         self.assertNotRegex(html, r"buttons\[16\]")                    # never Home, which is the box's
 
@@ -232,6 +234,275 @@ console.log(JSON.stringify(out));
         self.assertEqual(out["held"], [False, False])
         self.assertEqual(out["got"], ["joined 1", "joined 2", "a press 2", "a release 2", "x press 0", "left press 1", "left release 1",
                                       "left press 0", "left 2"])
+
+
+# a phone or a tablet for pad.js's touch controls: the page's size, its media queries, saved settings, a tilt sensor,
+# vibration, and fingers (pointer events) put down, moved and lifted by hand
+TOUCH_JS = r"""
+const media = { coarse: false }, stored = {}, buzzed = [], fulls = [];
+const node = () => ({ style: {}, classList: { add() {}, remove() {}, toggle() {} }, setAttribute() {}, appendChild() {}, getContext: () => null, querySelector: () => null });
+def("document", { hidden: false, createElement: node, head: node(), body: node(), querySelector: () => null, addEventListener: (t, f) => (on["doc:" + t] = on["doc:" + t] || []).push(f),
+  documentElement: Object.assign(node(), { requestFullscreen: () => { fulls.push(1); return Promise.resolve(); } }) });
+def("getComputedStyle", () => ({ paddingTop: "0px", paddingRight: "0px", paddingBottom: "21px", paddingLeft: "0px" }));
+def("innerWidth", 844); def("innerHeight", 390); def("devicePixelRatio", 3);
+def("matchMedia", q => ({ matches: q === "(pointer: coarse)" ? media.coarse : false }));
+def("localStorage", { getItem: k => k in stored ? stored[k] : null, setItem: (k, v) => { stored[k] = String(v); }, removeItem: k => { delete stored[k]; } });
+def("screen", { orientation: { angle: 90 } }); def("removeEventListener", (t, f) => { on[t] = (on[t] || []).filter(g => g !== f); });
+def("DeviceOrientationEvent", function () {}); navigator.vibrate = ms => { buzzed.push(ms); return true; };
+location.pathname = "/box/games/test/";
+"""
+TOUCH_HELP = r"""
+const T = P.touch, canvas = { getBoundingClientRect: () => ({ left: 75, top: 0, width: 693, height: 390 }) };
+const finger = (type, id, x, y, kind) => (on[type] || []).forEach(f => f({ type, pointerType: kind || "touch", pointerId: id, clientX: x, clientY: y, target: {} }));
+const tap = (x, y, kind) => { finger("pointerdown", 99, x, y, kind); finger("pointerup", 99, x, y, kind); };
+const key = k => (on.keydown || []).forEach(f => f({ key: k, code: k, repeat: false, preventDefault() {} }));
+const tilt = (beta, gamma) => (on.deviceorientation || []).forEach(f => f({ beta, gamma }));
+const painter = () => { const d = []; return { d, disc: () => d.push("o"), ring: () => d.push("O"), bar: () => d.push("|"), text: s => d.push(s) }; };
+"""
+
+
+def touch_in_node(test, script, *files, hash=""):
+    """PADS_JS with TOUCH_JS (and the address's #hash) before the files, then TOUCH_HELP and the script."""
+    js = PADS_JS.replace('def("location", { hash: "" });', 'def("location", { hash: %s });' % json.dumps(hash), 1)
+    js = js.replace("for (const f of process.argv", TOUCH_JS + "for (const f of process.argv", 1) + TOUCH_HELP + script
+    r = subprocess.run(["node", "-e", js] + [os.path.join(BOX, "games", f) for f in files], capture_output=True, text=True, timeout=60)
+    test.assertEqual(r.returncode, 0, r.stderr)
+    return json.loads(r.stdout.strip().splitlines()[-1])
+
+
+class TheTouchScreen(unittest.TestCase):
+    """pad.js's touch controls (SofaPad.touch): on a phone or a tablet the game's own controls are drawn on its picture
+    and read as one more player under the button names the games already read; hidden without a touch screen, and
+    again when a controller or a key is used; tilt as a stick, off until asked; vibration for rumble; every game with a
+    layout of its own and a home-screen app; still offline."""
+    GAMES = os.path.join(BOX, "games")
+
+    def node(self, script, *files):
+        return touch_in_node(self, script, *(files or ("pad.js",)))
+
+    def read(self, *path):
+        with open(os.path.join(self.GAMES, *path), encoding="utf-8") as f:
+            return f.read()
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_the_touch_source_gives_the_button_names(self):
+        out = self.node(r"""
+P.on((b, how, p) => log.push(b + " " + how + " " + (p ? p.n : "-"))); P.on("joined", p => log.push("joined " + p.n));
+T.layout({ stick: "stick", buttons: [["a", "JUMP"], ["x", "HIT"], ["b", "DASH"], ["rt", "RUN"]], tilt: "x" }); T.attach(canvas);
+tap(700, 60); frame();                                               // the first touch: shown, and a player of its own
+out.shown = [T.on, P.connected(), P.real(), P.players().map(p => p.n + " " + p.kind()), log.splice(0)];
+T.frame(false);                                                      // (drawn this frame: the controls take fingers now)
+const at = n => T.ctl.find(c => c.label === n);
+out.words = T.ctl.map(c => c.pause ? "II" : c.label + " " + c.word);
+for (const n of ["A", "X", "B", "RT"]) { const c = at(n); finger("pointerdown", 2, c.x, c.y); frame(); finger("pointerup", 2, c.x, c.y); frame(); }
+out.buttons = log.splice(0);
+const A = at("A"), X = at("X"); finger("pointerdown", 3, A.x, A.y); finger("pointermove", 3, X.x, X.y); frame();   // a thumb rolls on to X
+out.rolled = [P.held("a"), P.held("x")]; finger("pointerup", 3, X.x, X.y); frame(); log.length = 0;
+finger("pointerdown", 4, 150, 300); finger("pointermove", 4, 210, 300); frame();   // the stick: where the thumb lands, pushed right
+out.stick = [Math.round(P.stick().x * 10) / 10, Math.round(P.stick().y * 10) / 10, P.held("right"), log.splice(0)];
+finger("pointerdown", 5, at("A").x, at("A").y); frame(); out.both = [P.held("a"), P.held("right")];   // two thumbs at once
+finger("pointerup", 4, 210, 300); finger("pointerup", 5, 0, 0); frame(); out.let = [P.stick().x, P.held("a")]; log.length = 0;
+const pz = T.ctl.find(c => c.pause); finger("pointerdown", 6, pz.x, pz.y); frame(); finger("pointerup", 6, pz.x, pz.y); frame();
+out.pause = log.splice(0);
+out.labels = [P.kind(), P.label("a"), P.label("start"), P.label("rt")];
+T.press("x"); frame(); out.menuButton = log.splice(0);               // a menu's own button (WYRD's Salvage): x pressed a moment
+P.rumble(0.8, 0.3, 120); P.rumble(0.05, 0.05, 120); out.buzz = buzzed.slice();   // rumble: a buzz (a faint one: none)
+const taps = []; T.onTap(t => { taps.push(t.kind + " " + Math.round(t.x) + " " + Math.round(t.dx)); return true; });
+tap(600, 120); finger("pointerdown", 7, 560, 100); finger("pointermove", 7, 640, 104); finger("pointerup", 7, 640, 104);
+tap(300, 120);                                                       // off the controls: a tap and a swipe, for the game; on the
+finger("pointerdown", 9, 300, 200); finger("pointermove", 9, 340, 200); finger("pointerup", 9, 340, 200);   // stick's half a tap
+out.taps = taps;                                                     // is still one, a push isn't
+const pt = painter(); T.draw(pt, 480, 270); out.drawn = pt.d.filter(x => x.length > 1 && x !== "II").concat(pt.d.filter(x => x === "o").length);
+T.layout({ stick: "dpad", buttons: [["a", "CHOOSE"]] }); T.frame(false); log.length = 0;   // a D-pad: four ways, for grids
+finger("pointerdown", 8, T.R.sx - 40, T.R.sy + 5); frame(); out.dpad = [P.held("left"), P.button("left"), P.held("down")];
+finger("pointermove", 8, T.R.sx + 3, T.R.sy + 40); frame(); out.dpad2 = [P.button("left"), P.button("down")]; finger("pointerup", 8, 0, 0); frame();
+out.dlog = log.splice(0).filter(x => !x.startsWith("joined"));
+console.log(JSON.stringify(out));
+""")
+        self.assertEqual(out["shown"], [True, True, False, ["1 touch"], ["joined 1"]])
+        self.assertEqual(out["words"], ["A JUMP", "X HIT", "B DASH", "RT RUN", "II"])
+        self.assertEqual(out["buttons"], ["a press 1", "a release 1", "x press 1", "x release 1", "b press 1", "b release 1", "rt press 1", "rt release 1"])
+        self.assertEqual(out["rolled"], [False, True])
+        self.assertEqual(out["stick"][:3], [1, 0, True])
+        self.assertEqual(out["stick"][3], ["right press 1"])
+        self.assertEqual(out["both"], [True, True])
+        self.assertEqual(out["let"], [0, False])
+        self.assertEqual(out["pause"], ["start press 1", "start release 1"])
+        self.assertEqual(out["labels"], ["touch", "A", "II", "RT"])
+        self.assertEqual(out["menuButton"], ["x press 1"])
+        self.assertEqual(len(out["buzz"]), 1)
+        self.assertEqual(out["taps"], ["tap 600 0", "swipe 640 80", "tap 300 0"])
+        self.assertEqual(out["drawn"], ["JUMP", "HIT", "DASH", "RT", "RUN", 7])   # discs: the stick and its knob, 4 buttons, pause
+        self.assertEqual(out["dpad"], [True, True, False])
+        self.assertEqual(out["dpad2"], [False, True])
+        self.assertEqual(out["dlog"], ["left press 1", "down press 1", "left release 1", "down release 1"])   # (in a frame: pad.js's order)
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_hidden_without_a_touch_screen(self):
+        """No touch screen (the box, a computer): nothing shown, drawn, joined or asked for; a mouse is no touch. A
+        controller or a key used hides the controls again, and the next touch brings them back."""
+        out = self.node(r"""
+T.layout({ stick: "stick", buttons: [["a", "GO"]] }); T.attach(canvas);
+const pt = painter(); if (T.frame(false)) T.draw(pt, 480, 270);
+tap(400, 200, "mouse"); frames(3);
+out.none = [T.on, T.frame(false), pt.d.length, P.connected(), P.players().length, T.can(), fulls.length, Object.keys(stored).length];
+media.coarse = true; T.layout({ stick: "stick", buttons: [["a", "GO"]] }); frame();   // a phone: shown from the start
+out.phone = [T.on, T.frame(false), P.players().map(p => p.kind()), T.can()];
+const xbox = mk(0, XBOX); pads[0] = xbox; frame(); out.padIdle = T.on;   // a controller there but not used: still shown
+xbox.buttons[0].pressed = true; frame(); xbox.buttons[0].pressed = false; frame();   // used: the controls go
+out.pad = [T.on, T.frame(false), P.kind(), P.connected(), P.real()];
+tap(400, 200); out.back = [T.on, P.kind() === "touch" || P.kind() === "xbox"];
+key("ArrowLeft"); out.key = [T.on, T.frame(false)];
+pads[0] = null; frame(); out.keyed = [P.connected(), P.real()];       // only the touch player, hidden: no controller to name
+console.log(JSON.stringify(out));
+""")
+        self.assertEqual(out["none"], [False, False, 0, False, 0, False, 0, 0])
+        self.assertEqual(out["phone"], [True, True, ["touch"], True])
+        self.assertTrue(out["padIdle"])
+        self.assertEqual(out["pad"], [False, False, "xbox", True, True])
+        self.assertTrue(out["back"][0])
+        self.assertEqual(out["key"], [False, False])
+        self.assertEqual(out["keyed"], [False, False])
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_demo_and_a_page_with_no_layout_show_nothing(self):
+        out = self.node(r"""
+media.coarse = true; tap(400, 200); frame(); out.nolayout = [T.on, P.players().length];   // (the graphics check: no layout)
+console.log(JSON.stringify(out));
+""")
+        self.assertEqual(out["nolayout"], [False, 0])
+        out = touch_in_node(self, r"""
+media.coarse = true; T.layout({ buttons: [["a", "GO"]] }); tap(400, 200); frame(); out.demo = [T.on, P.players().length];
+console.log(JSON.stringify(out));
+""", "pad.js", hash="#demo")
+        self.assertEqual(out["demo"], [False, 0])                         # the games check: the game plays itself
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_tilt_is_a_stick_when_asked(self):
+        out = self.node(r"""
+(async () => {
+media.coarse = true; T.layout({ stick: "stick", buttons: [["a", "GO"]], tilt: "x" }); T.attach(canvas); frame();
+tilt(5, -60); frame(); out.off = [T.wanted(), T.tilting(), P.stick().x];   // off until asked
+let ok = null; T.tilt(true).then(v => { ok = v; }); await 0; await 0;
+for (let i = 0; i < 20; i++) tilt(5, -60); frame(); const level = P.stick().x;   // held on its side (90°), level
+for (let i = 0; i < 25; i++) tilt(22, -60); frame(); const right = P.stick();     // its right side tipped down
+for (let i = 0; i < 25; i++) tilt(-12, -60); frame(); const left = P.stick().x;
+out.on = [ok, T.tilting(), Math.abs(level) < 0.2, right.x > 0.6, right.y, left < -0.4, stored["sofa:tilt:/box/games/test/"]];
+T.frame(false); finger("pointerdown", 1, 150, 300); finger("pointermove", 1, 100, 300); frame();   // a thumb on the stick wins
+out.thumb = P.stick().x < -0.6; finger("pointerup", 1, 100, 300);
+T.tilt(false); for (let i = 0; i < 5; i++) tilt(22, -60); frame(); out.offAgain = [T.wanted(), P.stick().x, stored["sofa:tilt:/box/games/test/"]];
+DeviceOrientationEvent.requestPermission = () => Promise.resolve("denied");      // (an iPhone that says no)
+T.tilt(true).then(v => { ok = v; }); await 0; await 0; await 0; out.denied = [ok, T.wanted()];
+T.layout({ stick: "dpad", buttons: [["a", "GO"]], tilt: false }); out.noTilt = T.can();
+console.log(JSON.stringify(out)); })();
+""")
+        self.assertEqual(out["off"], [False, False, 0])
+        self.assertEqual(out["on"], [True, True, True, True, 0, True, "1"])   # tilt "x": forward and back stay the buttons'
+        self.assertTrue(out["thumb"])
+        self.assertEqual(out["offAgain"], [False, 0, "0"])
+        self.assertEqual(out["denied"], [False, False])
+        self.assertFalse(out["noTilt"])
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_the_engines_draw_it_and_take_taps(self):
+        """Low3D adds the controls to its UI list only on the frames they show and leaves the game's list as it was;
+        its menus and Low2D's are worked by tapping; Low2D's own taps reach a game's tap() in the picture's pixels."""
+        out = self.node(r"""
+const L2 = window.Low2D, wait = ms => new Promise(r => setTimeout(r, ms));
+(async () => {
+media.coarse = true; T.layout({ stick: "stick", buttons: [["a", "GO"], ["b", "BACK"]], tilt: "xy" });
+const ui = new Low3D.UI(); ui.begin(640, 360); ui.text("LAP 1/3", 4, 4, 2, 0xffffff); const n0 = ui.n;
+T.attach(canvas); T.frame(false); T.draw(Low3D.touchPaint(ui), ui.w, ui.h);
+out.ui = [n0, ui.n > n0 + 6];
+// Low2D: a menu row tapped is chosen; an option's left side goes back a value; outside the panel: back
+const cv = { width: 0, height: 0, style: {}, getContext: () => null, getBoundingClientRect: () => ({ left: 75, top: 0, width: 693, height: 390 }) };
+const got = [];
+const G = L2.game({ id: "touch-test", canvas: cv, update() {}, draw() {}, tap: (x, y) => { got.push("game " + Math.round(x) + " " + Math.round(y)); return true; } });
+G.start(); await wait(40); frames(4, 1000 / 60);
+const menu = new L2.Menu(G, { top: "title", screens: { title: { items: [{ t: "PLAY", act: "play" }, { t: "OPTIONS", act: "opts" }] },
+  opts: { back: "title", items: L2.optionItems() } }, choose: it => got.push("choose " + it.act) });
+G.menu = menu; menu.show("title"); menu.box = { x: 122, y: 100, w: 236, h: 70 }; menu.itemsY = 110; menu.lh = 17;
+const px = (x, y) => ({ kind: "tap", x: 75 + x * 693 / 480, y: y * 390 / 270, dx: 0, dy: 0, target: {} });
+G.tapped(px(200, 108 + 17 + 5));                                     // the second row
+menu.show("opts"); out.tiltRow = menu.list.some(it => it.k === "tilt");
+menu.box = { x: 122, y: 30, w: 236, h: 200 }; menu.itemsY = 40; menu.lh = 17; G.opts.music = 5;
+G.tapped(px(300, 40 + 2)); out.down = G.opts.music; G.tapped(px(352, 40 + 2)); out.music = G.opts.music;   // the value's left half, then right
+G.tapped(px(20, 20)); out.at = menu.at;                              // outside the panel: back
+menu.hide(); G.tapped(px(240, 135));                                 // no menu: the game's own tap, in its pixels
+out.got = got;
+console.log(JSON.stringify(out)); })();
+""", "pad.js", "low3d.js", "low2d.js")
+        self.assertEqual(out["ui"][0], 6)                                  # (the game's six letters)
+        self.assertTrue(out["ui"][1])
+        self.assertTrue(out["tiltRow"])
+        self.assertEqual((out["down"], out["music"]), (4, 5))
+        self.assertEqual(out["at"], "title")
+        self.assertEqual(out["got"], ["choose opts", "game 240 135"])
+
+    def layouts(self):
+        """Each page on the box's list: the layout it gives SofaPad.touch.layout(), read by running that block in node."""
+        found = {}
+        for g in CATALOG["games"]:
+            html = self.read(g["id"], "index.html")
+            m = re.search(r"<script>/\* touch:[^\n]*\*/\n(SofaPad\.touch\.layout\(\{.*?\}\);)\n</script>", html, re.S)
+            self.assertIsNotNone(m, g["id"] + ": no touch layout")
+            found[g["id"]] = (html, m)
+        return found
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_every_game_declares_a_layout(self):
+        found = self.layouts()
+        js = "const out = {}; let at; const SofaPad = { touch: { layout: L => { out[at] = L; } } };\n" + "".join(
+            "at = %s; %s\n" % (json.dumps(gid), m.group(1)) for gid, (html, m) in found.items()) + "console.log(JSON.stringify(out));"
+        r = subprocess.run(["node", "-e", js], capture_output=True, text=True, timeout=60)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        L = json.loads(r.stdout)
+        names = {"a", "b", "x", "y", "lb", "rb", "lt", "rt", "select", "start"}
+        for gid, lay in L.items():
+            html, m = found[gid]
+            self.assertIn(lay.get("stick", "stick"), ("stick", "dpad", "none"), gid)
+            self.assertIn(lay.get("tilt", "xy"), ("x", "xy", False), gid)
+            if lay.get("none"):
+                continue
+            buttons = lay["buttons"] + lay.get("top", [])
+            self.assertTrue(buttons, gid)
+            self.assertLessEqual(len(lay["buttons"]), 8, gid)          # (the corner, a ring of four, three more)
+            for b, word in buttons:
+                self.assertIn(b, names, gid)
+                self.assertTrue(word and word == word.upper() and len(word) <= 8, (gid, word))
+                if b not in ("start", "select"):                         # the game reads each button it shows
+                    self.assertTrue(re.search(r"""["']%s["']""" % b, html.replace(m.group(1), "")) or gid == "gloamwell", (gid, b))
+            self.assertLess(html.index('src="../pad.js"'), m.start(), gid)   # after pad.js, before the game's own script
+        self.assertEqual(L["pair-up"].get("none"), True)                  # cards are tapped
+        self.assertEqual(L["rune-tactics"]["stick"], "none")                # its tiles are tapped: a D-pad would cover them
+        self.assertIn("tap: (x, y) => tapAt(x, y)", found["rune-tactics"][0])          # a tile tapped
+        self.assertIn("swipe: (dx, dy) => swipeBy(dx, dy)", found["cosmic-cascade"][0])  # a gem swiped
+        self.assertTrue(L["void-drifter"]["look"] and L["ironmaw"]["look"])  # aiming with the right thumb
+        if "wyrd" in L:                                                   # (once WYRD is on the list)
+            self.assertEqual([b for b, w in L["wyrd"]["buttons"]][:1], ["a"])
+
+    def test_screens_safe_areas_and_the_home_screen(self):
+        """Every game: the screen's safe areas reported to it (viewport-fit=cover), and an app for the home screen
+        (its manifest and icons, made by tools/game-apps.py from games.json and up to date), all from its own folder."""
+        for g in CATALOG["games"]:
+            html = self.read(g["id"], "index.html")
+            self.assertIn('content="width=device-width, initial-scale=1, viewport-fit=cover"', html, g["id"])
+            man = json.loads(self.read(g["id"], "app.webmanifest"))
+            self.assertEqual((man["name"], man["start_url"], man["display"]), (g["name"], "./", "fullscreen"), g["id"])
+            for icon in man["icons"]:
+                self.assertNotRegex(icon["src"], r"[:/]", g["id"])       # its own folder: offline, and the same in the arcade
+                with open(os.path.join(self.GAMES, g["id"], icon["src"]), "rb") as f:
+                    self.assertEqual(f.read(8), b"\x89PNG\r\n\x1a\n")
+        r = subprocess.run([sys.executable, os.path.join(os.path.dirname(BOX), "..", "tools", "game-apps.py"), "--check"], capture_output=True, text=True, timeout=120)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        pad = self.read("pad.js")                                          # pad.js: offline, and asks only from a tap
+        self.assertNotRegex(pad, r"""(src|href|url)\s*[=(]\s*["']?(https?:)?//""")
+        for online in ("fetch(", "XMLHttpRequest", "WebSocket", "importScripts", "@import", "<link", "sendBeacon"):
+            self.assertNotIn(online, pad)
+        self.assertNotRegex(pad, r"buttons\[16\]")                        # Home is still the box's
+        self.assertIn('href: "app.webmanifest"', pad)
+        with open(os.path.join(BOX, "sofa-box-agent.py"), encoding="utf-8") as f:   # the box serves it as one
+            self.assertIn('".webmanifest": "application/manifest+json"', f.read())
 
 
 class TheLoopAndWhatIsKept(unittest.TestCase):

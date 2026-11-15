@@ -576,7 +576,8 @@ the tables of looks to show (each look a body's colours and parts, as `build` ta
 **The controller (`pad.js`).** Beyond the buttons and the left stick: `SofaPad.stick2()` (the right stick),
 `SofaPad.trigger("rt")` (how far a trigger is pulled), `SofaPad.button("left")` (the D-pad itself, not the stick),
 and `SofaPad.rumble(strong, weak, ms)`. These follow whichever controller was used last; each player's own are
-`SofaPad.player(n)`'s (Several players, below).
+`SofaPad.player(n)`'s (Several players, below). On a phone or a tablet the controller is drawn on the picture (Touch,
+below).
 
 **What's written on the picture (`UI`, as `E.ui`).** A list of quads in the picture's own pixels, drawn after the
 game's `draw()` with one call (through the 2D context where there's no WebGL): `begin(w, h)`, then `rect`, `frame`,
@@ -666,6 +667,94 @@ among them, for that controller's own presses), `SofaPad.on("joined", p => …)`
 `SofaPad.on((b, how, p) => …)` hears every controller and says whose it was. The box turns every controller's
 presses into keys; while any of them is in use (a direction held included), those keys are dropped as before.
 
+## Touch: phones and tablets
+
+A game opened on a phone or a tablet (the box's page games, and the same pages in the arcade on edgeventure.uk)
+notices by itself and is played by touch: a controller drawn on its own picture, read by the game as one more player
+under the button names it already reads. Nothing in a game's rules changes for it. It's pad.js's `SofaPad.touch`.
+
+- **When it shows.** On a coarse pointer (a phone's or a tablet's screen) from the start, otherwise at the first touch
+  (a laptop's touch screen); a mouse is no touch. A controller picked up or a key pressed hides it again, the next
+  touch brings it back. Never in `#demo`, never on a page with no layout (the graphics check).
+- **What it is.** A standard gamepad of pad.js's own (`id` "Sofa touch"), joined as a player at the first touch:
+  `SofaPad.on`, `held`, `button`, `stick`, `stick2`, `trigger`, `rumble`, `label` and `player(n)` all work for it,
+  and Low3D's `Input` and Low2D's `Control` with them. It's no source of the box's echo keys (`SofaPad.real()`: a
+  controller of its own), so a keyboard on a tablet isn't held back. Its labels are the letters drawn on it (A, B, X,
+  Y, LB … and II for Start), so a game's "A CARRY ON" still says what to press.
+- **On the box and on computers nothing changes.** No touch screen: nothing is shown, drawn, joined, stored or
+  asked for, and the engines' cost is one call a frame (`touch.frame()` saying no). Nothing of the page is laid over
+  the picture on a phone either: the controls are drawn in the game's canvas by whatever owns it, and the only page
+  element (the line under a 16:9 picture on a phone held upright) is outside the picture. Measured: pad.js's own
+  frame with no controller is about 30 ns before and after (node, two million frames), and `tools/games-bench.mjs --box
+  pi3`, before and after taken in turn, gives every game the frame rate, draw calls and triangles it had.
+
+**A game's layout** is data, in a block of its own after the engine's scripts:
+
+```html
+<script>/* touch: … */
+SofaPad.touch.layout({ stick: "stick", buttons: [["a", "JUMP"], ["x", "STRIKE"], ["b", "DASH"], ["y", "SHIELD"], ["lb", "HEAL"]], tilt: "x" });
+</script>
+```
+
+- `stick`: `"stick"`, a floating left stick (where the left thumb lands, anywhere on the left half), `"dpad"` (fixed,
+  four ways: menus, grids, lanes) or `"none"`. `look: true`: a drag on the right half, off the buttons, is the right
+  stick (aiming, turning).
+- `buttons`: what each is called in this game, the first the big one in the bottom right corner, up to four round it
+  (spread so a thumb finds each), three more on a ring outside those. A thumb rolled from one to the next presses
+  that one. `top`: small ones beside the pause button, for what's seldom pressed (Gloamwell's GEAR, WYRD's BAG), clear
+  of the corners where games keep their maps.
+- `pause`: the button at the top middle presses Start (`false`: none; the small games have no pause).
+- `tilt`: what tilting moves when the player turns it on: `"x"` (steering), `"xy"`, or `false` (no tilt option).
+- `none: true`: nothing drawn (Pair Up's cards are tapped).
+- `sets` and `touch.use(name)`: other layouts a game switches to.
+
+Every game on the box's list has one (`tests/test_box_games.py` checks it, and that the game reads each button it
+shows): racers and fighters a stick and four to seven buttons, the puzzles a D-pad, Rune Tactics none (its tiles are
+tapped, and a D-pad would cover them), Ironmaw and Void Drifter a right thumb to aim with.
+
+**Drawing it.** `touch.frame(covered)` each frame says whether to draw now (`covered`: a menu is over the picture,
+which is tapped instead), then `touch.draw(paint, w, h)` draws through `paint.disc`, `ring`, `bar` and `text` into a
+picture `w × h` laid over the element given to `touch.attach(el)`. Low3D adds them to `E.ui` after the game's own
+writing on the frames they show and takes them off after, so a game's held list is as it left it (`touchPaint(ui)`;
+the UI's sheet has a big disc and a ring for them); Low2D draws them after `hud()` in its letters. A game of its own
+calls `touch.draw2d(ctx, w, h, text)` at the end of its frame (Gloamwell, Neon Dodge, Sky Hop).
+
+**Menus are tapped.** Low3D's: an `.item` tapped is chosen; on an option, the left half of its value goes back one
+and the rest on (round from the last to the first); a screen with a way back gets a **◀ Back** at its top left, and a
+screen that's worked with another button too names it (`touch: [["x", "Salvage"]]`: a button beside ◀ Back that
+presses X a moment, `touch.press("x")`, as WYRD's bag and saves do). Low2D's:
+taller rows where they fit, "TAP TO CHOOSE", a **◀ BACK** at the panel's corner, and a tap outside the panel goes
+back. Gloamwell's main menus (the title, the saves, the classes, pause, options) note where their rows are as
+they're drawn and have no controls over them (X on the saves would let one go), and a tap on a row is the presses that
+would reach it, then A; its other screens are worked with the stick, OK, BACK and the pages (a set of its layout's).
+A Low2D game's own screen worked by tapping alone says so with `covered()` (Cosmic Cascade's puzzles).
+
+**A game's own gestures**, where they help: `touch.onTap(fn)` hears a tap or a swipe that missed the controls (page
+pixels; true when taken). Low2D passes them on in the picture's pixels: `tap(x, y, G)` and `swipe(dx, dy, x, y, G)`
+in `game({...})`, and `G.press(b)` presses a button for the fixed steps' `take()`. Rune Tactics: a tile tapped takes
+the cursor there, tapped again it's A (choices and the map's places too). Cosmic Cascade: tap a column, swipe to
+move, down to slam, up to hold. Neon Dodge: a tap or a swipe to either side changes lane.
+
+**Tilt** is off until the player turns it on: **Tilt** in a Low2D game's options (`optionItems()` adds it on a touch
+screen with a sensor), a Low3D options screen with `tilt: "Tilt to steer"`, Gloamwell's options, and a line under
+the small games' titles. `touch.tilt(on)` asks for the sensor where the browser asks (iPhone and iPad: from a tap, so
+the option asks as it's tapped; a choice kept from before asks at the next tap) and keeps the choice for that game.
+Down, from the device's angles, turned into the screen's own (held either way up, or upright); left and right are
+against level, forward and back against how it was held when tilt came on. A thumb on the stick wins over it.
+
+**Vibration** stands in for rumble: `rumble()` on the touch player buzzes (`navigator.vibrate`) as long as the rumble,
+a faint one not at all. iPhone Safari has none.
+
+**Screens.** Every page says `viewport-fit=cover`, and the controls keep inside the screen's safe areas (a notch, the
+home bar). A 16:9 picture on a phone held upright is letterboxed with a line under it: turn the phone on its side.
+The first tap asks for the full screen where the browser gives it (not an iPhone's; once: leaving it is the player's;
+never in a frame or an installed app). On a touch screen a page also points at its home-screen app: each game's folder
+has `app.webmanifest` (full screen, on its side) and `icon-192.png` / `icon-512.png`, the game's two letters in these
+letters over its colour, made from `games.json` by `python3 tools/game-apps.py` (run it after adding a game; `--check`
+says what's out of date).
+
+Tried in Chrome's phone and tablet emulation, with touches made by hand: not yet on a real phone or tablet.
+
 ## Playing by itself, and the games check
 
 A game opened with `#demo` at the end of its address plays by itself: an attract mode that takes no controller and
@@ -747,7 +836,9 @@ the game's, so the tests can play every stage in node with the game's own physic
 
 ### The parts
 
-- `game(o)` → `G`: `g` (the canvas's 2D context), `tier`, `gov`, `control(n)`, `input` (Low3D's), `synth`,
+- `game(o)` → `G` (`o.tap(x, y, G)` and `o.swipe(dx, dy, x, y, G)`: a touch screen's taps and swipes off the
+  controls, in the picture's pixels; `G.press(b)`: a button pressed as if on the controller):
+  `g` (the canvas's 2D context), `tier`, `gov`, `control(n)`, `input` (Low3D's), `synth`,
   `shake(k)`, `stop(ms)`, `fade(fn)`, `zoomOn(z, x, y)` and `tiltBy(a)` (the camera's moments: a boss walks in, a
   hard blow; off with screen shake), `rumble(s, w, ms, who)`, `label(b)` (a button as the player knows it: A or ✕,
   or the key's name), `options(o)`, `rows()`, `ran()` (how it ran, in one line) and `tell()` (says that line for the
@@ -776,8 +867,8 @@ the game's, so the tests can play every stage in node with the game's own physic
 - `font` (5×7, with ✕ ○ □ △ ◀ ▶ ♥ ★ in it): `text`, `shadow`, `center`, `width`, `wrap`, `colour(css)`;
   `Label(w)`: a line drawn once and copied after; `badge(g, G, b, x, y)`: a button in a little box.
 - `Menu(G, {top, screens, choose, changed})`: title, pause, options and the rest in one look, worked with the
-  controller (◀ ▶ change an option) and the keys; Back on the top screen is the box's (it leaves the game).
-  `optionItems(extra)` are the engine's options.
+  controller (◀ ▶ change an option), the keys, and taps on a touch screen; Back on the top screen is the box's (it
+  leaves the game). `optionItems(extra)` are the engine's options (and Tilt, on a touch screen with a sensor).
 - `Store(id, fresh)`: what's kept on the box (`data`, `save()`), never written in `#demo`.
 
 ### Checking a 2D game
@@ -865,7 +956,8 @@ once outside the game, kept the boards that have a way to clear them, and the ga
 - `tests/test_box_games.py` (`TheEngine`) checks that games stay offline and on the controller, that every page's
   script parses, and that each kind of box gets the right drawing. `TheEngine2D` checks Low2D's looks and paces,
   its governor, loop, tiles, particles and saves in node; `TheCinderKnight` plays every one of Cinder Knight's stages
-  with the moves you'd have by then.
+  with the moves you'd have by then. `TheTouchScreen` checks the touch controls: the button names they give, hidden
+  with no touch screen, tilt and vibration, the engines' taps, and every game's layout and home-screen app.
 
 ## Next, as games need it
 

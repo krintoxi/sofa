@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Ironmaw</title>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>Ironmaw</title>
 <style>
   /* Ink, bone, phosphor green and hot pink: the box's own colours. Nothing of the page lies over the game: its numbers,
      its messages, its map and its flashes are drawn on the game's own canvas, and a menu's blocks are each a layer of
@@ -85,6 +85,9 @@
 </div>
 <script src="../pad.js"></script>
 <script src="../low3d.js"></script>
+<script>/* touch: a phone's or tablet's controls, drawn on the picture (pad.js, SofaPad.touch; ENGINE.md, "Touch") */
+SofaPad.touch.layout({ stick: "stick", look: true, buttons: [["rt", "FIRE"], ["a", "USE"], ["lt", "AIM"], ["rb", "WEAPON"], ["b", "TURN"], ["y", "MAP"]], tilt: "xy" });
+</script>
 <script>
 /* Ironmaw: a fast shooter for Sofa Box OS, in the old style (rooms and corridors, keys and doors, secrets, a lot to
    shoot), with a controller made for it: the left stick moves, the right stick turns, the triggers aim and fire.
@@ -1248,7 +1251,10 @@ function wrapText(t, k, w) {
 // one player's numbers in x y w h of the canvas (the whole of it, or a split screen's view); small: a quarter of the screen
 function hudNumbers(F, x, y, w, h, s, split) {
   const k1 = Math.max(1, s - 1), k2 = s, k4 = split ? s + (h > 150 * s ? 1 : 0) : s * 2, m = Math.round(Math.min(w, h) * 0.045), W = WEAPONS[F.weapon];
-  const hp = Math.max(0, Math.ceil(F.hp)), ar = Math.ceil(F.armor), by = y + h - m, bw = 17 * k4, bar = Math.max(2, s);
+  // (a touch screen's thumbs and buttons are in the bottom corners: the numbers go along the top instead)
+  const thumbs = !split && window.SofaPad && SofaPad.touch.on;
+  const hp = Math.max(0, Math.ceil(F.hp)), ar = Math.ceil(F.armor), bw = 17 * k4, bar = Math.max(2, s);
+  const by = thumbs ? y + m + bar + 2 * s + 7 * k4 + 2 * s + 7 * k1 + 3 * s + 7 * k1 + 2 : y + h - m;
   // health and armour: a word, a number, a bar
   let bx = x + m;
   ui.text(split ? "HP" : "HEALTH", bx, by - bar - 2 * s - 7 * k4 - 2 * s - 7 * k1, k1, GREY, 1, 0, INK);
@@ -2583,7 +2589,7 @@ const menu = new L3.Menu({
   screens: {
     title: {}, skill: { back: "title", enter: () => save.skill },
     levels: { back: "title", enter: renderLevels },
-    options: { options: OPTS, values: save.opts, extra: '<div class="item" data-do="picture">Picture and speed</div>', back: () => menu.show(pausedFrom ? "pause" : "title"), changed: optionChanged },
+    options: { options: OPTS, values: save.opts, extra: '<div class="item" data-do="picture">Picture and speed</div>', back: () => menu.show(pausedFrom ? "pause" : "title"), changed: optionChanged, tilt: "Tilt to move" },
     picture: { options: PICOPTS, values: save.opts, list: $("picList"), back: "options", enter: picNote, changed: pictureChanged },
     box: { row: true, back: "title", enter: renderBox },
     pause: { back: () => resume(), enter: () => { $("controls").innerHTML = controlsText(); $("pause").querySelector('[data-do="restart"]').firstChild.textContent = arena ? "Start the match again" : "Start the level again"; } },
@@ -2614,10 +2620,16 @@ const menu = new L3.Menu({
   }
 });
 function controlsText() {
+  if (SofaPad.touch.on) return "Left thumb: move · right thumb: turn and look · FIRE, AIM, WEAPON, USE, TURN, MAP: the buttons on the right · II: this menu";
   return input.pad() ? "Left stick: move · Right stick: turn and look · " + kb("rt") + " fire · " + kb("lt") + " aim · " + kb("lb") + kb("rb") + " weapons · " + kb("a") + " open, use · " + kb("b") + " turn round · " + kb("y") + " map"
     : "W A S D: move · ← →: turn · Space: fire · Shift: aim · E: open, use · Q R or 1–7: weapons · C: turn round · Tab: map · a click lets the mouse look";
 }
 function hints() {
+  if (SofaPad.touch.on) {                         // (a touch screen: what to tap)
+    for (const id of ["titleHint", "skillHint", "levelsHint", "boxHint", "pauseHint", "tallyHint", "arenaEndHint"]) $(id).textContent = "tap to choose";
+    for (const id of ["arenaHint", "optionsHint", "pictureHint"]) $(id).textContent = "tap the left or right of a choice to change it";
+    return;
+  }
   $("titleHint").innerHTML = kb("a") + " choose &nbsp; " + (input.pad() ? kb("b") + " back to the box" : "↑ ↓ move");
   for (const id of ["skillHint", "levelsHint", "boxHint"]) $(id).innerHTML = kb("a") + " choose &nbsp; " + kb("b") + " back";
   $("arenaHint").innerHTML = "◀ ▶ change &nbsp; " + kb("a") + " start &nbsp; " + kb("b") + " back"; $("arenaEndHint").innerHTML = kb("a") + " choose";
@@ -2688,7 +2700,7 @@ function ready() {
   if (DEMO) { if (window.SofaStats) window.SofaStats.demo = true; level = -1; demoNext(); }
 }
 // a mouse, for a desktop: a click lets it look
-$("view").addEventListener("click", () => { if (state === "play" && $("view").requestPointerLock) $("view").requestPointerLock(); });
+$("view").addEventListener("click", () => { if (state === "play" && !SofaPad.touch.on && $("view").requestPointerLock) $("view").requestPointerLock(); });   // (a mouse's, not a tap's)
 addEventListener("mousemove", e => { if (document.pointerLockElement === $("view")) { mouse.dx += e.movementX; mouse.dy += e.movementY; } });
 addEventListener("mousedown", e => { if (document.pointerLockElement === $("view")) { if (e.button === 0) mouse.fire = true; if (e.button === 2) mouse.aim = true; } });
 addEventListener("mouseup", e => { if (e.button === 0) mouse.fire = false; if (e.button === 2) mouse.aim = false; });

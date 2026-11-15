@@ -2650,7 +2650,7 @@ Letters.prototype = {
   }
 };
 let LETTERS = null;
-const UI_COLS = 42, UI_W = 256, UI_H = 64;         // the picture the letters and shapes are cut from: 6 × 8 cells, then shapes
+const UI_COLS = 42, UI_W = 256, UI_H = 128;        // the picture the letters and shapes are cut from: 6 × 8 cells, then shapes
 function UI() {
   if (!LETTERS) LETTERS = new Letters();
   this.L = LETTERS; this.cap = 512; this.q = new Float32Array(this.cap * 16); this.n = 0; this.w = 320; this.h = 180;
@@ -2665,6 +2665,8 @@ UI.prototype = {
     g.fillRect(0, 40, 8, 8);                           // a block (bars, lines)
     g.beginPath(); g.arc(20, 48, 7.5, 0, TAU); g.fill();   // a disc, 16 across at 12 40
     g.beginPath(); g.moveTo(32, 55); g.lineTo(40, 41); g.lineTo(48, 55); g.lineTo(40, 51); g.closePath(); g.fill();   // an arrowhead, 16 across at 32 40
+    g.beginPath(); g.arc(32, 96, 31.5, 0, TAU); g.fill();   // a big disc and a ring, 64 across at 0 64 and 64 64 (a touch screen's buttons)
+    g.strokeStyle = "#fff"; g.lineWidth = 4; g.beginPath(); g.arc(96, 96, 29.5, 0, TAU); g.stroke();
     return (this.atlas = c);
   },
   begin(w, h) { this.n = 0; this.base = 0; this.w = w; this.h = h; return this; },
@@ -2754,7 +2756,7 @@ UI.prototype = {
       const o = i * 16, col = q[o + 12], a = q[o + 13];
       ctx.globalAlpha = Math.max(0, Math.min(1, a));
       const flat = q[o + 1] === q[o + 3] && q[o] === q[o + 6] && q[o + 2] === q[o + 4];
-      if (q[o + 9] >= 40 && q[o + 8] < 8) {              // a block: a rectangle, or any four corners
+      if (q[o + 8] === 2 && q[o + 9] === 42) {           // a block: a rectangle, or any four corners
         ctx.fillStyle = U.hex(col);
         if (flat) ctx.fillRect(q[o], q[o + 1], q[o + 2] - q[o], q[o + 5] - q[o + 1]);
         else { ctx.beginPath(); ctx.moveTo(q[o], q[o + 1]); ctx.lineTo(q[o + 2], q[o + 3]); ctx.lineTo(q[o + 4], q[o + 5]); ctx.lineTo(q[o + 6], q[o + 7]); ctx.closePath(); ctx.fill(); }
@@ -2779,6 +2781,26 @@ UI.prototype = {
   }
 };
 UI.ORD = [0, 1, 2, 0, 2, 3];
+// a touch screen's controls (pad.js's SofaPad.touch) drawn into a UI list: added after the game's own writing on the
+// frames they show, and taken off again after (the game's list is as it left it)
+function touchPaint(ui) {
+  return {
+    disc(x, y, r, c, a) { ui.quad(x - r, y - r, x + r, y - r, x + r, y + r, x - r, y + r, 0, 64, 64, 128, c, a); },
+    ring(x, y, r, c, a) { ui.quad(x - r, y - r, x + r, y - r, x + r, y + r, x - r, y + r, 64, 64, 128, 128, c, a); },
+    bar(x, y, w, h, c, a) { ui.rect(x, y, w, h, c, a); },
+    text(s, x, y, px, c, a) { const k = Math.max(1, Math.round(px / 7)); ui.text(s, x, y - 3.5 * k, k, c, a, 0.5); }
+  };
+}
+const TOUCH = () => window.SofaPad && window.SofaPad.touch;
+function touchOn(E, covered) {
+  const T = TOUCH(); if (!T || !T.frame(covered)) return -1;
+  const ui = E.ui, n = ui.n;
+  T.draw(E.touchPaint || (E.touchPaint = touchPaint(ui)), ui.w, ui.h); ui.dirty = true;
+  return n;
+}
+function touchOff(E, n) { if (n >= 0) { E.ui.n = n; E.ui.dirty = true; } }
+// the Tilt option for a game's options screen, where a touch screen and a tilt sensor are (else null)
+function tiltOption(name) { const T = TOUCH(); return T && T.can() ? { k: "tilt", name: name || "Tilt", vals: [0, 1], names: { 0: "Off", 1: "On" } } : null; }
 
 // ---------------------------------------------------------------- a moment worth marking: paper thrown in the air, and
 // lines that stack up on the picture. Both go into the game's own writing (UI), so they are part of its one draw call and
@@ -3002,12 +3024,12 @@ function Input(o) {
     const act = o.keys[e.key] || o.keys[e.code];
     if (act || back) e.preventDefault();
     if (!act) return;
-    if (pad && pad.connected() && ECHO.test(e.key)) { if (!e.repeat) this.q.push({ act, t: performance.now(), down: true }); return; }
+    if (pad && (pad.real ? pad.real() : pad.connected()) && ECHO.test(e.key)) { if (!e.repeat) this.q.push({ act, t: performance.now(), down: true }); return; }
     this.k[act] = true; o.on(act, e.repeat ? "repeat" : "press", 0);
   });
   addEventListener("keyup", e => {
     const act = o.keys[e.key] || o.keys[e.code]; if (!act) return;
-    if (pad && pad.connected() && ECHO.test(e.key)) { this.q.push({ act, t: performance.now(), down: false }); return; }
+    if (pad && (pad.real ? pad.real() : pad.connected()) && ECHO.test(e.key)) { this.q.push({ act, t: performance.now(), down: false }); return; }
     this.k[act] = false; o.on(act, "release", 0);
   });
   addEventListener("blur", () => { for (const a in this.k) this.k[a] = false; });
@@ -3035,10 +3057,16 @@ Input.prototype = {
 
 // ---------------------------------------------------------------- menus: screens of .item elements, worked with the
 // arrows, A to choose and B for back. o: { screens: { name: { grid: columns, row: true (left and right), back:
-// "screen" or function, enter(el), options: [{k, name, vals, names}] with values (an object) and changed(k, v) } },
+// "screen" or function, enter(el), options: [{k, name, vals, names}] with values (an object) and changed(k, v), tilt:
+// "Tilt to steer" (that option added on a touch screen with a tilt sensor), touch: [["x", "Salvage"]] (a touch
+// screen's buttons for what's pressed on this screen besides choosing: beside ◀ Back) } },
 // top: the top screen's name, choose(el, act, screen), sound(name) }
+// On a touch screen an item is tapped (an option's ◀ half goes back a value, the rest on), and a screen with a way
+// back has a Back button at its top left.
+let MENU = null;                                     // (the menu showing now: the touch controls aren't drawn under it)
 function Menu(o) {
   this.o = o; this.at = null; this.i = 0; this.topAt = 0;
+  const T = TOUCH(); if (T) T.onTap(t => this.tap(t));
 }
 Menu.prototype = {
   el(name) { return (this.o.screens[name] || {}).el || document.getElementById(name); },
@@ -3046,13 +3074,41 @@ Menu.prototype = {
   show(name, keep) {
     for (const n in this.o.screens) { const e = this.el(n); if (e) e.classList.toggle("hidden", n !== name); }
     if (name === this.o.top && this.at !== name) this.topAt = performance.now();
-    this.at = name; if (!keep) this.i = 0;
+    this.at = name; MENU = this; if (!keep) this.i = 0;
     const S = this.o.screens[name];
+    this.chip(name, S);
     if (S.enter) { const i = S.enter(this.el(name)); if (typeof i === "number" && !keep) this.i = i; }
+    if (S.options && S.tilt && !S.options.some(o => o.k === "tilt")) { const t = tiltOption(S.tilt); if (t) S.options.push(t); }   // (a touch screen with a tilt sensor)
     if (S.options) this.renderOptions();
     this.focus(this.i);
   },
-  hide() { for (const n in this.o.screens) { const e = this.el(n); if (e) e.classList.add("hidden"); } this.at = null; },
+  hide() { for (const n in this.o.screens) { const e = this.el(n); if (e) e.classList.add("hidden"); } this.at = null; if (MENU === this) MENU = null; },
+  chip(name, S) {                                    // (touch) ◀ Back on a screen with a way back, and its own buttons
+    const T = TOUCH(); if (!T || !(T.on || this.chips)) return;   // (no touch screen, none made: nothing to do)
+    const el = this.el(name); if (!el) return;
+    let c = el.querySelector(":scope > .sofa-tbar");
+    if (!(T.on && (S.back || S.touch))) { if (c) c.style.display = "none"; return; }
+    if (!c) {
+      c = document.createElement("div"); c.className = "sofa-tbar"; this.chips = true;
+      for (const [b, t] of (S.back ? [["back", "◀ Back"]] : []).concat(S.touch || [])) { const e = document.createElement("div"); e.className = "sofa-tbtn"; e.dataset.b = b; e.textContent = t; c.appendChild(e); }
+      el.appendChild(c);
+    }
+    c.style.display = "";
+  },
+  tap(t) {                                           // (touch) true when the tap was on this menu
+    if (!this.at || t.kind !== "tap" || !t.target || !t.target.closest) return false;
+    const el = this.el(this.at); if (!el || !el.contains(t.target)) return false;
+    const tb = t.target.closest(".sofa-tbtn");
+    if (tb) { if (tb.dataset.b === "back") this.back(); else TOUCH().press(tb.dataset.b); return true; }
+    const item = t.target.closest(".item"), it = this.items(), i = item ? it.indexOf(item) : -1;
+    if (i < 0) return true;
+    const S = this.o.screens[this.at];
+    this.focus(i);
+    if (S.options && !item.dataset.do) { const b = item.querySelector("b"), r = b && b.getBoundingClientRect(); this.change(i, r && t.x < r.left + r.width / 2 ? -1 : 1, true); return true; }
+    if (this.o.sound) this.o.sound("ok");
+    this.o.choose(item, item.dataset.do, this.at);
+    return true;
+  },
   top() { return this.at === this.o.top ? this.topAt : 0; },
   focus(i) {
     const it = this.items(); if (!it.length) return;
@@ -3082,7 +3138,8 @@ Menu.prototype = {
     if (typeof S.back === "function") S.back(); else this.show(S.back);
   },
   renderOptions() {
-    const S = this.o.screens[this.at], v = S.values;
+    const S = this.o.screens[this.at], v = S.values, T = TOUCH();
+    if (T) for (const o of S.options) if (o.k === "tilt") v.tilt = T.wanted() ? 1 : 0;
     const list = S.list || this.el(this.at).querySelector(".menu");
     list.innerHTML = S.options.map(o => {
       const x = v[o.k], name = o.names ? o.names[x] : typeof x === "number" && o.vals.length > 5 ? "▮".repeat(x) + "▯".repeat(o.vals[o.vals.length - 1] - x) : x;
@@ -3090,11 +3147,13 @@ Menu.prototype = {
     }).join("") + (S.extra || "");
     this.focus(this.i);
   },
-  change(i, d) {
+  change(i, d, wrap) {
     const S = this.o.screens[this.at], o = S.options[i]; if (!o) return;
-    const k = o.vals.indexOf(S.values[o.k]), v = o.vals[U.clamp(k + d, 0, o.vals.length - 1)];
+    const k = o.vals.indexOf(S.values[o.k]), n = o.vals.length, v = o.vals[wrap ? (k + d + n) % n : U.clamp(k + d, 0, n - 1)];
     if (v === S.values[o.k]) return;
     S.values[o.k] = v; if (this.o.sound) this.o.sound("move");
+    const T = TOUCH(), at = this.at;
+    if (o.k === "tilt" && T) T.tilt(!!v).then(ok => { if (!ok && S.values.tilt) { S.values.tilt = 0; if (this.at === at) this.renderOptions(); } });   // (asked here: it's a tap)
     if (S.changed) S.changed(o.k, v);
     this.renderOptions();
   }
@@ -3482,12 +3541,16 @@ function game(o) {
     E.alpha = acc > 0 ? acc / E.DT : 0;                 // (how far into the next step: for a game that draws between steps)
     // (a draw that returns false drew nothing: the last picture stays, and the governor isn't asked to judge frames
     // with no work in them: it would climb to the top rung under a menu and find it too much when play goes on)
+    // (a touch screen's controls, where one is in use, are added to the UI's list on the frames they show)
     let drew = true;
-    if (E.mode === "gl") { try { drew = o.draw(now, dt) !== false; if (drew && E.ui.n) E.ui.show(E.g3); } catch (e) { E.lost(e); } }
+    if (E.mode === "gl") { try { drew = o.draw(now, dt) !== false; if (drew) { const tn = touchOn(E, !!(MENU && MENU.at)); if (E.ui.n) E.ui.show(E.g3); touchOff(E, tn); } } catch (e) { E.lost(e); } }
     else if ((drew = o.draw(now, dt) !== false)) {
+      const tn = touchOn(E, !!(MENU && MENU.at));
       if (E.mode === "ray") { if (E.screen) { E.screen.present(E.glows() ? E.rung.glow : 0, E.vig); if (E.ui.n) E.screen.show(E.ui); } }
       else if (E.ui.n && E.flat) E.ui.show(null, E.flat.ctx);
+      touchOff(E, tn);
     }
+    if (!drew) { const T = TOUCH(); if (T) T.frame(true); }
     if (!drew) E.gov.hold(400);
     if (E.slow > 1) { const until = performance.now() + (performance.now() - t0) * (E.slow - 1); while (performance.now() < until) { /* #slow: as a slower processor would */ } }
     if (o.missed) { const k = o.missed(); if (k) E.gov.miss(k); }
@@ -3501,6 +3564,7 @@ function game(o) {
   }
   E.start = () => {                                  // what this box is, the test (once per box and browser), then ready
     E.fit(); addEventListener("resize", E.fit);
+    if (TOUCH()) TOUCH().attach(o.view);
     E.probe = probe();
     const go = () => {
       E.plan = planOf();
@@ -4385,5 +4449,5 @@ function planRay(p, b) {
 
 window.Low3D = { probe, family, NAMES, bench, plan, rows, line, LADDER, Governor, GL, Mesh, Flat, bake, M4, px, hexRGB, Rig, Skin,
   U, Kit, Path, Chunks, Land, Trail, Particles, camera, chase, orbit, Follow, viewOf, begin, Input, Menu, Synth, game,
-  Palette, Tex, RayMap, Ray, Marks, Screen, planRay, heldRay, helpersFor, wholeSteps, ladderSig, fortyOn, withForty, UI, Letters, GLYPHS, SPECIAL, wholeSize, Confetti, Banners, Emblem, Stream, Slots, version: 5 };
+  Palette, Tex, RayMap, Ray, Marks, Screen, planRay, heldRay, helpersFor, wholeSteps, ladderSig, fortyOn, withForty, UI, Letters, GLYPHS, SPECIAL, wholeSize, Confetti, Banners, Emblem, Stream, Slots, touchPaint, tiltOption, version: 5 };
 })();

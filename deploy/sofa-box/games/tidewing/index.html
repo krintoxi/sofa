@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Tidewing</title>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>Tidewing</title>
 <style>
   /* Ink, bone, phosphor green and hot pink: the box's own colours. Nothing here lies over the race (its numbers are
      drawn in the canvas), and a menu's blocks are each a layer of their own with nothing behind them: on a Pi 3 the
@@ -88,6 +88,9 @@
 </div>
 <script src="../pad.js"></script>
 <script src="../low3d.js"></script>
+<script>/* touch: a phone's or tablet's controls, drawn on the picture (pad.js, SofaPad.touch; ENGINE.md, "Touch") */
+SofaPad.touch.layout({ stick: "stick", buttons: [["a", "GO"], ["b", "CARVE"], ["x", "BOOST"], ["y", "CAMERA"]], tilt: "x" });
+</script>
 <script>
 /* Tidewing: a race over open water for Sofa Box OS, on Low3D, the box's game engine (../low3d.js). You fly a skimmer,
    a small hover-craft with a wing, low over the sea through the gates of a course: three laps against three rivals.
@@ -647,7 +650,7 @@ const menu = new L3.Menu({
     cups: { grid: 3, back: "title", enter: () => { renderCups(); return cup ? cup.i : 0; } },
     courses: { grid: 4, back: "title", enter: () => { renderCourses(); return Math.min(course, save.open - 1); } },
     craft: { back: "title", list: $("craftlist"), options: [], values: picks, changed: craftChanged, extra: '<div class="item" data-do="back">Done</div>', enter: craftEnter },
-    options: { options: OPTS, values: save.opts, back: () => menu.show(pausedFrom ? "pause" : "title"), changed: optionChanged },
+    options: { options: OPTS, values: save.opts, back: () => menu.show(pausedFrom ? "pause" : "title"), changed: optionChanged, tilt: "Tilt to steer" },
     box: { row: true, back: "title", enter: renderBox },
     pause: { back: () => resume(), enter: () => { $("quitItem").textContent = mode === "cup" ? "Leave the cup" : "Other waters"; } },
     results: { row: true, back: () => toCourses() },
@@ -688,7 +691,11 @@ function onButton(b, how) {
 }
 function pads() { return input.players(); }
 function padsChanged() { if (two && pads().length < 2 && state !== "race") two = false; if (menu.at === "title") { renderTitle(); menu.focus(menu.i); } hints(); }
+// (a touch screen: what to tap; the menus' hints are for a controller and the keys otherwise)
+const TAPS = { titleHint: "tap to choose", cupsHint: "tap a cup to race it", coursesHint: "tap a course to race it", craftHint: "tap the left or right of a choice to change it",
+  optionsHint: "tap the left or right of a choice to change it", boxHint: "tap to choose", pauseHint: "tap to choose", resultsHint: "tap to choose", standHint: "tap to choose" };
 function hints() {
+  if (window.SofaPad && SofaPad.touch.on) { for (const id in TAPS) $(id).textContent = TAPS[id]; return; }
   $("titleHint").innerHTML = kb("a") + " choose &nbsp; " + (input.pad() ? kb("b") + " back to the box" : "↑ ↓ move") + (pads().length < 2 ? " &nbsp; · &nbsp; two controllers: two players" : "");
   $("cupsHint").innerHTML = $("coursesHint").innerHTML = kb("a") + " race &nbsp; " + kb("b") + " back";
   $("craftHint").innerHTML = "◀ ▶ change &nbsp; " + kb("b") + " back";
@@ -1501,9 +1508,11 @@ function drawHUD(now, w, h, views, solid) {
     const lab = r.boosting ? "BOOST" : r.jy > 0 ? "AIR" : r.carve ? "CARVING: BOOST FILLS" : r.draft > 0.35 ? "SLIPSTREAM" : full ? label("x") + " BOOST" : label("b") + " IN A TURN: CARVE";
     ui.text(lab, w / 2, by - 3 * S - 7 * S, S, r.boosting || full ? PINK : BONE, 0.9, 0.5, INK);
     // how fast
-    const sp = String(Math.round(r.speed * 3.6)), sx = w - M;
-    ui.text("KM/H", sx, y0 + vh - M - 7 * S, S, BONE, 0.7, 1, INK);
-    ui.text(sp, sx, y0 + vh - M - 7 * S - 2 * S - 7 * (views > 1 ? 2 * S : 3 * S), views > 1 ? 2 * S : 3 * S, r.boosting ? PINK : BONE, 1, 1, INK);
+    // (on a touch screen its buttons are in that corner: under the little map instead)
+    const sp = String(Math.round(r.speed * 3.6)), sx = w - M, big3 = views > 1 ? 2 * S : 3 * S, touch = views === 1 && window.SofaPad && SofaPad.touch.on;
+    const ky = touch ? (map ? my + ms : M) + 4 * S + 7 * big3 + 2 * S : y0 + vh - M - 7 * S;
+    ui.text("KM/H", sx, ky, S, BONE, 0.7, 1, INK);
+    ui.text(sp, sx, ky - 2 * S - 7 * big3, big3, r.boosting ? PINK : BONE, 1, 1, INK);
     // what it says (a first line, a smaller second)
     if (p.sayText) {
       const cut = p.sayText.indexOf("<small>"), a = cut < 0 ? p.sayText : p.sayText.slice(0, cut), b = cut < 0 ? "" : p.sayText.slice(cut + 7).replace("</small>", "");

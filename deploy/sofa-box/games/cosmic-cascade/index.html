@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Cosmic Cascade</title>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>Cosmic Cascade</title>
 <style>
   html, body { margin: 0; height: 100%; background: #000; overflow: hidden; user-select: none; }
   canvas { position: absolute; image-rendering: pixelated; }
@@ -8,6 +8,9 @@
 <script src="../pad.js"></script>
 <script src="../low3d.js"></script>
 <script src="../low2d.js"></script>
+<script>/* touch: a phone's or tablet's controls, drawn on the picture (pad.js, SofaPad.touch; ENGINE.md, "Touch"): and a swipe moves the gem (down: slam) */
+SofaPad.touch.layout({ stick: "dpad", buttons: [["a", "SLAM"], ["y", "HOLD"], ["x", "BEAM"], ["b", "AGAIN"]], tilt: false });
+</script>
 <script>
 /* Cosmic Cascade: a falling-gems puzzle for Sofa Box OS, on Low2D (../low2d.js), the box's 2D engine. Gems fall one
    at a time; three or more of a colour in a line (across, down or slanting; a wild gem stands in for any) clear, and
@@ -277,7 +280,7 @@ try { const old = +localStorage.getItem("cosmicCascade_hi"); if (old > SAVE.endl
 // ---------------------------------------------------------------- the engine
 const KEYS = { z: "a", Z: "a", x: "x", X: "x", c: "y", C: "y", p: "start", P: "start" };
 const G = L2.game({ id: "cosmic-cascade", canvas: document.getElementById("c"), keys: KEYS, keyNames: { a: "Z", x: "X", y: "C", start: "P" },
-  on: onButton, update, draw, hud, ready, tier: onTier, hidden: () => { if (mode === "play") pause(); }, joined: () => {}, left: () => {} });
+  on: onButton, update, draw, hud, ready, tier: onTier, tap: (x, y) => tapAt(x, y), swipe: (dx, dy) => swipeBy(dx, dy), covered: () => mode === "puzzles", hidden: () => { if (mode === "play") pause(); }, joined: () => {}, left: () => {} });
 const synth = G.synth, DEMO = G.demo;
 const CTL = {}, ctlOf = n => CTL[n] || (CTL[n] = G.control(n));
 let mode = "boot", modeT = 0, parts = null, BOARDS = [], GAME = null;
@@ -465,6 +468,32 @@ function puzzlePick() {
   if (c.take("up", 180)) { pickI = (pickI + 50) % 60; play("move"); } if (c.take("down", 180)) { pickI = (pickI + 10) % 60; play("move"); }
   if (modeT > 0.3 && c.take("a", 200)) { if (!puzzleOpen(pickI)) { play("no"); return; } play("ok"); const i = pickI; G.fade(() => startGame({ kind: "puzzle", puzzle: i }), 4); mode = "fading"; }
   if (c.take("b", 200)) toTitle();
+}
+// a touch screen: tap a column to send the gem there (tapped again: slam); swipe sideways to move it, down to slam, up to
+// hold; tap a puzzle to choose it (again: play it; no controls over the puzzles, a tap to the side of them goes back); at
+// the end, a tap carries on
+function myBoard() { for (const b of BOARDS) if (b.ctl && !b.ai) return b; return null; }
+function slide(b, to) { const p = b.piece; if (!p || to === p.c) return; const d = to > p.c ? 1 : -1; while (p.c !== to && canAt(b, p.c + d, p.y)) p.c += d; play("move"); }
+function tapAt(x, y) {
+  if (mode === "puzzles") {
+    const k = Math.floor((x - 150) / 30), ch = Math.floor((y - 36) / 30);
+    if (k < 0 || k > 9 || ch < 0 || ch > 5 || x - 150 - k * 30 > 24 || y - 36 - ch * 30 > 18) { if (x < 140 || y > 220) G.press("b"); return true; }   // (off the boards, at the side or below them: back)
+    const i = ch * 10 + k; if (i === pickI) G.press("a"); else { pickI = i; play("move"); }
+    return true;
+  }
+  if (mode !== "play" || !GAME) return false;
+  if (GAME.ended) { G.press("a"); return true; }
+  const b = myBoard(); if (!b || !b.piece || x < b.x || x >= b.x + COLS * CELL) return false;
+  const col = Math.floor((x - b.x) / CELL);
+  if (col === b.piece.c) G.press("a"); else slide(b, col);
+  return true;
+}
+function swipeBy(dx, dy) {
+  if (mode !== "play" || !GAME || GAME.ended) return false;
+  const b = myBoard(); if (!b || !b.piece) return false;
+  if (Math.abs(dy) > Math.abs(dx)) { G.press(dy > 0 ? "a" : "y"); return true; }
+  slide(b, Math.max(0, Math.min(COLS - 1, b.piece.c + Math.round(dx / CELL))));
+  return true;
 }
 function drawPicker(g) {
   g.fillStyle = "rgba(6,4,12,0.6)"; g.fillRect(0, 0, VW, VH);

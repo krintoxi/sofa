@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Rune Tactics</title>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>Rune Tactics</title>
 <style>
   html, body { margin: 0; height: 100%; background: #000; overflow: hidden; user-select: none; }
   canvas { position: absolute; image-rendering: pixelated; }
@@ -8,6 +8,9 @@
 <script src="../pad.js"></script>
 <script src="../low3d.js"></script>
 <script src="../low2d.js"></script>
+<script>/* touch: a phone's or tablet's controls, drawn on the picture (pad.js, SofaPad.touch; ENGINE.md, "Touch"): no D-pad, since a tile is tapped to put the cursor on it (twice: A), and it would cover the field */
+SofaPad.touch.layout({ stick: "none", buttons: [["a", "CHOOSE"], ["b", "BACK"], ["y", "NEXT"]], tilt: false });
+</script>
 <script>
 /* Rune Tactics: turn-based tactics for Sofa Box OS, on Low2D (../low2d.js), the box's 2D engine. A campaign of
    fifteen battles on a map of branching roads, five heroes who level up and learn spells (Kael the knight, Lyra the
@@ -466,7 +469,7 @@ const newCamp = () => ({ done: {}, heroes: { kael: { lvl: 1, xp: 0 }, lyra: { lv
 // ---------------------------------------------------------------- the engine
 const KEYS = { z: "a", Z: "a", x: "b", X: "b", c: "y", C: "y", q: "lb", Q: "lb", e: "rb", E: "rb", p: "start", P: "start" };
 const G = L2.game({ id: "rune-tactics", canvas: document.getElementById("c"), keys: KEYS, keyNames: { a: "Z", b: "X", y: "C", lb: "Q", rb: "E", start: "P" },
-  on: onButton, update, draw, hud, ready, tier: () => {}, hidden: () => {}, joined: () => {}, left: () => {} });
+  on: onButton, update, draw, hud, ready, tap: (x, y) => tapAt(x, y), tier: () => {}, hidden: () => {}, joined: () => {}, left: () => {} });
 const synth = G.synth, DEMO = G.demo;
 const CTL = {}, ctlOf = n => CTL[n] || (CTL[n] = G.control(n));
 let mode = "boot", modeT = 0;                       // boot title map battle result
@@ -858,6 +861,30 @@ function versus(demo) {
 }
 function toTitle() { mode = "title"; BT = null; synth.song({ seed: 9, root: 50, tempo: 88, calm: true }); menu.show("title"); }
 function onButton(b, how, who) {}
+// a touch screen: a tile tapped takes the cursor there, and tapped again where it is, it's A; a choice and a place on the
+// map the same way; on a result, a tap carries on
+function tapAt(x, y) {
+  if (mode === "map") {
+    let best = null, bd = 16 * 16;
+    for (const n of NODES) { const d = (n.x - x) * (n.x - x) + (n.y - y) * (n.y - y); if (d < bd && nodeOpen(n)) { bd = d; best = n; } }
+    if (!best) return false;
+    if (best.id === mapI) G.press("a"); else { mapI = best.id; play("move"); }
+    return true;
+  }
+  if (mode === "result") { G.press("a"); return true; }
+  if (mode !== "battle" || !BT || BT.ai[BT.side] || SEQ.length || BT.winner != null) return false;
+  if (ui === "act") {
+    const k = Math.floor((y - 114) / 12); if (x < 298 || k < 0 || k >= acts.length) return false;
+    if (ai === k) G.press("a"); else { ai = k; play("move"); }
+    return true;
+  }
+  const tx = Math.floor((x - OX) / TS); if (tx < 0 || tx >= MW) return false;
+  let ty = -1;
+  for (let yy = MH - 1; yy >= 0; yy--) { const top = sy(tx, yy); if (y >= top && y < top + TS) { ty = yy; break; } }   // (high ground stands up)
+  if (ty < 0) return false;
+  if (cur.x === tx && cur.y === ty) G.press("a"); else { cur.x = tx; cur.y = ty; play("move"); }
+  return true;
+}
 function demoNext() { versus(true); }
 function ready() {
   sounds(); G.options(SAVE.opts);

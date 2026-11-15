@@ -5128,7 +5128,8 @@ class Handler(BaseHTTPRequestHandler):
         types = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8",
                  ".json": "application/json", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
                  ".svg": "image/svg+xml", ".webp": "image/webp", ".ico": "image/x-icon", ".gif": "image/gif",
-                 ".woff2": "font/woff2", ".mp3": "audio/mpeg", ".ogg": "audio/ogg", ".wav": "audio/wav"}
+                 ".woff2": "font/woff2", ".mp3": "audio/mpeg", ".ogg": "audio/ogg", ".wav": "audio/wav",
+                 ".webmanifest": "application/manifest+json"}   # (a page game's home-screen app, on a touch screen)
         with open(full, "rb") as f:
             return self.send(f.read(), types.get(os.path.splitext(full)[1].lower(), "application/octet-stream"),
                              headers=headers or {"Cache-Control": "no-store, no-cache"})

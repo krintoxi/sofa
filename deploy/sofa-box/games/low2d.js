@@ -22,6 +22,7 @@ if (window.Low2D) return;
 const L3 = window.Low3D;
 if (!L3) throw new Error("low2d.js needs ../low3d.js loaded first");
 const U = L3.U, clamp = U.clamp;
+const TOUCH = () => window.SofaPad && window.SofaPad.touch;   // (pad.js's touch controls, on a phone or a tablet)
 
 function mk(w, h) { const c = document.createElement("canvas"); c.width = w; c.height = h; return c; }
 function ctx(c) { const g = c && c.getContext ? c.getContext("2d") : null; if (g) g.imageSmoothingEnabled = false; return g; }
@@ -211,6 +212,9 @@ function game(o) {
     joined: n => { if (o.joined) o.joined(n); }, left: n => { if (o.left) o.left(n); }
   });
   G.control = n => new Control(G, n || 0);
+  // a press as if a button were pressed, for a fixed step's take() (a game's tap or swipe on a touch screen): for anyone,
+  // or player who's
+  G.press = (b, who) => { const at = performance.now(); presses[0][b] = at; for (let k = 1; k < 5; k++) if (!who || k === who) presses[k][b] = at; };
   G.label = b => G.input.label(b, Object.assign({ a: "ENTER", b: "ESC", start: "P", back: "ESC" }, o.keyNames || {}));
 
   // the loop: fixed steps of 1/60 s (snapped to the frame when it's a whole number of them: no judder at 60 or 30
@@ -250,6 +254,8 @@ function game(o) {
         g.drawImage(G.off, 0, 0); g.restore();
       } else o.draw(G.g, G);
       if (o.hud) o.hud(G.g, G);
+      const T = TOUCH();
+      if (T && T.frame(!!(G.menu && G.menu.at) || !!(o.covered && o.covered()))) T.draw(G.touchPaint, W, HH);   // (a touch screen's controls; under a menu, or a screen of the game's own that's tapped, none)
       if (G.menu && G.menu.at) G.menu.draw(G.g);
       if (G.fadeV) {                                   // the fade: to black, the change, back
         G.fadeK += G.fadeV * dt;
@@ -284,8 +290,28 @@ function game(o) {
     G.gov.ran = { frames: 0, late: 0, worst: 0, secs: 0, work: 0, low: 1e9 };
   };
   addEventListener("pagehide", () => G.tell());
+  // a touch screen: the controls drawn in the picture, in the engine's letters; a tap on a menu works it, and the
+  // rest go to the game's own tap(x, y, G) and swipe(dx, dy, x, y, G) (in the picture's pixels) where it has them;
+  // covered() true: a screen of the game's own that's worked by tapping alone, with no controls over it
+  const HEX = {}, hex = c => HEX[c] || (HEX[c] = U.hex(c));   // (a colour's name made once)
+  G.touchPaint = {
+    disc(x, y, r, c, a) { const g = G.g; g.globalAlpha = a; g.fillStyle = hex(c); g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill(); },
+    ring(x, y, r, c, a) { const g = G.g; g.globalAlpha = a; g.strokeStyle = hex(c); g.lineWidth = Math.max(1, Math.round(r * 0.09)); g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.stroke(); },
+    bar(x, y, w, h, c, a) { const g = G.g; g.globalAlpha = a; g.fillStyle = hex(c); g.fillRect(Math.round(x), Math.round(y), Math.max(1, Math.round(w)), Math.round(h)); },
+    text(t, x, y, px, c, a) { const g = G.g, sc = Math.max(1, Math.round(px / 7)); g.globalAlpha = a; font.text(g, t, Math.round(x - font.width(t, sc) / 2), Math.round(y - 3.5 * sc), font.colour(hex(c)), sc); },
+    end() { G.g.globalAlpha = 1; }
+  };
+  G.tapped = t => {
+    if (!G.ready || G.demo) return false;
+    const r = cv.getBoundingClientRect(), kx = W / r.width, ky = HH / r.height, x = (t.x - r.left) * kx, y = (t.y - r.top) * ky;
+    if (G.menu && G.menu.at) return t.kind === "tap" ? G.menu.tap(x, y) : false;
+    if (t.kind === "tap" && o.tap) return o.tap(x, y, G) !== false;
+    if (t.kind === "swipe" && o.swipe) return o.swipe(t.dx * kx, t.dy * ky, x, y, G) !== false;
+    return false;
+  };
   G.start = () => {
     G.fit(); addEventListener("resize", G.fit);
+    if (TOUCH()) { TOUCH().attach(cv); TOUCH().onTap(G.tapped); }
     G.probe = L3.probe();
     const go = () => {
       G.governor();
@@ -785,6 +811,11 @@ Menu.prototype = {
     const S = this.o.screens[name]; if (!S) return;
     if (name === this.o.top && this.at !== name) this.topAt = performance.now();
     this.at = name; this.list = typeof S.items === "function" ? S.items(S) : S.items || [];
+    const T = TOUCH();
+    if (T && T.can() && Array.isArray(S.items) && !this.list.some(it => it.k === "tilt")) {   // (a first touch after the menus were made)
+      const at = this.list.findIndex(it => it.k === "pace"); if (at >= 0) this.list.splice(at + 1, 0, tiltItems()[0]);
+    }
+    if (T) for (const it of this.list) if (it.k === "tilt") this.values.tilt = T.wanted() ? 1 : 0;
     this.i = i != null ? i : S.start != null ? (typeof S.start === "function" ? S.start() : S.start) : 0;
     this.skip(1); this.dirty = true;
   },
@@ -825,6 +856,8 @@ Menu.prototype = {
     if (wrap) n = (n + it.vals.length) % it.vals.length; else n = clamp(n, 0, it.vals.length - 1);
     if (it.vals[n] === v[it.k]) return;
     v[it.k] = it.vals[n]; this.sound("move"); this.dirty = true;
+    const T = TOUCH();
+    if (it.k === "tilt" && T) T.tilt(!!v.tilt).then(ok => { if (!ok && v.tilt) { v.tilt = 0; this.dirty = true; } });   // (asked here: a tap, or a press)
     if (this.o.changed) this.o.changed(it.k, v[it.k], it);
   },
   valueText(it) {
@@ -837,10 +870,14 @@ Menu.prototype = {
   render() {
     const g = this.g, G = this.G, S = this.o.screens[this.at]; if (!g) return;
     g.clearRect(0, 0, G.w, G.h);
-    const w = S.w || 236, lh = 12, items = this.list, extra = S.lines ? S.lines.length * 10 + 6 : 0;
+    const T = TOUCH(), touch = !!(T && T.on);
+    const w = S.w || 236, items = this.list, extra = S.lines ? S.lines.length * 10 + 6 : 0;
     const title = S.title || "", sub = S.sub || "", hint = typeof S.hint === "function" ? S.hint() : S.hint;
     const subLines = sub ? font.wrap(sub, w - 24) : [];
-    const h = 14 + (title ? 20 : 0) + subLines.length * 10 + (subLines.length ? 4 : 0) + extra + items.length * lh + 22;
+    const h0 = 14 + (title ? 20 : 0) + subLines.length * 10 + (subLines.length ? 4 : 0) + extra + 22;
+    // (rows a finger can hit on a touch screen, where they fit)
+    const lh = touch && h0 + items.length * 17 <= G.h - 8 ? 17 : 12, h = h0 + items.length * lh;
+    this.lh = lh; this.touch = touch; this.backAt = null;
     const x = (G.w - w) >> 1, y = S.y != null ? S.y : Math.max(6, (G.h - h) >> 1);
     this.box = { x, y, w, h };
     g.fillStyle = "rgba(12,8,18,0.93)"; g.fillRect(x + 2, y, w - 4, h); g.fillRect(x, y + 2, w, h - 4); g.fillRect(x + 1, y + 1, w - 2, h - 2);
@@ -855,28 +892,48 @@ Menu.prototype = {
     items.forEach((it, k) => {
       const on = k === this.i && !it.gap, ty = cy + k * lh;
       if (it.gap) { if (it.t) font.text(g, it.t, x + 14, ty + 2, 1); return; }
+      const dy = (lh - 12) >> 1;
       if (on) { g.fillStyle = "rgba(255,154,60,0.16)"; g.fillRect(x + 6, ty - 2, w - 12, lh - 1); g.fillStyle = this.accent; g.fillRect(x + 6, ty - 2, 2, lh - 1); }
       const col = it.off ? 1 : on ? 2 : 0;
-      font.text(g, it.t, x + 14, ty, col);
-      if (it.k) { const v = "◀ " + this.valueText(it) + " ▶"; font.text(g, v, x + w - 14 - font.width(v), ty, on ? 2 : 1); }
-      else if (it.sub != null) { const s = String(it.sub); font.text(g, s, x + w - 14 - font.width(s), ty, it.subCol != null ? it.subCol : 1); }
+      font.text(g, it.t, x + 14, ty + dy, col);
+      if (it.k) { const v = "◀ " + this.valueText(it) + " ▶"; font.text(g, v, x + w - 14 - font.width(v), ty + dy, on ? 2 : 1); }
+      else if (it.sub != null) { const s = String(it.sub); font.text(g, s, x + w - 14 - font.width(s), ty + dy, it.subCol != null ? it.subCol : 1); }
     });
     // what the buttons do here
     let hx = x + 12; const hy = y + h - 14;
     const cur = items[this.i];
-    if (cur && cur.k) { font.text(g, "◀ ▶", hx, hy + 1, 1); hx += font.width("◀ ▶") + 4; font.text(g, "CHANGE", hx, hy + 1, 1); hx += font.width("CHANGE") + 10; }
+    if (touch) {                                     // (a touch screen: tap a row; ◀ BACK, or a tap outside, goes back)
+      font.text(g, cur && cur.k ? "TAP ◀ ▶ TO CHANGE" : "TAP TO CHOOSE", hx, hy + 1, 1);
+      if (S.back) { const bw = font.width("◀ BACK") + 10, bx = x + w - 8 - bw; g.fillStyle = "#2a2236"; g.fillRect(bx, hy - 3, bw, 13); font.text(g, "◀ BACK", bx + 5, hy, 2); this.backAt = { x: bx - 4, y: hy - 8, w: bw + 8, h: 22 }; }
+    } else if (cur && cur.k) { font.text(g, "◀ ▶", hx, hy + 1, 1); hx += font.width("◀ ▶") + 4; font.text(g, "CHANGE", hx, hy + 1, 1); hx += font.width("CHANGE") + 10; }
     else { hx = badge(g, G, "a", hx, hy, 2); font.text(g, "CHOOSE", hx, hy + 1, 1); hx += font.width("CHOOSE") + 10; }
-    if (S.back) { hx = badge(g, G, "b", hx, hy, 2); font.text(g, "BACK", hx, hy + 1, 1); hx += font.width("BACK") + 10; }
-    if (hint) font.text(g, hint, hx, hy + 1, 1);
+    if (!touch && S.back) { hx = badge(g, G, "b", hx, hy, 2); font.text(g, "BACK", hx, hy + 1, 1); hx += font.width("BACK") + 10; }
+    if (hint && !touch) font.text(g, hint, hx, hy + 1, 1);
     this.dirty = false; this.pad = G.input.pad();
   },
   draw(g) {
     if (!this.at) return;
-    if (this.dirty || this.pad !== this.G.input.pad()) this.render();
+    const T = TOUCH();
+    if (this.dirty || this.pad !== this.G.input.pad() || this.touch !== !!(T && T.on)) this.render();
     g.drawImage(this.c, 0, 0);
     // the marker: an ember that flickers beside the chosen item
     const it = this.list[this.i];
-    if (it && !it.gap) { const f = (this.G.frame >> 3) & 1, ty = this.itemsY + this.i * 12; g.fillStyle = f ? "#ffd27a" : "#ff9a3c"; g.fillRect(this.box.x + 9, ty + 2, 2, 3); }
+    if (it && !it.gap) { const f = (this.G.frame >> 3) & 1, lh = this.lh || 12, ty = this.itemsY + this.i * lh + ((lh - 12) >> 1); g.fillStyle = f ? "#ffd27a" : "#ff9a3c"; g.fillRect(this.box.x + 9, ty + 2, 2, 3); }
+  },
+  // a tap at x y (the picture's pixels): a row is chosen (the left half of an option's value goes back one, the rest on); ◀ BACK,
+  // or a tap outside the panel, goes back
+  tap(x, y) {
+    if (!this.at) return false;
+    const S = this.o.screens[this.at], b = this.box, B = this.backAt;
+    if (B && x >= B.x && x <= B.x + B.w && y >= B.y && y <= B.y + B.h) { this.back(); return true; }
+    if (x < b.x || x > b.x + b.w || y < b.y || y > b.y + b.h) { if (S.back) this.back(); return true; }
+    const lh = this.lh || 12, k = Math.floor((y - this.itemsY + 2) / lh), it = this.list[k];
+    if (!it || it.gap) return true;
+    if (this.i !== k) { this.i = k; this.dirty = true; }
+    if (it.k && !it.act) { const v = "◀ " + this.valueText(it) + " ▶", r = b.x + b.w - 14, vx = r - font.width(v); this.change(it, x >= vx - 6 && x < (vx + r) / 2 ? -1 : 1, true); return true; }
+    if (it.off) { this.sound("no"); return true; }
+    this.sound("ok"); this.o.choose(it, this.at);
+    return true;
   }
 };
 // the options every game on the engine has, for a Menu screen's items: volumes, rumble, shake, effects
@@ -888,7 +945,12 @@ function optionItems(extra) {
     { t: "SCREEN SHAKE", k: "shake", vals: [0, 1, 2], names: { 0: "OFF", 1: "GENTLE", 2: "FULL" } },
     { t: "LOOK", k: "fx", vals: ["auto", "rich", "full", "light"], names: { auto: "FOR THIS BOX", rich: "RICH", full: "FULL", light: "LIGHT" } },
     { t: "FRAMES", k: "pace", vals: ["auto", "60", "30"], names: { auto: "FOR THIS BOX", 60: "SMOOTHEST, 60", 30: "STEADY 30" } }
-  ].concat(extra || []);
+  ].concat(tiltItems(), extra || []);
+}
+// TILT, on a touch screen with a tilt sensor (pad.js keeps whether it's on, for each game)
+function tiltItems() {
+  const T = TOUCH();
+  return T && T.can() ? [{ t: "TILT", k: "tilt", vals: [0, 1], names: { 0: "OFF", 1: "ON" } }] : [];
 }
 
 // ---------------------------------------------------------------- what's kept on the box

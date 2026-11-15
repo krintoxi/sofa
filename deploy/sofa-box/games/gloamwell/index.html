@@ -1,10 +1,15 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Gloamwell</title>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>Gloamwell</title>
 <style>
   html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
   canvas { position: absolute; image-rendering: pixelated; }
 </style></head><body>
 <canvas id="c" width="480" height="270"></canvas>
+<script src="../pad.js"></script>
+<script>/* touch: a phone's or tablet's controls, drawn on the picture (pad.js, SofaPad.touch; ENGINE.md, "Touch") */
+SofaPad.touch.layout({ stick: "stick", buttons: [["a", "ATTACK"], ["b", "ROLL"], ["x", "SKILL"], ["y", "SKILL"], ["rt", "SKILL"], ["lt", "DRINK"], ["rb", "BELT"]], top: [["select", "GEAR"]], tilt: "xy",
+  sets: { menu: { buttons: [["a", "OK"], ["b", "BACK"], ["lb", "PAGE"], ["rb", "PAGE"]], top: [] } } });
+</script>
 <script>
 /* Gloamwell: an action-RPG dungeon crawler for Sofa Box OS. The village of Wickhollow sits over a well; the Great
    Wick that burned at its bottom has gone out, and the Gloam climbs up the shaft. Everything here is the game's own
@@ -764,7 +769,7 @@ let held = IN[0].held, hit = IN[0].hit, nav = IN[0].nav, seatN = 0;
 // Xbox-like pad the browser doesn't know, and the generic USB kind (buttons 1-4 top, right, bottom, left)
 const MAP_STD = [12, 13, 14, 15, 0, 1, 2, 3, 4, 5, 6, 7, 9, 8, -1, 10], MAP_XPAD = [-1, -1, -1, -1, 0, 1, 2, 3, 4, 5, -1, -1, 7, 6, -1, 9],
   MAP_GEN = [-1, -1, -1, -1, 2, 1, 3, 0, 6, 7, 4, 5, 9, 8, -1, 10];
-const NPAD = 4, padIds = [], padSch = [], padMap = [], PB = [], PBP = [], padOn = new Uint8Array(NPAD), PAX = new Float32Array(NPAD), PAY = new Float32Array(NPAD),
+const NPAD = 5, TOUCHI = 4, padIds = [], padSch = [], padMap = [], PB = [], PBP = [], padOn = new Uint8Array(NPAD), PAX = new Float32Array(NPAD), PAY = new Float32Array(NPAD),
   PRX = new Float32Array(NPAD), PRY = new Float32Array(NPAD), actT = new Float64Array(NA).fill(-1e9);
 for (let i = 0; i < NPAD; i++) { PB.push(new Uint8Array(NA)); PBP.push(new Uint8Array(NA)); }
 let wakeT = -1e9, padUsed = -1, padAX = 0, padAY = 0, padRX = 0, padRY = 0, padKnown = false, padLast = -1e9, padFresh = false, MX = 0, MY = 0, p1Pad = -1;
@@ -782,8 +787,11 @@ function pollPads(now) {
   let gps = null; try { gps = navigator.getGamepads ? navigator.getGamepads() : null; } catch (e) { gps = null; }
   let n = 0;
   for (let i = 0; i < NPAD; i++) { padOn[i] = 0; PB[i].fill(0); PAX[i] = PAY[i] = PRX[i] = PRY[i] = 0; }
-  if (gps) for (let i = 0; i < gps.length && i < NPAD; i++) {
-    const gp = gps[i]; if (!gp || !gp.connected) continue; n++; padOn[i] = 1;
+  // (the fifth: a touch screen's controls, drawn on the picture by pad.js, while they show; not counted as a controller
+  // of the box's, whose presses also come as keys)
+  for (let i = 0; i < NPAD; i++) {
+    const gp = i === TOUCHI ? (TPad && TPad.on ? TPad.pad : null) : gps && i < gps.length ? gps[i] : null;
+    if (!gp || !gp.connected) continue; if (i !== TOUCHI) n++; padOn[i] = 1;
     if (padIds[i] !== gp.id) {      // a controller we haven't seen yet
       padIds[i] = gp.id; padSch[i] = schemeOf(gp.id); padFresh = true;   // (its first press may already have come as the daemon's key)
       padMap[i] = gp.mapping === "standard" ? MAP_STD : /xbox|x-box|8bitdo|054c|045e|057e|wireless controller|dualsense|dualshock/i.test(gp.id) ? MAP_XPAD : MAP_GEN;
@@ -886,6 +894,8 @@ function inGame() { return !!PL[0] && mode !== M_TITLE && mode !== M_SLOTS && !(
 function readInput(now, dt) {
   if (DEMO) { demoInput(dt); useIn(seatN); return; }        // (playing by itself: no controller or key does anything)
   pollPads(now); drainKeys(now);
+  if (tqN) { kbHit[TQ[tqH]] = 1; tqH = (tqH + 1) % TQN; tqN--; }   // (a tap on a menu's row: the presses that reach it, a frame each)
+  if (TPad && TPad.on && IN[0].sch === SCH_KB) setScheme(SCH_XBOX, 0);   // (the touch controls show A, B, X, Y: so does the HUD)
   const S0 = IN[0], S1 = IN[1], game = inGame(), p2 = S1.pad;
   if (p1Pad >= 0 && !padOn[p1Pad]) p1Pad = -1;                     // (its controller gone: the next one pressed is the first player's)
   if (game && p1Pad < 0) for (let j = 0; j < NPAD; j++) if (padOn[j] && j !== p2 && padLast === now && padUsed === j) { p1Pad = j; break; }
@@ -1102,12 +1112,37 @@ function musicTick() {
   if (mus.t < now - 0.2) mus.t = now + 0.05;          // (after a pause: carry on from now, not all at once)
   while (mus.t < now + 0.3) { musStep(mus.t); mus.t += mus.dt; mus.step++; }
 }
+// ---------------------------------------------------------------- a touch screen (pad.js's SofaPad.touch)
+// Its controls are the fifth controller above, drawn over the picture at the end of a frame. The main menus (the title,
+// the saves, the classes, pause, options) note where their rows are as they're drawn; a tap on one is the presses that
+// would reach it from the row chosen now, then A. The rest is worked with the controls, as with a controller.
+const TPad = window.SofaPad && window.SofaPad.touch, TR = 16, trX = new Float32Array(TR), trY = new Float32Array(TR), trW = new Float32Array(TR), trH = new Float32Array(TR), trI = new Int8Array(TR);
+let trN = 0, trSel = 0, trAcross = false, trMode = -1, touchVer = -1;
+const TQN = 32, TQ = new Int8Array(TQN); let tqH = 0, tqN = 0;
+function trBegin(sel, across) { trN = 0; trSel = sel; trAcross = across; trMode = mode; }
+function trRow(x, y, w, h, i) { if (trN < TR) { trX[trN] = x; trY[trN] = y; trW[trN] = w; trH[trN] = h; trI[trN] = i; trN++; } }
+function tq(a) { if (tqN < TQN) { TQ[(tqH + tqN) % TQN] = a; tqN++; } }
+function tapRow(x, y) {                              // the row tapped (-1: none)
+  if (trMode !== mode || tqN) return -1;
+  for (let k = 0; k < trN; k++) if (x >= trX[k] && x < trX[k] + trW[k] && y >= trY[k] && y < trY[k] + trH[k]) return trI[k];
+  return -1;
+}
+function touchText(s, x, y, px, css) { const sc = Math.max(1, Math.round(px / 7)); ctext(ctx0, s, x, Math.round(y - 3 * sc), css === "#0b0d10" ? C_BLACK : C_W, sc); }
+if (TPad) TPad.onTap(t => {
+  if (DEMO || t.kind !== "tap") return false;
+  const r = cv.getBoundingClientRect(), x = (t.x - r.left) * VW / r.width, y = (t.y - r.top) * VH / r.height, i = tapRow(x, y);
+  wakeAudio();
+  if (i < 0) { if (mode === M_HELP) { tq(A_B); return true; } return false; }
+  if (mode === M_OPTS && OPTN[i] === TILTN) { optSel = i; TPad.tilt(!TPad.wanted()).then(() => { dirty = true; }); dirty = true; sfx(SND_MENU); return true; }   // (asked here: it's a tap)
+  const d = i - trSel; for (let n = Math.abs(d); n > 0; n--) tq(trAcross ? (d > 0 ? A_RIGHT : A_LEFT) : (d > 0 ? A_DOWN : A_UP));
+  tq(A_A); return true;
+});
 // a controller's rumble, where the browser and the controller can
 function rumble(strong, ms) {
   const pad = seatN === 1 ? IN[1].pad : p1Pad >= 0 ? p1Pad : padUsed;
   if (!OPT.rumble || pad < 0 || performance.now() - padLast > 4000) return;
   try {
-    const gp = navigator.getGamepads()[pad], va = gp && gp.vibrationActuator;
+    const gp = pad === TOUCHI ? TPad.pad : navigator.getGamepads()[pad], va = gp && gp.vibrationActuator;   // (a phone's: it buzzes)
     if (va && va.playEffect) va.playEffect("dual-rumble", { duration: ms, strongMagnitude: strong, weakMagnitude: Math.min(1, strong * 0.7 + 0.1) }).catch(() => {});
   } catch (e) { /* (no rumble here) */ }
 }
@@ -5076,8 +5111,10 @@ function hudBars(side) {
   }
   hudDone(p);
 }
+// (alone on a touch screen, the thumbs' controls fill both bottom corners: the belt and the skills go up the left side,
+// under the bars)
 function hudBelt(side) {          // the board's first task, the hunt, the belt (LB and RB choose, LT uses), the mount
-  const H = hsOf(P), R = side === 2, by = VH - 24;
+  const thumbs = !side && TPad && TPad.on, H = hsOf(P), R = side === 2, by = thumbs ? 96 : VH - 24;
   let qi = -1; for (let i = 0; i < P.quests.length; i++) if (!P.quests[i].done) { qi = i; break; }
   const q = qi >= 0 ? P.quests[qi] : null;
   if (q && (qi !== H.qi || q.c !== H.qc || q.id !== H.q)) { H.qi = qi; H.qc = q.c; H.q = q.id; H.qS = questText(q) + (q.n > 1 ? "  " + q.c + "/" + q.n : ""); }
@@ -5091,7 +5128,7 @@ function hudBelt(side) {          // the board's first task, the hunt, the belt 
   if (hl) { pw = Math.max(pw, 20 + textW(H.hS)); top = by - 42; }
   if (mh) { if (!side) pw = Math.max(pw, 128 + textW(mh)); else { pw = Math.max(pw, 8 + textW(mh)); top = by - 53; } }
   if (R) pw = Math.max(pw, 226);
-  const p = hudPanel("B" + side, R ? VW - pw : 0, top, pw, VH - top);
+  const p = hudPanel("B" + side, R ? VW - pw : 0, top, pw, (thumbs ? by + 24 : VH) - top);
   if (p.redraw) {
     const x0 = R ? VW - 226 : 6;                 // (where the belt's LB badge stands)
     if (q) { if (!R) { ctx.drawImage(S.ic.scroll, 4, by - 27); text(ctx, H.qS, 18, by - 24, C_GREY); } else { const w = textW(H.qS); text(ctx, H.qS, VW - 18 - w, by - 24, C_GREY); ctx.drawImage(S.ic.scroll, VW - 16, by - 27); } }
@@ -5107,7 +5144,7 @@ function hudBelt(side) {          // the board's first task, the hunt, the belt 
   hudDone(p);
 }
 function hudSkills(side) {        // the five things you can do; what's cooling down is shaded over them, live
-  const R = side === 2, by = VH - 24, c = CLS[P.cls], w0 = P.eq[0], sx = side === 1 ? 122 : VW - 118, wic = w0 ? S.ic[baseOf(w0).ic] : S.ic.dirk;
+  const thumbs = !side && TPad && TPad.on, R = side === 2, by = thumbs ? 140 : VH - 24, c = CLS[P.cls], w0 = P.eq[0], sx = side === 1 ? 122 : thumbs ? 8 : VW - 118, wic = w0 ? S.ic[baseOf(w0).ic] : S.ic.dirk;
   let lk = 0, lo = 0;
   for (let k = 0; k < 3; k++) { if (!skillReady(k)) lk |= 1 << k; else if (P.mp < skCost(k)) lo |= 1 << k; }
   sg(scheme); sg(icId(wic)); sg(P.cls); sg(lk); sg(lo);
@@ -5265,8 +5302,9 @@ function updTitle(dt) {
 function drawTitle() {
   ctx.drawImage(titleBg, 0, 0); camX = camY = 0; drawParts();
   const items = TITLE_ITEMS;
+  trBegin(titleSel, false);
   for (let i = 0; i < items.length; i++) {
-    const sel = i === titleSel, y = 110 + i * 16;
+    const sel = i === titleSel, y = 110 + i * 16; trRow(VW / 2 - 90, y - 4, 180, 16, i);
     if (sel) { ctx.fillStyle = "rgba(242,193,78,0.15)"; ctx.fillRect(VW / 2 - 80, y - 3, 160, 13); }
     cstext(ctx, items[i], VW / 2, y, sel ? C_GOLD : C_W);
     if (sel) { ctx.drawImage(S.torch[((gameTime * 8) | 0) % 3], VW / 2 - 76, y); ctx.drawImage(S.torch[((gameTime * 8) | 0) % 3], VW / 2 + 72, y); }
@@ -5289,8 +5327,9 @@ function updSlots(dt) {
 function drawSlots() {
   ctx.drawImage(titleBg, 0, 0); dim(0.86);
   cstext(ctx, "CHOOSE A WICKBEARER", VW / 2, 10, C_GOLD, 2);
+  trBegin(slotSel, true);
   for (let i = 0; i < NSLOTS; i++) {
-    const s = slotInfo[i], x = 18 + i * 150, y = 32, sel = i === slotSel;
+    const s = slotInfo[i], x = 18 + i * 150, y = 32, sel = i === slotSel; trRow(x, y, 144, 198, i);
     panel(x, y, 144, 198); if (sel) { ctx.fillStyle = "#f2c14e"; ctx.fillRect(x, y, 144, 2); ctx.fillRect(x, y + 196, 144, 2); }
     ctext(ctx, "SAVE " + (i + 1), x + 72, y + 8, sel ? C_GOLD : C_GREY);
     if (!s) { ctext(ctx, "EMPTY", x + 72, y + 80, C_DARK, 2); ctext(ctx, "A NEW WICKBEARER", x + 72, y + 104, C_GREY); continue; }
@@ -5318,8 +5357,9 @@ function updClass(dt) {
 function drawClass() {
   ctx.drawImage(titleBg, 0, 0); dim(0.86);
   cstext(ctx, "WHO GOES DOWN THE WELL?", VW / 2, 10, C_GOLD, 2);
+  trBegin(clsSel, true);
   for (let i = 0; i < 3; i++) {
-    const c = CLS[i], x = 18 + i * 150, y = 32, sel = i === clsSel;
+    const c = CLS[i], x = 18 + i * 150, y = 32, sel = i === clsSel; trRow(x, y, 144, 214, i);
     panel(x, y, 144, 214); if (sel) { ctx.fillStyle = "#f2c14e"; ctx.fillRect(x, y, 144, 2); ctx.fillRect(x, y + 212, 144, 2); }
     const step = sel ? ((gameTime * 6) | 0) & 3 : 0;
     if (!classDolls[i]) { classDolls[i] = []; for (let f = 0; f < 4; f++) classDolls[i].push(previewDoll(i, DEFLOOK[i], f)); }
@@ -5377,8 +5417,9 @@ function drawPause() {
   const items = pauseItems(), n = items.length, h = 76 + n * 17, y0 = Math.round((VH - h) / 2) - 6;
   ctx.drawImage(frozen, 0, 0); dim(0.55); panel(130, y0, 220, h); cstext(ctx, "PAUSED", VW / 2, y0 + 10, C_GOLD, 2);
   if (PL[1]) cstext(ctx, P.name || CLS[P.cls].name, VW / 2, y0 + 28, PLC[cur]);
+  trBegin(pauseSel, false);
   for (let i = 0; i < n; i++) {
-    const sel = i === pauseSel, y = y0 + 40 + i * 17;
+    const sel = i === pauseSel, y = y0 + 40 + i * 17; trRow(138, y - 4, 204, 16, i);
     if (sel) { ctx.fillStyle = "rgba(242,193,78,0.15)"; ctx.fillRect(138, y - 4, 204, 15); }
     cstext(ctx, items[i], VW / 2, y, sel ? C_GOLD : C_W);
   }
@@ -5386,11 +5427,12 @@ function drawPause() {
   hints(T_OK + " SELECT   " + T_BACK + " RESUME");
 }
 // options: the sound's two volumes, and the rest on or off
-const OPTN = ["EFFECTS VOLUME", "MUSIC VOLUME", "SCREEN SHAKE", "CONTROLLER RUMBLE", "SMALL MAP", "VISUAL EFFECTS", "BACK"], FXN = ["AUTO", "FULL", "LIGHT"];
+const OPTN = ["EFFECTS VOLUME", "MUSIC VOLUME", "SCREEN SHAKE", "CONTROLLER RUMBLE", "SMALL MAP", "VISUAL EFFECTS", "BACK"], FXN = ["AUTO", "FULL", "LIGHT"], TILTN = "TILT TO MOVE";
+const tiltRow = () => { if (TPad && TPad.can() && OPTN.indexOf(TILTN) < 0) OPTN.splice(6, 0, TILTN); };   // (a touch screen with a tilt sensor: before BACK)
 function updOpts() {
   if (nav[A_UP]) { optSel = (optSel + OPTN.length - 1) % OPTN.length; dirty = true; sfx(SND_MENU); }
   if (nav[A_DOWN]) { optSel = (optSel + 1) % OPTN.length; dirty = true; sfx(SND_MENU); }
-  if (hit[A_B] || (hit[A_A] && optSel === 6)) { saveOpts(); mode = optBack; if (optBack === M_TITLE) setTitle(); dirty = true; sfx(SND_MENU); return; }
+  if (hit[A_B] || (hit[A_A] && optSel === OPTN.length - 1)) { saveOpts(); mode = optBack; if (optBack === M_TITLE) setTitle(); dirty = true; sfx(SND_MENU); return; }
   const dir = nav[A_LEFT] ? -1 : nav[A_RIGHT] || hit[A_A] ? 1 : 0; if (!dir) return;
   dirty = true; wakeAudio();
   switch (optSel) {
@@ -5400,14 +5442,17 @@ function updOpts() {
     case 3: OPT.rumble = !OPT.rumble; if (OPT.rumble) rumble(0.5, 200); sfx(SND_MENU); break;
     case 4: OPT.minimap = !OPT.minimap; sfx(SND_MENU); break;
     case 5: OPT.fx = (OPT.fx + (dir > 0 ? 1 : 2)) % 3; FXQ = OPT.fx === 2 ? 0 : 2; govFail.fill(0); half = false; paceFail = 0; sfx(SND_MENU); break;   // (and 60 a second tried again)
+    case 6: TPad.tilt(!TPad.wanted()).then(() => { dirty = true; }); sfx(SND_MENU); break;   // (TILT, where it's there)
   }
   saveOpts();
 }
 function drawOpts() {
   if (optBack === M_TITLE) { ctx.drawImage(titleBg, 0, 0); dim(0.75); } else { ctx.drawImage(frozen, 0, 0); dim(0.55); }
-  panel(110, 46, 260, 170); cstext(ctx, "SOUND AND OPTIONS", VW / 2, 56, C_GOLD, 2);
+  tiltRow();
+  panel(110, 46, 260, 170 + (OPTN.length - 7) * 19); cstext(ctx, "SOUND AND OPTIONS", VW / 2, 56, C_GOLD, 2);
+  trBegin(optSel, false);
   for (let i = 0; i < OPTN.length; i++) {
-    const sel = i === optSel, y = 84 + i * 19;
+    const sel = i === optSel, y = 84 + i * 19; trRow(118, y - 5, 244, 19, i);
     if (sel) selRow(118, y - 5, 244, 17);
     text(ctx, OPTN[i], 126, y, sel ? C_GOLD : C_W);
     if (i < 2) {
@@ -5415,6 +5460,7 @@ function drawOpts() {
       for (let k = 0; k < 10; k++) { ctx.fillStyle = k < v ? (sel ? "#f2c14e" : "#ece8f4") : "#3a3446"; ctx.fillRect(262 + k * 9, y - 1 + (9 - k), 6, k + 1); }
     } else if (i < 5) rtext(ctx, (i === 2 ? OPT.shake : i === 3 ? OPT.rumble : OPT.minimap) ? "ON" : "OFF", 354, y, sel ? C_GOLD : C_GREY);
     else if (i === 5) rtext(ctx, FXN[OPT.fx], 354, y, sel ? C_GOLD : C_GREY);
+    else if (OPTN[i] === TILTN) rtext(ctx, TPad.wanted() ? "ON" : "OFF", 354, y, sel ? C_GOLD : C_GREY);
   }
   hints(T_MOVE + " CHANGE   " + T_BACK + " DONE");
 }
@@ -6256,6 +6302,7 @@ function frame(now) {
   if (mode === M_PLAY) use(0); else menuUse();
   // the title screens move; the game draws every frame; a menu only when something on it changed
   if (mode === M_SMITH && xpN > 0) dirty = true;           // (the XP from making things rises over the forge)
+  if (TPad && TPad.ver !== touchVer) { touchVer = TPad.ver; dirty = true; }   // (a touch screen's controls changed: drawn again over it)
   switch (mode) {
     case M_TITLE: drawTitle(); break; case M_CLASS: drawClass(); break; case M_SLOTS: drawSlots(); break; case M_CREATE: drawCreate(); break; case M_NAME: drawName(); break;
     case M_PLAY: drawWorld(); drawIris(); drawHUD(); break;
@@ -6269,6 +6316,13 @@ function frame(now) {
       }
   }
   if (mode === M_SMITH && xpN > 0) drawXPDrops();
+  // (a touch screen: in play, the game's controls; on the screens whose rows are tapped, none at all, so no button lies
+  // over a row (X on the saves would let one go); on the rest, the stick, OK, BACK and the pages)
+  if (TPad) {
+    const tapped = mode === M_TITLE || mode === M_SLOTS || mode === M_CLASS || mode === M_PAUSE || mode === M_OPTS || mode === M_HELP;
+    TPad.use(mode === M_PLAY ? null : "menu");
+    if (TPad.frame(tapped) && (dirty || mode === M_PLAY || mode === M_CREATE || mode === M_NAME)) TPad.draw2d(ctx0, VW, VH, touchText);
+  }
   dirty = false;
   if (SLOW > 1) { const until = performance.now() + (performance.now() - t0) * (SLOW - 1); while (performance.now() < until) { /* #slow: as a slower processor would */ } }
   const work = performance.now() - t0; workAvg += (work - workAvg) * 0.05;   // (a frame's own work, ms: for going back to 60)
@@ -6322,6 +6376,7 @@ function init() {
     for (let k = 0; k < 3; k++) { const sk = c.sk[k]; sk.label = [T_X, T_Y, T_RT][k] + " " + sk.name; sk.dl = wrap(sk.desc + (k === 2 ? " (FROM LEVEL " + sk.lv + ")" : ""), 116); }
   }
   setTitle(); fit(); addEventListener("resize", fit); wakeAudio();
+  if (TPad) TPad.attach(cv);
   if (DEMO) demoStart();
   addEventListener("pointerdown", () => wakeAudio());
   addEventListener("gamepadconnected", () => wakeAudio());

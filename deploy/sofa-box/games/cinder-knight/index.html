@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Cinder Knight</title>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>Cinder Knight</title>
 <style>
   html, body { margin: 0; height: 100%; background: #050308; color: #ece8f4; overflow: hidden; user-select: none; cursor: none; }
   canvas { position: absolute; image-rendering: pixelated; image-rendering: crisp-edges; }
@@ -549,6 +549,9 @@ function movesAt(i) {
 }
 return { PHYS, K, CRACK, CRUMBLE, VEIL, CHARS, THINGS, FOES, TS, flagsOf, parse, knight, step, wallAt, onPlatform, STAGES, REWARD, ORDER, movesAt };
 })();
+</script>
+<script>/* touch: a phone's or tablet's controls, drawn on the picture (pad.js, SofaPad.touch; ENGINE.md, "Touch") */
+SofaPad.touch.layout({ stick: "stick", buttons: [["a", "JUMP"], ["x", "STRIKE"], ["b", "DASH"], ["y", "SHIELD"], ["lb", "HEAL"]], tilt: "x" });
 </script>
 <script>
 /* Cinder Knight: the last ember of a cold world's hearth, in a knight's armour, climbing to light it again. A pixel

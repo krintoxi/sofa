@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Micro Drifters</title>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>Micro Drifters</title>
 <style>
   html, body { margin: 0; height: 100%; background: #000; overflow: hidden; user-select: none; }
   canvas { position: absolute; image-rendering: pixelated; }
@@ -8,6 +8,9 @@
 <script src="../pad.js"></script>
 <script src="../low3d.js"></script>
 <script src="../low2d.js"></script>
+<script>/* touch: a phone's or tablet's controls, drawn on the picture (pad.js, SofaPad.touch; ENGINE.md, "Touch") */
+SofaPad.touch.layout({ stick: "stick", buttons: [["a", "GAS"], ["b", "BRAKE"], ["x", "DRIFT"], ["y", "HORN"]], tilt: "x" });
+</script>
 <script>
 /* Micro Drifters: top-down racing for Sofa Box OS, on Low2D (../low2d.js), the box's 2D engine. Twelve tracks in four
    settings (the city by day, the desert, the snow, the city at night), each with its own weather; skid marks and tyre

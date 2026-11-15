@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>WYRD</title>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>WYRD</title>
 <style>
   /* Ink, bone, phosphor green and hot pink: the box's own colours. What's written over the game while it plays is
      drawn in its canvas; a menu's blocks are each a layer of their own with nothing behind them, and a menu that
@@ -108,11 +108,8 @@
 </div>
 <script src="../pad.js"></script>
 <script src="../low3d.js"></script>
-<script>/* (pad.js has no touch controls yet: until it has, the layout below is kept for it and does nothing) */
-if (window.SofaPad && !SofaPad.touch) SofaPad.touch = { layout() {} };
-</script>
-<script>/* touch: a stick to walk; A acts on what's in reach or strikes; the roll, the two skills and a draught round it; a fire and the mount outside those; the bag at the top */
-SofaPad.touch.layout({ stick: "stick", buttons: [["a", "ACT"], ["b", "ROLL"], ["x", "SKILL"], ["y", "SKILL 2"], ["rb", "DRINK"], ["lb", "FIRE"], ["lt", "RIDE"]], top: [["select", "BAG"]], tilt: false });
+<script>/* touch: a stick to walk; the right thumb, dragged off the buttons, turns the view; A acts on what's in reach or strikes; the roll, the two skills and a draught round it; a fire and the mount outside those; the bag at the top */
+SofaPad.touch.layout({ stick: "stick", look: true, buttons: [["a", "ACT"], ["b", "ROLL"], ["x", "SKILL"], ["y", "SKILL 2"], ["rb", "DRINK"], ["lb", "FIRE"], ["lt", "RIDE"]], top: [["select", "BAG"]], tilt: "xy" });
 </script>
 <script>
 /* maker: models */
@@ -3176,6 +3173,13 @@ function onButton(b, how) {
   else if (b === "view" && E.mode === "gl") cycleView();
 }
 function hints() {
+  if (window.SofaPad && SofaPad.touch.on) {          // (a touch screen: what to tap)
+    for (const id of ["titleHint", "shopHint", "wayHint", "boxHint", "pauseHint", "endHint", "fallenHint"]) $(id).textContent = "tap to choose";
+    $("slotsHint").textContent = "tap a delver to play, or Let go of one"; $("createHint").textContent = "tap the left or right of a choice to change it, then Begin";
+    $("bagHint").textContent = "tap a thing to wear it, or Salvage the one chosen"; $("skillsHint").textContent = "tap a skill to read it";
+    $("optionsHint").textContent = "tap the left or right of a choice to change it";
+    return;
+  }
   $("titleHint").innerHTML = kb("a") + " choose &nbsp; " + (input.pad() ? kb("b") + " back to the box" : "↑ ↓ move");
   $("slotsHint").innerHTML = kb("a") + " play &nbsp; " + kb("x") + " let go of one &nbsp; " + kb("b") + " back";
   $("createHint").innerHTML = "◀ ▶ change &nbsp; " + kb("a") + " on Begin &nbsp; " + kb("b") + " back";
@@ -3210,13 +3214,13 @@ const menu = new L3.Menu({
   top: "title", sound: n => { if (synth.ac) synth.play(n); },
   screens: {
     title: { enter: renderTitle },
-    slots: { grid: 3, back: "title", enter: renderSlots },
+    slots: { grid: 3, back: "title", enter: renderSlots, touch: [["x", "Let go of one"]] },
     create: { back: "slots", list: $("createlist"), options: CREATE_OPTS, values: CREATE, changed: createChanged, extra: '<div class="item" data-do="begin">Begin the descent</div>', enter: createEnter },
-    bag: { grid: 6, back: () => closeMenu(), enter: renderBag },
+    bag: { grid: 6, back: () => closeMenu(), enter: renderBag, touch: [["x", "Salvage"]] },
     shop: { back: () => closeMenu(), enter: renderShop },
     way: { back: () => closeMenu(), enter: renderWay },
     skills: { back: () => menu.show("pause"), enter: renderSkills },
-    options: { options: OPTS, values: save.opts, back: () => menu.show(pausedFrom ? "pause" : "title"), changed: optionChanged },
+    options: { options: OPTS, values: save.opts, back: () => menu.show(pausedFrom ? "pause" : "title"), changed: optionChanged, tilt: "Tilt to move" },
     box: { row: true, back: "title", enter: renderBox },
     pause: { back: () => closeMenu(), enter: renderPause },
     fallen: { row: true, back: () => {} },

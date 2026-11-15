@@ -1,12 +1,13 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Pair Up</title>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>Pair Up</title>
 <style>
   html, body { margin: 0; height: 100%; background: radial-gradient(circle at 30% 20%, #10304a, #050b14 70%); color: #eaf6ff; font: 700 16px/1.3 system-ui, sans-serif; }
   body { display: grid; place-content: center; gap: 2.4vh; text-align: center; }
   h1 { margin: 0; font-size: 4.4vh; letter-spacing: -.02em; color: #3CC8D8; }
   p { margin: 0; color: #9bb6c9; font-size: 2.2vh; }
-  .board { display: grid; grid-template-columns: repeat(4, 15vh); gap: 1.6vh; }
-  .card { height: 15vh; border-radius: 2vh; border: 0; font-size: 7vh; display: grid; place-items: center; cursor: pointer;
+  /* (a card fits four across a phone held upright too) */
+  .board { display: grid; grid-template-columns: repeat(4, min(15vh, 21vw)); gap: min(1.6vh, 2vw); }
+  .card { height: min(15vh, 21vw); border-radius: 2vh; border: 0; font-size: min(7vh, 10vw); touch-action: manipulation; display: grid; place-items: center; cursor: pointer;
     background: linear-gradient(135deg, #1b4b6b, #123049); color: transparent; transition: transform .25s, background .25s; }
   .card.up, .card.done { background: #eaf6ff; color: initial; transform: rotateY(0); }
   .card.done { opacity: .35; }
@@ -15,6 +16,9 @@
 <h1>Pair Up</h1><p id="msg">Arrows to move, OK to turn a card over</p>
 <div class="board" id="b"></div>
 <script src="../pad.js"></script>
+<script>/* touch: a phone's or tablet's controls, drawn on the picture (pad.js, SofaPad.touch; ENGINE.md, "Touch"): the cards are tapped; nothing is drawn */
+SofaPad.touch.layout({ none: true, tilt: false });
+</script>
 <script>
 (function () {
   const SYMS = ["🍕", "🚀", "🎧", "🌵", "🐙", "🎲", "🍉", "⚡"];
@@ -23,8 +27,10 @@
   function deal() {
     cards = SYMS.concat(SYMS).map(s => ({ s, up: false, done: false })).sort(() => Math.random() - 0.5);
     open = []; turns = 0; pairs = 0; draw();
-    msg.textContent = SofaPad.connected() ? "Stick or D-pad to move, " + SofaPad.label("a") + " to turn a card over" : "Arrows to move, OK to turn a card over";
+    msg.textContent = hint();
   }
+  // what to do: tap on a touch screen, the stick with a controller, the arrows with keys
+  function hint() { return SofaPad.touch.on ? "Tap a card to turn it over" : SofaPad.connected() ? "Stick or D-pad to move, " + SofaPad.label("a") + " to turn a card over" : "Arrows to move, OK to turn a card over"; }
   function draw() {
     b.innerHTML = cards.map((c, i) => `<button class="card${c.up ? " up" : ""}${c.done ? " done" : ""}${i === at ? " f" : ""}" data-i="${i}">${c.s}</button>`).join("");
   }
@@ -40,7 +46,7 @@
     }
   }
   SofaPad.on((b, act) => {
-    if (b === "connected") { const m = document.getElementById("msg"); if (m && !pairs) m.textContent = "Stick or D-pad to move, " + SofaPad.label("a") + " to turn a card over"; return; }
+    if (b === "connected") { if (!pairs) msg.textContent = hint(); return; }
     if (act === "release") return;
     if (b === "left") at = (at + 15) % 16; else if (b === "right") at = (at + 1) % 16;
     else if (b === "up") at = (at + 12) % 16; else if (b === "down") at = (at + 4) % 16;
@@ -58,6 +64,7 @@
     e.preventDefault(); draw();
   });
   b.addEventListener("click", e => { const t = e.target.closest("[data-i]"); if (t) { at = +t.dataset.i; flip(at); } });
+  addEventListener("pointerdown", e => { if (e.pointerType !== "mouse" && !pairs && !open.length) msg.textContent = hint(); });   // (a first touch: say so)
   deal();
 })();
 </script></body></html>

@@ -1,11 +1,14 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Sky Hop</title>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>Sky Hop</title>
 <style>
   html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
   canvas { position: absolute; image-rendering: pixelated; }
 </style></head><body>
 <canvas id="c" width="480" height="270"></canvas>
 <script src="../pad.js"></script>
+<script>/* touch: a phone's or tablet's controls, drawn on the picture (pad.js, SofaPad.touch; ENGINE.md, "Touch") */
+SofaPad.touch.layout({ stick: "stick", buttons: [["a", "GO"]], pause: false, tilt: "x" });
+</script>
 <script>
 /* Sky Hop: retro pixel-art platform hopper for Sofa Box OS.
    Full pixel art sprites (frog, clouds, platforms, birds), 5×7 bitmap font,
@@ -516,7 +519,31 @@
       if (height >= hiHeight * 10 && hiHeight > 0) drawCenter(ctx, "NEW RECORD!", 140, "#b8e070", 1);
       drawCenter(ctx, "PRESS " + (SofaPad.connected() ? SofaPad.label("a") : "ENTER"), 170, "#7ad8f0", 1);
     }
+    drawTouch();
   }
+
+  // a touch screen (pad.js's SofaPad.touch): its controls drawn in the game's own letters; a tap starts; the line under the title turns tilt on or off (there's no options screen)
+  const TILT_Y = 232, ASCII = /^[ -~]*$/;
+  function touchText(s, x, y, px, col) {
+    const sc = Math.max(1, Math.round(px / 7));
+    if (ASCII.test(s)) drawText(ctx, s, Math.round(x - textW(s, sc) / 2), Math.round(y - 3.5 * sc), col, sc);
+    else { ctx.fillStyle = col; ctx.font = "700 " + Math.round(px * 1.2) + "px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(s, x, y); }
+  }
+  function drawTouch() {
+    if (state !== "playing" && SofaPad.touch.can()) drawCenter(ctx, "TILT TO STEER: " + (SofaPad.touch.wanted() ? "ON" : "OFF") + "   TAP HERE", TILT_Y, "#9a94a8", 1);
+    if (SofaPad.touch.frame(false)) SofaPad.touch.draw2d(ctx, VW, VH, touchText);
+  }
+  SofaPad.touch.attach(cv);
+  SofaPad.touch.onTap(t => {
+    wakeAudio();
+    const r = cv.getBoundingClientRect(), x = (t.x - r.left) * VW / r.width, y = (t.y - r.top) * VH / r.height;
+    if (state !== "playing") {
+      if (SofaPad.touch.can() && y > TILT_Y - 10 && y < TILT_Y + 18) { SofaPad.touch.tilt(!SofaPad.touch.wanted()); return true; }
+      if (t.kind === "tap") { startGame(); return true; }
+      return false;
+    }
+    return false;
+  });
 
   function textW(str, scale) {
     scale = scale || 1; str = String(str).toUpperCase();

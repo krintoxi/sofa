@@ -1,0 +1,25 @@
+{
+  "name": "WYRD",
+  "short_name": "WYRD",
+  "description": "An open country round the Maw in 3D: mine, smith, fell, light fires and bind creatures, five skills to 75 with a mantle and a weapon at the top of each; wells with caves under them, riftgates, a barrow, and the Maw's six strata and their powers below.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#0b0d10",
+  "theme_color": "#0b0d10",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

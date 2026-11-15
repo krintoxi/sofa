@@ -8,6 +8,46 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.93
+
+The box's page games on a phone or a tablet: each one notices by itself and is played by touch, with tilt if you
+want it.
+
+- **A game opened on a phone or a tablet plays by touch.** Its own controls are drawn on its picture: a stick where
+  the left thumb lands, the game's buttons by the right thumb, each with what it does in that game (JUMP, STRIKE,
+  DASH…), the first one big in the corner, and a pause button at the top. The game hears them as one more
+  controller under the names it already reads, so nothing in its rules changed. A thumb rolled from one button to
+  the next presses that one; two thumbs work at once. A controller picked up or a key pressed hides them; the next
+  touch brings them back. It's pad.js's (`SofaPad.touch`); see ENGINE.md, "Touch".
+- **Every game on the list has its own layout**, as a few lines of data in its page: Tidewing and Micro Drifters to
+  race (GO or GAS, CARVE or BRAKE, BOOST or DRIFT, …), Ironmaw and Void Drifter with the right thumb to aim, WYRD with
+  a stick, a drag of the right thumb to turn the view, and ACT (strike, or use what's in reach), ROLL, SKILL, SKILL 2,
+  DRINK, FIRE and RIDE, its BAG at the top (and Salvage and Let go of one beside ◀ Back on those screens), Cinder
+  Knight, Neon Brawler, Shadow Heist and Gloamwell with a stick and four to seven buttons (Gloamwell's GEAR at the
+  top), a D-pad for Cosmic Cascade and Neon Dodge (Rune Tactics' tiles are tapped instead), Sky Hop a stick and GO.
+  Pair Up's cards are tapped, and now fit four across a phone held upright.
+- **Where it helps, the game's own touches:** in Rune Tactics tap a tile to put the cursor on it, again to choose it
+  (and the actions and the map's places the same way); in Cosmic Cascade tap a column to send the gem there, again to
+  slam it, swipe to move it, down to slam, up to hold, and tap a puzzle to pick it; in Neon Dodge tap or swipe to
+  either side to change lane.
+- **Menus are tapped.** Tidewing's and Ironmaw's items, with a ◀ Back at the top left of a screen that has a way
+  back; the 2D games' menus with rows a finger can hit, ◀ BACK, and a tap outside going back; an option's value goes
+  back one on its left half and on on its right. Gloamwell's title, saves, classes, pause and options rows are tapped
+  too, with no buttons over them; its other screens work with the stick, OK, BACK and the pages.
+- **Tilt as a stick, if you want it**: off until turned on in the game's options (TILT; "Tilt to steer" in
+  Tidewing), or the line under Neon Dodge's and Sky Hop's titles. An iPhone or iPad asks first, as it's tapped. The
+  racers and Sky Hop steer with it; the rest move with it. Kept for each game. A thumb on the stick wins.
+- **Rumble becomes a buzz** on a phone that has one (not an iPhone: Safari has no vibration).
+- **Phones held either way.** A 16:9 picture on a phone held upright has a line under it: turn the phone on its side.
+  The controls keep clear of a notch and the home bar. The first tap asks for the full screen where the browser gives
+  it. **Add to the home screen** gives each game its own icon and name and opens it full screen on its side (each
+  game's `app.webmanifest`, with icons drawn in the games' own letters by `tools/game-apps.py` from `games.json`).
+- **On the box nothing changes**: no touch screen means nothing shown, drawn, joined or stored, and still nothing laid
+  over a game's picture. pad.js's own frame takes the same 30 ns or so as before, and on the games bench (a Mac standing
+  in for a Pi 3, before and after taken in turn) every game holds what it held, with the same draw calls.
+- The same pages are the arcade's on edgeventure.uk (updated there after this is merged).
+- **Not yet** tried on a real phone or tablet: in Chrome's phone and tablet emulation, with touches made by hand.
+
 ## 1.1.92
 
 **A tuner at home, on the box.** Live TV's Antenna and Recordings were already on the box (they are Sofa's own pages);
