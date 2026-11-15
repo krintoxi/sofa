@@ -1774,8 +1774,10 @@ const Kit = {
   // world is. pts: its outline in the world, [x, z, x, z, …] (the hull of them is laid); ground(x, z): the ground's
   // height there; col(x, z): its colour there (the ground's own, darker or warmer); lift: how far over the ground
   // (0.05). In two rings round its middle, so that it follows ground that isn't flat; `fan`: one ring, a third of the
-  // triangles, for a small shape (a lamp's shadow, a barrel's).
-  lay(m, pts, ground, col, lift, fan) {
+  // triangles, for a small shape (a lamp's shadow, a barrel's). `norm(x, z, out)`, for ground shaded smooth (Land.soft:
+  // pass land.norm): each corner takes the ground's own normal there and its own col(x, z), so the shape is lit as the
+  // ground under it is and can fade into it (col paler or nearer the ground's own towards the edge).
+  lay(m, pts, ground, col, lift, fan, norm) {
     const P = [], H = [], cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
     for (let i = 0; i + 1 < pts.length; i += 2) P.push([pts[i], pts[i + 1]]);
     P.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
@@ -1785,6 +1787,22 @@ const Kit = {
     let cx = 0, cz = 0; for (const p of H) { cx += p[0]; cz += p[1]; } cx /= H.length; cz /= H.length;
     lift = lift || 0.05; m.at(0, 0, 0);
     const y = (x, z) => ground(x, z) + lift, cy = y(cx, cz);
+    if (norm) {                                      // one colour and one normal a corner (each worked out once), wound to face up
+      const k = H.length, nv = Kit.nv || (Kit.nv = [0, 1, 0]), e = m.glow || 0, V = [];   // V: the middle, then each corner's half-way point, then the corners
+      const prep = (x, z) => { const c = col(x, z); norm(x, z, nv); V.push(x, y(x, z), z, nv[0], nv[1], nv[2], (c >> 16) & 255, (c >> 8) & 255, c & 255); };
+      prep(cx, cz);
+      if (!fan) for (let i = 0; i < k; i++) prep((H[i][0] + cx) / 2, (H[i][1] + cz) / 2);
+      for (let i = 0; i < k; i++) prep(H[i][0], H[i][1]);
+      const pt = q => { q *= 9; m.put(V[q], V[q + 1], V[q + 2], V[q + 3], V[q + 4], V[q + 5], V[q + 6], V[q + 7], V[q + 8], m.alpha, e); };
+      const tri = (a, b, c) => { m.room(3); pt(a); const A = a * 9, B = b * 9, C = c * 9; if ((V[B + 2] - V[A + 2]) * (V[C] - V[A]) - (V[B] - V[A]) * (V[C + 2] - V[A + 2]) > 0) { pt(b); pt(c); } else { pt(c); pt(b); } };
+      const rim = fan ? 1 : 1 + k;
+      for (let i = 0; i < k; i++) {
+        const j = (i + 1) % k;
+        if (fan) { tri(0, rim + i, rim + j); continue; }
+        tri(0, 1 + i, 1 + j); tri(1 + i, rim + i, rim + j); tri(1 + i, rim + j, 1 + j);
+      }
+      return m;
+    }
     for (let i = 0; i < H.length; i++) {
       const a = H[i], b = H[(i + 1) % H.length], ax = (a[0] + cx) / 2, az = (a[1] + cz) / 2, bx = (b[0] + cx) / 2, bz = (b[1] + cz) / 2;
       if (fan) { m.tri(cx, cy, cz, a[0], y(a[0], a[1]), a[1], b[0], y(b[0], b[1]), b[1], col((cx + a[0] + b[0]) / 3, (cz + a[1] + b[1]) / 3), cx, cy - 9, cz); continue; }
@@ -1797,9 +1815,9 @@ const Kit = {
   // (its foot, its eaves, its top: any points that stick out); (dx, dz): how far a metre of height throws. Its vertices
   // carry Mesh.LAID in their alpha, so a renderer that throws the shadows of what moves knows this ground is in shadow
   // already (one shadow over another is no darker).
-  cast(m, pts, dx, dz, ground, col, lift, fan) {
+  cast(m, pts, dx, dz, ground, col, lift, fan, norm) {
     const P = []; for (let i = 0; i + 2 < pts.length; i += 3) P.push(pts[i] + dx * pts[i + 2], pts[i + 1] + dz * pts[i + 2]);
-    const a = m.alpha; m.alpha = Mesh.LAID; Kit.lay(m, P, ground, col, lift, fan); m.alpha = a;
+    const a = m.alpha; m.alpha = Mesh.LAID; Kit.lay(m, P, ground, col, lift, fan, norm); m.alpha = a;
     return m;
   },
   // Small things for a yard: a barrel, a crate, a pile of logs with their ends showing, a bench. Each stands at x y z,
@@ -2239,15 +2257,55 @@ Land.prototype = {
   },
   // The triangles of the cells i0 … i1 - 1 across and j0 … j1 - 1 down, into one mesh (a chunk of a world too big to
   // build whole: see Stream), coloured by col(height, steepness, x, z) as each() does. cellOf(x) is the cell a place is in.
-  part(m, i0, j0, i1, j1, col) {
+  // o.soft: shaded smooth (soft()), {steep, jit} or true.
+  part(m, i0, j0, i1, j1, col, o) {
     const N = this.N, h = this.h, c = this.cell, jit = m.jit; m.at(0, 0, 0); m.jit = this.jit;
     i0 = Math.max(0, i0); j0 = Math.max(0, j0); i1 = Math.min(this.n, i1); j1 = Math.min(this.n, j1);
+    if (o && o.soft && i1 > i0 && j1 > j0) { this.soft(m, i0, j0, i1, j1, col, o.soft === true ? {} : o.soft); m.jit = jit; return m; }
     for (let j = j0; j < j1; j++) for (let i = i0; i < i1; i++) {
       const k = j * N + i, a = h[k], b = h[k + 1], d = h[k + N], e = h[k + N + 1], x0 = -this.half + i * c, z0 = -this.half + j * c, x1 = x0 + c, z1 = z0 + c;
       if (Math.abs(a - e) <= Math.abs(b - d)) { this.tri1(m, x0, a, z0, x1, b, z0, x1, e, z1, col); this.tri1(m, x0, a, z0, x1, e, z1, x0, d, z1, col); }
       else { this.tri1(m, x0, a, z0, x1, b, z0, x0, d, z1, col); this.tri1(m, x1, b, z0, x1, e, z1, x0, d, z1, col); }
     }
     m.jit = jit; return m;
+  },
+  // The same triangles as part()'s, the same corners in the same places (on() is still the ground as drawn, and there
+  // are no more of them), shaded smooth: each corner has its own normal, from the heights round it, and its own colour,
+  // col() at the corner made a little uneven by where it is. The light then rolls across the ground instead of breaking
+  // at every triangle, and two chunks that share a corner give it the same light and colour. A triangle steeper than
+  // o.steep (0.5: as steep as col()'s rock) keeps its flat face: a cliff stays cut. Costs nothing a frame; to build,
+  // one col() a corner instead of one a triangle (fewer).
+  soft(m, i0, j0, i1, j1, col, o) {
+    const N = this.N, n = this.n, h = this.h, c = this.cell, half = this.half, W = i1 - i0 + 1, K = W * (j1 - j0 + 1);
+    const jit = o.jit == null ? this.jit : o.jit, steep = o.steep == null ? 0.5 : o.steep, g0 = m.glow;
+    if (!this.sc || this.sc.length < K * 6) { this.sc = new Float32Array(K * 6); this.sg = new Uint8Array(K); }
+    const S = this.sc, G = this.sg;
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+      const k = j * N + i, q = (j - j0) * W + (i - i0), x = -half + i * c, z = -half + j * c;
+      const dx = (h[i < n ? k + 1 : k] - h[i > 0 ? k - 1 : k]) / (c * ((i < n) + (i > 0))), dz = (h[j < n ? k + N : k] - h[j > 0 ? k - N : k]) / (c * ((j < n) + (j > 0)));
+      const l = Math.sqrt(dx * dx + 1 + dz * dz), ny = 1 / l, cc = col(h[k], 1 - ny, x, z);
+      let a = Math.imul(i + 7919, 73856093) ^ Math.imul(j + 104729, 19349663); a = Math.imul(a ^ (a >>> 13), 0x5bd1e995); a ^= a >>> 15;
+      const kk = 1 + (((a >>> 0) / 4294967296) * 2 - 1) * jit;
+      S[q * 6] = -dx / l; S[q * 6 + 1] = ny; S[q * 6 + 2] = -dz / l;
+      S[q * 6 + 3] = Math.min(255, ((cc >> 16) & 255) * kk); S[q * 6 + 4] = Math.min(255, ((cc >> 8) & 255) * kk); S[q * 6 + 5] = Math.min(255, (cc & 255) * kk);
+      G[q] = m.glow || 0;                            // (col() may say a corner is a light of its own: WYRD's fen pools)
+    }
+    const put = (i, j) => { const q = (j - j0) * W + (i - i0), s = q * 6; m.put(-half + i * c, h[j * N + i], -half + j * c, S[s], S[s + 1], S[s + 2], S[s + 3] | 0, S[s + 4] | 0, S[s + 5] | 0, m.alpha, G[q]); };
+    const tri = (ai, aj, bi, bj, ci, cj) => {
+      const ax = ai * c, ay = h[aj * N + ai], az = aj * c, ux = bi * c - ax, uy = h[bj * N + bi] - ay, uz = bj * c - az, vx = ci * c - ax, vy = h[cj * N + ci] - ay, vz = cj * c - az;
+      let ny = uz * vx - ux * vz; const nx = uy * vz - uz * vy, nz = ux * vy - uy * vx, len = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
+      if (1 - Math.abs(ny) / len > steep) {          // a cliff: flat, as part() makes it
+        m.jit = this.jit; this.tri1(m, -half + ai * c, ay, -half + aj * c, -half + bi * c, h[bj * N + bi], -half + bj * c, -half + ci * c, h[cj * N + ci], -half + cj * c, col); return;
+      }
+      m.room(3); put(ai, aj);
+      if (ny > 0) { put(bi, bj); put(ci, cj); } else { put(ci, cj); put(bi, bj); }   // (wound to face up, as tri() winds it)
+    };
+    for (let j = j0; j < j1; j++) for (let i = i0; i < i1; i++) {
+      const k = j * N + i, a = h[k], b = h[k + 1], d = h[k + N], e = h[k + N + 1];
+      if (Math.abs(a - e) <= Math.abs(b - d)) { tri(i, j, i + 1, j, i + 1, j + 1); tri(i, j, i + 1, j + 1, i, j + 1); }
+      else { tri(i, j, i + 1, j, i, j + 1); tri(i + 1, j, i + 1, j + 1, i, j + 1); }
+    }
+    m.glow = g0; return m;
   },
   tri1(m, ax, ay, az, bx, by, bz, cx, cy, cz, col) {
     const ux = bx - ax, uy = by - ay, uz = bz - az, vx = cx - ax, vy = cy - ay, vz = cz - az;
@@ -2264,6 +2322,20 @@ Land.prototype = {
     const k = j * N + i, a = h[k], b = h[k + 1], d = h[k + N], e = h[k + N + 1];
     if (Math.abs(a - e) <= Math.abs(b - d)) return u >= v ? a + (b - a) * u + (e - b) * v : a + (e - d) * u + (d - a) * v;
     return u + v <= 1 ? a + (b - a) * u + (d - a) * v : e + (d - e) * (1 - u) + (b - e) * (1 - v);
+  },
+  // The ground's normal at x z as soft() shades it: each corner's own (from the heights round it), blended between the
+  // corners. Into out [x, y, z]. For what's laid on soft ground, to be lit as the ground under it is (Kit.lay's norm).
+  norm(x, z, out) {
+    const c = this.cell, n = this.n, N = this.N, h = this.h, fx = (x + this.half) / c, fz = (z + this.half) / c;
+    const i = Math.max(0, Math.min(n - 1, Math.floor(fx))), j = Math.max(0, Math.min(n - 1, Math.floor(fz))), u = Math.max(0, Math.min(1, fx - i)), v = Math.max(0, Math.min(1, fz - j));
+    let nx = 0, nz = 0;
+    for (let q = 0; q < 4; q++) {
+      const ii = i + (q & 1), jj = j + (q >> 1), k = jj * N + ii, w = ((q & 1) ? u : 1 - u) * ((q >> 1) ? v : 1 - v);
+      nx += w * (h[ii < n ? k + 1 : k] - h[ii > 0 ? k - 1 : k]) / (c * ((ii < n) + (ii > 0)));
+      nz += w * (h[jj < n ? k + N : k] - h[jj > 0 ? k - N : k]) / (c * ((jj < n) + (jj > 0)));
+    }
+    const l = Math.sqrt(nx * nx + 1 + nz * nz); out[0] = -nx / l; out[1] = 1 / l; out[2] = -nz / l;
+    return out;
   },
   // The cells of high ground with no drop near them: a plateau behind its cliffs, the top of a tableland. From low down
   // (on the water, on a road below) nothing of them shows but a far rise now and then, yet they can be most of a land's

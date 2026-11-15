@@ -450,6 +450,15 @@ stream.remake(x, z);            // the chunk there is built again (a tree felled
 - **`Land.part(mesh, i0, j0, i1, j1, colour)`** builds one part of a land's ground into a mesh (`cellOf(x)` is the cell a
   place is in). The heights of a big world are cheap to keep whole (a number every 2.5 m of WYRD's is 0.4 MB); it's the
   triangles that are made a chunk at a time.
+- **Ground shaded smooth: `Land.part(…, colour, {soft: {steep, jit}})`** (or `soft: true`). The same corners in the same
+  places, as many, but each with its own normal (from the heights round it) and its own colour (`colour` at the corner,
+  a little uneven by where it is): the light rolls across the ground instead of breaking at every triangle, and two
+  chunks that share a corner give it the same light. A triangle steeper than `steep` (0.5) keeps its flat face, so a
+  cliff stays cut. Nothing more to draw; to build, one `colour()` a corner instead of one a triangle. `land.norm(x, z,
+  out)` is the normal it shades by, anywhere. What's laid on soft ground takes it: `Kit.lay(m, pts, ground, col, lift,
+  fan, norm)` and `Kit.cast(…, fan, norm)` then give each corner the ground's normal and its own `col(x, z)`, so a
+  patch can fade into the ground (its colour nearer the ground's towards its edge) and is lit as the ground under it.
+  WYRD's open world is built this way.
 - `unload()` gives the GPU's side back and keeps the chunks open (the picture is being made anew: another renderer, a
   lost context); `free()` closes them all. With nothing to draw into (`Flat`, or a check that only steps the game) give
   it a stand-in `{ upload: () => null, free() {} }` and a `build` that returns true: the chunks still open and close.

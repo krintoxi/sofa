@@ -312,6 +312,7 @@ if (typeof module !== "undefined" && module.exports) module.exports = R; else ro
 (function () {
 "use strict";
 const L3 = window.Low3D, U = L3.U, M4 = L3.M4, TAU = U.TAU, clamp = U.clamp, lerp = U.lerp, wrap = U.wrap;
+const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };   // (0 below a, 1 past b, eased between)
 const $ = id => document.getElementById(id), hex = U.hex, mix = U.mix, esc = U.esc;
 const INK = 0x0b0d10, BONE = 0xefe6d2, GREEN = 0x39ff88, PINK = 0xff2e88, RED = 0xff4a5a, BLUE = 0x5ab8ff, VIOLET = 0xb06cff, COIN = 0xf2d27a;
 const PI = Math.PI;
@@ -1121,6 +1122,7 @@ function makeOver(seed) {
     return h;
   });
   w.h = (x, z) => land.at(x, z); w.on = (x, z) => land.on(x, z);   // (on: the ground as it's drawn, for what's laid on it)
+  w.norm = (x, z, out) => land.norm(x, z, out);    // (its normal as it's shaded: what's laid on it is lit as it is)
   w.inside = (x, z, m) => w.edge(x, z) < 0.9 - (m ? 0.012 : 0.004) && Math.hypot(x - w.maw.x, z - w.maw.z) > w.maw.r + 2.2;
   const free = (x, z, rad) => w.inside(x, z, 0.08) && w.blocks.free(x, z, rad);
   const place = (rad, tries, near) => {               // somewhere free in Hearthrim (near: [x, z, spread])
@@ -1142,7 +1144,10 @@ function makeOver(seed) {
   // the light's way to each place (shadows baked into a chunk as it's made): fewer looks along it than a floor's, further apart
   const sun = st.sun, sl = Math.hypot(sun[0], sun[1], sun[2]), sx = sun[0] / sl, sy = sun[1] / sl, sz = sun[2] / sl;
   w.shade = (x, y, z) => { for (let k = 1; k <= 5; k++) { const d = k * 3; if (land.at(x + sx * d, z + sz * d) > y + sy * d + 0.2) return 0.3; } return 1; };
-  w.sky = (x, y, z, ny) => 0.78 + 0.22 * Math.max(0, ny);
+  // the sky's share: less on what faces down or sideways, and on the fuller look least at the foot of things (a trunk, a
+  // rock, a wall where it meets the ground), fading out a metre and more up: what stands seems to stand on the ground
+  w.sky = (x, y, z, ny) => { if (ny > 0.97 || !rich()) return 0.78 + 0.22 * Math.max(0, ny);   // (the ground and what's laid on it, most of what's lit; and a Pi 3's chunks, which can't spare the time)
+    const up = Math.max(0, ny), foot = (1 - up) * clamp(1 - (y - land.on(x, z)) / 1.4, 0, 1); return (0.78 + 0.22 * up) * (1 - 0.42 * foot); };
   { const sh = Math.hypot(sun[0], sun[2]) || 1, k = Math.min(1.15, sh / Math.max(0.05, sun[1])); w.cast = [-sun[0] / sh * k, -sun[2] / sh * k]; }   // (how far a metre of height throws its shadow: along the sun, but a low sun's is kept short, or dusk would lay every house across the square)
   w.madeMs = performance.now() - t0;
   return w;
@@ -2287,9 +2292,10 @@ function featureMesh(w, nd, m, g) {
   }
   m.at(0, 0, 0); g.at(0, 0, 0);
 }
+const SOFT = { soft: { steep: 0.5, jit: 0.05 } };   // (the ground shaded smooth, its cliffs cut: Land.soft)
 function buildChunk(c, base, glow, step) {
   const w = OVER, d = c.data; if (E.mode !== "gl" || !d) return true;
-  if (step === 0) { const L = w.land; L.part(base, L.cellOf(c.x0 + 0.01), L.cellOf(c.z0 + 0.01), L.cellOf(c.x1 - 0.01) + 1, L.cellOf(c.z1 - 0.01) + 1, overColour(w, base)); base.glow = 0; return false; }
+  if (step === 0) { const L = w.land; L.part(base, L.cellOf(c.x0 + 0.01), L.cellOf(c.z0 + 0.01), L.cellOf(c.x1 - 0.01) + 1, L.cellOf(c.z1 - 0.01) + 1, overColour(w, base), SOFT); base.glow = 0; return false; }
   for (const q of d.deco) {
     if (q.kind === "house" || q.kind === "lamp" || q.wall || q.fixed) { decoMesh(w, q, base, glow); continue; }
     const reg = w.region(q.x, q.z), v = q.seed % 3;
@@ -2327,7 +2333,7 @@ function patches(w, c, base, gc) {
     if (x * x + (z - 4) * (z - 4) < 200 || !w.inside(x, z, 1) || REGIONS[reg].pool && h0 < -0.1 || gc(h0, 0, x, z) === CRUST) continue;
     if (Math.abs(w.h(x + 2, z) - w.h(x - 2, z)) + Math.abs(w.h(x, z + 2) - w.h(x, z - 2)) > 1.6) continue;
     for (let i = 0; i < 7; i++) { const a = i / 7 * TAU + r() * 0.5, rr = rad * (0.6 + r() * 0.5); P.push(x + Math.cos(a) * rr, z + Math.sin(a) * rr * (0.7 + r() * 0.3)); }
-    L3.Kit.lay(base, P, w.on, (px, pz) => mix(gc(w.h(px, pz), 0, px, pz), tint, k2), 0.03); P.length = 0;
+    L3.Kit.lay(base, P, w.on, (px, pz) => mix(gc(w.h(px, pz), 0, px, pz), tint, k2 * (1 - smooth(0.3 * rad, rad, Math.hypot(px - x, pz - z)))), 0.03, 0, w.norm); P.length = 0;   // (fading into the ground at its edge)
   }
 }
 // The square's flagstones: rings of them round the fount, each a flat piece just over the ground and no two the same
@@ -2354,7 +2360,7 @@ const PROPH = { menhir: [0.5, 2.6], stele: [0.5, 2.0], obelisk: [0.55, 3.6], shr
 function castShadows(w, d, base, c) {
   const gc = w.gcol || (w.gcol = overColour(w, {})), col = (x, z) => U.shade(gc(w.h(x, z), 0, x, z), 0.58), dx = w.cast[0], dz = w.cast[1], P = [];
   const ring = (x, z, r, h, n, a0) => { for (let i = 0; i < n; i++) { const a = (a0 || 0) + i / n * TAU; P.push(x + Math.cos(a) * r, z + Math.sin(a) * r, h); } };
-  const lay = fan => { L3.Kit.cast(base, P, dx, dz, w.on, col, 0.09, fan); P.length = 0; };   // (fan: a small shadow, in a third of the triangles)
+  const lay = fan => { L3.Kit.cast(base, P, dx, dz, w.on, col, 0.09, fan, w.norm); P.length = 0; };   // (fan: a small shadow, in a third of the triangles)
   for (const q of d.deco) {
     if (q.kind === "house") { const c = Math.cos(q.yaw), sn = Math.sin(q.yaw), s = q.s, up = q.land && LANDS[q.land].house.stilts || 0, at = (lx, lz, h) => P.push(q.x + (lx * c + lz * sn) * s, q.z + (-lx * sn + lz * c) * s, (h && h + up) * s);
       for (const sx of [-1, 1]) { for (const sz of [-1, 1]) { at(sx * 2.6, sz * 2.2, 0); at(sx * 2.8, sz * 2.4, 3.1); } at(sx * 2.8, 0, 5.2); } at(1.6, 0.8, 5.3); lay(); }
@@ -2374,9 +2380,10 @@ function castShadows(w, d, base, c) {
   // light on the ground, laid the same way: a pool under each lamp, and what a house's windows spill before it
   const warm = (x, z, k) => mix(gc(w.h(x, z), 0, x, z), 0xffc27a, k);
   for (const q of d.deco) {
-    if (q.kind === "lamp" && q.x * q.x + (q.z - 4) * (q.z - 4) > 160) { for (let i = 0; i < 9; i++) P.push(q.x + Math.cos(i / 9 * TAU) * 2.5, q.z + Math.sin(i / 9 * TAU) * 2.5); L3.Kit.lay(base, P, w.on, (x, z) => warm(x, z, Math.max(0.08, 0.3 - 0.085 * Math.hypot(x - q.x, z - q.z))), 0.07); P.length = 0; }
+    if (q.kind === "lamp" && q.x * q.x + (q.z - 4) * (q.z - 4) > 160) { for (let i = 0; i < 9; i++) P.push(q.x + Math.cos(i / 9 * TAU) * 2.5, q.z + Math.sin(i / 9 * TAU) * 2.5); L3.Kit.lay(base, P, w.on, (x, z) => warm(x, z, Math.max(0, 0.32 - 0.13 * Math.hypot(x - q.x, z - q.z))), 0.07, 0, w.norm); P.length = 0; }
     else if (q.kind === "house") { const c = Math.cos(q.yaw), sn = Math.sin(q.yaw), s = q.s, da = q.seed % 3 - 1, at = (lx, lz) => P.push(q.x + (lx * c + lz * sn) * s, q.z + (-lx * sn + lz * c) * s);
-      for (const wx of da === 0 ? [-1.72, 1.72] : da < 0 ? [0.42, 1.74] : [-1.74, -0.42]) { at(wx - 0.45, 2.5); at(wx + 0.45, 2.5); at(wx + 1.0, 4.9); at(wx - 1.0, 4.9); L3.Kit.lay(base, P, w.on, (x, z) => warm(x, z, 0.17), 0.07, 1); P.length = 0; } }
+      const out = (x, z) => ((x - q.x) * sn + (z - q.z) * c) / s;   // (how far out from the house's middle, towards its front)
+      for (const wx of da === 0 ? [-1.72, 1.72] : da < 0 ? [0.42, 1.74] : [-1.74, -0.42]) { at(wx - 0.45, 2.5); at(wx + 0.45, 2.5); at(wx + 1.0, 4.9); at(wx - 1.0, 4.9); L3.Kit.lay(base, P, w.on, (x, z) => warm(x, z, 0.24 * (1 - smooth(2.5, 4.9, out(x, z)))), 0.07, 0, w.norm); P.length = 0; } }   // (brightest at the wall, gone by its far edge)
   }
   if (c.x0 < 13 && c.x1 > -13 && c.z0 < 17 && c.z1 > -9) pave(w, c, base, gc);
   for (const nd of d.nodes) {

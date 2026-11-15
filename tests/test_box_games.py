@@ -840,6 +840,61 @@ console.log(JSON.stringify(out));
         self.assertTrue(out["mesh"])
         self.assertEqual(out["banks"], [True, True, True])               # on the waterline, facing out to the water
 
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_ground_shaded_smooth(self):
+        """Land.part(…, {soft}) (1.1.88): the very corners part() makes, no more of them, each with its own normal and
+        colour, the same in two chunks that share it; a cliff keeps its flat faces; what's laid with the ground's
+        normal (Kit.lay's norm) is lit as the ground under it is."""
+        script = """
+const noop = () => {};
+globalThis.window = globalThis; globalThis.addEventListener = noop; globalThis.location = { hash: "" };
+globalThis.document = { hidden: false, createElement: () => ({ getContext: () => null }) };
+globalThis.screen = { width: 1920, height: 1080 }; globalThis.innerWidth = 960; globalThis.innerHeight = 540;
+eval(require("fs").readFileSync(process.argv[1], "utf8"));
+const L = window.Low3D, out = {};
+// rolling ground, and a cliff along x = 10 (6 high within a cell)
+const land = new L.Land(40, 16, 0).fill((x, z) => 1.5 * Math.sin(x * 0.3) * Math.cos(z * 0.25) + (x > 10 ? 6 : 0));
+const col = (h, steep) => steep > 0.5 ? 0x6a6058 : 0x4a7a36;
+const verts = m => { const o = []; for (let i = 0; i < m.n; i++) { const q = i * 20; o.push({ p: [m.f[i * 5], m.f[i * 5 + 1], m.f[i * 5 + 2]], n: [m.i8[q + 12], m.i8[q + 13], m.i8[q + 14]], c: [m.u8[q + 16], m.u8[q + 17], m.u8[q + 18]] }); } return o; };
+const flat = verts(land.part(new L.Mesh(), 0, 0, 16, 16, col)), soft = verts(land.part(new L.Mesh(), 0, 0, 16, 16, col, { soft: true }));
+const key = v => v.p.map(x => x.toFixed(3)).join(",");
+out.same = [flat.length, soft.length, JSON.stringify(flat.map(key).sort()) === JSON.stringify(soft.map(key).sort())];
+let up = 0, steepFlat = 0, steep = 0, smoothOnes = 0;
+for (let t = 0; t < soft.length; t += 3) {
+  const [a, b, c] = [soft[t], soft[t + 1], soft[t + 2]], u = [b.p[0] - a.p[0], b.p[1] - a.p[1], b.p[2] - a.p[2]], v = [c.p[0] - a.p[0], c.p[1] - a.p[1], c.p[2] - a.p[2]];
+  const nx = u[1] * v[2] - u[2] * v[1], ny = u[2] * v[0] - u[0] * v[2], nz = u[0] * v[1] - u[1] * v[0], l = Math.hypot(nx, ny, nz);
+  if (ny > 0) up++;
+  const same = JSON.stringify(a.n) === JSON.stringify(b.n) && JSON.stringify(b.n) === JSON.stringify(c.n);
+  if (1 - ny / l > 0.5) { steep++; if (same) steepFlat++; } else if (!same) smoothOnes++;
+}
+out.faces = [up * 3 === soft.length, steep > 0, steepFlat === steep, smoothOnes > 0];
+// two chunks side by side: the corners on their shared edge alike in both
+const left = verts(land.part(new L.Mesh(), 0, 0, 8, 8, col, { soft: true })), right = verts(land.part(new L.Mesh(), 8, 0, 16, 8, col, { soft: true }));
+const at = (vs, x) => { const o = new Map(); for (const v of vs) if (Math.abs(v.p[0] - x) < 1e-6) o.set(v.p[2].toFixed(3), JSON.stringify([v.n, v.c])); return o; };
+const A = at(left, -20 + 8 * 2.5), B = at(right, -20 + 8 * 2.5);
+let agree = A.size > 0; for (const [k, v] of A) if (B.get(k) !== v) agree = false;
+out.seam = agree;
+// a corner's normal is Land.norm's there
+const nv = [0, 0, 0], v0 = soft.find(v => Math.abs(v.p[0] - 0) < 1e-6 && Math.abs(v.p[2] - 0) < 1e-6);
+land.norm(0, 0, nv); out.norm = [Math.round(nv[0] * 127) === v0.n[0], Math.round(nv[1] * 127) === v0.n[1], Math.round(nv[2] * 127) === v0.n[2]];
+// laid with the ground's normal: as many triangles, each corner the ground's normal and its own colour
+const P = [-3, -3, 3, -3, 3, 3, -3, 3], on = (x, z) => land.on(x, z), shade = (x, z) => x < 0 ? 0x303030 : 0x909090;
+const plain = L.Kit.lay(new L.Mesh(), P, on, shade, 0.03), lit = verts(L.Kit.lay(new L.Mesh(), P, on, shade, 0.03, 0, (x, z, o) => land.norm(x, z, o)));
+let ok = true, cols = new Set();
+for (const v of lit) { land.norm(v.p[0], v.p[2], nv); if (Math.abs(Math.round(nv[1] * 127) - v.n[1]) > 1) ok = false; cols.add(v.c[0]); }
+out.laid = [plain.n === lit.length, ok, cols.size === 2];
+console.log(JSON.stringify(out));
+"""
+        r = subprocess.run(["node", "-e", script, os.path.join(self.GAMES, "low3d.js")], capture_output=True, text=True, timeout=60)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        out = json.loads(r.stdout)
+        flat_n, soft_n, same = out["same"]
+        self.assertEqual((flat_n, soft_n, same), (16 * 16 * 6, 16 * 16 * 6, True))   # the same corners, as many
+        self.assertEqual(out["faces"], [True, True, True, True])         # all facing up; the cliff's flat, the rest smooth
+        self.assertTrue(out["seam"])                                     # two chunks give a shared corner the same light
+        self.assertEqual(out["norm"], [True, True, True])
+        self.assertEqual(out["laid"], [True, True, True])
+
 
 class TheRaycaster(unittest.TestCase):
     """Low3D's Ray: worlds on a grid drawn a pixel at a time (Ironmaw's), the same on every box."""

@@ -42,6 +42,12 @@ the things people build, what lies on the ground, the air.
 - **Shadows of what moves** (the fuller look): the delver, the townsfolk, the foes, what you ride and your pet throw
   real shadows on the ground and on everything that stands still, along the sun, as the shadows laid on the ground do.
   Where one crosses a laid shadow, it's no darker. The spot under each is softer now.
+- **The ground is shaded smooth**, on every box. It was big flat triangles, each lit as one face and tinted at random,
+  so the country looked like broken tiles; now the light rolls over it and the colour runs from one place to the
+  next. Cliffs keep their cut faces. Patches of moss, mud and ash fade into the ground at their edges, the light under
+  a lamp falls off softly, and a window's light is brightest at the wall. Nothing more is drawn (the same corners, as
+  many of them), and a Pi 3 builds a piece of the country as fast as before.
+- **What stands is darker at its foot** (the fuller look): a trunk, a rock or a wall where it meets the ground.
 - **The delver and the townsfolk** have more to them: a buckle and a pouch, a collar, a fringe of hair, boots turned
   down at the top; the delver carries a pack with a bedroll, the smith wears an apron, the herbalist a satchel, the
   weaver a shawl.
@@ -50,7 +56,9 @@ the things people build, what lies on the ground, the air.
   (the ground's height as it's drawn, where `at` is smooth between the corners); `GL.wind` with `Mesh.sway` and
   `Mesh.facing`; `GL.grade`; `GL.shadows`, `caster` and `shadowsDone` (the shadows of what moves), `M4.ortho`;
   `Kit.house` walls of logs, stone or planks, and on stilts. A cast shadow is marked in its vertices (`Mesh.LAID`), so a renderer that throws the
-  shadows of what moves can leave ground that's already in shadow as it is.
+  shadows of what moves can leave ground that's already in shadow as it is. `Land.part(…, {soft})` shades a land's
+  ground smooth (`Land.soft`), `Land.norm` is its normal anywhere, and `Kit.lay` and `Kit.cast` take it (`norm`) to
+  light what's laid as the ground under it is.
 
 ## 1.1.87
 
