@@ -9,7 +9,8 @@
    Hardware:  probe(), bench(), plan(), LADDER, Governor, rows() and line() (what was found, to show)
    Drawing:   GL (lit and glowing meshes, a sea, a sky), Flat (the 2D renderer), Mesh (building meshes), bake() (mesh to
               sprite), Kit (trees, rocks, buildings, buoys, shadows, far hills), Chunks (a world's still things), M4,
-              Rig (bodies: a skeleton and poses as numbers, each pose baked into one mesh)
+              Rig (bodies: a skeleton and poses as numbers, each pose baked into one mesh, or one body moved between
+              poses: bind(), mix(), Skin)
    Moving:    Path (smooth lines to race or ride along), Trail (wakes, light trails), Particles, camera(), chase(), orbit(),
               Follow (above and behind one on foot, the player moving it up and down and round)
    The rest:  game() (the screen, tuning, the loop), begin() (a frame in either renderer), Input (controller first, the
@@ -1600,15 +1601,33 @@ Rig.prototype = {
   },
   joint(j) { return typeof j === "number" ? j : this.index[j]; },
   // what's built next in m goes where joint j is, turned and sized with it (m.at(0, 0, 0) after, for the rest)
-  at(m, j) { const w = this.W[this.joint(j)], t = m.t; for (let i = 0; i < 12; i++) t[i] = w[i]; return m; },
+  at(m, j) {
+    const B = this.binding;
+    if (B && B.m === m) { const t = m.t; t[0] = t[4] = t[8] = 1; t[1] = t[2] = t[3] = t[5] = t[6] = t[7] = t[9] = t[10] = t[11] = 0; B.marks.push(m.n, this.joint(j)); return m; }
+    const w = this.W[this.joint(j)], t = m.t; for (let i = 0; i < 12; i++) t[i] = w[i]; return m;
+  },
   // a thing held or worn: x y z in joint j's frame, turned (yaw, pitch, roll) and sized (s) there
   attach(m, j, x, y, z, yaw, pitch, roll, s) {
     const L = this.L; rot12(L, yaw || 0, pitch || 0, roll || 0, s == null ? 1 : s); L[9] = x || 0; L[10] = y || 0; L[11] = z || 0;
+    const B = this.binding;
+    if (B && B.m === m) { const t = m.t; for (let i = 0; i < 12; i++) t[i] = L[i]; B.marks.push(m.n, this.joint(j)); return m; }
     mul12(this.P, this.W[this.joint(j)], L); const t = m.t; for (let i = 0; i < 12; i++) t[i] = this.P[i];
     return m;
   },
   // where joint j is in this pose (in the body's own space, standing on y = 0): out [x, y, z]
   where(j, out) { const w = this.W[this.joint(j)]; out[0] = w[9]; out[1] = w[10]; out[2] = w[11]; return out; },
+  // A body built once and moved after, instead of a mesh baked for each pose: fn(m) builds it as for a pose (pose(),
+  // then at() and attach() for each part), and each vertex is kept with its joint and its place in that joint's own
+  // frame; what's built with no joint (after m.at()) stays where it was built. Returns a Skin: skin.mesh is the body,
+  // skin.pose() moves it to the rig's pose as it stands now (after pose(P), or pose(Rig.mix(…))), in place. cap: the
+  // most vertices (2048).
+  bind(fn, cap) {
+    const m = new Mesh(cap || 2048), marks = [], at = m.at;
+    m.at = function () { marks.push(this.n, -1); return at.apply(this, arguments); };   // (built with no joint)
+    this.binding = { m, marks };
+    try { fn(m); } finally { this.binding = null; delete m.at; }
+    return new Skin(this, m, marks);
+  },
   // the same pose the other way round: left and right swapped, the spine's roll and turn the other way
   mirror(P) {
     const out = {};
@@ -1621,6 +1640,44 @@ Rig.prototype = {
     }
     return out;
   }
+};
+// A pose between two, t of the way from A to B (0: A, 1: B), into out (made the first time, then kept and used again:
+// nothing new each frame). A joint only one of them names is mixed with none (as built), and one that out had before
+// and neither names now goes back to none. Numbers (y, lean) mix the same way.
+Rig.mix = function (A, B, t, out) {
+  out = out || {};
+  for (const k in out) if (!(k in A) && !(k in B)) { const o = out[k]; if (typeof o === "number") out[k] = 0; else if (o && o.length === 3) o[0] = o[1] = o[2] = 0; }
+  for (const k in A) mixOne(out, k, A[k], B[k], t);
+  for (const k in B) if (!(k in A)) mixOne(out, k, undefined, B[k], t);
+  return out;
+};
+function mixOne(out, k, a, b, t) {
+  if ((a && a.length === 3) || (b && b.length === 3)) {
+    const o = out[k] && out[k].length === 3 ? out[k] : (out[k] = [0, 0, 0]);
+    for (let i = 0; i < 3; i++) { const x = a ? a[i] : 0; o[i] = x + ((b ? b[i] : 0) - x) * t; }
+  } else if (typeof a === "number" || typeof b === "number") { const x = a || 0; out[k] = x + ((b || 0) - x) * t; }
+}
+// A body bound to a rig (Rig.bind): each vertex's joint, its place and its facing in that joint's frame
+function Skin(rig, m, marks) {
+  const n = m.n; this.rig = rig; this.mesh = m; this.n = n;
+  this.joint = new Int8Array(n); this.p = new Float32Array(n * 3); this.q = new Int8Array(n * 3);
+  for (let v = 0, k = 0, j = -1; v < n; v++) {
+    while (k < marks.length && marks[k] <= v) { j = marks[k + 1]; k += 2; }
+    this.joint[v] = j; this.p[v * 3] = m.f[v * 5]; this.p[v * 3 + 1] = m.f[v * 5 + 1]; this.p[v * 3 + 2] = m.f[v * 5 + 2];
+    this.q[v * 3] = m.i8[v * 20 + 12]; this.q[v * 3 + 1] = m.i8[v * 20 + 13]; this.q[v * 3 + 2] = m.i8[v * 20 + 14];
+  }
+}
+Skin.prototype.pose = function () {
+  const W = this.rig.W, n = this.n, f = this.mesh.f, i8 = this.mesh.i8, p = this.p, q = this.q, J = this.joint;
+  for (let v = 0; v < n; v++) {
+    const j = J[v]; if (j < 0) continue;
+    const w = W[j], x = p[v * 3], y = p[v * 3 + 1], z = p[v * 3 + 2], o = v * 5;
+    f[o] = w[0] * x + w[3] * y + w[6] * z + w[9]; f[o + 1] = w[1] * x + w[4] * y + w[7] * z + w[10]; f[o + 2] = w[2] * x + w[5] * y + w[8] * z + w[11];
+    const a = q[v * 3], b = q[v * 3 + 1], c = q[v * 3 + 2], s = 1 / (Math.sqrt(w[0] * w[0] + w[1] * w[1] + w[2] * w[2]) || 1), e = v * 20;
+    const nx = Math.round((w[0] * a + w[3] * b + w[6] * c) * s), ny = Math.round((w[1] * a + w[4] * b + w[7] * c) * s), nz = Math.round((w[2] * a + w[5] * b + w[8] * c) * s);
+    i8[e + 12] = nx > 127 ? 127 : nx < -127 ? -127 : nx; i8[e + 13] = ny > 127 ? 127 : ny < -127 ? -127 : ny; i8[e + 14] = nz > 127 ? 127 : nz < -127 ? -127 : nz;   // (a byte: 128 would wrap round)
+  }
+  return this.mesh;
 };
 // the clips in a set of poses, by name: walk0 … walk3 is "walk", in that order; a pose with no number is a clip of one
 Rig.clips = function (poses) {
@@ -4326,7 +4383,7 @@ function planRay(p, b) {
     why: "the processor draws it (script " + cpu + " ms" + (help ? ", " + help + " helpers on other cores" : "") + ")" + (fx ? "; the GPU adds the glow" : "") };
 }
 
-window.Low3D = { probe, family, NAMES, bench, plan, rows, line, LADDER, Governor, GL, Mesh, Flat, bake, M4, px, hexRGB, Rig,
+window.Low3D = { probe, family, NAMES, bench, plan, rows, line, LADDER, Governor, GL, Mesh, Flat, bake, M4, px, hexRGB, Rig, Skin,
   U, Kit, Path, Chunks, Land, Trail, Particles, camera, chase, orbit, Follow, viewOf, begin, Input, Menu, Synth, game,
   Palette, Tex, RayMap, Ray, Marks, Screen, planRay, heldRay, helpersFor, wholeSteps, ladderSig, fortyOn, withForty, UI, Letters, GLYPHS, SPECIAL, wholeSize, Confetti, Banners, Emblem, Stream, Slots, version: 5 };
 })();

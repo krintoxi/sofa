@@ -2531,6 +2531,31 @@ const FLAMECOL = [0xff9a3a, 0xffb84a, 0xff6a4a, 0xb06cff, 0x6ad8ff, 0xff2e88];  
 function bake8(m) { const out = []; for (let i = 0; i < 8; i++) out.push(L3.bake(m, { yaw: i / 8 * TAU, pitch: 0.75, ppu: 22, light: FLATLIGHT })); return out; }
 const FLATLIGHT = { sun: [-0.45, 0.8, 0.4], sunCol: [1, 0.95, 0.85], amb: [0.45, 0.48, 0.55], ground: [0.25, 0.22, 0.2] };
 
+// The delver between poses (the 3D look): its body built once (Low3D's Rig.bind) and moved each frame, the walk
+// blended between its four poses, the breath between the idle two, and each new pose (a swing, a cast, a roll) eased
+// in from what showed (0.12 s; an attack's stages 0.07 s). Nothing made new as it plays. A mantle or a relic hangs
+// from more than one joint, so a delver with either keeps a mesh a pose, as before; so does the 2D look.
+const MOVE = { key: "", g3: null, skin: null, h: null, fam: "", t0: -1, ease: 0.12, at: -1, P: {}, from: {}, shown: {}, mix: {}, off: false };   // (off: a mesh a pose, for #test's before and after)
+function heroMoves(hb, hp) {
+  const st = hb.style;
+  if (E.mode !== "gl" || st.mantle || st.relic || MOVE.off) return null;
+  if (MOVE.key !== heroKey || MOVE.g3 !== E.g3) {
+    if (MOVE.h && MOVE.g3 === E.g3) E.g3.free(MOVE.h);
+    MOVE.skin = RIG.bind(m => buildBody(m, st, "idle0", 1, 0), 2048); MOVE.h = E.g3.upload(MOVE.skin.mesh, true);
+    MOVE.key = heroKey; MOVE.g3 = E.g3; MOVE.fam = ""; MOVE.t0 = -1; MOVE.at = -1;   // (posed before it's drawn, even in the same moment)
+  }
+  if (MOVE.at === G.t) return MOVE.h;                // (drawn twice a frame on the fuller look: once for its shadow)
+  let T, fam;
+  if (/^walk\d$/.test(hp)) { const ph = H.walkT * 2, i = Math.floor(ph); T = L3.Rig.mix(POSES[WALK[i % 4]], POSES[WALK[(i + 1) % 4]], ph - i, MOVE.P); fam = "walk"; }
+  else if (hp === "idle0" || hp === "idle1") { T = L3.Rig.mix(POSES.idle0, POSES.idle1, 0.5 - 0.5 * Math.cos(G.t * 0.8 * PI), MOVE.P); fam = "idle"; }
+  else { T = L3.Rig.mix(POSES[hp] || POSES.idle0, POSES[hp] || POSES.idle0, 0, MOVE.P); fam = hp; }
+  if ((st.relic ? false : st.weapon === "bow") && (fam === "walk" || fam === "idle")) { const fl = T.foreL || (T.foreL = [0, 0, 0]), al = T.armL || (T.armL = [0, 0, 0]); fl[0] = 1.35; fl[1] = fl[2] = 0; al[0] = 0.2; al[1] = 0.1; al[2] = 0; }   // (a bow held ready, upright: as buildBody holds it)
+  if (fam !== MOVE.fam) { if (MOVE.fam) { L3.Rig.mix(MOVE.shown, MOVE.shown, 0, MOVE.from); MOVE.t0 = G.t; } MOVE.fam = fam; MOVE.ease = /\d$/.test(hp) && fam !== "walk" && fam !== "idle" ? 0.07 : 0.12; }
+  const e = MOVE.t0 < 0 ? 1 : clamp((G.t - MOVE.t0) / MOVE.ease, 0, 1), P = e < 1 ? L3.Rig.mix(MOVE.from, T, e * e * (3 - 2 * e), MOVE.mix) : T;
+  L3.Rig.mix(P, P, 0, MOVE.shown);
+  RIG.pose(P, 1, st.bulk || 1); MOVE.skin.pose(); E.g3.update(MOVE.h, MOVE.skin.mesh);
+  MOVE.at = G.t; return MOVE.h;
+}
 // which pose a body shows now
 function heroPose() {
   if (SHOW && SHOW.pose) return SHOW.pose;
@@ -2703,8 +2728,9 @@ function movers(g3, t, cast, fn) {
   if (D.kin.pet && G.pet && !pendingWorld) { const c = kinOf(D.kin.pet), b = modelBody(c.model, c.tint), q = G.pet, py = w.h(q.x, q.z) + (c.fly ? c.fly + Math.sin(t * 3) * 0.15 : 0);
     if (near(q.x, py + 0.5, q.z, 1.5)) fn(b.h.idle0, matOf(MAT, q.x, py, q.z, q.yaw, c.size, 1 + (q.mv ? Math.sin(t * 13) * 0.07 : Math.sin(t * 2) * 0.03)), 1, 1, 1, 0.06, 0.6); }
   for (let i = 0; i < w.nodes.length; i++) { const nd = w.nodes[i]; if (nd.kind === "fire" && nd.on && near(nd.x, nd.y + 0.5, nd.z, 1.5)) fn(fireLogs().h.idle0, matOf(MAT, nd.x, nd.y, nd.z, nd.x * 3, 1), 1, 1, 1, 0, 0.2); }
-  if (!blink && !pendingWorld && !cast && hidden()) fn(hb.h[hp + sway] || hb.h[hp] || hb.h.idle0, matOf(MAT, H.x, H.y + rideY, H.z, H.yaw, 1), 0.35, 1.5, 0.8, 0.85, 0, true);   // (seen through what's in front, in the box's green)
-  else if (!blink && !pendingWorld) fn(hb.h[hp + sway] || hb.h[hp] || hb.h.idle0, matOf(MAT, H.x, H.y + rideY, H.z, H.yaw, 1), H.hurtT > 0 ? 2 : 1, H.hurtT > 0 ? 0.8 : 1, H.hurtT > 0 ? 0.8 : 1, 0, 0.45);
+  const hm = !blink && !pendingWorld ? heroMoves(hb, hp) || hb.h[hp + sway] || hb.h[hp] || hb.h.idle0 : null;
+  if (hm && !cast && hidden()) fn(hm, matOf(MAT, H.x, H.y + rideY, H.z, H.yaw, 1), 0.35, 1.5, 0.8, 0.85, 0, true);   // (seen through what's in front, in the box's green)
+  else if (hm) fn(hm, matOf(MAT, H.x, H.y + rideY, H.z, H.yaw, 1), H.hurtT > 0 ? 2 : 1, H.hurtT > 0 ? 0.8 : 1, H.hurtT > 0 ? 0.8 : 1, 0, 0.45);
 }
 // ---- the see-through things: shadows, warnings, rings, swings, what flies, what lies on the ground, the gate's light
 const SX = new Float32Array(3);
@@ -3601,6 +3627,7 @@ if (E.test) window.WY = { get G() { return G; }, get H() { return H; }, get D() 
   killAll: () => { for (const f of G.foes) if (f.st !== "dead" && !f.boss) { f.hp = 0; killFoe(f); } }, boss: () => G.boss, startEnding, recalc, heroBody, interact, nearNode, skill, startAttack, dodge, hidden, AI,
   begin: () => { slotNo = 0; begin(); return D.name; }, kill: f => { f.hp = 0; killFoe(f); }, toWorld, cavePlace, hollowPlace, stream: () => STREAM, over: () => OVER, celebrate: k => celebrate(k, masteryItem(k, "mantle"), masteryItem(k, "weapon")), noteBest, makeDrop: (p, lvl, tier) => { const it = makeItem("weapon", tier, lvl, 2, "blade"); it.p = p; noteBest(it); return it; }, goto: (x, z) => { H.x = x; H.z = z; H.y = W.h(x, z); }, near: kind => { let b = null, bd = 1e9; for (const nd of W.nodes) if (nd.kind === kind && nd.on) { const d = dist2(H.x, H.z, nd.x, nd.z); if (d < bd) { b = nd; bd = d; } } return b; },
   gainSkill, lightFire, toggleRide, bind, kinOf, lv, WR, EMBLEMS, packCount, packMax, openShop, shopDo: i => shopDo({ dataset: { i } }), SHOP: () => SHOP, master,
+  moves: on => { MOVE.off = !on; return !MOVE.off; },
   cam: (h, turn) => { CAM.h = h == null ? CAM.h : h; CAM.turn = turn == null ? CAM.turn : turn; CAM.goal = null; return { h: CAM.h, turn: CAM.turn }; }, CAM,
   show: o => { SHOW = o; heroStale = true; H.inv = 0; if (o && o.yaw != null) H.yaw = o.yaw; if (o && o.walk) H.act = "walk"; heroBody(false); return heroKey.length; } };
 E.start();

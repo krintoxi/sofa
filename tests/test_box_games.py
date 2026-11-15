@@ -652,6 +652,47 @@ console.log(JSON.stringify(out));
         self.assertEqual(out["stepped"], 50.12)
 
     @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_a_body_moved_between_poses(self):
+        """Rig.bind builds a body once and its Skin moves it: posed, it stands where a body built in that pose stands,
+        part by part (what's held and what's built with no joint too); Rig.mix finds the pose between two and keeps
+        its own object."""
+        script = """
+const noop = () => {};
+globalThis.window = globalThis; globalThis.addEventListener = noop; globalThis.location = { hash: "" };
+globalThis.document = { hidden: false, createElement: () => ({ getContext: () => null }) };
+globalThis.screen = { width: 1920, height: 1080 }; globalThis.innerWidth = 960; globalThis.innerHeight = 540;
+eval(require("fs").readFileSync(process.argv[1], "utf8"));
+const L = window.Low3D, out = {}, rig = new L.Rig(L.Rig.HUMAN);
+const idle = { chest: [0.04, 0, 0], armR: [0.05, 0.14, 0], foreR: [0.25, 0, 0] };
+const walk = { y: -0.03, chest: [0.12, 0, 0.12], legR: [0.55, 0, 0], shinR: [-0.15, 0, 0], legL: [-0.45, 0, 0], armR: [-0.5, 0.1, 0], foreR: [0.3, 0, 0], lean: 0.1 };
+const body = (m, P) => { rig.pose(P, 1.1, 1.2);
+  for (let j = 0; j < rig.n; j++) { rig.at(m, j); m.box(0, -0.1, 0, 0.1, 0.2, 0.1, 0x808080); }
+  rig.attach(m, 5, 0, -0.09, -0.1, 0, Math.PI / 2, 0, 0.8); m.box(0, 0, 0, 0.05, 0.6, 0.05, 0xc0c0c0);   // (a blade in the right hand)
+  m.at(0, 0, 0); m.box(0, 0, 0, 0.5, 0.02, 0.5, 0x202020); };                                        // (a shadow, with no joint)
+const baked = new L.Mesh(2048); body(baked, walk);
+const skin = rig.bind(m => body(m, idle));
+rig.pose(walk, 1.1, 1.2); skin.pose();
+let far = 0, turned = 0;
+for (let v = 0; v < baked.n; v++) { for (let i = 0; i < 3; i++) far = Math.max(far, Math.abs(baked.f[v * 5 + i] - skin.mesh.f[v * 5 + i]));
+  for (let i = 12; i < 15; i++) turned = Math.max(turned, Math.abs(baked.i8[v * 20 + i] - skin.mesh.i8[v * 20 + i])); }
+out.n = [baked.n, skin.n]; out.far = far; out.turned = turned;
+const mixed = L.Rig.mix(idle, walk, 0.5);
+out.half = { chest: mixed.chest.map(v => Math.round(v * 1000) / 1000), legR: mixed.legR.map(v => Math.round(v * 1000) / 1000), y: Math.round(mixed.y * 1000) / 1000 };
+const again = L.Rig.mix(walk, idle, 1, mixed);
+out.same = again === mixed; out.cleared = mixed.legR.join(",") + " " + mixed.y + " " + mixed.lean;
+console.log(JSON.stringify(out));
+"""
+        r = subprocess.run(["node", "-e", script, os.path.join(self.GAMES, "low3d.js")], capture_output=True, text=True, timeout=60)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        out = json.loads(r.stdout)
+        self.assertEqual(out["n"][0], out["n"][1])
+        self.assertLess(out["far"], 1e-4)                                  # (every vertex where the baked pose has it)
+        self.assertLessEqual(out["turned"], 1)                             # (and facing the same way, to a step of 127)
+        self.assertEqual(out["half"], {"chest": [0.08, 0, 0.06], "legR": [0.275, 0, 0], "y": -0.015})
+        self.assertTrue(out["same"])
+        self.assertEqual(out["cleared"], "0,0,0 0 0")                       # (idle names neither the leg nor y: back to none)
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
     def test_each_box_gets_its_drawing(self):
         """The GPU's name and the test pick 3D or 2D and the rung to start on; the governor holds the frame rate;
         meshes face out; paths know where their points are."""
@@ -2027,6 +2068,31 @@ out.looks = looks; out.built = built; out.empty = empty; out.poses = Object.keys
         self.assertEqual(out["looks"], 17)                                     # six of Hearthrim's folk, ten of the deep's, the Thorn King
         self.assertEqual(out["built"], 17 * 26)
         self.assertEqual(out["empty"], [])
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_wyrds_bodies_built_once_move_to_every_pose(self):
+        """Every look WYRD marks, built once (Rig.bind) and moved to each pose, stands where the body baked for that
+        pose stands: the moves between poses start from the same bodies."""
+        b = self.blocks("wyrd")
+        out = self.node(r"""
+const a = B.bodies.attrs, f = new Function("L3", B.models.text + B.poses.text + B.bodies.text +
+  "\nreturn { POSES, build: " + a.build + ", rig: " + a.rig + ", looks: [" + a.looks + "] };"), G = f(L3), P = G.POSES, rig = G.rig;
+let far = 0, turned = 0, checked = 0, counts = []; const bow = { foreL: [1.35, 0, 0], armL: [0.2, 0.1, 0] };
+for (const group of G.looks) for (const k of Object.keys(group)) { const look = group[k]; if (look.mantle || look.relic) continue;
+  const skin = rig.bind(m => G.build(m, look, "idle0", 1), 2048);
+  for (const p of Object.keys(P)) {
+    const baked = new L3.Mesh(2048); G.build(baked, look, p, 1);
+    const pose = look.weapon === "bow" && /^(idle|walk)/.test(p) ? Object.assign({}, P[p], bow) : P[p];
+    rig.pose(pose, 1, look.bulk || 1); skin.pose(); checked++;
+    if (baked.n !== skin.n) { counts.push(k + "/" + p); continue; }
+    for (let v = 0; v < baked.n; v++) { for (let i = 0; i < 3; i++) far = Math.max(far, Math.abs(baked.f[v * 5 + i] - skin.mesh.f[v * 5 + i]));
+      for (let i = 12; i < 15; i++) turned = Math.max(turned, Math.abs(baked.i8[v * 20 + i] - skin.mesh.i8[v * 20 + i])); } } }
+out.far = far; out.turned = turned; out.checked = checked; out.counts = counts;
+""", b)
+        self.assertEqual(out["counts"], [])                                    # (the same parts in every pose)
+        self.assertGreater(out["checked"], 300)
+        self.assertLess(out["far"], 1e-3)
+        self.assertLessEqual(out["turned"], 2)
 
     @unittest.skipUnless(shutil.which("node"), "needs node")
     def test_every_skill_has_an_emblem_of_its_own_on_its_mantle(self):

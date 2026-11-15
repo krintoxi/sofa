@@ -6,7 +6,8 @@
   drawn this way: light baked into the world's colours, a painted sky, mirror images in the water, everything
   written on the screen drawn in the canvas (see [What costs a Pi 3 time](#what-costs-a-pi-3-time)). WYRD
   (`wyrd/`), an action-RPG seen from above, is drawn this way too: floors of land with height in chunks, and bodies
-  baked a pose at a time (see [Bodies, a pose at a time](#bodies-a-pose-at-a-time)).
+  baked a pose at a time, the delver built once and moved between them (see [Bodies, a pose at a
+  time](#bodies-a-pose-at-a-time)).
 - **Drawn by the processor** (`Ray`), for worlds on a grid: rooms, corridors, doors and floors at any height. It
   looks the same on every box, GPU or not, and the GPU only adds a glow. Ironmaw (`ironmaw/`), an old-style
   shooter, is drawn this way.
@@ -471,9 +472,8 @@ asked (edges collapsed where that changes the shape least: quadric error, the ed
 held). WYRD's props, weapons and creatures come in this way; the page puts them into meshes with `Mesh.tri`, so they
 light, bake and join like anything built in code.
 
-<a id="bodies-a-pose-at-a-time"></a>**Bodies, a pose at a time (`Rig`).** Low3D has no skinning: a body is parts on a
-skeleton, each pose's joints worked out once and every part built where its joint puts it, the whole pose baked into one
-mesh. A walk is four meshes, a swing three; the frame picks the mesh for the moment and draws it with `moved()`: one
+<a id="bodies-a-pose-at-a-time"></a>**Bodies, a pose at a time (`Rig`).** A body is parts on a skeleton, each pose's
+joints worked out once and every part built where its joint puts it, the whole pose baked into one mesh. A walk is four meshes, a swing three; the frame picks the mesh for the moment and draws it with `moved()`: one
 draw call a body, with no work a frame but its matrix. WYRD's people, the risen dead and the powers are made this way.
 
 ```js
@@ -496,6 +496,22 @@ function build(m, look, pose) {           // one pose's body into m, standing on
   joint's place (for a hit, a spark from a hand, the maker's marker).
 - `mirror(P)` is the same pose the other way round (WYRD's `walk2` is `walk0` mirrored), and `Rig.clips(poses)` groups
   poses by name: `walk0` … `walk3` is the clip `walk`.
+
+**Moving between poses (`bind`, `Rig.mix`, `Skin`).** A body that moves through its poses instead of jumping from one
+to the next is built once, not a mesh a pose: `rig.bind(m => build(m, look, "idle0"))` builds it as for a pose and
+keeps each vertex with its joint and its place in that joint's frame (what's built after a plain `m.at()`, with no
+joint, stays where it was built). Each frame, `Rig.mix(A, B, t, out)` is the pose t of the way from A to B (out made
+once and used again), `rig.pose(P, size, bulk)` works the joints out, and `skin.pose()` moves the body there in place,
+for `update()` to send (upload `skin.mesh` with `upload(mesh, true)` once). Nothing is made a frame; what it costs is
+the body's vertices moved and sent each frame (WYRD's delver: about 1,900, some 38 KB). A part that hangs between two
+joints (WYRD's mantles) can't follow one joint, so such a body keeps a mesh a pose. `TheRig` checks that every look
+WYRD marks, built once and moved to each of its 26 poses, stands where its baked pose stands.
+
+```js
+const skin = rig.bind(m => build(m, look, "idle0")), h = gl.upload(skin.mesh, true), P = {};
+// a frame: a quarter of the way through the step from walk1 to walk2
+rig.pose(L3.Rig.mix(POSES.walk1, POSES.walk2, 0.25, P), 1, look.bulk); skin.pose(); gl.update(h, skin.mesh); gl.moved(h, M);
+```
 
 The maths is WYRD's, moved into the engine unchanged: its 25 poses of 21 looks, at two sizes, bake to the same bytes as
 they did before (1,050 meshes compared).
