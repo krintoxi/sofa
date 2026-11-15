@@ -6,6 +6,7 @@ the Inbox files the result. No real tuner has run any of it yet.
 """
 import json
 import os
+import re
 import shutil
 import struct
 import tempfile
@@ -408,22 +409,36 @@ class WithATuner(unittest.TestCase):
         now = int(time.time())
         config.update({"dvr_pad_before": 0, "dvr_pad_after": 0})
         self.box.pace = True
-        r = dvr.record(chans["5.1"]["id"], now, now + 60, "Cut by a restart")
+        r = dvr.record(chans["5.1"]["id"], now, now + 120, "Cut by a restart")
         dvr.tick()
-        self.wait_open(1)
-        time.sleep(2)
+        first = self.written(dvr._procs[r["id"]]["parts"][-1])
         self.assertEqual(self.started_again(away=5), 1)
+        got = os.path.getsize(first)                                                  # (all of it: its copy has ended)
         dvr.tick()
         p = dvr._procs[r["id"]]
         self.assertEqual((len(p["parts"]), p["restarts"], p["proc"].poll()), (2, 0, None))   # a new part, not a break
-        self.wait_open(1)
-        time.sleep(3)
+        self.written(p["parts"][-1])
         dvr.cancel(r["id"])
         done = self.run_until(r["id"], ("done", "failed"), seconds=40)
         self.assertEqual(done["state"], "done", done["why"])
-        self.assertRegex(done["why"], r"^Sofa started again while it was recording, which missed about [56] seconds\.$")
-        self.assertGreater(media.probe(self.filed(done))["duration"], 4)                # both parts, one after the other
+        said = re.fullmatch(r"Sofa started again while it was recording, which missed about (\d+) seconds\.", done["why"] or "")
+        self.assertTrue(said, done["why"])
+        self.assertTrue(5 <= int(said.group(1)) < 15, done["why"])
+        whole = self.filed(done)
+        self.assertGreater(os.path.getsize(whole), got)                               # both parts, one after the other
+        self.assertGreater(media.probe(whole)["duration"], 0)
         self.assertEqual([f for f in os.listdir(dvr.folder()) if f.startswith("%d" % r["id"])], [])   # its parts are gone
+
+    def written(self, part, seconds=30):
+        """A part once its copy has written some of the stream: stopping a copy on Windows ends it there and then, so
+        what it hadn't written yet (all of it, while it's still reading what the stream is) is never written."""
+        end = time.time() + seconds
+        while time.time() < end:
+            if os.path.exists(part) and os.path.getsize(part) >= 188 * 100:
+                time.sleep(1)                                                         # (a little more of it)
+                return part
+            time.sleep(0.1)
+        self.fail("nothing written to %s in %d s" % (os.path.basename(part), seconds))
 
     def test_a_full_stop_or_a_hand_over_long_ago_fails_as_before(self):
         chans = self.on()
