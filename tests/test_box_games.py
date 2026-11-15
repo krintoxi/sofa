@@ -711,7 +711,7 @@ console.log(JSON.stringify(out));
         self.assertEqual(r.returncode, 0, r.stderr)
         said = subprocess.run(["node", bench, "--help"], capture_output=True, text=True, timeout=60)
         self.assertEqual(said.returncode, 0, said.stderr)
-        for words in ("--root", "--rungs", "--gpu on,off", "--clip", "What it cannot do: be a Pi"):
+        for words in ("--root", "--rungs", "--gpu on,off", "swiftshader", "--sets", "--clip", "What it cannot do: be a Pi"):
             self.assertIn(words, said.stdout)
         with open(os.path.join(tools, "look-places.json"), encoding="utf-8") as f:
             places = json.load(f)
@@ -724,7 +724,7 @@ console.log(JSON.stringify(out));
             ids = [p["id"] for p in spec["places"]]
             self.assertEqual(len(ids), len(set(ids)), game)
             for p in spec["places"]:
-                self.assertTrue(p["name"] and p["run"], p["id"])
+                self.assertTrue(p["name"] and p["run"] and p["set"], p["id"])
 
     @unittest.skipUnless(shutil.which("node"), "needs node")
     def test_the_second_way_to_draw(self):

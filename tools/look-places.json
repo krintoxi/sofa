@@ -1,19 +1,28 @@
 {
-  "about": "The places tools/look-bench.mjs pictures, a list a game. ready: true once the game can be driven; prelude: run once it is (a player, the screen quiet); stats: what to say under each picture; each place: run to stand there, then settle (ms) for what streams in. Keep a place where a player stands, facing as they arrive.",
+  "about": "The places tools/look-bench.mjs pictures, a list a game. ready: true once the game can be driven; prelude: run once it is (a player, the screen quiet); quiet: run just before each picture (an arrival's banner cleared); stats: what to say under each picture; each place: its set (--sets), the run that stands there (facing as a player arrives), then settle (ms) for what streams in and the light and air to settle.",
   "wyrd": {
     "hash": "test",
     "ready": "window.WY && WY.E && WY.E.ready && WY.H",
     "prelude": "if (!WY.D || !WY.D.made || WY.D.name === 'Wren') WY.begin(); WY.menu.hide(); WY.G.say = ''; WY.G.sayT = 0; WY.G.toasts.length = 0;",
+    "quiet": "WY.G.say = ''; WY.G.sayT = 0; WY.G.toasts.length = 0;",
     "stats": "WY.E.g3 ? WY.E.g3.calls + ' draws, ' + (WY.E.g3.tris / 1000).toFixed(1) + 'k triangles' : '2D'",
     "places": [
-      { "id": "square", "name": "Hearthrim: the square", "run": "WY.H.x = 0; WY.H.z = 6; WY.H.yaw = Math.PI;", "settle": 2500 },
-      { "id": "well", "name": "Hearthrim: the well and the riftgate", "run": "WY.H.x = 0; WY.H.z = 19; WY.H.yaw = Math.PI;", "settle": 2500 },
-      { "id": "houses", "name": "Hearthrim: the houses to the west", "run": "WY.H.x = -16; WY.H.z = 4; WY.H.yaw = -Math.PI / 2;", "settle": 2500 },
-      { "id": "briar", "name": "The Briarholt's camp", "run": "const n = (WY.W.feats || WY.W.nodes).find(n => n.kind === 'portal' && n.reg === 1); WY.H.x = n.x + 1.5; WY.H.z = n.z + 4; WY.H.yaw = Math.PI;", "settle": 3500 },
-      { "id": "fen", "name": "The Fenmoor's camp", "run": "const n = (WY.W.feats || WY.W.nodes).find(n => n.kind === 'portal' && n.reg === 2); WY.H.x = n.x + 1.5; WY.H.z = n.z + 4; WY.H.yaw = Math.PI;", "settle": 3500 },
-      { "id": "crag", "name": "Cragfell's camp", "run": "const n = (WY.W.feats || WY.W.nodes).find(n => n.kind === 'portal' && n.reg === 3); WY.H.x = n.x + 1.5; WY.H.z = n.z + 4; WY.H.yaw = Math.PI;", "settle": 3500 },
-      { "id": "cinder", "name": "The Cinderreach's camp", "run": "const n = (WY.W.feats || WY.W.nodes).find(n => n.kind === 'portal' && n.reg === 4); WY.H.x = n.x + 1.5; WY.H.z = n.z + 4; WY.H.yaw = Math.PI;", "settle": 3500 },
-      { "id": "greywyrd", "name": "The Greywyrd's camp", "run": "const n = (WY.W.feats || WY.W.nodes).find(n => n.kind === 'portal' && n.reg === 5); WY.H.x = n.x + 1.5; WY.H.z = n.z + 4; WY.H.yaw = Math.PI;", "settle": 3500 }
+      {"id": "square", "set": "hearthrim", "name": "Hearthrim: the square", "run": "WY.goto(0, 6); WY.H.yaw = Math.PI; WY.sim(0.2);", "settle": 2000},
+      {"id": "well", "set": "hearthrim", "name": "Hearthrim: the well and the riftgate", "run": "WY.goto(10.6, 17.2); WY.H.yaw = Math.PI; WY.sim(0.2);", "settle": 2000},
+      {"id": "smith", "set": "hearthrim", "name": "Hearthrim: the smith", "run": "WY.goto(-13, -1); WY.H.yaw = Math.PI; WY.sim(0.2);", "settle": 2000},
+      {"id": "house-front", "set": "hearthrim", "name": "Hearthrim: a house front", "run": "WY.goto(9, 30.5); WY.H.yaw = Math.PI; WY.sim(0.2);", "settle": 2000},
+      {"id": "west-houses", "set": "hearthrim", "name": "Hearthrim: the houses to the west", "run": "WY.goto(-24, 8); WY.H.yaw = Math.PI; WY.sim(0.2);", "settle": 2000},
+      {"id": "maw-edge", "set": "hearthrim", "name": "Hearthrim: the Maw's edge", "run": "WY.goto(0, -13); WY.H.yaw = Math.PI; WY.sim(0.2);", "settle": 2000},
+      {"id": "camp-briar", "set": "regions", "name": "The Briarholt's camp", "run": "const p = (WY.W.feats || WY.W.nodes).find(n => n.kind === 'portal' && n.reg === 1); WY.goto(p.x + 1, p.z - 2); WY.H.yaw = Math.PI; WY.sim(0.3);", "settle": 2500},
+      {"id": "country-briar", "set": "regions", "name": "The Briarholt's open country", "run": "const a = -Math.PI + (1 - 0.5) * Math.PI * 2 / 5 + 0.628 + 0.12; WY.goto(Math.cos(a) * 170, Math.sin(a) * 170); WY.H.yaw = Math.PI; WY.sim(0.3);", "settle": 2500},
+      {"id": "camp-fen", "set": "regions", "name": "The Fenmoor's camp", "run": "const p = (WY.W.feats || WY.W.nodes).find(n => n.kind === 'portal' && n.reg === 2); WY.goto(p.x + 1, p.z - 2); WY.H.yaw = Math.PI; WY.sim(0.3);", "settle": 2500},
+      {"id": "country-fen", "set": "regions", "name": "The Fenmoor's open country", "run": "const a = -Math.PI + (2 - 0.5) * Math.PI * 2 / 5 + 0.628 + 0.12; WY.goto(Math.cos(a) * 170, Math.sin(a) * 170); WY.H.yaw = Math.PI; WY.sim(0.3);", "settle": 2500},
+      {"id": "camp-crag", "set": "regions", "name": "Cragfell's camp", "run": "const p = (WY.W.feats || WY.W.nodes).find(n => n.kind === 'portal' && n.reg === 3); WY.goto(p.x + 1, p.z - 2); WY.H.yaw = Math.PI; WY.sim(0.3);", "settle": 2500},
+      {"id": "country-crag", "set": "regions", "name": "Cragfell's open country", "run": "const a = -Math.PI + (3 - 0.5) * Math.PI * 2 / 5 + 0.628 + 0.12; WY.goto(Math.cos(a) * 170, Math.sin(a) * 170); WY.H.yaw = Math.PI; WY.sim(0.3);", "settle": 2500},
+      {"id": "camp-cinder", "set": "regions", "name": "The Cinderreach's camp", "run": "const p = (WY.W.feats || WY.W.nodes).find(n => n.kind === 'portal' && n.reg === 4); WY.goto(p.x + 1, p.z - 2); WY.H.yaw = Math.PI; WY.sim(0.3);", "settle": 2500},
+      {"id": "country-cinder", "set": "regions", "name": "The Cinderreach's open country", "run": "const a = -Math.PI + (4 - 0.5) * Math.PI * 2 / 5 + 0.628 + 0.12; WY.goto(Math.cos(a) * 170, Math.sin(a) * 170); WY.H.yaw = Math.PI; WY.sim(0.3);", "settle": 2500},
+      {"id": "camp-greywyrd", "set": "regions", "name": "The Greywyrd's camp", "run": "const p = (WY.W.feats || WY.W.nodes).find(n => n.kind === 'portal' && n.reg === 5); WY.goto(p.x + 1, p.z - 2); WY.H.yaw = Math.PI; WY.sim(0.3);", "settle": 2500},
+      {"id": "country-greywyrd", "set": "regions", "name": "The Greywyrd's open country", "run": "const a = -Math.PI + (5 - 0.5) * Math.PI * 2 / 5 + 0.628 + 0.12; WY.goto(Math.cos(a) * 170, Math.sin(a) * 170); WY.H.yaw = Math.PI; WY.sim(0.3);", "settle": 2500}
     ]
   }
 }

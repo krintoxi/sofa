@@ -772,11 +772,14 @@ once outside the game, kept the boards that have a way to clear them, and the ga
   pi3|pi4|pc`. It cannot be a Pi: the GPU is the computer's own, so GPU time isn't measured, only what costs a VC4
   time. Every number it prints is that computer's.
 - **`node tools/look-bench.mjs --game wyrd`** pictures a game rather than timing it: the same places each time
-  (`tools/look-places.json`: where to stand, how long to wait for what streams in), at the rungs asked for, with this
-  computer's GPU and with none (the 2D way), each from a fresh page. `--root before=… --root after=…` sets two
-  checkouts side by side; out comes one sheet, a row a place and a column for each checkout and rung, with the draw
-  calls and triangles of each picture under it; `--clip place:seconds` also records it moving, `--run` tries a setting
-  on every picture, `--stats` says something else under each. What a rung looks like, never how fast a box draws it.
+  (`tools/look-places.json`, in sets: WYRD's `hearthrim` (the square, the well, the smith, a house front, the west
+  houses, the Maw's edge) and `regions` (each region's camp and its open country); where to stand, how long to wait
+  for what streams in), at the rungs asked for, each from a fresh page at the box's screen (960 × 540 at twice). With
+  this computer's GPU, `--gpu swiftshader` (WebGL on the processor) or `off` (no GPU: the 2D way). `--root before=…
+  --root after=…` sets two checkouts side by side; out comes one sheet, a row a place and a column for each checkout
+  and rung, with the draw calls and triangles of each picture under it; `--clip place:seconds` also records it
+  moving, `--run` tries a setting on every picture, `--stats` says something else under each. What a rung looks like,
+  never how fast a box draws it.
 - **On a real box** the measure is the games check (below), and what a game says when it's left: both now go to the
   console as errors, which is what the box keeps of a page for "Send a report" (lines starting `Graphics check:`,
   `Games check:` and `<game> ran:`).
