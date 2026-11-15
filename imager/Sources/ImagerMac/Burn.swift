@@ -77,11 +77,27 @@ public final class BurnJob: @unchecked Sendable {     // its state is behind `lo
     private var source: PackedSource?
     private var process: Process?
 
+    /// An ISO already on this Mac (a Windows ISO, or one of the owner's own) is burned where it is: nothing is
+    /// downloaded or copied, and hdiutil reads the disc back against that very file.
+    let inPlace: Bool
+
     public init(card: Card, burner: Burner, cache: URL = BurnJob.defaultCache, source: @escaping () throws -> PackedSource) {
         self.card = card
         self.burner = burner
         self.cache = cache
         makeSource = source
+        inPlace = false
+    }
+
+    /// An ISO on this Mac, burned as it is (Windows 7, 8.1 and 10 ISOs are made for DVDs: the disc starts Setup).
+    public init(iso: URL, title: String, burner: Burner) {
+        let size = ((try? FileManager.default.attributesOfItem(atPath: iso.path))?[.size] as? NSNumber)?.int64Value ?? 0
+        card = Card(name: title, summary: "", url: iso, downloadSize: size, extractSize: size, extractSHA256: "",
+                    releaseDate: "", website: nil)
+        self.burner = burner
+        cache = BurnJob.defaultCache
+        makeSource = { throw BurnError.download("nothing to download") }
+        inPlace = true
     }
 
     public static var defaultCache: URL {
@@ -109,13 +125,21 @@ public final class BurnJob: @unchecked Sendable {     // its state is behind `lo
         stage(.checking)
         guard let now = find(burner.id) else { throw BurnError.gone }
         if let why = now.refusal(needs: card.extractSize) { throw BurnError.refused(why) }
-        let awake = SleepGuard(reason: "Burning a Sofa Box OS DVD")
+        let awake = SleepGuard(reason: "Burning a DVD with Sofa Box Imager")
         defer { awake.release() }
-        let file = try download(stage)
+        let file = inPlace ? try unchanged() : try download(stage)
         if isCancelled { throw BurnError.cancelled }
         guard find(burner.id) != nil else { throw BurnError.gone }
         try burn(file, stage)
         stage(.done)
+    }
+
+    /// The ISO chosen on this Mac, still there and still the size it was when chosen.
+    func unchanged() throws -> URL {
+        let now = ((try? FileManager.default.attributesOfItem(atPath: card.url.path))?[.size] as? NSNumber)?.int64Value
+        guard let n = now else { throw BurnError.refused("the ISO isn't there any more.") }
+        guard n == card.extractSize, n > 0 else { throw BurnError.refused("the ISO changed since you chose it: choose it again.") }
+        return card.url
     }
 
     /// The file, in the cache: the one there when it's right, or downloaded and checked.

@@ -32,7 +32,10 @@ public struct Burner: Equatable, Hashable, Sendable, Identifiable {
         self.disc = disc
     }
 
-    /// Why it can't burn Sofa Box OS now, in words; nil when it can. A disc that isn't blank is never offered: a DVD-RW
+    /// The most a DVD holds: a double-layer DVD+R (8.5 GB). An ISO bigger than this can't be burned at all.
+    public static let largestDisc: Int64 = 8_547_991_552
+
+    /// Why it can't burn `needs` bytes now, in words; nil when it can. A disc that isn't blank is never offered: a DVD-RW
     /// with something on it is erased by its owner first, in Finder or Disk Utility, never by Sofa Box Imager.
     public func refusal(needs: Int64) -> String? {
         if !writesDVD { return "It doesn't burn DVDs." }
@@ -40,7 +43,7 @@ public struct Burner: Equatable, Hashable, Sendable, Identifiable {
         if !d.isDVD { return "The disc in it is a \(d.type), not a DVD." }
         if !d.isBlank { return "The \(d.type) in it isn't blank." }
         if d.freeBytes < needs {
-            return "The \(d.type) in it holds \(ByteSize.text(d.freeBytes)); Sofa Box OS needs \(ByteSize.text(needs))."
+            return "The \(d.type) in it holds \(ByteSize.text(d.freeBytes)); this needs \(ByteSize.text(needs))."
         }
         return nil
     }

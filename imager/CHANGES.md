@@ -32,6 +32,9 @@ the same disk rule, the first megabyte held back and written last, every byte re
     (Microsoft's LabConfig keys), and a local account instead of a Microsoft account (it has no password at first:
     Windows signs it in once by itself, then asks for a new password at the next sign-in). Ticked, they're written as an `autounattend.xml` at the stick's root; nothing else about Setup changes,
     and nothing in it chooses or erases a disk.
+- **Windows on a DVD**: "On a DVD" burns the Windows ISO itself to a blank DVD, as it is (Windows 7 and 8.1 fit a
+  4.7 GB DVD, Windows 10 needs a double-layer one, Windows 11 fits none), with macOS's `hdiutil burn` and the disc read
+  back against the ISO, as Sofa Box OS's DVD is. Your own ISOs can be burned the same way.
 - **Your own image.** An `.iso` that's also a disk (every Linux ISO now), an `.img`, or a packed `.img.xz`, written
   whole and read back against what was read. A Windows ISO is sent to Windows; an ISO that only starts from a DVD is
   refused, with why.

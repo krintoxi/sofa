@@ -140,4 +140,54 @@ final class BurnTests: XCTestCase {
             XCTAssertTrue(why.contains("Media is not writable"), why)
         }
     }
+
+    // MARK: an ISO from this Mac (Windows, or the owner's own)
+
+    func isoJob(_ iso: URL, burner: Burner?, hdiutil: URL) -> BurnJob {
+        let j = BurnJob(iso: iso, title: "Windows 7 (x64)", burner: ready)
+        let now = burner
+        j.find = { _ in now }
+        j.hdiutil = hdiutil
+        return j
+    }
+
+    /// Burned where it is: nothing downloaded, nothing copied to the cache, hdiutil given that very file.
+    func testAnISOFromThisMacIsBurnedWhereItIs() throws {
+        let iso = dir.appendingPathComponent("Win7_Ult_SP1_English_x64.iso")
+        try Data((0..<(2 << 20)).map { UInt8(truncatingIfNeeded: $0 &* 13) }).write(to: iso)
+        var stages: [BurnJob.Stage] = []
+        let j = isoJob(iso, burner: ready, hdiutil: try fakeHdiutil())
+        XCTAssertEqual(j.card.extractSize, 2 << 20)
+        try j.run { stages.append($0) }
+        XCTAssertFalse(stages.contains { if case .downloading = $0 { return true } else { return false } })
+        XCTAssertFalse(stages.contains(.checkingDownload))
+        XCTAssertTrue(stages.contains(.burning(0.25)))
+        XCTAssertEqual(stages.last, .done)
+        let args = try String(contentsOf: dir.appendingPathComponent("args"), encoding: .utf8).split(separator: "\n").map(String.init)
+        XCTAssertEqual(args, ["burn", iso.path, "-device", "IOService:/a/IODVDServices", "-noaddpmap", "-nooptimizeimage",
+                              "-verifyburn", "-eject", "-puppetstrings"])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: dir.appendingPathComponent("cache").path))
+    }
+
+    func testAnISOThatChangedOrIsTooBigIsNeverBurned() throws {
+        let iso = dir.appendingPathComponent("own.iso")
+        try Data(count: 1 << 20).write(to: iso)
+        let j = isoJob(iso, burner: ready, hdiutil: try fakeHdiutil())
+        try Data(count: 2 << 20).write(to: iso)                       // changed after it was chosen
+        XCTAssertThrowsError(try j.run { _ in }) { XCTAssertEqual($0 as? BurnError, .refused("the ISO changed since you chose it: choose it again.")) }
+        let gone = isoJob(iso, burner: ready, hdiutil: try fakeHdiutil())
+        try FileManager.default.removeItem(at: iso)
+        XCTAssertThrowsError(try gone.run { _ in }) { XCTAssertEqual($0 as? BurnError, .refused("the ISO isn't there any more.")) }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: dir.appendingPathComponent("args").path), "hdiutil never ran")
+        // Bigger than the disc in the burner: refused before anything else.
+        let big = dir.appendingPathComponent("big.iso")
+        FileManager.default.createFile(atPath: big.path, contents: nil)
+        let h = try FileHandle(forWritingTo: big)
+        try h.truncate(atOffset: 6_000_000_000)                       // sparse: takes no room
+        try h.close()
+        XCTAssertThrowsError(try isoJob(big, burner: ready, hdiutil: try fakeHdiutil()).run { _ in }) {
+            XCTAssertEqual(($0 as? BurnError)?.description, "Nothing was burned: The DVD-R in it holds 4.7 GB; this needs 6 GB.")
+        }
+    }
 }
+

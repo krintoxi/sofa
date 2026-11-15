@@ -62,6 +62,7 @@ private struct ChooseView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             ModeSwitch()
+            if model.mode == .windows || model.mode == .file { MediumSwitch() }
             switch model.mode {
             case .sofaBox:
                 TargetSwitch()
@@ -97,8 +98,11 @@ private struct ChooseView: View {
         switch model.mode {
         case .sofaBox: return "Nothing is set on the \(model.target.word): the box sets itself up on the TV."
         case .linux: return "Written exactly as the project publishes it, checked against its own SHA-256 list."
-        case .windows: return "Every file comes from your ISO. Nothing is added but what you tick."
-        case .file: return "Written byte for byte, then read back and checked."
+        case .windows:
+            return model.toDisc ? "Burned exactly as Microsoft made the ISO, then read back against it."
+                : "Every file comes from your ISO. Nothing is added but what you tick."
+        case .file:
+            return model.toDisc ? "Burned as it is, then read back against the file." : "Written byte for byte, then read back and checked."
         }
     }
 }
@@ -129,6 +133,45 @@ private struct ModeSwitch: View {
             }
         }
     }
+}
+
+/// Windows and your own image: written to a USB stick, or an ISO burned to a DVD as it is.
+private struct MediumSwitch: View {
+    @EnvironmentObject var model: ImagerModel
+
+    var body: some View {
+        HStack(spacing: 8) {
+            ForEach([false, true], id: \.self) { disc in
+                let on = model.toDisc == disc
+                Button { model.toDisc = disc } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: disc ? "opticaldiscdrive" : "externaldrive").font(.system(size: 12, weight: .semibold))
+                        Text(disc ? "On a DVD" : "On a USB stick").font(SofaFonts.text(13, .semibold))
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .foregroundStyle(on ? Color.amber : Color.soft)
+                    .background(Capsule().fill(on ? Color.slate3 : Color.slate2))
+                    .overlay(Capsule().stroke(on ? Color.amber : Color.line))
+                    .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .disabled(model.isWriting)
+                .accessibilityAddTraits(on ? .isSelected : [])
+            }
+        }
+    }
+}
+
+/// What a DVD of `bytes` needs, in words: a single-layer DVD, a double-layer one, or more than any DVD holds.
+func discWords(_ bytes: Int64) -> (text: String, fits: Bool) {
+    if bytes > Burner.largestDisc {
+        return ("At \(ByteSize.text(bytes)) it's bigger than any DVD (a double-layer one holds 8.5 GB): write it to a USB stick.", false)
+    }
+    if bytes > 4_700_372_992 {
+        return ("At \(ByteSize.text(bytes)) it needs a double-layer DVD (DVD+R DL or DVD-R DL, 8.5 GB).", true)
+    }
+    return ("At \(ByteSize.text(bytes)) it fits a single-layer DVD-R or DVD+R (4.7 GB).", true)
 }
 
 /// Linux: the systems we list, each found on its project's own site.
@@ -217,7 +260,13 @@ private struct WindowsPicker: View {
             case .read(_, let kind, _):
                 if case .windows(let w) = kind {
                     Text(w.summary).font(SofaFonts.text(13, .medium)).foregroundStyle(Color.soft)
-                    if let why = w.refusal {
+                    if model.toDisc, case .read(_, _, let n) = model.windowsFile {
+                        let d = discWords(n)
+                        Text("Burned as it is: the DVD starts Windows Setup, as Microsoft's own DVD does. \(d.text)"
+                             + (w.version == .seven ? " Windows 7 wants a PC with legacy boot (CSM) on and Secure Boot off." : ""))
+                            .font(SofaFonts.text(12)).foregroundStyle(d.fits ? Color.mist : Color.alert)
+                            .fixedSize(horizontal: false, vertical: true)
+                    } else if let why = w.refusal {
                         Text(why).foregroundStyle(Color.alert).fixedSize(horizontal: false, vertical: true)
                     } else {
                         Text(w.starts + (w.needsSplit ? " Its install.wim (\(ByteSize.text(w.installBytes))) is split into parts to fit FAT32." : ""))
@@ -298,6 +347,15 @@ private struct OwnFilePicker: View {
                         model.open(url, forWindows: true)
                     }
                     .buttonStyle(SofaButtonStyle())
+                } else if model.toDisc {
+                    if model.discISO != nil {
+                        let d = discWords(bytes)
+                        Text("An ISO, burned to the DVD as it is. \(d.text)").font(SofaFonts.text(13, .medium))
+                            .foregroundStyle(d.fits ? Color.soft : Color.alert).fixedSize(horizontal: false, vertical: true)
+                    } else {
+                        Text("Only an ISO can be burned to a DVD. \(kind.summary)").foregroundStyle(Color.alert)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 } else if kind.writtenWhole {
                     Text("\(kind.summary) \(ByteSize.text(bytes)).").font(SofaFonts.text(13, .medium))
                         .foregroundStyle(Color.soft).fixedSize(horizontal: false, vertical: true)
@@ -517,13 +575,13 @@ private struct BurnerPicker: View {
     @EnvironmentObject var model: ImagerModel
 
     var body: some View {
-        let needs = model.card?.extractSize ?? 1
+        let needs = model.burnBytes ?? 1
         VStack(alignment: .leading, spacing: 10) {
             if model.burners.isEmpty {
                 Panel {
                     HStack(spacing: 12) {
                         Image(systemName: "opticaldiscdrive").font(.system(size: 22)).foregroundStyle(Color.mist)
-                        Text("Plug in a DVD burner (Apple's USB SuperDrive, or any USB DVD writer) and put a blank DVD-R or DVD+R in. It shows here by itself.")
+                        Text("Plug in a DVD burner (Apple's USB SuperDrive, or any USB DVD writer) and put a blank \(needs > 4_700_372_992 ? "double-layer DVD (DVD+R DL)" : "DVD-R or DVD+R") in. It shows here by itself.")
                             .foregroundStyle(Color.soft)
                             .fixedSize(horizontal: false, vertical: true)
                         Spacer(minLength: 0)
@@ -675,23 +733,29 @@ struct ConfirmView: View {
 
     /// On a DVD: nothing is erased (only a blank disc is offered), so no password and no second box to tick.
     @ViewBuilder private var burnBody: some View {
-        if let b = model.chosenBurner, let c = model.card {
+        if let b = model.chosenBurner, let title = model.burnTitle, let bytes = model.burnBytes {
             HStack(alignment: .top, spacing: 12) {
                 Image(systemName: "opticaldiscdrive.fill").font(.system(size: 22)).foregroundStyle(Color.amber)
-                Text("Burn \(c.name) to the DVD in “\(b.name)”?")
+                Text("Burn \(title) to the DVD in “\(b.name)”?")
                     .font(SofaFonts.display(20, .bold)).tracking(-0.3)
                     .fixedSize(horizontal: false, vertical: true)
             }
             Panel {
                 Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 7) {
                     row("Burner", b.name)
-                    row("Disc", b.subtitle(needs: c.extractSize))
-                    row("Download", ByteSize.text(c.downloadSize))
+                    row("Disc", b.subtitle(needs: bytes))
+                    if model.mode == .sofaBox, let c = model.card {
+                        row("Download", ByteSize.text(c.downloadSize))
+                    } else if let iso = model.discISO {
+                        row("ISO", "\(iso.url.lastPathComponent) · \(ByteSize.text(iso.bytes))")
+                    }
                 }
                 .padding(14)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            Text("Sofa Box Imager downloads it, checks it against the list, burns it, and reads the disc back to check it. A DVD-R or DVD+R is burned once.")
+            Text(model.mode == .sofaBox
+                 ? "Sofa Box Imager downloads it, checks it against the list, burns it, and reads the disc back to check it. A DVD-R or DVD+R is burned once."
+                 : "Sofa Box Imager burns your ISO as it is and reads the disc back against it. A DVD-R or DVD+R is burned once.")
                 .foregroundStyle(Color.soft)
                 .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 10) {
@@ -754,7 +818,7 @@ private struct DoneView: View {
 
     private var windowsNext: String {
         let seven = model.windowsMedia?.version == .seven
-        return "Put the stick in the PC and start the PC from it: as it starts, press its start menu key (often F12, F11, F10, F8 or Esc). "
+        return "Put the \(model.toDisc ? "DVD" : "stick") in the PC and start the PC from it: as it starts, press its start menu key (often F12, F11, F10, F8 or Esc). "
             + (seven ? "Windows 7 needs the PC's legacy boot (CSM) on and Secure Boot off. " : "")
             + "Windows Setup starts, and asks which drive to install Windows on."
     }
@@ -778,7 +842,7 @@ private struct DoneView: View {
                  : model.mode == .linux ? (model.word == "card"
                     ? "Take the card out and put it in the Pi, then plug the Pi into its power. Raspberry Pi OS sets itself up on its first start."
                     : "Take the stick out and put it in the PC. Start the PC from the stick: as it starts, press its start menu key (often F12, F11, F10, F8 or Esc). If it doesn't start, turn Secure Boot off in the PC's settings and try again.")
-                 : model.mode == .file ? "Take the disk out and put it where it goes."
+                 : model.mode == .file ? (model.toDisc ? "Put the DVD in the PC and start the PC from the disc: as it starts, press its start menu key (often F12, F11, F10, F8 or Esc)." : "Take the disk out and put it where it goes.")
                  : model.target == .dvd
                  ? "Put the DVD in the PC, plugged into the TV, and start the PC from the disc: as it starts, press its start menu key (often F12, F11, F10, F8 or Esc). Sofa Box OS runs from the disc and sets itself up on the TV; what's set up is kept until the PC restarts. To keep it: Settings → This box → Install on this computer."
                  : model.target == .pc

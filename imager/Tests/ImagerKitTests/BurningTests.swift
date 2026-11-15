@@ -20,7 +20,7 @@ final class BurningTests: XCTestCase {
         XCTAssertEqual(burner(.init(type: "DVD-RW", isDVD: true, isBlank: false, freeBytes: 0)).refusal(needs: needs),
                        "The DVD-RW in it isn't blank.")                     // (never erased by Sofa Box Imager)
         XCTAssertEqual(burner(.init(type: "DVD+R", isDVD: true, isBlank: true, freeBytes: 1_000_000_000)).refusal(needs: needs),
-                       "The DVD+R in it holds 1 GB; Sofa Box OS needs 1.5 GB.")
+                       "The DVD+R in it holds 1 GB; this needs 1.5 GB.")
     }
 
     func testHdiutilsProgressLines() {

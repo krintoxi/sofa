@@ -37,6 +37,10 @@ too, with nothing from another tool.
 |---|---|
 | ![Linux](../docs/images/imager-linux.png) | ![Windows, with both Windows 11 switches ticked](../docs/images/imager-windows.png) |
 
+| Windows 7 on a DVD |
+|---|
+| ![Windows 7, burned to a DVD as it is](../docs/images/imager-windows-dvd.png) |
+
 (Drawn by the tests with made-up disks, not photographed from a real write.)
 
 ## How it looks
@@ -248,6 +252,15 @@ What it does with the ISO (`WindowsStick` in `Sources/ImagerKit/WindowsMedia.swi
 6. **Writes it** like any card: the same disk rule, the first megabyte last, every byte read back against what was
    written, eject. The stick is read from the ISO as it's written; nothing is unpacked to the Mac's disk first.
 
+**On a DVD.** Under Windows, "On a DVD" burns the ISO itself to a blank DVD, as it is: Microsoft's ISOs are made
+for DVDs (UDF, with the boot records BIOS and UEFI PCs start from), so the disc starts Windows Setup just as
+Microsoft's own DVD does, Windows 7's included. It's the same burner path as Sofa Box OS's DVD (below): macOS's own
+`hdiutil burn` on the chosen drive only, the file as it is (`-noaddpmap -nooptimizeimage`), the disc read back against
+the file (`-verifyburn`), then ejected; only a blank disc big enough is offered. The ISO is burned where it is on the
+Mac: nothing is copied or downloaded. A 4.7 GB DVD-R or DVD+R holds Windows 7 and 8.1; Windows 10's ISO (6.1 GB)
+needs a double-layer DVD (8.5 GB); Windows 11's (9 GB) fits no DVD, and the window says to use a stick. The
+Windows 11 switches are for sticks only: the disc is Microsoft's ISO, unchanged.
+
 **The Windows 11 switches**, each off unless ticked:
 
 - **Skip the TPM 2.0, Secure Boot, processor and 4 GB RAM checks:** Setup is told to skip them with Microsoft's own
@@ -270,9 +283,10 @@ can't take them. Nothing at all is added to a stick when nothing is ticked.
 
 **Your own image** writes a file from this Mac: an `.iso` that's also a disk, an `.img`, or a packed `.img.xz` (its size
 unpacked is read from the xz file's own index). It's looked at first (`ImageInspector`): a Windows ISO is sent to
-Windows, which makes it properly; an ISO with no partition table only starts from a DVD, and is refused with that
-reason; anything that isn't a disk image is refused. It's written whole and read back against what was read from the
-file.
+Windows, which makes it properly; an ISO with no partition table only starts from a DVD, and is refused for a stick with
+that reason; anything that isn't a disk image is refused. It's written whole and read back against what was read from
+the file. Or, with "On a DVD", an ISO (one that's also a disk, or one made for DVDs only) is burned to a blank DVD as it
+is, the same way as a Windows ISO.
 
 ## The list
 
@@ -307,14 +321,14 @@ from anywhere the list says, because it's checked against the list's SHA-256.
 
 ## What's tested, and where
 
-`swift test` runs 138 tests; four more run only when asked. None writes a disk it didn't attach itself: the
+`swift test` runs 141 tests; four more run only when asked. None writes a disk it didn't attach itself: the
 tests that write attach a RAM disk, check with DiskArbitration that the device they got is a disk image of
 exactly the size they asked for, and only then touch it.
 
 | What | Tests | How |
 |---|---|---|
 | Which disks may be written | `ImagerKitTests/DiskPolicyTests` (22) | Made-up disks. This Mac's internal SSD, APFS container and a RAM disk are copied from what macOS really said; the card readers are written from Apple's documented values. Every combination of inside / removable / ejectable / card / image / APFS is checked against the rule. |
-| On a DVD | `ImagerKitTests/BurningTests` (2), `ImagerMacTests/BurnTests` (4) | Which burner and disc can take it (no disc, a CD, a disc that isn't blank, too small); hdiutil's progress lines; DiscRecording's own dictionaries for a drive, with and without a disc; the whole `BurnJob` with a stand-in for hdiutil: downloaded, checked, burned with exactly `burn FILE -device PATH -noaddpmap -nooptimizeimage -verifyburn -eject -puppetstrings`, a second burn not downloading again; a download that isn't the list's is never burned; no burner, no disc, and a failed burn each say so. |
+| On a DVD | `ImagerKitTests/BurningTests` (2), `ImagerMacTests/BurnTests` (6) | Which burner and disc can take it (no disc, a CD, a disc that isn't blank, too small); hdiutil's progress lines; DiscRecording's own dictionaries for a drive, with and without a disc; the whole `BurnJob` with a stand-in for hdiutil: downloaded, checked, burned with exactly `burn FILE -device PATH -noaddpmap -nooptimizeimage -verifyburn -eject -puppetstrings`, a second burn not downloading again; a download that isn't the list's is never burned; no burner, no disc, and a failed burn each say so; an ISO from this Mac burned where it is with the same arguments (no download, no copy), and refused when it changed since it was chosen, is gone, or is bigger than the disc. |
 | The list | `ImagerKitTests/CardListTests` (12) | A list made by `tools/sofa-box-imager-list.py`'s own `build()` and `check()` (1.1.54's sizes and SHA-256 are the real card's, the other versions invented); the list as it was first published on 2026-11-10; and one opening with a stable version, followed by two "(testing)" ones; one with a PC's images, read for a Pi and for a PC; one with a DVD's `.iso`, read for a DVD only. |
 | Unpacking | `ImagerKitTests/XZDecoderTests` (8) | Files made by `xz -T0 -6` as the box's card is: one stream of 9 blocks, and two streams with zero padding between. Damage, a short file, bad padding and trailing junk are all caught. |
 | Writing and checking | `ImagerKitTests/CardWriterTests` (13) | A plain file as the disk. Only whole-sector writes at megabyte offsets; the first megabyte last; nothing past the card but the disk's last megabyte; a wrong download, a card that reads back wrong, Stop and a card that never answers each leave the first megabyte blank. |
@@ -322,7 +336,7 @@ exactly the size they asked for, and only then touch it.
 | Finding disks | `ImagerMacTests/DiskListTests` (7) | The Mac running the tests: its startup disk is found and refused; a RAM disk is seen as a disk image and refused; the volumes on a disk are found, unmounted, and refused a mount while a write is on; `authopen` with no one to type a password opens nothing. |
 | The whole write | `ImagerMacTests/WriteJobTests` (5) | The app's own `WriteJob` on a RAM disk with a volume on it: unmount, open the raw device, write, read back, eject. Two things differ from the app: the RAM disk is opened directly (it belongs to the user, so no password), and the policy is told to accept that one RAM disk. Also: a disk that changed since it was confirmed, a disk that turns out to be another once open, and the real policy refusing the RAM disk before anything is unmounted. |
 | The password hand-over | `ImagerMacTests/AuthOpenTests` (6) | A stand-in for `authopen` (`Tests/FakeAuthOpen`) that takes its arguments and sends back an open file as `authopen` does: the 32-byte authorization arrives whole, the file opens for reading and writing, a helper that fails after opening isn't trusted, and the helper inherits nothing of the app's but its three standard streams. |
-| The app | `SofaBoxImagerTests/WindowTests` (11 + 1) | What's chosen is what's written, in each of the four choices (a Linux entry not found yet writes nothing, the Windows 11 switches are off until ticked and only Windows 11's, an account switch with no name stops the write, a Windows ISO is never written whole); progress in words ("card", "stick", "Writing" for what isn't downloaded, and a DVD's stages); For a PC, the list read again for a PC's images; On a DVD, a burner with a blank DVD is what's chosen and nothing else is; the colours match Sofa's style sheet and its fonts load; the app's own words never include Raspberry Pi's imager's name, and nothing in it writes a user, SSH or Wi-Fi setting. `SOFA_IMAGER_SNAPSHOTS=<folder>` draws every screen to a PNG, with the Mac set to light and to dark. |
+| The app | `SofaBoxImagerTests/WindowTests` (12 + 1) | What's chosen is what's written, in each of the four choices (a Linux entry not found yet writes nothing, the Windows 11 switches are off until ticked and only Windows 11's, an account switch with no name stops the write, a Windows ISO is never written whole); progress in words ("card", "stick", "Writing" for what isn't downloaded, and a DVD's stages); For a PC, the list read again for a PC's images; On a DVD, a burner with a blank DVD is what's chosen and nothing else is; the colours match Sofa's style sheet and its fonts load; the app's own words never include Raspberry Pi's imager's name, and nothing in it writes a user, SSH or Wi-Fi setting. `SOFA_IMAGER_SNAPSHOTS=<folder>` draws every screen to a PNG, with the Mac set to light and to dark. |
 | Windows ISOs | `ImagerKitTests/WindowsStickTests` (21) | Made-up Windows ISOs with Microsoft's layout (bootmgr, boot/bcd, efi/, sources/ with an install.wim in Microsoft's format, long names, a folder bigger than a cluster), put in UDF 1.02 by macOS's own `hdiutil makehybrid`. The UDF reader reads back every file of the folder the ISO was made from; Windows 11, 10, 7 and ARM64 are told apart; the WIM's table and XML are read; split parts each fit their limit, hold every resource exactly once and byte for byte, carry the same GUID, the part numbers and the XML, with the metadata in the first part only; a solid group stays whole; the finished stick is checked by macOS's own `fsck_msdos` and mounted by macOS's own FAT driver, every file read back as on the ISO; the MBR, the boot sector and its backup, and the run of BOOTMGR they point at; the same ISO gives the same stick byte for byte; Windows 7's loader copied out of a FAT12 `efisys.bin` made by `newfs_msdos`; the switches' `autounattend.xml` (only what's ticked, never a disk setting, Windows 11 only) and account names Windows would refuse. |
 | The boot code | `ImagerKitTests/BootCodeTests` (4) | `imager/boot/*.S` assembled again with Xcode's clang: the bytes are `BootCode`'s exactly; the MBR fits in 440 bytes; the BPB and the partition table are laid out as the FAT32 specification says. |
 | What a file is | `ImagerKitTests/ImageInspectorTests` (6) | An ISO with an isohybrid MBR or a GPT, one without (a DVD's only), MBR and GPT disk images and a bare boot sector, noise, packed `.img.xz` (its unpacked size from the xz index), Windows. |
@@ -441,6 +455,9 @@ Not done: there's no DVD burner here. With Apple's USB SuperDrive or any USB DVD
 3. **The burn and the read-back** finish, and the disc ejects. How long it takes.
 4. **The disc starts a real PC**, newer and older, with Secure Boot on: GitHub's QEMU has started it as a disc.
 5. A DVD+R, and a disc pulled or the burn stopped half way.
+6. **A Windows DVD**: a Windows 7 or 8.1 ISO on a DVD-R, a Windows 10 ISO on a double-layer DVD+R, each starting
+   Setup on a real PC. (The disc is the ISO as Microsoft made it; what's the Imager's is choosing the file, the drive and
+   hdiutil's arguments, which the tests check with a stand-in for hdiutil.)
 
 ## Signing
 

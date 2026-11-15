@@ -312,6 +312,22 @@ final class WindowTests: XCTestCase {
                      out.appendingPathComponent("20-own-image.png"))
             try draw(ContentView().environmentObject(fileModel(.discOnly)), size, look,
                      out.appendingPathComponent("21-own-image-dvd-only.png"))
+            // Windows 7 on a DVD
+            let w7 = windowsModel()
+            var seven = Self.eleven
+            seven.version = .seven
+            seven.build = 7601
+            seven.editions = ["Windows 7 Ultimate"]
+            seven.fileBytes = 3_220_000_000
+            w7.windowsFile = .read(URL(fileURLWithPath: "/Users/someone/Downloads/Win7_Ult_SP1_English_x64.iso"),
+                                   .windows(seven), 3_224_686_592)
+            w7.toDisc = true
+            w7.burners = [Self.superDrive]
+            w7.burnerID = Self.superDrive.id
+            try draw(ContentView().environmentObject(w7), size, look, out.appendingPathComponent("22-windows7-dvd.png"))
+            w7.confirming = true
+            try draw(ConfirmView().environmentObject(w7), CGSize(width: 480, height: 360), look,
+                     out.appendingPathComponent("23-windows7-dvd-confirm.png"))
         }
     }
 
@@ -391,6 +407,57 @@ final class WindowTests: XCTestCase {
         XCTAssertNil(fileModel(.discOnly).item)
         XCTAssertNil(fileModel(.unknown).item)
         XCTAssertNil(fileModel(.windows(Self.eleven)).item, "a Windows ISO is made into a stick, never written whole")
+    }
+
+    /// On a DVD: a Windows ISO or one of the owner's own, burned as it is; sized against what a DVD holds; never with
+    /// the Windows 11 switches (the disc is Microsoft's ISO, unchanged).
+    func testWindowsAndOwnISOsOnADVD() {
+        let w = windowsModel()
+        w.skipHardwareChecks = true
+        w.toDisc = true
+        XCTAssertTrue(w.burns)
+        XCTAssertTrue(w.windowsOptions.isEmpty, "a DVD carries no switches")
+        XCTAssertEqual(w.burnBytes, 9_047_330_816)
+        let dl = Burner(id: "IOService:/c/IODVDServices", name: "Pioneer BDR-XD08", writesDVD: true,
+                        disc: .init(type: "DVD+R DL", isDVD: true, isBlank: true, freeBytes: 8_547_991_552))
+        w.burners = [dl]
+        w.burnerID = dl.id
+        XCTAssertNil(w.chosenBurner, "Windows 11's 9 GB ISO fits no DVD")
+        XCTAssertFalse(w.canGo)
+        // Windows 7: 3.2 GB, a single-layer DVD.
+        var seven = Self.eleven
+        seven.version = .seven
+        w.windowsFile = .read(URL(fileURLWithPath: "/Users/someone/Downloads/Win7_Ult_SP1_English_x64.iso"), .windows(seven),
+                              3_224_686_592)
+        w.burners = [Self.superDrive]
+        w.burnerID = Self.superDrive.id
+        XCTAssertEqual(w.chosenBurner, Self.superDrive)
+        XCTAssertEqual(w.burnTitle, "Windows 7 (x64)")
+        XCTAssertTrue(w.canGo)
+        w.askToWrite()
+        XCTAssertTrue(w.confirming)
+        // Back to a stick: a disk, not a burner.
+        w.toDisc = false
+        XCTAssertFalse(w.burns)
+        // Your own image: an ISO burns, a disk image doesn't.
+        let own = fileModel(.discOnly)
+        own.toDisc = true
+        own.burners = [Self.superDrive]
+        own.burnerID = Self.superDrive.id
+        XCTAssertNotNil(own.discISO)
+        XCTAssertTrue(own.canGo)
+        let img = fileModel(.diskImage(partitions: .mbr))
+        img.toDisc = true
+        img.burners = [Self.superDrive]
+        img.burnerID = Self.superDrive.id
+        XCTAssertNil(img.discISO)
+        XCTAssertFalse(img.canGo)
+        // Choosing another kind of write starts again on a stick.
+        own.mode = .windows
+        XCTAssertFalse(own.toDisc)
+        XCTAssertTrue(discWords(9_047_330_816).fits == false)
+        XCTAssertTrue(discWords(6_140_975_104).text.contains("double-layer"))
+        XCTAssertTrue(discWords(3_224_686_592).fits)
     }
 
     func testProgressInWordsForWhatsNotDownloaded() async {

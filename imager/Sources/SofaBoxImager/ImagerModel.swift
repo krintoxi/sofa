@@ -95,6 +95,15 @@ final class ImagerModel: ObservableObject {
     @Published var accountName = ""
     /// Your own image.
     @Published var ownFile: FileState = .none { didSet { refreshDisks() } }
+    /// Windows and your own image: burned to a DVD (an ISO, as it is) rather than written to a stick.
+    @Published var toDisc = false {
+        didSet {
+            guard toDisc != oldValue else { return }
+            diskName = nil
+            burnerID = nil
+            refreshDisks()
+        }
+    }
     @Published var offered: [DiskDescription] = []
     /// On a DVD: the Mac's burners, and the one chosen.
     @Published var burners: [Burner] = []
@@ -123,9 +132,32 @@ final class ImagerModel: ObservableObject {
     var chosenDisk: DiskDescription? { offered.first { $0.bsdName == diskName } }
     /// The burner chosen, while it has a blank DVD big enough in it.
     var chosenBurner: Burner? {
-        burners.first { $0.id == burnerID && $0.refusal(needs: card?.extractSize ?? 1) == nil }
+        burners.first { $0.id == burnerID && $0.refusal(needs: burnBytes ?? 1) == nil }
     }
-    var burns: Bool { mode == .sofaBox && target.burns }
+    /// Burned to a DVD: Sofa Box OS's DVD, or an ISO from this Mac (Windows, or one of the owner's own).
+    var burns: Bool { mode == .sofaBox ? target.burns : (toDisc && (mode == .windows || mode == .file)) }
+
+    /// The ISO from this Mac that a DVD would hold: a Windows ISO, or an ISO of the owner's own (one that's also a
+    /// disk, or one made for DVDs only).
+    var discISO: (url: URL, bytes: Int64, title: String)? {
+        switch mode {
+        case .windows:
+            if case .read(let u, .windows(let w), let n) = windowsFile { return (u, n, w.title) }
+        case .file:
+            if case .read(let u, let kind, let n) = ownFile {
+                switch kind {
+                case .hybridISO, .discOnly: return (u, n, u.lastPathComponent)
+                default: break
+                }
+            }
+        default: break
+        }
+        return nil
+    }
+
+    /// What's burned, and how many bytes the disc must hold.
+    var burnTitle: String? { mode == .sofaBox ? card?.name : discISO?.title }
+    var burnBytes: Int64? { mode == .sofaBox ? card?.extractSize : discISO?.bytes }
 
     /// The Linux entry chosen.
     var systemEntry: CatalogEntry { Catalog.entry(systemID) ?? Catalog.entries[0] }
@@ -141,14 +173,14 @@ final class ImagerModel: ObservableObject {
 
     /// The Windows 11 switches as ticked.
     var windowsOptions: WindowsOptions {
-        guard windowsMedia?.version == .eleven else { return WindowsOptions() }
+        guard windowsMedia?.version == .eleven, !toDisc else { return WindowsOptions() }
         return WindowsOptions(skipHardwareChecks: skipHardwareChecks,
                               localAccount: useLocalAccount ? accountName.trimmingCharacters(in: .whitespaces) : nil)
     }
 
     /// Why the Windows switches can't be used as ticked; nil when they can.
     var optionsProblem: String? {
-        guard windowsMedia?.version == .eleven, useLocalAccount else { return nil }
+        guard windowsMedia?.version == .eleven, useLocalAccount, !toDisc else { return nil }
         return WindowsOptions.accountNameProblem(accountName)
     }
 
@@ -182,7 +214,7 @@ final class ImagerModel: ObservableObject {
 
     /// A version and somewhere to put it.
     var canGo: Bool {
-        if burns { return card != nil && chosenBurner != nil }
+        if burns { return burnTitle != nil && chosenBurner != nil && (burnBytes ?? 0) <= Burner.largestDisc }
         return item != nil && chosenDisk != nil && optionsProblem == nil
     }
 
@@ -239,6 +271,7 @@ final class ImagerModel: ObservableObject {
 
     private func modeChanged() {
         diskName = nil
+        toDisc = false
         if mode == .linux, case .none = system { findSystem() }
         refreshDisks()
     }
@@ -369,7 +402,7 @@ final class ImagerModel: ObservableObject {
     func refreshBurners() {
         guard live else { return }
         let found = BurnerList.snapshot()
-        let needs = card?.extractSize ?? 1
+        let needs = burnBytes ?? 1
         if found != burners { burners = found }
         if let id = burnerID, !found.contains(where: { $0.id == id && $0.refusal(needs: needs) == nil }) { burnerID = nil }
         let ready = found.filter { $0.refusal(needs: needs) == nil }
@@ -442,23 +475,31 @@ final class ImagerModel: ObservableObject {
         }
     }
 
-    /// On a DVD: download, check, burn, and check the disc (BurnJob, with macOS's hdiutil). No password: nothing is erased.
+    /// On a DVD: Sofa Box OS downloaded, checked and burned; or an ISO from this Mac burned as it is. Either way the disc
+    /// is read back and checked (BurnJob, with macOS's hdiutil). No password: nothing is erased.
     func burn() {
         confirming = false
-        guard let card, let burner = chosenBurner, !isWriting else { return }
-        let ua = "SofaBoxImager/\(Self.version)"
-        let job = BurnJob(card: card, burner: burner) {
-            if card.url.isFileURL { return try FileSource(url: card.url) as PackedSource }
-            return HTTPSource(url: card.url, expectedSize: card.downloadSize, userAgent: ua)
+        guard let burner = chosenBurner, let title = burnTitle, !isWriting else { return }
+        let job: BurnJob
+        if mode == .sofaBox {
+            guard let card else { return }
+            let ua = "SofaBoxImager/\(Self.version)"
+            job = BurnJob(card: card, burner: burner) {
+                if card.url.isFileURL { return try FileSource(url: card.url) as PackedSource }
+                return HTTPSource(url: card.url, expectedSize: card.downloadSize, userAgent: ua)
+            }
+        } else {
+            guard let iso = discISO else { return }
+            job = BurnJob(iso: iso.url, title: iso.title, burner: burner)
         }
         burnJob = job
-        jobTitle = "Burning \(card.name) to the DVD in “\(burner.name)”"
+        jobTitle = "Burning \(title) to the DVD in “\(burner.name)”"
         phase = .running("Checking the burner and the disc…", nil)
         let reporter = BurnReporter { [weak self] text, fraction in
             guard let self, self.isWriting else { return }
             self.phase = .running(text, fraction)
         }
-        let cardName = card.name
+        let cardName = title
         let burnerName = burner.name
         Thread.detachNewThread {
             do {
