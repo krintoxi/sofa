@@ -49,6 +49,12 @@ the things people build, what lies on the ground, the air.
   many of them), and at a Pi 3's rung a piece of the country is built as fast as before (timed on a Mac standing in
   for one, not on a Pi).
 - **What stands is darker at its foot** (the fuller look): a trunk, a rock or a wall where it meets the ground.
+- **The camera moves** (the 3D look): from the old eye, high and looking down, to a low one with the sky, the horizon
+  and the lit houses ahead, and round the delver: the right stick (up lower, down higher, left and right turn the
+  view), or Z, C, V and the wheel on a keyboard; Options keeps the height a game starts at, high as before. Walking
+  follows the turn, and the map shows which way the eye looks. Underground nothing past the dark is drawn, so the
+  Maw costs a Pi 3's rung no more low than high. The 2D look keeps the old eye. Low3D: `Follow`, a camera above and
+  behind one on foot that the player moves.
 - **The delver and the townsfolk** have more to them: a buckle and a pouch, a collar, a fringe of hair, boots turned
   down at the top; the delver carries a pack with a bedroll, the smith wears an apron, the herbalist a satchel, the
   weaver a shawl.
