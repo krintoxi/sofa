@@ -254,7 +254,9 @@ What it does with the ISO (`WindowsStick` in `Sources/ImagerKit/WindowsMedia.swi
   (`BypassTPMCheck`, `BypassSecureBootCheck`, `BypassRAMCheck`). Microsoft doesn't support Windows 11 on PCs that fail
   them.
 - **A local account, no Microsoft account:** a local administrator with the name you type, Setup's network step
-  allowed to be skipped (`BypassNRO`), and the account's password set at its first sign-in.
+  allowed to be skipped (`BypassNRO`). **The account has no password at first:** Windows signs it in once by itself
+  at the end of setting up, and at the next sign-in says "The user's password must be changed before signing in" and
+  asks for one (a first-logon command, `net user NAME /logonpasswordchg:yes`, sees to that).
 
 Ticked, they're written as `autounattend.xml` at the stick's root, which Setup reads by itself. It holds only those
 settings: nothing that chooses, wipes or partitions a disk, and no product key. An ISO with its own `autounattend.xml`
@@ -348,7 +350,7 @@ Ubuntu's `ovmf-generic` package with Microsoft's Secure Boot keys enrolled and S
 | Media | Written | UEFI, Secure Boot on | BIOS |
 |---|---|---|---|
 | Windows 11, build 26300 (Microsoft's ISO, 9.05 GB, its SHA-256 as Microsoft lists it) | 35 s, `install.wim` (8.16 GB) split into 3 parts | Windows Setup; inside it `UEFISecureBootEnabled = 1` | Our MBR and boot sector start BOOTMGR, then Windows Setup; the 11 editions listed from `install.swm`; Setup then refuses the virtual PC for having no TPM 2.0 and no Secure Boot, as Microsoft's own media does |
-| Windows 11, both switches ticked | 30 s | Setup's LabConfig keys set by the stick's `autounattend.xml`; the editions listed; Setup's hardware check passed in a PC with no TPM, on to the license terms | — |
+| Windows 11, both switches ticked | 30 s | Setup's LabConfig keys set by the stick's `autounattend.xml`; the editions listed; Setup's hardware check passed in a PC with no TPM; **then a whole install** (below) | — |
 | Windows 10 22H2 (Microsoft's ISO, 6.14 GB, its SHA-256 as Microsoft lists it) | 17 s, `install.wim` (5.18 GB) split into 2 parts | Windows Setup; `UEFISecureBootEnabled = 1` | Windows Setup; the 11 editions listed from `install.swm` |
 | Debian 13.7.0 netinst, downloaded by the app from cdimage.debian.org | 69 s, read back as Debian's SHA-256 | Debian's UEFI installer menu (its shim is Microsoft-signed) | "Debian GNU/Linux installer menu (BIOS mode)" |
 | Fedora Workstation 45, as Your own image (Fedora's ISO, its SHA-256 as Fedora lists it) | 7 s, read back as Fedora's SHA-256 | GRUB's menu (through Fedora's Microsoft-signed shim), then Fedora's kernel starting | GRUB starting its default entry; Fedora's kernel and systemd up after about 5 minutes of emulation |
@@ -357,9 +359,20 @@ Ubuntu's `ovmf-generic` package with Microsoft's Secure Boot keys enrolled and S
 The Windows 11 stick was also checked from the Mac: `fsck_msdos` found nothing wrong (1,073 files), and macOS's own
 FAT and UDF drivers show every file on it the same as on the ISO, but for `install.wim`, which is the three parts.
 
-**Not proven in a virtual PC:** a whole Windows install from the stick (Setup copying Windows from the split parts to a
-drive, and the local account switch in Windows' first-start screens): that means accepting Microsoft's license terms
-in Setup, which is the owner's to say yes to, and about 20 GB of disk. Windows 7 (Microsoft no longer offers its ISO;
+**A whole Windows 11 install from the stick** (on the owner's yes to accepting Microsoft's license terms in the virtual
+PC's Setup): the switches stick, in a virtual PC with UEFI, Secure Boot on, no TPM and no network card. Setup copied
+Windows 11 Home from the three split parts onto an empty 64 GB drive (15.4 GB written) and restarted; the stick was then
+taken out and the PC started Windows from its own drive under Secure Boot. Windows' own log
+(`Windows\Panther\UnattendGC\setupact.log`) shows each switch applied: `BypassNRO` set, the account "Sofa" made and
+added to Administrators, its first-logon command set. On the first-start screens the network page offered "I don't
+have internet" (Windows 11 Home shows that only with `BypassNRO`), no account page followed, and Windows signed in to
+"Sofa" by itself, to the desktop. Signed out and back in, it said "The user's password must be changed before signing
+in". Two things in that run were the emulation's, not the stick's: with QEMU's "max" processor Windows crashed at the
+country page (stop 0x3B, `c0000096`, a privileged instruction in the kernel; its own crash reports say so) and was
+started again as a 6th-generation Intel processor, and two first-start pages (keyboard, privacy settings) timed out
+("OOBEKEYBOARD", "OOBESETTINGS") on the slow virtual PC and were skipped, as Windows offers.
+
+**Not proven in a virtual PC:** Windows 7 (Microsoft no longer offers its ISO;
 its parts are tested with made-up ISOs only), 8.1, 32-bit and ARM64 Windows; Ubuntu and Linux Mint (their lists are
 read from their sites and turned into the right files, and they're written the same way as Debian, but they weren't
 downloaded); Fedora's live desktop: under emulation it hadn't finished starting after 15 minutes (on BIOS, with 2 GB, systemd stopped
@@ -400,8 +413,9 @@ read-back, nothing mounting, the eject), and on the PC's side:
 1. **A Windows 11 stick starts a PC with UEFI and Secure Boot on**, and an older one with BIOS (or a newer one with CSM
    on), and Setup installs Windows from it, the split parts included, onto the PC's drive.
 2. **A Windows 10 stick**, the same; and **Windows 7** on a PC with legacy boot, since no Windows 7 ISO was to hand.
-3. **The Windows 11 switches** on a real PC: Setup goes on without TPM 2.0, and the local account is made, its password
-   asked for at the first sign-in.
+3. **The Windows 11 switches** on a real PC: Setup goes on without TPM 2.0, and the local account is made, with no
+   password until Windows asks for one at the second sign-in. And a processor Microsoft doesn't list (the switch
+   doesn't skip that check, and the virtual PC's processors didn't trigger it).
 4. **A Linux stick** from the list starts a PC (Ubuntu, Debian, Fedora, Mint), and **Raspberry Pi OS** a Pi.
 5. **Sticks of other sizes and makes**: our boot code reads BOOTMGR by LBA, which every PC that starts from USB has;
    a very old PC that only starts USB sticks as floppies won't start it.

@@ -255,7 +255,8 @@ private struct ElevenSwitches: View {
             if let why = model.optionsProblem {
                 Text(why).font(SofaFonts.text(12)).foregroundStyle(Color.alert)
             } else if model.useLocalAccount {
-                Text("Windows asks for its password at the first sign-in.").font(SofaFonts.text(12)).foregroundStyle(Color.mist)
+                Text("It has no password at first: Windows signs it in once by itself, then asks for a new password at the next sign-in.")
+                    .font(SofaFonts.text(12)).foregroundStyle(Color.mist).fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(.top, 2)

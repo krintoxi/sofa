@@ -29,8 +29,8 @@ the same disk rule, the first megabyte held back and written last, every byte re
   - Windows 7's UEFI loader is only inside its ISO's UEFI boot image; it's copied out of it. Windows 7 still wants a PC
     with legacy boot (CSM) on and Secure Boot off, and the window says so.
   - **Windows 11 switches, each off unless ticked:** skip Setup's TPM 2.0, Secure Boot and 4 GB RAM checks
-    (Microsoft's LabConfig keys), and a local account instead of a Microsoft account (its password is set at the first
-    sign-in). Ticked, they're written as an `autounattend.xml` at the stick's root; nothing else about Setup changes,
+    (Microsoft's LabConfig keys), and a local account instead of a Microsoft account (it has no password at first:
+    Windows signs it in once by itself, then asks for a new password at the next sign-in). Ticked, they're written as an `autounattend.xml` at the stick's root; nothing else about Setup changes,
     and nothing in it chooses or erases a disk.
 - **Your own image.** An `.iso` that's also a disk (every Linux ISO now), an `.img`, or a packed `.img.xz`, written
   whole and read back against what was read. A Windows ISO is sent to Windows; an ISO that only starts from a DVD is
@@ -44,6 +44,8 @@ the same disk rule, the first megabyte held back and written last, every byte re
 and started in QEMU on this Mac (UEFI with OVMF and Microsoft's Secure Boot keys, and BIOS with SeaBIOS): Windows 11
 (build 26300) and Windows 10 (22H2) from Microsoft's ISOs to Windows Setup both ways, Secure Boot read back as on from
 inside Windows PE, the editions listed from the split parts, and the Windows 11 switch passing Setup's check in a PC
-with no TPM; Debian 13.7 (downloaded by the app from Debian) and Fedora 45 to their boot menus both ways; Raspberry Pi
+with no TPM. Then a whole Windows 11 install from the switches stick (UEFI, Secure Boot on, no TPM, no network):
+Windows copied from the split parts, started from its own drive, the local account made with no Microsoft account and
+no network, and its new password asked for at the second sign-in. Debian 13.7 (downloaded by the app from Debian) and Fedora 45 to their boot menus both ways; Raspberry Pi
 OS Lite written and read back as Raspberry Pi's SHA-256 (a Pi can't be started in QEMU here). The imager README has
 the details. **No real stick has been written and no real PC started from one yet.**

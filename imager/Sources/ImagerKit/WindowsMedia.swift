@@ -156,8 +156,9 @@ public struct WindowsMedia: Equatable {
 public struct WindowsOptions: Equatable {
     /// Setup skips its TPM 2.0, Secure Boot and 4 GB RAM checks (Microsoft's own LabConfig keys).
     public var skipHardwareChecks = false
-    /// A local account with this name instead of a Microsoft account: the network isn't required to finish setting up,
-    /// and the account's password is set at its first sign-in.
+    /// A local account with this name instead of a Microsoft account: the network isn't required to finish setting up.
+    /// The account has no password until its second sign-in: Windows signs it in once by itself at the end of setting
+    /// up, and from then on asks for a new password before letting it in.
     public var localAccount: String?
 
     public init(skipHardwareChecks: Bool = false, localAccount: String? = nil) {
