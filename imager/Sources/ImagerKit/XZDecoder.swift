@@ -1,28 +1,13 @@
+#if canImport(Compression)
 import Compression
 import Foundation
-
-public enum XZError: Error, Equatable, CustomStringConvertible {
-    case corrupt
-    case truncated
-    case badPadding
-    case cannotStart
-
-    public var description: String {
-        switch self {
-        case .corrupt: return "The downloaded card is damaged (its xz data doesn't unpack)."
-        case .truncated: return "The downloaded card ends early."
-        case .badPadding: return "The downloaded card has bytes after its end that shouldn't be there."
-        case .cannotStart: return "macOS couldn't start unpacking the card."
-        }
-    }
-}
 
 /// Unpacks an `.xz` file as it streams in, with macOS's own Compression framework (`COMPRESSION_LZMA` is the xz
 /// container). Cards are made by `xz -T0`, which cuts the data into many blocks; Compression handles those. An xz file
 /// may also hold several streams one after another, with zero padding between them (in multiples of four bytes);
 /// Compression stops at the end of the first, so each further stream gets a fresh decoder here. Compression checks
 /// each block's check and the stream's index, so a damaged download stops with `.corrupt`.
-public final class XZDecoder {
+public final class XZDecoder: XZUnpacking {
     public static let outputBytes = 1 << 20
 
     private var stream: UnsafeMutablePointer<compression_stream>?
@@ -144,3 +129,4 @@ public final class XZDecoder {
         }
     }
 }
+#endif

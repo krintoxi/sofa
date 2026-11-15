@@ -158,20 +158,17 @@ public struct WIMFile {
         }
         let text = String(decoding: units, as: UTF16.self)
         let reader = ImageXML()
-        let parser = XMLParser(data: Data(text.utf8))
-        parser.delegate = reader
-        parser.parse()
+        LiteXML.read(text, into: reader)
         return reader.images
     }
 
-    final class ImageXML: NSObject, XMLParserDelegate {
+    final class ImageXML: LiteXML.Reader {
         var images: [Image] = []
         private var path: [String] = []
         private var text = ""
         private var current: Image?
 
-        func parser(_ parser: XMLParser, didStartElement name: String, namespaceURI: String?, qualifiedName: String?,
-                    attributes: [String: String] = [:]) {
+        func start(_ name: String, attributes: [String: String]) {
             path.append(name.uppercased())
             text = ""
             if path == ["WIM", "IMAGE"] {
@@ -180,9 +177,9 @@ public struct WIMFile {
             }
         }
 
-        func parser(_ parser: XMLParser, foundCharacters string: String) { text += string }
+        func text(_ string: String) { text += string }
 
-        func parser(_ parser: XMLParser, didEndElement name: String, namespaceURI: String?, qualifiedName: String?) {
+        func end(_ name: String) {
             let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
             if var c = current {
                 switch path.dropFirst(2).joined(separator: "/") {

@@ -269,7 +269,7 @@ public enum CardListParser {
             if target.tags.isDisjoint(with: devices) { return skip("not a DVD") }
         }
         let date = e.release_date ?? ""
-        let day = date.range(of: #"^\d{4}-\d{2}-\d{2}$"#, options: .regularExpression) != nil ? date : ""
+        let day = date.wholeMatch(#"\d{4}-\d{2}-\d{2}"#) ? date : ""
         let website = e.website.flatMap { URL(string: $0) }.flatMap { $0.scheme == "https" ? $0 : nil }
         return .success(Card(name: name, summary: e.description ?? "", url: url, downloadSize: download,
                              extractSize: extract, extractSHA256: sha, releaseDate: day, website: website))

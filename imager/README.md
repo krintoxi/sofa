@@ -324,16 +324,21 @@ from anywhere the list says, because it's checked against the list's SHA-256.
 
 ## What's tested, and where
 
-`swift test` runs 141 tests; four more run only when asked. None writes a disk it didn't attach itself: the
+`swift test` runs 157 tests on a Mac; five more run only when asked. None writes a disk it didn't attach itself: the
 tests that write attach a RAM disk, check with DiskArbitration that the device they got is a disk image of
-exactly the size they asked for, and only then touch it.
+exactly the size they asked for, and only then touch it. On Linux `swift test` runs the shared core's tests
+(`ImagerKitTests`, 121): 15 of them skip there because they make or read their test disks with macOS's own `hdiutil`
+or `newfs_msdos`, and the speed test runs only when asked.
 
 | What | Tests | How |
 |---|---|---|
 | Which disks may be written | `ImagerKitTests/DiskPolicyTests` (22) | Made-up disks. This Mac's internal SSD, APFS container and a RAM disk are copied from what macOS really said; the card readers are written from Apple's documented values. Every combination of inside / removable / ejectable / card / image / APFS is checked against the rule. |
 | On a DVD | `ImagerKitTests/BurningTests` (2), `ImagerMacTests/BurnTests` (6) | Which burner and disc can take it (no disc, a CD, a disc that isn't blank, too small); hdiutil's progress lines; DiscRecording's own dictionaries for a drive, with and without a disc; the whole `BurnJob` with a stand-in for hdiutil: downloaded, checked, burned with exactly `burn FILE -device PATH -noaddpmap -nooptimizeimage -verifyburn -eject -puppetstrings`, a second burn not downloading again; a download that isn't the list's is never burned; no burner, no disc, and a failed burn each say so; an ISO from this Mac burned where it is with the same arguments (no download, no copy), and refused when it changed since it was chosen, is gone, or is bigger than the disc. |
 | The list | `ImagerKitTests/CardListTests` (12) | A list made by `tools/sofa-box-imager-list.py`'s own `build()` and `check()` (1.1.54's sizes and SHA-256 are the real card's, the other versions invented); the list as it was first published on 2026-11-10; and one opening with a stable version, followed by two "(testing)" ones; one with a PC's images, read for a Pi and for a PC; one with a DVD's `.iso`, read for a DVD only. |
-| Unpacking | `ImagerKitTests/XZDecoderTests` (8) | Files made by `xz -T0 -6` as the box's card is: one stream of 9 blocks, and two streams with zero padding between. Damage, a short file, bad padding and trailing junk are all caught. |
+| Unpacking | `ImagerKitTests/XZDecoderTests` (15) | Each test on each unpacker: ours everywhere, and Apple's on the Mac. Files made by `xz -T0 -6` as the box's card is: one stream of 9 blocks, and two streams with zero padding between. Files made by `xz` 5.8.4 with each of its options (`scripts/xz-fixtures.py`): CRC32, CRC64, SHA-256 and no check; `lc=1,lp=3,pb=4`; a 4 KiB dictionary; ten blocks; `-9e`; chunks stored as they are, with and without a dictionary reset; streams with different checks back to back. Damage, a short file, bad padding and trailing junk are all caught; an x86 filter is named and refused; a bit flipped 1,286 ways (643 places, two bits each, across four files) never gives other bytes without an error; CRC32's and CRC64's check values. |
+| SHA-256 | `ImagerKitTests/SHA256Tests` (4) | Ours: FIPS 180-4's examples (a million "a"s among them), any pieces giving the same digest, and on the Mac the same digest as CryptoKit at every length from 0 to 1,100 bytes. |
+| The editions list's XML | `ImagerKitTests/LiteXMLTests` (4) | Ours: a Windows 11-shaped list read into its editions, entities, quotes, CDATA and comments, where it stops (and that it has told the reader everything before), and the same events as Foundation's `XMLParser` on the same list. |
+| Unpacking a real card | `ImagerKitTests/XZBenchTests` (1, when asked) | `SOFA_IMAGER_XZ_BENCH=<a .img.xz> SOFA_IMAGER_XZ_SHA=<its unpacked SHA-256>`, best with `swift test -c release -Xswiftc -enable-testing`. Unpacks it with each unpacker and hashes it with each SHA-256, says how long each took, and checks that they all agree with each other and the list. |
 | Writing and checking | `ImagerKitTests/CardWriterTests` (13) | A plain file as the disk. Only whole-sector writes at megabyte offsets; the first megabyte last; nothing past the card but the disk's last megabyte; a wrong download, a card that reads back wrong, Stop and a card that never answers each leave the first megabyte blank. |
 | Downloading | `ImagerKitTests/DownloadTests` (9) | A web server inside the test: a whole download, carrying on after a drop, a server that ignores or mangles the range, the wrong size, giving up, and download-to-checked-card in one go. |
 | Finding disks | `ImagerMacTests/DiskListTests` (7) | The Mac running the tests: its startup disk is found and refused; a RAM disk is seen as a disk image and refused; the volumes on a disk are found, unmounted, and refused a mount while a write is on; `authopen` with no one to type a password opens nothing. |
@@ -341,9 +346,9 @@ exactly the size they asked for, and only then touch it.
 | The password hand-over | `ImagerMacTests/AuthOpenTests` (6) | A stand-in for `authopen` (`Tests/FakeAuthOpen`) that takes its arguments and sends back an open file as `authopen` does: the 32-byte authorization arrives whole, the file opens for reading and writing, a helper that fails after opening isn't trusted, and the helper inherits nothing of the app's but its three standard streams. |
 | The app | `SofaBoxImagerTests/WindowTests` (12 + 1) | What's chosen is what's written, in each of the four choices (a Linux entry not found yet writes nothing, the Windows 11 switches are off until ticked and only Windows 11's, an account switch with no name stops the write, a Windows ISO is never written whole); progress in words ("card", "stick", "Writing" for what isn't downloaded, and a DVD's stages); For a PC, the list read again for a PC's images; On a DVD, a burner with a blank DVD is what's chosen and nothing else is; the colours match Sofa's style sheet and its fonts load; the app's own words never include Raspberry Pi's imager's name, and nothing in it writes a user, SSH or Wi-Fi setting. `SOFA_IMAGER_SNAPSHOTS=<folder>` draws every screen to a PNG, with the Mac set to light and to dark. |
 | Windows ISOs | `ImagerKitTests/WindowsStickTests` (21) | Made-up Windows ISOs with Microsoft's layout (bootmgr, boot/bcd, efi/, sources/ with an install.wim in Microsoft's format, long names, a folder bigger than a cluster), put in UDF 1.02 by macOS's own `hdiutil makehybrid`. The UDF reader reads back every file of the folder the ISO was made from; Windows 11, 10, 7 and ARM64 are told apart; the WIM's table and XML are read; split parts each fit their limit, hold every resource exactly once and byte for byte, carry the same GUID, the part numbers and the XML, with the metadata in the first part only; a solid group stays whole; the finished stick is checked by macOS's own `fsck_msdos` and mounted by macOS's own FAT driver, every file read back as on the ISO; the MBR, the boot sector and its backup, and the run of BOOTMGR they point at; the same ISO gives the same stick byte for byte; Windows 7's loader copied out of a FAT12 `efisys.bin` made by `newfs_msdos`; the switches' `autounattend.xml` (only what's ticked, never a disk setting, Windows 11 only) and account names Windows would refuse. |
-| The boot code | `ImagerKitTests/BootCodeTests` (4) | `imager/boot/*.S` assembled again with Xcode's clang: the bytes are `BootCode`'s exactly; the MBR fits in 440 bytes; the BPB and the partition table are laid out as the FAT32 specification says. |
+| The boot code | `ImagerKitTests/BootCodeTests` (4) | `imager/boot/*.S` assembled again with clang (Xcode's on the Mac, the Swift toolchain's on Linux): the bytes are `BootCode`'s exactly; the MBR fits in 440 bytes; the BPB and the partition table are laid out as the FAT32 specification says. |
 | What a file is | `ImagerKitTests/ImageInspectorTests` (6) | An ISO with an isohybrid MBR or a GPT, one without (a DVD's only), MBR and GPT disk images and a bare boot sector, noise, packed `.img.xz` (its unpacked size from the xz index), Windows. |
-| The Linux list | `ImagerKitTests/CatalogTests` (4) | Each project's own files as they read on 2026-11-14, cut down: SHA256SUMS in its three shapes, Ubuntu's meta-release-lts, a folder listing, Fedora's releases.json (a beta is never chosen), Raspberry Pi's list. Every entry turns into the right address, size and SHA-256, every address asked for is https, and answers that don't add up are refused. |
+| The Linux list | `ImagerKitTests/CatalogTests` (5) | Each project's own files as they read on 2026-11-14, cut down: SHA256SUMS in its three shapes, Ubuntu's meta-release-lts, a folder listing, Fedora's releases.json (a beta is never chosen), Raspberry Pi's list. Every entry turns into the right address, size and SHA-256, every address asked for is https, and answers that don't add up are refused. A pattern matches a whole file name or nothing, on Linux as on the Mac. |
 | Images written whole | `ImagerKitTests/RawPlanTests` (4) | An ISO written whole and checked against its SHA-256; an image with none must read back as what was streamed; an ISO that isn't the one listed never gets its first megabyte; a layout streams as it reads. |
 | A real stick | `ImagerMacTests/RealStickTests` (1, when asked) | `SOFA_IMAGER_STICK_OUT=<file>` and one of `SOFA_IMAGER_WINDOWS_ISO=<iso>` (with `SOFA_IMAGER_WIN11_SKIP_CHECKS=1`, `SOFA_IMAGER_WIN11_ACCOUNT=<name>`), `SOFA_IMAGER_SYSTEM=<debian, ubuntu…>` or `SOFA_IMAGER_OWN_IMAGE=<file>`. Writes a stick through the raw device with the app's own `WriteJob` and leaves the image behind, to start in a virtual PC. |
 | A real card | `ImagerMacTests/RealCardTests` (2, when asked) | `SOFA_IMAGER_REAL_LIST=<list> swift test --filter RealCardTests`. Downloads the newest card from GitHub and writes it to a disk image through the raw device with `WriteJob` (about 1.4 GB down, 6 GB of disk for a few minutes), and checks that a download dropped on purpose carries on through GitHub's redirect. |
@@ -498,20 +503,59 @@ xcrun stapler staple "build/Sofa Box Imager.app"        # then zip it again, or 
 ## On Windows and Linux
 
 Wanted: the owner's answer on 2026-11-14 was that a universal imager should run on Windows and Linux too, not only
-the Mac. That's the next piece of work, not this version. What it needs:
+the Mac. Asked how (2026-11-15), the owner chose:
 
-- **The disk side, per system.** Windows: an elevated helper that locks and dismounts the volumes, then writes
-  `\\.\PhysicalDriveN` in whole sectors, and a Windows code-signing certificate, or SmartScreen warns on every
-  download. Linux: finding removable disks through sysfs/udev, and writing `/dev/sdX` through polkit. Each needs its own
-  version of `DiskPolicy`'s facts (what's removable, what's the system disk), with the same pure rule and its tests.
-- **The window, per system.** SwiftUI is Apple's only; the Windows and Linux apps need their own windows.
-- **What's shared already.** Everything new in this version is in `ImagerKit` and uses nothing Mac-only: the UDF and WIM
-  readers, the WIM splitter, the FAT32 layout, the boot code, the image inspector, the Linux list. What's still
-  Mac-only there is older: the xz unpacker (macOS's Compression framework) and SHA-256 (CryptoKit). A Windows or Linux
-  build needs its own of each (written here, like the rest).
-- The fleet has no Windows PC, and a writer that has never written a real card shouldn't reach owners. Until then,
-  Windows owners use the list in Raspberry Pi's own imager
-  ([the guide](../deploy/sofa-box/README.md#setting-it-up-the-ready-made-card-easiest)).
+- **Swift, one shared core.** `ImagerKit` (the lists, the disk rule, the xz unpacker, the write-and-check engine, the
+  Windows stick) is the same code on every system. A Windows build will carry the Swift runtime and Foundation's DLLs
+  (Apache 2.0 with the Runtime Library Exception, and ICU's Unicode licence); on Linux it's one program using the
+  system's own glibc, curl and OpenSSL. The exact list of what ships is named from the first real build of each.
+- **The command line first** (`--inspect`, `--systems`, `--disks`, and a `--write`), so the disk side is proven on each
+  system before any window is chosen.
+- **Proven on virtual PCs and GitHub's machines only**: no Windows PC or Linux PC is set aside for it, and nothing about
+  real hardware is claimed until someone writes a real disk with it.
+- **An unsigned beta first on Windows** (SmartScreen asks: More info, then Run anyway), signing once the owner has a
+  certificate.
+
+**Where it stands (0.4.1): the shared core builds and passes its tests on Linux** (Intel and Arm, in the Swift
+project's own Linux image), as well as on the Mac. For that the core now has its own:
+
+- **xz unpacker** (`XZUnpacker`, `Sources/ImagerKit/XZ.swift`): the xz container and LZMA2, written from the xz file
+  format (1.2.1) and the LZMA specification; every block's check (CRC32, CRC64 or SHA-256), sizes and index checked.
+- **SHA-256** (`SHA256Hasher`), from FIPS 180-4.
+- **XML reader** for a Windows image's list of editions (`LiteXML`), so no XML library is needed (on Linux Foundation's
+  would bring libxml2).
+
+On the Mac the app still unpacks and checks with Apple's Compression and CryptoKit. Ours give the same bytes and the
+same digests, on every test file and on the real Sofa Box OS 1.1.87 card (5.2 GB unpacked, its SHA-256 the list's).
+Timed on that card on an Apple silicon Mac (a release build, `XZBenchTests`): our unpacker 102 MB/s, Apple's 105; our
+SHA-256 about 240 MB/s, CryptoKit's about 2,000, because CryptoKit uses the chip's own SHA-256 instructions. Ours is
+quick enough to write a card or stick (they take 20 to 100 MB/s), but could slow the read-back of a fast USB 3 stick,
+so using those instructions (on Arm, and Intel's SHA extensions) comes before the Mac moves to ours, if the owner wants
+it to. The editions list is read with ours everywhere, the Mac included: it reads the same
+events as Foundation's `XMLParser`, tested side by side. Three checks that used a regular expression with `$` now
+compare the whole string, because Foundation's `$` also matches before a final newline on Linux and not on the Mac;
+the disk rule's own name check doesn't use one at all.
+
+Still to do, in this order:
+
+- **Windows: the core.** Windows has no `pread`, `pwrite` or `fsync`; the file reads and the disk writes need Windows'
+  own calls (`ReadFile` and `WriteFile` at an offset), and GitHub's Windows machines need Swift's toolchain installed
+  before the tests can run there.
+- **The disk side, per system**, with the same rule. Windows: an elevated helper that locks and dismounts the volumes,
+  then writes `\\.\PhysicalDriveN` in whole sectors. Linux: removable disks found through sysfs and udev, written
+  through polkit. Each fills its own version of `DiskPolicy`'s facts (what's removable, what's the system disk), with
+  the same pure rule (anything the system doesn't say counts against the disk) and its tests, settled by trying it on
+  each system rather than from documentation.
+- **The command line** (`--write`) on both, proven by writing to virtual disks in virtual PCs.
+- **Windows signing**: a code-signing certificate is the owner's to buy (Microsoft's Trusted Signing, monthly, or a
+  certificate authority's, yearly).
+- **SHA-256 with the processor's own instructions**, where it has them, with ours as it is now where it doesn't.
+- **The windows** (Win32 on Windows; on Linux, GTK, the desktop's own library) come after the command line.
+
+The 15 core tests that make or read their test disks with macOS's own `hdiutil` and `newfs_msdos` (most of the Windows
+stick's) skip on Linux; they run on the Macs. Committing disks made by those tools, so that Linux reads them too, is a
+next step. Until a build reaches owners, Windows owners use the list in Raspberry Pi's own imager
+([the guide](../deploy/sofa-box/README.md#setting-it-up-the-ready-made-card-easiest)).
 
 ## Not in this version
 
@@ -535,19 +579,22 @@ the Mac. That's the next piece of work, not this version. What it needs:
 ## Where things are
 
 ```
-Package.swift                 Swift Package Manager: three libraries, the app, the tests
+Package.swift                 Swift Package Manager: on the Mac three libraries, the app, the tests; elsewhere the
+                              shared core (ImagerKit) and its tests
 VERSION                       the app's version
 Resources/Info.plist          the app bundle's Info.plist (version filled in by the build)
 scripts/build-app.sh          builds "Sofa Box Imager.app" (Apple silicon and Intel) and zips it
-Sources/ImagerKit/            no disks, no AppKit: CardList (the list), DiskPolicy (which disks), XZDecoder,
-                              Download (HTTPS with carry-on), CardWriter (write, check, CardPipeline, WritePlan),
+scripts/xz-fixtures.py        remakes the xz test files with the real xz
+Sources/ImagerKit/            no disks, no AppKit: CardList (the list), DiskPolicy (which disks), XZ (our xz
+                              unpacker, CRC32 and CRC64), XZDecoder (Apple's, the Mac's for now), SHA256 (ours),
+                              LiteXML (the editions list's XML), Download (HTTPS with carry-on), CardWriter (write, check, CardPipeline, WritePlan),
                               SofaTheme (the look, as numbers), Catalog (the Linux list), ImageInspector (what a
                               file is), UDF, WIM (reading and splitting), FAT (FAT12 reading, the FAT32 stick),
                               BootCode (our MBR and boot sector), WindowsMedia (the Windows stick, the switches),
                               RandomAccess (files and layouts read anywhere, streamed)
 Sources/ImagerMac/            macOS: DiskList (DiskArbitration, IOKit), DiskOps (unmount, eject, refuse mounts,
                               authopen, stay awake), WriteJob (one disk, start to finish)
-boot/                         the boot code's sources (assembly), assembled with Xcode's clang
+boot/                         the boot code's sources (assembly), assembled with clang
 Sources/CAuthOpen/            C: runs authopen and receives the open disk from it; the disk's flush and size
 Sources/SofaBoxImager/        the app: SwiftUI window, Sofa's look (Theme), its model, the --versions, --disks,
                               --systems and --inspect reports
@@ -557,7 +604,7 @@ Tests/                        see "What's tested, and where"; Tests/FakeAuthOpen
 
 ## Licence
 
-PolyForm Noncommercial License 1.0.0, like the rest of Sofa (see `LICENSE` and `TRADEMARKS.md` at the root); the two typefaces are under the SIL Open Font License 1.1. No code is copied from Raspberry Pi Imager, or from any other imager or Windows tool: the UDF, WIM and FAT code and the boot code are written here from the published formats (ECMA-167 and OSTA UDF, Microsoft's Windows Imaging File Format paper, Microsoft's FAT32 specification). Windows is Microsoft's: the app never downloads or carries it. Its macOS disk code (Apache-2.0,
+PolyForm Noncommercial License 1.0.0, like the rest of Sofa (see `LICENSE` and `TRADEMARKS.md` at the root); the two typefaces are under the SIL Open Font License 1.1. No code is copied from Raspberry Pi Imager, or from any other imager or Windows tool: the UDF, WIM and FAT code and the boot code are written here from the published formats (ECMA-167 and OSTA UDF, Microsoft's Windows Imaging File Format paper, Microsoft's FAT32 specification), and so are the xz unpacker (the xz file format 1.2.1 and the LZMA specification) and SHA-256 (FIPS 180-4). Windows is Microsoft's: the app never downloads or carries it. Its macOS disk code (Apache-2.0,
 version 2.0.12) was read to see how it uses `authopen` and DiskArbitration, and three of its habits are
 followed: blanking a disk's last megabyte, giving that write a time limit, and holding the first block back
 until the end. The app uses no Raspberry Pi logos; "Raspberry Pi" appears only to say which boards the card

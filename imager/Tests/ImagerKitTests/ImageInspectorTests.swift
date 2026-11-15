@@ -6,14 +6,15 @@ import XCTest
 /// that only starts from a DVD.
 final class ImageInspectorTests: XCTestCase {
     /// An ISO 9660 image made by macOS's own hdiutil (no partition table: a DVD's ISO).
-    static let plainISO: Data = {
-        let dir = try! scratch("iso")
-        try! FileManager.default.createDirectory(at: dir.appendingPathComponent("t/boot"), withIntermediateDirectories: true)
-        try! noise(50_000, seed: 4).write(to: dir.appendingPathComponent("t/boot/vmlinuz"))
+    private static let plainISOMade = Result { () throws -> Data in
+        let dir = try scratch("iso")
+        try FileManager.default.createDirectory(at: dir.appendingPathComponent("t/boot"), withIntermediateDirectories: true)
+        try noise(50_000, seed: 4).write(to: dir.appendingPathComponent("t/boot/vmlinuz"))
         let iso = dir.appendingPathComponent("plain.iso")
-        try! sh("/usr/bin/hdiutil", ["makehybrid", "-quiet", "-iso", "-o", iso.path, dir.appendingPathComponent("t").path])
-        return try! Data(contentsOf: iso)
-    }()
+        try sh("/usr/bin/hdiutil", ["makehybrid", "-quiet", "-iso", "-o", iso.path, dir.appendingPathComponent("t").path])
+        return try Data(contentsOf: iso)
+    }
+    static var plainISO: Data { get throws { try plainISOMade.get() } }
 
     private func mbr(_ entries: [(status: UInt8, type: UInt8, start: UInt32, sectors: UInt32)]) -> Data {
         var d = Data(count: 512)
@@ -30,7 +31,7 @@ final class ImageInspectorTests: XCTestCase {
 
     func testAnISOWithAPartitionTableIsWrittenWhole() throws {
         // As xorriso makes them: an active partition of type 0 spanning the ISO, and the EFI partition.
-        var d = Self.plainISO
+        var d = try Self.plainISO
         d.replaceSubrange(0..<512, with: mbr([(0x80, 0x00, 0, UInt32(d.count / 512)), (0, 0xEF, 64, 1000)]))
         let kind = try ImageInspector.inspect(DataRandomAccess(d))
         XCTAssertEqual(kind, .hybridISO(partitions: .mbr))

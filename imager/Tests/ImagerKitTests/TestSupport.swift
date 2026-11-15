@@ -1,5 +1,7 @@
-import CryptoKit
 import Foundation
+#if canImport(CryptoKit)
+import CryptoKit
+#endif
 @testable import ImagerKit
 import XCTest
 
@@ -23,7 +25,13 @@ enum Fixture {
     }
 }
 
-func sha256(_ d: Data) -> String { SHA256.hash(data: d).map { String(format: "%02x", $0) }.joined() }
+/// On the Mac, Apple's SHA-256 (so the tests check our code against something we didn't write); elsewhere ours, which
+/// SHA256Tests checks against the standard's examples.
+#if canImport(CryptoKit)
+func sha256(_ d: Data) -> String { CryptoKit.SHA256.hash(data: d).map { String(format: "%02x", $0) }.joined() }
+#else
+func sha256(_ d: Data) -> String { SHA256Hasher.hex(d) }
+#endif
 
 /// A plain file standing in for a disk, filled with 0xEE so untouched bytes show.
 final class TempDisk {

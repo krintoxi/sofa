@@ -4,6 +4,29 @@ The Mac app in this folder. Each build on `main` replaces the zip on the
 [`sofa-box-imager` release](https://github.com/krintoxi/sofa/releases/tag/sofa-box-imager). Its version is `VERSION`
 here. Until 0.3.0 its changes were written up with Sofa Box OS's, in `deploy/sofa-box/CHANGES.md`.
 
+## 0.4.1
+
+**The shared core builds and passes its tests on Linux**, the first step to Windows and Linux versions (README, "On
+Windows and Linux"). The Mac app does what 0.4.0 did.
+
+- **Our own xz unpacker** (`XZUnpacker`: the xz container and LZMA2) **and SHA-256** (`SHA256Hasher`), for Windows and
+  Linux, where Apple's Compression and CryptoKit don't exist. The Mac keeps Apple's for now. Both are tested on files
+  packed by `xz` 5.8.4 with every check type (CRC32, CRC64, SHA-256, none), odd literal and position settings, a 4 KiB
+  dictionary, ten blocks, `-9e`, and chunks stored rather than packed; a filter before LZMA2 (x86) is named and
+  refused, and damage one bit at a time across four files never gives other bytes without an error. On the real
+  Sofa Box OS 1.1.87 card (5.2 GB unpacked) both unpackers and both SHA-256s agree with each other and with the list;
+  ours unpacks as fast as Apple's (102 MB/s against 105 on an Apple silicon Mac), and our SHA-256 is about 240 MB/s
+  against CryptoKit's 2,000 (it uses the chip's SHA-256 instructions; ours doesn't yet).
+- **Our own reader for the editions list in a Windows image** (`LiteXML`), used on the Mac too: it reads a Windows
+  11-shaped list exactly as Foundation's `XMLParser` does, so no XML library is needed elsewhere.
+- **The same answers everywhere.** Foundation's `$` in a regular expression also matches before a final newline on
+  Linux, not on the Mac: the disk rule's name check ("disk" and digits) is now checked byte by byte, and the list's
+  dates, the Linux list's file names and a download's `Content-Range` must match as a whole. A Linux test run caught it.
+- `Package.swift` builds only the core and its tests off the Mac; GitHub runs them on Linux (Intel and Arm) beside the
+  Macs. The 15 tests that need macOS's own `hdiutil` or `newfs_msdos` for their test disks skip there, and any other
+  skip fails the job.
+- `scripts/xz-fixtures.py` remakes the new xz test files.
+
 ## 0.4.0
 
 **A universal imager: other Linux systems, Windows installers and your own images, as well as Sofa Box OS.** The

@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 @testable import ImagerKit
 import XCTest
 
@@ -90,6 +93,20 @@ final class CatalogTests: XCTestCase {
         s.pages["https://fedoraproject.org/releases.json"] = fedora
         s.pages["https://downloads.raspberrypi.com/os_list_imagingutility_v4.json"] = raspberryPi
         return s
+    }
+
+    /// A pattern matches a whole name or nothing, the same on the Mac and on Linux (where Foundation's `$` also matches
+    /// before a final newline).
+    func testPatternsMatchWholeNamesOnly() {
+        let debian = #"^debian-[0-9.]+-amd64-netinst\.iso$"#
+        XCTAssertTrue("debian-13.7.0-amd64-netinst.iso".wholeMatch(debian))
+        XCTAssertFalse("debian-13.7.0-amd64-netinst.iso\n".wholeMatch(debian))
+        XCTAssertFalse("x-debian-13.7.0-amd64-netinst.iso".wholeMatch(debian))
+        XCTAssertTrue("bytes 5-9/10".wholeMatch(#"bytes (\d+)-(\d+)/(\d+)"#))
+        XCTAssertFalse("bytes 5-9/10\n".wholeMatch(#"bytes (\d+)-(\d+)/(\d+)"#))
+        XCTAssertFalse("bytes 5-9/10 ".wholeMatch(#"bytes (\d+)-(\d+)/(\d+)"#))
+        XCTAssertEqual(SumsFile.newest(["debian-13.7.0-amd64-netinst.iso\n": String(repeating: "a", count: 64)],
+                                       matching: debian)?.0, nil)
     }
 
     func testSumsFilesInEveryShape() {

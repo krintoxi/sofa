@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// The packed card, a piece at a time, in order. `next()` blocks until the next piece is in; nil at the end.
 public protocol PackedSource: AnyObject {
@@ -173,10 +176,10 @@ public final class HTTPSource: NSObject, PackedSource, URLSessionDataDelegate {
         } else {
             // Carrying on: only exactly the range asked for will do.
             guard code == 206, let range = http?.value(forHTTPHeaderField: "Content-Range"),
-                  let m = range.range(of: #"^bytes (\d+)-(\d+)/(\d+)$"#, options: .regularExpression) else {
+                  range.wholeMatch(#"bytes (\d+)-(\d+)/(\d+)"#) else {
                 fail(DownloadError.cannotResume); completionHandler(.cancel); return
             }
-            let parts = range[m].dropFirst("bytes ".count).split(whereSeparator: { $0 == "-" || $0 == "/" })
+            let parts = range.dropFirst("bytes ".count).split(whereSeparator: { $0 == "-" || $0 == "/" })
                 .compactMap { Int64($0) }
             guard parts.count == 3, parts[0] == received else {
                 fail(DownloadError.cannotResume); completionHandler(.cancel); return

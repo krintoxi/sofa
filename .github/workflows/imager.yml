@@ -1,7 +1,8 @@
 name: Sofa Box Imager
 
-# Builds Sofa Box Imager (imager/) and runs its tests on GitHub's Macs. Unsigned: no certificate or key is used here.
-# imager/README.md ("Signing") says what a signed, notarised build needs.
+# Builds Sofa Box Imager (imager/) and runs its tests on GitHub's Macs, and runs the shared core's tests (ImagerKit) on
+# Linux. Unsigned: no certificate or key is used here. imager/README.md ("Signing") says what a signed, notarised build
+# needs, and "On Windows and Linux" where the other systems stand.
 
 on:
   push:
@@ -18,6 +19,42 @@ permissions:
 # repository's "latest" release. Pull requests and other branches only keep the artifact, as before.
 
 jobs:
+  linux:
+    # The shared core and its tests in the Swift project's own Linux image, on Intel and Arm. The tests that need macOS's
+    # hdiutil or newfs_msdos to make or read their test disk skip here (they run on the Macs below); any other skip fails.
+    name: linux (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    container: swift:6.4-noble
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: ubuntu-24.04, arch: x86_64 }
+          - { runner: ubuntu-24.04-arm, arch: arm64 }
+    steps:
+      - uses: actions/checkout@v5
+      - name: What's on this machine
+        run: |
+          uname -m
+          swift --version
+      - name: Run the tests
+        working-directory: imager
+        run: |
+          set -o pipefail
+          swift test 2>&1 | tee test-output.txt
+      - name: Only the tests that need macOS (or are run when asked) were skipped
+        working-directory: imager
+        run: |
+          grep -E "Executed [0-9]+ tests" test-output.txt | tail -1
+          grep -c "Test skipped - needs macOS's" test-output.txt || true
+          if grep "Test skipped - " test-output.txt | grep -v -e "Test skipped - needs macOS's" -e "Test skipped - set SOFA_IMAGER_"; then
+            echo "::error title=Tests were skipped on Linux::only tests that need macOS's own tools may skip here."
+            exit 1
+          fi
+
   mac:
     name: ${{ matrix.mac }}
     runs-on: ${{ matrix.mac }}

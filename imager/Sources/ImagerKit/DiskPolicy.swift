@@ -165,12 +165,20 @@ public enum DiskPolicy {
     /// - Parameters:
     ///   - startupDisks: the physical disks the Mac's own volumes ("/", /System/Volumes/...) live on.
     ///   - protectedPaths: paths whose volumes must never be erased (the home folder, the app itself, the temporary folder).
+    /// "disk" and then only digits: "disk4", never "disk4s1", "rdisk4", "/dev/disk4" or "disk4" with anything after it.
+    /// Checked byte by byte, not with a regular expression: Foundation's `$` also matches before a final newline on
+    /// Linux, and this rule must decide the same everywhere.
+    static func isWholeDiskName(_ name: String) -> Bool {
+        let b = Array(name.utf8)
+        return b.count > 4 && b[0..<4].elementsEqual("disk".utf8) && b[4...].allSatisfy { $0 >= 0x30 && $0 <= 0x39 }
+    }
+
     public static func refusals(for disk: DiskDescription, needs: Int64, startupDisks: Set<String> = [],
                                 protectedPaths: [String] = []) -> [DiskRefusal] {
         var why: [DiskRefusal] = []
 
         // What it is.
-        if disk.bsdName.range(of: #"^disk[0-9]+$"#, options: .regularExpression) == nil { why.append(.oddDeviceName) }
+        if !DiskPolicy.isWholeDiskName(disk.bsdName) { why.append(.oddDeviceName) }
         if !disk.isWhole { why.append(.notAWholeDisk) }
         let proto = (disk.protocolName ?? "").lowercased()
         // What a disk is shows right beside its media: a disk image's driver, an APFS container's scheme, a RAID set.

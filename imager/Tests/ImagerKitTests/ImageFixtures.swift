@@ -1,11 +1,18 @@
-import CryptoKit
 import Foundation
 @testable import ImagerKit
 import XCTest
 
+/// Tools only macOS has. A test that needs one to make or read its test disk is skipped elsewhere (and runs on the Mac).
+let macOSOnlyTools: Set<String> = ["/usr/bin/hdiutil", "/sbin/newfs_msdos", "/usr/sbin/diskutil", "/usr/bin/xcrun"]
+
 /// Runs a program and returns what it printed; throws when it fails.
 @discardableResult
 func sh(_ path: String, _ args: [String]) throws -> String {
+    #if !os(macOS)
+    if macOSOnlyTools.contains(path) {
+        throw XCTSkip("needs macOS's \(URL(fileURLWithPath: path).lastPathComponent) to make or read its test disk")
+    }
+    #endif
     let p = Process()
     p.executableURL = URL(fileURLWithPath: path)
     p.arguments = args
@@ -67,7 +74,11 @@ enum FakeWIM {
         var body = Data()
         var entries: [WIMFile.Entry] = []
         let start = Int64(WIMFile.headerSize)
-        func hash(_ i: Int) -> Data { Data(Insecure.SHA1.hash(data: Data("r\(i)-\(seed)".utf8))) }
+        func hash(_ i: Int) -> Data {                       // made up: 20 bytes, like the SHA-1 a WIM keeps
+            var h = SHA256Hasher()
+            h.update(data: Data("r\(i)-\(seed)".utf8))
+            return Data(h.finalize().prefix(20))
+        }
         for (i, n) in resources.enumerated() {
             let at = start + Int64(body.count)
             body.append(noise(n, seed: seed &+ UInt64(i) &+ 100))

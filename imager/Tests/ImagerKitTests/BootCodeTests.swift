@@ -2,8 +2,8 @@ import Foundation
 @testable import ImagerKit
 import XCTest
 
-/// The boot code's bytes are the sources' (`imager/boot/*.S`, assembled again here with Xcode's own clang), and fit
-/// where they go.
+/// The boot code's bytes are the sources' (`imager/boot/*.S`, assembled again here with clang: Xcode's on the Mac, the
+/// Swift toolchain's elsewhere), and fit where they go.
 final class BootCodeTests: XCTestCase {
     static let boot = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../boot")
         .standardizedFileURL
@@ -36,10 +36,15 @@ final class BootCodeTests: XCTestCase {
     private func assemble(_ name: String) throws -> Data {
         let out = try scratch("asm").appendingPathComponent(name + ".o")
         do {
-            try sh("/usr/bin/xcrun", ["clang", "-c", "-target", "i386-unknown-none-elf",
+            #if os(macOS)
+            let clang = ("/usr/bin/xcrun", ["clang"])
+            #else
+            let clang = ("/usr/bin/env", ["clang"])
+            #endif
+            try sh(clang.0, clang.1 + ["-c", "-target", "i386-unknown-none-elf",
                                        Self.boot.appendingPathComponent(name + ".S").path, "-o", out.path])
         } catch {
-            throw XCTSkip("Xcode's clang can't assemble for i386 here: \(error)")
+            throw XCTSkip("clang can't assemble for i386 here: \(error)")
         }
         return try Self.text(ofELF: try Data(contentsOf: out))
     }

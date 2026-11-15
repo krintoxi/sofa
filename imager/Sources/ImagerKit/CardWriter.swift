@@ -1,4 +1,3 @@
-import CryptoKit
 import Foundation
 
 /// Somewhere a card can be written: a raw disk (`/dev/rdiskN`) in the app, a plain file in tests.
@@ -87,7 +86,7 @@ public final class CardWriter {
     private var offset: Int64 = 0                         // where `buffer` goes on the disk
     private var firstBlock: Data?
     private var received: Int64 = 0
-    private var hasher = SHA256()
+    private var hasher = WriterSHA256()
     private var started = false
     private var unresponsive = false
 
@@ -222,7 +221,7 @@ public final class CardWriter {
 
     /// Reads every byte of the card back and checks it against the list's SHA-256.
     public func verify() throws {
-        var h = SHA256()
+        var h = WriterSHA256()
         var at: Int64 = 0
         let total = writtenLength
         while at < total {
@@ -297,7 +296,7 @@ public enum CardPipeline {
             let src = try plan.makeSource()
             source = src
             if plan.packed {
-                let decoder = try XZDecoder()
+                let decoder = try WriterXZDecoder()
                 while let packed = try src.next() {
                     if isCancelled() { throw WriteError.cancelled }
                     try decoder.feed(packed) { try writer.write($0) }
@@ -328,7 +327,7 @@ public enum CardPipeline {
                                 progress: progress, isCancelled: isCancelled)
         do {
             try writer.begin()
-            let decoder = try XZDecoder()
+            let decoder = try WriterXZDecoder()
             while let packed = try source.next() {
                 if isCancelled() { throw WriteError.cancelled }
                 try decoder.feed(packed) { try writer.write($0) }

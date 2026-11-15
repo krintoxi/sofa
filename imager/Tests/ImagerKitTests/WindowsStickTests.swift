@@ -1,5 +1,7 @@
-import CryptoKit
 import Foundation
+#if canImport(FoundationXML)
+import FoundationXML
+#endif
 @testable import ImagerKit
 import XCTest
 
@@ -7,12 +9,13 @@ import XCTest
 /// from, the WIM splitter against the WIM it split, and the finished FAT32 stick against macOS's own FAT checker
 /// (`fsck_msdos`) and macOS's own FAT driver, which mounts it and reads every file back.
 final class WindowsStickTests: XCTestCase {
-    static let eleven: FakeWindowsISO.Made = try! FakeWindowsISO.make(FakeWIM.windows11)
+    private static let elevenMade = Result { try FakeWindowsISO.make(FakeWIM.windows11) }
+    static var eleven: FakeWindowsISO.Made { get throws { try elevenMade.get() } }
 
     // MARK: UDF
 
     func testTheUDFReaderReadsWhatTheISOWasMadeFrom() throws {
-        let made = Self.eleven
+        let made = try Self.eleven
         let iso = try FileRandomAccess(url: made.iso)
         XCTAssertTrue(UDFReader.isUDF(iso))
         let volume = try UDFReader.read(iso)
@@ -171,7 +174,7 @@ final class WindowsStickTests: XCTestCase {
     /// The finished stick, checked by macOS: `fsck_msdos` finds nothing wrong, and its FAT driver reads every file back
     /// as it was on the ISO, long names and all, with install.wim split into parts that put it back together.
     func testTheStickIsAFAT32VolumeMacOSReadsBack() throws {
-        let made = Self.eleven
+        let made = try Self.eleven
         let iso = try FileRandomAccess(url: made.iso)
         let disk: Int64 = 64 << 20
         let (stick, media) = try WindowsStick.build(iso: iso, diskBytes: disk, sectorBytes: 512, splitAbove: 200_000,

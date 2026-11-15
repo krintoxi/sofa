@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// The other systems Sofa Box Imager writes: a short list we keep, each fetched from its project's own download site and
 /// checked against that project's own list of SHA-256 sums, read fresh over HTTPS every time. Nothing here names a
@@ -177,7 +180,7 @@ public enum SumsFile {
 
     /// The file matching `pattern` with the highest version in its name.
     public static func newest(_ sums: [String: String], matching pattern: String) -> (String, String)? {
-        let hits = sums.keys.filter { $0.range(of: pattern, options: .regularExpression) != nil }
+        let hits = sums.keys.filter { $0.wholeMatch(pattern) }
         guard let best = hits.max(by: { VersionOrder.less(numbers($0), numbers($1)) }) else { return nil }
         return (best, sums[best]!)
     }
@@ -302,5 +305,13 @@ public struct URLSessionFetcher: CatalogFetcher {
         guard http.url?.scheme == "https" else { throw CatalogError.notHTTPS(http.url?.absoluteString ?? "") }
         guard http.expectedContentLength > 0 else { throw CatalogError.noSize(url.absoluteString) }
         return http.expectedContentLength
+    }
+}
+
+extension String {
+    /// True when the regular expression `pattern` matches all of the string, and only then. (Foundation's `$` also
+    /// matches before a final newline on Linux but not on the Mac; asking for the whole string decides the same on both.)
+    func wholeMatch(_ pattern: String) -> Bool {
+        range(of: pattern, options: .regularExpression) == startIndex..<endIndex
     }
 }
