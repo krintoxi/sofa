@@ -376,6 +376,12 @@ country page (stop 0x3B, `c0000096`, a privileged instruction in the kernel; its
 started again as a 6th-generation Intel processor, and two first-start pages (keyboard, privacy settings) timed out
 ("OOBEKEYBOARD", "OOBESETTINGS") on the slow virtual PC and were skipped, as Windows offers.
 
+**The processor key** (`BypassCPUCheck`, added to the skip switch on 2026-11-15): the same Windows 11 ISO in a virtual
+PC with an emulated 6th-generation Intel processor (not on Microsoft's list), UEFI, Secure Boot on and no TPM. The plain
+stick's Setup refused it for TPM 2.0 only: it didn't check the processor on a clean install from boot media. The skip
+stick set all four LabConfig keys (read back inside Setup) and went on to the license terms. So the key costs nothing,
+and covers a Setup that does check.
+
 **Not proven in a virtual PC:** Windows 7 (Microsoft no longer offers its ISO;
 its parts are tested with made-up ISOs only), 8.1, 32-bit and ARM64 Windows; Ubuntu and Linux Mint (their lists are
 read from their sites and turned into the right files, and they're written the same way as Debian, but they weren't
