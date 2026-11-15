@@ -519,14 +519,29 @@ they did before (1,050 meshes compared).
 <a id="the-maker"></a>**The maker** (`maker/`, not on Home). The first page of our game maker, for a computer with a
 mouse: from a checkout, `python3 -m http.server -d deploy/sofa-box/games 8770` and then
 `http://127.0.0.1:8770/maker/`; on a box, `http://127.0.0.1:8091/box/games/maker/` in its own browser (the box serves
-its pages to itself only, so a computer on its network can't open it there yet). It reads a game's own page and what's
-marked there for it, draws the game's bodies as the game bakes them, and turns their poses joint by joint (mirror,
-revert, clips played at a rate, all the bodies in a line-up, the picture a Pi 3 draws, the draw calls and triangles
-against a Pi 3's frame). What's changed is copied out as the game writes it, a pose or the whole block; nothing is
-written back to the page yet. A game marks the parts the maker reads, in this order, each using only `L3` and the
-blocks before it:
+its pages to itself only, so a computer on its network can't open it there yet). It has two screens:
+
+- **Setup**: what kind of game it is, how it looks, players, controls, the weakest box it must run on (the floor) and
+  the strongest it should use (the ceiling), the frame rate, where it ships, the camera and the languages. It says what
+  the maker makes of the answers (the runtime, the starting page, the rungs from the floor to the ceiling with the
+  budget of each that's been measured: so far only a Pi 3's), and writes them into the game as its profile and camera
+  blocks. A new game starts from one of two starting pages, Low3D's or Low2D's, with those blocks in it.
+- **Poses**: the game's bodies as the game bakes them, their poses turned joint by joint (mirror, revert, clips played
+  at a rate, all the bodies in a line-up, the picture a Pi 3 draws, the draw calls and triangles against the floor's
+  budget).
+
+Games come from the box's list beside the page, from a games folder on this computer (the one with `low3d.js` in it:
+`deploy/sofa-box/games` in a checkout; Chrome and Edge open folders), or from one page file. Saving writes the changed
+blocks back into the game's `index.html` and leaves every other byte as it was; a page changed on the computer since
+it was opened is never written over. A page file comes back as a download. On a box the maker only shows and tests
+games: a page the box serves (`/box/…`) has no saving at all.
+
+A game marks the parts the maker reads and writes, each using only `L3` and the blocks before it; a block the page
+doesn't have yet goes at the top of the game's own script, after `"use strict"`:
 
 ```js
+/* maker: profile */ const PROFILE = { type, look, players, fps, floor, ceiling, controls, targets, languages }; /* maker: end */
+/* maker: camera */ const CAMERA = { way: "follow" }; /* maker: end */   // top, follow, chase, orbit, first, flat
 /* maker: models */ const MODELS = { … }; /* maker: end */          // models packed by tools/low3d-models.py
 /* maker: poses */ const POSES = { … }; /* maker: end */            // each pose on a line of its own: name: { … },
 /* maker: bodies rig=RIG build=buildBody looks=FOLK,STYLES */
@@ -535,8 +550,9 @@ const RIG = new L3.Rig(); …  function buildBody(mesh, look, pose, size) { … 
 ```
 
 `rig`, `build` and `looks` name what's in the bodies block: the rig, the function that builds one pose of a body, and
-the tables of looks to show (each look a body's colours and parts, as `build` takes them). The page is
-`maker/index.html#<game>` (`#wyrd` first).
+the tables of looks to show (each look a body's colours and parts, as `build` takes them). The profile and camera are
+data for now: the bench and the cameras take them up as they come. The page is `maker/index.html#<game>` (`#wyrd`
+first).
 
 **Moving things.**
 - `Path(points, {closed, step})` is a smooth line to race, ride or patrol along. It has `at(s)`, `side(s, off)`,

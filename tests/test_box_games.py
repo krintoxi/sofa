@@ -2802,5 +2802,134 @@ class GameMode(unittest.TestCase):
             pads.GAME_FILE = real
 
 
+
+MAKER_TEXT_JS = """
+globalThis.window = globalThis;
+const fs = require("fs"), html = fs.readFileSync(process.argv[1], "utf8");
+const at = html.indexOf("/* The maker's hold on a game's page"), from = html.lastIndexOf("<script>", at) + 8, to = html.indexOf("</" + "script>", at);
+eval(html.slice(from, to));
+const T = window.MakerText, A = JSON.parse(fs.readFileSync(process.argv[2], "utf8")), out = {};
+const read = f => fs.readFileSync(f, "utf8");
+"""
+
+
+class TheMaker(unittest.TestCase):
+    """The maker's setup and saving (games/maker/): a game's page goes back exactly as it was but for the blocks the
+    maker changed, new blocks go into the game's own script, the profile and camera blocks say what the setup was told,
+    the two starting pages are pages for the engines beside them, and the box only shows and tests games."""
+    GAMES = os.path.join(BOX, "games")
+
+    def node(self, script, args=None):
+        tmp = tempfile.mkdtemp()
+        try:
+            path = os.path.join(tmp, "args.json")
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(args or {}, f)
+            r = subprocess.run(["node", "-e", MAKER_TEXT_JS + script + "\nconsole.log(JSON.stringify(out));",
+                                os.path.join(self.GAMES, "maker", "index.html"), path], capture_output=True, text=True, timeout=60)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return json.loads(r.stdout)
+
+    def parses(self, page, name):
+        tmp = tempfile.mkdtemp()
+        try:
+            for i, body in enumerate(re.findall(r"<script>(.*?)</script>", page, re.S)):
+                path = os.path.join(tmp, "%s_%d.js" % (name, i))
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write(body)
+                r = subprocess.run(["node", "--check", path], capture_output=True, text=True, timeout=60)
+                self.assertEqual(r.returncode, 0, name + "\n" + r.stderr)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_a_page_goes_back_as_it_was(self):
+        """Every game's page, put back with no change or with each block's own text, is the same to the byte; a change
+        to WYRD's poses changes nothing outside the poses block."""
+        pages = {g["id"]: os.path.join(self.GAMES, g["id"], "index.html") for g in CATALOG["games"]}
+        out = self.node(r"""
+out.same = {}; out.marked = {};
+for (const id of Object.keys(A.pages)) {
+  const p = read(A.pages[id]), b = T.blocks(p);
+  let ok = T.splice(p, {}) === p;
+  for (const k of Object.keys(b)) ok = ok && T.splice(p, { [k]: b[k].text }) === p;
+  out.same[id] = ok; out.marked[id] = Object.keys(b);
+}
+const p = read(A.pages.wyrd), b = T.blocks(p), was = b.poses.text, now = was.replace(/\bwalk0: \{ /, "walk0: { lean: 0.1, ");
+const q = T.splice(p, { poses: now });
+out.edit = [now !== was, q.slice(0, b.poses.start) === p.slice(0, b.poses.start), q.slice(q.length - (p.length - b.poses.end)) === p.slice(b.poses.end), q.length - p.length];
+""", {"pages": pages})
+        self.assertEqual([gid for gid, ok in out["same"].items() if not ok], [])
+        self.assertEqual(sorted(out["marked"]["wyrd"]), ["bodies", "models", "poses"])
+        self.assertEqual(out["edit"], [True, True, True, len("lean: 0.1, ")])
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_new_blocks_go_into_the_games_own_script(self):
+        """The profile and camera blocks a page doesn't have yet go after "use strict" in its own script; the page still
+        parses, the blocks give back what went in, and saving them again changes nothing."""
+        pages = {gid: os.path.join(self.GAMES, gid, "index.html") for gid in ("wyrd", "tidewing", "cinder-knight", "neon-dodge")}
+        out = self.node(r"""
+const P = { type: "rpg3d", look: "flat", players: 2, fps: 30, floor: "pi3", ceiling: "computer", controls: ["pad", "touch"], targets: ["web"], languages: ["en", "ja"], bench: { secs: 15 } };
+const C = { way: "follow" };
+out.pages = {}; out.back = {};
+for (const id of Object.keys(A.pages)) {
+  const p = read(A.pages[id]), q = T.splice(p, { profile: T.profileText(P), camera: T.cameraText(C) }), b = T.blocks(q);
+  const own = q.lastIndexOf("<script>"), strict = q.indexOf('"use strict";', own), at = q.indexOf("/* maker: profile */");
+  out.back[id] = [JSON.stringify(T.value(b.profile.text, "PROFILE")) === JSON.stringify(P), JSON.stringify(T.value(b.camera.text, "CAMERA")) === JSON.stringify(C),
+    at > own && (strict < 0 || at > strict), T.splice(q, { profile: T.profileText(P), camera: T.cameraText(C) }) === q, q.length > p.length];
+  out.pages[id] = q;
+}
+""", {"pages": pages})
+        for gid, checks in out["back"].items():
+            self.assertEqual(checks, [True] * 5, gid)
+            self.parses(out["pages"][gid], gid)
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_the_starting_pages(self):
+        """A new game starts from one of two pages: Low3D's, or Low2D's on top of it, each loading the engines beside it
+        in order, with nothing from the network, its name written safely, and the setup's blocks in its own script."""
+        out = self.node(r"""
+const P = { type: "platformer", look: "pixel", players: 1, fps: 60, floor: "pi3", ceiling: "pi5", controls: ["pad", "keys"], targets: ["web", "box"], languages: ["en"] };
+out.p3 = T.page3d({ id: "my-game", name: "My <Game> \"*/", profile: Object.assign({}, P, { type: "rpg3d", look: "flat" }), camera: { way: "follow" } });
+out.p2 = T.page2d({ id: "my-game", name: "My Game", profile: P, camera: { way: "flat" } });
+out.v = [out.p3, out.p2].map(p => { const b = T.blocks(p); return [T.value(b.profile.text, "PROFILE").type, T.value(b.camera.text, "CAMERA").way]; });
+""")
+        for name, page, srcs in (("p3", out["p3"], ["../pad.js", "../low3d.js"]), ("p2", out["p2"], ["../pad.js", "../low3d.js", "../low2d.js"])):
+            self.assertTrue(page.startswith("<!doctype html>"), name)
+            self.assertEqual(re.findall(r'<script src="([^"]+)"></script>', page), srcs, name)
+            self.assertEqual(page.count("<script"), page.count("</script>"), name)
+            self.assertNotRegex(page, r"""(src|href|url)\s*[=(]\s*["']?(https?:)?//""")
+            for online in ("fetch(", "XMLHttpRequest", "WebSocket", "<link"):
+                self.assertNotIn(online, page)
+            self.parses(page, name)
+        self.assertIn("<title>My &lt;Game&gt; &quot;*/</title>", out["p3"])            # the name, written safely
+        self.assertIn('"use strict";\n/* maker: profile */', out["p3"])
+        self.assertEqual(out["v"], [["rpg3d", "follow"], ["platformer", "flat"]])
+        self.assertIn("L3.game({", out["p3"])
+        self.assertIn("L2.game({", out["p2"])
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_the_box_only_shows_and_tests(self):
+        """A page the box serves (/box/…) never writes a file: no folder, no page from the computer, no saving. Only a
+        Pi 3's budget is given, the one that's been measured."""
+        out = self.node(r"""
+out.writes = ["/box/games/maker/", "/maker/", "/games/maker/", "/play/maker/"].map(p => T.writes({ pathname: p }));
+out.budgets = Object.keys(T.BUDGETS);
+out.pi3 = T.BUDGETS.pi3;
+""")
+        self.assertEqual(out["writes"], [False, True, True, True])
+        self.assertEqual(out["budgets"], ["pi3"])
+        self.assertEqual(out["pi3"], {"draws": 30, "tris": 15000, "garbage": 300})
+        with open(os.path.join(self.GAMES, "maker", "index.html"), encoding="utf-8") as f:
+            page = f.read()
+        self.assertIn("onBox: !T.writes(location)", page)
+        self.assertIn('if (Maker.onBox || Maker.source === "box") return say(', page)       # saving: never on the box
+        self.assertIn('if (!Maker.onBox && window.showDirectoryPicker) add("folder"', page)  # a folder: only off the box
+        self.assertIn('if (Maker.onBox || Maker.source !== "folder") throw', page)           # a new game: only into a folder
+        self.assertIn("if (now !== Maker.page) return say(", page)                             # never over a change made elsewhere
+
+
 if __name__ == "__main__":
     unittest.main()

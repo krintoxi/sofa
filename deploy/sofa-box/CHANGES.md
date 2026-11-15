@@ -8,6 +8,28 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.94
+
+**The maker asks first, and saves.** The maker (`games/maker/`, for a computer; not on Home) gets a setup screen
+beside its poses. It asks:
+
+- what kind of game it is (thirteen kinds, from a 3D action-RPG like WYRD to a puzzle like Cosmic Cascade)
+- how it looks, who plays it and with what
+- the weakest box it must run on and the strongest it should use, and the frame rate
+- where it ships, how the camera works, and in which languages
+
+It says what it makes of the answers: the runtime, the page the game starts from, and the rungs from the floor to
+the ceiling, each with its budget where one has been measured (so far only a Pi 3's). The answers go into the game as
+two blocks of its own, its profile and its camera. A new game starts from one of two starting pages, Low3D's or
+Low2D's, each an empty scene with a block you move and those blocks already in it.
+
+The maker now opens games from a games folder on this computer (Chrome and Edge), or from a single page file, as well
+as from the box's list. Saving writes only the blocks that changed (poses, profile, camera) back into the game's page.
+Every other byte stays as it was, and a page changed on the computer since it was opened is never written over. A page
+file comes back as a download. The pose screen's meters now measure against the budget of the game's own floor.
+
+On a box the maker only shows and tests games: nothing it serves can save a file.
+
 ## 1.1.93
 
 The box's page games on a phone or a tablet: each one notices by itself and is played by touch, with tilt if you

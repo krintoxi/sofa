@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Maker: poses</title>
+<title>Maker</title>
 <style>
   :root { --ink: #050706; --panel: #0b0f0c; --line: #1c2a21; --bone: #e9ede8; --dim: #8a968e; --green: #39ff88; --pink: #ff2e88;
     --mono: ui-monospace, "SF Mono", Menlo, "DejaVu Sans Mono", Consolas, monospace; color-scheme: dark; }
@@ -11,38 +11,74 @@
   html, body { margin: 0; height: 100%; background: var(--ink); color: var(--bone); font: 12px/1.4 var(--mono); }
   button, select, input, textarea { font: inherit; color: inherit; }
   button { cursor: pointer; }
+  button:disabled { cursor: not-allowed; opacity: .4; }
   :focus-visible { outline: 2px solid var(--pink); outline-offset: 1px; }
-  .app { display: grid; grid-template-rows: auto minmax(0, 1fr); height: 100%; }
+  [hidden] { display: none !important; }
+  .app { display: grid; grid-template-rows: auto auto minmax(0, 1fr); height: 100%; }
   header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--panel); }
   header b { color: var(--green); font-weight: 500; letter-spacing: .08em; }
   header b i { color: var(--pink); font-style: normal; }
-  header select { background: var(--ink); border: 1px solid var(--line); padding: 3px 6px; }
-  header .hint { color: var(--dim); }
-  .msg { padding: 6px 12px; color: var(--dim); }
+  header select, .form input { background: var(--ink); border: 1px solid var(--line); padding: 3px 6px; }
+  .tabs { display: flex; gap: 4px; }
+  .tabs button { background: none; border: 1px solid var(--line); padding: 3px 9px; color: var(--dim); }
+  .tabs button.on { color: var(--ink); background: var(--green); border-color: var(--green); }
+  .changed { color: var(--pink); margin-left: auto; }
+  .save { background: none; border: 1px solid var(--pink); color: var(--pink); padding: 3px 10px; }
+  .msg { grid-row: 2; padding: 6px 12px; color: var(--dim); border-bottom: 1px solid var(--line); }
   .msg.bad { color: var(--pink); }
-  .main { display: grid; grid-template-columns: 190px minmax(0, 1fr) 270px; min-height: 0; }
-  .col { padding: 12px; background: var(--panel); min-width: 0; overflow: auto; }
-  .left { border-right: 1px solid var(--line); }
-  .right { border-left: 1px solid var(--line); }
+  .screen { grid-row: 3; min-height: 0; }
   .h { color: var(--green); text-transform: uppercase; letter-spacing: .12em; font-size: 10px; margin: 12px 0 6px; }
   .h:first-child { margin-top: 0; }
   .h::before { content: "> "; color: var(--pink); }
+  .chips { display: flex; flex-wrap: wrap; gap: 4px; }
+  .chip, .btn { background: none; border: 1px solid var(--line); padding: 3px 7px; color: var(--dim); }
+  .chip:hover:not(:disabled), .btn:hover:not(:disabled) { color: var(--bone); border-color: var(--dim); }
+  .chip.on { color: var(--ink); background: var(--green); border-color: var(--green); }
+  .chip small { display: block; font-size: 10px; color: #5d6a62; }
+  .chip.on small { color: #0f3a24; }
+  .chip.edited::after { content: " •"; color: var(--pink); }
+  .chip.on.edited::after { color: var(--ink); }
+  .btn { color: var(--bone); }
+  .btn.on { border-color: var(--pink); color: var(--pink); }
+  .note { color: var(--dim); font-size: 11px; margin: 10px 0 0; }
+
+  /* the setup: the questions, and what the maker makes of them */
+  .setup { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); height: 100%; }
+  .setup .q { padding: 14px; overflow: auto; border-right: 1px solid var(--line); display: grid; gap: 14px; align-content: start; }
+  .setup .out { padding: 14px; overflow: auto; background: var(--panel); display: grid; gap: 6px; align-content: start; }
+  .setup .types .chip { min-width: 10em; text-align: left; }
+  .two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+  .dl { margin: 0; display: grid; grid-template-columns: 82px minmax(0, 1fr); gap: 4px 10px; }
+  .dl dt { color: var(--dim); }
+  .dl dd { margin: 0; }
+  .lad { display: grid; gap: 4px; }
+  .rung { display: grid; gap: 1px; padding: 6px 8px; border-left: 3px solid var(--line); background: #0e1411; }
+  .rung.floor { border-left-color: var(--pink); }
+  .rung.ceil { border-left-color: var(--green); }
+  .rung span { color: var(--dim); }
+  .rung i { font-style: normal; font-size: 11px; color: #6f7c74; }
+  .ul { margin: 0; padding-left: 16px; display: grid; gap: 3px; color: var(--dim); }
+  .warn li { color: #ffb3d1; }
+  .warn li.ok { color: var(--green); }
+  pre.block { margin: 0; padding: 10px; background: #070a08; border: 1px solid var(--line); color: var(--green); font: 11px/1.45 var(--mono); white-space: pre-wrap; word-break: break-word; }
+  .form { display: grid; gap: 6px; padding: 10px; border: 1px solid var(--line); }
+  .form label { display: grid; grid-template-columns: 52px minmax(0, 1fr); align-items: center; gap: 8px; color: var(--dim); }
+  .btns { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 6px; }
+
+  /* the poses */
+  .poses { display: grid; grid-template-columns: 190px minmax(0, 1fr) 270px; height: 100%; min-height: 0; }
+  .col { padding: 12px; background: var(--panel); min-width: 0; overflow: auto; }
+  .left { border-right: 1px solid var(--line); }
+  .right { border-left: 1px solid var(--line); }
   .list { display: flex; flex-direction: column; gap: 2px; }
   .item { text-align: left; background: none; border: 0; padding: 5px 6px; color: var(--dim); }
   .item:hover { color: var(--bone); background: #111a14; }
   .item.on { color: var(--ink); background: var(--green); }
   .stage { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+  .none { padding: 24px 16px; color: var(--dim); }
   canvas { flex: 1; width: 100%; min-height: 0; display: block; image-rendering: pixelated; image-rendering: crisp-edges; cursor: grab; background: var(--ink); touch-action: pan-y; }
   .hud { position: absolute; top: 8px; left: 10px; right: 10px; color: var(--green); font-size: 11px; pointer-events: none; text-shadow: 0 1px 0 #000; }
   .bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 10px; border-top: 1px solid var(--line); background: var(--panel); }
-  .chips { display: flex; flex-wrap: wrap; gap: 4px; }
-  .chip, .btn { background: none; border: 1px solid var(--line); padding: 3px 7px; color: var(--dim); }
-  .chip:hover, .btn:hover { color: var(--bone); border-color: var(--dim); }
-  .chip.on { color: var(--ink); background: var(--green); border-color: var(--green); }
-  .chip.edited::after { content: " •"; color: var(--pink); }
-  .chip.on.edited::after { color: var(--ink); }
-  .btn { color: var(--bone); }
-  .btn.on { border-color: var(--pink); color: var(--pink); }
   .rate { display: flex; align-items: center; gap: 6px; color: var(--dim); margin-left: auto; }
   .rate input { width: 80px; accent-color: var(--green); }
   .joints .chip { padding: 2px 5px; font-size: 11px; }
@@ -50,7 +86,6 @@
   .row { display: grid; grid-template-columns: 44px 1fr 44px; align-items: center; gap: 6px; margin: 2px 0; color: var(--dim); }
   .row input { width: 100%; accent-color: var(--pink); }
   .num { text-align: right; color: var(--bone); }
-  .btns { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 6px; }
   textarea { width: 100%; background: #070a08; color: var(--green); border: 1px solid var(--line); font-size: 10.5px; padding: 6px; resize: vertical; }
   .stat { display: flex; flex-direction: column; margin: 4px 0; }
   .stat span { color: var(--dim); font-size: 10px; }
@@ -58,93 +93,594 @@
   .meter i { display: block; height: 8px; background: #121a15; border: 1px solid var(--line); }
   .meter em { display: block; height: 100%; width: 0; background: var(--green); }
   .meter b { grid-column: 2; font-weight: 500; font-size: 11px; }
-  .note { color: var(--dim); font-size: 11px; margin-top: 10px; }
   @media (max-width: 900px) {
     html, body { height: auto; }
     .app { height: auto; }
-    .main { grid-template-columns: 1fr; }
+    .setup, .poses { grid-template-columns: 1fr; height: auto; }
+    .setup .q { border-right: 0; border-bottom: 1px solid var(--line); }
     .left { border-right: 0; border-bottom: 1px solid var(--line); }
     .left .list { flex-direction: row; flex-wrap: wrap; }
     .right { border-left: 0; border-top: 1px solid var(--line); }
     canvas { height: 320px; flex: none; }
+    .two { grid-template-columns: 1fr; }
   }
 </style>
 </head>
 <body>
 <div class="app">
   <header>
-    <b>maker <i>/</i> poses</b>
+    <b>maker <i>/</i> <span id="where">poses</span></b>
+    <label>from <select id="source"></select></label>
     <label>game <select id="game"></select></label>
-    <span class="hint">Reads the game's own page. Nothing is saved: copy the poses into the page between its maker marks.</span>
+    <input id="file" type="file" accept=".html,.htm,text/html" hidden>
+    <div class="tabs"><button data-screen="setup">setup</button><button data-screen="poses">poses</button></div>
+    <span id="changed" class="changed"></span>
+    <button id="save" class="save" disabled>save</button>
   </header>
-  <div class="main">
-    <div class="col left">
-      <div id="looks"></div>
-    </div>
-    <div class="stage">
-      <div id="msg" class="msg" hidden></div>
-      <canvas id="gl"></canvas>
-      <div id="hud" class="hud"></div>
-      <div class="bar">
-        <button id="play" class="btn">pause</button>
-        <div id="clips" class="chips"></div>
+  <div id="msg" class="msg" hidden></div>
+
+  <section id="screen-setup" class="screen" hidden>
+    <div class="setup">
+      <div class="q">
+        <div><div class="h">what are you making</div><div class="chips types" data-q="type"></div></div>
+        <div><div class="h">how it looks</div><div class="chips" data-q="look"></div></div>
+        <div class="two">
+          <div><div class="h">players</div><div class="chips" data-q="players"></div></div>
+          <div><div class="h">controls</div><div class="chips" data-q="controls"></div></div>
+        </div>
+        <div><div class="h">the floor: the weakest it must run on</div><div class="chips" data-q="floor"></div></div>
+        <div><div class="h">the ceiling: the strongest it should use</div><div class="chips" data-q="ceiling"></div></div>
+        <div class="two">
+          <div><div class="h">frames a second</div><div class="chips" data-q="fps"></div></div>
+          <div><div class="h">ship to</div><div class="chips" data-q="targets"></div></div>
+        </div>
+        <div><div class="h">the camera</div><div class="chips" data-q="camera"></div></div>
+        <div><div class="h">languages</div><div class="chips" data-q="languages"></div></div>
       </div>
-      <div class="bar">
-        <div id="frames" class="chips"></div>
-        <label class="rate"><input id="rate" type="range" min="2" max="12" step="1" value="6"><span id="rate-n">6 a second</span></label>
-        <button id="line" class="btn">line-up</button>
-        <button id="pix" class="btn on">pi 3 picture</button>
+      <div class="out" aria-live="polite">
+        <div class="h">the maker sets it up</div>
+        <dl class="dl"><dt>runtime</dt><dd id="o-rt"></dd><dt>starts from</dt><dd id="o-start"></dd><dt>camera</dt><dd id="o-cam"></dd></dl>
+        <div class="h">from the floor to the ceiling</div>
+        <div id="o-lad" class="lad"></div>
+        <div class="h">in the maker for it</div>
+        <ul id="o-tools" class="ul"></ul>
+        <div class="h">it tells you</div>
+        <ul id="o-warn" class="ul warn"></ul>
+        <div class="h">lettering to draw</div>
+        <ul id="o-letters" class="ul"></ul>
+        <div class="h">to ship, you'll need</div>
+        <ul id="o-ship" class="ul"></ul>
+        <div class="h">written into the game</div>
+        <pre id="o-block" class="block"></pre>
+        <div class="btns"><button id="put" class="btn">put into this game</button></div>
+        <div id="newgame" class="form" hidden>
+          <div class="h">a new game, in the folder</div>
+          <label>id <input id="new-id" placeholder="my-game" spellcheck="false" autocomplete="off"></label>
+          <label>name <input id="new-name" placeholder="My Game" spellcheck="false" autocomplete="off"></label>
+          <div class="btns"><button id="new-make" class="btn">make it</button></div>
+        </div>
+        <p id="o-note" class="note"></p>
       </div>
     </div>
-    <div class="col right">
-      <div class="h">joint</div>
-      <div id="joints" class="chips joints"></div>
-      <div id="jname" class="jname"></div>
-      <div id="sliders"></div>
-      <div class="btns"><button id="mirror" class="btn">mirror</button><button id="revert" class="btn">revert</button><button id="copy" class="btn">copy pose</button><button id="copyall" class="btn">copy all</button></div>
-      <textarea id="out" rows="5" readonly spellcheck="false"></textarea>
-      <div class="h">baked</div>
-      <div class="stat"><span>this pose</span><b id="s-pose"></b></div>
-      <div class="stat"><span>this body, every pose</span><b id="s-body"></b></div>
-      <div class="h">a pi 3 frame</div>
-      <div class="meter"><span>draws</span><i><em id="m-draw"></em></i><b id="m-draw-n"></b></div>
-      <div class="meter"><span>tris</span><i><em id="m-tri"></em></i><b id="m-tri-n"></b></div>
-      <p class="note">A Pi 3's frame holds about 30 draw calls and 15,000 triangles at 60 a second. Each body here is one draw call, its pose baked into one mesh.</p>
+  </section>
+
+  <section id="screen-poses" class="screen" hidden>
+    <div class="poses">
+      <div class="col left"><div id="looks"></div></div>
+      <div class="stage">
+        <div id="p-none" class="none" hidden></div>
+        <canvas id="gl"></canvas>
+        <div id="hud" class="hud"></div>
+        <div class="bar">
+          <button id="play" class="btn">pause</button>
+          <div id="clips" class="chips"></div>
+        </div>
+        <div class="bar">
+          <div id="frames" class="chips"></div>
+          <label class="rate"><input id="rate" type="range" min="2" max="12" step="1" value="6"><span id="rate-n">6 a second</span></label>
+          <button id="line" class="btn">line-up</button>
+          <button id="pix" class="btn on">pi 3 picture</button>
+        </div>
+      </div>
+      <div class="col right">
+        <div class="h">joint</div>
+        <div id="joints" class="chips joints"></div>
+        <div id="jname" class="jname"></div>
+        <div id="sliders"></div>
+        <div class="btns"><button id="mirror" class="btn">mirror</button><button id="revert" class="btn">revert</button><button id="copy" class="btn">copy pose</button><button id="copyall" class="btn">copy all</button></div>
+        <textarea id="out" rows="5" readonly spellcheck="false"></textarea>
+        <div class="h">baked</div>
+        <div class="stat"><span>this pose</span><b id="s-pose"></b></div>
+        <div class="stat"><span>this body, every pose</span><b id="s-body"></b></div>
+        <div class="h" id="m-h">a frame</div>
+        <div class="meter"><span>draws</span><i><em id="m-draw"></em></i><b id="m-draw-n"></b></div>
+        <div class="meter"><span>tris</span><i><em id="m-tri"></em></i><b id="m-tri-n"></b></div>
+        <p id="m-note" class="note"></p>
+      </div>
     </div>
-  </div>
+  </section>
 </div>
 <script src="../low3d.js"></script>
 <script>
-/* The maker's first page: the poses of a game's bodies, on Low3D's Rig. It reads the game's own page (../<game>/index.html)
-   and what's marked there for the maker:
+/* The maker's hold on a game's page (nothing here touches the page's elements, so the tests run it in node). A game
+   marks what the maker reads and writes:
 
+     /* maker: profile * /  const PROFILE = {…};  /* maker: end * /     (the setup's answers)
+     /* maker: camera * /   const CAMERA = {…};   /* maker: end * /     (the way the camera works)
      /* maker: models * /  … const MODELS = {…}; …  /* maker: end * /     (models packed by tools/low3d-models.py)
      /* maker: poses * /   … const POSES = {…}; …   /* maker: end * /     (poses as numbers: joint: [swing, roll, turn])
      /* maker: bodies rig=RIG build=buildBody looks=FOLK,STYLES * / … /* maker: end * /
 
-   The bodies block makes the rig, the looks and build(mesh, look, pose, size), using only L3 and the blocks before it.
-   Here a body is baked a pose at a time as the game bakes it, and the poses can be turned joint by joint, mirrored and
-   played as clips; what's changed is copied out as the game writes it. Writing it back into the page comes later. */
+   A block is found where it is and put back exactly there; everything else in the page stays as it was, byte for byte.
+   A block the page doesn't have yet goes at the top of the game's own script (after "use strict"). */
 (function () {
 "use strict";
-const L3 = window.Low3D, $ = id => document.getElementById(id);
-const say = (t, bad) => { const e = $("msg"); e.textContent = t || ""; e.className = bad ? "msg bad" : "msg"; e.hidden = !t; };
-const cv = $("gl");
-let g3 = null;
-try { g3 = new L3.GL(cv, { antialias: false }); } catch (e) { say("This browser gives the page no WebGL, so the bodies can't be drawn here.", true); }
-
-// ---------------------------------------------------------------- reading a game's page
 const MARK = /\/\* maker: ([a-z]+)((?: [a-z]+=[A-Za-z_$][\w$]*(?:,[A-Za-z_$][\w$]*)*)*) \*\/([\s\S]*?)\/\* maker: end \*\//g;
-const NAME = /^[A-Za-z_$][\w$]*$/;
+const END = "/* maker: end */";
+// the marked blocks: kind → {text, attrs, start, end} (start and end: where the text between the marks is in the page)
 function blocks(page) {
   const out = {}; let m; MARK.lastIndex = 0;
   while ((m = MARK.exec(page))) {
     const attrs = {};
     for (const kv of m[2].trim().split(/\s+/)) { const i = kv.indexOf("="); if (i > 0) attrs[kv.slice(0, i)] = kv.slice(i + 1); }
-    out[m[1]] = { text: m[3], attrs };
+    const start = m.index + m[0].length - END.length - m[3].length;
+    out[m[1]] = { text: m[3], attrs, start, end: start + m[3].length };
   }
   return out;
 }
+// where a new block goes: the game's own script (the page's last one written in it), after its "use strict"
+function whereNew(page) {
+  const s = page.lastIndexOf("<script>");
+  if (s < 0) throw new Error("this page has no script of its own");
+  const close = page.indexOf("</" + "script>", s), strict = page.indexOf('"use strict";', s);
+  return page.indexOf("\n", strict > s && strict < close ? strict : s) + 1;
+}
+// the page with blocks changed: {kind: the text that goes between its marks}
+function splice(page, changes) {
+  const b = blocks(page), edits = [], fresh = [];
+  for (const k of Object.keys(changes)) (b[k] ? edits : fresh).push(k);
+  edits.sort((x, y) => b[y].start - b[x].start);
+  let out = page;
+  for (const k of edits) out = out.slice(0, b[k].start) + changes[k] + out.slice(b[k].end);
+  if (fresh.length) {
+    const at = whereNew(out);
+    out = out.slice(0, at) + fresh.map(k => "/* maker: " + k + " */" + changes[k] + END + "\n").join("") + out.slice(at);
+  }
+  return out;
+}
+// a data block's value (a profile, a camera): its text run on its own, and the name it makes
+function value(text, name) { return new Function(text + "\nreturn typeof " + name + " === \"undefined\" ? null : " + name + ";")(); }
+// a value as it's written in a page
+function lit(v) {
+  if (Array.isArray(v)) return "[" + v.map(lit).join(", ") + "]";
+  if (v && typeof v === "object") return "{ " + Object.keys(v).map(k => k + ": " + lit(v[k])).join(", ") + " }";
+  return typeof v === "string" ? JSON.stringify(v) : String(v);
+}
+const LINES = [["type", "look", "players", "fps"], ["floor", "ceiling"], ["controls", "targets", "languages"]];
+function profileText(p) {
+  const known = new Set([].concat(...LINES)), lines = LINES.map(ks => ks.filter(k => p[k] != null).map(k => k + ": " + lit(p[k])).join(", ")).filter(Boolean);
+  const rest = Object.keys(p).filter(k => !known.has(k) && p[k] != null).map(k => k + ": " + lit(p[k]));
+  if (rest.length) lines.push(rest.join(", "));
+  return "\nconst PROFILE = {\n  " + lines.join(",\n  ") + "\n};\n";
+}
+function cameraText(c) { return "\nconst CAMERA = " + lit(c) + ";\n"; }
+// what a floor allows a frame: only what's been measured (a Pi 3's, from tools/games-bench.mjs standing in for one)
+const BUDGETS = { pi3: { draws: 30, tris: 15000, garbage: 300 } };
+// The box only shows and tests games: a page it serves (/box/…) never writes a file, whatever the browser could do.
+function writes(loc) { return !/^\/box\//.test(loc.pathname); }
+
+// the two starting pages for a new game (games/ENGINE.md: "A new game, from the start", and Low2D's): an empty scene and
+// a block the stick or the arrows move, the profile and camera blocks at the top of its script
+const SC = "scr" + "ipt";      // (written in two: this page's own script would end where a starting page's does)
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+function start(name, style) {
+  return ["<!doctype html>", '<html lang="en">', "<head>", '<meta charset="utf-8">', '<meta name="viewport" content="width=device-width, initial-scale=1">',
+    "<title>" + esc(name) + "</title>", "<style>", style, "</style>", "</head>", "<body>"];
+}
+function marked(o) { return "/* maker: profile */" + profileText(o.profile) + END + "\n/* maker: camera */" + cameraText(o.camera) + END; }
+function page3d(o) {
+  return start(o.name, [
+    "  html, body { margin: 0; height: 100%; background: #000; color: #e9ede8; overflow: hidden; user-select: none; font-family: system-ui, sans-serif; }",
+    "  #view { position: absolute; overflow: hidden; }",
+    "  .world { position: absolute; inset: 0; width: 100%; height: 100%; }",
+    "  .hidden { display: none !important; }",
+    "  .screen { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: calc(var(--u) * 4); }",
+    "  .screen h1 { margin: 0; font-size: calc(var(--u) * 9); letter-spacing: .04em; }",
+    "  .menu { display: flex; flex-direction: column; gap: calc(var(--u) * 1.5); }",
+    "  .item { font-size: calc(var(--u) * 4.5); padding: calc(var(--u)) calc(var(--u) * 4); border: 2px solid transparent; text-align: center; }",
+    "  .item.on, .item.focus, .item:focus { border-color: #39ff88; color: #39ff88; outline: none; }",
+    "  #loading { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }",
+    "  #loading .bar { width: 40%; height: 6px; background: #1c2a21; } #loading .bar i { display: block; height: 100%; width: 0; background: #39ff88; }",
+    "  #fps { position: absolute; left: 8px; top: 8px; font: 12px monospace; color: #39ff88; }"].join("\n")).concat([
+    '<div id="view">',
+    '  <canvas id="gl" class="world hidden"></canvas><canvas id="flat" class="world hidden"></canvas>',
+    '  <div id="title" class="screen hidden"><h1>' + esc(o.name) + '</h1><div class="menu"><div class="item" data-do="play">Play</div></div></div>',
+    '  <div id="loading"><div class="bar"><i id="loadbar"></i></div><p id="loadtext"></p></div>',
+    '  <div id="fps" class="hidden"></div>',
+    "</div>",
+    "<" + SC + ' src="../pad.js"></' + SC + ">",
+    "<" + SC + ' src="../low3d.js"></' + SC + ">",
+    "<" + SC + ">",
+    "/* " + o.name.replace(/\*\//g, "") + ": started in the maker, a 3D game on Low3D (../ENGINE.md, \"A new game, from the start\"). An empty",
+    "   scene: the ground, and a block the left stick or the arrows move. */",
+    "(function () {",
+    '"use strict";',
+    marked(o),
+    "const L3 = window.Low3D, cam = L3.camera(), synth = new L3.Synth(), $ = id => document.getElementById(id);",
+    "const me = { x: 0, z: 0 }, M = new Float32Array(16);",
+    "let playing = false, ground = null, block = null, sprite = null;",
+    'const input = new L3.Input({ keys: { Enter: "a", Escape: "back", ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right" },',
+    '  on: (b, how) => { if (how === "press" || how === "repeat") menu.button(b, how); }, top: () => menu.top() });',
+    'const menu = new L3.Menu({ top: "title", screens: { title: {} }, sound: n => synth.play(n),',
+    '  choose: (el, act) => { if (act === "play") { menu.hide(); playing = true; } } });',
+    "const E = L3.game({ id: " + JSON.stringify(o.id) + ', view: $("view"), gl: $("gl"), flat: $("flat"), fps: $("fps"), input,',
+    '  loading: { el: $("loading"), bar: $("loadbar"), text: $("loadtext") },',
+    '  ready() { menu.show("title"); synth.start(); },',
+    "  prepare(E) {                       // what this way of drawing needs: meshes on the GPU, or a sprite for the 2D picture",
+    "    const g = new L3.Mesh(); g.at(0, 0, 0); g.disc(40, 36, 0, 0x1f3522);",
+    "    const b = new L3.Mesh(); b.at(0, 0, 0); b.box(0, 0, 0, 1, 1, 1, 0x39ff88);",
+    '    if (E.mode === "gl") { E.g3.light({ sun: [-0.4, 0.85, 0.35], fog: 0x0b1a12, top: 0x0b1a12, horizon: 0x1f3522, near: 20, far: 70 }); ground = E.g3.upload(g); block = E.g3.upload(b); }',
+    "    else { E.flat.air({ top: 0x0b1a12, horizon: 0x1f3522, fog: 0x1f3522, near: 20, far: 70 }); sprite = L3.bake(b, { yaw: 0.6, pitch: 0.35, ppu: 24 }); }",
+    "  },",
+    "  update(dt) {                       // the rules, 60 times a second",
+    "    if (!playing) return;",
+    "    const s = input.stick(), x = s.x + (input.held(\"right\") ? 1 : 0) - (input.held(\"left\") ? 1 : 0), z = s.y + (input.held(\"down\") ? 1 : 0) - (input.held(\"up\") ? 1 : 0);",
+    "    me.x += Math.max(-1, Math.min(1, x)) * 6 * dt; me.z += Math.max(-1, Math.min(1, z)) * 6 * dt;",
+    "  },",
+    "  draw() {                           // each frame: the camera behind the block, then what's in the world",
+    "    cam.x = me.x; cam.y = 6; cam.z = me.z + 10; cam.tx = me.x; cam.ty = 0.5; cam.tz = me.z;",
+    "    L3.begin(E, cam);",
+    '    if (E.mode === "gl") { E.g3.lit(ground, null, 1, 1, 1, 0); L3.M4.model(M, me.x, 0, me.z, 0, 0, 0, 1); E.g3.lit(block, M, 1, 1, 1, 0); }',
+    "    else { E.flat.sprite(sprite, me.x, 0, me.z, 1 / 24, 1); E.flat.flush(); }",
+    "  } });",
+    "E.start();",
+    "})();",
+    "</" + SC + ">", "</body>", "</html>", ""]).join("\n");
+}
+function page2d(o) {
+  const title = o.name.toUpperCase().replace(/[^A-Z0-9 \-:!?.,']/g, "");
+  return start(o.name, [
+    "  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; user-select: none; }",
+    "  canvas { position: absolute; image-rendering: pixelated; }"].join("\n")).concat([
+    '<canvas id="c"></canvas>',
+    "<" + SC + ' src="../pad.js"></' + SC + "><" + SC + ' src="../low3d.js"></' + SC + "><" + SC + ' src="../low2d.js"></' + SC + ">",
+    "<" + SC + ">",
+    "/* " + o.name.replace(/\*\//g, "") + ": started in the maker, a 2D game on Low2D (../ENGINE.md, \"Low2D: the 2D engine\"). An empty",
+    "   stage: a block the left stick or the arrows move. */",
+    "(function () {",
+    '"use strict";',
+    marked(o),
+    "const L2 = window.Low2D, font = L2.font, me = { x: 240, y: 150 };",
+    "let playing = false;",
+    "const G = L2.game({ id: " + JSON.stringify(o.id) + ', canvas: document.getElementById("c"),',
+    '  ready() { menu.show("title"); },',
+    "  update(dt) {                       // the rules, 60 times a second",
+    "    if (!playing) return;",
+    "    me.x = Math.max(8, Math.min(472, me.x + pad.x() * 140 * dt)); me.y = Math.max(8, Math.min(262, me.y + pad.y() * 140 * dt));",
+    "  },",
+    '  draw(g) { g.fillStyle = "#0b1a12"; g.fillRect(0, 0, 480, 270); g.fillStyle = "#39ff88"; g.fillRect(Math.round(me.x) - 6, Math.round(me.y) - 6, 12, 12); },',
+    "  hud(g) { if (!playing) font.center(g, " + JSON.stringify(title || "NEW GAME") + ", 240, 60, 2, 3); } });",
+    "const pad = G.control();",
+    'const menu = new L2.Menu(G, { top: "title", screens: {',
+    '  title: { items: [{ t: "PLAY", act: "play" }, { t: "OPTIONS", act: "options" }] },',
+    '  options: { title: "OPTIONS", back: "title", items: L2.optionItems() } },',
+    '  choose(it) { if (it.act === "play") { menu.hide(); playing = true; } else if (it.act === "options") menu.show("options"); } });',
+    "G.menu = menu;",
+    "G.start();",
+    "})();",
+    "</" + SC + ">", "</body>", "</html>", ""]).join("\n");
+}
+window.MakerText = { MARK, END, blocks, whereNew, splice, value, lit, profileText, cameraText, BUDGETS, writes, page3d, page2d };
+})();
+</script>
+<script>
+/* The game the maker has open, where it came from, and saving it: the box's games (read from beside this page), a
+   games folder on this computer (the one with low3d.js in it: deploy/sofa-box/games in a checkout), or one page file.
+   A folder is written in place, a file comes back as a download, and the box's own pages are only read. */
+(function () {
+"use strict";
+const T = window.MakerText, $ = id => document.getElementById(id);
+const say = (t, bad) => { const e = $("msg"); e.textContent = t || ""; e.className = bad ? "msg bad" : "msg"; e.hidden = !t; };
+const Maker = window.Maker = { onBox: !T.writes(location), page: "", id: "", name: "", source: "box", dir: null, fh: null, fileName: "", changes: {}, games: [],
+  say, listeners: [], screen: "" };
+Maker.on = fn => { Maker.listeners.push(fn); };
+function tell(what) { for (const fn of Maker.listeners) { try { fn(what); } catch (e) { say(e.message, true); } } }
+// what's changed and waiting to be saved: {kind: the text between its marks}; null takes a change back
+Maker.stage = (kind, text) => { if (text == null) delete Maker.changes[kind]; else Maker.changes[kind] = text; status(); };
+function status() {
+  const k = Object.keys(Maker.changes);
+  $("changed").textContent = k.length ? "changed: " + k.join(", ") : "";
+  $("save").hidden = Maker.onBox || Maker.source === "box";
+  $("save").disabled = !k.length;
+  $("save").textContent = Maker.source === "file" ? "save (download)" : "save";
+}
+
+// ---------------------------------------------------------------- where games come from
+async function boxList() { const r = await fetch("../games.json"); const list = await r.json(); return list.games.map(g => ({ id: g.id, name: g.name })); }
+async function boxPage(id) { const r = await fetch("../" + encodeURIComponent(id) + "/index.html"); if (!r.ok) throw new Error("no page (" + r.status + ")"); return r.text(); }
+async function folderList(dir) {
+  const names = {}, out = [];
+  try { const j = JSON.parse(await (await (await dir.getFileHandle("games.json")).getFile()).text()); for (const g of j.games || []) names[g.id] = g.name; }
+  catch (e) { /* a folder with no list: its folders are its games */ }
+  for await (const [n, h] of dir.entries()) {
+    if (h.kind !== "directory") continue;
+    try { await h.getFileHandle("index.html"); out.push({ id: n, name: names[n] || n }); } catch (e) { /* not a game */ }
+  }
+  return out.sort((a, b) => a.name.localeCompare(b.name));
+}
+function fillGames(want) {
+  const sel = $("game"); sel.textContent = "";
+  for (const g of Maker.games) { const o = document.createElement("option"); o.value = g.id; o.textContent = g.name; sel.appendChild(o); }
+  sel.value = Maker.games.some(g => g.id === want) ? want : Maker.games.some(g => g.id === "wyrd") ? "wyrd" : (Maker.games[0] || {}).id || "";
+  return sel.value;
+}
+function fillSources() {
+  const sel = $("source"); sel.textContent = "";
+  const add = (v, t) => { const o = document.createElement("option"); o.value = v; o.textContent = t; sel.appendChild(o); };
+  add("box", Maker.onBox ? "this box" : "the games beside this page");
+  if (!Maker.onBox && window.showDirectoryPicker) add("folder", "a games folder on this computer…");
+  if (!Maker.onBox) add("file", "a page from this computer…");
+  sel.value = Maker.source;
+}
+async function open(id) {
+  if (!id) return;
+  if (Object.keys(Maker.changes).length && !confirmLeave()) { $("game").value = Maker.id; return; }
+  say("Reading " + id + "…");
+  try {
+    let text;
+    if (Maker.source === "folder") { const fh = await (await Maker.dir.getDirectoryHandle(id)).getFileHandle("index.html"); Maker.fh = fh; text = await (await fh.getFile()).text(); }
+    else { Maker.fh = null; text = await boxPage(id); }
+    load(id, (Maker.games.find(g => g.id === id) || {}).name || id, text);
+    say(Maker.onBox ? "On the box the maker shows and tests games. Save them on a computer." : "");
+  } catch (err) { say("Couldn't read " + id + ": " + err.message, true); }
+}
+function load(id, name, text) { Maker.id = id; Maker.name = name; Maker.page = text; Maker.changes = {}; status(); tell("open"); }
+let leaving = false;
+function confirmLeave() { if (leaving) return true; say("There are changes not saved (" + Object.keys(Maker.changes).join(", ") + "). Save them, or pick the game again to leave them.", true); leaving = true; setTimeout(() => { leaving = false; }, 6000); return false; }
+async function openFolder() {
+  try {
+    const dir = await window.showDirectoryPicker({ id: "sofa-games", mode: "readwrite" });
+    try { await dir.getFileHandle("low3d.js"); }
+    catch (e) { say("That folder has no low3d.js in it. Open the games folder of a checkout: deploy/sofa-box/games.", true); fillSources(); return; }
+    Maker.source = "folder"; Maker.dir = dir; Maker.games = await folderList(dir);
+    fillSources(); await open(fillGames(Maker.id));
+  } catch (e) { if (e.name !== "AbortError") say("Couldn't open the folder: " + e.message, true); fillSources(); }
+}
+async function useBox(want) {
+  Maker.source = "box"; Maker.dir = null; Maker.fh = null; fillSources();
+  try { Maker.games = await boxList(); await open(fillGames(want)); }
+  catch (e) { say("Couldn't read the list of games (../games.json).", true); }
+}
+$("source").onchange = e => {
+  const v = e.target.value;
+  if (v === "folder") openFolder();
+  else if (v === "file") { $("file").value = ""; $("file").click(); fillSources(); }
+  else useBox(Maker.id);
+};
+$("file").onchange = async e => {
+  const f = e.target.files[0]; if (!f) return;
+  Maker.source = "file"; Maker.fileName = f.name; Maker.dir = null; Maker.fh = null;
+  Maker.games = [{ id: f.name.replace(/\.html?$/i, "") || "page", name: f.name }]; fillSources(); fillGames();
+  load(Maker.games[0].id, f.name, await f.text());
+  say("Opened " + f.name + ". Saving gives the page back as a download.");
+};
+$("game").onchange = e => { if (Maker.source === "box") location.hash = e.target.value; open(e.target.value); };
+
+// ---------------------------------------------------------------- saving
+async function save() {
+  if (Maker.onBox || Maker.source === "box") return say("The box shows and tests games. Save them on a computer.", true);
+  const kinds = Object.keys(Maker.changes); if (!kinds.length) return;
+  const next = T.splice(Maker.page, Maker.changes);
+  try {
+    if (Maker.source === "folder") {
+      const now = await (await Maker.fh.getFile()).text();          // read again first: never write over a change made elsewhere
+      if (now !== Maker.page) return say("The page changed on this computer since it was opened. Nothing was saved: open it again.", true);
+      const w = await Maker.fh.createWritable(); await w.write(next); await w.close();
+    } else {
+      const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([next], { type: "text/html" })); a.download = Maker.fileName || "index.html";
+      document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    }
+    Maker.page = next; Maker.changes = {}; status(); tell("saved");
+    say(Maker.source === "file" ? "The page came back as a download, with " + kinds.join(", ") + " changed." : "Saved " + kinds.join(", ") + " into " + Maker.id + "/index.html.");
+  } catch (err) { say("Couldn't save: " + err.message, true); }
+}
+$("save").onclick = save;
+// a new game: a folder of its own in the games folder, its page one of the two starting pages
+Maker.create = async (id, name, page) => {
+  if (Maker.onBox || Maker.source !== "folder") throw new Error("open a games folder on this computer first");
+  if (Object.keys(Maker.changes).length) throw new Error(Maker.id + " has changes not saved (" + Object.keys(Maker.changes).join(", ") + "): save them first");
+  if (!/^[a-z0-9][a-z0-9-]{1,31}$/.test(id)) throw new Error("an id is 2 to 32 small letters, digits and dashes");
+  let there = true;
+  try { await Maker.dir.getDirectoryHandle(id); } catch (e) { if (e.name === "NotFoundError") there = false; else throw e; }
+  if (there) throw new Error("there's a folder called " + id + " already");
+  const d = await Maker.dir.getDirectoryHandle(id, { create: true }), fh = await d.getFileHandle("index.html", { create: true });
+  const w = await fh.createWritable(); await w.write(page); await w.close();
+  Maker.games = await folderList(Maker.dir); await open(fillGames(id));
+  say("Made " + id + "/index.html. It isn't on the box's list until it's added to games.json.");
+};
+
+// ---------------------------------------------------------------- the screens
+Maker.show = name => {
+  Maker.screen = name; $("where").textContent = name;
+  for (const b of document.querySelectorAll(".tabs button")) b.classList.toggle("on", b.dataset.screen === name);
+  for (const s of document.querySelectorAll(".screen")) s.hidden = s.id !== "screen-" + name;
+  tell("show");
+};
+for (const b of document.querySelectorAll(".tabs button")) b.onclick = () => Maker.show(b.dataset.screen);
+addEventListener("beforeunload", e => { if (Object.keys(Maker.changes).length) { e.preventDefault(); e.returnValue = ""; } });
+Maker.start = () => { fillSources(); status(); useBox(location.hash.slice(1)); };
+})();
+</script>
+<script>
+/* The setup: what kind of game, how it looks, who plays it with what, the weakest box it must run on and the strongest
+   it should use, the frame rate, where it ships, the camera and the languages. The answers go into the game as its
+   profile and camera blocks; a new game starts from one of the two starting pages with them in it. */
+(function () {
+"use strict";
+const T = window.MakerText, M = window.Maker, root = document.getElementById("screen-setup"), $ = s => root.querySelector(s);
+const TYPES = [
+  { id: "rpg3d", cam: "follow", name: "3D action-RPG", like: "WYRD", dim: 3 },
+  { id: "fps", cam: "first", name: "First-person shooter", like: "Ironmaw", dim: "ray" },
+  { id: "racer", cam: "chase", name: "Racer", like: "Tidewing", dim: 3 },
+  { id: "open", cam: "follow", name: "Open world 3D", like: "Tidewing's islands, bigger", dim: 3 },
+  { id: "platformer", cam: "flat", name: "2D platformer", like: "Cinder Knight", dim: 2 },
+  { id: "rpg2d", cam: "flat", name: "Top-down RPG", like: "a map of tiles", dim: 2 },
+  { id: "brawler", cam: "flat", name: "Beat 'em up", like: "Neon Brawler", dim: 2 },
+  { id: "stealth", cam: "flat", name: "Stealth", like: "Shadow Heist", dim: 2 },
+  { id: "tactics", cam: "flat", name: "Tactics", like: "Rune Tactics", dim: 2 },
+  { id: "twofive", cam: "orbit", name: "2.5D", like: "pixels on a 3D world", dim: 2.5 },
+  { id: "puzzle", cam: "flat", name: "Puzzle", like: "Cosmic Cascade", dim: 2 },
+  { id: "space", cam: "flat", name: "Space shooter", like: "Void Drifter", dim: 2 },
+  { id: "blank", cam: "top", name: "Something else", like: "an empty scene", dim: 3 }
+];
+const LOOKS = [{ id: "pixel", name: "Pixel", like: "a small picture, shown crisp" }, { id: "flat", name: "Low-poly, flat", like: "light baked into the colours" }];
+const PLAYERS = [{ id: 1, name: "1" }, { id: 2, name: "2 on one screen" }, { id: 4, name: "up to 4 on one screen" }];
+const CONTROLS = [{ id: "pad", name: "controller" }, { id: "keys", name: "keyboard" }, { id: "touch", name: "touch" }, { id: "remote", name: "TV remote" }];
+const TIERS = [
+  { id: "pi3", name: "Sofa Box, Pi 3", gets: "the light look, 360 lines at 60 (3D rung 4); 2D on the light look" },
+  { id: "pi4", name: "Pi 4", gets: "the full look, 540 lines (3D rung 6)" },
+  { id: "pi5", name: "Pi 5", gets: "the full look, 720 lines (3D rung 7)" },
+  { id: "computer", name: "A computer's browser", gets: "up to 1080 lines and the full look (3D rung 8)" }
+];
+const FPS = [{ id: 60, name: "60" }, { id: 30, name: "steady 30" }];
+const TARGETS = [{ id: "web", name: "web page", needs: "nothing: one offline page" }, { id: "box", name: "Sofa Box", needs: "a pull request adding it to games/games.json, with its Home art" }];
+const CAMS = [
+  { id: "top", name: "top-down", like: "fixed, from above" }, { id: "follow", name: "follow, with heights", like: "WYRD" },
+  { id: "chase", name: "chase", like: "Tidewing" }, { id: "orbit", name: "orbit", like: "round a point" },
+  { id: "first", name: "first person", like: "Ironmaw" }, { id: "flat", name: "2D: the screen scrolls", like: "Cinder Knight" }
+];
+const camOK = (t, id) => t.dim === 2 ? id === "flat" : t.dim === "ray" ? id === "first" : t.dim === 2.5 ? id === "orbit" || id === "flat" : id !== "flat";
+const LANGS = [{ id: "en", name: "English", s: "latin" }, { id: "es", name: "Spanish", s: "latin" }, { id: "pt", name: "Portuguese", s: "latin" }, { id: "fr", name: "French", s: "latin" },
+  { id: "de", name: "German", s: "latin" }, { id: "ru", name: "Russian", s: "cyrillic" }, { id: "zh", name: "Chinese", s: "cjk" }, { id: "ja", name: "Japanese", s: "cjk" },
+  { id: "ko", name: "Korean", s: "hangul" }, { id: "ar", name: "Arabic", s: "arabic" }, { id: "hi", name: "Hindi", s: "deva" }];
+const SCRIPTS = { latin: "Latin: the 5×7 font has capitals and digits; lower case and accents still to draw", cyrillic: "Cyrillic, still to draw",
+  cjk: "Chinese and Japanese characters: thousands, still to draw", hangul: "Korean syllables, built from 24 letters, still to draw",
+  arabic: "Arabic: right to left, letters joined, still to draw", deva: "Devanagari: letters joined above a line, still to draw" };
+const pick = { type: "rpg3d", look: "flat", players: 1, fps: 60, floor: "pi3", ceiling: "pi5", camera: "follow",
+  controls: new Set(["pad", "keys", "touch"]), targets: new Set(["web", "box"]), languages: new Set(["en", "es"]) };
+let extra = {}, cameraExtra = {};
+const idx = id => TIERS.findIndex(t => t.id === id);
+const MULTI = { controls: 1, targets: 1, languages: 1 };
+
+function group(key, list) {
+  const box = $('[data-q="' + key + '"]'); box.textContent = "";
+  for (const o of list) {
+    const b = document.createElement("button"); b.type = "button"; b.className = "chip"; b.textContent = o.name;
+    if (o.like) { const s = document.createElement("small"); s.textContent = o.like; b.appendChild(s); }
+    const on = MULTI[key] ? pick[key].has(o.id) : pick[key] === o.id;
+    b.classList.toggle("on", on); b.setAttribute("aria-pressed", on ? "true" : "false");
+    if (o.off) { b.disabled = true; b.title = o.why; }
+    b.onclick = () => {
+      if (MULTI[key]) { if (pick[key].has(o.id)) { if (pick[key].size > 1) pick[key].delete(o.id); } else pick[key].add(o.id); }
+      else pick[key] = o.id;
+      if (key === "type") pick.camera = TYPES.find(t => t.id === o.id).cam;
+      if (key === "floor" && idx(pick.ceiling) < idx(o.id)) pick.ceiling = o.id;
+      render();
+    };
+    box.appendChild(b);
+  }
+}
+function li(ul, text, cls) { const l = document.createElement("li"); if (cls) l.className = cls; l.textContent = text; ul.appendChild(l); }
+function profile() {
+  return Object.assign({}, extra, { type: pick.type, look: pick.look, players: pick.players, fps: pick.fps, floor: pick.floor, ceiling: pick.ceiling,
+    controls: [...pick.controls], targets: [...pick.targets], languages: [...pick.languages] });
+}
+function camera() { return Object.assign({ way: pick.camera }, cameraExtra); }
+const kind = t => t.dim === 2 || t.dim === 2.5 ? "2d" : "3d";
+function render() {
+  const t = TYPES.find(x => x.id === pick.type);
+  if (!camOK(t, pick.camera)) pick.camera = t.cam;
+  group("type", TYPES); group("look", LOOKS); group("players", PLAYERS); group("controls", CONTROLS);
+  group("floor", TIERS); group("ceiling", TIERS.map(x => idx(x.id) < idx(pick.floor) ? Object.assign({}, x, { off: true, why: "below the floor" }) : x));
+  group("fps", FPS); group("targets", TARGETS); group("languages", LANGS);
+  group("camera", CAMS.map(c => camOK(t, c.id) ? c : Object.assign({}, c, { off: true, why: "not for this kind of game" })));
+  $("#o-rt").textContent = kind(t) === "2d" ? "the web runtime: Low3D, and Low2D on top of it" : "the web runtime: Low3D";
+  $("#o-start").textContent = kind(t) === "2d" ? "the 2D starting page: an empty stage on Low2D and a block you move" : "the 3D starting page: an empty scene on Low3D and a block you move";
+  $("#o-cam").textContent = CAMS.find(c => c.id === pick.camera).name + ". Written into the camera block; the starting page keeps its camera behind the player until the game takes the block up.";
+  const lad = $("#o-lad"); lad.textContent = "";
+  for (let i = idx(pick.floor); i <= idx(pick.ceiling); i++) {
+    const r = TIERS[i], row = document.createElement("div"), B = T.BUDGETS[r.id];
+    row.className = "rung" + (i === idx(pick.floor) ? " floor" : i === idx(pick.ceiling) ? " ceil" : "");
+    const a = document.createElement("b"), g = document.createElement("span"), u = document.createElement("i");
+    a.textContent = r.name; g.textContent = r.gets;
+    u.textContent = B ? "~" + B.draws + " draws · ~" + B.tris.toLocaleString("en-US") + " triangles a frame · nothing laid over the picture · under ~" + B.garbage + " KB of garbage a second (measured on the stand-in)" : "its budget isn't measured yet: the bench on a " + r.name.replace(/^A /, "") + " sets it";
+    row.append(a, g, u); lad.appendChild(row);
+  }
+  const tl = $("#o-tools"); tl.textContent = "";
+  li(tl, "this setup, which writes the profile and camera blocks");
+  if (kind(t) === "3d") li(tl, "poses: bodies on Low3D's Rig, once the game marks its poses and bodies");
+  li(tl, "the bench: node tools/games-bench.mjs --games <id> --box " + (pick.floor === "pi3" ? "pi3" : pick.floor === "pi4" ? "pi4" : "pc"));
+  const w = $("#o-warn"); w.textContent = "";
+  if (pick.look === "pixel" && kind(t) === "3d") li(w, "A pixel look in 3D: drawn small and shown crisp, as Tidewing draws 640×360 on a 1080p TV.");
+  if (pick.look === "flat" && kind(t) === "2d") li(w, "2D games are pixels on Low2D; the look sets how rich their light and glows are.");
+  if (t.dim === "ray") li(w, "A first-person game draws with Ray (the processor's picture). Ray's own starting page comes later: this starts from the 3D one.");
+  if (t.dim === 2.5) li(w, "2.5D starts from the 2D page. The 3D world behind the sprites comes later.");
+  if (pick.players > 1 && pick.floor === "pi3" && kind(t) === "3d") li(w, "Split screen on a Pi 3: each view gets its share of the ~30 draws a frame. Ironmaw does four views with Ray.");
+  if (pick.targets.has("box") && pick.floor !== "pi3") li(w, "Every Sofa Box card also runs on a Pi 3. The Games page would have to hide this game on boxes below its floor (not built yet).");
+  if (pick.controls.has("touch") && !pick.targets.has("web")) li(w, "Touch only matters on phones and tablets, which open the web page.");
+  if (!pick.controls.has("touch") && pick.targets.has("web")) li(w, "Phones and tablets will open the web page too. Without touch, they need a controller.");
+  if (pick.camera === "follow" && pick.floor === "pi3") li(w, "A camera that comes down low sees more of the world, so it draws more. The bench checks each height on your floor.");
+  if (!w.children.length) li(w, "Nothing to warn about: this fits.", "ok");
+  const lt = $("#o-letters"); lt.textContent = "";
+  const need = new Set(); for (const l of LANGS) if (pick.languages.has(l.id)) need.add(l.s);
+  for (const k of Object.keys(SCRIPTS)) if (need.has(k)) li(lt, SCRIPTS[k]);
+  const sh = $("#o-ship"); sh.textContent = "";
+  for (const x of TARGETS) if (pick.targets.has(x.id)) li(sh, x.name + ": " + x.needs);
+  $("#o-block").textContent = "/* maker: profile */" + T.profileText(profile()) + T.END + "\n/* maker: camera */" + T.cameraText(camera()) + T.END;
+  // putting it into the open game, or making a new one
+  const can = !M.onBox && M.source !== "box" && !!M.page;
+  $("#put").hidden = M.onBox; $("#put").disabled = !can;
+  $("#put").textContent = M.id ? "put into " + M.id : "put into the open game";
+  $("#newgame").hidden = M.onBox || M.source !== "folder";
+  $("#o-note").textContent = M.onBox ? "On the box the setup shows what a game's profile would be; games are made and saved on a computer."
+    : M.source === "box" ? "Open a games folder or a page from this computer (at the top) to put this into a game or start a new one." : "";
+}
+// a game's own answers, when it has them
+function prefill() {
+  extra = {}; cameraExtra = {};
+  const b = M.page ? T.blocks(M.page) : {};
+  if (b.profile) {
+    try {
+      const p = T.value(b.profile.text, "PROFILE") || {};
+      for (const k of Object.keys(p)) {
+        if (k in pick) pick[k] = MULTI[k] ? new Set(p[k]) : p[k];
+        else extra[k] = p[k];
+      }
+    } catch (e) { M.say("This game's profile block doesn't run on its own: " + e.message, true); }
+  }
+  if (b.camera) {
+    try { const c = T.value(b.camera.text, "CAMERA") || {}; if (c.way) pick.camera = c.way; for (const k of Object.keys(c)) if (k !== "way") cameraExtra[k] = c[k]; }
+    catch (e) { M.say("This game's camera block doesn't run on its own: " + e.message, true); }
+  }
+}
+$("#put").onclick = () => {                          // (a block that's already the same stays as it is)
+  const b = T.blocks(M.page), pt = T.profileText(profile()), ct = T.cameraText(camera());
+  M.stage("profile", b.profile && b.profile.text === pt ? null : pt); M.stage("camera", b.camera && b.camera.text === ct ? null : ct);
+  M.say(Object.keys(M.changes).some(k => k === "profile" || k === "camera") ? "The profile and camera blocks are ready to save into " + M.id + "." : M.id + " already has these answers.");
+};
+$("#new-make").onclick = async () => {
+  const id = $("#new-id").value.trim(), name = $("#new-name").value.trim() || id, t = TYPES.find(x => x.id === pick.type);
+  const o = { id, name, profile: profile(), camera: camera() };
+  try { await M.create(id, name, kind(t) === "2d" ? T.page2d(o) : T.page3d(o)); }
+  catch (e) { M.say("Couldn't make the game: " + e.message, true); }
+};
+M.on(what => { if (what === "open" || what === "saved") prefill(); if (what !== "show" || M.screen === "setup") render(); });
+render();
+})();
+</script>
+<script>
+/* Poses: a game's bodies on Low3D's Rig, read from the blocks the game marks (models, poses, bodies). The bodies block
+   makes the rig, the looks and build(mesh, look, pose, size), using only L3 and the blocks before it. A body is baked a
+   pose at a time as the game bakes it; poses turn joint by joint, mirror and play as clips, and what's changed goes back
+   into the poses block when the game is saved (or is copied out as the game writes it). */
+(function () {
+"use strict";
+const L3 = window.Low3D, T = window.MakerText, Mk = window.Maker, $ = id => document.getElementById(id);
+const cv = $("gl");
+let g3 = null;
+try { g3 = new L3.GL(cv, { antialias: false }); } catch (e) { g3 = null; }
+
+const NAME = /^[A-Za-z_$][\w$]*$/;
 function evaluate(b) {
   const a = b.bodies.attrs, looks = (a.looks || "").split(",").filter(Boolean), names = [a.build].concat(looks, a.rig ? [a.rig] : []);
   for (const n of names) if (!n || !NAME.test(n)) throw new Error("the bodies mark needs build=… and looks=… (names in the block)");
@@ -154,38 +690,48 @@ function evaluate(b) {
 }
 
 // ---------------------------------------------------------------- the game open
-let G = null;                                          // {id, poses, orig, build, rig, looks: [{id, group, st}], clips, text}
+let G = null;                                          // {poses, orig, build, rig, looks: [{id, group, st}], clips, text, budget, floor}
 let look = null, pose = "", clip = "", ci = 0, joint = "", lineup = false, pixels = true, playing = true, rate = 6;
 let clipT = 0, yaw = 0.6, drag = null, idleT = 0, markAt = null;
 const edited = new Set(), baked = new Map();           // look id → {pose → {h, tris}}
-async function open(id) {
-  say("Reading " + id + "…"); freeAll(); G = null; edited.clear();
+function none(text) { $("p-none").textContent = text; $("p-none").hidden = !text; cv.hidden = !!text; }
+function read(keep) {
+  freeAll(); G = null;
+  if (!keep) edited.clear();
+  if (!Mk.page) return none("");
+  const b = T.blocks(Mk.page);
+  let floor = "pi3";                                   // (the box's own games: every one fits a Pi 3)
+  if (b.profile) { try { floor = (T.value(b.profile.text, "PROFILE") || {}).floor || floor; } catch (e) { /* the setup says what's wrong with it */ } }
+  if (!g3) return none("This browser gives the page no WebGL, so the bodies can't be drawn here.");
+  if (!b.poses || !b.bodies) { sync(); return none(Mk.name + " has no bodies marked for the maker yet (a poses block and a bodies block)."); }
   try {
-    const r = await fetch("../" + encodeURIComponent(id) + "/index.html");
-    if (!r.ok) throw new Error("no page (" + r.status + ")");
-    const b = blocks(await r.text());
-    if (!b.poses || !b.bodies) { say(id + " has no bodies marked for the maker yet (a poses block and a bodies block)."); draw(); return; }
     const e = evaluate(b), list = [];
     for (const group of Object.keys(e.looks)) for (const k of Object.keys(e.looks[group])) list.push({ id: group + "." + k, name: k, group, st: e.looks[group][k] });
-    G = { id, poses: e.poses, orig: JSON.parse(JSON.stringify(e.poses)), build: e.build, rig: e.rig || new L3.Rig(), looks: list, clips: L3.Rig.clips(e.poses), text: b.poses.text };
+    G = { poses: e.poses, orig: JSON.parse(JSON.stringify(e.poses)), build: e.build, rig: e.rig || new L3.Rig(), looks: list, clips: L3.Rig.clips(e.poses), text: b.poses.text,
+      floor, budget: T.BUDGETS[floor] || null };
     G.arc = arc(list.length);
-    look = list[0]; clip = G.clips.walk ? "walk" : Object.keys(G.clips)[0]; ci = 0; pose = G.clips[clip][0];
-    joint = G.rig.index.armR != null ? "armR" : G.rig.joints[Math.min(1, G.rig.n - 1)][0];
-    say(""); sync();
-  } catch (err) { say("Couldn't read " + id + ": " + err.message, true); }
+    if (!keep || !G.looks.some(l => l.id === (look && look.id))) { look = list[0]; clip = G.clips.walk ? "walk" : Object.keys(G.clips)[0]; ci = 0; pose = G.clips[clip][0]; }
+    else { look = G.looks.find(l => l.id === look.id); if (!G.poses[pose]) { clip = Object.keys(G.clips)[0]; pose = G.clips[clip][0]; } }
+    if (!joint || G.rig.index[joint] == null) joint = G.rig.index.armR != null ? "armR" : G.rig.joints[Math.min(1, G.rig.n - 1)][0];
+    none(""); sync();
+  } catch (err) { G = null; sync(); none("Couldn't read " + Mk.name + "'s bodies: " + err.message); }
 }
+Mk.on(what => {
+  if (what === "open") { read(false); if (!Mk.screen) Mk.show(G ? "poses" : "setup"); }
+  else if (what === "saved") { edited.clear(); read(true); }
+  else if (what === "show" && Mk.screen === "poses") { markAt = null; sync(); }
+});
 
 // every pose of a body, baked as the game bakes it: one mesh each, made when first shown and again when changed
 function slot(lk, p) {
   let set = baked.get(lk.id); if (!set) baked.set(lk.id, set = {});
   let s = set[p];
-  if (!s) { const m = new L3.Mesh(2048); G.build(m, lk.st, p, 1); s = set[p] = { h: g3 ? g3.upload(m) : null, tris: m.n / 3 }; }
+  if (!s) { const m = new L3.Mesh(2048); G.build(m, lk.st, p, 1); s = set[p] = { h: g3.upload(m), tris: m.n / 3 }; }
   return s;
 }
-function rebake(p) { for (const set of baked.values()) if (set[p]) { if (g3) g3.free(set[p].h); delete set[p]; } markAt = null; }
+function rebake(p) { for (const set of baked.values()) if (set[p]) { g3.free(set[p].h); delete set[p]; } markAt = null; }
 function freeAll() { if (g3) for (const set of baked.values()) for (const p in set) g3.free(set[p].h); baked.clear(); }
-// the line-up: an arc, all facing the middle
-function arc(n) {
+function arc(n) {                                      // the line-up: an arc, all facing the middle
   const out = [], R = 6.2, half = Math.max(1, Math.ceil((n - 1) / 2));
   for (let k = 0; k < n; k++) {
     const side = k === 0 ? 0 : (k % 2 ? -1 : 1) * Math.ceil(k / 2), a = side * 1.25 / half, x = Math.sin(a) * R, z = 3.4 - Math.cos(a) * R;
@@ -226,14 +772,14 @@ function lists() {
   $("play").textContent = playing ? "pause" : "play";
   $("line").classList.toggle("on", lineup); $("pix").classList.toggle("on", pixels);
 }
-// a joint's numbers: swing forward, roll out, turn; the root's: how far down, and the lean
 const isRoot = j => G.rig.joints[G.rig.index[j]][1] < 0;
 function val(p, j, k) { const P = G.poses[p]; if (isRoot(j)) return k === 0 ? (P.y || 0) : (P.lean || 0); return P[j] ? P[j][k] : 0; }
+function changed(p) { edited.add(p); rebake(p); stage(); }
 function setVal(p, j, k, v) {
   const P = G.poses[p];
   if (isRoot(j)) { if (k === 0) P.y = v; else P.lean = v; }
   else { if (!P[j]) P[j] = [0, 0, 0]; P[j][k] = v; }
-  edited.add(p); rebake(p); stats();
+  changed(p); stats();
 }
 function sliders() {
   const box = $("sliders"); box.textContent = ""; $("jname").textContent = "";
@@ -252,14 +798,15 @@ function markEdited() {
   $("jname").textContent = pose + " · " + joint + " · changed";
 }
 
-// what's copied out: a pose as the game writes it, or the whole poses block with the changed lines put in
+// what's written back: a pose as the game writes it, and the poses block with only the changed lines put in
 const num = v => { const r = Math.round(v * 1000) / 1000; return String(r === 0 ? 0 : r); };
 function poseText(P) { return "{ " + Object.keys(P).map(k => k + ": " + (Array.isArray(P[k]) ? "[" + P[k].map(num).join(", ") + "]" : num(P[k]))).join(", ") + " }"; }
 function blockText() {
   let t = G.text;
   for (const p of edited) t = t.replace(new RegExp("^([ \\t]*)" + p + ": \\{.*\\}(,?)[ \\t]*$", "m"), (all, ind, comma) => ind + p + ": " + poseText(G.poses[p]) + comma);
-  return "/* maker: poses */" + t + "/* maker: end */";
+  return t;
 }
+function stage() { Mk.stage("poses", edited.size && blockText() !== G.text ? blockText() : null); }
 function copy(text, btn, label) {
   const t = $("out"); t.value = text; t.select();
   try { navigator.clipboard.writeText(text).catch(() => {}); } catch (e) { /* the text is selected */ }
@@ -269,12 +816,15 @@ function copy(text, btn, label) {
 const fmt = n => Math.round(n).toLocaleString("en-US");
 const kb = b => b >= 1048576 ? (b / 1048576).toFixed(2) + " MB" : (b / 1024).toFixed(1) + " KB";
 function stats() {
-  if (!G) { $("s-pose").textContent = $("s-body").textContent = ""; $("out").value = ""; return; }
+  if (!G) { $("s-pose").textContent = $("s-body").textContent = ""; $("out").value = ""; $("m-note").textContent = ""; return; }
   const cur = slot(look, pose); let all = 0, n = 0;
   for (const p of Object.keys(G.poses)) { all += slot(look, p).tris; n++; }
   $("s-pose").textContent = fmt(cur.tris) + " triangles · " + kb(cur.tris * 60);
   $("s-body").textContent = n + " poses · " + fmt(all) + " triangles · " + kb(all * 60) + " on the GPU";
   $("out").value = pose + ": " + poseText(G.poses[pose]) + ",";
+  $("m-h").textContent = "a frame on the floor (" + G.floor + ")";
+  $("m-note").textContent = G.budget ? "The floor's frame holds about " + G.budget.draws + " draw calls and " + fmt(G.budget.tris) + " triangles at 60 a second. Each body here is one draw call, its pose baked into one mesh."
+    : "No budget is measured for this floor yet: the bench on that hardware sets it. The counts are this frame's.";
 }
 
 // ---------------------------------------------------------------- drawing
@@ -285,7 +835,7 @@ const ground = g3 && (() => {
 })();
 const marker = g3 && (() => { const m = new L3.Mesh(64); m.glow = 127; m.at(0, 0, 0); m.ico(0.07, 0xff2e88); return g3.upload(m); })();
 if (g3) g3.light({ sun: [-0.4, 0.85, 0.35], sunCol: 0xefe6d2, amb: 0x46525e, ground: 0x1a1612, fog: 0x050706, top: 0x0b1a12, horizon: 0x0f2a1c, near: 12, far: 40 });
-const M = new Float32Array(16), scratch = new L3.Mesh(2048), at = [0, 0, 0];
+const M = new Float32Array(16), scratch = new L3.Mesh(2048);
 let last = 0, fpsN = 0, fpsT = 0, fps = 0, hudT = -1e9, draws = 0, tris = 0;
 function size() {
   const r = cv.getBoundingClientRect(), dpr = Math.min(2, window.devicePixelRatio || 1);
@@ -293,7 +843,7 @@ function size() {
   if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
 }
 function draw() {
-  if (!g3) return;
+  if (!g3 || Mk.screen !== "poses" || cv.hidden) return;
   size();
   // the camera fits what's shown: one body (an arm or a staff raised: 2.8 m) or the line-up's arc (7 m each side)
   const one = !lineup || !G, aspect = cv.width / Math.max(1, cv.height), fov = one ? 0.72 : 0.8, k = Math.tan(fov / 2);
@@ -312,15 +862,16 @@ function draw() {
   draws = g3.calls; tris = Math.round(g3.tris);
 }
 function hud() {
-  $("m-draw").style.width = Math.min(100, draws / 30 * 100).toFixed(1) + "%"; $("m-tri").style.width = Math.min(100, tris / 15000 * 100).toFixed(1) + "%";
-  $("m-draw-n").textContent = draws + " of ~30"; $("m-tri-n").textContent = fmt(tris) + " of ~15,000";
+  const B = G && G.budget;
+  $("m-draw").style.width = B ? Math.min(100, draws / B.draws * 100).toFixed(1) + "%" : "0%"; $("m-tri").style.width = B ? Math.min(100, tris / B.tris * 100).toFixed(1) + "%" : "0%";
+  $("m-draw-n").textContent = draws + (B ? " of ~" + B.draws : ""); $("m-tri-n").textContent = fmt(tris) + (B ? " of ~" + fmt(B.tris) : "");
   $("hud").textContent = G ? (lineup ? G.looks.length + " bodies" : look.name) + " · " + pose + " · " + draws + " draws · " + fmt(tris) + " tris · " + cv.height + " lines · " + fps + " fps" : "";
 }
 function frame(now) {
   requestAnimationFrame(frame);
   const dt = Math.min(0.1, (now - last) / 1000 || 0); last = now;
   fpsN++; fpsT += dt; if (fpsT >= 1) { fps = Math.round(fpsN / fpsT); fpsN = 0; fpsT = 0; }
-  if (G && playing) {
+  if (G && playing && Mk.screen === "poses") {
     clipT += dt * rate;
     if (clipT >= 1) {
       clipT -= Math.floor(clipT); const c = G.clips[clip]; ci = (ci + 1) % c.length; pose = c[ci]; markAt = null;
@@ -341,27 +892,19 @@ $("play").onclick = () => { playing = !playing; lists(); };
 $("line").onclick = () => { lineup = !lineup; lists(); };
 $("pix").onclick = () => { pixels = !pixels; lists(); };
 $("rate").oninput = e => { rate = +e.target.value; $("rate-n").textContent = rate + " a second"; };
-$("mirror").onclick = () => { if (!G) return; G.poses[pose] = G.rig.mirror(G.poses[pose]); edited.add(pose); rebake(pose); sync(); };
-$("revert").onclick = () => { if (!G) return; G.poses[pose] = JSON.parse(JSON.stringify(G.orig[pose])); edited.delete(pose); rebake(pose); sync(); };
+$("mirror").onclick = () => { if (!G) return; G.poses[pose] = G.rig.mirror(G.poses[pose]); changed(pose); sync(); };
+$("revert").onclick = () => { if (!G) return; G.poses[pose] = JSON.parse(JSON.stringify(G.orig[pose])); edited.delete(pose); rebake(pose); stage(); sync(); };
 $("copy").onclick = () => { if (G) copy(pose + ": " + poseText(G.poses[pose]) + ",", $("copy"), "copy pose"); };
-$("copyall").onclick = () => { if (G) copy(blockText(), $("copyall"), "copy all"); };
-$("game").onchange = e => { location.hash = e.target.value; open(e.target.value); };
-
-// the games on the box's list, the one in the address (#wyrd) or WYRD first
-fetch("../games.json").then(r => r.json()).then(list => {
-  const want = location.hash.slice(1) || "wyrd", sel = $("game");
-  for (const g of list.games) { const o = el("option", null, g.name); o.value = g.id; sel.appendChild(o); }
-  sel.value = list.games.some(g => g.id === want) ? want : list.games[0].id;
-  open(sel.value);
-}).catch(() => say("Couldn't read the list of games (../games.json).", true));
-window.Maker = { get G() { return G; }, open, blocks, blockText, set(o) {
+$("copyall").onclick = () => { if (G) copy("/* maker: poses */" + blockText() + "/* maker: end */", $("copyall"), "copy all"); };
+Mk.poses = { get G() { return G; }, blockText, set(o) {
   if (o.look) look = G.looks.find(l => l.id === o.look || l.name === o.look) || look;
   if (o.clip) { clip = o.clip; ci = 0; pose = G.clips[clip][0]; }
   if (o.pose) pose = o.pose; if (o.joint) joint = o.joint; if (o.lineup != null) lineup = o.lineup;
   if (o.playing != null) playing = o.playing; if (o.pixels != null) pixels = o.pixels; if (o.yaw != null) { yaw = o.yaw; idleT = -1e9; }
   markAt = null; sync(); draw(); hud();
-} };
+}, setVal(p, j, k, v) { setVal(p, j, k, v); sync(); } };
 requestAnimationFrame(frame);
+Mk.start();
 })();
 </script>
 </body>
