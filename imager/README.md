@@ -1,17 +1,20 @@
 # Sofa Box Imager
 
-EdgeVenture's own app for writing Sofa Box OS: to an SD card for a Raspberry Pi 3 B+, 4 or 5, to a USB stick
-for a PC (since 0.2.0, [below](#for-a-pc-a-usb-stick)), or burned to a DVD for a PC (since 0.3.0,
-[below](#on-a-dvd)). It does one thing: pick the version, pick the card, stick or burner, confirm, and it downloads
-it, writes or burns it, reads it back to check it and ejects it. It sets nothing on it (no user, no SSH, no Wi-Fi):
-the box sets itself up on the TV.
+EdgeVenture's own app for writing disks, from the Mac. It began with Sofa Box OS: to an SD card for a Raspberry Pi
+3 B+, 4 or 5, to a USB stick for a PC (since 0.2.0, [below](#for-a-pc-a-usb-stick)), or burned to a DVD for a PC
+(since 0.3.0, [below](#on-a-dvd)). Since 0.4.0 it's a universal imager: **other Linux systems** from their projects'
+own sites ([below](#linux)), **Windows 7, 8.1, 10 and 11 installers** from an ISO you bring ([below](#windows)), and
+**your own image** ([below](#your-own-image)). It does one thing each time: pick what to write, pick the card or stick,
+confirm, and it writes it, reads every byte back to check it, and ejects it.
 
-**Where it stands (version 0.3.0, 2026-11-13):**
+**Where it stands (version 0.4.0, 2026-11-14):**
 
-- macOS only, 13 or newer, Apple silicon and Intel. Windows comes later (see [Windows](#windows)).
-- **It has never written a real SD card.** Everything up to the hardware is tested, including a real
-  Sofa Box OS 1.1.54 card downloaded from GitHub and written to a disk image. The password prompt and a real
-  card reader need a person at a Mac: [the list is below](#what-only-a-real-mac-with-a-real-sd-card-can-confirm).
+- macOS only, 13 or newer, Apple silicon and Intel. Windows and Linux builds of the app are wanted, and come next
+  (see [On Windows and Linux](#on-windows-and-linux)).
+- **It has never written a real SD card or USB stick.** Everything up to the hardware is tested, and every kind of
+  media has been written to a disk image through the raw device and started in a virtual PC, with UEFI (Secure Boot
+  on) and with BIOS: [what was proven, and how](#proven-in-virtual-pcs). The password prompt and a real card reader or
+  stick need a person at a Mac: [the list is below](#what-only-a-real-mac-with-a-real-sd-card-can-confirm).
 - It isn't signed with an Apple Developer ID, so macOS blocks a downloaded copy until its owner allows it
   (see [Signing](#signing)).
 - It reads the Sofa Box list on the `sofa-box` release, published since 2026-11-10 (see [The list](#the-list)).
@@ -21,12 +24,18 @@ the box sets itself up on the TV.
 - **On a DVD**, it burns a blank DVD-R or DVD+R in a DVD burner on the Mac, once the list has a PC's DVD. It has
   never burned a real disc: there's no DVD burner here (see [On a DVD](#on-a-dvd)).
 
-It's written from scratch in Swift and SwiftUI, not forked from Raspberry Pi's imager, and has no other
-dependencies: unpacking is macOS's own Compression framework, the password prompt is macOS's own `authopen`.
+It's written from scratch in Swift and SwiftUI, not forked from Raspberry Pi's imager or any other, and has no other
+dependencies: unpacking is macOS's own Compression framework, the password prompt is macOS's own `authopen`. What a
+Windows stick needs (reading UDF and WIM files, splitting a WIM, laying out FAT32, the BIOS boot code) is our own code
+too, with nothing from another tool.
 
 | Pick the version and the card | Confirm |
 |---|---|
 | ![The main window](../docs/images/imager-choose.png) | ![The confirmation](../docs/images/imager-confirm.png) |
+
+| Linux, from the project's own site | Windows, from your ISO |
+|---|---|
+| ![Linux](../docs/images/imager-linux.png) | ![Windows, with both Windows 11 switches ticked](../docs/images/imager-windows.png) |
 
 (Drawn by the tests with made-up disks, not photographed from a real write.)
 
@@ -61,6 +70,8 @@ Two read-only checks from Terminal, which open no window and never open a disk:
 ```
 "build/Sofa Box Imager.app/Contents/MacOS/SofaBoxImager" --versions   # the versions it would offer
 "build/Sofa Box Imager.app/Contents/MacOS/SofaBoxImager" --disks      # every disk, offered or not, and why not
+"build/Sofa Box Imager.app/Contents/MacOS/SofaBoxImager" --systems    # the Linux list, as found on each site now
+"build/Sofa Box Imager.app/Contents/MacOS/SofaBoxImager" --inspect FILE   # what it makes of an image or ISO
 ```
 
 `--disks` is the first thing to run when a card doesn't show up in the window.
@@ -91,7 +102,7 @@ there's no reason at all**, and anything macOS doesn't say counts against the di
 | The Mac starts up from it | It holds `/` or anything under `/System/Volumes`, directly or through an APFS container. This holds for a Mac started from an external disk too. |
 | It holds your home folder, this app or the temporary folder | The same lookup, for those folders |
 | It's on the network, or read-only | DiskArbitration's flags (a locked SD card is read-only) |
-| It's smaller than the card | The list's `extract_size` (5.23 GB for 1.1.54) |
+| It's smaller than what's written | The list's `extract_size` (5.23 GB for 1.1.54), a Linux ISO's size, a Windows stick's files and their FAT32 |
 | It's bigger than 520 GB | See below |
 | Its sectors aren't 512 bytes to 1 MiB, a power of two | So that every write is whole sectors |
 
@@ -180,6 +191,83 @@ restarts; Settings → This box → Install on this computer puts it on the PC's
 in QEMU with Secure Boot on and on an older PC, and installs from it onto a blank drive, before it's published.
 `--for dvd` opens the window on a DVD and makes `--versions` and `--disks` answer for one (`--disks`: the burners).
 
+## Linux
+
+**Linux**, the second choice at the top, offers a short list we keep:
+
+| Entry | Found on | Checked against |
+|---|---|---|
+| Ubuntu Desktop (the newest LTS) | `changelogs.ubuntu.com/meta-release-lts`, then `releases.ubuntu.com/<version>/` | that folder's `SHA256SUMS` |
+| Debian (the stable installer, netinst) | `cdimage.debian.org/debian-cd/current/amd64/iso-cd/` | that folder's `SHA256SUMS` |
+| Fedora Workstation (the newest release, never a beta) | `fedoraproject.org/releases.json` | the SHA-256 in that file |
+| Linux Mint Cinnamon (the newest release) | `mirrors.kernel.org/linuxmint/stable/` | that release's `sha256sum.txt` (the address Mint's own download pages give) |
+| Raspberry Pi OS (64-bit), and Lite | Raspberry Pi's own list, `downloads.raspberrypi.com/os_list_imagingutility_v4.json` | its `extract_sha256` |
+
+Nothing in the list names a version, so it doesn't go stale between our releases: when an entry is chosen, the app
+fetches the project's own files over HTTPS (they're never cached), finds the newest release there, and takes the file's
+address and SHA-256 from them (`CatalogResolver` in `Sources/ImagerKit/Catalog.swift`). Only `https` addresses are
+used. The download itself may come from a mirror the project sends it to; it's checked against the project's SHA-256
+all the same, so a mirror can't change it.
+
+The write is a card's: an ISO is written to the stick whole, byte for byte as its project publishes it (every Linux ISO
+is also a disk now, an "isohybrid"), and Raspberry Pi OS (`.img.xz`) is unpacked as it's written, to an SD card. The
+first megabyte is held back until everything downloaded matches the project's SHA-256, then every byte is read back.
+Like Sofa Box OS, nothing is set on it: no user, no Wi-Fi, no SSH.
+
+What isn't checked: the projects' GPG signatures on their sums files. HTTPS to the project's own site is what's
+trusted, as for our own list.
+
+## Windows
+
+**Windows**, the third choice, makes a Windows installer stick from an ISO you bring: Windows 7, 8.1, 10 or 11, 32-bit,
+x64 or ARM64. Sofa Box Imager never downloads Windows or keeps a copy; for 10 and 11 the window links to Microsoft's
+own download pages. The stick starts Windows Setup, which installs Windows onto the PC's own drive (it's not a Windows
+that runs from the stick).
+
+What it does with the ISO (`WindowsStick` in `Sources/ImagerKit/WindowsMedia.swift`):
+
+1. **Reads it.** Microsoft's ISOs keep their files in UDF only (their ISO 9660 part holds just a note saying so), so
+   the app has its own UDF reader (`UDF.swift`), and reads the install image's header and XML (`WIM.swift`) for the
+   version, the build, the editions and the processor. `--inspect FILE` prints all of it.
+2. **Lays out a FAT32 stick** (`FAT.swift`): an MBR with one active FAT32 partition from the first megabyte to the end
+   of the stick, every file of the ISO in it under the same names (long names kept), each file in one unbroken run.
+   FAT32 because every UEFI PC reads it, with Secure Boot on: no extra loader or driver is needed, and Windows' own
+   signed boot files do the rest.
+3. **Splits `install.wim`** when it's over FAT32's 4 GB limit (Microsoft's own ISOs for 10 and 11 are 5 to 8 GB), into
+   `install.swm`, `install2.swm`… of at most 3,800 MiB, which is what Microsoft documents for FAT32
+   (`DISM /Split-Image /FileSize:3800`), and Windows Setup reads by itself. Every piece of the image is copied byte
+   for byte (nothing is unpacked), so every SHA-1 Windows checks still holds. An `install.esd` over 4 GB is packed
+   "solid" and can't be split this way: the app says so (Microsoft's download page gives an install.wim).
+4. **BIOS PCs** start from our own boot code (`imager/boot/mbr.S` and `fat32.S`, assembled with Xcode's clang into
+   `BootCode.swift`; a test assembles them again and checks the bytes). The MBR starts the active partition; the boot
+   sector reads BOOTMGR, laid out in one run, to 2000:0000 and jumps to it with the drive in DL and its BPB at
+   0000:7C00, which is what Windows' own boot sector hands it. Then it's all Windows': BOOTMGR, its BCD, Setup.
+5. **Windows 7** has no `efi/boot/bootx64.efi` on its ISO: its UEFI loader is only inside the ISO's UEFI boot image
+   (`efi/microsoft/boot/efisys.bin`, a small FAT12 image), and is copied out of it. Windows 7 predates Secure Boot and
+   still wants legacy video: start it with legacy boot (CSM) on and Secure Boot off.
+6. **Writes it** like any card: the same disk rule, the first megabyte last, every byte read back against what was
+   written, eject. The stick is read from the ISO as it's written; nothing is unpacked to the Mac's disk first.
+
+**The Windows 11 switches**, each off unless ticked:
+
+- **Skip the TPM 2.0, Secure Boot and 4 GB RAM checks:** Setup is told to skip them with Microsoft's own LabConfig keys
+  (`BypassTPMCheck`, `BypassSecureBootCheck`, `BypassRAMCheck`). Microsoft doesn't support Windows 11 on PCs that fail
+  them.
+- **A local account, no Microsoft account:** a local administrator with the name you type, Setup's network step
+  allowed to be skipped (`BypassNRO`), and the account's password set at its first sign-in.
+
+Ticked, they're written as `autounattend.xml` at the stick's root, which Setup reads by itself. It holds only those
+settings: nothing that chooses, wipes or partitions a disk, and no product key. An ISO with its own `autounattend.xml`
+can't take them. Nothing at all is added to a stick when nothing is ticked.
+
+## Your own image
+
+**Your own image** writes a file from this Mac: an `.iso` that's also a disk, an `.img`, or a packed `.img.xz` (its size
+unpacked is read from the xz file's own index). It's looked at first (`ImageInspector`): a Windows ISO is sent to
+Windows, which makes it properly; an ISO with no partition table only starts from a DVD, and is refused with that
+reason; anything that isn't a disk image is refused. It's written whole and read back against what was read from the
+file.
+
 ## The list
 
 The app reads the same list Raspberry Pi's imager can open, built from the releases by
@@ -213,7 +301,7 @@ from anywhere the list says, because it's checked against the list's SHA-256.
 
 ## What's tested, and where
 
-`swift test` runs 97 tests; three more run only when asked. None writes a disk it didn't attach itself: the
+`swift test` runs 138 tests; four more run only when asked. None writes a disk it didn't attach itself: the
 tests that write attach a RAM disk, check with DiskArbitration that the device they got is a disk image of
 exactly the size they asked for, and only then touch it.
 
@@ -228,7 +316,13 @@ exactly the size they asked for, and only then touch it.
 | Finding disks | `ImagerMacTests/DiskListTests` (7) | The Mac running the tests: its startup disk is found and refused; a RAM disk is seen as a disk image and refused; the volumes on a disk are found, unmounted, and refused a mount while a write is on; `authopen` with no one to type a password opens nothing. |
 | The whole write | `ImagerMacTests/WriteJobTests` (5) | The app's own `WriteJob` on a RAM disk with a volume on it: unmount, open the raw device, write, read back, eject. Two things differ from the app: the RAM disk is opened directly (it belongs to the user, so no password), and the policy is told to accept that one RAM disk. Also: a disk that changed since it was confirmed, a disk that turns out to be another once open, and the real policy refusing the RAM disk before anything is unmounted. |
 | The password hand-over | `ImagerMacTests/AuthOpenTests` (6) | A stand-in for `authopen` (`Tests/FakeAuthOpen`) that takes its arguments and sends back an open file as `authopen` does: the 32-byte authorization arrives whole, the file opens for reading and writing, a helper that fails after opening isn't trusted, and the helper inherits nothing of the app's but its three standard streams. |
-| The app | `SofaBoxImagerTests/WindowTests` (9 + 1) | What's chosen is what's written; progress in words ("card", "stick", and a DVD's stages); For a PC, the list read again for a PC's images; On a DVD, a burner with a blank DVD is what's chosen and nothing else is; the colours match Sofa's style sheet and its fonts load; the app's own words never include Raspberry Pi's imager's name, and nothing in it writes a user, SSH or Wi-Fi setting. `SOFA_IMAGER_SNAPSHOTS=<folder>` draws every screen to a PNG, with the Mac set to light and to dark. |
+| The app | `SofaBoxImagerTests/WindowTests` (11 + 1) | What's chosen is what's written, in each of the four choices (a Linux entry not found yet writes nothing, the Windows 11 switches are off until ticked and only Windows 11's, an account switch with no name stops the write, a Windows ISO is never written whole); progress in words ("card", "stick", "Writing" for what isn't downloaded, and a DVD's stages); For a PC, the list read again for a PC's images; On a DVD, a burner with a blank DVD is what's chosen and nothing else is; the colours match Sofa's style sheet and its fonts load; the app's own words never include Raspberry Pi's imager's name, and nothing in it writes a user, SSH or Wi-Fi setting. `SOFA_IMAGER_SNAPSHOTS=<folder>` draws every screen to a PNG, with the Mac set to light and to dark. |
+| Windows ISOs | `ImagerKitTests/WindowsStickTests` (21) | Made-up Windows ISOs with Microsoft's layout (bootmgr, boot/bcd, efi/, sources/ with an install.wim in Microsoft's format, long names, a folder bigger than a cluster), put in UDF 1.02 by macOS's own `hdiutil makehybrid`. The UDF reader reads back every file of the folder the ISO was made from; Windows 11, 10, 7 and ARM64 are told apart; the WIM's table and XML are read; split parts each fit their limit, hold every resource exactly once and byte for byte, carry the same GUID, the part numbers and the XML, with the metadata in the first part only; a solid group stays whole; the finished stick is checked by macOS's own `fsck_msdos` and mounted by macOS's own FAT driver, every file read back as on the ISO; the MBR, the boot sector and its backup, and the run of BOOTMGR they point at; the same ISO gives the same stick byte for byte; Windows 7's loader copied out of a FAT12 `efisys.bin` made by `newfs_msdos`; the switches' `autounattend.xml` (only what's ticked, never a disk setting, Windows 11 only) and account names Windows would refuse. |
+| The boot code | `ImagerKitTests/BootCodeTests` (4) | `imager/boot/*.S` assembled again with Xcode's clang: the bytes are `BootCode`'s exactly; the MBR fits in 440 bytes; the BPB and the partition table are laid out as the FAT32 specification says. |
+| What a file is | `ImagerKitTests/ImageInspectorTests` (6) | An ISO with an isohybrid MBR or a GPT, one without (a DVD's only), MBR and GPT disk images and a bare boot sector, noise, packed `.img.xz` (its unpacked size from the xz index), Windows. |
+| The Linux list | `ImagerKitTests/CatalogTests` (4) | Each project's own files as they read on 2026-11-14, cut down: SHA256SUMS in its three shapes, Ubuntu's meta-release-lts, a folder listing, Fedora's releases.json (a beta is never chosen), Raspberry Pi's list. Every entry turns into the right address, size and SHA-256, every address asked for is https, and answers that don't add up are refused. |
+| Images written whole | `ImagerKitTests/RawPlanTests` (4) | An ISO written whole and checked against its SHA-256; an image with none must read back as what was streamed; an ISO that isn't the one listed never gets its first megabyte; a layout streams as it reads. |
+| A real stick | `ImagerMacTests/RealStickTests` (1, when asked) | `SOFA_IMAGER_STICK_OUT=<file>` and one of `SOFA_IMAGER_WINDOWS_ISO=<iso>` (with `SOFA_IMAGER_WIN11_SKIP_CHECKS=1`, `SOFA_IMAGER_WIN11_ACCOUNT=<name>`), `SOFA_IMAGER_SYSTEM=<debian, ubuntu…>` or `SOFA_IMAGER_OWN_IMAGE=<file>`. Writes a stick through the raw device with the app's own `WriteJob` and leaves the image behind, to start in a virtual PC. |
 | A real card | `ImagerMacTests/RealCardTests` (2, when asked) | `SOFA_IMAGER_REAL_LIST=<list> swift test --filter RealCardTests`. Downloads the newest card from GitHub and writes it to a disk image through the raw device with `WriteJob` (about 1.4 GB down, 6 GB of disk for a few minutes), and checks that a download dropped on purpose carries on through GitHub's redirect. |
 
 **Run here on 2026-11-10** (a Mac on macOS 27.2, Apple silicon, Xcode 27.2):
@@ -242,6 +336,34 @@ exactly the size they asked for, and only then touch it.
   file with several, so `XZDecoder` starts it again for each. liblzma isn't needed, and isn't bundled.
 - The built app (`--disks`) refused every disk on that Mac: the internal SSD, the APFS containers on it, and
   the disk images attached at the time, each with its reasons.
+
+## Proven in virtual PCs
+
+On 2026-11-14, on a Mac with an Apple A18 Pro (macOS 27.2, Xcode 27.2), with QEMU 11.1 emulating an x86-64 PC (no
+hardware help: slow, but the same firmware and boot path as a PC). Each stick was written by `RealStickTests`, that
+is by the app's own `WriteJob` through the raw device of a 16 GB (Windows) or 8 GB (Linux) disk image, read back in full,
+and then attached to the virtual PC as a USB stick (`usb-storage` on `qemu-xhci`, opened read-only). UEFI is OVMF from
+Ubuntu's `ovmf-generic` package with Microsoft's Secure Boot keys enrolled and Secure Boot on; BIOS is SeaBIOS.
+
+| Media | Written | UEFI, Secure Boot on | BIOS |
+|---|---|---|---|
+| Windows 11, build 26300 (Microsoft's ISO, 9.05 GB, its SHA-256 as Microsoft lists it) | 35 s, `install.wim` (8.16 GB) split into 3 parts | Windows Setup; inside it `UEFISecureBootEnabled = 1` | Our MBR and boot sector start BOOTMGR, then Windows Setup; the 11 editions listed from `install.swm`; Setup then refuses the virtual PC for having no TPM 2.0 and no Secure Boot, as Microsoft's own media does |
+| Windows 11, both switches ticked | 30 s | Setup's LabConfig keys set by the stick's `autounattend.xml`; the editions listed; Setup's hardware check passed in a PC with no TPM, on to the license terms | — |
+| Windows 10 22H2 (Microsoft's ISO, 6.14 GB, its SHA-256 as Microsoft lists it) | 17 s, `install.wim` (5.18 GB) split into 2 parts | Windows Setup; `UEFISecureBootEnabled = 1` | Windows Setup; the 11 editions listed from `install.swm` |
+| Debian 13.7.0 netinst, downloaded by the app from cdimage.debian.org | 69 s, read back as Debian's SHA-256 | Debian's UEFI installer menu (its shim is Microsoft-signed) | "Debian GNU/Linux installer menu (BIOS mode)" |
+| Fedora Workstation 45, as Your own image (Fedora's ISO, its SHA-256 as Fedora lists it) | 7 s, read back as Fedora's SHA-256 | GRUB's menu (through Fedora's Microsoft-signed shim), then Fedora's kernel starting | GRUB starting its default entry; Fedora's kernel and systemd up after about 5 minutes of emulation |
+| Raspberry Pi OS Lite (64-bit) 2026-10-06, downloaded by the app from Raspberry Pi | 78 s, unpacked as written, read back as Raspberry Pi's `extract_sha256` | QEMU can't start a Pi here: checked byte for byte only | — |
+
+The Windows 11 stick was also checked from the Mac: `fsck_msdos` found nothing wrong (1,073 files), and macOS's own
+FAT and UDF drivers show every file on it the same as on the ISO, but for `install.wim`, which is the three parts.
+
+**Not proven in a virtual PC:** a whole Windows install from the stick (Setup copying Windows from the split parts to a
+drive, and the local account switch in Windows' first-start screens): that means accepting Microsoft's license terms
+in Setup, which is the owner's to say yes to, and about 20 GB of disk. Windows 7 (Microsoft no longer offers its ISO;
+its parts are tested with made-up ISOs only), 8.1, 32-bit and ARM64 Windows; Ubuntu and Linux Mint (their lists are
+read from their sites and turned into the right files, and they're written the same way as Debian, but they weren't
+downloaded); Fedora's live desktop: under emulation it hadn't finished starting after 15 minutes (on BIOS, with 2 GB, systemd stopped
+with "Freezing execution" at 285 s, which points at the virtual PC rather than the stick, whose bytes are Fedora's own).
 
 ## What only a real Mac with a real SD card can confirm
 
@@ -269,6 +391,20 @@ the owner's hardware, which is the only kind this app writes.
    Escape, Tab), and VoiceOver.
 10. **Another Mac and an older macOS.** The app is built for macOS 13 and later and has run on 27.2, plus
    whatever GitHub's Macs run. How Gatekeeper treats the unsigned zip after a download is untested.
+
+### What only a real USB stick and a real PC can confirm
+
+The same as a card's list above for the Mac's side (the password, the stick offered, unmounting, the write and the
+read-back, nothing mounting, the eject), and on the PC's side:
+
+1. **A Windows 11 stick starts a PC with UEFI and Secure Boot on**, and an older one with BIOS (or a newer one with CSM
+   on), and Setup installs Windows from it, the split parts included, onto the PC's drive.
+2. **A Windows 10 stick**, the same; and **Windows 7** on a PC with legacy boot, since no Windows 7 ISO was to hand.
+3. **The Windows 11 switches** on a real PC: Setup goes on without TPM 2.0, and the local account is made, its password
+   asked for at the first sign-in.
+4. **A Linux stick** from the list starts a PC (Ubuntu, Debian, Fedora, Mint), and **Raspberry Pi OS** a Pi.
+5. **Sticks of other sizes and makes**: our boot code reads BOOTMGR by LBA, which every PC that starts from USB has;
+   a very old PC that only starts USB sticks as floppies won't start it.
 
 ### What only a real DVD burner can confirm
 
@@ -311,15 +447,23 @@ xcrun stapler staple "build/Sofa Box Imager.app"        # then zip it again, or 
   **secrets**, and the workflow imports them into a temporary keychain. They never go in the repository.
 - Until then, the unsigned zip is fine for the owner's own Macs and for testers who know to press Open Anyway.
 
-## Windows
+## On Windows and Linux
 
-Later. Writing a disk on Windows is different work (an elevated helper that locks and dismounts the volumes,
-then writes `\\.\PhysicalDriveN` in whole sectors) and needs a Windows code-signing certificate, or SmartScreen
-warns on every download. The fleet has no Windows PC, and a writer that has never written a real card
-shouldn't reach owners. Until one exists, Windows owners use the list in Raspberry Pi's own imager
-([the guide](../deploy/sofa-box/README.md#setting-it-up-the-ready-made-card-easiest)).
-`ImagerKit` (the list, the policy's rules, the writer) has nothing Mac-only in it but the unpacker and the
-SHA-256, so a Windows app can share its design and its tests' cases.
+Wanted: the owner's answer on 2026-11-14 was that a universal imager should run on Windows and Linux too, not only
+the Mac. That's the next piece of work, not this version. What it needs:
+
+- **The disk side, per system.** Windows: an elevated helper that locks and dismounts the volumes, then writes
+  `\\.\PhysicalDriveN` in whole sectors, and a Windows code-signing certificate, or SmartScreen warns on every
+  download. Linux: finding removable disks through sysfs/udev, and writing `/dev/sdX` through polkit. Each needs its own
+  version of `DiskPolicy`'s facts (what's removable, what's the system disk), with the same pure rule and its tests.
+- **The window, per system.** SwiftUI is Apple's only; the Windows and Linux apps need their own windows.
+- **What's shared already.** Everything new in this version is in `ImagerKit` and uses nothing Mac-only: the UDF and WIM
+  readers, the WIM splitter, the FAT32 layout, the boot code, the image inspector, the Linux list. What's still
+  Mac-only there is older: the xz unpacker (macOS's Compression framework) and SHA-256 (CryptoKit). A Windows or Linux
+  build needs its own of each (written here, like the rest).
+- The fleet has no Windows PC, and a writer that has never written a real card shouldn't reach owners. Until then,
+  Windows owners use the list in Raspberry Pi's own imager
+  ([the guide](../deploy/sofa-box/README.md#setting-it-up-the-ready-made-card-easiest)).
 
 ## Not in this version
 
@@ -330,7 +474,13 @@ SHA-256, so a Windows app can share its design and its tests' cases.
 - Erasing a rewritable disc (DVD-RW, DVD+RW) before burning: Finder or Disk Utility does that.
 - The download isn't kept: writing a second card downloads it again.
 - No update check for the app itself, and no translations.
-- A card file chosen from disk (only through a list file, for testing).
+- A Windows that runs from the stick (Windows To Go): the stick installs Windows, it isn't Windows.
+- An NTFS stick (with a UEFI NTFS driver from elsewhere): FAT32 and split parts start every UEFI PC with Secure Boot on,
+  with nothing added.
+- An `install.esd` over 4 GB (packed solid, it can't be split to fit FAT32), a UDF 2.50 ISO (metadata partition), and
+  a Windows stick on a disk with 4,096-byte sectors: each is refused with its reason.
+- GPG signatures on the Linux projects' sums files: the sums are fetched over HTTPS from each project's own site.
+- Settings for a Linux system (a user, Wi-Fi): it's written as its project publishes it.
 - An extra warning for an external disk that holds a Time Machine backup or an APFS volume. Today it's
   shown with its name, size and volumes like any other.
 
@@ -342,18 +492,24 @@ VERSION                       the app's version
 Resources/Info.plist          the app bundle's Info.plist (version filled in by the build)
 scripts/build-app.sh          builds "Sofa Box Imager.app" (Apple silicon and Intel) and zips it
 Sources/ImagerKit/            no disks, no AppKit: CardList (the list), DiskPolicy (which disks), XZDecoder,
-                              Download (HTTPS with carry-on), CardWriter (write, check, CardPipeline),
-                              SofaTheme (the look, as numbers)
+                              Download (HTTPS with carry-on), CardWriter (write, check, CardPipeline, WritePlan),
+                              SofaTheme (the look, as numbers), Catalog (the Linux list), ImageInspector (what a
+                              file is), UDF, WIM (reading and splitting), FAT (FAT12 reading, the FAT32 stick),
+                              BootCode (our MBR and boot sector), WindowsMedia (the Windows stick, the switches),
+                              RandomAccess (files and layouts read anywhere, streamed)
 Sources/ImagerMac/            macOS: DiskList (DiskArbitration, IOKit), DiskOps (unmount, eject, refuse mounts,
-                              authopen, stay awake), WriteJob (one card, start to finish)
+                              authopen, stay awake), WriteJob (one disk, start to finish)
+boot/                         the boot code's sources (assembly), assembled with Xcode's clang
 Sources/CAuthOpen/            C: runs authopen and receives the open disk from it; the disk's flush and size
-Sources/SofaBoxImager/        the app: SwiftUI window, Sofa's look (Theme), its model, the --versions and --disks reports
+Sources/SofaBoxImager/        the app: SwiftUI window, Sofa's look (Theme), its model, the --versions, --disks,
+                              --systems and --inspect reports
+CHANGES.md                    what's new in each version
 Tests/                        see "What's tested, and where"; Tests/FakeAuthOpen is the stand-in for authopen
 ```
 
 ## Licence
 
-PolyForm Noncommercial License 1.0.0, like the rest of Sofa (see `LICENSE` and `TRADEMARKS.md` at the root); the two typefaces are under the SIL Open Font License 1.1. No code is copied from Raspberry Pi Imager. Its macOS disk code (Apache-2.0,
+PolyForm Noncommercial License 1.0.0, like the rest of Sofa (see `LICENSE` and `TRADEMARKS.md` at the root); the two typefaces are under the SIL Open Font License 1.1. No code is copied from Raspberry Pi Imager, or from any other imager or Windows tool: the UDF, WIM and FAT code and the boot code are written here from the published formats (ECMA-167 and OSTA UDF, Microsoft's Windows Imaging File Format paper, Microsoft's FAT32 specification). Windows is Microsoft's: the app never downloads or carries it. Its macOS disk code (Apache-2.0,
 version 2.0.12) was read to see how it uses `authopen` and DiskArbitration, and three of its habits are
 followed: blanking a disk's last megabyte, giving that write a time limit, and holding the first block back
 until the end. The app uses no Raspberry Pi logos; "Raspberry Pi" appears only to say which boards the card

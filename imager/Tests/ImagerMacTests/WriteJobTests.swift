@@ -37,8 +37,9 @@ final class WriteJobTests: XCTestCase {
                 stages.append("\(s)")
             }
         }
-        XCTAssertEqual(stages, ["checking", "unmounting", "waitingForPassword", "writing", "finishing", "verifying",
-                                "ejecting", "done"])
+        // The plan is made once the disk is looked at again, before anything on it is unmounted.
+        XCTAssertEqual(stages, ["checking", "preparing", "unmounting", "waitingForPassword", "writing", "finishing",
+                                "verifying", "ejecting", "done"])
         XCTAssertEqual(lastVerified, TestCard.size)
         // Ejecting a disk image detaches it.
         let gone = Date().addingTimeInterval(10)

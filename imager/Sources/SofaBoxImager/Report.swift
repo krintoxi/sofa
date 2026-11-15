@@ -65,4 +65,57 @@ enum Report {
         }
         return status
     }
+
+    /// `--inspect FILE`: what the Imager makes of an image file, and for a Windows ISO the stick it would make. Reads only.
+    static func inspect(_ url: URL) -> Int32 {
+        do {
+            let file = try FileRandomAccess(url: url)
+            print("\(url.path): \(ByteSize.text(file.size))")
+            let kind = try ImageInspector.inspect(file, name: url.lastPathComponent)
+            print("  \(kind.summary)")
+            guard case .windows(let w) = kind else { return kind == .unknown || kind == .discOnly ? 1 : 0 }
+            print("  \(w.starts)")
+            print("  editions: \(w.editions.joined(separator: ", "))")
+            print("  \(w.installPath): \(ByteSize.text(w.installBytes))\(w.installIsSolid ? " (solid, ESD)" : "")"
+                  + (w.needsSplit ? ", split into .swm parts for FAT32" : ""))
+            print("  BOOTMGR \(ByteSize.text(w.bootmgrBytes)), UEFI loader: \(w.uefi)")
+            if let why = w.refusal { print("  can't make a stick: \(why)"); return 1 }
+            let size = max(Int64(16_000_000_000), w.stickBytesNeeded)
+            let start = Date()
+            let (stick, _) = try WindowsStick.build(iso: file, diskBytes: size, sectorBytes: 512)
+            print("  on a \(ByteSize.text(size)) stick: FAT32, \(stick.clusterBytes / 1024) KB clusters, "
+                  + "\(stick.usedClusters) of \(stick.clusters) used, \(ByteSize.text(stick.layout.length)) written, "
+                  + "BOOTMGR at sector \(stick.loader.map { "\($0.sector), \($0.count) sectors" } ?? "none") "
+                  + "(planned in \(String(format: "%.1f", Date().timeIntervalSince(start))) s)")
+            print("  needs a stick of \(ByteSize.text(w.stickBytesNeeded)) or more")
+            return 0
+        } catch {
+            print("  \(plainWords(error))")
+            return 1
+        }
+    }
+
+    /// `--systems`: the other systems' newest releases, as found on their own sites now.
+    static func systems() -> Int32 {
+        final class Box: @unchecked Sendable { var lines: [String] = []; var failed = false }
+        let box = Box()
+        let done = DispatchSemaphore(value: 0)
+        Task.detached {
+            for e in Catalog.entries {
+                do {
+                    let c = try await CatalogResolver.resolve(e, with: URLSessionFetcher())
+                    box.lines.append("  \(c.name)  \(ByteSize.text(c.extractSize))  sha256 \(c.extractSHA256)  \(c.url.absoluteString)")
+                } catch {
+                    box.lines.append("  \(e.name): \(plainWords(error))")
+                    box.failed = true
+                }
+            }
+            done.signal()
+        }
+        done.wait()
+        print("Other systems, from each project's own site:")
+        box.lines.forEach { print($0) }
+        return box.failed ? 1 : 0
+    }
 }
+

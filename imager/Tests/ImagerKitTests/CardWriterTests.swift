@@ -171,3 +171,66 @@ final class CardWriterTests: XCTestCase {
         for e in all { XCTAssertFalse(e.description.isEmpty) }
     }
 }
+
+/// Images written as they are (an ISO, the owner's own, a Windows stick laid out by the Imager): the same writer, with
+/// the list's SHA-256 when there is one and the streamed bytes' own when there isn't.
+final class RawPlanTests: XCTestCase {
+    func testAnISOIsWrittenWholeAndCheckedAgainstItsSHA256() throws {
+        let iso = noise(3 << 20 + 4096, seed: 21)
+        let disk = try TempDisk(size: 8 << 20)
+        let plan = WritePlan(name: "x.iso", size: Int64(iso.count), sha256: sha256(iso), packed: false, downloads: false) {
+            RandomAccessSource(DataRandomAccess(iso))
+        }
+        let got = try CardPipeline.run(plan: plan, device: FileDescriptorDevice(fd: disk.fd), diskSize: disk.size, sectorBytes: 512)
+        XCTAssertEqual(got, sha256(iso))
+        XCTAssertEqual(disk.contents().prefix(iso.count), iso)
+    }
+
+    func testAnImageWithNoSHA256MustReadBackAsWhatWasStreamed() throws {
+        let img = noise(2 << 20 + 512, seed: 22)
+        let disk = try TempDisk(size: 8 << 20)
+        let plan = WritePlan(name: "own.img", size: Int64(img.count), sha256: nil, packed: false, downloads: false) {
+            RandomAccessSource(DataRandomAccess(img))
+        }
+        XCTAssertEqual(try CardPipeline.run(plan: plan, device: FileDescriptorDevice(fd: disk.fd), diskSize: disk.size,
+                                            sectorBytes: 512), sha256(img))
+        // A disk that reads back wrong fails, and is left without its first megabyte.
+        let bad = try TempDisk(size: 8 << 20)
+        let dev = RecordingDevice(FileDescriptorDevice(fd: bad.fd))
+        dev.corruptReadAt = 1_500_000
+        XCTAssertThrowsError(try CardPipeline.run(plan: plan, device: dev, diskSize: bad.size, sectorBytes: 512)) {
+            XCTAssertEqual($0 as? WriteError, .verifyMismatch)
+        }
+        XCTAssertTrue(bad.contents().prefix(1 << 20).allSatisfy { $0 == 0 })
+    }
+
+    func testAnISOThatIsntTheOneListedIsNeverFinished() throws {
+        let iso = noise(2 << 20, seed: 23)
+        let disk = try TempDisk(size: 8 << 20)
+        let plan = WritePlan(name: "x.iso", size: Int64(iso.count), sha256: String(repeating: "0", count: 64), packed: false,
+                             downloads: true) { RandomAccessSource(DataRandomAccess(iso)) }
+        XCTAssertThrowsError(try CardPipeline.run(plan: plan, device: FileDescriptorDevice(fd: disk.fd), diskSize: disk.size,
+                                                  sectorBytes: 512)) {
+            XCTAssertEqual($0 as? WriteError, .downloadMismatch)
+        }
+        XCTAssertTrue(disk.contents().prefix(1 << 20).allSatisfy { $0 == 0 }, "no partition table: it can't start half right")
+    }
+
+    func testALayoutStreamsAsItReads() throws {
+        var l = Layout()
+        let a = DataRandomAccess(noise(3000, seed: 1))
+        l.append(Data([1, 2, 3]))
+        l.append(.zeros(5000))
+        l.append(.copy(a, offset: 10, length: 1000))
+        l.append(.copy(a, offset: 1010, length: 1000))         // joins the copy before it
+        l.append(.zeros(10))
+        XCTAssertEqual(l.pieces.count, 4)
+        XCTAssertEqual(l.length, 3 + 5000 + 2000 + 10)
+        var streamed = Data()
+        let s = LayoutSource(l, chunk: 777)
+        while let d = try s.next() { streamed.append(d) }
+        XCTAssertEqual(streamed, try l.read(at: 0, count: Int(l.length)))
+        XCTAssertEqual(try l.read(at: 5003, count: 2000), a.data.subdata(in: 10..<2010))
+        XCTAssertThrowsError(try l.read(at: l.length - 5, count: 10))
+    }
+}

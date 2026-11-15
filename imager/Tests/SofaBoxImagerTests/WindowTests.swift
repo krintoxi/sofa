@@ -230,7 +230,9 @@ final class WindowTests: XCTestCase {
         XCTAssertFalse((text + info).lowercased().contains("internet archive"))
         XCTAssertFalse((text + info).lowercased().contains("archive.org"))
         XCTAssertTrue(info.contains("<string>Sofa Box Imager</string>"))
-        // No OS customisation: nothing in the app writes a user, a password of its own, SSH or Wi-Fi settings.
+        // No OS customisation: nothing in the app writes a user, a password of its own, SSH or Wi-Fi settings onto a
+        // card or a Linux stick. (The one setup file it can write is a Windows 11 stick's autounattend.xml, and only for
+        // the switches the owner ticks: WindowsStickTests checks what's in it.)
         for word in ["firstrun", "user-data", "userconf", "wpa_supplicant", "ssh_authorized", "cloud-init", "rpi-preseed"] {
             XCTAssertFalse(text.lowercased().contains(word), word)
         }
@@ -246,7 +248,7 @@ final class WindowTests: XCTestCase {
             .appendingPathComponent("../../../client/icons/icon-512.png").standardizedFileURL
         NSApplication.shared.applicationIconImage = NSImage(contentsOf: icon)
         XCTAssertTrue(SofaFonts.loaded, "Sofa's fonts didn't load")
-        let size = CGSize(width: 640, height: 620)
+        let size = CGSize(width: 680, height: 700)
         for (name, look) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
             let out = URL(fileURLWithPath: folder).appendingPathComponent(name)
             try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
@@ -290,7 +292,114 @@ final class WindowTests: XCTestCase {
             none.burners = []
             none.burnerID = nil
             try draw(ContentView().environmentObject(none), size, look, out.appendingPathComponent("13-dvd-no-burner.png"))
+            // Linux, Windows, your own image
+            try draw(ContentView().environmentObject(linuxModel()), size, look, out.appendingPathComponent("14-linux.png"))
+            let w = windowsModel()
+            try draw(ContentView().environmentObject(w), size, look, out.appendingPathComponent("15-windows.png"))
+            w.skipHardwareChecks = true
+            w.useLocalAccount = true
+            w.accountName = "Den"
+            try draw(ContentView().environmentObject(w), size, look, out.appendingPathComponent("16-windows-switches.png"))
+            w.confirming = true
+            try draw(ConfirmView().environmentObject(w), CGSize(width: 480, height: 460), look,
+                     out.appendingPathComponent("17-windows-confirm.png"))
+            let wDone = windowsModel(.done(card: "Windows 11 (x64)", disk: "SanDisk Ultra"))
+            try draw(ContentView().environmentObject(wDone), size, look, out.appendingPathComponent("18-windows-done.png"))
+            let wEmpty = windowsModel()
+            wEmpty.windowsFile = .none
+            try draw(ContentView().environmentObject(wEmpty), size, look, out.appendingPathComponent("19-windows-empty.png"))
+            try draw(ContentView().environmentObject(fileModel(.hybridISO(partitions: .gpt))), size, look,
+                     out.appendingPathComponent("20-own-image.png"))
+            try draw(ContentView().environmentObject(fileModel(.discOnly)), size, look,
+                     out.appendingPathComponent("21-own-image-dvd-only.png"))
         }
+    }
+
+    static let ubuntu = Card(name: "Ubuntu Desktop 26.04.1 LTS", summary: "",
+                             url: URL(string: "https://releases.ubuntu.com/26.04/ubuntu-26.04.1-desktop-amd64.iso")!,
+                             downloadSize: 6_482_409_472, extractSize: 6_482_409_472,
+                             extractSHA256: "601e30fbf5d97759367c632e2c33630665039b7e2158fd068403da3ccf1bda1f",
+                             releaseDate: "", website: nil)
+    static let eleven = WindowsMedia(version: .eleven, build: 26300, arch: .x64,
+                                     editions: ["Windows 11 Home", "Windows 11 Pro"], installPath: "sources/install.wim",
+                                     installBytes: 8_161_000_000, installIsSolid: false, volumeName: "CCCOMA_X64FRE_EN-US_DV9",
+                                     biosBoot: true, bootmgrBytes: 484_000, uefi: .onTheISO("efi/boot/bootx64.efi"),
+                                     fileBytes: 9_040_000_000, fileCount: 1073, hasUnattend: false)
+
+    private func linuxModel(_ phase: ImagerModel.Phase = .choosing) -> ImagerModel {
+        let m = model(phase)
+        m.mode = .linux
+        m.use(system: Self.ubuntu, for: "ubuntu")
+        m.offered = [Self.stick]
+        m.diskName = "disk7"
+        return m
+    }
+
+    private func windowsModel(_ phase: ImagerModel.Phase = .choosing) -> ImagerModel {
+        let m = model(phase)
+        m.mode = .windows
+        m.windowsFile = .read(URL(fileURLWithPath: "/Users/someone/Downloads/Win11_26300_English_x64.iso"),
+                              .windows(Self.eleven), 9_047_330_816)
+        m.offered = [Self.stick]
+        m.diskName = "disk7"
+        return m
+    }
+
+    private func fileModel(_ kind: ImageKind) -> ImagerModel {
+        let m = model()
+        m.mode = .file
+        m.ownFile = .read(URL(fileURLWithPath: "/Users/someone/Downloads/some-system.iso"), kind, 2_925_092_864)
+        m.offered = [Self.stick]
+        m.diskName = "disk7"
+        return m
+    }
+
+    /// Linux, Windows and your own image: what's written, onto what, in the words the window uses.
+    func testEachModeWritesWhatsChosen() {
+        let l = linuxModel()
+        XCTAssertEqual(l.word, "stick")
+        XCTAssertEqual(l.item?.name, "Ubuntu Desktop 26.04.1 LTS")
+        XCTAssertEqual(l.item?.needs, 6_482_409_472)
+        XCTAssertTrue(l.canGo)
+        l.systemID = "raspios"                       // not found yet: nothing to write
+        XCTAssertEqual(l.word, "card")
+        XCTAssertNil(l.item)
+        XCTAssertFalse(l.canGo)
+
+        let w = windowsModel()
+        XCTAssertEqual(w.item?.name, "Windows 11 (x64)")
+        XCTAssertEqual(w.item?.needs, Self.eleven.stickBytesNeeded)
+        XCTAssertTrue(w.windowsOptions.isEmpty, "every switch is off until ticked")
+        XCTAssertTrue(w.canGo)
+        w.useLocalAccount = true                    // ticked, with no name yet
+        XCTAssertNotNil(w.optionsProblem)
+        XCTAssertFalse(w.canGo)
+        w.accountName = "Den"
+        XCTAssertTrue(w.canGo)
+        XCTAssertEqual(w.windowsOptions, WindowsOptions(localAccount: "Den"))
+        // The switches are Windows 11's: a Windows 10 ISO never carries them.
+        var ten = Self.eleven
+        ten.version = .ten
+        w.windowsFile = .read(URL(fileURLWithPath: "/x.iso"), .windows(ten), 1)
+        XCTAssertTrue(w.windowsOptions.isEmpty)
+        // An ISO that isn't Windows writes nothing here.
+        w.windowsFile = .read(URL(fileURLWithPath: "/x.iso"), .discOnly, 1)
+        XCTAssertNil(w.item)
+        XCTAssertFalse(w.canGo)
+
+        XCTAssertEqual(fileModel(.hybridISO(partitions: .mbr)).item?.name, "some-system.iso")
+        XCTAssertNil(fileModel(.discOnly).item)
+        XCTAssertNil(fileModel(.unknown).item)
+        XCTAssertNil(fileModel(.windows(Self.eleven)).item, "a Windows ISO is made into a stick, never written whole")
+    }
+
+    func testProgressInWordsForWhatsNotDownloaded() async {
+        var said: [String] = []
+        let r = StageReporter(word: "stick", downloads: false, building: true) { text, _ in said.append(text) }
+        r.report(.preparing)
+        r.report(.writing(WriteProgress(phase: .writing, done: 500, total: 1000)))
+        try? await Task.sleep(nanoseconds: 200_000_000)
+        XCTAssertEqual(said, ["Laying out the stick from the ISO…", "Writing… 50%"])
     }
 
     private func draw(_ view: some View, _ size: CGSize, _ look: NSAppearance.Name, _ url: URL) throws {

@@ -136,9 +136,9 @@ public enum DiskRefusal: Equatable, Hashable, Sendable {
         case .inUse(let v): return "It holds \(v), which Sofa Box Imager or your home folder is on."
         case .unknownSize: return "macOS doesn't say how big it is."
         case .tooSmall(let need):
-            return "It's too small: Sofa Box OS needs \(ByteSize.text(need))."
+            return "It's too small: what's being written needs \(ByteSize.text(need))."
         case .tooLarge(let limit):
-            return "It's bigger than \(ByteSize.text(limit)), more than any SD card for a Pi: almost certainly a hard drive or SSD."
+            return "It's bigger than \(ByteSize.text(limit)), more than any SD card or USB stick: almost certainly a hard drive or SSD."
         case .oddBlockSize(let n): return "Its sectors are \(n) bytes, which Sofa Box Imager doesn't write."
         }
     }

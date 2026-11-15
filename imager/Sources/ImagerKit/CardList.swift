@@ -89,6 +89,20 @@ public struct Card: Equatable, Identifiable, Hashable {
     /// Not tried on a real box yet: a version newer than the stable one, or the rolling card rebuilt from main
     /// ("newest build (testing)").
     public var isTesting: Bool { name.lowercased().contains("(testing)") }
+    /// Packed (`.xz`), unpacked as it's written; otherwise written as it is (an ISO, an `.img`).
+    public var isPacked: Bool { url.path.lowercased().hasSuffix(".xz") }
+
+    public init(name: String, summary: String, url: URL, downloadSize: Int64, extractSize: Int64, extractSHA256: String,
+                releaseDate: String, website: URL?) {
+        self.name = name
+        self.summary = summary
+        self.url = url
+        self.downloadSize = downloadSize
+        self.extractSize = extractSize
+        self.extractSHA256 = extractSHA256
+        self.releaseDate = releaseDate
+        self.website = website
+    }
     public var id: String { url.absoluteString + "#" + extractSHA256 }
 }
 

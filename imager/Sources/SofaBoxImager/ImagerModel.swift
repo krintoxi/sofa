@@ -3,6 +3,38 @@ import Foundation
 import ImagerKit
 import ImagerMac
 
+/// What the window writes: Sofa Box OS (from our list), another Linux (from its project's own site), Windows (from the
+/// owner's ISO), or an image file of the owner's own.
+enum Mode: String, CaseIterable, Identifiable {
+    case sofaBox, linux, windows, file
+
+    var id: String { rawValue }
+    var choice: String {
+        switch self {
+        case .sofaBox: return "Sofa Box OS"
+        case .linux: return "Linux"
+        case .windows: return "Windows"
+        case .file: return "Your own image"
+        }
+    }
+    var symbol: String {
+        switch self {
+        case .sofaBox: return "sofa"
+        case .linux: return "terminal"
+        case .windows: return "square.grid.2x2"
+        case .file: return "doc"
+        }
+    }
+    static func named(_ text: String) -> Mode? {
+        switch text.lowercased() {
+        case "linux", "systems": return .linux
+        case "windows", "win": return .windows
+        case "file", "own", "image": return .file
+        default: return nil
+        }
+    }
+}
+
 /// Everything the window shows, and the one write it may be running.
 @MainActor
 final class ImagerModel: ObservableObject {
@@ -19,12 +51,50 @@ final class ImagerModel: ObservableObject {
         case failed(String)
     }
 
+    /// A Linux from the list, found on its project's site.
+    enum SystemState: Equatable {
+        case none
+        case finding
+        case found(Card)
+        case failed(String)
+    }
+
+    /// A file the owner chose (a Windows ISO, or an image of their own), as it was read.
+    enum FileState: Equatable {
+        case none
+        case reading(URL)
+        case read(URL, ImageKind, Int64)
+        case failed(URL, String)
+
+        var url: URL? {
+            switch self {
+            case .none: return nil
+            case .reading(let u), .read(let u, _, _), .failed(let u, _): return u
+            }
+        }
+    }
+
     nonisolated static let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.1.0"
 
+    /// Microsoft's own download pages: the Imager never downloads or keeps Windows.
+    static let windows11Page = URL(string: "https://www.microsoft.com/software-download/windows11")!
+    static let windows10Page = URL(string: "https://www.microsoft.com/software-download/windows10ISO")!
+
+    @Published var mode: Mode = ImagerModel.chosenMode() { didSet { if mode != oldValue { modeChanged() } } }
     @Published var list: ListState = .loading
     /// For a Raspberry Pi (an SD card) or a PC (a USB stick): the list is read again for it.
     @Published var target: CardTarget = ImagerModel.chosenTarget() { didSet { if target != oldValue { readList() } } }
     @Published var card: Card? { didSet { refreshDisks() } }
+    /// Linux: the entry chosen, and what was found for it.
+    @Published var systemID: String = Catalog.entries[0].id { didSet { if systemID != oldValue { findSystem() } } }
+    @Published var system: SystemState = .none { didSet { refreshDisks() } }
+    /// Windows: the ISO, and the Windows 11 switches (each off unless ticked).
+    @Published var windowsFile: FileState = .none { didSet { refreshDisks() } }
+    @Published var skipHardwareChecks = false
+    @Published var useLocalAccount = false
+    @Published var accountName = ""
+    /// Your own image.
+    @Published var ownFile: FileState = .none { didSet { refreshDisks() } }
     @Published var offered: [DiskDescription] = []
     /// On a DVD: the Mac's burners, and the one chosen.
     @Published var burners: [Burner] = []
@@ -46,6 +116,8 @@ final class ImagerModel: ObservableObject {
     private var burnerTimer: Timer?
     /// The list as it came, read again for the other target without fetching it again.
     private var listData: Data?
+    /// Linux entries already found since the app opened.
+    private var found: [String: Card] = [:]
 
     var isWriting: Bool { if case .running = phase { return true } else { return false } }
     var chosenDisk: DiskDescription? { offered.first { $0.bsdName == diskName } }
@@ -53,8 +125,66 @@ final class ImagerModel: ObservableObject {
     var chosenBurner: Burner? {
         burners.first { $0.id == burnerID && $0.refusal(needs: card?.extractSize ?? 1) == nil }
     }
+    var burns: Bool { mode == .sofaBox && target.burns }
+
+    /// The Linux entry chosen.
+    var systemEntry: CatalogEntry { Catalog.entry(systemID) ?? Catalog.entries[0] }
+    var foundSystem: Card? {
+        if case .found(let c) = system, found[systemID] == c { return c } else { return nil }
+    }
+    var windowsMedia: WindowsMedia? {
+        if case .read(_, .windows(let w), _) = windowsFile { return w } else { return nil }
+    }
+    var ownKind: (URL, ImageKind, Int64)? {
+        if case .read(let u, let k, let n) = ownFile, k.writtenWhole { return (u, k, n) } else { return nil }
+    }
+
+    /// The Windows 11 switches as ticked.
+    var windowsOptions: WindowsOptions {
+        guard windowsMedia?.version == .eleven else { return WindowsOptions() }
+        return WindowsOptions(skipHardwareChecks: skipHardwareChecks,
+                              localAccount: useLocalAccount ? accountName.trimmingCharacters(in: .whitespaces) : nil)
+    }
+
+    /// Why the Windows switches can't be used as ticked; nil when they can.
+    var optionsProblem: String? {
+        guard windowsMedia?.version == .eleven, useLocalAccount else { return nil }
+        return WindowsOptions.accountNameProblem(accountName)
+    }
+
+    /// The one word for what's written to: "card", "stick", "disc"; "disk" for an image of the owner's own.
+    var word: String {
+        switch mode {
+        case .sofaBox: return target.word
+        case .linux: return systemEntry.medium == .sdCard ? "card" : "stick"
+        case .windows: return "stick"
+        case .file: return "disk"
+        }
+    }
+    var symbol: String {
+        switch mode {
+        case .sofaBox: return target.symbol
+        case .linux: return systemEntry.medium == .sdCard ? "sdcard" : "externaldrive"
+        case .windows: return "externaldrive"
+        case .file: return "externaldrive"
+        }
+    }
+
+    /// What's written, in words, and how many bytes the disk must hold.
+    var item: (name: String, needs: Int64)? {
+        switch mode {
+        case .sofaBox: return card.map { ($0.name, $0.extractSize) }
+        case .linux: return foundSystem.map { ($0.name, $0.extractSize) }
+        case .windows: return windowsMedia.flatMap { $0.refusal == nil ? ($0.title, $0.stickBytesNeeded) : nil }
+        case .file: return ownKind.map { ($0.0.lastPathComponent, $0.2) }
+        }
+    }
+
     /// A version and somewhere to put it.
-    var canGo: Bool { card != nil && (target.burns ? chosenBurner != nil : chosenDisk != nil) }
+    var canGo: Bool {
+        if burns { return card != nil && chosenBurner != nil }
+        return item != nil && chosenDisk != nil && optionsProblem == nil
+    }
 
     /// The list: ours on GitHub. For testing another one, `--list FILE-or-URL` or SOFA_BOX_IMAGER_LIST.
     nonisolated static func chosenListURL() -> URL {
@@ -71,6 +201,13 @@ final class ImagerModel: ObservableObject {
         let args = CommandLine.arguments
         if let i = args.firstIndex(of: "--for"), i + 1 < args.count, let t = CardTarget.named(args[i + 1]) { return t }
         return .raspberryPi
+    }
+
+    /// `--for linux`, `--for windows` or `--for file`: the window opens on that. Sofa Box OS otherwise.
+    nonisolated static func chosenMode() -> Mode {
+        let args = CommandLine.arguments
+        if let i = args.firstIndex(of: "--for"), i + 1 < args.count, let m = Mode.named(args[i + 1]) { return m }
+        return .sofaBox
     }
 
     /// The list's bytes: a file on this Mac, or over HTTPS.
@@ -92,17 +229,23 @@ final class ImagerModel: ObservableObject {
         // A disc going in or out of a burner: looked for every few seconds while On a DVD is chosen
         burnerTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
             Task { @MainActor in
-                guard let self, self.target.burns, self.phase == .choosing else { return }
+                guard let self, self.burns, self.phase == .choosing else { return }
                 self.refreshBurners()
             }
         }
         loadList()
+        if mode == .linux { findSystem() }
+    }
+
+    private func modeChanged() {
+        diskName = nil
+        if mode == .linux, case .none = system { findSystem() }
+        refreshDisks()
     }
 
     func loadList() {
         list = .loading
         let url = listURL
-        let local = listIsLocal
         Task {
             do {
                 listData = try await Self.fetchList(url)
@@ -138,11 +281,72 @@ final class ImagerModel: ObservableObject {
         readList()
     }
 
+    /// Linux: the entry's newest release, its address and its SHA-256, from its project's own site.
+    func findSystem() {
+        let entry = systemEntry
+        if let c = found[entry.id] { system = .found(c); return }
+        // Never the last entry's card under this one's name.
+        system = .finding
+        guard live else { return }
+        let ua = "SofaBoxImager/\(Self.version)"
+        Task {
+            do {
+                let c = try await CatalogResolver.resolve(entry, with: URLSessionFetcher(userAgent: ua))
+                found[entry.id] = c
+                if systemID == entry.id { system = .found(c) }
+            } catch {
+                if systemID == entry.id { system = .failed(plainWords(error)) }
+            }
+        }
+    }
+
+    /// For the tests: a Linux entry as it would be found.
+    func use(system c: Card, for id: String) {
+        found[id] = c
+        if systemID == id { system = .found(c) } else { systemID = id }
+    }
+
+    /// Windows and your own image: the file read (its first sectors, and a Windows ISO's folders and install image).
+    func open(_ url: URL, forWindows: Bool) {
+        let state = FileState.reading(url)
+        if forWindows { windowsFile = state } else { ownFile = state }
+        Task.detached(priority: .userInitiated) {
+            let result: FileState
+            do {
+                let f = try FileRandomAccess(url: url)
+                let kind = try ImageInspector.inspect(f, name: url.lastPathComponent)
+                var bytes = f.size
+                if case .packedImage(let n) = kind { bytes = n }
+                result = .read(url, kind, bytes)
+            } catch {
+                result = .failed(url, plainWords(error))
+            }
+            await MainActor.run {
+                if forWindows {
+                    if self.windowsFile.url == url { self.windowsFile = result }
+                } else if self.ownFile.url == url {
+                    self.ownFile = result
+                }
+            }
+        }
+    }
+
+    func chooseFile(forWindows: Bool) {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.message = forWindows ? "Choose a Windows ISO (Windows 7, 8.1, 10 or 11)"
+            : "Choose a disk image: an .iso, an .img, or an .img.xz"
+        panel.prompt = "Choose"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        open(url, forWindows: forWindows)
+    }
+
     func refreshDisks() {
         guard live else { return }
-        if target.burns { return refreshBurners() }
-        // Before the list is in, any card shows (nothing can be written without a version anyway).
-        let needs = card?.extractSize ?? 1
+        if burns { return refreshBurners() }
+        // Before anything is chosen, any disk shows (nothing can be written without it anyway).
+        let needs = item?.needs ?? 1
         Task.detached(priority: .userInitiated) {
             let sorted = DiskList.snapshot().sorted(needs: needs)
             await MainActor.run {
@@ -177,31 +381,52 @@ final class ImagerModel: ObservableObject {
         confirming = true
     }
 
-    func write() {
-        if target.burns { return burn() }
-        confirming = false
-        guard let card, let disk = chosenDisk, !isWriting else { return }
+    /// The job for what's chosen, onto `disk`.
+    func makeJob(for disk: DiskDescription) -> WriteJob? {
         let ua = "SofaBoxImager/\(Self.version)"
-        let job = WriteJob(card: card, disk: disk,
-                           opener: AuthOpener(prompt: "Sofa Box Imager needs your password to write the \(target.word).")) {
-            if card.url.isFileURL { return try FileSource(url: card.url) as PackedSource }
-            return HTTPSource(url: card.url, expectedSize: card.downloadSize, userAgent: ua)
+        let opener = AuthOpener(prompt: "Sofa Box Imager needs your password to write the \(word).")
+        func download(_ c: Card) -> () throws -> PackedSource {
+            {
+                if c.url.isFileURL { return try FileSource(url: c.url) as PackedSource }
+                return HTTPSource(url: c.url, expectedSize: c.downloadSize, userAgent: ua)
+            }
         }
+        switch mode {
+        case .sofaBox:
+            guard let c = card else { return nil }
+            return WriteJob(card: c, disk: disk, opener: opener, source: download(c))
+        case .linux:
+            guard let c = foundSystem else { return nil }
+            return WriteJob(card: c, disk: disk, opener: opener, source: download(c))
+        case .windows:
+            guard let w = windowsMedia, let url = windowsFile.url else { return nil }
+            return .windows(iso: url, media: w, options: windowsOptions, disk: disk, opener: opener)
+        case .file:
+            guard let (url, kind, bytes) = ownKind else { return nil }
+            return .image(url, kind: kind, bytes: bytes, disk: disk, opener: opener)
+        }
+    }
+
+    func write() {
+        if burns { return burn() }
+        confirming = false
+        guard let disk = chosenDisk, let what = item, !isWriting, let job = makeJob(for: disk) else { return }
         self.job = job
-        jobTitle = "Writing \(card.name) to “\(disk.displayName)” (\(ByteSize.text(disk.sizeBytes)))"
-        phase = .running("Checking the \(target.word)…", nil)
-        let reporter = StageReporter(word: target.word) { [weak self] text, fraction in
+        jobTitle = "Writing \(what.name) to “\(disk.displayName)” (\(ByteSize.text(disk.sizeBytes)))"
+        phase = .running("Checking the \(word)…", nil)
+        let downloads = mode == .sofaBox || mode == .linux
+        let reporter = StageReporter(word: word, downloads: downloads, building: mode == .windows) { [weak self] text, fraction in
             // A late update never turns a finished write back into a running one.
             guard let self, self.isWriting else { return }
             self.phase = .running(text, fraction)
         }
-        let cardName = card.name
+        let name = what.name
         let diskTitle = disk.displayName
         Thread.detachNewThread {
             do {
                 try job.run { reporter.report($0) }
                 Task { @MainActor in
-                    self.phase = .done(card: cardName, disk: diskTitle)
+                    self.phase = .done(card: name, disk: diskTitle)
                     self.job = nil
                     self.diskName = nil
                     self.refreshDisks()
@@ -271,12 +496,19 @@ final class StageReporter: @unchecked Sendable {     // used from the job's one 
     private let publish: @MainActor (String, Double?) -> Void
     /// "card" or "stick" (CardTarget.word), in the words shown.
     private let word: String
+    /// Downloaded as it's written (a card, a Linux ISO), or read from this Mac (Windows, your own image).
+    private let downloads: Bool
+    /// A Windows stick: laid out first, from the ISO.
+    private let building: Bool
     private var last = Date.distantPast
     private var lastPhase: WriteProgress.Phase?
     private var speedFrom: (Date, Int64)?
 
-    init(word: String = "card", _ publish: @escaping @MainActor (String, Double?) -> Void) {
+    init(word: String = "card", downloads: Bool = true, building: Bool = false,
+         _ publish: @escaping @MainActor (String, Double?) -> Void) {
         self.word = word
+        self.downloads = downloads
+        self.building = building
         self.publish = publish
     }
 
@@ -285,6 +517,7 @@ final class StageReporter: @unchecked Sendable {     // used from the job's one 
         var fraction: Double? = nil
         switch stage {
         case .checking: text = "Checking the \(word)…"
+        case .preparing: text = building ? "Laying out the stick from the ISO…" : "Getting ready…"
         case .unmounting: text = "Unmounting the \(word)'s volumes…"
         case .waitingForPassword: text = "Waiting for your password…"
         case .ejecting: text = "Ejecting the \(word)…"
@@ -302,7 +535,7 @@ final class StageReporter: @unchecked Sendable {     // used from the job's one 
             }
             let pct = Int(p.fraction * 100)
             switch p.phase {
-            case .writing: text = "Downloading and writing… \(pct)%\(speed)"
+            case .writing: text = "\(downloads ? "Downloading and writing" : "Writing")… \(pct)%\(speed)"
             case .finishing: text = "Finishing the write…"
             case .verifying: text = "Checking every byte on the \(word)… \(pct)%\(speed)"
             }

@@ -1,12 +1,16 @@
 import AppKit
 import SwiftUI
 
-/// `--versions` and `--disks` print what the app would show and exit, without a window (for checking a build, and for
+/// `--versions`, `--disks`, `--systems` and `--inspect FILE` print what the app would show and exit, without a window (for checking a build, and for
 /// "why isn't my card offered?"). They read only. Anything else opens the app.
 @main
 enum Main {
     static func main() {
         let args = CommandLine.arguments
+        if let i = args.firstIndex(of: "--inspect"), i + 1 < args.count {
+            exit(Report.inspect(URL(fileURLWithPath: (args[i + 1] as NSString).expandingTildeInPath)))
+        }
+        if args.contains("--systems") { exit(Report.systems()) }
         if args.contains("--versions") || args.contains("--disks") {
             exit(Report.run(versions: args.contains("--versions"), disks: args.contains("--disks")))
         }

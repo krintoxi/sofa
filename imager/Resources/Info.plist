@@ -29,7 +29,7 @@
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>NSHumanReadableCopyright</key>
-	<string>Sofa Box Imager, by EdgeVenture. MIT licence.</string>
+	<string>Sofa Box Imager, by EdgeVenture. PolyForm Noncommercial License 1.0.0.</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
 	<key>NSSupportsAutomaticTermination</key>

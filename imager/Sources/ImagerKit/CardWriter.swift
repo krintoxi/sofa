@@ -26,7 +26,7 @@ public enum WriteError: Error, Equatable, CustomStringConvertible {
         case .cancelled:
             return "Stopped. The card is blank now: write it again, or erase it in Disk Utility."
         case .cardTooBig(let card, let disk):
-            return "Sofa Box OS needs \(ByteSize.text(card)) and the card holds \(ByteSize.text(disk))."
+            return "What's being written needs \(ByteSize.text(card)) and the disk holds \(ByteSize.text(disk))."
         case .tooMuchData:
             return "The download unpacked to more than the list says. Nothing past that was written; the card is blank."
         case .tooLittleData(let got, let expected):
@@ -71,7 +71,11 @@ public final class CardWriter {
 
     private let device: BlockDevice
     private let expectedSize: Int64
-    private let expectedSHA256: String
+    /// The SHA-256 the bytes must have; nil when there's none to check against (a stick built by the Imager, an image
+    /// of the owner's own): then the bytes streamed are hashed as they go, and the card must read back the same.
+    private let expectedSHA256: String?
+    /// What the card must read back as: the list's SHA-256, or the streamed bytes' own.
+    public private(set) var reference: String?
     private let diskSize: Int64
     private let sectorBytes: Int
     private let progress: (WriteProgress) -> Void
@@ -87,13 +91,13 @@ public final class CardWriter {
     private var started = false
     private var unresponsive = false
 
-    public init(device: BlockDevice, expectedSize: Int64, expectedSHA256: String, diskSize: Int64, sectorBytes: Int,
+    public init(device: BlockDevice, expectedSize: Int64, expectedSHA256: String?, diskSize: Int64, sectorBytes: Int,
                 endTimeout: Double = CardWriter.endTimeout,
                 progress: @escaping (WriteProgress) -> Void = { _ in }, isCancelled: @escaping () -> Bool = { false }) {
         self.endTimeout = endTimeout
         self.device = device
         self.expectedSize = expectedSize
-        self.expectedSHA256 = expectedSHA256.lowercased()
+        self.expectedSHA256 = expectedSHA256?.lowercased()
         self.diskSize = diskSize
         self.sectorBytes = max(512, sectorBytes)
         self.progress = progress
@@ -206,7 +210,8 @@ public final class CardWriter {
         }
         progress(WriteProgress(phase: .finishing, done: received, total: expectedSize))
         let got = hasher.finalize().map { String(format: "%02x", $0) }.joined()
-        guard got == expectedSHA256 else { throw WriteError.downloadMismatch }
+        if let want = expectedSHA256, got != want { throw WriteError.downloadMismatch }
+        reference = got
         try device.synchronize()
         if let first = firstBlock {
             first.copyBytes(to: buffer.assumingMemoryBound(to: UInt8.self), count: first.count)
@@ -230,7 +235,7 @@ public final class CardWriter {
             progress(WriteProgress(phase: .verifying, done: min(at, expectedSize), total: expectedSize))
         }
         let got = h.finalize().map { String(format: "%02x", $0) }.joined()
-        guard got == expectedSHA256 else { throw WriteError.verifyMismatch }
+        guard let want = reference ?? expectedSHA256, got == want else { throw WriteError.verifyMismatch }
     }
 
     /// After a failure: blanks the first megabyte again, so a half-written or wrong card can't start. Best effort.
@@ -244,9 +249,76 @@ public final class CardWriter {
     }
 }
 
+/// What goes on a disk: a stream of its bytes, how many there are, and the SHA-256 they must have (nil: none to check
+/// against before writing; the disk must still read back as what was streamed).
+public struct WritePlan {
+    public var name: String
+    public var size: Int64
+    public var sha256: String?
+    /// An `.xz` stream, unpacked as it's written (a Sofa Box card, Raspberry Pi OS); otherwise the bytes as they are.
+    public var packed: Bool
+    /// Downloaded as it's written (the window says "Downloading and writing"), or read from this Mac.
+    public var downloads: Bool
+    public var makeSource: () throws -> PackedSource
+
+    public init(name: String, size: Int64, sha256: String?, packed: Bool, downloads: Bool,
+                makeSource: @escaping () throws -> PackedSource) {
+        self.name = name
+        self.size = size
+        self.sha256 = sha256
+        self.packed = packed
+        self.downloads = downloads
+        self.makeSource = makeSource
+    }
+
+    /// A card from a list: packed (`.img.xz`) or a whole ISO, checked against the list's SHA-256.
+    public static func card(_ card: Card, source: @escaping () throws -> PackedSource) -> WritePlan {
+        WritePlan(name: card.name, size: card.extractSize, sha256: card.extractSHA256, packed: card.isPacked,
+                  downloads: !card.url.isFileURL, makeSource: source)
+    }
+}
+
 /// The whole write, from the packed download to a checked card. Used by the app (on a raw disk) and by the tests (on
 /// plain files and RAM disks), so they run the same code.
 public enum CardPipeline {
+    /// Any plan: unpacked as it streams when it's packed, written as it comes when it isn't. Returns the SHA-256 the
+    /// disk read back as.
+    @discardableResult
+    public static func run(plan: WritePlan, device: BlockDevice, diskSize: Int64, sectorBytes: Int,
+                           endTimeout: Double = CardWriter.endTimeout,
+                           progress: @escaping (WriteProgress) -> Void = { _ in },
+                           isCancelled: @escaping () -> Bool = { false }) throws -> String {
+        let writer = CardWriter(device: device, expectedSize: plan.size, expectedSHA256: plan.sha256,
+                                diskSize: diskSize, sectorBytes: sectorBytes, endTimeout: endTimeout,
+                                progress: progress, isCancelled: isCancelled)
+        var source: PackedSource?
+        do {
+            try writer.begin()
+            let src = try plan.makeSource()
+            source = src
+            if plan.packed {
+                let decoder = try XZDecoder()
+                while let packed = try src.next() {
+                    if isCancelled() { throw WriteError.cancelled }
+                    try decoder.feed(packed) { try writer.write($0) }
+                }
+                try decoder.finish { try writer.write($0) }
+            } else {
+                while let chunk = try src.next() {
+                    if isCancelled() { throw WriteError.cancelled }
+                    try chunk.withUnsafeBytes { try writer.write($0) }
+                }
+            }
+            try writer.finish()
+            try writer.verify()
+            return writer.reference ?? ""
+        } catch {
+            source?.cancel()
+            writer.spoil()
+            throw error
+        }
+    }
+
     public static func run(source: PackedSource, device: BlockDevice, card: Card, diskSize: Int64, sectorBytes: Int,
                            endTimeout: Double = CardWriter.endTimeout,
                            progress: @escaping (WriteProgress) -> Void = { _ in },
