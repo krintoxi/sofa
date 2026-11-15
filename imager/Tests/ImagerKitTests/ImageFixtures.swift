@@ -186,16 +186,25 @@ enum FakeWindowsISO {
         defer { try? FileManager.default.removeItem(at: dir) }
         let img = dir.appendingPathComponent("efisys.bin")
         FileManager.default.createFile(atPath: img.path, contents: Data(count: 1_474_560))
-        try sh("/sbin/newfs_msdos", ["-F", "12", "-f", "1440", "-v", "EFISECTOR", img.path])
+        // Attached as a device first: newfs_msdos won't format a plain file on every macOS.
+        let out = try sh("/usr/bin/hdiutil", ["attach", "-nomount", "-imagekey", "diskimage-class=CRawDiskImage", "-plist",
+                                              img.path])
+        let plist = try PropertyListSerialization.propertyList(from: Data(out.utf8), format: nil) as? [String: Any]
+        let devs = ((plist?["system-entities"] as? [[String: Any]]) ?? []).compactMap { $0["dev-entry"] as? String }
+        guard devs.count == 1, let dev = devs.first, dev.range(of: #"^/dev/disk[0-9]+$"#, options: .regularExpression) != nil
+        else {
+            for d in devs { _ = try? sh("/usr/bin/hdiutil", ["detach", "-force", d]) }
+            throw NSError(domain: "efisys", code: 1, userInfo: [NSLocalizedDescriptionKey: "not one disk: \(out)"])
+        }
+        defer { _ = try? sh("/usr/bin/hdiutil", ["detach", "-force", dev]) }
+        try sh("/sbin/newfs_msdos", ["-F", "12", "-f", "1440", "-v", "EFISECTOR", "/dev/r" + dev.dropFirst("/dev/".count)])
         let mount = dir.appendingPathComponent("m")
         try FileManager.default.createDirectory(at: mount, withIntermediateDirectories: true)
-        let out = try sh("/usr/bin/hdiutil", ["attach", "-imagekey", "diskimage-class=CRawDiskImage", "-nobrowse",
-                                               "-mountpoint", mount.path, "-plist", img.path])
-        defer { _ = try? sh("/usr/bin/hdiutil", ["detach", "-force", mount.path]) }
-        _ = out
+        try sh("/usr/sbin/diskutil", ["mount", "-mountPoint", mount.path, dev])
         try FileManager.default.createDirectory(at: mount.appendingPathComponent("EFI/BOOT"), withIntermediateDirectories: true)
         try loader.write(to: mount.appendingPathComponent("EFI/BOOT/BOOTX64.EFI"))
-        _ = try sh("/usr/bin/hdiutil", ["detach", mount.path])
+        try sh("/usr/sbin/diskutil", ["unmount", mount.path])
+        try sh("/usr/bin/hdiutil", ["detach", dev])
         return try Data(contentsOf: img)
     }
 }
