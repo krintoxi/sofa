@@ -32,6 +32,30 @@ final class CardWriterTests: XCTestCase {
         }
     }
 
+    /// Our unpacker hands the writer up to 2 MiB at a time (Apple's, 1 MiB): the writer takes a piece of any size,
+    /// all of the card in one call or in odd pieces, and the card is the same.
+    func testOurUnpackersPiecesOfAnySizeWriteTheSameCard() throws {
+        let dec = try XZUnpacker()
+        var whole = Data()
+        try dec.feed(Fixture.data("multiblock.img.xz")) { whole.append(contentsOf: $0) }
+        try dec.finish { _ in }
+        XCTAssertGreaterThan(whole.count, 2 << 20)
+        for cuts in [[whole.count], [3, (1 << 20) + 5, whole.count - 3 - (1 << 20) - 5], [whole.count - 1, 1]] {
+            let disk = try TempDisk(size: diskSize)
+            let w = CardWriter(device: FileDescriptorDevice(fd: disk.fd), expectedSize: Fixture.cardSize,
+                               expectedSHA256: Fixture.cardSHA256, diskSize: disk.size, sectorBytes: 512)
+            try w.begin()
+            var at = 0
+            for n in cuts {
+                try whole[at..<at + n].withUnsafeBytes { try w.write($0) }
+                at += n
+            }
+            try w.finish()
+            try w.verify()
+            XCTAssertEqual(sha256(card(on: disk)), Fixture.cardSHA256, "pieces \(cuts)")
+        }
+    }
+
     func testOnlyAlignedWritesTheFirstMegabyteLastAndNothingPastTheCard() throws {
         let disk = try TempDisk(size: diskSize)
         let rec = RecordingDevice(FileDescriptorDevice(fd: disk.fd))

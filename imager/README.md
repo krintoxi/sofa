@@ -324,10 +324,10 @@ from anywhere the list says, because it's checked against the list's SHA-256.
 
 ## What's tested, and where
 
-`swift test` runs 157 tests on a Mac; five more run only when asked. None writes a disk it didn't attach itself: the
+`swift test` runs 158 tests on a Mac; five more run only when asked. None writes a disk it didn't attach itself: the
 tests that write attach a RAM disk, check with DiskArbitration that the device they got is a disk image of
 exactly the size they asked for, and only then touch it. On Linux `swift test` runs the shared core's tests
-(`ImagerKitTests`, 121): 15 of them skip there because they make or read their test disks with macOS's own `hdiutil`
+(`ImagerKitTests`, 122): 15 of them skip there because they make or read their test disks with macOS's own `hdiutil`
 or `newfs_msdos`, and the speed test runs only when asked.
 
 | What | Tests | How |
@@ -339,7 +339,7 @@ or `newfs_msdos`, and the speed test runs only when asked.
 | SHA-256 | `ImagerKitTests/SHA256Tests` (4) | Ours: FIPS 180-4's examples (a million "a"s among them), any pieces giving the same digest, and on the Mac the same digest as CryptoKit at every length from 0 to 1,100 bytes. |
 | The editions list's XML | `ImagerKitTests/LiteXMLTests` (4) | Ours: a Windows 11-shaped list read into its editions, entities, quotes, CDATA and comments, where it stops (and that it has told the reader everything before), and the same events as Foundation's `XMLParser` on the same list. |
 | Unpacking a real card | `ImagerKitTests/XZBenchTests` (1, when asked) | `SOFA_IMAGER_XZ_BENCH=<a .img.xz> SOFA_IMAGER_XZ_SHA=<its unpacked SHA-256>`, best with `swift test -c release -Xswiftc -enable-testing`. Unpacks it with each unpacker and hashes it with each SHA-256, says how long each took, and checks that they all agree with each other and the list. |
-| Writing and checking | `ImagerKitTests/CardWriterTests` (13) | A plain file as the disk. Only whole-sector writes at megabyte offsets; the first megabyte last; nothing past the card but the disk's last megabyte; a wrong download, a card that reads back wrong, Stop and a card that never answers each leave the first megabyte blank. |
+| Writing and checking | `ImagerKitTests/CardWriterTests` (14) | A plain file as the disk. Only whole-sector writes at megabyte offsets; the first megabyte last; nothing past the card but the disk's last megabyte; a wrong download, a card that reads back wrong, Stop and a card that never answers each leave the first megabyte blank. Our unpacker's pieces (up to 2 MiB) written in one call or in odd sizes give the same card. |
 | Downloading | `ImagerKitTests/DownloadTests` (9) | A web server inside the test: a whole download, carrying on after a drop, a server that ignores or mangles the range, the wrong size, giving up, and download-to-checked-card in one go. |
 | Finding disks | `ImagerMacTests/DiskListTests` (7) | The Mac running the tests: its startup disk is found and refused; a RAM disk is seen as a disk image and refused; the volumes on a disk are found, unmounted, and refused a mount while a write is on; `authopen` with no one to type a password opens nothing. |
 | The whole write | `ImagerMacTests/WriteJobTests` (5) | The app's own `WriteJob` on a RAM disk with a volume on it: unmount, open the raw device, write, read back, eject. Two things differ from the app: the RAM disk is opened directly (it belongs to the user, so no password), and the policy is told to accept that one RAM disk. Also: a disk that changed since it was confirmed, a disk that turns out to be another once open, and the real policy refusing the RAM disk before anything is unmounted. |
@@ -507,8 +507,9 @@ the Mac. Asked how (2026-11-15), the owner chose:
 
 - **Swift, one shared core.** `ImagerKit` (the lists, the disk rule, the xz unpacker, the write-and-check engine, the
   Windows stick) is the same code on every system. A Windows build will carry the Swift runtime and Foundation's DLLs
-  (Apache 2.0 with the Runtime Library Exception, and ICU's Unicode licence); on Linux it's one program using the
-  system's own glibc, curl and OpenSSL. The exact list of what ships is named from the first real build of each.
+  (Apache 2.0 with the Runtime Library Exception, and ICU's Unicode licence); on Linux it should be one program using
+  the system's own glibc, curl and OpenSSL. Neither has been built yet: the exact list of what ships is named from the
+  first real build of each.
 - **The command line first** (`--inspect`, `--systems`, `--disks`, and a `--write`), so the disk side is proven on each
   system before any window is chosen.
 - **Proven on virtual PCs and GitHub's machines only**: no Windows PC or Linux PC is set aside for it, and nothing about
@@ -527,17 +528,27 @@ project's own Linux image), as well as on the Mac. For that the core now has its
 
 On the Mac the app still unpacks and checks with Apple's Compression and CryptoKit. Ours give the same bytes and the
 same digests, on every test file and on the real Sofa Box OS 1.1.87 card (5.2 GB unpacked, its SHA-256 the list's).
-Timed on that card on an Apple silicon Mac (a release build, `XZBenchTests`): our unpacker 102 MB/s, Apple's 105; our
-SHA-256 about 240 MB/s, CryptoKit's about 2,000, because CryptoKit uses the chip's own SHA-256 instructions. Ours is
-quick enough to write a card or stick (they take 20 to 100 MB/s), but could slow the read-back of a fast USB 3 stick,
-so using those instructions (on Arm, and Intel's SHA extensions) comes before the Mac moves to ours, if the owner wants
-it to. The editions list is read with ours everywhere, the Mac included: it reads the same
+Timed on an Apple silicon Mac (a release build, `XZBenchTests`; readings drift a little with the Mac's load): on that
+card our unpacker 102 MB/s, Apple's 105; on Raspberry Pi OS Lite of 2026-10-06 (3.1 GB unpacked, packed by Raspberry
+Pi with a 64 MiB dictionary, its SHA-256 Raspberry Pi's) ours 92 MB/s, Apple's 134. Our SHA-256 runs at 170 to
+300 MB/s, CryptoKit's at 1,600 to 2,300, because CryptoKit uses the chip's own SHA-256 instructions. Ours is quick
+enough to write a card or stick (they take 20 to 100 MB/s), but could slow the read-back of a fast USB 3 stick, so
+using those instructions (on Arm, and Intel's SHA extensions) comes before the Mac moves to ours, if the owner wants it
+to. The editions list is read with ours everywhere, the Mac included: it reads the same
 events as Foundation's `XMLParser`, tested side by side. Three checks that used a regular expression with `$` now
 compare the whole string, because Foundation's `$` also matches before a final newline on Linux and not on the Mac;
 the disk rule's own name check doesn't use one at all.
 
+**Not yet run on Linux:** the 15 core tests that make or read their test disks with macOS's own `hdiutil` and
+`newfs_msdos`. They're the UDF reader, Windows ISOs being found and told apart, the FAT32 stick as a whole (its layout,
+the boot code pointed at BOOTMGR, the same ISO making the same stick), the Windows 11 switches' file, and what kind of
+ISO a file is. They run on the Macs. What did run on Linux includes the WIM reader and splitter, FAT names and limits,
+the boot code's bytes, the writer, the download, both lists and the disk rule.
+
 Still to do, in this order:
 
+- **Test disks made by macOS's tools, committed**, so those 15 run on Linux too. The first Linux run found a real
+  difference (the `$` above) in the one test that leans on Foundation, so they come first.
 - **Windows: the core.** Windows has no `pread`, `pwrite` or `fsync`; the file reads and the disk writes need Windows'
   own calls (`ReadFile` and `WriteFile` at an offset), and GitHub's Windows machines need Swift's toolchain installed
   before the tests can run there.
@@ -550,11 +561,10 @@ Still to do, in this order:
 - **Windows signing**: a code-signing certificate is the owner's to buy (Microsoft's Trusted Signing, monthly, or a
   certificate authority's, yearly).
 - **SHA-256 with the processor's own instructions**, where it has them, with ours as it is now where it doesn't.
-- **The windows** (Win32 on Windows; on Linux, GTK, the desktop's own library) come after the command line.
+- **The windows**, after the command line. Which toolkit is still the owner's to choose: on Windows, Win32 is part
+  of Windows; on Linux the likely one is GTK, the desktop's own library (LGPL-2.1-or-later), used from the system.
 
-The 15 core tests that make or read their test disks with macOS's own `hdiutil` and `newfs_msdos` (most of the Windows
-stick's) skip on Linux; they run on the Macs. Committing disks made by those tools, so that Linux reads them too, is a
-next step. Until a build reaches owners, Windows owners use the list in Raspberry Pi's own imager
+Until a build reaches owners, Windows owners use the list in Raspberry Pi's own imager
 ([the guide](../deploy/sofa-box/README.md#setting-it-up-the-ready-made-card-easiest)).
 
 ## Not in this version

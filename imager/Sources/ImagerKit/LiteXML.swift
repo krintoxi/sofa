@@ -32,10 +32,9 @@ enum LiteXML {
             return nil
         }
         func isSpace(_ c: UInt8) -> Bool { c == 0x20 || c == 0x09 || c == 0x0A || c == 0x0D }
-        func isNameByte(_ c: UInt8) -> Bool {
-            !isSpace(c) && c != UInt8(ascii: ">") && c != UInt8(ascii: "/") && c != UInt8(ascii: "=")
-                && c != UInt8(ascii: "<") && c != UInt8(ascii: "\"") && c != UInt8(ascii: "'")
-        }
+        let notInNames: Set<UInt8> = [0x20, 0x09, 0x0A, 0x0D, UInt8(ascii: ">"), UInt8(ascii: "/"), UInt8(ascii: "="),
+                                      UInt8(ascii: "<"), UInt8(ascii: "\""), UInt8(ascii: "'")]
+        func isNameByte(_ c: UInt8) -> Bool { !notInNames.contains(c) }
         func name(from j: inout Int) -> String? {
             let s = j
             while j < b.count && isNameByte(b[j]) { j += 1 }

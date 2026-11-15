@@ -94,15 +94,22 @@ public struct SHA256Hasher {
                 for _ in 0..<blocks {
                     for i in 0..<16 { w[i] = UInt32(bigEndian: p.loadUnaligned(fromByteOffset: i * 4, as: UInt32.self)) }
                     for i in 16..<64 {
-                        let a = w[i - 15], b = w[i - 2]
-                        let s0 = rotr(a, 7) ^ rotr(a, 18) ^ (a >> 3)
-                        let s1 = rotr(b, 17) ^ rotr(b, 19) ^ (b >> 10)
-                        w[i] = w[i - 16] &+ s0 &+ w[i - 7] &+ s1
+                        let a: UInt32 = w[i - 15], b: UInt32 = w[i - 2]
+                        let s0: UInt32 = rotr(a, 7) ^ rotr(a, 18) ^ (a >> 3)
+                        let s1: UInt32 = rotr(b, 17) ^ rotr(b, 19) ^ (b >> 10)
+                        let sum: UInt32 = w[i - 16] &+ s0
+                        w[i] = sum &+ w[i - 7] &+ s1
                     }
                     var a = h0, b = h1, c = h2, d = h3, e = h4, f = h5, g = h6, h = h7
                     for i in 0..<64 {
-                        let t1 = h &+ (rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25)) &+ ((e & f) ^ (~e & g)) &+ k[i] &+ w[i]
-                        let t2 = (rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22)) &+ ((a & b) ^ (a & c) ^ (b & c))
+                        // Split up so that older compilers type-check it quickly.
+                        let bigS1: UInt32 = rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25)
+                        let ch: UInt32 = (e & f) ^ (~e & g)
+                        let t1a: UInt32 = h &+ bigS1 &+ ch
+                        let t1: UInt32 = t1a &+ k[i] &+ w[i]
+                        let bigS0: UInt32 = rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22)
+                        let maj: UInt32 = (a & b) ^ (a & c) ^ (b & c)
+                        let t2: UInt32 = bigS0 &+ maj
                         h = g; g = f; f = e; e = d &+ t1
                         d = c; c = b; b = a; a = t1 &+ t2
                     }

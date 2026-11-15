@@ -159,11 +159,13 @@ public final class XZUnpacker: XZUnpacking {
             }
             guard avail >= head else { return false }
             let unpacked: Int, packed: Int
+            let low16: Int = Int(b[at + 1]) << 8 | Int(b[at + 2])
             if control < 0x80 {
-                unpacked = (Int(b[at + 1]) << 8 | Int(b[at + 2])) + 1
+                unpacked = low16 + 1
                 packed = unpacked
             } else {
-                unpacked = (Int(control & 0x1F) << 16 | Int(b[at + 1]) << 8 | Int(b[at + 2])) + 1
+                let high5: Int = Int(control & 0x1F) << 16
+                unpacked = (high5 | low16) + 1
                 packed = (Int(b[at + 3]) << 8 | Int(b[at + 4])) + 1
             }
             guard avail >= head + packed else { return false }
@@ -306,7 +308,9 @@ public final class XZUnpacker: XZUnpacking {
 }
 
 @inline(__always) private func le32(_ p: UnsafeBufferPointer<UInt8>, _ i: Int) -> UInt32 {
-    UInt32(p[i]) | UInt32(p[i + 1]) << 8 | UInt32(p[i + 2]) << 16 | UInt32(p[i + 3]) << 24
+    let low: UInt32 = UInt32(p[i]) | UInt32(p[i + 1]) << 8
+    let high: UInt32 = UInt32(p[i + 2]) << 16 | UInt32(p[i + 3]) << 24
+    return low | high
 }
 
 private struct BlockCheck {
@@ -333,7 +337,10 @@ private struct BlockCheck {
         switch type {
         case 0: return true
         case 1: return le32(stored, 0) == crc32
-        case 4: return UInt64(le32(stored, 0)) | UInt64(le32(stored, 4)) << 32 == crc64
+        case 4:
+            let low: UInt64 = UInt64(le32(stored, 0))
+            let high: UInt64 = UInt64(le32(stored, 4)) << 32
+            return low | high == crc64
         case 10: return Array(stored) == sha!.finalize()
         default: return false
         }
@@ -369,7 +376,10 @@ enum CRC64 {
             t[i] = c
         }
         for k in 1..<8 {
-            for i in 0..<256 { t[k * 256 + i] = t[(k - 1) * 256 + i] >> 8 ^ t[Int(t[(k - 1) * 256 + i] & 0xFF)] }
+            for i in 0..<256 {
+                let before: UInt64 = t[(k - 1) * 256 + i]
+                t[k * 256 + i] = (before >> 8) ^ t[Int(before & 0xFF)]
+            }
         }
         return t
     }()
@@ -381,10 +391,12 @@ enum CRC64 {
         tables.withUnsafeBufferPointer { t in
             while n >= 8 {
                 c ^= UInt64(littleEndian: q.loadUnaligned(as: UInt64.self))
-                c = t[7 * 256 + Int(c & 0xFF)] ^ t[6 * 256 + Int((c >> 8) & 0xFF)]
-                    ^ t[5 * 256 + Int((c >> 16) & 0xFF)] ^ t[4 * 256 + Int((c >> 24) & 0xFF)]
-                    ^ t[3 * 256 + Int((c >> 32) & 0xFF)] ^ t[2 * 256 + Int((c >> 40) & 0xFF)]
-                    ^ t[256 + Int((c >> 48) & 0xFF)] ^ t[Int(c >> 56)]
+                // Split up so that older compilers type-check it quickly.
+                let a: UInt64 = t[7 * 256 + Int(c & 0xFF)] ^ t[6 * 256 + Int((c >> 8) & 0xFF)]
+                let b: UInt64 = t[5 * 256 + Int((c >> 16) & 0xFF)] ^ t[4 * 256 + Int((c >> 24) & 0xFF)]
+                let d: UInt64 = t[3 * 256 + Int((c >> 32) & 0xFF)] ^ t[2 * 256 + Int((c >> 40) & 0xFF)]
+                let e: UInt64 = t[256 + Int((c >> 48) & 0xFF)] ^ t[Int(c >> 56)]
+                c = a ^ b ^ d ^ e
                 q += 8
                 n -= 8
             }
@@ -530,7 +542,8 @@ final class LZMA2Decoder {
             let full = min(total, dictSize)
             if rc.bit(p + Probs.isMatch + (state << 4) + posState) == 0 {
                 let prev = total > 0 ? Int(buf[(pos == 0 ? bufSize : pos) - 1]) : 0
-                let lit = p + Probs.literal + 0x300 * (((total & lpMask) << lc) + (prev >> (8 - lc)))
+                let context: Int = ((total & lpMask) << lc) + (prev >> (8 - lc))
+                let lit = p + Probs.literal + 0x300 * context
                 var symbol = 1
                 if state >= 7 {
                     guard Int(rep0) < full else { throw XZError.corrupt }
@@ -610,7 +623,7 @@ final class LZMA2Decoder {
                 (buf + pos).update(repeating: buf[src], count: n)
                 pos += n
                 if pos == bufSize { pos = 0 }
-            } else if pos + n <= bufSize && src + n <= bufSize && (pos + n <= src || src + n <= pos) {
+            } else if pos + n <= bufSize, src + n <= bufSize, pos + n <= src || src + n <= pos {
                 // Neither end wraps and the two don't overlap.
                 (buf + pos).update(from: buf + src, count: n)
                 pos += n
