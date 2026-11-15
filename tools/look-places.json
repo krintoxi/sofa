@@ -1,0 +1,19 @@
+{
+  "about": "The places tools/look-bench.mjs pictures, a list a game. ready: true once the game can be driven; prelude: run once it is (a player, the screen quiet); stats: what to say under each picture; each place: run to stand there, then settle (ms) for what streams in. Keep a place where a player stands, facing as they arrive.",
+  "wyrd": {
+    "hash": "test",
+    "ready": "window.WY && WY.E && WY.E.ready && WY.H",
+    "prelude": "if (!WY.D || !WY.D.made || WY.D.name === 'Wren') WY.begin(); WY.menu.hide(); WY.G.say = ''; WY.G.sayT = 0; WY.G.toasts.length = 0;",
+    "stats": "WY.E.g3 ? WY.E.g3.calls + ' draws, ' + (WY.E.g3.tris / 1000).toFixed(1) + 'k triangles' : '2D'",
+    "places": [
+      { "id": "square", "name": "Hearthrim: the square", "run": "WY.H.x = 0; WY.H.z = 6; WY.H.yaw = Math.PI;", "settle": 2500 },
+      { "id": "well", "name": "Hearthrim: the well and the riftgate", "run": "WY.H.x = 0; WY.H.z = 19; WY.H.yaw = Math.PI;", "settle": 2500 },
+      { "id": "houses", "name": "Hearthrim: the houses to the west", "run": "WY.H.x = -16; WY.H.z = 4; WY.H.yaw = -Math.PI / 2;", "settle": 2500 },
+      { "id": "briar", "name": "The Briarholt's camp", "run": "const n = (WY.W.feats || WY.W.nodes).find(n => n.kind === 'portal' && n.reg === 1); WY.H.x = n.x + 1.5; WY.H.z = n.z + 4; WY.H.yaw = Math.PI;", "settle": 3500 },
+      { "id": "fen", "name": "The Fenmoor's camp", "run": "const n = (WY.W.feats || WY.W.nodes).find(n => n.kind === 'portal' && n.reg === 2); WY.H.x = n.x + 1.5; WY.H.z = n.z + 4; WY.H.yaw = Math.PI;", "settle": 3500 },
+      { "id": "crag", "name": "Cragfell's camp", "run": "const n = (WY.W.feats || WY.W.nodes).find(n => n.kind === 'portal' && n.reg === 3); WY.H.x = n.x + 1.5; WY.H.z = n.z + 4; WY.H.yaw = Math.PI;", "settle": 3500 },
+      { "id": "cinder", "name": "The Cinderreach's camp", "run": "const n = (WY.W.feats || WY.W.nodes).find(n => n.kind === 'portal' && n.reg === 4); WY.H.x = n.x + 1.5; WY.H.z = n.z + 4; WY.H.yaw = Math.PI;", "settle": 3500 },
+      { "id": "greywyrd", "name": "The Greywyrd's camp", "run": "const n = (WY.W.feats || WY.W.nodes).find(n => n.kind === 'portal' && n.reg === 5); WY.H.x = n.x + 1.5; WY.H.z = n.z + 4; WY.H.yaw = Math.PI;", "settle": 3500 }
+    ]
+  }
+}

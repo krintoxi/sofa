@@ -702,6 +702,31 @@ console.log(JSON.stringify(out));
         self.assertNotIn("__main", src)                                  # itself: a counter named that way broke every shader)
 
     @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_the_look_bench_is_there(self):
+        """tools/look-bench.mjs pictures a game the same way each time: it parses, says what it can't be, and each of
+        its place lists is for a game there is, every place with somewhere to stand."""
+        tools = os.path.join(os.path.dirname(os.path.dirname(BOX)), "tools")
+        bench = os.path.join(tools, "look-bench.mjs")
+        r = subprocess.run(["node", "--check", bench], capture_output=True, text=True, timeout=60)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        said = subprocess.run(["node", bench, "--help"], capture_output=True, text=True, timeout=60)
+        self.assertEqual(said.returncode, 0, said.stderr)
+        for words in ("--root", "--rungs", "--gpu on,off", "--clip", "What it cannot do: be a Pi"):
+            self.assertIn(words, said.stdout)
+        with open(os.path.join(tools, "look-places.json"), encoding="utf-8") as f:
+            places = json.load(f)
+        games = [k for k in places if k != "about"]
+        self.assertTrue(games)
+        for game in games:
+            spec = places[game]
+            self.assertTrue(os.path.isfile(os.path.join(BOX, "games", game, "index.html")), game)
+            self.assertTrue(spec["ready"] and spec["places"], game)
+            ids = [p["id"] for p in spec["places"]]
+            self.assertEqual(len(ids), len(set(ids)), game)
+            for p in spec["places"]:
+                self.assertTrue(p["name"] and p["run"], p["id"])
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
     def test_the_second_way_to_draw(self):
         """Made for a Pi 3's GPU: a still world's light is worked out once and kept in its colours (shadows too, and
         what glows left alone), a chunk's glowing things go in with the rest, high ground behind its cliffs is big
