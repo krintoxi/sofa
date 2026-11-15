@@ -51,9 +51,14 @@ enum Report {
             }
             if burners.isEmpty { print("  No DVD burner: plug one in and put a blank DVD in.") }
         } else if disks {
+            // Linux, Windows or an image of your own: what's written decides the size, so every disk is judged on the
+            // rest of the rule here, and the window checks the size once it's chosen.
+            let mode = ImagerModel.chosenMode()
+            if mode != .sofaBox { needs = 1 }
             let snap = DiskList.snapshot()
             let (offered, refused) = snap.sorted(needs: needs)
-            print("Disks (a \(target.word) must hold \(ByteSize.text(needs))):")
+            print(mode != .sofaBox ? "Disks (for \(mode.choice); the size needed shows in the window once it's chosen):"
+                  : "Disks (a \(target.word) must hold \(ByteSize.text(needs))):")
             for d in offered {
                 print("  OFFERED  /dev/\(d.bsdName)  \(d.displayName)  \(ByteSize.text(d.sizeBytes))  \(d.protocolName ?? "?")")
             }
@@ -61,7 +66,9 @@ enum Report {
                 print("  refused  /dev/\(d.bsdName)  \(d.displayName)  \(ByteSize.text(d.sizeBytes))  \(d.protocolName ?? "?")")
                 for w in why { print("             \(w.text)") }
             }
-            if offered.isEmpty { print("  No \(target.word) to write: put \(target == .raspberryPi ? "an SD card" : "a USB stick") in.") }
+            if offered.isEmpty {
+                print("  Nothing to write: put \(mode == .sofaBox && target == .raspberryPi ? "an SD card" : "a USB stick") in.")
+            }
         }
         return status
     }
