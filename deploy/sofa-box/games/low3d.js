@@ -10,7 +10,8 @@
    Drawing:   GL (lit and glowing meshes, a sea, a sky), Flat (the 2D renderer), Mesh (building meshes), bake() (mesh to
               sprite), Kit (trees, rocks, buildings, buoys, shadows, far hills), Chunks (a world's still things), M4,
               Rig (bodies: a skeleton and poses as numbers, each pose baked into one mesh)
-   Moving:    Path (smooth lines to race or ride along), Trail (wakes, light trails), Particles, camera(), chase(), orbit()
+   Moving:    Path (smooth lines to race or ride along), Trail (wakes, light trails), Particles, camera(), chase(), orbit(),
+              Follow (above and behind one on foot, the player moving it up and down and round)
    The rest:  game() (the screen, tuning, the loop), begin() (a frame in either renderer), Input (controller first, the
               box's echo keys handled), Menu (screens worked with a controller), Synth (effects, a music sequencer,
               drones), U (small tools) */
@@ -2873,6 +2874,48 @@ function orbit(cam, cx, cz, radius, height, angle, tx, tz) {
   cam.tx = tx == null ? cx : tx; cam.tz = tz == null ? cz : tz; cam.ty = 0; cam.roll = 0;
   cam.yaw = Math.atan2(cam.tx - cam.x, cam.tz - cam.z);
 }
+// Above and behind one thing on foot, and the player may move it: up and down between eyes, and round. o {eyes: rows
+// of [up, back, aim up, aim ahead, fov, near] from the thing's feet, highest first (near: what's nearer the eye than
+// this is cut away, so a tree beside it can't fill the view; 0.5 for nothing), h: where between them to start (0 the
+// first … 1 the last), turn: how far round (0: the eye to the +z side, looking towards -z), ease (8: how quickly it
+// catches the thing up), snap (12: farther than this, as after a jump, and it's there at once), turnRate (2.4: radians
+// a second, pushed all the way), liftRate (0.9: of the way from first to last eye a second), glide (2.5: the same, for
+// to())}. steer(dt, x, y): a stick's push (x right: the view turns right; y up: lower, more of the sky); to(h): glide
+// to a height; follow(cam, x, y, z, dt, ground): cam set from the thing's feet (fov and near too; ground(x, z), when
+// given, keeps a lower eye 1.4 over a rise behind); move(x, z, out): a push on the screen as a way on the ground, [x, z]
+// (up: away from the eye, however far it's turned). Nothing made as it runs.
+function Follow(o) {
+  o = o || {}; this.eyes = o.eyes || [[13, 10, 1, 1, 0.66, 0.5]]; this.h = U.clamp(o.h || 0, 0, 1); this.turn = o.turn || 0; this.goal = null;
+  this.ease = o.ease || 8; this.snap = o.snap || 12; this.turnRate = o.turnRate || 2.4; this.liftRate = o.liftRate || 0.9; this.glide = o.glide || 2.5;
+  this.eye = new Float32Array(6); this.fx = null; this.fy = 0; this.fz = 0;
+}
+Follow.prototype = {
+  at(h) {
+    const E = this.eyes, n = E.length - 1, e = this.eye;
+    if (!n) { for (let j = 0; j < 6; j++) e[j] = E[0][j]; return e; }
+    const k = U.clamp(h, 0, 1) * n, i = Math.min(n - 1, Math.floor(k)), f = k - i, a = E[i], b = E[i + 1];
+    for (let j = 0; j < 6; j++) e[j] = a[j] + (b[j] - a[j]) * f;
+    return e;
+  },
+  steer(dt, x, y) {
+    if (x) this.turn = (this.turn - x * this.turnRate * dt) % TAU;
+    if (y) { this.h = U.clamp(this.h - y * this.liftRate * dt, 0, 1); this.goal = null; }
+  },
+  to(h) { this.goal = U.clamp(h, 0, 1); },
+  follow(cam, x, y, z, dt, ground) {
+    dt = dt || 0.016;
+    if (this.goal != null) { const d = this.goal - this.h; this.h += U.clamp(d, -this.glide * dt, this.glide * dt); if (Math.abs(d) < 0.002) { this.h = this.goal; this.goal = null; } }
+    if (this.fx == null || Math.abs(this.fx - x) > this.snap || Math.abs(this.fz - z) > this.snap) { this.fx = x; this.fy = y; this.fz = z; }
+    else { const k = 1 - Math.exp(-this.ease * dt); this.fx += (x - this.fx) * k; this.fy += (y - this.fy) * k; this.fz += (z - this.fz) * k; }
+    const e = this.at(this.h), bx = Math.sin(this.turn), bz = Math.cos(this.turn);
+    cam.tx = this.fx - bx * e[3]; cam.tz = this.fz - bz * e[3]; cam.ty = this.fy + e[2];
+    cam.x = this.fx + bx * e[1]; cam.z = this.fz + bz * e[1]; cam.y = this.fy + e[0];
+    if (ground && this.h > 0) cam.y = Math.max(cam.y, ground(cam.x, cam.z) + 1.4);
+    cam.fov = e[4]; cam.near = e[5]; cam.roll = 0; cam.yaw = Math.PI + this.turn;
+    return cam;
+  },
+  move(x, z, out) { const c = Math.cos(this.turn), s = Math.sin(this.turn); out = out || [0, 0]; out[0] = x * c + z * s; out[1] = -x * s + z * c; return out; }
+};
 // draw a frame of either renderer from a camera (GL: begin() with the same view the 2D one gets)
 function viewOf(cam) {
   const dx = cam.tx - cam.x, dz = cam.tz - cam.z, hd = Math.sqrt(dx * dx + dz * dz) || 1;
@@ -4284,6 +4327,6 @@ function planRay(p, b) {
 }
 
 window.Low3D = { probe, family, NAMES, bench, plan, rows, line, LADDER, Governor, GL, Mesh, Flat, bake, M4, px, hexRGB, Rig,
-  U, Kit, Path, Chunks, Land, Trail, Particles, camera, chase, orbit, viewOf, begin, Input, Menu, Synth, game,
+  U, Kit, Path, Chunks, Land, Trail, Particles, camera, chase, orbit, Follow, viewOf, begin, Input, Menu, Synth, game,
   Palette, Tex, RayMap, Ray, Marks, Screen, planRay, heldRay, helpersFor, wholeSteps, ladderSig, fortyOn, withForty, UI, Letters, GLYPHS, SPECIAL, wholeSize, Confetti, Banners, Emblem, Stream, Slots, version: 5 };
 })();

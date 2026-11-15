@@ -325,7 +325,7 @@ const dist2 = (ax, az, bx, bz) => (ax - bx) * (ax - bx) + (az - bz) * (az - bz);
 
 // ---------------------------------------------------------------- what's kept on the box: three delvers and the options
 const SAVE = "wyrd";
-function freshSave() { return { v: 1, slots: [null, null, null], last: -1, opts: { picture: "auto", music: 6, sound: 8, numbers: 1, pixels: 1, aim: 1, glow: 1 } }; }
+function freshSave() { return { v: 1, slots: [null, null, null], last: -1, opts: { picture: "auto", music: 6, sound: 8, numbers: 1, pixels: 1, aim: 1, glow: 1, cam: 0 } }; }
 let save = freshSave();
 try { const j = JSON.parse(localStorage.getItem(SAVE) || "null"); if (j && j.v === 1) save = Object.assign(freshSave(), j, { opts: Object.assign(freshSave().opts, j.opts || {}) }); } catch (e) { /* a fresh start */ }
 function store() { if (E.demo) return; try { localStorage.setItem(SAVE, JSON.stringify(save)); } catch (e) { /* full or blocked: play goes on */ } }
@@ -1525,6 +1525,7 @@ function moveInput() {
     const st = input.stick(); mx = st.x; mz = st.y;
     if (input.held("left")) mx = -1; else if (input.held("right")) mx = 1;
     if (input.held("up")) mz = -1; else if (input.held("down")) mz = 1;
+    if (CAM.turn && E.mode === "gl") { CAM.move(mx, mz, WAY); mx = WAY[0]; mz = WAY[1]; }   // (up: away from the eye, however it's turned)
   }
   const l = Math.sqrt(mx * mx + mz * mz); if (l > 1) { mx /= l; mz /= l; }
   MV[0] = l < 0.18 ? 0 : mx; MV[1] = l < 0.18 ? 0 : mz;
@@ -2575,20 +2576,47 @@ function draw(now, dt) {
   if (E.mode === "gl" && GPU) drawGL(now); else if (E.mode === "flat") drawFlat(now);
   drawHUD(now);
 }
+// The eye (Low3D's Follow): how low it is (0 high, looking down, as WYRD always has; 0.5 the middle; 1 low, the sky
+// ahead) and how far round the delver (0: looking north, as always). The right stick moves both (up lower, down higher;
+// left and right turn the view), as do Z and C (turn), V (the next height) and the wheel; Options keeps the height a
+// game starts at. The 3D look only: the 2D way keeps the eye its pictures were drawn for.
+const CAMHASH = /[#&]cam=([\d.]+)/.exec(location.hash);                            // (#cam=1: start low, for the benches)
+const EYES = [[13.9, 9.3, 0.9, 1.2, 0.66, 0.5], [7, 11, 1.4, 7, 0.72, 8.5], [5.2, 9.5, 1.5, 6, 0.74, 7]];   // up and back from the feet, aim up and ahead, fov, near (what's nearer the eye is cut away)
+const CAM = new L3.Follow({ eyes: EYES, h: CAMHASH ? +CAMHASH[1] : (save.opts.cam || 0) / 2 }), WAY = [0, 0];
+// Underground the air closes in at a distance from the eye (applyRung's, for the high one, 15.9 m from the delver's
+// chest): a lower eye stands nearer, so the air comes in as much nearer, and the dark past the delver is as it was. And
+// nothing beyond it is drawn: SEE, how far from the eye anything can still show (no limit with the high eye).
+const CAVEAIR = [15.5, 36, 0], HIGHEYE = Math.hypot(EYES[0][0] - 1, EYES[0][1]);
+let SEE = Infinity;
+function caveAir(g3) {
+  SEE = Infinity; if (W.over) { CAVEAIR[2] = 0; return; }                 // (the open country's air is its own: airAt)
+  const e = CAM.eye, nearer = CAM.h > 0 ? HIGHEYE - Math.hypot(e[0] - 1, e[1]) : 0;
+  if (Math.abs(nearer - CAVEAIR[2]) > 0.05 || (!nearer && CAVEAIR[2])) { g3.light({ near: CAVEAIR[0] - nearer, far: CAVEAIR[1] - nearer }); CAVEAIR[2] = nearer; }
+  if (nearer) SEE = CAVEAIR[1] - nearer + 3;
+}
+function camFree() { return E.mode === "gl" && !E.demo && !AI.on && !(SHOW && !SHOW.game) && state === "play" && !menu.at && !pendingWorld; }
+function steerCam(dt) {
+  if (E.mode !== "gl") { CAM.h = 0; CAM.turn = 0; CAM.goal = null; return; }
+  if (!camFree()) return;
+  const s2 = window.SofaPad && window.SofaPad.stick2 ? window.SofaPad.stick2() : null;
+  let x = s2 ? s2.x : 0; const y = s2 ? s2.y : 0;
+  if (input.key("camL")) x -= 1; if (input.key("camR")) x += 1;
+  CAM.steer(dt, x, y);
+}
+addEventListener("wheel", e => { if (!camFree() || !e.deltaY) return; CAM.h = clamp(CAM.h - Math.sign(e.deltaY) * 0.1, 0, 1); CAM.goal = null; }, { passive: true });
+function cycleView() { const h = CAM.goal != null ? CAM.goal : CAM.h, next = h < 0.25 ? 0.5 : h < 0.75 ? 1 : 0; CAM.to(next); save.opts.cam = next * 2; store(); }
 function updateCam(dt) {
   const sh = G.shake > 0 ? G.shake : 0, j = sh * 0.6;
-  const tx = H.x, tz = H.z - 1.2, ty = H.y + 0.9;
-  const k = 1 - Math.exp(-8 * (dt || 0.016));
-  cam.tx += (tx - cam.tx) * k; cam.tz += (tz - cam.tz) * k; cam.ty += (ty - cam.ty) * k;
-  if (Math.abs(cam.tx - tx) > 12 || Math.abs(cam.tz - tz) > 12) { cam.tx = tx; cam.tz = tz; cam.ty = ty; }
+  steerCam(dt || 0.016);
+  CAM.follow(cam, H.x, H.y, H.z, dt || 0.016, W.h);
   if (SHOW && !SHOW.game) { const d = SHOW.dist || 4, a = SHOW.az || 0, e = SHOW.el == null ? 0.25 : SHOW.el; cam.tx = H.x + (SHOW.ox || 0); cam.ty = H.y + (SHOW.h == null ? 1.05 : SHOW.h); cam.tz = H.z;
     cam.x = cam.tx + Math.sin(a) * Math.cos(e) * d; cam.y = cam.ty + Math.sin(e) * d; cam.z = cam.tz + Math.cos(a) * Math.cos(e) * d; cam.fov = SHOW.fov || 0.5; cam.roll = 0; return; }
-  const far = save.opts.aim ? 1 : 1;
-  cam.x = cam.tx + (Math.random() - 0.5) * j; cam.y = cam.ty + 13 * far + (Math.random() - 0.5) * j; cam.z = cam.tz + 10.5 * far; cam.fov = 0.66; cam.roll = 0; cam.yaw = PI;
+  if (j) { cam.x += (Math.random() - 0.5) * j; cam.y += (Math.random() - 0.5) * j; }
 }
 // is the delver behind a tree's crown or a house, as the eye sees it? (the eye looks from the south and above: a crown hides what stands north of its trunk,
 // a house what stands close behind its back wall)
 function hidden() {
+  if (CAM.h > 0 || CAM.turn) return hiddenFrom(cam.x, cam.y, cam.z, cam.near || 0.5);
   const nodes = W.nodes, hx = H.x, hz = H.z, hs = W.houses;
   if (hs) for (let i = 0; i < hs.length; i++) {       // (along the eye's line from the delver's chest, up and to the south: is any of it inside the house?)
     const q = hs[i], dx = hx - q.x, dz = q.z - hz; if (dz < -3.5 || dz > 9.5 || dx > 4.5 || dx < -4.5) continue;
@@ -2598,18 +2626,33 @@ function hidden() {
   for (let i = 0; i < nodes.length; i++) { const nd = nodes[i]; if (nd.kind !== "tree" || !nd.on) continue; const dz = nd.z - hz; if (dz < 0.4 || dz > 8) continue; const sz = nd.s, dx = nd.x - hx; if (dz < 7.5 * sz && dx < 1.9 * sz - dz * 0.12 && -dx < 1.9 * sz - dz * 0.12) return true; }
   return false;
 }
+// the same, from an eye anywhere: along the line from the delver's chest to it, as far as what the eye cuts away
+function hiddenFrom(ex, ey, ez, near) {
+  const nodes = W.nodes, hx = H.x, hz = H.z, hs = W.houses, dx0 = ex - hx, dz0 = ez - hz, dy0 = ey - (H.y + 1), lh = Math.sqrt(dx0 * dx0 + dz0 * dz0) || 1;
+  const ux = dx0 / lh, uz = dz0 / lh, slope = dy0 / lh, reach = Math.min(9.6, lh * (1 - near / Math.sqrt(lh * lh + dy0 * dy0)));
+  if (hs) for (let i = 0; i < hs.length; i++) {
+    const q = hs[i]; if (Math.abs(q.x - hx) > 14 || Math.abs(q.z - hz) > 14) continue;
+    const c = Math.cos(q.yaw), sn = Math.sin(q.yaw), k = 1 / q.s, up = q.land && LANDS[q.land].house.stilts || 0;
+    for (let t = 0.4; t < reach; t += 0.4) { const px = hx + ux * t - q.x, pz = hz + uz * t - q.z, lx = (px * c - pz * sn) * k, lz = (px * sn + pz * c) * k, ht = (1 + t * slope) * k; if (lx > -2.8 && lx < 2.8 && lz > -2.4 && lz < 2.4 && ht < 5.2 + up - 0.875 * Math.abs(lz) && ht > up * 0.6) return true; }
+  }
+  for (let i = 0; i < nodes.length; i++) { const nd = nodes[i]; if (nd.kind !== "tree" || !nd.on) continue; const ax = nd.x - hx, az = nd.z - hz, along = ax * ux + az * uz; if (along < 0.4 || along > Math.min(8, reach)) continue;
+    const sz = nd.s, across = Math.abs(ax * uz - az * ux); if (1 + along * slope < 7.3 * sz && across < 1.9 * sz - along * 0.12) return true; }
+  return false;
+}
 function matOf(M, x, y, z, yaw, s, sy) { M4.model(M, x, y, z, yaw, 0, 0, s); if (sy && sy !== 1) { M[4] *= sy; M[5] *= sy; M[6] *= sy; } return M; }
 function drawGL(now) {
   const g3 = E.g3, w = W, R_ = E.rung, far = w.kind === "town" ? (rich() ? 86 : 60) : 52, t = G.t, glowOn = save.opts.glow && R_.look === 1 && R_.h >= 720;
   g3.hold(glowOn ? BLOOM.hold : 0); g3.wind(t, rich() && w.over ? 0.09 : 0);
   if (w.over && airAt(w, cam.tx, cam.tz)) g3.light({ fog: AIRNOW.fog, fogSun: AIRNOW.fog, near: (rich() ? 38 : 28) * AIRNOW.far, far: (rich() ? 86 : 60) * AIRNOW.far });
-  L3.begin(E, cam, 0.5, far + 30);
+  caveAir(g3);
+  L3.begin(E, cam, SHOW && !SHOW.game ? 0.5 : cam.near || 0.5, far + 30);
   // the shadows of what moves, on the fuller look in the open country: the sun's picture of them first (the still world's own are laid on the ground)
   if (rich() && w.over && g3.shadows({ sun: w.st.sun, x: cam.tx, y: w.h(cam.tx, cam.tz), z: cam.tz, reach: 22, size: R_.h >= 1080 ? 1024 : 512 })) { movers(g3, t, true, CAST); g3.shadowsDone(); }
   else g3.shadows(null);
   if (GPU.sky) g3.dome(GPU.sky, t * 0.0004);
-  if (GPU.chunks) GPU.chunks.draw(g3, cam.tx, cam.tz, far, R_.detail == null ? 1 : Math.max(0.55, R_.detail)); else if (STREAM) STREAM.draw(g3, cam.tx, cam.tz, far);
-  for (const c of GPU.nodeCells) if (c.h && g3.sees(c.h.x, c.h.y, c.h.z, c.h.r + 2)) g3.still(c.h);
+  if (GPU.chunks) { if (SEE < far) GPU.chunks.draw(g3, cam.x, cam.z, SEE, R_.detail == null ? 1 : Math.max(0.55, R_.detail)); else GPU.chunks.draw(g3, cam.tx, cam.tz, far, R_.detail == null ? 1 : Math.max(0.55, R_.detail)); }
+  else if (STREAM) STREAM.draw(g3, cam.tx, cam.tz, far);
+  for (const c of GPU.nodeCells) if (c.h && g3.sees(c.h.x, c.h.y, c.h.z, c.h.r + 2) && (SEE === Infinity || dist2(c.h.x, c.h.z, cam.x, cam.z) < (SEE + c.h.r) * (SEE + c.h.r))) g3.still(c.h);
   movers(g3, t, false, DRAW);
   // everything see-through, in one mesh
   const m = GPU.fxM; m.n = 0;
@@ -2626,7 +2669,7 @@ function drawGL(now) {
 const DRAW = (h, M, r, g, b, glow, rim, thr) => { const g3 = E.g3; if (thr) { g3.through(true); g3.moved(h, M, r, g, b, glow, rim); g3.through(false); } else g3.moved(h, M, r, g, b, glow, rim); };
 const CAST = (h, M) => E.g3.caster(h, M);
 function movers(g3, t, cast, fn) {
-  const w = W, near = (x, y, z, r) => cast ? Math.abs(x - cam.tx) < 28 && Math.abs(z - cam.tz) < 28 : g3.sees(x, y, z, r);
+  const w = W, near = (x, y, z, r) => cast ? Math.abs(x - cam.tx) < 28 && Math.abs(z - cam.tz) < 28 : g3.sees(x, y, z, r) && (SEE === Infinity || dist2(x, z, cam.x, cam.z) < (SEE + r) * (SEE + r));
   // the townsfolk
   if (w.folk) for (const p of w.folk) { const b = BODIES.get("folk:" + p.who + p.x); if (!b) continue; const pose = p.mv ? WALK[Math.floor(p.walkT * 2) % 4] : p.work ? ((t * 1.6) % 1 < 0.5 ? "mine0" : "mine1") : (t * 0.7 + p.x) % 2 < 1 ? "idle0" : "idle1";
     if (!near(p.x, 1, p.z, 1.5)) continue; fn(b.h[pose] || b.h.idle0, matOf(MAT, p.x, w.h(p.x, p.z), p.z, p.yaw || 0, 1), 1, 1, 1, 0, 0.35); }
@@ -2890,6 +2933,7 @@ function applyRung() {
   // (the air thickens with distance from the eye, which stands 17 m off: a cave's dark is how soon past the delver it closes in)
   const see = W.dark ? ((WR.fireCan(lv("fire"), "Torch") ? 0.5 : 0) + (petHelp("light") ? 0.5 : 0)) : 1;
   if (E.mode === "gl" && E.g3) E.g3.light({ near: W.kind === "town" ? (rich() ? 38 : 28) : 15.5 + 1.5 * see, far: W.kind === "town" ? (rich() ? 86 : 60) : 27 + 9 * see });
+  CAVEAIR[0] = 15.5 + 1.5 * see; CAVEAIR[1] = 27 + 9 * see; CAVEAIR[2] = 0;
   if (E.mode === "flat" && E.flat) E.flat.air({ near: 24, far: 60 });
   AIRNOW.at[0] = 1e9; hudKey = "";
 }
@@ -2969,6 +3013,7 @@ function drawHUD(now) {
     const dx = f.x - H.x, dz = f.z - H.z; if (dx > reach || dx < -reach || dz > reach || dz < -reach) continue;
     const big = f.elite || f.boss ? 3 * S1 : 2 * S1; ui.rect((mcx + dx * sc - S1) | 0, (mcy + dz * sc - S1) | 0, big, big, f.elite || f.boss ? PINK : RED, 1); }
   ui.rect(mx + mw / 2 - S1, my + mw / 2 - S1, 2 * S1, 2 * S1, GREEN, 1);
+  if (CAM.turn) { const vx = -Math.sin(CAM.turn), vz = -Math.cos(CAM.turn); for (let k = 3; k <= 7; k += 2) ui.rect((mcx + vx * k * S1 - S1 / 2) | 0, (mcy + vz * k * S1 - S1 / 2) | 0, S1, S1, BONE, 0.7); }   // (which way the eye looks, once it's turned: the map stays north-up)
   if (W.over) {                                       // on its edge: Hearthrim (bone), the nearest well (blue) and gate (pink), when they're off the map
     let bw = null, bp = null, dw = 1e9, dp = 1e9;
     for (let i = 0; i < W.feats.length; i++) { const q = W.feats[i], d = dist2(H.x, H.z, q.x, q.z); if (q.kind === "well" && d < dw) { dw = d; bw = q; } else if (q.kind === "portal" && d < dp) { dp = d; bp = q; } }
@@ -3076,7 +3121,7 @@ function volumes() { synth.volume(save.opts.music / 10, save.opts.sound / 10); }
 // ---------------------------------------------------------------- the controller and the keys
 const KEYS = { ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right", w: "up", s: "down", a: "left", d: "right", W: "up", S: "down", A: "left", D: "right",
   Enter: "a", j: "a", J: "a", e: "a", E: "a", " ": "b", k: "x", K: "x", l: "y", L: "y", q: "rb", Q: "rb", f: "lb", F: "lb", r: "lt", R: "lt", i: "select", I: "select", Tab: "select",
-  Escape: "back", Backspace: "back", BrowserBack: "back", GoBack: "back", p: "start", P: "start" };
+  Escape: "back", Backspace: "back", BrowserBack: "back", GoBack: "back", p: "start", P: "start", z: "camL", Z: "camL", c: "camR", C: "camR", v: "view", V: "view" };
 const input = new L3.Input({ keys: KEYS, on: onButton, top: () => menu.top(), connected: hints });
 const kb = b => "<kbd>" + esc(keyLabel(b)) + "</kbd>";
 let state = "boot", confirmGo = 0;
@@ -3102,6 +3147,7 @@ function onButton(b, how) {
   else if (b === "lt") toggleRide();
   else if (b === "start" || b === "back") openPause();
   else if (b === "select") openBag();
+  else if (b === "view" && E.mode === "gl") cycleView();
 }
 function hints() {
   $("titleHint").innerHTML = kb("a") + " choose &nbsp; " + (input.pad() ? kb("b") + " back to the box" : "↑ ↓ move");
@@ -3111,7 +3157,7 @@ function hints() {
   $("shopHint").innerHTML = $("wayHint").innerHTML = kb("a") + " choose &nbsp; " + kb("b") + " back";
   $("skillsHint").innerHTML = "↑ ↓ look &nbsp; " + kb("b") + " back";
   $("optionsHint").innerHTML = "◀ ▶ change &nbsp; " + kb("b") + " back"; $("boxHint").innerHTML = kb("a") + " choose &nbsp; " + kb("b") + " back";
-  $("pauseHint").innerHTML = kb("a") + " choose &nbsp; " + kb("start") + " carry on";
+  $("pauseHint").innerHTML = kb("a") + " choose &nbsp; " + kb("start") + " carry on &nbsp; " + (input.pad() ? "right stick: the camera" : "<kbd>Z</kbd> <kbd>C</kbd> <kbd>V</kbd> the camera");
   $("fallenHint").innerHTML = $("endHint").innerHTML = kb("a") + " go on";
 }
 
@@ -3122,7 +3168,8 @@ const OPTS = [
   { k: "sound", name: "Sounds", vals: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10] },
   { k: "numbers", name: "Damage numbers", vals: [1, 0], names: { 1: "Shown", 0: "Hidden" } },
   { k: "pixels", name: "Pixels", vals: [1, 0], names: { 1: "Crisp", 0: "Smoothed" } },
-  { k: "glow", name: "Glow", vals: [1, 0], names: { 1: "Where the box has room", 0: "Off" } }
+  { k: "glow", name: "Glow", vals: [1, 0], names: { 1: "Where the box has room", 0: "Off" } },
+  { k: "cam", name: "Camera", vals: [0, 1, 2], names: { 0: "High, looking down", 1: "Middle", 2: "Low, the sky ahead" } }
 ];
 const CREATE = { name: NAMES[0], build: 1, skin: 0, hair: 1, cloth: 0, kind: "blade" };
 const CREATE_OPTS = [
@@ -3175,7 +3222,7 @@ const menu = new L3.Menu({
   }
 });
 function closeMenu() { menu.hide(); state = D && D !== GHOST ? "play" : state; pausedFrom = null; hudKey = ""; }
-function optionChanged(k) { store(); if (k === "music" || k === "sound") volumes(); if (k === "picture") E.setPicture(); if (k === "pixels") E.resize(); }
+function optionChanged(k) { store(); if (k === "music" || k === "sound") volumes(); if (k === "picture") E.setPicture(); if (k === "pixels") E.resize(); if (k === "cam") CAM.to(save.opts.cam / 2); }
 function renderTitle() {
   const s = save.slots[save.last], items = [];
   if (s) items.push(`<div class="item" data-do="continue">Continue: ${esc(s.name)} · level ${s.level} · ${esc(floorName(s.floor))}</div>`);
@@ -3554,6 +3601,7 @@ if (E.test) window.WY = { get G() { return G; }, get H() { return H; }, get D() 
   killAll: () => { for (const f of G.foes) if (f.st !== "dead" && !f.boss) { f.hp = 0; killFoe(f); } }, boss: () => G.boss, startEnding, recalc, heroBody, interact, nearNode, skill, startAttack, dodge, hidden, AI,
   begin: () => { slotNo = 0; begin(); return D.name; }, kill: f => { f.hp = 0; killFoe(f); }, toWorld, cavePlace, hollowPlace, stream: () => STREAM, over: () => OVER, celebrate: k => celebrate(k, masteryItem(k, "mantle"), masteryItem(k, "weapon")), noteBest, makeDrop: (p, lvl, tier) => { const it = makeItem("weapon", tier, lvl, 2, "blade"); it.p = p; noteBest(it); return it; }, goto: (x, z) => { H.x = x; H.z = z; H.y = W.h(x, z); }, near: kind => { let b = null, bd = 1e9; for (const nd of W.nodes) if (nd.kind === kind && nd.on) { const d = dist2(H.x, H.z, nd.x, nd.z); if (d < bd) { b = nd; bd = d; } } return b; },
   gainSkill, lightFire, toggleRide, bind, kinOf, lv, WR, EMBLEMS, packCount, packMax, openShop, shopDo: i => shopDo({ dataset: { i } }), SHOP: () => SHOP, master,
+  cam: (h, turn) => { CAM.h = h == null ? CAM.h : h; CAM.turn = turn == null ? CAM.turn : turn; CAM.goal = null; return { h: CAM.h, turn: CAM.turn }; }, CAM,
   show: o => { SHOW = o; heroStale = true; H.inv = 0; if (o && o.yaw != null) H.yaw = o.yaw; if (o && o.walk) H.act = "walk"; heroBody(false); return heroKey.length; } };
 E.start();
 })();

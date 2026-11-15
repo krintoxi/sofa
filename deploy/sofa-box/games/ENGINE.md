@@ -529,6 +529,13 @@ the tables of looks to show (each look a body's colours and parts, as `build` ta
   `wake(mesh, …)` (two arms that spread, the churn between them) for 3D, or `spots(flat, …)` for 2D.
 - `Particles(n)` is a fixed pool: `emit`, `step`, `points(mesh)` for 3D, `sprites(flat)` for 2D.
 - Cameras: `camera()`; `chase(cam, thing, dt, dist, height, ahead)`; `orbit(cam, x, z, radius, height, angle)`;
+  `new Follow({ eyes, h })` for one on foot seen from above and behind, the player moving the eye up and down between
+  `eyes` (rows of `[up, back, aim up, aim ahead, fov, near]` from the feet, highest first; `near`: what's nearer the eye
+  is cut away, so a tree beside it can't fill the view) and round it: `steer(dt, x, y)` from a stick (the right one,
+  `SofaPad.stick2()`), `to(h)` to glide to a height, `follow(cam, x, y, z, dt, ground)` each frame (`ground(x, z)` keeps
+  a lower eye over a rise), `move(x, z)` a push on the screen as a way on the ground (up: away from the eye). WYRD's eye
+  is one: high as it always was, a middle one, and a low one with the sky ahead, on the right stick, Z, C, V and the
+  wheel, and in its options. Pass `cam.near` to `begin()`. A game drawn in 2D keeps one eye: its sprites are baked for it.
   `begin(E, cam, near, far, rect)` draws a frame from a camera in whichever renderer the box has. Two players:
   a camera each and a rect each (the screen's top half and bottom half), and the game draws its world twice.
 

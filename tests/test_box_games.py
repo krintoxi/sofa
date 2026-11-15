@@ -611,6 +611,47 @@ class TheEngine(unittest.TestCase):
             shutil.rmtree(tmp, ignore_errors=True)
 
     @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_a_camera_the_player_moves(self):
+        """Low3D's Follow: at its first eye and no turn it stands where it's told; turned, the eye goes round and a push
+        up on the screen goes away from it; a stick lowers and turns it; to() glides there; a rise behind lifts a lower
+        eye; a jump is followed at once and a step a little behind."""
+        script = """
+const noop = () => {};
+globalThis.window = globalThis; globalThis.addEventListener = noop; globalThis.location = { hash: "" };
+globalThis.document = { hidden: false, createElement: () => ({ getContext: () => null }) };
+globalThis.screen = { width: 1920, height: 1080 }; globalThis.innerWidth = 960; globalThis.innerHeight = 540;
+eval(require("fs").readFileSync(process.argv[1], "utf8"));
+const L = window.Low3D, out = {}, r = v => Math.round(v * 1000) / 1000 + 0;
+const eyes = [[13.9, 9.3, 0.9, 1.2, 0.66, 0.5], [7, 11, 1.4, 7, 0.72, 8.5], [5.2, 9.5, 1.5, 6, 0.74, 7]];
+const f = new L.Follow({ eyes }), cam = L.camera(), at = c => [c.x, c.y, c.z, c.tx, c.ty, c.tz, c.fov, c.near].map(r);
+out.high = at(f.follow(cam, 0, 0, 0, 0.016));
+f.turn = Math.PI / 2; out.turned = at(f.follow(cam, 0, 0, 0, 0.016)); out.away = f.move(0, -1).map(r);
+f.turn = 0; f.steer(1, 0, -1); out.lowered = r(f.h);
+f.steer(1, 1, 0); out.turn = r(f.turn);
+f.turn = 0; f.h = 0; f.to(1); for (let i = 0; i < 12; i++) f.follow(cam, 0, 0, 0, 1 / 60); out.gliding = r(f.h);
+for (let i = 0; i < 60; i++) f.follow(cam, 0, 0, 0, 1 / 60); out.glided = r(f.h);
+out.low = at(f.follow(cam, 0, 0, 0, 0.016));
+out.overRise = r(f.follow(cam, 0, 0, 0, 0.016, (x, z) => z > 5 ? 9 : 0).y);
+f.follow(cam, 50, 0, 0, 0.016); out.jumped = r(cam.tx);
+f.follow(cam, 51, 0, 0, 0.016); out.stepped = r(cam.tx);
+console.log(JSON.stringify(out));
+"""
+        r = subprocess.run(["node", "-e", script, os.path.join(self.GAMES, "low3d.js")], capture_output=True, text=True, timeout=60)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        out = json.loads(r.stdout)
+        self.assertEqual(out["high"], [0, 13.9, 9.3, 0, 0.9, -1.2, 0.66, 0.5])       # (WYRD's eye as it always was)
+        self.assertEqual(out["turned"], [9.3, 13.9, 0, -1.2, 0.9, 0, 0.66, 0.5])     # (round to the east, looking west)
+        self.assertEqual(out["away"], [-1, 0])                                         # (up on the screen: west, away from it)
+        self.assertEqual(out["lowered"], 0.9)
+        self.assertEqual(out["turn"], -2.4)                                            # (right: the view turns right)
+        self.assertEqual(out["gliding"], 0.5)
+        self.assertEqual(out["glided"], 1)
+        self.assertEqual(out["low"], [0, 5.2, 9.5, 0, 1.5, -6, 0.74, 7])
+        self.assertEqual(out["overRise"], 10.4)
+        self.assertEqual(out["jumped"], 50)
+        self.assertEqual(out["stepped"], 50.12)
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
     def test_each_box_gets_its_drawing(self):
         """The GPU's name and the test pick 3D or 2D and the rung to start on; the governor holds the frame rate;
         meshes face out; paths know where their points are."""
