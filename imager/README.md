@@ -11,10 +11,13 @@ confirm, and it writes it, reads every byte back to check it, and ejects it.
 
 - macOS only, 13 or newer, Apple silicon and Intel. Windows and Linux builds of the app are wanted, and come next
   (see [On Windows and Linux](#on-windows-and-linux)).
-- **It has never written a real SD card or USB stick.** Everything up to the hardware is tested, and every kind of
-  media has been written to a disk image through the raw device and started in a virtual PC, with UEFI (Secure Boot
-  on) and with BIOS: [what was proven, and how](#proven-in-virtual-pcs). The password prompt and a real card reader or
-  stick need a person at a Mac: [the list is below](#what-only-a-real-mac-with-a-real-sd-card-can-confirm).
+- **One real USB stick so far, and it worked.** On 2026-11-15 the owner wrote Microsoft's Windows 11 ISO to a 62 GB
+  USB stick with it, on a Mac with an Intel Core i5-2400S on macOS 13.7.8 (the password prompt, the write, the
+  read-back and the eject all on real hardware), and installed Windows from that stick on a laptop: "it worked, tested
+  on real hardware". Everything else is tested up to the hardware, and every kind of media has been written to a disk
+  image through the raw device and started in a virtual PC, with UEFI (Secure Boot on) and with BIOS:
+  [what was proven, and how](#proven-in-virtual-pcs). **It has never written a real SD card**, nor a real Linux stick
+  or DVD: [what's left to try](#what-only-a-real-mac-with-a-real-sd-card-can-confirm).
 - It isn't signed with an Apple Developer ID, so macOS blocks a downloaded copy until its owner allows it
   (see [Signing](#signing)).
 - It reads the Sofa Box list on the `sofa-box` release, published since 2026-11-10 (see [The list](#the-list)).
@@ -430,6 +433,10 @@ the owner's hardware, which is the only kind this app writes.
    whatever GitHub's Macs run. How Gatekeeper treats the unsigned zip after a download is untested.
 
 ### What only a real USB stick and a real PC can confirm
+
+**Done once (2026-11-15):** a Windows 11 stick written on the owner's Intel Mac (macOS 13.7.8) with build 403 of this
+version, and a laptop installed from it; the owner's word: "it worked, tested on real hardware". Which boot mode the
+laptop used and whether either Windows 11 switch was ticked wasn't recorded. The rest:
 
 The same as a card's list above for the Mac's side (the password, the stick offered, unmounting, the write and the
 read-back, nothing mounting, the eject), and on the PC's side:

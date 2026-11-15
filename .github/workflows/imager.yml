@@ -77,7 +77,7 @@ jobs:
           <!-- sofa-box-imager version=$VERSION build=$BUILD commit=$GITHUB_SHA -->
           **Sofa Box Imager $VERSION** for Mac (build $BUILD, from ${GITHUB_SHA::7} on main): EdgeVenture's own app that writes Sofa Box OS, other Linux systems, Windows installers (from your own ISO) and images of your own to SD cards, USB sticks and DVDs, and reads every byte back. macOS 13 or newer, Apple silicon and Intel.
 
-          - **It has not written a real SD card or USB stick yet.** Everything up to the hardware is tested on GitHub's Macs, and every kind of stick has been started in virtual PCs; the card reader, the stick and the password prompt need a person. If you try it, tell us how it went: https://github.com/krintoxi/sofa/issues/new/choose
+          - **On real hardware so far: one Windows 11 USB stick**, written on an Intel Mac and installed on a laptop. No real SD card, Linux stick or DVD yet; everything else is tested on GitHub's Macs, and every kind of stick has been started in virtual PCs. If you try it, tell us how it went: https://github.com/krintoxi/sofa/issues/new/choose
           - **It isn't signed**, so macOS stops it the first time: open it, then System Settings → Privacy & Security → Open Anyway.
           - Raspberry Pi's own Imager works too, with our list: https://github.com/krintoxi/sofa/releases/download/sofa-box/sofa-box.rpi-imager-manifest
 

@@ -51,4 +51,6 @@ with no TPM. Then a whole Windows 11 install from the switches stick (UEFI, Secu
 Windows copied from the split parts, started from its own drive, the local account made with no Microsoft account and
 no network, and its new password asked for at the second sign-in. Debian 13.7 (downloaded by the app from Debian) and Fedora 45 to their boot menus both ways; Raspberry Pi
 OS Lite written and read back as Raspberry Pi's SHA-256 (a Pi can't be started in QEMU here). The imager README has
-the details. **No real stick has been written and no real PC started from one yet.**
+the details. **On real hardware**, once: the owner wrote Windows 11 to a 62 GB USB stick on an Intel Mac (macOS 13.7.8)
+and installed it on a laptop from that stick ("it worked, tested on real hardware", 2026-11-15). No real SD card, Linux
+stick or DVD yet.
