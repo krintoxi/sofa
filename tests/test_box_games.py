@@ -2867,9 +2867,10 @@ out.edit = [now !== was, q.slice(0, b.poses.start) === p.slice(0, b.poses.start)
 
     @unittest.skipUnless(shutil.which("node"), "needs node")
     def test_new_blocks_go_into_the_games_own_script(self):
-        """The profile and camera blocks a page doesn't have yet go after "use strict" in its own script; the page still
-        parses, the blocks give back what went in, and saving them again changes nothing."""
-        pages = {gid: os.path.join(self.GAMES, gid, "index.html") for gid in ("wyrd", "tidewing", "cinder-knight", "neon-dodge")}
+        """The profile and camera blocks a page doesn't have yet go after "use strict" in its own script, in every game on
+        the box's list; the page still parses, the blocks give back what went in, and saving them again changes nothing.
+        A page that already has a PROFILE or CAMERA of its own isn't given a second one."""
+        pages = {g["id"]: os.path.join(self.GAMES, g["id"], "index.html") for g in CATALOG["games"]}
         out = self.node(r"""
 const P = { type: "rpg3d", look: "flat", players: 2, fps: 30, floor: "pi3", ceiling: "computer", controls: ["pad", "touch"], targets: ["web"], languages: ["en", "ja"], bench: { secs: 15 } };
 const C = { way: "follow" };
@@ -2881,7 +2882,10 @@ for (const id of Object.keys(A.pages)) {
     at > own && (strict < 0 || at > strict), T.splice(q, { profile: T.profileText(P), camera: T.cameraText(C) }) === q, q.length > p.length];
   out.pages[id] = q;
 }
+const own = read(A.pages.tidewing).replace('"use strict";', '"use strict";\nconst CAMERA = { mine: true };');
+try { T.splice(own, { camera: T.cameraText(C) }); out.second = "made"; } catch (e) { out.second = e.message; }
 """, {"pages": pages})
+        self.assertIn("already has a CAMERA of its own", out["second"])
         for gid, checks in out["back"].items():
             self.assertEqual(checks, [True] * 5, gid)
             self.parses(out["pages"][gid], gid)
@@ -2925,8 +2929,12 @@ out.pi3 = T.BUDGETS.pi3;
         with open(os.path.join(self.GAMES, "maker", "index.html"), encoding="utf-8") as f:
             page = f.read()
         self.assertIn("onBox: !T.writes(location)", page)
-        self.assertIn('if (Maker.onBox || Maker.source === "box") return say(', page)       # saving: never on the box
-        self.assertIn('if (!Maker.onBox && window.showDirectoryPicker) add("folder"', page)  # a folder: only off the box
+        self.assertIn('Maker.saves = () => !Maker.onBox && Maker.source !== "box";', page)   # what's read from the box is only read:
+        self.assertIn('if (text == null || !Maker.saves()) delete Maker.changes[kind]', page)  # nothing there counts as unsaved,
+        self.assertIn("if (!Maker.saves()) return say(", page)                                 # nothing there saves,
+        self.assertIn('$("src-folder").hidden = Maker.onBox || !window.showDirectoryPicker', page)  # and no folder on the box
+        self.assertIn('$("src-file").hidden = Maker.onBox', page)
+        self.assertIn('$("src-folder").onclick = () => openFolder();', page)                 # (a dialog opens from a click)
         self.assertIn('if (Maker.onBox || Maker.source !== "folder") throw', page)           # a new game: only into a folder
         self.assertIn("if (now !== Maker.page) return say(", page)                             # never over a change made elsewhere
 

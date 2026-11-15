@@ -19,7 +19,8 @@
   header b { color: var(--green); font-weight: 500; letter-spacing: .08em; }
   header b i { color: var(--pink); font-style: normal; }
   header select, .form input { background: var(--ink); border: 1px solid var(--line); padding: 3px 6px; }
-  .tabs { display: flex; gap: 4px; }
+  .tabs, .srcs { display: flex; gap: 4px; }
+  .from b { color: var(--bone); font-weight: 500; }
   .tabs button { background: none; border: 1px solid var(--line); padding: 3px 9px; color: var(--dim); }
   .tabs button.on { color: var(--ink); background: var(--green); border-color: var(--green); }
   .changed { color: var(--pink); margin-left: auto; }
@@ -110,7 +111,8 @@
 <div class="app">
   <header>
     <b>maker <i>/</i> <span id="where">poses</span></b>
-    <label>from <select id="source"></select></label>
+    <span class="from">from <b id="src-name"></b></span>
+    <div class="srcs"><button id="src-box" class="btn" type="button">the box's games</button><button id="src-folder" class="btn" type="button">open a games folder…</button><button id="src-file" class="btn" type="button">open a page…</button></div>
     <label>game <select id="game"></select></label>
     <input id="file" type="file" accept=".html,.htm,text/html" hidden>
     <div class="tabs"><button data-screen="setup">setup</button><button data-screen="poses">poses</button></div>
@@ -243,6 +245,10 @@ function splice(page, changes) {
   let out = page;
   for (const k of edits) out = out.slice(0, b[k].start) + changes[k] + out.slice(b[k].end);
   if (fresh.length) {
+    for (const k of fresh) {
+      const n = (/\bconst\s+([A-Za-z_$][\w$]*)/.exec(changes[k]) || [])[1];
+      if (n && new RegExp("\\b(const|let|var|function|class)\\s+" + n.replace(/\$/g, "\\$") + "\\b").test(out)) throw new Error("the page already has a " + n + " of its own: mark it as the " + k + " block, or rename it");
+    }
     const at = whereNew(out);
     out = out.slice(0, at) + fresh.map(k => "/* maker: " + k + " */" + changes[k] + END + "\n").join("") + out.slice(at);
   }
@@ -318,6 +324,7 @@ function page3d(o) {
     '  ready() { menu.show("title"); synth.start(); },',
     "  prepare(E) {                       // what this way of drawing needs: meshes on the GPU, or a sprite for the 2D picture",
     "    const g = new L3.Mesh(); g.at(0, 0, 0); g.disc(40, 36, 0, 0x1f3522);",
+    "    for (let i = -20; i <= 20; i += 2) { g.box(i, 0.005, 0, 0.06, 0.01, 40, 0x2a4a30); g.box(0, 0.005, i, 40, 0.01, 0.06, 0x2a4a30); }",
     "    const b = new L3.Mesh(); b.at(0, 0, 0); b.box(0, 0, 0, 1, 1, 1, 0x39ff88);",
     '    if (E.mode === "gl") { E.g3.light({ sun: [-0.4, 0.85, 0.35], fog: 0x0b1a12, top: 0x0b1a12, horizon: 0x1f3522, near: 20, far: 70 }); ground = E.g3.upload(g); block = E.g3.upload(b); }',
     "    else { E.flat.air({ top: 0x0b1a12, horizon: 0x1f3522, fog: 0x1f3522, near: 20, far: 70 }); sprite = L3.bake(b, { yaw: 0.6, pitch: 0.35, ppu: 24 }); }",
@@ -386,11 +393,12 @@ const Maker = window.Maker = { onBox: !T.writes(location), page: "", id: "", nam
 Maker.on = fn => { Maker.listeners.push(fn); };
 function tell(what) { for (const fn of Maker.listeners) { try { fn(what); } catch (e) { say(e.message, true); } } }
 // what's changed and waiting to be saved: {kind: the text between its marks}; null takes a change back
-Maker.stage = (kind, text) => { if (text == null) delete Maker.changes[kind]; else Maker.changes[kind] = text; status(); };
+Maker.saves = () => !Maker.onBox && Maker.source !== "box";
+Maker.stage = (kind, text) => { if (text == null || !Maker.saves()) delete Maker.changes[kind]; else Maker.changes[kind] = text; status(); };
 function status() {
   const k = Object.keys(Maker.changes);
   $("changed").textContent = k.length ? "changed: " + k.join(", ") : "";
-  $("save").hidden = Maker.onBox || Maker.source === "box";
+  $("save").hidden = !Maker.saves();
   $("save").disabled = !k.length;
   $("save").textContent = Maker.source === "file" ? "save (download)" : "save";
 }
@@ -415,12 +423,11 @@ function fillGames(want) {
   return sel.value;
 }
 function fillSources() {
-  const sel = $("source"); sel.textContent = "";
-  const add = (v, t) => { const o = document.createElement("option"); o.value = v; o.textContent = t; sel.appendChild(o); };
-  add("box", Maker.onBox ? "this box" : "the games beside this page");
-  if (!Maker.onBox && window.showDirectoryPicker) add("folder", "a games folder on this computer…");
-  if (!Maker.onBox) add("file", "a page from this computer…");
-  sel.value = Maker.source;
+  $("src-name").textContent = Maker.source === "folder" ? "a games folder (" + Maker.dir.name + ")" : Maker.source === "file" ? "a page (" + Maker.fileName + ")"
+    : Maker.onBox ? "this box" : "the games beside this page";
+  $("src-box").hidden = Maker.onBox || Maker.source === "box";
+  $("src-folder").hidden = Maker.onBox || !window.showDirectoryPicker;      // (Chrome and Edge; elsewhere a page and a download)
+  $("src-file").hidden = Maker.onBox;
 }
 async function open(id) {
   if (!id) return;
@@ -447,16 +454,14 @@ async function openFolder() {
   } catch (e) { if (e.name !== "AbortError") say("Couldn't open the folder: " + e.message, true); fillSources(); }
 }
 async function useBox(want) {
-  Maker.source = "box"; Maker.dir = null; Maker.fh = null; fillSources();
+  if (Object.keys(Maker.changes).length && !confirmLeave()) return;
+  Maker.source = "box"; Maker.dir = null; Maker.fh = null; Maker.changes = {}; fillSources();
   try { Maker.games = await boxList(); await open(fillGames(want)); }
   catch (e) { say("Couldn't read the list of games (../games.json).", true); }
 }
-$("source").onchange = e => {
-  const v = e.target.value;
-  if (v === "folder") openFolder();
-  else if (v === "file") { $("file").value = ""; $("file").click(); fillSources(); }
-  else useBox(Maker.id);
-};
+$("src-box").onclick = () => useBox(Maker.id);
+$("src-folder").onclick = () => openFolder();
+$("src-file").onclick = () => { $("file").value = ""; $("file").click(); };
 $("file").onchange = async e => {
   const f = e.target.files[0]; if (!f) return;
   Maker.source = "file"; Maker.fileName = f.name; Maker.dir = null; Maker.fh = null;
@@ -468,7 +473,7 @@ $("game").onchange = e => { if (Maker.source === "box") location.hash = e.target
 
 // ---------------------------------------------------------------- saving
 async function save() {
-  if (Maker.onBox || Maker.source === "box") return say("The box shows and tests games. Save them on a computer.", true);
+  if (!Maker.saves()) return say("The box shows and tests games. Save them on a computer.", true);
   const kinds = Object.keys(Maker.changes); if (!kinds.length) return;
   const next = T.splice(Maker.page, Maker.changes);
   try {
@@ -549,7 +554,7 @@ const CAMS = [
   { id: "chase", name: "chase", like: "Tidewing" }, { id: "orbit", name: "orbit", like: "round a point" },
   { id: "first", name: "first person", like: "Ironmaw" }, { id: "flat", name: "2D: the screen scrolls", like: "Cinder Knight" }
 ];
-const camOK = (t, id) => t.dim === 2 ? id === "flat" : t.dim === "ray" ? id === "first" : t.dim === 2.5 ? id === "orbit" || id === "flat" : id !== "flat";
+const camOK = (t, id) => !CAMS.some(c => c.id === id) || (t.dim === 2 ? id === "flat" : t.dim === "ray" ? id === "first" : t.dim === 2.5 ? id === "orbit" || id === "flat" : id !== "flat");
 const LANGS = [{ id: "en", name: "English", s: "latin" }, { id: "es", name: "Spanish", s: "latin" }, { id: "pt", name: "Portuguese", s: "latin" }, { id: "fr", name: "French", s: "latin" },
   { id: "de", name: "German", s: "latin" }, { id: "ru", name: "Russian", s: "cyrillic" }, { id: "zh", name: "Chinese", s: "cjk" }, { id: "ja", name: "Japanese", s: "cjk" },
   { id: "ko", name: "Korean", s: "hangul" }, { id: "ar", name: "Arabic", s: "arabic" }, { id: "hi", name: "Hindi", s: "deva" }];
@@ -559,8 +564,16 @@ const SCRIPTS = { latin: "Latin: the 5×7 font has capitals and digits; lower ca
 const pick = { type: "rpg3d", look: "flat", players: 1, fps: 60, floor: "pi3", ceiling: "pi5", camera: "follow",
   controls: new Set(["pad", "keys", "touch"]), targets: new Set(["web", "box"]), languages: new Set(["en", "es"]) };
 let extra = {}, cameraExtra = {};
-const idx = id => TIERS.findIndex(t => t.id === id);
 const MULTI = { controls: 1, targets: 1, languages: 1 };
+// a game's own answer the setup doesn't offer is kept, and shown as a choice of its own
+function own(key, list, more) {
+  const vals = MULTI[key] ? [...pick[key]] : [pick[key]], out = list.slice();
+  for (const v of vals) if (v != null && !list.some(o => o.id === v)) out.push(Object.assign({ id: v, name: String(v), like: "this game's own" }, more || {}));
+  return out;
+}
+const types = () => own("type", TYPES, { dim: 3, cam: "top" });
+const tiers = () => own("ceiling", own("floor", TIERS, { gets: "a floor the setup doesn't know" }), { gets: "a ceiling the setup doesn't know" });
+const idx = id => tiers().findIndex(t => t.id === id);
 
 function group(key, list) {
   const box = $('[data-q="' + key + '"]'); box.textContent = "";
@@ -573,7 +586,7 @@ function group(key, list) {
     b.onclick = () => {
       if (MULTI[key]) { if (pick[key].has(o.id)) { if (pick[key].size > 1) pick[key].delete(o.id); } else pick[key].add(o.id); }
       else pick[key] = o.id;
-      if (key === "type") pick.camera = TYPES.find(t => t.id === o.id).cam;
+      if (key === "type") pick.camera = types().find(t => t.id === o.id).cam;
       if (key === "floor" && idx(pick.ceiling) < idx(o.id)) pick.ceiling = o.id;
       render();
     };
@@ -588,18 +601,18 @@ function profile() {
 function camera() { return Object.assign({ way: pick.camera }, cameraExtra); }
 const kind = t => t.dim === 2 || t.dim === 2.5 ? "2d" : "3d";
 function render() {
-  const t = TYPES.find(x => x.id === pick.type);
+  const t = types().find(x => x.id === pick.type), TI = tiers();
   if (!camOK(t, pick.camera)) pick.camera = t.cam;
-  group("type", TYPES); group("look", LOOKS); group("players", PLAYERS); group("controls", CONTROLS);
-  group("floor", TIERS); group("ceiling", TIERS.map(x => idx(x.id) < idx(pick.floor) ? Object.assign({}, x, { off: true, why: "below the floor" }) : x));
-  group("fps", FPS); group("targets", TARGETS); group("languages", LANGS);
-  group("camera", CAMS.map(c => camOK(t, c.id) ? c : Object.assign({}, c, { off: true, why: "not for this kind of game" })));
+  group("type", types()); group("look", own("look", LOOKS)); group("players", own("players", PLAYERS)); group("controls", own("controls", CONTROLS));
+  group("floor", TI); group("ceiling", TI.map(x => idx(x.id) < idx(pick.floor) ? Object.assign({}, x, { off: true, why: "below the floor" }) : x));
+  group("fps", own("fps", FPS)); group("targets", own("targets", TARGETS, { needs: "not a target the setup knows" })); group("languages", own("languages", LANGS));
+  group("camera", own("camera", CAMS).map(c => camOK(t, c.id) ? c : Object.assign({}, c, { off: true, why: "not for this kind of game" })));
   $("#o-rt").textContent = kind(t) === "2d" ? "the web runtime: Low3D, and Low2D on top of it" : "the web runtime: Low3D";
   $("#o-start").textContent = kind(t) === "2d" ? "the 2D starting page: an empty stage on Low2D and a block you move" : "the 3D starting page: an empty scene on Low3D and a block you move";
-  $("#o-cam").textContent = CAMS.find(c => c.id === pick.camera).name + ". Written into the camera block; the starting page keeps its camera behind the player until the game takes the block up.";
+  $("#o-cam").textContent = own("camera", CAMS).find(c => c.id === pick.camera).name + ". Written into the camera block; the starting page keeps its camera behind the player until the game takes the block up.";
   const lad = $("#o-lad"); lad.textContent = "";
-  for (let i = idx(pick.floor); i <= idx(pick.ceiling); i++) {
-    const r = TIERS[i], row = document.createElement("div"), B = T.BUDGETS[r.id];
+  for (let i = idx(pick.floor); i <= Math.max(idx(pick.floor), idx(pick.ceiling)); i++) {
+    const r = TI[i], row = document.createElement("div"), B = T.BUDGETS[r.id];
     row.className = "rung" + (i === idx(pick.floor) ? " floor" : i === idx(pick.ceiling) ? " ceil" : "");
     const a = document.createElement("b"), g = document.createElement("span"), u = document.createElement("i");
     a.textContent = r.name; g.textContent = r.gets;
@@ -625,7 +638,7 @@ function render() {
   const need = new Set(); for (const l of LANGS) if (pick.languages.has(l.id)) need.add(l.s);
   for (const k of Object.keys(SCRIPTS)) if (need.has(k)) li(lt, SCRIPTS[k]);
   const sh = $("#o-ship"); sh.textContent = "";
-  for (const x of TARGETS) if (pick.targets.has(x.id)) li(sh, x.name + ": " + x.needs);
+  for (const x of own("targets", TARGETS, { needs: "not a target the setup knows" })) if (pick.targets.has(x.id)) li(sh, x.name + ": " + x.needs);
   $("#o-block").textContent = "/* maker: profile */" + T.profileText(profile()) + T.END + "\n/* maker: camera */" + T.cameraText(camera()) + T.END;
   // putting it into the open game, or making a new one
   const can = !M.onBox && M.source !== "box" && !!M.page;
@@ -806,7 +819,10 @@ function blockText() {
   for (const p of edited) t = t.replace(new RegExp("^([ \\t]*)" + p + ": \\{.*\\}(,?)[ \\t]*$", "m"), (all, ind, comma) => ind + p + ": " + poseText(G.poses[p]) + comma);
   return t;
 }
-function stage() { Mk.stage("poses", edited.size && blockText() !== G.text ? blockText() : null); }
+function stage() {
+  Mk.stage("poses", edited.size && blockText() !== G.text ? blockText() : null);
+  if (edited.size && !Mk.saves()) Mk.say("These games are only read here: copy the poses out, or open a games folder or a page to save them.");
+}
 function copy(text, btn, label) {
   const t = $("out"); t.value = text; t.select();
   try { navigator.clipboard.writeText(text).catch(() => {}); } catch (e) { /* the text is selected */ }
