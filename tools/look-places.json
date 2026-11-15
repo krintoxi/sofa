@@ -13,6 +13,8 @@
       {"id": "house-front", "set": "hearthrim", "name": "Hearthrim: a house front", "run": "WY.goto(9, 30.5); WY.H.yaw = Math.PI; WY.sim(0.2);", "settle": 2000},
       {"id": "west-houses", "set": "hearthrim", "name": "Hearthrim: the houses to the west", "run": "WY.goto(-24, 8); WY.H.yaw = Math.PI; WY.sim(0.2);", "settle": 2000},
       {"id": "maw-edge", "set": "hearthrim", "name": "Hearthrim: the Maw's edge", "run": "WY.goto(0, -13); WY.H.yaw = Math.PI; WY.sim(0.2);", "settle": 2000},
+      {"id": "maw-1", "set": "maw", "name": "The Maw: the second floor", "run": "WY.go(1); WY.sim(0.5);", "settle": 3000},
+      {"id": "maw-9", "set": "maw", "name": "The Maw: the tenth floor", "run": "WY.go(9); WY.sim(0.5);", "settle": 3000},
       {"id": "camp-briar", "set": "regions", "name": "The Briarholt's camp", "run": "const p = (WY.W.feats || WY.W.nodes).find(n => n.kind === 'portal' && n.reg === 1); WY.goto(p.x + 1, p.z - 2); WY.H.yaw = Math.PI; WY.sim(0.3);", "settle": 2500},
       {"id": "country-briar", "set": "regions", "name": "The Briarholt's open country", "run": "const a = -Math.PI + (1 - 0.5) * Math.PI * 2 / 5 + 0.628 + 0.12; WY.goto(Math.cos(a) * 170, Math.sin(a) * 170); WY.H.yaw = Math.PI; WY.sim(0.3);", "settle": 2500},
       {"id": "camp-fen", "set": "regions", "name": "The Fenmoor's camp", "run": "const p = (WY.W.feats || WY.W.nodes).find(n => n.kind === 'portal' && n.reg === 2); WY.goto(p.x + 1, p.z - 2); WY.H.yaw = Math.PI; WY.sim(0.3);", "settle": 2500},

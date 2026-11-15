@@ -773,8 +773,10 @@ once outside the game, kept the boards that have a way to clear them, and the ga
   time. Every number it prints is that computer's.
 - **`node tools/look-bench.mjs --game wyrd`** pictures a game rather than timing it: the same places each time
   (`tools/look-places.json`, in sets: WYRD's `hearthrim` (the square, the well, the smith, a house front, the west
-  houses, the Maw's edge) and `regions` (each region's camp and its open country); where to stand, how long to wait
-  for what streams in), at the rungs asked for, each from a fresh page at the box's screen (960 × 540 at twice). With
+  houses, the Maw's edge), `maw` (two of its floors) and `regions` (each region's camp and its open country); where to
+  stand, how long to wait for what streams in), at the rungs asked for, each from a fresh page at the box's screen
+  (960 × 540 at twice). `--try label=js` sets a setting beside the others as a column of its own (two camera heights,
+  say). With
   this computer's GPU, `--gpu swiftshader` (WebGL on the processor) or `off` (no GPU: the 2D way). `--root before=…
   --root after=…` sets two checkouts side by side; out comes one sheet, a row a place and a column for each checkout
   and rung, with the draw calls and triangles of each picture under it; `--clip place:seconds` also records it

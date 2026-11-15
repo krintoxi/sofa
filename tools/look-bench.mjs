@@ -12,6 +12,8 @@
                        own may); off is Chrome with no GPU at all, so the game draws its 2D way, as a box with no real
                        GPU would. --sets: the game's sets of places (hearthrim, regions: all when left out); --places:
                        place ids from tools/look-places.json, within those.
+   --try label=js      a setting to picture beside the others: each --try is a column of its own for every root and
+                       rung (WYRD's camera at two heights, say: --try high="WY.cam(0)" --try low="WY.cam(1)").
    --size WxH          the page's size, and --scale its pixels to a point (960x540 at 2: the box's screen, 1920 × 1080
                        with pages at twice, so the game's lettering is the size it is there). --run "js": run after
                        each place is reached (to try a setting on every picture). --stats "js": what to say under each
@@ -49,6 +51,7 @@ const [W, H] = String(opt("size", "960x540")).split("x").map(Number), SCALE = +o
 for (const g of GPUS) if (!["on", "swiftshader", "off"].includes(g)) { console.error("--gpu takes on, swiftshader and off"); process.exit(2); }
 const OUT = path.resolve(String(opt("out", path.join(os.tmpdir(), "look-bench-" + Date.now()))));
 const CLIP = opt("clip", "") ? String(opt("clip", "")).split(":") : null;
+const TRIES = all("try").map(s => { const i = s.indexOf("="); return i > 0 ? { label: s.slice(0, i), js: s.slice(i + 1) } : { label: s, js: s }; });
 const PLACES_FILE = JSON.parse(fs.readFileSync(path.join(HERE, "look-places.json"), "utf8"));
 const SPEC = PLACES_FILE[GAME];
 if (!SPEC) { console.error("no places for " + GAME + " in tools/look-places.json"); process.exit(2); }
@@ -127,7 +130,7 @@ async function waitFor(c, expression, ms, what) {
 
 // ---------------------------------------------------------------- one picture (and the clip)
 let pageNo = 0;
-async function picture(chrome, origin, root, place, rung, gpu, clipSecs) {
+async function picture(chrome, origin, root, place, rung, gpu, clipSecs, tryJs, tryLabel) {
   const c = await openTab(chrome.port, W, H, SCALE);
   try {
     await c.send("Storage.clearDataForOrigin", { origin, storageTypes: "all" });
@@ -139,10 +142,11 @@ async function picture(chrome, origin, root, place, rung, gpu, clipSecs) {
     await sleep(300);
     await evalJS(c, `(() => { ${place.run} })()`);
     if (RUN) await evalJS(c, `(() => { ${RUN} })()`);
+    if (tryJs) await evalJS(c, `(() => { ${tryJs} })()`);
     await sleep(place.settle || 2500);
     if (SPEC.quiet) { await evalJS(c, `(() => { ${SPEC.quiet} })()`).catch(() => null); await sleep(120); }
     const shot = await c.send("Page.captureScreenshot", { format: "png" });
-    const file = path.join(OUT, `${place.id}-${root.label}-r${rung}-${gpu}.png`);
+    const file = path.join(OUT, `${place.id}-${root.label}-r${rung}-${gpu}${tryLabel ? "-" + tryLabel : ""}.png`);
     fs.writeFileSync(file, Buffer.from(shot.data, "base64"));
     let clip = null;
     if (clipSecs) {
@@ -154,7 +158,7 @@ async function picture(chrome, origin, root, place, rung, gpu, clipSecs) {
         rec.onstop = () => { const fr = new FileReader(); fr.onload = () => ok(String(fr.result).split(",")[1]); fr.readAsDataURL(new Blob(parts, { type: "video/webm" })); };
         rec.start(); setTimeout(() => rec.stop(), ${Math.round(clipSecs * 1000)});
       })`);
-      clip = path.join(OUT, `clip-${place.id}-${root.label}.webm`);
+      clip = path.join(OUT, `clip-${place.id}-${root.label}${tryLabel ? "-" + tryLabel : ""}.webm`);
       fs.writeFileSync(clip, Buffer.from(b64, "base64"));
     }
     const tier = await evalJS(c, "window.SofaStats ? SofaStats.tier : null").catch(() => null);
@@ -193,18 +197,19 @@ ${rows.map(r => `<tr><th class="row">${esc(r.place.name)}</th>${r.cells.map(x =>
 const chromes = {}, servers = [];
 async function main() {
   const cols = [];
-  for (const gpu of GPUS) for (const root of ROOTS) for (const rung of gpu !== "off" ? RUNGS : [null]) cols.push({ gpu, root, rung, label: `${root.label} · ${gpu === "off" ? "no GPU (2D)" : "rung " + rung + (gpu === "swiftshader" ? " (processor)" : "")}` });
+  for (const gpu of GPUS) for (const root of ROOTS) for (const rung of gpu !== "off" ? RUNGS : [null]) for (const tr of TRIES.length ? TRIES : [null])
+    cols.push({ gpu, root, rung, tr, label: `${root.label} · ${gpu === "off" ? "no GPU (2D)" : "rung " + rung + (gpu === "swiftshader" ? " (processor)" : "")}${tr ? " · " + tr.label : ""}` });
   for (const gpu of GPUS) chromes[gpu] = await startChrome(gpu);
   for (const root of ROOTS) { const srv = await serve(root.dir); servers.push(srv); root.origin = "http://127.0.0.1:" + srv.address().port; }
   const rows = PLACES.map(place => ({ place, cells: [] }));
   console.log(`look bench: ${GAME}, ${PLACES.length} places × ${cols.length} columns → ${OUT}`);
   for (const row of rows) for (const col of cols) {
-    const wantClip = CLIP && CLIP[0] === row.place.id && cols.find(k => k.root === col.root) === col ? +(CLIP[1] || 6) : 0;
+    const wantClip = CLIP && CLIP[0] === row.place.id && cols.find(k => k.root === col.root && k.tr === col.tr) === col ? +(CLIP[1] || 6) : 0;
     try {
-      const r = await picture(chromes[col.gpu], col.root.origin, col.root, row.place, col.rung, col.gpu, wantClip);
+      const r = await picture(chromes[col.gpu], col.root.origin, col.root, row.place, col.rung, col.gpu, wantClip, col.tr && col.tr.js, col.tr && col.tr.label);
       row.cells.push(r);
-      console.log(`  ${row.place.id.padEnd(17)} ${col.label.padEnd(28)} ${r.tier || ""}${r.errors.length ? "  errors: " + r.errors.slice(0, 2).join(" | ") : ""}${r.clip ? "  clip: " + path.basename(r.clip) : ""}`);
-    } catch (e) { row.cells.push(null); console.log(`  ${row.place.id.padEnd(17)} ${col.label.padEnd(28)} FAILED: ${e.message.split("\n")[0]}`); }
+      console.log(`  ${row.place.id.padEnd(17)} ${col.label.padEnd(36)} ${r.tier || ""}${r.errors.length ? "  errors: " + r.errors.slice(0, 2).join(" | ") : ""}${r.clip ? "  clip: " + path.basename(r.clip) : ""}`);
+    } catch (e) { row.cells.push(null); console.log(`  ${row.place.id.padEnd(17)} ${col.label.padEnd(36)} FAILED: ${e.message.split("\n")[0]}`); }
   }
   await sheet(chromes[GPUS[0]], cols, rows);
   console.log("sheet: " + path.join(OUT, "sheet.png"));
