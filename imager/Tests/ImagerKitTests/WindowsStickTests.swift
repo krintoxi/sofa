@@ -321,7 +321,10 @@ final class WindowsStickTests: XCTestCase {
 
     func testTheSwitchesWriteOnlyWhatsTicked() throws {
         let checks = try XCTUnwrap(WindowsOptions(skipHardwareChecks: true).unattend(arch: .x64))
-        for key in ["BypassTPMCheck", "BypassSecureBootCheck", "BypassRAMCheck"] { XCTAssertTrue(checks.contains(key), key) }
+        for key in ["BypassTPMCheck", "BypassSecureBootCheck", "BypassCPUCheck", "BypassRAMCheck"] {
+            XCTAssertTrue(checks.contains("/v \(key) /t REG_DWORD /d 1 /f"), key)
+        }
+        XCTAssertEqual(checks.components(separatedBy: "<RunSynchronousCommand").count - 1, 4, "one command a key, no more")
         XCTAssertFalse(checks.contains("LocalAccount"))
         XCTAssertFalse(checks.contains("BypassNRO"))
         XCTAssertTrue(checks.contains("processorArchitecture=\"amd64\""))

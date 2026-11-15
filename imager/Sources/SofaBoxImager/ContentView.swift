@@ -239,7 +239,7 @@ private struct ElevenSwitches: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            SofaCheck(isOn: $model.skipHardwareChecks, label: "Skip the TPM 2.0, Secure Boot and 4 GB RAM checks")
+            SofaCheck(isOn: $model.skipHardwareChecks, label: "Skip the TPM 2.0, Secure Boot, processor and 4 GB RAM checks")
             HStack(spacing: 10) {
                 SofaCheck(isOn: $model.useLocalAccount, label: "A local account, no Microsoft account:")
                 TextField("Name", text: $model.accountName)
@@ -639,7 +639,7 @@ struct ConfirmView: View {
                         row("On it now", d.volumes.isEmpty ? "No volumes mounted from it"
                             : d.volumes.map(\.name).joined(separator: ", "))
                         if model.mode == .windows, !model.windowsOptions.isEmpty {
-                            row("Windows 11", [model.windowsOptions.skipHardwareChecks ? "TPM, Secure Boot and RAM checks skipped" : nil,
+                            row("Windows 11", [model.windowsOptions.skipHardwareChecks ? "TPM, Secure Boot, processor and RAM checks skipped" : nil,
                                                model.windowsOptions.localAccount.map { "local account “\($0)”" }]
                                 .compactMap { $0 }.joined(separator: "; "))
                         }

@@ -28,7 +28,7 @@ the same disk rule, the first megabyte held back and written last, every byte re
     Windows or from another tool.
   - Windows 7's UEFI loader is only inside its ISO's UEFI boot image; it's copied out of it. Windows 7 still wants a PC
     with legacy boot (CSM) on and Secure Boot off, and the window says so.
-  - **Windows 11 switches, each off unless ticked:** skip Setup's TPM 2.0, Secure Boot and 4 GB RAM checks
+  - **Windows 11 switches, each off unless ticked:** skip Setup's TPM 2.0, Secure Boot, processor and 4 GB RAM checks
     (Microsoft's LabConfig keys), and a local account instead of a Microsoft account (it has no password at first:
     Windows signs it in once by itself, then asks for a new password at the next sign-in). Ticked, they're written as an `autounattend.xml` at the stick's root; nothing else about Setup changes,
     and nothing in it chooses or erases a disk.

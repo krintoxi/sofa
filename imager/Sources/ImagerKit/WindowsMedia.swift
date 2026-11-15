@@ -154,7 +154,8 @@ public struct WindowsMedia: Equatable {
 /// stick's root, which Windows Setup reads by itself. Nothing else about Setup changes: it still asks which disk to
 /// install on, and erases nothing by itself.
 public struct WindowsOptions: Equatable {
-    /// Setup skips its TPM 2.0, Secure Boot and 4 GB RAM checks (Microsoft's own LabConfig keys).
+    /// Setup skips its TPM 2.0, Secure Boot, processor and 4 GB RAM checks (Microsoft's own LabConfig keys).
+    public static let checkKeys = ["BypassTPMCheck", "BypassSecureBootCheck", "BypassCPUCheck", "BypassRAMCheck"]
     public var skipHardwareChecks = false
     /// A local account with this name instead of a Microsoft account: the network isn't required to finish setting up.
     /// The account has no password until its second sign-in: Windows signs it in once by itself at the end of setting
@@ -201,7 +202,7 @@ public struct WindowsOptions: Equatable {
         x += "<unattend xmlns=\"urn:schemas-microsoft-com:unattend\">\n"
         if skipHardwareChecks {
             x += "  <settings pass=\"windowsPE\">\n    \(component("Microsoft-Windows-Setup"))\n      <RunSynchronous>\n"
-            for (i, key) in ["BypassTPMCheck", "BypassSecureBootCheck", "BypassRAMCheck"].enumerated() {
+            for (i, key) in WindowsOptions.checkKeys.enumerated() {
                 x += "        <RunSynchronousCommand wcm:action=\"add\">\n"
                 x += "          <Order>\(i + 1)</Order>\n"
                 x += "          <Path>reg add HKLM\\SYSTEM\\Setup\\LabConfig /v \(key) /t REG_DWORD /d 1 /f</Path>\n"

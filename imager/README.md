@@ -250,8 +250,9 @@ What it does with the ISO (`WindowsStick` in `Sources/ImagerKit/WindowsMedia.swi
 
 **The Windows 11 switches**, each off unless ticked:
 
-- **Skip the TPM 2.0, Secure Boot and 4 GB RAM checks:** Setup is told to skip them with Microsoft's own LabConfig keys
-  (`BypassTPMCheck`, `BypassSecureBootCheck`, `BypassRAMCheck`). Microsoft doesn't support Windows 11 on PCs that fail
+- **Skip the TPM 2.0, Secure Boot, processor and 4 GB RAM checks:** Setup is told to skip them with Microsoft's own
+  LabConfig keys (`BypassTPMCheck`, `BypassSecureBootCheck`, `BypassCPUCheck`, `BypassRAMCheck`; the processor key since
+  the owner's yes on 2026-11-15). Microsoft doesn't support Windows 11 on PCs that fail
   them.
 - **A local account, no Microsoft account:** a local administrator with the name you type, Setup's network step
   allowed to be skipped (`BypassNRO`). **The account has no password at first:** Windows signs it in once by itself
@@ -417,8 +418,8 @@ read-back, nothing mounting, the eject), and on the PC's side:
    on), and Setup installs Windows from it, the split parts included, onto the PC's drive.
 2. **A Windows 10 stick**, the same; and **Windows 7** on a PC with legacy boot, since no Windows 7 ISO was to hand.
 3. **The Windows 11 switches** on a real PC: Setup goes on without TPM 2.0, and the local account is made, with no
-   password until Windows asks for one at the second sign-in. And a processor Microsoft doesn't list: none has been
-   tried, and the switch doesn't set Microsoft's processor key (`BypassCPUCheck`).
+   password until Windows asks for one at the second sign-in. And a real processor Microsoft doesn't list (the virtual
+   PC's was an emulated 6th-generation Intel).
 4. **A Linux stick** from the list starts a PC (Ubuntu, Debian, Fedora, Mint), and **Raspberry Pi OS** a Pi.
 5. **Sticks of other sizes and makes**: our boot code reads BOOTMGR by LBA, which every PC that starts from USB has;
    a very old PC that only starts USB sticks as floppies won't start it.
