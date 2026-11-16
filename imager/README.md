@@ -324,11 +324,11 @@ from anywhere the list says, because it's checked against the list's SHA-256.
 
 ## What's tested, and where
 
-`swift test` runs 158 tests on a Mac; five more run only when asked. None writes a disk it didn't attach itself: the
+`swift test` runs 160 tests on a Mac; six more run only when asked. None writes a disk it didn't attach itself: the
 tests that write attach a RAM disk, check with DiskArbitration that the device they got is a disk image of
 exactly the size they asked for, and only then touch it. On Linux `swift test` runs the shared core's tests
-(`ImagerKitTests`, 122): 15 of them skip there because they make or read their test disks with macOS's own `hdiutil`
-or `newfs_msdos`, and the speed test runs only when asked.
+(`ImagerKitTests`, 125), all but three: the check that makes the test disks afresh with macOS's own tools (it needs
+macOS, and runs on the Macs), and the speed test and the disks' maker, which run only when asked.
 
 | What | Tests | How |
 |---|---|---|
@@ -345,13 +345,23 @@ or `newfs_msdos`, and the speed test runs only when asked.
 | The whole write | `ImagerMacTests/WriteJobTests` (5) | The app's own `WriteJob` on a RAM disk with a volume on it: unmount, open the raw device, write, read back, eject. Two things differ from the app: the RAM disk is opened directly (it belongs to the user, so no password), and the policy is told to accept that one RAM disk. Also: a disk that changed since it was confirmed, a disk that turns out to be another once open, and the real policy refusing the RAM disk before anything is unmounted. |
 | The password hand-over | `ImagerMacTests/AuthOpenTests` (6) | A stand-in for `authopen` (`Tests/FakeAuthOpen`) that takes its arguments and sends back an open file as `authopen` does: the 32-byte authorization arrives whole, the file opens for reading and writing, a helper that fails after opening isn't trusted, and the helper inherits nothing of the app's but its three standard streams. |
 | The app | `SofaBoxImagerTests/WindowTests` (12 + 1) | What's chosen is what's written, in each of the four choices (a Linux entry not found yet writes nothing, the Windows 11 switches are off until ticked and only Windows 11's, an account switch with no name stops the write, a Windows ISO is never written whole); progress in words ("card", "stick", "Writing" for what isn't downloaded, and a DVD's stages); For a PC, the list read again for a PC's images; On a DVD, a burner with a blank DVD is what's chosen and nothing else is; the colours match Sofa's style sheet and its fonts load; the app's own words never include Raspberry Pi's imager's name, and nothing in it writes a user, SSH or Wi-Fi setting. `SOFA_IMAGER_SNAPSHOTS=<folder>` draws every screen to a PNG, with the Mac set to light and to dark. |
-| Windows ISOs | `ImagerKitTests/WindowsStickTests` (21) | Made-up Windows ISOs with Microsoft's layout (bootmgr, boot/bcd, efi/, sources/ with an install.wim in Microsoft's format, long names, a folder bigger than a cluster), put in UDF 1.02 by macOS's own `hdiutil makehybrid`. The UDF reader reads back every file of the folder the ISO was made from; Windows 11, 10, 7 and ARM64 are told apart; the WIM's table and XML are read; split parts each fit their limit, hold every resource exactly once and byte for byte, carry the same GUID, the part numbers and the XML, with the metadata in the first part only; a solid group stays whole; the finished stick is checked by macOS's own `fsck_msdos` and mounted by macOS's own FAT driver, every file read back as on the ISO; the MBR, the boot sector and its backup, and the run of BOOTMGR they point at; the same ISO gives the same stick byte for byte; Windows 7's loader copied out of a FAT12 `efisys.bin` made by `newfs_msdos`; the switches' `autounattend.xml` (only what's ticked, never a disk setting, Windows 11 only) and account names Windows would refuse. |
+| Windows ISOs | `ImagerKitTests/WindowsStickTests` (21) | Made-up Windows ISOs with Microsoft's layout (bootmgr, boot/bcd, efi/, sources/ with an install.wim in Microsoft's format, long names, a folder bigger than a cluster), put in UDF 1.02 by macOS's own `hdiutil makehybrid` (made once and committed; see "The test disks" below). The UDF reader reads back every file of the folder the ISO was made from; Windows 11, 10, 7 and ARM64 are told apart; the WIM's table and XML are read; split parts each fit their limit, hold every resource exactly once and byte for byte, carry the same GUID, the part numbers and the XML, with the metadata in the first part only; a solid group stays whole; every file of the finished stick read back as on the ISO by a FAT32 reader written for the tests, and on the Mac also by macOS's own FAT driver, which must agree with it on every file, and checked by macOS's `fsck_msdos`; the MBR, the boot sector and its backup, and the run of BOOTMGR they point at; the same ISO gives the same stick byte for byte; Windows 7's loader copied out of a FAT12 `efisys.bin` made by `newfs_msdos`; the switches' `autounattend.xml` (only what's ticked, never a disk setting, Windows 11 only) and account names Windows would refuse. |
 | The boot code | `ImagerKitTests/BootCodeTests` (4) | `imager/boot/*.S` assembled again with clang (Xcode's on the Mac, the Swift toolchain's on Linux): the bytes are `BootCode`'s exactly; the MBR fits in 440 bytes; the BPB and the partition table are laid out as the FAT32 specification says. |
 | What a file is | `ImagerKitTests/ImageInspectorTests` (6) | An ISO with an isohybrid MBR or a GPT, one without (a DVD's only), MBR and GPT disk images and a bare boot sector, noise, packed `.img.xz` (its unpacked size from the xz index), Windows. |
 | The Linux list | `ImagerKitTests/CatalogTests` (5) | Each project's own files as they read on 2026-11-14, cut down: SHA256SUMS in its three shapes, Ubuntu's meta-release-lts, a folder listing, Fedora's releases.json (a beta is never chosen), Raspberry Pi's list. Every entry turns into the right address, size and SHA-256, every address asked for is https, and answers that don't add up are refused. A pattern matches a whole file name or nothing, on Linux as on the Mac. |
 | Images written whole | `ImagerKitTests/RawPlanTests` (4) | An ISO written whole and checked against its SHA-256; an image with none must read back as what was streamed; an ISO that isn't the one listed never gets its first megabyte; a layout streams as it reads. |
 | A real stick | `ImagerMacTests/RealStickTests` (1, when asked) | `SOFA_IMAGER_STICK_OUT=<file>` and one of `SOFA_IMAGER_WINDOWS_ISO=<iso>` (with `SOFA_IMAGER_WIN11_SKIP_CHECKS=1`, `SOFA_IMAGER_WIN11_ACCOUNT=<name>`), `SOFA_IMAGER_SYSTEM=<debian, ubuntu…>` or `SOFA_IMAGER_OWN_IMAGE=<file>`. Writes a stick through the raw device with the app's own `WriteJob` and leaves the image behind, to start in a virtual PC. |
+| The test disks | `ImagerKitTests/DiskFixtureTests` (3, one when asked) | Every committed disk puts back to the SHA-256 macOS's tools gave it, and a folder with one file changed can't pass for it. On the Mac, Windows 11 and 7 ISOs and an `efisys.bin` made afresh with `hdiutil` and `newfs_msdos` read exactly as the committed ones do, so they can't drift from what macOS makes. And the maker itself (`scripts/disk-fixtures.sh`). |
 | A real card | `ImagerMacTests/RealCardTests` (2, when asked) | `SOFA_IMAGER_REAL_LIST=<list> swift test --filter RealCardTests`. Downloads the newest card from GitHub and writes it to a disk image through the raw device with `WriteJob` (about 1.4 GB down, 6 GB of disk for a few minutes), and checks that a download dropped on purpose carries on through GitHub's redirect. |
+
+**The test disks.** The Windows stick's tests read made-up Windows ISOs (11, 10, 7 with its `efisys.bin`, ARM64, and
+11 with its own `autounattend.xml`), an ISO without Windows parts and a plain ISO 9660, all made by macOS's own
+`hdiutil makehybrid`, and Windows 7's `efisys.bin` made by `newfs_msdos`. They're made once on a Mac by
+`scripts/disk-fixtures.sh` and committed in `Tests/ImagerKitTests/Fixtures/disks` as skeletons: each disk exactly as
+the tool wrote it, with the contents of the files the tests make themselves zeroed (8 KB packed for a 3.3 MB ISO), and
+`disks.json` saying where each file's bytes go back. The places were found by looking for each file's bytes in the
+disk, not with our UDF reader. Put back, each disk must have the SHA-256 it had when macOS made it, so every system's
+tests read exactly the bytes macOS wrote.
 
 **Run here on 2026-11-10** (a Mac on macOS 27.2, Apple silicon, Xcode 27.2):
 
@@ -517,7 +527,7 @@ the Mac. Asked how (2026-11-15), the owner chose:
 - **An unsigned beta first on Windows** (SmartScreen asks: More info, then Run anyway), signing once the owner has a
   certificate.
 
-**Where it stands (0.4.1): the shared core builds and passes its tests on Linux** (Intel and Arm, in the Swift
+**Where it stands (0.4.2): the shared core builds and passes its tests on Linux** (Intel and Arm, in the Swift
 project's own Linux image), as well as on the Mac. For that the core now has its own:
 
 - **xz unpacker** (`XZUnpacker`, `Sources/ImagerKit/XZ.swift`): the xz container and LZMA2, written from the xz file
@@ -539,16 +549,15 @@ events as Foundation's `XMLParser`, tested side by side. Three checks that used 
 compare the whole string, because Foundation's `$` also matches before a final newline on Linux and not on the Mac;
 the disk rule's own name check doesn't use one at all.
 
-**Not yet run on Linux:** the 15 core tests that make or read their test disks with macOS's own `hdiutil` and
-`newfs_msdos`. They're the UDF reader, Windows ISOs being found and told apart, the FAT32 stick as a whole (its layout,
-the boot code pointed at BOOTMGR, the same ISO making the same stick), the Windows 11 switches' file, and what kind of
-ISO a file is. They run on the Macs. What did run on Linux includes the WIM reader and splitter, FAT names and limits,
-the boot code's bytes, the writer, the download, both lists and the disk rule.
+**Since 0.4.2 every core test runs on Linux too**, the UDF reader, finding Windows in an ISO and the FAT32 stick
+among them: the disks macOS's own tools make for them are committed ("The test disks", above), and the stick is read
+back by a FAT32 reader written for the tests, which on the Mac must agree with macOS's own FAT driver on every file.
+The first Linux run of them found a second difference: macOS lists "ñandú.inf" with a combining tilde, Linux keeps the
+name as it was made, so the tests find files by Swift string, which matches either. What stays the Mac's: the check
+that makes the disks afresh to compare, and `fsck_msdos`.
 
 Still to do, in this order:
 
-- **Test disks made by macOS's tools, committed**, so those 15 run on Linux too. The first Linux run found a real
-  difference (the `$` above) in the one test that leans on Foundation, so they come first.
 - **Windows: the core.** Windows has no `pread`, `pwrite` or `fsync`; the file reads and the disk writes need Windows'
   own calls (`ReadFile` and `WriteFile` at an offset), and GitHub's Windows machines need Swift's toolchain installed
   before the tests can run there.
@@ -595,6 +604,7 @@ VERSION                       the app's version
 Resources/Info.plist          the app bundle's Info.plist (version filled in by the build)
 scripts/build-app.sh          builds "Sofa Box Imager.app" (Apple silicon and Intel) and zips it
 scripts/xz-fixtures.py        remakes the xz test files with the real xz
+scripts/disk-fixtures.sh      remakes the test disks with macOS's own hdiutil and newfs_msdos (on a Mac)
 Sources/ImagerKit/            no disks, no AppKit: CardList (the list), DiskPolicy (which disks), XZ (our xz
                               unpacker, CRC32 and CRC64), XZDecoder (Apple's, the Mac's for now), SHA256 (ours),
                               LiteXML (the editions list's XML), Download (HTTPS with carry-on), CardWriter (write, check, CardPipeline, WritePlan),

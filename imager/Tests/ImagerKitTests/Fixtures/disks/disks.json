@@ -1,0 +1,3489 @@
+{
+  "efisys" : {
+    "ranges" : [
+      {
+        "length" : 98765,
+        "offset" : 31232,
+        "source" : "efisys-loader"
+      }
+    ],
+    "sha256" : "f57275868a4f692722edbc6db16c28126f4210610084bbd0f783f3af3bd8d16a",
+    "size" : 1474560
+  },
+  "not-windows" : {
+    "ranges" : [],
+    "sha256" : "849a467234b6d4a348edb9809df824ad8371429f9b5f9344bb57348df90c0428",
+    "size" : 1099776
+  },
+  "plain-iso" : {
+    "ranges" : [
+      {
+        "length" : 50000,
+        "offset" : 45056,
+        "source" : "tree:boot/vmlinuz"
+      }
+    ],
+    "sha256" : "82454ebc576a49545959b2ea3ec580058e02a7e962d51f946df8547d1f7a77ee",
+    "size" : 921600
+  },
+  "win10" : {
+    "ranges" : [
+      {
+        "length" : 90000,
+        "offset" : 905216,
+        "source" : "tree:setup.exe"
+      },
+      {
+        "length" : 400000,
+        "offset" : 997376,
+        "source" : "tree:bootmgr"
+      },
+      {
+        "length" : 125000,
+        "offset" : 1398784,
+        "source" : "tree:bootmgr.efi"
+      },
+      {
+        "length" : 49536,
+        "offset" : 1525760,
+        "source" : "tree:boot/boot.sdi"
+      },
+      {
+        "length" : 16384,
+        "offset" : 1576960,
+        "source" : "tree:boot/bcd"
+      },
+      {
+        "length" : 3331,
+        "offset" : 1593344,
+        "source" : "tree:sources/x.y.z.dat"
+      },
+      {
+        "length" : 2665,
+        "offset" : 1597440,
+        "source" : "tree:sources/lower.txt"
+      },
+      {
+        "length" : 2332,
+        "offset" : 1601536,
+        "source" : "tree:sources/UPPER.TXT"
+      },
+      {
+        "length" : 1999,
+        "offset" : 1605632,
+        "source" : "tree:sources/ñandú.inf"
+      },
+      {
+        "length" : 200000,
+        "offset" : 1609728,
+        "source" : "tree:sources/boot.wim"
+      },
+      {
+        "length" : 1666,
+        "offset" : 1810432,
+        "source" : "tree:sources/a name with spaces.txt"
+      },
+      {
+        "length" : 2998,
+        "offset" : 1812480,
+        "source" : "tree:sources/MiXeD.Cab"
+      },
+      {
+        "length" : 1000,
+        "offset" : 1816576,
+        "source" : "tree:sources/api-ms-win-downlevel-shlwapi-l1-1-0.dll"
+      },
+      {
+        "length" : 529413,
+        "offset" : 1818624,
+        "source" : "tree:sources/install.wim"
+      },
+      {
+        "length" : 1333,
+        "offset" : 2349056,
+        "source" : "tree:sources/Microsoft-Windows-Setup.Resources.mui"
+      },
+      {
+        "length" : 197,
+        "offset" : 2351104,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-97.mui"
+      },
+      {
+        "length" : 183,
+        "offset" : 2353152,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-83.mui"
+      },
+      {
+        "length" : 154,
+        "offset" : 2355200,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-54.mui"
+      },
+      {
+        "length" : 140,
+        "offset" : 2357248,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-40.mui"
+      },
+      {
+        "length" : 168,
+        "offset" : 2359296,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-68.mui"
+      },
+      {
+        "length" : 169,
+        "offset" : 2361344,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-69.mui"
+      },
+      {
+        "length" : 141,
+        "offset" : 2363392,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-41.mui"
+      },
+      {
+        "length" : 155,
+        "offset" : 2365440,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-55.mui"
+      },
+      {
+        "length" : 182,
+        "offset" : 2367488,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-82.mui"
+      },
+      {
+        "length" : 196,
+        "offset" : 2369536,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-96.mui"
+      },
+      {
+        "length" : 180,
+        "offset" : 2371584,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-80.mui"
+      },
+      {
+        "length" : 194,
+        "offset" : 2373632,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-94.mui"
+      },
+      {
+        "length" : 143,
+        "offset" : 2375680,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-43.mui"
+      },
+      {
+        "length" : 157,
+        "offset" : 2377728,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-57.mui"
+      },
+      {
+        "length" : 156,
+        "offset" : 2379776,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-56.mui"
+      },
+      {
+        "length" : 142,
+        "offset" : 2381824,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-42.mui"
+      },
+      {
+        "length" : 195,
+        "offset" : 2383872,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-95.mui"
+      },
+      {
+        "length" : 181,
+        "offset" : 2385920,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-81.mui"
+      },
+      {
+        "length" : 185,
+        "offset" : 2387968,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-85.mui"
+      },
+      {
+        "length" : 191,
+        "offset" : 2390016,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-91.mui"
+      },
+      {
+        "length" : 146,
+        "offset" : 2392064,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-46.mui"
+      },
+      {
+        "length" : 152,
+        "offset" : 2394112,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-52.mui"
+      },
+      {
+        "length" : 153,
+        "offset" : 2396160,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-53.mui"
+      },
+      {
+        "length" : 147,
+        "offset" : 2398208,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-47.mui"
+      },
+      {
+        "length" : 190,
+        "offset" : 2400256,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-90.mui"
+      },
+      {
+        "length" : 184,
+        "offset" : 2402304,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-84.mui"
+      },
+      {
+        "length" : 192,
+        "offset" : 2404352,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-92.mui"
+      },
+      {
+        "length" : 186,
+        "offset" : 2406400,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-86.mui"
+      },
+      {
+        "length" : 179,
+        "offset" : 2408448,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-79.mui"
+      },
+      {
+        "length" : 151,
+        "offset" : 2410496,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-51.mui"
+      },
+      {
+        "length" : 145,
+        "offset" : 2412544,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-45.mui"
+      },
+      {
+        "length" : 144,
+        "offset" : 2414592,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-44.mui"
+      },
+      {
+        "length" : 150,
+        "offset" : 2416640,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-50.mui"
+      },
+      {
+        "length" : 178,
+        "offset" : 2418688,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-78.mui"
+      },
+      {
+        "length" : 187,
+        "offset" : 2420736,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-87.mui"
+      },
+      {
+        "length" : 193,
+        "offset" : 2422784,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-93.mui"
+      },
+      {
+        "length" : 204,
+        "offset" : 2424832,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-104.mui"
+      },
+      {
+        "length" : 210,
+        "offset" : 2426880,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-110.mui"
+      },
+      {
+        "length" : 137,
+        "offset" : 2428928,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-37.mui"
+      },
+      {
+        "length" : 123,
+        "offset" : 2430976,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-23.mui"
+      },
+      {
+        "length" : 122,
+        "offset" : 2433024,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-22.mui"
+      },
+      {
+        "length" : 136,
+        "offset" : 2435072,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-36.mui"
+      },
+      {
+        "length" : 211,
+        "offset" : 2437120,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-111.mui"
+      },
+      {
+        "length" : 205,
+        "offset" : 2439168,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-105.mui"
+      },
+      {
+        "length" : 213,
+        "offset" : 2441216,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-113.mui"
+      },
+      {
+        "length" : 207,
+        "offset" : 2443264,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-107.mui"
+      },
+      {
+        "length" : 120,
+        "offset" : 2445312,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-20.mui"
+      },
+      {
+        "length" : 134,
+        "offset" : 2447360,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-34.mui"
+      },
+      {
+        "length" : 135,
+        "offset" : 2449408,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-35.mui"
+      },
+      {
+        "length" : 121,
+        "offset" : 2451456,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-21.mui"
+      },
+      {
+        "length" : 206,
+        "offset" : 2453504,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-106.mui"
+      },
+      {
+        "length" : 212,
+        "offset" : 2455552,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-112.mui"
+      },
+      {
+        "length" : 216,
+        "offset" : 2457600,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-116.mui"
+      },
+      {
+        "length" : 202,
+        "offset" : 2459648,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-102.mui"
+      },
+      {
+        "length" : 119,
+        "offset" : 2461696,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-19.mui"
+      },
+      {
+        "length" : 125,
+        "offset" : 2463744,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-25.mui"
+      },
+      {
+        "length" : 131,
+        "offset" : 2465792,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-31.mui"
+      },
+      {
+        "length" : 130,
+        "offset" : 2467840,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-30.mui"
+      },
+      {
+        "length" : 124,
+        "offset" : 2469888,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-24.mui"
+      },
+      {
+        "length" : 118,
+        "offset" : 2471936,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-18.mui"
+      },
+      {
+        "length" : 203,
+        "offset" : 2473984,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-103.mui"
+      },
+      {
+        "length" : 217,
+        "offset" : 2476032,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-117.mui"
+      },
+      {
+        "length" : 201,
+        "offset" : 2478080,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-101.mui"
+      },
+      {
+        "length" : 215,
+        "offset" : 2480128,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-115.mui"
+      },
+      {
+        "length" : 109,
+        "offset" : 2482176,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-9.mui"
+      },
+      {
+        "length" : 132,
+        "offset" : 2484224,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-32.mui"
+      },
+      {
+        "length" : 126,
+        "offset" : 2486272,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-26.mui"
+      },
+      {
+        "length" : 127,
+        "offset" : 2488320,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-27.mui"
+      },
+      {
+        "length" : 133,
+        "offset" : 2490368,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-33.mui"
+      },
+      {
+        "length" : 108,
+        "offset" : 2492416,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-8.mui"
+      },
+      {
+        "length" : 214,
+        "offset" : 2494464,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-114.mui"
+      },
+      {
+        "length" : 200,
+        "offset" : 2496512,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-100.mui"
+      },
+      {
+        "length" : 219,
+        "offset" : 2498560,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-119.mui"
+      },
+      {
+        "length" : 105,
+        "offset" : 2500608,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-5.mui"
+      },
+      {
+        "length" : 116,
+        "offset" : 2502656,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-16.mui"
+      },
+      {
+        "length" : 117,
+        "offset" : 2504704,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-17.mui"
+      },
+      {
+        "length" : 104,
+        "offset" : 2506752,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-4.mui"
+      },
+      {
+        "length" : 218,
+        "offset" : 2508800,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-118.mui"
+      },
+      {
+        "length" : 106,
+        "offset" : 2510848,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-6.mui"
+      },
+      {
+        "length" : 115,
+        "offset" : 2512896,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-15.mui"
+      },
+      {
+        "length" : 129,
+        "offset" : 2514944,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-29.mui"
+      },
+      {
+        "length" : 128,
+        "offset" : 2516992,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-28.mui"
+      },
+      {
+        "length" : 114,
+        "offset" : 2519040,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-14.mui"
+      },
+      {
+        "length" : 107,
+        "offset" : 2521088,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-7.mui"
+      },
+      {
+        "length" : 103,
+        "offset" : 2523136,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-3.mui"
+      },
+      {
+        "length" : 138,
+        "offset" : 2525184,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-38.mui"
+      },
+      {
+        "length" : 110,
+        "offset" : 2527232,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-10.mui"
+      },
+      {
+        "length" : 111,
+        "offset" : 2529280,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-11.mui"
+      },
+      {
+        "length" : 139,
+        "offset" : 2531328,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-39.mui"
+      },
+      {
+        "length" : 102,
+        "offset" : 2533376,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-2.mui"
+      },
+      {
+        "length" : 208,
+        "offset" : 2535424,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-108.mui"
+      },
+      {
+        "length" : 100,
+        "offset" : 2537472,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-0.mui"
+      },
+      {
+        "length" : 113,
+        "offset" : 2539520,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-13.mui"
+      },
+      {
+        "length" : 112,
+        "offset" : 2541568,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-12.mui"
+      },
+      {
+        "length" : 101,
+        "offset" : 2543616,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-1.mui"
+      },
+      {
+        "length" : 209,
+        "offset" : 2545664,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-109.mui"
+      },
+      {
+        "length" : 175,
+        "offset" : 2547712,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-75.mui"
+      },
+      {
+        "length" : 161,
+        "offset" : 2549760,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-61.mui"
+      },
+      {
+        "length" : 149,
+        "offset" : 2551808,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-49.mui"
+      },
+      {
+        "length" : 148,
+        "offset" : 2553856,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-48.mui"
+      },
+      {
+        "length" : 160,
+        "offset" : 2555904,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-60.mui"
+      },
+      {
+        "length" : 174,
+        "offset" : 2557952,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-74.mui"
+      },
+      {
+        "length" : 189,
+        "offset" : 2560000,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-89.mui"
+      },
+      {
+        "length" : 162,
+        "offset" : 2562048,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-62.mui"
+      },
+      {
+        "length" : 176,
+        "offset" : 2564096,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-76.mui"
+      },
+      {
+        "length" : 177,
+        "offset" : 2566144,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-77.mui"
+      },
+      {
+        "length" : 163,
+        "offset" : 2568192,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-63.mui"
+      },
+      {
+        "length" : 188,
+        "offset" : 2570240,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-88.mui"
+      },
+      {
+        "length" : 198,
+        "offset" : 2572288,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-98.mui"
+      },
+      {
+        "length" : 167,
+        "offset" : 2574336,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-67.mui"
+      },
+      {
+        "length" : 173,
+        "offset" : 2576384,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-73.mui"
+      },
+      {
+        "length" : 172,
+        "offset" : 2578432,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-72.mui"
+      },
+      {
+        "length" : 166,
+        "offset" : 2580480,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-66.mui"
+      },
+      {
+        "length" : 199,
+        "offset" : 2582528,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-99.mui"
+      },
+      {
+        "length" : 158,
+        "offset" : 2584576,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-58.mui"
+      },
+      {
+        "length" : 170,
+        "offset" : 2586624,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-70.mui"
+      },
+      {
+        "length" : 164,
+        "offset" : 2588672,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-64.mui"
+      },
+      {
+        "length" : 165,
+        "offset" : 2590720,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-65.mui"
+      },
+      {
+        "length" : 171,
+        "offset" : 2592768,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-71.mui"
+      },
+      {
+        "length" : 159,
+        "offset" : 2594816,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-59.mui"
+      },
+      {
+        "length" : 150000,
+        "offset" : 2596864,
+        "source" : "tree:efi/boot/bootx64.efi"
+      },
+      {
+        "length" : 16384,
+        "offset" : 2748416,
+        "source" : "tree:efi/microsoft/boot/bcd"
+      }
+    ],
+    "sha256" : "e8b1b08241cf307b22edfe65126735e13d0957fbd9ecb081e00ef2dfcab9af45",
+    "size" : 3293184
+  },
+  "win11" : {
+    "ranges" : [
+      {
+        "length" : 90000,
+        "offset" : 905216,
+        "source" : "tree:setup.exe"
+      },
+      {
+        "length" : 400000,
+        "offset" : 997376,
+        "source" : "tree:bootmgr"
+      },
+      {
+        "length" : 125000,
+        "offset" : 1398784,
+        "source" : "tree:bootmgr.efi"
+      },
+      {
+        "length" : 49536,
+        "offset" : 1525760,
+        "source" : "tree:boot/boot.sdi"
+      },
+      {
+        "length" : 16384,
+        "offset" : 1576960,
+        "source" : "tree:boot/bcd"
+      },
+      {
+        "length" : 3331,
+        "offset" : 1593344,
+        "source" : "tree:sources/x.y.z.dat"
+      },
+      {
+        "length" : 2665,
+        "offset" : 1597440,
+        "source" : "tree:sources/lower.txt"
+      },
+      {
+        "length" : 2332,
+        "offset" : 1601536,
+        "source" : "tree:sources/UPPER.TXT"
+      },
+      {
+        "length" : 1999,
+        "offset" : 1605632,
+        "source" : "tree:sources/ñandú.inf"
+      },
+      {
+        "length" : 200000,
+        "offset" : 1609728,
+        "source" : "tree:sources/boot.wim"
+      },
+      {
+        "length" : 1666,
+        "offset" : 1810432,
+        "source" : "tree:sources/a name with spaces.txt"
+      },
+      {
+        "length" : 2998,
+        "offset" : 1812480,
+        "source" : "tree:sources/MiXeD.Cab"
+      },
+      {
+        "length" : 1000,
+        "offset" : 1816576,
+        "source" : "tree:sources/api-ms-win-downlevel-shlwapi-l1-1-0.dll"
+      },
+      {
+        "length" : 530751,
+        "offset" : 1818624,
+        "source" : "tree:sources/install.wim"
+      },
+      {
+        "length" : 1333,
+        "offset" : 2351104,
+        "source" : "tree:sources/Microsoft-Windows-Setup.Resources.mui"
+      },
+      {
+        "length" : 197,
+        "offset" : 2353152,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-97.mui"
+      },
+      {
+        "length" : 183,
+        "offset" : 2355200,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-83.mui"
+      },
+      {
+        "length" : 154,
+        "offset" : 2357248,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-54.mui"
+      },
+      {
+        "length" : 140,
+        "offset" : 2359296,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-40.mui"
+      },
+      {
+        "length" : 168,
+        "offset" : 2361344,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-68.mui"
+      },
+      {
+        "length" : 169,
+        "offset" : 2363392,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-69.mui"
+      },
+      {
+        "length" : 141,
+        "offset" : 2365440,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-41.mui"
+      },
+      {
+        "length" : 155,
+        "offset" : 2367488,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-55.mui"
+      },
+      {
+        "length" : 182,
+        "offset" : 2369536,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-82.mui"
+      },
+      {
+        "length" : 196,
+        "offset" : 2371584,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-96.mui"
+      },
+      {
+        "length" : 180,
+        "offset" : 2373632,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-80.mui"
+      },
+      {
+        "length" : 194,
+        "offset" : 2375680,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-94.mui"
+      },
+      {
+        "length" : 143,
+        "offset" : 2377728,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-43.mui"
+      },
+      {
+        "length" : 157,
+        "offset" : 2379776,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-57.mui"
+      },
+      {
+        "length" : 156,
+        "offset" : 2381824,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-56.mui"
+      },
+      {
+        "length" : 142,
+        "offset" : 2383872,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-42.mui"
+      },
+      {
+        "length" : 195,
+        "offset" : 2385920,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-95.mui"
+      },
+      {
+        "length" : 181,
+        "offset" : 2387968,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-81.mui"
+      },
+      {
+        "length" : 185,
+        "offset" : 2390016,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-85.mui"
+      },
+      {
+        "length" : 191,
+        "offset" : 2392064,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-91.mui"
+      },
+      {
+        "length" : 146,
+        "offset" : 2394112,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-46.mui"
+      },
+      {
+        "length" : 152,
+        "offset" : 2396160,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-52.mui"
+      },
+      {
+        "length" : 153,
+        "offset" : 2398208,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-53.mui"
+      },
+      {
+        "length" : 147,
+        "offset" : 2400256,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-47.mui"
+      },
+      {
+        "length" : 190,
+        "offset" : 2402304,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-90.mui"
+      },
+      {
+        "length" : 184,
+        "offset" : 2404352,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-84.mui"
+      },
+      {
+        "length" : 192,
+        "offset" : 2406400,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-92.mui"
+      },
+      {
+        "length" : 186,
+        "offset" : 2408448,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-86.mui"
+      },
+      {
+        "length" : 179,
+        "offset" : 2410496,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-79.mui"
+      },
+      {
+        "length" : 151,
+        "offset" : 2412544,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-51.mui"
+      },
+      {
+        "length" : 145,
+        "offset" : 2414592,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-45.mui"
+      },
+      {
+        "length" : 144,
+        "offset" : 2416640,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-44.mui"
+      },
+      {
+        "length" : 150,
+        "offset" : 2418688,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-50.mui"
+      },
+      {
+        "length" : 178,
+        "offset" : 2420736,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-78.mui"
+      },
+      {
+        "length" : 187,
+        "offset" : 2422784,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-87.mui"
+      },
+      {
+        "length" : 193,
+        "offset" : 2424832,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-93.mui"
+      },
+      {
+        "length" : 204,
+        "offset" : 2426880,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-104.mui"
+      },
+      {
+        "length" : 210,
+        "offset" : 2428928,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-110.mui"
+      },
+      {
+        "length" : 137,
+        "offset" : 2430976,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-37.mui"
+      },
+      {
+        "length" : 123,
+        "offset" : 2433024,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-23.mui"
+      },
+      {
+        "length" : 122,
+        "offset" : 2435072,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-22.mui"
+      },
+      {
+        "length" : 136,
+        "offset" : 2437120,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-36.mui"
+      },
+      {
+        "length" : 211,
+        "offset" : 2439168,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-111.mui"
+      },
+      {
+        "length" : 205,
+        "offset" : 2441216,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-105.mui"
+      },
+      {
+        "length" : 213,
+        "offset" : 2443264,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-113.mui"
+      },
+      {
+        "length" : 207,
+        "offset" : 2445312,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-107.mui"
+      },
+      {
+        "length" : 120,
+        "offset" : 2447360,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-20.mui"
+      },
+      {
+        "length" : 134,
+        "offset" : 2449408,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-34.mui"
+      },
+      {
+        "length" : 135,
+        "offset" : 2451456,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-35.mui"
+      },
+      {
+        "length" : 121,
+        "offset" : 2453504,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-21.mui"
+      },
+      {
+        "length" : 206,
+        "offset" : 2455552,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-106.mui"
+      },
+      {
+        "length" : 212,
+        "offset" : 2457600,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-112.mui"
+      },
+      {
+        "length" : 216,
+        "offset" : 2459648,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-116.mui"
+      },
+      {
+        "length" : 202,
+        "offset" : 2461696,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-102.mui"
+      },
+      {
+        "length" : 119,
+        "offset" : 2463744,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-19.mui"
+      },
+      {
+        "length" : 125,
+        "offset" : 2465792,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-25.mui"
+      },
+      {
+        "length" : 131,
+        "offset" : 2467840,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-31.mui"
+      },
+      {
+        "length" : 130,
+        "offset" : 2469888,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-30.mui"
+      },
+      {
+        "length" : 124,
+        "offset" : 2471936,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-24.mui"
+      },
+      {
+        "length" : 118,
+        "offset" : 2473984,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-18.mui"
+      },
+      {
+        "length" : 203,
+        "offset" : 2476032,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-103.mui"
+      },
+      {
+        "length" : 217,
+        "offset" : 2478080,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-117.mui"
+      },
+      {
+        "length" : 201,
+        "offset" : 2480128,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-101.mui"
+      },
+      {
+        "length" : 215,
+        "offset" : 2482176,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-115.mui"
+      },
+      {
+        "length" : 109,
+        "offset" : 2484224,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-9.mui"
+      },
+      {
+        "length" : 132,
+        "offset" : 2486272,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-32.mui"
+      },
+      {
+        "length" : 126,
+        "offset" : 2488320,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-26.mui"
+      },
+      {
+        "length" : 127,
+        "offset" : 2490368,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-27.mui"
+      },
+      {
+        "length" : 133,
+        "offset" : 2492416,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-33.mui"
+      },
+      {
+        "length" : 108,
+        "offset" : 2494464,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-8.mui"
+      },
+      {
+        "length" : 214,
+        "offset" : 2496512,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-114.mui"
+      },
+      {
+        "length" : 200,
+        "offset" : 2498560,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-100.mui"
+      },
+      {
+        "length" : 219,
+        "offset" : 2500608,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-119.mui"
+      },
+      {
+        "length" : 105,
+        "offset" : 2502656,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-5.mui"
+      },
+      {
+        "length" : 116,
+        "offset" : 2504704,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-16.mui"
+      },
+      {
+        "length" : 117,
+        "offset" : 2506752,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-17.mui"
+      },
+      {
+        "length" : 104,
+        "offset" : 2508800,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-4.mui"
+      },
+      {
+        "length" : 218,
+        "offset" : 2510848,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-118.mui"
+      },
+      {
+        "length" : 106,
+        "offset" : 2512896,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-6.mui"
+      },
+      {
+        "length" : 115,
+        "offset" : 2514944,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-15.mui"
+      },
+      {
+        "length" : 129,
+        "offset" : 2516992,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-29.mui"
+      },
+      {
+        "length" : 128,
+        "offset" : 2519040,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-28.mui"
+      },
+      {
+        "length" : 114,
+        "offset" : 2521088,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-14.mui"
+      },
+      {
+        "length" : 107,
+        "offset" : 2523136,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-7.mui"
+      },
+      {
+        "length" : 103,
+        "offset" : 2525184,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-3.mui"
+      },
+      {
+        "length" : 138,
+        "offset" : 2527232,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-38.mui"
+      },
+      {
+        "length" : 110,
+        "offset" : 2529280,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-10.mui"
+      },
+      {
+        "length" : 111,
+        "offset" : 2531328,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-11.mui"
+      },
+      {
+        "length" : 139,
+        "offset" : 2533376,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-39.mui"
+      },
+      {
+        "length" : 102,
+        "offset" : 2535424,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-2.mui"
+      },
+      {
+        "length" : 208,
+        "offset" : 2537472,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-108.mui"
+      },
+      {
+        "length" : 100,
+        "offset" : 2539520,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-0.mui"
+      },
+      {
+        "length" : 113,
+        "offset" : 2541568,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-13.mui"
+      },
+      {
+        "length" : 112,
+        "offset" : 2543616,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-12.mui"
+      },
+      {
+        "length" : 101,
+        "offset" : 2545664,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-1.mui"
+      },
+      {
+        "length" : 209,
+        "offset" : 2547712,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-109.mui"
+      },
+      {
+        "length" : 175,
+        "offset" : 2549760,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-75.mui"
+      },
+      {
+        "length" : 161,
+        "offset" : 2551808,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-61.mui"
+      },
+      {
+        "length" : 149,
+        "offset" : 2553856,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-49.mui"
+      },
+      {
+        "length" : 148,
+        "offset" : 2555904,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-48.mui"
+      },
+      {
+        "length" : 160,
+        "offset" : 2557952,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-60.mui"
+      },
+      {
+        "length" : 174,
+        "offset" : 2560000,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-74.mui"
+      },
+      {
+        "length" : 189,
+        "offset" : 2562048,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-89.mui"
+      },
+      {
+        "length" : 162,
+        "offset" : 2564096,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-62.mui"
+      },
+      {
+        "length" : 176,
+        "offset" : 2566144,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-76.mui"
+      },
+      {
+        "length" : 177,
+        "offset" : 2568192,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-77.mui"
+      },
+      {
+        "length" : 163,
+        "offset" : 2570240,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-63.mui"
+      },
+      {
+        "length" : 188,
+        "offset" : 2572288,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-88.mui"
+      },
+      {
+        "length" : 198,
+        "offset" : 2574336,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-98.mui"
+      },
+      {
+        "length" : 167,
+        "offset" : 2576384,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-67.mui"
+      },
+      {
+        "length" : 173,
+        "offset" : 2578432,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-73.mui"
+      },
+      {
+        "length" : 172,
+        "offset" : 2580480,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-72.mui"
+      },
+      {
+        "length" : 166,
+        "offset" : 2582528,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-66.mui"
+      },
+      {
+        "length" : 199,
+        "offset" : 2584576,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-99.mui"
+      },
+      {
+        "length" : 158,
+        "offset" : 2586624,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-58.mui"
+      },
+      {
+        "length" : 170,
+        "offset" : 2588672,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-70.mui"
+      },
+      {
+        "length" : 164,
+        "offset" : 2590720,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-64.mui"
+      },
+      {
+        "length" : 165,
+        "offset" : 2592768,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-65.mui"
+      },
+      {
+        "length" : 171,
+        "offset" : 2594816,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-71.mui"
+      },
+      {
+        "length" : 159,
+        "offset" : 2596864,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-59.mui"
+      },
+      {
+        "length" : 150000,
+        "offset" : 2598912,
+        "source" : "tree:efi/boot/bootx64.efi"
+      },
+      {
+        "length" : 16384,
+        "offset" : 2750464,
+        "source" : "tree:efi/microsoft/boot/bcd"
+      }
+    ],
+    "sha256" : "a929547e4b2805bd7666b054481c735cd416093eb335cdd0ab5d67794f0b7186",
+    "size" : 3295232
+  },
+  "win11-arm64" : {
+    "ranges" : [
+      {
+        "length" : 90000,
+        "offset" : 907264,
+        "source" : "tree:setup.exe"
+      },
+      {
+        "length" : 400000,
+        "offset" : 999424,
+        "source" : "tree:bootmgr"
+      },
+      {
+        "length" : 125000,
+        "offset" : 1400832,
+        "source" : "tree:bootmgr.efi"
+      },
+      {
+        "length" : 49536,
+        "offset" : 1527808,
+        "source" : "tree:boot/boot.sdi"
+      },
+      {
+        "length" : 16384,
+        "offset" : 1579008,
+        "source" : "tree:boot/bcd"
+      },
+      {
+        "length" : 3331,
+        "offset" : 1595392,
+        "source" : "tree:sources/x.y.z.dat"
+      },
+      {
+        "length" : 2665,
+        "offset" : 1599488,
+        "source" : "tree:sources/lower.txt"
+      },
+      {
+        "length" : 2332,
+        "offset" : 1603584,
+        "source" : "tree:sources/UPPER.TXT"
+      },
+      {
+        "length" : 1999,
+        "offset" : 1607680,
+        "source" : "tree:sources/ñandú.inf"
+      },
+      {
+        "length" : 200000,
+        "offset" : 1611776,
+        "source" : "tree:sources/boot.wim"
+      },
+      {
+        "length" : 1666,
+        "offset" : 1812480,
+        "source" : "tree:sources/a name with spaces.txt"
+      },
+      {
+        "length" : 2998,
+        "offset" : 1814528,
+        "source" : "tree:sources/MiXeD.Cab"
+      },
+      {
+        "length" : 1000,
+        "offset" : 1818624,
+        "source" : "tree:sources/api-ms-win-downlevel-shlwapi-l1-1-0.dll"
+      },
+      {
+        "length" : 530755,
+        "offset" : 1820672,
+        "source" : "tree:sources/install.wim"
+      },
+      {
+        "length" : 1333,
+        "offset" : 2353152,
+        "source" : "tree:sources/Microsoft-Windows-Setup.Resources.mui"
+      },
+      {
+        "length" : 197,
+        "offset" : 2355200,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-97.mui"
+      },
+      {
+        "length" : 183,
+        "offset" : 2357248,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-83.mui"
+      },
+      {
+        "length" : 154,
+        "offset" : 2359296,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-54.mui"
+      },
+      {
+        "length" : 140,
+        "offset" : 2361344,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-40.mui"
+      },
+      {
+        "length" : 168,
+        "offset" : 2363392,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-68.mui"
+      },
+      {
+        "length" : 169,
+        "offset" : 2365440,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-69.mui"
+      },
+      {
+        "length" : 141,
+        "offset" : 2367488,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-41.mui"
+      },
+      {
+        "length" : 155,
+        "offset" : 2369536,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-55.mui"
+      },
+      {
+        "length" : 182,
+        "offset" : 2371584,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-82.mui"
+      },
+      {
+        "length" : 196,
+        "offset" : 2373632,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-96.mui"
+      },
+      {
+        "length" : 180,
+        "offset" : 2375680,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-80.mui"
+      },
+      {
+        "length" : 194,
+        "offset" : 2377728,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-94.mui"
+      },
+      {
+        "length" : 143,
+        "offset" : 2379776,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-43.mui"
+      },
+      {
+        "length" : 157,
+        "offset" : 2381824,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-57.mui"
+      },
+      {
+        "length" : 156,
+        "offset" : 2383872,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-56.mui"
+      },
+      {
+        "length" : 142,
+        "offset" : 2385920,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-42.mui"
+      },
+      {
+        "length" : 195,
+        "offset" : 2387968,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-95.mui"
+      },
+      {
+        "length" : 181,
+        "offset" : 2390016,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-81.mui"
+      },
+      {
+        "length" : 185,
+        "offset" : 2392064,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-85.mui"
+      },
+      {
+        "length" : 191,
+        "offset" : 2394112,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-91.mui"
+      },
+      {
+        "length" : 146,
+        "offset" : 2396160,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-46.mui"
+      },
+      {
+        "length" : 152,
+        "offset" : 2398208,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-52.mui"
+      },
+      {
+        "length" : 153,
+        "offset" : 2400256,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-53.mui"
+      },
+      {
+        "length" : 147,
+        "offset" : 2402304,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-47.mui"
+      },
+      {
+        "length" : 190,
+        "offset" : 2404352,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-90.mui"
+      },
+      {
+        "length" : 184,
+        "offset" : 2406400,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-84.mui"
+      },
+      {
+        "length" : 192,
+        "offset" : 2408448,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-92.mui"
+      },
+      {
+        "length" : 186,
+        "offset" : 2410496,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-86.mui"
+      },
+      {
+        "length" : 179,
+        "offset" : 2412544,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-79.mui"
+      },
+      {
+        "length" : 151,
+        "offset" : 2414592,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-51.mui"
+      },
+      {
+        "length" : 145,
+        "offset" : 2416640,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-45.mui"
+      },
+      {
+        "length" : 144,
+        "offset" : 2418688,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-44.mui"
+      },
+      {
+        "length" : 150,
+        "offset" : 2420736,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-50.mui"
+      },
+      {
+        "length" : 178,
+        "offset" : 2422784,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-78.mui"
+      },
+      {
+        "length" : 187,
+        "offset" : 2424832,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-87.mui"
+      },
+      {
+        "length" : 193,
+        "offset" : 2426880,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-93.mui"
+      },
+      {
+        "length" : 204,
+        "offset" : 2428928,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-104.mui"
+      },
+      {
+        "length" : 210,
+        "offset" : 2430976,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-110.mui"
+      },
+      {
+        "length" : 137,
+        "offset" : 2433024,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-37.mui"
+      },
+      {
+        "length" : 123,
+        "offset" : 2435072,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-23.mui"
+      },
+      {
+        "length" : 122,
+        "offset" : 2437120,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-22.mui"
+      },
+      {
+        "length" : 136,
+        "offset" : 2439168,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-36.mui"
+      },
+      {
+        "length" : 211,
+        "offset" : 2441216,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-111.mui"
+      },
+      {
+        "length" : 205,
+        "offset" : 2443264,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-105.mui"
+      },
+      {
+        "length" : 213,
+        "offset" : 2445312,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-113.mui"
+      },
+      {
+        "length" : 207,
+        "offset" : 2447360,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-107.mui"
+      },
+      {
+        "length" : 120,
+        "offset" : 2449408,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-20.mui"
+      },
+      {
+        "length" : 134,
+        "offset" : 2451456,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-34.mui"
+      },
+      {
+        "length" : 135,
+        "offset" : 2453504,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-35.mui"
+      },
+      {
+        "length" : 121,
+        "offset" : 2455552,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-21.mui"
+      },
+      {
+        "length" : 206,
+        "offset" : 2457600,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-106.mui"
+      },
+      {
+        "length" : 212,
+        "offset" : 2459648,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-112.mui"
+      },
+      {
+        "length" : 216,
+        "offset" : 2461696,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-116.mui"
+      },
+      {
+        "length" : 202,
+        "offset" : 2463744,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-102.mui"
+      },
+      {
+        "length" : 119,
+        "offset" : 2465792,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-19.mui"
+      },
+      {
+        "length" : 125,
+        "offset" : 2467840,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-25.mui"
+      },
+      {
+        "length" : 131,
+        "offset" : 2469888,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-31.mui"
+      },
+      {
+        "length" : 130,
+        "offset" : 2471936,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-30.mui"
+      },
+      {
+        "length" : 124,
+        "offset" : 2473984,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-24.mui"
+      },
+      {
+        "length" : 118,
+        "offset" : 2476032,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-18.mui"
+      },
+      {
+        "length" : 203,
+        "offset" : 2478080,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-103.mui"
+      },
+      {
+        "length" : 217,
+        "offset" : 2480128,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-117.mui"
+      },
+      {
+        "length" : 201,
+        "offset" : 2482176,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-101.mui"
+      },
+      {
+        "length" : 215,
+        "offset" : 2484224,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-115.mui"
+      },
+      {
+        "length" : 109,
+        "offset" : 2486272,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-9.mui"
+      },
+      {
+        "length" : 132,
+        "offset" : 2488320,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-32.mui"
+      },
+      {
+        "length" : 126,
+        "offset" : 2490368,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-26.mui"
+      },
+      {
+        "length" : 127,
+        "offset" : 2492416,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-27.mui"
+      },
+      {
+        "length" : 133,
+        "offset" : 2494464,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-33.mui"
+      },
+      {
+        "length" : 108,
+        "offset" : 2496512,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-8.mui"
+      },
+      {
+        "length" : 214,
+        "offset" : 2498560,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-114.mui"
+      },
+      {
+        "length" : 200,
+        "offset" : 2500608,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-100.mui"
+      },
+      {
+        "length" : 219,
+        "offset" : 2502656,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-119.mui"
+      },
+      {
+        "length" : 105,
+        "offset" : 2504704,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-5.mui"
+      },
+      {
+        "length" : 116,
+        "offset" : 2506752,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-16.mui"
+      },
+      {
+        "length" : 117,
+        "offset" : 2508800,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-17.mui"
+      },
+      {
+        "length" : 104,
+        "offset" : 2510848,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-4.mui"
+      },
+      {
+        "length" : 218,
+        "offset" : 2512896,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-118.mui"
+      },
+      {
+        "length" : 106,
+        "offset" : 2514944,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-6.mui"
+      },
+      {
+        "length" : 115,
+        "offset" : 2516992,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-15.mui"
+      },
+      {
+        "length" : 129,
+        "offset" : 2519040,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-29.mui"
+      },
+      {
+        "length" : 128,
+        "offset" : 2521088,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-28.mui"
+      },
+      {
+        "length" : 114,
+        "offset" : 2523136,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-14.mui"
+      },
+      {
+        "length" : 107,
+        "offset" : 2525184,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-7.mui"
+      },
+      {
+        "length" : 103,
+        "offset" : 2527232,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-3.mui"
+      },
+      {
+        "length" : 138,
+        "offset" : 2529280,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-38.mui"
+      },
+      {
+        "length" : 110,
+        "offset" : 2531328,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-10.mui"
+      },
+      {
+        "length" : 111,
+        "offset" : 2533376,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-11.mui"
+      },
+      {
+        "length" : 139,
+        "offset" : 2535424,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-39.mui"
+      },
+      {
+        "length" : 102,
+        "offset" : 2537472,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-2.mui"
+      },
+      {
+        "length" : 208,
+        "offset" : 2539520,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-108.mui"
+      },
+      {
+        "length" : 100,
+        "offset" : 2541568,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-0.mui"
+      },
+      {
+        "length" : 113,
+        "offset" : 2543616,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-13.mui"
+      },
+      {
+        "length" : 112,
+        "offset" : 2545664,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-12.mui"
+      },
+      {
+        "length" : 101,
+        "offset" : 2547712,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-1.mui"
+      },
+      {
+        "length" : 209,
+        "offset" : 2549760,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-109.mui"
+      },
+      {
+        "length" : 175,
+        "offset" : 2551808,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-75.mui"
+      },
+      {
+        "length" : 161,
+        "offset" : 2553856,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-61.mui"
+      },
+      {
+        "length" : 149,
+        "offset" : 2555904,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-49.mui"
+      },
+      {
+        "length" : 148,
+        "offset" : 2557952,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-48.mui"
+      },
+      {
+        "length" : 160,
+        "offset" : 2560000,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-60.mui"
+      },
+      {
+        "length" : 174,
+        "offset" : 2562048,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-74.mui"
+      },
+      {
+        "length" : 189,
+        "offset" : 2564096,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-89.mui"
+      },
+      {
+        "length" : 162,
+        "offset" : 2566144,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-62.mui"
+      },
+      {
+        "length" : 176,
+        "offset" : 2568192,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-76.mui"
+      },
+      {
+        "length" : 177,
+        "offset" : 2570240,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-77.mui"
+      },
+      {
+        "length" : 163,
+        "offset" : 2572288,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-63.mui"
+      },
+      {
+        "length" : 188,
+        "offset" : 2574336,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-88.mui"
+      },
+      {
+        "length" : 198,
+        "offset" : 2576384,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-98.mui"
+      },
+      {
+        "length" : 167,
+        "offset" : 2578432,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-67.mui"
+      },
+      {
+        "length" : 173,
+        "offset" : 2580480,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-73.mui"
+      },
+      {
+        "length" : 172,
+        "offset" : 2582528,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-72.mui"
+      },
+      {
+        "length" : 166,
+        "offset" : 2584576,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-66.mui"
+      },
+      {
+        "length" : 199,
+        "offset" : 2586624,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-99.mui"
+      },
+      {
+        "length" : 158,
+        "offset" : 2588672,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-58.mui"
+      },
+      {
+        "length" : 170,
+        "offset" : 2590720,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-70.mui"
+      },
+      {
+        "length" : 164,
+        "offset" : 2592768,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-64.mui"
+      },
+      {
+        "length" : 165,
+        "offset" : 2594816,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-65.mui"
+      },
+      {
+        "length" : 171,
+        "offset" : 2596864,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-71.mui"
+      },
+      {
+        "length" : 159,
+        "offset" : 2598912,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-59.mui"
+      },
+      {
+        "length" : 150000,
+        "offset" : 2600960,
+        "source" : "tree:efi/boot/bootx64.efi"
+      },
+      {
+        "length" : 1000,
+        "offset" : 2752512,
+        "source" : "tree:efi/boot/bootaa64.efi"
+      },
+      {
+        "length" : 16384,
+        "offset" : 2754560,
+        "source" : "tree:efi/microsoft/boot/bcd"
+      }
+    ],
+    "sha256" : "7305e7fa541cec6ee6ee4c0250295693da10b3980cdd44643edbd36c56be47f0",
+    "size" : 3299328
+  },
+  "win11-unattend" : {
+    "ranges" : [
+      {
+        "length" : 90000,
+        "offset" : 907264,
+        "source" : "tree:setup.exe"
+      },
+      {
+        "length" : 400000,
+        "offset" : 999424,
+        "source" : "tree:bootmgr"
+      },
+      {
+        "length" : 125000,
+        "offset" : 1400832,
+        "source" : "tree:bootmgr.efi"
+      },
+      {
+        "length" : 49536,
+        "offset" : 1529856,
+        "source" : "tree:boot/boot.sdi"
+      },
+      {
+        "length" : 16384,
+        "offset" : 1581056,
+        "source" : "tree:boot/bcd"
+      },
+      {
+        "length" : 3331,
+        "offset" : 1597440,
+        "source" : "tree:sources/x.y.z.dat"
+      },
+      {
+        "length" : 2665,
+        "offset" : 1601536,
+        "source" : "tree:sources/lower.txt"
+      },
+      {
+        "length" : 2332,
+        "offset" : 1605632,
+        "source" : "tree:sources/UPPER.TXT"
+      },
+      {
+        "length" : 1999,
+        "offset" : 1609728,
+        "source" : "tree:sources/ñandú.inf"
+      },
+      {
+        "length" : 200000,
+        "offset" : 1613824,
+        "source" : "tree:sources/boot.wim"
+      },
+      {
+        "length" : 1666,
+        "offset" : 1814528,
+        "source" : "tree:sources/a name with spaces.txt"
+      },
+      {
+        "length" : 2998,
+        "offset" : 1816576,
+        "source" : "tree:sources/MiXeD.Cab"
+      },
+      {
+        "length" : 1000,
+        "offset" : 1820672,
+        "source" : "tree:sources/api-ms-win-downlevel-shlwapi-l1-1-0.dll"
+      },
+      {
+        "length" : 530751,
+        "offset" : 1822720,
+        "source" : "tree:sources/install.wim"
+      },
+      {
+        "length" : 1333,
+        "offset" : 2355200,
+        "source" : "tree:sources/Microsoft-Windows-Setup.Resources.mui"
+      },
+      {
+        "length" : 197,
+        "offset" : 2357248,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-97.mui"
+      },
+      {
+        "length" : 183,
+        "offset" : 2359296,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-83.mui"
+      },
+      {
+        "length" : 154,
+        "offset" : 2361344,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-54.mui"
+      },
+      {
+        "length" : 140,
+        "offset" : 2363392,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-40.mui"
+      },
+      {
+        "length" : 168,
+        "offset" : 2365440,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-68.mui"
+      },
+      {
+        "length" : 169,
+        "offset" : 2367488,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-69.mui"
+      },
+      {
+        "length" : 141,
+        "offset" : 2369536,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-41.mui"
+      },
+      {
+        "length" : 155,
+        "offset" : 2371584,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-55.mui"
+      },
+      {
+        "length" : 182,
+        "offset" : 2373632,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-82.mui"
+      },
+      {
+        "length" : 196,
+        "offset" : 2375680,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-96.mui"
+      },
+      {
+        "length" : 180,
+        "offset" : 2377728,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-80.mui"
+      },
+      {
+        "length" : 194,
+        "offset" : 2379776,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-94.mui"
+      },
+      {
+        "length" : 143,
+        "offset" : 2381824,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-43.mui"
+      },
+      {
+        "length" : 157,
+        "offset" : 2383872,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-57.mui"
+      },
+      {
+        "length" : 156,
+        "offset" : 2385920,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-56.mui"
+      },
+      {
+        "length" : 142,
+        "offset" : 2387968,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-42.mui"
+      },
+      {
+        "length" : 195,
+        "offset" : 2390016,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-95.mui"
+      },
+      {
+        "length" : 181,
+        "offset" : 2392064,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-81.mui"
+      },
+      {
+        "length" : 185,
+        "offset" : 2394112,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-85.mui"
+      },
+      {
+        "length" : 191,
+        "offset" : 2396160,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-91.mui"
+      },
+      {
+        "length" : 146,
+        "offset" : 2398208,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-46.mui"
+      },
+      {
+        "length" : 152,
+        "offset" : 2400256,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-52.mui"
+      },
+      {
+        "length" : 153,
+        "offset" : 2402304,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-53.mui"
+      },
+      {
+        "length" : 147,
+        "offset" : 2404352,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-47.mui"
+      },
+      {
+        "length" : 190,
+        "offset" : 2406400,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-90.mui"
+      },
+      {
+        "length" : 184,
+        "offset" : 2408448,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-84.mui"
+      },
+      {
+        "length" : 192,
+        "offset" : 2410496,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-92.mui"
+      },
+      {
+        "length" : 186,
+        "offset" : 2412544,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-86.mui"
+      },
+      {
+        "length" : 179,
+        "offset" : 2414592,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-79.mui"
+      },
+      {
+        "length" : 151,
+        "offset" : 2416640,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-51.mui"
+      },
+      {
+        "length" : 145,
+        "offset" : 2418688,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-45.mui"
+      },
+      {
+        "length" : 144,
+        "offset" : 2420736,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-44.mui"
+      },
+      {
+        "length" : 150,
+        "offset" : 2422784,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-50.mui"
+      },
+      {
+        "length" : 178,
+        "offset" : 2424832,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-78.mui"
+      },
+      {
+        "length" : 187,
+        "offset" : 2426880,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-87.mui"
+      },
+      {
+        "length" : 193,
+        "offset" : 2428928,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-93.mui"
+      },
+      {
+        "length" : 204,
+        "offset" : 2430976,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-104.mui"
+      },
+      {
+        "length" : 210,
+        "offset" : 2433024,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-110.mui"
+      },
+      {
+        "length" : 137,
+        "offset" : 2435072,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-37.mui"
+      },
+      {
+        "length" : 123,
+        "offset" : 2437120,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-23.mui"
+      },
+      {
+        "length" : 122,
+        "offset" : 2439168,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-22.mui"
+      },
+      {
+        "length" : 136,
+        "offset" : 2441216,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-36.mui"
+      },
+      {
+        "length" : 211,
+        "offset" : 2443264,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-111.mui"
+      },
+      {
+        "length" : 205,
+        "offset" : 2445312,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-105.mui"
+      },
+      {
+        "length" : 213,
+        "offset" : 2447360,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-113.mui"
+      },
+      {
+        "length" : 207,
+        "offset" : 2449408,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-107.mui"
+      },
+      {
+        "length" : 120,
+        "offset" : 2451456,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-20.mui"
+      },
+      {
+        "length" : 134,
+        "offset" : 2453504,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-34.mui"
+      },
+      {
+        "length" : 135,
+        "offset" : 2455552,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-35.mui"
+      },
+      {
+        "length" : 121,
+        "offset" : 2457600,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-21.mui"
+      },
+      {
+        "length" : 206,
+        "offset" : 2459648,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-106.mui"
+      },
+      {
+        "length" : 212,
+        "offset" : 2461696,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-112.mui"
+      },
+      {
+        "length" : 216,
+        "offset" : 2463744,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-116.mui"
+      },
+      {
+        "length" : 202,
+        "offset" : 2465792,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-102.mui"
+      },
+      {
+        "length" : 119,
+        "offset" : 2467840,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-19.mui"
+      },
+      {
+        "length" : 125,
+        "offset" : 2469888,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-25.mui"
+      },
+      {
+        "length" : 131,
+        "offset" : 2471936,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-31.mui"
+      },
+      {
+        "length" : 130,
+        "offset" : 2473984,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-30.mui"
+      },
+      {
+        "length" : 124,
+        "offset" : 2476032,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-24.mui"
+      },
+      {
+        "length" : 118,
+        "offset" : 2478080,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-18.mui"
+      },
+      {
+        "length" : 203,
+        "offset" : 2480128,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-103.mui"
+      },
+      {
+        "length" : 217,
+        "offset" : 2482176,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-117.mui"
+      },
+      {
+        "length" : 201,
+        "offset" : 2484224,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-101.mui"
+      },
+      {
+        "length" : 215,
+        "offset" : 2486272,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-115.mui"
+      },
+      {
+        "length" : 109,
+        "offset" : 2488320,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-9.mui"
+      },
+      {
+        "length" : 132,
+        "offset" : 2490368,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-32.mui"
+      },
+      {
+        "length" : 126,
+        "offset" : 2492416,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-26.mui"
+      },
+      {
+        "length" : 127,
+        "offset" : 2494464,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-27.mui"
+      },
+      {
+        "length" : 133,
+        "offset" : 2496512,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-33.mui"
+      },
+      {
+        "length" : 108,
+        "offset" : 2498560,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-8.mui"
+      },
+      {
+        "length" : 214,
+        "offset" : 2500608,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-114.mui"
+      },
+      {
+        "length" : 200,
+        "offset" : 2502656,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-100.mui"
+      },
+      {
+        "length" : 219,
+        "offset" : 2504704,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-119.mui"
+      },
+      {
+        "length" : 105,
+        "offset" : 2506752,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-5.mui"
+      },
+      {
+        "length" : 116,
+        "offset" : 2508800,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-16.mui"
+      },
+      {
+        "length" : 117,
+        "offset" : 2510848,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-17.mui"
+      },
+      {
+        "length" : 104,
+        "offset" : 2512896,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-4.mui"
+      },
+      {
+        "length" : 218,
+        "offset" : 2514944,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-118.mui"
+      },
+      {
+        "length" : 106,
+        "offset" : 2516992,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-6.mui"
+      },
+      {
+        "length" : 115,
+        "offset" : 2519040,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-15.mui"
+      },
+      {
+        "length" : 129,
+        "offset" : 2521088,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-29.mui"
+      },
+      {
+        "length" : 128,
+        "offset" : 2523136,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-28.mui"
+      },
+      {
+        "length" : 114,
+        "offset" : 2525184,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-14.mui"
+      },
+      {
+        "length" : 107,
+        "offset" : 2527232,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-7.mui"
+      },
+      {
+        "length" : 103,
+        "offset" : 2529280,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-3.mui"
+      },
+      {
+        "length" : 138,
+        "offset" : 2531328,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-38.mui"
+      },
+      {
+        "length" : 110,
+        "offset" : 2533376,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-10.mui"
+      },
+      {
+        "length" : 111,
+        "offset" : 2535424,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-11.mui"
+      },
+      {
+        "length" : 139,
+        "offset" : 2537472,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-39.mui"
+      },
+      {
+        "length" : 102,
+        "offset" : 2539520,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-2.mui"
+      },
+      {
+        "length" : 208,
+        "offset" : 2541568,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-108.mui"
+      },
+      {
+        "length" : 100,
+        "offset" : 2543616,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-0.mui"
+      },
+      {
+        "length" : 113,
+        "offset" : 2545664,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-13.mui"
+      },
+      {
+        "length" : 112,
+        "offset" : 2547712,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-12.mui"
+      },
+      {
+        "length" : 101,
+        "offset" : 2549760,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-1.mui"
+      },
+      {
+        "length" : 209,
+        "offset" : 2551808,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-109.mui"
+      },
+      {
+        "length" : 175,
+        "offset" : 2553856,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-75.mui"
+      },
+      {
+        "length" : 161,
+        "offset" : 2555904,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-61.mui"
+      },
+      {
+        "length" : 149,
+        "offset" : 2557952,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-49.mui"
+      },
+      {
+        "length" : 148,
+        "offset" : 2560000,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-48.mui"
+      },
+      {
+        "length" : 160,
+        "offset" : 2562048,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-60.mui"
+      },
+      {
+        "length" : 174,
+        "offset" : 2564096,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-74.mui"
+      },
+      {
+        "length" : 189,
+        "offset" : 2566144,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-89.mui"
+      },
+      {
+        "length" : 162,
+        "offset" : 2568192,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-62.mui"
+      },
+      {
+        "length" : 176,
+        "offset" : 2570240,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-76.mui"
+      },
+      {
+        "length" : 177,
+        "offset" : 2572288,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-77.mui"
+      },
+      {
+        "length" : 163,
+        "offset" : 2574336,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-63.mui"
+      },
+      {
+        "length" : 188,
+        "offset" : 2576384,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-88.mui"
+      },
+      {
+        "length" : 198,
+        "offset" : 2578432,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-98.mui"
+      },
+      {
+        "length" : 167,
+        "offset" : 2580480,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-67.mui"
+      },
+      {
+        "length" : 173,
+        "offset" : 2582528,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-73.mui"
+      },
+      {
+        "length" : 172,
+        "offset" : 2584576,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-72.mui"
+      },
+      {
+        "length" : 166,
+        "offset" : 2586624,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-66.mui"
+      },
+      {
+        "length" : 199,
+        "offset" : 2588672,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-99.mui"
+      },
+      {
+        "length" : 158,
+        "offset" : 2590720,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-58.mui"
+      },
+      {
+        "length" : 170,
+        "offset" : 2592768,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-70.mui"
+      },
+      {
+        "length" : 164,
+        "offset" : 2594816,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-64.mui"
+      },
+      {
+        "length" : 165,
+        "offset" : 2596864,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-65.mui"
+      },
+      {
+        "length" : 171,
+        "offset" : 2598912,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-71.mui"
+      },
+      {
+        "length" : 159,
+        "offset" : 2600960,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-59.mui"
+      },
+      {
+        "length" : 150000,
+        "offset" : 2603008,
+        "source" : "tree:efi/boot/bootx64.efi"
+      },
+      {
+        "length" : 16384,
+        "offset" : 2754560,
+        "source" : "tree:efi/microsoft/boot/bcd"
+      }
+    ],
+    "sha256" : "b8e0a2cab99dbddc1965129641fde8fbd55065d4eec85d569925e38280016556",
+    "size" : 3299328
+  },
+  "win7" : {
+    "ranges" : [
+      {
+        "length" : 90000,
+        "offset" : 901120,
+        "source" : "tree:setup.exe"
+      },
+      {
+        "length" : 400000,
+        "offset" : 993280,
+        "source" : "tree:bootmgr"
+      },
+      {
+        "length" : 125000,
+        "offset" : 1394688,
+        "source" : "tree:bootmgr.efi"
+      },
+      {
+        "length" : 49536,
+        "offset" : 1521664,
+        "source" : "tree:boot/boot.sdi"
+      },
+      {
+        "length" : 16384,
+        "offset" : 1572864,
+        "source" : "tree:boot/bcd"
+      },
+      {
+        "length" : 3331,
+        "offset" : 1589248,
+        "source" : "tree:sources/x.y.z.dat"
+      },
+      {
+        "length" : 2665,
+        "offset" : 1593344,
+        "source" : "tree:sources/lower.txt"
+      },
+      {
+        "length" : 2332,
+        "offset" : 1597440,
+        "source" : "tree:sources/UPPER.TXT"
+      },
+      {
+        "length" : 1999,
+        "offset" : 1601536,
+        "source" : "tree:sources/ñandú.inf"
+      },
+      {
+        "length" : 200000,
+        "offset" : 1605632,
+        "source" : "tree:sources/boot.wim"
+      },
+      {
+        "length" : 1666,
+        "offset" : 1806336,
+        "source" : "tree:sources/a name with spaces.txt"
+      },
+      {
+        "length" : 2998,
+        "offset" : 1808384,
+        "source" : "tree:sources/MiXeD.Cab"
+      },
+      {
+        "length" : 1000,
+        "offset" : 1812480,
+        "source" : "tree:sources/api-ms-win-downlevel-shlwapi-l1-1-0.dll"
+      },
+      {
+        "length" : 529425,
+        "offset" : 1814528,
+        "source" : "tree:sources/install.wim"
+      },
+      {
+        "length" : 1333,
+        "offset" : 2344960,
+        "source" : "tree:sources/Microsoft-Windows-Setup.Resources.mui"
+      },
+      {
+        "length" : 197,
+        "offset" : 2347008,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-97.mui"
+      },
+      {
+        "length" : 183,
+        "offset" : 2349056,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-83.mui"
+      },
+      {
+        "length" : 154,
+        "offset" : 2351104,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-54.mui"
+      },
+      {
+        "length" : 140,
+        "offset" : 2353152,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-40.mui"
+      },
+      {
+        "length" : 168,
+        "offset" : 2355200,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-68.mui"
+      },
+      {
+        "length" : 169,
+        "offset" : 2357248,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-69.mui"
+      },
+      {
+        "length" : 141,
+        "offset" : 2359296,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-41.mui"
+      },
+      {
+        "length" : 155,
+        "offset" : 2361344,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-55.mui"
+      },
+      {
+        "length" : 182,
+        "offset" : 2363392,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-82.mui"
+      },
+      {
+        "length" : 196,
+        "offset" : 2365440,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-96.mui"
+      },
+      {
+        "length" : 180,
+        "offset" : 2367488,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-80.mui"
+      },
+      {
+        "length" : 194,
+        "offset" : 2369536,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-94.mui"
+      },
+      {
+        "length" : 143,
+        "offset" : 2371584,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-43.mui"
+      },
+      {
+        "length" : 157,
+        "offset" : 2373632,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-57.mui"
+      },
+      {
+        "length" : 156,
+        "offset" : 2375680,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-56.mui"
+      },
+      {
+        "length" : 142,
+        "offset" : 2377728,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-42.mui"
+      },
+      {
+        "length" : 195,
+        "offset" : 2379776,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-95.mui"
+      },
+      {
+        "length" : 181,
+        "offset" : 2381824,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-81.mui"
+      },
+      {
+        "length" : 185,
+        "offset" : 2383872,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-85.mui"
+      },
+      {
+        "length" : 191,
+        "offset" : 2385920,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-91.mui"
+      },
+      {
+        "length" : 146,
+        "offset" : 2387968,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-46.mui"
+      },
+      {
+        "length" : 152,
+        "offset" : 2390016,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-52.mui"
+      },
+      {
+        "length" : 153,
+        "offset" : 2392064,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-53.mui"
+      },
+      {
+        "length" : 147,
+        "offset" : 2394112,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-47.mui"
+      },
+      {
+        "length" : 190,
+        "offset" : 2396160,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-90.mui"
+      },
+      {
+        "length" : 184,
+        "offset" : 2398208,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-84.mui"
+      },
+      {
+        "length" : 192,
+        "offset" : 2400256,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-92.mui"
+      },
+      {
+        "length" : 186,
+        "offset" : 2402304,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-86.mui"
+      },
+      {
+        "length" : 179,
+        "offset" : 2404352,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-79.mui"
+      },
+      {
+        "length" : 151,
+        "offset" : 2406400,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-51.mui"
+      },
+      {
+        "length" : 145,
+        "offset" : 2408448,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-45.mui"
+      },
+      {
+        "length" : 144,
+        "offset" : 2410496,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-44.mui"
+      },
+      {
+        "length" : 150,
+        "offset" : 2412544,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-50.mui"
+      },
+      {
+        "length" : 178,
+        "offset" : 2414592,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-78.mui"
+      },
+      {
+        "length" : 187,
+        "offset" : 2416640,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-87.mui"
+      },
+      {
+        "length" : 193,
+        "offset" : 2418688,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-93.mui"
+      },
+      {
+        "length" : 204,
+        "offset" : 2420736,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-104.mui"
+      },
+      {
+        "length" : 210,
+        "offset" : 2422784,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-110.mui"
+      },
+      {
+        "length" : 137,
+        "offset" : 2424832,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-37.mui"
+      },
+      {
+        "length" : 123,
+        "offset" : 2426880,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-23.mui"
+      },
+      {
+        "length" : 122,
+        "offset" : 2428928,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-22.mui"
+      },
+      {
+        "length" : 136,
+        "offset" : 2430976,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-36.mui"
+      },
+      {
+        "length" : 211,
+        "offset" : 2433024,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-111.mui"
+      },
+      {
+        "length" : 205,
+        "offset" : 2435072,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-105.mui"
+      },
+      {
+        "length" : 213,
+        "offset" : 2437120,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-113.mui"
+      },
+      {
+        "length" : 207,
+        "offset" : 2439168,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-107.mui"
+      },
+      {
+        "length" : 120,
+        "offset" : 2441216,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-20.mui"
+      },
+      {
+        "length" : 134,
+        "offset" : 2443264,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-34.mui"
+      },
+      {
+        "length" : 135,
+        "offset" : 2445312,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-35.mui"
+      },
+      {
+        "length" : 121,
+        "offset" : 2447360,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-21.mui"
+      },
+      {
+        "length" : 206,
+        "offset" : 2449408,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-106.mui"
+      },
+      {
+        "length" : 212,
+        "offset" : 2451456,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-112.mui"
+      },
+      {
+        "length" : 216,
+        "offset" : 2453504,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-116.mui"
+      },
+      {
+        "length" : 202,
+        "offset" : 2455552,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-102.mui"
+      },
+      {
+        "length" : 119,
+        "offset" : 2457600,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-19.mui"
+      },
+      {
+        "length" : 125,
+        "offset" : 2459648,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-25.mui"
+      },
+      {
+        "length" : 131,
+        "offset" : 2461696,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-31.mui"
+      },
+      {
+        "length" : 130,
+        "offset" : 2463744,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-30.mui"
+      },
+      {
+        "length" : 124,
+        "offset" : 2465792,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-24.mui"
+      },
+      {
+        "length" : 118,
+        "offset" : 2467840,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-18.mui"
+      },
+      {
+        "length" : 203,
+        "offset" : 2469888,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-103.mui"
+      },
+      {
+        "length" : 217,
+        "offset" : 2471936,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-117.mui"
+      },
+      {
+        "length" : 201,
+        "offset" : 2473984,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-101.mui"
+      },
+      {
+        "length" : 215,
+        "offset" : 2476032,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-115.mui"
+      },
+      {
+        "length" : 109,
+        "offset" : 2478080,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-9.mui"
+      },
+      {
+        "length" : 132,
+        "offset" : 2480128,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-32.mui"
+      },
+      {
+        "length" : 126,
+        "offset" : 2482176,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-26.mui"
+      },
+      {
+        "length" : 127,
+        "offset" : 2484224,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-27.mui"
+      },
+      {
+        "length" : 133,
+        "offset" : 2486272,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-33.mui"
+      },
+      {
+        "length" : 108,
+        "offset" : 2488320,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-8.mui"
+      },
+      {
+        "length" : 214,
+        "offset" : 2490368,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-114.mui"
+      },
+      {
+        "length" : 200,
+        "offset" : 2492416,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-100.mui"
+      },
+      {
+        "length" : 219,
+        "offset" : 2494464,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-119.mui"
+      },
+      {
+        "length" : 105,
+        "offset" : 2496512,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-5.mui"
+      },
+      {
+        "length" : 116,
+        "offset" : 2498560,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-16.mui"
+      },
+      {
+        "length" : 117,
+        "offset" : 2500608,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-17.mui"
+      },
+      {
+        "length" : 104,
+        "offset" : 2502656,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-4.mui"
+      },
+      {
+        "length" : 218,
+        "offset" : 2504704,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-118.mui"
+      },
+      {
+        "length" : 106,
+        "offset" : 2506752,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-6.mui"
+      },
+      {
+        "length" : 115,
+        "offset" : 2508800,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-15.mui"
+      },
+      {
+        "length" : 129,
+        "offset" : 2510848,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-29.mui"
+      },
+      {
+        "length" : 128,
+        "offset" : 2512896,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-28.mui"
+      },
+      {
+        "length" : 114,
+        "offset" : 2514944,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-14.mui"
+      },
+      {
+        "length" : 107,
+        "offset" : 2516992,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-7.mui"
+      },
+      {
+        "length" : 103,
+        "offset" : 2519040,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-3.mui"
+      },
+      {
+        "length" : 138,
+        "offset" : 2521088,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-38.mui"
+      },
+      {
+        "length" : 110,
+        "offset" : 2523136,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-10.mui"
+      },
+      {
+        "length" : 111,
+        "offset" : 2525184,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-11.mui"
+      },
+      {
+        "length" : 139,
+        "offset" : 2527232,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-39.mui"
+      },
+      {
+        "length" : 102,
+        "offset" : 2529280,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-2.mui"
+      },
+      {
+        "length" : 208,
+        "offset" : 2531328,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-108.mui"
+      },
+      {
+        "length" : 100,
+        "offset" : 2533376,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-0.mui"
+      },
+      {
+        "length" : 113,
+        "offset" : 2535424,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-13.mui"
+      },
+      {
+        "length" : 112,
+        "offset" : 2537472,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-12.mui"
+      },
+      {
+        "length" : 101,
+        "offset" : 2539520,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-1.mui"
+      },
+      {
+        "length" : 209,
+        "offset" : 2541568,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-109.mui"
+      },
+      {
+        "length" : 175,
+        "offset" : 2543616,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-75.mui"
+      },
+      {
+        "length" : 161,
+        "offset" : 2545664,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-61.mui"
+      },
+      {
+        "length" : 149,
+        "offset" : 2547712,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-49.mui"
+      },
+      {
+        "length" : 148,
+        "offset" : 2549760,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-48.mui"
+      },
+      {
+        "length" : 160,
+        "offset" : 2551808,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-60.mui"
+      },
+      {
+        "length" : 174,
+        "offset" : 2553856,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-74.mui"
+      },
+      {
+        "length" : 189,
+        "offset" : 2555904,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-89.mui"
+      },
+      {
+        "length" : 162,
+        "offset" : 2557952,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-62.mui"
+      },
+      {
+        "length" : 176,
+        "offset" : 2560000,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-76.mui"
+      },
+      {
+        "length" : 177,
+        "offset" : 2562048,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-77.mui"
+      },
+      {
+        "length" : 163,
+        "offset" : 2564096,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-63.mui"
+      },
+      {
+        "length" : 188,
+        "offset" : 2566144,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-88.mui"
+      },
+      {
+        "length" : 198,
+        "offset" : 2568192,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-98.mui"
+      },
+      {
+        "length" : 167,
+        "offset" : 2570240,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-67.mui"
+      },
+      {
+        "length" : 173,
+        "offset" : 2572288,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-73.mui"
+      },
+      {
+        "length" : 172,
+        "offset" : 2574336,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-72.mui"
+      },
+      {
+        "length" : 166,
+        "offset" : 2576384,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-66.mui"
+      },
+      {
+        "length" : 199,
+        "offset" : 2578432,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-99.mui"
+      },
+      {
+        "length" : 158,
+        "offset" : 2580480,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-58.mui"
+      },
+      {
+        "length" : 170,
+        "offset" : 2582528,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-70.mui"
+      },
+      {
+        "length" : 164,
+        "offset" : 2584576,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-64.mui"
+      },
+      {
+        "length" : 165,
+        "offset" : 2586624,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-65.mui"
+      },
+      {
+        "length" : 171,
+        "offset" : 2588672,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-71.mui"
+      },
+      {
+        "length" : 159,
+        "offset" : 2590720,
+        "source" : "tree:sources/en-us/many-files-in-one-folder-59.mui"
+      },
+      {
+        "length" : 16384,
+        "offset" : 2592768,
+        "source" : "tree:efi/microsoft/boot/bcd"
+      },
+      {
+        "length" : 1474560,
+        "offset" : 2609152,
+        "source" : "tree:efi/microsoft/boot/efisys.bin"
+      }
+    ],
+    "sha256" : "db83bbb6966653fc2dfec315a96949c4592cf37c761326696c94ae70e8705ab0",
+    "size" : 4612096
+  }
+}

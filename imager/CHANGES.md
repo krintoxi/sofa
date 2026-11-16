@@ -4,6 +4,25 @@ The Mac app in this folder. Each build on `main` replaces the zip on the
 [`sofa-box-imager` release](https://github.com/krintoxi/sofa/releases/tag/sofa-box-imager). Its version is `VERSION`
 here. Until 0.3.0 its changes were written up with Sofa Box OS's, in `deploy/sofa-box/CHANGES.md`.
 
+## 0.4.2
+
+**Every core test now runs on Linux too**, not only on the Mac. The Mac app does what 0.4.0 did.
+
+- **The test disks macOS's own tools make are committed** (`Tests/ImagerKitTests/Fixtures/disks`): Windows-like ISOs
+  (11, 10, 7 with its `efisys.bin`, ARM64, 11 with its own `autounattend.xml`), an ISO without Windows parts and a
+  plain ISO 9660 from `hdiutil makehybrid`, and `efisys.bin` from `newfs_msdos`. Each is kept as a skeleton, the disk
+  exactly as the tool wrote it with the files the tests make themselves zeroed (about 8 KB packed for a 3.3 MB ISO),
+  plus where each file's bytes go back; put back, its SHA-256 must be the one macOS's disk had. `scripts/disk-fixtures.sh`
+  makes them again on a Mac, and on the Mac a test makes them afresh to check they still read the same.
+- **The stick is read back by a FAT32 reader written for the tests**, apart from the code that makes it. On the Mac
+  every read must match macOS's own FAT driver file for file; on Linux it's the reader. `fsck_msdos` stays the Mac's.
+- So the 15 tests that skipped on Linux in 0.4.1 run there: the UDF reader, finding and telling Windows ISOs apart,
+  the FAT32 stick as a whole (its files, BOOTMGR's run, the same ISO making the same stick), Windows 7's loader, the
+  switches' file and what kind of ISO a file is. They found one more difference between the systems: macOS lists
+  "ñandú.inf" with a combining tilde and Linux keeps the name as it was made, so the tests look files up by Swift
+  string, which matches either way.
+- GitHub's Linux job now allows only the fresh-disk check (it needs macOS) and the tests run when asked to skip.
+
 ## 0.4.1
 
 **The shared core builds and passes its tests on Linux**, the first step to Windows and Linux versions (README, "On

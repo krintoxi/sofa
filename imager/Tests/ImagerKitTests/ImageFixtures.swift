@@ -143,83 +143,6 @@ enum FakeWIM {
     }
 }
 
-/// Windows installer ISOs made up for the tests: the folders and files Microsoft's have, with made-up contents, put in
-/// a UDF image by macOS's own `hdiutil makehybrid` (UDF 1.02, as Microsoft's are).
-enum FakeWindowsISO {
-    static let longNames = ["api-ms-win-downlevel-shlwapi-l1-1-0.dll", "Microsoft-Windows-Setup.Resources.mui",
-                            "a name with spaces.txt", "ñandú.inf", "UPPER.TXT", "lower.txt", "MiXeD.Cab", "x.y.z.dat"]
-
-    /// The folder it's made from (kept, to compare against).
-    struct Made {
-        let folder: URL
-        let iso: URL
-    }
-
-    static func make(_ images: [FakeWIM.Image], resources: [Int] = [40_000, 120_000, 2_000, 65_536, 300_000],
-                     uefi: Bool = true, efisysLoader: Bool = false, bios: Bool = true, extra: [String: Data] = [:],
-                     solid: Bool = false) throws -> Made {
-        let dir = try scratch("winiso")
-        let tree = dir.appendingPathComponent("tree")
-        func put(_ path: String, _ data: Data) throws {
-            let u = tree.appendingPathComponent(path)
-            try FileManager.default.createDirectory(at: u.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try data.write(to: u)
-        }
-        if bios {
-            try put("bootmgr", noise(400_000, seed: 11))
-            try put("boot/bcd", noise(16_384, seed: 12))
-            try put("boot/boot.sdi", noise(3_170_304 / 64, seed: 13))
-        }
-        try put("bootmgr.efi", noise(2_000_000 / 16, seed: 14))
-        if uefi { try put("efi/boot/bootx64.efi", noise(150_000, seed: 15)) }
-        try put("efi/microsoft/boot/bcd", noise(16_384, seed: 16))
-        if efisysLoader { try put("efi/microsoft/boot/efisys.bin", try efisys(loader: noise(98_765, seed: 17))) }
-        try put("setup.exe", noise(90_000, seed: 18))
-        try put("autorun.inf", Data("[AutoRun.Amd64]\r\nopen=setup.exe\r\n".utf8))
-        try put("sources/boot.wim", noise(200_000, seed: 19))
-        try put("sources/install.wim", FakeWIM.make(images: images, resources: resources, solid: solid))
-        try put("sources/empty.dat", Data())
-        for (i, n) in longNames.enumerated() { try put("sources/" + n, noise(1000 + i * 333, seed: 30 + UInt64(i))) }
-        // A folder holding more entries than one cluster.
-        for i in 0..<120 { try put("sources/en-us/many-files-in-one-folder-\(i).mui", noise(100 + i, seed: 200 + UInt64(i))) }
-        try put("support/logging/deep/deeper/deepest.txt", Data("deep".utf8))
-        for (p, d) in extra { try put(p, d) }
-        let iso = dir.appendingPathComponent("win.iso")
-        try sh("/usr/bin/hdiutil", ["makehybrid", "-quiet", "-iso", "-udf", "-udf-version", "1.02",
-                                     "-udf-volume-name", "CCCOMA_X64FRE_EN-US_DV9", "-o", iso.path, tree.path])
-        return Made(folder: tree, iso: iso)
-    }
-
-    /// A FAT12 floppy image like Windows' `efisys.bin`, holding EFI/BOOT/BOOTX64.EFI (made with macOS's newfs_msdos,
-    /// filled through macOS's own FAT driver).
-    static func efisys(loader: Data) throws -> Data {
-        let dir = try scratch("efisys")
-        defer { try? FileManager.default.removeItem(at: dir) }
-        let img = dir.appendingPathComponent("efisys.bin")
-        FileManager.default.createFile(atPath: img.path, contents: Data(count: 1_474_560))
-        // Attached as a device first: newfs_msdos won't format a plain file on every macOS.
-        let out = try sh("/usr/bin/hdiutil", ["attach", "-nomount", "-imagekey", "diskimage-class=CRawDiskImage", "-plist",
-                                              img.path])
-        let plist = try PropertyListSerialization.propertyList(from: Data(out.utf8), format: nil) as? [String: Any]
-        let devs = ((plist?["system-entities"] as? [[String: Any]]) ?? []).compactMap { $0["dev-entry"] as? String }
-        guard devs.count == 1, let dev = devs.first, dev.range(of: #"^/dev/disk[0-9]+$"#, options: .regularExpression) != nil
-        else {
-            for d in devs { _ = try? sh("/usr/bin/hdiutil", ["detach", "-force", d]) }
-            throw NSError(domain: "efisys", code: 1, userInfo: [NSLocalizedDescriptionKey: "not one disk: \(out)"])
-        }
-        defer { _ = try? sh("/usr/bin/hdiutil", ["detach", "-force", dev]) }
-        try sh("/sbin/newfs_msdos", ["-F", "12", "-f", "1440", "-v", "EFISECTOR", "/dev/r" + dev.dropFirst("/dev/".count)])
-        let mount = dir.appendingPathComponent("m")
-        try FileManager.default.createDirectory(at: mount, withIntermediateDirectories: true)
-        try sh("/usr/sbin/diskutil", ["mount", "-mountPoint", mount.path, dev])
-        try FileManager.default.createDirectory(at: mount.appendingPathComponent("EFI/BOOT"), withIntermediateDirectories: true)
-        try loader.write(to: mount.appendingPathComponent("EFI/BOOT/BOOTX64.EFI"))
-        try sh("/usr/sbin/diskutil", ["unmount", mount.path])
-        try sh("/usr/bin/hdiutil", ["detach", dev])
-        return try Data(contentsOf: img)
-    }
-}
-
 /// A layout written into a sparse file of `size` bytes (a stand-in for the stick).
 func writeLayout(_ layout: Layout, size: Int64, to url: URL) throws {
     FileManager.default.createFile(atPath: url.path, contents: nil)
@@ -247,20 +170,4 @@ func files(in folder: URL) throws -> [String: Data] {
         out[rel] = try Data(contentsOf: f)
     }
     return out
-}
-
-/// Attaches a whole-disk image, mounts its FAT32 partition (macOS's own FAT driver) and gives the files on it.
-func filesOnStick(_ image: URL) throws -> [String: Data] {
-    let mount = try scratch("mnt")
-    defer { try? FileManager.default.removeItem(at: mount) }
-    let out = try sh("/usr/bin/hdiutil", ["attach", "-imagekey", "diskimage-class=CRawDiskImage", "-nobrowse", "-readonly",
-                                           "-mountrandom", mount.path, "-plist", image.path])
-    let plist = try PropertyListSerialization.propertyList(from: Data(out.utf8), format: nil) as? [String: Any]
-    let entities = (plist?["system-entities"] as? [[String: Any]]) ?? []
-    let dev = entities.compactMap { $0["dev-entry"] as? String }.filter { $0.range(of: #"^/dev/disk[0-9]+$"#, options: .regularExpression) != nil }.first
-    defer { if let d = dev { _ = try? sh("/usr/bin/hdiutil", ["detach", "-force", d]) } }
-    guard let mp = entities.compactMap({ $0["mount-point"] as? String }).first else {
-        throw NSError(domain: "mount", code: 1, userInfo: [NSLocalizedDescriptionKey: "nothing mounted: \(out)"])
-    }
-    return try files(in: URL(fileURLWithPath: mp))
 }

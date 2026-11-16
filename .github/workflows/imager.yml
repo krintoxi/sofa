@@ -20,8 +20,9 @@ permissions:
 
 jobs:
   linux:
-    # The shared core and its tests in the Swift project's own Linux image, on Intel and Arm. The tests that need macOS's
-    # hdiutil or newfs_msdos to make or read their test disk skip here (they run on the Macs below); any other skip fails.
+    # The shared core and its tests in the Swift project's own Linux image, on Intel and Arm. The test disks macOS's tools
+    # make are committed (imager/Tests/ImagerKitTests/Fixtures/disks), so only the check that makes them afresh to compare
+    # needs macOS (it runs on the Macs below); apart from the tests run only when asked, any other skip fails.
     name: linux (${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
     container: swift:6.4-noble
@@ -45,13 +46,14 @@ jobs:
         run: |
           set -o pipefail
           swift test 2>&1 | tee test-output.txt
-      - name: Only the tests that need macOS (or are run when asked) were skipped
+      - name: Only the fresh-disk check (it needs macOS) and the tests run when asked were skipped
         working-directory: imager
         run: |
           grep -E "Executed [0-9]+ tests" test-output.txt | tail -1
-          grep -c "Test skipped - needs macOS's" test-output.txt || true
-          if grep "Test skipped - " test-output.txt | grep -v -e "Test skipped - needs macOS's" -e "Test skipped - set SOFA_IMAGER_"; then
-            echo "::error title=Tests were skipped on Linux::only tests that need macOS's own tools may skip here."
+          if grep "Test skipped - " test-output.txt \
+              | grep -v -e "DiskFixtureTests.testAFreshDiskReadsLikeTheCommittedOne : Test skipped - needs macOS's" \
+                        -e "Test skipped - set SOFA_IMAGER_"; then
+            echo "::error title=Tests were skipped on Linux::only the fresh-disk check and the tests run when asked may skip here."
             exit 1
           fi
 

@@ -5,14 +5,9 @@ import XCTest
 /// What a file is, from its first sectors: an ISO that's also a disk, a disk image, a packed one, Windows, or an ISO
 /// that only starts from a DVD.
 final class ImageInspectorTests: XCTestCase {
-    /// An ISO 9660 image made by macOS's own hdiutil (no partition table: a DVD's ISO).
+    /// An ISO 9660 image made by macOS's own hdiutil (no partition table: a DVD's ISO), committed (see `DiskFixture`).
     private static let plainISOMade = Result { () throws -> Data in
-        let dir = try scratch("iso")
-        try FileManager.default.createDirectory(at: dir.appendingPathComponent("t/boot"), withIntermediateDirectories: true)
-        try noise(50_000, seed: 4).write(to: dir.appendingPathComponent("t/boot/vmlinuz"))
-        let iso = dir.appendingPathComponent("plain.iso")
-        try sh("/usr/bin/hdiutil", ["makehybrid", "-quiet", "-iso", "-o", iso.path, dir.appendingPathComponent("t").path])
-        return try Data(contentsOf: iso)
+        try DiskFixture.bytes("plain-iso", tree: try OtherDisks.plainTree())
     }
     static var plainISO: Data { get throws { try plainISOMade.get() } }
 
@@ -81,7 +76,7 @@ final class ImageInspectorTests: XCTestCase {
     }
 
     func testWindowsIsntWrittenWhole() throws {
-        let made = try FakeWindowsISO.make(FakeWIM.windows10)
+        let made = try FakeWindowsISO.make(.ten)
         let kind = try ImageInspector.inspect(try FileRandomAccess(url: made.iso))
         guard case .windows(let w) = kind else { return XCTFail("\(kind)") }
         XCTAssertEqual(w.version, .ten)

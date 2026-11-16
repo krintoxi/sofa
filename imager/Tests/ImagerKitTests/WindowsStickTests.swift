@@ -5,11 +5,11 @@ import FoundationXML
 @testable import ImagerKit
 import XCTest
 
-/// The Windows stick, piece by piece, on made-up Windows ISOs: the UDF reader against the folder the ISO was made
-/// from, the WIM splitter against the WIM it split, and the finished FAT32 stick against macOS's own FAT checker
-/// (`fsck_msdos`) and macOS's own FAT driver, which mounts it and reads every file back.
+/// The Windows stick, piece by piece, on made-up Windows ISOs (made by macOS's hdiutil, committed: see `DiskFixture`):
+/// the UDF reader against the folder the ISO was made from, the WIM splitter against the WIM it split, and the finished
+/// FAT32 stick read back file by file (on the Mac by macOS's own FAT driver as well, and checked by `fsck_msdos`).
 final class WindowsStickTests: XCTestCase {
-    private static let elevenMade = Result { try FakeWindowsISO.make(FakeWIM.windows11) }
+    private static let elevenMade = Result { try FakeWindowsISO.make(.eleven) }
     static var eleven: FakeWindowsISO.Made { get throws { try elevenMade.get() } }
 
     // MARK: UDF
@@ -55,20 +55,17 @@ final class WindowsStickTests: XCTestCase {
     }
 
     func testWindows10And7AreToldApart() throws {
-        let ten = try FakeWindowsISO.make(FakeWIM.windows10)
+        let ten = try FakeWindowsISO.make(.ten)
         let w10 = try WindowsMedia.detect(try FileRandomAccess(url: ten.iso))
         XCTAssertEqual(w10.version, .ten)
         // Windows 7: no efi/boot/bootx64.efi on the ISO, only inside its UEFI boot image.
-        let seven = try FakeWindowsISO.make(FakeWIM.windows7, uefi: false, efisysLoader: true)
+        let seven = try FakeWindowsISO.make(.seven)
         let w7 = try WindowsMedia.detect(try FileRandomAccess(url: seven.iso))
         XCTAssertEqual(w7.version, .seven)
         XCTAssertEqual(w7.uefi, .fromEfisys)
         XCTAssertTrue(w7.starts.contains("CSM"))
         // ARM64: UEFI only.
-        var arm = FakeWIM.windows11
-        arm[0].arch = 12
-        arm[1].arch = 12
-        let a = try FakeWindowsISO.make(arm, extra: ["efi/boot/bootaa64.efi": noise(1000, seed: 5)])
+        let a = try FakeWindowsISO.make(.arm64)
         let wa = try WindowsMedia.detect(try FileRandomAccess(url: a.iso))
         XCTAssertEqual(wa.arch, .arm64)
         XCTAssertFalse(wa.biosBoot)
@@ -76,12 +73,7 @@ final class WindowsStickTests: XCTestCase {
     }
 
     func testAnISOWithoutWindowsPartsIsntWindows() throws {
-        let dir = try scratch("notwin")
-        try FileManager.default.createDirectory(at: dir.appendingPathComponent("t/sources"), withIntermediateDirectories: true)
-        try Data("x".utf8).write(to: dir.appendingPathComponent("t/sources/install.wim"))
-        let iso = dir.appendingPathComponent("x.iso")
-        try sh("/usr/bin/hdiutil", ["makehybrid", "-quiet", "-iso", "-udf", "-o", iso.path, dir.appendingPathComponent("t").path])
-        let f = try FileRandomAccess(url: iso)
+        let f = try FileRandomAccess(url: try DiskFixture.file("not-windows", tree: try OtherDisks.notWindowsTree()))
         XCTAssertThrowsError(try WindowsMedia.detect(f))
         XCTAssertEqual(try ImageInspector.inspect(f), .discOnly)
     }
@@ -171,9 +163,10 @@ final class WindowsStickTests: XCTestCase {
 
     // MARK: the FAT32 stick
 
-    /// The finished stick, checked by macOS: `fsck_msdos` finds nothing wrong, and its FAT driver reads every file back
-    /// as it was on the ISO, long names and all, with install.wim split into parts that put it back together.
-    func testTheStickIsAFAT32VolumeMacOSReadsBack() throws {
+    /// The finished stick: every file read back as it was on the ISO, long names and all, with install.wim split into
+    /// parts that put it back together. On the Mac, macOS's `fsck_msdos` also finds nothing wrong, and macOS's own FAT
+    /// driver reads it the same.
+    func testTheStickIsAFAT32VolumeThatReadsBack() throws {
         let made = try Self.eleven
         let iso = try FileRandomAccess(url: made.iso)
         let disk: Int64 = 64 << 20
@@ -185,12 +178,14 @@ final class WindowsStickTests: XCTestCase {
         let image = dir.appendingPathComponent("stick.img")
         try writeLayout(stick.layout, size: disk, to: image)
 
+        #if os(macOS)
         // The partition on its own, for fsck_msdos.
         let part = dir.appendingPathComponent("part.img")
         let all = try Data(contentsOf: image)
         try all.subdata(in: 1 << 20..<Int(disk)).write(to: part)
         let fsck = try sh("/sbin/fsck_msdos", ["-n", part.path])
         XCTAssertFalse(fsck.lowercased().contains("fix"), fsck)
+        #endif
 
         let onStick = try filesOnStick(image)
         var expected = try files(in: made.folder)
@@ -292,7 +287,7 @@ final class WindowsStickTests: XCTestCase {
     // MARK: Windows 7's UEFI loader
 
     func testWindows7GetsItsUEFILoaderFromItsBootImage() throws {
-        let seven = try FakeWindowsISO.make(FakeWIM.windows7, uefi: false, efisysLoader: true)
+        let seven = try FakeWindowsISO.make(.seven)
         let iso = try FileRandomAccess(url: seven.iso)
         let disk: Int64 = 64 << 20
         let (stick, media) = try WindowsStick.build(iso: iso, diskBytes: disk, sectorBytes: 512)
@@ -357,12 +352,12 @@ final class WindowsStickTests: XCTestCase {
     }
 
     func testTheSwitchesAreForWindows11Only() throws {
-        let ten = try FakeWindowsISO.make(FakeWIM.windows10)
+        let ten = try FakeWindowsISO.make(.ten)
         XCTAssertThrowsError(try WindowsStick.build(iso: try FileRandomAccess(url: ten.iso), diskBytes: 64 << 20, sectorBytes: 512,
                                                     options: WindowsOptions(skipHardwareChecks: true))) {
             XCTAssertEqual($0 as? WindowsStickError, .refused("The switches are for Windows 11 only."))
         }
-        let own = try FakeWindowsISO.make(FakeWIM.windows11, extra: ["autounattend.xml": Data("<unattend/>".utf8)])
+        let own = try FakeWindowsISO.make(.elevenWithUnattend)
         XCTAssertThrowsError(try WindowsStick.build(iso: try FileRandomAccess(url: own.iso), diskBytes: 64 << 20, sectorBytes: 512,
                                                     options: WindowsOptions(localAccount: "Sofa")))
     }
