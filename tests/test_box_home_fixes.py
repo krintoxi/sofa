@@ -309,11 +309,18 @@ class OnHome(unittest.TestCase):
         p.press("Escape", 27)
 
     def test_one_way_of_writing_the_time(self):
-        p = self.home()
-        home = p.value("document.querySelector('#sptClock').textContent")
-        p = self.home("#/games")
-        self.until("!!document.querySelector('#clock').textContent")
-        self.assertEqual(p.value("document.querySelector('#clock').textContent"), home)
+        # Each page writes its clock when it loads. When the minute turns between the two loads (on GitHub once:
+        # '8:39PM' != '8:38PM'), the two are read again, a few seconds later: then they must agree. A clock written
+        # another way never agrees, however often it's read.
+        for _ in range(3):
+            p = self.home()
+            home = p.value("document.querySelector('#sptClock').textContent")
+            p = self.home("#/games")
+            self.until("!!document.querySelector('#clock').textContent")
+            games = p.value("document.querySelector('#clock').textContent")
+            if games == home:
+                break
+        self.assertEqual(games, home)
         self.assertRegex(home, r"^\d{1,2}:\d\d(AM|PM)?$")
 
 
