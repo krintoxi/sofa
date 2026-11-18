@@ -3129,7 +3129,122 @@ function srvPeople(d) {
       <div><div class="addr">${d.guest.links.map(l => `<div><b>Guest link</b><code>${esc(l)}</code></div>`).join("")}</div>
       <p class="hint" style="margin-top:10px">Tip: reserve this computer's address in your router so the code keeps working.</p>
       <div class="row-actions"><button class="mini" data-guest-clear="1">Clear guest history</button></div></div></div>
-      ${srvSwitch("guest_access", d.guest.enabled, "Allow guests", "Turn off to make the guest code stop working.")}</div></div>`;
+      ${srvSwitch("guest_access", d.guest.enabled, "Allow guests", "Turn off to make the guest code stop working.")}</div>
+    ${historyPanel()}</div>`;
+}
+/* Bringing history from Plex, Jellyfin or Emby (sofa/history.py): read a source, pick whose history goes to which
+   profile, see what matched, then import. Nothing is written before Import. */
+const HIST_SOURCES = [
+  ["plex-db", "Plex: a copy of its database", "Everyone's history: watched, where they stopped, ratings. Plex's com.plexapp.plugins.library.db, on this computer."],
+  ["plex", "Plex: its address and a token", "Your own account in full; everyone else's titles watched to the end (Plex keeps their places for their own sign-in)."],
+  ["jellyfin", "Jellyfin or Emby: its address and an API key", "Everyone's history: watched, where they stopped, favourites."],
+  ["jellyfin-db", "Jellyfin: its database", "Everyone's history, from Jellyfin's data folder on this computer (jellyfin.db, or library.db before 10.11)."]
+];
+const HIST_KEPT = `What Sofa keeps: nothing about Plex or Jellyfin. A token or key is used for this one read and never written down. A database is read from a private copy that's deleted as soon as it's read. What was read stays in Sofa's memory until you import it, or for an hour. Sofa never asks for a Plex.tv password.`;
+function historyPanel() {
+  return `<div class="panel wide"><h2>Coming from Plex or Jellyfin</h2><p class="hint">Bring everyone's history into their Sofa profile: what they watched, where they stopped, and what they liked. You see what matched before anything is written, an import never goes over a newer place in Sofa, and doing it twice changes nothing. A Kids profile stays a Kids profile and only gets family titles.</p>
+    <div class="row-actions"><button class="btn" data-history-open="1">Bring history from Plex or Jellyfin</button></div></div>`;
+}
+document.addEventListener("click", e => {
+  if (e.target.closest && e.target.closest("[data-history-open]")) historyDialog();
+});
+function historyDialog() {
+  const d = openDialog(`<p class="hint">Loading…</p>`, true);
+  d.classList.add("hist-dialog");                       // (taller than a laptop's screen: it scrolls)
+  let st = null, timer = 0;
+  const form = prefs.get("historyForm", { source: "plex-db", path: "", url: "", map: "" });
+  const people = () => Object.fromEntries([...d.querySelectorAll("[data-hist-person]")].map(s => [s.dataset.histPerson, s.value ? +s.value : null]));
+  const count = (n, w) => `<b>${n}</b> ${w}`;
+  const show = async (call, body) => {
+    try { st = await api("/api/admin/history", body, 30000); }
+    catch (ex) { const err = $(".form-error", d); if (err) err.textContent = ex.message; else toast(ex.message); return; }
+    if (!document.contains(d)) return;
+    clearTimeout(timer);
+    if (st.state === "reading") timer = setTimeout(() => show(), 1000);
+    d.innerHTML = st.state === "reading" ? reading() : st.state === "ready" ? report() : st.state === "done" && body && body.import ? done() : ask();
+    if (st.state === "done" && body && body.import) reloadLibrary().catch(() => {});   // (your own places and likes, now)
+    const f = $(".hist-form", d); if (f) pick(f.source.value);
+  };
+  const reading = () => `<h2>Reading ${esc(st.source || "")}…</h2><p>A big library takes a minute. Nothing is written.</p>
+    <div class="actions"><button class="btn ghost" data-dismiss="1">Close</button></div>`;
+  const ask = () => `<h2>Bring history from Plex or Jellyfin</h2>
+    <p>What everyone watched, where they stopped, and what they liked, into their Sofa profiles. First you see what matched; nothing is written until you press Import.</p>
+    ${st && st.state === "failed" && st.message ? `<div class="alert"><span>${esc(st.message)}</span></div>` : ""}
+    <form class="hist-form">
+      <div class="hist-sources" role="radiogroup" aria-label="Where from">${HIST_SOURCES.map(s => `<label class="hist-source"><input type="radio" name="source" value="${s[0]}"${s[0] === form.source ? " checked" : ""}><span><b>${s[1]}</b><small>${s[2]}</small></span></label>`).join("")}</div>
+      <label class="field" data-for="db"><span>Where it is on this computer</span><input name="path" value="${esc(form.path)}" autocomplete="off" spellcheck="false"></label>
+      <label class="field" data-for="api"><span>Its address</span><input name="url" value="${esc(form.url)}" autocomplete="off" spellcheck="false"></label>
+      <label class="field" data-for="api"><span data-secret-name>Token</span><input name="secret" type="password" autocomplete="off" spellcheck="false"></label>
+      <p class="hint hist-help" data-help></p>
+      <label class="field"><span>Folders (optional)</span><textarea name="map" rows="3" spellcheck="false" placeholder="/data/movies => /Volumes/Media/Movies">${esc(form.map)}</textarea>
+        <small class="hint">Where that server's folders are on this computer, one per line, if they're named differently here. Without it, files are still found by their folder and file name, then by IMDb, TMDB or TVDB ids, then by title.</small></label>
+      <div class="form-error" role="alert"></div>
+      <div class="actions"><button class="btn primary" type="submit">Read it (nothing is written)</button><button class="btn ghost" type="button" data-dismiss="1">Cancel</button></div>
+    </form>
+    <p class="hint">${HIST_KEPT}</p>`;
+  const pick = src => {
+    const db = src.endsWith("-db");
+    d.querySelectorAll("[data-for=db]").forEach(x => { x.hidden = !db; });
+    d.querySelectorAll("[data-for=api]").forEach(x => { x.hidden = db; });
+    $("[data-secret-name]", d).textContent = src === "plex" ? "Plex token" : "API key";
+    const f = $(".hist-form", d);
+    f.path.placeholder = src === "plex-db" ? "…/Plex Media Server/Plug-in Support/Databases/com.plexapp.plugins.library.db" : "…/jellyfin/data";
+    f.url.placeholder = src === "plex" ? "http://192.168.1.20:32400" : "http://192.168.1.20:8096";
+    $("[data-help]", d).innerHTML = {
+      "plex-db": "Plex keeps it in <code>Plug-in Support/Databases</code> inside its folder: on a Mac <code>~/Library/Application Support/Plex Media Server</code>, on Linux <code>/var/lib/plexmediaserver/Library/Application Support/Plex Media Server</code>, on Windows <code>%LOCALAPPDATA%\\Plex Media Server</code>. Sofa only reads it, and Plex can keep running.",
+      "plex": "In Plex's web app, open any movie's ⋯ menu → Get Info → View XML: the token is the <code>X-Plex-Token</code> at the end of that page's address. It's your Plex sign-in for this server, so it isn't kept.",
+      "jellyfin": "Make a key for Sofa: Jellyfin's Dashboard → API Keys → +; on Emby, the server settings → API Keys. Delete it there afterwards if you like.",
+      "jellyfin-db": "Jellyfin's data folder: <code>/var/lib/jellyfin/data</code> on Linux, <code>/config/data</code> in its Docker image, <code>%PROGRAMDATA%\\Jellyfin\\Server\\data</code> on Windows. Sofa only reads it, and Jellyfin can keep running."
+    }[src];
+  };
+  const lists = u => {
+    const l = u.lists, items = [];
+    if (l.unmatched.length) items.push(`<details><summary>Not in Sofa (${u.unmatched})</summary><ul>${l.unmatched.map(t => `<li>${esc(t)}</li>`).join("")}</ul></details>`);
+    if (l.conflicts.length) items.push(`<details><summary>Conflicts (${u.conflicts})</summary><ul>${l.conflicts.map(c => `<li>${esc(c.title)} <small>${esc(c.why)}</small></li>`).join("")}</ul></details>`);
+    if (l.skipped.length) items.push(`<details><summary>Left out for this profile (${u.skipped})</summary><ul>${l.skipped.map(c => `<li>${esc(c.title)} <small>${esc(c.why)}</small></li>`).join("")}</ul>${l.skipped.some(c => /Kids/.test(c.why)) ? `<p class="hint">Allow a title for Kids on its page (For kids), then read again: an import never repeats what's already here.</p>` : ""}</details>`);
+    return items.join("");
+  };
+  const report = () => {
+    const r = st.report, profs = st.profiles || [];
+    const users = r.users.map(u => {
+      const to = profs.find(p => p.id === u.profile);
+      const warn = u.kids && to && !to.kids ? `<p class="hist-warn">${esc(u.name)} had limits in ${esc(r.source)}; ${esc(to.name)} isn't a Kids profile here.</p>` : "";
+      return `<div class="hist-user"><div class="hist-head"><b>${esc(u.name)}</b>${u.kids ? ` <span class="tag">had limits</span>` : ""}<span aria-hidden="true">→</span>
+          <select data-hist-person="${esc(u.key)}" aria-label="Sofa profile for ${esc(u.name)}"><option value="">Nobody (left out)</option>${profs.map(p => `<option value="${p.id}"${p.id === u.profile ? " selected" : ""}>${esc(p.name)}${p.kids ? " (Kids)" : ""}</option>`).join("")}</select></div>
+        <p class="hist-nums">${count(u.titles, "with history")} · found ${count(u.matched.path + u.matched.ids + u.matched.title, "")}(${u.matched.path} by path, ${u.matched.ids} by id, ${u.matched.title} by title) · ${count(u.unmatched, "not in Sofa")} · ${count(u.conflicts, u.conflicts === 1 ? "conflict" : "conflicts")}${u.skipped ? " · " + count(u.skipped, "left out") : ""}${u.profile ? ` · ${count(u.new, "to write")} · ${count(u.same, "already here")}` : ""}</p>
+        ${warn}${lists(u)}</div>`;
+    }).join("");
+    return `<h2>What would come in from ${esc(r.source)}</h2>
+      <p>${count(r.titles, "titles with history")}, ${count(r.found, "found in Sofa")}: ${r.by.path} by path, ${r.by.ids} by IMDb, TMDB or TVDB id, ${r.by.title} by title. Pick whose history goes to which profile; nothing is written yet.</p>
+      ${r.notes.map(n => `<p class="hint">${esc(n)}</p>`).join("")}
+      <div class="hist-users">${users}</div>
+      <div class="form-error" role="alert"></div>
+      <div class="actions"><button class="btn primary" data-hist-import="1"${r.writes || r.likes ? "" : " disabled"}>Import ${plural(r.writes, "place")} and ${plural(r.likes, "like")}</button>
+        <button class="btn ghost" data-hist-forget="1">Start again</button></div>
+      <p class="hint">An import writes what's counted here and nothing else: never over a place in Sofa that's newer, and likes are only added. Places with no date in ${esc(r.source)} only go where Sofa has none.</p>`;
+  };
+  const done = () => `<h2>History brought in</h2>
+    <p>${plural(st.result.progress, "title")} watched or started and ${plural(st.result.likes, "like")}, for ${plural(st.result.profiles, "profile")}. Nothing from ${esc(st.source)} is kept: what was read is forgotten.</p>
+    <div class="actions"><button class="btn primary" data-dismiss="1">Done</button></div>`;
+  d.addEventListener("change", e => {
+    if (e.target.name === "source") pick(e.target.value);
+    if (e.target.dataset.histPerson) show(null, { people: people() });
+  });
+  d.addEventListener("submit", e => {
+    e.preventDefault();
+    const f = e.target, src = f.source.value;
+    Object.assign(form, { source: src, path: f.path.value.trim(), url: f.url.value.trim(), map: f.map.value });
+    prefs.set("historyForm", form);                       // (never the token or key)
+    show(null, { read: { source: src, path: form.path, url: form.url, secret: f.secret.value, map: form.map } });
+    f.secret.value = "";
+  });
+  d.addEventListener("click", e => {
+    if (e.target.closest("[data-hist-import]")) {
+      e.target.closest("[data-hist-import]").disabled = true;
+      show(null, { import: true, people: people() });
+    } else if (e.target.closest("[data-hist-forget]")) show(null, { forget: true });
+  });
+  show();
 }
 /* Internet and HTTPS: encryption, an address, the router, the certificate, then letting the internet in. */
 /* Sharing: a public library. Titles picked here (or with Share on their page) are what anyone with the link

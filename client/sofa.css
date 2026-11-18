@@ -1820,3 +1820,29 @@ html.gaming, html.gaming body { overflow: hidden; }
 html.box-lite .rail { will-change: scroll-position; isolation: isolate; }
 html.box-lite .hero.carousel .slide.on .hero-bg { animation: none; }
 html.box-lite .ep-thumb { transition: none; }
+
+/* Server → People → Coming from Plex or Jellyfin (the history import's dialog). */
+.dialog.hist-dialog { max-height: calc(100vh - 32px); max-height: calc(100dvh - 32px); overflow-y: auto; overscroll-behavior: contain; }
+.hist-help { line-height: 1.75; }
+.hist-sources { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 0 0 16px; }
+.hist-source { display: flex; gap: 10px; align-items: flex-start; padding: 12px; border-radius: 12px; border: 1px solid var(--line); background: rgba(var(--ink-rgb), .5); cursor: pointer; }
+.hist-source:has(input:checked) { border-color: var(--amber); }
+.hist-source b { display: block; font-size: 14px; }
+.hist-source small { display: block; color: var(--mist); font-size: 12.5px; line-height: 1.35; margin-top: 3px; }
+.hist-form textarea { padding: 12px 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--ink); color: var(--paper); font: 13px/1.5 ui-monospace, Menlo, monospace; resize: vertical; }
+.hist-form textarea:focus { outline: none; border-color: var(--amber); }
+.hist-form .field small.hint { margin: 0; font-size: 12.5px; }
+.hist-form [hidden] { display: none; }
+.hist-help code { display: inline; padding: 1px 5px; word-break: break-all; }
+.hist-users { display: grid; gap: 10px; margin: 0 0 8px; }
+.hist-user { padding: 12px 14px; border-radius: 12px; background: rgba(var(--ink-rgb), .5); }
+.hist-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.hist-head select { padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--ink); color: var(--paper); font: inherit; }
+.dialog .hist-nums { margin: 8px 0 4px; font-size: 13.5px; color: var(--mist); }
+.hist-nums b { color: var(--paper); }
+.dialog .hist-warn { margin: 6px 0; font-size: 13px; color: var(--alert); }
+.hist-user details { margin-top: 6px; font-size: 13.5px; }
+.hist-user summary { cursor: pointer; color: var(--soft); }
+.hist-user ul { margin: 6px 0 0; padding-left: 18px; max-height: 180px; overflow: auto; color: var(--soft); }
+.hist-user li small { color: var(--mist); }
+@media (max-width: 640px) { .hist-sources { grid-template-columns: 1fr; } }
