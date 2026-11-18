@@ -1,9 +1,9 @@
 # Raspberry Pi Imager and the Sofa Box card
 
-How Sofa Box OS shows up in Raspberry Pi Imager, why Imager's settings stay off for the card, and whether we
-need our own imager. Checked against Imager 2.0.12 (commit `84b03d9`, 2026-10-08, the newest release on
-2026-11-10), Imager 1.8.5 and 1.9.6, rpi-preseed 0.2.1 (`76bb6d2`, 2026-10-30) and userconf-pi 0.19
-(`2dec036`).
+How Sofa Box OS shows up in Raspberry Pi Imager, how it gets into Raspberry Pi's own list, why Imager's settings
+stay off for the card, and whether we need our own imager. Checked against Imager 2.0.12 (commit `84b03d9`,
+2026-10-08, still the newest release on 2026-11-18), Imager's `main` at `88d84f3` (2026-11-04), Imager 1.8.5 and
+1.9.6, rpi-preseed 0.2.1 (`76bb6d2`, 2026-10-30) and userconf-pi 0.19 (`2dec036`).
 
 ## Our list
 
@@ -103,7 +103,130 @@ schema and was built from the real releases: the 1.1.54 card's packed SHA-256 ma
 unpacked size, 5,226,102,784 bytes, is exactly Raspberry Pi OS Lite 2026-10-06's 3,078,619,136 plus the
 2 GiB the build adds.
 
-## Imager's settings (`init_format`)
+## Raspberry Pi's own list
+
+Our list is the one people open themselves. Raspberry Pi's own list is the one Imager shows everyone, under
+**Choose OS**. Third-party systems sit in its categories (Media player OS holds LibreELEC, OSMC, Volumio and
+others). Raspberry Pi adds one on request, through a form. The request is drafted, with every answer and the JSON,
+in [launch/raspberry-pi-imager-listing.md](launch/raspberry-pi-imager-listing.md). The owner sends it.
+
+### What Raspberry Pi asks for
+
+Sources, all read on 2026-11-18:
+
+- **[F]**: the form, "Request an addition to the Raspberry Pi Imager OS List" (https://forms.gle/U6JkxVfhHkn5ok2X7).
+- **[N]**: Imager's notes, `doc/schema-notes.md` at `88d84f3`, "Requesting an addition to the official Raspberry Pi
+  Imager OS List" and "Testing Your JSON Files".
+- **[P]**: Raspberry Pi's post "How to add your own images to Imager" (2025-12-11).
+- **[T]**: Raspberry Pi's trademark rules, last updated 17 June 2026.
+
+| What they ask | Source | Sofa Box OS |
+|---|---|---|
+| A named point of contact, ideally two: a person's own name and e-mail, not a mailing list | F | **The owner's to fill in.** |
+| Correct device annotations | F | Raspberry Pi's own tags, `pi5-64bit`, `pi4-64bit` and `pi3-64bit`, as Raspberry Pi OS Lite (64-bit) has them. Their tags cover more than one board each, so the list can't say "Pi 3 B+" alone (below). |
+| The name, in UTF-8, shown in bold | F | `Sofa Box OS`. |
+| A category from their list | F | `Media player OS`. |
+| An icon: a 40×40 PNG or SVG, lightweight | F, N | `docs/images/sofa-box-os-icon-40.png`, 40×40, under 3 KB. Its address works once it's on `main`. |
+| A description | F | Drafted; it names Raspberry Pi only to say what it's for. |
+| A "subitem JSON file": a minimal OS list, at most 4 levels deep, following Imager's schema strictly, with no `imager` block | F, N | `sofa-box-imager-sublist.json` (below). One level, checked against the 2.0.12 schema on every run, and against `main`'s by hand. |
+| Accurate metadata: sizes and SHA-256s, and compression Imager knows (`.xz` first) | N, P | The card's own sizes and SHA-256, from unpacking it; the packed SHA-256 is GitHub's digest; `.img.xz`. The 1.1.86 card was downloaded and unpacked again on 2026-11-18: both SHA-256s and both sizes match the list. |
+| Hosting that can be relied on | N | GitHub Releases. The entry points at the version's own file, which never changes. |
+| Tested with Imager itself, in more than one version, before sending: the addresses answer, the SHA-256 matches | N | **Not yet.** The sublist is published by the merge; the [preview list](launch/sofa-box-imager-preview.rpi-imager-manifest) then shows it as their list would, to write a card with on the Mac with the SD card writer before the request goes in. |
+| Does the OS have a default password? | F | **"Other"**: none of its four answers fits a card with no default password that takes nothing from Imager (below). |
+| Does the OS update itself, unattended? | F | **"Other" today** (below). |
+| "Your OS may need to comply with regulatory requirements in territories where Raspberry Pi Imager is available" | F | Nothing more is asked in the form; the two questions above are its security part. |
+| "Raspberry Pi" not in the product's name; only with "for", "runs on" and the like; less prominent than our own name | T 3(i), 4(ii), 4(iii) | Met: "Sofa Box OS", "for a Raspberry Pi 3 B+, 4 or 5". |
+| "Raspberry Pi is a trademark of Raspberry Pi Ltd" wherever the name is used | T 4(i) | Added to the README, `TRADEMARKS.md`, this page and the request. edgeventure.uk's shop and downloads pages already carry it; its Sofa page and the box's guide don't yet. |
+| A licence from them for commercial use of the name | T 4(iv) | Not needed to be listed: the card is free. Selling boxes would need one. |
+
+Raspberry Pi doesn't ask about the licence, how long a version is supported, or how to report a security hole. We
+checked them anyway:
+
+- **The licence.** PolyForm Noncommercial 1.0.0 is source-available, not open source. The form doesn't ask. Its
+  categories go by purpose, with one of their own for freemium and paid-for systems; Sofa Box OS is free to use, so
+  it goes by purpose. The card also carries Raspberry Pi OS's own packages, Widevine (`libwidevinecdm0`) among
+  them, from Raspberry Pi's archive. That package has no licence file of its own (the box's credits say "Google's
+  own, passed on by Raspberry Pi"), so whether a card of ours may pass it on to everyone is an open question for
+  the owner.
+- **Security reports.** `SECURITY.md`, and GitHub's private vulnerability reporting, which is switched on.
+- **Support and updates.** `SECURITY.md` says the newest version gets fixes and older ones aren't patched. No end
+  date is published. That is the owner's to set.
+
+### The sublist
+
+`tools/sofa-box-imager-list.py build --sublist` writes it beside our own list; the workflow puts it on the
+`sofa-box` release:
+
+    https://github.com/krintoxi/sofa/releases/download/sofa-box/sofa-box-imager-sublist.json
+
+- **The stable card alone**, tried on a real box, at its version's own address (`box-os-vX.Y.Z`), whose file never
+  changes. Never the testing version, the newest build, an earlier version or a PC's image: Raspberry Pi's "No
+  filtering" shows every entry, and a PC's image doesn't belong on an SD card.
+- **`os_list` alone.** The boards are Raspberry Pi's; a sublist with an `imager` block is one of their "common
+  pitfalls".
+- **Each entry** as our own list has it, plus `image_download_sha256` and an empty `capabilities`, as their
+  example and most of their entries have. The icon is the 40×40 one.
+- **While no version is marked stable**, no sublist is made, and the one on the release stays as it was.
+- **Checked on every run** (`check --sublist`): `os_list` alone, our three boards' tags, a numbered card's own
+  file, its packed SHA-256, `armv8`, `init_format` `none`, nothing marked testing; then Imager's schema.
+- **Put up only when it changes**, by a swap: the new file goes up as `next-…`, the old one is renamed, the new
+  one takes the name, and then the old one goes. Its address is missing for a moment at most. (`--clobber`
+  deletes before it uploads.)
+- **Raspberry Pi copies it in.** The list Imager downloads from them has no `subitems_url` on 2026-11-18: each
+  vendor's sublist is read on their side and its entries copied into the list. A new stable version reaches
+  everyone when they next read it, and a sublist they can't read leaves an empty group (three vendors' are empty
+  that day).
+- **The preview.** `tools/sofa-box-imager-list.py preview` writes
+  [`launch/sofa-box-imager-preview.rpi-imager-manifest`](launch/sofa-box-imager-preview.rpi-imager-manifest). It
+  holds Raspberry Pi's boards as their list has them, and **Media player OS → Sofa Box OS** reading the published
+  sublist: what everyone would see, before anyone has seen it.
+
+Our own list (`sofa-box.rpi-imager-manifest`) is unchanged, byte for byte: Sofa Box Imager and owners who open it
+keep the testing versions, the earlier ones and the PC's images.
+
+### Boards
+
+Raspberry Pi's list groups boards under its tags:
+
+- `pi3-64bit` is their "Raspberry Pi 3" (Model A+, B, B+, Compute Module 3 / 3+) **and the Zero 2 W**;
+- `pi4-64bit` is the Pi 4, the 400 and Compute Module 4;
+- `pi5-64bit` is the Pi 5, the 500 and Compute Module 5.
+
+The card was made for the Pi 3 B+, 4 and 5, and has only run on a Pi 3 B+. Whatever the sublist says, Imager will
+offer it for a Zero 2 W (512 MB, a mini HDMI port) and a 3 A+ too. `--boards pi3-64bit` makes a sublist for the
+Pi 3 alone; which one to send is the owner's choice.
+
+### The two security questions
+
+**Default password.** The form offers: a default password reset at the first start; a password from Imager's
+user; a key from Imager's user; or no networking at all. None of them is the card:
+
+- Root, Raspberry Pi OS's first user (`pi`, with no login shell either) and the box's own user (`sofabox`) are all
+  locked. SSH isn't enabled: Raspberry Pi OS's `sshswitch` would turn it on only for an `ssh` file on the boot
+  partition, and the card has none. The boot partition has no user, `userconf` or first-start script either.
+  (Read from the 1.1.86 card on 2026-11-18, with `debugfs`, read-only.)
+- Imager writes nothing to the card (`none`).
+- What the box opens on the network has secrets the box makes for itself, shown on the TV:
+  - the phone remote's one-time codes (eight letters from outside the home, typing paused after ten wrong ones);
+  - the setup Wi-Fi's random eight-digit password;
+  - Sofa on the box's own random password.
+
+So the answer is "Other", with that in a few lines. The form says Raspberry Pi will then discuss it by e-mail.
+Imager's `user_required` (below) would let the answer be "a password from Imager's user", but only with a format
+Imager can customise.
+
+**Unattended updates.** The box installs its updates from our releases, from Settings → Software, and weekly by
+itself only if its owner turns that on (off by default, the owner's choice). A new version also brings the packages
+the box installs up to date from Raspberry Pi OS's archive. The rest of Raspberry Pi OS isn't: `install.sh` turns
+off `apt-daily` and `apt-daily-upgrade` so nothing wakes up during a film, and no other job installs Raspberry Pi
+OS's security updates. So today the answer is "Other". To answer "Yes, via an established OS package repository",
+the card itself has to change, in two ways:
+
+- the box installs Raspberry Pi OS's security updates by itself, when nobody is watching;
+- weekly updates come on by default.
+
+That is a change to the box, for its own version and its own Pi test; it isn't made here.
+
 
 Imager's settings are the user name and password, Wi-Fi, SSH, hostname and locale. Imager only offers them
 when the list says how the card takes them, through `init_format`:
@@ -184,9 +307,13 @@ been tried yet with a format the list itself would offer.
      - Run `systemd-analyze verify` on the ordering against `sofa-box.service` and the first-start units.
    - **Then one real-Pi pass** (below) before the list says `rpi-preseed`.
 
-   There's no `user_required` key in rpi-preseed 0.2.1 or Imager 2.0.12, despite the earlier plan note.
-   Imager writes `[user]` only when a name or password is filled in, and then always with
-   `groups = ["sudo"]`.
+   Imager 2.0.12 writes `[user]` only when a name or password is filled in, and then always with
+   `groups = ["sudo"]`. It has no `user_required`, and rpi-preseed has no such key either. **Imager's `main`
+   added it on 2026-10-29** (`1ae2398`, "let an OS require a user account"), in no release yet on 2026-11-18. It is
+   one of an OS entry's `capabilities`: the user step can't be skipped, and Imager won't write without a user
+   name and password. It only works with a format Imager can customise, so it does nothing with `none`. With
+   rpi-preseed and the four things above, it is how every owner would set a password in Imager, and how the
+   listing form's "default password" question gets one of its own answers.
 
 **What only a real Pi can confirm** (Pi 3 B+ first, then a Pi 4 and a Pi 5, each card written by Imager 2.x
 from the list):
@@ -263,3 +390,6 @@ edgeventure.uk, then holds one entry per product with `subitems_url` pointing at
   they're for.
 - **A website button opens it:** `rpi-imager://open?repo=…` opens the whole EdgeVenture list in Imager.
 - **Our own imager reads the same list.**
+
+Raspberry Pi is a trademark of Raspberry Pi Ltd. Sofa Box OS is made by EdgeVenture for Raspberry Pi computers; it
+isn't made or endorsed by Raspberry Pi Ltd.

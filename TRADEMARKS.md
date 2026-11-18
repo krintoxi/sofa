@@ -24,3 +24,10 @@ based on Sofa. That keeps the names meaning what they mean today: the software E
 tests.
 
 Questions and permission requests: hello@edgeventure.uk.
+
+## Other companies' marks
+
+Raspberry Pi is a trademark of Raspberry Pi Ltd. Sofa Box OS is made by EdgeVenture for Raspberry Pi computers
+and is built on Raspberry Pi OS; it isn't made or endorsed by Raspberry Pi Ltd. Its name never includes
+"Raspberry Pi": the box, its card and its listings say what it is **for**, as Raspberry Pi's own trademark rules
+ask (https://www.raspberrypi.com/trademark-rules/).

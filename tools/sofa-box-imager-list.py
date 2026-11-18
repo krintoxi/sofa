@@ -7,7 +7,10 @@ so Imager checks what it wrote. It never offers Imager's OS customisation (init_
 there stops the TV screen starting, and the box sets itself up on the TV. docs/raspberry-pi-imager.md says why.
 
     python3 tools/sofa-box-imager-list.py build --repo krintoxi/sofa --cache CACHE.json --out LIST.rpi-imager-manifest
+                                              [--sublist SUBLIST.json [--boards pi3-64bit ...]]
     python3 tools/sofa-box-imager-list.py check LIST.rpi-imager-manifest [--schema os-list-schema.json]
+    python3 tools/sofa-box-imager-list.py check SUBLIST.json --sublist [--schema os-list-schema.json]
+    python3 tools/sofa-box-imager-list.py preview --out PREVIEW.rpi-imager-manifest [--sublist-url URL]
     python3 tools/sofa-box-imager-list.py measure sofa-box-os-1.1.54.img.xz      (a file or an https URL)
 
 build reads the releases on GitHub ("box-os-vX.Y.Z", one per version; "sofa-box-stable", which names the version
@@ -19,6 +22,12 @@ unpacked card's size and SHA-256) comes
 from unpacking each card once; CACHE.json keeps it, by the packed card's SHA-256, so each card is unpacked
 once ever. GitHub's workflow (.github/workflows/sofa-box-imager-list.yml) runs it after every card and puts
 the list beside the card on the "sofa-box" release.
+
+--sublist also writes what Raspberry Pi's own list in Imager (the one everyone sees) would read from us: Imager's
+"minimal OS list", os_list alone, with the stable card only (tried on a real box, its own numbered file). None is
+written while no version is marked stable. preview writes a list laid out the way theirs would show it (their boards,
+"Media player OS", our entry reading the sublist), to try in Imager before the request goes in.
+docs/raspberry-pi-imager.md and docs/launch/raspberry-pi-imager-listing.md say what Raspberry Pi asks for.
 
 Standard library only (Python 3.9+).
 """
@@ -81,9 +90,46 @@ REQUIRED = ("name", "description", "icon", "url", "extract_size", "extract_sha25
             "release_date", "devices")
 NEVER_SAID = ("internet archive", "archive.org", "adult")          # the box's UI never says these
 
+# ---- Raspberry Pi's own list (read on 2026-11-18: their form "Request an addition to the Raspberry Pi Imager OS List",
+# linked from rpi-imager's doc/schema-notes.md, and their list os_list_imagingutility_v4.json).
+# They take a "subitem JSON file" at an address of ours, and add one entry of their own pointing at it, in the category
+# the form names. The sublist sits beside our own list, on the "sofa-box" release, at an address that never changes.
+SUBLIST = "sofa-box-imager-sublist.json"
+SUBLIST_URL = "https://github.com/krintoxi/sofa/releases/download/%s/%s" % (ROLLING_TAG, SUBLIST)
+ICON_40 = "https://raw.githubusercontent.com/krintoxi/sofa/main/docs/images/sofa-box-os-icon-40.png"   # (their form: 40x40)
+# What the form asks for their entry: the category, the name, the description, the icon (40x40) and the website.
+LISTING = {"category": "Media player OS", "name": "Sofa Box OS",
+           "description": "Your own TV box: Sofa, free Live TV, your streaming apps and games, set up from your phone.",
+           "icon": ICON_40, "website": "https://github.com/krintoxi/sofa"}
+# Raspberry Pi's own boards as their list has them (imager.devices). The Zero 2 W shares the Pi 3's tags, and each
+# entry covers more than one board (the 3 A+, the 400 and 500, the Compute Modules): whatever is tagged pi3-64bit
+# shows for every board under "Raspberry Pi 3" and for the Zero 2 W too.
+RPI_DEVICES = [
+    {"name": "Raspberry Pi 5", "tags": ["pi5-64bit", "pi5-32bit"],
+     "description": "Raspberry Pi 5, 500 / 500+, and Compute Module 5", "matching_type": "exclusive"},
+    {"name": "Raspberry Pi 4", "tags": ["pi4-64bit", "pi4-32bit"],
+     "description": "Raspberry Pi 4 Model B, 400, and Compute Module 4 / 4S", "matching_type": "inclusive"},
+    {"name": "Raspberry Pi 3", "tags": ["pi3-64bit", "pi3-32bit"],
+     "description": "Raspberry Pi 3 Model A+ / B / B+ and Compute Module 3 / 3+", "matching_type": "inclusive"},
+    {"name": "Raspberry Pi 2", "tags": ["pi2-32bit"], "description": "Raspberry Pi 2 Model B", "matching_type": "inclusive"},
+    {"name": "Raspberry Pi 1", "tags": ["pi1-32bit"],
+     "description": "Raspberry Pi 1 Model A / A+ / B / B+ and Compute Module 1", "matching_type": "inclusive"},
+    {"name": "Raspberry Pi Zero 2 W", "tags": ["pi3-64bit", "pi3-32bit"], "description": "Raspberry Pi Zero 2 W",
+     "matching_type": "inclusive"},
+    {"name": "Raspberry Pi Zero", "tags": ["pi1-32bit"], "description": "Raspberry Pi Zero, Zero W, and Zero WH",
+     "matching_type": "inclusive"},
+    {"name": "No filtering", "tags": [], "description": "Show every possible image", "matching_type": "inclusive"},
+]
+BOARD_WORDS = {"pi3-64bit": "3 B+", "pi4-64bit": "4", "pi5-64bit": "5"}       # (how the description names our boards)
+NUMBERED_CARD = re.compile(r"/releases/download/box-os-v(\d+\.\d+\.\d+)/sofa-box-os-\1\.img\.xz$")
+
 
 class ListError(Exception):
     pass
+
+
+class NoStable(ListError):
+    """No version is marked stable: Raspberry Pi's list gets nothing from us until one is."""
 
 
 # ---------------------------------------------------------------------------------------------- GitHub
@@ -401,18 +447,71 @@ def dvd_entries(releases, cache, keep=KEEP, log=lambda s: None, measure_fn=None)
     return out
 
 
+# ---------------------------------------------------------------------------------------------- Raspberry Pi's own list
+def boards_said(devices):
+    """'a Raspberry Pi 3 B+, 4 or 5' for the tags given (the oldest board first)."""
+    words = [BOARD_WORDS[t] for t in reversed(BOARD_TAGS) if t in devices]
+    return "a Raspberry Pi " + (words[0] if len(words) == 1 else ", ".join(words[:-1]) + " or " + words[-1])
+
+
+def sublist(releases, cache, measure_fn=None, devices=None, log=lambda s: None):
+    """What Raspberry Pi's own list reads from us: Imager's "minimal OS list" (os_list alone: the boards are theirs),
+    holding the stable card only, tried on a real box, at its own numbered address (that file never changes, so its
+    SHA-256 holds for as long as it's listed). Never the newest build, a testing version or a PC's image. DEVICES:
+    which of the card's boards it's offered for (all three unless told). NoStable while no version is marked stable."""
+    asked = list(devices or BOARD_TAGS)
+    if any(t not in BOARD_TAGS for t in asked):
+        raise ListError("the card's boards are %s, not %s" % (", ".join(BOARD_TAGS), ", ".join(asked)))
+    devices = [t for t in BOARD_TAGS if t in asked]
+    numbered, _ = cards(releases)
+    steady = stable(releases, numbered, log)
+    if not steady:
+        raise NoStable("no version is marked stable: Raspberry Pi's list carries only a card tried on a real box")
+    packed = _digest(steady["asset"])
+    if not packed:
+        raise ListError("%s: GitHub gives no SHA-256 for it" % steady["asset"]["name"])
+    desc = ("Your own TV box: Sofa, free Live TV, your streaming apps and games. For %s, built on Raspberry Pi OS "
+            "Lite (64-bit). The stable version, tried on a real box." % boards_said(devices))
+    e = _entry("Sofa Box OS %s" % steady["version"], desc, steady,
+               _sums(steady, cache, measure_fn or measure, log), devices)
+    e["icon"] = ICON_40
+    e["image_download_sha256"] = packed
+    e["capabilities"] = []
+    return {"os_list": [e]}
+
+
+def preview(sublist_url=SUBLIST_URL):
+    """A list laid out the way Raspberry Pi's would be with us in it: their boards, and in the form's category the
+    entry they'd add, reading our sublist. Opened in Imager it shows what everyone would see, before the request
+    goes in."""
+    entry = {k: LISTING[k] for k in ("name", "description", "icon", "website")}
+    entry["subitems_url"] = sublist_url
+    devices = [dict(d, capabilities=[]) if i == 0 else dict(d, default=False, capabilities=[])
+               for i, d in enumerate(RPI_DEVICES)]                           # (the Pi 5 is their default board)
+    return {"imager": {"devices": devices},
+            "os_list": [{"name": LISTING["category"], "description": "Media player operating systems",
+                         "subitems": [entry]}]}
+
+
 # ---------------------------------------------------------------------------------------------- checking
-def check(doc, schema=None):
+def check(doc, schema=None, sublist=False):
     """Problems with a list (empty when it's right): Imager's required fields and types, our own rules (only
     our boards, no customisation, nothing the box never says), and Imager's JSON schema when given (it needs
-    the jsonschema package)."""
+    the jsonschema package). SUBLIST: the one for Raspberry Pi's own list, which has rules of its own: os_list
+    alone, Raspberry Pi's tags for the card's boards, the stable card's own file and its packed SHA-256."""
     bad = []
     if not isinstance(doc, dict) or not isinstance(doc.get("os_list"), list) or not doc["os_list"]:
         return ["no os_list"]
-    devices = ((doc.get("imager") or {}).get("devices")) or []
-    if not devices:
-        bad.append("imager.devices is empty: Imager's 'Choose device' step would have nothing in it")
-    tags = set()
+    if sublist:
+        if set(doc) != {"os_list"}:
+            bad.append("a sublist is os_list alone (the boards are in Raspberry Pi's list): not %s"
+                       % ", ".join(sorted(set(doc) - {"os_list"})))
+        devices, tags = [], set(BOARD_TAGS)
+    else:
+        devices = ((doc.get("imager") or {}).get("devices")) or []
+        if not devices:
+            bad.append("imager.devices is empty: Imager's 'Choose device' step would have nothing in it")
+        tags = set()
     for d in devices:
         if not d.get("name") or not d.get("description") or not d.get("tags"):
             bad.append("device %r: needs name, description and tags" % d.get("name"))
@@ -420,8 +519,24 @@ def check(doc, schema=None):
 
     used = set()
 
+    def sub(e, where):
+        """Raspberry Pi's list: only what has been tried on a real box, at an address whose file never changes."""
+        name = str(e.get("name", ""))
+        if "(testing)" in name or "newest build" in name or " for a PC" in name:
+            bad.append("%s: only the stable card goes in Raspberry Pi's list" % where)
+        if not NUMBERED_CARD.search(str(e.get("url", ""))):
+            bad.append("%s: url must be a numbered card's own file (box-os-vX.Y.Z), which never changes" % where)
+        if not re.match(r"^[0-9a-f]{64}$", str(e.get("image_download_sha256", ""))):
+            bad.append("%s: image_download_sha256 must be the card's own SHA-256" % where)
+        if e.get("architecture") != "armv8":
+            bad.append("%s: architecture must be armv8 (the card is 64-bit)" % where)
+        if e.get("capabilities", []) != []:
+            bad.append("%s: capabilities must be empty (init_format none: Imager offers no settings)" % where)
+
     def leaf(e, where):
-        dvd = DVD_TAGS[0] in (e.get("devices") or [])          # (the live DVD's .iso: as it is, for Sofa Box Imager)
+        if sublist:
+            sub(e, where)
+        dvd = not sublist and DVD_TAGS[0] in (e.get("devices") or [])   # (the live DVD's .iso: as it is, for Sofa Box Imager)
         for k in REQUIRED:
             if k not in e:
                 bad.append("%s: no %s" % (where, k))
@@ -455,7 +570,8 @@ def check(doc, schema=None):
         else:
             for t in devs:
                 if t not in tags and not dvd:
-                    bad.append("%s: device %r isn't in imager.devices" % (where, t))
+                    bad.append("%s: device %r isn't %s" % (where, t, "one of the card's boards (Raspberry Pi's own "
+                                                                         "tags)" if sublist else "in imager.devices"))
                 if t in DVD_TAGS and (len(devs) > 1 or t in tags):   # (the DVD's tag alone, and never a device Imager shows)
                     bad.append("%s: the DVD's tag goes alone, on no device" % where)
             used.update(devs)
@@ -514,9 +630,15 @@ def main(argv=None):
     b.add_argument("--cache", required=True, help="sizes and SHA-256s already worked out (read, then updated)")
     b.add_argument("--out", required=True)
     b.add_argument("--keep", type=int, default=KEEP, help="earlier versions to list (default %d)" % KEEP)
+    b.add_argument("--sublist", help="also write the sublist for Raspberry Pi's own list (none while no version is stable)")
+    b.add_argument("--boards", nargs="+", choices=BOARD_TAGS, help="the sublist's boards (default: all three)")
     c = sub.add_parser("check", help="check a list")
     c.add_argument("list")
     c.add_argument("--schema", help="Raspberry Pi Imager's os-list-schema.json (needs the jsonschema package)")
+    c.add_argument("--sublist", action="store_true", help="it's the sublist for Raspberry Pi's own list")
+    v = sub.add_parser("preview", help="a list laid out as Raspberry Pi's would be with us in it, to try in Imager")
+    v.add_argument("--out", required=True)
+    v.add_argument("--sublist-url", default=SUBLIST_URL, help="where the sublist is (default: %(default)s)")
     m = sub.add_parser("measure", help="the sizes and SHA-256s of one card")
     m.add_argument("card")
     a = p.parse_args(argv)
@@ -526,24 +648,40 @@ def main(argv=None):
             print(json.dumps(measure(a.card), indent=2))
         elif a.cmd == "check":
             schema = _load_json(a.schema, None) if a.schema else None
-            bad = check(_load_json(a.list, None), schema)
+            bad = check(_load_json(a.list, None), schema, sublist=a.sublist)
             for line in bad:
                 print(line)
             if bad:
                 return 1
             print("%s: right" % a.list)
+        elif a.cmd == "preview":
+            _write_json(a.out, preview(a.sublist_url))
+            print("%s: Raspberry Pi's boards, and %s under %s reading %s" % (a.out, LISTING["name"], LISTING["category"],
+                                                                             a.sublist_url))
         else:
             token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
             releases = _load_json(a.releases, None) if a.releases else github_releases(a.repo, token)
             cache = _load_json(a.cache, {})
+            rpi = None
             try:
                 doc = build(releases, cache, keep=a.keep, log=log)
+                if a.sublist:
+                    try:
+                        rpi = sublist(releases, cache, devices=a.boards, log=log)
+                    except NoStable as e:
+                        log("No sublist for Raspberry Pi's list: %s." % e)
             finally:
                 _write_json(a.cache, cache)                     # what was unpacked is kept even if a later card failed
             bad = check(doc)
             if bad:
                 raise ListError("the list came out wrong:\n  " + "\n  ".join(bad))
+            bad = check(rpi, sublist=True) if rpi is not None else []
+            if bad:
+                raise ListError("the sublist came out wrong:\n  " + "\n  ".join(bad))
             _write_json(a.out, doc)
+            if rpi is not None:
+                _write_json(a.sublist, rpi)
+                log("Raspberry Pi's list: %s  %s" % (rpi["os_list"][0]["name"], rpi["os_list"][0]["url"]))
             for e in doc["os_list"]:
                 for s in e.get("subitems", [e]):
                     log("%s  %s  %s" % (s["release_date"], s["name"], s["url"]))

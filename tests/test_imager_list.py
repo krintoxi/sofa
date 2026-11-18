@@ -37,12 +37,12 @@ class Cards:
     def close(self):
         shutil.rmtree(self.dir, ignore_errors=True)
 
-    def card(self, name, raw, digest=None):
+    def card(self, name, raw, digest=None, tag="test"):
         packed = lzma.compress(raw, format=lzma.FORMAT_XZ)
         path = os.path.join(self.dir, name)
         with open(path, "wb") as f:
             f.write(packed)
-        url = "https://github.com/krintoxi/sofa/releases/download/test/" + name
+        url = "https://github.com/krintoxi/sofa/releases/download/%s/%s" % (tag, name)
         self.paths[url] = path
         return {"name": name, "size": len(packed), "state": "uploaded", "browser_download_url": url,
                 "digest": "sha256:" + (digest or sha(packed)), "updated_at": "2026-11-10T07:38:01Z"}
@@ -54,7 +54,7 @@ class Cards:
 
     def version(self, ver, raw, published="2026-11-10T07:38:37Z"):
         return self.release("box-os-v" + ver, "Sofa Box OS " + ver,
-                            [self.card("sofa-box-os-%s.img.xz" % ver, raw),
+                            [self.card("sofa-box-os-%s.img.xz" % ver, raw, tag="box-os-v" + ver),
                              {"name": "sofa-box-os-%s-report.txt" % ver, "size": 10, "state": "uploaded",
                               "browser_download_url": "x"}], published)
 
@@ -370,6 +370,153 @@ class Checks(unittest.TestCase):
         self.assertEqual(imager.check(self.doc, schema), [])
 
 
+class RaspberryPisList(unittest.TestCase):
+    """The sublist Raspberry Pi's own list in Imager would read from us (os_list alone, the stable card only), its own
+    checks, and the preview laid out as their list would show it."""
+
+    def setUp(self):
+        self.c = Cards()
+        self.addCleanup(self.c.close)
+        self.card = b"Sofa Box OS 1.1.54\n" + bytes(3 << 20) + b"end"
+        self.v54 = self.c.version("1.1.54", self.card)
+        self.v54["assets"].append(self.c.card("sofa-box-os-1.1.54-pc.img.xz", b"PC 1.1.54\n" + bytes(1 << 20)))
+        self.v58 = self.c.version("1.1.58", b"newer" * 1000)
+        self.rels = [self.c.rolling("1.1.58", b"newer, and a fix" * 1000), self.v58, self.c.stable(self.v54), self.v54,
+                     self.c.version("1.1.49", b"older" * 1000)]
+
+    def test_the_stable_card_alone(self):
+        sub = imager.sublist(self.rels, {}, measure_fn=self.c.measure)
+        self.assertEqual(imager.check(sub, sublist=True), [])
+        self.assertEqual(list(sub), ["os_list"], "the boards are Raspberry Pi's: no imager block")
+        self.assertEqual(len(sub["os_list"]), 1, "not the testing version, the newest build, a PC's or an earlier one")
+        e = sub["os_list"][0]
+        self.assertEqual(e["name"], "Sofa Box OS 1.1.54")
+        self.assertTrue(e["url"].endswith("/releases/download/box-os-v1.1.54/sofa-box-os-1.1.54.img.xz"),
+                        "the version's own card, whose file never changes")
+        self.assertEqual((e["extract_size"], e["extract_sha256"]), (len(self.card), sha(self.card)))
+        self.assertEqual(e["image_download_sha256"], self.v54["assets"][0]["digest"][len("sha256:"):])
+        self.assertEqual(e["image_download_size"], self.v54["assets"][0]["size"])
+        self.assertEqual((e["init_format"], e["capabilities"], e["architecture"]), ("none", [], "armv8"))
+        self.assertEqual(e["devices"], ["pi5-64bit", "pi4-64bit", "pi3-64bit"])
+        self.assertEqual(e["icon"], imager.ICON_40)
+        self.assertIn("For a Raspberry Pi 3 B+, 4 or 5, built on Raspberry Pi OS Lite (64-bit).", e["description"])
+        self.assertIn("tried on a real box", e["description"])
+        # the card already measured for our own list isn't unpacked again
+        cache = {}
+        imager.build(self.rels, cache, measure_fn=self.c.measure)
+        self.assertEqual(imager.sublist(self.rels, cache, measure_fn=no_unpacking), sub)
+
+    def test_nothing_while_no_version_is_stable(self):
+        for mark in (self.c.stable(), self.c.stable(self.v54, digest="0" * 64)):
+            rels = [r for r in self.rels if r["tag_name"] != "sofa-box-stable"] + [mark]
+            with self.assertRaises(imager.NoStable):
+                imager.sublist(rels, {}, measure_fn=self.c.measure)
+        self.assertTrue(issubclass(imager.NoStable, imager.ListError))
+
+    def test_fewer_boards(self):
+        e = imager.sublist(self.rels, {}, measure_fn=self.c.measure, devices=["pi3-64bit"])["os_list"][0]
+        self.assertEqual(e["devices"], ["pi3-64bit"])
+        self.assertIn("For a Raspberry Pi 3 B+, built on", e["description"])
+        e = imager.sublist(self.rels, {}, measure_fn=self.c.measure, devices=["pi3-64bit", "pi5-64bit"])["os_list"][0]
+        self.assertEqual(e["devices"], ["pi5-64bit", "pi3-64bit"])
+        self.assertIn("For a Raspberry Pi 3 B+ or 5,", e["description"])
+        for wrong in (["pi2-32bit"], ["pi3-32bit"], ["sofa-box-pc-x86_64"]):
+            with self.assertRaisesRegex(imager.ListError, "the card's boards"):
+                imager.sublist(self.rels, {}, measure_fn=self.c.measure, devices=wrong)
+
+    def test_its_own_checks(self):
+        good = imager.sublist(self.rels, {}, measure_fn=self.c.measure)
+
+        def problems(change):
+            doc = json.loads(json.dumps(good))
+            change(doc["os_list"][0])
+            return "\n".join(imager.check(doc, sublist=True))
+
+        doc = json.loads(json.dumps(good))
+        doc["imager"] = {"devices": imager.DEVICES}
+        self.assertIn("os_list alone", "\n".join(imager.check(doc, sublist=True)))
+        cases = [
+            (lambda e: e.update(name="Sofa Box OS 1.1.58 (testing)"), "only the stable card"),
+            (lambda e: e.update(url="https://github.com/krintoxi/sofa/releases/download/sofa-box/sofa-box.img.xz"),
+             "numbered card's own file"),
+            (lambda e: e.update(url=e["url"].replace("1.1.54.img.xz", "1.1.54-pc.img.xz")), "numbered card's own file"),
+            (lambda e: e.update(url=e["url"].replace("box-os-v1.1.54/", "box-os-v1.1.58/")), "numbered card's own file"),
+            (lambda e: e["devices"].append("sofa-box-pc-x86_64"), "isn't one of the card's boards"),
+            (lambda e: e["devices"].append("pi2-32bit"), "isn't one of the card's boards"),
+            (lambda e: e.pop("image_download_sha256"), "image_download_sha256"),
+            (lambda e: e.update(init_format="rpi-preseed"), "init_format must be 'none'"),
+            (lambda e: e.update(capabilities=["user_required"]), "capabilities must be empty"),
+            (lambda e: e.update(architecture="x86_64"), "architecture must be armv8"),
+        ]
+        for change, said in cases:
+            self.assertIn(said, problems(change))
+        # our own list is no sublist (it has the boards, testing versions and a PC's image), and stays as it was
+        own = imager.build(self.rels, {}, measure_fn=self.c.measure)
+        self.assertEqual(imager.check(own), [])
+        self.assertIn("os_list alone", "\n".join(imager.check(own, sublist=True)))
+        self.assertFalse(any("image_download_sha256" in e or "capabilities" in e for e in own["os_list"]))
+
+    def test_the_preview_is_laid_out_as_raspberry_pis_list(self):
+        p = imager.preview()
+        devs = p["imager"]["devices"]
+        self.assertEqual([d["name"] for d in devs],
+                         ["Raspberry Pi 5", "Raspberry Pi 4", "Raspberry Pi 3", "Raspberry Pi 2", "Raspberry Pi 1",
+                          "Raspberry Pi Zero 2 W", "Raspberry Pi Zero", "No filtering"])
+        self.assertNotIn("default", devs[0], "the Pi 5 is their default board")
+        self.assertTrue(all(d["default"] is False for d in devs[1:]))
+        zero2 = [d for d in devs if d["name"] == "Raspberry Pi Zero 2 W"][0]
+        self.assertIn("pi3-64bit", zero2["tags"], "the Zero 2 W shares the Pi 3's tags in Raspberry Pi's list")
+        [cat] = p["os_list"]
+        self.assertEqual(cat["name"], imager.LISTING["category"])
+        [entry] = cat["subitems"]
+        self.assertEqual(entry, {"name": "Sofa Box OS", "description": imager.LISTING["description"],
+                                 "icon": imager.ICON_40, "website": imager.LISTING["website"],
+                                 "subitems_url": imager.SUBLIST_URL})
+        self.assertEqual(imager.preview("https://example.test/s.json")["os_list"][0]["subitems"][0]["subitems_url"],
+                         "https://example.test/s.json")
+        with open(os.path.join(HERE, "docs", "launch", "sofa-box-imager-preview.rpi-imager-manifest"), encoding="utf-8") as f:
+            self.assertEqual(json.load(f), p, "the preview in docs/launch is the tool's own (preview --out …)")
+
+    def test_the_icon_is_40_by_40(self):
+        self.assertTrue(imager.ICON_40.startswith("https://raw.githubusercontent.com/krintoxi/sofa/main/"))
+        path = os.path.join(HERE, *imager.ICON_40.split("/main/", 1)[1].split("/"))
+        with open(path, "rb") as f:
+            head = f.read(24)
+        self.assertEqual(head[:8], b"\x89PNG\r\n\x1a\n")
+        self.assertEqual((int.from_bytes(head[16:20], "big"), int.from_bytes(head[20:24], "big")), (40, 40))
+        self.assertLess(os.path.getsize(path), 8192, "lightweight, as Raspberry Pi asks")
+
+    def test_the_command_line(self):
+        real = imager.measure
+        imager.measure = lambda url, expect=None: real(self.c.paths[url], expect)
+        self.addCleanup(setattr, imager, "measure", real)
+        r, cache, out, sub, view = (os.path.join(self.c.dir, n) for n in
+                                    ("releases.json", "cache.json", "list.rpi-imager-manifest", "sub.json", "view.json"))
+        said = io.StringIO()
+        with contextlib.redirect_stdout(said), contextlib.redirect_stderr(said):
+            with open(r, "w") as f:
+                json.dump(self.rels, f)
+            self.assertEqual(imager.main(["build", "--releases", r, "--cache", cache, "--out", out, "--sublist", sub,
+                                          "--boards", "pi3-64bit"]), 0)
+            self.assertEqual(imager.main(["check", sub, "--sublist"]), 0)
+            self.assertEqual(imager.main(["check", out, "--sublist"]), 1, "our own list isn't a sublist")
+            self.assertEqual(imager.main(["preview", "--out", view]), 0)
+        with open(sub) as f:
+            self.assertEqual(json.load(f)["os_list"][0]["devices"], ["pi3-64bit"])
+        with open(view) as f:
+            self.assertEqual(json.load(f), imager.preview())
+        self.assertIn("Raspberry Pi's list: Sofa Box OS 1.1.54", said.getvalue())
+        # while no version is stable: our own list as always, and no sublist
+        os.remove(sub)
+        with open(r, "w") as f:
+            json.dump([x for x in self.rels if x["tag_name"] != "sofa-box-stable"], f)
+        said = io.StringIO()
+        with contextlib.redirect_stdout(said), contextlib.redirect_stderr(said):
+            self.assertEqual(imager.main(["build", "--releases", r, "--cache", cache, "--out", out, "--sublist", sub]), 0)
+        self.assertFalse(os.path.exists(sub))
+        self.assertIn("No sublist for Raspberry Pi's list", said.getvalue())
+
+
 class WorkflowAndGuide(unittest.TestCase):
     def read(self, *path):
         with open(os.path.join(HERE, *path), encoding="utf-8") as f:
@@ -387,9 +534,27 @@ class WorkflowAndGuide(unittest.TestCase):
         self.assertTrue(uploads)
         for line in uploads:
             self.assertNotIn(".img.xz", line, "the cards are the card workflow's alone")
-            self.assertIn("sofa-box.rpi-imager-manifest", line)
+            self.assertTrue("sofa-box.rpi-imager-manifest" in line or 'pub/next-$N"' in line, line)
         self.assertNotIn("gh release delete", wf)
-        self.assertNotIn("DELETE", wf)
+        # Only the sublist's own step removes anything: its leftovers (next-, old-) and the old file it just renamed
+        step = wf[wf.index("- name: Put the sublist for Raspberry Pi's own list"):]
+        self.assertIn("N=%s\n" % imager.SUBLIST, step)
+        self.assertEqual(wf.count("N="), 1, "one name, the sublist's")
+        deletes = [l.strip() for l in wf.splitlines() if "DELETE" in l]
+        self.assertEqual(deletes, [
+            'for id in $(ids "next-$N") $(ids "old-$N"); do gh api -X DELETE "$R/assets/$id"; done   '
+            '# left from a run that stopped',
+            'if [ -n "$OLD" ]; then gh api -X DELETE "$R/assets/$OLD"; fi'])
+        self.assertTrue(all(l.strip() in step for l in deletes))
+        self.assertIn('OLD="$(ids "$N")"', step)
+        self.assertLess(step.index('-f name="$N"'), step.index('gh api -X DELETE "$R/assets/$OLD"'),
+                        "the new file has the name before the old one goes")
+
+    def test_the_workflow_makes_and_checks_the_sublist(self):
+        wf = self.read(".github", "workflows", "sofa-box-imager-list.yml")
+        self.assertIn("--sublist pub/%s" % imager.SUBLIST, wf)
+        self.assertIn("pub/%s --sublist --schema schema.json" % imager.SUBLIST, wf)
+        self.assertTrue(imager.SUBLIST_URL.endswith("/releases/download/sofa-box/" + imager.SUBLIST))
 
     def test_the_schema_is_imagers_own_pinned(self):
         wf = self.read(".github", "workflows", "sofa-box-imager-list.yml")
@@ -403,6 +568,33 @@ class WorkflowAndGuide(unittest.TestCase):
         self.assertIn("https://github.com/krintoxi/sofa/releases/download/sofa-box/sofa-box.rpi-imager-manifest", guide)
         self.assertIn("App Options", guide)
         self.assertIn('"**(stable)**"', guide, "the guide says which entry to keep")
+
+    def test_the_request_for_raspberry_pis_list(self):
+        """The drafted request (docs/launch): the form's answers are the tool's own, its JSON is what the tool makes
+        and passes the sublist's checks, and it says the trademark line."""
+        doc = self.read("docs", "launch", "raspberry-pi-imager-listing.md")
+        self.assertIn("https://forms.gle/U6JkxVfhHkn5ok2X7", doc)
+        for k in ("category", "name", "description", "icon", "website"):
+            self.assertIn("`%s`" % imager.LISTING[k], doc, k)
+        self.assertIn("`%s`" % imager.SUBLIST_URL, doc)
+        self.assertIn("Raspberry Pi is a trademark of Raspberry Pi Ltd", doc)
+        self.assertIn("Nothing has been sent", doc)
+        blocks = [json.loads(b) for b in re.findall(r"```json\n(.*?)```", doc, re.S)]
+        entry, subs = blocks[0], blocks[1:]
+        self.assertEqual(entry, {k: v for k, v in imager.preview()["os_list"][0]["subitems"][0].items()})
+        self.assertEqual(len(subs), 2)
+        for s in subs:
+            self.assertEqual(imager.check(s, sublist=True), [])
+        self.assertEqual([s["os_list"][0]["devices"] for s in subs], [imager.BOARD_TAGS, ["pi3-64bit"]])
+        self.assertNotRegex(doc.lower(), r"open[- ]source")
+        # what the guide says about Raspberry Pi's list
+        guide = self.read("docs", "raspberry-pi-imager.md")
+        self.assertIn(imager.SUBLIST_URL, guide)
+        self.assertIn("launch/raspberry-pi-imager-listing.md", guide)
+        self.assertIn("`1ae2398`", guide, "Imager's main has user_required now")
+        self.assertNotIn("There's no `user_required`", guide)
+        self.assertIn("Raspberry Pi is a trademark of Raspberry Pi Ltd", self.read("TRADEMARKS.md"))
+        self.assertIn("Raspberry Pi is a\ntrademark of Raspberry Pi Ltd", self.read("README.md"))
 
     def test_the_stable_mark_is_the_one_the_releases_tool_writes(self):
         tool = self.read("tools", "sofa-box-releases.py")

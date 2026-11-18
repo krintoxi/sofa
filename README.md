@@ -575,7 +575,8 @@ devices with it, or offering it as a service) needs a licence from EdgeVenture: 
 published before 2026-11-10 stay under the MIT License they came with.
 
 Contributions are welcome under the agreement in `CONTRIBUTING.md`. "Sofa", "Sofa Box" and the logos are
-EdgeVenture's trademarks (`TRADEMARKS.md`): a changed version you share needs its own name.
+EdgeVenture's trademarks (`TRADEMARKS.md`): a changed version you share needs its own name. Raspberry Pi is a
+trademark of Raspberry Pi Ltd.
 
 Bundled parts keep their own licences (`NOTICE`): hls.js (Apache-2.0), qrcode-generator (MIT), and the Bricolage
 Grotesque and Instrument Sans fonts (SIL Open Font License 1.1, licenses next to them). What a Sofa Box card is

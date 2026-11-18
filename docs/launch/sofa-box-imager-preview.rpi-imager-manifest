@@ -1,0 +1,102 @@
+{
+  "imager": {
+    "devices": [
+      {
+        "name": "Raspberry Pi 5",
+        "tags": [
+          "pi5-64bit",
+          "pi5-32bit"
+        ],
+        "description": "Raspberry Pi 5, 500 / 500+, and Compute Module 5",
+        "matching_type": "exclusive",
+        "capabilities": []
+      },
+      {
+        "name": "Raspberry Pi 4",
+        "tags": [
+          "pi4-64bit",
+          "pi4-32bit"
+        ],
+        "description": "Raspberry Pi 4 Model B, 400, and Compute Module 4 / 4S",
+        "matching_type": "inclusive",
+        "default": false,
+        "capabilities": []
+      },
+      {
+        "name": "Raspberry Pi 3",
+        "tags": [
+          "pi3-64bit",
+          "pi3-32bit"
+        ],
+        "description": "Raspberry Pi 3 Model A+ / B / B+ and Compute Module 3 / 3+",
+        "matching_type": "inclusive",
+        "default": false,
+        "capabilities": []
+      },
+      {
+        "name": "Raspberry Pi 2",
+        "tags": [
+          "pi2-32bit"
+        ],
+        "description": "Raspberry Pi 2 Model B",
+        "matching_type": "inclusive",
+        "default": false,
+        "capabilities": []
+      },
+      {
+        "name": "Raspberry Pi 1",
+        "tags": [
+          "pi1-32bit"
+        ],
+        "description": "Raspberry Pi 1 Model A / A+ / B / B+ and Compute Module 1",
+        "matching_type": "inclusive",
+        "default": false,
+        "capabilities": []
+      },
+      {
+        "name": "Raspberry Pi Zero 2 W",
+        "tags": [
+          "pi3-64bit",
+          "pi3-32bit"
+        ],
+        "description": "Raspberry Pi Zero 2 W",
+        "matching_type": "inclusive",
+        "default": false,
+        "capabilities": []
+      },
+      {
+        "name": "Raspberry Pi Zero",
+        "tags": [
+          "pi1-32bit"
+        ],
+        "description": "Raspberry Pi Zero, Zero W, and Zero WH",
+        "matching_type": "inclusive",
+        "default": false,
+        "capabilities": []
+      },
+      {
+        "name": "No filtering",
+        "tags": [],
+        "description": "Show every possible image",
+        "matching_type": "inclusive",
+        "default": false,
+        "capabilities": []
+      }
+    ]
+  },
+  "os_list": [
+    {
+      "name": "Media player OS",
+      "description": "Media player operating systems",
+      "subitems": [
+        {
+          "name": "Sofa Box OS",
+          "description": "Your own TV box: Sofa, free Live TV, your streaming apps and games, set up from your phone.",
+          "icon": "https://raw.githubusercontent.com/krintoxi/sofa/main/docs/images/sofa-box-os-icon-40.png",
+          "website": "https://github.com/krintoxi/sofa",
+          "subitems_url": "https://github.com/krintoxi/sofa/releases/download/sofa-box/sofa-box-imager-sublist.json"
+        }
+      ]
+    }
+  ]
+}

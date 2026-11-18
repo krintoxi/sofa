@@ -43,6 +43,9 @@ Read this before you install, so nothing surprises you.
   on unless an admin turns them off, and never reach the public library's visitors.
 - **Not built:** subtitle downloads, watch-together, photos, a caption editor, playlists in Music, lyrics,
   plugins, Plex or Jellyfin history import.
+- **A Sofa Box doesn't install Raspberry Pi OS's own updates by itself.** Updating the box brings the newest Sofa Box OS
+  and the newest packages for what it installs (the browser, the player and the rest); the kernel and the base
+  system move on with a newer card ([SECURITY.md](../SECURITY.md#which-versions-get-fixes)).
 - **The secure phone remote** for a box passes through EdgeVenture's relay (the code is in `deploy/box-certs/`); it
   can be switched off, and the plain http remote works at home without it.
 - **The licence isn't an open-source licence.** PolyForm Noncommercial 1.0.0: free to use, read, change and share for
@@ -87,7 +90,11 @@ In order. Each one ends with a line in the tested-on table.
    install from, and a move from the public signing key in the repository to a private one (a one-time reinstall).
 5. **The Mac card writer's first real SD card**, and **a real PC** for the x86-64 image.
 6. **The Pi 3 under 100 ms a key press**, measured on the Pi from its own reports (1.1.57 did the work).
-7. **Raspberry Pi Imager's own OS list**, once a stable card exists.
+7. **Raspberry Pi Imager's own OS list.** Ready to send: the sublist Raspberry Pi's list would read (the stable card
+   alone, published beside our own list), a preview laid out as their list would show it, and the request with every
+   answer ([launch/raspberry-pi-imager-listing.md](launch/raspberry-pi-imager-listing.md)). Left: a card written from
+   the preview in Imager, the owner's choice of contacts and boards, and sending it. Their form asks whether the OS
+   updates itself; to answer yes, the box first has to install Raspberry Pi OS's own security updates.
 8. **A public demo** you can open without installing anything: a Sofa with a free library, run as its own instance.
 
 ## Later

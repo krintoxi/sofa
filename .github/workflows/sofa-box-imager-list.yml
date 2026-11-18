@@ -15,6 +15,9 @@ name: Sofa Box list for Raspberry Pi Imager
 #   version and the newest build marked "testing", and the five versions before. Imager needs each card's unpacked size and SHA-256:
 #   each card is unpacked once ever, and sofa-box.imager-cache.json beside the list keeps what came out.
 # - It never touches the cards, their checksums or the release notes: those stay the card workflow's.
+# - Beside it, sofa-box-imager-sublist.json: what Raspberry Pi's own list in Imager reads from us, the stable card alone
+#   (docs/raspberry-pi-imager.md, "Raspberry Pi's own list"). Made only while a version is marked stable, and put up
+#   only when it changed, so that its address never goes missing for more than a moment.
 on:
   workflow_run:                             # a new card, or another version marked stable (sofa-box-stable.yml)
     workflows: ["Sofa box card", "Sofa box stable card"]
@@ -56,15 +59,22 @@ jobs:
           # what's there now: the list (left alone if nothing changed) and the sums worked out before
           gh release download sofa-box --repo "$GITHUB_REPOSITORY" -D cur \
             -p sofa-box.rpi-imager-manifest -p sofa-box.imager-cache.json || echo "(no list there yet)"
+          gh release download sofa-box --repo "$GITHUB_REPOSITORY" -D cur -p sofa-box-imager-sublist.json \
+            || echo "(no sublist there yet)"
           if [ -f cur/sofa-box.imager-cache.json ]; then cp cur/sofa-box.imager-cache.json pub/; else echo '{}' > pub/sofa-box.imager-cache.json; fi
           python3 tools/sofa-box-imager-list.py build --repo "$GITHUB_REPOSITORY" \
-            --cache pub/sofa-box.imager-cache.json --out pub/sofa-box.rpi-imager-manifest
+            --cache pub/sofa-box.imager-cache.json --out pub/sofa-box.rpi-imager-manifest \
+            --sublist pub/sofa-box-imager-sublist.json
       - name: Check it against Raspberry Pi Imager's own schema (Imager 2.0.12)
         run: |
           curl -fsSL -o schema.json https://raw.githubusercontent.com/raspberrypi/rpi-imager/84b03d96cd4c390ebe475a4b5db5735e5535e9a6/doc/json-schema/os-list-schema.json
           echo "c3e323aa297e9ef3f386f522abb4497db5eb9a1ca5f7f3c7a3b1f9a75862ac85  schema.json" | sha256sum -c -
           uv run --no-project --with jsonschema==4.23.0 python tools/sofa-box-imager-list.py check \
             pub/sofa-box.rpi-imager-manifest --schema schema.json
+          if [ -f pub/sofa-box-imager-sublist.json ]; then
+            uv run --no-project --with jsonschema==4.23.0 python tools/sofa-box-imager-list.py check \
+              pub/sofa-box-imager-sublist.json --sublist --schema schema.json
+          fi
       - name: Put it beside the newest card
         run: |
           if cmp -s pub/sofa-box.rpi-imager-manifest cur/sofa-box.rpi-imager-manifest \
@@ -76,3 +86,25 @@ jobs:
           { echo '### Sofa Box OS in Raspberry Pi Imager'
             echo "https://github.com/$GITHUB_REPOSITORY/releases/download/sofa-box/sofa-box.rpi-imager-manifest"
             echo '```json'; cat pub/sofa-box.rpi-imager-manifest; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - name: Put the sublist for Raspberry Pi's own list beside it
+        run: |
+          N=sofa-box-imager-sublist.json
+          if [ ! -f "pub/$N" ]; then echo "No version is marked stable: the sublist stays as it is."; exit 0; fi
+          { echo "### Raspberry Pi's own list reads"
+            echo "https://github.com/$GITHUB_REPOSITORY/releases/download/sofa-box/$N"
+            echo '```json'; cat "pub/$N"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          if cmp -s "pub/$N" "cur/$N"; then echo "The sublist hasn't changed."; exit 0; fi
+          # Raspberry Pi's list reads it at this address, so it's never missing for more than a moment: the new file
+          # goes up as next-…, the old one is renamed old-…, the new one takes the name, and only then the old one goes.
+          # Only these three names are ever touched here.
+          R="repos/$GITHUB_REPOSITORY/releases"
+          REL="$(gh api "$R/tags/sofa-box" --jq .id)"
+          ids() { gh api "$R/$REL/assets" --paginate --jq ".[] | select(.name == \"$1\") | .id"; }
+          for id in $(ids "next-$N") $(ids "old-$N"); do gh api -X DELETE "$R/assets/$id"; done   # left from a run that stopped
+          cp "pub/$N" "pub/next-$N"
+          gh release upload sofa-box --repo "$GITHUB_REPOSITORY" "pub/next-$N"
+          OLD="$(ids "$N")"
+          NEW="$(ids "next-$N")"
+          if [ -n "$OLD" ]; then gh api -X PATCH "$R/assets/$OLD" -f name="old-$N" >/dev/null; fi
+          gh api -X PATCH "$R/assets/$NEW" -f name="$N" >/dev/null
+          if [ -n "$OLD" ]; then gh api -X DELETE "$R/assets/$OLD"; fi

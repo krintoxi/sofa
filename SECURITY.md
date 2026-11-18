@@ -33,3 +33,9 @@ else, that's a report.
 The newest Sofa and the newest Sofa Box OS card. Both update themselves from their own pages (Server → Updates;
 Settings → Software → Update the box), and Docker by pulling the new image, so a fix reaches an install in one step.
 Older versions aren't patched.
+
+On a Sofa Box, an update installs the new Sofa Box OS and, with it, the newest packages from Raspberry Pi OS's
+archive (Debian's, on a PC) for what the box installs: the browser, the player, the network manager, Bluetooth and
+the rest. The rest of the system, the kernel and the base packages, is brought up to date by writing a newer card:
+the box doesn't install Raspberry Pi OS's or Debian's own updates by itself. A box updates weekly by itself only if Settings → Software is set
+to; it's off unless you turn it on.
