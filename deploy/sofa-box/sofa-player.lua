@@ -305,7 +305,8 @@ local function volume_lines(v)
 end
 
 local function menu_lines(m)
-    local a, x, w = {}, R - 640, 640
+    local w = m.w or 640                -- (the Record sheet is wider: a programme's title and until when, in full)
+    local a, x = {}, R - w
     local rows = m.rows or {}
     local h = 150 + 84 * #rows + 70
     local y = math.max(T, (H - h) / 2)
@@ -318,7 +319,7 @@ local function menu_lines(m)
         if r.on then a[#a + 1] = box(x + 24, ry, w - 48, 72, 20, ACCENT, "00") end
         a[#a + 1] = text(x + 56, ry + 36, 4, 34, esc(r.label), { bold = r.on })
         if r.value and r.value ~= "" then
-            local v = esc(cut(r.value, 22))
+            local v = esc(cut(r.value, m.cut or 22))
             if r.on and r.more then v = "‹  " .. v .. "  ›" end
             a[#a + 1] = text(x + w - 56, ry + 36, 6, 32, v, { color = r.on and WHITE or MIST })
         end
@@ -334,7 +335,7 @@ local function sheet_rows()
         rows[#rows + 1] = { label = "Stop recording", value = "until " .. (r.recording.ends or ""), act = "stop" }
     else
         rows[#rows + 1] = { label = "This programme", act = "now",
-                            value = r.title and r.title ~= "" and (cut(r.title, 22) .. (r.ends and ("  ·  until " .. r.ends) or "")) or "what's on, for an hour" }
+                            value = r.title and r.title ~= "" and (cut(r.title, 20) .. (r.ends and ("  ·  until " .. r.ends) or "")) or "what's on, for an hour" }
     end
     if r.rule then
         rows[#rows + 1] = { label = "Stop the series", value = cut(r.rule.title or "", 26), act = "stop_series" }
@@ -351,7 +352,7 @@ function sheet_menu()
     for i, x in ipairs(rows) do out[i] = { label = x.label, value = x.value, on = i == at } end
     local r = state.rec or {}
     local title = r.recording and "Recording" or "Record"
-    return { title = title, dot = true, rows = out,
+    return { title = title, dot = true, rows = out, w = 900, cut = 36,
              hint = (r.number and (tostring(r.number) .. "  ") or "") .. cut(r.name or "", 24) .. "   ·   OK chooses   ·   Back closes" }
 end
 
@@ -369,7 +370,7 @@ function draw()
             if state.skip_shown ~= m.start then state.skip_shown = m.start end
             for _, l in ipairs(skip_lines(m, panel)) do a[#a + 1] = l end
         end
-        if state.banner and now < state.banner_until and not panel then
+        if state.banner and now < state.banner_until and not panel and not state.sheet and not state.menu then
             for _, l in ipairs(banner_lines(state.banner)) do a[#a + 1] = l end
         end
         if state.far and state.far.heard and not state.menu then
