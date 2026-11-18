@@ -497,6 +497,16 @@ function years(show) {
   const a = show.premiered.slice(0, 4), b = show.ended ? show.ended.slice(0, 4) : "now";
   return a === b ? a : a + " to " + b;
 }
+function demoAbout(d) {
+  const link = (href, text) => href ? `<a href="${esc(href)}"${/^https:/.test(href) ? ` target="_blank" rel="noopener"` : ""}>${text}</a>` : "";
+  const pages = [link(d.terms, "Terms"), link(d.privacy, "Privacy notice")].filter(Boolean);
+  const chans = d.channels || [];
+  return `<h2>Privacy</h2><p>No accounts, no ads and no trackers. A cookie keeps this browser signed in as a visitor; the server keeps neither your address nor your browser with it, and where you stopped in a video stays in this browser. Everything visitors leave behind is cleared each night.</p>
+      <p>${d.serve_files ? "Films play from this server. Channels play" : "Films and channels play"} straight from the people who publish them, not from this server, so their servers see your address, as any website you visit does.</p>
+      ${pages.length ? `<p>${pages.join(" · ")}</p>` : ""}
+      <h2>What's free here, and why</h2><p>Every film and show here is in the public domain, a US government work, or under a Creative Commons licence that lets anyone show it (CC0, CC BY or CC BY-SA). Each title's page says which, who publishes it, and where that's stated.</p>
+      ${chans.length ? `<h2>Channels</h2><ul class="about-chans">${chans.map(c => `<li><b>${esc(c.name)}</b>, from ${link(c.page, esc(c.publisher))}. ${esc(c.rights)}</li>`).join("")}</ul>` : ""}`;
+}
 function heroFor(show, short) {
   const nx = upNext(show);
   const facts = [
@@ -518,6 +528,7 @@ function heroFor(show, short) {
       ${show.logo ? `<img decoding="async" class="hero-logo" src="${esc(artSrc(show.logo, 720))}" alt="${esc(show.name)}">` : `<h1>${esc(show.name)}</h1>`}
       <p class="facts">${facts}</p>
       ${show.summary ? `<p class="summary${short ? "" : " clamp"}">${esc(show.summary)}</p>` : ""}
+      ${rightsLine(show.rights)}
       <div class="actions">${action}${short ? "" : `<a class="btn" href="#/show/${encodeURIComponent(show.id)}">Episodes</a>`}${show.adult ? "" : listBtn(show.id)}${short && inRows(show) ? forgetBtn(show) : ""}
         ${short && session.user.admin ? `<button class="btn ghost" data-fix="${esc(show.id)}">${show.source ? "Fix details" : "Find details"}</button>
           <button class="btn ghost" data-manage="${esc(show.id)}">${icon("i-more")}Manage</button>${kidsBtn(show)}${shareBtn(show)}` : ""}</div>
@@ -1148,6 +1159,17 @@ function viewCollection(name) {
     <div class="actions"><button class="btn primary" data-play="${esc(next.id)}">${icon("i-play")}${inProgress(next.id) ? "Resume" : "Play"} <small>${esc(next.title)}</small></button></div></div></section>
     <section class="page${list.some(m => m.adult) ? " adult-page" : ""}"><div class="grid">${list.map(movieCard).join("")}</div></section>`;
 }
+/* A title's rights record (sofa/rights.py): its licence, who publishes it and where that's said, the credit it asks
+   for, and what was changed. Every public demo title has one; any Sofa shows one when it's there. */
+function rightsLine(r) {
+  if (!r || !r.licence) return "";
+  const out = (href, text) => /^https:\/\//.test(href || "") ? `<a href="${esc(href)}" target="_blank" rel="noopener">${esc(text)}</a>` : esc(text);
+  return `<dl class="rights">
+    <div><dt>Licence</dt><dd>${r.licence_url ? out(r.licence_url, r.licence) : esc(r.licence)}${r.basis ? ` <span>${esc(r.basis)}</span>` : ""}</dd></div>
+    ${r.publisher ? `<div><dt>From</dt><dd>${out(r.source, r.publisher)}${r.checked ? ` <span>checked ${esc(r.checked)}</span>` : ""}</dd></div>` : ""}
+    ${r.credit ? `<div><dt>Credit</dt><dd>${esc(r.credit)}</dd></div>` : ""}
+    ${r.changes ? `<div><dt>Changes</dt><dd>${esc(r.changes)}</dd></div>` : ""}</dl>`;
+}
 function viewMovie(id) {
   const m = byId.get(id);
   if (!m || m.kind !== "movie") return viewMissing();
@@ -1175,12 +1197,13 @@ function viewMovie(id) {
         ${m.performers && m.performers.length ? `<p class="facts"><span>With ${m.adult ? m.performers.map(x => link("performer", x)).join(", ") : esc(m.performers.join(", "))}</span></p>` : ""}
         ${m.adult && m.genres && m.genres.length ? `<p class="tag-cloud small">${m.genres.slice(0, 12).map(g => `<a class="tag-chip" href="#/adult/tag/${encodeURIComponent(g)}">${esc(g)}</a>`).join("")}</p>` : ""}
         ${m.summary ? `<p class="summary">${esc(m.summary)}</p>` : ""}
+        ${rightsLine(m.rights)}
         <div class="actions">
           <button class="btn primary" data-play="${esc(m.id)}">${icon("i-play")}${resume ? "Resume" : "Play"}${resume ? ` <small>${esc(clock(p.d - p.t))} left</small>` : ""}</button>
           ${resume ? `<button class="btn" data-play-start="${esc(m.id)}">Start over</button>` : ""}
           ${inRows(m) ? forgetBtn(m) : ""}
           <button class="btn ghost" data-watched="${esc(m.id)}" aria-pressed="${isDone(m.id)}">${icon("i-check")}${isDone(m.id) ? "Watched" : "Mark watched"}</button>
-          ${TV ? "" : `<button class="btn ghost" data-download="${esc(m.id)}">${icon("i-download")}Download</button>`}
+          ${TV || visitorMode() ? "" : `<button class="btn ghost" data-download="${esc(m.id)}">${icon("i-download")}Download</button>`}
           ${m.adult ? `<button class="btn ghost heart-btn" data-like="${esc(m.id)}" aria-pressed="${favs.has(m.id)}">♥ ${favs.has(m.id) ? "In Favorites" : "Favorite"}</button>` : listBtn(m.id)}
           ${session.user.admin ? `<button class="btn ghost" data-fix="${esc(m.id)}">${m.source ? "Fix details" : "Find details"}</button>
             <button class="btn ghost" data-manage="${esc(m.id)}">${icon("i-more")}Manage</button>${kidsBtn(m)}${shareBtn(m)}` : ""}
@@ -1338,8 +1361,9 @@ function episodeRow(ep, label) {
   </article>`;
 }
 /* The episode guide under a season: episodes that have aired but aren't in the library, and the next one
-   to air (from what TVmaze listed, so nothing is looked up for it). */
-function guideRows(show, season) {
+   to air (from what TVmaze listed, so nothing is looked up for it). (Not guideRows: Live TV's guide has that name, and
+   the later of two functions of one name is the one that runs.) */
+function episodeGuide(show, season) {
   if (!season) return "";
   const gaps = (show.missing || []).filter(m => m.s === season.n);
   const next = show.next_air && show.next_air.s === season.n ? show.next_air : null;
@@ -1376,7 +1400,7 @@ function viewShow(id, seasonKey) {
         <p>${plural(items.length, current.key === "extras" ? "video" : "episode")}, ${done} watched</p>
         <button class="btn" data-season-watched="${esc(current.key)}">${done === items.length ? "Mark all not watched" : "Mark all watched"}</button>
       </aside>
-      <div class="episodes" role="tabpanel">${items.map(i => episodeRow(i)).join("")}${guideRows(show, current.season)}</div>
+      <div class="episodes" role="tabpanel">${items.map(i => episodeRow(i)).join("")}${episodeGuide(show, current.season)}</div>
     </div>` + likeThisRail(show);
 }
 /* Search: accents and case don't matter; whole titles and word starts come first; genres, networks,
@@ -1504,7 +1528,7 @@ function viewAbout() {
   const named = sh.title && !/^sofa$/i.test(sh.title.trim()), who = named ? esc(sh.title) : "this Sofa";
   const write = !c ? "whoever runs it" : /^https:/.test(c) ? `<a href="${esc(c)}" target="_blank" rel="noopener">${esc(c)}</a>`
     : `<a href="mailto:${esc(c)}">${esc(c)}</a>`;
-  const here = ["shows and films its owners chose to share"];
+  const here = [session.demo ? "films and shows that are free to show (each title's page says why)" : "shows and films its owners chose to share"];
   if (sh.live) here.push("free TV channels that play straight from the people who stream them (this Sofa doesn't host them or pass them on)");
   if (sh.games) here.push("games that run in your browser");
   const list = here.length > 1 ? here.slice(0, -1).join("; ") + "; and " + here[here.length - 1] : here[0];
@@ -1512,7 +1536,7 @@ function viewAbout() {
     <div class="about-body">
       <p>${named ? who + " is a free Sofa" : "This is a free Sofa"}: anyone can watch what's here, with no account and no ads in Sofa's own screens.</p>
       <h2>What's here</h2><p>${list.charAt(0).toUpperCase() + list.slice(1)}.</p>
-      <h2>Privacy</h2><p>No ads and no trackers. A cookie keeps this browser signed in as a visitor, and where you stopped in a video is kept in this browser, not on the server. When you open the link, the server notes this browser's address and type with the visitor sign-in, as websites do.</p>
+      ${session.demo ? demoAbout(session.demo) : `<h2>Privacy</h2><p>No ads and no trackers. A cookie keeps this browser signed in as a visitor, and where you stopped in a video is kept in this browser, not on the server. When you open the link, the server notes this browser's address and type with the visitor sign-in, as websites do.</p>`}
       <h2>Copyright</h2><p>If something here is yours and you want it taken down, write to ${write}, saying what it is and where it appears. It comes down while it's looked at.</p>
       <h2>Using it</h2><p>It's for watching, for yourself. Please don't copy what's here or put it up somewhere else.</p>
     </div></section>`;
@@ -1527,15 +1551,15 @@ function viewSofaBox() {
     <div class="sbx-hero">
       <div class="sbx-copy"><span class="sbx-kicker">${icon("i-sofabox")} Sofa Box</span>
         <h1>Your own TV box, on a Raspberry Pi</h1>
-        <p>It starts on its own home screen, with Sofa, free Live TV, your streaming apps, games and a file manager. No ads, no account, and nothing watching what you watch.</p>
+        <p>It starts on its own home screen, with Sofa, ${session.demo ? "" : "free Live TV, "}your streaming apps, games and a file manager. No ads, no account, and nothing watching what you watch.</p>
         <div class="row-actions"><a class="btn primary" href="https://github.com/krintoxi/sofa/releases/tag/sofa-box" target="_blank" rel="noopener">${icon("i-download")} Download Sofa Box OS</a>
           <a class="btn ghost" href="https://github.com/krintoxi/sofa/tree/main/deploy/sofa-box#readme" target="_blank" rel="noopener">The full guide</a></div>
-        <small class="sbx-free">Free and open source. The newest card is always on that page.</small></div>
+        <small class="sbx-free">Free for your own use, and source-available. The newest card is always on that page.</small></div>
       <img class="sbx-shot" src="/pictures/box-home.jpg" alt="The Sofa Box home screen: the time, Open Sofa and Live TV, the weather, and a row of apps" loading="lazy" decoding="async">
     </div>
     <div class="sbx-feats">
       ${feat("i-sofa", "Sofa, played properly", "Your own Sofa, a friend's, or one on the box itself. Its own player plays most files as they are.")}
-      ${feat("i-live", "Free Live TV", "Its own tile on the home screen, with or without a Sofa server.")}
+      ${session.demo ? "" : feat("i-live", "Free Live TV", "Its own tile on the home screen, with or without a Sofa server.")}
       ${feat("i-tv", "Your streaming apps", "Netflix, YouTube, Prime Video, Disney+ and more open full screen, like apps. Home brings you back.")}
       ${feat("i-games", "Games", "Games made for the TV and a controller, and more to add from the box.")}
       ${feat("i-phone", "Your phone is the remote", "Scan the code on the TV: it's a remote, a keyboard and a touchpad. A controller or the TV's remote work too.")}
@@ -3369,6 +3393,8 @@ function route(animate) {
   $("#searchBtn").toggleAttribute("aria-current", nav === "search");
   document.querySelectorAll("[data-nav]").forEach(a => { if (a.dataset.nav === nav) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current"); });
   view.innerHTML = html;
+  // (the public demo: the Sofa Box isn't sold beside free channels, so its link is off the Live TV page)
+  $("#navSofaBox").hidden = !!window.SofaBox || (!!session.demo && nav === "live");
   if (animate !== false) revealRails(view); else view.querySelectorAll(".row").forEach(r => r.classList.add("rail-in"));
   if (animate !== false && motion() !== "off") {
     view.classList.remove("enter"); void view.offsetWidth; view.classList.add("enter");
@@ -5645,7 +5671,7 @@ const MusicPlayer = (function () {
 async function reloadLibrary() {
   const [lib, prog] = await Promise.all([api("/api/library"), api("/api/progress")]);
   progress = visitorMode() ? prefs.get("visitorProgress:" + location.host, {}) || {} : prog; indexLibrary(lib);
-  $("#foot").innerHTML = esc(lib.reading ? "Reading the library... " : "Library updated " + new Date(lib.generated * 1000).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) + ". New files in the Inbox show up on their own. ")
+  $("#foot").innerHTML = esc(lib.reading ? "Reading the library... " : "Library updated " + new Date(lib.generated * 1000).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) + (session.demo ? ". " : ". New files in the Inbox show up on their own. "))
     + `<a href="?tv=${TV ? 0 : 1}" class="link-btn">${TV ? "Turn off TV mode on this device" : "Use TV mode on this device"}</a>`
     + (visitorMode() ? ` <a href="#/about" class="link-btn">About, privacy and copyright</a>` : "")
     + `<span class="credit">Sofa ${esc(session.version || "")} · Project by <a href="https://edgeventure.uk" target="_blank" rel="noopener">EdgeVenture.uk</a></span>`;

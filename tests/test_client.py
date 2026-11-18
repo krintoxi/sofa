@@ -25,5 +25,15 @@ class ClickHandlers(unittest.TestCase):
         self.assertIn("era", {n for m in handlers for n in re.findall(r"\[data-([a-z0-9-]+)\]", m.group(1))})
 
 
+class OneFunctionOneName(unittest.TestCase):
+    def test_no_two_top_level_functions_share_a_name(self):
+        """The app is one script: of two top-level functions with the same name, only the later one runs. From 1.3.0
+        to 1.5.16 Live TV's guide (guideRows) replaced the episode guide under a season, so a show's page stopped
+        with an error until Live TV's guide had been opened."""
+        with open(os.path.join(ROOT, "client", "app.js"), encoding="utf-8") as f:
+            names = re.findall(r"^(?:async )?function\*? ?([A-Za-z0-9_$]+)\(", f.read(), re.M)
+        self.assertTrue(names)
+        self.assertEqual(sorted({n for n in names if names.count(n) > 1}), [])
+
 if __name__ == "__main__":
     unittest.main()

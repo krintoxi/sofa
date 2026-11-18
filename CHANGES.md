@@ -6,6 +6,43 @@ has its own numbers and list: [deploy/sofa-box/CHANGES.md](deploy/sofa-box/CHANG
 A change to Sofa's code (`sofa/`, `client/`, `sofa.py`) gets a new version: raise `__version__`, add a section
 here, then `python3 tools/sofa-version.py` (a test checks it was done).
 
+## 1.5.17 (2026-11-18)
+
+- **The public demo:** a Sofa anyone can open without installing anything, with only a free library, run as its own
+  instance ([docs/public-demo.md](docs/public-demo.md)). One switch, `SOFA_DEMO=1` (or `"demo": true` in
+  config.json), turns it on and holds it in code (`sofa/demo.py`):
+  - **Nobody is at home.** Every request counts as the internet, whatever address it comes from (a tunnel in
+    another container looks like the home network). So there's no admin, setup, sign-in, sign-up, guest, pairing
+    or profile switching over the web, from anywhere; everyone is the public library's Visitor. The demo is run
+    from its files and the command line.
+  - **Its settings are locked** (`config.DEMO_LOCKED`): config.json and the Server page can't change them while
+    it's on. Among them: the decades and Classic Cinema off, no lookups (a free film mustn't get a copyrighted
+    poster), no tidying, Inbox, uploads, downloads or conversions, no DLNA, UPnP or DuckDNS.
+  - **Only titles with a rights record that passes:** public domain, a US government work, CC0, CC BY or CC BY-SA,
+    each with its publisher, the page that says so and the day it was read; a credit for CC BY; a reason for public
+    domain. Each plays as it is, by default from its publisher's own address, so no video goes through the demo's
+    server. Nothing is converted, repackaged or relayed.
+  - **Live TV only from the demo's own channel list**, each channel checked: https, CORS headers on its playlist,
+    a quality and a segment, no made-up browser name or referrer, no FAST service's stream, nothing geo-blocked, a
+    publisher and a rights note. The relay never answers.
+  - **No trackers, in code:** a content policy names no other site for scripts, styles, fonts or pictures; a
+    visitor's sign-in keeps neither the address nor the browser. Games may reach nothing but this server.
+  - **Rate limits** per visitor, and on new visitor sign-ins; **a nightly reset** of what visitors leave behind.
+  - The Sofa Box link is off the Live TV page, and the box's page doesn't offer free Live TV there.
+- **Rights records on any Sofa** (`sofa/rights.py`): a `<video>.rights.json` next to a video, or `rights.json` in its
+  folder, shows on the title's page: the licence, who publishes it, the credit, what was changed.
+- **The seed tool** (`tools/demo-seed.py`): builds the free library from a manifest and refuses any title without a
+  record that passes; checks channels the way a browser on another site plays them; writes the demo's config.json.
+  Ours (`deploy/demo/library.json`) starts with four titles from Wikimedia Commons, and holds a fifth for a lawyer's
+  view. `deploy/demo/compose.yml` runs the demo in Docker, read-only and on its own network.
+- **A show's page opens again.** Since 1.3.0 Live TV's guide and the episode guide under a season had the same
+  function name in the app, so the second replaced the first, and a show's page stopped with an error until Live
+  TV's guide had been opened. The episode guide has its own name now, and a test fails if two of the app's
+  functions share one.
+- The Sofa Box page says "source-available", not "open source".
+- Tested on a Mac as a scratch instance bound to 127.0.0.1 with a read-only library, and by
+  `tests/test_public_demo.py` (each guardrail, the seed tool, and the pages in Chrome). The compose recipe has not
+  been run in Docker; nothing is public.
 ## 1.5.16 (2026-11-18)
 
 - **A Sofa box gets the file as it is.** A device whose player is mpv says so (`mpv=1`: Sofa Box OS 1.1.91), and Sofa

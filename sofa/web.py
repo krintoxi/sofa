@@ -20,7 +20,7 @@ from urllib.parse import parse_qs, quote, unquote, urlsplit
 
 import threading
 
-from . import (archive, __version__, acme, apps, artwork, auth, awake, backup, config, ddns, dlna, dvr, fetch, guide, housekeeping, intros, live, media, metadata, music,
+from . import (archive, __version__, acme, apps, artwork, auth, awake, backup, config, ddns, demo, dlna, dvr, fetch, guide, housekeeping, intros, live, media, metadata, music,
                outside,
                kids, machine, net, optimize, organizer, places, previews, report, screens, store, tls, trickplay, updater, upnp,
                discovery, pairing, sharing, slow, travel, tuners, uploads)
@@ -102,9 +102,25 @@ class Handler(BaseHTTPRequestHandler):
         return isinstance(self.connection, ssl.SSLSocket) or bool(
             config.get("trust_proxy") and self.headers.get("X-Forwarded-Proto") == "https")
 
+    # The public demo's pages load nothing from anywhere else (no ads, trackers or fonts from outside): only a
+    # channel's stream (hls.js fetches it) and a title's video at its publisher come from other https addresses.
+    # The games may run code they make, and may reach nothing but this server: no chat, no one else's server.
+    DEMO_CSP = ("default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
+                "img-src 'self' data: blob:; font-src 'self'; media-src 'self' blob: https:; connect-src 'self' https:; "
+                "worker-src 'self' blob:; frame-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; "
+                "frame-ancestors 'self'")
+    DEMO_GAMES_CSP = ("default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; "
+                      "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; "
+                      "media-src 'self' data: blob:; connect-src 'self'; worker-src 'self' blob:; object-src 'none'; "
+                      "base-uri 'self'; form-action 'none'; frame-ancestors 'self'")
+
     def end_headers(self):
         self.send_header("X-Frame-Options", "SAMEORIGIN")
         self.send_header("Referrer-Policy", "same-origin")
+        if config.demo_on():
+            games = urlsplit(self.path).path.startswith("/games/")
+            self.send_header("Content-Security-Policy", self.DEMO_GAMES_CSP if games else self.DEMO_CSP)
+            self.send_header("Permissions-Policy", "camera=(), microphone=(), geolocation=(), interest-cohort=()")
         if self.is_https() and tls.trusted():
             self.send_header("Strict-Transport-Security", "max-age=15552000")
         super().end_headers()
@@ -203,7 +219,38 @@ class Handler(BaseHTTPRequestHandler):
     # ------------------------------------------------------------ gatekeeping
 
     def network(self):
+        if config.demo_on():
+            # The public demo: whatever address a request comes from (a tunnel's container on Docker's own network
+            # looks like the home network), it's the internet's. Nobody is at home, so nobody is an admin.
+            return "internet"
         return auth.network_of(self.client_ip())
+
+    def visitor_key(self):
+        """Who a visitor to the public demo is, for its rate limits only (never for trust): the address the tunnel
+        or proxy in front says, else the one the connection comes from."""
+        for h in ("CF-Connecting-IP", "True-Client-IP", "X-Real-IP"):
+            v = (self.headers.get(h) or "").strip()
+            if v:
+                return v[:64]
+        fwd = [x.strip() for x in self.headers.get("X-Forwarded-For", "").split(",") if x.strip()]
+        return fwd[-1][:64] if fwd else self.client_address[0]
+
+    def demo_refuses(self, path):
+        """The demo's rate limits, and what it never does (after replying, True)."""
+        health = path in ("/api/info", "/healthz") and auth.network_of(self.client_address[0]) == "local" \
+            and not self.proxied()                  # (the container's own health check)
+        if not health and not demo.allow("request", self.visitor_key()):
+            self.close_connection = True
+            self.send_body("Too many requests. Wait a minute and try again.", status=429, headers={"Retry-After": "60"})
+            return True
+        closed = path.startswith(("/api/admin/", "/api/pair/", "/api/setup", "/api/login", "/api/signup", "/api/guest",
+                                  "/api/profile", "/api/dvr", "/api/travel/", "/api/hls/", "/media/hls/", "/guest",
+                                  "/dlna/", "/live/", "/sofa-box", "/roku", "/firetv"))
+        if closed:
+            self.close_connection = True
+            self.send_body("Not on the demo.", status=404)
+            return True
+        return False
 
     def gate(self):
         """False (after replying) when this connection isn't allowed at all."""
@@ -212,6 +259,8 @@ class Handler(BaseHTTPRequestHandler):
         if path.startswith("/.well-known/acme-challenge/"):     # Let's Encrypt checking the domain: from anywhere
             answer = acme.challenges.get(path.rsplit("/", 1)[1])
             self.send_body(answer or "Not found", status=200 if answer else 404)
+            return False
+        if config.demo_on() and self.demo_refuses(unquote(path)):     # (decoded, as the routes below see it)
             return False
         net = self.network()
         self.visitor_only = False
@@ -250,6 +299,8 @@ class Handler(BaseHTTPRequestHandler):
         """The share link (or, with "Open to everyone", the plain address): signed in as the Visitor."""
         if not sharing.on() or (token is not None and not sharing.check_token(token)):
             return self.private_page("This link doesn't work any more. Ask whoever sent it for a new one.", 404)
+        if config.demo_on() and not demo.allow("entry", self.visitor_key()):
+            return self.private_page("Lots of people are opening this Sofa right now. Try again in a little while.", 429)
         user = sharing.visitor_user()
         token = auth.start_session(user["id"], self.client_ip(), self.headers.get("User-Agent"), label="Visitor")
         query = urlsplit(self.path).query                # ?tv=1 and the like carry on
@@ -324,7 +375,8 @@ class Handler(BaseHTTPRequestHandler):
                                   headers={"Content-Disposition": 'attachment; filename="sofa-roku.zip"'})
         if path == "/api/info":                       # for apps that found Sofa on the network (no sign-in)
             return self.json(dict(discovery.info(), share={"on": sharing.on(), "open": bool(config.get("public_open")) and sharing.on(),
-                                                           "title": sharing.title() if sharing.on() else None}))
+                                                           "title": sharing.title() if sharing.on() else None},
+                                  **({"demo": True} if config.demo_on() else {})))   # (the demo's health check asks)
         if path == "/healthz":
             if self.visitor_only or (self.user() or {}).get("visitor"):
                 return self.json({"ok": True, "name": config.get("name"), "version": __version__})
@@ -342,6 +394,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.static("index.html")
         if path == "/guest":
             return self.guest_entry()
+        if path.startswith("/demo/") and config.demo_on():
+            return self.demo_file(path)
         if path.startswith("/client/"):
             return self.static(path[len("/client/"):])
         if path.startswith("/games/"):
@@ -383,7 +437,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.error(400, "Missing X-Sofa header.")
         if not self.same_site(self.headers.get("Origin")):
             return self.error(403, "Sofa doesn't take requests from other sites.")
-        if path == "/api/admin/upload":                # a file sent from a phone or laptop: streamed, not read as JSON
+        if path == "/api/admin/upload" and not config.demo_on():    # a file from a phone or laptop: streamed, not JSON
             return self.upload()
         data = self.body_json()
         if data is None:
@@ -462,6 +516,20 @@ class Handler(BaseHTTPRequestHandler):
             data = f.read()
         self.send_body(data, MIME.get(os.path.splitext(full)[1].lower(), "application/octet-stream"),   # bundled fonts and libraries: kept a week
                        headers={"Cache-Control": "private, max-age=604800" if rel.startswith(("vendor" + os.sep, "icons" + os.sep)) else "no-cache"})
+
+    def demo_file(self, path):
+        """The public demo's own files: channel logos, the terms and the privacy notice (demo.py)."""
+        m = re.match(r"^/demo/logos/([\w.-]+\.(png|jpg|jpeg|webp|svg))$", path)
+        if m:
+            full = os.path.join(demo.folder(), "logos", m.group(1))
+            return self.send_file(full, cache="public, max-age=86400") if os.path.isfile(full) else \
+                self.send_body("Not found", status=404)
+        m = re.match(r"^/demo/(terms|privacy)$", path)
+        full = demo.page_file(m.group(1)) if m else None
+        if not full:
+            return self.send_body("Not found", status=404)
+        with open(full, "rb") as f:
+            return self.send_body(f.read(), "text/html; charset=utf-8", headers={"Cache-Control": "no-cache"})
 
     def game_file(self, rel):
         """The box's page games (deploy/sofa-box/games), for playing in the Sofa app off a box. A Visitor only
@@ -687,6 +755,8 @@ class Handler(BaseHTTPRequestHandler):
         if not u:
             return
         h = re.match(r"^/media/hls/([0-9a-f]{20})/([\w.]+)$", path)
+        if h and config.demo_on():
+            return self.send_body("Not found", status=404)
         if h:
             f = media.hls_file(h.group(1), h.group(2))
             if not f:
@@ -705,6 +775,10 @@ class Handler(BaseHTTPRequestHandler):
         kind = m.group(2)
         if u.get("visitor") and (kind == "travel.mp4" or (qs.get("download") or [""])[0] == "1"):
             return self.send_body("Not found", status=404)
+        if config.demo_on() and kind == "trick.json":
+            return self.json({"pending": False})                  # (the demo makes no scrubbing pictures)
+        if config.demo_on() and not (kind == "file" and config.get("demo_serve_files") and demo.item_ok(item)):
+            return self.send_body("Not found", status=404)          # the demo: the file as it is, or nothing
         if kind == "trick.json":
             info = trickplay.meta(item)
             if not info:
@@ -763,7 +837,10 @@ class Handler(BaseHTTPRequestHandler):
                                         "contact": config.get("share_contact") or "",
                                         "home": not self.visitor_only} if u and u.get("visitor") else None,
                               "offline": net.offline_mode(),
-                              "needs_setup": auth.user_count() == 0, "network": self.network(),
+                              "needs_setup": auth.user_count() == 0 and not config.demo_on(), "network": self.network(),
+                              "demo": {"terms": demo.page_link("terms"), "privacy": demo.page_link("privacy"),
+                                       "serve_files": bool(config.get("demo_serve_files")),
+                                       "channels": demo.credits()} if config.demo_on() else None,
                               "remote": config.get("remote"), "guest_available": bool(self.guest_ok()),
                               "retro_tv": archive.on() and not (u and (u.get("kids") or u.get("visitor"))),
                               "retro_eras": archive.on() and archive.eras_on(),
@@ -893,6 +970,8 @@ class Handler(BaseHTTPRequestHandler):
             item = self.visible_item(m.group(1), u)
             if not item:
                 return self.error(404, "That video isn't in the library any more.")
+            if config.demo_on():                       # the public demo: as it is, from its publisher (or here)
+                return self.json(demo.play_plan(item))
             caps = media.caps_from(qs)
             if item["kind"] == "track":
                 direct = music.playable_directly(item) or not media.tool("ffmpeg")
@@ -923,6 +1002,8 @@ class Handler(BaseHTTPRequestHandler):
                               (p["mode"] == "transcode" and not machine.gentle() and not media.should_wait()) else "clip")
             return self.json(out)
         m = re.match(r"^/api/hls/(.+)$", path)
+        if m and config.demo_on():                    # the public demo converts nothing for anyone
+            return self.error(404, "Not on the demo.")
         if m:
             item = self.visible_item(m.group(1), u)
             if not item:
@@ -1878,7 +1959,7 @@ def slim_library(u):
     without their show's name and id (the app knows which show they're in). Made once per library read."""
     visitor = bool(u.get("visitor"))
     key = (LIBRARY.generated, bool(u.get("adult")), bool(u.get("admin")), bool(u.get("kids")), kids.version[0],
-           sharing.version() if visitor else None)
+           (sharing.version(), config.demo_on(), bool(config.get("demo_serve_files"))) if visitor else None)
     with _slim_lock:
         if key in _slim:
             return dict(_slim[key])
@@ -1900,6 +1981,9 @@ def slim_library(u):
         chosen = sharing.shared_ids()
         shows = [s for s in shows if sharing.entry_shared(s, chosen)]
         movies = [m for m in movies if sharing.entry_shared(m, chosen)]
+        if config.demo_on():                       # the public demo: the episodes with rights that play as they are
+            shows = [dict(s, extras=[], seasons=[se for se in (dict(se, episodes=[e for e in se["episodes"] if demo.item_ok(e)])
+                                                               for se in s["seasons"]) if se["episodes"]]) for s in shows]
         recorded = dvr.recorded_paths()
         if recorded:                               # recordings off the household's own tuner: never a Visitor's
             def mine(i):

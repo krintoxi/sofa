@@ -362,6 +362,9 @@ def refresh(force=False):
                 kept["lists"] = kept.get("lists", ()) + (sys.intern(url),)   # (the same stream in two lists: one channel, in both)
         _status[url] = {"name": name, "url": url, "count": len(found), "error": error, "adult": bool(pl.get("adult")),
                         "updated": int(os.path.getmtime(path)) if os.path.exists(path) else None}
+    if config.demo_on():                            # the public demo: its own checked list, and nothing else
+        from . import demo
+        channels = demo.channels()
     # each channel's number on the dial: today's channels from 101, after Sofa's own lineup (2 to 99), by group and
     # name, counted over every channel so a number is the same channel for everyone (an adult profile, a Visitor)
     n = -1
@@ -390,6 +393,8 @@ def visible(chan):
     """Shown at all. A channel whose list asks for a made-up browser name or referrer (to get past a site that wants its
     stream played only on its own pages) only when an admin allowed that (live_headers)."""
     h = (chan or {}).get("headers") or {}
+    if chan and config.demo_on() and chan.get("playlist") != "demo":     # the public demo: its own list's channels only
+        return False
     return bool(chan) and (bool(config.get("live_headers")) or not (h.get("ua") or h.get("referer")))
 
 
@@ -402,7 +407,7 @@ def listing(user_id, adult=False, public_only=False, direct_only=False, show_dow
     _load_health()
     favs = {r["channel"] for r in store.q("SELECT channel FROM live_favorites WHERE user_id = ?", user_id)}
     lists = [p for p in playlists() if adult or not p.get("adult")]
-    public = {p["url"] for p in lists if p.get("public")}
+    public = {p["url"] for p in lists if p.get("public")} | ({"demo"} if config.demo_on() else set())
     with _lock:
         chans = sorted((c for c in _channels.values() if (adult or not c.get("adult")) and visible(c)
                         and (not public_only or public.intersection(c.get("lists") or ()))),
@@ -411,6 +416,8 @@ def listing(user_id, adult=False, public_only=False, direct_only=False, show_dow
     for c in chans:
         row = {"id": c["id"], "name": c["name"], "logo": c["logo"], "group": c["group"], "adult": c.get("adult", False),
                "playlist": c["playlist"], "fav": c["id"] in favs, "number": c.get("number")}
+        if c.get("rights"):                         # the public demo's channels: who publishes it, and on what terms
+            row.update(publisher=c.get("publisher"), rights=c["rights"], page=c.get("page"))
         if c.get("tuner"):
             row.update(tuner=True, guide_number=c.get("guide_number"), recordable=True)
         elif c.get("home"):

@@ -147,6 +147,37 @@ DEFAULTS = {
     # Downloads from sites that want a sign-in or an age check: "safari", "chrome", "firefox", ... (that browser's
     # session on this computer), "file" (data/bin/cookies.txt), or "" for none.
     "ytdlp_cookies": "",          # hover previews: short silent clips, made as they're needed
+    # The public demo (sofa/demo.py, docs/public-demo.md): a Sofa anyone may open, run as its own instance. On (here,
+    # or SOFA_DEMO=1 in the environment), the settings in DEMO_LOCKED below read as they're set there, whatever
+    # config.json or the Server page say, and nothing about the demo can be changed over the web.
+    "demo": False,
+    "demo_folder": "",            # its channel list, title records and pages (empty: data/demo, or SOFA_DEMO_DIR)
+    "demo_reset": "04:30",        # when, each night, whatever visitors changed is put back
+    "demo_serve_files": False,    # play the library's own copies from this server (off: from each title's publisher)
+    "demo_terms": "",             # the terms and the privacy notice: https addresses, or files in the demo folder
+    "demo_privacy": "",
+}
+
+# What the demo switch holds, and why (docs/public-demo.md has the full list):
+DEMO_LOCKED = {
+    # everyone is a visitor of the public library, which holds every title (each with a rights record, demo.py)
+    "share_on": True, "share_all": True, "public_open": True, "share_live": True, "share_games": True,
+    # no Classic Cinema and no decades: those films and recordings aren't checked title by title
+    "share_cinema": False, "archive_channels": False, "retro_eras": False, "defaults_rev": 1,
+    # Live TV only from the demo's own channel list: no lists, tuners or guides added by hand, no channel that asks
+    # for a made-up browser name or referrer, and no checks from this server (they'd send a made-up browser name)
+    "live_playlists": [], "tuners": [], "guide_sources": [], "live_headers": False, "live_check": False,
+    # no accounts, sign-ups or guests, nothing on the home network, nothing from outside
+    "signups": False, "guest_access": False, "dlna": False, "upnp": False, "duckdns_token": "", "remote": "home",
+    "trust_proxy": False, "https": "off", "check_service": "", "auto_drives": False,
+    # the library is the seed tool's alone: no lookups (a free film mustn't get a copyrighted poster), no tidying,
+    # no Inbox, no downloads, no conversion, nothing a visitor's click starts ffmpeg for (web.py turns the Inbox,
+    # uploads, downloads and conversions down on top of these)
+    "tvmaze": False, "free_movie_lookup": False, "tmdb_api_key": "", "theporndb_api_key": "", "tidy_library": False,
+    "auto_convert": False, "previews": False, "trickplay": False, "detect_intros": False, "machine_test": False,
+    "ytdlp_cookies": "",
+    # a server: the computer sleeps its own way (and no visitor's address or browser is kept: auth.start_session)
+    "keep_awake": False,
 }
 
 _lock = threading.Lock()
@@ -195,24 +226,41 @@ def _rev(data):
         return 0
 
 
+def demo_on():
+    """The public demo's switch: SOFA_DEMO=1 in the environment (the demo's compose.yml sets it, so no file on the
+    data volume can turn it off), or "demo": true in config.json."""
+    if os.environ.get("SOFA_DEMO", "").strip().lower() in ("1", "true", "yes", "on"):
+        return True
+    if _config is None:
+        load()
+    return bool(_config.get("demo"))
+
+
 def get(key):
     if _config is None:
         load()
+    if key in DEMO_LOCKED and demo_on():
+        v = DEMO_LOCKED[key]
+        return list(v) if isinstance(v, list) else v
     return _config[key]
 
 
 def all_settings():
     if _config is None:
         load()
-    return dict(_config)
+    out = dict(_config)
+    if demo_on():
+        out.update(copy.deepcopy(DEMO_LOCKED))
+    return out
 
 
 def update(changes):
     if _config is None:
         load()
+    locked = demo_on()
     with _lock:
         for k, v in changes.items():
-            if k in DEFAULTS:
+            if k in DEFAULTS and not (locked and k in DEMO_LOCKED):    # (the demo's locks aren't the web's to change)
                 _config[k] = v
         _write(_config)
 

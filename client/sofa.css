@@ -1799,6 +1799,15 @@ html.gaming, html.gaming body { overflow: hidden; }
 .about-body h2 { font: 700 22px/1.2 var(--display); color: var(--paper); margin: 26px 0 6px; }
 .about-body p { margin: 0 0 10px; }
 .about-body a { color: var(--amber); text-decoration: underline; }
+.about-chans { margin: 0 0 10px; padding-left: 20px; }
+.about-chans li { margin: 0 0 6px; }
+/* a title's rights record (rightsLine in app.js): licence, publisher, credit, changes */
+.rights { display: grid; gap: 4px; margin: 0 0 18px; font-size: 14px; line-height: 1.45; color: var(--soft); max-width: 62ch; }
+.rights div { display: flex; gap: 10px; }
+.rights dt { flex: none; width: 74px; color: var(--mist, var(--soft)); font-weight: 600; }
+.rights dd { margin: 0; }
+.rights dd span { opacity: .75; }
+.rights a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
 .list li .row-actions { display: flex; gap: 6px; align-items: center; flex: none; }
 .mini[data-live-public][aria-pressed="true"] { color: var(--amber-ink); background: var(--amber); border-color: transparent; }
 /* A Sofa box on a Raspberry Pi 3 (box-lite), what still cost it on every press and in between:

@@ -1,0 +1,69 @@
+# The public demo: a separate Sofa anyone can open, with only the free library (docs/public-demo.md).
+#
+# Never the household's Sofa, never on the household's computer or Cloudflare account. From this folder, once the
+# library and the demo folder are ready (docs/public-demo.md, "Running it"):
+#
+#     docker compose up -d                       the demo, on this computer only: http://127.0.0.1:8090
+#     docker compose --profile public up -d      and the tunnel that puts it on the internet (the owner's step)
+#
+# Folders next to this file (made before the first start, owned by PUID:PGID):
+#     ./data      Sofa's own data/ (config.json from tools/demo-seed.py config; the rest Sofa writes)
+#     ./library   the free library from tools/demo-seed.py library, mounted read-only
+#     ./demo      channels.json, logos/, terms.html and privacy.html, mounted read-only
+services:
+  sofa-demo:
+    image: ghcr.io/krintoxi/sofa:latest
+    build: ../..                      # no image to pull (or Sofa changed): docker compose up -d --build
+    container_name: sofa-demo
+    environment:
+      SOFA_DEMO: "1"                  # the demo switch (sofa/demo.py): set here, so nothing on ./data can undo it
+      SOFA_DEMO_DIR: /demo
+    # Started as the user that owns ./data, never as root, with no capabilities at all and nothing it may gain.
+    user: "${PUID:-1000}:${PGID:-1000}"
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    read_only: true                   # only /data (and a small /tmp) can be written
+    tmpfs: ["/tmp:size=64m"]
+    mem_limit: 1g
+    cpus: 2
+    pids_limit: 256
+    # Its own network, never the computer's (no host networking: nothing of a home network to see or answer).
+    # Published to this computer alone, for checking it; the public reaches it only through the tunnel below.
+    networks: [demo]
+    ports:
+      - "127.0.0.1:${DEMO_PORT:-8090}:8090"
+    volumes:
+      - ./data:/data
+      - ./library:/media:ro
+      - ./demo:/demo:ro
+    # Healthy only when this is a Sofa with the demo switch on (1.5.17 and later): an older image would ignore
+    # SOFA_DEMO, so the tunnel below waits for this and never starts in front of one.
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import json, urllib.request as u; d = json.load(u.urlopen('http://127.0.0.1:8090/api/info', timeout=8)); assert d.get('demo') is True"]
+      interval: 60s
+      timeout: 10s
+      start_period: 40s
+      retries: 3
+    restart: unless-stopped
+
+  # The demo on the internet: a Cloudflare tunnel from the demo's OWN Cloudflare account, never the one that carries
+  # boxcert.edgeventure.uk (docs/public-demo.md, "Where it runs"). Its public hostname points at
+  # http://sofa-demo:8090. Started only with --profile public.
+  tunnel:
+    image: cloudflare/cloudflared:latest      # pin the version you checked (cloudflare/cloudflared:<version>)
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${DEMO_TUNNEL_TOKEN:-}     # the demo's own account's tunnel token: DEMO_TUNNEL_TOKEN=... in .env here
+    user: "65532:65532"
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    read_only: true
+    networks: [demo]
+    depends_on:
+      sofa-demo:
+        condition: service_healthy
+    profiles: [public]
+    restart: unless-stopped
+
+networks:
+  demo: {}

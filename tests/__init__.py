@@ -53,6 +53,8 @@ WINDOWS_SKIPS = {
     "tests.test_sofa_craft_controls": BOX,
     "tests.test_image_gen": BOX,
     "tests.test_outside.ThisBox": BOX,
+    "tests.test_public_demo.InABrowser": "it drives Chrome with the box's own DevTools client (tests/test_box_speed.py), "
+                                         "which reads POSIX-only parts of os as it loads",
     "tests.test_box_certs": ("the box certificate service (deploy/box-certs) runs on our Linux server: it checks "
                              "POSIX file modes and reads openssl's output"),
 }

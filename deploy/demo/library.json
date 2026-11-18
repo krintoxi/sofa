@@ -1,0 +1,89 @@
+{
+  "about": "The public demo's free library: tools/demo-seed.py library deploy/demo/library.json --library ./library --fetch. Every title carries its rights record (sofa/rights.py); each source page was read on the date in 'checked'. Read them again before seeding. 'hold' keeps a title out until someone decides (it says who and why).",
+  "titles": [
+    {
+      "kind": "movie",
+      "title": "Big Buck Bunny",
+      "year": 2008,
+      "summary": "A large and gentle rabbit takes his revenge on three rodents who torment the forest's smaller creatures. A short animated film from the Blender Foundation's Peach open movie project.",
+      "download_url": "https://upload.wikimedia.org/wikipedia/commons/transcoded/c/c0/Big_Buck_Bunny_4K.webm/Big_Buck_Bunny_4K.webm.720p.vp9.webm",
+      "rights": {
+        "licence": "CC BY 3.0",
+        "licence_url": "https://creativecommons.org/licenses/by/3.0/",
+        "publisher": "Blender Foundation",
+        "source": "https://commons.wikimedia.org/wiki/File:Big_Buck_Bunny_4K.webm",
+        "checked": "2026-11-18",
+        "credit": "(c) copyright Blender Foundation | www.bigbuckbunny.org",
+        "changes": "Played from Wikimedia Commons' 720p VP9 copy of the original 4K file, re-encoded by Wikimedia; nothing else changed.",
+        "play_url": "https://upload.wikimedia.org/wikipedia/commons/transcoded/c/c0/Big_Buck_Bunny_4K.webm/Big_Buck_Bunny_4K.webm.720p.vp9.webm"
+      }
+    },
+    {
+      "kind": "movie",
+      "title": "Sintel",
+      "year": 2010,
+      "summary": "A lonely young woman searches the world for the baby dragon she once rescued and lost. A short fantasy film from the Blender Foundation's Durian open movie project.",
+      "download_url": "https://upload.wikimedia.org/wikipedia/commons/transcoded/f/f1/Sintel_movie_4K.webm/Sintel_movie_4K.webm.720p.vp9.webm",
+      "rights": {
+        "licence": "CC BY 3.0",
+        "licence_url": "https://creativecommons.org/licenses/by/3.0/",
+        "publisher": "Blender Foundation (Durian Open Movie project)",
+        "source": "https://commons.wikimedia.org/wiki/File:Sintel_movie_4K.webm",
+        "checked": "2026-11-18",
+        "credit": "© copyright Blender Foundation | www.sintel.org",
+        "changes": "Played from Wikimedia Commons' 720p VP9 copy of the original 4K file, re-encoded by Wikimedia; nothing else changed.",
+        "play_url": "https://upload.wikimedia.org/wikipedia/commons/transcoded/f/f1/Sintel_movie_4K.webm/Sintel_movie_4K.webm.720p.vp9.webm"
+      }
+    },
+    {
+      "kind": "movie",
+      "title": "Elephants Dream",
+      "year": 2006,
+      "summary": "Two men explore a vast, strange machine that one of them believes he understands. The first open movie, made with free software by the Orange Open Movie Team.",
+      "download_url": "https://upload.wikimedia.org/wikipedia/commons/transcoded/a/a2/Elephants_Dream_%282006%29.webm/Elephants_Dream_%282006%29.webm.720p.vp9.webm",
+      "rights": {
+        "licence": "CC BY 2.5",
+        "licence_url": "https://creativecommons.org/licenses/by/2.5/",
+        "publisher": "Blender Foundation and the Netherlands Media Art Institute (Orange Open Movie Team)",
+        "source": "https://commons.wikimedia.org/wiki/File:Elephants_Dream_(2006).webm",
+        "checked": "2026-11-18",
+        "credit": "(c) copyright 2006, Blender Foundation / Netherlands Media Art Institute / www.elephantsdream.org",
+        "changes": "Played from Wikimedia Commons' 720p VP9 copy of the original file, re-encoded by Wikimedia; nothing else changed.",
+        "play_url": "https://upload.wikimedia.org/wikipedia/commons/transcoded/a/a2/Elephants_Dream_%282006%29.webm/Elephants_Dream_%282006%29.webm.720p.vp9.webm"
+      }
+    },
+    {
+      "kind": "movie",
+      "title": "Apollo 11: First Steps on the Moon",
+      "year": 1969,
+      "summary": "NASA's television pictures of the Apollo 11 landing and the first steps on the Moon, 20 July 1969. About a minute.",
+      "download_url": "https://upload.wikimedia.org/wikipedia/commons/transcoded/a/a6/Apollo_11_Landing_-_first_steps_on_the_moon.ogv/Apollo_11_Landing_-_first_steps_on_the_moon.ogv.240p.vp9.webm",
+      "rights": {
+        "licence": "US government work",
+        "publisher": "NASA",
+        "source": "https://commons.wikimedia.org/wiki/File:Apollo_11_Landing_-_first_steps_on_the_moon.ogv",
+        "checked": "2026-11-18",
+        "basis": "Made by NASA, a US federal agency: no copyright in the United States (17 U.S.C. 105). NASA's own Apollo 11 multimedia page offers it. NASA's name and insignia aren't used to suggest it endorses this site.",
+        "changes": "Played from Wikimedia Commons' 240p VP9 copy of NASA's file, re-encoded by Wikimedia; nothing else changed.",
+        "play_url": "https://upload.wikimedia.org/wikipedia/commons/transcoded/a/a6/Apollo_11_Landing_-_first_steps_on_the_moon.ogv/Apollo_11_Landing_-_first_steps_on_the_moon.ogv.240p.vp9.webm"
+      }
+    },
+    {
+      "kind": "movie",
+      "title": "Night of the Living Dead",
+      "year": 1968,
+      "hold": "Public domain in the United States; outside it, unsettled. Its director died in 2017, so if the UK and the EU count it by their own terms it is in copyright there until at least 2087; whether the rule of the shorter term carries the US status over is a lawyer's question. Held until the lawyer's view (docs/public-demo.md).",
+      "summary": "Strangers shelter in a Pennsylvania farmhouse as the recently dead rise. George A. Romero's first film.",
+      "download_url": "https://upload.wikimedia.org/wikipedia/commons/transcoded/2/24/Night_of_the_Living_Dead_%281968%29.webm/Night_of_the_Living_Dead_%281968%29.webm.480p.vp9.webm",
+      "rights": {
+        "licence": "Public domain",
+        "publisher": "George A. Romero (director)",
+        "source": "https://commons.wikimedia.org/wiki/File:Night_of_the_Living_Dead_(1968).webm",
+        "checked": "2026-11-18",
+        "basis": "Public domain in the United States: published there in 1968 without a copyright notice (before 1978, a notice was required). Outside the US: not settled.",
+        "changes": "Played from Wikimedia Commons' 480p VP9 copy of the file there, re-encoded by Wikimedia; nothing else changed.",
+        "play_url": "https://upload.wikimedia.org/wikipedia/commons/transcoded/2/24/Night_of_the_Living_Dead_%281968%29.webm/Night_of_the_Living_Dead_%281968%29.webm.480p.vp9.webm"
+      }
+    }
+  ]
+}

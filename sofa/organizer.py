@@ -263,6 +263,8 @@ def pending():
 
 def process_inbox():
     """Handle every settled inbox entry. Returns how many videos were filed."""
+    if config.demo_on():                     # the public demo has no Inbox: its library comes from the seed tool alone
+        return 0
     inbox = config.path("inbox")
     os.makedirs(inbox, exist_ok=True)
     for folder in ("Music", "Music Videos", "XXX"):

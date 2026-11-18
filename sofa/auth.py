@@ -223,7 +223,7 @@ def start_session(user_id, ip, agent, label=None):
     """A sign-in. `label`: a name for a paired TV or app ("Paired: Living room"), kept to manage it."""
     token = secrets.token_urlsafe(32)
     now = int(time.time())
-    if store.no_logs():                         # not where anyone signed in from, nor on what
+    if store.no_logs() or config.demo_on():     # not where anyone signed in from, nor on what (the demo: never)
         ip = agent = None
     agent = label or agent
     store.ex("INSERT INTO sessions (token, user_id, created, seen, ip, agent) VALUES (?,?,?,?,?,?)",

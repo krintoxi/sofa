@@ -4,7 +4,7 @@ import os
 import threading
 import time
 
-from . import archive, artwork, backup, dvr, fetch, fileops, hardware, intros, live, machine, media, optimize, organizer, places, previews, store, travel, trickplay, updater
+from . import archive, artwork, backup, config, dvr, fetch, fileops, hardware, intros, live, machine, media, optimize, organizer, places, previews, store, travel, trickplay, updater
 from .library import LIBRARY
 
 INTERVAL = 20
@@ -30,7 +30,7 @@ def _watch():
     tidied_at = 0
     while True:
         try:
-            if time.time() - tidied_at > 600:     # tidy folders now and then, not every 20 seconds
+            if time.time() - tidied_at > 600 and not config.demo_on():   # tidy folders now and then (the demo's are read-only)
                 tidied_at = time.time()
                 organizer.tidy_library()
                 for _key, root in places.roots("shows") + places.roots("movies") + places.roots("adult"):

@@ -73,6 +73,10 @@ The last few weeks, from the changelogs:
 - **Sofa Box OS 1.1.61 to 1.1.84:** the box on a PC from a USB stick, and installed on the PC's own drive; what the
   Pi 3 showed with 1.1.73, fixed in 1.1.80 and 1.1.81; the player reading ahead by memory; WYRD, a 3D action game on the
   box's own engine.
+- **Sofa 1.5.17: the public demo, built.** One switch locks a Sofa down for anyone to open: nobody at home, so
+  no admin over the web; only titles with a rights record, played from their publishers; Live TV from a checked
+  list, never relayed; no trackers; rate limits; a nightly reset. A seed tool builds the free library from Wikimedia
+  Commons and checks the channels; `deploy/demo/compose.yml` runs it in Docker. Not hosted yet.
 - **Sofa 1.5.5: Sofa in Docker.** A `Dockerfile` and a `compose.yml` on the computer's own network, the image
   published as `ghcr.io/krintoxi/sofa` by GitHub; in a container, Updates says to pull the new image.
 
@@ -96,6 +100,12 @@ In order. Each one ends with a line in the tested-on table.
    the preview in Imager, the owner's choice of contacts and boards, and sending it. Their form asks whether the OS
    updates itself; to answer yes, the box first has to install Raspberry Pi OS's own security updates.
 8. **A public demo** you can open without installing anything: a Sofa with a free library, run as its own instance.
+   The software and the recipe are built (Sofa 1.5.17, [public-demo.md](public-demo.md)). What's left:
+   - the machine and a Cloudflare account of its own;
+   - a DMCA agent;
+   - terms and a privacy notice;
+   - a lawyer's view;
+   - the channel list.
 
 ## Later
 

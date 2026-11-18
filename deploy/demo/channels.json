@@ -1,0 +1,4 @@
+{
+  "about": "The public demo's Live TV: only these channels, each played by the visitor's browser straight from its publisher. The owner picks them. Each one needs: name, url (an https HLS stream), group, publisher, page (the publisher's own https page that offers the stream), kind (us-government, broadcaster, public-domain or cc), rights (a note: why the publisher allows playing it here), and the check: tools/demo-seed.py channels deploy/demo/channels.json --check writes cors and checked. Optional: logo, a picture file in logos/ next to this file. Never: a FAST service's stream (Pluto, Samsung TV Plus, Plex, The Roku Channel, Tubi and the like), a made-up browser name or referrer, a geo-blocked stream or a way around one. docs/public-demo.md has the rules.",
+  "channels": []
+}

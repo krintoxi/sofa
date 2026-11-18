@@ -136,7 +136,7 @@ if __name__ == "__main__" and sys.argv[1:2] == ["serve"]:
     finish_swap()
     watch_update()
 
-from sofa import __version__, apps, auth, awake, ddns, tls, upnp, backup, children, config, discovery, dlna, dvr, organizer, store, updater, watcher, web, windows  # noqa: E402
+from sofa import __version__, apps, auth, awake, ddns, demo, tls, upnp, backup, children, config, discovery, dlna, dvr, organizer, store, updater, watcher, web, windows  # noqa: E402
 from sofa.library import LIBRARY  # noqa: E402
 
 windows.retry_file_moves()          # (Windows only: see sofa/windows.py)
@@ -213,7 +213,11 @@ def main(argv):
     cmd, rest = argv[0], argv[1:]
     config.load()
     for key in ("shows", "movies", "music", "musicvideos", "inbox"):
-        os.makedirs(config.path(key), exist_ok=True)
+        try:
+            os.makedirs(config.path(key), exist_ok=True)
+        except OSError:
+            if not config.demo_on():              # (the public demo's library is mounted read-only: that's fine)
+                raise
 
     if cmd == "serve":
         Stamped.quiet = staticmethod(store.no_logs)
@@ -230,7 +234,10 @@ def main(argv):
                 print("Ended %d program%s the last start left running." % (left, "" if left == 1 else "s"), flush=True)
         except Exception as exc:
             print("Ending what the last start left running didn't work: %r" % (exc,), flush=True)
-        for part in (dlna.start, discovery.start, watcher.start, apps.start, awake.start, tls.start, ddns.start, upnp.start):
+        parts = (dlna.start, discovery.start, watcher.start, apps.start, awake.start, tls.start, ddns.start, upnp.start)
+        if config.demo_on():       # the public demo: nothing for a home network, nothing fetched for one (sofa/demo.py)
+            parts = (watcher.start, demo.start)
+        for part in parts:
             try:
                 part()
             except Exception as exc:     # keep going: the Server page is how anyone finds out what's wrong
@@ -241,7 +248,7 @@ def main(argv):
         confirm = threading.Timer(90, updater.confirm_update)   # it ran for a minute and a half: the update is good
         confirm.daemon = True
         confirm.start()
-        if auth.user_count() == 0:
+        if auth.user_count() == 0 and not config.demo_on():
             print("No accounts yet: the first person to open that address creates the admin account.", flush=True)
         web.serve()
     elif cmd == "scan":

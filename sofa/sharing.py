@@ -88,6 +88,9 @@ def entry_shared(entry, picked=None):
     """A show or movie (as the library lists it): shared with Visitors? Adult never is."""
     if not entry or entry.get("adult"):
         return False
+    if config.demo_on():                            # the public demo: a title with a rights record that passes, only
+        from . import demo
+        return demo.title_ok(entry)
     if config.get("share_all"):
         return True
     return entry["id"] in (shared_ids() if picked is None else picked)
@@ -100,6 +103,10 @@ def item_shared(item, library):
     from . import dvr
     if dvr.is_recording(item.get("path")):          # a recording off the household's own tuner is the household's alone
         return False
+    if config.demo_on():
+        from . import demo
+        if item.get("kind") == "extra" or not demo.item_ok(item):
+            return False
     owner = library.find(item["id"] if item["kind"] == "movie" else item.get("show_id"))
     return entry_shared(owner)
 

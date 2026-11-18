@@ -23,7 +23,7 @@ import os
 import threading
 import time
 
-from . import config, media, metadata, music, naming, places, sidecars, store
+from . import config, media, metadata, music, naming, places, rights, sidecars, store
 
 ART = {"poster": ("folder.jpg", "poster.jpg", "folder.png", "poster.png", "cover.jpg"),
        "backdrop": ("backdrop.jpg", "fanart.jpg", "backdrop.png", "background.jpg"),
@@ -788,6 +788,8 @@ class Library:
                 self._renames["%se:%s:%d:%d" % (prefix, old_slug, ep["s"], ep["e"])] = item_id
             try:
                 item = self._media(path, "episode", item_id)
+                if not adult:                       # its rights record, its own or its show's (sofa/rights.py)
+                    item["rights"] = rights.public(rights.read(path) or rights.for_folder(show_dir))
             except OSError as exc:
                 self._problem(path, exc, adult)
                 continue
@@ -846,6 +848,8 @@ class Library:
                                                "source")})
         if year and not show.get("premiered"):
             show["premiered"] = "%d-01-01" % year
+        if not adult:
+            show["rights"] = rights.public(rights.for_folder(show_dir))
         if eps_meta:
             self._eps_meta[show_id] = eps_meta
             show.update(self._guide(eps_meta, seasons))
@@ -941,6 +945,8 @@ class Library:
                 title = side.get("title") or scene.get("title") or title
                 year = year if year and not scene.get("date") else (side.get("year") or scene.get("year") or year)
             item = self._media(path, "movie", item_id)
+            if not adult:
+                item["rights"] = rights.public(rights.read(path))
             fix = metadata.override(item_id)
             home = not adult and collection == HOME_VIDEOS and not fix
             if home:                                  # your own videos: their date is the name, nothing to look up
