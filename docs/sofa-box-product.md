@@ -82,8 +82,8 @@ of dangerous sites up to date, like any browser. To switch that off too, add
   - still to do: a Pi 4 and a Pi 5 at all; USB drives and a DVD drive; the apps people will try first
     (Netflix, YouTube, Prime Video, Disney+). Note which ones play well on the board you sell.
 - **Updates:** since 1.1.55 a box follows the **Stable** channel by default and can update itself weekly at
-  night. No version is marked stable yet (`deploy/sofa-box/STABLE`): mark one after it has passed on real hardware,
-  or boxes in other people's homes get no updates at all.
+  night. 1.1.86 is the stable version (`deploy/sofa-box/STABLE`, marked 2026-11-17 after it passed on the owner's Pi 3 B+):
+  mark a newer one only after it has passed on real hardware, or boxes on Stable stay where they are.
 - **Names and logos:** the App Store lists other companies' services by name, and the box fetches
   each one's own icon from its website, as a browser's "Add to Home Screen" does. Before selling,
   check what you may say about them on the box and in adverts. Never print their logos on the

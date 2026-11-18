@@ -31,8 +31,8 @@ Read this before you install, so nothing surprises you.
   sideload anything.
 - **The Sofa Box has run on one Raspberry Pi 3 Model B+**, the owner's. A Pi 4 or 5 has never run it; the DRM apps
   (Netflix, Disney+…), USB drives, discs and HDMI-CEC are built and tested in software and have not been tried on a real
-  box; the newest card tried on the Pi is 1.1.73 (2026-11-12), and what it showed led to 1.1.80 and 1.1.81, so 1.1.74 to
-  1.1.84 meet a Pi for the first time at the next test. **No card is marked stable yet.**
+  box; the newest card tried on the Pi is 1.1.86 (2026-11-15), **the stable card since 2026-11-17**; 1.1.87 and later meet
+  a Pi for the first time at the next test.
 - **The Mac card writer** (`imager/`) has written a card to a disk image in its tests and never to a real SD card.
 - **Sofa Box OS on a PC** (from a USB stick since 1.1.79; since 1.1.84 it can put itself on the PC's own drive) has
   started on GitHub's machines under UEFI, BIOS and Secure Boot, and never on a real PC.

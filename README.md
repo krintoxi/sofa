@@ -111,9 +111,8 @@ Sofa 1.5.10 and Sofa Box OS 1.1.84, 2026-11-12. **The Sofa Server and the web ap
 computer, used daily on a four-core Intel Core i5 without AVX2 (16 GB of memory, macOS 13), with over 400 automated tests GitHub runs on every change (real ffmpeg, mpv,
 Chrome and Let's Encrypt's test server). **The Sofa Box has run on one Raspberry Pi 3 Model B+**, the owner's, where
 the setup by iPhone and Fire TV remote, the phone remote, Sofa from the home server, YouTube, an Xbox controller and the
-box's reports have been used for real; the newest card tried there is 1.1.73 (2026-11-12), and what the owner found
-on it led to 1.1.80 and 1.1.81, so 1.1.74 to 1.1.84 are on the Pi for the first time when the owner tests the next
-card. **On a PC, from a USB stick** (since 1.1.79): the PC version is published beside every card, once GitHub has
+box's reports have been used for real; the newest card tried there is 1.1.86 (2026-11-15), **the stable card**, and
+1.1.87 and later are on the Pi for the first time when the owner tests the next card. **On a PC, from a USB stick** (since 1.1.79): the PC version is published beside every card, once GitHub has
 started it in QEMU three ways (UEFI, BIOS, and Secure Boot on). Since 1.1.84 it can also put itself on the PC's own
 drive (Settings → This box → **Install on this computer**), and GitHub proves that too before every PC image: from
 the stick onto a blank drive, then started from that drive alone with Secure Boot on and with BIOS. Neither has run on
@@ -135,7 +134,7 @@ What's next, in order, and what isn't built: [Roadmap and known limitations](doc
 |---|---|
 | **Sofa Server** (Mac or Linux) | one line in Terminal: [Set it up in 4 steps](#set-it-up-in-4-steps) |
 | **Sofa Server for Windows** (10 or 11, 64-bit) | [sofa-windows-x64-setup.exe](https://github.com/krintoxi/sofa/releases/download/sofa-for-windows/sofa-windows-x64-setup.exe), an installer with its own Python and ffmpeg: [On Windows](docs/install.md#on-windows) |
-| **Sofa Box OS, the stable card** | [releases/tag/sofa-box-stable](https://github.com/krintoxi/sofa/releases/tag/sofa-box-stable): **no stable card yet** as of 2026-11-12; the owner marks a version stable after testing it on the Pi, and the page changes by itself |
+| **Sofa Box OS, the stable card** | [releases/tag/sofa-box-stable](https://github.com/krintoxi/sofa/releases/tag/sofa-box-stable): `sofa-box-stable.img.xz`, **Sofa Box OS 1.1.86**, marked stable on 2026-11-17 after it passed on the owner's Pi 3 B+; the owner marks a newer one after testing it on the Pi, and the page changes by itself |
 | **Sofa Box OS, the testing card** | [releases/tag/sofa-box](https://github.com/krintoxi/sofa/releases/tag/sofa-box): `sofa-box.img.xz`, the newest, built by GitHub from `main`, before anyone has tried it |
 | **The Sofa Box list for Raspberry Pi Imager** | [`sofa-box.rpi-imager-manifest`](https://github.com/krintoxi/sofa/releases/download/sofa-box/sofa-box.rpi-imager-manifest): double-click it and Imager 2 opens with Sofa Box OS in it (beta: see [Getting a card](docs/capabilities.md#getting-a-card)) |
 | **Every box version** | [releases?q=box-os](https://github.com/krintoxi/sofa/releases?q=box-os) · [What's new](deploy/sofa-box/CHANGES.md) |
