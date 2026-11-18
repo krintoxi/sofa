@@ -233,7 +233,8 @@ class WithoutThePisRecord(unittest.TestCase):
         self.assertIn("power", a.box_info())
         self.assertIsNone(a.box_info()["power"])
         self.assertIn("powerLine()", read("deploy", "sofa-box", "home", "home.js"))
-        self.assertIn("if (!powerShown.done && !powerShown.note && data.power)", read("deploy", "sofa-box", "home", "home.js"))
+        self.assertIn("const powerNew = () => !!(data.power && !powerShown.note && !powerShown.done.includes(data.power.kind));",
+                      read("deploy", "sofa-box", "home", "home.js"))      # (no record: data.power is None, no note)
 
     def test_this_computer_and_its_system(self):
         a = self.agent

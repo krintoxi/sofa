@@ -5293,6 +5293,7 @@ const Player = (function () {
     const shift = p.mode === "direct" ? 0 : start;
     NATIVE.play(JSON.stringify({ item: it.id, url: location.origin + url, start: start - shift, offset: shift, duration: p.duration || 0,
       hls: hls && location.origin + hls, title: owner.name || it.title, sub: nativeSub(it), adult, h24: H24,
+      mode: p.mode, why: p.why || [],         // (how Sofa sends it, and why: the box's report says so; never a title)
       subtitles: p.subtitles.map(t => ({ url: location.origin + t.url + (shift ? "?offset=" + shift.toFixed(2) : ""), lang: t.lang, label: t.label })),
       markers: p.markers || [] }));
   }

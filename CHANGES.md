@@ -6,6 +6,15 @@ has its own numbers and list: [deploy/sofa-box/CHANGES.md](deploy/sofa-box/CHANG
 A change to Sofa's code (`sofa/`, `client/`, `sofa.py`) gets a new version: raise `__version__`, add a section
 here, then `python3 tools/sofa-version.py` (a test checks it was done).
 
+## 1.5.16 (2026-11-18)
+
+- **A Sofa box gets the file as it is.** A device whose player is mpv says so (`mpv=1`: Sofa Box OS 1.1.91), and Sofa
+  then sends it AVI, TS, M2TS, WMV and MPEG files and DTS, TrueHD and PCM sound as they are; with `sd=1` (four cores or
+  more) a standard-definition picture in MPEG-2, MPEG-4 (XviD, DivX) or VC-1 too. They were repackaged or converted as
+  for a browser, which can't play them, and the box waited for it. Browsers, the Fire TV app and boxes before 1.1.91 say
+  neither, and nothing changes for them.
+- On a Sofa box, the page passes on to the box's player how Sofa sends a video and why (for the box's reports).
+
 ## 1.5.15 (2026-11-14)
 
 - **A recording goes on through Restart and updates.** Before, a restart called a recording failed while its copy

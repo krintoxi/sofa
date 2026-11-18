@@ -207,41 +207,105 @@ def display_env():
 
 
 _mpv_help = {}
+_mpv_asked = set()            # questions put to mpv at least once (answered or not)
+_mpv_relearn = {"on": False}
 
 
-def mpv_knows(what, name):
+def _mpv_ask(args, timeout):
+    """mpv's own answer to a question (its help), or "" when it didn't come in time. At a Pi 3's start mpv can take
+    longer than that: it reads its libraries from the card while the browser starts up, on a card the Pi runs at
+    its default speed, and a Pi short of power runs slower still."""
+    try:
+        return subprocess.run(args, capture_output=True, text=True, timeout=timeout,
+                              preexec_fn=lambda: os.nice(10) if hasattr(os, "nice") else None).stdout
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return ""
+
+
+def mpv_knows(what, name, wait=True):
     """Whether this mpv has a profile or hwdec called `name` ("fast" is new in mpv 0.37; Raspberry Pi OS
-    Bookworm has 0.35, and an unknown profile stops mpv before it plays anything)."""
+    Bookworm has 0.35, and an unknown profile stops mpv before it plays anything). None when mpv hasn't said yet:
+    asked with wait=False (a video starting doesn't wait for it), or its answer didn't come. A missing answer isn't
+    kept: it's asked again. (It was kept as "no" until the box started again, so a probe that ran out of time at the
+    start had every video of the day decoded by the processor.)"""
     mpv = os.environ.get("SOFA_BOX_MPV", "mpv")
     if mpv.endswith(".py"):
         return False
     if what not in _mpv_help:
-        try:
-            _mpv_help[what] = subprocess.run([mpv, "--%s=help" % what], capture_output=True, text=True, timeout=10).stdout
-        except (OSError, subprocess.SubprocessError):
-            _mpv_help[what] = ""
+        if not wait or (wait == "once" and what in _mpv_asked):
+            return None
+        _mpv_asked.add(what)
+        out = _mpv_ask([mpv, "--%s=help" % what], 30)
+        if not out.strip():
+            return None
+        _mpv_help[what] = out
     return bool(re.search(r"(?m)^\s*%s(\s|$)" % re.escape(name), _mpv_help[what]))
 
 
-def mpv_option(name):
-    """Whether this mpv takes --<name> (--osd-fonts-dir is new in mpv 0.37; an option it doesn't know stops it)."""
+def mpv_option(name, wait=True):
+    """Whether this mpv takes --<name> (--osd-fonts-dir is new in mpv 0.37; an option it doesn't know stops it). None
+    when it hasn't said yet (as mpv_knows)."""
     mpv = os.environ.get("SOFA_BOX_MPV", "mpv")
     if mpv.endswith(".py"):
         return True                                  # (the stand-in takes anything)
     if "options" not in _mpv_help:
-        try:
-            _mpv_help["options"] = subprocess.run([mpv, "--list-options"], capture_output=True, text=True, timeout=10).stdout
-        except (OSError, subprocess.SubprocessError):
-            _mpv_help["options"] = ""
+        if not wait or (wait == "once" and "options" in _mpv_asked):
+            return None
+        _mpv_asked.add("options")
+        out = _mpv_ask([mpv, "--list-options"], 30)
+        if not out.strip():
+            return None
+        _mpv_help["options"] = out
     return ("--%s " % name) in _mpv_help["options"]
 
 
-def learn_mpv():
-    """What this mpv can do, asked once when the agent starts (in the background). Each question is mpv starting, about
-    a second on a Pi 3, and the first video of the day used to wait for three of them."""
-    mpv_knows("hwdec", "v4l2m2m-copy")
-    mpv_knows("profile", "fast")
-    mpv_option("osd-fonts-dir")
+def learn_mpv(tries=6, pause=30):
+    """What this mpv can do, asked when the agent starts (in the background, at a low priority), and again a little
+    later for any answer that didn't come. Each question is mpv starting, about a second on a Pi 3, and the first
+    video of the day used to wait for three of them."""
+    _mpv_asked.update(("hwdec", "profile", "options"))    # (a video starting meanwhile doesn't ask too: mpv_args_known)
+    for _ in range(tries):
+        got = [mpv_knows("hwdec", "v4l2m2m-copy"), mpv_knows("profile", "fast"), mpv_option("osd-fonts-dir")]
+        if None not in got:
+            return True
+        time.sleep(pause)
+    return False
+
+
+def relearn_mpv(tries=3):
+    """In the background, one round of questions at a time: at the agent's start, and when a video started before mpv
+    had answered (it plays without the fast profile and Sofa's typefaces, and mpv is asked again)."""
+    if _mpv_relearn["on"]:
+        return False
+    _mpv_relearn["on"] = True
+    _mpv_asked.update(("hwdec", "profile", "options"))
+
+    def go():
+        try:
+            learn_mpv(tries=tries)
+        finally:
+            _mpv_relearn["on"] = False
+    threading.Thread(target=go, daemon=True, name="mpv-again").start()
+    return True
+
+
+def pi_decoder():
+    """The Pi's own H.264 decoder is there (bcm2835-codec on a Pi 3 and older, the Pi 4 too): the board says so,
+    whatever mpv has or hasn't said yet."""
+    return any(v.startswith("bcm2835-codec") for v in board()["video"])
+
+
+def hwdec_choice(s=None):
+    """How mpv is asked to decode. A Pi 3 or older: the Pi's own H.264 decoder (v4l2m2m-copy), when mpv says it has
+    it, or before mpv has said, when the board has the decoder (mpv has had it since long before any card's: Raspberry
+    Pi OS Bullseye's 0.32 too). Anything else: mpv's own careful choice. Settings → Picture and sound can say."""
+    s = s or settings()
+    if s["hwdec"] != "auto":
+        return s["hwdec"]
+    if not slow_board():
+        return "auto-safe"
+    knows = mpv_knows("hwdec", "v4l2m2m-copy", wait=False)
+    return "v4l2m2m-copy" if knows or (knows is None and pi_decoder()) else "auto-safe"
 
 
 def markers_of(p):
@@ -253,6 +317,13 @@ def markers_of(p):
         except (AttributeError, KeyError, TypeError, ValueError):
             continue
     return out
+
+
+# mpv's words about its decoder (a failed hardware decoder, its fallback), kept for a report
+HW_WORDS = re.compile(r"v4l2|hwdec|hardware decod|falling back|software decod|cma|vaapi|drm_prime", re.I)
+# 720p learned from dropped frames: by these rules from 1.1.91 on (check_drops). One learned before is forgotten once
+# (main): on a Pi 3 it could come from the processor decoding what the video chip should have.
+LEARN_720_RULE = 2
 
 
 # The TV's player screen: drawn by mpv itself (sofa-player.lua), in Sofa's typefaces and the box's theme colour
@@ -390,11 +461,24 @@ def max_height():
     return 2160 if (b["gen"] >= 4 or b["gen"] == 0 and b["memory_mb"] >= 3500) and b["tv_height"] >= 2160 else 1080
 
 
+def forget_old_720():
+    """720p learned before 1.1.91 is forgotten, once: on a Pi 3 it could come from frames the processor dropped decoding
+    what the video chip should have, and it had Sofa convert every 1080p film (check_drops says what counts now)."""
+    s = settings()
+    if s.get("learned_720") and s.get("learned_720_rule") != LEARN_720_RULE:
+        save_settings(learned_720=False, learned_720_rule=LEARN_720_RULE)
+        print("Videos: the 720p learned before is forgotten; it's learned again only from the video chip's drops", file=sys.stderr, flush=True)
+        return True
+    return False
+
+
 def caps():
     """What the box plays itself (mpv on the Pi): told to Sofa, so it converts only the rest. A Pi 4 or 5 on a
-    4K TV takes 4K as it is."""
+    4K TV takes 4K as it is. `mpv`: any kind of file and any sound (Sofa used to repackage an AVI, a TS or a film with
+    DTS sound as it would for a browser, which can't play them, and the box waited for it); `sd`: a picture of standard
+    definition in any kind mpv decodes (MPEG-2, MPEG-4, VC-1...), which four cores do with ease."""
     return {"mkv": True, "hevc": not slow_board(), "hevc10": not slow_board(), "ac3": True, "vp9": not slow_board(),
-            "maxh": max_height()}
+            "mpv": True, "sd": board()["cores"] >= 4, "maxh": max_height()}
 
 
 # ---------------------------------------------------------------- finding Sofa
@@ -581,7 +665,10 @@ class Player:
                 "--cache=yes"] + boxos.mpv_cache(board()["memory_mb"]) + ["--network-timeout=40",   # (read-ahead by memory)
                 "--hr-seek=no"]       # (resuming starts at the frame mpv can show at once: a Pi 3 decoded seconds to be exact)
         fonts = next((d for d in FONT_DIRS if os.path.isdir(d)), None)
-        if fonts and mpv_option("osd-fonts-dir"):
+        unknown = []
+        fonts_ok = mpv_option("osd-fonts-dir", wait="once") if fonts else False
+        unknown += [fonts_ok is None]
+        if fonts and fonts_ok:
             args.append("--osd-fonts-dir=" + os.path.abspath(fonts))
         if "/media/hls/" in str(p.get("url") or "") and not p.get("live"):
             # Sofa's converted video is a playlist still being written. mpv (ffmpeg) took it for live TV and started
@@ -590,12 +677,15 @@ class Player:
             args.append("--demuxer-lavf-o-append=live_start_index=0")
         if not p.get("local") and self.from_sofa(p["url"]):   # from Sofa: as the signed-in TV (never to anyone else)
             args.append("--http-header-fields=" + self.sofa_headers())
-        hw = s["hwdec"] if s["hwdec"] != "auto" else ("v4l2m2m-copy" if slow_board() and mpv_knows("hwdec", "v4l2m2m-copy")
-                                                      else "auto-safe")
+        hw = self.hwdec = hwdec_choice(s)
         args.append("--hwdec=" + hw)
         if slow_board():
-            args += (["--profile=fast"] if mpv_knows("profile", "fast") else []) + \
+            fast = mpv_knows("profile", "fast", wait="once")
+            unknown += [fast is None]
+            args += (["--profile=fast"] if fast else []) + \
                 ["--vd-lavc-threads=%d" % max(1, board()["cores"]), "--video-sync=audio"]     # (a Pi 1 or Zero has one)
+        if any(unknown):
+            relearn_mpv()
         if s["audio"] == "passthrough":
             args.append("--audio-spdif=ac3,eac3,dts")
         if p.get("start"):
@@ -677,6 +767,8 @@ class Player:
         for line in proc.stderr:              # (never the video's address: it names the title, which may be an adult one)
             said = re.sub(r"\b[a-z][a-z0-9+.-]*://\S+", "the video", line.decode("utf-8", "replace").rstrip())
             proc.sofa_err = (proc.sofa_err + [said])[-8:]
+            if HW_WORDS.search(said):         # (why the video chip wasn't used, in mpv's own words, for a report)
+                proc.sofa_hw = (getattr(proc, "sofa_hw", []) + [said[:160]])[-3:]
 
     def command(self, *cmd):
         """Send one command to mpv; returns its "data" (or None)."""
@@ -894,7 +986,11 @@ class Player:
         drops_checked = started = moving = False
         waited = 0
         run = {"at": time.strftime("%H:%M:%S"), "waits": 0, "waited": 0, "played": 0, "started_after": None,
-               "kind": "live" if p.get("live") else "converted" if "/hls/" in str(p.get("url") or "") else "file"}
+               "kind": "live" if p.get("live") else "converted" if "/hls/" in str(p.get("url") or "") else "file",
+               "asked": getattr(self, "hwdec", None), "proc": proc,
+               # how Sofa sends it and why (the page passes on what Sofa said: "remux" for "DTS sound", say; nothing that names it)
+               "mode": str(p.get("mode") or "")[:12] or None,
+               "why": [str(w)[:60] for w in (p.get("why") or [])][:4] if isinstance(p.get("why"), list) else []}
         self.ran.append(run)
         cache_wait = False
         while proc.poll() is None:
@@ -998,6 +1094,10 @@ class Player:
                 return m
         return None
 
+    @staticmethod
+    def used_chip(hw):
+        return hw not in (None, "", "no")
+
     PLAY_PROPS = ("video-codec", "hwdec-current", "width", "height", "container-fps", "video-bitrate", "audio-codec-name",
                   "frame-drop-count", "decoder-frame-drop-count", "current-vo", "current-gpu-context", "vo-delayed-frame-count")
 
@@ -1016,11 +1116,16 @@ class Player:
         w, h = run.get("width"), run.get("height")
         hw = run.get("hwdec-current")
         rate = run.get("video-bitrate")
-        parts = ["%s %s" % (run.get("at", "?"), run.get("kind", "?")),
+        asked, said = run.get("asked"), getattr(run.get("proc"), "sofa_hw", None)
+        how = {"transcode": "converted by Sofa", "remux": "repackaged by Sofa"}.get(run.get("mode") or "")
+        kind = run.get("kind", "?") + (" (%s%s)" % (how, ": " + ", ".join(run["why"]) if run.get("why") else "") if how else "")
+        parts = ["%s %s" % (run.get("at", "?"), kind),
                  "picture after %s s" % run["started_after"] if run.get("started_after") is not None else "the picture never moved",
                  "%s%s%s" % (run.get("video-codec") or "video ?", " %sx%s" % (w, h) if w and h else "",
                              " %.3g fps" % run["container-fps"] if run.get("container-fps") else ""),
-                 "decoded by %s" % ("the processor" if hw in (None, "", "no") else "the video chip (%s)" % hw),
+                 "decoded by %s" % ("the video chip (%s)" % hw if Player.used_chip(hw) else "the processor" + (
+                     " (asked for %s%s)" % (asked, "; mpv said: " + " | ".join(said) if said else "")
+                     if asked and asked not in ("no", "auto-safe") else "")),
                  # (how mpv puts the picture on the screen: "gpu" or "gpu-next" with the graphics chip; "wlshm", "sdl" or the
                  # like by the processor, which can't keep up with 1080p on a Pi 3. Left out when mpv didn't say.)
                  "drawn by %s%s" % (run["current-vo"], " (%s)" % run["current-gpu-context"] if run.get("current-gpu-context") else "")
@@ -1036,12 +1141,26 @@ class Player:
         return ", ".join(p for p in parts if p)
 
     def check_drops(self):
-        """1080p the box can't keep up with: ask Sofa for 720p from now on (the setting can say otherwise)."""
+        """1080p the box can't keep up with: ask Sofa for 720p from now on (the setting can say otherwise). Learned only
+        from what says so: frames dropped while the video chip decoded, or on a box with no decoder of its own for it.
+        Not when the processor decoded on a Pi whose video chip should have (the decoder is what went wrong: 720p from
+        Sofa means converting every 1080p film, slower to start and softer), and not while the Pi is short of power
+        and slowed itself down (the supply is what went wrong)."""
         drops = (self.command("get_property", "frame-drop-count") or 0) + (self.command("get_property", "decoder-frame-drop-count") or 0)
         fps = float(self.command("get_property", "container-fps") or 25)
-        if settings()["quality"] == "auto" and drops > fps * 90 * 0.03 and not settings()["learned_720"]:
-            save_settings(learned_720=True)
+        if settings()["quality"] != "auto" or drops <= fps * 90 * 0.03 or settings()["learned_720"]:
+            return None
+        hw = self.command("get_property", "hwdec-current")
+        if not Player.used_chip(hw) and slow_board() and pi_decoder():
+            why = "the processor decoded it, not the video chip"
+        elif (int((power["note"] or {}).get("bits") or "0", 16) & 0x5):
+            why = "the Pi is short of power and slowed itself down"
+        else:
+            save_settings(learned_720=True, learned_720_rule=LEARN_720_RULE)
             toast("Videos come as 720p on this box from now on: it couldn't keep up at 1080p.")
+            return "learned"
+        print("Frames dropped (%d), not taken as 1080p being too much for this box: %s" % (drops, why), file=sys.stderr, flush=True)
+        return why
 
     def banner(self, at=0):
         """Live TV: the channel's banner, as on a TV (5 s): its number and name, what's on and what's next. At each
@@ -1717,14 +1836,17 @@ def watch_smoothness():
             presses, slow = presses // 2, slow // 2
 
 
-power = {"note": None, "shown": False}                       # (watch_power; Home shows the note once a start)
+power = {"note": None}                                       # (watch_power; Home tells each problem once: power_told)
+POWER_KINDS = ("power", "heat")
+POWER_CLEAN = 6 * 3600                                       # (seconds of a start with power and heat fine: told again after)
 
 
 def power_note(out, board_model=""):
     """What the Pi's own record (vcgencmd get_throttled, "throttled=0x50005") says, for Home and Settings → Help: None
     when it can't be read, kind "ok", "power" (under-voltage now or since the box started: bits 0 and 16), or "heat"
     (the soft temperature limit, bits 3 and 19; or held back and slowed down, bits 1, 2, 17 and 18, with power enough:
-    under-voltage does that too), with what to do about it."""
+    under-voltage does that too). In plain words: what the box saw, and what fixes it. Never that the box fixed it:
+    only a better supply does."""
     try:
         bits = int(str(out).strip().split("=")[-1], 16)
     except ValueError:
@@ -1733,17 +1855,53 @@ def power_note(out, board_model=""):
     hot = bool(bits & 0x80008) or (not short and bool(bits & 0x60006))
     note = {"kind": "power" if short else "heat" if hot else "ok", "bits": "0x%x" % bits}
     m = re.search(r"Raspberry Pi (\d)", board_model or "")
-    supply = {"3": "its official 2.5 A power supply", "4": "its official 3 A USB-C power supply",
-              "5": "its official 27 W (5 A) USB-C power supply"}.get(m.group(1) if m else "",
-                                                                       "its official power supply")
+    # (the Raspberry Pi's own supplies give 5.1 V, a little over 5, for what the cable loses; a phone charger gives 5 V
+    # or less, and less again when the Pi draws more: that's when the Pi records under-voltage, below 4.63 V)
+    supply = {"3": "the Raspberry Pi's own power supply for a Pi 3 (5.1 V, 2.5 A)",
+              "4": "the Raspberry Pi's own USB-C power supply for a Pi 4 (5.1 V, 3 A)",
+              "5": "the Raspberry Pi's own 27 W USB-C power supply for a Pi 5 (5.1 V, 5 A)"}.get(
+        m.group(1) if m else "", "the Raspberry Pi's own power supply for it (5.1 V)")
     air = "Leave air around it: out of a closed cabinet and not pressed against the TV. A case with a heat sink or a fan helps."
     if short:
+        when = "Right now" if bits & 0x1 else "Since it started"
+        slowed = " and the Pi slowed itself down to keep going" if bits & 0x40004 else ""
         note.update(title="The box is short of power",
-                    text="It can freeze or restart by itself. Plug it into the wall with %s and a short cable: a phone "
-                         "charger or the TV's USB socket isn't enough.%s" % (supply, (" It got hot too. " + air) if hot else ""))
+                    text="%s the power reaching it has dropped too low%s. It can freeze or restart by itself. What fixes it: "
+                         "%s, plugged into the wall with its own short cable. A phone charger or the TV's USB socket "
+                         "gives 5 V or less, and less again when the box is busy.%s" % (
+                             when, slowed, supply, (" It got hot too. " + air) if hot else ""))
     elif hot:
         note.update(title="The box got hot and slowed itself down", text=air)
     return note
+
+
+def power_told(s=None):
+    """The problems Home has told already ("power", "heat"): kept across starts, so a box on a weak supply says so
+    once, not at every start. Told again only after a start that went by with power and heat fine (watch_power)."""
+    told = (s or settings()).get("power_told") or []
+    return [k for k in told if k in POWER_KINDS] if isinstance(told, list) else []
+
+
+def home_power():
+    """Home's note: the Pi's power or heat, if Home hasn't told it yet (Settings → Help says it all along). Short of
+    power is its own note: one about heat seen first doesn't stand in for it."""
+    n = power["note"]
+    return n if n and n["kind"] in POWER_KINDS and n["kind"] not in power_told() else None
+
+
+def power_seen(kind=None):
+    """Home showed its note: that problem isn't told again (power_told)."""
+    kind = kind if kind in POWER_KINDS else (power["note"] or {}).get("kind")
+    if kind in POWER_KINDS and kind not in power_told():
+        save_settings(power_told=power_told() + [kind])
+
+
+def uptime():
+    try:
+        with open("/proc/uptime", encoding="ascii") as f:
+            return float(f.read().split()[0])
+    except (OSError, ValueError, IndexError):
+        return 0.0
 
 
 def power_words(note):
@@ -1764,8 +1922,10 @@ def power_words(note):
 
 
 def watch_power():
-    """The Pi's own record of power and heat (vcgencmd get_throttled), read every minute. Home says so once a start: a
-    calm note, until you leave Home (power_note); Settings → Help says it all along."""
+    """The Pi's own record of power and heat (vcgencmd get_throttled), read every minute. Home tells each problem once
+    (power_told), until you leave Home; Settings → Help says it all along. A start that goes six hours with power and
+    heat fine all along (the record keeps what happened since the start: an evening of videos and games on the new
+    supply) clears what was told, so a problem that comes back later is told again."""
     time.sleep(10)
     while True:
         code, out = run(["vcgencmd", "get_throttled"], 5)
@@ -1777,6 +1937,8 @@ def watch_power():
             power["note"] = note
             if note["kind"] != "ok" and note["kind"] != was:
                 print("Power: %s (%s)" % (note["title"], out.strip()), file=sys.stderr, flush=True)
+            if note["kind"] == "ok" and uptime() >= POWER_CLEAN and power_told():
+                save_settings(power_told=[])
         time.sleep(60 if settings()["welcomed"] else 15)    # (at the setup, sooner: its screens say so, see setup_state)
 
 
@@ -4255,7 +4417,7 @@ def report_text():
     out = ["Sofa Box OS %s (for Sofa's pages: %s), %s" % (OS_VERSION, VERSION, time.strftime("%Y-%m-%d %H:%M:%S %Z")),
            "board: " + json.dumps(board()),
            "power: " + str(safely(power_words, power["note"])),
-           "settings: " + json.dumps({k: s.get(k) for k in list(CHOICES) + ["secure_remote", "shield", "welcomed"]}),
+           "settings: " + json.dumps({k: s.get(k) for k in list(CHOICES) + ["secure_remote", "shield", "welcomed", "learned_720", "learned_lite"]}),
            "network: " + json.dumps({"wired": safely(network.wired), "address": local_address(), "own_wifi": bool(network.hotspot),
                                      "problem": network.problem, "joining": network.joining, "phones_on_own_wifi": safely(network.clients)}),
            "secure remote: " + json.dumps(safely(secure_remote.status)),
@@ -4851,11 +5013,10 @@ class Handler(BaseHTTPRequestHandler):
                                          "default_server": {k: default[k] for k in ("id", "name", "kind", "where")} if default else None,
                                          "ask": st["ask"], "servers": len(st["servers"]),
                                          "devices": {k: devices_seen[k] for k in ("drives", "disc", "n")},
-                                         "power": power["note"] if power["note"] and power["note"]["kind"] != "ok"
-                                         and not power["shown"] else None,         # (Home's note, once a start)
+                                         "power": home_power(),                  # (Home's note: each problem told once)
                                          "front": browser.front_app() if browser and browser.connected() else None}))
-        if path == "/box/api/power/seen":                 # Home showed its note: not again until the box starts again
-            power["shown"] = True
+        if path == "/box/api/power/seen":                 # Home showed its note: that problem isn't told again
+            power_seen(data.get("kind"))
             return self.send('{"ok":true}')
         if path == "/box/api/sofa/continue":                # Home's "Continue watching"
             return self.send(json.dumps(sofa_continue()))
@@ -5351,7 +5512,8 @@ def main():
     except Exception as exc:
         print("Moving the old Sofa setting: %s" % exc, file=sys.stderr)
     threading.Thread(target=look, daemon=True).start()
-    threading.Thread(target=learn_mpv, daemon=True, name="mpv").start()   # (what mpv can do, before the first video)
+    relearn_mpv(tries=6)                                   # (what mpv can do, before the first video)
+    forget_old_720()
     threading.Thread(target=watch_devices, daemon=True, name="devices").start()
     pairing_helper.start()                       # (BlueZ's pairings answered: an Xbox controller pairs)
     threading.Thread(target=watch_power, daemon=True, name="power").start()

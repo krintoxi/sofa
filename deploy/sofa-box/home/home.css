@@ -212,8 +212,13 @@ h2.row-title small { margin-left: .6rem; font: 500 .85rem var(--text); color: va
 .tile .x svg { width: .9rem; height: .9rem; }
 
 /* store */
+/* (one size whatever the app: a taller one moved every row under it, and the whole page was drawn again on a press) */
 .store-detail { display: grid; grid-template-columns: auto 1fr auto; gap: 1.2rem; align-items: center; padding: 1.1rem 1.3rem; margin-bottom: .6rem;
-  border-radius: calc(var(--r) * 1.2); background: var(--bg2); border: 1px solid var(--line); min-height: 6.6rem; }
+  border-radius: calc(var(--r) * 1.2); background: var(--bg2); border: 1px solid var(--line); height: 8.4rem; box-sizing: border-box;
+  overflow: hidden; contain: layout paint; }
+.store-detail .sd-text { min-width: 0; }
+.store-detail .sd-text p:first-of-type { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.store-detail .warn:empty { display: none; }
 .store-detail .ic { width: 4.2rem; height: 4.2rem; border-radius: var(--r); display: grid; place-items: center; background: var(--c); font: 800 2rem var(--display); color: #fff; }
 .store-detail h3 { margin: 0; font: 800 1.4rem/1.1 var(--display); }
 .store-detail p { margin: .2rem 0 0; color: var(--mist); font-size: .9rem; }
@@ -902,28 +907,37 @@ html[data-icons="sticker"] .spt-big.framed { --under: url(/box/home/art/icons/st
 html[data-icons="phosphor"] .spt-big.framed { --under: url(/box/home/art/icons/phosphor/512/frame-under.webp); --over: url(/box/home/art/icons/phosphor/512/frame-over.webp); }
 html[data-icons="pixel"] .spt-big.framed { --under: url(/box/home/art/icons/pixel/512/frame-under.webp); --over: url(/box/home/art/icons/pixel/512/frame-over.webp); }
 .ic.framed { position: relative; }                       /* (the big one behind Home keeps its own place) */
+/* The frame paints in plain order: the picture behind (the element's own background), the logo or the letter on the
+   screen's colour, the picture on top (::after, the only piece placed over the rest). Each framed icon was a stacking
+   context with a piece of its own under the screen (isolation, a ::before at z-index -1), and every one on screen became a
+   layer of its own on the graphics chip: a Pi 3 sorted and drew them all on every press. */
 .ic.framed, .tile .ic.framed, .tile.app .ic.framed, #opening .op-ic.framed, .store-detail .ic.framed, .spt-big.framed {
-  isolation: isolate; overflow: visible !important; border-radius: 0 !important; box-shadow: none !important;
+  overflow: visible !important; border-radius: 0 !important; box-shadow: none !important;
   background: var(--under) center / 100% 100% no-repeat !important; }
 .ic.framed img, .tile .ic.framed img, .tile.app .ic.framed img, .spt-big.framed img, .ic.framed.light img {
   position: absolute; left: var(--pad); top: var(--pad); width: calc(100% - 2 * var(--pad)) !important; height: calc(100% - 2 * var(--pad)) !important;
   border-radius: var(--rad); object-fit: cover !important; background: transparent !important; }
 .ic.framed.tiny img { padding: calc((100% - 2 * var(--pad)) * .2); object-fit: contain !important; }
 .ic.framed::after, .tile.app .ic.framed::after, #opening .op-ic.framed::after, .store-detail .ic.framed::after, .spt-big.framed::after {
-  content: ""; position: absolute; inset: 0; z-index: 1; border-radius: 0; box-shadow: none; pointer-events: none;
+  content: ""; position: absolute; inset: 0; border-radius: 0; box-shadow: none; pointer-events: none;
   background: var(--over) center / 100% 100% no-repeat; }
 /* the screen behind a logo: white (as the housing has it), the app's colour behind a white logo on clear, and behind a
-   first letter */
-.ic.framed.light::before, .ic.framed.mono::before, .spt-big.framed.mono::before {
-  content: ""; position: absolute; z-index: -1; left: var(--pad); top: var(--pad); right: var(--pad); bottom: var(--pad); border-radius: var(--rad);
+   first letter. Both drawn by what's on the screen itself (the letter's own box, the logo's picture), not a piece of
+   their own under them: that piece, positioned, made each icon a layer of its own on the graphics chip (see above). */
+.ic.framed.mono .ic-l, .spt-big.framed.mono .ic-l, #opening .op-ic.framed.mono .ic-l {      /* (a plain block, the letter in its middle: as a grid or a flex box
+                                                           it was a layer of its own again) */
+  box-sizing: border-box; display: block; width: calc(100% - 2 * var(--pad)); height: calc(100% - 2 * var(--pad)); border-radius: var(--rad);
+  line-height: 1; text-align: center; padding-top: calc((100% - 2 * var(--pad)) / 2 - .5em); overflow: hidden;
   background: linear-gradient(150deg, color-mix(in srgb, var(--c, var(--a)) 82%, #fff) 0%, var(--c, var(--a)) 45%, color-mix(in srgb, var(--c, var(--a)) 70%, #000) 100%); }
+.ic.framed.light img, .tile .ic.framed.light img, .tile.app .ic.framed.light img, .spt-big.framed.light img {
+  background: linear-gradient(150deg, color-mix(in srgb, var(--c, var(--a)) 82%, #fff) 0%, var(--c, var(--a)) 45%, color-mix(in srgb, var(--c, var(--a)) 70%, #000) 100%) !important; }
 .tile.app .ic.framed.mono, .tile .ic.framed.mono { font-size: 1.7rem; }
 .spt-big.framed.mono { font-size: 5rem; }
 html[data-icons="phosphor"] .framed.mono { color: #3DF07A; text-shadow: 0 0 .5rem rgba(61,240,122,.7); }
-html[data-icons="phosphor"] .framed.mono::before { background: #06100a; }
+html[data-icons="phosphor"] .framed.mono .ic-l, html[data-icons="phosphor"] #opening .op-ic.framed.mono .ic-l { background: #06100a; }
 html[data-icons="pixel"] .framed.mono { font-family: ui-monospace, Menlo, monospace; font-weight: 800; text-shadow: none; }
 html[data-icons="sticker"] .framed.mono { color: #0E0E12; text-shadow: none; }
-html[data-icons="sticker"] .framed.mono::before { background: var(--c, var(--a)); }
+html[data-icons="sticker"] .framed.mono .ic-l, html[data-icons="sticker"] #opening .op-ic.framed.mono .ic-l { background: var(--c, var(--a)); }
 html[data-icons="sticker"] .tile:nth-child(odd) .ic.framed { rotate: -4deg; }
 html[data-icons="sticker"] .tile:nth-child(even) .ic.framed { rotate: 3deg; }
 html[data-icons="sticker"] .spt-big.framed { rotate: -3deg; }

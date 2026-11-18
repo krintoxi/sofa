@@ -79,6 +79,7 @@ else                                            # Raspbian Buster and older: no 
 fi
 apt-get install -y --no-install-recommends chromium 2>/dev/null || apt-get install -y --no-install-recommends chromium-browser
 apt-get install -y --no-install-recommends pipewire-pulse wireplumber 2>/dev/null || true           # sound to the TV
+apt-get install -y --no-install-recommends rtkit 2>/dev/null || true                              # its sound thread on time (below)
 apt-get install -y --no-install-recommends xwayland 2>/dev/null || true                           # games made for X, in cage
 apt-get install -y --no-install-recommends grim 2>/dev/null || true                               # the screen's own picture: is Home really on the TV after a game?
 apt-get install -y --no-install-recommends ir-keytable 2>/dev/null || true                        # the TV's remote over HDMI (CEC): its keys once
@@ -190,6 +191,39 @@ if [ -d /etc/polkit-1/localauthority ]; then
     > /etc/polkit-1/localauthority/50-local.d/50-sofa-box.pkla
 fi
 mkdir -p /var/lib/systemd/linger && touch "/var/lib/systemd/linger/$WHO"      # its sound (PipeWire) runs from the start
+# The Pi's HDMI sound without gaps. A Pi 3 B+ (report 5V995Z) lost sound for a moment ten times in an evening
+# ("snd_pcm_mmap_commit error: Broken pipe": the TV's sound ran dry), mostly as a video or a game started or ended, when
+# the processor is busiest. Two causes, both dealt with here: PipeWire's sound thread ran at an ordinary priority (it
+# asks RTKit for a real-time one, and Raspberry Pi OS Lite has no RTKit: "RTKit error: ServiceUnknown"), so anything
+# busy could hold it up; and it kept only one period of sound ahead of the HDMI output. Now RTKit (above) gives it
+# real-time priority, and the Pi's HDMI output (vc4-hdmi) keeps periods of 1024 frames with 2048 more ahead (about 43 ms
+# at 48 kHz, which mpv counts in to keep the picture in step), as WirePlumber already does for a virtual machine's
+# sound. Both kinds of WirePlumber: 0.5 (Trixie, the card) reads the first file, 0.4 (Bookworm) the second.
+mkdir -p /etc/wireplumber/wireplumber.conf.d /etc/wireplumber/main.lua.d
+cat > /etc/wireplumber/wireplumber.conf.d/50-sofa-box-hdmi.conf <<'EOF'
+# Sofa Box OS: the Raspberry Pi's HDMI sound (vc4-hdmi) without gaps (deploy/sofa-box/install.sh says why)
+monitor.alsa.rules = [
+  {
+    matches = [
+      { node.name = "~alsa_output.platform-.*hdmi.*" }
+      { alsa.card_name = "~vc4-hdmi.*" }
+    ]
+    actions = {
+      update-props = {
+        api.alsa.period-size = 1024
+        api.alsa.headroom = 2048
+      }
+    }
+  }
+]
+EOF
+cat > /etc/wireplumber/main.lua.d/51-sofa-box-hdmi.lua <<'EOF'
+-- Sofa Box OS: the Raspberry Pi's HDMI sound (vc4-hdmi) without gaps (deploy/sofa-box/install.sh says why)
+table.insert(alsa_monitor.rules, {
+  matches = { { { "node.name", "matches", "alsa_output.platform-*hdmi*" } }, { { "alsa.card_name", "matches", "vc4-hdmi*" } } },
+  apply_properties = { ["api.alsa.period-size"] = 1024, ["api.alsa.headroom"] = 2048 },
+})
+EOF
 
 say "Starting Sofa on the TV at every start ($SCREEN)"
 systemctl disable --now sofa-box-finder.service 2>/dev/null || true
@@ -460,6 +494,8 @@ if ! grep -q '^# >>> Sofa Shield' /etc/hosts; then
 fi
 if [ -z "$IMAGE" ]; then
   systemctl restart sofa-box-agent.service sofa-box-input.service sofa-box-cec.service
+  # (the box's sound again with the HDMI rule and RTKit above: an update has them at once, not at the next start)
+  systemctl --user -M "$WHO@" restart wireplumber.service pipewire.service pipewire-pulse.service >/dev/null 2>&1 || true
   systemctl restart sofa-box.service
 fi
 

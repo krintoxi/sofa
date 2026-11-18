@@ -272,7 +272,11 @@ def audio_tracks(info):
     return out
 
 
-CAPS = ("mkv", "hevc", "hevc10", "ac3", "vp9")
+CAPS = ("mkv", "hevc", "hevc10", "ac3", "vp9", "mpv", "sd")
+# A player built on mpv (Sofa Box OS: caps mpv=1) reads every kind of file Sofa lists and decodes every sound; with
+# sd=1 it also decodes these pictures itself at standard definition (four cores at least: a Raspberry Pi 3 does).
+MPV_SD = ("mpeg1video", "mpeg2video", "mpeg4", "msmpeg4v1", "msmpeg4v2", "msmpeg4v3", "h263", "vc1", "wmv1", "wmv2",
+          "wmv3", "theora", "mjpeg", "vp8")
 
 
 def caps_from(qs):
@@ -290,10 +294,12 @@ def ten_bit(video):
 
 
 def video_playable(video, caps):
-    """Can a browser with these capabilities decode this video stream?"""
+    """Can a browser with these capabilities decode this video stream? (Or the box's mpv: `sd` below.)"""
     if not video:
         return True
     v = video.get("codec")
+    if caps.get("mpv") and caps.get("sd") and v in MPV_SD and 0 < (video.get("height") or 0) <= 576 and not video.get("interlaced"):
+        return True                                  # (interlaced, a DVD's: converted, which takes the combing out)
     if v == "h264":   # 10-bit and 4:2:2 H.264 ("Hi10P") decode in VLC but in no browser or TV
         return video.get("pix_fmt") in BROWSER_PIX and "10" not in (video.get("profile") or "")
     if v == "hevc":
@@ -309,17 +315,20 @@ def plan(item, caps):
     """How a device with these capabilities should play this item, and why (for the Server page)."""
     info = probe(item["path"])
     ext = item["ext"]
-    container_ok = ext in ("mp4", "m4v", "mov") or (ext == "mkv" and caps.get("mkv")) or (ext == "webm" and caps.get("vp9"))
+    container_ok = ext in ("mp4", "m4v", "mov") or (ext == "mkv" and caps.get("mkv")) or (ext == "webm" and caps.get("vp9")) \
+        or bool(caps.get("mpv"))                 # (mpv reads them all: AVI, TS, WMV, MPEG...)
     if not info:
         mode = "transcode" if tool("ffmpeg") else ("direct" if container_ok else "unsupported")
         return {"mode": mode, "duration": None, "info": None, "why": ["the file couldn't be read ahead of time"]}
     video = info.get("video")
     a = (default_audio(info) or {}).get("codec")
     video_ok = video_playable(video, caps)
+    if video_ok and item.get("interlaced") and (video or {}).get("codec") in MPV_SD:
+        video_ok = False                             # (the sd rule: interlaced is converted, see video_playable)
     too_tall = bool(caps.get("maxh") and video and (video.get("height") or 0) > caps["maxh"] * 1.1)
     if too_tall:
         video_ok = False
-    audio_ok = a in DIRECT_AUDIO or (a in ("ac3", "eac3") and caps.get("ac3"))
+    audio_ok = a in DIRECT_AUDIO or (a in ("ac3", "eac3") and caps.get("ac3")) or bool(caps.get("mpv"))   # (DTS, TrueHD, PCM...)
     why = []
     if not container_ok:
         why.append(ext.upper() + " file")

@@ -219,7 +219,8 @@ class HomeComesBackBySteps(unittest.TestCase):
                                  ("Target.activateTarget", "h"), ("Target.closeTarget", "new1")])
         self.assertEqual(b.front, "h")
         self.assertNotIn("new1", b.tabs)
-        self.assertRegex(b.said[0], r"Home didn't come back \(the browser has it down as hidden\): another page in front of it and back$")
+        self.assertRegex(b.said[0], r"Home didn't come back \(the browser has it down as hidden\): another page in front of it and back "
+                                    r"\(the page says hidden; .*\)$")                  # (1.1.91: what the box knew of it then)
         self.assertRegex(b.said[-1], r"Home is back on the TV$")
 
     def test_the_passing_page_never_shows_as_an_app(self):

@@ -110,8 +110,13 @@
     el.hidden = false; void el.offsetWidth; el.classList.add("on");
     openingTimer = setTimeout(() => opening(null), 70000);                    // never left up
   }
+  // The press is answered first: the opening card is drawn, and only then does the box start loading the app (on a Pi 3
+  // loading a page takes the processor and the graphics chip for seconds, and the card could wait for that: an OK on
+  // Home took up to 4.8 s to show anything on a Pi 3, which fits).
+  const drawnFirst = () => new Promise(r => afterFrame(r));
   async function open(body) {
     opening(body.id && data.apps.find(a => a.id === body.id));
+    await drawnFirst();
     try {
       const r = await api("/box/api/open", body);
       if (r.url) { opening(null); window.open(r.url, "_blank"); }          // a preview on a computer: a tab of its own
@@ -123,6 +128,7 @@
     const app = data.apps.find(a => a.id === (body && body.live ? "live" : "sofa"));
     opening(app);
     const slow = setTimeout(() => opening(app, "Starting Sofa… the first time takes up to a minute."), 1500);
+    await drawnFirst();
     try {
       const r = await api("/box/api/sofa/open", body || {});
       clearTimeout(slow);
@@ -148,12 +154,16 @@
   let looks = {};
   try { looks = JSON.parse(sessionStorage.getItem("sofaIconLooks") || "{}"); } catch (e) { /* none yet */ }
   const idle = f => (window.requestIdleCallback ? requestIdleCallback(f, { timeout: 1500 }) : setTimeout(f, 300));
+  // An app's first letter, in an element of its own: the glossy (and other) frames paint around it in plain order, so an
+  // icon is no stacking context of its own (each one was a layer of its own on the graphics chip: 22 in the store)
+  const letter = ch => `<span class="ic-l">${esc(ch)}</span>`;
+  const letterEl = ch => Object.assign(document.createElement("span"), { className: "ic-l", textContent: ch });
   function iconLook(img, box, look) {            // look: "m" (empty), or any of "t" (tiny) and "l" (light), or "-"
     if (look === "m") {                           // nothing in it (some sites' icons are empty): the app's first letter
       if (!img.isConnected) return;
       const b = box.closest("button") && box.closest("button").querySelector("b");
       box.classList.add("mono"); box.classList.remove("tiny");
-      img.replaceWith(document.createTextNode(((b && b.textContent) || "").replace(/^the\s+/i, "").charAt(0).toUpperCase()));
+      img.replaceWith(letterEl(((b && b.textContent) || "").replace(/^the\s+/i, "").charAt(0).toUpperCase()));
       return;
     }
     if (look.includes("t")) box.classList.add("tiny");
@@ -199,9 +209,9 @@
   const icCls = a => isDrawn(a) ? " drawn" : (isFramed(a) ? " framed" : "") + (!a.icon_url && !BUILTIN_ICON[a.id] ? " mono" : "");
   function appIcon(a) {
     if (isDrawn(a)) return drawnIcon(a.id);
-    if (a.icon_url) return `<img decoding="async" src="${esc(iconSrc(a.icon_url))}" alt="" loading="lazy" onload="sofaIcon(this)" onerror="this.parentNode.classList.add('mono');this.replaceWith(document.createTextNode('${esc((a.name || "?")[0])}'))">`;
+    if (a.icon_url) return `<img decoding="async" src="${esc(iconSrc(a.icon_url))}" alt="" loading="lazy" onload="sofaIcon(this)" onerror="this.parentNode.classList.add('mono');this.outerHTML='<span class=&quot;ic-l&quot;>${esc((a.name || "?")[0].replace(/[\\'"<>&]/g, "?"))}</span>'">`;
     if (BUILTIN_ICON[a.id]) return icon(BUILTIN_ICON[a.id]);
-    return esc((a.name || "?").replace(/^the\s+/i, "")[0].toUpperCase());
+    return letter((a.name || "?").replace(/^the\s+/i, "")[0].toUpperCase());
   }
   function appTile(a, wide) {
     const running = (data.running || []).some(r => r.app === a.id);
@@ -223,22 +233,31 @@
       ${drives.map(d => `<button class="tile app wide input" style="--c:#2BB673" data-drive="${esc(d.root)}" data-dev="${esc(d.dev)}"><span class="ic">${icon("#i-usb")}</span>
         <b>${esc(d.label)}</b><small>${d.size ? size(d.size) + " · " : ""}Open in Files</small></button>`).join("")}</div>`;
   }
-  // The Pi short of power, or hot (the agent reads the Pi's own record): a calm note on Home, once a start. It stays while
-  // Home is on the TV and is gone once you leave Home (Settings → Help says it all along). Not a button: the remote's
-  // first press on Home still goes where it always does.
-  const powerShown = { note: null, done: false };
+  // The Pi short of power, or hot (the agent reads the Pi's own record): a calm note on Home, each problem once (the agent
+  // keeps what was told across starts: a box on a weak supply doesn't say it at every start). It stays while Home is on
+  // the TV and is gone once you leave Home (Settings → Help says it all along). Short of power is told even after a note
+  // about heat. Not a button: the remote's first press on Home still goes where it always does.
+  const powerShown = { note: null, done: [], at: 0 };
   const POWER_ICON = { power: `<path d="M13.5 2.5 5 13.5h6l-1 8 8.5-11h-6z"/>`,
     heat: `<path d="M10 4.5a2 2 0 0 1 4 0v9a4 4 0 1 1-4 0z"/><path d="M12 9v7"/>` };
+  const powerNew = () => !!(data.power && !powerShown.note && !powerShown.done.includes(data.power.kind));
   function powerLine() {
-    if (!powerShown.done && !powerShown.note && data.power) {
-      powerShown.note = data.power;
-      api("/box/api/power/seen", {}).catch(() => {});
-    }
+    if (powerNew()) { powerShown.note = data.power; powerShown.at = 0; }
+    if (powerShown.note && !powerShown.at && !document.hidden && !document.documentElement.classList.contains("asleep")) powerShown.at = mono();
     const p = powerShown.note;
     return p ? `<div class="power-note ${esc(p.kind)}" role="status"><svg viewBox="0 0 24 24" aria-hidden="true">${POWER_ICON[p.kind] || POWER_ICON.power}</svg>
       <p><b>${esc(p.title)}.</b> ${esc(p.text)}</p></div>` : "";
   }
-  function powerGone() { if (powerShown.note) { powerShown.note = null; powerShown.done = true; } }
+  // Leaving Home: the note has been told if it was on the TV for a few seconds (not drawn behind an app, or with the box
+  // asleep): then the box keeps it as told, across starts. Otherwise it's there again the next time Home is.
+  function powerGone(asleep) {
+    const p = powerShown.note;
+    if (!p) return;
+    powerShown.note = null;
+    if (asleep || !powerShown.at || mono() - powerShown.at < 3000) return;
+    powerShown.done.push(p.kind);
+    api("/box/api/power/seen", { kind: p.kind }).catch(() => {});
+  }
   // Home's top: the time and day, a hello, what to do next (resume, Sofa, Live TV), and the weather.
   function masthead(watch) {
     const s = sofa || {}, first = s.items && s.items[0], d = new Date(), [hm, ap] = clockParts(d);
@@ -438,7 +457,7 @@
     if (isDrawn(a)) return drawnIcon(a.id, true);
     if (a.icon_url) return `<img decoding="async" src="${esc(iconSrc(a.icon_url))}" alt="">`;
     if (BUILTIN_ICON[a.id]) return icon(BUILTIN_ICON[a.id]);
-    return esc((a.name || "?").replace(/^the\s+/i, "")[0].toUpperCase());
+    return letter((a.name || "?").replace(/^the\s+/i, "")[0].toUpperCase());
   }
   function sptBackdrop(sh) {
     const bg = $("#sptBg");
@@ -529,14 +548,27 @@
       if (st.sections.flatMap(x => x.apps).filter(e => e.icon_url).length > had) { storeData = st; render(true); setTimeout(refreshStoreIcons, 6000); }
     } catch (e) {}
   }
+  // The app the remote is on, above the rows: drawn in place (its words, its icon, its buttons), in a box of one size.
+  // (It was made anew on every press, and a line about DRM made it taller for some apps and not others: every row
+  // under it moved, and the whole page was drawn again. On a Pi 3, 38 of 55 presses in the store took over 0.1 s.)
   function storeDetail(id) {
     const box = $("#storeDetail"); if (!box || !storeData) return;
     const e = storeData.sections.flatMap(s => s.apps).find(x => x.id === id); if (!e) return;
+    const acts = e.installed ? `<button class="btn primary" data-app="${esc(e.id)}">Open</button> <button class="btn" data-remove="${esc(e.id)}">Remove</button>`
+      : `<button class="btn primary" data-install="${esc(e.id)}">Add to Home</button>`;
+    if (box.dataset.id === id && box.dataset.acts === acts) return;          // (the same app: nothing to draw)
+    if (!box.firstElementChild) box.innerHTML = `<span class="ic"></span><div class="sd-text"><h3></h3><p><span class="sd-about"></span> <span class="warn"></span></p>
+      <p class="addr"></p></div><div class="sd-acts"></div>`;
+    box.dataset.id = id;
     box.style.setProperty("--c", e.color);
-    box.innerHTML = `<span class="ic${icCls(e)}">${appIcon(e)}</span><div><h3>${esc(e.name)}</h3><p>${esc(e.about || "")}${e.drm ? ` <span class="warn">Uses DRM: on a Pi 3 the picture may be smaller, and some services may not play.</span>` : ""}</p>
-      <p class="addr">${esc(e.url.replace(/^https?:\/\//, ""))}</p></div>
-      <div>${e.installed ? `<button class="btn primary" data-app="${esc(e.id)}">Open</button> <button class="btn" data-remove="${esc(e.id)}">Remove</button>`
-        : `<button class="btn primary" data-install="${esc(e.id)}">Add to Home</button>`}</div>`;
+    const ic = $(".ic", box), cls = "ic" + icCls(e), pic = appIcon(e);
+    if (ic.className !== cls) ic.className = cls;
+    if (ic.dataset.pic !== pic) { ic.dataset.pic = pic; ic.innerHTML = pic; }
+    put($("h3", box), e.name);
+    put($(".sd-about", box), e.about || "");
+    put($(".warn", box), e.drm ? "Uses DRM: on a Pi 3 the picture may be smaller, and some services may not play." : "");
+    put($(".addr", box), e.url.replace(/^https?:\/\//, ""));
+    if (box.dataset.acts !== acts) { box.dataset.acts = acts; $(".sd-acts", box).innerHTML = acts; }
   }
 
   // ---- Sofa: where it plays from
@@ -1872,7 +1904,7 @@
   TABS.credits = TABS["tv-tracking"] = "settings";               // (pages of Settings: Back goes there)
   function render(keep) {
     const name = (location.hash.replace(/^#\/?/, "").split(/[/?]/)[0]) || "";
-    if (name) powerGone();                        // (another page: Home's power note has been seen)
+    if (name) powerGone(name === "sleep");        // (another page: Home's power note has been seen, if it was on the TV)
     const html = name === "store" ? viewStore() : name === "games" ? viewGames() : name === "files" ? viewFiles()
       : name === "browser" ? viewBrowser() : name === "settings" ? viewSettings() : name === "welcome" ? viewWelcome()
       : name === "credits" ? viewCredits() : name === "tv-tracking" ? viewTvTracking()
@@ -1920,7 +1952,7 @@
     if (resting || document.hidden || $(".sheet-back")) return;
     const n = data.devices && data.devices.n;
     await loadApps();
-    const note = data.power && !powerShown.done && !powerShown.note;     // (the Pi's power or heat, just now: Home says so)
+    const note = powerNew();                                            // (the Pi's power or heat, just now: Home says so)
     const np = npSig(data.now), npNew = np !== npShown;
     npShown = np;
     if ((data.devices.n !== n || note || npNew) && (!location.hash || location.hash === "#/") && !document.hidden) render(true);

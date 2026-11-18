@@ -218,7 +218,8 @@ class PowerNote(unittest.TestCase):
         shutil.rmtree(cls.conf, ignore_errors=True)
 
     def setUp(self):
-        self.agent.power.update(note=None, shown=False)
+        self.agent.power.update(note=None)
+        self.agent.save_settings(power_told=[])
 
     def test_sample_values(self):
         note = self.agent.power_note
@@ -230,7 +231,7 @@ class PowerNote(unittest.TestCase):
             n = note(value, pi3)
             self.assertEqual(n["kind"], "power", value)
             self.assertEqual(n["title"], "The box is short of power")
-            self.assertIn("official 2.5 A power supply", n["text"])
+            self.assertIn("own power supply for a Pi 3 (5.1 V, 2.5 A)", n["text"])
             self.assertNotIn("hot", n["text"])
         for value in ("throttled=0x80000", "throttled=0x80008", "throttled=0x40000", "throttled=0x20002"):  # heat, power enough
             n = note(value, pi3)                                                  # (0x80000: the owner's 1.1.34 report)
@@ -241,9 +242,9 @@ class PowerNote(unittest.TestCase):
         self.assertEqual(both["kind"], "power")
         self.assertIn("It got hot too", both["text"])
         self.assertEqual(note("throttled=0x50005", pi3)["bits"], "0x50005")
-        self.assertIn("3 A USB-C", note("throttled=0x50000", "Raspberry Pi 4 Model B Rev 1.5")["text"])
-        self.assertIn("27 W (5 A) USB-C", note("throttled=0x50000", "Raspberry Pi 5 Model B Rev 1.0")["text"])
-        self.assertIn("its official power supply", note("throttled=0x50000", "")["text"])
+        self.assertIn("USB-C power supply for a Pi 4 (5.1 V, 3 A)", note("throttled=0x50000", "Raspberry Pi 4 Model B Rev 1.5")["text"])
+        self.assertIn("27 W USB-C power supply for a Pi 5 (5.1 V, 5 A)", note("throttled=0x50000", "Raspberry Pi 5 Model B Rev 1.0")["text"])
+        self.assertIn("own power supply for it (5.1 V)", note("throttled=0x50000", "")["text"])
 
     def test_watched_every_minute(self):
         a, logged = self.agent, []
@@ -263,7 +264,7 @@ class PowerNote(unittest.TestCase):
         self.assertIn("got hot", lines[0])
         self.assertIn("short of power", lines[1])
 
-    def test_home_hears_it_once_a_start(self):
+    def test_home_hears_it_once(self):
         a = self.agent
         httpd = a.Server(("127.0.0.1", 0), a.Handler)
         threading.Thread(target=httpd.serve_forever, daemon=True).start()
@@ -288,7 +289,8 @@ class PowerNote(unittest.TestCase):
                 "Host": "127.0.0.1", "Content-Type": "application/json", "X-Sofa-Box": "1"})
             with opener.open(req, timeout=20) as r:
                 self.assertEqual(json.loads(r.read()), {"ok": True})
-            self.assertIsNone(get("/box/api/apps")["power"])                      # shown: not again this start
+            self.assertIsNone(get("/box/api/apps")["power"])                      # shown: not again (this start or the next)
+            self.assertEqual(self.agent.settings()["power_told"], ["power"])
             self.assertEqual(get("/box/api/info")["power"]["kind"], "power")      # Settings → Help still says it
         finally:
             httpd.shutdown()
@@ -407,18 +409,20 @@ class HomeScreen(unittest.TestCase):
             time.sleep(0.4)
         self.fail("never: %s (%r)" % (expression, value))
 
-    def test_1_power_note_on_home_once_a_start(self):
+    def test_1_power_note_on_home_once(self):
         note = self.until("(document.querySelector('#view .mast .power-note, #view .spt-detail .power-note') || {}).textContent")   # (Classic, or Spotlight)
         self.assertIn("The box is short of power.", note)
-        self.assertIn("Plug it into the wall", note)
+        self.assertIn("plugged into the wall", note)
+        self.assertIn("5.1 V", note)
         self.assertFalse(self.page("!!(document.activeElement && document.activeElement.closest('.power-note'))"))   # not in the way
         self.assertTrue(self.page("!!document.activeElement.closest('.mast .row-actions, .spt .spt-track')"))   # first press: as ever
+        time.sleep(3.5)                                                           # (on the TV a few seconds: told)
         self.page("location.hash = '#/store'")
         self.until("document.documentElement.dataset.page === 'store'")
         self.page("location.hash = '#/'")
         self.until("document.documentElement.dataset.page === 'home' && !!document.querySelector('#view .mast, #view .spt')")
         time.sleep(6)                                                             # (Home looks again every 5 seconds)
-        self.assertFalse(self.page("!!document.querySelector('.power-note')"))     # seen: not again this start
+        self.assertFalse(self.page("!!document.querySelector('.power-note')"))     # seen: not again
         with self.opener.open(self.base + "/box/api/apps", timeout=20) as r:
             self.assertIsNone(json.loads(r.read())["power"])
         self.page("location.hash = '#/settings/help'")

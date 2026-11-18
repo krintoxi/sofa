@@ -318,7 +318,7 @@ class Power(unittest.TestCase):
         words = a.power_words(a.power_note("throttled=0x50000", "Raspberry Pi 3 Model B Plus Rev 1.3"))
         self.assertIn("short of power (under-voltage) since it started, not right now", words)
         self.assertIn("slowed down by the Pi itself (throttled) since it started, not right now", words)
-        self.assertIn("official 2.5 A power supply", words)
+        self.assertIn("5.1 V, 2.5 A", words)
         self.assertIn("right now", a.power_words(a.power_note("throttled=0x50005", "Raspberry Pi 3")).split(";")[0])
         self.assertIn("enough all along", a.power_words(a.power_note("throttled=0x0")))
         self.assertIn("not read", a.power_words(None))

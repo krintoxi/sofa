@@ -1368,7 +1368,9 @@ class Browser:
                 threading.Thread(target=self._reader, daemon=True, name="devtools-read").start()
                 self.call("Target.setDiscoverTargets", {"discover": True})
                 self.call("Target.setAutoAttach", {"autoAttach": True, "waitForDebuggerOnStart": False, "flatten": True})
-                for t in self.call("Target.getTargets").get("targetInfos", []):
+                infos = self.call("Target.getTargets").get("targetInfos", [])
+                self.forget_gone({t["targetId"] for t in infos if t.get("type") == "page"})
+                for t in infos:
                     if t["type"] == "page":
                         self._track(t)
                         if not t.get("attached"):
@@ -1385,6 +1387,13 @@ class Browser:
 
     def connected(self):
         return self.ready.is_set()
+
+    def forget_gone(self, there):
+        """On connecting (again): only the pages the browser has now. A browser started again (the box's last step for
+        a Home that isn't on the TV) has none of the old ones, and an old Home kept here could be the one tab_of("home")
+        found, or an app the box kept trying to close."""
+        for t in [t for t in self.tabs if t not in there]:
+            self.tabs.pop(t, None)
 
     def _reader(self):
         try:
@@ -1582,8 +1591,16 @@ class Browser:
             except OSError as exc:                       # (still frozen, and known to be: woken at the next try)
                 self.say("A page didn't wake (%s)" % exc)
         behind = getattr(self, "front", None)
-        self.call("Target.activateTarget", {"targetId": target})
+        # (in front from before the browser is asked: settle() for the page before, still going through the pages
+        # behind it, could read `front` while this call was on its way, take Home for a page behind and freeze it just
+        # in front: hidden, on the TV. A Pi 3 showed Home hidden after an app; a freeze landing then was made to happen
+        # on the stand-in, and gives just that.)
         self.front = target
+        try:
+            self.call("Target.activateTarget", {"targetId": target})
+        except OSError:
+            self.front = behind
+            raise
         if behind and behind != target and behind in self.tabs:
             self.tabs[behind]["left"] = time.time()      # out of sight from now (tidy counts from here)
         if target in self.tabs:
@@ -1593,16 +1610,27 @@ class Browser:
 
     def settle(self, front):
         """The app in front gets the box: the others are frozen (no scripts, timers or drawing) unless they're
-        playing something you can hear, so music carries on. Home and the others wake up when they're opened."""
+        playing something you can hear, so music carries on. The others wake up when they're opened.
+
+        Never Home. To freeze a page the browser first marks it hidden, and waking it doesn't mark it shown again (see
+        rest): a Home frozen just as it comes back in front stays hidden on the TV (made to happen on the stand-in). On
+        a Pi 3 (report 5V995Z) Home came back hidden after an app, and the box went on to replace it and then to start
+        the whole browser again. Behind an app, Home costs next to nothing
+        awake: the browser slows a hidden page's timers by itself, and Home's own asking around waits while it's hidden."""
         time.sleep(1.5)                                  # let the one in front start first
         for t, tab in list(self.tabs.items()):
-            if t == front or tab.get("frozen") or not tab.get("session") or tab.get("app") in KEEP_AWAKE:
+            if t == front or tab.get("frozen") or not tab.get("session") or tab.get("app") in ("home",) + KEEP_AWAKE \
+                    or tab.get("passing"):
                 continue
             try:
                 playing = self.heard(tab)
                 if not playing and getattr(self, "front", None) != t:
                     self.call("Page.setWebLifecycleState", {"state": "frozen"}, tab["session"], timeout=3)
-                    tab["frozen"] = True
+                    tab.update(frozen=True, frozen_at=time.time(), frozen_behind=self.tabs.get(front, {}).get("app"))
+                    if getattr(self, "front", None) == t:        # (brought in front meanwhile: awake again at once)
+                        self.call("Page.setWebLifecycleState", {"state": "active"}, tab["session"], timeout=3)
+                        tab["frozen"] = False
+                        self.say("A page came in front as it was put to sleep: woken again (%s)" % tab.get("app"))
             except OSError:
                 pass
 
@@ -1755,7 +1783,7 @@ class Browser:
             if not tab.get("frozen"):
                 try:
                     self.call("Page.setWebLifecycleState", {"state": "frozen"}, tab["session"], timeout=3)
-                    tab["frozen"] = True
+                    tab.update(frozen=True, frozen_at=time.time(), frozen_behind="a game")
                 except OSError:
                     pass
         home = self.tab_of("home")
@@ -1934,6 +1962,13 @@ class Browser:
             raise OSError("the browser made no new page")
         self.tabs.setdefault(blank, {"used": time.time(), "session": None, "audible": False}).update(passing=True)
         time.sleep(0.4)
+        try:                                             # (the page in front says hidden too: it's the whole window, not Home)
+            seen = self.call("Runtime.evaluate", {"expression": "document.visibilityState", "returnByValue": True},
+                             (self.tabs.get(blank) or {}).get("session"), timeout=2).get("result", {}).get("value")
+        except OSError:
+            seen = None
+        if seen and seen != "visible":
+            self.say("  the page put in front of it says %s too: the browser's window isn't shown" % seen)
         try:
             self.call("Target.activateTarget", {"targetId": target}, timeout=5)
         finally:
@@ -1982,21 +2017,35 @@ class Browser:
     def revive(self, target, settle=1.2, look=True):
         """Home just brought forward (after a game, from an app): is it really on the TV? If not, by steps, each one
         looked at again: another page in front and back, the page loaded again, a new Home, and last the whole browser
-        again. What was wrong and what was done goes in the journal and the next report (self.said). True: it's there."""
+        again. What was wrong and what was done goes in the journal and the next report (self.said): the first line with
+        what the box knew of the page then (facts), the new Home's with why it came to that. True: it's there."""
         time.sleep(settle)
         if target not in self.tabs or getattr(self, "front", None) != target:
             return True
         why = self.wrong(target, look)
         if not why:
             return True
+        tried = []
         for what, step in (("another page in front of it and back", self.show), ("loading it again", self.reload),
                            ("a new Home in its place", self.renew)):
-            self.say("Home didn't come back (%s): %s" % (why, what))
+            if not tried:
+                self.say("Home didn't come back (%s): %s (%s)" % (why, what, self.facts(target)))
+            elif step == self.renew:                        # (the last step before the whole browser: why it came to it)
+                self.say("Home didn't come back (%s): %s, as it was still so after %s (%s)" % (
+                    why, what, " and after ".join(tried), self.facts(target)))
+            else:
+                self.say("Home didn't come back (%s): %s" % (why, what))
+            tried.append(what)
             try:
                 got = step(target)
                 target = got or target
             except Exception as exc:                        # (whatever it was: the next step is still tried)
                 self.say("  that didn't work (%s)" % (exc or exc.__class__.__name__))
+            if step == self.renew:                          # a new page takes a moment to load, more on a Pi 3: it was
+                for _ in range(24):                         # judged empty 1.5 s after it was asked for, and the whole
+                    if target not in self.tabs or self.alive(target, timeout=2):    # browser started again for that
+                        break
+                    time.sleep(0.5)
             time.sleep(1.5)
             if target not in self.tabs or getattr(self, "front", None) != target:
                 return True                                 # (something else is in front by now: an app, a game)
@@ -2004,11 +2053,39 @@ class Browser:
             if not why:
                 self.say("Home is back on the TV")
                 return True
+        known = self.facts(target)                          # (before the browser goes: then nothing answers)
         if self.restart():
-            self.say("Home still isn't on the TV (%s): the browser starts again" % why)
+            self.say("Home still isn't on the TV (%s): the browser starts again (%s)" % (why, known))
         else:
             self.say("Home still isn't on the TV (%s). Hold Home for 4 seconds to start the TV's screen again." % why)
         return False
+
+    FACTS_JS = ("JSON.stringify([document.visibilityState, !!(document.getElementById('view') && "
+                "document.getElementById('view').childElementCount)])")
+
+    def facts(self, target):
+        """What the box knows of a Home that isn't on the TV, in a few words, for the journal and the next report: what
+        the page says of itself, whether the box had put it to sleep (when, behind what), what's in front, how many
+        Homes there are."""
+        tab = self.tabs.get(target) or {}
+        out = []
+        try:
+            got = json.loads(self.call("Runtime.evaluate", {"expression": self.FACTS_JS, "returnByValue": True}, tab.get("session"),
+                                       timeout=3).get("result", {}).get("value") or "[]")
+            out.append("the page says %s%s" % (got[0], "" if got[1] else ", with nothing in it"))
+        except (OSError, ValueError, TypeError, IndexError, KeyError):
+            out.append("the page didn't answer")
+        at = lambda t: time.strftime("%H:%M:%S", time.localtime(t))              # noqa: E731
+        if tab.get("frozen_at"):
+            out.append("put to sleep by the box at %s behind %s%s" % (at(tab["frozen_at"]), tab.get("frozen_behind") or "?",
+                                                                      "" if tab.get("frozen") else ", woken since"))
+        else:
+            out.append("not put to sleep by the box")
+        front = getattr(self, "front", None)
+        out.append("in front: %s" % ("this page" if front == target else (self.tabs.get(front) or {}).get("app") or "?"))
+        homes = sum(1 for x in self.tabs.values() if x.get("app") == "home")
+        out.append("%d Home page%s" % (homes, "" if homes == 1 else "s"))
+        return "; ".join(out)
 
     def say(self, text):
         """A line for the journal and for the next report (what went wrong on the way back to Home)."""

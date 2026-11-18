@@ -283,7 +283,7 @@ doctor() {
       0x0) ok "power supply: steady" ;;
       "") ;;
       *) if [ $(( T & 0x10001 )) -ne 0 ]; then              # (bits 0 and 16: under-voltage, now or since it started)
-           bad "power: the Pi has been short of power ($T)" "use this Pi's official power supply (Pi 3: 2.5 A; Pi 4: 3 A USB-C; Pi 5: 27 W USB-C) and a short cable"
+           bad "power: the Pi has been short of power ($T)" "use the Raspberry Pi's own 5.1 V power supply (Pi 3: 2.5 A; Pi 4: 3 A USB-C; Pi 5: 5 A, 27 W USB-C), plugged into the wall with its short cable"
          elif [ $(( T & 0x80008 )) -ne 0 ]; then            # (bits 3 and 19: the soft temperature limit)
            bad "heat: the Pi got hot enough to slow itself down ($T)" "give it air: out of a closed cabinet, or a case with a heat sink or fan"
          else

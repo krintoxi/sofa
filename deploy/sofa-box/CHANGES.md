@@ -8,6 +8,67 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.91
+
+**What a Raspberry Pi 3 B+ showed in an evening on 1.1.86** (report 5V995Z), dealt with. Tried on a stand-in for a Pi 3
+(four cores and 1 GB, with the card's Chromium 156, cage 0.2.0, mpv 0.40 and WirePlumber 0.5) and in a browser on a
+computer; not on a Pi yet.
+
+- **Short of power, said once and plainly.** That Pi was short of power from its start and slowed itself down, and was
+  at its soft temperature limit when the report was sent. Home's one note a start had gone to the heat it saw first,
+  twelve minutes before the power: so it never said the power. Now each problem, power and heat, is told once, and the
+  box keeps that across starts: a box left on a weak supply doesn't say it at every start. It counts as told once it has
+  been on the TV for a few seconds (not drawn behind an app or with the box asleep), and after a start that goes six
+  hours with power enough (an evening on a new supply), a problem that comes back is told again. The note says what the box saw ("Since it
+  started the power reaching it has dropped too low and the Pi slowed itself down to keep going") and what fixes it: the
+  Raspberry Pi's own 5.1 V power supply (2.5 A for a Pi 3, 3 A for a Pi 4, 5 A for a Pi 5) plugged into the wall; a phone
+  charger or the TV's USB socket gives 5 V or less. Settings → Help and `sofa-box doctor` say the same. The box doesn't
+  take itself down a notch while short of power: at rest on Home it uses about 2% of one core on the stand-in, nothing
+  worth saving. What loads a Pi 3 is decoding video by its processor and waiting on Sofa converting, both below.
+- **After an app, the same Home comes back.** That Pi's Home came back hidden after an app; its box put a new Home in its
+  place and, 1.5 s later, started the whole browser again, because the new page hadn't loaded yet. The box froze Home
+  behind every app, and a Home frozen just as it comes back in front stays hidden on the TV (made to happen on the
+  stand-in, though not the way the Pi's own steps then failed to bring it back). Now Home is never frozen (on the
+  stand-in: 3 times in 3 apps opened before, none now; behind an app it costs the browser no more processor time either
+  way), the box knows which page is in front before it asks the browser to bring it there, a page brought in front just
+  as it was put to sleep is woken again, a new Home gets up to 12 s to load before it's judged, and the pages of a browser
+  that has gone are forgotten. What the box knew each time (what the page says of itself, whether the box had put it to
+  sleep and behind what, what's in front, how many Homes) goes in the journal and the report, the line for a new Home
+  says why it came to that, and if the page put in front for a moment is hidden too, the report says the browser's
+  window isn't shown (one way the Pi's case could have gone, which the stand-in didn't give).
+- **Presses that draw less.** The App Store's box above the rows (the app the remote is on) was made anew on every press,
+  and the line about DRM made it taller for some apps: every row under it moved, and the page was drawn again. It's one
+  size now and drawn in place: on the bench, pieces drawn again per press in the store 10.7 → 6.0. Each framed icon (the
+  glossy look, and the other looks) was a layer of its own on the graphics chip, which a Pi 3 sorts and draws on every
+  press: Home as that box has it, 19 layers → 8; the App Store, 41 → 27; the same picture (compared in three looks: a
+  letter a pixel or two higher at most), and the opening card now shows a letter-only app's letter on its colour (it was white on white). OK on
+  Home draws its opening card first and then asks the box to open the app (an OK on Home took up to 4.8 s on that Pi;
+  the app starting to load in the same moment fits that).
+- **H.264 plays as it is, on the Pi's video chip.** That Pi decoded the four videos of the evening that started by its
+  processor, H.264 its chip decodes (on 1.1.73 the same Pi used the chip). The box asked mpv once, at its start, which decoders it has, and
+  gave it 10 s to answer; on a start as busy as a Pi 3's that could run out, and "no answer" was kept as "no" until the
+  next start. Now a Pi 3 asks for its decoder (v4l2m2m-copy) as soon as the board has it, and mpv is asked again until it
+  answers. The report says what was asked for and, when the chip wasn't used, mpv's own words.
+  - **Converted only when it must be.** Sofa took the box for a browser: a TS or an AVI file, DTS, TrueHD or PCM sound, or
+    a standard-definition MPEG-2, XviD or VC-1 picture (not interlaced: Sofa takes a DVD's combing out) was converted,
+    though the box's mpv plays them all. The box now
+    tells Sofa so, and Sofa 1.5.16 sends them as they are (a TS, an AVI, a film with DTS sound: converted before, as it
+    is now). Still converted: what a Pi 3 can't decode (HEVC, 10-bit H.264, more than 1080p).
+  - **720p is learned from what says so.** Frames dropped at 1080p made the box ask Sofa for 720p from then on, so every
+    1080p film was converted. They count now only when the video chip decoded them and the Pi had power enough; a 720p
+    learned before is forgotten once. The report's settings line says what the box has learned.
+  - The report's line for each video says how Sofa sent it and why ("converted by Sofa: 1080p picture (this device plays
+    up to 720p)", "repackaged by Sofa: DTS sound"), with Sofa 1.5.16.
+  - The 12 s that video took counts from mpv's start: Sofa starting to convert it, its first piece of four seconds,
+    and mpv reading it. A film the box plays as it is starts without any of that.
+- **HDMI sound without gaps.** The TV's sound ran dry ten times that evening ("snd_pcm_mmap_commit error: Broken pipe"),
+  mostly as a video or a game started or ended. PipeWire's sound thread ran at an ordinary priority: it asks RTKit for a
+  real-time one, and the card has no RTKit ("RTKit error: ServiceUnknown", as on the stand-in without it; with it, no
+  error). RTKit is on the box now, and the Pi's HDMI output keeps periods of 1024 frames with 2048 more ahead (about
+  43 ms, which mpv counts in to keep the picture in step), as WirePlumber already does for a virtual machine's sound. An
+  update starts the box's sound again with them. (On the stand-in PipeWire was started by hand; on the card it's a
+  user service that starts with the box, which the next report shows: no "RTKit error" lines.)
+
 ## 1.1.88
 
 **Hearthrim looks like a place, and so does each region round it.** A pass over how WYRD and the engine draw: shadow,
