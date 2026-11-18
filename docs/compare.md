@@ -52,6 +52,8 @@ the box.
 - you want the server on a Mac, a Windows PC or a Linux computer with nothing to install but ffmpeg;
 - your files arrive messy and you'd rather not name and sort them by hand;
 - the people watching are a household: profiles, Kids, PINs, a TV that signs in from your phone;
+- you're leaving Plex or Jellyfin and want everyone's watched titles and places to come along (Sofa 1.5.18; tested
+  against real Jellyfin, not yet a real Plex library: [switching.md](switching.md));
 - you want no account with anyone, and an off switch for everything that uses the internet;
 - you want a TV box with no ads and no tracking of its own, and you're happy with a Raspberry Pi, a beta, and one
   maintainer's pace.

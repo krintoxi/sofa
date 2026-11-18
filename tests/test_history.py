@@ -87,7 +87,7 @@ def _plex_history():
     return H
 
 
-PLEX_USERS = {1: "hist-admin", 2: "Sam", 3: "Kiddo", 4: "Visitor"}
+PLEX_USERS = {1: "hist-admin", 2: "Parent", 3: "Kiddo", 4: "Visitor"}
 SHOW_RATINGS = [(1, "Low Orbit (US)", 2022, {"tvdb": "999001"}, 10.0)]
 
 
@@ -457,11 +457,11 @@ class History(unittest.TestCase):
         with open(cls.cached, "w") as f:                 # what a lookup saved: TMDB's movie 424242
             json.dump({"source": "TMDB", "source_id": 424242, "canonical": "Copper Sky", "year": 2016}, f)
         LIB.scan("tests")
-        for name, admin in (("hist-admin", True), ("hist-sam", False), ("hist-kid", False)):
+        for name, admin in (("hist-admin", True), ("hist-parent", False), ("hist-kid", False)):
             if not store.q1("SELECT 1 FROM users WHERE name = ?", name):
                 auth.create_user(name, "password123", admin=admin)
-        cls.admin_id, cls.sam_id, cls.kid_id = (store.q1("SELECT id FROM users WHERE name = ?", n)["id"]
-                                                for n in ("hist-admin", "hist-sam", "hist-kid"))
+        cls.admin_id, cls.parent_id, cls.kid_id = (store.q1("SELECT id FROM users WHERE name = ?", n)["id"]
+                                                for n in ("hist-admin", "hist-parent", "hist-kid"))
         auth.set_adult(cls.admin_id, True)
         auth.set_kids(cls.kid_id, True)
         kids.choose("m:paper-moons:2014", True)
@@ -488,23 +488,23 @@ class History(unittest.TestCase):
         os.remove(cls.cached)
         for item in ("m:paper-moons:2014", "s:tidewater", "m:harbor-lights:1994"):
             kids.choose(item, None)
-        for uid in (cls.admin_id, cls.sam_id, cls.kid_id):
+        for uid in (cls.admin_id, cls.parent_id, cls.kid_id):
             auth.delete_user(uid)
         shutil.rmtree(cls.folder, ignore_errors=True)
         LIB.scan("tests")
 
     def setUp(self):
-        for uid in (self.admin_id, self.sam_id, self.kid_id):
+        for uid in (self.admin_id, self.parent_id, self.kid_id):
             store.ex("DELETE FROM progress WHERE user_id = ?", uid)
             store.ex("DELETE FROM likes WHERE user_id = ?", uid)
         history.forget()
 
     def plex_people(self, data):
         by_name = {u["name"]: u["key"] for u in data["users"]}
-        return {by_name["hist-admin"]: self.admin_id, by_name["Sam"]: self.sam_id, by_name["Kiddo"]: self.kid_id}
+        return {by_name["hist-admin"]: self.admin_id, by_name["Parent"]: self.parent_id, by_name["Kiddo"]: self.kid_id}
 
     def tables(self):
-        uids = (self.admin_id, self.sam_id, self.kid_id)
+        uids = (self.admin_id, self.parent_id, self.kid_id)
         return (sorted(tuple(r) for r in store.q("SELECT user_id, item, t, d, done, at FROM progress WHERE user_id IN (?,?,?)", *uids)),
                 sorted(tuple(r) for r in store.q("SELECT user_id, item, at FROM likes WHERE user_id IN (?,?,?)", *uids)))
 
@@ -513,7 +513,7 @@ class History(unittest.TestCase):
     def test_plex_database_is_read_whole(self):
         data = history.read_plex_db(self.plex_db)
         self.assertEqual((data["source"], data["how"]), ("Plex", "database"))
-        self.assertEqual([u["name"] for u in data["users"]], ["hist-admin", "Sam", "Kiddo", "Visitor"])   # (not row 0)
+        self.assertEqual([u["name"] for u in data["users"]], ["hist-admin", "Parent", "Kiddo", "Visitor"])   # (not row 0)
         recs = {(r["user"], r["title"], r["s"], r["e"]): r for r in data["records"]}
         heat = recs[("1", "Harbor Lights", None, None)]
         self.assertEqual((heat["watched"], heat["paths"], heat["at"]), (True, ["/data/movies/Harbor Lights (1994)/Harbor Lights (1994).mkv"], T0))
@@ -559,8 +559,8 @@ class History(unittest.TestCase):
         self.assertEqual(recs[("1", "Copper Sky: First Light", None, None)]["position"], 1200.0)     # the owner: places too
         self.assertTrue(recs[("1", "Lanterns", None, None)]["liked"])
         self.assertEqual(recs[("1", "Burn", 1, 2)]["show_ids"], {"tvdb": "999001"})
-        sam = {k: r for k, r in recs.items() if k[0] == "2"}
-        self.assertEqual(sorted(k[1] for k in sam), ["Deleted Film", "Velvet Hour"])                  # watched to the end only
+        parent = {k: r for k, r in recs.items() if k[0] == "2"}
+        self.assertEqual(sorted(k[1] for k in parent), ["Deleted Film", "Velvet Hour"])                  # watched to the end only
         self.assertEqual(recs[("2", "Velvet Hour", None, None)]["paths"], ["D:\\Adult\\Velvet Hour\\Velvet Hour.mkv"])
         self.assertIn("only the token's own account", data["notes"][0])
         self.assertEqual([r["title"] for r in data["records"] if r["kind"] == "show"], ["Low Orbit (US)"])
@@ -682,18 +682,18 @@ class History(unittest.TestCase):
     # ------------------------------------------------------------ writing
 
     def test_import_writes_once_and_never_over_newer(self):
-        store.ex("INSERT INTO progress (user_id, item, t, d, done, at) VALUES (?,?,?,?,?,?)",     # Sam went on in Sofa
-                 self.sam_id, "m:harbor-lights:1994", 2000, 6000, 0, (T0 + 9000) * 1000)
+        store.ex("INSERT INTO progress (user_id, item, t, d, done, at) VALUES (?,?,?,?,?,?)",     # The parent went on in Sofa
+                 self.parent_id, "m:harbor-lights:1994", 2000, 6000, 0, (T0 + 9000) * 1000)
         data = history.read_plex_db(self.plex_db)
         people = self.plex_people(data)
         p = history.plan(data, people, MAP)
-        sam = {r["label"]: r["outcome"] for r in p["rows"] if r["user"] == "2"}
-        self.assertEqual(sam["Harbor Lights (1994)"], "sofa-newer")
+        parent = {r["label"]: r["outcome"] for r in p["rows"] if r["user"] == "2"}
+        self.assertEqual(parent["Harbor Lights (1994)"], "sofa-newer")
         done = history.apply(p)
         self.assertEqual(done, {"progress": len(p["writes"]), "likes": 2, "profiles": 2})
         rows = {(r["user_id"], r["item"]): dict(r) for r in store.q("SELECT * FROM progress WHERE user_id IN (?,?,?)",
-                                                                    self.admin_id, self.sam_id, self.kid_id)}
-        self.assertEqual(rows[(self.sam_id, "m:harbor-lights:1994")]["t"], 2000)                       # Sofa's kept
+                                                                    self.admin_id, self.parent_id, self.kid_id)}
+        self.assertEqual(rows[(self.parent_id, "m:harbor-lights:1994")]["t"], 2000)                       # Sofa's kept
         h = rows[(self.admin_id, "m:harbor-lights:1994")]
         self.assertEqual((h["done"], h["at"]), (1, T0 * 1000))                                        # Plex's own date
         c = rows[(self.admin_id, "m:copper-sky:2016")]
@@ -701,11 +701,11 @@ class History(unittest.TestCase):
         self.assertEqual(rows[(self.admin_id, "e:tidewater:1:3")]["at"], (T0 + 120) * 1000)        # the newer of E03 and E04
         self.assertNotIn((self.kid_id, "m:harbor-lights:1994"), rows)                                # not for a Kids profile
         self.assertIn((self.kid_id, "m:paper-moons:2014"), rows)
-        self.assertNotIn((self.sam_id, "am:" + "x"), rows)
+        self.assertNotIn((self.parent_id, "am:" + "x"), rows)
         self.assertFalse(any(k[1].startswith("am:") for k in rows if k[0] != self.admin_id))
         # A Kids profile is still a Kids profile, an Adult switch still where it was.
         flags = {r["id"]: (r["kids"], r["adult"]) for r in store.q("SELECT id, kids, adult FROM users")}
-        self.assertEqual((flags[self.kid_id], flags[self.sam_id], flags[self.admin_id]), ((1, 0), (0, 0), (0, 1)))
+        self.assertEqual((flags[self.kid_id], flags[self.parent_id], flags[self.admin_id]), ((1, 0), (0, 0), (0, 1)))
         # Again: nothing changes, and the dry run says so.
         before = self.tables()
         again = history.plan(data, people, MAP)
@@ -760,11 +760,11 @@ class History(unittest.TestCase):
         base = "http://127.0.0.1:%d" % httpd.server_address[1]
         plex, plex_base = serve(PlexAnswers)
         try:
-            admin, sam = Client(base), Client(base)
+            admin, parent = Client(base), Client(base)
             self.assertEqual(admin.call("/api/login", {"name": "hist-admin", "password": "password123"})[0], 200)
-            self.assertEqual(sam.call("/api/login", {"name": "hist-sam", "password": "password123"})[0], 200)
-            self.assertEqual(sam.call("/api/admin/history")[0], 403)
-            self.assertEqual(sam.call("/api/admin/history", {"read": {"source": "plex-db", "path": self.plex_db}})[0], 403)
+            self.assertEqual(parent.call("/api/login", {"name": "hist-parent", "password": "password123"})[0], 200)
+            self.assertEqual(parent.call("/api/admin/history")[0], 403)
+            self.assertEqual(parent.call("/api/admin/history", {"read": {"source": "plex-db", "path": self.plex_db}})[0], 403)
             status, s = admin.call("/api/admin/history", {"read": {"source": "plex", "url": plex_base, "secret": TOKEN, "map": MAP}})
             self.assertEqual(status, 200)
             for _ in range(100):
@@ -775,11 +775,11 @@ class History(unittest.TestCase):
             self.assertEqual(s["state"], "ready", s.get("message"))
             users = {u["name"]: u for u in s["report"]["users"]}
             self.assertEqual(users["hist-admin"]["profile"], self.admin_id)            # the same name: suggested
-            self.assertIsNone(users["Sam"]["profile"])
-            people = {users["Sam"]["key"]: self.sam_id, users["hist-admin"]["key"]: self.admin_id,
+            self.assertIsNone(users["Parent"]["profile"])
+            people = {users["Parent"]["key"]: self.parent_id, users["hist-admin"]["key"]: self.admin_id,
                       users["Kiddo"]["key"]: self.kid_id}
             status, s = admin.call("/api/admin/history", {"people": people})
-            self.assertEqual({u["name"]: u["profile"] for u in s["report"]["users"]}["Sam"], self.sam_id)
+            self.assertEqual({u["name"]: u["profile"] for u in s["report"]["users"]}["Parent"], self.parent_id)
             status, s = admin.call("/api/admin/history", {"import": True, "people": people})
             self.assertEqual((status, s["state"]), (200, "done"))
             self.assertGreater(s["result"]["progress"], 10)
@@ -820,7 +820,7 @@ class History(unittest.TestCase):
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
             code = history_cli.main(["plex-db", self.plex_db, "--map", "/data/movies=>%s" % MOVIES, "--map", "/data/tv=>%s" % SHOWS,
-                                     "--user", "Sam=>hist-sam", "--user", "Kiddo=>hist-kid", "--list"])
+                                     "--user", "Parent=>hist-parent", "--user", "Kiddo=>hist-kid", "--list"])
         text = out.getvalue()
         self.assertEqual(code, 0, text)
         self.assertIn("Nothing was written", text)
@@ -830,12 +830,12 @@ class History(unittest.TestCase):
         self.assertEqual(self.tables(), ([], []))
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(history_cli.main(["plex-db", self.plex_db, "--map", "/data/movies=>%s" % MOVIES,
-                                               "--user", "Sam=>hist-sam", "--write"]), 0)
+                                               "--user", "Parent=>hist-parent", "--write"]), 0)
         self.assertTrue(store.q1("SELECT 1 FROM progress WHERE user_id = ? AND item = ?", self.admin_id, "m:harbor-lights:1994"))
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
-            self.assertEqual(history_cli.main(["plex-db", self.plex_db, "--user", "Nobody=>hist-sam"]), 1)
-            self.assertEqual(history_cli.main(["plex-db", self.plex_db, "--user", "Sam=>no-such-profile"]), 1)
+            self.assertEqual(history_cli.main(["plex-db", self.plex_db, "--user", "Nobody=>hist-parent"]), 1)
+            self.assertEqual(history_cli.main(["plex-db", self.plex_db, "--user", "Parent=>no-such-profile"]), 1)
             self.assertEqual(history_cli.main(["vhs", "x"]), 2)
         self.assertIn("Nobody called 'Nobody'", out.getvalue())
 

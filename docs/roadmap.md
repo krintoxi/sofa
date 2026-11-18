@@ -42,10 +42,13 @@ Read this before you install, so nothing surprises you.
   Box's own player has no REC yet. Retro TV's decades (recordings of TV as it aired, played straight from a public video library) are
   on unless an admin turns them off, and never reach the public library's visitors.
 - **Not built:** subtitle downloads, watch-together, photos, a caption editor, playlists in Music, lyrics,
-  plugins, Plex or Jellyfin history import.
+  plugins.
 - **A Sofa Box doesn't install Raspberry Pi OS's own updates by itself.** Updating the box brings the newest Sofa Box OS
   and the newest packages for what it installs (the browser, the player and the rest); the kernel and the base
   system move on with a newer card ([SECURITY.md](../SECURITY.md#which-versions-get-fixes)).
+- **History from Plex, Jellyfin or Emby** (1.5.18) has run against real Jellyfin 12.4 and 10.10 and Plex's own empty
+  database, never a real Plex library with history or a real Emby server; through Plex's address only the token's
+  own account brings its places ([switching.md](switching.md)).
 - **The secure phone remote** for a box passes through EdgeVenture's relay (the code is in `deploy/box-certs/`); it
   can be switched off, and the plain http remote works at home without it.
 - **The licence isn't an open-source licence.** PolyForm Noncommercial 1.0.0: free to use, read, change and share for
@@ -73,6 +76,8 @@ The last few weeks, from the changelogs:
 - **Sofa Box OS 1.1.61 to 1.1.84:** the box on a PC from a USB stick, and installed on the PC's own drive; what the
   Pi 3 showed with 1.1.73, fixed in 1.1.80 and 1.1.81; the player reading ahead by memory; WYRD, a 3D action game on the
   box's own engine.
+- **Sofa 1.5.18: coming from Plex, Jellyfin or Emby.** Everyone's watched titles, places and likes, from a copy of
+  Plex's or Jellyfin's database or from their addresses, with a dry run first ([switching.md](switching.md)).
 - **Sofa 1.5.17: the public demo, built.** One switch locks a Sofa down for anyone to open: nobody at home, so
   no admin over the web; only titles with a rights record, played from their publishers; Live TV from a checked
   list, never relayed; no trackers; rate limits; a nightly reset. A seed tool builds the free library from Wikimedia
@@ -121,7 +126,6 @@ In order. Each one ends with a line in the tested-on table.
 - The phone remote's relay encrypted end to end, and moved to its own machine.
 - **Subtitle downloads**, **watch-together**, a **caption editor**, and the Roku channel brought level with the Fire TV app.
 - Roku store certification; a Vega OS app if Amazon's web-view route allows a server of your own.
-- **Plex and Jellyfin history import** (what you've watched, where you were).
 - **Tuners and recording on a real HDHomeRun** (built against a stand-in in 1.5.13 and 1.5.14), and REC in the Sofa
   Box's own player.
 - A native **Apple TV** app (tvOS has no web view, so it has to be native).

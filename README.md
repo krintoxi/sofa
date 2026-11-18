@@ -55,7 +55,8 @@ name on it. Where to start with the code: [CONTRIBUTING.md](CONTRIBUTING.md).
 **Why not Jellyfin or Plex?** Both are bigger and have an app in every TV's store; Sofa is for a household that wants
 less to run, files that sort themselves, a TV that signs in from your phone, no account with anyone, and a Pi box.
 The honest side-by-side: **[Sofa, Jellyfin or Plex?](docs/compare.md)** What's coming and what's missing:
-**[Roadmap and known limitations](docs/roadmap.md)**.
+**[Roadmap and known limitations](docs/roadmap.md)**. Leaving one of them? Everyone's watched titles, places and
+likes come along: **[Coming from Plex, Jellyfin or Emby](docs/switching.md)**.
 
 | Sofa's Home on a laptop | The Sofa Box's home screen on the TV |
 |---|---|
@@ -560,7 +561,8 @@ deploy/              install script, macOS LaunchAgent, Linux systemd unit, the 
 Dockerfile, compose.yml   Sofa in Docker (ghcr.io/krintoxi/sofa)
 tools/               get-sofa.sh, update.sh, convert.py; the Sofa box's preview and card builder
 docs/                install, updating, folders, storage (drives), playback, TV, adult, privacy, remote access, api (for apps),
-                     capabilities (what works, tested where), compare (vs Jellyfin and Plex), roadmap (what's next and missing)
+                     capabilities (what works, tested where), compare (vs Jellyfin and Plex), roadmap (what's next and missing),
+                     switching (history from Plex, Jellyfin or Emby)
 tests/               the tests
 android/             Sofa for Fire TV (Android app, built by GitHub)
 roku/                Sofa for Roku (channel; Sofa serves it as /roku.zip)
