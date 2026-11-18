@@ -24,6 +24,7 @@ from . import (archive, __version__, acme, apps, artwork, auth, awake, backup, c
                outside,
                kids, machine, net, optimize, organizer, places, previews, report, screens, store, tls, trickplay, updater, upnp,
                discovery, pairing, sharing, slow, travel, tuners, uploads)
+from . import history
 from .library import LIBRARY
 
 CLIENT_DIR = os.path.join(config.APP_DIR, "client")
@@ -1025,6 +1026,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.json({"url": "/media/hls/%s/index.m3u8" % sid, "session": sid})
         if path == "/api/admin/status":
             return self.json(admin_status())
+        if path == "/api/admin/history":           # bringing history from Plex or Jellyfin: how it's going, the dry run
+            return self.json(history.status(adult_ok=bool(u.get("adult"))))
         if path == "/api/admin/sharing":
             return self.json(sharing_status())
         if path == "/api/admin/convert":
@@ -1492,6 +1495,21 @@ class Handler(BaseHTTPRequestHandler):
                 live.wanted()
                 live._check_wake.set()
             return self.json({"ok": True, "channels": count, "health": live.health()})
+        if path == "/api/admin/history":              # read a source (the dry run), map people, import, or forget it
+            try:
+                if data.get("read"):
+                    r = data["read"]
+                    history.start_read(str(r.get("source") or ""), path=r.get("path"), url=r.get("url"),
+                                       secret=r.get("secret"), pairs=r.get("map") or "")
+                elif data.get("import"):
+                    history.run_import(data.get("people") or {}, data.get("map"))
+                elif data.get("forget"):
+                    history.forget()
+                else:
+                    history.replan(data.get("people") or {}, data.get("map"))
+            except history.Problem as exc:
+                return self.error(400, str(exc))
+            return self.json(history.status(adult_ok=bool(u.get("adult"))))
         if path == "/api/admin/backup":
             try:
                 made = backup.make("requested by %s" % u["name"])
