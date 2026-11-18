@@ -6,6 +6,30 @@ has its own numbers and list: [deploy/sofa-box/CHANGES.md](deploy/sofa-box/CHANG
 A change to Sofa's code (`sofa/`, `client/`, `sofa.py`) gets a new version: raise `__version__`, add a section
 here, then `python3 tools/sofa-version.py` (a test checks it was done).
 
+## 1.5.18 (2026-11-18)
+
+- **Coming from Plex, Jellyfin or Emby** (Server → People → Coming from Plex or Jellyfin, or `python3 sofa.py import`).
+  Everyone's watched titles, where they stopped and what they liked go into the Sofa profiles you pick, read from a
+  copy of Plex's database, Plex's address and a token (the token's own account in full, the other accounts' watched
+  titles), Jellyfin's or Emby's address and an API key, or Jellyfin's database (`jellyfin.db` from 10.11,
+  `library.db` before). A rating of four stars or more, a favourite or a thumbs-up becomes a like.
+- **Matched by the file first:** the other server's path through folder lines you give (`/data/movies =>
+  /Volumes/Media/Movies`), whatever the extension, case, slashes or accents; then IMDb, TMDB or TVDB ids from folder
+  and file names, `.nfo` files and the details Sofa saved; then a movie's title and year, or a show, season and episode.
+- **A dry run first:** per person, what was found and how, what isn't in Sofa, the conflicts (two titles that could be
+  the one; Sofa's place is newer), and what was left out for a Kids profile or a profile without Adult. Nothing is
+  written until Import.
+- **The import** writes in one go, with the other server's dates (Continue watching keeps its order), never over a
+  newer place in Sofa (checked again as it writes), and adds likes without taking any away. A second import writes
+  nothing. Kids profiles stay Kids and get family titles only; Adult titles go only to profiles with Adult on.
+- **Nothing about the other server is kept:** a token or key is used for the one read and written nowhere; a database
+  is read from a private copy, deleted straight after; what was read is forgotten at the import, or after an hour.
+  Sofa never asks for a Plex.tv password and never talks to plex.tv.
+- Tested with fixture databases made with each server's own tables and stand-in Plex and Jellyfin servers
+  (`tests/test_history.py`), and in throwaway containers against Jellyfin 12.4.0 (API and database), Jellyfin 10.10.7
+  (database) and Plex Media Server 1.43.5's own database. **Not yet against a real Plex library with history, or a
+  real Emby server.** [Coming from Plex, Jellyfin or Emby](docs/switching.md)
+
 ## 1.5.17 (2026-11-18)
 
 - **The public demo:** a Sofa anyone can open without installing anything, with only a free library, run as its own
