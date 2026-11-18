@@ -40,7 +40,7 @@ import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 
-from . import kids, metadata, naming, store
+from . import config, kids, metadata, naming, store
 
 KEEP_SECONDS = 3600          # what was read stays in memory this long at most
 LIKE_RATING = 8              # a rating of 8 out of 10 (four stars of five) or more becomes a like
@@ -146,22 +146,51 @@ def _plex_guid_ids(guid):
     return _ids([(m.group(1), m.group(2))]) if m else {}
 
 
-def _snapshot(path):
-    """A private copy of a SQLite database, made with SQLite's own backup (a consistent picture even while Plex or
-    Jellyfin is running and writing), opened read-only. The original is only ever read. Returns (connection, folder
-    to delete)."""
-    if not os.path.isfile(path):
-        raise Problem("There's no file at %s." % path)
-    folder = tempfile.mkdtemp(prefix="sofa-import-")
-    copy = os.path.join(folder, "copy.db")
+def _backup(path, copy, immutable):
+    """SQLite's own backup of `path` into `copy`, the original opened read-only."""
     src = dst = None
     try:
-        src = sqlite3.connect("file:%s?mode=ro" % urllib.parse.quote(os.path.abspath(path).replace(os.sep, "/")),
-                              uri=True, timeout=30)
+        src = sqlite3.connect("file:%s?mode=ro%s" % (urllib.parse.quote(os.path.abspath(path).replace(os.sep, "/")),
+                                                      "&immutable=1" if immutable else ""), uri=True, timeout=30)
         dst = sqlite3.connect(copy)
         src.backup(dst)
-        dst.close()
-        dst = None
+        # (A copy of a WAL database is a WAL database, which some SQLite builds then won't open read-only: a plain
+        # one instead.)
+        dst.execute("PRAGMA journal_mode=DELETE").fetchall()
+    finally:
+        for c in (src, dst):
+            if c is not None:
+                c.close()
+
+
+def _snapshot(path):
+    """A private copy of a SQLite database, made with SQLite's own backup (a consistent picture even while Plex or
+    Jellyfin is running and writing), opened read-only. The original is only ever read. The copy goes in Sofa's own
+    data folder (on disk, not a memory-backed /tmp: a big library's database can be large), never into a backup.
+    Returns (connection, folder to delete)."""
+    if not os.path.isfile(path):
+        raise Problem("There's no file at %s." % path)
+    copies = os.path.join(config.DATA_DIR, "import")
+    os.makedirs(copies, exist_ok=True)
+    for old in os.listdir(copies):                       # left by a stop part way through
+        try:
+            if time.time() - os.path.getmtime(os.path.join(copies, old)) > KEEP_SECONDS:
+                shutil.rmtree(os.path.join(copies, old), ignore_errors=True)
+        except OSError:
+            pass
+    folder = tempfile.mkdtemp(prefix="copy-", dir=copies)
+    copy = os.path.join(folder, "copy.db")
+    conn = None
+    try:
+        try:
+            _backup(path, copy, immutable=False)
+        except sqlite3.OperationalError:
+            # A database its server closed cleanly, in a folder that's that server's own: SQLite can't make the
+            # shared-memory file it wants beside it. With no -wal file there, nothing is writing to it, so it's read
+            # as it is.
+            if os.path.exists(path + "-wal"):
+                raise
+            _backup(path, copy, immutable=True)
         conn = sqlite3.connect("file:%s?mode=ro" % urllib.parse.quote(copy.replace(os.sep, "/")), uri=True)
         conn.row_factory = sqlite3.Row
         # Plex sorts some text with ICU's rules (icu_root), which plain SQLite doesn't have: a stand-in, so a query
@@ -170,12 +199,13 @@ def _snapshot(path):
         conn.execute("SELECT name FROM sqlite_master LIMIT 1").fetchall()
         return conn, folder
     except sqlite3.DatabaseError as exc:
+        if conn is not None:
+            conn.close()
         shutil.rmtree(folder, ignore_errors=True)
+        if isinstance(exc, sqlite3.OperationalError) and re.search(r"readonly|unable to open|locked", str(exc)):
+            raise Problem("Sofa can't read it where it is (%s). Copy the file, and the -wal file beside it if there is "
+                          "one, to a folder Sofa can read, and give that." % exc)
         raise Problem("That file couldn't be read as a database (%s)." % exc)
-    finally:
-        for c in (src, dst):
-            if c is not None:
-                c.close()
 
 
 def _tables(conn):
@@ -443,7 +473,7 @@ def read_jellyfin_api(url, key):
     base = _base(url)
     key = str(key or "").strip()
     if not key:
-        raise Problem("Paste an API key (Jellyfin: Dashboard → API Keys; Emby: Settings → Advanced → API Keys).")
+        raise Problem("Paste an API key (Jellyfin: Dashboard → API Keys; Emby: the dashboard → Advanced → API Keys).")
     h = {"Authorization": 'MediaBrowser Client="Sofa", Device="Sofa", DeviceId="sofa-history-import", Version="1", '
                           'Token="%s"' % key.replace('"', ""), "X-Emby-Token": key}
     info = _get(base, "/System/Info", h) or {}

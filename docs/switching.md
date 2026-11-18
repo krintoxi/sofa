@@ -58,14 +58,14 @@ Left out, on purpose or because Sofa has nowhere to put it yet:
      `Plug-in Support/Databases` inside its own folder: on a Mac `~/Library/Application Support/Plex Media Server`, on
      Linux `/var/lib/plexmediaserver/Library/Application Support/Plex Media Server`, on Windows
      `%LOCALAPPDATA%\Plex Media Server`, in Plex's Docker image `/config/Library/Application Support/Plex Media Server`.
-     If Plex runs on another computer, copy that file (and the `-wal` file beside it, if there is one) to the Sofa
-     computer first.
+     If Plex runs on another computer, or Sofa can't read Plex's folder, copy that file (and the `-wal` file beside
+     it, if there is one) to the Sofa computer first.
    - **Plex, its address and a token:** Plex's address (like `http://192.168.1.20:32400`) and a token. In Plex's web
      app, open any movie's ⋯ menu → **Get Info** → **View XML**; the token is the `X-Plex-Token` at the end of the
-     address of the page that opens.
+     address of the page that opens (Plex's help page "Finding an authentication token" shows it).
    - **Jellyfin or Emby, its address and an API key:** the address (like `http://192.168.1.20:8096`) and a key you make
-     for Sofa: Jellyfin's **Dashboard → API Keys → +**; Emby's server settings → **API Keys**. Delete the key there
-     afterwards if you like.
+     for Sofa: Jellyfin's **Dashboard → API Keys → +**; in Emby, the dashboard (the gear) → **Advanced → API Keys →
+     New API Key**. Delete the key there afterwards if you like.
    - **Jellyfin, its database:** Jellyfin's data folder: `/var/lib/jellyfin/data` on Linux, `/config/data` in its
      Docker image, `%PROGRAMDATA%\Jellyfin\Server\data` on Windows. Sofa finds `jellyfin.db` (Jellyfin 10.11 and later)
      or `library.db` with `jellyfin.db` beside it (10.10 and earlier) there.
@@ -131,7 +131,7 @@ no year to choose by), and places where Sofa's is newer.
 
 Nothing about Plex, Jellyfin or Emby. A token or key is used for that one read and isn't written anywhere: not the
 settings, not the log, not a backup. A database is read from a private copy (SQLite's own backup, so a running
-server is fine) that's deleted as soon as it's read; the original is only ever read. What was read stays in Sofa's
+server is fine), made in Sofa's own data folder and deleted as soon as it's read; the original is only ever read. What was read stays in Sofa's
 memory until you import it or start again, and for an hour at most. The browser remembers the form (where from, the
 address, the folders) for next time, never the token or key.
 

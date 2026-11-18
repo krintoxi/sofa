@@ -483,7 +483,7 @@ class History(unittest.TestCase):
             os.remove(p)
         for rel in ("Movies/Lantern Field (2003)/Lantern Field (2003).nfo", "Shows/Low Orbit (2022)/tvshow.nfo"):
             os.remove(os.path.join(LIBRARY, rel))
-        for rel in {os.path.join(*r.split("/")[:3]) for r in SOFA}:      # each title's folder
+        for rel in {os.path.join(*r.split("/")[:3 if r.startswith("Adult/") else 2]) for r in SOFA}:   # each title's folder
             shutil.rmtree(os.path.join(LIBRARY, rel), ignore_errors=True)
         os.remove(cls.cached)
         for item in ("m:paper-moons:2014", "s:tidewater", "m:harbor-lights:1994"):
@@ -536,12 +536,44 @@ class History(unittest.TestCase):
         with open(self.plex_db, "rb") as f:
             self.assertEqual(f.read(), raw)
         self.assertEqual((os.path.getmtime(self.plex_db), os.path.getsize(self.plex_db)), before)
-        leftovers = [n for n in os.listdir(tempfile.gettempdir()) if n.startswith("sofa-import-")]
-        self.assertEqual(leftovers, [])                                     # the private copy is gone
+        self.assertEqual(os.listdir(os.path.join(config.DATA_DIR, "import")), [])     # the private copy is gone
         with self.assertRaises(history.Problem):
             history.read_plex_db(os.path.join(self.jf_new, "jellyfin.db"))   # not Plex's
         with self.assertRaises(history.Problem):
             history.read_plex_db(os.path.join(self.folder, "nothing.db"))
+
+    @unittest.skipIf(os.name == "nt" or getattr(os, "geteuid", lambda: 1)() == 0,
+                     "folder permissions: POSIX, and root can write anywhere")
+    def test_a_database_in_the_other_servers_folder(self):
+        """Plex's or Jellyfin's own folder belongs to that server: Sofa may read it and not write in it. A database
+        its server closed cleanly (no -wal beside it) and one being written to right now are both read."""
+        folder = os.path.join(self.folder, "theirs")
+        os.makedirs(folder)
+        path = os.path.join(folder, "com.plexapp.plugins.library.db")
+        make_plex_db(path)
+        db = sqlite3.connect(path)
+        db.execute("PRAGMA journal_mode=WAL")
+        db.close()
+        self.assertFalse(os.path.exists(path + "-wal"))
+        os.chmod(folder, 0o555)
+        try:
+            self.assertEqual(len(history.read_plex_db(path)["records"]), len(_plex_history()) + 1)
+        finally:
+            os.chmod(folder, 0o755)
+        writer = sqlite3.connect(path)                                   # the server, running: a write under way
+        writer.create_collation("icu_root", lambda a, b: (a > b) - (a < b))
+        writer.execute("UPDATE accounts SET name = 'Owner' WHERE id = 1")
+        writer.commit()
+        writer.execute("BEGIN IMMEDIATE")
+        writer.execute("UPDATE accounts SET name = 'Not yet' WHERE id = 1")
+        os.chmod(folder, 0o555)
+        try:
+            data = history.read_plex_db(path)
+            self.assertEqual(data["users"][0]["name"], "Owner")                # what's committed, nothing half-written
+        finally:
+            os.chmod(folder, 0o755)
+            writer.rollback()
+            writer.close()
 
     def test_plex_by_its_address(self):
         srv, base = serve(PlexAnswers)
@@ -589,7 +621,8 @@ class History(unittest.TestCase):
     def test_jellyfin_database_new_and_old(self):
         new = history.read_jellyfin_db(self.jf_new)
         old = history.read_jellyfin_db(os.path.join(self.jf_old, "library.db"))
-        for data in (new, old):
+        old_folder = history.read_jellyfin_db(self.jf_old)                  # (finds jellyfin.db first, then library.db)
+        for data in (new, old, old_folder):
             self.assertEqual([(u["name"], u["kids"]) for u in data["users"]], [("hist-admin", False), ("Kiddo", True)])
             got = sorted((r["title"], r["watched"], r["position"], r["liked"], r["at"]) for r in data["records"])
             self.assertEqual(got, sorted([
@@ -750,7 +783,7 @@ class History(unittest.TestCase):
         self.assertEqual(history.apply(p)["progress"], 0)
         rec = history.record("1", "movie", title="X", position=float("inf"), duration=float("nan"), watched=True)
         self.assertEqual(history._state(rec), (0.0, 0.0, 1, None))
-        self.assertEqual(json.loads(json.dumps(self.tables())), json.loads(json.dumps(self.tables())))
+        self.assertEqual(self.tables(), ([], []))
 
     # ------------------------------------------------------------ the Server page and the command line
 
@@ -807,19 +840,34 @@ class History(unittest.TestCase):
             httpd.shutdown()
 
     def test_what_was_read_is_forgotten_on_time(self):
-        keep = history.KEEP_SECONDS
-        history.KEEP_SECONDS = 0.3
-        try:
-            history.start_read("plex-db", path=self.plex_db)
-            for _ in range(100):
+        def ready():
+            for _ in range(200):
                 if history.status()["state"] != "reading":
                     break
                 time.sleep(0.05)
             self.assertIn("report", history.status())
-            time.sleep(0.6)                                  # nobody looks in the meantime
+        history.start_read("plex-db", path=self.plex_db)
+        ready()
+        with history._lock:
+            read_at = history._job["read_at"]
+        history._expire(read_at - 1)                          # an older read's hour: this one stays
+        self.assertIn("report", history.status())
+        history._expire(read_at)                              # its own hour, looked at or not
+        with history._lock:
+            self.assertNotIn("data", history._job)
+        self.assertEqual(history.status()["state"], "idle")
+        keep = history.KEEP_SECONDS                           # and the hour is kept by a timer
+        history.KEEP_SECONDS = 0.2
+        try:
+            history.start_read("plex-db", path=self.plex_db)
+            ready()
+            for _ in range(200):
+                with history._lock:
+                    if "data" not in history._job:
+                        break
+                time.sleep(0.05)
             with history._lock:
                 self.assertNotIn("data", history._job)
-            self.assertEqual(history.status()["state"], "idle")
         finally:
             history.KEEP_SECONDS = keep
 

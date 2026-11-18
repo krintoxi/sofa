@@ -3140,7 +3140,7 @@ const HIST_SOURCES = [
   ["jellyfin", "Jellyfin or Emby: its address and an API key", "Everyone's history: watched, where they stopped, favourites."],
   ["jellyfin-db", "Jellyfin: its database", "Everyone's history, from Jellyfin's data folder on this computer (jellyfin.db, or library.db before 10.11)."]
 ];
-const HIST_KEPT = `What Sofa keeps: nothing about Plex or Jellyfin. A token or key is used for this one read and never written down. A database is read from a private copy that's deleted as soon as it's read. What was read stays in Sofa's memory until you import it, or for an hour. Sofa never asks for a Plex.tv password.`;
+const HIST_KEPT = `What Sofa keeps: nothing about Plex or Jellyfin. A token or key is used for this one read and never written down. A database is read from a private copy that's deleted as soon as it's read. What was read stays in Sofa's memory until you import it, or for an hour. This browser remembers the form (where from, the address, the folders) for next time, never the token or key. Sofa never asks for a Plex.tv password.`;
 function historyPanel() {
   return `<div class="panel wide"><h2>Coming from Plex or Jellyfin</h2><p class="hint">Bring everyone's history into their Sofa profile: what they watched, where they stopped, and what they liked. You see what matched before anything is written, an import never goes over a newer place in Sofa, and doing it twice changes nothing. A Kids profile stays a Kids profile and only gets family titles.</p>
     <div class="row-actions"><button class="btn" data-history-open="1">Bring history from Plex or Jellyfin</button></div></div>`;
@@ -3192,8 +3192,8 @@ function historyDialog() {
     f.url.placeholder = src === "plex" ? "http://192.168.1.20:32400" : "http://192.168.1.20:8096";
     $("[data-help]", d).innerHTML = {
       "plex-db": "Plex keeps it in <code>Plug-in Support/Databases</code> inside its folder: on a Mac <code>~/Library/Application Support/Plex Media Server</code>, on Linux <code>/var/lib/plexmediaserver/Library/Application Support/Plex Media Server</code>, on Windows <code>%LOCALAPPDATA%\\Plex Media Server</code>. Sofa only reads it, and Plex can keep running.",
-      "plex": "In Plex's web app, open any movie's ⋯ menu → Get Info → View XML: the token is the <code>X-Plex-Token</code> at the end of that page's address. It's your Plex sign-in for this server, so it isn't kept.",
-      "jellyfin": "Make a key for Sofa: Jellyfin's Dashboard → API Keys → +; on Emby, the server settings → API Keys. Delete it there afterwards if you like.",
+      "plex": "In Plex's web app, open any movie's ⋯ menu → Get Info → View XML (Plex's help: “Finding an authentication token”): the token is the <code>X-Plex-Token</code> at the end of that page's address. It's a sign-in to your Plex, so it isn't kept.",
+      "jellyfin": "Make a key for Sofa: in Jellyfin, Dashboard → API Keys → +; in Emby, the dashboard (the gear) → Advanced → API Keys → New API Key. Delete it there afterwards if you like.",
       "jellyfin-db": "Jellyfin's data folder: <code>/var/lib/jellyfin/data</code> on Linux, <code>/config/data</code> in its Docker image, <code>%PROGRAMDATA%\\Jellyfin\\Server\\data</code> on Windows. Sofa only reads it, and Jellyfin can keep running."
     }[src];
   };
