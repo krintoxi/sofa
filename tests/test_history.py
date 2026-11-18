@@ -806,6 +806,23 @@ class History(unittest.TestCase):
             plex.shutdown()
             httpd.shutdown()
 
+    def test_what_was_read_is_forgotten_on_time(self):
+        keep = history.KEEP_SECONDS
+        history.KEEP_SECONDS = 0.3
+        try:
+            history.start_read("plex-db", path=self.plex_db)
+            for _ in range(100):
+                if history.status()["state"] != "reading":
+                    break
+                time.sleep(0.05)
+            self.assertIn("report", history.status())
+            time.sleep(0.6)                                  # nobody looks in the meantime
+            with history._lock:
+                self.assertNotIn("data", history._job)
+            self.assertEqual(history.status()["state"], "idle")
+        finally:
+            history.KEEP_SECONDS = keep
+
     def test_adult_titles_are_named_only_to_those_who_see_them(self):
         data = history.read_plex_db(self.plex_db)
         p = history.plan(data, self.plex_people(data), MAP)

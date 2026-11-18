@@ -1207,9 +1207,13 @@ def start_read(source, path=None, url=None, secret=None, pairs=""):
         try:
             data = read(source, path=path, url=url, secret=secret)
             p = plan(data, suggest(data["users"]), pairs)
+            read_at = time.time()
             with _lock:
-                _job.update(state="ready", data=data, plan=p, pairs=pairs, read_at=time.time(), how=data["how"],
+                _job.update(state="ready", data=data, plan=p, pairs=pairs, read_at=read_at, how=data["how"],
                             source=data["source"])
+            later = threading.Timer(KEEP_SECONDS, _expire, (read_at,))     # forgotten on time, looked at or not
+            later.daemon = True
+            later.start()
         except Problem as exc:
             with _lock:
                 _job.update(state="failed", message=str(exc))
@@ -1247,6 +1251,16 @@ def run_import(mapping, pairs=None):
     with _lock:
         _job.update(state="done", result=result, source=p["source"])
     return result
+
+
+def _expire(read_at):
+    """An hour after a read: forget what it read, unless something newer was read since."""
+    with _lock:
+        mine = _job.get("read_at") == read_at
+    if mine:
+        forget()
+        with _lock:
+            _job["message"] = "What was read was forgotten after an hour. Read it again to import."
 
 
 def forget():
