@@ -2297,7 +2297,7 @@ function showAntenna(panel, c, p) {
         : `<p class="g-when">${esc(whenText(p.start, p.end))} (${mins(p.end - p.start)})</p>`}
       ${on && after ? `<p class="g-next">Next, at ${hhmm(after.start)}: ${esc(after.title)}</p>` : ""}
       ${p && p.about ? `<p class="g-about">${esc(p.about)}</p>` : ""}
-      ${TV ? `<p class="g-keys"><b>OK</b> ${on ? "watch" : dvrMay() ? "record" : "details"} <b>◀ ▶</b> earlier, later <b>0–9</b> a channel's number</p>`
+      ${TV ? `<p class="g-keys"><b>OK</b> ${on ? "watch" : dvrMay() ? "record" : "details"}${on && dvrMay() ? ` <b>REC</b> record` : ""} <b>◀ ▶</b> earlier, later <b>0–9</b> a channel's number</p>`
         : `<div class="g-acts">${on ? `<button class="btn primary small" data-gwatch="${esc(c.id)}">${icon("i-play")}Watch</button>` : ""}${p && dvrMay()
           ? `<button class="btn small" data-grec="${esc(c.id)}" data-gi="${progs.indexOf(p)}"><i class="rec-dot${r && r.state === "recording" ? " on" : ""}"></i>${r || rule ? "Recording" : on ? "Record the rest" : "Record"}…</button>` : ""}</div>`}</div>`;
 }
@@ -2311,8 +2311,8 @@ function antennaPick(b) {                              // OK or a click: on now,
   }
   recordDialog(c, p);
 }
-function watchTuner(id) {
-  const list = (liveData ? liveData.channels : []).filter(c => c.tuner), ch = list.find(c => c.id === id);
+function watchTuner(id) {             // (up and down then go through them in the tuners' own order: 2.1, 5.1, 11.3)
+  const list = (liveData ? liveData.channels : []).filter(c => c.tuner).sort(byTunerNumber), ch = list.find(c => c.id === id);
   if (ch) Player.openLive(ch, list);
 }
 function recordDialog(c, p) {
@@ -2330,10 +2330,28 @@ function recordDialog(c, p) {
       ${rule ? `<button class="btn" data-rec-stop-series="${rule.id}">Stop recording the series</button>`
         : p.movie ? "" : `<button class="btn${r ? " primary" : ""}" data-rec-series="${esc(c.id)}" data-title="${esc(p.title)}">Record the series</button>`}
       ${on ? `<button class="btn" data-gwatch="${esc(c.id)}">Watch it</button>` : ""}
-      <button class="btn ghost" data-dismiss="1">Close</button></div>
-    ${rule || p.movie ? "" : `<div class="rec-opts"><label class="check"><input type="checkbox" id="recNew"${p.fresh ? " checked" : ""}> The series: new episodes only</label>
-      <label class="rec-keep"><span>Keep</span><select id="recKeep" class="mini-select">${[[0, "every one"], [2, "the last 2"], [5, "the last 5"], [10, "the last 10"]].map(o => `<option value="${o[0]}">${o[1]}</option>`).join("")}</select></label></div>`}
+      ${TV ? "" : `<button class="btn ghost" data-dismiss="1">Close</button>`}</div>
+    ${rule || p.movie ? "" : TV ? `<div class="rec-opts tv-opts"><button class="btn small" id="recNew" role="switch" aria-checked="${!!p.fresh}" data-rec-toggle="new">The series: ${p.fresh ? "new episodes only" : "every showing"}</button>
+      <button class="btn small" id="recKeep" data-value="0" data-rec-toggle="keep">Keep ${KEEPS[0][1]}</button></div>`
+      : `<div class="rec-opts"><label class="check"><input type="checkbox" id="recNew"${p.fresh ? " checked" : ""}> The series: new episodes only</label>
+      <label class="rec-keep"><span>Keep</span><select id="recKeep" class="mini-select">${KEEPS.map(o => `<option value="${o[0]}">${o[1]}</option>`).join("")}</select></label></div>`}
+    ${TV ? `<div class="actions rec-actions"><button class="btn ghost" data-dismiss="1">Close</button></div>` : ""}
   </div>`);
+}
+const KEEPS = [[0, "every one"], [2, "the last 2"], [5, "the last 5"], [10, "the last 10"]];
+// (on a TV: OK changes them, as a remote can)
+const recNewOn = el => !!el && (el.type === "checkbox" ? el.checked : el.getAttribute("aria-checked") === "true");
+const recKeepOf = el => !el ? 0 : +(el.tagName === "SELECT" ? el.value : el.dataset.value) || 0;
+function recToggle(b) {
+  if (b.dataset.recToggle === "new") {
+    const on = !recNewOn(b);
+    b.setAttribute("aria-checked", on);
+    b.textContent = "The series: " + (on ? "new episodes only" : "every showing");
+  } else {
+    const i = (KEEPS.findIndex(k => k[0] === recKeepOf(b)) + 1) % KEEPS.length;
+    b.dataset.value = KEEPS[i][0];
+    b.textContent = "Keep " + KEEPS[i][1];
+  }
 }
 async function dvrDo(body, said) {
   try { const r = await api("/api/dvr", body); if (said) toast(said(r)); }
@@ -2344,9 +2362,19 @@ async function dvrDo(body, said) {
   if (liveEra === "antenna" && $("#guide")) { guideShown = null; drawGuide(); } else rerender();
 }
 document.addEventListener("click", e => {
-  const t = e.target.closest && e.target.closest("[data-gwatch], [data-grec], [data-rec-one], [data-rec-series], [data-rec-cancel], [data-rec-stop-series]");
+  const t = e.target.closest && e.target.closest("[data-gwatch], [data-grec], [data-rec-one], [data-rec-series], [data-rec-cancel], [data-rec-stop-series], [data-rec-toggle], [data-rec-play], [data-rec-more], [data-rec-rule]");
   if (!t) return;
   e.preventDefault();
+  if (t.dataset.recToggle) return recToggle(t);
+  if (t.dataset.recRule) {
+    const u = dvrData && dvrData.rules.find(x => x.id === +t.dataset.recRule);
+    return u && openDialog(`<div class="rec-dialog"><p class="rec-kicker">Series</p><h2>${esc(u.title)}</h2>
+      <p class="rec-state">Every ${u.new_only ? "new " : ""}showing is recorded${u.channel ? "" : ", on any channel"}${u.keep ? `, the last ${u.keep} kept` : ""}.</p>
+      <div class="actions rec-actions"><button class="btn primary" data-rec-stop-series="${u.id}">Stop recording the series</button>
+      <button class="btn ghost" data-dismiss="1">Close</button></div></div>`);
+  }
+  if (t.dataset.recPlay) return recPlay(t.dataset.recPlay);
+  if (t.dataset.recMore) { const r = dvrData && dvrData.recordings.find(x => x.id === +t.dataset.recMore); return r && recMore(r); }
   if (t.dataset.gwatch) { closeDialog(); return watchTuner(t.dataset.gwatch); }
   if (t.dataset.grec) {
     const c = guideData && guideData.channels.find(x => x.id === t.dataset.grec), p = c && c.programs[+t.dataset.gi];
@@ -2356,7 +2384,7 @@ document.addEventListener("click", e => {
     r => (r.recording.state === "conflict" ? "It clashes: " + r.recording.why : "Set to record: " + r.recording.title + ", " + whenText(r.recording.start, r.recording.stop) + "."));
   if (t.dataset.recSeries) {
     const fresh = $("#recNew"), keep = $("#recKeep");
-    return dvrDo({ series: { title: t.dataset.title, channel: t.dataset.recSeries, new_only: !!(fresh && fresh.checked), keep: keep ? +keep.value : 0 } },
+    return dvrDo({ series: { title: t.dataset.title, channel: t.dataset.recSeries, new_only: recNewOn(fresh), keep: recKeepOf(keep) } },
       r => "Recording " + (r.rule.new_only ? "new showings" : "every showing") + " of " + r.rule.title + ".");
   }
   if (t.dataset.recCancel) {
@@ -2367,15 +2395,46 @@ document.addEventListener("click", e => {
 });
 /* Live TV → Recordings */
 const REC_STATE = { recording: "Recording", conflict: "Clash", scheduled: "Set", done: "Filing", filed: "In your library", failed: "Didn't record" };
+// A recording in the library plays from here (in a Sofa Box's own player, from where you left off, with Skip intro when
+// Sofa found one). By the remote each row is one stop: OK plays a recorded one, or offers what can be done with it.
+const recItem = r => r.state === "filed" && r.item ? byId.get(r.item) || { id: r.item, pending: true } : null;
 function recRow(r) {
   const now = Date.now() / 1000, live = r.state === "recording", act = DVR_ON.has(r.state) && dvrMay();
   const what = [epText(r), r.channel_name].filter(Boolean).join(" · ");
-  const why = r.state === "conflict" || r.state === "failed" ? r.why : r.state === "done" ? "In the Inbox: it's filed in a minute." : r.state === "filed" && r.size ? bytes(r.size) : "";
-  return `<li class="rec-row s-${esc(r.state)}"${act ? "" : ` tabindex="0"`}><div class="rec-when"><b>${hhmm(r.start)}</b><span>${esc(dayWord(r.start) || "Today")}</span></div>
+  const it = recItem(r), pr = it && prog(it.id), part = pr && !pr.done && pr.t > 30 && pr.d ? pr.t / pr.d : 0;
+  const why = r.state === "conflict" || r.state === "failed" ? r.why : r.state === "done" ? "In the Inbox: it's filed in a minute."
+    : r.state === "filed" && pr && pr.done ? "Watched" : r.state === "filed" && part ? mins(pr.d - pr.t) + " left" : r.state === "filed" && r.size ? bytes(r.size) : "";
+  return `<li class="rec-row s-${esc(r.state)}"${act || it ? "" : ` tabindex="0"`}${TV && (act || it) ? ` tabindex="0" data-rec-more="${r.id}"` : ""}><div class="rec-when"><b>${hhmm(r.start)}</b><span>${esc(dayWord(r.start) || "Today")}</span></div>
     <div class="rec-what"><b>${esc(r.title)}</b>${what ? `<span>${esc(what)}</span>` : ""}${why ? `<span class="rec-why">${esc(why)}</span>` : ""}
-      ${live ? `<div class="g-bar"><i style="width:${Math.max(2, Math.min(100, (now - r.start) / Math.max(1, r.stop - r.start) * 100)).toFixed(1)}%"></i></div>` : ""}</div>
+      ${live || part ? `<div class="g-bar"><i style="width:${(live ? Math.max(2, Math.min(100, (now - r.start) / Math.max(1, r.stop - r.start) * 100)) : part * 100).toFixed(1)}%"></i></div>` : ""}</div>
     <span class="rec-tag">${live ? `<i class="rec-dot on"></i>` : ""}${REC_STATE[r.state] || esc(r.state)}</span>
-    ${act ? `<button class="btn small" data-rec-cancel="${r.id}">${live ? "Stop" : "Don't record"}</button>` : ""}</li>`;
+    ${act ? `<button class="btn small"${TV ? ` tabindex="-1"` : ""} data-rec-cancel="${r.id}">${live ? "Stop" : "Don't record"}</button>`
+      : it ? `<button class="btn small primary"${TV ? ` tabindex="-1"` : ""} data-rec-play="${esc(it.id)}">${icon("i-play")}${part ? "Resume" : "Play"}</button>` : ""}</li>`;
+}
+async function recPlay(id) {
+  let it = byId.get(id);
+  if (!it) {                                            // (filed since the library was last read here)
+    try { await reloadLibrary(); } catch (e) {}
+    it = byId.get(id);
+  }
+  if (!it) return toast("It's being filed. Try again in a moment.");
+  Player.open(it);
+}
+// OK on a row, by the remote: a recorded one plays; the rest say what can be done with them
+function recMore(r) {
+  const it = recItem(r);
+  if (it) return recPlay(it.id);
+  if (!DVR_ON.has(r.state) || !dvrMay()) return;
+  const live = r.state === "recording", chan = liveData && liveData.channels.find(c => c.id === r.channel);
+  const rule = r.rule && dvrData.rules.find(u => u.id === r.rule);
+  openDialog(`<div class="rec-dialog"><p class="rec-kicker">${chan && chan.guide_number ? `<b>${esc(chan.guide_number)}</b>` : ""}${esc(r.channel_name || "")}<span>${esc(whenText(r.start, r.stop))}</span></p>
+    <h2>${esc(r.title)}</h2>${epText(r) ? `<p class="rec-sub">${esc(epText(r))}</p>` : ""}
+    <p class="rec-state${r.state === "conflict" ? " clash" : ""}">${r.state !== "conflict" ? `<i class="rec-dot${live ? " on" : ""}"></i>` : ""}${esc(
+      live ? "Recording now. What's recorded is filed when it ends." : r.state === "conflict" ? r.why || "Every tuner is taken then." : "Set to record. It goes to the Inbox and is filed by itself.")}</p>
+    <div class="actions rec-actions"><button class="btn primary" data-rec-cancel="${r.id}">${live ? "Stop recording" : "Don't record it"}</button>
+      ${live && chan ? `<button class="btn" data-gwatch="${esc(chan.id)}">Watch the channel</button>` : ""}
+      ${rule ? `<button class="btn" data-rec-stop-series="${rule.id}">Stop recording the series</button>` : ""}
+      <button class="btn ghost" data-dismiss="1">Close</button></div></div>`);
 }
 function viewRecordings() {
   if (!dvrData || Date.now() - dvrAt > 20000) loadDvr().then(() => { if (location.hash.startsWith("#/live") && liveEra === "rec" && !Player.isOpen() && !document.querySelector(".dialog-scrim")) rerender(); });
@@ -2385,10 +2444,10 @@ function viewRecordings() {
   const groups = [["Recording now", rs.filter(r => r.state === "recording")], ["Clashes", rs.filter(r => r.state === "conflict")],
     ["Coming up", rs.filter(r => r.state === "scheduled").sort((a, b) => a.start - b.start)],
     ["Recorded", rs.filter(r => r.state === "done" || r.state === "filed" || r.state === "failed")]].filter(g => g[1].length);
-  const rules = dvrData.rules.map(u => `<li class="rec-row s-series"><div class="rec-when"><b>All</b><span>${u.new_only ? "New only" : "Every one"}</span></div>
+  const rules = dvrData.rules.map(u => `<li class="rec-row s-series"${TV && dvrMay() ? ` tabindex="0" data-rec-rule="${u.id}"` : ""}><div class="rec-when"><b>All</b><span>${u.new_only ? "New only" : "Every one"}</span></div>
     <div class="rec-what"><b>${esc(u.title)}</b><span>${esc([u.channel ? ((liveData.channels.find(c => c.id === u.channel) || {}).name || "One channel") : "Any channel",
       u.keep ? "keeps the last " + u.keep : "keeps every one"].join(" · "))}</span></div><span class="rec-tag">Series</span>
-    ${dvrMay() ? `<button class="btn small" data-rec-stop-series="${u.id}">Stop the series</button>` : ""}</li>`).join("");
+    ${dvrMay() ? `<button class="btn small"${TV ? ` tabindex="-1"` : ""} data-rec-stop-series="${u.id}">Stop the series</button>` : ""}</li>`).join("");
   const none = !groups.length && !rules;
   return `<div class="recs">
     ${none ? `<div class="rec-empty"><i class="rec-dot"></i><div><b>Nothing recorded yet.</b><p>${liveData.channels.some(c => c.tuner)
@@ -2423,6 +2482,15 @@ document.addEventListener("keydown", e => {
   const a = document.activeElement;
   if (/^[0-9]$/.test(e.key) && location.hash.startsWith("#/live") && !(a && (a.tagName === "INPUT" || a.tagName === "TEXTAREA"))) {
     e.preventDefault(); dial(e.key); return;
+  }
+  // a remote's REC (or R) on a programme in Antenna: what to record of it (what's on too: the rest of it)
+  if ((e.key === "MediaRecord" || e.key === "r" || e.key === "R") && a && a.matches && a.matches("#gRows .g-prog") && guideData &&
+      guideData.kind === "antenna" && dvrMay() && !document.querySelector(".dialog-scrim")) {
+    const c = guideData.channels.find(x => x.id === a.dataset.gch), p = c && (c.programs || [])[+a.dataset.gi];
+    e.preventDefault();
+    if (p) return recordDialog(c, p);
+    if (c) return dvrDo({ now: c.id }, r => r.recording.state === "conflict" ? "It can't record now: " + r.recording.why
+      : "Recording " + r.recording.title + " until " + hhmm(r.recording.stop) + ".");
   }
   if (!a || !a.classList || !(a.classList.contains("g-prog") || (a.classList.contains("star") && a.closest("#dRows")))) return;
   const row = a.closest(".g-row"), progs = [...row.querySelectorAll(".g-prog, .star")], i = progs.indexOf(a);
@@ -4304,9 +4372,9 @@ document.addEventListener("keydown", e => {
   if (a && (a.tagName === "INPUT" || a.tagName === "TEXTAREA" || a.tagName === "SELECT" || a.isContentEditable)) return;
   e.preventDefault(); location.hash = "#/search";
 });
-// Song rows and queue entries are list items: OK / Enter plays them like a click.
+// Song rows and queue entries are list items: OK / Enter plays them like a click. So do Recordings' rows on a TV.
 document.addEventListener("keydown", e => {
-  if ((e.key === "Enter" || e.key === " ") && e.target.matches && e.target.matches("[data-mplay],[data-qjump]")) { e.preventDefault(); e.target.click(); }
+  if ((e.key === "Enter" || e.key === " ") && e.target.matches && e.target.matches("[data-mplay],[data-qjump],[data-rec-more],[data-rec-rule]")) { e.preventDefault(); e.target.click(); }
 });
 
 /* ---------- the phone remote: "Play on" another screen ----------
@@ -5390,15 +5458,18 @@ const Player = (function () {
       try { onAir = await api("/api/live/archive/" + ch.id + "/now"); }
       catch (e) { toast(ch.name + " isn't available right now. " + e.message); return; }
     }
-    // on a Sofa box: its own player, on the Pi's video chip; up and down change the channel there
+    // on a Sofa box: its own player, on the Pi's video chip; up and down change the channel there. A tuner's channel goes
+    // by its own number (5.1), and a channel that may be recorded says so (`rec`: at home, and never a Visitor's, a Kids
+    // profile's or a guest's): the box's player has REC for those, and its guide for a tuner's (Sofa Box OS 1.1.92)
     if (NATIVE && window.SofaBox && !nativeFailed.has("live:" + ch.id)) {
-      BoxCard.show({ label: "LIVE TV", title: ch.name, sub: [ch.number, onAir ? filmName(onAir.film) : ch.group || ""].filter(Boolean).join(" · ") });
-      const all = list || [ch];
-      const to = c => ({ id: c.id, name: c.name, group: c.group || "", archive: !!c.archive, number: c.number || null,
+      BoxCard.show({ label: "LIVE TV", title: ch.name, sub: [ch.guide_number || ch.number, onAir ? filmName(onAir.film) : ch.group || ""].filter(Boolean).join(" · ") });
+      const all = list || [ch], may = dvrMay();
+      const to = c => ({ id: c.id, name: c.name, group: c.group || "", archive: !!c.archive, number: c.guide_number || c.number || null,
+                         tuner: !!c.tuner, rec: !!(may && c.recordable && !c.archive),
                          url: c.src || location.origin + (c.archive ? "/api/live/archive/" + c.id + "/now" : "/live/" + c.id + "/index.m3u8") });
       nativeItem = { id: "live:" + ch.id, live: true, channel: ch, list: all }; nativeQueue = null;
       NATIVE.play(JSON.stringify({ item: null, live: true, title: ch.name, sub: onAir ? filmName(onAir.film) : ch.group || "", at: Math.max(0, all.indexOf(ch)),
-        number: ch.number || null, programs: onAir ? [onAir.film].concat(onAir.next).map(f => ({ title: f.title, year: f.year || null, ad: !!f.ad })) : [],
+        number: ch.guide_number || ch.number || null, programs: onAir ? [onAir.film].concat(onAir.next).map(f => ({ title: f.title, year: f.year || null, ad: !!f.ad })) : [],
         url: onAir ? onAir.film.url : to(ch).url, start_at: onAir ? onAir.offset : 0, then: onAir ? onAir.next.map(f => f.url) : [],
         channels: all.length <= 600 ? all.map(to) : [to(ch)], duration: 0, subtitles: [], markers: [], h24: H24 }));
       return;

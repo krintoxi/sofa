@@ -3244,6 +3244,126 @@ class PlayerScreen(unittest.TestCase):
             shutil.rmtree(d, ignore_errors=True)
 
     @unittest.skipUnless(shutil.which("mpv") and media.tool("ffmpeg") and os.path.exists("/usr/bin/curl"), "needs mpv, ffmpeg and curl")
+    def test_the_record_sheet_in_mpv_itself(self):
+        """Live TV at home in mpv itself (Sofa Box OS 1.1.92): REC (R, the remote's record button) opens the Record sheet at
+        once, from what the agent said of the channel; its arrows, OK and Back are the sheet's while it's open (not the
+        channel's); OK asks the agent (as mpv's own keys reach it); while recording: REC on the panel, and the sheet offers
+        to stop; a channel that can't be recorded says why; Menu → Record opens the same sheet; all inside the safe area."""
+        d = tempfile.mkdtemp()
+        asked = []
+
+        class TheAgent(BaseHTTPRequestHandler):
+            def do_POST(self):
+                asked.append(self.path)
+                self.send_response(200)
+                self.send_header("Content-Length", "2")
+                self.end_headers()
+                self.wfile.write(b"{}")
+
+            def log_message(self, *args):
+                pass
+        agent = ThreadingHTTPServer(("127.0.0.1", 0), TheAgent)
+        threading.Thread(target=agent.serve_forever, daemon=True).start()
+        proc = None
+        try:
+            video = os.path.join(d, "channel.mp4")
+            subprocess.run([media.tool("ffmpeg"), "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc=size=160x90:rate=25",
+                            "-t", "120", "-c:v", "libx264", "-preset", "ultrafast", "-g", "25", video], check=True)
+            info = os.path.join(d, "info.json")
+            rec = {"can": True, "channel": "abc", "name": "KSTN", "number": "5.1", "title": "Evening News", "ends": "9:00 PM",
+                   "series": True, "fresh": True}
+            with open(info, "w") as f:
+                json.dump({"title": "KSTN", "sub": "Antenna", "kind": "live", "live": True, "number": "5.1", "rec": rec,
+                           "agent": "http://127.0.0.1:%d" % agent.server_address[1], "accent": "FF2E88"}, f)
+            seen = os.path.join(d, "seen.jsonl")
+            os.makedirs(os.path.join(d, "s"))
+            with open(os.path.join(d, "s", "sofa-player.lua"), "w") as f:
+                f.write(SCREEN_SPY % {"seen": json.dumps(seen), "real": json.dumps(os.path.join(os.path.abspath(BOX), "sofa-player.lua"))})
+            sock = os.path.join(d, "mpv.sock")
+            proc = subprocess.Popen(["mpv", "--no-config", "--vo=null", "--ao=null", "--idle=no", "--input-ipc-server=" + sock,
+                                     "--input-conf=" + self.agent.live_input_conf(), "--osc=no", "--loop-file=inf",
+                                     "--script=" + os.path.join(d, "s", "sofa-player.lua"), "--script-opts=sofa_player-info=" + info,
+                                     video], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+
+            def mpv(*cmd):
+                s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                s.settimeout(10)
+                s.connect(sock)
+                s.sendall((json.dumps({"command": list(cmd)}) + "\n").encode())
+                buf = b""
+                while b"\n" not in buf:
+                    buf += s.recv(65536)
+                s.close()
+                return json.loads(buf.split(b"\n")[0])
+
+            def drawn():
+                with open(seen, encoding="utf-8") as f:
+                    return [json.loads(line) for line in f]
+
+            def until(check, secs=15):
+                end = time.time() + secs
+                while time.time() < end:
+                    try:
+                        if check():
+                            return True
+                    except (OSError, ValueError):
+                        pass
+                    time.sleep(0.05)
+                self.fail("never got there: %s" % (drawn()[-1][:600] if os.path.exists(seen) and drawn() else ""))
+
+            def tell(**what):
+                mpv("script-message-to", "sofa_player", "sofa", json.dumps(what))
+            on = lambda label: re.search(r"\\b1[^}]*\}" + re.escape(label), drawn()[-1])     # (the line in focus is bold)
+            until(lambda: os.path.exists(seen) and drawn() and "LIVE TV" not in drawn()[-1])        # (the picture moves)
+            mpv("keypress", "r")
+            until(lambda: "This programme" in drawn()[-1])
+            sheet = drawn()[-1]
+            for words in ("Record", "Evening News  ·  until 9:00 PM", "The whole series", "every new showing", "Close", "5.1  KSTN"):
+                self.assertIn(words, sheet)
+            self.assertTrue(on("This programme"))
+            mpv("keypress", "DOWN")                                                   # (the sheet's, not the next channel)
+            until(lambda: on("The whole series"))
+            mpv("keypress", "ENTER")
+            until(lambda: "This programme" not in drawn()[-1] and "Setting the series to record" in drawn()[-1])
+            until(lambda: any("k=rec&do=series" in a for a in asked))
+            self.assertFalse([a for a in asked if "chup" in a or "chdown" in a])
+            tell(rec=dict(rec, recording={"id": 7, "title": "Evening News", "ends": "9:00 PM"}, rule={"id": 3, "title": "Evening News"}))
+            mpv("keypress", "RECORD")                                                  # (the remote's own button)
+            until(lambda: "Stop recording" in drawn()[-1])
+            self.assertIn("Stop the series", drawn()[-1])
+            self.assertNotIn("The whole series", drawn()[-1])
+            mpv("keypress", "ESC")                                                     # Back closes the sheet, not the channel
+            until(lambda: "Stop recording" not in drawn()[-1])
+            time.sleep(0.3)
+            self.assertIsNone(proc.poll())
+            mpv("set_property", "pause", True)                                         # the panel: REC, until when
+            until(lambda: "REC" in drawn()[-1] and "until 9:00 PM" in drawn()[-1])
+            self.assertIn("REC or Menu records", drawn()[-1])
+            mpv("set_property", "pause", False)
+            tell(recsheet=True)                                                        # Menu → Record
+            until(lambda: "Stop recording" in drawn()[-1])
+            mpv("keypress", "ENTER")
+            until(lambda: any("k=rec&do=stop" in a and "stop_series" not in a for a in asked))
+            tell(rec={"can": False, "why": "Recording isn't available here."})
+            mpv("keypress", "r")
+            until(lambda: "Recording isn't available here." in drawn()[-1])
+            self.assertNotIn("This programme", drawn()[-1])
+            for data in drawn():
+                for an, x, y in re.findall(r"\\an(\d)\\pos\(([-\d.]+),([-\d.]+)\)\\fn", data):
+                    self.assertTrue(96 <= float(x) <= 1824 and 54 <= float(y) <= 1026, (an, x, y, data[:300]))
+            mpv("keypress", "ESC")
+            self.assertEqual(proc.wait(10), 10)
+            err = proc.stderr.read()
+            self.assertNotIn(b"Lua error", err)
+            self.assertNotIn(b"RECORD", err)                                          # (a key name mpv knows)
+        finally:
+            if proc and proc.poll() is None:
+                proc.kill()
+                proc.wait(10)
+            agent.shutdown()
+            shutil.rmtree(d, ignore_errors=True)
+
+    @unittest.skipUnless(shutil.which("mpv") and media.tool("ffmpeg") and os.path.exists("/usr/bin/curl"), "needs mpv, ffmpeg and curl")
     def test_far_skips_in_mpv_itself(self):
         """Skips in a video Sofa converts (a stream from 10:00 in, 40 s of it made so far), in mpv itself: one into what mpv
         has goes there, with nothing asked of the box; Page Up's 5 minutes moves the line and asks the box's agent (as

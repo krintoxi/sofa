@@ -30,6 +30,7 @@ KEYS = {
     0x45: "KEY_BACK",                                         # Stop: leave the video
     0x44: "KEY_PLAYPAUSE", 0x46: "KEY_PLAYPAUSE", 0x61: "KEY_PLAYPAUSE",
     0x48: "KEY_REWIND", 0x49: "KEY_FASTFORWARD",
+    0x47: "KEY_RECORD",                                       # Record: Live TV's Record sheet in the box's player
     0x30: "KEY_PAGEUP", 0x31: "KEY_PAGEDOWN",                 # channel up/down: live TV
 }
 KEYS.update({0x20 + n: "KEY_%d" % n for n in range(10)})

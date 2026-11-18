@@ -158,6 +158,20 @@ def go(where):
     player.tell(go=where)
 
 
+def wall(t, h24=False):
+    """A time as the TV's clock shows it: 9:00 PM, or 21:00."""
+    lt = time.localtime(float(t or 0))
+    return time.strftime("%H:%M", lt) if h24 else time.strftime("%I:%M %p", lt).lstrip("0")
+
+
+def episode_text(p):
+    """A guide programme's episode, as Sofa's pages write it: "S2 E4 · Low Tide" (or "" for none)."""
+    if not p:
+        return ""
+    ep = ("S%s " % p["season"] if p.get("season") is not None else "") + "E%s" % p["episode"] if p.get("episode") is not None else ""
+    return " · ".join(x for x in (ep, str(p.get("sub") or "")) if x)
+
+
 
 def live_input_conf():
     """mpv's keys for Live TV: the usual ones, with up and down (and Page Up / Down, channel ±) changing the channel."""
@@ -647,6 +661,7 @@ class Player:
         # skipping far in a video Sofa converts (seek_to): one under way, the newest place asked for, Sofa's session
         self.far, self.want, self.going, self.sid = None, None, False, None
         self.far_lock = threading.Lock()
+        self.rec, self.tuned = None, 0          # Live TV at home: REC for the channel on now (rec_reset), each tuning numbered
 
     def _args(self, p):
         s, sock, base = settings(), self.sock_path, self.base
@@ -713,6 +728,7 @@ class Player:
                 # far: skips past what Sofa has converted go to the agent, which has Sofa convert it again from there
                 "far": self.can_convert_again(p), "agent": "http://127.0.0.1:%d" % PORT,
                 "live": bool(p.get("live")), "number": p.get("number"), "h24": bool(p.get("h24")),
+                "rec": self.rec if p.get("live") else None,
                 "accent": THEME_ACCENT.get(settings().get("theme"), "FF2E88")}
         self.plays += 1
         path = self.info_path = os.path.join(tempfile.gettempdir(), "sofa-play-%d-%d.json" % (os.getpid(), self.plays))
@@ -755,11 +771,14 @@ class Player:
         self.status = {"item": payload.get("item"), "t": int(payload.get("offset") or 0) + int(payload.get("start") or 0),
                        "d": int(payload.get("duration") or 0), "paused": False,
                        "title": "Playing" if private else payload.get("title"), "sub": "" if private else payload.get("sub")}
+        look = self.rec_reset(tell=False)                    # (Live TV: REC, before mpv opens; the guide comes after)
         self.proc = subprocess.Popen(self._args(payload), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                                      stderr=subprocess.PIPE, env=display_env())
         self.proc.sofa_err, self.proc.sofa_info = [], self.info_path
         threading.Thread(target=self._drain, args=(self.proc,), daemon=True).start()
         threading.Thread(target=self._watch, args=(self.proc,), daemon=True).start()
+        if look:
+            threading.Thread(target=self._rec_look, args=look, daemon=True).start()
 
     @staticmethod
     def _drain(proc):
@@ -1014,6 +1033,8 @@ class Player:
                     if p.get("live"):
                         p["banner_at"] = 0
                         self.banner(0)
+                        if self.rec:                            # (what Sofa said may have come before mpv could hear it)
+                            self.osd(rec=self.rec)
                 else:
                     waited += 1
                     note = self.starting_note(waited)
@@ -1172,6 +1193,9 @@ class Player:
         later = next((x for i, x in shows if i > at), None)
         name = lambda x: str(x.get("title") or "") + (" (%s)" % x["year"] if x.get("year") else "")
         b = {"number": str(p["number"]) if p.get("number") else None, "name": str(p.get("title") or "")}
+        if not progs and p.get("onair"):                    # a channel at home: the guide's (rec_reset)
+            b.update(p["onair"])
+            return self.osd(banner=b)
         if now:
             b["now"] = name(now)
         elif progs:
@@ -1210,11 +1234,138 @@ class Player:
             return True
         self.command("set_property", "http-header-fields", self.sofa_headers().split(","))
         self.command("loadfile", rewrite(ch["url"], self.base), "replace")
-        p.update(title=ch.get("name"), number=ch.get("number"), programs=[])
+        p.update(title=ch.get("name"), number=ch.get("number"), programs=[], onair=None)
         self.osd(banner={"number": str(ch["number"]) if ch.get("number") else None, "name": str(ch.get("name") or ""),
                          "sub": str(ch.get("group") or "")})
         self.status.update(title=ch.get("name"), sub=ch.get("group") or "")
+        look = self.rec_reset()                             # (the banner first; the guide and REC's state after)
+        if look:
+            threading.Thread(target=self._rec_look, args=look, daemon=True).start()
         return True
+
+    # ---- Live TV at home (Sofa 1.5.20 and later): what's on from the household's guide, and REC. The page says which
+    # channels may be recorded (`rec`: at home, never for a Visitor, a Kids profile or a guest). REC, or Menu → Record,
+    # opens the player screen's Record sheet at once, from what's known here (sofa-player.lua); OK on it comes back as
+    # key "rec" with what to do, and Sofa does it (/api/dvr) as the signed-in TV, as the page would.
+
+    def channel_now(self):
+        p = self.payload or {}
+        chans = p.get("channels") or []
+        return chans[int(p.get("at") or 0) % len(chans)] if p.get("live") and chans else None
+
+    def rec_reset(self, tell=True):
+        """A channel just tuned: what the player screen can know of REC for it at once. Returns what _rec_look needs to
+        ask Sofa for the rest (the guide, what's set), or None."""
+        p, ch = self.payload or {}, self.channel_now()
+        self.tuned += 1
+        if not ch:
+            self.rec = None
+            return None
+        if ch.get("rec"):
+            self.rec = {"can": True, "channel": ch.get("id"), "name": str(ch.get("name") or ""), "number": ch.get("number")}
+        elif any(c.get("rec") for c in p.get("channels") or []):
+            self.rec = {"can": False, "why": "Only channels at home can be recorded: a tuner's, or a list on your home network."}
+        else:
+            self.rec = {"can": False, "why": "Recording isn't available here."}
+        if tell:
+            self.osd(rec=self.rec)
+        return (self.tuned, ch) if ch.get("rec") or ch.get("tuner") else None
+
+    def _rec_look(self, gen, ch):
+        """The guide's now and next for the channel, and what's recording or set on it (from Sofa, off the key's path).
+        A late answer for a channel the remote has left since is dropped."""
+        now, p = int(time.time()), self.payload or {}
+        try:
+            got = json.loads(self.ask_sofa("%s/api/live/tuner-guide?channel=%s&from=%d" % (
+                self.base.rstrip("/"), urllib.parse.quote(str(ch.get("id") or "")), now), timeout=8))
+            progs = list((got.get("guide") or {}).values())[0] if got.get("guide") else []
+        except (OSError, ValueError, KeyError, IndexError):
+            progs = []
+        dvr = None
+        if ch.get("rec"):
+            try:
+                dvr = json.loads(self.ask_sofa(self.base.rstrip("/") + "/api/dvr", timeout=8))
+            except (OSError, ValueError):
+                dvr = None
+        if gen != self.tuned or p is not self.payload:
+            return
+        on = next((x for x in progs if x.get("start", 0) <= now < x.get("stop", 0)), None)
+        nxt = next((x for x in progs if x.get("start", 0) >= (on["stop"] if on else now)), None)
+        h24 = bool(p.get("h24"))
+        if on or nxt:
+            air = {"now": str(on.get("title") or "") + (" (%s)" % on["year"] if on.get("movie") and on.get("year") else "") if on else None,
+                   "ep": episode_text(on) if on else None,
+                   "next": ("%s  %s" % (wall(nxt["start"], h24), nxt.get("title") or "")) if nxt else None,
+                   "sub": None if on else "On air"}
+            p["onair"] = {k: v for k, v in air.items() if v}
+            if on:
+                self.status.update(sub=str(on.get("title") or ""))
+            self.banner(0)
+        if not ch.get("rec"):
+            return
+        rec = {"can": True, "channel": ch.get("id"), "name": str(ch.get("name") or ""), "number": ch.get("number")}
+        if on:
+            rec.update(title=str(on.get("title") or ""), ep=episode_text(on), ends=wall(on["stop"], h24),
+                       movie=bool(on.get("movie")), fresh=bool(on.get("fresh")), series=not on.get("movie"))
+        if dvr:
+            r = next((x for x in dvr.get("recordings") or [] if x.get("channel") == ch.get("id") and (
+                x.get("state") == "recording" or (x.get("state") == "scheduled" and x.get("start", 0) <= now + 60 < x.get("stop", 0)))), None)
+            if r:
+                rec["recording"] = {"id": r["id"], "title": str(r.get("title") or ""), "ends": wall(r["stop"], h24)}
+            title = (rec.get("title") or "").lower()
+            u = next((x for x in dvr.get("rules") or [] if title and str(x.get("title") or "").lower() == title and
+                      (not x.get("channel") or x.get("channel") == ch.get("id"))), None)
+            if u:
+                rec["rule"] = {"id": u["id"], "title": str(u.get("title") or ""), "new_only": bool(u.get("new_only"))}
+        self.rec = rec
+        self.osd(rec=rec)
+
+    def tell_sofa(self, body):
+        """Record (or stop) through Sofa, as the signed-in TV: what Sofa answered, or ValueError with what it said."""
+        url = self.base.rstrip("/") + "/api/dvr"
+        req = urllib.request.Request(url, data=json.dumps(body).encode(), method="POST", headers={
+            "Cookie": self.cookie or "", "X-Sofa": "1", "Content-Type": "application/json"})
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({})) if url.startswith("http://") else urllib.request.build_opener()
+        try:
+            with opener.open(req, timeout=15) as r:
+                return json.loads(r.read() or b"{}")
+        except urllib.error.HTTPError as exc:
+            try:
+                why = json.loads(exc.read()).get("error")
+            except (OSError, ValueError, AttributeError):
+                why = None
+            raise ValueError(why or "Sofa said no (%d)." % exc.code)
+        except (OSError, ValueError):
+            raise ValueError("Sofa didn't answer. Try again in a moment.")
+
+    def rec_do(self, what):
+        """What the Record sheet asked: "now" (this programme, to its end), "series" (that, and every showing from now
+        on), "stop", "stop_series". Said on the screen when Sofa has done it, or why not."""
+        rec, ch, p = self.rec or {}, self.channel_now(), self.payload or {}
+        if not ch or not rec.get("can") or rec.get("channel") != ch.get("id"):
+            return self.osd(toast=rec.get("why") or "That channel isn't on any more.")
+        h24, said = bool(p.get("h24")), None
+        try:
+            if what in ("now", "series"):
+                if not rec.get("recording"):
+                    r = self.tell_sofa({"now": ch["id"]}).get("recording") or {}
+                    said = ("It can't record now: %s" % (r.get("why") or "every tuner is taken.")) if r.get("state") == "conflict" \
+                        else "Recording %s until %s." % (r.get("title") or rec.get("title") or ch.get("name"), wall(r.get("stop") or 0, h24))
+                if what == "series" and rec.get("title") and not rec.get("movie"):
+                    u = self.tell_sofa({"series": {"title": rec["title"], "channel": ch["id"], "new_only": bool(rec.get("fresh")), "keep": 0}}).get("rule") or {}
+                    said = (said + " " if said and said.startswith("It can't") else "") + "Recording %s: every %sshowing from now on." % (
+                        u.get("title") or rec["title"], "new " if u.get("new_only") else "")
+            elif what == "stop" and rec.get("recording"):
+                self.tell_sofa({"cancel": rec["recording"]["id"]})
+                said = "Stopped. What's recorded is filed."
+            elif what == "stop_series" and rec.get("rule"):
+                self.tell_sofa({"stop_series": rec["rule"]["id"]})
+                said = "The series isn't recorded any more. What's set already stays: see Live TV, Recordings."
+        except ValueError as exc:
+            said = str(exc)
+        if said:
+            self.osd(toast=said, secs=6)
+        self._rec_look(self.tuned, ch)                      # (what's set now: the sheet and the REC mark say so)
 
     # ---- the options menu while a video plays (Menu on a controller or remote): subtitles, sound track, speed and
     # volume, in mpv's own screen; while it's open the arrows, OK and Back are its (an mpv input section)
@@ -1235,6 +1386,9 @@ class Player:
     def menu_items(self):
         """[label, [(value, shown)], index of the current one, what it sets] for this video."""
         items = []
+        rec = self.rec if (self.payload or {}).get("live") else None
+        if rec and rec.get("can"):                          # (Live TV at home: the Record sheet, as REC opens it)
+            items.append(["Record", [(None, "Recording" if rec.get("recording") else "")], 0, "record"])
         subs = self._tracks("sub")
         if subs:
             opts = [("no", "Off")] + [(i, n) for i, n, _ in subs]
@@ -1296,6 +1450,10 @@ class Player:
         elif item[3] == "close":
             if k == "ok":
                 return self.menu_close()
+        elif item[3] == "record":
+            if k == "ok":
+                self.menu_close()
+                return self.osd(recsheet=True)
         elif item[3] == "volume":
             if k in ("left", "right", "ok"):
                 level, muted = box_volume(-4 if k == "left" else 4)
@@ -4901,6 +5059,10 @@ class Handler(BaseHTTPRequestHandler):
                     player.seek_to(t, exact=(qs.get("exact") or [""])[0] == "1")
             elif k.startswith("menu-"):
                 player.menu_key(k[5:])
+            elif k == "rec":                                # the Record sheet: what to do (Sofa answers in a moment)
+                what = (qs.get("do") or [""])[0]
+                if what in ("now", "series", "stop", "stop_series"):
+                    threading.Thread(target=player.rec_do, args=(what,), daemon=True).start()
             return self.send('{"ok":true}')
         if path == "/box/native/events":
             since = (qs.get("since") or [None])[0]

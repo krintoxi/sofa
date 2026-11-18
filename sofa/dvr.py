@@ -151,7 +151,7 @@ def record_programme(channel_id, start, user=None):
     why = recordable(chan)
     if why:
         raise ValueError(why)
-    if _existing(channel_id, show["start"]):
+    if _existing(channel_id, show["start"], show["stop"]):
         raise ValueError("That's being recorded already.")
     rid = _insert(chan, show["start"], show["stop"], show["title"], user, show=show)
     plan()
@@ -203,9 +203,16 @@ def cancel(recording_id):
     return get(recording_id)
 
 
-def _existing(channel_id, start):
-    return store.q1("SELECT id FROM recordings WHERE channel = ? AND start = ? AND state NOT IN ('cancelled', 'failed')",
-                    channel_id, int(start))
+def _existing(channel_id, start, stop=None):
+    """A recording asked for on that channel that has that showing already: one starting then, or (given its end) one
+    under way or planned within it. REC pressed while it's on records from that moment, not from the guide's start, and
+    "the series" asked for after it would otherwise have recorded the same showing again, on a second tuner."""
+    if stop is None:
+        return store.q1("SELECT id FROM recordings WHERE channel = ? AND start = ? AND state NOT IN ('cancelled', 'failed')",
+                        channel_id, int(start))
+    return store.q1("""SELECT id FROM recordings WHERE channel = ? AND state NOT IN ('cancelled', 'failed')
+                       AND (start = ? OR (start >= ? AND start < ? AND stop > ?))""",
+                    channel_id, int(start), int(start), int(stop), int(start))
 
 
 def expand(force=False, now=None):
@@ -220,7 +227,7 @@ def expand(force=False, now=None):
     for rule in store.q("SELECT * FROM recording_rules"):
         for show in guide.showings(rule["title"], rule["channel"], now):
             chan = _channel(show["channel"])
-            if recordable(chan) or _existing(show["channel"], show["start"]):
+            if recordable(chan) or _existing(show["channel"], show["start"], show["stop"]):
                 continue
             if rule["new_only"] and not show["fresh"]:
                 continue
@@ -528,12 +535,17 @@ def recording_now():
     return [dict(r) for r in store.q("SELECT * FROM recordings WHERE state = 'recording'")]
 
 
-def listing():
-    """For Live TV → Recordings: what's coming (conflicts first), what's recording, what's done, and the series."""
+def listing(item_of=None):
+    """For Live TV → Recordings: what's coming (conflicts first), what's recording, what's done, and the series. A
+    recording in the library has its item there (`item_of`: a file's place -> its item's id), so it plays from here."""
     _table()
     rows = [dict(r) for r in store.q("SELECT * FROM recordings WHERE state != 'cancelled' ORDER BY start DESC LIMIT 400")]
     for r in rows:
-        r.pop("path", None)                          # (where it is in the library is the library's business)
+        path = r.pop("path", None)                   # (where it is in the library is the library's business)
+        if r["state"] == "filed" and path and item_of:
+            item = item_of(os.path.abspath(path))
+            if item:
+                r["item"] = item
     return {"recordings": rows, "rules": [dict(r) for r in store.q("SELECT * FROM recording_rules ORDER BY title")],
             "pad": dict(zip(("before", "after"), pads()))}
 

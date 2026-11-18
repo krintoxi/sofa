@@ -1,7 +1,8 @@
 # Tuners, the guide, and recording
 
-**New in Sofa 1.5.13, with its screens since 1.5.14.** Built and tested against a stand-in tuner, in a browser too;
-**no real tuner has run it**, and no real TV has shown its screens.
+**New in Sofa 1.5.13, with its screens since 1.5.14, and on the Sofa Box's own player since Sofa Box OS 1.1.92 (with
+Sofa 1.5.20).** Built and tested against a stand-in tuner, in a browser too; **no real tuner has run it**, and no real
+TV or Raspberry Pi has shown its screens.
 
 ## Tuners at home
 
@@ -61,12 +62,17 @@ shown to the public library's Visitors, even when the show it belongs to is shar
   and on, a week ahead at most; digits go to a channel by its own number (5 is 5.1). A programme set to record has a
   red dot, one a series will record a red ring. A channel without a guide is on air, all the way along.
 - **The Record dialog:** "Record it" (or "Record the rest of it" while it's on), "Record the series", "Watch it", and
-  what's already set: "Don't record it", "Stop recording the series". A film has no series.
+  what's already set: "Don't record it", "Stop recording the series". A film has no series. On a TV the series'
+  choices are buttons OK changes ("The series: new episodes only", "Keep the last 5"), since a remote can't work a
+  check box or a drop-down.
 - **Live TV → Recordings:** recording now (with Stop), clashes (and what they clash with), coming up, the series,
-  and what's recorded: being filed, in the library, or why it didn't record. Each with a way out.
+  and what's recorded: being filed, in the library (with **Play**, or **Resume** and how much is left, since 1.5.20),
+  or why it didn't record. Each with a way out. On a TV each row is one press from the next: OK plays a recorded one,
+  and on the others offers what can be done (don't record it, stop it, watch the channel, stop the series).
 - **REC in the player:** on a channel at home, records what's on from now to the end of its programme (an hour
   without a guide). Pressed again it stops (on a TV, twice within four seconds), and what's recorded is filed. The R
-  key does it too. The Sofa Box's own player has no REC yet: record from Antenna's guide there.
+  key does it too, and so does a remote's REC on a programme in Antenna. On the Sofa Box the box's own player has its
+  own REC (below).
 - **Server → Live TV → Tuners at home:** look on the network or give an address, switch a tuner on or off, remove
   it; the guide's sources (an address or a file on the Sofa computer) and how many channels each matched; the minutes
   before and after each recording.
@@ -79,6 +85,29 @@ guests, and away from home the tuners' channels aren't in Live TV at all.
 
 ![Live TV → Recordings on a TV](images/tuners-recordings-tv.png)
 
+## On the Sofa Box
+
+The box shows Sofa's own pages, so Antenna, the Record dialog and Recordings are there as above, by the remote. What
+the box adds is in its own player (mpv), which plays every channel and every recording (Sofa Box OS 1.1.92, with Sofa
+1.5.20 or later on the Sofa computer; with an older Sofa the player has no REC):
+
+- **The channel by its own number** (5.1) and, on its banner, what's on, its episode, and what's next and when, from
+  the guide. Up and down go through the tuners' channels in their own order. The guide is asked for after the
+  channel has changed, so changing channel is as quick as before.
+- **REC:** the remote's REC button (over HDMI-CEC too), R on a keyboard, or **Menu → Record** (every remote and
+  controller has a Menu) opens the Record sheet, drawn by the player itself the moment the key is pressed: **this
+  programme** (to its end in the guide, an hour without one), **the whole series** (every showing from now on; only
+  new ones when this one is new), and while something is set, **stop recording** and **stop the series**. OK asks Sofa
+  (through the box's agent, as the TV's signed-in page would), and the screen says how it went, or why not. While the
+  channel records, the player's panel says REC and until when. A series asked for this way records the showing that's
+  on once (since 1.5.20 a showing being recorded isn't planned again).
+- **Recordings play in the box's player** from Live TV → Recordings: from where they were left, with Skip intro when
+  Sofa found the intro, as any episode does. An over-the-air recording is the channel's own stream (MPEG-2, mostly);
+  Sofa converts what the box can't play as it plays it.
+- **Who:** the page tells the box which channels may be recorded: a tuner's or a home list's, never for a Visitor, a
+  Kids profile or a guest, and only at home. Sofa refuses anyone else anyway, and a channel that can't be recorded
+  says why when REC is pressed.
+
 ## The API
 
 | Call | Who | What |
@@ -86,7 +115,7 @@ guests, and away from home the tuners' channels aren't in Live TV at all.
 | `GET /api/admin/tuners` | admin, at home | the tuners (on, channels, free tuners) and the guide's sources |
 | `POST /api/admin/tuners` `{"find": true}` · `{"add": "192.168.1.50"}` · `{"switch": {"id", "on"}}` · `{"remove": id}` · `{"guide_add": url or path}` · `{"guide_remove": …}` | admin, at home | |
 | `GET /api/live/tuner-guide?channel=a,b&from=<time>` | the household | six hours of the guide for those channels |
-| `GET /api/dvr` | the household (not Kids, not Visitors) | recordings, series, padding |
+| `GET /api/dvr` | the household (not Kids, not Visitors) | recordings, series, padding; a recording in the library has its `item` (since 1.5.20), never its file's place |
 | `POST /api/dvr` `{"now": channel}` · `{"programme": {"channel", "start"}}` · `{"slot": {"channel", "start", "stop", "title"}}` · `{"series": {"title", "channel", "new_only", "keep"}}` · `{"cancel": id}` · `{"stop_series": id}` | the household, at home | |
 | `POST /api/admin/settings` `{"dvr_pad_before": 0–15, "dvr_pad_after": 0–30}` | admin | the minutes before and after |
 
@@ -98,5 +127,6 @@ guests, and away from home the tuners' channels aren't in Live TV at all.
 | Recording | **No.** | Real: ffmpeg copies the stand-in's stream, the Inbox files the file, Visitors don't see it; conflicts, padding, series, repeats, keep-last-N |
 | The guide | **No real source yet.** | XMLTV written by the tests: time zones, both kinds of episode numbers, films, matching |
 | The screens | **No real TV, tuner or Sofa Box.** | Headless Chrome against the stand-in (`tests/test_tuner_screens.py`): Antenna in number order, one recorded and cancelled, a series, a film, later hours with the remote, REC in the player, the Server page |
+| On the Sofa Box | **No real Pi, tuner or TV remote's REC button.** | The box's agent with Sofa and the stand-in (`tests/test_box_recording.py`): the guide on the banner, REC this programme and the series (once), stop, the channel changed, refused for a Kids profile; the box's pages through its agent at 1920x1080 by the keys only: Antenna into the box's player, the Record dialog, every row of Recordings, a recording played from where it was left with its intro marked. The Record sheet in Debian 13's mpv 0.40 (`PlayerScreen::test_the_record_sheet_in_mpv_itself`). The player is a stand-in in the page tests |
 
 A real tuner costs about $110 new (two tuners) or $90 refurbished.

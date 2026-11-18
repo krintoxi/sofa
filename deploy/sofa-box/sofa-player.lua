@@ -6,7 +6,10 @@ TV that crops the picture's edges, "overscan", still shows all of it), at 720p a
 
   * the start card, from the moment mpv opens until the picture moves (Resuming <title> from 1:02:03…);
   * the panel along the bottom: title, the time line, where it is, how long is left and when it ends;
-  * Skip intro (OK), messages from the box, Live TV's channel banner, the options menu (Menu).
+  * Skip intro (OK), messages from the box, Live TV's channel banner, the options menu (Menu);
+  * Live TV at home: the Record sheet (REC, R, or Menu → Record): this programme, the whole series, or stopping either,
+    drawn at once from what the agent has said of the channel ({"rec": {...}}: can it be recorded, what's on, until
+    when, what's recording or set); OK on a line asks the agent (key "rec&do=..."), which asks Sofa and says how it went.
 
 Keys (mpv-input.conf): OK pauses or skips the intro, left and right skip back 10 s and on 30 s (pressed again
 quickly, they add up: the line moves at once and the picture follows once you stop), up and down show the panel,
@@ -46,7 +49,7 @@ local function bgr(hex, fallback)       -- "FF2E88" (as CSS writes it) -> "882EF
     if not hex:match("^%x%x%x%x%x%x$") then hex = fallback or "FF2E88" end
     return hex:sub(5, 6) .. hex:sub(3, 4) .. hex:sub(1, 2)
 end
-local WHITE, MIST, INK, PANEL = bgr("FFFFFF"), bgr("C4C4CE"), bgr("000000"), bgr("1A1216")
+local WHITE, MIST, INK, PANEL, RED = bgr("FFFFFF"), bgr("C4C4CE"), bgr("000000"), bgr("1A1216"), bgr("FF3B30")
 local ACCENT = bgr(info.accent)         -- the box's theme colour
 local function col(c) return "\\1c&H" .. c .. "&" end
 
@@ -122,6 +125,8 @@ local state = {
     volume = nil, volume_until = 0,
     menu = nil,
     skip_shown = nil,
+    rec = info.rec,                     -- Live TV at home: what REC can do on this channel (the agent says)
+    sheet = nil,                        -- the Record sheet, while it's open: {at}
 }
 
 local offset = tonumber(info.offset) or 0        -- a converted video starts at `offset` into the whole video
@@ -145,6 +150,7 @@ local function marker(t)                -- an intro or recap on now (the whole v
 end
 
 local draw                              -- (below)
+local sheet_menu                        -- (the Record sheet's look, below)
 local tick = mp.add_periodic_timer(1, function() draw() end)
 local shown = nil                       -- what the overlay has now (an update only when that changes)
 tick:kill()
@@ -227,7 +233,14 @@ local function panel_lines()
     if live then
         a[#a + 1] = box(L, 944, 116, 44, 22, ACCENT, "00")
         a[#a + 1] = text(L + 58, 966, 5, 26, "LIVE", { bold = true, color = INK, space = 3 })
-        a[#a + 1] = text(R, B, 3, 28, "Up and down change the channel   ·   Back stops it", { color = MIST })
+        local r = state.rec
+        if r and r.recording then                                      -- recording this channel: until when
+            a[#a + 1] = box(L + 132, 944, 92, 44, 22, RED, "00")
+            a[#a + 1] = text(L + 178, 966, 5, 26, "REC", { bold = true, space = 3 })
+            a[#a + 1] = text(L + 240, 966, 4, 28, "until " .. esc(r.recording.ends or ""), { color = MIST })
+        end
+        a[#a + 1] = text(R, B, 3, 28, (r and r.can and "REC or Menu records   ·   " or "") ..
+                         "Up and down change the channel   ·   Back stops it", { color = MIST })
     else
         local t, d = pos() or 0, duration()
         for _, l in ipairs(bar_lines(t, d)) do a[#a + 1] = l end
@@ -267,13 +280,15 @@ local function toast_lines(s)
 end
 
 local function banner_lines(b)
-    local a, x, y, w, h = {}, L, 724, 980, 230
+    local ep = b.now and b.ep and b.ep ~= "" and b.ep or nil   -- (a channel at home: the guide's episode, under its title)
+    local a, x, y, w, h = {}, L, ep and 684 or 724, 980, ep and 270 or 230
     a[#a + 1] = box(x, y, w, h, 28, INK, "30")
     local head = (b.number and ("{" .. col(ACCENT) .. "}" .. esc(b.number) .. "  {" .. col(WHITE) .. "}") or "") .. esc(cut(b.name or "", 36))
     a[#a + 1] = text(x + 44, y + 64, 1, 40, head, { bold = true })
     if b.now then a[#a + 1] = text(x + 44, y + 136, 1, 54, esc(cut(b.now, 34)), { bold = true, font = TITLE_FONT })
     elseif b.sub and b.sub ~= "" then a[#a + 1] = text(x + 44, y + 136, 1, 40, esc(cut(b.sub, 46)), { color = MIST }) end
-    if b.next then a[#a + 1] = text(x + 44, y + 192, 1, 32, "Next: " .. esc(cut(b.next, 46)), { color = MIST }) end
+    if ep then a[#a + 1] = text(x + 44, y + 186, 1, 32, esc(cut(ep, 52))) end
+    if b.next then a[#a + 1] = text(x + 44, y + (ep and 232 or 192), 1, 32, "Next: " .. esc(cut(b.next, 46)), { color = MIST }) end
     return a
 end
 
@@ -296,7 +311,8 @@ local function menu_lines(m)
     local y = math.max(T, (H - h) / 2)
     a[#a + 1] = box(0, 0, W, H, 0, INK, "A0")
     a[#a + 1] = box(x, y, w, h, 32, PANEL, "08")
-    a[#a + 1] = text(x + 48, y + 92, 1, 46, esc(m.title or "Options"), { bold = true, font = TITLE_FONT })
+    if m.dot then a[#a + 1] = box(x + 48, y + 56, 28, 28, 14, RED, "00") end
+    a[#a + 1] = text(x + (m.dot and 92 or 48), y + 92, 1, 46, esc(m.title or "Options"), { bold = true, font = TITLE_FONT })
     for i, r in ipairs(rows) do
         local ry = y + 130 + (i - 1) * 84
         if r.on then a[#a + 1] = box(x + 24, ry, w - 48, 72, 20, ACCENT, "00") end
@@ -309,6 +325,34 @@ local function menu_lines(m)
     end
     a[#a + 1] = text(x + 48, y + h - 34, 4, 26, esc(m.hint or "Left and right change it   ·   Back closes"), { color = MIST })
     return a
+end
+
+-- the Record sheet's lines, from what the agent said of the channel: what's recording or set comes first, to stop it
+local function sheet_rows()
+    local r, rows = state.rec or {}, {}
+    if r.recording then
+        rows[#rows + 1] = { label = "Stop recording", value = "until " .. (r.recording.ends or ""), act = "stop" }
+    else
+        rows[#rows + 1] = { label = "This programme", act = "now",
+                            value = r.title and r.title ~= "" and (cut(r.title, 22) .. (r.ends and ("  ·  until " .. r.ends) or "")) or "what's on, for an hour" }
+    end
+    if r.rule then
+        rows[#rows + 1] = { label = "Stop the series", value = cut(r.rule.title or "", 26), act = "stop_series" }
+    elseif r.series and r.title and r.title ~= "" then
+        rows[#rows + 1] = { label = "The whole series", value = r.fresh and "every new showing" or "every showing", act = "series" }
+    end
+    rows[#rows + 1] = { label = "Close", value = "", act = "close" }
+    return rows
+end
+function sheet_menu()
+    local rows, out = sheet_rows(), {}
+    local at = math.max(1, math.min(#rows, state.sheet.at))
+    state.sheet.at = at
+    for i, x in ipairs(rows) do out[i] = { label = x.label, value = x.value, on = i == at } end
+    local r = state.rec or {}
+    local title = r.recording and "Recording" or "Record"
+    return { title = title, dot = true, rows = out,
+             hint = (r.number and (tostring(r.number) .. "  ") or "") .. cut(r.name or "", 24) .. "   ·   OK chooses   ·   Back closes" }
 end
 
 function draw()
@@ -338,6 +382,7 @@ function draw()
         for _, l in ipairs(toast_lines(state.toast)) do a[#a + 1] = l end
     end
     if state.menu then for _, l in ipairs(menu_lines(state.menu)) do a[#a + 1] = l end end
+    if state.sheet then for _, l in ipairs(menu_lines(sheet_menu())) do a[#a + 1] = l end end
     local data = table.concat(a, "\n")
     if data ~= shown then
         shown = data
@@ -448,7 +493,59 @@ mp.register_script_message("percent", function(n)
     show_panel()
 end)
 
+-- REC (or R, or Menu → Record): the Record sheet, drawn at once. While it's open the remote's arrows, OK and Back are
+-- its own (over Live TV's up and down, which change the channel); it closes by itself when left alone.
+local SHEET_KEYS = { UP = "up", DOWN = "down", PGUP = "up", PGDWN = "down", CHANNEL_UP = "up", CHANNEL_DOWN = "down",
+                     LEFT = "none", RIGHT = "none", ENTER = "ok", KP_ENTER = "ok", SPACE = "ok", ESC = "back", BS = "back",
+                     GO_BACK = "back", STOP = "back", q = "back", r = "back", R = "back", RECORD = "back", F2 = "back", MENU = "back" }
+local sheet_idle = nil
+local SAYING = { now = "Setting it to record…", series = "Setting the series to record…", stop = "Stopping the recording…",
+                 stop_series = "Stopping the series…" }
+local function toast(s, secs) state.toast, state.toast_until = s, mp.get_time() + (secs or 4.5) end
+local function sheet_close()
+    if not state.sheet then return end
+    state.sheet = nil
+    if sheet_idle then sheet_idle:kill(); sheet_idle = nil end
+    for key in pairs(SHEET_KEYS) do mp.remove_key_binding("sofa-rec-" .. key) end
+    draw()
+end
+local function sheet_key(k)
+    if not state.sheet then return end
+    if sheet_idle then sheet_idle:kill() end
+    sheet_idle = mp.add_timeout(15, sheet_close)
+    if k == "back" then return sheet_close() end
+    local rows = sheet_rows()
+    if k == "up" or k == "down" then
+        state.sheet.at = (state.sheet.at - 1 + (k == "down" and 1 or -1)) % #rows + 1
+    elseif k == "ok" then
+        local act = (rows[state.sheet.at] or {}).act
+        sheet_close()
+        if act and act ~= "close" then
+            toast(SAYING[act] or "…", 8)                               -- (the agent says how it went, in a moment)
+            mp.commandv("run", "/usr/bin/curl", "-s", "-o", "/dev/null", "-X", "POST", "-H", "X-Sofa-Box: 1",
+                        (info.agent or "http://127.0.0.1:8091") .. "/box/native/key?k=rec&do=" .. act)
+        end
+    end
+    draw()
+end
+local function sheet_open()
+    if not info.live or state.card then return end
+    if state.sheet then return sheet_close() end
+    local r = state.rec
+    if not (r and r.can) then
+        toast(r and r.why or "Recording isn't available here.")
+        return draw()
+    end
+    state.sheet = { at = 1 }
+    for key, k in pairs(SHEET_KEYS) do
+        mp.add_forced_key_binding(key, "sofa-rec-" .. key, function() sheet_key(k) end, { repeatable = k == "up" or k == "down" })
+    end
+    sheet_idle = mp.add_timeout(15, sheet_close)
+    draw()
+end
+
 mp.add_key_binding(nil, "ok", ok)
+mp.add_key_binding(nil, "rec", sheet_open)
 mp.add_key_binding(nil, "toggle", function() if not state.far then mp.commandv("cycle", "pause") end end)
 mp.add_key_binding(nil, "back", function() mp.commandv("quit", "10") end)           -- 10: stopped by Back
 mp.add_key_binding(nil, "show", function() if not state.card then show_panel() end end)
@@ -477,6 +574,11 @@ mp.register_script_message("sofa", function(json)
         info.sub = m.banner.now or m.banner.sub or info.sub
     end
     if m.menu ~= nil then state.menu = m.menu ~= false and m.menu or nil end
+    if m.rec ~= nil then                  -- (what REC can do on the channel on now: a new channel, the guide, what's set)
+        state.rec = m.rec ~= false and m.rec or nil
+        if state.sheet and not (state.rec and state.rec.can) then sheet_close() end
+    end
+    if m.recsheet then sheet_open() end
     if m.far == false then                -- (it went there in what mpv had, or Sofa couldn't: the toast says)
         if state.far then state.far = nil; show_panel() end
     elseif type(m.far) == "table" then    -- Sofa is converting it from there; with `sid`: the agent loads that now

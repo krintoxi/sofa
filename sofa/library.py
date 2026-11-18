@@ -126,6 +126,14 @@ class Library:
         with self.lock:
             return self.items.get(item_id)
 
+    def item_at(self, path):
+        """The id of the item whose file is at `path` (an absolute path), or None: made once per reading of the library."""
+        with self.lock:
+            index = getattr(self, "_at", None)
+            if not index or index[0] is not self.items:
+                index = self._at = (self.items, {os.path.abspath(i["path"]): k for k, i in self.items.items() if i.get("path")})
+            return index[1].get(path)
+
     def find(self, entry_id):
         """A show or movie entry (as listed in public()) by id, from any section."""
         with self.lock:

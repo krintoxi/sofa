@@ -8,6 +8,30 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.92
+
+**A tuner at home, on the box.** Live TV's Antenna and Recordings were already on the box (they are Sofa's own pages);
+the box's own player now knows the guide and records. Needs Sofa 1.5.20 or later on the Sofa computer; with an older
+Sofa the player is as it was.
+
+- **The guide in the player.** A tuner's channel by its own number (5.1), and on its banner what's on, its episode, and
+  what's next and when, from the household's guide. Up and down go through the tuners' channels in their own order,
+  and the banner follows. The guide comes after the channel changes, never before it: changing channel is as quick as
+  it was.
+- **REC in the player.** On a channel at home, REC (a remote's record button, over HDMI-CEC too), R on a keyboard, or
+  Menu → Record opens the Record sheet: **this programme** (to the end the guide gives, an hour without one), **the whole
+  series** (every showing from now on, new ones only for a new episode), or, while one is set, **stop recording** and
+  **stop the series**. The sheet is drawn by the player itself as the key is pressed; OK asks Sofa, and the screen
+  says how it went or why not ("Every tuner was in use…"). While a channel records, the panel says REC and until when.
+  A controller's Start opens Menu, so a controller records too.
+- **Recordings play in the player**, from Live TV → Recordings: from where they were left, with Skip intro when Sofa
+  found one, as any episode or film does.
+- Not for everyone: the page says which channels may be recorded (a tuner's, or a list on the home network), and
+  never for a Visitor, a Kids profile or a guest. Sofa refuses anyone else anyway. A channel that can't be recorded
+  says why when REC is pressed.
+- Tested against the stand-in tuner: the box's agent with Sofa itself, the box's pages through its agent by the keys
+  only, and the Record sheet in mpv itself (Debian 13's mpv 0.40). Press times on a stand-in Pi 3 are in the pull
+  request. **No real HDHomeRun, TV remote's REC button or Raspberry Pi has run it.**
 ## 1.1.91
 
 **What a Raspberry Pi 3 B+ showed in an evening on 1.1.86** (report 5V995Z), dealt with. Tried on a stand-in for a Pi 3

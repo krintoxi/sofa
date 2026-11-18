@@ -6,6 +6,25 @@ has its own numbers and list: [deploy/sofa-box/CHANGES.md](deploy/sofa-box/CHANG
 A change to Sofa's code (`sofa/`, `client/`, `sofa.py`) gets a new version: raise `__version__`, add a section
 here, then `python3 tools/sofa-version.py` (a test checks it was done).
 
+## 1.5.20 (2026-11-18)
+
+- **Recordings plays what's recorded.** A recording that's in the library has **Play** (or **Resume**, with how much is
+  left) in Live TV → Recordings. On a Sofa Box it plays in the box's own player, from where it was left, with Skip intro
+  when Sofa found one. Recordings gives the library's item for it, never where the file is.
+- **Live TV on a TV, by the remote.** Each row of Recordings is one press from the next. OK on a recorded one plays it,
+  and OK on one that's coming or recording says what can be done with it: don't record it, stop it, watch the channel,
+  stop the series. The Record dialog's series choices are buttons OK changes ("The series: new episodes only",
+  "Keep the last 5"). On the Sofa Box the check box and the drop-down they replace held the remote. A remote's REC (or
+  R) on a programme in Antenna opens Record for it, the rest of it when it's on now.
+- **The series after REC records that showing once.** REC records from the moment it's pressed. Asking for the series
+  after it planned the same showing again, on a second tuner. Now a showing that's being recorded, or planned within
+  its times, isn't recorded twice, and "Record it" in Antenna says so.
+- **For the Sofa Box's own player** (Sofa Box OS 1.1.92): a tuner's channel goes by its own number (5.1, not Sofa's
+  own 102), up and down go through the tuners in their own order, and each channel says whether it may be recorded
+  (at home, and never for a Visitor, a Kids profile or a guest). The box's player then has the guide and REC.
+- Tested against the stand-in tuner, in a browser through the Sofa Box's own agent, by the keys only
+  (`tests/test_box_recording.py`). No real tuner or TV has run it.
+
 ## 1.5.19 (2026-11-18)
 
 - **Watch together.** Two or more people on the same Sofa watch one title in step, each on their own screen. In the

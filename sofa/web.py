@@ -912,7 +912,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/dvr":                         # the household's recordings: never a Visitor's, nor a Kids profile's
             if u.get("visitor") or u.get("kids"):
                 return self.error(404, "Not found.")
-            return self.json(dvr.listing())
+            return self.json(dvr.listing(LIBRARY.item_at))       # (a recording in the library: its item, to play it)
         if path == "/api/admin/tuners":
             return self.json({"tuners": tuners.status(), "guide": guide.status()})
         if path == "/api/live/guide":                  # the archive channels' guide: what's on and next, by the clock

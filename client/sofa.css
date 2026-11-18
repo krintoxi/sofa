@@ -1698,6 +1698,7 @@ html.box::-webkit-scrollbar, html.box body::-webkit-scrollbar { display: none; }
   color: var(--soft); font-size: 14px; }
 .rec-opts .check { display: flex; gap: 8px; align-items: center; }
 .rec-keep { display: flex; gap: 8px; align-items: center; }
+.tv-opts .btn[aria-checked="true"] { background: rgba(255, 59, 48, .18); border-color: rgba(255, 59, 48, .6); }
 /* Live TV → Recordings */
 .recs { display: grid; gap: 26px; max-width: 980px; padding-bottom: 30px; }
 .rec-group h2 { display: flex; align-items: center; gap: 10px; margin: 0 0 10px; font: 800 15px/1 var(--display); letter-spacing: .14em;

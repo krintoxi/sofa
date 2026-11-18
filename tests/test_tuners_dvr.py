@@ -1,4 +1,5 @@
-"""Sofa 1.5.13: tuners at home, the guide, and recording (sofa/tuners.py, sofa/guide.py, sofa/dvr.py).
+"""Sofa 1.5.13: tuners at home, the guide, and recording (sofa/tuners.py, sofa/guide.py, sofa/dvr.py); 1.5.20: a
+recording that's in the library plays from Recordings, and the series asked for after REC doesn't record that showing twice.
 
 A stand-in tuner (tests/stand_in_tuner.py) answers as an HDHomeRun does: discovery over UDP, its channel list, a
 channel's stream as real MPEG-TS, a limit of two streams at once. The recordings are real: ffmpeg copies the stream,
@@ -201,6 +202,50 @@ class WithATuner(unittest.TestCase):
         self.assertEqual(dvr.expand(force=True), 0)                                     # nothing twice
         dvr.remove_rule(rule["id"])
         self.assertEqual(store.q1("SELECT COUNT(*) AS n FROM recordings WHERE state = 'scheduled'")["n"], 0)
+
+    def test_the_series_after_rec_records_that_showing_once(self):
+        """REC pressed while a programme is on records from that moment; asking for "the series" after it (the Sofa Box's
+        player asks for both) plans the showings to come, not the same showing again on a second tuner (Sofa 1.5.20)."""
+        chans = self.on()
+        now = int(time.time())
+        cid = chans["5.1"]["id"]
+        self.xmltv([self.show("kstn.us", now - 600, now + 1200, "Night Court", "Tonight", "2.6.0/1", new=True),
+                    self.show("kstn.us", now + 86400, now + 88200, "Night Court", "Later", "2.7.0/1", new=True)])
+        guide.refresh(force=True)
+        first = dvr.record_now(cid)
+        rule = dvr.add_rule("Night Court", channel_id=cid, new_only=True)
+        rows = store.q("SELECT id, start, rule FROM recordings WHERE state NOT IN ('cancelled', 'failed') ORDER BY start")
+        self.assertEqual([(r["id"] == first["id"], r["rule"]) for r in rows], [(True, None), (False, rule["id"])])
+        self.assertEqual(rows[1]["start"], now + 86400)                                # (tomorrow's, from the guide)
+        with self.assertRaises(ValueError):                                           # Antenna's "Record it", after REC
+            dvr.record_programme(cid, now - 600)
+        self.assertEqual(dvr.expand(force=True), 0)
+
+    def test_a_recording_in_the_library_plays_from_recordings(self):
+        """Recordings gives a recording that's in the library its item there, so it plays from Live TV → Recordings (in a
+        Sofa Box's own player, from where it was left), and never where the file is (Sofa 1.5.20)."""
+        chans = self.on()
+        now = int(time.time())
+        rid = dvr._insert(chans["5.1"], now - 1800, now - 60, "Night Court")
+        path = os.path.join(config.path("shows"), "Night Court", "Season 3", "Night Court S03E07 Tonight.ts")
+        store.ex("UPDATE recordings SET state = 'filed', path = ? WHERE id = ?", path, rid)
+        dvr._changed()
+        row = dvr.listing(lambda p: "e:night-court:3:7" if p == os.path.abspath(path) else None)["recordings"][0]
+        self.assertEqual(row["item"], "e:night-court:3:7")
+        self.assertNotIn("path", row)
+        self.assertNotIn("item", dvr.listing(lambda p: None)["recordings"][0])       # (no longer in the library)
+        self.assertNotIn("item", dvr.listing()["recordings"][0])
+        store.ex("UPDATE recordings SET state = 'scheduled' WHERE id = ?", rid)       # only a recording that's filed
+        self.assertNotIn("item", dvr.listing(lambda p: "e:night-court:3:7")["recordings"][0])
+        from sofa.library import LIBRARY                                              # the library's own lookup
+        with LIBRARY.lock:
+            was, LIBRARY.items = LIBRARY.items, {"e:night-court:3:7": {"path": path, "kind": "episode"}}
+        try:
+            self.assertEqual(LIBRARY.item_at(os.path.abspath(path)), "e:night-court:3:7")
+            self.assertIsNone(LIBRARY.item_at("/somewhere/else.ts"))
+        finally:
+            with LIBRARY.lock:
+                LIBRARY.items = was
 
     def test_only_channels_at_home(self):
         self.on()

@@ -38,8 +38,9 @@ Read this before you install, so nothing surprises you.
   started on GitHub's machines under UEFI, BIOS and Secure Boot, and never on a real PC.
 - **Live TV** plays channel lists you add and Classic Cinema from a public film archive. Tuners at home (HDHomeRun),
   an XMLTV guide and recording are new in Sofa 1.5.13, with screens since 1.5.14 (Live TV → Antenna and Recordings,
-  REC in the player; [tuners-and-recording.md](tuners-and-recording.md)): no real tuner has run them, and the Sofa
-  Box's own player has no REC yet. Retro TV's decades (recordings of TV as it aired, played straight from a public video library) are
+  REC in the player; [tuners-and-recording.md](tuners-and-recording.md)): no real tuner has run them. Since Sofa Box
+  OS 1.1.92 (with Sofa 1.5.20) the box's own player has the guide and REC, and recordings play in it; that too is
+  tested against a stand-in tuner only. Retro TV's decades (recordings of TV as it aired, played straight from a public video library) are
   on unless an admin turns them off, and never reach the public library's visitors.
 - **Watch together** (Sofa 1.5.19) is in the web app and has run only in two browsers on one computer. The Sofa
   Box's own player doesn't take part yet; the Fire TV app's way in (a room's video in its page player) is built and
@@ -132,8 +133,9 @@ In order. Each one ends with a line in the tested-on table.
   a fraction of a second and take a speed nudge (the box's agent and the app, so a Box OS version and an app build);
   a room started from the Fire TV app; two real screens side by side, measured.
 - Roku store certification; a Vega OS app if Amazon's web-view route allows a server of your own.
-- **Tuners and recording on a real HDHomeRun** (built against a stand-in in 1.5.13 and 1.5.14), and REC in the Sofa
-  Box's own player.
+- **Tuners and recording on a real HDHomeRun** (built against a stand-in in 1.5.13 and 1.5.14), and on a Sofa Box with
+  one: REC in the box's own player (built in 1.1.92), a TV remote's REC button over HDMI-CEC, and an over-the-air
+  recording played on a Pi.
 - A native **Apple TV** app (tvOS has no web view, so it has to be native).
 
 ## Not planned
