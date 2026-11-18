@@ -85,6 +85,10 @@ class WithATunerAtHome:
 
     @classmethod
     def sofa_down(cls):
+        dvr._table()                                    # (nothing left for the tests after: Live TV shows Recordings once
+        for t in ("recordings", "recording_rules"):     # something has been recorded)
+            store.ex("DELETE FROM %s" % t)
+        dvr._changed()
         cls.httpd.shutdown()
         cls.box.close()
         config.update(cls.before)
