@@ -23,7 +23,7 @@ import threading
 from . import (archive, __version__, acme, apps, artwork, auth, awake, backup, config, ddns, demo, dlna, dvr, fetch, guide, housekeeping, intros, live, media, metadata, music,
                outside,
                kids, machine, net, optimize, organizer, places, previews, report, screens, store, tls, trickplay, updater, upnp,
-               discovery, pairing, sharing, slow, travel, tuners, uploads)
+               discovery, pairing, sharing, slow, together, travel, tuners, uploads)
 from . import history
 from .library import LIBRARY
 
@@ -863,6 +863,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.json({"/api/progress": {}, "/api/screens": {"screens": []}, "/api/apps": {},
                               "/api/music": {"tracks": [], "albums": [], "artists": [], "videos": [], "likes": [], "recent": []},
                               "/api/live": {"channels": [], "groups": [], "playlists": [], "favorites": []}}[path])
+        if path.startswith("/api/together"):         # watching together (sofa/together.py)
+            return self.together_get(path, qs, u)
         if path == "/api/profiles":
             if not self.may_switch(u):
                 return self.error(403, "Switching profiles works at home, from a signed-in profile.")
@@ -1023,7 +1025,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.error(503, "The server is busy converting other videos for other people. Try again in a moment.")
             except OSError as exc:
                 return self.error(500, "ffmpeg couldn't start: %s" % exc)
-            return self.json({"url": "/media/hls/%s/index.m3u8" % sid, "session": sid})
+            # `start`: where its first picture really is (copied video starts on the keyframe before the place asked for)
+            return self.json({"url": "/media/hls/%s/index.m3u8" % sid, "session": sid, "start": media.hls_from(sid)})
         if path == "/api/admin/status":
             return self.json(admin_status())
         if path == "/api/admin/history":           # bringing history from Plex or Jellyfin: how it's going, the dry run
@@ -1178,6 +1181,8 @@ class Handler(BaseHTTPRequestHandler):
             if path.startswith(("/api/progress/", "/api/screen/state")):
                 return self.json({"ok": True})
             return self.error(403, "Sign in to do that.")
+        if path.startswith("/api/together"):         # watching together (sofa/together.py)
+            return self.together_post(path, data, u)
         m = re.match(r"^/api/travel/(.+)$", path)
         if m:
             item = self.visible_item(m.group(1), u)
@@ -1769,6 +1774,84 @@ class Handler(BaseHTTPRequestHandler):
         if (user or {}).get("visitor") and not sharing.item_shared(item, LIBRARY):
             return None
         return item
+
+    # ------------------------------------------------------------ watching together (sofa/together.py)
+
+    TOGETHER_KINDS = ("episode", "movie", "extra", "musicvideo")
+
+    def together_may_see(self, user, item_id):
+        """A title a room may play for this profile: one it may watch, and never from the Adult section (a room shows its
+        title to whoever has the code, and on the TV of whoever joins)."""
+        item = self.visible_item(item_id, user)
+        return bool(item) and item.get("kind") in self.TOGETHER_KINDS and not item.get("adult")
+
+    def together_profile(self, u):
+        """Rooms are for this Sofa's profiles: never a Visitor (the share link), nor a guest (the guest QR code)."""
+        if u.get("guest") or u.get("visitor"):
+            self.error(403, "Watching together is for this Sofa's profiles. Sign in to one first.")
+            return False
+        return True
+
+    def together_away(self):
+        """The address a room's link works at from away, when this Sofa answers the internet (over HTTPS only)."""
+        domain = (config.get("domain") or "").strip()
+        return "https://%s" % domain if domain and tls.trusted() and config.get("remote") == "public" else None
+
+    def together_get(self, path, qs, u):
+        if path == "/api/together/clock":           # this server's clock, for a screen to line itself up with
+            return self.json({"now": together.clock()})
+        if not self.together_profile(u):
+            return
+        m = re.match(r"^/api/together/([A-Za-z]{1,12})(/wait)?$", path)
+        if not m:
+            return self.error(404, "Not found")
+        arg = lambda k: (qs.get(k) or [""])[0]      # noqa: E731
+        try:
+            if m.group(2):                          # a screen in the room, waiting for news
+                since = int(arg("since")) if re.match(r"^-?\d{1,9}$", arg("since")) else -1
+                return self.json(together.wait(u, arg("tab"), m.group(1), since))
+            item_id, host = together.peek(u, m.group(1))
+            if not self.together_may_see(u, item_id):  # (and not what it is)
+                return self.error(403, "That room is playing something this profile can't watch.")
+            return self.json({"code": together.normal_code(m.group(1)), "item": item_id, "host": host})
+        except together.Refused as exc:
+            return self.error(exc.status, exc.message)
+
+    def together_post(self, path, data, u):
+        if not self.together_profile(u):
+            return
+        tab, device = str(data.get("tab") or "")[:40], str(data.get("device") or "")[:40]
+        if not re.match(r"^[\w-]{4,40}$", tab):
+            return self.error(400, "Couldn't tell which screen this is.")
+        try:
+            if path == "/api/together":             # a room, from the player: this screen is its host
+                item_id = str(data.get("item") or "")
+                if not self.together_may_see(u, item_id):
+                    return self.error(404, "That video isn't in the library any more.")
+                room = together.start(u, tab, device, item_id, number(data.get("t")) or 0, bool(data.get("paused")),
+                                      data.get("rate") or 1)
+                store.log("playback", "%s started a room to watch together" % u["name"])
+                return self.json(dict(room, away=self.together_away()))
+            m = re.match(r"^/api/together/([A-Za-z]{1,12})/(join|steer|leave)$", path)
+            if not m:
+                return self.error(404, "Not found")
+            code, what = m.group(1), m.group(2)
+            if what == "join":
+                item_id, _ = together.peek(u, code)
+                if not self.together_may_see(u, item_id):
+                    return self.error(403, "That room is playing something this profile can't watch.")
+                return self.json(dict(together.join(u, tab, device, code), away=self.together_away()))
+            if what == "leave":
+                together.leave(u, tab, code, end=bool(data.get("end")))
+                return self.json({"ok": True})
+            t = data.get("t")
+            if t is not None and number(t) is None:
+                return self.error(400, "That isn't a place in the video.")
+            return self.json(together.steer(u, tab, code, str(data.get("act") or ""), t=None if t is None else number(t),
+                                            rate=data.get("rate"), item=data.get("item"), everyone=data.get("everyone"),
+                                            may_see=self.together_may_see))
+        except together.Refused as exc:
+            return self.error(exc.status, exc.message)
 
     def network_label(self):
         return {"local": "this computer", "lan": "the home network", "tailnet": "Tailscale",

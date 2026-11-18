@@ -3484,6 +3484,12 @@ function route(animate) {
   const hash = decodeURIComponent(location.hash.replace(/^#\/?/, ""));
   const [name, ...rest] = hash.split("/");
   if (name === "play") return playFromHash(rest.join("/"));
+  if (name === "together") {                                // a room's link: Home underneath, and the room to join
+    history.replaceState(null, "", "#/");
+    route();
+    Together.joinDialog(rest.join(""));
+    return;
+  }
   let html, nav = "";
   if ((name === "shows" || name === "movies") && name !== filterPage) { pageFilter = ""; seenFilter = "all"; filterPage = name; }
   if (name === "show") { const arg = rest.join("/"); const cut = arg.lastIndexOf("|"); const sid = cut > 0 ? arg.slice(0, cut) : arg;
@@ -3973,7 +3979,9 @@ let toastTimer = 0;
 window.SofaToast = msg => toast(msg);           // for the Sofa box agent
 function toast(msg) {
   let t = $("#toast");
-  if (!t) { t = document.createElement("div"); t.id = "toast"; t.className = "toast"; t.setAttribute("role", "status"); document.body.appendChild(t); }
+  if (!t) { t = document.createElement("div"); t.id = "toast"; t.className = "toast"; t.setAttribute("role", "status"); }
+  const host = document.fullscreenElement || document.body;   // (full screen shows only the player: it goes in there)
+  if (t.parentNode !== host) host.appendChild(t);
   t.textContent = msg; t.classList.add("on");
   clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("on"), 4200);
 }
@@ -4027,11 +4035,12 @@ $("#castBtn").addEventListener("click", () => Screens.choose());
 function accountDialog() {
   const v = session.user.visitor, share = session.share || {};
   const d = openDialog(`<h2>${esc(v ? share.title : session.user.name)}</h2>${v ? `<p class="hint">A public library: what's shared here, for anyone with the link.</p>` : ""}
-    <div class="actions"><button class="btn" data-pick-theme="1">Theme</button><button class="btn" data-pick-servers="1">Servers</button>${v && !share.home ? "" : `<button class="btn" data-sign-out="1">${v ? "Sign in" : session.user.guest ? "Leave" : "Sign out"}</button>`}
+    <div class="actions"><button class="btn" data-pick-theme="1">Theme</button>${Together.offered() ? `<button class="btn" data-pick-room="1">Watch together</button>` : ""}<button class="btn" data-pick-servers="1">Servers</button>${v && !share.home ? "" : `<button class="btn" data-sign-out="1">${v ? "Sign in" : session.user.guest ? "Leave" : "Sign out"}</button>`}
       <button class="btn ghost" data-dismiss="1">Close</button></div>`);
   d.addEventListener("click", e => {
     if (e.target.closest("[data-pick-servers]")) { closeDialog(); setTimeout(serversDialog, 60); }
     else if (e.target.closest("[data-pick-theme]")) { closeDialog(); setTimeout(appearanceDialog, 60); }
+    else if (e.target.closest("[data-pick-room]")) { closeDialog(); setTimeout(() => Together.joinDialog(), 60); }
     else if (e.target.closest("[data-sign-out]")) { closeDialog(); signOut(); }
   });
   const f = $("[data-pick-theme]", d); if (f) f.focus();
@@ -4407,6 +4416,7 @@ const Screens = (function () {
   }
   return {
     start() { if (!session.user.guest) listen(); refresh(); },      // a guest only sends (to the house's TVs)
+    id,
     target: () => target,
     choose,
     play(itemId, fromStart) { send({ cmd: "play", item: itemId, t: fromStart ? 0 : undefined }); },
@@ -4471,6 +4481,7 @@ const Player = (function () {
   const ccBtn = $('[data-act="cc"]', el), ccMenu = $(".cc-menu", el);
   const spinner = $(".p-spinner", el), pauseInfo = $(".p-pause-info", el), epsPanel = $(".p-eps", el), helpBox = $(".p-help", el);
   const seekHint = $(".p-seekhint", el), endsEl = $(".p-ends", el), epsBtn = $('[data-act="eps"]', el), pipBtn = $('[data-act="pip"]', el);
+  const roomBox = $(".p-room", el), roomBtn = $('[data-act="room"]', el);
   let subDelay = 0;           // seconds the subtitles are moved (+ later, - earlier), for this video
   let audioChoice = null, burnChoice = null, pauseTimer = 0, spinTimer = 0, lastTap = { t: 0, x: 0 }, tapTimer = 0;
   const skipBtn = $(".p-skip", el), optsBox = $(".p-opts", el), stillBox = $(".p-still", el), thumbEl = $(".p-thumb", el), htLabel = $(".ht-label", el);
@@ -4502,6 +4513,7 @@ const Player = (function () {
     vp9: !!video.canPlayType('video/webm; codecs="vp9"')
   };
   let item = null, next = null, plan = null, offset = 0, hlsSession = null, subIndex = -1;
+  let speed = 1;              // the speed chosen (in a room the player may run a hair faster or slower to keep in step)
   let lastSave = 0, idleTimer = 0, ambientTimer = 0, nextHidden = false, dragging = false, returnFocus = null;
 
   if ("filter" in ctx) ctx.filter = "blur(1.5px)";
@@ -4524,7 +4536,21 @@ const Player = (function () {
   async function open(it, queue, how) {
     if (!it) return;
     stopTrailer();
-    if (NATIVE && !nativeFailed.has(it.id) && it.kind !== "track") return nativeOpen(it, queue, how);
+    if (Together.on() && !(how && how.room) && (it.adult || (it.show && it.show.adult))) {
+      if (!Together.maySteer()) return;
+      Together.leave("A room doesn't play anything from the Adult section, so you left the room.");
+    }
+    if (Together.on() && !(how && how.room)) {
+      if (it.id === Together.item()) how = { room: true, at: Together.where(), rate: speed };     // (Try again: where the room is)
+      else {                                       // another title: the room goes on to it, if this screen steers
+        if (!Together.maySteer()) return;
+        Together.steer("item", { item: it.id, t: 0 });
+        how = { room: true, at: 0, rate: speed };
+      }
+    }
+    const inRoom = !!(how && how.room);
+    // (in a room, the page's own player: the Fire TV app's player can't keep in step to a fraction of a second)
+    if (NATIVE && !nativeFailed.has(it.id) && it.kind !== "track" && !inRoom) return nativeOpen(it, queue, how);
     playQueue = queue && queue.includes(it) ? queue : null;
     MusicPlayer.pause();
     enterHistory();
@@ -4542,15 +4568,18 @@ const Player = (function () {
     trick = null; markers = []; skipShown = null; skipBtn.hidden = optsBox.hidden = stillBox.hidden = true;
     loadTrick(it);
     pipBtn.hidden = TV || !document.pictureInPictureEnabled;
-    recBtn.hidden = true; liveCh = null;
+    recBtn.hidden = true; liveCh = null; roomBox.hidden = true; Together.paintButton(roomBtn, !(it.adult || owner.adult));
     showSpinner("Loading…");
     $('[data-act="next"]', el).hidden = !next;
     el.hidden = false;
     document.body.style.overflow = "hidden";
-    video.playbackRate = 1; $(".speed", el).textContent = "1×";
+    speed = inRoom && how.rate ? how.rate : 1; video.playbackRate = speed; $(".speed", el).textContent = speed + "×";
+    let pl;
     try {
-      plan = await api("/api/play/" + encodeURIComponent(it.id) + "?" + capsQuery());
-    } catch (e) { return showError("This video can't be played", e.message); }
+      pl = await api("/api/play/" + encodeURIComponent(it.id) + "?" + capsQuery());
+    } catch (e) { return item === it && showError("This video can't be played", e.message); }
+    if (item !== it) return;                     // (another title was chosen meanwhile)
+    plan = pl;
     if (plan.mode === "unsupported") return showError("This video can't be played here", plan.message);
     plan.audio = plan.audio || []; plan.picture_subtitles = plan.picture_subtitles || []; plan.firstMode = plan.mode;
     markers = plan.markers || []; drawMarks();
@@ -4565,10 +4594,11 @@ const Player = (function () {
     modeEl.title = plan.why && plan.why.length ? "Adapted for this device: " + plan.why.join(", ") : "";
     ccBtn.hidden = !plan.subtitles.length && !plan.picture_subtitles.length && plan.audio.length < 2;
     const p = prog(it.id);
-    const resumeAt = p && !p.done && p.t > 30 && (!plan.duration || p.t < plan.duration - 30) ? p.t : 0;
+    const resumeAt = inRoom ? Math.max(0, Math.min(how.at || 0, plan.duration ? plan.duration - 1 : Infinity))   // where the room is
+      : p && !p.done && p.t > 30 && (!plan.duration || p.t < plan.duration - 30) ? p.t : 0;
     await load(resumeAt);
     applyNight();
-    if (resumeAt) {
+    if (resumeAt && !inRoom) {
       chip.firstElementChild.textContent = "Resumed at " + clock(resumeAt);
       chip.hidden = false;
       setTimeout(() => { chip.hidden = true; }, 7000);
@@ -4593,13 +4623,14 @@ const Player = (function () {
         const h = await api("/api/hls/" + encodeURIComponent(item.id) + "?mode=" + plan.mode + "&t=" + at.toFixed(1) + (hlsSession ? "&replace=" + hlsSession : "") +
                             (audioChoice != null ? "&audio=" + audioChoice : "") + (picture ? "&h=" + picture : "") +
                             (burnChoice != null ? "&burn=" + burnChoice : "") + "&" + capsQuery());
-        hlsSession = h.session; offset = at;
+        // (repackaged video starts on the keyframe before `at`: Sofa says where, and the picture starts at `at` all the same)
+        hlsSession = h.session; offset = h.start != null && h.start <= at ? h.start : at;
         if (hls) { hls.destroy(); hls = null; }
         if (nativeHls) video.src = h.url;
         else {
           // The playlist grows while Sofa converts: start at its beginning (hls.js never jumps ahead to "live"
           // by itself), and keep a minute and a half behind for ←, not more (TV sticks have little memory).
-          hls = new window.Hls({ startPosition: 0, maxBufferLength: 60, maxMaxBufferLength: 180, backBufferLength: 90,
+          hls = new window.Hls({ startPosition: at - offset > 0.05 ? at - offset : 0, maxBufferLength: 60, maxMaxBufferLength: 180, backBufferLength: 90,
                                  maxBufferHole: 0.5, manifestLoadingTimeOut: 30000,
                                  levelLoadingTimeOut: 30000, fragLoadingTimeOut: 40000 });
           hls.on(window.Hls.Events.ERROR, (_, data) => { if (data.fatal) playbackFailed(); });
@@ -4672,13 +4703,20 @@ const Player = (function () {
   function stopServerStream() { if (hlsSession) { api("/api/hls/stop", {}).catch(() => {}); hlsSession = null; } }
   function seekTo(t) {
     t = Math.max(0, Math.min(total() ? total() - 1 : t, t));
-    if (!live()) { video.currentTime = t; return; }
+    if (!live()) { video.currentTime = t; return t; }
     const bufferedEnd = video.buffered.length ? offset + video.buffered.end(video.buffered.length - 1) : 0;
     if (t >= offset && t <= bufferedEnd) video.currentTime = t - offset;   // already have it
     else load(t);
+    return t;
+  }
+  // A skip someone pressed (the line, a number key, Skip Intro, Start over, the phone remote): in a room, the room's
+  function userSeek(t) {
+    if (!Together.maySteer()) return;
+    Together.steer("seek", { t: seekTo(t) });
   }
   function close() {
-    pushed = false; endHold(false);
+    if (Together.on()) Together.leave("You left the room.");
+    pushed = false; endHold(false); roomBox.hidden = true;
     clearTimeout(sleepTimer); sleepPlan = {};
     if (hls) { hls.destroy(); hls = null; }
     el.classList.remove("is-live"); liveList_ = null;
@@ -4708,10 +4746,11 @@ const Player = (function () {
   }
   function playNext(auto) {
     if (!next) return;
+    if (Together.on() && !(auto === true ? Together.steers() : Together.maySteer())) return;   // the room moves on for them
     autoNexts = auto === true && Date.now() - lastInput > 60000 ? autoNexts + 1 : 0;
     save(true); stopServerStream(); const n = next; video.removeAttribute("src"); delete nextCard.dataset.credits;
     open(n, playQueue).then(() => {
-      if (autoNexts >= 3 && opt("still", true)) { video.pause(); stillBox.hidden = false; $(".btn", stillBox).focus(); }
+      if (autoNexts >= 3 && opt("still", true) && !Together.on()) { video.pause(); stillBox.hidden = false; $(".btn", stillBox).focus(); }
     });
   }
   function showError(heading, msg) {
@@ -4808,7 +4847,7 @@ const Player = (function () {
     const m = markers.find(x => t >= x.start - 0.5 && t < x.end - 1.5);
     const credits = markers.find(x => x.kind === "credits" && t >= x.start - 0.5);
     if (credits && next && !nextHidden && opt("autoplay", true)) { skipBtn.hidden = true; return showNextCard(credits); }
-    if (m && m.kind !== "credits" && opt("autoskip", false) && skipShown !== m) { skipShown = m; seekTo(m.end); toast("Skipped the " + m.kind); return; }
+    if (m && m.kind !== "credits" && opt("autoskip", false) && skipShown !== m && Together.steers()) { skipShown = m; userSeek(m.end); toast("Skipped the " + m.kind); return; }
     if (m && (m.kind !== "credits" || !next)) {
       if (skipShown !== m) { skipShown = m; skipBtn.textContent = SKIP_LABEL[m.kind]; skipBtn.dataset.to = m.end; skipBtn.hidden = false;
         if (TV && !openPanel()) skipBtn.focus({ preventScroll: true }); }    // on a TV, OK skips (like Netflix)
@@ -4820,6 +4859,7 @@ const Player = (function () {
   }
   function showNextCard(credits) {
     if (sleepPlan.mode === "end") return;                  // the sleep timer stops here instead
+    if (!Together.steers()) return;                        // (in a room the host's screen goes on to the next one)
     if (!nextCard.hidden) return;
     $(".frame", nextCard).innerHTML = thumbFor(next);
     $(".name", nextCard).textContent = subtitleFor(next);
@@ -4842,6 +4882,7 @@ const Player = (function () {
     if (v !== "off") toast(v === "end" ? "Sofa stops at the end of this one." : "Sofa stops in " + (v === "60" ? "an hour." : "30 minutes."));
   }
   function goToSleep() {
+    if (Together.on()) Together.leave();                  // (the room goes on without this screen)
     sleepPlan = {}; nextCard.hidden = true; endHold(false); video.pause(); save(true);
     toast("Good night. The sleep timer stopped playing; press Play to carry on.");
   }
@@ -4884,7 +4925,7 @@ const Player = (function () {
       <div class="toggle"><div><b>Sleep timer</b><span>${sleepPlan.mode === "end" ? "Stops at the end of this " + (item && item.kind === "episode" ? "episode" : "video") + "." : sleepPlan.at ? "Stops at " + new Date(sleepPlan.at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) + "." : "Off."}</span></div>
         <div class="sorter inline">${[["off", "Off"], ["end", "End of this"], ["30", "30 min"], ["60", "1 hour"]].map(o =>
           `<button data-opt-sleep="${o[0]}" aria-pressed="${(sleepPlan.mode || "off") === o[0]}">${o[1]}</button>`).join("")}</div></div>
-      <div class="toggle"><div><b>Speed</b></div><div class="sorter inline">${[0.75, 1, 1.25, 1.5, 2].map(s => `<button data-opt-speed="${s}" aria-pressed="${video.playbackRate === s}">${s}×</button>`).join("")}</div></div>
+      <div class="toggle"><div><b>Speed</b></div><div class="sorter inline">${[0.75, 1, 1.25, 1.5, 2].map(s => `<button data-opt-speed="${s}" aria-pressed="${speed === s}">${s}×</button>`).join("")}</div></div>
       <div class="toggle"><div><b>Subtitle size</b></div><div class="sorter inline">${[["s", "S"], ["m", "M"], ["l", "L"], ["xl", "XL"]].map(x => `<button data-opt-subsize="${x[0]}" aria-pressed="${prefs.get("subSize", "m") === x[0]}">${x[1]}</button>`).join("")}</div></div>
       <div class="toggle"><div><b>Subtitle style</b></div><div class="sorter inline">${[["box", "On a dark box"], ["outline", "Outlined"]].map(x => `<button data-opt-substyle="${x[0]}" aria-pressed="${prefs.get("subStyle", "box") === x[0]}">${x[1]}</button>`).join("")}</div></div>
       ${subIndex >= 0 ? `<div class="toggle"><div><b>Subtitle timing</b><span>${subDelay ? "Shown " + Math.abs(subDelay).toFixed(1) + " s " + (subDelay > 0 ? "later" : "earlier") + " than the file says." : "As the file has them. Out of sync? Move them."}</span></div>
@@ -4914,7 +4955,7 @@ const Player = (function () {
     }
     if (b.dataset.optSleep) { setSleep(b.dataset.optSleep); optsOpen(); return; }
     if (b.dataset.opt) { const on = b.getAttribute("aria-checked") !== "true"; setOpt(b.dataset.opt, on); b.setAttribute("aria-checked", on); if (b.dataset.opt === "night") applyNight(); return; }
-    if (b.dataset.optSpeed) { video.playbackRate = +b.dataset.optSpeed; $(".speed", el).textContent = video.playbackRate + "×"; }
+    if (b.dataset.optSpeed) setSpeed(+b.dataset.optSpeed);
     else if (b.dataset.optSubsize) { prefs.set("subSize", b.dataset.optSubsize); applySubSize(); }
     else if (b.dataset.optClear) {
       try { await api("/api/admin/markers/" + encodeURIComponent(item.id), { kind: b.dataset.optClear, clear: true }); markers = markers.filter(m => m.kind !== b.dataset.optClear); skipBtn.hidden = true; toast("Got it. Sofa won't offer that skip on this episode."); } catch (ex) { toast(ex.message); }
@@ -4972,6 +5013,7 @@ const Player = (function () {
     const b = e.target.closest("[data-eps-play],[data-eps-season],[data-eps-close]"); if (!b) return;
     if (b.dataset.epsClose) { epsPanel.hidden = true; epsBtn.focus(); }
     else if (b.dataset.epsSeason) epsOpen(+b.dataset.epsSeason);
+    else if (!Together.maySteer()) epsPanel.hidden = true;
     else { const ep = byId.get(b.dataset.epsPlay); if (ep && ep !== item) { save(true); stopServerStream(); video.removeAttribute("src"); epsPanel.hidden = true; open(ep); } else epsPanel.hidden = true; }
   });
 
@@ -5009,7 +5051,7 @@ const Player = (function () {
     endsEl.textContent = d && !el.classList.contains("is-live") ? "ends " + new Date(Date.now() + (d - t) * 1000 / (video.playbackRate || 1)).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }) : "";
     if (video.buffered.length && d) buf.style.width = Math.min(100, ((offset + video.buffered.end(video.buffered.length - 1)) / d) * 100) + "%";
     const left = d - t;
-    if (next && d && left <= 30 && left > 0 && !nextHidden && opt("autoplay", true)) {
+    if (next && d && left <= 30 && left > 0 && !nextHidden && opt("autoplay", true) && Together.steers()) {
       if (nextCard.hidden) {
         $(".frame", nextCard).innerHTML = thumbFor(next);
         $(".name", nextCard).textContent = subtitleFor(next);
@@ -5031,20 +5073,26 @@ const Player = (function () {
     if (playing && el.classList.contains("ambient")) startAmbient(); else stopAmbient();
   }
   function toggle() {
+    if (Together.on() && !Together.steers()) {      // not steering: Play joins back in where the room is; nothing else
+      if (!Together.paused() && video.paused && !holding) video.play().catch(() => {}); else Together.maySteer();
+      return;
+    }
     if (holding || !video.paused) userPause(); else video.play().catch(() => {});
+    Together.steer(video.paused || holding ? "pause" : "play");
     $("use", flash).setAttribute("href", video.paused ? "#i-pause" : "#i-play");
     flash.classList.remove("go"); void flash.offsetWidth; flash.classList.add("go");
   }
   let seekTarget = null, seekTimer = 0, previewTimer = 0;
   function seekBy(s) {
     if (!total()) return wake();
+    if (!el.classList.contains("is-live") && !Together.maySteer()) return wake();
     if (live() && !el.classList.contains("is-live")) {
       // Converted video: pressing →→→ quickly lands once, instead of restarting the converter on every press.
       seekTarget = Math.max(0, Math.min(total() - 1, (seekTarget != null ? seekTarget : now()) + s));
       clearTimeout(seekTimer);
-      seekTimer = setTimeout(() => { const t = seekTarget; seekTarget = null; seekTo(t); }, 700);
+      seekTimer = setTimeout(() => { const t = seekTarget; seekTarget = null; Together.steer("seek", { t: seekTo(t) }); }, 700);
       previewAt(seekTarget); paint();
-    } else { seekTo(now() + s); previewAt(Math.max(0, now())); }
+    } else { Together.steer("seek", { t: seekTo(now() + s) }); previewAt(Math.max(0, now())); }
     if (!lastTap.touchDbl) flashSeek((s < 0 ? "− " : "+ ") + Math.abs(s) + " s", s < 0 ? "left" : "right");
     wake();
   }
@@ -5080,6 +5128,17 @@ const Player = (function () {
   video.addEventListener("play", () => { if (holdResume) { holdResume = false; return; } setPlayingUI(); wake(); clearTimeout(pauseTimer); pauseInfo.hidden = true; });
   video.addEventListener("pause", () => { if (holding) return; setPlayingUI(); save(true); wake(); clearTimeout(pauseTimer);
     if (!video.ended) pauseTimer = setTimeout(() => { if (video.paused && !el.hidden && errorBox.hidden) showPauseInfo(); }, 2500); });
+  // A pause or a play nobody pressed here (headphones, a keyboard's media keys, the system's controls): on a screen that
+  // steers a room, the room's too. (Not a wait for video, a load, the end, or the room's own: those aren't anyone's.)
+  video.addEventListener("pause", () => {
+    if (holding || video.ended || video.seeking || video.readyState < 3 || !spinner.hidden || Date.now() - loadedAt < 1500) return;
+    if (document.hidden) return;               // (a phone locked, or another app in front: the phone paused it, not a person)
+    if (Together.on() && Together.steers() && !Together.paused()) Together.steer("pause");
+  });
+  video.addEventListener("play", () => {
+    if (!spinner.hidden || Date.now() - loadedAt < 1500 || el.hidden) return;      // (a video starting: the room decides)
+    if (Together.on() && Together.steers() && Together.paused()) Together.steer("play");
+  });
   video.addEventListener("waiting", () => {
     if (el.hidden || !errorBox.hidden) return;
     showSpinner(plan && plan.mode !== "direct" ? "Getting the next part ready…" : "Loading…");
@@ -5128,7 +5187,7 @@ const Player = (function () {
   scrub.addEventListener("pointerup", e => {
     if (!dragging) return;
     dragging = false; scrub.classList.remove("drag");
-    if (total()) seekTo(ratioAt(e.clientX) * total());
+    if (total()) userSeek(ratioAt(e.clientX) * total());
     wake();
   });
   volume.addEventListener("input", () => { video.volume = +volume.value; video.muted = +volume.value === 0; prefs.set("volume", +volume.value); });
@@ -5160,10 +5219,10 @@ const Player = (function () {
     else if (a === "mute") video.muted = !video.muted;
     else if (a === "next") { if (el.classList.contains("is-live")) zap(1); else playNext(); }
     else if (a === "cancel-next") { nextHidden = true; nextCard.hidden = true; delete nextCard.dataset.credits; toggleBtn.focus({ preventScroll: true }); }
-    else if (a === "skip") { seekTo(+skipBtn.dataset.to); skipBtn.hidden = true; toggleBtn.focus({ preventScroll: true }); }
+    else if (a === "skip") { userSeek(+skipBtn.dataset.to); skipBtn.hidden = true; toggleBtn.focus({ preventScroll: true }); }
     else if (a === "opts") { if (optsBox.hidden) optsOpen(); else optsBox.hidden = true; }
     else if (a === "still-yes") { autoNexts = 0; stillBox.hidden = true; video.play().catch(() => {}); }
-    else if (a === "restart") { seekTo(0); chip.hidden = true; }
+    else if (a === "restart") { userSeek(0); chip.hidden = true; }
     else if (a === "full") fullscreen();
     else if (a === "ambient") setAmbient(!el.classList.contains("ambient"));
     else if (a === "cc") { if (ccMenu.hidden) ccMenuOpen(); else ccMenu.hidden = true; }
@@ -5179,13 +5238,12 @@ const Player = (function () {
         b.remove();
       }).catch(ex => { $(".p-error p", el).textContent = ex.message; });
     }
-    else if (a === "speed") {
-      const i = (SPEEDS.indexOf(video.playbackRate) + 1) % SPEEDS.length;
-      video.playbackRate = SPEEDS[i]; b.textContent = SPEEDS[i] + "×";
-    }
+    else if (a === "speed") setSpeed(SPEEDS[(SPEEDS.indexOf(speed) + 1) % SPEEDS.length]);
+    else if (a === "room") roomToggle();
   });
   document.addEventListener("keydown", e => {
     if (el.hidden || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (document.querySelector(".dialog-scrim")) return;       // a dialog over the player (a room's code being typed) has the keys
     const k = e.key;
     lastInput = Date.now();
     // An open panel (episodes, audio/subtitles, options, shortcuts, "still watching?", an error) keeps the remote inside it.
@@ -5194,14 +5252,14 @@ const Player = (function () {
     if (panel && (k === "Escape" || k === "Backspace") && panel !== errorBox && panel !== stillBox) { e.preventDefault(); closePanels(); return; }
     if ((k === "s" || k === "S") && !skipBtn.hidden) { e.preventDefault(); skipBtn.click(); return; }
     if (TV && ARROWS[k] && !panel) { e.preventDefault(); remoteArrow(k); return; }
-    if (/^[0-9]$/.test(k) && total() && !el.classList.contains("is-live") && !(e.target.closest && e.target.closest("input"))) { e.preventDefault(); seekTo(total() * (+k) / 10); wake(); return; }
+    if (/^[0-9]$/.test(k) && total() && !el.classList.contains("is-live") && !(e.target.closest && e.target.closest("input"))) { e.preventDefault(); userSeek(total() * (+k) / 10); wake(); return; }
     const onButton = e.target.closest && e.target.closest("button") && (k === " " || k === "Enter");
     if (onButton) return;
     const controlsHidden = el.classList.contains("idle");
     const map = {
       " ": toggle, k: toggle, Enter: toggle, MediaPlayPause: toggle,
       ArrowLeft: () => seekBy(-10), j: () => seekBy(-10), ArrowRight: () => seekBy(10), l: () => seekBy(30),
-      p: togglePip, r: recPress, MediaRecord: recPress, e: () => { if (!epsBtn.hidden) { if (epsPanel.hidden) epsOpen(); else epsPanel.hidden = true; } }, "?": helpToggle,
+      p: togglePip, r: recPress, MediaRecord: recPress, w: roomToggle, e: () => { if (!epsBtn.hidden) { if (epsPanel.hidden) epsOpen(); else epsPanel.hidden = true; } }, "?": helpToggle,
       "<": () => speedBy(-1), ">": () => speedBy(1), ",": () => speedBy(-1), ".": () => speedBy(1),
       MediaRewind: () => seekBy(-10), MediaFastForward: () => seekBy(30),
       ArrowUp: () => { video.volume = Math.min(1, video.volume + 0.1); volume.value = video.volume; },
@@ -5221,11 +5279,11 @@ const Player = (function () {
   /* The TV remote (Fire TV Silk, Android TV): like Netflix on a TV.
      Controls hidden: left/right skip 10 s, up/down (or OK) bring the controls up on the timeline.
      On the timeline: left/right skip, OK pauses, down goes to the buttons. Live TV: up/down change channel. */
-  const panels = () => [stillBox, errorBox, helpBox, optsBox, epsPanel, ccMenu];
+  const panels = () => [stillBox, errorBox, helpBox, optsBox, roomBox, epsPanel, ccMenu];
   function openPanel() { return panels().find(x => !x.hidden) || null; }
   function closePanels() {
-    const back = !epsPanel.hidden ? epsBtn : !ccMenu.hidden ? ccBtn : !optsBox.hidden ? $('[data-act="opts"]', el) : toggleBtn;
-    helpBox.hidden = optsBox.hidden = epsPanel.hidden = ccMenu.hidden = true;
+    const back = !epsPanel.hidden ? epsBtn : !ccMenu.hidden ? ccBtn : !optsBox.hidden ? $('[data-act="opts"]', el) : !roomBox.hidden ? roomBtn : toggleBtn;
+    helpBox.hidden = optsBox.hidden = roomBox.hidden = epsPanel.hidden = ccMenu.hidden = true;
     if (back && !back.hidden) back.focus(); else toggleBtn.focus();
     wake();
   }
@@ -5252,11 +5310,39 @@ const Player = (function () {
                                              headers: { "Content-Type": "application/json", "X-Sofa": "1" }, body: "{}" }).catch(() => {});
   });
   function speedBy(step) {
-    const list = [0.75, 1, 1.25, 1.5, 2], i = Math.max(0, list.indexOf(video.playbackRate));
-    video.playbackRate = list[Math.max(0, Math.min(list.length - 1, i + step))];
-    $(".speed", el).textContent = video.playbackRate + "×";
-    flashSeek(video.playbackRate + "×", "mid");
+    const list = [0.75, 1, 1.25, 1.5, 2], i = Math.max(0, list.indexOf(speed));
+    if (setSpeed(list[Math.max(0, Math.min(list.length - 1, i + step))])) flashSeek(speed + "×", "mid");
   }
+  function setSpeed(r, follow) {              // follow: the room said so (not a press here)
+    if (!follow && !Together.maySteer()) return false;
+    speed = r; video.playbackRate = r; $(".speed", el).textContent = r + "×";
+    if (!follow) Together.steer("rate", { rate: r });
+    return true;
+  }
+  /* Watch together: the room's panel, and what the room (client: Together) needs of this player */
+  function roomToggle() {
+    if (!roomBox.hidden) { roomBox.hidden = true; roomBtn.focus(); return; }
+    if (!item || roomBtn.hidden) return;
+    helpBox.hidden = optsBox.hidden = epsPanel.hidden = ccMenu.hidden = true;
+    Together.paint(roomBox); roomBox.hidden = false; wake();
+    const f = $("button", roomBox); if (f) f.focus();
+  }
+  const sync = {
+    item: () => item && !el.hidden && !el.classList.contains("is-live") ? item.id : null,
+    at: () => now(),
+    rate: () => speed,
+    paused: () => video.paused && !holding,
+    // still getting the video, or a skip under way: not the moment to measure where it is
+    busy: playing => !plan || holding || video.seeking || seekTarget != null || !errorBox.hidden || video.readyState < (playing ? 3 : 1),
+    live: () => live(),
+    seek: t => seekTo(t),
+    play: () => { if (!holding) return video.play(); return Promise.resolve(); },
+    pause: () => { if (holding) endHold(false); video.pause(); },
+    nudge: k => { const r = speed * (1 + k); if (Math.abs(video.playbackRate - r) > 0.0005) video.playbackRate = r; },
+    speed: r => { if (r !== speed) setSpeed(r, true); },
+    open: (it, at, rate) => open(it, null, { room: true, at, rate }),
+    panel: () => roomBox, button: () => roomBtn
+  };
   let hls = null, liveList_ = null, liveIdx = 0, archiveTuned = 0, archiveNext = null, liveTuned = 0, liveFallback = null;
   // REC: what's on the channel at home, from now to the end of its programme (an hour without a guide); again, it stops
   let liveCh = null, recArmed = 0;
@@ -5325,7 +5411,7 @@ const Player = (function () {
     el.classList.add("is-live");
     errorBox.hidden = chip.hidden = nextCard.hidden = ccMenu.hidden = epsPanel.hidden = helpBox.hidden = pauseInfo.hidden = true;
     ccBtn.hidden = epsBtn.hidden = true; pipBtn.hidden = TV || !document.pictureInPictureEnabled;
-    liveCh = ch; recBtn.hidden = !(ch.recordable && dvrMay()); recShow();
+    liveCh = ch; recBtn.hidden = !(ch.recordable && dvrMay()); recShow(); roomBtn.hidden = roomBox.hidden = true;
     showSpinner("Tuning in…");
     const shown = ch.guide_number || ch.number;         // (a tuner's channel by its own number: 5.1)
     $(".p-show", el).innerHTML = (shown ? `<b class="p-num">${esc(shown)}</b>` : "") + esc(ch.name) + '<span class="live-badge">LIVE</span>';
@@ -5421,18 +5507,20 @@ const Player = (function () {
     if (!BoxCard.still(shown)) return;                          // Back on the card meanwhile: it doesn't start
     let url = p.url, hls = "";
     const start = pr && !pr.done && pr.t > 30 && (!p.duration || pr.t < p.duration - 30) ? pr.t : 0;
+    let from = start;                  // where the stream's first picture really is
     if (!start && pr && pr.t > 30) shown = card(0);
     if (p.mode !== "direct") {        // converted from where they left off: the app adds `offset` to what it plays
       const h = prefs.get("quality", "") || p.max_height || "";
       // (the same request from another place, for a skip further than Sofa has converted: as load(at) does here)
       hls = "/api/hls/" + encodeURIComponent(it.id) + "?mode=" + p.mode + (h ? "&h=" + h : "") + "&" + capsQuery(true);
-      try { url = (await api(hls + "&t=" + start.toFixed(1))).url; }
+      try { const r = await api(hls + "&t=" + start.toFixed(1)); url = r.url; if (r.start != null && r.start <= start) from = r.start; }
       catch (e) { giveUp(e); return; }
       if (!BoxCard.still(shown)) return;
     }
     nativeItem = it; nativeQueue = queue && queue.includes(it) ? queue : null; nativeHome = !!(how && how.home);
-    const shift = p.mode === "direct" ? 0 : start;
-    NATIVE.play(JSON.stringify({ item: it.id, url: location.origin + url, start: start - shift, offset: shift, duration: p.duration || 0,
+    // (the device's player starts at the stream's first picture, as before; `offset` is where that really is in the video)
+    const shift = p.mode === "direct" ? 0 : from;
+    NATIVE.play(JSON.stringify({ item: it.id, url: location.origin + url, start: p.mode === "direct" ? start : 0, offset: shift, duration: p.duration || 0,
       hls: hls && location.origin + hls, title: owner.name || it.title, sub: nativeSub(it), adult, h24: H24,
       mode: p.mode, why: p.why || [],         // (how Sofa sends it, and why: the box's report says so; never a title)
       subtitles: p.subtitles.map(t => ({ url: location.origin + t.url + (shift ? "?offset=" + shift.toFixed(2) : ""), lang: t.lang, label: t.label })),
@@ -5478,16 +5566,328 @@ const Player = (function () {
     if (nativeItem) return NATIVE.control(JSON.stringify(c));
     if (!item || el.classList.contains("is-live")) return;
     if (c.cmd === "toggle") toggle();
-    else if (c.cmd === "pause") userPause();
-    else if (c.cmd === "resume") { if (holding) endHold(true); else video.play().catch(() => {}); }
-    else if (c.cmd === "seek" && c.t != null) seekTo(+c.t);
+    else if (c.cmd === "pause") { if (!Together.on()) userPause(); else if (!video.paused || holding) toggle(); }
+    else if (c.cmd === "resume") { if (Together.on()) { if (video.paused) toggle(); } else if (holding) endHold(true); else video.play().catch(() => {}); }
+    else if (c.cmd === "seek" && c.t != null) userSeek(+c.t);
     else if (c.cmd === "skip" && c.by) seekBy(+c.by);
     else if (c.cmd === "next") playNext();
     else if (c.cmd === "stop") requestClose();
     wake();
   }
-  return { open, openLive, zap, capsQuery, status, control, isLive: () => el.classList.contains("is-live"), isOpen: () => !el.hidden };
+  return { open, openLive, zap, capsQuery, status, control, sync, isLive: () => el.classList.contains("is-live"), isOpen: () => !el.hidden };
 })();
+
+/* ---------- watching together (sofa/together.py) ----------
+   A room: people on this Sofa watching one title in step, each on their own screen. The room keeps one timeline on
+   Sofa's clock (where the video was, at what moment, paused or not, how fast). Every screen, the host's too, works out
+   where it should be now and keeps its own player there: a touch faster or slower for a small gap (a few per cent,
+   which nobody hears), a jump for a big one. What the one who steers presses goes to the room first. */
+const Together = (() => {
+  const local = () => performance.now() / 1000;
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  // Further off than this (seconds): a jump, not a nudge. Just after joining or a skip, when a jump is expected
+  // anyway, a smaller gap is jumped too; while watching, only a big one (a jump shows; a nudge doesn't).
+  const JUMP = 1, JUMP_CONVERTED = 2.5, JUMP_SETTLING = 0.25, JUMP_SETTLING_CONVERTED = 0.4;
+  const NUDGE_MAX = 0.08, NUDGE_GAIN = 0.5, CLOSE_ENOUGH = 0.015;
+  let room = null, since = -1, gen = 0, tick = 0, away = null, mine = -1, shown = -1;
+  let offset = null, samples = [], sampledAt = 0, rtt = 0; // Sofa's clock minus this one's (seconds); its round trip
+  const GOOD_RTT = 0.3;      // a slower answer could be off by half its round trip: kept, but asked again soon
+  let lag = 0, state = "loading", lastJump = -9, lead = 0, jumped = 0, opening = null, playRefused = false, settleUntil = 0;
+  let pressing = 0;                                        // presses here on their way to Sofa
+  const S = () => Player.sync;
+  const offered = () => !!(session && session.user && !session.user.guest && !session.user.visitor && !window.SofaBox);
+  const on = () => !!room;
+  const steers = () => !room || !!room.may_steer;
+  function maySteer() {
+    if (steers()) return true;
+    toast((room.host || "The host") + " is steering this room.");
+    return false;
+  }
+  const where = () => !room || offset == null ? 0 : room.paused ? room.pos : room.pos + (local() + offset - room.at) * room.rate;
+
+  /* Sofa's clock: a short request, the middle of its round trip; the quickest of the last few counts */
+  async function sample() {
+    const t0 = local(), r = await api("/api/together/clock"), t1 = local();
+    samples.push({ rtt: t1 - t0, off: r.now - (t0 + t1) / 2 });
+    if (samples.length > 8) samples.shift();
+    const best = samples.reduce((a, b) => b.rtt < a.rtt ? b : a);
+    offset = best.off; rtt = best.rtt;
+    sampledAt = local();
+  }
+  async function lineUp(n) { for (let i = 0; i < n; i++) { try { await sample(); } catch (e) { await sleep(300); } } }
+
+  function begin(r) {
+    room = r; since = r.rev; mine = r.rev; shown = r.last ? r.last.rev : -1; away = r.away || null;
+    lag = 0; state = "loading"; lastJump = -9; jumped = 0; playRefused = false;
+    gen++; clearInterval(tick); tick = setInterval(keep, 250);
+    listen(gen);
+    paintAll();
+  }
+  function stop(why) {
+    if (!room) return;
+    room = null; gen++; clearInterval(tick); tick = 0; opening = null;
+    try { S().nudge(0); } catch (e) {}
+    paintAll();
+    if (why) toast(why);
+  }
+  async function listen(g) {                 // news from the room
+    while (room && g === gen) {
+      try {
+        const r = await api("/api/together/" + room.code + "/wait?tab=" + Screens.id + "&since=" + since, undefined, 45000);
+        if (g !== gen || !room) return;
+        if (r.gone) return stop(r.gone);
+        apply(r);
+        if (pressing) await sleep(150);          // (its answer brings the news; no need to ask again and again)
+      } catch (e) {
+        if (g !== gen) return;
+        if (e.status === 403 || e.status === 404 || e.status === 410) return stop(e.message);
+        await sleep(3000);
+      }
+    }
+  }
+  function apply(r, answer) {
+    if (!room || r.code !== room.code) return;
+    // (news from before a press here, still on its way: only who's in the room, not where the video is)
+    const fresh = r.rev > since && (answer || !pressing), before = room.item;
+    Object.assign(room, fresh ? r : { members: r.members, host: r.host, is_host: r.is_host, may_steer: r.may_steer, everyone: r.everyone });
+    if (fresh) since = r.rev;
+    if (r.away !== undefined) away = r.away;
+    if (fresh && r.last && r.last.rev > shown) { shown = r.last.rev; if (r.last.rev !== mine) say(r.last); }
+    paintAll();
+    if (fresh && r.last && ["seek", "item", "play", "rate"].includes(r.last.act)) settleUntil = local() + 6;
+    if (S().item() !== room.item || (fresh && before !== room.item)) follow(); else keep();
+  }
+  function say(x) {
+    const it = byId.get(room.item), what = it ? (it.show ? it.show.name + " " + epCode(it) : title(it)) : "something else";
+    const msg = { play: x.by + " pressed play", pause: x.by + " paused", seek: x.by + " skipped to " + clock(x.t || 0),
+      rate: x.by + " set the speed to " + room.rate + "×", item: x.by + " put on " + what, joined: x.by + " joined the room",
+      left: x.by + " left the room", host: room.is_host ? "You're the host now" : x.by + " is the host now",
+      everyone: "Everyone can steer now", "host-only": "Only " + room.host + " steers now" }[x.act];
+    if (msg) toast(msg + ".");
+  }
+  function follow() {                        // the room's title, at the room's place, in this page's own player
+    const it = byId.get(room.item);
+    if (!it) { leave("The room is playing something that isn't in your library here."); return; }
+    if (opening === room.item) return;
+    opening = room.item; jumped = 0;
+    Promise.resolve(S().open(it, where(), room.rate)).then(() => { opening = null; settleUntil = local() + 8; keep(); }, () => { opening = null; });
+  }
+  /* Four times a second: where this player is against where the room is */
+  function keep() {
+    const before = state;
+    track();
+    if (state !== before && room) paintAll();              // (this screen's "in step" in the room's list)
+  }
+  function track() {
+    if (!room || offset == null || opening) return;
+    const p = S();
+    if (p.item() !== room.item) return;
+    if (local() - sampledAt > (rtt > GOOD_RTT ? 2 : 15)) { sampledAt = local(); sample().catch(() => {}); }
+    p.speed(room.rate);
+    const want = where();
+    if (room.paused) {
+      p.nudge(0);
+      if (!p.paused()) p.pause();
+      if (p.busy(false)) { state = "loading"; return; }
+      lag = p.at() - want; state = "ok";
+      if (Math.abs(lag) > 0.1 && local() - lastJump > 0.8) { lastJump = local(); p.seek(want); }
+      return;
+    }
+    if (p.paused()) {
+      if (!playRefused) p.play().catch(() => {           // the browser wants a press first
+        playRefused = true; toast("Press Play to watch along with the room.");
+      });
+      return;
+    }
+    playRefused = false;
+    if (p.busy(true)) { state = "loading"; p.nudge(0); return; }
+    lag = p.at() - want;
+    const settling = local() < settleUntil;
+    if (Math.abs(lag) > (settling ? (p.live() ? JUMP_SETTLING_CONVERTED : JUMP_SETTLING) : p.live() ? JUMP_CONVERTED : JUMP)) {
+      state = "behind"; p.nudge(0);
+      if (local() - lastJump > (settling ? (p.live() ? 2 : 1) : p.live() ? 4 : 1.5)) { lastJump = local(); jumped = local(); p.seek(want + lead); }
+      return;
+    }
+    state = "ok";
+    // A jump lands a little late (the player finds a frame to start from): the next one aims that much further on
+    if (jumped && local() - jumped > 0.75) { lead = Math.max(0, Math.min(1.5, lead - lag * 0.7)); jumped = 0; }
+    p.nudge(Math.abs(lag) < CLOSE_ENOUGH ? 0 : Math.max(-NUDGE_MAX, Math.min(NUDGE_MAX, -lag * NUDGE_GAIN)));
+  }
+
+  async function steer(act, o) {             // a press on this screen, for the room (shown here at once)
+    if (!room) return;
+    o = o || {};
+    const body = { tab: Screens.id, act };
+    if (act === "everyone") body.everyone = !!o.everyone;
+    else {
+      body.t = Math.max(0, o.t != null ? o.t : act === "item" ? 0 : S().at());
+      if (act === "rate") body.rate = o.rate;
+      if (act === "item") body.item = o.item;
+      if (offset != null) {
+        room.pos = body.t; room.at = local() + offset;
+        if (act === "pause") room.paused = true;
+        if (act === "play" || act === "item") room.paused = false;
+        if (act === "rate") room.rate = o.rate;
+        if (act === "item") room.item = o.item;
+      }
+      lastJump = local();                    // (this player is already there)
+    }
+    pressing++;
+    try { const r = await api("/api/together/" + room.code + "/steer", body); pressing--; mine = r.rev; apply(r, true); }
+    catch (e) {
+      pressing--; toast(e.message);
+      if (e.status === 410) stop();
+      else { since = -1; gen++; listen(gen); }  // (not taken: the room as it is, at once, puts this screen back)
+    }
+  }
+  async function start() {
+    const p = S(), id = p.item();
+    if (!id || room) return;
+    const box = p.panel();
+    box.innerHTML = `<h4>Watch together</h4><p class="room-how">Starting a room…</p>`;
+    try {
+      await lineUp(3);
+      begin(await api("/api/together", { tab: Screens.id, device: Screens.name(), item: id, t: p.at(), paused: p.paused(), rate: p.rate() }));
+      const f = $("[data-room]", box); if (f) f.focus();
+    } catch (e) { toast(e.message); paintAll(); }
+  }
+  async function join(code) {
+    if (room && room.code === code) return;
+    if (room) leave();
+    try {
+      await lineUp(3);
+      begin(await api("/api/together/" + code + "/join", { tab: Screens.id, device: Screens.name() }));
+      follow();
+    } catch (e) { toast(e.message); }
+  }
+  function leave(why) {
+    if (!room) return;
+    api("/api/together/" + room.code + "/leave", { tab: Screens.id }).catch(() => {});
+    stop(why);
+  }
+  async function end() {
+    if (!room) return;
+    try { await api("/api/together/" + room.code + "/leave", { tab: Screens.id, end: true }); stop("You ended the room."); }
+    catch (e) { toast(e.message); }
+  }
+  window.addEventListener("pagehide", () => {
+    if (room) fetch("/api/together/" + room.code + "/leave", { method: "POST", keepalive: true, credentials: "same-origin",
+                    headers: { "Content-Type": "application/json", "X-Sofa": "1" }, body: JSON.stringify({ tab: Screens.id }) }).catch(() => {});
+  });
+
+  /* the room's panel in the player (W, or the people button up top) */
+  const link = base => base + "/#/together/" + room.code;
+  // (how this screen is doing, as it is now: the others' would be as of their last word, up to half a minute old)
+  const here = () => state === "loading" ? "loading" : state === "behind" ? "catching up" : "in step";
+  const people = () => room.members.map(m => `<li>${avatar(m)}<span><b>${esc(m.name)}${m.you ? " (this screen)" : ""}</b>
+    <small>${[m.host ? "Host" : "", m.device, m.you ? here() : ""].filter(Boolean).map(esc).join(" · ")}</small></span></li>`).join("");
+  function paint(box) {
+    if (!room) {
+      box.innerHTML = `<h4>Watch together</h4>
+        <p class="room-how">Start a room and others on this Sofa join from their own screens, with its code or its link, signed in as
+          themselves. Play, pause, skips and speed follow you.</p>
+        <div class="actions"><button class="btn primary" data-room="start">Start a room</button></div>
+        <p class="room-how">Someone else's room: your profile's menu, Watch together.</p>`;
+      return;
+    }
+    const here = link(location.origin), far = away && away !== location.origin ? link(away) : "";
+    box.innerHTML = `<h4>Watching together</h4>
+      <div class="room-share"><div>
+      <div class="room-code" aria-label="Room code: ${room.code.split("").join(" ")}">${room.code.slice(0, 3)}<i></i>${room.code.slice(3)}</div>
+      <p class="room-how">On another screen: your profile, Watch together, and this code. Or the link${far ? "s" : ""}:</p>
+      <div class="room-link"><code>${esc(here)}</code>${navigator.clipboard ? `<button class="mini" data-room="copy" data-url="${esc(here)}">Copy</button>` : ""}</div>
+      ${far ? `<div class="room-link"><code>${esc(far)}</code>${navigator.clipboard ? `<button class="mini" data-room="copy" data-url="${esc(far)}">Copy</button>` : ""}<small>from away</small></div>` : ""}
+      </div><div class="qr room-qr" data-url="${esc(far || here)}" aria-label="The link as a QR code"></div></div>
+      <ul class="room-people">${people()}</ul>
+      ${room.is_host ? `<div class="toggle"><div><b>Everyone can steer</b><span>Off: only you play, pause, skip and change the speed.</span></div>
+        <button class="switch small" role="switch" aria-checked="${!!room.everyone}" data-room="everyone" aria-label="Everyone can steer"></button></div>`
+        : `<p class="room-how room-steer">${room.everyone ? "Everyone can steer." : esc(room.host) + " steers: play, pause, skips and speed follow them."}</p>`}
+      <div class="actions"><button class="btn" data-room="leave">Leave the room</button>${room.is_host ? `<button class="btn" data-room="end">End it for everyone</button>` : ""}</div>`;
+    drawQr($(".room-qr", box));
+  }
+  function paintAll() {
+    let p; try { p = S(); } catch (e) { return; }
+    paintButton(p.button());
+    const box = p.panel();
+    if (box.hidden) return;
+    // open: only what changed, so the remote's place in it stays put
+    const list = $(".room-people", box), sw = $('[data-room="everyone"]', box);
+    if (room && list && !!sw === !!room.is_host) {
+      list.innerHTML = people();
+      if (sw) sw.setAttribute("aria-checked", !!room.everyone);
+      const st = $(".room-steer", box);
+      if (st) st.textContent = room.everyone ? "Everyone can steer." : room.host + " steers: play, pause, skips and speed follow them.";
+    } else {
+      const had = document.activeElement && box.contains(document.activeElement);
+      paint(box);
+      if (had) { const f = $("[data-room]", box); if (f) f.focus(); }
+    }
+  }
+  function paintButton(b, fresh) {             // fresh: a new video (false: one a room can't play, from the Adult section)
+    if (!b) return;
+    if (fresh !== undefined) b.hidden = !offered() || (!fresh && !room);
+    b.setAttribute("aria-pressed", !!room);
+    b.setAttribute("aria-label", room ? "Watching together: " + plural(room.members.length, "screen") : "Watch together");
+    const n = $(".p-room-n", b);
+    n.hidden = !room; n.textContent = room ? room.members.length : "";
+  }
+  document.addEventListener("click", e => {
+    const b = e.target.closest("[data-room]"); if (!b) return;
+    const a = b.dataset.room;
+    if (a === "start") start();
+    else if (a === "leave") { leave("You left the room."); }
+    else if (a === "end") end();
+    else if (a === "everyone") steer("everyone", { everyone: b.getAttribute("aria-checked") !== "true" });
+    else if (a === "copy" && navigator.clipboard) navigator.clipboard.writeText(b.dataset.url).then(() => toast("Link copied."), () => {});
+  });
+
+  /* joining: the code (or the link, #/together/<code>) */
+  const normal = c => String(c || "").toUpperCase().replace(/[^BCDFGHJKLMNPQRSTVWXZ]/g, "").slice(0, 6);
+  function joinDialog(code) {
+    if (!offered()) {
+      toast(window.SofaBox ? "Watching together isn't on the Sofa Box yet. Join from a phone, a computer or a Fire TV."
+        : "Watching together is for this Sofa's profiles. Sign in to one first.");
+      return;
+    }
+    const d = openDialog(`<h2>Watch together</h2>
+      <p class="hint">The room's code is on the screen of whoever started it: six letters.</p>
+      <form class="room-join"><input name="code" maxlength="8" autocomplete="off" autocapitalize="characters" spellcheck="false"
+        aria-label="Room code" placeholder="Room code" value="${esc(normal(code))}"><button class="btn">Find it</button></form>
+      <div class="room-found" aria-live="polite"></div>`);
+    const found = $(".room-found", d), input = $("input", d);
+    async function look(c) {
+      found.innerHTML = `<p class="hint">Looking…</p>`;
+      let r;
+      try { r = await api("/api/together/" + c); } catch (e) { found.innerHTML = `<p class="hint">${esc(e.message)}</p>`; return; }
+      const it = byId.get(r.item);
+      if (!it) { found.innerHTML = `<p class="hint">That room is playing something that isn't in your library here.</p>`; return; }
+      const owner = it.show || it;
+      found.innerHTML = `<div class="room-title"><span class="frame">${frameImg(it.thumb || owner.backdrop || owner.poster, "", owner.name || it.title, 320)}</span>
+        <div><b>${esc(owner.name || it.title)}</b><span>${esc(it.kind === "episode" ? epCode(it) + (it.title ? " · " + it.title : "") : it.year || "")}</span>
+        <span>${esc(r.host ? r.host + "'s room" : "A room")}</span></div></div>
+        <div class="actions"><button class="btn primary" data-join="${esc(r.code)}">Join and watch</button><button class="btn ghost" data-dismiss="1">Not now</button></div>`;
+      $("[data-join]", found).focus();
+    }
+    $("form", d).addEventListener("submit", e => { e.preventDefault(); const c = normal(input.value); if (c.length === 6) look(c); else found.innerHTML = `<p class="hint">A room's code is six letters.</p>`; });
+    d.addEventListener("click", e => {
+      const b = e.target.closest("[data-join]");
+      if (b) { closeDialog(); join(b.dataset.join); }
+      else if (e.target.closest("[data-dismiss]")) closeDialog();
+    });
+    if (normal(code).length === 6) look(normal(code));
+  }
+
+  return { on, offered, steers, maySteer, steer, leave, paint, paintButton, joinDialog,
+           item: () => room ? room.item : null, where, paused: () => !!(room && room.paused),
+           // (for the tests: how far off this screen is, and what it thinks of Sofa's clock)
+           debug: () => room ? { code: room.code, host: !!room.is_host, everyone: !!room.everyone, lag, state, offset, rtt, lead, rev: since,
+                                 origin: performance.timeOrigin, members: room.members.length } : null };
+})();
+
+// What this page's player is doing, and the phone remote's controls for it (Sofa's tests drive two screens with them)
+window.sofaPlayerState = () => ({ ready: !!(session && session.user) && byId.size > 0, item: Player.sync.item(),
+                                  at: Player.sync.item() ? Player.sync.at() : null, rate: Player.sync.rate(), room: Together.debug() });
+window.sofaPlayerControl = c => Player.control(c);
 
 /* ---------- music ---------- */
 let MUSIC = null;

@@ -6,6 +6,70 @@ has its own numbers and list: [deploy/sofa-box/CHANGES.md](deploy/sofa-box/CHANG
 A change to Sofa's code (`sofa/`, `client/`, `sofa.py`) gets a new version: raise `__version__`, add a section
 here, then `python3 tools/sofa-version.py` (a test checks it was done).
 
+## 1.5.19 (2026-11-18)
+
+- **Watch together.** Two or more people on the same Sofa watch one title in step, each on their own screen. In the
+  player, the people button (or W) starts a room: six letters, a link, and the link as a QR code. The others join
+  from their profile's menu (Watch together) or by opening the link, signed in as themselves. A Visitor from the
+  share link can't join, nor a guest from the guest QR code. People join mid-film and leave at any time, and the
+  panel lists who's in the room. There's no chat.
+- **The host steers.** Play, pause, skips, the next episode and the speed follow the host, who can let everyone
+  steer. Everyone keeps their own sound track, subtitles and volume. For someone who doesn't steer, Play only joins
+  back in where the room is. When the host leaves, the room passes to whoever joined next; the host can also end it
+  for everyone. Closing the player leaves the room, and so does the sleep timer. On a screen that steers, a pause
+  from headphones or a keyboard's media keys pauses the room too; one a phone makes by itself when it's locked
+  doesn't (untried on a real phone).
+- **In step by itself.** The room keeps one timeline on Sofa's clock, not a list of presses, so a screen that joins
+  late or lost its connection for a while reads where the film is now. Each screen lines its clock up with Sofa's
+  with short requests, and an answer that took more than 0.3 s doesn't count for long: it asks again every 2 seconds
+  until one comes back quickly (a late answer could put it a second out while it thought it was in step). Four times
+  a second it checks how far off it is: a small gap is closed by playing up to 8% faster or slower (browsers keep the
+  pitch; nobody has listened to it on a real TV yet), and a big one by a jump. Just after joining or a skip, a
+  smaller gap is jumped too.
+- **Measured** with two Chrome browsers on one Mac, each signed in as a different profile, playing a real video
+  through Sofa over the Mac's own network (`tests/test_together_screens.py`; three runs, other work on the Mac at a
+  load of 4 to 7). Each page wrote down where its video was ten times a second, and the two were compared at the
+  same moments, counting only while both were playing:
+  - steady play: 3–13 ms apart at the median, 40 ms at most;
+  - joining mid-film: within 0.1 s after 1.1–1.3 s, then 9–21 ms apart at the median, 0.1 s at most;
+  - after the host skipped a minute: within 0.1 s after 0.1–0.2 s, then 4–6 ms at the median, 30 ms at most;
+  - paused: 8–18 ms apart; at 1.25× speed, 2–5 ms at the median, 13 ms at most;
+  - video Sofa repackages as it plays (HLS): joining, within 0.15 s after 1.1 s; after a skip of a minute and a half,
+    past what Sofa had made (both screens start again there), within 0.15 s after 2.2 s, then 9–22 ms at the median,
+    79 ms at most;
+  - the two screens' ideas of Sofa's clock 0.1–0.5 ms apart; with the joining screen's first four answers held back
+    2 seconds, in step after 10.3–10.5 s and 1–8 ms apart;
+  - the room's panel on screen 21–63 ms after W; on a TV's remote, the people button is 4 presses from Play.
+  Screenshots of both screens after a skip in repackaged video showed the test picture's clock one frame (40 ms)
+  apart, about the time between the two screenshots. These are one computer's numbers over its own loopback. Two
+  real devices over Wi-Fi haven't been measured, nor has a TV stick's panel time.
+- **Repackaged video knows where it starts.** Video Sofa repackages as it plays (an MKV in a browser, for one) is
+  copied as it is, so it can only start on a keyframe, one every 2 to 10 seconds in most films. Asked to start at
+  5:03, it started at the keyframe before (say 5:00) while the player counted from 5:03: the clock and the subtitles
+  were out by up to a keyframe's distance after every skip, and in a room two screens could be seconds apart and
+  both think they were in step. Sofa now finds that keyframe first, starts on it and says so (`start` in
+  `/api/hls`), and the player counts from there and starts the picture at the place asked for. When the page starts
+  a video in the Fire TV app or the Sofa Box's player, it passes the true place on too (their clock and subtitles);
+  the box's own far skips still count from the place asked for until its agent reads `start` as well.
+  `tests/test_repackaged_start.py` checks the first picture is the file's picture at that keyframe.
+- **Kids profiles** join only rooms whose title their rules allow. A room that moves on to a title a Kids profile
+  can't watch takes that profile out, and says why. A code that's wrong too often makes that profile wait a few
+  minutes.
+- **Wherever the player works.** Rooms go through Sofa's own server and nothing else (`sofa/together.py`): at home,
+  over Tailscale, or from the internet over HTTPS. When Sofa answers the internet, the panel also gives the link for
+  away from home. Rooms are kept in memory only: nothing is written down, and a restart ends them.
+- **On TVs:** Silk on a Fire TV uses the web app's player as usual. In the Fire TV app, a room's video plays in the
+  app's page player rather than Android's, which can't follow a room to a fraction of a second; that's built and
+  hasn't run in the app. The app can't start a room yet. The Sofa Box's own player doesn't take part yet: Watch
+  together isn't offered on a box, and a room's link opened there says so.
+- **Messages in a player that fills the screen** (on a TV, or after F) now show: they were drawn outside the player,
+  which full screen hides. That's a room's ("Den paused") and Sofa's own ("Skipped the intro"). Checked with the page
+  told it's full screen; headless Chrome won't go full screen, and no TV has shown one yet.
+- **Never the Adult section:** a room doesn't play a title from it (the code would show it to whoever has it, on
+  their TV), and a host who puts one on leaves the room.
+- Tested in `tests/test_together.py` (the room's rules, through the running server) and
+  `tests/test_together_screens.py` (two browsers). No real TV or phone has been in a room yet.
+
 ## 1.5.18 (2026-11-18)
 
 - **Coming from Plex, Jellyfin or Emby** (Server → People → Coming from Plex or Jellyfin, or `python3 sofa.py import`).

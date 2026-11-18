@@ -705,8 +705,37 @@ def _converting():
         return sum(1 for v in _streams.values() if v.get("mode") == "transcode" and not v.get("direct"))
 
 
+def keyframe_before(path, t):
+    """Where a repackaged stream asked to start at `t` seconds really starts: the video's last keyframe at or before
+    `t` (seconds from the file's start, as players count). Copying the video as it is, ffmpeg can only start on a
+    keyframe, and that's up to several seconds earlier (one every 2 to 10 seconds in most films). None when ffprobe
+    can't say."""
+    exe = tool("ffprobe")
+    if not exe or t <= 0 or str(path).startswith(("http://", "https://")):
+        return None
+    try:
+        run = lambda args: json.loads(subprocess.run([exe, "-v", "error", "-of", "json"] + args + [path],    # noqa: E731
+                                                     capture_output=True, text=True, timeout=15).stdout or "{}")
+        s0 = float((run(["-show_entries", "format=start_time"]).get("format") or {}).get("start_time") or 0)
+        # the packets' own keyframe marks: nothing is decoded
+        packets = run(["-select_streams", "v:0", "-show_entries", "packet=pts_time,dts_time,flags",
+                       "-read_intervals", "%.3f%%%.3f" % (s0 + max(0.0, t - 20), s0 + t + 1)]).get("packets") or []
+    except (OSError, subprocess.SubprocessError, ValueError, TypeError):
+        return None
+    times = []
+    for p in packets:
+        if "K" not in str(p.get("flags") or ""):
+            continue
+        try:
+            times.append(float(p.get("pts_time") or p.get("dts_time")) - s0)
+        except (TypeError, ValueError):
+            pass
+    before = [x for x in times if x <= t + 0.001]
+    return max(0.0, max(before)) if before else None
+
+
 def hls_start(item, mode, start, who, replace=None, owner=None, audio_index=None, max_height=None, caps=None, burn=None):
-    """Start segmenting from `start` seconds. Returns a session id."""
+    """Start segmenting from `start` seconds. Returns a session id; hls_from(id) says where the stream really starts."""
     from . import encoders
     if replace:
         hls_stop(replace)
@@ -722,10 +751,18 @@ def hls_start(item, mode, start, who, replace=None, owner=None, audio_index=None
     others = _converting()
     height, kind = live_size((info or {}).get("video"), max_height, others) if mode == "transcode" else (None, None)
     name = encoder_plan(height, True)["name"] if mode == "transcode" else None
+    seek = start
+    if mode == "remux" and start > 0 and info:
+        # Copied video starts on a keyframe: start on the one before `start` on purpose, and say so, so the player counts
+        # from where the picture really starts (the clock, subtitles, a room watching together). Asked for a hair after
+        # it, ffmpeg can't land on the keyframe before that one.
+        kf = keyframe_before(item["path"], start)
+        if kf is not None and start - 20 <= kf <= start:
+            start, seek = kf, kf + 0.01
     job = {"item": item, "mode": mode, "start": start, "info": info, "audio_index": audio_index, "height": height,
            "caps": caps, "burn": burn}
     try:
-        proc = subprocess.Popen(stream_command(item, mode, start, info, "hls", folder, audio_index=audio_index, max_height=height,
+        proc = subprocess.Popen(stream_command(item, mode, seek, info, "hls", folder, audio_index=audio_index, max_height=height,
                                                caps=caps, burn=burn, encoder=name),
                                 stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, env=_env(item))
     except OSError:
@@ -746,6 +783,13 @@ def hls_start(item, mode, start, who, replace=None, owner=None, audio_index=None
     if chip:
         threading.Thread(target=_carry_on, args=(sid, proc), daemon=True, name="hls-encoder").start()
     return sid
+
+
+def hls_from(sid):
+    """Where an HLS stream's first picture is in the video (seconds), or None for one that's gone."""
+    with _hls_lock:
+        h = _hls.get(sid)
+        return h["job"]["start"] if h else None
 
 
 def _made(playlist):

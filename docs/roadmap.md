@@ -41,7 +41,10 @@ Read this before you install, so nothing surprises you.
   REC in the player; [tuners-and-recording.md](tuners-and-recording.md)): no real tuner has run them, and the Sofa
   Box's own player has no REC yet. Retro TV's decades (recordings of TV as it aired, played straight from a public video library) are
   on unless an admin turns them off, and never reach the public library's visitors.
-- **Not built:** subtitle downloads, watch-together, photos, a caption editor, playlists in Music, lyrics,
+- **Watch together** (Sofa 1.5.19) is in the web app and has run only in two browsers on one computer. The Sofa
+  Box's own player doesn't take part yet; the Fire TV app's way in (a room's video in its page player) is built and
+  has never run in the app, and the app can't start a room.
+- **Not built:** subtitle downloads, photos, a caption editor, playlists in Music, lyrics,
   plugins.
 - **A Sofa Box doesn't install Raspberry Pi OS's own updates by itself.** Updating the box brings the newest Sofa Box OS
   and the newest packages for what it installs (the browser, the player and the rest); the kernel and the base
@@ -124,7 +127,10 @@ In order. Each one ends with a line in the tested-on table.
 - **Games:** your phone as a controller, a light and a full tier per game, freeing the home screen's graphics memory
   while a native game runs.
 - The phone remote's relay encrypted end to end, and moved to its own machine.
-- **Subtitle downloads**, **watch-together**, a **caption editor**, and the Roku channel brought level with the Fire TV app.
+- **Subtitle downloads**, a **caption editor**, and the Roku channel brought level with the Fire TV app.
+- **Watch together on the Sofa Box and in the Fire TV app's own player:** both players would report where they are to
+  a fraction of a second and take a speed nudge (the box's agent and the app, so a Box OS version and an app build);
+  a room started from the Fire TV app; two real screens side by side, measured.
 - Roku store certification; a Vega OS app if Amazon's web-view route allows a server of your own.
 - **Tuners and recording on a real HDHomeRun** (built against a stand-in in 1.5.13 and 1.5.14), and REC in the Sofa
   Box's own player.
