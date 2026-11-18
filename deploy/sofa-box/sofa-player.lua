@@ -503,9 +503,12 @@ local sheet_idle = nil
 local SAYING = { now = "Setting it to record…", series = "Setting the series to record…", stop = "Stopping the recording…",
                  stop_series = "Stopping the series…" }
 local function toast(s, secs) state.toast, state.toast_until = s, mp.get_time() + (secs or 4.5) end
+-- (the box's agent reads it: the phone remote's keys go to the sheet while it's open, not to the channel)
+local function sheet_said(open) pcall(mp.set_property_native, "user-data/sofa/sheet", open) end
 local function sheet_close()
     if not state.sheet then return end
     state.sheet = nil
+    sheet_said(false)
     if sheet_idle then sheet_idle:kill(); sheet_idle = nil end
     for key in pairs(SHEET_KEYS) do mp.remove_key_binding("sofa-rec-" .. key) end
     draw()
@@ -538,6 +541,7 @@ local function sheet_open()
         return draw()
     end
     state.sheet = { at = 1 }
+    sheet_said(true)
     for key, k in pairs(SHEET_KEYS) do
         mp.add_forced_key_binding(key, "sofa-rec-" .. key, function() sheet_key(k) end, { repeatable = k == "up" or k == "down" })
     end
@@ -545,8 +549,12 @@ local function sheet_open()
     draw()
 end
 
-mp.add_key_binding(nil, "ok", ok)
+mp.add_key_binding(nil, "ok", function() if state.sheet then sheet_key("ok") else ok() end end)
 mp.add_key_binding(nil, "rec", sheet_open)
+-- the phone remote's keys while the sheet is open (the agent sends them here: they don't come as mpv's own keys)
+mp.register_script_message("sheet-key", function(k)
+    sheet_key(({ ok = "ok", back = "back", up = "up", down = "down", menu = "back" })[k] or "none")
+end)
 mp.add_key_binding(nil, "toggle", function() if not state.far then mp.commandv("cycle", "pause") end end)
 mp.add_key_binding(nil, "back", function() mp.commandv("quit", "10") end)           -- 10: stopped by Back
 mp.add_key_binding(nil, "show", function() if not state.card then show_panel() end end)

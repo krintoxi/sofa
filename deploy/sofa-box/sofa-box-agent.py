@@ -4163,6 +4163,9 @@ class PhoneRemote:
             # skips add up, up and down show where it is), so the phone works the same player the same way
             screen = lambda b: lambda: player.command("script-binding", "sofa_player/" + b)
             live = bool((player.payload or {}).get("live"))
+            if live and name in ("up", "down", "left", "right", "ok", "back", "menu") and \
+                    player.command("get_property", "user-data/sofa/sheet") is True:      # (the Record sheet, open)
+                return player.command("script-message-to", "sofa_player", "sheet-key", name)
             act = {"ok": screen("ok"), "back": lambda: player.stop(save=True, reason="back"), "play": screen("toggle"),
                    "left": screen("back10"), "rewind": screen("back10"), "right": screen("on30"), "forward": screen("on30"),
                    "up": (lambda: player.zap(-1)) if live else screen("show"),

@@ -2976,8 +2976,9 @@ class PlayerScreen(unittest.TestCase):
     def test_the_phone_works_the_same_player(self):
         """The phone remote's keys during a video are the player screen's own, as the TV's remote presses them (OK skips
         an intro or pauses, skips add up, up and down show where it is); with the options menu open, the menu's; on Live
-        TV, up and down change the channel. (Up and down used to go to the page behind the video.)"""
-        a, did = self.agent, []
+        TV, up and down change the channel, and while Live TV's Record sheet is open they're the sheet's (1.1.92). (Up and
+        down used to go to the page behind the video.)"""
+        a, did, sheet = self.agent, [], [False]
 
         class Proc:
             def poll(self):
@@ -2985,7 +2986,7 @@ class PlayerScreen(unittest.TestCase):
 
         class Player:
             proc, payload, menu = Proc(), {"title": "Heat"}, None
-            command = lambda self, *c: did.append(c)
+            command = lambda self, *c: sheet[0] if c[:2] == ("get_property", "user-data/sofa/sheet") else did.append(c)
             stop = lambda self, **k: did.append(("stop", k.get("reason")))
             zap = lambda self, step: did.append(("zap", step))
             menu_key = lambda self, k: did.append(("menu", k))
@@ -3003,6 +3004,12 @@ class PlayerScreen(unittest.TestCase):
             phone.key("up")
             phone.key("down")
             self.assertEqual(did, [("zap", -1), ("zap", 1)])
+            del did[:]
+            sheet[0] = True                                                   # the Record sheet open: its keys
+            for k in ("down", "ok", "back"):
+                phone.key(k)
+            self.assertEqual(did, [("script-message-to", "sofa_player", "sheet-key", k) for k in ("down", "ok", "back")])
+            sheet[0] = False
             del did[:]
             a.player.menu = {"items": []}
             phone.key("down")
@@ -3321,7 +3328,12 @@ class PlayerScreen(unittest.TestCase):
             for words in ("Record", "Evening News  ·  until 9:00 PM", "The whole series", "every new showing", "Close", "5.1  KSTN"):
                 self.assertIn(words, sheet)
             self.assertTrue(on("This programme"))
+            self.assertIs(mpv("get_property", "user-data/sofa/sheet").get("data"), True)   # (the agent reads it: the phone)
             mpv("keypress", "DOWN")                                                   # (the sheet's, not the next channel)
+            until(lambda: on("The whole series"))
+            mpv("script-message-to", "sofa_player", "sheet-key", "up")               # the phone remote's, through the agent
+            until(lambda: on("This programme"))
+            mpv("script-message-to", "sofa_player", "sheet-key", "down")
             until(lambda: on("The whole series"))
             mpv("keypress", "ENTER")
             until(lambda: "This programme" not in drawn()[-1] and "Setting the series to record" in drawn()[-1])
@@ -3334,6 +3346,7 @@ class PlayerScreen(unittest.TestCase):
             self.assertNotIn("The whole series", drawn()[-1])
             mpv("keypress", "ESC")                                                     # Back closes the sheet, not the channel
             until(lambda: "Stop recording" not in drawn()[-1])
+            self.assertIs(mpv("get_property", "user-data/sofa/sheet").get("data"), False)
             time.sleep(0.3)
             self.assertIsNone(proc.poll())
             mpv("set_property", "pause", True)                                         # the panel: REC, until when
