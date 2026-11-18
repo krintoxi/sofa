@@ -101,9 +101,16 @@ the box adds is in its own player (mpv), which plays every channel and every rec
   (through the box's agent, as the TV's signed-in page would), and the screen says how it went, or why not. While the
   channel records, the player's panel says REC and until when. A series asked for this way records the showing that's
   on once (since 1.5.20 a showing being recorded isn't planned again).
+![The Record sheet in the Sofa Box's player](images/box-record-sheet.png)
+
+![The player's panel while the channel records](images/box-recording-panel.png)
+
+![A tuner's channel on the player's banner, from the guide](images/box-guide-banner.png)
+
 - **Recordings play in the box's player** from Live TV → Recordings: from where they were left, with Skip intro when
-  Sofa found the intro, as any episode does. An over-the-air recording is the channel's own stream (MPEG-2, mostly);
-  Sofa converts what the box can't play as it plays it.
+  Sofa found the intro, as any episode does. An over-the-air recording is the channel's own stream (MPEG-2 and
+  interlaced, mostly): Sofa converts that for the box as it plays, which takes the combing out. An interlaced H.264
+  channel (1080i) plays as it is, in the box's player as in a browser.
 - **Who:** the page tells the box which channels may be recorded: a tuner's or a home list's, never for a Visitor, a
   Kids profile or a guest, and only at home. Sofa refuses anyone else anyway, and a channel that can't be recorded
   says why when REC is pressed.

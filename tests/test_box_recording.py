@@ -251,6 +251,33 @@ class RecInTheBoxPlayer(WithATunerAtHome, unittest.TestCase):
             self.agent.volume_now = real
 
 
+@unittest.skipUnless(media.tool("ffmpeg"), "needs ffmpeg")
+class OverTheAirOnTheBox(unittest.TestCase):
+    """A recording is the channel's own stream: over the air in the US that's mostly MPEG-2, interlaced. The box's player
+    plays SD MPEG-2 as it is since Sofa 1.5.16, but not interlaced: Sofa converts that for the box, and the conversion
+    takes the combing out (yadif). A progressive one plays as it is."""
+
+    def clip(self, folder, name, interlaced):
+        path = os.path.join(folder, name)
+        subprocess.run([media.tool("ffmpeg"), "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc=size=720x480:rate=30000/1001", "-t", "2"]
+                       + (["-vf", "setfield=tff", "-flags", "+ilme+ildct", "-field_order", "tt"] if interlaced else []) +
+                       ["-c:v", "mpeg2video", "-q:v", "6", "-f", "mpegts", path], check=True)
+        return {"id": name, "path": path, "ext": "ts", "kind": "episode"}
+
+    def test_an_interlaced_recording_is_converted_for_the_box(self):
+        folder = tempfile.mkdtemp(prefix="sofa-ota-", dir=ROOT)
+        self.addCleanup(shutil.rmtree, folder, True)
+        box = {"mpv": True, "sd": True, "maxh": 1080}                          # (what the box's agent tells Sofa)
+        aired = self.clip(folder, "News S01E01.ts", True)
+        plan = media.plan(aired, box)
+        self.assertTrue(plan["info"]["video"]["interlaced"])
+        self.assertEqual(plan["mode"], "transcode")
+        cmd = media.stream_command(aired, plan["mode"], 0, plan["info"], fmt="mpegts", caps=box)
+        self.assertIn("yadif", cmd[cmd.index("-vf") + 1])
+        flat = self.clip(folder, "News S01E02.ts", False)
+        self.assertEqual(media.plan(flat, box)["mode"], "direct")
+
+
 MPV_SPY = """import json, os, sys
 info = next((a.split("sofa_player-info=", 1)[1] for a in sys.argv[1:] if a.startswith("--script-opts=sofa_player-info=")), None)
 with open(%(log)r, "a") as f:
