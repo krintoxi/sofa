@@ -44,9 +44,18 @@ shown to the public library's Visitors, even when the show it belongs to is shar
   tuner comes free. Someone watching a tuner's channel is a tuner taken too.
 - **The file** is the channel's own stream, copied as it comes (MPEG-TS, no conversion). If the stream breaks off,
   Sofa opens it again (three times at most) and joins the parts. Then it goes into the **Inbox** under a name the Inbox
-  reads (`Night Court S03E07 Tonight.ts`, `The News Hour 2026-11-13.ts`, `Casablanca (1942).ts`) and is filed like
-  anything else, with its artwork and details. Background conversion to MP4, if it's on, converts it like any other
-  file.
+  reads (`Night Court S03E07 Tonight.ts`, `The News Hour 2026-11-13 Storm Watch.ts`, `Casablanca (1942).ts`) and is
+  filed like anything else, with its artwork and details. Background conversion to MP4, if it's on, converts it like
+  any other file.
+- **A programme without an episode number** (the news, a talk show) is filed as that day's episode of its show: season
+  the year, episode the month and day, the guide's title for it if it gave one (`Season 2026/The News Hour S2026E1113
+  Storm Watch.ts`), and the apps name it by its day ("Fri, Nov 13"). Since 1.5.22; before, the library took these for
+  extras, so they weren't among the show's episodes and got no Skip intro (a scan after updating lists the ones already
+  filed). A second showing of the same title recorded the same day is named with its time (`The News Hour 2026-11-13
+  11.00 PM.ts`), since two files of one name couldn't both be filed.
+
+  ![A daily show's page on a TV: the season by its year, the episodes by their day](images/daily-show-tv.png)
+
 - **Sofa starting again** (Restart, an update) doesn't stop a recording. On a Mac or Linux the copy keeps running and
   the new start takes it over: nothing is missed. On Windows, Sofa starts again as another process, so the recording
   goes on in a new part as soon as Sofa is back, and says how many seconds that missed. Only a full stop marks a

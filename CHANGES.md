@@ -6,6 +6,24 @@ has its own numbers and list: [deploy/sofa-box/CHANGES.md](deploy/sofa-box/CHANG
 A change to Sofa's code (`sofa/`, `client/`, `sofa.py`) gets a new version: raise `__version__`, add a section
 here, then `python3 tools/sofa-version.py` (a test checks it was done).
 
+## 1.5.22 (2026-11-18)
+
+- **A daily show's episodes are episodes.** The Inbox has long filed a show by date ("The Daily Show 2024 03 15", a
+  recording of the news) as `Season 2024/The Daily Show S2024E315`: season the year, episode the month and day. The
+  library couldn't read that code back (it reads seasons of up to two digits) and listed every one as an **extra** of
+  the show: not among its episodes, and with no Skip intro. Now they're
+  that day's episodes, with their date, in order. Those filed already are read right on the next scan, and so is a
+  dated name put in a show's folder by hand ("The News Hour 2026-11-14.ts"), and a "Season 2026" folder.
+- **Named by their day.** The apps name such an episode by its day ("Fri, Nov 13", or "Nov 13 · Storm Watch" when it
+  has a title) and its season by its year ("2026"), not "S2026 E1113" or "Episode 1113". What follows the date in a
+  file's name is the episode's title.
+- **Recordings without an episode number** carry the guide's title for that day into their name ("The News Hour
+  2026-11-13 Storm Watch"), and a second showing of the same title recorded that day is named with its time ("…
+  11.00 PM"): the news at six and at eleven had one name, and the Inbox couldn't file the second.
+- Tested with a real recording from the stand-in tuner, filed by the Inbox and read back by the library
+  (`tests/test_tuners_dvr.py`), the names (`tests/test_naming.py`), and a daily show's page on the Sofa Box
+  (`tests/test_box_recording.py`).
+
 ## 1.5.21 (2026-11-18)
 
 - **A tunnel or proxy anywhere at home passes on the internet, not the home network.** Sofa took a proxy's headers

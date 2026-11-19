@@ -8,6 +8,12 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.95
+
+- **A daily show on Home.** Continue watching names a daily show's episode (the news, a recording without an episode
+  number) by its day, "Fri, Nov 13 · Storm Watch", as Sofa 1.5.22 lists them, not "S2026 E1113". With an older Sofa
+  nothing changes.
+
 ## 1.1.94
 
 **The maker asks first, and saves.** The maker (`games/maker/`, for a computer; not on Home) gets a setup screen

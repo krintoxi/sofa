@@ -750,6 +750,8 @@ class Library:
                     continue
                 path = os.path.join(d, f)
                 ep = None if in_extras else naming.parse_episode(stem, dir_season, in_show=True)
+                if not ep and not in_extras and not adult:    # "The News Hour 2026-11-18" in a daily show's folder
+                    ep = naming.parse_dated(stem)
                 if ep:
                     episodes.append((ep, path))
                 else:
@@ -810,7 +812,8 @@ class Library:
                                       adult or not show_meta, not adult)))
             item.update(show_id=show_id, show_name=name, s=ep["s"], e=ep["e"], e2=ep.get("e2"), adult=adult,
                         title=meta.get("title") or _tidy_title(ep.get("title")), summary=meta.get("summary"),
-                        aired=meta.get("aired") or meta.get("date"), runtime=meta.get("runtime"))
+                        aired=meta.get("aired") or meta.get("date") or ep.get("date"),    # (a daily show's: its day)
+                        runtime=meta.get("runtime"))
             items[item_id] = item
             seasons.setdefault(ep["s"], []).append(item)
         if stills or cover:

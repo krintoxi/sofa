@@ -30,13 +30,18 @@ const ago = t => {
   return new Date(t * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 };
 const bytes = n => n > 1e12 ? (n / 1e12).toFixed(1) + " TB" : n > 1e9 ? Math.round(n / 1e9) + " GB" : Math.round(n / 1e6) + " MB";
-const seasonName = n => n === 0 ? "Specials" : "Season " + n;
+const seasonName = n => n === 0 ? "Specials" : n >= 1900 ? String(n) : "Season " + n;   // (a daily show's season: its year)
 /* When an episode airs: "today", "tomorrow", "Friday" this week, otherwise the date. */
 const airDay = d => {
   const days = Math.round((new Date(d + "T12:00:00") - new Date().setHours(12, 0, 0, 0)) / 864e5);
   return days === 0 ? "today" : days === 1 ? "tomorrow" : days > 1 && days < 7 ? new Date(d + "T12:00:00").toLocaleDateString(undefined, { weekday: "long" }) : fmtDate(d);
 };
-const epCode = ep => ep.s == null ? "Extra" : (ep.s === 0 ? "Special " : "S" + ep.s + " ") + "E" + ep.e + (ep.e2 ? "–" + ep.e2 : "");
+// A daily show's episode (the news, a talk show, a recording without an episode number) goes by its day: season the
+// year, episode month and day ("S2026E1118" in its file's name). Its code is "Wed, Nov 18", not "S2026 E1118".
+const datedEp = ep => !!ep && ep.s >= 1900 && /^\d{4}-\d\d-\d\d/.test(ep.aired || "");
+const epDay = (ep, short) => new Date(ep.aired.slice(0, 10) + "T12:00:00").toLocaleDateString(undefined,
+  short ? { month: "short", day: "numeric" } : { weekday: "short", month: "short", day: "numeric" });
+const epCode = ep => ep.s == null ? "Extra" : datedEp(ep) ? epDay(ep) : (ep.s === 0 ? "Special " : "S" + ep.s + " ") + "E" + ep.e + (ep.e2 ? "–" + ep.e2 : "");
 
 const REDUCED = matchMedia("(prefers-reduced-motion: reduce)").matches;     // the device asks for less motion
 const prefs = {
@@ -362,9 +367,9 @@ function newEpisodes(show) {
   if (!seen) return [];
   return show.order.filter(ep => ep.added * 1000 > seen && !prog(ep.id));
 }
-const title = item => item.title || (item.kind === "episode" ? "Episode " + item.e : "Untitled");
+const title = item => item.title || (item.kind === "episode" ? (datedEp(item) ? epDay(item) : "Episode " + item.e) : "Untitled");
 function subtitleFor(item) {
-  if (item.kind === "episode") return epCode(item) + ", " + title(item);
+  if (item.kind === "episode") return datedEp(item) && !item.title ? epCode(item) : epCode(item) + ", " + title(item);
   if (item.kind === "extra") return title(item);
   if (item.kind === "musicvideo") return item.artist;
   return [item.year, item.collection].filter(Boolean).join(", ");
@@ -1338,10 +1343,12 @@ function viewAdult(rest) {
 }
 function episodeRow(ep, label) {
   const p = prog(ep.id), done = isDone(ep.id);
+  // (its number; a daily show's goes by its day, and none when the day is its title already)
+  const num = ep.kind !== "episode" ? "" : datedEp(ep) ? (ep.title ? epDay(ep, true) : "") : (ep.s === 0 ? "S" : "") + ep.e + (ep.e2 ? "–" + ep.e2 : "");
   const runtime = ep.runtime || (p && p.d ? Math.round(p.d / 60) : null);
   const meta = [
     runtime ? `<span>${runtime} min</span>` : "",
-    ep.aired ? `<span>Aired ${esc(fmtDate(ep.aired))}</span>` : "",
+    ep.aired && !(datedEp(ep) && !ep.title) ? `<span>Aired ${esc(fmtDate(ep.aired))}</span>` : "",
     inProgress(ep.id) ? `<span>${esc(clock(p.d - p.t))} left</span>` : "",
     ep.subs ? `<span>Subtitles</span>` : ""
   ].join("");
@@ -1352,7 +1359,7 @@ function episodeRow(ep, label) {
       <span class="play-glyph">${icon("i-play")}</span></button>
     <div class="ep-text">
       ${label ? `<div class="t2">${esc(label)}</div>` : ""}
-      <h3><span class="num">${esc(ep.kind === "episode" ? (ep.s === 0 ? "S" : "") + ep.e + (ep.e2 ? "–" + ep.e2 : "") : "")}</span>${esc(title(ep))}</h3>
+      <h3>${num ? `<span class="num">${esc(num)}</span>` : ""}${esc(title(ep))}</h3>
       <p class="ep-meta">${meta}${TV ? "" : `<button class="ep-dl" data-download="${esc(ep.id)}" aria-label="Download ${esc(title(ep))}">${icon("i-download")}Download</button>`}</p>
       ${ep.summary ? `<p class="ep-sum clamp">${esc(ep.summary)}</p>` : ""}
     </div>
@@ -5072,7 +5079,7 @@ const Player = (function () {
       <div class="chips">${show.seasons.map(s => `<button data-eps-season="${s.n}" aria-pressed="${s === season}">${esc(seasonName(s.n))}</button>`).join("")}</div>
       <div class="pe-list">${season.episodes.map(ep => `<button class="pe-item${ep === item ? " now" : ""}" data-eps-play="${esc(ep.id)}">
         <span class="frame">${thumbFor(ep)}${pct(ep.id) && !isDone(ep.id) ? `<span class="progress"><i style="width:${pct(ep.id)}%"></i></span>` : ""}${isDone(ep.id) ? `<span class="seen-badge">${icon("i-check")}</span>` : ""}</span>
-        <span class="pe-text"><b>${esc(ep.e)}. ${esc(title(ep))}</b>${ep === item ? `<span class="now-tag">Playing</span>` : ""}${ep.summary ? `<span class="pe-sum">${esc(ep.summary)}</span>` : ""}</span></button>`).join("")}</div>`;
+        <span class="pe-text"><b>${esc(datedEp(ep) ? (ep.title ? epDay(ep, true) + " · " : "") : ep.e + ". ")}${esc(title(ep))}</b>${ep === item ? `<span class="now-tag">Playing</span>` : ""}${ep.summary ? `<span class="pe-sum">${esc(ep.summary)}</span>` : ""}</span></button>`).join("")}</div>`;
     epsPanel.hidden = false; ccMenu.hidden = true; helpBox.hidden = true;
     const cur = $(".pe-item.now", epsPanel) || $(".pe-item", epsPanel);
     if (cur) { cur.scrollIntoView({ block: "center" }); cur.focus({ preventScroll: true }); }

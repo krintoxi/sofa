@@ -41,7 +41,27 @@ class Episodes(unittest.TestCase):
 
     def test_daily_show_by_date(self):
         ep = naming.parse_dated("The.Daily.Show.2024.03.15.720p")
-        self.assertEqual((ep["s"], ep["e"]), (2024, 315))
+        self.assertEqual((ep["s"], ep["e"], ep["title"], ep["date"]), (2024, 315, None, "2024-03-15"))
+        ep = naming.parse_dated("The News Hour 2026-11-13 Storm Watch")                  # what follows: the title
+        self.assertEqual((ep["show"], ep["s"], ep["e"], ep["title"]), ("The News Hour", 2026, 1113, "Storm Watch"))
+        self.assertIsNone(naming.parse_dated("The News Hour 2026-02-30"))                  # (no such day)
+
+    def test_daily_show_as_the_inbox_names_it(self):
+        """The Inbox files "The News Hour 2026-11-13" as "Season 2026/The News Hour S2026E1113"; the library reads that back
+        as that day's episode (before 1.5.22 it took it for an extra)."""
+        for stem, hint, in_show, want in (("The News Hour S2026E1113", None, False, (2026, 1113, "2026-11-13", None)),
+                                          ("The News Hour S2026E1113 Storm Watch", 2026, True, (2026, 1113, "2026-11-13", "Storm Watch")),
+                                          ("The Daily Show S2024E315", None, False, (2024, 315, "2024-03-15", None))):
+            with self.subTest(stem):
+                ep = naming.parse_episode(stem, hint, in_show=in_show)
+                self.assertEqual((ep["s"], ep["e"], ep["date"], ep["title"]), want)
+        # (a plain date is parse_dated's: the Inbox and the library ask for it where it's a daily show's, never in Adult,
+        # where "Studio 2024-03-15 Title" is a scene)
+        self.assertIsNone(naming.parse_episode("The News Hour 2026-11-14", None, in_show=True))
+        self.assertIsNone(naming.parse_episode("The News Hour S2026E1332"))               # (no such day)
+        self.assertEqual(naming.parse_episode("Show S20E115")["s"], 20)                   # (an ordinary code, as before)
+        self.assertEqual((naming.season_of_dir("Season 2026"), naming.season_of_dir("Season 2"), naming.season_of_dir("Season 26")),
+                         (2026, 2, 26))
 
 
 class Movies(unittest.TestCase):

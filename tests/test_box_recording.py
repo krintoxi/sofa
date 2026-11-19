@@ -22,6 +22,7 @@ import threading
 import time
 import unittest
 import urllib.error
+import urllib.parse
 import urllib.request
 
 import tests  # noqa: F401  (sets Sofa up for the tests)
@@ -236,6 +237,14 @@ class RecInTheBoxPlayer(WithATunerAtHome, unittest.TestCase):
         self.assertEqual(self.toasts(said)[-1], "Recording is for the household, from home.")
         self.assertEqual(self.recordings("5.1"), [])
 
+    def test_a_daily_show_on_home(self):
+        """Home's Continue watching names a daily show's episode by its day (Sofa 1.5.22 lists them: season the year)."""
+        line = self.agent.episode_line
+        self.assertEqual(line({"s": 2026, "e": 1113, "aired": "2026-11-13", "title": "Storm Watch"}), "Fri, Nov 13 · Storm Watch")
+        self.assertEqual(line({"s": 2026, "e": 1114, "aired": "2026-11-14"}), "Sat, Nov 14")
+        self.assertEqual(line({"s": 2, "e": 4, "title": "Low Tide", "aired": "2026-11-14"}), "S2 E4 · Low Tide")
+        self.assertEqual(line({"s": 2026, "e": 1114}), "S2026 E1114 · ")                 # (no day said: as before)
+
     def test_menu_has_record(self):
         p, said = self.player("5.1")
         real = self.agent.volume_now
@@ -306,6 +315,11 @@ class TheBoxPages(WithATunerAtHome, unittest.TestCase):
         cls.ts = os.path.join(shows, "Harbor Patrol S02E02 The Pier.ts")
         subprocess.run([media.tool("ffmpeg"), "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=25", "-f", "lavfi",
                         "-i", "sine=frequency=440", "-t", "120", "-c:v", "mpeg2video", "-q:v", "8", "-c:a", "mp2", "-f", "mpegts", cls.ts], check=True)
+        # and a daily show, as the Inbox files a recording without an episode number (one with the guide's title)
+        cls.news = os.path.join(config.path("shows"), "The News Hour", "Season 2026")
+        os.makedirs(cls.news, exist_ok=True)
+        for name in ("The News Hour S2026E1113 Storm Watch.ts", "The News Hour S2026E1114.ts"):
+            shutil.copy(cls.ts, os.path.join(cls.news, name))
         LIBRARY.scan("tests")
         cls.item = LIBRARY.item_at(os.path.abspath(cls.ts))
         assert cls.item, "the recording isn't in the library"
@@ -365,6 +379,7 @@ class TheBoxPages(WithATunerAtHome, unittest.TestCase):
         cls.sofa_down()
         intros.clear_marker(cls.item, "intro")
         shutil.rmtree(os.path.dirname(os.path.dirname(cls.ts)), ignore_errors=True)
+        shutil.rmtree(os.path.dirname(cls.news), ignore_errors=True)
         shutil.rmtree(cls.dir, ignore_errors=True)
 
     def setUp(self):
@@ -476,6 +491,19 @@ class TheBoxPages(WithATunerAtHome, unittest.TestCase):
         self.press("Enter")
         self.until("!document.querySelector('.rec-dialog')")
         self.assertEqual([(u["title"], u["new_only"], u["keep"]) for u in dvr.listing()["rules"]], [("Harbor Patrol", 0, 5)])
+
+    def test_a_daily_show_by_its_days(self):
+        """A daily show's page (a recording without an episode number): each episode by its day, the season by its year,
+        never "S2026 E1113" or "Episode 1114" (Sofa 1.5.22)."""
+        show = LIBRARY.item(LIBRARY.item_at(os.path.abspath(os.path.join(self.news, "The News Hour S2026E1114.ts"))))["show_id"]
+        p = self.open("antenna")
+        p.call("Page.navigate", {"url": self.page_base + "/?tv=1&t=%f#/show/%s" % (time.time(), urllib.parse.quote(show, safe=""))})
+        self.until("document.querySelectorAll('.ep-text h3').length === 2", 30)
+        heads = p.value("[...document.querySelectorAll('.ep-text h3')].map(h => [(h.querySelector('.num') || {}).textContent || '', h.lastChild.textContent])")
+        self.assertEqual(heads, [["Nov 13", "Storm Watch"], ["", "Sat, Nov 14"]])
+        text = p.value("document.querySelector('#view').innerText")
+        self.assertNotIn("S2026", text)
+        self.assertNotIn("Episode 1114", text)
 
     def test_recordings_by_the_remote_and_one_plays_in_the_box_player(self):
         """Each row one press from the next, in order; OK on a recorded one plays it in the box's player, from where it was

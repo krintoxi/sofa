@@ -158,6 +158,20 @@ def go(where):
     player.tell(go=where)
 
 
+def episode_line(ep):
+    """An episode on Home's rows: "S2 E4 · Low Tide", or a daily show's (the news, a recording without an episode number)
+    by its day: "Wed, Nov 18 · Storm Watch" (Sofa 1.5.22 lists them as episodes: season the year, episode the day)."""
+    title, aired = str(ep.get("title") or ""), str(ep.get("aired") or "")
+    if isinstance(ep.get("s"), int) and ep["s"] >= 1900 and re.match(r"^\d{4}-\d\d-\d\d", aired):
+        try:
+            day = time.strptime(aired[:10], "%Y-%m-%d")
+        except ValueError:
+            day = None
+        if day:
+            return time.strftime("%a, %b ", day) + str(day.tm_mday) + (" · " + title if title else "")
+    return "S%s E%s · %s" % (ep.get("s"), ep.get("e"), title)
+
+
 def wall(t, h24=False):
     """A time as the TV's clock shows it: 9:00 PM, or 21:00."""
     lt = time.localtime(float(t or 0))
@@ -2661,7 +2675,7 @@ def sofa_continue():
             for sh in lib.get("shows") or []:
                 for se in sh.get("seasons") or []:
                     for ep in se.get("episodes") or []:
-                        by[ep["id"]] = {"title": sh["name"], "sub": "S%s E%s · %s" % (ep.get("s"), ep.get("e"), ep.get("title") or ""),
+                        by[ep["id"]] = {"title": sh["name"], "sub": episode_line(ep),
                                         "art": ep.get("thumb") or sh.get("backdrop") or sh.get("poster"),
                                         "backdrop": sh.get("backdrop") or ep.get("thumb"), "hash": "#/show/" + urllib.parse.quote(sh["id"], safe=""),
                                         "play": "#/play/" + urllib.parse.quote(ep["id"], safe="")}

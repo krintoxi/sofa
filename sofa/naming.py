@@ -1,4 +1,5 @@
 """Reading show/episode/movie information out of messy file names."""
+import datetime
 import re
 import unicodedata
 
@@ -23,6 +24,10 @@ COLLECTION_WORDS = re.compile(
     r"\b(collection|saga|trilogy|quadrilogy|pentalogy|hexalogy|anthology|box[ ._-]?set|boxset|complete|pack|"
     r"movies|films|duology|series)\b", re.I)
 SEASON_DIR = re.compile(r"(?:^|[\s._-])(?:s|season\s*)(\d{1,2})$", re.I)
+SEASON_YEAR = re.compile(r"^season\s+((?:19|20)\d{2})$", re.I)                 # a daily show's year: "Season 2026"
+# A daily show's episode as the Inbox names it: "The News Hour S2026E1118" is the one of 18 November 2026 (season the
+# year, episode month and day). Read back by the library too: before 1.5.22 it took them for extras.
+DATED_CODE = re.compile(r"(?:^|[^a-z0-9])s((?:19|20)\d{2})[ ._-]?e(\d{3,4})(?!\d)", re.I)
 MOVIE_DIR = re.compile(r"^\[(\d{4})\]\s*(.+)$|^(.+?)\s*\((\d{4})\)$")
 MOVIE_NAME = re.compile(r"^(.+?)[\s._(\[-]+((?:19|20)\d{2})(?:[\s._)\]-]|$)")
 RELEASE_JUNK = re.compile(
@@ -58,6 +63,11 @@ def parse_episode(stem, season_hint=None, in_show=False):
         last = int(m.group(3)) if m.re is EPISODE and m.group(3) else None
         return {"s": int(m.group(1)), "e": int(m.group(2)), "e2": last,
                 "show": clean(stem[:m.start()]), "title": clean(stem[m.end():])}
+    m = DATED_CODE.search(stem)
+    day = m and _day(int(m.group(1)), int(m.group(2)) // 100, int(m.group(2)) % 100)
+    if day:                                         # a daily show's, as the Inbox names it
+        return {"s": day.year, "e": int(m.group(2)), "e2": None, "show": clean(stem[:m.start()]),
+                "title": clean(stem[m.end():]) or None, "date": day.isoformat()}
     loose = _loose_episode(stem, season_hint)
     if loose:
         return loose
@@ -111,13 +121,22 @@ def _loose_episode(stem, season_hint=None):
 DATED = re.compile(r"^(.+?)[\s._-]((?:19|20)\d{2})[\s._-](\d{2})[\s._-](\d{2})(?!\d)")
 
 
-def parse_dated(stem):
-    """Daily shows: "The Daily Show 2024 03 15" is that show's episode of 15 March 2024 (season 2024)."""
-    m = DATED.match(stem)
-    if not m or not clean(m.group(1)) or not (1 <= int(m.group(3)) <= 12 and 1 <= int(m.group(4)) <= 31):
+def _day(y, month, d):
+    try:
+        return datetime.date(y, month, d)
+    except ValueError:
         return None
-    return {"s": int(m.group(2)), "e": int(m.group(3)) * 100 + int(m.group(4)), "e2": None, "show": clean(m.group(1)),
-            "title": None, "date": "%s-%s-%s" % (m.group(2), m.group(3), m.group(4))}
+
+
+def parse_dated(stem):
+    """Daily shows: "The Daily Show 2024 03 15" is that show's episode of 15 March 2024 (season 2024, episode 315). What
+    follows the date is the episode's title ("The News Hour 2026-11-13 Storm Watch")."""
+    m = DATED.match(stem)
+    day = m and clean(m.group(1)) and _day(int(m.group(2)), int(m.group(3)), int(m.group(4)))
+    if not day:
+        return None
+    return {"s": day.year, "e": day.month * 100 + day.day, "e2": None, "show": clean(m.group(1)),
+            "title": clean(stem[m.end():]) or None, "date": day.isoformat()}
 
 
 def camera_name(stem):
@@ -176,6 +195,9 @@ def season_of_dir(name):
     name = name.strip()
     if name.lower() in ("specials", "season 0", "season 00"):
         return 0
+    y = SEASON_YEAR.match(name)
+    if y:
+        return int(y.group(1))
     m = SEASON_DIR.search(name) or SEASON_ANY.search(name)
     return int(m.group(1) or m.group(2)) if m else None
 

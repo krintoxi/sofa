@@ -18,7 +18,7 @@ stopped changing for 30 seconds (and while any `.part`/`.crdownload` file remain
 | a folder `Show Name/Season 2/03 - Title.mkv` | the same, using the folder names |
 | `Show Name 101 Title.avi` inside a show folder (`101` = season 1, episode 1) | the same tidy name |
 | `[Group] Show Name - 05 [1080p].mkv` (anime), `Show.Name.205.HDTV`, `Show Name Ep 3` | `Shows/Show Name/Season 1/...` (or the season in the name) |
-| a daily show by date: `The.Daily.Show.2024.03.15...` | `Shows/The Daily Show/Season 2024/...` |
+| a daily show by date: `The.Daily.Show.2024.03.15...`, `The News Hour 2026-11-13 Storm Watch` | `Shows/The Daily Show/Season 2024/The Daily Show S2024E315.ext`: season the year, episode the month and day, and what follows the date as its title. The library lists it as that day's episode (by its day, "Fri, Nov 13", in the apps); a dated name put in the show's own folder by hand is read the same way |
 | a phone or camera video: `VID_20230512_143000.mp4`, `IMG_1234.MOV`, `PXL_...`, `GOPR0042.MP4` | `Movies/Home Videos/Video 2023-05-12 14.30/...` (the date and time when the name has them; nothing is looked up for them) |
 | `Movie.Title.1999.1080p...` or `Movie Title (1999)` | `Movies/Movie Title (1999)/Movie Title (1999).ext` |
 | a movie with no year in its name | its year is looked up (iTunes Store, Wikipedia or TMDB); if nobody knows it, it's filed under its own name |

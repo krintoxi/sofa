@@ -260,11 +260,29 @@ class WithATuner(unittest.TestCase):
         base = {"title": "Night Court", "sub": "Tonight", "season": 3, "episode": 7, "movie": 0, "year": None,
                 "start": time.mktime((2026, 11, 13, 20, 0, 0, 0, 0, -1))}
         self.assertEqual(dvr.file_name(base), "Night Court S03E07 Tonight")
-        self.assertEqual(dvr.file_name(dict(base, season=None, episode=None)), "Night Court 2026-11-13")
+        self.assertEqual(dvr.file_name(dict(base, season=None, episode=None)), "Night Court 2026-11-13 Tonight")   # (the guide's title)
+        self.assertEqual(dvr.file_name(dict(base, season=None, episode=None, sub=None)), "Night Court 2026-11-13")
+        self.assertEqual(dvr.file_name(dict(base, season=None, episode=None, sub=None), at_time=True), "Night Court 2026-11-13 8.00 PM")
         self.assertEqual(dvr.file_name(dict(base, title="Casablanca", movie=1, year=1942)), "Casablanca (1942)")
         odd = dvr.file_name(dict(base, title="A/B: C?", movie=1))
         self.assertEqual(odd, naming.safe_filename("A/B: C?"))
         self.assertNotIn("/", odd)
+
+    def test_the_second_showing_of_a_day_is_told_apart(self):
+        """The news recorded at six and at eleven had one name, and the Inbox couldn't file the second (a different file
+        already had it): a later one of the same title that day is named with its time (Sofa 1.5.22)."""
+        chans = self.on()
+        day = time.mktime((2026, 11, 13, 18, 0, 0, 0, 0, -1))
+        six = dvr._insert(chans["5.1"], day, day + 1800, "The News Hour")
+        eleven = dvr._insert(chans["5.1"], day + 5 * 3600, day + 5 * 3600 + 1800, "The News Hour")
+        tomorrow = dvr._insert(chans["5.1"], day + 86400, day + 86400 + 1800, "The News Hour")
+        store.ex("UPDATE recordings SET state = 'filed' WHERE id = ?", six)
+        self.assertFalse(dvr._again_that_day(dvr.get(six)))
+        self.assertTrue(dvr._again_that_day(dvr.get(eleven)))
+        self.assertEqual(dvr.file_name(dvr.get(eleven), at_time=True), "The News Hour 2026-11-13 11.00 PM")
+        self.assertFalse(dvr._again_that_day(dvr.get(tomorrow)))
+        store.ex("UPDATE recordings SET state = 'failed' WHERE id = ?", six)                # (one that didn't record: no)
+        self.assertFalse(dvr._again_that_day(dvr.get(eleven)))
 
     # ---------------------------------------------------------------- recording for real
 
@@ -304,6 +322,39 @@ class WithATuner(unittest.TestCase):
         item = {"id": "x", "kind": "episode", "path": r["path"], "show_id": "s:night-court"}
         self.assertFalse(sharing.item_shared(item, type("L", (), {"find": lambda self, i: {"id": i}})()))
         self.assertNotIn("path", dvr.listing()["recordings"][0])
+
+    def test_a_dated_recording_is_an_episode_of_its_show(self):
+        """A programme without a season and episode is filed as that day's episode of its show (season the year, episode
+        the month and day, the guide's title for it), and the library lists it so: before 1.5.22 it was an extra, with no
+        place among the show's episodes and no Skip intro. A file named that way by hand in the show's folder too."""
+        chans = self.on()
+        now = int(time.time())
+        self.xmltv([self.show("kstn.us", now - 60, now + 8, "The News Hour", "Storm Watch")])
+        guide.refresh(force=True)
+        config.update({"dvr_pad_before": 0, "dvr_pad_after": 0})
+        r = dvr.record_now(chans["5.1"]["id"])
+        self.assertEqual((r["season"], r["episode"], r["sub"]), (None, None, "Storm Watch"))
+        r = self.run_until(r["id"], ("done", "failed"))
+        self.assertEqual(r["state"], "done", r["why"])
+        day = time.localtime(r["start"])
+        self.assertEqual(r["inbox"], "The News Hour %s Storm Watch.ts" % time.strftime("%Y-%m-%d", day))
+        organizer._handle(os.path.join(config.path("inbox"), r["inbox"]))
+        r = dvr.get(r["id"])
+        self.addCleanup(shutil.rmtree, os.path.join(config.path("shows"), "The News Hour"), True)
+        code = "S%dE%d" % (day.tm_year, day.tm_mon * 100 + day.tm_mday)
+        self.assertEqual(os.path.relpath(r["path"], config.path("shows")),
+                         os.path.join("The News Hour", "Season %d" % day.tm_year, "The News Hour %s Storm Watch.ts" % code))
+        by_hand = os.path.join(config.path("shows"), "The News Hour", "The News Hour 2025-12-31.ts")
+        shutil.copy(r["path"], by_hand)                                                    # (put there by someone)
+        from sofa.library import LIBRARY
+        LIBRARY.scan("tests")
+        item = LIBRARY.item(LIBRARY.item_at(os.path.abspath(r["path"])))
+        self.assertEqual((item["kind"], item["s"], item["e"], item["title"], item["aired"]),
+                         ("episode", day.tm_year, day.tm_mon * 100 + day.tm_mday, "Storm Watch", time.strftime("%Y-%m-%d", day)))
+        other = LIBRARY.item(LIBRARY.item_at(os.path.abspath(by_hand)))
+        self.assertEqual((other["kind"], other["s"], other["e"], other["aired"]), ("episode", 2025, 1231, "2025-12-31"))
+        show = LIBRARY.find(item["show_id"])
+        self.assertEqual(([se["n"] for se in show["seasons"]], show["extras"]), (sorted({2025, day.tm_year}), []))
 
     def test_a_stream_that_breaks_off_is_opened_again(self):
         chans = self.on()

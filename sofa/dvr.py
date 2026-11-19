@@ -302,15 +302,30 @@ def plan(now=None):
 
 # ---------------------------------------------------------------- recording
 
-def file_name(r):
-    """What the Inbox will read: "Show S03E07 Title", "Show 2026-11-13", "Film (1942)", "Film"."""
+def file_name(r, at_time=False):
+    """What the Inbox will read: "Show S03E07 Title", "Show 2026-11-13" (and the guide's title for that day, if it gave
+    one: "Show 2026-11-13 Storm Watch"), "Film (1942)", "Film". The Inbox files a dated one as that day's episode
+    (season 2026, episode 1113). `at_time`: a second showing recorded that day, told apart by its time ("6.00 PM")."""
     title = naming.safe_filename(r["title"]) or "Recording"
     if r["movie"]:
         return "%s (%d)" % (title, r["year"]) if r["year"] else title
+    sub = naming.safe_filename(r.get("sub") or "")
     if r["season"] is not None and r["episode"] is not None:
-        sub = naming.safe_filename(r["sub"] or "")
         return ("%s S%02dE%02d %s" % (title, r["season"], r["episode"], sub)).strip()
-    return "%s %s" % (title, time.strftime("%Y-%m-%d", time.localtime(r["start"])))
+    day = time.localtime(r["start"])
+    when = (" " + time.strftime("%I.%M %p", day).lstrip("0")) if at_time else ""
+    return ("%s %s%s %s" % (title, time.strftime("%Y-%m-%d", day), when, sub)).strip()
+
+
+def _again_that_day(r):
+    """A dated recording whose title was recorded earlier the same day: it's named with its time (two showings of the news
+    on one day had the same name, and the Inbox couldn't file the second)."""
+    if r["movie"] or (r["season"] is not None and r["episode"] is not None):
+        return False
+    midnight = int(time.mktime(time.localtime(r["start"])[:3] + (0, 0, 0, 0, 0, -1)))
+    return bool(store.q1("""SELECT id FROM recordings WHERE id != ? AND title = ? COLLATE NOCASE AND start >= ? AND start < ?
+                            AND season IS NULL AND state IN ('recording', 'done', 'filed')""",
+                         r["id"], r["title"], midnight, r["start"]))
 
 
 def _command(url, seconds, out):
@@ -412,11 +427,11 @@ def _finish(r, p):
             os.remove(x)
     inbox = config.path("inbox")
     os.makedirs(inbox, exist_ok=True)
-    name = file_name(r) + ".ts"
-    dest = os.path.join(inbox, name)
+    base = file_name(r, at_time=_again_that_day(r))
+    dest = os.path.join(inbox, base + ".ts")
     n = 2
     while os.path.exists(dest):
-        dest = os.path.join(inbox, "%s (%d).ts" % (file_name(r), n))
+        dest = os.path.join(inbox, "%s (%d).ts" % (base, n))
         n += 1
     size = os.path.getsize(joined)
     fileops.move(joined, dest)
