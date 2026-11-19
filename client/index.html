@@ -191,6 +191,13 @@ try { var sp = JSON.parse(localStorage.getItem("sofa.splashBoot")), el = documen
 </div>
 <div class="qpanel" id="qpanel" hidden></div>
 <div class="sleep-menu" id="sleepMenu" hidden></div>
+<script>/* Spanish: the language chosen under Theme on this device, else the device's own. English loads nothing. */
+(function () {
+  var pick = null;
+  try { pick = JSON.parse(localStorage.getItem("sofa.lang")); } catch (e) {}
+  if (pick ? pick === "es" : /^es\b/i.test(navigator.language || "")) document.write('<script src="/client/es.js"><\/script>');
+})();
+</script>
 <script src="/client/app.js"></script>
 </body>
 </html>

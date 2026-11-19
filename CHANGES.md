@@ -6,6 +6,28 @@ has its own numbers and list: [deploy/sofa-box/CHANGES.md](deploy/sofa-box/CHANG
 A change to Sofa's code (`sofa/`, `client/`, `sofa.py`) gets a new version: raise `__version__`, add a section
 here, then `python3 tools/sofa-version.py` (a test checks it was done).
 
+## 1.5.26 (2026-11-19)
+
+- **Sofa in Spanish.** On a phone, computer or TV set to Spanish, the pages you use every day are in Spanish: the
+  header and menus, Home, Shows, Movies, a show's or movie's page with its file's details, search, My List, signing in, Who's watching, Theme,
+  Play on, downloads, and the player with its sound, subtitle and options menus. Dates, counts ("3 temporadas, 24
+  episodios") and genres too. Latin American Spanish, "tú".
+- **Language names follow it too** (1.5.25 went by the device alone): with Español chosen, tracks and the language filter
+  say Inglés, Español (Latinoamérica), Francés.
+- **Your choice, per device:** Theme → **Language**: Device, English or Español. A Sofa Box's browser is set to
+  English, so that's where to pick Español on a box.
+- **What stays as it is.** A show called "Home" is still "Home", a movie called "Play" is still "Play", and so are
+  episode titles, descriptions, file names and people's names: only Sofa's own words change.
+- **English costs nothing more.** The Spanish is one file (`client/es.js`) that only a device asking for Spanish
+  fetches. It puts into Spanish what the page draws, as it's drawn, so the pages themselves are written once.
+- **Still in English:** the Server pages and the admin's Manage and Find details, Live TV's guide and recordings,
+  Games, Music, the Adult section, watching together, a Sofa Box's own Home screen and its player's screen, and the Fire
+  TV and Roku apps. A sound or subtitle track's own name stays as the file has it.
+- Tested in Chrome in both languages with a library whose titles are the app's own words, and every Spanish entry is
+  checked against the app's English, so a change of wording is noticed (`tests/test_spanish.py`). Timed with the
+  processor slowed sixfold, English and Spanish in turn on a library of 13 files: Home to Movies in 23 ms and 24 ms.
+  Not timed on a Raspberry Pi or a large library, and the Spanish hasn't been read by a second Spanish speaker.
+
 ## 1.5.25 (2026-11-19)
 
 - **Sofa says what language each title is in.** A movie's or show's card is marked when it has two or more ("EN + ES")

@@ -159,6 +159,10 @@ function appearanceDialog() {
     <h3 class="dlg-sub">Subtitle size</h3>
     <div class="sorter inline" role="group" aria-label="Subtitle size">${[["s", "Small"], ["m", "Medium"], ["l", "Large"], ["xl", "Huge"]].map(x =>
       `<button data-sub-size="${x[0]}" aria-pressed="${x[0] === sub}">${x[1]}</button>`).join("")}</div>
+    <h3 class="dlg-sub">Language</h3>
+    <div class="sorter inline" role="group" aria-label="Language">${[["", "Device"], ["en", "English"], ["es", "Español"]].map(x =>
+      `<button data-lang-pick="${x[0]}" aria-pressed="${(prefs.get("lang", null) || "") === x[0]}">${x[1]}</button>`).join("")}</div>
+    <p class="hint">English, or Spanish for the pages you use every day. The Server pages are in English.</p>
     <h3 class="dlg-sub">Home</h3>
     ${session && session.user && !session.user.guest ? `<div class="toggle"><div><b>What's on Home</b><span>Which rows, in which order. Yours on every screen.</span></div><button class="btn" data-home-edit="1">Arrange</button></div>` : ""}
     <div class="toggle"><div><b>Play the banner</b><span>The featured title at the top of Home plays a few silent seconds.</span></div>
@@ -185,8 +189,9 @@ function appearanceDialog() {
   const nameBox = $("[data-screen-name]", d);
   if (nameBox) nameBox.addEventListener("change", () => prefs.set("screenName", nameBox.value.trim()));
   d.addEventListener("click", e => {
-    const t = e.target.closest("[data-theme-pick],[data-sub-size],[data-tv-toggle],[data-banner-toggle],[data-trailer-toggle],[data-preview-toggle],[data-spoiler-toggle],[data-install-app],[data-accent-pick],[data-motion],[data-splash]"); if (!t) return;
+    const t = e.target.closest("[data-lang-pick],[data-theme-pick],[data-sub-size],[data-tv-toggle],[data-banner-toggle],[data-trailer-toggle],[data-preview-toggle],[data-spoiler-toggle],[data-install-app],[data-accent-pick],[data-motion],[data-splash]"); if (!t) return;
     const pressOnly = (sel) => d.querySelectorAll(sel).forEach(b => b.setAttribute("aria-pressed", b === t));
+    if (t.dataset.langPick !== undefined) { prefs.set("lang", t.dataset.langPick || null); location.reload(); return; }   // (client/es.js: loaded as the page loads)
     if (t.dataset.accentPick !== undefined) { saveLook("accent", t.dataset.accentPick || null); applyAccent(t.dataset.accentPick); pressOnly("[data-accent-pick]"); return; }
     if (t.dataset.motion) { saveLook("motion", t.dataset.motion); applyMotion(t.dataset.motion); pressOnly("[data-motion]"); return; }
     if (t.dataset.splash) { saveLook("splash", t.dataset.splash); applyLook(); pressOnly("[data-splash]"); return; }
@@ -1087,7 +1092,8 @@ const LANG_NAMES = { en: ["English", "Inglés"], es: ["Spanish", "Español"], fr
   "es-MX": ["Spanish (Mexico)", "Español (México)"], "pt-BR": ["Portuguese (Brazil)", "Portugués (Brasil)"],
   "pt-PT": ["Portuguese (Portugal)", "Portugués (Portugal)"], "fr-CA": ["French (Canada)", "Francés (Canadá)"] };
 const LANG3 = { eng: "en", spa: "es", fre: "fr", fra: "fr", ger: "de", deu: "de", ita: "it", por: "pt", jpn: "ja", kor: "ko", chi: "zh", zho: "zh", rus: "ru" };
-const UI_LANG = String(navigator.language || "en"), UI_ES = /^es\b/i.test(UI_LANG), UI_OURS = UI_ES || /^en\b/i.test(UI_LANG);
+const UI_LANG = String(prefs.get("lang", null) || navigator.language || "en"),      // (Theme → Language, else the device's)
+       UI_ES = /^es\b/i.test(UI_LANG), UI_OURS = UI_ES || /^en\b/i.test(UI_LANG);
 let langIntl = null;
 try { langIntl = new Intl.DisplayNames([UI_LANG], { type: "language" }); } catch (e) {}
 const langBase = c => String(c || "").split("-")[0];
