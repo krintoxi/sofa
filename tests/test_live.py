@@ -85,7 +85,8 @@ class LiveTV(unittest.TestCase):
         self.assertEqual(len(seg), 1)
         self.assertTrue(seg[0].startswith("/live/%s/p/" % chan["id"]))           # every address back through Sofa, signed
         self.assertEqual(self.get(seg[0]), (200, b"G" * 188))
-        self.assertEqual(self.get(seg[0][:-3] + "abc")[0], 404)                   # a link Sofa didn't sign: nothing
+        other = seg[0][:-3] + ("abc" if not seg[0].endswith("abc") else "abd")    # (a signature can end in "abc" itself)
+        self.assertEqual(self.get(other)[0], 404)                                # a link Sofa didn't sign: nothing
         live._channels[chan["id"]] = dict(chan, home=False)                       # the same, from a list on the internet:
         self.assertEqual(self.get("/live/%s/index.m3u8" % chan["id"])[0], 502)    # this computer's addresses aren't fetched
         self.assertEqual(self.get(seg[0])[0], 502)
