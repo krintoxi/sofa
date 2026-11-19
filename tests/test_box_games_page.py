@@ -395,22 +395,25 @@ class GamesPage(unittest.TestCase):
         its save when a race ends; its test hook runs one."""
         p = self.page
         p.call("Page.navigate", {"url": self.base + "/box/games/tidewing/index.html?t=%d#test" % time.time()})
-        for _ in range(200):
-            if p.value("!!(window.TW && TW.startRace)"):
+        ready = "document.readyState === 'complete' && !!(window.TW && TW.startRace) && (!window.SofaStats || SofaStats.ready !== false)"
+        for _ in range(900):                              # (a slow machine with no GPU: the game takes its time to be ready)
+            if p.value(ready):
                 break
             time.sleep(0.1)
         self.assertIsNone(p.value("localStorage.getItem('tidewing')"))
-        p.value("TW.startRace(0); for (const r of TW.racers) r.ai = true; 1")
-        for _ in range(100):
+        for _ in range(300):                              # into a race, as the bench does it; asked again until it has begun
+            p.value("if (TW.state !== 'race') { if (TW.state !== 'intro' && TW.state !== 'countdown') TW.startRace(0); for (const r of TW.racers) r.ai = true; if (TW.go) TW.go(); } 1")
             if p.value("TW.state === 'race'"):
                 break
-            time.sleep(0.1)
+            time.sleep(0.2)
+        self.assertEqual(p.value("TW.state"), "race")
         time.sleep(0.5)
         p.value("TW.finishNow(); 1")
-        for _ in range(100):                              # the game keeps it itself, when the race ends
+        for _ in range(900):                              # the game keeps it itself, when the race ends
             if p.value("!!localStorage.getItem('tidewing')"):
                 break
             time.sleep(0.1)
+        self.assertTrue(p.value("!!localStorage.getItem('tidewing')"), "Tidewing kept nothing: its state is " + str(p.value("TW.state")))
         kept = json.loads(p.value("localStorage.getItem('tidewing')"))
         self.assertEqual(sorted(kept), ["best", "craft", "cups", "ghost", "open", "opts", "trial", "v"])
         want = "%d of 12 courses open" % kept["open"] if kept["open"] > 1 else "First course run"
