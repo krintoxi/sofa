@@ -1976,9 +1976,15 @@ function noDirect(id) {
   if (!ids.includes(id)) prefs.set(noDirectKey(), ids.concat(id).slice(-400));
   if (liveData && liveData.channels) liveData.channels = liveData.channels.filter(c => c.id !== id);
 }
+// A list just added: Sofa answers at once and fetches it behind the answer. Still fetching: say so, and look again.
+function liveAdded(r) {
+  if (!r || !r.reading) return;
+  toast("Added. Sofa is reading it now: its channels show up in a moment.");
+  setTimeout(() => { liveData = null; if (location.hash.startsWith("#/server")) loadAdmin(); else if (location.hash.startsWith("#/live") && !Player.isOpen()) rerender(); }, 6000);
+}
 async function loadLive() {
   // (an admin who asked to see the channels that don't answer gets them too, marked)
-  try { liveData = await api("/api/live" + (session.user.admin && prefs.get("liveShowDown", false) ? "?down=1" : "")); }
+  try { liveData = await api("/api/live" + (session.user.admin && prefs.get("liveShowDown", false) ? "?down=1" : ""), undefined, 30000); }
   catch (e) { liveData = { error: e.message, channels: [], playlists: [] }; }
   liveAt = Date.now(); dialShown = null;
   if (session.offline && liveData.channels) liveData.channels = liveData.channels.filter(c => c.recordable);   // (only home's, offline)
@@ -2780,9 +2786,10 @@ function loadAdmin() {
         .concat((ADMIN_EXTRA[tab] || []).map(x => api(x[1], undefined, 30000).then(r => x[2] ? x[2](r) : r))));
       d.live = live.playlists || (adminData && adminData.live) || [];
       d.liveHealth = live.health || (adminData && adminData.liveHealth) || null;
+      d.liveReading = !!live.reading;
       (ADMIN_EXTRA[tab] || []).forEach((x, i) => { d[x[0]] = extra[i]; });
       d.tab = tab;
-      adminData = d; adminSlow = "";
+      adminData = d; adminSlow = d.stale ? "A part of the server's status is taking too long." : "";
     } catch (e) {
       if (adminData && !adminData.error) adminSlow = e.message;      // keep showing the last status, and say so
       else adminData = { error: e.message };
@@ -3181,9 +3188,10 @@ function srvLive(d) {
   const looked = !h || !h.on ? "" : h.cut_off ? "The internet didn't answer the last looks, so nothing was marked. Sofa tries again in a few minutes."
     : h.waiting ? "Nobody has opened Live TV for a week, so Sofa isn't looking. It starts again when someone does."
     : !h.total ? "" : `${h.checked} of ${plural(h.total, "channel")} looked at${h.checked < h.total ? " so far" : ""}; ${h.down === 1 ? "1 doesn't answer and is" : h.down + " don't answer and are"} left out.`;
-  return `<div class="panels">${tunersPanel(d.tuners, s)}<div class="panel wide"><h2>Live TV channel lists</h2><p class="hint">M3U playlists of free channels. Sofa re-downloads them twice a day. At home they play through Sofa; away from home, and for visitors, straight from where each channel is streamed, or not at all.</p>
-    <ul class="list">${(d.live || []).map(p => `<li><span><b>${esc(p.name)}</b>${p.adult ? ` <span class="tag">Adult</span>` : ""}<br><span class="when">${p.error ? "Problem: " + esc(p.error) : plural(p.count || 0, "channel")}</span></span>
-      <span class="row-actions">${p.adult ? "" : `<button class="mini" data-live-public="${esc(p.url)}" aria-pressed="${!!p.public}" title="The public library's visitors get this list's channels too (with Live TV shared, in Sharing)">${p.public ? "Visitors: on" : "Visitors: off"}</button>`}
+  return `<div class="panels">${tunersPanel(d.tuners, s)}<div class="panel wide"><h2>Live TV channel lists</h2><p class="hint">M3U playlists of free channels. Sofa re-downloads them twice a day. At home they play through Sofa; away from home, and for visitors, straight from where each channel is streamed, or not at all. <b>On / Off</b> takes a list's channels out of Live TV, for everyone, without losing the list; <b>Visitors</b> is only about the public library's visitors and changes nothing at home.</p>
+    <ul class="list">${(d.live || []).map(p => `<li><span><b>${esc(p.name)}</b>${p.adult ? ` <span class="tag">Adult</span>` : ""}${p.off ? ` <span class="tag">Off</span>` : ""}<br><span class="when">${p.error ? "Problem: " + esc(p.error) : !p.updated && d.liveReading ? "Sofa is reading it now…" : plural(p.count || 0, "channel") + (p.off ? ", none of them in Live TV" : "")}</span></span>
+      <span class="row-actions"><button class="mini" data-live-switch="${esc(p.url)}" aria-pressed="${!p.off}" title="Off: the list stays here and none of its channels are in Live TV, for anyone">${p.off ? "Off" : "On"}</button>
+      ${p.adult ? "" : `<button class="mini" data-live-public="${esc(p.url)}" aria-pressed="${!!p.public}" title="The public library's visitors get this list's channels too (with Live TV shared, in Sharing)">${p.public ? "Visitors: on" : "Visitors: off"}</button>`}
       <button class="mini danger" data-live-remove="${esc(p.url)}">Remove</button></span></li>`).join("") || `<li class="empty-row">No channel lists yet.</li>`}</ul>
     <p class="hint" style="margin-top:14px">Community lists from iptv-org: channels that are streamed openly on the internet, collected by volunteers. Sofa doesn't host them or choose what's on them, and being reachable doesn't make a channel yours to pass on, so keep them for watching at home.</p>
     <div class="presets">${PRESETS.filter(p => !(d.live || []).some(x => x.url === p[1])).map(p => `<button class="mini" data-preset="${esc(p[1])}" data-name="${esc(p[0])}">+ ${esc(p[0])}</button>`).join("")}</div>
@@ -3200,6 +3208,16 @@ function srvLive(d) {
     ${srvSwitch("archive_channels", s.archive_channels, "Classic Cinema", "Old films and classic TV on the clock, like a TV channel: noir, westerns, silent films, cartoons and more. They play straight from a public video library, not through Sofa.")}
     ${srvSwitch("retro_eras", s.retro_eras, "The decades, as they aired", "Recordings people made of TV from the 50s to 2012, commercials and all: Saturday mornings, music TV, kids' channels. They play straight from a public video library where people put them, not through Sofa, which keeps no copy and holds no rights to them. Visitors to a public library never get them.")}</div></div>`;
 }
+document.addEventListener("click", e => {
+  const b = e.target.closest && e.target.closest("[data-live-switch]");
+  if (!b) return;
+  const on = b.getAttribute("aria-pressed") !== "true";
+  adminAction(async () => {
+    await api("/api/admin/live", { switch: { url: b.dataset.liveSwitch, on } });
+    liveData = null; guideData = null;
+    toast(on ? "On: its channels are back in Live TV." : "Off: its channels are out of Live TV. The list stays here.");
+  });
+});
 document.addEventListener("click", e => {
   const b = e.target.closest && e.target.closest("[data-live-public]");
   if (!b) return;
@@ -3655,7 +3673,14 @@ function route(animate) {
 function rerender() { const y = scrollY; route(false); scrollTo(0, y); }
 window.addEventListener("hashchange", e => {
   // (back on Live TV after a while elsewhere: its channels are asked for again; the ones that stopped answering are gone)
-  if (liveData && !liveData.error && location.hash.startsWith("#/live") && !String(e.oldURL || "").includes("#/live") && Date.now() - liveAt > 5 * 60000) liveData = null;
+  const backOnLive = liveData && !liveData.error && location.hash.startsWith("#/live") && !String(e.oldURL || "").includes("#/live");
+  if (backOnLive && Date.now() - liveAt > 5 * 60000) liveData = null;
+  else if (backOnLive && liveData.rev) {      // (sooner than that: only if a list was switched, added or removed meanwhile, on any device)
+    const had = liveData;
+    api("/api/live?rev=1", undefined, 8000).then(r => {
+      if (r.rev && r.rev !== had.rev && liveData === had) { liveData = null; guideData = null; if (location.hash.startsWith("#/live") && !Player.isOpen()) rerender(); }
+    }).catch(() => {});
+  }
   route(); scrollTo(0, 0);
 });
 /* #/play/<id>: the box's Home pressed Resume (or a Continue watching tile). The title's own page goes underneath, and
@@ -3816,7 +3841,7 @@ document.addEventListener("click", e => {
   if (t.dataset.preset) {
     t.disabled = true; t.textContent = "Adding " + t.dataset.name + "…";
     api("/api/admin/live", { add: { name: t.dataset.name, url: t.dataset.preset } })
-      .then(() => { liveData = null; liveGroup = "All"; if (location.hash.startsWith("#/server")) loadAdmin(); else loadLive(); })
+      .then(r => { liveData = null; liveGroup = "All"; liveAdded(r); if (location.hash.startsWith("#/server")) loadAdmin(); else loadLive(); })
       .catch(ex => alertBox(ex.message));
     return;
   }
@@ -3842,7 +3867,7 @@ document.addEventListener("click", e => {
   else if (t.dataset.admin === "scan") { t.disabled = true; t.textContent = "Checking…"; adminAction(async () => { await api("/api/admin/scan", {}); await reloadLibrary(); }); }
   else if (t.dataset.setting) {
     const on = t.getAttribute("aria-checked") !== "true";
-    if (/^(archive_channels|retro_eras|live_headers|live_check)$/.test(t.dataset.setting)) liveData = null;
+    if (/^(archive_channels|retro_eras|live_headers|live_check)$/.test(t.dataset.setting)) { liveData = null; guideData = null; }
     adminAction(() => api("/api/admin/settings", { [t.dataset.setting]: on }));
   }
   else if (t.dataset.shareSetting) {
@@ -3909,7 +3934,7 @@ document.addEventListener("submit", e => {
     const f = e.target, err = $(".form-error", f);
     err.textContent = "Downloading the list…";
     api("/api/admin/live", { add: { name: f.name.value, url: f.url.value, adult: f.adult.checked } })
-      .then(r => { f.reset(); liveData = null; loadAdmin(); })
+      .then(r => { f.reset(); err.textContent = ""; liveData = null; liveAdded(r); loadAdmin(); })
       .catch(ex => { err.textContent = ex.message; });
     return;
   }

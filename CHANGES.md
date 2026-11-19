@@ -6,6 +6,37 @@ has its own numbers and list: [deploy/sofa-box/CHANGES.md](deploy/sofa-box/CHANG
 A change to Sofa's code (`sofa/`, `client/`, `sofa.py`) gets a new version: raise `__version__`, add a section
 here, then `python3 tools/sofa-version.py` (a test checks it was done).
 
+## 1.5.24 (2026-11-19)
+
+- **The Server page no longer stops answering after "Check for updates".** Sofa looks for a new version by itself two
+  minutes after it starts and every twelve hours. If an admin had pressed **Check for updates** less than twelve hours
+  before one of those, that look waited on its own lock for ever, and every Server page after it waited behind it
+  (they show the update's status): "The server is taking too long to answer", then, once that device had 48 requests
+  waiting, **503** for everything it asked, Live TV included, until Sofa was restarted. Fixed, and the Server page's
+  status no longer queues behind one that's stuck: after five seconds it shows the last one.
+- **One channel that's gone no longer switches Live TV off.** Sofa stops asking the internet for three minutes when a
+  name can't be looked up, which is right for its own lookups and wrong for channels: free lists always hold a few
+  channels whose site no longer exists. Sofa looking at one of those (or someone tuning in to it) turned every
+  channel into "The channel didn't answer" for three minutes, hid working channels that were tuned in to meanwhile,
+  stopped the look at the channels after a few dozen, and made a list added just then come up empty ("the internet
+  can't be reached right now"). A channel or a list that can't be found is now only that channel's or that list's news.
+- **Channel lists on and off.** Each list on **Server → Live TV** has an **On / Off** switch: off, the list stays
+  there and none of its channels are in Live TV, for anyone; on, they're back. (The only switch there was
+  **Visitors**, which is about the public library's visitors and changes nothing at home.) A TV or another browser
+  with Live TV already loaded picks the change up the next time Live TV is opened, not five minutes later.
+- **Adding, removing or switching a list never waits on a list's server.** These used to download every list again
+  before answering, one after the other, up to 30 seconds each; a list that had never downloaded was tried again by
+  every such click. Now the channels are put together from the lists as saved, a new list is fetched behind the
+  answer (the page says "Sofa is reading it now" if it takes more than three seconds), and one reading runs at a time.
+- **The Server page asks for the lists, not the channels.** Every ten seconds it fetched the whole of Live TV (about
+  a megabyte with 5,700 channels) to show two short lines.
+- **A channel that says nothing** is given up on after 10 seconds when someone tunes in, not 20, and Live TV itself
+  gives up asking after 30 seconds instead of showing "Loading channels…" for ever.
+- **When Sofa is too busy to answer, the log says so**: a connection turned away (503) writes one line a minute at
+  most, with where each request is waiting (file and line in Sofa's own code, nothing of anyone's). `kill -USR1`
+  writes the same on a Mac or Linux.
+- Tested in `tests/test_live_lists.py`.
+
 ## 1.5.23 (2026-11-19)
 
 - **Games is a shelf of real cards.** The page was fourteen grey cards with an emoji each. Now the game you were

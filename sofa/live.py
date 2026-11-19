@@ -132,12 +132,14 @@ def fetch(url, headers=None, timeout=15, home_ok=True):
     req = urllib.request.Request(url, headers=h)
     if home_ok and at_home(url):                # (a tuner at home: no proxy, and offline mode is about the internet)
         return urllib.request.build_opener(urllib.request.ProxyHandler({})).open(req, timeout=timeout)
+    # (a channel or a list that can't be found is that channel's news, not the internet's: see net.urlopen)
     if home_ok:
-        return net.urlopen(req, timeout=timeout)
+        return net.urlopen(req, timeout=timeout, whole_internet=False)
     if at_home(url):
         raise PermissionError(HOME)
-    return net.urlopen(req, timeout=timeout, handlers=(_StayOut(), urllib.request.ProxyHandler({}),
-                                                       _OutHTTPHandler(), _OutHTTPSHandler(context=net.context())))
+    return net.urlopen(req, timeout=timeout, whole_internet=False,
+                       handlers=(_StayOut(), urllib.request.ProxyHandler({}),
+                                 _OutHTTPHandler(), _OutHTTPSHandler(context=net.context())))
 
 
 def _home_ip(ip):
@@ -328,39 +330,107 @@ class _StayOut(urllib.request.HTTPRedirectHandler):
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
-def refresh(force=False):
-    """Re-download playlists older than REFRESH_EVERY (or all, when forced)."""
+_fetch_lock = threading.Lock()           # one download of the lists at a time (the hourly one, an admin's, a new list's)
+_build_lock = threading.Lock()           # ...and one putting-together of the channels, which waits on no download
+_soon = {"busy": False, "again": None}   # the reading that goes on behind a request (refresh_soon)
+_gen = [0]                               # counts each time the channels were put together again (rev)
+_home = {}                               # a list's address -> does it lead to the home network (looked up when it's fetched)
+_errors = {}                             # a list's address -> what went wrong the last time it was fetched
+
+
+def _saved_as(url):
+    return os.path.join(CACHE, hashlib.sha1(url.encode()).hexdigest()[:16] + ".m3u")
+
+
+def refresh(force=False, only=None, download=True):
+    """Re-download playlists older than REFRESH_EVERY (or all, when forced; or just the list at `only`), then put the
+    channels together again. `download` False: nothing is fetched, the channels are put together from the lists as
+    they were last saved (what a request does: it never waits on a list's own server, nor on a download going on)."""
     os.makedirs(CACHE, exist_ok=True)
+    if download:
+        with _fetch_lock:
+            _fetch_lists(force, only)
+    with _build_lock:
+        return _build(force)
+
+
+def refresh_soon(force=False, only=None):
+    """The same, behind the request that asked: it answers at once and the lists are fetched after it. One reading at
+    a time; what's asked for meanwhile is read next (everything, if two different things were asked for)."""
+    with _lock:
+        if _soon["busy"]:
+            was = _soon["again"]
+            _soon["again"] = (force, only) if was is None else (force or was[0], only if was[1] == only else None)
+            return
+        _soon["busy"] = True
+
+    def work(force, only):
+        while True:
+            try:
+                refresh(force, only)
+            except Exception as exc:
+                store.log("error", "Live TV refresh: %s" % exc)
+            with _lock:
+                if _soon["again"] is None:
+                    _soon["busy"] = False
+                    return
+                (force, only), _soon["again"] = _soon["again"], None
+
+    threading.Thread(target=work, args=(force, only), daemon=True, name="live-refresh-soon").start()
+
+
+def count():
+    with _lock:
+        return len(_channels)
+
+
+def reading():
+    """Is a list being fetched behind a request just now (the Server page says so)?"""
+    return _soon["busy"]
+
+
+def _fetch_lists(force, only):
+    for pl in playlists():
+        url, name = pl["url"], pl.get("name") or pl["url"]
+        path = _saved_as(url)
+        stale = not os.path.exists(path) or time.time() - os.path.getmtime(path) > REFRESH_EVERY
+        if not (only == url or (only is None and (force or stale))):
+            continue
+        try:
+            with fetch(url, timeout=30) as r:
+                data = r.read(20 * 2**20).decode("utf-8", "replace")
+            if "#EXTINF" not in data:
+                raise ValueError("that address isn't an M3U channel list")
+            with open(path + ".tmp", "w", encoding="utf-8") as f:   # (a cut-off write mustn't pass for the list)
+                f.write(data)
+            os.replace(path + ".tmp", path)
+            _errors.pop(url, None)
+        except Exception as exc:
+            _errors[url] = str(exc)[:200]
+            store.log("live", "Couldn't update channel list \"%s\": %s" % (name, _errors[url]))
+        _home[url] = at_home(url)                       # (looking a name up can take a while: here, not in a request)
+
+
+def _build(force):
     channels = {}
     for pl in playlists():
         url, name = pl["url"], pl.get("name") or pl["url"]
-        path = os.path.join(CACHE, hashlib.sha1(url.encode()).hexdigest()[:16] + ".m3u")
-        stale = not os.path.exists(path) or time.time() - os.path.getmtime(path) > REFRESH_EVERY
-        error = None
-        if force or stale:
-            try:
-                with fetch(url, timeout=30) as r:
-                    data = r.read(20 * 2**20).decode("utf-8", "replace")
-                if "#EXTINF" not in data:
-                    raise ValueError("that address isn't an M3U channel list")
-                with open(path + ".tmp", "w", encoding="utf-8") as f:   # (a cut-off write mustn't pass for the list)
-                    f.write(data)
-                os.replace(path + ".tmp", path)
-            except Exception as exc:
-                error = str(exc)[:200]
-                store.log("live", "Couldn't update channel list \"%s\": %s" % (name, error))
+        path = _saved_as(url)
         try:
             with open(path, encoding="utf-8") as f:
                 found = parse_m3u(f.read(), name, bool(pl.get("adult")))
         except OSError:
             found = []
-        home = at_home(url)                             # a tuner's list at home (HDHomeRun): its channels are at home too
-        for c in found:
+        if found and url not in _home:
+            _home[url] = at_home(url)
+        home = _home.get(url, False)                    # a tuner's list at home (HDHomeRun): its channels are at home too
+        off = bool(pl.get("off"))                       # switched off (Server, Live TV): kept, and none of it in Live TV
+        for c in () if off else found:
             c["home"] = home
             kept = channels.setdefault(c["id"], c)
             if url not in kept.get("lists", ()):
                 kept["lists"] = kept.get("lists", ()) + (sys.intern(url),)   # (the same stream in two lists: one channel, in both)
-        _status[url] = {"name": name, "url": url, "count": len(found), "error": error, "adult": bool(pl.get("adult")),
+        _status[url] = {"name": name, "url": url, "count": len(found), "error": _errors.get(url), "adult": bool(pl.get("adult")),
                         "updated": int(os.path.getmtime(path)) if os.path.exists(path) else None}
     if config.demo_on():                            # the public demo: its own checked list, and nothing else
         from . import demo
@@ -381,6 +451,7 @@ def refresh(force=False):
     with _lock:
         _channels.clear()
         _channels.update(channels)
+        _gen[0] += 1
     return len(channels)
 
 
@@ -435,9 +506,31 @@ def listing(user_id, adult=False, public_only=False, direct_only=False, show_dow
         out.append(row)
     return {"down": gone,
             "playlists": [] if public_only else
-            [dict(_status.get(p["url"], {"name": p.get("name"), "url": p["url"], "count": 0, "adult": bool(p.get("adult"))}),
-                  public=bool(p.get("public"))) for p in lists],
+            lists_shown(lists),
             "channels": out}
+
+
+def lists_shown(lists):
+    """The channel lists as the Server page and Live TV show them: how many channels, what went wrong, on or off."""
+    return [dict(_status.get(p["url"], {"name": p.get("name"), "url": p["url"], "count": 0, "adult": bool(p.get("adult"))}),
+                 public=bool(p.get("public")), off=bool(p.get("off"))) for p in lists]
+
+
+def summary(adult=False):
+    """For the Server page, which asks every few seconds: the lists and the count of what answers, and no channels
+    (thousands of them were built and sent each time, a megabyte for two short lines of the page)."""
+    return {"playlists": lists_shown([p for p in playlists() if adult or not p.get("adult")]),
+            "health": health(adult=adult), "reading": reading()}
+
+
+def rev(user_id=None):
+    """A few letters that change when Live TV's list would: the lists and their switches, the channels put together
+    again, Sofa's own lineup switched. A device with Live TV already loaded asks for this alone, and loads the
+    channels again only when it's different (a list switched off in Server is gone from the TV's Live TV at once)."""
+    seen = json.dumps([playlists(), _gen[0], [bool(config.get(k)) for k in
+                       ("live_headers", "live_check", "archive_channels", "retro_eras", "offline", "share_live", "share_cinema")]],
+                      sort_keys=True)
+    return hashlib.sha1(seen.encode()).hexdigest()[:12]
 
 
 def direct_url(chan):
@@ -479,9 +572,21 @@ def set_public(url, on):
     config.update({"live_playlists": [dict(p, public=bool(on)) if p["url"] == url else p for p in pls]})
 
 
+def set_on(url, on):
+    """A list switched off stays on the Server page (its address isn't lost) and none of its channels are in Live TV,
+    for anyone; switched on, they're back."""
+    pls = playlists()
+    if not any(p["url"] == url for p in pls):
+        raise ValueError("That channel list isn't on this Sofa.")
+    config.update({"live_playlists": [({k: v for k, v in p.items() if k != "off"} if on else dict(p, off=True))
+                                      if p["url"] == url else p for p in pls]})
+
+
 def remove_playlist(url):
     config.update({"live_playlists": [p for p in playlists() if p["url"] != url]})
     _status.pop(url, None)
+    _home.pop(url, None)
+    _errors.pop(url, None)
 
 
 # ---------------------------------------------------------------- stream proxy
@@ -531,6 +636,8 @@ CHECK_DOWN_EVERY = 6 * 3600         # one that's gone: sooner, so it's back in t
 CHECK_AGAIN = 600                   # one that missed a single look: once more before it's called gone
 DOWN_AFTER = 2                      # looks in a row without an answer before a channel is left out
 CHECK_TIMEOUT = 8
+ADD_WAIT = 3                        # a new list: the request that added it waits this long for it, then answers anyway
+TUNE_TIMEOUT = 10                   # someone tuning in: a channel that says nothing for this long didn't answer
 CHECK_PAUSE = 1.5                   # a worker's rest between two channels
 CHECK_WORKERS = 3                   # at once (never two at the same site: a site's channels go to one worker)
 CHECK_BATCH = 240                   # channels in one round, before the list is looked at afresh

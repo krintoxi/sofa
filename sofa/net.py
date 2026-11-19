@@ -77,11 +77,14 @@ def _unreachable(exc):
     return isinstance(reason, OSError) and reason.errno in (errno.ENETUNREACH, errno.EHOSTUNREACH, errno.ENETDOWN)
 
 
-def urlopen(req, timeout=20, handlers=()):
-    """`handlers`: more urllib handlers (live.py's, which checks where a redirect goes)."""
+def urlopen(req, timeout=20, handlers=(), whole_internet=True):
+    """`handlers`: more urllib handlers (live.py's, which checks where a redirect goes). `whole_internet` False: an
+    address someone else chose (a channel in a list, a list's own address). Thousands of those come and go, and one
+    whose name no longer exists says nothing about the internet: it doesn't make Sofa stop asking, and it's asked
+    even while Sofa has stopped asking the rest."""
     if offline_mode():
         raise Offline("Sofa is set to work offline (Server, Settings)")
-    if time.time() < _down_until[0]:
+    if whole_internet and time.time() < _down_until[0]:
         raise Offline("the internet can't be reached right now")
     try:
         if handlers:                          # (live.py's own https handler, when it brings one, has this context)
@@ -92,7 +95,7 @@ def urlopen(req, timeout=20, handlers=()):
     except urllib.error.HTTPError:
         raise
     except Exception as exc:
-        if _unreachable(exc):
+        if whole_internet and _unreachable(exc):
             _down_until[0] = time.time() + DOWN_FOR
             raise Offline("the internet can't be reached right now") from exc
         text = str(getattr(exc, "reason", None) or exc)

@@ -706,7 +706,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_body("Not found", status=404)
         first = m.group(2) == "index.m3u8"
         try:
-            resp = live.open_upstream(url, chan)
+            resp = live.open_upstream(url, chan, timeout=live.TUNE_TIMEOUT if first else 20)
         except Exception as exc:
             # Someone tuned in and it didn't answer: left out of Live TV from now (until it answers a later look).
             # A part that didn't come says less (one of several qualities, a moment's hiccup): Sofa looks itself, next.
@@ -896,6 +896,10 @@ class Handler(BaseHTTPRequestHandler):
             return self.json(out)
         if path.startswith("/api/live") and u.get("kids"):
             return self.error(403, "Live TV isn't on for this profile.")
+        if path == "/api/live" and (qs.get("rev") or [""])[0] == "1":     # has Live TV's list changed? (a few letters)
+            return self.json({"rev": live.rev()})
+        if path == "/api/live" and u.get("admin") and (qs.get("for") or [""])[0] == "server":
+            return self.json(live.summary(adult=bool(u.get("adult"))))       # the Server page: the lists, no channels
         if path == "/api/live":
             visitor = bool(u.get("visitor"))
             away = visitor or self.network() == "internet"  # straight from the channel, or not at all (live_get)
@@ -912,6 +916,7 @@ class Handler(BaseHTTPRequestHandler):
             # Live TV's tabs: Live now is one of the eras, with or without Sofa's own lineup
             out["eras"] = archive.eras(visitor) or [{"id": "now", "name": "Live now"}]
             out["away"] = away
+            out["rev"] = live.rev()
             return self.json(out)
         if path == "/api/live/tuner-guide":            # the household's guide (XMLTV) for its own channels: never a Visitor's
             if u.get("visitor"):
@@ -1488,7 +1493,7 @@ class Handler(BaseHTTPRequestHandler):
                     config.update({"guide_sources": [s for s in guide.sources() if (s.get("url") or s.get("path")) != data["guide_remove"]]})
             except (ValueError, OSError) as exc:
                 return self.error(400, str(exc))
-            live.refresh(force=True)
+            live.refresh(force=True, download=False)    # the tuners asked now (they're at home); no list fetched here
             threading.Thread(target=guide.refresh, kwargs={"force": True}, daemon=True).start()
             return self.json({"ok": True, "tuners": tuners.status(), "guide": guide.status()})
         if path == "/api/admin/live":
@@ -1503,13 +1508,26 @@ class Handler(BaseHTTPRequestHandler):
                     live.set_public(str(data["public"].get("url") or ""), bool(data["public"].get("on")))
                     store.log("live", "%s %s a channel list for visitors" % (u["name"], "shared" if data["public"].get("on") else "stopped sharing"))
                     return self.json({"ok": True})
+                if isinstance(data.get("switch"), dict):    # a list on or off, for everyone, without losing it
+                    live.set_on(str(data["switch"].get("url") or ""), bool(data["switch"].get("on")))
+                    store.log("live", "%s switched a channel list %s" % (u["name"], "on" if data["switch"].get("on") else "off"))
             except ValueError as exc:
                 return self.error(400, str(exc))
-            count = live.refresh(force=bool(data.get("refresh") or data.get("add")))
+            # This request never waits on a list's own server: the channels are put together from the lists as saved
+            # (a list removed or switched is gone or back at once), and anything to fetch is fetched behind it.
+            count = live.refresh(download=False)
+            if data.get("add"):                         # (most lists are here in a second or two: that long, no longer)
+                live.refresh_soon(only=str(data["add"].get("url") or ""))
+                until = time.time() + live.ADD_WAIT
+                while live.reading() and time.time() < until:
+                    time.sleep(0.05)
+                count = live.count()
+            elif data.get("refresh"):
+                live.refresh_soon(force=True)
             if data.get("check"):                       # "Look at the channels now"
                 live.wanted()
                 live._check_wake.set()
-            return self.json({"ok": True, "channels": count, "health": live.health()})
+            return self.json({"ok": True, "channels": count, "health": live.health(), "reading": live.reading()})
         if path == "/api/admin/history":              # read a source (the dry run), map people, import, or forget it
             try:
                 if data.get("read"):
@@ -1946,17 +1964,24 @@ def public_settings():
 
 _status_lock = threading.Lock()
 _status = {"at": 0.0, "value": None}
+STATUS_WAIT = 5                 # seconds a Server page waits for another's status before it takes the last one
 
 
 def admin_status():
     """What the Server page shows. Everyone asking at the same moment shares one answer, and the parts
     that read whole folders or run programs come from `slow` (worked out in the background)."""
-    with _status_lock:
+    # One works it out and the rest wait for that answer, but not for ever: if a part of it is stuck, the page gets the
+    # last answer (or works out its own) instead of one more waiting request for each time the page asks.
+    if not _status_lock.acquire(timeout=STATUS_WAIT):     # ("stale": the page says it's showing the last status)
+        return dict(_status["value"], stale=True) if _status["value"] is not None else _admin_status()
+    try:
         if _status["value"] is not None and time.time() - _status["at"] < 1.5:
             return _status["value"]
         value = _admin_status()
         _status.update(at=time.time(), value=value)
         return value
+    finally:
+        _status_lock.release()
 
 
 def _disk():
@@ -2037,6 +2062,7 @@ class Server(ThreadingHTTPServer):
             if not busy:
                 with self._per_lock:
                     self._per[ip] -= 1
+            self.refused(ip, cap if busy else self.max_connections, busy)
             try:
                 request.sendall(b"HTTP/1.1 503 Service Unavailable\r\nRetry-After: 5\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
             except OSError:
@@ -2044,6 +2070,23 @@ class Server(ThreadingHTTPServer):
             self.shutdown_request(request)
             return
         super().process_request(request, client_address)
+
+    def refused(self, ip, cap, one_address):
+        """A connection turned away ("busy", 503): said in the log, once a minute at most, with what the waiting
+        requests are doing. It used to leave no trace, and a page that got 503s had nothing to show for it."""
+        now = time.time()
+        with self._per_lock:
+            self._refusals = getattr(self, "_refusals", 0) + 1
+            if now - getattr(self, "_refused_at", 0.0) < 60:
+                return
+            self._refused_at, n, self._refusals = now, self._refusals, 0
+        print("Busy: turned away %d connection%s (%s). What every request is doing now follows." % (
+            n, "" if n == 1 else "s", ("%d are open from %s already" % (cap, ip)) if one_address else ("%d are open in all" % cap)),
+            file=sys.stderr, flush=True)
+        try:
+            print(stacks(), file=sys.stderr, flush=True)
+        except Exception:
+            pass
 
     def process_request_thread(self, request, client_address):
         try:
@@ -2060,6 +2103,22 @@ class Server(ThreadingHTTPServer):
         if isinstance(sys.exc_info()[1], (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, TimeoutError)):
             return                      # the device went away mid-answer (a closed tab, a TV turned off): nothing wrong here
         super().handle_error(request, client_address)
+
+
+def stacks(most=40):
+    """Where each of Sofa's threads is, in its own code (file names and lines, nothing of anyone's): for the log when
+    Sofa is too busy to answer, and for `kill -USR1`. The same place many times is said once, with how many."""
+    import traceback
+    names = {t.ident: t.name for t in threading.enumerate()}
+    seen = {}
+    for ident, frame in sys._current_frames().items():
+        if ident == threading.get_ident():
+            continue
+        where = " < ".join("%s:%d %s" % (os.path.basename(f.filename), f.lineno, f.name)
+                           for f in reversed(traceback.extract_stack(frame)[-6:]))
+        seen.setdefault(where, []).append(names.get(ident, "?"))
+    rows = sorted(seen.items(), key=lambda kv: -len(kv[1]))[:most]
+    return "\n".join("  %d x %s  [%s]" % (len(who), where, who[0]) for where, who in rows)
 
 
 _slim = {}
@@ -2177,6 +2236,11 @@ def serve():
         print("Can't answer on port %d (%s). Is another copy of Sofa, or another program, using it?"
               % (config.get("port"), exc), flush=True)
         raise
+    try:                                    # `kill -USR1 <sofa>`: what every thread is doing, into the log
+        import signal
+        signal.signal(signal.SIGUSR1, lambda *_a: print("Asked what Sofa is doing:\n" + stacks(), file=sys.stderr, flush=True))
+    except (AttributeError, ValueError, OSError):       # (Windows has no such signal; not the main thread in a test)
+        pass
     try:
         httpd.serve_forever()
     finally:

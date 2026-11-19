@@ -134,8 +134,9 @@ def _vtuple(v):
 def check(force=False):
     """What's on GitHub compared with what's running. Cached for 12 hours unless forced."""
     with _lock:
-        if not force and time.time() - _state["checked"] < CHECK_EVERY and "latest" in _state:
-            return status()
+        fresh = not force and time.time() - _state["checked"] < CHECK_EVERY and "latest" in _state
+    if fresh:                   # (status() takes the lock itself: called with it held, this thread waited on itself
+        return status()         # for ever, and with it every Server page, which shows the update's status)
     repo, branch = _repo()
     info = {"error": None}
     if net.offline_mode():
