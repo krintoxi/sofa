@@ -229,7 +229,9 @@
     if (!drives.length && !disc) return "";
     return `<h2 class="row-title">Plugged in <small>USB drives and discs</small></h2><div class="rail inputs-row">
       ${disc ? `<button class="tile app wide input" style="--c:#7C5CFF" data-disc="${esc(disc.kind)}"><span class="ic">${icon("#i-disc")}</span>
-        <b>${esc(disc.label)}</b><small>${disc.kind === "data" ? "Open in Files" : "Play the " + esc(DISC[disc.kind])}</small></button>` : ""}
+        <b>${esc(disc.label)}</b><small>${disc.kind === "data" ? "Open in Files" : "Play the " + esc(DISC[disc.kind])}</small></button>
+        <button class="tile app wide input" style="--c:#E5484D" data-go-disc="1"><span class="ic">${icon("#i-disc")}</span>
+        <b>Save this disc</b><small>To Movies, Shows or Music on this box</small></button>` : ""}
       ${drives.map(d => `<button class="tile app wide input" style="--c:#2BB673" data-drive="${esc(d.root)}" data-dev="${esc(d.dev)}"><span class="ic">${icon("#i-usb")}</span>
         <b>${esc(d.label)}</b><small>${d.size ? size(d.size) + " · " : ""}Open in Files</small></button>`).join("")}</div>`;
   }
@@ -916,6 +918,114 @@
     async function fileDo(action, extra) {
       try { await api("/box/api/files/" + action, Object.assign({ root: filesAt.root, path: filePath(name) }, extra)); closeSheet(); toast("Done."); loadFiles(); }
       catch (e) { toast(e.message); }
+    }
+  }
+
+  // ---- save this disc: the disc in the box's drive, into Sofa on this box (the box's own Sofa reads and files it)
+  let discData = null, discAsk = null, discTimer = 0;
+  const longTime = sec => { const m = Math.round(sec / 60); return m >= 60 ? Math.floor(m / 60) + " h " + (m % 60) + " min" : m >= 1 ? m + " min" : Math.round(sec) + " s"; };
+  const clockTime = sec => Math.floor(sec / 60) + ":" + String(Math.floor(sec % 60)).padStart(2, "0");
+  const tidyName = t => String(t || "").replace(/[_.]+/g, " ").replace(/\s+/g, " ").trim().toLowerCase().replace(/(^|\s)\S/g, c => c.toUpperCase());
+  async function loadDisc() {
+    clearTimeout(discTimer);
+    try {
+      discData = await api("/box/api/disc");
+      if (discData.stopped) { await api("/box/api/disc", { action: "start" }); discData = await api("/box/api/disc"); }   // (Sofa on this box, started for this)
+    } catch (e) { discData = { error: e.message }; }
+    if (!location.hash.startsWith("#/disc")) return;
+    if (!$(".sheet-back")) render(true);
+    const busy = !discData.error && ((discData.jobs || []).some(j => j.state === "working") || (discData.drives || []).some(x => x.reading));
+    discTimer = setTimeout(loadDisc, busy ? 2000 : 5000);
+  }
+  function discIn() { return ((discData || {}).drives || []).find(x => x.state === "disc") || null; }
+  function discStart(x) {                      // what Save will ask for, first filled in from the disc itself
+    const k = x.disc, key = x.id + "|" + x.label + "|" + k.kind;
+    if (discAsk && discAsk.key === key) return discAsk;
+    discAsk = { key, drive: x.id, kind: k.kind };
+    if (k.kind === "cd") Object.assign(discAsk, { artist: k.artist || "", album: k.album || "", year: "", names: {}, out: {} });
+    else if (k.kind === "dvd") { const best = k.titles.filter(t => !t.cant).sort((a, b) => b.seconds - a.seconds)[0];
+      Object.assign(discAsk, { to: "movies", name: tidyName(k.label), year: "", season: "1", episode: "1", titles: best ? [best.n] : [] }); }
+    else discAsk.name = tidyName(k.label);
+    return discAsk;
+  }
+  function viewDisc() {
+    const head = `<h1 class="page">Save this disc</h1>`;
+    if (!discData) { loadDisc(); return head + `<p class="lede">Looking at the disc…</p>`; }
+    if (discData.error) return `<div class="view-in">${head}<p class="empty">${esc(discData.error)}</p></div>`;
+    const x = discIn(), job = (discData.jobs || []).slice(-1)[0], k = x && x.disc;
+    let body = "";
+    if (job && job.state === "working") {
+      const pct = job.total ? Math.min(100, Math.round(job.done / job.total * 100)) : 0;
+      body = `<div class="disc-card"><h2>${esc(job.name)}</h2><div class="inst-bar"><i style="width:${pct}%"></i></div>
+        <p>${esc(job.step)}${job.items > 1 ? " (" + job.item + " of " + job.items + ")" : ""} · ${pct}%</p>
+        <p class="disc-note">Leave the disc in. You can go Home and watch something meanwhile: it carries on.</p>
+        <button class="btn" data-disc-do="stop">Stop</button></div>`;
+    } else {
+      if (job) body += `<p class="disc-last ${esc(job.state)}">${job.state === "done" ? "Saved " + esc(job.name) + " to " + esc(job.to) + (job.to === "Inbox" ? ". Sofa files it in a minute." : ". It's in Sofa on this box.")
+        : job.state === "cancelled" ? "Stopped." + (job.files.length ? " What was already saved is kept." : "") : esc(job.error || "It didn't work.")}${(job.notes || []).map(n => "<br>" + esc(n)).join("")}</p>`;
+      if (!x) body += `<p class="empty">Put a DVD or CD in the disc drive.</p>`;
+      else if (!k) body += `<p class="lede">Reading the disc…</p>`;
+      else if (k.problem) body += `<div class="disc-card"><h2>${esc(x.label)}</h2><p>${esc(k.problem)}</p></div>`;
+      else {
+        const a = discStart(x), row = (key, label, value, hint) => `<button class="fitem disc-set" data-disc-set="${key}"><b>${esc(label)}</b><span class="size">${esc(value || hint || "")}</span><span class="when">Change</span></button>`;
+        if (k.kind === "dvd") {
+          const shows = a.to === "shows";
+          body += `<p class="lede">${esc(x.label)} · DVD · ${k.titles.length} ${k.titles.length === 1 ? "title" : "titles"}. The picture and sound are kept as they are on the disc, with every sound and subtitle track.</p>
+            <div class="disc-to"><button class="btn" data-disc-to="movies" aria-pressed="${!shows}">Movies</button><button class="btn" data-disc-to="shows" aria-pressed="${shows}">Shows</button></div>
+            <div class="flist">${row("name", shows ? "Show's name" : "Movie's name", a.name, "Give it a name")}
+              ${shows ? row("season", "Season", a.season) + row("episode", "First episode", a.episode) : row("year", "Year", a.year, "optional")}</div>
+            <h2 class="row-title">${shows ? "Which are episodes" : "Which is the movie"}</h2>
+            <div class="flist">${k.titles.map(t => `<button class="fitem disc-title${t.cant ? " cant" : ""}" data-disc-title="${t.n}" aria-pressed="${a.titles.includes(t.n)}">
+              <span class="tick"></span><b>Title ${t.n} · ${longTime(t.seconds)}${t.chapters.length > 1 ? " · " + t.chapters.length + " chapters" : ""}
+              <small>${esc(t.cant || [t.audio.length ? "Sound: " + t.audio.map(s => s.name || "no name").join(", ") : "", t.subs.length ? "Subtitles: " + t.subs.map(s => s.name || "no name").join(", ") : ""].filter(Boolean).join(" · "))}</small></b>
+              <span class="size">${size(t.size)}</span></button>`).join("")}</div>`;
+        } else if (k.kind === "cd") {
+          body += `<p class="lede">Music CD · ${k.tracks.length} ${k.tracks.length === 1 ? "track" : "tracks"}, ${longTime(k.tracks.reduce((n, t) => n + t.seconds, 0))}. Each becomes a FLAC file with every bit of the disc's sound, in Music.</p>
+            <div class="flist">${row("artist", "Artist", a.artist, "Who it's by")}${row("album", "Album", a.album, "What it's called")}${row("year", "Year", a.year, "optional")}</div>
+            ${discData.lookup ? `<div class="disc-to"><button class="btn" data-disc-do="names">Look the names up</button><span class="disc-note">Asks MusicBrainz, sending only where this disc's tracks start.</span></div>` : ""}
+            <h2 class="row-title">Tracks <small>OK: its name, or leave it out</small></h2>
+            <div class="flist">${k.tracks.map(t => `<button class="fitem disc-title" data-disc-track="${t.n}" aria-pressed="${!a.out[t.n]}">
+              <span class="tick"></span><b>${t.n}. ${esc(a.names[t.n] !== undefined ? a.names[t.n] || "Track " + t.n : t.title || "Track " + t.n)}</b><span class="size">${clockTime(t.seconds)}</span></button>`).join("")}</div>`;
+        } else {
+          body += `<p class="lede">${esc(x.label)} · ${k.files.length} ${k.files.length === 1 ? "file" : "files"} to copy. They go to the Inbox, where Sofa names and files them.</p>
+            <div class="flist">${row("name", "Name", a.name)}${k.files.slice(0, 8).map(f => `<div class="fitem">${icon("#i-file")}<b>${esc(f.path)}</b><span class="size">${size(f.size)}</span><span class="when"></span></div>`).join("")}
+            ${k.files.length > 8 ? `<div class="fitem"><span></span><b>and ${k.files.length - 8} more</b><span></span><span></span></div>` : ""}</div>`;
+        }
+        body += `<div class="disc-go"><button class="btn primary big" data-disc-do="save">Save</button></div>`;
+      }
+    }
+    return `<div class="view-in">${head}<div class="disc-page">${body}</div></div>`;
+  }
+  async function discClick(d) {
+    const x = discIn(), k = x && x.disc, a = discAsk;
+    if (d.discDo === "stop") { const job = (discData.jobs || []).slice(-1)[0]; if (job) await api("/box/api/disc", { action: "stop", job: job.id }); return loadDisc(); }
+    if (!k || !a) return;
+    if (d.discTo) { a.to = d.discTo; if (a.to === "movies") a.titles = a.titles.slice(0, 1); return render(true); }
+    if (d.discSet) { const key = d.discSet, labels = { name: "Its name", year: "The year (like 1999)", season: "The season's number", episode: "The first episode's number", artist: "Who it's by", album: "The album's name" };
+      return askText(labels[key], a[key] || "", v => { a[key] = v.trim(); closeSheet(); render(true); }); }
+    if (d.discTitle) { const n = +d.discTitle, t = k.titles.find(v => v.n === n);
+      if (t.cant) return toast(t.cant, 5000);
+      a.titles = a.to === "movies" ? [n] : a.titles.includes(n) ? a.titles.filter(v => v !== n) : a.titles.concat(n).sort((p, q) => p - q);
+      return render(true); }
+    if (d.discTrack) { const n = +d.discTrack, t = k.tracks.find(v => v.n === n);
+      return sheet(`<h3>Track ${n}</h3><button class="btn primary" data-sheet="name">Its name</button><button class="btn" data-sheet="out">${a.out[n] ? "Save it too" : "Leave it out"}</button><button class="btn" data-sheet="close">Cancel</button>`, act => {
+        if (act === "name") askText("Track " + n + "'s name", a.names[n] !== undefined ? a.names[n] : t.title || "", v => { a.names[n] = v.trim(); closeSheet(); render(true); });
+        else { if (act === "out") a.out[n] = !a.out[n]; closeSheet(); render(true); }
+      }); }
+    if (d.discDo === "names") {
+      const r = await api("/box/api/disc", { action: "names", drive: a.drive });
+      if (!r.found) return toast("MusicBrainz doesn't know this disc. Type the names in.", 5000);
+      Object.assign(a, { artist: r.artist, album: r.album, year: r.year || a.year }); Object.keys(r.titles).forEach(n => { a.names[n] = r.titles[n]; });
+      return render(true);
+    }
+    if (d.discDo === "save") {
+      const ask = { action: "save", drive: a.drive };
+      if (k.kind === "cd") { ask.artist = a.artist; ask.album = a.album; ask.year = a.year; ask.tracks = {};
+        k.tracks.forEach(t => { if (!a.out[t.n]) ask.tracks[t.n] = a.names[t.n] !== undefined ? a.names[t.n] : t.title; }); }
+      else if (k.kind === "dvd") Object.assign(ask, { to: a.to, name: a.name, year: a.year, season: a.season, episode: a.episode, titles: a.titles });
+      else ask.name = a.name;
+      await api("/box/api/disc", ask);
+      toast("Saving the disc. Leave it in the drive."); return loadDisc();
     }
   }
 
@@ -1903,6 +2013,8 @@
       else if (d.default) { await api("/box/api/sofa/choose", { id: d.default, remember: true }); servers = null; await loadServers(); await loadApps(); toast("Sofa opens with that one now."); }
       else if (d.forgetServer) confirmSheet("Remove this server from the box?", async () => { closeSheet(); await api("/box/api/sofa/remove", { id: d.forgetServer }); servers = null; await loadServers(); await loadApps(); });
       else if (d.disc) { if (d.disc === "data") { location.hash = "#/files"; } else { await api("/box/api/disc/play", {}); } }
+      else if (d.goDisc) { discData = null; location.hash = "#/disc"; }
+      else if (d.discDo || d.discTo || d.discSet || d.discTitle || d.discTrack) await discClick(d);
       else if (d.drive) { filesAt = { root: d.drive, path: "" }; roots = null; filesData = null; location.hash = "#/files"; }
     } catch (ex) { toast(ex.message); }
   });
@@ -1936,14 +2048,14 @@
 
   // ---------------------------------------------------------------- the router
   const TABS = { "": "home", store: "store", games: "games", files: "files", browser: "browser", settings: "settings", welcome: "", sofa: "home", sleep: "" };
-  TABS.credits = TABS["tv-tracking"] = "settings";               // (pages of Settings: Back goes there)
+  TABS.credits = TABS["tv-tracking"] = "settings"; TABS.disc = "home";               // (pages of Settings: Back goes there)
   function render(keep) {
     const name = (location.hash.replace(/^#\/?/, "").split(/[/?]/)[0]) || "";
     if (name) powerGone(name === "sleep");        // (another page: Home's power note has been seen, if it was on the TV)
     const html = name === "store" ? viewStore() : name === "games" ? viewGames() : name === "files" ? viewFiles()
       : name === "browser" ? viewBrowser() : name === "settings" ? viewSettings() : name === "welcome" ? viewWelcome()
       : name === "credits" ? viewCredits() : name === "tv-tracking" ? viewTvTracking()
-      : name === "sofa" ? viewSofa() : name === "sleep" ? viewSleep() : viewHome();
+      : name === "sofa" ? viewSofa() : name === "sleep" ? viewSleep() : name === "disc" ? viewDisc() : viewHome();
     if (name !== "sleep") document.documentElement.classList.remove("asleep");
     const keepKey = keep && cur && document.contains(cur) ? keyOf(cur) : null;
     if (name !== "welcome") document.documentElement.classList.remove("setup");
@@ -1973,7 +2085,7 @@
       : [["OK", "Choose"], ["Back", "Home screen"]]);
   }
   function keyOf(el) {
-    for (const a of ["music", "cw", "app", "store", "game", "play", "gameGet", "gameRemove", "gpLook", "file", "root", "set", "themePick", "move", "hide", "action", "target", "go", "url", "server", "pick", "addFound", "drive", "disc", "default", "forgetServer", "ask", "bt", "wifiPick", "tz", "step", "btLook", "setTab", "wifiRescan", "kb", "browserForget", "inst"]) {
+    for (const a of ["music", "cw", "app", "store", "game", "play", "gameGet", "gameRemove", "gpLook", "file", "root", "set", "themePick", "move", "hide", "action", "target", "go", "url", "server", "pick", "addFound", "drive", "disc", "goDisc", "discDo", "discTo", "discSet", "discTitle", "discTrack", "default", "forgetServer", "ask", "bt", "wifiPick", "tz", "step", "btLook", "setTab", "wifiRescan", "kb", "browserForget", "inst"]) {
       if (el.dataset[a] !== undefined) {
         const attr = "data-" + a.replace(/[A-Z]/g, c => "-" + c.toLowerCase());
         return `[${attr}="${CSS.escape(el.dataset[a])}"]` + (el.dataset.by ? `[data-by="${el.dataset.by}"]` : "") + (el.dataset.value ? `[data-value="${el.dataset.value}"]` : "");
@@ -1981,7 +2093,7 @@
     }
     return el.id ? "#" + el.id : null;
   }
-  window.addEventListener("hashchange", () => { closeSheet(); if (location.hash.startsWith("#/sofa")) servers = null; render(); });
+  window.addEventListener("hashchange", () => { closeSheet(); if (location.hash.startsWith("#/sofa")) servers = null; if (!location.hash.startsWith("#/disc")) clearTimeout(discTimer); render(); });
   let npShown = "";
   setInterval(async () => {                    // drives and discs come and go, and the music behind Home: Home shows them
     if (resting || document.hidden || $(".sheet-back")) return;

@@ -293,6 +293,11 @@ That's it. Enjoy the show. 🍿
 **How do I add more?** Drop files in **Entertainment → Inbox** on the Sofa Server's computer (or **Send files
 from this device** on the Server page). That's all.
 
+**Can it keep my DVDs and CDs?** Put the disc in the Sofa computer's drive and press **Save this disc** on the
+Server page: a music CD becomes FLAC files in Music, a home-made or otherwise unprotected DVD becomes a movie or
+episodes with all its sound and subtitle tracks. Copy-protected discs (most DVDs from a shop, every Blu-ray) aren't
+saved: Sofa doesn't get round copy protection. [How it works](docs/discs.md).
+
 **How do I update Sofa?** **Server → Updates → Update now.** Only Sofa's own program changes; your
 videos, accounts, watch history and settings stay exactly as they are, and it goes back by itself
 if anything goes wrong. ([More](docs/updating.md). Old copy without that button? Run

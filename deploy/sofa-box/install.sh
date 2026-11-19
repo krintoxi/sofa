@@ -148,7 +148,7 @@ fi
 chown -R "$WHO:" "$CONF"
 
 say "Letting the box's user use the screen, the keys, Bluetooth and Wi-Fi"
-for g in video render input audio bluetooth netdev; do getent group "$g" >/dev/null && usermod -aG "$g" "$WHO" || true; done
+for g in video render input audio bluetooth netdev cdrom; do getent group "$g" >/dev/null && usermod -aG "$g" "$WHO" || true; done
 printf 'uinput\nuhid\n' > /etc/modules-load.d/sofa-box.conf      # (uhid: Bluetooth LE controllers, an Xbox Series one)
 modprobe uinput 2>/dev/null || true
 modprobe uhid 2>/dev/null || true

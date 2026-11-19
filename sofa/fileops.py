@@ -67,6 +67,24 @@ def move(src, dest):
     return dest
 
 
+def place(src, dest):
+    """Put a finished file at `dest` only if nothing is there: never over an existing file, even one that appeared a
+    moment ago. `src` is on the same drive (a hidden name beside it). Raises FileExistsError and leaves both alone."""
+    if os.name == "nt":
+        os.rename(src, dest)                          # (Windows refuses to rename onto a file that's there)
+        return dest
+    try:
+        os.link(src, dest)                            # (a second name for the same file: fails if `dest` exists)
+        os.unlink(src)
+    except FileExistsError:
+        raise
+    except OSError:                                   # a drive with no links (exFAT, FAT): claim the name, then move onto it
+        os.close(os.open(dest, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+        os.replace(src, dest)
+    _sync_dir(os.path.dirname(dest) or ".")
+    return dest
+
+
 def leftovers(root, older=86400):
     """Hidden partial copies a crash left behind (a day old: nothing's still writing them), and the hidden folders of
     a move between drives that never finished (places.py). Removes them; returns how many."""

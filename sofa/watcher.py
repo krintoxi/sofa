@@ -4,7 +4,7 @@ import os
 import threading
 import time
 
-from . import archive, artwork, backup, config, dvr, fetch, fileops, hardware, intros, live, machine, media, optimize, organizer, places, previews, store, travel, trickplay, updater
+from . import archive, artwork, backup, config, disc, dvr, fetch, fileops, hardware, intros, live, machine, media, optimize, organizer, places, previews, store, travel, trickplay, updater
 from .library import LIBRARY
 
 INTERVAL = 20
@@ -118,6 +118,8 @@ def _prober():
 def start():
     from . import uploads
     uploads.clean()                      # pieces of uploads cut off by a restart
+    disc.clean()                         # and of a disc that was being saved
+    disc.saved = lambda: LIBRARY.scan("a disc was saved")
     try:
         from . import config
         store.scrub_private([config.path("adult"), os.path.join(config.path("inbox"), "XXX"),

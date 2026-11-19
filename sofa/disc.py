@@ -1,0 +1,878 @@
+"""Save this disc: a DVD or CD in the computer's disc drive, into the library, as files like any others.
+
+Put a disc in a drive (built in, or on USB) and the Server page shows what it is, what's on it, and Save:
+
+  a music CD     each track becomes a FLAC file (every bit of the disc's sound: checked against what was read),
+                 named and tagged, in Music/<Artist>/<Album>/.
+  a video DVD    the titles you pick become MKV files with the disc's own picture and sound as they are (nothing
+                 is converted), every sound and subtitle track, and its chapters: Movies/<Title (Year)>/, or
+                 Shows/<Show>/Season N/ as episodes.
+  a data disc    the videos, music and subtitles on it are copied to the Inbox, where Sofa files them as usual.
+
+Copy-protected discs are not saved. A commercial DVD's video is scrambled (CSS) and so is a Blu-ray's (AACS); Sofa
+has nothing that undoes either and doesn't fetch or call anything that does (in the United States that would be
+circumvention, 17 U.S.C. 1201, whoever owns the disc). It notices, says so, and stops. See sofa/dvd.py for how it
+tells, and for the one function that reads a title (`dvd.read_title`).
+
+Who does what: Sofa's own code reads the disc (sofa/dvd.py, sofa/cdaudio.py, sofa/iso9660.py). ffmpeg, which Sofa
+already needs, only packs what was read: a title's stream into an MKV, a track's sound into FLAC.
+
+While a disc is being saved the drive is only read, and shared: nothing is locked, unmounted or ejected, so it can
+still be played. A disc or drive pulled out in the middle ends that save with a plain message; what was already
+finished stays, what was half done is removed. Nothing is ever written over a file that's there.
+"""
+import hashlib
+import os
+import re
+import shutil
+import subprocess
+import sys
+import threading
+import time
+import uuid
+
+from . import cdaudio, config, dvd, fileops, iso9660, languages, media, naming, store
+
+PROTECTED = ("This %s is copy-protected. Sofa doesn't get round copy protection (in the United States that's against "
+             "the law, even for a disc you own), so it can't be saved.")
+WONT_READ = ("The drive won't hand over this disc's video, which is what happens with a copy-protected disc. Sofa "
+             "doesn't get round copy protection, so it can't be saved.")
+BLURAY = ("Sofa doesn't save Blu-ray discs. Nearly all of them are copy-protected, and Sofa doesn't get round copy "
+          "protection (in the United States that's against the law, even for a disc you own).")
+GONE = "The disc or the drive went away before it was done. What was already saved is kept; the rest wasn't."
+SPARE = 1024 ** 3
+KINDS = {"cd": "music CD", "dvd": "DVD", "bluray": "Blu-ray", "data": "data disc"}
+saved = None                # called after a save, so the library is read again (web.py sets it)
+
+_lock = threading.Lock()
+_known = {}                 # drive id -> {"key", "disc"}: what was read from the disc that's in it
+_jobs = []                  # the saves, newest last
+_sources = {}               # drive id -> what's open on it while it's described or saved
+
+
+def _media_ext():
+    from . import music
+    return set(naming.VIDEO_EXT) | set(music.AUDIO_EXT) | set(naming.SUB_EXT)
+
+
+# ---------------------------------------------------------------- the drives, and what's in them
+
+def _run(cmd, timeout=8):
+    try:
+        out = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, errors="replace")
+        return out.returncode, out.stdout
+    except (OSError, subprocess.SubprocessError):
+        return 1, ""
+
+
+def _kind_of(source):
+    try:
+        top = {n.upper(): is_dir for n, (is_dir, _) in source.names("").items()}
+    except OSError:
+        return None
+    if top.get("VIDEO_TS"):
+        return "dvd"
+    if top.get("BDMV") or top.get("AACS"):
+        return "bluray"
+    return "data"
+
+
+def _mac_drives():
+    out = []
+    code, text = _run(["/sbin/mount"])
+    for line in text.splitlines():
+        m = re.match(r"^(/dev/\S+) on (.+) \((cddafs|cd9660|udf)\b", line)
+        if not m:
+            continue
+        dev, mount, fs = m.groups()
+        whole = re.sub(r"s\d+$", "", dev)
+        if any(d["dev"] == whole for d in out):
+            continue                                        # (a DVD can show up twice: the same disc)
+        kind = "cd" if fs == "cddafs" else _kind_of(iso9660.Folder(mount))
+        out.append({"id": os.path.basename(whole), "dev": whole, "mount": mount, "name": "Disc drive", "state": "disc",
+                    "kind": kind, "label": os.path.basename(mount)})
+    code, text = _run(["/usr/bin/drutil", "status"], 6)
+    if code == 0 and "Vendor" in text:
+        lines = [x for x in text.splitlines() if x.strip()]
+        name = " ".join(lines[1].split()[:-1]) if len(lines) > 1 else "Disc drive"
+        m = re.search(r"Name:\s*(/dev/disk\d+)", text)
+        if m and any(d["dev"] == m.group(1) for d in out):
+            next(d for d in out if d["dev"] == m.group(1))["name"] = name
+        elif "No Media" in text:
+            out.append({"id": "drive", "dev": None, "mount": None, "name": name, "state": "empty", "kind": None, "label": ""})
+        elif m:                                             # something's in it that the Mac didn't open
+            out.append({"id": os.path.basename(m.group(1)), "dev": m.group(1), "mount": None, "name": name, "state": "unread",
+                        "kind": None, "label": ""})
+    return out
+
+
+def _linux_mounts():
+    found = {}
+    try:
+        with open("/proc/mounts", encoding="utf-8", errors="replace") as f:
+            for line in f:
+                parts = line.split()
+                if len(parts) > 1:
+                    found.setdefault(os.path.realpath(parts[0]), parts[1].replace("\\040", " "))
+    except OSError:
+        pass
+    return found
+
+
+def _read_text(path):
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            return f.read().strip()
+    except OSError:
+        return ""
+
+
+def _linux_drives(sys_block="/sys/block"):
+    out, mounts = [], _linux_mounts()
+    try:
+        names = sorted(n for n in os.listdir(sys_block) if re.match(r"^sr\d+$", n))
+    except OSError:
+        names = []
+    for n in names:
+        dev = "/dev/" + n
+        name = (" ".join([_read_text("%s/%s/device/vendor" % (sys_block, n)), _read_text("%s/%s/device/model" % (sys_block, n))])).strip()
+        d = {"id": n, "dev": dev, "mount": mounts.get(dev), "name": name or "Disc drive", "state": "disc", "kind": None, "label": ""}
+        status = cdaudio.linux_status(dev)
+        if status in ("empty", "open", None):
+            d["state"] = "empty" if status else "unread"
+        elif status == "audio":
+            d["kind"], d["label"] = "cd", "Music CD"
+        else:
+            try:
+                source = iso9660.Folder(d["mount"]) if d["mount"] else iso9660.Image(dev)
+                d["kind"], d["label"] = _kind_of(source), source.label
+                source.close()
+            except (OSError, ValueError):
+                if status == "mixed":
+                    d["kind"], d["label"] = "cd", "Music CD"
+                else:
+                    d["state"] = "unread"
+        out.append(d)
+    return out
+
+
+def _windows_drives():
+    import ctypes
+    out = []
+    k = ctypes.windll.kernel32
+    bits = k.GetLogicalDrives()
+    for i in range(26):
+        letter = chr(65 + i)
+        root = letter + ":\\"
+        if not bits >> i & 1 or k.GetDriveTypeW(root) != 5:      # DRIVE_CDROM
+            continue
+        d = {"id": letter, "dev": letter, "mount": root, "name": "Disc drive (%s:)" % letter, "state": "disc", "kind": None, "label": ""}
+        try:
+            names = os.listdir(root)
+        except OSError:
+            d["state"], d["mount"] = "empty", None
+            out.append(d)
+            continue
+        label = ctypes.create_unicode_buffer(261)
+        if k.GetVolumeInformationW(root, label, 261, None, None, None, None, 0):
+            d["label"] = label.value
+        if names and all(n.lower().endswith(".cda") for n in names):
+            d["kind"], d["label"] = "cd", d["label"] or "Music CD"
+        else:
+            d["kind"] = _kind_of(iso9660.Folder(root))
+        out.append(d)
+    return out
+
+
+def _made_drives():
+    """Disc images and folders to treat as drives with a disc in: SOFA_DISCS, paths separated like PATH. For trying
+    Save this disc with no drive (the tests and the pictures do), and for saving from an image file."""
+    out = []
+    for n, path in enumerate([p for p in (os.environ.get("SOFA_DISCS") or "").split(os.pathsep) if p]):
+        d = {"id": "image%d" % (n + 1), "dev": path, "mount": path if os.path.isdir(path) else None, "name": "Disc image",
+             "state": "disc", "kind": None, "label": os.path.splitext(os.path.basename(path.rstrip("/\\")))[0], "image": True}
+        try:
+            if path.lower().endswith(".cue") or (os.path.isdir(path) and any(x.lower().endswith((".aiff", ".aif")) for x in os.listdir(path))):
+                d["kind"] = "cd"
+            else:
+                source = dvd.open_source(path)
+                d["kind"], d["label"] = _kind_of(source), source.label
+                source.close()
+        except (OSError, ValueError):
+            d["state"] = "unread"
+        out.append(d)
+    return out
+
+
+def drives():
+    """The disc drives on this computer and what's in each: [{"id", "name", "state": "empty" | "disc" | "unread",
+    "kind": "cd" | "dvd" | "bluray" | "data" | None, "label", "dev", "mount"}]."""
+    try:
+        found = _mac_drives() if sys.platform == "darwin" else _windows_drives() if os.name == "nt" else _linux_drives()
+    except Exception:
+        found = []
+    return found + _made_drives()
+
+
+def _open_video(d):
+    """A DVD's or data disc's files: from where it's mounted, else from the drive itself."""
+    if d.get("mount"):
+        return iso9660.Folder(d["mount"], d.get("label"))
+    if d.get("image"):
+        return iso9660.Image(d["dev"])
+    if os.name == "nt":
+        return iso9660.Image("\\\\.\\%s:" % d["dev"])
+    try:
+        return iso9660.Image(d["dev"])
+    except (OSError, ValueError):
+        if shutil.which("udisksctl"):                       # a Sofa Box: ask for it to be mounted, as Files does
+            code, out = _run(["udisksctl", "mount", "--no-user-interaction", "-b", d["dev"]], 30)
+            m = re.search(r" at (/\S+?)\.?\s*$", out)
+            mount = m.group(1) if m else _linux_mounts().get(d["dev"])
+            if mount and os.path.isdir(mount):
+                d["mount"] = mount
+                return iso9660.Folder(mount, d.get("label"))
+        raise
+
+
+def _open_cd(d):
+    if d.get("image"):
+        return cdaudio.CueBin(d["dev"]) if not os.path.isdir(d["dev"]) else cdaudio.MacVolume(d["dev"])
+    if sys.platform == "darwin":
+        return cdaudio.MacVolume(d["mount"])
+    if os.name == "nt":
+        return cdaudio.WindowsDrive(d["dev"])
+    return cdaudio.LinuxDrive(d["dev"])
+
+
+def _copyright(d):
+    """The disc's own word on copy protection, where the computer lets Sofa ask the drive (see cdaudio)."""
+    if d.get("image") or not d.get("dev"):
+        return None
+    if os.name == "nt":
+        return cdaudio.windows_copyright(d["dev"])
+    if sys.platform.startswith("linux"):
+        return cdaudio.linux_copyright(d["dev"])
+    return None
+
+
+def _describe(d):
+    """Read what's on the disc in drive `d` (seconds on a real drive: done once a disc, in the background)."""
+    out = {"kind": d["kind"], "label": d["label"], "protected": False, "problem": None}
+    if d["kind"] == "bluray":
+        out.update(protected=True, problem=BLURAY)
+    elif d["kind"] == "cd":
+        cd = _open_cd(d)
+        try:
+            text = cd.text() or {}
+            out["tracks"] = [{"n": t["n"], "seconds": round(cd.seconds(t), 1), "title": (text.get("titles") or {}).get(t["n"], "")}
+                             for t in cd.tracks]
+            out["artist"], out["album"] = text.get("artist") or "", text.get("album") or ""
+            out["named"] = bool(text.get("titles") or out["album"])
+            out["label"] = out["album"] or d["label"] or "Music CD"
+            out["_cd_tracks"] = list(cd.tracks)
+            out["_addresses"] = getattr(cd, "addresses", None) or ([t["start"] for t in cd.tracks], cd.leadout)
+        finally:
+            cd.close()
+        if not out["tracks"]:
+            out["problem"] = "There's no music on this disc that Sofa can read."
+    elif d["kind"] == "dvd":
+        source = _open_video(d)
+        try:
+            info = dvd.titles(source)
+            out["label"] = info["label"] or d["label"]
+            out["_titles"] = info["titles"]
+            out["titles"] = [dvd.public(t) for t in info["titles"] if t["seconds"] >= 1]
+            said = _copyright(d)
+            if said:
+                out.update(protected=True, problem=PROTECTED % "DVD")
+            else:
+                for t in sorted([t for t in info["titles"] if not t["cant"]], key=lambda t: -t["seconds"])[:3]:
+                    found = dvd.sample(source, t)
+                    if found:
+                        out.update(protected=True, problem=PROTECTED % "DVD" if found == "protected" else WONT_READ)
+                        break
+            if not out["titles"] and not out["problem"]:
+                out["problem"] = "There's nothing on this DVD to save."
+        except dvd.NotVideo as exc:
+            out["problem"] = str(exc)
+        finally:
+            source.close()
+    else:
+        source = _open_video(d)
+        try:
+            ext = _media_ext()
+            out["files"] = [{"path": p, "size": size} for p, size in iso9660.walk(source)
+                            if os.path.splitext(p)[1].lower() in ext and not os.path.basename(p).startswith(".")][:2000]
+        finally:
+            source.close()
+        if not out["files"]:
+            out["problem"] = "There are no videos or music on this disc."
+    return out
+
+
+def _key(d):
+    return (d["kind"], d["label"], d.get("dev"), d.get("mount"))
+
+
+def _read_in_background(d):
+    def work():
+        try:
+            disc = _describe(dict(d))
+        except Exception as exc:
+            disc = {"kind": d["kind"], "label": d["label"], "protected": False,
+                    "problem": "The disc can't be read: %s" % (getattr(exc, "strerror", None) or exc)}
+        with _lock:
+            if _known.get(d["id"], {}).get("key") == _key(d):
+                _known[d["id"]]["disc"] = disc
+    threading.Thread(target=work, daemon=True, name="disc-read").start()
+
+
+def _public(disc):
+    return {k: v for k, v in disc.items() if not k.startswith("_")}
+
+
+def status(wait=0):
+    """What the pages show: the drives, what's in each (read once, in the background: "reading" until it is), and
+    how each save is going."""
+    from . import slow                                     # (asking a drive what's in it takes a moment: every few seconds)
+    found = slow.cached("disc-drives-" + (os.environ.get("SOFA_DISCS") or ""), 5, lambda: drives(), wait=8, default=[])
+    with _lock:
+        for gone in [k for k in _known if k not in {d["id"] for d in found if d["state"] == "disc"}]:
+            _known.pop(gone)
+        fresh = []
+        for d in found:
+            if d["state"] != "disc":
+                continue
+            if _known.get(d["id"], {}).get("key") != _key(d):
+                _known[d["id"]] = {"key": _key(d), "disc": None, "drive": dict(d)}
+                fresh.append(d)
+    for d in fresh:
+        _read_in_background(d)
+    end = time.time() + wait
+    while wait and time.time() < end and any(k["disc"] is None for k in list(_known.values())):
+        time.sleep(0.05)
+    out = []
+    with _lock:
+        for d in found:
+            row = {"id": d["id"], "name": d["name"], "state": d["state"], "kind": d["kind"], "label": d["label"]}
+            known = _known.get(d["id"])
+            if d["state"] == "disc":
+                row["disc"] = _public(known["disc"]) if known and known["disc"] else None
+                row["reading"] = not row["disc"]
+                if row["disc"]:
+                    row["label"] = row["disc"].get("label") or row["label"]
+            out.append(row)
+        jobs = [_public(j) for j in _jobs[-6:]]
+    return {"drives": out, "jobs": jobs, "lookup": bool(config.get("disc_lookup")) and not config.get("offline"),
+            "ffmpeg": bool(media.tool("ffmpeg"))}
+
+
+def names(drive_id, fetch=None):
+    """Look this music CD up at MusicBrainz (only when asked, and only if Settings allows it)."""
+    if not config.get("disc_lookup") or config.get("offline"):
+        raise ValueError("Looking discs up is switched off (Server → Settings).")
+    with _lock:
+        known = _known.get(drive_id)
+        disc = known and known["disc"]
+    if not disc or disc.get("kind") != "cd":
+        raise ValueError("There's no music CD in that drive.")
+
+    class Toc:
+        tracks, addresses, leadout = disc["_cd_tracks"], disc["_addresses"], disc["_addresses"][1]
+    found = cdaudio.lookup(Toc, fetch) if fetch else cdaudio.lookup(Toc)
+    if not found:
+        return {"found": False}
+    return {"found": True, "artist": found.get("artist") or "", "album": found.get("album") or "", "year": found.get("year") or "",
+            "titles": {str(n): t for n, t in (found.get("titles") or {}).items()}}
+
+
+# ---------------------------------------------------------------- saving
+
+class Stop(Exception):
+    """This save ends here, with these words."""
+
+
+def _clean(text, most=120):
+    return naming.safe_filename(re.sub(r"\s+", " ", str(text or "")).strip())[:most].strip(" .")
+
+
+def _root(key):
+    """Where new things of this kind go (the drive chosen for new files, else the main library)."""
+    if key in ("movies", "shows"):
+        try:
+            from . import organizer
+            return organizer._new_root(key)
+        except Exception:
+            pass
+    return config.path(key)
+
+
+def _show_folder(name):
+    """A show's folder: the one it already has (on whichever drive), else a new one where new things go."""
+    try:
+        from . import organizer
+        have = organizer._existing_show(name)
+        if have:
+            return have
+    except Exception:
+        pass
+    return os.path.join(_root("shows"), name)
+
+
+def _same_name(folder, name):
+    """`name` inside `folder`, as the folder already spells it (Music/the beatles and Music/The Beatles are one artist)."""
+    try:
+        have = next((d for d in os.listdir(folder) if naming.norm(d) == naming.norm(name) and os.path.isdir(os.path.join(folder, d))), None)
+    except OSError:
+        have = None
+    return os.path.join(folder, have or name)
+
+
+def _room(folder, need):
+    at = folder
+    while not os.path.isdir(at):
+        at = os.path.dirname(at)
+    free = shutil.disk_usage(at).free
+    if need + SPARE > free:
+        raise ValueError("There isn't room for it: it needs about %s and %s is free." % (_size(need), _size(free)))
+
+
+def _size(n):
+    return "%.1f GB" % (n / 1024.0 ** 3) if n >= 1024 ** 3 else "%d MB" % max(1, n // 1024 ** 2)
+
+
+def _plan(d, disc, ask):
+    """Work out, before anything is read, every file this save will make: [{"dest", "what", ...}]. Raises ValueError
+    with what's wrong (a name missing, a file already there, no room)."""
+    if disc.get("protected") or (disc.get("problem") and disc["kind"] != "cd"):
+        raise ValueError(disc.get("problem") or "This disc can't be saved.")
+    if not media.tool("ffmpeg") and disc["kind"] != "data":
+        raise ValueError("Sofa needs ffmpeg to save a disc, and it isn't installed on this computer.")
+    plan = []
+    if disc["kind"] == "cd":
+        artist, album = _clean(ask.get("artist")), _clean(ask.get("album"))
+        if not artist or not album:
+            raise ValueError("Say who it's by and what the album is called.")
+        year = str(ask.get("year") or "").strip()
+        if year and not re.match(r"^(19|20)\d\d$", year):
+            raise ValueError("The year looks like 1999.")
+        titles = {int(k): str(v or "").strip() for k, v in (ask.get("tracks") or {}).items() if str(k).isdigit()}
+        want = [t for t in disc["_cd_tracks"] if not titles or t["n"] in titles]
+        if not want:
+            raise ValueError("Pick at least one track.")
+        folder = _same_name(_same_name(config.path("music"), artist), album)      # (the artist's and album's own folders, if there)
+        for t in want:
+            title = titles.get(t["n"]) or "Track %d" % t["n"]
+            plan.append({"dest": os.path.join(folder, "%02d %s.flac" % (t["n"], _clean(title) or "Track %d" % t["n"])),
+                         "what": title, "track": t, "tags": {"title": title, "artist": artist, "album_artist": artist, "album": album,
+                                                             "track": "%d/%d" % (t["n"], len(disc["_cd_tracks"])), "date": year},
+                         "size": t["frames"] * cdaudio.FRAME})
+        need = sum(p["size"] for p in plan)
+    elif disc["kind"] == "dvd":
+        by_n = {t["n"]: t for t in disc["_titles"]}
+        picked = [by_n[int(n)] for n in ask.get("titles") or [] if str(n).isdigit() and int(n) in by_n]
+        if not picked:
+            raise ValueError("Pick what to save from the disc.")
+        for t in picked:
+            if t["cant"]:
+                raise ValueError("Title %d can't be saved. %s" % (t["n"], t["cant"]))
+        name = _clean(ask.get("name"))
+        if not name:
+            raise ValueError("Give it a name.")
+        if ask.get("to") == "shows":
+            show, year = naming.show_name(name)             # (the name Sofa's tidying would give the folder: so it isn't
+            name = _clean(show + (" (%d)" % year if year else "")) or name      # renamed under a save that's running)
+            try:
+                season, episode = int(ask.get("season") or 1), int(ask.get("episode") or 1)
+            except (TypeError, ValueError):
+                raise ValueError("The season and the episode are numbers.")
+            if not 0 <= season <= 99 or not 1 <= episode <= 999:
+                raise ValueError("The season and the episode are numbers.")
+            folder = os.path.join(_show_folder(name), "Specials" if season == 0 else "Season %d" % season)
+            have = set()
+            if os.path.isdir(folder):
+                for f in os.listdir(folder):
+                    ep = naming.parse_episode(os.path.splitext(f)[0], season_hint=season, in_show=True)
+                    if ep and os.path.splitext(f)[1].lower() in naming.VIDEO_EXT:
+                        have.add((ep["s"], ep["e"]))
+            for i, t in enumerate(picked):
+                if (season, episode + i) in have:
+                    raise ValueError("%s already has season %d episode %d. Start at another episode." % (name, season, episode + i))
+                code = "S%02dE%02d" % (season, episode + i)
+                plan.append({"dest": os.path.join(folder, "%s %s.mkv" % (name, code)), "what": "%s %s" % (name, code), "title": t,
+                             "size": t["size"]})
+        elif ask.get("to") == "movies":
+            if len(picked) != 1:
+                raise ValueError("A movie is one title from the disc. Pick the one that's the movie.")
+            year = str(ask.get("year") or "").strip()
+            if year and not re.match(r"^(19|20)\d\d$", year):
+                raise ValueError("The year looks like 1999.")
+            full = "%s (%s)" % (name, year) if year else name
+            plan.append({"dest": os.path.join(_root("movies"), full, full + ".mkv"), "what": full, "title": picked[0], "size": picked[0]["size"]})
+        else:
+            raise ValueError("Say where it goes: Movies or Shows.")
+        need = max(p["size"] for p in plan) * 2 + sum(p["size"] for p in plan)
+    else:
+        name = _clean(ask.get("name")) or _clean(disc.get("label")) or "Disc"
+        files = disc.get("files") or []
+        if not files:
+            raise ValueError("There are no videos or music on this disc.")
+        dest = os.path.join(config.path("inbox"), name)
+        if os.path.lexists(dest):
+            raise ValueError("The Inbox already has \"%s\". Give it another name." % name)
+        plan.append({"dest": dest, "what": name, "files": files, "size": sum(f["size"] for f in files)})
+        need = plan[0]["size"]
+    for p in plan:
+        folder = os.path.dirname(p["dest"])
+        if "track" in p and os.path.isdir(folder) and any(
+                naming.norm(f) == naming.norm(os.path.basename(p["dest"])) for f in os.listdir(folder)):
+            raise ValueError("%s is already there (%s). Sofa doesn't write over a file." % (p["what"], os.path.basename(p["dest"])))
+        if os.path.lexists(p["dest"]):
+            raise ValueError("%s is already there (%s). Sofa doesn't write over a file." % (p["what"], os.path.basename(p["dest"])))
+    if len({p["dest"].lower() for p in plan}) != len(plan):
+        raise ValueError("Two of them would get the same name. Give each track its own.")
+    _room(os.path.dirname(plan[0]["dest"]), need)
+    return plan
+
+
+def save(drive_id, ask, who="someone"):
+    """Start saving the disc in `drive_id` as `ask` says. Returns the job as the pages see it; raises ValueError with
+    a plain reason when it can't start."""
+    found = next((d for d in drives() if d["id"] == drive_id and d["state"] == "disc"), None)
+    with _lock:
+        known = _known.get(drive_id)
+        disc = known and known["disc"]
+        if not found or not disc or known["key"] != _key(found):
+            raise ValueError("There's no disc in that drive that's been read yet.")
+        if any(j["state"] == "working" for j in _jobs):
+            raise ValueError("A disc is being saved already. This one can go when it's done.")
+        plan = _plan(found, disc, ask)
+        job = {"id": uuid.uuid4().hex[:10], "drive": drive_id, "kind": disc["kind"], "name": plan[0]["what"] if len(plan) == 1 else
+               "%s, %d %s" % ((_clean(ask.get("album")) or disc["label"], len(plan), "tracks") if disc["kind"] == "cd" else
+                              (plan[0]["what"].rsplit(" ", 1)[0], len(plan), "episodes")),
+               "to": {"cd": "Music", "data": "Inbox"}.get(disc["kind"]) or ("Shows" if ask.get("to") == "shows" else "Movies"),
+               "state": "working", "step": "Starting", "item": 0, "items": len(plan), "done": 0, "total": sum(p["size"] for p in plan),
+               "files": [], "notes": [], "error": None, "started": int(time.time()), "finished": None, "_stop": False}
+        _jobs.append(job)
+        del _jobs[:-20]
+    threading.Thread(target=_work, args=(job, dict(found), plan, who), daemon=True, name="disc-save").start()
+    return _public(job)
+
+
+def cancel(job_id):
+    with _lock:
+        for j in _jobs:
+            if j["id"] == job_id and j["state"] == "working":
+                j["_stop"] = True
+                return True
+    return False
+
+
+def _work(job, d, plan, who):
+    stage = None
+    try:
+        for i, p in enumerate(plan):
+            job.update(item=i + 1, step="Reading %s" % p["what"])
+            folder = os.path.dirname(p["dest"]) if "files" not in p else config.path("inbox")
+            os.makedirs(folder, exist_ok=True)
+            stage = os.path.join(folder, ".sofa-disc-%s" % job["id"])
+            os.makedirs(stage, exist_ok=True)
+            before = job["done"]
+            if "track" in p:
+                _save_track(job, d, p, stage)
+            elif "title" in p:
+                _save_title(job, d, p, stage)
+            else:
+                _save_files(job, d, p, stage)
+            job["done"] = before + p["size"]
+            job["files"].append(p["dest"])
+            shutil.rmtree(stage, ignore_errors=True)
+            stage = None
+        end = {"state": "done", "step": "Saved"}
+    except Stop as exc:
+        end = {"state": "cancelled" if job["_stop"] else "failed", "error": str(exc)}
+    except dvd.Protected:
+        end = {"state": "failed", "error": PROTECTED % "DVD"}
+    except FileExistsError:
+        end = {"state": "failed", "error": "A file with that name appeared while it was being saved. Sofa doesn't write over a file."}
+    except OSError as exc:
+        end = {"state": "failed", "error": GONE if not _still_there(d) else "It couldn't be saved: %s" % (exc.strerror or exc)}
+    except Exception as exc:
+        end = {"state": "failed", "error": "It couldn't be saved: %s" % exc}
+    if stage:
+        shutil.rmtree(stage, ignore_errors=True)
+    for folder in {os.path.dirname(p["dest"]) for p in plan}:
+        _drop_empty(folder)
+    if end["state"] == "done":
+        store.log("disc", "Saved %s from a %s to %s" % (job["name"], KINDS[job["kind"]], job["to"]), {"files": job["files"], "by": who})
+    elif end["state"] == "failed":
+        store.log("disc", "Saving %s from a %s stopped: %s" % (job["name"], KINDS[job["kind"]], end["error"]))
+    job.update(end, finished=int(time.time()))              # (after the tidying up: whoever waits finds everything in its place)
+    if job["files"] and saved:                              # the library is read again, on its own time: the next disc needn't wait
+        threading.Thread(target=_tell, daemon=True, name="disc-saved").start()
+
+
+def _tell():
+    try:
+        saved()
+    except Exception as exc:
+        store.log("error", "Reading the library after a disc was saved: %s" % exc)
+
+
+def _drop_empty(folder):
+    """A folder made for a save that never put anything in it (and its parent, if that's empty too)."""
+    roots = {os.path.normpath(config.path(k)) for k in ("movies", "shows", "music", "inbox")}
+    for _ in range(2):
+        try:
+            if os.path.normpath(folder) in roots or os.listdir(folder):
+                return
+            os.rmdir(folder)
+        except OSError:
+            return
+        folder = os.path.dirname(folder)
+
+
+def _still_there(d):
+    return any(x["id"] == d["id"] and x["state"] == "disc" and _key(x) == _key(d) for x in drives())
+
+
+def _check(job):
+    if job["_stop"]:
+        raise Stop("Stopped. What was already saved is kept.")
+
+
+def _ffmpeg(job, cmd, stdin=None):
+    """Run ffmpeg to the end; raises Stop with its last words when it fails."""
+    run = subprocess.run(cmd, stdin=stdin or subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=6 * 3600)
+    if run.returncode != 0:
+        raise Stop("ffmpeg couldn't pack it: %s" % (run.stderr.decode("utf-8", "replace").strip().splitlines() or ["no reason given"])[-1][:200])
+
+
+# ---- a music CD's track
+
+def _flac_md5(path):
+    """The checksum of the sound a FLAC file holds, as the file itself records it (STREAMINFO's last 16 bytes)."""
+    with open(path, "rb") as f:
+        head = f.read(42)
+    return head[26:42] if head[:4] == b"fLaC" and head[4] & 0x7F == 0 else None
+
+
+def _save_track(job, d, p, stage):
+    t, tmp = p["track"], os.path.join(stage, ".track.flac")
+    cmd = [media.tool("ffmpeg"), "-v", "error", "-nostdin", "-y", "-f", "s16le", "-ar", "44100", "-ac", "2", "-i", "pipe:0",
+           "-c:a", "flac", "-compression_level", "5"]
+    for k, v in p["tags"].items():
+        if v:
+            cmd += ["-metadata", "%s=%s" % (k, v)]
+    cd = _open_cd(d)
+    proc = subprocess.Popen(cmd + [tmp], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    md5, base = hashlib.md5(), job["done"]
+    try:
+        at, end = t["start"], t["start"] + t["frames"]
+        while at < end:
+            _check(job)
+            n = min(150, end - at)                          # two seconds of sound at a time
+            data = None
+            for attempt in range(3):                        # (a scratch: the drive gets three goes)
+                try:
+                    data = cd.read(at, n)
+                    break
+                except OSError:
+                    if attempt == 2 or not _still_there(d):
+                        raise
+                    time.sleep(0.5)
+            md5.update(data)
+            proc.stdin.write(data)
+            at += n
+            job["done"] = base + (at - t["start"]) * cdaudio.FRAME
+        proc.stdin.close()
+        err = proc.stderr.read().decode("utf-8", "replace")
+        if proc.wait(600) != 0:
+            raise Stop("ffmpeg couldn't pack it: %s" % (err.strip().splitlines() or ["no reason given"])[-1][:200])
+    except BrokenPipeError:
+        raise Stop("ffmpeg stopped while packing the track.")
+    finally:
+        cd.close()
+        if proc.poll() is None:
+            proc.kill()
+        for pipe in (proc.stdin, proc.stderr):
+            try:
+                pipe.close()
+            except OSError:
+                pass
+    if _flac_md5(tmp) != md5.digest():
+        raise Stop("The file didn't come out the same as the disc's sound, so it wasn't kept.")
+    fileops.place(tmp, p["dest"])
+
+
+# ---- a DVD's title
+
+def _idx_time(ms):
+    return "%02d:%02d:%02d:%03d" % (ms // 3600000, ms // 60000 % 60, ms // 1000 % 60, ms % 1000)
+
+
+def _save_title(job, d, p, stage):
+    t = p["title"]
+    vob = os.path.join(stage, ".title.vob")
+    seen, subs, base = {}, {}, job["done"]
+    source = _open_video(d)
+    try:
+        with open(vob, "wb") as out:
+            got = 0
+            for chunk in dvd.read_title(source, t, seen, cancelled=lambda: job["_stop"]):      # (the one reader: see dvd.py)
+                out.write(chunk)
+                got += len(chunk)
+                job["done"] = base + got * 2 // 3           # (reading is two thirds of the wait, packing the rest)
+                for track, when, pack in seen.pop("subs", []):
+                    s = subs.get(track)
+                    if s is None:
+                        s = subs[track] = {"f": open(os.path.join(stage, ".sub%02x.sub" % track), "wb"), "at": 0, "lines": []}
+                    if when is not None:
+                        s["lines"].append("timestamp: %s, filepos: %09x" % (_idx_time(when * 1000 // dvd.CLOCK), s["at"]))
+                    s["f"].write(pack)
+                    s["at"] += len(pack)
+            out.flush()
+            os.fsync(out.fileno())
+    finally:
+        source.close()
+        for s in subs.values():
+            s["f"].close()
+    _check(job)
+    job["step"] = "Packing %s" % p["what"]
+    streams = seen.get("streams") or {}
+    if not any(0xE0 <= sid <= 0xEF for sid, _ in streams):
+        raise Stop("There's no picture in that title.")
+    video = min(sid for sid, _ in streams if 0xE0 <= sid <= 0xEF)
+    here = lambda a: (0xBD, a["id"]) in streams if a["kind"] != "mp2" else (a["id"], None) in streams
+    audio = [a for a in t["audio"] if here(a)]
+    listed = {a["id"] for a in t["audio"]}
+    for sid, sub in sorted(streams, key=lambda k: (k[1] or k[0])):      # sound that's in the stream but not in the disc's list
+        if sid == 0xBD and sub is not None and 0x80 <= sub <= 0xAF and sub not in listed:
+            audio.append({"id": sub, "kind": "lpcm" if sub >= 0xA0 else "dts" if sub >= 0x88 else "ac3", "lang": None, "bits": 16, "name": ""})
+    found = _stream_ids(vob, 100 << 20)
+    want = [video + 0x100] + [a["id"] + (0x100 if a["kind"] == "mp2" else 0) for a in audio]
+    probe = 100 << 20
+    if any(w not in found for w in want):                   # a track that starts late: look through the whole title
+        probe = max(os.path.getsize(vob), probe)
+        found = _stream_ids(vob, probe)
+    missing = [a for a in audio if a["id"] + (0x100 if a["kind"] == "mp2" else 0) not in found]
+    audio = [a for a in audio if a not in missing]
+    if video + 0x100 not in found:
+        raise Stop("ffmpeg can't find the picture in that title.")
+    for a in missing:
+        job["notes"].append("A sound track (%s) starts too late in %s to be found, and isn't in the saved file." % (a.get("name") or "no name", p["what"]))
+    cmd = [media.tool("ffmpeg"), "-v", "error", "-nostdin", "-y", "-probesize", str(probe), "-analyzeduration", str(min(probe * 20, 2 ** 31 - 1)),
+           "-fflags", "+genpts", "-copyts", "-f", "mpeg", "-i", vob]      # (-copyts: every input keeps the disc's clock)
+    maps, meta, n_in = ["-map", "0:#0x%x" % (video + 0x100)], [], 1
+    for i, a in enumerate(audio):
+        maps += ["-map", "0:#0x%x" % (a["id"] + (0x100 if a["kind"] == "mp2" else 0))]
+        if a.get("lang"):
+            meta += ["-metadata:s:a:%d" % i, "language=%s" % languages.three(a["lang"])]
+        if a.get("name"):
+            meta += ["-metadata:s:a:%d" % i, "title=%s" % a["name"]]
+        if a["kind"] == "lpcm":                             # (a DVD's PCM can't go in an MKV as it is: the same samples, repacked)
+            meta += ["-c:a:%d" % i, "pcm_s24le" if a.get("bits", 16) > 16 else "pcm_s16le"]
+    by_id, kept = {s["id"]: s for s in t["subs"]}, 0
+    palette = ", ".join(dvd.rgb(t["_palette"]))
+    for track in sorted(subs):
+        s = subs[track]
+        if not s["lines"]:
+            continue
+        info = by_id.get(track, {})
+        idx = os.path.join(stage, ".sub%02x.idx" % track)
+        with open(idx, "w", encoding="utf-8") as f:
+            f.write("# VobSub index file, v7 (do not modify this line!)\nsize: %dx%d\npalette: %s\n\nid: %s, index: %d\n%s\n" % (
+                t["video"]["width"], t["video"]["height"], palette, info.get("lang") or "--", track - 0x20, "\n".join(s["lines"])))
+        cmd += ["-f", "vobsub", "-sub_name", os.path.join(stage, ".sub%02x.sub" % track), "-i", idx]
+        maps += ["-map", "%d:s" % n_in]
+        if info.get("lang"):
+            meta += ["-metadata:s:s:%d" % kept, "language=%s" % languages.three(info["lang"])]
+        if info.get("name"):
+            meta += ["-metadata:s:s:%d" % kept, "title=%s" % info["name"]]
+        n_in += 1
+        kept += 1
+    first = seen.get("first", seen.get("start") or 0)       # the file starts at the earliest picture or sound...
+    begins = max(0, (seen.get("start", first) - first)) * 1000 // dvd.CLOCK      # ...and its chapters count from the first picture
+    if len(t["chapters"]) > 1:
+        chapters = os.path.join(stage, ".chapters.txt")
+        marks = [int(c * 1000) for c in t["chapters"]] + [int(t["seconds"] * 1000)]
+        with open(chapters, "w", encoding="utf-8") as f:
+            f.write(";FFMETADATA1\n" + "".join("[CHAPTER]\nTIMEBASE=1/1000\nSTART=%d\nEND=%d\ntitle=Chapter %d\n" % (
+                begins + marks[i], begins + max(marks[i + 1], marks[i] + 1), i + 1) for i in range(len(marks) - 1)))
+        cmd += ["-f", "ffmetadata", "-i", chapters]
+        meta += ["-map_chapters", str(n_in)]
+    else:
+        meta += ["-map_chapters", "-1"]
+    out = os.path.join(stage, ".title.mkv")
+    _ffmpeg(job, cmd + maps + ["-map_metadata", "-1", "-c", "copy"] + meta + ["-metadata", "title=%s" % p["what"],
+                               "-output_ts_offset", "%.6f" % (-first / float(dvd.CLOCK)), "-f", "matroska", out])
+    _check(job)
+    os.unlink(vob)
+    fileops.place(out, p["dest"])
+
+
+def _stream_ids(path, probe):
+    """The streams ffmpeg finds in a title's stream, by their ids (0x1e0 the picture, 0x80 the first Dolby track...)."""
+    exe = media.tool("ffprobe")
+    if not exe:
+        return set()
+    try:
+        out = subprocess.run([exe, "-v", "error", "-probesize", str(probe), "-analyzeduration", str(min(probe * 20, 2 ** 31 - 1)), "-f", "mpeg",
+                              "-show_entries", "stream=id", "-of", "csv=p=0", path], capture_output=True, text=True, timeout=1800)
+    except (OSError, subprocess.SubprocessError):
+        return set()
+    return {int(x.strip().rstrip(","), 16) for x in out.stdout.split() if x.strip().rstrip(",").startswith("0x")}
+
+
+# ---- a data disc's files
+
+def _save_files(job, d, p, stage):
+    source = _open_video(d)
+    base = job["done"]
+    try:
+        top = os.path.join(stage, os.path.basename(p["dest"]))
+        got = 0
+        for f in p["files"]:
+            _check(job)
+            parts = [_clean(x) or "file" for x in f["path"].split("/")]
+            dest = os.path.join(top, *parts)
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+            job["step"] = "Copying %s" % parts[-1]
+            with source.open(f["path"]) as src, open(dest, "xb") as out:
+                while True:
+                    _check(job)
+                    data = src.read(4 << 20)
+                    if not data:
+                        break
+                    out.write(data)
+                    got += len(data)
+                    job["done"] = base + got
+                out.flush()
+                os.fsync(out.fileno())
+            if os.path.getsize(dest) != f["size"]:
+                raise OSError("The disc stopped answering.")
+    finally:
+        source.close()
+    if os.path.lexists(p["dest"]):
+        raise FileExistsError(p["dest"])
+    os.rename(top, p["dest"])
+
+
+def clean():
+    """What a save that was cut short (the power, a crash) left behind: its hidden folders, a day old."""
+    gone = 0
+    for key in ("movies", "shows", "music", "inbox"):
+        for root, dirs, _ in os.walk(config.path(key)):
+            for name in [x for x in dirs if x.startswith(".sofa-disc-")]:
+                path = os.path.join(root, name)
+                try:
+                    if time.time() - os.path.getmtime(path) > 86400:
+                        shutil.rmtree(path, ignore_errors=True)
+                        gone += 1
+                except OSError:
+                    pass
+            dirs[:] = [x for x in dirs if not x.startswith(".")]
+            if root.count(os.sep) - config.path(key).count(os.sep) >= 2:
+                dirs[:] = []
+    return gone

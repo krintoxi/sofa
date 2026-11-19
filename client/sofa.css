@@ -2105,3 +2105,37 @@ html[lang="es"] .dialog .sorter.inline { flex-wrap: wrap; max-width: 100%; borde
   .live-dial .g-ch b { min-width: 2.4em; font-size: 13px; }
   .lv-logo { width: 50px; height: 30px; }
 }
+/* ---------- Save this disc (the Server page's Disc drive panel and its dialog) ---------- */
+.disc-row { display: flex; gap: 12px; align-items: center; justify-content: space-between; }
+.disc-row span { display: grid; gap: 2px; min-width: 0; }
+.disc-row small { color: var(--mist); font-size: 13px; line-height: 1.4; }
+.disc-row.cant small { color: var(--soft); }
+.disc-row .btn { flex: none; }
+.disc-jobs { margin-top: 14px; }
+.disc-jobs li { grid-template-columns: 1fr auto; align-items: center; }
+.disc-jobs li b, .disc-jobs li .up-bar, .disc-jobs li .up-note { grid-column: 1; }
+.disc-jobs li .mini { grid-column: 2; grid-row: 1 / span 3; }
+.disc-jobs li.failed .up-note { color: var(--alert); }
+.disc-jobs li.done .up-note { color: var(--green); }
+.disc-form .disc-two { display: flex; gap: 12px; align-items: end; }
+.disc-form .disc-two .field { flex: 1; min-width: 0; } .disc-form .disc-two .field.small { flex: 0 0 120px; }
+.disc-form .disc-two .field input { width: 100%; min-width: 0; box-sizing: border-box; }
+.disc-form [hidden] { display: none !important; }
+.disc-form .disc-where { display: flex; gap: 22px; margin: 4px 0 16px; }
+.disc-form .check { display: flex; gap: 8px; align-items: center; color: var(--paper); font-size: 15px; }
+.disc-form .disc-look { margin: 0 0 14px; align-items: center; } .disc-form .disc-look .hint { margin: 0; }
+.disc-pick { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; max-height: 38vh; overflow-y: auto; border: 1px solid var(--line); border-radius: 12px; }
+.disc-pick li { display: flex; gap: 12px; align-items: center; padding: 9px 12px; }
+.disc-pick li + li { border-top: 1px solid var(--line); }
+.disc-pick li .check { flex: 1; min-width: 0; align-items: flex-start; }
+.disc-pick li .check input { margin-top: 3px; }
+.disc-pick li small { display: block; color: var(--mist); font-size: 13px; }
+.disc-pick li.cant { opacity: .6; }
+.disc-pick .n { width: 1.6em; color: var(--mist); font-variant-numeric: tabular-nums; }
+.disc-pick li .check:has(.n) { flex: none; align-items: center; } .disc-pick li .check:has(.n) input { margin-top: 0; }
+.disc-pick .disc-title { flex: 1; min-width: 0; padding: 7px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--ink); color: var(--paper); font: inherit; }
+.disc-pick .disc-title:focus { outline: none; border-color: var(--amber); }
+.disc-pick .when { color: var(--mist); font-size: 13px; font-variant-numeric: tabular-nums; flex: none; }
+.disc-pick.plain li span:first-child { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.disc-error { color: var(--alert) !important; margin: 14px 0 0 !important; }
+@media (max-width: 560px) { .disc-form .disc-two { flex-wrap: wrap; } .disc-form .disc-two .field:not(.small) { flex: 1 0 100%; } .disc-form .disc-two .field.small { flex: 1 0 90px; } .disc-row { flex-wrap: wrap; } }

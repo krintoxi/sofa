@@ -2014,6 +2014,127 @@ function downloadDialog(id) {
   paint();
 }
 
+/* ---------- Save this disc (admins): a DVD or CD in the Sofa computer's drive, into the library ----------
+   The server reads the disc (sofa/disc.py); this shows what's in the drive, asks where it goes and what it's
+   called, and how the save is going. A copy-protected disc is said to be one, and has no Save. */
+const DISC_A = { cd: "A music CD", dvd: "A DVD", bluray: "A Blu-ray", data: "A data disc" };
+const DISC_KIND = { cd: "Music CD", dvd: "DVD", bluray: "Blu-ray", data: "Data disc" };
+const longTime = sec => { const m = Math.round(sec / 60); return m >= 60 ? Math.floor(m / 60) + " h " + (m % 60) + " min" : m >= 1 ? m + " min" : Math.round(sec) + " s"; };
+function discLine(x) {
+  if (x.kind === "cd") return plural(x.tracks.length, "track") + ", " + longTime(x.tracks.reduce((a, t) => a + t.seconds, 0)) + (x.artist ? ", " + x.artist : "");
+  if (x.kind === "dvd") return plural(x.titles.length, "title") + ", the longest " + longTime(Math.max(...x.titles.map(t => t.seconds)));
+  if (x.kind === "data") return plural(x.files.length, "file") + " to copy, " + bytes(x.files.reduce((a, f) => a + f.size, 0));
+  return "";
+}
+function discPanel(dd) {
+  if (!dd || (!dd.drives.length && !dd.jobs.length)) return "";
+  const busy = dd.jobs.some(j => j.state === "working");
+  const drives = dd.drives.map(x => {
+    const k = x.disc;
+    const what = x.state === "empty" ? "No disc in it." : x.state === "unread" ? "There's a disc in it that this computer can't read." : !k ? "Reading the disc…"
+      : k.problem || discLine(k);
+    return `<li class="disc-row${k && k.problem ? " cant" : ""}"><span><b>${esc(x.state === "disc" ? (x.label || DISC_KIND[x.kind] || "Disc") : x.name)}</b>
+      <small>${x.state === "disc" && x.kind ? esc(DISC_KIND[x.kind]) + " · " : ""}${esc(what)}</small></span>
+      ${k && !k.problem ? `<button class="btn" data-disc-save="${esc(x.id)}"${busy ? " disabled" : ""}>Save</button>` : ""}</li>`;
+  }).join("");
+  const jobs = dd.jobs.slice().reverse().map(j => {
+    const pct = j.total ? Math.min(100, Math.round(j.done / j.total * 100)) : 0;
+    const note = j.state === "working" ? `${esc(j.step)}${j.items > 1 ? " (" + j.item + " of " + j.items + ")" : ""} · ${pct}%`
+      : j.state === "done" ? `Saved to ${esc(j.to)}${j.items > 1 ? ": " + plural(j.items, "file") : ""}.${j.to === "Inbox" ? " Sofa files it in a minute." : ""}`
+      : j.state === "cancelled" ? "Stopped." + (j.files.length ? " " + plural(j.files.length, "file") + " already saved." : "")
+      : esc(j.error || "It didn't work.") + (j.files.length ? " " + plural(j.files.length, "file") + " saved before that." : "");
+    return `<li class="disc-job ${esc(j.state)}"><b>${esc(j.name)}</b>${j.state === "working" ? `<span class="up-bar"><i style="width:${pct}%"></i></span>` : ""}
+      <span class="up-note">${note}${(j.notes || []).map(n => "<br>" + esc(n)).join("")}</span>
+      ${j.state === "working" ? `<button class="mini" data-disc-stop="${esc(j.id)}">Stop</button>` : ""}</li>`;
+  }).join("");
+  return `<div class="panel wide disc-panel"><h2>Disc drive</h2><p class="hint">Put a DVD or CD in this computer's drive to save it to your library. A copy-protected disc can't be saved.</p>
+    <ul class="list">${drives}</ul>${jobs ? `<ul class="upload-list disc-jobs">${jobs}</ul>` : ""}</div>`;
+}
+function saveDiscDialog(id) {
+  const x = ((adminData.disc || {}).drives || []).find(v => v.id === id), k = x && x.disc;
+  if (!k || k.problem) return;
+  const tidy = t => String(t || "").replace(/[_.]+/g, " ").replace(/\s+/g, " ").trim().toLowerCase().replace(/(^|\s)\S/g, c => c.toUpperCase());
+  let body;
+  if (k.kind === "cd") {
+    body = `<div class="disc-two"><label class="field"><span>Artist</span><input name="artist" maxlength="120" value="${esc(k.artist)}" placeholder="Who it's by"></label>
+      <label class="field"><span>Album</span><input name="album" maxlength="120" value="${esc(k.album)}" placeholder="What it's called"></label>
+      <label class="field small"><span>Year</span><input name="year" inputmode="numeric" maxlength="4" placeholder="optional"></label></div>
+      ${adminData.disc.lookup ? `<div class="actions disc-look"><button type="button" class="btn" data-disc-names="1">Look the names up</button><span class="hint">Asks MusicBrainz, sending only where this disc's tracks start.</span></div>` : ""}
+      <ul class="disc-pick">${k.tracks.map(t => `<li><label class="check"><input type="checkbox" name="t${t.n}" checked><span class="n">${t.n}</span></label>
+        <input class="disc-title" name="title${t.n}" maxlength="150" value="${esc(t.title)}" placeholder="Track ${t.n}" aria-label="Track ${t.n}'s name"><span class="when">${clock(t.seconds)}</span></li>`).join("")}</ul>
+      <p class="hint">Each track becomes a FLAC file, with every bit of the disc's sound, in Music.</p>`;
+  } else if (k.kind === "dvd") {
+    const longest = k.titles.filter(t => !t.cant).sort((a, b) => b.seconds - a.seconds)[0];
+    body = `<div class="disc-where" role="radiogroup" aria-label="Where it goes"><label class="check"><input type="radio" name="to" value="movies" checked> Movies</label>
+      <label class="check"><input type="radio" name="to" value="shows"> Shows</label></div>
+      <div class="disc-two"><label class="field"><span data-disc-name-label="1">Movie's name</span><input name="name" maxlength="120" value="${esc(tidy(k.label))}"></label>
+      <label class="field small" data-disc-for="movies"><span>Year</span><input name="year" inputmode="numeric" maxlength="4" placeholder="optional"></label>
+      <label class="field small" data-disc-for="shows" hidden><span>Season</span><input name="season" inputmode="numeric" maxlength="2" value="1"></label>
+      <label class="field small" data-disc-for="shows" hidden><span>First episode</span><input name="episode" inputmode="numeric" maxlength="3" value="1"></label></div>
+      <ul class="disc-pick">${k.titles.map(t => `<li class="${t.cant ? "cant" : ""}"><label class="check"><input type="radio" name="title" value="${t.n}"${longest && t.n === longest.n ? " checked" : ""}${t.cant ? " disabled" : ""}>
+        <span><b>Title ${t.n}</b> · ${longTime(t.seconds)}${t.chapters.length > 1 ? " · " + plural(t.chapters.length, "chapter") : ""}
+        <small>${t.cant ? esc(t.cant) : esc([t.audio.length ? "Sound: " + t.audio.map(a => a.name || "no name").join(", ") : "", t.subs.length ? "Subtitles: " + t.subs.map(a => a.name || "no name").join(", ") : ""].filter(Boolean).join(" · "))}</small></span></label>
+        <span class="when">${bytes(t.size)}</span></li>`).join("")}</ul>
+      <p class="hint" data-disc-hint="1">The picture and sound are kept as they are on the disc, with every sound and subtitle track and the chapters.</p>`;
+  } else {
+    body = `<label class="field"><span>Name</span><input name="name" maxlength="120" value="${esc(tidy(k.label))}"></label>
+      <ul class="disc-pick plain">${k.files.slice(0, 12).map(f => `<li><span>${esc(f.path)}</span><span class="when">${bytes(f.size)}</span></li>`).join("")}
+      ${k.files.length > 12 ? `<li><span>and ${k.files.length - 12} more</span></li>` : ""}</ul>
+      <p class="hint">They're copied to the Inbox, where Sofa names and files them as usual.</p>`;
+  }
+  const d = openDialog(`<h2>Save this disc</h2><p>${esc(DISC_KIND[k.kind])} · ${esc(x.label)}</p><form class="disc-form share-form">${body}
+    <p class="disc-error" role="alert" hidden></p>
+    <div class="actions"><button class="btn primary" type="submit">Save</button><button class="btn ghost" type="button" data-dismiss="1">Not now</button></div></form>`, true);
+  const form = $("form", d), err = $(".disc-error", d), val = n => ((form.elements[n] || {}).value || "").trim();
+  const say = m => { err.textContent = m; err.hidden = !m; };
+  form.addEventListener("change", e => {
+    if (e.target.name !== "to") return;
+    const shows = val("to") === "shows";
+    form.querySelectorAll("[data-disc-for]").forEach(el => { el.hidden = (el.dataset.discFor === "shows") !== shows; });
+    $("[data-disc-name-label]", form).textContent = shows ? "Show's name" : "Movie's name";
+    $("[data-disc-hint]", form).textContent = shows ? "Each title you tick becomes an episode, in the order they're on the disc, from the first episode's number."
+      : "The picture and sound are kept as they are on the disc, with every sound and subtitle track and the chapters.";
+    form.querySelectorAll("input[name=title]").forEach(el => { const on = el.checked; el.type = shows ? "checkbox" : "radio"; el.checked = on; });
+  });
+  form.addEventListener("click", async e => {
+    const b = e.target.closest("[data-disc-names]");
+    if (!b) return;
+    b.disabled = true; say("");
+    try {
+      const r = await api("/api/admin/disc", { action: "names", drive: id });
+      if (!r.found) say("MusicBrainz doesn't know this disc. Type the names in.");
+      else {
+        form.elements.artist.value = r.artist; form.elements.album.value = r.album; if (r.year) form.elements.year.value = r.year;
+        Object.keys(r.titles).forEach(n => { if (form.elements["title" + n]) form.elements["title" + n].value = r.titles[n]; });
+      }
+    } catch (ex) { say(ex.message); }
+    b.disabled = false;
+  });
+  form.addEventListener("submit", async e => {
+    e.preventDefault(); say("");
+    const ask = { action: "save", drive: id };
+    if (k.kind === "cd") {
+      Object.assign(ask, { artist: val("artist"), album: val("album"), year: val("year"), tracks: {} });
+      k.tracks.forEach(t => { if (form.elements["t" + t.n].checked) ask.tracks[t.n] = val("title" + t.n); });
+      if (!Object.keys(ask.tracks).length) return say("Pick at least one track.");
+    } else if (k.kind === "dvd") {
+      Object.assign(ask, { to: val("to"), name: val("name"), year: val("year"), season: val("season"), episode: val("episode"),
+                           titles: [...form.querySelectorAll("input[name=title]:checked")].map(el => +el.value) });
+    } else ask.name = val("name");
+    const go = $("button[type=submit]", form); go.disabled = true;
+    try { await api("/api/admin/disc", ask); closeDialog(); toast("Saving the disc. You can leave this page: it carries on."); adminData = null; loadAdmin(); }
+    catch (ex) { say(ex.message); go.disabled = false; }
+  });
+}
+document.addEventListener("click", async e => {
+  const save = e.target.closest && e.target.closest("[data-disc-save]"), stop = e.target.closest && e.target.closest("[data-disc-stop]");
+  if (save && adminData) return saveDiscDialog(save.dataset.discSave);
+  if (stop && confirm("Stop saving this disc? What's already saved is kept.")) {
+    try { await api("/api/admin/disc", { action: "stop", job: stop.dataset.discStop }); } catch (ex) { toast(ex.message); }
+    loadAdmin();
+  }
+});
+
 /* ---------- send files from this device to the Inbox (admins) ----------
    A phone's videos, a laptop's downloads: each file goes up in one piece, with its progress, and Sofa
    files it like anything dropped in the Inbox. */
@@ -3104,7 +3225,8 @@ function viewServer(tab) {
   const upd = (adminData && adminData.update && adminData.update.running) ||
     (adminData && adminData.storage && adminData.storage.transfers.some(t => t.state === "copying" || t.state === "checking")) ||
     (adminData && adminData.downloads && (adminData.downloads.rows.some(r => r.state === "working") ||
-      (adminData.downloads.installing || {}).running)) || (adminData && adminData.internet && adminData.internet.https.busy);
+      (adminData.downloads.installing || {}).running)) || (adminData && adminData.internet && adminData.internet.https.busy) ||
+    (adminData && adminData.disc && (adminData.disc.jobs.some(j => j.state === "working") || adminData.disc.drives.some(x => x.reading)));
   const again = () => { if (!location.hash.startsWith("#/server")) return; if (document.hidden) { adminTimer = setTimeout(again, 4000); return; } loadAdmin(); };
   adminTimer = setTimeout(again, busy || upd ? 3000 : 10000);
   const tabs = `<nav class="srv-tabs" aria-label="Server sections">${SRV_TABS.map(t => `<button data-srv-tab="${t[0]}" aria-current="${t[0] === adminTab ? "page" : "false"}">${t[1]}${
@@ -3144,6 +3266,7 @@ function srvOverview(d) {
   if (L.missing) alerts.push(`<div class="alert soft"><b>${plural(L.missing, "title")} without details or artwork.</b><span>Pick the right match in a couple of clicks.</span><button class="btn" data-srv-tab="library">Fix them</button></div>`);
   if (d.internet_problem) alerts.push(`<div class="alert"><b>Sofa can't reach secure websites.</b><span>${esc(d.internet_problem)} Then press "Look up missing details again" under Library.</span></div>`);
   if (!s.ffmpeg) alerts.push(`<div class="alert"><b>ffmpeg isn't installed.</b><span>Only files a device already supports will play. On a Mac: <code>brew install ffmpeg</code>, then restart Sofa.</span></div>`);
+  ((d.disc || {}).drives || []).forEach(x => { if (x.disc && !x.disc.problem && !d.disc.jobs.some(j => j.state === "working")) alerts.push(`<div class="alert soft"><b>${esc(DISC_A[x.kind])} is in the drive: ${esc(x.label)}.</b><span>${esc(discLine(x.disc))}</span><button class="btn primary" data-disc-save="${esc(x.id)}">Save this disc</button></div>`); });
   if (d.review.length) alerts.push(`<div class="alert soft"><b>${plural(d.review.length, "file")} in Needs Review.</b><span>Sofa couldn't tell what they are.</span><button class="btn" data-srv-tab="library">Have a look</button></div>`);
   return `${alerts.join("")}
     <div class="stats big">
@@ -3155,6 +3278,7 @@ function srvOverview(d) {
       <button class="stat" data-srv-tab="convert"><b>${(c.counts.queued || 0) + (c.counts.working || 0)}</b><span>${c.counts.working ? "converting now" : "waiting to convert"}</span></button>
     </div>
     <div class="panels">
+      ${discPanel(d.disc)}
       <div class="panel"><h2>How to watch</h2><p class="hint">Open one of these addresses and sign in.</p><div class="addr">${addr.join("")}</div></div>
       ${s.lan.length ? appsPanel(`http://${s.lan[0]}:${port}`, d.apps) : ""}
       <div class="panel"><h2>Watching now</h2><p class="hint">"Repackaged" and "converted" mean Sofa is adapting the file for that device as it plays.</p><ul class="list">${streams}</ul></div>
@@ -3816,6 +3940,7 @@ function srvSettings(d) {
     <div class="panel"><h2>Details and artwork</h2><p class="hint">Where Sofa looks up summaries, posters and episode titles.</p>
       ${srvSwitch("tvmaze", st.tvmaze, "Shows from TVmaze", "Free, no sign-up. Summaries, episode titles and artwork.")}
       ${srvSwitch("free_movie_lookup", st.free_movie_lookup, "Movies from the iTunes Store and Wikipedia", "Free, no sign-up. Used when there's no TMDB key.")}
+      ${srvSwitch("disc_lookup", st.disc_lookup, "Music CD names from MusicBrainz", "Free, no sign-up. Only when you press Look the names up while saving a CD: what's sent is where the disc's tracks start.")}
       ${keyField("tmdb_api_key", "TMDB key (recommended for movies)", "The best movie posters, backgrounds and collections like \"Star Wars\". Free: sign up, then copy the \"API Key\".", `<a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener">Get a key</a>`)}
       ${keyField("theporndb_api_key", "ThePornDB token (Adult section)", "Artwork and details for adult scenes and movies.", `<a href="https://theporndb.net/user/api-tokens" target="_blank" rel="noopener">Get a token</a>`)}</div>
     <div class="panel"><h2>Video</h2>

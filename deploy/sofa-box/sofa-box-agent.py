@@ -2510,6 +2510,30 @@ class LocalSofa:
 local_sofa = LocalSofa()
 
 
+# ---------------------------------------------------------------- Save this disc (Home): into Sofa on this box
+
+def disc_save(ask=None):
+    """The disc in the box's drive, saved into Sofa on this box: its Movies, Shows or Music, like any other file there.
+    The box's own Sofa does all of it (sofa/disc.py reads the disc, says when one is copy-protected and stops, and
+    files what it saved); this hands Home's question to it as the box's own account. `ask` None (a GET): what's in
+    the drive and how a save is going, and only that: a look starts nothing, so when the box's Sofa isn't running
+    (or has no account of the box's yet) it says so ("stopped"), and Home asks for it to be started ("start", a POST)."""
+    if not local_sofa.available():
+        raise ValueError("Saving a disc needs Sofa on this box, which this box doesn't have.")
+    if ask is None:
+        if not local_sofa.answering() or not os.path.exists(os.path.join(CONF_DIR, "this-box.json")):
+            return {"stopped": True, "drives": [], "jobs": []}
+        return local_sofa.api("/api/admin/disc")
+    if ask.get("action") not in ("start", "save", "stop", "names"):
+        raise ValueError("Save, stop or names.")
+    if not local_sofa.ensure():
+        raise ValueError("Sofa on this box didn't start. Try again, or restart the box.")
+    if ask["action"] == "start":
+        local_sofa.sign_in()                             # (the box's own account, made the first time)
+        return {"ok": True}
+    return local_sofa.api("/api/admin/disc", ask, timeout=60)
+
+
 # ---------------------------------------------------------------- Sofa on this box, from anywhere (Settings)
 # The box's own Sofa opened to the internet, the way Sofa does it on any computer (its Server -> Internet): an address
 # (a free DuckDNS name, or a domain), the router sending ports 443 and 80 to the box (UPnP), a Let's Encrypt certificate,
@@ -5021,7 +5045,7 @@ class Handler(BaseHTTPRequestHandler):
                            "/box/api/weather/places", "/box/api/apps", "/box/api/sofa", "/box/api/sofa/continue",
                            "/box/api/setup", "/box/api/timezone", "/box/api/devices", "/box/api/store", "/box/api/files",
                            "/box/api/files/list", "/box/api/games", "/box/api/shield", "/box/api/browser",
-                           "/box/api/install"))
+                           "/box/api/disc", "/box/api/install"))
     READ_ONLY_UNDER = ("/box/home", "/box/icons/", "/box/store-icons/", "/box/games/", "/box/fonts/")
 
     @classmethod
@@ -5304,6 +5328,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(json.dumps({k: devices_seen[k] for k in ("drives", "disc", "n")}))
         if path == "/box/api/devices/eject":
             return self.send(json.dumps(boxos.eject(str(data.get("dev") or ""))))
+        if path == "/box/api/disc":                         # Save this disc: what's in the drive and how a save is going; POST saves, stops, looks names up
+            return self.send(json.dumps(disc_save(data if self.command == "POST" else None)))
         if path == "/box/api/disc/play":                    # a DVD, Blu-ray or music CD, in the box's player
             disc = devices_seen.get("disc")
             if not disc:

@@ -83,6 +83,7 @@ for _code, _threes, _en, _es, _words in _TABLE:
     for _w in _words.split():
         _BY_WORD[_w] = _code
 _BY2 = {c: c for c in NAMES if len(c) == 2}
+_THREE = {_c: _t.split()[0] for _c, _t, _e, _s, _w in _TABLE}
 _BY3["lat"] = "la"          # (as a language tag: Latin. In a file's name "LAT" is Latin American Spanish, below.)
 
 REGIONS = {"es-419": ("Spanish (Latin America)", "Español (Latinoamérica)"), "es-ES": ("Spanish (Spain)", "Español (España)"),
@@ -108,6 +109,11 @@ def _plain(text):
 def base(code):
     """ "es-419" -> "es". """
     return (code or "").partition("-")[0]
+
+
+def three(code):
+    """ "es" -> "spa": the three-letter code a file's track is tagged with (the code itself when Sofa has none)."""
+    return _THREE.get(base(code), code)
 
 
 def name(code, spanish=False):

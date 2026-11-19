@@ -8,6 +8,28 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.100
+
+**Save this disc.** A DVD or CD in the box's USB disc drive, kept in Sofa on this box.
+
+- **On Home**, beside the disc's own tile (which plays it), **Save this disc**. It shows what's on the disc and asks
+  where it goes: a DVD as a movie, or its titles as a show's episodes from the season and episode you give; a music
+  CD as an album, each track a FLAC file with every bit of the disc's sound; a data disc's videos and music into the
+  Inbox. Names are typed with the on-screen keyboard or the phone remote. Then it's in **Sofa on this box**: Movies,
+  Shows or Music, like any other file there.
+- **How it's going** on the same page, with Stop. You can go Home meanwhile, and the drive is opened shared so the
+  disc can still be played (made that way; not tried with the player running).
+- **Copy-protected discs are not saved.** A commercial DVD or a Blu-ray is said to be copy-protected and has no
+  Save. Nothing on the card undoes copy protection, and the box fetches nothing that does.
+- It's Sofa's own work (Sofa 1.5.29: `sofa/disc.py` reads the disc; ffmpeg, already on the card, packs it). The
+  box's agent passes Home's questions to the box's own Sofa (`/box/api/disc`); opening the page starts that Sofa if
+  it wasn't running (a POST: a plain look at the address starts nothing).
+  Saving to a Sofa Server on another computer is done at that computer, with the drive plugged in there.
+- The box's user joins the `cdrom` group at install, so Sofa may read the drive.
+- **Not on a Pi yet, and no real disc drive has been used:** the page was driven in a browser on a Mac against made
+  disc images, with arrow keys and OK (`tests/test_box_disc.py`), and the box's Sofa read a made DVD from an emulated
+  USB drive on Linux 6.12 in a virtual machine (not the box's own system).
+
 ## 1.1.99
 
 **Halogen: street racing through an open city.** A new game on Home, and the engine's parts for any game on roads.

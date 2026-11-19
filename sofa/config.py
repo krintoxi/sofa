@@ -67,6 +67,9 @@ DEFAULTS = {
     # Optional: a TMDB API key adds the best movie posters, backdrops, summaries and collections.
     # Without one, Sofa uses the iTunes Store and Wikipedia (no key needed).
     "tmdb_api_key": "",
+    # Save this disc (disc.py): look a music CD's names up at MusicBrainz when asked to (no key; what's sent is where
+    # the disc's tracks start). Off: only the names the disc itself carries, or the ones typed.
+    "disc_lookup": True,
     # Look up movies without a TMDB key on the iTunes Store and Wikipedia.
     "free_movie_lookup": True,
     # Optional: a ThePornDB (theporndb.net) API token adds artwork and details to the Adult section.

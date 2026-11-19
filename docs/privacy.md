@@ -18,6 +18,7 @@ The one exception is **Live TV**: its channels are on the internet, by nature.
 |---|---|---|
 | Show details and artwork | TVmaze | Server → Settings → Shows from TVmaze |
 | Movie details and artwork | iTunes Store and Wikipedia, or TMDB with your key | Server → Settings → Movies from the iTunes Store and Wikipedia; remove the TMDB key |
+| A music CD's names, when you press Look the names up while saving a disc | MusicBrainz: where the disc's tracks start, nothing else | Server → Settings → Music CD names from MusicBrainz, or Work offline |
 | Adult covers and details | ThePornDB, only with your token | Remove the token |
 | Update checks | GitHub, twice a day | Work offline |
 | Save from a link | the site you paste, through yt-dlp | Don't use it, or Work offline |

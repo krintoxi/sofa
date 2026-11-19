@@ -24,7 +24,7 @@ from . import (archive, __version__, acme, apps, artwork, auth, awake, backup, c
                outside,
                kids, machine, net, optimize, organizer, places, previews, report, screens, store, tls, trickplay, updater, upnp,
                discovery, pairing, sharing, slow, together, travel, tuners, uploads)
-from . import details, history
+from . import details, disc, history
 from .library import LIBRARY
 
 CLIENT_DIR = os.path.join(config.APP_DIR, "client")
@@ -1076,6 +1076,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.json(history.status(adult_ok=bool(u.get("adult"))))
         if path == "/api/admin/sharing":
             return self.json(sharing_status())
+        if path == "/api/admin/disc":              # Save this disc: the drives, what's in them, how a save is going
+            return self.json(_disc_status())
         if path == "/api/admin/convert":
             return self.json(optimize.status(LIBRARY))
         if path == "/api/admin/duplicates":
@@ -1592,6 +1594,19 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/admin/scan":
             LIBRARY.scan("requested by %s" % u["name"])
             return self.json({"ok": True, "library": LIBRARY.counts()})
+        if path == "/api/admin/disc":                  # save the disc in a drive, stop a save, look a CD's names up
+            if config.demo_on():
+                return self.error(403, "The demo has no disc drive.")
+            try:
+                if data.get("action") == "save":
+                    return self.json({"ok": True, "job": disc.save(str(data.get("drive") or ""), data, u["name"])})
+                if data.get("action") == "stop":
+                    return self.json({"ok": disc.cancel(str(data.get("job") or ""))})
+                if data.get("action") == "names":
+                    return self.json(disc.names(str(data.get("drive") or "")))
+            except ValueError as exc:
+                return self.error(400, str(exc))
+            return self.error(400, "Save, stop or names.")
         if path == "/api/admin/inbox":
             filed = organizer.process_inbox()
             return self.json({"ok": True, "filed": filed})
@@ -1744,7 +1759,7 @@ class Handler(BaseHTTPRequestHandler):
                                             "free_movie_lookup", "theme", "detect_intros", "trickplay", "previews",
                                             "ytdlp_cookies", "gentle", "quiet_hours", "offline", "no_logs", "keep_awake",
                                             "signups", "archive_channels", "retro_eras", "live_headers",
-                                            "live_check", "hardware_encoding", "dvr_pad_before", "dvr_pad_after") if k in data}
+                                            "live_check", "hardware_encoding", "dvr_pad_before", "dvr_pad_after", "disc_lookup") if k in data}
             if "gentle" in allowed and allowed["gentle"] not in (True, False, "auto"):
                 allowed.pop("gentle")
             if "quiet_hours" in allowed and not re.match(r"^([01]\d|2[0-3]):[0-5]\d-([01]\d|2[0-3]):[0-5]\d$", str(allowed["quiet_hours"])):
@@ -1755,7 +1770,7 @@ class Handler(BaseHTTPRequestHandler):
                 allowed["name"] = str(allowed["name"]).strip()[:40] or "Sofa"
             for k in ("dlna", "tvmaze", "guest_access", "auto_convert", "keep_originals", "tidy_library", "free_movie_lookup",
                       "detect_intros", "trickplay", "previews", "offline", "no_logs", "keep_awake", "signups",
-                      "archive_channels", "retro_eras", "live_headers", "live_check", "hardware_encoding"):
+                      "archive_channels", "retro_eras", "live_headers", "live_check", "hardware_encoding", "disc_lookup"):
                 if k in allowed:
                     allowed[k] = bool(allowed[k])
             for k in ("tmdb_api_key", "theporndb_api_key"):
@@ -2024,6 +2039,17 @@ def admin_status():
         _status_lock.release()
 
 
+def _disc_status():
+    """Save this disc's part of the Server page; a drive that misbehaves never takes the page with it."""
+    if config.demo_on():
+        return {"drives": [], "jobs": []}
+    try:
+        return disc.status()
+    except Exception as exc:
+        store.log("error", "Looking at the disc drive: %s" % exc)
+        return {"drives": [], "jobs": []}
+
+
 def _disk():
     du = shutil.disk_usage(config.path("shows"))
     return {"free": du.free, "total": du.total}
@@ -2060,6 +2086,7 @@ def _admin_status():
         "apps": apps.status(),
         "awake": awake.status(),
         "inbox": slow.cached("inbox", 10, organizer.pending, default=[]),
+        "disc": _disc_status(),
         "review": store.recent_activity(20, kinds={"review"}),
         "activity": store.recent_activity(150),
         "users": auth.list_users(),

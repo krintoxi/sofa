@@ -6,6 +6,52 @@ has its own numbers and list: [deploy/sofa-box/CHANGES.md](deploy/sofa-box/CHANG
 A change to Sofa's code (`sofa/`, `client/`, `sofa.py`) gets a new version: raise `__version__`, add a section
 here, then `python3 tools/sofa-version.py` (a test checks it was done).
 
+## 1.5.29 (2026-11-19)
+
+- **Save this disc.** Put a DVD or CD in the Sofa computer's disc drive (built in, or on USB) and **Server → Overview**
+  shows what it is and what's on it, with **Save this disc**: where it goes and what it's called, then it's in the
+  library like any other file. No other program needed.
+  - **A music CD:** each track becomes a FLAC file with every bit of the disc's sound (each file is checked against
+    what was read before it's kept), named and tagged, in `Music/<Artist>/<Album>/`. Names come from the disc's own
+    text where it has any; **Look the names up** asks MusicBrainz (no key; what's sent is where the disc's tracks
+    start, nothing else; Server → Settings → **Music CD names from MusicBrainz** switches it off).
+  - **A video DVD that isn't copy-protected** (home-made discs, and the few sold without protection): the title you
+    pick becomes an MKV with the disc's own picture and sound as they are, every sound and subtitle track with its
+    language, and the chapters. As a movie (`Movies/<Title (Year)>/`), or several titles as a show's episodes from
+    the season and episode you give. Several clips on one title, each with its own clock on the disc, come out as one
+    that plays through.
+  - **A data disc:** its videos, music and subtitles are copied to the Inbox, where Sofa files them as usual.
+- **Copy-protected discs are not saved.** A commercial DVD (CSS) or a Blu-ray (AACS) is said to be copy-protected, on
+  the page, and has no Save. Sofa has nothing that undoes copy protection and doesn't fetch or call anything that
+  does: in the United States that is circumvention (17 U.S.C. 1201), whoever owns the disc. It tells by what the disc
+  says in the clear (each pack of video is marked scrambled or not, and Linux and Windows let Sofa ask the drive for
+  the disc's own copyright record), checks again on every pack as it reads, and never sends a drive the handshake
+  that unlocks a disc.
+- **Sofa's own reader.** The disc is read by Sofa's code (`sofa/dvd.py`, `sofa/cdaudio.py`, `sofa/iso9660.py`: the
+  DVD's tables, its packs, a CD's frames), and ffmpeg only packs what was read. Not the usual DVD library, on
+  purpose: it loads a decrypting library by itself on a computer that has one. One function reads a title's stream
+  (`dvd.read_title`), and that is the one place to change how a title is read.
+- **Careful with the disc and the library.** The drive is only read, and opened shared: never locked, unmounted or
+  ejected, so that the disc can still be played (made that way; not tried with a player running). A disc or drive
+  pulled out in the middle ends the save with a plain message: what was finished stays, what was half done is
+  removed. Nothing is written over a file that's there, and a save can be stopped. One disc at a time; the library
+  is read again when each save ends, without the next disc waiting for it.
+- **Not saved yet:** a DVD title filmed from more than one camera angle (it's listed, with that reason), DVD menus,
+  DVD-Audio, Video CDs, and Blu-rays of any kind.
+- **Proven on:** discs made for the tests (a music CD's image, an unprotected DVD's image and one with its packs
+  marked scrambled; `tests/test_disc.py`, on Python 3.9, 3.12 and 3.13, ffmpeg 7.1 and 9.0, a Mac and Debian); a DVD
+  authored by dvdauthor, read by Sofa's reader; a made DVD image mounted on a Mac and saved from where the Mac put
+  it; a save slowed to a minute and a half while the library was tidied and read again every few seconds; PCM and
+  MPEG sound as recorders write them; and Linux 6.12 in a virtual machine with two emulated USB disc drives: found, asked for their status and the
+  disc's copyright record, the DVD read from `/dev/sr0` and saved, the marked one refused. The kernel's own header
+  agrees with the numbers Linux is asked with.
+- **One real disc so far:** a commercial, copy-protected DVD in an iMac's built-in drive (macOS 13, Python 3.9). Its
+  titles, chapters, sound and subtitle tracks were read correctly, it was said to be copy-protected, and nothing was
+  saved.
+- **Not yet:** saving a real unprotected DVD, and any music CD from hardware on any system (a virtual drive can't
+  hold one): a Mac's CD folder, Linux's and Windows's calls for a CD's sound and CD-Text are written from their
+  documentation and tested against stand-ins. Windows has no real drive behind it.
+
 ## 1.5.28 (2026-11-19)
 
 - **Previews with purple and green lines are put right.** On some computers every picture ffmpeg resized came out
@@ -36,7 +82,6 @@ here, then `python3 tools/sofa-version.py` (a test checks it was done).
   the server on a made gray video, found the fault in half a second and made a clean clip and sheet; the server
   itself is still on 1.5.26, so its library hasn't been remade yet. Tests: `tests/test_resizing.py` (with a stand-in ffmpeg that spoils what it resizes),
   `tests/test_secure_sites.py`.
-
 ## 1.5.27 (2026-11-19)
 
 - **Live TV has a new page.** Live now is three parts side by side: the categories with how many channels each holds,
