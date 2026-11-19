@@ -144,6 +144,11 @@ What's different from an install on the computer itself:
   Storage sees it (`drive_folders` is `/mnt` in the container; `/media` is the library, not a drive).
 - **The graphics chip** converts video in the container too, once the container is given it:
   [The graphics chip in Docker](#the-graphics-chip-in-docker). Without it, Sofa converts with the processor.
+- **A tunnel or reverse proxy in its own container** (`cloudflared`, Caddy, nginx) reaches Sofa from an address
+  on Docker's network, `172.17.0.1` or `172.18.0.3`, that looks like the home network. Sofa goes by the proxy's
+  headers instead (since 1.5.21): what comes through it counts as the internet. Set `"trust_proxy": true` in
+  `./data/config.json` so Sofa reads each visitor's own address from it, and `"remote": "public"` to let the
+  internet in ([remote-access.md](remote-access.md#3-cloudflare-tunnel-and-the-orange-cloud)).
 - The other commands work through compose: `docker compose run --rm sofa status`, `... backup`, `... inbox`.
   The log: `docker compose logs -f sofa`.
 

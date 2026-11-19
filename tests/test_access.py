@@ -197,6 +197,81 @@ class Access(unittest.TestCase):
         with mock.patch.dict(config._config, {"trust_proxy": False}):
             self.assertEqual(h.client_ip(), "127.0.0.1")
 
+    def test_a_proxy_anywhere_at_home_passes_on_the_internet(self):
+        """A tunnel or proxy in a container on Docker's own network (172.x), on another machine at home, or on the
+        tailnet (a rented server passing the internet on over Tailscale) is no more trusted than one on this
+        computer: what it passes on is the internet's unless Sofa was told about it (trust_proxy). Before 1.5.21 only
+        one on this computer was, and a tunnel's container made the whole internet the home network."""
+        def handler(peer, headers):
+            h = web.Handler.__new__(web.Handler)
+            h.client_address = (peer, 50000)
+            h.headers = headers
+            return h
+        tunnel = {"CF-Connecting-IP": "203.0.113.7", "CF-Ray": "8a1b2c3d4e5f-LHR", "X-Forwarded-For": "203.0.113.7"}
+        peers = {"172.18.0.3": "lan", "172.17.0.1": "lan", "::ffff:172.17.0.1": "lan", "192.168.1.20": "lan",
+                 "10.0.0.9": "lan", "100.64.0.5": "tailnet", "fd7a:115c:a1e0::5": "tailnet", "127.0.0.1": "local"}
+        for peer, home in peers.items():
+            with mock.patch.dict(config._config, {"trust_proxy": False}):
+                self.assertEqual(auth.network_of(handler(peer, {}).client_ip()), home, peer)        # itself: as before
+                for one in ({"CF-Connecting-IP": "192.168.1.5"}, {"X-Forwarded-For": "192.168.1.5"}, {"Forwarded": "for=10.0.0.2"},
+                            {"X-Real-IP": "127.0.0.1"}, {"CF-Ray": "8a1b-LHR"}, {"True-Client-IP": "10.0.0.3"}, {"CDN-Loop": "cloudflare"}):
+                    self.assertEqual(handler(peer, one).client_ip(), web.UNKNOWN_INTERNET, (peer, one))
+            with mock.patch.dict(config._config, {"trust_proxy": True}):
+                self.assertEqual(handler(peer, tunnel).client_ip(), "203.0.113.7", peer)            # told: the visitor
+                made_up = {"X-Forwarded-For": "192.168.1.5, 203.0.113.9"}             # the first, the client wrote
+                self.assertEqual(handler(peer, made_up).client_ip(), "203.0.113.9", peer)
+                self.assertEqual(handler(peer, {"CF-Ray": "8a1b-LHR"}).client_ip(), web.UNKNOWN_INTERNET, peer)
+        with mock.patch.dict(config._config, {"trust_proxy": True}):
+            # a proxy elsewhere can't speak for this computer: its own loopback is where the proxy is
+            self.assertEqual(handler("172.18.0.3", {"X-Forwarded-For": "127.0.0.1"}).client_ip(), "172.18.0.3")
+            self.assertEqual(handler("100.64.0.5", {"CF-Connecting-IP": "::1"}).client_ip(), "100.64.0.5")
+            self.assertEqual(handler("127.0.0.1", {"X-Forwarded-For": "127.0.0.1"}).client_ip(), "127.0.0.1")
+        with mock.patch.dict(config._config, {"trust_proxy": False}):           # an address on the internet: as before
+            self.assertEqual(handler("203.0.113.50", tunnel).client_ip(), "203.0.113.50")
+
+    def test_through_a_tunnels_container_nothing_of_home_opens(self):
+        """The same through the running server, its connections arriving from a container's address."""
+        class FromContainer(web.Server):
+            def process_request(self, request, client_address):
+                super().process_request(request, ("172.18.0.3", client_address[1]))
+        srv = FromContainer(("127.0.0.1", 0), web.Handler)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        base = "http://127.0.0.1:%d" % srv.server_address[1]
+        tunnel = {"CF-Connecting-IP": "203.0.113.7", "CF-Ray": "8a1b2c3d4e5f-LHR", "X-Forwarded-For": "203.0.113.7"}
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+        def call(path, headers=None, body=None, token=None):
+            h = dict(headers or {}, **({"Authorization": "Bearer " + token} if token else {}))
+            if body is not None:
+                h.update({"Content-Type": "application/json", "X-Sofa": "1"})
+            req = urllib.request.Request(base + path, headers=h, data=None if body is None else json.dumps(body).encode())
+            try:
+                with opener.open(req, timeout=20) as r:
+                    return r.status, r.read()
+            except urllib.error.HTTPError as e:
+                return e.code, e.read()
+        try:
+            with mock.patch.dict(config._config, {"trust_proxy": False, "remote": "home", "guest_access": True, "dlna": True,
+                                                  "share_on": False}):
+                # a device at home on that address, with no proxy's headers: home, as before
+                token = auth.start_session(self.ids["acc-admin"], "172.18.0.3", "test")
+                self.assertEqual(call("/api/admin/status", token=token)[0], 200)
+                # through the tunnel: the internet, so none of home's doors open
+                self.assertEqual(call("/api/admin/status", tunnel, token=token)[0], 403)
+                self.assertEqual(call("/", tunnel)[0], 403)
+                self.assertEqual(call("/guest", tunnel)[0], 403)
+                self.assertEqual(call("/dlna/device.xml", tunnel)[0], 403)
+                self.assertEqual(call("/api/pair/start", tunnel, body={"name": "TV"})[0], 403)
+                with mock.patch.object(auth, "user_count", return_value=0):        # a new Sofa: no admin yet
+                    self.assertEqual(call("/api/setup", tunnel, body={"name": "intruder", "password": "password123"})[0], 403)
+                    self.assertFalse(store.q1("SELECT 1 FROM users WHERE name = 'intruder'"))
+            with mock.patch.dict(config._config, {"trust_proxy": True, "remote": "home"}):
+                self.assertEqual(call("/api/admin/status", tunnel, token=token)[0], 403)     # told: still the internet
+        finally:
+            auth.end_session(token)
+            srv.shutdown()
+            srv.server_close()
+
     # ---- uploads, connections
     def test_uploads_at_once_dont_promise_the_same_room(self):
         gb = 1024 ** 3

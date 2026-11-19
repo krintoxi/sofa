@@ -196,7 +196,8 @@ class Demo(unittest.TestCase):
             return h
         tunnel = {"CF-Connecting-IP": "203.0.113.7", "CF-Ray": "8a1b-LHR"}
         config.update({"demo": False})
-        self.assertEqual(handler("172.18.0.3", tunnel).network(), "lan")     # what a home Sofa would think: Docker's bridge
+        self.assertEqual(handler("172.18.0.3", {}).network(), "lan")          # a home Sofa: Docker's bridge is home...
+        self.assertEqual(handler("172.18.0.3", tunnel).network(), "internet")  # ...but not what a tunnel there passes on (1.5.21)
         config.update({"demo": True})
         for peer in ("172.18.0.3", "192.168.1.20", "100.64.0.5", "127.0.0.1", "::1", "203.0.113.9"):
             for headers in (None, tunnel):

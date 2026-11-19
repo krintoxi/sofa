@@ -6,6 +6,24 @@ has its own numbers and list: [deploy/sofa-box/CHANGES.md](deploy/sofa-box/CHANG
 A change to Sofa's code (`sofa/`, `client/`, `sofa.py`) gets a new version: raise `__version__`, add a section
 here, then `python3 tools/sofa-version.py` (a test checks it was done).
 
+## 1.5.21 (2026-11-18)
+
+- **A tunnel or proxy anywhere at home passes on the internet, not the home network.** Sofa took a proxy's headers
+  (`X-Forwarded-For`, `CF-Connecting-IP` and the like) as a sign of the internet only when the connection came from
+  this computer. A tunnel in its own Docker container connects from an address like `172.18.0.3`, which is the home
+  network to Sofa. So everything through it counted as home: anyone on the internet could create the first admin
+  account on a new Sofa, join as a guest, pair a TV, reach DLNA, or use a stolen admin cookie. The same went for a
+  proxy on another machine at home, or a server passing the internet on over Tailscale. Now a request with a
+  proxy's headers never counts as where the proxy is, whatever address it comes from, unless Sofa was told about
+  the proxy (`trust_proxy`). When told, Sofa takes the visitor's address from the proxy, as before; a proxy that
+  isn't this computer can't pass for it. A browser, a TV and the Sofa apps send none of these headers, so nothing
+  changes for them.
+- With `trust_proxy`, a proxy in a container or on another machine is held only to the overall connection limit,
+  not the per-address one, as one on this computer already was (everyone's connections come from its address).
+- Tested against a server whose connections come from a container's address (`tests/test_access.py`): through a
+  tunnel's headers the admin, setup, guest, pairing and DLNA stay shut; the same address without them is home.
+  `docs/remote-access.md` and `docs/install.md` ("In Docker") say what to set.
+
 ## 1.5.20 (2026-11-18)
 
 - **Recordings plays what's recorded.** A recording that's in the library has **Play** (or **Resume**, with how much is

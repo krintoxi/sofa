@@ -137,13 +137,29 @@ video goes straight from your router to the viewer, and that's fine.
 Settings for a tunnel: `"remote": "public"` and `"trust_proxy": true` in `data/config.json`, as with a
 reverse proxy. Sofa then takes the visitor's address from what Cloudflare sends (`X-Forwarded-For`, or
 `CF-Connecting-IP`). Until `trust_proxy` is on, everything that comes through the tunnel counts as the
-internet, whatever it claims to be, and the Activity log says a proxy is in front. Away from home, Live TV
+internet, whatever it claims to be, and the Activity log says a proxy is in front.
+
+That holds wherever `cloudflared` or the proxy runs (since Sofa 1.5.21):
+- on this computer;
+- in its own container on Docker's network, where its connections come from an address like `172.18.0.3` that
+  looks like the home network;
+- on another machine at home;
+- on a server that passes the internet on over Tailscale.
+
+A request that carries a proxy's headers never counts as where the proxy is. Before 1.5.21 only a proxy on this
+computer was treated that way, and a tunnel in a container made the whole internet the home network: anyone could
+create the first admin account, join as a guest, and reach the Server page with a stolen cookie. Away from home, Live TV
 plays only straight from where each channel is streamed, never through Sofa, so no channel goes through the
 tunnel: a channel that can't play that way isn't listed away from home.
 
 **Already have a reverse proxy** (Caddy, nginx)? Leave Sofa's HTTPS off, set `"remote": "public"` and
 `"trust_proxy": true`, and let the proxy handle HTTPS. Sofa takes the visitor's address from the **last**
-`X-Forwarded-For` entry (the one your proxy adds), so a visitor can't pass for your home network.
+`X-Forwarded-For` entry (the one your proxy adds), so a visitor can't pass for your home network. A proxy that
+isn't on this computer can't pass for it either: an address of its own loopback (`127.0.0.1`) counts as where the
+proxy is.
+
+A proxy that only serves your own people (`tailscale serve` on another machine, say) sends a proxy's headers too, so
+without `trust_proxy` they count as the internet: set it, and Sofa reads their own addresses.
 
 ## What not to do
 

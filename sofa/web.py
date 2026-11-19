@@ -49,9 +49,9 @@ def note_untrusted_proxy():
     """Once an hour at most: the Server page's log says a proxy is in front and how to tell Sofa."""
     if time.time() - _proxy_noted[0] > 3600:
         _proxy_noted[0] = time.time()
-        store.log("internet", "Requests come through a tunnel or proxy on this computer, so Sofa treats them as the "
-                  "internet. If that proxy is yours, set \"trust_proxy\": true in data/config.json "
-                  "(see docs/remote-access.md).")
+        store.log("internet", "Requests come through a tunnel or proxy (on this computer, in a container, or on "
+                  "another machine at home or on Tailscale), so Sofa treats them as the internet. If that proxy is "
+                  "yours, set \"trust_proxy\": true in data/config.json (see docs/remote-access.md).")
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -67,19 +67,25 @@ class Handler(BaseHTTPRequestHandler):
 
     def client_ip(self):
         peer = self.client_address[0]
-        if auth.network_of(peer) == "local" and self.proxied():
+        where = auth.network_of(peer)
+        if where != "internet" and self.proxied():
+            # Passed on by a tunnel or proxy that isn't on the internet itself (cloudflared, nginx, Caddy): on this
+            # computer (127.0.0.1); in a container on Docker's own network (172.17.0.1, 172.18.0.3), which looks like
+            # the home network; on another machine at home; or on another machine on the tailnet (a rented server
+            # passing the internet on over Tailscale). What it passes on came from somewhere else, most often the
+            # internet, so it never counts as where the proxy is. A browser, a TV or a Sofa app sends none of these
+            # headers, at home or on the tailnet.
             if config.get("trust_proxy"):
-                # The proxy on this computer adds the address it saw to the END of X-Forwarded-For; anything before
-                # that came from the client and can say anything ("192.168.1.5", to pass for the home network).
+                # The proxy adds the address it saw to the END of X-Forwarded-For; anything before that came from the
+                # client and can say anything ("192.168.1.5", to pass for the home network).
                 fwd = [x.strip() for x in self.headers.get("X-Forwarded-For", "").split(",") if x.strip()]
-                if fwd:
-                    return fwd[-1]
                 cf = (self.headers.get("CF-Connecting-IP") or "").strip()   # a Cloudflare tunnel's, set by Cloudflare
-                if cf:
-                    return cf
+                seen = fwd[-1] if fwd else cf
+                if seen:
+                    # A proxy that isn't this computer can't speak for it: "127.0.0.1" from a container is the
+                    # container's own loopback, so it counts as where the proxy is, never as this computer.
+                    return peer if where != "local" and auth.network_of(seen) == "local" else seen
             else:
-                # A tunnel or proxy on this computer Sofa wasn't told about (cloudflared, nginx, Caddy): what it passes
-                # on comes from the internet, not from this computer, and gets what the internet gets.
                 note_untrusted_proxy()
             return UNKNOWN_INTERNET
         return peer
@@ -2016,8 +2022,9 @@ class Server(ThreadingHTTPServer):
 
     def process_request(self, request, client_address):
         ip = client_address[0] if isinstance(client_address, tuple) else ""
-        # a proxy or tunnel on this computer brings everyone's connections from one address: only the overall cap
-        cap = self.max_connections if config.get("trust_proxy") and auth.network_of(ip) == "local" else self.max_per_address
+        # a proxy or tunnel Sofa was told about brings everyone's connections from one address (this computer, a
+        # container, another machine at home or on the tailnet): only the overall cap there
+        cap = self.max_connections if config.get("trust_proxy") and auth.network_of(ip) != "internet" else self.max_per_address
         with self._per_lock:
             busy = self._per.get(ip, 0) >= cap
             if not busy:
