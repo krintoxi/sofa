@@ -13,5 +13,6 @@
   "cosmic-cascade": {"secs": 30, "zoom": 1.12, "at": [0.5, 0.55], "icon": [233, 500, 420]},
   "tidewing": {"secs": 20, "icon": [617, 440, 470]},
   "ironmaw": {"hash": "demo&test", "ready": "window.IM", "run": "IM.startLevel(2, false);", "secs": 7, "icon": [760, 400, 640]},
-  "wyrd": {"hash": "test", "ready": "window.WY && WY.E && WY.E.ready && WY.H", "run": "WY.begin(); WY.level(45); WY.menu.hide(); WY.AI.on = true; WY.AI.god = true; WY.goto(0, 6); WY.H.yaw = Math.PI; WY.sim(0.2); WY.show({ dist: 12, az: 2.6, el: 0.3, h: 1.6, fov: 0.8 });", "secs": 4, "icon": [640, 400, 430]}
+  "wyrd": {"hash": "test", "ready": "window.WY && WY.E && WY.E.ready && WY.H", "run": "WY.begin(); WY.level(45); WY.menu.hide(); WY.AI.on = true; WY.AI.god = true; WY.goto(0, 6); WY.H.yaw = Math.PI; WY.sim(0.2); WY.show({ dist: 12, az: 2.6, el: 0.3, h: 1.6, fov: 0.8 });", "secs": 4, "icon": [640, 400, 430]},
+  "halogen": {"hash": "test", "ready": "window.HG && HG.E && HG.E.ready && HG.W", "run": "HG.startRace(5); HG.auto = true; HG.go();", "secs": 9, "quiet": "HG.quiet();", "icon": [640, 420, 520]}
 }

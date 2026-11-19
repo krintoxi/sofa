@@ -8,6 +8,41 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.99
+
+**Halogen: street racing through an open city.** A new game on Home, and the engine's parts for any game on roads.
+
+- **A district to drive freely**, at nightfall: Stack Hill and its steep streets in the north-west, avenues between
+  towers in the middle, the old blocks, sheds and quays on a bay. 81 junctions, 17.7 km of road and a thousand
+  buildings with their windows lit, street lamps throwing their light on the asphalt, the rest of the city painted
+  on the sky. It's made a square of 80 m at a time ahead of the car and given back behind it, as WYRD's country is.
+- **Six races marked on the streets**, each a pillar of light to stop in: three sprints (Glass Mile, Hill Drop, Quay
+  Run) and three circuits (Ring Zero, Heap Loop, Core Loop), against three to five rivals, through gates of light.
+  A place in the first three in three races wins a third car; three wins, the fourth. Or pick a race from the menu.
+- **Four cars, each its own**: KERNEL (rear-driven, even), PACKET (light, pulled by its front wheels), SEGFAULT (all
+  engine: the fastest, and the one that steps out) and MUTEX (all four wheels driven). Eight paints. They are driven
+  by a model of two axles and their tyres' grip, gears, weight that shifts, a handbrake and nitro; a slide can be
+  held, and the front wheels turn into it a little by themselves. RT (as far as it's pulled) or A is the gas, LT or
+  B the brake and reverse, X the handbrake, Y or RB the nitro, LB looks behind, the D-pad's up changes the camera,
+  Select sets the car back on the road. The keys too (arrows or WASD, Space, Shift), and a touch screen's controls
+  with tilt to steer.
+- **A little map** of the streets round the car, the way it's heading up; speed in km/h or mph, the gear and the
+  revs, the nitro; all drawn in the game's own picture.
+- **On every box**: a Pi 3's rung draws three squares of city each way with plain buildings (7 to 14 thousand
+  triangles, 17 to 30 draw calls a frame); from a Pi 4, four or five squares, every storey of windows, pavements and
+  edge lines, a glow round the lights and a graded picture. With no real GPU the same streets are drawn the 2D way.
+- **The engine** (Low3D) gains what it's built from, for the next game on roads and for the maker: `Roads` (a
+  network of lines through junctions, the land cut level to them, their surface laid a square at a time, the nearest
+  road and the way between two junctions) with `Roads.net`, `Kit.strip` (a ribbon laid on the ground), `Path.pace`
+  (how fast a line can be taken), `Car` (how a car moves), `Kit.tower`, `Kit.lamp` and `Kit.car`, and a `Trail` that
+  keeps each point's height. Nothing that was there is changed.
+- Everything in it is made in code here: every model, surface and sound. Its names are its own invention (the
+  title was looked up for a game of the same name and none found; the cars', races' and places' names were not).
+- Measured as a stand-in Pi 3 (a Mac, the game's work made twenty times as long, one run): 60 frames a second in a
+  race of six cars and flat out down the avenue, none of 600 late in either. As a stand-in Pi 4, the fuller look: one
+  or two of 599 late. **No Raspberry Pi and no controller in a hand has run it yet**: how the cars feel is tuned by numbers
+  and by the game's own driver, not by play.
+
 ## 1.1.98
 
 **The 3D camera turns two ways, and both have weight.**

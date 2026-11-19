@@ -4665,7 +4665,529 @@ function planRay(p, b) {
     why: "the processor draws it (script " + cpu + " ms" + (help ? ", " + help + " helpers on other cores" : "") + ")" + (fx ? "; the GPU adds the glow" : "") };
 }
 
+// ================================================================ streets: roads laid on the ground, a city's pieces, cars
+// What a game on roads needs, each usable by itself: Kit.strip (a ribbon laid on the ground, as Kit.lay lays a patch),
+// Roads (a network of lines through junctions: where they run, how high, what's near a place, the way from one
+// junction to another, their surface a chunk at a time), Path.pace (how fast a line can be taken), Kit.tower, Kit.lamp
+// and Kit.car (a city's still things and what drives in it, from recipes), Car (how a car moves: grip, slides, gears),
+// and a Trail that keeps each point's height (marks on a hill). Halogen (halogen/) is built on them.
+
+// A ribbon laid just over the ground along a line: Kit.lay's contract, for what's long (a road, a lane's line, a kerb,
+// a path). pts: the line [x, z, x, z, …]; a and b: its two edges, as steps to the left of the line (a road 12 m wide:
+// 6 and -6; a line down its middle: 0.12 and -0.12); ground(x, z), col(x, z), lift and norm(x, z, out) as lay takes
+// them (no norm: lit as flat ground); ways: the line's way at each point [x, z, …] when the caller knows it (two
+// strips that meet then share an edge). Two triangles a step, each corner on the ground with its own colour.
+const STRIP = { v: new Float32Array(18 * 64) };
+Kit.strip = function (m, pts, a, b, ground, col, lift, norm, ways) {
+  const n = pts.length >> 1; if (n < 2) return m;
+  if (STRIP.v.length < n * 18) STRIP.v = new Float32Array(n * 18 * 2);
+  const V = STRIP.v, nv = Kit.nv || (Kit.nv = [0, 1, 0]), e = m.glow || 0, al = m.alpha; lift = lift == null ? 0.05 : lift;
+  for (let i = 0; i < n; i++) {
+    const x = pts[i * 2], z = pts[i * 2 + 1], p = i ? i - 1 : 0, q = i < n - 1 ? i + 1 : i;
+    let tx = ways ? ways[i * 2] : pts[q * 2] - pts[p * 2], tz = ways ? ways[i * 2 + 1] : pts[q * 2 + 1] - pts[p * 2 + 1]; const l = Math.sqrt(tx * tx + tz * tz) || 1; tx /= l; tz /= l;
+    for (let s = 0; s < 2; s++) {
+      const off = s ? b : a, px = x + tz * off, pz = z - tx * off, c = col(px, pz), o = (i * 2 + s) * 9;
+      if (norm) norm(px, pz, nv); else { nv[0] = 0; nv[1] = 1; nv[2] = 0; }
+      V[o] = px; V[o + 1] = ground(px, pz) + lift; V[o + 2] = pz; V[o + 3] = nv[0]; V[o + 4] = nv[1]; V[o + 5] = nv[2]; V[o + 6] = (c >> 16) & 255; V[o + 7] = (c >> 8) & 255; V[o + 8] = c & 255;
+    }
+  }
+  const pt = k => { k *= 9; m.put(V[k], V[k + 1], V[k + 2], V[k + 3], V[k + 4], V[k + 5], V[k + 6], V[k + 7], V[k + 8], al, e); };
+  const tri = (A, B, C) => { const i = A * 9, j = B * 9, k = C * 9; pt(A); if ((V[j + 2] - V[i + 2]) * (V[k] - V[i]) - (V[j] - V[i]) * (V[k + 2] - V[i + 2]) > 0) { pt(B); pt(C); } else { pt(C); pt(B); } };
+  m.room((n - 1) * 6);
+  for (let i = 0; i + 1 < n; i++) { const k = i * 2; tri(k, k + 2, k + 3); tri(k, k + 3, k + 1); }
+  return m;
+};
+
+// How fast a line can be taken, a speed for each of its samples: no faster than `top`, slow enough for each bend
+// (sideways no harder than `lat`, m/s²) and soon enough to have braked for it (`brake`, m/s²). What races along the
+// line reads it where it is. Returns a Float32Array (P.n).
+Path.prototype.pace = function (top, lat, brake) {
+  const n = this.n, v = new Float32Array(n), closed = this.closed;
+  for (let i = 0; i < n; i++) {
+    const a = closed ? (i - 2 + n) % n : Math.max(0, i - 2), b = closed ? (i + 2) % n : Math.min(n - 1, i + 2);
+    const turn = Math.abs(U.wrap(Math.atan2(this.tx[b], this.tz[b]) - Math.atan2(this.tx[a], this.tz[a]))), ds = Math.abs(this.s[b] - this.s[a]) || (closed ? this.len : 1);
+    const k = turn / (closed && ds > this.len / 2 ? this.len - ds : ds);
+    v[i] = k > 1e-5 ? Math.min(top, Math.sqrt(lat / k)) : top;
+  }
+  for (let pass = 0; pass < (closed ? 2 : 1); pass++) for (let i = n - 2; i >= (closed ? -1 : 0); i--) {
+    const j = (i + n) % n, k = (j + 1) % n, ds = k ? this.s[k] - this.s[j] : this.len - this.s[j], m = Math.sqrt(v[k] * v[k] + 2 * brake * Math.max(0.01, ds));
+    if (v[j] > m) v[j] = m;
+  }
+  return v;
+};
+
+// A point's height kept with it, for marks and lights left on ground that isn't flat (Trail.step and ribbon keep one
+// height for the whole trail: a wake on water). stepY(dt, x, y, z, strength), then ribbonY(mesh, lift, …) as ribbon.
+Trail.prototype.stepY = function (dt, x, y, z, strength) {
+  this.t -= dt; if (this.t > 0) return;
+  if (!this.h) this.h = new Float32Array(this.max);
+  this.t = this.every; const p = this.p, h = this.h, n = Math.min(this.n + 1, this.max);
+  for (let k = n - 1; k > 0; k--) { p[k * 3] = p[k * 3 - 3]; p[k * 3 + 1] = p[k * 3 - 2]; p[k * 3 + 2] = p[k * 3 - 1]; h[k] = h[k - 1]; }
+  p[0] = x; p[1] = z; p[2] = strength; h[0] = y; this.n = n;
+};
+Trail.prototype.ribbonY = function (m, lift, col, w0, dw, alpha, add) {
+  const p = this.p, h = this.h, r = (col >> 16) & 255, g = (col >> 8) & 255, b = col & 255, e = add || 0, S = m.s; if (!h) return;
+  for (let i = 0; i + 1 < this.n; i++) {
+    const ax = p[i * 3], az = p[i * 3 + 1], bx = p[i * 3 + 3], bz = p[i * 3 + 4], ay = h[i] + lift, by = h[i + 1] + lift;
+    let dx = bx - ax, dz = bz - az; const l = Math.sqrt(dx * dx + dz * dz) || 1; dx /= l; dz /= l;
+    if (l > 30) continue;                              // (a jump from one place to another: not a mark between them)
+    const wa = w0 + i * dw, wb = w0 + (i + 1) * dw;
+    const aa = U.clamp((1 - i / this.max) * p[i * 3 + 2] * alpha, 0, 255) | 0, ab = U.clamp((1 - (i + 1) / this.max) * p[i * 3 + 5] * alpha, 0, 255) | 0;
+    if (m.n + 6 > m.cap) return;
+    S[0] = ax - dz * wa; S[1] = ay; S[2] = az + dx * wa; m.v(r, g, b, aa, e); S[0] = bx - dz * wb; S[1] = by; S[2] = bz + dx * wb; m.v(r, g, b, ab, e); S[0] = bx + dz * wb; S[2] = bz - dx * wb; m.v(r, g, b, ab, e);
+    S[0] = ax - dz * wa; S[1] = ay; S[2] = az + dx * wa; m.v(r, g, b, aa, e); S[0] = bx + dz * wb; S[1] = by; S[2] = bz - dx * wb; m.v(r, g, b, ab, e); S[0] = ax + dz * wa; S[1] = ay; S[2] = az - dx * wa; m.v(r, g, b, aa, e);
+  }
+};
+
+// ---------------------------------------------------------------- roads: lines through junctions
+// o { nodes: [[x, z], …] the junctions (and a line's bends); lines: [{ pts: [node, node, …], half: half the road's
+//   width (6), closed, kind }]: each a smooth line through its nodes, two lines that share a node cross there;
+//   height(x, z): the land's (a junction takes it, and a line runs from one junction's height to the next, level for a
+//   moment at each: `ease` 0 (flat through every junction, as a hill city's streets) … 1 (straight through)); step:
+//   metres a sample (4) }
+// near(x, z, out) → the nearest road: out [line, sample, how far from its middle, step to the left of it, its height
+//   there, its way (x, z), half its width, the nearest junction (or -1) and how far]; false when none is within reach
+// on(x, z) → on a road's surface (a line's width, or a junction's pad); height(x, z) → the road's own there
+// grade(land, o) → the land brought to the roads: level across each (and `side` beyond: a pavement), back to its own
+//   over `blend`; lay(mesh, x0, z0, x1, z1, o) → the surface in that square: asphalt strips, junction pads, lines
+// find(a, b) → the junctions from a to b, the short way; route(nodes, o) → a Path along the roads through them
+// paint(g, k, ox, oz, o) → drawn into a picture from above (a map)
+function Roads(o) {
+  this.o = o; this.step = o.step || 4; this.ease = o.ease == null ? 0.3 : o.ease;
+  const hgt = o.height || (() => 0);
+  this.nodes = o.nodes.map((p, i) => ({ i, x: p[0], z: p[1], y: 0, r: 0, at: [], to: [] }));
+  this.lines = [];
+  let x0 = 1e9, z0 = 1e9, x1 = -1e9, z1 = -1e9;
+  for (const nd of this.nodes) {                     // a junction's height: the land's about it
+    let s = 0; for (let k = 0; k < 5; k++) { const a = k * TAU / 4; s += hgt(nd.x + (k < 4 ? Math.cos(a) * 12 : 0), nd.z + (k < 4 ? Math.sin(a) * 12 : 0)); }
+    nd.y = s / 5; x0 = Math.min(x0, nd.x); z0 = Math.min(z0, nd.z); x1 = Math.max(x1, nd.x); z1 = Math.max(z1, nd.z);
+  }
+  for (let li = 0; li < o.lines.length; li++) {
+    const L = o.lines[li], ids = L.pts, closed = !!L.closed, P = new Path(ids.map(i => [this.nodes[i].x, this.nodes[i].z]), { closed, step: this.step });
+    const line = { i: li, P, half: L.half || 6, kind: L.kind || "street", closed, nodes: ids, hs: new Float32Array(P.n), name: L.name || "" };
+    const n = ids.length, Y = k => this.nodes[ids[closed ? ((k % n) + n) % n : U.clamp(k, 0, n - 1)]].y;
+    for (let k = 0; k < (closed ? n : n - 1); k++) {  // from each junction's height to the next: a cubic, its slope at the junctions `ease` of the land's
+      const q0 = P.knots[k], q1 = k + 1 < P.knots.length ? P.knots[k + 1] : P.n, y1 = Y(k), y2 = Y(k + 1), m1 = (Y(k + 1) - Y(k - 1)) / 2 * this.ease, m2 = (Y(k + 2) - Y(k)) / 2 * this.ease;
+      for (let q = q0; q < q1; q++) { const t = (q - q0) / (q1 - q0), t2 = t * t, t3 = t2 * t; line.hs[q] = (2 * t3 - 3 * t2 + 1) * y1 + (t3 - 2 * t2 + t) * m1 + (-2 * t3 + 3 * t2) * y2 + (t3 - t2) * m2; }
+    }
+    if (!closed) line.hs[P.n - 1] = Y(n - 1);
+    for (let k = 0; k < n; k++) { const nd = this.nodes[ids[k]]; nd.at.push([li, k]); nd.r = Math.max(nd.r, line.half); }
+    for (let k = 0; k + 1 < n + (closed ? 1 : 0); k++) {   // who's joined to whom, and how far by road
+      const a = ids[k], b = ids[(k + 1) % n], sa = P.s[P.knots[k]], sb = k + 1 < P.knots.length ? P.s[P.knots[k + 1]] : P.len, d = Math.abs(sb - sa);
+      this.nodes[a].to.push([b, d, li, k, 1]); this.nodes[b].to.push([a, d, li, k, -1]);
+    }
+    this.lines.push(line);
+  }
+  for (const nd of this.nodes) nd.pad = nd.at.length > 1 ? nd.r * 1.3 : 0;   // (where lines cross: a pad round the junction)
+  // every sample in a grid of squares, to find what's near a place without looking at every road
+  const G = this.G = o.grid || 32, pad = 64; this.gx = Math.floor((x0 - pad) / G); this.gz = Math.floor((z0 - pad) / G);
+  this.gw = Math.ceil((x1 + pad) / G) - this.gx + 1; this.gh = Math.ceil((z1 + pad) / G) - this.gz + 1;
+  const count = new Int32Array(this.gw * this.gh + 1), cellOf = (x, z) => (Math.floor(z / G) - this.gz) * this.gw + Math.floor(x / G) - this.gx;
+  for (const L of this.lines) for (let q = 0; q < L.P.n; q++) count[cellOf(L.P.x[q], L.P.z[q]) + 1]++;
+  for (let i = 0; i < count.length - 1; i++) count[i + 1] += count[i];
+  this.cs = count; this.ce = new Int32Array(count[count.length - 1]); const fill = new Int32Array(this.gw * this.gh);
+  for (const L of this.lines) for (let q = 0; q < L.P.n; q++) { const c = cellOf(L.P.x[q], L.P.z[q]); this.ce[count[c] + fill[c]++] = L.i * 65536 + q; }
+  this.out = new Float32Array(10);
+}
+Roads.prototype = {
+  near(x, z, out, reach) {
+    out = out || this.out;
+    const G = this.G, gi = Math.floor(x / G) - this.gx, gj = Math.floor(z / G) - this.gz, R = reach == null ? 1 : Math.ceil(reach / G);
+    let best = 1e18, bl = -1, bq = 0;
+    for (let j = gj - R; j <= gj + R; j++) { if (j < 0 || j >= this.gh) continue; for (let i = gi - R; i <= gi + R; i++) { if (i < 0 || i >= this.gw) continue;
+      const c = j * this.gw + i;
+      for (let k = this.cs[c]; k < this.cs[c + 1]; k++) { const e = this.ce[k], L = this.lines[e >> 16], q = e & 65535, dx = L.P.x[q] - x, dz = L.P.z[q] - z, d = dx * dx + dz * dz - L.half * L.half * 0.25; if (d < best) { best = d; bl = e >> 16; bq = q; } }   // (a wide road counts as a little nearer)
+    } }
+    if (bl < 0) return false;
+    const L = this.lines[bl], P = L.P, n = P.n;
+    // onto the line itself: the nearer of the two pieces that meet at that sample
+    let d2 = 1e18, off = 0, y = 0, tx = 0, tz = 0;
+    for (let s = -1; s <= 0; s++) {
+      let a = bq + s, b = a + 1; if (L.closed) { a = (a + n) % n; b = (b + n) % n; } else if (a < 0 || b >= n) continue;
+      const ax = P.x[a], az = P.z[a], ex = P.x[b] - ax, ez = P.z[b] - az, l2 = ex * ex + ez * ez || 1, t = U.clamp(((x - ax) * ex + (z - az) * ez) / l2, 0, 1);
+      const px = ax + ex * t - x, pz = az + ez * t - z, d = px * px + pz * pz;
+      if (d < d2) { d2 = d; const l = Math.sqrt(l2); tx = ex / l; tz = ez / l; off = -(px * tz - pz * tx); y = L.hs[a] + (L.hs[b] - L.hs[a]) * t; }
+    }
+    out[0] = bl; out[1] = bq; out[2] = Math.sqrt(d2); out[3] = off; out[4] = y; out[5] = tx; out[6] = tz; out[7] = L.half;
+    let nn = -1, nd2 = 1e18;                         // the junction it's nearest (the line's own: the one before or after)
+    for (let k = 0; k < L.nodes.length; k++) { const nd = this.nodes[L.nodes[k]], dx = nd.x - x, dz = nd.z - z, d = dx * dx + dz * dz; if (d < nd2) { nd2 = d; nn = nd.i; } }
+    out[8] = nn; out[9] = Math.sqrt(nd2);
+    return true;
+  },
+  on(x, z) { const o = this.out; if (!this.near(x, z, o)) return false; return o[2] <= o[7] || (o[8] >= 0 && o[9] <= this.nodes[o[8]].pad); },
+  height(x, z) { const o = this.out; return this.near(x, z, o) ? o[4] : 0; },
+  grade(land, g) {
+    g = g || {}; const side = g.side == null ? 3 : g.side, blend = g.blend || 10, o = new Float32Array(10), N = land.N, c = land.cell, h = land.h;
+    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+      const x = -land.half + i * c, z = -land.half + j * c; if (!this.near(x, z, o)) continue;
+      const d = Math.max(0, o[2] - o[7] - side - c * 0.5); if (d >= blend) continue;   // (half a cell more: the corner beside the road is the road's too)
+      const t = d / blend, k = t * t * (3 - 2 * t); h[j * N + i] = o[4] + (h[j * N + i] - o[4]) * k;
+    }
+    return this;
+  },
+  // o { ground(x, z), norm, lift (0.1), col(x, z, line) the asphalt's, pad: a junction's colour (the asphalt's),
+  //   mark: the centre line's colour (0: none) and markLift, dash: [painted, gap] metres ([3, 6]); edge: a colour for a
+  //   thin line along each side (0: none); walk: { w, col(x, z) } a pavement each side (none) }
+  lay(m, x0, z0, x1, z1, o) {
+    const lift = o.lift == null ? 0.1 : o.lift, R = Roads.run || (Roads.run = []), T = Roads.ways || (Roads.ways = []), D = Roads.dash || (Roads.dash = [0, 0, 0, 0, 0]);
+    for (let li = 0; li < this.lines.length; li++) {
+      const L = this.lines[li], P = L.P, n = P.n, last = L.closed ? n : n - 1, col = (x, z) => o.col(x, z, L);
+      const flush = () => {
+        if (R.length >= 4) {
+          Kit.strip(m, R, L.half, -L.half, o.ground, col, lift, o.norm, T);
+          if (o.walk) { const w = o.walk; Kit.strip(m, R, L.half + w.w, L.half, o.ground, w.col, lift + 0.04, o.norm, T); Kit.strip(m, R, -L.half, -L.half - w.w, o.ground, w.col, lift + 0.04, o.norm, T); }
+          if (o.edge) { const ec = () => o.edge; Kit.strip(m, R, L.half - 0.35, L.half - 0.55, o.ground, ec, lift + 0.05, o.norm, T); Kit.strip(m, R, -L.half + 0.55, -L.half + 0.35, o.ground, ec, lift + 0.05, o.norm, T); }
+        }
+        R.length = 0; T.length = 0;
+      };
+      for (let q = 0; q < last; q += 2) {              // every other sample (8 m at a step of 4), each piece where its middle is
+        const b = Math.min(last, q + 2) % n, mx = (P.x[q] + P.x[b]) / 2, mz = (P.z[q] + P.z[b]) / 2;
+        if (mx < x0 || mx >= x1 || mz < z0 || mz >= z1) { flush(); continue; }
+        if (!R.length) { R.push(P.x[q], P.z[q]); T.push(P.tx[q], P.tz[q]); }
+        R.push(P.x[b], P.z[b]); T.push(P.tx[b], P.tz[b]);
+      }
+      flush();
+      if (o.mark) {                                    // the line down the middle: a dash every so often, none across a junction
+        const dash = o.dash || [3, 6], per = dash[0] + dash[1], mc = () => o.mark, w = L.half > 7 ? 0.16 : 0.12;
+        for (let s = per * 0.5; s + dash[0] < P.len; s += per) {
+          P.at(s + dash[0] / 2, D); const mx = D[0], mz = D[1]; if (mx < x0 || mx >= x1 || mz < z0 || mz >= z1) continue;
+          let clear = true; for (let k = 0; k < L.nodes.length && clear; k++) { const nd = this.nodes[L.nodes[k]]; if (nd.pad && (nd.x - mx) * (nd.x - mx) + (nd.z - mz) * (nd.z - mz) < (nd.pad + 3) * (nd.pad + 3)) clear = false; }
+          if (!clear) continue;
+          const tx = D[2], tz = D[3]; D[0] = mx - tx * dash[0] / 2; D[1] = mz - tz * dash[0] / 2; D[2] = mx + tx * dash[0] / 2; D[3] = mz + tz * dash[0] / 2;
+          Kit.strip(m, D, w, -w, o.ground, mc, o.markLift == null ? lift + 0.06 : o.markLift, o.norm);
+        }
+      }
+    }
+    const padCol = o.pad || ((x, z) => o.col(x, z, null)), Q = [];
+    for (const nd of this.nodes) {                     // a pad where roads cross
+      if (!nd.pad || nd.x < x0 || nd.x >= x1 || nd.z < z0 || nd.z >= z1) continue;
+      Q.length = 0; for (let k = 0; k < 8; k++) { const a = (k + 0.5) / 8 * TAU; Q.push(nd.x + Math.cos(a) * nd.pad * 1.08, nd.z + Math.sin(a) * nd.pad * 1.08); }
+      Kit.lay(m, Q, o.ground, padCol, lift + 0.02, false, o.norm);
+    }
+    return m;
+  },
+  // the junctions from a to b by the shortest roads ([a, …, b]; [] when there's no way)
+  find(a, b) {
+    const n = this.nodes.length, dist = new Float64Array(n).fill(1e18), prev = new Int32Array(n).fill(-1), done = new Uint8Array(n);
+    dist[a] = 0;
+    for (;;) {
+      let u = -1, best = 1e18; for (let i = 0; i < n; i++) if (!done[i] && dist[i] < best) { best = dist[i]; u = i; }
+      if (u < 0 || u === b) break;
+      done[u] = 1;
+      for (const e of this.nodes[u].to) if (dist[u] + e[1] < dist[e[0]]) { dist[e[0]] = dist[u] + e[1]; prev[e[0]] = u; }
+    }
+    if (a !== b && prev[b] < 0) return [];
+    const out = []; for (let u = b; u >= 0; u = prev[u]) out.unshift(u);
+    return out;
+  },
+  link(a, b) { for (const e of this.nodes[a].to) if (e[0] === b) return e; return null; },   // the road from a to its neighbour b: [b, metres, line, knot, +1 | -1]
+  // A line along the roads through these junctions (each next to the one before; find() gives such a list), for a
+  // race, a patrol or a way shown on a map: a Path of its own, cutting each corner a little as a driver would. o {
+  // closed, step (3), every: metres between its points along a road (14), cut: how far from a turn's junction it leaves
+  // the road's middle (12) }. Returns the Path, with .nodes (the junctions) and .nodeAt[k]: the sample nearest junction k.
+  route(ids, o) {
+    o = o || {}; const every = o.every || 14, cut = o.cut == null ? 12 : o.cut, closed = !!o.closed, pts = [], T = [0, 0, 0, 0, 0], n = ids.length;
+    const span = k => this.link(ids[k], ids[(k + 1) % n]);
+    for (let k = 0; k < (closed ? n : n - 1); k++) {
+      const e = span(k); if (!e) throw new Error("no road from junction " + ids[k] + " to " + ids[(k + 1) % n]);
+      const L = this.lines[e[2]], P = L.P, s0 = P.s[P.knots[e[3]]], s1 = e[3] + 1 < P.knots.length ? P.s[P.knots[e[3] + 1]] : P.len;
+      const from = e[4] > 0 ? s0 : s1, to = e[4] > 0 ? s1 : s0, len = Math.abs(to - from), dir = to > from ? 1 : -1;
+      const prev = closed || k > 0 ? span((k - 1 + n) % n) : null, next = closed || k + 2 < n ? span((k + 1) % n) : null;
+      const turnIn = prev && prev[2] !== e[2], turnOut = next && next[2] !== e[2];
+      // the junction itself when the way goes straight on (or starts there); a turn leaves it out and rounds the corner
+      if (!turnIn) { P.at(from, T); pts.push([T[0], T[1]]); }
+      const a = turnIn ? Math.min(cut, len * 0.3) : every, b = len - (turnOut ? Math.min(cut, len * 0.3) : every * 0.5);
+      const steps = Math.max(1, Math.round((b - a) / every));
+      for (let i = 0; i <= steps; i++) { P.at(from + dir * (a + (b - a) * i / steps), T); pts.push([T[0], T[1]]); }
+    }
+    if (!closed) { const nd = this.nodes[ids[n - 1]]; pts.push([nd.x, nd.z]); }
+    const R = new Path(pts, { closed, step: o.step || 3 });
+    R.nodes = ids.slice(); R.nodeAt = ids.map(i => R.near(this.nodes[i].x, this.nodes[i].z));
+    return R;
+  },
+  paint(g, k, ox, oz, o) {
+    o = o || {}; g.lineCap = "round"; g.lineJoin = "round";
+    for (let pass = 0; pass < 2; pass++) for (const L of this.lines) {
+      const P = L.P; g.beginPath();
+      for (let q = 0; q < P.n; q += 2) { const x = (P.x[q] - ox) * k, z = (P.z[q] - oz) * k; if (q) g.lineTo(x, z); else g.moveTo(x, z); }
+      if (L.closed) g.closePath(); else g.lineTo((P.x[P.n - 1] - ox) * k, (P.z[P.n - 1] - oz) * k);
+      if (!pass) { g.strokeStyle = o.edge || "#55585e"; g.lineWidth = Math.max(1, (L.half * 2 + (o.side == null ? 6 : o.side)) * k); }
+      else { g.strokeStyle = o.col || "#24262b"; g.lineWidth = Math.max(1, L.half * 2 * k); }
+      g.stroke();
+    }
+    if (o.mark) for (const L of this.lines) {
+      const P = L.P; g.beginPath(); g.setLineDash([3 * k, 6 * k]); g.strokeStyle = o.mark; g.lineWidth = Math.max(0.6, 0.3 * k);
+      for (let q = 0; q < P.n; q += 2) { const x = (P.x[q] - ox) * k, z = (P.z[q] - oz) * k; if (q) g.lineTo(x, z); else g.moveTo(x, z); }
+      g.stroke(); g.setLineDash([]);
+    }
+  }
+};
+// A city's streets as a net: ni × nj junctions `pitch` apart about the middle, each pushed up to `warp` metres off its
+// place (smoothly: a street bends, it doesn't zigzag), one line along each row and each column. keep(x, z, i, j):
+// false leaves a junction out (water, a park), and a line breaks there. wide(i, j, along): half a road's width for a
+// row (along 0) or a column (1). Returns { nodes, lines, id(i, j) → the junction's number or -1 } for `new Roads`.
+Roads.net = function (o) {
+  const ni = o.ni, nj = o.nj, pitch = o.pitch || 120, warp = o.warp == null ? 24 : o.warp, rnd = U.rand(o.seed || 1), nodes = [], lines = [], id = new Int32Array(ni * nj).fill(-1);
+  const gx = [], gz = []; for (let k = 0; k < 64; k++) { gx.push(rnd() * 2 - 1); gz.push(rnd() * 2 - 1); }
+  const soft = (g, u, v) => { const i = Math.floor(u), j = Math.floor(v), fu = u - i, fv = v - j, a = fu * fu * (3 - 2 * fu), b = fv * fv * (3 - 2 * fv), at = (p, q) => g[((p & 7) + (q & 7) * 8) & 63];
+    return at(i, j) + (at(i + 1, j) - at(i, j)) * a + (at(i, j + 1) - at(i, j)) * b + (at(i, j) - at(i + 1, j) - at(i, j + 1) + at(i + 1, j + 1)) * a * b; };
+  for (let j = 0; j < nj; j++) for (let i = 0; i < ni; i++) {
+    const x = (i - (ni - 1) / 2) * pitch + soft(gx, i * 0.45, j * 0.45) * warp, z = (j - (nj - 1) / 2) * pitch + soft(gz, i * 0.45 + 3.3, j * 0.45 + 1.7) * warp;
+    if (o.keep && !o.keep(x, z, i, j)) continue;
+    id[j * ni + i] = nodes.length; nodes.push([x, z]);
+  }
+  const run = (pts, half, kind, name) => { if (pts.length > 1) lines.push({ pts: pts.slice(), half, kind, name }); pts.length = 0; };
+  const wide = o.wide || (() => 6), pts = [];
+  for (let j = 0; j < nj; j++) { const h = wide(0, j, 0); for (let i = 0; i < ni; i++) { const k = id[j * ni + i]; if (k < 0) run(pts, h, h > 7 ? "avenue" : "street", "r" + j); else pts.push(k); } run(pts, h, h > 7 ? "avenue" : "street", "r" + j); }
+  for (let i = 0; i < ni; i++) { const h = wide(i, 0, 1); for (let j = 0; j < nj; j++) { const k = id[j * ni + i]; if (k < 0) run(pts, h, h > 7 ? "avenue" : "street", "c" + i); else pts.push(k); } run(pts, h, h > 7 ? "avenue" : "street", "c" + i); }
+  return { nodes, lines, ni, nj, id: (i, j) => i < 0 || j < 0 || i >= ni || j >= nj ? -1 : id[j * ni + i] };
+};
+
+// ---------------------------------------------------------------- a city's still things
+// A building: w wide (across x), d deep, h high, standing at x y z turned by yaw, its front to +z. Walls and a roof
+// into m, what's lit into glow: windows, a shop front, a sign, a light on a tall roof. o { seed, wall, trim, glass (a
+// dark window), lit: [colours of lit windows], sign: a colour (0: none), floor: metres a storey (3.4), foot: how far
+// its walls go on under y (1: over ground that isn't level), detail: 0 a few bands of light a wall (some 40
+// triangles), 1 each storey its own band in pieces (some 150), 2 windows one by one on the two lowest storeys too,
+// kind: "block" | "tower" (set back near the top) | "shed" (low and wide, a pitched roof, few lights) }.
+Kit.tower = function (m, glow, x, y, z, yaw, w, d, h, o) {
+  o = o || {}; const r = U.rand((o.seed || 1) * 7919 + 13), det = o.detail || 0, wall = o.wall == null ? 0x2a2c34 : o.wall, trim = o.trim == null ? shadeK(wall, 0.7) : o.trim, glass = o.glass == null ? 0x0e1016 : o.glass;
+  const lit = o.lit || [0xffd9a0, 0xffe9c8, 0xbfe6ff], fl = o.floor || 3.4, foot = o.foot == null ? 1 : o.foot, kind = o.kind || "block", hw = w / 2, hd = d / 2;
+  m.at(x, y, z, yaw, 1); glow.at(x, y, z, yaw, 1); const g0 = glow.glow; glow.glow = 127;
+  const side = (mm, f, u0, y0, u1, y1, col, out) => {  // a flat piece on wall f (0 front +z, 1 right -x, 2 back, 3 left +x), from u0 y0 to u1 y1 across it, `out` proud of it
+    const W = f & 1 ? hd : hw, D = (f & 1 ? hw : hd) + (out || 0), a = u0 * W, b = u1 * W;
+    if (f === 0) mm.quad(a, y0, D, b, y0, D, b, y1, D, a, y1, D, col, 0, (y0 + y1) / 2, 0);
+    else if (f === 2) mm.quad(-a, y0, -D, -b, y0, -D, -b, y1, -D, -a, y1, -D, col, 0, (y0 + y1) / 2, 0);
+    else if (f === 1) mm.quad(-D, y0, a, -D, y0, b, -D, y1, b, -D, y1, a, col, 0, (y0 + y1) / 2, 0);
+    else mm.quad(D, y0, -a, D, y0, -b, D, y1, -b, D, y1, -a, col, 0, (y0 + y1) / 2, 0);
+  };
+  if (kind === "shed") {
+    const e = h * 0.72; for (let f = 0; f < 4; f++) side(m, f, -1, -foot, 1, e, f & 1 ? wall : shadeK(wall, 0.92));
+    m.quad(-hw, e, hd, hw, e, hd, hw, h, 0, -hw, h, 0, trim, 0, 0, 0); m.quad(hw, e, -hd, -hw, e, -hd, -hw, h, 0, hw, h, 0, shadeK(trim, 0.85), 0, 0, 0);
+    m.tri(-hw, e, hd, -hw, h, 0, -hw, e, -hd, wall, 0, e, 0); m.tri(hw, e, hd, hw, e, -hd, hw, h, 0, wall, 0, e, 0);
+    side(m, 0, -0.5, 0, 0.1, e * 0.7, glass, 0.03);                             // a big door, and a lamp over it
+    side(glow, 0, -0.26, e * 0.76, -0.14, e * 0.76 + 0.3, lit[0], 0.05);
+    if (det > 0) for (let k = 0; k < 3; k++) { const on = r() < 0.5; side(on ? glow : m, 0, 0.3 + k * 0.2, e * 0.55, 0.42 + k * 0.2, e * 0.7, on ? lit[(r() * lit.length) | 0] : glass, 0.03); }
+    glow.glow = g0; m.at(0, 0, 0); glow.at(0, 0, 0); return m;
+  }
+  const top = kind === "tower" && h > 30 ? h * (0.72 + r() * 0.12) : h, n = Math.max(1, Math.floor((top - 1.2) / fl));
+  for (let f = 0; f < 4; f++) side(m, f, -1, -foot, 1, top, f & 1 ? shadeK(wall, 0.9) : wall);
+  m.quad(-hw, top, hd, hw, top, hd, hw, top, -hd, -hw, top, -hd, trim, 0, top - 1, 0);
+  if (top < h) {                                       // a tower's upper part, set back
+    const k = 0.62, t = h; m.at(x, y, z, yaw, k, 1, k);
+    for (let f = 0; f < 4; f++) side(m, f, -1, top, 1, t, f & 1 ? shadeK(wall, 0.9) : wall);
+    m.quad(-hw, t, hd, hw, t, hd, hw, t, -hd, -hw, t, -hd, trim, 0, t - 1, 0);
+    glow.at(x, y, z, yaw, k, 1, k); for (let f = 0; f < 4; f++) for (let s = 0, ns = Math.max(1, Math.floor((t - top) / fl / (det ? 1 : 2))); s < ns; s++) if (r() < 0.6) { const y0 = top + (s + 0.3) * (t - top) / ns; side(glow, f, -0.8, y0, 0.8, y0 + 1.3, lit[(r() * lit.length) | 0], 0.04); }
+    m.at(x, y, z, yaw, 1); glow.at(x, y, z, yaw, 1);
+  }
+  if (det > 0 && top >= h) { const p = 0.5; for (let f = 0; f < 4; f++) side(m, f, -1, top, 1, top + p, shadeK(wall, 0.8)); if (r() < 0.6) m.box((r() - 0.5) * hw, top, (r() - 0.5) * hd, 2.4, 1.6, 2.4, shadeK(trim, 1.2)); }
+  // the ground floor on the street: a shop front's glass, lit or dark, and a sign over it
+  const shop = o.shop == null ? r() < 0.6 : o.shop, g1 = Math.min(3.2, top * 0.6);
+  if (shop) { const on = r() < 0.75; side(on ? glow : m, 0, -0.84, 0.5, 0.84, g1 - 0.4, on ? shadeK(lit[(r() * lit.length) | 0], 0.8) : glass, 0.04);
+    if (o.sign) { const sw = 0.25 + r() * 0.4, sx = (r() * 2 - 1) * (0.8 - sw); side(glow, 0, sx - sw, g1 - 0.25, sx + sw, g1 + 0.55, o.sign, 0.12); } }
+  // lit windows. A storey is a band across a wall: all of it (detail 0: a few a wall, the rest left dark), or in pieces
+  const first = shop ? 1 : 0;
+  for (let f = 0; f < 4; f++) {
+    const W = f & 1 ? d : w, cols = Math.max(1, Math.round(W / 4.5));
+    if (!det) {
+      const want = Math.min(n - first, 2 + ((r() * 3) | 0) + (n > 8 ? 2 : 0));
+      for (let k = 0; k < want; k++) { const s = first + ((r() * (n - first)) | 0), u0 = r() < 0.5 ? -0.86 : -0.86 + r() * 0.8, u1 = Math.min(0.86, u0 + 0.5 + r() * 1.2), y0 = 1 + s * fl + fl * 0.3;
+        side(glow, f, u0, y0, u1, y0 + fl * 0.45, lit[(r() * lit.length) | 0], 0.04); }
+      continue;
+    }
+    for (let s = first; s < n; s++) {
+      const y0 = 1 + s * fl + fl * 0.28, y1 = y0 + fl * 0.5, each = det > 1 && s < first + 2;
+      if (each) { for (let c = 0; c < cols; c++) { const u0 = -0.88 + c * 1.76 / cols + 0.06, u1 = u0 + 1.76 / cols - 0.12, on = r() < 0.5; side(on ? glow : m, f, u0, y0, u1, y1, on ? lit[(r() * lit.length) | 0] : glass, 0.04); } continue; }
+      let u = -0.88; while (u < 0.86) {                // pieces of light and dark along the storey
+        const len = Math.min(0.88 - u, (1 + ((r() * 3) | 0)) * 1.76 / cols), on = r() < 0.42;
+        side(on ? glow : m, f, u + 0.03, y0, u + len - 0.03, y1, on ? lit[(r() * lit.length) | 0] : glass, 0.04); u += len;
+      }
+    }
+  }
+  if (h > 44) { glow.at(x, y, z, yaw, 1); glow.box(0, h + 2.2, 0, 0.5, 0.5, 0.5, 0xff3a3a); m.box(0, h, 0, 0.18, 2.2, 0.18, 0x30323a); }   // a mast and its red light
+  glow.glow = g0; m.at(0, 0, 0); glow.at(0, 0, 0);
+  return m;
+};
+// A street lamp at x y z, its arm reaching `reach` to its own +z (turn it to the road with yaw); post and arm into m,
+// the lamp itself lit. o { h (7), reach (2.4), post, light }. Returns where the light is: [x, y, z].
+Kit.lamp = function (m, x, y, z, yaw, o) {
+  o = o || {}; const h = o.h || 7, reach = o.reach == null ? 2.4 : o.reach, post = o.post == null ? 0x30323a : o.post, light = o.light == null ? 0xffd9a0 : o.light, g0 = m.glow;
+  m.at(x, y, z, yaw, 1); m.stack([[0.13, -0.3], [0.09, h]], 4, post, null);
+  m.box(0, h - 0.1, reach / 2, 0.12, 0.12, reach, post);
+  m.glow = 127; m.box(0, h - 0.28, reach - 0.3, 0.42, 0.16, 0.8, light); m.glow = g0;
+  m.at(0, 0, 0);
+  return [x + Math.sin(yaw) * reach, y + h - 0.3, z + Math.cos(yaw) * reach];
+};
+// A car from a recipe, about its own middle, standing on y = 0 and facing +z (its left is +x). o { len (4.3), wide
+// (1.8), high (1.3): its roof; hood, deck: how much of its length is bonnet and boot (0.3, 0.16); belt: the body's
+// height under the windows (0.78); nose, tail: how high its ends are of that (0.8, 0.9); roof: the cabin's width at the
+// top of the body's (0.76); clear: off the ground (0.2); wheel: its radius (0.33); base: between the axles of its
+// length (0.6); body, trim, glass, tyre, rim: colours; wing: a spoiler's height over the boot (0: none); scoop: one
+// on the bonnet; lights: [front, rear] colours (lit by themselves) }. Some 200 triangles.
+Kit.car = function (m, o) {
+  o = o || {}; const L = o.len || 4.3, W = o.wide || 1.8, H = o.high || 1.3, hood = o.hood == null ? 0.3 : o.hood, deck = o.deck == null ? 0.16 : o.deck, belt = o.belt || 0.78;
+  const nose = (o.nose == null ? 0.8 : o.nose) * belt, tail = (o.tail == null ? 0.9 : o.tail) * belt, rk = o.roof == null ? 0.76 : o.roof, cl = o.clear == null ? 0.2 : o.clear, wr = o.wheel || 0.33;
+  const body = o.body == null ? 0xd0d4dc : o.body, trim = o.trim == null ? 0x15161a : o.trim, glass = o.glass == null ? 0x0c1018 : o.glass, tyre = o.tyre == null ? 0x0c0c0e : o.tyre, rim = o.rim == null ? 0x8a8e96 : o.rim;
+  const lights = o.lights || [0xfff2d0, 0xff2a2a], hw = W / 2, z0 = -L / 2, z1 = L / 2, g0 = m.glow, dark = shadeK(body, 0.72);
+  m.at(0, 0, 0);
+  // the body: sections from tail to nose, each [z, half its width, its top], sides and top between each pair
+  const zc1 = z1 - L * hood, zc0 = z0 + L * deck, S = [[z0, hw * 0.9, tail * 0.92], [z0 + 0.22, hw, tail], [zc0, hw, belt], [zc1, hw, belt], [z1 - 0.35, hw * 0.97, nose], [z1, hw * 0.86, nose * 0.82]];
+  for (let k = 0; k + 1 < S.length; k++) {
+    const a = S[k], b = S[k + 1], cy = (a[2] + b[2]) / 2;
+    m.quad(a[1], cl, a[0], b[1], cl, b[0], b[1], b[2], b[0], a[1], a[2], a[0], body, 0, cy, (a[0] + b[0]) / 2);
+    m.quad(-a[1], cl, a[0], -a[1], a[2], a[0], -b[1], b[2], b[0], -b[1], cl, b[0], body, 0, cy, (a[0] + b[0]) / 2);
+    m.quad(-a[1], a[2], a[0], a[1], a[2], a[0], b[1], b[2], b[0], -b[1], b[2], b[0], shadeK(body, 1.08), 0, 0, (a[0] + b[0]) / 2);
+  }
+  const A = S[0], B = S[S.length - 1];
+  m.quad(-A[1], cl, A[0], A[1], cl, A[0], A[1], A[2], A[0], -A[1], A[2], A[0], dark, 0, 0.5, 0);          // tail and nose
+  m.quad(B[1], cl, B[0], -B[1], cl, B[0], -B[1], B[2], B[0], B[1], B[2], B[0], shadeK(body, 0.9), 0, 0.5, 0);
+  m.quad(-hw * 0.9, cl, z0, hw * 0.9, cl, z0, hw * 0.86, cl, z1, -hw * 0.86, cl, z1, trim, 0, 1, 0);       // its underside
+  for (const sd of [-1, 1]) m.quad(sd * (hw + 0.015), cl, zc0 - 0.3, sd * (hw + 0.015), cl, zc1 + 0.3, sd * (hw + 0.015), cl + 0.13, zc1 + 0.3, sd * (hw + 0.015), cl + 0.13, zc0 - 0.3, trim, 0, cl, 0);   // sills
+  m.quad(-A[1], cl, A[0] - 0.012, A[1], cl, A[0] - 0.012, A[1], cl + 0.17, A[0] - 0.012, -A[1], cl + 0.17, A[0] - 0.012, trim, 0, 0.5, 0);   // bumpers, a grille, a plate
+  m.quad(B[1], cl, B[0] + 0.012, -B[1], cl, B[0] + 0.012, -B[1], cl + 0.15, B[0] + 0.012, B[1], cl + 0.15, B[0] + 0.012, trim, 0, 0.5, 0);
+  m.quad(B[1] * 0.5, nose * 0.5, B[0] + 0.014, -B[1] * 0.5, nose * 0.5, B[0] + 0.014, -B[1] * 0.5, nose * 0.76, B[0] + 0.014, B[1] * 0.5, nose * 0.76, B[0] + 0.014, trim, 0, 0.5, 0);
+  m.quad(-0.26, tail * 0.42, A[0] - 0.014, 0.26, tail * 0.42, A[0] - 0.014, 0.26, tail * 0.58, A[0] - 0.014, -0.26, tail * 0.58, A[0] - 0.014, 0xd8d4c8, 0, 0.5, 0);
+  // the cabin: glass all round under a roof
+  const rw = hw * rk, r0 = zc0 + (H - belt) * (o.rake0 == null ? 0.9 : o.rake0), r1 = zc1 - (H - belt) * (o.rake1 == null ? 1.25 : o.rake1), bw = hw * 0.96;
+  m.quad(-rw, H, r0, rw, H, r0, rw, H, r1, -rw, H, r1, shadeK(body, 1.05), 0, 0, 0);
+  m.quad(-bw, belt, zc1, bw, belt, zc1, rw, H, r1, -rw, H, r1, glass, 0, 0, (zc0 + zc1) / 2);                 // (the screen)
+  m.quad(bw, belt, zc0, -bw, belt, zc0, -rw, H, r0, rw, H, r0, glass, 0, 0, (zc0 + zc1) / 2);
+  m.quad(bw, belt, zc0, bw, belt, zc1, rw, H, r1, rw, H, r0, shadeK(glass, 1.6), 0, belt, 0); m.quad(-bw, belt, zc1, -bw, belt, zc0, -rw, H, r0, -rw, H, r1, glass, 0, belt, 0);
+  if (o.wing) { const y = tail + o.wing; m.box(0, y, z0 + 0.28, W * 0.94, 0.07, 0.4, trim); m.box(hw * 0.7, tail, z0 + 0.3, 0.07, o.wing, 0.24, trim); m.box(-hw * 0.7, tail, z0 + 0.3, 0.07, o.wing, 0.24, trim); }
+  if (o.scoop) m.box(0, belt - 0.02, zc1 + L * hood * 0.35, W * 0.3, 0.13, L * hood * 0.4, trim);
+  // its lights: lit by themselves
+  m.glow = 127;
+  for (const sd of [-1, 1]) {
+    m.quad(sd * hw * 0.82 - 0.2, nose * 0.52, z1 + 0.01, sd * hw * 0.82 + 0.2, nose * 0.52, z1 + 0.01, sd * hw * 0.82 + 0.2, nose * 0.78, z1 + 0.01, sd * hw * 0.82 - 0.2, nose * 0.78, z1 + 0.01, lights[0], 0, 0.5, 0);
+    m.quad(sd * hw * 0.8 - 0.24, tail * 0.6, z0 - 0.01, sd * hw * 0.8 + 0.24, tail * 0.6, z0 - 0.01, sd * hw * 0.8 + 0.24, tail * 0.84, z0 - 0.01, sd * hw * 0.8 - 0.24, tail * 0.84, z0 - 0.01, lights[1], 0, 0.5, 0);
+  }
+  m.glow = g0;
+  // wheels: a dark arch on the body's side, the tyre and its rim
+  const base = (o.base || 0.6) * L, zm = (o.shift || 0.02) * L, ww = 0.24;
+  for (const sd of [-1, 1]) for (const zz of [zm - base / 2, zm + base / 2]) {
+    const ax = sd * (hw + 0.012);
+    m.at(0, 0, 0); m.quad(ax, cl, zz - wr * 1.25, ax, cl, zz + wr * 1.25, ax, wr * 2.25, zz + wr * 1.05, ax, wr * 2.25, zz - wr * 1.05, trim, 0, wr, zz);
+    m.at(sd * (hw - ww / 2 + 0.03), wr, zz, 0, 1, 1, 1, 0, -sd * Math.PI / 2);
+    m.stack([[wr, -ww / 2], [wr, ww / 2]], 8, tyre, null); m.disc(wr, 8, ww / 2, tyre); m.disc(wr * 0.6, 6, ww / 2 + 0.012, rim);
+  }
+  m.at(0, 0, 0);
+  return m;
+};
+
+// ---------------------------------------------------------------- a car: how it moves
+// Two axles, each with a tyre's grip: what it can hold sideways rises with how far it's slipping, peaks, then falls a
+// little (the car slides, and can be held sliding). The engine pulls through gears; the weight goes forward under the
+// brakes and back under power; the handbrake takes the back axle's grip. A car is its spec: every number below is one
+// a game sets to give a car its own feel.
+// spec { mass (1300 kg), len: between the axles (2.6), front: the share of its weight on the front axle (0.52),
+//   grip (1.1: sideways, in g), slide (0.82: of that, once it's sliding), peak (0.14: the slip, radians, where grip peaks),
+//   power (kW at the wheels, 180), top (m/s it reaches, 62), gears (5), launch (0.95: g it can put down from rest),
+//   drive: -1 the back wheels … 0 all four … 1 the front, loose (0.6: at full power the driven axle holds half that much less sideways),
+//   brake (1.15 g), hand (0.42: the back axle's grip with the handbrake on), turn (0.6: the front wheels' furthest,
+//   radians), turnAt (22: the speed where they turn half as far), quick (7: how fast they follow the stick),
+//   assist (0.45: how far they turn into a slide by themselves), calm (1.6: what steadies a spin), drag: worked out
+//   from top, nitro (0.45: more pull while it's on), roll (0.012) }
+// step(dt, c, w): c { steer -1 left … 1 right, gas 0 … 1, brake 0 … 1, hand: true or false, nitro } and w, the world:
+//   { ground(x, z) → the height there, grip(x, z) → 1 on a road, less off it (drag rises as it falls) }.
+// Reads: x y z, yaw (0 faces +z; turning left raises it), vx vz, yr, speed (along itself, m/s; negative backwards),
+// slip (how far its way differs from where it points, radians), slipR (the back axle's), skid 0 … 1 (tyres past their
+// grip: for marks, smoke and sound), gear (0 reverse, 1 …), rev 0 … 1, air (seconds off the ground), pitch, lean,
+// wheel (the front wheels' turn), nos (how much is left, 0 … 1), hit (how hard it last touched down).
+function Car(spec) {
+  const s = this.spec = Object.assign({ mass: 1300, len: 2.6, front: 0.52, grip: 1.1, slide: 0.82, peak: 0.14, power: 180, top: 62, gears: 5, launch: 0.95, drive: -1, loose: 0.6, brake: 1.15,
+    hand: 0.42, turn: 0.6, turnAt: 22, quick: 7, assist: 0.45, calm: 1.6, nitro: 0.45, roll: 0.012, wide: 1.6 }, spec || {});
+  // the gears: each ends at a share of the top speed; the engine's pull in a gear is its power over that gear's speed
+  this.ends = []; for (let g = 1; g <= s.gears; g++) this.ends.push(s.top * 1.04 * Math.pow(g / s.gears, 0.82));
+  s.dragK = (s.power * 1000 * Car.pull(s.top / this.ends[s.gears - 1]) / s.top - s.roll * s.mass * 9.81) / (s.top * s.top);   // (so it runs out of pull at `top`)
+  this.reset(0, 0, 0, 0);
+}
+Car.pull = f => f < 0.25 ? 0.72 + f * 0.8 : f < 0.8 ? 0.92 + (f - 0.25) * 0.145 : Math.max(0.2, 1 - (f - 0.8) * (f - 0.8) * 9);   // an engine's pull through its revs (0 … 1 of them)
+Car.tyre = (s, slide) => s < 1 ? s * (2 - s) : 1 - (1 - slide) * Math.min(1, (s - 1) * 0.5);   // what a tyre holds, by its slip over the slip at its peak
+Car.prototype = {
+  reset(x, y, z, yaw) {
+    this.x = x; this.y = y; this.z = z; this.yaw = yaw; this.vx = 0; this.vz = 0; this.vy = 0; this.yr = 0; this.speed = 0; this.slip = 0; this.slipR = 0; this.skid = 0;
+    this.gear = 1; this.rev = 0; this.shiftT = 0; this.air = 0; this.pitch = 0; this.lean = 0; this.wheel = 0; this.nos = 1; this.hit = 0; this.gy = y; this.ax = 0; this.rv = 0; this.onGrip = 1; this.burn = 0; this.lat = 0;
+    return this;
+  },
+  step(dt, c, w) {
+    const s = this.spec, g = 9.81, m = s.mass, L = s.len, a = L * (1 - s.front), b = L * s.front, Iz = m * L * L * 0.32;
+    const sub = 2, h = dt / sub; let skid = 0;
+    // the ground under its four corners: its height, and which way it leans and tips
+    const fx0 = Math.sin(this.yaw), fz0 = Math.cos(this.yaw), hw = s.wide / 2;
+    const yf = w.ground(this.x + fx0 * a, this.z + fz0 * a), yb = w.ground(this.x - fx0 * b, this.z - fz0 * b), yl = w.ground(this.x + fz0 * hw, this.z - fx0 * hw), yr = w.ground(this.x - fz0 * hw, this.z + fx0 * hw);
+    const gy = (yf + yb + yl + yr) / 4, slope = (yf - yb) / L, mu0 = w.grip ? w.grip(this.x, this.z) : 1;
+    // up and down: on the ground it follows it; where the ground falls away faster than a thing falls, it's in the air
+    // (a hand's height off it still counts as on it: the ground is flat pieces, and each edge would be a hop)
+    const want = (gy - this.y) / dt, fall = this.vy - g * dt;
+    if (want < fall - 0.02) { this.vy = fall; this.y += fall * dt; }
+    else { if (this.air > 0.12) this.hit = Math.max(0, want - fall); this.vy = U.clamp(want, -30, 30); this.y = gy; }
+    const grounded = this.y - gy < 0.07;
+    this.air = grounded ? 0 : this.air + dt; if (grounded && this.hit > 0) this.hit = Math.max(0, this.hit - 20 * dt);
+    this.onGrip = mu0;
+    // the stick to the front wheels: less far the faster it goes, quicker back to straight than out
+    const sp = Math.abs(this.speed), far = s.turn / (1 + (sp / s.turnAt) * (sp / s.turnAt)), goal = -U.clamp(c.steer, -1, 1) * far;
+    this.wheel += (goal - this.wheel) * (1 - Math.exp(-(Math.abs(goal) < Math.abs(this.wheel) ? s.quick * 1.6 : s.quick) * dt));
+    for (let k = 0; k < sub; k++) {
+      const fx = Math.sin(this.yaw), fz = Math.cos(this.yaw);
+      const u = this.vx * fx + this.vz * fz, v = this.vx * fz - this.vz * fx;   // along itself, and to its left
+      const au = Math.abs(u), lowK = U.clamp(au / 5, 0, 1);
+      // the engine through its gears (reverse: one short gear), nitro, brakes; the brake held at a stand backs it up
+      const gas = U.clamp(c.gas, 0, 1), brk = U.clamp(c.brake, 0, 1), rev = this.gear === 0;
+      let pull = 0, stop = 0;
+      if (rev) { if (gas > 0.05 && u > -0.5) this.gear = 1; else { pull = -brk * s.launch * m * g * 0.55 * (u > -9 ? 1 : 0); stop = gas * s.brake * m * g; } }
+      else {
+        if (brk > 0.05 && u < 0.6 && gas < 0.05) { this.gear = 0; }
+        else {
+          const end = this.ends[this.gear - 1], f = U.clamp(au / end, 0, 1.05);
+          if (this.shiftT > 0) this.shiftT -= h;
+          else if (f > 0.965 && this.gear < s.gears) { this.gear++; this.shiftT = 0.14; }
+          else if (this.gear > 1 && au < this.ends[this.gear - 2] * 0.74) { this.gear--; this.shiftT = 0.08; }
+          const nit = c.nitro && this.nos > 0 && gas > 0.2 ? 1 : 0; this.burn = nit; if (nit) this.nos = Math.max(0, this.nos - h / 5.5);
+          if (this.shiftT <= 0) pull = gas * Math.min(s.launch * m * g * (s.drive === 0 ? 1.25 : 1), s.power * 1000 * Car.pull(f) / Math.max(end * 0.55, au)) * (1 + nit * s.nitro) * (f > 1.02 ? 0 : 1);
+          stop = brk * s.brake * m * g;
+          this.rev = this.rev + ((this.shiftT > 0 ? 0.45 : Math.max(0.12, Math.min(1, f) * (0.35 + 0.65 * Math.max(gas, 0.3)))) - this.rev) * (1 - Math.exp(-14 * h));
+        }
+      }
+      if (rev) this.rev += (0.2 + 0.5 * U.clamp(au / 9, 0, 1) - this.rev) * (1 - Math.exp(-10 * h));
+      if (!grounded) { pull = 0; stop = 0; }
+      const mu = s.grip * mu0 * (1 + au * 0.0016), hand = c.hand && grounded ? 1 : 0;
+      let Fx = pull - Math.sign(u) * Math.min(Math.abs(u) / h * m, stop + (hand ? 0.5 * m * g * mu0 : 0));
+      Fx -= u * au * s.dragK + Math.sign(u) * Math.min(au / h * m, s.roll * m * g * (1 + (1 - mu0) * 25)) + m * g * slope * (grounded ? 1 : 0);
+      const ax = Fx / m; this.ax += (ax - this.ax) * 0.2;
+      // each axle's load (the weight shifts with what the car is doing) and what it's asked for along the road
+      const shift = U.clamp(this.ax / g * 0.16, -0.14, 0.14), Nf = m * g * (b / L - shift), Nr = m * g * (a / L + shift);
+      const dr = s.drive, useF = (Math.abs(pull) * (dr > 0 ? 1 : dr === 0 ? 0.4 : 0) + stop * 0.3) / (mu * Nf + 1), useR = Math.abs(pull) * (dr < 0 ? 1 : dr === 0 ? 0.6 : 0) / (mu * Nr + 1) + stop * 0.25 / (mu * Nr + 1);
+      const kf = 1 - Math.min(1, useF * useF) * s.loose * 0.5, kr = (1 - Math.min(1, useR * useR) * s.loose * 0.5) * (hand ? s.hand : 1);
+      // the slip of each axle: its way over the ground against where its wheels point; the front ones turn into a slide a little by themselves
+      const den = Math.max(au, 4), beta = Math.atan2(v, den), turn = this.wheel + U.clamp(beta * s.assist * lowK, -0.3, 0.3);
+      const sf = Math.atan2(v + a * this.yr, den) - turn * (u < -0.5 ? -1 : 1), sr = Math.atan2(v - b * this.yr, den);
+      let Ff = 0, Fr = 0;
+      if (grounded) {
+        Ff = -Math.sign(sf) * Car.tyre(Math.abs(sf) / s.peak, s.slide) * mu * Nf * kf; Fr = -Math.sign(sr) * Car.tyre(Math.abs(sr) / s.peak, s.slide) * mu * Nr * kr;
+        const over = Math.max(Math.abs(sr) / s.peak - 1, (Math.abs(sf) / s.peak - 1) * 0.6, hand && au > 6 ? 0.5 : 0); if (over > skid) skid = over;
+      }
+      const ay = (Ff * Math.cos(turn) + Fr) / m; this.lat = ay;
+      // (written in the world's frame, so its turning needs no terms of its own)
+      this.vx += (fx * ax + fz * ay) * h; this.vz += (fz * ax - fx * ay) * h;
+      this.yr += ((a * Ff * Math.cos(turn) - b * Fr) / Iz - this.yr * s.calm * (grounded ? 1 : 0.2)) * h;
+      // slow, a car goes where its wheels point: no slide to speak of, and it turns by its wheels
+      if (grounded && au < 5) { const k = 1 - lowK, nu = this.vx * fx + this.vz * fz, nv = (this.vx * fz - this.vz * fx) * Math.exp(-12 * k * h); this.vx = fx * nu + fz * nv; this.vz = fz * nu - fx * nv; this.yr += (nu * Math.tan(this.wheel) / L - this.yr) * k * Math.min(1, 14 * h); }
+      this.yaw = U.wrap(this.yaw + this.yr * h); this.x += this.vx * h; this.z += this.vz * h;
+      this.slipR = sr;
+    }
+    const fx = Math.sin(this.yaw), fz = Math.cos(this.yaw), u = this.vx * fx + this.vz * fz, v = this.vx * fz - this.vz * fx;
+    this.speed = u; this.slip = Math.abs(u) > 3 ? Math.atan2(v, Math.abs(u)) : 0; this.skid += (U.clamp(skid, 0, 1) * U.clamp(Math.abs(u) / 8 + Math.abs(v) / 4, 0, 1) - this.skid) * (1 - Math.exp(-12 * dt));
+    if (!this.burn && this.nos < 1) this.nos = Math.min(1, this.nos + dt * (0.035 + this.skid * 0.14 + (this.air > 0.3 ? 0.2 : 0)));
+    // how it sits: nose up on a rise and under power, leaning out of a turn
+    this.pitch += (-Math.atan(slope) - U.clamp(this.ax * 0.006, -0.05, 0.05) - (grounded ? 0 : U.clamp(this.vy * 0.012, -0.2, 0.2)) - this.pitch) * (1 - Math.exp(-9 * dt));
+    this.lean += (Math.atan((yr - yl) / s.wide) * -1 + U.clamp(this.lat * 0.0052, -0.085, 0.085) - this.lean) * (1 - Math.exp(-8 * dt));
+    this.gy = gy;
+    return this;
+  }
+};
+
 window.Low3D = { probe, family, NAMES, bench, plan, rows, line, LADDER, Governor, GL, Mesh, Flat, bake, M4, px, hexRGB, Rig, Skin,
+  Roads, Car,
   U, Kit, Path, Chunks, Land, Trail, Particles, camera, chase, orbit, Follow, viewOf, begin, Input, Menu, Synth, game,
   Palette, Tex, RayMap, Ray, Marks, Screen, planRay, heldRay, helpersFor, wholeSteps, ladderSig, fortyOn, withForty, UI, Letters, GLYPHS, SPECIAL, wholeSize, Confetti, Banners, Emblem, Stream, Slots, touchPaint, tiltOption, version: 5 };
 })();

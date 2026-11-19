@@ -2415,6 +2415,264 @@ out.plain = /still: \(\) => mk\(STILL_VS, STILL_FS, ""\)/.test(src);
         self.assertNotIn("w.h, col", page)                                 # (what's laid goes on the ground as drawn, not the smooth one)
 
 
+class TheStreets(unittest.TestCase):
+    """Low3D's parts for a game on roads (Roads, Kit.strip, Path.pace, Car, Kit.tower, Kit.lamp, Kit.car), and Halogen
+    (games/halogen), the street racing game built on them: its city and its rules are a script of their own in its
+    page, so the city is built and every race driven here with the game's own numbers."""
+    GAMES = os.path.join(BOX, "games")
+    ENV = r"""
+const noop = () => {};
+globalThis.window = globalThis; globalThis.addEventListener = noop; globalThis.location = { hash: "" };
+globalThis.document = { hidden: false, createElement: () => ({ getContext: () => null }) };
+globalThis.screen = { width: 1920, height: 1080 }; globalThis.innerWidth = 960; globalThis.innerHeight = 540;
+const fs = require("fs");
+eval(fs.readFileSync(process.argv[1], "utf8"));
+const L = window.Low3D, out = {};
+"""
+
+    def node(self, script, rules=False, timeout=120):
+        tmp, args = tempfile.mkdtemp(), [os.path.join(self.GAMES, "low3d.js")]
+        try:
+            if rules:
+                with open(os.path.join(self.GAMES, "halogen", "index.html"), encoding="utf-8") as f:
+                    block = re.search(r"<script>\n(/\* HALOGEN's city and rules.*?)</script>", f.read(), re.S)
+                self.assertTrue(block, "the city and the rules, in a script of their own")
+                args.append(os.path.join(tmp, "rules.js"))
+                with open(args[1], "w", encoding="utf-8") as f:
+                    f.write(block.group(1))
+            pre = self.ENV + ('eval(fs.readFileSync(process.argv[2], "utf8")); const HR = window.HalogenRules, W = HR.city();\n' if rules else "")
+            r = subprocess.run(["node", "-e", pre + script + "\nconsole.log(JSON.stringify(out));"] + args, capture_output=True, text=True, timeout=timeout)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return json.loads(r.stdout.strip().splitlines()[-1])
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_roads_laid_on_the_land(self):
+        """A net of streets over a hill: every junction on the land, the land level across each road, the surface laid a
+        square at a time with every face up and nothing left out or laid twice, the nearest road found from anywhere,
+        the short way between two junctions, and a line along it that knows how fast it can be taken."""
+        out = self.node(r"""
+const hill = (x, z) => 20 * Math.exp(-(x * x + z * z) / 30000);
+const net = L.Roads.net({ ni: 5, nj: 4, pitch: 100, warp: 12, seed: 3, keep: (x, z, i, j) => !(i === 4 && j === 3), wide: (i, j, along) => along && i === 2 ? 8 : 6 });
+out.net = [net.nodes.length, net.lines.length, net.id(4, 3), net.id(0, 0) >= 0];
+const R = new L.Roads({ nodes: net.nodes, lines: net.lines, height: hill, ease: 0 });
+out.heights = R.nodes.every(n => Math.abs(n.y - hill(n.x, n.z)) < 1.5);
+const land = new L.Land(640, 80, 0); land.fill(hill); R.grade(land, { side: 4, blend: 12 });
+// level across a road: the land a step either side of its middle is the road's own height there
+let worst = 0; const o = new Float32Array(10), T = [0, 0, 0, 0, 0];
+for (const ln of R.lines) for (let s = 30; s < ln.P.len - 30; s += 23) for (const off of [-4, 0, 4]) { ln.P.side(s, off, T); R.near(T[0], T[1], o); worst = Math.max(worst, Math.abs(land.at(T[0], T[1]) - o[4])); }
+out.level = worst;
+// the surface, a square of 80 m at a time
+let tris = 0, down = 0, area = 0; const m = new L.Mesh(4096);
+const lay = { ground: (x, z) => land.on(x, z), norm: (x, z, n) => land.norm(x, z, n), col: () => 0x404040, mark: 0xffffff };
+for (let cz = -320; cz < 320; cz += 80) for (let cx = -320; cx < 320; cx += 80) { m.reset(); R.lay(m, cx, cz, cx + 80, cz + 80, lay);
+  for (let i = 0; i < m.n; i += 3) { const ax = m.f[i * 5], az = m.f[i * 5 + 2], bx = m.f[i * 5 + 5], bz = m.f[i * 5 + 7], cx2 = m.f[i * 5 + 10], cz2 = m.f[i * 5 + 12], up = (bz - az) * (cx2 - ax) - (bx - ax) * (cz2 - az);
+    tris++; if (up <= 0) down++; if (m.u8[i * 20 + 16] === 0x40) area += up / 2; } }
+let want = 0; for (const ln of R.lines) want += ln.P.len * ln.half * 2;
+out.laid = [tris > 400, down, area / want];
+out.far = R.near(1000, 1000, o); out.on = [R.on(R.nodes[0].x, R.nodes[0].z), R.on(R.nodes[0].x + 40, R.nodes[0].z + 40)];
+R.near(R.lines[0].P.x[10] + R.lines[0].P.tz[10] * 3, R.lines[0].P.z[10] - R.lines[0].P.tx[10] * 3, o); out.left = [Math.round(o[2] * 10) / 10, Math.round(o[3] * 10) / 10, o[7]];
+const a = net.id(0, 0), b = net.id(4, 2), ids = R.find(a, b), P = R.route(ids);
+out.way = [ids[0] === a, ids[ids.length - 1] === b, ids.length, ids.every((n, k) => !k || !!R.link(ids[k - 1], n))];
+let off = 0; for (let i = 0; i < P.n; i++) { R.near(P.x[i], P.z[i], o); off = Math.max(off, o[2] - o[7]); }
+out.route = [off < 3, P.len > 500 && P.len < 700, P.nodeAt.length === ids.length];
+const pace = P.pace(60, 9, 9); let slowAt = 0; for (let i = 1; i < P.n; i++) if (pace[i] < pace[slowAt]) slowAt = i;
+let ok = true; for (let i = 0; i + 1 < P.n; i++) if (pace[i] * pace[i] > pace[i + 1] * pace[i + 1] + 2 * 9 * (P.s[i + 1] - P.s[i]) + 0.01) ok = false;
+out.pace = [Math.max(...pace) === 60, pace[slowAt] < 20, ok];
+// a ribbon by itself: flat ground, every face up, as wide as asked
+const s = new L.Mesh(64); L.Kit.strip(s, [0, 0, 0, 10, 3, 20], 2, -2, () => 1, () => 0x808080, 0.1);
+let w = 0, ups = 0; for (let i = 0; i < s.n; i++) { w = Math.max(w, Math.abs(s.f[i * 5])); if (s.i8[i * 20 + 13] > 100 && Math.abs(s.f[i * 5 + 1] - 1.1) < 1e-5) ups++; }
+out.strip = [s.n, ups, w > 4.9 && w < 5.2];
+""")
+        self.assertEqual(out["net"], [19, 9, -1, True])                  # one junction left out: its row and its column end before it
+        self.assertTrue(out["heights"])
+        self.assertLess(out["level"], 0.35)                              # level across (the land is 8 m squares: a hand's breadth)
+        self.assertTrue(out["laid"][0])
+        self.assertEqual(out["laid"][1], 0)                              # every face up
+        self.assertGreater(out["laid"][2], 0.97)                         # all of every road (its pads over the crossings too),
+        self.assertLess(out["laid"][2], 1.25)                            # none of it twice
+        self.assertEqual([out["far"], out["on"]], [False, [True, False]])
+        self.assertEqual(out["left"], [3, 3, 6])                         # three metres to its left
+        self.assertEqual(out["way"], [True, True, 7, True])              # four along and two down, each junction joined to the last
+        self.assertEqual(out["route"], [True, True, True])
+        self.assertEqual(out["pace"], [True, True, True])                # flat out on the straights, slow in the corners, braked in time
+        self.assertEqual(out["strip"], [12, 12, True])
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_how_a_car_moves(self):
+        """Low3D's Car: it reaches its top speed and no more, stops, holds a turn to its grip, slides with the
+        handbrake and comes back, backs up, leaves the ground over a crest, makes nothing as it steps; and what
+        stands in a city is built facing out."""
+        out = self.node(r"""
+const flat = { ground: () => 0, grip: () => 1 }, dt = 1 / 60, c = { steer: 0, gas: 1, brake: 0, hand: false, nitro: false };
+const car = new L.Car({ power: 250, top: 65, mass: 1300 });
+let t = 0, t100 = 0; while (t < 50) { car.step(dt, c, flat); t += dt; if (!t100 && car.speed >= 27.78) t100 = t; }
+out.straight = [t100, car.speed, car.gear, Math.abs(car.x) < 0.01];
+c.gas = 0; c.brake = 1; car.reset(0, 0, 0, 0); car.vz = 27.78; car.speed = 27.78; while (car.speed > 0.3) car.step(dt, c, flat); out.stop = car.z;
+for (let i = 0; i < 90; i++) car.step(dt, c, flat); out.back = [car.gear, car.speed < -3];
+c.brake = 0; c.gas = 1; for (let i = 0; i < 120; i++) car.step(dt, c, flat); out.fwd = [car.gear > 0, car.speed > 3];
+// a turn held at 25 m/s: to the right when the stick is, no harder than its grip
+car.reset(0, 0, 0, 0); car.vz = 25; let g = 0; for (let i = 0; i < 480; i++) { c.steer = 1; c.gas = car.speed < 25 ? 0.6 : 0.1; car.step(dt, c, flat); if (i > 300) g = Math.max(g, Math.abs(car.lat) / 9.81); }
+out.turn = [car.yr < -0.2, car.x < -5, g];
+// the handbrake: the tail comes round; let go and straighten, and it's pointing where it goes again
+car.reset(0, 0, 0, 0); car.vz = 22; let slip = 0, skid = 0;
+for (let i = 0; i < 300; i++) { const on = i < 42; c.steer = on ? 1 : 0; c.hand = on; c.gas = on ? 0 : 0.7; car.step(dt, c, flat); slip = Math.max(slip, Math.abs(car.slip)); skid = Math.max(skid, car.skid); }
+out.hand = [slip, Math.abs(car.slip), skid, Math.abs(car.yaw) > 0.5]; c.hand = false;
+// loose ground: slower away
+const a = new L.Car(), b = new L.Car(), loose = { ground: () => 0, grip: () => 0.6 }; c.steer = 0; c.gas = 1;
+for (let i = 0; i < 300; i++) { a.step(dt, c, flat); b.step(dt, c, loose); } out.loose = b.speed / a.speed;
+// over a crest at speed: off the ground, and down again
+const crest = { ground: (x, z) => z < 100 ? z * 0.12 : 12 - (z - 100) * 0.12, grip: () => 1 };
+car.reset(0, 0, 0, 0); car.vz = 40; car.speed = 40; let air = 0, landed = false; for (let i = 0; i < 400; i++) { car.step(dt, c, crest); if (car.air > air) air = car.air; if (air > 0 && car.air === 0 && car.z > 110) landed = true; }
+out.crest = [air, landed];
+out.keys = Object.keys(car).length;
+// a building's walls, a lamp, a car: built, and facing out
+const m = new L.Mesh(), gl = new L.Mesh(); L.Kit.tower(m, gl, 10, 2, -5, 0.6, 20, 14, 30, { seed: 5, detail: 1, sign: 0xff2e88 });
+const b0 = new L.Mesh(), g0 = new L.Mesh(); L.Kit.tower(b0, g0, 10, 2, -5, 0.6, 20, 14, 30, { seed: 5, detail: 0 });
+let outw = 0, walls = 0; for (const w of [b0, g0]) for (let i = 0; i < w.n; i += 3) { const o = i * 20; if (Math.abs(w.i8[o + 13]) > 60) continue; walls++;
+  let cx = 0, cz = 0; for (let k = 0; k < 3; k++) { cx += w.f[(i + k) * 5] / 3; cz += w.f[(i + k) * 5 + 2] / 3; } if (w.i8[o + 12] * (cx - 10) + w.i8[o + 14] * (cz + 5) > 0) outw++; }
+const b2 = new L.Mesh(), g2 = new L.Mesh(); L.Kit.tower(b2, g2, 0, 0, 0, 0, 20, 14, 30, { seed: 5, detail: 2 });
+out.tower = [walls > 20, outw === walls, gl.n > 0, (b0.n + g0.n) / 3, (m.n + gl.n) / 3 > (b0.n + g0.n) / 3, (b2.n + g2.n) > (m.n + gl.n)];
+const lm = new L.Mesh(); const at = L.Kit.lamp(lm, 0, 0, 0, 0, { h: 7, reach: 2.5 }); let lit = 0; for (let i = 0; i < lm.n; i++) if (lm.i8[i * 20 + 15] === 127) lit++;
+out.lamp = [lm.n > 0, lit > 0 && lit < lm.n, at.map(v => Math.round(v * 10) / 10)];
+const cm = L.Kit.car(new L.Mesh(), { len: 4.3, wide: 1.8, high: 1.3, wing: 0.15 }), bb = cm.bounds(); let lights = 0, low = 1; for (let i = 0; i < cm.n; i++) { if (cm.i8[i * 20 + 15] === 127) lights++; low = Math.min(low, cm.f[i * 5 + 1]); }
+out.car = [cm.n / 3, lights, Math.abs(low) < 0.02, bb[3] > 2.2 && bb[3] < 2.8];
+""")
+        t100, top, gear, straight = out["straight"]
+        self.assertTrue(3 < t100 < 6, t100)
+        self.assertTrue(63 < top < 66.5, top)                             # its top speed, and no more
+        self.assertEqual([gear, straight], [5, True])
+        self.assertTrue(25 < out["stop"] < 45, out["stop"])               # from 100 km/h
+        self.assertEqual([out["back"], out["fwd"]], [[0, True], [True, True]])   # the brake held at a stand backs it up; the gas goes forward again
+        self.assertEqual(out["turn"][:2], [True, True])
+        self.assertTrue(0.7 < out["turn"][2] < 1.25, out["turn"])
+        self.assertGreater(out["hand"][0], 0.25)                          # well sideways,
+        self.assertLess(out["hand"][1], 0.05)                             # and straight again
+        self.assertGreater(out["hand"][2], 0.5)
+        self.assertTrue(out["hand"][3])
+        self.assertLess(out["loose"], 0.95)
+        self.assertGreater(out["crest"][0], 0.3)
+        self.assertTrue(out["crest"][1])
+        self.assertEqual(out["tower"][:3], [True, True, True])
+        self.assertLess(out["tower"][3], 70)                              # the plain one: few enough for a Pi 3's street
+        self.assertEqual(out["tower"][4:], [True, True])
+        self.assertEqual(out["lamp"], [True, True, [0, 6.7, 2.5]])
+        self.assertTrue(150 < out["car"][0] < 300, out["car"])
+        self.assertEqual(out["car"][1:], [24, True, True])                # four lights, lit by themselves
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_halogens_city(self):
+        """The city as the game builds it: streets that all join, buildings in every kind of place and none on a road,
+        in the water or in another; six races, each a way along the roads with its gates across it and a grid on the
+        asphalt; four cars, none like another."""
+        out = self.node(r"""
+const R = W.roads, B = W.lots, o = new Float32Array(10);
+out.size = [R.nodes.length, R.lines.length, Math.round(R.lines.reduce((a, l) => a + l.P.len, 0) / 100) / 10, B.n];
+out.joined = R.nodes.every(n => R.find(0, n.i).length > 0);
+const zones = [0, 0, 0, 0]; let onRoad = 0, wet = 0, sunk = 0;
+for (let i = 0; i < B.n; i++) { zones[B.zone[i]]++; const cs = Math.cos(B.yaw[i]), sn = Math.sin(B.yaw[i]);
+  for (const [lx, lz] of [[0, 0], [1, 1], [1, -1], [-1, 1], [-1, -1]]) { const x = B.x[i] + lx * B.w[i] / 2 * cs + lz * B.d[i] / 2 * sn, z = B.z[i] - lx * B.w[i] / 2 * sn + lz * B.d[i] / 2 * cs;
+    if (R.near(x, z, o) && o[2] < o[7] + 3.5) onRoad++; if (HR.shoreOf(x, z) > 0 || W.land.at(x, z) < 0.5) wet++; if (W.land.at(x, z) > B.y[i] + 0.01 || W.land.at(x, z) < B.y[i] - B.foot[i]) sunk++; } }
+let clash = 0; for (let i = 0; i < B.n; i++) for (let j = i + 1; j < B.n; j++) { const dx = B.x[i] - B.x[j], dz = B.z[i] - B.z[j]; if (dx * dx + dz * dz < 2500 && HR.boxes(B.x[i], B.z[i], B.yaw[i], B.w[i] / 2, B.d[i] / 2, B.x[j], B.z[j], B.yaw[j], B.w[j] / 2, B.d[j] / 2)) clash++; }
+out.lots = [zones.every(n => n > 20), onRoad, wet, sunk, clash];
+out.events = W.events.map(e => { let off = 0; for (let i = 0; i < e.P.n; i++) { R.near(e.P.x[i], e.P.z[i], o); off = Math.max(off, o[2] - o[7]); }
+  const T = [0, 0, 0], grid = [0, 1, 2, 3, 4, 5].every(k => { e.slot(k, T); return R.on(T[0], T[1]); });
+  return { id: e.id, kind: e.kind, km: Math.round(e.len * (e.closed ? e.laps : 1) / 100) / 10, gates: e.gates.length, order: e.gates.every((g, k) => !k || g.s > e.gates[k - 1].s), off: off < 4, grid, field: e.field }; });
+out.spawn = R.on(W.spawn.x, W.spawn.z);
+out.ground = [W.ground(W.spawn.x, W.spawn.z) > 0, W.grip(W.spawn.x, W.spawn.z), W.grip(W.spawn.x + 30, W.spawn.z + 30) < 1 || R.on(W.spawn.x + 30, W.spawn.z + 30)];
+out.cars = HR.CARS.map(c => [c.id, c.spec.drive, c.spec.top, c.spec.mass]);
+out.names = [HR.CARS.map(c => c.name).join(" "), HR.RIVALS.length, HR.PAINTS.length];
+// a wall stops a car, and it's left outside it
+const car = new L.Car(HR.CARS[0].spec); let hit = 0;
+{ const i = 0, cs = Math.cos(B.yaw[i]), sn = Math.sin(B.yaw[i]), fx = sn, fz = cs; car.reset(B.x[i] + fx * (B.d[i] / 2 + 12), 0, B.z[i] + fz * (B.d[i] / 2 + 12), B.yaw[i] + Math.PI); car.vx = -fx * 20; car.vz = -fz * 20;
+  for (let n = 0; n < 90; n++) { car.x += car.vx / 60; car.z += car.vz / 60; hit = Math.max(hit, HR.collide(W, car)); }
+  const dx = car.x - B.x[i], dz = car.z - B.z[i]; out.wall = [hit > 10, Math.abs(dx * sn + dz * cs) > B.d[i] / 2, Math.hypot(car.vx, car.vz) < 8]; }
+""", rules=True)
+        self.assertEqual(out["size"][:2], [81, 20])
+        self.assertTrue(17 < out["size"][2] < 18.5 and 900 < out["size"][3] < 1300, out["size"])
+        self.assertTrue(out["joined"])
+        self.assertEqual(out["lots"], [True, 0, 0, 0, 0])                  # every kind of place built on; none on a road, wet, sunk or in another
+        self.assertEqual([e["id"] for e in out["events"]], ["ring0", "glassmile", "hilldrop", "heaploop", "quayrun", "coreloop"])
+        self.assertEqual(sorted(e["kind"] for e in out["events"]), ["circuit"] * 3 + ["sprint"] * 3)
+        for e in out["events"]:
+            self.assertTrue(e["order"] and e["off"] and e["grid"], e)       # gates in the order they're passed, the line on the roads, the grid on asphalt
+            self.assertTrue(0.9 < e["km"] < 5 and e["gates"] >= 8 and 3 <= e["field"] <= 5, e)
+        self.assertTrue(out["spawn"])
+        self.assertEqual(out["ground"], [True, 1, True])
+        self.assertEqual([c[0] for c in out["cars"]], ["kernel", "packet", "segfault", "mutex"])
+        self.assertEqual(sorted(c[1] for c in out["cars"]), [-1, -1, 0, 1])   # two pushed, one pulled, one by all four
+        self.assertEqual(len({c[2] for c in out["cars"]}), 4)
+        self.assertEqual(out["names"], ["KERNEL PACKET SEGFAULT MUTEX", 5, 8])
+        self.assertEqual(out["wall"], [True, True, True])
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_every_car_can_drive_every_race(self):
+        """The driver that plays the demo takes each of the four cars round each of the six races with the game's own
+        physics: finished, on the road, without a hard knock, at a pace that's the car's own; and each car has its own
+        feel (which is quickest away, which fastest, which lets go)."""
+        out = self.node(r"""
+const dt = 1 / 60; out.races = {}; out.feel = {};
+for (const ev of W.events) { out.races[ev.id] = {};
+  for (const C of HR.CARS) {
+    const car = new L.Car(C.spec), P = ev.P, pace = ev.paceFor(C.id), st = { i: P.near(ev.start.x, ev.start.z), u: 0, off: 0 }, c = { steer: 0, gas: 0, brake: 0, hand: false, nitro: false };
+    car.reset(ev.start.x, W.ground(ev.start.x, ev.start.z), ev.start.z, ev.start.yaw);
+    const total = ev.closed ? ev.len * ev.laps : ev.len - 30; let t = 0, hard = 0, off = 0, loose = 0, top = 0;
+    while (st.u < total && t < 300) { HR.drive(car, P, pace, st, c); car.step(dt, c, W.env); if (HR.collide(W, car) > 8) hard++; t += dt; off = Math.max(off, st.off); if (car.onGrip < 1) loose += dt; top = Math.max(top, car.speed); }
+    out.races[ev.id][C.id] = [Math.round(t * 10) / 10, hard, Math.round(off * 10) / 10, Math.round(loose * 10) / 10, Math.round(st.u / t * 3.6), Math.round(top * 3.6)];
+  } }
+const flat = { ground: () => 0, grip: () => 1 };
+for (const C of HR.CARS) {
+  const car = new L.Car(C.spec), c = { steer: 0, gas: 1, brake: 0, hand: false, nitro: false }; let t = 0, t100 = 0; while (t < 45) { car.step(dt, c, flat); t += dt; if (!t100 && car.speed >= 27.78) t100 = t; }
+  const top = car.speed; car.reset(0, 0, 0, 0); car.vz = 14; car.speed = 14; let slip = 0; for (let i = 0; i < 240; i++) { c.steer = 0.7; car.step(dt, c, flat); slip = Math.max(slip, Math.abs(car.slip)); }   // full gas out of a slow corner, the wheels turned
+  out.feel[C.id] = [Math.round(t100 * 100) / 100, Math.round(top * 3.6), Math.round(slip * 573) / 10];
+}
+""", rules=True, timeout=300)
+        for ev, cars in out["races"].items():
+            times = [v[0] for v in cars.values()]
+            for car, (t, hard, off, loose, avg, top) in cars.items():
+                self.assertLess(t, 200, (ev, car))                            # finished,
+                self.assertEqual(hard, 0, (ev, car))                          # nothing struck hard,
+                self.assertLess(off, 12, (ev, car))                           # near its line,
+                self.assertLess(loose, 1.5, (ev, car))                        # on the road,
+                self.assertGreater(avg, 70, (ev, car))                        # and not at a crawl
+            self.assertLess(max(times) / min(times), 1.15, ev)               # no car out of the running
+        f = out["feel"]
+        self.assertEqual(min(f, key=lambda k: f[k][0]), "mutex")              # all four wheels: quickest away
+        self.assertEqual(max(f, key=lambda k: f[k][1]), "segfault")           # all engine: the fastest
+        self.assertEqual(max(f, key=lambda k: f[k][2]), "segfault")           # and the one that lets go under power
+        self.assertEqual(min(f, key=lambda k: f[k][1]), "packet")
+        self.assertEqual(len({tuple(v) for v in f.values()}), 4)
+
+    def test_halogen_is_the_boxs_own(self):
+        """The page: the engine's parts by name (nothing drawn a way of its own), a controller's triggers, every
+        colour and name its own (no car maker's, no other game's), a touch screen's controls only where pad.js has
+        them, the demo, and its places and scenes in the two benches."""
+        with open(os.path.join(self.GAMES, "halogen", "index.html"), encoding="utf-8") as f:
+            page = f.read()
+        for part in ("new L3.Stream(", "L3.Roads.net(", "new L3.Roads(", "R.lay(", "land.part(", "L3.Kit.lay(", "L3.Kit.tower(", "L3.Kit.lamp(", "L3.Kit.car(",
+                     "new L3.Car(", ".stamp(LAMP", "new L3.Trail(", "ribbonY(", ".pace(", "L3.chase(", "E.ui", 'pad.trigger("rt")', "window.SofaStats.demo = true", "E.tell()"):
+            self.assertIn(part, page, part)
+        self.assertIn('SofaPad.touch.layout({ stick: "stick"', page)
+        self.assertNotIn("<img", page)
+        self.assertNotIn("new Image", page)                                # nothing brought in: every picture is made here
+        low = page.lower()
+        for theirs in ("need for speed", "rockport", "bayview", "palmont", "fairhaven", "ventura bay", "palm city", "lakeshore", "porsche", "ferrari", "lamborghini",
+                       "nissan", "toyota", "honda", "mazda", "subaru", "mitsubishi", "bmw", "mercedes", "mustang", "camaro", "corvette", "skyline gt", "supra", "civic"):
+            self.assertNotIn(theirs, low, theirs)
+        tools = os.path.join(os.path.dirname(os.path.dirname(BOX)), "tools")
+        with open(os.path.join(tools, "games-bench.mjs"), encoding="utf-8") as f:
+            self.assertIn("SCENES.halogen = [", f.read())
+        with open(os.path.join(tools, "look-places.json"), encoding="utf-8") as f:
+            places = json.load(f)["halogen"]["places"]
+        self.assertEqual(sorted({p["set"] for p in places}), ["race", "streets"])
+        self.assertGreaterEqual(len(places), 10)
+        with open(os.path.join(self.GAMES, "ENGINE.md"), encoding="utf-8") as f:
+            doc = f.read()
+        for name in ("Kit.strip", "`Roads`", "Roads.net", "Path.pace", "`Car`", "Kit.tower", "Kit.lamp", "Kit.car", "Trail.stepY"):
+            self.assertIn(name, doc, name)
+
+
 class TheRig(unittest.TestCase):
     """Low3D's Rig (bodies a pose at a time): where a pose puts each joint, the other side's pose, clips by name, things
     held where a joint is; and the blocks WYRD marks for the maker, which make its bodies on their own."""

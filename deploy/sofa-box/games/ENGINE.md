@@ -7,7 +7,8 @@
   written on the screen drawn in the canvas (see [What costs a Pi 3 time](#what-costs-a-pi-3-time)). WYRD
   (`wyrd/`), an action-RPG seen from above, is drawn this way too: floors of land with height in chunks, and bodies
   baked a pose at a time, the delver built once and moved between them (see [Bodies, a pose at a
-  time](#bodies-a-pose-at-a-time)).
+  time](#bodies-a-pose-at-a-time)). Halogen (`halogen/`), street racing through an open city, is drawn this way as
+  well: a district made a square at a time, its roads laid on the land (see [Streets](#streets)).
 - **Drawn by the processor** (`Ray`), for worlds on a grid: rooms, corridors, doors and floors at any height. It
   looks the same on every box, GPU or not, and the GPU only adds a glow. Ironmaw (`ironmaw/`), an old-style
   shooter, is drawn this way.
@@ -477,6 +478,53 @@ stream.remake(x, z);            // the chunk there is built again (a tree felled
   it a stand-in `{ upload: () => null, free() {} }` and a `build` that returns true: the chunks still open and close.
 - Walking 400 m across a world in the tests (`TheBigWorld`): never more than 36 chunks held, one step of making a frame,
   the ground under the walker always there, every chunk opened closed again.
+
+<a id="streets"></a>**Streets (`Roads`, `Kit.strip`, `Car`, `Kit.tower`, `Kit.lamp`, `Kit.car`).** What a game on roads needs,
+each usable alone. Halogen's city is built from them: 81 junctions, 17.7 km of road and a thousand buildings, held as
+numbers (a few hundred KB) and drawn through `Stream` a square of 80 m at a time.
+
+```js
+const net = L3.Roads.net({ ni: 10, nj: 10, pitch: 124, warp: 27, seed, keep: (x, z) => dry(x, z), wide: (i, j, along) => 6 });
+const roads = new L3.Roads({ nodes: net.nodes, lines: net.lines, height: terrain, ease: 0.1 });   // a line through junctions
+land.fill(terrain); roads.grade(land, { side: 5, blend: 14 });      // the land brought level across each road
+roads.lay(mesh, x0, z0, x1, z1, { ground: land.on, norm: land.norm, col, mark: 0xd6d0ba, walk: { w: 3.6, col } });   // a chunk's share
+roads.near(x, z, out);              // the nearest road: which, how far from its middle and to which side, its height and way
+const way = roads.route(roads.find(a, b), { closed: false });       // a Path along the roads, corners cut as a driver cuts them
+const pace = way.pace(top, lat, brake);                             // how fast each part of it can be taken
+const car = new L3.Car({ mass: 1300, power: 250, top: 65, grip: 1.12, drive: -1 });
+car.step(dt, { steer, gas, brake, hand, nitro }, { ground: (x, z) => land.on(x, z), grip: (x, z) => 1 });
+```
+
+- **`Kit.strip(mesh, pts, a, b, ground, col, lift, norm, ways)`** lays a ribbon on the ground along a line, as `Kit.lay`
+  lays a patch (the same `ground`, `col`, `lift` and `norm`): `a` and `b` are its edges as steps to the left of the line,
+  so a road, a pavement beside it and a line down its middle are three calls over the same points. Two triangles a step.
+  (`Kit.lay` lays the hull of its points, so a bend would have to go down as short pieces of four triangles each.)
+- **`Roads`**: lines (each a `Path`) through junctions; two lines that share a junction cross there. A junction takes
+  the land's height and a road runs from one junction's to the next, level for a moment at each (`ease`: 0 as flat
+  through a junction as a hill city's streets, 1 straight through). `grade(land)` cuts and fills the land to them, so
+  what's laid on it lies flat across; `lay()` builds the surface inside a square (asphalt, a pad where roads cross,
+  the middle line's dashes, and when asked an edge line and pavements); `near()`, `on()` and `height()` answer for a
+  place without looking at every road (samples kept in squares of 32 m); `find(a, b)` is the short way between two
+  junctions and `route(ids)` a `Path` along it; `paint()` draws them from above (a map, the 2D way's ground).
+  `Roads.net()` makes a town's net of streets: rows and columns, each junction pushed off its place smoothly, with
+  junctions left out where `keep` says (water) and the lines broken there.
+- **`Path.pace(top, lat, brake)`**: a speed for every sample of a line: slow enough for each bend, soon enough to have
+  braked for it. A rival reads it where it is; so does the driver that plays `#demo`.
+- **`Car`**: how a car moves. Two axles, each with a tyre's grip that rises with slip, peaks and falls a little (it
+  slides, and can be held sliding); the engine through gears; the weight forward under the brakes and back under
+  power; power taking some of the driven axle's hold (`drive`: back wheels, all four or front; `loose`); the handbrake
+  taking the back's; the front wheels turning into a slide a little by themselves (`assist`); off the ground where the
+  road falls away faster than a thing falls. A car is its spec, every number of it documented in the source: Halogen's
+  four differ in a dozen of them and nothing else. Nothing is made as it steps.
+- **`Kit.tower`** (a building: walls, a roof, lit windows a storey at a time, a shop front and a sign; `detail` 0 some
+  45 triangles, 1 each storey in pieces, 2 windows one by one low down; `kind`: block, tower with its top set back,
+  shed), **`Kit.lamp`** (a street lamp, its head lit: made once and stamped) and **`Kit.car`** (a car from a recipe of
+  lengths, heights and colours: about 200 triangles, lights lit by themselves).
+- **`Trail.stepY` and `ribbonY`** keep each point's height, for tyre marks and tail lights on a hill (`step` and
+  `ribbon` keep one height for the whole trail: a wake on water).
+- A lamp's light on the road is a patch laid with `Kit.lay` into the chunk's own-light mesh: the road's colour under
+  the lamp at its middle, the road's lit colour at its rim, so nothing is blended and a Pi draws it as it draws the road.
+- How Halogen runs as a stand-in Pi 3 is given it is in "Checking a game", below.
 
 **Models made elsewhere.** `tools/low3d-models.py` (Python alone: no Blender) turns models in glTF, in flat colours,
 into data for a page: each model's colours, its box, and its vertices and triangles as bytes, with fewer triangles where
@@ -1014,6 +1062,15 @@ once outside the game, kept the boards that have a way to clear them, and the ga
   and rung, with the draw calls and triangles of each picture under it; `--clip place:seconds` also records it
   moving, `--run` tries a setting on every picture, `--stats` says something else under each. What a rung looks like,
   never how fast a box draws it.
+- **Halogen as a stand-in box is given it** (`node tools/games-bench.mjs --games halogen`, an Apple A18 Pro: **not a
+  Pi's numbers**; 10 s a scene, the driver at the wheel, one run each). As a Pi 3 (the game's work made 20 times as
+  long) it held 60 with room and climbed to rung 5 (540 lines). A race of six cars round the towers: none of 600 frames
+  late, work a frame 4 / 8 / 12 ms (median, 95th, 99th: the tall ones are a square of city being made), worst 14; 29
+  draw calls and 14.5k triangles; nothing of the page over the picture. Flat out down the avenue, the city made ahead
+  of the car: none of 600 late, work 4 / 12 / 16, worst 22. As a Pi 4 (work 8 times as long, the fuller look at 720
+  lines): 45 draw calls and 42k to 46k triangles, 2 of 599 late in the race and 1 flat out, work 2.6 / 7 / 14 to 17; one
+  frame of the race took 46 ms of work. Script memory made: 410 to 560 KB a second, more than Tidewing's 315 (a square's making
+  uses closures and small arrays; the frame's own drawing makes none): the next thing to bring down.
 - **On a real box** the measure is the games check (below), and what a game says when it's left: both now go to the
   console as errors, which is what the box keeps of a page for "Send a report" (lines starting `Graphics check:`,
   `Games check:` and `<game> ran:`).

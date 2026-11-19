@@ -851,11 +851,11 @@ class BoxOS(unittest.TestCase):
         for path in ("/box/home", "/box/home/home.js", "/box/home/home.css", "/box/games/pair-up/", "/box/games/gloamwell/",
                      "/box/games/cinder-knight/", "/box/games/shadow-heist/", "/box/games/rune-tactics/", "/box/games/micro-drifters/",
                      "/box/games/neon-brawler/", "/box/games/void-drifter/", "/box/games/cosmic-cascade/", "/box/games/pad.js",
-                     "/box/games/tidewing/", "/box/games/ironmaw/", "/box/games/low3d.js", "/box/games/probe/",
+                     "/box/games/tidewing/", "/box/games/ironmaw/", "/box/games/halogen/", "/box/games/low3d.js", "/box/games/probe/",
                      "/box/fonts/instrument-sans-latin-wght-normal.woff2"):
             with self.opener.open(self.base + path, timeout=20) as r:
                 self.assertEqual(r.status, 200, path)
-        self.assertEqual(len(self.get("/box/api/games")["games"]), 14)
+        self.assertEqual(len(self.get("/box/api/games")["games"]), 15)
         self.assertIn("memory_free", self.get("/box/api/info"))                 # (the games check, in probe/, shows it)
         with self.assertRaises(urllib.error.HTTPError):
             self.opener.open(self.base + "/box/home/../sofa-box-agent.py", timeout=20)
@@ -1413,6 +1413,67 @@ class BoxBrowser(unittest.TestCase):
         demo = json.loads(js("JSON.stringify({ x: TW.racers.map(r => r.x), kept: localStorage.getItem('tidewing') })"))
         self.assertTrue(any(abs(a - b) > 1 for a, b in zip(x0, demo["x"])))   # they race by themselves
         self.assertIsNone(demo["kept"])                                  # and nothing is kept
+
+    def test_halogen_plays(self):
+        """Halogen in the box's browser: the title with the car driving itself, free roam with only the streets round
+        the car made, a race's mark that starts it, a race counted down, driven by the driver and ended with a place
+        kept, the garage's cars, and the demo, which keeps nothing."""
+        self.post("/box/api/open", {"url": self.base + "/box/games/halogen/#test"})
+        js = lambda e: self.page_value("/box/games/halogen", e)
+
+        def until(expr, secs=30):
+            end = time.time() + secs
+            while time.time() < end:
+                try:
+                    if js(expr):
+                        return True
+                except (StopIteration, OSError, KeyError):
+                    pass
+                time.sleep(0.3)
+            return False
+        self.assertTrue(until("typeof HG === 'object' && HG.state === 'attract' && HG.screen === 'title'"))
+        js("window.errs = []; addEventListener('error', e => errs.push(String(e.message))); 1")
+        self.assertEqual(json.loads(js("JSON.stringify([HG.W.events.length, HG.HR.CARS.length, HG.W.lots.n > 900])")), [6, 4, True])
+        x0 = js("HG.car.z")
+        time.sleep(1.5)
+        self.assertNotEqual(js("HG.car.z"), x0)                           # behind the title it drives itself
+        js("HG.menu.button('a', 'press'); 1")                            # Drive
+        self.assertTrue(until("HG.state === 'roam' && !HG.screen", 10))
+        held = json.loads(js("JSON.stringify([HG.stream.list.length, HG.W.lots.n, HG.units.length, document.querySelectorAll('#view > :not(canvas):not(.hidden)').length])"))
+        self.assertLess(held[0], 130)                                     # the streets round the car, never the city
+        self.assertEqual(held[2:], [1, 0])                                # (nothing of the page lies over the drive)
+        self.assertGreater(js("HG.hud"), 20)                              # its speed and its map are in the picture
+        js("(() => { const s = HG.W.events[3].start; HG.goto(s.x, s.z, s.yaw); HG.sim(0.2); return 1; })()")
+        self.assertEqual(js("HG.near"), 3)                                # stood in a race's mark
+        js("HG.press('a'); 1")                         # A: race
+        self.assertTrue(until("HG.race && HG.race.ev.id === 'heaploop' && HG.state === 'countdown'", 10))
+        self.assertEqual(json.loads(js("JSON.stringify([HG.units.length, HG.rivals.every(r => HG.W.roads.on(r.x, r.z)), Math.abs(HG.car.speed) < 0.1])")), [5, True, True])   # held on the grid
+        js("HG.auto = true; HG.go(); HG.sim(20); 1")                     # twenty seconds of it, the driver at the wheel
+        race = json.loads(js("JSON.stringify({ state: HG.state, passed: HG.PL.unit.passed, far: HG.PL.unit.u, rivals: HG.rivals.filter(r => r.u > 200).length, place: HG.PL.unit.place })"))
+        self.assertEqual(race["state"], "race")
+        self.assertGreaterEqual(race["passed"], 3)                        # gates passed, in order
+        self.assertGreater(race["far"], 300)
+        self.assertEqual(race["rivals"], 4)
+        self.assertIn(race["place"], (1, 2, 3, 4, 5))
+        js("HG.auto = false; HG.finish(); 1")
+        self.assertTrue(until("HG.screen === 'results'", 10))
+        kept = json.loads(js("JSON.stringify(HG.save().best)"))
+        self.assertIn("heaploop", kept)
+        self.assertIn("Heap Loop", js("document.getElementById('resultText').textContent"))
+        js("HG.menu.show('garage'); 1")
+        garage = json.loads(js("JSON.stringify({ cars: HG.openCars(), pic: !!document.querySelector('#garagepic canvas'), name: document.querySelector('#garagestats h3').textContent })"))
+        self.assertEqual(garage, {"cars": ["kernel", "packet", "segfault", "mutex"], "pic": True, "name": "KERNEL"})   # (#test opens them all)
+        js("HG.menu.button('right', 'press'); 1")
+        self.assertEqual(js("document.querySelector('#garagestats h3').textContent"), "PACKET")
+        self.assertEqual(js("errs.length"), 0)
+        js("localStorage.removeItem('halogen'); location.hash = '#demo-test'; location.reload(); 1")
+        time.sleep(1)
+        self.assertTrue(until("typeof HG === 'object' && HG.race && HG.state === 'race' && window.SofaStats.demo === true", 30))
+        z0 = js("HG.car.z + HG.car.x")
+        time.sleep(3)
+        demo = json.loads(js("JSON.stringify({ at: HG.car.z + HG.car.x, kept: localStorage.getItem('halogen'), auto: HG.auto })"))
+        self.assertNotEqual(demo["at"], z0)                               # it races by itself
+        self.assertEqual([demo["kept"], demo["auto"]], [None, True])      # and nothing is kept
 
     def test_wyrd_skills_and_its_open_world(self):
         """WYRD in the box's browser: a new delver stands in the open world with only the neighbourhood made; a tree is

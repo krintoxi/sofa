@@ -1,0 +1,1145 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>Halogen</title>
+<style>
+  /* Ink, bone, phosphor green and hot pink: the box's own colours. Nothing here lies over the drive (its numbers and
+     its map are drawn in the canvas), and a menu's blocks are each a layer of their own with nothing behind them: on a
+     Pi 3 the browser puts every pixel of the page that's over the canvas together again at the TV's size, every frame. */
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0d10; color: #efe6d2; font: 700 16px/1.25 ui-monospace, "DejaVu Sans Mono", "SFMono-Regular", Menlo, Consolas, monospace; }
+  #view { position: absolute; overflow: hidden; background: #0b0d10; --u: 5.4px; --ink: #0b0d10; --bone: #efe6d2; --green: #39ff88; --pink: #ff2e88; }
+  #view canvas.world { position: absolute; left: 0; top: 0; width: 100%; height: 100%; display: block; }
+  .hidden { display: none !important; }
+  #fps { position: absolute; right: calc(var(--u) * 3); top: 46%; font: 600 calc(var(--u) * 2) ui-monospace, monospace; color: var(--green); text-align: right; white-space: pre; will-change: transform; }
+  .screen { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: calc(var(--u) * 2); text-transform: uppercase; letter-spacing: .04em; }
+  .screen > * { will-change: transform; }
+  h1.logo { margin: 0; padding: 0 calc(var(--u) * 2); font-size: calc(var(--u) * 13); font-weight: 900; letter-spacing: .2em; color: var(--bone); line-height: 1;
+    text-shadow: calc(var(--u) * .7) calc(var(--u) * .7) 0 var(--pink); border-bottom: calc(var(--u) * .6) solid var(--green); }
+  .tag { margin: 0; padding: calc(var(--u) * .4) calc(var(--u) * 1.4); font-size: calc(var(--u) * 2.3); letter-spacing: .1em; text-align: center; max-width: calc(var(--u) * 150); background: rgba(11, 13, 16, .7); }
+  h2 { margin: 0 0 calc(var(--u) * .5); padding: 0 calc(var(--u) * 1.5); font-size: calc(var(--u) * 5); font-weight: 900; letter-spacing: .1em; border-left: calc(var(--u) * 1.2) solid var(--pink); }
+  .menu { display: flex; flex-direction: column; gap: calc(var(--u) * .9); min-width: calc(var(--u) * 46); }
+  .item { box-sizing: border-box; padding: calc(var(--u) * 1.1) calc(var(--u) * 3); font-size: calc(var(--u) * 2.9); background: rgba(11, 13, 16, .82);
+    border: calc(var(--u) * .3) solid rgba(239, 230, 210, .22); color: inherit; text-align: center; }
+  .item.on { background: var(--green); color: var(--ink); border-color: var(--bone); box-shadow: calc(var(--u) * .7) calc(var(--u) * .7) 0 var(--pink); }
+  .item.row { display: flex; justify-content: space-between; gap: calc(var(--u) * 4); text-align: left; min-width: calc(var(--u) * 78); }
+  .item.row b { font-weight: 800; }
+  .hint { position: absolute; bottom: calc(var(--u) * 3); left: 50%; transform: translateX(-50%); margin: 0; padding: calc(var(--u) * .5) calc(var(--u) * 1.6); white-space: nowrap; font-size: calc(var(--u) * 2.1); background: rgba(11, 13, 16, .7); }
+  .hint kbd { display: inline-block; min-width: 1.4em; padding: 0 .4em; background: var(--bone); color: var(--ink); font: inherit; font-weight: 900; text-align: center; }
+  .cards { display: grid; grid-template-columns: repeat(3, calc(var(--u) * 50)); gap: calc(var(--u) * 1.6); }
+  .card { padding: calc(var(--u) * 1.3) calc(var(--u) * 1.6); text-align: left; min-height: calc(var(--u) * 19); text-transform: none; letter-spacing: 0; }
+  .card .nm { font-size: calc(var(--u) * 2.6); font-weight: 900; display: block; text-transform: uppercase; letter-spacing: .05em; }
+  .card .info { font-size: calc(var(--u) * 1.8); opacity: .85; display: block; margin-top: calc(var(--u) * .5); font-weight: 600; }
+  .card .medal { float: right; font-size: calc(var(--u) * 1.9); font-weight: 900; padding: 0 .4em; background: var(--pink); color: var(--ink); }
+  .card .medal:empty { display: none; }
+  .card .kind { font-size: calc(var(--u) * 1.7); font-weight: 900; letter-spacing: .1em; text-transform: uppercase; color: var(--green); display: block; }
+  .card.on .kind { color: var(--ink); }
+  table.box { border-collapse: collapse; font-size: calc(var(--u) * 2.1); max-width: calc(var(--u) * 156); text-transform: none; letter-spacing: 0; }
+  table.box td { padding: calc(var(--u) * .35) calc(var(--u) * 1.6); vertical-align: top; }
+  table.box td:first-child { color: var(--green); white-space: nowrap; text-align: right; text-transform: uppercase; }
+  table.box td:last-child { font-weight: 700; word-break: break-word; }
+  .stats { display: flex; gap: calc(var(--u) * 5); text-transform: none; letter-spacing: 0; align-items: center; }
+  .statcard { width: calc(var(--u) * 64); }
+  .pic { height: calc(var(--u) * 22); width: calc(var(--u) * 60); display: flex; justify-content: center; align-items: flex-end; }
+  .pic canvas { height: 100%; image-rendering: pixelated; }
+  .statcard h3 { margin: 0; font-size: calc(var(--u) * 3.4); text-transform: uppercase; letter-spacing: .12em; }
+  .statcard .about { opacity: .85; font-size: calc(var(--u) * 2); min-height: calc(var(--u) * 5.6); font-weight: 600; margin: calc(var(--u) * .6) 0; }
+  .sgrid { display: grid; grid-template-columns: auto 1fr; gap: calc(var(--u) * .5) calc(var(--u) * 1.6); font-size: calc(var(--u) * 2); align-items: center; text-transform: uppercase; }
+  .sgrid .bar { height: calc(var(--u) * 1.2); background: rgba(239, 230, 210, .16); overflow: hidden; }
+  .sgrid .bar i { display: block; height: 100%; background: var(--green); }
+  .results { font-size: calc(var(--u) * 2.8); text-align: center; line-height: 1.5; padding: calc(var(--u) * 1.5) calc(var(--u) * 4); background: rgba(11, 13, 16, .78); }
+  .results .big { font-size: calc(var(--u) * 9); font-weight: 900; display: block; text-shadow: calc(var(--u) * .5) calc(var(--u) * .5) 0 var(--pink); }
+  .row-buttons { display: flex; gap: calc(var(--u) * 2); }
+  #loading { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: calc(var(--u) * 3); background: #0b0d10; text-transform: uppercase; letter-spacing: .1em; }
+  #loading .bar { width: calc(var(--u) * 50); height: calc(var(--u) * 1.2); background: rgba(239, 230, 210, .15); overflow: hidden; }
+  #loading .bar i { display: block; height: 100%; width: 0; background: var(--green); }
+  #loading p { margin: 0; font-size: calc(var(--u) * 2.2); opacity: .85; }
+</style></head><body>
+<div id="view">
+  <canvas id="gl" class="world hidden"></canvas>
+  <canvas id="flat" class="world hidden"></canvas>
+  <div id="title" class="screen hidden">
+    <h1 class="logo">HALOGEN</h1><p class="tag">The streets are open. Nobody is watching.</p>
+    <div class="menu"><div class="item" data-do="drive">Drive</div><div class="item" data-do="events">Races</div><div class="item" data-do="garage">Garage</div>
+      <div class="item" data-do="options">Options</div><div class="item" data-do="box">This box</div></div>
+    <p class="hint" id="titleHint"></p>
+  </div>
+  <div id="events" class="screen solid hidden"><h2>Races</h2><div class="cards" id="eventcards"></div><p class="hint" id="eventsHint"></p></div>
+  <div id="garage" class="screen solid hidden"><h2>Garage</h2><div class="stats"><div class="pic" id="garagepic"></div><div class="statcard" id="garagestats"></div></div>
+    <div class="menu" id="garagelist"></div><p class="tag" id="garagelocked"></p><p class="hint" id="garageHint"></p></div>
+  <div id="options" class="screen solid hidden"><h2>Options</h2><div class="menu" id="optlist"></div><p class="hint" id="optionsHint"></p></div>
+  <div id="box" class="screen solid hidden"><h2>This box</h2><table class="box" id="boxtable"></table>
+    <div class="row-buttons"><div class="item" data-do="retest">Test again</div><div class="item" data-do="check">Games check</div><div class="item" data-do="back">Back</div></div><p class="hint" id="boxHint"></p></div>
+  <div id="pause" class="screen hidden"><h2>Paused</h2><div class="menu"><div class="item" data-do="resume">Carry on</div><div class="item" data-do="restart" id="restartItem">Start again</div>
+    <div class="item" data-do="events">Races</div><div class="item" data-do="garage">Garage</div><div class="item" data-do="options">Options</div><div class="item" data-do="quit" id="quitItem">To the title</div></div><p class="hint" id="pauseHint"></p></div>
+  <div id="results" class="screen hidden"><div class="results" id="resultText"></div>
+    <div class="row-buttons" id="resultButtons"></div><p class="hint" id="resultsHint"></p></div>
+  <div id="loading"><h1 class="logo">HALOGEN</h1><div class="bar"><i id="loadbar"></i></div><p id="loadtext">Lighting the streets…</p></div>
+  <div id="fps" class="hidden"></div>
+</div>
+<script src="../pad.js"></script>
+<script src="../low3d.js"></script>
+<script>/* touch: a phone's or tablet's controls, drawn on the picture (pad.js, SofaPad.touch; ENGINE.md, "Touch") */
+SofaPad.touch.layout({ stick: "stick", buttons: [["a", "GAS"], ["b", "BRAKE"], ["x", "SLIDE"], ["y", "NITRO"]], tilt: "x" });
+</script>
+<script>
+/* HALOGEN's city and rules: the land and its streets, where every building stands, the cars and how each handles,
+   the races, and who drives when nobody does. A script of its own, with nothing of the screen in it, so the checks can
+   build the city and race round it in node with the game's own numbers (window.HalogenRules). */
+(function () {
+"use strict";
+const L3 = window.Low3D, U = L3.U, TAU = U.TAU, clamp = U.clamp, lerp = U.lerp, wrap = U.wrap;
+const MAP = 1280, HALF = MAP / 2, CELL = 8, CHUNK = 80, SEED = 7, WATER = 0, SIDE = 4, LIFT = 0.1;
+const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+function vnoise(seed) {
+  const h = (i, j) => { let a = (Math.imul(i, 374761393) + Math.imul(j, 668265263) + Math.imul(seed, 1442695041)) | 0; a = Math.imul(a ^ (a >>> 13), 1274126177); return ((a ^ (a >>> 16)) >>> 0) / 4294967296; };
+  return (x, z) => { const i = Math.floor(x), j = Math.floor(z), fx = x - i, fz = z - j, u = fx * fx * (3 - 2 * fx), v = fz * fz * (3 - 2 * fz), a = h(i, j), b = h(i + 1, j), c = h(i, j + 1), d = h(i + 1, j + 1);
+    return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v; };
+}
+function fbm(nz, x, z, oct) { let s = 0, a = 0.5, f = 1, t = 0; for (let k = 0; k < oct; k++) { s += nz(x * f, z * f) * a; t += a; a *= 0.5; f *= 2; } return s / t; }
+
+// ---------------------------------------------------------------- the cars. spec: Low3D's Car (how it moves); look:
+// Kit.car's recipe (how it's built). Four, each its own feel: what pulls it, how it holds, how it lets go.
+const CARS = [
+  { id: "kernel", name: "KERNEL", about: "Rear-driven and even-handed. It tells you before it lets go.",
+    spec: { mass: 1300, len: 2.62, front: 0.52, grip: 1.12, slide: 0.84, peak: 0.14, power: 250, top: 65, gears: 5, launch: 0.92, drive: -1, loose: 0.55, brake: 1.2, hand: 0.4, turn: 0.58, turnAt: 23, quick: 7.5, assist: 0.5, calm: 1.6, wide: 1.62 },
+    look: { len: 4.35, wide: 1.82, high: 1.26, hood: 0.3, deck: 0.17, belt: 0.76, nose: 0.78, tail: 0.92, roof: 0.76, wing: 0.14 } },
+  { id: "packet", name: "PACKET", about: "Small, light, pulled by its front wheels. Quick to turn in and hard to upset.",
+    spec: { mass: 1020, len: 2.45, front: 0.6, grip: 1.16, slide: 0.88, peak: 0.13, power: 165, top: 58, gears: 5, launch: 0.82, drive: 1, loose: 0.5, brake: 1.25, hand: 0.36, turn: 0.64, turnAt: 22, quick: 9.5, assist: 0.55, calm: 1.9, wide: 1.52 },
+    look: { len: 3.85, wide: 1.72, high: 1.4, hood: 0.24, deck: 0.04, belt: 0.82, nose: 0.82, tail: 1.0, roof: 0.8, rake0: 0.25, rake1: 1.0, wheel: 0.31, base: 0.63, shift: 0.035 } },
+  { id: "segfault", name: "SEGFAULT", about: "All engine. The fastest thing here in a straight line, and sideways everywhere else.",
+    spec: { mass: 1640, len: 2.86, front: 0.55, grip: 1.04, slide: 0.86, peak: 0.15, power: 400, top: 74, gears: 5, launch: 0.86, drive: -1, loose: 0.9, brake: 1.08, hand: 0.44, turn: 0.54, turnAt: 24, quick: 6, assist: 0.42, calm: 1.35, wide: 1.7 },
+    look: { len: 4.85, wide: 1.92, high: 1.3, hood: 0.36, deck: 0.2, belt: 0.84, nose: 0.9, tail: 0.94, roof: 0.72, rake0: 1.5, rake1: 1.0, wheel: 0.36, scoop: 1, base: 0.6 } },
+  { id: "mutex", name: "MUTEX", about: "All four wheels driven. It leaves the line hardest and will not step out of it.",
+    spec: { mass: 1500, len: 2.68, front: 0.56, grip: 1.2, slide: 0.8, peak: 0.13, power: 310, top: 68, gears: 6, launch: 1.0, drive: 0, loose: 0.42, brake: 1.25, hand: 0.5, turn: 0.56, turnAt: 23, quick: 7, assist: 0.6, calm: 2.1, wide: 1.66 },
+    look: { len: 4.5, wide: 1.88, high: 1.36, hood: 0.28, deck: 0.14, belt: 0.82, nose: 0.84, tail: 0.96, roof: 0.78, rake0: 0.7, rake1: 1.1, wing: 0.24, wheel: 0.34 } }
+];
+const CAR_BY = {}; for (const c of CARS) CAR_BY[c.id] = c;
+const PAINTS = [["Phosphor", 0x39ff88, 0x0b0d10], ["Hot pink", 0xff2e88, 0x0b0d10], ["Bone", 0xefe6d2, 0x1a1c22], ["Ink", 0x16181e, 0x39ff88], ["Sodium", 0xff9a2a, 0x0b0d10], ["Arc blue", 0x3aa2f2, 0xefe6d2], ["Signal red", 0xe0302a, 0x0b0d10], ["Violet", 0x8a5cf0, 0xefe6d2]];
+// who else is out at night: a name, what they drive and in what colours, how well (1: as well as the line allows)
+const RIVALS = [{ name: "nullptr", car: "kernel", col: 0xff2e88, trim: 0x0b0d10, skill: 1.0 }, { name: "0xBEEF", car: "segfault", col: 0xff9a2a, trim: 0x0b0d10, skill: 0.985 },
+  { name: "sigkill", car: "mutex", col: 0x3aa2f2, trim: 0xefe6d2, skill: 0.97 }, { name: "tty0", car: "packet", col: 0xefe6d2, trim: 0x1a1c22, skill: 0.955 }, { name: "fork", car: "kernel", col: 0x8a5cf0, trim: 0xefe6d2, skill: 0.94 }];
+
+// ---------------------------------------------------------------- the land, before a road is cut into it
+const N1 = vnoise(SEED * 13 + 5), N2 = vnoise(SEED * 29 + 11);
+const shoreOf = (x, z) => x * 0.5 + z * 0.87 - 395 + (fbm(N2, x * 0.006 + 3, z * 0.006 + 9, 2) - 0.5) * 130;   // over 0: the bay (south-east)
+function terrain(x, z) {
+  let h = 3.4 + (fbm(N1, x * 0.004 + 11, z * 0.004 + 7, 3) - 0.5) * 6.5;
+  h += 38 * (1 - smooth(50, 390, Math.hypot(x + 335, z + 300)));        // Stack Hill, in the north-west
+  h += 15 * (1 - smooth(40, 250, Math.hypot(x - 430, z + 440)));        // a lower rise in the north-east
+  const s = shoreOf(x, z);
+  if (s > -70) h = s < 0 ? lerp(h, 1.5, smooth(-70, -14, s)) : lerp(1.5, -3.2, smooth(0, 9, s));   // level quays, then the water
+  const e = Math.max(Math.abs(x), Math.abs(z));
+  if (e > 588) h += 26 * smooth(588, 640, e) * (1 - smooth(-60, 0, s));  // the rim: the ground rises beyond the last road
+  return h;
+}
+const ZONES = ["mid", "glass", "docks", "hill"];
+function zoneOf(x, z) {
+  if (shoreOf(x, z) > -150) return 2;
+  if (terrain(x, z) > 14 && Math.hypot(x + 335, z + 300) < 330) return 3;
+  const dx = (x - 70) / 270, dz = (z + 30) / 235; if (dx * dx + dz * dz < 1) return 1;
+  return 0;
+}
+
+// ---------------------------------------------------------------- the city: land, streets, every building's place
+// Built whole when the game loads: a few thousand numbers. What's drawn is made a chunk at a time by the game (Stream);
+// what's driven on, bumped into and raced along is all here.
+const NET = { ni: 10, nj: 10, pitch: 124, warp: 27 };
+function city() {
+  const W = { MAP, CELL, CHUNK, water: WATER, terrain, zoneOf, shoreOf };
+  const net = W.net = L3.Roads.net({ ni: NET.ni, nj: NET.nj, pitch: NET.pitch, warp: NET.warp, seed: SEED * 3 + 1,
+    keep: (x, z) => shoreOf(x, z) < -34 && terrain(x, z) > 1,
+    wide: (i, j, along) => { const k = along ? i : j; return k === 0 || k === 9 || k === 4 ? 8 : 6; } });
+  const R = W.roads = new L3.Roads({ nodes: net.nodes, lines: net.lines, height: terrain, step: 4, ease: 0.1 });
+  const land = W.land = new L3.Land(MAP, MAP / CELL, 0); land.jit = 0.03;
+  land.fill(terrain); R.grade(land, { side: SIDE + 1, blend: 14 });
+  const o = new Float32Array(10);
+  // what a wheel stands on: the land as it's drawn, and the road's own surface where there is one
+  W.ground = (x, z) => { const y = land.on(x, z); return y < WATER ? WATER : y + LIFT; };
+  W.grip = (x, z) => R.near(x, z, o) && o[2] < o[7] + SIDE + 1 ? 1 : 0.62;   // (a road and its pavement; off them, loose ground)
+  W.env = { ground: W.ground, grip: W.grip };
+  lotsOf(W); eventsOf(W);
+  W.spawn = W.events.length ? W.events[0].start : { x: 0, z: 0, yaw: 0 };
+  return W;
+}
+// the buildings, set along both sides of every street with their fronts to it: none on a road or its pavement, none
+// in another, none in the water. Each: where, how wide (along the street), how deep, how high, which way it faces,
+// the ground under it. In arrays (no object each), and in squares of 32 m to find what's near a place.
+const HG = 32, HW = Math.ceil(MAP / HG);
+function lotsOf(W) {
+  const R = W.roads, land = W.land, rnd = U.rand(SEED * 31 + 7), o = new Float32Array(10), MAXN = 4096, T5 = [0, 0, 0, 0, 0];
+  const B = W.lots = { n: 0, x: new Float32Array(MAXN), z: new Float32Array(MAXN), w: new Float32Array(MAXN), d: new Float32Array(MAXN), h: new Float32Array(MAXN), yaw: new Float32Array(MAXN),
+    y: new Float32Array(MAXN), foot: new Float32Array(MAXN), kind: new Uint8Array(MAXN), zone: new Uint8Array(MAXN), seed: new Uint16Array(MAXN), cells: [] };
+  for (let i = 0; i < HW * HW; i++) B.cells.push([]);
+  const cellAt = (x, z) => clamp(Math.floor((z + HALF) / HG), 0, HW - 1) * HW + clamp(Math.floor((x + HALF) / HG), 0, HW - 1);
+  const C = new Float32Array(10);
+  const corners = (x, z, yaw, w, d, grow) => { const c = Math.cos(yaw), s = Math.sin(yaw), hw = w / 2 + grow, hd = d / 2 + grow;
+    for (let k = 0; k < 4; k++) { const lx = k & 1 ? hw : -hw, lz = k & 2 ? hd : -hd; C[k * 2] = x + lx * c + lz * s; C[k * 2 + 1] = z - lx * s + lz * c; } C[8] = x; C[9] = z; };
+  const fits = (x, z, yaw, w, d) => {
+    corners(x, z, yaw, w, d, 0);
+    for (let k = 0; k < 5; k++) { const px = C[k * 2], pz = C[k * 2 + 1]; if (Math.abs(px) > 600 || Math.abs(pz) > 600 || shoreOf(px, pz) > -12) return false; if (R.near(px, pz, o) && o[2] < o[7] + SIDE) return false; }
+    const r = Math.hypot(w, d) / 2, gi = Math.floor((x + HALF) / HG), gj = Math.floor((z + HALF) / HG);
+    for (let j = gj - 2; j <= gj + 2; j++) for (let i = gi - 2; i <= gi + 2; i++) { if (i < 0 || j < 0 || i >= HW || j >= HW) continue;
+      for (const q of B.cells[j * HW + i]) { const dx = B.x[q] - x, dz = B.z[q] - z, rr = r + Math.hypot(B.w[q], B.d[q]) / 2 + 1.2; if (dx * dx + dz * dz < rr * rr && boxes(x, z, yaw, w / 2 + 0.8, d / 2 + 0.8, B.x[q], B.z[q], B.yaw[q], B.w[q] / 2 + 0.8, B.d[q] / 2 + 0.8)) return false; } }
+    return true;
+  };
+  const SPEC = [   // by zone: how wide, how deep, the gap to the next, how often a plot is left empty
+    { w: [14, 24], d: [13, 18], gap: [1.5, 5], skip: 0.07 }, { w: [22, 32], d: [20, 26], gap: [3, 8], skip: 0.05 }, { w: [26, 40], d: [18, 26], gap: [4, 11], skip: 0.16 }, { w: [10, 16], d: [10, 13], gap: [2, 6], skip: 0.12 }];
+  const span = a => a[0] + rnd() * (a[1] - a[0]);
+  for (const L of R.lines) for (const sd of [1, -1]) {
+    const P = L.P; let s = 5 + rnd() * 6;
+    while (s < P.len - 8 && B.n < MAXN) {
+      P.at(s, T5); const zone = zoneOf(T5[0], T5[1]), S = SPEC[zone]; let w = span(S.w), d = span(S.d);
+      if (rnd() < S.skip) { s += w + span(S.gap); continue; }
+      let placed = false;
+      for (let tries = 0; tries < 3 && !placed; tries++, w *= 0.72, d *= 0.85) {
+        if (s + w > P.len) break;
+        P.at(s + w / 2, T5); const off = L.half + SIDE + 0.7 + d / 2, x = T5[0] + T5[3] * off * sd, z = T5[1] - T5[2] * off * sd, yaw = Math.atan2(-sd * T5[3], sd * T5[2]);
+        if (!fits(x, z, yaw, w, d)) continue;
+        const i = B.n++; B.x[i] = x; B.z[i] = z; B.w[i] = w; B.d[i] = d; B.yaw[i] = yaw; B.zone[i] = zone; B.seed[i] = (rnd() * 65535) | 0;
+        const r2 = rnd(), tall = rnd();
+        if (zone === 1) { B.kind[i] = tall < 0.3 ? 1 : 0; B.h[i] = tall < 0.3 ? 58 + r2 * 44 : tall < 0.85 ? 26 + r2 * 32 : 14 + r2 * 10; }
+        else if (zone === 2) { B.kind[i] = tall < 0.68 ? 2 : 0; B.h[i] = tall < 0.68 ? 7.5 + r2 * 4 : 10 + r2 * 8; }
+        else if (zone === 3) { B.kind[i] = 0; B.h[i] = 6.6 + ((r2 * 3) | 0) * 3.3; }
+        else { B.kind[i] = 0; B.h[i] = 10 + ((r2 * 6) | 0) * 3.4 + (tall < 0.06 ? 20 : 0); }
+        corners(x, z, yaw, w, d, 0); let lo = 1e9, hi = -1e9; for (let k = 0; k < 5; k++) { const y = land.at(C[k * 2], C[k * 2 + 1]); if (y < lo) lo = y; if (y > hi) hi = y; }
+        B.y[i] = hi; B.foot[i] = hi - lo + 1;
+        const r = Math.hypot(w, d) / 2; for (let gj = Math.floor((z - r + HALF) / HG); gj <= Math.floor((z + r + HALF) / HG); gj++) for (let gi = Math.floor((x - r + HALF) / HG); gi <= Math.floor((x + r + HALF) / HG); gi++) if (gi >= 0 && gj >= 0 && gi < HW && gj < HW) B.cells[gj * HW + gi].push(i);
+        placed = true; s += w + span(S.gap);
+      }
+      if (!placed) s += 5;
+    }
+  }
+  W.cellAt = cellAt;
+}
+// two boxes on the ground, each turned its own way: do they overlap? (each one's two sides tried as a line between them)
+function boxes(ax, az, ayaw, aw, ad, bx, bz, byaw, bw, bd) {
+  const ca = Math.cos(ayaw), sa = Math.sin(ayaw), cb = Math.cos(byaw), sb = Math.sin(byaw), dx = bx - ax, dz = bz - az;
+  const AX = [ca, sa, cb, sb], AZ = [-sa, ca, -sb, cb];
+  for (let k = 0; k < 4; k++) {
+    const nx = AX[k], nz = AZ[k], dist = Math.abs(dx * nx + dz * nz);
+    const ra = aw * Math.abs(ca * nx - sa * nz) + ad * Math.abs(sa * nx + ca * nz), rb = bw * Math.abs(cb * nx - sb * nz) + bd * Math.abs(sb * nx + cb * nz);
+    if (dist > ra + rb) return false;
+  }
+  return true;
+}
+// A car against the buildings, the water and the rim: pushed out of what it's in, what it had of speed into it taken
+// off (and a little of the rest: it scrapes), turned by where it was struck. It's two circles, front and back. Returns
+// how hard it hit (m/s into the wall; 0: nothing touched).
+const HITP = [0, 0];
+function collide(W, c) {
+  const B = W.lots, fx = Math.sin(c.yaw), fz = Math.cos(c.yaw), r = 1.05; let worst = 0;
+  for (let e = 0; e < 2; e++) {
+    const off = e ? -1.25 : 1.3; let px = c.x + fx * off, pz = c.z + fz * off;
+    const cell = B.cells[W.cellAt(px, pz)];
+    for (let q = 0; q < cell.length; q++) {
+      const i = cell[q], cs = Math.cos(B.yaw[i]), sn = Math.sin(B.yaw[i]), dx = px - B.x[i], dz = pz - B.z[i], lx = dx * cs - dz * sn, lz = dx * sn + dz * cs, hw = B.w[i] / 2, hd = B.d[i] / 2;
+      const qx = clamp(lx, -hw, hw), qz = clamp(lz, -hd, hd); let nx = lx - qx, nz = lz - qz, d2 = nx * nx + nz * nz;
+      if (d2 >= r * r) continue;
+      let d = Math.sqrt(d2), push;
+      if (d < 1e-4) { const ex = hw - Math.abs(lx), ez = hd - Math.abs(lz); if (ex < ez) { nx = Math.sign(lx) || 1; nz = 0; push = ex + r; } else { nx = 0; nz = Math.sign(lz) || 1; push = ez + r; } }   // (inside it: out by the nearer wall)
+      else { nx /= d; nz /= d; push = r - d; }
+      const wx = nx * cs + nz * sn, wz = -nx * sn + nz * cs;
+      worst = Math.max(worst, bounce(c, wx, wz, push, off)); px = c.x + fx * off; pz = c.z + fz * off;
+    }
+    // the water and the rim: back the way the ground rises (or falls, at the rim)
+    const wet = W.shoreOf(px, pz) > 2, out = Math.abs(px) > 618 || Math.abs(pz) > 618;
+    if (wet || out) {
+      let nx, nz; if (out && !wet) { nx = Math.abs(px) > 618 ? -Math.sign(px) : 0; nz = Math.abs(pz) > 618 ? -Math.sign(pz) : 0; } else { nx = -0.5; nz = -0.87; }
+      const l = Math.hypot(nx, nz) || 1; worst = Math.max(worst, bounce(c, nx / l, nz / l, 0.4, off));
+    }
+  }
+  return worst;
+}
+function bounce(c, nx, nz, push, off) {
+  c.x += nx * push; c.z += nz * push;
+  const vn = c.vx * nx + c.vz * nz; if (vn >= 0) return 0;
+  const tx = -nz, tz = nx, vt = c.vx * tx + c.vz * tz, keep = Math.max(0, 1 - Math.min(0.5, -vn * 0.035));
+  c.vx = tx * vt * keep - nx * vn * 0.12; c.vz = tz * vt * keep - nz * vn * 0.12;
+  const fx = Math.sin(c.yaw), fz = Math.cos(c.yaw);   // struck at one end: it turns (its nose off the wall)
+  c.yr += clamp(off * (fz * nx - fx * nz) * -vn * 0.085, -2.2, 2.2);
+  return -vn;
+}
+
+// ---------------------------------------------------------------- the races. via: junctions of the street net by
+// their column and row (the way between them is found: the short one); a circuit comes back to where it starts.
+const EVENTS = [
+  { id: "ring0", name: "Ring Zero", kind: "circuit", laps: 2, about: "Twice round the wide roads: the avenue, the north ringway, the east side, and back along the boulevard.", via: [[4, 4], [4, 0], [9, 0], [9, 4]], field: 4, pace: 0.9 },
+  { id: "glassmile", name: "Glass Mile", kind: "sprint", about: "The avenue from the north gate to the water, flat out.", via: [[4, 0], [4, 8]], field: 3, pace: 0.92 },
+  { id: "hilldrop", name: "Hill Drop", kind: "sprint", about: "Over the top of Stack Hill and down to the quays. The crests will lift you.", via: [[0, 2], [2, 2], [2, 4], [5, 4], [5, 6]], field: 4, pace: 0.94 },
+  { id: "heaploop", name: "Heap Loop", kind: "circuit", laps: 3, about: "Three short laps of the old blocks: every corner a right angle.", via: [[1, 6], [3, 6], [3, 8], [1, 8]], field: 4, pace: 0.96 },
+  { id: "quayrun", name: "Quay Run", kind: "sprint", about: "From the north-east gate to the sheds by the back streets.", via: [[8, 0], [8, 2], [6, 2], [6, 4], [8, 4], [8, 5]], field: 5, pace: 0.98 },
+  { id: "coreloop", name: "Core Loop", kind: "circuit", laps: 3, about: "Round the towers, three times, with everyone.", via: [[6, 5], [4, 5], [4, 2], [6, 2]], field: 5, pace: 1.0 }
+];
+function eventsOf(W) {
+  const R = W.roads, net = W.net;
+  W.events = [];
+  for (const def of EVENTS) {
+    const ids = [], via = def.via.map(p => net.id(p[0], p[1])), closed = def.kind === "circuit";
+    if (via.some(v => v < 0)) throw new Error(def.id + ": a junction that isn't there");
+    for (let k = 0; k < via.length - (closed ? 0 : 1); k++) { const leg = R.find(via[k], via[(k + 1) % via.length]); if (!leg.length) throw new Error(def.id + ": no way"); for (let q = 0; q < leg.length - 1; q++) ids.push(leg[q]); }
+    if (!closed) ids.push(via[via.length - 1]);
+    const P = R.route(ids, { closed, step: 3, every: 14, cut: 13 }), ev = Object.assign({}, def, { i: W.events.length, P, nodes: ids, closed, len: P.len, gates: [] });
+    // gates across the road, in the order they're passed: the line (a way past the first junction: on a straight),
+    // then one at each junction on the way, where a corner could be cut; a sprint's last is its end
+    const gate = q => { q = closed ? ((q % P.n) + P.n) % P.n : clamp(q, 0, P.n - 1); ev.gates.push({ x: P.x[q], z: P.z[q], tx: P.tx[q], tz: P.tz[q], s: P.s[q], q, w: 13 }); };
+    gate(P.nodeAt[0] + Math.round(42 / 3));
+    for (let k = 1; k < ids.length - (closed ? 0 : 1); k++) gate(P.nodeAt[k]);
+    if (!closed) gate(P.n - 5);
+    // the grid: behind the line, two abreast
+    const g0 = ev.gates[0]; ev.start = { x: g0.x - g0.tx * 12, z: g0.z - g0.tz * 12, yaw: Math.atan2(g0.tx, g0.tz), s: g0.s - 12 };
+    ev.slot = (k, out) => { const back = 7 + (k >> 1) * 8, side = k & 1 ? 2.7 : -2.7; out[0] = g0.x - g0.tx * back + g0.tz * side; out[1] = g0.z - g0.tz * back - g0.tx * side; out[2] = ev.start.yaw; return out; };
+    ev.paces = {};                                    // how fast its line can be taken, for each car (kept once worked out)
+    ev.paceFor = id => ev.paces[id] || (ev.paces[id] = paceOf(P, CAR_BY[id].spec));
+    W.events.push(ev);
+  }
+}
+// what a car can carry round a line: its grip sideways (a little kept in hand), its brakes, its top speed
+function paceOf(P, spec, keep) { const k = keep == null ? 0.7 : keep; return P.pace(spec.top * 0.985, spec.grip * 9.81 * k, spec.brake * 9.81 * 0.55); }
+
+// ---------------------------------------------------------------- who drives when nobody does: the checks' driver, the
+// demo's, and a rival's hands. It looks a way down the line (further the faster it goes), steers for that point, and
+// holds the speed the line allows there: gas under it, brakes over it. c: the controls it fills.
+const AIM = [0, 0, 0, 0, 0];
+function drive(car, P, pace, st, c, skill) {
+  const i = P.near(car.x, car.z, st.i, 60); st.u += P.delta(st.i, i); st.i = i; st.off = P.dist;
+  const sp = Math.abs(car.speed), look = 6 + sp * 0.36, s = P.s[i] + look, grip = car.spec.grip * 9.81;
+  if (P.closed || s < P.len) P.at(s, AIM); else { AIM[0] = P.x[P.n - 1] + P.tx[P.n - 1] * (s - P.len); AIM[1] = P.z[P.n - 1] + P.tz[P.n - 1] * (s - P.len); }
+  const want = wrap(Math.atan2(AIM[0] - car.x, AIM[1] - car.z) - car.yaw);
+  // stuck against something: back off it a moment, the wheels the other way
+  if (sp < 1.2 && !(st.back > 0)) { st.still = (st.still || 0) + 1 / 60; if (st.still > 1.1) { st.back = 1.3; st.still = 0; } } else if (sp > 3) st.still = 0;
+  if (st.back > 0) { st.back -= 1 / 60; c.steer = clamp(want * 3, -1, 1); c.gas = 0; c.brake = 1; c.hand = false; c.nitro = false; return c; }
+  c.steer = clamp(-want * 2.8 - car.yr * 0.07, -1, 1);
+  const ahead = P.closed ? (i + Math.round(sp * 0.3 / 3) + 2) % P.n : Math.min(P.n - 1, i + Math.round(sp * 0.3 / 3) + 2), v = pace[ahead] * (skill == null ? 1 : skill) * (st.off > 5 ? 0.8 : 1);
+  const over = sp - v, used = Math.min(1, Math.abs(car.lat) / grip);
+  c.gas = over < -1.5 ? 1 : over < 0.5 ? 0.5 : 0; c.brake = car.gear === 0 ? 0 : over > 2 ? clamp((over - 1) / 5, 0.25, 1) : 0;
+  c.gas = Math.min(c.gas, 1.1 - used * used);                           // (what the tyres hold sideways they can't also pull with)
+  if (Math.abs(car.slip) > 0.22) c.gas = Math.min(c.gas, 0.3);           // (sliding: easy on the gas until it's straight)
+  c.hand = false; c.nitro = over < -12 && Math.abs(want) < 0.06 && Math.abs(car.slip) < 0.05;
+  return c;
+}
+
+const HR = { MAP, HALF, CELL, CHUNK, SIDE, LIFT, WATER, SEED, NET, CARS, CAR_BY, PAINTS, RIVALS, EVENTS, ZONES, terrain, zoneOf, shoreOf, city, collide, boxes, drive, paceOf, vnoise, fbm, smooth };
+window.HalogenRules = HR;
+})();
+</script>
+<script>
+/* HALOGEN: street racing through an open city at nightfall, for Sofa Box OS, on Low3D, the box's game engine
+   (../low3d.js). A district to drive freely (a hill, a grid of streets and avenues, towers, quays on a bay), races
+   marked on its streets (sprints from one place to another, circuits round the blocks), four cars that each handle
+   their own way, a garage, a little map. Everything is the game's own and made in code: the streets (Roads), every
+   building, lamp and car (Kit.tower, Kit.lamp, Kit.car), how a car moves (Car), the sounds. The city is made a square
+   at a time as you drive (Stream) and given back behind you. The engine tunes it to the box: 3D at a size the GPU
+   holds steady (fewer streets ahead and plainer buildings on a Pi 3; more, with every storey and a glow, from a Pi 4),
+   or the same streets in 2D on a box without a real GPU. It plays offline, with a controller first (RT or A the gas,
+   LT or B the brake, X the handbrake, Y the nitro) or the keyboard, and keeps what's won on the box. In the address:
+   #fps, #flat or #gl, #rung=N, #test (window.HG, for checks), #demo (it races by itself). */
+(function () {
+"use strict";
+const L3 = window.Low3D, HR = window.HalogenRules, U = L3.U, M4 = L3.M4, TAU = U.TAU, clamp = U.clamp, lerp = U.lerp, wrap = U.wrap, mix = U.mix, shade = U.shade, hex = U.hex, time = U.time, ord = U.ord;
+const $ = id => document.getElementById(id), smooth = HR.smooth;
+const INK = 0x0b0d10, BONE = 0xefe6d2, GREEN = 0x39ff88, PINK = 0xff2e88, MAP = HR.MAP, HALF = HR.HALF, CHUNK = HR.CHUNK, SIDE = HR.SIDE, LIFT = HR.LIFT;
+
+// ---------------------------------------------------------------- what's kept on the box (the engine keeps its tuning apart)
+const SAVE = "halogen";
+function fresh() { return { v: 1, car: "kernel", paint: 0, best: {}, opts: { picture: "auto", music: 6, sound: 8, camera: 0, units: 0, glow: 1, pixels: 1 } }; }
+let save = fresh();
+try { const j = JSON.parse(localStorage.getItem(SAVE) || "null"); if (j && j.v === 1) save = Object.assign(fresh(), j, { opts: Object.assign(fresh().opts, j.opts || {}) }); } catch (e) { /* a fresh start */ }
+function store() { if (E.demo) return; try { localStorage.setItem(SAVE, JSON.stringify(save)); } catch (e) { /* full or blocked: the game still runs */ } }
+
+// ---------------------------------------------------------------- the hour: the sun just down in the west, the lamps on
+// (sun: towards it; the light it still gives is pink and low, the sky's is blue; fog: the air, pinker towards the sun)
+const NIGHT = { top: 0x04050e, mid: 0x1b1444, horizon: 0xd03c78, haze: 0xff7458, fog: 0x2b1d44, fogSun: 0xb8486a, sun: [-0.88, 0.2, 0.42], sunCol: 0xb05a74, amb: 0x464a86, ground: 0x1a162c };
+const SUNY = NIGHT.sun[1] / Math.hypot(NIGHT.sun[0], NIGHT.sun[1], NIGHT.sun[2]);
+const FUP = [0, 1, 2].map(k => ((NIGHT.amb >> (16 - k * 8)) & 255) / 255 + ((NIGHT.sunCol >> (16 - k * 8)) & 255) / 255 * SUNY);   // what level ground keeps of its colour
+const litUp = c => (Math.min(255, ((c >> 16) & 255) * FUP[0]) << 16) | (Math.min(255, ((c >> 8) & 255) * FUP[1]) << 8) | Math.min(255, (c & 255) * FUP[2]);
+const lampLit = c => (Math.min(255, ((c >> 16) & 255) * 2.5) << 16) | (Math.min(255, ((c >> 8) & 255) * 1.75) << 8) | Math.min(255, (c & 255) * 0.95);   // under a sodium lamp
+const ASPHALT = 0x3c3e48, PAVE = 0x5c5e6a, MARK = 0xd6d0ba, SEA = 0x091226, EDGE = 0x8a8c96;
+const ZCOL = [[0x2a2c34, 0x30323a, 0x26282e], [0x343844, 0x3a3e4a, 0x2e323c], [0x34322c, 0x3a3832, 0x2c2a26], [0x22321f, 0x293a24, 0x1e2c1c]];   // the ground of each kind of place
+const PAL = [   // what stands in each kind of place: walls, dark glass, lit windows, signs
+  { wall: [0x8a6a5c, 0x94887a, 0x6e6a78, 0x7c5a50, 0x8c8c94], glass: 0x14161e, lit: [0xffd9a0, 0xffc880, 0xffe9c8, 0xbfe6ff], sign: [PINK, GREEN, 0x4ad8ff, 0, 0xff9a2a, 0] },
+  { wall: [0x46566e, 0x55606e, 0x3c4a60, 0x5e6a7c], glass: 0x0e1420, lit: [0xdff2ff, 0xbfe6ff, 0xffe9c8, 0x9fd8ff], sign: [PINK, GREEN, 0x4ad8ff, PINK, GREEN, 0xffffff] },
+  { wall: [0x5a6a6e, 0x7a5a48, 0x666a5c, 0x4e5a66], glass: 0x12141a, lit: [0xffb060, 0xffc880, 0xffd9a0], sign: [0xff9a2a, 0, GREEN, 0] },
+  { wall: [0x9a8a76, 0x8a9484, 0xa49a8a, 0x8a7c80], glass: 0x16161c, lit: [0xffd9a0, 0xffc880, 0xffe2b0], sign: [0, 0, PINK, 0] }];
+const KINDS = ["block", "tower", "shed"];
+
+// ---------------------------------------------------------------- sound
+const synth = new L3.Synth();
+synth.define("gate", synth.fx.chime); synth.define("lap", synth.fx.fanfare); synth.define("miss", synth.fx.no);
+synth.define("nitro", (s, t) => { s.noise(t, 0.7, 0.3, 1400, 0.7); s.note(t, 196, 0.5, "sawtooth", 0.07, null, 0.01, 2600); s.note(t + 0.06, 392, 0.5, "sawtooth", 0.05, null, 0.01, 2600); });
+synth.define("shift", (s, t) => s.noise(t, 0.07, 0.12, 2400, 1.2));
+synth.define("crash", (s, t) => { s.noise(t, 0.35, 0.55, 260, 0.9); s.noise(t, 0.12, 0.35, 2600, 1.2); s.note(t, 62, 0.3, "sine", 0.4); });
+synth.define("scrape", (s, t) => s.noise(t, 0.18, 0.2, 3200, 2));
+synth.define("thump", (s, t) => { s.noise(t, 0.2, 0.4, 180, 1); s.note(t, 52, 0.22, "sine", 0.35); });
+let engine = null, hiss = null, squeal = null;
+function engineOn(on) {
+  if (on && !engine && synth.ac) { engine = synth.drone("saw"); hiss = synth.drone("noise"); squeal = synth.drone("noise"); }
+  else if (!on && engine) { engine.stop(); hiss.stop(); squeal.stop(); engine = hiss = squeal = null; }
+}
+function volumes() { synth.volume(save.opts.music / 10, save.opts.sound / 10); }
+
+// ---------------------------------------------------------------- the city (HalogenRules builds it), and what drives in it
+let W = null, R = null;
+const NR = new Float32Array(10), TMP = [0, 0, 0, 0, 0], T3 = [0, 0, 0];
+// anything that's drawn as a car: the player's (moved by Low3D's Car) and the rivals' (each on the race's line)
+function Unit(K, col, trim, name) {
+  this.K = K; this.col = col; this.trim = trim; this.name = name; this.x = 0; this.y = 0; this.z = 0; this.yaw = 0; this.pitch = 0; this.lean = 0; this.speed = 0; this.yr = 0; this.vx = 0; this.vz = 0;
+  this.braking = 0; this.burn = 0; this.h = null; this.far = 0; this.seen = false; this.you = false;
+  this.i = 0; this.u = 0; this.lane = 0; this.lane0 = 0; this.done = false; this.time = 0; this.place = 1; this.pace = null; this.k = 1; this.eff = 0; this.passed = 0; this.wob = 0;
+  this.tl = new L3.Trail(10, 0.04); this.tr = new L3.Trail(10, 0.04);
+}
+const PL = { unit: null, car: null, K: null, ctl: { steer: 0, gas: 0, brake: 0, hand: false, nitro: false }, px: 0, pz: 0, skL: new L3.Trail(90, 0.04), skR: new L3.Trail(90, 0.04), steerD: 0,
+  shake: 0, stuck: 0, lookBack: false, wasBurn: 0, gearWas: 1, missT: 0, wrongT: 0, hitT: 0, airWas: 0 };
+let units = [], rivals = [], race = null, state = "boot", T = 0, countT = 0, endT = 0, auto = false, pausedFrom = null;
+const AUTO = { P: null, pace: null, st: { i: 0, u: 0, off: 0 } };
+const sparks = new L3.Particles(48), smoke = new L3.Particles(64);
+function paintOf() { return HR.PAINTS[clamp(save.paint | 0, 0, HR.PAINTS.length - 1)]; }
+function openCars() {                                // what's been won: SEGFAULT for three podiums, MUTEX for three wins
+  let pod = 0, wins = 0; for (const id in save.best) { const b = save.best[id]; if (b.place <= 3) pod++; if (b.place === 1) wins++; }
+  return HR.CARS.filter(c => c.id === "kernel" || c.id === "packet" || (c.id === "segfault" && pod >= 3) || (c.id === "mutex" && wins >= 3) || E.test).map(c => c.id);
+}
+function setPlayer() {
+  const ids = openCars(); if (ids.indexOf(save.car) < 0) save.car = "kernel";
+  const K = HR.CAR_BY[save.car], p = paintOf(), old = PL.car;
+  PL.K = K; PL.car = new L3.Car(K.spec); PL.unit = new Unit(K, p[1], p[2], "You"); PL.unit.you = true;
+  if (old) { PL.car.reset(old.x, old.y, old.z, old.yaw); PL.car.vx = old.vx; PL.car.vz = old.vz; }
+  units = [PL.unit].concat(rivals);
+  if (G) carHandles();
+}
+function place(x, z, yaw) {                          // the player's car set down there, at rest
+  PL.car.reset(x, W.ground(x, z), z, yaw); PL.px = x; PL.pz = z; PL.skL.clear(); PL.skR.clear(); PL.stuck = 0; syncUnit(); camSnap = true;
+  if (STREAM) { STREAM.fill(E.mode === "gl" && E.g3 ? E.g3 : NOGPU, x, z); if (E.gov) E.gov.hold(1200); }
+}
+function syncUnit() { const c = PL.car, u = PL.unit; u.x = c.x; u.y = c.y; u.z = c.z; u.yaw = c.yaw; u.pitch = c.pitch; u.lean = c.lean; u.speed = c.speed; u.yr = c.yr; u.vx = c.vx; u.vz = c.vz; u.burn = c.burn; u.braking = PL.ctl.brake > 0.1 && c.gear > 0 ? 1 : 0; }
+function backOnRoad() {                              // set down on the nearest road, along it (in a race: the way the race goes)
+  const c = PL.car; let x = c.x, z = c.z, yaw = c.yaw;
+  if (race && state !== "done") { const P = race.ev.P, i = P.near(c.x, c.z, PL.unit.i, 80); x = P.x[i]; z = P.z[i]; yaw = Math.atan2(P.tx[i], P.tz[i]); }
+  else if (R.near(c.x, c.z, NR, 200)) { const L = R.lines[NR[0]], q = NR[1]; x = L.P.x[q]; z = L.P.z[q]; yaw = Math.atan2(L.P.tx[q], L.P.tz[q]); if (Math.cos(wrap(yaw - c.yaw)) < 0) yaw = wrap(yaw + Math.PI); }
+  else { x = W.spawn.x; z = W.spawn.z; yaw = W.spawn.yaw; }
+  place(x, z, yaw);
+}
+
+// ---------------------------------------------------------------- input and menus
+const KEYS = { ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right", w: "up", s: "down", a: "left", d: "right", W: "up", S: "down", A: "left", D: "right",
+  Enter: "a", " ": "x", Shift: "y", n: "y", N: "y", c: "cam", C: "cam", r: "select", R: "select", v: "lb", V: "lb", Escape: "back", Backspace: "back", BrowserBack: "back", GoBack: "back", p: "start", P: "start" };
+const KEYNAMES = { a: "Enter", b: "Esc", x: "Space", y: "Shift", start: "P", select: "R" };
+const input = new L3.Input({ keys: KEYS, on: onButton, top: () => menu.top(), connected: hints, joined: hints, left: hints });
+const label = b => input.label(b, KEYNAMES), kb = b => input.kbd(b, KEYNAMES);
+const OPTS = [
+  { k: "picture", name: "Picture", vals: ["auto", "light", "rich", "flat"], names: { auto: "Tuned to this box", light: "Lighter (smoother)", rich: "Richer (sharper)", flat: "2D streets" } },
+  { k: "music", name: "Music", vals: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10] },
+  { k: "sound", name: "Sounds", vals: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10] },
+  { k: "camera", name: "Camera", vals: [0, 1, 2], names: { 0: "Close", 1: "Further back", 2: "Low" } },
+  { k: "units", name: "Speed in", vals: [0, 1], names: { 0: "km/h", 1: "mph" } },
+  { k: "glow", name: "Glow", vals: [1, 0], names: { 0: "Off", 1: "On, where the box has room" } },
+  { k: "pixels", name: "Pixels", vals: [1, 0], names: { 0: "Smoothed", 1: "Crisp" } }
+];
+const picks = { car: "kernel", paint: 0 };
+const menu = new L3.Menu({
+  top: "title", sound: n => synth.play(n),
+  screens: {
+    title: {},
+    events: { grid: 3, back: () => menu.show(pausedFrom ? "pause" : "title"), enter: () => { renderEvents(); return race ? race.ev.i : 0; } },
+    garage: { back: () => menu.show(pausedFrom ? "pause" : "title"), list: $("garagelist"), options: [], values: picks, changed: garageChanged, extra: '<div class="item" data-do="back">Done</div>', enter: garageEnter },
+    options: { options: OPTS, values: save.opts, back: () => menu.show(pausedFrom ? "pause" : "title"), changed: optionChanged, tilt: "Tilt to steer" },
+    box: { row: true, back: "title", enter: renderBox },
+    pause: { back: () => resume(), enter: () => { $("restartItem").classList.toggle("hidden", !race); $("quitItem").textContent = race ? "Leave the race" : "To the title"; } },
+    results: { row: true, back: () => freeRoam() }
+  },
+  choose(el, act) {
+    if (act === "drive") freeRoam();
+    else if (act === "events") menu.show("events");
+    else if (act === "garage") menu.show("garage");
+    else if (act === "options") menu.show("options");
+    else if (act === "box") menu.show("box");
+    else if (act === "back") menu.back();
+    else if (act === "retest") retest();
+    else if (act === "check") location.href = "../probe/#games&run";   // (every game played for 15 s and timed; what it finds goes with the box's next report)
+    else if (act === "event") startRace(+el.dataset.i);
+    else if (act === "resume") resume();
+    else if (act === "restart") { if (race) startRace(race.ev.i); }
+    else if (act === "quit") { if (race) freeRoam(); else toTitle(); }
+    else if (act === "again") startRace(race ? race.ev.i : 0);
+    else if (act === "roam") freeRoam();
+  }
+});
+function onButton(b, how) {
+  if (E.demo) return;                               // (#demo: it drives itself; no controller, nothing saved)
+  synth.start();
+  if (how !== "press" && how !== "repeat") return;
+  if (menu.button(b, how)) return;
+  if (how !== "press") return;
+  if (state === "roam" || state === "race" || state === "countdown") {
+    if (b === "start" || b === "back") pause();
+    else if (b === "select") backOnRoad();
+    else if (b === "cam" || (b === "up" && window.SofaPad && window.SofaPad.button("up"))) { save.opts.camera = (save.opts.camera + 1) % 3; store(); }
+    else if (b === "a" && state === "roam" && near >= 0 && Math.abs(PL.car.speed) < 3) startRace(near);
+  }
+}
+function hints() {
+  $("titleHint").innerHTML = kb("a") + " choose &nbsp; " + (input.pad() ? kb("b") + " back to the box" : "↑ ↓ move");
+  $("eventsHint").innerHTML = kb("a") + " race &nbsp; " + kb("b") + " back";
+  $("garageHint").innerHTML = "◀ ▶ change &nbsp; " + kb("b") + " back";
+  $("optionsHint").innerHTML = "◀ ▶ change &nbsp; " + kb("b") + " back";
+  $("boxHint").innerHTML = kb("a") + " choose &nbsp; " + kb("b") + " back";
+  $("pauseHint").innerHTML = kb("a") + " choose &nbsp; " + kb("start") + " carry on";
+  $("resultsHint").innerHTML = kb("a") + " choose";
+  hudAt = 0;
+}
+// the controls: the left stick or the D-pad steers; RT (how far it's pulled) or A is the gas, LT or B the brake (and,
+// at a stand, reverse); X the handbrake; Y or RB the nitro; LB looks behind. Keys: the arrows or WASD, Space, Shift, V
+function controls(dt) {
+  const c = PL.ctl, pad = window.SofaPad;
+  if (auto) { HR.drive(PL.car, AUTO.P, AUTO.pace, AUTO.st, c, 0.97); PL.lookBack = false; return; }
+  const st = input.stick(), dl = (pad && pad.button("left")) || input.key("left"), dr = (pad && pad.button("right")) || input.key("right");
+  PL.steerD += ((dl ? -1 : dr ? 1 : 0) - PL.steerD) * (1 - Math.exp(-(dl || dr ? 6.5 : 11) * dt));   // (a key is all or nothing: eased in, quicker back)
+  const ax = Math.abs(st.x), an = st.x < 0 ? -Math.pow(ax, 1.35) : Math.pow(ax, 1.35);
+  c.steer = clamp(Math.abs(PL.steerD) > Math.abs(an) ? PL.steerD : an, -1, 1);
+  const rt = pad ? pad.trigger("rt") : 0, lt = pad ? pad.trigger("lt") : 0;
+  c.gas = Math.max(rt, input.held("a") || input.key("up") ? 1 : 0); c.brake = Math.max(lt, input.held("b") || input.key("down") ? 1 : 0);
+  c.hand = input.held("x"); c.nitro = input.held("y") || input.held("rb"); PL.lookBack = input.held("lb");
+}
+
+// ---------------------------------------------------------------- the engine: the screen, tuning, the loop
+const E = L3.game({
+  id: "halogen", view: $("view"), gl: $("gl"), flat: $("flat"), fps: $("fps"), input,
+  loading: { el: $("loading"), bar: $("loadbar"), text: $("loadtext") },
+  picture: () => save.opts.picture, smooth: () => !save.opts.pixels,
+  ready() {
+    W = HR.city(); R = W.roads; index(); setPlayer();
+    hints(); synth.start(); volumes();
+    if (E.demo) { window.SofaStats.demo = true; startRace(0); auto = true; } else toTitle(true);
+  },
+  prepare, rung: () => applyRung(), update, draw, paused: () => state === "paused", resized: () => { frozen = false; hudAt = 0; }
+});
+const rich = () => E.mode === "gl" && !!E.rung && E.rung.look === 1;
+const NOGPU = { upload: () => null, free() {} };
+
+// ---------------------------------------------------------------- the city on the GPU: a square of it at a time
+// (Stream: a chunk is one mesh with its light kept in its colours, made over a few frames as the car comes near: the
+// ground, the roads laid on it, the buildings a few at a time, then the lamps and the light they throw on the road)
+let G = null, STREAM = null, LOTS_IN = null, wasRich = null;
+const SOFT = { soft: { steep: 0.6, jit: 0.035 } };
+const LANDON = (x, z) => W.land.on(x, z), LANDNORM = (x, z, o) => W.land.norm(x, z, o);
+const N3 = HR.vnoise(HR.SEED * 53 + 3);
+function index() {                                   // which buildings stand in each square
+  LOTS_IN = new Map(); const B = W.lots;
+  for (let i = 0; i < B.n; i++) { const k = Math.floor(B.z[i] / CHUNK) * 4096 + Math.floor(B.x[i] / CHUNK); if (!LOTS_IN.has(k)) LOTS_IN.set(k, []); LOTS_IN.get(k).push(i); }
+}
+function groundCol(h, steep, x, z) {
+  if (h < 0.3) return 0x15171c;
+  if (R.near(x, z, NR) && NR[2] < NR[7] + SIDE + 2.5) return PAVE;
+  if (Math.max(Math.abs(x), Math.abs(z)) > 606) return 0x1c2a22;
+  const v = N3(x * 0.07, z * 0.07);
+  return ZCOL[HR.zoneOf(x, z)][v > 0.62 ? 2 : v > 0.38 ? 1 : 0];
+}
+const surface = (x, z) => R.near(x, z, NR) && (NR[2] <= NR[7] || (NR[8] >= 0 && NR[9] <= R.nodes[NR[8]].pad)) ? ASPHALT : PAVE;   // what a lamp's light falls on there
+const LAY = { ground: LANDON, norm: LANDNORM, lift: LIFT, col: () => ASPHALT, mark: MARK, markLift: LIFT + 0.07, dash: [3, 7] };
+const LAY_RICH = Object.assign({}, LAY, { edge: EDGE, dash: [3, 6], walk: { w: SIDE - 0.4, col: () => 0x666874 } });
+let LAMP = null;
+function openChunk(c) {
+  const mx = (c.x0 + c.x1) / 2, mz = (c.z0 + c.z1) / 2, inMap = Math.abs(mx) < HALF && Math.abs(mz) < HALF;
+  let wet = false; for (let k = 0; k < 9 && !wet; k++) wet = HR.shoreOf(c.x0 + (k % 3) * CHUNK / 2, c.z0 + ((k / 3) | 0) * CHUNK / 2) > -30;
+  c.data = { lots: (inMap && LOTS_IN.get(c.iz * 4096 + c.ix)) || [], inMap, wet };
+}
+function buildChunk(c, base, glow, step) {
+  if (E.mode !== "gl") return true;
+  const d = c.data, land = W.land;
+  if (step === 0) {
+    if (d.inMap) land.part(base, land.cellOf(c.x0 + 0.01), land.cellOf(c.z0 + 0.01), land.cellOf(c.x1 - 0.01) + 1, land.cellOf(c.z1 - 0.01) + 1, groundCol, SOFT);
+    if (d.wet) { glow.at(0, 0, 0); const n = 4, s = CHUNK / n; for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) { const x0 = c.x0 + i * s, z0 = c.z0 + j * s; if (HR.shoreOf(x0 + s / 2, z0 + s / 2) < -34) continue;
+      glow.quad(x0, -0.3, z0, x0, -0.3, z0 + s, x0 + s, -0.3, z0 + s, x0 + s, -0.3, z0, SEA, x0, -2, z0); } }
+    return !d.inMap;
+  }
+  if (step === 1) { R.lay(base, c.x0, c.z0, c.x1, c.z1, rich() ? LAY_RICH : LAY); return false; }
+  const per = 2, k0 = (step - 2) * per;
+  if (k0 < d.lots.length) { for (let k = k0; k < Math.min(d.lots.length, k0 + per); k++) building(d.lots[k], base, glow); return false; }
+  lamps(c, base, glow);
+  base.at(0, 0, 0); glow.at(0, 0, 0);
+  return true;
+}
+function building(i, m, glow) {
+  const B = W.lots, P = PAL[B.zone[i]], seed = B.seed[i];
+  L3.Kit.tower(m, glow, B.x[i], B.y[i], B.z[i], B.yaw[i], B.w[i], B.d[i], B.h[i], { seed, wall: P.wall[seed % P.wall.length], glass: P.glass, lit: P.lit, sign: P.sign[(seed >> 4) % P.sign.length], foot: B.foot[i],
+    detail: rich() ? (E.rung.h >= 720 ? 2 : 1) : 0, kind: KINDS[B.kind[i]] });
+}
+// the street lamps along each road, one side then the other, and the light each throws: a patch laid on the road,
+// bright under the lamp and the road's own colour at its edge (its own light: nothing to blend, as the engine's laid
+// shapes are)
+const POOL = [];
+function lamps(c, base, glow) {
+  if (!LAMP) { LAMP = new L3.Mesh(96); L3.Kit.lamp(LAMP, 0, 0, 0, 0, { h: 7.2, reach: 2.6, post: 0x3a3c46, light: 0xffc27a }); }
+  const every = rich() ? 7 : 9;
+  for (let li = 0; li < R.lines.length; li++) { const L = R.lines[li], P = L.P;
+    for (let q = 4; q < P.n - 3; q += every) {
+      const sd = ((q / every) | 0) & 1 ? 1 : -1, off = L.half + 1.5, tx = P.tx[q], tz = P.tz[q], x = P.x[q] + tz * off * sd, z = P.z[q] - tx * off * sd;
+      if (x < c.x0 || x >= c.x1 || z < c.z0 || z >= c.z1) continue;
+      if (R.near(x, z, NR) && NR[8] >= 0 && NR[9] < R.nodes[NR[8]].pad + 7) continue;   // (none in a junction)
+      base.stamp(LAMP, x, W.land.on(x, z), z, Math.atan2(-sd * tz, sd * tx), 1, 1, 1);
+      const cx = x - tz * sd * 4.2, cz = z + tx * sd * 4.2, rad = 7.5; POOL.length = 0;
+      for (let k = 0; k < 8; k++) { const a = k / 8 * TAU; POOL.push(cx + Math.cos(a) * rad, cz + Math.sin(a) * rad); }
+      glow.glow = 127; L3.Kit.lay(glow, POOL, LANDON, (px, pz) => { const s = surface(px, pz), d = Math.hypot(px - cx, pz - cz) / rad; return mix(lampLit(s), litUp(s), smooth(0.05, 1, d)); }, LIFT + 0.04, true, LANDNORM); glow.glow = 0;
+    }
+  }
+}
+function lightOf() { return { sun: NIGHT.sun, sunCol: NIGHT.sunCol, amb: NIGHT.amb, ground: NIGHT.ground, fog: NIGHT.fog, fogSun: NIGHT.fogSun, top: NIGHT.top, horizon: NIGHT.horizon }; }
+// the sky: Low3D paints it (the last of the sun in the west, the first stars), and the rest of the city is painted
+// on it along the horizon, its windows lit: nothing to draw a frame, and nothing that could be driven to
+function skyPicture(w, h) {
+  const s = NIGHT.sun, c = L3.Kit.sky({ w, h, top: NIGHT.top, mid: NIGHT.mid, horizon: NIGHT.horizon, haze: NIGHT.haze, hazeA: "b0", seed: 5, stars: 420,
+    sun: { az: Math.atan2(s[0], s[2]), el: 0.015, size: 0.11, col: 0xffd0c0, low: 0xff4a7a, glow: 0xff3a78, halo: 1.25 }, clouds: { n: 22, col: 0x1a1238, lit: 0xff5a80, hi: 0.42, len: 0.9 } });
+  const g = c.getContext("2d"), V = L3.Kit.skyV, r = U.rand(31), k = h / 256;
+  for (let pass = 0; pass < 2; pass++) for (let x = 0; x < w;) {
+    const bw = Math.round((6 + r() * 16) * w / 2048), el = (pass ? 0.02 + r() * r() * 0.09 : 0.03 + r() * r() * 0.16), y = Math.round(V(el) * h), bh = h - y, near = pass ? 0.8 : 0.5;
+    if (r() < (pass ? 0.8 : 0.55)) {
+      g.fillStyle = hex(mix(0x0a0a16, NIGHT.haze, pass ? 0.1 : 0.3)); g.fillRect(x, y, bw, bh);
+      for (let wy = y + 2 * k; wy < h - 3 * k; wy += Math.max(2, Math.round(2.2 * k))) for (let wx = x + 1; wx < x + bw - 1; wx += 2) if (r() < 0.2) { g.fillStyle = r() < 0.7 ? "rgba(255,214,150," + near + ")" : "rgba(170,226,255," + near + ")"; g.fillRect(wx, wy, 1, Math.max(1, Math.round(k))); }
+      if (el > 0.1 && r() < 0.6) { g.fillStyle = "#ff3a3a"; g.fillRect(x + (bw >> 1), y - Math.round(2 * k), 1, 1); }
+    }
+    x += bw + (r() < 0.3 ? Math.round(r() * 12 * w / 2048) : 0);
+  }
+  const hz = g.createLinearGradient(0, V(0.05) * h, 0, h); hz.addColorStop(0, hex(NIGHT.fog) + "00"); hz.addColorStop(1, hex(NIGHT.fog) + "c0"); g.fillStyle = hz; g.fillRect(0, V(0.05) * h, w, h);
+  return c;
+}
+function prepare() {
+  if (!W) return;
+  freeGL(); frozen = false; hudAt = 0;
+  const gl = E.mode === "gl";
+  if (!STREAM) STREAM = new L3.Stream({ cell: CHUNK, near: 3, keep: 1, open: openChunk, build: buildChunk, verts: 1200,
+    has: (ix, iz) => { const mx = (ix + 0.5) * CHUNK, mz = (iz + 0.5) * CHUNK; return (Math.abs(mx) < HALF && Math.abs(mz) < HALF) || (Math.abs(mx) < HALF + 400 && Math.abs(mz) < HALF + 400 && HR.shoreOf(mx, mz) > 40); } });
+  STREAM.o.light = gl ? { sun: NIGHT.sun, sunCol: NIGHT.sunCol, amb: NIGHT.amb, ground: NIGHT.ground } : null;
+  if (gl) prepareGL(); else prepareFlat();
+  applyRung(true);
+  STREAM.unload(); STREAM.fill(gl ? E.g3 : NOGPU, PL.car.x, PL.car.z);
+}
+function prepareGL() {
+  const g3 = E.g3, big = rich();
+  G = { g3, cars: new Map(), mat: new Float32Array(16), fxM: new L3.Mesh(9000), dotM: new L3.Mesh(160) };
+  G.sky = g3.picture(skyPicture(Math.min(E.probe.maxTex || 2048, big ? 4096 : 2048), big ? 512 : 256), { round: true });
+  G.fx = g3.upload(G.fxM, true); G.dot = g3.upload(G.dotM, true);
+  carHandles();
+  g3.light(lightOf());
+  g3.warm(["still", "move", "dome", "fx", "fxDots", "ui"]); if (big) g3.warm(["bright", "blur", "glowAdd"]);
+}
+function carMesh(K, col, trim) { return L3.Kit.car(new L3.Mesh(1024), Object.assign({}, K.look, { body: col, trim })); }
+function carHandles() {                              // a mesh for each car out now (kept by what it is and its colours)
+  if (!G) return;
+  for (let i = 0; i < units.length; i++) { const u = units[i], key = u.K.id + "|" + u.col + "|" + u.trim; if (!G.cars.has(key)) G.cars.set(key, G.g3.upload(carMesh(u.K, u.col, u.trim))); u.h = G.cars.get(key); }
+}
+function freeGL() {
+  if (G && E.g3 && G.g3 === E.g3) { for (const h of G.cars.values()) E.g3.free(h); E.g3.free(G.fx); E.g3.free(G.dot); if (G.sky) E.g3.gl.deleteTexture(G.sky); }
+  G = null; F = null;
+}
+function applyRung(quiet) {
+  if (!W || !E.rung) return;
+  const gl = E.mode === "gl", big = rich(), r = E.rung;
+  VIEW.near = gl ? (big ? (r.h >= 1080 ? 5 : 4) : r.h >= 360 ? 3 : 2) : 2;
+  VIEW.far = gl ? VIEW.near * CHUNK - 14 : Math.min(r.far, 150);
+  if (STREAM) { STREAM.near = VIEW.near; STREAM.o.verts = big ? 2400 : 800; }
+  if (gl && E.g3) E.g3.light({ near: VIEW.far * 0.3, far: VIEW.far });
+  if (!gl && E.flat) E.flat.air({ near: VIEW.far * 0.35, far: VIEW.far });
+  const look = big ? (r.h >= 720 ? 2 : 1) : 0;       // (how its buildings are built: plain, every storey, windows one by one)
+  if (wasRich !== look && !quiet && STREAM && gl) { STREAM.unload(); STREAM.fill(E.g3, PL.car.x, PL.car.z); E.gov.hold(1200); }   // (another look: every square made again)
+  wasRich = look; hudAt = 0;
+}
+const VIEW = { near: 3, far: 220 };
+
+// ---------------------------------------------------------------- driving about, and the races
+let held = false, near = -1, sayText = "", sayT = 0, camSnap = true, newBest = false;
+function say(text, secs) { sayText = text; sayT = secs || 0; hudAt = 0; }
+function toTitle(first) {
+  race = null; rivals = []; setPlayer(); pausedFrom = null; engineOn(false);
+  const ev = W.events[0]; AUTO.P = ev.P; AUTO.pace = ev.paceFor(PL.K.id); AUTO.st.i = ev.P.near(ev.start.x, ev.start.z); AUTO.st.u = 0; auto = true;
+  place(ev.start.x, ev.start.z, ev.start.yaw);
+  state = "attract"; say(""); menu.show("title");
+  synth.song({ seed: 23, root: 45, tempo: 92, calm: true });
+  if (!first) E.gov.hold(1200);
+}
+function freeRoam() {
+  const was = state, from = race; menu.hide(); pausedFrom = null; race = null; rivals = []; auto = false; setPlayer(); endT = 0;
+  if (was === "attract" || was === "boot" || !from) place(W.spawn.x, W.spawn.z, W.spawn.yaw);
+  state = "roam"; say("Free roam<small>the pillars of light are races: stop in one</small>", 4); engineOn(true);
+  synth.song({ seed: 41, root: 43, tempo: 104 });
+}
+function startRace(i) {
+  const ev = W.events[i], P = ev.P; menu.hide(); pausedFrom = null; auto = false;
+  race = { ev, t: 0, n: ev.gates.length, need: ev.closed ? 1 + ev.laps * ev.gates.length : ev.gates.length, total: ev.closed ? ev.laps * ev.len : ev.gates[ev.gates.length - 1].s - ev.gates[0].s, first: 0 };
+  rivals = HR.RIVALS.slice(0, ev.field).map(d => { const u = new Unit(HR.CAR_BY[d.car], d.col, d.trim, d.name); u.skill = d.skill; return u; });
+  setPlayer();
+  const g0 = ev.gates[0], slot = k => { ev.slot(k, T3); return T3; };
+  rivals.forEach((u, k) => { const s = slot(k); u.x = s[0]; u.z = s[1]; u.yaw = s[2]; u.y = W.ground(u.x, u.z); u.speed = 0; u.i = P.near(u.x, u.z); u.u = -(7 + (k >> 1) * 8); u.lane = u.lane0 = k & 1 ? 2.7 : -2.7; u.done = false; u.passed = 0;
+    u.pace = ev.paceFor(u.K.id); u.k = ev.pace * u.skill; u.tl.clear(); u.tr.clear(); });
+  const k = rivals.length, s = slot(k); place(s[0], s[1], s[2]);
+  const pu = PL.unit; pu.i = P.near(s[0], s[1]); pu.u = -(7 + (k >> 1) * 8); pu.passed = 0; pu.done = false; pu.time = 0; PL.missT = 0; PL.wrongT = 0;
+  if (E.demo || auto) { AUTO.P = P; AUTO.pace = ev.paceFor(PL.K.id); AUTO.st.i = pu.i; AUTO.st.u = 0; }
+  state = "countdown"; countT = 0; endT = 0; say("3"); synth.play("beep"); engineOn(true);
+  synth.song({ seed: 60 + i * 7, root: 43 + (i * 5) % 12, tempo: 126 + i * 2 });
+}
+const gateU = k => { const ev = race.ev, n = race.n; return ev.closed ? Math.floor(k / n) * ev.len + (ev.gates[k % n].s - ev.gates[0].s) : ev.gates[Math.min(k, n - 1)].s - ev.gates[0].s; };
+function lapOf(u) { const n = race.n; return u.passed < 1 ? 1 : Math.min(race.ev.laps, Math.floor((u.passed - 1) / n) + 1); }
+function crossed(px, pz, x, z, g) {                  // from there to here: through that gate (either way)?
+  const a = (px - g.x) * g.tx + (pz - g.z) * g.tz, b = (x - g.x) * g.tx + (z - g.z) * g.tz;
+  if ((a < 0) === (b < 0)) return false;
+  const t = a / (a - b), lx = lerp(px, x, t) - g.x, lz = lerp(pz, z, t) - g.z;
+  return Math.abs(-lx * g.tz + lz * g.tx) <= g.w;
+}
+function stepPlayer(dt) {
+  const car = PL.car, c = PL.ctl, u = PL.unit;
+  if (state === "countdown") { c.hand = true; c.brake = 0; c.steer = 0; }
+  else if (u.done) { c.gas = 0; c.brake = car.speed > 12 ? 0.5 : 0; c.nitro = false; }
+  PL.px = car.x; PL.pz = car.z;
+  const wasAir = car.air;
+  if (state === "countdown") { const gas = c.gas; c.gas = 0; car.step(dt, c, W.env); car.rev += (0.2 + gas * 0.7 - car.rev) * (1 - Math.exp(-9 * dt)); c.gas = gas; }
+  else car.step(dt, c, W.env);
+  const hit = HR.collide(W, car);
+  if (hit > 2.5 && PL.hitT <= 0) { PL.hitT = 0.25; PL.shake = clamp(hit / 26, 0.12, 0.6); synth.play(hit > 9 ? "crash" : "scrape"); sparks.emit(car.x + Math.sin(car.yaw) * 1.2, car.y + 0.5, car.z + Math.cos(car.yaw) * 1.2, clamp((hit / 2) | 0, 3, 12), 5, 2);
+    if (window.SofaPad && !auto) window.SofaPad.rumble(clamp(hit / 20, 0.2, 1), 0.3, 160); }
+  if (PL.hitT > 0) PL.hitT -= dt;
+  if (wasAir > 0.3 && car.air === 0) { synth.play("thump"); PL.shake = Math.max(PL.shake, clamp(car.hit / 30, 0.1, 0.4)); if (wasAir > 0.7 && !auto) say("Air<small>" + wasAir.toFixed(1) + " s</small>", 1.2); }
+  if (car.burn && !PL.wasBurn) synth.play("nitro"); PL.wasBurn = car.burn;
+  if (car.gear !== PL.gearWas) { if (car.gear > 1 && PL.gearWas > 0) synth.play("shift"); PL.gearWas = car.gear; }
+  // stuck (upside nowhere, in a wall, off the map): set back on the road by itself after a while
+  if (!auto && Math.abs(car.speed) < 0.6 && c.gas > 0.5 && state !== "countdown") { PL.stuck += dt; if (PL.stuck > 2.2) backOnRoad(); } else PL.stuck = 0;
+  syncUnit();
+  // the back tyres' marks, where they're past their grip
+  const fx = Math.sin(car.yaw), fz = Math.cos(car.yaw), hw = PL.K.spec.wide / 2, bx = car.x - fx * 1.3, bz = car.z - fz * 1.3, k = car.air > 0 ? 0 : clamp(car.skid * 1.6, 0, 1);
+  PL.skL.stepY(dt, bx + fz * hw, car.y, bz - fx * hw, k); PL.skR.stepY(dt, bx - fz * hw, car.y, bz + fx * hw, k);
+  if (car.skid > 0.35 && car.air === 0 && Math.random() < 0.5) smoke.emit(bx, car.y + 0.25, bz, 1, 1.4, 0.6);
+}
+// a rival: along the race's line at the speed the line allows its car (a little under or over, by who it is and where
+// the player is), in a lane of its own, round whoever is just ahead
+function stepRival(u, dt) {
+  const ev = race.ev, P = ev.P, sp = u.K.spec, going = state === "race";
+  const i = P.near(u.x, u.z, u.i, 40); u.u += P.delta(u.i, i); u.i = i;
+  let target = 0;
+  if (going && !u.done) {
+    const a = P.closed ? (i + 3 + ((u.speed * 0.3 / 3) | 0)) % P.n : Math.min(P.n - 1, i + 3 + ((u.speed * 0.3 / 3) | 0));
+    target = u.pace[a] * u.k * (1 + clamp((PL.unit.u - u.u) / 500, -0.07, 0.09));   // pulled a little towards the player
+  } else if (u.done) target = Math.max(0, 16 - (u.u - race.total) * 0.12);
+  const acc = Math.min(sp.launch * 9.2, sp.power * 1000 / (sp.mass * Math.max(u.speed, 5)) * 0.94) - u.speed * u.speed * sp.dragK / sp.mass;
+  u.braking = target < u.speed - 1.5 ? 1 : 0;
+  u.speed = Math.max(0, u.speed + clamp(target - u.speed, -sp.brake * 9.81 * 0.72 * dt, Math.max(0, acc) * dt));
+  let lane = u.lane0 + Math.sin(T * 0.31 + u.wob) * 1.1, quick = 0.9;
+  for (let k = 0; k < units.length; k++) {           // someone just ahead in its lane: out round them
+    const o = units[k]; if (o === u) continue;
+    const dx = o.x - u.x, dz = o.z - u.z, fx = Math.sin(u.yaw), fz = Math.cos(u.yaw), ahead = dx * fx + dz * fz, side = -(dx * fz - dz * fx);
+    if (ahead > 0 && ahead < 16 && Math.abs(side) < 2.4 && o.speed < u.speed + 4) { lane += side > 0 ? -3 : 3; quick = 2.4; }
+  }
+  const half = Math.max(2, (R.near(u.x, u.z, NR) ? NR[7] : 6) - 1.6); lane = clamp(lane, -half, half);
+  u.lane += (lane - u.lane) * (1 - Math.exp(-quick * dt));
+  const s = P.s[i] + 6 + u.speed * 0.32;
+  if (P.closed || s < P.len - 1) P.side(s, u.lane, TMP); else { TMP[0] = P.x[P.n - 1] + P.tx[P.n - 1] * (s - P.len + 6); TMP[1] = P.z[P.n - 1] + P.tz[P.n - 1] * (s - P.len + 6); }
+  u.yr = clamp(wrap(Math.atan2(TMP[0] - u.x, TMP[1] - u.z) - u.yaw) * 5, -2.4, 2.4); if (u.speed > 0.3) u.yaw = wrap(u.yaw + u.yr * dt);
+  const fx = Math.sin(u.yaw), fz = Math.cos(u.yaw);
+  u.vx = fx * u.speed; u.vz = fz * u.speed; u.x += u.vx * dt; u.z += u.vz * dt;
+  const y = W.ground(u.x, u.z), yf = W.ground(u.x + fx * 1.4, u.z + fz * 1.4), yb = W.ground(u.x - fx * 1.4, u.z - fz * 1.4);
+  u.y = y; u.pitch += (-Math.atan((yf - yb) / 2.8) - u.pitch) * (1 - Math.exp(-9 * dt)); u.lean += (clamp(u.yr * u.speed * 0.0055, -0.08, 0.08) - u.lean) * (1 - Math.exp(-8 * dt));
+  if (going && !u.done && u.u >= race.total) { u.done = true; u.time = race.t; if (!race.first) race.first = race.t; }
+}
+function bumps() {                                   // car against car: pushed apart, the faster one slowed
+  for (let i = 0; i < units.length; i++) for (let j = i + 1; j < units.length; j++) {
+    const a = units[i], b = units[j], dx = b.x - a.x, dz = b.z - a.z, d2 = dx * dx + dz * dz; if (d2 <= 0 || d2 > 7.3) continue;
+    const d = Math.sqrt(d2), nx = dx / d, nz = dz / d, push = (2.7 - d) / 2, rv = (b.vx - a.vx) * nx + (b.vz - a.vz) * nz;
+    if (a.you) { PL.car.x -= nx * push; PL.car.z -= nz * push; } else { a.x -= nx * push; a.z -= nz * push; }
+    b.x += nx * push; b.z += nz * push;
+    if (rv < 0) {
+      if (a.you) { PL.car.vx += rv * nx * 0.5; PL.car.vz += rv * nz * 0.5; PL.car.yr += clamp((nx * Math.cos(a.yaw) - nz * Math.sin(a.yaw)) * rv * 0.03, -0.6, 0.6); if (rv < -3 && PL.hitT <= 0) { PL.hitT = 0.3; synth.play("bump"); PL.shake = Math.max(PL.shake, 0.15); } }
+      else a.speed = Math.max(0, a.speed + rv * 0.35);
+      b.speed = Math.max(0, b.speed + rv * (a.you ? -0.25 : -0.2));
+    }
+  }
+}
+const ORDER = [];
+function places() {                                  // who's ahead (an insertion sort: a handful of cars)
+  ORDER.length = 0;
+  for (let i = 0; i < units.length; i++) {
+    const u = units[i]; u.eff = u.done ? 1e9 - u.time : u.you ? Math.min(u.u, gateU(u.passed) + 6) : u.u;
+    let j = ORDER.length; ORDER.push(u); while (j > 0 && ORDER[j - 1].eff < u.eff) { ORDER[j] = ORDER[j - 1]; j--; } ORDER[j] = u;
+  }
+  for (let i = 0; i < ORDER.length; i++) ORDER[i].place = i + 1;
+}
+function raceStep(dt) {
+  const ev = race.ev, P = ev.P, u = PL.unit, car = PL.car;
+  if (state === "race" || state === "done") race.t += dt;
+  const i = P.near(car.x, car.z, u.i, 50); u.u += P.delta(u.i, i); u.i = i;
+  if (state === "race" && !u.done) {
+    const g = ev.gates[u.passed % race.n];
+    if (crossed(PL.px, PL.pz, car.x, car.z, g)) {
+      u.passed++; PL.missT = 0;
+      if (u.passed >= race.need) { u.done = true; u.time = race.t; finished(); }
+      else if (ev.closed && u.passed > 1 && (u.passed - 1) % race.n === 0) { synth.play("lap"); say(lapOf(u) === ev.laps ? "Last lap" : "Lap " + lapOf(u), 1.6); }
+      else if (u.passed > 1) synth.play("gate");
+      if (sayText.indexOf("Missed") === 0) say("");
+    } else if (u.u > gateU(u.passed) + 45 && !PL.missT) { PL.missT = 1; synth.play("miss"); say("Missed a gate<small>go back through it</small>", 0); }
+    const fx = Math.sin(car.yaw), fz = Math.cos(car.yaw);
+    if (fx * P.tx[i] + fz * P.tz[i] < -0.4 && car.speed > 6 && !PL.missT) { PL.wrongT += dt; if (PL.wrongT > 1.2 && sayText === "") say("Wrong way", 0); }
+    else if (PL.wrongT) { PL.wrongT = 0; if (sayText === "Wrong way") say(""); }
+  }
+  places();
+  if (E.demo && state === "done" && endT <= 0) endT = 4;
+}
+function finished() {
+  const u = PL.unit, ev = race.ev; places();
+  synth.play(u.place <= 1 ? "win" : "lap"); say(ord(u.place) + "!", 0);
+  state = "done"; newBest = false;
+  if (!E.demo && !auto) {
+    const b = save.best[ev.id] || {}; if (!b.time || u.time < b.time) newBest = true;
+    const before = openCars().length;
+    save.best[ev.id] = { place: Math.min(b.place || 9, u.place), time: Math.min(b.time || 1e9, u.time) }; store();
+    race.won = openCars().length > before ? HR.CAR_BY[openCars()[openCars().length - 1]].name : "";
+  }
+  E.tell();                                           // (how it ran, for the box's report)
+  endT = E.demo ? 4 : 2.4;
+}
+function showResults() {
+  if (state !== "done" || !race) return;
+  const u = PL.unit, ev = race.ev, list = units.slice().sort((a, b) => a.place - b.place).map(q => `<span style="color:${hex(q.you ? BONE : q.col)}">${ord(q.place)} ${q.name}</span>`).join(" &nbsp; ");
+  const b = save.best[ev.id];
+  $("resultText").innerHTML = `<span class="big">${ord(u.place)}</span>${ev.name}<br>Time ${time(u.time)}${newBest ? " · your best here" : b ? " · your best " + time(b.time) : ""}` +
+    (race.won ? `<br><span style="color:${hex(GREEN)}">${race.won} is in the garage</span>` : "") + `<br><small>${list}</small>`;
+  $("resultButtons").innerHTML = `<div class="item" data-do="again">Race again</div><div class="item" data-do="roam">Drive on</div><div class="item" data-do="events">Other races</div>`;
+  engineOn(false); menu.show("results");
+}
+function roamStep() {                                // which race's mark the car is standing in
+  let best = -1; const c = PL.car;
+  for (let k = 0; k < W.events.length; k++) { const s = W.events[k].start, dx = s.x - c.x, dz = s.z - c.z; if (dx * dx + dz * dz < 64) best = k; }
+  if (best !== near) { near = best; hudAt = 0; }
+}
+function update(dt) {                                // 60 times a second
+  if (!W || held) return;
+  T += dt;
+  if (state === "roam" || state === "race" || state === "countdown" || state === "done" || state === "attract") {
+    controls(dt); stepPlayer(dt);
+    if (race) { for (let k = 0; k < rivals.length; k++) stepRival(rivals[k], dt); bumps(); raceStep(dt); }
+    else if (state === "roam") roamStep();
+    for (let k = 0; k < units.length; k++) { const u = units[k], fx = Math.sin(u.yaw), fz = Math.cos(u.yaw), hw = 0.72, k2 = clamp((Math.abs(u.speed) - 44) / 20, 0, 0.45) + u.burn * 0.7;
+      u.tl.stepY(dt, u.x - fx * 2.1 + fz * hw, u.y + 0.62, u.z - fz * 2.1 - fx * hw, k2); u.tr.stepY(dt, u.x - fx * 2.1 - fz * hw, u.y + 0.62, u.z - fz * 2.1 + fx * hw, k2); }
+    sparks.step(dt, 16, -100); smoke.step(dt, -0.6, -100);
+    if (PL.shake > 0) PL.shake = Math.max(0, PL.shake - dt * 1.4);
+    if (STREAM) { const c = PL.car, k = clamp(1.1, 0, CHUNK / (Math.hypot(c.vx, c.vz) + 1)); for (let n = rich() ? 3 : 1; n > 0; n--) STREAM.update(E.mode === "gl" && E.g3 ? E.g3 : NOGPU, c.x + c.vx * k, c.z + c.vz * k); }   // (made ahead of the car, not round it; a box with room makes three steps a frame: it holds more squares)
+  }
+  if (state === "countdown") {
+    const before = Math.ceil(3 - countT); countT += dt; const now = Math.ceil(3 - countT);
+    if (now !== before && now > 0) { say(String(now)); synth.play("beep"); }
+    if (countT >= 3) { state = "race"; race.t = 0; say("Go!", 0.9); synth.play("go"); }
+  }
+  if (endT > 0 && state === "done") { endT -= dt; if (endT <= 0) { if (E.demo) { startRace((race.ev.i + 1) % W.events.length); auto = true; } else showResults(); } }
+  if (sayT > 0) { sayT -= dt; if (sayT <= 0) say(""); }
+  if (engine) {
+    const c = PL.car, k = clamp(Math.abs(c.speed) / 60, 0, 1.2), g = state === "countdown" ? PL.ctl.gas : c.burn ? 1 : PL.ctl.gas;
+    engine.set(46 + c.rev * 128 + c.burn * 14, 320 + c.rev * 1500 + g * 700, 0.045 + g * 0.05 + c.rev * 0.02);
+    hiss.set(0, 700 + k * 1500, k * 0.08 + c.burn * 0.05);
+    squeal.set(0, 1700 + k * 500, c.air > 0 ? 0 : clamp(c.skid, 0, 1) * 0.11);
+  }
+}
+function pause() { if (menu.at) return; pausedFrom = state; state = "paused"; engineOn(false); menu.show("pause"); }
+function resume() { menu.hide(); state = pausedFrom || "roam"; pausedFrom = null; engineOn(true); E.gov.hold(800); }
+
+// ---------------------------------------------------------------- the camera: behind the car, looking where it's going
+// (one place for it: Low3D's chase camera now, the engine's newer rigs when they land. The engine's follows a thing on
+// level water, so the heights are worked out here: the car's own, eased, and never under the ground or in a wall.)
+const cam = L3.camera(), CT = { x: 0, y: 0, z: 0, yaw: 0, yr: 0 };
+let camY = 0, camLook = 0;
+const EYES = [[8.8, 3.0, 9], [12, 4.4, 10], [7.4, 1.75, 10]];   // how far behind, how high, how far ahead it looks
+function inWall(x, z) {
+  const B = W.lots, cell = B.cells[W.cellAt(x, z)];
+  for (let q = 0; q < cell.length; q++) { const i = cell[q], cs = Math.cos(B.yaw[i]), sn = Math.sin(B.yaw[i]), dx = x - B.x[i], dz = z - B.z[i]; if (Math.abs(dx * cs - dz * sn) < B.w[i] / 2 + 0.6 && Math.abs(dx * sn + dz * cs) < B.d[i] / 2 + 0.6) return true; }
+  return false;
+}
+function updateCam(dt, now) {
+  const c = PL.car, e = EYES[save.opts.camera] || EYES[0], sp = Math.abs(c.speed);
+  const vyaw = sp > 6 && c.speed > 0 ? Math.atan2(c.vx, c.vz) : c.yaw;
+  const back = PL.lookBack && !menu.at; if ((back ? 1 : 0) !== camLook) { camLook = back ? 1 : 0; camSnap = true; }
+  CT.x = c.x; CT.z = c.z; CT.y = 0; CT.yr = c.yr * 0.6; CT.yaw = c.yaw + wrap(vyaw - c.yaw) * 0.6 + (back ? Math.PI : 0);
+  L3.chase(cam, CT, dt, e[0] + sp * 0.022, e[1], e[2], camSnap);
+  camY = camSnap ? c.y : camY + (c.y - camY) * (1 - Math.exp(-9 * dt)); camSnap = false;
+  cam.y = camY + e[1]; cam.ty = camY + 1.0 + (c.y - camY) * 0.5;
+  for (let k = 0; k < 8 && inWall(cam.x, cam.z); k++) { cam.x += (c.x - cam.x) * 0.16; cam.z += (c.z - cam.z) * 0.16; cam.y += 0.25; }   // (a wall behind: in close, and up)
+  const gy = W.ground(cam.x, cam.z) + 0.8; if (cam.y < gy) cam.y = gy;
+  const want = 0.94 + clamp(sp / 70, 0, 1) * 0.16 + c.burn * 0.12; cam.fov += (want - cam.fov) * (1 - Math.exp(-4 * dt));
+  cam.roll = clamp(-c.yr * 0.012 * clamp(sp / 20, 0, 1), -0.05, 0.05);
+  if (PL.shake > 0) { const s = PL.shake * 0.5; cam.x += (Math.random() - 0.5) * s; cam.y += (Math.random() - 0.5) * s; }
+}
+
+// ---------------------------------------------------------------- drawing
+let frozen = false, menuWas = null;
+const BLOOM = { hold: 0.86, from: 0.86, to: 0.98, power: 0.9, size: 0.25, wide: 0.5 }, GRADE = { gain: 1.06, curve: 0.34, colour: 1.16, warm: [1.05, 0.98, 0.95], cool: [0.92, 0.95, 1.1], edge: 0.55 };
+function draw(now, dt) {
+  if (!W) return false;
+  if (menu.at !== menuWas) { menuWas = menu.at; frozen = false; hudAt = 0; }   // (another screen: dimmed for it, drawn once more)
+  // a menu that covers the picture: one dim frame behind it, then nothing drawn until it's gone
+  const solid = menu.at && menu.at !== "title" && menu.at !== "pause" && menu.at !== "results";
+  if (solid && frozen) return false;
+  frozen = solid;
+  if (state !== "paused") updateCam(dt, now);
+  const [w, h] = E.size();
+  if (E.mode === "gl" && G) drawGL(now); else if (F) drawFlat(now);
+  drawHUD(now, w, h, solid);
+}
+function drawGL(now) {
+  const g3 = E.g3, M = G.mat, far = VIEW.far, glow = save.opts.glow && rich();
+  g3.hold(glow ? BLOOM.hold : 0);
+  L3.begin(E, cam, 0.8, 1500);
+  g3.dome(G.sky, 0);
+  STREAM.draw(g3, cam.x, cam.z, far + 60);
+  for (let i = 0; i < units.length; i++) {
+    const u = units[i], dx = u.x - cam.x, dz = u.z - cam.z; u.far = Math.sqrt(dx * dx + dz * dz); u.seen = u.far < far && g3.sees(u.x, u.y + 0.7, u.z, 3.2);
+    if (!u.seen || !u.h) continue;
+    M4.model(M, u.x, u.y, u.z, u.yaw, u.pitch, u.lean, 1); g3.moved(u.h, M, 1.1, 1.1, 1.1, 0.3, 0.7);
+  }
+  const m = G.fxM; m.n = 0; fxWorld(m, now, far); g3.fx(G.fx, m);
+  const d = G.dotM; d.n = 0; smoke.points(d, 0x9a9aa6); if (d.n) g3.fx(G.dot, d, 0.5);
+  d.n = 0; sparks.points(d, 0xffc060); if (d.n) { for (let i = 0; i < d.n; i++) d.i8[i * 20 + 15] = 127; g3.fx(G.dot, d, 0.09); }
+  if (glow) g3.bloom(BLOOM);
+  if (rich() && save.opts.glow) g3.grade(GRADE);
+}
+// every see-through thing, into one mesh (one call): under each car its shadow and, for the player's, its paint's
+// glow; headlights on the road; tail lights, their trails, the nitro; tyre marks; the next gates' pillars of light and
+// the races' marks. Each corner: its place into Q (or m.s), then whole numbers only (no garbage: see ENGINE.md).
+const Q = new Float32Array(12);
+function quad(m, r, g, b, a0, a1, e) {               // Q's four corners: the first two at a0, the others at a1
+  if (m.n + 6 > m.cap) return; const S = m.s;
+  S[0] = Q[0]; S[1] = Q[1]; S[2] = Q[2]; m.v(r, g, b, a0, e); S[0] = Q[3]; S[1] = Q[4]; S[2] = Q[5]; m.v(r, g, b, a0, e); S[0] = Q[6]; S[1] = Q[7]; S[2] = Q[8]; m.v(r, g, b, a1, e);
+  S[0] = Q[0]; S[1] = Q[1]; S[2] = Q[2]; m.v(r, g, b, a0, e); S[0] = Q[6]; S[1] = Q[7]; S[2] = Q[8]; m.v(r, g, b, a1, e); S[0] = Q[9]; S[1] = Q[10]; S[2] = Q[11]; m.v(r, g, b, a1, e);
+}
+function ground4(u, f0, f1, w0, w1, lift) {          // into Q: a piece of ground by a car, from f0 to f1 ahead of its middle, w0 and w1 half as wide
+  const fx = Math.sin(u.yaw), fz = Math.cos(u.yaw), sl = Math.tan(-u.pitch);
+  Q[0] = u.x + fx * f0 + fz * w0; Q[1] = u.y + lift + sl * f0; Q[2] = u.z + fz * f0 - fx * w0; Q[3] = u.x + fx * f0 - fz * w0; Q[4] = Q[1]; Q[5] = u.z + fz * f0 + fx * w0;
+  Q[6] = u.x + fx * f1 - fz * w1; Q[7] = u.y + lift + sl * f1; Q[8] = u.z + fz * f1 + fx * w1; Q[9] = u.x + fx * f1 + fz * w1; Q[10] = Q[7]; Q[11] = u.z + fz * f1 - fx * w1;
+}
+function pillar(m, x, y, z, w, hgt, rx, rz, r, g, b, a) {   // a blade of light standing there, facing the eye
+  Q[0] = x - rx * w; Q[1] = y; Q[2] = z - rz * w; Q[3] = x + rx * w; Q[4] = y; Q[5] = z + rz * w; Q[6] = x + rx * w * 0.5; Q[7] = y + hgt; Q[8] = z + rz * w * 0.5; Q[9] = x - rx * w * 0.5; Q[10] = y + hgt; Q[11] = z - rz * w * 0.5;
+  quad(m, r, g, b, a, 0, 127);
+}
+function fxWorld(m, now, far) {
+  const cfx = Math.sin(cam.yaw), cfz = Math.cos(cam.yaw), rx = -cfz, rz = cfx, big = rich();
+  const pr = (PL.unit.col >> 16) & 255, pg = (PL.unit.col >> 8) & 255, pb = PL.unit.col & 255;
+  PL.skL.ribbonY(m, 0.035, 0x050506, 0.15, 0, 150, 0); PL.skR.ribbonY(m, 0.035, 0x050506, 0.15, 0, 150, 0);
+  for (let i = 0; i < units.length; i++) {
+    const u = units[i]; if (!u.seen) continue;
+    const L = u.K.look.len / 2, hw = u.K.look.wide / 2;
+    ground4(u, -L - 0.3, L + 0.3, hw + 0.25, hw + 0.25, 0.04); quad(m, 2, 2, 6, 150, 150, 0);                                  // its shadow
+    if (u.you && m.n + 24 <= m.cap) {                                                                                       // the glow of its paint under it: brightest under the sills, gone a step out
+      const S = m.s, cy = Math.cos(u.yaw), sy = Math.sin(u.yaw), y = u.y + 0.05;
+      for (let q = 0; q < 8; q++) { const a0 = q / 8 * TAU, a1 = (q + 1) / 8 * TAU, ax = Math.cos(a0) * (hw + 1.2), az = Math.sin(a0) * (L + 1.3), bx = Math.cos(a1) * (hw + 1.2), bz = Math.sin(a1) * (L + 1.3);
+        S[0] = u.x; S[1] = y; S[2] = u.z; m.v(pr, pg, pb, 120, 127); S[0] = u.x + bx * cy + bz * sy; S[2] = u.z - bx * sy + bz * cy; m.v(pr, pg, pb, 0, 127); S[0] = u.x + ax * cy + az * sy; S[2] = u.z - ax * sy + az * cy; m.v(pr, pg, pb, 0, 127); }
+    }
+    if (u.far < 120) {                                                                                                      // its headlights on the road
+      ground4(u, L + 0.2, L + (u.you ? 26 : 16), hw * 0.8, hw * 0.8 + (u.you ? 5.5 : 3.6), 0.07); quad(m, 255, 236, 196, u.you ? 78 : 50, 0, 127);
+      ground4(u, L + 0.2, L + 7, hw * 0.7, hw + 1, 0.075); quad(m, 255, 240, 210, u.you ? 60 : 36, 0, 127);
+    }
+    const fx = Math.sin(u.yaw), fz = Math.cos(u.yaw), tx = u.x - fx * (L + 0.04), tz = u.z - fz * (L + 0.04), ty = u.y + u.K.look.belt * 0.66;
+    if (u.braking && u.far < 150) for (let s = -1; s <= 1; s += 2) {                                                        // its brake lights, flaring
+      const lx = tx + fz * hw * 0.8 * s, lz = tz - fx * hw * 0.8 * s; Q[0] = lx - rx * 0.42; Q[1] = ty - 0.24; Q[2] = lz - rz * 0.42; Q[3] = lx + rx * 0.42; Q[4] = ty - 0.24; Q[5] = lz + rz * 0.42;
+      Q[6] = lx + rx * 0.42; Q[7] = ty + 0.24; Q[8] = lz + rz * 0.42; Q[9] = lx - rx * 0.42; Q[10] = ty + 0.24; Q[11] = lz - rz * 0.42; quad(m, 255, 40, 40, 150, 150, 127);
+    }
+    if (u.burn) for (let s = -1; s <= 1; s += 2) {                                                                          // the nitro: two blue flames
+      const lx = tx + fz * hw * 0.45 * s, lz = tz - fx * hw * 0.45 * s, len = 1.5 + Math.sin(now / 24 + s) * 0.3, ey = u.y + 0.34;
+      Q[0] = lx + fz * 0.14; Q[1] = ey; Q[2] = lz - fx * 0.14; Q[3] = lx - fz * 0.14; Q[4] = ey; Q[5] = lz + fx * 0.14; Q[6] = lx - fx * len; Q[7] = ey; Q[8] = lz - fz * len; Q[9] = Q[6]; Q[10] = ey + 0.02; Q[11] = Q[8]; quad(m, 110, 190, 255, 230, 0, 127);
+      Q[0] = lx; Q[1] = ey + 0.14; Q[2] = lz; Q[3] = lx; Q[4] = ey - 0.14; Q[5] = lz; quad(m, 200, 230, 255, 230, 0, 127);
+    }
+    if (u.far < (big ? 200 : 110)) { u.tl.ribbonY(m, 0, 0xff2038, 0.1, -0.005, 110, 127); u.tr.ribbonY(m, 0, 0xff2038, 0.1, -0.005, 110, 127); }   // tail lights, drawn out behind it
+  }
+  if (race && state !== "done") {                    // the next gate: a pillar each side and a bar of light between; the one after, fainter
+    const ev = race.ev, u = PL.unit;
+    for (let k = 0; k < 2; k++) {
+      const gi = u.passed + k; if (gi >= race.need) break;
+      const g = ev.gates[gi % race.n], last = gi === race.need - 1, a = (k ? 70 : 150 + 70 * Math.sin(now / 150)) | 0, y = W.ground(g.x, g.z), nx = g.tz, nz = -g.tx, wd = 9;
+      const cr = last ? 239 : 255, cg = last ? 230 : 46, cb = last ? 210 : 136;
+      pillar(m, g.x + nx * wd, y, g.z + nz * wd, 0.5, 9, rx, rz, cr, cg, cb, a); pillar(m, g.x - nx * wd, y, g.z - nz * wd, 0.5, 9, rx, rz, cr, cg, cb, a);
+      Q[0] = g.x + nx * wd; Q[1] = y + 5.2; Q[2] = g.z + nz * wd; Q[3] = g.x - nx * wd; Q[4] = y + 5.2; Q[5] = g.z - nz * wd; Q[6] = Q[3]; Q[7] = y + 5.9; Q[8] = Q[5]; Q[9] = Q[0]; Q[10] = y + 5.9; Q[11] = Q[2]; quad(m, cr, cg, cb, a >> 1, a >> 1, 127);
+      Q[0] = g.x + nx * wd; Q[1] = y + 0.09; Q[2] = g.z + nz * wd; Q[3] = g.x - nx * wd; Q[4] = Q[1]; Q[5] = g.z - nz * wd; Q[6] = Q[3] + g.tx * 1.2; Q[7] = Q[1]; Q[8] = Q[5] + g.tz * 1.2; Q[9] = Q[0] + g.tx * 1.2; Q[10] = Q[1]; Q[11] = Q[2] + g.tz * 1.2; quad(m, cr, cg, cb, a, a, 127);
+    }
+  } else if (state === "roam") for (let k = 0; k < W.events.length; k++) {   // where the races start: a tall pillar of light, green a circuit and pink a sprint
+    const ev = W.events[k], s = ev.start, dx = s.x - cam.x, dz = s.z - cam.z, d2 = dx * dx + dz * dz; if (d2 > (far + 120) * (far + 120) || dx * cfx + dz * cfz < -20) continue;
+    const y = W.ground(s.x, s.z), c = ev.closed, a = (near === k ? 220 : 130 + 50 * Math.sin(now / 260 + k)) | 0;
+    pillar(m, s.x, y, s.z, 1.5, 60, rx, rz, c ? 57 : 255, c ? 255 : 46, c ? 136 : 136, a);
+    for (let q = 0; q < 8; q++) { const a0 = q / 8 * TAU, a1 = (q + 1) / 8 * TAU;
+      Q[0] = s.x + Math.cos(a0) * 8; Q[1] = y + 0.1; Q[2] = s.z + Math.sin(a0) * 8; Q[3] = s.x + Math.cos(a1) * 8; Q[4] = Q[1]; Q[5] = s.z + Math.sin(a1) * 8;
+      Q[6] = s.x + Math.cos(a1) * 6.6; Q[7] = Q[1]; Q[8] = s.z + Math.sin(a1) * 6.6; Q[9] = s.x + Math.cos(a0) * 6.6; Q[10] = Q[1]; Q[11] = s.z + Math.sin(a0) * 6.6; quad(m, c ? 57 : 255, c ? 255 : 46, 136, a, a, 127); }
+  }
+}
+
+// ---------------------------------------------------------------- 2D (no real GPU): the streets painted from above, the
+// buildings as walls stood up on them, the cars baked from every side
+let F = null;
+const POLY = new Float32Array(12);
+function prepareFlat() {
+  const flat = E.flat, k = 1024 / MAP, c = document.createElement("canvas"); c.width = c.height = 1024;
+  const g = c.getContext("2d"); paintMap(g, k, 1);
+  flat.ground(c, -HALF, -HALF, MAP, hex(litUp(0x1c2a22)));
+  flat.air({ top: NIGHT.top, horizon: NIGHT.horizon, fog: NIGHT.fog, hill: mix(0x0a0a16, NIGHT.fog, 0.4), hills: L3.Kit.skyline(SKYLINE, 720) });
+  const light = { sun: NIGHT.sun, sunCol: U.rgb01(NIGHT.sunCol), amb: U.rgb01(NIGHT.amb), ground: U.rgb01(NIGHT.ground) };
+  F = { cars: new Map(), light, walls: [], glow: L3.Kit.blob(64, 64, "rgba(255,200,130,0.9)"), shadow: L3.Kit.blob(48, 24, "rgba(0,0,6,0.6)"), pink: L3.Kit.blob(64, 64, "rgba(255,46,136,0.9)"), green: L3.Kit.blob(64, 64, "rgba(57,255,136,0.9)") };
+  const B = W.lots;                                  // each building: the colours of its walls as the low sun finds them, and a few lit windows' worth
+  for (let i = 0; i < B.n; i++) { const P = PAL[B.zone[i]], wall = P.wall[B.seed[i] % P.wall.length]; F.walls.push(hex(litUp(shade(wall, 1.25))), hex(litUp(shade(wall, 0.8))), hex(litUp(shade(wall, 0.55))), hex(P.lit[B.seed[i] % P.lit.length])); }
+}
+const SKYLINE = (() => { const r = U.rand(17), out = []; for (let i = 0; i < 40; i++) out.push({ a: i / 40 * TAU + r() * 0.1, d: 1500, r: 40 + r() * 70, h: 40 + r() * 170, seed: (r() * 1e9) | 0 }); return out; })();
+function paintMap(g, k, lit) {                       // the city from above: the 2D way's ground, and the map in the menus
+  const img = g.createImageData(g.canvas.width, g.canvas.height), d = img.data, n = g.canvas.width, s = MAP / n, o = new Float32Array(10);
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+    const x = -HALF + (i + 0.5) * s, z = -HALF + (j + 0.5) * s, h = W.land.at(x, z), q = (j * n + i) * 4;
+    let c = h < 0.3 ? SEA : Math.max(Math.abs(x), Math.abs(z)) > 606 ? 0x1c2a22 : ZCOL[HR.zoneOf(x, z)][(i + j) & 1];
+    if (lit && h >= 0.3) c = litUp(c);
+    d[q] = c >> 16; d[q + 1] = (c >> 8) & 255; d[q + 2] = c & 255; d[q + 3] = 255;
+  }
+  g.putImageData(img, 0, 0);
+  R.paint(g, k, -HALF, -HALF, { col: hex(lit ? litUp(ASPHALT) : 0x30323a), edge: hex(lit ? litUp(PAVE) : 0x4a4c56), mark: hex(lit ? litUp(MARK) : 0x8a8676) });
+}
+function carSprites(u) {
+  const key = u.K.id + "|" + u.col + "|" + u.trim;
+  if (!F.cars.has(key)) { const cm = carMesh(u.K, u.col, u.trim), row = []; for (let i = 0; i < 16; i++) row.push(L3.bake(cm, { yaw: i / 16 * TAU, pitch: 0.24, ppu: 14, light: F.light, glow: 0.3 })); F.cars.set(key, row); }
+  return F.cars.get(key);
+}
+function drawFlat(now) {
+  const flat = E.flat, far = VIEW.far, B = W.lots, fx = Math.sin(cam.yaw), fz = Math.cos(cam.yaw);
+  L3.begin(E, cam, 0, 0);
+  const gi = Math.floor((cam.x + HALF) / 32), gj = Math.floor((cam.z + HALF) / 32), rr = Math.ceil(far / 32);
+  F.stamp = (F.stamp || 0) + 1; if (!F.seen || F.seen.length < B.n) F.seen = new Int32Array(B.n);
+  for (let j = gj - rr; j <= gj + rr; j++) for (let i = gi - rr; i <= gi + rr; i++) {
+    if (i < 0 || j < 0 || i >= 40 || j >= 40) continue; const cell = B.cells[j * 40 + i];
+    for (let q = 0; q < cell.length; q++) {
+      const b = cell[q]; if (F.seen[b] === F.stamp) continue; F.seen[b] = F.stamp;
+      const dx = B.x[b] - cam.x, dz = B.z[b] - cam.z; if (dx * dx + dz * dz > far * far || dx * fx + dz * fz < -B.w[b]) continue;
+      const cs = Math.cos(B.yaw[b]), sn = Math.sin(B.yaw[b]), hw = B.w[b] / 2, hd = B.d[b] / 2, y0 = B.y[b] - B.foot[b], y1 = B.y[b] + B.h[b];
+      for (let f = 0; f < 4; f++) {                    // the walls that face the eye
+        const nx = f === 0 ? sn : f === 2 ? -sn : f === 1 ? -cs : cs, nz = f === 0 ? cs : f === 2 ? -cs : f === 1 ? sn : -sn, half = f & 1 ? hw : hd, wide = f & 1 ? hd : hw;
+        const mx = B.x[b] + nx * half, mz = B.z[b] + nz * half; if (nx * (cam.x - mx) + nz * (cam.z - mz) <= 0) continue;
+        const ax = mx - nz * wide, az = mz + nx * wide, bx = mx + nz * wide, bz = mz - nx * wide;
+        POLY[0] = ax; POLY[1] = y0; POLY[2] = az; POLY[3] = bx; POLY[4] = y0; POLY[5] = bz; POLY[6] = bx; POLY[7] = y1; POLY[8] = bz; POLY[9] = ax; POLY[10] = y1; POLY[11] = az;
+        flat.poly(POLY, F.walls[b * 4 + (nx * NIGHT.sun[0] + nz * NIGHT.sun[2] > 0.2 ? 0 : f & 1 ? 1 : 2)], 1);
+        const wy = B.y[b] + Math.min(B.h[b] - 1.5, 4 + ((B.seed[b] + f * 7) % 5) * 3.3);   // a storey of lit windows on it
+        POLY[1] = wy; POLY[4] = wy; POLY[7] = wy + 1.5; POLY[10] = wy + 1.5; POLY[0] = mx - nz * wide * 0.8 + nx * 0.1; POLY[2] = mz + nx * wide * 0.8 + nz * 0.1; POLY[3] = mx + nz * wide * 0.5 + nx * 0.1; POLY[5] = mz - nx * wide * 0.5 + nz * 0.1;
+        POLY[6] = POLY[3]; POLY[8] = POLY[5]; POLY[9] = POLY[0]; POLY[11] = POLY[2]; flat.poly(POLY, F.walls[b * 4 + 3], 0.9);
+      }
+    }
+  }
+  if (race && state !== "done") { const u = PL.unit, g = race.ev.gates[u.passed % race.n], y = W.ground(g.x, g.z); for (let s = -1; s <= 1; s += 2) flat.sprite(F.pink, g.x + g.tz * 9 * s, y + 4, g.z - g.tx * 9 * s, 0.14, 0.7 + 0.3 * Math.sin(now / 150)); }
+  else if (state === "roam") for (let k = 0; k < W.events.length; k++) { const s = W.events[k].start; if ((s.x - cam.x) * (s.x - cam.x) + (s.z - cam.z) * (s.z - cam.z) < far * far) flat.sprite(W.events[k].closed ? F.green : F.pink, s.x, W.ground(s.x, s.z) + 5, s.z, 0.2, 0.8); }
+  for (let i = 0; i < units.length; i++) {
+    const u = units[i], d = Math.hypot(u.x - cam.x, u.z - cam.z); if (d > far) continue;
+    const views = carSprites(u), rel = wrap(u.yaw - Math.atan2(u.x - cam.x, u.z - cam.z)), vi = ((Math.round(-rel / TAU * 16) % 16) + 16) % 16;
+    flat.sprite(F.shadow, u.x, u.y + 0.05, u.z, 0.09, 0.8); flat.sprite(views[vi], u.x, u.y, u.z, 1 / 14, 1);
+  }
+  flat.flush();
+}
+
+// ---------------------------------------------------------------- what's written on the picture: speed, gear and revs,
+// the nitro, the little map, the race's place and time (Low3D's UI: one draw call; built ten times a second)
+let hudAt = 0;
+const MM = [0, 0];
+function mapXY(x, z, cx, cz, c, s, k, o) { const dx = x - cx, dz = z - cz; o[0] = -(dx * c - dz * s) * k; o[1] = -(dx * s + dz * c) * k; return o; }   // the car's way up the map
+function clipLine(ui, x0, y0, x1, y1, r, ox, oy, t, col, a) {   // a line kept inside the map's square
+  for (let k = 0; k < 4; k++) {
+    const ax = k < 2 ? x0 : y0, bx = k < 2 ? x1 : y1, lim = k & 1 ? r : -r, ina = k & 1 ? ax <= lim : ax >= lim, inb = k & 1 ? bx <= lim : bx >= lim;
+    if (!ina && !inb) return; if (ina && inb) continue;
+    const f = (lim - ax) / (bx - ax), nx = x0 + (x1 - x0) * f, ny = y0 + (y1 - y0) * f; if (!ina) { x0 = nx; y0 = ny; } else { x1 = nx; y1 = ny; }
+  }
+  ui.line(ox + x0, oy + y0, ox + x1, oy + y1, t, col, a);
+}
+function drawHUD(now, w, h, solid) {
+  if (now - hudAt < 100) return; hudAt = now;
+  const ui = E.ui, S = Math.max(1, Math.round(h / 180)), M = 6 * S, c = PL.car, u = PL.unit, driving = !menu.at && (state === "roam" || state === "race" || state === "countdown" || state === "done") && !auto;
+  ui.begin(w, h);
+  if (menu.at || state === "paused") ui.rect(0, 0, w, h, INK, solid ? 0.88 : menu.at === "title" ? 0.4 : 0.64);   // (behind a menu: the picture dimmed here, not by the page)
+  if (!driving) { if (E.demo && race) ui.text(race.ev.name.toUpperCase(), M, M, 2 * S, BONE, 0.9, 0, INK); ui.end(); return; }
+  // the little map: the streets round the car, the way it's heading up
+  const ms = 26 * S, mx = w - M - ms, my = M + ms, k = ms / 150, cs = Math.cos(c.yaw), sn = Math.sin(c.yaw), reach = 150 * 1.5;
+  ui.rect(mx - ms, my - ms, ms * 2, ms * 2, INK, 0.55); ui.frame(mx - ms, my - ms, ms * 2, ms * 2, Math.max(1, S >> 1), BONE, 0.3);
+  for (let li = 0; li < R.lines.length; li++) { const P = R.lines[li].P, wd = R.lines[li].half > 7 ? 2 * S : 1.2 * S;
+    for (let q = 0; q + 3 < P.n + 2; q += 3) { const b = Math.min(P.n - 1, q + 3); if (Math.abs(P.x[q] - c.x) > reach || Math.abs(P.z[q] - c.z) > reach) continue;
+      mapXY(P.x[q], P.z[q], c.x, c.z, cs, sn, k, MM); const x0 = MM[0], y0 = MM[1]; mapXY(P.x[b], P.z[b], c.x, c.z, cs, sn, k, MM); clipLine(ui, x0, y0, MM[0], MM[1], ms - S, mx, my, wd, 0x8a8c96, 0.9); } }
+  const dot = (x, z, r, col, edge) => { mapXY(x, z, c.x, c.z, cs, sn, k, MM); let px = MM[0], py = MM[1]; const m2 = Math.max(Math.abs(px), Math.abs(py)), lim = ms - S * 2; if (m2 > lim) { if (!edge) return; px *= lim / m2; py *= lim / m2; } ui.disc(mx + px, my + py, r, col, 1); };
+  if (race) {
+    const P = race.ev.P;                             // the race's line, and the gate to make for
+    for (let q = 0; q + 4 < P.n + 3; q += 4) { const b = P.closed ? (q + 4) % P.n : Math.min(P.n - 1, q + 4); if (Math.abs(P.x[q] - c.x) > reach || Math.abs(P.z[q] - c.z) > reach) continue;
+      mapXY(P.x[q], P.z[q], c.x, c.z, cs, sn, k, MM); const x0 = MM[0], y0 = MM[1]; mapXY(P.x[b], P.z[b], c.x, c.z, cs, sn, k, MM); clipLine(ui, x0, y0, MM[0], MM[1], ms - S, mx, my, 1.4 * S, PINK, 0.95); }
+    if (!u.done) { const g = race.ev.gates[u.passed % race.n]; dot(g.x, g.z, 2.4 * S, BONE, true); dot(g.x, g.z, 1.6 * S, PINK, true); }
+    for (let i = 0; i < rivals.length; i++) dot(rivals[i].x, rivals[i].z, 1.8 * S, rivals[i].col, false);
+  } else for (let i = 0; i < W.events.length; i++) { const e = W.events[i]; dot(e.start.x, e.start.z, 2.6 * S, INK, true); dot(e.start.x, e.start.z, 1.9 * S, e.closed ? GREEN : PINK, true); }
+  ui.arrow(mx, my, 3.4 * S, 0, INK, 1); ui.arrow(mx, my, 2.5 * S, 0, u.col, 1);
+  // speed, the gear and the revs, the nitro
+  const mph = save.opts.units === 1, sp = String(Math.round(Math.abs(c.speed) * (mph ? 2.23694 : 3.6))), sx = w - M, touch = window.SofaPad && window.SofaPad.touch && window.SofaPad.touch.on, by = touch ? my + ms + 46 * S : h - M;   // (a touch screen's buttons are in that corner: under the little map instead)
+  ui.text(mph ? "MPH" : "KM/H", sx, by - 7 * S, S, BONE, 0.7, 1, INK);
+  ui.text(sp, sx, by - 9 * S - 7 * 4 * S, 4 * S, c.burn ? 0x7ac8ff : BONE, 1, 1, INK);
+  ui.text(c.gear === 0 ? "R" : String(c.gear), sx - ui.width(sp, 4 * S) - 4 * S, by - 9 * S - 7 * 2 * S, 2 * S, c.rev > 0.9 ? PINK : GREEN, 1, 1, INK);
+  const seg = 14, sw = 3 * S, bw = seg * (sw + S) - S, bx = sx - bw, ry = by - 12 * S - 7 * 4 * S;
+  for (let i = 0; i < seg; i++) { const on = c.rev * seg > i + 0.3; ui.rect(bx + i * (sw + S), ry, sw, 3 * S, on ? (i >= seg - 3 ? PINK : GREEN) : BONE, on ? 1 : 0.16); }
+  const nb = 44 * S, nx = (w - nb) >> 1, ny = h - M - 3 * S; ui.rect(nx - S, ny - S, nb + 2 * S, 5 * S, INK, 0.55); ui.rect(nx, ny, nb * c.nos, 3 * S, c.burn ? 0x7ac8ff : c.nos > 0.99 ? PINK : GREEN, 1);
+  ui.text("NITRO", nx - 2 * S, ny - 2 * S, S, BONE, 0.7, 1, INK);
+  let y = M;
+  if (race) {
+    const big = 4 * S, mid = 2 * S, x1 = ui.text(String(u.place), M, y, big, BONE, 1, 0, INK);
+    ui.text("/" + units.length, x1 + 2 * S, y + 7 * big - 7 * mid, mid, BONE, 0.8, 0, INK); ui.rect(M, y + 7 * big + 2 * S, x1 - M + 2 * S + ui.width("/" + units.length, mid), S, PINK, 1); y += 7 * big + 6 * S;
+    if (race.ev.closed) { ui.text("LAP " + lapOf(u) + "/" + race.ev.laps, M, y, mid, GREEN, 1, 0, INK); y += 7 * mid + 2 * S; }
+    ui.text(time(state === "race" || state === "done" ? (u.done ? u.time : race.t) : 0), M, y, mid, BONE, 1, 0, INK); y += 7 * mid + 2 * S;
+    ui.text(race.ev.name.toUpperCase(), M, y, S, BONE, 0.75, 0, INK);
+    if (state === "race" && !u.done) { const g = race.ev.gates[u.passed % race.n], a = wrap(Math.atan2(g.x - c.x, g.z - c.z) - cam.yaw); if (Math.abs(a) > 0.7) ui.arrow(w / 2, M + 8 * S, 7 * S, -a, PINK, 1); }
+  } else if (near >= 0 && Math.abs(c.speed) < 14) {
+    const e = W.events[near], b = save.best[e.id], t1 = e.name.toUpperCase(), yy = Math.round(h * 0.62);
+    ui.text(t1, w / 2, yy, 3 * S, e.closed ? GREEN : PINK, 1, 0.5, INK);
+    ui.text((e.closed ? e.laps + " LAPS, " : "SPRINT, ") + (e.len * (e.closed ? e.laps : 1) / 1000).toFixed(1) + " KM, " + (e.field + 1) + " CARS" + (b ? "  BEST " + ord(b.place).toUpperCase() + " " + time(b.time) : ""), w / 2, yy + 24 * S, S, BONE, 0.9, 0.5, INK);
+    ui.text(Math.abs(c.speed) < 3 ? label("a").toUpperCase() + ": RACE" : "STOP HERE TO RACE", w / 2, yy + 34 * S, 2 * S, BONE, 1, 0.5, INK);
+  }
+  if (sayText) {
+    const cut = sayText.indexOf("<small>"), a = cut < 0 ? sayText : sayText.slice(0, cut), b = cut < 0 ? "" : sayText.slice(cut + 7).replace("</small>", "");
+    const k1 = a.length > 12 ? 3 * S : 5 * S, sy = Math.round(h * 0.24);
+    if (a) ui.text(a.toUpperCase(), w / 2, sy, k1, a === "Go!" ? GREEN : BONE, 1, 0.5, PINK);
+    if (b) ui.text(b.toUpperCase(), w / 2, sy + 7 * k1 + 3 * S, 2 * S, BONE, 0.95, 0.5, INK);
+  }
+  ui.end();
+}
+
+// ---------------------------------------------------------------- the menus' content
+const MEDAL = ["", "1st", "2nd", "3rd"];
+function renderEvents() {
+  $("eventcards").innerHTML = W.events.map((e, i) => { const b = save.best[e.id];
+    return `<div class="item card" data-do="event" data-i="${i}"><span class="medal">${b && b.place <= 3 ? MEDAL[b.place] : ""}</span><span class="kind">${e.closed ? "Circuit · " + e.laps + " laps" : "Sprint"} · ${(e.len * (e.closed ? e.laps : 1) / 1000).toFixed(1)} km · ${e.field + 1} cars</span>
+      <span class="nm">${e.name}</span><span class="info">${e.about}</span><span class="info">${b ? "Your best: " + ord(b.place) + " in " + time(b.time) : "Not raced yet"}</span></div>`; }).join("");
+  hints();
+}
+function garageEnter() {
+  const S = menu.o.screens.garage, ids = openCars(), names = {}, pn = {}; for (const c of HR.CARS) names[c.id] = c.name; HR.PAINTS.forEach((p, i) => pn[i] = p[0]);
+  picks.car = ids.indexOf(save.car) >= 0 ? save.car : "kernel"; picks.paint = save.paint;
+  S.options = [{ k: "car", name: "Car", vals: ids, names }, { k: "paint", name: "Paint", vals: HR.PAINTS.map((p, i) => i), names: pn }];
+  renderGarage(); hints();
+}
+function garageChanged() { save.car = picks.car; save.paint = picks.paint; store(); setPlayer(); if (state === "attract") AUTO.pace = W.events[0].paceFor(PL.K.id); frozen = false; renderGarage(); }
+const PREVIEWS = new Map();
+function renderGarage() {
+  const K = HR.CAR_BY[picks.car], p = HR.PAINTS[picks.paint], key = K.id + "|" + picks.paint, s = K.spec;
+  if (!PREVIEWS.has(key)) PREVIEWS.set(key, L3.bake(carMesh(K, p[1], p[2]), { yaw: 2.45, pitch: 0.3, ppu: 46, glow: 0.2 }).c);
+  const pic = $("garagepic"); pic.textContent = ""; pic.appendChild(PREVIEWS.get(key));
+  const bar = (v, lo, hi) => `<div class="bar"><i style="width:${Math.round(clamp((v - lo) / (hi - lo), 0.08, 1) * 100)}%"></i></div>`;
+  $("garagestats").innerHTML = `<h3>${K.name}</h3><div class="about">${K.about}</div><div class="sgrid"><span>Top speed</span>${bar(s.top, 52, 76)}<span>Pull</span>${bar(s.power / s.mass, 0.14, 0.26)}` +
+    `<span>Grip</span>${bar(s.grip, 0.98, 1.22)}<span>Turn-in</span>${bar(s.quick, 5, 10)}<span>Slide</span>${bar(s.loose, 0.3, 0.95)}</div>`;
+  const locked = HR.CARS.filter(c => openCars().indexOf(c.id) < 0).map(c => c.name + (c.id === "segfault" ? " (three podiums)" : " (three wins)"));
+  $("garagelocked").textContent = locked.length ? "Still to win: " + locked.join(", ") : "Every car won.";
+}
+function optionChanged(k) {
+  store();
+  if (k === "music" || k === "sound") volumes();
+  if (k === "picture") { clearTimeout(optionChanged.t); optionChanged.t = setTimeout(() => E.setPicture(), 700); }   // (once the choice settles: it rebuilds the world)
+  if (k === "pixels") E.resize();
+  frozen = false;
+}
+function renderBox() { $("boxtable").innerHTML = E.rows().map(r => `<tr><td>${r[0]}</td><td>${U.esc(r[1])}</td></tr>`).join(""); }
+function retest() { $("boxtable").innerHTML = "<tr><td>Test</td><td>running… (about two seconds)</td></tr>"; E.retest(renderBox); }
+
+addEventListener("pointerdown", () => synth.start());
+document.addEventListener("visibilitychange", () => { if (document.hidden && (state === "race" || state === "roam")) pause(); });
+// for checks (#test): the game's own parts, a way to stand anywhere, and to let time pass without drawing
+if (E.test) window.HG = { get state() { return state; }, get W() { return W; }, get car() { return PL.car; }, get PL() { return PL; }, get units() { return units; }, get rivals() { return rivals; }, get race() { return race; },
+  get mode() { return E.mode; }, get screen() { return menu.at; }, get stream() { return STREAM; }, get G() { return G; }, get view() { return VIEW; }, get hud() { return E.ui.n; }, get near() { return near; },
+  E, HR, menu, cam, save: () => save, startRace, freeRoam, toTitle, pause, resume, backOnRoad, openCars,
+  get auto() { return auto; }, set auto(v) { auto = !!v; if (auto && race) { AUTO.P = race.ev.P; AUTO.pace = race.ev.paceFor(PL.K.id); AUTO.st.i = PL.unit.i; } },
+  goto(x, z, yaw) { place(x, z, yaw || 0); updateCam(1 / 60, 0); },
+  go() { if (state === "countdown") { state = "race"; race.t = 0; say(""); } },
+  quiet() { say(""); hudAt = 0; },
+  press(b) { onButton(b, "press"); },
+  // at junction i j of the street net, `out` metres towards its neighbour (di, dj), facing that way
+  stand(i, j, di, dj, out) { const a = R.nodes[W.net.id(i, j)], b = R.nodes[W.net.id(i + di, j + dj)], l = Math.hypot(b.x - a.x, b.z - a.z), k = (out || 0) / l; place(a.x + (b.x - a.x) * k, a.z + (b.z - a.z) * k, Math.atan2(b.x - a.x, b.z - a.z)); updateCam(1 / 60, 0); },
+  slide() { const c = PL.car; c.vx = Math.sin(c.yaw) * 24; c.vz = Math.cos(c.yaw) * 24; for (let n = 0; n < 70; n++) { PL.ctl.steer = 1; PL.ctl.hand = n < 40; PL.ctl.gas = n < 40 ? 0 : 1; PL.ctl.brake = 0; stepPlayer(1 / 60); } camSnap = false; for (let n = 0; n < 30; n++) updateCam(1 / 60, 0); held = true; },
+  set held(v) { held = !!v; },
+  sim(secs) { for (let n = Math.round(secs * 60); n > 0; n--) update(1 / 60); camSnap = true; },
+  finish() { if (!race) return; const u = PL.unit; if (state === "countdown") state = "race"; u.passed = race.need; u.done = true; u.time = race.t || 60; finished(); } };
+E.start();
+})();
+</script></body></html>

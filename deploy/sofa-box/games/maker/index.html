@@ -736,6 +736,9 @@ const tree = (id, name, about) => ({ id, name, group: "trees", about, details: [
 const house = (walls, about) => ({ id: "house-" + walls, name: "house, " + walls, group: "buildings", about, details: [0, 1, 2], seeded: true,
   make: (L3, m, glow, o) => { L3.Kit.house(m, glow, 0, 0, 0, 0, 1, { seed: o.seed, detail: o.detail, walls }); },
   code: o => "L3.Kit.house(m, glow, x, y, z, yaw, 1, { seed: " + o.seed + ", detail: " + o.detail + ", walls: \"" + walls + "\" });" });
+const tower = (kind, w, d, h, about) => ({ id: "tower-" + kind, name: kind === "block" ? "town block" : kind, group: "buildings", about, details: [0, 1, 2], seeded: true,
+  make: (L3, m, glow, o) => { L3.Kit.tower(m, glow, 0, 0, 0, 0, w, d, h, { seed: o.seed, detail: o.detail, kind, sign: 0xff2e88 }); },
+  code: o => "L3.Kit.tower(m, glow, x, y, z, yaw, " + w + ", " + d + ", " + h + ", { seed: " + o.seed + ", detail: " + o.detail + ", kind: \"" + kind + "\", sign: 0xff2e88 });" });
 window.MakerKit = [
   tree("fir", "fir", "Skirts of boughs, each over the one below."),
   tree("birch", "birch", "A pale leaning trunk with its marks, clumps up it."),
@@ -754,6 +757,9 @@ window.MakerKit = [
   house("logs", "Logs laid one on another, their ends crossing."),
   house("stone", "Courses of dressed stone, quoins at the corners."),
   house("planks", "Boards standing side by side, bound with straps."),
+  tower("block", 18, 14, 20, "A town building: storeys of windows, some lit, a shop front and its sign."),
+  tower("tower", 24, 22, 70, "Tall, its top set back, a red light on its mast."),
+  tower("shed", 30, 20, 9, "Low and wide under a pitched roof: a big door, a lamp over it."),
   { id: "hut", name: "hut", group: "buildings", about: "Four walls and a roof, a lit window.",
     make: (L3, m, glow) => { L3.Kit.hut(m, 0, 0, 0, 0, 0xb8a88c, 0x6a332c, glow, 0xffd890); }, code: () => "L3.Kit.hut(m, x, y, z, yaw, 0xb8a88c, 0x6a332c, lamps, 0xffd890);" },
   { id: "lighthouse", name: "lighthouse", group: "buildings", about: "Banded, with its lamp room.",
@@ -767,10 +773,14 @@ window.MakerKit = [
   { id: "woodpile", name: "woodpile", group: "things", about: "Cut logs stacked, their ends showing.",
     make: (L3, m) => { L3.Kit.woodpile(m, 0, 0, 0, 0, 1); }, code: () => "L3.Kit.woodpile(m, x, y, z, yaw, 1);" },
   { id: "bench", name: "bench", group: "things", about: "A plank on two legs.",
-    make: (L3, m) => { L3.Kit.bench(m, 0, 0, 0, 0, 1); }, code: () => "L3.Kit.bench(m, x, y, z, yaw, 1);" }
+    make: (L3, m) => { L3.Kit.bench(m, 0, 0, 0, 0, 1); }, code: () => "L3.Kit.bench(m, x, y, z, yaw, 1);" },
+  { id: "lamp", name: "street lamp", group: "things", about: "A post, an arm over the road, its head lit.",
+    make: (L3, m) => { L3.Kit.lamp(m, 0, 0, 0, 0, { h: 7, reach: 2.5 }); }, code: () => "L3.Kit.lamp(m, x, y, z, yaw, { h: 7, reach: 2.5 });" },
+  { id: "car", name: "car", group: "things", about: "From a recipe of lengths, heights and colours; its lights lit by themselves.",
+    make: (L3, m) => { L3.Kit.car(m, { len: 4.35, wide: 1.82, high: 1.26, wing: 0.14, body: 0x39ff88 }); }, code: () => "L3.Kit.car(m, { len: 4.35, wide: 1.82, high: 1.26, wing: 0.14, body: 0x39ff88 });" }
 ];
 // what the list leaves out on purpose: the Kit's parts that aren't things to stand in a scene
-window.MakerKit.others = ["shadow", "lay", "cast", "hills", "skyline", "dome", "skyV", "sky", "ripples", "blob", "TREES"];
+window.MakerKit.others = ["shadow", "lay", "cast", "strip", "hills", "skyline", "dome", "skyV", "sky", "ripples", "blob", "TREES"];
 })();
 </script>
 <script>

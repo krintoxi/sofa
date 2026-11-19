@@ -163,7 +163,8 @@ class TheCards(unittest.TestCase):
             fresh[gid] = literal(P[gid], P[gid].index('L2.Store("%s", () => (' % gid))
         fresh["rune-tactics"] = literal(P["rune-tactics"], P["rune-tactics"].index("const fresh = () => ("))
         self.assertIn('new L2.Store("rune-tactics", fresh)', P["rune-tactics"])
-        for gid, fn in (("tidewing", "function fresh() { return "), ("ironmaw", "function fresh() { return "), ("wyrd", "function freshSave() { return ")):
+        for gid, fn in (("tidewing", "function fresh() { return "), ("ironmaw", "function fresh() { return "), ("wyrd", "function freshSave() { return "),
+                        ("halogen", "function fresh() { return ")):
             fresh[gid] = literal(P[gid], P[gid].index(fn) + len(fn) - 1)
             self.assertIn('const SAVE = "%s";' % gid, P[gid])
         slot = literal(P["cinder-knight"], P["cinder-knight"].index("function freshSlot() {\n  return ") + 24)
@@ -180,7 +181,7 @@ class TheCards(unittest.TestCase):
         self.assertIn("for (let i = 0; i < 60; i++) if (puzzleOpen(i)", P["cosmic-cascade"])
         self.assertIn('SAVE.deepest >= 4 ? "ALL THE WAY" : "ZONE " + Math.max(1, SAVE.deepest + (SAVE.runs ? 1 : 0))', P["void-drifter"])
         for gid, words in (("shadow-heist", "twelve heists"), ("rune-tactics", "fifteen-battle"), ("neon-brawler", "five stages"),
-                           ("cosmic-cascade", "sixty puzzle boards"), ("tidewing", "twelve courses"), ("ironmaw", "nine levels")):
+                           ("cosmic-cascade", "sixty puzzle boards"), ("tidewing", "twelve courses"), ("ironmaw", "nine levels"), ("halogen", "six races")):
             self.assertIn(words, next(g["about"] for g in CATALOG["games"] if g["id"] == gid))
         js = """
 const S = require(process.argv[1]), F = {%s}, slot = () => (%s), camp = () => (%s), out = {};
@@ -208,6 +209,7 @@ out.cascade = step("cosmic-cascade", s => { for (let i = 0; i < 15; i++) s.solve
 out.cascadeBest = step("cosmic-cascade", s => { s.endless.score = 1240; });
 out.tide = step("tidewing", s => { s.open = 6; s.cups.tide = 1; });
 out.iron = step("ironmaw", s => { s.reached = 4; });
+out.halogen = step("halogen", s => { s.best["ring-zero"] = { place: 2, time: 61.4 }; s.best["hill-drop"] = { place: 1, time: 74.0 }; });
 put("gloamwell-slot-0", { v: 2, cls: 0, lvl: 3, deepest: 2 }); put("gloamwell-slot-2", { v: 2, cls: 1, lvl: 9, deepest: 6 });
 out.gloam = say("gloamwell");
 put("neonDodgeHi", "412"); put("skyHopHi", "88"); put("pairBest", "11");
@@ -223,6 +225,7 @@ console.log(JSON.stringify(out));
         self.assertEqual(sorted(out["saved"]), sorted(g["id"] for g in CATALOG["games"]))      # a reader for every game
         self.assertEqual(out["fresh"], {g["id"]: None for g in CATALOG["games"]})              # never played: nothing said
         self.assertEqual(out["wyrd"], ["Wren, level 12", None])
+        self.assertEqual(out["halogen"], ["2 of 6 races run", 33])
         self.assertEqual(out["wyrdFar"], ["Ash, level 30", None])
         self.assertEqual(out["cinder"], ["Stage 4", None])
         self.assertEqual(out["cinderDone"], ["Finished", 100])

@@ -26,5 +26,25 @@
       {"id": "camp-greywyrd", "set": "regions", "name": "The Greywyrd's camp", "run": "const p = (WY.W.feats || WY.W.nodes).find(n => n.kind === 'portal' && n.reg === 5); WY.goto(p.x + 1, p.z - 2); WY.H.yaw = Math.PI; WY.sim(0.3);", "settle": 2500},
       {"id": "country-greywyrd", "set": "regions", "name": "The Greywyrd's open country", "run": "const a = -Math.PI + (5 - 0.5) * Math.PI * 2 / 5 + 0.628 + 0.12; WY.goto(Math.cos(a) * 170, Math.sin(a) * 170); WY.H.yaw = Math.PI; WY.sim(0.3);", "settle": 2500}
     ]
+  },
+  "halogen": {
+    "hash": "test",
+    "ready": "window.HG && HG.E && HG.E.ready && HG.W",
+    "prelude": "HG.freeRoam(); HG.quiet();",
+    "quiet": "HG.quiet();",
+    "stats": "HG.E.g3 ? HG.E.g3.calls + ' draws, ' + (HG.E.g3.tris / 1000).toFixed(1) + 'k triangles' : '2D'",
+    "places": [
+      {"id": "avenue", "set": "streets", "name": "The avenue between the towers", "run": "HG.stand(4, 3, 0, 1, 20);", "settle": 2500},
+      {"id": "towers", "set": "streets", "name": "Under the towers, a side street", "run": "HG.stand(5, 4, 1, 0, 30);", "settle": 2500},
+      {"id": "hill-top", "set": "streets", "name": "Stack Hill: from the top, east", "run": "HG.stand(2, 2, 1, 0, 14);", "settle": 2500},
+      {"id": "hill-street", "set": "streets", "name": "Stack Hill: a street of houses", "run": "HG.stand(1, 3, 0, -1, 30);", "settle": 2500},
+      {"id": "old-blocks", "set": "streets", "name": "The old blocks", "run": "HG.stand(2, 7, -1, 0, 30);", "settle": 2500},
+      {"id": "quay", "set": "streets", "name": "The quays and the bay", "run": "HG.stand(5, 6, 0, 1, 30);", "settle": 2500},
+      {"id": "ringway", "set": "streets", "name": "The north ringway", "run": "HG.stand(6, 0, 1, 0, 30);", "settle": 2500},
+      {"id": "grid", "set": "race", "name": "Ring Zero: on the grid", "run": "HG.startRace(0);", "settle": 1200},
+      {"id": "pack", "set": "race", "name": "Ring Zero: in the pack, first corner", "run": "HG.startRace(0); HG.auto = true; HG.go(); HG.sim(9);", "settle": 2000},
+      {"id": "drop", "set": "race", "name": "Hill Drop: over the top", "run": "HG.startRace(2); HG.auto = true; HG.go(); HG.sim(13);", "settle": 2000},
+      {"id": "slide", "set": "race", "name": "A handbrake slide", "run": "HG.stand(4, 6, 0, -1, 30); HG.slide();", "settle": 600}
+    ]
   }
 }

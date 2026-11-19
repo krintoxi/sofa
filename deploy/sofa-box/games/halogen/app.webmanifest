@@ -1,0 +1,25 @@
+{
+  "name": "Halogen",
+  "short_name": "Halogen",
+  "description": "Street racing through an open city at nightfall: a hill, avenues between towers and quays on a bay to drive freely, six races marked on the streets, four cars that each handle their own way, in low-poly 3D tuned to your box.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#0b0d10",
+  "theme_color": "#0b0d10",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

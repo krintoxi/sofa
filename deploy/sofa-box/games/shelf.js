@@ -90,6 +90,10 @@
       const s = obj(get, "ironmaw"), n = s && whole(s.reached);
       return n > 1 || (s && count(s.best)) ? { line: "Level " + Math.min(9, Math.max(1, n)) + " of 9", pct: Math.round(100 * (Math.min(9, Math.max(1, n)) - 1) / 9) } : null;
     },
+    halogen(get) {
+      const s = obj(get, "halogen"), n = s && count(s.best);                // (a race it has a best for is a race run)
+      return n ? of(n, 6, "races run") : null;
+    },
     "neon-dodge"(get) { const n = num(get, "neonDodgeHi"); return n ? { line: "Best: " + n } : null; },
     "sky-hop"(get) { const n = num(get, "skyHopHi"); return n ? { line: "Best: " + n } : null; },
     "pair-up"(get) { const n = num(get, "pairBest"); return n ? { line: "Best: " + n + (n === 1 ? " turn" : " turns") } : null; }

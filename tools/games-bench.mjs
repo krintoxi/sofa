@@ -101,6 +101,14 @@ SCENES.wyrd = [
   Object.assign({ name: "level 75: the moment (again every 7 s)" }, wy(`WY.goto(-85, -235); WY.AI.job = "wood"; WY.celebrate("wood"); setInterval(() => WY.celebrate(["mine", "smith", "wood", "fire", "summon"][(Math.random() * 5) | 0]), 7000);`, 600)),
   Object.assign({ name: "under a well: a cave, the pilot fighting through it" }, wy(`WY.toWorld("wild", 0, WY.cavePlace(3, 2));`, 3500))
 ];
+// Halogen: the driver at the wheel (#test), in free roam and in a race
+const hg = (enter, settle) => ({ hash: "test", settle: settle || 3000, until: `HG.W && !HG.screen && HG.state !== "countdown"`, enter });
+SCENES.halogen = [
+  { name: "it plays itself (#demo): Ring Zero, five cars", hash: "demo", settle: 6000 },
+  Object.assign({ name: "a race: Core Loop, six cars round the towers" }, hg(`HG.startRace(5); HG.auto = true; HG.go();`, 4000)),
+  Object.assign({ name: "a race: Hill Drop, over Stack Hill (squares made and given back)" }, hg(`HG.startRace(2); HG.auto = true; HG.go();`, 4000)),
+  Object.assign({ name: "flat out down the avenue (the city made ahead of the car)" }, hg(`HG.startRace(1); HG.auto = true; HG.go();`, 2500))
+];
 const sceneList = g => (SCENES[g] || [{ name: "it plays itself (#demo)", hash: "demo", settle: 5000 }]).filter(s => !ONLY || ONLY.some(o => s.name.toLowerCase().includes(o.toLowerCase())));
 
 // ---------------------------------------------------------------- the box it stands in for
