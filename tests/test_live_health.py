@@ -276,21 +276,21 @@ class ChannelsThatDontAnswer(unittest.TestCase):
         self.assertFalse(os.path.exists(live.HEALTH + ".tmp"))
 
     def test_a_number_is_the_same_channel_for_everyone(self):
-        """A channel's number on the dial doesn't depend on who looks: an adult channel between two others leaves a gap
-        for a profile that can't see it, not a shift."""
+        """A channel's number on the dial doesn't depend on who looks: an adult channel is never among the others (it's on
+        the Adult section's own page) and is counted apart, so it takes or moves nobody's number."""
         mine = live._channels
         cid = "a" * 12
         mine[cid] = {"id": cid, "name": "Gold", "group": "News", "url": Air.base + "/good/index.m3u8", "headers": {},
-                     "home": True, "adult": True, "playlist": "Tuner", "logo": None, "lists": [Air.base + "/list.m3u"]}
+                     "home": True, "adult": True, "playlist": "Tuner", "logo": None, "lists": [Air.base + "/list.m3u"],
+                     "number": live.ADULT_FIRST}
         try:
-            for n, c in enumerate(sorted(mine.values(), key=lambda c: (c["group"].lower(), c["name"].lower(), c["id"]))):
-                c["number"] = live.FIRST_NUMBER + n
             uid = store.q1("SELECT id FROM users WHERE name = 'air-viewer'")["id"]
             plain = {c["name"]: c["number"] for c in live.listing(uid)["channels"]}
             grown = {c["name"]: c["number"] for c in live.listing(uid, adult=True)["channels"]}
             self.assertNotIn("Gold", plain)
-            self.assertEqual({k: grown[k] for k in plain}, plain)
-            self.assertEqual(len(set(grown.values())), len(grown))
+            self.assertEqual(grown, plain)
+            self.assertEqual([(c["name"], c["number"]) for c in live.listing(uid, adult=True, only_adult=True)["channels"]],
+                             [("Gold", live.ADULT_FIRST)])
         finally:
             mine.pop(cid, None)
         live.refresh()                                                            # the lists read again: numbered afresh

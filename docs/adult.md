@@ -121,4 +121,14 @@ press **Find details**.
 
 The free iptv-org channel lists stopped carrying adult channels in January 2024, and there's
 no other free, legitimate list Sofa can suggest. If you have an M3U link from a service you
-trust, add it under **Server → Live TV** and tick **Adult channels**.
+trust, add it under **Server → Live TV** and tick **Adult channels** (a list that's already there has an
+**Adult** switch; the page says so when a list's name looks adult and isn't marked).
+
+A list marked Adult has its own page, **Adult → Live TV**, and its channels are nowhere else:
+
+- Not in Live TV, for anyone. Only people allowed to see the Adult section get the page.
+- Never for visitors (marking a list Adult ends sharing it), Kids profiles or guests, and never for a TV on the network.
+- At home only: adult channels are never sent out through Sofa, and never play away from home.
+- Activity doesn't name an adult list, "Watching now" says "something private", and a Sofa Box's player and its
+  phone remote show the channel's number, not its name.
+- A channel is adult when any list holding it is, whichever list was added first.

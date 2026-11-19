@@ -6,6 +6,40 @@ has its own numbers and list: [deploy/sofa-box/CHANGES.md](deploy/sofa-box/CHANG
 A change to Sofa's code (`sofa/`, `client/`, `sofa.py`) gets a new version: raise `__version__`, add a section
 here, then `python3 tools/sofa-version.py` (a test checks it was done).
 
+## 1.5.27 (2026-11-19)
+
+- **Live TV has a new page.** Live now is three parts side by side: the categories with how many channels each holds,
+  the channels of the one you chose (a row a channel: its logo, its number, its name), and the channel in view in its
+  own pane. On a computer or a phone the channel plays in that pane without sound while you look around ("No picture
+  here" turns that off); a TV and a Sofa Box show its logo there. On a remote, left goes to the categories and right
+  comes back to the channel. A phone gets the pane, then the categories in a row, then the channels.
+- **Categories you can use.** Lists name their groups every which way and put a third of their channels in "General"
+  or "Undefined". Sofa now folds them into a short set in a fixed order (News, Sports, Movies, Series, Entertainment,
+  Kids, Music, Documentary, Lifestyle, Learning, Faith, Shopping), then a list's own groups (a country, a language),
+  then **Everything else**; **★ Favorites** and **Last watched** come first. "SPORTS" and "Sports" are one, emoji
+  are gone, "News;Business" is News, a channel in a catch-all group goes by its name where the name says what it is,
+  and a group called "All" no longer makes a second All button. Names lose a list's marks ("(720p)",
+  "[Not 24/7]"). The same channel from two lists, or in two picture sizes, is one row: the first that answers plays,
+  and when it doesn't the player in a browser tries the other before giving up (a Sofa Box's own player doesn't yet). Channel numbers follow the new order, so they
+  changed once with this version.
+- **Adult Live TV.** A channel list marked **Adult** has its own page in the Adult section (**Adult → Live TV**), and
+  its channels are nowhere else: not in Live TV (they used to be mixed in for anyone allowed to see Adult), never for
+  visitors, Kids profiles or guests, never for a TV on the network, and never away from home. Server → Live TV has
+  an **Adult** switch on every list (it was only a box to tick when adding one), says so when a list's name looks
+  adult and isn't marked, and ticks the box by itself for such a name. Marking a list Adult ends sharing it with
+  visitors. An adult list isn't named in Activity, "Watching now" says "something private", and a Sofa Box's player
+  and its phone remote get the channel's number, not its name. A channel is adult when any list holding it is.
+  Adult channels are numbered from 9001, so adding them moves no other channel's number.
+- **Changing channel.**
+  - **On a Sofa Box, up and down did nothing in a list of more than 600 channels** (the box was handed the one channel
+    alone): it now gets the 600 around the one you're on.
+  - When you tune in, Sofa fetches the playlists of the channels next up and next down, once (a few hundred bytes
+    each, no video), so the next change starts from what's already there. It helps while you flip through channels:
+    in a browser, on stand-in channels 250 ms away, the first picture came in about 0.45 s instead of 0.67 s when the
+    next change came within four seconds. A change after watching for a while takes as long as it did. Never for a
+    tuner or a list at home.
+  - Up and down now go through the channels in the order the page shows them.
+
 ## 1.5.26 (2026-11-19)
 
 - **Sofa in Spanish.** On a phone, computer or TV set to Spanish, the pages you use every day are in Spanish: the

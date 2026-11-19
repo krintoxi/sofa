@@ -11,10 +11,14 @@ Channels that don't answer are left out: Sofa looks at each one now and then (th
 open it, a few at a time, and only while Live TV is being used here), remembers the ones that are gone, and
 lists them again when they come back. An admin can see them anyway.
 
-Adult channels (from a list the admin marked "adult", or in a group like "XXX")
-are only listed for people allowed to see the Adult section, and never on TVs.
-Note: iptv-org stopped publishing adult channels in January 2024, so adult
-channels only come from lists you add yourself.
+Adult channels (from a list the admin marked "adult", or in a group like "XXX") are never in Live TV itself: they
+have their own page in the Adult section, for people allowed to see it, and are never a Visitor's, a Kids profile's or
+a TV's on the network, and never played away from home. A channel is adult when any list holding it is.
+
+Categories: lists name their groups every which way ("SPORTS", "Sports", "Kids" with emoji, "News;Business"), and put
+a third of their channels in "General" or "Undefined". category() folds them into a short set in a fixed order; a
+channel in a catch-all group goes by its name where the name says what it is. The same channel in several lists (or
+in several picture sizes) is one row: the first that answers plays, the others stand by (`alt`).
 """
 import base64
 import hashlib
@@ -43,9 +47,68 @@ AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (K
 ATTR = re.compile(r'([\w-]+)="([^"]*)"')
 ADULT_GROUP = re.compile(r"\b(xxx|adult|adults|18\+|erotic|porn|nsfw)\b", re.I)
 GEO = re.compile(r"\[geo-?blocked\]|\u24bc", re.I)      # a list's own mark for "only in its country" ([Geo-blocked], Ⓖ)
+ADULT_NAME = re.compile(r"(?<![a-z])(xxx|adults?|18\+|erotic\w*|porn\w*|nsfw)(?![a-z])", re.I)   # in a list's name or address
+ADULT_FIRST = 9001                  # the dial: adult channels from here, so adding a list of them moves no other number
+
+# Categories, in the order Live TV shows them. The words are what lists call their groups (and, for a channel in a
+# catch-all group, what its name may say).
+CATEGORIES = (
+    ("News", "news noticias noticiero nouvelles nachrichten notizie noticies business finance weather legislative politics parliament government"),
+    ("Sports", "sport sports deportes deporte esportes auto motor racing fight football futbol soccer"),
+    ("Movies", "movies movie films film cinema cine classic peliculas filmes"),
+    ("Series", "series shows novelas telenovelas drama"),
+    ("Entertainment", "entertainment entretenimiento comedy variety infotainment interactive"),
+    ("Kids", "kids kid children animation cartoons cartoon family infantil junior toons"),
+    ("Music", "music musica musique radio hits"),
+    ("Documentary", "documentary documentaries documentales science nature travel history culture"),
+    ("Lifestyle", "lifestyle cooking food relax fashion outdoor"),
+    ("Learning", "education educational learning educativo"),
+    ("Faith", "religious religion faith christian catholic islamic gospel church"),
+    ("Shopping", "shop shopping"),
+)
+REST = "Everything else"
+CATCH_ALL = frozenset("other others general undefined unknown all uncategorized misc various tv channel channels none na".split())
+_CAT_OF = {w: name for name, words in CATEGORIES for w in words.split()}
+_NAME_WORDS = frozenset("news noticias sport sports deportes movies cinema cine films kids junior toons cartoon music musica hits "
+                        "gospel church shop shopping weather radio".split())
+_WORDS = re.compile(r"[^\W\d_]+", re.UNICODE)
+_TAGS = re.compile(r"\s*(?:\((?:\d{3,4}[pi]|[SFUQ]?HD|SD|4K)\)|\[(?:geo-?blocked|not 24/7|offline)\]|[\u24bc\u24c8])", re.I)
+
+
+def tidy_name(name):
+    """A channel's name without a list's own marks: "(720p)", "[Geo-blocked]", "[Not 24/7]"."""
+    return re.sub(r"\s{2,}", " ", _TAGS.sub("", name or "")).strip() or (name or "").strip() or "Channel"
+
+
+def category(group, name=""):
+    """Where a channel goes in Live TV, from its list's group ("News;Business", "SPORTS", "Kids" with emoji) and, in a
+    catch-all group, from its name. A group that names something else (a country, a language) stays, tidied."""
+    left = None
+    for part in (group or "").split(";"):
+        words = [w.lower() for w in _WORDS.findall(part)]
+        for w in words:
+            if w in _CAT_OF:
+                return _CAT_OF[w]
+        if left is None and words and not all(w in CATCH_ALL for w in words):
+            left = " ".join(w.capitalize() for w in words)[:28]
+    if left:
+        return sys.intern(left)
+    for w in _WORDS.findall(name or ""):
+        if w.lower() in _NAME_WORDS and w.lower() in _CAT_OF:
+            return _CAT_OF[w.lower()]
+    return REST
+
+
+_CAT_RANK = {name: n for n, (name, _) in enumerate(CATEGORIES)}
+
+
+def cat_rank(cat):
+    """Sorting by category: the known ones in their order, then the lists' own, then everything else."""
+    return (0, _CAT_RANK[cat], "") if cat in _CAT_RANK else (2, 0, "") if cat == REST else (1, 0, (cat or "").lower())
 
 _lock = threading.Lock()
 _channels = {}      # id -> channel
+_numbered = {}      # a number on the dial -> the first channel that has it
 _status = {}        # playlist url -> {"count", "updated", "error"}
 _key = None
 
@@ -104,9 +167,9 @@ def parse_m3u(text, source, adult=False):
         if line.startswith("#EXTINF"):
             attrs = dict(ATTR.findall(line))
             name = line.rsplit(",", 1)[-1].strip() if "," in line else attrs.get("tvg-name", "Channel")
-            info = {"name": name or attrs.get("tvg-name") or "Channel", "logo": attrs.get("tvg-logo") or None,
-                    "group": intern((attrs.get("group-title") or "Other").split(";")[0].strip() or "Other"),
-                    "tvg": attrs.get("tvg-id") or None, "geo": bool(GEO.search(line))}
+            name, raw = tidy_name(name or attrs.get("tvg-name") or "Channel"), attrs.get("group-title") or ""
+            info = {"name": name, "logo": attrs.get("tvg-logo") or None, "group": intern(category(raw, name)),
+                    "tvg": attrs.get("tvg-id") or None, "geo": bool(GEO.search(line)), "adult": bool(ADULT_GROUP.search(raw))}
             opts = {}
         elif line.startswith("#EXTVLCOPT:"):
             k, _, v = line[len("#EXTVLCOPT:"):].partition("=")
@@ -118,7 +181,7 @@ def parse_m3u(text, source, adult=False):
             if line.startswith(("http://", "https://")):
                 cid = hashlib.sha1(line.encode()).hexdigest()[:12]
                 channels.append(dict(info, id=cid, url=line, playlist=source, headers=opts or NO_HEADERS,
-                                     adult=adult or bool(ADULT_GROUP.search(info["group"]))))
+                                     adult=adult or info["adult"]))
             info, opts = None, {}
     return channels
 
@@ -407,7 +470,8 @@ def _fetch_lists(force, only):
             _errors.pop(url, None)
         except Exception as exc:
             _errors[url] = str(exc)[:200]
-            store.log("live", "Couldn't update channel list \"%s\": %s" % (name, _errors[url]))
+            store.log("live", "Couldn't update %s: %s" % ("an adult channel list" if pl.get("adult") else   # (no names of those)
+                                                          "channel list \"%s\"" % name, _errors[url]))
         _home[url] = at_home(url)                       # (looking a name up can take a while: here, not in a request)
 
 
@@ -428,6 +492,8 @@ def _build(force):
         for c in () if off else found:
             c["home"] = home
             kept = channels.setdefault(c["id"], c)
+            if c["adult"]:
+                kept["adult"] = True                    # (adult in any list: adult, whichever list came first)
             if url not in kept.get("lists", ()):
                 kept["lists"] = kept.get("lists", ()) + (sys.intern(url),)   # (the same stream in two lists: one channel, in both)
         _status[url] = {"name": name, "url": url, "count": len(found), "error": _errors.get(url), "adult": bool(pl.get("adult")),
@@ -437,20 +503,43 @@ def _build(force):
         channels = demo.channels()
     # each channel's number on the dial: today's channels from 101, after Sofa's own lineup (2 to 99), by group and
     # name, counted over every channel so a number is the same channel for everyone (an adult profile, a Visitor)
-    n = -1
-    for n, c in enumerate(sorted(channels.values(), key=lambda c: (c["group"].lower(), c["name"].lower(), c["id"]))):
-        c["number"] = FIRST_NUMBER + n
+    # The same channel from several lists, or in several picture sizes: one row and one number (`same`: its category,
+    # its name and the id its lists give it, so two channels that only share a name stay two), in list order.
+    # Adult channels are counted apart, after everything else (from 9001, or the next thousand in a home with more
+    # channels than that): a list of them added or marked moves no other channel's number.
+    n, seen, later = -1, {}, []
+    for c in sorted(channels.values(), key=lambda c: (bool(c.get("adult")), cat_rank(c["group"]), c["name"].lower(), c["id"])):
+        c["same"] = same = sys.intern("%d|%s|%s|%s" % (bool(c.get("adult")), c["group"].lower(), c["name"].lower(), c.get("tvg") or ""))
+        if c.get("adult"):
+            later.append(c)
+            continue
+        if same not in seen:
+            n += 1
+            seen[same] = FIRST_NUMBER + n
+        c["number"] = seen[same]
     # then the tuners' channels (sofa/tuners.py), in their own order ("2.1", "5.1", "5.2"), after the lists' so adding
     # a tuner moves no channel a household already knows by its number. A tuner's channel is in no list (so never a
     # Visitor's) and at home (so never played away from home through this Sofa).
     from . import tuners
-    for m, c in enumerate(t for t in tuners.channels(force) if t["id"] not in channels):
-        c["number"] = FIRST_NUMBER + n + 1 + m
+    last = FIRST_NUMBER + n
+    for k, c in enumerate(t for t in tuners.channels(force) if t["id"] not in channels):
+        c["number"] = last = FIRST_NUMBER + n + 1 + k
         c["lists"] = ()
         channels[c["id"]] = c
+    m = max(ADULT_FIRST, (last // 1000 + 1) * 1000 + 1)
+    for c in later:
+        if c["same"] not in seen:
+            seen[c["same"]] = m
+            m += 1
+        c["number"] = seen[c["same"]]
+    numbered = {}
+    for c in channels.values():
+        numbered.setdefault(c.get("number"), c["id"])
     with _lock:
         _channels.clear()
         _channels.update(channels)
+        _numbered.clear()
+        _numbered.update(numbered)
         _gen[0] += 1
     return len(channels)
 
@@ -469,51 +558,88 @@ def visible(chan):
     return bool(chan) and (bool(config.get("live_headers")) or not (h.get("ua") or h.get("referer")))
 
 
-def listing(user_id, adult=False, public_only=False, direct_only=False, show_down=False):
-    """Live TV's channels for one viewer. The ones that don't answer are left out (`down` says how many), except a
-    viewer's own favourites, which stay with a mark, and for an admin who asked to see them anyway (`show_down`). `public_only`: a Visitor of the public library, who gets only the lists an
+def listing(user_id, adult=False, public_only=False, direct_only=False, show_down=False, only_adult=False):
+    """Live TV's channels for one viewer, by category (`cats`: their order). The ones that don't answer are left out
+    (`down` says how many), except a viewer's own favourites, which stay with a mark, and for an admin who asked to see
+    them anyway (`show_down`). The same channel from several lists is one row: the first that answers, the others in
+    `alt` for the player to fall back on. Adult channels are never among the others: `only_adult` is their own page, for
+    a viewer who may see Adult (`adult`). `public_only`: a Visitor of the public library, who gets only the lists an
     admin marked for visitors. `direct_only`: away from home (and every Visitor), where a channel plays straight from
     where it's streamed or not at all: never through this Sofa, which would make the home's connection theirs (past a
     channel's own country limits) and its upload a public broadcaster. Each such channel carries its own address (src)."""
     _load_health()
+    only_adult = bool(only_adult and adult and not public_only)
     favs = {r["channel"] for r in store.q("SELECT channel FROM live_favorites WHERE user_id = ?", user_id)}
-    lists = [p for p in playlists() if adult or not p.get("adult")]
-    public = {p["url"] for p in lists if p.get("public")} | ({"demo"} if config.demo_on() else set())
+    lists = [p for p in playlists() if bool(p.get("adult")) == only_adult]
+    public = {p["url"] for p in lists if p.get("public") and not p.get("adult")} | ({"demo"} if config.demo_on() else set())
     with _lock:
-        chans = sorted((c for c in _channels.values() if (adult or not c.get("adult")) and visible(c)
+        chans = sorted((c for c in _channels.values() if bool(c.get("adult")) == only_adult and visible(c)
                         and (not public_only or public.intersection(c.get("lists") or ()))),
-                       key=lambda c: (c["group"].lower(), c["name"].lower()))
-    out, gone, hide = [], 0, checking()
+                       key=lambda c: (cat_rank(c["group"]), c["name"].lower(), c.get("number") or 0))
+    rows, order, hide = {}, [], checking()
     for c in chans:
-        row = {"id": c["id"], "name": c["name"], "logo": c["logo"], "group": c["group"], "adult": c.get("adult", False),
-               "playlist": c["playlist"], "fav": c["id"] in favs, "number": c.get("number")}
-        if c.get("rights"):                         # the public demo's channels: who publishes it, and on what terms
-            row.update(publisher=c.get("publisher"), rights=c["rights"], page=c.get("page"))
-        if c.get("tuner"):
-            row.update(tuner=True, guide_number=c.get("guide_number"), recordable=True)
-        elif c.get("home"):
-            row["recordable"] = True
+        src = None
         if direct_only:
             src = direct_url(c)
             if not src or c.get("geo"):                  # (marked for its own country only: it wouldn't play out here)
                 continue
-            row["src"] = src
-        if hide and down(c["id"]):
+        gone = bool(hide and down(c["id"]))
+        key = c.get("same") or c["id"]
+        row = rows.get(key)
+        if row is not None and not (row.get("down") and not gone):
+            row["fav"] = row["fav"] or c["id"] in favs
+            if not gone and len(row["alt"]) < 3:
+                row["alt"].append(c["id"])               # (the same channel from another list: the player's fallback)
+            continue
+        new = {"id": c["id"], "name": c["name"], "logo": c["logo"] or (row or {}).get("logo"), "group": c["group"],
+               "adult": c.get("adult", False), "playlist": c["playlist"], "number": c.get("number"), "alt": [],
+               "fav": c["id"] in favs or bool(row and row["fav"])}
+        if c.get("rights"):                         # the public demo's channels: who publishes it, and on what terms
+            new.update(publisher=c.get("publisher"), rights=c["rights"], page=c.get("page"))
+        if c.get("tuner"):
+            new.update(tuner=True, guide_number=c.get("guide_number"), recordable=True)
+        elif c.get("home"):
+            new["recordable"] = True
+        if src:
+            new["src"] = src
+        if gone:
+            new["down"] = True
+        if row is None:
+            order.append(key)
+        rows[key] = new
+    out, gone = [], 0
+    for key in order:
+        row = rows[key]
+        if row.get("down"):
             gone += 1
             if not (show_down or row["fav"]):
                 continue
-            row["down"] = True
+        if not row["alt"]:
+            del row["alt"]
         out.append(row)
-    return {"down": gone,
-            "playlists": [] if public_only else
-            lists_shown(lists),
+    cats = []
+    for row in out:
+        if not cats or cats[-1] != row["group"]:
+            cats.append(row["group"])
+    return {"down": gone, "cats": cats,
+            "playlists": [] if public_only else lists_shown(lists),
             "channels": out}
+
+
+def twins(cid):
+    """Every id of the same channel (it may be in several lists): a favourite is all of them."""
+    with _lock:
+        c = _channels.get(cid)
+        if not c or not c.get("same"):
+            return [cid]
+        return [k for k, x in _channels.items() if x.get("same") == c["same"]] or [cid]
 
 
 def lists_shown(lists):
     """The channel lists as the Server page and Live TV show them: how many channels, what went wrong, on or off."""
-    return [dict(_status.get(p["url"], {"name": p.get("name"), "url": p["url"], "count": 0, "adult": bool(p.get("adult"))}),
-                 public=bool(p.get("public")), off=bool(p.get("off"))) for p in lists]
+    return [dict(_status.get(p["url"], {"name": p.get("name"), "url": p["url"], "count": 0}), adult=bool(p.get("adult")),
+                 public=bool(p.get("public")) and not p.get("adult"), off=bool(p.get("off")),
+                 adultish=not p.get("adult") and adultish(p.get("name"), p["url"])) for p in lists]
 
 
 def summary(adult=False):
@@ -557,6 +683,20 @@ def favorites_anyone():
     return {r["channel"] for r in store.q("SELECT DISTINCT channel FROM live_favorites")}
 
 
+def adultish(name, url=""):
+    """Does a list's name or address say it's adult? (The Server page asks then; Sofa doesn't decide for the admin.)"""
+    return bool(ADULT_NAME.search("%s %s" % (name or "", urllib.parse.unquote(url or ""))))
+
+
+def set_adult(url, on):
+    """A list marked Adult: its channels leave Live TV for the Adult section's own page, and it can't be a Visitor's."""
+    pls = playlists()
+    if not any(p["url"] == url for p in pls):
+        raise ValueError("That channel list isn't on this Sofa.")
+    config.update({"live_playlists": [dict({k: v for k, v in p.items() if not (on and k == "public")}, adult=bool(on))
+                                      if p["url"] == url else p for p in pls]})
+
+
 def add_playlist(name, url, adult=False):
     if not url.startswith(("http://", "https://")):
         raise ValueError("Use an http:// or https:// address.")
@@ -569,6 +709,8 @@ def set_public(url, on):
     pls = playlists()
     if not any(p["url"] == url for p in pls):
         raise ValueError("That channel list isn't on this Sofa.")
+    if on and any(p["url"] == url and p.get("adult") for p in pls):
+        raise ValueError("An adult list is never for visitors.")
     config.update({"live_playlists": [dict(p, public=bool(on)) if p["url"] == url else p for p in pls]})
 
 
@@ -621,6 +763,92 @@ def open_upstream(url, chan, timeout=20):
     if chan and chan.get("headers", {}).get("referer"):
         headers["Referer"] = chan["headers"]["referer"]
     return fetch(url, headers, timeout=timeout, home_ok=bool(chan and chan.get("home")))
+
+
+# Changing channel: the playlist of the channel next up and next down is fetched ahead (a few hundred bytes each, no
+# video), so the change starts from what's already here instead of a round trip to the channel's server. Kept a few
+# seconds (a live playlist moves on with every part); one that only names the picture sizes doesn't change, and its
+# first size is fetched too.
+WARM_FOR, WARM_SIZES_FOR, WARM_MOST, WARM_TIMEOUT = 4, 60, 8, 6
+_warm = {}                          # address -> (when, where it really was, its text)
+_warming = set()
+_warm_lock = threading.Lock()
+
+
+def warmed(url):
+    with _warm_lock:
+        got = _warm.get(url)
+    if got and time.time() - got[0] < (WARM_SIZES_FOR if "#EXT-X-STREAM-INF" in got[2] else WARM_FOR):
+        return got[1], got[2]
+    return None
+
+
+def _warm_one(chan):
+    url = chan["url"]
+    try:
+        for _ in range(2):                              # the channel's playlist, then its first picture size
+            if warmed(url):
+                at, text = warmed(url)
+            else:
+                with open_upstream(url, chan, timeout=WARM_TIMEOUT) as resp:
+                    if not is_playlist(resp, resp.geturl()):
+                        return
+                    at, text = resp.geturl(), resp.read(2**20).decode("utf-8", "replace")
+                with _warm_lock:
+                    _warm[url] = (time.time(), at, text)
+                    for old in sorted(_warm, key=lambda k: _warm[k][0])[:-WARM_MOST]:
+                        del _warm[old]
+            if "#EXT-X-STREAM-INF" not in text:
+                return
+            first = next((l.strip() for l in text.splitlines() if l.strip() and not l.startswith("#")), None)
+            if not first:
+                return
+            url = urllib.parse.urljoin(at, first)
+    except Exception:
+        pass                                            # (nobody asked for it yet: nothing is marked)
+    finally:
+        with _warm_lock:
+            _warming.discard(chan["id"])
+
+
+def near(chan):
+    """The channels next up and next down on the dial (the order Live TV lists a category in, and the Sofa Box's up
+    and down go through)."""
+    n = (chan or {}).get("number")
+    if not n:
+        return []
+    with _lock:
+        return [_channels[_numbered[k]] for k in (n + 1, n - 1) if _numbered.get(k) in _channels]
+
+
+NEAR_AFTER = 30                     # a channel nobody asked for in this long: the next ask is someone tuning in
+_near_at = {}
+
+
+def tuned(chan):
+    """Someone asked for this channel's playlist. A player asks again every few seconds while it plays: only the
+    first ask (tuning in) makes the channels next to it ready, once, and never again while it's being watched."""
+    now = time.time()
+    with _warm_lock:
+        last = _near_at.get(chan["id"], 0)
+        if len(_near_at) > 500:
+            _near_at.clear()
+        _near_at[chan["id"]] = now
+    if now - last >= NEAR_AFTER:
+        warm([c for c in near(chan) if bool(c.get("adult")) == bool(chan.get("adult"))])
+
+
+def warm(chans):
+    """Fetch these channels' playlists ahead (two at most at a time, each once). Never a tuner's or a list's at home
+    (asking a tuner for a channel takes the tuner), never one that's known not to answer."""
+    chans = [c for c in chans if c and visible(c) and not c.get("tuner") and not c.get("home") and not down(c["id"])
+             and not config.get("offline")]
+    for chan in chans[:2]:
+        with _warm_lock:
+            if chan["id"] in _warming or len(_warming) >= 4:
+                continue
+            _warming.add(chan["id"])
+        threading.Thread(target=_warm_one, args=(chan,), daemon=True, name="live-warm").start()
 
 
 def is_playlist(resp, url):

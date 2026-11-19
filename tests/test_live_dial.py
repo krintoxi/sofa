@@ -1,6 +1,7 @@
 """Live TV's page in a browser: one look for all of it. The bar of eras with Live now as one of them, and today's
-channels on a dial in the guide's own shape (a row a channel, its number, one bar), light enough for a Raspberry Pi 3:
-no picture in a row, rows drawn as they come near, the page itself never scrolling under the remote."""
+channels on a dial: the categories, the channels of the one chosen (a row a channel: its logo, its number, its name)
+and the channel in view in its pane. Light enough for a Raspberry Pi 3: rows and logos drawn as they come near, the
+page itself never scrolling under the remote."""
 import json
 import os
 import shutil
@@ -17,6 +18,8 @@ from tests.test_box_speed import Page, chrome, free_port
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 GROUPS = ("Documentary", "Kids", "Movies", "Music", "News")
+ORDER = ["News", "Movies", "Kids", "Music", "Documentary"]          # as Live TV lists them, whatever a list calls them
+ALL = "localStorage.setItem('sofa.liveGroup', '\"All\"')"
 NAMES = ["%s %03d" % (GROUPS[i % len(GROUPS)], i) for i in range(150)]
 KEY = {"ArrowDown": 40, "ArrowUp": 38, "ArrowLeft": 37, "ArrowRight": 39, "Enter": 13}
 
@@ -132,31 +135,65 @@ class TheDial(unittest.TestCase):
 
     def rows(self):
         return self.page.value("[...document.querySelectorAll('#dRows .g-row')].map(r => [r.querySelector('.g-ch b').textContent,"
-                               " r.querySelector('.g-ch span').textContent, r.className])")
+                               " r.querySelector('.d-name').textContent, r.className])")
 
     def test_one_look_the_bar_of_eras_then_the_dial(self):
         p = self.open()
         # the bar of eras is there with Sofa's own lineup off, Live now chosen in it
         self.assertEqual(p.value("[...document.querySelectorAll('.eras [data-era]')].map(b => b.dataset.era + ':' + b.getAttribute('aria-selected'))"),
                          ["now:true"])
+        # the categories in Live TV's own order with how many each holds, the first one chosen, everything last
+        self.assertEqual(p.value("[...document.querySelectorAll('#dial .lv-cats [data-group]')].map(b => [b.dataset.group, b.querySelector('small').textContent, b.getAttribute('aria-pressed')])"),
+                         [[g, "30", "true" if g == "News" else "false"] for g in ORDER] + [["All", "150", "false"]])
         rows = self.rows()
-        self.assertEqual(len(rows), 60)                                           # the first rows; the rest as they come near
-        numbers = [int(r[0]) for r in rows]
-        self.assertEqual(numbers[0], 101)
-        self.assertEqual(len(set(numbers)), len(numbers))
-        self.assertEqual(rows[0][1], sorted(NAMES)[0])
-        self.assertEqual(p.value("document.querySelectorAll('#dRows img').length"), 0)   # no picture in a row
+        self.assertEqual([r[1] for r in rows], sorted(n for n in NAMES if n.startswith("News")))
+        self.assertEqual([int(r[0]) for r in rows], list(range(101, 131)))        # (numbered in the order shown)
+        self.assertEqual(p.value("document.querySelectorAll('#dRows img').length"), 0)   # (no logo in the list: none drawn)
         self.assertFalse(p.value("!!document.querySelector('.channels, .chan')"))  # the grid of cards is gone
-        # the channel in view, up top; the remote starts on the dial
+        # the channel in view, in its pane; the remote starts on the dial; a TV gets no picture there
         self.assertEqual(p.value("document.querySelector('#dNow h2').textContent"), rows[0][1])
         self.assertEqual(p.value("document.activeElement.dataset.live"), self.ids[rows[0][1]])
-        self.assertEqual(p.value("[...document.querySelectorAll('#dial .chips [data-group]')].map(b => b.textContent)"), ["All"] + list(GROUPS))
+        self.assertTrue(p.value("document.querySelector('#dRows .g-row').classList.contains('in-view')"))
+        time.sleep(1.2)
+        self.assertFalse(p.value("!!document.querySelector('#dNow video')"))
+        # everything: the first rows, the rest as they come near
+        p.value("document.querySelector('#dial [data-group=\"All\"]').click()")
+        self.until("document.querySelectorAll('#dRows .g-row').length === 60")
+        numbers = [int(r[0]) for r in self.rows()]
+        self.assertEqual((numbers[0], len(set(numbers))), (101, 60))
         # the dial ends on the screen: under the remote only its rows scroll, never the page
         fit = p.value("(() => { const r = document.querySelector('#dRows').getBoundingClientRect(); return [r.bottom <= innerHeight, r.height >= 160, scrollY]; })()")
         self.assertEqual(fit, [True, True, 0])
 
-    def test_the_remote_moves_along_the_dial_and_the_page_stays_put(self):
+    def test_left_is_the_category_and_right_is_back_to_the_channel(self):
         p = self.open()
+        self.press("ArrowDown", 3)
+        at = p.value("document.activeElement.dataset.live")
+        self.press("ArrowLeft")
+        self.assertEqual(p.value("document.activeElement.dataset.group"), "News")    # (the one in use, not whichever is level)
+        self.press("ArrowDown", 2)
+        self.assertEqual(p.value("document.activeElement.dataset.group"), "Kids")
+        self.press("ArrowUp", 2)
+        self.press("ArrowRight")
+        self.assertEqual(p.value("document.activeElement.dataset.live"), at)
+        self.press("ArrowLeft")
+        self.press("ArrowDown")
+        self.press("Enter")                                                         # OK: that category's channels
+        self.until("document.querySelector('#dial [data-group=\"Movies\"]').getAttribute('aria-pressed') === 'true'")
+        self.assertEqual(p.value("document.activeElement.dataset.group"), "Movies")
+        self.assertEqual({r[1].split()[0] for r in self.rows()}, {"Movies"})
+        self.assertEqual(p.value("scrollY"), 0)
+
+    def test_on_a_computer_the_channel_in_view_plays_in_its_pane(self):
+        p = self.open(tv=False, width=1280, height=800)
+        self.until("!!document.querySelector('#dNow #dPic video')", 8)              # (asked for; the stand-in has no picture to show)
+        self.assertTrue(p.value("document.querySelector('#dNow #dPic video').muted"))
+        p.value("document.querySelector('[data-live-peek]').click()")              # "No picture here"
+        self.until("!document.querySelector('#dNow video')")
+        self.assertEqual(p.value("localStorage.getItem('sofa.livePreview')"), "false")
+
+    def test_the_remote_moves_along_the_dial_and_the_page_stays_put(self):
+        p = self.open(storage=ALL)
         self.press("ArrowDown", 64)
         rows = self.rows()
         self.assertGreater(len(rows), 60)                                         # the next rows were drawn on the way
@@ -179,7 +216,7 @@ class TheDial(unittest.TestCase):
         self.assertEqual(p.value("document.activeElement.dataset.live"), cid)
         self.press("ArrowUp", 64)
         self.assertEqual(p.value("[...document.querySelectorAll('#dRows [data-live]')].indexOf(document.activeElement)"), 0)
-        self.press("ArrowUp")                                                     # off the top: the groups, not nowhere
+        self.press("ArrowUp")                                                     # off the top: the search, not nowhere
         self.assertFalse(p.value("!!document.activeElement.closest('#dRows')"))
         self.assertTrue(p.value("document.activeElement !== document.body"))
 
@@ -192,14 +229,14 @@ class TheDial(unittest.TestCase):
         self.assertIn(want[1], p.value("document.querySelector('.p-show').textContent"))
 
     def test_the_ones_that_dont_answer_are_out_and_an_admin_can_see_them(self):
-        gone = sorted(NAMES)[1:4]
+        gone = sorted(n for n in NAMES if n.startswith("News"))[1:4]       # (News is the category the page opens on)
         for name in gone:
             live.mark(self.ids[name], False, "it answered 404", at_once=True)
-        p = self.open()
+        p = self.open(storage=ALL)
         names = [r[1] for r in self.rows()]
         self.assertFalse(set(gone) & set(names))
         self.assertFalse(p.value("!!document.querySelector('.live-gone')"))        # (how many: the admin's to know)
-        p = self.open("dial-admin")
+        p = self.open("dial-admin", storage=ALL)
         self.assertEqual(p.value("document.querySelector('.live-gone').firstChild.textContent.trim()"),
                          "3 channels that don't answer are left out.")
         self.assertFalse(set(gone) & {r[1] for r in self.rows()})
@@ -229,10 +266,12 @@ class TheDial(unittest.TestCase):
 
     def test_on_a_phone_the_row_carries_the_name(self):
         p = self.open(tv=False, width=390, height=780)
-        shown = p.value("(() => { const r = document.querySelector('#dRows .g-row'); return [getComputedStyle(r.querySelector('.d-name')).display,"
-                        " getComputedStyle(r.querySelector('.g-ch span')).display, document.querySelector('#dRows').style.maxHeight,"
-                        " document.documentElement.scrollWidth <= innerWidth + 1]; })()")
-        self.assertEqual([shown[0] != "none"] + shown[1:], [True, "none", "", True])   # (the name in the bar; the rows as long as the list)
+        shown = p.value("(() => { const r = document.querySelector('#dRows .g-row'), top = s => document.querySelector(s).getBoundingClientRect().top;"
+                        " return [getComputedStyle(r.querySelector('.d-name')).display, document.querySelector('#dRows').style.maxHeight,"
+                        " document.documentElement.scrollWidth <= innerWidth + 1, top('#dNow') < top('#dial .lv-cats'), top('#dial .lv-cats') < top('#dRows'),"
+                        " getComputedStyle(document.querySelector('#dial .lv-cats')).flexDirection]; })()")
+        # the name in the row, the rows as long as the list, no sideways scroll; the channel in view, the categories in a row, the channels
+        self.assertEqual([shown[0] != "none"] + shown[1:], [True, "", True, True, True, "row"])
 
     def test_a_channel_that_didnt_play_is_told_to_sofa(self):
         with open(os.path.join(ROOT, "client", "app.js"), encoding="utf-8") as f:

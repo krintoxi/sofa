@@ -511,7 +511,8 @@ first, admins included; guests and TVs never see it.
 - **Private:** addresses don't contain titles, and the Server page never names adult titles.
 
 Adult live TV: the free iptv-org lists dropped adult channels in January 2024, so add an M3U
-link you trust and tick **Adult channels**. [docs/adult.md](docs/adult.md)
+link you trust and tick **Adult channels**. Its channels get their own page, **Adult → Live TV**, and are
+nowhere else. [docs/adult.md](docs/adult.md)
 
 ### The Server page (admins)
 

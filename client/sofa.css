@@ -2033,3 +2033,75 @@ html.box-lite .ep-thumb { transition: none; }
 /* ---------- Spanish (client/es.js) ---------- */
 /* Its words run longer: a row of choices in a dialog may take a second line on a phone, where English fits on one. */
 html[lang="es"] .dialog .sorter.inline { flex-wrap: wrap; max-width: 100%; border-radius: 18px; }
+
+/* Live now, and the Adult section's Live TV (app.js: liveDial, showDial): the categories, the channels of the one
+   chosen, and the channel in view, which plays in its pane on a computer or a phone. A Sofa Box and a TV get the
+   channel's logo there. Flat and light: a Pi 3 draws it; rows and logos come as they near. */
+.live-dial { display: grid; grid-template-columns: minmax(168px, 212px) minmax(0, 1fr) minmax(0, 1.08fr); gap: 16px; align-items: start; }
+.live-dial.no-cats { grid-template-columns: minmax(0, 1fr) minmax(0, 1.08fr); }
+.live-dial .lv-cats { flex-direction: column; gap: 2px; overflow-y: auto; padding: 2px; margin: 0; max-height: max(232px, calc(100vh - 330px)); }
+.live-dial .lv-cats button { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; padding: 9px 12px;
+  border: 0; border-radius: 10px; background: none; color: var(--soft); font-size: 15px; font-weight: 600; text-align: left; }
+.live-dial .lv-cats button span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.live-dial .lv-cats button small { flex: none; color: var(--mist); font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.live-dial .lv-cats button:hover { background: rgba(var(--slate2-rgb), .6); color: var(--paper); }
+.live-dial .lv-cats button[aria-pressed="true"] { background: rgba(var(--slate2-rgb), 1); color: var(--paper); box-shadow: inset 3px 0 0 var(--amber); }
+.lv-mid { min-width: 0; }
+.live-dial .g-rows { max-height: max(232px, calc(100vh - 330px)); border: 0; border-radius: 0; background: none; padding: 2px; }
+.tv .live-dial .g-rows { max-height: max(162px, calc(100vh - 300px)); }
+.live-dial .g-row { grid-template-columns: auto minmax(0, 1fr); height: 52px; }
+.live-dial .g-row + .g-row { border-top: 0; }
+.live-dial .g-row .g-ch { border-left: 0; padding: 0 2px 0 6px; gap: 10px; }
+.live-dial .g-ch b { min-width: 2.7em; color: var(--mist); font: 700 14px/1 var(--ui); font-variant-numeric: tabular-nums; }
+.lv-logo { flex: none; display: grid; place-items: center; width: 58px; height: 34px; border-radius: 8px; overflow: hidden;
+  background: var(--ch, var(--amber)); color: #0B0D10; font: 800 14px/1 var(--display); font-style: normal; letter-spacing: .02em; }
+.lv-logo.has { background: rgba(var(--paper-rgb), .07); }
+.lv-logo img { width: 100%; height: 100%; object-fit: contain; padding: 3px; }
+.live-dial .g-prog { left: 0; right: 44px; top: 4px; bottom: 4px; border-radius: 10px; border-color: transparent; border-right-width: 1px; }
+.live-dial .g-prog.on { background: none; }
+.live-dial .g-prog.on::before { display: none; }
+.live-dial .g-prog:hover { background: rgba(var(--slate2-rgb), .7); border-color: transparent; }
+.live-dial .g-row.in-view .g-prog { background: rgba(var(--slate2-rgb), 1); border-color: rgba(var(--accent-rgb), .7); }
+.live-dial .g-prog:focus { color: var(--amber-ink); background: var(--amber); border-color: var(--amber); }
+.live-dial .d-name { display: inline; font-size: 16px; font-weight: 700; }
+.live-dial .d-what { color: var(--mist); }
+.live-dial .g-prog em { display: none; }
+.live-dial.mixed .g-prog em { display: inline; }
+.live-dial .g-now.lv-watch { display: block; position: sticky; top: 12px; margin: 0; padding: 14px; min-height: 0; }
+.lv-watch .g-pic { aspect-ratio: 16 / 9; border-radius: 14px; }
+.lv-watch .g-pic::after { display: none; }
+.lv-watch .g-pic img { object-fit: contain; padding: 14% 24%; }
+.lv-watch .g-pic video { object-fit: contain; background: #000; }
+.lv-watch .g-pic.playing img, .lv-watch .g-pic.playing .d-mark { visibility: hidden; }
+.lv-badge { position: absolute; left: 10px; top: 10px; z-index: 2; display: inline-flex; align-items: center; gap: 7px; padding: 5px 11px 5px 9px;
+  border-radius: 999px; background: rgba(0, 0, 0, .62); color: #fff; font-size: 12px; font-weight: 800; letter-spacing: .08em; }
+.lv-watch .g-info { padding: 12px 4px 2px; }
+.lv-watch .g-info h2 { font-size: clamp(22px, 2.5vw, 38px); margin: 6px 0 8px; }
+.lv-watch .g-chline b { font-size: 22px; }
+.lv-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; }
+.live-nudge { color: var(--amber-hi, var(--amber)); }
+:root[data-theme="street"] .lv-watch .g-chline span { color: var(--second); font-size: 13px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+.tv .live-dial { grid-template-columns: 196px minmax(0, 1fr) minmax(0, .92fr); gap: 14px; }
+.tv .live-dial .g-now.lv-watch { position: static; padding: 12px; grid-template-columns: none; }
+.tv .live-dial .lv-cats button:focus { background: var(--amber); color: var(--amber-ink); box-shadow: 0 0 0 3px var(--paper); outline: none; }
+.tv .live-dial .lv-cats button:focus small { color: inherit; }
+.box-lite .lv-watch .g-pic { aspect-ratio: 16 / 7; }
+@media (max-width: 900px) {
+  .live-dial, .live-dial.no-cats, .tv .live-dial { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .live-dial .g-now.lv-watch { order: -1; position: static; display: grid; grid-template-columns: minmax(0, 46%) minmax(0, 1fr); gap: 12px; align-items: center; padding: 10px; }
+  .lv-watch .g-info { padding: 0; }
+  .lv-watch .g-info h2 { font-size: 19px; margin: 4px 0 6px; }
+  .lv-watch .g-chline b { font-size: 17px; }
+  .lv-acts { margin-top: 8px; gap: 6px; }
+  .lv-acts [data-dflip] { display: none; }
+  .lv-acts .link-btn { padding: 6px 4px; font-size: 13px; }
+  .lv-badge { left: 6px; top: 6px; padding: 3px 8px 3px 6px; font-size: 10px; }
+  .live-dial .lv-cats { flex-direction: row; gap: 8px; max-height: none !important; overflow-x: auto; padding: 2px 2px 4px; }
+  .live-dial .lv-cats button { width: auto; flex: none; padding: 7px 14px; border-radius: 999px; border: 1px solid var(--line); background: rgba(var(--slate-rgb), .6); font-size: 14px; }
+  .live-dial .lv-cats button small { margin-left: 2px; opacity: .8; }
+  .live-dial .lv-cats button[aria-pressed="true"] { background: var(--paper); color: var(--ink); box-shadow: none; border-color: transparent; }
+  .live-dial .lv-cats button[aria-pressed="true"] small { color: inherit; }
+  .live-dial .g-rows { max-height: none !important; padding: 0; }
+  .live-dial .g-ch b { min-width: 2.4em; font-size: 13px; }
+  .lv-logo { width: 50px; height: 30px; }
+}

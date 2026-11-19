@@ -705,6 +705,12 @@ class Handler(BaseHTTPRequestHandler):
         if not url:
             return self.send_body("Not found", status=404)
         first = m.group(2) == "index.m3u8"
+        ahead = live.warmed(url)                        # (fetched ahead, for a quick change of channel: live.warm)
+        if ahead:
+            if first:
+                live.tuned(chan)
+            return self.send_body(live.rewrite_playlist(ahead[1], ahead[0], chan["id"]),
+                                  "application/vnd.apple.mpegurl", headers={"Cache-Control": "no-cache"})
         try:
             resp = live.open_upstream(url, chan, timeout=live.TUNE_TIMEOUT if first else 20)
         except Exception as exc:
@@ -719,6 +725,8 @@ class Handler(BaseHTTPRequestHandler):
             if not first:
                 live.answered(chan["id"])
             if live.is_playlist(resp, resp.geturl()):
+                if first:                               # (someone tuning in: the channels next to it are made ready)
+                    live.tuned(chan)
                 text = resp.read(4 * 2**20).decode("utf-8", "replace")
                 return self.send_body(live.rewrite_playlist(text, resp.geturl(), chan["id"]),
                                       "application/vnd.apple.mpegurl", headers={"Cache-Control": "no-cache"})
@@ -732,6 +740,7 @@ class Handler(BaseHTTPRequestHandler):
                 convert = bool(chan.get("tuner")) and tuners.needs_converting(chan)
                 try:
                     sid = media.hls_start({"id": "live:" + chan["id"], "path": chan["url"], "title": chan["name"],
+                                           "adult": bool(chan.get("adult")),   # ("Watching now" says "something private")
                                            "input_opts": live.ffmpeg_input(chan), "interlaced": convert},
                                           "transcode" if convert else "remux", 0, u["name"], owner=self.owner())
                 except (RuntimeError, OSError):
@@ -904,7 +913,16 @@ class Handler(BaseHTTPRequestHandler):
             visitor = bool(u.get("visitor"))
             away = visitor or self.network() == "internet"  # straight from the channel, or not at all (live_get)
             anyway = bool(u.get("admin")) and (qs.get("down") or [""])[0] == "1"   # an admin's "show them anyway"
-            out = live.listing(u["id"], adult=u.get("adult"), public_only=visitor, direct_only=away, show_down=anyway)
+            # The Adult section's own channels (?adult=1): never among the others, never a Visitor's, never away from home
+            xxx = bool(u.get("adult")) and not visitor and (qs.get("adult") or [""])[0] == "1"
+            out = live.listing(u["id"], adult=u.get("adult"), public_only=visitor, direct_only=away, show_down=anyway, only_adult=xxx)
+            if xxx:
+                if u.get("admin"):
+                    out["health"] = live.health(adult=True)
+                else:
+                    out.pop("down", None)
+                out.update(eras=[], away=away, rev=live.rev(), adult=True)
+                return self.json(out)
             if not visitor and (qs.get("for") or [""])[0] != "server":
                 live.wanted()                           # (Live TV is in use in this home: its channels get looked at)
             if u.get("admin"):
@@ -1435,8 +1453,14 @@ class Handler(BaseHTTPRequestHandler):
                 return self.error(404, "That channel isn't on.")
             if data.get("on"):
                 store.ex("INSERT OR IGNORE INTO live_favorites (user_id, channel) VALUES (?,?)", u["id"], m.group(1))
-            else:
-                store.ex("DELETE FROM live_favorites WHERE user_id = ? AND channel = ?", u["id"], m.group(1))
+            else:                                       # (the same channel from every list it's in)
+                for cid in live.twins(m.group(1)):
+                    store.ex("DELETE FROM live_favorites WHERE user_id = ? AND channel = ?", u["id"], cid)
+            return self.json({"ok": True})
+        if path == "/api/live/warm":                  # the channels next up and down: their playlists fetched ahead
+            if not u.get("visitor") and self.network() != "internet":
+                chans = [live.channel(str(x)) for x in (data.get("ids") or [])[:2] if re.match(r"^[0-9a-f]{12}$", str(x))]
+                live.warm([c for c in chans if live.visible(c) and not c.get("tuner") and (u.get("adult") or not c.get("adult"))])
             return self.json({"ok": True})
         m = re.match(r"^/api/music/(like|played)/(.+)$", path)
         if m:
@@ -1510,7 +1534,8 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 if data.get("add"):
                     live.add_playlist(data["add"].get("name") or "", data["add"].get("url") or "", bool(data["add"].get("adult")))
-                    store.log("live", "%s added the channel list \"%s\"" % (u["name"], data["add"].get("name") or data["add"].get("url")))
+                    store.log("live", "%s added an adult channel list" % u["name"] if data["add"].get("adult") else   # (no names of those)
+                              "%s added the channel list \"%s\"" % (u["name"], data["add"].get("name") or data["add"].get("url")))
                 if data.get("remove"):
                     live.remove_playlist(data["remove"])
                     store.log("live", "%s removed a channel list" % u["name"])
@@ -1518,6 +1543,11 @@ class Handler(BaseHTTPRequestHandler):
                     live.set_public(str(data["public"].get("url") or ""), bool(data["public"].get("on")))
                     store.log("live", "%s %s a channel list for visitors" % (u["name"], "shared" if data["public"].get("on") else "stopped sharing"))
                     return self.json({"ok": True})
+                if isinstance(data.get("adult"), dict):     # a list marked Adult (or not): its channels move at once
+                    if not u.get("adult"):
+                        return self.error(403, "Only an admin who can see Adult marks a list Adult.")
+                    live.set_adult(str(data["adult"].get("url") or ""), bool(data["adult"].get("on")))
+                    store.log("live", "%s marked a channel list %s" % (u["name"], "Adult" if data["adult"].get("on") else "not Adult"))
                 if isinstance(data.get("switch"), dict):    # a list on or off, for everyone, without losing it
                     live.set_on(str(data["switch"].get("url") or ""), bool(data["switch"].get("on")))
                     store.log("live", "%s switched a channel list %s" % (u["name"], "on" if data["switch"].get("on") else "off"))
