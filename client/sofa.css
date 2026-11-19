@@ -1969,3 +1969,63 @@ html.box-lite .ep-thumb { transition: none; }
 .hist-user ul { margin: 6px 0 0; padding-left: 18px; max-height: 180px; overflow: auto; color: var(--soft); }
 .hist-user li small { color: var(--mist); }
 @media (max-width: 640px) { .hist-sources { grid-template-columns: 1fr; } }
+
+/* ---------- languages, and a title's file in full ---------- */
+/* The mark on a card: the sound's languages ("EN + ES"). Dashed when it's from the file's name, not its tracks. */
+.lang-badge { position: absolute; left: 8px; bottom: 8px; z-index: 2; padding: 2px 7px; border-radius: 5px; background: rgba(0,0,0,.78);
+  color: var(--paper); border: 1px solid rgba(var(--paper-rgb),.28); font: 700 11px/1.4 ui-monospace, "SF Mono", Menlo, Consolas, monospace; letter-spacing: .04em; }
+.lang-badge.by-name { border-style: dashed; }
+.progress ~ .lang-badge { bottom: 20px; }
+.facts.lang-line { margin-top: -4px; }
+.facts.lang-line b { margin-right: 6px; font: 600 11px/1 ui-monospace, "SF Mono", Menlo, Consolas, monospace; letter-spacing: .08em; text-transform: uppercase; color: var(--mist); }
+.facts small { color: var(--mist); font-size: 12px; }
+.by-name { color: var(--mist); font-size: 12px; font-weight: 400; border-bottom: 1px dashed rgba(var(--paper-rgb),.3); cursor: help; }
+.lang-filter { flex-basis: 100%; flex-wrap: wrap; }
+.lang-filter small { opacity: .6; font-weight: 400; }
+.file-details { margin: 26px var(--gutter) 8px; padding: 18px 20px 16px; max-width: 980px; border: 1px solid var(--line); border-radius: 14px; background: rgba(var(--slate-rgb),.72); }
+.file-details h2 { margin: 0 0 12px; font: 600 11px/1 ui-monospace, "SF Mono", Menlo, Consolas, monospace; letter-spacing: .14em; text-transform: uppercase; color: var(--mist); }
+.file-details.in-row { margin: -4px 0 14px; padding: 14px 16px 12px; max-width: none; }
+.fd-none { margin: 0; color: var(--mist); font-size: 14px; }
+.fd-top { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 10px 18px; margin-bottom: 14px; }
+.fd-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.fd-chips span { padding: 4px 10px; border-radius: 6px; border: 1px solid rgba(var(--paper-rgb),.22); font: 600 12.5px/1.3 ui-monospace, "SF Mono", Menlo, Consolas, monospace; color: var(--paper); white-space: nowrap; }
+.fd-chips span:first-child { background: var(--paper); color: var(--ink); border-color: var(--paper); }
+.fd-play { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: 13.5px; font-weight: 600; color: var(--amber); }
+.fd-play.ok { color: var(--green); }
+.fd-play svg { width: 15px; height: 15px; }
+.fd-play small { flex-basis: 100%; color: var(--mist); font-weight: 400; font-size: 12.5px; }
+.fd-grid { margin: 0; display: grid; gap: 0; }
+.fd-row { display: grid; grid-template-columns: 96px 1fr; gap: 6px 16px; padding: 10px 0; border-top: 1px solid var(--line); font-size: 14px; }
+.fd-row dt { padding-top: 3px; font: 600 11px/1.3 ui-monospace, "SF Mono", Menlo, Consolas, monospace; letter-spacing: .08em; text-transform: uppercase; color: var(--mist); }
+.fd-row dd { margin: 0; min-width: 0; color: var(--soft); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.fd-row dd small { display: block; margin-top: 3px; color: var(--mist); font-size: 12.5px; }
+.fd-row dd small.by-name { display: inline; margin: 0 0 0 4px; }
+.fd-tracks, .fd-subs { margin: 0; padding: 0; list-style: none; }
+.fd-tracks { counter-reset: fd; }
+.fd-tracks li { counter-increment: fd; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; padding: 2px 0; }
+.fd-tracks li::before { content: counter(fd); width: 18px; font: 600 11px/1 ui-monospace, "SF Mono", Menlo, Consolas, monospace; color: var(--mist); }
+.fd-tracks li b { color: var(--paper); font-weight: 600; }
+.fd-tracks li span { color: var(--mist); font-size: 13px; }
+.fd-subs { display: flex; flex-wrap: wrap; gap: 4px 20px; }
+.fd-subs li { color: var(--paper); }
+.fd-subs li small { display: inline; margin: 0 0 0 6px; }
+.fd-unknown { color: var(--mist); font-weight: 400; font-style: italic; }
+.fd-note { margin: 6px 0 0; color: var(--mist); font-size: 12.5px; }
+.fd-name { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+.ep-info[aria-expanded="true"] { color: var(--paper); }
+.tv .ep-info:focus, .tv .lang-filter button:focus { outline: 3px solid var(--amber); outline-offset: 0; }
+.tv .lang-badge { font-size: 13px; padding: 3px 9px; }
+.tv .fd-row { font-size: 17px; grid-template-columns: 130px 1fr; }
+.tv .fd-row dt, .tv .file-details h2 { font-size: 13px; }
+.tv .fd-chips span { font-size: 15px; }
+.tv .fd-play, .tv .fd-tracks li span, .tv .fd-row dd small, .tv .by-name { font-size: 15px; }
+@media (max-width: 640px) {
+  .file-details { margin-top: 18px; padding: 16px 14px 12px; }
+  .fd-row { grid-template-columns: 1fr; gap: 4px; }
+  .fd-row dt { padding-top: 0; }
+}
+.file-details:focus-visible, .tv .file-details:focus { outline: 3px solid var(--amber); outline-offset: 2px; }
+@media (max-width: 640px) {
+  .lang-filter { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .lang-filter button { flex: none; white-space: nowrap; }
+}

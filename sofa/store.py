@@ -22,6 +22,8 @@ CREATE TABLE IF NOT EXISTS progress (
   PRIMARY KEY (user_id, item));
 CREATE TABLE IF NOT EXISTS probes (
   path TEXT PRIMARY KEY, size INTEGER, mtime INTEGER, info TEXT);
+CREATE TABLE IF NOT EXISTS name_said (
+  path TEXT PRIMARY KEY, said TEXT);
 CREATE TABLE IF NOT EXISTS live_favorites (
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, channel TEXT NOT NULL,
   PRIMARY KEY (user_id, channel));

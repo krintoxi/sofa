@@ -48,6 +48,19 @@ A `401` means the token was signed out: pair again.
 
 ## The library
 
+- Every movie and episode in the library's list may carry `"langs": {"a": ["en", "es-419"], "s": ["es"], "n": 2,
+  "by": "name", "dual": true}`: its sound's languages, its subtitles', how many sound tracks when more than the
+  languages say, `"by": "name"` when a language is only from the file's name, `"dual"` when a name says two or more and
+  the file hasn't said which. A show's `langs` gathers its episodes' (`"some": {"es": 12}`: in 12 of them), and its
+  `"each"` is the `langs` of every episode that has none of its own (most of a show's episodes are alike, so it's said
+  once; an episode Sofa knows nothing of has `"langs": null`). Left out
+  when Sofa knows nothing. `"original"` is the language the title was made in, from TVmaze or TMDB.
+- `GET /api/details/<item id>?<the same device answers as /api/play>` → that file in full (Sofa 1.5.23):
+  `{"read", "video": {"quality", "width", "height", "codec", "hdr", "fps", "bit_rate"}, "audio": [{"code", "by", "name",
+  "codec", "layout", "bit_rate", "title", "default", "commentary"}], "subs": [{"code", "by", "name", "kind": "text" |
+  "picture" | "file", "format", "forced", "sdh"}], "languages", "original", "file": {"size", "ext", "duration",
+  "bit_rate", "chapters", "added", "modified"}, "play": {"mode", "why"}, "has": {"intro", "scrub"}}`. Unlike
+  `/api/play` it starts nothing (no Skip Intro search, no scrubbing pictures).
 - `GET /api/library` → `{"generated", "shows": [...], "movies": [...], "likes": [...], "adult": {...} (only for adult profiles)}`.
   `GET /api/library?since=<generated>` answers `{"same": true}` when nothing changed: ask that
   once a minute.
@@ -75,6 +88,12 @@ A `401` means the token was signed out: pair again.
    the tallest picture it plays smoothly, and taller videos are converted down to it) →
    `{"mode": "direct" | "remux" | "transcode", "url", "duration", "audio": [...], "subtitles": [{"label", "lang", "url"}], "markers": [{"kind": "intro" | "credits" | "recap", "start", "end"}], "max_height"}`
    (`max_height`: `maxh` when the video is converted because of it; pass it on as `h` below).
+   Each of `audio` is `{"index", "label", "lang", "default", "code", "by", "codec", "layout"}` and each of
+   `subtitles` also has `"code"`, `"forced"` and `"sdh"` (Sofa 1.5.23): `lang` is the file's own tag (`"spa"`,
+   `"und"`), `code` is Sofa's reading of it (`"es"`, `"es-419"`, or `null`: not labelled) and `by` how it knows
+   (`"tag"`, `"title"`: the track's name, `"name"`: the file's name). `label` is in English, ready to show; build
+   your own from `code` to name languages in the device's language. Pass `audio=<index>` to `/api/hls` or the
+   stream for another sound track.
 2. `direct`: play `url` (`/media/<id>/file`, supports `Range`). Otherwise ask for HLS:
    `GET /api/hls/<id>?mode=<mode>&t=<start seconds>&h=720` → `{"url": "/media/hls/…/index.m3u8"}`
    (or play `/media/<id>/stream?mode=<mode>&t=<start>` as one MP4 stream).

@@ -43,6 +43,10 @@ GitHub builds the card and makes the release by itself.
   or two of 599 late. **No Raspberry Pi and no controller in a hand has run it yet**: how the cars feel is tuned by numbers
   and by the game's own driver, not by play.
 
+**Also in this card: the player's Menu names sound and subtitle tracks by language.** "Spanish (Latin America)" where
+a track used to be a number, and the box keeps the sound language chosen there for the next file it plays as it is
+(with Sofa 1.5.25). Tested without mpv (`tests/test_box_languages.py`); not yet run on a box.
+
 ## 1.1.98
 
 **The 3D camera turns two ways, and both have weight.**

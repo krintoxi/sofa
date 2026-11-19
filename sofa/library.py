@@ -23,7 +23,7 @@ import os
 import threading
 import time
 
-from . import config, media, metadata, music, naming, places, rights, sidecars, store
+from . import config, languages, media, metadata, music, naming, places, rights, sidecars, store
 
 ART = {"poster": ("folder.jpg", "poster.jpg", "folder.png", "poster.png", "cover.jpg"),
        "backdrop": ("backdrop.jpg", "fanart.jpg", "backdrop.png", "background.jpg"),
@@ -36,7 +36,7 @@ HOME_VIDEOS = "Home Videos"         # phone and camera videos (Movies/Home Video
 EXTRAS_DIRS = ("extras", "featurettes", "behind the scenes", "trailers", "bonus", "deleted scenes")
 SERIES_DIRS = ("shows", "series", "tv", "tv shows", "tv series")
 NOT_CATEGORIES = ("metadata", "performers")
-PRIVATE = ("path", "thumb_path", "subs")
+PRIVATE = ("path", "thumb_path", "subs", "names", "read")
 
 
 def private_key(text):
@@ -236,6 +236,7 @@ class Library:
             self._load_stills()
             self._load_first_seen()
             self._dirs = {}
+            self._said = languages.remembered()      # what names said of languages before Sofa tidied them
             self._renames = {}
             self._known = set(self.known_performers)
             for _key, root in places.roots("adult"):
@@ -268,6 +269,8 @@ class Library:
             except Exception as exc:
                 self._problem(config.path("music"), exc)
                 tunes = self.music
+            for s in shows + a_shows:                # (whole now: what its episodes share is said once)
+                self._show_langs(s)
             with self.lock:
                 self.shows, self.movies, self.items, self.music, self.adult = shows, movies, items, tunes, adult
                 self.dirs = self._dirs
@@ -325,7 +328,7 @@ class Library:
                                                                                 [s.get("place", "")])))
             for k in ("poster", "backdrop", "logo", "summary", "genres", "source"):
                 merged[k] = merged.get(k) or s.get(k)
-            out[out.index(old)] = merged
+            out[out.index(old)] = Library._show_langs(merged, trim=False)
             by_id[s["id"]] = merged
         return out
 
@@ -470,12 +473,115 @@ class Library:
                 subs.append({"lang": lang, "path": os.path.join(directory, n)})
         return thumb, subs
 
-    def _media(self, path, kind, item_id):
+    @staticmethod
+    def _from_file(item, info):
+        """What a title's entry takes from the reading of its file (None: not read yet): how long, how tall, and
+        its languages (sofa/languages.py). The scan and the reading ahead (refresh) both come here."""
+        langs = languages.compact(languages.of(info, item.get("names") or (), item.get("subs") or ()))
+        return {"duration": round(info["duration"]) if (info or {}).get("duration") else None,
+                "height": ((info or {}).get("video") or {}).get("height"), "langs": langs,
+                "read": (info.get("d") or 1) if info else 0}
+
+    def refresh(self, ids):
+        """Files read since the scan (the reading ahead, sofa/watcher.py): their entries take the length, picture
+        size and languages now, without another scan. New lists, so a page being sent right now isn't disturbed.
+        True when something a page shows changed."""
+        with self.lock:
+            fresh, seen = {}, False
+            for item_id in ids:
+                item = self.items.get(item_id)
+                if not item or item.get("kind") not in ("episode", "movie", "extra"):
+                    continue
+                new = dict(item, **self._from_file(item, media.probe(item["path"], cached_only=True)))
+                if new["langs"] is None:
+                    del new["langs"]
+                if new != item:
+                    fresh[item_id] = new
+                    seen = seen or any(new.get(k) != item.get(k) for k in ("duration", "height", "langs"))
+            if not fresh:
+                return False
+            self.items = {k: fresh.get(k, v) for k, v in self.items.items()}
+            if not seen:
+                return False
+
+            def entry(e):
+                new = fresh.get(e["id"])
+                if not new:
+                    return e
+                out = dict(e, duration=new["duration"], height=new["height"])
+                out["langs"] = new.get("langs")           # (an episode: None is "nothing known", not its show's usual)
+                if out["langs"] is None and new["kind"] != "episode":
+                    del out["langs"]
+                return out
+
+            def show(s_):
+                if not any(e["id"] in fresh for se in s_["seasons"] for e in se["episodes"]) \
+                        and not any(e["id"] in fresh for e in s_["extras"]):
+                    return s_
+                out = dict(s_, seasons=[dict(se, episodes=[entry(e) for e in se["episodes"]]) for se in s_["seasons"]],
+                           extras=[entry(e) for e in s_["extras"]])
+                return self._show_langs(out)
+            self.shows = [show(x) for x in self.shows]
+            self.movies = [entry(x) for x in self.movies]
+            self.adult = dict(self.adult, shows=[show(x) for x in self.adult["shows"]],
+                              movies=[entry(x) for x in self.adult["movies"]])
+            self.generated = max(int(time.time()), self.generated + 1)
+            return True
+
+    @staticmethod
+    def _show_langs(show, trim=True):
+        """A show's languages: its episodes', gathered (which it has, and in how many episodes). With `trim` (once
+        the show is whole: a show on two drives is merged first, each part with its episodes' own), the set most of its
+        episodes share is said once, on the show ("each"), and left off those episodes: a show's 200 episodes are
+        nearly always alike, and the library's list is fetched whole by every app (a Pi 3 reads all of it). An episode
+        with no "langs" has its show's "each"; one Sofa knows nothing of says null. New episode entries, never changed
+        ones: a list being sent right now isn't disturbed."""
+        each = (show.get("langs") or {}).get("each")
+        full = {e["id"]: (e["langs"] if "langs" in e else each) for se in show["seasons"] for e in se["episodes"]}
+        got = languages.gather(full.values())
+        counts = {}
+        for v in full.values():
+            if v:
+                key = json.dumps(v, sort_keys=True)
+                counts[key] = counts.get(key, 0) + 1
+        usual = max(counts, key=counts.get) if trim and counts and max(counts.values()) > 1 else None
+        each = json.loads(usual) if usual else None
+
+        def entry(e):
+            mine = full[e["id"]]
+            want = {} if each is not None and mine == each else {"langs": mine} if (mine or each is not None) else {}
+            if ({"langs": e["langs"]} if "langs" in e else {}) == want:
+                return e
+            out = {k: v for k, v in e.items() if k != "langs"}
+            out.update(want)
+            return out
+        show["seasons"] = [dict(se, episodes=[entry(e) for e in se["episodes"]]) for se in show["seasons"]]
+        if got and each is not None:
+            got["each"] = each
+        if got:
+            show["langs"] = got
+        else:
+            show.pop("langs", None)
+        return show
+
+    def _names_before(self, path):
+        """The names this file and the folders above it had before Sofa tidied them, where they said something of
+        its languages (sofa.languages.remember)."""
+        said = getattr(self, "_said", None)
+        if not said:
+            return ()
+        out, at = [], path
+        for _ in range(4):                               # the file, its folder, the season's, the show's
+            out += said.get(at) or []
+            at = os.path.dirname(at)
+        return tuple(out)
+
+    def _media(self, path, kind, item_id, folder=None):
         st = os.stat(path)
         directory, name = os.path.split(path)
         stem, ext = os.path.splitext(name)
         thumb, subs = self.sidecars(directory, stem)
-        info = media.probe(path, cached_only=True) or {}
+        info = media.probe(path, cached_only=True) or None
         # "added": when Sofa first saw it. Something new counts from when it arrived here (a copied file
         # keeps its old date; the change time doesn't), and moving it to another drive later doesn't change it.
         added = (self._first or {}).get(item_id)
@@ -483,10 +589,15 @@ class Library:
             added = int(st.st_mtime if self._first is None or self._first_boot else max(st.st_mtime, st.st_ctime))
             if self._first is not None:
                 self._first[item_id], self._first_changed = added, True
-        return {"id": item_id, "kind": kind, "ext": ext.lower()[1:], "size": st.st_size,
+        item = {"id": item_id, "kind": kind, "ext": ext.lower()[1:], "size": st.st_size,
                 "added": added, "thumb_path": thumb, "subs": subs, "path": path,
-                "duration": round(info["duration"]) if info.get("duration") else None,
-                "height": (info.get("video") or {}).get("height")}
+                # (the names its languages may be read from: its own, its folder's, its show's)
+                "names": tuple(n for n in (stem, os.path.basename(directory), folder) if n) + self._names_before(path)}
+        got = self._from_file(item, info)
+        if got["langs"] is None:
+            del got["langs"]                         # (nothing to say: nothing sent, one entry per file adds up)
+        item.update(got)
+        return item
 
     def _migrate_ids(self):
         """Adult IDs used to contain the title; move everyone's progress (and the rest) to the new ones, once."""
@@ -797,7 +908,7 @@ class Library:
             if adult:
                 self._renames["%se:%s:%d:%d" % (prefix, old_slug, ep["s"], ep["e"])] = item_id
             try:
-                item = self._media(path, "episode", item_id)
+                item = self._media(path, "episode", item_id, folder)
                 if not adult:                       # its rights record, its own or its show's (sofa/rights.py)
                     item["rights"] = rights.public(rights.read(path) or rights.for_folder(show_dir))
             except OSError as exc:
@@ -829,7 +940,7 @@ class Library:
             title = naming.clean(os.path.splitext(os.path.basename(path))[0]) or "Extra"
             item_id = "%sx:%s:%s" % (prefix, slug, private_key(title) if adult else naming.slug(title))
             try:
-                item = self._media(path, "extra", item_id)
+                item = self._media(path, "extra", item_id, folder)
             except OSError as exc:
                 self._problem(path, exc, adult)
                 continue
@@ -857,6 +968,8 @@ class Library:
                 "extras": [pub(i) for i in sorted(extra_items, key=lambda i: i["title"].lower())]}
         show.update({k: info.get(k) for k in ("summary", "genres", "premiered", "ended", "network", "rating", "runtime",
                                                "source")})
+        if info.get("original"):
+            show["original"] = info["original"]
         if year and not show.get("premiered"):
             show["premiered"] = "%d-01-01" % year
         if not adult:
@@ -864,7 +977,7 @@ class Library:
         if eps_meta:
             self._eps_meta[show_id] = eps_meta
             show.update(self._guide(eps_meta, seasons))
-        return show
+        return self._show_langs(show, trim=False)
 
     @staticmethod
     def _guide(eps_meta, seasons):
@@ -1003,6 +1116,8 @@ class Library:
                             summary=meta.get("summary"), rating=meta.get("rating"), adult=adult,
                             **{k: meta.get(k) for k in ("genres", "runtime", "tagline", "certificate", "studio",
                                                         "performers", "date", "source")})
+                if meta.get("original"):
+                    item["original"] = meta["original"]
                 items[item_id] = item
                 self._dirs[item_id] = directory
                 out = {k: v for k, v in item.items() if k not in PRIVATE}

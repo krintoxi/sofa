@@ -37,6 +37,30 @@ original keeps them.
 You can also convert one file from the player: if a video stops, admins get a **Convert
 this file to MP4** button.
 
+## Languages
+
+Sofa lists the languages of each title's sound and subtitles, and says how it knows:
+
+| Where it's from | Example | How it's shown |
+|---|---|---|
+| The track's language tag in the file | `spa`, `es-419`, `pt-BR` | as fact: "Spanish", "Spanish (Latin America)" |
+| The track's own name in the file, when it has no tag | "Español Latino", "English 5.1" | as fact on cards; "from the track's name" in the file's details |
+| The file's or folder's name, when the tracks say nothing | `Coco (2017) [eng+spa]`, `Roma.2018.1080p.LAT`, `[Dual Audio]`, `VOSE`, `SUB ESP` | a dashed mark on the card and "from the file's name" on the page. With two unlabelled tracks the title has both languages, and neither track is labelled: the name doesn't say which is which. |
+| Subtitle files beside the video | `Coco (2017).es.srt`, `.es.forced.srt`, `.en.sdh.srt` | "Spanish", "Spanish · forced", "English · SDH" |
+
+Only what's in brackets or after the year, the episode code or the picture size counts as a marker: "Spanish Affair
+(2014)" isn't in Spanish because of its title. When the Inbox or the tidying gives a file or folder its tidy name, what
+the old name said of languages is kept. A tag always wins over a name: a file tagged English and named `LAT` is listed
+as English (some tools write "English" on every track; fix the tag with a tool like MKVToolNix and Sofa reads it on the
+next scan). Sofa doesn't listen to the sound to tell its language, so a track with no tag, no name and nothing in the
+file's name stays "not labelled". The language a title was made in (from TVmaze or TMDB) is shown apart, as "Made
+in", and never stands in for a track: your copy may be dubbed.
+
+A card is marked when a title has two or more languages ("EN + ES"), or one that isn't your library's usual one. The
+Movies and Shows pages filter by language, and by "Two or more". An existing library is read in the background after
+updating, a few files at a time and not while Sofa converts something for someone; until a file has been read, only
+its name speaks.
+
 ## The player
 
 | | |
@@ -45,7 +69,7 @@ this file to MP4** button.
 | **Next episode** | appears when the credits start, with a 10 second countdown; "Watch credits" stays |
 | Scrubbing | hover the seek bar to see a preview picture |
 | Episodes | the list button, or `E` |
-| Audio and subtitles | the CC button, or `C`. Sofa remembers your language. |
+| Audio and subtitles | the CC button, or `C`. Tracks are listed by language ("Spanish (Latin America) · AAC Stereo"). Sofa remembers your language, and starts the next video in it when the file has it. On a Sofa Box: Menu on the remote. |
 | Options (gear) | autoplay next episode, skip intros by themselves, "Are you still watching?", **Night mode** (loud scenes quieter and voices clearer, worked out on the device; not on iPhone and iPad), **sleep timer** (end of this episode, 30 min, 1 hour), **picture** for converted video (Auto, 1080p, 720p, 480p: lower is lighter for the Sofa computer and for Wi-Fi), speed, subtitle size and style (on a dark box or outlined), **subtitle timing** (earlier or later, half a second at a time, when a subtitle file is out of sync), what's playing and why |
 | Picture in picture | the button, or `P` |
 | Phones | tap to show the controls, double-tap left or right to skip 10 seconds |

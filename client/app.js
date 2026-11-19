@@ -266,6 +266,7 @@ function indexLibrary(lib) {
     show.seasons.forEach(season => season.episodes.forEach(ep => {
       ep.show = show; ep.season = season;
       byId.set(ep.id, ep);
+      if (ep.langs === undefined && show.langs && show.langs.each) ep.langs = show.langs.each;   // (said once, on the show)
       if (season.n !== 0) show.order.push(ep);
     }));
     show.extras.forEach(x => { x.show = show; byId.set(x.id, x); });
@@ -273,6 +274,10 @@ function indexLibrary(lib) {
     show.regularSeasons = show.seasons.filter(s => s.n !== 0).length;
   });
   movies.concat(adultMovies).forEach(m => byId.set(m.id, m));
+  const spoken = new Map();                       // the language most titles have: a card doesn't mark that one
+  shows.concat(movies).forEach(x => langSet(x).forEach(c => spoken.set(c, (spoken.get(c) || 0) + 1)));
+  LIB.mainLang = ([...spoken].sort((a, b) => b[1] - a[1])[0] || [""])[0];
+  detailsSeen.clear();
   shows.concat(movies).forEach(x => { x.genres = normGenres(x.genres); });
   const week = Date.now() - 7 * 864e5;
   LIB.manyNew = shows.filter(s => s.added * 1000 > week).length > shows.length / 2;     // a new library: no "New" everywhere
@@ -410,7 +415,7 @@ function newBadge(show) {
 }
 function posterCard(show, sub) {
   return `<a class="card ${show.adult ? "scene" : "poster"}" href="#/show/${encodeURIComponent(show.id)}"${show.order && show.order[0] ? ` data-pv="${esc(show.order[0].id)}" data-pop="${esc(show.id)}"` : ""}>
-    <span class="frame${show.poster ? "" : " noimg"}${dressed(show) ? " still-poster" : ""}">${dressed(show) ? stillPoster(show) : frameImg(show.poster, show.name, show.name)}${newBadge(show)}</span>
+    <span class="frame${show.poster ? "" : " noimg"}${dressed(show) ? " still-poster" : ""}">${dressed(show) ? stillPoster(show) : frameImg(show.poster, show.name, show.name)}${newBadge(show)}${langBadge(show)}</span>
     <span class="t1">${esc(show.name)}</span>
     <span class="t2">${typeof sub === "string" ? esc(sub) : plural(show.regularSeasons, "season") + ", " + plural(show.count, "episode")}</span></a>`;
 }
@@ -418,7 +423,7 @@ function movieCard(m) {
   return `<a class="card ${m.adult ? "scene" : "poster"}" href="#/movie/${encodeURIComponent(m.id)}" data-pv="${esc(m.id)}" data-pop="${esc(m.id)}">
     <span class="frame${m.poster ? "" : " noimg"}${dressed(m) ? " still-poster" : ""}">${dressed(m) ? stillPoster(m) : frameImg(m.poster, m.title, m.title)}
       ${pct(m.id) && !isDone(m.id) ? `<span class="progress"><i style="width:${pct(m.id)}%"></i></span>` : ""}
-      ${isDone(m.id) ? `<span class="seen-badge">${icon("i-check")}</span>` : ""}
+      ${isDone(m.id) ? `<span class="seen-badge">${icon("i-check")}</span>` : ""}${langBadge(m)}
       ${m.adult && (m.duration || m.height) ? `<span class="dur-badge">${esc([quality(m.height), m.duration ? clock(m.duration) : ""].filter(Boolean).join(" · "))}</span>` : ""}
       ${m.adult && favs.has(m.id) ? `<span class="fav-badge">♥</span>` : ""}</span>
     <span class="t1">${esc(m.title)}</span>
@@ -531,7 +536,7 @@ function heroFor(show, short) {
       : show.poster ? `<img decoding="async" class="hero-bg blur" src="${esc(artSrc(show.poster, 480))}" alt="">` : ""}
     <div class="hero-body">
       ${show.logo ? `<img decoding="async" class="hero-logo" src="${esc(artSrc(show.logo, 720))}" alt="${esc(show.name)}">` : `<h1>${esc(show.name)}</h1>`}
-      <p class="facts">${facts}</p>
+      <p class="facts">${facts}</p>${short && !show.adult ? langLine(show) : ""}
       ${show.summary ? `<p class="summary${short ? "" : " clamp"}">${esc(show.summary)}</p>` : ""}
       ${rightsLine(show.rights)}
       <div class="actions">${action}${short ? "" : `<a class="btn" href="#/show/${encodeURIComponent(show.id)}">Episodes</a>`}${show.adult ? "" : listBtn(show.id)}${short && inRows(show) ? forgetBtn(show) : ""}
@@ -1071,6 +1076,129 @@ function genreChips(map, base, current) {
   return `<div class="chips genre-chips" role="group" aria-label="Genres"><a class="chip" href="${base}" aria-current="${!current}">All</a>${[...map].map(([g, l]) =>
     `<a class="chip" href="${base}/${encodeURIComponent(g)}" aria-current="${g === current}">${esc(g)} <small>${l.length}</small></a>`).join("")}</div>`;
 }
+/* ---------- languages ---------- */
+/* Each title carries its sound's languages (langs.a: codes like "es" or "es-419") and its subtitles' (langs.s), read from
+   the file's own tags and track names, or (langs.by === "name") from the file's name: sofa/languages.py. They're named
+   in this device's language: Sofa's own names in English and Spanish, the browser's for the rest. */
+const LANG_NAMES = { en: ["English", "Inglés"], es: ["Spanish", "Español"], fr: ["French", "Francés"], de: ["German", "Alemán"],
+  it: ["Italian", "Italiano"], pt: ["Portuguese", "Portugués"], ja: ["Japanese", "Japonés"], ko: ["Korean", "Coreano"],
+  zh: ["Chinese", "Chino"], ru: ["Russian", "Ruso"], ar: ["Arabic", "Árabe"], hi: ["Hindi", "Hindi"], ca: ["Catalan", "Catalán"],
+  "es-419": ["Spanish (Latin America)", "Español (Latinoamérica)"], "es-ES": ["Spanish (Spain)", "Español (España)"],
+  "es-MX": ["Spanish (Mexico)", "Español (México)"], "pt-BR": ["Portuguese (Brazil)", "Portugués (Brasil)"],
+  "pt-PT": ["Portuguese (Portugal)", "Portugués (Portugal)"], "fr-CA": ["French (Canada)", "Francés (Canadá)"] };
+const LANG3 = { eng: "en", spa: "es", fre: "fr", fra: "fr", ger: "de", deu: "de", ita: "it", por: "pt", jpn: "ja", kor: "ko", chi: "zh", zho: "zh", rus: "ru" };
+const UI_LANG = String(navigator.language || "en"), UI_ES = /^es\b/i.test(UI_LANG), UI_OURS = UI_ES || /^en\b/i.test(UI_LANG);
+let langIntl = null;
+try { langIntl = new Intl.DisplayNames([UI_LANG], { type: "language" }); } catch (e) {}
+const langBase = c => String(c || "").split("-")[0];
+function langName(code) {
+  if (!code) return "";
+  const ours = LANG_NAMES[code];
+  if (ours && UI_OURS) return ours[UI_ES ? 1 : 0];
+  let n = "";
+  try { n = langIntl ? langIntl.of(code) : ""; } catch (e) {}
+  if (!n || n === code) n = (ours || LANG_NAMES[langBase(code)] || [code.toUpperCase()])[0];
+  return n.charAt(0).toUpperCase() + n.slice(1);
+}
+const FROM_NAME = "From the file's name: its tracks don't say";
+const langSet = x => [...new Set(((x.langs || {}).a || []).map(langBase))];
+/* The mark on a card: "EN + ES" for two or more, one language's code when it isn't the library's usual one, "2 AUDIO"
+   when the file has tracks that don't say what they are. Nothing when there's nothing a glance needs. */
+function langBadge(x) {
+  const l = x.langs;
+  if (!l || x.adult) return "";
+  const a = langSet(x);
+  let text = "";
+  if (a.length > 1) text = a.slice(0, 3).map(c => c.toUpperCase()).join(" + ") + (a.length > 3 ? " +" + (a.length - 3) : "");
+  else if (a.length === 1) text = l.dual ? a[0].toUpperCase() + " + ?" : a[0] !== LIB.mainLang ? a[0].toUpperCase() : "";
+  else if (l.dual) text = "DUAL";
+  else if (l.n > 1) text = l.n + " AUDIO";
+  if (!text) return "";
+  const names = a.map(langName).join(", ");
+  return `<span class="lang-badge${l.by === "name" || (l.dual && a.length < 2) ? " by-name" : ""}" title="${esc((names ? "Audio: " + names : "More than one audio track") + (l.by === "name" ? ". " + FROM_NAME : ""))}">${esc(text)}</span>`;
+}
+/* The line on a title's page: "Audio English · Spanish (Latin America)   Subtitles Spanish · English". A show says in
+   how many of its episodes when not in all. */
+function langLine(x) {
+  const l = x.langs;
+  if (!l) return "";
+  const some = l.some || {}, total = x.count || 0;
+  const audio = (l.a || []).map(c => esc(langName(c)) + (some[c] && total ? ` <small>${some[c]} of ${total} episodes</small>` : ""));
+  const subs = [...new Set((l.s || []).map(c => langName(c)))].map(esc);
+  if (!audio.length && l.dual) audio.push("Two or more languages");
+  else if (!audio.length && l.n > 1) audio.push(l.n + " tracks, not labelled");
+  if (!audio.length && !subs.length) return "";
+  return `<p class="facts lang-line">${audio.length ? `<span><b>Audio</b> ${audio.join(" · ")}${l.by === "name" ? ` <small class="by-name" title="${esc(FROM_NAME)}">from the file's name</small>` : ""}</span>` : ""}${subs.length ? `<span><b>Subtitles</b> ${subs.join(" · ")}</span>` : ""}</p>`;
+}
+/* A track's line in the player's menu, named in this device's language. */
+function trackLabel(t) {
+  if (!t.code) return t.label;
+  const rest = t.codec !== undefined ? [t.title, [t.codec, t.layout].filter(Boolean).join(" ")] : [t.forced ? "forced" : "", t.sdh ? "SDH" : ""];
+  return [langName(t.code)].concat(rest.filter(Boolean)).join(" · ");
+}
+/* The same language, however it was saved: this app used to keep the file's own tag ("spa"), and now keeps "es". */
+const sameLang = (t, want) => !!want && (t.lang === want || (!!t.code && langBase(t.code) === (LANG3[want] || langBase(want))));
+let langFilter = "";
+function langChips(list) {
+  const counts = new Map();
+  list.forEach(x => langSet(x).forEach(c => counts.set(c, (counts.get(c) || 0) + 1)));
+  const dual = list.filter(x => langSet(x).length > 1).length;
+  if (counts.size < 2 && !dual) { langFilter = ""; return ""; }
+  const rows = [...counts].sort((a, b) => b[1] - a[1]).slice(0, 8);
+  if (langFilter && langFilter !== "2+" && !counts.has(langFilter)) langFilter = "";
+  return `<div class="sorter lang-filter" role="group" aria-label="Audio language"><button data-lang-filter="" aria-pressed="${!langFilter}">Any audio</button>${rows.map(([c, n]) =>
+    `<button data-lang-filter="${esc(c)}" aria-pressed="${c === langFilter}">${esc(langName(c))} <small>${n}</small></button>`).join("")}${dual ? `<button data-lang-filter="2+" aria-pressed="${langFilter === "2+"}">Two or more <small>${dual}</small></button>` : ""}</div>`;
+}
+const langMatch = x => !langFilter || (langFilter === "2+" ? langSet(x).length > 1 : langSet(x).includes(langFilter));
+
+/* ---------- a title's file, in full ---------- */
+/* Under a movie's page and under each episode (its Details button): the picture, each sound and subtitle track with its
+   language, the file, and how this device gets it. Asked for after the page is drawn (/api/details reads the file once
+   and keeps it), so the page never waits for it. */
+const rateOf = n => n >= 1e6 ? (n / 1e6).toFixed(n >= 1e7 ? 0 : 1) + " Mbps" : Math.round(n / 1000) + " kbps";
+const detailsSeen = new Map();
+function detailsHtml(d) {
+  if (!d || !d.read) return `<p class="fd-none">Sofa hasn't read this file yet.</p>`;
+  const v = d.video, f = d.file || {}, L = d.languages || {}, aud = d.audio || [], subs = d.subs || [];
+  const unknown = `<span class="fd-unknown" title="The file doesn't say, and neither does its name">Language not labelled</span>`;
+  const by = t => t.by === "name" ? ` <small class="by-name" title="${esc(FROM_NAME)}">from the file's name</small>` : t.by === "title" ? ` <small class="by-name" title="The track has no language tag: this is from the track's own name">from the track's name</small>` : "";
+  const best = aud.slice().sort((a, b) => (parseFloat(b.layout) || 0) - (parseFloat(a.layout) || 0))[0];
+  const set = [...new Set(aud.map(a => langBase(a.code)).filter(Boolean))];
+  const chips = [v && v.quality, v && v.hdr, v && v.codec, best && [best.codec, best.layout].filter(Boolean).join(" "),
+                 set.length > 1 ? set.map(c => c.toUpperCase()).join(" + ") : set.length ? langName(set[0]) : ""].filter(Boolean);
+  const play = d.play || {}, why = (play.why || []).join(", ");
+  const how = play.mode === "direct" ? `<span class="fd-play ok">${icon("i-check")}Plays as it is on this device</span>`
+    : play.mode === "remux" ? `<span class="fd-play">Repackaged for this device<small>${esc(why || "the picture and sound are sent as they are")}</small></span>`
+    : play.mode === "transcode" ? `<span class="fd-play conv">Converted for this device<small>${esc(why)}${play.max_height ? " · sent at " + play.max_height + "p" : ""}</small></span>`
+    : play.mode ? `<span class="fd-play conv">Can't play here yet<small>${esc(why)}</small></span>` : "";
+  const named = (L.named || []).filter(c => !aud.some(a => a.code === c));
+  const row = (label, body) => body ? `<div class="fd-row"><dt>${label}</dt><dd>${body}</dd></div>` : "";
+  return `<div class="fd-top"><div class="fd-chips">${chips.map(c => `<span>${esc(c)}</span>`).join("")}</div>${how}</div>
+    <dl class="fd-grid">
+      ${row("Picture", v ? [v.width && v.height ? v.width + " × " + v.height : "", v.fps ? (Math.round(v.fps * 1000) / 1000) + " fps" : "", v.bit_rate ? rateOf(v.bit_rate) : "", v.hdr || (v.codec && /10-bit/.test(v.codec) ? "" : "SDR"), v.interlaced ? "interlaced" : ""].filter(Boolean).map(esc).join(" · ") : "")}
+      ${row("Audio", aud.length ? `<ol class="fd-tracks">${aud.map(a => `<li><b>${a.code ? esc(langName(a.code)) : unknown}</b>${by(a)}<span>${esc([[a.codec, a.layout].filter(Boolean).join(" "), a.bit_rate ? rateOf(a.bit_rate) : "", a.title && a.code ? "“" + a.title + "”" : a.title, a.commentary ? "commentary" : "", a.described ? "audio description" : "", a.default && aud.length > 1 ? "plays first" : ""].filter(Boolean).join(" · "))}</span></li>`).join("")}</ol>${named.length ? `<p class="fd-note">The file's name says ${esc(named.map(langName).join(" and "))}. Its tracks aren't labelled, so Sofa can't say which is which.</p>` : ""}` : v ? "No sound" : "")}
+      ${row("Subtitles", subs.length ? `<ul class="fd-subs">${subs.map(t => `<li>${t.code ? esc(langName(t.code)) : unknown}${by(t)}<small>${esc([t.forced ? "forced" : "", t.sdh ? "SDH" : "", t.kind === "file" ? "a file beside the video" : t.kind === "picture" ? "pictures (" + t.format + ")" : t.format].filter(Boolean).join(" · "))}</small></li>`).join("")}</ul>` : "None")}
+      ${d.original ? row("Made in", esc(langName(d.original)) + ` <small>the title's original language, from its details: this file may be dubbed</small>`) : ""}
+      ${row("File", [f.ext ? f.ext.toUpperCase() : "", f.size ? bytes(f.size) : "", f.duration ? dur(f.duration) : "", f.bit_rate ? rateOf(f.bit_rate) + " overall" : "", f.chapters ? plural(f.chapters, "chapter") : "", f.added ? "added " + dateOf(f.added * 1000) : ""].filter(Boolean).map(esc).join(" · ") +
+        (d.has && (d.has.intro || d.has.scrub) ? `<small>${[d.has.intro ? "Skip Intro found" : "", d.has.scrub ? "scrubbing previews made" : ""].filter(Boolean).join(" · ")}</small>` : "") + (f.name ? `<small class="fd-name">${esc(f.name)}</small>` : ""))}
+    </dl>`;
+}
+async function loadDetails(box) {
+  const id = box.dataset.details;
+  if (!id || box.dataset.loaded === id) return;
+  box.dataset.loaded = id;
+  const body = $(".fd-body", box);
+  let d = detailsSeen.get(id);
+  if (!d) {
+    try { d = await api("/api/details/" + encodeURIComponent(id) + "?" + Player.capsQuery(!!(NATIVE && NATIVE.play))); } catch (e) { d = null; }
+    if (d) detailsSeen.set(id, d);
+  }
+  if (!document.contains(box) || box.dataset.details !== id) return;
+  body.innerHTML = d ? detailsHtml(d) : `<p class="fd-none">Sofa couldn't read this file's details just now.</p>`;
+  box.classList.add("ready");
+}
+const detailsBox = (id, open) => `<section class="file-details${open ? "" : " in-row"}" data-details="${esc(id)}" aria-label="This file" tabindex="0"><h2>This file</h2><div class="fd-body"><p class="fd-none">Reading the file…</p></div></section>`;
+
 /* Filters on the Shows and Movies pages: a genre, what you've watched, and a box that matches names,
    genres, networks, studios, collections and years. A genre also lists titles with its name in the title
    (Adventure Time under Adventure), apart, since the services don't always file them there. */
@@ -1092,11 +1220,11 @@ function filterTools(kind) {
   const seen = seenFilter;
   return `<div class="filter-tools"><button class="btn" data-surprise="${kind}">${icon("i-shuffle")}Surprise me</button><input id="pageFilter" type="search" placeholder="Filter by name, genre, network or year" aria-label="Filter ${kind}" value="${esc(pageFilter)}" autocomplete="off">
     <div class="sorter" role="group" aria-label="What you've watched">${Object.keys(SEEN).map(k =>
-      `<button data-seen="${k}" aria-pressed="${k === seen}">${SEEN[k]}</button>`).join("")}</div></div>`;
+      `<button data-seen="${k}" aria-pressed="${k === seen}">${SEEN[k]}</button>`).join("")}</div>${langChips(kind === "shows" ? shows : movies)}</div>`;
 }
 function applyFilters(list) {
   const seen = seenFilter, q = fold(pageFilter).trim();
-  return list.filter(x => (seen === "all" || seenState(x) === seen) && filterMatch(x, q));
+  return list.filter(x => (seen === "all" || seenState(x) === seen) && langMatch(x) && filterMatch(x, q));
 }
 function namedLike(all, genre, already) {
   const g = fold(genre).trim();
@@ -1116,7 +1244,7 @@ function viewShows(genre) {
       `<button data-sort="${k}" aria-pressed="${k === sort}">${SORTS[k][0]}</button>`).join("")}</div></div>
     ${genreChips(gm, "#/shows", genre)}
     ${filterTools("shows")}
-    ${list.length ? grid(list.map(posterCard)) : `<p class="count">No shows match.${pageFilter || seenFilter !== "all" ? " Try clearing the filter." : ""}</p>`}
+    ${list.length ? grid(list.map(posterCard)) : `<p class="count">No shows match.${pageFilter || seenFilter !== "all" || langFilter ? " Try clearing the filter." : ""}</p>`}
     ${named.length ? `<h2 class="collection-title">With "${esc(genre)}" in the name</h2><div class="grid">${named.map(posterCard).join("")}</div>` : ""}</section>`;
 }
 const MSORTS = {
@@ -1135,7 +1263,7 @@ function viewMovies(list, heading, base, genre) {
   if (genre && gm.has(genre)) { list = gm.get(genre); heading = genre; } else genre = null;
   setGlow(list[0] && (list[0].backdrop || list[0].poster));
   const sort = MSORTS[prefs.get("msort", "name")] ? prefs.get("msort", "name") : "name";
-  const filtering = !!pageFilter.trim() || seenFilter !== "all";
+  const filtering = !!pageFilter.trim() || seenFilter !== "all" || !!langFilter;
   const shown = applyFilters(list), groups = collections(shown);
   const sorted = shown.sort(MSORTS[sort][1]);
   const named = genre ? applyFilters(namedLike(all, genre, list)).sort(MSORTS[sort][1]) : [];
@@ -1198,7 +1326,7 @@ function viewMovie(id) {
       <div>
         ${m.logo ? `<img decoding="async" class="hero-logo" src="${esc(artSrc(m.logo, 720))}" alt="${esc(m.title)}">` : `<h1>${esc(m.title)}</h1>`}
         ${m.tagline ? `<p class="tagline">${esc(m.tagline)}</p>` : ""}
-        <p class="facts">${facts}</p>
+        <p class="facts">${facts}</p>${m.adult ? "" : langLine(m)}
         ${m.performers && m.performers.length ? `<p class="facts"><span>With ${m.adult ? m.performers.map(x => link("performer", x)).join(", ") : esc(m.performers.join(", "))}</span></p>` : ""}
         ${m.adult && m.genres && m.genres.length ? `<p class="tag-cloud small">${m.genres.slice(0, 12).map(g => `<a class="tag-chip" href="#/adult/tag/${encodeURIComponent(g)}">${esc(g)}</a>`).join("")}</p>` : ""}
         ${m.summary ? `<p class="summary">${esc(m.summary)}</p>` : ""}
@@ -1215,6 +1343,7 @@ function viewMovie(id) {
         </div>
         ${session.user.admin ? `<p class="fileline">${esc(m.file)}${m.source ? " · details from " + esc(m.source) : " · no details found yet"}</p>` : ""}
       </div></div></section>
+    ${session.demo ? "" : detailsBox(m.id, true)}
     ${sibs.length ? rail("More " + (m.collection ? "in " + m.collection : "from " + m.studio), m.adult ? "scenes" : "posters", sibs.map(movieCard)) : ""}
     ${likeThisRail(m, sibs)}`;
 }
@@ -1341,6 +1470,16 @@ function viewAdult(rest) {
     <div class="chips" role="group" aria-label="Adult section">${chips.map(c => `<button data-adult-nav="${esc(c[0])}" aria-pressed="${c[0] === here}">${esc(c[1])}</button>`).join("")}</div>
     ${body}</section>`;
 }
+/* An episode's languages on its row, when they aren't simply its show's ("Japanese" on the one episode of a dubbed
+   show that has no Spanish), and its subtitles' always. */
+function epLangs(ep) {
+  const l = ep.langs, show = ep.show;
+  if (!l || !show || show.adult) return "";
+  const mine = langSet(ep), all = langSet(show), subs = [...new Set((l.s || []).map(langBase))];
+  const differs = mine.length && (mine.length !== all.length || Object.keys((show.langs || {}).some || {}).length);
+  return (differs ? `<span${l.by === "name" ? ` title="${esc(FROM_NAME)}"` : ""}>${esc(mine.map(langName).join(" + "))}</span>` : "") +
+    (subs.length ? `<span>Subtitles: ${esc(subs.map(langName).join(", "))}</span>` : "");
+}
 function episodeRow(ep, label) {
   const p = prog(ep.id), done = isDone(ep.id);
   // (its number; a daily show's goes by its day, and none when the day is its title already)
@@ -1350,7 +1489,8 @@ function episodeRow(ep, label) {
     runtime ? `<span>${runtime} min</span>` : "",
     ep.aired && !(datedEp(ep) && !ep.title) ? `<span>Aired ${esc(fmtDate(ep.aired))}</span>` : "",
     inProgress(ep.id) ? `<span>${esc(clock(p.d - p.t))} left</span>` : "",
-    ep.subs ? `<span>Subtitles</span>` : ""
+    ep.subs && !((ep.langs || {}).s || []).length ? `<span>Subtitles</span>` : "",
+    epLangs(ep)
   ].join("");
   return `<article class="episode${done ? " watched" : p ? "" : " unseen"}">
     <button class="ep-thumb" data-play="${esc(ep.id)}" data-pv="${esc(ep.id)}" aria-label="Play ${esc(title(ep))}">${thumbFor(ep)}
@@ -1360,7 +1500,7 @@ function episodeRow(ep, label) {
     <div class="ep-text">
       ${label ? `<div class="t2">${esc(label)}</div>` : ""}
       <h3>${num ? `<span class="num">${esc(num)}</span>` : ""}${esc(title(ep))}</h3>
-      <p class="ep-meta">${meta}${TV ? "" : `<button class="ep-dl" data-download="${esc(ep.id)}" aria-label="Download ${esc(title(ep))}">${icon("i-download")}Download</button>`}</p>
+      <p class="ep-meta">${meta}${TV ? "" : `<button class="ep-dl" data-download="${esc(ep.id)}" aria-label="Download ${esc(title(ep))}">${icon("i-download")}Download</button>`}${ep.adult || session.demo ? "" : `<button class="ep-dl ep-info" data-ep-details="${esc(ep.id)}" aria-expanded="false" aria-label="This file's details: ${esc(title(ep))}">Details</button>`}</p>
       ${ep.summary ? `<p class="ep-sum clamp">${esc(ep.summary)}</p>` : ""}
     </div>
     <button class="tick" data-watched="${esc(ep.id)}" aria-pressed="${done}" aria-label="${done ? "Mark as not watched" : "Mark as watched"}" title="${done ? "Watched" : "Mark as watched"}">${icon("i-check")}</button>
@@ -3623,7 +3763,7 @@ function route(animate) {
     return;
   }
   let html, nav = "";
-  if ((name === "shows" || name === "movies") && name !== filterPage) { pageFilter = ""; seenFilter = "all"; filterPage = name; }
+  if ((name === "shows" || name === "movies") && name !== filterPage) { pageFilter = ""; seenFilter = "all"; langFilter = ""; filterPage = name; }
   if (name === "show") { const arg = rest.join("/"); const cut = arg.lastIndexOf("|"); const sid = cut > 0 ? arg.slice(0, cut) : arg;
     html = viewShow(sid, cut > 0 ? arg.slice(cut + 1) : null); nav = (byId.get(sid) || {}).adult ? "adult" : "shows"; }
   else if (name === "shows") { html = viewShows(rest.join("/") || null); nav = "shows"; }
@@ -3659,6 +3799,8 @@ function route(animate) {
   watchDial();
   updateNudges();
   startHero();
+  const fd = $(".file-details[data-details]:not(.in-row)", view);
+  if (fd) loadDetails(fd);
   if (trailer) keepTrailer(trailer); else if (animate !== false) startTrailer();
   if (nav === "server") drawGuestQr();
   if (nav === "search" && animate !== false && !rest.join("/")) { const b = $("#pageSearch"); if (b) b.focus(); }
@@ -3696,7 +3838,7 @@ window.sofaRouteNow = () => route();      // the box sets the address and draws 
 
 /* ---------- interactions ---------- */
 document.addEventListener("click", e => {
-  const t = e.target.closest("[data-slide],[data-intros-recheck],[data-manage],[data-machine-test],[data-drive-use],[data-place-remove],[data-new-pictures],[data-empty-deleted],[data-free-space],[data-retry-details],[data-adult-nav],[data-asort],[data-adult-play],[data-like],[data-download],[data-surprise],[data-pair-profile],[data-session-end],[data-forget],[data-seen],[data-wipe-logs],[data-trailer-sound],[data-trailer-replay],[data-redo-damaged],[data-add-link],[data-send-files],[data-dl-retry],[data-dl-cancel],[data-dl-clear],[data-dl-install],[data-enable-adult],[data-conv-retry],[data-conv-cancel],[data-conv-all],[data-conv-clear],[data-update],[data-user-adult],[data-user-kids],[data-dupes],[data-kids-title],[data-act-kind],[data-key-clear],[data-fix],[data-msort],[data-adult-tab],[data-play-start],[data-srv-tab],[data-mlike],[data-mplay],[data-mplay-one],[data-mplay-list],[data-mshuffle-list],[data-station],[data-mtab],[data-play-mv],[data-guest-clear],[data-play],[data-watched],[data-season],[data-sort],[data-nudge],[data-season-watched],[data-dismiss],[data-admin],[data-setting],[data-user-pass],[data-user-del],[data-live],[data-fav],[data-group],[data-era],[data-preset],[data-live-remove],[data-live-down],[data-live-check],[data-share-setting],[data-share-new],[data-copy],[data-share-title]");
+  const t = e.target.closest("[data-lang-filter],[data-ep-details],[data-slide],[data-intros-recheck],[data-manage],[data-machine-test],[data-drive-use],[data-place-remove],[data-new-pictures],[data-empty-deleted],[data-free-space],[data-retry-details],[data-adult-nav],[data-asort],[data-adult-play],[data-like],[data-download],[data-surprise],[data-pair-profile],[data-session-end],[data-forget],[data-seen],[data-wipe-logs],[data-trailer-sound],[data-trailer-replay],[data-redo-damaged],[data-add-link],[data-send-files],[data-dl-retry],[data-dl-cancel],[data-dl-clear],[data-dl-install],[data-enable-adult],[data-conv-retry],[data-conv-cancel],[data-conv-all],[data-conv-clear],[data-update],[data-user-adult],[data-user-kids],[data-dupes],[data-kids-title],[data-act-kind],[data-key-clear],[data-fix],[data-msort],[data-adult-tab],[data-play-start],[data-srv-tab],[data-mlike],[data-mplay],[data-mplay-one],[data-mplay-list],[data-mshuffle-list],[data-station],[data-mtab],[data-play-mv],[data-guest-clear],[data-play],[data-watched],[data-season],[data-sort],[data-nudge],[data-season-watched],[data-dismiss],[data-admin],[data-setting],[data-user-pass],[data-user-del],[data-live],[data-fav],[data-group],[data-era],[data-preset],[data-live-remove],[data-live-down],[data-live-check],[data-share-setting],[data-share-new],[data-copy],[data-share-title]");
   if (!t) return;
   if (t.dataset.fix) { fixDialog(t.dataset.fix); return; }
   if (t.dataset.shareTitle) {                   // Share on a title's page (or Stop sharing in Server → Sharing)
@@ -3777,6 +3919,13 @@ document.addEventListener("click", e => {
   if (t.dataset.redoDamaged) {
     t.disabled = true;
     api("/api/admin/convert", { redo_damaged: true }).then(() => toast("Looking for them. They show under Converting in a moment.")).catch(e => toast(e.message));
+    return;
+  }
+  if (t.dataset.langFilter !== undefined) { langFilter = t.dataset.langFilter; rerender(); const b = $(`[data-lang-filter="${langFilter}"]`); if (b) b.focus(); return; }
+  if (t.dataset.epDetails) {                         // an episode's file, under its row (asked for when opened)
+    const row = t.closest(".episode"), open = row.nextElementSibling && row.nextElementSibling.matches(".file-details") ? row.nextElementSibling : null;
+    t.setAttribute("aria-expanded", String(!open));
+    if (open) open.remove(); else { row.insertAdjacentHTML("afterend", detailsBox(t.dataset.epDetails)); loadDetails(row.nextElementSibling); }
     return;
   }
   if (t.dataset.seen) { seenFilter = SEEN[t.dataset.seen] ? t.dataset.seen : "all"; rerender(); const b = $(`[data-seen="${t.dataset.seen}"]`); if (b) b.focus(); return; }
@@ -4723,10 +4872,10 @@ const Player = (function () {
     plan.audio = plan.audio || []; plan.picture_subtitles = plan.picture_subtitles || []; plan.firstMode = plan.mode;
     markers = plan.markers || []; drawMarks();
     const wantAudio = prefs.get("audioLang", null), defAudio = plan.audio.find(a => a.default);
-    const pickAudio = wantAudio && defAudio && defAudio.lang !== wantAudio && plan.audio.find(a => a.lang === wantAudio);
+    const pickAudio = wantAudio && defAudio && !sameLang(defAudio, wantAudio) && plan.audio.find(a => sameLang(a, wantAudio));
     if (pickAudio) { audioChoice = pickAudio.index; if (plan.mode === "direct") plan.mode = "remux"; }
     const wantSub = prefs.get("subLang", null);
-    subIndex = prefs.get("subs", false) && plan.subtitles.length ? Math.max(0, plan.subtitles.findIndex(s => s.lang === wantSub)) : -1;
+    subIndex = prefs.get("subs", false) && plan.subtitles.length ? Math.max(0, plan.subtitles.findIndex(s => sameLang(s, wantSub))) : -1;
     if (plan.mode !== "direct") showSpinner("Getting the video ready…", plan.why && plan.why.length ? "Adapting " + plan.why.join(", ") + " for this device" : "");
     modeEl.hidden = plan.mode === "direct";
     modeEl.textContent = plan.mode === "remux" ? "Repackaged" : "Converted";
@@ -4907,7 +5056,7 @@ const Player = (function () {
     if (subIndex < 0) return;
     const s = plan.subtitles[subIndex];
     const tr = document.createElement("track");
-    tr.kind = "subtitles"; tr.label = s.label; tr.srclang = (s.lang || "und").slice(0, 2);
+    tr.kind = "subtitles"; tr.label = trackLabel(s); tr.srclang = s.code ? langBase(s.code) : (s.lang || "und").slice(0, 2);
     tr.src = s.url + (offset || subDelay ? "?offset=" + (offset - subDelay).toFixed(2) : "");
     tr.default = true;
     video.appendChild(tr);
@@ -4918,10 +5067,10 @@ const Player = (function () {
   function ccMenuOpen() {
     const aud = plan.audio || [];
     ccMenu.innerHTML = (aud.length > 1 ? `<div class="cc-col"><h4>Audio</h4>${aud.map(a =>
-        `<button role="menuitemradio" aria-checked="${a.index === currentAudio()}" data-aud="${a.index}">${esc(a.label)}</button>`).join("")}</div>` : "") +
+        `<button role="menuitemradio" aria-checked="${a.index === currentAudio()}" data-aud="${a.index}"${a.by === "name" ? ` title="${esc(FROM_NAME)}"` : ""}>${esc(trackLabel(a))}</button>`).join("")}</div>` : "") +
       `<div class="cc-col"><h4>Subtitles</h4><button role="menuitemradio" aria-checked="${subIndex < 0 && burnChoice == null}" data-sub="-1">Off</button>${
-        plan.subtitles.map((s, i) => `<button role="menuitemradio" aria-checked="${i === subIndex}" data-sub="${i}">${esc(s.label)}</button>`).join("")}${
-        plan.picture_subtitles.map(s => `<button role="menuitemradio" aria-checked="${s.index === burnChoice}" data-burn="${s.index}" title="Drawn onto the picture (Blu-ray and DVD subtitles are pictures). Sofa converts the video to do it.">${esc(s.label)} <small>on the picture</small></button>`).join("") ||
+        plan.subtitles.map((s, i) => `<button role="menuitemradio" aria-checked="${i === subIndex}" data-sub="${i}">${esc(trackLabel(s))}</button>`).join("")}${
+        plan.picture_subtitles.map(s => `<button role="menuitemradio" aria-checked="${s.index === burnChoice}" data-burn="${s.index}" title="Drawn onto the picture (Blu-ray and DVD subtitles are pictures). Sofa converts the video to do it.">${esc(trackLabel(s))} <small>on the picture</small></button>`).join("") ||
         (plan.subtitles.length ? "" : `<p class="cc-none">This video has no subtitles. Put a .srt file with the same name next to it.</p>`)}</div>`;
     ccMenu.hidden = false; epsPanel.hidden = true;
     $("[aria-checked='true']", ccMenu).focus();
@@ -4944,14 +5093,14 @@ const Player = (function () {
       const idx = +b.dataset.aud, a = plan.audio.find(x => x.index === idx);
       ccMenu.hidden = true; ccBtn.focus();
       if (idx === currentAudio()) return;
-      audioChoice = idx; prefs.set("audioLang", a && a.lang !== "und" ? a.lang : null);
+      audioChoice = idx; prefs.set("audioLang", a && a.code ? langBase(a.code) : a && a.lang !== "und" ? a.lang : null);
       if (plan.mode === "direct") plan.mode = "remux";
       modeEl.hidden = false; modeEl.textContent = "Repackaged";
       showSpinner("Switching sound track…"); load(now());
       return;
     }
     setSubtitles(+b.dataset.sub); prefs.set("subs", subIndex >= 0);
-    if (subIndex >= 0) prefs.set("subLang", plan.subtitles[subIndex].lang);
+    if (subIndex >= 0) prefs.set("subLang", plan.subtitles[subIndex].code ? langBase(plan.subtitles[subIndex].code) : plan.subtitles[subIndex].lang);
     ccMenu.hidden = true; ccBtn.focus();
   });
 
@@ -5665,7 +5814,8 @@ const Player = (function () {
     NATIVE.play(JSON.stringify({ item: it.id, url: location.origin + url, start: p.mode === "direct" ? start : 0, offset: shift, duration: p.duration || 0,
       hls: hls && location.origin + hls, title: owner.name || it.title, sub: nativeSub(it), adult, h24: H24,
       mode: p.mode, why: p.why || [],         // (how Sofa sends it, and why: the box's report says so; never a title)
-      subtitles: p.subtitles.map(t => ({ url: location.origin + t.url + (shift ? "?offset=" + shift.toFixed(2) : ""), lang: t.lang, label: t.label })),
+      subtitles: p.subtitles.map(t => ({ url: location.origin + t.url + (shift ? "?offset=" + shift.toFixed(2) : ""), lang: t.lang, label: trackLabel(t) })),
+      audio: p.mode === "direct" ? (p.audio || []).map(a => ({ label: trackLabel(a) })) : [],    // (its menu names them so)
       markers: p.markers || [] }));
   }
   window.sofaNativePlaying = () => BoxCard.hide();        // the box's player shows the picture now

@@ -22,9 +22,11 @@ import subprocess
 import threading
 import time
 
-from . import config, store
+from . import config, languages, store
 
 PROBE_VERSION = 4          # bump when probe() starts recording something new; older cache rows are re-read
+PROBE_DETAIL = 2           # what a reading holds beyond that (frame rate, HDR, bit rates, sound layout: sofa/details.py
+#                            reads older ones again in the background, and until then they're used as they are)
 _streams = {}
 _streams_lock = threading.Lock()
 _transcode_slots = None
@@ -154,8 +156,38 @@ def last_error(item_id):
 
 # ---------------------------------------------------------------- probing
 
-def probe(path, cached_only=False):
-    """Stream info from ffprobe, cached by size+mtime. None if ffprobe is missing or the file is unreadable."""
+def _rate(text):
+    """ "24000/1001" -> 23.976; None for "0/0" (a track with no frames to count)."""
+    try:
+        a, _, b = str(text or "").partition("/")
+        value = float(a) / float(b or 1)
+        return round(value, 3) if 1 <= value <= 300 else None
+    except (ValueError, ZeroDivisionError):
+        return None
+
+
+def _bits(s):
+    """A stream's bit rate: its own, or the one Matroska files carry in a tag ("BPS", written by mkvmerge)."""
+    tags = s.get("tags") or {}
+    for v in (s.get("bit_rate"), tags.get("BPS"), tags.get("BPS-eng")):
+        if str(v or "").isdigit() and int(v) > 0:
+            return int(v)
+    return None
+
+
+def _hdr(s):
+    """ "Dolby Vision", "HDR10+", "HDR10", "HLG" or None, from what the picture's track says of itself."""
+    sides = " ".join(str(x.get("side_data_type") or "") for x in s.get("side_data_list") or []).lower()
+    if "dovi" in sides or "dolby vision" in sides:
+        return "Dolby Vision"
+    if "hdr10+" in sides or "hdr dynamic metadata" in sides or "smpte2094-40" in sides:
+        return "HDR10+"
+    return {"smpte2084": "HDR10", "arib-std-b67": "HLG"}.get(s.get("color_transfer"))
+
+
+def probe(path, cached_only=False, detail=False):
+    """Stream info from ffprobe, cached by size+mtime. None if ffprobe is missing or the file is unreadable.
+    `detail`: a reading from before PROBE_DETAIL is made again (the title's page; the scan takes what there is)."""
     try:
         st = os.stat(path)
     except OSError:
@@ -163,7 +195,7 @@ def probe(path, cached_only=False):
     row = store.q1("SELECT size, mtime, info FROM probes WHERE path = ?", path)
     if row and row["size"] == st.st_size and row["mtime"] == int(st.st_mtime):
         info = json.loads(row["info"])
-        if info.get("v") == PROBE_VERSION:
+        if info.get("v") == PROBE_VERSION and (cached_only or not detail or info.get("d") == PROBE_DETAIL):
             return info
     if cached_only:
         return None
@@ -184,7 +216,8 @@ def probe(path, cached_only=False):
             for k, v in (st_.get("tags") or {}).items():
                 tags.setdefault(k.lower(), v)
     info = {
-        "v": PROBE_VERSION,
+        "v": PROBE_VERSION, "d": PROBE_DETAIL,
+        "bit_rate": int(fmt["bit_rate"]) if str(fmt.get("bit_rate") or "").isdigit() else None,
         "tags": {k: tags[k] for k in ("title", "artist", "album_artist", "album", "track", "disc", "date", "genre")
                  if k in tags},
         "art": any((s_.get("disposition") or {}).get("attached_pic") for s_ in streams),
@@ -192,14 +225,23 @@ def probe(path, cached_only=False):
         "container": fmt.get("format_name", ""),
         "video": next(({"codec": s.get("codec_name"), "width": s.get("width"), "height": s.get("height"),
                         "index": s["index"], "profile": s.get("profile"), "pix_fmt": s.get("pix_fmt"),
+                        "fps": _rate(s.get("avg_frame_rate")) or _rate(s.get("r_frame_rate")), "bit_rate": _bits(s),
+                        "hdr": _hdr(s),
                         "interlaced": s.get("field_order") not in (None, "progressive", "unknown")} for s in streams
                        if s.get("codec_type") == "video" and not (s.get("disposition") or {}).get("attached_pic")), None),
         "audio": [{"codec": s.get("codec_name"), "channels": s.get("channels"), "index": s["index"],
                    "lang": (s.get("tags") or {}).get("language"), "title": (s.get("tags") or {}).get("title"),
-                   "default": (s.get("disposition") or {}).get("default")}
+                   "default": (s.get("disposition") or {}).get("default"), "profile": s.get("profile"),
+                   "layout": s.get("channel_layout"), "bit_rate": _bits(s),
+                   "rate": int(s["sample_rate"]) if str(s.get("sample_rate") or "").isdigit() else None,
+                   "commentary": bool((s.get("disposition") or {}).get("comment")),
+                   "described": bool((s.get("disposition") or {}).get("visual_impaired"))}
                   for s in streams if s.get("codec_type") == "audio"],
         "subs": [{"codec": s.get("codec_name"), "index": s["index"], "lang": (s.get("tags") or {}).get("language"),
-                  "title": (s.get("tags") or {}).get("title")}
+                  "title": (s.get("tags") or {}).get("title"),
+                  "forced": bool((s.get("disposition") or {}).get("forced")),
+                  "sdh": bool((s.get("disposition") or {}).get("hearing_impaired")),
+                  "default": bool((s.get("disposition") or {}).get("default"))}
                  for s in streams if s.get("codec_type") == "subtitle"],
         "chapters": [{"start": float(c.get("start_time") or 0), "end": float(c.get("end_time") or 0),
                       "title": (c.get("tags") or {}).get("title") or ""} for c in raw.get("chapters") or []][:200],
@@ -212,12 +254,32 @@ def probe(path, cached_only=False):
 TEXT_SUBS = {"subrip", "ass", "ssa", "webvtt", "mov_text", "text"}
 
 
+def _sub_label(code, title, forced, sdh, fallback):
+    """ "Spanish (Latin America) · forced", "English · SDH"; the track's own name when it says more than that."""
+    name = languages.name(code) if code else ""
+    bits = [name or title or fallback]
+    if title and name and languages.from_title(title) is None and title.lower() not in name.lower():
+        bits.append(title)
+    said = " ".join(bits).lower()
+    bits += [w for w, on in (("forced", forced), ("SDH", sdh)) if on and w.lower() not in said]
+    return " · ".join(bits)
+
+
 def subtitle_tracks(item, info):
-    tracks = [{"label": s["lang"], "lang": s["lang"], "source": "file", "path": s["path"]} for s in item.get("subs", [])]
+    """Subtitles the player shows as text: the files beside the video, then the text tracks inside it. `lang` is as
+    the file wrote it (older apps match on it); `code` is Sofa's reading of it ("es", "es-419": sofa/languages.py)."""
+    tracks = []
+    for s in item.get("subs", []):
+        code, flags = languages.sidecar(s["lang"] if s["lang"] != "und" else "")
+        tracks.append({"label": _sub_label(code, None, "forced" in flags, "sdh" in flags, s["lang"]), "lang": s["lang"],
+                       "code": code, "by": "file" if code else None, "forced": "forced" in flags, "sdh": "sdh" in flags,
+                       "source": "file", "path": s["path"]})
     for s in (info or {}).get("subs", []):
         if s["codec"] in TEXT_SUBS:
-            tracks.append({"label": s.get("title") or s.get("lang") or "Subtitles", "lang": s.get("lang") or "und",
-                           "source": "embedded", "index": s["index"]})
+            (code, by), (forced, sdh) = languages.track(s), languages.said_flags(s)
+            tracks.append({"label": _sub_label(code, s.get("title"), forced, sdh, s.get("lang") or "Subtitles"),
+                           "lang": s.get("lang") or "und", "code": code, "by": by, "forced": forced,
+                           "sdh": sdh, "source": "embedded", "index": s["index"]})
     return tracks
 
 
@@ -228,9 +290,10 @@ def picture_subtitles(info):
     for s in (info or {}).get("subs", []):
         if s.get("codec") in IMAGE_SUBS:
             lang = s.get("lang") if s.get("lang") not in (None, "und") else None
-            name = LANGS.get(lang, lang.upper()) if lang else "Subtitles"
-            out.append({"index": s["index"], "lang": lang or "und",
-                        "label": name + (" · " + s["title"] if s.get("title") and s["title"].lower() not in name.lower() else "")})
+            (code, by), (forced, sdh) = languages.track(s), languages.said_flags(s)
+            out.append({"index": s["index"], "lang": lang or "und", "code": code, "by": by, "forced": forced, "sdh": sdh,
+                        "label": _sub_label(code, s.get("title"), forced, sdh,
+                                            lang.upper() if lang else "Subtitles")})
     return out
 
 
@@ -250,25 +313,25 @@ def default_audio(info, chosen=None):
     return next((x for x in audio if x.get("default")), audio[0]) if audio else None
 
 
-LANGS = {"eng": "English", "spa": "Spanish", "fre": "French", "fra": "French", "ger": "German", "deu": "German",
-         "ita": "Italian", "por": "Portuguese", "jpn": "Japanese", "kor": "Korean", "chi": "Chinese", "zho": "Chinese",
-         "rus": "Russian", "dut": "Dutch", "nld": "Dutch", "swe": "Swedish", "dan": "Danish", "nor": "Norwegian",
-         "fin": "Finnish", "pol": "Polish", "tur": "Turkish", "ara": "Arabic", "hin": "Hindi", "heb": "Hebrew",
-         "gre": "Greek", "ell": "Greek", "cze": "Czech", "ces": "Czech", "hun": "Hungarian", "tha": "Thai"}
-
-
-def audio_tracks(info):
-    """Sound tracks for the player's menu: [{"index", "label", "lang", "default"}]."""
+def audio_tracks(info, item=None):
+    """Sound tracks for the player's menu: [{"index", "label", "lang", "default", "code", "by", "codec", "layout"}].
+    `lang` is the file's own tag (older apps match on it); `code` is Sofa's reading ("es-419") and `by` how it knows:
+    the tag, the track's name, or (with `item`, one unnamed track and one language in the file's name) the name."""
+    found = languages.of(info, (item or {}).get("names") or ())["audio"] if info else []
     out = []
-    for i, a in enumerate((info or {}).get("audio") or []):
+    for i, (a, t) in enumerate(zip((info or {}).get("audio") or [], found)):
         lang = a.get("lang") if a.get("lang") not in (None, "und") else None
         ch = a.get("channels") or 0
         layout = "5.1" if ch == 6 else "7.1" if ch == 8 else "Stereo" if ch == 2 else "Mono" if ch == 1 else ""
-        bits = [LANGS.get(lang, lang.upper()) if lang else "Track %d" % (i + 1), a.get("title") or "",
-                " ".join(x for x in ((a.get("codec") or "").upper().replace("EAC3", "Dolby Digital+").replace("AC3", "Dolby Digital"),
-                                     layout) if x)]
+        codec = (a.get("codec") or "").upper().replace("EAC3", "Dolby Digital+").replace("AC3", "Dolby Digital")
+        named = languages.name(t["code"]) if t["code"] else lang.upper() if lang else "Track %d" % (i + 1)
+        title = a.get("title") or ""
+        bits = [named, "" if languages.from_title(title) and t["code"] else title, " ".join(x for x in (codec, layout) if x)]
         label = bits[0] + "".join(" · " + b for b in bits[1:] if b and b.lower() not in bits[0].lower())
-        out.append({"index": a["index"], "label": label, "lang": lang or "und", "default": a is default_audio(info)})
+        out.append({"index": a["index"], "label": label, "lang": lang or "und", "default": a is default_audio(info),
+                    "code": t["code"], "by": t["by"], "codec": codec, "layout": layout,
+                    "title": title if title and not (languages.from_title(title) and t["code"]) else None,
+                    "commentary": bool(a.get("commentary"))})
     return out
 
 

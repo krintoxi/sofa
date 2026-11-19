@@ -17,7 +17,7 @@ import time
 import urllib.parse
 import urllib.request
 
-from . import config, naming, net
+from . import config, languages, naming, net
 
 CACHE = os.path.join(config.DATA_DIR, "cache", "metadata")
 OVERRIDES = os.path.join(config.DATA_DIR, "overrides.json")
@@ -213,6 +213,7 @@ def show_info(show):
         "poster_url": (show.get("image") or {}).get("original"),
         "backdrop_url": ((background or {}).get("resolutions") or {}).get("original", {}).get("url"),
         "canonical": show.get("name"), "source": "TVmaze", "source_id": show.get("id"),
+        "original": languages.norm(show.get("language")),      # the language it was made in ("ja"), not the file's
     }
 
 
@@ -255,6 +256,7 @@ def _tmdb_movie(movie_id):
             "collection": (m.get("belongs_to_collection") or {}).get("name"),
             "poster_url": TMDB_IMG + m["poster_path"] if m.get("poster_path") else None,
             "backdrop_url": TMDB_IMG + m["backdrop_path"] if m.get("backdrop_path") else None,
+            "original": languages.norm(m.get("original_language")),     # (made in: the file may be a dub)
             "source": "TMDB", "source_id": m.get("id")}
 
 

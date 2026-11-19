@@ -6,6 +6,39 @@ has its own numbers and list: [deploy/sofa-box/CHANGES.md](deploy/sofa-box/CHANG
 A change to Sofa's code (`sofa/`, `client/`, `sofa.py`) gets a new version: raise `__version__`, add a section
 here, then `python3 tools/sofa-version.py` (a test checks it was done).
 
+## 1.5.25 (2026-11-19)
+
+- **Sofa says what language each title is in.** A movie's or show's card is marked when it has two or more ("EN + ES")
+  or one that isn't your library's usual language; its page lists the sound's languages and the subtitles'; the Movies
+  and Shows pages filter by language and by "Two or more"; and the player's menu lists tracks by language ("Spanish
+  (Latin America) · AAC Stereo", "French · forced") where it listed the file's raw tag ("spa", "fr.forced").
+  Languages are named in the device's language: English and Spanish are Sofa's own words, the rest the browser's.
+- **How it knows, and what it won't guess.** A track's language tag first; then the track's own name ("Español
+  Latino"); then markers in the file's or folder's name (`[eng+spa]`, `LAT`, `CASTELLANO`, `Dual Audio`, `VOSE`, `SUB
+  ESP`), only in brackets or after the year, never in the title's own words. What's from a name is marked so (a dashed
+  mark, "from the file's name"), and with two unlabelled tracks the title has both languages while neither track is
+  labelled. A tag wins over a name. A track nothing labels is "not labelled". The language a title was made in (TVmaze,
+  TMDB) is shown apart as "Made in" and never stands in for a track: your copy may be dubbed.
+- **Tidy names keep what the old ones said.** The Inbox and the tidying rename "Coco.2017.1080p.LAT.ENG" to "Coco
+  (2017)": the languages in the old name are kept with the title now. Names tidied before this version are gone.
+- **This file, in full.** Under a movie's page, and under each episode's new **Details**: resolution and HDR, the
+  video's and sound's formats, channels, bit rates, every sound and subtitle track, size, length, chapters, when it was
+  added, and whether this device plays it as it is or Sofa repackages or converts it, with the reason.
+- **Your language is remembered across files.** A sound track chosen in Spanish is kept as Spanish, whichever way the
+  next file tags it (`spa`, `es`, `es-419`); earlier choices still count. A Sofa Box's Menu names tracks the same way,
+  and the box keeps the sound language chosen there for the next file it plays as it is (both with the next Sofa Box
+  OS, and not yet run on a box; a video Sofa converts for the box still has one sound track and no choice in its
+  Menu).
+- **Existing libraries are read in the background**, a few files at a time and not while Sofa converts for someone,
+  and the list the apps fetch changes once every ten minutes at most while that goes on, not once a file. Files Sofa
+  had read before are read once more for the frame rate, HDR and bit rates; until then their pages show what was known.
+  A file that changes is read again.
+- For apps: `langs` on the library's titles, `code` and `by` on `/api/play`'s tracks, and `GET /api/details/<id>`
+  ([docs/api.md](docs/api.md)). The words of the apps themselves are still English only.
+- Tested with real small files made with ffmpeg: tagged, named and unlabelled tracks, subtitle files, a tidied
+  folder and an Inbox drop (`tests/test_languages.py`), and the box's Menu (`tests/test_box_languages.py`, without mpv).
+  Not tried: a real disc rip with Dolby Vision or DTS-HD, and no Raspberry Pi has run it.
+
 ## 1.5.24 (2026-11-19)
 
 - **The Server page no longer stops answering after "Check for updates".** Sofa looks for a new version by itself two

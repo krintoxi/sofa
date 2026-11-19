@@ -20,7 +20,7 @@ import shutil
 import threading
 import time
 
-from . import config, fileops, media, metadata, music, naming, places, sidecars, store
+from . import config, fileops, languages, media, metadata, music, naming, places, sidecars, store
 
 SETTLE_SECONDS = 30
 
@@ -637,6 +637,8 @@ def _move(src, dest, message, private=False, why=None):
     stem_src = os.path.splitext(src)[0]
     stem_dest = os.path.splitext(dest)[0]
     fileops.move(src, dest)
+    if not private:                                # what the old names said of its languages ("LAT", "[eng+spa]")
+        languages.remember(dest, os.path.basename(stem_src), os.path.basename(os.path.dirname(src)))
     _filed_now.append((src, dest))
     _tell_dvr(src, dest)
     for f in os.listdir(os.path.dirname(src)):     # subtitles and thumbnails that share the name
@@ -898,6 +900,7 @@ def _move_with_sidecars(video, dest_dir, new_stem):
     if os.path.exists(target):
         return False
     fileops.move(video, target)
+    languages.remember(target, stem)
     for f in os.listdir(src_dir):
         base, e = os.path.splitext(f)
         if (base == stem or base.startswith(stem + ".")) and (e.lower() in naming.SUB_EXT or e.lower() in (".jpg", ".png", ".nfo")):
@@ -943,6 +946,7 @@ def _tidy_movies(root):
             nice = naming.safe_filename(naming.collection_name(name))
             if nice and nice != name and not os.path.exists(os.path.join(root, nice)):
                 os.rename(d, os.path.join(root, nice))
+                languages.remember(os.path.join(root, nice), name)
                 done += 1
             store.log("inbox", "Gave each movie in \"%s\" its own folder" % (nice or name))
         elif vids:                                    # one movie: tidy the folder name
@@ -950,6 +954,7 @@ def _tidy_movies(root):
             nice = naming.safe_filename("%s (%d)" % (naming.strip_part(title), year)) if year else None
             if nice and nice != name and not os.path.exists(os.path.join(root, nice)):
                 os.rename(d, os.path.join(root, nice))
+                languages.remember(os.path.join(root, nice), name)
                 store.log("inbox", "Renamed the movie folder \"%s\" to \"%s\"" % (name, nice))
                 done += 1
         else:                                         # a collection of movie folders
@@ -960,6 +965,7 @@ def _tidy_movies(root):
                     nice = naming.safe_filename("%s (%d)" % (naming.strip_part(title), year)) if year else None
                     if nice and nice != sub and not os.path.exists(os.path.join(d, nice)):
                         os.rename(sd, os.path.join(d, nice))
+                        languages.remember(os.path.join(d, nice), sub)
                         done += 1
     return done
 
@@ -980,6 +986,7 @@ def _tidy_shows(root):
         if os.path.exists(target):
             continue
         os.rename(d, target)
+        languages.remember(target, name)
         store.log("inbox", "Renamed the show folder \"%s\" to \"%s\"" % (name, nice))
         done += 1
     return done

@@ -24,7 +24,7 @@ from . import (archive, __version__, acme, apps, artwork, auth, awake, backup, c
                outside,
                kids, machine, net, optimize, organizer, places, previews, report, screens, store, tls, trickplay, updater, upnp,
                discovery, pairing, sharing, slow, together, travel, tuners, uploads)
-from . import history
+from . import details, history
 from .library import LIBRARY
 
 CLIENT_DIR = os.path.join(config.APP_DIR, "client")
@@ -950,6 +950,15 @@ class Handler(BaseHTTPRequestHandler):
             out["recent"] = [r["item"] for r in store.q("SELECT item FROM music_plays WHERE user_id = ? ORDER BY at DESC LIMIT 60",
                                                          u["id"])]
             return self.json(out)
+        m = re.match(r"^/api/details/(.+)$", path)
+        if m:                                         # a title's file in full, for its page (sofa/details.py)
+            item = self.visible_item(m.group(1), u)
+            if not item or item["kind"] not in ("episode", "movie", "extra"):
+                return self.error(404, "That video isn't in the library any more.")
+            if config.demo_on():                      # (the demo's files are its publishers': nothing to read here)
+                return self.json({"id": item["id"], "read": False})
+            return self.json(details.for_item(item, media.caps_from(qs), LIBRARY.find(item.get("show_id") or item["id"]),
+                                              admin=bool(u.get("admin"))))
         m = re.match(r"^/api/travel/(.+)$", path)
         if m:                                         # can this device keep this video as it is, or does it need a travel copy?
             item = self.visible_item(m.group(1), u)
@@ -1004,11 +1013,12 @@ class Handler(BaseHTTPRequestHandler):
             base = "/media/%s/" % item["id"]
             tracks = media.subtitle_tracks(item, p["info"])
             out = {"mode": p["mode"], "duration": p["duration"], "why": p.get("why") or [], "max_height": p.get("max_height"),
-                   "audio": media.audio_tracks(p["info"]), "error": media.last_error(item["id"]),
+                   "audio": media.audio_tracks(p["info"], item), "error": media.last_error(item["id"]),
                    "markers": intros.for_player(item["id"]),
                    "intro_status": "looking" if item["kind"] == "episode" and not intros.for_player(item["id"]) else None,
                    "url": base + ("file" if p["mode"] == "direct" else "stream?mode=" + p["mode"]),
-                   "subtitles": [{"label": t["label"] or "Subtitles", "lang": t["lang"] or "und",
+                   "subtitles": [{"label": t["label"] or "Subtitles", "lang": t["lang"] or "und", "code": t.get("code"),
+                                  "forced": t.get("forced"), "sdh": t.get("sdh"),
                                   "url": "%ssubs/%d.vtt" % (base, i)} for i, t in enumerate(tracks)],
                    "picture_subtitles": media.picture_subtitles(p["info"])}
             if p["mode"] == "unsupported":

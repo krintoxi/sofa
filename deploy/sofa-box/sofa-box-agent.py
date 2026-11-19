@@ -105,6 +105,24 @@ def toast(text):
 
 
 # a sound or subtitle track's language, by its code (the player's options)
+def lang_codes(want):
+    """mpv's --alang/--slang for a language Sofa's page kept ("es", or "spa" from an older Sofa): every way a file may
+    tag it ("es", "spa"). [] for anything that isn't a plain language code."""
+    want = str(want or "").lower().split("-")[0]
+    if not re.fullmatch(r"[a-z]{2,3}", want) or want not in LANGS:
+        return []
+    return sorted((k for k, v in LANGS.items() if v == LANGS[want]), key=lambda k: (len(k), k))
+
+
+def track_name(t):
+    """A track by its language first ("Spanish · Latino"), then its own name, then its number."""
+    lang, title = str(t.get("lang") or "").lower(), str(t.get("title") or "").strip()
+    name = LANGS.get(lang.split("-")[0]) or (lang.upper() if lang and lang != "und" else "")
+    if name and title and name.lower() not in title.lower():
+        return "%s · %s" % (name, title[:40])
+    return title[:60] or name or "Track %s" % t.get("id")
+
+
 LANGS = {"en": "English", "eng": "English", "es": "Spanish", "spa": "Spanish", "fr": "French", "fre": "French",
          "fra": "French", "de": "German", "ger": "German", "deu": "German", "it": "Italian", "ita": "Italian",
          "pt": "Portuguese", "por": "Portuguese", "ja": "Japanese", "jpn": "Japanese", "ko": "Korean", "kor": "Korean",
@@ -721,6 +739,9 @@ class Player:
             args.append("--start=%.1f" % float(p["start"]))
         for sub in p.get("subtitles") or []:
             args.append("--sub-file=" + rewrite(sub.get("url", ""), base))
+        codes = [] if p.get("live") else lang_codes(s.get("alang"))     # the sound's language chosen in the Menu last
+        if codes:                                                       # time (menu_key), when this file has it
+            args.append("--alang=" + ",".join(codes))
         for k, v in (p.get("mpv") or {}).items():           # a disc: which drive
             args.append("--%s=%s" % (k, v))
         args += list(s.get("mpv_args") or []) + shlex_split(os.environ.get("SOFA_BOX_MPV_ARGS", ""))
@@ -1389,12 +1410,23 @@ class Player:
     SPEEDS = [0.75, 1.0, 1.25, 1.5, 2.0]
 
     def _tracks(self, kind):
+        """This video's sound or subtitle tracks as the menu lists them: (mpv's id, name, on now). Named by language,
+        in Sofa's words where the page sent them (Sofa 1.5.23: "Spanish (Latin America) · AAC Stereo"; a subtitle
+        file beside the video is "French · forced", not "2.vtt"), else from the file's own tag and track name."""
+        tracks = [t for t in self.command("get_property", "track-list") or [] if t.get("type") == kind]
+        p = self.payload or {}
+        said = [str(x.get("label") or "")[:60] for x in p.get("audio" if kind == "audio" else "subtitles") or [] if isinstance(x, dict)]
+        if kind == "audio":
+            own = tracks if len(said) == len(tracks) else []        # (the file as it is: its tracks, in Sofa's order)
+        else:
+            own = [t for t in tracks if t.get("external")]          # (the subtitles Sofa sent, in the order it sent them)
+            own = own if len(own) == len(said) else []
         out = []
-        for t in self.command("get_property", "track-list") or []:
-            if t.get("type") == kind:
-                name = t.get("title") or LANGS.get(str(t.get("lang") or "").lower()) or str(t.get("lang") or "").upper()
-                out.append((t.get("id"), (name or "Track %s" % t.get("id")) + (" (forced)" if t.get("forced") else ""),
-                            bool(t.get("selected"))))
+        for t in tracks:
+            k = next((i for i, x in enumerate(own) if x is t), None)
+            name = said[k] if k is not None and said[k] else track_name(t)
+            out.append((t.get("id"), name + (" (forced)" if t.get("forced") and "forced" not in name.lower() else ""),
+                        bool(t.get("selected"))))
         return out
 
     def menu_items(self):
@@ -1475,6 +1507,11 @@ class Player:
         elif k in ("left", "right", "ok"):
             item[2] = (item[2] + (-1 if k == "left" else 1)) % len(item[1])
             self.command("set_property", item[3], item[1][item[2]][0])
+            if item[3] == "aid":                            # the language chosen: the next video starts in it, if it has it
+                lang = next((str(t.get("lang") or "") for t in self.command("get_property", "track-list") or []
+                             if t.get("type") == "audio" and t.get("id") == item[1][item[2]][0]), "")
+                if lang_codes(lang) and lang_codes(lang) != lang_codes(settings().get("alang")):
+                    save_settings(alang=lang_codes(lang)[0])
         self.menu_draw()
 
     def ok(self):
