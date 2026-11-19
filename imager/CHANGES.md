@@ -4,6 +4,27 @@ The Mac app in this folder. Each build on `main` replaces the zip on the
 [`sofa-box-imager` release](https://github.com/krintoxi/sofa/releases/tag/sofa-box-imager). Its version is `VERSION`
 here. Until 0.3.0 its changes were written up with Sofa Box OS's, in `deploy/sofa-box/CHANGES.md`.
 
+## 0.4.3
+
+**The shared core builds and passes its tests on Windows**, on GitHub's Windows machines (Intel and Arm). The Mac app
+does what 0.4.0 did, and there is still nothing to download for Windows or Linux.
+
+- **The core's file reading and writing has a Windows way.** Windows has no `pread`, `pwrite` or `fsync`. All of it is
+  in one file now (`FileIO`): on the Mac and Linux the same calls as before, on Windows `ReadFile` and `WriteFile`
+  with the place given in an `OVERLAPPED`, and `FlushFileBuffers`. There a file is opened as bytes (not text), its
+  length is counted in 64 bits (`fstat`'s is 32), and other programs may read, write or delete it meanwhile.
+- **Three new tests, on every system**: a write and a read past 4 GB land where they were asked to and not 4 GB lower,
+  a read at a file's end gets nothing without an error, line ends and a Ctrl-Z go in and come out as they are, and a
+  file that isn't there doesn't open.
+- **GitHub runs the core's tests on Windows** beside the Macs and Linux: Windows Server 2025 on Intel and Windows 11 on
+  Arm, with Swift 6.4.2 from swift.org's own installer, whose SHA-256 and signature the job checks first. The same 128
+  tests as on Linux, with the same three left out (the fresh-disk check, which needs macOS, and the two run only when
+  asked); any other skip fails the job. The boot code is assembled again there with the Swift toolchain's clang.
+- The test files are marked as bytes for git (`.gitattributes`), so a Windows checkout doesn't change their line ends.
+- **What hasn't run**: plain files stand in for disks in these tests. On Windows the core has never written a disk,
+  nothing has run on a real Windows PC, and there is no program yet: `--inspect`, `--systems` and `--disks` are still
+  part of the Mac app. Listing disks and writing one on Windows come after a command line built from the core.
+
 ## 0.4.2
 
 **Every core test now runs on Linux too**, not only on the Mac. The Mac app does what 0.4.0 did.

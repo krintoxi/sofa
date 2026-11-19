@@ -13,6 +13,16 @@ import WinSDK
 public enum FileIO {
     public typealias Moved = (count: Int, code: Int32)
 
+    /// An errno value in words.
+    public static func words(for code: Int32) -> String {
+        #if os(Windows)
+        var text = [CChar](repeating: 0, count: 256)
+        return strerror_s(&text, text.count, code) == 0 ? String(cString: text) : "error \(code)"
+        #else
+        return String(cString: strerror(code))
+        #endif
+    }
+
     #if os(Windows)
     // Windows' own numbers, written out so nothing hangs on how each macro's type comes across.
     private static let genericRead: DWORD = 0x8000_0000

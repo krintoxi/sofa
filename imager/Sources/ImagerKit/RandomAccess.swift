@@ -20,7 +20,7 @@ public enum ReadError: Error, Equatable, CustomStringConvertible {
         switch self {
         case .pastTheEnd(let o, let c, let s):
             return "The file ends early: \(c) bytes at \(o) were asked for, and it holds \(s)."
-        case .io(let o, let code): return "The file couldn't be read at \(ByteSize.text(o)) (\(String(cString: strerror(code))))."
+        case .io(let o, let code): return "The file couldn't be read at \(ByteSize.text(o)) (\(FileIO.words(for: code)))."
         case .cantOpen(let path): return "The file couldn't be opened: \(path)"
         }
     }

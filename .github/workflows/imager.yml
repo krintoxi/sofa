@@ -59,7 +59,7 @@ jobs:
 
   windows:
     # The shared core and its tests on GitHub's Windows machines, on Intel and Arm, with the Swift project's own
-    # installer for Windows (the version below; Visual Studio's compiler and the Windows SDK are on the machine
+    # installer for Windows (the version below, each file's SHA-256 as first downloaded here; Visual Studio's compiler and the Windows SDK are on the machine
     # already). Plain files stand in for disks, as on Linux: no disk is opened here.
     name: windows (${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
@@ -70,13 +70,19 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { runner: windows-latest, arch: x86_64, installer: windows10 }
-          - { runner: windows-11-arm, arch: arm64, installer: windows10-arm64 }
+          - runner: windows-latest
+            arch: x86_64
+            installer: windows10
+            sha256: 8FE5D31CA1153DFE6BE3A76DE0B93347FD42A27599671E9F9ADE23A3648E7184
+          - runner: windows-11-arm
+            arch: arm64
+            installer: windows10-arm64
+            sha256: E4E5FDB6CA88B18AC430FBCE3DE35DD80E2249A84A484A02272D82D89F2C7969
     steps:
       - name: Files exactly as they are in the repository (git on Windows would turn LF into CRLF)
         run: git config --global core.autocrlf false
       - uses: actions/checkout@v5
-      - name: Get Swift's installer from swift.org and check who signed it
+      - name: Get Swift's installer from swift.org and check it's the one expected, and signed
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
@@ -86,7 +92,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) { Write-Host "::error::Couldn't download $Url"; exit 1 }
           $Signature = Get-AuthenticodeSignature $Installer
           Write-Host "$Url"
-          Write-Host "$((Get-Item $Installer).Length) bytes, SHA-256 $((Get-FileHash $Installer -Algorithm SHA256).Hash)"
+          $Hash = (Get-FileHash $Installer -Algorithm SHA256).Hash
+          Write-Host "$((Get-Item $Installer).Length) bytes, SHA-256 $Hash"
+          if ($Hash -ne "${{ matrix.sha256 }}") { Write-Host "::error::Not the installer this job expects (${{ matrix.sha256 }})."; exit 1 }
           Write-Host "Signature: $($Signature.Status), by $($Signature.SignerCertificate.Subject)"
           if ($Signature.Status -ne "Valid") { Write-Host "::error::The installer's signature isn't valid."; exit 1 }
       - name: Install Swift

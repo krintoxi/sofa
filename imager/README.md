@@ -324,10 +324,10 @@ from anywhere the list says, because it's checked against the list's SHA-256.
 
 ## What's tested, and where
 
-`swift test` runs 160 tests on a Mac; six more run only when asked. None writes a disk it didn't attach itself: the
+`swift test` runs 163 tests on a Mac; six more run only when asked. None writes a disk it didn't attach itself: the
 tests that write attach a RAM disk, check with DiskArbitration that the device they got is a disk image of
-exactly the size they asked for, and only then touch it. On Linux `swift test` runs the shared core's tests
-(`ImagerKitTests`, 125), all but three: the check that makes the test disks afresh with macOS's own tools (it needs
+exactly the size they asked for, and only then touch it. On Linux and on Windows `swift test` runs the shared core's tests
+(`ImagerKitTests`, 128), all but three: the check that makes the test disks afresh with macOS's own tools (it needs
 macOS, and runs on the Macs), and the speed test and the disks' maker, which run only when asked.
 
 | What | Tests | How |
@@ -339,6 +339,7 @@ macOS, and runs on the Macs), and the speed test and the disks' maker, which run
 | SHA-256 | `ImagerKitTests/SHA256Tests` (4) | Ours: FIPS 180-4's examples (a million "a"s among them), any pieces giving the same digest, and on the Mac the same digest as CryptoKit at every length from 0 to 1,100 bytes. |
 | The editions list's XML | `ImagerKitTests/LiteXMLTests` (4) | Ours: a Windows 11-shaped list read into its editions, entities, quotes, CDATA and comments, where it stops (and that it has told the reader everything before), and the same events as Foundation's `XMLParser` on the same list. |
 | Unpacking a real card | `ImagerKitTests/XZBenchTests` (1, when asked) | `SOFA_IMAGER_XZ_BENCH=<a .img.xz> SOFA_IMAGER_XZ_SHA=<its unpacked SHA-256>`, best with `swift test -c release -Xswiftc -enable-testing`. Unpacks it with each unpacker and hashes it with each SHA-256, says how long each took, and checks that they all agree with each other and the list. |
+| Reading and writing at a place | `ImagerKitTests/FileIOTests` (3) | The one part each system does its own way (`pread`, `pwrite` and `fsync`; on Windows `ReadFile`, `WriteFile` and `FlushFileBuffers`): a write and a read past 4 GB land where they were asked to and not 4 GB lower, the file's length is counted in 64 bits, a read at the end gets nothing without an error, line ends and a Ctrl-Z go in and come out as they are, and a file that isn't there doesn't open. |
 | Writing and checking | `ImagerKitTests/CardWriterTests` (14) | A plain file as the disk. Only whole-sector writes at megabyte offsets; the first megabyte last; nothing past the card but the disk's last megabyte; a wrong download, a card that reads back wrong, Stop and a card that never answers each leave the first megabyte blank. Our unpacker's pieces (up to 2 MiB) written in one call or in odd sizes give the same card. |
 | Downloading | `ImagerKitTests/DownloadTests` (9) | A web server inside the test: a whole download, carrying on after a drop, a server that ignores or mangles the range, the wrong size, giving up, and download-to-checked-card in one go. |
 | Finding disks | `ImagerMacTests/DiskListTests` (7) | The Mac running the tests: its startup disk is found and refused; a RAM disk is seen as a disk image and refused; the volumes on a disk are found, unmounted, and refused a mount while a write is on; `authopen` with no one to type a password opens nothing. |
@@ -527,8 +528,10 @@ the Mac. Asked how (2026-11-15), the owner chose:
 - **An unsigned beta first on Windows** (SmartScreen asks: More info, then Run anyway), signing once the owner has a
   certificate.
 
-**Where it stands (0.4.2): the shared core builds and passes its tests on Linux** (Intel and Arm, in the Swift
-project's own Linux image), as well as on the Mac. For that the core now has its own:
+**Where it stands (0.4.3): the shared core builds and passes its tests on Linux** (Intel and Arm, in the Swift
+project's own Linux image) **and on Windows** (Intel and Arm, on GitHub's Windows machines), as well as on the Mac.
+Only the core: there is no program to run on Windows or Linux yet (the `--inspect`, `--systems` and `--disks` reports
+are still part of the Mac app), and the core has never opened a disk on either. For that the core now has its own:
 
 - **xz unpacker** (`XZUnpacker`, `Sources/ImagerKit/XZ.swift`): the xz container and LZMA2, written from the xz file
   format (1.2.1) and the LZMA specification; every block's check (CRC32, CRC64 or SHA-256), sizes and index checked.
@@ -556,11 +559,22 @@ The first Linux run of them found a second difference: macOS lists "ñandú.inf"
 name as it was made, so the tests find files by Swift string, which matches either. What stays the Mac's: the check
 that makes the disks afresh to compare, and `fsck_msdos`.
 
+**Since 0.4.3 the core builds and every core test runs on Windows too**: the same 128 tests as on Linux, with the
+same three left out, on Windows Server 2025 (Intel) and Windows 11 (Arm) with Swift 6.4.2 from swift.org's installer
+(GitHub's job checks the installer's SHA-256 and its signature before running it). Windows has no `pread`, `pwrite`
+or `fsync`, so the core's file reading and writing is in one file now, `FileIO`: the Mac's and Linux's calls as they
+were, and for Windows `ReadFile` and `WriteFile` with the place in an `OVERLAPPED`, and `FlushFileBuffers`. Files are
+opened as bytes (no text mode), their length is counted in 64 bits, and other programs may read, write or delete them
+meanwhile, as elsewhere. The boot code is assembled again there too, with the Swift toolchain's clang. What that run
+is and isn't: plain files stand in for disks, as on Linux. On Windows the write-and-check engine has never written
+a disk (`\\.\PhysicalDriveN`), nothing has run on a real Windows PC, and no program has been built for an owner to
+run. The test that writes past 4 GB takes about half a minute there (Windows fills the 4 GB before it with zeros;
+the Mac and Linux leave a hole).
+
 Still to do, in this order:
 
-- **Windows: the core.** Windows has no `pread`, `pwrite` or `fsync`; the file reads and the disk writes need Windows'
-  own calls (`ReadFile` and `WriteFile` at an offset), and GitHub's Windows machines need Swift's toolchain installed
-  before the tests can run there.
+- **The command line's reading parts off the Mac** (`--inspect`, `--systems`, `--versions`): a program of its own built
+  from the core, on Windows and Linux. They're inside the Mac app today.
 - **The disk side, per system**, with the same rule. Windows: an elevated helper that locks and dismounts the volumes,
   then writes `\\.\PhysicalDriveN` in whole sectors. Linux: removable disks found through sysfs and udev, written
   through polkit. Each fills its own version of `DiskPolicy`'s facts (what's removable, what's the system disk), with
@@ -611,7 +625,8 @@ Sources/ImagerKit/            no disks, no AppKit: CardList (the list), DiskPoli
                               SofaTheme (the look, as numbers), Catalog (the Linux list), ImageInspector (what a
                               file is), UDF, WIM (reading and splitting), FAT (FAT12 reading, the FAT32 stick),
                               BootCode (our MBR and boot sector), WindowsMedia (the Windows stick, the switches),
-                              RandomAccess (files and layouts read anywhere, streamed)
+                              RandomAccess (files and layouts read anywhere, streamed), FileIO (open, read, write
+                              and flush at a place: the Mac's and Linux's calls, and Windows' own)
 Sources/ImagerMac/            macOS: DiskList (DiskArbitration, IOKit), DiskOps (unmount, eject, refuse mounts,
                               authopen, stay awake), WriteJob (one disk, start to finish)
 boot/                         the boot code's sources (assembly), assembled with clang

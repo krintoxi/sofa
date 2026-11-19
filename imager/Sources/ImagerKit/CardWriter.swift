@@ -40,7 +40,7 @@ public enum WriteError: Error, Equatable, CustomStringConvertible {
         case .cardNotAnswering:
             return "The card stopped answering when its last megabyte was written. Cards that claim more room than they have do this: try another card. Take this one out before writing again."
         case .io(let op, let offset, let code):
-            let what = String(cString: strerror(code))
+            let what = FileIO.words(for: code)
             return "The card stopped \(op) at \(ByteSize.text(offset)) (\(what)). It may have been removed, or be failing."
         }
     }
