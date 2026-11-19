@@ -43,6 +43,9 @@ def free_space():
         shutil.rmtree(folder, ignore_errors=True)
     os.makedirs(trickplay.CACHE, exist_ok=True)
     open(os.path.join(trickplay.CACHE, trickplay.VERSION), "w").close()
+    for cache, mark in ((trickplay.CACHE, trickplay.RIGHT), (previews.CACHE, previews.RIGHT)):
+        os.makedirs(cache, exist_ok=True)              # (what's made from here on is resized right: nothing to make again)
+        open(os.path.join(cache, mark), "w").close()
     _sizes.clear()
     store.log("settings", "Freed the space used by Sofa's own pictures and previews (they're made again as needed)")
 

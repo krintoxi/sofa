@@ -1004,6 +1004,10 @@ def why_not(exc):
         return "it answered %d" % exc.code
     if isinstance(exc, (socket.timeout, TimeoutError)) or "timed out" in str(exc):
         return "it took too long"
+    fault = net.certificate_fault(exc)                  # (checked, and turned away: the channel's own fault)
+    if fault:
+        return {"expired": "its certificate has run out", "name": "its certificate is for another address",
+                "self": "its certificate is one it signed itself"}.get(fault, "its certificate can't be checked")
     return "it can't be reached"
 
 

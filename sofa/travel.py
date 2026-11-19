@@ -62,7 +62,7 @@ def want(item):
 def _command(item, info, part, with_subs=True):
     exe = media.tool("ffmpeg")
     video, audio = info.get("video"), media.default_audio(info)
-    cmd = ["nice", "-n", "12", exe, "-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-i", item["path"]]
+    cmd = ["nice", "-n", "12", exe] + media.steady() + ["-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-i", item["path"]]
     sidecar_subs = [s for s in item.get("subs") or [] if with_subs and os.path.isfile(s.get("path") or "")
                     and s["path"].lower().endswith((".srt", ".vtt", ".ass", ".ssa"))][:3]
     for s in sidecar_subs:

@@ -23,6 +23,7 @@ from . import config, machine, media, store
 CACHE = os.path.join(config.DATA_DIR, "cache", "trickplay")
 INTERVAL, COLS, ROWS, WIDTH = 10, 8, 8, 320
 VERSION = "v2"           # sharper, bigger pictures than v1 (240 px): old sheets are made again
+RIGHT = "resized-right"  # (a file in CACHE) the sheets there were made by an ffmpeg that resizes right
 _urgent = []
 _lock = threading.Lock()
 _wake = threading.Event()
@@ -77,7 +78,7 @@ def make(item):
     tmp = out + ".part"
     shutil.rmtree(tmp, ignore_errors=True)
     os.makedirs(tmp)
-    cmd = ["nice", "-n", "15", media.tool("ffmpeg"), "-hide_banner", "-loglevel", "error", "-nostdin", "-skip_frame", "nokey",
+    cmd = ["nice", "-n", "15", media.tool("ffmpeg")] + media.steady() + ["-hide_banner", "-loglevel", "error", "-nostdin", "-skip_frame", "nokey",
            "-i", item["path"], "-an", "-sn", "-dn", "-vf",
            "fps=1/%d,scale=%d:%d:flags=lanczos,tile=%dx%d" % (INTERVAL, WIDTH, height, COLS, ROWS), "-q:v", "3", "-start_number", "0",
            os.path.join(tmp, "sheet%03d.jpg")]
@@ -112,7 +113,30 @@ def _next(library):
     return None
 
 
+def again_if_striped():
+    """Once, on a computer whose ffmpeg drew lines across what it resized (media.steady): the sheets made before Sofa
+    knew are thrown away, and made again in the background and for whatever is played. True when they were."""
+    stamp = os.path.join(CACHE, RIGHT)
+    if os.path.exists(stamp) or not media.tool("ffmpeg"):
+        return False
+    striped = media.striped()
+    if striped is None:                             # (ffmpeg didn't answer: asked again at the next start)
+        return False
+    os.makedirs(CACHE, exist_ok=True)
+    if striped:
+        for n in os.listdir(CACHE):
+            if os.path.isdir(os.path.join(CACHE, n)):
+                shutil.rmtree(os.path.join(CACHE, n), ignore_errors=True)
+        store.log("settings", "The pictures above the seek bar are being made again: this computer's ffmpeg drew lines across them.")
+    open(stamp, "w").close()
+    return striped
+
+
 def _loop(library):
+    try:
+        again_if_striped()
+    except Exception as exc:
+        store.log("error", "Scrubbing previews: %s" % exc)
     time.sleep(60)
     while True:
         item = _next(library) if config.get("trickplay") and media.tool("ffmpeg") else None

@@ -20,7 +20,8 @@ import time
 from . import config, machine, media, store
 
 CACHE = os.path.join(config.DATA_DIR, "cache", "previews")
-VERSION = "v3"                                # v2: made with x264 (VideoToolbox drew lines on some old Macs); v3: with sound
+VERSION = "v3"                                # v2: made with x264; v3: with sound
+RIGHT = "resized-right"                       # (a file in CACHE) the clips there were made by an ffmpeg that resizes right
 HEIGHT, HD_HEIGHT, PART = 360, 720, 3.0       # HD: for the big banner on Home
 _urgent = []
 _lock = threading.Lock()
@@ -77,7 +78,7 @@ def make(item, background=False, hd=False):
             _failed.add(job)
             return False
         parts = _moments(info.get("duration") or 0)
-        cmd = ["nice", "-n", "15" if background else "5", exe, "-hide_banner", "-loglevel", "error", "-nostdin", "-y"]
+        cmd = ["nice", "-n", "15" if background else "5", exe] + media.steady() + ["-hide_banner", "-loglevel", "error", "-nostdin", "-y"]
         for at, length in parts:
             cmd += ["-ss", "%.2f" % at, "-t", "%.2f" % length, "-i", path]
         height = min(HD_HEIGHT if hd else HEIGHT, (info["video"].get("height") or HEIGHT) // 2 * 2)
@@ -192,7 +193,33 @@ def _next(library):
     return None
 
 
+def again_if_striped():
+    """Once, on a computer whose ffmpeg drew lines across what it resized (media.steady): the clips made before Sofa
+    knew are thrown away, and made again as they're asked for and in the background. True when they were."""
+    stamp = os.path.join(CACHE, RIGHT)
+    if os.path.exists(stamp) or not media.tool("ffmpeg"):
+        return False
+    striped = media.striped()
+    if striped is None:                             # (ffmpeg didn't answer: asked again at the next start)
+        return False
+    os.makedirs(CACHE, exist_ok=True)
+    if striped:
+        for n in os.listdir(CACHE):
+            if n.endswith(".mp4"):
+                try:
+                    os.remove(os.path.join(CACHE, n))
+                except OSError:
+                    pass
+        store.log("settings", "Hover previews are being made again: this computer's ffmpeg drew lines across them.")
+    open(stamp, "w").close()
+    return striped
+
+
 def _loop(library):
+    try:
+        again_if_striped()
+    except Exception as exc:
+        store.log("error", "Hover previews: %s" % exc)
     time.sleep(90)                  # let the library be read first
     pruned = 0
     while True:

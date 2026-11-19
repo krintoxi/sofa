@@ -12,6 +12,10 @@ Python from python.org ships without the list of trusted certificate authorities
 "Install Certificates" step is run, so every https:// request fails ("certificate verify
 failed"): no artwork, no details, no updates, no yt-dlp. When Python has no authorities of
 its own, Sofa uses the system's list instead (macOS: /etc/ssl/cert.pem).
+
+The Server page's "Sofa can't reach secure websites" is about the sites Sofa itself asks (details, artwork,
+updates). A Live TV channel whose own certificate has run out, is for another name or is one it signed itself
+is that channel's fault: it's turned away as before, and says nothing about this computer.
 """
 import errno
 import os
@@ -77,6 +81,40 @@ def _unreachable(exc):
     return isinstance(reason, OSError) and reason.errno in (errno.ENETUNREACH, errno.EHOSTUNREACH, errno.ENETDOWN)
 
 
+def certificate_fault(exc):
+    """What's wrong with the certificate a site showed ("unknown", "expired", "early", "name", "self"), or None when
+    the request failed for another reason."""
+    reason = getattr(exc, "reason", exc)
+    text = (getattr(reason, "verify_message", None) or "") + " " + str(reason)
+    if not isinstance(reason, ssl.SSLCertVerificationError) and "certificate verify failed" not in text \
+            and "CERTIFICATE_VERIFY_FAILED" not in text:
+        return None
+    low = text.lower()
+    if "not yet valid" in low:
+        return "early"
+    if "expired" in low:
+        return "expired"
+    if "mismatch" in low or "doesn't match" in low or "not valid for" in low:
+        return "name"
+    if "self signed" in low or "self-signed" in low:
+        return "self"
+    return "unknown"
+
+
+def _own_fault(fault):
+    """The words for the Server page when a site Sofa itself chose can't be checked, or None when it's the site's."""
+    if fault == "unknown":
+        if not context().cert_store_stats().get("x509_ca"):
+            return ("Sofa can't check secure web addresses: this Python has no certificates. Run \"Install "
+                    "Certificates.command\" in your Python folder (Applications).")
+        return ("Sofa couldn't check a secure web address: this computer's list of certificate authorities doesn't "
+                "have the one that site uses. Updating the system (or Python) brings a newer list.")
+    if fault in ("early", "expired"):
+        return ("Sofa couldn't check a secure web address: its certificate's dates don't fit this computer's clock "
+                "(%s). Is the date and time right?" % time.strftime("%Y-%m-%d %H:%M"))
+    return None
+
+
 def urlopen(req, timeout=20, handlers=(), whole_internet=True):
     """`handlers`: more urllib handlers (live.py's, which checks where a redirect goes). `whole_internet` False: an
     address someone else chose (a channel in a list, a list's own address). Thousands of those come and go, and one
@@ -90,16 +128,21 @@ def urlopen(req, timeout=20, handlers=(), whole_internet=True):
         if handlers:                          # (live.py's own https handler, when it brings one, has this context)
             own = any(isinstance(h, urllib.request.HTTPSHandler) for h in handlers)
             base = () if own else (urllib.request.HTTPSHandler(context=context()),)
-            return urllib.request.build_opener(*base, *handlers).open(req, timeout=timeout)
-        return urllib.request.urlopen(req, timeout=timeout, context=context())
+            r = urllib.request.build_opener(*base, *handlers).open(req, timeout=timeout)
+        else:
+            r = urllib.request.urlopen(req, timeout=timeout, context=context())
+        if whole_internet and last_error and str(getattr(req, "full_url", req)).startswith("https://"):
+            last_error.clear()                # a site of Sofa's own was checked and answered: nothing to show any more
+        return r
     except urllib.error.HTTPError:
         raise
     except Exception as exc:
         if whole_internet and _unreachable(exc):
             _down_until[0] = time.time() + DOWN_FOR
             raise Offline("the internet can't be reached right now") from exc
-        text = str(getattr(exc, "reason", None) or exc)
-        if "CERTIFICATE_VERIFY_FAILED" in text or "certificate verify failed" in text:
-            last_error.update(at=time.time(), message="Sofa can't check secure web addresses: this Python has no "
-                              "certificates. Run \"Install Certificates.command\" in your Python folder (Applications).")
+        # (an address someone else chose, a channel's or a list's, says nothing about this computer: thousands of
+        # those come and go, and some always have a certificate that ran out or is for another name)
+        message = _own_fault(certificate_fault(exc)) if whole_internet else None
+        if message:
+            last_error.update(at=time.time(), message=message)
         raise

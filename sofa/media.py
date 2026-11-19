@@ -65,6 +65,78 @@ def gently(cmd):
     return (["nice", "-n", "10"] + cmd if shutil.which("nice") else cmd), {}
 
 
+STEADY = ([], ["-cpuflags", "-mmxext"], ["-cpuflags", "0"])
+_steady = {}            # ffmpeg's path and date -> the options that make its resizing right
+_steady_lock = threading.Lock()
+
+
+def _resizes_right(exe, options):
+    """Does this ffmpeg, asked this way, resize a picture and hand back the same colours? A plain gray picture goes
+    in, at two sizes; every dot of what comes out must be that gray. None: it couldn't be asked."""
+    for size in ("320:180", "640:720"):
+        try:
+            r = subprocess.run([exe, "-v", "error", "-nostdin"] + options + ["-f", "lavfi", "-i", "color=c=0x808080:s=640x360:r=5",
+                                "-frames:v", "3", "-vf", "scale=" + size, "-pix_fmt", "yuv420p", "-f", "rawvideo", "-"],
+                               capture_output=True, timeout=30)
+        except (OSError, subprocess.SubprocessError):
+            return None
+        w, h = (int(n) for n in size.split(":"))
+        frame, data = w * h * 3 // 2, r.stdout
+        if r.returncode or len(data) != 3 * frame:
+            return None
+        for n in range(3):
+            luma, colour = data[n * frame:n * frame + w * h], data[n * frame + w * h:(n + 1) * frame]
+            if min(luma) < 120 or max(luma) > 132 or min(colour) < 122 or max(colour) > 134:
+                return False
+    return True
+
+
+def steady():
+    """ffmpeg's options (right after its name) with which it resizes pictures correctly on this computer; usually none.
+
+    Some builds draw purple and green lines across every picture they resize: one built without the assembler
+    (--disable-x86asm) still has a few routines written into the C code, and on some processors the resizer
+    picks one of those (MMXEXT's) that is wrong. Clips, the pictures above the seek bar and a video converted to a
+    smaller size all came out striped; a picture kept at its size was fine. Told not to use that part of the
+    processor (-cpuflags -mmxext), the same ffmpeg is right and no slower. It's asked once, with a gray picture."""
+    return list(_asked() or [])
+
+
+def _asked():
+    """steady()'s options, or None while this ffmpeg couldn't be asked (none, or it didn't answer: asked again later)."""
+    exe = tool("ffmpeg")
+    if not exe:
+        return None
+    try:
+        key = (exe, os.path.getmtime(exe))
+    except OSError:
+        return None
+    with _steady_lock:
+        if key not in _steady:
+            right = _resizes_right(exe, [])
+            if right is None:
+                return None
+            found = []
+            if not right:
+                found = next((o for o in STEADY[1:] if _resizes_right(exe, o)), None)
+                if found:
+                    store.log("settings", "This ffmpeg draws lines across pictures it resizes on this computer: "
+                              "Sofa asks it not to use the part of the processor that does (%s)." % " ".join(found))
+                else:
+                    store.log("error", "This ffmpeg draws lines across pictures it resizes, however it's asked. Another ffmpeg "
+                              "(Server, Settings) would put previews right.")
+                    found = []
+            _steady[key] = found
+        return _steady[key]
+
+
+def striped():
+    """True on a computer whose ffmpeg needed steady(): what it resized before Sofa knew may have lines. None while
+    that isn't known."""
+    asked = _asked()
+    return None if asked is None else bool(asked)
+
+
 def ffmpeg_version():
     exe = tool("ffmpeg")
     if not exe:
@@ -500,7 +572,7 @@ def stream_command(item, mode, start, info, fmt="mp4", out="pipe:1", audio_index
     if converts(mode, info, burn):
         top = live_size(video, max_height, others)[0]
         plan = encoder_plan(top, True, encoder, software, video)
-    cmd = [exe, "-hide_banner", "-loglevel", "error", "-nostdin"] + (plan["before"] if plan else []) + list(item.get("input_opts") or [])
+    cmd = [exe] + steady() + ["-hide_banner", "-loglevel", "error", "-nostdin"] + (plan["before"] if plan else []) + list(item.get("input_opts") or [])
     if item.get("ext") in LOOSE_TIMESTAMPS:
         cmd += ["-fflags", "+genpts+discardcorrupt"]   # AVI and MPEG often lack timestamps ffmpeg needs for MP4
     if plan:
@@ -1123,8 +1195,7 @@ SIPS = "/usr/bin/sips"
 def save_image(src, dest, max_width, fmt="jpeg"):
     """Write `src` (any image) to `dest` as JPEG or PNG, at most `max_width` px wide. True on success.
 
-    On macOS this uses the system's own `sips`. Some ffmpeg builds (one compiled on an x86-64 processor
-    without AVX2 among them) produce striped, purple JPEGs when they scale and encode in one step.
+    On macOS this uses the system's own `sips`; elsewhere ffmpeg, asked so that it resizes right (steady()).
     """
     tmp = dest + ".part." + ("png" if fmt == "png" else "jpg")
     try:
@@ -1140,7 +1211,7 @@ def save_image(src, dest, max_width, fmt="jpeg"):
             exe = tool("ffmpeg")
             if not exe:
                 return False
-            cmd = [exe, "-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-i", src,
+            cmd = [exe] + steady() + ["-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-i", src,
                    "-vf", "scale='min(%d,iw)':-2" % max_width]
             cmd += ["-compression_level", "9"] if fmt == "png" else ["-q:v", "4"]
             run, extra = gently(cmd + [tmp])
@@ -1163,7 +1234,7 @@ def _grab(cmd_tail, path, dest, max_width):
     from . import hardware
     still = dest + ".still.png"
     # behind whoever watches (nice), and the cores shared out between the pictures taken at once (hardware.workers)
-    cmd, kw = gently([exe, "-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-threads", str(hardware.threads_each())]
+    cmd, kw = gently([exe] + steady() + ["-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-threads", str(hardware.threads_each())]
                      + cmd_tail(path) + [still])
     try:
         subprocess.run(cmd, capture_output=True, timeout=60, check=True, **kw)   # quiet: no file names in the log

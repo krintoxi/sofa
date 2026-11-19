@@ -6,6 +6,37 @@ has its own numbers and list: [deploy/sofa-box/CHANGES.md](deploy/sofa-box/CHANG
 A change to Sofa's code (`sofa/`, `client/`, `sofa.py`) gets a new version: raise `__version__`, add a section
 here, then `python3 tools/sofa-version.py` (a test checks it was done).
 
+## 1.5.28 (2026-11-19)
+
+- **Previews with purple and green lines are put right.** On some computers every picture ffmpeg resized came out
+  striped: the clip that plays when you point at a card, the little pictures above the seek bar, and a video converted
+  to a smaller size while you watch. A picture kept at its own size was fine, which is why some previews looked
+  perfect and others didn't. The cause is the ffmpeg, not the video: one built without the assembler
+  (`--disable-x86asm`, as `tools/build-ffmpeg.sh` builds it) resizes, on the processor we saw it on, with a routine
+  that is wrong. 10-bit, HDR and odd sizes had nothing to do with it.
+- **Sofa asks its ffmpeg once, with a plain gray picture,** whether it resizes right. If not, every command that makes
+  or resizes a picture tells it not to use that part of the processor (`-cpuflags -mmxext`); an ffmpeg that resizes
+  right is asked exactly as before. Activity says so once.
+- **What was already made is made again by itself,** once, and only on a computer whose ffmpeg failed that check: the
+  clips and the seek-bar pictures there are cleared and come back as they're asked for and in the background. Nothing
+  to delete by hand; elsewhere nothing is remade. A browser kept a clip or a sheet for a week: their addresses now
+  carry Sofa's version, so the ones it kept aren't shown after an update.
+- **"Sofa can't reach secure websites" no longer comes up because of a Live TV channel.** The Server page showed it
+  (and blamed Python's certificates) whenever any one address failed its certificate check, and Sofa looks at
+  channels to leave out the ones that are off the air: among a few thousand there are always some whose certificate
+  ran out, is for another name or is one they signed themselves. Now it's only for a site Sofa itself asks (details, artwork, updates), it says
+  which of three things is wrong (Python has no certificates, this computer's list of authorities is old, or its
+  clock is off), and it goes once such a site answers. Every certificate is still checked, and a channel with a bad
+  one is still turned away; its reason now says so ("its certificate has run out") instead of "it can't be reached".
+- Measured on an iMac from 2011 (Core i5-2400S, macOS 13, ffmpeg 7.1.1 built there): at least 36 of 38 resized clips
+  and 39 of 43 sampled seek-bar sheets had lines, none of 39 clips kept at their size, none of 163 thumbnails and covers (those
+  go through macOS's own resizer). With the option, a clip, a sheet and a 20-second conversion of the same film come
+  out clean in the same time (3.6 s, 2.3 s, 6.4 s; before 3.7 s, 2.7 s, 6.4 s). Its Python reached every site Sofa
+  asks; 61 of 1,945 channel hosts failed their certificate check. This version's own code, run there beside
+  the server on a made gray video, found the fault in half a second and made a clean clip and sheet; the server
+  itself is still on 1.5.26, so its library hasn't been remade yet. Tests: `tests/test_resizing.py` (with a stand-in ffmpeg that spoils what it resizes),
+  `tests/test_secure_sites.py`.
+
 ## 1.5.27 (2026-11-19)
 
 - **Live TV has a new page.** Live now is three parts side by side: the categories with how many channels each holds,

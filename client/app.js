@@ -7,6 +7,9 @@ const view = $("#view");
 
 /* ---------- small helpers ---------- */
 const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+// A clip's or a seek-bar sheet's address carries Sofa's version: a browser keeps them for a week, and ones made again
+// after an update (1.5.28: an ffmpeg that drew lines across them) must not be the kept ones.
+const madeBy = sep => (session && session.version ? sep + "v=" + encodeURIComponent(session.version) : "");
 // &r=2: a new address so browsers drop images cached before the 2026-10-20 resize fix.
 const artSrc = (p, w) => {            // p: "/art/<key>/<path>?v=<date of the picture>"
   if (!p) return "";
@@ -706,7 +709,7 @@ function startTrailer(now) {
     try { plan = await api("/api/play/" + encodeURIComponent(id) + "?trailer=1&" + Player.capsQuery()); } catch (e) { return; }
     if (!document.contains(hero) || Player.isOpen() || document.hidden || $("video.trailer", hero)) return;
     const d = plan.duration || 0;
-    let src = "/media/" + encodeURIComponent(id) + "/preview.mp4?hd=1";
+    let src = "/media/" + encodeURIComponent(id) + "/preview.mp4?hd=1" + madeBy("&");
     if (d >= 8 * 60 && plan.trailer !== "clip" && plan.mode !== "unsupported") {
       const from = Math.round(Math.min(d * (0.12 + Math.random() * 0.5), d - TRAILER_SECONDS - 120));
       src = plan.trailer === "direct" ? plan.url + "?trailer=1#t=" + from
@@ -1869,7 +1872,7 @@ function clipVideo(id, hd) {
   if (clipless(id)) return v;
   v.addEventListener("playing", () => { v.classList.add("on"); soloSound(v); }, { once: true });
   v.addEventListener("error", () => { if (session && session.previews === false) noClip.add(id); v.remove(); }, { once: true });
-  v.src = "/media/" + encodeURIComponent(id) + "/preview.mp4" + (hd ? "?hd=1" : "");
+  v.src = "/media/" + encodeURIComponent(id) + "/preview.mp4" + (hd ? "?hd=1" + madeBy("&") : madeBy("?"));
   playClip(v);
   return v;
 }
@@ -5273,7 +5276,7 @@ const Player = (function () {
     if (sheet >= trick.sheets) { thumbEl.hidden = true; return; }
     const k = TV ? 1.25 : 1, w = trick.w * k, h = trick.h * k;
     thumbEl.style.width = w + "px"; thumbEl.style.height = h + "px";
-    thumbEl.style.backgroundImage = `url("${trick.base}${sheet}.jpg")`;
+    thumbEl.style.backgroundImage = `url("${trick.base}${sheet}.jpg${madeBy("?")}")`;
     thumbEl.style.backgroundSize = `${trick.cols * w}px ${trick.rows * h}px`;
     thumbEl.style.backgroundPosition = `-${(pos % trick.cols) * w}px -${Math.floor(pos / trick.cols) * h}px`;
     const part = markers.find(m => sec >= m.start && sec < m.end);

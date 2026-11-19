@@ -229,7 +229,7 @@ def build_command(src, dst, info, software=False):
         raise ValueError("there's no video in this file")
     copy = media.video_playable(video, {"hevc": True})
     plan = None if copy else media.encoder_plan(video.get("height"), live=False, software=software, video=video)
-    cmd = [media.tool("ffmpeg"), "-hide_banner", "-loglevel", "error", "-nostdin", "-y"] + (plan["before"] if plan else [])
+    cmd = [media.tool("ffmpeg")] + media.steady() + ["-hide_banner", "-loglevel", "error", "-nostdin", "-y"] + (plan["before"] if plan else [])
     if os.path.splitext(src)[1].lower()[1:] in media.LOOSE_TIMESTAMPS:
         cmd += ["-fflags", "+genpts"]
     cmd += (plan["decode"] if plan else []) + ["-i", src, "-map", "0:%d" % video["index"]]
